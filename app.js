@@ -128,7 +128,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-07-06","ageDays":null};
+  var RFR_META = {"source":"fresh","asOf":"2026-07-07","ageDays":null};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -2855,75 +2855,6 @@
     if (shell) shell.hidden = !state.symbol;
   }
 
-  // --- Ticker grade headline -------------------------------------------
-  // The Grade tab leads with the WHOLE-TICKER grade (the same 4-pillar
-  // conviction breakdown the Top Picks "grade any ticker" search shows), not
-  // a single contract — the contract grader is now just one section/tab below.
-  // Reuses the pick card sub-components (tier badge + pillar panel + peer list)
-  // so the breakdown matches the picks engine by construction. g is a
-  // data/grades.json record (FREE key — available to every visitor).
-  function buildTickerGradeHeadlineHtml(g){
-    if (!g) return '';
-    var minConv = (picksGradesState.data && picksGradesState.data.minConviction) || 12;
-    var minConvDisp = Math.round(minConv * 10) / 10;
-    var total = (g.total != null) ? g.total : 0;
-    var actionable = Math.abs(total) >= minConv;
-    var cardSide = g.side === 'put' ? 'put' : g.side === 'call' ? 'call' : 'pick-grade-neutral';
-    var sideLabel = g.side === 'put' ? 'PUT' : g.side === 'call' ? 'CALL' : 'NO TRADE';
-    var sideBadgeCls = g.side === 'put' ? 'put' : g.side === 'call' ? 'call' : 'neutral';
-    var spot = g.spot != null ? '$' + Number(g.spot).toFixed(2) : '';
-    var sectorTag = g.sector ? '<span class="pick-sector">' + escapeHtml(g.sector) + '</span>' : '';
-    var streakHtml = g.streak
-      ? '<span class="pick-streak pick-streak-' + escapeHtml(g.streak.color) + '">' +
-          g.streak.days + 'd ' + (g.streak.color === 'green' ? '▲' : '▼') +
-          ' ' + (g.streak.cumulativePct >= 0 ? '+' : '') + g.streak.cumulativePct.toFixed(1) + '%' +
-        '</span>'
-      : '';
-    var noteHtml = actionable
-      ? '<p class="pick-offlist-note">Clears the actionable bar (|total|&nbsp;&ge;&nbsp;' + minConvDisp + ') — the engine ranks this among today’s tradeable names. The recommended contract + entry/exit plan live in the <b>Top Picks</b> tab; grade a specific contract below.</p>'
-      : '<p class="pick-offlist-note">Graded below the actionable bar (|total|&nbsp;&lt;&nbsp;' + minConvDisp + ') — not a top pick today. The 4-pillar breakdown below shows exactly how it graded; grade a specific contract on it below.</p>';
-    var tierHtml = pickTierBadge(g);
-    var pillarsHtml = pickPillarPanel(g);
-    var peersHtml = pickPeerList(g);
-    return '<article class="pick-card pick-grade-card opt-grade-headline ' + cardSide + '" data-symbol="' + escapeHtml(g.symbol) + '">' +
-      '<div class="pick-main">' +
-        '<div class="pick-head">' +
-          '<span class="opt-grade-headline-sym">' + escapeHtml(g.symbol) + '</span>' +
-          (spot ? '<span class="pick-spot">' + spot + '</span>' : '') +
-          sectorTag +
-          '<span class="pick-side pick-side-' + sideBadgeCls + '">' + sideLabel + '</span>' +
-          streakHtml +
-        '</div>' +
-        noteHtml +
-        tierHtml +
-        pillarsHtml +
-        peersHtml +
-      '</div>' +
-    '</article>';
-  }
-  // Paint the whole-ticker grade headline for the selected symbol. grades.json
-  // is loaded lazily (and cached) on first use; if it's missing or the symbol
-  // isn't tracked, the headline quietly hides rather than blocking the page.
-  function renderTickerGradeHeadline(sym){
-    var box = $('opt-ticker-grade');
-    if (!box) return;
-    if (!sym){ box.hidden = true; box.innerHTML = ''; return; }
-    box.hidden = false;
-    box.innerHTML = '<div class="opt-grade-loading">Loading ' + escapeHtml(sym) + ' grade…</div>';
-    loadGradesIndex(function(){
-      if (state.symbol !== sym) return; // ticker switched while loading
-      var g = (picksGradesState.data && picksGradesState.data.grades)
-        ? picksGradesState.data.grades[sym] : null;
-      if (g){
-        box.innerHTML = buildTickerGradeHeadlineHtml(g);
-        box.hidden = false;
-      } else {
-        box.hidden = true;
-        box.innerHTML = '';
-      }
-    });
-  }
-
   // --- Implied vol tab --------------------------------------------------
   // Per-ticker IV history is collected by the daily build into
   // data/iv-history/<SYM>.json. Cache responses so re-selecting a ticker
@@ -3136,6 +3067,10 @@
     });
   }
 
+  // Set by bindTabs(); loadChain() uses it to land every fresh ticker on the
+  // Technicals tab (chart pattern first) — a contract handoff still opens the
+  // Contract grade tab.
+  var selectAnalysisTab = null;
   function bindTabs(){
     var tabs = document.querySelectorAll('.opt-tab');
     if (!tabs.length) return;
@@ -3149,12 +3084,13 @@
         if (pane) pane.hidden = !sel;
       });
     }
+    selectAnalysisTab = selectTab;
     tabs.forEach(function(btn){
       btn.addEventListener('click', function(){ selectTab(btn.getAttribute('data-tab')); });
     });
     var saved = null;
     try { saved = localStorage.getItem('stonks-tab'); } catch (_) {}
-    selectTab(saved && ['contract','fund','tech','iv','news'].indexOf(saved) >= 0 ? saved : 'contract');
+    selectTab(saved && ['tech','contract','fund','iv','news'].indexOf(saved) >= 0 ? saved : 'tech');
   }
   // Track-record sub-tabs (Summary / Scorecard / Top 10 / Activity / Picks +
   // the analytics views). The strip lives in static HTML so this binds once at
@@ -3182,6 +3118,59 @@
     try { saved = localStorage.getItem('stonks-acc-tab'); } catch (_) {}
     selectAccTab(saved && KEYS.indexOf(saved) >= 0 ? saved : 'summary');
   }
+  // Sidebar page-tab registry — hoisted out of bindPageTabs so the boot can
+  // resolve the URL's initial tab synchronously at script-evaluation time (the
+  // anti-flash pre-select in the boot block) before the /api/auth/me +
+  // manifest fetches settle and bind() runs the full selectTab.
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','market','picks','heatmap','calendar','index-cal','overnight','flow','volume','oi','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
+  // Friendly aliases so deep-links people might guess work too.
+  // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
+  // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
+  // home, which made shared URLs look broken.
+  var PAGE_TAB_ALIASES = {
+    unusual: 'flow', 'unusual-flow': 'flow',
+    fear: 'fear-greed', greed: 'fear-greed', 'fear-and-greed': 'fear-greed',
+    '13f': 'f13', '13f-filings': 'f13',
+    bonds: 'bonds-usd', usd: 'bonds-usd',
+    capex: 'ai-capex', 'ai-capex': 'ai-capex', mag7: 'ai-capex', 'mag-7': 'ai-capex',
+    ram: 'ram-prices', dram: 'ram-prices', memory: 'ram-prices', 'ram-price': 'ram-prices', 'ram-prices': 'ram-prices', ddr5: 'ram-prices',
+    'capital-raises': 'capital-raises', raises: 'capital-raises', issuance: 'capital-raises', debt: 'capital-raises', bonds2: 'capital-raises',
+    pick: 'picks', 'top-picks': 'picks', toppicks: 'picks',
+    'market-analysis': 'market', analysis: 'market', tape: 'market', regime: 'market',
+    narrative: 'narratives', strategy: 'strategies', streak: 'streaks',
+    comparison: 'compare', compare2: 'compare', versus: 'compare', vs: 'compare',
+    ticker: 'tickers',
+    global: 'overnight', asia: 'overnight', correlations: 'overnight', correlation: 'overnight', overnights: 'overnight',
+    gex: 'oi', gamma: 'oi', 'gamma-exposure': 'oi',
+    // Reference / legal / info pages (now in-app tabs).
+    'buyers-manual': 'cheatsheet', 'buyer-manual': 'cheatsheet', cheat: 'cheatsheet', 'cheat-sheet': 'cheatsheet', manual: 'cheatsheet',
+    patterns: 'chart-patterns', chartpatterns: 'chart-patterns', 'chart-pattern': 'chart-patterns',
+    'whats-included': 'features', included: 'features', plans: 'features', pricing: 'features', membership: 'features', premium: 'features',
+    privacypolicy: 'privacy', 'privacy-policy': 'privacy',
+    tos: 'terms', 'terms-of-use': 'terms', 'terms-of-service': 'terms',
+  };
+  function resolvePageTabId(t, validList){
+    if (!t) return null;
+    var key = String(t).toLowerCase();
+    if (validList.indexOf(key) >= 0) return key;
+    var aliased = PAGE_TAB_ALIASES[key];
+    return aliased && validList.indexOf(aliased) >= 0 ? aliased : null;
+  }
+  // Initial-tab resolution, shared by the pre-paint pre-select and
+  // bindPageTabs/popstate. Priority:
+  //   1. ?tab= query param (shareable deep-link)
+  //   2. ?s= param means a contract is selected — land on Grade
+  //   3. Default to Home (explicit user navigation, no sticky last-tab).
+  function initialPageTabFromUrl(validList){
+    var tab = 'home';
+    try {
+      var params = new URLSearchParams(window.location.search);
+      var qTab = resolvePageTabId(params.get('tab'), validList);
+      if (qTab) tab = qTab;
+      else if (params.get('s')) tab = 'grade';
+    } catch (_) {}
+    return tab;
+  }
   // Sidebar page tabs (Home / Tickers / Narratives / … / Terms). The active
   // tab is mirrored into ?tab= so bookmarks and back/forward resume the view.
   function bindPageTabs(){
@@ -3190,46 +3179,14 @@
     // without special-casing.
     var tabs = document.querySelectorAll('[data-page-tab]');
     if (!tabs.length) return;
-    var valid = ['home','tickers','narratives','brief','market','picks','heatmap','calendar','index-cal','overnight','flow','volume','oi','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
+    var valid = PAGE_TAB_IDS.slice();
     // Track Record is role-hidden: drop it from the resolvable set so a
     // ?tab=track deep-link / popstate / palette can't reach the pane for a
     // visitor without the role (resolveTab returns null -> falls back to home).
     if (!HAS_TRACK_RECORD) valid = valid.filter(function(t){ return t !== 'track'; });
     // Top Picks is role-hidden the same way (the tp claim).
     if (!HAS_TOP_PICKS) valid = valid.filter(function(t){ return t !== 'picks'; });
-    // Friendly aliases so deep-links people might guess work too.
-    // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
-    // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
-    // home, which made shared URLs look broken.
-    var TAB_ALIASES = {
-      unusual: 'flow', 'unusual-flow': 'flow',
-      fear: 'fear-greed', greed: 'fear-greed', 'fear-and-greed': 'fear-greed',
-      '13f': 'f13', '13f-filings': 'f13',
-      bonds: 'bonds-usd', usd: 'bonds-usd',
-      capex: 'ai-capex', 'ai-capex': 'ai-capex', mag7: 'ai-capex', 'mag-7': 'ai-capex',
-      ram: 'ram-prices', dram: 'ram-prices', memory: 'ram-prices', 'ram-price': 'ram-prices', 'ram-prices': 'ram-prices', ddr5: 'ram-prices',
-      'capital-raises': 'capital-raises', raises: 'capital-raises', issuance: 'capital-raises', debt: 'capital-raises', bonds2: 'capital-raises',
-      pick: 'picks', 'top-picks': 'picks', toppicks: 'picks',
-      'market-analysis': 'market', analysis: 'market', tape: 'market', regime: 'market',
-      narrative: 'narratives', strategy: 'strategies', streak: 'streaks',
-      comparison: 'compare', compare2: 'compare', versus: 'compare', vs: 'compare',
-      ticker: 'tickers',
-      global: 'overnight', asia: 'overnight', correlations: 'overnight', correlation: 'overnight', overnights: 'overnight',
-      gex: 'oi', gamma: 'oi', 'gamma-exposure': 'oi',
-      // Reference / legal / info pages (now in-app tabs).
-      'buyers-manual': 'cheatsheet', 'buyer-manual': 'cheatsheet', cheat: 'cheatsheet', 'cheat-sheet': 'cheatsheet', manual: 'cheatsheet',
-      patterns: 'chart-patterns', chartpatterns: 'chart-patterns', 'chart-pattern': 'chart-patterns',
-      'whats-included': 'features', included: 'features', plans: 'features', pricing: 'features', membership: 'features', premium: 'features',
-      privacypolicy: 'privacy', 'privacy-policy': 'privacy',
-      tos: 'terms', 'terms-of-use': 'terms', 'terms-of-service': 'terms',
-    };
-    function resolveTab(t){
-      if (!t) return null;
-      var key = String(t).toLowerCase();
-      if (valid.indexOf(key) >= 0) return key;
-      var aliased = TAB_ALIASES[key];
-      return aliased && valid.indexOf(aliased) >= 0 ? aliased : null;
-    }
+    function resolveTab(t){ return resolvePageTabId(t, valid); }
     // Collapsible sidebar. Desktop (>=1024px, matching the CSS breakpoint):
     // the sidebar pushes the page content, defaults open, and the collapsed
     // preference persists to localStorage. Below that it's an overlay drawer
@@ -3462,28 +3419,15 @@
         }
       });
     }
-    // Determine initial tab. Priority:
-    //   1. ?tab= query param (shareable deep-link)
-    //   2. ?s= param means a contract is selected — land on Grade
-    //   3. Default to Home (explicit user navigation, no sticky last-tab).
-    var initialTab = 'home';
-    try {
-      var params = new URLSearchParams(window.location.search);
-      var qTab = resolveTab(params.get('tab'));
-      if (qTab) {
-        initialTab = qTab;
-      } else if (params.get('s')) {
-        initialTab = 'grade';
-      }
-    } catch (_) {}
-    selectTab(initialTab);
+    // Determine the initial tab — the same resolution the pre-paint
+    // pre-select in the boot block already ran against the unfiltered tab
+    // list, now against the role-filtered set and with the full selectTab
+    // (loaders, premium gate, URL sync).
+    selectTab(initialPageTabFromUrl(valid));
     // Honor browser back/forward when the URL's ?tab= changes.
     window.addEventListener('popstate', function(){
-      try {
-        var p = new URLSearchParams(window.location.search);
-        var t = resolveTab(p.get('tab')) || (p.get('s') ? 'grade' : 'home');
-        if (valid.indexOf(t) >= 0) selectTab(t);
-      } catch (_) {}
+      var t = initialPageTabFromUrl(valid);
+      if (valid.indexOf(t) >= 0) selectTab(t);
     });
     // Populate runtime stats on the landing cards from the inlined manifest
     // and from data files fetched once on page-load. Everything degrades to
@@ -4079,13 +4023,20 @@
       populateExpiry();
       $('opt-expiry').value = String(state.currentExp);
       populateStrikes();
+      // Whether this load carries a specific contract (a Top Picks "grade this
+      // contract" handoff or a shared ?exp=/k=/t= link) — read before
+      // applyPendingUrlState consumes it; decides the landing sub-tab below.
+      var wantContract = !!(pendingUrlState && pendingUrlState.sym === symbol &&
+        (pendingUrlState.k != null || pendingUrlState.exp != null || pendingUrlState.t != null));
       applyPendingUrlState();
       renderMaxPain();
       renderTopPickBanner();
       $('opt-chain-row').hidden = false;
       renderTickerNarrativeChips(symbol);
       renderAnalysisShell();
-      renderTickerGradeHeadline(symbol);
+      // Land on Technicals — the chart-pattern read is the first thing a user
+      // should see on a fresh ticker. Contract handoffs still open the grader.
+      if (selectAnalysisTab) selectAnalysisTab(wantContract ? 'contract' : 'tech');
       renderTechnicals(symbol);
       renderFundamentals(symbol);
       renderImpliedVol(symbol);
@@ -4760,7 +4711,7 @@
         '<div class="opt-pc-ranges">' + tabs + '</div>' +
       '</div>' +
       '<div class="opt-pc-charts">' + charts + '</div>' +
-      '<div class="opt-tech-chart-foot">' + foot + ' Pick a range and eyeball it against the chart-pattern read below.</div>' +
+      '<div class="opt-tech-chart-foot">' + foot + ' Pick a range and eyeball it against the chart-pattern read above.</div>' +
     '</div>';
   }
   // Wire crosshair + tooltip hover onto every price chart inside root (one per
@@ -4852,22 +4803,12 @@
     var macdSt = macdState(t.macd);
     var html = '';
 
-    // Price chart first — the actual picture, so the chart-pattern read below
-    // can be checked against it by eye. Drawn from the baked priceSeries; older
-    // ticker JSON (pre-priceSeries) simply omits it. The 1Y range also carries an
-    // analyst price-target cone when consensus targets are on file (≥3 analysts).
-    var fund = state.fundamentals || {};
-    var forecast = null;
-    if (spot && fund.targetHighPrice > 0 && fund.targetLowPrice > 0 && fund.targetMeanPrice > 0 &&
-        fund.targetHighPrice >= fund.targetLowPrice && (fund.numberOfAnalystOpinions || 0) >= 3){
-      forecast = { high: fund.targetHighPrice, avg: fund.targetMeanPrice, low: fund.targetLowPrice, n: fund.numberOfAnalystOpinions };
-    }
-    if (state && (state.priceSeries || state.intradaySeries)) html += priceChartCard(state.priceSeries, state.intradaySeries, spot, forecast);
-
-    // AI-identified chart pattern — a full-width banner above the indicator
-    // cards. Renders only when a full build has attached technicals.chartPattern;
-    // shows the label + type badge + confidence, an explanation, and what it
-    // could signal. "None" gets a muted note so the absence is explicit.
+    // AI-identified chart pattern FIRST — the lead read on a fresh ticker (the
+    // Technicals tab is now the landing view), a full-width banner above the
+    // price chart + indicator cards. Renders only when a full build has
+    // attached technicals.chartPattern; shows the label + type badge +
+    // confidence, an explanation, and what it could signal. "None" gets a
+    // muted note so the absence is explicit.
     var cp = t.chartPattern;
     if (cp && cp.pattern){
       if (cp.pattern === 'None'){
@@ -4916,6 +4857,18 @@
         '</div>';
       }
     }
+
+    // Price chart next — the actual picture, so the chart-pattern read above
+    // can be checked against it by eye. Drawn from the baked priceSeries; older
+    // ticker JSON (pre-priceSeries) simply omits it. The 1Y range also carries an
+    // analyst price-target cone when consensus targets are on file (≥3 analysts).
+    var fund = state.fundamentals || {};
+    var forecast = null;
+    if (spot && fund.targetHighPrice > 0 && fund.targetLowPrice > 0 && fund.targetMeanPrice > 0 &&
+        fund.targetHighPrice >= fund.targetLowPrice && (fund.numberOfAnalystOpinions || 0) >= 3){
+      forecast = { high: fund.targetHighPrice, avg: fund.targetMeanPrice, low: fund.targetLowPrice, n: fund.numberOfAnalystOpinions };
+    }
+    if (state && (state.priceSeries || state.intradaySeries)) html += priceChartCard(state.priceSeries, state.intradaySeries, spot, forecast);
 
     html += techCard(
       'RSI (14)',
@@ -23045,6 +22998,29 @@
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go);
     else go();
   }
+  // Anti-flash pre-select: the static HTML ships with the Home pane visible,
+  // but bind() — which selects the real initial tab — only runs after the
+  // /api/auth/me + manifest-sidecar fetches below settle, so every reload of a
+  // ?tab=/?s= deep-link painted Home first and then snapped to the target tab.
+  // app.js loads with defer, so this runs after the DOM is parsed but before
+  // first paint: toggle the panes to the URL's tab synchronously. No loaders,
+  // no gating — bind() re-runs the full selectTab once membership is known
+  // (bouncing role-hidden tabs, locking premium ones). Pre-showing a pane
+  // skeleton leaks nothing: every pane's markup already ships in the public
+  // HTML and all product data is fetched (and server-gated) later.
+  try {
+    var preTab = initialPageTabFromUrl(PAGE_TAB_IDS);
+    if (preTab !== 'home') {
+      var preBtns = document.querySelectorAll('[data-page-tab]');
+      for (var pbi = 0; pbi < preBtns.length; pbi++) {
+        var preSel = preBtns[pbi].getAttribute('data-page-tab') === preTab;
+        preBtns[pbi].setAttribute('aria-selected', preSel ? 'true' : 'false');
+        var prePaneId = preBtns[pbi].getAttribute('aria-controls');
+        var prePane = prePaneId ? document.getElementById(prePaneId) : null;
+        if (prePane) prePane.hidden = !preSel;
+      }
+    }
+  } catch (_) {}
   // Boot: resolve membership + merge the manifest sidecars BEFORE first paint so
   // selectTab() sees the right IS_MEMBER and the premium fields are present for
   // members. /api/auth/me reports {authed,enabled}; the free sidecar serves to
