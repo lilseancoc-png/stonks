@@ -59,6 +59,12 @@ const OI_SHARED = ["manifest.json", "manifest-free.json"];
 
 const SCANNER_EXCLUSIVE = new Set([...UNUSUAL_EXCLUSIVE, ...OI_EXCLUSIVE]);
 
+// REQUEST-TIME-owned keys: written by the live api/* functions from user
+// actions (api/watchlist.js), never by a workflow. NO producer may push or
+// delete them — the copy `pull` hydrates locally is stale the moment a user
+// clicks mid-run, so re-uploading it would silently revert their change.
+const REQUEST_TIME_EXCLUSIVE = new Set(["picks-watchlist.json"]);
+
 // Bake delete-stales ONLY within these prefixes (dynamic per-ticker data).
 const isDynamicBakeKey = (key) =>
   /^[A-Z0-9.]+\.json$/.test(key) || key.startsWith("iv-history/");
@@ -145,17 +151,18 @@ async function uploadKeys(keys, { dryRun, label }) {
 
 async function pushBake({ dryRun }) {
   const local = await localKeys();
-  // Everything local except the scanner-exclusive set (which a concurrent scan owns).
-  const owned = local.filter((k) => !SCANNER_EXCLUSIVE.has(k));
+  // Everything local except the scanner-exclusive set (which a concurrent scan
+  // owns) and the request-time set (which the live site owns).
+  const owned = local.filter((k) => !SCANNER_EXCLUSIVE.has(k) && !REQUEST_TIME_EXCLUSIVE.has(k));
   const uploaded = await uploadKeys(owned, { dryRun, label: "push(bake)" });
   // Delete-stale: store keys in the dynamic per-ticker / iv-history prefixes
   // that no longer exist locally (a ticker left the universe). Never touch
-  // scanner-exclusive keys.
+  // scanner-exclusive or request-time keys.
   const localSet = new Set(local);
   const remote = await store.list("");
   const stale = remote
     .map((e) => e.key)
-    .filter((k) => isDynamicBakeKey(k) && !SCANNER_EXCLUSIVE.has(k) && !localSet.has(k));
+    .filter((k) => isDynamicBakeKey(k) && !SCANNER_EXCLUSIVE.has(k) && !REQUEST_TIME_EXCLUSIVE.has(k) && !localSet.has(k));
   console.log(`push(bake): ${uploaded.length} uploaded, ${stale.length} stale to delete` + (dryRun ? " (dry-run)" : ""));
   if (dryRun) {
     for (const k of stale.slice(0, 30)) console.log(`  would delete ${k}`);

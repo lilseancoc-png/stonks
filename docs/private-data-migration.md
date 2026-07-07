@@ -168,6 +168,7 @@ output. A blob store has no merge, so we replicate that ownership explicitly.
 | **heatmap.json** | bake (seed/rebuild) **+** unusual (refresh) | upsert by whichever ran; serialized |
 | **briefs.json** | bake (`buildMarketBriefs`, re-minted hourly) | upsert; once-per-ET-hour gating already in code |
 | **ai-usage.json** | bake + unusual-flow (per-day budget) | read-modify-write; serialized so increments don't race |
+| **picks-watchlist.json** | **request time** (`api/watchlist.js` — the shared Top Picks watchlist, written on user clicks) | **no workflow may push or delete it** (`REQUEST_TIME_EXCLUSIVE` in `sync-data.mjs`): the copy `pull` hydrates locally is stale the moment a user toggles mid-run, so re-uploading it would silently revert their change |
 
 The **shared read-modify-write** files (`heatmap`, `ai-usage`) are
 safe because: every run `pull`s latest first, the in-code once-per-window gating
