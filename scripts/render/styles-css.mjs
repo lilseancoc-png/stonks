@@ -10289,6 +10289,40 @@ body.tape-axm-open { overflow: hidden; }
   padding: 12px 0;
 }
 .acc-pane-empty[hidden] { display: none; }
+/* "At a glance" pane summary strip — the acc-sum-* slots at the top of every
+   Track Record sub-tab, filled by accPaneSummary() in app.js: a few key
+   numbers + a one-line takeaway before the pane's detail. */
+.acc-pane-sum-slot:empty { display: none; }
+.acc-glance {
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-2);
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+  padding: 10px 12px;
+  margin-bottom: var(--s-3);
+}
+.acc-glance-head {
+  display: block;
+  font: 700 10px/1 var(--font-mono);
+  text-transform: uppercase; letter-spacing: .09em;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+.acc-glance-items { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+.acc-glance-item { display: inline-flex; align-items: baseline; gap: 6px; }
+.acc-glance-val {
+  font: 700 var(--fs-md)/1.2 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-strong);
+  white-space: nowrap;
+}
+.acc-glance-lbl { font-size: var(--fs-xs); color: var(--muted); }
+.acc-glance-take {
+  margin: 8px 0 0;
+  font-size: var(--fs-sm); line-height: 1.45;
+  color: var(--text-strong);
+}
+.acc-glance-take b { color: var(--accent); }
 /* Advanced / research disclosure inside the Scorecard pane — demotes the
    sector / regime / A-B cohort bars + fade-the-grade / grade-IC chips. */
 .accuracy-advanced {

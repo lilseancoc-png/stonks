@@ -1388,7 +1388,7 @@
       <h2 class="card-title">Pick track record</h2>
       <span class="card-eyebrow" id="accuracy-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">Every Top Pick shipped each refresh is logged and marked to market against each pick&rsquo;s own take-profit / cut levels. Use the tabs below to switch between the plain-English engine summary, the scorecard, the live Top&nbsp;10 roster, the activity logs, and the open / resolved picks.</p>
+    <p class="hint">Every Top Pick shipped each refresh is logged and marked to market against each pick&rsquo;s own take-profit / cut levels. Use the tabs below to switch between the plain-English engine summary, the scorecard, the live Top&nbsp;10 roster, the activity logs, and the open / resolved picks. Each view opens with an <b>At a glance</b> strip — its key numbers and a one-line takeaway — with the full detail below.</p>
     <details class="accuracy-how">
       <summary>How this works</summary>
       <p>A pick <b>resolves</b> when the underlying reaches its take-profit (<span class="acc-ok">win</span>), hits its cut (<span class="acc-bad">loss</span>), <b>breaks its thesis</b> (the live grade flips to the opposite side, the stop level is breached, or every supporting driver goes quiet), or expires (graded vs. breakeven). There is no time stop, no pre-earnings exit, and no weekly force-close &mdash; a position is held, through earnings prints included, for as long as its original thesis stays intact and the contract has time left. The <b>Summary</b> tab is the rules-based engine report: an overall health verdict, why the losers lost (direction miss vs. theta bleed), why the winners won, which segments are working vs. lagging, and a specific "what to fix next" list — all computed from the resolved record, no AI. The <b>win rate by tier</b> asks whether higher-conviction scores actually win more. <b>Top&nbsp;10 — picks in &amp; out</b> shows the current 10-name roster, what changed in the 4 pillars since the last refresh, what dropped out and what replaced it, and a rules-based upgrade/downgrade read on each name (click a row for the full rubric); <b>Recent crossings</b> is the chronological log of names crossing the conviction bar on or off the actionable set; <b>Grade changes</b> logs every ticker whose grade moves up or down (and why); each pick&rsquo;s <b>Day&nbsp;0 / 2wk / 1mo</b> checkpoints show whether the price moved the way the score predicted. The <b>Equity</b>, <b>Breakdowns</b>, <b>Simulator</b>, and <b>Monte&nbsp;Carlo</b> tabs add a modeled-dollar profitability lens — an equity curve + drawdown, per-DTE / PoP / thesis / conviction tables and cross-tabs, a hypothetical $1M risk-managed book, and a bootstrap of the outcome distribution. Build cadence (~3 checks/day), not intraday.</p>
@@ -1405,35 +1405,44 @@
       <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-montecarlo" id="acc-tab-montecarlo" data-acc-tab="montecarlo">Monte&nbsp;Carlo</button>
     </div>
     <div class="acc-pane" role="tabpanel" id="acc-pane-summary" aria-labelledby="acc-tab-summary">
+      <div id="acc-sum-summary" class="acc-pane-sum-slot"></div>
       <div id="an-summary" class="acc-analytics">Loading engine summary…</div>
     </div>
     <div class="acc-pane" role="tabpanel" id="acc-pane-scorecard" aria-labelledby="acc-tab-scorecard" hidden>
+      <div id="acc-sum-scorecard" class="acc-pane-sum-slot"></div>
       <div id="accuracy-stats" class="accuracy-stats">Loading track record…</div>
       <div id="accuracy-empty" class="accuracy-empty" hidden>No picks have been tracked yet — the record starts filling in on the next daily refresh.</div>
     </div>
     <div class="acc-pane" role="tabpanel" id="acc-pane-top10" aria-labelledby="acc-tab-top10" hidden>
+      <div id="acc-sum-top10" class="acc-pane-sum-slot"></div>
       <div id="accuracy-roster" class="accuracy-roster"></div>
       <p class="acc-pane-empty" id="acc-empty-top10" hidden>No Top-10 roster snapshot yet — it appears after the next daily refresh.</p>
     </div>
     <div class="acc-pane" role="tabpanel" id="acc-pane-activity" aria-labelledby="acc-tab-activity" hidden>
+      <div id="acc-sum-activity" class="acc-pane-sum-slot"></div>
       <div id="accuracy-grade-log" class="accuracy-grade-log"></div>
       <div id="accuracy-picks-changes" class="accuracy-picks-changes"></div>
       <p class="acc-pane-empty" id="acc-empty-activity" hidden>No grade changes or conviction-bar crossings logged yet.</p>
     </div>
     <div class="acc-pane" role="tabpanel" id="acc-pane-picks" aria-labelledby="acc-tab-picks" hidden>
+      <div id="acc-sum-picks" class="acc-pane-sum-slot"></div>
       <div id="accuracy-root" class="accuracy-root"></div>
       <p class="acc-pane-empty" id="acc-empty-picks" hidden>No open or resolved picks yet.</p>
     </div>
     <div class="acc-pane" role="tabpanel" id="acc-pane-equity" aria-labelledby="acc-tab-equity" hidden>
+      <div id="acc-sum-equity" class="acc-pane-sum-slot"></div>
       <div id="an-equity" class="acc-analytics"></div>
     </div>
     <div class="acc-pane" role="tabpanel" id="acc-pane-breakdowns" aria-labelledby="acc-tab-breakdowns" hidden>
+      <div id="acc-sum-breakdowns" class="acc-pane-sum-slot"></div>
       <div id="an-breakdowns" class="acc-analytics"></div>
     </div>
     <div class="acc-pane" role="tabpanel" id="acc-pane-sim" aria-labelledby="acc-tab-sim" hidden>
+      <div id="acc-sum-sim" class="acc-pane-sum-slot"></div>
       <div id="an-sim" class="acc-analytics"></div>
     </div>
     <div class="acc-pane" role="tabpanel" id="acc-pane-montecarlo" aria-labelledby="acc-tab-montecarlo" hidden>
+      <div id="acc-sum-montecarlo" class="acc-pane-sum-slot"></div>
       <div id="an-mc" class="acc-analytics"></div>
     </div>
     <p class="picks-foot">Track record is informational, not a performance claim: it follows the underlying stock against each pick&rsquo;s own take-profit / cut levels, not the realised option P&amp;L, and samples only at build time. The <b>$ profitability, equity curve, Simulator, and Monte&nbsp;Carlo</b> views are <b>modeled and hypothetical</b> — Black-Scholes marks on a notional book, not realised fills. Not financial advice.</p>
