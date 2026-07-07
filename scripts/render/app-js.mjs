@@ -17163,6 +17163,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return m;
   }
   function loadPicks(){
+    // Shared watchlist rides alongside the roster — one probe per page, never
+    // blocks the picks render (re-renders the grid in place when it lands).
+    loadWatchlist();
     if (picksState.data || picksState.loading) { renderPicks(); return; }
     picksState.loading = true;
     // Live open-position marks for the per-card "since it appeared" chip — best
@@ -20899,24 +20902,51 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
 
   // --- Top Picks watchlist --------------------------------------------------
-  // User-curated "keep this idea" list, persisted to localStorage so a saved
-  // pick SURVIVES the roster rebuilds: the full pick payload is snapshotted at
-  // save time, silently refreshed in place whenever the same symbol+side ships
-  // in the current roster, and frozen (badged "off today’s list") once it
-  // drops out — until the user removes it. Client-side only: picks.json is
-  // rebuilt from scratch every bake, so the browser is the only place a
-  // sticky idea can live without a per-user backend.
+  // A SHARED "keep this idea" list: one list for everyone — anyone with access
+  // to the tab can save a pick or remove a saved one, via /api/watchlist
+  // (server-persisted in the private data store, snapshots sourced server-side
+  // from picks.json). A saved pick SURVIVES the roster rebuilds: it silently
+  // refreshes in place while the same symbol+side keeps shipping, and freezes
+  // (badged "off today’s list") once it drops out — until someone removes it.
+  // When the endpoint is unreachable (gate off / local dev / signed out), the
+  // list degrades to the original per-browser localStorage fallback.
   var WATCHLIST_KEY = 'stonks-picks-watchlist';
   var WATCHLIST_LIMIT = 30;
-  var PICKS_WATCHLIST = (function(){
+  var PICKS_WATCHLIST = [];
+  // null = not yet probed; true = shared server list; false = local fallback.
+  var WATCH_REMOTE = null;
+  var watchLoading = false, watchLoaded = false, watchPending = false, WATCH_ERROR = null;
+  function readLocalWatchlist(){
     try {
       var arr = JSON.parse(localStorage.getItem(WATCHLIST_KEY) || '[]');
       if (!Array.isArray(arr)) return [];
       return arr.filter(function(w){ return w && w.pick && w.pick.symbol; }).slice(0, WATCHLIST_LIMIT);
     } catch (_){ return []; }
-  })();
+  }
   function saveWatchlist(){
+    if (WATCH_REMOTE) return; // shared mode persists server-side on each toggle
     try { localStorage.setItem(WATCHLIST_KEY, JSON.stringify(PICKS_WATCHLIST.slice(0, WATCHLIST_LIMIT))); } catch (_){}
+  }
+  // One probe per page: the shared list when the endpoint answers, else the
+  // local fallback. Re-renders the (already-painted) grid when it lands.
+  function loadWatchlist(){
+    if (watchLoaded || watchLoading) return;
+    watchLoading = true;
+    fetch('/api/watchlist', { cache: 'no-store' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){
+        WATCH_REMOTE = true;
+        PICKS_WATCHLIST = (j && Array.isArray(j.items)) ? j.items.filter(function(w){ return w && w.pick && w.pick.symbol; }) : [];
+      })
+      .catch(function(){
+        WATCH_REMOTE = false;
+        PICKS_WATCHLIST = readLocalWatchlist();
+      })
+      .then(function(){
+        watchLoading = false;
+        watchLoaded = true;
+        if (picksState.data) renderPicks(true);
+      });
   }
   function watchSideOf(side){ return side === 'put' ? 'put' : 'call'; }
   function watchIndexOf(sym, side){
@@ -20934,6 +20964,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Refresh each saved snapshot from the current roster: same symbol+side ⇒
   // adopt the fresh pick wholesale (the card tracks the live roster while the
   // idea is still shipping); missing ⇒ freeze the last snapshot + mark stale.
+  // In shared mode this is display-only (the server runs the same pass and
+  // persists it on every write); in local mode it persists to localStorage.
   // The caller skips this on a failed picks.json load — "the roster didn’t
   // load" must not read as "your idea dropped off it".
   function syncWatchlist(picks){
@@ -20957,12 +20989,39 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     saveWatchlist();
   }
-  // Add/remove a pick on the watchlist. Adding snapshots the pick straight out
-  // of the current roster; removing works for live and frozen entries alike.
-  // Re-renders the landing grid WITHOUT kicking an open detail page back to
-  // the list, then refreshes the detail card in place so its watch button
-  // reflects the new state.
+  // Add/remove a pick on the watchlist. Shared mode POSTs symbol+side only —
+  // the server snapshots the pick out of ITS picks.json and answers with the
+  // updated list (a client never injects payload other users will render);
+  // local mode snapshots straight out of the loaded roster. Either way the
+  // landing grid re-renders WITHOUT kicking an open detail page back to the
+  // list, and the detail card refreshes in place so its watch button reflects
+  // the new state.
   function toggleWatch(sym, side){
+    if (WATCH_REMOTE){
+      if (watchPending) return; // one in-flight write at a time
+      watchPending = true;
+      var isOn = watchIndexOf(sym, side) >= 0;
+      fetch('/api/watchlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: isOn ? 'remove' : 'add', symbol: sym, side: watchSideOf(side) }),
+        cache: 'no-store'
+      })
+        .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function(j){
+          PICKS_WATCHLIST = (j && Array.isArray(j.items)) ? j.items.filter(function(w){ return w && w.pick && w.pick.symbol; }) : PICKS_WATCHLIST;
+          WATCH_ERROR = null;
+        })
+        .catch(function(){
+          WATCH_ERROR = 'Couldn’t update the shared watchlist — try again in a moment.';
+        })
+        .then(function(){
+          watchPending = false;
+          renderPicks(true);
+          if (picksState.openSym) renderPickDetailCard(picksState.openSym);
+        });
+      return;
+    }
     var idx = watchIndexOf(sym, side);
     if (idx >= 0){
       PICKS_WATCHLIST.splice(idx, 1);
@@ -20988,14 +21047,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function watchStarHtml(p){
     var on = watchIndexOf(p.symbol, p.side) >= 0;
     return '<span class="ptc-watch' + (on ? ' is-watched' : '') + '" data-watch-toggle="' + escapeHtml(p.symbol) + '" data-watch-side="' + watchSideOf(p.side) + '" title="' +
-      (on ? 'On your watchlist — click to remove' : 'Save to your watchlist — the idea stays through pick refreshes until you remove it') +
+      (on ? 'On the watchlist — click to remove' : 'Save to the watchlist — the idea stays through pick refreshes until removed') +
       '">' + (on ? '★' : '☆') + '</span>';
   }
   // The pinned "★ My watchlist" group at the top of the picks grid — saved
   // cards render with the same tile the roster uses, wrapped in a bar carrying
   // the live/frozen state, the saved date, and a remove button.
   function buildWatchlistGroupHtml(){
-    if (!PICKS_WATCHLIST.length) return '';
+    if (!PICKS_WATCHLIST.length && !WATCH_ERROR) return '';
     var cards = PICKS_WATCHLIST.map(function(w, i){
       var p = w.pick;
       var inner;
@@ -21012,14 +21071,19 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
             ? '<span class="pwl-tag pwl-tag-stale" title="No longer in the current top picks — this card is the last snapshot before it dropped off' + (w.lastSeen ? ' (last seen ' + escapeHtml(w.lastSeen) + ')' : '') + '. It stays here until you remove it.">⏸ off today’s list</span>'
             : '<span class="pwl-tag pwl-tag-live" title="Also in the current top picks — this card tracks the live roster and refreshes with it.">● in today’s picks</span>') +
           (w.addedAt ? '<span class="pwl-added">saved ' + escapeHtml(w.addedAt) + '</span>' : '') +
-          '<button type="button" class="pwl-remove" data-watch-toggle="' + escapeHtml(p.symbol) + '" data-watch-side="' + watchSideOf(p.side) + '" title="Remove ' + escapeHtml(p.symbol) + ' from your watchlist">✕ remove</button>' +
+          '<button type="button" class="pwl-remove" data-watch-toggle="' + escapeHtml(p.symbol) + '" data-watch-side="' + watchSideOf(p.side) + '" title="Remove ' + escapeHtml(p.symbol) + ' from the watchlist">✕ remove</button>' +
         '</div>' + inner + '</div>';
     }).join('');
+    var subTxt = WATCH_REMOTE
+      ? 'Shared — anyone can save or remove an idea, and it stays through every pick refresh until removed'
+      : 'Ideas you saved — kept through every pick refresh (stored in this browser) until you remove them';
     return '<div class="picks-group-head picks-group-watchlist">' +
-      '<span class="picks-group-title">★ My watchlist</span>' +
+      '<span class="picks-group-title">' + (WATCH_REMOTE ? '★ Watchlist' : '★ My watchlist') + '</span>' +
       '<span class="picks-group-count">' + PICKS_WATCHLIST.length + '</span>' +
-      '<span class="picks-group-sub">Ideas you saved — kept through every pick refresh (stored in this browser) until you remove them</span>' +
-    '</div>' + cards;
+      '<span class="picks-group-sub">' + subTxt + '</span>' +
+    '</div>' +
+    (WATCH_ERROR ? '<div class="pwl-error" role="status">' + escapeHtml(WATCH_ERROR) + '</div>' : '') +
+    cards;
   }
 
   // Build the full judgment card for one pick — the tier banner, analysis,
@@ -21073,7 +21137,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // itself a <button>, so there the toggle is a delegated span).
     var watchOn = watchIndexOf(p.symbol, p.side) >= 0;
     var watchBtnHtml = '<button type="button" class="pick-watch-btn' + (watchOn ? ' is-watched' : '') + '" data-watch-toggle="' + escapeHtml(p.symbol) + '" data-watch-side="' + (p.side === 'put' ? 'put' : 'call') + '" title="' +
-      (watchOn ? 'On your watchlist — click to remove' : 'Save to your watchlist — the idea stays through pick refreshes until you remove it') +
+      (watchOn ? 'On the watchlist — click to remove' : 'Save to the watchlist — the idea stays through pick refreshes until removed') +
       '">' + (watchOn ? '★ On watchlist' : '☆ Watchlist') + '</button>';
     var pillarsHtml = pickPillarPanel(p);
     var peersHtml = pickPeerList(p);
@@ -21270,7 +21334,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var w = watchEntryBySymbol(sym);
       if (w){
         var noteW = w.stale
-          ? '<div class="pwl-detail-note">⏸ Watchlist snapshot — ' + escapeHtml(sym) + ' is no longer in the current top picks; everything below is from the last build it appeared in' + (w.lastSeen ? ' (' + escapeHtml(w.lastSeen) + ')' : '') + '. It stays on your watchlist until you remove it.</div>'
+          ? '<div class="pwl-detail-note">⏸ Watchlist snapshot — ' + escapeHtml(sym) + ' is no longer in the current top picks; everything below is from the last build it appeared in' + (w.lastSeen ? ' (' + escapeHtml(w.lastSeen) + ')' : '') + '. It stays on the watchlist until removed.</div>'
           : '';
         try { holder.innerHTML = noteW + buildPickCardHtml(w.pick, 0); return; } catch (_){}
       }

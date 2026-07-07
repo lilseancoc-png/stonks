@@ -9218,6 +9218,7 @@ body.tape-axm-open { overflow: hidden; }
 .pwl-remove:hover { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 45%, var(--border)); }
 .pwl-stale .pick-tab-card { opacity: .82; filter: saturate(.75); }
 .pwl-broken { flex: 1; font: 400 12px/1.5 var(--font-sans); color: var(--text-muted); padding: 12px; border: 1px dashed var(--border); border-radius: var(--r-3); }
+.pwl-error { grid-column: 1 / -1; font: 500 12px/1.5 var(--font-sans); color: var(--neg); background: color-mix(in srgb, var(--neg) 8%, transparent); border: 1px solid color-mix(in srgb, var(--neg) 30%, var(--border)); border-radius: var(--r-2); padding: 6px 10px; }
 .pwl-detail-note {
   font: 500 12px/1.5 var(--font-sans);
   color: var(--warn, #d98a00);
