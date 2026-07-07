@@ -9124,6 +9124,15 @@ const PICKS_MACRO_ROTATION_PP = Number(process.env.PICKS_MACRO_ROTATION_PP ?? 0.
 const PICKS_ACCURACY_FILE = "picks-accuracy.json";
 const PICKS_ACCURACY_KEEP_DAYS = 120;
 const PICKS_ACCURACY_MAX_CLOSED = 250;
+// Track-record reset epoch. Bump this date to wipe the accumulated record
+// (open book + closed history + stats) on the next bake — the creds-free
+// equivalent of `wipe-history.mjs` for when an enrollment/strategy change
+// would blend old + new records into one meaningless win rate. A stored
+// picks-accuracy.json whose `resetEpoch` doesn't match is discarded wholesale
+// by readPicksAccuracyState; the freshly-written payload stamps the current
+// epoch so later builds accumulate normally. 2026-07-07: BUY-NOW enrollment
+// gate landed (wait-trigger picks no longer enroll), old record reset.
+const PICKS_ACCURACY_RESET_EPOCH = "2026-07-07";
 // Hard cap on the concurrently-tracked open book. Each build ships <=10
 // actionable picks, but re-entry suppression means every build surfaces NEW
 // names while the previously-enrolled ones stay open until an exit rule fires —
@@ -13171,7 +13180,18 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
 }
 
 export async function readPicksAccuracyState() {
-  try { const raw = await readFile(resolve(DATA_DIR, PICKS_ACCURACY_FILE), "utf8"); const p = JSON.parse(raw); return { open: Array.isArray(p.open) ? p.open : [], closed: Array.isArray(p.closed) ? p.closed : [], stats: p.stats || null }; } catch { return { open: [], closed: [], stats: null }; }
+  try {
+    const raw = await readFile(resolve(DATA_DIR, PICKS_ACCURACY_FILE), "utf8");
+    const p = JSON.parse(raw);
+    // One-time reset: a stored record from before the current reset epoch is
+    // discarded wholesale (see PICKS_ACCURACY_RESET_EPOCH). Stats from the old
+    // enrollment rules must not blend into the new record.
+    if (p.resetEpoch !== PICKS_ACCURACY_RESET_EPOCH) {
+      console.log(`  picks-accuracy: reset epoch ${PICKS_ACCURACY_RESET_EPOCH} — discarding prior record (${(p.open || []).length} open, ${(p.closed || []).length} closed)`);
+      return { open: [], closed: [], stats: null };
+    }
+    return { open: Array.isArray(p.open) ? p.open : [], closed: Array.isArray(p.closed) ? p.closed : [], stats: p.stats || null };
+  } catch { return { open: [], closed: [], stats: null }; }
 }
 
 // Detect a stock split between two consecutive marks: the tracked lastSpot vs
@@ -13387,6 +13407,14 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     // tracked trades — there's nothing to mark to market, and enrolling them would
     // leak an unresolvable "open" entry that also blocks legitimate re-entry.
     if (!p.contract) continue;
+    // Entry-timing gate: only a clean BUY NOW entry signal becomes a tracked
+    // trade. A wait-state pick (wait-reclaim / wait-pullback / wait-event /
+    // buy-dip) is advice to hold fire, not a filled position — grading it from
+    // the roster print would score trades the engine told the user NOT to take
+    // yet. The pick stays on the roster un-enrolled and enters the record on
+    // the first later bake where its trigger has hit and computeEntrySignal
+    // flips to buy-now (entry is recomputed fresh every bake).
+    if (p.entry?.signal !== "buy-now") continue;
     openKeys.add(key);
     // Deterministic thesis-style tag (valuation / momentum / event-driven / …)
     // for the Track Record by-thesis + cross-tab analytics. Frozen at entry.
@@ -13450,7 +13478,10 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
 
   const spyBars = chains?.SPY ? timingBarsFrom(chains.SPY) : null;
   const stats = computePicksAccuracyStats(open, closed, builtAtIso, spyBars);
-  const payload = { builtAtIso, open, closed, stats };
+  // resetEpoch stamps which enrollment-rules era this record belongs to —
+  // readPicksAccuracyState discards a record from an older epoch (see
+  // PICKS_ACCURACY_RESET_EPOCH).
+  const payload = { builtAtIso, resetEpoch: PICKS_ACCURACY_RESET_EPOCH, open, closed, stats };
   await writeFile(accPath, JSON.stringify(payload), "utf8");
   // Separate open-marks file for the Top Picks tab's "since it appeared" chip
   // (pickLiveChip + pickThesisStatusFor in app.js). It carries ONLY the
