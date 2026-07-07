@@ -329,6 +329,7 @@ ok("edge gate: buildTopPicks raises rosterMeta.tradeCut on a losing book",
 // --- 12. strategy selection + thesis enrichment + verticals ----------------
 ok("strategy: every pick carries a strategy {type}", picks.length === 0 || picks.every((p) => p.strategy && ["long", "debit", "credit", "none"].includes(p.strategy.type)));
 ok("strategy: a recommended pick has a known contract structure", picks.every((p) => p.strategy.type === "none" ? p.contract == null : ["long", "debit_vertical", "credit_vertical"].includes(p.contract.structure)));
+ok("strategy: every shipped debit vertical pays >= 1x its risk", picks.every((p) => p.contract?.structure !== "debit_vertical" || (p.contract.rewardRisk >= 1 && p.contract.maxProfit >= p.contract.maxLoss)));
 ok("thesis: thesisCard has marketRead/conviction/hasSolidThesis", picks.every((p) => p.thesisCard && p.thesisCard.marketRead && typeof p.thesisCard.hasSolidThesis === "boolean" && !!p.thesisCard.conviction));
 ok("thesis: marketRead.support is a known verdict", picks.every((p) => ["supports", "against", "neutral"].includes(p.thesisCard.marketRead.support)));
 ok("thesis: thesisCard.strategy mirrors the pick strategy", picks.every((p) => p.thesisCard.strategy && p.thesisCard.strategy.type === p.strategy.type));
@@ -387,6 +388,7 @@ ok("vertical: debit has 2 legs (+1 long / -1 short)", dbt && Array.isArray(dbt.l
 ok("vertical: debit economics consistent (maxLoss+maxProfit≈width)", dbt && dbt.maxLoss > 0 && dbt.maxProfit > 0 && Math.abs((dbt.maxLoss + dbt.maxProfit) - dbt.width) < 0.06 && dbt.mid > 0);
 ok("vertical: debit long strike < short (bull call)", dbt && dbt.longStrike < dbt.shortStrike);
 ok("vertical: debit net delta positive (bullish)", dbt && dbt.delta > 0);
+ok("vertical: debit reward:risk >= 1x (debit never exceeds half the width)", dbt && dbt.rewardRisk >= 1 && dbt.maxProfit >= dbt.maxLoss);
 const crd = pickVerticalForPick("call", bsData, 0.045, { type: "credit" });
 ok("vertical: credit spread builds as bull-put (puts)", !!crd && crd.structure === "credit_vertical" && crd.optionType === "put");
 ok("vertical: credit maxProfit≈credit, maxLoss+maxProfit≈width", crd && Math.abs(crd.maxProfit - crd.mid) < 0.06 && Math.abs((crd.maxLoss + crd.maxProfit) - crd.width) < 0.06);

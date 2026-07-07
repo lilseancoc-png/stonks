@@ -247,7 +247,10 @@ A binary **event/earnings within `PICKS_STRATEGY_EARNINGS_DAYS` (21d)** (or an a
 
 `pickVerticalForPick(side, data, rfr, {type})` builds the two-leg contract:
 - **debit** legs are the *same* type as the side (bull-call / bear-put): long
-  ~0.55Δ near-money + short ~`PICKS_DEBIT_SHORT_DELTA` OTM wing.
+  ~0.55Δ near-money + short ~`PICKS_DEBIT_SHORT_DELTA` OTM wing. A candidate
+  must clear `PICKS_DEBIT_MIN_RR` (1.0 — **reward:risk ≥ 1x**, i.e. the net
+  debit can never exceed half the strike width) or it is rejected; a debit
+  spread whose payout is under 1x the risk is never recommended.
 - **credit** legs are the *opposite* type (a bull-put on a bullish name): short
   ~`PICKS_CREDIT_SHORT_DELTA` near-money + a long wing chosen by
   `pickCreditWing` to collect ≈ `PICKS_CREDIT_WIDTH_FRAC` of the width (rejecting
