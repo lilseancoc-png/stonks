@@ -22,6 +22,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-07-07
 
+### Changed
+- **Switching tabs now pushes a real browser-history entry, so the Back button walks back through the tabs you visited instead of leaving the site** — landing from Google and clicking around no longer means one Back press bounces you straight out. Restoring state never mints an entry: the boot-time deep-link resolve and the back/forward (`popstate`) handler sync the URL with `replaceState`, re-clicking the active tab is a no-op (unchanged-URL guard), and within-tab URL mirroring (the Grade tab's `?s=/exp=/k=/t=` contract params) keeps replacing in place so flipping through strikes doesn't flood history. `scripts/render/app-js.mjs`.
+
 ### Fixed
 - **Market tape: an axis tile's "Details" drill-down now opens as a true popout (centered modal overlay) instead of expanding inline inside the tile** — the inline drawer stretched every card in that grid row, shoving the whole board around on each click. The popout follows the calendar report modal's pattern (dimmed backdrop, × / Escape / backdrop-click to close, focus returned to the tile), keeps refreshing from the live ~30s poll while open, and closes itself on leaving the tab. The opener tile keeps an `is-open` marker; grid geometry is untouched. `scripts/render/{app-js,styles-css}.mjs`.
 
