@@ -20,6 +20,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
        (same format, plus the archive preamble) and add that month to the
        "Older changelogs" index below. -->
 
+## 2026-07-07
+
+### Fixed
+- **Market tape: an axis tile's "Details" drill-down now opens as a true popout (centered modal overlay) instead of expanding inline inside the tile** — the inline drawer stretched every card in that grid row, shoving the whole board around on each click. The popout follows the calendar report modal's pattern (dimmed backdrop, × / Escape / backdrop-click to close, focus returned to the tile), keeps refreshing from the live ~30s poll while open, and closes itself on leaving the tab. The opener tile keeps an `is-open` marker; grid geometry is untouched. `scripts/render/{app-js,styles-css}.mjs`.
+
 ## 2026-07-06
 
 ### Fixed

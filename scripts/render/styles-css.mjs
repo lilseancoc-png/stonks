@@ -8595,6 +8595,41 @@ button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shad
 .tape-chip-v { font: 700 11px/1.2 var(--font-mono); color: var(--text-strong); font-variant-numeric: tabular-nums; }
 .tape-axis-detail-feeds, .tape-axis-detail-flip, .tape-axis-detail-live { font: 400 11px/1.5 var(--font-sans); color: var(--muted); }
 .tape-axis-detail-feeds b, .tape-axis-detail-flip b { color: var(--text-strong); font-weight: 700; }
+/* Axis-detail popout — a centered modal overlay (mirrors the calendar report
+   modal). The drill-down used to render inline inside the tile, which
+   stretched every card in that grid row. */
+body.tape-axm-open { overflow: hidden; }
+.tape-axm-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--s-3);
+  background: rgba(0, 0, 0, 0.6); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+}
+.tape-axm-overlay[hidden] { display: none; }
+.tape-axm-modal {
+  position: relative;
+  width: min(560px, 96vw); max-height: 88vh; overflow-y: auto;
+  background: var(--surface-2); border: 1px solid var(--border-strong); border-left-width: 3px;
+  border-radius: var(--r-3); padding: var(--s-4);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+.tape-axm-modal.tape-off { border-left-color: var(--neg); }
+.tape-axm-modal.tape-on { border-left-color: var(--pos); }
+.tape-axm-modal.tape-flat { border-left-color: var(--border-strong); }
+.tape-axm-close {
+  position: absolute; top: 10px; right: 10px;
+  width: 30px; height: 30px; border-radius: var(--r-2);
+  background: transparent; border: 1px solid var(--border-strong);
+  color: var(--text-3); font-size: 1.1rem; line-height: 1; cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+.tape-axm-close:hover { background: var(--neg-tint); border-color: var(--neg); color: var(--neg); }
+.tape-axm-head { display: flex; align-items: center; gap: 8px; padding-right: 40px; }
+.tape-axm-name { font: 700 14px/1 var(--font-mono); color: var(--text-strong); text-transform: uppercase; letter-spacing: .04em; }
+.tape-axm-score { margin-left: auto; font: 800 16px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.tape-axm-modal.tape-off .tape-axm-score { color: var(--neg); }
+.tape-axm-modal.tape-on .tape-axm-score { color: var(--pos); }
+.tape-axm-modal.tape-flat .tape-axm-score { color: var(--muted); }
 
 /* Headline meter net-stress trend sparkline. */
 .tape-meter-trend { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
