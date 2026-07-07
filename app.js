@@ -17849,6 +17849,32 @@
   }
   function accDatasetTip(){ return accView.dataset === 'all' ? ' Includes open positions marked to their current modeled price (not yet resolved).' : ''; }
 
+  // --- "At a glance" pane summaries -----------------------------------------
+  // Every Track Record sub-tab opens with a compact summary strip: a handful of
+  // that view's key numbers plus an optional one-line takeaway, written into
+  // the pane's static acc-sum-* slot (see html.mjs). Each render function
+  // computes its own items from the same data it renders, so the strip always
+  // agrees with the detail below it. items: [{ val, lbl, cls, tip }] (falsy
+  // entries skipped; val/lbl are HTML — caller escapes any symbol text); an
+  // empty call clears the slot (the pane's own empty note carries the message).
+  function accPaneSummary(slotId, items, take){
+    var el = $(slotId); if (!el) return;
+    var list = (items || []).filter(Boolean);
+    if (!list.length && !take){ el.innerHTML = ''; return; }
+    var chips = '';
+    for (var i=0;i<list.length;i++){
+      var it = list[i];
+      chips += '<span class="acc-glance-item"' + (it.tip ? ' title="' + escapeHtml(it.tip) + '"' : '') + '>' +
+        '<b class="acc-glance-val' + (it.cls ? ' ' + it.cls : '') + '">' + it.val + '</b>' +
+        '<span class="acc-glance-lbl">' + it.lbl + '</span></span>';
+    }
+    el.innerHTML = '<div class="acc-glance">' +
+      '<span class="acc-glance-head">At a glance</span>' +
+      (chips ? '<div class="acc-glance-items">' + chips + '</div>' : '') +
+      (take ? '<p class="acc-glance-take">' + take + '</p>' : '') +
+    '</div>';
+  }
+
   // --- formatting -----------------------------------------------------------
   function accMoney(n, signed){
     if (n == null || !isFinite(n)) return '—';
@@ -18207,9 +18233,25 @@
     var lead = '<p class="hint acc-an-lead">A rules-based read on how the picks engine is actually performing — computed from the resolved record (open positions excluded), no AI. Option P&amp;L is modeled, not realized fills.</p>';
     if (!rep.n){
       var openLine = open.length ? ' The open book has ' + open.length + ' position' + (open.length === 1 ? '' : 's') + ' being tracked — the report starts once they resolve.' : '';
+      accPaneSummary('acc-sum-summary', []);
       box.innerHTML = lead + '<p class="muted acc-an-note">No resolved picks yet — the engine report appears once picks start closing.' + openLine + '</p>';
       return;
     }
+    // "At a glance" strip — the headline numbers the report below expands on.
+    var glGreens = 0, glMarks = [];
+    open.forEach(function(o){ var p = Number(o.optionPnlPct); if (isFinite(p)){ glMarks.push(p); if (p >= 0) glGreens++; } });
+    var glTake = rep.n < 6
+      ? 'Early sample — the verdicts firm up as more picks resolve.'
+      : (rep.diags.length
+        ? rep.diags.length + ' diagnostic' + (rep.diags.length === 1 ? '' : 's') + ' firing — see “What to fix next” below.'
+        : 'No structural red flags firing — the standing diagnostics are all inside tolerance.');
+    accPaneSummary('acc-sum-summary', [
+      { val: escapeHtml(rep.health.label), lbl: 'engine health', cls: rep.health.key === 'healthy' ? 'sig-pos' : (rep.health.key === 'struggling' ? 'sig-neg' : '') },
+      { val: accPctRate(m.winRate), lbl: 'win rate · ' + rep.n + ' resolved', cls: (m.winRate != null && m.winRate >= 0.5) ? 'sig-pos' : 'sig-neg' },
+      { val: accPF(m.profitFactor), lbl: 'profit factor', cls: (m.profitFactor != null && (m.profitFactor === Infinity || m.profitFactor >= 1)) ? 'sig-pos' : 'sig-neg', tip: 'Gross winning $ ÷ gross losing $ (per contract, modeled).' },
+      { val: accNum(m.expectancyR, 2) + 'R', lbl: 'avg outcome / unit risk', cls: accSignClass(m.expectancyR), tip: 'Average return on risk per resolved trade.' },
+      open.length ? { val: String(open.length), lbl: 'open now' + (glMarks.length ? ' · ' + glGreens + ' green' : ''), tip: glMarks.length ? 'Open book marked ' + accPct(accMean(glMarks)) + ' on average (modeled, unrealized).' : '' } : null,
+    ], glTake);
     // Health banner + narrative. The direction-vs-theta share is computed over
     // the ATTRIBUTABLE losses only — forced early closes (churn) held too
     // briefly to blame on either are reported separately.
@@ -18317,8 +18359,23 @@
       '<div class="acc-ctl"><span class="acc-ctl-lbl">Trades</span>' + accSeg('dataset', 'acc-ds-sc', accView.dataset, [{ value:'closed', label:'Resolved only' }, { value:'all', label:'Incl. open marks' }]) + '</div>' +
       '<div class="acc-ctl"><span class="acc-ctl-lbl">$ basis</span>' + accSeg('basis', 'acc-bs-sc', basis, [{ value:'notional', label:'$10k / trade' }, { value:'contract', label:'Per contract' }]) + '</div>' +
     '</div>';
-    if (!m.n){ box.innerHTML = toggles + '<p class="muted acc-an-note">No resolved trades yet — profitability metrics appear once picks start closing.' + accDatasetTip() + '</p>'; return; }
+    if (!m.n){ accPaneSummary('acc-sum-scorecard', []); box.innerHTML = toggles + '<p class="muted acc-an-note">No resolved trades yet — profitability metrics appear once picks start closing.' + accDatasetTip() + '</p>'; return; }
     var basisTip = basis === 'notional' ? 'Assuming $' + ACC_NOTIONAL.toLocaleString() + ' bought per trade.' : 'Per single contract (×100 multiplier).';
+    // "At a glance" strip — the scorecard in one line: does the win rate ×
+    // payoff combination make money, and how much has it made?
+    var scTake = '';
+    if (m.rr != null && isFinite(m.rr) && m.rr > 0 && m.winRate != null){
+      var scNeed = 1 / (1 + m.rr);
+      scTake = 'At the current ' + m.rr.toFixed(2) + ':1 reward-to-risk the book breaks even at a ' + Math.round(scNeed * 100) + '% win rate — it is running ' + Math.round(m.winRate * 100) + '%, ' + (m.winRate >= scNeed ? 'above' : 'below') + ' that bar.';
+    }
+    var scSetLbl = accView.dataset === 'all' ? 'trades incl. open marks' : 'resolved trades';
+    accPaneSummary('acc-sum-scorecard', [
+      { val: accPctRate(m.winRate), lbl: 'win rate · ' + m.n + ' ' + scSetLbl, cls: m.winRate >= 0.5 ? 'sig-pos' : 'sig-neg' },
+      { val: accPF(m.profitFactor), lbl: 'profit factor', cls: (m.profitFactor != null && (m.profitFactor === Infinity || m.profitFactor >= 1)) ? 'sig-pos' : 'sig-neg', tip: 'Gross winning $ ÷ gross losing $. ' + basisTip },
+      { val: accMoney(m.expectancy, true), lbl: 'expectancy / trade', cls: accSignClass(m.expectancy), tip: 'Average $ outcome per trade. ' + basisTip },
+      { val: accMoney(m.totalPnl, true), lbl: 'total P&amp;L (modeled)', cls: accSignClass(m.totalPnl), tip: basisTip + accDatasetTip() },
+      { val: (m.rr != null ? (m.rr === Infinity ? '∞' : m.rr.toFixed(2) + ':1') : '—'), lbl: 'reward : risk', tip: 'Average win ÷ average loss.' },
+    ], scTake);
     function chip(num, lbl, cls, tip){ return '<div class="accuracy-chip' + (cls ? ' ' + cls : '') + '"' + (tip ? ' title="' + escapeHtml(tip) + '"' : '') + '><span class="accuracy-chip-num">' + num + '</span><span class="accuracy-chip-lbl">' + lbl + '</span></div>'; }
     var pf = m.profitFactor, pfCls = pf == null ? '' : ((pf === Infinity || pf >= 1.5) ? 'accuracy-chip-good' : (pf >= 1 ? '' : 'accuracy-chip-bad'));
     var profit = '<div class="accuracy-chips">' +
@@ -18364,8 +18421,19 @@
       '<div class="acc-ctl"><span class="acc-ctl-lbl">Trades</span>' + accSeg('dataset', 'acc-ds-eq', accView.dataset, [{ value:'closed', label:'Resolved only' }, { value:'all', label:'Incl. open marks' }]) + '</div>' +
       '<div class="acc-ctl"><span class="acc-ctl-lbl">$ basis</span>' + accSeg('basis', 'acc-bs-eq', basis, [{ value:'notional', label:'$10k / trade' }, { value:'contract', label:'Per contract' }]) + '</div>' +
     '</div>';
-    if (ec.points.length < 2){ box.innerHTML = toggles + '<p class="muted acc-an-note">The cumulative-P&L equity curve appears once at least 2 trades resolve.' + accDatasetTip() + '</p>'; return; }
+    if (ec.points.length < 2){ accPaneSummary('acc-sum-equity', []); box.innerHTML = toggles + '<p class="muted acc-an-note">The cumulative-P&L equity curve appears once at least 2 trades resolve.' + accDatasetTip() + '</p>'; return; }
     var basisLbl = basis === 'notional' ? '$' + ACC_NOTIONAL.toLocaleString() + ' per trade' : 'per contract (bankroll ' + accMoney(ec.base, false) + ')';
+    // "At a glance" strip — where the modeled equity curve stands right now.
+    var eqPnl = ec.finalEquity - ec.base;
+    var eqTake = 'After ' + (ec.points.length - 1) + ' trade' + (ec.points.length === 2 ? '' : 's') + ' the modeled book is ' +
+      (ec.curDD > 0 ? Math.round(ec.curDDpct * 100) + '% below its peak.' : 'at equity highs.');
+    accPaneSummary('acc-sum-equity', [
+      { val: accMoney(eqPnl, true), lbl: 'cumulative P&amp;L (modeled)', cls: accSignClass(eqPnl) },
+      { val: accMoney(ec.finalEquity, false), lbl: 'final equity', tip: 'Running balance at ' + basisLbl + '.' + accDatasetTip() },
+      { val: '-' + Math.round(ec.maxDDpct * 100) + '%', lbl: 'max drawdown', cls: 'sig-neg', tip: 'Largest peak-to-trough drop in the curve (' + accMoney(ec.maxDD, false) + ').' },
+      { val: ec.curDD > 0 ? '-' + Math.round(ec.curDDpct * 100) + '%' : 'at highs', lbl: 'current drawdown', cls: ec.curDD > 0 ? 'sig-neg' : 'sig-pos' },
+      m.cagr != null ? { val: (m.cagr >= 0 ? '+' : '') + Math.round(m.cagr * 100) + '%', lbl: 'CAGR (ann.)', cls: m.cagr >= 0 ? 'sig-pos' : 'sig-neg' } : null,
+    ], eqTake);
     function chip(num, lbl, cls){ return '<div class="accuracy-chip' + (cls ? ' ' + cls : '') + '"><span class="accuracy-chip-num">' + num + '</span><span class="accuracy-chip-lbl">' + lbl + '</span></div>'; }
     var tiles = '<div class="accuracy-chips">' +
       chip(accMoney(ec.finalEquity, false), 'final equity', '') +
@@ -18389,7 +18457,28 @@
       '<div class="acc-ctl"><span class="acc-ctl-lbl">Trades</span>' + accSeg('dataset', 'acc-ds-bk', accView.dataset, [{ value:'closed', label:'Resolved only' }, { value:'all', label:'Incl. open marks' }]) + '</div>' +
     '</div>';
     var dec = accDecided(trades);
-    if (!dec.length){ box.innerHTML = toggles + '<p class="muted acc-an-note">Per-bucket performance tables appear once picks resolve.' + accDatasetTip() + '</p>'; return; }
+    if (!dec.length){ accPaneSummary('acc-sum-breakdowns', []); box.innerHTML = toggles + '<p class="muted acc-an-note">Per-bucket performance tables appear once picks resolve.' + accDatasetTip() + '</p>'; return; }
+    // "At a glance" strip — the strongest and weakest bucket across the tables
+    // below, ranked by per-contract expectancy.
+    var MINBK = 3, bkSegs = [];
+    ['dte','pop','conviction','thesis'].forEach(function(dn){
+      accBucketize(dec, dn).forEach(function(b){
+        if (b.trades.length < MINBK || b.key === 'Unknown' || b.key === 'none') return;
+        var bm = tradeMetrics(b.trades, { basis: 'contract' });
+        if (bm.expectancy == null || !isFinite(bm.expectancy)) return;
+        bkSegs.push({ dim: ACC_DIMS[dn].label, label: b.label, m: bm });
+      });
+    });
+    bkSegs.sort(function(x, y){ return y.m.expectancy - x.m.expectancy; });
+    var bkBest = bkSegs[0] || null, bkWorst = bkSegs.length > 1 ? bkSegs[bkSegs.length - 1] : null;
+    function bkTip(s){ return s.dim + ' bucket — ' + s.m.n + ' trades · win ' + accPctRate(s.m.winRate) + ' · expectancy ' + accMoney(s.m.expectancy, true) + ' per contract.'; }
+    accPaneSummary('acc-sum-breakdowns', [
+      { val: String(dec.length), lbl: accView.dataset === 'all' ? 'trades incl. open marks' : 'resolved trades' },
+      bkBest ? { val: accMoney(bkBest.m.expectancy, true), lbl: 'best bucket — ' + escapeHtml(bkBest.label), cls: accSignClass(bkBest.m.expectancy), tip: bkTip(bkBest) } : null,
+      bkWorst ? { val: accMoney(bkWorst.m.expectancy, true), lbl: 'weakest bucket — ' + escapeHtml(bkWorst.label), cls: accSignClass(bkWorst.m.expectancy), tip: bkTip(bkWorst) } : null,
+    ], bkSegs.length
+      ? 'Best and weakest expectancy across the DTE / PoP / conviction / thesis buckets below (per contract; a bucket needs ≥' + MINBK + ' trades to qualify).'
+      : 'A bucket needs ≥' + MINBK + ' trades before a best / weakest call-out — keep letting the record build.');
     function section(title, dimName, opts){ return '<div class="acc-an-subhead">' + escapeHtml(title) + '</div>' + accBucketTableHtml(accBucketize(dec, dimName), Object.assign({ dimLabel: ACC_DIMS[dimName].label }, opts || {})); }
     var tables = section('By days-to-expiration (DTE)', 'dte') +
       section('By modeled probability-of-profit (PoP)', 'pop') +
@@ -18422,9 +18511,18 @@
       '<li>Per-trade cap ' + (ACC_SIM_POSCAP * 100) + '% of equity; total live risk ("heat") capped at ' + (ACC_SIM_HEAT * 100) + '% — size is reduced, then skipped if it can\'t fit.</li>' +
       '<li>Trades opened/closed by their entry/exit dates so concurrent risk is tracked; fractional contracts rounded down (skipped if 0).</li>' +
     '</ul></details>';
-    if (sim.empty){ box.innerHTML = banner + toggles + '<p class="muted acc-an-note">The $' + ACC_SIM_START.toLocaleString() + ' portfolio simulation runs once picks resolve' + (accView.simHighConv ? ' (no Very-High-tier trades yet)' : '') + '.</p>' + rules; return; }
+    if (sim.empty){ accPaneSummary('acc-sum-sim', []); box.innerHTML = banner + toggles + '<p class="muted acc-an-note">The $' + ACC_SIM_START.toLocaleString() + ' portfolio simulation runs once picks resolve' + (accView.simHighConv ? ' (no Very-High-tier trades yet)' : '') + '.</p>' + rules; return; }
     function chip(num, lbl, cls){ return '<div class="accuracy-chip' + (cls ? ' ' + cls : '') + '"><span class="accuracy-chip-num">' + num + '</span><span class="accuracy-chip-lbl">' + lbl + '</span></div>'; }
     var ret = sim.totalReturnPct;
+    // "At a glance" strip — the simulated book's bottom line.
+    var simTake = 'Hypothetical compounding book — modeled fills, not real trades. It is currently ' + (sim.curDD > 0 ? Math.round(sim.curDDpct * 100) + '% below its peak.' : 'at equity highs.');
+    accPaneSummary('acc-sum-sim', [
+      { val: (ret >= 0 ? '+' : '') + ret.toFixed(1) + '%', lbl: 'total return', cls: ret >= 0 ? 'sig-pos' : 'sig-neg' },
+      { val: accMoney(sim.finalEquity, false), lbl: 'final equity', tip: 'Started at $' + ACC_SIM_START.toLocaleString() + ', risking ' + (ACC_SIM_RISK * 100) + '% of current equity per trade.' },
+      { val: '-' + Math.round(sim.maxDDpct * 100) + '%', lbl: 'max drawdown', cls: 'sig-neg' },
+      { val: accPctRate(sim.winRate), lbl: 'win rate', cls: sim.winRate != null && sim.winRate >= 0.5 ? 'sig-pos' : '' },
+      { val: String(sim.nTaken), lbl: 'trades taken' + (sim.nSkipped ? ' · ' + sim.nSkipped + ' skipped' : '') },
+    ], simTake);
     var tiles = '<div class="accuracy-chips">' +
       chip(accMoney(sim.finalEquity, false), 'final equity', ret >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad') +
       chip((ret >= 0 ? '+' : '') + ret.toFixed(1) + '%', 'total return', ret >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad') +
@@ -18456,10 +18554,26 @@
     '</div>';
     var banner = '<div class="acc-hypo">ALL HYPOTHETICAL · bootstrap resample of resolved trades</div>';
     var lead = '<p class="hint acc-an-lead">Resamples the ' + poolN + ' resolved trades\' return-on-risk (with replacement), compounding ' + (ACC_SIM_RISK * 100) + '% risk per draw on a $' + ACC_SIM_START.toLocaleString() + ' book, to map the distribution of outcomes.</p>';
-    if (poolN < 8){ box.innerHTML = banner + controls + '<p class="muted acc-an-note">Monte Carlo needs at least 8 resolved trades (have ' + poolN + ').</p>'; return; }
-    if (!run){ box.innerHTML = banner + controls + lead + '<p class="muted acc-an-note">Press <strong>Run Monte Carlo</strong> to simulate ' + Number(accView.mcIters).toLocaleString() + ' alternate sequences.</p>'; return; }
+    if (poolN < 8){ accPaneSummary('acc-sum-montecarlo', []); box.innerHTML = banner + controls + '<p class="muted acc-an-note">Monte Carlo needs at least 8 resolved trades (have ' + poolN + ').</p>'; return; }
+    if (!run){
+      accPaneSummary('acc-sum-montecarlo', [
+        { val: String(poolN), lbl: 'resolved trades in the pool' },
+        { val: Number(accView.mcIters).toLocaleString(), lbl: 'simulations queued' },
+      ], 'Not run yet — press Run Monte Carlo to map the distribution of outcomes.');
+      box.innerHTML = banner + controls + lead + '<p class="muted acc-an-note">Press <strong>Run Monte Carlo</strong> to simulate ' + Number(accView.mcIters).toLocaleString() + ' alternate sequences.</p>';
+      return;
+    }
     var res = runMonteCarlo(closed, { iters: Number(accView.mcIters) || 5000, seed: accView.mcSeed });
-    if (res.empty){ box.innerHTML = banner + controls + '<p class="muted acc-an-note">Not enough resolved trades.</p>'; return; }
+    if (res.empty){ accPaneSummary('acc-sum-montecarlo', []); box.innerHTML = banner + controls + '<p class="muted acc-an-note">Not enough resolved trades.</p>'; return; }
+    // "At a glance" strip — the distribution's headline numbers.
+    var mcTake = (res.probProfit >= 0.5 ? 'Most simulated paths finish profitable' : 'Fewer than half of the simulated paths finish profitable') +
+      '; a bad-but-plausible run (95th percentile) draws down ' + Math.round(res.p95MaxDD * 100) + '%. All hypothetical.';
+    accPaneSummary('acc-sum-montecarlo', [
+      { val: fmtBigDollars(res.medianFinal), lbl: 'median final equity', cls: res.medianFinal >= res.start ? 'sig-pos' : 'sig-neg' },
+      { val: Math.round(res.probProfit * 100) + '%', lbl: 'probability of profit', cls: res.probProfit >= 0.5 ? 'sig-pos' : 'sig-neg' },
+      { val: '-' + Math.round(res.medianMaxDD * 100) + '%', lbl: 'median max drawdown', cls: 'sig-neg' },
+      { val: fmtBigDollars(res.p5Final) + ' – ' + fmtBigDollars(res.p95Final), lbl: '5th–95th pct outcome' },
+    ], mcTake);
     function card(num, lbl, cls, tip){ return '<div class="acc-mc-card' + (cls ? ' ' + cls : '') + '"' + (tip ? ' title="' + escapeHtml(tip) + '"' : '') + '><span class="acc-mc-num">' + num + '</span><span class="acc-mc-lbl">' + lbl + '</span></div>'; }
     var cards = '<div class="acc-mc-cards">' +
       card(fmtBigDollars(res.medianFinal), 'median final equity', res.medianFinal >= res.start ? 'sig-pos' : 'sig-neg') +
@@ -18648,7 +18762,31 @@
   function renderPicksRoster(){
     var el = $('accuracy-roster'); if (!el) return;
     var R = accuracyState.roster;
-    if (!R || !Array.isArray(R.roster) || !R.roster.length){ el.innerHTML = ''; return; }
+    if (!R || !Array.isArray(R.roster) || !R.roster.length){ el.innerHTML = ''; accPaneSummary('acc-sum-top10', []); return; }
+    // "At a glance" strip — the roster's composition + this refresh's churn.
+    var t10 = { entered: 0, fresh: 0, calls: 0, puts: 0, up: 0, down: 0 };
+    R.roster.forEach(function(e){
+      if (e.status === 'entered') t10.entered++;
+      else if (e.status === 'new') t10.fresh++;
+      if (e.side === 'put') t10.puts++; else t10.calls++;
+      var fd = e.forecast && e.forecast.direction;
+      if (fd === 'upgrade') t10.up++; else if (fd === 'downgrade') t10.down++;
+    });
+    var t10out = Array.isArray(R.exited) ? R.exited.length : 0;
+    var t10in = t10.entered + t10.fresh;
+    var t10lead = R.roster[0];
+    var t10churn = (t10in || t10out)
+      ? (t10in ? t10in + ' name' + (t10in === 1 ? '' : 's') + ' in' : '') + (t10in && t10out ? ', ' : '') + (t10out ? t10out + ' out' : '') + ' this refresh'
+      : 'no roster changes this refresh';
+    var t10take = (R.stale ? 'Pre-market snapshot — last-good picks carried forward. ' : '') +
+      (t10lead ? '#1 right now: <b>' + escapeHtml(t10lead.symbol) + '</b> ' + (t10lead.side === 'put' ? 'put' : 'call') + ' at ' + roster1(t10lead.total) + ' — ' + t10churn + '.' : '');
+    accPaneSummary('acc-sum-top10', [
+      { val: String(R.roster.length), lbl: 'names on the list' },
+      { val: t10.calls + ' / ' + t10.puts, lbl: 'calls / puts', tip: 'Side split of the current roster — where the book is leaning.' },
+      { val: String(t10in), lbl: 'entered this refresh', cls: t10in ? 'sig-pos' : '' },
+      { val: String(t10out), lbl: 'dropped out', cls: t10out ? 'sig-neg' : '' },
+      (t10.up || t10.down) ? { val: t10.up + '▲ / ' + t10.down + '▼', lbl: 'forecast up / down', cls: t10.up > t10.down ? 'sig-pos' : (t10.down > t10.up ? 'sig-neg' : ''), tip: 'Rules-based forward read on each name — upgrade likely vs downgrade risk.' } : null,
+    ], t10take);
     // Kick off the grade-index fetch (or queue onto an in-flight one — e.g.
     // the ticker search box may already be loading it) so the expandable
     // rubrics can render; re-render the whole section when it arrives.
@@ -18763,6 +18901,37 @@
       '</details>' +
     '</div>';
   }
+  // --- Activity "At a glance" ----------------------------------------------
+  // One strip over both Activity logs: the grade-move balance, the
+  // conviction-bar churn, and the most recent event across the two.
+  function renderActivitySummary(){
+    var gch = Array.isArray(accuracyState.gradeChanges) ? accuracyState.gradeChanges : [];
+    var pch = Array.isArray(accuracyState.picksChanges) ? accuracyState.picksChanges : [];
+    if (!gch.length && !pch.length){ accPaneSummary('acc-sum-activity', []); return; }
+    var up = 0, down = 0;
+    gch.forEach(function(c){ if (c.direction === 'up') up++; else down++; });
+    var inn = 0, out = 0;
+    pch.forEach(function(c){ if (c.event === 'entered') inn++; else out++; });
+    // Most recent event across both logs (each is newest-first).
+    var g0 = gch[0], p0 = pch[0];
+    var gT = g0 ? (Date.parse(g0.date) || 0) : -1, pT = p0 ? (Date.parse(p0.date) || 0) : -1;
+    var latest = '';
+    if (g0 && gT >= pT){
+      latest = 'Most recent: <b>' + escapeHtml(g0.symbol || '—') + '</b> graded ' + (g0.direction === 'up' ? 'up' : 'down') + ' (' + accDateShort(g0.date) + ').';
+    } else if (p0){
+      latest = 'Most recent: <b>' + escapeHtml(p0.symbol || '—') + '</b> ' + (p0.event === 'entered' ? 'crossed onto' : 'dropped off') + ' the actionable list (' + accDateShort(p0.date) + ').';
+    }
+    var lean = '';
+    if (gch.length >= 4){
+      lean = up > down ? ' Grade momentum leans positive (' + up + '▲ vs ' + down + '▼).' : (down > up ? ' Grade momentum leans negative (' + down + '▼ vs ' + up + '▲).' : ' Upgrades and downgrades are balanced.');
+    }
+    accPaneSummary('acc-sum-activity', [
+      gch.length ? { val: String(gch.length), lbl: 'grade changes', tip: 'Whole-universe grade moves logged (tier flips or big score moves).' } : null,
+      gch.length ? { val: up + '▲ / ' + down + '▼', lbl: 'upgrades / downgrades', cls: up > down ? 'sig-pos' : (down > up ? 'sig-neg' : '') } : null,
+      pch.length ? { val: String(pch.length), lbl: 'bar crossings', tip: 'Names crossing the conviction bar onto or off the actionable Top Picks set.' } : null,
+      pch.length ? { val: inn + ' in / ' + out + ' out', lbl: 'onto / off the list' } : null,
+    ], latest + lean);
+  }
   // --- Per-pick checkpoints (Day 0 / 2 weeks / 1 month) -------------------
   // Side-adjusted verdict: did the underlying move the way the score predicted?
   function accCheckpointVerdict(e){
@@ -18821,6 +18990,7 @@
     renderPicksRoster();
     renderPicksChangeLog();
     renderGradeChangeLog();
+    renderActivitySummary();
     // Sub-tab count badges + per-pane empty notes. These hold regardless of the
     // load-error / empty branches below (the roster + logs read their own files,
     // independent of the open/closed lists), so compute them up front.
@@ -18859,6 +19029,8 @@
       if (statsEl) statsEl.innerHTML = '<p class="muted">Couldn’t load the track record. Try a hard reload.</p>';
       root.innerHTML = '';
       if (eyebrow) eyebrow.textContent = '';
+      accPaneSummary('acc-sum-picks', []);
+      accPaneSummary('acc-sum-scorecard', []);
       return;
     }
     if (!open.length && !closed.length){
@@ -18866,10 +19038,30 @@
       if (statsEl) statsEl.innerHTML = '';
       if (emptyEl) emptyEl.hidden = false;
       if (eyebrow) eyebrow.textContent = '';
+      accPaneSummary('acc-sum-picks', []);
+      accPaneSummary('acc-sum-scorecard', []);
       return;
     }
     if (emptyEl) emptyEl.hidden = true;
     if (eyebrow) eyebrow.textContent = closed.length + ' resolved · ' + open.length + ' open';
+
+    // "At a glance" strip for the Picks pane — the open book + resolved record.
+    var pkMarks = [], pkGreens = 0, pkBest = null;
+    open.forEach(function(o){
+      var p = Number(o.optionPnlPct);
+      if (!isFinite(p)) return;
+      pkMarks.push(p); if (p >= 0) pkGreens++;
+      if (!pkBest || Math.abs(p) > Math.abs(Number(pkBest.optionPnlPct))) pkBest = o;
+    });
+    var pkTake = pkBest
+      ? 'Biggest open mover: <b>' + escapeHtml(pkBest.symbol || '—') + '</b> at ' + accPct(Number(pkBest.optionPnlPct)) + ' on the contract (modeled).'
+      : '';
+    accPaneSummary('acc-sum-picks', [
+      { val: String(open.length), lbl: 'open positions' },
+      pkMarks.length ? { val: accPct(accMean(pkMarks)), lbl: 'avg open mark · ' + pkGreens + '/' + pkMarks.length + ' green', cls: accMean(pkMarks) >= 0 ? 'sig-pos' : 'sig-neg', tip: 'Average modeled contract P&L across the open book (unrealized).' } : null,
+      { val: (st.wins || 0) + 'W · ' + (st.losses || 0) + 'L', lbl: 'resolved record' },
+      st.optionWinRate != null ? { val: Math.round(st.optionWinRate * 100) + '%', lbl: 'option win rate (modeled)', cls: st.optionWinRate >= 0.5 ? 'sig-pos' : 'sig-neg' } : null,
+    ], pkTake);
 
     // --- Stats strip --------------------------------------------------------
     // chips      → the core headline scorecard (always visible on Scorecard)
