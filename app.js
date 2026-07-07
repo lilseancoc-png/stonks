@@ -17479,15 +17479,25 @@
   // open[] trade arrays from data/picks-accuracy.json. P&L is stored as a
   // PERCENT of the entry basis (optionPnlPct), already sign-normalized so
   // + = profit. Everything below derives dollars / return-on-risk / drawdown
-  // / the $1M simulation / Monte Carlo from that + the persisted contract.
+  // / the $100k backtest / Monte Carlo from that + the persisted contract.
   // The single correctness trap: a credit vertical's optionPnlPct is %-of-
   // CREDIT, not %-of-risk — basis = netCredit, risk = the separate maxLoss.
   // ========================================================================
   var ACC_NOTIONAL = 10000;            // fixed-notional "$ per trade" basis
-  var ACC_SIM_START = 1000000;         // $1M portfolio simulation start
-  var ACC_SIM_RISK = 0.01;             // risk 1% of current equity per trade
-  var ACC_SIM_HEAT = 0.10;             // max 10% total risk live at once
-  var ACC_SIM_POSCAP = 0.12;           // no single trade > 12% of equity
+  var ACC_SIM_START = 100000;          // $100k starting capital (backtest + Monte Carlo)
+  var ACC_SIM_RISK = 0.01;             // Monte Carlo: risk 1% of equity per draw
+  // --- portfolio-backtest rules shared by EVERY run mode -------------------
+  var BT_HEAT_CAP = 0.20;              // max total open risk ("heat") = 20% of equity
+  var BT_MAX_POS = 20;                 // max concurrent open positions
+  var BT_SECTOR_CAP = 4;               // max open positions per sector (a 5th is not permitted)
+  var BT_RISK_MIN = 0.0075;            // hard per-trade risk floor (0.75%)
+  var BT_RISK_MAX = 0.02;              // hard per-trade risk cap (2%)
+  var BT_LADDER_CONFIRM = 10;          // ladder 2nd tranche needs the option to have been +10% (confirmation)
+  var BT_ROT_MIN_DAYS = 5;             // rotation: the closed winner must be held > 5 days…
+  var BT_ROT_MIN_PNL = 20;             // …and be up ≥ +20% on premium
+  var BT_KELLY_MIN_N = 10;             // Kelly needs ≥10 resolved trades in the conviction bucket
+  var BT_KELLY_FRAC = 0.5;             // Half Kelly
+  var BT_CORR_HEAT = 0.70;             // "elevated heat" = 70% of the heat cap (correlation gate arms)
   var ACC_THESIS_LABEL = { valuation:'Valuation', momentum:'Momentum / Trend', 'event-driven':'Event-driven', 'macro-sector':'Macro / Sector', 'supply-demand':'Supply / Demand', technical:'Technical / Chart', other:'Other' };
   var ACC_THESIS_ORDER = ['valuation','momentum','event-driven','macro-sector','supply-demand','technical','other'];
   var ACC_REGIME_LABEL = { 'severe-risk-off':'Severe risk-off', 'risk-off':'Risk-off', 'risk-on':'Risk-on', 'neutral':'Neutral' };
@@ -17689,16 +17699,40 @@
              curDD: peak - eq, curDDpct: peak > 0 ? (peak - eq) / peak : 0, recovery: recovery, cagr: cagr, spanDays: spanDays };
   }
 
-  // --- $1M portfolio simulation (event-driven, heat-correct) ---------------
-  // Risk 1% of CURRENT equity per pick; size from the trade's max loss
-  // (contracts = floor(riskBudget / maxLossPerContract)); cap each position at
-  // 12% of equity; cap total live risk ("heat") at 10%; compound; process by
-  // entry/exit events so concurrent open risk is tracked correctly. Open
-  // positions are marked to their TP/cut bracket at sim end. ALL HYPOTHETICAL.
-  function runPortfolioSim(closed, open, opts){
+  // --- $100k portfolio backtest — ONE engine, four sizing run modes --------
+  // Replays the track record's trades in entry/exit date order against a
+  // compounding $100k book. The PORTFOLIO rules are shared by every mode:
+  //   • size from MAX LOSS (contracts = floor(risk budget ÷ max loss per
+  //     contract), rounded DOWN — the risk limit is never exceeded);
+  //   • total open risk ("heat") capped at 20% of current equity;
+  //   • ≤20 concurrent positions; ≤4 per sector (a 5th is not permitted);
+  //   • correlation awareness: with heat already elevated (≥70% of the cap),
+  //     a 3rd open same-sector-same-side trade is skipped;
+  //   • rotation: a heat-blocked NEW pick may free room by closing one
+  //     existing winner held >5 days that has been up ≥ +20% on premium
+  //     (closed at +20% — its recorded peak is the "currently profitable"
+  //     proxy, since only entry/exit marks are stored, not the daily path);
+  //     if no qualifying winner frees enough heat, the pick is skipped.
+  // The four RUN MODES only change the per-trade risk fraction:
+  //   fixed    — Very High conviction = full 2% in one tranche; High = a
+  //              staggered ladder (1% now, +1% added mid-hold only after the
+  //              option has confirmed by trading ≥ +10%, the add filled at the
+  //              +10% price, subject to heat room);
+  //   vol      — conviction base (2% / 1.5%) scaled by average-entry-IV ÷ this
+  //              trade's entry IV (high-vol names size smaller), clamped;
+  //   kelly    — conviction base × Half-Kelly multiplier from the WALK-FORWARD
+  //              per-contract resolved record for that conviction bucket
+  //              (only trades resolved before the entry date count — no
+  //              lookahead); buckets with <10 resolved trades fall back to the
+  //              conviction base;
+  //   combined — vol-adjusted risk × the Half-Kelly multiplier.
+  // All formula modes clamp the final risk into [0.75%, 2%]. Open positions
+  // are marked to their TP/cut bracket at sim end. ALL HYPOTHETICAL.
+  function accBaseRiskPct(tier){ return tier === 'Very High' ? 0.02 : tier === 'High' ? 0.015 : 0.01; }
+  function runPortfolioBacktest(closed, open, opts){
     opts = opts || {};
-    var start = opts.start || ACC_SIM_START, riskPct = opts.riskPct || ACC_SIM_RISK;
-    var heatCap = opts.heatCap || ACC_SIM_HEAT, posCap = opts.posCap || ACC_SIM_POSCAP;
+    var mode = opts.mode || 'fixed';
+    var start = opts.start || ACC_SIM_START;
     var nowMs = Date.now();
     var src = accDecided(closed).slice();
     var maxClosedExit = 0; for (var i=0;i<src.length;i++){ var x = Date.parse(src[i].exitDate)||0; if (x > maxClosedExit) maxClosedExit = x; }
@@ -17707,74 +17741,193 @@
     function pushTrade(e, isOpen){
       var d = tradeDollars(e); if (!d) return;
       if (opts.highConvictionOnly && accConvictionTier(e) !== 'Very High') return;
-      var pnlPC = isOpen ? accBracketPnlPerContract(e) : d.pnl;
-      if (pnlPC == null || !isFinite(pnlPC)) return;
+      // closePct = final P&L as a % of the entry basis (matches optionPnlPct);
+      // open positions close at their TP/cut bracket like the old simulator.
+      var closePct;
+      if (isOpen){ var bpc = accBracketPnlPerContract(e); closePct = (bpc == null || !(d.basis > 0)) ? null : bpc / d.basis; }
+      else closePct = d.pnlPct;
+      if (closePct == null || !isFinite(closePct)) return;
       var entryMs = Date.parse(e.entryDate)||0;
       var exitMs = isOpen ? simEnd : (Date.parse(e.exitDate)||simEnd);
       if (exitMs < entryMs) exitMs = entryMs;
-      // capPC = capital tied up for the per-position cap: a credit vertical pays
-      // no premium but ties up its max-loss as margin, so cap on maxLoss there;
-      // longs/debits cap on the premium paid. (Without this the 12% cap is inert
-      // for credit spreads — credit received ≪ capital at risk.)
-      var credit = e.contract && e.contract.structure === 'credit_vertical';
-      var capPC = credit ? d.maxLoss : (d.entryCost > 0 ? d.entryCost : d.maxLoss);
-      trades.push({ entryMs:entryMs, exitMs:exitMs, riskPC:d.maxLoss, capPC:capPC, pnlPC:pnlPC, win:pnlPC >= 0, symbol:e.symbol, score:Math.abs(Number(e.score))||0 });
+      var c = e.contract || {};
+      var iv = Number(c.iv);
+      var hi = Number(e.optHiPct);
+      trades.push({
+        entryMs:entryMs, exitMs:exitMs, basis:d.basis, riskPC:d.maxLoss, maxProfitPC:d.maxProfit,
+        closePct:closePct, pnlPC:d.basis*closePct, resolved:!isOpen,
+        credit: c.structure === 'credit_vertical',
+        optHi: isFinite(hi) ? hi : null,
+        tier: accConvictionTier(e), sector: e.sector || 'Unknown', side: e.side === 'put' ? 'put' : 'call',
+        iv: (isFinite(iv) && iv > 0) ? iv : null,
+        symbol: e.symbol, score: Math.abs(Number(e.score))||0,
+      });
     }
     for (i=0;i<src.length;i++) pushTrade(src[i], false);
     if (opts.includeOpens){ var op = open||[]; for (i=0;i<op.length;i++) pushTrade(op[i], true); }
-    if (!trades.length) return { empty:true, nTaken:0, nSkipped:0 };
-    // events: close before open at the same instant (free capital/heat first);
-    // opens at the same instant deterministically ordered (score desc, symbol).
+    if (!trades.length) return { empty:true, mode:mode, nTaken:0, nSkipped:0 };
+    // Events: close(0) < ladder-add(1) < open(2) at the same instant — closes
+    // free capital/heat first; opens deterministically ordered (score desc).
+    // The ladder add is scheduled mid-hold (a proxy for "later" — the stored
+    // record has no intraday path to time the confirmation off).
     var events = [];
-    trades.forEach(function(t, idx){ events.push({ t:t.entryMs, kind:1, id:idx, tr:t }); events.push({ t:t.exitMs, kind:0, id:idx, tr:t }); });
+    trades.forEach(function(t, idx){
+      events.push({ t:t.entryMs, kind:2, id:idx, tr:t });
+      events.push({ t:t.exitMs, kind:0, id:idx, tr:t });
+      var addMs = t.entryMs + (t.exitMs - t.entryMs) / 2;
+      if (addMs > t.entryMs && addMs < t.exitMs) events.push({ t:addMs, kind:1, id:idx, tr:t });
+    });
     events.sort(function(a,b){
       if (a.t !== b.t) return a.t - b.t;
-      if (a.kind !== b.kind) return a.kind - b.kind;              // close(0) before open(1)
-      if (a.kind === 1){ var ds = (b.tr.score - a.tr.score); if (ds) return ds; return String(a.tr.symbol).localeCompare(String(b.tr.symbol)); }
+      if (a.kind !== b.kind) return a.kind - b.kind;
+      if (a.kind === 2){ var ds = (b.tr.score - a.tr.score); if (ds) return ds; return String(a.tr.symbol).localeCompare(String(b.tr.symbol)); }
       return a.id - b.id;
     });
     var equity = start, committed = 0, peak = start, maxDD = 0, maxDDpct = 0, troughI = -1, peakAtTrough = start;
-    var openMap = {}, sizes = [], taken = 0, skipped = 0, reduced = 0, wins = 0, losses = 0, grossWin = 0, grossLoss = 0;
+    var openMap = {}, openCount = 0, sectorCount = {};
+    var taken = 0, wins = 0, losses = 0, grossWin = 0, grossLoss = 0;
+    var skip = { heat:0, sector:0, positions:0, correlation:0, tiny:0 };
+    var rotations = 0, ladderAdds = 0, riskPcts = [], sizes = [], maxHeatFrac = 0;
     var curve = [{ idx:0, value:start, date:null }];
+    // Walk-forward Kelly state: per-conviction-bucket resolved PER-CONTRACT
+    // stats, accumulated as source trades resolve (close events fire in date
+    // order and before same-instant opens, so an entry only ever sees trades
+    // already resolved — the "latest Scorecard data" with no lookahead).
+    var kAcc = {};
+    function kellyMult(tier){
+      var s = kAcc[tier];
+      if (!s || s.n < BT_KELLY_MIN_N) return null;               // small sample → fall back to base risk
+      var p = s.w / s.n, q = 1 - p;
+      var avgWin = s.w > 0 ? s.sumWin / s.w : 0;
+      var nl = s.n - s.w, avgLoss = nl > 0 ? s.sumLossAbs / nl : 0;
+      var f;
+      if (!(avgWin > 0)) f = 0;                                   // no winners → no edge
+      else if (!(avgLoss > 0)) f = p;                             // no losers → Kelly limit as b→∞
+      else { var b = avgWin / avgLoss; f = (b * p - q) / b; }
+      if (!isFinite(f) || f < 0) f = 0;
+      return { mult: f * BT_KELLY_FRAC, f:f, p:p, avgWin:avgWin, avgLoss:avgLoss, n:s.n,
+               edge: p * avgWin - q * avgLoss };
+    }
+    // Vol-targeting state: running mean of entry IVs seen so far (the
+    // "average historical volatility" backdrop each new trade is scaled by).
+    var ivSum = 0, ivN = 0;
+    function btClampRisk(x){ return Math.min(BT_RISK_MAX, Math.max(BT_RISK_MIN, x)); }
+    function realizeClose(pos, exitPct, closeMs){
+      // Each tranche entered at basis×(1+offset/100) exits at basis×(1+exitPct/100)
+      // → per-contract P&L = basis × (exitPct − offset) for every structure
+      // (a credit vertical's later tranche collects offset% less credit).
+      var pnl = 0;
+      for (var q=0;q<pos.tranches.length;q++){ var tr = pos.tranches[q]; pnl += tr.n * pos.t.basis * (exitPct - tr.offset); }
+      equity += pnl; committed -= pos.riskUsed; if (committed < 0) committed = 0;
+      openCount--; sectorCount[pos.t.sector] = Math.max(0, (sectorCount[pos.t.sector]||0) - 1);
+      if (pnl >= 0){ wins++; grossWin += pnl; } else { losses++; grossLoss += -pnl; }
+      curve.push({ idx: curve.length, value: equity, date: closeMs });
+      if (equity > peak) peak = equity;
+      var dnow = peak - equity;
+      if (dnow > maxDD){ maxDD = dnow; maxDDpct = peak > 0 ? dnow / peak : 0; troughI = curve.length - 1; peakAtTrough = peak; }
+    }
     for (var ev=0; ev<events.length; ev++){
-      var E = events[ev], t = E.tr;
-      if (E.kind === 1){ // OPEN
-        var mlpc = t.riskPC; if (!(mlpc > 0)) { skipped++; continue; }
-        var riskBudget = riskPct * equity;
-        var contracts = Math.floor(riskBudget / mlpc);
-        var posLimit = Math.floor((posCap * equity) / (t.capPC > 0 ? t.capPC : mlpc));
-        if (posLimit < contracts) contracts = posLimit;
-        var avail = heatCap * equity - committed;
-        if (contracts * mlpc > avail){ contracts = Math.floor(avail / mlpc); if (contracts >= 1) reduced++; }
-        if (contracts < 1){ skipped++; continue; }
-        committed += contracts * mlpc;
-        openMap[E.id] = { contracts: contracts, riskUsed: contracts * mlpc, tr: t };
-        taken++; sizes.push(contracts * mlpc);   // $ risked per the spec (max-loss × contracts)
-      } else { // CLOSE
-        var pos = openMap[E.id]; if (!pos) continue;            // never opened (skipped) → no realization
-        var pnl = pos.contracts * t.pnlPC;
-        equity += pnl; committed -= pos.riskUsed; if (committed < 0) committed = 0;
+      var E = events[ev], t = E.tr, pos;
+      if (E.kind === 0){ // CLOSE — resolve the scorecard first, then the book
+        if (t.resolved){
+          var ks = kAcc[t.tier] || (kAcc[t.tier] = { n:0, w:0, sumWin:0, sumLossAbs:0 });
+          ks.n++; if (t.pnlPC >= 0){ ks.w++; ks.sumWin += t.pnlPC; } else ks.sumLossAbs += -t.pnlPC;
+        }
+        pos = openMap[E.id]; if (!pos) continue;                 // never opened (skipped / rotated out)
         delete openMap[E.id];
-        if (pnl >= 0){ wins++; grossWin += pnl; } else { losses++; grossLoss += -pnl; }
-        curve.push({ idx: curve.length, value: equity, date: t.exitMs });
-        if (equity > peak) peak = equity;
-        var dnow = peak - equity;
-        if (dnow > maxDD){ maxDD = dnow; maxDDpct = peak > 0 ? dnow / peak : 0; troughI = curve.length - 1; peakAtTrough = peak; }
+        realizeClose(pos, t.closePct, t.exitMs);
+      } else if (E.kind === 1){ // LADDER ADD (fixed mode, staggered entries only)
+        pos = openMap[E.id]; if (!pos || !pos.ladder || pos.tranches.length > 1) continue;
+        if (t.optHi == null || t.optHi < BT_LADDER_CONFIRM) continue;   // never confirmed → no add
+        // The add fills at the confirmed (+10%) price, so it risks MORE per
+        // contract: long/debit pay basis×1.1 (capped at the spread width);
+        // a credit vertical collects 10% less credit (max loss up by that).
+        var mlpc2 = t.credit ? (t.riskPC + t.basis * BT_LADDER_CONFIRM)
+                             : t.basis * (1 + BT_LADDER_CONFIRM / 100) * 100;
+        if (!t.credit && t.maxProfitPC != null) mlpc2 = Math.min(mlpc2, t.riskPC + t.maxProfitPC);
+        if (!(mlpc2 > 0)) continue;
+        var n2 = Math.floor((0.01 * equity) / mlpc2);            // second tranche: +1% risk
+        var room2 = BT_HEAT_CAP * equity - committed;
+        if (n2 * mlpc2 > room2) n2 = Math.floor(room2 / mlpc2);  // adds shrink to fit heat (no rotation)
+        if (n2 < 1) continue;
+        committed += n2 * mlpc2; pos.riskUsed += n2 * mlpc2;
+        pos.tranches.push({ n:n2, offset:BT_LADDER_CONFIRM, mlpc:mlpc2 });
+        ladderAdds++; sizes.push(n2 * mlpc2);
+        if (equity > 0 && committed / equity > maxHeatFrac) maxHeatFrac = committed / equity;
+      } else { // OPEN — apply the mode's sizing, then the shared portfolio gates
+        var mlpc = t.riskPC; if (!(mlpc > 0)){ skip.tiny++; continue; }
+        if (t.iv != null){ ivSum += t.iv; ivN++; }               // every pick updates the vol backdrop
+        if (openCount >= BT_MAX_POS){ skip.positions++; continue; }
+        if ((sectorCount[t.sector]||0) >= BT_SECTOR_CAP){ skip.sector++; continue; }
+        if (committed >= BT_CORR_HEAT * BT_HEAT_CAP * equity){
+          var corr = 0;
+          for (var oid in openMap){ var om = openMap[oid]; if (om.t.sector === t.sector && om.t.side === t.side) corr++; }
+          if (corr >= 2){ skip.correlation++; continue; }
+        }
+        var tierBase = accBaseRiskPct(t.tier);
+        var avgIV = ivN > 0 ? ivSum / ivN : null;
+        var volAdj = (t.iv != null && avgIV != null && avgIV > 0) ? avgIV / t.iv : 1;
+        var ladder = false, riskPct, km;
+        if (mode === 'fixed'){
+          if (t.tier === 'Very High') riskPct = BT_RISK_MAX;      // full size, single tranche
+          else { riskPct = 0.01; ladder = true; }                 // staggered: 1% now (+1% add on confirmation)
+        } else if (mode === 'vol'){
+          riskPct = btClampRisk(tierBase * volAdj);
+        } else if (mode === 'kelly'){
+          km = kellyMult(t.tier);
+          riskPct = km == null ? tierBase : btClampRisk(tierBase * km.mult);
+        } else { // combined: vol-adjusted base × Half-Kelly multiplier
+          km = kellyMult(t.tier);
+          var vr = tierBase * volAdj;
+          riskPct = btClampRisk(km == null ? vr : vr * km.mult);
+        }
+        var contracts = Math.floor((riskPct * equity) / mlpc);
+        if (contracts < 1){ skip.tiny++; continue; }
+        var riskAmt = contracts * mlpc;
+        if (committed + riskAmt > BT_HEAT_CAP * equity){
+          // Heat-blocked: only proceed by rotating out ONE qualifying winner
+          // (held >5d, has been up ≥+20%) that frees enough heat; else skip.
+          var needed = committed + riskAmt - BT_HEAT_CAP * equity;
+          var cand = null;
+          for (var rid in openMap){
+            var rp = openMap[rid];
+            if (E.t - rp.entryMs <= BT_ROT_MIN_DAYS * 86400000) continue;
+            if (rp.t.optHi == null || rp.t.optHi < BT_ROT_MIN_PNL) continue;
+            if (rp.riskUsed < needed) continue;                  // wouldn't free enough — don't waste the winner
+            if (!cand || rp.riskUsed < cand.pos.riskUsed) cand = { id:rid, pos:rp };  // smallest sufficient
+          }
+          if (!cand){ skip.heat++; continue; }
+          delete openMap[cand.id];
+          realizeClose(cand.pos, BT_ROT_MIN_PNL, E.t);
+          rotations++;
+          if (committed + riskAmt > BT_HEAT_CAP * equity){ skip.heat++; continue; }  // equity shifted the cap — bail
+        }
+        committed += riskAmt;
+        openMap[E.id] = { tranches:[{ n:contracts, offset:0, mlpc:mlpc }], riskUsed:riskAmt, t:t, entryMs:E.t, ladder:ladder };
+        openCount++; sectorCount[t.sector] = (sectorCount[t.sector]||0) + 1;
+        taken++; riskPcts.push(riskPct); sizes.push(riskAmt);
+        if (equity > 0 && committed / equity > maxHeatFrac) maxHeatFrac = committed / equity;
       }
     }
     var recovery = null; if (troughI >= 0){ for (var k=troughI+1;k<curve.length;k++){ if (curve[k].value >= peakAtTrough){ recovery = k - troughI; break; } } }
     var decN = wins + losses;
+    // Final per-bucket Kelly snapshot (for the run-mode detail table).
+    var kellyByTier = {};
+    for (var kt in kAcc){ var kk = kellyMult(kt); kellyByTier[kt] = kk ? Object.assign({ active:true }, kk) : { active:false, n:kAcc[kt].n }; }
+    var nSkipped = skip.heat + skip.sector + skip.positions + skip.correlation + skip.tiny;
     return {
-      empty:false, start:start, finalEquity:equity, totalReturnPct:(equity/start - 1)*100,
+      empty:false, mode:mode, start:start, finalEquity:equity, totalReturnPct:(equity/start - 1)*100,
       maxDD:maxDD, maxDDpct:maxDDpct, curDD:peak - equity, curDDpct: peak > 0 ? (peak - equity)/peak : 0,
       peak:peak, recovery:recovery, winRate: decN ? wins/decN : null, profitFactor: grossLoss > 0 ? grossWin/grossLoss : (grossWin > 0 ? Infinity : null),
-      nTaken:taken, nSkipped:skipped, nReduced:reduced, avgPositionSize: sizes.length ? accMean(sizes) : null, curve:curve,
+      nTaken:taken, nSkipped:nSkipped, skip:skip, rotations:rotations, ladderAdds:ladderAdds,
+      avgRiskPct: riskPcts.length ? accMean(riskPcts) : null, avgPositionSize: sizes.length ? accMean(sizes) : null,
+      maxHeatPct: maxHeatFrac, kellyByTier: kellyByTier, avgEntryIV: ivN > 0 ? ivSum / ivN : null, curve:curve,
     };
   }
 
   // --- Monte Carlo (bootstrap resample of resolved return-on-risk) ---------
   // Resample resolved trades' return-on-risk (R = pnl/maxLoss, scale-free) with
-  // replacement, B times, compounding 1% risk per draw on a $1M base — the
+  // replacement, B times, compounding 1% risk per draw on a $100k base — the
   // simulator's model run on a reshuffled deck. Keeps a few full paths for the
   // fan chart; scalars (final, maxDD%, Sharpe) for every path. Seeded → stable.
   function runMonteCarlo(closed, opts){
@@ -17832,9 +17985,9 @@
   // (dataset = resolved-only vs incl. open marks; basis = $10k notional vs
   // per-contract) and re-renders on any toggle via accRerenderAnalytics().
   // ========================================================================
-  var accView = { dataset:'closed', basis:'notional', xtabA:'thesis', xtabB:'conviction', simOpens:false, simHighConv:false, mcIters:'5000', mcSeed:1337 };
-  (function(){ try { var sv = JSON.parse(localStorage.getItem('stonks-acc-view') || '{}'); ['dataset','basis','xtabA','xtabB','mcIters'].forEach(function(k){ if (sv[k] != null) accView[k] = sv[k]; }); ['simOpens','simHighConv'].forEach(function(k){ if (typeof sv[k] === 'boolean') accView[k] = sv[k]; }); } catch (e){} })();
-  function accSaveView(){ try { localStorage.setItem('stonks-acc-view', JSON.stringify({ dataset:accView.dataset, basis:accView.basis, xtabA:accView.xtabA, xtabB:accView.xtabB, simOpens:accView.simOpens, simHighConv:accView.simHighConv, mcIters:accView.mcIters })); } catch (e){} }
+  var accView = { dataset:'closed', basis:'notional', xtabA:'thesis', xtabB:'conviction', simMode:'fixed', simOpens:false, simHighConv:false, mcIters:'5000', mcSeed:1337 };
+  (function(){ try { var sv = JSON.parse(localStorage.getItem('stonks-acc-view') || '{}'); ['dataset','basis','xtabA','xtabB','simMode','mcIters'].forEach(function(k){ if (sv[k] != null) accView[k] = sv[k]; }); ['simOpens','simHighConv'].forEach(function(k){ if (typeof sv[k] === 'boolean') accView[k] = sv[k]; }); if (['fixed','vol','kelly','combined'].indexOf(accView.simMode) < 0) accView.simMode = 'fixed'; } catch (e){} })();
+  function accSaveView(){ try { localStorage.setItem('stonks-acc-view', JSON.stringify({ dataset:accView.dataset, basis:accView.basis, xtabA:accView.xtabA, xtabB:accView.xtabB, simMode:accView.simMode, simOpens:accView.simOpens, simHighConv:accView.simHighConv, mcIters:accView.mcIters })); } catch (e){} }
   // The active trade set. 'closed' = resolved only; 'all' = also include the
   // open book, each open position "resolved" at its CURRENT modeled mark
   // (win if green now). Clearly labelled as modeled wherever it's shown.
@@ -17884,7 +18037,7 @@
   }
   function accPF(n){ if (n == null) return '—'; if (n === Infinity) return '∞'; if (!isFinite(n)) return '—'; return n.toFixed(2); }
   // Short YYYY-MM-DD from either an ISO string or epoch ms — equity-curve
-  // points carry ISO dates (buildEquityCurve) or ms (runPortfolioSim).
+  // points carry ISO dates (buildEquityCurve) or ms (runPortfolioBacktest).
   function accAnyDateShort(d){
     if (d == null) return '';
     if (typeof d === 'number' && isFinite(d)){
@@ -18494,31 +18647,49 @@
     box.innerHTML = toggles + '<p class="hint acc-an-lead">All bucket tables are per single contract.' + accDatasetTip() + '</p>' + tables + xtab;
   }
 
-  // --- Portfolio simulation sub-tab (#an-sim) ------------------------------
+  // --- Portfolio backtest sub-tab (#an-sim) ---------------------------------
+  // One flexible engine (runPortfolioBacktest), four selectable run modes.
+  var ACC_BT_MODES = [
+    { value:'fixed',    label:'Fixed sizing',      desc:'Baseline: Very High conviction = full 2% risk in one tranche; High conviction ladders in — 1% now, +1% added only after the option confirms by trading ≥ +' + BT_LADDER_CONFIRM + '% (the add fills at the confirmed price).' },
+    { value:'vol',      label:'Volatility target', desc:'Conviction base risk (2% Very High / 1.5% High) scaled by average entry IV ÷ this trade\'s entry IV — a high-volatility name sizes smaller, a quiet one larger, clamped to ' + (BT_RISK_MIN * 100) + '–' + (BT_RISK_MAX * 100) + '%.' },
+    { value:'kelly',    label:'½ Kelly',           desc:'Conviction base risk × the Half-Kelly multiplier computed walk-forward from that conviction bucket\'s resolved per-contract record (win rate, avg win, avg loss). Buckets with fewer than ' + BT_KELLY_MIN_N + ' resolved trades fall back to the conviction base; the result is clamped to ' + (BT_RISK_MIN * 100) + '–' + (BT_RISK_MAX * 100) + '%.' },
+    { value:'combined', label:'Vol × Kelly',       desc:'Both adjustments: the volatility-adjusted risk is multiplied by the Half-Kelly multiplier, then clamped to ' + (BT_RISK_MIN * 100) + '–' + (BT_RISK_MAX * 100) + '%.' },
+  ];
+  function accBtModeLabel(mode){ for (var i=0;i<ACC_BT_MODES.length;i++){ if (ACC_BT_MODES[i].value === mode) return ACC_BT_MODES[i].label; } return mode; }
   function renderSimulation(){
     var box = $('an-sim'); if (!box) return;
     var d = accuracyState.data || {};
     var closed = Array.isArray(d.closed) ? d.closed : [], open = Array.isArray(d.open) ? d.open : [];
-    var sim = runPortfolioSim(closed, open, { includeOpens: accView.simOpens, highConvictionOnly: accView.simHighConv });
-    var toggles = '<div class="acc-controls">' +
+    var baseOpts = { includeOpens: accView.simOpens, highConvictionOnly: accView.simHighConv };
+    var mode = accView.simMode || 'fixed';
+    // Run ALL four modes on the same trade set (cheap — the record is small):
+    // the selected one drives the detail view, the rest fill the comparison.
+    var runs = {};
+    for (var mi=0; mi<ACC_BT_MODES.length; mi++){ var mv = ACC_BT_MODES[mi].value; runs[mv] = runPortfolioBacktest(closed, open, Object.assign({ mode: mv }, baseOpts)); }
+    var sim = runs[mode];
+    var controls = '<div class="acc-controls">' +
+      '<div class="acc-ctl"><span class="acc-ctl-lbl">Run mode</span>' + accSeg('simMode', 'acc-sim-mode', mode, ACC_BT_MODES.map(function(m){ return { value:m.value, label:m.label }; })) + '</div>' +
       accChkbox('simHighConv', 'acc-sim-hc', accView.simHighConv, 'Only High Conviction (Very High tier)') +
       accChkbox('simOpens', 'acc-sim-op', accView.simOpens, 'Include open positions (marked to TP/cut at close)') +
     '</div>';
     var banner = '<div class="acc-hypo">ALL HYPOTHETICAL · modeled fills, not realized trades</div>';
-    var rules = '<details class="acc-an-rules"><summary>Simulation rules</summary><ul>' +
-      '<li>Start $' + ACC_SIM_START.toLocaleString() + '; risk ' + (ACC_SIM_RISK * 100) + '% of <em>current</em> equity per trade (compounds).</li>' +
-      '<li>Position size = floor(risk budget ÷ the trade\'s max loss per contract).</li>' +
-      '<li>Per-trade cap ' + (ACC_SIM_POSCAP * 100) + '% of equity; total live risk ("heat") capped at ' + (ACC_SIM_HEAT * 100) + '% — size is reduced, then skipped if it can\'t fit.</li>' +
-      '<li>Trades opened/closed by their entry/exit dates so concurrent risk is tracked; fractional contracts rounded down (skipped if 0).</li>' +
+    var modeDesc = ''; for (mi=0; mi<ACC_BT_MODES.length; mi++){ if (ACC_BT_MODES[mi].value === mode) modeDesc = ACC_BT_MODES[mi].desc; }
+    var rules = '<details class="acc-an-rules"><summary>Backtest rules (all run modes)</summary><ul>' +
+      '<li>Start $' + ACC_SIM_START.toLocaleString() + '. Every position is sized from its <em>max loss</em> (for credit spreads: spread width − credit), never the credit received: contracts = floor(risk budget ÷ max loss per contract) — rounded down, so the risk limit is never exceeded. Per-trade risk is hard-capped at ' + (BT_RISK_MAX * 100) + '% of current equity.</li>' +
+      '<li>Portfolio heat (total open risk) capped at ' + (BT_HEAT_CAP * 100) + '% of equity; max ' + BT_MAX_POS + ' open positions; max ' + BT_SECTOR_CAP + ' per sector (a 5th is not permitted).</li>' +
+      '<li>Correlation awareness: once heat is elevated (≥' + Math.round(BT_CORR_HEAT * 100) + '% of the cap), a third open same-sector, same-direction trade is skipped.</li>' +
+      '<li>Heat-blocked new picks may rotate: close one existing winner held &gt;' + BT_ROT_MIN_DAYS + ' days that has been up ≥ +' + BT_ROT_MIN_PNL + '% on premium (banked at +' + BT_ROT_MIN_PNL + '% — the record stores entry/exit marks, not the daily path, so its recorded peak is the "currently profitable" proxy). No qualifying winner → the pick is skipped.</li>' +
+      '<li>Winners otherwise run to the engine\'s own exits — trades open/close on their real entry/exit dates, so concurrent risk is tracked exactly; losers resolve at the engine\'s original cut levels.</li>' +
+      '<li><b>' + escapeHtml(accBtModeLabel(mode)) + ':</b> ' + modeDesc + '</li>' +
     '</ul></details>';
-    if (sim.empty){ accPaneSummary('acc-sum-sim', []); box.innerHTML = banner + toggles + '<p class="muted acc-an-note">The $' + ACC_SIM_START.toLocaleString() + ' portfolio simulation runs once picks resolve' + (accView.simHighConv ? ' (no Very-High-tier trades yet)' : '') + '.</p>' + rules; return; }
-    function chip(num, lbl, cls){ return '<div class="accuracy-chip' + (cls ? ' ' + cls : '') + '"><span class="accuracy-chip-num">' + num + '</span><span class="accuracy-chip-lbl">' + lbl + '</span></div>'; }
+    if (!sim || sim.empty){ accPaneSummary('acc-sum-sim', []); box.innerHTML = banner + controls + '<p class="muted acc-an-note">The $' + ACC_SIM_START.toLocaleString() + ' portfolio backtest runs once picks resolve' + (accView.simHighConv ? ' (no Very-High-tier trades yet)' : '') + '.</p>' + rules; return; }
+    function chip(num, lbl, cls, tip){ return '<div class="accuracy-chip' + (cls ? ' ' + cls : '') + '"' + (tip ? ' title="' + escapeHtml(tip) + '"' : '') + '><span class="accuracy-chip-num">' + num + '</span><span class="accuracy-chip-lbl">' + lbl + '</span></div>'; }
     var ret = sim.totalReturnPct;
-    // "At a glance" strip — the simulated book's bottom line.
-    var simTake = 'Hypothetical compounding book — modeled fills, not real trades. It is currently ' + (sim.curDD > 0 ? Math.round(sim.curDDpct * 100) + '% below its peak.' : 'at equity highs.');
+    // "At a glance" strip — the selected run mode's bottom line.
+    var simTake = 'Hypothetical $' + ACC_SIM_START.toLocaleString() + ' book replayed under the <b>' + escapeHtml(accBtModeLabel(mode)) + '</b> sizing mode — modeled fills, not real trades. It is currently ' + (sim.curDD > 0 ? Math.round(sim.curDDpct * 100) + '% below its peak.' : 'at equity highs.');
     accPaneSummary('acc-sum-sim', [
       { val: (ret >= 0 ? '+' : '') + ret.toFixed(1) + '%', lbl: 'total return', cls: ret >= 0 ? 'sig-pos' : 'sig-neg' },
-      { val: accMoney(sim.finalEquity, false), lbl: 'final equity', tip: 'Started at $' + ACC_SIM_START.toLocaleString() + ', risking ' + (ACC_SIM_RISK * 100) + '% of current equity per trade.' },
+      { val: accMoney(sim.finalEquity, false), lbl: 'final equity', tip: 'Started at $' + ACC_SIM_START.toLocaleString() + ' under the ' + accBtModeLabel(mode) + ' run mode.' },
       { val: '-' + Math.round(sim.maxDDpct * 100) + '%', lbl: 'max drawdown', cls: 'sig-neg' },
       { val: accPctRate(sim.winRate), lbl: 'win rate', cls: sim.winRate != null && sim.winRate >= 0.5 ? 'sig-pos' : '' },
       { val: String(sim.nTaken), lbl: 'trades taken' + (sim.nSkipped ? ' · ' + sim.nSkipped + ' skipped' : '') },
@@ -18531,14 +18702,66 @@
       chip(accPctRate(sim.winRate), 'win rate', sim.winRate != null && sim.winRate >= 0.5 ? 'accuracy-chip-good' : '') +
       chip(accPF(sim.profitFactor), 'profit factor', sim.profitFactor != null && (sim.profitFactor === Infinity || sim.profitFactor >= 1.5) ? 'accuracy-chip-good' : '') +
       chip(String(sim.nTaken), 'trades taken', '') +
-      chip(accMoney(sim.avgPositionSize, false), 'avg risk / trade', '') +
-      chip(accMoney(sim.peak, false), 'peak equity', '') +
+      chip(sim.avgRiskPct != null ? (sim.avgRiskPct * 100).toFixed(2) + '%' : '—', 'avg risk / trade', '', 'Average initial per-trade risk as a % of equity at entry (ladder adds excluded).') +
+      chip(accMoney(sim.avgPositionSize, false), 'avg $ risked', '', 'Average dollars at risk per tranche (max loss × contracts).') +
+      chip(Math.round((sim.maxHeatPct || 0) * 100) + '%', 'peak heat', '', 'Highest total open risk reached, as a % of equity (cap ' + (BT_HEAT_CAP * 100) + '%).') +
+      (sim.rotations ? chip(String(sim.rotations), 'winners rotated', '', 'Winning positions closed early (held >' + BT_ROT_MIN_DAYS + 'd, up ≥+' + BT_ROT_MIN_PNL + '%) to free heat for a new pick.') : '') +
+      (mode === 'fixed' ? chip(String(sim.ladderAdds), 'ladder adds', '', 'Second 1% tranches added after the option confirmed by trading ≥ +' + BT_LADDER_CONFIRM + '%.') : '') +
       chip(sim.recovery != null ? sim.recovery + ' trades' : (sim.maxDD > 0 ? 'not yet' : '—'), 'recovery periods', '') +
     '</div>';
-    var skipNote = (sim.nSkipped || sim.nReduced) ? '<p class="hint acc-an-note">' + sim.nSkipped + ' trade' + (sim.nSkipped === 1 ? '' : 's') + ' skipped (heat cap / size &lt; 1 contract)' + (sim.nReduced ? ', ' + sim.nReduced + ' down-sized to fit the heat cap' : '') + '.</p>' : '';
-    box.innerHTML = banner + toggles +
-      '<p class="hint acc-an-lead">Compounding $' + ACC_SIM_START.toLocaleString() + ' book, ' + (ACC_SIM_RISK * 100) + '% risk per trade, resolved in date order.</p>' +
-      tiles + accEquitySvg(sim.curve, { formatValue: function(v){ return fmtBigDollars(v); } }) + skipNote + rules;
+    // --- run-mode comparison: same trades, same portfolio rules, four sizings
+    var cmp = '<div class="acc-an-subhead">Run-mode comparison — same trades, four sizing rules</div>' +
+      '<div class="acc-tscroll"><div class="acc-mtable" style="grid-template-columns:minmax(9em,1.4fr) repeat(5,1fr)">' +
+      '<div class="acc-mh">Mode</div><div class="acc-mh">Final equity</div><div class="acc-mh">Return</div><div class="acc-mh">Max DD</div><div class="acc-mh">Trades</div><div class="acc-mh">Skipped</div>';
+    for (mi=0; mi<ACC_BT_MODES.length; mi++){
+      var mm = ACC_BT_MODES[mi], r = runs[mm.value];
+      var sel = mm.value === mode;
+      var name = (sel ? '▶ ' : '') + escapeHtml(mm.label);
+      if (!r || r.empty){ cmp += '<div class="acc-mc">' + name + '</div><div class="acc-mc">—</div><div class="acc-mc">—</div><div class="acc-mc">—</div><div class="acc-mc">0</div><div class="acc-mc">—</div>'; continue; }
+      cmp += '<div class="acc-mc"' + (sel ? ' style="font-weight:600"' : '') + '>' + name + '</div>' +
+        '<div class="acc-mc">' + accMoney(r.finalEquity, false) + '</div>' +
+        '<div class="acc-mc ' + accSignClass(r.totalReturnPct) + '">' + (r.totalReturnPct >= 0 ? '+' : '') + r.totalReturnPct.toFixed(1) + '%</div>' +
+        '<div class="acc-mc sig-neg">-' + Math.round(r.maxDDpct * 100) + '%</div>' +
+        '<div class="acc-mc">' + r.nTaken + '</div>' +
+        '<div class="acc-mc">' + r.nSkipped + '</div>';
+    }
+    cmp += '</div></div>';
+    // --- Kelly bucket table (kelly / combined modes) — the edge the sizing saw
+    var kellyTbl = '';
+    if (mode === 'kelly' || mode === 'combined'){
+      var tiers = Object.keys(sim.kellyByTier || {});
+      tiers.sort(function(a,b){ return (b === 'Very High' ? 1 : 0) - (a === 'Very High' ? 1 : 0); });
+      if (tiers.length){
+        kellyTbl = '<div class="acc-an-subhead">Kelly inputs by conviction bucket (final walk-forward state, per contract)</div>' +
+          '<div class="acc-tscroll"><div class="acc-mtable" style="grid-template-columns:minmax(7em,1.2fr) repeat(6,1fr)">' +
+          '<div class="acc-mh">Conviction</div><div class="acc-mh">Resolved</div><div class="acc-mh">Win rate</div><div class="acc-mh">Avg win</div><div class="acc-mh">Avg loss</div><div class="acc-mh">Edge</div><div class="acc-mh">½-Kelly mult</div>';
+        for (var ti=0; ti<tiers.length; ti++){
+          var tk = tiers[ti], kb = sim.kellyByTier[tk];
+          if (!kb.active){
+            kellyTbl += '<div class="acc-mc">' + escapeHtml(tk) + '</div><div class="acc-mc">' + kb.n + '</div>' +
+              '<div class="acc-mc" style="grid-column:span 5">needs ≥' + BT_KELLY_MIN_N + ' resolved trades — using the ' + (accBaseRiskPct(tk) * 100) + '% conviction base</div>';
+            continue;
+          }
+          kellyTbl += '<div class="acc-mc">' + escapeHtml(tk) + '</div>' +
+            '<div class="acc-mc">' + kb.n + '</div>' +
+            '<div class="acc-mc">' + Math.round(kb.p * 100) + '%</div>' +
+            '<div class="acc-mc sig-pos">' + accMoney(kb.avgWin, true) + '</div>' +
+            '<div class="acc-mc sig-neg">' + accMoney(-kb.avgLoss, true) + '</div>' +
+            '<div class="acc-mc ' + accSignClass(kb.edge) + '">' + accMoney(kb.edge, true) + '</div>' +
+            '<div class="acc-mc">' + accNum(kb.mult, 2) + '×</div>';
+        }
+        kellyTbl += '</div></div><p class="hint acc-an-note">Final risk = conviction base' + (mode === 'combined' ? ' × volatility adjustment' : '') + ' × the ½-Kelly multiplier, clamped to ' + (BT_RISK_MIN * 100) + '–' + (BT_RISK_MAX * 100) + '%. Multipliers are recomputed walk-forward at every entry from trades already resolved by that date.</p>';
+      }
+    }
+    var skipNote = sim.nSkipped ? '<p class="hint acc-an-note">' + sim.nSkipped + ' pick' + (sim.nSkipped === 1 ? '' : 's') + ' skipped — ' +
+      [sim.skip.heat ? sim.skip.heat + ' heat-blocked (no qualifying winner to rotate)' : '',
+       sim.skip.sector ? sim.skip.sector + ' at the ' + BT_SECTOR_CAP + '-per-sector cap' : '',
+       sim.skip.positions ? sim.skip.positions + ' at the ' + BT_MAX_POS + '-position cap' : '',
+       sim.skip.correlation ? sim.skip.correlation + ' correlation-gated' : '',
+       sim.skip.tiny ? sim.skip.tiny + ' under 1 contract at the risk budget' : ''].filter(Boolean).join(', ') + '.</p>' : '';
+    box.innerHTML = banner + controls +
+      '<p class="hint acc-an-lead">Compounding $' + ACC_SIM_START.toLocaleString() + ' book · <b>' + escapeHtml(accBtModeLabel(mode)) + '</b> run mode · trades replayed on their real entry/exit dates.</p>' +
+      tiles + accEquitySvg(sim.curve, { formatValue: function(v){ return fmtBigDollars(v); } }) + skipNote + cmp + kellyTbl + rules;
   }
 
   // --- Monte Carlo sub-tab (#an-mc) ----------------------------------------
