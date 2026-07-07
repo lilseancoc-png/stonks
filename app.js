@@ -8558,9 +8558,115 @@
       seen[sym] = 1;
       out.push(sym);
     }
+    // Saved watchlist ideas ride the same poll (even the frozen off-roster
+    // snapshots) — their cards carry the same live entry chip, which re-checks
+    // each saved trigger against the live tape.
+    for (i = 0; i < PICKS_WATCHLIST.length; i++){
+      var wp = PICKS_WATCHLIST[i] && PICKS_WATCHLIST[i].pick;
+      if (!wp || !wp.symbol) continue;
+      var wsym = String(wp.symbol).toUpperCase();
+      if (seen[wsym]) continue;
+      seen[wsym] = 1;
+      out.push(wsym);
+    }
     return out;
   }
+  // --- Live entry-trigger re-check ------------------------------------------
+  // The baked "✅ Buy now / ⏳ Wait $X" entry call (computeEntrySignal, re-baked
+  // hourly) goes LIVE while this tab is open: every 30s quote poll re-checks
+  // the live spot against each pick's own trigger and flips the chip in place.
+  //   • wait-pullback / buy-dip — the trigger price IS the plan's entry, so
+  //     reaching it flips to a green "Buy zone now" (this is the price the
+  //     pick told you to wait for);
+  //   • wait-reclaim — the thesis needs a confirming CLOSE through the level
+  //     (same no-look-ahead rule as the timing gate), so an intraday cross
+  //     only ARMS an amber "trigger hit — needs today's close";
+  //   • wait-event (earnings/macro defer) — never overridden; no price fixes
+  //     an imminent IV crush;
+  //   • already "Buy now" — left alone.
+  // Purely an overlay: the baked chip markup is stashed on first flip and
+  // restored the moment the price backs off, and the next hourly build
+  // re-bakes ground truth either way.
+  function liveEntryOverlay(p, spot){
+    var e = p && p.entry;
+    if (!e || !e.headline || e.now) return null;
+    if (e.signal === 'wait-event') return null;
+    var trig = (e.trigger != null && isFinite(e.trigger)) ? Number(e.trigger) : null;
+    if (trig == null || trig <= 0 || !(spot > 0)) return null;
+    var isCall = p.side !== 'put';
+    var fmtT = '$' + trig.toFixed(2), fmtS = '$' + spot.toFixed(2);
+    if (e.signal === 'wait-reclaim'){
+      var crossed = isCall ? spot >= trig : spot <= trig;
+      if (!crossed) return null;
+      return { kind: 'arm',
+        short: '⚡ Hit ' + fmtT + ' — confirm close',
+        long: 'Trigger hit live (' + fmtS + ') — the 20D level at ' + fmtT + ' is ' + (isCall ? 'reclaimed' : 'broken') + ' intraday, but this entry wants a confirming CLOSE through it before it becomes a buy. If today closes through the level, tomorrow\'s build should flip this to Buy now.' };
+    }
+    // wait-pullback / buy-dip — reaching the trigger IS the plan's entry.
+    var reached = isCall ? spot <= trig : spot >= trig;
+    if (!reached) return null;
+    return { kind: 'go',
+      short: '✅ Buy zone now ' + fmtS,
+      long: 'In the buy zone live — ' + fmtS + ' has reached the plan\'s ' + (e.basis || 'entry') + ' trigger at ' + fmtT + '. This is the price the pick said to wait for; opening here follows the plan. (Live intraday read, refreshed ~30s while this tab is open — the hourly build re-confirms it.)' };
+  }
+  // Patch every rendered entry chip (grid tiles, watchlist cards, the open
+  // detail card — all tagged data-live-entry="SYM|side") from the latest quote
+  // map. Chips with no overlay (or no quote) restore their baked state.
+  function applyLiveEntryChips(){
+    var els = document.querySelectorAll('[data-live-entry]');
+    if (!els.length) return;
+    var lookup = {};
+    var all = (picksState.data && Array.isArray(picksState.data.picks)) ? picksState.data.picks : [];
+    for (var i = 0; i < all.length; i++){
+      var p = all[i];
+      if (p && p.symbol) lookup[String(p.symbol).toUpperCase() + '|' + (p.side === 'put' ? 'put' : 'call')] = p;
+    }
+    // Watchlist snapshots fill any slot the live roster doesn't cover — a
+    // frozen saved idea still re-checks its saved trigger against the tape
+    // (the card already carries the "snapshot" caveat).
+    for (i = 0; i < PICKS_WATCHLIST.length; i++){
+      var wp = PICKS_WATCHLIST[i] && PICKS_WATCHLIST[i].pick;
+      if (!wp || !wp.symbol) continue;
+      var wk = String(wp.symbol).toUpperCase() + '|' + (wp.side === 'put' ? 'put' : 'call');
+      if (!lookup[wk]) lookup[wk] = wp;
+    }
+    for (i = 0; i < els.length; i++){
+      var el = els[i];
+      var key = el.getAttribute('data-live-entry') || '';
+      var pick = lookup[key];
+      var q = picksLive.quotes[key.split('|')[0]];
+      var ov = (pick && q && q.spot != null && isFinite(q.spot)) ? liveEntryOverlay(pick, Number(q.spot)) : null;
+      var isTile = el.classList.contains('ptc-entry');
+      if (!ov){
+        if (el.getAttribute('data-live-entry-on')){
+          el.innerHTML = el.getAttribute('data-entry-baked-html') || el.innerHTML;
+          el.className = el.getAttribute('data-entry-baked-cls') || el.className;
+          el.title = el.getAttribute('data-entry-baked-title') || '';
+          el.removeAttribute('data-live-entry-on');
+        }
+        continue;
+      }
+      if (!el.getAttribute('data-live-entry-on')){
+        el.setAttribute('data-entry-baked-html', el.innerHTML);
+        el.setAttribute('data-entry-baked-cls', el.className);
+        el.setAttribute('data-entry-baked-title', el.title || '');
+      }
+      el.setAttribute('data-live-entry-on', ov.kind);
+      el.title = ov.long;
+      if (isTile){
+        el.className = 'ptc-entry ' + (ov.kind === 'go' ? 'ptc-entry-live' : 'ptc-entry-arm');
+        el.textContent = ov.short;
+      } else {
+        el.className = 'pick-contract-rr ' + (ov.kind === 'go' ? 'pick-rr-live' : 'pick-rr-arm');
+        el.textContent = ov.short + ' · live';
+      }
+    }
+  }
   function renderPicksLive(){
+    // Entry chips first — they live on the cards themselves, so they must be
+    // patched even when the board below has nothing to show (e.g. an empty
+    // roster where only saved watchlist cards render).
+    try { applyLiveEntryChips(); } catch (_){}
     var board = document.getElementById('picks-live-board');
     if (!board) return;
     var picks = trackedPicks();
@@ -20023,8 +20129,9 @@
       var eNow = !!p.entry.now;
       var eTip = eNow
         ? 'Entry — the timing gate reads a clean, confirmed entry, so the current price is a reasonable place to open the position.'
-        : 'Entry — the grade has conviction, but the move has not confirmed on the daily chart yet. Wait for this price/level before opening so you are not paying theta on a short-dated option while it bases. Based on confirmed daily bars (yesterday’s close); the live Grade-tab card folds in today’s move.';
-      entryHtml = '<div class="pick-contract-rr pick-rr-' + (eNow ? 'good' : 'fair') + '" title="' + escapeHtml(eTip) + '">' +
+        : 'Entry — the grade has conviction, but the move has not confirmed on the daily chart yet. Wait for this price/level before opening so you are not paying theta on a short-dated option while it bases. Based on confirmed daily bars (yesterday’s close) — while the Top Picks tab is open this chip also re-checks the trigger against the live price every ~30s and flips the moment it hits.';
+      var eKeyD = String(p.symbol).toUpperCase() + '|' + (p.side === 'put' ? 'put' : 'call');
+      entryHtml = '<div class="pick-contract-rr pick-rr-' + (eNow ? 'good' : 'fair') + '" data-live-entry="' + escapeHtml(eKeyD) + '" title="' + escapeHtml(eTip) + '">' +
         (eNow ? '✅ ' : '⏳ ') + escapeHtml(p.entry.headline) +
       '</div>';
     }
@@ -21633,7 +21740,11 @@
     if (!noRec && p.entry && p.entry.headline){
       var eNow = !!p.entry.now;
       var eTrg = (!eNow && p.entry.trigger != null && isFinite(p.entry.trigger)) ? ' $' + Number(p.entry.trigger).toFixed(2) : '';
-      entryLine = '<span class="ptc-entry ptc-entry-' + (eNow ? 'now' : 'wait') + '" title="' + escapeHtml(p.entry.headline) + '">' +
+      // data-live-entry tags the chip for the 30s live re-check
+      // (applyLiveEntryChips): a wait chip flips in place the moment the live
+      // price reaches its trigger.
+      var eKey = String(p.symbol).toUpperCase() + '|' + (p.side === 'put' ? 'put' : 'call');
+      entryLine = '<span class="ptc-entry ptc-entry-' + (eNow ? 'now' : 'wait') + '" data-live-entry="' + escapeHtml(eKey) + '" title="' + escapeHtml(p.entry.headline) + '">' +
         (eNow ? '✅ Buy now' : ('⏳ Wait' + eTrg)) + '</span>';
     }
     // Contract economics line — surface the suggested contract's strike/DTE,
@@ -21743,6 +21854,9 @@
   function openPickDetail(sym){
     picksState.openSym = sym;
     renderPickDetailCard(sym);
+    // The detail card's entry chip goes live immediately off the cached quote
+    // (instead of waiting up to 30s for the next poll).
+    try { applyLiveEntryChips(); } catch (_){}
     var list = $('picks-listview'), detail = $('picks-detail');
     if (list) list.hidden = true;
     if (detail) detail.hidden = false;
@@ -22096,6 +22210,7 @@
       // The user-saved watchlist still renders on an empty roster — a frozen
       // idea outliving the list is exactly what it is for.
       grid.innerHTML = watchlistHtml;
+      try { applyLiveEntryChips(); } catch (_){}
       if (summaryEl) summaryEl.innerHTML = '';
       if (empty){
         empty.hidden = false;
@@ -22218,6 +22333,10 @@
       sectionHtml += watchList.map(function(p, i){ return pickTabCardHtml(p, i); }).join('');
     }
     grid.innerHTML = watchlistHtml + rosterNote + sectionHtml;
+    // Re-apply the live entry-trigger overlays on the freshly-rendered chips —
+    // a sort toggle or watchlist change otherwise shows baked chips until the
+    // next 30s poll lands.
+    try { applyLiveEntryChips(); } catch (_){}
   }
 
   // --- Pinned-to-compare strip --------------------------------------------

@@ -7260,6 +7260,28 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   background: color-mix(in srgb, var(--warn) 14%, var(--surface));
   border: 1px solid color-mix(in srgb, var(--warn) 36%, var(--border));
 }
+/* Live overlay states (applyLiveEntryChips, 30s quote poll): -live = the
+   pullback/dip trigger has been reached — the plan's buy zone is here now
+   (green, pulsing); -arm = a 20D reclaim level crossed intraday, still
+   needs a confirming close (amber, dashed). */
+.ptc-entry-live {
+  color: var(--pos);
+  background: color-mix(in srgb, var(--pos) 22%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pos) 55%, var(--border));
+  animation: entry-live-pulse 2.2s ease-in-out infinite;
+}
+.ptc-entry-arm {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 20%, var(--surface));
+  border: 1px dashed color-mix(in srgb, var(--warn) 55%, var(--border));
+}
+@keyframes entry-live-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--pos) 35%, transparent); }
+  50% { box-shadow: 0 0 0 5px transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ptc-entry-live, .pick-rr-live { animation: none; }
+}
 /* Contract economics line — strike·DTE, premium, move-to-breakeven, earnings
    flag. Makes the premium / breakeven sorts legible on the grid and lets picks
    be compared without drilling into each detail page. */
@@ -7782,6 +7804,9 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
 }
 .pick-rr-good { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 30%, var(--border)); }
 .pick-rr-fair { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 30%, var(--border)); }
+/* Live entry overlay on the detail card (mirrors .ptc-entry-live/-arm). */
+.pick-rr-live { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 55%, var(--border)); animation: entry-live-pulse 2.2s ease-in-out infinite; }
+.pick-rr-arm { color: var(--warn); border-style: dashed; border-color: color-mix(in srgb, var(--warn) 55%, var(--border)); }
 .pick-rr-bad  { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 30%, var(--border)); }
 
 /* Contract-quality chip row — Spread / Liq / Δ / Θ / IV. Each chip
