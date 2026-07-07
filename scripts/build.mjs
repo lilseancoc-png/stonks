@@ -8813,7 +8813,10 @@ const PICKS_MIN_QUALITY = 0.45;                // composite contract-quality flo
 //   * DEBIT vertical — the default for a grounded directional view with a non-weak
 //     thesis when IV is not elevated (or a strong view into elevated-but-event-
 //     blocked IV): long near-money financed by a short OTM wing (same side). Caps
-//     theta/vega + the premium at risk; capped upside is the price.
+//     theta/vega + the premium at risk; capped upside is the price. A candidate
+//     must clear PICKS_DEBIT_MIN_RR (reward:risk >= 1.0 — the debit can never
+//     exceed half the strike width) or it is rejected, mirroring the credit
+//     side's PICKS_CREDIT_WIDTH_FRAC_MIN floor.
 const PICKS_STRATEGY_AUTO = process.env.PICKS_STRATEGY_AUTO !== "0"; // off -> always naked long (legacy)
 const PICKS_IV_CREDIT_Z = Number(process.env.PICKS_IV_CREDIT_Z ?? 2.0);     // ATM IV z >= this -> "highly elevated" (strongest sell-premium label)
 const PICKS_IV_CREDIT_Z_ELEVATED = Number(process.env.PICKS_IV_CREDIT_Z_ELEVATED ?? 1.5); // z >= this -> "elevated" -> credit (broadened band)
@@ -8822,6 +8825,7 @@ const PICKS_CREDIT_WIDTH_FRAC = Number(process.env.PICKS_CREDIT_WIDTH_FRAC ?? 0.
 const PICKS_CREDIT_WIDTH_FRAC_MIN = 0.22;      // reject a credit spread paying < this fraction of width
 const PICKS_CREDIT_SHORT_DELTA = 0.34;         // credit spread: sell ~this delta (near-the-money); the long wing is chosen by pickCreditWing to hit PICKS_CREDIT_WIDTH_FRAC
 const PICKS_DEBIT_SHORT_DELTA = 0.28;          // debit spread: short the OTM financing wing ~this delta
+const PICKS_DEBIT_MIN_RR = Number(process.env.PICKS_DEBIT_MIN_RR ?? 1.0); // reject a debit spread whose maxProfit/maxLoss < this — never pay more than width/(1+RR) (1.0 = never more than half the width)
 const PICKS_VERT_MIN_WIDTH_PCT = 0.02;         // a vertical's strikes must be >= 2% of spot apart (a real wing)
 const PICKS_VERT_MAX_SPREAD_PCT = 0.18;        // per-leg bid/ask cap on a vertical's wings (looser than a naked NTM long)
 const PICKS_VERT_MIN_OI = 50;                  // per-leg open-interest floor on a vertical's wings
@@ -11081,6 +11085,7 @@ export function pickVerticalForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
     const maxProfit = type === "debit" ? width - netDebit : netCredit;
     if (!(maxLoss > 0) || !(maxProfit > 0)) continue;
     const rewardRisk = maxProfit / maxLoss;
+    if (type === "debit" && !(rewardRisk >= PICKS_DEBIT_MIN_RR)) continue; // never recommend a debit spread paying < 1x the risk (debit must be <= half the width)
 
     // Net greeks (long qty +1, short qty −1).
     const netDelta = legs.reduce((a, l) => a + (l.delta || 0) * l.qty, 0);

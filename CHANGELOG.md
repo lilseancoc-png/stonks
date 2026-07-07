@@ -23,6 +23,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ## 2026-07-07
 
 ### Changed
+- **Top Picks: a debit vertical must now pay at least 1x its risk or it is never recommended.** `pickVerticalForPick` rejects any debit-spread candidate whose reward:risk (`maxProfit/maxLoss`) is under the new `PICKS_DEBIT_MIN_RR` floor (default 1.0 — the net debit can never exceed half the strike width), mirroring the credit side's `PICKS_CREDIT_WIDTH_FRAC_MIN` floor; a name with no qualifying spread falls down the existing structure ladder (naked long) or ships without a contract. Env-tunable via `PICKS_DEBIT_MIN_RR`. `scripts/build.mjs`, `scripts/picks-smoke.mjs` (+2 checks), `docs/top-picks.md`.
 - **Switching tabs now pushes a real browser-history entry, so the Back button walks back through the tabs you visited instead of leaving the site** — landing from Google and clicking around no longer means one Back press bounces you straight out. Restoring state never mints an entry: the boot-time deep-link resolve and the back/forward (`popstate`) handler sync the URL with `replaceState`, re-clicking the active tab is a no-op (unchanged-URL guard), and within-tab URL mirroring (the Grade tab's `?s=/exp=/k=/t=` contract params) keeps replacing in place so flipping through strikes doesn't flood history. `scripts/render/app-js.mjs`.
 
 ### Fixed
