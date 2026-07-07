@@ -12657,22 +12657,112 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var map = g.grades || g;
     return map && map[sym] ? map[sym] : null;
   }
+  // Searchable ticker combobox for the Compare tab — same custom .combo
+  // listbox as the Grade/GEX/Strategy pickers (it replaced a native <datalist>,
+  // which the browser renders as an unstyled popup pinned to the viewport
+  // edge). Commit ADDS the ticker as a chip and keeps focus so several names
+  // can be added in a row.
+  var cmpSearch = {
+    input: null, listbox: null, items: [], activeIdx: -1, open: false, inited: false,
+    init: function(){
+      if (this.inited) return;
+      this.input = $('cmp-input');
+      this.listbox = $('cmp-listbox');
+      if (!this.input || !this.listbox) return;
+      this.inited = true;
+      var self = this;
+      this.input.addEventListener('input', function(){ self.filter(); });
+      this.input.addEventListener('focus', function(){ self.filter(); });
+      this.input.addEventListener('keydown', function(e){ self.onKey(e); });
+      this.input.addEventListener('blur', function(){ setTimeout(function(){ self.close(); }, 120); });
+      this.listbox.addEventListener('mousedown', function(e){
+        var li = e.target.closest && e.target.closest('li[data-sym]');
+        if (!li) return;
+        e.preventDefault();
+        self.commit(li.getAttribute('data-sym'));
+      });
+      var box = $('cmp-combo');
+      document.addEventListener('pointerdown', function(e){
+        if (!self.open) return;
+        if (box && box.contains(e.target)) return;
+        self.close();
+      });
+    },
+    rank: function(q){
+      q = (q || '').trim().toUpperCase();
+      var syms = SYMBOLS.slice().sort();
+      var picked = compareState.tickers;
+      var pool = syms.filter(function(s){ return picked.indexOf(s) === -1; });
+      if (!q) return pool.slice(0, 50);
+      var prefix = [], contains = [], sector = [];
+      for (var i = 0; i < pool.length; i++){
+        var sym = pool[i];
+        var sec = (SECTORS[sym] || '').toUpperCase();
+        if (sym.indexOf(q) === 0) prefix.push(sym);
+        else if (sym.indexOf(q) >= 0) contains.push(sym);
+        else if (sec.indexOf(q) >= 0) sector.push(sym);
+      }
+      return prefix.concat(contains, sector).slice(0, 50);
+    },
+    filter: function(){
+      var matches = this.rank(this.input.value);
+      this.items = matches;
+      if (!matches.length){
+        this.listbox.innerHTML = '<li class="combo-empty">No matches</li>';
+      } else {
+        var html = '';
+        for (var i = 0; i < matches.length; i++){
+          var sym = matches[i];
+          var spot = SPOTS[sym];
+          html += '<li role="option" data-sym="' + escapeHtml(sym) + '" id="cmp-opt-' + escapeHtml(sym) + '">' +
+            '<span class="combo-sym">' + escapeHtml(sym) + '</span>' +
+            '<span class="combo-spot">' + (spot != null ? fmtMoney(spot) : '') + '</span>' +
+            '<span class="combo-sector">' + escapeHtml(SECTORS[sym] || '') + '</span>' +
+          '</li>';
+        }
+        this.listbox.innerHTML = html;
+      }
+      this.activeIdx = -1;
+      this.show();
+    },
+    show: function(){ this.listbox.hidden = false; this.input.setAttribute('aria-expanded', 'true'); this.open = true; },
+    close: function(){
+      this.listbox.hidden = true; this.input.setAttribute('aria-expanded', 'false');
+      this.input.removeAttribute('aria-activedescendant'); this.open = false; this.activeIdx = -1;
+    },
+    move: function(delta){
+      if (!this.items.length) return;
+      this.activeIdx = (this.activeIdx + delta + this.items.length) % this.items.length;
+      var nodes = this.listbox.querySelectorAll('li[data-sym]');
+      for (var i = 0; i < nodes.length; i++) nodes[i].classList.toggle('is-active', i === this.activeIdx);
+      var sym = this.items[this.activeIdx];
+      this.input.setAttribute('aria-activedescendant', 'cmp-opt-' + sym);
+      var active = nodes[this.activeIdx];
+      if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
+    },
+    onKey: function(e){
+      if (e.key === 'ArrowDown'){ e.preventDefault(); if (!this.open) this.filter(); else this.move(1); }
+      else if (e.key === 'ArrowUp'){ e.preventDefault(); this.move(-1); }
+      else if (e.key === 'Enter' || e.key === ','){
+        e.preventDefault();
+        if (this.activeIdx >= 0) this.commit(this.items[this.activeIdx]);
+        else if (this.items.length === 1 && this.open && (this.input.value || '').trim()) this.commit(this.items[0]);
+        else { this.close(); cmpAddFromInput(); }
+      }
+      else if (e.key === 'Escape'){ this.close(); }
+    },
+    commit: function(sym){
+      if (!sym) return;
+      this.input.value = '';
+      this.close();
+      cmpAddTicker(sym);
+      this.input.focus();
+    }
+  };
   function initCompare(){
     if (!compareState.inited){
       compareState.inited = true;
-      // Seed the autocomplete datalist from the manifest symbol list.
-      var dl = $('cmp-datalist');
-      if (dl && !dl.childElementCount){
-        var html = '';
-        for (var i=0; i<SYMBOLS.length; i++) html += '<option value="' + escapeHtml(SYMBOLS[i]) + '"></option>';
-        dl.innerHTML = html;
-      }
-      var input = $('cmp-input');
-      if (input){
-        input.addEventListener('keydown', function(e){
-          if (e.key === 'Enter' || e.key === ','){ e.preventDefault(); cmpAddFromInput(); }
-        });
-      }
+      cmpSearch.init();
       var add = $('cmp-add'); if (add) add.addEventListener('click', cmpAddFromInput);
       var mag = $('cmp-quick-mag7'); if (mag) mag.addEventListener('click', function(){ cmpSetTickers(CMP_MAG7.slice(0, CMP_MAX)); });
       var clr = $('cmp-clear'); if (clr) clr.addEventListener('click', function(){ cmpSetTickers([]); });
