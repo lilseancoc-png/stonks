@@ -3262,19 +3262,24 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       });
     }
     syncSideNav();
-    function syncTabToUrl(name){
+    function syncTabToUrl(name, replace){
       // Mirror the active tab into ?tab= so bookmarks / back-forward / shares
       // resume on the same view. Home gets the param stripped — the bare URL
       // is the canonical landing state. We don't touch other query params (s/
       // exp/k/t for Grade, etc.) so deep-links into a specific contract still
       // work alongside the tab param.
+      // User navigation PUSHES a history entry so the browser Back button
+      // walks back through visited tabs instead of leaving the site; boot +
+      // popstate pass replace=true so restoring a tab never mints an entry
+      // (the unchanged-URL guard below already no-ops most of those).
       try {
         var url = new URL(window.location.href);
         if (name === 'home') url.searchParams.delete('tab');
         else url.searchParams.set('tab', name);
         var next = url.pathname + (url.search || '') + (url.hash || '');
         if (next !== window.location.pathname + window.location.search + window.location.hash) {
-          history.replaceState(null, '', next);
+          if (replace) history.replaceState(null, '', next);
+          else history.pushState(null, '', next);
         }
       } catch (_) {}
     }
@@ -3318,13 +3323,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (href === '/' || href === '/index.html'){ ev.preventDefault(); selectTab('home'); }
       });
     }
-    function selectTab(name){
+    function selectTab(name, nav){
+      // nav.replace: sync the URL with replaceState instead of pushState —
+      // set by boot + popstate (restoring state, not navigating).
       // Track Record is role-hidden — bounce any attempt to open it (stale
       // localStorage tab, deep-link, popstate, palette) to home BEFORE we
       // re-persist it, so a demoted/non-role visitor can't land on the pane.
-      if (name === 'track' && !HAS_TRACK_RECORD) { return selectTab('home'); }
+      if (name === 'track' && !HAS_TRACK_RECORD) { return selectTab('home', nav); }
       // Top Picks is role-hidden the same way.
-      if (name === 'picks' && !HAS_TOP_PICKS) { return selectTab('home'); }
+      if (name === 'picks' && !HAS_TOP_PICKS) { return selectTab('home', nav); }
       try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
       var activeBtn = null;
       tabs.forEach(function(btn){
@@ -3340,7 +3347,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       // Navigating from the mobile drawer closes it — the destination pane
       // is the point, not the menu.
       closeSideNavDrawer();
-      syncTabToUrl(name);
+      syncTabToUrl(name, !!(nav && nav.replace));
       // Re-render the freshness banner for the active tab so Unusual flow /
       // Volume / Fear & Greed / Bonds & USD show their per-source timestamp
       // instead of the daily build's "2 hours ago" which can be misleading.
@@ -3442,11 +3449,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // pre-select in the boot block already ran against the unfiltered tab
     // list, now against the role-filtered set and with the full selectTab
     // (loaders, premium gate, URL sync).
-    selectTab(initialPageTabFromUrl(valid));
-    // Honor browser back/forward when the URL's ?tab= changes.
+    selectTab(initialPageTabFromUrl(valid), { replace: true });
+    // Honor browser back/forward when the URL's ?tab= changes. Restoring a
+    // history entry must never push a new one (replace: true) or Back would
+    // re-mint what it just popped.
     window.addEventListener('popstate', function(){
       var t = initialPageTabFromUrl(valid);
-      if (valid.indexOf(t) >= 0) selectTab(t);
+      if (valid.indexOf(t) >= 0) selectTab(t, { replace: true });
     });
     // Populate runtime stats on the landing cards from the inlined manifest
     // and from data files fetched once on page-load. Everything degrades to
