@@ -20898,6 +20898,130 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     '</div>';
   }
 
+  // --- Top Picks watchlist --------------------------------------------------
+  // User-curated "keep this idea" list, persisted to localStorage so a saved
+  // pick SURVIVES the roster rebuilds: the full pick payload is snapshotted at
+  // save time, silently refreshed in place whenever the same symbol+side ships
+  // in the current roster, and frozen (badged "off today’s list") once it
+  // drops out — until the user removes it. Client-side only: picks.json is
+  // rebuilt from scratch every bake, so the browser is the only place a
+  // sticky idea can live without a per-user backend.
+  var WATCHLIST_KEY = 'stonks-picks-watchlist';
+  var WATCHLIST_LIMIT = 30;
+  var PICKS_WATCHLIST = (function(){
+    try {
+      var arr = JSON.parse(localStorage.getItem(WATCHLIST_KEY) || '[]');
+      if (!Array.isArray(arr)) return [];
+      return arr.filter(function(w){ return w && w.pick && w.pick.symbol; }).slice(0, WATCHLIST_LIMIT);
+    } catch (_){ return []; }
+  })();
+  function saveWatchlist(){
+    try { localStorage.setItem(WATCHLIST_KEY, JSON.stringify(PICKS_WATCHLIST.slice(0, WATCHLIST_LIMIT))); } catch (_){}
+  }
+  function watchSideOf(side){ return side === 'put' ? 'put' : 'call'; }
+  function watchIndexOf(sym, side){
+    var s = watchSideOf(side);
+    for (var i=0; i<PICKS_WATCHLIST.length; i++){
+      var w = PICKS_WATCHLIST[i];
+      if (w.pick.symbol === sym && watchSideOf(w.pick.side) === s) return i;
+    }
+    return -1;
+  }
+  function watchEntryBySymbol(sym){
+    for (var i=0; i<PICKS_WATCHLIST.length; i++){ if (PICKS_WATCHLIST[i].pick.symbol === sym) return PICKS_WATCHLIST[i]; }
+    return null;
+  }
+  // Refresh each saved snapshot from the current roster: same symbol+side ⇒
+  // adopt the fresh pick wholesale (the card tracks the live roster while the
+  // idea is still shipping); missing ⇒ freeze the last snapshot + mark stale.
+  // The caller skips this on a failed picks.json load — "the roster didn’t
+  // load" must not read as "your idea dropped off it".
+  function syncWatchlist(picks){
+    if (!PICKS_WATCHLIST.length) return;
+    var byKey = {};
+    for (var i=0; i<picks.length; i++){
+      var p = picks[i];
+      if (p && p.symbol) byKey[p.symbol + '|' + watchSideOf(p.side)] = p;
+    }
+    var today = new Date().toISOString().slice(0, 10);
+    for (var j=0; j<PICKS_WATCHLIST.length; j++){
+      var w = PICKS_WATCHLIST[j];
+      var cur = byKey[w.pick.symbol + '|' + watchSideOf(w.pick.side)];
+      if (cur){
+        w.pick = cur;
+        w.stale = false;
+        w.lastSeen = today;
+      } else {
+        w.stale = true;
+      }
+    }
+    saveWatchlist();
+  }
+  // Add/remove a pick on the watchlist. Adding snapshots the pick straight out
+  // of the current roster; removing works for live and frozen entries alike.
+  // Re-renders the landing grid WITHOUT kicking an open detail page back to
+  // the list, then refreshes the detail card in place so its watch button
+  // reflects the new state.
+  function toggleWatch(sym, side){
+    var idx = watchIndexOf(sym, side);
+    if (idx >= 0){
+      PICKS_WATCHLIST.splice(idx, 1);
+    } else {
+      var picks = (picksState.data && Array.isArray(picksState.data.picks)) ? picksState.data.picks : [];
+      var p = null;
+      for (var i=0; i<picks.length; i++){
+        if (picks[i] && picks[i].symbol === sym && watchSideOf(picks[i].side) === watchSideOf(side)){ p = picks[i]; break; }
+      }
+      if (!p) return;
+      var today = new Date().toISOString().slice(0, 10);
+      PICKS_WATCHLIST.unshift({ pick: p, addedAt: today, lastSeen: today, stale: false });
+      if (PICKS_WATCHLIST.length > WATCHLIST_LIMIT) PICKS_WATCHLIST.length = WATCHLIST_LIMIT;
+    }
+    saveWatchlist();
+    renderPicks(true);
+    if (picksState.openSym) renderPickDetailCard(picksState.openSym);
+  }
+  // The star toggle that rides inside each pick tile. The tile itself is a
+  // <button> (nested buttons are invalid HTML), so this is a span the grid’s
+  // delegated click handler intercepts BEFORE the open-detail branch; the
+  // detail card carries a real <button> for keyboard access.
+  function watchStarHtml(p){
+    var on = watchIndexOf(p.symbol, p.side) >= 0;
+    return '<span class="ptc-watch' + (on ? ' is-watched' : '') + '" data-watch-toggle="' + escapeHtml(p.symbol) + '" data-watch-side="' + watchSideOf(p.side) + '" title="' +
+      (on ? 'On your watchlist — click to remove' : 'Save to your watchlist — the idea stays through pick refreshes until you remove it') +
+      '">' + (on ? '★' : '☆') + '</span>';
+  }
+  // The pinned "★ My watchlist" group at the top of the picks grid — saved
+  // cards render with the same tile the roster uses, wrapped in a bar carrying
+  // the live/frozen state, the saved date, and a remove button.
+  function buildWatchlistGroupHtml(){
+    if (!PICKS_WATCHLIST.length) return '';
+    var cards = PICKS_WATCHLIST.map(function(w, i){
+      var p = w.pick;
+      var inner;
+      try { inner = pickTabCardHtml(p, i); }
+      catch (_){
+        // A snapshot saved by an older payload version can outlive what the
+        // card renderer expects — degrade that one entry to a removable stub
+        // instead of blanking the whole group.
+        inner = '<div class="pwl-broken">' + escapeHtml(p.symbol) + ' — this saved snapshot can’t be rendered anymore. Remove it and re-save the idea next time it lists.</div>';
+      }
+      return '<div class="pwl-card' + (w.stale ? ' pwl-stale' : '') + '">' +
+        '<div class="pwl-bar">' +
+          (w.stale
+            ? '<span class="pwl-tag pwl-tag-stale" title="No longer in the current top picks — this card is the last snapshot before it dropped off' + (w.lastSeen ? ' (last seen ' + escapeHtml(w.lastSeen) + ')' : '') + '. It stays here until you remove it.">⏸ off today’s list</span>'
+            : '<span class="pwl-tag pwl-tag-live" title="Also in the current top picks — this card tracks the live roster and refreshes with it.">● in today’s picks</span>') +
+          (w.addedAt ? '<span class="pwl-added">saved ' + escapeHtml(w.addedAt) + '</span>' : '') +
+          '<button type="button" class="pwl-remove" data-watch-toggle="' + escapeHtml(p.symbol) + '" data-watch-side="' + watchSideOf(p.side) + '" title="Remove ' + escapeHtml(p.symbol) + ' from your watchlist">✕ remove</button>' +
+        '</div>' + inner + '</div>';
+    }).join('');
+    return '<div class="picks-group-head picks-group-watchlist">' +
+      '<span class="picks-group-title">★ My watchlist</span>' +
+      '<span class="picks-group-count">' + PICKS_WATCHLIST.length + '</span>' +
+      '<span class="picks-group-sub">Ideas you saved — kept through every pick refresh (stored in this browser) until you remove them</span>' +
+    '</div>' + cards;
+  }
+
   // Build the full judgment card for one pick — the tier banner, analysis,
   // contract, exit ladder, peers, and the Recommendation ⇄ Grade toggle. Used
   // by the detail "page"; the landing view shows only the compact tab cards.
@@ -20945,6 +21069,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // detail header so the judgment page shows how the trade has actually done.
     var liveDetail = pickLiveChip(p, false);
     var liveDetailHtml = liveDetail ? liveDetail.html : '';
+    // Watchlist toggle — the detail card gets a real <button> (the grid tile is
+    // itself a <button>, so there the toggle is a delegated span).
+    var watchOn = watchIndexOf(p.symbol, p.side) >= 0;
+    var watchBtnHtml = '<button type="button" class="pick-watch-btn' + (watchOn ? ' is-watched' : '') + '" data-watch-toggle="' + escapeHtml(p.symbol) + '" data-watch-side="' + (p.side === 'put' ? 'put' : 'call') + '" title="' +
+      (watchOn ? 'On your watchlist — click to remove' : 'Save to your watchlist — the idea stays through pick refreshes until you remove it') +
+      '">' + (watchOn ? '★ On watchlist' : '☆ Watchlist') + '</button>';
     var pillarsHtml = pickPillarPanel(p);
     var peersHtml = pickPeerList(p);
     var analysisHtml = pickAnalysisBlock(p);
@@ -20986,6 +21116,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           streakHtml +
           tenureHtml +
           fiftyHtml +
+          watchBtnHtml +
         '</div>' +
         bodyHtml +
       '</div>' +
@@ -21111,7 +21242,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return '<button type="button" class="pick-tab-card ' + sideCls + (noRec ? ' ptc-norec-card' : '') + '" data-pick-open="' + escapeHtml(p.symbol) + '">' +
       '<span class="ptc-rank">' + (idx + 1) + '</span>' +
       '<span class="ptc-head"><span class="ptc-sym">' + escapeHtml(p.symbol) + '</span>' +
-        '<span class="ptc-side ptc-side-' + sideCls + '">' + sideLabel + '</span>' + tacticalChip + classChip + liveChip + streakChip + fiftyChip + '</span>' +
+        '<span class="ptc-side ptc-side-' + sideCls + '">' + sideLabel + '</span>' + tacticalChip + classChip + liveChip + streakChip + fiftyChip + watchStarHtml(p) + '</span>' +
       '<span class="ptc-score">' + escapeHtml(scoreStr) +
         (p.costDebit > 0
           ? ' <span class="ptc-cost" title="Execution-cost debit: the contract\\'s round-trip bid/ask spread charged against the grade for ranking — net conviction ' + escapeHtml(String(p.netConviction != null ? p.netConviction : '')) + '">−' + escapeHtml(Number(p.costDebit).toFixed(1)) + ' spread</span>'
@@ -21133,7 +21264,18 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var picks = picksState.sorted || [];
     var idx = -1;
     for (var i=0; i<picks.length; i++){ if (picks[i].symbol === sym){ idx = i; break; } }
-    if (idx === -1){ closePickDetail(); return; }
+    if (idx === -1){
+      // Not in the current roster — a frozen watchlist snapshot can still open
+      // its full judgment page, banner-noted as the last build it appeared in.
+      var w = watchEntryBySymbol(sym);
+      if (w){
+        var noteW = w.stale
+          ? '<div class="pwl-detail-note">⏸ Watchlist snapshot — ' + escapeHtml(sym) + ' is no longer in the current top picks; everything below is from the last build it appeared in' + (w.lastSeen ? ' (' + escapeHtml(w.lastSeen) + ')' : '') + '. It stays on your watchlist until you remove it.</div>'
+          : '';
+        try { holder.innerHTML = noteW + buildPickCardHtml(w.pick, 0); return; } catch (_){}
+      }
+      closePickDetail(); return;
+    }
     holder.innerHTML = buildPickCardHtml(picks[idx], idx);
   }
 
@@ -21371,6 +21513,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (grid && !grid._bound){
       grid._bound = true;
       grid.addEventListener('click', function(ev){
+        // Watchlist star / remove — checked BEFORE the open-detail branch: the
+        // star rides inside the tile (which itself carries data-pick-open), so
+        // a star click must toggle the watchlist, not open the detail page.
+        var wtog = ev.target && ev.target.closest ? ev.target.closest('[data-watch-toggle]') : null;
+        if (wtog){
+          ev.preventDefault();
+          toggleWatch(wtog.getAttribute('data-watch-toggle'), wtog.getAttribute('data-watch-side'));
+          return;
+        }
         var btn = ev.target && ev.target.closest ? ev.target.closest('[data-pick-open]') : null;
         if (!btn) return;
         openPickDetail(btn.getAttribute('data-pick-open'));
@@ -21385,6 +21536,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (holder && !holder._bound){
       holder._bound = true;
       holder.addEventListener('click', function(ev){
+        // Watchlist toggle on the detail card's header button.
+        var wtog = ev.target && ev.target.closest ? ev.target.closest('[data-watch-toggle]') : null;
+        if (wtog){
+          toggleWatch(wtog.getAttribute('data-watch-toggle'), wtog.getAttribute('data-watch-side'));
+          return;
+        }
         // Recommendation ⇄ Grade toggle inside the detail card.
         var tab = ev.target && ev.target.closest ? ev.target.closest('.pick-tab') : null;
         if (tab){
@@ -21439,7 +21596,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
   }
 
-  function renderPicks(){
+  // keepView: re-render the landing grid in place WITHOUT snapping an open
+  // detail page back to the list — used by the watchlist toggle, which can
+  // fire from inside the detail view. Normal callers omit it: leaving and
+  // returning to the tab should land on the menu, not a stale detail page.
+  function renderPicks(keepView){
     bindPicksControls();
     bindPicksNav();
     var grid = $('picks-grid');
@@ -21458,6 +21619,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     var data = picksState.data || { picks: [] };
     var picksRaw = Array.isArray(data.picks) ? data.picks : [];
+    // Refresh the saved watchlist snapshots against the roster that just
+    // rendered — but never off a failed load, which would wrongly freeze
+    // every saved idea as "off today’s list".
+    if (!data.loadError) syncWatchlist(picksRaw);
+    var watchlistHtml = buildWatchlistGroupHtml();
     var picks = sortPicks(picksRaw, picksState.sort);
     picksState.sorted = picks;
     if (eyebrow){
@@ -21465,9 +21631,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     // Always (re)enter on the landing grid — leaving and returning to the tab
     // should show the menu, not a stale detail page.
-    closePickDetail();
+    if (!keepView) closePickDetail();
     if (!picks.length){
-      grid.innerHTML = '';
+      // The user-saved watchlist still renders on an empty roster — a frozen
+      // idea outliving the list is exactly what it is for.
+      grid.innerHTML = watchlistHtml;
       if (summaryEl) summaryEl.innerHTML = '';
       if (empty){
         empty.hidden = false;
@@ -21589,7 +21757,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       sectionHtml += groupHead('Ideas · watch', watchList.length, 'Lower conviction — a moderate grade or a thinner thesis; a strategy is shown only where it’s earned', 'picks-group-watch');
       sectionHtml += watchList.map(function(p, i){ return pickTabCardHtml(p, i); }).join('');
     }
-    grid.innerHTML = rosterNote + sectionHtml;
+    grid.innerHTML = watchlistHtml + rosterNote + sectionHtml;
   }
 
   // --- Pinned-to-compare strip --------------------------------------------

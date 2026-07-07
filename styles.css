@@ -9178,6 +9178,76 @@ body.tape-axm-open { overflow: hidden; }
 .picks-group-sub { font: 400 11.5px/1.4 var(--font-sans); color: var(--text-muted); flex-basis: 100%; }
 .picks-group-empty { grid-column: 1 / -1; width: 100%; flex-basis: 100%; font: 400 12.5px/1.5 var(--font-sans); color: var(--text-muted); padding: 10px 12px; border: 1px dashed var(--border); border-radius: var(--r-1); }
 
+/* --- Top Picks watchlist (user-saved, localStorage) ---------------------- */
+.picks-group-watchlist .picks-group-title { color: var(--warn, #d98a00); }
+/* Star toggle riding inside each pick tile (delegated span — the tile is a
+   <button>, so it can't nest a real one). Pushed to the head row's right edge. */
+.ptc-watch {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font: 700 15px/1 var(--font-sans);
+  color: var(--muted);
+  padding: 0 2px;
+  cursor: pointer;
+  transition: color .12s var(--ease-out), transform .12s var(--ease-out);
+}
+.ptc-watch:hover { color: var(--warn, #d98a00); transform: scale(1.15); }
+.ptc-watch.is-watched { color: var(--warn, #d98a00); }
+/* Saved-card wrapper: the status bar sits above the standard pick tile; the
+   tile stretches so watchlist rows keep the grid's equal-height look. */
+.pwl-card { display: flex; flex-direction: column; }
+.pwl-card .pick-tab-card { flex: 1; }
+.pwl-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; padding: 0 2px 4px; min-width: 0; }
+.pwl-tag { font: 700 9.5px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .05em; padding: 3px 6px; border-radius: 3px; white-space: nowrap; }
+.pwl-tag-live { color: var(--pos); background: color-mix(in srgb, var(--pos) 10%, transparent); }
+.pwl-tag-stale { color: var(--warn, #d98a00); background: color-mix(in srgb, var(--warn, #d98a00) 12%, transparent); }
+.pwl-added { font: 500 10.5px/1 var(--font-mono); color: var(--text-muted); white-space: nowrap; }
+.pwl-remove {
+  margin-left: auto;
+  appearance: none;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font: 600 10.5px/1 var(--font-mono);
+  padding: 3px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color .12s var(--ease-out), border-color .12s var(--ease-out);
+}
+.pwl-remove:hover { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 45%, var(--border)); }
+.pwl-stale .pick-tab-card { opacity: .82; filter: saturate(.75); }
+.pwl-broken { flex: 1; font: 400 12px/1.5 var(--font-sans); color: var(--text-muted); padding: 12px; border: 1px dashed var(--border); border-radius: var(--r-3); }
+.pwl-detail-note {
+  font: 500 12px/1.5 var(--font-sans);
+  color: var(--warn, #d98a00);
+  background: color-mix(in srgb, var(--warn, #d98a00) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn, #d98a00) 30%, var(--border));
+  border-radius: var(--r-2);
+  padding: 8px 12px;
+  margin-bottom: 10px;
+}
+/* Detail-card header watchlist toggle (a real button there). */
+.pick-watch-btn {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font: 700 11px/1 var(--font-mono);
+  letter-spacing: .03em;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color .12s var(--ease-out), border-color .12s var(--ease-out);
+}
+.pick-watch-btn:hover { color: var(--warn, #d98a00); border-color: color-mix(in srgb, var(--warn, #d98a00) 45%, var(--border)); }
+.pick-watch-btn.is-watched {
+  color: var(--warn, #d98a00);
+  border-color: color-mix(in srgb, var(--warn, #d98a00) 45%, var(--border));
+  background: color-mix(in srgb, var(--warn, #d98a00) 8%, transparent);
+}
+
 /* --- Sector-peer comparison -------------------------------------------- */
 .pick-peers {
   margin-top: 8px;
