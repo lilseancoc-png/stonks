@@ -8683,7 +8683,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // market's REACTION to it flows through the price axes immediately). Change
   // computeMacroRegime, change this. baked = data.rosterMeta.macroRegime
   // (carries axes / inputs / thresholds); live = the /api/macro-live legs (+ fng).
-  var macroTape = { legs: null, fetchedAt: null, timer: null, open: true, openAxis: {}, hist: [], lastSampleAt: null };
+  var macroTape = { legs: null, fetchedAt: null, timer: null, open: true, detailAxis: null, hist: [], lastSampleAt: null };
   var MACRO_TAPE_POLL_MS = 30000;
   var TAPE_HIST_MAX = 120; // live samples retained for the session sparklines
 
@@ -9589,29 +9589,30 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     pane.addEventListener('focusin', onHover);
     pane.addEventListener('mouseleave', clear);
   }
+  var TAPE_AXIS_DEFS = [
+    { k:'indexes', name:'Indexes', desc:'SPY + QQQ — the overall market' },
+    { k:'vix', name:'VIX', desc:'Equity volatility — the fear gauge' },
+    { k:'dxy', name:'Dollar', desc:'DXY — global tightening / flight to USD' },
+    { k:'yields', name:'Long yields', desc:'10Y / 30Y — financial conditions' },
+    { k:'commodity', name:'Commodities', desc:'Crude + gold — supply / war shock' },
+    { k:'sentiment', name:'Fear & Greed', desc:'CNN equity internals' },
+    { k:'globalTape', name:'Global tape', desc:'Futures + Asia/EU + yen + BTC' },
+    { k:'fed', name:'Fed path', desc:'FedWatch drift + FOMC proximity' },
+    { k:'geo', name:'Geopolitics', desc:'War / tariffs / Iran — headlines' },
+    { k:'inflation', name:'Inflation / jobs', desc:'CPI YoY + unemployment' },
+    { k:'twoY', name:'Front-end (2Y)', desc:'2Y yield — the Fed-path read' },
+    { k:'bondVol', name:'Bond vol (MOVE)', desc:'Treasury-option implied vol' },
+    { k:'breadth', name:'Breadth', desc:'Universe % >200DMA + NH−NL' },
+    { k:'putCall', name:'Put / call', desc:'Universe option positioning' },
+    { k:'credit', name:'HY credit', desc:'HY OAS + HYG/LQD ratio' },
+    { k:'rotation', name:'Rotation', desc:'Offense − defense equity leadership' },
+  ];
   function buildMacroTapePanel(regime, opts){
     opts = opts || {};
     var meta = macroStateMeta(regime.state, regime.fragile);
     var nar = macroTapeNarrative(regime, opts.roster);
     var axes = regime.axes || {};
-    var AXIS_DEFS = [
-      { k:'indexes', name:'Indexes', desc:'SPY + QQQ — the overall market' },
-      { k:'vix', name:'VIX', desc:'Equity volatility — the fear gauge' },
-      { k:'dxy', name:'Dollar', desc:'DXY — global tightening / flight to USD' },
-      { k:'yields', name:'Long yields', desc:'10Y / 30Y — financial conditions' },
-      { k:'commodity', name:'Commodities', desc:'Crude + gold — supply / war shock' },
-      { k:'sentiment', name:'Fear & Greed', desc:'CNN equity internals' },
-      { k:'globalTape', name:'Global tape', desc:'Futures + Asia/EU + yen + BTC' },
-      { k:'fed', name:'Fed path', desc:'FedWatch drift + FOMC proximity' },
-      { k:'geo', name:'Geopolitics', desc:'War / tariffs / Iran — headlines' },
-      { k:'inflation', name:'Inflation / jobs', desc:'CPI YoY + unemployment' },
-      { k:'twoY', name:'Front-end (2Y)', desc:'2Y yield — the Fed-path read' },
-      { k:'bondVol', name:'Bond vol (MOVE)', desc:'Treasury-option implied vol' },
-      { k:'breadth', name:'Breadth', desc:'Universe % >200DMA + NH−NL' },
-      { k:'putCall', name:'Put / call', desc:'Universe option positioning' },
-      { k:'credit', name:'HY credit', desc:'HY OAS + HYG/LQD ratio' },
-      { k:'rotation', name:'Rotation', desc:'Offense − defense equity leadership' },
-    ];
+    var AXIS_DEFS = TAPE_AXIS_DEFS;
     var ORDER = ['indexes','vix','dxy','yields','fed','commodity','geo','inflation','sentiment','globalTape','twoY','bondVol','breadth','putCall','credit','rotation'];
     var arr = ORDER.map(function(k){ return (axes[k] && isFinite(axes[k].score)) ? axes[k].score : 0; });
     var roff = arr.filter(function(x){ return x <= -1; }).length;
@@ -9641,9 +9642,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var axSeries = (bakedAx.length >= 3) ? bakedAx : macroTape.hist.map(function(s){ return (s && s.axes) ? s.axes[d.k] : null; });
       var spark = tapeSparkSvg(axSeries, { baseline: 0, min: -2, max: 2, tone: tone, w: 60, h: 14 });
       var sparkTitle = (bakedAx.length >= 3) ? 'Daily score trend' : 'Live session trend';
-      var isOpen = !!macroTape.openAxis[d.k];
-      var detail = isOpen ? '<div class="tape-axis-detail">' + buildAxisDetail(d, a, opts) + '</div>' : '';
-      return '<button type="button" class="tape-axis tape-' + tone + (isOpen ? ' is-open' : '') + '" data-axis="' + d.k + '" aria-expanded="' + (isOpen ? 'true' : 'false') + '">' +
+      // Clicking a tile opens the axis-detail POPOUT (a centered modal overlay,
+      // same pattern as the calendar's report modal) — the detail is deliberately
+      // NOT injected inline, which used to stretch the whole grid row.
+      var isOpen = macroTape.detailAxis === d.k;
+      return '<button type="button" class="tape-axis tape-' + tone + (isOpen ? ' is-open' : '') + '" data-axis="' + d.k + '" aria-haspopup="dialog" aria-expanded="' + (isOpen ? 'true' : 'false') + '">' +
           '<div class="tape-axis-head">' +
             '<span class="tape-axis-name">' + escapeHtml(d.name) + '</span>' +
             badge +
@@ -9656,8 +9659,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
             ((panelAW && isFinite(Number(panelAW[d.k]))) ? '<span class="tape-axis-w" title="Composite weight — this axis&#39;s vote counts ×' + Number(panelAW[d.k]) + ' in net stress and the effective axis counts">×' + Number(panelAW[d.k]) + '</span>' : '') +
             (spark ? '<span class="tape-axis-spark" title="' + sparkTitle + '">' + spark + '</span>' : '') +
           '</div>' +
-          '<span class="tape-axis-more" aria-hidden="true">' + (isOpen ? 'Hide ▴' : 'Details ▾') + '</span>' +
-          detail +
+          '<span class="tape-axis-more" aria-hidden="true">Details ↗</span>' +
         '</button>';
     }).join('');
     // Headline risk meter — the whole tape on one rail. Position from net stress
@@ -9728,6 +9730,77 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<p class="picks-tape-foot">The tape recomputes live from the fast price axes (VIX, dollar, long yields, the 2Y, MOVE, crude + gold, HY credit, Fear &amp; Greed, and the global cross-asset tape — overnight futures / yen carry / BTC) every ~30s while this tab is open. The slow axes — the Fed path, the geopolitical-<i>news</i> read, monthly inflation / jobs, and the universe breadth + put/call — carry from the last build, so a fresh war or peace-deal <i>headline</i> updates at the next refresh, but the market’s reaction to it flows through the price axes immediately. Risk-off shrinks the list, tilts it toward puts, and sizes it down; risk-on leans it long.</p>' +
       '</div>' +
     '</div>';
+  }
+  // --- Axis-detail popout ----------------------------------------------------
+  // One shared modal overlay for the per-axis drill-down (mirrors the calendar's
+  // report modal). Lives on document.body so it survives the ~30s tape
+  // re-renders; renderMacroTape() refreshes its content each poll while open.
+  var tapeAxisModalEl = null;
+  function ensureTapeAxisModal(){
+    if (tapeAxisModalEl) return tapeAxisModalEl;
+    var ov = document.createElement('div');
+    ov.className = 'tape-axm-overlay'; ov.hidden = true;
+    ov.innerHTML =
+      '<div class="tape-axm-modal" role="dialog" aria-modal="true" aria-label="Tape axis detail">' +
+        '<button type="button" class="tape-axm-close" aria-label="Close">×</button>' +
+        '<div class="tape-axm-head">' +
+          '<span class="tape-axm-name"></span>' +
+          '<span class="tape-axm-badge"></span>' +
+          '<span class="tape-axm-score"></span>' +
+        '</div>' +
+        '<div class="tape-axm-body tape-axis-detail"></div>' +
+      '</div>';
+    ov.addEventListener('click', function(ev){ if (ev.target === ov) closeTapeAxisModal(); });
+    ov.querySelector('.tape-axm-close').addEventListener('click', closeTapeAxisModal);
+    document.addEventListener('keydown', function(ev){ if (ev.key === 'Escape' && tapeAxisModalEl && !tapeAxisModalEl.hidden) closeTapeAxisModal(); });
+    document.body.appendChild(ov);
+    tapeAxisModalEl = ov;
+    return ov;
+  }
+  function closeTapeAxisModal(){
+    var k = macroTape.detailAxis;
+    macroTape.detailAxis = null;
+    if (!tapeAxisModalEl || tapeAxisModalEl.hidden) return;
+    tapeAxisModalEl.hidden = true;
+    document.body.classList.remove('tape-axm-open');
+    renderMacroTape();
+    // Return focus to the tile that opened the popout (keyboard / screen-
+    // reader). Re-find it by axis key — the grid re-renders on every live
+    // poll, so a node stored at open time would be detached by now.
+    var tile = k ? document.querySelector('.picks-tape-axes .tape-axis[data-axis="' + k + '"]') : null;
+    if (tile && tile.focus){ try { tile.focus(); } catch (_) {} }
+  }
+  // Fill (or refresh) the popout from the current regime read. Called on open
+  // and again from every renderMacroTape() while open, so a live axis keeps
+  // ticking inside the popout too.
+  function fillTapeAxisModal(regime, opts){
+    var k = macroTape.detailAxis;
+    if (!k || !tapeAxisModalEl || tapeAxisModalEl.hidden || !regime) return;
+    var d = null;
+    for (var i = 0; i < TAPE_AXIS_DEFS.length; i++){ if (TAPE_AXIS_DEFS[i].k === k){ d = TAPE_AXIS_DEFS[i]; break; } }
+    if (!d) return;
+    var a = (regime.axes || {})[k] || { score: 0, label: '—', live: false };
+    var sc = isFinite(a.score) ? a.score : 0;
+    var tone = axisToneCls(sc);
+    var modal = tapeAxisModalEl.querySelector('.tape-axm-modal');
+    modal.className = 'tape-axm-modal tape-' + tone;
+    tapeAxisModalEl.querySelector('.tape-axm-name').textContent = d.name;
+    var badge = tapeAxisModalEl.querySelector('.tape-axm-badge');
+    badge.className = 'tape-axm-badge tape-axis-badge ' + (a.live ? 'is-live' : 'is-baked');
+    badge.textContent = a.live ? 'live' : 'baked';
+    badge.title = a.live ? 'Refreshed live from /api/macro-live' : 'From the last build — this axis cannot refresh from a price quote';
+    tapeAxisModalEl.querySelector('.tape-axm-score').textContent = (sc > 0 ? '+' : '') + sc;
+    tapeAxisModalEl.querySelector('.tape-axm-body').innerHTML = buildAxisDetail(d, a, opts || {});
+  }
+  function openTapeAxisModal(k){
+    macroTape.detailAxis = k;
+    var el = ensureTapeAxisModal();
+    el.hidden = false;
+    document.body.classList.add('tape-axm-open');
+    // renderMacroTape re-stamps the tiles' is-open state AND fills the popout
+    // (fillTapeAxisModal runs at its tail with the freshest regime read).
+    renderMacroTape();
+    var cb = el.querySelector('.tape-axm-close'); if (cb) cb.focus();
   }
   // --- Market analysis tab: baked-regime source + loader --------------------
   // The regime widgets read the dedicated data/market-analysis.json payload
@@ -9802,25 +9875,30 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       driftSlot.hidden = !driftHtml;
     }
     var panel = document.getElementById('picks-tape');
+    var panelOpts = { live: isLive, fetchedAt: macroTape.fetchedAt, roster: roster, baked: baked };
     if (panel){
       if (!regime || !regime.axes){ panel.hidden = true; panel.innerHTML = ''; }
       else {
         panel.hidden = false;
-        panel.innerHTML = buildMacroTapePanel(regime, { live: isLive, fetchedAt: macroTape.fetchedAt, roster: roster, baked: baked });
+        panel.innerHTML = buildMacroTapePanel(regime, panelOpts);
         var head = panel.querySelector('.picks-tape-head');
         if (head) head.addEventListener('click', function(){ macroTape.open = !macroTape.open; renderMacroTape(); });
         // Tile drill-downs — delegate on the freshly-rendered axes grid (a new
         // element each render, so listeners don't accumulate on the host).
+        // A click opens the axis popout (modal) instead of expanding the tile
+        // inline — inline expansion stretched the whole grid row.
         var axesGrid = panel.querySelector('.picks-tape-axes');
         if (axesGrid) axesGrid.addEventListener('click', function(e){
           var b = e.target.closest ? e.target.closest('.tape-axis[data-axis]') : null;
           if (!b) return;
           var k = b.getAttribute('data-axis');
-          macroTape.openAxis[k] = !macroTape.openAxis[k];
-          renderMacroTape();
+          if (macroTape.detailAxis === k) closeTapeAxisModal();
+          else openTapeAxisModal(k);
         });
       }
     }
+    // Keep an open axis popout ticking with the freshest regime read.
+    fillTapeAxisModal(regime, panelOpts);
     wirePicksCrossHighlight();
     renderRiskBarometer();
   }
@@ -9860,7 +9938,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     pollMacroTapeOnce();
     macroTape.timer = setInterval(pollMacroTapeOnce, MACRO_TAPE_POLL_MS);
   }
-  function stopMacroTapeLive(){ if (macroTape.timer){ clearInterval(macroTape.timer); macroTape.timer = null; } }
+  function stopMacroTapeLive(){
+    if (macroTape.timer){ clearInterval(macroTape.timer); macroTape.timer = null; }
+    // Leaving the tab: drop any open axis popout (its live refresh just stopped).
+    if (tapeAxisModalEl && !tapeAxisModalEl.hidden) closeTapeAxisModal();
+  }
 
   // --- Risk-on / risk-off barometer rail -----------------------------------
   // Map one cross-asset move to a 0..100 risk score. polarity·(move/scale)
