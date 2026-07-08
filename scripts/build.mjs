@@ -3871,6 +3871,160 @@ async function writeIvHistory(historyMap) {
   return bytes;
 }
 
+// ===================== Trending IV (data/iv-trending.json) =================
+// The "Trending IV" screen: every tracked name's CURRENT ATM ~30d IV read
+// against its OWN ~18-month history (the data/iv-history/<SYM>.json series
+// the bake already accumulates) plus its short-term direction — surfacing
+// names whose implied vol is both elevated and still climbing, i.e. the
+// options market pricing in a bigger-than-usual move (event risk,
+// positioning, or something leaking). Purely deterministic — derived from
+// the ivHistory map collectIvHistory already returns, no extra network and
+// no AI. Rebuilt from scratch every bake (the accumulation lives in
+// iv-history, not here), so it needs no read-before-wipe of its own.
+// FREE key (not in lib/premium-keys.mjs) — browser lazy-loads it on tab open.
+const IV_TRENDING_FILE = "iv-trending.json";
+// Need at least ~a month of daily samples before a trend read means anything.
+const IV_TRENDING_MIN_N = 20;
+// Sparkline series shipped only for tiered (flagged) names — payload diet.
+const IV_TRENDING_SPARK_ENTRIES = 90;
+// Earnings context attached when the next print is inside this window.
+const IV_TRENDING_EARNINGS_WINDOW_DAYS = 45;
+
+// % change of the LAST sample vs the one `back` entries earlier (entries are
+// one-per-trading-day, so back=5 ≈ one trading week). null when the series
+// is too short.
+function ivTrendChangePct(ivs, back) {
+  if (!Array.isArray(ivs) || ivs.length <= back) return null;
+  const prev = ivs[ivs.length - 1 - back];
+  const cur = ivs[ivs.length - 1];
+  if (!(prev > 0) || !(cur > 0)) return null;
+  return Number((((cur - prev) / prev) * 100).toFixed(1));
+}
+
+// One fixed, documented score — no cross-sectional normalization (same
+// philosophy as the picks engine's scoreTicker). Elevation vs the name's own
+// history (z-score) carries the most weight; short-term momentum (5d/20d %
+// change of the IV itself) and a consecutive-rising-days streak add the
+// "still climbing" half. Exported for offline testing.
+export function scoreIvTrend({ z, chg5dPct, chg20dPct, risingStreak }) {
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const zC = clamp(z ?? 0, -1, 3);
+  const m5 = chg5dPct == null ? 0 : clamp(chg5dPct / 8, -1.5, 2.5);
+  const m20 = chg20dPct == null ? 0 : clamp(chg20dPct / 16, -1.5, 2.5);
+  const streak = 0.25 * Math.min(Math.max(risingStreak || 0, 0), 4);
+  return Number((1.6 * zC + m5 + m20 + streak).toFixed(2));
+}
+
+// Fixed absolute tiers (auditable, like the picks engine's conviction bars):
+//   surging  — well above its own mean AND ripping higher right now
+//   trending — elevated vs history and climbing
+//   building — at/above its mean with confirmed short-term acceleration
+// null = not flagged (still shipped in the context table). Each tier also
+// carries a MATERIALITY floor on relPct (current IV vs the name's own mean,
+// in %): a low-variance history makes z cheap — a ±2% wiggle on a dead-flat
+// series can print z ≥ 1 — so σ alone must never tier a name whose premium
+// hasn't actually expanded in real terms.
+export function ivTrendTier({ score, z, chg5dPct, chg20dPct, relPct }) {
+  if (z == null || score == null) return null;
+  const rel = relPct ?? 0;
+  const up5 = (chg5dPct ?? 0) > 0;
+  const up20 = (chg20dPct ?? 0) > 0;
+  if (score >= 4.5 && z >= 1.5 && rel >= 15 && up5) return "surging";
+  if (score >= 3 && z >= 0.75 && rel >= 8 && (up5 || up20)) return "trending";
+  if (score >= 2 && z >= 0 && rel >= 3 && up5 && up20) return "building";
+  return null;
+}
+
+// Pure given the collected ivHistory map + chains (for spot / name / sector /
+// earnings context). Percentile + std conventions match attachIvRanks
+// (midrank percentile, sample std) so the two reads never disagree.
+export function buildIvTrendingPayload(ivHistory, chains, builtAtIso = new Date().toISOString()) {
+  const todayIso = String(builtAtIso).slice(0, 10);
+  const rows = [];
+  let asOf = null;
+  for (const [sym, hist] of ivHistory?.entries?.() || []) {
+    const entries = (hist?.entries || []).filter(
+      (e) => e && typeof e.date === "string" && Number(e.iv) > 0,
+    );
+    if (entries.length < IV_TRENDING_MIN_N) continue;
+    const ivs = entries.map((e) => Number(e.iv));
+    const cur = ivs[ivs.length - 1];
+    const lastDate = entries[entries.length - 1].date;
+    if (!asOf || lastDate > asOf) asOf = lastDate;
+    const below = ivs.filter((x) => x < cur).length;
+    const ties = ivs.filter((x) => x === cur).length;
+    const pctile = Math.round(((below + ties / 2) / ivs.length) * 100);
+    const mean = ivs.reduce((a, b) => a + b, 0) / ivs.length;
+    const variance = ivs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / (ivs.length - 1);
+    const std = Math.sqrt(variance);
+    const z = std > 0 ? Number(((cur - mean) / std).toFixed(2)) : null;
+    const chg1dPct = ivTrendChangePct(ivs, 1);
+    const chg5dPct = ivTrendChangePct(ivs, 5);
+    const chg20dPct = ivTrendChangePct(ivs, 20);
+    let risingStreak = 0;
+    for (let i = ivs.length - 1; i > 0 && ivs[i] > ivs[i - 1]; i--) risingStreak++;
+    const relPct = mean > 0 ? Number((((cur - mean) / mean) * 100).toFixed(1)) : null;
+    const score = scoreIvTrend({ z, chg5dPct, chg20dPct, risingStreak });
+    const tier = ivTrendTier({ score, z, chg5dPct, chg20dPct, relPct });
+    const data = chains?.[sym] || null;
+    const f = data?.fundamentals || null;
+    const row = {
+      symbol: sym,
+      name: f?.name || null,
+      sector: SECTORS[sym] || f?.sector || null,
+      spot: data?.spot ?? null,
+      iv: Number(cur.toFixed(4)),
+      mean: Number(mean.toFixed(4)),
+      relPct,
+      z,
+      pctile,
+      n: ivs.length,
+      chg1dPct,
+      chg5dPct,
+      chg20dPct,
+      risingStreak,
+      score,
+      tier,
+      asOf: lastDate,
+    };
+    // Earnings context — the most common "why": IV mechanically builds into a
+    // print. Attach it so the UI can distinguish scheduled event risk from an
+    // unexplained ramp (the more interesting kind).
+    const nextIso = f?.nextEarningsDate;
+    if (typeof nextIso === "string" && nextIso >= todayIso) {
+      const days = Math.round((Date.parse(nextIso) - Date.parse(todayIso)) / 86400000);
+      if (Number.isFinite(days) && days <= IV_TRENDING_EARNINGS_WINDOW_DAYS) {
+        const earnings = { date: nextIso, session: f?.nextEarningsSession || "TBD", inDays: days };
+        const im = computeImpliedMoveForDate(data, nextIso);
+        if (im) earnings.impliedMovePct = Number((im.pct * 100).toFixed(1));
+        row.earnings = earnings;
+      }
+    }
+    if (tier) {
+      row.spark = entries
+        .slice(-IV_TRENDING_SPARK_ENTRIES)
+        .map((e) => [e.date, Number(Number(e.iv).toFixed(4))]);
+    }
+    rows.push(row);
+  }
+  rows.sort((a, b) => (b.score - a.score) || a.symbol.localeCompare(b.symbol));
+  return {
+    builtAtIso,
+    asOf,
+    dteTarget: IV_HISTORY_TARGET_DTE,
+    minN: IV_TRENDING_MIN_N,
+    trendingCount: rows.filter((r) => r.tier).length,
+    tickers: rows,
+  };
+}
+
+async function writeIvTrendingFile(ivHistory, chains) {
+  const payload = buildIvTrendingPayload(ivHistory, chains);
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, IV_TRENDING_FILE), json, "utf8");
+  return { payload, bytes: json.length };
+}
+
 // ===================== Earnings history (per-ticker) =====================
 // Accumulating store behind the Grade tab's "Earnings history" card: for each
 // ticker, the last ~8 reported quarters with announcement date, AM/PM session,
@@ -19754,6 +19908,16 @@ async function main() {
   const ivHistoryBytes = await writeIvHistory(ivHistory);
   if (ivHistory.size) {
     console.log(`wrote data/iv-history/ — ${ivHistory.size} tickers, ${ivHistoryBytes} bytes total`);
+  }
+  // Trending IV — derived screen over the just-flushed iv-history (current
+  // ATM ~30d IV vs each name's own history + short-term direction). Purely
+  // deterministic and rebuilt every bake; non-fatal on failure (the tab shows
+  // its empty state until the next successful bake).
+  try {
+    const { payload: ivTrending, bytes: ivTrendingBytes } = await writeIvTrendingFile(ivHistory, chains);
+    console.log(`wrote data/${IV_TRENDING_FILE} — ${ivTrending.tickers.length} ranked, ${ivTrending.trendingCount} trending, ${ivTrendingBytes} bytes`);
+  } catch (err) {
+    console.log(`Trending-IV write failed (non-fatal): ${err.message}`);
   }
   // Earnings-history store back into the freshly-recreated data/ (pre-read +
   // updated above, before the wipe).

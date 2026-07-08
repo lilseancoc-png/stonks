@@ -50,6 +50,7 @@ const SIDE_NAV_ICONS = {
   volume: '<path d="M6 20v-5M12 20V9M18 20V4"/>',
   oi: '<path d="m12 3 10 5.5L12 14 2 8.5Z"/><path d="m2 14.5 10 5.5 10-5.5"/>',
   streaks: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
+  'iv-trend': '<path d="m3 17.5 6-6 4 4 8-8.5"/><path d="M14.5 7h6.5v6.5"/>',
   overnight: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
   'fear-greed': '<path d="m12 14.5 3.5-3.5"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
   'bonds-usd': '<path d="M12 2.5v19M16.5 5.5H10a3 3 0 0 0 0 6h4a3 3 0 0 1 0 6H7"/>',
@@ -463,6 +464,24 @@ function ramPricesSection() {
     <div id="ram-prices-root" class="ram-prices-root">Loading RAM prices&hellip;</div>
     <div id="ram-prices-empty" class="ram-prices-empty" hidden>RAM price data will appear after the next daily build refresh.</div>
     <p class="hint">Spot prices are per chip/module in USD (session average); retail prices are per kit in USD (lowest in-stock offer / category average). Sources are scraped best-effort and can go stale. Not financial advice.</p>
+  </section>`;
+}
+
+function ivTrendSection() {
+  // Card chrome only — content renders client-side from data/iv-trending.json,
+  // lazy-fetched on first tab activation by loadIvTrend() in app.js. Every
+  // tracked name's current ATM ~30d IV vs its own ~18-month history (z-score,
+  // percentile) plus short-term direction (5d/20d IV change, rising streak);
+  // elevated-and-climbing names are tiered (surging / trending / building).
+  return `<section class="card" id="iv-trend-section">
+    <header class="card-header">
+      <h2 class="card-title">Trending IV</h2>
+      <span class="card-eyebrow" id="iv-trend-eyebrow" aria-live="polite"></span>
+    </header>
+    ${infoNote('What is this?', `<p>Each name's <b>implied volatility</b> (ATM ~30-day, sampled daily for ~18 months) compared to its <b>own</b> history. When IV runs well above a name's historical average <b>and is still climbing</b>, the options market is pricing in a bigger-than-usual move &mdash; scheduled event risk (an earnings badge is shown when a print is near), heavy positioning, or something leaking. Rising IV says <b>magnitude</b>, not direction: it makes long options expensive and is not by itself a buy signal. Score = z-score of current IV vs the name's own mean (weighted heaviest) + 5-day/20-day IV momentum + a consecutive-rising-days streak; fixed absolute tiers with a materiality floor (current IV must sit meaningfully above the name's own average in real terms), no cross-sectional curve.</p>`)}
+    <div id="iv-trend-root" class="ivt-root">Loading Trending IV&hellip;</div>
+    <div id="iv-trend-empty" class="ivt-empty" hidden>Trending-IV data will appear after the next daily build refresh.</div>
+    <p class="hint">IV history accumulates one sample per trading day; names with under a month of samples are excluded. Elevated IV is a read on expected move size, not direction. Not financial advice.</p>
   </section>`;
 }
 
@@ -1230,6 +1249,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     ${sideNavItem('flow', 'Unusual flow')}
     ${sideNavItem('volume', 'Volume')}
     ${sideNavItem('oi', 'Gamma exposure')}
+    ${sideNavItem('iv-trend', 'Trending IV')}
     ${sideNavItem('streaks', 'Streaks')}
   </div>
   <div class="side-nav-group">
@@ -1298,6 +1318,15 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           <div class="landing-card-stat" id="land-stat-flow">—</div>
           <div class="landing-card-sub">flagged today</div>
           <p class="landing-card-desc">Options prints with abnormal volume vs the prior session — who's pricing in what.</p>
+        </button>
+        <button type="button" class="landing-card" data-go="iv-trend" aria-label="View trending implied volatility">
+          <header class="landing-card-head">
+            <span class="landing-card-eyebrow">Trending IV</span>
+            <span class="landing-card-arrow" aria-hidden="true">→</span>
+          </header>
+          <div class="landing-card-stat" id="land-stat-ivt">IV ↑</div>
+          <div class="landing-card-sub" id="land-sub-ivt">big moves brewing</div>
+          <p class="landing-card-desc">Names whose implied vol is running above their own history and still climbing — options pricing in a bigger-than-usual move.</p>
         </button>
         <button type="button" class="landing-card" data-go="narratives" aria-label="Browse narratives">
           <header class="landing-card-head">
@@ -1495,6 +1524,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-strategies" role="tabpanel" aria-labelledby="page-tab-strategies" hidden>
   ${strategiesSection()}
+  </div>
+  <div class="page-pane" id="page-pane-iv-trend" role="tabpanel" aria-labelledby="page-tab-iv-trend" hidden>
+  ${ivTrendSection()}
   </div>
   <div class="page-pane" id="page-pane-streaks" role="tabpanel" aria-labelledby="page-tab-streaks" hidden>
     <section class="card" id="streaks-section">

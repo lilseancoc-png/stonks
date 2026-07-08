@@ -2818,6 +2818,69 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .rp-row-price { font: 700 13px/1 var(--font-mono); color: var(--text-strong); font-variant-numeric: tabular-nums; }
 .rp-row-chips { display: inline-flex; flex-wrap: wrap; gap: 5px; margin-left: auto; }
 
+/* --- Trending IV (Flow) ------------------------------------------------ */
+.ivt-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.ivt-card {
+  display: flex; flex-direction: column; gap: 7px;
+  padding: 12px 13px; border: 1px solid var(--border); border-radius: var(--r-1);
+  background: var(--surface); border-left-width: 3px;
+}
+.ivt-card.ivt-tier-surging { border-left-color: var(--neg); }
+.ivt-card.ivt-tier-trending { border-left-color: var(--accent); }
+.ivt-card.ivt-tier-building { border-left-color: var(--pos); }
+.ivt-card-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 8px; }
+.ivt-badge {
+  font: 700 10px/1 var(--font-sans); letter-spacing: .06em; text-transform: uppercase;
+  padding: 3px 7px; border-radius: 999px;
+}
+.ivt-tier-surging .ivt-badge { color: var(--neg); background: color-mix(in srgb, var(--neg) 14%, transparent); }
+.ivt-tier-trending .ivt-badge { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.ivt-tier-building .ivt-badge { color: var(--pos); background: color-mix(in srgb, var(--pos) 14%, transparent); }
+.ivt-sym { font: 700 15px/1 var(--font-mono); color: var(--text-strong); }
+.ivt-name { font: 400 11.5px/1.3 var(--font-sans); color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; flex: 1 1 auto; }
+.ivt-sector { font: 600 10px/1 var(--font-sans); color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2.5px 7px; white-space: nowrap; }
+.ivt-stats { display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px 10px; }
+.ivt-stat { font: 500 12px/1.3 var(--font-sans); white-space: nowrap; }
+.ivt-stat b { font: 700 14px/1 var(--font-mono); color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.ivt-z { font: 700 11.5px/1 var(--font-mono); padding: 2.5px 6px; border-radius: 5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ivt-z-hot { color: var(--neg); background: color-mix(in srgb, var(--neg) 12%, transparent); }
+.ivt-z-warm { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.ivt-z-cool { color: var(--muted); background: color-mix(in srgb, var(--border) 40%, transparent); }
+.ivt-streak { color: var(--pos); font-weight: 700; }
+.ivt-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ivt-chip { display: inline-flex; align-items: baseline; gap: 3px; white-space: nowrap; font: 600 11.5px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.ivt-chip-label { font: 600 10px/1 var(--font-sans); color: var(--muted); }
+.ivt-earn { font: 600 11.5px/1.4 var(--font-sans); color: var(--text-strong); }
+.ivt-noearn { font: 500 11px/1.4 var(--font-sans); color: var(--muted); font-style: italic; }
+.ivt-spark { width: 100%; height: 56px; display: block; margin-top: 2px; }
+.ivt-spark-line { stroke: var(--accent); stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+.ivt-spark-mean { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; opacity: .6; }
+.ivt-none { font: 400 12.5px/1.5 var(--font-sans); color: var(--muted); margin: 0 0 14px; }
+.ivt-table { border-top: 1px solid var(--border); }
+.ivt-trow {
+  display: grid; grid-template-columns: minmax(96px, 1.4fr) .7fr .7fr .5fr .7fr .7fr 1fr .6fr;
+  gap: 4px 8px; align-items: baseline;
+  padding: 6px 2px; border-bottom: 1px dashed color-mix(in srgb, var(--border) 60%, transparent);
+}
+.ivt-thead { font: 700 10px/1.2 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border); }
+.ivt-trow-sym { font: 700 12.5px/1.2 var(--font-mono); color: var(--text-strong); }
+.ivt-trow-tier { font: 700 9px/1 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; font-style: normal; color: var(--muted); }
+.ivt-trow.ivt-tier-surging .ivt-trow-tier { color: var(--neg); }
+.ivt-trow.ivt-tier-trending .ivt-trow-tier { color: var(--accent); }
+.ivt-trow.ivt-tier-building .ivt-trow-tier { color: var(--pos); }
+.ivt-trow-num { font: 500 12px/1.2 var(--font-mono); font-variant-numeric: tabular-nums; }
+.ivt-trow-earn { font: 400 11px/1.2 var(--font-sans); color: var(--muted); white-space: nowrap; }
+.ivt-show-all {
+  margin-top: 10px; padding: 7px 14px; font: 600 12px/1 var(--font-sans);
+  color: var(--text-strong); background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; cursor: pointer;
+}
+.ivt-show-all:hover { border-color: var(--muted); }
+@media (max-width: 640px) {
+  .ivt-trow { grid-template-columns: minmax(80px, 1.2fr) .8fr .8fr .8fr .8fr; }
+  .ivt-trow > :nth-child(4), .ivt-trow > :nth-child(7), .ivt-trow > :nth-child(8) { display: none; }
+}
+
 /* --- Capital raises (Macro) ------------------------------------------- */
 .cr-rows { display: flex; flex-direction: column; gap: 10px; }
 .cr-row { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-1); background: var(--surface); }
