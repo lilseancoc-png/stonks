@@ -20,6 +20,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
        (same format, plus the archive preamble) and add that month to the
        "Older changelogs" index below. -->
 
+## 2026-07-08
+
+### Fixed
+- **Grade tab: the Earnings-history card no longer strands a ticker on year-old prints (ORCL showed nothing newer than Jun 2025).** Yahoo's visualization feed froze in mid-2025, so a ticker whose first-day Nasdaq fallback fetch flaked was left with 8 EPS-complete but ancient rows — which the backfill's depth + EPS checks read as "done", so the recent quarters were never fetched again. `earningsBackfillNeeded` now also re-triggers (once per ET day) whenever the newest stored print is older than ~110 days, so every stranded name keeps retrying the Nasdaq surprise backfill until the recent quarters land. Also fixes the bogus uniform "IV post" column: `earningsIvAround` now only accepts iv-history samples within 7 days of the print (events predating iv-history coverage were all stamped with the store's first-ever sample), and a one-time store repair clears the poisoned `ivPre`/`ivPost` stamps (live pre-print `ivPre` snapshots are kept) so the guarded pass re-fills them where a real nearby sample exists. `scripts/build.mjs`.
+
 ## 2026-07-07
 
 ### Added

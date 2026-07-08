@@ -3903,6 +3903,13 @@ const EARNINGS_BACKFILL_CONCURRENCY = 4;
 const EARNINGS_PREPRINT_STAMP_DAYS = 8;
 // Long enough for 8 quarters of reaction sessions + a 1-week tail.
 const EARNINGS_BACKFILL_LOOKBACK_DAYS = 800;
+// A ticker whose NEWEST stored print is older than this is missing recent
+// quarters — companies report ~every 91 days, and even a moved date stays
+// well under this. Without it, a ticker stranded by the frozen Yahoo
+// visualization feed (rows stop at mid-2025, all EPS-complete) reads as
+// "done" to the depth + EPS checks and the Nasdaq fallback — the only source
+// of the recent quarters — is never retried.
+const EARNINGS_STALE_AFTER_DAYS = 110;
 // A past event that still has no EPS actual this long after the date is a stale
 // placeholder (a moved estimate, or a bogus row from the upstream calendar),
 // not a real report — every genuine print reports EPS within a day or two. Used
@@ -4129,14 +4136,22 @@ export function computeEarningsReaction(bars, dateIso, session) {
 // Pure: ATM 30d IV just before / just after a print, from iv-history entries
 // (one sample per ET day, last build of the day wins — so the day-of sample is
 // taken at/after the 16:00 close). For a PM print the day-of close sample is
-// still pre-print; for an AM print only the prior day's is. Exported for unit
-// testing.
-export function earningsIvAround(entries, dateIso, session) {
+// still pre-print; for an AM print only the prior day's is. A sample only
+// counts within windowDays of the print — without that guard, every event
+// predating iv-history coverage got the store's very first sample as its
+// "post" (the same number stamped on years of rows); better a "—" than that.
+// 7 calendar days spans weekends + holiday gaps in the daily samples.
+// Exported for unit testing.
+export function earningsIvAround(entries, dateIso, session, windowDays = 7) {
   const isAm = session === "AM";
+  const evMs = Date.parse(dateIso);
+  const windowMs = windowDays * 86400000;
   let pre = null;
   let post = null;
   for (const e of entries || []) {
     if (!e?.date || !(e.iv > 0)) continue;
+    const gapMs = Math.abs(Date.parse(e.date) - evMs);
+    if (!(gapMs <= windowMs)) continue;
     const isPre = isAm ? e.date < dateIso : e.date <= dateIso;
     if (isPre) pre = e.iv;
     else if (post == null) post = e.iv;
@@ -4197,7 +4212,14 @@ function earningsBackfillNeeded(entry, todayIso) {
   // but at most once per ET day (entry.backfilledAt gates the caller).
   if (past.length < EARNINGS_BACKFILL_QUARTERS) return true;
   // EPS lands on Yahoo within a day of the print — refresh until captured.
-  return past.slice(-2).some((e) => e.epsActual == null);
+  if (past.slice(-2).some((e) => e.epsActual == null)) return true;
+  // Newest stored print is over a quarter old — the recent prints are missing
+  // (a one-day Nasdaq flake on the first backfill leaves the ticker frozen at
+  // the Yahoo feed's mid-2025 tail otherwise). Keep retrying until one lands.
+  const newest = past.reduce((m, e) => (e.date > m ? e.date : m), past[0].date);
+  const staleCutoff = new Date(Date.parse(`${todayIso}T00:00:00Z`) - EARNINGS_STALE_AFTER_DAYS * 86400000)
+    .toISOString().slice(0, 10);
+  return newest < staleCutoff;
 }
 
 // The per-build pass: backfill where thin, stamp the upcoming event's
@@ -4209,6 +4231,23 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
   const todayIso = etDateKey();
   const nowMs = Date.now();
   if (!store.tickers || typeof store.tickers !== "object") store.tickers = {};
+  // One-time repair (v1): earlier builds stamped ivPre/ivPost from the nearest
+  // iv-history sample with NO proximity window, so every event predating
+  // iv-history coverage carries the store's first-ever sample as its "post"
+  // (the same IV on years of rows). Clear the poisoned stamps; the guarded
+  // earningsIvAround pass below re-fills them where a real nearby sample
+  // exists. An ivPre stamped live pre-print is kept — impliedMovePct is
+  // written only by that live stamp, so it marks those rows.
+  if (store.ivGuardVersion !== 1) {
+    for (const t of Object.values(store.tickers)) {
+      for (const ev of t?.events || []) {
+        if (!ev) continue;
+        delete ev.ivPost;
+        if (ev.impliedMovePct == null) delete ev.ivPre;
+      }
+    }
+    store.ivGuardVersion = 1;
+  }
   const syms = Object.keys(chains).filter((s) => chains[s]);
   let backfilled = 0;
   let resolved = 0;
