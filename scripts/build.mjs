@@ -16216,7 +16216,12 @@ async function fetchTickerHeadlines(symbol) {
 // impact and no change to the request rate (so no new rate-limit exposure).
 const ARTICLE_FETCH_TIMEOUT_MS = 4000;
 const ARTICLE_MIN_BODY_CHARS = 400;
-const ARTICLE_MAX_BODY_CHARS = 3000;
+// Per-article body cap fed to the ticker-judgment prompt. Bodies are the bulk
+// of that pass's input tokens (~750 tokens per full body × up to 10 articles),
+// so this is the direct input-cost lever for the most expensive AI pass.
+// Env-overridable (AI_ARTICLE_BODY_CHARS) so spend can be tuned without a
+// deploy; default unchanged at 3000 chars.
+const ARTICLE_MAX_BODY_CHARS = Number(process.env.AI_ARTICLE_BODY_CHARS) || 3000;
 const ARTICLE_PARA_MIN_CHARS = 40;
 const PAYWALL_PHRASES = [
   "subscribe to continue",
@@ -17712,7 +17717,32 @@ const TICKER_JUDGMENT_CACHE_FILE = "ticker-judgment-cache.json";
 const TICKER_JUDGMENT_CACHE_VERSION = "tj1";
 const AI_TICKER_CACHE = process.env.AI_TICKER_CACHE !== "0";
 const TICKER_JUDGMENT_SPOT_DRIFT = Number(process.env.AI_TICKER_CACHE_DRIFT ?? 0.02);
+// Headline-churn tolerance. Yahoo's top-10 news list churns intraday — one new
+// SEO piece pushes the set and busts the exact-match signature — which held the
+// intraday reuse rate to ~20% (measured: 26/139 at the 16:00 close bake), i.e.
+// ~110 fresh Flash-Lite calls + article-body fetch waves per hourly bake for
+// takes whose substance hadn't moved. When the ONLY change vs the cached read
+// is at most this many genuinely-NEW headline titles (fundamentals facts,
+// models, ET date all unchanged, spot within the drift band), reuse the prior
+// judgment instead of re-reading. Two guards keep this honest: price-moving
+// news still forces a re-read via the spot-drift check, and new-title counts
+// accumulate against the ORIGINAL cached title set (a reuse carries the entry
+// forward untouched), so a drip of articles re-reads as soon as the cumulative
+// drip crosses the tolerance. 0 restores exact-match-only reuse.
+const TICKER_JUDGMENT_NEWS_TOLERANCE = Math.max(0, Number(process.env.AI_TICKER_CACHE_NEWS_TOLERANCE ?? 1));
 
+// Titles are compared case-/whitespace-insensitively so a publisher touching
+// up capitalization doesn't count as "new news".
+function normalizeHeadlineTitle(title) {
+  return String(title || "").trim().toLowerCase();
+}
+
+// Returns { sig, metaSig, titles }: `sig` is the exact-match key (unchanged
+// composition from the pre-tolerance cache, so entries written by the previous
+// build stay exact-matchable across the deploy); `metaSig` is `sig` minus the
+// headline hash — the tolerance path requires it to match so a relaxed reuse
+// can never paper over a fundamentals / model / date change; `titles` is the
+// normalized title set the tolerance path counts new headlines against.
 function tickerJudgmentSignature(rawHeadlines, fundamentals) {
   const etDate = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // YYYY-MM-DD
   const heads = rawHeadlines
@@ -17730,15 +17760,20 @@ function tickerJudgmentSignature(rawHeadlines, fundamentals) {
     f.recommendationKey || "",
     f.numberOfAnalystOpinions ?? "",
   ].join("|");
-  return [
+  const metaParts = [
     TICKER_JUDGMENT_CACHE_VERSION,
     etDate,
     AI_SIGNALS_COMBINED ? 1 : 0,
     AI_TICKER_MODEL,
     process.env.AI_SIGNALS_MODEL || AI_NEWS_MODEL, // the split guidance pass's model
-    createHash("sha1").update(heads).digest("hex").slice(0, 12),
-    createHash("sha1").update(fundBits).digest("hex").slice(0, 12),
-  ].join("|");
+  ];
+  const headsHash = createHash("sha1").update(heads).digest("hex").slice(0, 12);
+  const fundHash = createHash("sha1").update(fundBits).digest("hex").slice(0, 12);
+  return {
+    sig: [...metaParts, headsHash, fundHash].join("|"),
+    metaSig: [...metaParts, fundHash].join("|"),
+    titles: rawHeadlines.map((h) => normalizeHeadlineTitle(h.title)),
+  };
 }
 
 // Read BEFORE writeChainFiles wipes data/. Missing / unreadable / wrong-shape → {}.
@@ -17805,23 +17840,41 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
         const crFlags = scanCapitalRaiseHeadlines(sym, rawHeadlines);
         const cr = pickCapitalRaiseForScoring(crFlags);
         if (cr) data.capitalRaise = cr; else delete data.capitalRaise;
-        // Cross-build cache: same headlines + same slow fundamentals facts +
-        // spot within the drift band ⇒ reuse the prior build's judgment and
-        // skip both the body-enrichment fetches and the Gemini call.
-        const sig = tickerJudgmentSignature(rawHeadlines, data.fundamentals);
+        // Cross-build cache: same headlines (exactly, or within the new-title
+        // tolerance) + same slow fundamentals facts + spot within the drift
+        // band ⇒ reuse the prior build's judgment and skip both the
+        // body-enrichment fetches and the Gemini call.
+        const { sig, metaSig, titles } = tickerJudgmentSignature(rawHeadlines, data.fundamentals);
         const prior = AI_TICKER_CACHE ? priorCache[sym] : null;
-        if (
-          prior && prior.sig === sig && prior.news &&
+        const spotOk = prior &&
           Number.isFinite(prior.spot) && prior.spot > 0 && Number.isFinite(data.spot) &&
-          Math.abs(data.spot - prior.spot) / prior.spot <= TICKER_JUDGMENT_SPOT_DRIFT
-        ) {
+          Math.abs(data.spot - prior.spot) / prior.spot <= TICKER_JUDGMENT_SPOT_DRIFT;
+        let reuseWhy = null;
+        if (prior && prior.news && spotOk) {
+          if (prior.sig === sig) {
+            reuseWhy = "headlines unchanged";
+          } else if (
+            TICKER_JUDGMENT_NEWS_TOLERANCE > 0 &&
+            prior.metaSig === metaSig && Array.isArray(prior.titles)
+          ) {
+            const cachedTitles = new Set(prior.titles);
+            const freshCount = titles.filter((t) => !cachedTitles.has(t)).length;
+            if (freshCount <= TICKER_JUDGMENT_NEWS_TOLERANCE) {
+              reuseWhy = `${freshCount} new headline(s) within tolerance ${TICKER_JUDGMENT_NEWS_TOLERANCE}`;
+            }
+          }
+        }
+        if (reuseWhy) {
           data.news = prior.news;
           if (prior.judgment) data.fundamentals = { ...data.fundamentals, judgment: prior.judgment };
           data.catalysts = Array.isArray(prior.catalysts) && prior.catalysts.length ? prior.catalysts : [];
           if (prior.aiSignals) data.aiSignals = prior.aiSignals;
-          nextCache[sym] = prior; // keep the ORIGINAL spot so drift accumulates against it
+          // Keep the ORIGINAL entry (spot + title set) so both the spot drift
+          // and the new-headline count accumulate against the read that
+          // actually produced the judgment, not against each other reuse.
+          nextCache[sym] = prior;
           reused += 1;
-          console.log(`  ↺ ${sym} — reused judgment (headlines unchanged, spot within ${(TICKER_JUDGMENT_SPOT_DRIFT * 100).toFixed(1)}%)`);
+          console.log(`  ↺ ${sym} — reused judgment (${reuseWhy}, spot within ${(TICKER_JUDGMENT_SPOT_DRIFT * 100).toFixed(1)}%)`);
           return;
         }
         // Body enrichment best-effort attaches article body text to each
@@ -17831,7 +17884,7 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
         const headlines = await enrichHeadlinesWithBodies(rawHeadlines);
         const withBody = headlines.filter((h) => h.body).length;
         const { news, judgment, catalysts, aiSignals } = await generateTickerJudgment(ai, sym, data.spot, headlines, data.fundamentals);
-        nextCache[sym] = { sig, spot: data.spot, news, judgment, catalysts, aiSignals };
+        nextCache[sym] = { sig, metaSig, titles, spot: data.spot, news, judgment, catalysts, aiSignals };
         data.news = news;
         if (judgment) {
           data.fundamentals = { ...data.fundamentals, judgment };
@@ -18194,11 +18247,13 @@ async function generateChartPattern(ai, symbol, spot, bars, opts = {}) {
 
 // data/chart-pattern-cache.json — cross-build cache keyed on the AM/PM session
 // bucket (see chartPatternBucketKey) so the hourly builds within a half-day
-// reuse that half-day's read instead of re-rating the intraday chart every time.
+// reuse that half-day's read instead of re-rating the intraday chart every time,
+// PLUS a bar-series signature (chartPatternBarsSig) that lets a new bucket
+// reuse the read outright when the bars haven't changed (market closed).
 // Mirrors the read-before-wipe / write-after-wipe pattern used for macro /
 // picks-accuracy / grades history (writeChainFiles rm -rf's data/, so main()
 // reads this BEFORE the wipe and writes the refreshed map back AFTER it). Shape:
-// { [sym]: { key, pattern } }.
+// { [sym]: { key, barsSig, pattern } }.
 const CHART_PATTERN_CACHE_FILE = "chart-pattern-cache.json";
 
 // Re-rate the 1-month INTRADAY pattern ~2× per trading day — once at the open
@@ -18221,6 +18276,23 @@ function chartPatternBucketKey() {
   const etHour = Number(now.toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }));
   const half = etHour < 12 ? "am" : "pm";
   return `${CHART_PATTERN_CACHE_VERSION}|${etDate}|${half}`;
+}
+
+// Signature of the exact bar window the detector would be shown (the same
+// slice generateChartPattern takes). When it matches the cached entry's, the
+// chart is FROZEN — the market hasn't printed a new 30m bar since that read —
+// so the cached verdict is reused even across bucket-key rollovers. This is
+// what stops weekend / evening / holiday runs from re-rating ~139 identical
+// charts on the (pricey, thinking-enabled) full-Flash vision model: bars are
+// regular-session only, so from the Friday close until Monday's open every
+// re-read of a name was pure spend for a byte-identical answer. Zero freshness
+// trade-off — a changed bar (any new session print) changes the signature.
+// Versioned so a CHART_PATTERN_CACHE_VERSION bump invalidates these too.
+function chartPatternBarsSig(bars) {
+  const series = bars.slice(-CHART_PATTERN_INTRADAY_BARS);
+  const h = createHash("sha1");
+  for (const b of series) h.update(`${b.t}|${b.c}|${b.h}|${b.l}|${b.v}\n`);
+  return `${CHART_PATTERN_CACHE_VERSION}|${series.length}|${h.digest("hex").slice(0, 16)}`;
 }
 
 // Bounded-concurrency pool — at most `limit` workers run `fn` over `items` at
@@ -18273,24 +18345,39 @@ async function attachChartPatterns(chains, priorCache = {}) {
     ([, data]) => Array.isArray(data._intraday) && data._intraday.length >= CHART_PATTERN_MIN_BARS,
   );
   // Cross-build cache keyed on the AM/PM half-day bucket: the first build in each
-  // half re-reads, the rest reuse it (≈2 reads/ticker/day). nextCache is returned
-  // for main() to persist after the data/ wipe; only successfully-read names are
-  // cached, so a failure is retried on the next build.
+  // half re-reads, the rest reuse it (≈2 reads/ticker/day). A second reuse path
+  // fires when the bar series itself is unchanged since the cached read
+  // (chartPatternBarsSig) — a new bucket over FROZEN bars (weekend / evening /
+  // holiday runs) reuses instead of re-rating an identical chart. nextCache is
+  // returned for main() to persist after the data/ wipe; only successfully-read
+  // names are cached, so a failure is retried on the next build.
   const bucketKey = chartPatternBucketKey();
   const nextCache = {};
   const toCall = [];
   let reused = 0;
+  let reusedFrozen = 0;
   for (const [sym, data] of entries) {
-    const prior = priorCache[sym] && priorCache[sym].key === bucketKey ? priorCache[sym].pattern : null;
-    if (prior) {
-      data.technicals = { ...(data.technicals || {}), chartPattern: prior };
-      nextCache[sym] = { key: bucketKey, pattern: prior };
+    const barsSig = chartPatternBarsSig(data._intraday);
+    const priorEntry = priorCache[sym];
+    const sameBucket = priorEntry && priorEntry.key === bucketKey;
+    const frozenBars = priorEntry && priorEntry.barsSig && priorEntry.barsSig === barsSig;
+    if (priorEntry?.pattern && (sameBucket || frozenBars)) {
+      data.technicals = { ...(data.technicals || {}), chartPattern: priorEntry.pattern };
+      // Carry the ORIGINAL entry forward untouched (same rule as the ticker-
+      // judgment cache): its key/barsSig describe the read that actually
+      // produced the verdict. Refreshing the key here would falsely mark a new
+      // half-day as already-read (suppressing the re-read once bars move), and
+      // back-stamping today's barsSig onto an older verdict would loosen the
+      // frozen-bars guarantee.
+      nextCache[sym] = priorEntry;
       reused += 1;
+      if (!sameBucket) reusedFrozen += 1;
     } else {
-      toCall.push([sym, data]);
+      toCall.push([sym, data, barsSig]);
     }
   }
-  console.log(`Detecting chart patterns (1-month intraday) for ${entries.length} tickers… (${reused} reused this half-day, ${toCall.length} fresh)`);
+  const frozenTag = reusedFrozen ? ` — ${reusedFrozen} of them via unchanged bars` : "";
+  console.log(`Detecting chart patterns (1-month intraday) for ${entries.length} tickers… (${reused} reused${frozenTag}, ${toCall.length} fresh)`);
   if (toCall.length) {
     const hb = startHeartbeat("chart patterns", toCall.length);
     // Bounded concurrency so we don't burst ~137 image requests at once (that
@@ -18298,7 +18385,7 @@ async function attachChartPatterns(chains, priorCache = {}) {
     // call failure, fall back to a TEXT-ONLY read so a rate-limited burst still
     // yields a verdict instead of `undefined`.
     const runPass = (passEntries) =>
-      runPooled(passEntries, CHART_PATTERN_CONCURRENCY, ([sym, data]) => hb.track(async () => {
+      runPooled(passEntries, CHART_PATTERN_CONCURRENCY, ([sym, data, barsSig]) => hb.track(async () => {
         let chartPattern = null;
         try {
           chartPattern = await generateChartPattern(ai, sym, data.spot, data._intraday);
@@ -18313,7 +18400,7 @@ async function attachChartPatterns(chains, priorCache = {}) {
         }
         if (chartPattern) {
           data.technicals = { ...(data.technicals || {}), chartPattern };
-          nextCache[sym] = { key: bucketKey, pattern: chartPattern };
+          nextCache[sym] = { key: bucketKey, barsSig, pattern: chartPattern };
           if (chartPattern.pattern === "None") {
             console.log(`  · ${sym} — no chart pattern`);
           } else {
