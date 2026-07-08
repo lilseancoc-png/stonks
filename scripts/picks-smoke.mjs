@@ -2,7 +2,7 @@
 // data/, no AI — builds fake chains and asserts the engine's behaviour + the
 // output shapes the UI/serialization depend on. Run: node scripts/picks-smoke.mjs
 import {
-  buildTopPicks, buildGradesIndex, pickContractForPick, pickVerticalForPick, markOptionToMarket, computeEntryTiming,
+  buildTopPicks, buildGradesIndex, pickContractForPick, pickVerticalForPick, markOptionToMarket, computeEntryTiming, computeEntrySignal,
   detectMarketRegime, computeMacroRegime, applyMacroRegimePersistence,
   resolvePickOutcome, gradeTradeCut, buildPicksChanges, buildPicksRoster,
   diffGradesHistory, appendGradesDaily, appendRegimeHistory, applyPickFirstSeen,
@@ -157,6 +157,48 @@ function computeEntrySmoke(){
   const p = pk.find((x) => x.symbol === "X");
   return p ? p.entry : null;
 }
+
+// --- 4b2. multi-factor buy-now (entry readiness) ----------------------------
+// A steadily-trending name — momentum aligned, right side of the 20D, 20D>50D
+// stack, 3-day thrust — is a BUY NOW even without a textbook pullback or a
+// volume spike (the old single-path logic parked it behind a dip trigger).
+const steady = mkTicker({ spot: 100, technicals: {
+  rsi: 60, rsi5d: 58, macd: { hist: 0.5, line: 1.1, signal: 0.6 },
+  volume: { rvol: 1.0, priceMove1dPct: 0.4 },                       // NO volume confirmation
+  sr: { s20: 93, r20: 108 }, sma: { sma20: 96.5, sma50: 92, sma100: 88 }, // +3.6% past 20D: outside pullback band, not extended
+  chartPattern: null, volRegime: { rv30Pctile: 45 } } });
+const steadyTiming = computeEntryTiming("call", steady, 100, {});
+ok("entry: steady trend w/o pullback/volume -> timing gate is wait (not go)", steadyTiming.state === "wait");
+const steadyEntry = computeEntrySignal("call", 100, steady, steadyTiming, { total: 6 });
+ok("entry: multi-factor readiness clears the bar -> buy-now (no dip trigger)", steadyEntry.now === true && steadyEntry.signal === "buy-now" && steadyEntry.basis === "multi-factor readiness");
+ok("entry: readiness checklist ships (checks + score vs bar)", Array.isArray(steadyEntry.checks) && steadyEntry.checks.length >= 8 && steadyEntry.readiness && steadyEntry.readiness.score >= steadyEntry.readiness.bar);
+// Extended past the 20D WITHOUT broad confirmation still waits for the pullback.
+const stretched = mkTicker({ spot: 100, technicals: {
+  rsi: 64, rsi5d: 60, macd: { hist: 0.4, line: 1.0, signal: 0.6 },
+  volume: { rvol: 0.9, priceMove1dPct: 0.3 },
+  sr: { s20: 90, r20: 110 }, sma: { sma20: 94.3, sma50: 96, sma100: 90 },  // +6% past 20D, 20D<50D (no stack)
+  chartPattern: null, volRegime: { rv30Pctile: 45 } },
+  _bars: mkBars(100, 40, 0.002) });                                  // soft drift: no 3-day thrust
+const stretchedEntry = computeEntrySignal("call", 100, stretched, computeEntryTiming("call", stretched, 100, {}), { total: 5 });
+ok("entry: extended w/o confirmation still waits for the pullback", stretchedEntry.now === false && stretchedEntry.signal === "wait-pullback" && stretchedEntry.trigger === 94.3);
+// Extended but HEAVILY confirmed (momentum + thrust + stack + strong-tier
+// conviction) overcomes the extension penalty — a confirmed breakout is not
+// forced to wait for a pullback that may never come.
+const breakout = mkTicker({ spot: 100, technicals: {
+  rsi: 66, rsi5d: 62, macd: { hist: 0.6, line: 1.2, signal: 0.6 },
+  volume: { rvol: 1.2, priceMove1dPct: 1.0 },                       // below the go-gate's 1.3 rvol bar
+  sr: { s20: 90, r20: 112 }, sma: { sma20: 94.3, sma50: 92, sma100: 88 },
+  chartPattern: null, volRegime: { rv30Pctile: 45 } },
+  _bars: mkBars(100, 40, 0.006) });
+const breakoutTiming = computeEntryTiming("call", breakout, 100, {});
+const breakoutEntry = computeEntrySignal("call", 100, breakout, breakoutTiming, { total: 8 });
+ok("entry: extended but heavily confirmed breakout -> buy-now", breakoutTiming.state === "wait" && breakoutEntry.now === true && breakoutEntry.signal === "buy-now");
+// Hard vetoes survive the checklist: an avoid (knife) state and an imminent
+// earnings print never read buy-now, whatever the factors say.
+const knifeEntry = computeEntrySignal("call", 50, chains.KNIFE, computeEntryTiming("call", chains.KNIFE, 50, {}), { total: 8 });
+ok("entry: an avoid (knife) state never reads buy-now", knifeEntry.now === false && knifeEntry.signal !== "buy-now");
+const earnEntry = computeEntrySignal("call", 100, earnSoon, computeEntryTiming("call", earnSoon, 100, {}), { total: 8 });
+ok("entry: imminent earnings never a buy-now (checklist can't override)", earnEntry.now === false && earnEntry.signal === "wait-event");
 ok("picks: book risk in rosterMeta", picks.rosterMeta.book && picks.rosterMeta.book.account > 0);
 ok("picks: deployed gross <= target", picks.rosterMeta.deployedGross <= 0.81);
 
