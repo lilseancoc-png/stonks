@@ -1051,6 +1051,7 @@ export const DOC_PAGES = {
             <li><b>Calendar</b> — earnings, macro prints, FOMC + FedWatch odds</li>
             <li><b>Market heatmap</b> — live map by performance or relative volume</li>
             <li><b>Macro</b> — Overnight markets, Fear &amp; Greed, Bonds &amp; USD, 13F filings</li>
+            <li><b>Trending IV</b> — implied vol running above a name's own history</li>
             <li><b>Streaks</b> &amp; the <b>Strategies</b> entry engine</li>
             <li><b>Reference</b> — Buyer's manual + Chart-patterns field guide</li>
           </ul>
@@ -1135,6 +1136,10 @@ export const DOC_PAGES = {
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Streaks</span><span class="tier free">Free</span></div>
           <p class="feat-desc">Current green/red daily-close streaks for every ticker, a counter-day tolerance bank, rarity context, and a just-snapped mean-reversion strip.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Trending IV</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">Every name's ATM ~30-day implied vol against its own ~18-month history — names running above their historical average and still climbing are flagged as pricing in a bigger-than-usual move, with earnings context and IV sparklines.</p>
         </div>
       </div>
 
