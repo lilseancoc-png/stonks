@@ -111,6 +111,35 @@ the implied side and returns a state + a bounded contribution folded into `total
 When the broad tape **fights the trade** (a call in a risk-off tape), the knife
 thresholds tighten ~25%. An `avoid` name is gated out of the roster entirely.
 
+### Entry signal (`computeEntrySignal`) — buy now vs a trigger price
+
+The per-pick **"✅ Buy now / ⏳ Wait $X"** call (and the track-record enrollment
+gate, §9). The decision is **multi-factor** — it weighs the whole setup instead
+of only handing out a pullback price:
+
+1. **Hard vetoes:** an imminent earnings/macro event is never a buy
+   (`wait-event` — no price fixes an IV crush); an `avoid` timing state never
+   reads buy-now; and a name on the **wrong side of its own 20D SMA** always
+   waits for the reclaim (`wait-reclaim`) — short-dated premium bought against
+   the trend bleeds theta while the "turn" fails to come.
+2. A confirmed **`go`** from the timing gate is a **buy-now** (unchanged).
+3. Otherwise a weighted **entry-readiness checklist** decides: momentum
+   alignment (MACD + RSI on the trade's side, **+2** — the heavy factor), the
+   right side of the 20D trend (+1), a healthy entry location within ±3% of
+   the 20D (+1), confirming volume (rvol ≥ 1.3, +1), a ≥ +1% 3-day thrust with
+   the trade off confirmed closes (+1), the 20D/50D SMA stack aligned (+1),
+   and strong-tier conviction (+1) — **minus** penalties for an extended
+   stretch > 4% past the 20D (−2) and a broad tape that fights the trade (−2).
+   Clearing `PICKS_ENTRY_READY_BAR` (default **4**, env-tunable) = **buy-now**:
+   a steadily-trending, multi-confirmed name no longer idles behind a dip
+   trigger that may never fill, and a heavily-confirmed breakout can overcome
+   the extension penalty instead of being forced to wait for a pullback.
+4. Below the bar the specific trigger prices stand: extended → `wait-pullback`
+   toward the 20D; near the trend → `buy-dip` toward the nearest support /
+   minor weakness. The checklist ships on every scored entry (`entry.checks` +
+   `entry.readiness = {score, bar}`) so the card can show *why*, whichever way
+   the call went.
+
 **IV cost** (`computeIvCostContribution`, direction-agnostic): −2 when this name's
 own IV percentile is rich (≥80), +1 when cheap (≤20). Because it is direction-**agnostic**
 ("long premium is expensive when IV is rich"), `scoreTicker` folds it into `total`
@@ -376,8 +405,9 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   "actionable"` — Strong grade + Strong thesis; lower-conviction watch ideas and
   tactical-tape puts are excluded, so the scorecard reflects only the trades the
   engine actually recommends) **whose entry signal is a clean BUY NOW**
-  (`entry.signal === "buy-now"` from `computeEntrySignal`, i.e. the timing gate
-  is a confirmed `go`) — a wait-state pick (wait-reclaim / wait-pullback /
+  (`entry.signal === "buy-now"` from `computeEntrySignal` — a confirmed `go`
+  from the timing gate **or** the multi-factor entry-readiness checklist
+  clearing its bar, §3) — a wait-state pick (wait-reclaim / wait-pullback /
   wait-event / buy-dip) is advice to hold fire, not a filled position, so it
   stays on the roster un-enrolled and enters the record on the first later bake
   where its trigger has hit and the recomputed signal flips to buy-now —

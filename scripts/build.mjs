@@ -8964,6 +8964,8 @@ const PICKS_TIMING_CHASE_RET5D = 12;           // +12% blow-off run
 const PICKS_TIMING_CHASE_RET3D = 10;
 const PICKS_TIMING_VOL_CONFIRM = 1.3;          // rvol that confirms a move
 const PICKS_TIMING_PULLBACK_BAND = 3;          // % band around 20D = healthy reset
+const PICKS_ENTRY_READY_BAR = Number(process.env.PICKS_ENTRY_READY_BAR ?? 4); // multi-factor buy-now readiness bar (computeEntrySignal)
+const PICKS_ENTRY_EXTENDED_DIST = 4;           // % past the 20D = extended; below the readiness bar this is the wait-for-pullback zone
 const PICKS_TIMING_EARNINGS_DEFER_DAYS = 7;    // earnings within a week -> wait
 export const PICKS_TIMING_THRESHOLDS = Object.freeze({
   knifeRet1d: PICKS_TIMING_KNIFE_RET1D,
@@ -9824,11 +9826,11 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
   if (dirRet1 != null && dirRet1 <= PICKS_TIMING_KNIFE_RET1D * knifeTighten) {
     const sev = clamp(Math.abs(dirRet1) / Math.abs(PICKS_TIMING_KNIFE_RET1D), 1, 2);
     reasons.push(`${r1(dirRet1)}% session against the trade`);
-    return { state: "avoid", side, score: -clamp(5 * sev, 5, 8), contribution: -clamp(5 * sev, 5, 8), deferKind: null, headline: `Avoid — falling knife (${r1(dirRet1)}% day)`, reasons };
+    return { state: "avoid", side, score: -clamp(5 * sev, 5, 8), contribution: -clamp(5 * sev, 5, 8), deferKind: null, fightsTape, headline: `Avoid — falling knife (${r1(dirRet1)}% day)`, reasons };
   }
   if (dirRet3 != null && dirRet3 <= PICKS_TIMING_KNIFE_RET3D * knifeTighten) {
     reasons.push(`${r1(dirRet3)}% over 3 sessions against the trade`);
-    return { state: "avoid", side, score: -6, contribution: -6, deferKind: null, headline: `Avoid — ${r1(dirRet3)}% 3-day slide`, reasons };
+    return { state: "avoid", side, score: -6, contribution: -6, deferKind: null, fightsTape, headline: `Avoid — ${r1(dirRet3)}% 3-day slide`, reasons };
   }
 
   // ---- AVOID: chasing an extended top (for a call) / bottom (for a put) ----
@@ -9837,11 +9839,11 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
   const hot = isCall ? (rsi != null && rsi >= PICKS_TIMING_CHASE_RSI) : (rsi != null && rsi <= 100 - PICKS_TIMING_CHASE_RSI);
   if (hot && dirDist != null && dirDist >= PICKS_TIMING_CHASE_DIST_SMA20) {
     reasons.push(`RSI ${r1(rsi)} and ${r1(dirDist)}% past the 20D SMA`);
-    return { state: "avoid", side, score: -6, contribution: -6, deferKind: null, headline: `Avoid — chasing an extended move (RSI ${r1(rsi)})`, reasons };
+    return { state: "avoid", side, score: -6, contribution: -6, deferKind: null, fightsTape, headline: `Avoid — chasing an extended move (RSI ${r1(rsi)})`, reasons };
   }
   if (dirRet5 != null && dirRet5 >= PICKS_TIMING_CHASE_RET5D) {
     reasons.push(`${r1(dirRet5)}% blow-off run into the entry`);
-    return { state: "avoid", side, score: -5, contribution: -5, deferKind: null, headline: `Avoid — ${r1(dirRet5)}% 5-day blow-off`, reasons };
+    return { state: "avoid", side, score: -5, contribution: -5, deferKind: null, fightsTape, headline: `Avoid — ${r1(dirRet5)}% 5-day blow-off`, reasons };
   }
 
   // ---- GO: clean, well-located entry ----
@@ -9851,11 +9853,11 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
   const momentumAligned = isCall ? (macdHist != null && macdHist > 0 && rsi != null && rsi > 50) : (macdHist != null && macdHist < 0 && rsi != null && rsi < 50);
   if (!fightsTape && momentumAligned && (nearPullback || (rvol != null && rvol >= PICKS_TIMING_VOL_CONFIRM))) {
     reasons.push(nearPullback ? "healthy pullback to the 20D SMA" : "momentum aligned on confirming volume");
-    return { state: "go", side, score: 2, contribution: 2, deferKind: null, headline: "Go — clean, aligned entry", reasons };
+    return { state: "go", side, score: 2, contribution: 2, deferKind: null, fightsTape, headline: "Go — clean, aligned entry", reasons };
   }
 
   reasons.push("mixed structure — no clear edge to the entry");
-  return { state: "wait", side, score: 0, contribution: 0, deferKind: null, headline: "Neutral entry", reasons };
+  return { state: "wait", side, score: 0, contribution: 0, deferKind: null, fightsTape, headline: "Neutral entry", reasons };
 }
 
 // IV cost — direction-agnostic. Penalize buying long premium when this name's
@@ -11363,18 +11365,34 @@ function buildEntryPlan(side, spot, data, contract, total) {
 }
 
 // Entry guidance for a pick that already cleared the conviction bar: tell the
-// user WHEN to open it. "Buy now" only when the timing gate is a clean GO (the
-// move is confirmed and in motion); otherwise a specific trigger PRICE —
-//   * below its own 20D trend (the "why is a down name a call?" case) -> wait for
-//     a reclaim of the 20D SMA, so we don't buy short-dated premium into a drift;
-//   * extended past the 20D -> wait for a pullback toward it (don't chase);
-//   * near the trend -> buy a minor dip toward the nearest support.
+// user WHEN to open it. The decision is MULTI-FACTOR — it weighs the whole
+// setup instead of only handing out a pullback price:
+//   1. Hard vetoes first: an imminent earnings/macro event is never a buy (no
+//      price fixes an IV crush), and an `avoid` timing state (knife/chase)
+//      never reads buy-now — it falls through to a trigger price.
+//   2. A confirmed GO from the timing gate stays a buy-now (unchanged).
+//   3. Below its own 20D trend (the "why is a down name a call?" case) it
+//      still waits for the reclaim — buying short-dated premium against the
+//      trend is the one thing no amount of other confirmation should override.
+//   4. Otherwise a weighted ENTRY-READINESS checklist decides: momentum
+//      alignment (MACD + RSI, the heavy factor), the right side of the 20D
+//      trend, a healthy pullback location, confirming volume, a 3-day thrust
+//      in the trade's direction, the 20D/50D stack, and strong-tier
+//      conviction — minus penalties for an extended stretch past the 20D and
+//      a tape that fights the trade. Clearing PICKS_ENTRY_READY_BAR = buy
+//      now, so a steadily-trending, multi-confirmed name no longer idles
+//      behind a dip trigger that may never fill.
+//   5. Below the bar the specific trigger prices stand: extended -> wait for
+//      a pullback toward the 20D; near the trend -> buy a minor dip toward
+//      support. The checklist ships on every scored entry (`checks` +
+//      `readiness`) so the card can show WHY, whichever way it went.
 // Mirrors for puts. Confirmed-bars only (same no-look-ahead rule as the gate).
-function computeEntrySignal(side, spot, data, timing) {
+export function computeEntrySignal(side, spot, data, timing, opts = {}) {
   const isCall = side === "call";
   spot = pnum(spot) ?? pnum(data?.spot);
   const t = data?.technicals || {};
   const sma20 = pnum(t.sma?.sma20);
+  const sma50 = pnum(t.sma?.sma50);
   const sr = t.sr || {};
   const bars = timingBarsFrom(data);
   const atrPct = bars ? atrPctFrom(bars.h, bars.l, bars.c) : null;
@@ -11382,7 +11400,8 @@ function computeEntrySignal(side, spot, data, timing) {
   const state = timing?.state || null;
   const fmt = (x) => "$" + r2(x);
   if (!(spot > 0)) return { now: false, signal: "wait", trigger: null, zone: null, basis: "no price", headline: "Wait for a cleaner setup" };
-  // Clean, confirmed entry -> buy now.
+  // Clean, confirmed entry -> buy now (the gate already weighed momentum +
+  // location + volume against the tape).
   if (state === "go") {
     return { now: true, signal: "buy-now", trigger: r2(spot), zone: [r2(spot * (1 - buf)), r2(spot * (1 + buf / 2))], basis: "confirmed entry", headline: `Buy now — clean entry near ${fmt(spot)}` };
   }
@@ -11390,24 +11409,67 @@ function computeEntrySignal(side, spot, data, timing) {
   if (state === "wait" && (timing.deferKind === "earnings" || timing.deferKind === "event")) {
     return { now: false, signal: "wait-event", trigger: null, zone: null, basis: timing.deferKind, headline: `Hold off — ${timing.deferKind === "earnings" ? "earnings imminent" : "macro event imminent"}; re-assess after it clears` };
   }
-  // Structure-based trigger off the 20D SMA.
-  if (sma20 > 0) {
-    const dir = isCall ? 1 : -1;
-    const beyond = (spot / sma20 - 1) * dir;            // + = price already on the trade's side of the SMA
-    if (beyond < -0.005) {
-      const trig = r2(sma20);
-      return { now: false, signal: "wait-reclaim", trigger: trig, zone: [r2(sma20 * (1 - buf)), r2(sma20 * (1 + buf))], basis: "20D SMA reclaim", headline: `Wait for a ${isCall ? "close back above" : "break below"} the 20D SMA (~${fmt(trig)}) to confirm the turn` };
-    }
-    if (beyond > 0.04) {
-      const trig = r2(sma20);
-      return { now: false, signal: "wait-pullback", trigger: trig, zone: [r2(sma20), r2(spot * (1 - dir * 0.02))], basis: "pullback to 20D SMA", headline: `Extended — wait for a pullback toward the 20D SMA (~${fmt(trig)})` };
-    }
+  const dir = isCall ? 1 : -1;
+  const beyond = sma20 > 0 ? (spot / sma20 - 1) * dir : null;  // + = price already on the trade's side of the SMA
+  // Wrong side of the 20D trend -> wait for the reclaim, always. This stays a
+  // hard gate (not a scored factor): short-dated premium bought into a drift
+  // bleeds theta while the "turn" fails to come.
+  if (beyond != null && beyond < -0.005) {
+    const trig = r2(sma20);
+    return { now: false, signal: "wait-reclaim", trigger: trig, zone: [r2(sma20 * (1 - buf)), r2(sma20 * (1 + buf))], basis: "20D SMA reclaim", headline: `Wait for a ${isCall ? "close back above" : "break below"} the 20D SMA (~${fmt(trig)}) to confirm the turn` };
+  }
+
+  // ---- Multi-factor entry readiness ----------------------------------------
+  // Confirmed technicals only; each factor is independent evidence the move is
+  // live NOW. Weighted sum vs PICKS_ENTRY_READY_BAR.
+  const rsi = pnum(t.rsi);
+  const macdHist = pnum(t.macd?.hist);
+  const rvol = pnum(t.volume?.rvol);
+  let ret3 = null;                                    // 3-day thrust off CONFIRMED closes
+  if (bars) {
+    const c = bars.c.filter(Number.isFinite).slice(0, -1);  // drop in-progress bar
+    const n = c.length;
+    if (n > 3 && c[n - 4] > 0) ret3 = (c[n - 1] / c[n - 4] - 1) * 100 * dir;
+  }
+  const momentumAligned = isCall ? (macdHist != null && macdHist > 0 && rsi != null && rsi > 50) : (macdHist != null && macdHist < 0 && rsi != null && rsi < 50);
+  const inPullbackBand = beyond != null && Math.abs(beyond * 100) <= PICKS_TIMING_PULLBACK_BAND;
+  const volConfirm = rvol != null && rvol >= PICKS_TIMING_VOL_CONFIRM;
+  const thrust = ret3 != null && ret3 >= 1;
+  const stackAligned = sma20 > 0 && sma50 > 0 && (isCall ? sma20 > sma50 : sma20 < sma50);
+  const strongConviction = pnum(opts.total) != null && Math.abs(opts.total) >= PICKS_TIER_STRONG;
+  const extended = beyond != null && beyond * 100 > PICKS_ENTRY_EXTENDED_DIST;
+  const fightsTape = !!timing?.fightsTape;
+  const checks = [];
+  let ready = 0;
+  const factor = (key, short, label, pts, pass, value) => { checks.push({ key, short, label, points: pass ? pts : 0, max: pts, pass: !!pass, value: value ?? null }); if (pass) ready += pts; };
+  factor("momentum", "momentum", "Momentum aligned (MACD + RSI on the trade's side)", 2, momentumAligned, rsi != null ? `RSI ${r1(rsi)}` : null);
+  factor("trend", "trend", "Right side of the 20D trend", 1, beyond != null && beyond >= 0, beyond != null ? `${r1(beyond * 100)}% vs 20D` : null);
+  factor("location", "pullback zone", `Healthy entry location (within ±${PICKS_TIMING_PULLBACK_BAND}% of the 20D)`, 1, inPullbackBand, beyond != null ? `${r1(beyond * 100)}% vs 20D` : null);
+  factor("volume", "volume", `Confirming volume (rvol ≥ ${PICKS_TIMING_VOL_CONFIRM})`, 1, volConfirm, rvol != null ? `${r1(rvol)}x` : null);
+  factor("thrust", "3-day thrust", "3-day move with the trade (≥ +1%)", 1, thrust, ret3 != null ? `${r1(ret3)}%` : null);
+  factor("stack", "SMA stack", "20D/50D SMA stack aligned with the trade", 1, stackAligned, sma20 > 0 && sma50 > 0 ? `${fmt(sma20)} vs ${fmt(sma50)}` : null);
+  factor("conviction", "conviction", `Strong-tier conviction (|grade| ≥ ${PICKS_TIER_STRONG})`, 1, strongConviction, pnum(opts.total) != null ? String(opts.total) : null);
+  // Penalties — evidence AGAINST paying up right here (pass = clear of it).
+  const penalty = (key, short, label, pts, hit, value) => { checks.push({ key, short, label, points: hit ? -pts : 0, max: -pts, pass: !hit, value: value ?? null }); if (hit) ready -= pts; };
+  penalty("extended", "extended", `Extended > ${PICKS_ENTRY_EXTENDED_DIST}% past the 20D (chase risk)`, 2, extended, beyond != null ? `${r1(beyond * 100)}% vs 20D` : null);
+  penalty("tape", "tape", "Broad tape fights the trade", 2, fightsTape, null);
+  const readiness = { score: ready, bar: PICKS_ENTRY_READY_BAR };
+  // Enough independent confirmation -> buy now, even without a textbook
+  // pullback (an `avoid` timing state never buys, whatever the checklist says).
+  if (state !== "avoid" && ready >= PICKS_ENTRY_READY_BAR) {
+    const why = checks.filter((c) => c.pass && c.max > 0).map((c) => c.short).slice(0, 3).join(" + ");
+    return { now: true, signal: "buy-now", trigger: r2(spot), zone: [r2(spot * (1 - buf)), r2(spot * (1 + buf / 2))], basis: "multi-factor readiness", headline: `Buy now — ${why || "entry factors"} confirm near ${fmt(spot)}`, checks, readiness };
+  }
+  // Extended past the 20D without enough confirmation -> wait for the pullback.
+  if (extended) {
+    const trig = r2(sma20);
+    return { now: false, signal: "wait-pullback", trigger: trig, zone: [r2(sma20), r2(spot * (1 - dir * 0.02))], basis: "pullback to 20D SMA", headline: `Extended — wait for a pullback toward the 20D SMA (~${fmt(trig)})`, checks, readiness };
   }
   // Near the trend / no clean trigger -> buy a minor dip toward support.
   const supp = isCall ? pnum(sr.s20) : pnum(sr.r20);
   const useSupp = supp != null && ((isCall && supp < spot) || (!isCall && supp > spot)) && Math.abs(supp / spot - 1) <= 0.06;
   const trig = r2(useSupp ? supp : spot * (1 - (isCall ? 1 : -1) * buf));
-  return { now: false, signal: "buy-dip", trigger: trig, zone: [r2(Math.min(spot, trig)), r2(Math.max(spot, trig))], basis: useSupp ? "nearest support" : "minor weakness", headline: `Buy on minor weakness toward ~${fmt(trig)}` };
+  return { now: false, signal: "buy-dip", trigger: trig, zone: [r2(Math.min(spot, trig)), r2(Math.max(spot, trig))], basis: useSupp ? "nearest support" : "minor weakness", headline: `Buy on minor weakness toward ~${fmt(trig)}`, checks, readiness };
 }
 
 // ============================================================================
@@ -11666,7 +11728,7 @@ function buildPickObject(r, side, contract, exitPlan, entryPlan, peers, peerGrou
   const thesis = buildThesis(r, side, contract, tactical);
   const thesisCard = buildThesisCard(r, side, contract, tactical, exitPlan, strategy, macroRegime, pre);
   const rec = tactical ? { tier: "put", label: "Tactical Put", conviction: "Tactical (tape)" } : r.recommendation;
-  const entry = computeEntrySignal(side, spot, r.data, r.timing);
+  const entry = computeEntrySignal(side, spot, r.data, r.timing, { total: r.total });
   if (entryPlan && !entryPlan.summary) entryPlan.summary = entry.headline;
   // The FINAL GRADE the browser shows — the AI grader's tier + 0–100 score (or the
   // deterministic fallback when no AI grade). `source` flags which produced it.
