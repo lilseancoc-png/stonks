@@ -2865,6 +2865,7 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .ivt-thead { font: 700 10px/1.2 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border); }
 .ivt-trow-sym { font: 700 12.5px/1.2 var(--font-mono); color: var(--text-strong); }
 .ivt-trow-tier { font: 700 9px/1 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; font-style: normal; color: var(--muted); }
+.ivt-trow-tier.ivt-elev { color: var(--accent); border-bottom: 1px dotted color-mix(in srgb, var(--accent) 55%, transparent); cursor: help; }
 .ivt-trow.ivt-tier-surging .ivt-trow-tier { color: var(--neg); }
 .ivt-trow.ivt-tier-trending .ivt-trow-tier { color: var(--accent); }
 .ivt-trow.ivt-tier-building .ivt-trow-tier { color: var(--pos); }
@@ -4922,6 +4923,15 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .tip.ai-info:hover, .tip.ai-info:focus-visible, .tip.ai-info.is-open {
   background: var(--accent);
   color: var(--accent-fg);
+}
+/* The chip's uppercase/letter-spacing styling must not leak into its tooltip
+   bubble (it inherited into ::after and blew the popup up to ALL-CAPS), and
+   the bubble opens DOWNWARD for these chips — they sit near the top of their
+   card, where the default above-the-icon bubble clips off the page. */
+.tip.ai-info::after {
+  text-transform: none; letter-spacing: 0; font-weight: 500;
+  bottom: auto; top: calc(100% + 6px);
+  left: 0; transform: none;
 }
 @media (max-width: 560px){
   .opt-buy-head { flex-wrap: wrap; }
@@ -15452,6 +15462,10 @@ button.brief-chip:hover { border-color: var(--border-strong); background: var(--
   border-radius: var(--r-2); padding: 6px 10px;
 }
 .brief-hline-title { font: 500 0.8rem/1.4 var(--font-sans); color: var(--text); flex: 1 1 240px; }
+/* Watch-list rows: pin the ticker/% chip to one fixed column width so the
+   reason text starts on the same vertical line in every row (variable-length
+   symbols + percents were ragged), with the % pushed to the chip's right edge. */
+.brief-hline > .brief-chip { min-width: 118px; justify-content: space-between; }
 /* Tape headlines link to their source article when the feed gave us a permalink. */
 a.brief-hline-title { text-decoration: none; transition: color .12s var(--ease-out); }
 a.brief-hline-title:hover { color: var(--accent-strong); text-decoration: underline; text-underline-offset: 2px; }

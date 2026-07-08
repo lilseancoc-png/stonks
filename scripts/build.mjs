@@ -3966,6 +3966,11 @@ export function buildIvTrendingPayload(ivHistory, chains, builtAtIso = new Date(
     const relPct = mean > 0 ? Number((((cur - mean) / mean) * 100).toFixed(1)) : null;
     const score = scoreIvTrend({ z, chg5dPct, chg20dPct, risingStreak });
     const tier = ivTrendTier({ score, z, chg5dPct, chg20dPct, relPct });
+    // Elevated flag — current IV meaningfully above the name's OWN history,
+    // regardless of direction. A name can sit rich without climbing (post-ramp
+    // plateau, chronic event premium): no trend tier, but premium is still
+    // expensive and worth marking. Same materiality bar as the trending tier.
+    const elevated = z != null && z >= 1 && (relPct ?? 0) >= 8;
     const data = chains?.[sym] || null;
     const f = data?.fundamentals || null;
     const row = {
@@ -3985,6 +3990,7 @@ export function buildIvTrendingPayload(ivHistory, chains, builtAtIso = new Date(
       risingStreak,
       score,
       tier,
+      elevated,
       asOf: lastDate,
     };
     // Earnings context — the most common "why": IV mechanically builds into a
@@ -4014,6 +4020,7 @@ export function buildIvTrendingPayload(ivHistory, chains, builtAtIso = new Date(
     dteTarget: IV_HISTORY_TARGET_DTE,
     minN: IV_TRENDING_MIN_N,
     trendingCount: rows.filter((r) => r.tier).length,
+    elevatedCount: rows.filter((r) => r.elevated).length,
     tickers: rows,
   };
 }

@@ -13532,7 +13532,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     if (empty) empty.hidden = true;
     var flagged = all.filter(function(r){ return r && r.tier && IVT_TIER_META[r.tier]; });
-    if (eye) eye.textContent = (d.asOf ? 'as of ' + d.asOf + ' · ' : '') + flagged.length + ' trending / ' + all.length + ' ranked';
+    var elevatedCount = all.filter(function(r){ return r && r.elevated; }).length;
+    if (eye) eye.textContent = (d.asOf ? 'as of ' + d.asOf + ' · ' : '') + flagged.length + ' trending · ' + elevatedCount + ' elevated / ' + all.length + ' ranked';
     var html = '';
     // Flagged highlight cards.
     if (flagged.length){
@@ -13572,7 +13573,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var w = shown[t];
       var tierMeta = w.tier && IVT_TIER_META[w.tier] ? IVT_TIER_META[w.tier] : null;
       rows += '<div class="ivt-trow' + (tierMeta ? ' ' + tierMeta.cls : '') + '">' +
-        '<span class="ivt-trow-sym">' + escapeHtml(w.symbol || '') + (tierMeta ? ' <em class="ivt-trow-tier">' + tierMeta.label + '</em>' : '') + '</span>' +
+        '<span class="ivt-trow-sym">' + escapeHtml(w.symbol || '') +
+          (tierMeta ? ' <em class="ivt-trow-tier">' + tierMeta.label + '</em>' : (w.elevated ? ' <em class="ivt-trow-tier ivt-elev" title="IV well above its own history, but not currently climbing">Elevated</em>' : '')) + '</span>' +
         '<span class="ivt-trow-num">' + ivtIvPct(w.iv) + '</span>' +
         '<span class="ivt-trow-num">' + (w.z == null ? '—' : (w.z >= 0 ? '+' : '') + w.z.toFixed(1) + 'σ') + '</span>' +
         '<span class="ivt-trow-num">' + (w.pctile == null ? '—' : w.pctile) + '</span>' +
@@ -13715,11 +13717,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       row('Watch', a.watch);
       html += '<div class="brief-analog"><div class="brief-analog-head">' + briefEsc(a.pattern) + '</div>' + rows.join('') + '</div>';
     }
-    if (Array.isArray(b.playbook) && b.playbook.length){
-      html += '<div class="brief-chips">' + b.playbook.map(function(c){
-        return '<span class="brief-chip info"' + (c.cue ? ' title="' + briefEsc(c.cue) + '"' : '') + '>' + briefEsc(c.name) + '</span>';
-      }).join('') + '</div>';
-    }
+    // (The active-pattern cue chips that used to trail the analog card were
+    // dropped — with a fired analog they just repeated its title as a bare
+    // pill under the card.)
     return html ? briefBlock('Historical playbook', html) : '';
   }
   function briefChurnChips(pc){
@@ -13766,7 +13766,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // Top Picks strip — roster overlap is labelled instead. Chip click opens
     // the Grade tab; the news/catalyst clause rides the chip tooltip.
     if (Array.isArray(b.watchlist) && b.watchlist.length){
-      var wl = b.watchlist.map(function(w){
+      // Group gainers with gainers and losers with losers (each ordered by
+      // move size, no-print names last) so the strip reads as two blocks
+      // instead of alternating red/green rows.
+      var wlSorted = b.watchlist.slice().sort(function(wa, wb){
+        var av = (wa && wa.ch != null && isFinite(wa.ch)) ? wa.ch : -Infinity;
+        var bv = (wb && wb.ch != null && isFinite(wb.ch)) ? wb.ch : -Infinity;
+        return bv - av;
+      });
+      var wl = wlSorted.map(function(w){
         var why = (w.reasons || []).join(' · ') + (w.pick ? ' · also a top pick' : '');
         return '<li class="brief-hline">' +
           '<button type="button" class="brief-chip ' + briefPctCls(w.ch) + '" data-sym="' + briefEsc(w.sym) + '"' + (w.take ? ' title="' + briefEsc(w.take) + '"' : '') + '>' +
