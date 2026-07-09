@@ -128,7 +128,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-07-08","ageDays":null};
+  var RFR_META = {"source":"cached","asOf":"2026-07-08","ageDays":1};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -3122,7 +3122,7 @@
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','market','picks','heatmap','calendar','index-cal','overnight','flow','volume','oi','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','market','picks','heatmap','calendar','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3142,6 +3142,7 @@
     ticker: 'tickers',
     global: 'overnight', asia: 'overnight', correlations: 'overnight', correlation: 'overnight', overnights: 'overnight',
     gex: 'oi', gamma: 'oi', 'gamma-exposure': 'oi',
+    iv: 'iv-trend', 'trending-iv': 'iv-trend', 'iv-trending': 'iv-trend', ivtrend: 'iv-trend', 'implied-vol': 'iv-trend', 'implied-volatility': 'iv-trend',
     // Reference / legal / info pages (now in-app tabs).
     'buyers-manual': 'cheatsheet', 'buyer-manual': 'cheatsheet', cheat: 'cheatsheet', 'cheat-sheet': 'cheatsheet', manual: 'cheatsheet',
     patterns: 'chart-patterns', chartpatterns: 'chart-patterns', 'chart-pattern': 'chart-patterns',
@@ -3396,6 +3397,7 @@
         if (name === 'ai-capex' && typeof loadAiCapex === 'function') loadAiCapex();
         if (name === 'ram-prices' && typeof loadRamPrices === 'function') loadRamPrices();
         if (name === 'capital-raises' && typeof loadCapitalRaises === 'function') loadCapitalRaises();
+        if (name === 'iv-trend' && typeof loadIvTrend === 'function') loadIvTrend();
       }
       // The sidebar scrolls vertically when the tab list outgrows the
       // viewport. Programmatic selection (e.g. a ?tab= deep-link) can leave
@@ -13403,6 +13405,176 @@
     root.innerHTML = '<div class="cr-rows">' + rows + '</div>';
   }
 
+  // --- Trending IV (Flow tab) ----------------------------------------------
+  // data/iv-trending.json — every tracked name's current ATM ~30d IV vs its
+  // OWN ~18-month history (z-score / percentile) plus short-term direction
+  // (5d/20d IV change, consecutive rising days). Names flagged into a tier
+  // (surging / trending / building) get a highlight card + sparkline; the
+  // rest fill the ranked context table. Baked deterministically — see
+  // buildIvTrendingPayload in scripts/build.mjs.
+  var ivTrendState = { data: null, loading: false, showAll: false };
+  var IVT_TIER_META = {
+    surging:  { label: 'Surging',  cls: 'ivt-tier-surging' },
+    trending: { label: 'Trending', cls: 'ivt-tier-trending' },
+    building: { label: 'Building', cls: 'ivt-tier-building' }
+  };
+  var IVT_TABLE_DEFAULT_ROWS = 25;
+  function ivtIvPct(v){
+    if (v == null || !isFinite(v)) return '—';
+    return (v * 100).toFixed(1) + '%';
+  }
+  function ivtOrdinal(n){
+    if (n == null || !isFinite(n)) return '—';
+    var m10 = n % 10, m100 = n % 100;
+    var suf = (m10 === 1 && m100 !== 11) ? 'st' : (m10 === 2 && m100 !== 12) ? 'nd' : (m10 === 3 && m100 !== 13) ? 'rd' : 'th';
+    return n + suf;
+  }
+  function ivtChgChip(p, label){
+    if (p == null || !isFinite(p)) return '';
+    var cls = p >= 0 ? 'cx-up' : 'cx-down';
+    return '<span class="ivt-chip ' + cls + '">' + (p >= 0 ? '▲ +' : '▼ ') + Math.abs(p).toFixed(1) + '%' + (label ? ' <span class="ivt-chip-label">' + label + '</span>' : '') + '</span>';
+  }
+  function ivtZBadge(z){
+    if (z == null || !isFinite(z)) return '<span class="ivt-z">—</span>';
+    var cls = z >= 1 ? 'ivt-z-hot' : z >= 0 ? 'ivt-z-warm' : 'ivt-z-cool';
+    return '<span class="ivt-z ' + cls + '">' + (z >= 0 ? '+' : '') + z.toFixed(1) + 'σ</span>';
+  }
+  function ivtDateLabel(dateStr){
+    var ms = Date.parse(dateStr); if (!isFinite(ms)) return String(dateStr || '');
+    var d = new Date(ms);
+    var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return MONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate();
+  }
+  // Inline IV sparkline (~90 daily samples) with the shared data-ch hover +
+  // a dashed line at the name's own long-run mean, so "above its history"
+  // reads at a glance. viewBox coords; stretches to card width via CSS.
+  function ivtSpark(row){
+    var pts = [];
+    var sp = Array.isArray(row.spark) ? row.spark : [];
+    for (var i=0; i<sp.length; i++){
+      var e = sp[i];
+      if (e && e.length >= 2 && isFinite(Number(e[1])) && Number(e[1]) > 0) pts.push({ d: String(e[0]), v: Number(e[1]) });
+    }
+    if (pts.length < 2) return '';
+    var W = 240, H = 56, PAD = 3;
+    var lo = Infinity, hi = -Infinity;
+    for (var j=0; j<pts.length; j++){ if (pts[j].v < lo) lo = pts[j].v; if (pts[j].v > hi) hi = pts[j].v; }
+    if (row.mean != null && isFinite(row.mean)){ if (row.mean < lo) lo = row.mean; if (row.mean > hi) hi = row.mean; }
+    if (!(hi > lo)) { hi = lo + 0.0001; }
+    var X = function(i2){ return PAD + (i2 * (W - 2*PAD)) / (pts.length - 1); };
+    var Y = function(v){ return H - PAD - ((v - lo) * (H - 2*PAD)) / (hi - lo); };
+    var poly = '', hover = [];
+    for (var k=0; k<pts.length; k++){
+      var x = X(k), y = Y(pts[k].v);
+      poly += (k ? ' ' : '') + (Math.round(x*10)/10) + ',' + (Math.round(y*10)/10);
+      hover.push({ x: x, y: y, label: ivtDateLabel(pts[k].d) + '\nIV ' + ivtIvPct(pts[k].v) });
+    }
+    var meanLine = (row.mean != null && isFinite(row.mean))
+      ? '<line x1="' + PAD + '" y1="' + (Math.round(Y(row.mean)*10)/10) + '" x2="' + (W-PAD) + '" y2="' + (Math.round(Y(row.mean)*10)/10) + '" class="ivt-spark-mean"/>'
+      : '';
+    return '<svg class="ivt-spark" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="IV history sparkline"' + chHoverAttr(hover) + '>' +
+      meanLine +
+      '<polyline class="ivt-spark-line" points="' + poly + '" fill="none"/>' +
+    '</svg>';
+  }
+  function ivtEarningsBadge(row){
+    var e = row.earnings;
+    if (!e || !e.date) return '';
+    var when = e.inDays === 0 ? 'today' : e.inDays === 1 ? 'tomorrow' : 'in ' + e.inDays + 'd';
+    return '<span class="ivt-earn">📅 Earnings ' + escapeHtml(ivtDateLabel(e.date)) +
+      (e.session && e.session !== 'TBD' ? ' (' + escapeHtml(e.session) + ')' : '') +
+      ' · ' + when +
+      (e.impliedMovePct != null ? ' · ±' + Number(e.impliedMovePct).toFixed(1) + '% implied' : '') +
+    '</span>';
+  }
+  function loadIvTrend(){
+    if ((ivTrendState.data && !tabDataStale(ivTrendState)) || ivTrendState.loading){ renderIvTrend(); return; }
+    ivTrendState.loading = true;
+    fetch('data/iv-trending.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){
+        ivTrendState.data = (j && typeof j === 'object') ? j : {};
+        ivTrendState.loading = false;
+        ivTrendState.fetchedAt = Date.now();
+        renderIvTrend();
+      })
+      .catch(function(){ ivTrendState.data = { loadError: true }; ivTrendState.loading = false; renderIvTrend(); });
+  }
+  function renderIvTrend(){
+    var root = $('iv-trend-root'); var empty = $('iv-trend-empty'); var eye = $('iv-trend-eyebrow');
+    if (!root) return;
+    var d = ivTrendState.data;
+    if (!d){ root.textContent = 'Loading Trending IV…'; return; }
+    var all = Array.isArray(d.tickers) ? d.tickers : [];
+    if (!all.length){
+      root.innerHTML = '';
+      if (empty){ empty.hidden = false; empty.textContent = d.loadError ? 'Could not load Trending-IV data.' : 'Trending-IV data will appear after the next daily build refresh (needs ~a month of IV history per name).'; }
+      return;
+    }
+    if (empty) empty.hidden = true;
+    var flagged = all.filter(function(r){ return r && r.tier && IVT_TIER_META[r.tier]; });
+    var elevatedCount = all.filter(function(r){ return r && r.elevated; }).length;
+    if (eye) eye.textContent = (d.asOf ? 'as of ' + d.asOf + ' · ' : '') + flagged.length + ' trending · ' + elevatedCount + ' elevated / ' + all.length + ' ranked';
+    var html = '';
+    // Flagged highlight cards.
+    if (flagged.length){
+      var cards = '';
+      for (var i=0; i<flagged.length; i++){
+        var r = flagged[i];
+        var meta = IVT_TIER_META[r.tier];
+        cards += '<article class="ivt-card ' + meta.cls + '">' +
+          '<header class="ivt-card-head">' +
+            '<span class="ivt-badge">' + meta.label + '</span>' +
+            '<span class="ivt-sym">' + escapeHtml(r.symbol || '') + '</span>' +
+            (r.name ? '<span class="ivt-name">' + escapeHtml(r.name) + '</span>' : '') +
+            (r.sector ? '<span class="ivt-sector">' + escapeHtml(r.sector) + '</span>' : '') +
+          '</header>' +
+          '<div class="ivt-stats">' +
+            '<span class="ivt-stat">IV <b>' + ivtIvPct(r.iv) + '</b></span>' +
+            '<span class="ivt-stat">avg ' + ivtIvPct(r.mean) + '</span>' +
+            (r.relPct != null && isFinite(r.relPct) ? '<span class="ivt-stat ' + (r.relPct >= 0 ? 'cx-up' : 'cx-down') + '">' + (r.relPct >= 0 ? '+' : '') + r.relPct.toFixed(0) + '% vs avg</span>' : '') +
+            ivtZBadge(r.z) +
+            '<span class="ivt-stat">' + ivtOrdinal(r.pctile) + ' %ile</span>' +
+            (r.risingStreak >= 2 ? '<span class="ivt-stat ivt-streak">↑ ' + r.risingStreak + 'd rising</span>' : '') +
+          '</div>' +
+          '<div class="ivt-chips">' + ivtChgChip(r.chg1dPct, '1d') + ivtChgChip(r.chg5dPct, '5d') + ivtChgChip(r.chg20dPct, '20d') + '</div>' +
+          (ivtEarningsBadge(r) || '<span class="ivt-noearn">no scheduled earnings inside 45d — unexplained ramp</span>') +
+          ivtSpark(r) +
+        '</article>';
+      }
+      html += '<div class="ivt-cards">' + cards + '</div>';
+    } else {
+      html += '<p class="ivt-none">No names screen as trending right now — implied vol is sitting at or below its own history across the board. The ranked table below still shows who is closest.</p>';
+    }
+    // Ranked context table (all names, already sorted by score).
+    var shown = ivTrendState.showAll ? all : all.slice(0, IVT_TABLE_DEFAULT_ROWS);
+    var rows = '<div class="ivt-trow ivt-thead" aria-hidden="true">' +
+      '<span>Ticker</span><span>IV</span><span>vs hist</span><span>%ile</span><span>5d</span><span>20d</span><span>Earnings</span><span>Score</span></div>';
+    for (var t=0; t<shown.length; t++){
+      var w = shown[t];
+      var tierMeta = w.tier && IVT_TIER_META[w.tier] ? IVT_TIER_META[w.tier] : null;
+      rows += '<div class="ivt-trow' + (tierMeta ? ' ' + tierMeta.cls : '') + '">' +
+        '<span class="ivt-trow-sym">' + escapeHtml(w.symbol || '') +
+          (tierMeta ? ' <em class="ivt-trow-tier">' + tierMeta.label + '</em>' : (w.elevated ? ' <em class="ivt-trow-tier ivt-elev" title="IV well above its own history, but not currently climbing">Elevated</em>' : '')) + '</span>' +
+        '<span class="ivt-trow-num">' + ivtIvPct(w.iv) + '</span>' +
+        '<span class="ivt-trow-num">' + (w.z == null ? '—' : (w.z >= 0 ? '+' : '') + w.z.toFixed(1) + 'σ') + '</span>' +
+        '<span class="ivt-trow-num">' + (w.pctile == null ? '—' : w.pctile) + '</span>' +
+        '<span class="ivt-trow-num ' + ((w.chg5dPct || 0) >= 0 ? 'cx-up' : 'cx-down') + '">' + (w.chg5dPct == null ? '—' : (w.chg5dPct >= 0 ? '+' : '') + w.chg5dPct.toFixed(1) + '%') + '</span>' +
+        '<span class="ivt-trow-num ' + ((w.chg20dPct || 0) >= 0 ? 'cx-up' : 'cx-down') + '">' + (w.chg20dPct == null ? '—' : (w.chg20dPct >= 0 ? '+' : '') + w.chg20dPct.toFixed(1) + '%') + '</span>' +
+        '<span class="ivt-trow-earn">' + (w.earnings && w.earnings.date ? escapeHtml(ivtDateLabel(w.earnings.date)) + (w.earnings.inDays != null ? ' · ' + w.earnings.inDays + 'd' : '') : '—') + '</span>' +
+        '<span class="ivt-trow-num">' + (w.score == null ? '—' : w.score.toFixed(1)) + '</span>' +
+      '</div>';
+    }
+    html += '<div class="ivt-table" role="table" aria-label="All tickers ranked by IV trend score">' + rows + '</div>';
+    if (all.length > IVT_TABLE_DEFAULT_ROWS){
+      html += '<button type="button" class="ivt-show-all" id="ivt-show-all">' +
+        (ivTrendState.showAll ? 'Show top ' + IVT_TABLE_DEFAULT_ROWS + ' only' : 'Show all ' + all.length + ' tickers') + '</button>';
+    }
+    root.innerHTML = html;
+    var btn = $('ivt-show-all');
+    if (btn) btn.addEventListener('click', function(){ ivTrendState.showAll = !ivTrendState.showAll; renderIvTrend(); });
+  }
+
   // --- Overnight markets / correlations -----------------------------------
   // Foreign lead-lag signals from data/correlations.json: per-region tiles of
   // overnight foreign moves, a derived risk tone, and the broad backdrop.
@@ -13526,11 +13698,9 @@
       row('Watch', a.watch);
       html += '<div class="brief-analog"><div class="brief-analog-head">' + briefEsc(a.pattern) + '</div>' + rows.join('') + '</div>';
     }
-    if (Array.isArray(b.playbook) && b.playbook.length){
-      html += '<div class="brief-chips">' + b.playbook.map(function(c){
-        return '<span class="brief-chip info"' + (c.cue ? ' title="' + briefEsc(c.cue) + '"' : '') + '>' + briefEsc(c.name) + '</span>';
-      }).join('') + '</div>';
-    }
+    // (The active-pattern cue chips that used to trail the analog card were
+    // dropped — with a fired analog they just repeated its title as a bare
+    // pill under the card.)
     return html ? briefBlock('Historical playbook', html) : '';
   }
   function briefChurnChips(pc){
@@ -13577,7 +13747,15 @@
     // Top Picks strip — roster overlap is labelled instead. Chip click opens
     // the Grade tab; the news/catalyst clause rides the chip tooltip.
     if (Array.isArray(b.watchlist) && b.watchlist.length){
-      var wl = b.watchlist.map(function(w){
+      // Group gainers with gainers and losers with losers (each ordered by
+      // move size, no-print names last) so the strip reads as two blocks
+      // instead of alternating red/green rows.
+      var wlSorted = b.watchlist.slice().sort(function(wa, wb){
+        var av = (wa && wa.ch != null && isFinite(wa.ch)) ? wa.ch : -Infinity;
+        var bv = (wb && wb.ch != null && isFinite(wb.ch)) ? wb.ch : -Infinity;
+        return bv - av;
+      });
+      var wl = wlSorted.map(function(w){
         var why = (w.reasons || []).join(' · ') + (w.pick ? ' · also a top pick' : '');
         return '<li class="brief-hline">' +
           '<button type="button" class="brief-chip ' + briefPctCls(w.ch) + '" data-sym="' + briefEsc(w.sym) + '"' + (w.take ? ' title="' + briefEsc(w.take) + '"' : '') + '>' +
