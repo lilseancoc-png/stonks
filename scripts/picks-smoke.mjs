@@ -411,6 +411,18 @@ ok("classify: strong grade + strong thesis → actionable", classifyPick(8, "str
 ok("classify: strong grade + weak thesis → high-grade-weak-thesis / watch", classifyPick(8, "weak", false).classification === "highGradeWeakThesis" && classifyPick(8, "weak", false).group === "watch");
 ok("classify: moderate grade + strong thesis → moderate / watch", classifyPick(5, "strong", false).classification === "moderate" && classifyPick(5, "strong", false).group === "watch");
 ok("classify: moderate grade + weak thesis → idea / watch", classifyPick(5, "weak", false).classification === "idea" && classifyPick(5, "weak", false).group === "watch");
+// actionable gates (the 2026-07-10 rework): direction confluence + a required AI
+// grade when the grader is live. Omitted gates (legacy callers) keep old behavior.
+{
+  const single = classifyPick(8, "strong", false, { pillarsAligned: 1, aiGraded: true, aiActive: true });
+  ok("classify: single-pillar strong demotes to watch (confluence gate)", single.group === "watch" && single.demotion === "confluence");
+  const ungraded = classifyPick(8, "strong", false, { pillarsAligned: 3, aiGraded: false, aiActive: true });
+  ok("classify: AI live but name ungraded → watch (ai-ungraded)", ungraded.group === "watch" && ungraded.demotion === "ai-ungraded");
+  const keyless = classifyPick(8, "strong", false, { pillarsAligned: 3, aiGraded: false, aiActive: false });
+  ok("classify: keyless build keeps the deterministic actionable", keyless.group === "actionable" && keyless.demotion === null);
+  const graded = classifyPick(8, "strong", false, { pillarsAligned: 2, aiGraded: true, aiActive: true });
+  ok("classify: AI-graded multi-pillar strong stays actionable", graded.group === "actionable");
+}
 
 // Vertical builder — needs a BS-priced chain (the linear mkChain mids give a flat
 // ~4% credit fraction that never clears the 1/3-width floor; fine for debit).

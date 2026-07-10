@@ -250,8 +250,8 @@ async function main() {
   if (goRows.length < NEED || waitRows.length < NEED) {
     console.log("  INSUFFICIENT gate-era sample — need ≥ " + NEED + " decided per arm for a stable read.");
     console.log("  The gate's edge stays UNPROVEN until forward, gate-era picks accumulate; re-run");
-    console.log("  this as the open book resolves. (Set PICKS_ACCURACY_AB=1 to also enroll the wait");
-    console.log("  arm so this populates.)");
+    console.log("  this as the open book resolves. (Since 2026-07-10 EVERY actionable pick enrolls");
+    console.log("  cohort-tagged go/wait, so both arms populate by default.)");
   }
 
   console.log("\n  NOTE: modeled (no options feed). Entry IV implied from the stored entry mid;");

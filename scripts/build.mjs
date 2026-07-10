@@ -8949,7 +8949,11 @@ const PICKS_WATCH_COUNT = Number(process.env.PICKS_WATCH_COUNT ?? 6); // max IDE
 // realistically make the ≤PICKS_COUNT actionable roster, not the long tail of
 // marginal gate-passers (saves tokens + keeps the review focused). A name beyond
 // the cut ships its deterministic card (buildTopPicks falls back like a keyless build).
-export const PICKS_MAX_AI_THESES = Number(process.env.PICKS_MAX_AI_THESES ?? 10);
+// 14, not PICKS_COUNT: an actionable pick now REQUIRES an AI grade (classifyPick's
+// ai-ungraded demotion), so the grader needs a small bench beyond the 10 roster
+// slots — rejects/weak grades among the top 10 would otherwise leave actionable
+// slots structurally unfillable.
+export const PICKS_MAX_AI_THESES = Number(process.env.PICKS_MAX_AI_THESES ?? 14);
 export const PICKS_MAX_PER_SECTOR = 3;        // correlation cap (ETFs uncapped)
 const PICKS_MAX_PER_SIDE = 8;                 // don't ship an all-one-way book
 
@@ -9101,6 +9105,11 @@ const PICKS_GROSS_TARGET = 0.80;               // deploy 80% of book, rest cash
 const PICKS_DISPLAY_ACCOUNT = Number(process.env.PICKS_DISPLAY_ACCOUNT ?? 25000);
 const PICKS_SIZE_FULL_ROSTER_N = 5;            // ramp gross to full at 5 names
 const PICKS_SIZE_TILT_MIN = 0.6, PICKS_SIZE_TILT_MAX = 1.4;
+// A pick whose entry signal is still a wait/dip trigger (entry.now === false)
+// sizes down: with enrollment no longer gated on buy-now (every actionable pick
+// enrolls, cohort-tagged), entry quality is expressed in SIZE instead of
+// membership — enter smaller when the entry isn't confirmed yet.
+const PICKS_ENTRY_WAIT_SIZE_MULT = Number(process.env.PICKS_ENTRY_WAIT_SIZE_MULT ?? 0.75);
 
 // ---- One simple market regime (SPY trend + VIX) ----------------------------
 const PICKS_RISKOFF_VIX = 20;
@@ -9334,7 +9343,11 @@ const PICKS_ACCURACY_MAX_CLOSED = 250;
 // by readPicksAccuracyState; the freshly-written payload stamps the current
 // epoch so later builds accumulate normally. 2026-07-07: BUY-NOW enrollment
 // gate landed (wait-trigger picks no longer enroll), old record reset.
-const PICKS_ACCURACY_RESET_EPOCH = "2026-07-07";
+// 2026-07-10: enrollment reworked again — EVERY actionable pick enrolls
+// (cohort-tagged go/wait; the buy-now hard gate starved the record to 7 opens
+// in 3 days) while "actionable" itself tightened (direction-confluence + a
+// required AI final grade) — reset so the scorecard reflects one regime.
+const PICKS_ACCURACY_RESET_EPOCH = "2026-07-10";
 // Hard cap on the concurrently-tracked open book. Each build ships <=10
 // actionable picks, but re-entry suppression means every build surfaces NEW
 // names while the previously-enrolled ones stay open until an exit rule fires —
@@ -11675,7 +11688,11 @@ function applyPickSizing(picks, regimeGross = 1) {
     const c = p.contract;
     const stopFrac = PICKS_OPT_STOP_PCT;                          // option risk to stop
     const risk = Math.max(0.05, stopFrac);
-    const tilt = clamp(Math.abs(p.total) / PICKS_TIER_STRONG, PICKS_SIZE_TILT_MIN, PICKS_SIZE_TILT_MAX);
+    // Conviction tilt × an entry-quality haircut: a pick whose entry call is
+    // still a wait/dip trigger sizes down (PICKS_ENTRY_WAIT_SIZE_MULT) — entry
+    // quality no longer gates enrollment, so it's priced into size instead.
+    const waitMult = (p.entry && p.entry.now === false) ? PICKS_ENTRY_WAIT_SIZE_MULT : 1;
+    const tilt = clamp(Math.abs(p.total) / PICKS_TIER_STRONG, PICKS_SIZE_TILT_MIN, PICKS_SIZE_TILT_MAX) * waitMult;
     // No-contract WATCH ideas (weak-thesis "no recommendation") carry no position,
     // so they consume no gross — give them zero raw weight.
     raw.push(c ? (1 / risk) * tilt : 0);
@@ -11744,7 +11761,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const edgeGate = opts.priorClosed ? edgeGatedConviction(opts.priorClosed) : { bar: PICKS_MIN_CONVICTION, edge: null, n: 0 };
   const minConv = edgeGate.bar;
 
-  const meta = { tradeCut: minConv, strongCut: PICKS_TIER_STRONG, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
+  const meta = { tradeCut: minConv, strongCut: PICKS_TIER_STRONG, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], confluenceDemoted: [], aiUngraded: [], reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
 
   // Candidate set: actionable grade, OR a tactical put in a confirmed risk-off tape.
   const candidates = [];
@@ -11759,6 +11776,11 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   // sector/factor/side caps + the combined cap). Falls back to the deterministic
   // conviction so a keyless build (or a name the AI couldn't grade) still orders.
   const aiMap = opts.aiThesisMap || null;
+  // The AI final grader counts as LIVE this build when it produced at least one
+  // grade (fresh or cache-reused). classifyPick then requires an AI grade for
+  // the actionable group; an empty map (keyless build, or a total AI outage)
+  // degrades to the deterministic tiers instead of blanking the roster.
+  const aiActive = !!(aiMap && Object.keys(aiMap).length);
   const sideOf = (r) => r.side || (r.total >= 0 ? "call" : "put");
   const rankScoreOf = (r) => {
     const ai = aiMap ? aiMap[`${r.sym}:${sideOf(r)}`] : null;
@@ -11798,7 +11820,9 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // The AI grade is authoritative when present; the deterministic rubric is the
     // keyless/offline fallback (and still computed for the card's checklist + score).
     const thesisQuality = applyAiThesisGrade(assessThesisQuality(r, side, marketRead, works), aiThesis);
-    const { classification, group } = classifyPick(r.total, thesisQuality.tier, tactical);
+    const { classification, group, demotion } = classifyPick(r.total, thesisQuality.tier, tactical, { pillarsAligned: thesisQuality.pillarsAligned, aiGraded: thesisQuality.aiGraded, aiActive });
+    if (demotion === "confluence") meta.confluenceDemoted.push(r.sym);
+    else if (demotion === "ai-ungraded") meta.aiUngraded.push(r.sym);
     // GROUP FULL: skip before the strategy/contract stage so a surplus name
     // neither consumes exposure caps nor blocks the other group from filling.
     if (group === "actionable" ? actN >= PICKS_COUNT : watchN >= PICKS_WATCH_COUNT) continue;
@@ -12492,17 +12516,44 @@ export function applyAiThesisGrade(detQuality, aiThesis) {
 }
 
 // Grade × thesis EXECUTION MATRIX (the spec's actionable / watch split). Returns
-// { classification, group }: only a Strong grade (|total| >= PICKS_TIER_STRONG)
-// with a STRONG thesis is "actionable"; everything else is a lower-conviction
-// "watch" idea, and a weak thesis gets no strategy at all.
-export function classifyPick(total, thesisTier, tactical) {
+// { classification, group, demotion }: only a Strong grade (|total| >=
+// PICKS_TIER_STRONG) with a STRONG thesis is "actionable"; everything else is a
+// lower-conviction "watch" idea, and a weak thesis gets no strategy at all.
+//
+// `gates` (optional — omitted by legacy/unit callers, which keeps the old
+// behavior) adds two hard checks on the actionable cell only, because the
+// actionable group IS the enrolled track record now:
+//   * pillarsAligned >= 2 — direction confluence. Direction is what kills
+//     (lesson #1; 100% of the early losses were direction-driven): a Strong
+//     grade whose in-direction signals all live in ONE pillar is a single-story
+//     trade. The deterministic strong tier already enforces this, but the AI
+//     final grade REPLACES the deterministic tier (applyAiThesisGrade), so an
+//     AI-strong verdict could previously promote a single-pillar name. This
+//     keeps the confluence check a DATA-side invariant whoever graded.
+//   * aiActive → aiGraded — when the AI final grader is live this build, an
+//     actionable pick must actually carry its AI grade/thesis (the thesis is
+//     part of the product). A name the grader missed (API flake, beyond the
+//     PICKS_MAX_AI_THESES cut) demotes to watch instead of shipping as an
+//     ungraded "actionable". Keyless/offline builds (aiActive false) keep the
+//     deterministic-tier fallback so the site never blanks.
+// `demotion` names which gate demoted an otherwise-actionable pick
+// (null | "confluence" | "ai-ungraded") for rosterMeta instrumentation.
+export function classifyPick(total, thesisTier, tactical, gates = null) {
   // A tactical put is a tape-driven DEFENSIVE idea (it ships below the grade bar on
   // a confirmed risk-off tape) — always a watch idea, never "no strategy".
-  if (tactical) return { classification: "moderate", group: "watch" };
+  if (tactical) return { classification: "moderate", group: "watch", demotion: null };
   const gradeStrong = Math.abs(pnum(total) ?? 0) >= PICKS_TIER_STRONG;
-  if (thesisTier === "weak") return { classification: gradeStrong ? "highGradeWeakThesis" : "idea", group: "watch" };
-  if (gradeStrong && thesisTier === "strong") return { classification: "actionable", group: "actionable" };
-  return { classification: "moderate", group: "watch" };
+  if (thesisTier === "weak") return { classification: gradeStrong ? "highGradeWeakThesis" : "idea", group: "watch", demotion: null };
+  if (gradeStrong && thesisTier === "strong") {
+    if (gates && gates.pillarsAligned != null && gates.pillarsAligned < 2) {
+      return { classification: "moderate", group: "watch", demotion: "confluence" };
+    }
+    if (gates && gates.aiActive && !gates.aiGraded) {
+      return { classification: "moderate", group: "watch", demotion: "ai-ungraded" };
+    }
+    return { classification: "actionable", group: "actionable", demotion: null };
+  }
+  return { classification: "moderate", group: "watch", demotion: null };
 }
 
 // The EDGE — one scannable line synthesising the dominant driver + the IV
@@ -12544,7 +12595,9 @@ function buildThesisCard(r, side, contract, tactical, exitPlan, strategy, macroR
   const works = (pre && pre.works) || collectThesisWorks(r, side);
   const marketRead = (pre && pre.marketRead) || buildMarketRead(r.sym, r.data, side, macroRegime, aiThesis);
   const thesisQuality = (pre && pre.thesisQuality) || assessThesisQuality(r, side, marketRead, works);
-  const { classification, group } = (pre && pre.classification) ? { classification: pre.classification, group: pre.group } : classifyPick(r.total, thesisQuality.tier, tactical);
+  // Fallback path (no precomputed classification — regen/keyless): aiActive is
+  // false here by construction, so only the confluence gate applies.
+  const { classification, group } = (pre && pre.classification) ? { classification: pre.classification, group: pre.group } : classifyPick(r.total, thesisQuality.tier, tactical, { pillarsAligned: thesisQuality.pillarsAligned, aiGraded: thesisQuality.aiGraded, aiActive: false });
   const companyDrivers = works.filter((w) => w.pillarKey === "fundamentals" || w.pillarKey === "narrative");
   const confirmation = works.filter((w) => w.pillarKey === "technicals" || w.pillarKey === "mechanicals");
   const invalidators = [];
@@ -12772,7 +12825,7 @@ export async function readPriorPicks() {
 // that turns over with the grade, the drivers, the relevant macro axes, the news
 // take, and the IV bucket — so it re-reads when the picture materially changes
 // (incl. a fresh news take), not every build. regen-picks.mjs runs offline (no AI).
-const AI_THESIS_MODEL = process.env.AI_THESIS_MODEL || "gemini-2.5-flash-lite";
+const AI_THESIS_MODEL = process.env.AI_THESIS_MODEL || "gemini-3.1-flash-lite";
 
 // Bump when the schema / prompt changes so every cached thesis re-reads once.
 const THESIS_PROMPT_VERSION = "v4";
@@ -13083,7 +13136,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
           recordAiUsage({ model: aiModelForAttempt(AI_THESIS_MODEL, attempt), callType: "pick-thesis", symbol: r.sym, usage: response?.usageMetadata });
           break;
         } catch (err) {
-          const wait = classifyAiError(err, attempt);
+          const wait = classifyAiError(err, attempt, aiModelForAttempt(AI_THESIS_MODEL, attempt));
           if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) { response = null; break; }
           await new Promise((res) => setTimeout(res, wait));
         }
@@ -13438,6 +13491,11 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
     avgOptLoPct: r1(expect(optDecided.filter((c) => c.optLoPct != null && pnum(c.optLoPct) != null), (c) => c.optLoPct)),
     openOptionN: openMarks.length, openOptionAvgPnlPct: r1(expect(openMarks, (o) => o.optionPnlPct)), openOptionUp: openMarks.filter((o) => Number(o.optionPnlPct) >= 0).length,
     byTier: byKey((c) => c.tier), bySector: byKey((c) => c.sector), byRegime: byKey((c) => c.entryRegime),
+    // Entry-cohort A/B (go = enrolled on a clean buy-now, wait = a trigger-state
+    // entry). Renders as the Track Record's "Gate A/B" panel (app-js cohortBlock
+    // shows it once both arms have decided trades) and is THE read that
+    // adjudicates whether buy-now endorsement earns its keep on resolved trades.
+    byCohort: byKey((c) => c.cohort),
   };
 }
 
@@ -13669,14 +13727,15 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     // tracked trades — there's nothing to mark to market, and enrolling them would
     // leak an unresolvable "open" entry that also blocks legitimate re-entry.
     if (!p.contract) continue;
-    // Entry-timing gate: only a clean BUY NOW entry signal becomes a tracked
-    // trade. A wait-state pick (wait-reclaim / wait-pullback / wait-event /
-    // buy-dip) is advice to hold fire, not a filled position — grading it from
-    // the roster print would score trades the engine told the user NOT to take
-    // yet. The pick stays on the roster un-enrolled and enters the record on
-    // the first later bake where its trigger has hit and computeEntrySignal
-    // flips to buy-now (entry is recomputed fresh every bake).
-    if (p.entry?.signal !== "buy-now") continue;
+    // EVERY actionable pick enrolls — entry quality is a recorded COHORT, not a
+    // gate. The 2026-07-07 buy-now hard gate scored only the picks whose entry
+    // signal read clean, but it starved the record (7 enrollments in 3 days,
+    // zero closes — nothing to learn from) and it enforced an UNTESTED belief:
+    // the go-vs-wait A/B in diagnose-pick-losses.mjs needs both arms enrolled
+    // to measure whether buy-now endorsement earns its keep on RESOLVED trades.
+    // So the entry signal is stamped below (cohort go/wait + the readiness
+    // score) and adjudicated by the diagnostics; size already prices the
+    // difference (PICKS_ENTRY_WAIT_SIZE_MULT).
     openKeys.add(key);
     // Deterministic thesis-style tag (valuation / momentum / event-driven / …)
     // for the Track Record by-thesis + cross-tab analytics. Frozen at entry.
@@ -13684,6 +13743,14 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     open.push({
       symbol: p.symbol, side: p.side, tier: p.recommendation?.tier || null, label: p.recommendation?.label || null,
       score: p.total, entryDate: builtAtIso, entrySpot: r2(p.spot), lastSpot: r2(p.spot),
+      // Entry-quality cohort, frozen at enrollment: "go" = the entry signal was
+      // a clean buy-now, "wait" = a trigger-state entry (reclaim / pullback /
+      // dip / event defer). Read by the go-vs-wait A/B in
+      // scripts/diagnose-pick-losses.mjs to adjudicate the entry gate on
+      // resolved trades instead of enforcing it untested.
+      cohort: p.entry?.signal === "buy-now" ? "go" : "wait",
+      entrySignal: p.entry?.signal || null,
+      entryReadiness: p.entry?.readiness?.score ?? null,
       thesisCategory: thesisCat.primary, thesisCategorySecondary: thesisCat.secondary,
       contract: p.contract ? {
         strike: p.contract.strike, expiry: p.contract.expiry, dte: p.contract.dte, mid: p.contract.mid, iv: p.contract.iv, delta: p.contract.delta, thetaDay: p.contract.thetaDay,
@@ -14476,14 +14543,21 @@ async function writeCorrelationsFile(chains, globalMarkets, builtAtIso, prior = 
 // verdict toward Good or Bad. Skipped silently if no GEMINI_API_KEY is set,
 // so forks without a key still build.
 //
-// Default to gemini-2.5-flash-lite — every AI call in the build now runs on
-// Flash-Lite (funded Tier 1: 4K RPM / 4M TPM), so the base model matches the
-// per-ticker call sites and there's no model mix left to reason about. Flash-
-// Lite supports responseSchema (constrained decoding) and implicit prompt
-// caching, and is cheaper per token than the old Gemma 4 26B default. Override
-// via AI_MODEL env to roll back to Gemma (`gemma-4-26b-a4b-it`, 1.5K RPD on the
-// free tier — set AI_RPM=10 there) or to trial a stronger model.
-const AI_MODEL = process.env.AI_MODEL || "gemini-2.5-flash-lite";
+// Default to gemini-3.1-flash-lite — every text AI call in the build runs on
+// a Flash-Lite-class model (funded Tier 1: 4K RPM / 4M TPM), so the base model
+// matches the per-ticker call sites and there's no model mix left to reason
+// about. Flash-Lite-class models support responseSchema (constrained decoding)
+// and implicit prompt caching. 3.1, not 2.5: Google shut gemini-2.5-flash-lite
+// down on 2026-07-08 (three months before its announced 2026-10-16 date) —
+// fresh calls hard-404 "no longer available". The 2026-07-07 bake verified
+// gemini-3.1-flash-lite accepts the build's thinkingConfig/responseSchema
+// calls (pick-thesis + ticker-judgment ran clean on it via the ladder).
+// Override via AI_MODEL env to trial a stronger model. NOTE: the AI_MODEL /
+// NARRATIVES_MODEL GH Actions Variables OVERRIDE this default — if they still
+// pin the dead 2.5 model the dead-model ladder rescues each call, but flip
+// them (`gh variable set AI_MODEL --body gemini-3.1-flash-lite`) to save the
+// wasted probe.
+const AI_MODEL = process.env.AI_MODEL || "gemini-3.1-flash-lite";
 // News + fundamentals are short, schema-shaped summaries — Gemini 2.5
 // Flash-Lite is cheaper per token than Gemma 4 26B, supports both
 // responseSchema (constrained decoding, no fence-stripping fallback
@@ -14492,15 +14566,15 @@ const AI_MODEL = process.env.AI_MODEL || "gemini-2.5-flash-lite";
 // Gemma is one env var per call type. Note Flash-Lite's responseSchema
 // requires a Tier 1 funded project; the parser still tolerates fenced
 // output so a fallback model can be slotted in without churn.
-const AI_NEWS_MODEL = process.env.AI_NEWS_MODEL || "gemini-2.5-flash-lite";
-const AI_FUNDAMENTALS_MODEL = process.env.AI_FUNDAMENTALS_MODEL || "gemini-2.5-flash-lite";
+const AI_NEWS_MODEL = process.env.AI_NEWS_MODEL || "gemini-3.1-flash-lite";
+const AI_FUNDAMENTALS_MODEL = process.env.AI_FUNDAMENTALS_MODEL || "gemini-3.1-flash-lite";
 // Combined ticker-judgment call (news + fundamentals in one round-trip).
 // Halves the request count per ticker and shares a long static system
 // prompt across every call so Gemini's implicit caching engages
 // (visible as cachedContentTokenCount > 0 in data/ai-usage.json).
 // AI_COMBINED=0 disables this path and falls back to the two
 // independent attachAiNewsTakes / attachFundamentalsJudgments calls.
-const AI_TICKER_MODEL = process.env.AI_TICKER_MODEL || "gemini-2.5-flash-lite";
+const AI_TICKER_MODEL = process.env.AI_TICKER_MODEL || "gemini-3.1-flash-lite";
 const AI_COMBINED = process.env.AI_COMBINED !== "0";
 // Fold the Major-Contract + Guidance signal extraction into the combined
 // ticker-judgment call instead of issuing a second per-ticker round-trip
@@ -14526,8 +14600,9 @@ const AI_SIGNALS_COMBINED = process.env.AI_SIGNALS_COMBINED === "1";
 // mid-reply (Unterminated-string parse failures whose position scaled with the
 // token cap — 2048→~6.5k chars, 4096→~13.7k). The per-ticker chart-pattern cache
 // fires this ~once/ticker/trading day, so Flash here is cheap. Override with
-// AI_CHART_MODEL (but Flash-Lite is known-broken for it).
-const AI_CHART_MODEL = process.env.AI_CHART_MODEL || "gemini-2.5-flash";
+// AI_CHART_MODEL (but Flash-Lite is known-broken for it). 3.5, not 2.5: the 2.5
+// generation was shut down early (2026-07-08) — see AI_MODEL above.
+const AI_CHART_MODEL = process.env.AI_CHART_MODEL || "gemini-3.5-flash";
 // Narrative extraction is the trickiest reasoning task in the build, so
 // it's the call where stronger models earn their keep — but Pro models
 // (gemini-2.5-pro, gemini-3.1-pro) require funded Tier 1+ billing and
@@ -14548,31 +14623,44 @@ const NARRATIVES_MODEL = process.env.NARRATIVES_MODEL || AI_MODEL;
 // the chart image (never lite — known-broken for it, see AI_CHART_MODEL).
 // NOTE (2026-06): the prior 2.0-generation fallbacks (gemini-2.0-flash /
 // gemini-2.0-flash-lite) were SHUT DOWN by Google on 2026-06-01, so a 503 retry was
-// 404-ing on a dead model ("model no longer available"); the chain now points at the
-// live current generation. The 2.5 primaries are deprecated too (shutdown 2026-10-16)
-// but still serving, so they stay as the primary and the current gen serves as the
-// cross-pool 503 escape — which also keeps the build working past the 2.5 shutdown
-// (a dead primary 404s attempt 0, then the live current-gen fallback answers).
-// Chains are keyed for BOTH the 2.5 primaries AND the 3.x ones so the ladder works
-// whichever generation AI_*_MODEL / the GH Actions vars pin. The chain is best-effort:
-// a disabled/typo'd fallback id just errors on that attempt and we degrade exactly
-// as before (reuse last-good / deterministic). Per-call PRIMARY is still set by the
-// AI_*_MODEL env (e.g. NARRATIVES_MODEL); AI_FALLBACK_MODELS="a,b" appends extra
-// fallbacks to EVERY chain; AI_MODEL_FALLBACK=0 disables the ladder entirely.
+// 404-ing on a dead model ("model no longer available"); the chain was repointed at
+// the current generation. NOTE (2026-07): the 2.5 primaries died the same way THREE
+// MONTHS EARLY — announced shutdown 2026-10-16, actually 404-ing from 2026-07-08 —
+// and because a 404 wasn't classified retryable the ladder never engaged (115 hard
+// failures in one bake). Two fixes: the ladder now also rolls on a model-level 404
+// (classifyAiError's dead-model escape + DEAD_AI_MODELS memory, so a dead pinned
+// primary costs ONE probe per process, not one per call), and the defaults moved to
+// the 3.x generation with the dead 2.5 ids demoted to tail fallbacks (kept in case
+// the shutdown is partial/regional — the dead-model memory prunes them at runtime).
+// Chains are keyed for BOTH generations so the ladder works whichever one the
+// AI_*_MODEL env / GH Actions vars pin. The chain is best-effort: a disabled/typo'd
+// fallback id just errors on that attempt and we degrade exactly as before (reuse
+// last-good / deterministic). Per-call PRIMARY is still set by the AI_*_MODEL env
+// (e.g. NARRATIVES_MODEL); AI_FALLBACK_MODELS="a,b" appends extra fallbacks to
+// EVERY chain; AI_MODEL_FALLBACK=0 disables the ladder entirely.
 const AI_MODEL_FALLBACK = process.env.AI_MODEL_FALLBACK !== "0";
 const AI_FALLBACK_CHAINS = {
-  // 2.5 primaries (live until 2026-10-16) → current-gen sibling (separate pool) → alias
+  // dead 2.5 ids (if still pinned by env/Actions vars) → current gen → alias
   "gemini-2.5-flash-lite": ["gemini-3.1-flash-lite", "gemini-flash-lite-latest"],
   "gemini-2.5-flash": ["gemini-3.5-flash", "gemini-flash-latest"],
-  // current-gen primaries (if pinned) → the still-live 2.5 sibling → alias
-  "gemini-3.1-flash-lite": ["gemini-2.5-flash-lite", "gemini-flash-lite-latest"],
-  "gemini-3.5-flash": ["gemini-2.5-flash", "gemini-flash-latest"],
+  // current-gen primaries → the auto-tracking alias (a live pool) → the 2.5 id
+  // as a last resort (dead since 2026-07-08; pruned at runtime once probed)
+  "gemini-3.1-flash-lite": ["gemini-flash-lite-latest", "gemini-2.5-flash-lite"],
+  "gemini-3.5-flash": ["gemini-flash-latest", "gemini-2.5-flash"],
 };
 const AI_EXTRA_FALLBACKS = (process.env.AI_FALLBACK_MODELS || "").split(",").map((s) => s.trim()).filter(Boolean);
 function aiModelChain(primary) {
   if (!AI_MODEL_FALLBACK) return [primary];
-  const chain = [primary, ...(AI_FALLBACK_CHAINS[primary] || []), ...AI_EXTRA_FALLBACKS];
-  return chain.filter((m, i) => m && chain.indexOf(m) === i); // de-dup, keep order
+  const chain = [primary, ...(AI_FALLBACK_CHAINS[primary] || []), ...AI_EXTRA_FALLBACKS]
+    .filter((m, i, a) => m && a.indexOf(m) === i); // de-dup, keep order
+  // Models marked dead this process (a model-level 404 in classifyAiError —
+  // Google shut the model down) are skipped from attempt 0, so after one probe
+  // every later call goes straight to a live sibling instead of re-404ing the
+  // dead primary on every request. If EVERYTHING is marked dead, keep the
+  // original chain — the marks may have been a transient upstream glitch and
+  // degrading exactly as before beats never trying again.
+  const alive = chain.filter((m) => !DEAD_AI_MODELS.has(m));
+  return alive.length ? alive : chain;
 }
 // The model to use on a given 0-based retry attempt: primary first, then walk the
 // fallback chain, clamping at the last entry. Exported so the sibling scanners
@@ -14845,10 +14933,28 @@ const AI_MISS_SWEEP_WAIT_MS = 15000;
 // caller should wait before retrying, or null if the error isn't transient.
 // 429s carry a "Please retry in 14.6985s" hint we should respect — otherwise
 // we'd retry into the same rate-limit window and burn an attempt.
-function classifyAiError(err, attempt) {
+//
+// `model` (the aiModelForAttempt result for THIS attempt) powers the dead-model
+// escape: a model-level 404 ("This model … is no longer available" /
+// NOT_FOUND) means Google shut the model down — the 2.5 generation died
+// 2026-07-08, three months before its announced 2026-10-16 date, and one bake
+// logged 115 hard 404s with the ladder never engaging, because 404 wasn't
+// classified retryable (narratives/briefs/judgments/theses all silently
+// degraded to last-good). Retrying the SAME model can never succeed, but with
+// the fallback ladder ON the NEXT attempt is a different model — so mark this
+// one dead (aiModelChain skips it from attempt 0 on every later call in this
+// process) and return a token backoff so the loop rolls straight to the
+// sibling. Without the ladder a 404 stays terminal, as before.
+const DEAD_AI_MODELS = new Set();
+function classifyAiError(err, attempt, model = null) {
   const msg = String(err?.message || "");
   const causeMsg = String(err?.cause?.message || err?.cause?.code || "");
   const combined = msg + " " + causeMsg;
+  const isDeadModel = /\b404\b|NOT_FOUND/i.test(combined) && /model/i.test(combined);
+  if (isDeadModel) {
+    if (model) DEAD_AI_MODELS.add(model);
+    return AI_MODEL_FALLBACK ? 250 : null;
+  }
   const is429 = /\b(429|RESOURCE_EXHAUSTED|quota)\b/i.test(combined);
   const is5xx = /\b(500|502|503|504|INTERNAL|UNAVAILABLE|DEADLINE_EXCEEDED|BAD_GATEWAY)\b/i.test(combined);
   // Network-layer failures (no HTTP response — connection refused, DNS lookup
@@ -14886,7 +14992,7 @@ function classifyAiError(err, attempt) {
 // build still carries forward any brief a prior keyed build produced
 // (read-before-wipe in main()).
 const BRIEFS_FILE = "briefs.json";
-const AI_BRIEF_MODEL = process.env.AI_BRIEF_MODEL || "gemini-2.5-flash-lite";
+const AI_BRIEF_MODEL = process.env.AI_BRIEF_MODEL || "gemini-3.1-flash-lite";
 // Kind boundaries: a build before 10:00 ET (the 9:30 open bake) frames the
 // brief as the MORNING setup; 16:00 ET onward (the close bake) as the
 // AFTERNOON closing read; everything between is the INTRADAY session read.
@@ -15912,7 +16018,7 @@ async function generateBrief(ai, kind, dateKey, signals) {
       break;
     } catch (err) {
       lastErr = err;
-      const wait = classifyAiError(err, attempt);
+      const wait = classifyAiError(err, attempt, aiModelForAttempt(AI_BRIEF_MODEL, attempt));
       if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) throw err;
       const reason = String(err?.message || err).split("\n")[0].slice(0, 120);
       console.log(`    ⌛ brief(${kind}) AI attempt ${attempt + 1}/${AI_MAX_ATTEMPTS} hit ${reason} — backing off ${Math.round(wait / 1000)}s`);
@@ -16979,7 +17085,7 @@ async function generateNewsTake(ai, symbol, spot, headlines) {
       break;
     } catch (err) {
       lastErr = err;
-      const wait = classifyAiError(err, attempt);
+      const wait = classifyAiError(err, attempt, aiModelForAttempt(AI_NEWS_MODEL, attempt));
       if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) throw err;
       // Short prefix on the error keeps the log scannable; the full chain
       // bubbles up if we eventually throw. Backoff visibility matters because
@@ -17156,7 +17262,7 @@ async function attachAiContractGuidance(chains, judgmentCache = null) {
         break;
       } catch (err) {
         lastErr = err;
-        const wait = classifyAiError(err, attempt);
+        const wait = classifyAiError(err, attempt, aiModelForAttempt(model, attempt));
         if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) { response = null; break; }
         const reason = String(err?.message || err).split("\n")[0].slice(0, 120);
         console.log(`    ⌛ signals ${sym} attempt ${attempt + 1}/${AI_MAX_ATTEMPTS} hit ${reason} — backing off ${Math.round(wait / 1000)}s`);
@@ -17364,7 +17470,7 @@ async function generateFundamentalsJudgment(ai, symbol, spot, fundamentals) {
       break;
     } catch (err) {
       lastErr = err;
-      const wait = classifyAiError(err, attempt);
+      const wait = classifyAiError(err, attempt, aiModelForAttempt(AI_FUNDAMENTALS_MODEL, attempt));
       if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) throw err;
       // Short prefix on the error keeps the log scannable; the full chain
       // bubbles up if we eventually throw. Backoff visibility matters because
@@ -17671,7 +17777,7 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
       break;
     } catch (err) {
       lastErr = err;
-      const wait = classifyAiError(err, attempt);
+      const wait = classifyAiError(err, attempt, aiModelForAttempt(AI_TICKER_MODEL, attempt));
       if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) throw err;
       const reason = String(err?.message || err).split("\n")[0].slice(0, 120);
       console.log(`    ⌛ AI attempt ${attempt + 1}/${AI_MAX_ATTEMPTS} hit ${reason} — backing off ${Math.round(wait / 1000)}s`);
@@ -18401,7 +18507,7 @@ async function generateChartPattern(ai, symbol, spot, bars, opts = {}) {
       break;
     } catch (err) {
       lastErr = err;
-      const wait = classifyAiError(err, attempt);
+      const wait = classifyAiError(err, attempt, aiModelForAttempt(AI_CHART_MODEL, attempt));
       if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) throw err;
       const reason = String(err?.message || err).split("\n")[0].slice(0, 120);
       console.log(`    ⌛ AI attempt ${attempt + 1}/${AI_MAX_ATTEMPTS} hit ${reason} — backing off ${Math.round(wait / 1000)}s`);
@@ -19002,7 +19108,7 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
       lastErr = err;
       // Classify with the standard helper but use the narrative-specific
       // backoff schedule when the error is transient.
-      const wait = classifyAiError(err, attempt);
+      const wait = classifyAiError(err, attempt, aiModelForAttempt(NARRATIVES_MODEL, attempt));
       if (wait == null || attempt === NARRATIVE_MAX_ATTEMPTS - 1) throw err;
       const narrativeWait = NARRATIVE_RETRY_BACKOFF_MS[attempt] ?? 15000;
       // Honour the rate-limit hint from classifyAiError when it's larger than

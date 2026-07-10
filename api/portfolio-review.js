@@ -421,9 +421,9 @@ const RESPONSE_SCHEMA = {
 //
 // Both overridable via env vars — upgrade to gemini-2.5-flash / -pro
 // after adding billing in AI Studio without a code change.
-const PRIMARY_MODEL = process.env.PORTFOLIO_REVIEW_MODEL || "gemini-2.5-flash-lite";
+const PRIMARY_MODEL = process.env.PORTFOLIO_REVIEW_MODEL || "gemini-3.1-flash-lite";
 const FALLBACK_MODEL =
-  process.env.PORTFOLIO_REVIEW_FALLBACK_MODEL || "gemini-2.5-flash-lite";
+  process.env.PORTFOLIO_REVIEW_FALLBACK_MODEL || "gemini-3.1-flash-lite";
 const GEMINI_TIMEOUT_MS = 25_000;
 
 function isQuotaError(err) {
