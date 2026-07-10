@@ -372,8 +372,10 @@ skips spreads — its single-leg model would mislead.)
 2. **Drop names with an open tracked position** (re-entry suppression).
 3. **Drop `avoid`-timed names.** (Steps 1–3 are the **DATA GATE** — they decide
    which names are *eligible*; the AI then grades only the **top
-   `PICKS_MAX_AI_THESES` (14)** of them, ranked by conviction. The rest ship a
-   deterministic-only card.)
+   `PICKS_MAX_AI_THESES` (= `PICKS_COUNT`, 10)** of them, ranked by
+   deterministic conviction — the AI factor is applied ONLY to the
+   deterministic top 10 (owner directive). The rest ship a deterministic-only
+   card.)
 4. **AI veto** — the AI final grade is `reject` (the thesis doesn't hold up even
    though the data cleared): drop the name (`rosterMeta.aiVetoed`).
 5. **Require a tradeable contract** (else drop).
@@ -389,9 +391,12 @@ skips spreads — its single-leg model would mislead.)
    it are suppressed — only a strong-tier, `go`-timed call earns a reprieve. **Puts
    are unaffected** (a falling factor is fine to be short). Ships
    `rosterMeta.factorTrend` + `factorTrendGated`; off via `PICKS_FACTOR_TREND_GATE=0`.
-8. **Rank by the AI final-grade score** (0–100; falls back to deterministic
-   conviction when there's no AI grade — keyless/offline), ship up to 10. The rank
-   order also governs which names survive the caps in steps 5–7.
+8. **Rank by deterministic conviction** (|total|, ties on signed total then
+   symbol — the same order that picked the grader's top 10), ship up to 10. The
+   rank order also governs which names survive the caps in steps 5–7. The AI's
+   0–100 `score` does NOT rank (owner directive: deterministic-first) — it ships
+   on the card as the grader's confidence; the AI's levers are the grade tier
+   (classification), the `reject` veto, and the entry verdict.
 
 **Sizing** (`applyPickSizing`): risk-based and conviction-tilted, normalized to a
 gross target that **ramps with roster size** (a 1–2 name roster holds more cash)
@@ -550,19 +555,22 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   semi reads long yields + the dollar; an energy name reads crude), explicitly
   cross-examining whether the FOR votes tell one coherent story and whether the
   AGAINST votes break it. It is generated
-  for the **top `PICKS_MAX_AI_THESES` (default 14) names that cleared the DATA GATE**
+  for the **top `PICKS_MAX_AI_THESES` (= `PICKS_COUNT`, 10) names that cleared the DATA GATE**
   — ranked by deterministic conviction (the bar + the cheap re-entry / avoid-timing
-  screens) so the grader spends tokens only on names that can realistically make the
-  actionable roster; lower-conviction survivors ship deterministic-only. From there
+  screens): the AI factor is applied ONLY to the deterministic top 10 (owner
+  directive) — there is deliberately no bench below the cut, so an AI reject/wait
+  shrinks the roster honestly instead of backfilling from lower-conviction names;
+  below-cut survivors ship deterministic-only. From there
   the AI is the **FINAL
   GRADER**: alongside the narrative it returns a final `grade`
   (`strong`/`moderate`/`weak`/`reject`) + a 0–100 `score` + a `gradeReason`, **and
   the final ENTRY CALL** — `entryVerdict` (`buy-now`/`wait`) + `entryReason`, the
   is-now-the-time judgment that resolves §9a's entry gate (bounded by the hard
   risk vetoes; deterministic fallback when absent). That
-  grade is **authoritative** — it sets the execution matrix (§9a), ranks the roster
-  by score, and a `reject` **vetoes** a name that cleared the data screen but whose
-  thesis doesn't hold up. **The grader is web-search-grounded (2026-07-10, owner
+  grade is **authoritative for whether to ACT** — it sets the execution matrix
+  (§9a) and a `reject` **vetoes** a name that cleared the data screen but whose
+  thesis doesn't hold up; the roster ORDER stays deterministic (the `score` is
+  the grader's displayed confidence, not a ranker). **The grader is web-search-grounded (2026-07-10, owner
   directive)**: each cache-miss name first gets ONE Google-Search-grounded research
   call (`fetchThesisWebResearch` — fresh news, dated catalysts, analyst actions,
   anything contradicting the direction, as dated bullet facts) whose digest rides
@@ -709,7 +717,7 @@ All in the `// TOP PICKS ENGINE` constant block at the top of the engine:
 | `PICKS_THESIS_STRONG_SCORE` / `_MOD_SCORE` | 5 / 3 | thesis-quality bars (strong / moderate tier) |
 | `PICKS_EDGE_GATE_SOFT` / `_HARD` / `_MIN_N` | −8 / −15 / 12 | edge-governed bar: raise the actionable cut toward Strong when the realized option edge is this negative (after this many decided closes) |
 | `PICKS_COUNT` / `PICKS_WATCH_COUNT` | 10 / 6 | max Actionable / max Ideas·Watch roster size |
-| `PICKS_MAX_AI_THESES` | 14 | only the best N data-gate survivors (by conviction) get an AI thesis + final grade; the rest ship deterministic-only. 14 > `PICKS_COUNT` because actionable now REQUIRES an AI grade — the grader needs a bench beyond the 10 roster slots so rejects/weak grades don't leave slots unfillable |
+| `PICKS_MAX_AI_THESES` | = `PICKS_COUNT` (10) | only the top N data-gate survivors BY DETERMINISTIC CONVICTION get the AI thesis + final grade (the AI factor applies ONLY to the deterministic top 10 — owner directive); the rest ship deterministic-only watch cards. No bench below the cut: an AI reject/wait honestly shrinks the roster instead of backfilling |
 | `PICKS_ENTRY_WAIT_SIZE_MULT` | 0.75 | size haircut on a contract-bearing pick whose entry signal is still a wait/dip trigger (`entry.now === false`). Since the 2026-07-10 entry gate an actionable pick is always entry-confirmed, so this only shapes the display sizing of watch ideas |
 | `PICKS_ENTRY_EXTENDED_DIST` / `PICKS_TIMING_CHASE_RSI` | 4 / 72 | the §3 SOFT extension band: stretched > 4% past the 20D in the trade's direction, or RSI ≥ 72 (≤ 28 for a put), never reads a *deterministic* buy-now — the AI final grader's `entryVerdict` may take it |
 | `PICKS_ENTRY_EXTENDED_HARD` / `PICKS_ENTRY_CHASE_RSI_HARD` | 15 / 80 | the §3 HARD top-guard band: a parabolic >15% stretch or RSI ≥ 80 (≤ 20 for a put) is never a buy-now — no AI verdict can bless it |

@@ -681,9 +681,10 @@ ok("exit: credit ignores a stray scale-out field", resolvePickOutcome({ modeledO
   if (savedKeyless === undefined) delete process.env.AI_THESIS; else process.env.AI_THESIS = savedKeyless;
 }
 
-// --- 12d-final. AI is the FINAL GRADER (grade sets classification + rank + veto) -
-// Once a name clears the deterministic data gate, the AI grade decides the roster:
-// 'reject' vetoes; the AI tier drives the execution matrix; the AI score ranks.
+// --- 12d-final. AI is the FINAL GRADER (grade sets classification + veto) -----
+// Once a name clears the deterministic data gate, the AI grade decides whether
+// to ACT: 'reject' vetoes; the AI tier drives the execution matrix. The roster
+// ORDER stays deterministic (owner directive) — the AI score is confidence only.
 {
   const keyFor = (p) => p.symbol + ":" + p.side;
   // 1) reject → vetoed out of the roster (even though it cleared the data gate).
@@ -704,13 +705,19 @@ ok("exit: credit ignores a stray scale-out field", resolvePickOutcome({ modeledO
     ok("ai-grade: a 'weak' AI grade recommends no strategy (no contract)", !p || !p.contract);
     ok("ai-grade: finalGrade reflects the AI tier + source", !p || (p.finalGrade && p.finalGrade.tier === "weak" && p.finalGrade.source === "ai" && p.finalGrade.score === 30));
   }
-  // 3) AI score ranks the roster — a high AI score on a lower-conviction name lifts it.
+  // 3) The roster order is DETERMINISTIC — a 99 AI score on the lowest-conviction
+  // name must NOT lift it over higher deterministic conviction (the AI is the
+  // should-we-act check, never the ranker).
   {
     const last = healthyPicks[healthyPicks.length - 1];
     const map = {};
     for (const p of healthyPicks) map[keyFor(p)] = { summary: "x", setup: "x", catalyst: "x", outlook: "x", macroSupport: "supports", invalidation: ["a"], grade: "strong", score: keyFor(p) === keyFor(last) ? 99 : 60 };
     const out = buildTopPicks(healthyUniverse, [], null, null, null, null, 0.045, { aiThesisMap: map });
-    ok("ai-grade: the top-AI-score name ranks first", out.length > 1 ? keyFor(out[0]) === keyFor(last) : true);
+    const convOf = (p) => p.conviction ?? Math.abs(p.total ?? 0);
+    ok("ai-grade: a high AI score does NOT re-rank the roster (order stays deterministic)",
+      out.length > 1 ? keyFor(out[0]) !== keyFor(last) : true);
+    ok("ai-grade: roster is ordered by deterministic conviction",
+      out.every((p, i) => i === 0 || convOf(out[i - 1]) >= convOf(p)));
   }
   // 4) applyAiThesisGrade overlays the tier/score; absent a grade it's a no-op.
   {
