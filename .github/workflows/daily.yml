@@ -18,6 +18,10 @@ on:
 
 permissions:
   contents: write
+  # The "AI health alert" step opens/updates/closes the ai-health incident
+  # issue (issue creation is what emails the owner — the AI layer degrading
+  # never fails the build, so the issue IS the operator signal).
+  issues: write
 
 concurrency:
   # Shared across daily / unusual-flow / oi-tracker so the three never commit
@@ -126,6 +130,63 @@ jobs:
           # at https://www.openfigi.com/api.
           OPENFIGI_API_KEY: ${{ secrets.OPENFIGI_API_KEY }}
         run: node scripts/build.mjs
+
+      - name: AI health alert
+        # The build NEVER fails on AI-layer trouble — every consumer degrades
+        # gracefully (last-good narratives, cached judgments, deterministic
+        # thesis cards), which is exactly how the 2026-07-08 Gemini model
+        # shutdown ran for ~2 days with green workflows and zero operator
+        # signal. This step is the out-of-band alarm: the build writes
+        # ./ai-health.json (status ok / degraded / down / keyless); on
+        # degraded/down it opens ONE labeled issue (creation notifies the
+        # owner by email; while it stays open, later runs only refresh the
+        # body — no notification spam at 8 bakes/day), and on a clean "ok" run
+        # it closes the issue with a recovery comment. Optional: set the
+        # DISCORD_ALERT_WEBHOOK_URL secret to also get a Discord ping on
+        # incident open + recovery (one ping each, not one per bake).
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DISCORD_ALERT_WEBHOOK_URL: ${{ secrets.DISCORD_ALERT_WEBHOOK_URL }}
+        run: |
+          set -euo pipefail
+          if [ ! -f ai-health.json ]; then
+            echo "no ai-health.json (build failed before the report) — skipping"
+            exit 0
+          fi
+          STATUS=$(jq -r .status ai-health.json)
+          REASONS=$(jq -r '.reasons | join("; ")' ai-health.json)
+          echo "AI health: $STATUS — $REASONS"
+          EXISTING=$(gh issue list --label ai-health --state open --json number --jq '.[0].number // empty' || true)
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ "$STATUS" = "degraded" ] || [ "$STATUS" = "down" ]; then
+            TITLE="🚨 AI layer $(echo "$STATUS" | tr 'a-z' 'A-Z') — Gemini calls failing in the data workflows"
+            BODY_FILE=$(mktemp)
+            { jq -r .md ai-health.json; echo; echo "_Latest run: $RUN_URL ($(date -u +%Y-%m-%dT%H:%MZ))_"; } > "$BODY_FILE"
+            if [ -n "$EXISTING" ]; then
+              gh issue edit "$EXISTING" --title "$TITLE" --body-file "$BODY_FILE"
+              echo "refreshed open ai-health issue #$EXISTING"
+            else
+              gh label create ai-health --description "Automated AI-layer health incident (daily.yml)" --color D93F0B 2>/dev/null || true
+              gh issue create --title "$TITLE" --label ai-health --body-file "$BODY_FILE"
+              echo "opened ai-health issue"
+              if [ -n "${DISCORD_ALERT_WEBHOOK_URL:-}" ]; then
+                curl -sS -X POST -H 'Content-Type: application/json' \
+                  -d "$(jq -cn --arg c "🚨 stonks AI layer is $STATUS — $REASONS ($RUN_URL)" '{content:$c}')" \
+                  "$DISCORD_ALERT_WEBHOOK_URL" || true
+              fi
+            fi
+          elif [ "$STATUS" = "ok" ] && [ -n "$EXISTING" ]; then
+            gh issue close "$EXISTING" --comment "AI layer healthy again this run — $REASONS. ($RUN_URL)"
+            echo "closed ai-health issue #$EXISTING (recovered)"
+            if [ -n "${DISCORD_ALERT_WEBHOOK_URL:-}" ]; then
+              curl -sS -X POST -H 'Content-Type: application/json' \
+                -d '{"content":"✅ stonks AI layer recovered — fresh Gemini calls succeeding again."}' \
+                "$DISCORD_ALERT_WEBHOOK_URL" || true
+            fi
+          else
+            echo "nothing to do (status=$STATUS, open incident=${EXISTING:-none})"
+          fi
 
       - name: Commit refreshed site
         env:
