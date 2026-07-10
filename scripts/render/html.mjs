@@ -268,8 +268,8 @@ function topPicksSection() {
     </div>
       <div id="picks-summary" class="picks-summary"></div>
       <div id="picks-grid" class="picks-grid">Loading top picks…</div>
-      <div id="picks-empty" class="picks-empty" hidden>No actionable picks in this build — nothing cleared both the conviction ranking and the absolute quality floor. A short or empty list is by design: the engine holds cash rather than pad a weak tape.</div>
-      <p class="picks-foot">Picks rebuild from scratch on every refresh. Each pick clears the conviction ranking <em>and</em> an absolute quality floor, and has a tradeable near-the-money contract that fits the suggested-contract criteria above. The list can be short, or empty, on a poor day.</p>
+      <div id="picks-empty" class="picks-empty" hidden>No actionable picks in this build — nothing cleared every bar (a strong grade, a strong thesis <em>and</em> a confirmed buy-now entry). A short or empty list is by design: the engine holds cash rather than pad a weak tape, and strong names still waiting on their entry sit in the watch list with a trigger price.</div>
+      <p class="picks-foot">Picks rebuild from scratch on every refresh. Each actionable pick clears the conviction ranking, an absolute quality floor <em>and</em> a confirmed buy-now entry (never an extended/overbought chase), and has a tradeable near-the-money contract that fits the suggested-contract criteria above. The list can be short, or empty, on a poor day.</p>
     </div>
     <div id="picks-detail" class="picks-detail" hidden>
       <button type="button" id="picks-back" class="picks-back">&larr;&nbsp;All picks</button>
