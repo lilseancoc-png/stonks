@@ -802,17 +802,19 @@ export function ensureTickerCoverage(narratives, allSymbols) {
 const STRIKE_BAND = 0.50;
 // Each added expiration costs one extra Yahoo call per ticker (with the
 // inter-expiration politeness pause below), so this directly drives the
-// chain-fetch wall clock. 10 keeps the near-dated weeklies plus the front 1-2
-// standard monthlies (~46 DTE for the most liquid, weekly-heavy names; further
-// out for monthly-only names) — comfortably covering the picks engine's ideal
-// 30-60 DTE window and never beyond its PICKS_MAX_DTE=60 cap, so Top
-// Picks / autoPick are unaffected. The far-dated tail beyond slot 10 is dropped
-// from the baked IV term-structure chart + expiration dropdown, but the Grade
-// tab still live-fetches any specific expiration via /api/chain on demand.
-// (Was 15 — the extra ~5 expirations/ticker added ~1.5 min of wall clock for a
-// LEAPS tail almost nothing in the UI consumed.) Less-liquid names asymptote at
+// chain-fetch wall clock. 14 keeps the near-dated weeklies plus the front 2-3
+// standard monthlies (~75-90 DTE for the most liquid, weekly-heavy names;
+// further out for monthly-only names) — covering the picks engine's
+// longer-dated ideal 45-75 DTE window and its PICKS_MAX_DTE=90 cap (the
+// 2026-07-10 hold-longer rework: picks are 1-3 month holds now, and a 10-slot
+// fetch topped weekly-heavy names out around ~46 DTE, silently truncating the
+// new window). The far-dated tail beyond slot 14 is dropped from the baked IV
+// term-structure chart + expiration dropdown, but the Grade tab still
+// live-fetches any specific expiration via /api/chain on demand.
+// (Was 15, then 10 — the LEAPS tail beyond the picks window costs ~18s of wall
+// clock per 5 slots with nothing consuming it.) Less-liquid names asymptote at
 // whatever Yahoo returns (the .slice() handles it).
-const MAX_EXPIRATIONS = 10;
+const MAX_EXPIRATIONS = 14;
 // Yahoo intermittently 401s GitHub Actions runners ("Host not in allowlist")
 // or rate-limits after a burst. Retry transient failures, but bail on the
 // existing site if too many tickers fail — better to serve yesterday's data
@@ -9046,11 +9048,16 @@ const PICKS_EDGE_GATE_MIN_N = Number(process.env.PICKS_EDGE_GATE_MIN_N ?? 12); /
 const PICKS_PILLAR_CLAMP = 5;                 // no single pillar dominates
 const PICKS_TRAJECTORY_CLAMP = 2;             // forward-trajectory nudge into the fundamentals pillar (blend, don't dominate)
 
-// ---- Contract selection (near-the-money, short-dated) ----------------------
-const PICKS_MIN_DTE = 14;
-const PICKS_MAX_DTE = 60;
-const PICKS_IDEAL_DTE_LO = 21;
-const PICKS_IDEAL_DTE_HI = 45;
+// ---- Contract selection (near-the-money, 1-3 month runway) -----------------
+// 2026-07-10: the window moved out (was 14-60, ideal 21-45) — picks are
+// buy-and-hold-while-the-thesis-holds trades now (no time stop), and a 2-week
+// contract turns a thesis trade into a theta race. 30 DTE minimum keeps early
+// decay slow; the 45-75 ideal buys the thesis 1.5-2.5 months to play out.
+// MAX_EXPIRATIONS must keep covering PICKS_MAX_DTE for weekly-heavy chains.
+const PICKS_MIN_DTE = 30;
+const PICKS_MAX_DTE = 90;
+const PICKS_IDEAL_DTE_LO = 45;
+const PICKS_IDEAL_DTE_HI = 75;
 const PICKS_DELTA_MIN = 0.45;
 const PICKS_DELTA_MAX = 0.65;
 const PICKS_DELTA_IDEAL = 0.55;
@@ -9174,9 +9181,9 @@ const PICKS_DISPLAY_ACCOUNT = Number(process.env.PICKS_DISPLAY_ACCOUNT ?? 25000)
 const PICKS_SIZE_FULL_ROSTER_N = 5;            // ramp gross to full at 5 names
 const PICKS_SIZE_TILT_MIN = 0.6, PICKS_SIZE_TILT_MAX = 1.4;
 // A pick whose entry signal is still a wait/dip trigger (entry.now === false)
-// sizes down: with enrollment no longer gated on buy-now (every actionable pick
-// enrolls, cohort-tagged), entry quality is expressed in SIZE instead of
-// membership — enter smaller when the entry isn't confirmed yet.
+// sizes down. Since the 2026-07-10 entry gate an actionable pick is ALWAYS
+// entry-confirmed (a wait-entry name demotes to the watch group), so this
+// haircut now only shapes the display sizing of contract-bearing WATCH ideas.
 const PICKS_ENTRY_WAIT_SIZE_MULT = Number(process.env.PICKS_ENTRY_WAIT_SIZE_MULT ?? 0.75);
 
 // ---- One simple market regime (SPY trend + VIX) ----------------------------
@@ -9415,7 +9422,12 @@ const PICKS_ACCURACY_MAX_CLOSED = 250;
 // (cohort-tagged go/wait; the buy-now hard gate starved the record to 7 opens
 // in 3 days) while "actionable" itself tightened (direction-confluence + a
 // required AI final grade) — reset so the scorecard reflects one regime.
-const PICKS_ACCURACY_RESET_EPOCH = "2026-07-10";
+// 2026-07-10.2 (same day, owner directive): "actionable" now ALSO requires a
+// confirmed buy-now entry (wait/dip-trigger names demote to watch), the entry
+// top-guard hard-vetoes extended/overbought chases, and the contract window
+// moved out to 30-90 DTE — a materially different trade set, so the few
+// same-day wait-entry enrollments are wiped rather than blended in.
+const PICKS_ACCURACY_RESET_EPOCH = "2026-07-10.2";
 // Hard cap on the concurrently-tracked open book. Each build ships <=10
 // actionable picks, but re-entry suppression means every build surfaces NEW
 // names while the previously-enrolled ones stay open until an exit rule fires —
@@ -11072,7 +11084,9 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
   const chains = data?.chains;
   if (!spot || spot <= 0 || !chains) return null;
   const requireClean = !!opts.requireClean;
-  const minDte = requireClean ? 21 : PICKS_MIN_DTE;
+  // One DTE floor for both modes now that the base window starts at 30 (the old
+  // roster-only 21-day floor existed because the lenient/autoPick minimum was 14).
+  const minDte = PICKS_MIN_DTE;
   const minOi = requireClean ? PICKS_MIN_OI : 50;
   const maxSpread = requireClean ? 0.10 : PICKS_MAX_SPREAD_PCT;
   const premCap = Math.max(PICKS_MAX_PREMIUM_ABS, spot * PICKS_MAX_PREMIUM_PCT);
@@ -11462,11 +11476,11 @@ export function pickVerticalForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
 function buildPickContract(side, data, rfr, strategy) {
   const want = strategy?.type || "long";
   const tryLong = () => pickContractForPick(side, data, rfr, { requireClean: true });
-  // Roster verticals hold the same 21-DTE floor as the requireClean naked long —
+  // Roster verticals hold the same DTE floor as the requireClean naked long —
   // otherwise the long→debit fallback RELAXED the bar (a name whose long failed
-  // the clean screen shipped instead as a 14-20 DTE spread).
-  const tryDebit = () => pickVerticalForPick(side, data, rfr, { type: "debit", minDte: 21 });
-  const tryCredit = () => pickVerticalForPick(side, data, rfr, { type: "credit", minDte: 21 });
+  // the clean screen shipped instead as a shorter-dated spread).
+  const tryDebit = () => pickVerticalForPick(side, data, rfr, { type: "debit", minDte: PICKS_MIN_DTE });
+  const tryCredit = () => pickVerticalForPick(side, data, rfr, { type: "credit", minDte: PICKS_MIN_DTE });
   let contract = null, used = want;
   if (want === "credit") { contract = tryCredit(); if (!contract) { contract = tryDebit(); used = "debit"; } if (!contract) { contract = tryLong(); used = "long"; } }
   else if (want === "debit") { contract = tryDebit(); if (!contract) { contract = tryLong(); used = "long"; } }
@@ -11610,24 +11624,36 @@ function buildEntryPlan(side, spot, data, contract, total) {
 // user WHEN to open it. The decision is MULTI-FACTOR — it weighs the whole
 // setup instead of only handing out a pullback price:
 //   1. Hard vetoes first: an imminent earnings/macro event is never a buy (no
-//      price fixes an IV crush), and an `avoid` timing state (knife/chase)
-//      never reads buy-now — it falls through to a trigger price.
-//   2. A confirmed GO from the timing gate stays a buy-now (unchanged).
-//   3. Below its own 20D trend (the "why is a down name a call?" case) it
-//      still waits for the reclaim — buying short-dated premium against the
-//      trend is the one thing no amount of other confirmation should override.
-//   4. Otherwise a weighted ENTRY-READINESS checklist decides: momentum
+//      price fixes an IV crush); an `avoid` timing state (knife/chase) never
+//      reads buy-now — it falls through to a trigger price; and the TOP-GUARD
+//      (below) means a stretched or momentum-exhausted name never reads
+//      buy-now either, however confirmed the rest of the setup.
+//   2. TOP-GUARD — never buy the top (or short the hole): price stretched
+//      more than PICKS_ENTRY_EXTENDED_DIST% past the 20D in the trade's
+//      direction, or RSI already at the chase extreme
+//      (PICKS_TIMING_CHASE_RSI), always queues behind a pullback toward the
+//      20D. This is a hard veto, checked BEFORE the timing gate's `go` (whose
+//      volume-confirm path can bless a moderately extended name) and immune
+//      to the readiness checklist (which previously let a heavily-confirmed
+//      breakout override the extension penalty). Actionable membership
+//      requires entry.now, so this is what keeps "buy it now" from ever
+//      meaning "chase it".
+//   3. A confirmed GO from the timing gate is a buy-now.
+//   4. Below its own 20D trend (the "why is a down name a call?" case) it
+//      still waits for the reclaim — buying long premium against the trend
+//      bleeds theta while the "turn" fails to come.
+//   5. Otherwise a weighted ENTRY-READINESS checklist decides: momentum
 //      alignment (MACD + RSI, the heavy factor), the right side of the 20D
 //      trend, a healthy pullback location, confirming volume, a 3-day thrust
 //      in the trade's direction, the 20D/50D stack, and strong-tier
-//      conviction — minus penalties for an extended stretch past the 20D and
-//      a tape that fights the trade. Clearing PICKS_ENTRY_READY_BAR = buy
-//      now, so a steadily-trending, multi-confirmed name no longer idles
-//      behind a dip trigger that may never fill.
-//   5. Below the bar the specific trigger prices stand: extended -> wait for
-//      a pullback toward the 20D; near the trend -> buy a minor dip toward
-//      support. The checklist ships on every scored entry (`checks` +
-//      `readiness`) so the card can show WHY, whichever way it went.
+//      conviction — minus a penalty for a tape that fights the trade.
+//      Clearing PICKS_ENTRY_READY_BAR = buy now, so a steadily-trending,
+//      multi-confirmed name no longer idles behind a dip trigger that may
+//      never fill.
+//   6. Below the bar the specific trigger prices stand: near the trend ->
+//      buy a minor dip toward support. The checklist ships on every scored
+//      entry (`checks` + `readiness`) so the card can show WHY, whichever
+//      way it went.
 // Mirrors for puts. Confirmed-bars only (same no-look-ahead rule as the gate).
 export function computeEntrySignal(side, spot, data, timing, opts = {}) {
   const isCall = side === "call";
@@ -11642,8 +11668,24 @@ export function computeEntrySignal(side, spot, data, timing, opts = {}) {
   const state = timing?.state || null;
   const fmt = (x) => "$" + r2(x);
   if (!(spot > 0)) return { now: false, signal: "wait", trigger: null, zone: null, basis: "no price", headline: "Wait for a cleaner setup" };
+  const dir = isCall ? 1 : -1;
+  const beyond = sma20 > 0 ? (spot / sma20 - 1) * dir : null;  // + = price already on the trade's side of the SMA
+  const rsi = pnum(t.rsi);
+  // TOP-GUARD (hard veto — don't buy the top / short the hole): stretched past
+  // the 20D in the trade's direction, or RSI at the chase extreme, is NEVER a
+  // buy-now — not on a `go` timing state, not on a maxed readiness checklist.
+  // The trade queues behind a mean-reversion toward the 20D instead.
+  const extended = beyond != null && beyond * 100 > PICKS_ENTRY_EXTENDED_DIST;
+  const rsiExtreme = rsi != null && (isCall ? rsi >= PICKS_TIMING_CHASE_RSI : rsi <= 100 - PICKS_TIMING_CHASE_RSI);
+  if (extended || rsiExtreme) {
+    const trig = sma20 > 0 ? r2(sma20) : r2(spot * (1 - dir * 0.03));
+    const why = extended
+      ? `Extended ${r1(beyond * 100)}% past the 20D — don't buy the top; wait for a pullback toward ~${fmt(trig)}`
+      : `RSI ${r1(rsi)} is ${isCall ? "overbought" : "oversold"} — don't chase; wait for a reset toward ~${fmt(trig)}`;
+    return { now: false, signal: "wait-pullback", trigger: trig, zone: [r2(Math.min(trig, spot)), r2(Math.max(trig, spot * (1 - dir * 0.02)))], basis: "top-guard", headline: why };
+  }
   // Clean, confirmed entry -> buy now (the gate already weighed momentum +
-  // location + volume against the tape).
+  // location + volume against the tape; the top-guard above already cleared).
   if (state === "go") {
     return { now: true, signal: "buy-now", trigger: r2(spot), zone: [r2(spot * (1 - buf)), r2(spot * (1 + buf / 2))], basis: "confirmed entry", headline: `Buy now — clean entry near ${fmt(spot)}` };
   }
@@ -11651,8 +11693,6 @@ export function computeEntrySignal(side, spot, data, timing, opts = {}) {
   if (state === "wait" && (timing.deferKind === "earnings" || timing.deferKind === "event")) {
     return { now: false, signal: "wait-event", trigger: null, zone: null, basis: timing.deferKind, headline: `Hold off — ${timing.deferKind === "earnings" ? "earnings imminent" : "macro event imminent"}; re-assess after it clears` };
   }
-  const dir = isCall ? 1 : -1;
-  const beyond = sma20 > 0 ? (spot / sma20 - 1) * dir : null;  // + = price already on the trade's side of the SMA
   // Wrong side of the 20D trend -> wait for the reclaim, always. This stays a
   // hard gate (not a scored factor): short-dated premium bought into a drift
   // bleeds theta while the "turn" fails to come.
@@ -11664,7 +11704,6 @@ export function computeEntrySignal(side, spot, data, timing, opts = {}) {
   // ---- Multi-factor entry readiness ----------------------------------------
   // Confirmed technicals only; each factor is independent evidence the move is
   // live NOW. Weighted sum vs PICKS_ENTRY_READY_BAR.
-  const rsi = pnum(t.rsi);
   const macdHist = pnum(t.macd?.hist);
   const rvol = pnum(t.volume?.rvol);
   let ret3 = null;                                    // 3-day thrust off CONFIRMED closes
@@ -11679,7 +11718,6 @@ export function computeEntrySignal(side, spot, data, timing, opts = {}) {
   const thrust = ret3 != null && ret3 >= 1;
   const stackAligned = sma20 > 0 && sma50 > 0 && (isCall ? sma20 > sma50 : sma20 < sma50);
   const strongConviction = pnum(opts.total) != null && Math.abs(opts.total) >= PICKS_TIER_STRONG;
-  const extended = beyond != null && beyond * 100 > PICKS_ENTRY_EXTENDED_DIST;
   const fightsTape = !!timing?.fightsTape;
   const checks = [];
   let ready = 0;
@@ -11692,6 +11730,8 @@ export function computeEntrySignal(side, spot, data, timing, opts = {}) {
   factor("stack", "SMA stack", "20D/50D SMA stack aligned with the trade", 1, stackAligned, sma20 > 0 && sma50 > 0 ? `${fmt(sma20)} vs ${fmt(sma50)}` : null);
   factor("conviction", "conviction", `Strong-tier conviction (|grade| ≥ ${PICKS_TIER_STRONG})`, 1, strongConviction, pnum(opts.total) != null ? String(opts.total) : null);
   // Penalties — evidence AGAINST paying up right here (pass = clear of it).
+  // (The extension check is shown for transparency but can never be hit here —
+  // the TOP-GUARD above already hard-vetoed any extended name to wait-pullback.)
   const penalty = (key, short, label, pts, hit, value) => { checks.push({ key, short, label, points: hit ? -pts : 0, max: -pts, pass: !hit, value: value ?? null }); if (hit) ready -= pts; };
   penalty("extended", "extended", `Extended > ${PICKS_ENTRY_EXTENDED_DIST}% past the 20D (chase risk)`, 2, extended, beyond != null ? `${r1(beyond * 100)}% vs 20D` : null);
   penalty("tape", "tape", "Broad tape fights the trade", 2, fightsTape, null);
@@ -11701,11 +11741,6 @@ export function computeEntrySignal(side, spot, data, timing, opts = {}) {
   if (state !== "avoid" && ready >= PICKS_ENTRY_READY_BAR) {
     const why = checks.filter((c) => c.pass && c.max > 0).map((c) => c.short).slice(0, 3).join(" + ");
     return { now: true, signal: "buy-now", trigger: r2(spot), zone: [r2(spot * (1 - buf)), r2(spot * (1 + buf / 2))], basis: "multi-factor readiness", headline: `Buy now — ${why || "entry factors"} confirm near ${fmt(spot)}`, checks, readiness };
-  }
-  // Extended past the 20D without enough confirmation -> wait for the pullback.
-  if (extended) {
-    const trig = r2(sma20);
-    return { now: false, signal: "wait-pullback", trigger: trig, zone: [r2(sma20), r2(spot * (1 - dir * 0.02))], basis: "pullback to 20D SMA", headline: `Extended — wait for a pullback toward the 20D SMA (~${fmt(trig)})`, checks, readiness };
   }
   // Near the trend / no clean trigger -> buy a minor dip toward support.
   const supp = isCall ? pnum(sr.s20) : pnum(sr.r20);
@@ -11829,7 +11864,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const edgeGate = opts.priorClosed ? edgeGatedConviction(opts.priorClosed) : { bar: PICKS_MIN_CONVICTION, edge: null, n: 0 };
   const minConv = edgeGate.bar;
 
-  const meta = { tradeCut: minConv, strongCut: PICKS_TIER_STRONG, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], confluenceDemoted: [], aiUngraded: [], reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
+  const meta = { tradeCut: minConv, strongCut: PICKS_TIER_STRONG, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], confluenceDemoted: [], aiUngraded: [], entryDemoted: [], reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
 
   // Candidate set: actionable grade, OR a tactical put in a confirmed risk-off tape.
   const candidates = [];
@@ -11888,9 +11923,18 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // The AI grade is authoritative when present; the deterministic rubric is the
     // keyless/offline fallback (and still computed for the card's checklist + score).
     const thesisQuality = applyAiThesisGrade(assessThesisQuality(r, side, marketRead, works), aiThesis);
-    const { classification, group, demotion } = classifyPick(r.total, thesisQuality.tier, tactical, { pillarsAligned: thesisQuality.pillarsAligned, aiGraded: thesisQuality.aiGraded, aiActive });
+    // ENTRY GATE: the actionable group is the "open the broker and buy it now"
+    // list, so membership requires a confirmed buy-now entry signal. Computed
+    // here (pure — same call buildPickObject used to make) and threaded through
+    // `pre` so the card and the gate can never disagree. A wait/dip/event
+    // trigger demotes the name to the watch queue with its trigger price shown;
+    // the hourly bake re-evaluates, so it promotes itself the build the entry
+    // confirms — no human judgment call in between.
+    const entry = computeEntrySignal(side, pnum(r.data.spot), r.data, r.timing, { total: r.total });
+    const { classification, group, demotion } = classifyPick(r.total, thesisQuality.tier, tactical, { pillarsAligned: thesisQuality.pillarsAligned, aiGraded: thesisQuality.aiGraded, aiActive, entryConfirmed: entry.now === true });
     if (demotion === "confluence") meta.confluenceDemoted.push(r.sym);
     else if (demotion === "ai-ungraded") meta.aiUngraded.push(r.sym);
+    else if (demotion === "entry-wait") meta.entryDemoted.push(r.sym);
     // GROUP FULL: skip before the strategy/contract stage so a surplus name
     // neither consumes exposure caps nor blocks the other group from filling.
     if (group === "actionable" ? actN >= PICKS_COUNT : watchN >= PICKS_WATCH_COUNT) continue;
@@ -11933,7 +11977,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       entryPlan = buildEntryPlan(side, spot, r.data, contract, r.total);
     }
     const pg = peerGroupOf(r.sym, r.data);
-    picks.push(buildPickObject(r, side, contract, exitPlan, entryPlan, peerIndex[pg], pg, tactical, stratFinal, macroRegime, { marketRead, works, thesisQuality, classification, group, aiThesis }));
+    picks.push(buildPickObject(r, side, contract, exitPlan, entryPlan, peerIndex[pg], pg, tactical, stratFinal, macroRegime, { marketRead, works, thesisQuality, classification, group, aiThesis, entry }));
     if (group === "actionable") actN++; else watchN++;
   }
 
@@ -11981,7 +12025,9 @@ function buildPickObject(r, side, contract, exitPlan, entryPlan, peers, peerGrou
   const thesis = buildThesis(r, side, contract, tactical);
   const thesisCard = buildThesisCard(r, side, contract, tactical, exitPlan, strategy, macroRegime, pre);
   const rec = tactical ? { tier: "put", label: "Tactical Put", conviction: "Tactical (tape)" } : r.recommendation;
-  const entry = computeEntrySignal(side, spot, r.data, r.timing, { total: r.total });
+  // Reuse the entry signal the roster gate computed (identical pure call) so the
+  // card can never disagree with the actionable/watch decision it drove.
+  const entry = (pre && pre.entry) || computeEntrySignal(side, spot, r.data, r.timing, { total: r.total });
   if (entryPlan && !entryPlan.summary) entryPlan.summary = entry.headline;
   // The FINAL GRADE the browser shows — the AI grader's tier + 0–100 score (or the
   // deterministic fallback when no AI grade). `source` flags which produced it.
@@ -12604,8 +12650,17 @@ export function applyAiThesisGrade(detQuality, aiThesis) {
 //     PICKS_MAX_AI_THESES cut) demotes to watch instead of shipping as an
 //     ungraded "actionable". Keyless/offline builds (aiActive false) keep the
 //     deterministic-tier fallback so the site never blanks.
+//   * entryConfirmed === false → demote (2026-07-10, owner directive) — an
+//     actionable pick must be buyable RIGHT NOW. "Actionable" is the product's
+//     no-thinking-required promise: open the broker, buy the shown contract.
+//     A name whose entry signal is still a wait/dip/event trigger — however
+//     strong the grade and thesis — is a "wait for entry" WATCH idea until
+//     the trigger fills or a later (hourly) build confirms the entry. Only an
+//     explicit false demotes; legacy/keyless callers that omit the gate keep
+//     the old behavior.
 // `demotion` names which gate demoted an otherwise-actionable pick
-// (null | "confluence" | "ai-ungraded") for rosterMeta instrumentation.
+// (null | "confluence" | "ai-ungraded" | "entry-wait") for rosterMeta
+// instrumentation.
 export function classifyPick(total, thesisTier, tactical, gates = null) {
   // A tactical put is a tape-driven DEFENSIVE idea (it ships below the grade bar on
   // a confirmed risk-off tape) — always a watch idea, never "no strategy".
@@ -12618,6 +12673,9 @@ export function classifyPick(total, thesisTier, tactical, gates = null) {
     }
     if (gates && gates.aiActive && !gates.aiGraded) {
       return { classification: "moderate", group: "watch", demotion: "ai-ungraded" };
+    }
+    if (gates && gates.entryConfirmed === false) {
+      return { classification: "waitEntry", group: "watch", demotion: "entry-wait" };
     }
     return { classification: "actionable", group: "actionable", demotion: null };
   }

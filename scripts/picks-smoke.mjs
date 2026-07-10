@@ -126,7 +126,7 @@ ok("timing: earnings in 3d -> wait", computeEntryTiming("call", earnSoon, 100, {
 const ctr = pickContractForPick("call", chains.BULLA, 0.045, { requireClean: true });
 ok("contract: found a clean call", !!ctr);
 ok("contract: near-the-money delta 0.45-0.65", ctr && Math.abs(ctr.delta) >= 0.45 && Math.abs(ctr.delta) <= 0.65);
-ok("contract: DTE within band", ctr && ctr.dte >= 14 && ctr.dte <= 60);
+ok("contract: DTE within band (30-90, the 2026-07-10 hold-longer window)", ctr && ctr.dte >= 30 && ctr.dte <= 90);
 ok("contract: shape fields present", ctr && ctr.strike != null && ctr.expiryLabel && ctr.mid != null && ctr.breakeven != null && ctr.contractQuality && ctr.contractQuality.overall);
 ok("contract: pop computed", ctr && ctr.pop != null && ctr.pop >= 0 && ctr.pop <= 1);
 
@@ -145,7 +145,12 @@ ok("picks: exitPlan TP carries an option (contract) target price", picks.every((
 ok("picks: exitPlan optionStop summary present", picks.every((p) => p.exitPlan.optionStop && p.exitPlan.optionStop.price > 0 && p.exitPlan.optionStop.pct > 0));
 // entry guidance: every pick has a buy-now / wait-for-price signal
 ok("picks: every pick has an entry signal w/ headline", picks.every((p) => p.entry && typeof p.entry.now === "boolean" && p.entry.headline));
-ok("picks: a clean-timing (go) pick reads buy-now", picks.filter((p) => p.entryTiming.state === "go").every((p) => p.entry.now === true && p.entry.signal === "buy-now"));
+// A go-timed pick reads buy-now UNLESS the top-guard vetoed it (extended /
+// RSI-extreme — the volume-confirm go path can bless a stretched name).
+ok("picks: a clean-timing (go) pick reads buy-now (top-guard permitting)", picks.filter((p) => p.entryTiming.state === "go").every((p) => (p.entry.now === true && p.entry.signal === "buy-now") || p.entry.basis === "top-guard"));
+// THE ENTRY GATE (2026-07-10): actionable means "buy it right now" — every
+// actionable pick carries a confirmed buy-now entry; wait-entry names demote.
+ok("picks: every ACTIONABLE pick is a confirmed buy-now (entry gate)", picks.every((p) => p.group === "actionable" ? (p.entry.now === true && p.entry.signal === "buy-now") : true));
 // a below-trend call (spot under the 20D SMA) should wait for a reclaim, not buy now
 const belowTrend = mkTicker({ spot: 100, technicals: { rsi: 52, rsi5d: 50, macd: { hist: 0.1, line: 0.2, signal: 0.1 }, volume: { rvol: 1.0, priceMove1dPct: -0.5 }, sr: { s20: 95, r20: 108 }, sma: { sma20: 106, sma50: 104, sma100: 100 }, chartPattern: null, volRegime: { rv30Pctile: 45 } } });
 const bg = buildGradesIndex({ X: belowTrend }, [], null, null, null, null, {});
@@ -181,9 +186,9 @@ const stretched = mkTicker({ spot: 100, technicals: {
   _bars: mkBars(100, 40, 0.002) });                                  // soft drift: no 3-day thrust
 const stretchedEntry = computeEntrySignal("call", 100, stretched, computeEntryTiming("call", stretched, 100, {}), { total: 5 });
 ok("entry: extended w/o confirmation still waits for the pullback", stretchedEntry.now === false && stretchedEntry.signal === "wait-pullback" && stretchedEntry.trigger === 94.3);
-// Extended but HEAVILY confirmed (momentum + thrust + stack + strong-tier
-// conviction) overcomes the extension penalty — a confirmed breakout is not
-// forced to wait for a pullback that may never come.
+// Extended past the 20D is a HARD top-guard veto (2026-07-10): even a heavily
+// confirmed breakout (momentum + thrust + stack + strong-tier conviction) never
+// reads buy-now — don't buy the top; it queues behind the pullback trigger.
 const breakout = mkTicker({ spot: 100, technicals: {
   rsi: 66, rsi5d: 62, macd: { hist: 0.6, line: 1.2, signal: 0.6 },
   volume: { rvol: 1.2, priceMove1dPct: 1.0 },                       // below the go-gate's 1.3 rvol bar
@@ -192,7 +197,17 @@ const breakout = mkTicker({ spot: 100, technicals: {
   _bars: mkBars(100, 40, 0.006) });
 const breakoutTiming = computeEntryTiming("call", breakout, 100, {});
 const breakoutEntry = computeEntrySignal("call", 100, breakout, breakoutTiming, { total: 8 });
-ok("entry: extended but heavily confirmed breakout -> buy-now", breakoutTiming.state === "wait" && breakoutEntry.now === true && breakoutEntry.signal === "buy-now");
+ok("entry: extended breakout is top-guarded -> wait-pullback (never buy the top)", breakoutTiming.state === "wait" && breakoutEntry.now === false && breakoutEntry.signal === "wait-pullback" && breakoutEntry.basis === "top-guard" && breakoutEntry.trigger === 94.3);
+// RSI at the chase extreme is the same hard veto — even a `go` timing state
+// (healthy pullback + momentum) never buys an overbought name.
+const hotRsi = mkTicker({ spot: 100, technicals: {
+  rsi: 74, rsi5d: 70, macd: { hist: 0.6, line: 1.2, signal: 0.6 },
+  volume: { rvol: 1.5, priceMove1dPct: 0.8 },
+  sr: { s20: 93, r20: 110 }, sma: { sma20: 99.5, sma50: 95, sma100: 90 },  // +0.5% vs 20D: NOT extended
+  chartPattern: null, volRegime: { rv30Pctile: 45 } } });
+const hotTiming = computeEntryTiming("call", hotRsi, 100, {});
+const hotEntry = computeEntrySignal("call", 100, hotRsi, hotTiming, { total: 8 });
+ok("entry: RSI-extreme (74) top-guards even a go state -> never buy-now", hotTiming.state === "go" && hotEntry.now === false && hotEntry.signal === "wait-pullback" && hotEntry.basis === "top-guard");
 // Hard vetoes survive the checklist: an avoid (knife) state and an imminent
 // earnings print never read buy-now, whatever the factors say.
 const knifeEntry = computeEntrySignal("call", 50, chains.KNIFE, computeEntryTiming("call", chains.KNIFE, 50, {}), { total: 8 });
@@ -380,7 +395,7 @@ ok("thesis: works + invalidators present", picks.every((p) => Array.isArray(p.th
 ok("thesis: thesisQuality {score,tier,checklist} present", picks.every((p) => { const q = p.thesisCard.thesisQuality; return q && typeof q.score === "number" && ["strong", "moderate", "weak"].includes(q.tier) && Array.isArray(q.checklist) && q.checklist.length === 5; }));
 ok("thesis: edge {hasEdge,text} present", picks.every((p) => p.thesisCard.edge && typeof p.thesisCard.edge.hasEdge === "boolean" && !!p.thesisCard.edge.text));
 ok("thesis: companyDrivers + confirmation arrays present", picks.every((p) => Array.isArray(p.thesisCard.companyDrivers) && Array.isArray(p.thesisCard.confirmation)));
-ok("thesis: classification + group surfaced on the pick", picks.every((p) => ["actionable", "moderate", "highGradeWeakThesis", "idea"].includes(p.classification) && ["actionable", "watch"].includes(p.group)));
+ok("thesis: classification + group surfaced on the pick", picks.every((p) => ["actionable", "waitEntry", "moderate", "highGradeWeakThesis", "idea"].includes(p.classification) && ["actionable", "watch"].includes(p.group)));
 ok("thesis: hasSolidThesis === (tier strong)", picks.every((p) => p.thesisCard.hasSolidThesis === (p.thesisCard.thesisQuality.tier === "strong")));
 // the grade × thesis MATRIX invariants must hold for every shipped pick
 ok("matrix: actionable ⇔ strong grade + strong thesis + a contract", picks.every((p) => p.group === "actionable" ? (Math.abs(p.total) >= PICKS_TIER_STRONG && p.thesisCard.thesisQuality.tier === "strong" && !!p.contract && p.strategy.type !== "none") : true));
@@ -422,6 +437,31 @@ ok("classify: moderate grade + weak thesis → idea / watch", classifyPick(5, "w
   ok("classify: keyless build keeps the deterministic actionable", keyless.group === "actionable" && keyless.demotion === null);
   const graded = classifyPick(8, "strong", false, { pillarsAligned: 2, aiGraded: true, aiActive: true });
   ok("classify: AI-graded multi-pillar strong stays actionable", graded.group === "actionable");
+  // The entry gate (2026-07-10): an unconfirmed entry demotes a strong+strong
+  // name to the "wait for entry" watch tier; a confirmed one stays actionable;
+  // legacy callers that omit the field keep the old behavior.
+  const waitE = classifyPick(8, "strong", false, { pillarsAligned: 3, aiGraded: true, aiActive: true, entryConfirmed: false });
+  ok("classify: entry unconfirmed → waitEntry / watch (entry-wait demotion)", waitE.group === "watch" && waitE.classification === "waitEntry" && waitE.demotion === "entry-wait");
+  const buyE = classifyPick(8, "strong", false, { pillarsAligned: 3, aiGraded: true, aiActive: true, entryConfirmed: true });
+  ok("classify: entry confirmed → actionable", buyE.group === "actionable" && buyE.demotion === null);
+}
+
+// --- 12b2. entry gate through the full roster build --------------------------
+// A strong-graded name whose price is stretched past the 20D (top-guard →
+// wait-pullback entry) must never ship in the ACTIONABLE group, whatever its
+// grade/thesis — it lands in watch (and, when it was strong+strong, is
+// instrumented in rosterMeta.entryDemoted).
+{
+  const extended = mkTicker({ spot: 100, technicals: {
+    rsi: 62, rsi5d: 60, macd: { hist: 0.5, line: 1.1, signal: 0.6 },
+    volume: { rvol: 1.5, priceMove1dPct: 1.0 },
+    sr: { s20: 92, r20: 110 }, sma: { sma20: 94, sma50: 90, sma100: 86 },  // +6.4% past the 20D
+    chartPattern: { pattern: "Bull Flag", stage: "confirmed" }, volRegime: { rv30Pctile: 45 } } });
+  const out = buildTopPicks({ EXTD: extended }, [], null, null, null, null, 0.045, {});
+  const p = out.find((x) => x.symbol === "EXTD");
+  ok("entry gate: an extended (top-guarded) name reads wait, never buy-now", !p || (p.entry.now === false && p.entry.basis === "top-guard"));
+  ok("entry gate: an extended name never ships actionable", !p || p.group !== "actionable");
+  ok("entry gate: a demoted strong+strong pick is instrumented in entryDemoted", !p || p.classification !== "waitEntry" || out.rosterMeta.entryDemoted.includes("EXTD"));
 }
 
 // Vertical builder — needs a BS-priced chain (the linear mkChain mids give a flat

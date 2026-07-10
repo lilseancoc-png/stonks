@@ -113,34 +113,48 @@ thresholds tighten ~25%. An `avoid` name is gated out of the roster entirely.
 
 ### Entry signal (`computeEntrySignal`) — buy now vs a trigger price
 
-The per-pick **"✅ Buy now / ⏳ Wait $X"** call (and the track-record entry
-**cohort**, §9 — every actionable pick enrolls; the signal is recorded as
-`go`/`wait` and priced into size via `PICKS_ENTRY_WAIT_SIZE_MULT`, not used as
-an enrollment gate). The decision is **multi-factor** — it weighs the whole
-setup instead of only handing out a pullback price:
+The per-pick **"✅ Buy now / ⏳ Wait $X"** call — and, since 2026-07-10, the
+**third hard gate on the actionable group** (§9a): an actionable pick must
+read buy-now, so a wait/dip/event-triggered name demotes to the "wait for
+entry" watch tier until an (hourly) build confirms the entry. Every actionable
+pick still enrolls in the track record (§9); with the gate live, new
+enrollments are by construction all buy-now entries. The decision is
+**multi-factor** — it weighs the whole setup instead of only handing out a
+pullback price:
 
 1. **Hard vetoes:** an imminent earnings/macro event is never a buy
    (`wait-event` — no price fixes an IV crush); an `avoid` timing state never
    reads buy-now; and a name on the **wrong side of its own 20D SMA** always
-   waits for the reclaim (`wait-reclaim`) — short-dated premium bought against
+   waits for the reclaim (`wait-reclaim`) — long premium bought against
    the trend bleeds theta while the "turn" fails to come.
-2. A confirmed **`go`** from the timing gate is a **buy-now** (unchanged).
-3. Otherwise a weighted **entry-readiness checklist** decides: momentum
+2. **The TOP-GUARD (2026-07-10 — never buy the top / short the hole):** price
+   stretched more than `PICKS_ENTRY_EXTENDED_DIST` (4%) past the 20D in the
+   trade's direction, **or** RSI already at the chase extreme
+   (`PICKS_TIMING_CHASE_RSI`, 72 for a call / 28 for a put), is **never a
+   buy-now** — not on a `go` timing state (whose volume-confirm path can bless
+   a moderately extended name), not on a maxed readiness checklist (which
+   previously let a heavily-confirmed breakout override the extension
+   penalty). The trade queues behind a `wait-pullback` trigger toward the 20D
+   (`basis: "top-guard"`). Because actionable membership requires `entry.now`
+   (§9a gate 3), this is what keeps "buy it now" from ever meaning "chase it".
+3. A confirmed **`go`** from the timing gate is a **buy-now** (once the
+   top-guard clears).
+4. Otherwise a weighted **entry-readiness checklist** decides: momentum
    alignment (MACD + RSI on the trade's side, **+2** — the heavy factor), the
    right side of the 20D trend (+1), a healthy entry location within ±3% of
    the 20D (+1), confirming volume (rvol ≥ 1.3, +1), a ≥ +1% 3-day thrust with
    the trade off confirmed closes (+1), the 20D/50D SMA stack aligned (+1),
-   and strong-tier conviction (+1) — **minus** penalties for an extended
-   stretch > 4% past the 20D (−2) and a broad tape that fights the trade (−2).
-   Clearing `PICKS_ENTRY_READY_BAR` (default **4**, env-tunable) = **buy-now**:
-   a steadily-trending, multi-confirmed name no longer idles behind a dip
-   trigger that may never fill, and a heavily-confirmed breakout can overcome
-   the extension penalty instead of being forced to wait for a pullback.
-4. Below the bar the specific trigger prices stand: extended → `wait-pullback`
-   toward the 20D; near the trend → `buy-dip` toward the nearest support /
-   minor weakness. The checklist ships on every scored entry (`entry.checks` +
-   `entry.readiness = {score, bar}`) so the card can show *why*, whichever way
-   the call went.
+   and strong-tier conviction (+1) — **minus** a penalty for a broad tape that
+   fights the trade (−2). (The extension check still ships on the checklist
+   for card transparency, but the top-guard means it can never be the deciding
+   factor — an extended name never reaches the checklist.) Clearing
+   `PICKS_ENTRY_READY_BAR` (default **4**, env-tunable) = **buy-now**: a
+   steadily-trending, multi-confirmed name no longer idles behind a dip
+   trigger that may never fill.
+5. Below the bar the specific trigger prices stand: near the trend →
+   `buy-dip` toward the nearest support / minor weakness. The checklist ships
+   on every scored entry (`entry.checks` + `entry.readiness = {score, bar}`)
+   so the card can show *why*, whichever way the call went.
 
 **IV cost** (`computeIvCostContribution`, direction-agnostic): −2 when this name's
 own IV percentile is rich (≥80), +1 when cheap (≤20). Because it is direction-**agnostic**
@@ -236,8 +250,12 @@ fallback chip + tests, but the build no longer persists — it resets each bake.
 A single near-the-money long on the graded side. Hard filters, then a composite
 quality score picks the best survivor:
 
-- **DTE** 14–60 (roster: ≥21, for verticals too), ideal 21–45 — short-dated for
-  a ~1–2 week hold.
+- **DTE** 30–90, ideal 45–75 (one floor for roster, autoPick and vertical legs)
+  — moved out from 14–60 / ideal 21–45 on 2026-07-10: picks are
+  buy-and-hold-while-the-thesis-holds trades (no time stop, §8), and a 2-week
+  contract turns a thesis trade into a theta race. `MAX_EXPIRATIONS` in
+  `build.mjs` was raised 10 → 14 so weekly-heavy chains actually reach the
+  window (10 slots topped the most liquid names out around ~46 DTE).
 - **|Δ|** 0.45–0.65 (target 0.55) — near-the-money, so an 8% adverse move isn't a
   −70% wipeout. Vertical legs hold a ±0.15 band around their own targets.
 - **Spread** ≤ 12% (roster ≤ 10%), **OI** ≥ 100 (lenient/autoPick mode: 50),
@@ -406,15 +424,18 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
 - `updatePicksAccuracyFile` enrolls **every** shipped **actionable** pick
   (`group === "actionable"`; lower-conviction watch ideas and tactical-tape
   puts are excluded, so the scorecard reflects only the trades the engine
-  actually recommends). The entry signal is **recorded, not gated on**: each
-  enrolled entry freezes `cohort` (`go` = a clean buy-now from
-  `computeEntrySignal`, `wait` = a trigger-state entry), `entrySignal`, and the
-  readiness score, so the go-vs-wait A/B in `diagnose-pick-losses.mjs` can
-  adjudicate — on **resolved** trades — whether buy-now endorsement earns its
-  keep. (The 2026-07-07 buy-now **hard gate** was retired 2026-07-10: it scored
-  only clean-entry picks but starved the record — 7 enrollments in 3 days, zero
-  closes — while enforcing an untested belief; entry quality is now priced into
-  SIZE via `PICKS_ENTRY_WAIT_SIZE_MULT` instead of membership.) Enrollment is
+  actually recommends). Each enrolled entry still freezes `cohort` (`go` = a
+  clean buy-now from `computeEntrySignal`, `wait` = a trigger-state entry),
+  `entrySignal`, and the readiness score — but since the 2026-07-10 **entry
+  gate** (§9a gate 3) demotes any non-buy-now name out of the actionable group,
+  every NEW enrollment is by construction a `go`-cohort entry (the cohort field
+  stays recorded so the go-vs-wait A/B in `diagnose-pick-losses.mjs` can still
+  adjudicate the legacy mixed-cohort history on **resolved** trades).
+  (Gate history: the 2026-07-07 buy-now **enrollment** gate was retired
+  2026-07-10 — it starved the record while hiding the wait-entry names
+  entirely; the same-day entry gate on the actionable GROUP reinstates the
+  buy-now bar but keeps the waiting names visible as "wait for entry" watch
+  ideas that self-promote when their entry confirms.) Enrollment is
   dedup per `symbol:side`, **capped at
   `PICKS_MAX_OPEN_POSITIONS` (20) concurrently-open positions** — each build ships
   ≤10 picks, but re-entry suppression surfaces NEW names every build while the
@@ -559,7 +580,7 @@ in `classifyPick` to set `classification` + `group`:
 | **Moderate (4–6)** | `moderate` — **Moderate conviction**, strategy shown | `moderate` — watch idea, strategy | `idea` — grade-only, **no strategy** |
 
 `group = "actionable"` only for the top-left cell; everything else is `"watch"`.
-The actionable cell additionally has to clear **two hard gates** (2026-07-10 —
+The actionable cell additionally has to clear **three hard gates** (2026-07-10 —
 the actionable group IS the enrolled track record now, so its membership is held
 to the trades the engine truly stands behind):
 
@@ -576,6 +597,25 @@ to the trades the engine truly stands behind):
    (`rosterMeta.aiUngraded`) instead of shipping ungraded. Keyless/offline
    builds (and a total AI outage — an empty thesis map) keep the deterministic
    tier as the fallback grade, so the site never blanks.
+3. **A confirmed buy-now entry** (owner directive, 2026-07-10) — "actionable"
+   is the product's no-thinking-required promise: open the broker and buy the
+   shown contract *now*. `buildTopPicks` computes the entry signal (§3) before
+   classification and passes `entryConfirmed` into `classifyPick`; any
+   wait/dip/event trigger (`entry.now === false`) demotes the name to the
+   watch group as classification **`waitEntry`** ("Wait for entry" badge, its
+   trigger price on the card, counted in `rosterMeta.entryDemoted`). The
+   hourly bake re-evaluates, so the pick promotes itself to Actionable the
+   build its entry confirms — the user never has to babysit a trigger. This
+   deliberately means the actionable list can be **empty on many builds**
+   (everything strong is stretched, event-blocked, or waiting on a reclaim) —
+   that IS the signal: nothing is a buy right now, cash is the position.
+   Combined with the §3 top-guard, an actionable pick can never be an
+   extended/overbought chase. (History: a buy-now **enrollment** gate shipped
+   2026-07-07 and was retired 2026-07-10 for starving the record; this gate is
+   different — it moves wait-entry names to the visible watch queue instead of
+   silently not scoring them, and it exists because the actionable list's job
+   is "buy this now", not "here's a trade to think about". Expect a slower
+   record accumulation as the honest cost.)
 
 `buildTopPicks` partitions the roster into the two groups (capped at `PICKS_COUNT`
 / `PICKS_WATCH_COUNT`), and the Top Picks tab renders them as **Actionable top
@@ -606,7 +646,8 @@ All in the `// TOP PICKS ENGINE` constant block at the top of the engine:
 | `PICKS_EDGE_GATE_SOFT` / `_HARD` / `_MIN_N` | −8 / −15 / 12 | edge-governed bar: raise the actionable cut toward Strong when the realized option edge is this negative (after this many decided closes) |
 | `PICKS_COUNT` / `PICKS_WATCH_COUNT` | 10 / 6 | max Actionable / max Ideas·Watch roster size |
 | `PICKS_MAX_AI_THESES` | 14 | only the best N data-gate survivors (by conviction) get an AI thesis + final grade; the rest ship deterministic-only. 14 > `PICKS_COUNT` because actionable now REQUIRES an AI grade — the grader needs a bench beyond the 10 roster slots so rejects/weak grades don't leave slots unfillable |
-| `PICKS_ENTRY_WAIT_SIZE_MULT` | 0.75 | size haircut on a pick whose entry signal is still a wait/dip trigger (`entry.now === false`) — entry quality is priced into size, not enrollment |
+| `PICKS_ENTRY_WAIT_SIZE_MULT` | 0.75 | size haircut on a contract-bearing pick whose entry signal is still a wait/dip trigger (`entry.now === false`). Since the 2026-07-10 entry gate an actionable pick is always entry-confirmed, so this only shapes the display sizing of watch ideas |
+| `PICKS_ENTRY_EXTENDED_DIST` / `PICKS_TIMING_CHASE_RSI` | 4 / 72 | the §3 top-guard: stretched > 4% past the 20D in the trade's direction, or RSI ≥ 72 (≤ 28 for a put), is never a buy-now |
 | `PICKS_MAX_PER_SECTOR` | 3 | correlation cap |
 | `PICKS_MAX_PER_FACTOR` | 5 | tech/AI-complex correlation cap |
 | `PICKS_FACTOR_WEAK_SHARE` / `PICKS_FACTOR_WEAK_RET5` | 0.6 / −3 | factor-trend gate: suppress new calls in a rolling-over factor |
@@ -618,7 +659,7 @@ All in the `// TOP PICKS ENGINE` constant block at the top of the engine:
 | `PICKS_SPLIT_RATIOS` / `PICKS_SPLIT_TOL` | 1.5…20 / 0.04 | corporate-action guard: a mark-to-mark spot gap matching a standard split ratio (confirmed against the back-adjusted bars) rescales the frozen entry basis instead of marking a phantom ±100% (`detectSplitFactor`/`applySplitToEntry`; the entry records `corpActions`) |
 | `PICKS_DROPPED_MIN_MISSES` | 3 | consecutive builds a ticker must be missing from the chains before an open position resolves `dropped` (a single Yahoo flake carries the last mark forward instead); a drop with no mark at all resolves `void` — excluded from win/loss stats |
 | `PICKS_DELTA_MIN/MAX/IDEAL` | 0.45 / 0.65 / 0.55 | contract moneyness |
-| `PICKS_MIN_DTE` / `PICKS_MAX_DTE` | 14 / 60 | contract clock |
+| `PICKS_MIN_DTE` / `PICKS_MAX_DTE` | 30 / 90 | contract clock (ideal 45–75 — the 2026-07-10 hold-longer window) |
 | `PICKS_STRATEGY_AUTO` | on | structure auto-select (off = always naked long) |
 | `PICKS_IV_CREDIT_Z_ELEVATED` / `PICKS_IV_CREDIT_PCTILE` | 1.5 / 60 | **elevated** IV → credit (broadened band: z≥1.5σ OR ≥60th pctile) |
 | `PICKS_IV_CREDIT_Z` / `PICKS_IV_RICH` | 2.0 / 80 | **highly-elevated** IV labels (z≥2σ / ≥80th) |
