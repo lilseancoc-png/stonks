@@ -21466,7 +21466,8 @@
   // Classification badge (the grade × thesis matrix cell): label / css / tooltip.
   function pickClassMeta(cls){
     switch (cls){
-      case 'actionable': return { label: 'Actionable', cls: 'pick-class-actionable', tip: 'Strong grade + strong thesis — a full top pick with a recommended options strategy.' };
+      case 'actionable': return { label: 'Actionable', cls: 'pick-class-actionable', tip: 'Strong grade + strong thesis + a confirmed buy-now entry — buy the shown contract now and hold while the thesis stays intact.' };
+      case 'waitEntry': return { label: 'Wait for entry', cls: 'pick-class-wait', tip: 'Strong grade + strong thesis, but the final grader judged this isn’t the moment to enter (extended, waiting on a pullback/reclaim, an imminent event, or its own read of the setup). Not a buy right now — it promotes itself to Actionable the hour the entry confirms.' };
       case 'moderate': return { label: 'Moderate conviction', cls: 'pick-class-moderate', tip: 'A real but not airtight case, or a moderate grade — a lower-conviction idea. Strategy shown; size down.' };
       case 'highGradeWeakThesis': return { label: 'High grade · weak thesis', cls: 'pick-class-weak', tip: 'The grade is high but the supporting case is thin / single-pillar — we show the grade but recommend no strategy.' };
       default: return { label: 'Watch idea', cls: 'pick-class-idea', tip: 'A grade-only watch idea — no strategy is recommended yet. Wait for a confirming signal or a clean entry.' };
@@ -22565,6 +22566,7 @@
       noteBits.push(evL + (evD != null ? ' in ' + evD + 'd' : '') + ' — defined-risk spreads only');
     }
     if (rm && rm.timingGated && rm.timingGated.length) noteBits.push('<b>' + rm.timingGated.length + '</b> deferred for a clean entry (no ‘go’ yet)');
+    if (rm && rm.entryDemoted && rm.entryDemoted.length) noteBits.push('<b>' + rm.entryDemoted.length + '</b> strong pick' + (rm.entryDemoted.length === 1 ? '' : 's') + ' waiting for entry — in Ideas · Watch with the trigger price (not a buy right now)');
     if (rm && rm.safetyGated && rm.safetyGated.length){
       var negEdgeHeld = rm.safetyGated.some(function(x){ return x && x.reasons && x.reasons.indexOf('negative-edge') !== -1; });
       noteBits.push('<b>' + rm.safetyGated.length + '</b> held back — odds of profit too low (safety filter)' + (negEdgeHeld ? ' · strategy edge negative, standing down' : ''));
@@ -22584,12 +22586,12 @@
         (sub ? '<span class="picks-group-sub">' + sub + '</span>' : '') + '</div>';
     };
     var sectionHtml = '';
-    sectionHtml += groupHead('Actionable top picks', actionableList.length, 'Strong grade <b>and</b> strong thesis — a recommended options strategy', 'picks-group-actionable');
+    sectionHtml += groupHead('Actionable top picks', actionableList.length, 'Strong grade, strong thesis <b>and</b> a confirmed entry — buy the shown contract now and hold', 'picks-group-actionable');
     sectionHtml += actionableList.length
       ? actionableList.map(function(p, i){ return pickTabCardHtml(p, i); }).join('')
-      : '<div class="picks-group-empty">Nothing cleared both bars today (a strong grade <i>and</i> a strong thesis). Cash is a position — the lower-conviction ideas below didn’t earn a full recommendation.</div>';
+      : '<div class="picks-group-empty">Nothing is a buy <i>right now</i> — no name cleared all three bars (a strong grade, a strong thesis <i>and</i> a confirmed entry). Cash is a position. Strong picks still waiting on their entry sit below with a trigger price, and they promote themselves here the hour the entry confirms.</div>';
     if (watchList.length){
-      sectionHtml += groupHead('Ideas · watch', watchList.length, 'Lower conviction — a moderate grade or a thinner thesis; a strategy is shown only where it’s earned', 'picks-group-watch');
+      sectionHtml += groupHead('Ideas · watch', watchList.length, 'Not a buy right now — strong picks waiting for entry, moderate grades, or thinner theses; a strategy is shown only where it’s earned', 'picks-group-watch');
       sectionHtml += watchList.map(function(p, i){ return pickTabCardHtml(p, i); }).join('');
     }
     grid.innerHTML = watchlistHtml + rosterNote + sectionHtml;
