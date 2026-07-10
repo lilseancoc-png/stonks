@@ -19390,12 +19390,18 @@
       var up = c.direction === 'up';
       var dir = up ? 'sig-pos' : 'sig-neg';
       var ds = (Number(c.deltaScore) > 0 ? '+' : '') + (c.deltaScore != null ? (Math.round(Number(c.deltaScore) * 10) / 10) : '');
+      // diffGradesHistory writes prevTier/curTier/prevTotal/total; entries from
+      // before the picks-engine rebuild used oldTier/newTier/oldTotal/newTotal.
+      var tierFrom = c.prevTier !== undefined ? c.prevTier : c.oldTier;
+      var tierTo = c.curTier !== undefined ? c.curTier : c.newTier;
+      var totFrom = c.prevTotal != null ? c.prevTotal : c.oldTotal;
+      var totTo = c.total != null ? c.total : c.newTotal;
       rows += '<div class="acc-gc-row">' +
         '<span class="acc-sym">' + escapeHtml(c.symbol || '—') + '</span>' +
-        '<span class="acc-gc-tiers">' + accTierTag(c.oldTier) +
+        '<span class="acc-gc-tiers">' + accTierTag(tierFrom) +
           '<span class="acc-gc-arrow ' + dir + '">' + (up ? '▲' : '▼') + '</span>' +
-          accTierTag(c.newTier) + '</span>' +
-        '<span class="acc-gc-score ' + dir + '">' + (Math.round(Number(c.oldTotal) * 10) / 10) + '→' + (Math.round(Number(c.newTotal) * 10) / 10) + ' (' + ds + ')</span>' +
+          accTierTag(tierTo) + '</span>' +
+        '<span class="acc-gc-score ' + dir + '">' + (totFrom != null ? (Math.round(Number(totFrom) * 10) / 10) : '?') + '→' + (totTo != null ? (Math.round(Number(totTo) * 10) / 10) : '?') + ' (' + ds + ')</span>' +
         '<span class="acc-gc-why">' + escapeHtml(c.whyText || '') + '</span>' +
         '<span class="acc-gc-date">' + accDateShort(c.date) + '</span>' +
       '</div>';
