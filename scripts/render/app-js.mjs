@@ -13545,6 +13545,34 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var elevatedCount = all.filter(function(r){ return r && r.elevated; }).length;
     if (eye) eye.textContent = (d.asOf ? 'as of ' + d.asOf + ' · ' : '') + flagged.length + ' trending · ' + elevatedCount + ' elevated / ' + all.length + ' ranked';
     var html = '';
+    // Deterministic summary strip (baked by buildIvTrendSummary in build.mjs):
+    // the "what should I look at first" read — tier roll-up prose with the top
+    // standout's stats, plus a chip per standout (tooltip carries the detail).
+    var sum = d.summary;
+    if (sum && sum.text){
+      var schips = '';
+      var sts = Array.isArray(sum.standouts) ? sum.standouts : [];
+      for (var s0=0; s0<sts.length; s0++){
+        var st = sts[s0];
+        var stMeta = st.tier && IVT_TIER_META[st.tier] ? IVT_TIER_META[st.tier] : null;
+        var tipBits = [];
+        if (st.iv != null) tipBits.push('IV ' + ivtIvPct(st.iv) + (st.mean != null ? ' vs ' + ivtIvPct(st.mean) + ' avg' : ''));
+        if (st.z != null && isFinite(st.z)) tipBits.push((st.z >= 0 ? '+' : '') + Number(st.z).toFixed(1) + 'σ');
+        if (st.risingStreak >= 2) tipBits.push(st.risingStreak + 'd rising');
+        tipBits.push(st.earnings && st.earnings.date
+          ? 'earnings ' + ivtDateLabel(st.earnings.date) + (st.earnings.impliedMovePct != null ? ' (±' + Number(st.earnings.impliedMovePct).toFixed(1) + '% implied)' : '')
+          : 'no print inside 45d — unexplained ramp');
+        schips += '<span class="ivt-sum-chip' + (stMeta ? ' ' + stMeta.cls : '') + '" title="' + escapeHtml(tipBits.join(' · ')) + '">' +
+          (stMeta ? '<em>' + stMeta.label + '</em>' : '') +
+          escapeHtml(st.symbol || '') +
+          (st.chg5dPct != null && isFinite(st.chg5dPct) ? ' <b class="' + (st.chg5dPct >= 0 ? 'cx-up' : 'cx-down') + '">' + (st.chg5dPct >= 0 ? '+' : '') + Number(st.chg5dPct).toFixed(0) + '% 5d</b>' : '') +
+        '</span>';
+      }
+      html += '<section class="ivt-summary">' +
+        '<p class="ivt-summary-text">' + escapeHtml(sum.text) + '</p>' +
+        (schips ? '<div class="ivt-sum-chips">' + schips + '</div>' : '') +
+      '</section>';
+    }
     // Flagged highlight cards.
     if (flagged.length){
       var cards = '';
@@ -13903,6 +13931,26 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           briefEsc(fl.sym) + (fl.side ? ' <span>' + briefEsc(fl.side) + 's</span>' : '') + '</button>';
       }).join('');
       blocks.push(briefBlock(b.kind === 'morning' ? 'Prior-session flow' : 'Notable flow', '<div class="brief-chips">' + flow + '</div>'));
+    }
+    // IV standouts — the IV tracker's actionable flags only (names whose ATM
+    // IV is elevated vs their OWN history AND climbing; see gatherBriefSignals).
+    // Surging names get the hot color + marker; the tooltip carries the
+    // vs-history read and the earnings-vs-unexplained-ramp context.
+    if (Array.isArray(b.ivTrend) && b.ivTrend.length){
+      var ivt = b.ivTrend.map(function(v){
+        var sub = (v.ivPct != null ? Number(v.ivPct).toFixed(0) + '% IV' : '') +
+          (v.chg5dPct != null ? (v.ivPct != null ? ' · ' : '') + (v.chg5dPct >= 0 ? '+' : '') + Number(v.chg5dPct).toFixed(0) + '% 5d' : '');
+        var tierLabel = v.tier ? v.tier.charAt(0).toUpperCase() + v.tier.slice(1) : '';
+        var tip = tierLabel +
+          (v.meanPct != null ? ' · avg ' + Number(v.meanPct).toFixed(0) + '%' : '') +
+          (v.z != null ? ' · ' + (v.z >= 0 ? '+' : '') + Number(v.z).toFixed(1) + 'σ vs own history' : '') +
+          (v.earnings && v.earnings.date
+            ? ' · earnings ' + v.earnings.date + (v.earnings.impliedMovePct != null ? ' (±' + v.earnings.impliedMovePct + '% implied)' : '')
+            : ' · no scheduled earnings inside 45d — unexplained ramp');
+        return '<button type="button" class="brief-chip ' + (v.tier === 'surging' ? 'neg' : 'flow') + '" data-sym="' + briefEsc(v.sym) + '" title="' + briefEsc(tip) + '">' +
+          (v.tier === 'surging' ? '▲ ' : '') + briefEsc(v.sym) + (sub ? ' <span>' + briefEsc(sub) + '</span>' : '') + '</button>';
+      }).join('');
+      blocks.push(briefBlock('IV standouts', '<div class="brief-chips">' + ivt + '</div>'));
     }
     // Dealer gamma (GEX) — SPY/QQQ net-gamma regime + flip (both briefs).
     if (Array.isArray(b.gex) && b.gex.length){

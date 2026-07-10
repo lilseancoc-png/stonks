@@ -3935,6 +3935,73 @@ export function ivTrendTier({ score, z, chg5dPct, chg20dPct, relPct }) {
   return null;
 }
 
+// Deterministic tab-top summary — the "what should I look at first" read over
+// the ranked rows: a composed plain-English text line (tier roll-up + the top
+// standout's headline stats + how many flagged names have NO scheduled print,
+// the unexplained-ramp kind worth the most attention) plus the structured
+// standouts behind it. Shipped in the payload (`summary`) so the browser
+// renders it verbatim, and the same tiered rows feed the market brief's
+// IV-tracker section (gatherBriefSignals) — one derivation, two surfaces.
+// Pure over the already-built rows — exported for offline testing. Returns
+// null when nothing is tiered or elevated (the tab keeps its empty-state copy).
+export function buildIvTrendSummary(rows) {
+  const all = Array.isArray(rows) ? rows.filter((r) => r && r.symbol) : [];
+  const tiered = all.filter((r) => r.tier);
+  const counts = {
+    surging: tiered.filter((r) => r.tier === "surging").length,
+    trending: tiered.filter((r) => r.tier === "trending").length,
+    building: tiered.filter((r) => r.tier === "building").length,
+    elevated: all.filter((r) => r.elevated).length,
+  };
+  if (!tiered.length && !counts.elevated) return null;
+  const ivPctStr = (v) => (Number.isFinite(v) ? (v * 100).toFixed(0) + "%" : "n/a");
+  const listStr = (arr, max = 4) =>
+    arr.length <= max ? arr.join(", ") : arr.slice(0, max).join(", ") + ` +${arr.length - max} more`;
+  const syms = (t) => tiered.filter((r) => r.tier === t).map((r) => r.symbol);
+  const unexplained = tiered.filter((r) => !r.earnings).length;
+  // Rows arrive score-sorted, so the tiered slice is already "biggest first".
+  const standouts = tiered.slice(0, 5).map((r) => ({
+    symbol: r.symbol,
+    tier: r.tier,
+    iv: r.iv,
+    mean: r.mean,
+    relPct: r.relPct ?? null,
+    z: r.z ?? null,
+    chg5dPct: r.chg5dPct ?? null,
+    chg20dPct: r.chg20dPct ?? null,
+    risingStreak: r.risingStreak || 0,
+    earnings: r.earnings
+      ? { date: r.earnings.date, inDays: r.earnings.inDays ?? null, impliedMovePct: r.earnings.impliedMovePct ?? null }
+      : null,
+  }));
+  let text;
+  if (tiered.length) {
+    const parts = [];
+    if (counts.surging) parts.push(`surging in ${listStr(syms("surging"))}`);
+    if (counts.trending) parts.push(`trending higher in ${listStr(syms("trending"))}`);
+    if (counts.building) parts.push(`building in ${listStr(syms("building"))}`);
+    text = `Implied vol is ${parts.join("; ")}.`;
+    const top = tiered[0];
+    const bits = [
+      `ATM IV ${ivPctStr(top.iv)} vs its ${ivPctStr(top.mean)} average` +
+        (Number.isFinite(top.z) ? ` (${top.z >= 0 ? "+" : ""}${top.z.toFixed(1)}σ)` : ""),
+    ];
+    if (Number.isFinite(top.chg5dPct)) bits.push(`${top.chg5dPct >= 0 ? "+" : ""}${top.chg5dPct.toFixed(0)}% in 5 sessions`);
+    if ((top.risingStreak || 0) >= 2) bits.push(`up ${top.risingStreak} days straight`);
+    const why = top.earnings
+      ? `into ${top.earnings.date} earnings${Number.isFinite(top.earnings.inDays) ? ` (${top.earnings.inDays}d out${top.earnings.impliedMovePct != null ? `, ±${top.earnings.impliedMovePct}% implied` : ""})` : ""}`
+      : `with no scheduled earnings inside ${IV_TRENDING_EARNINGS_WINDOW_DAYS} days — an unexplained ramp`;
+    text += ` ${top.symbol} stands out: ${bits.join(", ")}, ${why}.`;
+    if (unexplained >= 2 && tiered.length > 1) {
+      text += ` ${unexplained} of the ${tiered.length} flagged names have no scheduled print inside ${IV_TRENDING_EARNINGS_WINDOW_DAYS} days.`;
+    }
+  } else {
+    const elevSyms = all.filter((r) => r.elevated).map((r) => r.symbol);
+    text = `No names screen as actively trending, but premium sits elevated vs its own history in ${listStr(elevSyms)}.`;
+  }
+  return { text, counts, unexplained, standouts };
+}
+
 // Pure given the collected ivHistory map + chains (for spot / name / sector /
 // earnings context). Percentile + std conventions match attachIvRanks
 // (midrank percentile, sample std) so the two reads never disagree.
@@ -4021,6 +4088,7 @@ export function buildIvTrendingPayload(ivHistory, chains, builtAtIso = new Date(
     minN: IV_TRENDING_MIN_N,
     trendingCount: rows.filter((r) => r.tier).length,
     elevatedCount: rows.filter((r) => r.elevated).length,
+    summary: buildIvTrendSummary(rows),
     tickers: rows,
   };
 }
@@ -15535,6 +15603,7 @@ export function gatherBriefSignals(kind, ctx) {
     chains = {}, fearGreed = null, macro = null, correlations = null,
     unusual = null, picks = [], calendar = {},
     rfr = FALLBACK_RISK_FREE_RATE, picksChanges = [], headlines = [],
+    ivTrending = null,
   } = ctx || {};
 
   // Fear & Greed + 1-day delta (green = greedier, red = more fearful).
@@ -15696,6 +15765,29 @@ export function gatherBriefSignals(kind, ctx) {
   }).filter((f) => f.sym);
   if (flow.length) signals.flow = flow;
 
+  // IV tracker — ONLY the actionable trend flags (the tiered names: implied
+  // vol elevated vs the name's OWN ~18-month history AND still climbing, i.e.
+  // the options market pricing in a bigger-than-usual move), never the whole
+  // ranked table. Rows arrive score-sorted from buildIvTrendingPayload, so
+  // the slice is the strongest flags. Earnings context rides along so the
+  // model can tell scheduled event premium from an unexplained ramp.
+  const ivRows = Array.isArray(ivTrending?.tickers)
+    ? ivTrending.tickers.filter((r) => r && r.tier && r.symbol)
+    : [];
+  const ivTrend = ivRows.slice(0, 5).map((r) => ({
+    sym: r.symbol,
+    tier: r.tier,
+    ivPct: Number.isFinite(r.iv) ? Math.round(r.iv * 1000) / 10 : null,
+    meanPct: Number.isFinite(r.mean) ? Math.round(r.mean * 1000) / 10 : null,
+    z: Number.isFinite(r.z) ? r.z : null,
+    chg5dPct: Number.isFinite(r.chg5dPct) ? r.chg5dPct : null,
+    risingStreak: r.risingStreak || 0,
+    earnings: r.earnings
+      ? { date: r.earnings.date, inDays: r.earnings.inDays ?? null, impliedMovePct: r.earnings.impliedMovePct ?? null }
+      : null,
+  }));
+  if (ivTrend.length) signals.ivTrend = ivTrend;
+
   if (kind === "morning") {
     // Overnight risk tone + the biggest foreign / futures moves.
     if (correlations?.tone) {
@@ -15852,6 +15944,7 @@ function briefRenderFields(s) {
   if (s.volume && s.volume.length) out.volume = s.volume;
   if (s.watchlist && s.watchlist.length) out.watchlist = s.watchlist;
   if (s.flow && s.flow.length) out.flow = s.flow;
+  if (s.ivTrend && s.ivTrend.length) out.ivTrend = s.ivTrend;
   if (s.gex && s.gex.length) out.gex = s.gex;
   if (s.picksChanges && ((s.picksChanges.added && s.picksChanges.added.length) || (s.picksChanges.dropped && s.picksChanges.dropped.length))) out.picksChanges = s.picksChanges;
   if (s.picks && s.picks.length) out.picks = s.picks;
@@ -15894,7 +15987,13 @@ function briefSystemPrompt(kind) {
     "steepening or flattening, a 2Y repricing the Fed path, or a foreign-bond jump (especially the JGB) — " +
     "surface it explicitly in the summary AND as a highlight, " +
     "since rates and curve shifts move equities. Any bond flagged 'SIGNIFICANT' must be called out. Don't " +
-    "manufacture a rates story when the moves are small (a few bp).";
+    "manufacture a rates story when the moves are small (a few bp). " +
+    "IV TRACKER: when the facts include an 'IV tracker' section, those are single names whose options premium is " +
+    "both elevated vs the name's own history and still climbing — the options market pricing in a " +
+    "bigger-than-usual move. A name flagged SURGING, especially one with NO scheduled earnings inside 45 days " +
+    "(an unexplained ramp — positioning or something leaking), is worth a highlight; an IV build into a " +
+    "scheduled print is routine and only worth noting when the implied move is unusually large. Rising IV is " +
+    "NOT a directional signal — never present it as bullish or bearish for the stock.";
   if (kind === "intraday") {
     return (
       "You are a markets-desk analyst writing a concise MID-SESSION intraday brief for US options traders, " +
@@ -15902,6 +16001,7 @@ function briefSystemPrompt(kind) {
       "(intraday moves, not final closes): how the headline index ETFs (SPY/QQQ/IWM) are trading, the tape's " +
       "breadth (advancers/decliners), the sector leaders and laggards, the biggest movers, names at or near " +
       "52-week highs/lows, the heaviest-volume names vs their own 20-day average, notable unusual options flow, " +
+      "the IV tracker's actionable flags (names whose implied vol is elevated vs their own history and climbing), " +
       "macro levels (the 2Y / 10Y / 30Y Treasury curve and the 2s10s spread, the dollar, VIX), foreign sovereign " +
       "bonds including Japan's 10Y JGB, the CNN Fear & Greed reading, dealer gamma (GEX) positioning on SPY/QQQ " +
       "(net long vs short gamma and where spot sits vs the gamma flip — short gamma below the flip means dealers " +
@@ -15922,7 +16022,8 @@ function briefSystemPrompt(kind) {
       "sovereign bonds including Japan's 10Y JGB, the CNN Fear & Greed reading, the 20-day support/resistance " +
       "levels to watch on SPY and QQQ, dealer gamma (GEX) positioning on SPY/QQQ (net long vs short gamma and " +
       "where spot sits vs the gamma flip — short gamma below the flip means dealers amplify moves), notable " +
-      "options flow from the prior session, any names added to or dropped from the model's actionable top picks, " +
+      "options flow from the prior session, the IV tracker's actionable flags (names whose implied vol is " +
+      "elevated vs their own history and climbing), any names added to or dropped from the model's actionable top picks, " +
       "today's earnings + economic calendar, any economic data that already PRINTED (actual vs consensus vs prior " +
       "— an 8:30 ET release like CPI may already be out; if so, lead with it and how it sets up the session), " +
       "the overnight market-wide press/wire headlines (Fed, policy, geopolitics, trade), " +
@@ -15935,7 +16036,8 @@ function briefSystemPrompt(kind) {
     "published just after the 4pm ET close. You receive structured facts: how the headline index ETFs (SPY/QQQ/IWM) " +
     "closed, the day's breadth (advancers/decliners), the sector leaders and laggards, the biggest gainers and " +
     "losers, names that ended at or near 52-week highs/lows, the heaviest-volume names vs their own 20-day " +
-    "average, notable unusual options flow, where macro levels (the 2Y / 10Y / 30Y Treasury curve and the 2s10s " +
+    "average, notable unusual options flow, the IV tracker's actionable flags (names whose implied vol is " +
+    "elevated vs their own history and climbing), where macro levels (the 2Y / 10Y / 30Y Treasury curve and the 2s10s " +
     "spread, the dollar, VIX) and foreign sovereign bonds (incl. Japan's 10Y JGB) and the CNN Fear & " +
     "Greed reading closed, dealer gamma (GEX) positioning on SPY/QQQ (net long vs short gamma and where spot sits " +
     "vs the gamma flip), any names added to or dropped from the model's actionable top picks, the model's top " +
@@ -16037,6 +16139,21 @@ export function briefUserMessage(kind, dateKey, signals) {
   if (signals.flow && signals.flow.length) {
     lines.push(kind === "morning" ? "Notable options flow (prior session's last scan):" : "Notable options flow (this session):");
     for (const f of signals.flow) lines.push(`- ${f.sym}${f.side ? ` ${f.side}s` : ""}: ${f.note || "heavy volume vs the prior session"}`);
+  }
+  if (signals.ivTrend && signals.ivTrend.length) {
+    lines.push("IV tracker — actionable implied-vol trend flags (each name's ATM ~30d IV vs its OWN ~18-month history; only flagged names listed — surging = well above its mean AND ripping higher now):");
+    for (const v of signals.ivTrend) {
+      const bits = [];
+      if (v.ivPct != null) {
+        bits.push(`IV ${v.ivPct.toFixed(1)}%${v.meanPct != null ? ` vs ${v.meanPct.toFixed(1)}% avg` : ""}${v.z != null ? ` (${v.z >= 0 ? "+" : ""}${v.z.toFixed(1)}σ)` : ""}`);
+      }
+      if (v.chg5dPct != null) bits.push(`${briefPctStr(v.chg5dPct, 1)} 5d`);
+      if (v.risingStreak >= 2) bits.push(`${v.risingStreak}d rising streak`);
+      bits.push(v.earnings
+        ? `earnings ${v.earnings.date}${v.earnings.inDays != null ? ` (${v.earnings.inDays}d out)` : ""}${v.earnings.impliedMovePct != null ? `, ±${v.earnings.impliedMovePct}% implied move` : ""}`
+        : "no scheduled earnings inside 45d — unexplained ramp");
+      lines.push(`- ${v.sym}: ${String(v.tier).toUpperCase()} — ${bits.join(", ")}`);
+    }
   }
   if (signals.gex && signals.gex.length) {
     lines.push("Dealer gamma (GEX) — net positioning at spot:");
@@ -16186,7 +16303,7 @@ export function briefKindForHour(hourEt) {
 // anymore: the next hourly mint picks it up by construction. Never throws —
 // a failure leaves the tab on its last-good content.
 export async function buildMarketBriefs(opts) {
-  const { briefsPrev, builtAtIso, chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges, headlines } = opts;
+  const { briefsPrev, builtAtIso, chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges, headlines, ivTrending } = opts;
   const now = new Date();
   const todayEt = etDateKey(now);
   const hourEt = etHourNY(now);
@@ -16212,7 +16329,7 @@ export async function buildMarketBriefs(opts) {
   if (haveKey && want) {
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      const signals = gatherBriefSignals(kind, { chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges, headlines });
+      const signals = gatherBriefSignals(kind, { chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges, headlines, ivTrending });
       const gen = await generateBrief(ai, kind, todayEt, signals);
       // On failure the catch keeps the prior brief (carry-forward).
       current = { kind, date: todayEt, etHour: hourEt, generatedAtIso: new Date().toISOString(), model: AI_BRIEF_MODEL, ...gen, ...briefRenderFields(signals) };
@@ -20136,9 +20253,13 @@ async function main() {
   // Trending IV — derived screen over the just-flushed iv-history (current
   // ATM ~30d IV vs each name's own history + short-term direction). Purely
   // deterministic and rebuilt every bake; non-fatal on failure (the tab shows
-  // its empty state until the next successful bake).
+  // its empty state until the next successful bake). The payload is kept for
+  // the market brief below — its IV-tracker section notes the actionable
+  // (tiered) flags.
+  let ivTrendingForBrief = null;
   try {
     const { payload: ivTrending, bytes: ivTrendingBytes } = await writeIvTrendingFile(ivHistory, chains);
+    ivTrendingForBrief = ivTrending;
     console.log(`wrote data/${IV_TRENDING_FILE} — ${ivTrending.tickers.length} ranked, ${ivTrending.trendingCount} trending, ${ivTrendingBytes} bytes`);
   } catch (err) {
     console.log(`Trending-IV write failed (non-fatal): ${err.message}`);
@@ -20533,6 +20654,9 @@ async function main() {
       // The same filtered press/wire slate the narrative engine just read —
       // the brief's tape-driver input (fetched fresh by this bake).
       headlines: trends.macroHeadlines || [],
+      // The just-written Trending-IV payload — the brief's IV-tracker section
+      // (actionable tiered flags only).
+      ivTrending: ivTrendingForBrief,
     });
     console.log(`wrote data/${BRIEFS_FILE} — ${briefRes.current ? `${briefRes.kind} brief${briefRes.generated ? " (freshly generated)" : " (carried forward)"}` : "no brief yet"}`);
   } catch (err) {

@@ -2819,6 +2819,25 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .rp-row-chips { display: inline-flex; flex-wrap: wrap; gap: 5px; margin-left: auto; }
 
 /* --- Trending IV (Flow) ------------------------------------------------ */
+.ivt-summary {
+  margin: 0 0 14px; padding: 12px 14px;
+  border: 1px solid var(--border); border-radius: var(--r-1);
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+}
+.ivt-summary-text { margin: 0; font: 400 13px/1.55 var(--font-sans); color: var(--text-strong); }
+.ivt-sum-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.ivt-sum-chip {
+  display: inline-flex; align-items: baseline; gap: 5px;
+  padding: 3.5px 9px; border: 1px solid var(--border); border-radius: 999px;
+  font: 700 11.5px/1 var(--font-mono); color: var(--text-strong); cursor: help;
+  font-variant-numeric: tabular-nums;
+}
+.ivt-sum-chip em { font: 700 9px/1 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; font-style: normal; color: var(--muted); }
+.ivt-sum-chip.ivt-tier-surging { border-color: color-mix(in srgb, var(--neg) 45%, transparent); }
+.ivt-sum-chip.ivt-tier-surging em { color: var(--neg); }
+.ivt-sum-chip.ivt-tier-trending em { color: var(--accent); }
+.ivt-sum-chip.ivt-tier-building em { color: var(--pos); }
+.ivt-sum-chip b { font: 700 11px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
 .ivt-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; margin-bottom: 18px; }
 .ivt-card {
   display: flex; flex-direction: column; gap: 7px;
