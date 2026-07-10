@@ -3349,6 +3349,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       // is the point, not the menu.
       closeSideNavDrawer();
       syncTabToUrl(name, !!(nav && nav.replace));
+      // A tab hop lands at the top of the destination pane — the scroll depth
+      // of a long previous tab (e.g. a Brief ticker chip clicked from way down
+      // the page) otherwise carries over and the new tab opens mid/bottom.
+      // Restore-type calls (boot + popstate pass nav.replace) skip this so the
+      // browser's own back/forward scroll restoration wins; instant (not
+      // smooth) so a follow-up scrollIntoView (calendar FOMC widget, pinned
+      // contract rehydrate) isn't fighting an animation.
+      if (!(nav && nav.replace)){
+        try { window.scrollTo(0, 0); } catch (_) {}
+      }
       // Re-render the freshness banner for the active tab so Unusual flow /
       // Volume / Fear & Greed / Bonds & USD show their per-source timestamp
       // instead of the daily build's "2 hours ago" which can be misleading.
