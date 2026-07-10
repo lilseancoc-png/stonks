@@ -3349,6 +3349,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       // is the point, not the menu.
       closeSideNavDrawer();
       syncTabToUrl(name, !!(nav && nav.replace));
+      // A tab hop lands at the top of the destination pane — the scroll depth
+      // of a long previous tab (e.g. a Brief ticker chip clicked from way down
+      // the page) otherwise carries over and the new tab opens mid/bottom.
+      // Restore-type calls (boot + popstate pass nav.replace) skip this so the
+      // browser's own back/forward scroll restoration wins; instant (not
+      // smooth) so a follow-up scrollIntoView (calendar FOMC widget, pinned
+      // contract rehydrate) isn't fighting an animation.
+      if (!(nav && nav.replace)){
+        try { window.scrollTo(0, 0); } catch (_) {}
+      }
       // Re-render the freshness banner for the active tab so Unusual flow /
       // Volume / Fear & Greed / Bonds & USD show their per-source timestamp
       // instead of the daily build's "2 hours ago" which can be misleading.
@@ -17767,11 +17777,29 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       ? ' <span class="acc-strat-fb" title="The engine wanted a ' + escapeHtml(strat.requested || 'different') + ' structure but no liquid version existed, so it fell back to this one.">fallback</span>'
       : '';
     var reasonHtml = (strat && strat.reason) ? '<div class="acc-strat-reason">' + escapeHtml(strat.reason) + '</div>' : '';
+    // The thesis frozen at entry — WHY the engine executed this pick. Entries
+    // enrolled after the snapshot gained the narrative carry summary/catalyst/
+    // AI grade; older entries still carry the driver labels, so they render the
+    // drivers line and just drop the missing rows.
+    var thesisHtml = '';
+    var th = e.thesis || null;
+    if (th){
+      var thInner = '';
+      if (th.summary) thInner += '<p class="acc-strat-thesis-sum">' + escapeHtml(th.summary) + '</p>';
+      var thRows = '';
+      if (th.catalyst) thRows += '<div class="acc-strat-row"><span class="acc-strat-k">Catalyst</span><span class="acc-strat-v acc-strat-v-prose">' + escapeHtml(th.catalyst) + '</span></div>';
+      var dl = (th.works || []).map(function(w){ return w && w.label; }).filter(Boolean);
+      if (dl.length) thRows += '<div class="acc-strat-row"><span class="acc-strat-k">Supporting drivers</span><span class="acc-strat-v acc-strat-v-prose">' + escapeHtml(dl.join(' · ')) + '</span></div>';
+      if (th.aiGrade) thRows += '<div class="acc-strat-row"><span class="acc-strat-k">AI final grade</span><span class="acc-strat-v" title="The AI final grader\\'s verdict on the thesis when the pick shipped.">' + escapeHtml(th.aiGrade) + (th.aiConfidence ? ' · ' + escapeHtml(th.aiConfidence) + ' confidence' : '') + '</span></div>';
+      if (thRows) thInner += '<div class="acc-strat-rows">' + thRows + '</div>';
+      if (thInner) thesisHtml = '<div class="acc-strat-thesis"><div class="acc-strat-sec">The thesis at entry</div>' + thInner + '</div>';
+    }
     return '<details class="acc-strategy">' +
-      '<summary class="acc-strat-summary">Strategy &amp; entry details</summary>' +
+      '<summary class="acc-strat-summary">Strategy, thesis &amp; entry details</summary>' +
       '<div class="acc-strat-body">' +
         '<div class="acc-strat-name">' + escapeHtml(stratName) + fbTag + '</div>' +
         reasonHtml +
+        thesisHtml +
         '<div class="acc-strat-rows">' + rows + '</div>' +
       '</div>' +
     '</details>';
@@ -19409,12 +19437,18 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var up = c.direction === 'up';
       var dir = up ? 'sig-pos' : 'sig-neg';
       var ds = (Number(c.deltaScore) > 0 ? '+' : '') + (c.deltaScore != null ? (Math.round(Number(c.deltaScore) * 10) / 10) : '');
+      // diffGradesHistory writes prevTier/curTier/prevTotal/total; entries from
+      // before the picks-engine rebuild used oldTier/newTier/oldTotal/newTotal.
+      var tierFrom = c.prevTier !== undefined ? c.prevTier : c.oldTier;
+      var tierTo = c.curTier !== undefined ? c.curTier : c.newTier;
+      var totFrom = c.prevTotal != null ? c.prevTotal : c.oldTotal;
+      var totTo = c.total != null ? c.total : c.newTotal;
       rows += '<div class="acc-gc-row">' +
         '<span class="acc-sym">' + escapeHtml(c.symbol || '—') + '</span>' +
-        '<span class="acc-gc-tiers">' + accTierTag(c.oldTier) +
+        '<span class="acc-gc-tiers">' + accTierTag(tierFrom) +
           '<span class="acc-gc-arrow ' + dir + '">' + (up ? '▲' : '▼') + '</span>' +
-          accTierTag(c.newTier) + '</span>' +
-        '<span class="acc-gc-score ' + dir + '">' + (Math.round(Number(c.oldTotal) * 10) / 10) + '→' + (Math.round(Number(c.newTotal) * 10) / 10) + ' (' + ds + ')</span>' +
+          accTierTag(tierTo) + '</span>' +
+        '<span class="acc-gc-score ' + dir + '">' + (totFrom != null ? (Math.round(Number(totFrom) * 10) / 10) : '?') + '→' + (totTo != null ? (Math.round(Number(totTo) * 10) / 10) : '?') + ' (' + ds + ')</span>' +
         '<span class="acc-gc-why">' + escapeHtml(c.whyText || '') + '</span>' +
         '<span class="acc-gc-date">' + accDateShort(c.date) + '</span>' +
       '</div>';
