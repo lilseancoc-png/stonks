@@ -145,9 +145,10 @@ ok("picks: exitPlan TP carries an option (contract) target price", picks.every((
 ok("picks: exitPlan optionStop summary present", picks.every((p) => p.exitPlan.optionStop && p.exitPlan.optionStop.price > 0 && p.exitPlan.optionStop.pct > 0));
 // entry guidance: every pick has a buy-now / wait-for-price signal
 ok("picks: every pick has an entry signal w/ headline", picks.every((p) => p.entry && typeof p.entry.now === "boolean" && p.entry.headline));
-// A go-timed pick reads buy-now UNLESS the top-guard vetoed it (extended /
-// RSI-extreme — the volume-confirm go path can bless a stretched name).
-ok("picks: a clean-timing (go) pick reads buy-now (top-guard permitting)", picks.filter((p) => p.entryTiming.state === "go").every((p) => (p.entry.now === true && p.entry.signal === "buy-now") || p.entry.basis === "top-guard"));
+// A go-timed pick reads buy-now UNLESS an extension band caught it (extended /
+// RSI-chase — the volume-confirm go path can bless a stretched name; soft band
+// basis "extended", hard band basis "top-guard").
+ok("picks: a clean-timing (go) pick reads buy-now (extension bands permitting)", picks.filter((p) => p.entryTiming.state === "go").every((p) => (p.entry.now === true && p.entry.signal === "buy-now") || p.entry.basis === "top-guard" || p.entry.basis === "extended"));
 // THE ENTRY GATE (2026-07-10): actionable means "buy it right now" — every
 // actionable pick carries a confirmed buy-now entry; wait-entry names demote.
 ok("picks: every ACTIONABLE pick is a confirmed buy-now (entry gate)", picks.every((p) => p.group === "actionable" ? (p.entry.now === true && p.entry.signal === "buy-now") : true));
@@ -185,10 +186,14 @@ const stretched = mkTicker({ spot: 100, technicals: {
   chartPattern: null, volRegime: { rv30Pctile: 45 } },
   _bars: mkBars(100, 40, 0.002) });                                  // soft drift: no 3-day thrust
 const stretchedEntry = computeEntrySignal("call", 100, stretched, computeEntryTiming("call", stretched, 100, {}), { total: 5 });
-ok("entry: extended w/o confirmation still waits for the pullback", stretchedEntry.now === false && stretchedEntry.signal === "wait-pullback" && stretchedEntry.trigger === 94.3);
-// Extended past the 20D is a HARD top-guard veto (2026-07-10): even a heavily
-// confirmed breakout (momentum + thrust + stack + strong-tier conviction) never
-// reads buy-now — don't buy the top; it queues behind the pullback trigger.
+ok("entry: extended w/o confirmation still waits for the pullback", stretchedEntry.now === false && stretchedEntry.signal === "wait-pullback");
+// The wait trigger must be REACHABLE — a ~1.5×ATR dip floored at the 20D, never
+// an unreachable mean-reversion target (the old raw-20D trigger).
+ok("entry: the pullback trigger is reachable (>= the 20D, < spot)", stretchedEntry.trigger >= 94.3 && stretchedEntry.trigger < 100);
+// Extended 4-15% past the 20D is the SOFT band (2026-07-10 rework): the
+// deterministic read still waits (keyless builds stay conservative) but the
+// basis is "extended" — NOT the hard "top-guard" — so the AI final grader's
+// entryVerdict may take it (momentum ride vs chase is the grader's call).
 const breakout = mkTicker({ spot: 100, technicals: {
   rsi: 66, rsi5d: 62, macd: { hist: 0.6, line: 1.2, signal: 0.6 },
   volume: { rvol: 1.2, priceMove1dPct: 1.0 },                       // below the go-gate's 1.3 rvol bar
@@ -197,9 +202,20 @@ const breakout = mkTicker({ spot: 100, technicals: {
   _bars: mkBars(100, 40, 0.006) });
 const breakoutTiming = computeEntryTiming("call", breakout, 100, {});
 const breakoutEntry = computeEntrySignal("call", 100, breakout, breakoutTiming, { total: 8 });
-ok("entry: extended breakout is top-guarded -> wait-pullback (never buy the top)", breakoutTiming.state === "wait" && breakoutEntry.now === false && breakoutEntry.signal === "wait-pullback" && breakoutEntry.basis === "top-guard" && breakoutEntry.trigger === 94.3);
-// RSI at the chase extreme is the same hard veto — even a `go` timing state
-// (healthy pullback + momentum) never buys an overbought name.
+ok("entry: extended breakout deterministically waits, SOFT basis (AI may take it)", breakoutTiming.state === "wait" && breakoutEntry.now === false && breakoutEntry.signal === "wait-pullback" && breakoutEntry.basis === "extended");
+// A PARABOLIC stretch (> PICKS_ENTRY_EXTENDED_HARD 15% past the 20D) is the
+// HARD top-guard veto — basis "top-guard", no verdict can bless it.
+const parabolic = mkTicker({ spot: 100, technicals: {
+  rsi: 66, rsi5d: 62, macd: { hist: 0.6, line: 1.2, signal: 0.6 },
+  volume: { rvol: 1.2, priceMove1dPct: 1.0 },
+  sr: { s20: 80, r20: 112 }, sma: { sma20: 85, sma50: 82, sma100: 78 },   // +17.6% past the 20D
+  chartPattern: null, volRegime: { rv30Pctile: 45 } },
+  _bars: mkBars(100, 40, 0.006) });
+const parabolicEntry = computeEntrySignal("call", 100, parabolic, computeEntryTiming("call", parabolic, 100, {}), { total: 8 });
+ok("entry: parabolic stretch (>15%) is HARD top-guarded", parabolicEntry.now === false && parabolicEntry.signal === "wait-pullback" && parabolicEntry.basis === "top-guard");
+ok("entry: even the parabolic trigger is reachable (ATR-scaled, not the far 20D)", parabolicEntry.trigger >= 90 && parabolicEntry.trigger < 100);
+// RSI in the chase zone (72-80) is the SOFT band — even on a `go` timing state
+// the deterministic read waits, but the basis is overridable.
 const hotRsi = mkTicker({ spot: 100, technicals: {
   rsi: 74, rsi5d: 70, macd: { hist: 0.6, line: 1.2, signal: 0.6 },
   volume: { rvol: 1.5, priceMove1dPct: 0.8 },
@@ -207,7 +223,15 @@ const hotRsi = mkTicker({ spot: 100, technicals: {
   chartPattern: null, volRegime: { rv30Pctile: 45 } } });
 const hotTiming = computeEntryTiming("call", hotRsi, 100, {});
 const hotEntry = computeEntrySignal("call", 100, hotRsi, hotTiming, { total: 8 });
-ok("entry: RSI-extreme (74) top-guards even a go state -> never buy-now", hotTiming.state === "go" && hotEntry.now === false && hotEntry.signal === "wait-pullback" && hotEntry.basis === "top-guard");
+ok("entry: RSI 74 (chase zone) waits even on a go state — SOFT basis", hotTiming.state === "go" && hotEntry.now === false && hotEntry.signal === "wait-pullback" && hotEntry.basis === "extended");
+// RSI at the blow-off extreme (>= PICKS_ENTRY_CHASE_RSI_HARD 80) is HARD.
+const blowoff = mkTicker({ spot: 100, technicals: {
+  rsi: 82, rsi5d: 78, macd: { hist: 0.6, line: 1.2, signal: 0.6 },
+  volume: { rvol: 1.5, priceMove1dPct: 0.8 },
+  sr: { s20: 93, r20: 110 }, sma: { sma20: 99.5, sma50: 95, sma100: 90 },
+  chartPattern: null, volRegime: { rv30Pctile: 45 } } });
+const blowoffEntry = computeEntrySignal("call", 100, blowoff, computeEntryTiming("call", blowoff, 100, {}), { total: 8 });
+ok("entry: RSI 82 (blow-off) is HARD top-guarded — never buy-now", blowoffEntry.now === false && blowoffEntry.signal === "wait-pullback" && blowoffEntry.basis === "top-guard");
 // Hard vetoes survive the checklist: an avoid (knife) state and an imminent
 // earnings print never read buy-now, whatever the factors say.
 const knifeEntry = computeEntrySignal("call", 50, chains.KNIFE, computeEntryTiming("call", chains.KNIFE, 50, {}), { total: 8 });
@@ -447,20 +471,20 @@ ok("classify: moderate grade + weak thesis → idea / watch", classifyPick(5, "w
 }
 
 // --- 12b2. entry gate through the full roster build --------------------------
-// A strong-graded name whose price is stretched past the 20D (top-guard →
-// wait-pullback entry) must never ship in the ACTIONABLE group, whatever its
-// grade/thesis — it lands in watch (and, when it was strong+strong, is
-// instrumented in rosterMeta.entryDemoted).
+// A strong-graded name stretched into the SOFT band (+6.4% past the 20D) with
+// NO AI verdict (keyless/offline) keeps the conservative deterministic wait —
+// never actionable — and lands in watch (instrumented in entryDemoted when it
+// was strong+strong).
 {
   const extended = mkTicker({ spot: 100, technicals: {
     rsi: 62, rsi5d: 60, macd: { hist: 0.5, line: 1.1, signal: 0.6 },
     volume: { rvol: 1.5, priceMove1dPct: 1.0 },
-    sr: { s20: 92, r20: 110 }, sma: { sma20: 94, sma50: 90, sma100: 86 },  // +6.4% past the 20D
+    sr: { s20: 92, r20: 110 }, sma: { sma20: 94, sma50: 90, sma100: 86 },  // +6.4% past the 20D (SOFT band)
     chartPattern: { pattern: "Bull Flag", stage: "confirmed" }, volRegime: { rv30Pctile: 45 } } });
   const out = buildTopPicks({ EXTD: extended }, [], null, null, null, null, 0.045, {});
   const p = out.find((x) => x.symbol === "EXTD");
-  ok("entry gate: an extended (top-guarded) name reads wait, never buy-now", !p || (p.entry.now === false && p.entry.basis === "top-guard"));
-  ok("entry gate: an extended name never ships actionable", !p || p.group !== "actionable");
+  ok("entry gate: soft-extended + no AI verdict reads wait (basis 'extended'), never buy-now", !p || (p.entry.now === false && p.entry.basis === "extended"));
+  ok("entry gate: an extended name w/o a verdict never ships actionable", !p || p.group !== "actionable");
   ok("entry gate: a demoted strong+strong pick is instrumented in entryDemoted", !p || p.classification !== "waitEntry" || out.rosterMeta.entryDemoted.includes("EXTD"));
 }
 
@@ -493,15 +517,26 @@ ok("classify: moderate grade + weak thesis → idea / watch", classifyPick(5, "w
     const pH = held.find((x) => x.symbol === lead.symbol && x.side === lead.side);
     ok("ai-entry: AI wait holds back a price-ready name (watch, wait-ai, instrumented)", !pH || (pH.group !== "actionable" && pH.entry.now === false && pH.entry.signal === "wait-ai" && held.rosterMeta.aiEntryHeldBack.includes(lead.symbol)));
   }
-  // Hard vetoes bind: an AI buy-now can never bless a top-guarded chase.
+  // The SOFT extension band is the grader's judgment zone (2026-07-10 rework):
+  // an AI buy-now TAKES a +6.4%-extended momentum name (the old 4% hard veto
+  // perpetually locked out the engine's strongest names).
   const extg = mkTicker({ spot: 100, technicals: {
     rsi: 62, rsi5d: 60, macd: { hist: 0.5, line: 1.1, signal: 0.6 },
     volume: { rvol: 1.5, priceMove1dPct: 1.0 },
-    sr: { s20: 92, r20: 110 }, sma: { sma20: 94, sma50: 90, sma100: 86 },
+    sr: { s20: 92, r20: 110 }, sma: { sma20: 94, sma50: 90, sma100: 86 },  // +6.4%: SOFT band
     chartPattern: { pattern: "Bull Flag", stage: "confirmed" }, volRegime: { rv30Pctile: 45 } } });
   const tg = buildTopPicks({ EXTG: extg }, [], null, null, null, null, 0.045, { aiThesisMap: { "EXTG:call": mkAi("buy-now") } });
   const pTg = tg.find((x) => x.symbol === "EXTG");
-  ok("ai-entry: the top-guard binds — an AI buy-now can't bless a chase", !pTg || (pTg.entry.now === false && pTg.group !== "actionable" && !tg.rosterMeta.aiEntryPromoted.includes("EXTG")));
+  ok("ai-entry: an AI buy-now takes a SOFT-extended name (momentum ride is the grader's call)", !!pTg && pTg.entry.now === true && pTg.entry.basis === "ai-final-grader" && tg.rosterMeta.aiEntryPromoted.includes("EXTG"));
+  // The HARD band binds regardless: an AI buy-now can never bless a parabola.
+  const para = mkTicker({ spot: 100, technicals: {
+    rsi: 62, rsi5d: 60, macd: { hist: 0.5, line: 1.1, signal: 0.6 },
+    volume: { rvol: 1.5, priceMove1dPct: 1.0 },
+    sr: { s20: 80, r20: 110 }, sma: { sma20: 85, sma50: 80, sma100: 76 },  // +17.6%: HARD top-guard
+    chartPattern: { pattern: "Bull Flag", stage: "confirmed" }, volRegime: { rv30Pctile: 45 } } });
+  const tgh = buildTopPicks({ PARA: para }, [], null, null, null, null, 0.045, { aiThesisMap: { "PARA:call": mkAi("buy-now") } });
+  const pTgh = tgh.find((x) => x.symbol === "PARA");
+  ok("ai-entry: the HARD top-guard binds — an AI buy-now can't bless a parabola", !pTgh || (pTgh.entry.now === false && pTgh.group !== "actionable" && !tgh.rosterMeta.aiEntryPromoted.includes("PARA")));
   // No verdict (legacy cached thesis) → the deterministic read stands.
   const legacy = { summary: "x", setup: "x", catalyst: "x", outlook: "x", macroSupport: "neutral", invalidation: ["a"], grade: "strong", score: 90 };
   const lg = buildTopPicks({ DIPN: dipName }, [], null, null, null, null, 0.045, { aiThesisMap: { "DIPN:call": legacy } });
@@ -646,9 +681,10 @@ ok("exit: credit ignores a stray scale-out field", resolvePickOutcome({ modeledO
   if (savedKeyless === undefined) delete process.env.AI_THESIS; else process.env.AI_THESIS = savedKeyless;
 }
 
-// --- 12d-final. AI is the FINAL GRADER (grade sets classification + rank + veto) -
-// Once a name clears the deterministic data gate, the AI grade decides the roster:
-// 'reject' vetoes; the AI tier drives the execution matrix; the AI score ranks.
+// --- 12d-final. AI is the FINAL GRADER (grade sets classification + veto) -----
+// Once a name clears the deterministic data gate, the AI grade decides whether
+// to ACT: 'reject' vetoes; the AI tier drives the execution matrix. The roster
+// ORDER stays deterministic (owner directive) — the AI score is confidence only.
 {
   const keyFor = (p) => p.symbol + ":" + p.side;
   // 1) reject → vetoed out of the roster (even though it cleared the data gate).
@@ -669,13 +705,19 @@ ok("exit: credit ignores a stray scale-out field", resolvePickOutcome({ modeledO
     ok("ai-grade: a 'weak' AI grade recommends no strategy (no contract)", !p || !p.contract);
     ok("ai-grade: finalGrade reflects the AI tier + source", !p || (p.finalGrade && p.finalGrade.tier === "weak" && p.finalGrade.source === "ai" && p.finalGrade.score === 30));
   }
-  // 3) AI score ranks the roster — a high AI score on a lower-conviction name lifts it.
+  // 3) The roster order is DETERMINISTIC — a 99 AI score on the lowest-conviction
+  // name must NOT lift it over higher deterministic conviction (the AI is the
+  // should-we-act check, never the ranker).
   {
     const last = healthyPicks[healthyPicks.length - 1];
     const map = {};
     for (const p of healthyPicks) map[keyFor(p)] = { summary: "x", setup: "x", catalyst: "x", outlook: "x", macroSupport: "supports", invalidation: ["a"], grade: "strong", score: keyFor(p) === keyFor(last) ? 99 : 60 };
     const out = buildTopPicks(healthyUniverse, [], null, null, null, null, 0.045, { aiThesisMap: map });
-    ok("ai-grade: the top-AI-score name ranks first", out.length > 1 ? keyFor(out[0]) === keyFor(last) : true);
+    const convOf = (p) => p.conviction ?? Math.abs(p.total ?? 0);
+    ok("ai-grade: a high AI score does NOT re-rank the roster (order stays deterministic)",
+      out.length > 1 ? keyFor(out[0]) !== keyFor(last) : true);
+    ok("ai-grade: roster is ordered by deterministic conviction",
+      out.every((p, i) => i === 0 || convOf(out[i - 1]) >= convOf(p)));
   }
   // 4) applyAiThesisGrade overlays the tier/score; absent a grade it's a no-op.
   {

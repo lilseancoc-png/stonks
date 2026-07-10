@@ -123,18 +123,20 @@ enrollments are by construction all buy-now entries.
 **The FINAL buy/wait call is the AI final grader's** (owner directive, same
 day): `generateAiTheses` returns an **`entryVerdict`** (`buy-now`/`wait`) +
 `entryReason` alongside the grade, judged over the whole picture — catalyst
-urgency, the calendar, macro, IV, and the deterministic price read below,
-which rides its prompt as *context, not the answer*. `buildTopPicks` resolves
-the gate as: **hard risk vetoes bind regardless** (the top-guard and the
-event defer are risk controls, not judgment calls — an AI buy-now can never
-bless a chase or an IV-crush entry); otherwise the AI verdict decides (it can
-hold back a price-ready name — `wait-ai`, `rosterMeta.aiEntryHeldBack` — or
-take a soft dip-trigger name now — `rosterMeta.aiEntryPromoted`); a missing
-verdict (keyless/offline, legacy cache, past the grader cap) falls back to
-the deterministic read — never a fabricated buy. The final call is overlaid
-onto `entry` so the card chip, sizing haircut, enrolled cohort, and gate
-always agree, and the deterministic entry state is part of the thesis cache
-signature so the verdict re-reads when the entry picture changes.
+urgency, the calendar, macro, IV, live **web-search research** (§9), and the
+deterministic price read below, which rides its prompt as *context, not the
+answer*. `buildTopPicks` resolves the gate as: **hard risk vetoes bind
+regardless** (the top-guard's HARD band — a parabolic stretch or blow-off
+RSI — and the event defer are risk controls, not judgment calls — an AI
+buy-now can never bless a parabola or an IV-crush entry); otherwise the AI
+verdict decides (it can hold back a price-ready name — `wait-ai`,
+`rosterMeta.aiEntryHeldBack` — or take a soft dip-trigger or **soft-extended**
+name now — `rosterMeta.aiEntryPromoted`); a missing verdict (keyless/offline,
+legacy cache, past the grader cap) falls back to the deterministic read —
+never a fabricated buy. The final call is overlaid onto `entry` so the card
+chip, sizing haircut, enrolled cohort, and gate always agree, and the
+deterministic entry state is part of the thesis cache signature so the
+verdict re-reads when the entry picture changes.
 
 The deterministic read itself is **multi-factor** — it weighs the whole setup
 instead of only handing out a pullback price:
@@ -144,16 +146,28 @@ instead of only handing out a pullback price:
    reads buy-now; and a name on the **wrong side of its own 20D SMA** always
    waits for the reclaim (`wait-reclaim`) — long premium bought against
    the trend bleeds theta while the "turn" fails to come.
-2. **The TOP-GUARD (2026-07-10 — never buy the top / short the hole):** price
+2. **The EXTENSION BANDS (2026-07-10, reworked same day — never buy the top /
+   short the hole, but momentum-vs-chase is a judgment call):** price
    stretched more than `PICKS_ENTRY_EXTENDED_DIST` (4%) past the 20D in the
-   trade's direction, **or** RSI already at the chase extreme
-   (`PICKS_TIMING_CHASE_RSI`, 72 for a call / 28 for a put), is **never a
-   buy-now** — not on a `go` timing state (whose volume-confirm path can bless
-   a moderately extended name), not on a maxed readiness checklist (which
-   previously let a heavily-confirmed breakout override the extension
-   penalty). The trade queues behind a `wait-pullback` trigger toward the 20D
-   (`basis: "top-guard"`). Because actionable membership requires `entry.now`
-   (§9a gate 3), this is what keeps "buy it now" from ever meaning "chase it".
+   trade's direction, **or** RSI in the chase zone (`PICKS_TIMING_CHASE_RSI`,
+   72 for a call / 28 for a put), never reads a **deterministic** buy-now —
+   not on a `go` timing state (whose volume-confirm path can bless a
+   moderately extended name), not on a maxed readiness checklist. The trade
+   queues behind a `wait-pullback` trigger. But the band is **split in two**:
+   the **SOFT band** (4–15% / RSI 72–80, `basis: "extended"`) may be
+   **overridden by the AI final grader's `entryVerdict`** — a strong-momentum
+   name with a live catalyst can be a legitimate buy while extended, and the
+   original hard 4% veto proved self-defeating (it perpetually locked out the
+   engine's highest-momentum names — precisely the ones that grade best —
+   behind 20D pullback targets 10–15% below spot that a trending name never
+   fills, so the actionable list ran empty). Only the **HARD band**
+   (`PICKS_ENTRY_EXTENDED_HARD` >15% / `PICKS_ENTRY_CHASE_RSI_HARD` RSI ≥80 —
+   a genuine parabola / blow-off, `basis: "top-guard"`) stays a hard veto no
+   verdict can bless. Either way the wait **trigger is reachable**: a
+   ~1.5×ATR dip (`PICKS_ENTRY_PULLBACK_ATR_MULT`, clamped 2–5%), floored at
+   the 20D when that is nearer — never the raw 20D when it sits far below.
+   Because actionable membership requires `entry.now` (§9a gate 3), the hard
+   band is what keeps "buy it now" from ever meaning "chase a parabola".
 3. A confirmed **`go`** from the timing gate is a **buy-now** (once the
    top-guard clears).
 4. Otherwise a weighted **entry-readiness checklist** decides: momentum
@@ -358,8 +372,10 @@ skips spreads — its single-leg model would mislead.)
 2. **Drop names with an open tracked position** (re-entry suppression).
 3. **Drop `avoid`-timed names.** (Steps 1–3 are the **DATA GATE** — they decide
    which names are *eligible*; the AI then grades only the **top
-   `PICKS_MAX_AI_THESES` (14)** of them, ranked by conviction. The rest ship a
-   deterministic-only card.)
+   `PICKS_MAX_AI_THESES` (= `PICKS_COUNT`, 10)** of them, ranked by
+   deterministic conviction — the AI factor is applied ONLY to the
+   deterministic top 10 (owner directive). The rest ship a deterministic-only
+   card.)
 4. **AI veto** — the AI final grade is `reject` (the thesis doesn't hold up even
    though the data cleared): drop the name (`rosterMeta.aiVetoed`).
 5. **Require a tradeable contract** (else drop).
@@ -375,9 +391,12 @@ skips spreads — its single-leg model would mislead.)
    it are suppressed — only a strong-tier, `go`-timed call earns a reprieve. **Puts
    are unaffected** (a falling factor is fine to be short). Ships
    `rosterMeta.factorTrend` + `factorTrendGated`; off via `PICKS_FACTOR_TREND_GATE=0`.
-8. **Rank by the AI final-grade score** (0–100; falls back to deterministic
-   conviction when there's no AI grade — keyless/offline), ship up to 10. The rank
-   order also governs which names survive the caps in steps 5–7.
+8. **Rank by deterministic conviction** (|total|, ties on signed total then
+   symbol — the same order that picked the grader's top 10), ship up to 10. The
+   rank order also governs which names survive the caps in steps 5–7. The AI's
+   0–100 `score` does NOT rank (owner directive: deterministic-first) — it ships
+   on the card as the grader's confidence; the AI's levers are the grade tier
+   (classification), the `reject` veto, and the entry verdict.
 
 **Sizing** (`applyPickSizing`): risk-based and conviction-tilted, normalized to a
 gross target that **ramps with roster size** (a 1–2 name roster holds more cash)
@@ -536,20 +555,35 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   semi reads long yields + the dollar; an energy name reads crude), explicitly
   cross-examining whether the FOR votes tell one coherent story and whether the
   AGAINST votes break it. It is generated
-  for the **top `PICKS_MAX_AI_THESES` (default 14) names that cleared the DATA GATE**
+  for the **top `PICKS_MAX_AI_THESES` (= `PICKS_COUNT`, 10) names that cleared the DATA GATE**
   — ranked by deterministic conviction (the bar + the cheap re-entry / avoid-timing
-  screens) so the grader spends tokens only on names that can realistically make the
-  actionable roster; lower-conviction survivors ship deterministic-only. From there
+  screens): the AI factor is applied ONLY to the deterministic top 10 (owner
+  directive) — there is deliberately no bench below the cut, so an AI reject/wait
+  shrinks the roster honestly instead of backfilling from lower-conviction names;
+  below-cut survivors ship deterministic-only. From there
   the AI is the **FINAL
   GRADER**: alongside the narrative it returns a final `grade`
   (`strong`/`moderate`/`weak`/`reject`) + a 0–100 `score` + a `gradeReason`, **and
   the final ENTRY CALL** — `entryVerdict` (`buy-now`/`wait`) + `entryReason`, the
   is-now-the-time judgment that resolves §9a's entry gate (bounded by the hard
   risk vetoes; deterministic fallback when absent). That
-  grade is **authoritative** — it sets the execution matrix (§9a), ranks the roster
-  by score, and a `reject` **vetoes** a name that cleared the data screen but whose
-  thesis doesn't hold up. The deterministic scaffolding remains the keyless/offline
-  fallback: the
+  grade is **authoritative for whether to ACT** — it sets the execution matrix
+  (§9a) and a `reject` **vetoes** a name that cleared the data screen but whose
+  thesis doesn't hold up; the roster ORDER stays deterministic (the `score` is
+  the grader's displayed confidence, not a ranker). **The grader is web-search-grounded (2026-07-10, owner
+  directive)**: each cache-miss name first gets ONE Google-Search-grounded research
+  call (`fetchThesisWebResearch` — fresh news, dated catalysts, analyst actions,
+  anything contradicting the direction, as dated bullet facts) whose digest rides
+  the grader prompt as a `WEB RESEARCH` section, so the final grade + entry call
+  weigh live news the baked Yahoo headlines miss. It is a **two-step** because the
+  Gemini API rejects `googleSearch` + a forced `responseSchema` in one call; the
+  research step failing degrades gracefully (the grader runs on baked data alone),
+  `AI_THESIS_SEARCH=0` disables it, and the grounding **sources** ride the thesis
+  payload (`ai.webResearch.sources`) for audit. The grader runs on the capable
+  tier (`AI_THESIS_MODEL`, default **full `gemini-3.5-flash`** with a real
+  thinking budget — `AI_THESIS_THINK`, default 1024) since it grades ≤14
+  names/build and its judgment is the product. The deterministic scaffolding
+  remains the keyless/offline fallback: the
   **`marketRead`** (`buildMarketRead`) — which the AI read **replaces** when present
   and otherwise falls back to a **`MACRO_PROFILES`** sensitivity table that maps
   every name in the universe (`macroKindOf`) to one of ~30 fine-grained kinds, each
@@ -570,9 +604,11 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   gracefully without `GEMINI_API_KEY` (the deterministic `marketRead` + card stand
   alone) and is cached per `symbol:side` in `pick-thesis-cache.json` on a signature
   that turns over with the grade, the drivers, the relevant macro axes, the news
-  take, the IV bucket, and the deterministic entry state (so the entry verdict
-  re-reads when the entry picture changes) (read-before-wipe / write-after,
-  **not** written by the offline `regen-picks`). The browser renders a **scannable head** (the AI summary
+  take, the IV bucket, the deterministic entry state (so the entry verdict
+  re-reads when the entry picture changes), **and the ET date** — the grader is
+  web-grounded, so a cached verdict never outlives the trading day its research
+  ran on (read-before-wipe / write-after, **not** written by the offline
+  `regen-picks`). The browser renders a **scannable head** (the AI summary
   + classification badge + strategy chip *or* "no recommendation" note + conviction
   + the AI confidence + disclosure) and a collapsed **"Expand for full reasoning"**
   with the detailed thesis + the structured sections + the quality checklist. A
@@ -633,8 +669,9 @@ to the trades the engine truly stands behind):
    shown contract *now*. `buildTopPicks` resolves `entryConfirmed` as the
    **AI final grader's `entryVerdict`** when one exists (§3 — the buy/wait
    call is a judgment over the whole picture, not a bare price trigger),
-   bounded by the hard risk vetoes (top-guard + event defer) and falling back
-   to the deterministic price read when there's no verdict; any final wait
+   bounded by the hard risk vetoes (the HARD top-guard band + event defer;
+   the SOFT extension band is deliberately the grader's judgment zone, §3)
+   and falling back to the deterministic price read when there's no verdict; any final wait
    demotes the name to the watch group as classification **`waitEntry`**
    ("Wait for entry" badge, its trigger price — or the grader's reason — on
    the card, counted in `rosterMeta.entryDemoted`). The
@@ -643,8 +680,9 @@ to the trades the engine truly stands behind):
    deliberately means the actionable list can be **empty on many builds**
    (everything strong is stretched, event-blocked, or waiting on a reclaim) —
    that IS the signal: nothing is a buy right now, cash is the position.
-   Combined with the §3 top-guard, an actionable pick can never be an
-   extended/overbought chase. (History: a buy-now **enrollment** gate shipped
+   Combined with the §3 hard top-guard band, an actionable pick can never be
+   a parabolic/blow-off chase (a *moderately* extended momentum name can ship
+   — but only on the grader's explicit buy-now judgment). (History: a buy-now **enrollment** gate shipped
    2026-07-07 and was retired 2026-07-10 for starving the record; this gate is
    different — it moves wait-entry names to the visible watch queue instead of
    silently not scoring them, and it exists because the actionable list's job
@@ -679,9 +717,11 @@ All in the `// TOP PICKS ENGINE` constant block at the top of the engine:
 | `PICKS_THESIS_STRONG_SCORE` / `_MOD_SCORE` | 5 / 3 | thesis-quality bars (strong / moderate tier) |
 | `PICKS_EDGE_GATE_SOFT` / `_HARD` / `_MIN_N` | −8 / −15 / 12 | edge-governed bar: raise the actionable cut toward Strong when the realized option edge is this negative (after this many decided closes) |
 | `PICKS_COUNT` / `PICKS_WATCH_COUNT` | 10 / 6 | max Actionable / max Ideas·Watch roster size |
-| `PICKS_MAX_AI_THESES` | 14 | only the best N data-gate survivors (by conviction) get an AI thesis + final grade; the rest ship deterministic-only. 14 > `PICKS_COUNT` because actionable now REQUIRES an AI grade — the grader needs a bench beyond the 10 roster slots so rejects/weak grades don't leave slots unfillable |
+| `PICKS_MAX_AI_THESES` | = `PICKS_COUNT` (10) | only the top N data-gate survivors BY DETERMINISTIC CONVICTION get the AI thesis + final grade (the AI factor applies ONLY to the deterministic top 10 — owner directive); the rest ship deterministic-only watch cards. No bench below the cut: an AI reject/wait honestly shrinks the roster instead of backfilling |
 | `PICKS_ENTRY_WAIT_SIZE_MULT` | 0.75 | size haircut on a contract-bearing pick whose entry signal is still a wait/dip trigger (`entry.now === false`). Since the 2026-07-10 entry gate an actionable pick is always entry-confirmed, so this only shapes the display sizing of watch ideas |
-| `PICKS_ENTRY_EXTENDED_DIST` / `PICKS_TIMING_CHASE_RSI` | 4 / 72 | the §3 top-guard: stretched > 4% past the 20D in the trade's direction, or RSI ≥ 72 (≤ 28 for a put), is never a buy-now |
+| `PICKS_ENTRY_EXTENDED_DIST` / `PICKS_TIMING_CHASE_RSI` | 4 / 72 | the §3 SOFT extension band: stretched > 4% past the 20D in the trade's direction, or RSI ≥ 72 (≤ 28 for a put), never reads a *deterministic* buy-now — the AI final grader's `entryVerdict` may take it |
+| `PICKS_ENTRY_EXTENDED_HARD` / `PICKS_ENTRY_CHASE_RSI_HARD` | 15 / 80 | the §3 HARD top-guard band: a parabolic >15% stretch or RSI ≥ 80 (≤ 20 for a put) is never a buy-now — no AI verdict can bless it |
+| `PICKS_ENTRY_PULLBACK_ATR_MULT` | 1.5 | wait-pullback trigger = a ~1.5×ATR dip (clamped 2–5%), floored at the 20D when nearer — reachable, never the raw 20D far below spot |
 | `PICKS_MAX_PER_SECTOR` | 3 | correlation cap |
 | `PICKS_MAX_PER_FACTOR` | 5 | tech/AI-complex correlation cap |
 | `PICKS_FACTOR_WEAK_SHARE` / `PICKS_FACTOR_WEAK_RET5` | 0.6 / −3 | factor-trend gate: suppress new calls in a rolling-over factor |
