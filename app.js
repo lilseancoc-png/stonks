@@ -17758,11 +17758,29 @@
       ? ' <span class="acc-strat-fb" title="The engine wanted a ' + escapeHtml(strat.requested || 'different') + ' structure but no liquid version existed, so it fell back to this one.">fallback</span>'
       : '';
     var reasonHtml = (strat && strat.reason) ? '<div class="acc-strat-reason">' + escapeHtml(strat.reason) + '</div>' : '';
+    // The thesis frozen at entry — WHY the engine executed this pick. Entries
+    // enrolled after the snapshot gained the narrative carry summary/catalyst/
+    // AI grade; older entries still carry the driver labels, so they render the
+    // drivers line and just drop the missing rows.
+    var thesisHtml = '';
+    var th = e.thesis || null;
+    if (th){
+      var thInner = '';
+      if (th.summary) thInner += '<p class="acc-strat-thesis-sum">' + escapeHtml(th.summary) + '</p>';
+      var thRows = '';
+      if (th.catalyst) thRows += '<div class="acc-strat-row"><span class="acc-strat-k">Catalyst</span><span class="acc-strat-v acc-strat-v-prose">' + escapeHtml(th.catalyst) + '</span></div>';
+      var dl = (th.works || []).map(function(w){ return w && w.label; }).filter(Boolean);
+      if (dl.length) thRows += '<div class="acc-strat-row"><span class="acc-strat-k">Supporting drivers</span><span class="acc-strat-v acc-strat-v-prose">' + escapeHtml(dl.join(' · ')) + '</span></div>';
+      if (th.aiGrade) thRows += '<div class="acc-strat-row"><span class="acc-strat-k">AI final grade</span><span class="acc-strat-v" title="The AI final grader\'s verdict on the thesis when the pick shipped.">' + escapeHtml(th.aiGrade) + (th.aiConfidence ? ' · ' + escapeHtml(th.aiConfidence) + ' confidence' : '') + '</span></div>';
+      if (thRows) thInner += '<div class="acc-strat-rows">' + thRows + '</div>';
+      if (thInner) thesisHtml = '<div class="acc-strat-thesis"><div class="acc-strat-sec">The thesis at entry</div>' + thInner + '</div>';
+    }
     return '<details class="acc-strategy">' +
-      '<summary class="acc-strat-summary">Strategy &amp; entry details</summary>' +
+      '<summary class="acc-strat-summary">Strategy, thesis &amp; entry details</summary>' +
       '<div class="acc-strat-body">' +
         '<div class="acc-strat-name">' + escapeHtml(stratName) + fbTag + '</div>' +
         reasonHtml +
+        thesisHtml +
         '<div class="acc-strat-rows">' + rows + '</div>' +
       '</div>' +
     '</details>';

@@ -11184,6 +11184,19 @@ body.tape-axm-open { overflow: hidden; }
   font: 600 9.5px/1 var(--font-sans); text-transform: uppercase; letter-spacing: .05em;
 }
 .acc-strat-reason { margin-top: 3px; color: var(--muted-strong); font: 400 12px/1.45 var(--font-sans); }
+.acc-strat-thesis {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px dashed color-mix(in srgb, var(--border) 70%, transparent);
+}
+.acc-strat-sec {
+  color: var(--muted);
+  font: 600 10px/1.6 var(--font-sans);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.acc-strat-thesis-sum { margin: 3px 0 0; color: var(--text); font: 400 12.5px/1.5 var(--font-sans); }
+.acc-strat-v-prose { font-family: var(--font-sans); font-variant-numeric: normal; }
 .acc-strat-rows { margin-top: 8px; display: grid; gap: 4px; }
 .acc-strat-row {
   display: grid;

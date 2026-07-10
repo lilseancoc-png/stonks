@@ -13788,7 +13788,9 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       sector: SECTORS[p.symbol] || p.sector || null, entryRegime: picksPayload?.rosterMeta?.regimeBand || null,
       // Thesis snapshot at entry — the supporting drivers + invalidation triggers
       // + the ATR stop level, frozen so later builds can score whether the thesis
-      // is playing out (see thesisStatus below). Compact (keys+labels only).
+      // is playing out (see thesisStatus below), PLUS the narrative (summary /
+      // catalyst / AI final grade) so the Track Record's "Strategy & entry"
+      // disclosure can show WHY the pick was executed, exactly as argued at entry.
       thesis: p.thesisCard ? {
         direction: p.thesisCard.direction,
         works: (p.thesisCard.works || []).map((w) => ({ key: w.key, label: w.label })),
@@ -13796,6 +13798,12 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
         driverKeys: (p.thesisCard.works || []).map((w) => w.key),
         stopSpot: p.exitPlan?.cut?.price ?? null,
         entryScore: p.total,
+        // The why-this-trade narrative, AI-preferred (the final grader's own
+        // words) with the deterministic thesis as the keyless fallback.
+        summary: p.thesisCard.ai?.summary || p.thesisCard.summary || null,
+        catalyst: p.thesisCard.ai?.catalyst || null,
+        aiGrade: p.thesisCard.ai?.grade || null,
+        aiConfidence: p.thesisCard.ai?.confidence || null,
       } : null,
       optionPnlPct: 0, mfePct: 0, maePct: 0, optHiPct: 0, optLoPct: 0,
     });
