@@ -94,7 +94,7 @@ const PRICEHX_MAX_POINTS = 12;
 // subsequent hourly scans don't re-call the model. Cache entries are
 // pruned when the contract's expiration date passes.
 const FLOW_EXPLANATIONS_FILE = "flow-explanations.json";
-const AI_FLOW_MODEL = process.env.AI_FLOW_MODEL || "gemini-2.5-flash-lite";
+const AI_FLOW_MODEL = process.env.AI_FLOW_MODEL || "gemini-3.1-flash-lite";
 // We expect ≤20 NEW anomalies per scan (re-flags hit the per-contract
 // flow-explanations cache and cost no call). These AI calls are NOT gated by
 // build.mjs's AI_RPM pacer — only by this cap — and Flash-Lite peaks at just

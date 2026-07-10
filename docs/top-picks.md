@@ -113,9 +113,11 @@ thresholds tighten ~25%. An `avoid` name is gated out of the roster entirely.
 
 ### Entry signal (`computeEntrySignal`) — buy now vs a trigger price
 
-The per-pick **"✅ Buy now / ⏳ Wait $X"** call (and the track-record enrollment
-gate, §9). The decision is **multi-factor** — it weighs the whole setup instead
-of only handing out a pullback price:
+The per-pick **"✅ Buy now / ⏳ Wait $X"** call (and the track-record entry
+**cohort**, §9 — every actionable pick enrolls; the signal is recorded as
+`go`/`wait` and priced into size via `PICKS_ENTRY_WAIT_SIZE_MULT`, not used as
+an enrollment gate). The decision is **multi-factor** — it weighs the whole
+setup instead of only handing out a pullback price:
 
 1. **Hard vetoes:** an imminent earnings/macro event is never a buy
    (`wait-event` — no price fixes an IV crush); an `avoid` timing state never
@@ -321,7 +323,7 @@ skips spreads — its single-leg model would mislead.)
 2. **Drop names with an open tracked position** (re-entry suppression).
 3. **Drop `avoid`-timed names.** (Steps 1–3 are the **DATA GATE** — they decide
    which names are *eligible*; the AI then grades only the **top
-   `PICKS_MAX_AI_THESES` (10)** of them, ranked by conviction. The rest ship a
+   `PICKS_MAX_AI_THESES` (14)** of them, ranked by conviction. The rest ship a
    deterministic-only card.)
 4. **AI veto** — the AI final grade is `reject` (the thesis doesn't hold up even
    though the data cleared): drop the name (`rosterMeta.aiVetoed`).
@@ -401,16 +403,18 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
 
 ## 9. The feedback loop (accuracy / history / roster)
 
-- `updatePicksAccuracyFile` enrolls every shipped **actionable** pick (`group ===
-  "actionable"` — Strong grade + Strong thesis; lower-conviction watch ideas and
-  tactical-tape puts are excluded, so the scorecard reflects only the trades the
-  engine actually recommends) **whose entry signal is a clean BUY NOW**
-  (`entry.signal === "buy-now"` from `computeEntrySignal` — a confirmed `go`
-  from the timing gate **or** the multi-factor entry-readiness checklist
-  clearing its bar, §3) — a wait-state pick (wait-reclaim / wait-pullback /
-  wait-event / buy-dip) is advice to hold fire, not a filled position, so it
-  stays on the roster un-enrolled and enters the record on the first later bake
-  where its trigger has hit and the recomputed signal flips to buy-now —
+- `updatePicksAccuracyFile` enrolls **every** shipped **actionable** pick
+  (`group === "actionable"`; lower-conviction watch ideas and tactical-tape
+  puts are excluded, so the scorecard reflects only the trades the engine
+  actually recommends). The entry signal is **recorded, not gated on**: each
+  enrolled entry freezes `cohort` (`go` = a clean buy-now from
+  `computeEntrySignal`, `wait` = a trigger-state entry), `entrySignal`, and the
+  readiness score, so the go-vs-wait A/B in `diagnose-pick-losses.mjs` can
+  adjudicate — on **resolved** trades — whether buy-now endorsement earns its
+  keep. (The 2026-07-07 buy-now **hard gate** was retired 2026-07-10: it scored
+  only clean-entry picks but starved the record — 7 enrollments in 3 days, zero
+  closes — while enforcing an untested belief; entry quality is now priced into
+  SIZE via `PICKS_ENTRY_WAIT_SIZE_MULT` instead of membership.) Enrollment is
   dedup per `symbol:side`, **capped at
   `PICKS_MAX_OPEN_POSITIONS` (20) concurrently-open positions** — each build ships
   ≤10 picks, but re-entry suppression surfaces NEW names every build while the
@@ -450,7 +454,9 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   `PICKS_ACCURACY_RESET_EPOCH` in `build.mjs`: `readPicksAccuracyState` discards
   a stored record whose `resetEpoch` stamp doesn't match, so the first bake
   after the bump starts a fresh record (open book + closed history + stats;
-  used 2026-07-07 when the BUY-NOW enrollment gate landed). **The Track Record tab shows only this contract (option)
+  used 2026-07-07 when the BUY-NOW enrollment gate landed, and again 2026-07-10
+  when that gate was replaced by enroll-all-actionable + the tightened
+  actionable definition). **The Track Record tab shows only this contract (option)
   scorecard** — the win/loss already resolves on the modeled option P&L, and the
   stock-move chips (stock expectancy, vs-SPY, stock peak/dip) were dropped; the
   generic stock win-rate chip remains only as a fallback for legacy pre-snapshot data.
@@ -482,7 +488,7 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   macro-kind sensitivity, and the IV regime — and DECIDES which factors matter (so a
   consumer-discretionary name reads rates + inflation via consumer spending; a
   semi reads long yields + the dollar; an energy name reads crude). It is generated
-  for the **top `PICKS_MAX_AI_THESES` (default 10) names that cleared the DATA GATE**
+  for the **top `PICKS_MAX_AI_THESES` (default 14) names that cleared the DATA GATE**
   — ranked by deterministic conviction (the bar + the cheap re-entry / avoid-timing
   screens) so the grader spends tokens only on names that can realistically make the
   actionable roster; lower-conviction survivors ship deterministic-only. From there
@@ -553,6 +559,24 @@ in `classifyPick` to set `classification` + `group`:
 | **Moderate (4–6)** | `moderate` — **Moderate conviction**, strategy shown | `moderate` — watch idea, strategy | `idea` — grade-only, **no strategy** |
 
 `group = "actionable"` only for the top-left cell; everything else is `"watch"`.
+The actionable cell additionally has to clear **two hard gates** (2026-07-10 —
+the actionable group IS the enrolled track record now, so its membership is held
+to the trades the engine truly stands behind):
+
+1. **Direction confluence** — `pillarsAligned ≥ 2` (at least two of the four
+   pillars have a signal voting the trade's side). Direction is what kills
+   (lesson #1); a Strong grade whose in-direction evidence lives in ONE pillar
+   is a single-story trade. The deterministic strong tier already enforces this
+   via its alignment gate, but the AI final grade *replaces* the deterministic
+   tier — this keeps confluence a data-side invariant whoever graded. Demoted
+   names land in `rosterMeta.confluenceDemoted`.
+2. **An AI final grade is required when the grader is live** — an actionable
+   pick always carries its AI thesis + grade. A name the grader missed (API
+   flake, beyond the `PICKS_MAX_AI_THESES` cut) demotes to watch
+   (`rosterMeta.aiUngraded`) instead of shipping ungraded. Keyless/offline
+   builds (and a total AI outage — an empty thesis map) keep the deterministic
+   tier as the fallback grade, so the site never blanks.
+
 `buildTopPicks` partitions the roster into the two groups (capped at `PICKS_COUNT`
 / `PICKS_WATCH_COUNT`), and the Top Picks tab renders them as **Actionable top
 picks** vs **Ideas · Watch**. A `weak`-thesis pick is shown (grade + thesis + the
@@ -581,7 +605,8 @@ All in the `// TOP PICKS ENGINE` constant block at the top of the engine:
 | `PICKS_THESIS_STRONG_SCORE` / `_MOD_SCORE` | 5 / 3 | thesis-quality bars (strong / moderate tier) |
 | `PICKS_EDGE_GATE_SOFT` / `_HARD` / `_MIN_N` | −8 / −15 / 12 | edge-governed bar: raise the actionable cut toward Strong when the realized option edge is this negative (after this many decided closes) |
 | `PICKS_COUNT` / `PICKS_WATCH_COUNT` | 10 / 6 | max Actionable / max Ideas·Watch roster size |
-| `PICKS_MAX_AI_THESES` | 10 | only the best N data-gate survivors (by conviction) get an AI thesis + final grade; the rest ship deterministic-only |
+| `PICKS_MAX_AI_THESES` | 14 | only the best N data-gate survivors (by conviction) get an AI thesis + final grade; the rest ship deterministic-only. 14 > `PICKS_COUNT` because actionable now REQUIRES an AI grade — the grader needs a bench beyond the 10 roster slots so rejects/weak grades don't leave slots unfillable |
+| `PICKS_ENTRY_WAIT_SIZE_MULT` | 0.75 | size haircut on a pick whose entry signal is still a wait/dip trigger (`entry.now === false`) — entry quality is priced into size, not enrollment |
 | `PICKS_MAX_PER_SECTOR` | 3 | correlation cap |
 | `PICKS_MAX_PER_FACTOR` | 5 | tech/AI-complex correlation cap |
 | `PICKS_FACTOR_WEAK_SHARE` / `PICKS_FACTOR_WEAK_RET5` | 0.6 / −3 | factor-trend gate: suppress new calls in a rolling-over factor |

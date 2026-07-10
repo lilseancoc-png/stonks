@@ -37,7 +37,7 @@ const HEATMAP_FILE = "heatmap.json";
 // Flash-Lite is plenty for a ~12-sector summary and dirt cheap on free tier.
 // Override via AI_EOD_MODEL env. Without GEMINI_API_KEY the EOD step is
 // silently skipped — the heatmap still renders, just without the recap.
-const AI_EOD_MODEL = process.env.AI_EOD_MODEL || "gemini-2.5-flash-lite";
+const AI_EOD_MODEL = process.env.AI_EOD_MODEL || "gemini-3.1-flash-lite";
 const AI_EOD_MAX_ATTEMPTS = 4;
 const AI_EOD_RETRY_BACKOFF_MS = [3000, 8000, 20000];
 // Only generate after the 16:00 ET closing bell — earlier refreshes are
