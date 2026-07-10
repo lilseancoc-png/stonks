@@ -11864,7 +11864,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const edgeGate = opts.priorClosed ? edgeGatedConviction(opts.priorClosed) : { bar: PICKS_MIN_CONVICTION, edge: null, n: 0 };
   const minConv = edgeGate.bar;
 
-  const meta = { tradeCut: minConv, strongCut: PICKS_TIER_STRONG, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], confluenceDemoted: [], aiUngraded: [], entryDemoted: [], reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
+  const meta = { tradeCut: minConv, strongCut: PICKS_TIER_STRONG, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], confluenceDemoted: [], aiUngraded: [], entryDemoted: [], aiEntryPromoted: [], aiEntryHeldBack: [], reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
 
   // Candidate set: actionable grade, OR a tactical put in a confirmed risk-off tape.
   const candidates = [];
@@ -11924,14 +11924,48 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // keyless/offline fallback (and still computed for the card's checklist + score).
     const thesisQuality = applyAiThesisGrade(assessThesisQuality(r, side, marketRead, works), aiThesis);
     // ENTRY GATE: the actionable group is the "open the broker and buy it now"
-    // list, so membership requires a confirmed buy-now entry signal. Computed
-    // here (pure — same call buildPickObject used to make) and threaded through
-    // `pre` so the card and the gate can never disagree. A wait/dip/event
-    // trigger demotes the name to the watch queue with its trigger price shown;
-    // the hourly bake re-evaluates, so it promotes itself the build the entry
-    // confirms — no human judgment call in between.
+    // list, so membership requires a confirmed buy-now entry. The FINAL buy/wait
+    // call is the AI final grader's `entryVerdict` (owner directive: it must not
+    // be purely price-deterministic — the grader weighs catalyst urgency, the
+    // calendar, macro, and IV alongside the price read, which rides its prompt
+    // as context). Two bounds on that judgment:
+    //   * HARD RISK VETOES bind regardless of the verdict — the top-guard
+    //     (extended/overbought chase) and the event defer (imminent earnings/
+    //     macro IV crush) are risk controls, not judgment calls. (The `avoid`
+    //     knife state was already roster-gated above.)
+    //   * No verdict (keyless/offline build, legacy cached thesis, a name past
+    //     the grader cap) falls back to the deterministic read — never a
+    //     fabricated buy.
+    // The final call is overlaid onto `entry` (and threaded through `pre`) so
+    // the card, the sizing haircut, the enrolled cohort, and this gate can
+    // never disagree. A wait demotes the name to the watch queue; the hourly
+    // bake re-judges, so it promotes itself the build the entry confirms — no
+    // human judgment call in between.
     const entry = computeEntrySignal(side, pnum(r.data.spot), r.data, r.timing, { total: r.total });
-    const { classification, group, demotion } = classifyPick(r.total, thesisQuality.tier, tactical, { pillarsAligned: thesisQuality.pillarsAligned, aiGraded: thesisQuality.aiGraded, aiActive, entryConfirmed: entry.now === true });
+    const hardWait = entry.now !== true && (entry.basis === "top-guard" || entry.signal === "wait-event");
+    const aiVerdict = (!tactical && aiThesis && (aiThesis.entryVerdict === "buy-now" || aiThesis.entryVerdict === "wait")) ? aiThesis.entryVerdict : null;
+    const entryConfirmed = hardWait ? false : aiVerdict ? aiVerdict === "buy-now" : entry.now === true;
+    if (aiVerdict) {
+      entry.ai = { verdict: aiVerdict, reason: aiThesis.entryReason || null, overrode: !hardWait && (aiVerdict === "buy-now") !== (entry.now === true) };
+      if (entry.ai.overrode) {
+        if (aiVerdict === "buy-now") {
+          // The grader judges the entry ready even though the price read wanted a
+          // trigger — surface the final call (the trigger becomes "here, now").
+          meta.aiEntryPromoted.push(r.sym);
+          entry.now = true; entry.signal = "buy-now"; entry.basis = "ai-final-grader";
+          entry.trigger = r2(pnum(r.data.spot)); entry.zone = null;
+          entry.headline = `Buy now — ${aiThesis.entryReason || "the final grader judges the entry ready"}`;
+        } else {
+          // The grader holds a price-ready name back (event/catalyst/macro
+          // judgment). No price trigger — the next builds re-judge it.
+          meta.aiEntryHeldBack.push(r.sym);
+          entry.now = false; entry.signal = "wait-ai"; entry.basis = "ai-final-grader";
+          entry.trigger = null; entry.zone = null;
+          entry.headline = `Wait — ${aiThesis.entryReason || "the final grader says this isn't the moment to enter"}`;
+        }
+      }
+    }
+    const { classification, group, demotion } = classifyPick(r.total, thesisQuality.tier, tactical, { pillarsAligned: thesisQuality.pillarsAligned, aiGraded: thesisQuality.aiGraded, aiActive, entryConfirmed });
     if (demotion === "confluence") meta.confluenceDemoted.push(r.sym);
     else if (demotion === "ai-ungraded") meta.aiUngraded.push(r.sym);
     else if (demotion === "entry-wait") meta.entryDemoted.push(r.sym);
@@ -12653,11 +12687,14 @@ export function applyAiThesisGrade(detQuality, aiThesis) {
 //   * entryConfirmed === false → demote (2026-07-10, owner directive) — an
 //     actionable pick must be buyable RIGHT NOW. "Actionable" is the product's
 //     no-thinking-required promise: open the broker, buy the shown contract.
-//     A name whose entry signal is still a wait/dip/event trigger — however
-//     strong the grade and thesis — is a "wait for entry" WATCH idea until
-//     the trigger fills or a later (hourly) build confirms the entry. Only an
-//     explicit false demotes; legacy/keyless callers that omit the gate keep
-//     the old behavior.
+//     The caller (buildTopPicks) resolves entryConfirmed as the AI final
+//     grader's entryVerdict when one exists (bounded by the hard risk vetoes:
+//     top-guard + event defer), falling back to the deterministic price read —
+//     so the buy/wait call is a judgment over the whole picture, not a bare
+//     price trigger. A waiting name — however strong the grade and thesis —
+//     is a "wait for entry" WATCH idea until a later (hourly) build confirms
+//     the entry. Only an explicit false demotes; legacy/keyless callers that
+//     omit the gate keep the old behavior.
 // `demotion` names which gate demoted an otherwise-actionable pick
 // (null | "confluence" | "ai-ungraded" | "entry-wait") for rosterMeta
 // instrumentation.
@@ -12954,7 +12991,7 @@ export async function readPriorPicks() {
 const AI_THESIS_MODEL = process.env.AI_THESIS_MODEL || "gemini-3.1-flash-lite";
 
 // Bump when the schema / prompt changes so every cached thesis re-reads once.
-const THESIS_PROMPT_VERSION = "v4";
+const THESIS_PROMPT_VERSION = "v5";
 
 const THESIS_SCHEMA = {
   type: "object",
@@ -12971,6 +13008,13 @@ const THESIS_SCHEMA = {
     invalidation: { type: "array", items: { type: "string" } },
     strategyRationale: { type: "string" },
     confidence: { type: "string", enum: ["high", "moderate", "low"] },
+    // The FINAL ENTRY CALL — the grader's judgment on whether NOW is the time
+    // to open the trade (2026-07-10, owner directive: the buy/wait call must
+    // not be purely price-deterministic). The deterministic entry read rides
+    // the prompt as context; hard risk vetoes (top-guard / event defer) are
+    // enforced outside the model in buildTopPicks.
+    entryVerdict: { type: "string", enum: ["buy-now", "wait"] },
+    entryReason: { type: "string" },
     // The FINAL GRADE — the AI is the final grader once a name clears the data
     // screen. `grade` drives the execution matrix (and `reject` vetoes the name);
     // `score` (0–100 conviction) ranks the roster; `gradeReason` is the one-liner.
@@ -12978,8 +13022,8 @@ const THESIS_SCHEMA = {
     score: { type: "number" },
     gradeReason: { type: "string" },
   },
-  required: ["summary", "setup", "catalyst", "outlook", "macroSupport", "invalidation", "grade", "score"],
-  propertyOrdering: ["summary", "setup", "catalyst", "confirmation", "outlook", "drivers", "macroSupport", "macroRead", "macroDrivers", "invalidation", "strategyRationale", "confidence", "grade", "score", "gradeReason"],
+  required: ["summary", "setup", "catalyst", "outlook", "macroSupport", "invalidation", "entryVerdict", "grade", "score"],
+  propertyOrdering: ["summary", "setup", "catalyst", "confirmation", "outlook", "drivers", "macroSupport", "macroRead", "macroDrivers", "invalidation", "strategyRationale", "confidence", "entryVerdict", "entryReason", "grade", "score", "gradeReason"],
 };
 
 // Reference theses + the "what makes a good thesis" framework, appended to the
@@ -12998,6 +13042,7 @@ const THESIS_SYSTEM =
   "You are a senior options strategist writing a detailed, ticker-specific investment THESIS for a 1–2 week directional options trade. A quantitative engine has ALREADY graded the name and chosen the direction — do NOT re-decide the direction. Your job is to tell the STORY behind the trade: weave the supplied data into a clear cause-and-effect narrative that explains WHY the grade is high, WHY the edge exists right NOW, what would confirm it, and what would prove it wrong. A high grade alone does not give a trader conviction to hold through noise — a good thesis does, by giving them a reason to enter, a way to monitor whether it's working, and clear exits. " +
   "COMPLEMENT the grade, never just restate it: don't say 'RSI is 28 so it's oversold' — explain the situation that produced that reading and why it resolves in the trade's favour. Weave the actual NUMBERS into the prose (specific price levels, % moves, growth rates, analyst targets, IV percentile, the named headline/catalyst) so the case is concrete and testable, not generic. " +
   "Decide for yourself which of the supplied factors — company fundamentals, news/catalysts, technicals & flow, and the cross-asset MACRO backdrop (interest rates, the dollar, the Fed path, inflation, geopolitics) — are LOAD-BEARING for THIS specific business, and build the story around those; ignore factors that don't move this kind of name. Connect macro to the company causally: a consumer-discretionary name lives on rates + inflation via real consumer spending; a high-multiple grower is long-duration and feels long yields + the dollar; an energy name tracks crude; a homebuilder tracks the Fed path; a gold ETF lives on real yields + the haven bid. " +
+  "THIS IS THE FINAL PASS over everything the system collected. You are handed the engine's FULL evidence table: every scored signal across the four pillars — each marked FOR or AGAINST this trade ('!' = a heavy vote) with its actual reading — plus the technical structure and price levels (SMAs, support/resistance, volume, any confirmed chart pattern, the daily streak), the earnings track record (how the name actually traded its recent prints) and the next print's straddle-implied move, the fundamentals trajectory, any headline-flagged capital event, the IV environment, and the deterministic entry-timing read. Cross-examine it: do the FOR votes tell one coherent story, or is the case a coincidence of unrelated positives? Do the AGAINST votes break the story? Weigh them honestly instead of ignoring them — your grade and your entry call are what actually ship to the subscriber. " +
   "Output fields (each grounded ONLY in the provided data): " +
   "summary = 1–2 sentences stating the core directional thesis and why the edge exists NOW. " +
   "setup = the BACKDROP (2–4 sentences): what has been driving this name/sector, where price and sentiment stand now, and the tension that sets up the trade — the frame for the story, with the concrete numbers woven in. " +
@@ -13010,6 +13055,7 @@ const THESIS_SYSTEM =
   "invalidation = 3–4 SPECIFIC, observable conditions that would prove the thesis wrong (a named driver reversing, a price level breaking, a macro shift, a catalyst disappointing) — never generic 'the stock could fall'. " +
   "strategyRationale = 1–3 sentences justifying the OPTION STRUCTURE from the IV environment: when implied vol is ELEVATED/RICH, premium is expensive so favour SELLING premium on the bias side (a credit spread) or a defined-risk debit spread over a naked long; when IV is CHEAP, favour BUYING premium (a debit spread or naked long); always prefer DEFINED-RISK into an imminent earnings/event. Explain the IV-vs-structure logic the way the example does. " +
   "confidence = your honest read of the thesis strength. " +
+  "ENTRY CALL — you also make the final IS-NOW-THE-TIME-TO-BUY call. entryVerdict = buy-now | wait. The context includes a deterministic price-based entry read (trigger levels, momentum/pullback/volume factors) — treat it as ONE input, not the answer: weigh it together with everything else you see (how fresh and urgent the catalyst is, what's on the calendar, the macro tape, the IV environment, whether the move has already run). buy-now means a subscriber opening the position at the CURRENT price, immediately, is following the plan — say it only when entering right now genuinely beats waiting. wait means there is a better entry to be had (a pullback, a confirming close, an event clearing, a stretched move cooling off) — a strong thesis whose entry isn't ready ships as a watch idea, not a recommendation, so be honest. entryReason = one short, specific sentence: what makes RIGHT NOW the moment (or exactly what to wait for). Hard risk rules are enforced outside your call — an extended/overbought chase, a falling knife, or an imminent earnings IV crush is never a buy-now whatever you answer — so within those bounds, judge freely; don't just echo the deterministic read. " +
   "FINAL GRADE — you are the FINAL GRADER. A quantitative engine pre-screened this name on the raw data (fundamentals, technicals, flow, narrative) and it CLEARED that screen; now YOU decide whether the thesis actually holds together as a trade. " +
   "grade = strong | moderate | weak | reject. " +
   "strong = a clear, multi-factor, testable case with the macro tape NOT fighting it and a concrete catalyst changing now (an Actionable top pick). " +
@@ -13021,14 +13067,11 @@ const THESIS_SYSTEM =
   "Rules: never invent news, events, numbers, or catalysts not in the context. Plain English a retail trader can follow. No hype, no disclaimers, no restating option strikes/Greeks. Be concrete and specific over vague. " +
   THESIS_GOLD_EXAMPLES;
 
-// Pull a driver signal's human display value ("+18%", "raised") for the prompt.
-function thesisDriverValue(r, key) {
-  const found = findDriverSignal(r, key);
-  return found && found.sig && found.sig.value != null ? ` (${String(found.sig.value)})` : "";
-}
 // Assemble the full per-candidate context the AI reasons over. Pure; everything
-// is already on `r`/`r.data` and the macroRegime.
-function buildThesisUserMessage(r, side, macroRegime) {
+// is already on `r`/`r.data` and the macroRegime. Exported for the smoke test —
+// keyless runs never reach it, so without a direct check a runtime error here
+// would only surface in keyed builds as silently-degraded (deterministic) cards.
+export function buildThesisUserMessage(r, side, macroRegime) {
   const bull = side === "call";
   const d = r.data || {};
   const f = d.fundamentals || {};
@@ -13053,11 +13096,34 @@ function buildThesisUserMessage(r, side, macroRegime) {
   if (spot != null && pnum(t.sma?.sma50) != null) pp.push(`${spot >= pnum(t.sma.sma50) ? "above" : "below"} 50D SMA`);
   if (pp.length) L.push(`PRICE: ${pp.join(", ")}.`);
 
+  // FULL EVIDENCE TABLE — the final pass sees EVERY scored signal the engine
+  // collected across the four pillars (2026-07-10, owner directive: everything
+  // gathered rides the final AI pass), each with its display value and whether
+  // it votes FOR or AGAINST this trade — not just the top driver labels.
   const sign = bull ? 1 : -1;
-  const forDrv = (r.drivers || []).filter((x) => x && x.score && Math.sign(x.score) === sign).slice(0, 6);
-  if (forDrv.length) L.push(`SIGNALS DRIVING THE GRADE (in the trade's direction): ${forDrv.map((x) => `${x.label}${thesisDriverValue(r, x.key)}`).join("; ")}.`);
-  const against = (r.drivers || []).filter((x) => x && x.score && Math.sign(x.score) !== sign).slice(0, 3);
-  if (against.length) L.push(`COUNTER-SIGNALS (against the trade — weigh honestly): ${against.map((x) => x.label).join("; ")}.`);
+  const pillarNames = { technicals: "Technicals (trend/momentum)", mechanicals: "Options flow / mechanics", fundamentals: "Fundamentals", narrative: "Narrative / sentiment" };
+  for (const pk of ["technicals", "mechanicals", "fundamentals", "narrative"]) {
+    const pil = r.pillars?.[pk];
+    const rows = (pil && Array.isArray(pil.signals) ? pil.signals : []).filter((s) => s && s.available !== false && s.score);
+    if (!rows.length) continue;
+    const fmtSig = (s) => `${s.label}${s.value != null ? ` (${s.value})` : ""} ${Math.sign(s.score) === sign ? "FOR" : "AGAINST"}${Math.abs(s.score) >= 2 ? "!" : ""}`;
+    L.push(`PILLAR — ${pillarNames[pk]} (score ${pnum(pil.score) >= 0 ? "+" : ""}${pil.score}): ${rows.map(fmtSig).join("; ")}.`);
+  }
+
+  // Technical structure & levels — the concrete map the prose should cite.
+  const struct = [];
+  for (const [lbl, v] of [["20D", t.sma?.sma20], ["50D", t.sma?.sma50], ["100D", t.sma?.sma100]]) {
+    const s = pnum(v);
+    if (s != null && s > 0 && spot != null) struct.push(`${lbl} SMA $${s.toFixed(2)} (spot ${pct((spot / s - 1) * 100)})`);
+  }
+  if (pnum(t.sr?.s20) != null) struct.push(`nearest support ~$${pnum(t.sr.s20).toFixed(2)}`);
+  if (pnum(t.sr?.r20) != null) struct.push(`nearest resistance ~$${pnum(t.sr.r20).toFixed(2)}`);
+  const rvNow = pnum(t.volume?.rvol);
+  if (rvNow != null) struct.push(`volume ${rvNow.toFixed(1)}x normal`);
+  if (t.chartPattern && t.chartPattern.pattern) struct.push(`chart pattern: ${t.chartPattern.pattern}${t.chartPattern.stage ? ` (${t.chartPattern.stage})` : ""}`);
+  const cs = r.streakRow?.current;
+  if (cs && pnum(cs.sameDays) >= 2) struct.push(`${cs.sameDays}-day ${cs.color} streak (${pct(cs.cumulativePct)} cumulative)`);
+  if (struct.length) L.push(`TECHNICAL STRUCTURE: ${struct.join("; ")}.`);
 
   const fb = [];
   if (pct(f.earningsGrowthYoy) != null) fb.push(`EPS growth ${pct(f.earningsGrowthYoy)} YoY`);
@@ -13070,6 +13136,9 @@ function buildThesisUserMessage(r, side, macroRegime) {
   if (pnum(f.dividendYield) != null && pnum(f.dividendYield) > 0) fb.push(`div yield ${pnum(f.dividendYield).toFixed(1)}%`);
   if (pnum(f.beta) != null) fb.push(`beta ${pnum(f.beta).toFixed(2)}`);
   if (fb.length) L.push(`FUNDAMENTALS: ${fb.join(", ")}.`);
+  const traj = r.pillars?.fundamentals?.trajectory;
+  if (traj && traj.dir) L.push(`FUNDAMENTALS TRAJECTORY: ${traj.dir}${traj.confidence ? ` (${traj.confidence} confidence)` : ""}${traj.reason ? ` — ${traj.reason}` : ""}.`);
+  if (d.capitalRaise && d.capitalRaise.kind) L.push(`CAPITAL EVENT (headline-flagged): ${d.capitalRaise.kind}${d.capitalRaise.title ? ` — "${String(d.capitalRaise.title).slice(0, 160)}"` : ""}.`);
 
   if (d.news?.paragraph) L.push(`NEWS READ (sentiment ${d.news.sentiment || "neutral"}): ${String(d.news.paragraph).slice(0, 500)}`);
   const j = f.judgment;
@@ -13083,7 +13152,18 @@ function buildThesisUserMessage(r, side, macroRegime) {
   if (hls.length) L.push(`RECENT HEADLINES: ${hls.map((h) => `"${h.title}"${h.publisher ? ` (${h.publisher})` : ""}`).join(" | ")}`);
   const cats = Array.isArray(d.catalysts) ? d.catalysts.slice(0, 4) : [];
   if (cats.length) L.push(`UPCOMING CATALYSTS: ${cats.map((c) => `${c.date} ${c.title}`).join(" | ")}`);
-  if (f.nextEarningsDate) L.push(`NEXT EARNINGS: ${String(f.nextEarningsDate).slice(0, 10)}`);
+  // Earnings track record — how this name has actually traded its recent prints
+  // (surprise vs the next-session move), plus the upcoming print with the
+  // straddle-implied move when the market is already pricing one.
+  const hx = d.earningsHx;
+  if (hx && Array.isArray(hx.events) && hx.events.length) {
+    const evs = hx.events.slice(-4).map((e) =>
+      `${String(e.date).slice(0, 10)}: ${e.surprisePct != null ? `EPS surprise ${pct(e.surprisePct)}` : "surprise n/a"}${e.movePct != null ? `, stock ${pct(e.movePct)} next session` : ""}`);
+    L.push(`EARNINGS TRACK RECORD: ${evs.join(" | ")}.`);
+  }
+  if (hx && hx.next && hx.next.date) {
+    L.push(`NEXT EARNINGS: ${String(hx.next.date).slice(0, 10)}${hx.next.session && hx.next.session !== "TBD" ? ` (${hx.next.session})` : ""}${pnum(hx.next.daysUntil) != null ? `, ${hx.next.daysUntil}d out` : ""}${pnum(hx.next.impliedMovePct) != null ? ` — the straddle already implies a ±${pnum(hx.next.impliedMovePct).toFixed(1)}% move` : ""}.`);
+  } else if (f.nextEarningsDate) L.push(`NEXT EARNINGS: ${String(f.nextEarningsDate).slice(0, 10)}`);
 
   const ax = (macroRegime && macroRegime.axes) || {};
   const state = macroRegime?.state || "neutral";
@@ -13109,7 +13189,15 @@ function buildThesisUserMessage(r, side, macroRegime) {
   } else if (eventSoon) {
     L.push(`OPTIONS / IV: earnings/event imminent → use DEFINED-RISK only (a spread), never a naked long.`);
   }
-  L.push(`FINAL GRADE: this name cleared the deterministic data screen. Decide whether the thesis truly holds as a 1–2 week ${bull ? "bullish" : "bearish"} trade and assign grade (strong/moderate/weak/reject) + score 0–100 + gradeReason. Reject it if the case is incoherent, contradicted by the data, already played out, or the macro tape directly fights it — standing down is allowed.`);
+  // The deterministic price-based entry read — CONTEXT for the model's own
+  // entry verdict (it must weigh this against catalyst urgency / events / macro,
+  // not parrot it). Computed with the same pure call the roster gate uses.
+  const detEntry = computeEntrySignal(side, spot, d, r.timing, { total: r.total });
+  const detBits = [`price read: ${detEntry.now ? "buy-now" : detEntry.signal}${detEntry.headline ? ` (${detEntry.headline})` : ""}`];
+  if (r.timing?.state) detBits.push(`timing gate: ${r.timing.state}${r.timing.headline ? ` — ${r.timing.headline}` : ""}`);
+  if (detEntry.readiness) detBits.push(`readiness ${detEntry.readiness.score}/${detEntry.readiness.bar} (${(detEntry.checks || []).filter((c) => c.pass && c.max > 0).map((c) => c.short).join(", ") || "no factors confirmed"})`);
+  L.push(`ENTRY TIMING (deterministic — one input to YOUR entry call, not the answer): ${detBits.join("; ")}.`);
+  L.push(`FINAL GRADE + ENTRY CALL: this name cleared the deterministic data screen. Decide whether the thesis truly holds as a 1–2 week ${bull ? "bullish" : "bearish"} trade and assign grade (strong/moderate/weak/reject) + score 0–100 + gradeReason, AND make the final entry call (entryVerdict buy-now/wait + entryReason) — is opening this position at the current price, right now, the correct move, or is there a better entry to wait for? Reject the name if the case is incoherent, contradicted by the data, already played out, or the macro tape directly fights it — standing down is allowed.`);
   return L.join("\n");
 }
 
@@ -13141,6 +13229,11 @@ function parseThesisResponse(text) {
     invalidation: list(p.invalidation, 4, 220),
     strategyRationale: clean(p.strategyRationale, 480),
     confidence: ["high", "moderate", "low"].includes(p.confidence) ? p.confidence : "moderate",
+    // The final ENTRY call — null (not a default) when absent, so a legacy cached
+    // payload without a verdict falls back to the deterministic entry read
+    // instead of fabricating a buy/wait the model never made.
+    entryVerdict: ["buy-now", "wait"].includes(p.entryVerdict) ? p.entryVerdict : null,
+    entryReason: clean(p.entryReason, 220) || null,
     // The final grade — the AI is the final grader. `grade` drives classification
     // (reject = veto); `score` (0–100) ranks. Default to "moderate"/50 if the model
     // omits them so a thesis without a grade still ships as a watch idea, not a drop.
@@ -13152,7 +13245,9 @@ function parseThesisResponse(text) {
 
 // Cache signature: turns over with the grade, the in-direction drivers, the macro
 // state + the relevant axes' directions, the news take, the fundamental verdict,
-// and the IV bucket — so a fresh news take or a macro shift re-reads the thesis.
+// the IV bucket, and the deterministic ENTRY read — so a fresh news take, a macro
+// shift, or an entry-picture change (a pullback filling, a reclaim confirming, an
+// event window opening) re-reads the thesis + the model's entry verdict.
 export function thesisCacheSig(r, side, kind, macroRegime) {
   const works = (r.drivers || []).filter((x) => x && x.score).slice(0, 5).map((x) => `${x.key}${Math.sign(x.score) > 0 ? "+" : "-"}`).join(",");
   const ax = (macroRegime && macroRegime.axes) || {};
@@ -13163,7 +13258,9 @@ export function thesisCacheSig(r, side, kind, macroRegime) {
   const verdict = r.data?.fundamentals?.judgment?.verdict || "";
   const ivp = pnum(r.data?.ivRank?.pctile);
   const ivBucket = ivp != null ? Math.round(ivp / 20) : "";
-  return [THESIS_PROMPT_VERSION, r.sym, side, kind, Math.round(pnum(r.total) ?? 0), works, state, axSig, verdict, newsHash, ivBucket].join("|");
+  const det = computeEntrySignal(side, pnum(r.data?.spot), r.data, r.timing, { total: r.total });
+  const entrySig = det.now ? "buy" : det.signal || "wait";
+  return [THESIS_PROMPT_VERSION, r.sym, side, kind, Math.round(pnum(r.total) ?? 0), works, state, axSig, verdict, newsHash, ivBucket, entrySig].join("|");
 }
 
 async function readPickThesisCache() {

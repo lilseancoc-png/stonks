@@ -9,7 +9,7 @@ import {
   PICKS_MIN_CONVICTION, PICKS_TIER_STRONG, PICKS_TIMING_THRESHOLDS, computeEdgeScale,
   computeFactorTrendHealth, edgeGatedConviction,
   assessThesisQuality, selectStrategy, classifyPick, generateAiTheses, applyAiThesisGrade,
-  buildMarketRead, macroKindOf, thesisCacheSig, PICKS_MAX_AI_THESES,
+  buildMarketRead, macroKindOf, thesisCacheSig, PICKS_MAX_AI_THESES, buildThesisUserMessage,
 } from "./build.mjs";
 
 let pass = 0, fail = 0;
@@ -462,6 +462,87 @@ ok("classify: moderate grade + weak thesis → idea / watch", classifyPick(5, "w
   ok("entry gate: an extended (top-guarded) name reads wait, never buy-now", !p || (p.entry.now === false && p.entry.basis === "top-guard"));
   ok("entry gate: an extended name never ships actionable", !p || p.group !== "actionable");
   ok("entry gate: a demoted strong+strong pick is instrumented in entryDemoted", !p || p.classification !== "waitEntry" || out.rosterMeta.entryDemoted.includes("EXTD"));
+}
+
+// --- 12b3. AI final entry call (the grader's verdict, not the price read, decides) --
+// The AI final grader returns entryVerdict (buy-now/wait) alongside the grade;
+// buildTopPicks uses it as the final buy/wait call — overriding a soft price
+// trigger in EITHER direction — while the hard risk vetoes (top-guard, event
+// defer) bind regardless, and a missing verdict (legacy cache / keyless) falls
+// back to the deterministic read.
+{
+  const mkAi = (verdict) => ({ summary: "x", setup: "x", catalyst: "x", outlook: "x", macroSupport: "neutral", invalidation: ["a"], grade: "strong", score: 90, entryVerdict: verdict, entryReason: "the catalyst is live" });
+  // A soft deterministic WAIT (buy-dip): momentum not aligned (RSI 49), no
+  // volume/thrust/stack — readiness below the bar — but NOT extended/overbought
+  // and no imminent event, so the AI's judgment may take the entry.
+  const dipName = mkTicker({ spot: 100,
+    fundamentals: { earningsGrowthYoy: 35, revenueGrowthYoy: 28, targetMeanPrice: 122, numberOfAnalystOpinions: 14, analystRevisions: { upgrades: 5, downgrades: 0 }, nextEarningsDate: new Date(Date.now() + 60 * dayMs).toISOString().slice(0, 10) },
+    technicals: { rsi: 49, rsi5d: 50, macd: { hist: 0.3, line: 0.5, signal: 0.2 }, volume: { rvol: 0.9, priceMove1dPct: 0.2 }, sr: { s20: 96, r20: 108 }, sma: { sma20: 99, sma50: 103, sma100: 95 }, chartPattern: null, volRegime: { rv30Pctile: 45 } },
+    _bars: mkBars(100, 40, 0) });
+  const detE = computeEntrySignal("call", 100, dipName, computeEntryTiming("call", dipName, 100, {}), { total: 6 });
+  ok("ai-entry: fixture is a soft deterministic wait (buy-dip)", detE.now === false && detE.signal === "buy-dip");
+  const up = buildTopPicks({ DIPN: dipName }, [], null, null, null, null, 0.045, { aiThesisMap: { "DIPN:call": mkAi("buy-now") } });
+  const pUp = up.find((x) => x.symbol === "DIPN");
+  ok("ai-entry: AI buy-now overrides the soft price wait (final call is the grader's)", !!pUp && pUp.entry.now === true && pUp.entry.signal === "buy-now" && pUp.entry.basis === "ai-final-grader" && up.rosterMeta.aiEntryPromoted.includes("DIPN"));
+  ok("ai-entry: the AI verdict rides the entry object", !!pUp && pUp.entry.ai && pUp.entry.ai.verdict === "buy-now" && pUp.entry.ai.overrode === true);
+  // AI WAIT holds back a price-ready name — never actionable, no price trigger.
+  const lead = healthyPicks[0];
+  if (lead) {
+    const key = lead.symbol + ":" + lead.side;
+    const held = buildTopPicks(healthyUniverse, [], null, null, null, null, 0.045, { aiThesisMap: { [key]: mkAi("wait") } });
+    const pH = held.find((x) => x.symbol === lead.symbol && x.side === lead.side);
+    ok("ai-entry: AI wait holds back a price-ready name (watch, wait-ai, instrumented)", !pH || (pH.group !== "actionable" && pH.entry.now === false && pH.entry.signal === "wait-ai" && held.rosterMeta.aiEntryHeldBack.includes(lead.symbol)));
+  }
+  // Hard vetoes bind: an AI buy-now can never bless a top-guarded chase.
+  const extg = mkTicker({ spot: 100, technicals: {
+    rsi: 62, rsi5d: 60, macd: { hist: 0.5, line: 1.1, signal: 0.6 },
+    volume: { rvol: 1.5, priceMove1dPct: 1.0 },
+    sr: { s20: 92, r20: 110 }, sma: { sma20: 94, sma50: 90, sma100: 86 },
+    chartPattern: { pattern: "Bull Flag", stage: "confirmed" }, volRegime: { rv30Pctile: 45 } } });
+  const tg = buildTopPicks({ EXTG: extg }, [], null, null, null, null, 0.045, { aiThesisMap: { "EXTG:call": mkAi("buy-now") } });
+  const pTg = tg.find((x) => x.symbol === "EXTG");
+  ok("ai-entry: the top-guard binds — an AI buy-now can't bless a chase", !pTg || (pTg.entry.now === false && pTg.group !== "actionable" && !tg.rosterMeta.aiEntryPromoted.includes("EXTG")));
+  // No verdict (legacy cached thesis) → the deterministic read stands.
+  const legacy = { summary: "x", setup: "x", catalyst: "x", outlook: "x", macroSupport: "neutral", invalidation: ["a"], grade: "strong", score: 90 };
+  const lg = buildTopPicks({ DIPN: dipName }, [], null, null, null, null, 0.045, { aiThesisMap: { "DIPN:call": legacy } });
+  const pLg = lg.find((x) => x.symbol === "DIPN");
+  ok("ai-entry: no verdict → deterministic read stands (no fabricated buy)", !pLg || (pLg.entry.now === false && pLg.entry.signal === "buy-dip" && !pLg.entry.ai));
+}
+
+// --- 12b4. the final-pass prompt carries the FULL evidence table --------------
+// Keyless runs never reach buildThesisUserMessage, so exercise it directly: the
+// prompt must ship every pillar's scored signals (FOR/AGAINST the trade), the
+// technical structure/levels, the earnings track record + implied move, the
+// trajectory, capital events, and the deterministic entry read + entry-call ask.
+{
+  const d = mkTicker({ spot: 100 });
+  d.earningsHx = {
+    events: [{ date: "2026-04-30", surprisePct: 6.2, movePct: 4.1 }],
+    next: { date: "2026-08-05", session: "PM", daysUntil: 26, impliedMovePct: 7.5 },
+  };
+  d.capitalRaise = { kind: "buyback", title: "Board authorizes $5B buyback" };
+  const r = {
+    sym: "MSGX", total: 8, side: "call", recommendation: { tier: "Strong Call" },
+    pillars: {
+      technicals: { score: 3, signals: [{ key: "macd", label: "MACD", score: 1, value: "hist 0.4", available: true }] },
+      mechanicals: { score: 1, signals: [{ key: "unusualFlow", label: "Unusual options flow", score: 1, value: "2.4x calls", available: true }] },
+      fundamentals: { score: 3, signals: [{ key: "epsGrowth", label: "EPS growth", score: 2, value: "+15%", available: true }], trajectory: { dir: "improving", score: 1, confidence: "medium", reason: "growth accelerating vs trailing rate" } },
+      narrative: { score: -1, signals: [{ key: "newsCatalyst", label: "News catalyst", score: -3, value: "bearish", available: true }] },
+    },
+    drivers: [], timing: computeEntryTiming("call", d, 100, {}),
+    streakRow: { current: { color: "green", sameDays: 3, cumulativePct: 4.2 } },
+    data: d,
+  };
+  const msg = buildThesisUserMessage(r, "call", null);
+  ok("prompt: every pillar's signals ride with FOR/AGAINST votes",
+    /PILLAR — Technicals/.test(msg) && /PILLAR — Options flow/.test(msg) && /PILLAR — Fundamentals/.test(msg) && /PILLAR — Narrative/.test(msg) &&
+    /MACD \(hist 0\.4\) FOR/.test(msg) && /News catalyst \(bearish\) AGAINST!/.test(msg));
+  ok("prompt: technical structure + streak + chart pattern cited",
+    /TECHNICAL STRUCTURE:/.test(msg) && /20D SMA \$99\.00/.test(msg) && /Bull Flag/.test(msg) && /3-day green streak/.test(msg));
+  ok("prompt: earnings track record + straddle-implied move ride",
+    /EARNINGS TRACK RECORD: 2026-04-30: EPS surprise \+6\.2%, stock \+4\.1% next session/.test(msg) && /NEXT EARNINGS: 2026-08-05 \(PM\), 26d out — the straddle already implies a ±7\.5% move/.test(msg));
+  ok("prompt: trajectory + capital event + deterministic entry + entry-call ask ride",
+    /FUNDAMENTALS TRAJECTORY: improving/.test(msg) && /CAPITAL EVENT \(headline-flagged\): buyback/.test(msg) && /ENTRY TIMING \(deterministic/.test(msg) && /FINAL GRADE \+ ENTRY CALL:/.test(msg));
 }
 
 // Vertical builder — needs a BS-priced chain (the linear mkChain mids give a flat

@@ -21486,7 +21486,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function pickClassMeta(cls){
     switch (cls){
       case 'actionable': return { label: 'Actionable', cls: 'pick-class-actionable', tip: 'Strong grade + strong thesis + a confirmed buy-now entry — buy the shown contract now and hold while the thesis stays intact.' };
-      case 'waitEntry': return { label: 'Wait for entry', cls: 'pick-class-wait', tip: 'Strong grade + strong thesis, but the entry isn’t confirmed yet (extended, waiting on a pullback/reclaim, or an imminent event). Not a buy right now — it promotes itself to Actionable the hour the entry confirms.' };
+      case 'waitEntry': return { label: 'Wait for entry', cls: 'pick-class-wait', tip: 'Strong grade + strong thesis, but the final grader judged this isn’t the moment to enter (extended, waiting on a pullback/reclaim, an imminent event, or its own read of the setup). Not a buy right now — it promotes itself to Actionable the hour the entry confirms.' };
       case 'moderate': return { label: 'Moderate conviction', cls: 'pick-class-moderate', tip: 'A real but not airtight case, or a moderate grade — a lower-conviction idea. Strategy shown; size down.' };
       case 'highGradeWeakThesis': return { label: 'High grade · weak thesis', cls: 'pick-class-weak', tip: 'The grade is high but the supporting case is thin / single-pillar — we show the grade but recommend no strategy.' };
       default: return { label: 'Watch idea', cls: 'pick-class-idea', tip: 'A grade-only watch idea — no strategy is recommended yet. Wait for a confirming signal or a clean entry.' };
