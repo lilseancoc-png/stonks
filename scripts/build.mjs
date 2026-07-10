@@ -11,7 +11,7 @@
 // chain (~30-60 KB) from the same origin only when the user selects it.
 // The daily GitHub Actions workflow refreshes everything each market-day
 // morning and evening.
-import { writeFile, readFile, mkdir, rm, readdir } from "node:fs/promises";
+import { writeFile, readFile, mkdir, rm, readdir, appendFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
@@ -14840,7 +14840,28 @@ export async function loadAiUsageState() {
   return _aiUsageState;
 }
 
+// ── AI-layer health tally ────────────────────────────────────────────────────
+// Counts FRESH Gemini outcomes for this process so the end-of-run report
+// (writeAiHealthReport) can say — loudly, and machine-readably — whether the
+// AI layer actually worked. Motivated by the 2026-07-08 gemini-2.5-flash-lite
+// shutdown, which killed every fresh AI call for ~2 days with ZERO
+// operator-visible signal: every consumer degraded gracefully (last-good
+// narratives, carried-forward briefs, cached judgments, deterministic thesis
+// cards), the workflows stayed green, and the only tells were buried log lines
+// + the ai-usage.json calls/day quietly halving. Successes are counted in
+// recordAiUsage (every successful generateContent lands there); failures are
+// counted per retry ATTEMPT in classifyAiError (the one funnel every build
+// call site's catch runs through), bucketed by error class.
+const AI_HEALTH = {
+  ok: 0,             // successful generateContent calls (fresh — cache reuse never gets here)
+  failAttempts: 0,   // failed attempts (including retries that later succeeded on a fallback)
+  byClass: { deadModel: 0, quota: 0, server: 0, network: 0, other: 0 },
+  byCallType: {},    // callType -> successful-call count
+};
+
 export function recordAiUsage({ model, callType, symbol, usage, mode }) {
+  AI_HEALTH.ok += 1;
+  AI_HEALTH.byCallType[callType] = (AI_HEALTH.byCallType[callType] || 0) + 1;
   if (!_aiUsageState) _aiUsageState = { dates: {} };
   const today = new Date().toISOString().slice(0, 10);
   const byDate = (_aiUsageState.dates[today] ??= {});
@@ -14897,6 +14918,82 @@ function logAiUsageSummary() {
   }
 }
 
+// ── AI health verdict + report ───────────────────────────────────────────────
+// One machine-readable answer to "did the AI layer actually work this run?".
+// Statuses: "ok" (fresh calls succeeded, or none were needed — full cache
+// reuse), "degraded" (a dead model id was probed — the ladder recovered, but a
+// pinned env var needs repointing — or >30% of attempts failed), "down" (a key
+// is present and EVERY fresh call failed), "keyless" (no GEMINI_API_KEY — the
+// AI steps are skipped by design; not an incident).
+export function computeAiHealthReport() {
+  const keyed = !!process.env.GEMINI_API_KEY;
+  const deadModels = [...DEAD_AI_MODELS];
+  const attempts = AI_HEALTH.ok + AI_HEALTH.failAttempts;
+  let status = "ok";
+  const reasons = [];
+  if (!keyed) {
+    status = "keyless";
+    reasons.push("no GEMINI_API_KEY — AI steps skipped by design");
+  } else if (attempts === 0) {
+    reasons.push("no fresh AI calls needed (all outputs cache-reused)");
+  } else if (AI_HEALTH.ok === 0 && AI_HEALTH.failAttempts >= 3) {
+    status = "down";
+    reasons.push(`every fresh AI call failed (${AI_HEALTH.failAttempts} failed attempts, 0 successes)`);
+  } else {
+    if (deadModels.length) {
+      status = "degraded";
+      reasons.push(`dead model id(s) probed: ${deadModels.join(", ")} — calls recovered via the fallback ladder; repoint the AI_MODEL/NARRATIVES_MODEL Actions Variables`);
+    }
+    const failRate = attempts ? AI_HEALTH.failAttempts / attempts : 0;
+    if (attempts >= 10 && failRate > 0.3) {
+      status = "degraded";
+      reasons.push(`${Math.round(failRate * 100)}% of AI attempts failed (${AI_HEALTH.failAttempts}/${attempts})`);
+    }
+    if (status === "ok") reasons.push(`${AI_HEALTH.ok} fresh call(s) succeeded`);
+  }
+  return {
+    status, reasons, keyed,
+    ok: AI_HEALTH.ok, failAttempts: AI_HEALTH.failAttempts,
+    byClass: { ...AI_HEALTH.byClass }, byCallType: { ...AI_HEALTH.byCallType },
+    deadModels,
+  };
+}
+
+// Logs the verdict, emits a GitHub Actions annotation on degraded/down (shows
+// on the run page without opening the logs), appends a markdown block to the
+// job summary, and writes ./ai-health.json (repo root, gitignored) for the
+// daily.yml "AI health alert" step — which opens/updates/closes a labeled
+// GitHub issue (issue creation = an email to the owner) and optionally pings a
+// Discord webhook. This chain exists because graceful degradation hid a total
+// AI outage for two days; the build must never FAIL on AI trouble, so this is
+// the out-of-band signal instead.
+async function writeAiHealthReport() {
+  const rep = computeAiHealthReport();
+  const line = `AI health: ${rep.status.toUpperCase()} — ${rep.reasons.join("; ")}`;
+  console.log(line);
+  if (process.env.GITHUB_ACTIONS && (rep.status === "down" || rep.status === "degraded")) {
+    console.log(`::${rep.status === "down" ? "error" : "warning"}::${line}`);
+  }
+  const callTypes = Object.entries(rep.byCallType).map(([k, n]) => `${k} ${n}`).join(" · ") || "none";
+  rep.md = [
+    `### AI layer health: **${rep.status.toUpperCase()}**`,
+    ``,
+    ...rep.reasons.map((r) => `- ${r}`),
+    ``,
+    `| Fresh successes | Failed attempts | dead-model | quota | server | network | other |`,
+    `|---|---|---|---|---|---|---|`,
+    `| ${rep.ok} | ${rep.failAttempts} | ${rep.byClass.deadModel} | ${rep.byClass.quota} | ${rep.byClass.server} | ${rep.byClass.network} | ${rep.byClass.other} |`,
+    ``,
+    `Successful calls by type: ${callTypes}`,
+    ...(rep.deadModels.length ? [``, `**Dead models:** ${rep.deadModels.join(", ")} — fix: \`gh variable set AI_MODEL --body gemini-3.1-flash-lite\` (+ \`NARRATIVES_MODEL\`), and check the code defaults in \`scripts/build.mjs\`.`] : []),
+  ].join("\n");
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    try { await appendFile(process.env.GITHUB_STEP_SUMMARY, rep.md + "\n"); } catch {}
+  }
+  try { await writeFile(resolve(ROOT, "ai-health.json"), JSON.stringify(rep), "utf8"); }
+  catch (err) { console.warn(`[ai-health] report write failed — ${String(err?.message || err).split("\n")[0]}`); }
+}
+
 // Google's free tier intermittently returns 500 INTERNAL on otherwise valid
 // requests, and 429 RESOURCE_EXHAUSTED if a request slips through to the
 // quota window (rare under the limiter, but the API also enforces a separate
@@ -14951,7 +15048,9 @@ function classifyAiError(err, attempt, model = null) {
   const causeMsg = String(err?.cause?.message || err?.cause?.code || "");
   const combined = msg + " " + causeMsg;
   const isDeadModel = /\b404\b|NOT_FOUND/i.test(combined) && /model/i.test(combined);
+  AI_HEALTH.failAttempts += 1;
   if (isDeadModel) {
+    AI_HEALTH.byClass.deadModel += 1;
     if (model) DEAD_AI_MODELS.add(model);
     return AI_MODEL_FALLBACK ? 250 : null;
   }
@@ -14961,6 +15060,10 @@ function classifyAiError(err, attempt, model = null) {
   // fails, TLS handshake aborts, socket reset mid-stream). undici surfaces
   // these as the bare TypeError "fetch failed" with the real cause on .cause.
   const isNetwork = /\b(fetch failed|ENOTFOUND|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|UND_ERR|network|socket hang up)\b/i.test(combined);
+  if (is429) AI_HEALTH.byClass.quota += 1;
+  else if (is5xx) AI_HEALTH.byClass.server += 1;
+  else if (isNetwork) AI_HEALTH.byClass.network += 1;
+  else AI_HEALTH.byClass.other += 1;
   if (!is429 && !is5xx && !isNetwork) return null;
   if (is429) {
     const m = msg.match(/retry in ([\d.]+)\s*s/i);
@@ -20468,6 +20571,7 @@ async function main() {
     `wrote ${OUT} (${(html.length / 1024).toFixed(1)} KB) + styles.css (${(css.length / 1024).toFixed(1)} KB) + app.js (${(js.length / 1024).toFixed(1)} KB) + ${symbols.length} chain files (${(totalChainBytes / 1024).toFixed(1)} KB total) + trends (${trends.narratives.length} active, ${trends.history.length}-day history)`,
   );
   logAiUsageSummary();
+  await writeAiHealthReport();
 }
 
 async function writeTrendFiles({ narratives, sectorOverviews, recentlyEnded, macroHeadlines, history, builtAtIso }) {

@@ -17,3 +17,8 @@ r2.env
 # Leading slash anchors to the repo root ONLY — an unanchored `data/` also matches
 # api/data/ (the gated reader) and any other nested data dir.
 /data/
+
+# Per-run AI-layer health report (writeAiHealthReport in scripts/build.mjs).
+# Consumed by daily.yml's "AI health alert" step (auto-issue + optional Discord
+# ping); never committed — each run regenerates it.
+/ai-health.json
