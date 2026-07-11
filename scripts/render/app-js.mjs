@@ -68,7 +68,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // default to "ungated, everyone's a member" so a legacy public deploy — or a
   // failed /me probe — never locks the site by accident. applyAuth() flips these
   // once /me resolves, before the first selectTab().
-  var PREMIUM_TABS = { market:1, brief:1, narratives:1, flow:1, volume:1, oi:1, 'index-cal':1 };
+  var PREMIUM_TABS = { market:1, brief:1, narratives:1, flow:1, volume:1, oi:1, 'index-cal':1, stocks:1 };
   var GATE_ON = false;
   var IS_MEMBER = true;
   // Track Record is a STRICTER tier than premium: a specific Discord role, not
@@ -88,7 +88,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // header so the Discord is findable from anywhere on the site.
   var DISCORD_INVITE_URL = ${JSON.stringify(DISCORD_INVITE_URL)};
   function premiumTabLabel(id){
-    return ({ market:'Market Analysis', brief:'Briefs', narratives:'Narratives', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', hot:'Hot Stocks', 'index-cal':'Index Calendar' })[id] || 'This feature';
+    return ({ market:'Market Analysis', brief:'Briefs', narratives:'Narratives', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', hot:'Hot Stocks', 'index-cal':'Index Calendar', stocks:'Stock Picks' })[id] || 'This feature';
   }
   // Inject the members-only upsell card into a locked premium pane (idempotent).
   function ensurePremiumLock(pane, id){
@@ -105,7 +105,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
         '</div>' +
         '<h2 class="premium-lock-title">' + escapeHtml(premiumTabLabel(id)) + ' is a members feature</h2>' +
-        '<p class="premium-lock-body">Market analysis, Briefs, Narratives, Unusual &amp; Volume flow, and Gamma exposure are unlocked with a premium <b>Discord</b> membership. Join the server to get access &mdash; everything else stays free.</p>' +
+        '<p class="premium-lock-body">Market analysis, Stock Picks, Briefs, Narratives, Unusual &amp; Volume flow, and Gamma exposure are unlocked with a premium <b>Discord</b> membership. Join the server to get access &mdash; everything else stays free.</p>' +
         '<a class="premium-lock-cta" href="' + DISCORD_INVITE_URL + '" target="_blank" rel="noopener">' + DISCORD_ICON_SVG + '<span>Join the Discord to get premium</span></a>' +
         '<p class="premium-lock-foot">Already a member? <a href="/api/auth/discord-login">Log in with Discord</a>.</p>' +
       '</div>';
@@ -3141,7 +3141,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','market','picks','heatmap','calendar','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','market','picks','stocks','heatmap','calendar','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3155,6 +3155,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     ram: 'ram-prices', dram: 'ram-prices', memory: 'ram-prices', 'ram-price': 'ram-prices', 'ram-prices': 'ram-prices', ddr5: 'ram-prices',
     'capital-raises': 'capital-raises', raises: 'capital-raises', issuance: 'capital-raises', debt: 'capital-raises', bonds2: 'capital-raises',
     pick: 'picks', 'top-picks': 'picks', toppicks: 'picks',
+    'stock-picks': 'stocks', stockpicks: 'stocks', stock: 'stocks', shares: 'stocks',
     'market-analysis': 'market', analysis: 'market', tape: 'market', regime: 'market',
     narrative: 'narratives', strategy: 'strategies', streak: 'streaks',
     comparison: 'compare', compare2: 'compare', versus: 'compare', vs: 'compare',
@@ -3392,6 +3393,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
         if (name === 'index-cal' && typeof loadIndexCal === 'function') loadIndexCal();
         if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
+        if (name === 'stocks' && typeof loadStocks === 'function') loadStocks();
         // Market analysis: the tape/barometer/regime widgets + their data.
         if (name === 'market' && typeof loadMarketAnalysis === 'function') loadMarketAnalysis();
         if (name === 'market' && typeof loadRegimeHistory === 'function') loadRegimeHistory();
@@ -13650,6 +13652,127 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function tabDataStale(state){
     return !!(state.data && state.fetchedAt && (Date.now() - state.fetchedAt > TAB_DATA_STALE_MS));
   }
+  // ── Stock Picks (shares-only, premium) ─────────────────────────────────
+  // Renders data/stock-picks.json — the deterministic value + breakout stock
+  // screens written by the bake (buildStockPicks in scripts/build.mjs). A
+  // separate product from the Top Picks options roster: no contracts, just
+  // "which stocks look worth buying as shares right now".
+  var stocksState = { data: null, loading: false };
+  function loadStocks(){
+    if ((stocksState.data && !tabDataStale(stocksState)) || stocksState.loading){ renderStocks(); return; }
+    stocksState.loading = true;
+    renderStocks();
+    fetch('data/stock-picks.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){
+        stocksState.data = (j && typeof j === 'object') ? j : {};
+        stocksState.loading = false;
+        stocksState.fetchedAt = Date.now();
+        renderStocks();
+      })
+      .catch(function(){ stocksState.data = { loadError: true }; stocksState.loading = false; renderStocks(); });
+  }
+  // Close-price sparkline (~6 months, downsampled at bake time) with the
+  // shared data-ch hover. Tone follows the window's net direction.
+  function stkSpark(row){
+    var s = Array.isArray(row.series) ? row.series.filter(function(v){ return v != null && isFinite(v); }) : [];
+    if (s.length < 2) return '';
+    var W = 240, H = 52, PAD = 3;
+    var lo = Infinity, hi = -Infinity;
+    for (var i=0; i<s.length; i++){ if (s[i] < lo) lo = s[i]; if (s[i] > hi) hi = s[i]; }
+    if (!(hi > lo)) hi = lo + 0.0001;
+    var poly = '', hover = [];
+    for (var k=0; k<s.length; k++){
+      var x = PAD + (k * (W - 2*PAD)) / (s.length - 1);
+      var y = H - PAD - ((s[k] - lo) * (H - 2*PAD)) / (hi - lo);
+      poly += (k ? ' ' : '') + (Math.round(x*10)/10) + ',' + (Math.round(y*10)/10);
+      hover.push({ x: x, y: y, label: fmtMoney(s[k]) });
+    }
+    var up = s[s.length - 1] >= s[0];
+    return '<svg class="stk-spark ' + (up ? 'stk-spark-up' : 'stk-spark-down') + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="6-month price trend"' + chHoverAttr(hover) + '>' +
+      '<polyline class="stk-spark-line" points="' + poly + '" fill="none"/>' +
+    '</svg>';
+  }
+  function stkEarningsBadge(row){
+    if (!row.earningsSoon) return '';
+    var ms = Date.parse(row.earningsSoon);
+    var label = isFinite(ms) ? new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
+    return '<span class="stk-earn">📅 Earnings soon' + (label ? ' · ' + escapeHtml(label) : '') + ' — expect a binary move</span>';
+  }
+  function stkReasonRows(reasons){
+    var out = '';
+    (reasons || []).forEach(function(rr){
+      if (!rr || !rr.label) return;
+      var caution = Number(rr.pts) < 0;
+      out += '<li class="stk-reason' + (caution ? ' stk-reason-caution' : '') + '">' +
+        '<b>' + escapeHtml(rr.label) + '</b>' +
+        (rr.detail ? ' <span>' + escapeHtml(rr.detail) + '</span>' : '') +
+      '</li>';
+    });
+    return out ? '<ul class="stk-reasons">' + out + '</ul>' : '';
+  }
+  function stkRangeBar(row){
+    var fw = row.fiftyTwoWeek || {};
+    var hi = Number(fw.hi), lo = Number(fw.lo), spot = Number(row.spot);
+    if (!(hi > lo) || !isFinite(spot)) return '';
+    var pos = Math.max(0, Math.min(100, ((spot - lo) / (hi - lo)) * 100));
+    return '<div class="stk-range" title="52-week range">' +
+      '<span class="stk-range-lo">' + fmtMoney(lo) + '</span>' +
+      '<span class="stk-range-track"><span class="stk-range-dot" style="left:' + pos.toFixed(1) + '%"></span></span>' +
+      '<span class="stk-range-hi">' + fmtMoney(hi) + '</span>' +
+    '</div>';
+  }
+  function stkCard(row, kind){
+    var name = row.name ? '<span class="stk-name">' + escapeHtml(row.name) + '</span>' : '';
+    var sector = row.sector ? '<span class="stk-sector">' + escapeHtml(row.sector) + '</span>' : '';
+    var scoreBadge = '<span class="stk-score" title="Screen score — points from the reasons below">' + escapeHtml(String(row.score)) + '</span>';
+    var trigger = '';
+    if (kind === 'breakout' && row.trigger != null && isFinite(Number(row.trigger))){
+      trigger = '<div class="stk-trigger">Breakout trigger: <b>' + fmtMoney(Number(row.trigger)) + '</b>' +
+        (row.triggerLabel ? ' <span>(' + escapeHtml(row.triggerLabel) + ')</span>' : '') + '</div>';
+    }
+    return '<article class="stk-card stk-' + kind + '">' +
+      '<header class="stk-head">' +
+        '<span class="stk-sym">' + escapeHtml(row.symbol) + '</span>' + name + sector + scoreBadge +
+      '</header>' +
+      '<div class="stk-spot-row"><b>' + fmtMoney(row.spot) + '</b>' + stkRangeBar(row) + '</div>' +
+      stkSpark(row) +
+      trigger +
+      stkReasonRows(row.reasons) +
+      stkEarningsBadge(row) +
+    '</article>';
+  }
+  function stkBucket(title, blurb, rows, kind, emptyText){
+    var body = (rows && rows.length)
+      ? '<div class="stk-grid">' + rows.map(function(r){ return stkCard(r, kind); }).join('') + '</div>'
+      : '<p class="stk-empty">' + escapeHtml(emptyText) + '</p>';
+    return '<section class="stk-bucket">' +
+      '<h3 class="stk-bucket-title">' + title + '</h3>' +
+      '<p class="stk-bucket-blurb">' + blurb + '</p>' +
+      body +
+    '</section>';
+  }
+  function renderStocks(){
+    var root = $('stocks-root'); var eye = $('stocks-eyebrow');
+    if (!root) return;
+    var d = stocksState.data;
+    if (!d){ root.textContent = 'Loading Stock Picks…'; return; }
+    if (d.loadError && !Array.isArray(d.value)){
+      root.innerHTML = '<p class="stk-empty">Could not load Stock Picks data. It appears after the next scheduled build.</p>';
+      return;
+    }
+    var value = Array.isArray(d.value) ? d.value : [];
+    var breakout = Array.isArray(d.breakout) ? d.breakout : [];
+    if (eye){
+      var when = d.builtAtIso ? new Date(d.builtAtIso).toLocaleString() : '';
+      eye.textContent = value.length + ' value · ' + breakout.length + ' breakout' + (when ? ' · updated ' + when : '');
+    }
+    root.innerHTML =
+      stkBucket('💰 Value buys', 'Quality names trading cheap — below-sector multiples, real drawdowns, analyst upside — that still clear a profitability screen. Shares, not options: these are accumulate-and-hold ideas, not timed trades.', value, 'value',
+        'No name clears the value bar right now — the screen would rather show nothing than stretch the definition of "cheap but good".') +
+      stkBucket('🚀 Breakout watch', 'Up-and-coming names in a structural uptrend, pressing against a mapped resistance level or printing fresh highs, with momentum and volume behind them.', breakout, 'breakout',
+        'No coiled setups on the tape right now — breakout candidates appear when a name presses against resistance with momentum behind it.');
+  }
   function loadBrief(){
     if ((briefState.data && !tabDataStale(briefState)) || briefState.loading){ renderBrief(); return; }
     briefState.loading = true;
@@ -22932,6 +23055,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       ['brief', 'Brief'],
       ['market', 'Market analysis'],
       ['picks', 'Top picks'],
+      ['stocks', 'Stock picks'],
       ['heatmap', 'Heatmap'],
       ['calendar', 'Calendar'],
       ['index-cal', 'Index calendar'],

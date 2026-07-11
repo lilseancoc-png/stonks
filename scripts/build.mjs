@@ -12969,6 +12969,294 @@ export async function writeGradesFile(chains, narratives, builtAtIso, unusualPay
 }
 
 // ============================================================================
+// STOCK PICKS — shares-only recommendations (data/stock-picks.json, PREMIUM).
+//
+// A separate product from the Top Picks options roster: no contracts, no
+// greeks, no strategy layer — just "which stocks look worth buying as SHARES
+// right now", in two deterministic buckets:
+//   - value:    quality names trading cheap (P/E below the sector median, PEG,
+//               a real drawdown off the 52-week high, analyst upside) that
+//               still clear a profitability + not-deteriorating quality gate.
+//   - breakout: up-and-coming names poised to break out — structural uptrend,
+//               momentum in the sweet spot (RSI 45-76, so neither dead nor
+//               already extended), pressing against / just clearing a mapped
+//               resistance level or the 52-week high, with volume + flow +
+//               narrative confirmation as bonuses.
+// Fully deterministic (no AI) and rebuilt fresh every bake from the same
+// per-ticker fundamentals/technicals the grades index reads — no cross-build
+// accumulation, so no pre-wipe read. Both buckets are honest: a thin tape
+// ships fewer (or zero) names rather than padding to the cap. ETFs are
+// excluded (no fundamentals to value; a fund "breakout" is just the index).
+// ============================================================================
+export const STOCK_PICKS_FILE = "stock-picks.json";
+const STOCK_PICKS_MAX = clampNum(process.env.STOCK_PICKS_MAX, 1, 12, 6);
+const STOCK_VALUE_MIN_SCORE = 3;
+const STOCK_BREAKOUT_MIN_SCORE = 3.5;
+
+function clampNum(raw, lo, hi, dflt) {
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
+}
+
+// Downsampled ~6-month close series for the card sparkline (≤48 points keeps
+// the whole payload a few KB even at both caps).
+function stockSparkSeries(data, maxPoints = 48) {
+  const tb = timingBarsFrom(data);
+  const c = tb && Array.isArray(tb.c) ? tb.c.filter(Number.isFinite) : [];
+  const win = c.slice(-126);
+  if (win.length <= maxPoints) return win.map((v) => r2(v));
+  const out = [];
+  const step = (win.length - 1) / (maxPoints - 1);
+  for (let i = 0; i < maxPoints; i++) out.push(r2(win[Math.round(i * step)]));
+  return out;
+}
+
+// True when the next earnings print lands inside `days` ET calendar days —
+// the card badges it so a buyer knows a binary event sits in front of the
+// idea. etDaysUntil is the repo-wide convention for event-date math (a raw
+// Date.parse diff turns off on the event day itself — see its header).
+function stockEarningsSoon(f, days = 10) {
+  const d = f?.nextEarningsDate || null;
+  if (!d) return null;
+  const n = etDaysUntil(d);
+  return n != null && n >= 0 && n <= days ? d : null;
+}
+
+// VALUE bucket scorer. Returns null when the name fails the quality gate or
+// carries no genuine cheapness signal (good-but-fairly-priced is not a value
+// pick). reasons[] are plain-English, point-weighted, and ship on the card.
+function scoreStockValue(sym, data, grade, sectorPE) {
+  const f = data?.fundamentals || {};
+  const t = data?.technicals || {};
+  const spot = pnum(data?.spot);
+  if (!(spot > 0)) return null;
+
+  // Quality gate: profitable (net margin or FCF positive), revenue not
+  // collapsing, and the fundamentals pillar not net-negative — "cheap" must
+  // mean discounted quality, not a deteriorating business at a low multiple.
+  const margin = pnum(f.profitMargin), fcf = pnum(f.freeCashFlow);
+  if (!((margin != null && margin > 0) || (fcf != null && fcf > 0))) return null;
+  const rev = pnum(f.revenueGrowthYoy);
+  if (rev != null && rev <= -10) return null;
+  const fundScore = pnum(grade?.pillars?.fundamentals?.score);
+  if (fundScore != null && fundScore < 0) return null;
+
+  const reasons = [];
+  let cheap = false;
+
+  const pe = pnum(f.trailingPE);
+  if (pe != null && pe > 0 && sectorPE > 0 && pe <= sectorPE * 0.85) {
+    cheap = true;
+    const pts = pe <= sectorPE * 0.6 ? 2.5 : pe <= sectorPE * 0.75 ? 1.75 : 1;
+    reasons.push({ key: "peDiscount", label: "P/E below sector", detail: `${r1(pe)}x vs the ${r1(sectorPE)}x sector median`, pts });
+  }
+  const peg = pnum(f.pegRatio);
+  if (peg != null && peg > 0 && peg <= 1.2) {
+    cheap = true;
+    reasons.push({ key: "peg", label: "Growth priced cheap", detail: `PEG ${r2(peg)} — paying under 1.2x per unit of growth`, pts: 1 });
+  }
+  const hi = pnum(f.fiftyTwoWeekHigh);
+  let ddPct = null;
+  if (hi > 0 && spot < hi) {
+    ddPct = (1 - spot / hi) * 100;
+    if (ddPct >= 15) {
+      cheap = true;
+      const pts = ddPct >= 30 ? 1.5 : ddPct >= 20 ? 1 : 0.5;
+      reasons.push({ key: "drawdown", label: "Marked down from the high", detail: `${r1(ddPct)}% below the 52-week high`, pts });
+    }
+  }
+  const tgt = pnum(f.targetMeanPrice), na = pnum(f.numberOfAnalystOpinions);
+  let upside = null;
+  if (tgt != null && na != null && na >= 5) {
+    upside = (tgt / spot - 1) * 100;
+    if (upside >= 8) {
+      if (upside >= 15) cheap = true;
+      const pts = upside >= 25 ? 1.5 : upside >= 15 ? 1 : 0.5;
+      reasons.push({ key: "target", label: "Analyst upside", detail: `consensus target ${r1(upside)}% above spot (${na} analysts)`, pts });
+    }
+  }
+  if (f.recommendationKey === "strong_buy" || f.recommendationKey === "buy") {
+    reasons.push({ key: "rating", label: "Analyst consensus: buy", detail: `street rates it "${String(f.recommendationKey).replace("_", " ")}"`, pts: 0.5 });
+  }
+  if (margin != null && margin >= 15) reasons.push({ key: "margin", label: "Strong margins", detail: `${r1(margin)}% net margin`, pts: 0.5 });
+  const roe = pnum(f.returnOnEquity);
+  if (roe != null && roe >= 15) reasons.push({ key: "roe", label: "High return on equity", detail: `${r1(roe)}% ROE`, pts: 0.5 });
+  if (rev != null && rev >= 8) reasons.push({ key: "revGrowth", label: "Still growing", detail: `revenue +${r1(rev)}% YoY`, pts: 0.5 });
+  const traj = grade?.pillars?.fundamentals?.trajectory || null;
+  if (traj && traj.dir === "improving") reasons.push({ key: "trajectory", label: "Fundamentals improving", detail: traj.reason || "forward reads are improving", pts: 0.5 });
+
+  // Cautions (penalties, not exclusions): a knife-y tape or a bearish news
+  // read makes a cheap name cheaper for a reason — surface it and dock points.
+  const rsi = pnum(t.rsi);
+  if (rsi != null && rsi < 30) reasons.push({ key: "knife", label: "Caution: heavy selling", detail: `RSI ${r1(rsi)} — consider waiting for the tape to stabilize`, pts: -1 });
+  const sentiment = grade?.sentiment || data?.news?.sentiment || null;
+  if (sentiment === "bearish") reasons.push({ key: "news", label: "Caution: bearish news tone", detail: "the latest news read on this name leans bearish", pts: -1 });
+
+  if (!cheap) return null;
+  const score = r1(reasons.reduce((a, x) => a + x.pts, 0));
+  return {
+    score, reasons,
+    stats: {
+      pe: pe != null ? r1(pe) : null, sectorPE: sectorPE > 0 ? r1(sectorPE) : null,
+      peg: peg != null ? r2(peg) : null, pctBelowHigh: ddPct != null ? r1(ddPct) : null,
+      targetUpsidePct: upside != null ? r1(upside) : null, analysts: na ?? null,
+      netMarginPct: margin != null ? r1(margin) : null, roePct: roe != null ? r1(roe) : null,
+      revGrowthPct: rev != null ? r1(rev) : null, rsi: rsi != null ? r1(rsi) : null,
+    },
+  };
+}
+
+// BREAKOUT bucket scorer. Returns null unless the name has a live level story
+// (coiled under resistance, a fresh confirmed break, or printing new 52-week
+// highs) on top of a structural uptrend with momentum in the sweet spot.
+function scoreStockBreakout(sym, data, grade) {
+  const f = data?.fundamentals || {};
+  const t = data?.technicals || {};
+  const spot = pnum(data?.spot);
+  if (!(spot > 0)) return null;
+
+  // Hard gates: momentum alive but not exhausted, long-term structure intact,
+  // and the overall grade not leaning bearish (don't pitch a share breakout on
+  // a name the options engine wants to short).
+  const rsi = pnum(t.rsi);
+  if (rsi == null || rsi < 45 || rsi >= 76) return null;
+  const sma200 = pnum(t.sma?.sma200), sma50 = pnum(t.sma?.sma50), sma20 = pnum(t.sma?.sma20);
+  if (sma200 != null && spot < sma200) return null;
+  if ((pnum(grade?.total) ?? 0) < -1) return null;
+
+  // Confirmed closes only (in-progress bar dropped, same slice(0,-1)
+  // convention as the grade index's techLive) — the chase read must be
+  // deterministic on settled sessions, not wiggle with the intraday tape.
+  const tb = timingBarsFrom(data);
+  const cc = tb && Array.isArray(tb.c) ? tb.c.filter(Number.isFinite).slice(0, -1) : [];
+  const ret5 = cc.length >= 6 && cc[cc.length - 6] > 0 ? (cc[cc.length - 1] / cc[cc.length - 6] - 1) * 100 : null;
+
+  const reasons = [];
+  const sr = t.sr || {};
+  const hi = pnum(f.fiftyTwoWeekHigh);
+  let setup = false, trigger = null, triggerLabel = null;
+
+  // Nearest mapped resistance ABOVE spot → the breakout trigger the card shows.
+  const overhead = [
+    [pnum(sr.r20), "20D resistance"], [pnum(sr.r50), "50D resistance"],
+    [pnum(sr.r100), "100D resistance"], [pnum(sr.r200), "200D resistance"],
+    [hi, "52-week high"],
+  ].filter(([v]) => v > spot).sort((a, b) => a[0] - b[0]);
+  if (overhead.length) {
+    const [lvl, lbl] = overhead[0];
+    const dist = (lvl / spot - 1) * 100;
+    trigger = r2(lvl); triggerLabel = lbl;
+    if (dist <= 3) { setup = true; reasons.push({ key: "coiled", label: "Pressing against resistance", detail: `${r1(dist)}% below ${lbl} (${r2(lvl)})`, pts: 2 }); }
+    else if (dist <= 6) reasons.push({ key: "near", label: "Approaching resistance", detail: `${r1(dist)}% below ${lbl} (${r2(lvl)})`, pts: 1 });
+  }
+  // Fresh confirmed break: just cleared the 50D/100D shelf (≤3% above it).
+  for (const [lvl, lbl] of [[pnum(sr.r50), "50D resistance"], [pnum(sr.r100), "100D resistance"]]) {
+    if (lvl > 0 && spot > lvl && spot <= lvl * 1.03) {
+      setup = true;
+      reasons.push({ key: "freshBreak", label: "Fresh breakout", detail: `just cleared ${lbl} at ${r2(lvl)}`, pts: 2 });
+      break;
+    }
+  }
+  if (hi > 0 && spot >= hi) { setup = true; reasons.push({ key: "newHigh", label: "New 52-week high", detail: "printing fresh 52-week highs — no overhead supply", pts: 1.5 }); }
+  else if (hi > 0 && spot >= hi * 0.95) reasons.push({ key: "nearHigh", label: "Knocking on the 52-week high", detail: `within ${r1((1 - spot / hi) * 100)}% of the high`, pts: 1 });
+  if (!setup) return null;
+
+  // Confirmation stack.
+  if (sma20 != null && sma50 != null && spot > sma20 && sma20 > sma50) reasons.push({ key: "smaStack", label: "Uptrend stack", detail: "price above the 20D, 20D above the 50D", pts: 1 });
+  if (sma50 != null && sma200 != null && sma50 > sma200) reasons.push({ key: "goldenTrend", label: "Long-term trend up", detail: "50D holding above the 200D", pts: 0.5 });
+  const mh = pnum(t.macd?.hist), ml = pnum(t.macd?.line), ms = pnum(t.macd?.signal);
+  if (mh != null && mh > 0 && ml != null && ms != null && ml > ms) reasons.push({ key: "macd", label: "MACD bullish", detail: "trend line above signal with a positive histogram", pts: 0.75 });
+  if (rsi >= 55) reasons.push({ key: "rsi", label: "Momentum building", detail: `RSI ${r1(rsi)} — strong but not yet overbought`, pts: 0.75 });
+  const rvol = pnum(t.volume?.rvol);
+  if (rvol != null && rvol >= 1.5) reasons.push({ key: "volume", label: "Volume surging", detail: `${r2(rvol)}x average daily volume`, pts: 1.25 });
+  else if (rvol != null && rvol >= 1.2) reasons.push({ key: "volume", label: "Volume confirming", detail: `${r2(rvol)}x average daily volume`, pts: 0.75 });
+  const streak = grade?.streak || null;
+  if (streak && streak.color === "green" && pnum(streak.days) >= 3) reasons.push({ key: "streak", label: "Green streak", detail: `${streak.days} straight up days`, pts: 0.5 });
+  const mechScore = pnum(grade?.pillars?.mechanicals?.score);
+  if (mechScore != null && mechScore >= 1.5) reasons.push({ key: "flow", label: "Options flow leaning in", detail: "the flow pillar reads accumulation in the options market", pts: 0.75 });
+  const narrScore = pnum(grade?.pillars?.narrative?.score);
+  if (narrScore != null && narrScore >= 1) reasons.push({ key: "narrative", label: "Sector narrative tailwind", detail: "the name sits inside a market narrative currently working", pts: 0.5 });
+  const sentiment = grade?.sentiment || data?.news?.sentiment || null;
+  if (sentiment === "bullish") reasons.push({ key: "news", label: "Bullish news tone", detail: "the latest news read on this name leans bullish", pts: 0.5 });
+  if (Array.isArray(grade?.catalysts) && grade.catalysts.length) reasons.push({ key: "catalyst", label: "Dated catalyst ahead", detail: "a known upcoming event could be the trigger", pts: 0.5 });
+
+  // Already-ran guard: a name up big in a week is a chase, not a setup.
+  if (ret5 != null && ret5 > 12) reasons.push({ key: "chase", label: "Caution: already ran", detail: `+${r1(ret5)}% in the last five sessions — extended short-term`, pts: -1.5 });
+
+  const score = r1(reasons.reduce((a, x) => a + x.pts, 0));
+  return {
+    score, reasons, trigger, triggerLabel,
+    stats: {
+      rsi: r1(rsi), rvol: rvol != null ? r2(rvol) : null,
+      ret5Pct: ret5 != null ? r1(ret5) : null,
+      pctBelowHigh: hi > 0 && spot < hi ? r1((1 - spot / hi) * 100) : 0,
+      sma20: sma20 != null ? r2(sma20) : null, sma50: sma50 != null ? r2(sma50) : null,
+    },
+  };
+}
+
+// Assemble the payload: score every non-ETF name for both buckets, keep the
+// qualifiers above each bucket's fixed bar, dedupe a name that qualifies for
+// both into its stronger bucket, and cap each side at STOCK_PICKS_MAX.
+export function buildStockPicks(chains, gradesIndex, builtAtIso) {
+  const grades = gradesIndex || {};
+  const sectorPE = sectorMedianPEs(chains);
+  const value = [], breakout = [];
+  let universe = 0;
+
+  for (const [sym, data] of Object.entries(chains)) {
+    if (!data || SECTORS[sym] === "ETF") continue;
+    universe++;
+    const grade = grades[sym] || null;
+    const f = data.fundamentals || {};
+    const base = {
+      symbol: sym,
+      name: f.name || null,
+      sector: grade?.sector || f.sector || SECTORS[sym] || null,
+      spot: r2(pnum(data.spot)),
+      grade: grade ? {
+        total: grade.total, conviction: grade.conviction, side: grade.side,
+        tier: grade.recommendation?.tier || null, label: grade.recommendation?.label || null,
+      } : null,
+      series: stockSparkSeries(data),
+      fiftyTwoWeek: { hi: pnum(f.fiftyTwoWeekHigh), lo: pnum(f.fiftyTwoWeekLow) },
+      earningsSoon: stockEarningsSoon(f),
+    };
+    const v = scoreStockValue(sym, data, grade, sectorPE[f.sector]);
+    if (v && v.score >= STOCK_VALUE_MIN_SCORE) value.push({ ...base, ...v });
+    const b = scoreStockBreakout(sym, data, grade);
+    if (b && b.score >= STOCK_BREAKOUT_MIN_SCORE) breakout.push({ ...base, ...b });
+  }
+
+  // Dedupe both-bucket qualifiers into the stronger read so the page never
+  // pitches the same name twice with two different stories.
+  const inValue = new Map(value.map((r) => [r.symbol, r]));
+  for (let i = breakout.length - 1; i >= 0; i--) {
+    const twin = inValue.get(breakout[i].symbol);
+    if (!twin) continue;
+    if (twin.score >= breakout[i].score) breakout.splice(i, 1);
+    else value.splice(value.indexOf(twin), 1);
+  }
+
+  value.sort((a, b) => b.score - a.score);
+  breakout.sort((a, b) => b.score - a.score);
+  return {
+    builtAtIso,
+    universe,
+    maxPerBucket: STOCK_PICKS_MAX,
+    minScore: { value: STOCK_VALUE_MIN_SCORE, breakout: STOCK_BREAKOUT_MIN_SCORE },
+    value: value.slice(0, STOCK_PICKS_MAX),
+    breakout: breakout.slice(0, STOCK_PICKS_MAX),
+  };
+}
+
+export async function writeStockPicksFile(payload) {
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, STOCK_PICKS_FILE), json, "utf8");
+  return { bytes: json.length, value: payload.value.length, breakout: payload.breakout.length };
+}
+
+// ============================================================================
 // picks.json writer (+ tenure stamp + zero-pick stale reuse).
 // ============================================================================
 async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, priorClosed = null, priorGrades = null, scannerExtras = null, priorOpen = null, reentryCooldown = true, thesisProsePrior = null, streaksMap = null) {
@@ -20784,6 +21072,15 @@ async function main() {
   const gradesIndex = buildGradesIndex(chains, trends.narratives, streaksInfo.map, unusual, macroBackdrop, volumeFlags, { priorGrades: gradesHistoryPrev?.latest ?? null, priorClosed: picksAccuracyPrev?.closed ?? null, ...scannerExtras });
   const gradesInfo = await writeGradesFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, volumeFlags, gradesIndex);
   console.log(`wrote data/grades.json — ${gradesInfo.count} tickers, ${gradesInfo.bytes} bytes`);
+  // Shares-only Stock Picks (premium tab): deterministic value + breakout
+  // screens over the same universe, reusing the grade index just built.
+  // Rebuilt fresh every bake — no cross-build accumulation, no pre-wipe read.
+  try {
+    const spInfo = await writeStockPicksFile(buildStockPicks(chains, gradesIndex, builtAtIso));
+    console.log(`wrote data/${STOCK_PICKS_FILE} — ${spInfo.value} value + ${spInfo.breakout} breakout, ${spInfo.bytes} bytes`);
+  } catch (err) {
+    console.warn(`[stocks] stock-picks skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
   // Daily grade snapshot (universe-IC substrate): upsert today's ET row with every
   // name's total, so scripts/diagnose-grade-ic.mjs can measure the grade's forward
   // IC on the whole universe instead of the ~5-per-build enrolled roster.

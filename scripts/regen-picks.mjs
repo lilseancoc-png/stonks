@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory } from "./build.mjs";
+import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -236,6 +236,16 @@ await writeFile(
   "utf8",
 );
 console.log(`Regenerated grades.json — ${Object.keys(grades).length} tickers (minConviction ${Number(gradesMinConviction).toFixed(2)}).`);
+
+// Shares-only Stock Picks (premium tab) — deterministic value + breakout
+// screens over the same universe, reusing the grade index just built. Mirrors
+// build.mjs::main(); rebuilt fresh (no accumulation), so a regen is exact.
+try {
+  const spInfo = await writeStockPicksFile(buildStockPicks(chains, grades, builtAtIso));
+  console.log(`Regenerated ${STOCK_PICKS_FILE} — ${spInfo.value} value + ${spInfo.breakout} breakout.`);
+} catch (err) {
+  console.warn(`${STOCK_PICKS_FILE} skipped — ${String(err?.message || err).split("\n")[0]}`);
+}
 
 // Daily grade snapshot (universe-IC substrate) — upsert today's ET row, same as
 // the full build. Read-modify-write on the live file (no wipe here).

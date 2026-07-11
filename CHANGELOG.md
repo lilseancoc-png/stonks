@@ -20,6 +20,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
        (same format, plus the archive preamble) and add that month to the
        "Older changelogs" index below. -->
 
+## 2026-07-11
+
+### Added
+- **Stock Picks — a new premium, shares-only recommendation tab, separate from the Top Picks options roster.** Two deterministic screens over the whole ~138-name universe, rebuilt every bake (and by `regen-picks.mjs`) into the new premium `data/stock-picks.json`: **Value buys** (quality names trading cheap — a profitability/not-deteriorating quality gate, then P/E-below-sector, PEG ≤ 1.2, a real 52-week drawdown, or 15%+ consensus analyst upside as cheapness signals, with knife/bearish-news cautions docked rather than hidden) and **Breakout watch** (up-and-coming names in a structural uptrend with RSI in the 45–76 sweet spot and a live level story — coiled within 3% of mapped resistance, a fresh confirmed break, or new 52-week highs — confirmed by volume, MACD, options flow, narrative and news tone, with an already-ran chase caution). Every reason is point-weighted plain English; each card carries a 6-month sparkline (shared hover engine), the 52-week range bar, an earnings-soon badge, and the breakout trigger price. ETFs excluded; both buckets honestly ship fewer (or zero) names on a thin tape. New nav item + landing card + cmd-K entry; premium-gated end to end (`stocks` in `PREMIUM_TABS` client-side, `stock-picks.json` in `lib/premium-keys.mjs` server-side — plain premium, not role-hidden) and listed on the What's-included page. `scripts/build.mjs` (`buildStockPicks`/`writeStockPicksFile`), `scripts/regen-picks.mjs`, `lib/premium-keys.mjs`, `scripts/render/{app-js,html,styles-css,docs}.mjs`.
+
 ## 2026-07-10
 
 ### Added
