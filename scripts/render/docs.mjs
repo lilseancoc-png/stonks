@@ -1069,6 +1069,7 @@ export const DOC_PAGES = {
           <ul class="cmp-list">
             <li><b>Market analysis</b> — the live market tape, risk barometer &amp; regime history</li>
             <li><b>Top Picks</b> — highest-conviction contracts, sizing &amp; breakeven</li>
+            <li><b>Stock Picks</b> — shares-only value buys &amp; breakout candidates</li>
             <li><b>Briefs</b> — hourly market digest, open through close</li>
             <li><b>Narratives</b> — AI theses driving capital, longs/shorts, lifecycle</li>
             <li><b>Unusual flow</b> — abnormal options prints &amp; directional skew</li>
@@ -1171,6 +1172,10 @@ export const DOC_PAGES = {
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Top Picks</span><span class="tier prem">Premium</span></div>
           <p class="feat-desc">The highest-conviction contracts pulled from today's chains — a cross-sectional grade, suggested contract, position sizing, move-to-breakeven, and an exit plan.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Stock Picks</span><span class="tier prem">Premium</span></div>
+          <p class="feat-desc">Shares, not options — two deterministic screens over the whole universe: quality names trading cheap (below-sector multiples, real drawdowns, analyst upside past a profitability gate), and up-and-coming names coiled against resistance with momentum and volume behind them.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Briefs</span><span class="tier prem">Premium</span></div>

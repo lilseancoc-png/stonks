@@ -42,6 +42,7 @@ const SIDE_NAV_ICONS = {
   narratives: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   market: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
   picks: '<path d="m12 2.5 2.9 5.9 6.5 1-4.7 4.5 1.1 6.4L12 17.3l-5.8 3 1.1-6.4-4.7-4.5 6.5-1z"/>',
+  stocks: '<path d="M3.5 20.5v-17"/><path d="M3.5 20.5h17"/><path d="m6.5 15.5 4-4.5 3 2.5 4.5-6"/><path d="M14.5 7.5H18V11"/>',
   calendar: '<rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18"/>',
   'index-cal': '<rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18M8 15h.01M12 15h.01M16 15h.01"/>',
   track: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14.5 2 2 4-4.5"/>',
@@ -401,6 +402,21 @@ function indexCalSection() {
     </header>
     ${infoNote('How to read the index calendar', `<p>A month-at-a-time record of how the three major index ETFs &mdash; <b>SPY</b> (S&amp;P&nbsp;500), <b>QQQ</b> (Nasdaq&nbsp;100) and <b>IWM</b> (Russell&nbsp;2000) &mdash; closed each trading day: <b class="idx-up">green</b> for an up day, <b class="idx-dn">red</b> for a down day, with the close-to-close <b>%&nbsp;change</b> in every cell. Toggle between the three indexes, step months with <b>&lsaquo;</b>&nbsp;/&nbsp;<b>&rsaquo;</b> (or <b>Today</b> to jump back), and read the per-month tally &mdash; green vs red days and the month&rsquo;s compounded return &mdash; beneath the grid. Today&rsquo;s cell updates through the session and finalizes at the 4&nbsp;pm&nbsp;ET close; history accumulates from each build. Not financial advice.</p>`)}
     <div id="index-cal-root" class="idx-cal-root">Loading index calendar&hellip;</div>
+  </section>`;
+}
+
+function stockPicksSection() {
+  // Card chrome only — the value + breakout stock cards render client-side
+  // from data/stock-picks.json (premium; lazy-fetched on first tab activation
+  // by loadStocks() in app.js). A separate product from Top Picks: shares,
+  // not option contracts.
+  return `<section class="card" id="stocks-section">
+    <header class="card-header">
+      <h2 class="card-title">Stock picks</h2>
+      <span class="card-eyebrow" id="stocks-eyebrow" aria-live="polite"></span>
+    </header>
+    ${infoNote('How to read stock picks', `<p>Share ideas, <em>not</em> option contracts &mdash; the Top Picks tab times leveraged trades; this page screens the same ${'~'}138-name universe for stocks worth owning. <b>Value buys</b> are quality names trading cheap: every candidate must first pass a quality gate (profitable, revenue not collapsing, fundamentals pillar not net-negative), then show at least one genuine cheapness signal &mdash; a P/E below its sector median, a PEG under 1.2, a real drawdown off the 52-week high, or 15%+ consensus analyst upside. <b>Breakout watch</b> looks for up-and-coming names poised to move: a structural uptrend (above the 200-day), momentum in the sweet spot (RSI 45&ndash;76 &mdash; alive but not exhausted), and a live level story &mdash; pressing within 3% of a mapped resistance level, a fresh confirmed break, or new 52-week highs &mdash; with volume, options flow and news tone as confirmation. Every reason is deterministic and point-weighted; the score is just the sum, and a thin tape honestly ships fewer (or zero) names. Refreshed with each hourly build. Not financial advice.</p>`)}
+    <div id="stocks-root" class="stk-root">Loading stock picks&hellip;</div>
   </section>`;
 }
 
@@ -1239,6 +1255,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     ${sideNavItem('narratives', 'Narratives')}
     ${sideNavItem('market', 'Market analysis')}
     ${sideNavItem('picks', 'Top picks')}
+    ${sideNavItem('stocks', 'Stock picks')}
     ${sideNavItem('calendar', 'Calendar')}
     ${sideNavItem('index-cal', 'Index calendar')}
     ${sideNavItem('track', 'Track record')}
@@ -1309,6 +1326,15 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           <div class="landing-card-stat" id="land-stat-picks">Today</div>
           <div class="landing-card-sub" id="land-sub-picks">highest conviction</div>
           <p class="landing-card-desc">Standout contracts the model pulled from today's chain — what we'd buy if we had to pick.</p>
+        </button>
+        <button type="button" class="landing-card" data-go="stocks" aria-label="View stock picks">
+          <header class="landing-card-head">
+            <span class="landing-card-eyebrow">Stock picks</span>
+            <span class="landing-card-arrow" aria-hidden="true">→</span>
+          </header>
+          <div class="landing-card-stat" id="land-stat-stocks">Shares</div>
+          <div class="landing-card-sub" id="land-sub-stocks">value &amp; breakouts</div>
+          <p class="landing-card-desc">Stocks, not options — quality names trading cheap, and up-and-coming names coiled for a breakout.</p>
         </button>
         <button type="button" class="landing-card landing-card-hot" data-go="flow" aria-label="View unusual flow">
           <header class="landing-card-head">
@@ -1443,6 +1469,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-picks" role="tabpanel" aria-labelledby="page-tab-picks" hidden>
   ${topPicksSection()}
+  </div>
+  <div class="page-pane" id="page-pane-stocks" role="tabpanel" aria-labelledby="page-tab-stocks" hidden>
+  ${stockPicksSection()}
   </div>
   <div class="page-pane" id="page-pane-track" role="tabpanel" aria-labelledby="page-tab-track" hidden>
   ${trackRecordSection()}
