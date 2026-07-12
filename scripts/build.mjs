@@ -12969,29 +12969,48 @@ export async function writeGradesFile(chains, narratives, builtAtIso, unusualPay
 }
 
 // ============================================================================
-// STOCK PICKS — shares-only recommendations (data/stock-picks.json, PREMIUM).
+// STOCK PICKS — the quality-dip screen (data/stock-picks.json, PREMIUM).
 //
-// A separate product from the Top Picks options roster: no contracts, no
-// greeks, no strategy layer — just "which stocks look worth buying as SHARES
-// right now", in two deterministic buckets:
-//   - value:    quality names trading cheap (P/E below the sector median, PEG,
-//               a real drawdown off the 52-week high, analyst upside) that
-//               still clear a profitability + not-deteriorating quality gate.
-//   - breakout: up-and-coming names poised to break out — structural uptrend,
-//               momentum in the sweet spot (RSI 45-76, so neither dead nor
-//               already extended), pressing against / just clearing a mapped
-//               resistance level or the 52-week high, with volume + flow +
-//               narrative confirmation as bonuses.
-// Fully deterministic (no AI) and rebuilt fresh every bake from the same
+// The whole page is built around THREE SEPARATE QUESTIONS, answered by three
+// independent modules — deliberately never blended into one number, so each
+// stays easy to reason about and debug on its own:
+//   1. QUALITY GATE (stockQualityGate) — is it a good business? A hard yes/no
+//      filter: consistently profitable, debt manageable, margins holding,
+//      revenue actually growing. A name that fails is never a candidate no
+//      matter how far it fell — that is how value traps get in.
+//   2. DIP SCORE (stockDipReads + the cross-sectional composite assembled in
+//      buildStockPicks) — is it beaten down RIGHT NOW? Five reads of "cheap
+//      relative to its own recent self": RSI(14), distance below the 50-day
+//      average, drawdown off the 52-week high, the 20-day price z-score
+//      (Bollinger-style stretch), and relative weakness vs SPY (company-
+//      specific selling vs just riding a market selloff). Each read is
+//      z-scored ACROSS the quality-passed universe and averaged into one
+//      composite, so the page always surfaces the most unloved names relative
+//      to the others instead of depending on fragile fixed thresholds. The
+//      fixed bars below only decide whether a read "fires" — a name needs
+//      STOCK_DIP_MIN_SIGNALS fired to list at all; ORDER is the composite.
+//   3. TRAP FLAGS (stockTrapFlags) — is it beaten down because something
+//      actually broke? Yellow warning flags, never blockers: a fresh earnings
+//      print inside the drop (the thesis may have changed), heavy-volume
+//      selling, a long red streak, analysts cutting, bearish news tone, a
+//      binary event just ahead. They ship on the card so the final call stays
+//      with the reader; a candidate with ZERO flags is badged the "buy zone".
+// Fully deterministic (no AI), rebuilt fresh every bake from the same
 // per-ticker fundamentals/technicals the grades index reads — no cross-build
-// accumulation, so no pre-wipe read. Both buckets are honest: a thin tape
-// ships fewer (or zero) names rather than padding to the cap. ETFs are
-// excluded (no fundamentals to value; a fund "breakout" is just the index).
+// accumulation, so no pre-wipe read. Honest by construction: a tape with no
+// quality name on sale ships zero candidates. ETFs are excluded (no
+// fundamentals to gate on; an index dip is the market, not a name).
 // ============================================================================
 export const STOCK_PICKS_FILE = "stock-picks.json";
-const STOCK_PICKS_MAX = clampNum(process.env.STOCK_PICKS_MAX, 1, 12, 6);
-const STOCK_VALUE_MIN_SCORE = 3;
-const STOCK_BREAKOUT_MIN_SCORE = 3.5;
+const STOCK_PICKS_MAX = clampNum(process.env.STOCK_PICKS_MAX, 1, 24, 8);
+const STOCK_DIP_MIN_SIGNALS = 2; // fired dip reads required to list a candidate
+// The five "fired" bars (starting rules). Listing gates only — the ranking is
+// the cross-sectional composite, so these don't need to be perfectly tuned.
+const STOCK_DIP_RSI_MAX = 35; // RSI(14) below this = oversold
+const STOCK_DIP_SMA50_PCT = 4; // at least this % below the 50-day average
+const STOCK_DIP_DRAWDOWN_PCT = 15; // at least this % off the 52-week high
+const STOCK_DIP_Z_MAX = -2; // 20D price z-score at/below (≈ lower Bollinger band)
+const STOCK_DIP_RELWEAK_PP = -4; // 10-day return vs SPY at/below, in pct points
 
 function clampNum(raw, lo, hi, dflt) {
   const n = Number(raw);
@@ -12999,7 +13018,7 @@ function clampNum(raw, lo, hi, dflt) {
 }
 
 // Downsampled ~6-month close series for the card sparkline (≤48 points keeps
-// the whole payload a few KB even at both caps).
+// the whole payload a few KB even at the cap).
 function stockSparkSeries(data, maxPoints = 48) {
   const tb = timingBarsFrom(data);
   const c = tb && Array.isArray(tb.c) ? tb.c.filter(Number.isFinite) : [];
@@ -13011,9 +13030,8 @@ function stockSparkSeries(data, maxPoints = 48) {
   return out;
 }
 
-// True when the next earnings print lands inside `days` ET calendar days —
-// the card badges it so a buyer knows a binary event sits in front of the
-// idea. etDaysUntil is the repo-wide convention for event-date math (a raw
+// True when the next earnings print lands inside `days` ET calendar days.
+// etDaysUntil is the repo-wide convention for event-date math (a raw
 // Date.parse diff turns off on the event day itself — see its header).
 function stockEarningsSoon(f, days = 10) {
   const d = f?.nextEarningsDate || null;
@@ -13022,238 +13040,563 @@ function stockEarningsSoon(f, days = 10) {
   return n != null && n >= 0 && n <= days ? d : null;
 }
 
-// VALUE bucket scorer. Returns null when the name fails the quality gate or
-// carries no genuine cheapness signal (good-but-fairly-priced is not a value
-// pick). reasons[] are plain-English, point-weighted, and ship on the card.
-function scoreStockValue(sym, data, grade, sectorPE) {
-  const f = data?.fundamentals || {};
-  const t = data?.technicals || {};
-  const spot = pnum(data?.spot);
-  if (!(spot > 0)) return null;
-
-  // Quality gate: profitable (net margin or FCF positive), revenue not
-  // collapsing, and the fundamentals pillar not net-negative — "cheap" must
-  // mean discounted quality, not a deteriorating business at a low multiple.
-  const margin = pnum(f.profitMargin), fcf = pnum(f.freeCashFlow);
-  if (!((margin != null && margin > 0) || (fcf != null && fcf > 0))) return null;
-  const rev = pnum(f.revenueGrowthYoy);
-  if (rev != null && rev <= -10) return null;
-  const fundScore = pnum(grade?.pillars?.fundamentals?.score);
-  if (fundScore != null && fundScore < 0) return null;
-
-  const reasons = [];
-  let cheap = false;
-
-  const pe = pnum(f.trailingPE);
-  if (pe != null && pe > 0 && sectorPE > 0 && pe <= sectorPE * 0.85) {
-    cheap = true;
-    const pts = pe <= sectorPE * 0.6 ? 2.5 : pe <= sectorPE * 0.75 ? 1.75 : 1;
-    reasons.push({ key: "peDiscount", label: "P/E below sector", detail: `${r1(pe)}x vs the ${r1(sectorPE)}x sector median`, pts });
-  }
-  const peg = pnum(f.pegRatio);
-  if (peg != null && peg > 0 && peg <= 1.2) {
-    cheap = true;
-    reasons.push({ key: "peg", label: "Growth priced cheap", detail: `PEG ${r2(peg)} — paying under 1.2x per unit of growth`, pts: 1 });
-  }
-  const hi = pnum(f.fiftyTwoWeekHigh);
-  let ddPct = null;
-  if (hi > 0 && spot < hi) {
-    ddPct = (1 - spot / hi) * 100;
-    if (ddPct >= 15) {
-      cheap = true;
-      const pts = ddPct >= 30 ? 1.5 : ddPct >= 20 ? 1 : 0.5;
-      reasons.push({ key: "drawdown", label: "Marked down from the high", detail: `${r1(ddPct)}% below the 52-week high`, pts });
-    }
-  }
-  const tgt = pnum(f.targetMeanPrice), na = pnum(f.numberOfAnalystOpinions);
-  let upside = null;
-  if (tgt != null && na != null && na >= 5) {
-    upside = (tgt / spot - 1) * 100;
-    if (upside >= 8) {
-      if (upside >= 15) cheap = true;
-      const pts = upside >= 25 ? 1.5 : upside >= 15 ? 1 : 0.5;
-      reasons.push({ key: "target", label: "Analyst upside", detail: `consensus target ${r1(upside)}% above spot (${na} analysts)`, pts });
-    }
-  }
-  if (f.recommendationKey === "strong_buy" || f.recommendationKey === "buy") {
-    reasons.push({ key: "rating", label: "Analyst consensus: buy", detail: `street rates it "${String(f.recommendationKey).replace("_", " ")}"`, pts: 0.5 });
-  }
-  if (margin != null && margin >= 15) reasons.push({ key: "margin", label: "Strong margins", detail: `${r1(margin)}% net margin`, pts: 0.5 });
-  const roe = pnum(f.returnOnEquity);
-  if (roe != null && roe >= 15) reasons.push({ key: "roe", label: "High return on equity", detail: `${r1(roe)}% ROE`, pts: 0.5 });
-  if (rev != null && rev >= 8) reasons.push({ key: "revGrowth", label: "Still growing", detail: `revenue +${r1(rev)}% YoY`, pts: 0.5 });
-  const traj = grade?.pillars?.fundamentals?.trajectory || null;
-  if (traj && traj.dir === "improving") reasons.push({ key: "trajectory", label: "Fundamentals improving", detail: traj.reason || "forward reads are improving", pts: 0.5 });
-
-  // Cautions (penalties, not exclusions): a knife-y tape or a bearish news
-  // read makes a cheap name cheaper for a reason — surface it and dock points.
-  const rsi = pnum(t.rsi);
-  if (rsi != null && rsi < 30) reasons.push({ key: "knife", label: "Caution: heavy selling", detail: `RSI ${r1(rsi)} — consider waiting for the tape to stabilize`, pts: -1 });
-  const sentiment = grade?.sentiment || data?.news?.sentiment || null;
-  if (sentiment === "bearish") reasons.push({ key: "news", label: "Caution: bearish news tone", detail: "the latest news read on this name leans bearish", pts: -1 });
-
-  if (!cheap) return null;
-  const score = r1(reasons.reduce((a, x) => a + x.pts, 0));
-  return {
-    score, reasons,
-    stats: {
-      pe: pe != null ? r1(pe) : null, sectorPE: sectorPE > 0 ? r1(sectorPE) : null,
-      peg: peg != null ? r2(peg) : null, pctBelowHigh: ddPct != null ? r1(ddPct) : null,
-      targetUpsidePct: upside != null ? r1(upside) : null, analysts: na ?? null,
-      netMarginPct: margin != null ? r1(margin) : null, roePct: roe != null ? r1(roe) : null,
-      revGrowthPct: rev != null ? r1(rev) : null, rsi: rsi != null ? r1(rsi) : null,
-    },
-  };
-}
-
-// BREAKOUT bucket scorer. Returns null unless the name has a live level story
-// (coiled under resistance, a fresh confirmed break, or printing new 52-week
-// highs) on top of a structural uptrend with momentum in the sweet spot.
-function scoreStockBreakout(sym, data, grade) {
-  const f = data?.fundamentals || {};
-  const t = data?.technicals || {};
-  const spot = pnum(data?.spot);
-  if (!(spot > 0)) return null;
-
-  // Hard gates: momentum alive but not exhausted, long-term structure intact,
-  // and the overall grade not leaning bearish (don't pitch a share breakout on
-  // a name the options engine wants to short).
-  const rsi = pnum(t.rsi);
-  if (rsi == null || rsi < 45 || rsi >= 76) return null;
-  const sma200 = pnum(t.sma?.sma200), sma50 = pnum(t.sma?.sma50), sma20 = pnum(t.sma?.sma20);
-  if (sma200 != null && spot < sma200) return null;
-  if ((pnum(grade?.total) ?? 0) < -1) return null;
-
-  // Confirmed closes only (in-progress bar dropped, same slice(0,-1)
-  // convention as the grade index's techLive) — the chase read must be
-  // deterministic on settled sessions, not wiggle with the intraday tape.
+// Confirmed-close history for the dip math: everything except the last
+// (possibly in-progress) bar — the same slice(0,-1) convention the rest of
+// the engine uses. The live spot is then measured AGAINST settled history.
+function stockCloseHistory(data) {
   const tb = timingBarsFrom(data);
-  const cc = tb && Array.isArray(tb.c) ? tb.c.filter(Number.isFinite).slice(0, -1) : [];
-  const ret5 = cc.length >= 6 && cc[cc.length - 6] > 0 ? (cc[cc.length - 1] / cc[cc.length - 6] - 1) * 100 : null;
+  const c = tb && Array.isArray(tb.c) ? tb.c.filter(Number.isFinite) : [];
+  return c.length >= 2 ? c.slice(0, -1) : [];
+}
 
-  const reasons = [];
-  const sr = t.sr || {};
+// 10-trading-day % return: live spot vs the confirmed close 10 sessions back.
+function stockRet10(spot, hist) {
+  if (!(spot > 0) || hist.length < 10) return null;
+  const base = hist[hist.length - 10];
+  return base > 0 ? (spot / base - 1) * 100 : null;
+}
+
+// MODULE 1 — the quality gate. A yes/no filter over the business, not the
+// price: every check that HAS data must pass; a check with no data is skipped
+// (graceful degradation) rather than failing the name — except profitability,
+// which is required (a name we can't verify as profitable can't clear a
+// quality bar). checks[] ship on the card so the reader sees what was tested.
+function stockQualityGate(data) {
+  const f = data?.fundamentals || {};
+  const checks = [];
+
+  // Consistently profitable — positive net margin or positive free cash flow.
+  const margin = pnum(f.profitMargin), fcf = pnum(f.freeCashFlow);
+  if (margin == null && fcf == null) {
+    checks.push({ key: "profit", label: "Consistently profitable", ok: false, detail: "no profitability data on file" });
+    return { pass: false, checks };
+  }
+  const profitable = (margin != null && margin > 0) || (fcf != null && fcf > 0);
+  const profBits = [];
+  if (margin != null) profBits.push(`${r1(margin)}% net margin`);
+  if (fcf != null) profBits.push(`free cash flow ${fcf > 0 ? "positive" : "negative"}`);
+  checks.push({ key: "profit", label: "Consistently profitable", ok: profitable, detail: profBits.join(" · ") });
+
+  // Debt manageable — more cash than debt, or debt/equity ≤ 2x (Yahoo reports
+  // D/E in percent, so 200 = 2x).
+  const de = pnum(f.debtToEquity), cash = pnum(f.totalCash), debt = pnum(f.totalDebt);
+  const cashRich = cash != null && debt != null && cash >= debt;
+  if (de != null || cashRich) {
+    checks.push({
+      key: "debt", label: "Debt manageable", ok: cashRich || (de != null && de <= 200),
+      detail: cashRich ? "more cash than debt on the balance sheet" : `debt/equity ${r2(de / 100)}x`,
+    });
+  }
+
+  // Margins holding — latest quarterly net margin vs ~a year ago (previous
+  // quarter on thin history). Eroding by more than 3 pct points = fail: a
+  // durable business defends its margins.
+  const nm = Array.isArray(f.netMarginHistory) ? f.netMarginHistory.filter((x) => pnum(x?.value) != null) : [];
+  if (nm.length >= 2) {
+    const cur = Number(nm[nm.length - 1].value);
+    const prior = nm.length >= 5 ? Number(nm[nm.length - 5].value) : Number(nm[nm.length - 2].value);
+    checks.push({
+      key: "margins", label: "Margins holding", ok: cur - prior > -3,
+      detail: `net margin ${r1(cur)}% vs ${r1(prior)}% ${nm.length >= 5 ? "a year ago" : "last quarter"}`,
+    });
+  }
+
+  // Revenue growing — trailing-twelve-months vs the prior four quarters when
+  // eight are on file (the multi-year read), else Yahoo's latest-quarter YoY.
+  // Flat-ish (> −2%) passes; real shrinkage fails.
+  let revYoy = null, revBasis = null;
+  const rh = Array.isArray(f.revenueHistory) ? f.revenueHistory.filter((x) => pnum(x?.value) != null) : [];
+  if (rh.length >= 8) {
+    const sum = (a) => a.reduce((s, x) => s + Number(x.value), 0);
+    const cur = sum(rh.slice(-4)), prior = sum(rh.slice(-8, -4));
+    if (prior > 0) { revYoy = (cur / prior - 1) * 100; revBasis = "trailing twelve months"; }
+  }
+  if (revYoy == null) { revYoy = pnum(f.revenueGrowthYoy); revBasis = "latest quarter"; }
+  if (revYoy != null) {
+    checks.push({
+      key: "revenue", label: "Revenue growing", ok: revYoy > -2,
+      detail: `${revYoy >= 0 ? "+" : ""}${r1(revYoy)}% YoY (${revBasis})`,
+    });
+  }
+
+  return { pass: checks.every((c) => c.ok), checks };
+}
+
+// MODULE 2 — the five raw dip reads for one name. Returns null when the name
+// has no usable price; otherwise { signals, raw } where signals[] are the
+// card rows (each with its absolute `fired` flag) and raw carries the
+// orientation-corrected values (higher = more beaten down) that the
+// cross-sectional composite in buildStockPicks z-scores across the universe.
+function stockDipReads(data, mktRet10) {
+  const t = data?.technicals || {};
+  const f = data?.fundamentals || {};
+  const spot = pnum(data?.spot);
+  if (!(spot > 0)) return null;
+  const hist = stockCloseHistory(data);
+
+  const rsi = pnum(t.rsi);
+
+  const sma50 = pnum(t.sma?.sma50), sma200 = pnum(t.sma?.sma200);
+  const below50 = sma50 > 0 ? (1 - spot / sma50) * 100 : null; // positive = below
+  const below200 = sma200 > 0 ? (1 - spot / sma200) * 100 : null;
+
   const hi = pnum(f.fiftyTwoWeekHigh);
-  let setup = false, trigger = null, triggerLabel = null;
+  const drawdown = hi > 0 ? Math.max(0, (1 - spot / hi) * 100) : null;
 
-  // Nearest mapped resistance ABOVE spot → the breakout trigger the card shows.
-  const overhead = [
-    [pnum(sr.r20), "20D resistance"], [pnum(sr.r50), "50D resistance"],
-    [pnum(sr.r100), "100D resistance"], [pnum(sr.r200), "200D resistance"],
-    [hi, "52-week high"],
-  ].filter(([v]) => v > spot).sort((a, b) => a[0] - b[0]);
-  if (overhead.length) {
-    const [lvl, lbl] = overhead[0];
-    const dist = (lvl / spot - 1) * 100;
-    trigger = r2(lvl); triggerLabel = lbl;
-    if (dist <= 3) { setup = true; reasons.push({ key: "coiled", label: "Pressing against resistance", detail: `${r1(dist)}% below ${lbl} (${r2(lvl)})`, pts: 2 }); }
-    else if (dist <= 6) reasons.push({ key: "near", label: "Approaching resistance", detail: `${r1(dist)}% below ${lbl} (${r2(lvl)})`, pts: 1 });
+  // 20-day price z-score: live spot vs the mean/σ of the last 20 confirmed
+  // closes — how many standard deviations below its own recent self (touching
+  // −2 is roughly the lower Bollinger band).
+  let z20 = null;
+  const win = hist.slice(-20);
+  if (win.length >= 15) {
+    const mean = win.reduce((a, b) => a + b, 0) / win.length;
+    const sd = Math.sqrt(win.reduce((a, b) => a + (b - mean) ** 2, 0) / win.length);
+    if (sd > 0) z20 = (spot - mean) / sd;
   }
-  // Fresh confirmed break: just cleared the 50D/100D shelf (≤3% above it).
-  for (const [lvl, lbl] of [[pnum(sr.r50), "50D resistance"], [pnum(sr.r100), "100D resistance"]]) {
-    if (lvl > 0 && spot > lvl && spot <= lvl * 1.03) {
-      setup = true;
-      reasons.push({ key: "freshBreak", label: "Fresh breakout", detail: `just cleared ${lbl} at ${r2(lvl)}`, pts: 2 });
-      break;
-    }
-  }
-  if (hi > 0 && spot >= hi) { setup = true; reasons.push({ key: "newHigh", label: "New 52-week high", detail: "printing fresh 52-week highs — no overhead supply", pts: 1.5 }); }
-  else if (hi > 0 && spot >= hi * 0.95) reasons.push({ key: "nearHigh", label: "Knocking on the 52-week high", detail: `within ${r1((1 - spot / hi) * 100)}% of the high`, pts: 1 });
-  if (!setup) return null;
 
-  // Confirmation stack.
-  if (sma20 != null && sma50 != null && spot > sma20 && sma20 > sma50) reasons.push({ key: "smaStack", label: "Uptrend stack", detail: "price above the 20D, 20D above the 50D", pts: 1 });
-  if (sma50 != null && sma200 != null && sma50 > sma200) reasons.push({ key: "goldenTrend", label: "Long-term trend up", detail: "50D holding above the 200D", pts: 0.5 });
-  const mh = pnum(t.macd?.hist), ml = pnum(t.macd?.line), ms = pnum(t.macd?.signal);
-  if (mh != null && mh > 0 && ml != null && ms != null && ml > ms) reasons.push({ key: "macd", label: "MACD bullish", detail: "trend line above signal with a positive histogram", pts: 0.75 });
-  if (rsi >= 55) reasons.push({ key: "rsi", label: "Momentum building", detail: `RSI ${r1(rsi)} — strong but not yet overbought`, pts: 0.75 });
-  const rvol = pnum(t.volume?.rvol);
-  if (rvol != null && rvol >= 1.5) reasons.push({ key: "volume", label: "Volume surging", detail: `${r2(rvol)}x average daily volume`, pts: 1.25 });
-  else if (rvol != null && rvol >= 1.2) reasons.push({ key: "volume", label: "Volume confirming", detail: `${r2(rvol)}x average daily volume`, pts: 0.75 });
-  const streak = grade?.streak || null;
-  if (streak && streak.color === "green" && pnum(streak.days) >= 3) reasons.push({ key: "streak", label: "Green streak", detail: `${streak.days} straight up days`, pts: 0.5 });
-  const mechScore = pnum(grade?.pillars?.mechanicals?.score);
-  if (mechScore != null && mechScore >= 1.5) reasons.push({ key: "flow", label: "Options flow leaning in", detail: "the flow pillar reads accumulation in the options market", pts: 0.75 });
-  const narrScore = pnum(grade?.pillars?.narrative?.score);
-  if (narrScore != null && narrScore >= 1) reasons.push({ key: "narrative", label: "Sector narrative tailwind", detail: "the name sits inside a market narrative currently working", pts: 0.5 });
-  const sentiment = grade?.sentiment || data?.news?.sentiment || null;
-  if (sentiment === "bullish") reasons.push({ key: "news", label: "Bullish news tone", detail: "the latest news read on this name leans bullish", pts: 0.5 });
-  if (Array.isArray(grade?.catalysts) && grade.catalysts.length) reasons.push({ key: "catalyst", label: "Dated catalyst ahead", detail: "a known upcoming event could be the trigger", pts: 0.5 });
+  // Relative weakness vs the market: the name's 10-day return minus SPY's.
+  // Down with the market = riding a selloff; down while the market is flat =
+  // idiosyncratic, company-specific selling — a different kind of dip.
+  const ret10 = stockRet10(spot, hist);
+  const rel10 = ret10 != null && mktRet10 != null ? ret10 - mktRet10 : null;
 
-  // Already-ran guard: a name up big in a week is a chase, not a setup.
-  if (ret5 != null && ret5 > 12) reasons.push({ key: "chase", label: "Caution: already ran", detail: `+${r1(ret5)}% in the last five sessions — extended short-term`, pts: -1.5 });
+  const signals = [
+    {
+      key: "rsi", label: "RSI oversold", value: rsi != null ? r1(rsi) : null,
+      fired: rsi != null && rsi < STOCK_DIP_RSI_MAX,
+      detail: rsi != null ? `RSI(14) ${r1(rsi)} — fires below ${STOCK_DIP_RSI_MAX}` : "no RSI read",
+    },
+    {
+      key: "sma50", label: "Below the 50-day trend", value: below50 != null ? r1(below50) : null,
+      fired: below50 != null && below50 >= STOCK_DIP_SMA50_PCT,
+      detail: below50 != null
+        ? `${below50 >= 0 ? r1(below50) + "% below" : r1(-below50) + "% above"} the 50-day average${below200 != null && below200 >= 0 ? `, ${r1(below200)}% below the 200-day` : ""} — fires ${STOCK_DIP_SMA50_PCT}%+ below`
+        : "no 50-day average yet",
+    },
+    {
+      key: "drawdown", label: "Off the 52-week high", value: drawdown != null ? r1(drawdown) : null,
+      fired: drawdown != null && drawdown >= STOCK_DIP_DRAWDOWN_PCT,
+      detail: drawdown != null ? `${r1(drawdown)}% below the high — fires at ${STOCK_DIP_DRAWDOWN_PCT}%+` : "no 52-week high on file",
+    },
+    {
+      key: "zscore", label: "Statistically stretched", value: z20 != null ? r2(z20) : null,
+      fired: z20 != null && z20 <= STOCK_DIP_Z_MAX,
+      detail: z20 != null ? `${r2(z20)}σ vs its own 20-day mean — fires at ${STOCK_DIP_Z_MAX}σ (≈ the lower Bollinger band)` : "history too thin for a z-score",
+    },
+    {
+      key: "relweak", label: "Weak vs the market", value: rel10 != null ? r1(rel10) : null,
+      fired: rel10 != null && rel10 <= STOCK_DIP_RELWEAK_PP,
+      detail: rel10 != null
+        ? `${rel10 >= 0 ? "+" : ""}${r1(rel10)} pts vs SPY over 10 sessions — ${rel10 <= STOCK_DIP_RELWEAK_PP ? "company-specific selling" : "mostly moving with the market"}`
+        : "no market-relative read",
+    },
+  ];
 
-  const score = r1(reasons.reduce((a, x) => a + x.pts, 0));
   return {
-    score, reasons, trigger, triggerLabel,
-    stats: {
-      rsi: r1(rsi), rvol: rvol != null ? r2(rvol) : null,
-      ret5Pct: ret5 != null ? r1(ret5) : null,
-      pctBelowHigh: hi > 0 && spot < hi ? r1((1 - spot / hi) * 100) : 0,
-      sma20: sma20 != null ? r2(sma20) : null, sma50: sma50 != null ? r2(sma50) : null,
+    signals,
+    // Orientation-corrected raws (higher = more beaten down) for the
+    // composite; null = the name skips that measure.
+    raw: {
+      rsi: rsi != null ? -rsi : null,
+      sma50: below50,
+      drawdown,
+      zscore: z20 != null ? -z20 : null,
+      relweak: rel10 != null ? -rel10 : null,
     },
   };
 }
 
-// Assemble the payload: score every non-ETF name for both buckets, keep the
-// qualifiers above each bucket's fixed bar, dedupe a name that qualifies for
-// both into its stronger bucket, and cap each side at STOCK_PICKS_MAX.
+// MODULE 3 — trap flags: cheap "is it cheap because something broke?" tells.
+// Deliberately NEVER blockers — hard-blocking on these would just hide the
+// judgment call; instead every flag ships on the card as a yellow warning so
+// the final decision stays with the reader.
+function stockTrapFlags(data, grade) {
+  const f = data?.fundamentals || {};
+  const t = data?.technicals || {};
+  const flags = [];
+
+  // A fresh earnings print inside the drop: a fall right after a report is
+  // often the thesis changing (guidance cut, big miss), not a random dip.
+  const events = Array.isArray(data?.earningsHx?.events) ? data.earningsHx.events : [];
+  const lastPrint = events.length ? events[events.length - 1] : null;
+  if (lastPrint?.date) {
+    const n = etDaysUntil(lastPrint.date);
+    if (n != null && n <= 0 && n >= -7) {
+      const mv = pnum(lastPrint.movePct);
+      flags.push({
+        key: "recentEarnings", label: "Just reported earnings",
+        detail: `${n === 0 ? "today" : `${-n} day${n === -1 ? "" : "s"} ago`}${mv != null ? `, moved ${mv >= 0 ? "+" : ""}${r1(mv)}% on the print` : ""} — check whether the story changed before treating this as a routine dip`,
+      });
+    }
+  }
+  const nextEarn = stockEarningsSoon(f);
+  if (nextEarn) {
+    const dLeft = etDaysUntil(nextEarn);
+    flags.push({
+      key: "earningsAhead", label: "Earnings ahead",
+      detail: `prints ${dLeft === 0 ? "today" : `in ${dLeft} day${dLeft === 1 ? "" : "s"}`} — a binary event sits between here and any rebound`,
+    });
+  }
+
+  // Informed-selling tells: a heavy-volume down day, or a long red streak —
+  // a slow steady bleed reads different from a one-day flush.
+  const rvol = pnum(t.volume?.rvol), mv1 = pnum(t.volume?.priceMove1dPct);
+  if (rvol != null && mv1 != null && rvol >= 1.5 && mv1 <= -1.5) {
+    flags.push({ key: "heavyVolume", label: "Falling on heavy volume", detail: `${r1(mv1)}% today on ${r2(rvol)}x average volume — can mean informed selling` });
+  }
+  const hist = stockCloseHistory(data);
+  let redRun = 0;
+  for (let i = hist.length - 1; i > 0 && hist[i] < hist[i - 1]; i--) redRun++;
+  if (redRun >= 4) flags.push({ key: "redStreak", label: "Persistent bleed", detail: `down ${redRun} straight sessions` });
+
+  // Analysts cutting while the price falls = the business deteriorating,
+  // not a bargain appearing.
+  const ar = f.analystRevisions;
+  if (ar && pnum(ar.net) != null && ar.net < 0) {
+    flags.push({
+      key: "revisions", label: "Analysts cutting",
+      detail: `${ar.downgrades} downgrade${ar.downgrades === 1 ? "" : "s"} vs ${ar.upgrades} upgrade${ar.upgrades === 1 ? "" : "s"} in the last ${ar.windowDays} days`,
+    });
+  }
+
+  const sentiment = grade?.sentiment || data?.news?.sentiment || null;
+  if (sentiment === "bearish") {
+    flags.push({ key: "news", label: "Bearish news tone", detail: "the latest news read on this name leans bearish — scan the headlines before buying the dip" });
+  }
+
+  return flags;
+}
+
+// ── Investment-thesis checklist (per shipped candidate) ─────────────────
+// The long-form owner's checklist rendered behind each card's expandable
+// "Investment thesis checklist" control. Every question the tracked data CAN
+// answer is answered with the actual numbers; what it can only approximate is
+// labeled UNSURE with the proxy named; what the data simply can't see is
+// labeled UNANSWERED rather than faked — competitive dynamics, unit
+// economics, and the reader's own portfolio live there. Deterministic (no
+// AI beyond quoting the already-baked per-ticker news/fundamentals judgment).
+// status: "answered" | "unsure" | "unanswered".
+const CHECKLIST_UNANSWERED = "Not assessable from the data we track — do your own digging here.";
+
+function stkBigMoney(v) {
+  if (!Number.isFinite(v)) return null;
+  const a = Math.abs(v), s = v < 0 ? "-$" : "$";
+  if (a >= 1e12) return s + r2(a / 1e12) + "T";
+  if (a >= 1e9) return s + r1(a / 1e9) + "B";
+  if (a >= 1e6) return s + r1(a / 1e6) + "M";
+  return s + Math.round(a);
+}
+
+function buildStockChecklist(sym, data, grade, sectorPE, traps) {
+  const f = data?.fundamentals || {};
+  const j = f.judgment || null;
+  const spot = pnum(data?.spot);
+  const item = (q, status, a) => ({ q, status, a });
+  const unanswered = (q, extra) => item(q, "unanswered", extra ? `${CHECKLIST_UNANSWERED} ${extra}` : CHECKLIST_UNANSWERED);
+
+  // Shared computed facts.
+  const nm = Array.isArray(f.netMarginHistory) ? f.netMarginHistory.filter((x) => pnum(x?.value) != null) : [];
+  const nmCur = nm.length ? Number(nm[nm.length - 1].value) : null;
+  const nmPrior = nm.length >= 5 ? Number(nm[nm.length - 5].value) : nm.length >= 2 ? Number(nm[nm.length - 2].value) : null;
+  const nmDelta = nmCur != null && nmPrior != null ? nmCur - nmPrior : null;
+  const marginTrend = nmDelta == null ? null : nmDelta >= 0.5 ? "expanding" : nmDelta <= -0.5 ? "compressing" : "stable";
+  let revYoy = null;
+  const rh = Array.isArray(f.revenueHistory) ? f.revenueHistory.filter((x) => pnum(x?.value) != null) : [];
+  if (rh.length >= 8) {
+    const sum = (a) => a.reduce((s, x) => s + Number(x.value), 0);
+    const cur = sum(rh.slice(-4)), prior = sum(rh.slice(-8, -4));
+    if (prior > 0) revYoy = (cur / prior - 1) * 100;
+  }
+  if (revYoy == null) revYoy = pnum(f.revenueGrowthYoy);
+  const fcf = pnum(f.freeCashFlow), ocf = pnum(f.operatingCashFlow), mcap = pnum(f.marketCap);
+  const totalDebt = pnum(f.totalDebt), totalCash = pnum(f.totalCash), de = pnum(f.debtToEquity);
+  const gm = pnum(f.grossMargin), om = pnum(f.operatingMargin), pm = pnum(f.profitMargin);
+  const roe = pnum(f.returnOnEquity), roa = pnum(f.returnOnAssets);
+  const ni = Array.isArray(f.netIncomeHistory) ? f.netIncomeHistory.filter((x) => pnum(x?.value) != null) : [];
+  const niTtm = ni.length >= 4 ? ni.slice(-4).reduce((s, x) => s + Number(x.value), 0) : null;
+  const profQuarters = ni.length ? ni.filter((x) => Number(x.value) > 0).length : null;
+  const pe = pnum(f.trailingPE), fpe = pnum(f.forwardPE), peg = pnum(f.pegRatio);
+  const secPE = pnum(sectorPE);
+  const ar = f.analystRevisions || null;
+  const arNet = ar ? pnum(ar.net) : null;
+  const tgtMean = pnum(f.targetMeanPrice), tgtHi = pnum(f.targetHighPrice), tgtLo = pnum(f.targetLowPrice);
+  const nAnalysts = pnum(f.numberOfAnalystOpinions);
+  const beta = pnum(f.beta);
+  const lo52 = pnum(f.fiftyTwoWeekLow);
+  const upside = (t) => (t > 0 && spot > 0 ? r1((t / spot - 1) * 100) : null);
+  const pctStr = (v) => `${v >= 0 ? "+" : ""}${r1(v)}%`;
+
+  // ── Management & business quality ──────────────────────────────────────
+  const mgmt = [];
+  mgmt.push(j
+    ? item("How good is the management team? Are they facing or creating a management-driven crisis?", "unsure",
+        `Management quality itself isn't assessable from tracked data. The latest AI news/fundamentals read (verdict: ${j.verdict}) surfaced ${j.negatives?.length ? `these negatives: ${j.negatives.slice(0, 3).join("; ")}` : "no crisis-level negatives"} — treat as a headline scan, not a leadership assessment.`)
+    : unanswered("How good is the management team? Are they facing or creating a management-driven crisis?", "Check leadership tenure, insider ownership and execution track record."));
+  {
+    let a = null, status = "unsure";
+    if (marginTrend && revYoy != null) {
+      const verdict = revYoy > 2 && marginTrend !== "compressing" ? "improving-to-stable" : revYoy < -2 || marginTrend === "compressing" ? "showing deterioration" : "stable";
+      a = `Core economics look ${verdict}: revenue ${pctStr(revYoy)} YoY with net margin ${marginTrend} (${r1(nmCur)}% now vs ${r1(nmPrior)}%).`;
+      status = "answered";
+    }
+    mgmt.push(a ? item("Is the core business economics stable, improving, or deteriorating?", status, a)
+      : unanswered("Is the core business economics stable, improving, or deteriorating?"));
+  }
+  {
+    const bits = [];
+    if (gm != null) bits.push(`gross margin ${r1(gm)}%${gm >= 40 ? " (differentiated-product territory)" : gm >= 25 ? " (moderate)" : " (thin — commodity-like)"}`);
+    if (roe != null) bits.push(`ROE ${r1(roe)}%`);
+    if (marginTrend) bits.push(`margins ${marginTrend}`);
+    mgmt.push(bits.length
+      ? item("How strong is the competitive advantage (moat)? Is the brand or moat eroding?", "unsure",
+          `Proxy read only — a real moat call needs industry work. The financial fingerprints: ${bits.join(", ")}. ${marginTrend === "compressing" ? "Compressing margins CAN be early moat erosion — worth digging." : "Nothing in the margin trend suggests active erosion."}`)
+      : unanswered("How strong is the competitive advantage (moat)? Is the brand or moat eroding?"));
+  }
+  mgmt.push(unanswered("Who are the main competitors and how intense is the competition?"));
+  mgmt.push(unanswered("What are the barriers to entry? How easy is it for new competitors to enter?"));
+  mgmt.push(unanswered("Do suppliers or customers have significant power over the company?"));
+  mgmt.push(unanswered("Are there credible threats from substitutes or new technologies?"));
+  {
+    const cutting = arNet != null && arNet < 0;
+    const marginsBad = marginTrend === "compressing";
+    const verdict = !cutting && !marginsBad
+      ? "Likely temporary: the quality gate passed (profitability, debt, margins, revenue all intact) while the price fell — the weakness is so far in the stock, not the reported business."
+      : `Possibly structural: ${[cutting ? "analysts are cutting estimates" : null, marginsBad ? "margins are compressing" : null].filter(Boolean).join(" and ")} while the price falls — the business itself may be deteriorating.`;
+    mgmt.push(item("Are current problems temporary or structural/permanent?", "unsure", `${verdict} Only the next couple of reports settle this.`));
+  }
+
+  // ── Financial health & cash flow ───────────────────────────────────────
+  const fin = [];
+  {
+    const bits = [];
+    if (de != null) bits.push(`debt/equity ${r2(de / 100)}x`);
+    if (totalDebt != null && totalCash != null) bits.push(`${stkBigMoney(totalCash)} cash vs ${stkBigMoney(totalDebt)} debt`);
+    if (fcf > 0 && totalDebt > 0) bits.push(`~${r1(totalDebt / fcf)} years of FCF would retire all debt`);
+    const cr = pnum(f.currentRatio);
+    if (cr != null) bits.push(`current ratio ${r2(cr)}`);
+    fin.push(bits.length
+      ? item("How leveraged is the balance sheet? Can it service its debt in a downturn?", "answered",
+          `${bits.join("; ")}. ${(totalCash != null && totalDebt != null && totalCash >= totalDebt) || (fcf > 0 && totalDebt > 0 && totalDebt / fcf <= 3) ? "Comfortable in a normal downturn on these numbers." : "Serviceable today, but stress-test it against a real revenue drop."}`)
+      : unanswered("How leveraged is the balance sheet? Can it service its debt in a downturn?"));
+  }
+  fin.push(fcf != null
+    ? item("Does the business generate consistent and growing free cash flow?", "unsure",
+        `FCF ${stkBigMoney(fcf)} over the trailing twelve months (${fcf > 0 ? "positive" : "negative"}). We don't track a quarterly FCF series, so consistency is inferred: ${profQuarters != null ? `${profQuarters} of the last ${ni.length} quarters were profitable` : "no quarterly profit history on file"}. Growth of FCF itself: unverified.`)
+    : unanswered("Does the business generate consistent and growing free cash flow?"));
+  fin.push(fcf != null && (mcap > 0 || totalDebt != null)
+    ? item("How does free cash flow compare to total debt and market cap?", "answered",
+        [mcap > 0 ? `FCF yield ${r1((fcf / mcap) * 100)}% of market cap (${stkBigMoney(fcf)} on ${stkBigMoney(mcap)})` : null,
+         totalDebt > 0 ? (fcf > 0 ? `debt is ${r1(totalDebt / fcf)}x annual FCF` : `debt ${stkBigMoney(totalDebt)} against negative FCF`) : "essentially no debt"].filter(Boolean).join("; ") + ".")
+    : unanswered("How does free cash flow compare to total debt and market cap?"));
+  {
+    const dy = pnum(f.dividendYield), po = pnum(f.payoutRatio);
+    fin.push(item("What is management doing with the free cash flow (buybacks, dividends, M&A, capex, debt paydown)?",
+      dy != null ? "unsure" : "unanswered",
+      dy != null
+        ? `Pays a ${r1(dy)}% dividend${po != null ? ` (${r1(po)}% payout ratio)` : ""}. Buyback, M&A and growth-capex allocation aren't tracked here — check the latest cash-flow statement.`
+        : `No dividend on file, and buyback/M&A/capex allocation isn't tracked here — check the latest cash-flow statement.`));
+  }
+  fin.push(ocf != null && niTtm != null && niTtm !== 0
+    ? item("Are there signs of aggressive accounting or poor earnings quality?", "unsure",
+        `One simple check only: operating cash flow is ${r2(ocf / Math.abs(niTtm))}x reported net income over the trailing year — ${ocf / Math.abs(niTtm) >= 0.9 && niTtm > 0 ? "earnings are backed by cash, no red flag from this test" : "cash conversion lags reported earnings, which merits a closer look"}. A real earnings-quality read needs the filings.`)
+    : unanswered("Are there signs of aggressive accounting or poor earnings quality?"));
+
+  // ── Unit economics & operating trends ──────────────────────────────────
+  const unit = [];
+  unit.push(unanswered("What are the key unit economics (CAC, lifetime value, churn, payback, contribution margin)?", "These live in company disclosures and industry research, not market data."));
+  {
+    const bits = [];
+    if (gm != null) bits.push(`gross ${r1(gm)}%`);
+    if (om != null) bits.push(`operating ${r1(om)}%`);
+    if (pm != null) bits.push(`net ${r1(pm)}%`);
+    unit.push(bits.length
+      ? item("Are margins (gross, operating, net) stable, expanding, or compressing?", "answered",
+          `Current levels: ${bits.join(", ")}. Net margin is ${marginTrend || "trend unavailable"}${nmDelta != null ? ` (${nmDelta >= 0 ? "+" : ""}${r1(nmDelta)} pts vs ${nm.length >= 5 ? "a year ago" : "last quarter"})` : ""}; gross/operating margin history isn't tracked.`)
+      : unanswered("Are margins (gross, operating, net) stable, expanding, or compressing?"));
+  }
+  unit.push(gm != null
+    ? item("Does the company have pricing power?", "unsure",
+        `Proxy read: ${gm >= 40 ? `a ${r1(gm)}% gross margin usually means real pricing power` : gm >= 25 ? `a ${r1(gm)}% gross margin suggests moderate pricing power` : `a ${r1(gm)}% gross margin leaves little room — likely a price-taker`}${marginTrend === "compressing" ? ", though compressing net margins argue it isn't being exercised" : marginTrend === "expanding" ? ", and expanding net margins back that up" : ""}. True pricing power shows in holding price through a downturn — not visible here.`)
+    : unanswered("Does the company have pricing power?"));
+
+  // ── Valuation & growth ─────────────────────────────────────────────────
+  const val = [];
+  val.push(pe != null || fpe != null
+    ? item("What is the current valuation vs historical averages and peers?", "unsure",
+        `${pe != null ? `Trailing P/E ${r1(pe)}x` : `Forward P/E ${r1(fpe)}x`}${pe != null && secPE > 0 ? ` vs a ${r1(secPE)}x sector median (${pe <= secPE ? "discount" : "premium"} of ${r1(Math.abs(pe / secPE - 1) * 100)}%)` : ""}${fpe != null && pe != null ? `; forward P/E ${r1(fpe)}x` : ""}. The name's OWN historical multiple range isn't tracked — that half of the comparison is on you.`)
+    : unanswered("What is the current valuation vs historical averages and peers?"));
+  {
+    const reasons = [];
+    if (pe != null && secPE > 0 && pe <= secPE * 0.9) reasons.push("the recent selloff has it below its sector multiple");
+    if (pe != null && secPE > 0 && pe >= secPE * 1.1) reasons.push(`the market still pays up vs the sector${revYoy > 8 ? ", consistent with its above-average growth" : ""}`);
+    if (arNet != null && arNet < 0) reasons.push("analyst estimate cuts are pressuring the multiple");
+    val.push(item("Why is the stock trading at a premium or discount?", "unsure",
+      reasons.length ? `Best deterministic guess: ${reasons.join("; ")}. The narrative behind the multiple needs qualitative work.` : "No clear deterministic read — the narrative behind the multiple needs qualitative work."));
+  }
+  {
+    const g = pnum(f.growthEstimateCurY);
+    val.push(peg != null || (fpe != null && g != null)
+      ? item("What growth is the market pricing in? Is it realistic and sustainable?", "unsure",
+          `${peg != null ? `PEG ${r2(peg)} — the multiple ${peg <= 1 ? "asks for less growth than analysts already forecast" : peg <= 1.5 ? "roughly matches forecast growth" : "prices in more growth than current forecasts"}` : ""}${g != null ? `${peg != null ? "; " : ""}street sees ${pctStr(g)} earnings growth this year` : ""}${revYoy != null ? ` against ${pctStr(revYoy)} actual revenue growth` : ""}. Whether that sustains is a judgment call.`)
+      : unanswered("What growth is the market pricing in? Is it realistic and sustainable?"));
+  }
+  {
+    const bits = [];
+    if (roe != null) bits.push(`ROE ${r1(roe)}%`);
+    if (roa != null) bits.push(`ROA ${r1(roa)}%`);
+    if (marginTrend) bits.push(`net margin ${marginTrend}`);
+    val.push(bits.length
+      ? item("What are the key margin and return-on-capital trends?", "answered",
+          `${bits.join(", ")}. Return-on-capital LEVELS only — their multi-year trend isn't tracked here.`)
+      : unanswered("What are the key margin and return-on-capital trends?"));
+  }
+  {
+    const up = upside(tgtMean), dn = upside(tgtLo);
+    val.push(up != null
+      ? item("Is there a sufficient margin of safety at the current price?", "unsure",
+          `Analyst-consensus proxy${nAnalysts ? ` (${nAnalysts} analysts)` : ""}: mean target ${pctStr(up)} from here, street-low target ${dn != null ? pctStr(dn) : "n/a"}. A true margin of safety comes from your own intrinsic-value estimate, not targets.`)
+      : unanswered("Is there a sufficient margin of safety at the current price?"));
+  }
+
+  // ── Macro, cyclical & industry sensitivity ─────────────────────────────
+  const kind = macroKindOf(sym, data);
+  const profile = MACRO_PROFILES[kind] || MACRO_PROFILES.broad;
+  const macro = [];
+  macro.push(item("How sensitive is the business to economic cycles, rates, or commodity prices?", "answered",
+    `${beta != null ? `Beta ${r2(beta)} vs the market${beta >= 1.3 ? " (high-cyclicality tape behavior)" : beta <= 0.8 ? " (defensive tape behavior)" : ""}. ` : ""}${profile.note}.`));
+  macro.push(item("What are the biggest external/macro risks?", "answered",
+    `Per its macro profile, this name reads: ${(profile.cite || []).join(", ") || "the broad tape"}. Adverse turns on those axes are the tracked macro risks; single-company shocks are on top of that.`));
+
+  // ── Risks, scenarios & portfolio context ───────────────────────────────
+  const risk = [];
+  {
+    const parts = (traps || []).map((t) => t.label.toLowerCase());
+    if (j?.negatives?.length) parts.push(`news-read negatives: ${j.negatives.slice(0, 2).join("; ")}`);
+    risk.push(item("What are the biggest risks to this investment thesis?", "answered",
+      parts.length ? `Currently flagged: ${parts.join("; ")}. Plus the macro sensitivities above.` : "No yellow flags right now — the residual risks are the macro sensitivities above and anything company-specific our data can't see."));
+  }
+  risk.push(item("What would have to happen for the thesis to be wrong? (Key invalidation points)", "answered",
+    `The dip case breaks if the QUALITY breaks: margins eroding further (the gate fails at −3 pts YoY), revenue turning negative, analysts going net-negative on estimates${lo52 > 0 ? `, or a decisive close below the 52-week low (${stkBigMoney(lo52) ?? lo52})` : ""} — that last one says the market sees something the fundamentals don't show yet.`));
+  {
+    const hi = upside(tgtHi), md = upside(tgtMean), lo = upside(tgtLo);
+    risk.push(hi != null || md != null || lo != null
+      ? item("What does Bull / Base / Bear look like? Roughly what is it worth in each?", "unsure",
+          `Analyst-target proxy only (not a modeled valuation): bull ≈ street-high ${hi != null ? pctStr(hi) : "n/a"}, base ≈ consensus ${md != null ? pctStr(md) : "n/a"}, bear ≈ street-low ${lo != null ? pctStr(lo) : "n/a"} from the current price${nAnalysts ? ` (${nAnalysts} analysts)` : ""}.`)
+      : unanswered("What does Bull / Base / Bear look like? Roughly what is it worth in each?"));
+  }
+  risk.push(unanswered("How does this fit into my overall portfolio (diversification, sector exposure, correlation)?",
+    `We can't see your portfolio — weigh your existing ${f.sector || "sector"} exposure before adding.`));
+  risk.push(item("What would be an appropriate position size given the risks and conviction?", "unsure",
+    `Personal by definition. Deterministic inputs: ${(traps || []).length} yellow flag${(traps || []).length === 1 ? "" : "s"} on the card${beta != null ? `, beta ${r2(beta)}` : ""} — size so that the bear case wouldn't force a sale, and smaller when flags are up.`));
+
+  const sections = [
+    { title: "Management & business quality", items: mgmt },
+    { title: "Financial health & cash flow", items: fin },
+    { title: "Unit economics & operating trends", items: unit },
+    { title: "Valuation & growth", items: val },
+    { title: "Macro, cyclical & industry sensitivity", items: macro },
+    { title: "Risks, scenarios & portfolio context", items: risk },
+  ];
+  const counts = { answered: 0, unsure: 0, unanswered: 0 };
+  for (const s of sections) for (const it of s.items) counts[it.status] = (counts[it.status] || 0) + 1;
+  return { sections, counts };
+}
+
+// Assemble the page: gate the universe on quality (module 1), take the five
+// dip reads on every survivor (module 2), z-score each read ACROSS those
+// survivors and average into the composite dip score, then ship the names
+// with enough fired reads, most-beaten-down first, with their trap flags
+// (module 3) riding along. Buy = quality ✓ + beaten down + nothing flagged.
 export function buildStockPicks(chains, gradesIndex, builtAtIso) {
   const grades = gradesIndex || {};
-  const sectorPE = sectorMedianPEs(chains);
-  const value = [], breakout = [];
-  let universe = 0;
+  const sectorPE = sectorMedianPEs(chains); // peer-multiple context for the thesis checklist
 
+  // Market baseline for the relative-weakness read (SPY; QQQ fallback).
+  const mkt = chains.SPY || chains.QQQ || null;
+  const mktRet10 = mkt ? stockRet10(pnum(mkt.spot), stockCloseHistory(mkt)) : null;
+
+  const rows = [];
+  let universe = 0, qualityPassed = 0;
   for (const [sym, data] of Object.entries(chains)) {
     if (!data || SECTORS[sym] === "ETF") continue;
     universe++;
-    const grade = grades[sym] || null;
-    const f = data.fundamentals || {};
-    const base = {
-      symbol: sym,
+    const gate = stockQualityGate(data);
+    if (!gate.pass) continue;
+    qualityPassed++;
+    const dip = stockDipReads(data, mktRet10);
+    if (!dip) continue;
+    rows.push({ sym, data, grade: grades[sym] || null, gate, dip });
+  }
+
+  // Cross-sectional composite: z-score each oriented read across the
+  // quality-passed set, average whichever reads a name has. A degenerate
+  // column (σ≈0 or a tiny sample) drops out rather than emitting noise.
+  const MEASURES = ["rsi", "sma50", "drawdown", "zscore", "relweak"];
+  const colStats = {};
+  for (const m of MEASURES) {
+    const vals = rows.map((r) => r.dip.raw[m]).filter((v) => Number.isFinite(v));
+    if (vals.length < 5) continue;
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+    const sd = Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length);
+    if (sd > 1e-9) colStats[m] = { mean, sd };
+  }
+  for (const r of rows) {
+    const zs = [];
+    for (const m of MEASURES) {
+      const st = colStats[m], v = r.dip.raw[m];
+      if (st && Number.isFinite(v)) zs.push((v - st.mean) / st.sd);
+    }
+    r.dipScore = zs.length ? r2(zs.reduce((a, b) => a + b, 0) / zs.length) : null;
+    r.fired = r.dip.signals.filter((s) => s.fired).length;
+  }
+
+  const candidates = rows
+    .filter((r) => r.fired >= STOCK_DIP_MIN_SIGNALS && r.dipScore != null)
+    .sort((a, b) => b.dipScore - a.dipScore);
+
+  const shipped = candidates.slice(0, STOCK_PICKS_MAX).map((r) => {
+    const f = r.data.fundamentals || {};
+    const traps = stockTrapFlags(r.data, r.grade);
+    return {
+      symbol: r.sym,
       name: f.name || null,
-      sector: grade?.sector || f.sector || SECTORS[sym] || null,
-      spot: r2(pnum(data.spot)),
-      grade: grade ? {
-        total: grade.total, conviction: grade.conviction, side: grade.side,
-        tier: grade.recommendation?.tier || null, label: grade.recommendation?.label || null,
-      } : null,
-      series: stockSparkSeries(data),
+      sector: r.grade?.sector || f.sector || SECTORS[r.sym] || null,
+      spot: r2(pnum(r.data.spot)),
+      series: stockSparkSeries(r.data),
       fiftyTwoWeek: { hi: pnum(f.fiftyTwoWeekHigh), lo: pnum(f.fiftyTwoWeekLow) },
-      earningsSoon: stockEarningsSoon(f),
+      grade: r.grade ? {
+        total: r.grade.total, conviction: r.grade.conviction, side: r.grade.side,
+        tier: r.grade.recommendation?.tier || null, label: r.grade.recommendation?.label || null,
+      } : null,
+      dipScore: r.dipScore,
+      fired: r.fired,
+      quality: r.gate.checks,
+      signals: r.dip.signals,
+      traps,
+      clean: traps.length === 0,
+      checklist: buildStockChecklist(r.sym, r.data, r.grade, sectorPE[f.sector], traps),
     };
-    const v = scoreStockValue(sym, data, grade, sectorPE[f.sector]);
-    if (v && v.score >= STOCK_VALUE_MIN_SCORE) value.push({ ...base, ...v });
-    const b = scoreStockBreakout(sym, data, grade);
-    if (b && b.score >= STOCK_BREAKOUT_MIN_SCORE) breakout.push({ ...base, ...b });
-  }
+  });
 
-  // Dedupe both-bucket qualifiers into the stronger read so the page never
-  // pitches the same name twice with two different stories.
-  const inValue = new Map(value.map((r) => [r.symbol, r]));
-  for (let i = breakout.length - 1; i >= 0; i--) {
-    const twin = inValue.get(breakout[i].symbol);
-    if (!twin) continue;
-    if (twin.score >= breakout[i].score) breakout.splice(i, 1);
-    else value.splice(value.indexOf(twin), 1);
-  }
-
-  value.sort((a, b) => b.score - a.score);
-  breakout.sort((a, b) => b.score - a.score);
   return {
     builtAtIso,
     universe,
-    maxPerBucket: STOCK_PICKS_MAX,
-    minScore: { value: STOCK_VALUE_MIN_SCORE, breakout: STOCK_BREAKOUT_MIN_SCORE },
-    value: value.slice(0, STOCK_PICKS_MAX),
-    breakout: breakout.slice(0, STOCK_PICKS_MAX),
+    screened: { qualityPassed, beatenDown: candidates.length },
+    minSignals: STOCK_DIP_MIN_SIGNALS,
+    maxShown: STOCK_PICKS_MAX,
+    marketRet10: mktRet10 != null ? r1(mktRet10) : null,
+    candidates: shipped,
   };
 }
 
 export async function writeStockPicksFile(payload) {
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, STOCK_PICKS_FILE), json, "utf8");
-  return { bytes: json.length, value: payload.value.length, breakout: payload.breakout.length };
+  return {
+    bytes: json.length,
+    candidates: payload.candidates.length,
+    buyZone: payload.candidates.filter((c) => c.clean).length,
+  };
 }
 
 // ============================================================================
@@ -21072,12 +21415,12 @@ async function main() {
   const gradesIndex = buildGradesIndex(chains, trends.narratives, streaksInfo.map, unusual, macroBackdrop, volumeFlags, { priorGrades: gradesHistoryPrev?.latest ?? null, priorClosed: picksAccuracyPrev?.closed ?? null, ...scannerExtras });
   const gradesInfo = await writeGradesFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, volumeFlags, gradesIndex);
   console.log(`wrote data/grades.json — ${gradesInfo.count} tickers, ${gradesInfo.bytes} bytes`);
-  // Shares-only Stock Picks (premium tab): deterministic value + breakout
-  // screens over the same universe, reusing the grade index just built.
+  // Shares-only Stock Picks (premium tab): the deterministic quality-dip
+  // screen over the same universe, reusing the grade index just built.
   // Rebuilt fresh every bake — no cross-build accumulation, no pre-wipe read.
   try {
     const spInfo = await writeStockPicksFile(buildStockPicks(chains, gradesIndex, builtAtIso));
-    console.log(`wrote data/${STOCK_PICKS_FILE} — ${spInfo.value} value + ${spInfo.breakout} breakout, ${spInfo.bytes} bytes`);
+    console.log(`wrote data/${STOCK_PICKS_FILE} — ${spInfo.candidates} dip candidates (${spInfo.buyZone} in the buy zone), ${spInfo.bytes} bytes`);
   } catch (err) {
     console.warn(`[stocks] stock-picks skipped — ${String(err?.message || err).split("\n")[0]}`);
   }

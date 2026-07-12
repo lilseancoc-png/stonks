@@ -1069,7 +1069,7 @@ export const DOC_PAGES = {
           <ul class="cmp-list">
             <li><b>Market analysis</b> — the live market tape, risk barometer &amp; regime history</li>
             <li><b>Top Picks</b> — highest-conviction contracts, sizing &amp; breakeven</li>
-            <li><b>Stock Picks</b> — shares-only value buys &amp; breakout candidates</li>
+            <li><b>Stock Picks</b> — shares-only buy-the-dip screen: quality names beaten down, trap flags shown</li>
             <li><b>Briefs</b> — hourly market digest, open through close</li>
             <li><b>Narratives</b> — AI theses driving capital, longs/shorts, lifecycle</li>
             <li><b>Unusual flow</b> — abnormal options prints &amp; directional skew</li>

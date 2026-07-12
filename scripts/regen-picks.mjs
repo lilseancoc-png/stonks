@@ -237,12 +237,12 @@ await writeFile(
 );
 console.log(`Regenerated grades.json — ${Object.keys(grades).length} tickers (minConviction ${Number(gradesMinConviction).toFixed(2)}).`);
 
-// Shares-only Stock Picks (premium tab) — deterministic value + breakout
-// screens over the same universe, reusing the grade index just built. Mirrors
+// Shares-only Stock Picks (premium tab) — the deterministic quality-dip
+// screen over the same universe, reusing the grade index just built. Mirrors
 // build.mjs::main(); rebuilt fresh (no accumulation), so a regen is exact.
 try {
   const spInfo = await writeStockPicksFile(buildStockPicks(chains, grades, builtAtIso));
-  console.log(`Regenerated ${STOCK_PICKS_FILE} — ${spInfo.value} value + ${spInfo.breakout} breakout.`);
+  console.log(`Regenerated ${STOCK_PICKS_FILE} — ${spInfo.candidates} dip candidates (${spInfo.buyZone} in the buy zone).`);
 } catch (err) {
   console.warn(`${STOCK_PICKS_FILE} skipped — ${String(err?.message || err).split("\n")[0]}`);
 }

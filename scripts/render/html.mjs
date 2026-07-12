@@ -406,7 +406,7 @@ function indexCalSection() {
 }
 
 function stockPicksSection() {
-  // Card chrome only — the value + breakout stock cards render client-side
+  // Card chrome only — the quality-dip candidate cards render client-side
   // from data/stock-picks.json (premium; lazy-fetched on first tab activation
   // by loadStocks() in app.js). A separate product from Top Picks: shares,
   // not option contracts.
@@ -415,7 +415,7 @@ function stockPicksSection() {
       <h2 class="card-title">Stock picks</h2>
       <span class="card-eyebrow" id="stocks-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote('How to read stock picks', `<p>Share ideas, <em>not</em> option contracts &mdash; the Top Picks tab times leveraged trades; this page screens the same ${'~'}138-name universe for stocks worth owning. <b>Value buys</b> are quality names trading cheap: every candidate must first pass a quality gate (profitable, revenue not collapsing, fundamentals pillar not net-negative), then show at least one genuine cheapness signal &mdash; a P/E below its sector median, a PEG under 1.2, a real drawdown off the 52-week high, or 15%+ consensus analyst upside. <b>Breakout watch</b> looks for up-and-coming names poised to move: a structural uptrend (above the 200-day), momentum in the sweet spot (RSI 45&ndash;76 &mdash; alive but not exhausted), and a live level story &mdash; pressing within 3% of a mapped resistance level, a fresh confirmed break, or new 52-week highs &mdash; with volume, options flow and news tone as confirmation. Every reason is deterministic and point-weighted; the score is just the sum, and a thin tape honestly ships fewer (or zero) names. Refreshed with each hourly build. Not financial advice.</p>`)}
+    ${infoNote('How to read stock picks', `<p>Share ideas, <em>not</em> option contracts &mdash; the Top Picks tab times leveraged trades; this page runs one buy-the-dip playbook over the same ${'~'}138-name universe, built on <b>three separate questions answered independently</b> (never blended into one number). <b>1&nbsp;&middot;&nbsp;Is it a good business?</b> A hard quality gate: consistently profitable (positive net margin or free cash flow), a manageable debt load (more cash than debt, or debt/equity &le;&nbsp;2x), net margins holding vs a year ago, and revenue still growing on a trailing-twelve-month view. Names that fail are never shown, however far they&rsquo;ve fallen &mdash; that&rsquo;s how value traps get in. <b>2&nbsp;&middot;&nbsp;Is it beaten down right now?</b> Five reads of &ldquo;cheap vs its own recent self&rdquo;: RSI(14) under 35, 4%+ below the 50-day average, 15%+ off the 52-week high, stretched &minus;2&sigma; against its 20-day mean (&asymp; the lower Bollinger band), and lagging SPY by 4+ points over ten sessions (company-specific selling, not a market-wide selloff). Each read is z-scored <em>across the quality-passed universe</em> and averaged into the card&rsquo;s <b>dip score</b>, so the page surfaces the most unloved names relative to each other rather than leaning on fragile fixed thresholds; a name needs at least two reads fired to list at all. <b>3&nbsp;&middot;&nbsp;Is it down because something actually broke?</b> Yellow trap flags &mdash; a fresh earnings print inside the drop, heavy-volume selling, a long red streak, analysts cutting estimates, a bearish news tone, or a binary event just ahead. Flags never block a candidate; they ride the card so the final call stays with you. A candidate with zero flags is badged <b>buy zone</b>: good business + beaten down + nothing broken. Every card also carries an expandable <b>investment thesis checklist</b> &mdash; the full owner&rsquo;s due-diligence list (management &amp; moat, financial health &amp; cash flow, unit economics, valuation &amp; growth, macro sensitivity, risks &amp; scenarios) with each question answered from the tracked data where possible and honestly labeled <em>unsure</em> (a heuristic or proxy read) or <em>unanswered</em> (not visible in our data) where it isn&rsquo;t. Fully deterministic, refreshed with each hourly build, and honest &mdash; a tape with no quality name on sale shows nothing. Not financial advice.</p>`)}
     <div id="stocks-root" class="stk-root">Loading stock picks&hellip;</div>
   </section>`;
 }
@@ -1333,8 +1333,8 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
           <div class="landing-card-stat" id="land-stat-stocks">Shares</div>
-          <div class="landing-card-sub" id="land-sub-stocks">value &amp; breakouts</div>
-          <p class="landing-card-desc">Stocks, not options — quality names trading cheap, and up-and-coming names coiled for a breakout.</p>
+          <div class="landing-card-sub" id="land-sub-stocks">buy-the-dip screen</div>
+          <p class="landing-card-desc">Stocks, not options — good businesses currently beaten down, with yellow flags when the dip looks like something breaking.</p>
         </button>
         <button type="button" class="landing-card landing-card-hot" data-go="flow" aria-label="View unusual flow">
           <header class="landing-card-head">
