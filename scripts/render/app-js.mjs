@@ -3160,7 +3160,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','market','picks','stocks','heatmap','calendar','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','market','picks','stocks','heatmap','calendar','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','commodities','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3172,6 +3172,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     bonds: 'bonds-usd', usd: 'bonds-usd',
     capex: 'ai-capex', 'ai-capex': 'ai-capex', mag7: 'ai-capex', 'mag-7': 'ai-capex',
     ram: 'ram-prices', dram: 'ram-prices', memory: 'ram-prices', 'ram-price': 'ram-prices', 'ram-prices': 'ram-prices', ddr5: 'ram-prices',
+    commodity: 'commodities', 'commodity-prices': 'commodities', cocoa: 'commodities', coffee: 'commodities', cotton: 'commodities', lumber: 'commodities', sugar: 'commodities', lithium: 'commodities', potash: 'commodities', freight: 'commodities', bdi: 'commodities', 'baltic-dry': 'commodities', manheim: 'commodities', 'used-vehicles': 'commodities',
     'capital-raises': 'capital-raises', raises: 'capital-raises', issuance: 'capital-raises', debt: 'capital-raises', bonds2: 'capital-raises',
     pick: 'picks', 'top-picks': 'picks', toppicks: 'picks',
     'stock-picks': 'stocks', stockpicks: 'stocks', stock: 'stocks', shares: 'stocks',
@@ -3446,6 +3447,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (name === 'compare' && typeof initCompare === 'function') initCompare();
         if (name === 'ai-capex' && typeof loadAiCapex === 'function') loadAiCapex();
         if (name === 'ram-prices' && typeof loadRamPrices === 'function') loadRamPrices();
+        if (name === 'commodities' && typeof loadCommodities === 'function') loadCommodities();
         if (name === 'capital-raises' && typeof loadCapitalRaises === 'function') loadCapitalRaises();
         if (name === 'iv-trend' && typeof loadIvTrend === 'function') loadIvTrend();
       }
@@ -13410,6 +13412,174 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
   }
 
+  // --- Commodities (Macro tab) ----------------------------------------------
+  // data/commodities.json — eleven equity-relevant input-cost / demand signals:
+  // softs (cocoa, cotton, coffee, sugar, palm oil), industrial inputs (lumber,
+  // potash, lithium), freight (container rates, Baltic Dry) and used-vehicle
+  // values. Futures/ETF items carry daily bars; FRED items are monthly. Three
+  // cards can carry a scraped native-benchmark overlay (Drewry WCI / true BDI /
+  // Manheim). Baked by writeCommoditiesFile in scripts/build.mjs.
+  var commoditiesState = { data: null, loading: false };
+  var CMD_GROUPS = [
+    ['softs', 'Softs & agriculture'],
+    ['industrial', 'Industrial inputs'],
+    ['freight', 'Freight & shipping'],
+    ['consumer', 'Consumer'],
+  ];
+  function cmdFmtVal(v, fmt){
+    if (v == null || !isFinite(v)) return '—';
+    if (fmt === 'cents') return (v >= 100 ? v.toFixed(1) : v.toFixed(2)) + '¢';
+    if (fmt === 'usd0') return '$' + Math.round(v).toLocaleString();
+    if (fmt === 'usd2') return '$' + v.toFixed(2);
+    // index / points
+    return v >= 1000 ? Math.round(v).toLocaleString() : (Math.round(v * 10) / 10).toLocaleString();
+  }
+  function cmdDateLabel(dstr){
+    var ms = Date.parse(dstr); if (!isFinite(ms)) return String(dstr || '');
+    var d = new Date(ms);
+    var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return MONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate() + " '" + String(d.getUTCFullYear()).slice(2);
+  }
+  // Inline sparkline over the baked [[date, value], …] series, with the shared
+  // data-ch hover. Tinted by first-vs-last direction.
+  function cmdSpark(it){
+    var sp = Array.isArray(it.spark) ? it.spark : [];
+    var pts = [];
+    for (var i=0; i<sp.length; i++){
+      var e = sp[i];
+      if (e && e.length >= 2 && isFinite(Number(e[1]))) pts.push({ d: String(e[0]), v: Number(e[1]) });
+    }
+    if (pts.length < 2) return '';
+    var W = 240, H = 52, PAD = 3;
+    var lo = Infinity, hi = -Infinity;
+    for (var j=0; j<pts.length; j++){ if (pts[j].v < lo) lo = pts[j].v; if (pts[j].v > hi) hi = pts[j].v; }
+    if (!(hi > lo)) hi = lo + 0.0001;
+    var X = function(k){ return PAD + (k * (W - 2*PAD)) / (pts.length - 1); };
+    var Y = function(v){ return H - PAD - ((v - lo) * (H - 2*PAD)) / (hi - lo); };
+    var poly = '', hover = [];
+    for (var k=0; k<pts.length; k++){
+      var x = X(k), y = Y(pts[k].v);
+      poly += (k ? ' ' : '') + (Math.round(x*10)/10) + ',' + (Math.round(y*10)/10);
+      hover.push({ x: x, y: y, label: cmdDateLabel(pts[k].d) + '\\n' + cmdFmtVal(pts[k].v, it.fmt) });
+    }
+    var up = pts[pts.length - 1].v >= pts[0].v;
+    return '<svg class="cmd-spark ' + (up ? 'cmd-spark-up' : 'cmd-spark-down') + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="' + escapeHtml(it.label || '') + ' price trend"' + chHoverAttr(hover) + '>' +
+      '<polyline class="cmd-spark-line" points="' + poly + '" fill="none"/>' +
+    '</svg>';
+  }
+  // The highlighted then→now strip: the actual price 3mo / 6mo / 1y ago next
+  // to today's, with the % increase/decrease color-coded. This is the card's
+  // headline comparison — the chips above it only cover short-term momentum.
+  function cmdCompareRows(it){
+    var cmp = Array.isArray(it.compare) ? it.compare : [];
+    var rows = '';
+    for (var i=0; i<cmp.length; i++){
+      var c = cmp[i];
+      if (!c || c.pct == null || c.then == null) continue;
+      var up = c.pct >= 0;
+      rows += '<div class="cmd-cmp-row ' + (up ? 'cmd-cmp-up' : 'cmd-cmp-down') + '">' +
+        '<span class="cmd-cmp-label">vs ' + escapeHtml(c.label || '') + '</span>' +
+        '<span class="cmd-cmp-then" title="' + escapeHtml(c.thenDate ? cmdDateLabel(c.thenDate) : '') + '">' + cmdFmtVal(c.then, it.fmt) + '</span>' +
+        '<span class="cmd-cmp-arrow" aria-hidden="true">→</span>' +
+        '<span class="cmd-cmp-now">' + cmdFmtVal(it.last, it.fmt) + '</span>' +
+        '<span class="cmd-cmp-pct">' + (up ? '▲ +' : '▼ ') + (Math.abs(c.pct) >= 100 ? c.pct.toFixed(0) : c.pct.toFixed(1)) + '%</span>' +
+      '</div>';
+    }
+    return rows ? '<div class="cmd-compare">' + rows + '</div>' : '';
+  }
+  function cmdCard(it){
+    var chips = '';
+    var chs = Array.isArray(it.changes) ? it.changes : [];
+    for (var i=0; i<chs.length; i++){
+      if (chs[i] && chs[i].pct != null) chips += rpChip(chs[i].pct, chs[i].label);
+    }
+    var head = '<div class="cmd-card-head">' +
+      '<span class="cmd-card-name">' + escapeHtml(it.label || '') + '</span>' +
+      (it.kind === 'proxy' ? '<span class="cmd-badge cmd-badge-proxy" title="' + escapeHtml(it.proxyNote || 'Tracks an ETF proxy') + '">proxy</span>' : '') +
+      (it.cadence === 'monthly' ? '<span class="cmd-badge" title="Monthly series — publishes on a lag">monthly</span>' : '') +
+      (it.stale && !it.missing ? '<span class="cmd-badge cmd-badge-stale" title="Source unreachable this build — showing the last-good read">last-good</span>' : '') +
+    '</div>';
+    if (it.missing){
+      return '<article class="cmd-card cmd-card-missing">' + head +
+        '<p class="cmd-note">No data yet — this signal appears after the next successful build refresh.</p>' +
+      '</article>';
+    }
+    var value = '<div class="cmd-card-val">' + cmdFmtVal(it.last, it.fmt) +
+      '<span class="cmd-card-unit">' + escapeHtml(it.unit || '') + '</span>' +
+      (it.asOf ? '<span class="cmd-card-asof">' + escapeHtml(cmdDateLabel(it.asOf)) + '</span>' : '') +
+    '</div>';
+    var ov = '';
+    if (it.overlay && it.overlay.value != null){
+      var o = it.overlay;
+      var ochips = '';
+      if (o.w1Pct != null) ochips += rpChip(o.w1Pct, '7d');
+      if (o.m1Pct != null) ochips += rpChip(o.m1Pct, '30d');
+      ov = '<div class="cmd-overlay">' +
+        '<span class="cmd-overlay-label">' + escapeHtml(o.label || '') + '</span>' +
+        '<span class="cmd-overlay-val">' + cmdFmtVal(o.value, it.key === 'freight' ? 'usd0' : 'index') +
+          (o.unit ? ' <span class="cmd-card-unit">' + escapeHtml(o.unit) + '</span>' : '') + '</span>' +
+        (o.changeText ? '<span class="cmd-overlay-ch">' + escapeHtml(o.changeText) + '</span>' : '') + ochips +
+        '<span class="cmd-overlay-src">' + escapeHtml(o.sourceName || '') +
+          (o.asOf ? ' · ' + escapeHtml(String(o.asOf)) : '') + (o.stale ? ' · last-good' : '') + '</span>' +
+      '</div>';
+    }
+    var watch = '';
+    var ws = Array.isArray(it.watch) ? it.watch : [];
+    for (var w=0; w<ws.length; w++){
+      watch += '<button type="button" class="cmd-watch" data-sym="' + escapeHtml(ws[w]) + '" title="Open ' + escapeHtml(ws[w]) + ' in the Grade tab">' + escapeHtml(ws[w]) + '</button>';
+    }
+    var src = it.sourceUrl
+      ? '<a class="cmd-src" href="' + escapeHtml(it.sourceUrl) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(it.sourceName || 'source') + '</a>'
+      : escapeHtml(it.sourceName || '');
+    return '<article class="cmd-card">' + head + value +
+      (chips ? '<div class="cmd-chips">' + chips + '</div>' : '') +
+      cmdCompareRows(it) +
+      cmdSpark(it) + ov +
+      (it.note ? '<p class="cmd-note">' + escapeHtml(it.note) + '</p>' : '') +
+      '<div class="cmd-foot">' + (watch ? '<span class="cmd-watch-row">' + watch + '</span>' : '') + src + '</div>' +
+    '</article>';
+  }
+  function loadCommodities(){
+    if ((commoditiesState.data && !tabDataStale(commoditiesState)) || commoditiesState.loading){ renderCommodities(); return; }
+    commoditiesState.loading = true;
+    fetch('data/commodities.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){
+        commoditiesState.data = (j && typeof j === 'object') ? j : {};
+        commoditiesState.loading = false;
+        commoditiesState.fetchedAt = Date.now();
+        renderCommodities();
+      })
+      .catch(function(){ commoditiesState.data = { loadError: true }; commoditiesState.loading = false; renderCommodities(); });
+  }
+  function renderCommodities(){
+    var root = $('commodities-root'); var empty = $('commodities-empty'); var eye = $('commodities-eyebrow');
+    if (!root) return;
+    var d = commoditiesState.data;
+    if (!d){ root.textContent = 'Loading commodities…'; return; }
+    var items = Array.isArray(d.items) ? d.items : [];
+    if (!items.length){
+      root.innerHTML = '';
+      if (empty){ empty.hidden = false; empty.textContent = d.loadError ? 'Could not load commodity data.' : 'Commodity data will appear after the next daily build refresh.'; }
+      return;
+    }
+    if (empty) empty.hidden = true;
+    if (eye && d.builtAtIso) eye.textContent = (d.stale ? 'last-good · ' : '') + 'as of ' + String(d.builtAtIso).slice(0,10);
+    var html = '';
+    for (var g=0; g<CMD_GROUPS.length; g++){
+      var gk = CMD_GROUPS[g][0];
+      var cards = '';
+      for (var i=0; i<items.length; i++){
+        if (items[i] && items[i].group === gk) cards += cmdCard(items[i]);
+      }
+      if (!cards) continue;
+      html += '<div class="cmd-group"><div class="cmd-group-label">' + escapeHtml(CMD_GROUPS[g][1]) + '</div>' +
+        '<div class="cmd-grid">' + cards + '</div></div>';
+    }
+    root.innerHTML = html;
+    bindBriefChips(root);
+  }
+
   // --- Capital raises (Macro tab) -----------------------------------------
   // data/capital-raises.json — news-flagged debt/share/convertible issuance &
   // buybacks, each paired with the latest filed SEC amount.
@@ -14215,7 +14385,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Stock Picks card symbols, Trending-IV symbols/chips/table rows).
   function bindBriefChips(rootEl){
     if (!rootEl) return;
-    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .stk-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym]');
+    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .stk-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym], .cmd-watch[data-sym]');
     for (var i = 0; i < chips.length; i++){
       chips[i].addEventListener('click', function(ev){
         var sym = ev.currentTarget.getAttribute('data-sym');

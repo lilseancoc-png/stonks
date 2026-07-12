@@ -58,6 +58,7 @@ const SIDE_NAV_ICONS = {
   'ai-capex': '<rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9.5" y="9.5" width="5" height="5"/><path d="M9 2.5V5M15 2.5V5M9 19v2.5M15 19v2.5M2.5 9H5M2.5 15H5M19 9h2.5M19 15h2.5"/>',
   'ram-prices': '<rect x="2.5" y="6.5" width="19" height="9" rx="1.5"/><path d="M6 15.5v3M10 15.5v3M14 15.5v3M18 15.5v3"/><path d="M6.5 10v2M12 10v2M17.5 10v2"/>',
   'capital-raises': '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/>',
+  commodities: '<path d="M3 20.5c0-6 3.5-9.5 9-9.5s9 3.5 9 9.5"/><path d="M12 11V3.5"/><path d="M12 3.5c2.5 0 4.5 1.5 5 3.5-2.5.5-4.5-.5-5-3.5zM12 3.5c-2.5 0-4.5 1.5-5 3.5 2.5.5 4.5-.5 5-3.5z"/>',
   f13: '<path d="M14 2.5H6.5A1.5 1.5 0 0 0 5 4v16a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 20V7.5z"/><path d="M14 2.5v5h5"/><path d="M9 13h6M9 17h6"/>',
   grade: '<circle cx="12" cy="8.5" r="5.5"/><path d="m8.8 13.2-1.3 8 4.5-2.7 4.5 2.7-1.3-8"/>',
   compare: '<rect x="3" y="3.5" width="18" height="17" rx="2"/><path d="M12 3.5v17"/>',
@@ -480,6 +481,24 @@ function ramPricesSection() {
     <div id="ram-prices-root" class="ram-prices-root">Loading RAM prices&hellip;</div>
     <div id="ram-prices-empty" class="ram-prices-empty" hidden>RAM price data will appear after the next daily build refresh.</div>
     <p class="hint">Spot prices are per chip/module in USD (session average); retail prices are per kit in USD (lowest in-stock offer / category average). Sources are scraped best-effort and can go stale. Not financial advice.</p>
+  </section>`;
+}
+
+function commoditiesSection() {
+  // Card chrome only — content renders client-side from data/commodities.json,
+  // lazy-fetched on first tab activation by loadCommodities() in app.js.
+  // Eleven equity-relevant input-cost / demand signals: softs (cocoa, cotton,
+  // coffee, sugar, palm oil), industrial inputs (lumber, potash, lithium),
+  // freight (container rates, Baltic Dry) and used-vehicle values.
+  return `<section class="card" id="commodities-section">
+    <header class="card-header">
+      <h2 class="card-title">Commodities</h2>
+      <span class="card-eyebrow" id="commodities-eyebrow" aria-live="polite"></span>
+    </header>
+    ${infoNote('What is this?', `<p>Input costs and demand signals with a direct read on tracked equities. <b>Softs</b> (cocoa, cotton, coffee, sugar, palm oil) drive margins for confectionery, apparel, coffee chains and packaged food. <b>Industrial inputs</b> cover lumber (homebuilders), potash (agriculture &amp; farm equipment) and lithium (EV / battery supply chains). <b>Freight</b> tracks container rates (logistics cost inflation) and the Baltic Dry Index (a leading read on global industrial demand &mdash; it often moves before broader economic data). <b>Used-vehicle values</b> proxy auto-retail health, loan residuals and big-ticket consumer appetite (the Manheim index). Futures prices come from ICE/CME via Yahoo daily bars; the monthly series (palm oil, potash, deep-sea freight, used-vehicle CPI) come from FRED. Items marked <b>proxy</b> track an ETF because the underlying has no free feed; where the native benchmark (Drewry WCI, the true BDI, Manheim) is reachable it overlays the card. Click a related ticker to grade it.</p>`)}
+    <div id="commodities-root" class="commodities-root">Loading commodities&hellip;</div>
+    <div id="commodities-empty" class="commodities-empty" hidden>Commodity data will appear after the next daily build refresh.</div>
+    <p class="hint">Futures are front-month continuous contracts (daily settles); FRED series are monthly and publish on a lag. Proxy ETFs track direction, not the spot level. Scraped overlays are best-effort and can go stale. Not financial advice.</p>
   </section>`;
 }
 
@@ -1277,6 +1296,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     ${sideNavItem('bonds-usd', 'Bonds &amp; USD')}
     ${sideNavItem('ai-capex', 'AI CapEx')}
     ${sideNavItem('ram-prices', 'RAM prices')}
+    ${sideNavItem('commodities', 'Commodities')}
     ${sideNavItem('capital-raises', 'Capital raises')}
     ${sideNavItem('f13', '13F filings')}
   </div>
@@ -1801,6 +1821,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-ram-prices" role="tabpanel" aria-labelledby="page-tab-ram-prices" hidden>
   ${ramPricesSection()}
+  </div>
+  <div class="page-pane" id="page-pane-commodities" role="tabpanel" aria-labelledby="page-tab-commodities" hidden>
+  ${commoditiesSection()}
   </div>
   <div class="page-pane" id="page-pane-capital-raises" role="tabpanel" aria-labelledby="page-tab-capital-raises" hidden>
   ${capitalRaisesSection()}
