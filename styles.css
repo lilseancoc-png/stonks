@@ -5233,8 +5233,9 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
   .opt-rec-block { grid-template-columns: 1fr; gap: 2px; }
 }
 
-/* "Execute now?" entry-timing card. Sits between the verdict chip and the
-   Recommendation breakdown. Three states (pos = EXECUTE, fair = WAIT,
+/* "Execute now?" entry-timing card. Renders at the bottom of the Technicals
+   tab for chain-fed grades (#opt-exec-host), inline in the manual result.
+   Three states (pos = EXECUTE, fair = WAIT,
    warn = AVOID) drive both the left rail color and the verdict pill. */
 .opt-exec-card {
   position: relative;

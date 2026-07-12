@@ -3696,7 +3696,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var nudgeLabel = ({ bullish:'bullish', bearish:'bearish' })[input.news.sentiment] || 'news';
       html += '<div class="opt-news-note">News context (' + nudgeLabel + ') shifted the verdict from <b>Acceptable</b>. See the News tab below.</div>';
     }
-    html += buildExecuteNowCard({ input: input, buy: buy });
+    // The entry-timing / chart-read card ships separately for chain-fed
+    // grades: evaluate() renders it at the bottom of the Technicals tab
+    // (it reads the chart, not the contract). Manual pastes have no
+    // Technicals pane, so theirs stays inline in the result.
+    var execCardHtml = buildExecuteNowCard({ input: input, buy: buy });
+    if (input.source !== 'chain') html += execCardHtml;
     // Overnight foreign-peer read for the underlying (Korea/Japan/Taiwan +
     // global tape). Lazy-fills once data/correlations.json lands.
     html += buildOvernightPeerWidget(input.ticker || input.symbol || state.symbol);
@@ -3866,7 +3871,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       ? 'Greeks computed locally with Black-Scholes from your IV and a ' + (RFR*100).toFixed(1) + '% risk-free rate' + rfrNote + '. You are the data source — only as accurate as the numbers you typed.'
       : 'Greeks computed with Black-Scholes from Yahoo&apos;s implied vol and a ' + (RFR*100).toFixed(1) + '% risk-free rate' + rfrNote + '. Quotes are end-of-session as of the build timestamp shown in the footer.';
     html += '<p class="opt-disclaimer">' + disc + '</p>';
-    return { html: html, verdict: verdict, buy: buy, contractLabel: input.label || '' };
+    return { html: html, verdict: verdict, buy: buy, contractLabel: input.label || '', execHtml: execCardHtml };
   }
 
   function renderStickyVerdict(verdict, label, buy){
@@ -3899,9 +3904,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var c = findContract();
     var resultEl = $('opt-eval-result');
     var stickyEl = $('opt-result-sticky');
+    var execHost = $('opt-exec-host');
     if (!c){
       if (resultEl) resultEl.innerHTML = '';
       if (stickyEl){ stickyEl.hidden = true; stickyEl.innerHTML = ''; }
+      if (execHost) execHost.innerHTML = '';
       return;
     }
     var type = getOptType();
@@ -3920,6 +3927,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       ticker: state.symbol, topPick: isTopPick
     });
     resultEl.innerHTML = built.html;
+    // The chart-read / entry-timing card renders at the bottom of the
+    // Technicals tab (it reads the chart, not the contract).
+    if (execHost) execHost.innerHTML = built.execHtml || '';
     renderStickyVerdict(built.verdict, built.contractLabel, built.buy);
     setupStickyObserver();
     setStatus('opt-eval-status', '', '');
