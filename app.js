@@ -3677,7 +3677,12 @@
       var nudgeLabel = ({ bullish:'bullish', bearish:'bearish' })[input.news.sentiment] || 'news';
       html += '<div class="opt-news-note">News context (' + nudgeLabel + ') shifted the verdict from <b>Acceptable</b>. See the News tab below.</div>';
     }
-    html += buildExecuteNowCard({ input: input, buy: buy });
+    // The entry-timing / chart-read card ships separately for chain-fed
+    // grades: evaluate() renders it at the bottom of the Technicals tab
+    // (it reads the chart, not the contract). Manual pastes have no
+    // Technicals pane, so theirs stays inline in the result.
+    var execCardHtml = buildExecuteNowCard({ input: input, buy: buy });
+    if (input.source !== 'chain') html += execCardHtml;
     // Overnight foreign-peer read for the underlying (Korea/Japan/Taiwan +
     // global tape). Lazy-fills once data/correlations.json lands.
     html += buildOvernightPeerWidget(input.ticker || input.symbol || state.symbol);
@@ -3847,7 +3852,7 @@
       ? 'Greeks computed locally with Black-Scholes from your IV and a ' + (RFR*100).toFixed(1) + '% risk-free rate' + rfrNote + '. You are the data source — only as accurate as the numbers you typed.'
       : 'Greeks computed with Black-Scholes from Yahoo&apos;s implied vol and a ' + (RFR*100).toFixed(1) + '% risk-free rate' + rfrNote + '. Quotes are end-of-session as of the build timestamp shown in the footer.';
     html += '<p class="opt-disclaimer">' + disc + '</p>';
-    return { html: html, verdict: verdict, buy: buy, contractLabel: input.label || '' };
+    return { html: html, verdict: verdict, buy: buy, contractLabel: input.label || '', execHtml: execCardHtml };
   }
 
   function renderStickyVerdict(verdict, label, buy){
@@ -3880,9 +3885,11 @@
     var c = findContract();
     var resultEl = $('opt-eval-result');
     var stickyEl = $('opt-result-sticky');
+    var execHost = $('opt-exec-host');
     if (!c){
       if (resultEl) resultEl.innerHTML = '';
       if (stickyEl){ stickyEl.hidden = true; stickyEl.innerHTML = ''; }
+      if (execHost) execHost.innerHTML = '';
       return;
     }
     var type = getOptType();
@@ -3901,6 +3908,9 @@
       ticker: state.symbol, topPick: isTopPick
     });
     resultEl.innerHTML = built.html;
+    // The chart-read / entry-timing card renders at the bottom of the
+    // Technicals tab (it reads the chart, not the contract).
+    if (execHost) execHost.innerHTML = built.execHtml || '';
     renderStickyVerdict(built.verdict, built.contractLabel, built.buy);
     setupStickyObserver();
     setStatus('opt-eval-status', '', '');
@@ -13564,11 +13574,11 @@
         tipBits.push(st.earnings && st.earnings.date
           ? 'earnings ' + ivtDateLabel(st.earnings.date) + (st.earnings.impliedMovePct != null ? ' (±' + Number(st.earnings.impliedMovePct).toFixed(1) + '% implied)' : '')
           : 'no print inside 45d — unexplained ramp');
-        schips += '<span class="ivt-sum-chip' + (stMeta ? ' ' + stMeta.cls : '') + '" title="' + escapeHtml(tipBits.join(' · ')) + '">' +
+        schips += '<button type="button" class="ivt-sum-chip' + (stMeta ? ' ' + stMeta.cls : '') + '" data-sym="' + escapeHtml(st.symbol || '') + '" title="' + escapeHtml(tipBits.join(' · ')) + ' — open in the Grade tab">' +
           (stMeta ? '<em>' + stMeta.label + '</em>' : '') +
           escapeHtml(st.symbol || '') +
           (st.chg5dPct != null && isFinite(st.chg5dPct) ? ' <b class="' + (st.chg5dPct >= 0 ? 'cx-up' : 'cx-down') + '">' + (st.chg5dPct >= 0 ? '+' : '') + Number(st.chg5dPct).toFixed(0) + '% 5d</b>' : '') +
-        '</span>';
+        '</button>';
       }
       html += '<section class="ivt-summary">' +
         '<p class="ivt-summary-text">' + escapeHtml(sum.text) + '</p>' +
@@ -13584,7 +13594,7 @@
         cards += '<article class="ivt-card ' + meta.cls + '">' +
           '<header class="ivt-card-head">' +
             '<span class="ivt-badge">' + meta.label + '</span>' +
-            '<span class="ivt-sym">' + escapeHtml(r.symbol || '') + '</span>' +
+            '<button type="button" class="ivt-sym" data-sym="' + escapeHtml(r.symbol || '') + '" title="Open ' + escapeHtml(r.symbol || '') + ' in the Grade tab">' + escapeHtml(r.symbol || '') + '<span class="stk-sym-go" aria-hidden="true">↗</span></button>' +
             (r.name ? '<span class="ivt-name">' + escapeHtml(r.name) + '</span>' : '') +
             (r.sector ? '<span class="ivt-sector">' + escapeHtml(r.sector) + '</span>' : '') +
           '</header>' +
@@ -13613,7 +13623,7 @@
       var w = shown[t];
       var tierMeta = w.tier && IVT_TIER_META[w.tier] ? IVT_TIER_META[w.tier] : null;
       rows += '<div class="ivt-trow' + (tierMeta ? ' ' + tierMeta.cls : '') + '">' +
-        '<span class="ivt-trow-sym">' + escapeHtml(w.symbol || '') +
+        '<span class="ivt-trow-sym"><button type="button" class="ivt-trow-symbtn" data-sym="' + escapeHtml(w.symbol || '') + '" title="Open ' + escapeHtml(w.symbol || '') + ' in the Grade tab">' + escapeHtml(w.symbol || '') + '</button>' +
           (tierMeta ? ' <em class="ivt-trow-tier">' + tierMeta.label + '</em>' : (w.elevated ? ' <em class="ivt-trow-tier ivt-elev" title="IV well above its own history, but not currently climbing">Elevated</em>' : '')) + '</span>' +
         '<span class="ivt-trow-num">' + ivtIvPct(w.iv) + '</span>' +
         '<span class="ivt-trow-num">' + (w.z == null ? '—' : (w.z >= 0 ? '+' : '') + w.z.toFixed(1) + 'σ') + '</span>' +
@@ -13630,6 +13640,7 @@
         (ivTrendState.showAll ? 'Show top ' + IVT_TABLE_DEFAULT_ROWS + ' only' : 'Show all ' + all.length + ' tickers') + '</button>';
     }
     root.innerHTML = html;
+    bindBriefChips(root);
     var btn = $('ivt-show-all');
     if (btn) btn.addEventListener('click', function(){ ivTrendState.showAll = !ivTrendState.showAll; renderIvTrend(); });
   }
@@ -13733,7 +13744,7 @@
     }
     return '<article class="stk-card stk-' + kind + '">' +
       '<header class="stk-head">' +
-        '<span class="stk-sym">' + escapeHtml(row.symbol) + '</span>' + name + sector + scoreBadge +
+        '<button type="button" class="stk-sym" data-sym="' + escapeHtml(row.symbol) + '" title="Open ' + escapeHtml(row.symbol) + ' in the Grade tab">' + escapeHtml(row.symbol) + '<span class="stk-sym-go" aria-hidden="true">↗</span></button>' + name + sector + scoreBadge +
       '</header>' +
       '<div class="stk-spot-row"><b>' + fmtMoney(row.spot) + '</b>' + stkRangeBar(row) + '</div>' +
       stkSpark(row) +
@@ -13772,6 +13783,7 @@
         'No name clears the value bar right now — the screen would rather show nothing than stretch the definition of "cheap but good".') +
       stkBucket('🚀 Breakout watch', 'Up-and-coming names in a structural uptrend, pressing against a mapped resistance level or printing fresh highs, with momentum and volume behind them.', breakout, 'breakout',
         'No coiled setups on the tape right now — breakout candidates appear when a name presses against resistance with momentum behind it.');
+    bindBriefChips(root);
   }
   function loadBrief(){
     if ((briefState.data && !tabDataStale(briefState)) || briefState.loading){ renderBrief(); return; }
@@ -14108,9 +14120,12 @@
       (blocksHtml ? '<div class="brief-blocks">' + blocksHtml + '</div>' : '') +
     '</article>';
   }
+  // Shared ticker-link binder: any button carrying a data-sym jumps to the
+  // Grade tab with that ticker loaded (Brief chips, Track Record symbols,
+  // Stock Picks card symbols, Trending-IV symbols/chips/table rows).
   function bindBriefChips(rootEl){
     if (!rootEl) return;
-    var chips = rootEl.querySelectorAll('.brief-chip[data-sym]');
+    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .stk-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym]');
     for (var i = 0; i < chips.length; i++){
       chips[i].addEventListener('click', function(ev){
         var sym = ev.currentTarget.getAttribute('data-sym');
@@ -14689,7 +14704,9 @@
         kind: 'earnings', iconType: 'earnings', label: 'Earnings this week',
         value: String(earn.length),
         sub: top ? (top.symbol + ' ±' + (top.impliedMovePct * 100).toFixed(1) + '% biggest') : ('across ' + earn.length + ' name' + (earn.length === 1 ? '' : 's')),
-        sym: top ? top.symbol : null
+        // Jump to the month grid filtered to earnings (not the top name's
+        // Grade page — the card summarizes the week, so show the week).
+        filter: 'earnings'
       });
     }
     // 4) Next ticker catalyst (FDA / launch / court / M&A ...), else the horizon.
@@ -14725,11 +14742,12 @@
     if (!cards.length){ host.hidden = true; host.innerHTML = ''; return; }
     host.hidden = false;
     host.innerHTML = cards.map(function(c){
-      var clickable = !!(c.scrollTo || c.sym);
+      var clickable = !!(c.scrollTo || c.sym || c.filter);
       var tag = clickable ? 'button' : 'div';
       var attrs = (clickable ? ' type="button"' : '') + ' class="cal-ov-card cal-ov-' + c.kind + '"';
       if (c.scrollTo) attrs += ' data-cal-scroll="' + escapeHtml(c.scrollTo) + '"';
-      if (c.sym) attrs += ' data-cal-sym="' + escapeHtml(c.sym) + '"';
+      if (c.filter) attrs += ' data-cal-filter="' + escapeHtml(c.filter) + '" title="Show ' + escapeHtml(c.filter) + ' on the calendar"';
+      else if (c.sym) attrs += ' data-cal-sym="' + escapeHtml(c.sym) + '"';
       return '<' + tag + attrs + '>' +
           '<span class="cal-ov-icon">' + calEventIcon(c.iconType) + '</span>' +
           '<span class="cal-ov-body">' +
@@ -15742,6 +15760,20 @@
           if (target && typeof target.scrollIntoView === 'function'){
             try { target.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
             catch (_) { target.scrollIntoView(); }
+          }
+          return;
+        }
+        // Filter card (Earnings this week): select that type pill on the month
+        // grid and bring the grid into view, instead of leaving the calendar.
+        var filterType = card.getAttribute('data-cal-filter');
+        if (filterType){
+          var pill = document.querySelector('.calendar-type-filter .calendar-pill[data-cal-type="' + filterType + '"]');
+          if (pill) pill.click();
+          else { calendarState.type = filterType; renderCalendar(); }
+          var gridAnchor = document.querySelector('.calendar-type-filter') || document.getElementById('calendar-root');
+          if (gridAnchor && typeof gridAnchor.scrollIntoView === 'function'){
+            try { gridAnchor.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+            catch (_) { gridAnchor.scrollIntoView(); }
           }
           return;
         }
