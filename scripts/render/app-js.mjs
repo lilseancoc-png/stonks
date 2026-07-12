@@ -13736,6 +13736,37 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     });
     return '<ul class="stk-flags" aria-label="Warning flags">' + out + '</ul>';
   }
+  // The expandable Investment Thesis Checklist (baked per candidate by
+  // buildStockChecklist). Every item ships with an explicit status: answered
+  // (computed from tracked data), unsure (a named heuristic/proxy read), or
+  // unanswered (not visible in our data — the reader's own research).
+  function stkChecklist(row){
+    var cl = row.checklist;
+    if (!cl || !Array.isArray(cl.sections) || !cl.sections.length) return '';
+    var c = cl.counts || {};
+    var sub = (c.answered || 0) + ' answered · ' + (c.unsure || 0) + ' unsure · ' + (c.unanswered || 0) + ' unanswered';
+    var body = '';
+    cl.sections.forEach(function(sec){
+      if (!sec || !Array.isArray(sec.items) || !sec.items.length) return;
+      var items = '';
+      sec.items.forEach(function(it){
+        if (!it || !it.q) return;
+        var st = it.status === 'answered' ? 'answered' : it.status === 'unsure' ? 'unsure' : 'unanswered';
+        items += '<li class="stk-cl-item stk-cl-' + st + '">' +
+          '<span class="stk-cl-badge">' + st + '</span>' +
+          '<div class="stk-cl-text"><b>' + escapeHtml(it.q) + '</b>' +
+          (it.a ? '<span>' + escapeHtml(it.a) + '</span>' : '') + '</div>' +
+        '</li>';
+      });
+      if (items) body += '<section class="stk-cl-sec"><h4>' + escapeHtml(sec.title || '') + '</h4><ul>' + items + '</ul></section>';
+    });
+    if (!body) return '';
+    return '<details class="stk-thesis">' +
+      '<summary><span class="stk-thesis-title">Investment thesis checklist</span><span class="stk-thesis-counts">' + sub + '</span></summary>' +
+      '<p class="stk-thesis-note">Answered = computed from tracked data. Unsure = a heuristic or proxy read — verify before leaning on it. Unanswered = not visible in our data; that research is yours.</p>' +
+      body +
+    '</details>';
+  }
   function stkRangeBar(row){
     var fw = row.fiftyTwoWeek || {};
     var hi = Number(fw.hi), lo = Number(fw.lo), spot = Number(row.spot);
@@ -13766,6 +13797,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       stkQualityRow(row.quality) +
       stkSignalRows(row.signals) +
       stkTrapRows(row) +
+      stkChecklist(row) +
     '</article>';
   }
   function renderStocks(){

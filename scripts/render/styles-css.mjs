@@ -2947,6 +2947,26 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .stk-flag b { font-weight: 650; color: var(--warn); }
 .stk-flag::before { content: '⚠'; font: 700 11px/1 var(--font-mono); color: var(--warn); margin-right: 5px; }
 .stk-clean { font: 600 12px/1.45 var(--font-sans); color: var(--pos); }
+/* Expandable investment-thesis checklist */
+.stk-thesis { border-top: 1px solid var(--border); padding-top: 8px; margin-top: 2px; }
+.stk-thesis > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; cursor: pointer; list-style: none; }
+.stk-thesis > summary::-webkit-details-marker { display: none; }
+.stk-thesis > summary::before { content: '▸'; color: var(--muted); font-size: 11px; }
+.stk-thesis[open] > summary::before { content: '▾'; }
+.stk-thesis-title { font: 650 12px/1.3 var(--font-sans); color: var(--text-strong); }
+.stk-thesis-counts { font: 500 10.5px/1.3 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted); }
+.stk-thesis-note { font: 400 11px/1.5 var(--font-sans); color: var(--muted); margin: 8px 0 2px; }
+.stk-cl-sec { margin-top: 8px; }
+.stk-cl-sec h4 { font: 700 10.5px/1.3 var(--font-sans); text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0 0 5px; }
+.stk-cl-sec ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.stk-cl-item { display: flex; gap: 7px; align-items: flex-start; }
+.stk-cl-badge { flex: 0 0 auto; font: 700 8.5px/1 var(--font-sans); text-transform: uppercase; letter-spacing: 0.04em; border-radius: 999px; padding: 3px 6px; margin-top: 1px; }
+.stk-cl-answered .stk-cl-badge { color: var(--pos); background: color-mix(in srgb, var(--pos) 13%, transparent); }
+.stk-cl-unsure .stk-cl-badge { color: var(--warn); background: var(--warn-soft); }
+.stk-cl-unanswered .stk-cl-badge { color: var(--muted); background: color-mix(in srgb, var(--border) 45%, transparent); }
+.stk-cl-text { font: 400 11.5px/1.5 var(--font-sans); color: var(--muted); display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.stk-cl-text b { font-weight: 650; color: var(--text-strong); }
+.stk-cl-unanswered .stk-cl-text b { color: var(--muted); }
 .stk-empty { font: 400 12.5px/1.5 var(--font-sans); color: var(--muted); font-style: italic; margin: 0; }
 
 /* --- Capital raises (Macro) ------------------------------------------- */

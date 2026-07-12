@@ -13267,6 +13267,241 @@ function stockTrapFlags(data, grade) {
   return flags;
 }
 
+// ── Investment-thesis checklist (per shipped candidate) ─────────────────
+// The long-form owner's checklist rendered behind each card's expandable
+// "Investment thesis checklist" control. Every question the tracked data CAN
+// answer is answered with the actual numbers; what it can only approximate is
+// labeled UNSURE with the proxy named; what the data simply can't see is
+// labeled UNANSWERED rather than faked — competitive dynamics, unit
+// economics, and the reader's own portfolio live there. Deterministic (no
+// AI beyond quoting the already-baked per-ticker news/fundamentals judgment).
+// status: "answered" | "unsure" | "unanswered".
+const CHECKLIST_UNANSWERED = "Not assessable from the data we track — do your own digging here.";
+
+function stkBigMoney(v) {
+  if (!Number.isFinite(v)) return null;
+  const a = Math.abs(v), s = v < 0 ? "-$" : "$";
+  if (a >= 1e12) return s + r2(a / 1e12) + "T";
+  if (a >= 1e9) return s + r1(a / 1e9) + "B";
+  if (a >= 1e6) return s + r1(a / 1e6) + "M";
+  return s + Math.round(a);
+}
+
+function buildStockChecklist(sym, data, grade, sectorPE, traps) {
+  const f = data?.fundamentals || {};
+  const j = f.judgment || null;
+  const spot = pnum(data?.spot);
+  const item = (q, status, a) => ({ q, status, a });
+  const unanswered = (q, extra) => item(q, "unanswered", extra ? `${CHECKLIST_UNANSWERED} ${extra}` : CHECKLIST_UNANSWERED);
+
+  // Shared computed facts.
+  const nm = Array.isArray(f.netMarginHistory) ? f.netMarginHistory.filter((x) => pnum(x?.value) != null) : [];
+  const nmCur = nm.length ? Number(nm[nm.length - 1].value) : null;
+  const nmPrior = nm.length >= 5 ? Number(nm[nm.length - 5].value) : nm.length >= 2 ? Number(nm[nm.length - 2].value) : null;
+  const nmDelta = nmCur != null && nmPrior != null ? nmCur - nmPrior : null;
+  const marginTrend = nmDelta == null ? null : nmDelta >= 0.5 ? "expanding" : nmDelta <= -0.5 ? "compressing" : "stable";
+  let revYoy = null;
+  const rh = Array.isArray(f.revenueHistory) ? f.revenueHistory.filter((x) => pnum(x?.value) != null) : [];
+  if (rh.length >= 8) {
+    const sum = (a) => a.reduce((s, x) => s + Number(x.value), 0);
+    const cur = sum(rh.slice(-4)), prior = sum(rh.slice(-8, -4));
+    if (prior > 0) revYoy = (cur / prior - 1) * 100;
+  }
+  if (revYoy == null) revYoy = pnum(f.revenueGrowthYoy);
+  const fcf = pnum(f.freeCashFlow), ocf = pnum(f.operatingCashFlow), mcap = pnum(f.marketCap);
+  const totalDebt = pnum(f.totalDebt), totalCash = pnum(f.totalCash), de = pnum(f.debtToEquity);
+  const gm = pnum(f.grossMargin), om = pnum(f.operatingMargin), pm = pnum(f.profitMargin);
+  const roe = pnum(f.returnOnEquity), roa = pnum(f.returnOnAssets);
+  const ni = Array.isArray(f.netIncomeHistory) ? f.netIncomeHistory.filter((x) => pnum(x?.value) != null) : [];
+  const niTtm = ni.length >= 4 ? ni.slice(-4).reduce((s, x) => s + Number(x.value), 0) : null;
+  const profQuarters = ni.length ? ni.filter((x) => Number(x.value) > 0).length : null;
+  const pe = pnum(f.trailingPE), fpe = pnum(f.forwardPE), peg = pnum(f.pegRatio);
+  const secPE = pnum(sectorPE);
+  const ar = f.analystRevisions || null;
+  const arNet = ar ? pnum(ar.net) : null;
+  const tgtMean = pnum(f.targetMeanPrice), tgtHi = pnum(f.targetHighPrice), tgtLo = pnum(f.targetLowPrice);
+  const nAnalysts = pnum(f.numberOfAnalystOpinions);
+  const beta = pnum(f.beta);
+  const lo52 = pnum(f.fiftyTwoWeekLow);
+  const upside = (t) => (t > 0 && spot > 0 ? r1((t / spot - 1) * 100) : null);
+  const pctStr = (v) => `${v >= 0 ? "+" : ""}${r1(v)}%`;
+
+  // ── Management & business quality ──────────────────────────────────────
+  const mgmt = [];
+  mgmt.push(j
+    ? item("How good is the management team? Are they facing or creating a management-driven crisis?", "unsure",
+        `Management quality itself isn't assessable from tracked data. The latest AI news/fundamentals read (verdict: ${j.verdict}) surfaced ${j.negatives?.length ? `these negatives: ${j.negatives.slice(0, 3).join("; ")}` : "no crisis-level negatives"} — treat as a headline scan, not a leadership assessment.`)
+    : unanswered("How good is the management team? Are they facing or creating a management-driven crisis?", "Check leadership tenure, insider ownership and execution track record."));
+  {
+    let a = null, status = "unsure";
+    if (marginTrend && revYoy != null) {
+      const verdict = revYoy > 2 && marginTrend !== "compressing" ? "improving-to-stable" : revYoy < -2 || marginTrend === "compressing" ? "showing deterioration" : "stable";
+      a = `Core economics look ${verdict}: revenue ${pctStr(revYoy)} YoY with net margin ${marginTrend} (${r1(nmCur)}% now vs ${r1(nmPrior)}%).`;
+      status = "answered";
+    }
+    mgmt.push(a ? item("Is the core business economics stable, improving, or deteriorating?", status, a)
+      : unanswered("Is the core business economics stable, improving, or deteriorating?"));
+  }
+  {
+    const bits = [];
+    if (gm != null) bits.push(`gross margin ${r1(gm)}%${gm >= 40 ? " (differentiated-product territory)" : gm >= 25 ? " (moderate)" : " (thin — commodity-like)"}`);
+    if (roe != null) bits.push(`ROE ${r1(roe)}%`);
+    if (marginTrend) bits.push(`margins ${marginTrend}`);
+    mgmt.push(bits.length
+      ? item("How strong is the competitive advantage (moat)? Is the brand or moat eroding?", "unsure",
+          `Proxy read only — a real moat call needs industry work. The financial fingerprints: ${bits.join(", ")}. ${marginTrend === "compressing" ? "Compressing margins CAN be early moat erosion — worth digging." : "Nothing in the margin trend suggests active erosion."}`)
+      : unanswered("How strong is the competitive advantage (moat)? Is the brand or moat eroding?"));
+  }
+  mgmt.push(unanswered("Who are the main competitors and how intense is the competition?"));
+  mgmt.push(unanswered("What are the barriers to entry? How easy is it for new competitors to enter?"));
+  mgmt.push(unanswered("Do suppliers or customers have significant power over the company?"));
+  mgmt.push(unanswered("Are there credible threats from substitutes or new technologies?"));
+  {
+    const cutting = arNet != null && arNet < 0;
+    const marginsBad = marginTrend === "compressing";
+    const verdict = !cutting && !marginsBad
+      ? "Likely temporary: the quality gate passed (profitability, debt, margins, revenue all intact) while the price fell — the weakness is so far in the stock, not the reported business."
+      : `Possibly structural: ${[cutting ? "analysts are cutting estimates" : null, marginsBad ? "margins are compressing" : null].filter(Boolean).join(" and ")} while the price falls — the business itself may be deteriorating.`;
+    mgmt.push(item("Are current problems temporary or structural/permanent?", "unsure", `${verdict} Only the next couple of reports settle this.`));
+  }
+
+  // ── Financial health & cash flow ───────────────────────────────────────
+  const fin = [];
+  {
+    const bits = [];
+    if (de != null) bits.push(`debt/equity ${r2(de / 100)}x`);
+    if (totalDebt != null && totalCash != null) bits.push(`${stkBigMoney(totalCash)} cash vs ${stkBigMoney(totalDebt)} debt`);
+    if (fcf > 0 && totalDebt > 0) bits.push(`~${r1(totalDebt / fcf)} years of FCF would retire all debt`);
+    const cr = pnum(f.currentRatio);
+    if (cr != null) bits.push(`current ratio ${r2(cr)}`);
+    fin.push(bits.length
+      ? item("How leveraged is the balance sheet? Can it service its debt in a downturn?", "answered",
+          `${bits.join("; ")}. ${(totalCash != null && totalDebt != null && totalCash >= totalDebt) || (fcf > 0 && totalDebt > 0 && totalDebt / fcf <= 3) ? "Comfortable in a normal downturn on these numbers." : "Serviceable today, but stress-test it against a real revenue drop."}`)
+      : unanswered("How leveraged is the balance sheet? Can it service its debt in a downturn?"));
+  }
+  fin.push(fcf != null
+    ? item("Does the business generate consistent and growing free cash flow?", "unsure",
+        `FCF ${stkBigMoney(fcf)} over the trailing twelve months (${fcf > 0 ? "positive" : "negative"}). We don't track a quarterly FCF series, so consistency is inferred: ${profQuarters != null ? `${profQuarters} of the last ${ni.length} quarters were profitable` : "no quarterly profit history on file"}. Growth of FCF itself: unverified.`)
+    : unanswered("Does the business generate consistent and growing free cash flow?"));
+  fin.push(fcf != null && (mcap > 0 || totalDebt != null)
+    ? item("How does free cash flow compare to total debt and market cap?", "answered",
+        [mcap > 0 ? `FCF yield ${r1((fcf / mcap) * 100)}% of market cap (${stkBigMoney(fcf)} on ${stkBigMoney(mcap)})` : null,
+         totalDebt > 0 ? (fcf > 0 ? `debt is ${r1(totalDebt / fcf)}x annual FCF` : `debt ${stkBigMoney(totalDebt)} against negative FCF`) : "essentially no debt"].filter(Boolean).join("; ") + ".")
+    : unanswered("How does free cash flow compare to total debt and market cap?"));
+  {
+    const dy = pnum(f.dividendYield), po = pnum(f.payoutRatio);
+    fin.push(item("What is management doing with the free cash flow (buybacks, dividends, M&A, capex, debt paydown)?",
+      dy != null ? "unsure" : "unanswered",
+      dy != null
+        ? `Pays a ${r1(dy)}% dividend${po != null ? ` (${r1(po)}% payout ratio)` : ""}. Buyback, M&A and growth-capex allocation aren't tracked here — check the latest cash-flow statement.`
+        : `No dividend on file, and buyback/M&A/capex allocation isn't tracked here — check the latest cash-flow statement.`));
+  }
+  fin.push(ocf != null && niTtm != null && niTtm !== 0
+    ? item("Are there signs of aggressive accounting or poor earnings quality?", "unsure",
+        `One simple check only: operating cash flow is ${r2(ocf / Math.abs(niTtm))}x reported net income over the trailing year — ${ocf / Math.abs(niTtm) >= 0.9 && niTtm > 0 ? "earnings are backed by cash, no red flag from this test" : "cash conversion lags reported earnings, which merits a closer look"}. A real earnings-quality read needs the filings.`)
+    : unanswered("Are there signs of aggressive accounting or poor earnings quality?"));
+
+  // ── Unit economics & operating trends ──────────────────────────────────
+  const unit = [];
+  unit.push(unanswered("What are the key unit economics (CAC, lifetime value, churn, payback, contribution margin)?", "These live in company disclosures and industry research, not market data."));
+  {
+    const bits = [];
+    if (gm != null) bits.push(`gross ${r1(gm)}%`);
+    if (om != null) bits.push(`operating ${r1(om)}%`);
+    if (pm != null) bits.push(`net ${r1(pm)}%`);
+    unit.push(bits.length
+      ? item("Are margins (gross, operating, net) stable, expanding, or compressing?", "answered",
+          `Current levels: ${bits.join(", ")}. Net margin is ${marginTrend || "trend unavailable"}${nmDelta != null ? ` (${nmDelta >= 0 ? "+" : ""}${r1(nmDelta)} pts vs ${nm.length >= 5 ? "a year ago" : "last quarter"})` : ""}; gross/operating margin history isn't tracked.`)
+      : unanswered("Are margins (gross, operating, net) stable, expanding, or compressing?"));
+  }
+  unit.push(gm != null
+    ? item("Does the company have pricing power?", "unsure",
+        `Proxy read: ${gm >= 40 ? `a ${r1(gm)}% gross margin usually means real pricing power` : gm >= 25 ? `a ${r1(gm)}% gross margin suggests moderate pricing power` : `a ${r1(gm)}% gross margin leaves little room — likely a price-taker`}${marginTrend === "compressing" ? ", though compressing net margins argue it isn't being exercised" : marginTrend === "expanding" ? ", and expanding net margins back that up" : ""}. True pricing power shows in holding price through a downturn — not visible here.`)
+    : unanswered("Does the company have pricing power?"));
+
+  // ── Valuation & growth ─────────────────────────────────────────────────
+  const val = [];
+  val.push(pe != null || fpe != null
+    ? item("What is the current valuation vs historical averages and peers?", "unsure",
+        `${pe != null ? `Trailing P/E ${r1(pe)}x` : `Forward P/E ${r1(fpe)}x`}${pe != null && secPE > 0 ? ` vs a ${r1(secPE)}x sector median (${pe <= secPE ? "discount" : "premium"} of ${r1(Math.abs(pe / secPE - 1) * 100)}%)` : ""}${fpe != null && pe != null ? `; forward P/E ${r1(fpe)}x` : ""}. The name's OWN historical multiple range isn't tracked — that half of the comparison is on you.`)
+    : unanswered("What is the current valuation vs historical averages and peers?"));
+  {
+    const reasons = [];
+    if (pe != null && secPE > 0 && pe <= secPE * 0.9) reasons.push("the recent selloff has it below its sector multiple");
+    if (pe != null && secPE > 0 && pe >= secPE * 1.1) reasons.push(`the market still pays up vs the sector${revYoy > 8 ? ", consistent with its above-average growth" : ""}`);
+    if (arNet != null && arNet < 0) reasons.push("analyst estimate cuts are pressuring the multiple");
+    val.push(item("Why is the stock trading at a premium or discount?", "unsure",
+      reasons.length ? `Best deterministic guess: ${reasons.join("; ")}. The narrative behind the multiple needs qualitative work.` : "No clear deterministic read — the narrative behind the multiple needs qualitative work."));
+  }
+  {
+    const g = pnum(f.growthEstimateCurY);
+    val.push(peg != null || (fpe != null && g != null)
+      ? item("What growth is the market pricing in? Is it realistic and sustainable?", "unsure",
+          `${peg != null ? `PEG ${r2(peg)} — the multiple ${peg <= 1 ? "asks for less growth than analysts already forecast" : peg <= 1.5 ? "roughly matches forecast growth" : "prices in more growth than current forecasts"}` : ""}${g != null ? `${peg != null ? "; " : ""}street sees ${pctStr(g)} earnings growth this year` : ""}${revYoy != null ? ` against ${pctStr(revYoy)} actual revenue growth` : ""}. Whether that sustains is a judgment call.`)
+      : unanswered("What growth is the market pricing in? Is it realistic and sustainable?"));
+  }
+  {
+    const bits = [];
+    if (roe != null) bits.push(`ROE ${r1(roe)}%`);
+    if (roa != null) bits.push(`ROA ${r1(roa)}%`);
+    if (marginTrend) bits.push(`net margin ${marginTrend}`);
+    val.push(bits.length
+      ? item("What are the key margin and return-on-capital trends?", "answered",
+          `${bits.join(", ")}. Return-on-capital LEVELS only — their multi-year trend isn't tracked here.`)
+      : unanswered("What are the key margin and return-on-capital trends?"));
+  }
+  {
+    const up = upside(tgtMean), dn = upside(tgtLo);
+    val.push(up != null
+      ? item("Is there a sufficient margin of safety at the current price?", "unsure",
+          `Analyst-consensus proxy${nAnalysts ? ` (${nAnalysts} analysts)` : ""}: mean target ${pctStr(up)} from here, street-low target ${dn != null ? pctStr(dn) : "n/a"}. A true margin of safety comes from your own intrinsic-value estimate, not targets.`)
+      : unanswered("Is there a sufficient margin of safety at the current price?"));
+  }
+
+  // ── Macro, cyclical & industry sensitivity ─────────────────────────────
+  const kind = macroKindOf(sym, data);
+  const profile = MACRO_PROFILES[kind] || MACRO_PROFILES.broad;
+  const macro = [];
+  macro.push(item("How sensitive is the business to economic cycles, rates, or commodity prices?", "answered",
+    `${beta != null ? `Beta ${r2(beta)} vs the market${beta >= 1.3 ? " (high-cyclicality tape behavior)" : beta <= 0.8 ? " (defensive tape behavior)" : ""}. ` : ""}${profile.note}.`));
+  macro.push(item("What are the biggest external/macro risks?", "answered",
+    `Per its macro profile, this name reads: ${(profile.cite || []).join(", ") || "the broad tape"}. Adverse turns on those axes are the tracked macro risks; single-company shocks are on top of that.`));
+
+  // ── Risks, scenarios & portfolio context ───────────────────────────────
+  const risk = [];
+  {
+    const parts = (traps || []).map((t) => t.label.toLowerCase());
+    if (j?.negatives?.length) parts.push(`news-read negatives: ${j.negatives.slice(0, 2).join("; ")}`);
+    risk.push(item("What are the biggest risks to this investment thesis?", "answered",
+      parts.length ? `Currently flagged: ${parts.join("; ")}. Plus the macro sensitivities above.` : "No yellow flags right now — the residual risks are the macro sensitivities above and anything company-specific our data can't see."));
+  }
+  risk.push(item("What would have to happen for the thesis to be wrong? (Key invalidation points)", "answered",
+    `The dip case breaks if the QUALITY breaks: margins eroding further (the gate fails at −3 pts YoY), revenue turning negative, analysts going net-negative on estimates${lo52 > 0 ? `, or a decisive close below the 52-week low (${stkBigMoney(lo52) ?? lo52})` : ""} — that last one says the market sees something the fundamentals don't show yet.`));
+  {
+    const hi = upside(tgtHi), md = upside(tgtMean), lo = upside(tgtLo);
+    risk.push(hi != null || md != null || lo != null
+      ? item("What does Bull / Base / Bear look like? Roughly what is it worth in each?", "unsure",
+          `Analyst-target proxy only (not a modeled valuation): bull ≈ street-high ${hi != null ? pctStr(hi) : "n/a"}, base ≈ consensus ${md != null ? pctStr(md) : "n/a"}, bear ≈ street-low ${lo != null ? pctStr(lo) : "n/a"} from the current price${nAnalysts ? ` (${nAnalysts} analysts)` : ""}.`)
+      : unanswered("What does Bull / Base / Bear look like? Roughly what is it worth in each?"));
+  }
+  risk.push(unanswered("How does this fit into my overall portfolio (diversification, sector exposure, correlation)?",
+    `We can't see your portfolio — weigh your existing ${f.sector || "sector"} exposure before adding.`));
+  risk.push(item("What would be an appropriate position size given the risks and conviction?", "unsure",
+    `Personal by definition. Deterministic inputs: ${(traps || []).length} yellow flag${(traps || []).length === 1 ? "" : "s"} on the card${beta != null ? `, beta ${r2(beta)}` : ""} — size so that the bear case wouldn't force a sale, and smaller when flags are up.`));
+
+  const sections = [
+    { title: "Management & business quality", items: mgmt },
+    { title: "Financial health & cash flow", items: fin },
+    { title: "Unit economics & operating trends", items: unit },
+    { title: "Valuation & growth", items: val },
+    { title: "Macro, cyclical & industry sensitivity", items: macro },
+    { title: "Risks, scenarios & portfolio context", items: risk },
+  ];
+  const counts = { answered: 0, unsure: 0, unanswered: 0 };
+  for (const s of sections) for (const it of s.items) counts[it.status] = (counts[it.status] || 0) + 1;
+  return { sections, counts };
+}
+
 // Assemble the page: gate the universe on quality (module 1), take the five
 // dip reads on every survivor (module 2), z-score each read ACROSS those
 // survivors and average into the composite dip score, then ship the names
@@ -13274,6 +13509,7 @@ function stockTrapFlags(data, grade) {
 // (module 3) riding along. Buy = quality ✓ + beaten down + nothing flagged.
 export function buildStockPicks(chains, gradesIndex, builtAtIso) {
   const grades = gradesIndex || {};
+  const sectorPE = sectorMedianPEs(chains); // peer-multiple context for the thesis checklist
 
   // Market baseline for the relative-weakness read (SPY; QQQ fallback).
   const mkt = chains.SPY || chains.QQQ || null;
@@ -13338,6 +13574,7 @@ export function buildStockPicks(chains, gradesIndex, builtAtIso) {
       signals: r.dip.signals,
       traps,
       clean: traps.length === 0,
+      checklist: buildStockChecklist(r.sym, r.data, r.grade, sectorPE[f.sector], traps),
     };
   });
 
