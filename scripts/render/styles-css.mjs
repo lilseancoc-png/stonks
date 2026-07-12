@@ -2913,7 +2913,11 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 }
 .stk-card-clean { border-left-color: var(--pos); }
 .stk-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 8px; }
-.stk-sym { font: 700 15px/1 var(--font-mono); color: var(--text-strong); }
+/* The symbol is a button — click jumps to the Grade tab with the ticker loaded */
+.stk-sym { font: 700 15px/1 var(--font-mono); color: var(--text-strong); background: none; border: 0; padding: 0; cursor: pointer; display: inline-flex; align-items: baseline; gap: 3px; }
+.stk-sym:hover, .stk-sym:focus-visible { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.stk-sym-go { font: 600 10px/1 var(--font-sans); color: var(--muted); text-decoration: none; }
+.stk-sym:hover .stk-sym-go, .stk-sym:focus-visible .stk-sym-go { color: var(--accent); }
 .stk-name { font: 400 11.5px/1.3 var(--font-sans); color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; flex: 1 1 auto; }
 .stk-sector { font: 600 10px/1 var(--font-sans); color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2.5px 7px; white-space: nowrap; }
 .stk-zone { font: 700 9.5px/1 var(--font-sans); text-transform: uppercase; letter-spacing: 0.05em; border-radius: 999px; padding: 3.5px 7px; white-space: nowrap; cursor: help; }

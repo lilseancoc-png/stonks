@@ -13809,7 +13809,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       : '<span class="stk-zone stk-zone-flag" title="Beaten down, but the yellow flags below deserve a look first">' + nTraps + ' flag' + (nTraps === 1 ? '' : 's') + '</span>';
     return '<article class="stk-card' + (row.clean ? ' stk-card-clean' : '') + '">' +
       '<header class="stk-head">' +
-        '<span class="stk-sym">' + escapeHtml(row.symbol) + '</span>' + name + sector + zone + scoreBadge +
+        '<button type="button" class="stk-sym" data-sym="' + escapeHtml(row.symbol) + '" title="Open ' + escapeHtml(row.symbol) + ' in the Grade tab">' + escapeHtml(row.symbol) + '<span class="stk-sym-go" aria-hidden="true">↗</span></button>' + name + sector + zone + scoreBadge +
       '</header>' +
       '<div class="stk-spot-row"><b>' + fmtMoney(row.spot) + '</b>' + stkRangeBar(row) + '</div>' +
       stkSpark(row) +
@@ -13847,6 +13847,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     root.innerHTML = funnel + (rows.length
       ? '<div class="stk-grid">' + rows.map(function(r){ return stkCard(r); }).join('') + '</div>'
       : '<p class="stk-empty">No quality name is meaningfully beaten down right now — the screen would rather show nothing than stretch the definition of a dip. Candidates appear when a business that passes the quality gate trips at least ' + (d.minSignals || 2) + ' of the five dip reads.</p>');
+    bindBriefChips(root);
   }
   function loadBrief(){
     if ((briefState.data && !tabDataStale(briefState)) || briefState.loading){ renderBrief(); return; }
@@ -14183,9 +14184,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       (blocksHtml ? '<div class="brief-blocks">' + blocksHtml + '</div>' : '') +
     '</article>';
   }
+  // Shared ticker-link binder: any .brief-chip / .stk-sym button carrying a
+  // data-sym jumps to the Grade tab with that ticker loaded (Brief chips,
+  // Track Record symbols, Stock Picks card symbols).
   function bindBriefChips(rootEl){
     if (!rootEl) return;
-    var chips = rootEl.querySelectorAll('.brief-chip[data-sym]');
+    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .stk-sym[data-sym]');
     for (var i = 0; i < chips.length; i++){
       chips[i].addEventListener('click', function(ev){
         var sym = ev.currentTarget.getAttribute('data-sym');

@@ -13733,7 +13733,7 @@
     }
     return '<article class="stk-card stk-' + kind + '">' +
       '<header class="stk-head">' +
-        '<span class="stk-sym">' + escapeHtml(row.symbol) + '</span>' + name + sector + scoreBadge +
+        '<button type="button" class="stk-sym" data-sym="' + escapeHtml(row.symbol) + '" title="Open ' + escapeHtml(row.symbol) + ' in the Grade tab">' + escapeHtml(row.symbol) + '<span class="stk-sym-go" aria-hidden="true">↗</span></button>' + name + sector + scoreBadge +
       '</header>' +
       '<div class="stk-spot-row"><b>' + fmtMoney(row.spot) + '</b>' + stkRangeBar(row) + '</div>' +
       stkSpark(row) +
@@ -13772,6 +13772,7 @@
         'No name clears the value bar right now — the screen would rather show nothing than stretch the definition of "cheap but good".') +
       stkBucket('🚀 Breakout watch', 'Up-and-coming names in a structural uptrend, pressing against a mapped resistance level or printing fresh highs, with momentum and volume behind them.', breakout, 'breakout',
         'No coiled setups on the tape right now — breakout candidates appear when a name presses against resistance with momentum behind it.');
+    bindBriefChips(root);
   }
   function loadBrief(){
     if ((briefState.data && !tabDataStale(briefState)) || briefState.loading){ renderBrief(); return; }
@@ -14108,9 +14109,12 @@
       (blocksHtml ? '<div class="brief-blocks">' + blocksHtml + '</div>' : '') +
     '</article>';
   }
+  // Shared ticker-link binder: any .brief-chip / .stk-sym button carrying a
+  // data-sym jumps to the Grade tab with that ticker loaded (Brief chips,
+  // Track Record symbols, Stock Picks card symbols).
   function bindBriefChips(rootEl){
     if (!rootEl) return;
-    var chips = rootEl.querySelectorAll('.brief-chip[data-sym]');
+    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .stk-sym[data-sym]');
     for (var i = 0; i < chips.length; i++){
       chips[i].addEventListener('click', function(ev){
         var sym = ev.currentTarget.getAttribute('data-sym');
