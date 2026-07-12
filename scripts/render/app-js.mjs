@@ -14095,9 +14095,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var zone = row.clean
       ? '<span class="stk-zone stk-zone-buy" title="Passed the quality gate, beaten down, and no trap flags">Buy zone</span>'
       : '<span class="stk-zone stk-zone-flag" title="Beaten down, but the yellow flags below deserve a look first">' + nTraps + ' flag' + (nTraps === 1 ? '' : 's') + '</span>';
+    // Two fixed header rows — identity (symbol + name + sector), then badges
+    // (zone + dip score) — so the Buy zone / flag badge sits in the same spot
+    // on every card. A single wrapping row let long company names push the
+    // badges around card-by-card.
     return '<article class="stk-card' + (row.clean ? ' stk-card-clean' : '') + '">' +
       '<header class="stk-head">' +
-        '<button type="button" class="stk-sym" data-sym="' + escapeHtml(row.symbol) + '" title="Open ' + escapeHtml(row.symbol) + ' in the Grade tab">' + escapeHtml(row.symbol) + '<span class="stk-sym-go" aria-hidden="true">↗</span></button>' + name + sector + zone + scoreBadge +
+        '<div class="stk-head-id">' +
+          '<button type="button" class="stk-sym" data-sym="' + escapeHtml(row.symbol) + '" title="Open ' + escapeHtml(row.symbol) + ' in the Grade tab">' + escapeHtml(row.symbol) + '<span class="stk-sym-go" aria-hidden="true">↗</span></button>' + name + sector +
+        '</div>' +
+        '<div class="stk-head-badges">' + zone + scoreBadge + '</div>' +
       '</header>' +
       '<div class="stk-spot-row"><b>' + fmtMoney(row.spot) + '</b>' + stkRangeBar(row) + '</div>' +
       stkSpark(row) +
@@ -15075,7 +15082,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         kind: 'catalyst', iconType: 'catalyst', label: 'Next catalyst',
         value: nextCatDays === 0 ? 'Today' : calRelativeLabel(nextCatDays),
         sub: (nextCat.symbol ? nextCat.symbol + ' · ' : '') + (nextCat.title || 'Catalyst'),
-        sym: nextCat.symbol || null
+        // Stay on the calendar (like the earnings card): filter the month grid
+        // to catalysts and jump to the event's day, instead of leaving for the
+        // ticker's Grade page. The symbol pill inside the day-detail chip is
+        // still the way out to the Grade tab.
+        filter: 'catalysts',
+        date: nextCat.date || null
       });
     } else if (events.length){
       cards.push({
@@ -15100,6 +15112,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (c.scrollTo) attrs += ' data-cal-scroll="' + escapeHtml(c.scrollTo) + '"';
       if (c.filter) attrs += ' data-cal-filter="' + escapeHtml(c.filter) + '" title="Show ' + escapeHtml(c.filter) + ' on the calendar"';
       else if (c.sym) attrs += ' data-cal-sym="' + escapeHtml(c.sym) + '"';
+      if (c.date) attrs += ' data-cal-date="' + escapeHtml(c.date) + '"';
       return '<' + tag + attrs + '>' +
           '<span class="cal-ov-icon">' + calEventIcon(c.iconType) + '</span>' +
           '<span class="cal-ov-body">' +
@@ -16115,10 +16128,18 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           }
           return;
         }
-        // Filter card (Earnings this week): select that type pill on the month
-        // grid and bring the grid into view, instead of leaving the calendar.
+        // Filter card (Earnings this week / Next catalyst): select that type
+        // pill on the month grid and bring the grid into view, instead of
+        // leaving the calendar.
         var filterType = card.getAttribute('data-cal-filter');
         if (filterType){
+          // A dated card (Next catalyst) also jumps the month grid to the
+          // event's day so the detail panel opens on the event itself.
+          var jumpDay = card.getAttribute('data-cal-date') || '';
+          if (jumpDay.length === 10){
+            calendarState.viewYm = jumpDay.slice(0, 7);
+            calendarState.selectedDate = jumpDay;
+          }
           var pill = document.querySelector('.calendar-type-filter .calendar-pill[data-cal-type="' + filterType + '"]');
           if (pill) pill.click();
           else { calendarState.type = filterType; renderCalendar(); }
@@ -16131,6 +16152,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         }
         var sym = card.getAttribute('data-cal-sym');
         if (sym) calGoToTicker(sym);
+      });
+    }
+    // Header "Index calendar →" link: hop to the Index calendar tab (the daily
+    // SPY/QQQ/... % -move grid) without hunting for it in the sidebar.
+    var idxJump = document.getElementById('calendar-idxcal-link');
+    if (idxJump && !idxJump.dataset.bound){
+      idxJump.dataset.bound = '1';
+      idxJump.addEventListener('click', function(){
+        var t = document.querySelector('[data-page-tab="index-cal"]');
+        if (t) t.click();
       });
     }
   }

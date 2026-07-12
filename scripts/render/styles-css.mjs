@@ -1283,6 +1283,15 @@ body.sidenav-open .side-nav {
 .card-eyebrow .mono, .card-eyebrow time {
   font-family: var(--font-mono); font-feature-settings: "tnum" 1;
 }
+/* Small pill link in a card header that hops to a sibling tab (e.g.
+   Calendar → Index calendar). Sits between the title and the eyebrow. */
+.card-jump {
+  appearance: none; border: 1px solid var(--border); background: var(--surface-2);
+  color: var(--muted-strong); font: 600 11px/1 var(--font-sans);
+  padding: 5px 10px; border-radius: var(--r-pill); cursor: pointer;
+  white-space: nowrap; transition: color .12s, border-color .12s;
+}
+.card-jump:hover, .card-jump:focus-visible { color: var(--accent-strong); border-color: var(--accent); }
 .hint {
   margin: 0 0 var(--s-3);
   color: var(--muted);
@@ -3006,7 +3015,12 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
   border-left-color: var(--warn); border-radius: var(--r-1); background: var(--surface);
 }
 .stk-card-clean { border-left-color: var(--pos); }
-.stk-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 8px; }
+/* Two fixed rows — identity (sym + name + sector), then badges (zone + score) —
+   so the Buy zone / flag badge lines up across every card no matter how long
+   the company name runs. */
+.stk-head { display: flex; flex-direction: column; gap: 7px; }
+.stk-head-id { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.stk-head-badges { display: flex; align-items: center; gap: 8px; }
 /* The symbol is a button — click jumps to the Grade tab with the ticker loaded */
 .stk-sym { font: 700 15px/1 var(--font-mono); color: var(--text-strong); background: none; border: 0; padding: 0; cursor: pointer; display: inline-flex; align-items: baseline; gap: 3px; }
 .stk-sym:hover, .stk-sym:focus-visible { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
