@@ -14693,7 +14693,9 @@
         kind: 'earnings', iconType: 'earnings', label: 'Earnings this week',
         value: String(earn.length),
         sub: top ? (top.symbol + ' ±' + (top.impliedMovePct * 100).toFixed(1) + '% biggest') : ('across ' + earn.length + ' name' + (earn.length === 1 ? '' : 's')),
-        sym: top ? top.symbol : null
+        // Jump to the month grid filtered to earnings (not the top name's
+        // Grade page — the card summarizes the week, so show the week).
+        filter: 'earnings'
       });
     }
     // 4) Next ticker catalyst (FDA / launch / court / M&A ...), else the horizon.
@@ -14729,11 +14731,12 @@
     if (!cards.length){ host.hidden = true; host.innerHTML = ''; return; }
     host.hidden = false;
     host.innerHTML = cards.map(function(c){
-      var clickable = !!(c.scrollTo || c.sym);
+      var clickable = !!(c.scrollTo || c.sym || c.filter);
       var tag = clickable ? 'button' : 'div';
       var attrs = (clickable ? ' type="button"' : '') + ' class="cal-ov-card cal-ov-' + c.kind + '"';
       if (c.scrollTo) attrs += ' data-cal-scroll="' + escapeHtml(c.scrollTo) + '"';
-      if (c.sym) attrs += ' data-cal-sym="' + escapeHtml(c.sym) + '"';
+      if (c.filter) attrs += ' data-cal-filter="' + escapeHtml(c.filter) + '" title="Show ' + escapeHtml(c.filter) + ' on the calendar"';
+      else if (c.sym) attrs += ' data-cal-sym="' + escapeHtml(c.sym) + '"';
       return '<' + tag + attrs + '>' +
           '<span class="cal-ov-icon">' + calEventIcon(c.iconType) + '</span>' +
           '<span class="cal-ov-body">' +
@@ -15746,6 +15749,20 @@
           if (target && typeof target.scrollIntoView === 'function'){
             try { target.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
             catch (_) { target.scrollIntoView(); }
+          }
+          return;
+        }
+        // Filter card (Earnings this week): select that type pill on the month
+        // grid and bring the grid into view, instead of leaving the calendar.
+        var filterType = card.getAttribute('data-cal-filter');
+        if (filterType){
+          var pill = document.querySelector('.calendar-type-filter .calendar-pill[data-cal-type="' + filterType + '"]');
+          if (pill) pill.click();
+          else { calendarState.type = filterType; renderCalendar(); }
+          var gridAnchor = document.querySelector('.calendar-type-filter') || document.getElementById('calendar-root');
+          if (gridAnchor && typeof gridAnchor.scrollIntoView === 'function'){
+            try { gridAnchor.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+            catch (_) { gridAnchor.scrollIntoView(); }
           }
           return;
         }
