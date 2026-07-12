@@ -2848,6 +2848,22 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .cmd-card-unit { font: 600 10.5px/1.3 var(--font-sans); color: var(--muted); letter-spacing: 0.02em; }
 .cmd-card-asof { font: 400 10.5px/1.3 var(--font-sans); color: var(--muted); margin-left: auto; }
 .cmd-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.cmd-compare {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 7px 9px; border-radius: var(--r-1);
+  background: color-mix(in srgb, var(--text-strong) 4%, transparent);
+}
+.cmd-cmp-row {
+  display: flex; align-items: baseline; gap: 7px;
+  font: 600 12px/1.5 var(--font-sans); font-variant-numeric: tabular-nums;
+}
+.cmd-cmp-label { color: var(--muted); font-size: 10.5px; flex: 0 0 62px; text-transform: uppercase; letter-spacing: 0.03em; }
+.cmd-cmp-then { color: var(--muted); font-family: var(--font-mono); }
+.cmd-cmp-arrow { color: var(--muted); font-size: 10px; }
+.cmd-cmp-now { color: var(--text-strong); font-family: var(--font-mono); font-weight: 700; }
+.cmd-cmp-pct { margin-left: auto; font: 800 12px/1.5 var(--font-sans); padding: 0 6px; border-radius: 4px; white-space: nowrap; }
+.cmd-cmp-up .cmd-cmp-pct { color: var(--pos); background: color-mix(in srgb, var(--pos) 12%, transparent); }
+.cmd-cmp-down .cmd-cmp-pct { color: var(--neg); background: color-mix(in srgb, var(--neg) 12%, transparent); }
 .cmd-spark { width: 100%; height: 52px; display: block; }
 .cmd-spark-line { stroke-width: 1.6; vector-effect: non-scaling-stroke; }
 .cmd-spark-up .cmd-spark-line { stroke: var(--pos); }

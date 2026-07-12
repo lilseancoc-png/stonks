@@ -13467,6 +13467,26 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '<polyline class="cmd-spark-line" points="' + poly + '" fill="none"/>' +
     '</svg>';
   }
+  // The highlighted then→now strip: the actual price 3mo / 6mo / 1y ago next
+  // to today's, with the % increase/decrease color-coded. This is the card's
+  // headline comparison — the chips above it only cover short-term momentum.
+  function cmdCompareRows(it){
+    var cmp = Array.isArray(it.compare) ? it.compare : [];
+    var rows = '';
+    for (var i=0; i<cmp.length; i++){
+      var c = cmp[i];
+      if (!c || c.pct == null || c.then == null) continue;
+      var up = c.pct >= 0;
+      rows += '<div class="cmd-cmp-row ' + (up ? 'cmd-cmp-up' : 'cmd-cmp-down') + '">' +
+        '<span class="cmd-cmp-label">vs ' + escapeHtml(c.label || '') + '</span>' +
+        '<span class="cmd-cmp-then" title="' + escapeHtml(c.thenDate ? cmdDateLabel(c.thenDate) : '') + '">' + cmdFmtVal(c.then, it.fmt) + '</span>' +
+        '<span class="cmd-cmp-arrow" aria-hidden="true">→</span>' +
+        '<span class="cmd-cmp-now">' + cmdFmtVal(it.last, it.fmt) + '</span>' +
+        '<span class="cmd-cmp-pct">' + (up ? '▲ +' : '▼ ') + (Math.abs(c.pct) >= 100 ? c.pct.toFixed(0) : c.pct.toFixed(1)) + '%</span>' +
+      '</div>';
+    }
+    return rows ? '<div class="cmd-compare">' + rows + '</div>' : '';
+  }
   function cmdCard(it){
     var chips = '';
     var chs = Array.isArray(it.changes) ? it.changes : [];
@@ -13513,6 +13533,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       : escapeHtml(it.sourceName || '');
     return '<article class="cmd-card">' + head + value +
       (chips ? '<div class="cmd-chips">' + chips + '</div>' : '') +
+      cmdCompareRows(it) +
       cmdSpark(it) + ov +
       (it.note ? '<p class="cmd-note">' + escapeHtml(it.note) + '</p>' : '') +
       '<div class="cmd-foot">' + (watch ? '<span class="cmd-watch-row">' + watch + '</span>' : '') + src + '</div>' +

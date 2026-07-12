@@ -6551,10 +6551,11 @@ async function fetchCommodityFred(def) {
   return { series, symbol: def.series };
 }
 
-// % change from the series' last point back to the closest point at least
-// `days` older, within a staleness window so thin/monthly series don't report
-// a "7d" change measured across months (same convention as ramPctBack).
-function commodityPctBack(series, days) {
+// The series point closest to `days` back from the last point (at least that
+// old when one exists), within a staleness window so thin/monthly series don't
+// report a "7d" change measured across months (same convention as ramPctBack).
+// Returns { v, d, pct } (pct = last vs that point) or null.
+function commodityPointBack(series, days) {
   if (!Array.isArray(series) || series.length < 2) return null;
   const last = series[series.length - 1];
   const lastMs = Date.parse(last?.d);
@@ -6564,15 +6565,40 @@ function commodityPctBack(series, days) {
     const ms = Date.parse(series[i]?.d);
     if (!Number.isFinite(ms) || !Number.isFinite(series[i]?.v) || series[i].v === 0) continue;
     const back = (lastMs - ms) / 86400000;
-    if (back >= days) { base = { back, v: series[i].v }; break; }
-    base = { back, v: series[i].v }; // closest-younger fallback candidate
+    if (back >= days) { base = { back, v: series[i].v, d: series[i].d }; break; }
+    base = { back, v: series[i].v, d: series[i].d }; // closest-younger fallback candidate
   }
   if (!base || base.back < days * 0.6 || base.back > days * 2.5) return null;
-  return r1((last.v / base.v - 1) * 100);
+  return { v: Number(base.v.toPrecision(6)), d: base.d, pct: r1((last.v / base.v - 1) * 100) };
 }
 
-// Uniform change-chip rows per cadence. Daily: 1d (last vs prior bar) +
-// 7d/30d/1y calendar lookbacks. Monthly: m/m (last vs prior obs) + 3mo/1y.
+function commodityPctBack(series, days) {
+  const p = commodityPointBack(series, days);
+  return p ? p.pct : null;
+}
+
+// The card's highlighted THEN → NOW comparison strip: the actual price a few
+// months back / a year ago next to today's, with the % move. Windows chosen to
+// answer "is this input cost squeezing margins vs earlier this year / last
+// year", not day-to-day noise. Skips windows the series can't cover.
+const COMMODITY_COMPARE_WINDOWS = [
+  { key: "3mo", label: "3 mo ago", days: 91 },
+  { key: "6mo", label: "6 mo ago", days: 182 },
+  { key: "1y", label: "1 yr ago", days: 365 },
+];
+function commodityCompare(series) {
+  const out = [];
+  for (const w of COMMODITY_COMPARE_WINDOWS) {
+    const p = commodityPointBack(series, w.days);
+    if (p && p.pct != null) out.push({ key: w.key, label: w.label, then: p.v, thenDate: p.d, pct: p.pct });
+  }
+  return out;
+}
+
+// SHORT-TERM momentum chips per cadence. Daily: 1d (last vs prior bar) +
+// 7d/30d calendar lookbacks. Monthly: m/m (last vs prior obs). The longer
+// 3mo/6mo/1y windows live in the highlighted then→now strip (commodityCompare)
+// instead, so the two blocks don't repeat each other.
 function commodityChanges(series, cadence) {
   const out = [];
   const last = series[series.length - 1];
@@ -6581,13 +6607,10 @@ function commodityChanges(series, cadence) {
     ? r1((last.v / prev.v - 1) * 100) : null;
   if (cadence === "monthly") {
     out.push({ label: "m/m", pct: step });
-    out.push({ label: "3mo", pct: commodityPctBack(series, 91) });
-    out.push({ label: "1y", pct: commodityPctBack(series, 365) });
   } else {
     out.push({ label: "1d", pct: step });
     out.push({ label: "7d", pct: commodityPctBack(series, 7) });
     out.push({ label: "30d", pct: commodityPctBack(series, 30) });
-    out.push({ label: "1y", pct: commodityPctBack(series, 365) });
   }
   return out;
 }
@@ -6757,6 +6780,7 @@ export function buildCommoditiesPayload({ fetched = {}, overlays = {}, prior = n
         last: Number(lastPt.v.toPrecision(6)),
         asOf: lastPt.d,
         changes: commodityChanges(f.series, def.cadence),
+        compare: commodityCompare(f.series),
         spark: commoditySpark(f.series, def.cadence),
         stale: false,
       };
