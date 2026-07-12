@@ -13652,11 +13652,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function tabDataStale(state){
     return !!(state.data && state.fetchedAt && (Date.now() - state.fetchedAt > TAB_DATA_STALE_MS));
   }
-  // ── Stock Picks (shares-only, premium) ─────────────────────────────────
-  // Renders data/stock-picks.json — the deterministic value + breakout stock
-  // screens written by the bake (buildStockPicks in scripts/build.mjs). A
-  // separate product from the Top Picks options roster: no contracts, just
-  // "which stocks look worth buying as shares right now".
+  // ── Stock Picks (quality-dip screen, premium) ──────────────────────────
+  // Renders data/stock-picks.json — the deterministic three-module dip-buyer
+  // screen written by the bake (buildStockPicks in scripts/build.mjs). Each
+  // card answers three questions INDEPENDENTLY: is it a good business (the
+  // quality-gate checks), is it beaten down right now (the five dip reads +
+  // the cross-sectional dip score), and is it down because something broke
+  // (the yellow trap flags — context, never blockers). A separate product
+  // from the Top Picks options roster: shares, not contracts.
   var stocksState = { data: null, loading: false };
   function loadStocks(){
     if ((stocksState.data && !tabDataStale(stocksState)) || stocksState.loading){ renderStocks(); return; }
@@ -13693,23 +13696,45 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '<polyline class="stk-spark-line" points="' + poly + '" fill="none"/>' +
     '</svg>';
   }
-  function stkEarningsBadge(row){
-    if (!row.earningsSoon) return '';
-    var ms = Date.parse(row.earningsSoon);
-    var label = isFinite(ms) ? new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
-    return '<span class="stk-earn">📅 Earnings soon' + (label ? ' · ' + escapeHtml(label) : '') + ' — expect a binary move</span>';
-  }
-  function stkReasonRows(reasons){
+  // Module 1 — the quality-gate checks as compact pills (every shipped
+  // candidate passed, so these read as the "why it's a good business" line;
+  // hover for the underlying numbers).
+  function stkQualityRow(checks){
     var out = '';
-    (reasons || []).forEach(function(rr){
-      if (!rr || !rr.label) return;
-      var caution = Number(rr.pts) < 0;
-      out += '<li class="stk-reason' + (caution ? ' stk-reason-caution' : '') + '">' +
-        '<b>' + escapeHtml(rr.label) + '</b>' +
-        (rr.detail ? ' <span>' + escapeHtml(rr.detail) + '</span>' : '') +
+    (checks || []).forEach(function(c){
+      if (!c || !c.label) return;
+      out += '<span class="stk-q' + (c.ok ? '' : ' stk-q-fail') + '"' + (c.detail ? ' title="' + escapeHtml(c.detail) + '"' : '') + '>' +
+        (c.ok ? '✓ ' : '✗ ') + escapeHtml(c.label) + '</span>';
+    });
+    return out ? '<div class="stk-quality" aria-label="Quality gate">' + out + '</div>' : '';
+  }
+  // Module 2 — the five dip reads. Fired reads are highlighted; the rest stay
+  // dimmed with their values so the reader sees what DIDN'T fire too.
+  function stkSignalRows(signals){
+    var out = '';
+    (signals || []).forEach(function(s){
+      if (!s || !s.label) return;
+      out += '<li class="stk-sig' + (s.fired ? ' stk-sig-fired' : '') + '">' +
+        '<b>' + escapeHtml(s.label) + '</b>' +
+        (s.detail ? ' <span>' + escapeHtml(s.detail) + '</span>' : '') +
       '</li>';
     });
-    return out ? '<ul class="stk-reasons">' + out + '</ul>' : '';
+    return out ? '<ul class="stk-sigs" aria-label="Dip signals">' + out + '</ul>' : '';
+  }
+  // Module 3 — trap flags (yellow warnings, never blockers); zero flags =
+  // the buy-zone line.
+  function stkTrapRows(row){
+    var traps = Array.isArray(row.traps) ? row.traps : [];
+    if (!traps.length){
+      return '<div class="stk-clean">Buy zone — quality passed, beaten down, and nothing looks broken. The final call is still yours.</div>';
+    }
+    var out = '';
+    traps.forEach(function(t){
+      if (!t || !t.label) return;
+      out += '<li class="stk-flag"><b>' + escapeHtml(t.label) + '</b>' +
+        (t.detail ? ' <span>' + escapeHtml(t.detail) + '</span>' : '') + '</li>';
+    });
+    return '<ul class="stk-flags" aria-label="Warning flags">' + out + '</ul>';
   }
   function stkRangeBar(row){
     var fw = row.fiftyTwoWeek || {};
@@ -13722,56 +13747,55 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '<span class="stk-range-hi">' + fmtMoney(hi) + '</span>' +
     '</div>';
   }
-  function stkCard(row, kind){
+  function stkCard(row){
     var name = row.name ? '<span class="stk-name">' + escapeHtml(row.name) + '</span>' : '';
     var sector = row.sector ? '<span class="stk-sector">' + escapeHtml(row.sector) + '</span>' : '';
-    var scoreBadge = '<span class="stk-score" title="Screen score — points from the reasons below">' + escapeHtml(String(row.score)) + '</span>';
-    var trigger = '';
-    if (kind === 'breakout' && row.trigger != null && isFinite(Number(row.trigger))){
-      trigger = '<div class="stk-trigger">Breakout trigger: <b>' + fmtMoney(Number(row.trigger)) + '</b>' +
-        (row.triggerLabel ? ' <span>(' + escapeHtml(row.triggerLabel) + ')</span>' : '') + '</div>';
-    }
-    return '<article class="stk-card stk-' + kind + '">' +
+    var ds = Number(row.dipScore);
+    var scoreBadge = '<span class="stk-score" title="Dip score — how beaten down vs the rest of the quality universe today: the average of five cross-sectional z-scores (higher = more unloved)">' +
+      (isFinite(ds) ? (ds >= 0 ? '+' : '') + ds.toFixed(2) + 'σ' : '—') + '</span>';
+    var nTraps = Array.isArray(row.traps) ? row.traps.length : 0;
+    var zone = row.clean
+      ? '<span class="stk-zone stk-zone-buy" title="Passed the quality gate, beaten down, and no trap flags">Buy zone</span>'
+      : '<span class="stk-zone stk-zone-flag" title="Beaten down, but the yellow flags below deserve a look first">' + nTraps + ' flag' + (nTraps === 1 ? '' : 's') + '</span>';
+    return '<article class="stk-card' + (row.clean ? ' stk-card-clean' : '') + '">' +
       '<header class="stk-head">' +
-        '<span class="stk-sym">' + escapeHtml(row.symbol) + '</span>' + name + sector + scoreBadge +
+        '<span class="stk-sym">' + escapeHtml(row.symbol) + '</span>' + name + sector + zone + scoreBadge +
       '</header>' +
       '<div class="stk-spot-row"><b>' + fmtMoney(row.spot) + '</b>' + stkRangeBar(row) + '</div>' +
       stkSpark(row) +
-      trigger +
-      stkReasonRows(row.reasons) +
-      stkEarningsBadge(row) +
+      stkQualityRow(row.quality) +
+      stkSignalRows(row.signals) +
+      stkTrapRows(row) +
     '</article>';
-  }
-  function stkBucket(title, blurb, rows, kind, emptyText){
-    var body = (rows && rows.length)
-      ? '<div class="stk-grid">' + rows.map(function(r){ return stkCard(r, kind); }).join('') + '</div>'
-      : '<p class="stk-empty">' + escapeHtml(emptyText) + '</p>';
-    return '<section class="stk-bucket">' +
-      '<h3 class="stk-bucket-title">' + title + '</h3>' +
-      '<p class="stk-bucket-blurb">' + blurb + '</p>' +
-      body +
-    '</section>';
   }
   function renderStocks(){
     var root = $('stocks-root'); var eye = $('stocks-eyebrow');
     if (!root) return;
     var d = stocksState.data;
-    if (!d){ root.textContent = 'Loading Stock Picks…'; return; }
-    if (d.loadError && !Array.isArray(d.value)){
+    if (!d){ root.textContent = 'Loading stock picks…'; return; }
+    if (d.loadError && !Array.isArray(d.candidates)){
       root.innerHTML = '<p class="stk-empty">Could not load Stock Picks data. It appears after the next scheduled build.</p>';
       return;
     }
-    var value = Array.isArray(d.value) ? d.value : [];
-    var breakout = Array.isArray(d.breakout) ? d.breakout : [];
+    var rows = Array.isArray(d.candidates) ? d.candidates : [];
+    var clean = rows.filter(function(r){ return r && r.clean; }).length;
     if (eye){
       var when = d.builtAtIso ? new Date(d.builtAtIso).toLocaleString() : '';
-      eye.textContent = value.length + ' value · ' + breakout.length + ' breakout' + (when ? ' · updated ' + when : '');
+      eye.textContent = rows.length + ' candidate' + (rows.length === 1 ? '' : 's') +
+        (clean ? ' · ' + clean + ' in the buy zone' : '') + (when ? ' · updated ' + when : '');
     }
-    root.innerHTML =
-      stkBucket('💰 Value buys', 'Quality names trading cheap — below-sector multiples, real drawdowns, analyst upside — that still clear a profitability screen. Shares, not options: these are accumulate-and-hold ideas, not timed trades.', value, 'value',
-        'No name clears the value bar right now — the screen would rather show nothing than stretch the definition of "cheap but good".') +
-      stkBucket('🚀 Breakout watch', 'Up-and-coming names in a structural uptrend, pressing against a mapped resistance level or printing fresh highs, with momentum and volume behind them.', breakout, 'breakout',
-        'No coiled setups on the tape right now — breakout candidates appear when a name presses against resistance with momentum behind it.');
+    // The screen funnel: universe → quality gate → beaten down. Makes the
+    // three-question pipeline visible even when it ends in zero candidates.
+    var funnel = '';
+    if (d.screened){
+      var shownNote = rows.length < (d.screened.beatenDown || 0) ? ' (showing the top ' + rows.length + ')' : '';
+      funnel = '<p class="stk-funnel"><b>' + (d.universe || 0) + '</b> names screened → <b>' +
+        (d.screened.qualityPassed || 0) + '</b> pass the quality gate → <b>' +
+        (d.screened.beatenDown || 0) + '</b> beaten down right now' + shownNote + '</p>';
+    }
+    root.innerHTML = funnel + (rows.length
+      ? '<div class="stk-grid">' + rows.map(function(r){ return stkCard(r); }).join('') + '</div>'
+      : '<p class="stk-empty">No quality name is meaningfully beaten down right now — the screen would rather show nothing than stretch the definition of a dip. Candidates appear when a business that passes the quality gate trips at least ' + (d.minSignals || 2) + ' of the five dip reads.</p>');
   }
   function loadBrief(){
     if ((briefState.data && !tabDataStale(briefState)) || briefState.loading){ renderBrief(); return; }

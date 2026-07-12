@@ -20,6 +20,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
        (same format, plus the archive preamble) and add that month to the
        "Older changelogs" index below. -->
 
+## 2026-07-12
+
+### Changed
+- **Stock Picks rebuilt around a three-question buy-the-dip mental model** — the day-old value + breakout buckets are replaced by one screen that answers three questions **independently** (never blended into one number): **1. Is it a good business?** A hard quality gate — consistently profitable (net margin or FCF positive), debt manageable (more cash than debt or D/E ≤ 2x), net margins holding vs a year ago, revenue growing on a TTM view — failures never list, however far they've fallen. **2. Is it beaten down right now?** Five reads of "cheap vs its own recent self" (RSI(14) < 35, ≥ 4% below the 50-day, ≥ 15% off the 52-week high, ≤ −2σ vs its 20-day mean, lagging SPY by 4+ pts over 10 sessions), each z-scored **cross-sectionally across the quality-passed universe** and averaged into the card's dip score, so the page surfaces the most unloved names relative to each other instead of leaning on fixed thresholds; ≥ 2 fired reads required to list. **3. Did something actually break?** Yellow trap flags that never block — a fresh earnings print inside the drop, heavy-volume selling, a 4+ session red streak, analysts cutting, bearish news tone, a binary event ahead — so the final call stays with the reader; a zero-flag candidate is badged **buy zone**. Cards show all three modules (gate pills, the five reads fired/unfired with values, flags), plus the screen funnel (universe → quality → beaten down); still deterministic, premium, honest-empty. `scripts/build.mjs` (`buildStockPicks` + `stockQualityGate`/`stockDipReads`/`stockTrapFlags`), `scripts/regen-picks.mjs`, `scripts/render/{app-js,html,styles-css,docs}.mjs`.
+
 ## 2026-07-11
 
 ### Added
