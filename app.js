@@ -13751,30 +13751,45 @@
   // buildStockChecklist). Every item ships with an explicit status: answered
   // (computed from tracked data), unsure (a named heuristic/proxy read), or
   // unanswered (not visible in our data — the reader's own research).
+  // Each of the six sections is its own collapsed accordion with a per-status
+  // count, so opening the checklist shows a scannable overview instead of one
+  // ~25-item wall; the outer summary carries a stacked progress bar.
   function stkChecklist(row){
     var cl = row.checklist;
     if (!cl || !Array.isArray(cl.sections) || !cl.sections.length) return '';
     var c = cl.counts || {};
     var sub = (c.answered || 0) + ' answered · ' + (c.unsure || 0) + ' unsure · ' + (c.unanswered || 0) + ' unanswered';
+    var bar = '<span class="stk-cl-bar" aria-hidden="true">' +
+      (c.answered ? '<i class="stk-cl-bar-a" style="flex:' + c.answered + '"></i>' : '') +
+      (c.unsure ? '<i class="stk-cl-bar-u" style="flex:' + c.unsure + '"></i>' : '') +
+      (c.unanswered ? '<i class="stk-cl-bar-n" style="flex:' + c.unanswered + '"></i>' : '') +
+    '</span>';
     var body = '';
     cl.sections.forEach(function(sec){
       if (!sec || !Array.isArray(sec.items) || !sec.items.length) return;
-      var items = '';
+      var items = '', sc = { answered: 0, unsure: 0, unanswered: 0 };
       sec.items.forEach(function(it){
         if (!it || !it.q) return;
         var st = it.status === 'answered' ? 'answered' : it.status === 'unsure' ? 'unsure' : 'unanswered';
+        sc[st]++;
         items += '<li class="stk-cl-item stk-cl-' + st + '">' +
           '<span class="stk-cl-badge">' + st + '</span>' +
           '<div class="stk-cl-text"><b>' + escapeHtml(it.q) + '</b>' +
           (it.a ? '<span>' + escapeHtml(it.a) + '</span>' : '') + '</div>' +
         '</li>';
       });
-      if (items) body += '<section class="stk-cl-sec"><h4>' + escapeHtml(sec.title || '') + '</h4><ul>' + items + '</ul></section>';
+      if (!items) return;
+      var chips = '<span class="stk-cl-mini">' +
+        (sc.answered ? '<b class="stk-cl-mini-a" title="' + sc.answered + ' answered">' + sc.answered + '</b>' : '') +
+        (sc.unsure ? '<b class="stk-cl-mini-u" title="' + sc.unsure + ' unsure">' + sc.unsure + '</b>' : '') +
+        (sc.unanswered ? '<b class="stk-cl-mini-n" title="' + sc.unanswered + ' unanswered">' + sc.unanswered + '</b>' : '') +
+      '</span>';
+      body += '<details class="stk-cl-sec"><summary><h4>' + escapeHtml(sec.title || '') + '</h4>' + chips + '</summary><ul>' + items + '</ul></details>';
     });
     if (!body) return '';
     return '<details class="stk-thesis">' +
-      '<summary><span class="stk-thesis-title">Investment thesis checklist</span><span class="stk-thesis-counts">' + sub + '</span></summary>' +
-      '<p class="stk-thesis-note">Answered = computed from tracked data. Unsure = a heuristic or proxy read — verify before leaning on it. Unanswered = not visible in our data; that research is yours.</p>' +
+      '<summary><span class="stk-thesis-title">Investment thesis checklist</span>' + bar + '<span class="stk-thesis-counts">' + sub + '</span></summary>' +
+      '<p class="stk-thesis-note">Answered = computed from tracked data. Unsure = a heuristic or proxy read — verify before leaning on it. Unanswered = not visible in our data; that research is yours. Open a section for its questions.</p>' +
       body +
     '</details>';
   }
