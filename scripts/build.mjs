@@ -3891,6 +3891,17 @@ const IV_TRENDING_MIN_N = 20;
 const IV_TRENDING_SPARK_ENTRIES = 90;
 // Earnings context attached when the next print is inside this window.
 const IV_TRENDING_EARNINGS_WINDOW_DAYS = 45;
+// Summary standout bars (buildIvTrendSummary) — fixed + documented like the
+// tier bars. A name is a STANDOUT only when it clears one of these, so the
+// strip stays a handful of genuinely exceptional reads instead of a roll-up
+// of every flagged symbol.
+const IV_SUMMARY_EXTREME_Z = 2; // σ above the name's own history
+const IV_SUMMARY_EXTREME_REL = 30; // % above the name's own mean
+const IV_SUMMARY_FALL_5D = -12; // 5-session IV % change ≤ this = deflating fast
+const IV_SUMMARY_RAMP_5D = 20; // 5-session IV % change ≥ this = fast ramp
+const IV_SUMMARY_STREAK_DAYS = 5; // consecutive rising sessions
+const IV_SUMMARY_MAX_PER_KIND = 2;
+const IV_SUMMARY_MAX_STANDOUTS = 6;
 
 // % change of the LAST sample vs the one `back` entries earlier (entries are
 // one-per-trading-day, so back=5 ≈ one trading week). null when the series
@@ -3937,15 +3948,23 @@ export function ivTrendTier({ score, z, chg5dPct, chg20dPct, relPct }) {
   return null;
 }
 
-// Deterministic tab-top summary — the "what should I look at first" read over
-// the ranked rows: a composed plain-English text line (tier roll-up + the top
-// standout's headline stats + how many flagged names have NO scheduled print,
-// the unexplained-ramp kind worth the most attention) plus the structured
-// standouts behind it. Shipped in the payload (`summary`) so the browser
-// renders it verbatim, and the same tiered rows feed the market brief's
-// IV-tracker section (gatherBriefSignals) — one derivation, two surfaces.
-// Pure over the already-built rows — exported for offline testing. Returns
-// null when nothing is tiered or elevated (the tab keeps its empty-state copy).
+// Deterministic tab-top summary — STANDOUTS ONLY. Rather than rolling up
+// every tiered name (a wall of symbols once dozens flag at once), the strip
+// calls out the handful of names doing something genuinely exceptional, each
+// tagged with a `kind` the UI badges. Fixed absolute bars (IV_SUMMARY_*),
+// same philosophy as the tier bars — documented, auditable, no
+// cross-sectional normalization:
+//   extreme     — way above the name's OWN history (z ≥ 2σ and ≥ 30% over mean)
+//   falling     — premium deflating fast (5-session IV change ≤ −12%)
+//   ramping     — fastest live climb (5-session IV change ≥ +20%)
+//   unexplained — surging/trending with NO scheduled print inside the
+//                 earnings window (the ramp nobody can pin on the calendar)
+//   streak      — ≥ 5 consecutive rising sessions
+// Dedup by that priority order (a name takes its most notable kind), capped
+// per kind and overall. The market brief's IV section still reads the tiered
+// rows, not this strip. Pure over the already-built rows — exported for
+// offline testing. Returns null when nothing is tiered, elevated, or
+// standout-worthy (the tab keeps its empty-state copy).
 export function buildIvTrendSummary(rows) {
   const all = Array.isArray(rows) ? rows.filter((r) => r && r.symbol) : [];
   const tiered = all.filter((r) => r.tier);
@@ -3955,48 +3974,85 @@ export function buildIvTrendSummary(rows) {
     building: tiered.filter((r) => r.tier === "building").length,
     elevated: all.filter((r) => r.elevated).length,
   };
-  if (!tiered.length && !counts.elevated) return null;
   const ivPctStr = (v) => (Number.isFinite(v) ? (v * 100).toFixed(0) + "%" : "n/a");
   const listStr = (arr, max = 4) =>
     arr.length <= max ? arr.join(", ") : arr.slice(0, max).join(", ") + ` +${arr.length - max} more`;
-  const syms = (t) => tiered.filter((r) => r.tier === t).map((r) => r.symbol);
   const unexplained = tiered.filter((r) => !r.earnings).length;
-  // Rows arrive score-sorted, so the tiered slice is already "biggest first".
-  const standouts = tiered.slice(0, 5).map((r) => ({
-    symbol: r.symbol,
-    tier: r.tier,
-    iv: r.iv,
-    mean: r.mean,
-    relPct: r.relPct ?? null,
-    z: r.z ?? null,
-    chg5dPct: r.chg5dPct ?? null,
-    chg20dPct: r.chg20dPct ?? null,
-    risingStreak: r.risingStreak || 0,
-    earnings: r.earnings
-      ? { date: r.earnings.date, inDays: r.earnings.inDays ?? null, impliedMovePct: r.earnings.impliedMovePct ?? null }
-      : null,
-  }));
-  let text;
-  if (tiered.length) {
-    const parts = [];
-    if (counts.surging) parts.push(`surging in ${listStr(syms("surging"))}`);
-    if (counts.trending) parts.push(`trending higher in ${listStr(syms("trending"))}`);
-    if (counts.building) parts.push(`building in ${listStr(syms("building"))}`);
-    text = `Implied vol is ${parts.join("; ")}.`;
-    const top = tiered[0];
-    const bits = [
-      `ATM IV ${ivPctStr(top.iv)} vs its ${ivPctStr(top.mean)} average` +
-        (Number.isFinite(top.z) ? ` (${top.z >= 0 ? "+" : ""}${top.z.toFixed(1)}σ)` : ""),
-    ];
-    if (Number.isFinite(top.chg5dPct)) bits.push(`${top.chg5dPct >= 0 ? "+" : ""}${top.chg5dPct.toFixed(0)}% in 5 sessions`);
-    if ((top.risingStreak || 0) >= 2) bits.push(`up ${top.risingStreak} days straight`);
-    const why = top.earnings
-      ? `into ${top.earnings.date} earnings${Number.isFinite(top.earnings.inDays) ? ` (${top.earnings.inDays}d out${top.earnings.impliedMovePct != null ? `, ±${top.earnings.impliedMovePct}% implied` : ""})` : ""}`
-      : `with no scheduled earnings inside ${IV_TRENDING_EARNINGS_WINDOW_DAYS} days — an unexplained ramp`;
-    text += ` ${top.symbol} stands out: ${bits.join(", ")}, ${why}.`;
-    if (unexplained >= 2 && tiered.length > 1) {
-      text += ` ${unexplained} of the ${tiered.length} flagged names have no scheduled print inside ${IV_TRENDING_EARNINGS_WINDOW_DAYS} days.`;
+  // Candidate pools, in priority order. Each pool is already sorted by its
+  // own severity so the slice keeps the most extreme reads.
+  const pick = (arr, bar, cmp) => arr.filter(bar).sort(cmp).slice(0, IV_SUMMARY_MAX_PER_KIND);
+  const pools = [
+    ["extreme", pick(all,
+      (r) => (r.z ?? -Infinity) >= IV_SUMMARY_EXTREME_Z && (r.relPct ?? 0) >= IV_SUMMARY_EXTREME_REL,
+      (a, b) => (b.relPct ?? 0) - (a.relPct ?? 0))],
+    ["falling", pick(all,
+      (r) => (r.chg5dPct ?? 0) <= IV_SUMMARY_FALL_5D,
+      (a, b) => (a.chg5dPct ?? 0) - (b.chg5dPct ?? 0))],
+    ["ramping", pick(all,
+      (r) => (r.chg5dPct ?? 0) >= IV_SUMMARY_RAMP_5D,
+      (a, b) => (b.chg5dPct ?? 0) - (a.chg5dPct ?? 0))],
+    ["unexplained", pick(tiered,
+      (r) => (r.tier === "surging" || r.tier === "trending") && !r.earnings,
+      (a, b) => (b.score ?? 0) - (a.score ?? 0))],
+    ["streak", pick(all,
+      (r) => (r.risingStreak || 0) >= IV_SUMMARY_STREAK_DAYS,
+      (a, b) => (b.risingStreak || 0) - (a.risingStreak || 0))],
+  ];
+  const seen = new Set();
+  const standouts = [];
+  for (const [kind, cands] of pools) {
+    for (const r of cands) {
+      if (standouts.length >= IV_SUMMARY_MAX_STANDOUTS) break;
+      if (seen.has(r.symbol)) continue;
+      seen.add(r.symbol);
+      standouts.push({
+        symbol: r.symbol,
+        kind,
+        tier: r.tier ?? null,
+        elevated: !!r.elevated,
+        iv: r.iv,
+        mean: r.mean,
+        relPct: r.relPct ?? null,
+        z: r.z ?? null,
+        pctile: r.pctile ?? null,
+        chg5dPct: r.chg5dPct ?? null,
+        chg20dPct: r.chg20dPct ?? null,
+        risingStreak: r.risingStreak || 0,
+        earnings: r.earnings
+          ? { date: r.earnings.date, inDays: r.earnings.inDays ?? null, impliedMovePct: r.earnings.impliedMovePct ?? null }
+          : null,
+      });
     }
+  }
+  if (!standouts.length && !tiered.length && !counts.elevated) return null;
+  const chg5Str = (r) => `${(r.chg5dPct ?? 0) >= 0 ? "+" : ""}${Number(r.chg5dPct ?? 0).toFixed(0)}% in 5 sessions`;
+  const intoPrint = (r) =>
+    r.earnings
+      ? ` into its ${r.earnings.date} print${Number.isFinite(r.earnings.inDays) ? ` (${r.earnings.inDays}d out${r.earnings.impliedMovePct != null ? `, ±${r.earnings.impliedMovePct}% implied` : ""})` : ""}`
+      : "";
+  const frag = (st) => {
+    if (st.kind === "extreme") {
+      return `${st.symbol} is way above its own history — IV ${ivPctStr(st.iv)} vs a ${ivPctStr(st.mean)} average` +
+        (Number.isFinite(st.z) ? ` (+${st.z.toFixed(1)}σ` + (st.pctile != null ? `, ${st.pctile}th %ile)` : ")") : "") +
+        intoPrint(st);
+    }
+    if (st.kind === "falling") return `${st.symbol} premium is deflating fast (${chg5Str(st)})`;
+    if (st.kind === "ramping") return `${st.symbol} is ramping (${chg5Str(st)})${intoPrint(st)}`;
+    if (st.kind === "unexplained") {
+      return `${st.symbol} is climbing with no scheduled print inside ${IV_TRENDING_EARNINGS_WINDOW_DAYS} days` +
+        (st.chg5dPct != null ? ` (${chg5Str(st)})` : "");
+    }
+    return `${st.symbol} has risen ${st.risingStreak} sessions straight`;
+  };
+  let text;
+  if (standouts.length) {
+    text = `Standouts: ${standouts.map(frag).join("; ")}.`;
+    const tail = [];
+    if (tiered.length) tail.push(`${counts.surging} surging / ${counts.trending} trending / ${counts.building} building of ${all.length} ranked`);
+    if (counts.elevated) tail.push(`${counts.elevated} sitting elevated`);
+    if (tail.length) text += ` Across the board: ${tail.join(", plus ")}.`;
+  } else if (tiered.length) {
+    text = `Implied vol is climbing in ${tiered.length} of ${all.length} ranked names (${counts.surging} surging / ${counts.trending} trending / ${counts.building} building), but nothing clears the standout bars — no extreme readings, fast ramps, or fast deflations.`;
   } else {
     const elevSyms = all.filter((r) => r.elevated).map((r) => r.symbol);
     text = `No names screen as actively trending, but premium sits elevated vs its own history in ${listStr(elevSyms)}.`;
