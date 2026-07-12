@@ -13272,10 +13272,13 @@ function stockTrapFlags(data, grade) {
 // "Investment thesis checklist" control. Every question the tracked data CAN
 // answer is answered with the actual numbers; what it can only approximate is
 // labeled UNSURE with the proxy named; what the data simply can't see is
-// labeled UNANSWERED rather than faked — competitive dynamics, unit
-// economics, and the reader's own portfolio live there. Deterministic (no
-// AI beyond quoting the already-baked per-ticker news/fundamentals judgment).
-// status: "answered" | "unsure" | "unanswered".
+// labeled UNANSWERED rather than faked — unit economics and the reader's own
+// portfolio live there. Competitive dynamics are read from what we DO track:
+// the curated universe names the competitor set (same INDUSTRY_OF_TICKER
+// peers — we literally track WMT next to COST), and barriers / supplier-power
+// / substitution get named financial-fingerprint or news-read proxies.
+// Deterministic (no AI beyond quoting the already-baked per-ticker
+// news/fundamentals judgment). status: "answered" | "unsure" | "unanswered".
 const CHECKLIST_UNANSWERED = "Not assessable from the data we track — do your own digging here.";
 
 function stkBigMoney(v) {
@@ -13287,7 +13290,33 @@ function stkBigMoney(v) {
   return s + Math.round(a);
 }
 
-function buildStockChecklist(sym, data, grade, sectorPE, traps) {
+// Tracked-universe competitor set for one name: same-INDUSTRY_OF_TICKER
+// peers first (direct competitors), same-sector names as the adjacent field
+// when the industry has no other tracked member. Curated universe, so this is
+// the visible field — untracked and private rivals don't appear. Exported for
+// offline testing (like buildCorrelationsPayload).
+export function stockTrackedPeers(chains, sym) {
+  const ind = INDUSTRY_OF_TICKER[sym] || null;
+  const sec = SECTORS[sym] || null;
+  const peers = [];
+  for (const [p, d] of Object.entries(chains || {})) {
+    if (p === sym || !d || SECTORS[p] === "ETF") continue;
+    const sameIndustry = ind != null && INDUSTRY_OF_TICKER[p] === ind;
+    if (!sameIndustry && !(sec != null && SECTORS[p] === sec)) continue;
+    const pf = d.fundamentals || {};
+    peers.push({
+      sym: p,
+      name: pf.name || null,
+      sameIndustry,
+      marketCap: pnum(pf.marketCap),
+      grossMargin: pnum(pf.grossMargin),
+    });
+  }
+  peers.sort((a, b) => (b.sameIndustry - a.sameIndustry) || ((b.marketCap ?? 0) - (a.marketCap ?? 0)));
+  return peers;
+}
+
+export function buildStockChecklist(sym, data, grade, sectorPE, traps, peers) {
   const f = data?.fundamentals || {};
   const j = f.judgment || null;
   const spot = pnum(data?.spot);
@@ -13352,10 +13381,66 @@ function buildStockChecklist(sym, data, grade, sectorPE, traps) {
           `Proxy read only — a real moat call needs industry work. The financial fingerprints: ${bits.join(", ")}. ${marginTrend === "compressing" ? "Compressing margins CAN be early moat erosion — worth digging." : "Nothing in the margin trend suggests active erosion."}`)
       : unanswered("How strong is the competitive advantage (moat)? Is the brand or moat eroding?"));
   }
-  mgmt.push(unanswered("Who are the main competitors and how intense is the competition?"));
-  mgmt.push(unanswered("What are the barriers to entry? How easy is it for new competitors to enter?"));
-  mgmt.push(unanswered("Do suppliers or customers have significant power over the company?"));
-  mgmt.push(unanswered("Are there credible threats from substitutes or new technologies?"));
+  {
+    // Competitors: the curated universe itself names the field — direct
+    // industry peers first, nearest same-sector names when the industry has
+    // no other tracked member.
+    const q = "Who are the main competitors and how intense is the competition?";
+    const direct = (peers || []).filter((p) => p.sameIndustry);
+    const pool = direct.length ? direct : (peers || []);
+    if (pool.length) {
+      const names = pool.slice(0, 5).map((p) => `${p.name || p.sym} (${p.sym}${p.marketCap != null ? `, ${stkBigMoney(p.marketCap)}` : ""})`).join(", ");
+      const gms = pool.map((p) => p.grossMargin).filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
+      const gmMed = gms.length ? gms[Math.floor(gms.length / 2)] : null;
+      const intensity = gm != null && gmMed != null
+        ? ` Intensity proxy: gross margin ${r1(gm)}% vs a ${r1(gmMed)}% peer median — ${gm >= gmMed + 5 ? "it out-earns the group, consistent with a differentiated seat" : gm <= gmMed - 5 ? "it keeps less of each sales dollar than the group — a tougher competitive seat (or a deliberate low-price model)" : "roughly in line with the group"}.`
+        : "";
+      mgmt.push(item(q, direct.length ? "answered" : "unsure",
+        `${direct.length ? `Tracked direct peers (${INDUSTRY_OF_TICKER[sym]})` : `No tracked direct-industry peer — nearest tracked ${f.sector || SECTORS[sym] || "sector"} names`}: ${names}.${intensity} Curated universe, so untracked and private competitors don't appear here.`));
+    } else {
+      mgmt.push(unanswered(q, "No tracked peer in this name's industry or sector."));
+    }
+  }
+  {
+    // Barriers to entry: a financial-fingerprint proxy. Sustained fat margins
+    // + high ROE are what protected businesses look like; thin margins WITH
+    // high ROE is the scale/efficiency-moat shape (COST, WMT); scale itself
+    // is a capital barrier.
+    const q = "What are the barriers to entry? How easy is it for new competitors to enter?";
+    const bits = [];
+    if (gm != null && roe != null && gm >= 40 && roe >= 15) bits.push(`a ${r1(gm)}% gross margin held alongside ${r1(roe)}% ROE is the fingerprint of real barriers — easy-entry businesses rarely sustain both`);
+    else if (gm != null && gm < 25 && roe != null && roe >= 15) bits.push(`thin ${r1(gm)}% gross margins but ${r1(roe)}% ROE — the classic scale/efficiency-moat shape (anyone can enter the business; matching the cost position is the real barrier)`);
+    else if (gm != null && gm < 25) bits.push(`thin ${r1(gm)}% gross margins with unremarkable returns — the market prices it like entry is easy`);
+    else if (gm != null || roe != null) bits.push([gm != null ? `gross margin ${r1(gm)}%` : null, roe != null ? `ROE ${r1(roe)}%` : null].filter(Boolean).join(", ") + " — a middling fingerprint, neither fortress nor commodity");
+    if (mcap != null && mcap >= 1e11) bits.push(`and at ${stkBigMoney(mcap)} of scale, replicating the footprint is itself a multi-year capital barrier`);
+    mgmt.push(bits.length
+      ? item(q, "unsure", `Financial-fingerprint proxy only — a real barriers call needs industry work: ${bits.join("; ")}.`)
+      : unanswered(q));
+  }
+  {
+    // Supplier/customer power: gross margin IS the residual after everyone
+    // upstream and downstream takes their cut, so it's a direct (if blunt)
+    // read on bargaining position.
+    const q = "Do suppliers or customers have significant power over the company?";
+    mgmt.push(gm != null
+      ? item(q, "unsure",
+          `Proxy read: ${gm >= 40 ? `keeping ${r1(gm)}% of each sales dollar after cost of goods says neither suppliers nor customers are squeezing it hard` : gm >= 25 ? `a ${r1(gm)}% gross margin leaves moderate room — some bargaining pressure, not a squeeze` : `only ${r1(gm)}% of each sales dollar survives cost of goods — consistent with strong supplier/customer power (or a deliberate low-price, high-volume model)`}${marginTrend === "compressing" ? "; compressing net margins hint the squeeze is worsening" : marginTrend ? "; the margin trend isn't shifting against it" : ""}. Contract-level power (customer concentration, sole-source suppliers) isn't visible here.`)
+      : unanswered(q));
+  }
+  {
+    // Substitution/technology threats: scan the already-baked AI news read's
+    // negatives for competitive-pressure language.
+    const q = "Are there credible threats from substitutes or new technologies?";
+    if (j) {
+      const rx = /competit|disrupt|substitut|market share|share loss|obsole|\bAI\b|switching|alternativ|undercut/i;
+      const hits = (Array.isArray(j.negatives) ? j.negatives : []).filter((n) => rx.test(String(n)));
+      mgmt.push(item(q, "unsure", hits.length
+        ? `The latest AI news/fundamentals read flags possible competitive or substitution pressure: ${hits.slice(0, 3).join("; ")}. Headline-level signal — verify with industry work.`
+        : `Nothing in the latest AI news/fundamentals read (verdict: ${j.verdict}) raises a substitution or disruption negative. That's absence of headline evidence, not proof of safety — technology threats rarely make the tape until late.`));
+    } else {
+      mgmt.push(unanswered(q, "Scan industry research for emerging substitutes — this rarely shows in market data until late."));
+    }
+  }
   {
     const cutting = arNet != null && arNet < 0;
     const marginsBad = marginTrend === "compressing";
@@ -13574,7 +13659,7 @@ export function buildStockPicks(chains, gradesIndex, builtAtIso) {
       signals: r.dip.signals,
       traps,
       clean: traps.length === 0,
-      checklist: buildStockChecklist(r.sym, r.data, r.grade, sectorPE[f.sector], traps),
+      checklist: buildStockChecklist(r.sym, r.data, r.grade, sectorPE[f.sector], traps, stockTrackedPeers(chains, r.sym)),
     };
   });
 

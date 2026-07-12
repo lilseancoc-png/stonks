@@ -22,6 +22,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-07-12
 
+### Changed
+- **Stock Picks — thesis checklist now answers the competitive-dynamics questions from tracked data.** "Who are the main competitors" is answered from the curated universe itself (same `INDUSTRY_OF_TICKER` peers, e.g. COST → WMT/TGT, with market caps and a gross-margin-vs-peer-median intensity proxy; falls back to nearest same-sector names as *unsure*); barriers to entry (margin/ROE fingerprints + scale-as-capital-barrier), supplier/customer power (gross-margin residual read), and substitutes/new-technology threats (competitive-pressure scan of the baked AI news read) get named proxy reads instead of a blanket "not assessable". Only unit economics and the reader's own portfolio remain honestly unanswered. `scripts/build.mjs` (`stockTrackedPeers` + `buildStockChecklist`, both now exported for offline testing).
+- **Stock Picks — thesis checklist expands to a scannable overview, not a wall.** Opening the checklist now shows the six sections as collapsed accordions with per-status count chips (answered/unsure/unanswered) and a stacked progress bar in the header row; questions render only when a section is opened. `scripts/render/{app-js,styles-css}.mjs`; `app.js`/`styles.css`/`index.html` hand-synced pending the next bake.
+
 ### Added
 - **Trending IV — every ticker links to the Grade tab.** The symbol on each flagged card (with a ↗ affordance), the summary-strip standout chips, and the ranked table's symbols are now clickable buttons that open that ticker on the Grade tab, via the same shared ticker-link binder. `scripts/render/{app-js,styles-css}.mjs`; `app.js`/`styles.css` hand-synced pending the next bake.
 - **Stock Picks — click a card's ticker to open it on the Grade tab.** The symbol on each Stock Picks card is now a link (with a ↗ affordance and hover underline): clicking it jumps to the Grade tab with that ticker loaded, reusing the same shared ticker-link binder the Brief chips and Track Record symbols use. `scripts/render/{app-js,styles-css}.mjs`; `app.js`/`styles.css` hand-synced pending the next bake.

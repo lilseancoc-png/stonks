@@ -2966,9 +2966,23 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .stk-thesis-title { font: 650 12px/1.3 var(--font-sans); color: var(--text-strong); }
 .stk-thesis-counts { font: 500 10.5px/1.3 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted); }
 .stk-thesis-note { font: 400 11px/1.5 var(--font-sans); color: var(--muted); margin: 8px 0 2px; }
-.stk-cl-sec { margin-top: 8px; }
-.stk-cl-sec h4 { font: 700 10.5px/1.3 var(--font-sans); text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0 0 5px; }
-.stk-cl-sec ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.stk-cl-bar { display: inline-flex; width: 56px; height: 5px; border-radius: 999px; overflow: hidden; align-self: center; background: color-mix(in srgb, var(--border) 45%, transparent); }
+.stk-cl-bar i { display: block; height: 100%; }
+.stk-cl-bar-a { background: var(--pos); }
+.stk-cl-bar-u { background: var(--warn); }
+.stk-cl-bar-n { background: transparent; }
+.stk-cl-sec { margin-top: 6px; }
+.stk-cl-sec > summary { display: flex; align-items: center; gap: 7px; cursor: pointer; list-style: none; padding: 3px 0; }
+.stk-cl-sec > summary::-webkit-details-marker { display: none; }
+.stk-cl-sec > summary::before { content: '▸'; color: var(--muted); font-size: 10px; }
+.stk-cl-sec[open] > summary::before { content: '▾'; }
+.stk-cl-sec h4 { font: 700 10.5px/1.3 var(--font-sans); text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0; }
+.stk-cl-mini { margin-left: auto; display: inline-flex; gap: 4px; }
+.stk-cl-mini b { font: 700 9px/1 var(--font-mono); font-variant-numeric: tabular-nums; border-radius: 999px; padding: 3px 6px; }
+.stk-cl-mini-a { color: var(--pos); background: color-mix(in srgb, var(--pos) 13%, transparent); }
+.stk-cl-mini-u { color: var(--warn); background: var(--warn-soft); }
+.stk-cl-mini-n { color: var(--muted); background: color-mix(in srgb, var(--border) 45%, transparent); }
+.stk-cl-sec ul { list-style: none; margin: 5px 0 4px; padding: 0 0 0 17px; display: flex; flex-direction: column; gap: 7px; }
 .stk-cl-item { display: flex; gap: 7px; align-items: flex-start; }
 .stk-cl-badge { flex: 0 0 auto; font: 700 8.5px/1 var(--font-sans); text-transform: uppercase; letter-spacing: 0.04em; border-radius: 999px; padding: 3px 6px; margin-top: 1px; }
 .stk-cl-answered .stk-cl-badge { color: var(--pos); background: color-mix(in srgb, var(--pos) 13%, transparent); }
