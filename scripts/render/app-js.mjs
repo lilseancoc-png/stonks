@@ -13593,11 +13593,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         tipBits.push(st.earnings && st.earnings.date
           ? 'earnings ' + ivtDateLabel(st.earnings.date) + (st.earnings.impliedMovePct != null ? ' (±' + Number(st.earnings.impliedMovePct).toFixed(1) + '% implied)' : '')
           : 'no print inside 45d — unexplained ramp');
-        schips += '<span class="ivt-sum-chip' + (stMeta ? ' ' + stMeta.cls : '') + '" title="' + escapeHtml(tipBits.join(' · ')) + '">' +
+        schips += '<button type="button" class="ivt-sum-chip' + (stMeta ? ' ' + stMeta.cls : '') + '" data-sym="' + escapeHtml(st.symbol || '') + '" title="' + escapeHtml(tipBits.join(' · ')) + ' — open in the Grade tab">' +
           (stMeta ? '<em>' + stMeta.label + '</em>' : '') +
           escapeHtml(st.symbol || '') +
           (st.chg5dPct != null && isFinite(st.chg5dPct) ? ' <b class="' + (st.chg5dPct >= 0 ? 'cx-up' : 'cx-down') + '">' + (st.chg5dPct >= 0 ? '+' : '') + Number(st.chg5dPct).toFixed(0) + '% 5d</b>' : '') +
-        '</span>';
+        '</button>';
       }
       html += '<section class="ivt-summary">' +
         '<p class="ivt-summary-text">' + escapeHtml(sum.text) + '</p>' +
@@ -13613,7 +13613,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         cards += '<article class="ivt-card ' + meta.cls + '">' +
           '<header class="ivt-card-head">' +
             '<span class="ivt-badge">' + meta.label + '</span>' +
-            '<span class="ivt-sym">' + escapeHtml(r.symbol || '') + '</span>' +
+            '<button type="button" class="ivt-sym" data-sym="' + escapeHtml(r.symbol || '') + '" title="Open ' + escapeHtml(r.symbol || '') + ' in the Grade tab">' + escapeHtml(r.symbol || '') + '<span class="stk-sym-go" aria-hidden="true">↗</span></button>' +
             (r.name ? '<span class="ivt-name">' + escapeHtml(r.name) + '</span>' : '') +
             (r.sector ? '<span class="ivt-sector">' + escapeHtml(r.sector) + '</span>' : '') +
           '</header>' +
@@ -13642,7 +13642,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var w = shown[t];
       var tierMeta = w.tier && IVT_TIER_META[w.tier] ? IVT_TIER_META[w.tier] : null;
       rows += '<div class="ivt-trow' + (tierMeta ? ' ' + tierMeta.cls : '') + '">' +
-        '<span class="ivt-trow-sym">' + escapeHtml(w.symbol || '') +
+        '<span class="ivt-trow-sym"><button type="button" class="ivt-trow-symbtn" data-sym="' + escapeHtml(w.symbol || '') + '" title="Open ' + escapeHtml(w.symbol || '') + ' in the Grade tab">' + escapeHtml(w.symbol || '') + '</button>' +
           (tierMeta ? ' <em class="ivt-trow-tier">' + tierMeta.label + '</em>' : (w.elevated ? ' <em class="ivt-trow-tier ivt-elev" title="IV well above its own history, but not currently climbing">Elevated</em>' : '')) + '</span>' +
         '<span class="ivt-trow-num">' + ivtIvPct(w.iv) + '</span>' +
         '<span class="ivt-trow-num">' + (w.z == null ? '—' : (w.z >= 0 ? '+' : '') + w.z.toFixed(1) + 'σ') + '</span>' +
@@ -13659,6 +13659,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         (ivTrendState.showAll ? 'Show top ' + IVT_TABLE_DEFAULT_ROWS + ' only' : 'Show all ' + all.length + ' tickers') + '</button>';
     }
     root.innerHTML = html;
+    bindBriefChips(root);
     var btn = $('ivt-show-all');
     if (btn) btn.addEventListener('click', function(){ ivTrendState.showAll = !ivTrendState.showAll; renderIvTrend(); });
   }
@@ -14194,12 +14195,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       (blocksHtml ? '<div class="brief-blocks">' + blocksHtml + '</div>' : '') +
     '</article>';
   }
-  // Shared ticker-link binder: any .brief-chip / .stk-sym button carrying a
-  // data-sym jumps to the Grade tab with that ticker loaded (Brief chips,
-  // Track Record symbols, Stock Picks card symbols).
+  // Shared ticker-link binder: any button carrying a data-sym jumps to the
+  // Grade tab with that ticker loaded (Brief chips, Track Record symbols,
+  // Stock Picks card symbols, Trending-IV symbols/chips/table rows).
   function bindBriefChips(rootEl){
     if (!rootEl) return;
-    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .stk-sym[data-sym]');
+    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .stk-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym]');
     for (var i = 0; i < chips.length; i++){
       chips[i].addEventListener('click', function(ev){
         var sym = ev.currentTarget.getAttribute('data-sym');
