@@ -6405,6 +6405,441 @@ export async function writeRamPricesFile(builtAtIso, prior = null) {
   };
 }
 
+// === Commodity price tracker (data/commodities.json) ================
+// Eleven input-cost / demand signals with a direct read on tracked equities:
+// softs (cocoa, cotton, coffee, sugar, palm oil), industrial inputs (lumber,
+// potash, lithium), freight (container rates, Baltic Dry) and used-vehicle
+// values (Manheim proxy). Every tracker has a RELIABLE base series through
+// already-proven fetch mechanics — Yahoo futures/ETF daily bars (the same
+// chart() path the GLOBAL_MARKETS sweep uses) or FRED monthly series
+// (fetchFredSeries) — because the "native" sources for three of them (Drewry
+// WCI, the true BDI, the Manheim index) sit behind bot walls and publish no
+// history. Those three get a BEST-EFFORT scrape overlay that decorates the
+// card when it succeeds, accumulating its own daily history across builds
+// (read-before-wipe, like the RAM spot side) so w/w-style changes deepen over
+// time. Per-item graceful degradation: a failed fetch carries the prior item
+// forward marked stale; a never-fetched item ships as `missing` and the tab
+// renders a "no data yet" card.
+const COMMODITY_HISTORY_MAX = 400;   // overlay history: ~19 months of daily points
+const COMMODITY_SPARK_POINTS = 90;   // max baked sparkline points per item
+const COMMODITY_FETCH_CONCURRENCY = 3;
+
+// The tracker registry. kind: 'futures' | 'proxy' (both Yahoo daily bars) |
+// 'fred' (monthly index/price series). fmt drives client formatting:
+// 'usd0' ($8,124) | 'usd2' ($42.18) | 'cents' (68.42¢/lb) | 'index' (415.3).
+// watch = related tickers (chips link into the Grade tab, which live-fetches
+// any symbol, so they need not be in TICKERS).
+export const COMMODITY_TRACKERS = [
+  {
+    key: "cocoa", label: "Cocoa", group: "softs", kind: "futures", cadence: "daily",
+    symbol: "CC=F", unit: "USD/tonne", fmt: "usd0",
+    sourceName: "ICE cocoa futures (Yahoo)", sourceUrl: "https://finance.yahoo.com/quote/CC%3DF/",
+    note: "Core input for chocolate & confectionery — a sustained rally squeezes Hershey/Mondelez margins (or forces price hikes). Most supply comes from Ivory Coast + Ghana, so West African weather and politics move it.",
+    watch: ["HSY", "MDLZ"],
+  },
+  {
+    key: "cotton", label: "Cotton", group: "softs", kind: "futures", cadence: "daily",
+    symbol: "CT=F", unit: "US¢/lb", fmt: "cents",
+    sourceName: "ICE cotton futures (Yahoo)", sourceUrl: "https://finance.yahoo.com/quote/CT%3DF/",
+    note: "Fabric cost for apparel & textile makers — a spike hints at margin squeeze or inventory pain for clothing retailers and fast fashion; a slump is a tailwind.",
+    watch: ["NKE", "LULU", "GPS"],
+  },
+  {
+    key: "coffee", label: "Coffee (arabica)", group: "softs", kind: "futures", cadence: "daily",
+    symbol: "KC=F", unit: "US¢/lb", fmt: "cents",
+    sourceName: "ICE coffee futures (Yahoo)", sourceUrl: "https://finance.yahoo.com/quote/KC%3DF/",
+    note: "Top input for coffee chains & packaged-beverage names — a read on cost pressure vs pricing power for SBUX and the drinks aisle of consumer staples.",
+    watch: ["SBUX", "KDP"],
+  },
+  {
+    key: "sugar", label: "Sugar (raw, #11)", group: "softs", kind: "futures", cadence: "daily",
+    symbol: "SB=F", unit: "US¢/lb", fmt: "cents",
+    sourceName: "ICE sugar #11 futures (Yahoo)", sourceUrl: "https://finance.yahoo.com/quote/SB%3DF/",
+    note: "Sweetener cost for beverage & confectionery names — and a two-way tie into Brazilian ethanol economics (mills swing output between sugar and fuel).",
+    watch: ["KO", "PEP", "HSY"],
+  },
+  {
+    key: "palm-oil", label: "Palm oil", group: "softs", kind: "fred", cadence: "monthly",
+    series: "PPOILUSDM", unit: "USD/tonne (global, monthly)", fmt: "usd0",
+    sourceName: "IMF global price via FRED", sourceUrl: "https://fred.stlouisfed.org/series/PPOILUSDM",
+    note: "Feeds packaged food/snacks, cooking oils and biodiesel; supply is concentrated in Indonesia/Malaysia, so it flags inflation or supply shocks in those consumer-staples categories. Monthly IMF global price (futures trade in Kuala Lumpur with no free feed).",
+    watch: ["MDLZ", "PG", "K"],
+  },
+  {
+    key: "lumber", label: "Lumber", group: "industrial", kind: "futures", cadence: "daily",
+    symbol: "LBR=F", altSymbols: ["LBS=F"], unit: "USD/1,000 bd ft", fmt: "usd0",
+    sourceName: "CME lumber futures (Yahoo)", sourceUrl: "https://finance.yahoo.com/quote/LBR%3DF/",
+    note: "Homebuilder margin + construction cost signal (D.R. Horton, PulteGroup) and a housing-demand read; also touches packaging/paper names.",
+    watch: ["DHI", "PHM", "HD"],
+  },
+  {
+    key: "potash", label: "Potash (fertilizer)", group: "industrial", kind: "fred", cadence: "monthly",
+    series: "PCU212391212391P", unit: "US PPI index (monthly)", fmt: "index",
+    sourceName: "BLS PPI (potash mining) via FRED", sourceUrl: "https://fred.stlouisfed.org/series/PCU212391212391P",
+    note: "Key fertilizer input — a cost signal for agriculture, farm-equipment demand (Deere) and, downstream, food-production costs. Series is the US producer price index for potash mining; there is no free global potash spot feed.",
+    watch: ["DE", "NTR", "MOS"],
+  },
+  {
+    key: "lithium", label: "Lithium (proxy)", group: "industrial", kind: "proxy", cadence: "daily",
+    symbol: "LIT", unit: "USD (ETF)", fmt: "usd2",
+    proxyNote: "Proxy: Global X Lithium & Battery Tech ETF (miners + battery makers) — China spot lithium carbonate has no free daily feed.",
+    sourceName: "LIT ETF (Yahoo)", sourceUrl: "https://finance.yahoo.com/quote/LIT/",
+    note: "EV / energy-storage supply-chain read: lithium is the battery input, so the complex tracks EV demand and battery-cost pressure for autos & tech hardware.",
+    watch: ["TSLA", "ALB", "SQM"],
+  },
+  {
+    key: "freight", label: "Container freight", group: "freight", kind: "fred", cadence: "monthly",
+    series: "PCU483111483111", unit: "US PPI index (monthly)", fmt: "index",
+    sourceName: "BLS PPI (deep-sea freight) via FRED", sourceUrl: "https://fred.stlouisfed.org/series/PCU483111483111",
+    note: "Ocean-freight cost inflation & shipping capacity tightness — a margin watch for importers/retailers and a demand read for logistics. Base series: US PPI for deep-sea freight; the weekly Drewry WCI composite overlays when reachable.",
+    watch: ["FDX", "UPS", "AMZN"],
+  },
+  {
+    key: "baltic-dry", label: "Baltic Dry (proxy)", group: "freight", kind: "proxy", cadence: "daily",
+    symbol: "BDRY", unit: "USD (ETF)", fmt: "usd2",
+    proxyNote: "Proxy: Breakwave Dry Bulk Shipping ETF (near-dated dry-bulk freight futures) — the BDI itself publishes no free feed; the true index overlays when reachable.",
+    sourceName: "BDRY ETF (Yahoo)", sourceUrl: "https://finance.yahoo.com/quote/BDRY/",
+    note: "Dry-bulk shipping cost (iron ore, coal, grain) — a leading indicator of global industrial demand and trade volume that often moves before broader economic data. Rising = stronger commodity/industrial activity.",
+    watch: ["CAT", "SBLK", "GNK"],
+  },
+  {
+    key: "used-vehicles", label: "Used vehicles", group: "consumer", kind: "fred", cadence: "monthly",
+    series: "CUSR0000SETA02", unit: "US CPI index (monthly)", fmt: "index",
+    sourceName: "BLS CPI (used cars & trucks) via FRED", sourceUrl: "https://fred.stlouisfed.org/series/CUSR0000SETA02",
+    note: "Used-vehicle values read auto-retail health, loan residuals (auto lenders / captive finance arms) and big-ticket consumer appetite. Base series: CPI used cars & trucks; the Manheim index (the industry benchmark, ~2 months ahead of CPI) overlays when reachable.",
+    watch: ["CVNA", "KMX", "ALLY"],
+  },
+];
+
+// Human labels for the tab's group sections, in display order.
+export const COMMODITY_GROUPS = [
+  { key: "softs", label: "Softs & agriculture" },
+  { key: "industrial", label: "Industrial inputs" },
+  { key: "freight", label: "Freight & shipping" },
+  { key: "consumer", label: "Consumer" },
+];
+
+// ~420 calendar days of daily closes via the same yahoo chart() path the
+// GLOBAL_MARKETS sweep uses (futures/ETF symbols bypass SYMBOL_RE by design —
+// that allowlist only guards the public /api proxies). altSymbols covers
+// contract renames (LBS=F random-length lumber was delisted for LBR=F).
+async function fetchCommodityDaily(def) {
+  const period2 = new Date();
+  const period1 = new Date(period2.getTime() - 420 * 24 * 3600 * 1000);
+  const symbols = [def.symbol, ...(def.altSymbols || [])];
+  let lastErr = null;
+  for (const sym of symbols) {
+    try {
+      const result = await yahooFinance.chart(sym, { period1, period2, interval: "1d" });
+      const series = (result?.quotes || [])
+        .filter((q) => q && q.close != null && Number.isFinite(q.close))
+        .map((q) => ({ d: q.date ? new Date(q.date).toISOString().slice(0, 10) : null, v: q.close }))
+        .filter((b) => b.d);
+      if (series.length < 2) throw new Error(`no usable bars for ${sym}`);
+      return { series, symbol: sym };
+    } catch (err) { lastErr = err; }
+  }
+  throw lastErr || new Error(`no data for ${def.symbol}`);
+}
+
+async function fetchCommodityFred(def) {
+  const obs = await fetchFredSeries(def.series);
+  const series = (obs || [])
+    .filter((o) => o && o.date && Number.isFinite(o.value))
+    .map((o) => ({ d: o.date, v: o.value }));
+  if (series.length < 2) throw new Error(`FRED ${def.series}: no usable observations`);
+  return { series, symbol: def.series };
+}
+
+// % change from the series' last point back to the closest point at least
+// `days` older, within a staleness window so thin/monthly series don't report
+// a "7d" change measured across months (same convention as ramPctBack).
+function commodityPctBack(series, days) {
+  if (!Array.isArray(series) || series.length < 2) return null;
+  const last = series[series.length - 1];
+  const lastMs = Date.parse(last?.d);
+  if (!Number.isFinite(lastMs) || !Number.isFinite(last?.v)) return null;
+  let base = null;
+  for (let i = series.length - 2; i >= 0; i--) {
+    const ms = Date.parse(series[i]?.d);
+    if (!Number.isFinite(ms) || !Number.isFinite(series[i]?.v) || series[i].v === 0) continue;
+    const back = (lastMs - ms) / 86400000;
+    if (back >= days) { base = { back, v: series[i].v }; break; }
+    base = { back, v: series[i].v }; // closest-younger fallback candidate
+  }
+  if (!base || base.back < days * 0.6 || base.back > days * 2.5) return null;
+  return r1((last.v / base.v - 1) * 100);
+}
+
+// Uniform change-chip rows per cadence. Daily: 1d (last vs prior bar) +
+// 7d/30d/1y calendar lookbacks. Monthly: m/m (last vs prior obs) + 3mo/1y.
+function commodityChanges(series, cadence) {
+  const out = [];
+  const last = series[series.length - 1];
+  const prev = series[series.length - 2];
+  const step = prev && Number.isFinite(prev.v) && prev.v !== 0 && Number.isFinite(last?.v)
+    ? r1((last.v / prev.v - 1) * 100) : null;
+  if (cadence === "monthly") {
+    out.push({ label: "m/m", pct: step });
+    out.push({ label: "3mo", pct: commodityPctBack(series, 91) });
+    out.push({ label: "1y", pct: commodityPctBack(series, 365) });
+  } else {
+    out.push({ label: "1d", pct: step });
+    out.push({ label: "7d", pct: commodityPctBack(series, 7) });
+    out.push({ label: "30d", pct: commodityPctBack(series, 30) });
+    out.push({ label: "1y", pct: commodityPctBack(series, 365) });
+  }
+  return out;
+}
+
+// Baked sparkline: the trailing year (daily) or the full monthly tail,
+// stride-downsampled to ≤COMMODITY_SPARK_POINTS with the last point kept.
+function commoditySpark(series, cadence) {
+  let pts = series;
+  if (cadence !== "monthly") {
+    const cutoff = Date.now() - 370 * 24 * 3600 * 1000;
+    pts = series.filter((p) => Date.parse(p.d) >= cutoff);
+    if (pts.length < 2) pts = series.slice(-COMMODITY_SPARK_POINTS);
+  } else {
+    pts = series.slice(-26); // ~2 years of monthly obs
+  }
+  if (pts.length > COMMODITY_SPARK_POINTS) {
+    const stride = Math.ceil(pts.length / COMMODITY_SPARK_POINTS);
+    const sampled = [];
+    for (let i = 0; i < pts.length; i += stride) sampled.push(pts[i]);
+    if (sampled[sampled.length - 1] !== pts[pts.length - 1]) sampled.push(pts[pts.length - 1]);
+    pts = sampled;
+  }
+  return pts.map((p) => [p.d, Number(p.v.toPrecision(6))]);
+}
+
+// --- Best-effort overlays (bot-walled native sources) ------------------------
+// Each returns { sourceName, sourceUrl, label, unit, value, asOf?, changeText? }
+// or null. Parsers target PROSE patterns, not markup (publishers keep the
+// sentence shape stable far longer than their DOM), are exported for offline
+// testing, and sanity-bound the captured number so a stray match can't ship.
+async function fetchCommoditySourceHtml(url) {
+  try {
+    const res = await fetch(url, {
+      headers: { "user-agent": RAM_FETCH_UA, accept: "text/html,application/xhtml+xml" },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!res.ok) return null;
+    return await res.text();
+  } catch { return null; }
+}
+
+function commodityHtmlToText(html) {
+  return String(html || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;|&#160;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ");
+}
+
+// Drewry publishes the WCI composite weekly in a stable sentence: "…composite
+// index increased 2% to $4,639 per 40ft container…".
+export function parseDrewryWci(html) {
+  if (!html) return null;
+  const text = commodityHtmlToText(html);
+  const m = text.match(/composite index[\s\S]{0,300}?\$\s*([\d,]+(?:\.\d{1,2})?)\s*per\s*40\s*-?\s*(?:ft|foot)/i);
+  if (!m) return null;
+  const value = Number(m[1].replace(/,/g, ""));
+  if (!Number.isFinite(value) || value < 500 || value > 25000) return null;
+  const win = text.slice(Math.max(0, m.index - 200), m.index + m[0].length + 100);
+  const cm = win.match(/\b(increased|decreased|rose|fell|climbed|dropped|declined|gained|lost)\s+(?:by\s+)?([\d.]+)%/i);
+  const down = cm && /decreased|fell|dropped|declined|lost/i.test(cm[1]);
+  return {
+    sourceName: "Drewry WCI", sourceUrl: "https://www.drewry.co.uk/supply-chain-advisors/supply-chain-expertise/world-container-index-assessed-by-drewry",
+    label: "Drewry World Container Index (composite)", unit: "USD per 40ft container",
+    value, changeText: cm ? `${down ? "−" : "+"}${cm[2]}% w/w` : null,
+  };
+}
+
+// Manheim/Cox publish the UVVI monthly: a mid-hundreds index with one decimal
+// near the phrase, plus a y/y move in prose.
+export function parseManheimUvvi(html) {
+  if (!html) return null;
+  const text = commodityHtmlToText(html);
+  const at = text.search(/Used Vehicle Value Index/i);
+  if (at < 0) return null;
+  const win = text.slice(at, at + 800);
+  const vm = win.match(/\b([1-3]\d{2}\.\d)\b/);
+  if (!vm) return null;
+  const value = Number(vm[1]);
+  if (!Number.isFinite(value) || value < 100 || value > 400) return null;
+  const ym = win.match(/\b(increased|decreased|declined|rose|fell|was up|was down|up|down)\s+([\d.]+)%\s*(?:from a year ago|year[- ]over[- ]year|YoY|from [A-Z][a-z]+ 20\d\d)/i);
+  const down = ym && /decreased|declined|fell|was down|down/i.test(ym[1]);
+  const mm = win.match(/\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(20\d{2})\b/);
+  return {
+    sourceName: "Manheim (Cox Automotive)", sourceUrl: "https://site.manheim.com/en/services/consulting/used-vehicle-value-index.html",
+    label: "Manheim Used Vehicle Value Index", unit: "index (Jan 1997 = 100)",
+    value, changeText: ym ? `${down ? "−" : "+"}${ym[2]}% y/y` : null,
+    asOfText: mm ? `${mm[1]} ${mm[2]}` : null,
+  };
+}
+
+// TradingEconomics' commodity page carries the BDI level in its meta
+// description ("Baltic Dry decreased 30 points ... to 1,423") and body text.
+export function parseTradingEconomicsBdi(html) {
+  if (!html) return null;
+  const meta = (String(html).match(/<meta[^>]+(?:property="og:description"|name="description")[^>]+content="([^"]+)"/i) || [])[1] || "";
+  const text = meta + " " + commodityHtmlToText(html).slice(0, 4000);
+  const m = text.match(/Baltic\s+(?:Exchange\s+)?Dry[\s\S]{0,220}?\b([\d,]{3,6})(?:\.\d+)?\s*(?:points|index points|\.|,|\s)/i);
+  if (!m) return null;
+  const value = Number(m[1].replace(/,/g, ""));
+  if (!Number.isFinite(value) || value < 300 || value > 20000) return null;
+  return {
+    sourceName: "Baltic Exchange (via TradingEconomics)", sourceUrl: "https://tradingeconomics.com/commodity/baltic",
+    label: "Baltic Dry Index", unit: "points", value,
+  };
+}
+
+async function fetchDrewryWciOverlay() {
+  for (const url of [
+    "https://www.drewry.co.uk/supply-chain-advisors/supply-chain-expertise/world-container-index-assessed-by-drewry",
+    "https://www.drewry.co.uk/trackers-and-indices/latest-trackers-and-indices/world-container-index-assessed-by-drewry",
+  ]) {
+    const parsed = parseDrewryWci(await fetchCommoditySourceHtml(url));
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+async function fetchManheimOverlay() {
+  return parseManheimUvvi(await fetchCommoditySourceHtml(
+    "https://site.manheim.com/en/services/consulting/used-vehicle-value-index.html",
+  ));
+}
+
+async function fetchBdiOverlay() {
+  return parseTradingEconomicsBdi(await fetchCommoditySourceHtml(
+    "https://tradingeconomics.com/commodity/baltic",
+  ));
+}
+
+// item key → overlay fetcher.
+const COMMODITY_OVERLAY_FETCHERS = {
+  freight: fetchDrewryWciOverlay,
+  "baltic-dry": fetchBdiOverlay,
+  "used-vehicles": fetchManheimOverlay,
+};
+
+// The def fields the payload re-stamps every build (so copy/note edits ship
+// even while an item's DATA is carried forward stale).
+function commodityMetaFromDef(def) {
+  return {
+    key: def.key, label: def.label, group: def.group, kind: def.kind,
+    cadence: def.cadence, unit: def.unit, fmt: def.fmt,
+    sourceName: def.sourceName, sourceUrl: def.sourceUrl,
+    proxyNote: def.proxyNote || null, note: def.note, watch: def.watch || [],
+  };
+}
+
+export function buildCommoditiesPayload({ fetched = {}, overlays = {}, prior = null, builtAtIso }) {
+  const etDate = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const priorItems = new Map(
+    (Array.isArray(prior?.items) ? prior.items : []).filter((i) => i && i.key).map((i) => [i.key, i]),
+  );
+  const prevOverlayHist = (prior?.overlayHistory && typeof prior.overlayHistory === "object") ? prior.overlayHistory : {};
+  const overlayHistory = {};
+  const items = COMMODITY_TRACKERS.map((def) => {
+    const meta = commodityMetaFromDef(def);
+    const f = fetched[def.key];
+    let item;
+    if (f && Array.isArray(f.series) && f.series.length >= 2) {
+      const lastPt = f.series[f.series.length - 1];
+      item = {
+        ...meta,
+        symbol: f.symbol,
+        last: Number(lastPt.v.toPrecision(6)),
+        asOf: lastPt.d,
+        changes: commodityChanges(f.series, def.cadence),
+        spark: commoditySpark(f.series, def.cadence),
+        stale: false,
+      };
+    } else {
+      const p = priorItems.get(def.key);
+      item = (p && p.last != null)
+        ? { ...p, ...meta, stale: true }
+        : { ...meta, missing: true, stale: true };
+    }
+    // Overlay: upsert today's scraped value into the accumulated history
+    // (carried across the data/ wipe via the pre-read prior); on a miss,
+    // carry the prior overlay forward marked stale but keep the history.
+    const prevHist = Array.isArray(prevOverlayHist[def.key])
+      ? prevOverlayHist[def.key].filter((p) => p && p.d && Number.isFinite(p.v)) : [];
+    const ov = overlays[def.key];
+    if (ov && Number.isFinite(ov.value)) {
+      const hist = prevHist.filter((p) => p.d !== etDate);
+      hist.push({ d: etDate, v: ov.value });
+      overlayHistory[def.key] = hist.slice(-COMMODITY_HISTORY_MAX);
+      item.overlay = {
+        sourceName: ov.sourceName, sourceUrl: ov.sourceUrl, label: ov.label, unit: ov.unit,
+        value: ov.value, asOf: ov.asOfText || etDate, changeText: ov.changeText || null,
+        w1Pct: commodityPctBack(overlayHistory[def.key], 7),
+        m1Pct: commodityPctBack(overlayHistory[def.key], 30),
+        stale: false,
+      };
+    } else {
+      if (prevHist.length) overlayHistory[def.key] = prevHist.slice(-COMMODITY_HISTORY_MAX);
+      const prevOv = priorItems.get(def.key)?.overlay;
+      if (prevOv && prevOv.value != null) item.overlay = { ...prevOv, stale: true };
+    }
+    return item;
+  });
+  const fresh = items.filter((i) => !i.stale).length;
+  return { builtAtIso, items, overlayHistory, stale: fresh === 0 };
+}
+
+async function readPriorCommodities() {
+  try { return JSON.parse(await readFile(resolve(DATA_DIR, "commodities.json"), "utf8")); } catch { return null; }
+}
+
+export async function writeCommoditiesFile(builtAtIso, prior = null) {
+  const fetched = {};
+  const yahooDefs = COMMODITY_TRACKERS.filter((d) => d.kind === "futures" || d.kind === "proxy");
+  const fredDefs = COMMODITY_TRACKERS.filter((d) => d.kind === "fred");
+  await runPooled(yahooDefs, COMMODITY_FETCH_CONCURRENCY, async (def) => {
+    try {
+      fetched[def.key] = await fetchCommodityDaily(def);
+      // Politeness gap so the commodity sweep doesn't bunch against Yahoo.
+      await new Promise((r) => setTimeout(r, 150));
+    } catch (err) {
+      console.log(`    ⚠ commodity ${def.key} (${def.symbol}) fetch failed: ${err.message}`);
+    }
+  });
+  for (const def of fredDefs) {
+    try {
+      fetched[def.key] = await fetchCommodityFred(def);
+    } catch (err) {
+      console.log(`    ⚠ commodity ${def.key} (FRED ${def.series}) fetch failed: ${err.message}`);
+    }
+  }
+  const overlays = {};
+  for (const [key, fetchFn] of Object.entries(COMMODITY_OVERLAY_FETCHERS)) {
+    try {
+      const ov = await fetchFn();
+      if (ov) overlays[key] = ov;
+      else console.log(`    ⚠ commodity overlay ${key}: source unreachable/unparsed (best-effort — base series still ships)`);
+    } catch (err) {
+      console.log(`    ⚠ commodity overlay ${key} failed: ${err.message}`);
+    }
+  }
+  const payload = buildCommoditiesPayload({ fetched, overlays, prior, builtAtIso });
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, "commodities.json"), json, "utf8");
+  return {
+    bytes: json.length,
+    total: payload.items.length,
+    fresh: payload.items.filter((i) => !i.stale).length,
+    overlays: payload.items.filter((i) => i.overlay && !i.overlay.stale).length,
+    stale: !!payload.stale,
+  };
+}
+
 // === Capital raises tracker (data/capital-raises.json) ==============
 // "Whenever a company issues new shares or debt or bonds it's in the news cycle."
 // Two sources, combined: (1) the per-ticker news headlines already fetched for
@@ -20979,6 +21414,10 @@ async function main() {
   // daily history across builds (the sources only publish the current
   // session), so it must be pre-read before the wipe like the other histories.
   const priorRamPrices = await readPriorRamPrices();
+  // Prior commodities snapshot — per-item last-good carry-forward on a fetch
+  // miss, plus the accumulated scrape-overlay history (Drewry/BDI/Manheim),
+  // so it must be pre-read before the wipe like the other histories.
+  const priorCommodities = await readPriorCommodities();
   // Load persisted last-good readings BEFORE writeChainFiles wipes data/.
   // Without these reads the caches would never serve a value across builds
   // — the file is gone by the time the post-wipe code tries to read it.
@@ -21215,6 +21654,14 @@ async function main() {
     console.log(`wrote data/ram-prices.json — ${ramInfo.spotItems} spot items${ramInfo.spotStale ? " [stale]" : ""}, ${ramInfo.retailCats} retail categories${ramInfo.retailStale ? " [stale]" : ""}, ${ramInfo.bytes} bytes`);
   } catch (err) {
     console.log(`  ⚠ RAM-prices step failed (non-fatal): ${err.message}`);
+  }
+  // Commodity price tracker (Yahoo futures/ETF + FRED monthly + best-effort
+  // Drewry/BDI/Manheim overlays) — per-item last-good carry-forward (graceful).
+  try {
+    const commoditiesInfo = await writeCommoditiesFile(builtAtIso, priorCommodities);
+    console.log(`wrote data/commodities.json — ${commoditiesInfo.fresh}/${commoditiesInfo.total} fresh, ${commoditiesInfo.overlays} overlay${commoditiesInfo.overlays === 1 ? "" : "s"}, ${commoditiesInfo.bytes} bytes${commoditiesInfo.stale ? " [stale — kept last-good]" : ""}`);
+  } catch (err) {
+    console.log(`  ⚠ Commodities step failed (non-fatal): ${err.message}`);
   }
   await writeTrendFiles({
     narratives: trends.narratives,
