@@ -13623,12 +13623,38 @@
   // (surging / trending / building) get a highlight card + sparkline; the
   // rest fill the ranked context table. Baked deterministically — see
   // buildIvTrendingPayload in scripts/build.mjs.
-  var ivTrendState = { data: null, loading: false, showAll: false };
+  var ivTrendState = { data: null, loading: false, showAll: false, sort: 'score' };
   var IVT_TIER_META = {
     surging:  { label: 'Surging',  cls: 'ivt-tier-surging' },
     trending: { label: 'Trending', cls: 'ivt-tier-trending' },
     building: { label: 'Building', cls: 'ivt-tier-building' }
   };
+  // Summary standout kinds (buildIvTrendSummary in build.mjs): the strip now
+  // highlights only names doing something exceptional, each tagged with one
+  // of these. Older payloads ship tier-only standouts — the chip falls back
+  // to the tier badge for those.
+  var IVT_KIND_META = {
+    extreme:     { label: 'Way above norm', cls: 'ivt-kind-extreme',     tip: 'IV far above its own ~18-month history' },
+    falling:     { label: 'IV deflating',   cls: 'ivt-kind-falling',     tip: 'IV falling fast — premium coming out' },
+    ramping:     { label: 'Fast ramp',      cls: 'ivt-kind-ramping',     tip: 'Among the biggest 5-session IV climbs' },
+    unexplained: { label: 'No catalyst',    cls: 'ivt-kind-unexplained', tip: 'Climbing with no scheduled earnings inside 45d' },
+    streak:      { label: 'Streak',         cls: 'ivt-kind-streak',      tip: 'Consecutive rising sessions' }
+  };
+  // Sort / filter modes for the highlight cards + ranked table. The tier keys
+  // (and Elevated) FILTER to that bucket; the numeric keys re-SORT the full
+  // list. One selection drives both sections.
+  var IVT_SORTS = [
+    { key: 'score',    label: 'Top score' },
+    { key: 'surging',  label: 'Surging',  tier: 'surging' },
+    { key: 'trending', label: 'Trending', tier: 'trending' },
+    { key: 'building', label: 'Building', tier: 'building' },
+    { key: 'elevated', label: 'Elevated' },
+    { key: 'iv',       label: 'Highest IV' },
+    { key: 'rel',      label: 'Vs own avg' },
+    { key: 'rise5',    label: '5d rising' },
+    { key: 'fall5',    label: '5d falling' },
+    { key: 'earnings', label: 'Earnings soonest' }
+  ];
   var IVT_TABLE_DEFAULT_ROWS = 25;
   function ivtIvPct(v){
     if (v == null || !isFinite(v)) return '—';
@@ -13698,6 +13724,28 @@
       (e.impliedMovePct != null ? ' · ±' + Number(e.impliedMovePct).toFixed(1) + '% implied' : '') +
     '</span>';
   }
+  // Apply the selected sort/filter mode. Tier + Elevated modes filter to that
+  // bucket (keeping the baked score order); numeric modes re-sort the whole
+  // list, with rows missing the metric sinking to the bottom in score order.
+  function ivtApplySort(all, mode){
+    function bySort(get, dir){
+      var withV = [], without = [];
+      for (var i=0; i<all.length; i++){
+        var v = all[i] ? get(all[i]) : null;
+        if (v != null && isFinite(v)) withV.push(all[i]); else without.push(all[i]);
+      }
+      withV.sort(function(a,b){ return dir * (get(a) - get(b)); });
+      return withV.concat(without);
+    }
+    if (mode === 'surging' || mode === 'trending' || mode === 'building') return all.filter(function(r){ return r && r.tier === mode; });
+    if (mode === 'elevated') return all.filter(function(r){ return r && r.elevated; });
+    if (mode === 'iv') return bySort(function(r){ return r.iv; }, -1);
+    if (mode === 'rel') return bySort(function(r){ return r.relPct; }, -1);
+    if (mode === 'rise5') return bySort(function(r){ return r.chg5dPct; }, -1);
+    if (mode === 'fall5') return bySort(function(r){ return r.chg5dPct; }, 1);
+    if (mode === 'earnings') return bySort(function(r){ return r.earnings ? r.earnings.inDays : null; }, 1);
+    return all;
+  }
   function loadIvTrend(){
     if ((ivTrendState.data && !tabDataStale(ivTrendState)) || ivTrendState.loading){ renderIvTrend(); return; }
     ivTrendState.loading = true;
@@ -13723,31 +13771,54 @@
       return;
     }
     if (empty) empty.hidden = true;
-    var flagged = all.filter(function(r){ return r && r.tier && IVT_TIER_META[r.tier]; });
-    var elevatedCount = all.filter(function(r){ return r && r.elevated; }).length;
-    if (eye) eye.textContent = (d.asOf ? 'as of ' + d.asOf + ' · ' : '') + flagged.length + ' trending · ' + elevatedCount + ' elevated / ' + all.length + ' ranked';
+    var tierCounts = { surging: 0, trending: 0, building: 0 };
+    var elevatedCount = 0;
+    for (var c0=0; c0<all.length; c0++){
+      var rc = all[c0]; if (!rc) continue;
+      if (rc.tier && tierCounts[rc.tier] != null) tierCounts[rc.tier]++;
+      if (rc.elevated) elevatedCount++;
+    }
+    var flaggedTotal = tierCounts.surging + tierCounts.trending + tierCounts.building;
+    if (eye) eye.textContent = (d.asOf ? 'as of ' + d.asOf + ' · ' : '') + flaggedTotal + ' trending · ' + elevatedCount + ' elevated / ' + all.length + ' ranked';
+    // Reset a tier/elevated filter whose bucket emptied on a data refresh.
+    var mode = ivTrendState.sort || 'score';
+    if ((tierCounts[mode] != null && tierCounts[mode] === 0) || (mode === 'elevated' && !elevatedCount)){ mode = 'score'; ivTrendState.sort = 'score'; }
     var html = '';
     // Deterministic summary strip (baked by buildIvTrendSummary in build.mjs):
-    // the "what should I look at first" read — tier roll-up prose with the top
-    // standout's stats, plus a chip per standout (tooltip carries the detail).
+    // standouts only — names way above their own norm, deflating fast,
+    // ramping, climbing with no catalyst, or on a long rising streak. Each
+    // chip is kind-badged (tooltip carries the detail); older payloads whose
+    // standouts carry only a tier fall back to the tier badge.
     var sum = d.summary;
     if (sum && sum.text){
       var schips = '';
       var sts = Array.isArray(sum.standouts) ? sum.standouts : [];
       for (var s0=0; s0<sts.length; s0++){
         var st = sts[s0];
-        var stMeta = st.tier && IVT_TIER_META[st.tier] ? IVT_TIER_META[st.tier] : null;
+        var kindMeta = st.kind && IVT_KIND_META[st.kind] ? IVT_KIND_META[st.kind] : null;
+        var stMeta = !kindMeta && st.tier && IVT_TIER_META[st.tier] ? IVT_TIER_META[st.tier] : null;
         var tipBits = [];
+        if (kindMeta) tipBits.push(kindMeta.tip);
         if (st.iv != null) tipBits.push('IV ' + ivtIvPct(st.iv) + (st.mean != null ? ' vs ' + ivtIvPct(st.mean) + ' avg' : ''));
         if (st.z != null && isFinite(st.z)) tipBits.push((st.z >= 0 ? '+' : '') + Number(st.z).toFixed(1) + 'σ');
         if (st.risingStreak >= 2) tipBits.push(st.risingStreak + 'd rising');
         tipBits.push(st.earnings && st.earnings.date
           ? 'earnings ' + ivtDateLabel(st.earnings.date) + (st.earnings.impliedMovePct != null ? ' (±' + Number(st.earnings.impliedMovePct).toFixed(1) + '% implied)' : '')
-          : 'no print inside 45d — unexplained ramp');
-        schips += '<button type="button" class="ivt-sum-chip' + (stMeta ? ' ' + stMeta.cls : '') + '" data-sym="' + escapeHtml(st.symbol || '') + '" title="' + escapeHtml(tipBits.join(' · ')) + ' — open in the Grade tab">' +
-          (stMeta ? '<em>' + stMeta.label + '</em>' : '') +
+          : 'no print inside 45d');
+        // Headline stat per kind: richness for the extremes, streak length
+        // for streaks, the 5d move for everything else.
+        var stat = '';
+        if (kindMeta && st.kind === 'extreme' && st.relPct != null && isFinite(st.relPct)){
+          stat = ' <b class="cx-up">+' + Number(st.relPct).toFixed(0) + '% vs avg</b>';
+        } else if (kindMeta && st.kind === 'streak' && st.risingStreak >= 2){
+          stat = ' <b class="cx-up">' + st.risingStreak + 'd ↑</b>';
+        } else if (st.chg5dPct != null && isFinite(st.chg5dPct)){
+          stat = ' <b class="' + (st.chg5dPct >= 0 ? 'cx-up' : 'cx-down') + '">' + (st.chg5dPct >= 0 ? '+' : '') + Number(st.chg5dPct).toFixed(0) + '% 5d</b>';
+        }
+        schips += '<button type="button" class="ivt-sum-chip' + (kindMeta ? ' ' + kindMeta.cls : (stMeta ? ' ' + stMeta.cls : '')) + '" data-sym="' + escapeHtml(st.symbol || '') + '" title="' + escapeHtml(tipBits.join(' · ')) + ' — open in the Grade tab">' +
+          (kindMeta ? '<em>' + kindMeta.label + '</em>' : (stMeta ? '<em>' + stMeta.label + '</em>' : '')) +
           escapeHtml(st.symbol || '') +
-          (st.chg5dPct != null && isFinite(st.chg5dPct) ? ' <b class="' + (st.chg5dPct >= 0 ? 'cx-up' : 'cx-down') + '">' + (st.chg5dPct >= 0 ? '+' : '') + Number(st.chg5dPct).toFixed(0) + '% 5d</b>' : '') +
+          stat +
         '</button>';
       }
       html += '<section class="ivt-summary">' +
@@ -13755,6 +13826,20 @@
         (schips ? '<div class="ivt-sum-chips">' + schips + '</div>' : '') +
       '</section>';
     }
+    // Sort / filter chip bar — one selection drives the highlight cards AND
+    // the ranked table. Tier/Elevated chips carry their live counts and hide
+    // when the bucket is empty.
+    var sortHtml = '';
+    for (var s1=0; s1<IVT_SORTS.length; s1++){
+      var def = IVT_SORTS[s1];
+      var cnt = def.tier ? tierCounts[def.tier] : (def.key === 'elevated' ? elevatedCount : null);
+      if (cnt === 0) continue;
+      sortHtml += '<button type="button" class="ivt-sort-chip" data-ivt-sort="' + def.key + '" aria-pressed="' + (mode === def.key ? 'true' : 'false') + '">' +
+        def.label + (cnt != null ? ' <b>' + cnt + '</b>' : '') + '</button>';
+    }
+    html += '<div class="ivt-sort" role="toolbar" aria-label="Sort or filter the ranked tickers">' + sortHtml + '</div>';
+    var sorted = ivtApplySort(all, mode);
+    var flagged = sorted.filter(function(r){ return r && r.tier && IVT_TIER_META[r.tier]; });
     // Flagged highlight cards.
     if (flagged.length){
       var cards = '';
@@ -13782,11 +13867,11 @@
         '</article>';
       }
       html += '<div class="ivt-cards">' + cards + '</div>';
-    } else {
+    } else if (mode === 'score') {
       html += '<p class="ivt-none">No names screen as trending right now — implied vol is sitting at or below its own history across the board. The ranked table below still shows who is closest.</p>';
     }
-    // Ranked context table (all names, already sorted by score).
-    var shown = ivTrendState.showAll ? all : all.slice(0, IVT_TABLE_DEFAULT_ROWS);
+    // Ranked context table, in the selected sort/filter order.
+    var shown = ivTrendState.showAll ? sorted : sorted.slice(0, IVT_TABLE_DEFAULT_ROWS);
     var rows = '<div class="ivt-trow ivt-thead" aria-hidden="true">' +
       '<span>Ticker</span><span>IV</span><span>vs hist</span><span>%ile</span><span>5d</span><span>20d</span><span>Earnings</span><span>Score</span></div>';
     for (var t=0; t<shown.length; t++){
@@ -13804,15 +13889,22 @@
         '<span class="ivt-trow-num">' + (w.score == null ? '—' : w.score.toFixed(1)) + '</span>' +
       '</div>';
     }
-    html += '<div class="ivt-table" role="table" aria-label="All tickers ranked by IV trend score">' + rows + '</div>';
-    if (all.length > IVT_TABLE_DEFAULT_ROWS){
+    html += '<div class="ivt-table" role="table" aria-label="Ranked tickers in the selected sort order">' + rows + '</div>';
+    if (sorted.length > IVT_TABLE_DEFAULT_ROWS){
       html += '<button type="button" class="ivt-show-all" id="ivt-show-all">' +
-        (ivTrendState.showAll ? 'Show top ' + IVT_TABLE_DEFAULT_ROWS + ' only' : 'Show all ' + all.length + ' tickers') + '</button>';
+        (ivTrendState.showAll ? 'Show top ' + IVT_TABLE_DEFAULT_ROWS + ' only' : 'Show all ' + sorted.length + ' tickers') + '</button>';
     }
     root.innerHTML = html;
     bindBriefChips(root);
     var btn = $('ivt-show-all');
     if (btn) btn.addEventListener('click', function(){ ivTrendState.showAll = !ivTrendState.showAll; renderIvTrend(); });
+    var sortBtns = root.querySelectorAll('.ivt-sort-chip');
+    for (var sb=0; sb<sortBtns.length; sb++){
+      sortBtns[sb].addEventListener('click', function(){
+        ivTrendState.sort = this.getAttribute('data-ivt-sort') || 'score';
+        renderIvTrend();
+      });
+    }
   }
 
   // --- Overnight markets / correlations -----------------------------------
