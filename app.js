@@ -968,6 +968,24 @@
       '</div>';
   }
 
+  // Baked contractQuality entries carry only the color class ({ cls }) — the
+  // build's qualityCls() never wrote a human label, so chips rendered the
+  // literal "undefined". Derive the chip text from the class per metric
+  // (keyed by the chip's display label, shared by the Top-Picks banner and
+  // the Picks-tab contract cards). A baked g.label, if one ever ships, wins.
+  var QCHIP_CLS_LABELS = {
+    'Spread': { good:'Tight',   fair:'Moderate',   bad:'Wide' },
+    'Liq':    { good:'Liquid',  fair:'Light',      bad:'Thin' },
+    'Δ': { good:'Balanced', fair:'Off-center', bad:'Extreme' },
+    'Θ': { good:'Slow',    fair:'Moderate',   bad:'Fast bleed' },
+    'IV':     { good:'Calm',    fair:'Elevated',   bad:'Extreme' }
+  };
+  function qchipVal(label, g){
+    if (g && g.label) return String(g.label);
+    var m = QCHIP_CLS_LABELS[label];
+    return (m && g && m[g.cls]) || '';
+  }
+
   // --- Top-Picks grade banner --------------------------------------------
   // Surfaces the best call/put the Top Picks engine baked for this ticker
   // (state.autoPick[side], computed by pickContractForPick() at build time)
@@ -1027,10 +1045,11 @@
     if (q && q.spread){
       var chip = function(label, g, tipText){
         if (!g) return '';
-        var t = tipText ? (tipText + ' Current: ' + g.label + '.') : label;
+        var val = qchipVal(label, g);
+        var t = tipText ? (val ? tipText + ' Current: ' + val + '.' : tipText) : label;
         return '<span class="pick-qchip pick-qchip-' + escapeHtml(g.cls) + '" title="' + escapeHtml(t) + '">' +
           '<span class="pick-qchip-label">' + escapeHtml(label) + '</span>' +
-          '<span class="pick-qchip-val">' + escapeHtml(g.label) + '</span>' +
+          (val ? '<span class="pick-qchip-val">' + escapeHtml(val) + '</span>' : '') +
         '</span>';
       };
       var liqTip = 'Liquidity — number of contracts already held open. Lots of open interest = orders fill at the quoted price; thin = wider effective spread and slow fills.';
@@ -20461,10 +20480,11 @@
       // and the current verdict ("Tight", "Balanced", "Calm", …).
       function chip(label, g, tipText){
         if (!g) return '';
-        var t = tipText ? (tipText + ' Current: ' + g.label + '.') : label;
+        var val = qchipVal(label, g);
+        var t = tipText ? (val ? tipText + ' Current: ' + val + '.' : tipText) : label;
         return '<span class="pick-qchip pick-qchip-' + escapeHtml(g.cls) + '" title="' + escapeHtml(t) + '">' +
           '<span class="pick-qchip-label">' + escapeHtml(label) + '</span>' +
-          '<span class="pick-qchip-val">' + escapeHtml(g.label) + '</span>' +
+          (val ? '<span class="pick-qchip-val">' + escapeHtml(val) + '</span>' : '') +
         '</span>';
       }
       var liqTip = 'Liquidity — number of contracts already held open. Lots of open interest = orders fill at the quoted price; thin = wider effective spread and slow fills.';
