@@ -128,7 +128,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-07-12","ageDays":null};
+  var RFR_META = {"source":"fresh","asOf":"2026-07-13","ageDays":null};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -8140,6 +8140,7 @@
       '<button type="button" class="vol-row-head" aria-expanded="' + (expanded ? 'true' : 'false') + '">' +
         '<span class="vol-row-caret" aria-hidden="true">' + (expanded ? '▾' : '▸') + '</span>' +
         '<span class="vol-symbol">' + escapeHtml(sym) + '</span>' +
+        '<span class="vol-sym-go" role="link" tabindex="0" data-sym="' + escapeHtml(sym) + '" title="Open ' + escapeHtml(sym) + ' in the Grade tab">↗</span>' +
         (spot ? '<span class="vol-spot">' + spot + '</span>' : '') +
         '<span class="vol-row-summary">' +
           chips.join('') +
@@ -8470,6 +8471,11 @@
     var listEl = $('vol-list');
     if (listEl){
       listEl.addEventListener('click', function(ev){
+        // Symbol ↗ inside a row head — open the ticker in the Grade tab. The
+        // affordance nests inside the expand/collapse head button, so this
+        // branch must run before the .vol-row-head toggle below.
+        var symGo = ev.target.closest && ev.target.closest('.vol-sym-go[data-sym]');
+        if (symGo){ calGoToTicker(symGo.getAttribute('data-sym')); return; }
         // Pinned Top Picks group header (no data-sector) — check it before the
         // generic sector head, which it also matches by class.
         var picksHead = ev.target.closest && ev.target.closest('[data-picks-head]');
@@ -8491,6 +8497,13 @@
           var sym = row && row.getAttribute('data-symbol');
           if (sym){ volState.expand[sym] = !volState.expand[sym]; renderVolumeFlags(); }
         }
+      });
+      // Keyboard path for the ↗ jump (it's a focusable span, not a button —
+      // a real button can't nest inside the row-head button).
+      listEl.addEventListener('keydown', function(ev){
+        if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
+        var symGo = ev.target.closest && ev.target.closest('.vol-sym-go[data-sym]');
+        if (symGo){ ev.preventDefault(); ev.stopPropagation(); calGoToTicker(symGo.getAttribute('data-sym')); }
       });
     }
   }
@@ -11639,17 +11652,20 @@
       var isCW = !!(cw && K === cw.strike), isPW = !!(pw && K === pw.strike);
       var wallTag = isCW ? ' <span class="gex-wall-tag is-call" title="Call wall — heaviest net-positive (call) gamma strike">CW</span>'
         : (isPW ? ' <span class="gex-wall-tag is-put" title="Put wall — heaviest net-negative (put) gamma strike">PW</span>' : '');
-      html += '<tr class="gex-tr' + (isCW ? ' is-callwall' : '') + (isPW ? ' is-putwall' : '') + '">' +
-        '<th class="gex-strike" scope="row">' + fmtOiStrike(K) + wallTag + '</th>';
-      // Net Σ total column.
+      // Per-strike net (computed up-front so the strike header can carry the
+      // dominant side for its grade-this-strike click-through).
       var ps = psByK[String(K)];
       var tnet = (ps && isFinite(ps.net)) ? ps.net : 0;
+      var kSide = tnet >= 0 ? 'call' : 'put';
+      html += '<tr class="gex-tr' + (isCW ? ' is-callwall' : '') + (isPW ? ' is-putwall' : '') + '">' +
+        '<th class="gex-strike" scope="row" data-gex-k="' + K + '" data-gex-side="' + kSide + '" title="Grade the ' + escapeHtml(sym) + ' $' + fmtOiStrike(K) + ' ' + kSide + ' (the dominant side here) in the contract grader">' + fmtOiStrike(K) + wallTag + '</th>';
+      // Net Σ total column.
       if (tnet === 0){
         html += '<td class="gex-total-cell is-empty"></td>';
       } else {
         var ttitle = sym + ' ' + fmtOiStrike(K) + ' · net ' + gexFmtSigned(tnet) +
-          ' (call +' + gexFmt(ps.call) + ' / put -' + gexFmt(ps.put) + ') across ' + exps.length + ' exp';
-        html += '<td class="gex-total-cell ' + (tnet >= 0 ? 'is-pos' : 'is-neg') + '" style="background:' +
+          ' (call +' + gexFmt(ps.call) + ' / put -' + gexFmt(ps.put) + ') across ' + exps.length + ' exp — click to grade the ' + kSide;
+        html += '<td class="gex-total-cell ' + (tnet >= 0 ? 'is-pos' : 'is-neg') + '" data-gex-k="' + K + '" data-gex-side="' + kSide + '" style="background:' +
           gexTotalBg(tnet, maxAbsTotal) + '" title="' + escapeHtml(ttitle) + '">' + gexFmtSigned(tnet) + '</td>';
       }
       var byExp = d.cellMap[String(K)] || {};
@@ -11664,8 +11680,8 @@
         var rgb = pos ? '58,210,154' : '242,100,95';
         var alpha = (0.10 + 0.80 * intensity).toFixed(3);
         var title = sym + ' ' + fmtOiStrike(K) + ' ' + exps[e2].label + ' · net ' + gexFmtSigned(net) +
-          ' (call +' + gexFmt(cell.call) + ' / put -' + gexFmt(cell.put) + ')';
-        html += '<td class="gex-cell ' + (pos ? 'is-pos' : 'is-neg') + '" style="background:rgba(' + rgb + ',' + alpha + ')" title="' + escapeHtml(title) + '">' + gexFmt(net) + '</td>';
+          ' (call +' + gexFmt(cell.call) + ' / put -' + gexFmt(cell.put) + ') — click to grade the ' + (pos ? 'call' : 'put');
+        html += '<td class="gex-cell ' + (pos ? 'is-pos' : 'is-neg') + '" data-gex-k="' + K + '" data-gex-exp="' + exps[e2].sec + '" data-gex-side="' + (pos ? 'call' : 'put') + '" style="background:rgba(' + rgb + ',' + alpha + ')" title="' + escapeHtml(title) + '">' + gexFmt(net) + '</td>';
       }
       html += '</tr>';
     }
@@ -11699,6 +11715,33 @@
     var range = $('gex-range'), refresh = $('gex-refresh');
     if (range) range.addEventListener('change', function(){ gexState.range = range.value || 'mid'; renderGex(); });
     if (refresh) refresh.addEventListener('click', function(){ if (gexState.symbol) loadGex(); });
+    // Strike ladder → contract grader. Any cell carrying data-gex-k hands the
+    // strike (plus the column's expiration and the net-gamma-dominant side)
+    // to the Grade tab through the same pendingUrlState pipe the Top Picks
+    // contract buttons use — loadChain consumes it and lands on the Contract
+    // grade sub-tab. Delegated on the grid so it survives re-renders.
+    var gridEl = $('gex-grid');
+    if (gridEl){
+      gridEl.addEventListener('click', function(ev){
+        var cell = ev.target.closest && ev.target.closest('[data-gex-k]');
+        if (!cell) return;
+        var sym = gexState.symbol;
+        if (!sym || SYMBOLS.indexOf(sym) === -1) return;
+        var k = parseFloat(cell.getAttribute('data-gex-k') || '');
+        var exp = parseInt(cell.getAttribute('data-gex-exp') || '', 10);
+        var t = cell.getAttribute('data-gex-side');
+        if (t !== 'call' && t !== 'put') t = null;
+        pendingUrlState = {
+          sym: sym,
+          k: isFinite(k) && k > 0 ? k : null,
+          exp: isFinite(exp) && exp > 0 ? exp : null,
+          t: t,
+        };
+        var gradeTab = document.querySelector('[data-page-tab="grade"]');
+        if (gradeTab) gradeTab.click();
+        try { combo.commit(sym); } catch (_) {}
+      });
+    }
   }
 
   // --- Strategies tab -----------------------------------------------------
@@ -13598,10 +13641,15 @@
       var title = e.link
         ? '<a href="' + escapeHtml(e.link) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(e.headline || '') + '</a>'
         : escapeHtml(e.headline || '');
+      // Tracked tickers link out to the Grade tab (same data-sym pattern as
+      // Stock Picks / Trending IV); anything outside the universe stays text.
+      var tkr = !e.ticker ? '' : (SYMBOLS.indexOf(e.ticker) !== -1
+        ? '<button type="button" class="cr-tkr" data-sym="' + escapeHtml(e.ticker) + '" title="Open ' + escapeHtml(e.ticker) + ' in the Grade tab">' + escapeHtml(e.ticker) + '<span class="stk-sym-go" aria-hidden="true">↗</span></button>'
+        : '<span class="cr-tkr">' + escapeHtml(e.ticker) + '</span>');
       rows += '<div class="cr-row">' +
         '<div class="cr-row-top">' +
           '<span class="cr-kind ' + kc + '">' + escapeHtml(e.kindLabel || e.kind || '') + '</span>' +
-          '<span class="cr-tkr">' + escapeHtml(e.ticker || '') + '</span>' +
+          tkr +
           '<span class="cr-name">' + escapeHtml(e.name || '') + '</span>' +
           (amt ? '<span class="cr-amt">' + amt + '</span>' : '') +
         '</div>' +
@@ -13614,6 +13662,7 @@
       '</div>';
     }
     root.innerHTML = '<div class="cr-rows">' + rows + '</div>';
+    bindBriefChips(root);
   }
 
   // --- Trending IV (Flow tab) ----------------------------------------------
@@ -14076,9 +14125,16 @@
     var zone = row.clean
       ? '<span class="stk-zone stk-zone-buy" title="Passed the quality gate, beaten down, and no trap flags">Buy zone</span>'
       : '<span class="stk-zone stk-zone-flag" title="Beaten down, but the yellow flags below deserve a look first">' + nTraps + ' flag' + (nTraps === 1 ? '' : 's') + '</span>';
+    // Two fixed header rows — identity (symbol + name + sector), then badges
+    // (zone + dip score) — so the Buy zone / flag badge sits in the same spot
+    // on every card. A single wrapping row let long company names push the
+    // badges around card-by-card.
     return '<article class="stk-card' + (row.clean ? ' stk-card-clean' : '') + '">' +
       '<header class="stk-head">' +
-        '<button type="button" class="stk-sym" data-sym="' + escapeHtml(row.symbol) + '" title="Open ' + escapeHtml(row.symbol) + ' in the Grade tab">' + escapeHtml(row.symbol) + '<span class="stk-sym-go" aria-hidden="true">↗</span></button>' + name + sector + zone + scoreBadge +
+        '<div class="stk-head-id">' +
+          '<button type="button" class="stk-sym" data-sym="' + escapeHtml(row.symbol) + '" title="Open ' + escapeHtml(row.symbol) + ' in the Grade tab">' + escapeHtml(row.symbol) + '<span class="stk-sym-go" aria-hidden="true">↗</span></button>' + name + sector +
+        '</div>' +
+        '<div class="stk-head-badges">' + zone + scoreBadge + '</div>' +
       '</header>' +
       '<div class="stk-spot-row"><b>' + fmtMoney(row.spot) + '</b>' + stkRangeBar(row) + '</div>' +
       stkSpark(row) +
@@ -14458,7 +14514,7 @@
   // Stock Picks card symbols, Trending-IV symbols/chips/table rows).
   function bindBriefChips(rootEl){
     if (!rootEl) return;
-    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .stk-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym], .cmd-watch[data-sym]');
+    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .stk-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym], .cmd-watch[data-sym], .cr-tkr[data-sym], .f13-sym[data-sym]');
     for (var i = 0; i < chips.length; i++){
       chips[i].addEventListener('click', function(ev){
         var sym = ev.currentTarget.getAttribute('data-sym');
@@ -15056,7 +15112,12 @@
         kind: 'catalyst', iconType: 'catalyst', label: 'Next catalyst',
         value: nextCatDays === 0 ? 'Today' : calRelativeLabel(nextCatDays),
         sub: (nextCat.symbol ? nextCat.symbol + ' · ' : '') + (nextCat.title || 'Catalyst'),
-        sym: nextCat.symbol || null
+        // Stay on the calendar (like the earnings card): filter the month grid
+        // to catalysts and jump to the event's day, instead of leaving for the
+        // ticker's Grade page. The symbol pill inside the day-detail chip is
+        // still the way out to the Grade tab.
+        filter: 'catalysts',
+        date: nextCat.date || null
       });
     } else if (events.length){
       cards.push({
@@ -15081,6 +15142,7 @@
       if (c.scrollTo) attrs += ' data-cal-scroll="' + escapeHtml(c.scrollTo) + '"';
       if (c.filter) attrs += ' data-cal-filter="' + escapeHtml(c.filter) + '" title="Show ' + escapeHtml(c.filter) + ' on the calendar"';
       else if (c.sym) attrs += ' data-cal-sym="' + escapeHtml(c.sym) + '"';
+      if (c.date) attrs += ' data-cal-date="' + escapeHtml(c.date) + '"';
       return '<' + tag + attrs + '>' +
           '<span class="cal-ov-icon">' + calEventIcon(c.iconType) + '</span>' +
           '<span class="cal-ov-body">' +
@@ -16096,10 +16158,18 @@
           }
           return;
         }
-        // Filter card (Earnings this week): select that type pill on the month
-        // grid and bring the grid into view, instead of leaving the calendar.
+        // Filter card (Earnings this week / Next catalyst): select that type
+        // pill on the month grid and bring the grid into view, instead of
+        // leaving the calendar.
         var filterType = card.getAttribute('data-cal-filter');
         if (filterType){
+          // A dated card (Next catalyst) also jumps the month grid to the
+          // event's day so the detail panel opens on the event itself.
+          var jumpDay = card.getAttribute('data-cal-date') || '';
+          if (jumpDay.length === 10){
+            calendarState.viewYm = jumpDay.slice(0, 7);
+            calendarState.selectedDate = jumpDay;
+          }
           var pill = document.querySelector('.calendar-type-filter .calendar-pill[data-cal-type="' + filterType + '"]');
           if (pill) pill.click();
           else { calendarState.type = filterType; renderCalendar(); }
@@ -16112,6 +16182,16 @@
         }
         var sym = card.getAttribute('data-cal-sym');
         if (sym) calGoToTicker(sym);
+      });
+    }
+    // Header "Index calendar →" link: hop to the Index calendar tab (the daily
+    // SPY/QQQ/... % -move grid) without hunting for it in the sidebar.
+    var idxJump = document.getElementById('calendar-idxcal-link');
+    if (idxJump && !idxJump.dataset.bound){
+      idxJump.dataset.bound = '1';
+      idxJump.addEventListener('click', function(){
+        var t = document.querySelector('[data-page-tab="index-cal"]');
+        if (t) t.click();
       });
     }
   }
@@ -16452,9 +16532,15 @@
           var w = maxAbs > 0 ? Math.abs(r.valueChange) / maxAbs : 0;
           var bar = '<i class="f13-holding-bar f13-bar-' + side + '" style="width:' + (w * 100).toFixed(1) + '%"></i>';
           var firmsTitle = Array.isArray(r.sampleFirms) ? r.sampleFirms.join(' · ') : '';
+          // Curated tickers link to the Grade tab; unmapped ("—") or
+          // outside-the-universe names stay plain text.
+          var tk = tickerOrFallback(r);
+          var tkCell = (tk && SYMBOLS.indexOf(tk) !== -1)
+            ? '<button type="button" class="f13-sym" data-sym="' + escapeHtml(tk) + '" title="Open ' + escapeHtml(tk) + ' in the Grade tab">' + escapeHtml(tk) + '</button>'
+            : '<span>' + escapeHtml(tk) + '</span>';
           return '<tr>' +
             '<td class="f13-num"><span>' + (j + 1) + '</span></td>' +
-            '<td class="f13-tkr"><span>' + escapeHtml(tickerOrFallback(r)) + '</span></td>' +
+            '<td class="f13-tkr">' + tkCell + '</td>' +
             '<td><span>' + escapeHtml(decodeIssuerName(r.name) || '') + '</span></td>' +
             '<td class="f13-num mag-cell">' + bar + '<span>' + escapeHtml(fmtSignedDollarsF13(r.valueChange)) + '</span></td>' +
             '<td class="f13-num f13-muted"><span>' + escapeHtml(fmtSignedSharesF13(r.shareChange)) + '</span></td>' +
@@ -16642,6 +16728,7 @@
       '</div>';
     }
     root.innerHTML = html;
+    bindBriefChips(root);
   }
 
   // --- Fear & Greed tab ---------------------------------------------------

@@ -74,9 +74,13 @@ const SIDE_NAV_ICONS = {
 // wiring the app JS, cmd-K palette, premium lock marker and role-hidden tab
 // removal all key off — only the inner structure (icon + label span) is new.
 // `label` is trusted static HTML (entities like &amp; allowed).
-function sideNavItem(id, label, { selected = false } = {}) {
+// `navHidden` keeps the button in the DOM (selectTab, cmd-K targeting, and
+// every "open X in the Grade tab" link work through [data-page-tab] buttons)
+// but hides it from the visible sidebar — used for destination-only panes
+// like Grade a ticker, reached by clicking a ticker anywhere on the site.
+function sideNavItem(id, label, { selected = false, navHidden = false } = {}) {
   const icon = SIDE_NAV_ICONS[id] || '';
-  return `<button type="button" class="page-tab" role="tab" data-page-tab="${id}" aria-selected="${selected ? 'true' : 'false'}" aria-controls="page-pane-${id}" id="page-tab-${id}"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg><span class="pt-label">${label}</span></button>`;
+  return `<button type="button" class="page-tab" role="tab" data-page-tab="${id}" aria-selected="${selected ? 'true' : 'false'}" aria-controls="page-pane-${id}" id="page-tab-${id}"${navHidden ? ' data-nav-hidden="1"' : ''}><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg><span class="pt-label">${label}</span></button>`;
 }
 
 // Collapsible explainer — keeps the full descriptive text on the page (nothing
@@ -369,6 +373,7 @@ function calendarSection() {
   return `<section class="card" id="calendar-section">
     <header class="card-header">
       <h2 class="card-title">Calendar</h2>
+      <button type="button" class="card-jump" id="calendar-idxcal-link" title="Open the Index calendar — daily SPY/QQQ/IWM/&hellip; moves, month by month">Index calendar &rarr;</button>
       <span class="card-eyebrow" id="calendar-eyebrow" aria-live="polite"></span>
     </header>
     ${infoNote("What's on this calendar?", `<p>A month-at-a-time view of every dated market event, opening on the <b>current month</b> — use <b>&lsaquo;</b> / <b>&rsaquo;</b> to step between months (or <b>Today</b> to jump back), and tap any day to see its full details below the grid. It tracks: confirmed earnings dates (with AM/PM session tagging) for every curated ticker, ticker-specific catalysts (FDA dates, contract decisions, product launches, court rulings, investor days — extracted from recent news), structured economic-report releases (NFP, Unemployment, JOLTS, CPI, PPI) with Actual / Previous / Consensus values, upcoming FOMC meetings, and the current effective Fed Funds rate plus CME FedWatch hike/hold/cut probabilities at four lookbacks. Ticker chips are clickable.</p>`)}
@@ -1302,7 +1307,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="side-nav-group">
     <div class="side-nav-group-label" aria-hidden="true">Tools</div>
-    ${sideNavItem('grade', 'Grade a ticker')}
+    ${sideNavItem('grade', 'Grade a ticker', { navHidden: true })}
     ${sideNavItem('compare', 'Compare companies')}
     ${sideNavItem('strategies', 'Strategies')}
     ${sideNavItem('cheatsheet', "Buyer's manual")}

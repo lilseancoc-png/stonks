@@ -20,12 +20,28 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
        (same format, plus the archive preamble) and add that month to the
        "Older changelogs" index below. -->
 
+## 2026-07-13
+
+### Added
+- **Ticker → Grade-tab links across Volume, Capital raises, and 13F.** The Volume tab's row symbols get a ↗ jump (the row head still expands/collapses), Capital-raises event tickers and the 13F most-bought/most-sold ticker cells become buttons — all landing on the ticker in the Grade pane via the shared `data-sym` pattern; names outside the curated universe stay plain text. `scripts/render/{app-js,styles-css}.mjs`.
+- **Gamma exposure — click a strike to grade the contract.** Every strike-ladder cell (the strike header, the Net Σ cell, and each per-expiration cell) now hands its strike — plus the column's expiration and the net-gamma-dominant side — to the Grade tab's contract grader, through the same `pendingUrlState` pipe the Top Picks "grade this contract" buttons use. `scripts/render/{app-js,styles-css}.mjs`.
+
+### Changed
+- **Trending IV — tier colors are an intensity ramp, not a verdict.** Surging/Trending/Building (and the summary-strip kind chips) move off the red/yellow/green scale — which misread as bad/neutral/good — onto violet → blue → brass (new `--violet` theme var, dark + light); red/green stay reserved for direction/P&L. `scripts/render/styles-css.mjs`.
+- **RAM prices — the chart's hovered date + price readout is card-sized.** The top-right readout on the US-retail DDR5 chart was the 12px small-multiple chip; it now renders at 17px on that chart (Grade-tab fundamentals charts keep the compact chip). `scripts/render/styles-css.mjs`.
+
+### Removed
+- **"Grade a ticker" no longer shows in the sidebar.** The pane itself stays — every ticker link on the site, cmd-K, and `?tab=grade`/`?s=` deep links still open it — but the TOOLS nav entry is hidden (`data-nav-hidden` on the emitted button). `scripts/render/{html,styles-css}.mjs`.
+
 ## 2026-07-12
 
 ### Added
+- **Calendar — "Index calendar →" header link.** The Calendar tab's header now carries a small pill link that hops straight to the Index calendar tab, so the two calendars are one click apart. `scripts/render/{html,app-js,styles-css}.mjs`; `index.html`/`app.js`/`styles.css` hand-synced pending the next bake.
 - **Trending IV — sort & filter the tickers.** A chip bar above the highlight cards lets you sort/filter both the cards and the ranked table: Top score (the default baked order), the tier buckets (Surging / Trending / Building, with live counts, filtering to that tier), Elevated, Highest IV, most above own average, biggest 5-day risers, biggest 5-day fallers, and earnings soonest. One selection drives both sections; empty buckets hide their chip. `scripts/render/{app-js,styles-css}.mjs`; `app.js`/`styles.css`/`index.html` hand-synced pending the next bake.
 
 ### Changed
+- **Stock Picks — the Buy zone / flag badge lines up on every card.** The card header is now two fixed rows — symbol + company + sector, then the zone badge (left) and dip score (right) — instead of one wrapping row, so a long company name can no longer push the badge into a different spot card-by-card. `scripts/render/{app-js,styles-css}.mjs`.
+- **Calendar — the "Next catalyst" overview card stays on the calendar.** Clicking it now filters the month grid to catalysts and jumps to the event's day (detail panel opens on the event), matching the earnings card, instead of leaving for the ticker's Grade page; the symbol pill inside the day's chip is still the way out to the Grade tab. `scripts/render/app-js.mjs`.
 - **Trending IV — the summary strip highlights standouts only.** Instead of rolling up every flagged name (a wall of symbols once dozens tier at once), `buildIvTrendSummary` now calls out only names doing something exceptional, each tagged with a kind the UI badges: **way above norm** (≥ +2σ and ≥ 30% over the name's own mean), **IV deflating** (5-session IV change ≤ −12% — the falling-fast read the old strip never surfaced), **fast ramp** (≥ +20% in 5 sessions), **no catalyst** (surging/trending with no scheduled print inside 45 days), and **rising streak** (≥ 5 consecutive up sessions). Fixed documented bars, deduped by priority (≤ 2 per kind, ≤ 6 total); the tier counts collapse to one trailing "across the board" sentence. Older payloads' tier-only standout chips still render. `scripts/build.mjs` (`buildIvTrendSummary`), `scripts/render/app-js.mjs`.
 
 ### Added
