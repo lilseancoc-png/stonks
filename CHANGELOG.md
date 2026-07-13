@@ -20,6 +20,19 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
        (same format, plus the archive preamble) and add that month to the
        "Older changelogs" index below. -->
 
+## 2026-07-13
+
+### Added
+- **Ticker → Grade-tab links across Volume, Capital raises, and 13F.** The Volume tab's row symbols get a ↗ jump (the row head still expands/collapses), Capital-raises event tickers and the 13F most-bought/most-sold ticker cells become buttons — all landing on the ticker in the Grade pane via the shared `data-sym` pattern; names outside the curated universe stay plain text. `scripts/render/{app-js,styles-css}.mjs`.
+- **Gamma exposure — click a strike to grade the contract.** Every strike-ladder cell (the strike header, the Net Σ cell, and each per-expiration cell) now hands its strike — plus the column's expiration and the net-gamma-dominant side — to the Grade tab's contract grader, through the same `pendingUrlState` pipe the Top Picks "grade this contract" buttons use. `scripts/render/{app-js,styles-css}.mjs`.
+
+### Changed
+- **Trending IV — tier colors are an intensity ramp, not a verdict.** Surging/Trending/Building (and the summary-strip kind chips) move off the red/yellow/green scale — which misread as bad/neutral/good — onto violet → blue → brass (new `--violet` theme var, dark + light); red/green stay reserved for direction/P&L. `scripts/render/styles-css.mjs`.
+- **RAM prices — the chart's hovered date + price readout is card-sized.** The top-right readout on the US-retail DDR5 chart was the 12px small-multiple chip; it now renders at 17px on that chart (Grade-tab fundamentals charts keep the compact chip). `scripts/render/styles-css.mjs`.
+
+### Removed
+- **"Grade a ticker" no longer shows in the sidebar.** The pane itself stays — every ticker link on the site, cmd-K, and `?tab=grade`/`?s=` deep links still open it — but the TOOLS nav entry is hidden (`data-nav-hidden` on the emitted button). `scripts/render/{html,styles-css}.mjs`.
+
 ## 2026-07-12
 
 ### Added

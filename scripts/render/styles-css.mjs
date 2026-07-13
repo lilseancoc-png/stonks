@@ -45,6 +45,11 @@ export function renderStylesCss() {
   --info:#5b9bd6;
   --info-soft:rgba(91,155,214,0.11);
   --info-tint:rgba(91,155,214,0.07);
+  /* Violet — the non-valenced "intensity" hue (Trending IV tiers). Chosen so
+     magnitude scales (yellow → blue → violet) never borrow red/green, which
+     stay reserved for actual gain/loss direction. */
+  --violet:#af8df0;
+  --violet-soft:rgba(175,141,240,0.13);
   /* Institutional UIs are defined by precise hairlines + subtle drop, not
      puffy shadows. Keep elevation strictly for modals + popovers. */
   --shadow-sm:0 1px 2px rgba(0,0,0,0.35);
@@ -169,6 +174,8 @@ export function renderStylesCss() {
   --info:#2f6fb5;
   --info-soft:rgba(47,111,181,0.10);
   --info-tint:rgba(47,111,181,0.06);
+  --violet:#6d47bd;
+  --violet-soft:rgba(109,71,189,0.10);
   --shadow-sm:0 1px 2px rgba(15,23,42,0.05);
   --shadow-md:0 4px 12px rgba(15,23,42,0.08);
   --shadow-lg:0 24px 48px rgba(15,23,42,0.12);
@@ -730,6 +737,10 @@ body.sidenav-open .side-nav {
   height: 1px;
   background: var(--hairline);
 }
+/* Destination-only panes (Grade a ticker): the button stays in the DOM so
+   selectTab / cmd-K / "open in Grade tab" links keep working, but it never
+   shows in the sidebar. */
+.page-tab[data-nav-hidden] { display: none !important; }
 .page-tab {
   position: relative;
   display: flex;
@@ -2914,14 +2925,17 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 }
 .ivt-sum-chip:hover, .ivt-sum-chip:focus-visible { border-color: var(--accent); color: var(--accent); }
 .ivt-sum-chip em { font: 700 9px/1 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; font-style: normal; color: var(--muted); }
-.ivt-sum-chip.ivt-tier-surging { border-color: color-mix(in srgb, var(--neg) 45%, transparent); }
-.ivt-sum-chip.ivt-tier-surging em { color: var(--neg); }
-.ivt-sum-chip.ivt-tier-trending em { color: var(--accent); }
-.ivt-sum-chip.ivt-tier-building em { color: var(--pos); }
-.ivt-sum-chip.ivt-kind-extreme { border-color: color-mix(in srgb, var(--neg) 45%, transparent); }
-.ivt-sum-chip.ivt-kind-extreme em, .ivt-sum-chip.ivt-kind-unexplained em { color: var(--neg); }
+/* Tier scale is an INTENSITY ramp, not a verdict — violet → blue → brass, so
+   it can't be misread as bad/neutral/good (red/green stay reserved for
+   direction/P&L site-wide). */
+.ivt-sum-chip.ivt-tier-surging { border-color: color-mix(in srgb, var(--violet) 45%, transparent); }
+.ivt-sum-chip.ivt-tier-surging em { color: var(--violet); }
+.ivt-sum-chip.ivt-tier-trending em { color: var(--info); }
+.ivt-sum-chip.ivt-tier-building em { color: var(--accent); }
+.ivt-sum-chip.ivt-kind-extreme { border-color: color-mix(in srgb, var(--violet) 45%, transparent); }
+.ivt-sum-chip.ivt-kind-extreme em, .ivt-sum-chip.ivt-kind-unexplained em { color: var(--violet); }
 .ivt-sum-chip.ivt-kind-ramping em, .ivt-sum-chip.ivt-kind-streak em { color: var(--accent); }
-.ivt-sum-chip.ivt-kind-falling em { color: var(--pos); }
+.ivt-sum-chip.ivt-kind-falling em { color: var(--info); }
 .ivt-sum-chip b { font: 700 11px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
 .ivt-sort { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
 .ivt-sort-chip {
@@ -2942,17 +2956,17 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
   padding: 12px 13px; border: 1px solid var(--border); border-radius: var(--r-1);
   background: var(--surface); border-left-width: 3px;
 }
-.ivt-card.ivt-tier-surging { border-left-color: var(--neg); }
-.ivt-card.ivt-tier-trending { border-left-color: var(--accent); }
-.ivt-card.ivt-tier-building { border-left-color: var(--pos); }
+.ivt-card.ivt-tier-surging { border-left-color: var(--violet); }
+.ivt-card.ivt-tier-trending { border-left-color: var(--info); }
+.ivt-card.ivt-tier-building { border-left-color: var(--accent); }
 .ivt-card-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 8px; }
 .ivt-badge {
   font: 700 10px/1 var(--font-sans); letter-spacing: .06em; text-transform: uppercase;
   padding: 3px 7px; border-radius: 999px;
 }
-.ivt-tier-surging .ivt-badge { color: var(--neg); background: color-mix(in srgb, var(--neg) 14%, transparent); }
-.ivt-tier-trending .ivt-badge { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
-.ivt-tier-building .ivt-badge { color: var(--pos); background: color-mix(in srgb, var(--pos) 14%, transparent); }
+.ivt-tier-surging .ivt-badge { color: var(--violet); background: var(--violet-soft); }
+.ivt-tier-trending .ivt-badge { color: var(--info); background: var(--info-soft); }
+.ivt-tier-building .ivt-badge { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
 /* The symbol is a button — click jumps to the Grade tab with the ticker loaded */
 .ivt-sym { font: 700 15px/1 var(--font-mono); color: var(--text-strong); background: none; border: 0; padding: 0; cursor: pointer; display: inline-flex; align-items: baseline; gap: 3px; }
 .ivt-sym:hover, .ivt-sym:focus-visible { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
@@ -2988,9 +3002,9 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .ivt-trow-symbtn:hover, .ivt-trow-symbtn:focus-visible { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
 .ivt-trow-tier { font: 700 9px/1 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; font-style: normal; color: var(--muted); }
 .ivt-trow-tier.ivt-elev { color: var(--accent); border-bottom: 1px dotted color-mix(in srgb, var(--accent) 55%, transparent); cursor: help; }
-.ivt-trow.ivt-tier-surging .ivt-trow-tier { color: var(--neg); }
-.ivt-trow.ivt-tier-trending .ivt-trow-tier { color: var(--accent); }
-.ivt-trow.ivt-tier-building .ivt-trow-tier { color: var(--pos); }
+.ivt-trow.ivt-tier-surging .ivt-trow-tier { color: var(--violet); }
+.ivt-trow.ivt-tier-trending .ivt-trow-tier { color: var(--info); }
+.ivt-trow.ivt-tier-building .ivt-trow-tier { color: var(--accent); }
 .ivt-trow-num { font: 500 12px/1.2 var(--font-mono); font-variant-numeric: tabular-nums; }
 .ivt-trow-earn { font: 400 11px/1.2 var(--font-sans); color: var(--muted); white-space: nowrap; }
 .ivt-show-all {
@@ -3105,6 +3119,10 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .cr-equity { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .cr-buyback { color: var(--pos); background: color-mix(in srgb, var(--pos) 14%, transparent); }
 .cr-tkr { font: 700 14px/1 var(--font-sans); color: var(--text-strong); }
+/* As a button (tracked ticker → Grade tab): keep the plain-text look. */
+button.cr-tkr { background: none; border: 0; padding: 0; cursor: pointer; display: inline-flex; align-items: baseline; gap: 3px; }
+button.cr-tkr:hover, button.cr-tkr:focus-visible { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+button.cr-tkr:hover .stk-sym-go, button.cr-tkr:focus-visible .stk-sym-go { color: var(--accent); }
 .cr-name { font: 400 12px/1 var(--font-sans); color: var(--muted); }
 .cr-amt { margin-left: auto; font: 700 14px/1 var(--font-mono); color: var(--text-strong); }
 .cr-headline { font: 500 13.5px/1.45 var(--font-sans); color: var(--text); margin: 6px 0 4px; }
@@ -4453,6 +4471,11 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 }
 .opt-fund-eh-readout-label { color: var(--muted); font-weight: 600; letter-spacing: 0.02em; }
 .opt-fund-eh-readout-value { color: var(--text-strong); font-weight: 700; font-family: var(--font-mono); }
+/* On the full-width RAM prices chart the hovered date + price readout is the
+   main way to read the curve — render it card-sized there (the Grade tab's
+   small-multiple fundamentals charts keep the compact chip). */
+.rp-chart .opt-fund-eh-readout { font-size: 17px; padding: 8px 14px; gap: 9px; border-radius: var(--r-2); }
+.rp-chart .opt-fund-eh-readout-label { font-size: 13px; }
 .opt-fund-eh-svg {
   width: 100%; height: auto; display: block;
   overflow: visible;
@@ -7266,6 +7289,9 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
 .f13-table tbody tr:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .f13-num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
 .f13-tkr { font: 600 13px/1.2 var(--font-mono); color: var(--text-strong); letter-spacing: .02em; }
+/* Curated tickers render as buttons → Grade tab; inherit the cell's mono look. */
+.f13-sym { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.f13-sym:hover, .f13-sym:focus-visible { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
 .f13-muted { color: var(--muted); }
 .f13-rank-list {
   margin: 0;
@@ -14175,6 +14201,10 @@ html::-webkit-scrollbar-thumb:hover {
   letter-spacing: 0.02em;
   color: var(--text);
 }
+/* ↗ jump next to the symbol — opens the ticker in the Grade tab. A focusable
+   span (not a button: it nests inside the row-head toggle button). */
+.vol-sym-go { font: 600 10px/1 var(--font-sans); color: var(--muted); cursor: pointer; align-self: center; }
+.vol-sym-go:hover, .vol-sym-go:focus-visible { color: var(--accent); outline: none; }
 .vol-spot { color: var(--text-2); font-variant-numeric: tabular-nums; }
 .vol-row-summary {
   display: flex;
@@ -16265,6 +16295,10 @@ a.brief-hline-title:hover .brief-hline-ext { color: var(--accent-strong); }
 }
 .gex-cell { color: var(--text-strong); font-weight: 500; }
 .gex-cell.is-empty { color: var(--text-3); background: transparent; }
+/* Cells carrying data-gex-k hand their strike/expiration to the contract
+   grader on click — show it. */
+[data-gex-k] { cursor: pointer; }
+td[data-gex-k]:hover, th[data-gex-k]:hover { box-shadow: inset 0 0 0 1.5px var(--accent); }
 .gex-tr:hover .gex-strike { color: var(--text); }
 .gex-spot-row .gex-spot-strike {
   background: var(--accent-soft); color: var(--accent-strong); font-weight: 700;

@@ -74,9 +74,13 @@ const SIDE_NAV_ICONS = {
 // wiring the app JS, cmd-K palette, premium lock marker and role-hidden tab
 // removal all key off — only the inner structure (icon + label span) is new.
 // `label` is trusted static HTML (entities like &amp; allowed).
-function sideNavItem(id, label, { selected = false } = {}) {
+// `navHidden` keeps the button in the DOM (selectTab, cmd-K targeting, and
+// every "open X in the Grade tab" link work through [data-page-tab] buttons)
+// but hides it from the visible sidebar — used for destination-only panes
+// like Grade a ticker, reached by clicking a ticker anywhere on the site.
+function sideNavItem(id, label, { selected = false, navHidden = false } = {}) {
   const icon = SIDE_NAV_ICONS[id] || '';
-  return `<button type="button" class="page-tab" role="tab" data-page-tab="${id}" aria-selected="${selected ? 'true' : 'false'}" aria-controls="page-pane-${id}" id="page-tab-${id}"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg><span class="pt-label">${label}</span></button>`;
+  return `<button type="button" class="page-tab" role="tab" data-page-tab="${id}" aria-selected="${selected ? 'true' : 'false'}" aria-controls="page-pane-${id}" id="page-tab-${id}"${navHidden ? ' data-nav-hidden="1"' : ''}><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg><span class="pt-label">${label}</span></button>`;
 }
 
 // Collapsible explainer — keeps the full descriptive text on the page (nothing
@@ -1303,7 +1307,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="side-nav-group">
     <div class="side-nav-group-label" aria-hidden="true">Tools</div>
-    ${sideNavItem('grade', 'Grade a ticker')}
+    ${sideNavItem('grade', 'Grade a ticker', { navHidden: true })}
     ${sideNavItem('compare', 'Compare companies')}
     ${sideNavItem('strategies', 'Strategies')}
     ${sideNavItem('cheatsheet', "Buyer's manual")}
