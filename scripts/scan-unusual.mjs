@@ -688,7 +688,7 @@ async function attachFlowExplanations(mergedTickers, scannedAt, nowSec) {
   }
   console.log(`flow explanations: generating ${misses.length} new (${Object.keys(cache.entries).length} cached)`);
 
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: Number(process.env.AI_HTTP_TIMEOUT_MS ?? 120000) } });
   // Simple bounded fan-out — split work into AI_FLOW_CONCURRENCY parallel
   // workers; each worker drains tasks from a shared queue.
   const queue = misses.slice();

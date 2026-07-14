@@ -426,7 +426,7 @@ async function main() {
       if (!sectors.length) {
         console.warn(`[heatmap] no sectors to summarize — skipping EOD generation`);
       } else {
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: Number(process.env.AI_HTTP_TIMEOUT_MS ?? 120000) } });
         const { headline, sectors: mergedSectors } = await generateEodSummary(ai, todayEt, stats, sectors);
         eodSummary = {
           date: todayEt,

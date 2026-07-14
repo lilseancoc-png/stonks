@@ -87,6 +87,12 @@ jobs:
           # TPM line at this token size; 750 is the aggressive option.) Leave
           # UNSET on a free-tier fork (Gemma free = 15 RPM; even 100 is too high).
           AI_RPM: "600"
+          # The chart-pattern pass is the build's largest AI wall-clock block on
+          # its twice-daily cache-rollover builds (~139 fresh vision+thinking
+          # calls at ~30-60s each). 12-wide instead of the code default 6 halves
+          # that pass; call VOLUME is unchanged (~20 RPM against the 600 pacer),
+          # so this only raises in-flight parallelism, not the request rate.
+          AI_CHART_CONCURRENCY: "12"
           # Model selection is plumbed through Actions Variables so we can
           # swap models (Gemma free tier → Gemini 2.5 Flash-Lite on paid
           # Tier 1, etc.) without touching code. Unset = build.mjs falls

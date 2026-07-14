@@ -14707,7 +14707,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
   }
   if (keyless || !toCall.length) return { map, cache: next };
 
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
   console.log(`Writing AI thesis for ${toCall.length} candidate(s)… (${Object.keys(next).length} reused${AI_THESIS_SEARCH ? ", web-search grounded" : ""})`);
   for (const { r, side, k, sig } of toCall) {
     // Per-candidate isolation: a bad data shape or a hard API failure on ONE name
@@ -16272,10 +16272,13 @@ function aiModelChain(primary) {
   // Models marked dead this process (a model-level 404 in classifyAiError —
   // Google shut the model down) are skipped from attempt 0, so after one probe
   // every later call goes straight to a live sibling instead of re-404ing the
-  // dead primary on every request. If EVERYTHING is marked dead, keep the
-  // original chain — the marks may have been a transient upstream glitch and
-  // degrading exactly as before beats never trying again.
-  const alive = chain.filter((m) => !DEAD_AI_MODELS.has(m));
+  // dead primary on every request. Models on an OVERLOAD COOLDOWN (persistent
+  // 503 load-shedding — see classifyAiError) are skipped the same way, but
+  // only temporarily: the cooldown expires and the next call re-probes. If
+  // EVERYTHING is marked dead/cooled, keep the original chain — the marks may
+  // have been a transient upstream glitch and degrading exactly as before
+  // beats never trying again.
+  const alive = chain.filter((m) => !DEAD_AI_MODELS.has(m) && !aiModelOnCooldown(m));
   return alive.length ? alive : chain;
 }
 // The model to use on a given 0-based retry attempt: primary first, then walk the
@@ -16477,6 +16480,7 @@ const AI_HEALTH = {
 
 export function recordAiUsage({ model, callType, symbol, usage, mode }) {
   AI_HEALTH.ok += 1;
+  noteAiModelSuccess(model); // a serving model clears its overload strikes/cooldown
   AI_HEALTH.byCallType[callType] = (AI_HEALTH.byCallType[callType] || 0) + 1;
   if (!_aiUsageState) _aiUsageState = { dates: {} };
   const today = new Date().toISOString().slice(0, 10);
@@ -16572,6 +16576,7 @@ export function computeAiHealthReport() {
     ok: AI_HEALTH.ok, failAttempts: AI_HEALTH.failAttempts,
     byClass: { ...AI_HEALTH.byClass }, byCallType: { ...AI_HEALTH.byCallType },
     deadModels,
+    overloadedModels: [...AI_MODELS_EVER_BENCHED],
   };
 }
 
@@ -16602,6 +16607,7 @@ async function writeAiHealthReport() {
     ``,
     `Successful calls by type: ${callTypes}`,
     ...(rep.deadModels.length ? [``, `**Dead models:** ${rep.deadModels.join(", ")} — fix: \`gh variable set AI_MODEL --body gemini-3.1-flash-lite\` (+ \`NARRATIVES_MODEL\`), and check the code defaults in \`scripts/build.mjs\`.`] : []),
+    ...(rep.overloadedModels.length ? [``, `**Overload-benched models (persistent 503s this run):** ${rep.overloadedModels.join(", ")} — calls were routed to siblings; no action needed unless it persists across days.`] : []),
   ].join("\n");
   if (process.env.GITHUB_STEP_SUMMARY) {
     try { await appendFile(process.env.GITHUB_STEP_SUMMARY, rep.md + "\n"); } catch {}
@@ -16632,6 +16638,18 @@ const AI_RETRY_BACKOFF_MS = [2000, 5000, 15000, 30000, 60000];
 // A short churn-fast clamp keeps the build moving through a 503 storm.
 const AI_5XX_MAX_BACKOFF_MS = Number(process.env.AI_5XX_MAX_BACKOFF_MS ?? 4000);
 
+// Hard wall-clock ceiling on a single generateContent request. Without it a
+// request the server accepts but never (or glacially) answers holds its
+// concurrency slot indefinitely — the 2026-07-14 bake logged individual
+// thesis/chart calls hanging 5-10 MINUTES during a 503 storm, and with the
+// chart pass at 6-wide concurrency a handful of hangs stalled the whole pass
+// (whole minutes at "6 in flight, 0 progress"). 120s comfortably clears the
+// slowest legitimate call in the build (full-Flash + thinking + vision runs
+// ~30-60s); past that the request is a casualty of the same overload the
+// retry ladder handles — better to abort, take the strike, and re-issue on a
+// sibling model. Passed as httpOptions.timeout to every GoogleGenAI client.
+const AI_HTTP_TIMEOUT_MS = Number(process.env.AI_HTTP_TIMEOUT_MS ?? 120_000);
+
 // Between-pass "miss sweep" wait. After an AI pass, any ticker still missing a
 // result gets one more swing — but only after a pause to let a transient blip
 // (a socket reset, a stray 429) clear. Was a flat 30s ("sleep through a 60s
@@ -16659,6 +16677,46 @@ const AI_MISS_SWEEP_WAIT_MS = 15000;
 // process) and return a token backoff so the loop rolls straight to the
 // sibling. Without the ladder a 404 stays terminal, as before.
 const DEAD_AI_MODELS = new Set();
+
+// Overload cooldown — the 503 analog of DEAD_AI_MODELS. A "high demand" 503 is
+// classified transient (correct per call), but when a model is PERSISTENTLY
+// load-shedding (the 2026-07-13/14 builds logged 200-300 503s per run, with
+// ~95% of chart/thesis calls only succeeding after falling the whole ladder to
+// the last sibling), re-probing the sick model from attempt 0 on EVERY call
+// taxes each of the ~150 AI calls with 2 failed round-trips + backoffs — that
+// (plus hung requests, see AI_HTTP_TIMEOUT_MS) is what blew the bake from ~5min
+// to 60-100min and queued the hourly workflows behind it. So: N consecutive
+// 5xx/network failures from the same model (no success in between) bench it
+// for a cooldown window — aiModelChain skips it from attempt 0, sending every
+// later call straight to the sibling that is actually serving. Any success
+// (recordAiUsage) clears the strikes; an expired cooldown lets the next call
+// re-probe, so recovery is automatic (~1 probe-round per cooldown window
+// instead of 2 wasted attempts per call). Unlike DEAD_AI_MODELS this never
+// outlives its window, and the aiModelChain all-filtered escape still applies.
+const AI_MODEL_COOLDOWN_STRIKES = Number(process.env.AI_MODEL_COOLDOWN_STRIKES ?? 3);
+const AI_MODEL_COOLDOWN_MS = Number(process.env.AI_MODEL_COOLDOWN_MS ?? 10 * 60_000);
+const AI_MODEL_STRIKES = new Map();        // model -> consecutive 5xx/network failures
+const AI_MODEL_COOLDOWN_UNTIL = new Map(); // model -> epoch-ms the bench expires
+const AI_MODELS_EVER_BENCHED = new Set();  // for the health report
+function aiModelOnCooldown(model) {
+  const until = AI_MODEL_COOLDOWN_UNTIL.get(model);
+  return until != null && Date.now() < until;
+}
+function noteAiModelSuccess(model) {
+  AI_MODEL_STRIKES.delete(model);
+  AI_MODEL_COOLDOWN_UNTIL.delete(model);
+}
+function noteAiModelOverloadStrike(model) {
+  if (!AI_MODEL_FALLBACK || AI_MODEL_COOLDOWN_STRIKES <= 0) return;
+  const strikes = (AI_MODEL_STRIKES.get(model) || 0) + 1;
+  AI_MODEL_STRIKES.set(model, strikes);
+  if (strikes >= AI_MODEL_COOLDOWN_STRIKES && !aiModelOnCooldown(model)) {
+    AI_MODEL_COOLDOWN_UNTIL.set(model, Date.now() + AI_MODEL_COOLDOWN_MS);
+    AI_MODELS_EVER_BENCHED.add(model);
+    console.log(`    ⏸ ${model} benched for ${Math.round(AI_MODEL_COOLDOWN_MS / 60000)}min after ${strikes} consecutive 5xx/network failures — later calls skip straight to a sibling`);
+  }
+}
+
 function classifyAiError(err, attempt, model = null) {
   const msg = String(err?.message || "");
   const causeMsg = String(err?.cause?.message || err?.cause?.code || "");
@@ -16680,6 +16738,9 @@ function classifyAiError(err, attempt, model = null) {
   else if (is5xx) AI_HEALTH.byClass.server += 1;
   else if (isNetwork) AI_HEALTH.byClass.network += 1;
   else AI_HEALTH.byClass.other += 1;
+  // 5xx/network failures feed the overload cooldown (429 quota does not — that
+  // is OUR budget, not the model's capacity, and switching models won't help).
+  if ((is5xx || isNetwork) && model) noteAiModelOverloadStrike(model);
   if (!is429 && !is5xx && !isNetwork) return null;
   if (is429) {
     const m = msg.match(/retry in ([\d.]+)\s*s/i);
@@ -17868,7 +17929,7 @@ export async function buildMarketBriefs(opts) {
   let generated = 0;
   if (haveKey && want) {
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
       const signals = gatherBriefSignals(kind, { chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges, headlines, ivTrending });
       const gen = await generateBrief(ai, kind, todayEt, signals);
       // On failure the catch keeps the prior brief (carry-forward).
@@ -18973,7 +19034,7 @@ async function attachAiContractGuidance(chains, judgmentCache = null) {
     console.log("No GEMINI_API_KEY set — Major Contract + Guidance signals stay on proxy / no-data.");
     return;
   }
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
   const model = process.env.AI_SIGNALS_MODEL || AI_NEWS_MODEL;
   const systemPrompt =
     "You are an equity analyst extracting two structured facts from recent news for an options trader. " +
@@ -19715,7 +19776,7 @@ async function attachFundamentalsJudgments(chains) {
     console.log("No GEMINI_API_KEY set — skipping fundamentals judgments. Raw metrics still attached.");
     return;
   }
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
   const entries = Object.entries(chains).filter(([, data]) => hasUsefulFundamentals(data.fundamentals));
   console.log(`Generating fundamentals judgments for ${entries.length} tickers…`);
   // Pacing is handled centrally by acquireAiSlot() inside the generate call;
@@ -19752,7 +19813,7 @@ async function attachAiNewsTakes(chains, macroBackdrop) {
     console.log("No GEMINI_API_KEY set — skipping AI news takes. Chain data will still build.");
     return;
   }
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
   const entries = Object.entries(chains);
   console.log(`Generating AI news takes for ${entries.length} tickers…`);
   resetBodyFetchStats();
@@ -19909,7 +19970,7 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
     // keyed build to start cold.
     return priorCache;
   }
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
   const entries = Object.entries(chains);
   console.log(`Generating combined ticker judgments (news + fundamentals) for ${entries.length} tickers…`);
   _capitalRaiseFlags = []; // reset the capital-raises accumulator each build
@@ -20435,7 +20496,7 @@ async function attachChartPatterns(chains, priorCache = {}) {
     // cold (and a keyless fork has no patterns to cache either way).
     return priorCache;
   }
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
   // Reads the in-memory INTRADAY (30m) series — writeChainFiles strips _intraday
   // before write, so this MUST run before that wipe — needing ~2 weeks of bars.
   const entries = Object.entries(chains).filter(
@@ -21242,7 +21303,7 @@ async function attachMarketNarratives(chains, previousHistory, macroReleaseReads
     try { keylessHeadlines = await fetchMacroHeadlines(); } catch (_) { /* degrade to empty */ }
     return { narratives: [], sectorOverviews: {}, recentlyEnded: [], history: previousHistory, macroHeadlines: keylessHeadlines };
   }
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
   const lastSnapshot = previousHistory[0];
   // Guard the inner .narratives/.name access (not just lastSnapshot): this runs
   // before the stale-fallback try/catch below, so a malformed or legacy history
