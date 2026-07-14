@@ -128,7 +128,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-07-13","ageDays":null};
+  var RFR_META = {"source":"cached","asOf":"2026-07-13","ageDays":1};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -997,7 +997,7 @@
     if (!c || c.strike == null || !c.expiryLabel) return '';
     var sideLabel = side === 'put' ? 'PUT' : 'CALL';
     var dteTxt = (c.dte != null) ? ' · ' + c.dte + 'd' : '';
-    var otmTxt = (c.otmPct != null && isFinite(c.otmPct)) ? ' · ' + Math.abs(Number(c.otmPct)).toFixed(1) + '% OTM' : '';
+    var otmTxt = (c.otmPct != null && isFinite(c.otmPct)) ? ' · ' + Math.abs(Number(c.otmPct)).toFixed(1) + '% ' + (Number(c.otmPct) < 0 ? 'ITM' : 'OTM') : '';
     // Premium / Breakeven / Greeks stat grid — mirrors pickContractHtml().
     var premiumPrimary = '';
     if (c.mid != null && isFinite(c.mid)) premiumPrimary = '$' + Number(c.mid).toFixed(2);
@@ -3417,6 +3417,12 @@
         // Auto-live spot refreshes — poll only while the owning tab is visible.
         if (name === 'tickers' && typeof startTickersLive === 'function') startTickersLive();
         if (name === 'picks' && typeof startPicksLive === 'function') startPicksLive();
+        // Re-arm the Grade live poll on tab RE-ENTRY: leaving Grade stops it and
+        // nothing restarted it, so the 30s chain refresh stayed dead (while the
+        // indicator still read "Live") until the ticker was re-committed.
+        // startLivePolling guards internally — a no-op until a chain is loaded and
+        // the market is REGULAR.
+        if (name === 'grade' && typeof startLivePolling === 'function') startLivePolling();
         if (name === 'oi' && typeof startOiLive === 'function') startOiLive();
         if (name === 'oi' && typeof renderOI === 'function') renderOI();
         if (name === 'oi' && typeof loadOiData === 'function') loadOiData();
@@ -4212,9 +4218,21 @@
     renderLiveQuote(symbol, q);
     if (q.spot != null && isFinite(q.spot) && q.spot > 0 && q.spot !== state.spot){
       state.spot = q.spot;
-      // Re-snap the ATM strike pick to live spot, then regrade. The user's
-      // current type/expiry selection is preserved by populateStrikes().
+      // Re-snap the strike ladder to the live spot, then regrade — but PRESERVE
+      // the user's current strike selection (a deep-linked ?k= or a Top-Picks
+      // "Grade" handoff). populateStrikes() resets the strike <select> to ATM, so
+      // save/restore it the same way refreshLiveChain does; otherwise the first
+      // live tick silently regrades the ATM contract instead of the chosen one.
+      var prevContract = findContract();
+      var prevStrike = prevContract ? prevContract.s : null;
       populateStrikes();
+      if (prevStrike != null){
+        var chain = state.chains[state.currentExp];
+        var rows = chain ? ((getOptType() === 'call' ? chain.c : chain.p) || []) : [];
+        for (var i = 0; i < rows.length; i++){
+          if (rows[i] && rows[i].s === prevStrike){ $('opt-strike').selectedIndex = i; break; }
+        }
+      }
       evaluate();
     }
     // Always fire one immediate chain refresh on ticker selection so the
@@ -5797,6 +5815,9 @@
       var sa = angle + (slices.length > 1 ? GAP / 2 : 0);
       var ea = angle + sweep - (slices.length > 1 ? GAP / 2 : 0);
       if (ea <= sa) ea = sa + 0.001;
+      // A lone full-circle slice would draw a zero-length (invisible) arc — its
+      // start and end points coincide. Nudge the end just short of a full turn.
+      if (ea - sa >= TAU) ea = sa + TAU - 0.0001;
       var col = SEG_COLORS[i % SEG_COLORS.length];
       paths += '<path class="opt-fund-seg-slice" d="' + arcPath(sa, ea) + '" fill="' + col + '" data-idx="' + i + '"/>';
       angle += sweep;
@@ -10014,8 +10035,12 @@
       macroTape.hist.push(sample);
       while (macroTape.hist.length > TAPE_HIST_MAX) macroTape.hist.shift();
     }
-    var roster = { calls: 0, puts: 0, total: picks.length };
-    for (var ri = 0; ri < picks.length; ri++){ if (picks[ri] && picks[ri].side === 'put') roster.puts++; else roster.calls++; }
+    // Count ACTIONABLE picks only (the sized/opened book the drift banner
+    // describes) — including watch/wait-tier rows overstated it and could flip
+    // the callHeavy warning on un-enrolled ideas. Matches trackedPicks().
+    var rosterPicks = picks.filter(function(p){ return p && p.group === 'actionable'; });
+    var roster = { calls: 0, puts: 0, total: rosterPicks.length };
+    for (var ri = 0; ri < rosterPicks.length; ri++){ if (rosterPicks[ri].side === 'put') roster.puts++; else roster.calls++; }
     var chipSlot = document.getElementById('picks-regime-chip');
     if (chipSlot) chipSlot.innerHTML = buildRegimeChip(regime, entryRegime, { live: isLive, fetchedAt: macroTape.fetchedAt });
     // Reconcile the LIVE regime against the regime the frozen roster was built
@@ -10497,10 +10522,15 @@
     if (d.riskOffAxes != null && isFinite(d.riskOffAxes) && d.riskOffAxes > 0) bits.push(d.riskOffAxes + ' risk-off ax' + (d.riskOffAxes === 1 ? 'is' : 'es'));
     if (d.persisted && d.rawState && d.rawState !== d.state) bits.push('held · read ' + String(d.rawState).replace('severe-risk-off', 'severe risk-off'));
     var drivers = (d.drivers && d.drivers.length) ? d.drivers : [];
-    var lean = d.picks, leanHtml = '';
-    if (lean && (lean.calls || lean.puts)){
+    // The roster lean rides under d.lean (appendRegimeHistory), not d.picks, and
+    // its shape varies by producer: the bake stores a 'call'|'put' string, regen
+    // stores { calls, puts }. Handle both so the line renders either way.
+    var lean = d.lean, leanHtml = '';
+    if (lean && typeof lean === 'object' && (lean.calls || lean.puts)){
       leanHtml = '<div class="regime-detail-lean">Picks leaned <b>' + lean.calls + '</b> call' + (lean.calls === 1 ? '' : 's') + ' / <b>' + lean.puts + '</b> put' + (lean.puts === 1 ? '' : 's') + ' that day</div>';
-    } else if (lean && lean.total === 0){
+    } else if (typeof lean === 'string' && (lean === 'call' || lean === 'put')){
+      leanHtml = '<div class="regime-detail-lean">Picks leaned <b>' + (lean === 'call' ? 'long (calls)' : 'short (puts)') + '</b> that day</div>';
+    } else if (lean && typeof lean === 'object' && lean.total === 0){
       leanHtml = '<div class="regime-detail-lean">No actionable picks that day</div>';
     }
     return '<div class="regime-detail-head">' +
@@ -10694,7 +10724,10 @@
     if (!epochSec) return '';
     var d = new Date(Number(epochSec) * 1000);
     if (isNaN(d.getTime())) return '';
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    // Expiry epochs are 00:00 UTC of the expiry date — read in UTC, else a
+    // viewer west of UTC (all US users) sees the prior calendar day (matches
+    // fmtExpiryLabel's convention).
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
   }
   function oiDte(epochSec){
     if (!epochSec) return null;
@@ -11658,7 +11691,7 @@
       var tnet = (ps && isFinite(ps.net)) ? ps.net : 0;
       var kSide = tnet >= 0 ? 'call' : 'put';
       html += '<tr class="gex-tr' + (isCW ? ' is-callwall' : '') + (isPW ? ' is-putwall' : '') + '">' +
-        '<th class="gex-strike" scope="row" data-gex-k="' + K + '" data-gex-side="' + kSide + '" title="Grade the ' + escapeHtml(sym) + ' $' + fmtOiStrike(K) + ' ' + kSide + ' (the dominant side here) in the contract grader">' + fmtOiStrike(K) + wallTag + '</th>';
+        '<th class="gex-strike" scope="row" data-gex-k="' + K + '" data-gex-side="' + kSide + '" title="Grade the ' + escapeHtml(sym) + ' ' + fmtOiStrike(K) + ' ' + kSide + ' (the dominant side here) in the contract grader">' + fmtOiStrike(K) + wallTag + '</th>';
       // Net Σ total column.
       if (tnet === 0){
         html += '<td class="gex-total-cell is-empty"></td>';
@@ -11767,7 +11800,9 @@
   function stratFmtDate(epochSec){
     if (!epochSec) return '';
     var d = new Date(epochSec * 1000);
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    // Expiry epochs are 00:00 UTC of the expiry date — read in UTC so a US viewer
+    // doesn't see the prior day (and disagree with the DTE, which is offset-aware).
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
   }
   function stratDte(epochSec){
     if (!epochSec) return null;
@@ -17865,7 +17900,15 @@
   }
 
   function bindHeatmapTileEvents(root){
-    var tooltip = $('heatmap-tooltip');
+    // Bind ONCE. root (#heatmap-root) is stable across renderHeatmap() calls
+    // (only its innerHTML is replaced), so re-binding every render — each wheel
+    // notch, zoom button, resize, or toggle — leaked a duplicate listener set and
+    // broke pan-click suppression (only the first duplicate consumed
+    // suppressNextClick; later ones navigated on the pan-release click). The
+    // tooltip element lives inside the re-rendered innerHTML, so it's looked up
+    // fresh per event below rather than captured once here.
+    if (root._tileEventsBound) return;
+    root._tileEventsBound = true;
     function onClick(ev){
       // Swallow the click that ends a pan-drag so it doesn't navigate away.
       if (heatmapState.suppressNextClick){ heatmapState.suppressNextClick = false; return; }
@@ -17881,6 +17924,7 @@
       setTimeout(function(){ if (combo && typeof combo.commit === 'function') combo.commit(sym); }, 0);
     }
     function onMove(ev){
+      var tooltip = $('heatmap-tooltip');
       var btn = ev.target && ev.target.closest && ev.target.closest('.heatmap-tile');
       if (!btn || !tooltip){ if (tooltip) tooltip.hidden = true; return; }
       var sym = btn.getAttribute('data-sym');
@@ -17931,7 +17975,7 @@
       tooltip.style.setProperty('--tip-y', y + 'px');
       tooltip.hidden = false;
     }
-    function onLeave(){ if (tooltip) tooltip.hidden = true; }
+    function onLeave(){ var tooltip = $('heatmap-tooltip'); if (tooltip) tooltip.hidden = true; }
     root.addEventListener('click', onClick);
     root.addEventListener('mousemove', onMove);
     root.addEventListener('mouseleave', onLeave);
@@ -18495,7 +18539,7 @@
   function accBracketPnlPerContract(e){
     var d = tradeDollars(e); if (!d) return null;
     var credit = e.contract && e.contract.structure === 'credit_vertical';
-    var tpGate = credit ? 50 : 20, stopGate = credit ? 100 : 30;
+    var tpGate = credit ? 50 : 20, stopGate = credit ? 50 : 30;  // credit stop is symmetric −50% (PICKS_CREDIT_STOP_PCT), not −100%
     var px = (isFinite(d.pnlPct) && d.pnlPct >= 0) ? tpGate : -stopGate;
     return d.basis * px;
   }
@@ -19742,6 +19786,10 @@
     }
     var res = runMonteCarlo(closed, { iters: Number(accView.mcIters) || 5000, seed: accView.mcSeed });
     if (res.empty){ accPaneSummary('acc-sum-montecarlo', []); box.innerHTML = banner + controls + '<p class="muted acc-an-note">Not enough resolved trades.</p>'; return; }
+    // Remember a completed run so a later renderAccuracy() re-entry (tab switch /
+    // sort change) re-renders it deterministically (same seed → same chart)
+    // instead of wiping it back to the "Press Run" prompt.
+    accView.mcRan = true;
     // "At a glance" strip — the distribution's headline numbers.
     var mcTake = (res.probProfit >= 0.5 ? 'Most simulated paths finish profitable' : 'Fewer than half of the simulated paths finish profitable') +
       '; a bad-but-plausible run (95th percentile) draws down ' + Math.round(res.p95MaxDD * 100) + '%. All hypothetical.';
@@ -19929,9 +19977,15 @@
       '<span class="roster-out-why">' + escapeHtml(e.whyText || '') + '</span>' +
       '<span class="roster-expand" aria-hidden="true">▾</span>' +
     '</summary>';
+    // Exited entries don't carry per-pillar deltas (buildPicksRoster only tracks
+    // the overall grade move for a dropped name), so show that instead of the
+    // pillar chips — which would otherwise misread as "Newly tracked".
+    var moveNote = e.deltaScore != null
+      ? '<div class="roster-deltas roster-deltas-none">Overall grade ' + rosterSignedNum(e.deltaScore) + ' since it was last in the Top 10' + (e.sideFlipped ? ' · side flipped' : '') + '.</div>'
+      : '<div class="roster-deltas roster-deltas-none">No prior grade to compare.</div>';
     var body = '<div class="roster-row-body">' +
       '<div class="roster-section-lbl">Where the score moved</div>' +
-      rosterDeltaChips(e.pillarDeltas) +
+      moveNote +
       '<details class="roster-rubric"><summary>Full grading rubric →</summary>' + rosterRubric(e.symbol) + '</details>' +
     '</div>';
     return '<details class="roster-row roster-row-exited">' + summary + body + '</details>';
@@ -20204,7 +20258,7 @@
     renderEquityView();
     renderBreakdowns();
     renderSimulation();
-    renderMonteCarlo(false);
+    renderMonteCarlo(accView.mcRan === true);  // re-render a completed run (deterministic) instead of wiping it
     if (d.loadError){
       // Surface the error on the default (Scorecard) pane — accuracy-root now
       // lives in the hidden Picks pane, so an error written only there would be
@@ -20754,7 +20808,12 @@
       var nd = 0, nt = 0, ng = 0, nv = 0, ok = false;
       for (var li = 0; li < c.legs.length; li++){
         var leg = c.legs[li], lq = Number(leg.qty) || 0, lk = Number(leg.strike), liv = Number(leg.iv);
-        var lg = (S > 0 && lk > 0 && liv > 0 && exp > 0) ? greeks(side, S, lk, posYrs(exp), liv, RFR) : null;
+        // Price each leg with its OWN option type, not the pick side: a credit
+        // vertical's legs are the opposite type (a bullish name's credit spread is
+        // a bull-PUT spread), so the pick side here mispriced the leg and the
+        // mixed live/baked path could show net delta off by ~1.
+        var legType = leg.type || c.optionType || side;
+        var lg = (S > 0 && lk > 0 && liv > 0 && exp > 0) ? greeks(legType, S, lk, posYrs(exp), liv, RFR) : null;
         var ld = lg ? lg.delta : Number(leg.delta), lt = lg ? lg.thetaDay : Number(leg.thetaDay), lgm = lg ? lg.gamma : null, lv = lg ? lg.vega : Number(leg.vega);
         if (isFinite(ld)) { nd += ld * lq; ok = true; }
         if (isFinite(lt)) nt += lt * lq;
