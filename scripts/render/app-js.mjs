@@ -15994,11 +15994,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var monthCount = filtered.length;
     // Resolve the selected day BEFORE building the grid so the chosen cell gets
     // its highlight (each cell reads calendarState.selectedDate at build time).
-    // Keep a valid prior selection; otherwise default to today (if it's in view
-    // and has events) else the month's first event day.
+    // An explicit selection STICKS even when the day has no events — the detail
+    // panel renders its "No events on … — pick another day" note. (Coercing an
+    // empty-day click back to today made the grid feel broken.) Only pick a
+    // default when nothing is selected for the viewed month: today (if in view
+    // and it has events), else the month's first event day.
     var sel = calendarState.selectedDate;
     if (sel && sel.slice(0, 7) !== viewYm) sel = null;
-    if (!sel || !(groups[sel] && groups[sel].length)){
+    if (!sel){
       if (todayYm === viewYm && groups[todayYmd] && groups[todayYmd].length) sel = todayYmd;
       else if (dateOrder.length) sel = dateOrder[0];
       else sel = (todayYm === viewYm ? todayYmd : null);
@@ -16135,6 +16138,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (!btn) return;
         var type = btn.getAttribute('data-cal-type') || 'all';
         calendarState.type = type;
+        // Selections survive re-renders now (see renderCalendar), so re-pick a
+        // default day when the current one has nothing under the new filter —
+        // but keep it when it still matches (the overview's "Next catalyst"
+        // card pre-selects the event's day before clicking this pill).
+        var selDay = calendarState.selectedDate;
+        if (selDay){
+          var typeEvs = (calendarState.data && calendarState.data.events) || [];
+          var selStillMatches = typeEvs.some(function(e){ return e.date === selDay && calendarTypeMatches(e.type, type); });
+          if (!selStillMatches) calendarState.selectedDate = null;
+        }
         typeFilter.querySelectorAll('.calendar-pill').forEach(function(p){
           var on = p.getAttribute('data-cal-type') === type;
           p.classList.toggle('is-on', on);
