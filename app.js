@@ -3141,7 +3141,7 @@
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','market','picks','stocks','heatmap','calendar','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','commodities','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','market','picks','stocks','heatmap','calendar','earnings','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','commodities','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3163,6 +3163,7 @@
     ticker: 'tickers',
     global: 'overnight', asia: 'overnight', correlations: 'overnight', correlation: 'overnight', overnights: 'overnight',
     gex: 'oi', gamma: 'oi', 'gamma-exposure': 'oi',
+    'earnings-tracker': 'earnings', 'earnings-season': 'earnings', season: 'earnings', eps: 'earnings',
     iv: 'iv-trend', 'trending-iv': 'iv-trend', 'iv-trending': 'iv-trend', ivtrend: 'iv-trend', 'implied-vol': 'iv-trend', 'implied-volatility': 'iv-trend',
     // Reference / legal / info pages (now in-app tabs).
     'buyers-manual': 'cheatsheet', 'buyer-manual': 'cheatsheet', cheat: 'cheatsheet', 'cheat-sheet': 'cheatsheet', manual: 'cheatsheet',
@@ -3432,6 +3433,7 @@
         if (name === 'oi' && typeof loadGex === 'function' && !gexState.data && !gexState.loading) loadGex();
         if (name === 'strategies' && typeof initStrategies === 'function') initStrategies();
         if (name === 'compare' && typeof initCompare === 'function') initCompare();
+        if (name === 'earnings' && typeof loadEarningsTracker === 'function') loadEarningsTracker();
         if (name === 'ai-capex' && typeof loadAiCapex === 'function') loadAiCapex();
         if (name === 'ram-prices' && typeof loadRamPrices === 'function') loadRamPrices();
         if (name === 'commodities' && typeof loadCommodities === 'function') loadCommodities();
@@ -13253,6 +13255,207 @@
     return '<div class="cmp-summary-head">Summary</div><ul class="cmp-summary-list">' + lis + '</ul>';
   }
 
+  // --- Earnings tracker (season scoreboard) ---------------------------------
+  // data/earnings-tracker.json — every tracked name's prints grouped into
+  // reporting seasons: beat/miss/in-line + guidance splits, expected-move hit
+  // rate, post-print breadth, biggest gaps, and the AI season read. All move
+  // fields are FRACTIONS (0.04 = 4%), like earningsHx; surprisePct is a %.
+  var earningsState = { data: null, loading: false, seasonKey: null };
+  function ersNum(v){ return v != null && isFinite(v); }
+  function ersPct(v, signed){
+    if (!ersNum(v)) return '—';
+    var p = v * 100;
+    return (signed !== false && p >= 0 ? '+' : '') + p.toFixed(1) + '%';
+  }
+  function ersToneCls(v){ return !ersNum(v) ? '' : v > 0 ? ' ers-pos' : v < 0 ? ' ers-neg' : ''; }
+  function ersEpsChip(eps){
+    if (eps === 'beat') return '<span class="ers-chip ers-chip-pos">beat</span>';
+    if (eps === 'miss') return '<span class="ers-chip ers-chip-neg">miss</span>';
+    if (eps === 'inline') return '<span class="ers-chip ers-chip-flat">in line</span>';
+    return '<span class="ers-dim">—</span>';
+  }
+  function ersGuidChip(g){
+    if (g === 'up') return '<span class="ers-chip ers-chip-pos">raised</span>';
+    if (g === 'down') return '<span class="ers-chip ers-chip-neg">cut</span>';
+    if (g === 'inline') return '<span class="ers-chip ers-chip-flat">in line</span>';
+    return '<span class="ers-dim" title="No guidance read captured for this print">—</span>';
+  }
+  // Proportional 3-segment split bar. segs = [{n, cls, label}]; skips empty.
+  function ersSplitBar(segs){
+    var total = 0;
+    for (var i = 0; i < segs.length; i++) total += segs[i].n || 0;
+    if (!total) return '';
+    var bar = '';
+    for (var j = 0; j < segs.length; j++){
+      var n = segs[j].n || 0;
+      if (!n) continue;
+      bar += '<span class="ers-seg ' + segs[j].cls + '" style="flex-grow:' + n + '" title="' + escapeHtml(segs[j].label + ': ' + n) + '">' + (n / total >= 0.12 ? n : '') + '</span>';
+    }
+    return '<div class="ers-bar" role="img" aria-label="' + escapeHtml(segs.map(function(s){ return s.label + ' ' + (s.n || 0); }).join(', ')) + '">' + bar + '</div>';
+  }
+  function ersSymBtn(sym){
+    return '<button type="button" class="ers-sym" data-sym="' + escapeHtml(sym) + '" title="Open ' + escapeHtml(sym) + ' in the Grade tab">' + escapeHtml(sym) + '</button>';
+  }
+  function ersDate(iso){
+    if (!iso || iso.length < 10) return '—';
+    var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return MON[parseInt(iso.slice(5,7),10)-1] + ' ' + parseInt(iso.slice(8,10),10);
+  }
+  function loadEarningsTracker(){
+    if (earningsState.data || earningsState.loading){ renderEarningsTracker(); return; }
+    earningsState.loading = true;
+    fetch('data/earnings-tracker.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){ earningsState.data = (j && typeof j === 'object') ? j : { seasons: [] }; earningsState.loading = false; renderEarningsTracker(); })
+      .catch(function(){ earningsState.data = { seasons: [], loadError: true }; earningsState.loading = false; renderEarningsTracker(); });
+  }
+  function renderEarningsTracker(){
+    var root = $('earnings-root'); var empty = $('earnings-empty'); var eye = $('earnings-eyebrow');
+    if (!root) return;
+    var d = earningsState.data;
+    if (!d){ root.textContent = 'Loading earnings tracker…'; return; }
+    var seasons = Array.isArray(d.seasons) ? d.seasons : [];
+    if (!seasons.length){
+      root.innerHTML = '';
+      if (empty){ empty.hidden = false; empty.textContent = d.loadError ? 'Could not load earnings tracker data.' : 'Earnings tracker data will appear after the next daily build refresh.'; }
+      return;
+    }
+    if (empty) empty.hidden = true;
+    if (eye && d.builtAtIso) eye.textContent = 'as of ' + String(d.builtAtIso).slice(0,10);
+    var season = null;
+    for (var i = 0; i < seasons.length; i++){ if (seasons[i].key === earningsState.seasonKey) season = seasons[i]; }
+    if (!season) season = seasons[0];
+    var c = season.counts || {};
+    var s = season.stats || {};
+    var html = '';
+    // Season selector pills — newest first, fiscal-quarter labels.
+    var pills = '';
+    for (var p = 0; p < seasons.length; p++){
+      var sn = seasons[p];
+      pills += '<button type="button" class="ers-pill' + (sn.key === season.key ? ' is-active' : '') + '" data-ers-season="' + escapeHtml(sn.key) + '">' +
+        escapeHtml(sn.fiscal || sn.key) + '<span class="ers-pill-n">' + (sn.counts ? sn.counts.reported : 0) + '</span></button>';
+    }
+    html += '<div class="ers-pills" role="tablist" aria-label="Earnings seasons">' + pills + '</div>';
+    html += '<div class="ers-season-head"><span class="ers-season-title">' + escapeHtml(season.fiscal || season.key) + ' earnings season</span>' +
+      '<span class="ers-season-sub">announced ' + escapeHtml(season.window || '') + ' · ' + c.reported + ' report' + (c.reported === 1 ? '' : 's') + (d.universe ? ' across ' + d.universe + ' tracked names' : '') + '</span></div>';
+    // AI season read — current season only (it's minted for the latest one).
+    var ai = d.ai && d.ai.seasonKey === season.key ? d.ai : null;
+    if (ai && ai.summary){
+      var toneCls = ai.tone === 'positive' ? 'ers-chip-pos' : ai.tone === 'negative' ? 'ers-chip-neg' : 'ers-chip-flat';
+      var stand = '';
+      if (Array.isArray(ai.standouts) && ai.standouts.length){
+        for (var st = 0; st < ai.standouts.length; st++){
+          var so = ai.standouts[st];
+          if (!so || !so.ticker) continue;
+          stand += '<div class="ers-standout">' + ersSymBtn(so.ticker) + '<span class="ers-standout-note">' + escapeHtml(so.note || '') + '</span></div>';
+        }
+      }
+      html += '<div class="ers-ai">' +
+        '<div class="ers-ai-head"><span class="ers-ai-label">AI season read</span>' +
+          (ai.tone ? '<span class="ers-chip ' + toneCls + '">' + escapeHtml(ai.tone) + ' for equities</span>' : '') +
+          (ai.date ? '<span class="ers-ai-date">' + escapeHtml(ai.date) + '</span>' : '') + '</div>' +
+        '<div class="ers-ai-headline">' + escapeHtml(ai.headline || '') + '</div>' +
+        '<p class="ers-ai-summary">' + escapeHtml(ai.summary) + '</p>' +
+        (stand ? '<div class="ers-standouts">' + stand + '</div>' : '') +
+      '</div>';
+    } else if (season.tone){
+      html += '<div class="ers-ai ers-ai-fallback"><div class="ers-ai-head"><span class="ers-ai-label">Season read</span>' +
+        '<span class="ers-chip ' + (season.tone === 'positive' ? 'ers-chip-pos' : season.tone === 'negative' ? 'ers-chip-neg' : 'ers-chip-flat') + '">' + escapeHtml(season.tone) + ' for equities</span></div>' +
+        '<p class="ers-ai-summary">Deterministic read from breadth + beat rate' + (ersNum(s.breadthPct) ? ' — ' + s.breadthPct.toFixed(0) + '% of reactions closed up' : '') + (ersNum(s.beatRatePct) ? ', ' + s.beatRatePct.toFixed(0) + '% beat estimates' : '') + '.</p></div>';
+    }
+    // Stat tiles.
+    var tiles = '';
+    tiles += '<div class="ers-tile"><div class="ers-tile-label">EPS vs estimates</div>' +
+      ersSplitBar([{ n: c.beat, cls: 'ers-seg-pos', label: 'Beat' }, { n: c.inline, cls: 'ers-seg-flat', label: 'In line' }, { n: c.miss, cls: 'ers-seg-neg', label: 'Missed' }]) +
+      '<div class="ers-tile-sub"><b class="ers-pos">' + (c.beat || 0) + ' beat</b> · ' + (c.inline || 0) + ' in line · <b class="ers-neg">' + (c.miss || 0) + ' missed</b>' + (c.epsKnown < c.reported ? ' <span class="ers-dim">(' + c.epsKnown + ' with EPS data)</span>' : '') + '</div>' +
+      ((ersNum(s.beatRatePct) || ersNum(s.avgSurprisePct)) ? '<div class="ers-tile-note">' + (ersNum(s.beatRatePct) ? 'beat rate ' + s.beatRatePct.toFixed(0) + '%' : '') + (ersNum(s.avgSurprisePct) ? (ersNum(s.beatRatePct) ? ' · ' : '') + 'avg surprise ' + (s.avgSurprisePct >= 0 ? '+' : '') + s.avgSurprisePct.toFixed(1) + '%' : '') + '</div>' : '') +
+    '</div>';
+    tiles += '<div class="ers-tile"><div class="ers-tile-label">Guidance</div>' +
+      (c.guidKnown
+        ? ersSplitBar([{ n: c.guidUp, cls: 'ers-seg-pos', label: 'Raised' }, { n: c.guidInline, cls: 'ers-seg-flat', label: 'In line' }, { n: c.guidDown, cls: 'ers-seg-neg', label: 'Cut' }]) +
+          '<div class="ers-tile-sub"><b class="ers-pos">' + (c.guidUp || 0) + ' raised</b> · ' + (c.guidInline || 0) + ' in line · <b class="ers-neg">' + (c.guidDown || 0) + ' cut</b> <span class="ers-dim">(' + c.guidKnown + ' with a read)</span></div>' +
+          ((c.beatGuidedUp || c.missedGuidedDown) ? '<div class="ers-tile-note">' + (c.beatGuidedUp || 0) + ' beat &amp; raised · ' + (c.missedGuidedDown || 0) + ' missed &amp; cut</div>' : '')
+        : '<div class="ers-tile-sub ers-dim">No guidance reads for this season — reads are captured from the news flow around each print going forward.</div>') +
+    '</div>';
+    tiles += '<div class="ers-tile"><div class="ers-tile-label">vs the expected move</div>' +
+      (c.impliedKnown
+        ? ersSplitBar([{ n: c.exceededImplied, cls: 'ers-seg-warn', label: 'Exceeded' }, { n: c.withinImplied, cls: 'ers-seg-flat', label: 'Stayed within' }]) +
+          '<div class="ers-tile-sub"><b>' + (c.exceededImplied || 0) + '</b> moved more than options priced · <b>' + (c.withinImplied || 0) + '</b> stayed inside <span class="ers-dim">(' + c.impliedKnown + ' with a straddle read)</span></div>' +
+          ((ersNum(s.avgImpliedMovePct) || ersNum(s.avgAbsMovePct)) ? '<div class="ers-tile-note">avg implied ±' + (ersNum(s.avgImpliedMovePct) ? (s.avgImpliedMovePct * 100).toFixed(1) : '—') + '% vs avg realized ±' + (ersNum(s.avgAbsMovePct) ? (s.avgAbsMovePct * 100).toFixed(1) : '—') + '%</div>' : '')
+        : '<div class="ers-tile-sub ers-dim">No straddle-implied reads for this season — the implied move is snapshotted live in the final week before each print, so this fills in over time.</div>') +
+    '</div>';
+    tiles += '<div class="ers-tile"><div class="ers-tile-label">Post-earnings reactions</div>' +
+      ersSplitBar([{ n: c.up, cls: 'ers-seg-pos', label: 'Closed up' }, { n: c.flat, cls: 'ers-seg-flat', label: 'Flat' }, { n: c.down, cls: 'ers-seg-neg', label: 'Closed down' }]) +
+      '<div class="ers-tile-sub"><b class="ers-pos">' + (c.up || 0) + ' up</b> · <b class="ers-neg">' + (c.down || 0) + ' down</b>' + (ersNum(s.breadthPct) ? ' — ' + s.breadthPct.toFixed(0) + '% positive' : '') + '</div>' +
+      '<div class="ers-tile-note">avg move ' + ersPct(s.avgMovePct) + (ersNum(s.avgWeek1Pct) ? ' · avg 1-wk drift ' + ersPct(s.avgWeek1Pct) : '') +
+        ((c.beatButDown || c.missedButUp) ? '<br>' + (c.beatButDown || 0) + ' beat but closed down · ' + (c.missedButUp || 0) + ' missed but closed up' : '') + '</div>' +
+    '</div>';
+    html += '<div class="ers-tiles">' + tiles + '</div>';
+    // Gap leaders.
+    var L = season.leaders || {};
+    function ersLeaderRows(rows, useGap){
+      var out = '';
+      for (var r = 0; r < (rows || []).length; r++){
+        var x = rows[r];
+        var v = useGap ? x.gapPct : x.movePct;
+        out += '<div class="ers-ldr-row">' +
+          ersSymBtn(x.sym) +
+          '<span class="ers-ldr-name">' + escapeHtml(x.name || '') + '</span>' +
+          '<span class="ers-ldr-meta">' + ersEpsChip(x.eps) + (x.guidance ? ersGuidChip(x.guidance) : '') + '<span class="ers-dim">' + ersDate(x.date) + '</span></span>' +
+          '<span class="ers-ldr-val' + ersToneCls(v) + '">' + ersPct(v) + (useGap && ersNum(x.movePct) ? '<span class="ers-ldr-day">' + ersPct(x.movePct) + ' day</span>' : '') + '</span>' +
+        '</div>';
+      }
+      return out;
+    }
+    var gapUp = ersLeaderRows(L.gapUp, true) || ersLeaderRows(L.moveUp, false);
+    var gapDown = ersLeaderRows(L.gapDown, true) || ersLeaderRows(L.moveDown, false);
+    var gapMode = (L.gapUp && L.gapUp.length) || (L.gapDown && L.gapDown.length);
+    if (gapUp || gapDown){
+      html += '<div class="ers-ldrs">' +
+        (gapUp ? '<div class="ers-ldr-col"><div class="ers-ldr-head ers-pos">Biggest ' + (gapMode ? 'gap-ups' : 'up moves') + '</div>' + gapUp + '</div>' : '') +
+        (gapDown ? '<div class="ers-ldr-col"><div class="ers-ldr-head ers-neg">Biggest ' + (gapMode ? 'gap-downs' : 'down moves') + '</div>' + gapDown + '</div>' : '') +
+      '</div>';
+    }
+    // Full season table.
+    var rowsArr = Array.isArray(season.rows) ? season.rows : [];
+    if (rowsArr.length){
+      var trows = '';
+      for (var t = 0; t < rowsArr.length; t++){
+        var rw = rowsArr[t];
+        var epsTxt = ersNum(rw.epsActual) ? rw.epsActual.toFixed(2) + (ersNum(rw.epsEstimate) ? ' <span class="ers-dim">vs ' + rw.epsEstimate.toFixed(2) + '</span>' : '') : '<span class="ers-dim">—</span>';
+        var surTxt = ersNum(rw.surprisePct) ? '<span class="' + (rw.surprisePct > 0 ? 'ers-pos' : rw.surprisePct < 0 ? 'ers-neg' : '') + '">' + (rw.surprisePct >= 0 ? '+' : '') + rw.surprisePct.toFixed(1) + '%</span>' : '<span class="ers-dim">—</span>';
+        var impTxt = ersNum(rw.impliedMovePct)
+          ? '±' + (rw.impliedMovePct * 100).toFixed(1) + '%' + (rw.exceededImplied != null ? ' <span class="ers-chip ' + (rw.exceededImplied ? 'ers-chip-warn' : 'ers-chip-flat') + '">' + (rw.exceededImplied ? 'exceeded' : 'within') + '</span>' : '')
+          : '<span class="ers-dim">—</span>';
+        trows += '<tr>' +
+          '<td>' + ersSymBtn(rw.sym) + '</td>' +
+          '<td class="ers-td-date">' + ersDate(rw.date) + (rw.session === 'AM' ? ' <span class="ers-dim">AM</span>' : rw.session === 'PM' ? ' <span class="ers-dim">PM</span>' : '') + '</td>' +
+          '<td>' + ersEpsChip(rw.eps) + '</td>' +
+          '<td class="ers-td-num">' + epsTxt + '</td>' +
+          '<td class="ers-td-num">' + surTxt + '</td>' +
+          '<td>' + ersGuidChip(rw.guidance) + '</td>' +
+          '<td class="ers-td-num' + ersToneCls(rw.gapPct) + '">' + ersPct(rw.gapPct) + '</td>' +
+          '<td class="ers-td-num' + ersToneCls(rw.movePct) + '">' + ersPct(rw.movePct) + '</td>' +
+          '<td class="ers-td-num">' + impTxt + '</td>' +
+          '<td class="ers-td-num' + ersToneCls(rw.week1Pct) + '">' + ersPct(rw.week1Pct) + '</td>' +
+        '</tr>';
+      }
+      html += '<div class="ers-table-wrap"><table class="ers-table"><thead><tr>' +
+        '<th>Ticker</th><th>Reported</th><th>Result</th><th class="ers-td-num">EPS</th><th class="ers-td-num">Surprise</th><th>Guidance</th><th class="ers-td-num">Gap</th><th class="ers-td-num">Day</th><th class="ers-td-num">Expected</th><th class="ers-td-num">1 wk</th>' +
+        '</tr></thead><tbody>' + trows + '</tbody></table></div>';
+    }
+    root.innerHTML = html;
+    // Season pill clicks re-render in place.
+    var pillEls = root.querySelectorAll('[data-ers-season]');
+    for (var pe = 0; pe < pillEls.length; pe++){
+      pillEls[pe].addEventListener('click', function(ev){
+        earningsState.seasonKey = ev.currentTarget.getAttribute('data-ers-season');
+        renderEarningsTracker();
+      });
+    }
+    bindBriefChips(root);
+  }
+
   // --- AI CapEx (Macro tab) -----------------------------------------------
   // Aggregate Mag-7 capital expenditure from data/ai-capex.json — SEC XBRL
   // CapEx, latest full FY vs the year before (+ TTM run-rate), per company.
@@ -14549,7 +14752,7 @@
   // Stock Picks card symbols, Trending-IV symbols/chips/table rows).
   function bindBriefChips(rootEl){
     if (!rootEl) return;
-    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .stk-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym], .cmd-watch[data-sym], .cr-tkr[data-sym], .f13-sym[data-sym]');
+    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .stk-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym], .cmd-watch[data-sym], .cr-tkr[data-sym], .f13-sym[data-sym], .ers-sym[data-sym]');
     for (var i = 0; i < chips.length; i++){
       chips[i].addEventListener('click', function(ev){
         var sym = ev.currentTarget.getAttribute('data-sym');
