@@ -45,6 +45,7 @@ const SIDE_NAV_ICONS = {
   stocks: '<path d="M3.5 20.5v-17"/><path d="M3.5 20.5h17"/><path d="m6.5 15.5 4-4.5 3 2.5 4.5-6"/><path d="M14.5 7.5H18V11"/>',
   calendar: '<rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18"/>',
   'index-cal': '<rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18M8 15h.01M12 15h.01M16 15h.01"/>',
+  earnings: '<rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18"/><path d="m6.5 17.5 3-3.5 2.5 2 4-4.5"/><path d="M13.5 11.5H16V14"/>',
   track: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14.5 2 2 4-4.5"/>',
   heatmap: '<rect x="3" y="3" width="7.5" height="7.5" rx="1"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1"/>',
   flow: '<path d="M13 2 3 14h9l-1 8 10-12h-9z"/>',
@@ -454,6 +455,23 @@ function overnightSection() {
     <div id="overnight-broad" class="overnight-broad" aria-label="Global backdrop"></div>
     <div id="overnight-root" class="overnight-root">Loading overnight markets&hellip;</div>
     <p class="hint">Correlation (r) and sensitivity (&beta;) are computed from up to 150 trading days of daily-return overlap (sample size <em>n</em> is shown &mdash; faint / asterisked low-n fits are noisier); &beta; &times; the peer&rsquo;s move is a rough implied read, not a forecast. Yield moves are shown in basis points. Foreign closes can lag the US session by up to a day. Not financial advice.</p>
+  </section>`;
+}
+
+function earningsTrackerSection() {
+  // Card chrome only — content renders client-side from data/earnings-tracker.json,
+  // lazy-fetched on first tab activation by loadEarningsTracker() in app.js.
+  // Universe-wide season scoreboard: beat/miss/guidance splits, expected-move
+  // hit rate, post-print breadth, biggest gaps, AI season read.
+  return `<section class="card" id="earnings-section">
+    <header class="card-header">
+      <h2 class="card-title">Earnings tracker</h2>
+      <span class="card-eyebrow" id="earnings-eyebrow" aria-live="polite"></span>
+    </header>
+    ${infoNote('What is this?', `<p>A season-by-season scoreboard of every earnings report across the tracked universe. Each <b>season</b> groups the prints announced in one calendar quarter (Jan&ndash;Mar reports cover fiscal Q4, Apr&ndash;Jun cover Q1, and so on). For each season: how many names <b>beat, matched or missed</b> the EPS estimate; how many <b>raised, reaffirmed or cut guidance</b> (read from the news flow around each print &mdash; this fills in going forward, older quarters show no read); how many moved <b>more or less than the options market's expected move</b> (the straddle-implied &plusmn;% snapshotted in the final week before each print); post-earnings <b>up/down breadth</b>; the <b>biggest gap-ups and gap-downs</b> and who they were; and an AI read on whether the season is running positive or negative for equities. Reaction = the first regular session after the print (the announce-day session for pre-open reporters).</p>`)}
+    <div id="earnings-root" class="earnings-root">Loading earnings tracker&hellip;</div>
+    <div id="earnings-empty" class="earnings-empty" hidden>Earnings tracker data will appear after the next daily build refresh.</div>
+    <p class="hint">Coverage is the curated tracked-ticker universe, not the full market; implied-move and guidance columns accumulate from live snapshots, so older quarters can show &ldquo;&mdash;&rdquo;. Not financial advice.</p>
   </section>`;
 }
 
@@ -1282,6 +1300,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     ${sideNavItem('picks', 'Top picks')}
     ${sideNavItem('stocks', 'Stock picks')}
     ${sideNavItem('calendar', 'Calendar')}
+    ${sideNavItem('earnings', 'Earnings tracker')}
     ${sideNavItem('index-cal', 'Index calendar')}
     ${sideNavItem('track', 'Track record')}
   </div>
@@ -1554,6 +1573,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-calendar" role="tabpanel" aria-labelledby="page-tab-calendar" hidden>
   ${calendarSection()}
+  </div>
+  <div class="page-pane" id="page-pane-earnings" role="tabpanel" aria-labelledby="page-tab-earnings" hidden>
+  ${earningsTrackerSection()}
   </div>
   <div class="page-pane" id="page-pane-index-cal" role="tabpanel" aria-labelledby="page-tab-index-cal" hidden>
   ${indexCalSection()}

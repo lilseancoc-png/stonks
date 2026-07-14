@@ -4211,6 +4211,12 @@ const EARNINGS_STALE_AFTER_DAYS = 110;
 // not a real report — every genuine print reports EPS within a day or two. Used
 // to prune ghosts so they don't occupy a "last 8 reports" slot.
 const EARNINGS_GHOST_GRACE_DAYS = 21;
+// A print inside this window can trust the news-judgment AI's guidance read
+// ("the company's most recent forward GUIDANCE") as belonging to that print —
+// the read is stamped onto the event once (data for the earnings-tracker's
+// guided-up/-down splits). Older prints stay unstamped ("no read"); companies
+// report ~91 days apart so at most one print sits in the window.
+const EARNINGS_GUIDANCE_STAMP_DAYS = 14;
 // Curated BEFORE-OPEN (BMO) reporters among the tracked tickers. Nasdaq's
 // surprise table omits the session and bar-based inference is unreliable (~79%,
 // and it mislabels the AMC mega-caps it would need to leave alone), so these
@@ -4616,6 +4622,7 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
     }
     // Resolve / refresh passed events.
     const ivEntries = ivHistoryMap?.get?.(sym)?.entries || [];
+    const guidanceStampCutoff = etDateKey(new Date(nowMs - EARNINGS_GUIDANCE_STAMP_DAYS * 86400000));
     for (const ev of entry.events) {
       if (!ev?.date || ev.date > todayIso) continue;
       const anchorMs = earningsAnchorMs(ev.date, ev.session);
@@ -4633,6 +4640,17 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
         const { pre, post } = earningsIvAround(ivEntries, ev.date, ev.session);
         if (ev.ivPre == null && pre != null) ev.ivPre = ehxRound(pre);
         if (ev.ivPost == null && post != null) ev.ivPost = ehxRound(post);
+      }
+      // Stamp the guidance direction onto a JUST-REPORTED print, once — the
+      // first post-print build whose news-judgment AI carries a non-"none"
+      // guidance read (attachTickerJudgments / attachAiContractGuidance run
+      // before this pass in main()). Feeds the earnings-tracker's guided-up /
+      // guided-down season splits; prints outside the stamp window keep null
+      // (shown as "no read") since the AI read is "most recent guidance" and
+      // can't be tied to an older quarter.
+      if (ev.guidance == null && ev.date >= guidanceStampCutoff) {
+        const gDir = data?.aiSignals?.guidance?.direction;
+        if (gDir && gDir !== "none") ev.guidance = gDir;
       }
     }
     // Prune ghost rows: a past event with no EPS actual well after its date is
@@ -4754,6 +4772,356 @@ export function attachEarningsHx(chains, store, nowMs = Date.now()) {
       next,
     };
   }
+}
+
+// === Earnings season tracker (data/earnings-tracker.json) ===================
+// Universe-wide season scoreboard over the accumulated earnings-history store:
+// every tracked name's prints grouped into REPORTING seasons (the calendar
+// quarter the announcement lands in — Jan–Mar reports = the fiscal-Q4 season,
+// Apr–Jun = Q1, and so on), with per-season beat/miss/in-line splits, guidance
+// raised/in-line/cut splits (stamped from the news-judgment AI's guidance read
+// in the days right after each print — see EARNINGS_GUIDANCE_STAMP_DAYS — so
+// they fill in going forward; backfilled quarters show "no read"), how many
+// names exceeded vs stayed inside the straddle-implied expected move, post-
+// print up/down breadth, sell-the-news counts, the biggest gap-up/-down
+// movers, and a once-per-ET-day AI read on the current season (notable
+// standouts + was the season net positive or negative for equities).
+// Rebuilt every bake from the just-updated store — no accumulation of its own;
+// only the AI summary carries forward (prior payload read before the wipe).
+// FREE key (aggregate stats, like the calendar). Browser lazy-loads it
+// (loadEarningsTracker/renderEarningsTracker in app-js.mjs).
+const EARNINGS_TRACKER_FILE = "earnings-tracker.json";
+const EARNINGS_TRACKER_MAX_SEASONS = 9;
+// EPS surprise within ±this % of the estimate counts as "in line" — a
+// sub-percent wiggle isn't a beat.
+const EARNINGS_INLINE_SURPRISE_PCT = 1;
+// Minimum prints in the current season before an AI read is worth minting.
+const EARNINGS_AI_MIN_REPORTS = 5;
+const AI_EARNINGS_MODEL = process.env.AI_EARNINGS_MODEL || "gemini-3.1-flash-lite";
+
+// Reporting-season key for an announcement date: "2026Q1" = announced Jan–Mar
+// 2026 (the season carrying the fiscal-Q4-2025 prints). Exported for testing.
+export function earningsSeasonKey(dateIso) {
+  if (typeof dateIso !== "string" || dateIso.length < 7) return null;
+  const y = Number(dateIso.slice(0, 4));
+  const m = Number(dateIso.slice(5, 7));
+  if (!Number.isFinite(y) || !(m >= 1 && m <= 12)) return null;
+  return `${y}Q${Math.floor((m - 1) / 3) + 1}`;
+}
+
+// Display labels for a season key: the 2026Q1 reporting season covers fiscal
+// "Q4 2025" prints, announced in the "Jan–Mar 2026" window. (Off-calendar
+// fiscal years — NVDA's late-Feb Q4, retailers' Jan quarter — land in the
+// season they REPORT in, which matches how a season is talked about anyway.)
+export function earningsSeasonLabels(key) {
+  const m = /^(\d{4})Q([1-4])$/.exec(String(key || ""));
+  if (!m) return null;
+  const y = Number(m[1]);
+  const rq = Number(m[2]);
+  const WINDOWS = { 1: "Jan–Mar", 2: "Apr–Jun", 3: "Jul–Sep", 4: "Oct–Dec" };
+  return {
+    fiscal: `Q${rq === 1 ? 4 : rq - 1} ${rq === 1 ? y - 1 : y}`,
+    window: `${WINDOWS[rq]} ${y}`,
+  };
+}
+
+// beat | miss | inline | null (no EPS data). Uses the source's surprise % when
+// present (Yahoo/Nasdaq both supply it), else derives it from actual/estimate.
+export function earningsEpsVerdict(ev) {
+  const act = typeof ev?.epsActual === "number" && isFinite(ev.epsActual) ? ev.epsActual : null;
+  const est = typeof ev?.epsEstimate === "number" && isFinite(ev.epsEstimate) ? ev.epsEstimate : null;
+  let sur = typeof ev?.surprisePct === "number" && isFinite(ev.surprisePct) ? ev.surprisePct : null;
+  if (sur == null && act != null && est != null) {
+    sur = Math.abs(est) > 1e-9 ? ((act - est) / Math.abs(est)) * 100 : (act === est ? 0 : act > est ? 100 : -100);
+  }
+  if (sur == null) return null;
+  if (Math.abs(sur) <= EARNINGS_INLINE_SURPRISE_PCT) return "inline";
+  return sur > 0 ? "beat" : "miss";
+}
+
+// Collapse the stored guidance direction (raised/inline/soft/lowered — the
+// news-judgment AI's vocabulary) into the tracker's up/inline/down buckets.
+const earningsGuidanceBucket = (g) =>
+  g === "raised" ? "up" : g === "inline" ? "inline" : (g === "soft" || g === "lowered") ? "down" : null;
+
+const EARNINGS_SUMMARY_SCHEMA = {
+  type: "object",
+  properties: {
+    headline: { type: "string" },
+    summary: { type: "string" },
+    standouts: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { ticker: { type: "string" }, note: { type: "string" } },
+        required: ["ticker", "note"],
+      },
+    },
+    tone: { type: "string", enum: ["positive", "mixed", "negative"] },
+  },
+  required: ["headline", "summary", "standouts", "tone"],
+};
+
+const EARNINGS_SUMMARY_SYSTEM_PROMPT =
+  "You are a market strategist writing the earnings-season scoreboard read for an options-trading dashboard. " +
+  "You are given aggregate stats for ONE reporting season over a curated universe of large/mid-cap US names " +
+  "(NOT the full S&P 500 — say 'tracked names', never claim index-wide coverage). Return JSON: " +
+  "headline (one line, <=90 chars, the season in a nutshell); " +
+  "summary (3-5 plain-English sentences: was the season net positive or negative for equities, how results ran " +
+  "vs estimates and vs guidance, whether the options market over- or under-priced the moves, and any " +
+  "sell-the-news / relief pattern worth flagging); " +
+  "standouts (2-5 {ticker, note} — the notable single names from the supplied leaders, one short grounded " +
+  "sentence each); tone ('positive' | 'mixed' | 'negative'). " +
+  "Ground EVERY claim in the supplied numbers — never invent figures, tickers, or causes. Plain language, no hedging boilerplate.";
+
+function earningsSummaryUserMessage(season, universeCount) {
+  const c = season.counts;
+  const s = season.stats;
+  const fpct = (v, dp = 1) => (v != null && isFinite(v) ? `${v >= 0 ? "+" : ""}${(v * 100).toFixed(dp)}%` : "n/a");
+  const lines = [];
+  lines.push(`Season: fiscal ${season.fiscal} prints, announced ${season.window}.`);
+  lines.push(`Universe: ${universeCount} tracked US names. Reports captured so far: ${c.reported}.`);
+  lines.push(
+    `EPS vs estimates (${c.epsKnown} with data): ${c.beat} beat, ${c.inline} in line, ${c.miss} missed` +
+    (s.beatRatePct != null ? ` — beat rate ${s.beatRatePct}%` : "") +
+    (s.avgSurprisePct != null ? `, avg surprise ${s.avgSurprisePct >= 0 ? "+" : ""}${s.avgSurprisePct}%` : "") + ".",
+  );
+  lines.push(c.guidKnown
+    ? `Guidance reads (${c.guidKnown} with a read): ${c.guidUp} raised, ${c.guidInline} in line, ${c.guidDown} cut — ${c.beatGuidedUp} beat AND raised, ${c.missedGuidedDown} missed AND cut.`
+    : "Guidance reads: none captured this season (the guidance tracker only stamps prints going forward).");
+  if (c.moveKnown) {
+    lines.push(
+      `Post-earnings reactions (${c.moveKnown} resolved): ${c.up} closed up, ${c.down} closed down` +
+      (s.breadthPct != null ? ` (breadth ${s.breadthPct}% positive)` : "") +
+      `, avg move ${fpct(s.avgMovePct)}, avg |move| ${fpct(s.avgAbsMovePct)}` +
+      (s.avgWeek1Pct != null ? `, avg 1-week post-print drift ${fpct(s.avgWeek1Pct)}` : "") + ".",
+    );
+  }
+  if (c.impliedKnown) {
+    lines.push(
+      `Options expected move (${c.impliedKnown} prints with a straddle-implied read): ${c.exceededImplied} exceeded it, ${c.withinImplied} stayed inside` +
+      (s.avgImpliedMovePct != null ? ` (avg implied ±${(s.avgImpliedMovePct * 100).toFixed(1)}%)` : "") + ".",
+    );
+  }
+  if (c.beatButDown || c.missedButUp) {
+    lines.push(`Reaction vs result: ${c.beatButDown} beat EPS but closed DOWN (sold the news); ${c.missedButUp} missed but closed UP (relief).`);
+  }
+  const fmtLdr = (r) =>
+    `${r.sym}${r.gapPct != null ? ` ${fpct(r.gapPct)} gap` : ""}${r.movePct != null ? `, ${fpct(r.movePct)} day` : ""}${r.eps ? `, EPS ${r.eps}` : ""}${r.guidance ? `, guided ${r.guidance}` : ""} (${r.date})`;
+  if (season.leaders.gapUp.length) lines.push(`Biggest gap-ups: ${season.leaders.gapUp.map(fmtLdr).join("; ")}.`);
+  if (season.leaders.gapDown.length) lines.push(`Biggest gap-downs: ${season.leaders.gapDown.map(fmtLdr).join("; ")}.`);
+  return lines.join("\n");
+}
+
+async function generateEarningsSeasonSummary(season, universeCount) {
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
+  const userMessage = earningsSummaryUserMessage(season, universeCount);
+  let response, lastErr;
+  for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
+    try {
+      await acquireAiSlot();
+      response = await ai.models.generateContent({
+        model: aiModelForAttempt(AI_EARNINGS_MODEL, attempt),
+        config: {
+          systemInstruction: EARNINGS_SUMMARY_SYSTEM_PROMPT,
+          temperature: 0.4,
+          maxOutputTokens: 1536,
+          responseMimeType: "application/json",
+          responseSchema: EARNINGS_SUMMARY_SCHEMA,
+          thinkingConfig: { thinkingBudget: 0 },
+        },
+        contents: userMessage,
+      });
+      recordAiUsage({ model: aiModelForAttempt(AI_EARNINGS_MODEL, attempt), callType: "earnings-season", usage: response?.usageMetadata });
+      break;
+    } catch (err) {
+      lastErr = err;
+      const wait = classifyAiError(err, attempt, aiModelForAttempt(AI_EARNINGS_MODEL, attempt));
+      if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) throw err;
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  if (!response) throw lastErr ?? new Error("no response from Gemini");
+  const text = response.text;
+  if (!text) throw new Error("empty Gemini response");
+  const stripped = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+  const firstBrace = stripped.indexOf("{");
+  const lastBrace = stripped.lastIndexOf("}");
+  const parsed = JSON.parse(firstBrace >= 0 && lastBrace > firstBrace ? stripped.slice(firstBrace, lastBrace + 1) : stripped);
+  const headline = String(parsed?.headline || "").replace(/\s+/g, " ").trim();
+  const summary = String(parsed?.summary || "").replace(/\s+/g, " ").trim();
+  if (!headline || !summary) throw new Error("empty headline/summary in earnings-season response");
+  // Standouts must name a ticker that actually reported this season — drop
+  // anything else (grounding guard against a hallucinated symbol).
+  const valid = new Set(season.rows.map((r) => r.sym));
+  const standouts = (Array.isArray(parsed?.standouts) ? parsed.standouts : [])
+    .map((x) => ({
+      ticker: String(x?.ticker || "").toUpperCase().trim(),
+      note: String(x?.note || "").replace(/\s+/g, " ").trim(),
+    }))
+    .filter((x) => x.note && valid.has(x.ticker))
+    .slice(0, 5);
+  const tone = ["positive", "mixed", "negative"].includes(parsed?.tone) ? parsed.tone : null;
+  return { headline, summary, standouts, tone };
+}
+
+// Assemble the payload. Pure given the store + chains except for the AI season
+// read (one call, gated to once per ET day and carried forward from `prior`
+// otherwise — same budget pattern as the heatmap's eodSummary).
+export async function buildEarningsTrackerPayload(store, chains, builtAtIso, prior = null) {
+  const todayIso = etDateKey();
+  const rowsBySeason = new Map();
+  const universe = new Set();
+  for (const [sym, entry] of Object.entries(store?.tickers || {})) {
+    if (SECTORS[sym] === "ETF") continue; // funds don't report earnings
+    const data = chains?.[sym] || null;
+    for (const ev of entry?.events || []) {
+      if (!ev?.date || ev.date > todayIso) continue;
+      const hasEps = ev.epsActual != null;
+      const hasMove = typeof ev.movePct === "number" && isFinite(ev.movePct);
+      // Bare pending stamps / unresolved ghosts carry neither — skip.
+      if (!hasEps && !hasMove) continue;
+      const key = earningsSeasonKey(ev.date);
+      if (!key) continue;
+      const implied = typeof ev.impliedMovePct === "number" && isFinite(ev.impliedMovePct) && ev.impliedMovePct > 0
+        ? ev.impliedMovePct : null;
+      const row = {
+        sym,
+        name: data?.fundamentals?.name || sym,
+        sector: SECTORS[sym] || null,
+        date: ev.date,
+        session: ev.session || "TBD",
+        epsActual: hasEps ? ev.epsActual : null,
+        epsEstimate: typeof ev.epsEstimate === "number" && isFinite(ev.epsEstimate) ? ev.epsEstimate : null,
+        surprisePct: typeof ev.surprisePct === "number" && isFinite(ev.surprisePct) ? ev.surprisePct : null,
+        eps: earningsEpsVerdict(ev),                    // beat | miss | inline | null
+        guidance: earningsGuidanceBucket(ev.guidance),  // up | inline | down | null
+        movePct: hasMove ? ev.movePct : null,           // fractions, like earningsHx
+        gapPct: typeof ev.gapPct === "number" && isFinite(ev.gapPct) ? ev.gapPct : null,
+        week1Pct: typeof ev.week1Pct === "number" && isFinite(ev.week1Pct) ? ev.week1Pct : null,
+        impliedMovePct: implied,
+        exceededImplied: implied != null && hasMove ? Math.abs(ev.movePct) > implied : null,
+      };
+      universe.add(sym);
+      if (!rowsBySeason.has(key)) rowsBySeason.set(key, []);
+      rowsBySeason.get(key).push(row);
+    }
+  }
+  const keys = [...rowsBySeason.keys()].sort().reverse().slice(0, EARNINGS_TRACKER_MAX_SEASONS);
+  const seasons = keys.map((key) => {
+    const rows = rowsBySeason.get(key)
+      .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.sym < b.sym ? -1 : 1));
+    const c = {
+      reported: rows.length,
+      epsKnown: 0, beat: 0, inline: 0, miss: 0,
+      guidKnown: 0, guidUp: 0, guidInline: 0, guidDown: 0,
+      beatGuidedUp: 0, missedGuidedDown: 0,
+      impliedKnown: 0, exceededImplied: 0, withinImplied: 0,
+      moveKnown: 0, up: 0, down: 0, flat: 0,
+      beatButDown: 0, missedButUp: 0,
+    };
+    let mvSum = 0, mvAbsSum = 0, impSum = 0, surSum = 0, surN = 0, wkSum = 0, wkN = 0;
+    for (const r of rows) {
+      if (r.eps) {
+        c.epsKnown++;
+        c[r.eps === "beat" ? "beat" : r.eps === "miss" ? "miss" : "inline"]++;
+      }
+      if (r.guidance) {
+        c.guidKnown++;
+        c[r.guidance === "up" ? "guidUp" : r.guidance === "down" ? "guidDown" : "guidInline"]++;
+      }
+      if (r.eps === "beat" && r.guidance === "up") c.beatGuidedUp++;
+      if (r.eps === "miss" && r.guidance === "down") c.missedGuidedDown++;
+      if (r.exceededImplied != null) {
+        c.impliedKnown++;
+        if (r.exceededImplied) c.exceededImplied++; else c.withinImplied++;
+        impSum += r.impliedMovePct;
+      }
+      if (r.movePct != null) {
+        c.moveKnown++;
+        mvSum += r.movePct;
+        mvAbsSum += Math.abs(r.movePct);
+        if (r.movePct > 0.001) c.up++; else if (r.movePct < -0.001) c.down++; else c.flat++;
+        if (r.eps === "beat" && r.movePct < 0) c.beatButDown++;
+        if (r.eps === "miss" && r.movePct > 0) c.missedButUp++;
+      }
+      if (r.surprisePct != null) { surSum += r.surprisePct; surN++; }
+      if (r.week1Pct != null) { wkSum += r.week1Pct; wkN++; }
+    }
+    const stats = {
+      avgMovePct: c.moveKnown ? ehxRound(mvSum / c.moveKnown) : null,
+      avgAbsMovePct: c.moveKnown ? ehxRound(mvAbsSum / c.moveKnown) : null,
+      avgImpliedMovePct: c.impliedKnown ? ehxRound(impSum / c.impliedKnown) : null,
+      avgSurprisePct: surN ? ehxRound(surSum / surN, 2) : null,
+      avgWeek1Pct: wkN ? ehxRound(wkSum / wkN) : null,
+      breadthPct: (c.up + c.down) ? ehxRound((c.up / (c.up + c.down)) * 100, 1) : null,
+      beatRatePct: c.epsKnown ? ehxRound((c.beat / c.epsKnown) * 100, 1) : null,
+    };
+    const lite = (r) => ({
+      sym: r.sym, name: r.name, date: r.date, eps: r.eps, guidance: r.guidance,
+      gapPct: r.gapPct, movePct: r.movePct, surprisePct: r.surprisePct, impliedMovePct: r.impliedMovePct,
+    });
+    const gaps = rows.filter((r) => r.gapPct != null);
+    const moves = rows.filter((r) => r.movePct != null);
+    const leaders = {
+      gapUp: gaps.filter((r) => r.gapPct > 0).sort((a, b) => b.gapPct - a.gapPct).slice(0, 5).map(lite),
+      gapDown: gaps.filter((r) => r.gapPct < 0).sort((a, b) => a.gapPct - b.gapPct).slice(0, 5).map(lite),
+      moveUp: moves.filter((r) => r.movePct > 0).sort((a, b) => b.movePct - a.movePct).slice(0, 5).map(lite),
+      moveDown: moves.filter((r) => r.movePct < 0).sort((a, b) => a.movePct - b.movePct).slice(0, 5).map(lite),
+    };
+    // Deterministic season tone — the keyless/offline fallback for the AI read.
+    let tone = null;
+    if (c.moveKnown >= 5 || c.epsKnown >= 5) {
+      const score =
+        (stats.breadthPct != null ? (stats.breadthPct - 50) / 10 : 0) +
+        (stats.beatRatePct != null ? (stats.beatRatePct - 60) / 10 : 0);
+      tone = score >= 1 ? "positive" : score <= -1 ? "negative" : "mixed";
+    }
+    const labels = earningsSeasonLabels(key) || { fiscal: key, window: "" };
+    return { key, fiscal: labels.fiscal, window: labels.window, counts: c, stats, leaders, tone, rows };
+  });
+  // AI season read for the CURRENT (most recent) season — minted at most once
+  // per ET day, carried forward otherwise; a failed mint keeps last-good.
+  let aiRead = null;
+  const current = seasons[0] || null;
+  if (current) {
+    const carry = prior?.ai && typeof prior.ai === "object" && prior.ai.seasonKey === current.key ? prior.ai : null;
+    const want = !carry || carry.date !== todayIso;
+    if (process.env.GEMINI_API_KEY && want && current.counts.reported >= EARNINGS_AI_MIN_REPORTS) {
+      try {
+        const gen = await generateEarningsSeasonSummary(current, universe.size);
+        aiRead = {
+          seasonKey: current.key,
+          date: todayIso,
+          generatedAtIso: new Date().toISOString(),
+          model: AI_EARNINGS_MODEL,
+          ...gen,
+        };
+      } catch (err) {
+        console.log(`  ⚠ earnings-season AI read failed (keeping last-good): ${String(err?.message || err).split("\n")[0]}`);
+        aiRead = carry;
+      }
+    } else {
+      aiRead = carry;
+    }
+  }
+  return { builtAtIso, updatedOn: todayIso, universe: universe.size, seasons, ai: aiRead };
+}
+
+async function readPriorEarningsTracker() {
+  try { return JSON.parse(await readFile(resolve(DATA_DIR, EARNINGS_TRACKER_FILE), "utf8")); } catch { return null; }
+}
+
+export async function writeEarningsTrackerFile(store, chains, builtAtIso, prior = null) {
+  const payload = await buildEarningsTrackerPayload(store, chains, builtAtIso, prior);
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, EARNINGS_TRACKER_FILE), json, "utf8");
+  return {
+    bytes: json.length,
+    seasons: payload.seasons.length,
+    reported: payload.seasons[0]?.counts.reported || 0,
+    aiGenerated: !!(payload.ai && (!prior?.ai || prior.ai.generatedAtIso !== payload.ai.generatedAtIso)),
+  };
 }
 
 // Unified rest-of-year macro + earnings calendar. Pulls confirmed
@@ -21577,6 +21945,10 @@ async function main() {
   // landed. Read before the wipe like the other cross-build artifacts.
   const priorAiCapex = await readPriorAiCapex();
   const priorCapitalRaises = await readPriorCapitalRaises();
+  // Prior earnings-tracker snapshot — the season scoreboard is rebuilt from the
+  // earnings-history store every bake, but its AI season read is minted once
+  // per ET day and carried forward, so pre-read it before the wipe.
+  const priorEarningsTracker = await readPriorEarningsTracker();
   // Prior RAM-prices snapshot — the wholesale-spot side accumulates its own
   // daily history across builds (the sources only publish the current
   // session), so it must be pre-read before the wipe like the other histories.
@@ -21881,6 +22253,15 @@ async function main() {
   // updated above, before the wipe).
   const earningsHxBytes = await writeEarningsEventsHistory(earningsHxStore);
   console.log(`wrote data/${EARNINGS_HISTORY_FILE} — ${Object.keys(earningsHxStore.tickers).length} tickers, ${earningsHxBytes} bytes`);
+  // Earnings season tracker — the universe-wide season scoreboard derived from
+  // the store just written above. Non-fatal on failure (the tab keeps its
+  // last-good payload in the private store).
+  try {
+    const trackerInfo = await writeEarningsTrackerFile(earningsHxStore, chains, builtAtIso, priorEarningsTracker);
+    console.log(`wrote data/${EARNINGS_TRACKER_FILE} — ${trackerInfo.seasons} seasons, ${trackerInfo.reported} reports this season, ${trackerInfo.bytes} bytes${trackerInfo.aiGenerated ? " (+AI season read)" : ""}`);
+  } catch (err) {
+    console.log(`  ⚠ Earnings-tracker step failed (non-fatal): ${err.message}`);
+  }
   // Fear & Greed: write today's snapshot + the appended per-component
   // history back into the freshly-recreated data/ dir. We always persist
   // history (even with no fresh snapshot) so prior days survive.
