@@ -180,7 +180,10 @@ async function pushScanner(owner, { dryRun }) {
 }
 
 async function seed({ dryRun }) {
-  const local = await localKeys();
+  // Exclude request-time-owned keys (picks-watchlist.json): a pulled-then-seeded
+  // copy is stale the moment a user clicks, and re-uploading it would silently
+  // revert their add/remove. No producer may push it — seed included.
+  const local = (await localKeys()).filter((k) => !REQUEST_TIME_EXCLUSIVE.has(k));
   await uploadKeys(local, { dryRun, label: "seed" }); // upload everything, no delete
   console.log(`seed: ${local.length} file(s) from ${DATA_DIR}`);
 }

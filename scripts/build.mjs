@@ -3006,8 +3006,17 @@ function upsertMacroHistory(prevHistory, macroBackdrop) {
     vix:     macroBackdrop?.vix     && macroBackdrop.vix.value     != null ? macroBackdrop.vix.value     : null,
   };
   const existingIdx = entries.findIndex((e) => e.date === today);
-  if (existingIdx >= 0) entries[existingIdx] = todayEntry;
-  else entries.push(todayEntry);
+  if (existingIdx >= 0) {
+    // Per-leg merge: a later same-day build whose Yahoo quote for one series
+    // flaked (null) must NOT clobber an earlier good same-day value — that
+    // defeats this file's "survives a chart flake" purpose. Keep the prior
+    // non-null leg; take today's value only when it's present.
+    const prev = entries[existingIdx];
+    for (const k of ["twoY", "tenY", "thirtyY", "dxy", "vix"]) {
+      if (todayEntry[k] == null && prev[k] != null) todayEntry[k] = prev[k];
+    }
+    entries[existingIdx] = todayEntry;
+  } else entries.push(todayEntry);
   entries.sort((a, b) => String(a.date).localeCompare(String(b.date)));
   // Most recent entry strictly before today's ET date.
   const prior = entries.filter((e) => e.date < today).pop() || null;
@@ -10082,6 +10091,14 @@ export function computeFactorTrendHealth(scored) {
 // Small numeric helpers
 // ============================================================================
 function pnum(x) { const n = Number(x); return Number.isFinite(n) ? n : null; }
+// Null-preserving variant of pnum. Number(null) is 0 (finite), so a bare pnum()
+// reads a MISSING optional field as a real 0 — which silently trips the "is
+// present" guards and sign tests in the scorers (a null FCF scored -1, a null
+// 100D SMA/resistance counted as "price above it" and skewed short-history names
+// bullish). Use pnumN for optional fundamentals/technicals fields so "missing"
+// stays null. pnum's 0-coercion is relied on elsewhere (e.g. resolvePickOutcome),
+// so pnum itself is left unchanged.
+function pnumN(x) { return x == null ? null : pnum(x); }
 function clamp(x, lo, hi) { return x < lo ? lo : x > hi ? hi : x; }
 function r1(x) { return x == null ? null : Math.round(x * 10) / 10; }
 function r2(x) { return x == null ? null : Math.round(x * 100) / 100; }
@@ -10194,7 +10211,7 @@ function computeFundamentalsTrajectory(data) {
   }
 
   // 2) EPS growth acceleration — forward FY estimate vs the trailing realized rate.
-  const fwdEps = pnum(f.growthEstimateCurY), trailEps = pnum(f.earningsGrowthYoy);
+  const fwdEps = pnumN(f.growthEstimateCurY), trailEps = pnumN(f.earningsGrowthYoy);
   if (fwdEps != null && trailEps != null) {
     const d = fwdEps - trailEps;
     if (d >= 5) add(1, "earnings growth accelerating");
@@ -10207,7 +10224,7 @@ function computeFundamentalsTrajectory(data) {
   }
 
   // 3) Revenue growth acceleration — forward FY revenue est vs trailing TTM.
-  const revEstY = pnum(f.revenueEstimateCurY), revTtm = pnum(f.revenue), trailRev = pnum(f.revenueGrowthYoy);
+  const revEstY = pnumN(f.revenueEstimateCurY), revTtm = pnum(f.revenue), trailRev = pnumN(f.revenueGrowthYoy);
   if (revEstY != null && revTtm > 0 && trailRev != null) {
     const d = (revEstY / revTtm - 1) * 100 - trailRev;
     if (d >= 4) add(0.75, "revenue growth accelerating");
@@ -10295,12 +10312,12 @@ function scoreFundamentals(data, sectorMedianPE, isEtf = false) {
   const eps = pnum(f.earningsGrowthYoy);
   out.push(sig("epsGrowth", "EPS growth (YoY)", eps == null ? 0 : eps >= 10 ? 1 : eps < -25 ? -2 : 0,
     eps == null ? null : r1(eps) + "%", "Trailing EPS vs year ago", eps != null));
-  const rev = pnum(f.revenueGrowthYoy);
+  const rev = pnumN(f.revenueGrowthYoy);
   out.push(sig("revGrowth", "Revenue growth (YoY)", rev == null ? 0 : rev >= 8 ? 1 : rev < -20 ? -2 : 0,
     rev == null ? null : r1(rev) + "%", "Trailing revenue vs year ago", rev != null));
 
   // Analyst price target (needs >=5 analysts).
-  const tgt = pnum(f.targetMeanPrice), spot = pnum(data?.spot), na = pnum(f.numberOfAnalystOpinions);
+  const tgt = pnumN(f.targetMeanPrice), spot = pnum(data?.spot), na = pnum(f.numberOfAnalystOpinions);
   let tScore = 0, tVal = null; const tOk = tgt != null && spot > 0 && na != null && na >= 5;
   if (tOk) { const up = (tgt / spot - 1) * 100; tVal = (up >= 0 ? "+" : "") + r1(up) + "%"; tScore = up >= 10 ? 1 : up <= -10 ? -1 : 0; }
   out.push(sig("analystTarget", "Analyst price target", tScore, tVal, "Consensus target vs spot", tOk));
@@ -10330,7 +10347,7 @@ function scoreFundamentals(data, sectorMedianPE, isEtf = false) {
     gVal = g.direction;
     gScore = g.direction === "raised" ? 3 : g.direction === "inline" ? 2 : g.direction === "lowered" ? -3 : g.direction === "soft" ? -1 : 0;
   } else {
-    const fy = pnum(f.growthEstimateCurY);
+    const fy = pnumN(f.growthEstimateCurY);
     if (fy != null) { gVal = "FY est " + r1(fy) + "%"; gScore = fy >= 10 ? 2 : fy >= 0 ? 1 : fy <= -10 ? -3 : 0; }
   }
   out.push(sig("guidance", "Guidance", gScore, gVal, "Management/estimate forward read", gScore !== 0 || gVal != null));
@@ -10354,7 +10371,7 @@ function scoreFundamentals(data, sectorMedianPE, isEtf = false) {
   out.push(sig("capitalRaise", "Capital raise", crScore, crVal, "Recent debt/equity issuance or buyback", !!cr));
 
   // Free cash flow TTM.
-  const fcf = pnum(f.freeCashFlow);
+  const fcf = pnumN(f.freeCashFlow);
   out.push(sig("fcf", "Free cash flow", fcf == null ? 0 : fcf > 0 ? 1 : -1, fcf == null ? null : (fcf > 0 ? "positive" : "negative"), "TTM FCF sign", fcf != null));
 
   // Net margin trend (YoY when >=5 quarters else QoQ).
@@ -10411,7 +10428,7 @@ function scoreTechnicals(data, streakRow) {
   out.push(sig("macd", "MACD", macd, mh == null ? null : r2(mh), "Trend/signal cross", mh != null));
 
   // SMA stack (one collinear read, +/-1).
-  const sma20 = pnum(t.sma?.sma20), sma50 = pnum(t.sma?.sma50), sma100 = pnum(t.sma?.sma100);
+  const sma20 = pnumN(t.sma?.sma20), sma50 = pnumN(t.sma?.sma50), sma100 = pnumN(t.sma?.sma100);
   let stack = 0, stackOk = false;
   if (spot > 0 && [sma20, sma50, sma100].some((x) => x != null)) {
     stackOk = true;
@@ -10431,10 +10448,11 @@ function scoreTechnicals(data, streakRow) {
   const sr = t.sr || {};
   let srScore = 0, srVal = null;
   if (spot > 0) {
-    if (pnum(sr.r20) != null && spot > sr.r20) { srScore += 1; srVal = "above 20D R"; }
-    else if (pnum(sr.s20) != null && spot < sr.s20) { srScore -= 1; srVal = "below 20D S"; }
-    if (pnum(sr.r100) != null && spot > sr.r100) { srScore += 1; srVal = "above 100D R"; }
-    else if (pnum(sr.s100) != null && spot < sr.s100) { srScore -= 1; srVal = "below 100D S"; }
+    const r20 = pnumN(sr.r20), s20 = pnumN(sr.s20), r100 = pnumN(sr.r100), s100 = pnumN(sr.s100);
+    if (r20 != null && spot > r20) { srScore += 1; srVal = "above 20D R"; }
+    else if (s20 != null && spot < s20) { srScore -= 1; srVal = "below 20D S"; }
+    if (r100 != null && spot > r100) { srScore += 1; srVal = "above 100D R"; }
+    else if (s100 != null && spot < s100) { srScore -= 1; srVal = "below 100D S"; }
   }
   out.push(sig("srBreak", "Support/Resistance", clamp(srScore, -2, 2), srVal, "Confirmed level breaks", !!(sr.r20 || sr.s20)));
 
@@ -10746,8 +10764,12 @@ export function buildIndexAxisInput(chains) {
     const m1 = pnum(t.volume?.priceMove1dPct);
     const sma20 = pnum(t.sma?.sma20);
     // 5d move from the confirmed close series (priceSeries, else in-memory bars).
-    const closes = Array.isArray(d.priceSeries) ? d.priceSeries
-      : (Array.isArray(d._bars) ? d._bars.map((b) => pnum(b?.close)).filter((x) => x != null) : null);
+    // priceSeries is a column-object {t,c,h,l,v} (closes under .c); in-memory
+    // bars are {o,c,h,l,v,t} (close under .c, NOT .close). Both were mis-read
+    // before, so `closes` came back empty and pctChange5d was always null.
+    const rawCloses = (d.priceSeries && Array.isArray(d.priceSeries.c)) ? d.priceSeries.c
+      : (Array.isArray(d._bars) ? d._bars.map((b) => b?.c) : null);
+    const closes = Array.isArray(rawCloses) ? rawCloses.map((x) => pnum(x)).filter((x) => x != null) : null;
     let m5 = null;
     if (closes && closes.length >= 6) {
       const last = pnum(closes[closes.length - 1]);
@@ -13581,7 +13603,7 @@ function stockQualityGate(data) {
   const checks = [];
 
   // Consistently profitable — positive net margin or positive free cash flow.
-  const margin = pnum(f.profitMargin), fcf = pnum(f.freeCashFlow);
+  const margin = pnumN(f.profitMargin), fcf = pnumN(f.freeCashFlow);
   if (margin == null && fcf == null) {
     checks.push({ key: "profit", label: "Consistently profitable", ok: false, detail: "no profitability data on file" });
     return { pass: false, checks };
@@ -13594,7 +13616,7 @@ function stockQualityGate(data) {
 
   // Debt manageable — more cash than debt, or debt/equity ≤ 2x (Yahoo reports
   // D/E in percent, so 200 = 2x).
-  const de = pnum(f.debtToEquity), cash = pnum(f.totalCash), debt = pnum(f.totalDebt);
+  const de = pnumN(f.debtToEquity), cash = pnumN(f.totalCash), debt = pnumN(f.totalDebt);
   const cashRich = cash != null && debt != null && cash >= debt;
   if (de != null || cashRich) {
     checks.push({
@@ -14805,7 +14827,7 @@ export function appendRegimeHistory(prev, regime, lean, builtAtIso) {
     axisScores = {};
     for (const [k, a] of Object.entries(regime.axes)) if (a && Number.isFinite(a.score)) axisScores[k] = a.score;
   }
-  const row = { date, state: regime?.state || "neutral", stress: regime?.stress ?? 0, lean: lean || null, drivers: regime?.drivers || [], axisScores };
+  const row = { date, state: regime?.state || "neutral", stress: regime?.stress ?? 0, riskOffAxes: regime?.riskOffAxes ?? null, lean: lean || null, drivers: regime?.drivers || [], axisScores };
   const idx = days.findIndex((d) => d.date === date);
   if (idx >= 0) days[idx] = row; else days.push(row);
   days.sort((a, b) => String(a.date).localeCompare(String(b.date)));
@@ -15188,6 +15210,10 @@ export function markOptionToMarket(entry, data) {
     return c.mid > 0 ? (intrinsic / c.mid - 1) * 100 : null;
   }
   const price = bsPrice(entry.side, spot, c.strike, T, c.iv, FALLBACK_RISK_FREE_RATE);
+  // A contract that fails to price (null strike/iv → bsPrice null) is unmarkable
+  // — leaving it to `null / mid` would coerce to −100% and book a phantom
+  // stop-loss, the same trap the vertical branch guards above.
+  if (!(price >= 0)) return null;
   return c.mid > 0 ? (price / c.mid - 1) * 100 : null;
 }
 
@@ -21978,7 +22004,12 @@ async function main() {
     if (macroBackdrop.rotation) console.log(`  · rotation: offense ${macroBackdrop.rotation.offense >= 0 ? "+" : ""}${macroBackdrop.rotation.offense}% − defense ${macroBackdrop.rotation.defense >= 0 ? "+" : ""}${macroBackdrop.rotation.defense}% = ${macroBackdrop.rotation.spread >= 0 ? "+" : ""}${macroBackdrop.rotation.spread}pp`);
     // Fold the overnight cross-asset sweep into the regime as the global-tape
     // axis (PICKS_MACRO_GLOBAL) — the same markets the Top Picks barometer shows.
-    macroBackdrop.crossAsset = deriveGlobalTapeAxis(correlationsInfo?.payload?.markets || null);
+    // A wholesale overnight-sweep failure returns last-good markets flagged
+    // stale (fine for the Overnight tab, but the regime axis must not cast a
+    // LIVE ±2 vote off day-old moves) — feed null so the axis scores a neutral 0.
+    macroBackdrop.crossAsset = deriveGlobalTapeAxis(
+      correlationsInfo?.payload?.stale ? null : (correlationsInfo?.payload?.markets || null),
+    );
     macroBackdrop.macroRegime = computeMacroRegime(macroBackdrop, fedwatchHistory, trends.narratives, fearGreed, trends.macroHeadlines);
     if (macroBackdrop.macroRegime && macroBackdrop.macroRegime.state !== "neutral") {
       const m = macroBackdrop.macroRegime;

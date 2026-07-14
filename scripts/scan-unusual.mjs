@@ -985,6 +985,22 @@ async function runVolumePass({
   const bucketStartLookup = buildBucketStartLookup(history, todayKey, currentBucket);
   const isFinalScan = etMin >= SESSION_CLOSE_MIN;
 
+  // Weekday market holiday: cron fires every weekday with no holiday calendar,
+  // but the market never traded, so Yahoo's regularMarketVolume still carries the
+  // PRIOR session's full-day total. Feeding that into the intraday bucket math
+  // (bucket 1's baseline is a hardcoded 0) false-flags ~the whole universe. On an
+  // all-day CLOSED tape, don't compute or persist flags — leave the last trading
+  // day's volume-flags.json in place.
+  const marketClosed = typeof marketState === "string" && marketState.startsWith("CLOSED");
+  if (marketClosed) {
+    const priorFlags = await loadVolumeFlags();
+    return priorFlags || {
+      scannedAt, etDate: todayKey, etMin, marketState: marketState || null,
+      summary: { tickerCount: 0, hourlyFlagCount: 0, eodFlagCount: 0, srBreakCount: 0 },
+      tickers: [],
+    };
+  }
+
   const freshRows = [];
   const snapshotTickers = [];
 

@@ -356,8 +356,11 @@ async function main() {
       ch = prevClose > 0 ? ((sp - prevClose) / prevClose) * 100 : NaN;
     }
     if (!isFinite(ch)) {
+      // Quote arrived but carries no usable % change — flag stale like the
+      // no-quote branch so the UI dims it, instead of presenting the old ch/sp
+      // as current.
       stale++;
-      return row;
+      return { ...row, stale: true };
     }
     refreshed++;
     const mc = Number(q.marketCap);
@@ -403,8 +406,15 @@ async function main() {
   // all-day CLOSED tape can't mint a recap for a session that never traded).
   // The !eodSummary + same-day carry-forward above still bound it to once/day.
   const isPostClose = typeof marketState === "string" && marketState.startsWith("POST");
+  // An all-day CLOSED tape means the market never traded today (weekday holiday
+  // — cron fires every weekday with no holiday calendar). Both the recap and the
+  // breadth snapshot must be blocked, or they'd mint a recap describing the prior
+  // session's stale quotes "as today" and log a phantom breadth day. The bare
+  // hourEt>=16 branch bypassed the intended CLOSED exclusion; gate both branches.
+  const marketClosed = typeof marketState === "string" && marketState.startsWith("CLOSED");
   const shouldGenerate =
     !eodSummary &&
+    !marketClosed &&
     (hourEt >= EOD_TRIGGER_ET_HOUR || isPostClose) &&
     !!process.env.GEMINI_API_KEY;
 
@@ -460,7 +470,7 @@ async function main() {
     (d) => d && d.date === todayEt,
   );
   const recordRotation =
-    !haveTodaysBreadth && (hourEt >= EOD_TRIGGER_ET_HOUR || isPostClose);
+    !haveTodaysBreadth && !marketClosed && (hourEt >= EOD_TRIGGER_ET_HOUR || isPostClose);
   const sectorRotation = computeSectorRotation(
     nextTickers, prior?.sectorRotation, todayEt, { record: recordRotation },
   );

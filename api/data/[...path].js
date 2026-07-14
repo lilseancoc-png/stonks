@@ -27,24 +27,20 @@ export default async function handler(req, res) {
     return res.status(404).json({ error: "not found" });
   }
 
-  // Derive the store key. This function is reached TWO ways: directly
-  // (/api/data/<key>, where Vercel populates the catch-all req.query.path) OR
-  // via middleware's rewrite of /data/<key> — and Vercel does NOT populate the
-  // dynamic-route param on a middleware rewrite. So prefer req.query.path, but
-  // fall back to parsing the request path (handles either /api/data/ or /data/).
+  // Derive the store key from the request URL PATH only. This function is reached
+  // TWO ways — directly (/api/data/<key>) or via middleware's rewrite of
+  // /data/<key> — and the pathname reflects the actual resource in both. We do
+  // NOT read req.query.path: a client-supplied `?path=` query would otherwise
+  // override which file is served (/data/A.json?path=B.json → serves B), and on a
+  // middleware rewrite Vercel doesn't populate the catch-all param anyway.
   let key = "";
-  const segs = req.query?.path;
-  if (Array.isArray(segs) && segs.length) key = segs.join("/");
-  else if (typeof segs === "string" && segs) key = segs;
-  if (!key) {
-    try {
-      // URL() normalizes any ".." away; then strip the route prefix + any
-      // leading slashes so the key is a clean store pathname.
-      const pathname = new URL(req.url, "http://localhost").pathname;
-      key = decodeURIComponent(pathname.replace(/^\/(?:api\/data|data)\//, "")).replace(/^\/+/, "");
-    } catch (_) {
-      key = "";
-    }
+  try {
+    // URL() normalizes any ".." away; then strip the route prefix + any leading
+    // slashes so the key is a clean store pathname.
+    const pathname = new URL(req.url, "http://localhost").pathname;
+    key = decodeURIComponent(pathname.replace(/^\/(?:api\/data|data)\//, "")).replace(/^\/+/, "");
+  } catch (_) {
+    key = "";
   }
   if (!key || key.includes("..") || !KEY_RE.test(key) || key.startsWith("/")) {
     return res.status(400).json({ error: "bad key" });

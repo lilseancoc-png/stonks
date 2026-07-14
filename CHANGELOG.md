@@ -20,6 +20,29 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
        (same format, plus the archive preamble) and add that month to the
        "Older changelogs" index below. -->
 
+## 2026-07-14
+
+### Fixed
+- **Premium leak: the shared Top Picks watchlist was served for free.** `picks-watchlist.json` — full pick objects snapshotted server-side from the `tp`-restricted `picks.json` — was in neither `PREMIUM_KEYS` nor `ROLE_RESTRICTED_KEYS`, so with the gate live any anonymous visitor could `GET /data/picks-watchlist.json` and read the role-hidden roster, edge-cached (`public, s-maxage`) and replayed across users. Gated it exactly like `picks.json` (premium + `tp` claim). `lib/premium-keys.mjs`.
+- **`/api/data` honored a client `?path=` override.** A `?path=` query could select a different file than the URL requested; the store key is now derived from the URL path only. `api/data/[...path].js`.
+- **Grade scoring counted missing data as real values.** `pnum(null)` coerces to `0` (finite), so optional fundamentals/technicals fields stored as `null` tripped the scorers' presence guards and sign tests — a null free-cash-flow scored −1, a null forward-growth estimate scored +1 ("FY est 0%"), a null 100D SMA/resistance counted as "price above it" (skewing short-history names bullish), and `stockQualityGate` fabricated verdicts (a data-less name failed profitability yet passed "more cash than debt"). Added a null-preserving `pnumN` and applied it at every affected site. `scripts/build.mjs`.
+- **Market-regime index 5-day confirmation was dead.** `buildIndexAxisInput` read `priceSeries` as an array (it's a column object) and `_bars` as `.close` (it's `.c`), so `pctChange5d` was always null and `PICKS_MACRO_INDEX_5D` never fired. `scripts/build.mjs`.
+- **Track record could book a phantom −100% loss.** `markOptionToMarket`'s single-leg path lacked the failed-price guard the vertical path has, so an unmarkable contract coerced to −100% and tripped the stop. `scripts/build.mjs`.
+- **Stale overnight data cast a live macro-regime vote.** After a wholesale overnight-sweep failure the global-tape axis now scores neutral instead of voting off day-old (stale) moves. `scripts/build.mjs`.
+- **Macro-history null-clobber.** A later same-day build whose Yahoo leg flaked overwrote an earlier good value with null; now merges per-leg. `scripts/build.mjs`.
+- **`sync-data seed` could revert the live watchlist.** `seed` re-uploaded the request-time-owned `picks-watchlist.json`; now excluded like the other producers. `scripts/sync-data.mjs`.
+- **Weekday market holidays produced bogus data.** With no trading-calendar guard, the heatmap EOD recap + sector-breadth day minted from the prior session's stale quotes, and the volume scan false-flagged ~the whole universe (prior-session volume read as intraday). Both now skip on an all-day CLOSED tape. `scripts/refresh-heatmap.mjs`, `scripts/scan-unusual.mjs`.
+- **Heatmap rows that lost their % change kept rendering undimmed** — now flagged stale like the no-quote path. `scripts/refresh-heatmap.mjs`.
+- **Deep-linked / Top-Picks contract was silently regraded to ATM.** The first live-quote tick after opening a `?s=…&k=…` link (or a Top-Picks "Grade" handoff) reset the strike select to ATM; it now preserves the selection the way the chain poller already does. `scripts/render/app-js.mjs`.
+- **Heatmap tile-event listener leak.** `bindHeatmapTileEvents` re-bound handlers on every render (each zoom/toggle/resize), leaking duplicates and breaking pan-click suppression; now binds once and reads the tooltip fresh per event. `scripts/render/app-js.mjs`.
+- **Option expiries showed a day early for US users** on the Gamma/OI ladder and the Strategies tab (formatted in the viewer's local timezone instead of UTC). `scripts/render/app-js.mjs`.
+- **Regime-detail "Picks leaned" line never rendered** (it read `d.picks`; the writer stores `d.lean`, whose shape varies by producer — both are now handled), and the writer now emits `riskOffAxes` so that detail line works too. `scripts/render/app-js.mjs`, `scripts/build.mjs`.
+- **Track-record backtest doubled open credit-spread losses** (−100% vs the engine's symmetric −50% stop). `scripts/render/app-js.mjs`.
+- **Monte Carlo run was wiped** on every Track-tab re-entry / resolved-list sort change; a completed run is now re-rendered deterministically. `scripts/render/app-js.mjs`.
+- **Grade live-poll never restarted** after leaving and re-entering the Grade tab (the indicator still read "Live"); re-armed on tab re-entry. `scripts/render/app-js.mjs`.
+- **Macro-tape roster count included watch-tier picks**, overstating the book and able to flip the callHeavy warning; now counts actionable picks only. `scripts/render/app-js.mjs`.
+- Smaller UI fixes: exited-roster rows showed a wrong "Newly tracked" note; live spread-leg Greeks used the pick side instead of each leg's option type; a single-segment fundamentals donut rendered invisibly; autoPick ITM strikes were labeled "% OTM"; a GEX strike tooltip printed "$$". `scripts/render/app-js.mjs`.
+
 ## 2026-07-13
 
 ### Added
