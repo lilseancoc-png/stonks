@@ -5124,6 +5124,658 @@ export async function writeEarningsTrackerFile(store, chains, builtAtIso, prior 
   };
 }
 
+// === Earnings-call transcripts (data/earnings-calls.json + data/transcripts/) =
+// Per-ticker AI briefs of each name's most recent earnings CALL, built from the
+// full transcript. Source: The Motley Fool's free transcript library (server-
+// rendered, no bot wall — verified 2026-07-14). Discovery is two-pronged:
+//   1. every bake polls the transcript LISTING page (one fetch, the ~20 newest
+//      publications) and matches slugs against the tracked universe — with the
+//      hourly bake cadence this catches essentially every new call; and
+//   2. names with no summary yet (or whose earnings-history shows a NEW print
+//      after the covered call) are BACKFILLED via their fool.com quote page
+//      (server-rendered per-ticker transcript history; nasdaq→nyse URL guess),
+//      throttled to TRANSCRIPT_PROBES_PER_BUILD probes per build with a
+//      per-name TRANSCRIPT_PROBE_COOLDOWN_DAYS re-probe cooldown so names Fool
+//      doesn't cover don't burn fetches every hour.
+// Each matched transcript gets ONE structured Gemini call (AI_TRANSCRIPT_MODEL,
+// full gemini-3.5-flash — tone-reading and Q&A attribution are judgment work,
+// and the volume is tiny: one call per name per QUARTER, ~2/day off-season) that
+// emits the whole brief: exec summary, financial highlights, guidance table,
+// management tone (incl. hawkish/dovish wording read with quoted phrases),
+// analyst-tone read, attributed Q&A exchanges, risks, notable quotes, and the
+// optional sections (segments/KPIs/capital allocation/competitive/macro/
+// pipeline/legal) when the call covered them. Summaries are cached by the store
+// itself: a name is re-summarized only when a NEWER transcript appears (or
+// TRANSCRIPT_SUMMARY_VERSION is bumped), so repeat bakes cost zero AI tokens.
+// Capped at TRANSCRIPTS_PER_BUILD new summaries per bake — the launch backfill
+// of the whole universe spreads over a few trading days.
+// PREMIUM keys, both of them (lib/premium-keys.mjs gates the index by name and
+// the per-ticker details by the "transcripts/" prefix). The index carries every
+// covered name's headline + tone chips; the browser lazy-loads the per-ticker
+// detail (data/transcripts/<SYM>.json) when a card is opened
+// (loadEarningsCalls/renderEarningsCalls in app-js.mjs).
+// Same read-before-wipe rule as the other accumulating files: main() reads the
+// prior INDEX before writeChainFiles wipes data/, and per-ticker details are
+// upsert-only in the store (sync-data.mjs never delete-stales the transcripts/
+// prefix), so details written in past bakes survive without local copies.
+const EARNINGS_CALLS_FILE = "earnings-calls.json";
+const TRANSCRIPTS_DIR = "transcripts";
+const TRANSCRIPT_SUMMARY_VERSION = "ect1"; // bump after a prompt/schema change to phase re-summaries in
+const AI_TRANSCRIPT_MODEL = process.env.AI_TRANSCRIPT_MODEL || "gemini-3.5-flash";
+const AI_TRANSCRIPT_THINK = Number(process.env.AI_TRANSCRIPT_THINK ?? 512);
+const TRANSCRIPTS_PER_BUILD = Math.max(0, Number(process.env.TRANSCRIPTS_PER_BUILD ?? 6));
+const TRANSCRIPT_PROBES_PER_BUILD = Math.max(0, Number(process.env.TRANSCRIPT_PROBES_PER_BUILD ?? 20));
+const TRANSCRIPT_PROBE_COOLDOWN_DAYS = 3;
+// Input-token lever: a big-cap call runs ~45-70k chars; 90k covers the tail
+// without letting a malformed page feed the model megabytes.
+const TRANSCRIPT_MAX_CHARS = Math.max(20_000, Number(process.env.AI_TRANSCRIPT_CHARS ?? 90_000));
+// Sanity floor — shorter than this isn't a real call transcript (parse failure,
+// paywall stub, redirect page); skip and retry a later build.
+const TRANSCRIPT_MIN_CHARS = 6_000;
+const FOOL_BASE = "https://www.fool.com";
+const FOOL_LISTING_URL = `${FOOL_BASE}/earnings-call-transcripts/`;
+const FOOL_QUOTE_EXCHANGES = ["nasdaq", "nyse"];
+const TRANSCRIPT_FETCH_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+
+async function fetchFoolHtml(url) {
+  try {
+    const res = await fetch(url, {
+      headers: { "user-agent": TRANSCRIPT_FETCH_UA, accept: "text/html,application/xhtml+xml" },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) return null;
+    return await res.text();
+  } catch {
+    return null;
+  }
+}
+
+// Transcript article hrefs look like
+//   /earnings/call-transcripts/2026/07/09/pepsico-pep-q2-2026-earnings-call-transcript/
+// (some older ones say "-earnings-transcript"). The ticker is the last slug
+// segment before the qN-year suffix; the year in the path is the PUBLICATION
+// date, the qN-year pair is the FISCAL quarter in the article title.
+const FOOL_TRANSCRIPT_HREF_RE =
+  /\/earnings\/call-transcripts\/(\d{4})\/(\d{2})\/(\d{2})\/([a-z0-9.-]+?)-q([1-4])-((?:19|20)\d{2})-earnings(?:-call)?-transcript\/?/g;
+
+// Extract transcript links from any fool.com HTML (the listing page or a
+// per-ticker quote page). Returns [{ sym, url, published, quarter }], deduped
+// per symbol keeping the newest publication. Exported for offline testing.
+export function parseFoolTranscriptLinks(html) {
+  const bySym = new Map();
+  if (typeof html !== "string" || !html) return [];
+  for (const m of html.matchAll(FOOL_TRANSCRIPT_HREF_RE)) {
+    const [path, y, mo, d, slug, q, fy] = m;
+    const segs = slug.split("-").filter(Boolean);
+    const sym = (segs[segs.length - 1] || "").toUpperCase();
+    if (!/^[A-Z][A-Z0-9.]{0,5}$/.test(sym)) continue;
+    const item = {
+      sym,
+      url: `${FOOL_BASE}${path.endsWith("/") ? path : `${path}/`}`,
+      published: `${y}-${mo}-${d}`,
+      quarter: `Q${q} ${fy}`,
+    };
+    const cur = bySym.get(sym);
+    if (!cur || item.published > cur.published) bySym.set(sym, item);
+  }
+  return [...bySym.values()];
+}
+
+// Minimal HTML→text for the transcript body: drop script/style, turn block
+// closes + <br> into newlines, strip tags, decode the common entities.
+function transcriptHtmlToText(html) {
+  return String(html || "")
+    .replace(/<script\b[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
+    .replace(/<\/(?:p|h[1-6]|li|div|blockquote|tr)>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&(?:#39|#x27|apos|rsquo|lsquo);/gi, "'")
+    .replace(/&(?:ldquo|rdquo);/gi, '"')
+    .replace(/&(?:mdash|ndash);/gi, "—")
+    .replace(/&#(\d+);/g, (_, n) => {
+      const code = Number(n);
+      return Number.isFinite(code) && code > 31 && code < 0x10ffff ? String.fromCodePoint(code) : " ";
+    })
+    .replace(/[ \t]+/g, " ")
+    .replace(/ ?\n ?/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+// Parse a Motley Fool transcript article page into { company, sym, quarter,
+// callDate, text }. The body lives in <div class="article-body"> — found by
+// marker, closed by a div-depth walk (the body nests ad/pitch divs). Returns
+// null when the page doesn't look like a full transcript (sanity floor).
+// Exported for offline testing.
+export function parseFoolTranscriptArticle(html, url = "") {
+  if (typeof html !== "string" || !html) return null;
+  // Title: "PepsiCo (PEP) Q2 2026 Earnings Call Transcript | The Motley Fool"
+  const titleM = /<title[^>]*>([^<]+)<\/title>/i.exec(html);
+  const title = titleM ? transcriptHtmlToText(titleM[1]) : "";
+  const headM = /^(.*?)\(([A-Z][A-Z0-9.]{0,5})\)\s+(Q[1-4]\s+\d{4})/.exec(title);
+  const company = headM ? headM[1].trim() : "";
+  const sym = headM ? headM[2] : "";
+  const quarter = headM ? headM[3] : "";
+
+  // Some pages ship `class="article-body"`, others `class="article-body
+  // transcript-content"` — match the class prefix, not the exact attribute.
+  const markerM = /class="article-body[^"]*"/.exec(html);
+  if (!markerM) return null;
+  const open = html.indexOf(">", markerM.index);
+  if (open < 0) return null;
+  // Walk div depth from the article-body div to its matching close.
+  const divRe = /<\/?div\b/gi;
+  divRe.lastIndex = open + 1;
+  let depth = 1;
+  let end = -1;
+  for (let m; (m = divRe.exec(html)); ) {
+    depth += m[0] === "</div" ? -1 : 1;
+    if (depth === 0) {
+      end = m.index;
+      break;
+    }
+  }
+  const inner = end > open ? html.slice(open + 1, end) : html.slice(open + 1);
+  const text = transcriptHtmlToText(inner);
+  if (text.length < TRANSCRIPT_MIN_CHARS) return null;
+
+  // Call date: the article header carries "DATE\nThursday, July 9, 2026 at ...".
+  let callDate = null;
+  const dateM =
+    /(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day,?\s+([A-Z][a-z]+\.?\s+\d{1,2},\s+\d{4})/.exec(text.slice(0, 3000));
+  if (dateM) {
+    const ms = Date.parse(dateM[1].replace(".", ""));
+    if (Number.isFinite(ms)) callDate = new Date(ms).toISOString().slice(0, 10);
+  }
+  if (!callDate) {
+    const urlM = /\/earnings\/call-transcripts\/(\d{4})\/(\d{2})\/(\d{2})\//.exec(String(url));
+    if (urlM) callDate = `${urlM[1]}-${urlM[2]}-${urlM[3]}`;
+  }
+  return { company, sym, quarter, callDate, text };
+}
+
+const TRANSCRIPT_SUMMARY_SCHEMA = {
+  type: "object",
+  properties: {
+    headline: { type: "string" },
+    execSummary: { type: "array", items: { type: "string" } },
+    financials: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { label: { type: "string" }, value: { type: "string" }, context: { type: "string" } },
+        required: ["label", "value"],
+      },
+    },
+    guidance: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          metric: { type: "string" },
+          value: { type: "string" },
+          period: { type: "string" },
+          change: { type: "string", enum: ["raised", "maintained", "lowered", "new", "withdrawn"] },
+        },
+        required: ["metric", "value"],
+      },
+    },
+    operational: { type: "array", items: { type: "string" } },
+    segments: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { name: { type: "string" }, detail: { type: "string" } },
+        required: ["name", "detail"],
+      },
+    },
+    kpis: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { name: { type: "string" }, value: { type: "string" }, note: { type: "string" } },
+        required: ["name", "value"],
+      },
+    },
+    capitalAllocation: { type: "array", items: { type: "string" } },
+    competitive: { type: "array", items: { type: "string" } },
+    macro: { type: "array", items: { type: "string" } },
+    pipeline: { type: "array", items: { type: "string" } },
+    legal: { type: "array", items: { type: "string" } },
+    mgmtTone: {
+      type: "object",
+      properties: {
+        label: { type: "string", enum: ["confident", "optimistic", "measured", "cautious", "defensive", "mixed"] },
+        stance: { type: "string", enum: ["hawkish", "balanced", "dovish"] },
+        summary: { type: "string" },
+        phrases: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { quote: { type: "string" }, speaker: { type: "string" }, read: { type: "string" } },
+            required: ["quote", "speaker", "read"],
+          },
+        },
+      },
+      required: ["label", "stance", "summary", "phrases"],
+    },
+    analystTone: {
+      type: "object",
+      properties: {
+        label: { type: "string", enum: ["friendly", "neutral", "probing", "skeptical", "aggressive"] },
+        summary: { type: "string" },
+        phrases: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { quote: { type: "string" }, analyst: { type: "string" }, read: { type: "string" } },
+            required: ["quote", "analyst", "read"],
+          },
+        },
+      },
+      required: ["label", "summary", "phrases"],
+    },
+    qa: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          analyst: { type: "string" },
+          firm: { type: "string" },
+          question: { type: "string" },
+          respondent: { type: "string" },
+          answer: { type: "string" },
+          takeaway: { type: "string" },
+        },
+        required: ["analyst", "question", "respondent", "answer"],
+      },
+    },
+    risks: { type: "array", items: { type: "string" } },
+    quotes: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { speaker: { type: "string" }, role: { type: "string" }, quote: { type: "string" } },
+        required: ["speaker", "role", "quote"],
+      },
+    },
+    participants: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { name: { type: "string" }, role: { type: "string" } },
+        required: ["name", "role"],
+      },
+    },
+    epsVerdict: { type: "string", enum: ["beat", "inline", "miss", "unclear"] },
+  },
+  required: [
+    "headline", "execSummary", "financials", "guidance", "operational",
+    "mgmtTone", "analystTone", "qa", "risks", "quotes",
+  ],
+};
+
+const TRANSCRIPT_SUMMARY_SYSTEM_PROMPT =
+  "You are an equity research analyst producing a structured earnings-call brief from a FULL call transcript for a " +
+  "trading dashboard. Extract ONLY what the transcript supports — never invent numbers, names, firms, or guidance; " +
+  "leave a section EMPTY when the call did not cover it. Attribute every quote and claim to the actual speaker " +
+  "(name + role, e.g. 'CEO Jane Smith'); analyst questions carry the analyst's firm when stated. Quotes must be SHORT " +
+  "verbatim excerpts (max ~25 words each). Return JSON:\n" +
+  "- headline: one line (<=110 chars) — the call in a nutshell.\n" +
+  "- execSummary: 4-7 bullets — the most important takeaways of the ENTIRE call (results vs expectations, guidance, " +
+  "the thing that matters most for the stock).\n" +
+  "- financials: the reported numbers (revenue, EPS, margins, growth rates, cash flow) as {label, value, context} rows " +
+  "— value = the figure as stated; context = vs consensus/prior guide/YoY when the transcript gives it.\n" +
+  "- guidance: EVERY forward-looking number or range management gave, {metric, value, period, change} — period like " +
+  "'Q3 FY2026' or 'FY2026'; change = raised/maintained/lowered/new/withdrawn ONLY when the comparison is stated.\n" +
+  "- operational: major business updates — launches, deals, demand/market conditions, execution items.\n" +
+  "- segments: business-unit / geography performance {name, detail}. kpis: key operating metrics {name, value, note} " +
+  "(users, backlog, bookings, churn, same-store sales, utilization...). capitalAllocation: buybacks, dividends, capex, " +
+  "debt, cash. competitive: competitors, pricing power, share, win rates. macro: management's economy/industry read " +
+  "(consumer, supply chain, tariffs, geopolitics, inflation). pipeline: new products, partnerships, long-term bets. " +
+  "legal: lawsuit/regulatory updates.\n" +
+  "- mgmtTone: {label, stance, summary, phrases} — label = overall demeanor; stance = 'hawkish' (assertive, " +
+  "high-conviction, offense-minded wording), 'dovish' (guarded, hedged, conservative wording), or 'balanced'; summary " +
+  "= 2-3 sentences on HOW management worded things and why you read it that way; phrases = 2-4 {quote, speaker, read} " +
+  "— the specific words that reveal the tone and what each reveals.\n" +
+  "- analystTone: {label, summary, phrases} — were analysts friendly, neutral, probing, skeptical, or aggressive; " +
+  "phrases = 2-4 {quote, analyst, read} with the analyst's name and firm in 'analyst'.\n" +
+  "- qa: the 3-6 most revealing analyst exchanges {analyst, firm, question, respondent, answer, takeaway} — condense " +
+  "faithfully; takeaway = why the exchange matters.\n" +
+  "- risks: cautions, headwinds, and uncertainties raised by management OR analysts.\n" +
+  "- quotes: 3-6 additional notable verbatim quotes {speaker, role, quote}.\n" +
+  "- participants: the company speakers {name, role}. epsVerdict: beat/inline/miss/unclear — ONLY as characterized on " +
+  "the call itself.\n" +
+  "Plain language, dense with the actual numbers. No investment advice, no hedging boilerplate.";
+
+// Defensive normalization of the model's brief — coerce shapes, trim strings,
+// cap list lengths so a runaway response can't bloat the payload.
+function normalizeTranscriptSummary(parsed) {
+  const str = (v, max = 600) => {
+    const s = typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "";
+    return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+  };
+  const strArr = (v, cap = 10, max = 600) =>
+    (Array.isArray(v) ? v : []).map((x) => str(x, max)).filter(Boolean).slice(0, cap);
+  const objArr = (v, fields, cap) =>
+    (Array.isArray(v) ? v : [])
+      .map((x) => {
+        if (!x || typeof x !== "object") return null;
+        const o = {};
+        for (const [k, max] of Object.entries(fields)) o[k] = str(x[k], max);
+        return o;
+      })
+      .filter((o) => o && Object.values(o).some(Boolean))
+      .slice(0, cap);
+  const tone = (v, labels, phraseKey) => {
+    const o = v && typeof v === "object" ? v : {};
+    return {
+      label: labels.includes(o.label) ? o.label : "mixed",
+      ...(phraseKey === "speaker"
+        ? { stance: ["hawkish", "balanced", "dovish"].includes(o.stance) ? o.stance : "balanced" }
+        : {}),
+      summary: str(o.summary, 700),
+      phrases: objArr(o.phrases, { quote: 300, [phraseKey]: 120, read: 300 }, 5).filter((p) => p.quote),
+    };
+  };
+  const out = {
+    headline: str(parsed?.headline, 160),
+    execSummary: strArr(parsed?.execSummary, 8),
+    financials: objArr(parsed?.financials, { label: 120, value: 160, context: 300 }, 12).filter((r) => r.label && r.value),
+    guidance: (Array.isArray(parsed?.guidance) ? parsed.guidance : [])
+      .map((g) => {
+        if (!g || typeof g !== "object") return null;
+        return {
+          metric: str(g.metric, 120),
+          value: str(g.value, 200),
+          period: str(g.period, 60),
+          change: ["raised", "maintained", "lowered", "new", "withdrawn"].includes(g.change) ? g.change : null,
+        };
+      })
+      .filter((g) => g && g.metric && g.value)
+      .slice(0, 10),
+    operational: strArr(parsed?.operational, 10),
+    segments: objArr(parsed?.segments, { name: 120, detail: 400 }, 10).filter((r) => r.name && r.detail),
+    kpis: objArr(parsed?.kpis, { name: 120, value: 160, note: 300 }, 10).filter((r) => r.name && r.value),
+    capitalAllocation: strArr(parsed?.capitalAllocation, 8),
+    competitive: strArr(parsed?.competitive, 8),
+    macro: strArr(parsed?.macro, 8),
+    pipeline: strArr(parsed?.pipeline, 8),
+    legal: strArr(parsed?.legal, 6),
+    mgmtTone: tone(parsed?.mgmtTone, ["confident", "optimistic", "measured", "cautious", "defensive", "mixed"], "speaker"),
+    analystTone: tone(parsed?.analystTone, ["friendly", "neutral", "probing", "skeptical", "aggressive"], "analyst"),
+    qa: (Array.isArray(parsed?.qa) ? parsed.qa : [])
+      .map((x) => {
+        if (!x || typeof x !== "object") return null;
+        return {
+          analyst: str(x.analyst, 120),
+          firm: str(x.firm, 120),
+          question: str(x.question, 600),
+          respondent: str(x.respondent, 120),
+          answer: str(x.answer, 900),
+          takeaway: str(x.takeaway, 300),
+        };
+      })
+      .filter((x) => x && x.question && x.answer)
+      .slice(0, 8),
+    risks: strArr(parsed?.risks, 10),
+    quotes: objArr(parsed?.quotes, { speaker: 120, role: 120, quote: 300 }, 8).filter((q) => q.speaker && q.quote),
+    participants: objArr(parsed?.participants, { name: 120, role: 160 }, 12).filter((p) => p.name),
+    epsVerdict: ["beat", "inline", "miss", "unclear"].includes(parsed?.epsVerdict) ? parsed.epsVerdict : null,
+  };
+  if (!out.headline || out.execSummary.length < 3) throw new Error("transcript summary missing headline/execSummary");
+  return out;
+}
+
+async function summarizeEarningsCall(sym, meta) {
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
+  const clipped =
+    meta.text.length > TRANSCRIPT_MAX_CHARS
+      ? `${meta.text.slice(0, TRANSCRIPT_MAX_CHARS)}\n\n[transcript truncated]`
+      : meta.text;
+  const userMessage =
+    `${sym} — ${meta.company || sym} ${meta.quarter || ""} earnings call` +
+    `${meta.callDate ? `, held ${meta.callDate}` : ""}. Full transcript follows.\n\n---\n\n${clipped}`;
+  let response, lastErr;
+  for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
+    try {
+      await acquireAiSlot();
+      response = await ai.models.generateContent({
+        model: aiModelForAttempt(AI_TRANSCRIPT_MODEL, attempt),
+        config: {
+          systemInstruction: TRANSCRIPT_SUMMARY_SYSTEM_PROMPT,
+          temperature: 0.3,
+          maxOutputTokens: 8192,
+          responseMimeType: "application/json",
+          responseSchema: TRANSCRIPT_SUMMARY_SCHEMA,
+          thinkingConfig: { thinkingBudget: AI_TRANSCRIPT_THINK },
+        },
+        contents: userMessage,
+      });
+      recordAiUsage({
+        model: aiModelForAttempt(AI_TRANSCRIPT_MODEL, attempt),
+        callType: "earnings-call",
+        symbol: sym,
+        usage: response?.usageMetadata,
+      });
+      break;
+    } catch (err) {
+      lastErr = err;
+      const wait = classifyAiError(err, attempt, aiModelForAttempt(AI_TRANSCRIPT_MODEL, attempt));
+      if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) throw err;
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  if (!response) throw lastErr ?? new Error("no response from Gemini");
+  const text = response.text;
+  if (!text) throw new Error("empty Gemini response");
+  const stripped = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+  const firstBrace = stripped.indexOf("{");
+  const lastBrace = stripped.lastIndexOf("}");
+  const parsed = JSON.parse(firstBrace >= 0 && lastBrace > firstBrace ? stripped.slice(firstBrace, lastBrace + 1) : stripped);
+  return normalizeTranscriptSummary(parsed);
+}
+
+export async function readPriorEarningsCalls() {
+  try { return JSON.parse(await readFile(resolve(DATA_DIR, EARNINGS_CALLS_FILE), "utf8")); } catch { return null; }
+}
+
+const transcriptDaysBetween = (aIso, bIso) => {
+  const a = Date.parse(aIso), b = Date.parse(bIso);
+  return Number.isFinite(a) && Number.isFinite(b) ? (b - a) / 86_400_000 : null;
+};
+
+// The discovery + summarize pass. Pure orchestration over the fetch/parse/AI
+// helpers above; exported so regen-transcripts.mjs can run it standalone.
+export async function updateEarningsCallsData({ prior = null, earningsHxStore = null, builtAtIso = null } = {}) {
+  const todayIso = etDateKey();
+  const nowIso = new Date().toISOString();
+  const universe = TICKERS.filter((s) => SECTORS[s] !== "ETF");
+  const uniSet = new Set(universe);
+
+  // Carry the prior index forward, dropping names that left the universe.
+  const calls = {};
+  for (const [sym, entry] of Object.entries(prior?.calls || {})) {
+    if (uniSet.has(sym) && entry && typeof entry === "object") calls[sym] = entry;
+  }
+  const probes = {};
+  for (const [sym, at] of Object.entries(prior?.probes || {})) {
+    if (uniSet.has(sym) && typeof at === "string") probes[sym] = at;
+  }
+  const finishIndex = () => ({
+    builtAtIso: builtAtIso || nowIso,
+    updatedAt: nowIso,
+    universe: universe.length,
+    covered: Object.keys(calls).length,
+    source: "The Motley Fool",
+    calls,
+    probes,
+  });
+
+  // Keyless build: no point discovering transcripts we can't summarize — carry
+  // forward untouched (and don't burn probe cooldowns).
+  if (!process.env.GEMINI_API_KEY || TRANSCRIPTS_PER_BUILD === 0) {
+    return { index: finishIndex(), details: [], keyless: true };
+  }
+
+  // A stale-version entry keeps rendering but is treated as uncovered by
+  // discovery, so a version bump phases re-summaries in gradually.
+  const freshEntry = (sym) => {
+    const e = calls[sym];
+    return e && e.v === TRANSCRIPT_SUMMARY_VERSION ? e : null;
+  };
+
+  // 1. Listing poll — the ~20 newest publications sitewide, one fetch.
+  const queue = new Map();
+  const listed = parseFoolTranscriptLinks((await fetchFoolHtml(FOOL_LISTING_URL)) || "");
+  for (const item of listed) {
+    if (!uniSet.has(item.sym)) continue;
+    const cur = freshEntry(item.sym);
+    if (cur && (cur.sourceUrl === item.url || (cur.published && item.published <= cur.published))) continue;
+    queue.set(item.sym, item);
+  }
+
+  // 2. Quote-page backfill probes: names with no (current-version) summary, or
+  //    whose earnings history shows a NEW print ≥2 days ago that the listing
+  //    window has already scrolled past.
+  const lastPrintDate = (sym) => {
+    const evs = earningsHxStore?.tickers?.[sym]?.events;
+    if (!Array.isArray(evs)) return null;
+    let last = null;
+    for (const ev of evs) {
+      const d = typeof ev?.date === "string" ? ev.date.slice(0, 10) : null;
+      if (d && d <= todayIso && (!last || d > last)) last = d;
+    }
+    return last;
+  };
+  const probeCooldownOk = (sym) => {
+    const at = probes[sym];
+    const days = at ? transcriptDaysBetween(at, todayIso) : null;
+    return at == null || (days != null && days >= TRANSCRIPT_PROBE_COOLDOWN_DAYS);
+  };
+  const needsProbe = [];
+  for (const sym of universe) {
+    if (queue.has(sym) || !probeCooldownOk(sym)) continue;
+    const cur = freshEntry(sym);
+    if (!cur) {
+      needsProbe.push(sym);
+      continue;
+    }
+    const lastEv = lastPrintDate(sym);
+    if (
+      lastEv && cur.callDate && lastEv > cur.callDate &&
+      (transcriptDaysBetween(lastEv, todayIso) ?? 0) >= 2
+    ) {
+      needsProbe.push(sym);
+    }
+  }
+  for (const sym of needsProbe.slice(0, TRANSCRIPT_PROBES_PER_BUILD)) {
+    // No point discovering more than this build can summarize — unprobed names
+    // carry no cooldown stamp, so the next build picks them up immediately.
+    if (queue.size >= TRANSCRIPTS_PER_BUILD) break;
+    probes[sym] = todayIso;
+    for (const ex of FOOL_QUOTE_EXCHANGES) {
+      const html = await fetchFoolHtml(`${FOOL_BASE}/quote/${ex}/${sym.toLowerCase()}/`);
+      if (!html) continue;
+      const links = parseFoolTranscriptLinks(html).filter((l) => l.sym === sym);
+      if (!links.length) break; // real quote page with no transcripts — Fool doesn't cover it
+      const newest = links.sort((a, b) => b.published.localeCompare(a.published))[0];
+      const cur = freshEntry(sym);
+      if (!cur || (!(cur.sourceUrl === newest.url) && (!cur.published || newest.published > cur.published))) {
+        queue.set(sym, newest);
+      }
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+
+  // 3. Fetch + summarize, newest publications first. The cap bounds ATTEMPTS
+  //    (not successes) so a build-wide AI outage can't grind through the whole
+  //    queue at 6 retries a name.
+  const items = [...queue.values()].sort((a, b) => (b.published || "").localeCompare(a.published || ""));
+  const details = [];
+  const summarized = new Set();
+  let attempts = 0;
+  for (const item of items) {
+    if (attempts >= TRANSCRIPTS_PER_BUILD) break;
+    attempts++;
+    const parsed = parseFoolTranscriptArticle((await fetchFoolHtml(item.url)) || "", item.url);
+    if (!parsed) {
+      console.log(`  ⚠ [calls] ${item.sym} transcript fetch/parse failed — will retry a later build`);
+      continue;
+    }
+    try {
+      const summary = await summarizeEarningsCall(item.sym, parsed);
+      const quarter = parsed.quarter || item.quarter || null;
+      const callDate = parsed.callDate || item.published || null;
+      details.push({
+        sym: item.sym,
+        company: parsed.company || item.sym,
+        quarter,
+        callDate,
+        published: item.published || null,
+        sourceUrl: item.url,
+        source: "The Motley Fool",
+        generatedAtIso: nowIso,
+        v: TRANSCRIPT_SUMMARY_VERSION,
+        summary,
+      });
+      calls[item.sym] = {
+        sym: item.sym,
+        company: parsed.company || item.sym,
+        quarter,
+        callDate,
+        published: item.published || null,
+        headline: summary.headline,
+        mgmtTone: summary.mgmtTone?.label || null,
+        stance: summary.mgmtTone?.stance || null,
+        analystTone: summary.analystTone?.label || null,
+        epsVerdict: summary.epsVerdict,
+        sourceUrl: item.url,
+        updatedAt: todayIso,
+        v: TRANSCRIPT_SUMMARY_VERSION,
+      };
+      summarized.add(item.sym);
+      delete probes[item.sym];
+      console.log(`  [calls] ${item.sym} ${quarter || ""} summarized (${parsed.text.length.toLocaleString()} chars in)`);
+    } catch (err) {
+      console.log(`  ⚠ [calls] ${item.sym} summary failed: ${err.message}`);
+    }
+  }
+  // A discovered transcript that didn't make it to a summary (parse/AI failure,
+  // or over the attempt cap) shouldn't wait out the probe cooldown — clear the
+  // stamp so the next build re-discovers and retries. The cooldown only
+  // throttles names where probing found NO transcript at all.
+  for (const item of items) {
+    if (!summarized.has(item.sym)) delete probes[item.sym];
+  }
+  return { index: finishIndex(), details, keyless: false };
+}
+
+// Write the index + any newly-minted per-ticker details. Details are
+// upsert-only into data/transcripts/ — past details live in the private store
+// and are never re-written (or deleted) here.
+export async function writeEarningsCallsFiles({ prior = null, earningsHxStore = null, builtAtIso = null } = {}) {
+  const { index, details, keyless } = await updateEarningsCallsData({ prior, earningsHxStore, builtAtIso });
+  if (details.length) {
+    const dir = resolve(DATA_DIR, TRANSCRIPTS_DIR);
+    await mkdir(dir, { recursive: true });
+    for (const d of details) {
+      await writeFile(resolve(dir, `${d.sym}.json`), JSON.stringify(d), "utf8");
+    }
+  }
+  const json = JSON.stringify(index);
+  await writeFile(resolve(DATA_DIR, EARNINGS_CALLS_FILE), json, "utf8");
+  return { bytes: json.length, covered: index.covered, universe: index.universe, wrote: details.length, keyless };
+}
+
 // Unified rest-of-year macro + earnings calendar. Pulls confirmed
 // next-earnings dates straight out of each ticker's fundamentals (already
 // fetched) and merges them with future-dated macro headlines (Fed
@@ -21949,6 +22601,11 @@ async function main() {
   // earnings-history store every bake, but its AI season read is minted once
   // per ET day and carried forward, so pre-read it before the wipe.
   const priorEarningsTracker = await readPriorEarningsTracker();
+  // Prior earnings-calls index — the transcript summaries accumulate in the
+  // private store (per-ticker details are upsert-only); the index that tracks
+  // what's covered must be pre-read before the wipe or every bake would
+  // re-discover (and re-pay for) the whole universe.
+  const priorEarningsCalls = await readPriorEarningsCalls();
   // Prior RAM-prices snapshot — the wholesale-spot side accumulates its own
   // daily history across builds (the sources only publish the current
   // session), so it must be pre-read before the wipe like the other histories.
@@ -22261,6 +22918,23 @@ async function main() {
     console.log(`wrote data/${EARNINGS_TRACKER_FILE} — ${trackerInfo.seasons} seasons, ${trackerInfo.reported} reports this season, ${trackerInfo.bytes} bytes${trackerInfo.aiGenerated ? " (+AI season read)" : ""}`);
   } catch (err) {
     console.log(`  ⚠ Earnings-tracker step failed (non-fatal): ${err.message}`);
+  }
+  // Earnings-call transcript summaries — discover new Fool transcripts for the
+  // universe, mint AI briefs (capped per build), write the index + any new
+  // per-ticker details. Non-fatal: a flaky fetch or AI miss just retries on a
+  // later build; the tab keeps serving whatever the store already has.
+  try {
+    const callsInfo = await writeEarningsCallsFiles({
+      prior: priorEarningsCalls,
+      earningsHxStore,
+      builtAtIso,
+    });
+    console.log(
+      `wrote data/${EARNINGS_CALLS_FILE} — ${callsInfo.covered}/${callsInfo.universe} names covered, ` +
+      `${callsInfo.wrote} new summar${callsInfo.wrote === 1 ? "y" : "ies"}${callsInfo.keyless ? " (keyless carry-forward)" : ""}, ${callsInfo.bytes} bytes`,
+    );
+  } catch (err) {
+    console.log(`  ⚠ Earnings-calls step failed (non-fatal): ${err.message}`);
   }
   // Fear & Greed: write today's snapshot + the appended per-component
   // history back into the freshly-recreated data/ dir. We always persist

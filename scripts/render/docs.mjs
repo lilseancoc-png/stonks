@@ -1072,6 +1072,7 @@ export const DOC_PAGES = {
             <li><b>Stock Picks</b> — shares-only buy-the-dip screen: quality names beaten down, trap flags shown</li>
             <li><b>Briefs</b> — hourly market digest, open through close</li>
             <li><b>Narratives</b> — AI theses driving capital, longs/shorts, lifecycle</li>
+            <li><b>Earnings calls</b> — AI briefs of each name's latest call: guidance, tone, Q&amp;A</li>
             <li><b>Unusual flow</b> — abnormal options prints &amp; directional skew</li>
             <li><b>Volume</b> — intraday volume + support/resistance breaks</li>
             <li><b>Gamma exposure</b> — dealer net-gamma matrix, flip &amp; walls</li>
@@ -1184,6 +1185,10 @@ export const DOC_PAGES = {
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Narratives</span><span class="tier prem">Premium</span></div>
           <p class="feat-desc">AI-built theses on what's driving capital — longs, shorts, the 6-stage lifecycle, a fundamentals-vs-hype gauge, bull/base/bear cases, and cited sources.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Earnings calls</span><span class="tier prem">Premium</span></div>
+          <p class="feat-desc">An AI research brief of each tracked name's latest earnings call, built from the full transcript — key takeaways, the reported numbers, every guidance figure (raised/held/cut), a management-tone read with the exact phrases, analyst-tone, the most revealing Q&amp;A with firm attribution, and risks.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Unusual flow</span><span class="tier prem">Premium</span></div>

@@ -68,7 +68,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // default to "ungated, everyone's a member" so a legacy public deploy — or a
   // failed /me probe — never locks the site by accident. applyAuth() flips these
   // once /me resolves, before the first selectTab().
-  var PREMIUM_TABS = { market:1, brief:1, narratives:1, flow:1, volume:1, oi:1, 'index-cal':1, stocks:1 };
+  var PREMIUM_TABS = { market:1, brief:1, narratives:1, flow:1, volume:1, oi:1, 'index-cal':1, stocks:1, calls:1 };
   var GATE_ON = false;
   var IS_MEMBER = true;
   // Track Record is a STRICTER tier than premium: a specific Discord role, not
@@ -88,7 +88,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // header so the Discord is findable from anywhere on the site.
   var DISCORD_INVITE_URL = ${JSON.stringify(DISCORD_INVITE_URL)};
   function premiumTabLabel(id){
-    return ({ market:'Market Analysis', brief:'Briefs', narratives:'Narratives', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', hot:'Hot Stocks', 'index-cal':'Index Calendar', stocks:'Stock Picks' })[id] || 'This feature';
+    return ({ market:'Market Analysis', brief:'Briefs', narratives:'Narratives', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', hot:'Hot Stocks', 'index-cal':'Index Calendar', stocks:'Stock Picks', calls:'Earnings calls' })[id] || 'This feature';
   }
   // Inject the members-only upsell card into a locked premium pane (idempotent).
   function ensurePremiumLock(pane, id){
@@ -105,7 +105,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
         '</div>' +
         '<h2 class="premium-lock-title">' + escapeHtml(premiumTabLabel(id)) + ' is a members feature</h2>' +
-        '<p class="premium-lock-body">Market analysis, Stock Picks, Briefs, Narratives, Unusual &amp; Volume flow, and Gamma exposure are unlocked with a premium <b>Discord</b> membership. Join the server to get access &mdash; everything else stays free.</p>' +
+        '<p class="premium-lock-body">Market analysis, Stock Picks, Briefs, Narratives, Earnings calls, Unusual &amp; Volume flow, and Gamma exposure are unlocked with a premium <b>Discord</b> membership. Join the server to get access &mdash; everything else stays free.</p>' +
         '<a class="premium-lock-cta" href="' + DISCORD_INVITE_URL + '" target="_blank" rel="noopener">' + DISCORD_ICON_SVG + '<span>Join the Discord to get premium</span></a>' +
         '<p class="premium-lock-foot">Already a member? <a href="/api/auth/discord-login">Log in with Discord</a>.</p>' +
       '</div>';
@@ -3160,7 +3160,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','market','picks','stocks','heatmap','calendar','earnings','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','commodities','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','market','picks','stocks','heatmap','calendar','earnings','calls','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','commodities','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3183,6 +3183,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     global: 'overnight', asia: 'overnight', correlations: 'overnight', correlation: 'overnight', overnights: 'overnight',
     gex: 'oi', gamma: 'oi', 'gamma-exposure': 'oi',
     'earnings-tracker': 'earnings', 'earnings-season': 'earnings', season: 'earnings', eps: 'earnings',
+    'earnings-calls': 'calls', 'earnings-call': 'calls', transcripts: 'calls', transcript: 'calls', call: 'calls',
     iv: 'iv-trend', 'trending-iv': 'iv-trend', 'iv-trending': 'iv-trend', ivtrend: 'iv-trend', 'implied-vol': 'iv-trend', 'implied-volatility': 'iv-trend',
     // Reference / legal / info pages (now in-app tabs).
     'buyers-manual': 'cheatsheet', 'buyer-manual': 'cheatsheet', cheat: 'cheatsheet', 'cheat-sheet': 'cheatsheet', manual: 'cheatsheet',
@@ -3453,6 +3454,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (name === 'strategies' && typeof initStrategies === 'function') initStrategies();
         if (name === 'compare' && typeof initCompare === 'function') initCompare();
         if (name === 'earnings' && typeof loadEarningsTracker === 'function') loadEarningsTracker();
+        if (name === 'calls' && typeof loadEarningsCalls === 'function') loadEarningsCalls();
         if (name === 'ai-capex' && typeof loadAiCapex === 'function') loadAiCapex();
         if (name === 'ram-prices' && typeof loadRamPrices === 'function') loadRamPrices();
         if (name === 'commodities' && typeof loadCommodities === 'function') loadCommodities();
@@ -13475,6 +13477,285 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     bindBriefChips(root);
   }
 
+  // --- Earnings calls (transcript AI briefs) --------------------------------
+  // Index from data/earnings-calls.json (premium); per-ticker detail briefs
+  // lazy-fetched from data/transcripts/<SYM>.json when a card is opened.
+  var callsState = { idx: null, loading: false, sym: null, details: {}, detailLoading: null, filter: '' };
+  function eclChip(cls, txt, title){
+    return '<span class="ecl-chip ' + cls + '"' + (title ? ' title="' + escapeHtml(title) + '"' : '') + '>' + escapeHtml(txt) + '</span>';
+  }
+  function eclEpsChip(v){
+    if (v === 'beat') return eclChip('ecl-chip-pos', 'beat', 'EPS beat, as characterized on the call');
+    if (v === 'miss') return eclChip('ecl-chip-neg', 'miss', 'EPS miss, as characterized on the call');
+    if (v === 'inline') return eclChip('ecl-chip-flat', 'in line', 'EPS in line, as characterized on the call');
+    return '';
+  }
+  function eclMgmtChip(label, stance){
+    var out = '';
+    if (label){
+      var cls = (label === 'confident' || label === 'optimistic') ? 'ecl-chip-pos'
+        : (label === 'cautious' || label === 'defensive') ? 'ecl-chip-neg' : 'ecl-chip-flat';
+      out += eclChip(cls, 'mgmt: ' + label, 'Management tone on the call');
+    }
+    if (stance && stance !== 'balanced'){
+      out += eclChip(stance === 'hawkish' ? 'ecl-chip-warn' : 'ecl-chip-flat', stance, stance === 'hawkish' ? 'Assertive, high-conviction wording' : 'Guarded, hedged wording');
+    }
+    return out;
+  }
+  function eclAnalystChip(label){
+    if (!label) return '';
+    var cls = label === 'friendly' ? 'ecl-chip-pos' : label === 'aggressive' ? 'ecl-chip-neg'
+      : (label === 'skeptical' || label === 'probing') ? 'ecl-chip-warn' : 'ecl-chip-flat';
+    return eclChip(cls, 'analysts: ' + label, 'How analysts came at management in the Q&A');
+  }
+  function eclGuidChip(change){
+    if (change === 'raised') return eclChip('ecl-chip-pos', 'raised');
+    if (change === 'lowered') return eclChip('ecl-chip-neg', 'lowered');
+    if (change === 'withdrawn') return eclChip('ecl-chip-neg', 'withdrawn');
+    if (change === 'maintained') return eclChip('ecl-chip-flat', 'maintained');
+    if (change === 'new') return eclChip('ecl-chip-warn', 'new');
+    return '';
+  }
+  function eclSymBtn(sym){
+    return '<button type="button" class="ecl-sym" data-sym="' + escapeHtml(sym) + '" title="Open ' + escapeHtml(sym) + ' in the Grade tab">' + escapeHtml(sym) + '</button>';
+  }
+  function eclDate(iso){
+    if (!iso || iso.length < 10) return '—';
+    var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return MON[parseInt(iso.slice(5,7),10)-1] + ' ' + parseInt(iso.slice(8,10),10) + ', ' + iso.slice(0,4);
+  }
+  function eclBullets(items){
+    var out = '';
+    for (var i = 0; i < (items || []).length; i++){
+      if (!items[i]) continue;
+      out += '<li>' + escapeHtml(items[i]) + '</li>';
+    }
+    return out ? '<ul class="ecl-bullets">' + out + '</ul>' : '';
+  }
+  function eclSection(title, bodyHtml){
+    return bodyHtml ? '<div class="ecl-sec"><div class="ecl-sec-title">' + escapeHtml(title) + '</div>' + bodyHtml + '</div>' : '';
+  }
+  function loadEarningsCalls(){
+    if (callsState.idx || callsState.loading){ renderEarningsCalls(); return; }
+    callsState.loading = true;
+    fetch('data/earnings-calls.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){ callsState.idx = (j && typeof j === 'object') ? j : { calls: {} }; callsState.loading = false; renderEarningsCalls(); })
+      .catch(function(){ callsState.idx = { calls: {}, loadError: true }; callsState.loading = false; renderEarningsCalls(); });
+  }
+  function loadEarningsCallDetail(sym){
+    if (callsState.details[sym] || callsState.detailLoading === sym){ renderEarningsCalls(); return; }
+    callsState.detailLoading = sym;
+    fetch('data/transcripts/' + encodeURIComponent(sym) + '.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){
+        callsState.details[sym] = (j && typeof j === 'object' && j.summary) ? j : { loadError: true };
+        if (callsState.detailLoading === sym) callsState.detailLoading = null;
+        renderEarningsCalls();
+      })
+      .catch(function(){
+        callsState.details[sym] = { loadError: true };
+        if (callsState.detailLoading === sym) callsState.detailLoading = null;
+        renderEarningsCalls();
+      });
+  }
+  function renderEarningsCallDetail(d){
+    var s = d.summary || {};
+    var html = '<button type="button" class="ecl-back" data-ecl-back="1">&larr; All earnings calls</button>';
+    html += '<div class="ecl-det-head">' +
+      '<div class="ecl-det-title">' + eclSymBtn(d.sym) + '<span class="ecl-det-co">' + escapeHtml(d.company || d.sym) + '</span>' +
+        (d.quarter ? '<span class="ecl-det-q">' + escapeHtml(d.quarter) + ' earnings call</span>' : '') + '</div>' +
+      '<div class="ecl-det-sub">' + (d.callDate ? 'held ' + eclDate(d.callDate) : '') +
+        (s.epsVerdict ? ' ' + eclEpsChip(s.epsVerdict) : '') +
+        eclMgmtChip(s.mgmtTone && s.mgmtTone.label, s.mgmtTone && s.mgmtTone.stance) +
+        eclAnalystChip(s.analystTone && s.analystTone.label) + '</div>' +
+    '</div>';
+    if (s.headline) html += '<div class="ecl-det-headline">' + escapeHtml(s.headline) + '</div>';
+    html += eclSection('Key takeaways', eclBullets(s.execSummary));
+    // Financial highlights.
+    var fin = '';
+    for (var f = 0; f < (s.financials || []).length; f++){
+      var fr = s.financials[f];
+      if (!fr || !fr.label) continue;
+      fin += '<div class="ecl-row"><span class="ecl-row-label">' + escapeHtml(fr.label) + '</span>' +
+        '<span class="ecl-row-val">' + escapeHtml(fr.value || '') + '</span>' +
+        (fr.context ? '<span class="ecl-row-ctx">' + escapeHtml(fr.context) + '</span>' : '') + '</div>';
+    }
+    html += eclSection('Financial highlights', fin ? '<div class="ecl-rows">' + fin + '</div>' : '');
+    // Guidance.
+    var gd = '';
+    for (var g = 0; g < (s.guidance || []).length; g++){
+      var gr = s.guidance[g];
+      if (!gr || !gr.metric) continue;
+      gd += '<div class="ecl-row"><span class="ecl-row-label">' + escapeHtml(gr.metric) + (gr.period ? ' <span class="ecl-dim">(' + escapeHtml(gr.period) + ')</span>' : '') + '</span>' +
+        '<span class="ecl-row-val">' + escapeHtml(gr.value || '') + '</span>' +
+        (gr.change ? '<span class="ecl-row-ctx">' + eclGuidChip(gr.change) + '</span>' : '') + '</div>';
+    }
+    html += eclSection('Guidance', gd
+      ? '<div class="ecl-rows">' + gd + '</div>'
+      : (s.execSummary && s.execSummary.length ? '<p class="ecl-dim ecl-note">No forward-looking numbers were given on this call.</p>' : ''));
+    html += eclSection('Operational & strategic highlights', eclBullets(s.operational));
+    // Tone cards (management + analysts) side by side.
+    function toneCard(label, t, phraseKey){
+      if (!t || (!t.summary && !(t.phrases || []).length)) return '';
+      var ph = '';
+      for (var p = 0; p < (t.phrases || []).length; p++){
+        var x = t.phrases[p];
+        if (!x || !x.quote) continue;
+        ph += '<div class="ecl-phrase"><span class="ecl-phrase-q">&ldquo;' + escapeHtml(x.quote) + '&rdquo;</span>' +
+          '<span class="ecl-phrase-who">&mdash; ' + escapeHtml(x[phraseKey] || '') + '</span>' +
+          (x.read ? '<span class="ecl-phrase-read">' + escapeHtml(x.read) + '</span>' : '') + '</div>';
+      }
+      return '<div class="ecl-tone"><div class="ecl-tone-head">' + escapeHtml(label) +
+        (phraseKey === 'speaker' ? eclMgmtChip(t.label, t.stance) : eclAnalystChip(t.label)) + '</div>' +
+        (t.summary ? '<p class="ecl-tone-sum">' + escapeHtml(t.summary) + '</p>' : '') + ph + '</div>';
+    }
+    var tones = toneCard('Management tone', s.mgmtTone, 'speaker') + toneCard('Analyst tone', s.analystTone, 'analyst');
+    if (tones) html += '<div class="ecl-tones">' + tones + '</div>';
+    // Q&A highlights.
+    var qa = '';
+    for (var q = 0; q < (s.qa || []).length; q++){
+      var ex = s.qa[q];
+      if (!ex || !ex.question) continue;
+      qa += '<div class="ecl-qa">' +
+        '<div class="ecl-qa-q"><span class="ecl-qa-who">' + escapeHtml(ex.analyst || 'Analyst') + (ex.firm ? ' <span class="ecl-qa-firm">&mdash; ' + escapeHtml(ex.firm) + '</span>' : '') + '</span>' + escapeHtml(ex.question) + '</div>' +
+        '<div class="ecl-qa-a"><span class="ecl-qa-who">' + escapeHtml(ex.respondent || 'Management') + '</span>' + escapeHtml(ex.answer || '') + '</div>' +
+        (ex.takeaway ? '<div class="ecl-qa-take">' + escapeHtml(ex.takeaway) + '</div>' : '') +
+      '</div>';
+    }
+    html += eclSection('Notable Q&A', qa);
+    html += eclSection('Risks & concerns', eclBullets(s.risks));
+    // Optional deep-dive sections — only when the call covered them.
+    var seg = '';
+    for (var sg = 0; sg < (s.segments || []).length; sg++){
+      var sr = s.segments[sg];
+      if (!sr || !sr.name) continue;
+      seg += '<div class="ecl-row"><span class="ecl-row-label">' + escapeHtml(sr.name) + '</span><span class="ecl-row-ctx">' + escapeHtml(sr.detail || '') + '</span></div>';
+    }
+    html += eclSection('Segments & business units', seg ? '<div class="ecl-rows">' + seg + '</div>' : '');
+    var kp = '';
+    for (var k = 0; k < (s.kpis || []).length; k++){
+      var kr = s.kpis[k];
+      if (!kr || !kr.name) continue;
+      kp += '<div class="ecl-row"><span class="ecl-row-label">' + escapeHtml(kr.name) + '</span>' +
+        '<span class="ecl-row-val">' + escapeHtml(kr.value || '') + '</span>' +
+        (kr.note ? '<span class="ecl-row-ctx">' + escapeHtml(kr.note) + '</span>' : '') + '</div>';
+    }
+    html += eclSection('Key operating metrics', kp ? '<div class="ecl-rows">' + kp + '</div>' : '');
+    html += eclSection('Capital allocation & shareholder returns', eclBullets(s.capitalAllocation));
+    html += eclSection('Competitive positioning', eclBullets(s.competitive));
+    html += eclSection('Macro & industry commentary', eclBullets(s.macro));
+    html += eclSection('Products, pipeline & strategic bets', eclBullets(s.pipeline));
+    html += eclSection('Legal & regulatory', eclBullets(s.legal));
+    // Notable quotes.
+    var qu = '';
+    for (var n = 0; n < (s.quotes || []).length; n++){
+      var qn = s.quotes[n];
+      if (!qn || !qn.quote) continue;
+      qu += '<div class="ecl-phrase"><span class="ecl-phrase-q">&ldquo;' + escapeHtml(qn.quote) + '&rdquo;</span>' +
+        '<span class="ecl-phrase-who">&mdash; ' + escapeHtml(qn.speaker || '') + (qn.role ? ', ' + escapeHtml(qn.role) : '') + '</span></div>';
+    }
+    html += eclSection('Notable quotes', qu);
+    // Participants + attribution footer.
+    var who = [];
+    for (var w = 0; w < (s.participants || []).length; w++){
+      var pw = s.participants[w];
+      if (pw && pw.name) who.push(pw.name + (pw.role ? ' (' + pw.role + ')' : ''));
+    }
+    html += '<div class="ecl-foot">' +
+      (who.length ? '<div class="ecl-foot-who">On the call: ' + escapeHtml(who.join(' · ')) + '</div>' : '') +
+      '<div class="ecl-foot-src">AI summary of the call transcript' +
+        (d.sourceUrl ? ' — <a href="' + escapeHtml(d.sourceUrl) + '" target="_blank" rel="noopener">full transcript via ' + escapeHtml(d.source || 'The Motley Fool') + '</a>' : '') +
+        (d.generatedAtIso ? ' · generated ' + escapeHtml(String(d.generatedAtIso).slice(0,10)) : '') +
+        '. May contain errors &mdash; verify against the transcript before acting.</div>' +
+    '</div>';
+    return html;
+  }
+  function renderEarningsCalls(){
+    var root = $('calls-root'); var empty = $('calls-empty'); var eye = $('calls-eyebrow');
+    if (!root) return;
+    var idx = callsState.idx;
+    if (!idx){ root.textContent = 'Loading earnings calls…'; return; }
+    var entries = [];
+    var callsMap = idx.calls && typeof idx.calls === 'object' ? idx.calls : {};
+    for (var sym in callsMap){
+      if (callsMap.hasOwnProperty(sym) && callsMap[sym]) entries.push(callsMap[sym]);
+    }
+    if (!entries.length){
+      root.innerHTML = '';
+      if (empty){
+        empty.hidden = false;
+        empty.textContent = idx.loadError
+          ? 'Could not load earnings-call data.'
+          : 'Earnings-call summaries appear here as transcripts are published — the first batch lands over the next few builds.';
+      }
+      return;
+    }
+    if (empty) empty.hidden = true;
+    if (eye) eye.textContent = (idx.covered || entries.length) + ' of ' + (idx.universe || '—') + ' tracked names covered';
+    // Detail view.
+    if (callsState.sym){
+      var det = callsState.details[callsState.sym];
+      if (!det){
+        root.innerHTML = '<button type="button" class="ecl-back" data-ecl-back="1">&larr; All earnings calls</button><p class="ecl-dim ecl-note">Loading ' + escapeHtml(callsState.sym) + ' call brief…</p>';
+      } else if (det.loadError){
+        root.innerHTML = '<button type="button" class="ecl-back" data-ecl-back="1">&larr; All earnings calls</button><p class="ecl-dim ecl-note">Could not load the ' + escapeHtml(callsState.sym) + ' call brief. It may still be baking — try again after the next hourly build.</p>';
+      } else {
+        root.innerHTML = renderEarningsCallDetail(det);
+      }
+    } else {
+      // List view: search + cards, newest call first.
+      entries.sort(function(a, b){ return String(b.callDate || b.published || '').localeCompare(String(a.callDate || a.published || '')); });
+      var filter = (callsState.filter || '').toUpperCase();
+      var cards = '';
+      var shown = 0;
+      for (var i = 0; i < entries.length; i++){
+        var e = entries[i];
+        if (filter && (e.sym + ' ' + (e.company || '')).toUpperCase().indexOf(filter) < 0) continue;
+        shown++;
+        cards += '<button type="button" class="ecl-card" data-ecl-open="' + escapeHtml(e.sym) + '">' +
+          '<div class="ecl-card-top"><span class="ecl-card-sym">' + escapeHtml(e.sym) + '</span>' +
+            '<span class="ecl-card-co">' + escapeHtml(e.company || '') + '</span>' +
+            '<span class="ecl-card-date">' + (e.quarter ? escapeHtml(e.quarter) + ' · ' : '') + eclDate(e.callDate || e.published) + '</span></div>' +
+          (e.headline ? '<div class="ecl-card-head">' + escapeHtml(e.headline) + '</div>' : '') +
+          '<div class="ecl-card-chips">' + eclEpsChip(e.epsVerdict) + eclMgmtChip(e.mgmtTone, e.stance) + eclAnalystChip(e.analystTone) + '</div>' +
+        '</button>';
+      }
+      root.innerHTML =
+        '<div class="ecl-toolbar"><input type="search" id="ecl-search" class="ecl-search" placeholder="Filter by ticker or company&hellip;" value="' + escapeHtml(callsState.filter || '') + '" aria-label="Filter earnings calls">' +
+          '<span class="ecl-dim">' + shown + ' call' + (shown === 1 ? '' : 's') + '</span></div>' +
+        (cards ? '<div class="ecl-cards">' + cards + '</div>' : '<p class="ecl-dim ecl-note">No calls match that filter.</p>');
+      var search = $('ecl-search');
+      if (search){
+        search.addEventListener('input', function(ev){
+          callsState.filter = ev.target.value || '';
+          var pos = ev.target.selectionStart;
+          renderEarningsCalls();
+          var again = $('ecl-search');
+          if (again){ again.focus(); try { again.setSelectionRange(pos, pos); } catch (_) {} }
+        });
+      }
+    }
+    // Card opens, back button, Grade-tab ticker links.
+    var opens = root.querySelectorAll('[data-ecl-open]');
+    for (var o = 0; o < opens.length; o++){
+      opens[o].addEventListener('click', function(ev){
+        var sym = ev.currentTarget.getAttribute('data-ecl-open');
+        callsState.sym = sym;
+        renderEarningsCalls();
+        loadEarningsCallDetail(sym);
+      });
+    }
+    var backs = root.querySelectorAll('[data-ecl-back]');
+    for (var b = 0; b < backs.length; b++){
+      backs[b].addEventListener('click', function(){
+        callsState.sym = null;
+        renderEarningsCalls();
+      });
+    }
+    bindBriefChips(root);
+  }
+
   // --- AI CapEx (Macro tab) -----------------------------------------------
   // Aggregate Mag-7 capital expenditure from data/ai-capex.json — SEC XBRL
   // CapEx, latest full FY vs the year before (+ TTM run-rate), per company.
@@ -14771,7 +15052,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Stock Picks card symbols, Trending-IV symbols/chips/table rows).
   function bindBriefChips(rootEl){
     if (!rootEl) return;
-    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .stk-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym], .cmd-watch[data-sym], .cr-tkr[data-sym], .f13-sym[data-sym], .ers-sym[data-sym]');
+    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .stk-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym], .cmd-watch[data-sym], .cr-tkr[data-sym], .f13-sym[data-sym], .ers-sym[data-sym], .ecl-sym[data-sym]');
     for (var i = 0; i < chips.length; i++){
       chips[i].addEventListener('click', function(ev){
         var sym = ev.currentTarget.getAttribute('data-sym');

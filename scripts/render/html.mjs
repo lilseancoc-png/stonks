@@ -46,6 +46,7 @@ const SIDE_NAV_ICONS = {
   calendar: '<rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18"/>',
   'index-cal': '<rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18M8 15h.01M12 15h.01M16 15h.01"/>',
   earnings: '<rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18"/><path d="m6.5 17.5 3-3.5 2.5 2 4-4.5"/><path d="M13.5 11.5H16V14"/>',
+  calls: '<path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.9 8.9 0 0 1-3.9-.9L3 20l1-4.9a8.4 8.4 0 0 1-1-4A8.4 8.4 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5Z"/><path d="M8 10.5h8M8 14h5"/>',
   track: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14.5 2 2 4-4.5"/>',
   heatmap: '<rect x="3" y="3" width="7.5" height="7.5" rx="1"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1"/>',
   flow: '<path d="M13 2 3 14h9l-1 8 10-12h-9z"/>',
@@ -472,6 +473,24 @@ function earningsTrackerSection() {
     <div id="earnings-root" class="earnings-root">Loading earnings tracker&hellip;</div>
     <div id="earnings-empty" class="earnings-empty" hidden>Earnings tracker data will appear after the next daily build refresh.</div>
     <p class="hint">Coverage is the curated tracked-ticker universe, not the full market; implied-move and guidance columns accumulate from live snapshots, so older quarters can show &ldquo;&mdash;&rdquo;. Not financial advice.</p>
+  </section>`;
+}
+
+function earningsCallsSection() {
+  // Card chrome only — content renders client-side from data/earnings-calls.json
+  // (the covered-name index), lazy-fetched on first tab activation by
+  // loadEarningsCalls() in app.js; opening a card fetches that name's full
+  // brief from data/transcripts/<SYM>.json. PREMIUM tab — non-members get the
+  // lock card and the loaders are skipped.
+  return `<section class="card" id="calls-section">
+    <header class="card-header">
+      <h2 class="card-title">Earnings calls</h2>
+      <span class="card-eyebrow" id="calls-eyebrow" aria-live="polite"></span>
+    </header>
+    ${infoNote('What is this?', `<p>An AI research brief of each tracked name's most recent <b>earnings call</b>, built from the full call transcript. Every brief carries the <b>key takeaways</b>, the <b>reported numbers</b> (revenue, EPS, margins, growth), every piece of <b>guidance</b> management gave (and whether it was raised, maintained or cut), a <b>management-tone read</b> &mdash; how leadership worded things, hawkish or dovish, with the specific phrases &mdash; an <b>analyst-tone read</b> (were the questions friendly or skeptical, and who asked what), the most revealing <b>Q&amp;A exchanges</b> with firm attribution, <b>risks and headwinds</b>, and when the call covered them: segment breakdowns, key operating metrics, capital allocation, competitive positioning, macro commentary, pipeline bets and legal updates. New calls are picked up within hours of the transcript publishing; each name shows its latest quarter.</p>`)}
+    <div id="calls-root" class="calls-root">Loading earnings calls&hellip;</div>
+    <div id="calls-empty" class="calls-empty" hidden>Earnings-call summaries appear here as transcripts are published.</div>
+    <p class="hint">Summaries are AI-generated from third-party transcripts and can contain errors &mdash; always verify against the linked transcript. Not financial advice.</p>
   </section>`;
 }
 
@@ -1301,6 +1320,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     ${sideNavItem('stocks', 'Stock picks')}
     ${sideNavItem('calendar', 'Calendar')}
     ${sideNavItem('earnings', 'Earnings tracker')}
+    ${sideNavItem('calls', 'Earnings calls')}
     ${sideNavItem('index-cal', 'Index calendar')}
     ${sideNavItem('track', 'Track record')}
   </div>
@@ -1576,6 +1596,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-earnings" role="tabpanel" aria-labelledby="page-tab-earnings" hidden>
   ${earningsTrackerSection()}
+  </div>
+  <div class="page-pane" id="page-pane-calls" role="tabpanel" aria-labelledby="page-tab-calls" hidden>
+  ${earningsCallsSection()}
   </div>
   <div class="page-pane" id="page-pane-index-cal" role="tabpanel" aria-labelledby="page-tab-index-cal" hidden>
   ${indexCalSection()}
