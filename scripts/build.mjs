@@ -15,6 +15,7 @@ import { writeFile, readFile, mkdir, rm, readdir, appendFile } from "node:fs/pro
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
+import { inflateRawSync } from "node:zlib";
 import { GoogleGenAI } from "@google/genai";
 import YahooFinance from "yahoo-finance2";
 import { greeks, bsPrice, yearsToExpiry, ncdf } from "../lib/greeks.mjs";
@@ -8486,6 +8487,488 @@ async function writeCapitalRaisesFile(cikMap, chains, builtAtIso, prior = null) 
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, "capital-raises.json"), json, "utf8");
   return { bytes: json.length, count: (payload.events || []).length, stale: !!payload.stale };
+}
+
+// === IPOs & Credit tracker (data/ipo-credit.json) ==========================
+// "How many companies IPO'd this quarter, how many capital/debt raises and how
+// much was raised — vs last quarter — plus national credit-card debt, bank
+// deposits, and the NY Fed household-credit read." Four independent sections,
+// each with its own source AND its own last-good carry-forward (per-section
+// stale marks — one dead source never blanks the tab):
+//   ipos   — stockanalysis.com's IPO calendar (server-rendered table; all US
+//            listings incl. SPACs), bucketed into calendar quarters: current
+//            quarter-to-date vs last quarter + a recent-listings list. SEC
+//            EDGAR full-text-search 424B4 counts ride along as a cross-check
+//            (different methodology: priced prospectuses incl. follow-ons).
+//   raises — market-wide SEC EDGAR filing counts per quarter (424B4 priced
+//            prospectuses + 424B5 shelf takedowns ≈ follow-on equity/debt
+//            raises), plus the tracked-universe issuance EVENTS accumulated
+//            across builds from the capital-raises news classifier above
+//            (count + disclosed-$ totals per quarter; buybacks tallied
+//            separately — they RETURN capital, they don't raise it).
+//   credit — FRED G.19 REVOLSL (revolving consumer credit = the national
+//            credit-card-debt series, monthly, $M SA — stored in $B) and
+//            FRED H.8 DPSACBW027SBOG (deposits, all commercial banks,
+//            weekly, $B SA) via the existing fetchFredSeries path.
+//   nyfed  — the NY Fed Quarterly Report on Household Debt & Credit:
+//            per-category balances ($T, the "Page 3 Data" sheet of the
+//            published xlsx) parsed with a dependency-free zip/inflate
+//            reader (node:zlib). The xlsx is ~1MB and QUARTERLY, so it is
+//            re-fetched only when the NY Fed databank page advertises a new
+//            quarter key; otherwise the parsed series carries forward as-is.
+const IPO_CREDIT_FILE = "ipo-credit.json";
+const IC_BROWSER_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+const IC_QUARTERS_TRACKED = 8;   // IPO count history depth (bar strip)
+const IC_SEC_QUARTERS = 5;       // EDGAR filing-count history depth
+const IC_EVENT_QUARTERS = 4;     // universe issuance-event retention
+
+export function icQuarterKey(dateLike) {
+  const s = String(dateLike || "");
+  const m = s.match(/^(\d{4})-(\d{2})/);
+  if (!m) return null;
+  const q = Math.floor((Number(m[2]) - 1) / 3) + 1;
+  return q >= 1 && q <= 4 ? `${m[1]}Q${q}` : null;
+}
+export function icQuarterLabel(key) {
+  const m = String(key || "").match(/^(\d{4})Q([1-4])$/);
+  return m ? `Q${m[2]} ${m[1]}` : String(key || "");
+}
+export function icPrevQuarterKey(key) {
+  const m = String(key || "").match(/^(\d{4})Q([1-4])$/);
+  if (!m) return null;
+  const y = Number(m[1]), q = Number(m[2]);
+  return q === 1 ? `${y - 1}Q4` : `${y}Q${q - 1}`;
+}
+function icQuarterBounds(key) {
+  const m = String(key || "").match(/^(\d{4})Q([1-4])$/);
+  if (!m) return null;
+  const y = m[1], q = Number(m[2]);
+  const sm = (q - 1) * 3 + 1;
+  const lastDay = [null, "03-31", "06-30", "09-30", "12-31"][q];
+  return { start: `${y}-${String(sm).padStart(2, "0")}-01`, end: `${y}-${lastDay}` };
+}
+function icLastNQuarters(curKey, n) {
+  const out = [curKey];
+  while (out.length < n) {
+    const prev = icPrevQuarterKey(out[0]);
+    if (!prev) break;
+    out.unshift(prev);
+  }
+  return out;
+}
+
+// ── IPO calendar (stockanalysis.com, server-rendered) ───────────────────────
+const IC_MONTHS = { jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06", jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12" };
+// Parse the /ipos/<year>/ table: rows of [IPO Date, Symbol, Company Name,
+// IPO Price, Current, Return]. Svelte SSR interleaves comment markers
+// (<!--[-->, <!--]-->) through the markup, so comments are stripped first.
+// Exported for offline testing.
+export function parseStockAnalysisIpos(html) {
+  const clean = String(html || "").replace(/<!--[\s\S]*?-->/g, "");
+  const tableM = clean.match(/<table[^>]*id="main-table"[^>]*>([\s\S]*?)<\/table>/i) || clean.match(/<table[^>]*>([\s\S]*?)<\/table>/i);
+  if (!tableM) return [];
+  const bodyM = tableM[1].match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i);
+  const body = bodyM ? bodyM[1] : tableM[1];
+  const out = [];
+  for (const rowM of body.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
+    const cells = [...rowM[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)]
+      .map((c) => c[1].replace(/<[^>]*>/g, "").replace(/&amp;/g, "&").replace(/&#39;|&apos;/g, "'").trim());
+    if (cells.length < 3) continue;
+    const dm = cells[0].match(/^([A-Za-z]{3})[a-z]*\s+(\d{1,2}),\s+(\d{4})$/);
+    if (!dm) continue;
+    const mm = IC_MONTHS[dm[1].toLowerCase()];
+    if (!mm) continue;
+    const date = `${dm[3]}-${mm}-${String(Number(dm[2])).padStart(2, "0")}`;
+    const symbol = cells[1].toUpperCase();
+    if (!/^[A-Z][A-Z0-9.]{0,6}$/.test(symbol)) continue;
+    const priceM = (cells[3] || "").match(/\$?\s*([\d,]+(?:\.\d+)?)/);
+    out.push({
+      date, symbol, name: cells[2] || symbol,
+      price: priceM ? Number(priceM[1].replace(/,/g, "")) : null,
+    });
+  }
+  return out;
+}
+async function fetchIpoYear(year) {
+  const res = await fetch(`https://stockanalysis.com/ipos/${year}/`, {
+    headers: { "user-agent": IC_BROWSER_UA, accept: "text/html,*/*" },
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return parseStockAnalysisIpos(await res.text());
+}
+
+// ── SEC EDGAR full-text-search filing counts ────────────────────────────────
+// One tiny JSON GET per (form, quarter): the hit total is the filing count.
+// Completed quarters are immutable, so counts already present in the prior
+// payload are reused — a steady-state build only re-fetches the current
+// (still-accumulating) quarter.
+async function fetchEdgarFormCount(form, startIso, endIso) {
+  const url = `https://efts.sec.gov/LATEST/search-index?forms=${encodeURIComponent(form)}&startdt=${startIso}&enddt=${endIso}`;
+  const res = await fetch(url, {
+    headers: { "user-agent": SEC_USER_AGENT, accept: "application/json" },
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = await res.json();
+  const n = Number(json?.hits?.total?.value);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+async function buildIcSecCounts(curKey, prior) {
+  const keys = icLastNQuarters(curKey, IC_SEC_QUARTERS);
+  const priorByKey = new Map((prior?.raises?.sec?.quarters || []).map((q) => [q.key, q]));
+  const quarters = [];
+  for (const key of keys) {
+    const done = key !== curKey;
+    const prev = priorByKey.get(key);
+    // Reuse completed-quarter counts; always refresh the current quarter.
+    if (done && prev && Number.isFinite(prev.b4) && Number.isFinite(prev.b5)) {
+      quarters.push({ key, label: icQuarterLabel(key), b4: prev.b4, b5: prev.b5 });
+      continue;
+    }
+    const bounds = icQuarterBounds(key);
+    const b4 = await fetchEdgarFormCount("424B4", bounds.start, bounds.end);
+    await new Promise((r) => setTimeout(r, 300)); // SEC politeness gap
+    const b5 = await fetchEdgarFormCount("424B5", bounds.start, bounds.end);
+    await new Promise((r) => setTimeout(r, 300));
+    quarters.push({ key, label: icQuarterLabel(key), b4, b5 });
+  }
+  return { quarters, note: "424B4 = priced prospectuses (IPOs + follow-ons); 424B5 = shelf takedowns (seasoned equity/debt raises). Filing counts, not company counts." };
+}
+
+// ── Tracked-universe issuance events (accumulated across builds) ────────────
+// The capital-raises classifier only sees a rolling ~21-day news window, so
+// per-quarter counts/totals need the events UPSERTED into a persistent list
+// (pre-wipe prior read, like every other cross-build history). Seeded from the
+// prior capital-raises.json payload so launch day starts with the last ~3
+// weeks of flagged events instead of zero.
+function icAccumulateRaiseEvents(prior, priorCapitalRaises, curKey) {
+  const byId = new Map();
+  const push = (ev) => {
+    if (!ev || !ev.ticker || !ev.kind || !ev.publishedAt) return;
+    const day = String(ev.publishedAt).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return;
+    const id = `${ev.ticker}|${ev.kind}|${day}`;
+    if (!byId.has(id)) byId.set(id, { ...ev, day });
+  };
+  for (const ev of prior?.raises?.universe?.events || []) push(ev);
+  for (const ev of priorCapitalRaises?.events || []) {
+    push({ ticker: ev.ticker, kind: ev.kind, kindLabel: ev.kindLabel, headline: ev.headline, publishedAt: ev.publishedAt, amount: ev.headlineAmount ?? null });
+  }
+  for (const f of _capitalRaiseFlags) {
+    push({ ticker: f.ticker, kind: f.kind, kindLabel: CAPITAL_RAISE_KIND_LABEL[f.kind] || f.kind, headline: f.title, publishedAt: f.publishedAt, amount: f.amount ?? null });
+  }
+  const keep = new Set(icLastNQuarters(curKey, IC_EVENT_QUARTERS));
+  const events = [...byId.values()].filter((ev) => keep.has(icQuarterKey(ev.day)));
+  events.sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : 0));
+  return events;
+}
+function icQuarterRaiseAgg(events, key) {
+  const inQ = events.filter((ev) => icQuarterKey(ev.day) === key);
+  const raises = inQ.filter((ev) => ev.kind !== "buyback");
+  const withAmount = raises.filter((ev) => Number.isFinite(ev.amount));
+  const byKind = {};
+  for (const ev of inQ) byKind[ev.kind] = (byKind[ev.kind] || 0) + 1;
+  return {
+    key, label: icQuarterLabel(key),
+    count: raises.length,
+    totalUsd: withAmount.reduce((s, ev) => s + ev.amount, 0),
+    withAmount: withAmount.length,
+    buybacks: byKind.buyback || 0,
+    byKind,
+  };
+}
+
+// ── FRED credit series (G.19 revolving + H.8 deposits) ──────────────────────
+function icFredStats(series, { backShort, backYear, valueScale = 1, keepPoints, downsample = 1 }) {
+  if (!Array.isArray(series) || series.length < 2) return null;
+  const pts = series.filter((p) => p && p.date && Number.isFinite(p.value));
+  if (pts.length < 2) return null;
+  const at = (back) => (pts.length > back ? pts[pts.length - 1 - back] : null);
+  const last = pts[pts.length - 1];
+  const pct = (a, b) => (a && b && b.value ? ((a.value - b.value) / Math.abs(b.value)) * 100 : null);
+  const tail = pts.slice(-keepPoints);
+  const spark = tail.filter((_, i) => i % downsample === 0 || i === tail.length - 1)
+    .map((p) => [p.date, Number((p.value * valueScale).toPrecision(6))]);
+  return {
+    latestB: Number((last.value * valueScale).toPrecision(6)),
+    asOf: last.date,
+    shortPct: pct(last, at(backShort)),
+    yoyPct: pct(last, at(backYear)),
+    series: spark,
+  };
+}
+
+// ── NY Fed Household Debt & Credit (quarterly xlsx) ─────────────────────────
+// Minimal zip reader: central-directory scan + inflateRawSync per entry. The
+// HHDC workbook stores everything deflated; enough for our one-sheet read.
+function icUnzip(buf) {
+  const eocd = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  if (eocd < 0) throw new Error("not a zip");
+  const count = buf.readUInt16LE(eocd + 10);
+  let p = buf.readUInt32LE(eocd + 16);
+  const entries = new Map();
+  for (let i = 0; i < count; i++) {
+    if (buf.readUInt32LE(p) !== 0x02014b50) break;
+    const method = buf.readUInt16LE(p + 10);
+    const csize = buf.readUInt32LE(p + 20);
+    const nameLen = buf.readUInt16LE(p + 28);
+    const extraLen = buf.readUInt16LE(p + 30);
+    const cmtLen = buf.readUInt16LE(p + 32);
+    const lho = buf.readUInt32LE(p + 42);
+    const name = buf.toString("utf8", p + 46, p + 46 + nameLen);
+    entries.set(name, { method, csize, lho });
+    p += 46 + nameLen + extraLen + cmtLen;
+  }
+  return (name) => {
+    const e = entries.get(name);
+    if (!e) return null;
+    const nl = buf.readUInt16LE(e.lho + 26), el = buf.readUInt16LE(e.lho + 28);
+    const start = e.lho + 30 + nl + el;
+    const data = buf.subarray(start, start + e.csize);
+    return e.method === 8 ? inflateRawSync(data).toString("utf8") : data.toString("utf8");
+  };
+}
+const IC_HHDC_COLUMNS = {
+  "mortgage": ["mortgage", "Mortgage"],
+  "he revolving": ["heloc", "HE revolving"],
+  "auto loan": ["auto", "Auto loan"],
+  "credit card": ["creditCard", "Credit card"],
+  "student loan": ["student", "Student loan"],
+  "other": ["other", "Other"],
+  "total": ["total", "Total"],
+};
+// Parse the "Page 3 Data" sheet (Total Debt Balance and Its Composition, $T)
+// into an ascending [{ q: "2026Q1", mortgage, heloc, auto, creditCard,
+// student, other, total }] series. Exported for offline testing.
+export function parseHhdcPage3(buf) {
+  const read = icUnzip(buf);
+  const wb = read("xl/workbook.xml");
+  if (!wb) throw new Error("no workbook.xml");
+  const sheets = [...wb.matchAll(/<sheet[^>]*name="([^"]+)"[^>]*r:id="(rId\d+)"/g)].map((m) => ({ name: m[1], rid: m[2] }));
+  const target = sheets.find((s) => /page\s*3\s*data/i.test(s.name));
+  if (!target) throw new Error("Page 3 Data sheet not found");
+  const rels = read("xl/_rels/workbook.xml.rels") || "";
+  const relM = rels.match(new RegExp(`Id="${target.rid}"[^>]*Target="([^"]+)"`)) || rels.match(new RegExp(`Target="([^"]+)"[^>]*Id="${target.rid}"`));
+  if (!relM) throw new Error("sheet rel not found");
+  const sheetXml = read("xl/" + relM[1].replace(/^\/?(xl\/)?/, ""));
+  if (!sheetXml) throw new Error("sheet xml missing");
+  const ssXml = read("xl/sharedStrings.xml") || "";
+  const ss = [...ssXml.matchAll(/<si>([\s\S]*?)<\/si>/g)]
+    .map((m) => [...m[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map((t) => t[1]).join(""));
+  // rows: rowNum → { colLetter → resolved value }
+  const rows = new Map();
+  for (const rowM of sheetXml.matchAll(/<row[^>]*r="(\d+)"[^>]*>([\s\S]*?)<\/row>/g)) {
+    const cells = {};
+    for (const cM of rowM[2].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+      const attrs = cM[1] || "";
+      const rM = attrs.match(/r="([A-Z]+)\d+"/);
+      if (!rM) continue;
+      const tM = attrs.match(/t="([^"]+)"/);
+      const vM = (cM[2] || "").match(/<v>([\s\S]*?)<\/v>/);
+      if (!vM) continue;
+      let v = vM[1];
+      if (tM && tM[1] === "s") v = ss[Number(v)] ?? "";
+      cells[rM[1]] = v;
+    }
+    if (Object.keys(cells).length) rows.set(Number(rowM[1]), cells);
+  }
+  // Header row: the one carrying "Credit Card" AND "Mortgage" labels.
+  let colOf = null;
+  for (const cells of rows.values()) {
+    const labels = Object.entries(cells).map(([col, v]) => [col, String(v).trim().toLowerCase()]);
+    if (labels.some(([, v]) => v === "credit card") && labels.some(([, v]) => v === "mortgage")) {
+      colOf = {};
+      for (const [col, v] of labels) if (IC_HHDC_COLUMNS[v]) colOf[IC_HHDC_COLUMNS[v][0]] = col;
+      break;
+    }
+  }
+  if (!colOf || !colOf.creditCard || !colOf.total) throw new Error("header row not found");
+  const series = [];
+  const sortedRowNums = [...rows.keys()].sort((a, b) => a - b);
+  for (const rn of sortedRowNums) {
+    const cells = rows.get(rn);
+    const qM = String(cells.A || "").trim().match(/^(\d{2}):Q([1-4])$/);
+    if (!qM) continue;
+    const entry = { q: `20${qM[1]}Q${qM[2]}` };
+    let ok = true;
+    for (const [field, col] of Object.entries(colOf)) {
+      const v = Number(cells[col]);
+      if (!Number.isFinite(v)) { ok = false; break; }
+      entry[field] = Number(v.toPrecision(6));
+    }
+    if (ok) series.push(entry);
+  }
+  return series;
+}
+async function fetchLatestHhdcRef() {
+  const res = await fetch("https://www.newyorkfed.org/microeconomics/databank.html", {
+    headers: { "user-agent": IC_BROWSER_UA, accept: "text/html,*/*" },
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const html = await res.text();
+  let best = null;
+  for (const m of html.matchAll(/(\/medialibrary\/interactives\/householdcredit\/data\/xls\/hhd_c_report_(\d{4})q([1-4])\.xlsx)/gi)) {
+    const key = `${m[2]}Q${m[3]}`;
+    if (!best || key > best.key) best = { key, url: `https://www.newyorkfed.org${m[1]}` };
+  }
+  if (!best) throw new Error("no hhd_c_report link on databank page");
+  return best;
+}
+async function buildIcNyFed(prior) {
+  const priorNyfed = prior?.credit?.nyfed || null;
+  const ref = await fetchLatestHhdcRef();
+  // The report is quarterly and the workbook ~1MB: reuse the parsed series
+  // until the databank page advertises a NEW quarter key.
+  if (priorNyfed && priorNyfed.asOfQuarter === ref.key && Array.isArray(priorNyfed.series) && priorNyfed.series.length) {
+    return { ...priorNyfed, stale: false };
+  }
+  const res = await fetch(ref.url, {
+    headers: { "user-agent": IC_BROWSER_UA },
+    signal: AbortSignal.timeout(45000),
+  });
+  if (!res.ok) throw new Error(`xlsx HTTP ${res.status}`);
+  const series = parseHhdcPage3(Buffer.from(await res.arrayBuffer()));
+  const last = series[series.length - 1];
+  // Sanity bounds: household totals in trillions; a parse drift ships nothing.
+  if (series.length < 20 || !last || !(last.creditCard > 0.3 && last.creditCard < 5) || !(last.total > 5 && last.total < 50)) {
+    throw new Error("HHDC parse failed sanity bounds");
+  }
+  const prev = series[series.length - 2] || null;
+  const yearAgo = series[series.length - 5] || null;
+  const pct = (a, b) => (a != null && b ? ((a - b) / Math.abs(b)) * 100 : null);
+  return {
+    asOfQuarter: last.q,
+    label: icQuarterLabel(last.q),
+    creditCardT: last.creditCard,
+    creditCardQoqPct: pct(last.creditCard, prev?.creditCard),
+    creditCardYoyPct: pct(last.creditCard, yearAgo?.creditCard),
+    totalT: last.total,
+    totalQoqPct: pct(last.total, prev?.total),
+    composition: [
+      { key: "mortgage", label: "Mortgage", val: last.mortgage },
+      { key: "heloc", label: "HE revolving", val: last.heloc },
+      { key: "auto", label: "Auto loan", val: last.auto },
+      { key: "creditCard", label: "Credit card", val: last.creditCard },
+      { key: "student", label: "Student loan", val: last.student },
+      { key: "other", label: "Other", val: last.other },
+    ].filter((c) => Number.isFinite(c.val)),
+    series: series.slice(-24).map((s) => [s.q, s.creditCard]),
+    source: "NY Fed Household Debt & Credit",
+    sourceUrl: "https://www.newyorkfed.org/microeconomics/hhdc",
+    stale: false,
+  };
+}
+
+export async function buildIpoCreditPayload(builtAtIso, prior = null, priorCapitalRaises = null) {
+  const etDate = etDateKey();
+  const curKey = icQuarterKey(etDate);
+  const prevKey = icPrevQuarterKey(curKey);
+  const payload = {
+    builtAtIso,
+    currentQuarter: { key: curKey, label: icQuarterLabel(curKey), toDate: etDate },
+    priorQuarter: { key: prevKey, label: icQuarterLabel(prevKey) },
+  };
+
+  // 1) IPO calendar — current + prior calendar year covers 5-8 quarters.
+  try {
+    const curYear = Number(etDate.slice(0, 4));
+    const items = [...await fetchIpoYear(curYear - 1), ...await fetchIpoYear(curYear)];
+    if (!items.length) throw new Error("no IPO rows parsed");
+    const counts = new Map();
+    for (const it of items) {
+      const k = icQuarterKey(it.date);
+      if (k) counts.set(k, (counts.get(k) || 0) + 1);
+    }
+    const qKeys = icLastNQuarters(curKey, IC_QUARTERS_TRACKED);
+    const curItems = items.filter((it) => icQuarterKey(it.date) === curKey)
+      .sort((a, b) => (a.date < b.date ? 1 : -1));
+    payload.ipos = {
+      source: "stockanalysis.com",
+      sourceUrl: "https://stockanalysis.com/ipos/",
+      byQuarter: qKeys.map((k) => ({ key: k, label: icQuarterLabel(k), count: counts.get(k) || 0 })),
+      current: { key: curKey, label: icQuarterLabel(curKey), count: counts.get(curKey) || 0 },
+      prior: { key: prevKey, label: icQuarterLabel(prevKey), count: counts.get(prevKey) || 0 },
+      recent: curItems.slice(0, 12),
+      note: "All US listings including SPACs, by pricing date.",
+      stale: false,
+    };
+  } catch (err) {
+    console.log(`    ⚠ ipo-credit: IPO calendar failed (${err.message})${prior?.ipos ? " — carrying last-good" : ""}`);
+    if (prior?.ipos) payload.ipos = { ...prior.ipos, stale: true };
+  }
+
+  // 2) Raises — EDGAR market-wide counts + universe events.
+  const raises = {};
+  try {
+    raises.sec = await buildIcSecCounts(curKey, prior);
+  } catch (err) {
+    console.log(`    ⚠ ipo-credit: EDGAR counts failed (${err.message})${prior?.raises?.sec ? " — carrying last-good" : ""}`);
+    if (prior?.raises?.sec) raises.sec = { ...prior.raises.sec, stale: true };
+  }
+  try {
+    const events = icAccumulateRaiseEvents(prior, priorCapitalRaises, curKey);
+    raises.universe = {
+      trackingSince: prior?.raises?.universe?.trackingSince || etDate,
+      current: icQuarterRaiseAgg(events, curKey),
+      prior: icQuarterRaiseAgg(events, prevKey),
+      events: events.slice(0, 200),
+      note: "News-flagged issuance events across the ~138 tracked tickers only; $ totals sum disclosed headline amounts.",
+    };
+  } catch (err) {
+    console.log(`    ⚠ ipo-credit: universe raise aggregation failed (${err.message})`);
+    if (prior?.raises?.universe) raises.universe = prior.raises.universe;
+  }
+  payload.raises = raises;
+
+  // 3) Credit — FRED G.19 revolving (monthly, $M → $B) + H.8 deposits ($B).
+  const credit = {};
+  try {
+    const rev = icFredStats(await fetchFredSeries("REVOLSL"), { backShort: 1, backYear: 12, valueScale: 1 / 1000, keepPoints: 25 });
+    if (!rev) throw new Error("empty REVOLSL");
+    credit.revolving = { ...rev, seriesId: "REVOLSL", sourceName: "FRED — G.19 revolving consumer credit", cadence: "monthly", stale: false };
+  } catch (err) {
+    console.log(`    ⚠ ipo-credit: REVOLSL failed (${err.message})${prior?.credit?.revolving ? " — carrying last-good" : ""}`);
+    if (prior?.credit?.revolving) credit.revolving = { ...prior.credit.revolving, stale: true };
+  }
+  try {
+    const dep = icFredStats(await fetchFredSeries("DPSACBW027SBOG"), { backShort: 4, backYear: 52, keepPoints: 105, downsample: 2 });
+    if (!dep) throw new Error("empty DPSACBW027SBOG");
+    credit.deposits = { ...dep, seriesId: "DPSACBW027SBOG", sourceName: "FRED — H.8 deposits, all commercial banks", cadence: "weekly", stale: false };
+  } catch (err) {
+    console.log(`    ⚠ ipo-credit: deposits failed (${err.message})${prior?.credit?.deposits ? " — carrying last-good" : ""}`);
+    if (prior?.credit?.deposits) credit.deposits = { ...prior.credit.deposits, stale: true };
+  }
+  try {
+    credit.nyfed = await buildIcNyFed(prior);
+  } catch (err) {
+    console.log(`    ⚠ ipo-credit: NY Fed HHDC failed (${err.message})${prior?.credit?.nyfed ? " — carrying last-good" : ""}`);
+    if (prior?.credit?.nyfed) credit.nyfed = { ...prior.credit.nyfed, stale: true };
+  }
+  payload.credit = credit;
+  return payload;
+}
+
+async function readPriorIpoCredit() {
+  try { return JSON.parse(await readFile(resolve(DATA_DIR, IPO_CREDIT_FILE), "utf8")); } catch { return null; }
+}
+async function writeIpoCreditFile(builtAtIso, prior = null, priorCapitalRaises = null) {
+  const payload = await buildIpoCreditPayload(builtAtIso, prior, priorCapitalRaises);
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, IPO_CREDIT_FILE), json, "utf8");
+  return {
+    bytes: json.length,
+    ipoCount: payload.ipos?.current?.count ?? null,
+    secQuarters: payload.raises?.sec?.quarters?.length ?? 0,
+    universeEvents: payload.raises?.universe?.events?.length ?? 0,
+    nyfedQuarter: payload.credit?.nyfed?.asOfQuarter ?? null,
+    staleSections: ["ipos", "raises", "credit"].filter((k) =>
+      k === "credit"
+        ? ["revolving", "deposits", "nyfed"].some((s) => payload.credit?.[s]?.stale)
+        : (k === "raises" ? payload.raises?.sec?.stale : payload[k]?.stale)),
+  };
 }
 
 // === FOMC meeting schedule (multi-year baseline) =====================
@@ -22937,6 +23420,11 @@ async function main() {
   // landed. Read before the wipe like the other cross-build artifacts.
   const priorAiCapex = await readPriorAiCapex();
   const priorCapitalRaises = await readPriorCapitalRaises();
+  // Prior IPOs & Credit snapshot — accumulates the universe issuance events
+  // across builds and caches the immutable completed-quarter EDGAR counts +
+  // the quarterly NY Fed household-credit parse, so it must be pre-read
+  // before the wipe like the other cross-build histories.
+  const priorIpoCredit = await readPriorIpoCredit();
   // Prior earnings-tracker snapshot — the season scoreboard is rebuilt from the
   // earnings-history store every bake, but its AI season read is minted once
   // per ET day and carried forward, so pre-read it before the wipe.
@@ -23198,6 +23686,15 @@ async function main() {
     console.log(`wrote data/commodities.json — ${commoditiesInfo.fresh}/${commoditiesInfo.total} fresh, ${commoditiesInfo.overlays} overlay${commoditiesInfo.overlays === 1 ? "" : "s"}, ${commoditiesInfo.bytes} bytes${commoditiesInfo.stale ? " [stale — kept last-good]" : ""}`);
   } catch (err) {
     console.log(`  ⚠ Commodities step failed (non-fatal): ${err.message}`);
+  }
+  // IPOs & Credit tracker (stockanalysis IPO calendar + EDGAR prospectus
+  // counts + accumulated universe issuance events + FRED G.19/H.8 + NY Fed
+  // household credit) — per-section last-good carry-forward (graceful).
+  try {
+    const icInfo = await writeIpoCreditFile(builtAtIso, priorIpoCredit, priorCapitalRaises);
+    console.log(`wrote data/ipo-credit.json — ${icInfo.ipoCount ?? "?"} IPOs this quarter, ${icInfo.secQuarters} EDGAR quarters, ${icInfo.universeEvents} universe events, NY Fed ${icInfo.nyfedQuarter ?? "n/a"}, ${icInfo.bytes} bytes${icInfo.staleSections.length ? ` [stale: ${icInfo.staleSections.join(",")}]` : ""}`);
+  } catch (err) {
+    console.log(`  ⚠ IPOs & Credit step failed (non-fatal): ${err.message}`);
   }
   await writeTrendFiles({
     narratives: trends.narratives,

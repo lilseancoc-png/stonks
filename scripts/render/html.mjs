@@ -60,6 +60,7 @@ const SIDE_NAV_ICONS = {
   'ai-capex': '<rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9.5" y="9.5" width="5" height="5"/><path d="M9 2.5V5M15 2.5V5M9 19v2.5M15 19v2.5M2.5 9H5M2.5 15H5M19 9h2.5M19 15h2.5"/>',
   'ram-prices': '<rect x="2.5" y="6.5" width="19" height="9" rx="1.5"/><path d="M6 15.5v3M10 15.5v3M14 15.5v3M18 15.5v3"/><path d="M6.5 10v2M12 10v2M17.5 10v2"/>',
   'capital-raises': '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/>',
+  'ipo-credit': '<path d="M12 2.5c2.5 2 3.5 5 3.5 8l-1.5 3h-4L8.5 10.5c0-3 1-6 3.5-8z"/><path d="M10 13.5 8 18l2.5-1.5L12 19l1.5-2.5L16 18l-2-4.5"/><circle cx="12" cy="8.5" r="1.5"/>',
   commodities: '<path d="M3 20.5c0-6 3.5-9.5 9-9.5s9 3.5 9 9.5"/><path d="M12 11V3.5"/><path d="M12 3.5c2.5 0 4.5 1.5 5 3.5-2.5.5-4.5-.5-5-3.5zM12 3.5c-2.5 0-4.5 1.5-5 3.5 2.5.5 4.5-.5 5-3.5z"/>',
   f13: '<path d="M14 2.5H6.5A1.5 1.5 0 0 0 5 4v16a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 20V7.5z"/><path d="M14 2.5v5h5"/><path d="M9 13h6M9 17h6"/>',
   grade: '<circle cx="12" cy="8.5" r="5.5"/><path d="m8.8 13.2-1.3 8 4.5-2.7 4.5 2.7-1.3-8"/>',
@@ -541,6 +542,24 @@ function commoditiesSection() {
     <div id="commodities-root" class="commodities-root">Loading commodities&hellip;</div>
     <div id="commodities-empty" class="commodities-empty" hidden>Commodity data will appear after the next daily build refresh.</div>
     <p class="hint">Futures are front-month continuous contracts (daily settles); FRED series are monthly and publish on a lag. Proxy ETFs track direction, not the spot level. Scraped overlays are best-effort and can go stale. Not financial advice.</p>
+  </section>`;
+}
+
+function ipoCreditSection() {
+  // Card chrome only — content renders client-side from data/ipo-credit.json,
+  // lazy-fetched on first tab activation by loadIpoCredit() in app.js.
+  // Quarterly IPO counts, market-wide SEC raise-filing counts + tracked-
+  // universe issuance totals, and the national credit backdrop (FRED G.19
+  // revolving credit, H.8 bank deposits, NY Fed household debt & credit).
+  return `<section class="card" id="ipo-credit-section">
+    <header class="card-header">
+      <h2 class="card-title">IPOs &amp; credit</h2>
+      <span class="card-eyebrow" id="ipo-credit-eyebrow" aria-live="polite"></span>
+    </header>
+    ${infoNote('What is this?', `<p>The capital-formation and consumer-credit backdrop in one place. <b>Companies going public</b> counts every US listing by pricing date (stockanalysis.com calendar, SPACs included), this quarter vs last. <b>Capital &amp; debt raises</b> tracks market-wide SEC prospectus filings &mdash; 424B4 (priced IPO/follow-on offerings) and 424B5 (shelf takedowns: seasoned equity and debt raises) &mdash; plus news-flagged issuance events with disclosed dollar totals across the tracked ticker universe. <b>National credit backdrop</b> pairs the Fed&rsquo;s G.19 revolving consumer credit series (<b>REVOLSL</b> &mdash; the national credit-card-debt gauge) with H.8 commercial-bank deposits and the New York Fed&rsquo;s Quarterly Report on Household Debt &amp; Credit (per-category balances incl. credit cards). Heavy issuance + swelling card balances late in a cycle reads very differently than IPO droughts + deleveraging &mdash; this tab is the quick read on which regime the tape is in.</p>`)}
+    <div id="ipo-credit-root" class="ipo-credit-root">Loading IPOs &amp; credit&hellip;</div>
+    <div id="ipo-credit-empty" class="ipo-credit-empty" hidden>IPO &amp; credit data will appear after the next daily build refresh.</div>
+    <p class="hint">IPO counts include SPACs and small-caps. Filing counts are filings, not companies. FRED series publish on a lag (G.19 ~2 months, H.8 ~1 week); the NY Fed report is quarterly. Not financial advice.</p>
   </section>`;
 }
 
@@ -1343,6 +1362,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     ${sideNavItem('ram-prices', 'RAM prices')}
     ${sideNavItem('commodities', 'Commodities')}
     ${sideNavItem('capital-raises', 'Capital raises')}
+    ${sideNavItem('ipo-credit', 'IPOs &amp; credit')}
     ${sideNavItem('f13', '13F filings')}
   </div>
   <div class="side-nav-group">
@@ -1878,6 +1898,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-capital-raises" role="tabpanel" aria-labelledby="page-tab-capital-raises" hidden>
   ${capitalRaisesSection()}
+  </div>
+  <div class="page-pane" id="page-pane-ipo-credit" role="tabpanel" aria-labelledby="page-tab-ipo-credit" hidden>
+  ${ipoCreditSection()}
   </div>
   <div class="page-pane" id="page-pane-f13" role="tabpanel" aria-labelledby="page-tab-f13" hidden>
   ${f13Section()}

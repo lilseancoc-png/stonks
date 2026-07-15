@@ -3160,7 +3160,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','market','picks','stocks','heatmap','calendar','earnings','calls','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','commodities','capital-raises','track','cheatsheet','chart-patterns','features','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','market','picks','stocks','heatmap','calendar','earnings','calls','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','features','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3174,6 +3174,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     ram: 'ram-prices', dram: 'ram-prices', memory: 'ram-prices', 'ram-price': 'ram-prices', 'ram-prices': 'ram-prices', ddr5: 'ram-prices',
     commodity: 'commodities', 'commodity-prices': 'commodities', cocoa: 'commodities', coffee: 'commodities', cotton: 'commodities', lumber: 'commodities', sugar: 'commodities', lithium: 'commodities', potash: 'commodities', freight: 'commodities', bdi: 'commodities', 'baltic-dry': 'commodities', manheim: 'commodities', 'used-vehicles': 'commodities',
     'capital-raises': 'capital-raises', raises: 'capital-raises', issuance: 'capital-raises', debt: 'capital-raises', bonds2: 'capital-raises',
+    'ipo-credit': 'ipo-credit', ipos: 'ipo-credit', ipo: 'ipo-credit', credit: 'ipo-credit', 'credit-card': 'ipo-credit', 'credit-cards': 'ipo-credit', deposits: 'ipo-credit', revolsl: 'ipo-credit', 'household-debt': 'ipo-credit',
     pick: 'picks', 'top-picks': 'picks', toppicks: 'picks',
     'stock-picks': 'stocks', stockpicks: 'stocks', stock: 'stocks', shares: 'stocks',
     'market-analysis': 'market', analysis: 'market', tape: 'market', regime: 'market',
@@ -3459,6 +3460,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (name === 'ram-prices' && typeof loadRamPrices === 'function') loadRamPrices();
         if (name === 'commodities' && typeof loadCommodities === 'function') loadCommodities();
         if (name === 'capital-raises' && typeof loadCapitalRaises === 'function') loadCapitalRaises();
+        if (name === 'ipo-credit' && typeof loadIpoCredit === 'function') loadIpoCredit();
         if (name === 'iv-trend' && typeof loadIvTrend === 'function') loadIvTrend();
       }
       // The sidebar scrolls vertically when the tab list outgrows the
@@ -14208,6 +14210,197 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     root.innerHTML = '<div class="cr-rows">' + rows + '</div>';
     bindBriefChips(root);
+  }
+
+  // --- IPOs & Credit (Macro tab) --------------------------------------------
+  // data/ipo-credit.json — quarterly IPO counts (stockanalysis.com calendar),
+  // market-wide SEC EDGAR raise-filing counts (424B4/424B5) + the tracked-
+  // universe issuance events accumulated across builds, national credit-card
+  // debt (FRED G.19 REVOLSL), bank deposits (FRED H.8) and the NY Fed
+  // Household Debt & Credit quarterly read. Baked by writeIpoCreditFile in
+  // scripts/build.mjs; every section carries last-good forward (stale-marked).
+  var ipoCreditState = { data: null, loading: false };
+  function icFmtBn(b){
+    if (b == null || !isFinite(b)) return '—';
+    if (Math.abs(b) >= 1000) return '$' + (b / 1000).toFixed(2) + 'T';
+    return '$' + (Math.abs(b) >= 100 ? Math.round(b).toLocaleString() : b.toFixed(1)) + 'B';
+  }
+  function icFmtT(t){ return (t == null || !isFinite(t)) ? '—' : '$' + t.toFixed(2) + 'T'; }
+  function icQtrShort(key){
+    var m = /^(\d{4})Q([1-4])$/.exec(String(key || ''));
+    return m ? 'Q' + m[2] + " '" + m[1].slice(2) : String(key || '');
+  }
+  function icStaleBadge(sec){
+    return (sec && sec.stale) ? '<span class="cmd-badge cmd-badge-stale" title="Source unreachable this build — showing the last-good read">last-good</span>' : '';
+  }
+  // Compact sparkline over [[label, value], …] series (shared data-ch hover).
+  function icSpark(series, fmtFn, labelFn){
+    var pts = [];
+    for (var i = 0; i < (series || []).length; i++){
+      var e = series[i];
+      if (e && e.length >= 2 && isFinite(Number(e[1]))) pts.push({ d: String(e[0]), v: Number(e[1]) });
+    }
+    if (pts.length < 2) return '';
+    var W = 240, H = 48, PAD = 3, lo = Infinity, hi = -Infinity;
+    for (var j = 0; j < pts.length; j++){ if (pts[j].v < lo) lo = pts[j].v; if (pts[j].v > hi) hi = pts[j].v; }
+    if (!(hi > lo)) hi = lo + 0.0001;
+    var poly = '', hover = [];
+    for (var k = 0; k < pts.length; k++){
+      var x = PAD + (k * (W - 2 * PAD)) / (pts.length - 1);
+      var y = H - PAD - ((pts[k].v - lo) * (H - 2 * PAD)) / (hi - lo);
+      poly += (k ? ' ' : '') + (Math.round(x * 10) / 10) + ',' + (Math.round(y * 10) / 10);
+      hover.push({ x: x, y: y, label: (labelFn ? labelFn(pts[k].d) : pts[k].d) + '\\n' + fmtFn(pts[k].v) });
+    }
+    var up = pts[pts.length - 1].v >= pts[0].v;
+    return '<svg class="ic-spark ' + (up ? 'ic-spark-up' : 'ic-spark-down') + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img"' + chHoverAttr(hover) + '>' +
+      '<polyline class="ic-spark-line" points="' + poly + '" fill="none"/></svg>';
+  }
+  function icDateShort(d){
+    var ms = Date.parse(String(d) + (String(d).length === 10 ? 'T12:00:00Z' : ''));
+    if (!isFinite(ms)) return String(d || '');
+    var dt = new Date(ms), M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return M[dt.getUTCMonth()] + ' ' + dt.getUTCDate() + " '" + String(dt.getUTCFullYear()).slice(2);
+  }
+  function icDeltaChip(cur, prev, label){
+    if (cur == null || prev == null || !isFinite(cur) || !isFinite(prev) || !prev) return '';
+    return rpChip(((cur - prev) / Math.abs(prev)) * 100, label || 'vs last qtr');
+  }
+  function loadIpoCredit(){
+    if (ipoCreditState.data || ipoCreditState.loading){ renderIpoCredit(); return; }
+    ipoCreditState.loading = true;
+    fetch('data/ipo-credit.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){ ipoCreditState.data = (j && typeof j === 'object') ? j : {}; ipoCreditState.loading = false; renderIpoCredit(); })
+      .catch(function(){ ipoCreditState.data = { loadError: true }; ipoCreditState.loading = false; renderIpoCredit(); });
+  }
+  function renderIpoCredit(){
+    var root = $('ipo-credit-root'); var empty = $('ipo-credit-empty'); var eye = $('ipo-credit-eyebrow');
+    if (!root) return;
+    var d = ipoCreditState.data;
+    if (!d){ root.textContent = 'Loading IPOs & credit…'; return; }
+    if (d.loadError || (!d.ipos && !d.raises && !d.credit)){
+      root.innerHTML = '';
+      if (empty){ empty.hidden = false; empty.textContent = d.loadError ? 'IPO & credit data will appear after the next daily build refresh.' : 'No data yet — check back after the next refresh.'; }
+      return;
+    }
+    if (empty) empty.hidden = true;
+    if (eye && d.currentQuarter) eye.textContent = d.currentQuarter.label + ' to date';
+    var html = '';
+
+    // ── IPO window ─────────────────────────────────────────────────────────
+    var ip = d.ipos;
+    if (ip && ip.current){
+      var bars = '';
+      var bq = Array.isArray(ip.byQuarter) ? ip.byQuarter : [];
+      var maxN = 1;
+      for (var b = 0; b < bq.length; b++) if (bq[b].count > maxN) maxN = bq[b].count;
+      for (var b2 = 0; b2 < bq.length; b2++){
+        var q = bq[b2];
+        var hpct = Math.max(4, Math.round((q.count / maxN) * 100));
+        bars += '<div class="ic-bar-cell' + (q.key === ip.current.key ? ' ic-bar-cur' : '') + '" title="' + escapeHtml(q.label + ': ' + q.count + ' IPOs' + (q.key === ip.current.key ? ' (to date)' : '')) + '">' +
+          '<span class="ic-bar-n">' + q.count + '</span>' +
+          '<div class="ic-bar" style="height:' + hpct + '%"></div>' +
+          '<span class="ic-bar-q">' + escapeHtml(icQtrShort(q.key)) + '</span>' +
+        '</div>';
+      }
+      var rows = '';
+      var rec = Array.isArray(ip.recent) ? ip.recent : [];
+      for (var r = 0; r < rec.length; r++){
+        var it = rec[r];
+        rows += '<tr><td>' + escapeHtml(icDateShort(it.date)) + '</td>' +
+          '<td class="ic-sym">' + escapeHtml(it.symbol || '') + '</td>' +
+          '<td class="ic-name">' + escapeHtml(it.name || '') + '</td>' +
+          '<td class="ic-num">' + (it.price != null && isFinite(it.price) ? '$' + Number(it.price).toFixed(2).replace(/\\.00$/, '') : '—') + '</td></tr>';
+      }
+      html += '<article class="ic-card ic-card-wide"><div class="ic-card-head"><h3>Companies going public</h3>' + icStaleBadge(ip) + '</div>' +
+        '<div class="ic-hero">' +
+          '<div class="ic-stat"><span class="ic-stat-val">' + ip.current.count + '</span><span class="ic-stat-sub">IPOs priced ' + escapeHtml(ip.current.label) + ' (to date)</span></div>' +
+          '<div class="ic-stat ic-stat-prev"><span class="ic-stat-val">' + ip.prior.count + '</span><span class="ic-stat-sub">' + escapeHtml(ip.prior.label) + ' total</span></div>' +
+        '</div>' +
+        (bars ? '<div class="ic-bars">' + bars + '</div>' : '') +
+        (rows ? '<div class="ic-table-wrap"><table class="ic-table"><thead><tr><th>Date</th><th>Symbol</th><th>Company</th><th>IPO price</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<p class="ic-note">No listings priced yet this quarter.</p>') +
+        '<p class="ic-note">' + escapeHtml(ip.note || '') + ' Source: <a href="' + escapeHtml(ip.sourceUrl || '#') + '" target="_blank" rel="noopener noreferrer">stockanalysis.com</a>.</p>' +
+      '</article>';
+    }
+
+    // ── Capital / debt raises ──────────────────────────────────────────────
+    var ra = d.raises || {};
+    var sec = ra.sec, uni = ra.universe;
+    if (sec || uni){
+      var inner = '';
+      if (sec && Array.isArray(sec.quarters) && sec.quarters.length){
+        var srows = '';
+        for (var s = 0; s < sec.quarters.length; s++){
+          var sq = sec.quarters[s];
+          var isCur = d.currentQuarter && sq.key === d.currentQuarter.key;
+          srows += '<tr' + (isCur ? ' class="ic-row-cur"' : '') + '><td>' + escapeHtml(sq.label) + (isCur ? ' <span class="ic-td-note">to date</span>' : '') + '</td>' +
+            '<td class="ic-num">' + (sq.b4 != null ? sq.b4.toLocaleString() : '—') + '</td>' +
+            '<td class="ic-num">' + (sq.b5 != null ? sq.b5.toLocaleString() : '—') + '</td>' +
+            '<td class="ic-num">' + ((sq.b4 != null && sq.b5 != null) ? (sq.b4 + sq.b5).toLocaleString() : '—') + '</td></tr>';
+        }
+        inner += '<div class="ic-sub-head">Market-wide SEC prospectus filings ' + icStaleBadge(sec) + '</div>' +
+          '<div class="ic-table-wrap"><table class="ic-table"><thead><tr><th>Quarter</th><th title="424B4 — priced offering prospectuses (IPOs + follow-ons)">IPO/follow-on (424B4)</th><th title="424B5 — shelf takedowns (seasoned equity and debt raises)">Shelf raises (424B5)</th><th>Total</th></tr></thead><tbody>' + srows + '</tbody></table></div>' +
+          '<p class="ic-note">' + escapeHtml(sec.note || '') + '</p>';
+      }
+      if (uni && uni.current){
+        var uc = uni.current, up = uni.prior;
+        inner += '<div class="ic-sub-head">Raises across the tracked universe</div>' +
+          '<div class="ic-uni-grid">' +
+            '<div class="ic-uni-cell"><span class="ic-uni-val">' + uc.count + '</span><span class="ic-uni-sub">raise event' + (uc.count === 1 ? '' : 's') + ' ' + escapeHtml(icQtrShort(uc.key)) + ' (to date)</span></div>' +
+            '<div class="ic-uni-cell"><span class="ic-uni-val">' + (uc.withAmount ? cxDollars(uc.totalUsd) : '—') + '</span><span class="ic-uni-sub">disclosed ' + escapeHtml(icQtrShort(uc.key)) + (uc.withAmount ? ' (' + uc.withAmount + ' of ' + uc.count + ' sized)' : '') + '</span></div>' +
+            '<div class="ic-uni-cell"><span class="ic-uni-val">' + up.count + '</span><span class="ic-uni-sub">raise events ' + escapeHtml(icQtrShort(up.key)) + '</span></div>' +
+            '<div class="ic-uni-cell"><span class="ic-uni-val">' + (up.withAmount ? cxDollars(up.totalUsd) : '—') + '</span><span class="ic-uni-sub">disclosed ' + escapeHtml(icQtrShort(up.key)) + '</span></div>' +
+          '</div>' +
+          '<p class="ic-note">Debt, share and convertible issuance flagged from the news cycle across the ~138 tracked names (buybacks excluded: ' + (uc.buybacks || 0) + ' this quarter). Tracking since ' + escapeHtml(icDateShort(uni.trackingSince || '')) + ' — the per-event feed lives in the Capital raises tab.</p>';
+      }
+      if (inner) html += '<article class="ic-card ic-card-wide"><div class="ic-card-head"><h3>Capital &amp; debt raises</h3></div>' + inner + '</article>';
+    }
+
+    // ── Credit backdrop ────────────────────────────────────────────────────
+    var cr = d.credit || {};
+    var cards = '';
+    if (cr.revolving && cr.revolving.latestB != null){
+      var rv = cr.revolving;
+      cards += '<article class="ic-card"><div class="ic-card-head"><h3>Credit-card debt</h3>' + icStaleBadge(rv) + '</div>' +
+        '<div class="ic-stat"><span class="ic-stat-val">' + icFmtBn(rv.latestB) + '</span><span class="ic-stat-sub">revolving consumer credit · ' + escapeHtml(icDateShort(rv.asOf)) + '</span></div>' +
+        '<div class="ic-chips">' + rpChip(rv.shortPct, 'm/m') + rpChip(rv.yoyPct, 'y/y') + '</div>' +
+        icSpark(rv.series || [], icFmtBn, icDateShort) +
+        '<p class="ic-note">FRED <b>REVOLSL</b> — the G.19 revolving consumer credit series (seasonally adjusted), the standard national credit-card-debt gauge. Monthly, publishes on a ~2-month lag.</p>' +
+      '</article>';
+    }
+    if (cr.deposits && cr.deposits.latestB != null){
+      var dp = cr.deposits;
+      cards += '<article class="ic-card"><div class="ic-card-head"><h3>Customer deposits</h3>' + icStaleBadge(dp) + '</div>' +
+        '<div class="ic-stat"><span class="ic-stat-val">' + icFmtBn(dp.latestB) + '</span><span class="ic-stat-sub">deposits, all US commercial banks · ' + escapeHtml(icDateShort(dp.asOf)) + '</span></div>' +
+        '<div class="ic-chips">' + rpChip(dp.shortPct, '4-wk') + rpChip(dp.yoyPct, 'y/y') + '</div>' +
+        icSpark(dp.series || [], icFmtBn, icDateShort) +
+        '<p class="ic-note">FRED <b>DPSACBW027SBOG</b> — the H.8 weekly deposits series (seasonally adjusted) covering every US commercial bank.</p>' +
+      '</article>';
+    }
+    if (cr.nyfed && cr.nyfed.creditCardT != null){
+      var ny = cr.nyfed;
+      var comp = '';
+      var cmax = 0.0001;
+      for (var c = 0; c < (ny.composition || []).length; c++) if (ny.composition[c].val > cmax) cmax = ny.composition[c].val;
+      for (var c2 = 0; c2 < (ny.composition || []).length; c2++){
+        var cc = ny.composition[c2];
+        comp += '<div class="ic-comp-row' + (cc.key === 'creditCard' ? ' ic-comp-hot' : '') + '" title="' + escapeHtml(cc.label + ': ' + icFmtT(cc.val)) + '">' +
+          '<span class="ic-comp-label">' + escapeHtml(cc.label) + '</span>' +
+          '<div class="ic-comp-track"><div class="ic-comp-fill" style="width:' + Math.max(2, Math.round((cc.val / cmax) * 100)) + '%"></div></div>' +
+          '<span class="ic-comp-val">' + icFmtT(cc.val) + '</span>' +
+        '</div>';
+      }
+      cards += '<article class="ic-card"><div class="ic-card-head"><h3>NY Fed household credit</h3>' + icStaleBadge(ny) + '</div>' +
+        '<div class="ic-stat"><span class="ic-stat-val">' + icFmtT(ny.creditCardT) + '</span><span class="ic-stat-sub">credit-card balances · ' + escapeHtml(ny.label || ny.asOfQuarter || '') + '</span></div>' +
+        '<div class="ic-chips">' + rpChip(ny.creditCardQoqPct, 'q/q') + rpChip(ny.creditCardYoyPct, 'y/y') + '</div>' +
+        icSpark(ny.series || [], icFmtT, icQtrShort) +
+        (comp ? '<div class="ic-comp">' + comp + '</div>' : '') +
+        '<p class="ic-note">Total household debt: <b>' + icFmtT(ny.totalT) + '</b>' + (ny.totalQoqPct != null && isFinite(ny.totalQoqPct) ? ' (' + (ny.totalQoqPct >= 0 ? '+' : '') + ny.totalQoqPct.toFixed(1) + '% q/q)' : '') + '. Source: <a href="' + escapeHtml(ny.sourceUrl || '#') + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(ny.source || 'NY Fed') + '</a> quarterly report.</p>' +
+      '</article>';
+    }
+    if (cards) html += '<div class="ic-credit-head">National credit backdrop</div><div class="ic-grid">' + cards + '</div>';
+
+    root.innerHTML = html || '<p class="ic-note">No data yet — check back after the next refresh.</p>';
   }
 
   // --- Trending IV (Flow tab) ----------------------------------------------
