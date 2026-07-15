@@ -5132,11 +5132,14 @@ export async function writeEarningsTrackerFile(store, chains, builtAtIso, prior 
 //      publications) and matches slugs against the tracked universe — with the
 //      hourly bake cadence this catches essentially every new call; and
 //   2. names with no summary yet (or whose earnings-history shows a NEW print
-//      after the covered call) are BACKFILLED via their fool.com quote page
-//      (server-rendered per-ticker transcript history; nasdaq→nyse URL guess),
-//      throttled to TRANSCRIPT_PROBES_PER_BUILD probes per build with a
-//      per-name TRANSCRIPT_PROBE_COOLDOWN_DAYS re-probe cooldown so names Fool
-//      doesn't cover don't burn fetches every hour.
+//      after the covered call — probed same-day for AM prints, next-day for
+//      PM/TBD) are BACKFILLED via their fool.com quote page (server-rendered
+//      per-ticker transcript history; nasdaq→nyse URL guess), throttled to
+//      TRANSCRIPT_PROBES_PER_BUILD probes per build with a per-name
+//      TRANSCRIPT_PROBE_COOLDOWN_DAYS re-probe cooldown so names Fool
+//      doesn't cover don't burn fetches every hour. When Fool yields nothing
+//      newer — or its newest transcript predates the name's latest print —
+//      the probe falls through to MarketBeat's per-ticker earnings hub.
 // Each matched transcript gets ONE structured Gemini call (AI_TRANSCRIPT_MODEL,
 // full gemini-3.5-flash — tone-reading and Q&A attribution are judgment work,
 // and the volume is tiny: one call per name per QUARTER, ~2/day off-season) that
@@ -5182,11 +5185,13 @@ const TRANSCRIPT_MIN_CHARS = 6_000;
 const FOOL_BASE = "https://www.fool.com";
 const FOOL_LISTING_URL = `${FOOL_BASE}/earnings-call-transcripts/`;
 const FOOL_QUOTE_EXCHANGES = ["nasdaq", "nyse"];
-// MarketBeat is the FALLBACK transcript source (probed only when Fool has
-// nothing newer for a name that just reported): free, server-rendered,
-// Quartr-provided full transcripts. Fool's big-cap coverage has gaps (it never
-// published TSLA's Q1 2026 call) and it republishes old articles; MarketBeat's
-// report URLs are keyed by the CALL date, so they can't lie about recency.
+// MarketBeat is the FALLBACK transcript source (probed when Fool has nothing
+// newer for a name that just reported, or when Fool's newest transcript
+// predates the name's latest print): free, server-rendered, Quartr-provided
+// full transcripts. Fool's big-cap coverage has gaps (it never published
+// TSLA's Q1 2026 call, and its ASML coverage stopped at Q3 2025) and it
+// republishes old articles; MarketBeat's report URLs are keyed by the CALL
+// date, so they can't lie about recency.
 const MARKETBEAT_BASE = "https://www.marketbeat.com";
 const MARKETBEAT_EXCHANGES = ["NASDAQ", "NYSE"];
 const TRANSCRIPT_FETCH_UA =
@@ -5793,15 +5798,15 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
   }
 
   // 2. Quote-page backfill probes: names with no (current-version) summary, or
-  //    whose earnings history shows a NEW print ≥2 days ago that the listing
-  //    window has already scrolled past.
-  const lastPrintDate = (sym) => {
+  //    whose earnings history shows a NEW print (after the covered call) whose
+  //    transcript can already exist — see the session-aware wait below.
+  const lastPrint = (sym) => {
     const evs = earningsHxStore?.tickers?.[sym]?.events;
     if (!Array.isArray(evs)) return null;
     let last = null;
     for (const ev of evs) {
       const d = typeof ev?.date === "string" ? ev.date.slice(0, 10) : null;
-      if (d && d <= todayIso && (!last || d > last)) last = d;
+      if (d && d <= todayIso && (!last || d > last.date)) last = { date: d, session: ev?.session || "TBD" };
     }
     return last;
   };
@@ -5818,10 +5823,17 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
       needsProbe.push(sym);
       continue;
     }
-    const lastEv = lastPrintDate(sym);
+    const lastEv = lastPrint(sym);
+    // A print's transcript can't exist before the call: an AM print's call is
+    // the same morning (MarketBeat posts within hours — probe same-day), a
+    // PM/TBD print's call lands after the close — probe from the next day.
+    // Probing before the transcript is up is cheap: the queued item fails
+    // parse, the cleanup below clears the probe stamp, and the next hourly
+    // build retries.
+    const minAgeDays = lastEv?.session === "AM" ? 0 : 1;
     if (
-      lastEv && cur.callDate && lastEv > cur.callDate &&
-      (transcriptDaysBetween(lastEv, todayIso) ?? 0) >= 2
+      lastEv && cur.callDate && lastEv.date > cur.callDate &&
+      (transcriptDaysBetween(lastEv.date, todayIso) ?? 0) >= minAgeDays
     ) {
       needsProbe.push(sym);
     }
@@ -5844,17 +5856,29 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
       if (transcriptCandidateIsNewer(freshEntry(sym), newest)) queue.set(sym, newest);
       break;
     }
-    // MarketBeat fallback — only when Fool yielded nothing newer for this
-    // name. Quarter isn't known until the report page is fetched (step 3
-    // re-checks it against the current entry before spending the AI call).
-    if (!queue.has(sym)) {
+    // MarketBeat fallback — when Fool yielded nothing newer for this name, OR
+    // when Fool's newest transcript predates the name's latest earnings print
+    // (Fool drops names: its newest ASML transcript is Q3 2025, so with no
+    // cross-check the launch backfill froze ASML there while MarketBeat had
+    // the current-quarter call same-day). MarketBeat only replaces the Fool
+    // candidate when its report is strictly newer. Quarter isn't known until
+    // the report page is fetched (step 3 re-checks it against the current
+    // entry before spending the AI call).
+    const foolItem = queue.get(sym) || null;
+    const printDate = lastPrint(sym)?.date || null;
+    if (!foolItem || (printDate && foolItem.published < printDate)) {
       for (const ex of MARKETBEAT_EXCHANGES) {
         const html = await fetchFoolHtml(`${MARKETBEAT_BASE}/stocks/${ex}/${sym}/earnings/`);
         if (!html) continue;
         const reports = parseMarketBeatReportLinks(html).filter((r) => r.date <= todayIso);
         if (!reports.length) break; // real hub page with no dated reports — no coverage
         const item = { sym, url: reports[0].url, published: reports[0].date, quarter: null, origin: "marketbeat" };
-        if (transcriptCandidateIsNewer(freshEntry(sym), item)) queue.set(sym, item);
+        if (
+          transcriptCandidateIsNewer(freshEntry(sym), item) &&
+          (!foolItem || item.published > foolItem.published)
+        ) {
+          queue.set(sym, item);
+        }
         break;
       }
     }
