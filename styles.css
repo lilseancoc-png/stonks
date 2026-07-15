@@ -3290,6 +3290,7 @@ button.cr-tkr:hover .stk-sym-go, button.cr-tkr:focus-visible .stk-sym-go { color
 .cr-headline a:hover { color: var(--accent); border-color: var(--accent); }
 .cr-meta { font: 400 11.5px/1.3 var(--font-sans); color: var(--muted); }
 .cr-filed { color: var(--text-strong); }
+
 /* === IPOs & Credit (Macro tab) === */
 .ipo-credit-root { display: flex; flex-direction: column; gap: 14px; }
 .ipo-credit-empty { color: var(--muted); font: 400 13px/1.5 var(--font-sans); }
