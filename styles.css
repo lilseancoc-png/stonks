@@ -2843,6 +2843,96 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .ers-table th.ers-td-num, .ers-table td.ers-td-num { text-align: right; font-variant-numeric: tabular-nums; }
 .ers-td-date { color: var(--muted); }
 
+/* --- Earnings calls (transcript AI briefs) ------------------------------ */
+.ecl-dim { color: var(--muted); }
+.ecl-note { font: 400 13px/1.5 var(--font-sans); margin: 8px 0 0; }
+.ecl-chip { display: inline-block; font: 700 10.5px/1 var(--font-sans); padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
+.ecl-chip-pos { color: var(--pos); background: color-mix(in srgb, var(--pos) 14%, transparent); }
+.ecl-chip-neg { color: var(--neg); background: color-mix(in srgb, var(--neg) 14%, transparent); }
+.ecl-chip-flat { color: var(--muted); background: color-mix(in srgb, var(--muted) 14%, transparent); }
+.ecl-chip-warn { color: var(--warn, #d97706); background: color-mix(in srgb, var(--warn, #d97706) 14%, transparent); }
+.ecl-sym {
+  font: 700 13px/1 var(--font-sans); color: var(--text-strong);
+  background: none; border: 0; padding: 0; cursor: pointer; white-space: nowrap;
+}
+.ecl-sym:hover { color: var(--accent); text-decoration: underline; }
+/* List view */
+.ecl-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.ecl-search {
+  flex: 0 1 320px; font: 400 13px/1.2 var(--font-sans); color: var(--text-strong);
+  padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--r-2);
+  background: var(--surface);
+}
+.ecl-search:focus { outline: none; border-color: var(--accent); }
+.ecl-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; }
+.ecl-card {
+  display: flex; flex-direction: column; align-items: stretch; gap: 7px; text-align: left;
+  padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--r-2);
+  background: var(--surface); cursor: pointer; font: inherit; color: inherit;
+}
+.ecl-card:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.ecl-card-top { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.ecl-card-sym { font: 700 14px/1 var(--font-sans); color: var(--text-strong); }
+.ecl-card-co { font: 400 11.5px/1.2 var(--font-sans); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; min-width: 0; }
+.ecl-card-date { font: 400 11px/1.2 var(--font-sans); color: var(--muted); white-space: nowrap; }
+.ecl-card-head { font: 400 12.5px/1.45 var(--font-sans); color: var(--text); }
+.ecl-card-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: auto; }
+/* Detail view */
+.ecl-back {
+  font: 600 12px/1 var(--font-sans); color: var(--muted); background: none;
+  border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px;
+  cursor: pointer; margin-bottom: 14px;
+}
+.ecl-back:hover { color: var(--text-strong); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.ecl-det-head { margin-bottom: 8px; }
+.ecl-det-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.ecl-det-title .ecl-sym { font-size: 17px; }
+.ecl-det-co { font: 700 16px/1.2 var(--font-sans); color: var(--text-strong); }
+.ecl-det-q { font: 400 12.5px/1.2 var(--font-sans); color: var(--muted); }
+.ecl-det-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; font: 400 12px/1.3 var(--font-sans); color: var(--muted); }
+.ecl-det-headline { font: 700 15.5px/1.35 var(--font-sans); color: var(--text-strong); margin: 8px 0 4px; }
+.ecl-sec { margin-top: 16px; }
+.ecl-sec-title {
+  font: 600 11px/1 var(--font-sans); text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--muted); padding-bottom: 6px; margin-bottom: 8px; border-bottom: 1px solid var(--border);
+}
+.ecl-bullets { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; }
+.ecl-bullets li { font: 400 13px/1.5 var(--font-sans); color: var(--text); }
+.ecl-rows { display: flex; flex-direction: column; }
+.ecl-row {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 6px 0;
+  border-bottom: 1px dashed color-mix(in srgb, var(--border) 60%, transparent);
+  font: 400 12.5px/1.45 var(--font-sans);
+}
+.ecl-row:last-child { border-bottom: 0; }
+.ecl-row-label { font-weight: 600; color: var(--text-strong); flex: 0 0 auto; }
+.ecl-row-val { font: 700 12.5px/1.3 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-strong); flex: 0 0 auto; }
+.ecl-row-ctx { color: var(--muted); flex: 1 1 220px; min-width: 0; }
+/* Tone cards */
+.ecl-tones { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 12px; margin-top: 16px; }
+.ecl-tone {
+  padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--r-2);
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+}
+.ecl-tone-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font: 600 12px/1 var(--font-sans); color: var(--text-strong); margin-bottom: 7px; }
+.ecl-tone-sum { font: 400 12.5px/1.5 var(--font-sans); color: var(--text); margin: 0 0 8px; }
+.ecl-phrase { display: flex; flex-direction: column; gap: 2px; padding: 6px 0; border-top: 1px dashed color-mix(in srgb, var(--border) 60%, transparent); }
+.ecl-phrase-q { font: italic 400 12.5px/1.45 var(--font-sans); color: var(--text-strong); }
+.ecl-phrase-who { font: 600 11px/1.3 var(--font-sans); color: var(--muted); }
+.ecl-phrase-read { font: 400 11.5px/1.45 var(--font-sans); color: var(--muted); }
+/* Q&A */
+.ecl-qa { padding: 10px 0; border-bottom: 1px dashed color-mix(in srgb, var(--border) 60%, transparent); }
+.ecl-qa:last-child { border-bottom: 0; }
+.ecl-qa-q, .ecl-qa-a { font: 400 12.5px/1.5 var(--font-sans); color: var(--text); margin-bottom: 5px; }
+.ecl-qa-who { display: block; font: 700 11.5px/1.3 var(--font-sans); color: var(--text-strong); }
+.ecl-qa-firm { font-weight: 400; color: var(--muted); }
+.ecl-qa-a { padding-left: 14px; border-left: 2px solid color-mix(in srgb, var(--accent) 35%, var(--border)); }
+.ecl-qa-take { font: 400 11.5px/1.45 var(--font-sans); color: var(--muted); }
+.ecl-foot { margin-top: 18px; padding-top: 10px; border-top: 1px solid var(--border); }
+.ecl-foot-who { font: 400 11.5px/1.5 var(--font-sans); color: var(--muted); margin-bottom: 4px; }
+.ecl-foot-src { font: 400 11px/1.5 var(--font-sans); color: var(--muted); }
+.ecl-foot-src a { color: var(--accent); }
+
 /* --- AI CapEx (Macro) ------------------------------------------------- */
 .cx-hero {
   display: flex; flex-wrap: wrap; gap: 16px 28px; align-items: flex-end;
