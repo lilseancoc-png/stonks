@@ -1495,6 +1495,26 @@ async function fetchFundamentals(symbol) {
     console.log(`    ⚠ ${symbol} income time-series fetch failed: ${err.message}`);
   }
 
+  // Quarterly cash-flow series (module "cash-flow"): quarterly free cash flow
+  // plus the capital-allocation lines (buybacks, dividends, capex, debt
+  // repayment). Yahoo only serves ~6 quarters of quarterly cash-flow history,
+  // so the FCF series is ACCUMULATED across builds — merged by period-end date
+  // with the prior build's fundamentals.fcfHistory below. Failure is non-fatal
+  // and carries the prior series forward rather than blanking it.
+  let cashflowSeries = [];
+  try {
+    const since = new Date();
+    since.setUTCFullYear(since.getUTCFullYear() - 3);
+    const ft = await yahooFinance.fundamentalsTimeSeries(symbol, {
+      period1: since.toISOString().slice(0, 10),
+      module: "cash-flow",
+      type: "quarterly",
+    });
+    if (Array.isArray(ft)) cashflowSeries = ft;
+  } catch (err) {
+    console.log(`    ⚠ ${symbol} cash-flow time-series fetch failed: ${err.message}`);
+  }
+
   // Most recent reported quarter from earningsHistory (Yahoo orders -4q..0q;
   // pick the latest with an actual EPS reported). epsActual / estimate are
   // already plain numbers in yahoo-finance2.
@@ -1666,6 +1686,68 @@ async function fetchFundamentals(symbol) {
     .filter((q) => q.netMargin != null)
     .map((q) => ({ date: q.date, value: q.netMargin }));
 
+  // Quarterly cash-flow rows → the FCF series + trailing-4Q capital
+  // allocation. Yahoo's own FreeCashFlow is preferred; OCF + capex (capex is
+  // reported as a negative cash flow) reconstructs it when absent.
+  const cashflowQuarters = cashflowSeries
+    .map((row) => {
+      const date = isoDate(row?.date);
+      const ocfQ = num(row?.operatingCashFlow);
+      const capexQ = num(row?.capitalExpenditure);
+      const fcfQ = num(row?.freeCashFlow) ?? (ocfQ != null && capexQ != null ? ocfQ + capexQ : null);
+      return {
+        date,
+        fcf: fcfQ,
+        buyback: num(row?.repurchaseOfCapitalStock),
+        dividends: num(row?.cashDividendsPaid),
+        capex: capexQ,
+        debtRepay: num(row?.repaymentOfDebt),
+      };
+    })
+    .filter((q) => q.date && (q.fcf != null || q.buyback != null || q.dividends != null || q.capex != null || q.debtRepay != null))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  // Prior build's fundamentals from the per-ticker JSON (still on disk at
+  // fetch time — writeChainFiles wipes data/ only after every fetch is done;
+  // same read-prior idiom as the SEC segments cache in fetchRevenueSegments).
+  // This is the accumulation substrate for fcfHistory: Yahoo's ~6-quarter
+  // cash-flow window rolls forward, so merging by period-end date deepens the
+  // series build over build (capped at 12 quarters). Fresh rows win a date
+  // collision (restatements land).
+  let priorFund = null;
+  try {
+    priorFund = JSON.parse(await readFile(resolve(DATA_DIR, `${symbol}.json`), "utf8"))?.fundamentals || null;
+  } catch { /* first run / hydration miss — no prior */ }
+  const fcfByDate = new Map();
+  for (const p of Array.isArray(priorFund?.fcfHistory) ? priorFund.fcfHistory : []) {
+    if (p?.date && num(p.value) != null) fcfByDate.set(p.date, { date: p.date, value: num(p.value) });
+  }
+  for (const q of cashflowQuarters) {
+    if (q.fcf != null) fcfByDate.set(q.date, { date: q.date, value: q.fcf });
+  }
+  const fcfHistory = [...fcfByDate.values()].sort((a, b) => a.date.localeCompare(b.date)).slice(-12);
+
+  // Trailing-4-reported-quarter capital allocation, sign-flipped to positive
+  // "cash deployed" dollars (the statement reports outflows negative).
+  // Rebuilt fresh each build — it only needs the newest 4 quarters — and
+  // carried forward untouched when the cash-flow fetch missed.
+  let capitalAllocation = priorFund?.capitalAllocation || null;
+  if (cashflowQuarters.length) {
+    const last4 = cashflowQuarters.slice(-4);
+    const spent = (k) => {
+      const vals = last4.map((q) => q[k]).filter((v) => v != null);
+      return vals.length ? -vals.reduce((s, v) => s + v, 0) : null;
+    };
+    capitalAllocation = {
+      asOf: last4[last4.length - 1].date,
+      quarters: last4.length,
+      buybackTtm: spent("buyback"),
+      dividendsTtm: spent("dividends"),
+      capexTtm: spent("capex"),
+      debtRepayTtm: spent("debtRepay"),
+    };
+  }
+
   // Forward estimates from earningsTrend. Each entry has earningsEstimate.avg
   // (EPS) and revenueEstimate.avg (revenue). We include three buckets:
   //   0q  — the current in-progress quarter (not yet reported)
@@ -1812,6 +1894,8 @@ async function fetchFundamentals(symbol) {
     grossProfitHistory,
     netIncomeHistory,
     netMarginHistory,
+    fcfHistory,
+    capitalAllocation,
     epsForwardEstimates,
     revenueForwardEstimates,
     fiscalYearEndMonth,
@@ -11594,9 +11678,14 @@ function scoreFundamentals(data, sectorMedianPE, isEtf = false) {
   }
   out.push(sig("capitalRaise", "Capital raise", crScore, crVal, "Recent debt/equity issuance or buyback", !!cr));
 
-  // Free cash flow TTM.
+  // Free cash flow TTM. Score stays the TTM sign; the value string cites the
+  // quarterly FCF track's consistency when the series has accumulated.
   const fcf = pnumN(f.freeCashFlow);
-  out.push(sig("fcf", "Free cash flow", fcf == null ? 0 : fcf > 0 ? 1 : -1, fcf == null ? null : (fcf > 0 ? "positive" : "negative"), "TTM FCF sign", fcf != null));
+  const fcfHx = Array.isArray(f.fcfHistory) ? f.fcfHistory.filter((x) => pnumN(x?.value) != null) : [];
+  const fcfPosQ = fcfHx.filter((x) => Number(x.value) > 0).length;
+  const fcfVal = fcf == null ? null
+    : (fcf > 0 ? "positive" : "negative") + (fcfHx.length >= 4 ? ` (${fcfPosQ}/${fcfHx.length}q positive)` : "");
+  out.push(sig("fcf", "Free cash flow", fcf == null ? 0 : fcf > 0 ? 1 : -1, fcfVal, "TTM FCF sign", fcf != null));
 
   // Net margin trend (YoY when >=5 quarters else QoQ).
   const nm = Array.isArray(f.netMarginHistory) ? f.netMarginHistory.filter((x) => pnum(x?.value) != null) : [];
@@ -15225,22 +15314,69 @@ export function buildStockChecklist(sym, data, grade, sectorPE, traps, peers) {
           `${bits.join("; ")}. ${(totalCash != null && totalDebt != null && totalCash >= totalDebt) || (fcf > 0 && totalDebt > 0 && totalDebt / fcf <= 3) ? "Comfortable in a normal downturn on these numbers." : "Serviceable today, but stress-test it against a real revenue drop."}`)
       : unanswered("How leveraged is the balance sheet? Can it service its debt in a downturn?"));
   }
-  fin.push(fcf != null
-    ? item("Does the business generate consistent and growing free cash flow?", "unsure",
-        `FCF ${stkBigMoney(fcf)} over the trailing twelve months (${fcf > 0 ? "positive" : "negative"}). We don't track a quarterly FCF series, so consistency is inferred: ${profQuarters != null ? `${profQuarters} of the last ${ni.length} quarters were profitable` : "no quarterly profit history on file"}. Growth of FCF itself: unverified.`)
-    : unanswered("Does the business generate consistent and growing free cash flow?"));
+  {
+    // Answered from the quarterly FCF track (fundamentals.fcfHistory —
+    // accumulated across builds; Yahoo serves ~6 quarters per fetch, so the
+    // year-over-year comparison unlocks as the series deepens).
+    const q = "Does the business generate consistent and growing free cash flow?";
+    const fh = Array.isArray(f.fcfHistory) ? f.fcfHistory.filter((x) => pnum(x?.value) != null) : [];
+    if (fh.length >= 4) {
+      const pos = fh.filter((x) => Number(x.value) > 0).length;
+      const ttm = fh.slice(-4).reduce((s, x) => s + Number(x.value), 0);
+      let growth = null;
+      if (fh.length >= 8) {
+        const prior = fh.slice(-8, -4).reduce((s, x) => s + Number(x.value), 0);
+        if (prior > 0) growth = `trailing-4Q FCF is ${pctStr((ttm / prior - 1) * 100)} vs the four quarters before`;
+        else if (ttm > 0) growth = "trailing-4Q FCF swung positive vs the four quarters before";
+      } else if (fh.length >= 5) {
+        const cur = Number(fh[fh.length - 1].value), yaq = Number(fh[fh.length - 5].value);
+        if (yaq > 0) growth = `the latest quarter is ${pctStr((cur / yaq - 1) * 100)} vs the same quarter a year ago`;
+        else if (cur > 0) growth = "the latest quarter swung positive vs the same quarter a year ago";
+      }
+      const consistency = pos === fh.length ? " — consistent" : pos >= fh.length - 1 ? " — near-consistent" : pos <= Math.floor(fh.length / 2) ? " — inconsistent" : "";
+      fin.push(item(q, "answered",
+        `Quarterly FCF track: positive in ${pos} of the last ${fh.length} reported quarters${consistency}; ${stkBigMoney(ttm)} over the trailing four. Growth: ${growth || `the series is still accumulating (${fh.length} quarters on file) — no year-over-year comparison yet`}.`));
+    } else {
+      fin.push(fcf != null
+        ? item(q, "unsure",
+            `FCF ${stkBigMoney(fcf)} over the trailing twelve months (${fcf > 0 ? "positive" : "negative"}). The quarterly FCF track is still accumulating (${fh.length} quarter${fh.length === 1 ? "" : "s"} on file), so consistency and growth aren't verifiable yet${profQuarters != null ? `; ${profQuarters} of the last ${ni.length} quarters were profitable on net income` : ""}.`)
+        : unanswered(q));
+    }
+  }
   fin.push(fcf != null && (mcap > 0 || totalDebt != null)
     ? item("How does free cash flow compare to total debt and market cap?", "answered",
         [mcap > 0 ? `FCF yield ${r1((fcf / mcap) * 100)}% of market cap (${stkBigMoney(fcf)} on ${stkBigMoney(mcap)})` : null,
          totalDebt > 0 ? (fcf > 0 ? `debt is ${r1(totalDebt / fcf)}x annual FCF` : `debt ${stkBigMoney(totalDebt)} against negative FCF`) : "essentially no debt"].filter(Boolean).join("; ") + ".")
     : unanswered("How does free cash flow compare to total debt and market cap?"));
   {
+    // Answered from the trailing-4Q capital-allocation block
+    // (fundamentals.capitalAllocation, quarterly cash-flow statement lines),
+    // cross-referencing the Capital raises tab for fresh financing headlines.
+    const q = "What is management doing with the free cash flow (buybacks, dividends, M&A, capex, debt paydown)?";
     const dy = pnum(f.dividendYield), po = pnum(f.payoutRatio);
-    fin.push(item("What is management doing with the free cash flow (buybacks, dividends, M&A, capex, debt paydown)?",
-      dy != null ? "unsure" : "unanswered",
-      dy != null
-        ? `Pays a ${r1(dy)}% dividend${po != null ? ` (${r1(po)}% payout ratio)` : ""}. Buyback, M&A and growth-capex allocation aren't tracked here — check the latest cash-flow statement.`
-        : `No dividend on file, and buyback/M&A/capex allocation isn't tracked here — check the latest cash-flow statement.`));
+    const ca = f.capitalAllocation || null;
+    const parts = [];
+    if (ca?.buybackTtm > 0) parts.push(`bought back ${stkBigMoney(ca.buybackTtm)} of stock`);
+    if (ca?.dividendsTtm > 0) parts.push(`paid ${stkBigMoney(ca.dividendsTtm)} in dividends${dy != null ? ` (${r1(dy)}% yield${po != null ? `, ${r1(po)}% payout` : ""})` : ""}`);
+    if (ca?.capexTtm > 0) parts.push(`invested ${stkBigMoney(ca.capexTtm)} in capex`);
+    if (ca?.debtRepayTtm > 0) parts.push(`repaid ${stkBigMoney(ca.debtRepayTtm)} of debt`);
+    const cr = data?.capitalRaise || null;
+    const crNote = cr?.kind
+      ? ` Fresh financing headline on file: ${(CAPITAL_RAISE_KIND_LABEL[cr.kind] || cr.kind).toLowerCase()}${cr.amount != null ? ` (~${fmtUsdCompact(cr.amount)})` : ""} — the Capital raises tab (under Macro) has the filed SEC amounts.`
+      : " Fresh issuance/buyback headlines across the universe land on the Capital raises tab (under Macro).";
+    if (parts.length) {
+      const fh = Array.isArray(f.fcfHistory) ? f.fcfHistory.filter((x) => pnum(x?.value) != null) : [];
+      const ttm = fh.length >= 4 ? fh.slice(-4).reduce((s, x) => s + Number(x.value), 0) : null;
+      const returned = (ca.buybackTtm > 0 ? ca.buybackTtm : 0) + (ca.dividendsTtm > 0 ? ca.dividendsTtm : 0);
+      const shareNote = ttm > 0 && returned > 0 ? ` — ~${Math.round((returned / ttm) * 100)}% of trailing FCF returned to shareholders` : "";
+      fin.push(item(q, "answered",
+        `Over the last ${ca.quarters} reported quarters it ${parts.join(", ")}${shareNote}. M&A isn't tracked here.${crNote}`));
+    } else {
+      fin.push(item(q, dy != null ? "unsure" : "unanswered",
+        dy != null
+          ? `Pays a ${r1(dy)}% dividend${po != null ? ` (${r1(po)}% payout ratio)` : ""}. The cash-flow allocation breakdown hasn't landed for this name yet.${crNote}`
+          : `No dividend on file and no cash-flow allocation breakdown for this name yet.${crNote}`));
+    }
   }
   fin.push(ocf != null && niTtm != null && niTtm !== 0
     ? item("Are there signs of aggressive accounting or poor earnings quality?", "unsure",

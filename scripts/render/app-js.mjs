@@ -5741,6 +5741,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       fiscalYearEndMonth: fye,
     });
     renderHistoryChart({
+      boxId: 'opt-fund-fcf-history',
+      title: 'Free cash flow',
+      points: f.fcfHistory || [],
+      formatValue: fmtBigDollars,
+      fiscalYearEndMonth: fye,
+    });
+    renderHistoryChart({
       boxId: 'opt-fund-net-margin-history',
       title: 'Net margin',
       points: f.netMarginHistory || [],
