@@ -4520,6 +4520,59 @@ export function computeEarningsReaction(bars, dateIso, session) {
   return out;
 }
 
+// Pre-earnings run-up windows, in TRADING days: does a name trend higher, stay
+// flat, or trend lower over the ~2 weeks (10 bars) / ~3 weeks (15 bars) leading
+// INTO its print? Measured close-to-close, ending at the same "close before"
+// bar computeEarningsReaction anchors the reaction to.
+const EARNINGS_RUNUP_SHORT_BARS = 10;
+const EARNINGS_RUNUP_LONG_BARS = 15;
+// |run-up| at or below this fraction reads as "flat into the print" (judged on
+// the 3-week window, falling back to the 2-week one) — see earningsRunupTrend.
+const EARNINGS_RUNUP_FLAT_PCT = 0.02;
+
+// Pure: % change of the close over the short/long run-up windows ending at
+// bars[endIdx] (fractions, like movePct). Also serves the live "drift so far"
+// read into an UPCOMING print (endIdx = the latest bar). Null when even the
+// short window has no coverage.
+export function computeRunupOverBars(bars, endIdx) {
+  if (!Array.isArray(bars) || !Number.isInteger(endIdx) || endIdx <= 0 || endIdx >= bars.length) return null;
+  const end = bars[endIdx];
+  if (!(end?.c > 0)) return null;
+  const pctBack = (n) => {
+    const b = endIdx - n >= 0 ? bars[endIdx - n] : null;
+    return b?.c > 0 ? ehxRound(end.c / b.c - 1) : null;
+  };
+  const pre10Pct = pctBack(EARNINGS_RUNUP_SHORT_BARS);
+  const pre15Pct = pctBack(EARNINGS_RUNUP_LONG_BARS);
+  if (pre10Pct == null && pre15Pct == null) return null;
+  return { pre10Pct, pre15Pct };
+}
+
+// Pure: the run-up INTO one print — the window ends at the last close before
+// the print lands (an AM print announces pre-open, so the prior day's close; a
+// PM/TBD print announces post-close, so the close ON the date). Computable the
+// moment the print lands, before the reaction bar even exists. Exported for
+// unit testing, like computeEarningsReaction.
+export function computeEarningsRunup(bars, dateIso, session) {
+  if (!Array.isArray(bars) || bars.length < 2 || typeof dateIso !== "string") return null;
+  const isAm = session === "AM";
+  for (let i = bars.length - 1; i >= 0; i--) {
+    const t = bars[i]?.t;
+    if (!t) continue;
+    if (isAm ? t < dateIso : t <= dateIso) return computeRunupOverBars(bars, i);
+  }
+  return null;
+}
+
+// up | flat | down | null — the tracker's trend bucket for a run-up (3-week
+// window primary, 2-week fallback). Exported for unit testing.
+export function earningsRunupTrend(pre10Pct, pre15Pct) {
+  const v = typeof pre15Pct === "number" && isFinite(pre15Pct) ? pre15Pct
+    : typeof pre10Pct === "number" && isFinite(pre10Pct) ? pre10Pct : null;
+  if (v == null) return null;
+  return v > EARNINGS_RUNUP_FLAT_PCT ? "up" : v < -EARNINGS_RUNUP_FLAT_PCT ? "down" : "flat";
+}
+
 // Pure: ATM 30d IV just before / just after a print, from iv-history entries
 // (one sample per ET day, last build of the day wins — so the day-of sample is
 // taken at/after the 16:00 close). For a PM print the day-of close sample is
@@ -4565,11 +4618,13 @@ function upsertEarningsEvent(events, ev, overwriteStamps = false) {
     return;
   }
   if (ev.date && near.date !== ev.date) {
-    // The authoritative date moved — any reaction computed under the old date
-    // is suspect, so force a recompute on this build's resolve pass.
+    // The authoritative date moved — any reaction (or pre-print run-up)
+    // computed under the old date is suspect, so force a recompute on this
+    // build's resolve pass.
     near.date = ev.date;
     delete near.closeBefore; delete near.openAfter; delete near.closeAfter;
     delete near.movePct; delete near.gapPct; delete near.week1Pct;
+    delete near.pre10Pct; delete near.pre15Pct;
     near.week1Done = false;
   }
   if (ev.session && ev.session !== "TBD") {
@@ -4581,6 +4636,7 @@ function upsertEarningsEvent(events, ev, overwriteStamps = false) {
     if (ev.session !== near.session && (ev.session === "AM") !== (near.session === "AM")) {
       delete near.closeBefore; delete near.openAfter; delete near.closeAfter;
       delete near.movePct; delete near.gapPct; delete near.week1Pct;
+      delete near.pre10Pct; delete near.pre15Pct; // run-up window ends a bar earlier for AM
       near.week1Done = false;
     }
     near.session = ev.session;
@@ -4712,13 +4768,24 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
       if (!ev?.date || ev.date > todayIso) continue;
       const anchorMs = earningsAnchorMs(ev.date, ev.session);
       if (anchorMs != null && anchorMs > nowMs) continue; // today's print hasn't landed yet
+      const barsStart = data._bars?.find((b) => b?.t)?.t || null;
+      const bars = backfillBars && (!barsStart || ev.date <= barsStart) ? backfillBars : data._bars;
       if (!ev.week1Done) {
-        const barsStart = data._bars?.find((b) => b?.t)?.t || null;
-        const bars = backfillBars && (!barsStart || ev.date <= barsStart) ? backfillBars : data._bars;
         const rx = computeEarningsReaction(bars, ev.date, ev.session);
         if (rx) {
           Object.assign(ev, rx);
           resolved++;
+        }
+      }
+      // Pre-earnings run-up — the 2/3-week close-to-close drift INTO the print
+      // (did the name trend higher, stay flat, or sell off going in?). Stamped
+      // once per window; an event outside bar coverage stays unstamped and
+      // retries next build (a pure in-memory scan, no cost).
+      if (ev.pre10Pct == null || ev.pre15Pct == null) {
+        const ru = computeEarningsRunup(bars, ev.date, ev.session);
+        if (ru) {
+          if (ev.pre10Pct == null && ru.pre10Pct != null) ev.pre10Pct = ru.pre10Pct;
+          if (ev.pre15Pct == null && ru.pre15Pct != null) ev.pre15Pct = ru.pre15Pct;
         }
       }
       if (ev.ivPre == null || ev.ivPost == null) {
@@ -4825,6 +4892,11 @@ export function attachEarningsHx(chains, store, nowMs = Date.now()) {
         const stamped = pending && Math.abs(Date.parse(pending.date) - Date.parse(nextSrc.date)) <= 3 * 86400000
           ? pending
           : null;
+        // Live drift-so-far into the upcoming print — the same 2/3-week
+        // windows as the per-print run-up, ending at the latest close.
+        const soFar = Array.isArray(data._bars)
+          ? computeRunupOverBars(data._bars, data._bars.length - 1)
+          : null;
         next = {
           date: nextSrc.date,
           session: nextSrc.session || "TBD",
@@ -4832,6 +4904,8 @@ export function attachEarningsHx(chains, store, nowMs = Date.now()) {
           ivPre: stamped?.ivPre ?? null,
           ivNow: data.ivRank?.iv ?? null,
           daysUntil: Math.max(0, Math.round((anchor - nowMs) / 86400000)),
+          pre10Pct: soFar?.pre10Pct ?? null,
+          pre15Pct: soFar?.pre15Pct ?? null,
         };
       }
     }
@@ -4853,6 +4927,8 @@ export function attachEarningsHx(chains, store, nowMs = Date.now()) {
         movePct: ev.movePct ?? null,
         gapPct: ev.gapPct ?? null,
         week1Pct: ev.week1Pct ?? null,
+        pre10Pct: ev.pre10Pct ?? null,
+        pre15Pct: ev.pre15Pct ?? null,
       })),
       next,
     };
@@ -4866,11 +4942,16 @@ export function attachEarningsHx(chains, store, nowMs = Date.now()) {
 // Apr–Jun = Q1, and so on), with per-season beat/miss/in-line splits, guidance
 // raised/in-line/cut splits (stamped from the news-judgment AI's guidance read
 // in the days right after each print — see EARNINGS_GUIDANCE_STAMP_DAYS — so
-// they fill in going forward; backfilled quarters show "no read"), how many
+// they fill in going forward; backfilled quarters show "no read"), the
+// PRE-EARNINGS drift split (did each name trend higher / flat / lower over the
+// ~2–3 weeks INTO its print — pre10Pct/pre15Pct stamped per event from daily
+// bars — plus how ran-up vs sold-off names reacted on the print), how many
 // names exceeded vs stayed inside the straddle-implied expected move, post-
 // print up/down breadth, sell-the-news counts, the biggest gap-up/-down
-// movers, and a once-per-ET-day AI read on the current season (notable
-// standouts + was the season net positive or negative for equities).
+// movers, a "heading into earnings" forward look (every name reporting inside
+// the next ~3 weeks with its live drift-so-far), and a once-per-ET-day AI read
+// on the current season (notable standouts + was the season net positive or
+// negative for equities).
 // Rebuilt every bake from the just-updated store — no accumulation of its own;
 // only the AI summary carries forward (prior payload read before the wipe).
 // FREE key (aggregate stats, like the calendar). Browser lazy-loads it
@@ -4882,6 +4963,9 @@ const EARNINGS_TRACKER_MAX_SEASONS = 9;
 const EARNINGS_INLINE_SURPRISE_PCT = 1;
 // Minimum prints in the current season before an AI read is worth minting.
 const EARNINGS_AI_MIN_REPORTS = 5;
+// The "heading into earnings" forward look covers names reporting inside this
+// many calendar days (~3 weeks — the long run-up window).
+const EARNINGS_UPCOMING_DAYS = 21;
 const AI_EARNINGS_MODEL = process.env.AI_EARNINGS_MODEL || "gemini-3.1-flash-lite";
 
 // Reporting-season key for an announcement date: "2026Q1" = announced Jan–Mar
@@ -4991,6 +5075,15 @@ function earningsSummaryUserMessage(season, universeCount) {
   if (c.beatButDown || c.missedButUp) {
     lines.push(`Reaction vs result: ${c.beatButDown} beat EPS but closed DOWN (sold the news); ${c.missedButUp} missed but closed UP (relief).`);
   }
+  if (c.preKnown) {
+    lines.push(
+      `Pre-earnings drift (${c.preKnown} with a 2–3 week read going in): ${c.preUp} trended higher into the print, ${c.preFlat} were flat, ${c.preDown} trended lower` +
+      (s.avgPre15Pct != null ? ` — avg 3-week run-up ${fpct(s.avgPre15Pct)}` : "") +
+      (s.preUpAvgMovePct != null && s.preDownAvgMovePct != null
+        ? `. On the print itself, names that ran up going in averaged ${fpct(s.preUpAvgMovePct)} vs ${fpct(s.preDownAvgMovePct)} for names that sold off going in`
+        : "") + ".",
+    );
+  }
   const fmtLdr = (r) =>
     `${r.sym}${r.gapPct != null ? ` ${fpct(r.gapPct)} gap` : ""}${r.movePct != null ? `, ${fpct(r.movePct)} day` : ""}${r.eps ? `, EPS ${r.eps}` : ""}${r.guidance ? `, guided ${r.guidance}` : ""} (${r.date})`;
   if (season.leaders.gapUp.length) lines.push(`Biggest gap-ups: ${season.leaders.gapUp.map(fmtLdr).join("; ")}.`);
@@ -5086,6 +5179,9 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
         week1Pct: typeof ev.week1Pct === "number" && isFinite(ev.week1Pct) ? ev.week1Pct : null,
         impliedMovePct: implied,
         exceededImplied: implied != null && hasMove ? Math.abs(ev.movePct) > implied : null,
+        pre10Pct: typeof ev.pre10Pct === "number" && isFinite(ev.pre10Pct) ? ev.pre10Pct : null,
+        pre15Pct: typeof ev.pre15Pct === "number" && isFinite(ev.pre15Pct) ? ev.pre15Pct : null,
+        pre: earningsRunupTrend(ev.pre10Pct, ev.pre15Pct), // up | flat | down | null
       };
       universe.add(sym);
       if (!rowsBySeason.has(key)) rowsBySeason.set(key, []);
@@ -5104,8 +5200,11 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
       impliedKnown: 0, exceededImplied: 0, withinImplied: 0,
       moveKnown: 0, up: 0, down: 0, flat: 0,
       beatButDown: 0, missedButUp: 0,
+      preKnown: 0, preUp: 0, preFlat: 0, preDown: 0,
     };
     let mvSum = 0, mvAbsSum = 0, impSum = 0, surSum = 0, surN = 0, wkSum = 0, wkN = 0;
+    let pre10Sum = 0, pre10N = 0, pre15Sum = 0, pre15N = 0;
+    let preUpMvSum = 0, preUpMvN = 0, preDownMvSum = 0, preDownMvN = 0;
     for (const r of rows) {
       if (r.eps) {
         c.epsKnown++;
@@ -5132,6 +5231,18 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
       }
       if (r.surprisePct != null) { surSum += r.surprisePct; surN++; }
       if (r.week1Pct != null) { wkSum += r.week1Pct; wkN++; }
+      if (r.pre) {
+        c.preKnown++;
+        c[r.pre === "up" ? "preUp" : r.pre === "down" ? "preDown" : "preFlat"]++;
+        // The run-up → reaction cross-read: did names that ran up into the
+        // print sell the news, and did names that sold off going in bounce?
+        if (r.movePct != null) {
+          if (r.pre === "up") { preUpMvSum += r.movePct; preUpMvN++; }
+          else if (r.pre === "down") { preDownMvSum += r.movePct; preDownMvN++; }
+        }
+      }
+      if (r.pre10Pct != null) { pre10Sum += r.pre10Pct; pre10N++; }
+      if (r.pre15Pct != null) { pre15Sum += r.pre15Pct; pre15N++; }
     }
     const stats = {
       avgMovePct: c.moveKnown ? ehxRound(mvSum / c.moveKnown) : null,
@@ -5141,6 +5252,10 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
       avgWeek1Pct: wkN ? ehxRound(wkSum / wkN) : null,
       breadthPct: (c.up + c.down) ? ehxRound((c.up / (c.up + c.down)) * 100, 1) : null,
       beatRatePct: c.epsKnown ? ehxRound((c.beat / c.epsKnown) * 100, 1) : null,
+      avgPre10Pct: pre10N ? ehxRound(pre10Sum / pre10N) : null,
+      avgPre15Pct: pre15N ? ehxRound(pre15Sum / pre15N) : null,
+      preUpAvgMovePct: preUpMvN ? ehxRound(preUpMvSum / preUpMvN) : null,
+      preDownAvgMovePct: preDownMvN ? ehxRound(preDownMvSum / preDownMvN) : null,
     };
     const lite = (r) => ({
       sym: r.sym, name: r.name, date: r.date, eps: r.eps, guidance: r.guidance,
@@ -5165,6 +5280,35 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
     const labels = earningsSeasonLabels(key) || { fiscal: key, window: "" };
     return { key, fiscal: labels.fiscal, window: labels.window, counts: c, stats, leaders, tone, rows };
   });
+  // Heading INTO earnings — the current quarter's forward look: every tracked
+  // name reporting inside the next ~3 weeks with its live 2/3-week drift so
+  // far (same windows as the per-print run-up, ending at the latest close).
+  const nowMs = Date.now();
+  const upcoming = [];
+  for (const [sym, data] of Object.entries(chains || {})) {
+    if (!data || SECTORS[sym] === "ETF") continue;
+    const f = data.fundamentals;
+    const nextIso = f?.nextEarningsDate;
+    if (!nextIso || nextIso < todayIso) continue;
+    const anchor = earningsAnchorMs(nextIso, f?.nextEarningsSession) ?? Date.parse(nextIso);
+    if (!(anchor > nowMs)) continue;
+    const daysUntil = Math.max(0, Math.round((anchor - nowMs) / 86400000));
+    if (daysUntil > EARNINGS_UPCOMING_DAYS) continue;
+    const bars = Array.isArray(data._bars) ? data._bars : null;
+    const ru = bars ? computeRunupOverBars(bars, bars.length - 1) : null;
+    upcoming.push({
+      sym,
+      name: f?.name || sym,
+      sector: SECTORS[sym] || null,
+      date: nextIso,
+      session: f?.nextEarningsSession || "TBD",
+      daysUntil,
+      pre10Pct: ru?.pre10Pct ?? null,
+      pre15Pct: ru?.pre15Pct ?? null,
+      pre: earningsRunupTrend(ru?.pre10Pct, ru?.pre15Pct),
+    });
+  }
+  upcoming.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.sym < b.sym ? -1 : 1));
   // AI season read for the CURRENT (most recent) season — minted at most once
   // per ET day, carried forward otherwise; a failed mint keeps last-good.
   let aiRead = null;
@@ -5190,7 +5334,7 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
       aiRead = carry;
     }
   }
-  return { builtAtIso, updatedOn: todayIso, universe: universe.size, seasons, ai: aiRead };
+  return { builtAtIso, updatedOn: todayIso, universe: universe.size, seasons, upcoming, ai: aiRead };
 }
 
 async function readPriorEarningsTracker() {

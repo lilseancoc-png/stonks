@@ -13287,9 +13287,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
 
   // --- Earnings tracker (season scoreboard) ---------------------------------
   // data/earnings-tracker.json — every tracked name's prints grouped into
-  // reporting seasons: beat/miss/in-line + guidance splits, expected-move hit
-  // rate, post-print breadth, biggest gaps, and the AI season read. All move
-  // fields are FRACTIONS (0.04 = 4%), like earningsHx; surprisePct is a %.
+  // reporting seasons: beat/miss/in-line + guidance splits, the pre-earnings
+  // drift split (pre10Pct/pre15Pct = the 2/3-week close-to-close run-up INTO
+  // each print, pre = up|flat|down), expected-move hit rate, post-print
+  // breadth, biggest gaps, the "heading into earnings" forward look
+  // (d.upcoming — names reporting inside ~3 weeks with drift-so-far), and the
+  // AI season read. All move fields are FRACTIONS (0.04 = 4%), like
+  // earningsHx; surprisePct is a %.
   var earningsState = { data: null, loading: false, seasonKey: null };
   function ersNum(v){ return v != null && isFinite(v); }
   function ersPct(v, signed){
@@ -13309,6 +13313,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (g === 'down') return '<span class="ers-chip ers-chip-neg">cut</span>';
     if (g === 'inline') return '<span class="ers-chip ers-chip-flat">in line</span>';
     return '<span class="ers-dim" title="No guidance read captured for this print">—</span>';
+  }
+  // Pre-earnings drift bucket chip — past tense for resolved prints, present
+  // tense for the live drift into an upcoming print. Flat band is ±2% on the
+  // 3-week window (2-week fallback), matching earningsRunupTrend in the bake.
+  function ersPreChip(p, live){
+    if (p === 'up') return '<span class="ers-chip ers-chip-pos" title="Trended higher over the ~3 weeks into the print (&gt;+2%)">' + (live ? 'trending up' : 'ran up') + '</span>';
+    if (p === 'down') return '<span class="ers-chip ers-chip-neg" title="Trended lower over the ~3 weeks into the print (&lt;&minus;2%)">' + (live ? 'trending down' : 'sold off') + '</span>';
+    if (p === 'flat') return '<span class="ers-chip ers-chip-flat" title="Within &plusmn;2% over the ~3 weeks into the print">flat</span>';
+    return '';
   }
   // Proportional 3-segment split bar. segs = [{n, cls, label}]; skips empty.
   function ersSplitBar(segs){
@@ -13393,6 +13406,31 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="ers-chip ' + (season.tone === 'positive' ? 'ers-chip-pos' : season.tone === 'negative' ? 'ers-chip-neg' : 'ers-chip-flat') + '">' + escapeHtml(season.tone) + ' for equities</span></div>' +
         '<p class="ers-ai-summary">Deterministic read from breadth + beat rate' + (ersNum(s.breadthPct) ? ' — ' + s.breadthPct.toFixed(0) + '% of reactions closed up' : '') + (ersNum(s.beatRatePct) ? ', ' + s.beatRatePct.toFixed(0) + '% beat estimates' : '') + '.</p></div>';
     }
+    // Heading into earnings — the current quarter's forward look (only on the
+    // newest season): names reporting inside ~3 weeks, with the live 2/3-week
+    // drift so far. Big value = 3-week drift (2-week fallback), sub = 2-week.
+    if (season === seasons[0] && Array.isArray(d.upcoming) && d.upcoming.length){
+      var upRows = [];
+      for (var uu = 0; uu < d.upcoming.length; uu++){
+        var u = d.upcoming[uu];
+        if (!u || !u.sym) continue;
+        var uv = ersNum(u.pre15Pct) ? u.pre15Pct : u.pre10Pct;
+        upRows.push('<div class="ers-ldr-row">' +
+          ersSymBtn(u.sym) +
+          '<span class="ers-ldr-name">' + escapeHtml(u.name || '') + '</span>' +
+          '<span class="ers-ldr-meta">' + ersPreChip(u.pre, true) +
+            '<span class="ers-dim">' + ersDate(u.date) + (u.session === 'AM' ? ' AM' : u.session === 'PM' ? ' PM' : '') + (u.daysUntil === 0 ? ' · today' : ' · in ' + u.daysUntil + 'd') + '</span></span>' +
+          '<span class="ers-ldr-val' + ersToneCls(uv) + '">' + ersPct(uv) + (ersNum(u.pre10Pct) && ersNum(u.pre15Pct) ? '<span class="ers-ldr-day">' + ersPct(u.pre10Pct) + ' 2wk</span>' : '') + '</span>' +
+        '</div>');
+      }
+      if (upRows.length){
+        var upHalf = Math.ceil(upRows.length / 2);
+        var upCols = upRows.length > 4
+          ? '<div class="ers-ldr-col">' + upRows.slice(0, upHalf).join('') + '</div><div class="ers-ldr-col">' + upRows.slice(upHalf).join('') + '</div>'
+          : '<div class="ers-ldr-col">' + upRows.join('') + '</div>';
+        html += '<div class="ers-ldrs"><div class="ers-ldr-col" style="grid-column:1/-1;margin-bottom:-8px"><div class="ers-ldr-head">Heading into earnings — next 3 weeks, drift so far</div></div>' + upCols + '</div>';
+      }
+    }
     // Stat tiles.
     var tiles = '';
     tiles += '<div class="ers-tile"><div class="ers-tile-label">EPS vs estimates</div>' +
@@ -13413,6 +13451,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<div class="ers-tile-sub"><b>' + (c.exceededImplied || 0) + '</b> moved more than options priced · <b>' + (c.withinImplied || 0) + '</b> stayed inside <span class="ers-dim">(' + c.impliedKnown + ' with a straddle read)</span></div>' +
           ((ersNum(s.avgImpliedMovePct) || ersNum(s.avgAbsMovePct)) ? '<div class="ers-tile-note">avg implied ±' + (ersNum(s.avgImpliedMovePct) ? (s.avgImpliedMovePct * 100).toFixed(1) : '—') + '% vs avg realized ±' + (ersNum(s.avgAbsMovePct) ? (s.avgAbsMovePct * 100).toFixed(1) : '—') + '%</div>' : '')
         : '<div class="ers-tile-sub ers-dim">No straddle-implied reads for this season — the implied move is snapshotted live in the final week before each print, so this fills in over time.</div>') +
+    '</div>';
+    tiles += '<div class="ers-tile"><div class="ers-tile-label">Into the print (2&ndash;3 wk drift)</div>' +
+      (c.preKnown
+        ? ersSplitBar([{ n: c.preUp, cls: 'ers-seg-pos', label: 'Trended higher' }, { n: c.preFlat, cls: 'ers-seg-flat', label: 'Flat' }, { n: c.preDown, cls: 'ers-seg-neg', label: 'Trended lower' }]) +
+          '<div class="ers-tile-sub"><b class="ers-pos">' + (c.preUp || 0) + ' ran up</b> · ' + (c.preFlat || 0) + ' flat · <b class="ers-neg">' + (c.preDown || 0) + ' sold off</b>' + (c.preKnown < c.reported ? ' <span class="ers-dim">(' + c.preKnown + ' with a read)</span>' : '') + '</div>' +
+          ((ersNum(s.avgPre10Pct) || ersNum(s.avgPre15Pct)) ? '<div class="ers-tile-note">avg drift 2wk ' + ersPct(s.avgPre10Pct) + ' · 3wk ' + ersPct(s.avgPre15Pct) +
+            ((ersNum(s.preUpAvgMovePct) && ersNum(s.preDownAvgMovePct)) ? '<br>on the print: ran-up names avg ' + ersPct(s.preUpAvgMovePct) + ' · sold-off names avg ' + ersPct(s.preDownAvgMovePct) : '') + '</div>' : '')
+        : '<div class="ers-tile-sub ers-dim">No pre-earnings drift reads for this season yet — the 2&ndash;3 week run-up into each print is computed from daily bars and fills in with the daily builds.</div>') +
     '</div>';
     tiles += '<div class="ers-tile"><div class="ers-tile-label">Post-earnings reactions</div>' +
       ersSplitBar([{ n: c.up, cls: 'ers-seg-pos', label: 'Closed up' }, { n: c.flat, cls: 'ers-seg-flat', label: 'Flat' }, { n: c.down, cls: 'ers-seg-neg', label: 'Closed down' }]) +
@@ -13457,6 +13503,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         var impTxt = ersNum(rw.impliedMovePct)
           ? '±' + (rw.impliedMovePct * 100).toFixed(1) + '%' + (rw.exceededImplied != null ? ' <span class="ers-chip ' + (rw.exceededImplied ? 'ers-chip-warn' : 'ers-chip-flat') + '">' + (rw.exceededImplied ? 'exceeded' : 'within') + '</span>' : '')
           : '<span class="ers-dim">—</span>';
+        var preVal = ersNum(rw.pre15Pct) ? rw.pre15Pct : (ersNum(rw.pre10Pct) ? rw.pre10Pct : null);
+        var preTitle = 'Drift into the print — 2wk ' + ersPct(rw.pre10Pct) + ' · 3wk ' + ersPct(rw.pre15Pct);
         trows += '<tr>' +
           '<td>' + ersSymBtn(rw.sym) + '</td>' +
           '<td class="ers-td-date">' + ersDate(rw.date) + (rw.session === 'AM' ? ' <span class="ers-dim">AM</span>' : rw.session === 'PM' ? ' <span class="ers-dim">PM</span>' : '') + '</td>' +
@@ -13464,6 +13512,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<td class="ers-td-num">' + epsTxt + '</td>' +
           '<td class="ers-td-num">' + surTxt + '</td>' +
           '<td>' + ersGuidChip(rw.guidance) + '</td>' +
+          '<td class="ers-td-num' + ersToneCls(preVal) + '" title="' + preTitle + '">' + ersPct(preVal) + '</td>' +
           '<td class="ers-td-num' + ersToneCls(rw.gapPct) + '">' + ersPct(rw.gapPct) + '</td>' +
           '<td class="ers-td-num' + ersToneCls(rw.movePct) + '">' + ersPct(rw.movePct) + '</td>' +
           '<td class="ers-td-num">' + impTxt + '</td>' +
@@ -13471,7 +13520,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '</tr>';
       }
       html += '<div class="ers-table-wrap"><table class="ers-table"><thead><tr>' +
-        '<th>Ticker</th><th>Reported</th><th>Result</th><th class="ers-td-num">EPS</th><th class="ers-td-num">Surprise</th><th>Guidance</th><th class="ers-td-num">Gap</th><th class="ers-td-num">Day</th><th class="ers-td-num">Expected</th><th class="ers-td-num">1 wk</th>' +
+        '<th>Ticker</th><th>Reported</th><th>Result</th><th class="ers-td-num">EPS</th><th class="ers-td-num">Surprise</th><th>Guidance</th><th class="ers-td-num" title="Close-to-close drift over the ~3 trading weeks into the print (2-week read in the cell tooltip)">3wk in</th><th class="ers-td-num">Gap</th><th class="ers-td-num">Day</th><th class="ers-td-num">Expected</th><th class="ers-td-num">1 wk</th>' +
         '</tr></thead><tbody>' + trows + '</tbody></table></div>';
     }
     root.innerHTML = html;
