@@ -20,6 +20,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
        (same format, plus the archive preamble) and add that month to the
        "Older changelogs" index below. -->
 
+## 2026-07-15
+
+### Fixed
+- **Earnings-call discovery picked republished OLD transcripts over the newest call — rank by fiscal quarter, not publication date.** Fool republishes years-old transcripts under fresh URL dates (TSLA's Q3 2024 call resurfaced at a 2026-04-22 URL and buried the real Q4 2025 one, so the tab briefed a two-year-old call). Discovery now orders candidates by the fiscal quarter in the URL slug (publication date only breaks ties / is the fallback), never replaces an index entry with an older-or-equal quarter, and re-checks the article TITLE's quarter after fetch (the slug can lie on republished pages) before spending the Gemini call. Poisoned entries self-heal via the existing newer-print probe + the ect2 re-summary phase-in. `scripts/build.mjs`.
+
 ## 2026-07-14
 
 ### Added

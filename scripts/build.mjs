@@ -5206,9 +5206,32 @@ async function fetchFoolHtml(url) {
 const FOOL_TRANSCRIPT_HREF_RE =
   /\/earnings\/call-transcripts\/(\d{4})\/(\d{2})\/(\d{2})\/([a-z0-9.-]+?)-q([1-4])-((?:19|20)\d{2})-earnings(?:-call)?-transcript\/?/g;
 
+// Sortable rank for a "Qn YYYY" fiscal-quarter label (null when unparsable).
+// Candidates are ordered by FISCAL QUARTER, not publication date: Fool
+// republishes old transcripts under fresh URL dates (TSLA's Q3 2024 call
+// resurfaced at /2026/04/22/ and buried the real Q4 2025 one), so the newest
+// publication is not the newest call. Exported for offline testing.
+export const transcriptQuarterRank = (quarter) => {
+  const m = /^Q([1-4])\s+((?:19|20)\d{2})$/.exec(String(quarter || "").trim());
+  return m ? Number(m[2]) * 4 + (Number(m[1]) - 1) : null;
+};
+
+// Does a discovered candidate carry a NEWER call than the current index entry?
+// Quarter decides when both sides parse; publication date is the fallback.
+// Same-quarter republications never re-queue (same call, no new information).
+const transcriptCandidateIsNewer = (cur, item) => {
+  if (!cur) return true;
+  if (cur.sourceUrl === item.url) return false;
+  const curQ = transcriptQuarterRank(cur.quarter);
+  const itemQ = transcriptQuarterRank(item.quarter);
+  if (curQ != null && itemQ != null) return itemQ > curQ;
+  return !cur.published || item.published > cur.published;
+};
+
 // Extract transcript links from any fool.com HTML (the listing page or a
 // per-ticker quote page). Returns [{ sym, url, published, quarter }], deduped
-// per symbol keeping the newest publication. Exported for offline testing.
+// per symbol keeping the newest fiscal quarter (publication date breaks ties).
+// Exported for offline testing.
 export function parseFoolTranscriptLinks(html) {
   const bySym = new Map();
   if (typeof html !== "string" || !html) return [];
@@ -5224,7 +5247,13 @@ export function parseFoolTranscriptLinks(html) {
       quarter: `Q${q} ${fy}`,
     };
     const cur = bySym.get(sym);
-    if (!cur || item.published > cur.published) bySym.set(sym, item);
+    if (
+      !cur ||
+      transcriptQuarterRank(item.quarter) > transcriptQuarterRank(cur.quarter) ||
+      (transcriptQuarterRank(item.quarter) === transcriptQuarterRank(cur.quarter) && item.published > cur.published)
+    ) {
+      bySym.set(sym, item);
+    }
   }
   return [...bySym.values()];
 }
@@ -5657,8 +5686,7 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
   const listed = parseFoolTranscriptLinks((await fetchFoolHtml(FOOL_LISTING_URL)) || "");
   for (const item of listed) {
     if (!uniSet.has(item.sym)) continue;
-    const cur = freshEntry(item.sym);
-    if (cur && (cur.sourceUrl === item.url || (cur.published && item.published <= cur.published))) continue;
+    if (!transcriptCandidateIsNewer(freshEntry(item.sym), item)) continue;
     queue.set(item.sym, item);
   }
 
@@ -5706,11 +5734,12 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
       if (!html) continue;
       const links = parseFoolTranscriptLinks(html).filter((l) => l.sym === sym);
       if (!links.length) break; // real quote page with no transcripts — Fool doesn't cover it
-      const newest = links.sort((a, b) => b.published.localeCompare(a.published))[0];
-      const cur = freshEntry(sym);
-      if (!cur || (!(cur.sourceUrl === newest.url) && (!cur.published || newest.published > cur.published))) {
-        queue.set(sym, newest);
-      }
+      const newest = links.sort(
+        (a, b) =>
+          (transcriptQuarterRank(b.quarter) ?? -1) - (transcriptQuarterRank(a.quarter) ?? -1) ||
+          b.published.localeCompare(a.published),
+      )[0];
+      if (transcriptCandidateIsNewer(freshEntry(sym), newest)) queue.set(sym, newest);
       break;
     }
     await new Promise((r) => setTimeout(r, 200));
@@ -5730,6 +5759,18 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
     if (!parsed) {
       console.log(`  ⚠ [calls] ${item.sym} transcript fetch/parse failed — will retry a later build`);
       continue;
+    }
+    // The article TITLE is the quarter's source of truth (the URL slug can lie
+    // on republished pages) — never regress the entry to an older call than
+    // the one already summarized.
+    {
+      const parsedQ = transcriptQuarterRank(parsed.quarter);
+      const curQ = transcriptQuarterRank(freshEntry(item.sym)?.quarter);
+      if (parsedQ != null && curQ != null && parsedQ <= curQ) {
+        summarized.add(item.sym); // keep the probe cooldown — this URL is a dead end, not a transient failure
+        console.log(`  [calls] ${item.sym} skipped — ${parsed.quarter} is not newer than the summarized ${freshEntry(item.sym).quarter}`);
+        continue;
+      }
     }
     try {
       const summary = await summarizeEarningsCall(item.sym, parsed);
