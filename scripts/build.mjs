@@ -5160,7 +5160,7 @@ export async function writeEarningsTrackerFile(store, chains, builtAtIso, prior 
 // prefix), so details written in past bakes survive without local copies.
 const EARNINGS_CALLS_FILE = "earnings-calls.json";
 const TRANSCRIPTS_DIR = "transcripts";
-const TRANSCRIPT_SUMMARY_VERSION = "ect1"; // bump after a prompt/schema change to phase re-summaries in
+const TRANSCRIPT_SUMMARY_VERSION = "ect2"; // bump after a prompt/schema change to phase re-summaries in
 const AI_TRANSCRIPT_MODEL = process.env.AI_TRANSCRIPT_MODEL || "gemini-3.5-flash";
 const AI_TRANSCRIPT_THINK = Number(process.env.AI_TRANSCRIPT_THINK ?? 512);
 const TRANSCRIPTS_PER_BUILD = Math.max(0, Number(process.env.TRANSCRIPTS_PER_BUILD ?? 6));
@@ -5257,9 +5257,13 @@ function transcriptHtmlToText(html) {
 export function parseFoolTranscriptArticle(html, url = "") {
   if (typeof html !== "string" || !html) return null;
   // Title: "PepsiCo (PEP) Q2 2026 Earnings Call Transcript | The Motley Fool"
+  // — some articles drop the parens ("Tesla TSLA Q3 2024 Earnings Call
+  // Transcript"), so fall back to <company> <TICKER> <Qn YYYY> Earnings.
   const titleM = /<title[^>]*>([^<]+)<\/title>/i.exec(html);
   const title = titleM ? transcriptHtmlToText(titleM[1]) : "";
-  const headM = /^(.*?)\(([A-Z][A-Z0-9.]{0,5})\)\s+(Q[1-4]\s+\d{4})/.exec(title);
+  const headM =
+    /^(.*?)\(([A-Z][A-Z0-9.]{0,5})\)\s+(Q[1-4]\s+\d{4})/.exec(title) ||
+    /^(.*?)\s+([A-Z][A-Z0-9.]{0,5})\s+(Q[1-4]\s+(?:19|20)\d{2})\s+Earnings/.exec(title);
   const company = headM ? headM[1].trim() : "";
   const sym = headM ? headM[2] : "";
   const quarter = headM ? headM[3] : "";
@@ -5286,10 +5290,16 @@ export function parseFoolTranscriptArticle(html, url = "") {
   const text = transcriptHtmlToText(inner);
   if (text.length < TRANSCRIPT_MIN_CHARS) return null;
 
-  // Call date: the article header carries "DATE\nThursday, July 9, 2026 at ...".
+  // Call date: the article header carries "DATE\nThursday, July 9, 2026 at ..."
+  // — but some articles omit the weekday ("Date\nOct. 23, 2024, 5:30 p.m. ET"),
+  // so try the weekday form first, then a Date-label-anchored bare date. The
+  // URL date is a last resort only: republished articles carry a fresh URL
+  // date on old content (seen on TSLA), so it can be years off the real call.
   let callDate = null;
+  const head = text.slice(0, 3000);
   const dateM =
-    /(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day,?\s+([A-Z][a-z]+\.?\s+\d{1,2},\s+\d{4})/.exec(text.slice(0, 3000));
+    /(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day,?\s+([A-Z][a-z]+\.?\s+\d{1,2},\s+\d{4})/.exec(head) ||
+    /(?:^|\n)\s*Date\s*\n+\s*([A-Z][a-z]{2,8}\.?\s+\d{1,2},\s+\d{4})/i.exec(head);
   if (dateM) {
     const ms = Date.parse(dateM[1].replace(".", ""));
     if (Number.isFinite(ms)) callDate = new Date(ms).toISOString().slice(0, 10);
@@ -5552,7 +5562,10 @@ async function summarizeEarningsCall(sym, meta) {
         config: {
           systemInstruction: TRANSCRIPT_SUMMARY_SYSTEM_PROMPT,
           temperature: 0.3,
-          maxOutputTokens: 8192,
+          // A verbose call can push the forced-JSON brief past 8k tokens and
+          // truncate mid-array (AAPL Q2 2026 did, on the first live run) —
+          // give it real headroom; the normalizer caps the payload size anyway.
+          maxOutputTokens: 16384,
           responseMimeType: "application/json",
           responseSchema: TRANSCRIPT_SUMMARY_SCHEMA,
           thinkingConfig: { thinkingBudget: AI_TRANSCRIPT_THINK },
