@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Standalone earnings-call transcript pass — discover new Motley Fool
 // transcripts for the tracked universe and mint the AI briefs into
-// data/earnings-calls.json + data/transcripts/<SYM>.json WITHOUT running the
+// data/earnings-calls.json + data/transcript-<SYM>.json WITHOUT running the
 // full bake (no Yahoo, no other AI passes). Respects the same knobs as the
 // bake: TRANSCRIPTS_PER_BUILD, TRANSCRIPT_PROBES_PER_BUILD,
 // AI_TRANSCRIPT_MODEL / AI_TRANSCRIPT_THINK / AI_TRANSCRIPT_CHARS.

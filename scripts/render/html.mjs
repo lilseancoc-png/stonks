@@ -480,7 +480,7 @@ function earningsCallsSection() {
   // Card chrome only — content renders client-side from data/earnings-calls.json
   // (the covered-name index), lazy-fetched on first tab activation by
   // loadEarningsCalls() in app.js; opening a card fetches that name's full
-  // brief from data/transcripts/<SYM>.json. PREMIUM tab — non-members get the
+  // brief from data/transcript-<SYM>.json. PREMIUM tab — non-members get the
   // lock card and the loaders are skipped.
   return `<section class="card" id="calls-section">
     <header class="card-header">

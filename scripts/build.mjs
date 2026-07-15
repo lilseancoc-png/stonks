@@ -5124,7 +5124,7 @@ export async function writeEarningsTrackerFile(store, chains, builtAtIso, prior 
   };
 }
 
-// === Earnings-call transcripts (data/earnings-calls.json + data/transcripts/) =
+// === Earnings-call transcripts (earnings-calls.json + transcript-<SYM>.json) ==
 // Per-ticker AI briefs of each name's most recent earnings CALL, built from the
 // full transcript. Source: The Motley Fool's free transcript library (server-
 // rendered, no bot wall — verified 2026-07-14). Discovery is two-pronged:
@@ -5150,16 +5150,23 @@ export async function writeEarningsTrackerFile(store, chains, builtAtIso, prior 
 // Capped at TRANSCRIPTS_PER_BUILD new summaries per bake — the launch backfill
 // of the whole universe spreads over a few trading days.
 // PREMIUM keys, both of them (lib/premium-keys.mjs gates the index by name and
-// the per-ticker details by the "transcripts/" prefix). The index carries every
+// the per-ticker details by the "transcript-" prefix). The index carries every
 // covered name's headline + tone chips; the browser lazy-loads the per-ticker
-// detail (data/transcripts/<SYM>.json) when a card is opened
+// detail (data/transcript-<SYM>.json) when a card is opened
 // (loadEarningsCalls/renderEarningsCalls in app-js.mjs).
 // Same read-before-wipe rule as the other accumulating files: main() reads the
 // prior INDEX before writeChainFiles wipes data/, and per-ticker details are
-// upsert-only in the store (sync-data.mjs never delete-stales the transcripts/
+// upsert-only in the store (sync-data.mjs never delete-stales the transcript-
 // prefix), so details written in past bakes survive without local copies.
 const EARNINGS_CALLS_FILE = "earnings-calls.json";
-const TRANSCRIPTS_DIR = "transcripts";
+// Per-ticker detail briefs are FLAT keys (data/transcript-<SYM>.json), not a
+// subdirectory: Vercel's non-Next router matches a bracketed api segment to
+// exactly ONE path segment, so api/data/[...path].js hard-404s any nested
+// /data/x/y.json before the function runs (verified live 2026-07-14 — nested
+// keys like iv-history/* were never browser-fetched, so it never surfaced).
+// The lowercase "transcript-" prefix can't collide with the uppercase
+// per-ticker chain files and stays out of sync-data's delete-stale regex.
+const transcriptKeyForSym = (sym) => `transcript-${sym}.json`;
 const TRANSCRIPT_SUMMARY_VERSION = "ect2"; // bump after a prompt/schema change to phase re-summaries in
 const AI_TRANSCRIPT_MODEL = process.env.AI_TRANSCRIPT_MODEL || "gemini-3.5-flash";
 const AI_TRANSCRIPT_THINK = Number(process.env.AI_TRANSCRIPT_THINK ?? 512);
@@ -5773,16 +5780,12 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
 }
 
 // Write the index + any newly-minted per-ticker details. Details are
-// upsert-only into data/transcripts/ — past details live in the private store
-// and are never re-written (or deleted) here.
+// upsert-only flat keys (data/transcript-<SYM>.json) — past details live in
+// the private store and are never re-written (or deleted) here.
 export async function writeEarningsCallsFiles({ prior = null, earningsHxStore = null, builtAtIso = null } = {}) {
   const { index, details, keyless } = await updateEarningsCallsData({ prior, earningsHxStore, builtAtIso });
-  if (details.length) {
-    const dir = resolve(DATA_DIR, TRANSCRIPTS_DIR);
-    await mkdir(dir, { recursive: true });
-    for (const d of details) {
-      await writeFile(resolve(dir, `${d.sym}.json`), JSON.stringify(d), "utf8");
-    }
+  for (const d of details) {
+    await writeFile(resolve(DATA_DIR, transcriptKeyForSym(d.sym)), JSON.stringify(d), "utf8");
   }
   const json = JSON.stringify(index);
   await writeFile(resolve(DATA_DIR, EARNINGS_CALLS_FILE), json, "utf8");

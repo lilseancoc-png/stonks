@@ -13479,7 +13479,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
 
   // --- Earnings calls (transcript AI briefs) --------------------------------
   // Index from data/earnings-calls.json (premium); per-ticker detail briefs
-  // lazy-fetched from data/transcripts/<SYM>.json when a card is opened.
+  // lazy-fetched from data/transcript-<SYM>.json when a card is opened.
   var callsState = { idx: null, loading: false, sym: null, details: {}, detailLoading: null, filter: '' };
   function eclChip(cls, txt, title){
     return '<span class="ecl-chip ' + cls + '"' + (title ? ' title="' + escapeHtml(title) + '"' : '') + '>' + escapeHtml(txt) + '</span>';
@@ -13546,7 +13546,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function loadEarningsCallDetail(sym){
     if (callsState.details[sym] || callsState.detailLoading === sym){ renderEarningsCalls(); return; }
     callsState.detailLoading = sym;
-    fetch('data/transcripts/' + encodeURIComponent(sym) + '.json', { cache: 'no-cache' })
+    fetch('data/transcript-' + encodeURIComponent(sym) + '.json', { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){
         callsState.details[sym] = (j && typeof j === 'object' && j.summary) ? j : { loadError: true };

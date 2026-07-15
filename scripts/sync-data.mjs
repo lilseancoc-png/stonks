@@ -66,8 +66,12 @@ const SCANNER_EXCLUSIVE = new Set([...UNUSUAL_EXCLUSIVE, ...OI_EXCLUSIVE]);
 const REQUEST_TIME_EXCLUSIVE = new Set(["picks-watchlist.json"]);
 
 // Bake delete-stales ONLY within these prefixes (dynamic per-ticker data).
+// transcripts/ is the RETIRED subdirectory form of the earnings-call briefs
+// (replaced by flat transcript-<SYM>.json keys, which are upsert-only and
+// deliberately NOT matched here) — listing it lets the bake sweep the
+// first-day orphans out of the store.
 const isDynamicBakeKey = (key) =>
-  /^[A-Z0-9.]+\.json$/.test(key) || key.startsWith("iv-history/");
+  /^[A-Z0-9.]+\.json$/.test(key) || key.startsWith("iv-history/") || key.startsWith("transcripts/");
 
 // --- small helpers ------------------------------------------------------------
 async function mapLimit(items, limit, fn) {
