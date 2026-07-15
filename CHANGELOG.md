@@ -22,6 +22,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-07-15
 
+### Changed
+- **Top Picks option exits flipped to flat +20% take-profit / −50% stop (scale-out now opt-in).** With the book capped at `PICKS_MAX_OPEN_POSITIONS` (20), the bank-half-and-trail runners held slots open for days and froze enrollment — the record filled to 20 open / 0 closed within three sessions of the 07-10 reset, locking strong new names (AVGO, JPM, AXP) out of the track record. Owner call: resolve fast so positions turn over and slots free up — `PICKS_OPT_STOP_PCT` 0.30 → 0.50, `PICKS_OPT_SCALE_OUT` default flipped to off (set `=1` to restore the trail; already-armed runners keep their trail semantics until they resolve). Client mirrors updated (`accBracketPnlPerContract` gates, the held-position checker's `POS_STOP`). `scripts/build.mjs`, `scripts/render/app-js.mjs`, `docs/top-picks.md`.
+
 ### Added
 - **MarketBeat as the earnings-call transcript fallback source.** Fool's big-cap coverage has gaps (it never published TSLA's Q1 2026 call at all), so when the Fool quote-page probe yields nothing newer for a name that just reported, discovery now probes MarketBeat's per-ticker earnings hub (`/stocks/<EX>/<SYM>/earnings/` → date-keyed report pages, Quartr-provided full transcripts, free + server-rendered). New parsers `parseMarketBeatReportLinks` / `parseMarketBeatTranscript` (speaker-attributed "Name (Role): speech" text, quarter from the page header, call date from the byline — report URLs are keyed by the CALL date so republication can't spoof recency); same `summarizeEarningsCall` brief, same cache + caps. Index entries + details now carry a per-name `source`, and the detail footer attributes whichever library the brief came from (the renderer already read `d.source` dynamically). `scripts/build.mjs`.
 

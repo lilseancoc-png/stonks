@@ -42,8 +42,8 @@ a ~5–11% win rate). Everything else is deliberately plain:
    adverse move is a −70% wipeout.
 4. **One entry per name** until it resolves — 58% of past entries were restacks
    of the same losing thesis. → **re-entry suppression**.
-5. **Tight, asymmetric option exits** (−30% stop; the +20% gate has since
-   evolved into bank-half-and-trail — see §8).
+5. **Fast option exits** (+20% take-profit / −50% stop; the bank-half-and-trail
+   scale-out is opt-in — see §8).
 6. **Willing to go short and to hold cash** — long-only into a risk-off tape was
    fatal; fewer/zero picks is allowed.
 
@@ -360,7 +360,7 @@ skips spreads — its single-leg model would mislead.)
 1. Candidates = grade actionable (`|total| ≥ 4`), or a tactical put in a confirmed
    risk-off tape. **The actionable bar is edge-governed** (`edgeGatedConviction`):
    when the trailing resolved book's realized option edge is materially negative
-   (the live record has run a ~33% win rate against the +20/−30 exits, an
+   (the live record had run a ~33% win rate against the legacy +20/−30 exits, an
    expectancy that needs >60% to break even), the bar steps **up** — to
    `min(Strong, 4+2)=6` at ≤ −8%, all the way to the **Strong tier (7)** at ≤ −15%
    — so a losing book ships only its highest-conviction reads (genuinely standing
@@ -409,21 +409,20 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
 
 ## 8. Exits (`buildExitPlan` / `resolvePickOutcome`)
 
-- **Option-space (primary):** −30% stop on premium. At **+20%** the position
-  **banks HALF at the marked price and arms a trailing stop on the runner** —
-  floored at breakeven, ratcheting up to (peak − `PICKS_OPT_TRAIL_GIVEBACK_PCT`
-  25pts) as the runner extends (`trail-stop`). The closed record blends the two
-  halves (`0.5×banked + 0.5×exit`), so an armed trade can't round-trip to a net
-  loss *at build-time marks* (an overnight/weekend gap can still print the
-  runner below the floor and close the blend red) but the right tail is no
-  longer amputated at +20%. Rationale: the old
-  flat +20/−30 gates hard-capped every win at ~+20% while overnight/earnings
-  gaps routinely marked losses far past −30% (the stop only executes at
-  build-time marks) — a payoff needing a >60% win rate to break even.
-  `PICKS_OPT_SCALE_OUT=0` restores the flat +20% take-profit. The plan still
+- **Option-space (primary):** flat **+20% take-profit / −50% stop** on premium
+  (2026-07-15, owner directive: with the book capped at
+  `PICKS_MAX_OPEN_POSITIONS` 20, the prior bank-half-and-trail runners held
+  slots open for days and froze enrollment — the record filled to 20 open /
+  0 closed in three sessions; fast flat gates turn positions over so new picks
+  keep enrolling). `PICKS_OPT_SCALE_OUT=1` restores the scale-out: at +20% the
+  position **banks HALF at the marked price and arms a trailing stop on the
+  runner** — floored at breakeven, ratcheting up to (peak −
+  `PICKS_OPT_TRAIL_GIVEBACK_PCT` 25pts) as the runner extends (`trail-stop`),
+  with the closed record blending the two halves (`0.5×banked + 0.5×exit`).
+  The plan still
   surfaces the **concrete contract price** for each gate off the entry mid
   (`optionStop`/`optionTp` + per-level `optionPrice`/`optionPct`/`entryPrem`):
-  e.g. a $5.00 long → stop at **$3.50**, bank half at **$6.00**. Credit
+  e.g. a $5.00 long → stop at **$2.50**, take profit at **$6.00**. Credit
   verticals keep **hard gates on the credit** (no scale-out — decay is the
   edge): +50% take-profit / **−50% stop** (buy-back ≈ 1.5× the credit; the old
   −100% default was a 2:1 inverted payoff vs the +50% TP). The credit exit
@@ -725,8 +724,8 @@ All in the `// TOP PICKS ENGINE` constant block at the top of the engine:
 | `PICKS_MAX_PER_SECTOR` | 3 | correlation cap |
 | `PICKS_MAX_PER_FACTOR` | 5 | tech/AI-complex correlation cap |
 | `PICKS_FACTOR_WEAK_SHARE` / `PICKS_FACTOR_WEAK_RET5` | 0.6 / −3 | factor-trend gate: suppress new calls in a rolling-over factor |
-| `PICKS_OPT_TP_PCT` / `PICKS_OPT_STOP_PCT` | 0.20 / 0.30 | +20% banks half + arms the trail / −30% stop |
-| `PICKS_OPT_SCALE_OUT` | on | scale-out + trail at the TP (0 = legacy flat +20% take-profit) |
+| `PICKS_OPT_TP_PCT` / `PICKS_OPT_STOP_PCT` | 0.20 / 0.50 | +20% take-profit / −50% stop (not env-tunable — code constants) |
+| `PICKS_OPT_SCALE_OUT` | off | 1 = bank half + trail the runner at the TP instead of the flat take-profit |
 | `PICKS_OPT_TRAIL_GIVEBACK_PCT` | 0.25 | runner trail: stop = max(breakeven, peak − 25pts) |
 | `PICKS_UNDERLYING_STOP` | on | enforce the exit ladder's stock stop in the track record (`hit-stop-under`) |
 | `PICKS_MAX_OPEN_POSITIONS` | 20 | hard cap on the concurrently-tracked open book (enrollment walks the roster in rank order; excess picks wait for a slot) |

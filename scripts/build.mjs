@@ -10716,9 +10716,9 @@ export function computeMacroEventRisk(predictionMarkets, meetings, reportEvents,
 //       2. Don't buy the top / catch a knife -> entry-timing penalty.
 //       3. Near-the-money contracts (~0.55 delta), never fragile deep-OTM.
 //       4. One entry per name until it resolves (no restacking a loser).
-//       5. Tight asymmetric option exits (-30% stop; the +20% gate now banks
-//          half + trails the runner instead of hard-capping the win — see the
-//          Exits constants block).
+//       5. Fast option exits (+20% take-profit / -50% stop; the scale-out
+//          trail is opt-in via PICKS_OPT_SCALE_OUT=1 — see the Exits
+//          constants block).
 //       6. Willing to go short and to hold cash (fewer/zero picks is allowed).
 //
 // grades.json (every ticker, FREE) and picks.json (the actionable roster) share
@@ -10759,7 +10759,7 @@ export const PICKS_MIN_CONVICTION = Number(process.env.PICKS_MIN_CONVICTION ?? 4
 export const PICKS_TIER_STRONG = Number(process.env.PICKS_TIER_STRONG ?? 7);       // Strong conviction
 // ---- Edge-governed selection bar (stand down harder when actually losing) ---
 // computeEdgeScale already cuts SIZE when the trailing record is losing, but the
-// resolved book has run a ~33% option win rate against the +20%/−30% exits — an
+// resolved book had run a ~33% option win rate against the legacy +20%/−30% exits — an
 // expectancy that needs a >60% win rate just to break even, so trading the same
 // breadth of names *smaller* still trades a structurally losing book. When the
 // realized option edge is materially negative, RAISE the actionable conviction
@@ -10864,20 +10864,21 @@ const PICKS_THESIS_STRONG_SCORE = Number(process.env.PICKS_THESIS_STRONG_SCORE ?
 const PICKS_THESIS_MOD_SCORE = Number(process.env.PICKS_THESIS_MOD_SCORE ?? 3);       // >= this (+ alignment) -> moderate thesis
 
 // ---- Exits -----------------------------------------------------------------
-const PICKS_OPT_TP_PCT = 0.20;                 // +20% of premium: banks HALF + arms the runner trail (hard TP when PICKS_OPT_SCALE_OUT=0)
-const PICKS_OPT_STOP_PCT = 0.30;               // cut loss at -30% of premium
-// Scale-out + trail: the old flat +20% take-profit hard-capped every winner at
-// ~+20% while gaps routinely blew losses far past the -30% stop (avg loss ran
-// ~4x avg win; +20/-30 needs a >60% win rate just to break even). At the TP the
-// position now banks HALF at the marked price and lets the other half run with
-// a trailing stop — floored at breakeven, ratcheting up to (peak − giveback) as
-// the runner extends — so an armed trade can't round-trip to a loss but the
-// right tail is no longer amputated. Closed records blend the two halves.
-const PICKS_OPT_SCALE_OUT = process.env.PICKS_OPT_SCALE_OUT !== "0";           // 0 = legacy flat +20% take-profit
+const PICKS_OPT_TP_PCT = 0.20;                 // +20% of premium: hard take-profit (banks half + trails when PICKS_OPT_SCALE_OUT=1)
+const PICKS_OPT_STOP_PCT = 0.50;               // cut loss at -50% of premium
+// Scale-out + trail (OPT-IN since 2026-07-15): the flat +20% take-profit caps
+// every winner at ~+20%, so the scale-out banked HALF at the TP and trailed the
+// runner (breakeven floor, ratcheting to peak − giveback). But with the book
+// capped at PICKS_MAX_OPEN_POSITIONS, armed runners held slots open for days
+// and froze enrollment — the record filled to 20 open / 0 closed inside three
+// sessions. Owner call: resolve fast (flat +20% TP / −50% stop) so positions
+// turn over and new picks keep enrolling; PICKS_OPT_SCALE_OUT=1 restores the
+// bank-half-and-trail behavior.
+const PICKS_OPT_SCALE_OUT = process.env.PICKS_OPT_SCALE_OUT === "1";           // 1 = bank half + trail the runner at the TP
 const PICKS_OPT_TRAIL_GIVEBACK_PCT = Number(process.env.PICKS_OPT_TRAIL_GIVEBACK_PCT ?? 0.25); // runner stop = max(breakeven, peak − 25pts)
 // The exit ladder's stock stop (structural / ~2.5x ATR, buildExitPlan's `cut`)
 // is ENFORCED in the track record: a name that closes through it resolves
-// (status hit-stop-under) even if the modeled premium hasn't printed -30% at a
+// (status hit-stop-under) even if the modeled premium hasn't printed -50% at a
 // mark yet — the premium stop alone only fires at build-time marks, so gaps
 // sailed straight through it. 0 = display-only (legacy).
 const PICKS_UNDERLYING_STOP = process.env.PICKS_UNDERLYING_STOP !== "0";
