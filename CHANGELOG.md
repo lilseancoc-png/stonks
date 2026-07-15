@@ -22,6 +22,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-07-15
 
+### Added
+- **MarketBeat as the earnings-call transcript fallback source.** Fool's big-cap coverage has gaps (it never published TSLA's Q1 2026 call at all), so when the Fool quote-page probe yields nothing newer for a name that just reported, discovery now probes MarketBeat's per-ticker earnings hub (`/stocks/<EX>/<SYM>/earnings/` → date-keyed report pages, Quartr-provided full transcripts, free + server-rendered). New parsers `parseMarketBeatReportLinks` / `parseMarketBeatTranscript` (speaker-attributed "Name (Role): speech" text, quarter from the page header, call date from the byline — report URLs are keyed by the CALL date so republication can't spoof recency); same `summarizeEarningsCall` brief, same cache + caps. Index entries + details now carry a per-name `source`, and the detail footer attributes whichever library the brief came from (the renderer already read `d.source` dynamically). `scripts/build.mjs`.
+
 ### Fixed
 - **Earnings-call discovery picked republished OLD transcripts over the newest call — rank by fiscal quarter, not publication date.** Fool republishes years-old transcripts under fresh URL dates (TSLA's Q3 2024 call resurfaced at a 2026-04-22 URL and buried the real Q4 2025 one, so the tab briefed a two-year-old call). Discovery now orders candidates by the fiscal quarter in the URL slug (publication date only breaks ties / is the fallback), never replaces an index entry with an older-or-equal quarter, and re-checks the article TITLE's quarter after fetch (the slug can lie on republished pages) before spending the Gemini call. Poisoned entries self-heal via the existing newer-print probe + the ect2 re-summary phase-in. `scripts/build.mjs`.
 

@@ -5182,9 +5182,17 @@ const TRANSCRIPT_MIN_CHARS = 6_000;
 const FOOL_BASE = "https://www.fool.com";
 const FOOL_LISTING_URL = `${FOOL_BASE}/earnings-call-transcripts/`;
 const FOOL_QUOTE_EXCHANGES = ["nasdaq", "nyse"];
+// MarketBeat is the FALLBACK transcript source (probed only when Fool has
+// nothing newer for a name that just reported): free, server-rendered,
+// Quartr-provided full transcripts. Fool's big-cap coverage has gaps (it never
+// published TSLA's Q1 2026 call) and it republishes old articles; MarketBeat's
+// report URLs are keyed by the CALL date, so they can't lie about recency.
+const MARKETBEAT_BASE = "https://www.marketbeat.com";
+const MARKETBEAT_EXCHANGES = ["NASDAQ", "NYSE"];
 const TRANSCRIPT_FETCH_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
+// Generic browser-shaped HTML fetch — used for fool.com AND marketbeat.com.
 async function fetchFoolHtml(url) {
   try {
     const res = await fetch(url, {
@@ -5345,6 +5353,100 @@ export function parseFoolTranscriptArticle(html, url = "") {
     if (urlM) callDate = `${urlM[1]}-${urlM[2]}-${urlM[3]}`;
   }
   return { company, sym, quarter, callDate, text };
+}
+
+// MarketBeat's per-ticker earnings hub (/stocks/<EX>/<SYM>/earnings/) lists
+// date-keyed report pages: /earnings/reports/YYYY-M-D-<company-slug>-stock/
+// (month/day unpadded; the date is the EARNINGS date, not a publication date).
+// Scheduled FUTURE reports are listed too — callers filter to date <= today.
+// Returns [{ url, date }] newest first. Exported for offline testing.
+export function parseMarketBeatReportLinks(html) {
+  if (typeof html !== "string" || !html) return [];
+  const byPath = new Map();
+  const re = /href="(\/earnings\/reports\/(\d{4})-(\d{1,2})-(\d{1,2})-[a-z0-9.-]+\/)"/g;
+  for (const m of html.matchAll(re)) {
+    const [, path, y, mo, d] = m;
+    byPath.set(path, {
+      url: `${MARKETBEAT_BASE}${path}`,
+      date: `${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`,
+    });
+  }
+  return [...byPath.values()].sort((a, b) => b.date.localeCompare(a.date));
+}
+
+// Parse a MarketBeat earnings-report page into the same shape as
+// parseFoolTranscriptArticle: { company, sym, quarter, callDate, text }.
+// The transcript rides in <div id="transcript" class="article-body ...">,
+// headed by <h3>Company Qn YYYY Earnings Call Transcript</h3> and built from
+// speaker-attributed <section class="transcript-line-left|right"> bubbles
+// (.transcript-line-speaker carries the name + role, the <p>s the speech), so
+// the extracted text keeps "Name (Role): speech" attribution for the AI.
+// Returns null when the page has no transcript yet (report pages exist before
+// the transcript lands) or the body is too short. Exported for offline testing.
+export function parseMarketBeatTranscript(html, url = "") {
+  if (typeof html !== "string" || !html) return null;
+  const markerM = /<div[^>]*\bid="transcript"[^>]*>/.exec(html);
+  if (!markerM) return null;
+  const open = markerM.index + markerM[0].length - 1;
+  // Walk div depth to the container's matching close (same as the Fool parser).
+  const divRe = /<\/?div\b/gi;
+  divRe.lastIndex = open + 1;
+  let depth = 1;
+  let end = -1;
+  for (let m; (m = divRe.exec(html)); ) {
+    depth += m[0] === "</div" ? -1 : 1;
+    if (depth === 0) {
+      end = m.index;
+      break;
+    }
+  }
+  const inner = end > open ? html.slice(open + 1, end) : html.slice(open + 1);
+
+  // "<h3>Tesla Q1 2026 Earnings Call Transcript</h3>"
+  const hM = /<h3[^>]*>([^<]+)<\/h3>/.exec(inner);
+  const head = hM ? transcriptHtmlToText(hM[1]) : "";
+  const qM = /\b(Q[1-4]\s+(?:19|20)\d{2})\b/.exec(head);
+  const quarter = qM ? qM[1] : null;
+  const company = head.replace(/\s*Q[1-4]\s+(?:19|20)\d{2}[\s\S]*$/, "").trim();
+
+  // Byline date ("April 22, 2026") near the top; URL date as the fallback.
+  let callDate = null;
+  const byM = /\b([A-Z][a-z]{2,8}\.?\s+\d{1,2},\s+(?:19|20)\d{2})\b/.exec(transcriptHtmlToText(inner.slice(0, 4000)));
+  if (byM) {
+    const ms = Date.parse(byM[1].replace(".", ""));
+    if (Number.isFinite(ms)) callDate = new Date(ms).toISOString().slice(0, 10);
+  }
+  if (!callDate) {
+    const urlM = /\/earnings\/reports\/(\d{4})-(\d{1,2})-(\d{1,2})-/.exec(String(url));
+    if (urlM) callDate = `${urlM[1]}-${urlM[2].padStart(2, "0")}-${urlM[3].padStart(2, "0")}`;
+  }
+
+  // Speaker bubbles + the Presentation / Q&A section headers, in page order.
+  const parts = [];
+  const partRe =
+    /<h4[^>]*class="section-h[^"]*"[^>]*>([^<]+)<\/h4>|<section class="transcript-line-[^"]*">([\s\S]*?)<\/section>/g;
+  for (const m of inner.matchAll(partRe)) {
+    if (m[1]) {
+      parts.push(`== ${transcriptHtmlToText(m[1])} ==`);
+      continue;
+    }
+    const sec = m[2];
+    const spkM =
+      /<div class="font-weight-bold">\s*([^<]+?)\s*(?:<div class="secondary-title[^"]*">([^<]*)<\/div>)?\s*<\/div>/.exec(sec);
+    const name = spkM ? spkM[1].trim() : "";
+    const role = spkM && spkM[2] ? spkM[2].trim() : "";
+    const paras = [...sec.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/g)]
+      .map((p) => transcriptHtmlToText(p[1]))
+      .filter(Boolean);
+    if (!paras.length) continue;
+    parts.push(`${name || "Speaker"}${role ? ` (${role})` : ""}: ${paras.join("\n")}`);
+  }
+  // Markup drift fallback: the raw container text still carries the call.
+  const text = parts.filter((p) => !p.startsWith("== ")).length >= 3
+    ? parts.join("\n\n")
+    : transcriptHtmlToText(inner);
+  if (text.length < TRANSCRIPT_MIN_CHARS) return null;
+  return { company, sym: "", quarter, callDate, text };
 }
 
 const TRANSCRIPT_SUMMARY_SCHEMA = {
@@ -5663,7 +5765,7 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
     updatedAt: nowIso,
     universe: universe.length,
     covered: Object.keys(calls).length,
-    source: "The Motley Fool",
+    source: "The Motley Fool · MarketBeat",
     calls,
     probes,
   });
@@ -5742,6 +5844,20 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
       if (transcriptCandidateIsNewer(freshEntry(sym), newest)) queue.set(sym, newest);
       break;
     }
+    // MarketBeat fallback — only when Fool yielded nothing newer for this
+    // name. Quarter isn't known until the report page is fetched (step 3
+    // re-checks it against the current entry before spending the AI call).
+    if (!queue.has(sym)) {
+      for (const ex of MARKETBEAT_EXCHANGES) {
+        const html = await fetchFoolHtml(`${MARKETBEAT_BASE}/stocks/${ex}/${sym}/earnings/`);
+        if (!html) continue;
+        const reports = parseMarketBeatReportLinks(html).filter((r) => r.date <= todayIso);
+        if (!reports.length) break; // real hub page with no dated reports — no coverage
+        const item = { sym, url: reports[0].url, published: reports[0].date, quarter: null, origin: "marketbeat" };
+        if (transcriptCandidateIsNewer(freshEntry(sym), item)) queue.set(sym, item);
+        break;
+      }
+    }
     await new Promise((r) => setTimeout(r, 200));
   }
 
@@ -5755,7 +5871,11 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
   for (const item of items) {
     if (attempts >= TRANSCRIPTS_PER_BUILD) break;
     attempts++;
-    const parsed = parseFoolTranscriptArticle((await fetchFoolHtml(item.url)) || "", item.url);
+    const pageHtml = (await fetchFoolHtml(item.url)) || "";
+    const parsed =
+      item.origin === "marketbeat"
+        ? parseMarketBeatTranscript(pageHtml, item.url)
+        : parseFoolTranscriptArticle(pageHtml, item.url);
     if (!parsed) {
       console.log(`  ⚠ [calls] ${item.sym} transcript fetch/parse failed — will retry a later build`);
       continue;
@@ -5776,6 +5896,7 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
       const summary = await summarizeEarningsCall(item.sym, parsed);
       const quarter = parsed.quarter || item.quarter || null;
       const callDate = parsed.callDate || item.published || null;
+      const sourceName = item.origin === "marketbeat" ? "MarketBeat" : "The Motley Fool";
       details.push({
         sym: item.sym,
         company: parsed.company || item.sym,
@@ -5783,7 +5904,7 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
         callDate,
         published: item.published || null,
         sourceUrl: item.url,
-        source: "The Motley Fool",
+        source: sourceName,
         generatedAtIso: nowIso,
         v: TRANSCRIPT_SUMMARY_VERSION,
         summary,
@@ -5794,6 +5915,7 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
         quarter,
         callDate,
         published: item.published || null,
+        source: sourceName,
         headline: summary.headline,
         mgmtTone: summary.mgmtTone?.label || null,
         stance: summary.mgmtTone?.stance || null,
