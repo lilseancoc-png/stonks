@@ -19036,7 +19036,7 @@
   function accBracketPnlPerContract(e){
     var d = tradeDollars(e); if (!d) return null;
     var credit = e.contract && e.contract.structure === 'credit_vertical';
-    var tpGate = credit ? 50 : 20, stopGate = credit ? 50 : 30;  // credit stop is symmetric −50% (PICKS_CREDIT_STOP_PCT), not −100%
+    var tpGate = credit ? 50 : 20, stopGate = 50;  // long/debit stop −50% (PICKS_OPT_STOP_PCT); credit symmetric −50% (PICKS_CREDIT_STOP_PCT), not −100%
     var px = (isFinite(d.pnlPct) && d.pnlPct >= 0) ? tpGate : -stopGate;
     return d.basis * px;
   }
@@ -21889,11 +21889,11 @@
   // A held-contract evaluator: price the user's option live (/api/contract,
   // which handles ANY strike/expiry incl. off-band) and turn the engine's
   // current grade + entry-timing + premium exit plan into a hold / trim / sell /
-  // wait read. Reuses the same +20% take-profit / −30% premium-stop targets the
+  // wait read. Reuses the same +20% take-profit / −50% premium-stop targets the
   // track record resolves on (PICKS_OPT_TP_PCT / PICKS_OPT_STOP_PCT). Tracked
   // tickers only — expirations/strikes come from the baked per-ticker chain. Not advice.
   var posState = { chain: null, symbol: null, bound: false };
-  var POS_TP = 20, POS_STOP = 30; // % of entry premium — mirrors the engine's +20% TP / −30% stop
+  var POS_TP = 20, POS_STOP = 50; // % of entry premium — mirrors the engine's +20% TP / −50% stop
 
   function posYrs(exp){ return Math.max(1e-6, (Number(exp) + EXPIRY_CLOSE_OFFSET_SEC - Date.now()/1000) / (365.25*86400)); }
   function posRows(chain, side, exp){
