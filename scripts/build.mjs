@@ -5404,6 +5404,12 @@ const AI_TRANSCRIPT_MODEL = process.env.AI_TRANSCRIPT_MODEL || "gemini-3.5-flash
 const AI_TRANSCRIPT_THINK = Number(process.env.AI_TRANSCRIPT_THINK ?? 512);
 const TRANSCRIPTS_PER_BUILD = Math.max(0, Number(process.env.TRANSCRIPTS_PER_BUILD ?? 6));
 const TRANSCRIPT_PROBES_PER_BUILD = Math.max(0, Number(process.env.TRANSCRIPT_PROBES_PER_BUILD ?? 20));
+// Fetch+summarize workers running at once (step 3). Serial, a single sick AI
+// call retrying through the model ladder stalled the whole bake for 4+ minutes
+// (ASML 2026-07-15); pooled, it overlaps the other names. Kept modest — at most
+// this many concurrent page fetches hit fool.com/marketbeat.com (the discovery
+// probes above stay serial with their politeness gap).
+const TRANSCRIPT_CONCURRENCY = Math.max(1, Number(process.env.TRANSCRIPT_CONCURRENCY) || 3);
 const TRANSCRIPT_PROBE_COOLDOWN_DAYS = 3;
 // Input-token lever: a big-cap call runs ~45-70k chars; 90k covers the tail
 // without letting a malformed page feed the model megabytes.
@@ -6114,16 +6120,16 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
     await new Promise((r) => setTimeout(r, 200));
   }
 
-  // 3. Fetch + summarize, newest publications first. The cap bounds ATTEMPTS
+  // 3. Fetch + summarize, newest publications first. The slice bounds ATTEMPTS
   //    (not successes) so a build-wide AI outage can't grind through the whole
-  //    queue at 6 retries a name.
+  //    queue at 6 retries a name. Attempted names run CONCURRENTLY (each item is
+  //    its own symbol — the queue is keyed by sym — so the per-name reads/writes
+  //    below never collide): serial, one sick AI call retrying through the model
+  //    ladder stalled the whole pass for minutes.
   const items = [...queue.values()].sort((a, b) => (b.published || "").localeCompare(a.published || ""));
   const details = [];
   const summarized = new Set();
-  let attempts = 0;
-  for (const item of items) {
-    if (attempts >= TRANSCRIPTS_PER_BUILD) break;
-    attempts++;
+  await runPooled(items.slice(0, TRANSCRIPTS_PER_BUILD), TRANSCRIPT_CONCURRENCY, async (item) => {
     const pageHtml = (await fetchFoolHtml(item.url)) || "";
     const parsed =
       item.origin === "marketbeat"
@@ -6131,7 +6137,7 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
         : parseFoolTranscriptArticle(pageHtml, item.url);
     if (!parsed) {
       console.log(`  ⚠ [calls] ${item.sym} transcript fetch/parse failed — will retry a later build`);
-      continue;
+      return;
     }
     // The article TITLE is the quarter's source of truth (the URL slug can lie
     // on republished pages) — never regress the entry to an older call than
@@ -6142,7 +6148,7 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
       if (parsedQ != null && curQ != null && parsedQ <= curQ) {
         summarized.add(item.sym); // keep the probe cooldown — this URL is a dead end, not a transient failure
         console.log(`  [calls] ${item.sym} skipped — ${parsed.quarter} is not newer than the summarized ${freshEntry(item.sym).quarter}`);
-        continue;
+        return;
       }
     }
     try {
@@ -6184,7 +6190,7 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
     } catch (err) {
       console.log(`  ⚠ [calls] ${item.sym} summary failed: ${err.message}`);
     }
-  }
+  });
   // A discovered transcript that didn't make it to a summary (parse/AI failure,
   // or over the attempt cap) shouldn't wait out the probe cooldown — clear the
   // stamp so the next build re-discovers and retries. The cooldown only
@@ -16286,6 +16292,14 @@ const AI_THESIS_MODEL = process.env.AI_THESIS_MODEL || "gemini-3.5-flash";
 // (the grader runs on baked data alone). AI_THESIS_SEARCH=0 disables.
 const AI_THESIS_SEARCH = process.env.AI_THESIS_SEARCH !== "0";
 const AI_THESIS_SEARCH_MODEL = process.env.AI_THESIS_SEARCH_MODEL || AI_THESIS_MODEL;
+// Names are graded CONCURRENTLY (each name's research→grade pair stays
+// sequential — the research digest feeds the grade prompt). Serial, this pass
+// was ~60% of the bake's wall clock (~1–1.5 min/name × ≤10 names); the calls,
+// prompts, models, and token spend are identical either way, and the shared
+// AI pacer (acquireAiSlot) + usage tracker already run concurrently under the
+// chart-pattern pass at 12. Results are keyed per symbol:side, so completion
+// order can't change the output.
+const AI_THESIS_CONCURRENCY = Math.max(1, Number(process.env.AI_THESIS_CONCURRENCY) || 4);
 
 // Bump when the schema / prompt changes so every cached thesis re-reads once.
 const THESIS_PROMPT_VERSION = "v6";
@@ -16696,7 +16710,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
 
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
   console.log(`Writing AI thesis for ${toCall.length} candidate(s)… (${Object.keys(next).length} reused${AI_THESIS_SEARCH ? ", web-search grounded" : ""})`);
-  for (const { r, side, k, sig } of toCall) {
+  await runPooled(toCall, AI_THESIS_CONCURRENCY, async ({ r, side, k, sig }) => {
     // Per-candidate isolation: a bad data shape or a hard API failure on ONE name
     // must never reject the whole picks write — that name just ships its
     // deterministic card (graceful degradation, like every other AI step).
@@ -16737,7 +16751,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
     } catch (err) {
       console.warn(`[picks] AI thesis for ${k} failed — ${String(err?.message || err).split("\n")[0]}`);
     }
-  }
+  });
   return { map, cache: next };
 }
 
@@ -23658,24 +23672,33 @@ async function main() {
   // does NOT raise the aggregate SEC request rate. Do NOT move this earlier (ahead
   // of the chain fetch) — that WOULD double SEC load and risk an EDGAR IP-block.
   // The 240s timeout starts here (true budget-from-start, now overlapping useful
-  // work); clearTimeout fires at the await site when the work resolves first.
+  // work); the keep-or-discard decision happens at the await site, which prefers
+  // a finished result even when the timer fired first (see F13_TIMED_OUT below).
   console.log("Fetching per-firm 13F holdings (SEC EDGAR + OpenFIGI), concurrent with narratives…");
   // 240s caps a runaway: OpenFIGI's unauth tier throttles each batch ~2.5s
   // (~125s with OPENFIGI_MAX_BATCHES_UNAUTH=50) and the slowest EDGAR firm can
   // burn its full per-firm budget on top — 185s observed in the wild.
   const F13_TIMEOUT_MS = 240_000;
   const f13Empty = { perFirm: {}, overallTopBought: [], overallTopSold: [] };
+  // The timer resolves a SENTINEL (not f13Empty) and stays silent: the
+  // keep-or-discard decision + its log happen at the await site, because a
+  // Promise.race locks in the first settlement — the old design resolved the
+  // race to empty the moment the timer fired, permanently discarding an
+  // enrichment that finished (say) at 250s even though nothing consumes the
+  // result until the end of the build. f13Settled tracks work completion so
+  // the await site can take a finished result no matter what the timer did.
+  const F13_TIMED_OUT = Symbol("f13-timed-out");
   let f13TimeoutHandle = null;
   const f13TimeoutPromise = new Promise((resolve) => {
-    f13TimeoutHandle = setTimeout(() => {
-      console.log(`  ⚠ buildPerFirm13FHoldings exceeded ${F13_TIMEOUT_MS / 1000}s — keeping baseline.`);
-      resolve(f13Empty);
-    }, F13_TIMEOUT_MS);
+    f13TimeoutHandle = setTimeout(() => resolve(F13_TIMED_OUT), F13_TIMEOUT_MS);
   });
-  const f13WorkPromise = buildPerFirm13FHoldings().catch((err) => {
-    console.log(`  ⚠ buildPerFirm13FHoldings failed: ${err?.message || err}`);
-    return f13Empty;
-  });
+  let f13Settled = null;
+  const f13WorkPromise = buildPerFirm13FHoldings()
+    .catch((err) => {
+      console.log(`  ⚠ buildPerFirm13FHoldings failed: ${err?.message || err}`);
+      return f13Empty;
+    })
+    .then((res) => (f13Settled = res));
   // Macro releases are fetched EARLY (they used to live in the calendar batch
   // far below) so a day-of print — CPI at 8:30 ET, actual vs consensus, with
   // ForexFactory's fast actual — reaches the narrative extractor and the
@@ -24343,13 +24366,19 @@ async function main() {
   console.log(`wrote data/13f.json (baseline) — ${baselineInfo.positions} biggest positions, ${baselineInfo.bytes} bytes`);
   // The enrichment work + its 240s timeout race were kicked off concurrently up
   // near attachMarketNarratives so they overlapped the narratives/calendar/scoring
-  // phases — by now it's usually already resolved. Await the race here, where the
-  // result is consumed, and clear the timer when the real work won (otherwise the
-  // unfired setTimeout would keep counting and later print a misleading
-  // "exceeded 240s" warning). buildPerFirm13FHoldings returns
-  // { perFirm, overallTopBought, overallTopSold }.
-  const perFirmResult = await Promise.race([f13WorkPromise, f13TimeoutPromise]);
+  // phases — by now it's usually already resolved. Consume the result here:
+  // a settled work promise wins outright (even if the timer fired first — the
+  // work has effectively had the whole build to finish, and discarding a
+  // completed enrichment helps nobody); otherwise race the still-running work
+  // against whatever remains of the 240s budget and keep the baseline on
+  // timeout — never block the end of the build on a hung EDGAR/OpenFIGI fetch.
+  // buildPerFirm13FHoldings returns { perFirm, overallTopBought, overallTopSold }.
+  let perFirmResult = f13Settled ?? (await Promise.race([f13WorkPromise, f13TimeoutPromise]));
   clearTimeout(f13TimeoutHandle);
+  if (perFirmResult === F13_TIMED_OUT) {
+    console.log(`  ⚠ buildPerFirm13FHoldings still unfinished past its ${F13_TIMEOUT_MS / 1000}s budget — keeping baseline.`);
+    perFirmResult = f13Empty;
+  }
   const perFirmMap = perFirmResult.perFirm || {};
   const realFirms = Object.values(perFirmMap)
     .filter((v) => v && ((v.topBought && v.topBought.length) || (v.topSold && v.topSold.length)))
