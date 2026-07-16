@@ -5399,7 +5399,7 @@ const EARNINGS_CALLS_FILE = "earnings-calls.json";
 // The lowercase "transcript-" prefix can't collide with the uppercase
 // per-ticker chain files and stays out of sync-data's delete-stale regex.
 const transcriptKeyForSym = (sym) => `transcript-${sym}.json`;
-const TRANSCRIPT_SUMMARY_VERSION = "ect2"; // bump after a prompt/schema change to phase re-summaries in
+const TRANSCRIPT_SUMMARY_VERSION = "ect3"; // bump after a prompt/schema change to phase re-summaries in (ect3: stance recalibrated — 'balanced' is the scripted-call norm, hawkish/dovish only for clear deviations)
 const AI_TRANSCRIPT_MODEL = process.env.AI_TRANSCRIPT_MODEL || "gemini-3.5-flash";
 const AI_TRANSCRIPT_THINK = Number(process.env.AI_TRANSCRIPT_THINK ?? 512);
 const TRANSCRIPTS_PER_BUILD = Math.max(0, Number(process.env.TRANSCRIPTS_PER_BUILD ?? 6));
@@ -5829,10 +5829,14 @@ const TRANSCRIPT_SUMMARY_SYSTEM_PROMPT =
   "debt, cash. competitive: competitors, pricing power, share, win rates. macro: management's economy/industry read " +
   "(consumer, supply chain, tariffs, geopolitics, inflation). pipeline: new products, partnerships, long-term bets. " +
   "legal: lawsuit/regulatory updates.\n" +
-  "- mgmtTone: {label, stance, summary, phrases} — label = overall demeanor; stance = 'hawkish' (assertive, " +
-  "high-conviction, offense-minded wording), 'dovish' (guarded, hedged, conservative wording), or 'balanced'; summary " +
-  "= 2-3 sentences on HOW management worded things and why you read it that way; phrases = 2-4 {quote, speaker, read} " +
-  "— the specific words that reveal the tone and what each reveals.\n" +
+  "- mgmtTone: {label, stance, summary, phrases} — label = overall demeanor; stance = the wording vs the BASELINE of " +
+  "a typical scripted earnings call. Nearly every call sounds upbeat and confident by design, so 'balanced' is the " +
+  "NORM — expect to use it most of the time. Reserve 'hawkish' for wording clearly MORE aggressive than that baseline " +
+  "(raising targets unprompted, dismissing risks out of hand, offense-minded language about accelerating spend or " +
+  "taking share), and 'dovish' for wording clearly MORE guarded than the baseline (hedged outlooks, repeated macro " +
+  "caveats, 'prudent'/'limited visibility' framing, walking back expectations). Ordinary scripted confidence is NOT " +
+  "hawkish. summary = 2-3 sentences on HOW management worded things and why you read it that way; phrases = 2-4 " +
+  "{quote, speaker, read} — the specific words that reveal the tone and what each reveals.\n" +
   "- analystTone: {label, summary, phrases} — were analysts friendly, neutral, probing, skeptical, or aggressive; " +
   "phrases = 2-4 {quote, analyst, read} with the analyst's name and firm in 'analyst'.\n" +
   "- qa: the 3-6 most revealing analyst exchanges {analyst, firm, question, respondent, answer, takeaway} — condense " +

@@ -3171,6 +3171,11 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
   padding: 6px 2px; border-bottom: 1px dashed color-mix(in srgb, var(--border) 60%, transparent);
 }
 .ivt-thead { font: 700 10px/1.2 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border); }
+/* Clickable column headers on the ranked table — click sorts, click again reverses. */
+.ivt-th-btn { font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; white-space: nowrap; }
+.ivt-th-btn:hover, .ivt-th-btn:focus-visible { color: var(--text-strong); text-decoration: underline; text-underline-offset: 3px; }
+.ivt-th-btn.is-active { color: var(--accent); }
+.ivt-th-arrow { font-style: normal; font-size: 8px; margin-left: 3px; }
 .ivt-trow-sym { font: 700 12.5px/1.2 var(--font-mono); color: var(--text-strong); }
 .ivt-trow-symbtn { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 .ivt-trow-symbtn:hover, .ivt-trow-symbtn:focus-visible { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }

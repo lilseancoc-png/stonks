@@ -13582,7 +13582,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       out += eclChip(cls, 'mgmt: ' + label, 'Management tone on the call');
     }
     if (stance && stance !== 'balanced'){
-      out += eclChip(stance === 'hawkish' ? 'ecl-chip-warn' : 'ecl-chip-flat', stance, stance === 'hawkish' ? 'Assertive, high-conviction wording' : 'Guarded, hedged wording');
+      out += eclChip(stance === 'hawkish' ? 'ecl-chip-warn' : 'ecl-chip-flat', stance, stance === 'hawkish' ? 'Wording notably MORE aggressive than the typical scripted earnings call' : 'Wording notably MORE guarded / hedged than the typical earnings call');
     }
     return out;
   }
@@ -14414,8 +14414,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
             '<td class="ic-num">' + ((sq.b4 != null && sq.b5 != null) ? (sq.b4 + sq.b5).toLocaleString() : '—') + '</td></tr>';
         }
         inner += '<div class="ic-sub-head">Market-wide SEC prospectus filings ' + icStaleBadge(sec) + '</div>' +
-          '<div class="ic-table-wrap"><table class="ic-table"><thead><tr><th>Quarter</th><th class="ic-num" title="424B4 — priced offering prospectuses (IPOs + follow-ons)">IPO/follow-on (424B4)</th><th class="ic-num" title="424B5 — shelf takedowns (seasoned equity and debt raises)">Shelf raises (424B5)</th><th class="ic-num">Total</th></tr></thead><tbody>' + srows + '</tbody></table></div>' +
-          '<p class="ic-note">' + escapeHtml(sec.note || '') + '</p>';
+          '<div class="ic-table-wrap"><table class="ic-table"><thead><tr><th>Quarter</th><th class="ic-num" title="424B4 — priced offering prospectuses (IPOs + follow-ons)">IPO/follow-on (424B4)</th><th class="ic-num" title="424B5 — shelf takedowns (seasoned equity and debt raises)">Shelf raises (424B5)</th><th class="ic-num" title="424B4 + 424B5 — every raise prospectus filed that quarter">Total</th></tr></thead><tbody>' + srows + '</tbody></table></div>' +
+          '<p class="ic-note"><b>How to read this:</b> each row counts the money-raising prospectuses companies filed with the SEC that quarter — a gauge of how open the capital-raising window is. <b>IPO/follow-on</b> (form 424B4) = new stock offerings actually priced; <b>shelf raises</b> (form 424B5) = companies drawing on pre-registered shelf programs (mostly seasoned stock and bond deals); <b>Total</b> = the two combined, so higher = more companies raising money. Counts are filings, not companies — one company can file several. The highlighted row is the current quarter, still filling in.</p>';
       }
       if (uni && uni.current){
         var uc = uni.current, up = uni.prior;
@@ -14485,7 +14485,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // (surging / trending / building) get a highlight card + sparkline; the
   // rest fill the ranked context table. Baked deterministically — see
   // buildIvTrendingPayload in scripts/build.mjs.
-  var ivTrendState = { data: null, loading: false, showAll: false, sort: 'score' };
+  var ivTrendState = { data: null, loading: false, showAll: false, sort: 'score', colSort: null };
   var IVT_TIER_META = {
     surging:  { label: 'Surging',  cls: 'ivt-tier-surging' },
     trending: { label: 'Trending', cls: 'ivt-tier-trending' },
@@ -14608,6 +14608,48 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (mode === 'earnings') return bySort(function(r){ return r.earnings ? r.earnings.inDays : null; }, 1);
     return all;
   }
+  // Ranked-table column headers are clickable: first click sorts by that
+  // column (its natural direction), second click reverses. A header sort
+  // layers on top of the chip selection — a tier/Elevated chip still filters,
+  // and the column order then applies within that bucket. Picking a chip
+  // clears the header sort (the chip's own order takes back over).
+  var IVT_COLS = [
+    { key: 'sym',    label: 'Ticker',   dir: 1 },
+    { key: 'iv',     label: 'IV',       dir: -1 },
+    { key: 'z',      label: 'vs hist',  dir: -1 },
+    { key: 'pctile', label: '%ile',     dir: -1 },
+    { key: 'chg5',   label: '5d',       dir: -1 },
+    { key: 'chg20',  label: '20d',      dir: -1 },
+    { key: 'earn',   label: 'Earnings', dir: 1 },
+    { key: 'score',  label: 'Score',    dir: -1 }
+  ];
+  function ivtColValue(r, key){
+    if (key === 'iv') return r.iv;
+    if (key === 'z') return r.z;
+    if (key === 'pctile') return r.pctile;
+    if (key === 'chg5') return r.chg5dPct;
+    if (key === 'chg20') return r.chg20dPct;
+    if (key === 'earn') return (r.earnings && r.earnings.inDays != null && isFinite(r.earnings.inDays)) ? r.earnings.inDays : null;
+    if (key === 'score') return r.score;
+    return null;
+  }
+  // Sort rows by the active header column; rows missing the metric sink to
+  // the bottom in their incoming order (same convention as ivtApplySort).
+  function ivtApplyColSort(rows, cs){
+    if (!cs || !cs.key) return rows;
+    if (cs.key === 'sym'){
+      return rows.slice().sort(function(a,b){
+        return cs.dir * String(a && a.symbol || '').localeCompare(String(b && b.symbol || ''));
+      });
+    }
+    var withV = [], without = [];
+    for (var i=0; i<rows.length; i++){
+      var v = rows[i] ? ivtColValue(rows[i], cs.key) : null;
+      if (v != null && isFinite(v)) withV.push(rows[i]); else without.push(rows[i]);
+    }
+    withV.sort(function(a,b){ return cs.dir * (ivtColValue(a, cs.key) - ivtColValue(b, cs.key)); });
+    return withV.concat(without);
+  }
   function loadIvTrend(){
     if ((ivTrendState.data && !tabDataStale(ivTrendState)) || ivTrendState.loading){ renderIvTrend(); return; }
     ivTrendState.loading = true;
@@ -14701,6 +14743,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     html += '<div class="ivt-sort" role="toolbar" aria-label="Sort or filter the ranked tickers">' + sortHtml + '</div>';
     var sorted = ivtApplySort(all, mode);
+    if (ivTrendState.colSort) sorted = ivtApplyColSort(sorted, ivTrendState.colSort);
     var flagged = sorted.filter(function(r){ return r && r.tier && IVT_TIER_META[r.tier]; });
     // Flagged highlight cards.
     if (flagged.length){
@@ -14734,8 +14777,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     // Ranked context table, in the selected sort/filter order.
     var shown = ivTrendState.showAll ? sorted : sorted.slice(0, IVT_TABLE_DEFAULT_ROWS);
-    var rows = '<div class="ivt-trow ivt-thead" aria-hidden="true">' +
-      '<span>Ticker</span><span>IV</span><span>vs hist</span><span>%ile</span><span>5d</span><span>20d</span><span>Earnings</span><span>Score</span></div>';
+    var rows = '<div class="ivt-trow ivt-thead">';
+    for (var h=0; h<IVT_COLS.length; h++){
+      var col = IVT_COLS[h];
+      var cs0 = ivTrendState.colSort;
+      var isActive = !!(cs0 && cs0.key === col.key);
+      rows += '<span><button type="button" class="ivt-th-btn' + (isActive ? ' is-active' : '') + '" data-ivt-col="' + col.key + '" title="Sort by ' + col.label + (isActive ? ' — click to reverse' : '') + '">' +
+        col.label + (isActive ? '<em class="ivt-th-arrow">' + (cs0.dir < 0 ? '▼' : '▲') + '</em>' : '') + '</button></span>';
+    }
+    rows += '</div>';
     for (var t=0; t<shown.length; t++){
       var w = shown[t];
       var tierMeta = w.tier && IVT_TIER_META[w.tier] ? IVT_TIER_META[w.tier] : null;
@@ -14764,6 +14814,21 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     for (var sb=0; sb<sortBtns.length; sb++){
       sortBtns[sb].addEventListener('click', function(){
         ivTrendState.sort = this.getAttribute('data-ivt-sort') || 'score';
+        ivTrendState.colSort = null; // the chip's own order takes back over
+        renderIvTrend();
+      });
+    }
+    var colBtns = root.querySelectorAll('.ivt-th-btn');
+    for (var cb=0; cb<colBtns.length; cb++){
+      colBtns[cb].addEventListener('click', function(){
+        var key = this.getAttribute('data-ivt-col');
+        var def = null;
+        for (var d2=0; d2<IVT_COLS.length; d2++) if (IVT_COLS[d2].key === key) def = IVT_COLS[d2];
+        if (!def) return;
+        var cur = ivTrendState.colSort;
+        ivTrendState.colSort = (cur && cur.key === key)
+          ? { key: key, dir: -cur.dir }
+          : { key: key, dir: def.dir };
         renderIvTrend();
       });
     }
