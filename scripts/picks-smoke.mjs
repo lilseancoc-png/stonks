@@ -115,6 +115,21 @@ const gradesVF = buildGradesIndex(chains, [], null, null, null, vflags, {});
 const bvf = uvSig(gradesVF.BULLA);
 ok("volume: hourly volume-flags read is attached + scored", bvf && bvf.available && bvf.score === 1 && /hrly/.test(bvf.value || ""));
 
+// --- 1c. unusual flow is factored in ---------------------------------------
+const ufSig = (g) => g.pillars.mechanicals.signals.find((s) => s.key === "unusualFlow");
+ok("flow: unavailable without scanner data", ufSig(grades.BULLA) && !ufSig(grades.BULLA).available && ufSig(grades.BULLA).score === 0);
+const mkFlag = (symbol, side, hoursAgo = 4) => ({ scannedAt: new Date(Date.now() - hoursAgo * 3600000).toISOString(), symbol, side, strike: 100, expSec: exp30, deltaVol: 800, vol: 1200, premium: 150000 });
+const unusualNow = { scannedAt: new Date().toISOString(), tickers: [{ symbol: "BULLA", spot: 120, topDelta: 800, contracts: [mkFlag("BULLA", "call"), mkFlag("BULLA", "call"), mkFlag("BULLA", "call"), mkFlag("BULLA", "call"), mkFlag("BULLA", "call"), mkFlag("BULLA", "put")] }] };
+const gradesUF = buildGradesIndex(chains, [], null, unusualNow, null, null, {});
+const buf = ufSig(gradesUF.BULLA);
+ok("flow: today's >=5-print call-heavy tape scores +1 from unusual.json rows", buf && buf.available && buf.score === 1 && buf.value === "5B/1S");
+const flowLog = { updatedAt: new Date().toISOString(), entries: [2, 8, 26, 32, 50, 74].map((h) => mkFlag("BEAR", "put", h)) };
+const gradesFP = buildGradesIndex(chains, [], null, null, null, null, { flowLog });
+const bfp = ufSig(gradesFP.BEAR);
+ok("flow: 7-day put-heavy flow-log persistence scores -1 via data.flowPersist", bfp && bfp.available && bfp.score === -1 && /^persist -1/.test(bfp.value || ""));
+const gradesFPthin = buildGradesIndex(chains, [], null, null, null, null, { flowLog: { entries: flowLog.entries.slice(0, 4) } });
+ok("flow: thin log (<5 flags in the window) stays unavailable", ufSig(gradesFPthin.BEAR) && !ufSig(gradesFPthin.BEAR).available && ufSig(gradesFPthin.BEAR).score === 0);
+
 // --- 2. entry timing ------------------------------------------------------
 const knifeTiming = computeEntryTiming("call", chains.KNIFE, chains.KNIFE.spot, {});
 ok("timing: -8% last bar -> avoid (falling knife)", knifeTiming.state === "avoid");

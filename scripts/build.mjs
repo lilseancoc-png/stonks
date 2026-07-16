@@ -12476,10 +12476,16 @@ function scoreTechnicals(data, streakRow) {
 function scoreMechanicals(sym, data, unusualPayload) {
   const out = [];
 
-  // Unusual options flow (aggressive bull vs bear prints).
+  // Unusual options flow (aggressive bull vs bear prints). Primary: today's
+  // flagged contracts from the hourly scanner's unusual.json (shape
+  // { tickers: [{ symbol, contracts: [{ side, … }] }] }), call flags read
+  // bullish / put flags bearish. Fallback: the rolling 7-day flow-log
+  // persistence read attached as data.flowPersist in scoreAllTickers.
   let flow = 0, flowVal = null, flowOk = false;
-  const u = unusualPayload && (unusualPayload.bySymbol?.[sym] || unusualPayload[sym] || null);
-  const bull = pnum(u?.bullCt), bear = pnum(u?.bearCt);
+  const uRow = Array.isArray(unusualPayload?.tickers) ? unusualPayload.tickers.find((t) => t?.symbol === sym) : null;
+  const uContracts = Array.isArray(uRow?.contracts) ? uRow.contracts : null;
+  const bull = uContracts ? uContracts.filter((c) => c?.side === "call").length : null;
+  const bear = uContracts ? uContracts.filter((c) => c?.side === "put").length : null;
   if (bull != null && bear != null && bull + bear >= 5) { flowOk = true; const ratio = (bull + 1) / (bear + 1); flowVal = bull + "B/" + bear + "S"; flow = ratio >= 1.5 ? 1 : ratio <= 0.67 ? -1 : 0; }
   else if (data?.flowPersist && pnum(data.flowPersist.balance) != null && Math.abs(data.flowPersist.balance) >= 0.3) { flowOk = true; flow = data.flowPersist.balance > 0 ? 1 : -1; flowVal = "persist " + r2(data.flowPersist.balance); }
   out.push(sig("unusualFlow", "Unusual flow", flow, flowVal, "Aggressive call vs put prints", flowOk));
@@ -13575,6 +13581,36 @@ function scoreTicker(sym, data, ctx) {
   };
 }
 
+// Signed bull-vs-bear flag persistence per symbol from the scanner's rolling
+// 7-day flag log (data/unusual-log.json, threaded in via opts.flowLog — one
+// entry per flagged contract per hourly scan, so a contract re-flagged hour
+// after hour counts every time: repetition IS the persistence being measured).
+// Call flags read bullish, put flags bearish; balance = (bull − bear) /
+// (bull + bear) ∈ [−1, 1]. A symbol needs ≥5 flag events inside the window to
+// read at all (the same ≥5-print floor as the signal's same-day primary read)
+// so a couple of stray flags can't score as a persistent one-sided tape;
+// scoreMechanicals' fallback then fires at |balance| ≥ 0.3.
+const FLOW_PERSIST_WINDOW_MS = 7 * 86400000;
+const FLOW_PERSIST_MIN_FLAGS = 5;
+function flowPersistBySymbol(flowLog, nowMs = Date.now()) {
+  const cutoff = nowMs - FLOW_PERSIST_WINDOW_MS;
+  const counts = {};
+  for (const e of flowLog?.entries || []) {
+    if (!e || !e.symbol || (e.side !== "call" && e.side !== "put")) continue;
+    const t = Date.parse(e.scannedAt || "");
+    if (!Number.isFinite(t) || t < cutoff) continue;
+    const c = (counts[e.symbol] ||= { bull: 0, bear: 0 });
+    if (e.side === "call") c.bull += 1; else c.bear += 1;
+  }
+  const out = {};
+  for (const [s, c] of Object.entries(counts)) {
+    const flags = c.bull + c.bear;
+    if (flags < FLOW_PERSIST_MIN_FLAGS) continue;
+    out[s] = { balance: r2((c.bull - c.bear) / flags), bull: c.bull, bear: c.bear, flags };
+  }
+  return out;
+}
+
 // Score the whole universe once. Shared by buildTopPicks & buildGradesIndex.
 function scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, opts = {}) {
   const sectorMedianPE = sectorMedianPEs(chains);
@@ -13595,6 +13631,12 @@ function scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBa
   const oiScannedAt = opts.oiTracker?.scannedAt || null;
   for (const row of (opts.oiTracker?.tickers || [])) if (row && row.symbol) oiBySym[row.symbol] = row;
 
+  // Rolling 7-day flow-log persistence by symbol (scanner-owned extra, threaded
+  // via opts.flowLog). Attached per ticker for the same reason as oiTrackerRow
+  // above — scoreMechanicals' unusual-flow fallback reads data.flowPersist,
+  // which nothing set before this, so the branch was dead.
+  const flowBySym = flowPersistBySymbol(opts.flowLog);
+
   const scored = [];
   const peerIndex = {};
   for (const [sym, data] of Object.entries(chains)) {
@@ -13603,6 +13645,7 @@ function scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBa
     // Volume signal sees real hourly-vs-20D data (falls back to daily rvol).
     data.hourlyVolume = hourlyVolumeRead(sym, volumeFlags);
     data.oiTrackerRow = oiBySym[sym] ? { ...oiBySym[sym], scannedAt: oiScannedAt } : null;
+    data.flowPersist = flowBySym[sym] || null;
     const r = scoreTicker(sym, data, ctx);
     scored.push(r);
     const pg = peerGroupOf(sym, data);
