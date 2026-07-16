@@ -10,6 +10,7 @@ import {
   computeFactorTrendHealth, edgeGatedConviction,
   assessThesisQuality, selectStrategy, classifyPick, generateAiTheses, applyAiThesisGrade,
   buildMarketRead, macroKindOf, thesisCacheSig, PICKS_MAX_AI_THESES, buildThesisUserMessage,
+  buildMacroCalendarAhead,
 } from "./build.mjs";
 
 let pass = 0, fail = 0;
@@ -326,10 +327,10 @@ const persisted = applyMacroRegimePersistence(computeMacroRegime({ vix: { value:
 ok("regime: persistence holds a recovering state one build", persisted.persisted === true);
 
 // --- 6. resolvePickOutcome ------------------------------------------------
-ok("exit: -35% option -> hit-stop loss", resolvePickOutcome({ modeledOptPnlPct: -35, entrySec: nowSec - dayMs / 1000, nowSec }).outcome === "loss");
-// +TP no longer closes a non-credit trade — it ARMS the scale-out (the caller
-// banks half at that mark and passes scaledOutPnlPct from then on).
-ok("exit: +25% option -> stays open (arms the scale-out, not a hard TP)", resolvePickOutcome({ modeledOptPnlPct: 25, entrySec: nowSec - dayMs / 1000, nowSec }) === null);
+// 2026-07-15 exit flip: flat +20% TP / -50% stop, scale-out opt-in (off by default).
+ok("exit: -55% option -> hit-stop loss", resolvePickOutcome({ modeledOptPnlPct: -55, entrySec: nowSec - dayMs / 1000, nowSec })?.outcome === "loss");
+ok("exit: -35% option -> stays open (stop now -50%)", resolvePickOutcome({ modeledOptPnlPct: -35, entrySec: nowSec - dayMs / 1000, nowSec }) === null);
+ok("exit: +25% option -> hard take-profit win (scale-out off by default)", resolvePickOutcome({ modeledOptPnlPct: 25, entrySec: nowSec - dayMs / 1000, nowSec })?.status === "hit-tp-prem");
 ok("exit: +5% still open -> null", resolvePickOutcome({ modeledOptPnlPct: 5, entrySec: nowSec - 2 * 86400, nowSec }) === null);
 // No time stop: a slightly-red position two weeks in stays open — the trade is
 // held for as long as the thesis is intact and the contract hasn't expired.
@@ -348,7 +349,10 @@ ok("exit: thesis broken while green -> thesis-broken win", resolvePickOutcome({ 
   const r = resolvePickOutcome({ modeledOptPnlPct: 10, scaledOutPnlPct: 22, peakPnlPct: 40, entrySec: nowSec - 2 * 86400, nowSec });
   ok("exit: armed runner fades to the trail -> trail-stop win", !!r && r.status === "trail-stop" && r.outcome === "win");
 }
-ok("exit: armed runner above the trail -> stays open", resolvePickOutcome({ modeledOptPnlPct: 30, scaledOutPnlPct: 22, peakPnlPct: 40, entrySec: nowSec - 2 * 86400, nowSec }) === null);
+// With the flat TP live (scale-out off by default), an armed runner at/above the
+// +20% gate resolves as a hard TP; between the trail floor and the gate it stays open.
+ok("exit: armed runner between trail floor and TP -> stays open", resolvePickOutcome({ modeledOptPnlPct: 18, scaledOutPnlPct: 22, peakPnlPct: 40, entrySec: nowSec - 2 * 86400, nowSec }) === null);
+ok("exit: armed runner at +30 -> flat TP closes it (scale-out off)", resolvePickOutcome({ modeledOptPnlPct: 30, scaledOutPnlPct: 22, peakPnlPct: 40, entrySec: nowSec - 2 * 86400, nowSec })?.status === "hit-tp-prem");
 // An armed trade can't round-trip to a net loss: peak 22, gap to -2 -> the
 // breakeven floor closes it, blend 0.5*22 + 0.5*(-2) = +10 -> win.
 {
@@ -568,7 +572,11 @@ ok("classify: moderate grade + weak thesis → idea / watch", classifyPick(5, "w
     streakRow: { current: { color: "green", sameDays: 3, cumulativePct: 4.2 } },
     data: d,
   };
-  const msg = buildThesisUserMessage(r, "call", null);
+  d.oiTrackerRow = { callWall: { strike: 110, oi: 18400, expSec: exp30 }, putWall: { strike: 90, oi: 9100, expSec: exp30 }, cpRatio: 1.42, callOiTotal: 60000, putOiTotal: 42000, score: 3, flagged: false, scannedAt: "2026-07-16T12:00:00Z" };
+  const msg = buildThesisUserMessage(r, "call", null, {
+    macroCalendar: [{ label: "CPI", date: "2026-07-22", daysOut: 6 }, { label: "FOMC decision", date: "2026-07-29", daysOut: 13 }],
+    ivRow: { symbol: "MSGX", chg1dPct: 2.1, chg5dPct: 11.4, chg20dPct: 18.9, risingStreak: 4, tier: "trending", elevated: true },
+  });
   ok("prompt: every pillar's signals ride with FOR/AGAINST votes",
     /PILLAR — Technicals/.test(msg) && /PILLAR — Options flow/.test(msg) && /PILLAR — Fundamentals/.test(msg) && /PILLAR — Narrative/.test(msg) &&
     /MACD \(hist 0\.4\) FOR/.test(msg) && /News catalyst \(bearish\) AGAINST!/.test(msg));
@@ -578,6 +586,38 @@ ok("classify: moderate grade + weak thesis → idea / watch", classifyPick(5, "w
     /EARNINGS TRACK RECORD: 2026-04-30: EPS surprise \+6\.2%, stock \+4\.1% next session/.test(msg) && /NEXT EARNINGS: 2026-08-05 \(PM\), 26d out — the straddle already implies a ±7\.5% move/.test(msg));
   ok("prompt: trajectory + capital event + deterministic entry + entry-call ask ride",
     /FUNDAMENTALS TRAJECTORY: improving/.test(msg) && /CAPITAL EVENT \(headline-flagged\): buyback/.test(msg) && /ENTRY TIMING \(deterministic/.test(msg) && /FINAL GRADE \+ ENTRY CALL:/.test(msg));
+  ok("prompt: macro calendar inside the trade horizon rides",
+    /MACRO CALENDAR/.test(msg) && /CPI 2026-07-22 \(6d\)/.test(msg) && /FOMC decision 2026-07-29 \(13d\)/.test(msg));
+  ok("prompt: OI walls + gamma score ride",
+    /OI POSITIONING \(front 2 expirations, as of 2026-07-16\)/.test(msg) && /call wall \$110 \(18,400 OI\)/.test(msg) && /put wall \$90 \(9,100 OI\)/.test(msg) && /total OI 1\.42 C\/P/.test(msg) && /gamma-squeeze score 3\/5/.test(msg));
+  ok("prompt: IV momentum rides",
+    /IV MOMENTUM: 1d \+2\.1%, 5d \+11\.4%, 20d \+18\.9%/.test(msg) && /4 straight rising sessions/.test(msg) && /"trending" trend tier/.test(msg));
+  // Omission behavior: no extras / no OI row → the new lines are absent (old
+  // 3-arg call shape still works for legacy callers).
+  d.oiTrackerRow = null;
+  const msgBare = buildThesisUserMessage(r, "call", null);
+  ok("prompt: calendar/OI/IV-momentum lines omitted without data",
+    !/MACRO CALENDAR/.test(msgBare) && !/OI POSITIONING/.test(msgBare) && !/IV MOMENTUM/.test(msgBare));
+}
+
+// --- 12b5. buildMacroCalendarAhead — the thesis prompt's forward look-ahead ----
+{
+  const meetings = [{ date: "2026-07-29" }, { date: "2026-09-17" }]; // 2nd beyond horizon
+  const reports = [
+    { date: "2026-07-22", subtype: "cpi-mom", title: "CPI (MoM)" },
+    { date: "2026-07-22", subtype: "cpi-yoy", title: "CPI (YoY)" },              // same family+day → deduped
+    { date: "2026-07-24", subtype: "ppi-mom", title: "PPI (MoM)" },
+    { date: "2026-07-15", subtype: "nfp", title: "Nonfarm payrolls" },           // past → dropped
+    { date: "2026-07-21", subtype: "retail-sales", title: "Retail sales" },      // not a major → dropped
+    { date: "2026-07-23", subtype: "cpi-mom", title: "CPI (MoM)", actual: "0.3%" }, // printed → dropped
+  ];
+  const cal = buildMacroCalendarAhead(meetings, reports, "2026-07-16");
+  ok("macro-cal: majors + FOMC inside horizon, deduped, printed/past/minor dropped",
+    cal.length === 3 &&
+    cal[0].label === "CPI" && cal[0].date === "2026-07-22" && cal[0].daysOut === 6 &&
+    cal[1].label === "PPI" && cal[1].daysOut === 8 &&
+    cal[2].label === "FOMC decision" && cal[2].daysOut === 13);
+  ok("macro-cal: bad todayIso → empty (no throw)", Array.isArray(buildMacroCalendarAhead(meetings, reports, "not-a-date")) && buildMacroCalendarAhead(meetings, reports, "not-a-date").length === 0);
 }
 
 // Vertical builder — needs a BS-priced chain (the linear mkChain mids give a flat

@@ -11439,6 +11439,48 @@ export function computeMacroEventRisk(predictionMarkets, meetings, reportEvents,
   return best || { active: false };
 }
 
+// Forward macro-calendar look-ahead for the AI final grader. The hard defer gate
+// above only sees PICKS_TIMING_EVENT_DEFER_DAYS (5) — but a pick's 1–2 week hold
+// rides THROUGH whatever lands later in the window, so the thesis prompt gets the
+// full horizon: scheduled FOMC decisions + the same guaranteed-vol major prints
+// the defer gate treats as always-on (CPI/PPI/NFP). Pure (no clock — a same-day
+// event that already printed is dropped only via `actual`, which the fast-actual
+// feed backfills; the precise same-day clock check stays the defer gate's job).
+const PICKS_THESIS_CAL_DAYS = Number(process.env.PICKS_THESIS_CAL_DAYS ?? 14);
+function macroCalFamily(subtype, title) {
+  // cpi-mom + cpi-yoy (+ core) land the same morning — one "CPI" entry, not four.
+  const s = String(subtype || "");
+  if (s.startsWith("cpi") || s.startsWith("core-cpi")) return "CPI";
+  if (s.startsWith("ppi")) return "PPI";
+  if (s === "nfp") return "Jobs report (NFP)";
+  return String(title || "Macro release");
+}
+export function buildMacroCalendarAhead(meetings, reportEvents, todayIso, horizonDays = PICKS_THESIS_CAL_DAYS) {
+  const nowMs = Date.parse(String(todayIso) + "T00:00:00Z");
+  if (!Number.isFinite(nowMs)) return [];
+  const raw = [];
+  for (const m of (meetings || [])) if (m && m.date) raw.push({ label: "FOMC decision", date: String(m.date) });
+  for (const ev of (reportEvents || [])) {
+    if (!ev || !ev.date) continue;
+    if (ev.actual) continue; // already printed — nothing left to ride through
+    if (!ALWAYS_DEFER_REPORT_SUBTYPES.has(ev.subtype)) continue; // majors only
+    raw.push({ label: macroCalFamily(ev.subtype, ev.title), date: String(ev.date) });
+  }
+  const seen = new Set(), rows = [];
+  for (const e of raw) {
+    const ms = Date.parse(e.date + "T00:00:00Z");
+    if (!Number.isFinite(ms)) continue;
+    const daysOut = Math.round((ms - nowMs) / 86400000);
+    if (daysOut < 0 || daysOut > horizonDays) continue;
+    const k = `${e.label}|${e.date}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    rows.push({ label: e.label, date: e.date, daysOut });
+  }
+  rows.sort((a, b) => (a.daysOut - b.daysOut) || a.label.localeCompare(b.label));
+  return rows.slice(0, 6);
+}
+
 
 // ============================================================================
 // TOP PICKS ENGINE  (rebuilt from scratch — see docs/top-picks.md)
@@ -13540,6 +13582,16 @@ function scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBa
   const eventRisk = macroBackdrop?.eventRisk || null;
   const ctx = { narratives, streaksMap, unusualPayload, sectorMedianPE, regime, eventRisk, regimeTilt };
 
+  // OI-tracker rows by symbol (scanner-owned extra, threaded via opts.oiTracker).
+  // Attached per ticker so scoreMechanicals' OI C/P skew signal actually sees the
+  // data (it reads data.oiTrackerRow, which nothing set before this — the signal
+  // never fired) and so the AI final grader's prompt can cite the call/put walls.
+  // Copied rows (never mutate the scanner payload) with the scan stamp attached
+  // so downstream consumers can show how fresh the twice-daily snapshot is.
+  const oiBySym = {};
+  const oiScannedAt = opts.oiTracker?.scannedAt || null;
+  for (const row of (opts.oiTracker?.tickers || [])) if (row && row.symbol) oiBySym[row.symbol] = row;
+
   const scored = [];
   const peerIndex = {};
   for (const [sym, data] of Object.entries(chains)) {
@@ -13547,6 +13599,7 @@ function scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBa
     // Attach the hourly scanner's volume read so scoreMechanicals' Unusual
     // Volume signal sees real hourly-vs-20D data (falls back to daily rvol).
     data.hourlyVolume = hourlyVolumeRead(sym, volumeFlags);
+    data.oiTrackerRow = oiBySym[sym] ? { ...oiBySym[sym], scannedAt: oiScannedAt } : null;
     const r = scoreTicker(sym, data, ctx);
     scored.push(r);
     const pg = peerGroupOf(sym, data);
@@ -16302,7 +16355,7 @@ const AI_THESIS_SEARCH_MODEL = process.env.AI_THESIS_SEARCH_MODEL || AI_THESIS_M
 const AI_THESIS_CONCURRENCY = Math.max(1, Number(process.env.AI_THESIS_CONCURRENCY) || 4);
 
 // Bump when the schema / prompt changes so every cached thesis re-reads once.
-const THESIS_PROMPT_VERSION = "v6";
+const THESIS_PROMPT_VERSION = "v7";
 
 const THESIS_SCHEMA = {
   type: "object",
@@ -16353,7 +16406,7 @@ const THESIS_SYSTEM =
   "You are a senior options strategist writing a detailed, ticker-specific investment THESIS for a 1–2 week directional options trade. A quantitative engine has ALREADY graded the name and chosen the direction — do NOT re-decide the direction. Your job is to tell the STORY behind the trade: weave the supplied data into a clear cause-and-effect narrative that explains WHY the grade is high, WHY the edge exists right NOW, what would confirm it, and what would prove it wrong. A high grade alone does not give a trader conviction to hold through noise — a good thesis does, by giving them a reason to enter, a way to monitor whether it's working, and clear exits. " +
   "COMPLEMENT the grade, never just restate it: don't say 'RSI is 28 so it's oversold' — explain the situation that produced that reading and why it resolves in the trade's favour. Weave the actual NUMBERS into the prose (specific price levels, % moves, growth rates, analyst targets, IV percentile, the named headline/catalyst) so the case is concrete and testable, not generic. " +
   "Decide for yourself which of the supplied factors — company fundamentals, news/catalysts, technicals & flow, and the cross-asset MACRO backdrop (interest rates, the dollar, the Fed path, inflation, geopolitics) — are LOAD-BEARING for THIS specific business, and build the story around those; ignore factors that don't move this kind of name. Connect macro to the company causally: a consumer-discretionary name lives on rates + inflation via real consumer spending; a high-multiple grower is long-duration and feels long yields + the dollar; an energy name tracks crude; a homebuilder tracks the Fed path; a gold ETF lives on real yields + the haven bid. " +
-  "THIS IS THE FINAL PASS over everything the system collected. You are handed the engine's FULL evidence table: every scored signal across the four pillars — each marked FOR or AGAINST this trade ('!' = a heavy vote) with its actual reading — plus the technical structure and price levels (SMAs, support/resistance, volume, any confirmed chart pattern, the daily streak), the earnings track record (how the name actually traded its recent prints) and the next print's straddle-implied move, the fundamentals trajectory, any headline-flagged capital event, the IV environment, and the deterministic entry-timing read. Cross-examine it: do the FOR votes tell one coherent story, or is the case a coincidence of unrelated positives? Do the AGAINST votes break the story? Weigh them honestly instead of ignoring them — your grade and your entry call are what actually ship to the subscriber. " +
+  "THIS IS THE FINAL PASS over everything the system collected. You are handed the engine's FULL evidence table: every scored signal across the four pillars — each marked FOR or AGAINST this trade ('!' = a heavy vote) with its actual reading — plus the technical structure and price levels (SMAs, support/resistance, volume, any confirmed chart pattern, the daily streak), the earnings track record (how the name actually traded its recent prints) and the next print's straddle-implied move, the fundamentals trajectory, any headline-flagged capital event, the IV environment (its level AND its recent momentum — which way premium is being repriced), the near-term open-interest map (the call/put walls where heavy positioning sits — they often act as magnets/pinning levels into expiry), the scheduled MACRO CALENDAR inside the trade window (the FOMC decisions and major prints — CPI/PPI/jobs — the position will ride through), and the deterministic entry-timing read. Cross-examine it: do the FOR votes tell one coherent story, or is the case a coincidence of unrelated positives? Do the AGAINST votes break the story? Weigh them honestly instead of ignoring them — your grade and your entry call are what actually ship to the subscriber. " +
   "Output fields (each grounded ONLY in the provided data): " +
   "summary = 1–2 sentences stating the core directional thesis and why the edge exists NOW. " +
   "setup = the BACKDROP (2–4 sentences): what has been driving this name/sector, where price and sentiment stand now, and the tension that sets up the trade — the frame for the story, with the concrete numbers woven in. " +
@@ -16383,7 +16436,7 @@ const THESIS_SYSTEM =
 // is already on `r`/`r.data` and the macroRegime. Exported for the smoke test —
 // keyless runs never reach it, so without a direct check a runtime error here
 // would only surface in keyed builds as silently-degraded (deterministic) cards.
-export function buildThesisUserMessage(r, side, macroRegime) {
+export function buildThesisUserMessage(r, side, macroRegime, extras = {}) {
   const bull = side === "call";
   const d = r.data || {};
   const f = d.fundamentals || {};
@@ -16437,6 +16490,21 @@ export function buildThesisUserMessage(r, side, macroRegime) {
   if (cs && pnum(cs.sameDays) >= 2) struct.push(`${cs.sameDays}-day ${cs.color} streak (${pct(cs.cumulativePct)} cumulative)`);
   if (struct.length) L.push(`TECHNICAL STRUCTURE: ${struct.join("; ")}.`);
 
+  // Near-term open-interest map (scanner-owned, front two expirations — exactly
+  // the 1–2 week trade window): the strike-level positioning the price-history
+  // S/R above can't see. Heavy walls often act as magnets/pinning levels into
+  // expiry; the gamma score flags squeeze fuel.
+  const oiRow = d.oiTrackerRow;
+  if (oiRow && (oiRow.callWall || oiRow.putWall)) {
+    const wall = (w) => `$${w.strike}${pnum(w.oi) != null ? ` (${Math.round(w.oi).toLocaleString("en-US")} OI)` : ""}`;
+    const ob = [];
+    if (oiRow.callWall && pnum(oiRow.callWall.strike) != null) ob.push(`call wall ${wall(oiRow.callWall)}`);
+    if (oiRow.putWall && pnum(oiRow.putWall.strike) != null) ob.push(`put wall ${wall(oiRow.putWall)}`);
+    if (pnum(oiRow.cpRatio) != null) ob.push(`total OI ${pnum(oiRow.cpRatio).toFixed(2)} C/P`);
+    if (pnum(oiRow.score) != null && oiRow.score > 0) ob.push(`gamma-squeeze score ${oiRow.score}/5${oiRow.flagged ? " — flagged" : ""}`);
+    if (ob.length) L.push(`OI POSITIONING (front 2 expirations${oiRow.scannedAt ? `, as of ${String(oiRow.scannedAt).slice(0, 10)}` : ""}): ${ob.join("; ")} — heavy walls often act as near-term magnets/resistance into expiry.`);
+  }
+
   const fb = [];
   if (pct(f.earningsGrowthYoy) != null) fb.push(`EPS growth ${pct(f.earningsGrowthYoy)} YoY`);
   if (pct(f.revenueGrowthYoy) != null) fb.push(`revenue ${pct(f.revenueGrowthYoy)} YoY`);
@@ -16484,6 +16552,12 @@ export function buildThesisUserMessage(r, side, macroRegime) {
   for (const k of order) { const a = ax[k]; if (a && a.label && axSign(a) !== 0) axL.push(a.label); }
   L.push(`MACRO BACKDROP: cross-asset tape ${state}.${axL.length ? ` Firing axes: ${axL.join(" · ")}.` : " (no axis firing strongly.)"}`);
   L.push(`MACRO RELEVANCE: for a "${kind}" name the axes that matter most are ${(profile.cite || ["indexes"]).join(", ")} — judge whether they are a tailwind or a headwind for a ${bull ? "bullish" : "bearish"} trade.`);
+  // Scheduled macro vol events inside the FULL trade horizon (~2 weeks) — the
+  // hard defer gate only sees 5 days, but the hold rides through all of these.
+  const cal = Array.isArray(extras?.macroCalendar) ? extras.macroCalendar : [];
+  if (cal.length) {
+    L.push(`MACRO CALENDAR (scheduled vol events inside the trade horizon — a 1–2 week hold rides THROUGH these; weigh them in your outlook, invalidation and entry call): ${cal.map((e) => `${e.label} ${e.date} (${e.daysOut === 0 ? "today" : `${e.daysOut}d`})`).join(" · ")}.`);
+  }
 
   const ivp = pnum(d.ivRank?.pctile), ivz = pnum(d.ivRank?.z);
   // Window mirrors selectStrategy's earningsSoon (strictly future) so the IV
@@ -16500,6 +16574,22 @@ export function buildThesisUserMessage(r, side, macroRegime) {
     L.push(`OPTIONS / IV: ATM IV ${ivp != null ? `${ivp.toFixed(0)}th percentile` : ""}${ivz != null ? ` (z ${ivz.toFixed(1)})` : ""} — ${favors}.`);
   } else if (eventSoon) {
     L.push(`OPTIONS / IV: earnings/event imminent → use DEFINED-RISK only (a spread), never a naked long.`);
+  }
+  // IV momentum (from the Trending IV pass — this name's ATM ~30d IV vs its OWN
+  // ~18-month history): the level above says how premium is priced, momentum says
+  // which way it's being REpriced — climbing IV into no scheduled event often
+  // means positioning ahead of news; bleeding IV cheapens premium.
+  const ivr = extras?.ivRow;
+  if (ivr && (pnum(ivr.chg1dPct) != null || pnum(ivr.chg5dPct) != null || pnum(ivr.chg20dPct) != null)) {
+    const im = [];
+    if (pnum(ivr.chg1dPct) != null) im.push(`1d ${pct(ivr.chg1dPct)}`);
+    if (pnum(ivr.chg5dPct) != null) im.push(`5d ${pct(ivr.chg5dPct)}`);
+    if (pnum(ivr.chg20dPct) != null) im.push(`20d ${pct(ivr.chg20dPct)}`);
+    const tags = [];
+    if (pnum(ivr.risingStreak) != null && ivr.risingStreak >= 2) tags.push(`${ivr.risingStreak} straight rising sessions`);
+    if (ivr.tier) tags.push(`"${ivr.tier}" trend tier`);
+    else if (ivr.elevated) tags.push("elevated vs its own history");
+    L.push(`IV MOMENTUM: ${im.join(", ")}${tags.length ? ` — ${tags.join("; ")}` : ""}.`);
   }
   // The deterministic price-based entry read — CONTEXT for the model's own
   // entry verdict (it must weigh this against catalyst urgency / events / macro,
@@ -16563,7 +16653,7 @@ function parseThesisResponse(text) {
 // ET date: the grader is web-search-grounded, so a cached verdict must never
 // outlive the trading day its research was run on (a "wait" minted on yesterday's
 // news would otherwise stick until some other component churned).
-export function thesisCacheSig(r, side, kind, macroRegime) {
+export function thesisCacheSig(r, side, kind, macroRegime, macroCalendar = null) {
   const works = (r.drivers || []).filter((x) => x && x.score).slice(0, 5).map((x) => `${x.key}${Math.sign(x.score) > 0 ? "+" : "-"}`).join(",");
   const ax = (macroRegime && macroRegime.axes) || {};
   const profile = MACRO_PROFILES[kind] || MACRO_PROFILES.broad;
@@ -16577,8 +16667,13 @@ export function thesisCacheSig(r, side, kind, macroRegime) {
   // Soft vs hard extension is part of the entry picture (soft = the grader's
   // call, hard = vetoed regardless), so the basis rides the signature too.
   const entrySig = det.now ? "buy" : `${det.signal || "wait"}${det.basis === "top-guard" ? "!" : ""}`;
+  // Nearest scheduled macro vol event (FOMC/CPI/PPI/jobs) — when it changes (a
+  // print clears, a new event enters the horizon) the entry picture changed, so
+  // re-grade. Only the NEAREST rides: the full list would churn the sig on every
+  // far-out schedule nibble, and the etDay roll already refreshes daily.
+  const calSig = Array.isArray(macroCalendar) && macroCalendar[0] ? `${macroCalendar[0].label}@${macroCalendar[0].date}` : "";
   const etDay = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-  return [THESIS_PROMPT_VERSION, etDay, r.sym, side, kind, Math.round(pnum(r.total) ?? 0), works, state, axSig, verdict, newsHash, ivBucket, entrySig].join("|");
+  return [THESIS_PROMPT_VERSION, etDay, r.sym, side, kind, Math.round(pnum(r.total) ?? 0), works, state, axSig, verdict, newsHash, ivBucket, entrySig, calSig].join("|");
 }
 
 async function readPickThesisCache() {
@@ -16657,6 +16752,12 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
   if (!scored.length) return { map, cache: next };
   const regime = preScored.regimeBand || "neutral";
   const macroRegime = macroBackdrop?.macroRegime || null;
+  // Forward macro calendar (main() attaches it next to eventRisk) + the
+  // Trending-IV rows by symbol (opts.ivTrending via scannerExtras) — both feed
+  // the prompt's MACRO CALENDAR / IV MOMENTUM lines; missing ⇒ lines omitted.
+  const macroCalendar = Array.isArray(macroBackdrop?.macroCalendar) && macroBackdrop.macroCalendar.length ? macroBackdrop.macroCalendar : null;
+  const ivBySym = {};
+  for (const row of (opts.ivTrending?.tickers || [])) if (row && row.symbol) ivBySym[row.symbol] = row;
   const minConv = opts.priorClosed ? edgeGatedConviction(opts.priorClosed).bar : PICKS_MIN_CONVICTION;
 
   // The DATA GATE — mirror buildTopPicks's candidate selection + its two cheap
@@ -16700,7 +16801,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
   for (const { r, side } of gated) {
     const k = `${r.sym}:${side}`;
     const kind = macroKindOf(r.sym, r.data);
-    const sig = thesisCacheSig(r, side, kind, macroRegime);
+    const sig = thesisCacheSig(r, side, kind, macroRegime, macroCalendar);
     const prior = priorCache[k];
     if (prior && prior.sig === sig && prior.ai) { map[k] = prior.ai; next[k] = { sig, ai: prior.ai }; }
     else if (!keyless) toCall.push({ r, side, k, sig });
@@ -16717,7 +16818,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
     try {
       // Step 1 — grounded research (live Google Search); null degrades to ungrounded.
       const research = AI_THESIS_SEARCH ? await fetchThesisWebResearch(ai, r, side) : null;
-      const userMsg = buildThesisUserMessage(r, side, macroRegime) +
+      const userMsg = buildThesisUserMessage(r, side, macroRegime, { macroCalendar, ivRow: ivBySym[r.sym] || null }) +
         (research ? `\n\nWEB RESEARCH (live Google Search, run moments ago — FRESHER than the news read / headlines above; weigh it in your grade and entry call):\n${research.text}` : "");
       let response = null;
       for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
@@ -24102,6 +24203,13 @@ async function main() {
       const er = macroBackdrop.eventRisk;
       console.log(`  · macro event-risk: ${er.label} in ${er.daysOut}d (top ~${Math.round((er.topProb > 1.5 ? er.topProb / 100 : er.topProb) * 100)}%) — entries deferred`);
     }
+    // Forward macro-calendar look-ahead for the AI final grader's prompt (the
+    // hard defer gate above only sees 5 days; the thesis gets the full ~2-week
+    // trade horizon — FOMC + major prints the position will ride through).
+    macroBackdrop.macroCalendar = buildMacroCalendarAhead(upcomingMeetings, reportEvents, todayIso);
+    if (macroBackdrop.macroCalendar.length) {
+      console.log(`  · macro calendar (thesis look-ahead): ${macroBackdrop.macroCalendar.map((e) => `${e.label} ${e.daysOut}d`).join(", ")}`);
+    }
     // Market-tape (cross-asset macro regime, PICKS_MACRO_REGIME) — the reworked
     // gauge that RESETS every build from the live factors: the overall-market
     // Indexes axis (SPY+QQQ), VIX, long yields, the dollar, the Fed path / FOMC,
@@ -24159,6 +24267,9 @@ async function main() {
   // snapshot if the foreign sweep came back too thin to write).
   const scannerExtras = {
     oiTracker,
+    // Trending-IV payload (written just above) — the AI final grader's prompt
+    // cites each candidate's IV momentum (1d/5d/20d + rising streak) from it.
+    ivTrending: ivTrendingForBrief,
     flowLog: unusualLog,
     correlations: correlationsInfo?.payload || priorCorrelations,
     // §9.6 IC bridge — per-signal forward IC from the prior accuracy stats, so the

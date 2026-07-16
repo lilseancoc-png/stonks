@@ -20,6 +20,15 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
        (same format, plus the archive preamble) and add that month to the
        "Older changelogs" index below. -->
 
+## 2026-07-16
+
+### Added
+- **The AI final grader now sees the forward macro calendar, the near-term OI map, and IV momentum.** Three blind spots in the thesis prompt closed: (1) a **MACRO CALENDAR** line (`buildMacroCalendarAhead`) lists the scheduled FOMC decisions + major prints (CPI/PPI/NFP, family-deduped, already-printed rows dropped) inside the full ~2-week trade horizon (`PICKS_THESIS_CAL_DAYS`, 14) — the hard entry-defer gate only sees 5 days, but a 1–2 week hold rides through everything in the window, so the grader's outlook/invalidation/entry call can now account for a print landing mid-trade (the nearest event also rides the thesis cache signature, so a print clearing or a new event entering the horizon re-grades; `THESIS_PROMPT_VERSION` bumped to v7); (2) an **OI POSITIONING** line cites the OI tracker's call/put walls (strike + OI), total C/P ratio, gamma-squeeze score and scan stamp — strike-level positioning the price-history S/R can't see; (3) an **IV MOMENTUM** line from the Trending-IV pass (1d/5d/20d ATM-IV change, rising-session streak, trend tier / elevated flag) so the grader can tell premium being bid from premium bleeding, not just its level. The system prompt's evidence enumeration names all three. `scripts/build.mjs`, `scripts/picks-smoke.mjs` (new prompt + calendar assertions), `docs/top-picks.md`, CLAUDE.md.
+
+### Fixed
+- **The mechanicals pillar's OI C/P skew signal never fired — `data.oiTrackerRow` was read but never attached.** `scoreAllTickers` now joins the scanner-owned `oi-tracker.json` rows (threaded in via `scannerExtras.oiTracker` all along) onto each ticker before scoring, so the "Open interest C/P" signal scores its ±1 for extreme call/put OI ratios instead of always showing unavailable — and the same row feeds the new thesis-prompt OI line. Rows are copied (the scanner payload is never mutated) and stamped with the scan time. `scripts/build.mjs`.
+- **Stale exit-rule smoke tests updated to the 2026-07-15 flat-bracket exits** (+20% hard TP / −50% stop, scale-out opt-in): −35% no longer expects a stop-loss (−55% does), +25% expects a hard `hit-tp-prem` win, and an armed runner at/above the TP gate expects the flat TP close (between the trail floor and the gate it stays open). `scripts/picks-smoke.mjs`.
+
 ## 2026-07-15
 
 ### Added

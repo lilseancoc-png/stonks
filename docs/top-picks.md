@@ -548,7 +548,16 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   company fundamentals, the AI news take + fundamental judgment + headlines +
   catalysts, the full cross-asset macro
   backdrop (rates / dollar / Fed / inflation / geopolitics) with the name's
-  macro-kind sensitivity, the IV regime, and the deterministic entry-timing
+  macro-kind sensitivity, the **forward macro calendar** (2026-07-16:
+  `buildMacroCalendarAhead` — the scheduled FOMC decisions + major prints
+  (CPI/PPI/NFP, family-deduped, already-printed rows dropped) inside the full
+  ~2-week trade horizon (`PICKS_THESIS_CAL_DAYS`, 14) that the hard 5-day defer
+  gate can't see; the nearest event also rides the cache signature so a print
+  clearing re-grades), the **near-term OI positioning** (the scanner's
+  `oiTrackerRow`, front two expirations: call/put walls with OI, total C/P,
+  gamma-squeeze score, scan stamp), the IV regime **and its momentum** (the
+  Trending-IV row: 1d/5d/20d IV change, rising-session streak, trend
+  tier/elevated flag), and the deterministic entry-timing
   read (§3) — and DECIDES which factors matter (so a
   consumer-discretionary name reads rates + inflation via consumer spending; a
   semi reads long yields + the dollar; an energy name reads crude), explicitly
