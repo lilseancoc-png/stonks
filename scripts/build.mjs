@@ -11447,6 +11447,9 @@ export function computeMacroEventRisk(predictionMarkets, meetings, reportEvents,
 // event that already printed is dropped only via `actual`, which the fast-actual
 // feed backfills; the precise same-day clock check stays the defer gate's job).
 const PICKS_THESIS_CAL_DAYS = Number(process.env.PICKS_THESIS_CAL_DAYS ?? 14);
+// The thesis prompt's PRE-EARNINGS DRIFT line only rides when the upcoming print
+// is close enough that a 1–2 week hold overlaps the run-up window into it.
+const PICKS_THESIS_DRIFT_DAYS = Number(process.env.PICKS_THESIS_DRIFT_DAYS ?? 25);
 function macroCalFamily(subtype, title) {
   // cpi-mom + cpi-yoy (+ core) land the same morning — one "CPI" entry, not four.
   const s = String(subtype || "");
@@ -16355,7 +16358,7 @@ const AI_THESIS_SEARCH_MODEL = process.env.AI_THESIS_SEARCH_MODEL || AI_THESIS_M
 const AI_THESIS_CONCURRENCY = Math.max(1, Number(process.env.AI_THESIS_CONCURRENCY) || 4);
 
 // Bump when the schema / prompt changes so every cached thesis re-reads once.
-const THESIS_PROMPT_VERSION = "v7";
+const THESIS_PROMPT_VERSION = "v8";
 
 const THESIS_SCHEMA = {
   type: "object",
@@ -16406,7 +16409,7 @@ const THESIS_SYSTEM =
   "You are a senior options strategist writing a detailed, ticker-specific investment THESIS for a 1–2 week directional options trade. A quantitative engine has ALREADY graded the name and chosen the direction — do NOT re-decide the direction. Your job is to tell the STORY behind the trade: weave the supplied data into a clear cause-and-effect narrative that explains WHY the grade is high, WHY the edge exists right NOW, what would confirm it, and what would prove it wrong. A high grade alone does not give a trader conviction to hold through noise — a good thesis does, by giving them a reason to enter, a way to monitor whether it's working, and clear exits. " +
   "COMPLEMENT the grade, never just restate it: don't say 'RSI is 28 so it's oversold' — explain the situation that produced that reading and why it resolves in the trade's favour. Weave the actual NUMBERS into the prose (specific price levels, % moves, growth rates, analyst targets, IV percentile, the named headline/catalyst) so the case is concrete and testable, not generic. " +
   "Decide for yourself which of the supplied factors — company fundamentals, news/catalysts, technicals & flow, and the cross-asset MACRO backdrop (interest rates, the dollar, the Fed path, inflation, geopolitics) — are LOAD-BEARING for THIS specific business, and build the story around those; ignore factors that don't move this kind of name. Connect macro to the company causally: a consumer-discretionary name lives on rates + inflation via real consumer spending; a high-multiple grower is long-duration and feels long yields + the dollar; an energy name tracks crude; a homebuilder tracks the Fed path; a gold ETF lives on real yields + the haven bid. " +
-  "THIS IS THE FINAL PASS over everything the system collected. You are handed the engine's FULL evidence table: every scored signal across the four pillars — each marked FOR or AGAINST this trade ('!' = a heavy vote) with its actual reading — plus the technical structure and price levels (SMAs, support/resistance, volume, any confirmed chart pattern, the daily streak), the earnings track record (how the name actually traded its recent prints) and the next print's straddle-implied move, the fundamentals trajectory, any headline-flagged capital event, the IV environment (its level AND its recent momentum — which way premium is being repriced), the near-term open-interest map (the call/put walls where heavy positioning sits — they often act as magnets/pinning levels into expiry), the scheduled MACRO CALENDAR inside the trade window (the FOMC decisions and major prints — CPI/PPI/jobs — the position will ride through), and the deterministic entry-timing read. Cross-examine it: do the FOR votes tell one coherent story, or is the case a coincidence of unrelated positives? Do the AGAINST votes break the story? Weigh them honestly instead of ignoring them — your grade and your entry call are what actually ship to the subscriber. " +
+  "THIS IS THE FINAL PASS over everything the system collected. You are handed the engine's FULL evidence table: every scored signal across the four pillars — each marked FOR or AGAINST this trade ('!' = a heavy vote) with its actual reading — plus the technical structure and price levels (SMAs, support/resistance, volume, any confirmed chart pattern, the daily streak), the earnings track record (how the name actually traded its recent prints), its pre-earnings drift tendency (how it historically trades INTO prints — a small-sample tendency, not a law) and the next print's straddle-implied move, the fundamentals trajectory, any headline-flagged capital event, the IV environment (its level AND its recent momentum — which way premium is being repriced), the near-term open-interest map (the call/put walls where heavy positioning sits — they often act as magnets/pinning levels into expiry), the scheduled MACRO CALENDAR inside the trade window (the FOMC decisions and major prints — CPI/PPI/jobs — the position will ride through), and the deterministic entry-timing read. Cross-examine it: do the FOR votes tell one coherent story, or is the case a coincidence of unrelated positives? Do the AGAINST votes break the story? Weigh them honestly instead of ignoring them — your grade and your entry call are what actually ship to the subscriber. " +
   "Output fields (each grounded ONLY in the provided data): " +
   "summary = 1–2 sentences stating the core directional thesis and why the edge exists NOW. " +
   "setup = the BACKDROP (2–4 sentences): what has been driving this name/sector, where price and sentiment stand now, and the tension that sets up the trade — the frame for the story, with the concrete numbers woven in. " +
@@ -16544,6 +16547,27 @@ export function buildThesisUserMessage(r, side, macroRegime, extras = {}) {
   if (hx && hx.next && hx.next.date) {
     L.push(`NEXT EARNINGS: ${String(hx.next.date).slice(0, 10)}${hx.next.session && hx.next.session !== "TBD" ? ` (${hx.next.session})` : ""}${pnum(hx.next.daysUntil) != null ? `, ${hx.next.daysUntil}d out` : ""}${pnum(hx.next.impliedMovePct) != null ? ` — the straddle already implies a ±${pnum(hx.next.impliedMovePct).toFixed(1)}% move` : ""}.`);
   } else if (f.nextEarningsDate) L.push(`NEXT EARNINGS: ${String(f.nextEarningsDate).slice(0, 10)}`);
+  // Pre-earnings drift — how this name historically trades INTO its prints
+  // (per-print pre15Pct/pre10Pct run-ups from the earnings-history store) plus
+  // the live run-up into the upcoming one. Only when the print is close enough
+  // that a 1–2 week hold overlaps the run-up window; the store holds 4–8 prints,
+  // so the count rides the line and the grader weighs it as a tendency.
+  const nextDays = pnum(hx?.next?.daysUntil);
+  if (hx && hx.next && nextDays != null && nextDays <= PICKS_THESIS_DRIFT_DAYS) {
+    const runs = (Array.isArray(hx.events) ? hx.events : [])
+      .map((e) => ({ v: pnum(e.pre15Pct) ?? pnum(e.pre10Pct), t: earningsRunupTrend(e.pre10Pct, e.pre15Pct) }))
+      .filter((x) => x.v != null && x.t);
+    const db = [];
+    if (runs.length) {
+      const up = runs.filter((x) => x.t === "up").length;
+      const down = runs.filter((x) => x.t === "down").length;
+      const avg = runs.reduce((a, x) => a + x.v, 0) / runs.length;
+      db.push(`ran higher into ${up} and lower into ${down} of its last ${runs.length} print${runs.length === 1 ? "" : "s"} (avg ${pct(avg)} over the ~3 trading weeks before each; small sample — a tendency, not a law)`);
+    }
+    const soFar = pnum(hx.next.pre15Pct) ?? pnum(hx.next.pre10Pct);
+    if (soFar != null) db.push(`current run-up into this print: ${pct(soFar)} so far`);
+    if (db.length) L.push(`PRE-EARNINGS DRIFT (the hold window overlaps the run-up into the ${String(hx.next.date).slice(0, 10)} print): ${db.join("; ")}.`);
+  }
 
   const ax = (macroRegime && macroRegime.axes) || {};
   const state = macroRegime?.state || "neutral";

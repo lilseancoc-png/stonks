@@ -544,7 +544,11 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   (SMAs, nearest support/resistance, rvol, any confirmed chart pattern, the
   daily streak), the **earnings track record** (recent prints' EPS surprise vs
   the next-session move + the upcoming print's straddle-implied move from
-  `earningsHx`), the fundamentals trajectory, headline-flagged capital events,
+  `earningsHx`), the **pre-earnings drift** (2026-07-16: when the upcoming print
+  is inside `PICKS_THESIS_DRIFT_DAYS` (25) the prompt adds how many recent prints
+  the name ran higher vs lower into — the `pre15Pct`/`pre10Pct` run-up stamps,
+  ±2% flat band, avg %, labeled a small-sample tendency — plus the live
+  drift-so-far into this print), the fundamentals trajectory, headline-flagged capital events,
   company fundamentals, the AI news take + fundamental judgment + headlines +
   catalysts, the full cross-asset macro
   backdrop (rates / dollar / Fed / inflation / geopolitics) with the name's

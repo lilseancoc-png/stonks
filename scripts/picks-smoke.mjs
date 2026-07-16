@@ -598,6 +598,22 @@ ok("classify: moderate grade + weak thesis → idea / watch", classifyPick(5, "w
   const msgBare = buildThesisUserMessage(r, "call", null);
   ok("prompt: calendar/OI/IV-momentum lines omitted without data",
     !/MACRO CALENDAR/.test(msgBare) && !/OI POSITIONING/.test(msgBare) && !/IV MOMENTUM/.test(msgBare));
+  // Pre-earnings drift line: gated on the print being inside ~25d (the block
+  // above set daysUntil 26, so it must be absent there).
+  ok("prompt: drift line absent when the print is beyond the window", !/PRE-EARNINGS DRIFT/.test(msg));
+  d.earningsHx = {
+    events: [
+      { date: "2025-10-29", pre10Pct: -3.0, pre15Pct: -4.0 },
+      { date: "2026-01-28", pre10Pct: 2.0, pre15Pct: 3.1 },
+      { date: "2026-04-30", surprisePct: 6.2, movePct: 4.1, pre10Pct: 1.2, pre15Pct: 2.5 },
+    ],
+    next: { date: "2026-08-05", session: "PM", daysUntil: 12, impliedMovePct: 7.5, pre10Pct: 1.0, pre15Pct: 1.9 },
+  };
+  const msgDrift = buildThesisUserMessage(r, "call", null);
+  ok("prompt: pre-earnings drift rides when the print is inside the window",
+    /PRE-EARNINGS DRIFT \(the hold window overlaps the run-up into the 2026-08-05 print\)/.test(msgDrift) &&
+    /ran higher into 2 and lower into 1 of its last 3 prints \(avg \+0\.5%/.test(msgDrift) &&
+    /current run-up into this print: \+1\.9% so far/.test(msgDrift));
 }
 
 // --- 12b5. buildMacroCalendarAhead — the thesis prompt's forward look-ahead ----
