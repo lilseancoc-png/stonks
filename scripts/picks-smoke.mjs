@@ -10,7 +10,7 @@ import {
   computeFactorTrendHealth, edgeGatedConviction,
   assessThesisQuality, selectStrategy, classifyPick, generateAiTheses, applyAiThesisGrade,
   buildMarketRead, macroKindOf, thesisCacheSig, PICKS_MAX_AI_THESES, buildThesisUserMessage,
-  buildMacroCalendarAhead,
+  buildMacroCalendarAhead, transcriptGuidanceDirection, impliedMoveFromIvCrush,
 } from "./build.mjs";
 
 let pass = 0, fail = 0;
@@ -885,6 +885,21 @@ ok("mark: credit ~flat at entry spot", Math.abs(markOptionToMarket(cEntry, { spo
 ok("mark: credit profits as it decays (price up, away from short put)", markOptionToMarket(cEntry, { spot: 115 }) > 5);
 ok("mark: credit loses when short strike is breached", markOptionToMarket(cEntry, { spot: crd.shortStrike - 1 }) < 0);
 ok("mark: legacy single-long still marks (+ when ITM move)", (() => { const e = { side: "call", contract: { strike: 100, expiry: exp30, mid: 5, iv: 0.4 } }; return markOptionToMarket(e, { spot: 110 }) > markOptionToMarket(e, { spot: 100 }); })());
+
+// --- 15. earnings-history backfill helpers (guidance from transcripts + IV-crush move) ---
+ok("guid: raises only → raised", transcriptGuidanceDirection([{ metric: "Revenue", value: "$1B", change: "raised" }, { metric: "EPS", value: "$2", change: "maintained" }]) === "raised");
+ok("guid: cut only → lowered", transcriptGuidanceDirection([{ metric: "FY EPS", value: "$2", change: "lowered" }]) === "lowered");
+ok("guid: withdrawn counts as a cut", transcriptGuidanceDirection([{ metric: "FY rev", value: "n/a", change: "withdrawn" }]) === "lowered");
+ok("guid: raised AND cut → inline (mixed)", transcriptGuidanceDirection([{ metric: "Rev", value: "$1B", change: "raised" }, { metric: "EPS", value: "$2", change: "lowered" }]) === "inline");
+ok("guid: maintained only → inline", transcriptGuidanceDirection([{ metric: "FY", value: "$4", change: "maintained" }]) === "inline");
+ok("guid: first-time (new) guidance alone → null", transcriptGuidanceDirection([{ metric: "FY26", value: "$5", change: "new" }]) === null);
+ok("guid: empty / missing rows → null", transcriptGuidanceDirection([]) === null && transcriptGuidanceDirection(null) === null);
+// IV crush: 0.55 → 0.40 should reconstruct a high-single-digit expected move.
+const crushEst = impliedMoveFromIvCrush(0.55, 0.40);
+ok("crush: 55→40 vol reconstructs ~10% move", crushEst > 0.08 && crushEst < 0.13);
+ok("crush: no crush (post ≥ pre) → null", impliedMoveFromIvCrush(0.40, 0.40) === null && impliedMoveFromIvCrush(0.40, 0.55) === null);
+ok("crush: missing sides → null", impliedMoveFromIvCrush(null, 0.4) === null && impliedMoveFromIvCrush(0.5, null) === null);
+ok("crush: implausibly tiny diff → null", impliedMoveFromIvCrush(0.30001, 0.3) === null);
 
 console.log(`\n${pass}/${pass + fail} checks passed.`);
 process.exit(fail ? 1 : 0);

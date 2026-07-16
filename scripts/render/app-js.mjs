@@ -5697,7 +5697,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<td>' + sessionLabel(e.session) + '</td>' +
           '<td>' + escapeHtml(qLabel) + '</td>' +
           '<td class="opt-ehx-num' + toneCls(e.movePct) + '">' + pct(e.movePct, true) + '</td>' +
-          '<td class="opt-ehx-num">' + (isNum(e.impliedMovePct) ? '±' + (e.impliedMovePct * 100).toFixed(1) + '%' : '—') + '</td>' +
+          '<td class="opt-ehx-num">' + (isNum(e.impliedMovePct)
+            ? '±' + (e.impliedMovePct * 100).toFixed(1) + '%'
+            : isNum(e.impliedMoveEstPct)
+              ? '<span title="Estimated from the pre- vs post-print IV crush — no live straddle snapshot exists for this print">~±' + (e.impliedMoveEstPct * 100).toFixed(1) + '%</span>'
+              : '—') + '</td>' +
           '<td class="opt-ehx-num">' + ivPct(e.ivPre) + '</td>' +
           '<td class="opt-ehx-num">' + ivPct(e.ivPost) + '</td>' +
           '<td class="opt-ehx-num">' + usd(e.closeBefore) + '</td>' +
@@ -5710,7 +5714,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<th>IV pre</th><th>IV post</th><th>Close before</th><th>Open after</th><th>1-wk after</th></tr></thead>' +
         '<tbody>' + rows + '</tbody></table></div>';
       html += '<p class="opt-ehx-foot">Price effect = close before the report → close of the reaction session. ' +
-        'Implied move and IV pre/post are snapshotted live around each print, so older reports may show "—" until history accumulates. Hover a row for EPS vs estimate.</p>';
+        'Implied move and IV pre/post are snapshotted live around each print; ~± marks older prints where the move is estimated from the IV crush instead. Hover a row for EPS vs estimate.</p>';
     }
 
     box.innerHTML = html;
@@ -13461,12 +13465,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         ? ersSplitBar([{ n: c.guidUp, cls: 'ers-seg-pos', label: 'Raised' }, { n: c.guidInline, cls: 'ers-seg-flat', label: 'In line' }, { n: c.guidDown, cls: 'ers-seg-neg', label: 'Cut' }]) +
           '<div class="ers-tile-sub"><b class="ers-pos">' + (c.guidUp || 0) + ' raised</b> · ' + (c.guidInline || 0) + ' in line · <b class="ers-neg">' + (c.guidDown || 0) + ' cut</b> <span class="ers-dim">(' + c.guidKnown + ' with a read)</span></div>' +
           ((c.beatGuidedUp || c.missedGuidedDown) ? '<div class="ers-tile-note">' + (c.beatGuidedUp || 0) + ' beat &amp; raised · ' + (c.missedGuidedDown || 0) + ' missed &amp; cut</div>' : '')
-        : '<div class="ers-tile-sub ers-dim">No guidance reads for this season — reads are captured from the news flow around each print going forward.</div>') +
+        : '<div class="ers-tile-sub ers-dim">No guidance reads for this season yet — reads come from each name\\'s earnings-call transcript brief and from the news flow around the print, and fill in as those are processed.</div>') +
     '</div>';
     tiles += '<div class="ers-tile"><div class="ers-tile-label">vs the expected move</div>' +
       (c.impliedKnown
         ? ersSplitBar([{ n: c.exceededImplied, cls: 'ers-seg-warn', label: 'Exceeded' }, { n: c.withinImplied, cls: 'ers-seg-flat', label: 'Stayed within' }]) +
-          '<div class="ers-tile-sub"><b>' + (c.exceededImplied || 0) + '</b> moved more than options priced · <b>' + (c.withinImplied || 0) + '</b> stayed inside <span class="ers-dim">(' + c.impliedKnown + ' with a straddle read)</span></div>' +
+          '<div class="ers-tile-sub"><b>' + (c.exceededImplied || 0) + '</b> moved more than options priced · <b>' + (c.withinImplied || 0) + '</b> stayed inside <span class="ers-dim" title="Live straddle snapshots taken in the final week before each print; ~ marks prints that predate the snapshot, estimated from the pre- vs post-print IV crush">(' + c.impliedKnown + ' with a read' + (c.impliedEst ? ', ' + c.impliedEst + ' est. from the IV crush' : '') + ')</span></div>' +
           ((ersNum(s.avgImpliedMovePct) || ersNum(s.avgAbsMovePct)) ? '<div class="ers-tile-note">avg implied ±' + (ersNum(s.avgImpliedMovePct) ? (s.avgImpliedMovePct * 100).toFixed(1) : '—') + '% vs avg realized ±' + (ersNum(s.avgAbsMovePct) ? (s.avgAbsMovePct * 100).toFixed(1) : '—') + '%</div>' : '')
         : '<div class="ers-tile-sub ers-dim">No straddle-implied reads for this season — the implied move is snapshotted live in the final week before each print, so this fills in over time.</div>') +
     '</div>';
@@ -13519,7 +13523,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         var epsTxt = ersNum(rw.epsActual) ? rw.epsActual.toFixed(2) + (ersNum(rw.epsEstimate) ? ' <span class="ers-dim">vs ' + rw.epsEstimate.toFixed(2) + '</span>' : '') : '<span class="ers-dim">—</span>';
         var surTxt = ersNum(rw.surprisePct) ? '<span class="' + (rw.surprisePct > 0 ? 'ers-pos' : rw.surprisePct < 0 ? 'ers-neg' : '') + '">' + (rw.surprisePct >= 0 ? '+' : '') + rw.surprisePct.toFixed(1) + '%</span>' : '<span class="ers-dim">—</span>';
         var impTxt = ersNum(rw.impliedMovePct)
-          ? '±' + (rw.impliedMovePct * 100).toFixed(1) + '%' + (rw.exceededImplied != null ? ' <span class="ers-chip ' + (rw.exceededImplied ? 'ers-chip-warn' : 'ers-chip-flat') + '">' + (rw.exceededImplied ? 'exceeded' : 'within') + '</span>' : '')
+          ? (rw.impliedEst
+              ? '<span title="Estimated from the pre- vs post-print ATM IV crush — no live straddle snapshot exists for this print">~±' + (rw.impliedMovePct * 100).toFixed(1) + '%</span>'
+              : '±' + (rw.impliedMovePct * 100).toFixed(1) + '%') +
+            (rw.exceededImplied != null ? ' <span class="ers-chip ' + (rw.exceededImplied ? 'ers-chip-warn' : 'ers-chip-flat') + '">' + (rw.exceededImplied ? 'exceeded' : 'within') + '</span>' : '')
           : '<span class="ers-dim">—</span>';
         var preVal = ersNum(rw.pre15Pct) ? rw.pre15Pct : (ersNum(rw.pre10Pct) ? rw.pre10Pct : null);
         var preTitle = 'Drift into the print — 2wk ' + ersPct(rw.pre10Pct) + ' · 3wk ' + ersPct(rw.pre15Pct);
@@ -13538,7 +13545,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '</tr>';
       }
       html += '<div class="ers-table-wrap"><table class="ers-table"><thead><tr>' +
-        '<th>Ticker</th><th>Reported</th><th>Result</th><th class="ers-td-num">EPS</th><th class="ers-td-num">Surprise</th><th>Guidance</th><th class="ers-td-num" title="Close-to-close drift over the ~3 trading weeks into the print (2-week read in the cell tooltip)">3wk in</th><th class="ers-td-num">Gap</th><th class="ers-td-num">Day</th><th class="ers-td-num">Expected</th><th class="ers-td-num">1 wk</th>' +
+        '<th>Ticker</th><th>Reported</th><th>Result</th><th class="ers-td-num">EPS</th><th class="ers-td-num">Surprise</th><th>Guidance</th><th class="ers-td-num" title="Close-to-close drift over the ~3 trading weeks into the print (2-week read in the cell tooltip)">3wk in</th><th class="ers-td-num">Gap</th><th class="ers-td-num">Day</th><th class="ers-td-num" title="The options market\\'s straddle-implied expected move, snapshotted live before the print; ~ marks older prints where it is estimated from the pre- vs post-print IV crush instead">Expected</th><th class="ers-td-num">1 wk</th>' +
         '</tr></thead><tbody>' + trows + '</tbody></table></div>';
     }
     root.innerHTML = html;

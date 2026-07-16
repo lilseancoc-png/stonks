@@ -4599,6 +4599,41 @@ export function earningsIvAround(entries, dateIso, session, windowDays = 7) {
   return { pre, post };
 }
 
+// Collapse a transcript brief's per-metric guidance rows ({change: raised |
+// maintained | lowered | new | withdrawn}) into one direction for the
+// earnings tracker, in the news-judgment stamp's vocabulary
+// (earningsGuidanceBucket): any raise with no cut = "raised", any cut or
+// withdrawal with no raise = "lowered", raises AND cuts = "inline" (mixed),
+// maintained-only = "inline". First-time ("new") guidance has no prior to
+// compare against, so alone it reads null. Exported for unit testing.
+export function transcriptGuidanceDirection(rows) {
+  let raised = 0, cut = 0, maintained = 0;
+  for (const r of Array.isArray(rows) ? rows : []) {
+    const ch = r?.change;
+    if (ch === "raised") raised++;
+    else if (ch === "lowered" || ch === "withdrawn") cut++;
+    else if (ch === "maintained") maintained++;
+  }
+  if (raised && !cut) return "raised";
+  if (cut && !raised) return "lowered";
+  if ((raised && cut) || maintained) return "inline";
+  return null;
+}
+
+// Reconstruct the expected move for a print that predates the live pre-print
+// straddle stamp, from the ATM ~30d IV crush around it: the pre-print IV
+// prices the event PLUS ~30 days of ordinary vol, the post-print IV just the
+// ordinary vol, so the event's own 1σ move ≈ sqrt((ivPre² − ivPost²) · 30/365).
+// Null when there was no crush (ivPost ≥ ivPre — the decomposition can't see
+// the event) or the result is implausible (<0.5% or >50%). An approximation —
+// it rides a separate field (impliedMoveEstPct) and renders marked ("~±") so
+// it never impersonates a real straddle snapshot. Exported for unit testing.
+export function impliedMoveFromIvCrush(ivPre, ivPost) {
+  if (!(ivPre > 0) || !(ivPost > 0) || !(ivPre > ivPost)) return null;
+  const m = Math.sqrt((ivPre * ivPre - ivPost * ivPost) * (30 / 365));
+  return m >= 0.005 && m <= 0.5 ? m : null;
+}
+
 // Upsert one event into a ticker's list, matching within ±3 days so the
 // forward-stamped pending row (dated off fundamentals) and the backfill row
 // (dated off the visualization API) merge instead of duplicating — two real
@@ -4655,7 +4690,9 @@ function earningsBackfillNeeded(entry, todayIso) {
   // but at most once per ET day (entry.backfilledAt gates the caller).
   if (past.length < EARNINGS_BACKFILL_QUARTERS) return true;
   // EPS lands on Yahoo within a day of the print — refresh until captured.
-  if (past.slice(-2).some((e) => e.epsActual == null)) return true;
+  // The estimate matters too (no estimate = no beat/miss verdict), and a
+  // one-day source flake can deliver the actual without it.
+  if (past.slice(-2).some((e) => e.epsActual == null || e.epsEstimate == null)) return true;
   // Newest stored print is over a quarter old — the recent prints are missing
   // (a one-day Nasdaq flake on the first backfill leaves the ticker frozen at
   // the Yahoo feed's mid-2025 tail otherwise). Keep retrying until one lands.
@@ -4764,6 +4801,18 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
     // Resolve / refresh passed events.
     const ivEntries = ivHistoryMap?.get?.(sym)?.entries || [];
     const guidanceStampCutoff = etDateKey(new Date(nowMs - EARNINGS_GUIDANCE_STAMP_DAYS * 86400000));
+    // The name's earnings-call transcript brief (data/transcript-<SYM>.json,
+    // hydrated from the store pre-wipe) — read lazily, once, only when some
+    // past print still lacks a guidance stamp. Its guidance table is tied to
+    // the CALL date, so unlike the news read it can stamp older prints too.
+    let callBrief; // undefined = not read yet; null = none on disk
+    const readCallBrief = async () => {
+      if (callBrief !== undefined) return callBrief;
+      try {
+        callBrief = JSON.parse(await readFile(resolve(DATA_DIR, transcriptKeyForSym(sym)), "utf8"));
+      } catch (_) { callBrief = null; }
+      return callBrief;
+    };
     for (const ev of entry.events) {
       if (!ev?.date || ev.date > todayIso) continue;
       const anchorMs = earningsAnchorMs(ev.date, ev.session);
@@ -4793,16 +4842,37 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
         if (ev.ivPre == null && pre != null) ev.ivPre = ehxRound(pre);
         if (ev.ivPost == null && post != null) ev.ivPost = ehxRound(post);
       }
-      // Stamp the guidance direction onto a JUST-REPORTED print, once — the
-      // first post-print build whose news-judgment AI carries a non-"none"
-      // guidance read (attachTickerJudgments / attachAiContractGuidance run
-      // before this pass in main()). Feeds the earnings-tracker's guided-up /
-      // guided-down season splits; prints outside the stamp window keep null
-      // (shown as "no read") since the AI read is "most recent guidance" and
-      // can't be tied to an older quarter.
-      if (ev.guidance == null && ev.date >= guidanceStampCutoff) {
-        const gDir = data?.aiSignals?.guidance?.direction;
-        if (gDir && gDir !== "none") ev.guidance = gDir;
+      // No live straddle snapshot (the print predates the pre-print stamp)?
+      // Reconstruct an ESTIMATE from the IV crush once both sides exist. Only
+      // for real prints (an EPS actual or a resolved reaction) — never a ghost
+      // row — and on a separate field so the ghost-prune's "impliedMovePct is
+      // set ONLY by the pending stamp" invariant holds.
+      if (ev.impliedMovePct == null && ev.impliedMoveEstPct == null
+        && (ev.epsActual != null || ev.movePct != null)) {
+        const est = impliedMoveFromIvCrush(ev.ivPre, ev.ivPost);
+        if (est != null) ev.impliedMoveEstPct = ehxRound(est);
+      }
+      // Stamp the guidance direction, once per print. Two sources, first hit
+      // sticks: (1) the earnings-call transcript brief — the primary source
+      // (its guidance table lists every raised/maintained/lowered figure from
+      // the call itself), matched to the print by CALL date so it can backfill
+      // prints of any age; (2) for a JUST-REPORTED print only, the
+      // news-judgment AI's read (attachTickerJudgments /
+      // attachAiContractGuidance run before this pass in main()) — that read
+      // is "most recent guidance", so it can't be tied to an older quarter.
+      // Feeds the earnings-tracker's guided-up/-down season splits; prints
+      // neither source covers keep null (shown as "no read").
+      if (ev.guidance == null) {
+        const brief = await readCallBrief();
+        const cdMs = Date.parse(brief?.callDate || "");
+        if (Number.isFinite(cdMs) && Math.abs(cdMs - Date.parse(ev.date)) <= 4 * 86400000) {
+          const dir = transcriptGuidanceDirection(brief?.summary?.guidance);
+          if (dir) { ev.guidance = dir; ev.guidanceSrc = "call"; }
+        }
+        if (ev.guidance == null && ev.date >= guidanceStampCutoff) {
+          const gDir = data?.aiSignals?.guidance?.direction;
+          if (gDir && gDir !== "none") { ev.guidance = gDir; ev.guidanceSrc = "news"; }
+        }
       }
     }
     // Prune ghost rows: a past event with no EPS actual well after its date is
@@ -4921,6 +4991,7 @@ export function attachEarningsHx(chains, store, nowMs = Date.now()) {
         ivPre: ev.ivPre ?? null,
         ivPost: ev.ivPost ?? null,
         impliedMovePct: ev.impliedMovePct ?? null,
+        impliedMoveEstPct: ev.impliedMoveEstPct ?? null,
         closeBefore: ev.closeBefore ?? null,
         openAfter: ev.openAfter ?? null,
         closeAfter: ev.closeAfter ?? null,
@@ -5057,7 +5128,7 @@ function earningsSummaryUserMessage(season, universeCount) {
   );
   lines.push(c.guidKnown
     ? `Guidance reads (${c.guidKnown} with a read): ${c.guidUp} raised, ${c.guidInline} in line, ${c.guidDown} cut — ${c.beatGuidedUp} beat AND raised, ${c.missedGuidedDown} missed AND cut.`
-    : "Guidance reads: none captured this season (the guidance tracker only stamps prints going forward).");
+    : "Guidance reads: none captured for this season's prints.");
   if (c.moveKnown) {
     lines.push(
       `Post-earnings reactions (${c.moveKnown} resolved): ${c.up} closed up, ${c.down} closed down` +
@@ -5068,7 +5139,7 @@ function earningsSummaryUserMessage(season, universeCount) {
   }
   if (c.impliedKnown) {
     lines.push(
-      `Options expected move (${c.impliedKnown} prints with a straddle-implied read): ${c.exceededImplied} exceeded it, ${c.withinImplied} stayed inside` +
+      `Options expected move (${c.impliedKnown} prints with a read${c.impliedEst ? `, ${c.impliedEst} of them estimated from the pre-vs-post IV crush` : ""}): ${c.exceededImplied} exceeded it, ${c.withinImplied} stayed inside` +
       (s.avgImpliedMovePct != null ? ` (avg implied ±${(s.avgImpliedMovePct * 100).toFixed(1)}%)` : "") + ".",
     );
   }
@@ -5161,8 +5232,14 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
       if (!hasEps && !hasMove) continue;
       const key = earningsSeasonKey(ev.date);
       if (!key) continue;
-      const implied = typeof ev.impliedMovePct === "number" && isFinite(ev.impliedMovePct) && ev.impliedMovePct > 0
+      // The live straddle snapshot when one was captured, else the IV-crush
+      // estimate (marked, so the UI renders it "~±").
+      const impliedReal = typeof ev.impliedMovePct === "number" && isFinite(ev.impliedMovePct) && ev.impliedMovePct > 0
         ? ev.impliedMovePct : null;
+      const impliedEst = impliedReal == null
+        && typeof ev.impliedMoveEstPct === "number" && isFinite(ev.impliedMoveEstPct) && ev.impliedMoveEstPct > 0
+        ? ev.impliedMoveEstPct : null;
+      const implied = impliedReal ?? impliedEst;
       const row = {
         sym,
         name: data?.fundamentals?.name || sym,
@@ -5178,6 +5255,7 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
         gapPct: typeof ev.gapPct === "number" && isFinite(ev.gapPct) ? ev.gapPct : null,
         week1Pct: typeof ev.week1Pct === "number" && isFinite(ev.week1Pct) ? ev.week1Pct : null,
         impliedMovePct: implied,
+        impliedEst: impliedEst != null,
         exceededImplied: implied != null && hasMove ? Math.abs(ev.movePct) > implied : null,
         pre10Pct: typeof ev.pre10Pct === "number" && isFinite(ev.pre10Pct) ? ev.pre10Pct : null,
         pre15Pct: typeof ev.pre15Pct === "number" && isFinite(ev.pre15Pct) ? ev.pre15Pct : null,
@@ -5197,7 +5275,7 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
       epsKnown: 0, beat: 0, inline: 0, miss: 0,
       guidKnown: 0, guidUp: 0, guidInline: 0, guidDown: 0,
       beatGuidedUp: 0, missedGuidedDown: 0,
-      impliedKnown: 0, exceededImplied: 0, withinImplied: 0,
+      impliedKnown: 0, impliedEst: 0, exceededImplied: 0, withinImplied: 0,
       moveKnown: 0, up: 0, down: 0, flat: 0,
       beatButDown: 0, missedButUp: 0,
       preKnown: 0, preUp: 0, preFlat: 0, preDown: 0,
@@ -5218,6 +5296,7 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
       if (r.eps === "miss" && r.guidance === "down") c.missedGuidedDown++;
       if (r.exceededImplied != null) {
         c.impliedKnown++;
+        if (r.impliedEst) c.impliedEst++;
         if (r.exceededImplied) c.exceededImplied++; else c.withinImplied++;
         impSum += r.impliedMovePct;
       }
