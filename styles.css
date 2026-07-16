@@ -6584,7 +6584,7 @@ main { padding-top: var(--s-2); }
   gap: var(--s-3);
   margin: var(--s-2) 0 var(--s-3);
 }
-.calendar-type-filter { display: inline-flex; gap: 4px; }
+.calendar-type-filter { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .calendar-pill {
   appearance: none;
   border: 1px solid var(--border);
@@ -7357,7 +7357,9 @@ body.cal-rc-open { overflow: hidden; }
   align-self: center;
   margin-left: auto;
 }
-.fomc-ladder-wrap { margin-top: var(--s-3); border-top: 1px solid var(--hairline); padding-top: var(--s-2); }
+/* overflow-x: the ladder's nowrap columns run ~500px wide — on a phone the
+   table scrolls inside this wrap instead of pushing the whole page wide. */
+.fomc-ladder-wrap { margin-top: var(--s-3); border-top: 1px solid var(--hairline); padding-top: var(--s-2); overflow-x: auto; }
 .fomc-ladder-title {
   font: 600 12px/1.2 var(--font-mono);
   letter-spacing: .06em; text-transform: uppercase;
