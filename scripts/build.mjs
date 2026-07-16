@@ -16397,6 +16397,223 @@ export async function writeStockPicksFile(payload) {
 }
 
 // ============================================================================
+// DAILY DCA DIAL — VOO/QQQ index accumulation sizing (rides stock-picks.json
+// as the `dca` block; rendered at the top of the Stock Picks tab).
+//
+// The habit this serves: a fixed daily buy of the two core index ETFs. The
+// dial NEVER says "skip" — consistency is the whole point of DCA — it only
+// answers "is today a plain day or a discount day, and how hard should the
+// extra dollars lean in?". Fully deterministic (no AI): five price reads per
+// index, each worth documented points, summed and mapped to a fixed multiplier
+// ladder (same philosophy as the picks tiers — absolute, auditable bars, no
+// adaptive thresholds). Every read + its points ship on the card so the call
+// is auditable; the reader's own baseline $ lives client-side (localStorage).
+// History upserts one row per ET day (capped) so the tab shows what the dial
+// said recently — which is why stock-picks.json now gets a PRE-WIPE READ in
+// main() (the dip candidates themselves stay rebuild-fresh; only `dca`
+// accumulates / carries forward). Offline regens (regen-picks) carry the
+// bake's block forward untouched — the dial is bake-owned.
+// ============================================================================
+export const DCA_INDEXES = [
+  { symbol: "VOO", label: "S&P 500 — Vanguard" },
+  { symbol: "QQQ", label: "Nasdaq 100 — Invesco" },
+];
+export const DCA_BASE_USD = 10; // default daily baseline; the client can override its own
+const DCA_HISTORY_MAX_DAYS = 120;
+const DCA_MAX_POINTS = 14; // trend 4 + drawdown 5 + RSI 2 + 20D stretch 2 + red day 1
+// Multiplier ladder — points → how hard the extra dollars lean in. Ordered
+// deepest-first; the first tier whose bar the score clears wins. Calibration
+// intuition on the 14-point scale: a routine ~5% pullback in an uptrend scores
+// ~5–6 (2×); a full ~10% correction with washed-out momentum ~9–11 (3×); the
+// 4× bar (12) is only reachable with the 200-day broken AND a deep drawdown —
+// genuine bear-market pricing, roughly a once-in-years read.
+export const DCA_TIERS = [
+  { min: 12, mult: 4,   key: "max",    label: "Rare deep discount", note: "Bear-market pricing — long-term trend broken with a deep, broad drawdown. Days like this are the reason the dial exists." },
+  { min: 8,  mult: 3,   key: "heavy",  label: "Correction pricing", note: "A real correction is on — meaningfully cheaper than the recent trend." },
+  { min: 5,  mult: 2,   key: "double", label: "Real dip",           note: "A clear discount vs the index's own recent self." },
+  { min: 2,  mult: 1.5, key: "lean",   label: "Mild dip",           note: "A modest discount — lean in a little." },
+  { min: 0,  mult: 1,   key: "base",   label: "Normal day",         note: "No meaningful discount — keep the baseline buy. Never skip." },
+];
+
+// The five reads for one index, off confirmed closes + the live spot (same
+// settled-history-vs-live-spot convention as stockDipReads). Returns null on
+// unusably thin history.
+function dcaReadsFor(closes, spotIn) {
+  const settled = Array.isArray(closes) ? closes.filter(Number.isFinite) : [];
+  if (settled.length < 60) return null;
+  // The last bar may be in-progress during the session — measure the live
+  // price against everything BEFORE it.
+  const hist = settled.slice(0, -1);
+  const px = spotIn > 0 ? spotIn : settled[settled.length - 1];
+  const smaOf = (n) => (hist.length >= n ? hist.slice(-n).reduce((a, b) => a + b, 0) / n : null);
+  const vsSma = (sma) => (sma > 0 ? (px / sma - 1) * 100 : null);
+  const reads = [];
+
+  // 1 · Below trend — under the 20D +1, under the 50D +1, under the 200D +2
+  // (an index under its 200-day is a regime-level discount, not a wobble).
+  const d20 = vsSma(smaOf(20)), d50 = vsSma(smaOf(50)), d200 = vsSma(smaOf(200));
+  let trendPts = 0;
+  const under = [];
+  if (d20 != null && d20 < 0) { trendPts += 1; under.push("20D"); }
+  if (d50 != null && d50 < 0) { trendPts += 1; under.push("50D"); }
+  if (d200 != null && d200 < 0) { trendPts += 2; under.push("200D"); }
+  const trendBits = [];
+  if (d20 != null) trendBits.push(`${d20 >= 0 ? "+" : ""}${r1(d20)}% vs 20D`);
+  if (d50 != null) trendBits.push(`${d50 >= 0 ? "+" : ""}${r1(d50)}% vs 50D`);
+  if (d200 != null) trendBits.push(`${d200 >= 0 ? "+" : ""}${r1(d200)}% vs 200D`);
+  reads.push({
+    key: "trend", label: "Below trend", pts: trendPts, max: 4,
+    detail: trendBits.join(" · ") + (under.length ? ` — under the ${under.join("/")}` : " — above every average"),
+  });
+
+  // 2 · Off the high — drawdown from the ~52-week high. The heaviest read:
+  // 3%+ = 1, 5%+ = 2, 10%+ = 3, 15%+ = 4, 20%+ = 5.
+  const hi252 = Math.max(...hist.slice(-252), px);
+  const dd = hi252 > 0 ? Math.max(0, (1 - px / hi252) * 100) : null;
+  const ddPts = dd == null ? 0 : dd >= 20 ? 5 : dd >= 15 ? 4 : dd >= 10 ? 3 : dd >= 5 ? 2 : dd >= 3 ? 1 : 0;
+  reads.push({
+    key: "drawdown", label: "Off the high", pts: ddPts, max: 5,
+    detail: dd == null ? "no 52-week high on file" : `${r1(dd)}% below the 52-week high (${r2(hi252)})`,
+  });
+
+  // 3 · Momentum washed out — live RSI(14) with the spot as the current bar:
+  // under 40 = 1, under 30 = 2.
+  const rsi = computeRSI(hist.concat([px]), 14);
+  const rsiPts = rsi == null ? 0 : rsi < 30 ? 2 : rsi < 40 ? 1 : 0;
+  reads.push({
+    key: "rsi", label: "Momentum washed out", pts: rsiPts, max: 2,
+    detail: rsi == null ? "no RSI read" : `RSI(14) ${r1(rsi)} — points below 40, doubles below 30`,
+  });
+
+  // 4 · Stretched below its 20-day mean — the Bollinger-style z-score:
+  // −1.5σ = 1, −2σ = 2.
+  let z20 = null;
+  const win = hist.slice(-20);
+  if (win.length >= 15) {
+    const mean = win.reduce((a, b) => a + b, 0) / win.length;
+    const sd = Math.sqrt(win.reduce((a, b) => a + (b - mean) ** 2, 0) / win.length);
+    if (sd > 1e-9) z20 = (px - mean) / sd;
+  }
+  const zPts = z20 == null ? 0 : z20 <= -2 ? 2 : z20 <= -1.5 ? 1 : 0;
+  reads.push({
+    key: "stretch", label: "Stretched vs 20-day", pts: zPts, max: 2,
+    detail: z20 == null ? "not enough bars" : `${z20 >= 0 ? "+" : ""}${r2(z20)}σ vs the 20-day mean — points at −1.5σ, doubles at −2σ`,
+  });
+
+  // 5 · Red day — a −1.5% session on a broad index is a genuine flush.
+  const prevClose = hist[hist.length - 1];
+  const ch1d = prevClose > 0 ? (px / prevClose - 1) * 100 : null;
+  const redPts = ch1d != null && ch1d <= -1.5 ? 1 : 0;
+  reads.push({
+    key: "red", label: "Red day", pts: redPts, max: 1,
+    detail: ch1d == null ? "no prior close" : `${ch1d >= 0 ? "+" : ""}${r2(ch1d)}% today — points at −1.5% or worse`,
+  });
+
+  // ~6-month close sparkline (settled closes + the live spot), downsampled.
+  const sparkSrc = hist.slice(-126).concat([px]);
+  let series = sparkSrc.map((v) => r2(v));
+  if (series.length > 48) {
+    const step = (series.length - 1) / 47;
+    series = Array.from({ length: 48 }, (_, i) => series[Math.round(i * step)]);
+  }
+
+  return {
+    price: r2(px), chPct: ch1d != null ? r2(ch1d) : null,
+    rsi: rsi != null ? r1(rsi) : null, z20: z20 != null ? r2(z20) : null,
+    drawdownPct: dd != null ? r1(dd) : null, hi252: r2(hi252),
+    sma: { d20: d20 != null ? r1(d20) : null, d50: d50 != null ? r1(d50) : null, d200: d200 != null ? r1(d200) : null },
+    series, reads,
+  };
+}
+
+// Pure plan builder (exported for offline testing): inputs is a map of
+// symbol → { closes, spot, asOf }. A symbol whose input is missing/thin reuses
+// its prior entry stale-marked (graceful degradation); history upserts one row
+// per ET day and is capped.
+export function buildDcaPlan(inputs, priorDca, builtAtIso, baseUsd = DCA_BASE_USD) {
+  const indexes = [];
+  for (const def of DCA_INDEXES) {
+    const input = inputs?.[def.symbol] || null;
+    const reads = input ? dcaReadsFor(input.closes, pnum(input.spot)) : null;
+    if (!reads) {
+      const prior = (priorDca?.indexes || []).find((x) => x && x.symbol === def.symbol);
+      if (prior) indexes.push({ ...prior, stale: true });
+      continue;
+    }
+    const points = reads.reads.reduce((a, s) => a + s.pts, 0);
+    const tier = DCA_TIERS.find((t) => points >= t.min) || DCA_TIERS[DCA_TIERS.length - 1];
+    indexes.push({
+      symbol: def.symbol, label: def.label, asOf: input.asOf || etDateKey(),
+      ...reads,
+      points, maxPoints: DCA_MAX_POINTS,
+      multiplier: tier.mult, amountUsd: r2(baseUsd * tier.mult),
+      tier: { key: tier.key, label: tier.label, note: tier.note },
+    });
+  }
+  if (!indexes.length) return priorDca || null;
+
+  // Per-ET-day call history (what did the dial say lately?) — upsert today's
+  // row so intraday re-bakes refresh it in place rather than appending. Only
+  // fresh reads are stamped; a symbol whose fetch missed keeps whatever an
+  // earlier build already recorded for today (merge, don't replace).
+  const today = etDateKey();
+  const history = (Array.isArray(priorDca?.history) ? priorDca.history : []).filter((h) => h && h.d);
+  const calls = {};
+  for (const ix of indexes) {
+    if (!ix.stale) calls[ix.symbol] = { m: ix.multiplier, px: ix.price, pts: ix.points };
+  }
+  if (Object.keys(calls).length) {
+    const idx = history.findIndex((h) => h.d === today);
+    if (idx >= 0) history[idx] = { d: today, calls: { ...history[idx].calls, ...calls } };
+    else history.push({ d: today, calls });
+  }
+  history.sort((a, b) => (a.d < b.d ? -1 : 1));
+
+  return {
+    updatedAtIso: builtAtIso, baseUsd, maxPoints: DCA_MAX_POINTS,
+    indexes, history: history.slice(-DCA_HISTORY_MAX_DAYS),
+  };
+}
+
+// Bake-time input assembly: QQQ (tracked) reads off the just-fetched chains;
+// VOO (not in the universe — no options coverage needed for a DCA dial) gets
+// one direct daily-bars fetch, the same chart() path the GLOBAL_MARKETS sweep
+// uses, plus a live quote for the spot.
+async function fetchDcaIndexInputs(chains) {
+  const inputs = {};
+  for (const def of DCA_INDEXES) {
+    try {
+      const held = chains?.[def.symbol];
+      if (held) {
+        const tb = timingBarsFrom(held);
+        const closes = tb ? tb.c.filter(Number.isFinite) : [];
+        if (closes.length >= 60) {
+          inputs[def.symbol] = { closes, spot: pnum(held.spot), asOf: etDateKey() };
+          continue;
+        }
+      }
+      const period2 = new Date();
+      const period1 = new Date(period2.getTime() - 420 * 24 * 3600 * 1000);
+      const result = await yahooFinance.chart(def.symbol, { period1, period2, interval: "1d" });
+      const closes = (result?.quotes || []).map((q) => Number(q?.close)).filter(Number.isFinite);
+      if (closes.length < 60) throw new Error("thin daily-bar history");
+      let spot = null;
+      try { spot = pnum((await yahooFinance.quote(def.symbol))?.regularMarketPrice); } catch { /* daily-bar close stands in */ }
+      inputs[def.symbol] = { closes, spot, asOf: etDateKey() };
+    } catch (err) {
+      console.warn(`  ⚠ DCA bars for ${def.symbol} failed — ${String(err?.message || err).split("\n")[0]}`);
+    }
+  }
+  return inputs;
+}
+
+// Prior stock-picks payload (pre-wipe read in main()) — only the `dca` block
+// carries forward; the dip candidates are rebuilt fresh every bake.
+export async function readPriorStockPicks() {
+  try { return JSON.parse(await readFile(resolve(DATA_DIR, STOCK_PICKS_FILE), "utf8")); } catch { return null; }
+}
+
+// ============================================================================
 // picks.json writer (+ tenure stamp + zero-pick stale reuse).
 // ============================================================================
 async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, priorClosed = null, priorGrades = null, scannerExtras = null, priorOpen = null, reentryCooldown = true, thesisProsePrior = null, streaksMap = null) {
@@ -23851,6 +24068,11 @@ async function main() {
   // miss, plus the accumulated scrape-overlay history (Drewry/BDI/Manheim),
   // so it must be pre-read before the wipe like the other histories.
   const priorCommodities = await readPriorCommodities();
+  // Prior stock-picks payload — ONLY for its `dca` block (the VOO/QQQ daily
+  // DCA dial): per-index last-good carry-forward on a bars miss + the small
+  // per-day call history, so it must be pre-read before the wipe. The dip
+  // candidates themselves stay rebuild-fresh.
+  const priorStockPicks = await readPriorStockPicks();
   // Load persisted last-good readings BEFORE writeChainFiles wipes data/.
   // Without these reads the caches would never serve a value across builds
   // — the file is gone by the time the post-wipe code tries to read it.
@@ -24443,8 +24665,19 @@ async function main() {
   // screen over the same universe, reusing the grade index just built.
   // Rebuilt fresh every bake — no cross-build accumulation, no pre-wipe read.
   try {
-    const spInfo = await writeStockPicksFile(buildStockPicks(chains, gradesIndex, builtAtIso));
-    console.log(`wrote data/${STOCK_PICKS_FILE} — ${spInfo.candidates} dip candidates (${spInfo.buyZone} in the buy zone), ${spInfo.bytes} bytes`);
+    const spPayload = buildStockPicks(chains, gradesIndex, builtAtIso);
+    // Daily DCA dial (VOO/QQQ) — QQQ bars from the tracked chains, one direct
+    // VOO fetch; carries the prior read forward per-index on a fetch miss and
+    // accumulates the per-day call history (priorStockPicks was pre-read
+    // before the wipe).
+    try {
+      spPayload.dca = buildDcaPlan(await fetchDcaIndexInputs(chains), priorStockPicks?.dca || null, builtAtIso);
+    } catch (err) {
+      spPayload.dca = priorStockPicks?.dca || null;
+      console.warn(`[stocks] DCA dial skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
+    const spInfo = await writeStockPicksFile(spPayload);
+    console.log(`wrote data/${STOCK_PICKS_FILE} — ${spInfo.candidates} dip candidates (${spInfo.buyZone} in the buy zone)${spPayload.dca ? `, DCA dial ${spPayload.dca.indexes.map((x) => `${x.symbol} ${x.multiplier}×`).join(" / ")}` : ""}, ${spInfo.bytes} bytes`);
   } catch (err) {
     console.warn(`[stocks] stock-picks skipped — ${String(err?.message || err).split("\n")[0]}`);
   }

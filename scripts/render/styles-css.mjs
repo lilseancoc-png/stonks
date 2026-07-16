@@ -3287,6 +3287,51 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .stk-cl-text b { font-weight: 650; color: var(--text-strong); }
 .stk-cl-unanswered .stk-cl-text b { color: var(--muted); }
 .stk-empty { font: 400 12.5px/1.5 var(--font-sans); color: var(--muted); font-style: italic; margin: 0; }
+/* Daily DCA dial (VOO/QQQ) — the sizing card block above the dip screen */
+.stk-dca { display: flex; flex-direction: column; gap: 10px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+.stk-dca-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; }
+.stk-dca-title { font: 700 13.5px/1.3 var(--font-sans); color: var(--text-strong); margin: 0; }
+.stk-dca-baselab { margin-left: auto; display: inline-flex; align-items: baseline; gap: 4px; font: 600 11px/1.3 var(--font-sans); color: var(--muted); white-space: nowrap; }
+.stk-dca-baselab input { width: 62px; font: 700 12px/1.2 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-strong); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 7px; }
+.stk-dca-hint { font: 400 11.5px/1.55 var(--font-sans); color: var(--muted); margin: 0; }
+.stk-dca-hint b { font-weight: 650; color: var(--text-strong); }
+.stk-dca-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 12px; }
+.stk-dca-card {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 14px; border: 1px solid var(--border); border-left-width: 3px;
+  border-left-color: var(--border); border-radius: var(--r-1); background: var(--surface);
+}
+.stk-dca-tier-lean { border-left-color: var(--accent); }
+.stk-dca-tier-double, .stk-dca-tier-heavy, .stk-dca-tier-max { border-left-color: var(--pos); }
+.stk-dca-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.stk-dca-id { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.stk-dca-sym { font: 700 15px/1 var(--font-mono); color: var(--text-strong); }
+.stk-dca-name { font: 400 11px/1.3 var(--font-sans); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stk-dca-stale { font: 700 9px/1 var(--font-sans); text-transform: uppercase; letter-spacing: 0.05em; color: var(--warn); background: var(--warn-soft); border-radius: 999px; padding: 3px 6px; cursor: help; }
+.stk-dca-px { margin-left: auto; font: 600 12.5px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-strong); }
+.stk-dca-verdict { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.stk-dca-amt { font: 800 24px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-strong); }
+.stk-dca-tier-double .stk-dca-amt, .stk-dca-tier-heavy .stk-dca-amt, .stk-dca-tier-max .stk-dca-amt { color: var(--pos); }
+.stk-dca-tier-lean .stk-dca-amt { color: var(--accent); }
+.stk-dca-verdict-sub { font: 600 11.5px/1.4 var(--font-sans); color: var(--muted); display: inline-flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.stk-dca-mult { font: 700 10px/1 var(--font-sans); text-transform: uppercase; letter-spacing: 0.04em; border: 1px solid var(--border); border-radius: 999px; padding: 3px 7px; color: var(--text-strong); }
+.stk-dca-pts { font: 500 10.5px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted); cursor: help; }
+.stk-dca-note { font: 400 11.5px/1.5 var(--font-sans); color: var(--muted); margin: 0; font-style: italic; }
+.stk-dca-reads { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.stk-dca-read { font: 400 11.5px/1.45 var(--font-sans); color: var(--muted); opacity: 0.6; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; }
+.stk-dca-read b { font-weight: 650; }
+.stk-dca-read::before { content: '○'; font: 700 11px/1 var(--font-mono); }
+.stk-dca-read-on { opacity: 1; }
+.stk-dca-read-on b { color: var(--text-strong); }
+.stk-dca-read-on::before { content: '●'; color: var(--pos); }
+.stk-dca-read-pts { font: 700 10px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 5px; }
+.stk-dca-read-on .stk-dca-read-pts { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 35%, transparent); }
+.stk-dca-read-det { flex-basis: 100%; font-size: 10.5px; }
+.stk-dca-hist { display: flex; gap: 4px; flex-wrap: wrap; border-top: 1px solid var(--border); padding-top: 8px; }
+.stk-dca-h { font: 700 9.5px/1 var(--font-mono); font-variant-numeric: tabular-nums; border-radius: 5px; padding: 4px 6px; color: var(--muted); background: color-mix(in srgb, var(--border) 45%, transparent); cursor: help; }
+.stk-dca-h-lean { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.stk-dca-h-hi { color: var(--pos); background: color-mix(in srgb, var(--pos) 14%, transparent); }
+.stk-dca-h-max { color: var(--pos); background: color-mix(in srgb, var(--pos) 26%, transparent); }
 
 /* --- Capital raises (Macro) ------------------------------------------- */
 .cr-rows { display: flex; flex-direction: column; gap: 10px; }

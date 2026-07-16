@@ -11,6 +11,7 @@ import {
   assessThesisQuality, selectStrategy, classifyPick, generateAiTheses, applyAiThesisGrade,
   buildMarketRead, macroKindOf, thesisCacheSig, PICKS_MAX_AI_THESES, buildThesisUserMessage,
   buildMacroCalendarAhead, transcriptGuidanceDirection, impliedMoveFromIvCrush,
+  buildDcaPlan, DCA_BASE_USD,
 } from "./build.mjs";
 
 let pass = 0, fail = 0;
@@ -900,6 +901,42 @@ ok("crush: 55→40 vol reconstructs ~10% move", crushEst > 0.08 && crushEst < 0.
 ok("crush: no crush (post ≥ pre) → null", impliedMoveFromIvCrush(0.40, 0.40) === null && impliedMoveFromIvCrush(0.40, 0.55) === null);
 ok("crush: missing sides → null", impliedMoveFromIvCrush(null, 0.4) === null && impliedMoveFromIvCrush(0.5, null) === null);
 ok("crush: implausibly tiny diff → null", impliedMoveFromIvCrush(0.30001, 0.3) === null);
+
+// --- 16. daily DCA dial (VOO/QQQ sizing — buildDcaPlan) ---
+// Steady uptrend → the baseline 1×, never a skip.
+const dcaUp = Array.from({ length: 300 }, (_, i) => 100 * Math.pow(1.0008, i));
+const dcaPlanUp = buildDcaPlan(
+  { VOO: { closes: dcaUp, spot: dcaUp[dcaUp.length - 1] * 1.001, asOf: "2026-07-16" }, QQQ: { closes: dcaUp, spot: dcaUp[dcaUp.length - 1] * 1.001, asOf: "2026-07-16" } },
+  null, "2026-07-16T14:00:00.000Z",
+);
+ok("dca: uptrend → 1× baseline on both indexes", dcaPlanUp.indexes.length === 2 && dcaPlanUp.indexes.every((x) => x.multiplier === 1 && x.amountUsd === DCA_BASE_USD));
+ok("dca: today's history row written with both calls", dcaPlanUp.history.length === 1 && dcaPlanUp.history[0].calls.VOO && dcaPlanUp.history[0].calls.QQQ);
+// Bear-market pricing — ramp then a −20% slide plus a red day → the 4× tier.
+const dcaCrash = [];
+for (let i = 0; i < 260; i++) dcaCrash.push(100 * Math.pow(1.001, i));
+const dcaPeak = dcaCrash[dcaCrash.length - 1];
+for (let i = 1; i <= 40; i++) dcaCrash.push(dcaPeak * (1 - 0.005 * i));
+const dcaCrashSpot = dcaCrash[dcaCrash.length - 1] * 0.98;
+const dcaPlanDown = buildDcaPlan(
+  { VOO: { closes: dcaCrash, spot: dcaCrashSpot, asOf: "2026-07-16" }, QQQ: { closes: dcaCrash, spot: dcaCrashSpot, asOf: "2026-07-16" } },
+  dcaPlanUp, "2026-07-16T15:00:00.000Z",
+);
+ok("dca: bear-market slide → the 4× deep-discount tier", dcaPlanDown.indexes.every((x) => x.multiplier === 4 && x.tier.key === "max"));
+ok("dca: same-ET-day history row upserted, not appended", dcaPlanDown.history.length === 1);
+ok("dca: every read ships label + pts on the card", dcaPlanDown.indexes[0].reads.length === 5 && dcaPlanDown.indexes[0].reads.every((r) => r.label && Number.isFinite(r.pts)));
+// A missing symbol carries its prior entry forward stale; today's history row
+// keeps the earlier build's fresh call (merge, not replace).
+const dcaPlanMiss = buildDcaPlan(
+  { QQQ: { closes: dcaUp, spot: dcaUp[dcaUp.length - 1], asOf: "2026-07-16" } },
+  dcaPlanDown, "2026-07-16T16:00:00.000Z",
+);
+const dcaVooStale = dcaPlanMiss.indexes.find((x) => x.symbol === "VOO");
+ok("dca: missing bars → prior entry carried stale-marked", dcaVooStale && dcaVooStale.stale === true && dcaVooStale.multiplier === 4);
+const dcaLastRow = dcaPlanMiss.history[dcaPlanMiss.history.length - 1];
+ok("dca: history merge keeps the earlier fresh call for the missed symbol", dcaLastRow.calls.QQQ && dcaLastRow.calls.QQQ.m === 1 && dcaLastRow.calls.VOO && dcaLastRow.calls.VOO.m === 4);
+// No inputs at all → everything carried stale, history untouched.
+const dcaPlanNone = buildDcaPlan({}, dcaPlanDown, "2026-07-16T17:00:00.000Z");
+ok("dca: no inputs → all entries stale, history unchanged", dcaPlanNone.indexes.every((x) => x.stale) && JSON.stringify(dcaPlanNone.history) === JSON.stringify(dcaPlanDown.history));
 
 console.log(`\n${pass}/${pass + fail} checks passed.`);
 process.exit(fail ? 1 : 0);

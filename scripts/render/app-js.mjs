@@ -15029,6 +15029,103 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       stkChecklist(row) +
     '</article>';
   }
+  // ── Daily DCA dial (VOO/QQQ) — rides stock-picks.json's "dca" block ────
+  // Deterministic sizing for the reader's own daily index buy: never "skip",
+  // only "baseline or lean in, and how hard". The multiplier ladder is baked
+  // server-side (buildDcaPlan in scripts/build.mjs); the only client-side
+  // state is the reader's baseline $ (localStorage), which just scales the
+  // displayed amounts.
+  function stkDcaBase(d){
+    var def = (d && isFinite(Number(d.baseUsd)) && Number(d.baseUsd) > 0) ? Number(d.baseUsd) : 10;
+    var v = NaN;
+    try { v = parseFloat(localStorage.getItem('stkDcaBase') || ''); } catch(e){}
+    return (isFinite(v) && v > 0) ? v : def;
+  }
+  function stkDcaUsd(v){
+    var n = Math.round(Number(v) * 100) / 100;
+    return '$' + (n % 1 ? n.toFixed(2) : String(n));
+  }
+  function stkDcaReadChips(reads){
+    var out = '';
+    (reads || []).forEach(function(s){
+      if (!s || !s.label) return;
+      out += '<li class="stk-dca-read' + (s.pts > 0 ? ' stk-dca-read-on' : '') + '">' +
+        '<b>' + escapeHtml(s.label) + '</b>' +
+        '<span class="stk-dca-read-pts">' + (s.pts > 0 ? '+' + s.pts : '0') + (s.max ? '/' + s.max : '') + '</span>' +
+        (s.detail ? '<span class="stk-dca-read-det">' + escapeHtml(s.detail) + '</span>' : '') +
+      '</li>';
+    });
+    return out ? '<ul class="stk-dca-reads" aria-label="Dip reads">' + out + '</ul>' : '';
+  }
+  // Last ~10 trading days of dial calls for one symbol, oldest → newest.
+  function stkDcaHistStrip(hist, sym){
+    var cells = '';
+    (hist || []).slice(-10).forEach(function(h){
+      var c = h && h.calls && h.calls[sym];
+      if (!c) return;
+      var m = Number(c.m) || 1;
+      var cls = m >= 3 ? 'stk-dca-h-max' : m >= 2 ? 'stk-dca-h-hi' : m > 1 ? 'stk-dca-h-lean' : 'stk-dca-h-base';
+      cells += '<span class="stk-dca-h ' + cls + '" title="' + escapeHtml(h.d + ' — ' + m + '× at $' + c.px + (c.pts != null ? ' (' + c.pts + ' pts)' : '')) + '">' + m + '×</span>';
+    });
+    return cells ? '<div class="stk-dca-hist" aria-label="Recent dial calls">' + cells + '</div>' : '';
+  }
+  function stkDcaCard(ix, base){
+    var mult = Number(ix.multiplier) || 1;
+    var amt = base * mult;
+    var ch = Number(ix.chPct);
+    var chHtml = isFinite(ch) ? ' <span class="' + (ch > 0 ? 'pos' : ch < 0 ? 'neg' : '') + '">' + (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%</span>' : '';
+    var tier = ix.tier || {};
+    var tierCls = 'stk-dca-tier-' + escapeHtml(tier.key || 'base');
+    var pts = '<span class="stk-dca-pts" title="Dip points — five deterministic reads, each worth documented points; the sum picks the multiplier tier">' +
+      (ix.points != null ? ix.points : '—') + (ix.maxPoints ? ' / ' + ix.maxPoints : '') + ' pts</span>';
+    var stale = ix.stale ? '<span class="stk-dca-stale" title="Bars fetch missed this build — showing the last good read">stale</span>' : '';
+    return '<article class="stk-dca-card ' + tierCls + '">' +
+      '<header class="stk-dca-head">' +
+        '<div class="stk-dca-id"><b class="stk-dca-sym">' + escapeHtml(ix.symbol) + '</b>' +
+          (ix.label ? '<span class="stk-dca-name">' + escapeHtml(ix.label) + '</span>' : '') + stale + '</div>' +
+        '<div class="stk-dca-px">' + fmtMoney(ix.price) + chHtml + '</div>' +
+      '</header>' +
+      '<div class="stk-dca-verdict">' +
+        '<b class="stk-dca-amt" data-dca-mult="' + mult + '">' + stkDcaUsd(amt) + '</b>' +
+        '<span class="stk-dca-verdict-sub"><span class="stk-dca-mult">' + mult + '× baseline</span> · ' + escapeHtml(tier.label || '') + pts + '</span>' +
+      '</div>' +
+      (tier.note ? '<p class="stk-dca-note">' + escapeHtml(tier.note) + '</p>' : '') +
+      stkSpark({ series: ix.series }) +
+      stkDcaReadChips(ix.reads) +
+      stkDcaHistStrip(stocksState.data && stocksState.data.dca ? stocksState.data.dca.history : null, ix.symbol) +
+    '</article>';
+  }
+  function stkDcaBlock(d){
+    var dca = d && d.dca;
+    if (!dca || !Array.isArray(dca.indexes) || !dca.indexes.length) return '';
+    var base = stkDcaBase(dca);
+    var when = dca.updatedAtIso ? new Date(dca.updatedAtIso).toLocaleString() : '';
+    return '<section class="stk-dca" aria-label="Daily index DCA dial">' +
+      '<header class="stk-dca-top">' +
+        '<h3 class="stk-dca-title">Daily DCA dial — VOO &amp; QQQ</h3>' +
+        '<label class="stk-dca-baselab">Your daily baseline $' +
+          '<input id="stk-dca-base" type="number" min="1" step="1" inputmode="decimal" value="' + base + '" aria-label="Daily baseline dollars">' +
+        '</label>' +
+      '</header>' +
+      '<p class="stk-dca-hint">Sizes the everyday index buy, never times it: the dial <b>always says buy at least the baseline</b> — skipping days is how DCA plans die — and only answers whether today is a discount day worth leaning into. Five deterministic price reads per index (trend, drawdown off the 52-week high, RSI, 20-day stretch, red day) earn points; fixed point bars map to 1× / 1.5× / 2× / 3× / 4× the baseline. Every read and its points are on the card — no AI, no black box. Refreshed with each hourly build' + (when ? ' · updated ' + escapeHtml(when) : '') + '. Not financial advice.</p>' +
+      '<div class="stk-dca-grid">' + dca.indexes.map(function(ix){ return stkDcaCard(ix, base); }).join('') + '</div>' +
+    '</section>';
+  }
+  // The baseline input only rescales the displayed $ amounts in place (no
+  // re-render — that would drop focus mid-keystroke).
+  function bindDcaBase(root){
+    var inp = root.querySelector('#stk-dca-base');
+    if (!inp) return;
+    inp.addEventListener('input', function(){
+      var v = parseFloat(inp.value);
+      if (!(isFinite(v) && v > 0)) return;
+      try { localStorage.setItem('stkDcaBase', String(v)); } catch(e){}
+      var amts = root.querySelectorAll('[data-dca-mult]');
+      for (var i = 0; i < amts.length; i++){
+        amts[i].textContent = stkDcaUsd(v * (parseFloat(amts[i].getAttribute('data-dca-mult')) || 1));
+      }
+    });
+  }
   function renderStocks(){
     var root = $('stocks-root'); var eye = $('stocks-eyebrow');
     if (!root) return;
@@ -15054,9 +15151,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         (d.screened.qualityPassed || 0) + '</b> pass the quality gate → <b>' +
         (d.screened.beatenDown || 0) + '</b> beaten down right now' + shownNote + '</p>';
     }
-    root.innerHTML = funnel + (rows.length
+    root.innerHTML = stkDcaBlock(d) + funnel + (rows.length
       ? '<div class="stk-grid">' + rows.map(function(r){ return stkCard(r); }).join('') + '</div>'
       : '<p class="stk-empty">No quality name is meaningfully beaten down right now — the screen would rather show nothing than stretch the definition of a dip. Candidates appear when a business that passes the quality gate trips at least ' + (d.minSignals || 2) + ' of the five dip reads.</p>');
+    bindDcaBase(root);
     bindBriefChips(root);
   }
   function loadBrief(){
