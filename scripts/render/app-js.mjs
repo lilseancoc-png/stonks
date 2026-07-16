@@ -13294,7 +13294,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // (d.upcoming — names reporting inside ~3 weeks with drift-so-far), and the
   // AI season read. All move fields are FRACTIONS (0.04 = 4%), like
   // earningsHx; surprisePct is a %.
-  var earningsState = { data: null, loading: false, seasonKey: null };
+  var earningsState = { data: null, loading: false, seasonKey: null, upSort: 'date' };
   function ersNum(v){ return v != null && isFinite(v); }
   function ersPct(v, signed){
     if (!ersNum(v)) return '—';
@@ -13409,10 +13409,23 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // Heading into earnings — the current quarter's forward look (only on the
     // newest season): names reporting inside ~3 weeks, with the live 2/3-week
     // drift so far. Big value = 3-week drift (2-week fallback), sub = 2-week.
+    // Sortable via chips: report date (the payload's baked order), biggest
+    // run-up first, or biggest sell-off first — the drift sorts key on the
+    // same 3-week-primary value the row displays, no-drift rows last.
     if (season === seasons[0] && Array.isArray(d.upcoming) && d.upcoming.length){
+      var upSort = earningsState.upSort || 'date';
+      var upList = d.upcoming.slice();
+      if (upSort !== 'date'){
+        upList.sort(function(a, b){
+          var av = a && ersNum(a.pre15Pct) ? a.pre15Pct : a && ersNum(a.pre10Pct) ? a.pre10Pct : null;
+          var bv = b && ersNum(b.pre15Pct) ? b.pre15Pct : b && ersNum(b.pre10Pct) ? b.pre10Pct : null;
+          if (av == null || bv == null) return (av == null ? 1 : 0) - (bv == null ? 1 : 0);
+          return upSort === 'runup' ? bv - av : av - bv;
+        });
+      }
       var upRows = [];
-      for (var uu = 0; uu < d.upcoming.length; uu++){
-        var u = d.upcoming[uu];
+      for (var uu = 0; uu < upList.length; uu++){
+        var u = upList[uu];
         if (!u || !u.sym) continue;
         var uv = ersNum(u.pre15Pct) ? u.pre15Pct : u.pre10Pct;
         upRows.push('<div class="ers-ldr-row">' +
@@ -13424,11 +13437,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '</div>');
       }
       if (upRows.length){
+        var upSorts = [['date', 'report date'], ['runup', 'biggest run-up'], ['selloff', 'biggest sell-off']];
+        var upSortHtml = '';
+        for (var us = 0; us < upSorts.length; us++){
+          upSortHtml += '<button type="button" class="ers-up-sort-chip" data-ers-upsort="' + upSorts[us][0] + '" aria-pressed="' + (upSort === upSorts[us][0] ? 'true' : 'false') + '">' + upSorts[us][1] + '</button>';
+        }
         var upHalf = Math.ceil(upRows.length / 2);
         var upCols = upRows.length > 4
           ? '<div class="ers-ldr-col">' + upRows.slice(0, upHalf).join('') + '</div><div class="ers-ldr-col">' + upRows.slice(upHalf).join('') + '</div>'
           : '<div class="ers-ldr-col">' + upRows.join('') + '</div>';
-        html += '<div class="ers-ldrs"><div class="ers-ldr-col" style="grid-column:1/-1;margin-bottom:-8px"><div class="ers-ldr-head">Heading into earnings — next 3 weeks, drift so far</div></div>' + upCols + '</div>';
+        html += '<div class="ers-ldrs"><div class="ers-ldr-col" style="grid-column:1/-1;margin-bottom:-8px"><div class="ers-ldr-head ers-ldr-head-row"><span>Heading into earnings — next 3 weeks, drift so far</span><span class="ers-up-sort" role="toolbar" aria-label="Sort the upcoming reporters">' + upSortHtml + '</span></div></div>' + upCols + '</div>';
       }
     }
     // Stat tiles.
@@ -13529,6 +13547,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     for (var pe = 0; pe < pillEls.length; pe++){
       pillEls[pe].addEventListener('click', function(ev){
         earningsState.seasonKey = ev.currentTarget.getAttribute('data-ers-season');
+        renderEarningsTracker();
+      });
+    }
+    // Upcoming-strip sort chips.
+    var upSortEls = root.querySelectorAll('[data-ers-upsort]');
+    for (var ue = 0; ue < upSortEls.length; ue++){
+      upSortEls[ue].addEventListener('click', function(ev){
+        earningsState.upSort = ev.currentTarget.getAttribute('data-ers-upsort') || 'date';
         renderEarningsTracker();
       });
     }
@@ -14367,7 +14393,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<div class="ic-stat ic-stat-prev"><span class="ic-stat-val">' + ip.prior.count + '</span><span class="ic-stat-sub">' + escapeHtml(ip.prior.label) + ' total</span></div>' +
         '</div>' +
         (bars ? '<div class="ic-bars">' + bars + '</div>' : '') +
-        (rows ? '<div class="ic-table-wrap"><table class="ic-table"><thead><tr><th>Date</th><th>Symbol</th><th>Company</th><th>IPO price</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<p class="ic-note">No listings priced yet this quarter.</p>') +
+        (rows ? '<div class="ic-table-wrap"><table class="ic-table"><thead><tr><th>Date</th><th>Symbol</th><th>Company</th><th class="ic-num">IPO price</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<p class="ic-note">No listings priced yet this quarter.</p>') +
         '<p class="ic-note">' + escapeHtml(ip.note || '') + ' Source: <a href="' + escapeHtml(ip.sourceUrl || '#') + '" target="_blank" rel="noopener noreferrer">stockanalysis.com</a>.</p>' +
       '</article>';
     }
@@ -14388,7 +14414,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
             '<td class="ic-num">' + ((sq.b4 != null && sq.b5 != null) ? (sq.b4 + sq.b5).toLocaleString() : '—') + '</td></tr>';
         }
         inner += '<div class="ic-sub-head">Market-wide SEC prospectus filings ' + icStaleBadge(sec) + '</div>' +
-          '<div class="ic-table-wrap"><table class="ic-table"><thead><tr><th>Quarter</th><th title="424B4 — priced offering prospectuses (IPOs + follow-ons)">IPO/follow-on (424B4)</th><th title="424B5 — shelf takedowns (seasoned equity and debt raises)">Shelf raises (424B5)</th><th>Total</th></tr></thead><tbody>' + srows + '</tbody></table></div>' +
+          '<div class="ic-table-wrap"><table class="ic-table"><thead><tr><th>Quarter</th><th class="ic-num" title="424B4 — priced offering prospectuses (IPOs + follow-ons)">IPO/follow-on (424B4)</th><th class="ic-num" title="424B5 — shelf takedowns (seasoned equity and debt raises)">Shelf raises (424B5)</th><th class="ic-num">Total</th></tr></thead><tbody>' + srows + '</tbody></table></div>' +
           '<p class="ic-note">' + escapeHtml(sec.note || '') + '</p>';
       }
       if (uni && uni.current){

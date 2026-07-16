@@ -2822,6 +2822,19 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .ers-seg-warn { background: color-mix(in srgb, var(--warn, #d97706) 78%, transparent); }
 .ers-ldrs { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px 20px; margin-bottom: 16px; }
 .ers-ldr-head { font: 700 12px/1 var(--font-sans); text-transform: uppercase; letter-spacing: 0.04em; padding-bottom: 6px; margin-bottom: 4px; border-bottom: 1px solid var(--border); }
+/* Upcoming-strip head row: title left, sort chips right (wraps on phones). */
+.ers-ldr-head-row { display: flex; align-items: center; justify-content: space-between; gap: 6px 10px; flex-wrap: wrap; }
+.ers-up-sort { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.ers-up-sort-chip {
+  display: inline-flex; padding: 4px 9px; border: 1px solid var(--border); border-radius: 999px;
+  font: 600 10.5px/1 var(--font-sans); letter-spacing: normal; text-transform: none;
+  color: var(--muted); cursor: pointer; background: none; white-space: nowrap;
+}
+.ers-up-sort-chip:hover, .ers-up-sort-chip:focus-visible { border-color: var(--muted); color: var(--text-strong); }
+.ers-up-sort-chip[aria-pressed="true"] {
+  border-color: var(--accent); color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
 .ers-ldr-row { display: flex; align-items: baseline; gap: 8px; padding: 5px 0; border-bottom: 1px dashed color-mix(in srgb, var(--border) 60%, transparent); }
 .ers-ldr-row:last-child { border-bottom: 0; }
 .ers-ldr-name { font: 400 11.5px/1.2 var(--font-sans); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; min-width: 0; }
@@ -3319,7 +3332,11 @@ button.cr-tkr:hover .stk-sym-go, button.cr-tkr:focus-visible .stk-sym-go { color
 .ic-table td { padding: 5px 10px 5px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); color: var(--text); }
 .ic-table .ic-sym { font: 700 12.5px/1.3 var(--font-mono); color: var(--text-strong); }
 .ic-table .ic-name { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ic-table .ic-num { font-family: var(--font-mono); text-align: right; white-space: nowrap; }
+.ic-table td.ic-num { font-family: var(--font-mono); text-align: right; white-space: nowrap; }
+/* Numeric column HEADERS right-align over their values — the 100%-width auto
+   table stretches columns past their content, so a left-aligned th drifts
+   away from the right-aligned numbers below it. */
+.ic-table th.ic-num { text-align: right; }
 .ic-table th:last-child, .ic-table td:last-child { padding-right: 0; }
 .ic-row-cur td { color: var(--text-strong); background: color-mix(in srgb, var(--accent) 7%, transparent); }
 .ic-td-note { font: 400 10px/1 var(--font-sans); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
