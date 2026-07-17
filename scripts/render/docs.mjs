@@ -1048,9 +1048,11 @@ export const DOC_PAGES = {
           <ul class="cmp-list">
             <li><b>Grade a ticker</b> — AI chart-pattern read + technicals, fundamentals, IV, news + a contract grader</li>
             <li><b>Tickers</b> — chains, technicals, Greeks, IV term structure, AI news takes</li>
+            <li><b>Compare companies</b> — 2–4 names side by side: valuation, growth, margins, grade</li>
             <li><b>Calendar</b> — earnings, macro prints, FOMC + FedWatch odds</li>
+            <li><b>Earnings tracker</b> — season scoreboard: beats, guidance, expected moves, drift</li>
             <li><b>Market heatmap</b> — live map by performance or relative volume</li>
-            <li><b>Macro</b> — Overnight markets, Fear &amp; Greed, Bonds &amp; USD, 13F filings</li>
+            <li><b>Macro</b> — Overnight markets, Fear &amp; Greed, Bonds &amp; USD, 13F filings, Commodities, IPOs &amp; credit, AI CapEx, RAM prices, Capital raises</li>
             <li><b>Trending IV</b> — implied vol running above a name's own history</li>
             <li><b>Streaks</b> &amp; the <b>Strategies</b> entry engine</li>
             <li><b>Reference</b> — Buyer's manual + Chart-patterns field guide</li>
@@ -1069,7 +1071,7 @@ export const DOC_PAGES = {
           <ul class="cmp-list">
             <li><b>Market analysis</b> — the live market tape, risk barometer &amp; regime history</li>
             <li><b>Top Picks</b> — highest-conviction contracts, sizing &amp; breakeven</li>
-            <li><b>Stock Picks</b> — shares-only buy-the-dip screen: quality names beaten down, trap flags shown</li>
+            <li><b>Stock Picks</b> — shares-only buy-the-dip screen (quality names beaten down, trap flags shown) + a daily VOO/QQQ DCA dial</li>
             <li><b>Briefs</b> — hourly market digest, open through close</li>
             <li><b>Narratives</b> — AI theses driving capital, longs/shorts, lifecycle</li>
             <li><b>Earnings calls</b> — AI briefs of each name's latest call: guidance, tone, Q&amp;A</li>
@@ -1077,7 +1079,7 @@ export const DOC_PAGES = {
             <li><b>Volume</b> — intraday volume + support/resistance breaks</li>
             <li><b>Gamma exposure</b> — dealer net-gamma matrix, flip &amp; walls</li>
             <li><b>Track Record</b> — resolved picks performance &amp; scorecard</li>
-            <li><b>Index calendar</b> — SPY/QQQ/IWM/SMH/VXUS/VIX daily closes, green/red by % move, month by month</li>
+            <li><b>Index calendar</b> — SPY/QQQ/IWM/SMH/DIA + VXUS/TLT/GLD/VIX daily closes, green/red by % move, month by month</li>
           </ul>
           <div class="cmp-cta">
             <a class="btn discord" href="/api/auth/discord-login">
@@ -1104,8 +1106,16 @@ export const DOC_PAGES = {
           <p class="feat-desc">Per-ticker option chains, technicals (RSI/MACD/SMA/S&amp;R/IV regime), Greeks, IV term structure, earnings history, and an AI news take — for every tracked symbol.</p>
         </div>
         <div class="feat">
+          <div class="feat-top"><span class="feat-name">Compare companies</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">Put 2–4 companies side by side — price, valuation (P/E, PEG, P/S), growth, margins, the analyst read and the 4-pillar grade — with the leader on each row highlighted, the % difference vs the first name, and a plain-language summary of how they stack up.</p>
+        </div>
+        <div class="feat">
           <div class="feat-top"><span class="feat-name">Calendar</span><span class="tier free">Free</span></div>
           <p class="feat-desc">Earnings AM/PM sessions, macro releases (CPI, NFP, PPI, JOLTS), FOMC dates and live FedWatch probabilities — with countdowns and clickable tickers.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Earnings tracker</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">A season-by-season scoreboard of every tracked name's earnings — beats vs misses, guidance raised or cut, whether the stock moved more than the options market priced in, the pre-earnings drift into each print, sell-the-news counts, the biggest gap-ups and gap-downs, a sortable look at who reports next, and a daily AI season read.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Strategies</span><span class="tier free">Free</span></div>
@@ -1134,6 +1144,26 @@ export const DOC_PAGES = {
         <div class="feat">
           <div class="feat-top"><span class="feat-name">13F filings</span><span class="tier free">Free</span></div>
           <p class="feat-desc">A quarterly snapshot of the largest institutional filers — top positions, biggest aggregate holdings, and rotation themes.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Commodities</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">Eleven equity-relevant input-cost and demand signals — cocoa, cotton, coffee, sugar, palm oil, lumber, potash, lithium, container freight, the Baltic Dry, and used-vehicle values — each with momentum chips, a then-vs-now strip (3&nbsp;months / 6&nbsp;months / a year ago against today), a sparkline, and the tickers it matters for.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">IPOs &amp; credit</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">The quarterly capital-formation and consumer-credit dashboard — how many companies went public this quarter vs last, SEC prospectus-filing counts, the tracked universe's raise and buyback totals, plus the credit backdrop: national credit-card debt, bank deposits, and the NY Fed's household debt report.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">AI CapEx</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">Aggregate "Magnificent 7" capital expenditure pulled straight from SEC filings — this fiscal year vs last, per-company run-rates, and a revenue check: is CapEx growing faster than the revenue behind it?</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">RAM prices</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">DRAM / memory pricing from two independent sources — wholesale spot chips and modules plus US retail DDR5 kits — with a composite index, 7-day / 30-day / 3-month / 1-year changes, and a hoverable trend chart.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Capital raises</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">News-flagged debt, convertible and share issuance — plus buybacks — across the tracked universe, enriched with the latest filed amounts from SEC filings.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Streaks</span><span class="tier free">Free</span></div>
@@ -1172,11 +1202,11 @@ export const DOC_PAGES = {
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Top Picks</span><span class="tier prem">Premium</span></div>
-          <p class="feat-desc">The highest-conviction contracts pulled from today's chains — a cross-sectional grade, suggested contract, position sizing, move-to-breakeven, and an exit plan.</p>
+          <p class="feat-desc">The highest-conviction contracts pulled from today's chains — a deterministic four-pillar grade, a web-research-grounded AI final grader making the buy-now / wait call, the suggested contract and structure, position sizing, move-to-breakeven, an exit plan, and a shared watchlist that keeps an idea pinned through every refresh.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Stock Picks</span><span class="tier prem">Premium</span></div>
-          <p class="feat-desc">Shares, not options — two deterministic screens over the whole universe: quality names trading cheap (below-sector multiples, real drawdowns, analyst upside past a profitability gate), and up-and-coming names coiled against resistance with momentum and volume behind them.</p>
+          <p class="feat-desc">Shares, not options — a buy-the-dip screen over the whole universe that answers three questions independently: is it a good business (a hard quality gate), is it beaten down right now (five "cheap vs its own recent self" reads), and did something actually break (trap flags that warn but never hide a name). Each card opens into a ~28-question investment-thesis checklist answered from tracked data, and a daily <b>DCA dial</b> sizes an everyday VOO/QQQ index buy — always at least the baseline, leaning in on the rare deep-discount days.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Briefs</span><span class="tier prem">Premium</span></div>
@@ -1204,11 +1234,11 @@ export const DOC_PAGES = {
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Track Record</span><span class="tier prem">Premium</span></div>
-          <p class="feat-desc">The resolved Top-Picks performance — win rate, win/loss payoff, expectancy vs SPY, the scorecard, and the roster's in/out churn over time.</p>
+          <p class="feat-desc">The resolved Top-Picks performance — win rate, win/loss payoff, expectancy vs SPY, an engine-health summary that explains why each pick won or lost, a $100k backtest simulator with Monte Carlo, and the roster's in/out churn over time.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Index calendar</span><span class="tier prem">Premium</span></div>
-          <p class="feat-desc">A month-grid record of how SPY, QQQ, IWM, VXUS and VIX closed each trading day — green for up, red for down, with the close-to-close % in every cell (VIX colours invert, so green reads "calmer"). Toggle the index, walk the months, and read the per-month green-vs-red tally and compounded return.</p>
+          <p class="feat-desc">A month-grid record of how SPY, QQQ, IWM, SMH, DIA, VXUS, TLT, GLD and VIX closed each trading day — green for up, red for down, with the close-to-close % in every cell (VIX colours invert, so green reads "calmer"). Toggle the index, walk the months, and read the per-month green-vs-red tally and compounded return.</p>
         </div>
       </div>
     </section>

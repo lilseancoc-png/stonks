@@ -3557,9 +3557,11 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
           <ul class="cmp-list">
             <li><b>Grade a ticker</b> — AI chart-pattern read + technicals, fundamentals, IV, news + a contract grader</li>
             <li><b>Tickers</b> — chains, technicals, Greeks, IV term structure, AI news takes</li>
+            <li><b>Compare companies</b> — 2–4 names side by side: valuation, growth, margins, grade</li>
             <li><b>Calendar</b> — earnings, macro prints, FOMC + FedWatch odds</li>
+            <li><b>Earnings tracker</b> — season scoreboard: beats, guidance, expected moves, drift</li>
             <li><b>Market heatmap</b> — live map by performance or relative volume</li>
-            <li><b>Macro</b> — Overnight markets, Fear &amp; Greed, Bonds &amp; USD, 13F filings</li>
+            <li><b>Macro</b> — Overnight markets, Fear &amp; Greed, Bonds &amp; USD, 13F filings, Commodities, IPOs &amp; credit, AI CapEx, RAM prices, Capital raises</li>
             <li><b>Trending IV</b> — implied vol running above a name's own history</li>
             <li><b>Streaks</b> &amp; the <b>Strategies</b> entry engine</li>
             <li><b>Reference</b> — Buyer's manual + Chart-patterns field guide</li>
@@ -3578,7 +3580,7 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
           <ul class="cmp-list">
             <li><b>Market analysis</b> — the live market tape, risk barometer &amp; regime history</li>
             <li><b>Top Picks</b> — highest-conviction contracts, sizing &amp; breakeven</li>
-            <li><b>Stock Picks</b> — shares-only buy-the-dip screen: quality names beaten down, trap flags shown</li>
+            <li><b>Stock Picks</b> — shares-only buy-the-dip screen (quality names beaten down, trap flags shown) + a daily VOO/QQQ DCA dial</li>
             <li><b>Briefs</b> — hourly market digest, open through close</li>
             <li><b>Narratives</b> — AI theses driving capital, longs/shorts, lifecycle</li>
             <li><b>Earnings calls</b> — AI briefs of each name's latest call: guidance, tone, Q&amp;A</li>
@@ -3586,7 +3588,7 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
             <li><b>Volume</b> — intraday volume + support/resistance breaks</li>
             <li><b>Gamma exposure</b> — dealer net-gamma matrix, flip &amp; walls</li>
             <li><b>Track Record</b> — resolved picks performance &amp; scorecard</li>
-            <li><b>Index calendar</b> — SPY/QQQ/IWM/SMH/VXUS/VIX daily closes, green/red by % move, month by month</li>
+            <li><b>Index calendar</b> — SPY/QQQ/IWM/SMH/DIA + VXUS/TLT/GLD/VIX daily closes, green/red by % move, month by month</li>
           </ul>
           <div class="cmp-cta">
             <a class="btn discord" href="/api/auth/discord-login">
@@ -3613,8 +3615,16 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
           <p class="feat-desc">Per-ticker option chains, technicals (RSI/MACD/SMA/S&amp;R/IV regime), Greeks, IV term structure, earnings history, and an AI news take — for every tracked symbol.</p>
         </div>
         <div class="feat">
+          <div class="feat-top"><span class="feat-name">Compare companies</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">Put 2–4 companies side by side — price, valuation (P/E, PEG, P/S), growth, margins, the analyst read and the 4-pillar grade — with the leader on each row highlighted, the % difference vs the first name, and a plain-language summary of how they stack up.</p>
+        </div>
+        <div class="feat">
           <div class="feat-top"><span class="feat-name">Calendar</span><span class="tier free">Free</span></div>
           <p class="feat-desc">Earnings AM/PM sessions, macro releases (CPI, NFP, PPI, JOLTS), FOMC dates and live FedWatch probabilities — with countdowns and clickable tickers.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Earnings tracker</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">A season-by-season scoreboard of every tracked name's earnings — beats vs misses, guidance raised or cut, whether the stock moved more than the options market priced in, the pre-earnings drift into each print, sell-the-news counts, the biggest gap-ups and gap-downs, a sortable look at who reports next, and a daily AI season read.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Strategies</span><span class="tier free">Free</span></div>
@@ -3643,6 +3653,26 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
         <div class="feat">
           <div class="feat-top"><span class="feat-name">13F filings</span><span class="tier free">Free</span></div>
           <p class="feat-desc">A quarterly snapshot of the largest institutional filers — top positions, biggest aggregate holdings, and rotation themes.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Commodities</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">Eleven equity-relevant input-cost and demand signals — cocoa, cotton, coffee, sugar, palm oil, lumber, potash, lithium, container freight, the Baltic Dry, and used-vehicle values — each with momentum chips, a then-vs-now strip (3&nbsp;months / 6&nbsp;months / a year ago against today), a sparkline, and the tickers it matters for.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">IPOs &amp; credit</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">The quarterly capital-formation and consumer-credit dashboard — how many companies went public this quarter vs last, SEC prospectus-filing counts, the tracked universe's raise and buyback totals, plus the credit backdrop: national credit-card debt, bank deposits, and the NY Fed's household debt report.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">AI CapEx</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">Aggregate "Magnificent 7" capital expenditure pulled straight from SEC filings — this fiscal year vs last, per-company run-rates, and a revenue check: is CapEx growing faster than the revenue behind it?</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">RAM prices</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">DRAM / memory pricing from two independent sources — wholesale spot chips and modules plus US retail DDR5 kits — with a composite index, 7-day / 30-day / 3-month / 1-year changes, and a hoverable trend chart.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Capital raises</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">News-flagged debt, convertible and share issuance — plus buybacks — across the tracked universe, enriched with the latest filed amounts from SEC filings.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Streaks</span><span class="tier free">Free</span></div>
@@ -3681,11 +3711,11 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Top Picks</span><span class="tier prem">Premium</span></div>
-          <p class="feat-desc">The highest-conviction contracts pulled from today's chains — a cross-sectional grade, suggested contract, position sizing, move-to-breakeven, and an exit plan.</p>
+          <p class="feat-desc">The highest-conviction contracts pulled from today's chains — a deterministic four-pillar grade, a web-research-grounded AI final grader making the buy-now / wait call, the suggested contract and structure, position sizing, move-to-breakeven, an exit plan, and a shared watchlist that keeps an idea pinned through every refresh.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Stock Picks</span><span class="tier prem">Premium</span></div>
-          <p class="feat-desc">Shares, not options — two deterministic screens over the whole universe: quality names trading cheap (below-sector multiples, real drawdowns, analyst upside past a profitability gate), and up-and-coming names coiled against resistance with momentum and volume behind them.</p>
+          <p class="feat-desc">Shares, not options — a buy-the-dip screen over the whole universe that answers three questions independently: is it a good business (a hard quality gate), is it beaten down right now (five "cheap vs its own recent self" reads), and did something actually break (trap flags that warn but never hide a name). Each card opens into a ~28-question investment-thesis checklist answered from tracked data, and a daily <b>DCA dial</b> sizes an everyday VOO/QQQ index buy — always at least the baseline, leaning in on the rare deep-discount days.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Briefs</span><span class="tier prem">Premium</span></div>
@@ -3713,11 +3743,11 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Track Record</span><span class="tier prem">Premium</span></div>
-          <p class="feat-desc">The resolved Top-Picks performance — win rate, win/loss payoff, expectancy vs SPY, the scorecard, and the roster's in/out churn over time.</p>
+          <p class="feat-desc">The resolved Top-Picks performance — win rate, win/loss payoff, expectancy vs SPY, an engine-health summary that explains why each pick won or lost, a $100k backtest simulator with Monte Carlo, and the roster's in/out churn over time.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Index calendar</span><span class="tier prem">Premium</span></div>
-          <p class="feat-desc">A month-grid record of how SPY, QQQ, IWM, VXUS and VIX closed each trading day — green for up, red for down, with the close-to-close % in every cell (VIX colours invert, so green reads "calmer"). Toggle the index, walk the months, and read the per-month green-vs-red tally and compounded return.</p>
+          <p class="feat-desc">A month-grid record of how SPY, QQQ, IWM, SMH, DIA, VXUS, TLT, GLD and VIX closed each trading day — green for up, red for down, with the close-to-close % in every cell (VIX colours invert, so green reads "calmer"). Toggle the index, walk the months, and read the per-month green-vs-red tally and compounded return.</p>
         </div>
       </div>
     </section>
@@ -4433,7 +4463,7 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
   </div>
 </div>
 <script>window.STONKS_MANIFEST={"builtAt":"Jul 16, 2026, 3:10 PM","builtAtIso":"2026-07-16T19:10:46.035Z","symbols":["AAOI","AAPL","ABNB","ACN","ADBE","ALAB","AMAT","AMD","AMKR","AMZN","ANET","APO","APP","ARM","ASML","ASTS","AVGO","AXP","BABA","BAC","BE","BKSY","BSX","BX","C","CAT","CBRS","CI","CLS","COF","COHR","COST","CRM","CRWD","CRWV","CSCO","DASH","DDOG","DE","DELL","DIS","DRAM","EBAY","EL","ETSY","EWY","FDX","FIG","FLY","FTNT","GD","GLD","GLW","GOOGL","GS","HD","HIMS","HOOD","HUBS","IBKR","IBM","INTC","INTU","IWM","JPM","KULR","KWEB","LEN","LITE","LLY","LOW","LRCX","LULU","LUNR","MA","MCD","MDB","META","MP","MRVL","MS","MSFT","MU","NET","NFLX","NKE","NOW","NVDA","NVO","NXPI","OKLO","OKTA","ON","ORCL","PANW","PL","PLAB","PLTR","PYPL","QCOM","QQQ","RBLX","RDDT","RDW","RKLB","SBUX","SCHW","SHOP","SLV","SMCI","SMH","SNDK","SNOW","SPCX","SPOT","SPY","STX","SWKS","TEAM","TGT","TLT","TMO","TSEM","TSLA","TSM","TWLO","TXN","U","UBS","UNH","UPS","USO","UVXY","V","VRT","VST","WDAY","WMT","ZS"],"sectors":{"SPY":"ETF","QQQ":"ETF","IWM":"ETF","SMH":"ETF","UVXY":"ETF","TLT":"ETF","USO":"ETF","GLD":"ETF","SLV":"ETF","KWEB":"ETF","EWY":"ETF","AAPL":"Mega-cap tech","MSFT":"Mega-cap tech","NVDA":"Mega-cap tech","AMZN":"Mega-cap tech","GOOGL":"Mega-cap tech","META":"Mega-cap tech","TSLA":"Mega-cap tech","AMD":"Semis","NFLX":"Mega-cap tech","AVGO":"Semis","TSM":"Semis","ORCL":"Software","ASML":"Semis","QCOM":"Semis","TXN":"Semis","MRVL":"Semis","AMAT":"Semis","LRCX":"Semis","MU":"Semis","INTC":"Semis","NXPI":"Semis","ON":"Semis","SMCI":"Semis","AMKR":"Semis","PLAB":"Semis","ALAB":"Semis","TSEM":"Semis","DRAM":"Semis","SWKS":"Semis","SNDK":"Storage","STX":"Storage","GLW":"Semis","MP":"Materials","LITE":"Semis","AAOI":"Semis","ARM":"Semis","CBRS":"Semis","COHR":"Semis","DELL":"Hardware","CSCO":"Networking","ANET":"Networking","IBM":"Tech services","CRM":"Software","ADBE":"Software","ACN":"IT services","INTU":"Software","NOW":"Software","SNOW":"Software","NET":"Software","DDOG":"Software","CRWD":"Software","ZS":"Software","MDB":"Software","OKTA":"Software","PANW":"Software","WDAY":"Software","ZM":"Software","DOCU":"Software","TEAM":"Software","FTNT":"Software","HUBS":"Software","TTD":"Software","FIG":"Software","RBLX":"Software","U":"Software","APP":"Software","TWLO":"Software","CRWV":"Software","CEG":"Power","VST":"Power","TLN":"Power","VRT":"Data center","CLS":"Data center","BE":"Clean energy","OKLO":"Nuclear","JPM":"Bank","BAC":"Bank","WFC":"Bank","USB":"Bank","MS":"Bank","COF":"Bank","GS":"Bank","C":"Bank","HSBC":"Bank","UBS":"Bank","V":"Payments","MA":"Payments","AXP":"Payments","PYPL":"Payments","XYZ":"Payments","SCHW":"Broker","IBKR":"Broker","HOOD":"Broker","AFRM":"Fintech","APO":"Asset mgmt","BX":"Asset mgmt","WMT":"Retail","COST":"Retail","TGT":"Retail","HD":"Retail","LOW":"Retail","NKE":"Apparel","LULU":"Apparel","ONON":"Apparel","EL":"Beauty","ELF":"Beauty","W":"E-commerce","EBAY":"E-commerce","ETSY":"E-commerce","MCD":"Restaurants","SBUX":"Restaurants","DIS":"Media","LEN":"Homebuilder","BA":"Industrial","CAT":"Industrial","DE":"Industrial","MMM":"Industrial","GD":"Defense","LMT":"Defense","RTX":"Defense","NOC":"Defense","FDX":"Logistics","UPS":"Logistics","NVO":"Pharma","LLY":"Pharma","UNH":"Insurance","JNJ":"Pharma","PFE":"Pharma","TMO":"Medical","CI":"Insurance","ELV":"Insurance","MOH":"Insurance","CVS":"Pharmacy","BSX":"Medical","HIMS":"Telehealth","VZ":"Telecom","CHTR":"Cable","SPOT":"Media","XOM":"Energy","CVX":"Energy","OXY":"Energy","UBER":"Consumer","ABNB":"Consumer","DASH":"Consumer","BABA":"China tech","BIDU":"China tech","JD":"China tech","PDD":"China tech","TCEHY":"China tech","BILI":"China tech","NIO":"China tech","COIN":"Crypto","PLTR":"Software","SHOP":"Software","GME":"Meme","AMC":"Meme","RDDT":"Social","RKLB":"Space","ASTS":"Space","LUNR":"Space","PL":"Space","BKSY":"Space","RDW":"Space","KULR":"Space","SPCX":"Space","FLY":"Space"},"industries":{"MSFT":"Software Infrastructure","ORCL":"Software Infrastructure","SNOW":"Software Infrastructure","NET":"Software Infrastructure","CRWD":"Software Infrastructure","ZS":"Software Infrastructure","MDB":"Software Infrastructure","OKTA":"Software Infrastructure","PANW":"Software Infrastructure","FTNT":"Software Infrastructure","PLTR":"Software Infrastructure","CRWV":"Software Infrastructure","CRM":"Software Applications","ADBE":"Software Applications","NOW":"Software Applications","DDOG":"Software Applications","WDAY":"Software Applications","TEAM":"Software Applications","INTU":"Software Applications","HUBS":"Software Applications","TWLO":"Software Applications","SHOP":"Software Applications","FIG":"Software Applications","APP":"Software Applications","U":"Software Applications","NVDA":"Semiconductors","AMD":"Semiconductors","AVGO":"Semiconductors","TSM":"Semiconductors","MU":"Semiconductors","INTC":"Semiconductors","MRVL":"Semiconductors","QCOM":"Semiconductors","TXN":"Semiconductors","NXPI":"Semiconductors","ON":"Semiconductors","AMKR":"Semiconductors","PLAB":"Semiconductors","ALAB":"Semiconductors","TSEM":"Semiconductors","SNDK":"Semiconductors","SMCI":"Semiconductors","AAOI":"Semiconductors","LITE":"Semiconductors","STX":"Semiconductors","DRAM":"Semiconductors","SWKS":"Semiconductors","ARM":"Semiconductors","CBRS":"Semiconductors","COHR":"Semiconductors","AMAT":"Semiconductor Equipment & Materials","LRCX":"Semiconductor Equipment & Materials","ASML":"Semiconductor Equipment & Materials","ANET":"Communication Equipment","CSCO":"Communication Equipment","GLW":"Communication Equipment","DELL":"Computer Hardware","CLS":"Computer Hardware","ACN":"Information Technology Services","IBM":"Information Technology Services","AMZN":"Internet Retail","BABA":"Internet Retail","EBAY":"Internet Retail","ETSY":"Internet Retail","HD":"Specialty Retail","LOW":"Specialty Retail","NKE":"Apparel Retail","LULU":"Apparel Retail","SBUX":"Restaurants","MCD":"Restaurants","LEN":"Residential Construction","TSLA":"Auto Manufacturers","DASH":"Travel Services","ABNB":"Travel Services","GOOGL":"Internet Content & Information","META":"Internet Content & Information","RDDT":"Internet Content & Information","NFLX":"Entertainment","DIS":"Entertainment","SPOT":"Entertainment","RBLX":"Electronic Gaming & Multimedia","GD":"Aerospace & Defense","RKLB":"Aerospace & Defense","ASTS":"Aerospace & Defense","LUNR":"Aerospace & Defense","PL":"Aerospace & Defense","BKSY":"Aerospace & Defense","RDW":"Aerospace & Defense","SPCX":"Aerospace & Defense","FLY":"Aerospace & Defense","KULR":"Electrical Equipment & Parts","VRT":"Electrical Equipment & Parts","FDX":"Integrated Freight & Logistics","UPS":"Integrated Freight & Logistics","CAT":"Farm & Heavy Construction Machinery","DE":"Farm & Heavy Construction Machinery","NVO":"Drug Manufacturers - General","LLY":"Drug Manufacturers - General","UNH":"Healthcare Plans","CI":"Healthcare Plans","BSX":"Medical Devices","TMO":"Medical Devices","HIMS":"Consumer Health Products","JPM":"Banks - Diversified","BAC":"Banks - Diversified","C":"Banks - Diversified","COF":"Banks - Diversified","UBS":"Banks - Diversified","V":"Credit Services","MA":"Credit Services","AXP":"Credit Services","PYPL":"Credit Services","APO":"Asset Management","BX":"Asset Management","GS":"Capital Markets","MS":"Capital Markets","SCHW":"Capital Markets","HOOD":"Capital Markets","IBKR":"Capital Markets","WMT":"Discount Stores","COST":"Discount Stores","TGT":"Discount Stores","EL":"Household & Personal Products","VST":"Utilities - Independent Power Producers","BE":"Utilities - Renewable","OKLO":"Utilities - Renewable","MP":"Other Industrial Metals & Mining","GLD":"Gold","SLV":"Silver"},"sectorOrder":["Technology","Consumer Cyclical","Communication Services","Industrials","Healthcare","Financials","Consumer Defensive","Utilities","Basic Materials","Precious Metals"],"industriesBySector":{"Technology":["Software Infrastructure","Software Applications","Semiconductors","Semiconductor Equipment & Materials","Communication Equipment","Computer Hardware","Consumer Electronics","Information Technology Services"],"Consumer Cyclical":["Internet Retail","Specialty Retail","Apparel Retail","Restaurants","Residential Construction","Auto Manufacturers","Travel Services"],"Communication Services":["Internet Content & Information","Entertainment","Electronic Gaming & Multimedia","Advertising Agencies"],"Industrials":["Aerospace & Defense","Integrated Freight & Logistics","Farm & Heavy Construction Machinery","Electrical Equipment & Parts","Specialty Industrial Machinery"],"Healthcare":["Drug Manufacturers - General","Healthcare Plans","Medical Devices","Consumer Health Products"],"Financials":["Banks - Diversified","Credit Services","Asset Management","Capital Markets"],"Consumer Defensive":["Discount Stores","Household & Personal Products"],"Utilities":["Utilities - Independent Power Producers","Utilities - Renewable"],"Basic Materials":["Other Industrial Metals & Mining"],"Precious Metals":["Gold","Silver"]},"volumeFlagsMeta":{"scannedAt":"2026-07-16T20:00:44.486Z","etDate":"2026-07-16","marketState":"POST"},"nextFomcDates":["2026-07-29","2026-09-16"],"oiMeta":{"scannedAt":"2026-07-16T21:00:36.701Z","scanType":"eod"},"deferred":true};</script>
-<script src="app.js?v=2026-07-16T23%3A32%3A49.621Z" defer></script>
+<script src="app.js?v=2026-07-17T00%3A14%3A21.691Z" defer></script>
 <script type="module" src="js/streaks.js?v=2026-07-16T23%3A32%3A49.621Z"></script>
 </body>
 </html>

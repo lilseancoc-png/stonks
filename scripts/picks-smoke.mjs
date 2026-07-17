@@ -923,6 +923,21 @@ const dcaPlanDown = buildDcaPlan(
 );
 ok("dca: bear-market slide → the 4× deep-discount tier", dcaPlanDown.indexes.every((x) => x.multiplier === 4 && x.tier.key === "max"));
 ok("dca: same-ET-day history row upserted, not appended", dcaPlanDown.history.length === 1);
+// Structural gate on the 4× tier: a fast −22% slide off a recent blow-off top
+// that never breaks the (much lower) 200-day average can score 12 points, but
+// it is NOT bear-market pricing — it must ship the 3× correction tier, and
+// the "long-term trend broken" note must not render.
+const dcaSpike = [];
+for (let i = 0; i < 260; i++) dcaSpike.push(100);            // long flat base keeps the 200D low
+for (let i = 1; i <= 20; i++) dcaSpike.push(100 + 3 * i);     // blow-off rally to 160
+for (let i = 1; i <= 20; i++) dcaSpike.push(160 - 1.6 * i);   // fast slide to 128
+const dcaSpikeSpot = dcaSpike[dcaSpike.length - 1] * 0.975;   // red day, dd ≈ 22%
+const dcaPlanSpike = buildDcaPlan(
+  { VOO: { closes: dcaSpike, spot: dcaSpikeSpot, asOf: "2026-07-16" }, QQQ: { closes: dcaSpike, spot: dcaSpikeSpot, asOf: "2026-07-16" } },
+  null, "2026-07-16T15:00:00.000Z",
+);
+ok("dca: deep slide still above the 200D → capped at the 3× tier (max-tier gate)",
+  dcaPlanSpike.indexes.every((x) => x.points >= 12 && x.sma.d200 > 0 && x.multiplier === 3 && x.tier.key === "heavy"));
 ok("dca: every read ships label + pts on the card", dcaPlanDown.indexes[0].reads.length === 5 && dcaPlanDown.indexes[0].reads.every((r) => r.label && Number.isFinite(r.pts)));
 // A missing symbol carries its prior entry forward stale; today's history row
 // keeps the earlier build's fresh call (merge, not replace).

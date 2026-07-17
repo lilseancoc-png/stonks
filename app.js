@@ -14731,8 +14731,11 @@
     }
     html += '<div class="ivt-sort" role="toolbar" aria-label="Sort or filter the ranked tickers">' + sortHtml + '</div>';
     var sorted = ivtApplySort(all, mode);
-    if (ivTrendState.colSort) sorted = ivtApplyColSort(sorted, ivTrendState.colSort);
+    // The highlight cards follow the CHIP selection only — a ranked-table
+    // header sort must not reshuffle the curated standouts strip above it,
+    // so derive the flagged set before layering the column sort on.
     var flagged = sorted.filter(function(r){ return r && r.tier && IVT_TIER_META[r.tier]; });
+    if (ivTrendState.colSort) sorted = ivtApplyColSort(sorted, ivTrendState.colSort);
     // Flagged highlight cards.
     if (flagged.length){
       var cards = '';
@@ -14783,8 +14786,8 @@
         '<span class="ivt-trow-num">' + ivtIvPct(w.iv) + '</span>' +
         '<span class="ivt-trow-num">' + (w.z == null ? '—' : (w.z >= 0 ? '+' : '') + w.z.toFixed(1) + 'σ') + '</span>' +
         '<span class="ivt-trow-num">' + (w.pctile == null ? '—' : w.pctile) + '</span>' +
-        '<span class="ivt-trow-num ' + ((w.chg5dPct || 0) >= 0 ? 'cx-up' : 'cx-down') + '">' + (w.chg5dPct == null ? '—' : (w.chg5dPct >= 0 ? '+' : '') + w.chg5dPct.toFixed(1) + '%') + '</span>' +
-        '<span class="ivt-trow-num ' + ((w.chg20dPct || 0) >= 0 ? 'cx-up' : 'cx-down') + '">' + (w.chg20dPct == null ? '—' : (w.chg20dPct >= 0 ? '+' : '') + w.chg20dPct.toFixed(1) + '%') + '</span>' +
+        '<span class="ivt-trow-num' + (w.chg5dPct == null ? '' : (w.chg5dPct >= 0 ? ' cx-up' : ' cx-down')) + '">' + (w.chg5dPct == null ? '—' : (w.chg5dPct >= 0 ? '+' : '') + w.chg5dPct.toFixed(1) + '%') + '</span>' +
+        '<span class="ivt-trow-num' + (w.chg20dPct == null ? '' : (w.chg20dPct >= 0 ? ' cx-up' : ' cx-down')) + '">' + (w.chg20dPct == null ? '—' : (w.chg20dPct >= 0 ? '+' : '') + w.chg20dPct.toFixed(1) + '%') + '</span>' +
         '<span class="ivt-trow-earn">' + (w.earnings && w.earnings.date ? escapeHtml(ivtDateLabel(w.earnings.date)) + (w.earnings.inDays != null ? ' · ' + w.earnings.inDays + 'd' : '') : '—') + '</span>' +
         '<span class="ivt-trow-num">' + (w.score == null ? '—' : w.score.toFixed(1)) + '</span>' +
       '</div>';
@@ -15024,7 +15027,7 @@
   }
   function stkDcaUsd(v){
     var n = Math.round(Number(v) * 100) / 100;
-    return '$' + (n % 1 ? n.toFixed(2) : String(n));
+    return '$' + n.toLocaleString('en-US', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 });
   }
   function stkDcaReadChips(reads){
     var out = '';

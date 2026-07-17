@@ -16424,8 +16424,11 @@ const DCA_MAX_POINTS = 14; // trend 4 + drawdown 5 + RSI 2 + 20D stretch 2 + red
 // Multiplier ladder — points → how hard the extra dollars lean in. Ordered
 // deepest-first; the first tier whose bar the score clears wins. Calibration
 // intuition on the 14-point scale: a routine ~5% pullback in an uptrend scores
-// ~5–6 (2×); a full ~10% correction with washed-out momentum ~9–11 (3×); the
-// 4× bar (12) is only reachable with the 200-day broken AND a deep drawdown —
+// ~5–6 (2×); a full ~10% correction with washed-out momentum ~9–11 (3×). The
+// 4× tier carries an explicit structural gate in buildDcaPlan on top of its
+// 12-point bar — under the 200-day AND ≥15% off the high — because 12 points
+// alone are reachable without either half (a fast slide still above its 200D,
+// or a 200D break with only a ~10% drawdown) and the tier's note asserts
 // genuine bear-market pricing, roughly a once-in-years read.
 export const DCA_TIERS = [
   { min: 12, mult: 4,   key: "max",    label: "Rare deep discount", note: "Bear-market pricing — long-term trend broken with a deep, broad drawdown. Days like this are the reason the dial exists." },
@@ -16541,7 +16544,16 @@ export function buildDcaPlan(inputs, priorDca, builtAtIso, baseUsd = DCA_BASE_US
       continue;
     }
     const points = reads.reads.reduce((a, s) => a + s.pts, 0);
-    const tier = DCA_TIERS.find((t) => points >= t.min) || DCA_TIERS[DCA_TIERS.length - 1];
+    let tier = DCA_TIERS.find((t) => points >= t.min) || DCA_TIERS[DCA_TIERS.length - 1];
+    // The 4× tier is bear-market pricing BY DEFINITION, not just by points:
+    // its card note asserts the long-term trend is broken with a deep
+    // drawdown, so the max tier requires both halves structurally (under the
+    // 200-day AND ≥15% off the high) and ships the 3× correction tier when
+    // the score cleared 12 without them.
+    if (tier.key === "max" &&
+        !(reads.sma.d200 != null && reads.sma.d200 < 0 && reads.drawdownPct != null && reads.drawdownPct >= 15)) {
+      tier = DCA_TIERS.find((t) => t.key === "heavy") || tier;
+    }
     indexes.push({
       symbol: def.symbol, label: def.label, asOf: input.asOf || etDateKey(),
       ...reads,
