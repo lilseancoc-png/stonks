@@ -17305,6 +17305,318 @@ export async function readPriorStockPicks() {
 }
 
 // ============================================================================
+// LEVERAGED ETFS — the daily-reset leverage screen (data/leveraged-etfs.json,
+// PREMIUM). Functions like Top Picks but the instrument is a leveraged ETF
+// instead of an option contract: the SAME deterministic 4-pillar grades
+// (gradesIndex / scoreTicker — no AI anywhere in this screen) pick the
+// direction and conviction, and a hand-curated registry maps each view onto a
+// LISTED leveraged product — a single-stock 2× (NVDL, TSLL, …) when one
+// exists for the name, else the sector/index 3× pair (SOXL/SOXS, TQQQ/SQQQ,
+// FAS/FAZ, …) via a SECTORS-label routing plus per-group breadth aggregation
+// (a sector play needs the group actually leaning one way, not one loud
+// name). Because an ETF pays no option premium, the ranking score is the
+// grade WITHOUT its IV-cost pillar (total − pillars.ivCost.score) — timing
+// still counts, IV richness doesn't. Leveraged-specific honesty is built in:
+// every idea carries a volatility-drag estimate (the ½·k·(k−1)·σ² daily-reset
+// decay, expressed as ~%/month at the underlying's current 20d realized vol),
+// a chop flag (high vol + no net trend = the decay worst case), and the
+// registry only contains VERIFIED listings — a graded direction with no
+// listed matched-direction product ships as a watch row saying so, never a
+// guessed ticker. Rebuilt fresh every bake (no cross-build accumulation, no
+// pre-wipe read — same model as the stock-picks dip candidates); also
+// regenerated offline by regen-picks.mjs. The browser lazy-loads the file
+// and decorates it with live ETF quotes via the open /api/quotes proxy — the
+// leveraged symbols themselves are deliberately NOT in TICKERS (no chain
+// fetch, no bake cost; the underlying grades carry all the signal).
+// ============================================================================
+export const LEVERAGED_ETFS_FILE = "leveraged-etfs.json";
+const LEVETF_MIN_CONVICTION = 4;      // single-name/index bar (same bar as the picks actionable tier)
+const LEVETF_GROUP_MIN_SCORE = 2.5;   // aggregated sector bar — breadth carries the rest
+const LEVETF_GROUP_MIN_BREADTH = 0.6; // ≥60% of leaning members must agree with the group mean
+const LEVETF_STRONG = 7;              // same absolute strong bar as PICKS_TIER_STRONG
+const LEVETF_MAX_IDEAS = 8;
+const LEVETF_WATCH_BAND = 1.5;        // missed the bar by ≤ this → shipped as a watch row
+
+// Single-underlying leveraged products (verified live US listings, 2026-07).
+// Direxion single-stock pairs are bull 2× / bear −1×; GraniteShares/Defiance
+// entries are bull-only 2× (no verified inverse listing → bear: null, and the
+// screen says so instead of guessing a ticker).
+export const LEVERAGED_ETF_SINGLES = {
+  NVDA:  { bull: { sym: "NVDL", lev: 2 }, bear: { sym: "NVDD", lev: -1 } },
+  TSLA:  { bull: { sym: "TSLL", lev: 2 }, bear: { sym: "TSLS", lev: -1 } },
+  AAPL:  { bull: { sym: "AAPU", lev: 2 }, bear: { sym: "AAPD", lev: -1 } },
+  MSFT:  { bull: { sym: "MSFU", lev: 2 }, bear: { sym: "MSFD", lev: -1 } },
+  AMZN:  { bull: { sym: "AMZU", lev: 2 }, bear: { sym: "AMZD", lev: -1 } },
+  GOOGL: { bull: { sym: "GGLL", lev: 2 }, bear: { sym: "GGLS", lev: -1 } },
+  META:  { bull: { sym: "METU", lev: 2 }, bear: { sym: "METD", lev: -1 } },
+  PLTR:  { bull: { sym: "PLTU", lev: 2 }, bear: { sym: "PLTD", lev: -1 } },
+  NFLX:  { bull: { sym: "NFXL", lev: 2 }, bear: { sym: "NFXS", lev: -1 } },
+  MU:    { bull: { sym: "MUU",  lev: 2 }, bear: { sym: "MUD",  lev: -1 } },
+  AVGO:  { bull: { sym: "AVL",  lev: 2 }, bear: { sym: "AVS",  lev: -1 } },
+  AMD:   { bull: { sym: "AMDL", lev: 2 }, bear: null },
+  BABA:  { bull: { sym: "BABX", lev: 2 }, bear: null },
+  SMCI:  { bull: { sym: "SMCX", lev: 2 }, bear: null },
+};
+
+// Sector / index groups. `proxy` is a TRACKED ticker whose own grade joins
+// (and often anchors) the group read; kind drives the card chip. A null side
+// means no verified listed product for that direction (mostly Direxion
+// bull-only sector funds) — a passing read in that direction ships as a
+// watch row, not an idea. YANG is the nearest listed China inverse (FTSE
+// China 50, not the CSI internet basket CWEB tracks) — labeled a proxy.
+export const LEVERAGED_ETF_GROUPS = {
+  nasdaq:       { label: "Nasdaq-100",          kind: "index",  proxy: "QQQ",  bull: { sym: "TQQQ", lev: 3 }, bear: { sym: "SQQQ", lev: -3 } },
+  sp500:        { label: "S&P 500",             kind: "index",  proxy: "SPY",  bull: { sym: "UPRO", lev: 3 }, bear: { sym: "SPXU", lev: -3 } },
+  smallcaps:    { label: "Russell 2000",        kind: "index",  proxy: "IWM",  bull: { sym: "TNA",  lev: 3 }, bear: { sym: "TZA",  lev: -3 } },
+  semis:        { label: "Semiconductors",      kind: "sector", proxy: "SMH",  bull: { sym: "SOXL", lev: 3 }, bear: { sym: "SOXS", lev: -3 } },
+  tech:         { label: "Technology (XLK)",    kind: "sector", proxy: null,   bull: { sym: "TECL", lev: 3 }, bear: { sym: "TECS", lev: -3 } },
+  financials:   { label: "Financials",          kind: "sector", proxy: null,   bull: { sym: "FAS",  lev: 3 }, bear: { sym: "FAZ",  lev: -3 } },
+  healthcare:   { label: "Healthcare",          kind: "sector", proxy: null,   bull: { sym: "CURE", lev: 3 }, bear: null },
+  retail:       { label: "Retail (XRT)",        kind: "sector", proxy: null,   bull: { sym: "RETL", lev: 3 }, bear: null },
+  industrials:  { label: "Industrials",         kind: "sector", proxy: null,   bull: { sym: "DUSL", lev: 3 }, bear: null },
+  defense:      { label: "Aerospace & defense", kind: "sector", proxy: null,   bull: { sym: "DFEN", lev: 3 }, bear: null },
+  homebuilders: { label: "Homebuilders",        kind: "sector", proxy: null,   bull: { sym: "NAIL", lev: 3 }, bear: null },
+  china:        { label: "China internet",      kind: "index",  proxy: "KWEB", bull: { sym: "CWEB", lev: 2 }, bear: { sym: "YANG", lev: -3, note: "FTSE China 50 3× bear — nearest listed inverse to the China-internet basket" } },
+  korea:        { label: "South Korea",         kind: "index",  proxy: "EWY",  bull: { sym: "KORU", lev: 3 }, bear: null },
+  treasuries:   { label: "20+yr Treasuries",    kind: "macro",  proxy: "TLT",  bull: { sym: "TMF",  lev: 3 }, bear: { sym: "TMV",  lev: -3 } },
+  gold:         { label: "Gold",                kind: "macro",  proxy: "GLD",  bull: { sym: "UGL",  lev: 2 }, bear: { sym: "GLL",  lev: -2 } },
+  silver:       { label: "Silver",              kind: "macro",  proxy: "SLV",  bull: { sym: "AGQ",  lev: 2 }, bear: { sym: "ZSL",  lev: -2 } },
+  crude:        { label: "Crude oil",           kind: "macro",  proxy: "USO",  bull: { sym: "UCO",  lev: 2 }, bear: { sym: "SCO",  lev: -2 } },
+};
+
+// SECTORS-label → group routing for the aggregate sector reads. Labels with
+// no sensible listed leveraged vehicle (Space, Power, Nuclear, Media, …) are
+// deliberately absent — those names simply don't produce a sector idea.
+const LEVETF_SECTOR_GROUP = {
+  "Semis": "semis", "Storage": "semis",
+  "Mega-cap tech": "nasdaq",
+  "Software": "tech", "Hardware": "tech", "Networking": "tech",
+  "Tech services": "tech", "IT services": "tech", "Data center": "tech",
+  "Bank": "financials", "Broker": "financials", "Payments": "financials", "Asset mgmt": "financials",
+  "Pharma": "healthcare", "Medical": "healthcare", "Insurance": "healthcare", "Telehealth": "healthcare",
+  "Retail": "retail", "Apparel": "retail", "E-commerce": "retail",
+  "Restaurants": "retail", "Beauty": "retail", "Consumer": "retail",
+  "Industrial": "industrials", "Logistics": "industrials",
+  "Defense": "defense",
+  "Homebuilder": "homebuilders",
+  "China tech": "china",
+};
+
+// The ETF-ranking score: the deterministic grade MINUS its IV-cost pillar —
+// an ETF pays no option premium, so premium richness must not de-rate (or,
+// on the put side, inflate) the idea. Timing stays in.
+function levEtfScore(g) {
+  if (!g) return null;
+  const total = pnum(g.total);
+  if (total == null) return null;
+  return r1(total - (pnum(g.pillars?.ivCost?.score) ?? 0));
+}
+
+// 20d realized vol + trend efficiency from the underlying's daily closes
+// (priceSeries persists offline; _bars when in-memory). trendEff ≈ |net 20d
+// move| in σ-units — low trendEff + high vol is the daily-reset worst case.
+function levVolRead(data) {
+  const closes = Array.isArray(data?._bars) && data._bars.length
+    ? data._bars.map((b) => pnum(b.c)).filter((c) => c > 0)
+    : (Array.isArray(data?.priceSeries?.c) ? data.priceSeries.c.map(pnum).filter((c) => c > 0) : []);
+  const tail = closes.slice(-21);
+  if (tail.length < 15) return null;
+  const rets = [];
+  for (let i = 1; i < tail.length; i++) rets.push(Math.log(tail[i] / tail[i - 1]));
+  const mean = rets.reduce((a, b) => a + b, 0) / rets.length;
+  const sd = Math.sqrt(rets.reduce((a, b) => a + (b - mean) * (b - mean), 0) / rets.length);
+  if (!Number.isFinite(sd) || sd <= 0) return null;
+  const net = rets.reduce((a, b) => a + b, 0);
+  return { sigmaDaily: sd, rvAnnPct: r1(sd * Math.sqrt(252) * 100), trendEff: r2(Math.abs(net) / (sd * Math.sqrt(rets.length))) };
+}
+
+// Daily-reset volatility drag ≈ ½·k·(k−1)·σ²_daily per day (signed k, so a
+// −1× inverse decays like a 2× long), expressed as ~%/month (21 sessions).
+function levDecayRead(lev, vol) {
+  if (!vol) return null;
+  const dragMoPct = r2(0.5 * lev * (lev - 1) * vol.sigmaDaily * vol.sigmaDaily * 21 * 100);
+  const chop = vol.trendEff < 0.75 && vol.rvAnnPct >= 30;
+  const tier = dragMoPct < 1 ? "low" : dragMoPct < 3 ? "moderate" : "high";
+  return { rvAnnPct: vol.rvAnnPct, trendEff: vol.trendEff, dragMoPct, tier, chop };
+}
+
+function levSpark(data) {
+  const closes = Array.isArray(data?._bars) && data._bars.length
+    ? data._bars.map((b) => pnum(b.c)).filter((c) => c > 0)
+    : (Array.isArray(data?.priceSeries?.c) ? data.priceSeries.c.map(pnum).filter((c) => c > 0) : []);
+  const tail = closes.slice(-60);
+  if (tail.length < 10) return null;
+  const step = Math.max(1, Math.ceil(tail.length / 40));
+  const out = [];
+  for (let i = 0; i < tail.length; i += step) out.push(r2(tail[i]));
+  if (out[out.length - 1] !== r2(tail[tail.length - 1])) out.push(r2(tail[tail.length - 1]));
+  return out;
+}
+
+export function buildLeveragedEtfPicks(chains, gradesIndex, builtAtIso, macroRegime = null) {
+  const grades = gradesIndex || {};
+  const scoreFor = (sym) => levEtfScore(grades[sym]);
+  const candidates = []; // { …idea fields, pass, missReason }
+
+  // ---- single-stock products -------------------------------------------
+  for (const [under, prods] of Object.entries(LEVERAGED_ETF_SINGLES)) {
+    const g = grades[under];
+    const score = scoreFor(under);
+    if (score == null || score === 0) continue;
+    const dir = score > 0 ? "bull" : "bear";
+    const conviction = Math.abs(score);
+    if (conviction < LEVETF_MIN_CONVICTION - LEVETF_WATCH_BAND) continue;
+    const inst = prods[dir];
+    const timing = g.timing?.[score > 0 ? "call" : "put"] || null;
+    const data = chains[under] || null;
+    const vol = levVolRead(data);
+    const base = {
+      kind: "single", direction: dir, score, conviction: r1(conviction),
+      tier: conviction >= LEVETF_STRONG ? "strong" : "moderate",
+      under: {
+        symbol: under,
+        name: data?.fundamentals?.name || under,
+        spot: r2(pnum(data?.spot)) || null,
+        sector: SECTORS[under] || null,
+      },
+      drivers: Array.isArray(g.drivers)
+        ? g.drivers.filter((d) => d && d.score * score > 0).slice(0, 4).map((d) => ({ label: d.label, score: r1(d.score) }))
+        : [],
+      entry: timing ? { state: timing.state || null, headline: timing.headline || null, deferKind: timing.deferKind || null } : null,
+      spark: levSpark(data),
+    };
+    if (!inst) {
+      candidates.push({ ...base, etf: null, leverage: null, pass: false, missReason: "no-inverse-listing" });
+      continue;
+    }
+    const pass = conviction >= LEVETF_MIN_CONVICTION && (!timing || timing.state !== "avoid");
+    candidates.push({
+      ...base, etf: inst.sym, leverage: inst.lev, note: inst.note || null,
+      decay: levDecayRead(inst.lev, vol),
+      pass,
+      missReason: pass ? null : (timing?.state === "avoid" ? "avoid-timing" : "below-bar"),
+    });
+  }
+
+  // ---- sector / index groups -------------------------------------------
+  const groupMembers = {};
+  for (const sym of Object.keys(grades)) {
+    const key = LEVETF_SECTOR_GROUP[SECTORS[sym]];
+    if (key) (groupMembers[key] ||= []).push(sym);
+  }
+  for (const [key, def] of Object.entries(LEVERAGED_ETF_GROUPS)) {
+    if (def.proxy && grades[def.proxy] && !(groupMembers[key] || []).includes(def.proxy)) {
+      (groupMembers[key] ||= []).unshift(def.proxy);
+    }
+  }
+
+  const groupReads = [];
+  for (const [key, def] of Object.entries(LEVERAGED_ETF_GROUPS)) {
+    const members = (groupMembers[key] || [])
+      .map((sym) => ({ sym, score: scoreFor(sym) }))
+      .filter((m) => m.score != null);
+    if (!members.length) continue;
+    const mean = r1(members.reduce((a, m) => a + m.score, 0) / members.length);
+    const sgn = mean >= 0 ? 1 : -1;
+    const dir = mean >= 0 ? "bull" : "bear";
+    const leaning = members.filter((m) => Math.abs(m.score) >= 1);
+    const agree = leaning.filter((m) => m.score * sgn > 0).length;
+    const breadth = leaning.length ? r2(agree / leaning.length) : 0;
+    const conviction = Math.abs(mean);
+    const pass = members.length >= 3
+      ? conviction >= LEVETF_GROUP_MIN_SCORE && breadth >= LEVETF_GROUP_MIN_BREADTH
+      : conviction >= LEVETF_MIN_CONVICTION;
+    const inst = def[dir];
+    const topMembers = [...members].sort((a, b) => Math.abs(b.score) - Math.abs(a.score));
+
+    // Entry read: the proxy's own timing when tracked, else the modal timing
+    // state among members leaning the group's way.
+    let entry = null;
+    const proxyTiming = def.proxy ? grades[def.proxy]?.timing?.[dir === "bull" ? "call" : "put"] : null;
+    if (proxyTiming) {
+      entry = { state: proxyTiming.state || null, headline: proxyTiming.headline || null, deferKind: proxyTiming.deferKind || null };
+    } else {
+      const counts = {};
+      for (const m of leaning) {
+        if (m.score * sgn <= 0) continue;
+        const st = grades[m.sym]?.timing?.[dir === "bull" ? "call" : "put"]?.state;
+        if (st) counts[st] = (counts[st] || 0) + 1;
+      }
+      const modal = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+      if (modal) entry = { state: modal[0], headline: `Modal entry read across ${agree} agreeing members`, deferKind: null };
+    }
+
+    // Vol/decay read: the proxy's bars when tracked, else the member average.
+    let vol = def.proxy ? levVolRead(chains[def.proxy]) : null;
+    if (!vol) {
+      const vols = members.map((m) => levVolRead(chains[m.sym])).filter(Boolean);
+      if (vols.length) {
+        const sigma = vols.reduce((a, v) => a + v.sigmaDaily, 0) / vols.length;
+        vol = {
+          sigmaDaily: sigma,
+          rvAnnPct: r1(sigma * Math.sqrt(252) * 100),
+          trendEff: r2(vols.reduce((a, v) => a + v.trendEff, 0) / vols.length),
+        };
+      }
+    }
+
+    const read = {
+      kind: def.kind, group: key, label: def.label, direction: dir,
+      score: mean, conviction: r1(conviction),
+      tier: conviction >= LEVETF_STRONG ? "strong" : "moderate",
+      breadth, memberCount: members.length, agreeing: agree,
+      members: topMembers.slice(0, 6).map((m) => ({ sym: m.sym, score: m.score })),
+      proxy: def.proxy || null,
+      entry,
+      spark: def.proxy ? levSpark(chains[def.proxy]) : null,
+    };
+    groupReads.push({ ...read, bull: def.bull?.sym || null, bear: def.bear?.sym || null, pass });
+    if (conviction < LEVETF_GROUP_MIN_SCORE - LEVETF_WATCH_BAND) continue;
+    if (!inst) {
+      candidates.push({ ...read, etf: null, leverage: null, under: null, drivers: [], pass: false, missReason: "no-inverse-listing" });
+      continue;
+    }
+    const avoidGated = entry?.state === "avoid";
+    candidates.push({
+      ...read, etf: inst.sym, leverage: inst.lev, note: inst.note || null, under: null,
+      drivers: topMembers.slice(0, 4).filter((m) => m.score * sgn > 0).map((m) => ({ label: m.sym, score: m.score })),
+      decay: levDecayRead(inst.lev, vol),
+      pass: pass && !avoidGated,
+      missReason: pass ? (avoidGated ? "avoid-timing" : null) : "below-bar",
+    });
+  }
+
+  // ---- rank + split ----------------------------------------------------
+  candidates.sort((a, b) => b.conviction - a.conviction);
+  const passing = candidates.filter((c) => c.pass);
+  const ideas = passing.slice(0, LEVETF_MAX_IDEAS);
+  const watch = [
+    ...passing.slice(LEVETF_MAX_IDEAS).map((c) => ({ ...c, missReason: "ranked-out" })),
+    ...candidates.filter((c) => !c.pass),
+  ].slice(0, 10).map(({ spark, ...rest }) => rest); // watch rows ship without sparks (size)
+
+  return {
+    builtAtIso,
+    regime: macroRegime ? { state: macroRegime.state || null, summary: macroRegime.summary || null } : null,
+    ideas,
+    watch,
+    groupReads,
+    universe: {
+      graded: Object.keys(grades).length,
+      singles: Object.keys(LEVERAGED_ETF_SINGLES).length,
+      groups: Object.keys(LEVERAGED_ETF_GROUPS).length,
+    },
+    bars: { single: LEVETF_MIN_CONVICTION, group: LEVETF_GROUP_MIN_SCORE, breadth: LEVETF_GROUP_MIN_BREADTH, strong: LEVETF_STRONG },
+  };
+}
+
+export async function writeLeveragedEtfsFile(payload) {
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, LEVERAGED_ETFS_FILE), json, "utf8");
+  return { bytes: json.length, ideas: payload.ideas.length, watch: payload.watch.length };
+}
+
+// ============================================================================
 // picks.json writer (+ tenure stamp + zero-pick stale reuse).
 // ============================================================================
 async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, priorClosed = null, priorGrades = null, scannerExtras = null, priorOpen = null, reentryCooldown = true, thesisProsePrior = null, streaksMap = null) {
@@ -25992,6 +26304,16 @@ async function main() {
     console.log(`wrote data/${STOCK_PICKS_FILE} — ${spInfo.candidates} dip candidates (${spInfo.buyZone} in the buy zone)${spPayload.dca ? `, DCA dial ${spPayload.dca.indexes.map((x) => `${x.symbol} ${x.multiplier}×`).join(" / ")}` : ""}, ${spInfo.bytes} bytes`);
   } catch (err) {
     console.warn(`[stocks] stock-picks skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
+  // Leveraged ETFs (premium tab): the daily-reset leverage screen — the same
+  // grade index mapped onto listed single-stock 2× / sector-index 3× products.
+  // Rebuilt fresh every bake — no cross-build accumulation, no pre-wipe read.
+  try {
+    const levPayload = buildLeveragedEtfPicks(chains, gradesIndex, builtAtIso, macroBackdrop?.macroRegime ?? null);
+    const levInfo = await writeLeveragedEtfsFile(levPayload);
+    console.log(`wrote data/${LEVERAGED_ETFS_FILE} — ${levInfo.ideas} idea(s), ${levInfo.watch} watch row(s), ${levInfo.bytes} bytes`);
+  } catch (err) {
+    console.warn(`[levetf] leveraged-etfs skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
   // Daily grade snapshot (universe-IC substrate): upsert today's ET row with every
   // name's total, so scripts/diagnose-grade-ic.mjs can measure the grade's forward
