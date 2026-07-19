@@ -55,6 +55,7 @@ const SIDE_NAV_ICONS = {
   streaks: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
   'iv-trend': '<path d="m3 17.5 6-6 4 4 8-8.5"/><path d="M14.5 7h6.5v6.5"/>',
   spillover: '<circle cx="12" cy="12" r="2.5"/><path d="M12 5.5a6.5 6.5 0 0 1 6.5 6.5"/><path d="M12 2a10 10 0 0 1 10 10"/>',
+  quant: '<path d="M18 6.5V4H6l6.5 8L6 20h12v-2.5"/>',
   overnight: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
   'fear-greed': '<path d="m12 14.5 3.5-3.5"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
   'bonds-usd': '<path d="M12 2.5v19M16.5 5.5H10a3 3 0 0 0 0 6h4a3 3 0 0 1 0 6H7"/>',
@@ -578,6 +579,41 @@ function spilloverSection() {
     <div id="spillover-root" class="spill-root">Loading event spillover&hellip;</div>
     <div id="spillover-empty" class="spill-empty" hidden>Spillover data will appear after the next daily build refresh.</div>
     <p class="hint">Event betas re-estimate once per trading day; event depth accumulates from the earnings-history store. Bank prints cluster (often the same morning), so most windows carry shared-print/CPI-week flags &mdash; shown, not hidden. Analytical only. Not financial advice.</p>
+  </section>`;
+}
+
+function quantSection() {
+  // Card chrome only — content renders client-side from data/quant.json,
+  // lazy-fetched on first tab activation by loadQuant() in app.js. The Quant
+  // Lab (docs/quant-lab.md): deterministic sigma-deviation, vol-risk-premium,
+  // pair relative-value, vol-surface, dispersion and post-earnings-drift
+  // screens. ANALYTICAL ONLY — screens and z-scores, never trade signals; the
+  // playbook table below is educational. The playbook + coverage blocks are
+  // static (they never change per build), so they live here in the shell.
+  return `<section class="card" id="quant-section">
+    <header class="card-header">
+      <h2 class="card-title">Quant Lab</h2>
+      <span class="card-eyebrow" id="quant-eyebrow" aria-live="polite"></span>
+    </header>
+    ${infoNote('What is this?', `<p>Statistical screens quants actually run, over the same data the rest of the site already collects. <b>Sigma deviations</b> &mdash; names at or past their 2&sigma; Bollinger band (20-day price z-score) or printing a 2&sigma; daily move vs their own trailing volatility, with the option market&rsquo;s <b>expected move</b> (1&sigma;/2&sigma; = S &times; IV &times; &radic;(days/365)) beside the realized one. <b>Vol risk premium</b> &mdash; each name&rsquo;s ATM ~30-day implied vol minus its 30-day realized vol, z-scored against the name&rsquo;s own derived history: persistently positive is the premium option sellers harvest; an extreme z flags premium unusually rich (or cheap) vs that name&rsquo;s norm. <b>Pairs</b> &mdash; within-industry pairs whose daily returns correlate &ge;0.60, watched on two spreads: the 60-day log price ratio (classic stat-arb spread, with an AR(1) mean-reversion half-life check standing in for formal cointegration &mdash; the price history is too short for Engle-Granger) and the implied-vol spread vs its 120-day norm (relative options mispricing between peers). <b>Vol surface</b> &mdash; term-structure slope (~90d vs ~30d ATM; inverted = near-term stress) and 25&Delta; put&minus;call skew per name; their z-scores activate automatically once enough surface history accumulates. <b>Dispersion</b> &mdash; an implied-correlation proxy from SPY&rsquo;s IV vs the cap-weighted basket of tracked large-caps: high = index options rich relative to single names. <b>Post-earnings drift</b> &mdash; names inside two weeks of a print, their reaction and drift so far, against their own historical beat/miss drift tendency. Everything is deterministic &mdash; fixed formulas, documented windows, no AI and no cross-sectional curve-fitting.</p>`)}
+    <div id="quant-root" class="quant-root">Loading Quant Lab&hellip;</div>
+    <div id="quant-empty" class="quant-empty" hidden>Quant Lab data will appear after the next daily build refresh.</div>
+    <div class="quant-playbook">
+      <div class="quant-sub">The classical playbook (educational &mdash; not signals, not advice)</div>
+      <div class="quant-tbl-wrap"><table class="quant-tbl quant-play-tbl">
+        <thead><tr><th>Situation</th><th>What quants typically do</th><th>Why it works (and when it doesn't)</th></tr></thead>
+        <tbody>
+          <tr><td>Price z &ge; +2&sigma; (overbought)</td><td>Mean-reversion fade / sell call premium</td><td>Statistically stretched; fades work best range-bound &mdash; and fail in strong trends</td></tr>
+          <tr><td>Price z &le; &minus;2&sigma; (oversold)</td><td>Mean-reversion long / sell put premium</td><td>Same logic inverted; falling knives trend too</td></tr>
+          <tr><td>Pair spread z &ge; &plusmn;2&sigma;</td><td>Long the cheap leg, short the rich leg</td><td>Classic stat-arb entry &mdash; only if the spread actually mean-reverts (see the half-life badge)</td></tr>
+          <tr><td>Fresh 2&sigma; daily move, IV still low</td><td>Buy volatility (straddles/strangles)</td><td>Realized-vol spikes often lead IV expansion</td></tr>
+          <tr><td>Inside 1&sigma; expected move, IV rich</td><td>Sell premium outside the 2&sigma; band</td><td>High theoretical win rate &mdash; with severe tail risk when it breaks</td></tr>
+          <tr><td>Position sizing</td><td>Size so a 2&sigma; adverse move risks ~0.5&ndash;1% of capital</td><td>Volatility-aware sizing; stops beyond 2&sigma; of recent range avoid noise shakeouts</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+    ${infoNote('What this tab deliberately does NOT do', `<p><b>Not feasible with current data</b> (listed honestly rather than faked): M&amp;A / spin-off screens (no deal data source), index add/delete prediction (no committee or flow data), gamma-scalping simulation (needs intraday delta-hedging data), formal cointegration tests (the ~1-year price history is too short &mdash; the AR(1) half-life badge is the honest substitute), and alt-data earnings nowcasts (no satellite / card-spend / web-traffic feeds). <b>Already covered elsewhere</b>: earnings read-through pair betas live in <b>Event spillover</b>, season-wide earnings stats in <b>Earnings tracker</b>, IV momentum in <b>Trending IV</b>, and the quality-dip shares screen in <b>Stock Picks</b> &mdash; this tab links to them instead of duplicating them.</p>`)}
+    <p class="hint">All screens are deterministic and rebuilt every bake; z-scores use each name's own history, never a cross-sectional curve. Surface z-scores and the dispersion percentile activate automatically once ~60 sessions of history accumulate. Analytical screens only &mdash; nothing here is a recommendation to buy or sell anything. Not financial advice.</p>
   </section>`;
 }
 
@@ -1385,6 +1421,10 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     ${sideNavItem('f13', '13F filings')}
   </div>
   <div class="side-nav-group">
+    <div class="side-nav-group-label" aria-hidden="true">Quant</div>
+    ${sideNavItem('quant', 'Quant Lab')}
+  </div>
+  <div class="side-nav-group">
     <div class="side-nav-group-label" aria-hidden="true">Tools</div>
     ${sideNavItem('grade', 'Grade a ticker', { navHidden: true })}
     ${sideNavItem('compare', 'Compare companies')}
@@ -1642,6 +1682,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-spillover" role="tabpanel" aria-labelledby="page-tab-spillover" hidden>
   ${spilloverSection()}
+  </div>
+  <div class="page-pane" id="page-pane-quant" role="tabpanel" aria-labelledby="page-tab-quant" hidden>
+  ${quantSection()}
   </div>
   <div class="page-pane" id="page-pane-index-cal" role="tabpanel" aria-labelledby="page-tab-index-cal" hidden>
   ${indexCalSection()}

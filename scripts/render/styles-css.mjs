@@ -3246,6 +3246,46 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .spill-forward b { color: var(--text-strong); }
 .spill-note { font: 400 11.5px/1.55 var(--font-sans); color: var(--muted); margin: 0; }
 
+/* --- Quant Lab (deterministic screens, premium) ------------------------ */
+.quant-root { display: flex; flex-direction: column; gap: 14px; }
+.quant-sub { font: 700 11px/1.2 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; color: var(--muted-strong); margin-top: 4px; }
+.quant-note { font: 500 12px/1.5 var(--font-sans); color: var(--muted-strong); border: 1px dashed var(--border); border-radius: var(--r-1); padding: 8px 12px; }
+.quant-none { font: 400 12.5px/1.5 var(--font-sans); color: var(--muted); margin: 0; }
+.quant-line { font: 400 12.5px/1.55 var(--font-sans); color: var(--muted-strong); }
+.quant-line b { color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.quant-scroll { overflow-x: auto; }
+.quant-tbl { width: 100%; border-collapse: collapse; font: 500 12px/1.35 var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.quant-tbl th { font: 700 10px/1.2 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 5px 10px 5px 0; border-bottom: 1px solid var(--border); }
+.quant-tbl td { padding: 5px 10px 5px 0; border-bottom: 1px dashed color-mix(in srgb, var(--border) 60%, transparent); }
+.quant-sym { font: 700 12.5px/1.2 var(--font-mono); color: var(--text-strong); text-decoration: none; }
+.quant-sym:hover, .quant-sym:focus-visible { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.quant-vs { color: var(--muted); margin: 0 3px; }
+.quant-dim { color: var(--muted); }
+.quant-pos { color: var(--pos); }
+.quant-neg { color: var(--neg); }
+.quant-z { font-weight: 700; }
+.quant-z-hot { color: var(--neg); }
+.quant-z-cold { color: var(--pos); }
+.quant-z-warm { color: var(--accent); }
+.quant-sit { font: 700 10px/1 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border); white-space: nowrap; }
+.quant-sit-pos { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 40%, transparent); }
+.quant-sit-neg { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 40%, transparent); }
+.quant-em, .quant-read { font: 400 11.5px/1.4 var(--font-sans); color: var(--muted-strong); white-space: normal; min-width: 180px; }
+.quant-mr-ok { color: var(--pos); font: 600 11px/1.2 var(--font-sans); }
+.quant-mr-no { color: var(--muted); font: 600 11px/1.2 var(--font-sans); cursor: help; }
+.quant-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.quant-mini { border: 1px solid var(--border); border-radius: var(--r-1); padding: 10px 12px; background: var(--surface); min-width: 0; }
+.quant-mini-title { font: 700 11px/1.3 var(--font-sans); color: var(--text-strong); margin-bottom: 6px; }
+.quant-disp { font: 400 12.5px/1.6 var(--font-sans); color: var(--muted-strong); border: 1px solid var(--border); border-radius: var(--r-1); padding: 10px 12px; background: var(--surface); }
+.quant-disp b { color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.quant-collecting { color: var(--accent); font-weight: 600; }
+.quant-playbook { display: flex; flex-direction: column; gap: 6px; }
+.quant-tbl-wrap { overflow-x: auto; }
+.quant-play-tbl { font: 400 12px/1.45 var(--font-sans); white-space: normal; }
+.quant-play-tbl td { color: var(--muted-strong); min-width: 140px; }
+.quant-play-tbl td:first-child { font-weight: 650; color: var(--text-strong); }
+.quant-empty { font: 400 12.5px/1.5 var(--font-sans); color: var(--muted); }
+
 /* --- Stock Picks (quality-dip screen, premium) ------------------------- */
 .stk-root { display: flex; flex-direction: column; gap: 14px; }
 .stk-funnel { font: 400 12.5px/1.55 var(--font-sans); color: var(--muted-strong); margin: 0; }

@@ -3817,11 +3817,15 @@ function computeImpliedMoveForDate(data, earningsDateStr) {
   return { pct: Number(pct.toFixed(4)), expiry: expSec };
 }
 
-function computeAtm30dIv(data) {
+// ATM IV at an arbitrary DTE target — the generalized core behind
+// computeAtm30dIv (the iv-history capture) and the Quant Lab's term-structure
+// read (30d vs ~90d slope). Same nearest-expiration + nearest-strike + call/put
+// average conventions as always so the two horizons stay comparable.
+function computeAtmIvForDte(data, dteTarget) {
   if (!data?.spot || !data?.chains) return null;
   const spot = data.spot;
   const nowSec = Math.floor(Date.now() / 1000);
-  const target = nowSec + IV_HISTORY_TARGET_DTE * 86400;
+  const target = nowSec + dteTarget * 86400;
   const exps = Object.keys(data.chains).map(Number)
     .filter((e) => e > nowSec)
     .sort((a, b) => Math.abs(a - target) - Math.abs(b - target));
@@ -3849,6 +3853,10 @@ function computeAtm30dIv(data) {
   if (atmC) return atmC.iv;
   if (atmP) return atmP.iv;
   return null;
+}
+
+function computeAtm30dIv(data) {
+  return computeAtmIvForDte(data, IV_HISTORY_TARGET_DTE);
 }
 
 async function loadIvHistoryEntries(symbol) {
@@ -3946,7 +3954,17 @@ async function collectIvHistory(chains) {
     // Replace today's entry if a previous run already wrote one (the
     // build runs pre-market + EOD on weekdays — keep the later sample).
     const filtered = base.filter((e) => e?.date !== today);
-    filtered.push({ date: today, iv: Number(iv.toFixed(4)) });
+    const entry = { date: today, iv: Number(iv.toFixed(4)) };
+    // Quant Lab surface accumulation (additive — every existing reader only
+    // touches `.iv`): `s` = 25Δ skew (put IV − call IV at the ~30d expiry) and
+    // `t` = term slope (ATM ~90d IV − ATM ~30d IV). One scalar each per day so
+    // the surface screens can grow their own z-scores; the tab shows
+    // "collecting (n/60)" until QUANT_SURFACE_MIN_HIST sessions accrue.
+    const skew = computeSkew25(data);
+    if (skew?.skew25 != null) entry.s = Number(skew.skew25.toFixed(4));
+    const ivFar = computeAtmIvForDte(data, QUANT_TERM_FAR_DTE);
+    if (ivFar != null && isFinite(ivFar)) entry.t = Number((ivFar - iv).toFixed(4));
+    filtered.push(entry);
     filtered.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
     const capped = filtered.slice(-IV_HISTORY_MAX_ENTRIES);
     out.set(sym, { symbol: sym, dteTarget: IV_HISTORY_TARGET_DTE, entries: capped });
@@ -4250,6 +4268,667 @@ async function writeIvTrendingFile(ivHistory, chains) {
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, IV_TRENDING_FILE), json, "utf8");
   return { payload, bytes: json.length };
+}
+
+// ===================== Quant Lab (data/quant.json) =========================
+// Deterministic quant screens over data the bake already collects — sigma
+// deviations (Bollinger price z + return z + IV expected-move cones), the vol
+// risk premium (ATM ~30d IV vs 30d realized, z vs the name's own derived
+// history), within-industry pair relative value (price-ratio z + IV-spread z +
+// AR(1) half-life), a vol-surface snapshot (term slope + 25Δ skew, with
+// z-scores that self-activate once the iv-history `s`/`t` fields accumulate
+// QUANT_SURFACE_MIN_HIST sessions), an implied-correlation dispersion PROXY,
+// and a post-earnings-drift watch. OWNER DIRECTIVE (same rule as the Event
+// Spillover Matrix): these are ANALYTICAL SCREENS, never trade signals — the
+// tab's playbook table is educational, and no row tells anyone to buy
+// anything. No AI anywhere in this section. Spec: docs/quant-lab.md.
+//
+// quant.json is rebuilt fresh every bake (no read-before-wipe — same
+// convention as iv-trending). quant-history.json is a small per-ET-day
+// accumulator (dispersion + market-median VRP) and follows the standard
+// read-before-wipe contract (readPriorQuantHistory in main()). Both PREMIUM.
+const QUANT_FILE = "quant.json";
+const QUANT_HISTORY_FILE = "quant-history.json";
+const QUANT_HISTORY_MAX_DAYS = 500;
+// Sigma screen: ship rows from ±1.5σ (context) — the classic extreme flag is ±2σ.
+const QUANT_SIGMA_SHOW_Z = 1.5;
+const QUANT_SIGMA_RET_Z = 2;
+// Pairs: candidates pair only WITHIN an industry group (singleton industries
+// fall back to their fine SECTORS label) and must clear a return-correlation
+// gate — no all-vs-all dredging across 138 names.
+const QUANT_PAIR_CORR_MIN = 0.6;
+const QUANT_PAIR_CORR_WIN = 120; // trading days of aligned log returns
+const QUANT_PAIR_PXZ_WIN = 60; // log price-ratio z window (~4 independent windows in 252 bars)
+const QUANT_PAIR_IVZ_WIN = 120; // IV-spread z window (~6mo of the ~18mo iv-history)
+const QUANT_PAIR_MIN_IV_OBS = 60; // joined IV observations required before ivZ means anything
+const QUANT_PAIR_HL_MAX = 30; // AR(1) half-life (sessions) bar for the mean-reversion badge
+const QUANT_PAIR_MAX_ROWS = 80;
+// VRP: derived series ≈ min(iv-history n, 252−31) — require a real sample.
+const QUANT_VRP_MIN_N = 60;
+// Surface: sessions of accumulated `s`/`t` before slopeZ/skewZ go live.
+const QUANT_SURFACE_MIN_HIST = 60;
+const QUANT_SKEW_DELTA = 0.25;
+const QUANT_TERM_FAR_DTE = 90;
+// Dispersion proxy basket: cap-weighted top-N tracked non-ETF names.
+const QUANT_DISP_TOP_N = 50;
+// Post-earnings-drift watch window (trading sessions since the reaction day).
+const QUANT_PED_WINDOW_SESSIONS = 10;
+
+const quantRound = (n, dp = 2) =>
+  n == null || !isFinite(n) ? null : Math.round(n * 10 ** dp) / 10 ** dp;
+// Vol numbers ship as percentage points (0.241 → 24.1) so the client never
+// guesses units; z-scores ship 2dp.
+const quantVolPts = (n) => (n == null || !isFinite(n) ? null : Math.round(n * 1000) / 10);
+
+function quantMeanStd(xs) {
+  const n = xs.length;
+  if (n < 2) return null;
+  const mean = xs.reduce((a, b) => a + b, 0) / n;
+  const variance = xs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / (n - 1);
+  return { mean, std: Math.sqrt(variance), n };
+}
+
+// Midrank percentile of the LAST value within the series (attachIvRanks
+// convention, so a flat series reads ~50 rather than 100).
+function quantPctileLast(xs) {
+  const cur = xs[xs.length - 1];
+  const below = xs.filter((x) => x < cur).length;
+  const ties = xs.filter((x) => x === cur).length;
+  return Math.round(((below + ties / 2) / xs.length) * 100);
+}
+
+const quantMedian = (xs) => {
+  if (!xs.length) return null;
+  const s = xs.slice().sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+};
+
+// Close bars ({t, c}, c > 0) for quant math — same _bars-first sourcing as the
+// correlations engine so the builders stay reusable offline off priceSeries.
+function quantBarsOf(data) {
+  return usBarsForCorrelation(data).filter((b) => b.c > 0);
+}
+
+// AR(1) mean-reversion read on a level series (the log price ratio): OLS of
+// Δr_t on r_{t−1}. φ < 0 with a finite half-life = the spread historically
+// pulls back toward its mean; half-life = −ln2 / ln(1+φ) sessions. This is a
+// DELIBERATE substitute for formal cointegration tests (Engle-Granger needs
+// far more than the 252 bars priceSeries carries) — the UI badges rows that
+// fail it rather than hiding them. Exported for offline testing.
+export function arOneHalfLife(series) {
+  if (!Array.isArray(series) || series.length < 20) return null;
+  const x = [];
+  const y = [];
+  for (let i = 1; i < series.length; i++) {
+    x.push(series[i - 1]);
+    y.push(series[i] - series[i - 1]);
+  }
+  const n = x.length;
+  const mx = x.reduce((a, b) => a + b, 0) / n;
+  const my = y.reduce((a, b) => a + b, 0) / n;
+  let sxy = 0;
+  let sxx = 0;
+  for (let i = 0; i < n; i++) {
+    sxy += (x[i] - mx) * (y[i] - my);
+    sxx += (x[i] - mx) * (x[i] - mx);
+  }
+  if (!(sxx > 0)) return null;
+  const phi = sxy / sxx;
+  let halfLife = null;
+  if (phi < 0 && phi > -2) {
+    const g = Math.log(1 + phi);
+    if (g < 0 && isFinite(g)) halfLife = Math.round(-Math.LN2 / g);
+  }
+  return { phi, halfLife };
+}
+
+// 25Δ skew at the ~30d expiry: IV of the ~25-delta put minus the ~25-delta
+// call (risk-reversal convention). Positive = downside protection bid (the
+// normal equity smirk); unusually positive = fear premium; negative = calls
+// bid over puts (squeeze chasing). Delta via lib/greeks.mjs off each row's own
+// IV; falls back to the strikes nearest ±10% moneyness when the delta hunt
+// finds nothing close (thin chains). Exported for offline testing.
+export function computeSkew25(data) {
+  if (!data?.spot || !data?.chains) return null;
+  const spot = data.spot;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const target = nowSec + IV_HISTORY_TARGET_DTE * 86400;
+  const exps = Object.keys(data.chains).map(Number)
+    .filter((e) => e > nowSec)
+    .sort((a, b) => Math.abs(a - target) - Math.abs(b - target));
+  if (!exps.length) return null;
+  const expSec = exps[0];
+  const chain = data.chains[expSec];
+  if (!chain) return null;
+  const T = Math.max((expSec - nowSec) / (365.25 * 86400), 1 / 365);
+  const hunt = (contracts, type, fallbackK) => {
+    let best = null;
+    let bestDist = Infinity;
+    for (const c of contracts || []) {
+      if (!(c?.iv > 0) || c.s == null) continue;
+      const g = greeks(type, spot, c.s, T, c.iv);
+      if (!g) continue;
+      const d = Math.abs(Math.abs(g.delta) - QUANT_SKEW_DELTA);
+      if (d < bestDist) { best = c; bestDist = d; }
+    }
+    if (best && bestDist <= 0.12) return best;
+    let fb = null;
+    let fbDist = Infinity;
+    for (const c of contracts || []) {
+      if (!(c?.iv > 0) || c.s == null) continue;
+      const d = Math.abs(c.s - fallbackK);
+      if (d < fbDist) { fb = c; fbDist = d; }
+    }
+    return fb;
+  };
+  const put = hunt(chain.p, "put", spot * 0.9);
+  const call = hunt(chain.c, "call", spot * 1.1);
+  if (!put || !call) return null;
+  return {
+    skew25: put.iv - call.iv,
+    ivPut25: put.iv,
+    ivCall25: call.iv,
+    expiry: expSec,
+    dte: Math.round((expSec - nowSec) / 86400),
+  };
+}
+
+// Sigma-deviation screen: 20-day Bollinger price z (population σ, the
+// band convention), yesterday→today return z vs the PRIOR 20 daily log
+// returns (today's outlier must not inflate its own σ), and the IV
+// expected-move cone (k·S·IV·√(days/365), the market's own 1σ/2σ). Only
+// names at/near an extreme ship.
+function buildQuantSigma(chains, todayIso) {
+  const rows = [];
+  for (const [sym, data] of Object.entries(chains)) {
+    const bars = quantBarsOf(data);
+    const closes = bars.map((b) => b.c);
+    if (closes.length < 42) continue;
+    const w = closes.slice(-20);
+    const mean20 = w.reduce((a, b) => a + b, 0) / 20;
+    const sd20 = Math.sqrt(w.reduce((a, b) => a + (b - mean20) * (b - mean20), 0) / 20);
+    if (!(sd20 > 0)) continue;
+    const last = closes[closes.length - 1];
+    const z20 = (last - mean20) / sd20;
+    const rets = [];
+    for (let i = 1; i < closes.length; i++) rets.push(Math.log(closes[i] / closes[i - 1]));
+    const retToday = rets[rets.length - 1];
+    const priorStats = quantMeanStd(rets.slice(-21, -1));
+    const retZ = priorStats && priorStats.std > 0 ? (retToday - priorStats.mean) / priorStats.std : null;
+    const flagged =
+      Math.abs(z20) >= QUANT_SIGMA_SHOW_Z || (retZ != null && Math.abs(retZ) >= QUANT_SIGMA_RET_Z);
+    if (!flagged) continue;
+    const hv20 = annualizedRealizedVol(closes, 20);
+    const tech = data.technicals || null;
+    const iv = data.ivRank?.iv ?? computeAtm30dIv(data);
+    let em = null;
+    if (iv > 0 && last > 0) {
+      em = {
+        iv: quantVolPts(iv),
+        w1: quantRound(iv * Math.sqrt(7 / 365) * 100, 1),
+        m1: quantRound(iv * Math.sqrt(30 / 365) * 100, 1),
+      };
+      const nextIso = data.fundamentals?.nextEarningsDate;
+      if (typeof nextIso === "string" && nextIso >= todayIso) {
+        const im = computeImpliedMoveForDate(data, nextIso);
+        if (im) {
+          em.earnDate = nextIso;
+          // 0.85× the ATM straddle — the standard quick expected-move read.
+          // Applied ONLY here; the raw straddle number everywhere else stays raw.
+          em.earnImplied = quantRound(im.pct * 0.85 * 100, 1);
+        }
+      }
+    }
+    let situation;
+    if (z20 >= 2) situation = "overbought";
+    else if (z20 <= -2) situation = "oversold";
+    else if (retZ != null && retZ >= QUANT_SIGMA_RET_Z) situation = "sigma-move-up";
+    else if (retZ != null && retZ <= -QUANT_SIGMA_RET_Z) situation = "sigma-move-down";
+    else situation = z20 > 0 ? "stretched-up" : "stretched-down";
+    rows.push({
+      t: sym,
+      sector: SECTORS[sym] || null,
+      px: quantRound(last),
+      z20: quantRound(z20),
+      sma20: quantRound(mean20),
+      bandLo: quantRound(mean20 - 2 * sd20),
+      bandHi: quantRound(mean20 + 2 * sd20),
+      retPct: quantRound((Math.exp(retToday) - 1) * 100),
+      retZ: quantRound(retZ),
+      hv20: quantVolPts(hv20),
+      rv30: quantVolPts(tech?.volRegime?.rv30),
+      rsi: tech?.rsi != null ? Math.round(tech.rsi) : null,
+      ivPctile: data.ivRank?.pctile ?? null,
+      em,
+      situation,
+    });
+  }
+  rows.sort(
+    (a, b) =>
+      Math.max(Math.abs(b.z20 ?? 0), Math.abs(b.retZ ?? 0)) -
+      Math.max(Math.abs(a.z20 ?? 0), Math.abs(a.retZ ?? 0)),
+  );
+  return rows;
+}
+
+// Vol risk premium: IV30 − RV30, where the HISTORY of the spread is derived
+// retroactively — each iv-history date joined to the 30-day realized vol of
+// the closes ending that date — so the z needs no new accumulation (series
+// depth ≈ min(iv-history n, 252−31) ≈ 220). Positive z = premium rich vs the
+// name's own norm; negative = options cheap vs the vol the stock actually
+// realizes.
+function buildQuantVrp(ivHistory, chains) {
+  const rows = [];
+  const vrpNowAll = [];
+  for (const [sym, hist] of ivHistory?.entries?.() || []) {
+    const data = chains?.[sym];
+    if (!data) continue;
+    const bars = quantBarsOf(data);
+    if (bars.length < 40) continue;
+    const closes = bars.map((b) => b.c);
+    const idxByDate = new Map(bars.map((b, i) => [b.t, i]));
+    const series = [];
+    for (const e of hist?.entries || []) {
+      const iv = Number(e?.iv);
+      if (!(iv > 0) || typeof e?.date !== "string") continue;
+      const idx = idxByDate.get(e.date);
+      if (idx == null || idx < 31) continue;
+      const rv = annualizedRealizedVol(closes.slice(0, idx + 1), 30);
+      if (rv == null || !isFinite(rv)) continue;
+      series.push(iv - rv);
+    }
+    if (series.length < QUANT_VRP_MIN_N) continue;
+    const cur = series[series.length - 1];
+    const ms = quantMeanStd(series);
+    const z = ms && ms.std > 0 ? (cur - ms.mean) / ms.std : null;
+    const rvCur = annualizedRealizedVol(closes, 30);
+    const ivCur = data.ivRank?.iv ?? computeAtm30dIv(data);
+    rows.push({
+      t: sym,
+      sector: SECTORS[sym] || null,
+      iv30: quantVolPts(ivCur),
+      rv30: quantVolPts(rvCur),
+      vrp: quantVolPts(cur),
+      z: quantRound(z),
+      pctile: quantPctileLast(series),
+      n: series.length,
+      ivPctile: data.ivRank?.pctile ?? null,
+    });
+    vrpNowAll.push(cur);
+  }
+  rows.sort((a, b) => (b.z ?? -99) - (a.z ?? -99));
+  const mkt = quantMedian(vrpNowAll);
+  return { rows, mktVrp: mkt != null ? quantVolPts(mkt) : null };
+}
+
+// One candidate pair: return correlation gate, then the two spread reads —
+// the 60d log price-ratio z (+ AR(1) half-life) and the 120d IV-spread z off
+// the two names' joined iv-history series. Null when the pair doesn't clear
+// the correlation bar or has no readable spread.
+function computeQuantPair(a, b, ind, chains, ivHistory) {
+  const barsA = quantBarsOf(chains[a]);
+  const barsB = quantBarsOf(chains[b]);
+  if (barsA.length < 61 || barsB.length < 61) return null;
+  const mapB = new Map(barsB.map((x) => [x.t, x.c]));
+  const ca = [];
+  const cb = [];
+  for (const x of barsA) {
+    const c2 = mapB.get(x.t);
+    if (c2 > 0) { ca.push(x.c); cb.push(c2); }
+  }
+  if (ca.length < QUANT_PAIR_PXZ_WIN + 1) return null;
+  const ra = [];
+  const rb = [];
+  for (let i = 1; i < ca.length; i++) {
+    ra.push(Math.log(ca[i] / ca[i - 1]));
+    rb.push(Math.log(cb[i] / cb[i - 1]));
+  }
+  const wr = Math.min(QUANT_PAIR_CORR_WIN, ra.length);
+  const raW = ra.slice(-wr);
+  const rbW = rb.slice(-wr);
+  const ma = raW.reduce((s, v) => s + v, 0) / wr;
+  const mb = rbW.reduce((s, v) => s + v, 0) / wr;
+  let sab = 0;
+  let saa = 0;
+  let sbb = 0;
+  for (let i = 0; i < wr; i++) {
+    const da = raW[i] - ma;
+    const db = rbW[i] - mb;
+    sab += da * db;
+    saa += da * da;
+    sbb += db * db;
+  }
+  if (!(saa > 0) || !(sbb > 0)) return null;
+  const corr = sab / Math.sqrt(saa * sbb);
+  if (!(corr >= QUANT_PAIR_CORR_MIN)) return null;
+  const beta = sab / sbb; // sensitivity of A's return to B's
+  // Log price ratio — the classic stat-arb spread.
+  const ratio = [];
+  for (let i = 0; i < ca.length; i++) ratio.push(Math.log(ca[i] / cb[i]));
+  const rw = ratio.slice(-QUANT_PAIR_PXZ_WIN);
+  const rms = quantMeanStd(rw);
+  const pxZ = rms && rms.std > 0 ? (rw[rw.length - 1] - rms.mean) / rms.std : null;
+  const hl = arOneHalfLife(rw);
+  const mrOk = !!(hl && hl.phi < 0 && hl.halfLife != null && hl.halfLife <= QUANT_PAIR_HL_MAX);
+  // IV spread — join the two names' iv-history by date.
+  const ivMapB = new Map();
+  for (const e of ivHistory?.get?.(b)?.entries || []) {
+    const iv = Number(e?.iv);
+    if (iv > 0 && typeof e?.date === "string") ivMapB.set(e.date, iv);
+  }
+  const spread = [];
+  for (const e of ivHistory?.get?.(a)?.entries || []) {
+    const iv = Number(e?.iv);
+    if (!(iv > 0) || typeof e?.date !== "string") continue;
+    const other = ivMapB.get(e.date);
+    if (other > 0) spread.push(iv - other);
+  }
+  let ivZ = null;
+  let spreadNow = null;
+  let spreadMean = null;
+  if (spread.length >= QUANT_PAIR_MIN_IV_OBS) {
+    const sw = spread.slice(-QUANT_PAIR_IVZ_WIN);
+    const sms = quantMeanStd(sw);
+    if (sms && sms.std > 0) {
+      ivZ = (sw[sw.length - 1] - sms.mean) / sms.std;
+      spreadNow = sw[sw.length - 1];
+      spreadMean = sms.mean;
+    }
+  }
+  if (pxZ == null && ivZ == null) return null;
+  const sig = Math.max(Math.abs(pxZ ?? 0), Math.abs(ivZ ?? 0));
+  const reads = [];
+  if (pxZ != null && Math.abs(pxZ) >= QUANT_SIGMA_SHOW_Z) {
+    const rich = pxZ > 0 ? a : b;
+    const cheap = pxZ > 0 ? b : a;
+    reads.push(`${rich} stretched vs ${cheap} on price (${Math.abs(pxZ).toFixed(1)}σ off the ${QUANT_PAIR_PXZ_WIN}d ratio)`);
+  }
+  if (ivZ != null && Math.abs(ivZ) >= QUANT_SIGMA_SHOW_Z) {
+    const rich = ivZ > 0 ? a : b;
+    const cheap = ivZ > 0 ? b : a;
+    reads.push(`${rich} options rich vs ${cheap} (IV spread ${Math.abs(ivZ).toFixed(1)}σ off its ${QUANT_PAIR_IVZ_WIN}d norm)`);
+  }
+  return {
+    a,
+    b,
+    ind,
+    corr: quantRound(corr),
+    beta: quantRound(beta),
+    n: wr,
+    pxZ: quantRound(pxZ),
+    halfLife: hl?.halfLife ?? null,
+    mrOk,
+    ivZ: quantRound(ivZ),
+    ivA: quantVolPts(chains[a]?.ivRank?.iv),
+    ivB: quantVolPts(chains[b]?.ivRank?.iv),
+    spreadNow: quantVolPts(spreadNow),
+    spreadMean: quantVolPts(spreadMean),
+    ivN: spread.length,
+    sig: quantRound(sig),
+    read: reads.join("; ") || null,
+  };
+}
+
+// Pair candidates: within INDUSTRY_OF_TICKER groups; industries with only one
+// tracked name fall back to pooling with the other singletons that share their
+// fine SECTORS label. ETFs excluded (an ETF-vs-constituent read is the
+// dispersion section's job).
+function buildQuantPairs(ivHistory, chains) {
+  const groups = new Map();
+  for (const sym of Object.keys(chains)) {
+    if (!chains[sym] || SECTORS[sym] === "ETF") continue;
+    const key = INDUSTRY_OF_TICKER[sym] || SECTORS[sym] || null;
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(sym);
+  }
+  const singles = [];
+  for (const [key, syms] of Array.from(groups.entries())) {
+    if (syms.length < 2) {
+      singles.push(...syms);
+      groups.delete(key);
+    }
+  }
+  const bySector = new Map();
+  for (const sym of singles) {
+    const sec = SECTORS[sym];
+    if (!sec) continue;
+    if (!bySector.has(sec)) bySector.set(sec, []);
+    bySector.get(sec).push(sym);
+  }
+  for (const [sec, syms] of bySector.entries()) {
+    if (syms.length >= 2) groups.set(sec, syms);
+  }
+  const rows = [];
+  let tested = 0;
+  for (const [label, syms] of groups.entries()) {
+    syms.sort();
+    for (let i = 0; i < syms.length; i++) {
+      for (let j = i + 1; j < syms.length; j++) {
+        tested++;
+        const row = computeQuantPair(syms[i], syms[j], label, chains, ivHistory);
+        if (row) rows.push(row);
+      }
+    }
+  }
+  rows.sort((a, b) => (b.sig ?? 0) - (a.sig ?? 0));
+  return { rows: rows.filter((r) => (r.sig ?? 0) >= 1).slice(0, QUANT_PAIR_MAX_ROWS), tested };
+}
+
+// Vol-surface snapshot per name: term slope (ATM ~90d − ~30d; negative =
+// backwardation, near-term stress priced over the future) + 25Δ skew. The
+// z-scores read today's value against the name's own accumulated `s`/`t`
+// history in iv-history and stay null (UI: "collecting n/60") until
+// QUANT_SURFACE_MIN_HIST sessions exist — they self-activate, no code change.
+function buildQuantSurface(chains, ivHistory) {
+  const rows = [];
+  for (const [sym, data] of Object.entries(chains)) {
+    if (!data?.spot) continue;
+    const ivNear = computeAtmIvForDte(data, IV_HISTORY_TARGET_DTE);
+    const ivFar = computeAtmIvForDte(data, QUANT_TERM_FAR_DTE);
+    const skew = computeSkew25(data);
+    const slope = ivNear != null && ivFar != null ? ivFar - ivNear : null;
+    if (slope == null && skew == null) continue;
+    const entries = ivHistory?.get?.(sym)?.entries || [];
+    const sHist = entries.map((e) => Number(e?.s)).filter(Number.isFinite);
+    const tHist = entries.map((e) => Number(e?.t)).filter(Number.isFinite);
+    const zOf = (cur, hist) => {
+      if (cur == null || hist.length < QUANT_SURFACE_MIN_HIST) return null;
+      const ms = quantMeanStd(hist);
+      return ms && ms.std > 0 ? quantRound((cur - ms.mean) / ms.std) : null;
+    };
+    rows.push({
+      t: sym,
+      sector: SECTORS[sym] || null,
+      ivNear: quantVolPts(ivNear),
+      ivFar: quantVolPts(ivFar),
+      slope: quantVolPts(slope),
+      backwardated: slope != null ? slope < 0 : null,
+      skew25: quantVolPts(skew?.skew25),
+      skewDte: skew?.dte ?? null,
+      slopeZ: zOf(slope, tHist),
+      skewZ: zOf(skew?.skew25 ?? null, sHist),
+      sN: sHist.length,
+      tN: tHist.length,
+    });
+  }
+  rows.sort((a, b) => a.t.localeCompare(b.t));
+  return rows;
+}
+
+// Implied-correlation dispersion PROXY: SPY's ATM ~30d IV vs the cap-weighted
+// average IV of the top-N tracked non-ETF names — ρ ≈ σ_idx² / (Σ wσ)²,
+// clipped to [0,1]. The tracked universe is NOT the S&P 500, so the LEVEL is
+// approximate by construction; the direction and (once quant-history
+// accumulates) the percentile are the signal. High implied ρ = index options
+// expensive relative to single names (the classic dispersion setup); low =
+// the reverse.
+function buildQuantDispersion(chains, historyDays) {
+  const spy = chains?.SPY;
+  const idxIv = spy ? spy.ivRank?.iv ?? computeAtm30dIv(spy) : null;
+  if (!(idxIv > 0)) return null;
+  const names = [];
+  for (const [sym, data] of Object.entries(chains)) {
+    if (!data || SECTORS[sym] === "ETF") continue;
+    const mc = Number(data.fundamentals?.marketCap);
+    const iv = data.ivRank?.iv ?? computeAtm30dIv(data);
+    if (!(mc > 0) || !(iv > 0)) continue;
+    names.push({ mc, iv });
+  }
+  names.sort((a, b) => b.mc - a.mc);
+  const top = names.slice(0, QUANT_DISP_TOP_N);
+  if (top.length < 20) return null;
+  const totalMc = top.reduce((s, x) => s + x.mc, 0);
+  const basketIv = top.reduce((s, x) => s + (x.mc / totalMc) * x.iv, 0);
+  const impliedCorr = Math.min(1, Math.max(0, (idxIv * idxIv) / (basketIv * basketIv)));
+  const hist = (historyDays || []).map((d) => Number(d?.impliedCorr)).filter(Number.isFinite);
+  let pctile = null;
+  if (hist.length >= QUANT_SURFACE_MIN_HIST) {
+    pctile = quantPctileLast([...hist, quantRound(impliedCorr)]);
+  }
+  return {
+    idxIv: quantVolPts(idxIv),
+    basketIv: quantVolPts(basketIv),
+    impliedCorr: quantRound(impliedCorr),
+    names: top.length,
+    histN: hist.length,
+    pctile,
+    note:
+      `Proxy: SPY ATM ~30d IV vs the cap-weighted top-${top.length} tracked names — ` +
+      "the tracked universe is not the S&P 500, so read the direction and percentile, not the level.",
+  };
+}
+
+// Post-earnings-drift watch: every name within QUANT_PED_WINDOW_SESSIONS
+// trading sessions of its print, with the realized reaction, the drift since
+// the reaction close, and the name's OWN historical 1-week post-print
+// tendency split by beat vs miss (from the accumulated earnings-history
+// store). Descriptive only — the Earnings tracker tab owns the season-wide
+// stats.
+function buildQuantPed(earningsHxStore, chains, todayIso) {
+  const rows = [];
+  for (const [sym, rec] of Object.entries(earningsHxStore?.tickers || {})) {
+    const data = chains?.[sym];
+    if (!data) continue;
+    const events = (rec?.events || [])
+      .filter((e) => e?.date && e.date <= todayIso && e.movePct != null)
+      .sort((a, b) => (a.date < b.date ? -1 : 1));
+    if (!events.length) continue;
+    const last = events[events.length - 1];
+    const bars = quantBarsOf(data);
+    if (bars.length < 2) continue;
+    const idx = bars.findIndex((b) => b.t >= last.date);
+    if (idx < 0) continue;
+    const daysSince = bars.length - 1 - idx;
+    if (daysSince < 0 || daysSince > QUANT_PED_WINDOW_SESSIONS) continue;
+    const lastClose = bars[bars.length - 1].c;
+    const driftSoFar =
+      last.closeAfter > 0 ? quantRound(((lastClose - last.closeAfter) / last.closeAfter) * 100) : null;
+    const prior = events.slice(0, -1).filter((e) => e.week1Pct != null);
+    const avgPct = (arr) =>
+      arr.length ? quantRound((arr.reduce((s, e) => s + e.week1Pct, 0) / arr.length) * 100) : null;
+    rows.push({
+      t: sym,
+      sector: SECTORS[sym] || null,
+      printDate: last.date,
+      surprisePct: last.surprisePct != null ? quantRound(last.surprisePct, 1) : null,
+      movePct: quantRound(last.movePct * 100),
+      driftSoFar,
+      beatAvgWk1: avgPct(prior.filter((e) => (e.surprisePct ?? 0) > 1)),
+      missAvgWk1: avgPct(prior.filter((e) => (e.surprisePct ?? 0) < -1)),
+      histQuarters: prior.length,
+      daysSince,
+    });
+  }
+  rows.sort((a, b) => a.daysSince - b.daysSince || a.t.localeCompare(b.t));
+  return rows;
+}
+
+// Assemble the whole payload + the upserted quant-history. Pure given its
+// inputs (chains + the collected ivHistory map + the earnings store + the
+// prior history) — exported for offline testing / the diagnose harness.
+export function buildQuantPayload(
+  chains,
+  ivHistory,
+  earningsHxStore,
+  priorHistory,
+  builtAtIso = new Date().toISOString(),
+) {
+  const todayIso = String(builtAtIso).slice(0, 10);
+  const sigmaRows = buildQuantSigma(chains, todayIso);
+  const vrp = buildQuantVrp(ivHistory, chains);
+  const pairs = buildQuantPairs(ivHistory, chains);
+  const surfaceRows = buildQuantSurface(chains, ivHistory);
+  const priorDays = Array.isArray(priorHistory?.days) ? priorHistory.days : [];
+  const dispersion = buildQuantDispersion(
+    chains,
+    priorDays.filter((d) => d?.d !== todayIso),
+  );
+  const pedRows = buildQuantPed(earningsHxStore, chains, todayIso);
+  const days = priorDays.filter((d) => d?.d !== todayIso);
+  if (dispersion || vrp.mktVrp != null) {
+    days.push({
+      d: todayIso,
+      impliedCorr: dispersion?.impliedCorr ?? null,
+      idxIv: dispersion?.idxIv ?? null,
+      basketIv: dispersion?.basketIv ?? null,
+      mktVrp: vrp.mktVrp,
+    });
+  }
+  days.sort((a, b) => (a.d < b.d ? -1 : 1));
+  const history = { days: days.slice(-QUANT_HISTORY_MAX_DAYS) };
+  const payload = {
+    builtAtIso,
+    date: todayIso,
+    minHist: QUANT_SURFACE_MIN_HIST,
+    sigma: { showZ: QUANT_SIGMA_SHOW_Z, retZ: QUANT_SIGMA_RET_Z, rows: sigmaRows },
+    vrp: { minN: QUANT_VRP_MIN_N, mktVrp: vrp.mktVrp, rows: vrp.rows },
+    pairs: {
+      window: { corr: QUANT_PAIR_CORR_WIN, pxZ: QUANT_PAIR_PXZ_WIN, ivZ: QUANT_PAIR_IVZ_WIN },
+      corrMin: QUANT_PAIR_CORR_MIN,
+      halfLifeMax: QUANT_PAIR_HL_MAX,
+      tested: pairs.tested,
+      rows: pairs.rows,
+    },
+    surface: { farDte: QUANT_TERM_FAR_DTE, skewDelta: QUANT_SKEW_DELTA, rows: surfaceRows },
+    dispersion,
+    ped: { windowSessions: QUANT_PED_WINDOW_SESSIONS, rows: pedRows },
+    // Honest coverage: what this section deliberately does NOT attempt, and why.
+    coverage: {
+      notFeasible: [
+        "M&A / spin-off screens — no deal or corporate-action data source",
+        "Index add/delete prediction — no index-committee or flow data",
+        "Gamma-scalping simulation — needs intraday delta-hedging data",
+        "Formal cointegration tests — 252-bar price history is too short; the AR(1) half-life badge is the honest substitute",
+        "Alt-data earnings nowcasts (satellite / card spend / web traffic) — no alt-data feeds",
+      ],
+      existing: [
+        { tab: "spillover", label: "Event Spillover Matrix", why: "earnings read-through pair betas" },
+        { tab: "earnings", label: "Earnings tracker", why: "season-wide beat/drift/implied-move stats" },
+        { tab: "iv-trend", label: "Trending IV", why: "IV momentum + elevation screens" },
+        { tab: "stocks", label: "Stock Picks", why: "quality-dip shares screen (price z is one input)" },
+      ],
+    },
+  };
+  return { payload, history };
+}
+
+async function readPriorQuantHistory() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, QUANT_HISTORY_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && Array.isArray(parsed.days)) return parsed;
+  } catch (_) { /* first build — start fresh */ }
+  return { days: [] };
+}
+
+async function writeQuantFiles(payload, history) {
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, QUANT_FILE), json, "utf8");
+  const hjson = JSON.stringify(history);
+  await writeFile(resolve(DATA_DIR, QUANT_HISTORY_FILE), hjson, "utf8");
+  return { bytes: json.length, historyBytes: hjson.length };
 }
 
 // ===================== Earnings history (per-ticker) =====================
@@ -24719,6 +25398,11 @@ async function main() {
   // validation log accumulates enrolled events across builds — both are gone
   // by the post-wipe step without this pre-read. (docs/event-spillover.md §12.)
   const priorSpillover = await readPriorSpillover();
+  // Same rule for the Quant Lab's small per-day accumulator
+  // (data/quant-history.json — dispersion implied-correlation + market VRP):
+  // pre-read before the wipe or the series resets every build. quant.json
+  // itself rebuilds fresh each bake and needs no pre-read.
+  const priorQuantHistory = await readPriorQuantHistory();
   // Same rule for the calendar macro-report salvage: writeCalendarFile's
   // last-good fallback (carry in-window report rows when FRED + BLS both come
   // back empty) reads data/calendar.json, but it runs AFTER writeChainFiles
@@ -24980,6 +25664,25 @@ async function main() {
     console.log(`wrote data/${IV_TRENDING_FILE} — ${ivTrending.tickers.length} ranked, ${ivTrending.trendingCount} trending, ${ivTrendingBytes} bytes`);
   } catch (err) {
     console.log(`Trending-IV write failed (non-fatal): ${err.message}`);
+  }
+  // Quant Lab (docs/quant-lab.md) — deterministic sigma / VRP / pairs /
+  // surface / dispersion / post-earnings-drift screens over the data already
+  // in memory (chains + ivHistory + the earnings store). Analytical screens,
+  // never trade signals. Non-fatal: the tab keeps its last-good payload in
+  // the private store until the next clean bake.
+  try {
+    const { payload: quantPayload, history: quantHistoryNext } = buildQuantPayload(
+      chains, ivHistory, earningsHxStore, priorQuantHistory, builtAtIso,
+    );
+    const quantInfo = await writeQuantFiles(quantPayload, quantHistoryNext);
+    console.log(
+      `wrote data/${QUANT_FILE} — ${quantPayload.sigma.rows.length} sigma flags, ` +
+      `${quantPayload.vrp.rows.length} VRP names, ${quantPayload.pairs.rows.length}/${quantPayload.pairs.tested} pairs, ` +
+      `${quantPayload.surface.rows.length} surface rows, ${quantPayload.ped.rows.length} post-print, ` +
+      `${quantInfo.bytes} bytes (+${quantInfo.historyBytes} history, ${quantHistoryNext.days.length} days)`,
+    );
+  } catch (err) {
+    console.log(`  ⚠ Quant Lab step failed (non-fatal): ${err.message}`);
   }
   // Earnings-history store back into the freshly-recreated data/ (pre-read +
   // updated above, before the wipe).
