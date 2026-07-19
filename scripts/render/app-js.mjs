@@ -68,7 +68,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // default to "ungated, everyone's a member" so a legacy public deploy — or a
   // failed /me probe — never locks the site by accident. applyAuth() flips these
   // once /me resolves, before the first selectTab().
-  var PREMIUM_TABS = { market:1, brief:1, narratives:1, flow:1, volume:1, oi:1, 'index-cal':1, stocks:1, calls:1, spillover:1 };
+  var PREMIUM_TABS = { market:1, brief:1, narratives:1, flow:1, volume:1, oi:1, 'index-cal':1, stocks:1, calls:1, spillover:1, quant:1 };
   var GATE_ON = false;
   var IS_MEMBER = true;
   // Track Record is a STRICTER tier than premium: a specific Discord role, not
@@ -88,7 +88,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // header so the Discord is findable from anywhere on the site.
   var DISCORD_INVITE_URL = ${JSON.stringify(DISCORD_INVITE_URL)};
   function premiumTabLabel(id){
-    return ({ market:'Market Analysis', brief:'Briefs', narratives:'Narratives', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', hot:'Hot Stocks', 'index-cal':'Index Calendar', stocks:'Stock Picks', calls:'Earnings calls', spillover:'Event spillover' })[id] || 'This feature';
+    return ({ market:'Market Analysis', brief:'Briefs', narratives:'Narratives', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', hot:'Hot Stocks', 'index-cal':'Index Calendar', stocks:'Stock Picks', calls:'Earnings calls', spillover:'Event spillover', quant:'Quant Lab' })[id] || 'This feature';
   }
   // Inject the members-only upsell card into a locked premium pane (idempotent).
   function ensurePremiumLock(pane, id){
@@ -105,7 +105,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
         '</div>' +
         '<h2 class="premium-lock-title">' + escapeHtml(premiumTabLabel(id)) + ' is a members feature</h2>' +
-        '<p class="premium-lock-body">Market analysis, Stock Picks, Briefs, Narratives, Earnings calls, Event spillover, Unusual &amp; Volume flow, and Gamma exposure are unlocked with a premium <b>Discord</b> membership. Join the server to get access &mdash; everything else stays free.</p>' +
+        '<p class="premium-lock-body">Market analysis, Stock Picks, Briefs, Narratives, Earnings calls, Event spillover, Quant Lab, Unusual &amp; Volume flow, and Gamma exposure are unlocked with a premium <b>Discord</b> membership. Join the server to get access &mdash; everything else stays free.</p>' +
         '<a class="premium-lock-cta" href="' + DISCORD_INVITE_URL + '" target="_blank" rel="noopener">' + DISCORD_ICON_SVG + '<span>Join the Discord to get premium</span></a>' +
         '<p class="premium-lock-foot">Already a member? <a href="/api/auth/discord-login">Log in with Discord</a>.</p>' +
       '</div>';
@@ -3160,7 +3160,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','market','picks','stocks','heatmap','calendar','earnings','calls','spillover','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','features','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','market','picks','stocks','heatmap','calendar','earnings','calls','spillover','quant','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','features','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3187,6 +3187,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     'earnings-calls': 'calls', 'earnings-call': 'calls', transcripts: 'calls', transcript: 'calls', call: 'calls',
     iv: 'iv-trend', 'trending-iv': 'iv-trend', 'iv-trending': 'iv-trend', ivtrend: 'iv-trend', 'implied-vol': 'iv-trend', 'implied-volatility': 'iv-trend',
     'event-spillover': 'spillover', 'read-through': 'spillover', readthrough: 'spillover', 'spill-over': 'spillover', spill: 'spillover',
+    'quant-lab': 'quant', quantlab: 'quant', pairs: 'quant', 'pair-trading': 'quant', sigma: 'quant', vrp: 'quant', dispersion: 'quant',
     // Reference / legal / info pages (now in-app tabs).
     'buyers-manual': 'cheatsheet', 'buyer-manual': 'cheatsheet', cheat: 'cheatsheet', 'cheat-sheet': 'cheatsheet', manual: 'cheatsheet',
     patterns: 'chart-patterns', chartpatterns: 'chart-patterns', 'chart-pattern': 'chart-patterns',
@@ -3464,6 +3465,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (name === 'ipo-credit' && typeof loadIpoCredit === 'function') loadIpoCredit();
         if (name === 'iv-trend' && typeof loadIvTrend === 'function') loadIvTrend();
         if (name === 'spillover' && typeof loadSpillover === 'function') loadSpillover();
+        if (name === 'quant' && typeof loadQuant === 'function') loadQuant();
       }
       // The sidebar scrolls vertically when the tab list outgrows the
       // viewport. Programmatic selection (e.g. a ?tab= deep-link) can leave
@@ -14816,6 +14818,187 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     root.innerHTML = html;
     bindBriefChips(root);
   }
+  // --- Quant Lab (premium tab; data/quant.json) ------------------------------
+  // docs/quant-lab.md — deterministic sigma / VRP / pairs / surface /
+  // dispersion / post-earnings-drift screens. ANALYTICAL ONLY: z-scores and
+  // ranks, never trade signals (the playbook table in the shell is educational).
+  var quantState = { data: null, loading: false };
+  function loadQuant(){
+    if ((quantState.data && !tabDataStale(quantState)) || quantState.loading){ renderQuant(); return; }
+    quantState.loading = true;
+    fetch('data/quant.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){
+        quantState.data = (j && typeof j === 'object') ? j : {};
+        quantState.loading = false;
+        quantState.fetchedAt = Date.now();
+        renderQuant();
+      })
+      .catch(function(){ quantState.data = { loadError: true }; quantState.loading = false; renderQuant(); });
+  }
+  function quantSymLink(sym){
+    var s = String(sym || '').toUpperCase();
+    return '<a class="quant-sym" data-sym="' + escapeHtml(s) + '" href="' + symGradeHref(s) + '">' + escapeHtml(s) + '</a>';
+  }
+  // All vol numbers in quant.json ship as PERCENTAGE POINTS (24.1 = 24.1%);
+  // z-scores are plain numbers. Signed formatter for z / drift values.
+  function quantNum(v, dp){ return (v == null || !isFinite(v)) ? '—' : Number(v).toFixed(dp == null ? 2 : dp); }
+  function quantSigned(v, dp){
+    if (v == null || !isFinite(v)) return '—';
+    var s = Number(v).toFixed(dp == null ? 2 : dp);
+    return (v > 0 ? '+' : '') + s;
+  }
+  function quantZCell(v){
+    if (v == null || !isFinite(v)) return '<td>—</td>';
+    var cls = v >= 2 ? 'quant-z-hot' : v <= -2 ? 'quant-z-cold' : Math.abs(v) >= 1.5 ? 'quant-z-warm' : '';
+    return '<td class="quant-z ' + cls + '">' + quantSigned(v) + 'σ</td>';
+  }
+  function renderQuant(){
+    var root = $('quant-root'); var empty = $('quant-empty'); var eye = $('quant-eyebrow');
+    if (!root) return;
+    var d = quantState.data;
+    if (!d){ root.textContent = 'Loading Quant Lab…'; return; }
+    var hasAny = (d.sigma && d.sigma.rows && d.sigma.rows.length) || (d.vrp && d.vrp.rows && d.vrp.rows.length) ||
+      (d.pairs && d.pairs.rows && d.pairs.rows.length) || (d.surface && d.surface.rows && d.surface.rows.length);
+    if (d.loadError || !hasAny){
+      root.innerHTML = ''; root.hidden = true; if (empty) empty.hidden = false;
+      if (eye) eye.textContent = '';
+      return;
+    }
+    root.hidden = false; if (empty) empty.hidden = true;
+    var sigmaRows = (d.sigma && d.sigma.rows) || [];
+    var vrpRows = (d.vrp && d.vrp.rows) || [];
+    var pairRows = (d.pairs && d.pairs.rows) || [];
+    var surfRows = (d.surface && d.surface.rows) || [];
+    var pedRows = (d.ped && d.ped.rows) || [];
+    var minHist = d.minHist || 60;
+    if (eye) eye.textContent = (d.date || '') + ' · ' + sigmaRows.length + ' sigma flags · ' + pairRows.length + ' pair reads';
+    var html = '<div class="quant-note">Analytical screens — statistical extremes vs each name’s own history. Nothing here is a trade signal.</div>';
+    // --- Sigma deviations -----------------------------------------------
+    html += '<div class="quant-sub">Sigma deviations — names at a statistical extreme</div>';
+    if (!sigmaRows.length){
+      html += '<p class="quant-none">Nothing at ±' + ((d.sigma && d.sigma.showZ) || 1.5) + 'σ right now — the tape is inside its bands.</p>';
+    } else {
+      var situationLabel = { overbought: '≥2σ overbought', oversold: '≤−2σ oversold', 'sigma-move-up': '2σ up move', 'sigma-move-down': '2σ down move', 'stretched-up': 'stretched high', 'stretched-down': 'stretched low' };
+      html += '<div class="quant-scroll"><table class="quant-tbl"><thead><tr><th>Name</th><th>Situation</th><th>Px</th><th>20d z</th><th>2σ band</th><th>1d move</th><th>HV20</th><th>RV30</th><th>RSI</th><th>IV %ile</th><th>Expected move (1σ)</th></tr></thead><tbody>';
+      sigmaRows.slice(0, 40).forEach(function(r){
+        var sit = situationLabel[r.situation] || r.situation || '—';
+        var sitCls = /oversold|down/.test(r.situation || '') ? 'quant-sit-neg' : 'quant-sit-pos';
+        var em = r.em ? ('±' + quantNum(r.em.w1, 1) + '% wk · ±' + quantNum(r.em.m1, 1) + '% mo' +
+          (r.em.earnImplied != null ? ' · earnings ' + escapeHtml(r.em.earnDate || '') + ' ~±' + quantNum(r.em.earnImplied, 1) + '%' : '')) : '—';
+        html += '<tr><td>' + quantSymLink(r.t) + '</td>' +
+          '<td><span class="quant-sit ' + sitCls + '">' + escapeHtml(sit) + '</span></td>' +
+          '<td>' + quantNum(r.px) + '</td>' +
+          quantZCell(r.z20) +
+          '<td>' + quantNum(r.bandLo) + '–' + quantNum(r.bandHi) + '</td>' +
+          '<td>' + quantSigned(r.retPct) + '%' + (r.retZ != null ? ' <span class="quant-dim">(' + quantSigned(r.retZ, 1) + 'σ)</span>' : '') + '</td>' +
+          '<td>' + quantNum(r.hv20, 1) + '</td>' +
+          '<td>' + quantNum(r.rv30, 1) + '</td>' +
+          '<td>' + (r.rsi != null ? r.rsi : '—') + '</td>' +
+          '<td>' + (r.ivPctile != null ? r.ivPctile : '—') + '</td>' +
+          '<td class="quant-em">' + em + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+    // --- Vol risk premium ------------------------------------------------
+    html += '<div class="quant-sub">Vol risk premium — IV30 vs RV30, z-scored vs each name’s own history</div>';
+    if (!vrpRows.length){
+      html += '<p class="quant-none">Not enough joined IV + price history yet (needs ' + ((d.vrp && d.vrp.minN) || 60) + ' sessions per name).</p>';
+    } else {
+      if (d.vrp.mktVrp != null) html += '<div class="quant-line">Median premium across ' + vrpRows.length + ' names: <b>' + quantSigned(d.vrp.mktVrp, 1) + ' vol pts</b> (IV over realized — the carry option sellers harvest).</div>';
+      var vrpTable = function(title, rows){
+        var h = '<div class="quant-mini"><div class="quant-mini-title">' + title + '</div>' +
+          '<div class="quant-scroll"><table class="quant-tbl"><thead><tr><th>Name</th><th>IV30</th><th>RV30</th><th>VRP</th><th>z</th><th>%ile</th><th>IV %ile</th></tr></thead><tbody>';
+        rows.forEach(function(r){
+          h += '<tr><td>' + quantSymLink(r.t) + '</td><td>' + quantNum(r.iv30, 1) + '</td><td>' + quantNum(r.rv30, 1) + '</td>' +
+            '<td>' + quantSigned(r.vrp, 1) + '</td>' + quantZCell(r.z) + '<td>' + (r.pctile != null ? r.pctile : '—') + '</td>' +
+            '<td>' + (r.ivPctile != null ? r.ivPctile : '—') + '</td></tr>';
+        });
+        return h + '</tbody></table></div></div>';
+      };
+      html += '<div class="quant-cols">' +
+        vrpTable('Richest premium (IV furthest over its norm)', vrpRows.slice(0, 8)) +
+        vrpTable('Cheapest premium (IV furthest under its norm)', vrpRows.slice(-8).reverse()) +
+        '</div>';
+    }
+    // --- Pairs -----------------------------------------------------------
+    html += '<div class="quant-sub">Pair relative value — within-industry, return correlation ≥ ' + ((d.pairs && d.pairs.corrMin) || 0.6) + '</div>';
+    if (!pairRows.length){
+      html += '<p class="quant-none">No correlated pair is stretched ≥1σ right now (' + ((d.pairs && d.pairs.tested) || 0) + ' candidate pairs tested).</p>';
+    } else {
+      html += '<div class="quant-scroll"><table class="quant-tbl"><thead><tr><th>Pair</th><th>Industry</th><th>Corr</th><th>β</th><th>Price z (60d)</th><th>Mean-rev</th><th>IV z (120d)</th><th>IV A / B</th><th>Read</th></tr></thead><tbody>';
+      pairRows.slice(0, 30).forEach(function(p){
+        var mr = p.pxZ == null ? '—'
+          : p.mrOk ? '<span class="quant-mr-ok">~' + (p.halfLife != null ? p.halfLife + 'd half-life' : 'reverts') + '</span>'
+          : '<span class="quant-mr-no" title="The 60d price ratio shows no AR(1) pull back to its mean — a stretched spread can simply keep trending">no MR evidence</span>';
+        html += '<tr><td class="quant-pair">' + quantSymLink(p.a) + '<span class="quant-vs">/</span>' + quantSymLink(p.b) + '</td>' +
+          '<td class="quant-dim">' + escapeHtml(p.ind || '') + '</td>' +
+          '<td>' + quantNum(p.corr) + '</td>' +
+          '<td>' + quantNum(p.beta) + '</td>' +
+          quantZCell(p.pxZ) +
+          '<td>' + mr + '</td>' +
+          quantZCell(p.ivZ) +
+          '<td>' + quantNum(p.ivA, 1) + ' / ' + quantNum(p.ivB, 1) + '</td>' +
+          '<td class="quant-read">' + escapeHtml(p.read || '—') + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+      if (pairRows.length > 30) html += '<p class="quant-none">Showing 30 of ' + pairRows.length + ' stretched pairs (' + ((d.pairs && d.pairs.tested) || 0) + ' tested).</p>';
+    }
+    // --- Vol surface -----------------------------------------------------
+    html += '<div class="quant-sub">Vol surface — term slope (~90d − ~30d) and 25Δ skew</div>';
+    if (!surfRows.length){
+      html += '<p class="quant-none">No surface reads this build.</p>';
+    } else {
+      var histReady = surfRows.some(function(r){ return r.slopeZ != null || r.skewZ != null; });
+      var maxHist = 0;
+      surfRows.forEach(function(r){ maxHist = Math.max(maxHist, r.sN || 0, r.tN || 0); });
+      if (!histReady) html += '<div class="quant-line quant-collecting">Skew/term z-scores vs each name’s own history are collecting (' + maxHist + '/' + minHist + ' sessions) — they switch on automatically. Today’s snapshot values below.</div>';
+      var backw = surfRows.filter(function(r){ return r.slope != null && r.backwardated; }).sort(function(a, b){ return a.slope - b.slope; }).slice(0, 8);
+      var skewed = surfRows.filter(function(r){ return r.skew25 != null; }).sort(function(a, b){ return b.skew25 - a.skew25; }).slice(0, 8);
+      var surfTable = function(title, rows, kind){
+        var h = '<div class="quant-mini"><div class="quant-mini-title">' + title + '</div>' +
+          '<div class="quant-scroll"><table class="quant-tbl"><thead><tr><th>Name</th><th>IV 30d</th><th>IV 90d</th><th>' + (kind === 'term' ? 'Slope' : '25Δ skew') + '</th><th>z</th></tr></thead><tbody>';
+        rows.forEach(function(r){
+          h += '<tr><td>' + quantSymLink(r.t) + '</td><td>' + quantNum(r.ivNear, 1) + '</td><td>' + quantNum(r.ivFar, 1) + '</td>' +
+            '<td>' + quantSigned(kind === 'term' ? r.slope : r.skew25, 1) + '</td>' + quantZCell(kind === 'term' ? r.slopeZ : r.skewZ) + '</tr>';
+        });
+        return h + '</tbody></table></div></div>';
+      };
+      html += '<div class="quant-cols">' +
+        surfTable('Inverted term structures (near-term stress priced)', backw, 'term') +
+        surfTable('Richest put skew (downside protection bid)', skewed, 'skew') +
+        '</div>';
+      if (!backw.length) html += '<p class="quant-none">No inverted term structures — the vol curves are in normal contango.</p>';
+    }
+    // --- Dispersion ------------------------------------------------------
+    if (d.dispersion){
+      var disp = d.dispersion;
+      html += '<div class="quant-sub">Dispersion — implied correlation proxy</div>';
+      html += '<div class="quant-disp">SPY IV <b>' + quantNum(disp.idxIv, 1) + '%</b> vs cap-weighted top-' + (disp.names || '?') + ' basket <b>' + quantNum(disp.basketIv, 1) + '%</b> → implied correlation ≈ <b>' + quantNum(disp.impliedCorr) + '</b>' +
+        (disp.pctile != null ? ' (' + disp.pctile + 'th %ile of its own history — high = index options rich vs single names, the classic dispersion setup)'
+          : ' <span class="quant-collecting">(percentile collecting: ' + (disp.histN || 0) + '/' + minHist + ' sessions)</span>') +
+        '.<div class="quant-dim">' + escapeHtml(disp.note || '') + '</div></div>';
+    }
+    // --- Post-earnings drift --------------------------------------------
+    html += '<div class="quant-sub">Post-earnings drift — names inside ' + ((d.ped && d.ped.windowSessions) || 10) + ' sessions of a print</div>';
+    if (!pedRows.length){
+      html += '<p class="quant-none">No tracked name printed inside the window.</p>';
+    } else {
+      html += '<div class="quant-scroll"><table class="quant-tbl"><thead><tr><th>Name</th><th>Print</th><th>Surprise</th><th>Reaction</th><th>Drift since</th><th>Hist wk1 after beat</th><th>after miss</th><th>Sessions ago</th></tr></thead><tbody>';
+      pedRows.slice(0, 25).forEach(function(r){
+        html += '<tr><td>' + quantSymLink(r.t) + '</td><td>' + escapeHtml(r.printDate || '') + '</td>' +
+          '<td>' + (r.surprisePct != null ? quantSigned(r.surprisePct, 1) + '%' : '—') + '</td>' +
+          '<td class="' + ((r.movePct || 0) >= 0 ? 'quant-pos' : 'quant-neg') + '">' + quantSigned(r.movePct, 1) + '%</td>' +
+          '<td class="' + ((r.driftSoFar || 0) >= 0 ? 'quant-pos' : 'quant-neg') + '">' + quantSigned(r.driftSoFar, 1) + '%</td>' +
+          '<td>' + (r.beatAvgWk1 != null ? quantSigned(r.beatAvgWk1, 1) + '% (' + r.histQuarters + 'q)' : '—') + '</td>' +
+          '<td>' + (r.missAvgWk1 != null ? quantSigned(r.missAvgWk1, 1) + '%' : '—') + '</td>' +
+          '<td>' + r.daysSince + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+    root.innerHTML = html;
+    bindBriefChips(root);
+  }
   function loadIvTrend(){
     if ((ivTrendState.data && !tabDataStale(ivTrendState)) || ivTrendState.loading){ renderIvTrend(); return; }
     ivTrendState.loading = true;
@@ -15666,7 +15849,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Stock Picks card + DCA symbols, Trending-IV symbols/chips/table rows).
   function bindBriefChips(rootEl){
     if (!rootEl) return;
-    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .stk-sym[data-sym], .stk-dca-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym], .cmd-watch[data-sym], .cr-tkr[data-sym], .f13-sym[data-sym], .ers-sym[data-sym], .ecl-sym[data-sym], .spill-sym[data-sym]');
+    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .stk-sym[data-sym], .stk-dca-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym], .cmd-watch[data-sym], .cr-tkr[data-sym], .f13-sym[data-sym], .ers-sym[data-sym], .ecl-sym[data-sym], .spill-sym[data-sym], .quant-sym[data-sym]');
     for (var i = 0; i < chips.length; i++){
       chips[i].addEventListener('click', function(ev){
         // Modified clicks fall through to the browser so the ?s= href opens
