@@ -56,6 +56,7 @@ const SIDE_NAV_ICONS = {
   'iv-trend': '<path d="m3 17.5 6-6 4 4 8-8.5"/><path d="M14.5 7h6.5v6.5"/>',
   spillover: '<circle cx="12" cy="12" r="2.5"/><path d="M12 5.5a6.5 6.5 0 0 1 6.5 6.5"/><path d="M12 2a10 10 0 0 1 10 10"/>',
   quant: '<path d="M18 6.5V4H6l6.5 8L6 20h12v-2.5"/>',
+  levetf: '<path d="M3.5 20.5v-17"/><path d="M3.5 20.5h17"/><path d="m6 16.5 3.5-4 2.5 2 4-5.5"/><path d="m11.5 6.5 3-3 3 3"/><path d="M14.5 3.5v7"/>',
   overnight: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
   'fear-greed': '<path d="m12 14.5 3.5-3.5"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
   'bonds-usd': '<path d="M12 2.5v19M16.5 5.5H10a3 3 0 0 0 0 6h4a3 3 0 0 1 0 6H7"/>',
@@ -428,6 +429,22 @@ function stockPicksSection() {
     </header>
     ${infoNote('How to read stock picks', `<p>Share ideas, <em>not</em> option contracts &mdash; the Top Picks tab times leveraged trades; this page runs one buy-the-dip playbook over the same ${'~'}138-name universe, built on <b>three separate questions answered independently</b> (never blended into one number). <b>1&nbsp;&middot;&nbsp;Is it a good business?</b> A hard quality gate: consistently profitable (positive net margin or free cash flow), a manageable debt load (more cash than debt, or debt/equity &le;&nbsp;2x), net margins holding vs a year ago, and revenue still growing on a trailing-twelve-month view. Names that fail are never shown, however far they&rsquo;ve fallen &mdash; that&rsquo;s how value traps get in. <b>2&nbsp;&middot;&nbsp;Is it beaten down right now?</b> Five reads of &ldquo;cheap vs its own recent self&rdquo;: RSI(14) under 35, 4%+ below the 50-day average, 15%+ off the 52-week high, stretched &minus;2&sigma; against its 20-day mean (&asymp; the lower Bollinger band), and lagging SPY by 4+ points over ten sessions (company-specific selling, not a market-wide selloff). Each read is z-scored <em>across the quality-passed universe</em> and averaged into the card&rsquo;s <b>dip score</b>, so the page surfaces the most unloved names relative to each other rather than leaning on fragile fixed thresholds; a name needs at least two reads fired to list at all. <b>3&nbsp;&middot;&nbsp;Is it down because something actually broke?</b> Yellow trap flags &mdash; a fresh earnings print inside the drop, heavy-volume selling, a long red streak, analysts cutting estimates, a bearish news tone, or a binary event just ahead. Flags never block a candidate; they ride the card so the final call stays with you. A candidate with zero flags is badged <b>buy zone</b>: good business + beaten down + nothing broken. Every card also carries an expandable <b>investment thesis checklist</b> &mdash; the full owner&rsquo;s due-diligence list (management &amp; moat, financial health &amp; cash flow, unit economics, valuation &amp; growth, macro sensitivity, risks &amp; scenarios) with each question answered from the tracked data where possible and honestly labeled <em>unsure</em> (a heuristic or proxy read) or <em>unanswered</em> (not visible in our data) where it isn&rsquo;t. Fully deterministic, refreshed with each hourly build, and honest &mdash; a tape with no quality name on sale shows nothing. Not financial advice.</p>`)}
     <div id="stocks-root" class="stk-root">Loading stock picks&hellip;</div>
+  </section>`;
+}
+
+function leveragedEtfsSection() {
+  // Card chrome only — the leveraged-ETF idea cards render client-side from
+  // data/leveraged-etfs.json (premium; lazy-fetched on first tab activation by
+  // loadLevEtf() in app.js, then decorated with live quotes via /api/quotes).
+  // Functions like Top Picks but the instrument is a leveraged ETF, not an
+  // option contract.
+  return `<section class="card" id="levetf-section">
+    <header class="card-header">
+      <h2 class="card-title">Leveraged ETFs</h2>
+      <span class="card-eyebrow" id="levetf-eyebrow" aria-live="polite"></span>
+    </header>
+    ${infoNote('How to read the leveraged ETF screen', `<p>The Top Picks engine&rsquo;s <b>same deterministic four-pillar grades</b> (trend / flow / fundamentals / narrative + entry timing &mdash; no AI anywhere in this screen), expressed through <b>listed leveraged ETFs instead of option contracts</b>. A directional read on a tracked name maps to its <b>single-stock leveraged product</b> when one actually trades (NVDL, TSLL, AAPU, &hellip; &mdash; Direxion pairs run 2&times; bull&nbsp;/&nbsp;&minus;1&times; bear); a read shared by a whole group maps to the <b>sector or index 3&times; pair</b> (SOXL/SOXS, TQQQ/SQQQ, FAS/FAZ, &hellip;) &mdash; and a sector idea additionally requires <b>breadth</b> (most of the group&rsquo;s tracked names leaning the same way), so one loud name can&rsquo;t buy a 3&times; sector bet. Because an ETF pays no option premium, the ranking score strips the grade&rsquo;s IV-cost pillar &mdash; expensive options never argue against (or for) an ETF idea. Every card shows the <b>reset-drag estimate</b> &mdash; leveraged ETFs rebalance daily, so volatility itself bleeds value (&frac12;&middot;k&middot;(k&minus;1)&middot;&sigma;&sup2; per day, shown as ~%/month at the underlying&rsquo;s current 20-day realized vol) &mdash; plus a <b>chop warning</b> when the tape is volatile but trendless (the decay worst case), the entry-timing read, and the drivers behind the grade. Directions with <b>no listed product</b> land in the watch list saying exactly that &mdash; the screen never invents a ticker. These are short-horizon trading vehicles: daily-reset compounding means a multi-day hold tracks the path, not the period move. Not financial advice.</p>`)}
+    <div id="levetf-root" class="lev-root">Loading leveraged ETF screen&hellip;</div>
   </section>`;
 }
 
@@ -1392,6 +1409,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     ${sideNavItem('market', 'Market analysis')}
     ${sideNavItem('picks', 'Top picks')}
     ${sideNavItem('stocks', 'Stock picks')}
+    ${sideNavItem('levetf', 'Leveraged ETFs')}
     ${sideNavItem('calendar', 'Calendar')}
     ${sideNavItem('earnings', 'Earnings tracker')}
     ${sideNavItem('calls', 'Earnings calls')}
@@ -1617,6 +1635,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-stocks" role="tabpanel" aria-labelledby="page-tab-stocks" hidden>
   ${stockPicksSection()}
+  </div>
+  <div class="page-pane" id="page-pane-levetf" role="tabpanel" aria-labelledby="page-tab-levetf" hidden>
+  ${leveragedEtfsSection()}
   </div>
   <div class="page-pane" id="page-pane-track" role="tabpanel" aria-labelledby="page-tab-track" hidden>
   ${trackRecordSection()}

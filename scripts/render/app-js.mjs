@@ -68,7 +68,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // default to "ungated, everyone's a member" so a legacy public deploy — or a
   // failed /me probe — never locks the site by accident. applyAuth() flips these
   // once /me resolves, before the first selectTab().
-  var PREMIUM_TABS = { market:1, brief:1, narratives:1, flow:1, volume:1, oi:1, 'index-cal':1, stocks:1, calls:1, spillover:1, quant:1 };
+  var PREMIUM_TABS = { market:1, brief:1, narratives:1, flow:1, volume:1, oi:1, 'index-cal':1, stocks:1, calls:1, spillover:1, quant:1, levetf:1 };
   var GATE_ON = false;
   var IS_MEMBER = true;
   // Track Record is a STRICTER tier than premium: a specific Discord role, not
@@ -88,7 +88,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // header so the Discord is findable from anywhere on the site.
   var DISCORD_INVITE_URL = ${JSON.stringify(DISCORD_INVITE_URL)};
   function premiumTabLabel(id){
-    return ({ market:'Market Analysis', brief:'Briefs', narratives:'Narratives', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', hot:'Hot Stocks', 'index-cal':'Index Calendar', stocks:'Stock Picks', calls:'Earnings calls', spillover:'Event spillover', quant:'Quant Lab' })[id] || 'This feature';
+    return ({ market:'Market Analysis', brief:'Briefs', narratives:'Narratives', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', hot:'Hot Stocks', 'index-cal':'Index Calendar', stocks:'Stock Picks', calls:'Earnings calls', spillover:'Event spillover', quant:'Quant Lab', levetf:'Leveraged ETFs' })[id] || 'This feature';
   }
   // Inject the members-only upsell card into a locked premium pane (idempotent).
   function ensurePremiumLock(pane, id){
@@ -105,7 +105,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
         '</div>' +
         '<h2 class="premium-lock-title">' + escapeHtml(premiumTabLabel(id)) + ' is a members feature</h2>' +
-        '<p class="premium-lock-body">Market analysis, Stock Picks, Briefs, Narratives, Earnings calls, Event spillover, Quant Lab, Unusual &amp; Volume flow, and Gamma exposure are unlocked with a premium <b>Discord</b> membership. Join the server to get access &mdash; everything else stays free.</p>' +
+        '<p class="premium-lock-body">Market analysis, Stock Picks, Leveraged ETFs, Briefs, Narratives, Earnings calls, Event spillover, Quant Lab, Unusual &amp; Volume flow, and Gamma exposure are unlocked with a premium <b>Discord</b> membership. Join the server to get access &mdash; everything else stays free.</p>' +
         '<a class="premium-lock-cta" href="' + DISCORD_INVITE_URL + '" target="_blank" rel="noopener">' + DISCORD_ICON_SVG + '<span>Join the Discord to get premium</span></a>' +
         '<p class="premium-lock-foot">Already a member? <a href="/api/auth/discord-login">Log in with Discord</a>.</p>' +
       '</div>';
@@ -3160,7 +3160,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','market','picks','stocks','heatmap','calendar','earnings','calls','spillover','quant','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','features','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','market','picks','stocks','heatmap','calendar','earnings','calls','spillover','quant','levetf','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','features','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3188,6 +3188,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     iv: 'iv-trend', 'trending-iv': 'iv-trend', 'iv-trending': 'iv-trend', ivtrend: 'iv-trend', 'implied-vol': 'iv-trend', 'implied-volatility': 'iv-trend',
     'event-spillover': 'spillover', 'read-through': 'spillover', readthrough: 'spillover', 'spill-over': 'spillover', spill: 'spillover',
     'quant-lab': 'quant', quantlab: 'quant', pairs: 'quant', 'pair-trading': 'quant', sigma: 'quant', vrp: 'quant', dispersion: 'quant',
+    'leveraged-etfs': 'levetf', 'leveraged-etf': 'levetf', leveraged: 'levetf', letf: 'levetf', 'lev-etf': 'levetf', tqqq: 'levetf', soxl: 'levetf',
     // Reference / legal / info pages (now in-app tabs).
     'buyers-manual': 'cheatsheet', 'buyer-manual': 'cheatsheet', cheat: 'cheatsheet', 'cheat-sheet': 'cheatsheet', manual: 'cheatsheet',
     patterns: 'chart-patterns', chartpatterns: 'chart-patterns', 'chart-pattern': 'chart-patterns',
@@ -3466,6 +3467,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (name === 'iv-trend' && typeof loadIvTrend === 'function') loadIvTrend();
         if (name === 'spillover' && typeof loadSpillover === 'function') loadSpillover();
         if (name === 'quant' && typeof loadQuant === 'function') loadQuant();
+        if (name === 'levetf' && typeof loadLevEtf === 'function') loadLevEtf();
       }
       // The sidebar scrolls vertically when the tab list outgrows the
       // viewport. Programmatic selection (e.g. a ?tab= deep-link) can leave
@@ -15502,6 +15504,198 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     bindDcaBase(root);
     bindBriefChips(root);
   }
+  // --- Leveraged ETFs (premium) --------------------------------------------
+  // The daily-reset leverage screen: the same deterministic grades as Top
+  // Picks, mapped onto LISTED leveraged products (single-stock 2× / sector-
+  // index 3×). data/leveraged-etfs.json is bake-built; the card prices are
+  // decorated live from the open /api/quotes proxy after first paint (the
+  // leveraged symbols themselves aren't tracked tickers, so live quotes are
+  // the only browser-side fetch beyond the payload).
+  var levState = { data: null, loading: false, quotes: null, quotesFor: '' };
+  function loadLevEtf(){
+    if ((levState.data && !tabDataStale(levState)) || levState.loading){ renderLevEtf(); return; }
+    levState.loading = true;
+    renderLevEtf();
+    fetch('data/leveraged-etfs.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){
+        levState.data = (j && typeof j === 'object') ? j : {};
+        levState.loading = false;
+        levState.fetchedAt = Date.now();
+        renderLevEtf();
+        loadLevQuotes();
+      })
+      .catch(function(){ levState.data = { loadError: true }; levState.loading = false; renderLevEtf(); });
+  }
+  // One batched live-quote call for every instrument on the page (ideas +
+  // watch rows that name an ETF). Failure is silent — the cards simply keep
+  // showing no live line; the screen itself never depends on it.
+  function loadLevQuotes(){
+    var d = levState.data;
+    if (!d || !Array.isArray(d.ideas)) return;
+    var syms = [];
+    d.ideas.concat(Array.isArray(d.watch) ? d.watch : []).forEach(function(i){
+      if (i && i.etf && syms.indexOf(i.etf) < 0) syms.push(i.etf);
+    });
+    if (!syms.length) return;
+    var key = syms.join(',');
+    if (levState.quotesFor === key && levState.quotes) return;
+    fetch('/api/quotes?symbols=' + encodeURIComponent(key))
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){
+        var map = {};
+        (j && Array.isArray(j.quotes) ? j.quotes : []).forEach(function(q){ if (q && q.symbol) map[q.symbol] = q; });
+        levState.quotes = map;
+        levState.quotesFor = key;
+        // Patch the live lines in place — no full re-render (keeps hover state).
+        var nodes = document.querySelectorAll('[data-lev-quote]');
+        for (var i = 0; i < nodes.length; i++){
+          var q = map[nodes[i].getAttribute('data-lev-quote')];
+          if (!q || q.spot == null) continue;
+          var pct = q.changePct;
+          nodes[i].innerHTML = fmtMoney(q.spot) +
+            (pct != null ? ' <span class="' + (pct >= 0 ? 'lev-live-up' : 'lev-live-down') + '">' + (pct >= 0 ? '+' : '') + fmt(pct, 2) + '% today</span>' : '');
+        }
+      })
+      .catch(function(){ /* live decoration only */ });
+  }
+  function levDirChip(i){
+    var lev = i.leverage;
+    var levTxt = (lev != null ? Math.abs(lev) + '×' : '?×');
+    return i.direction === 'bull'
+      ? '<span class="lev-dir lev-dir-bull">' + levTxt + ' bull</span>'
+      : '<span class="lev-dir lev-dir-bear">' + levTxt + (lev === -1 ? ' inverse' : ' bear') + '</span>';
+  }
+  function levKindLabel(k){
+    return ({ single: 'Single stock', sector: 'Sector', index: 'Index', macro: 'Macro' })[k] || k || '';
+  }
+  function levEntryChip(entry){
+    if (!entry || !entry.state) return '';
+    var cls = entry.state === 'go' ? 'lev-entry-go' : entry.state === 'avoid' ? 'lev-entry-avoid' : 'lev-entry-wait';
+    var label = entry.state === 'go' ? 'Entry: go' : entry.state === 'avoid' ? 'Entry: avoid' : 'Entry: wait';
+    return '<span class="lev-entry ' + cls + '"' + (entry.headline ? ' title="' + escapeHtml(entry.headline) + '"' : '') + '>' + label + '</span>';
+  }
+  function levDecayChip(decay){
+    if (!decay || decay.dragMoPct == null) return '';
+    var cls = decay.tier === 'high' ? 'lev-decay-high' : decay.tier === 'moderate' ? 'lev-decay-mod' : 'lev-decay-low';
+    var tip = 'Daily-reset volatility drag at the underlying\\'s current 20-day realized vol (' + fmt(decay.rvAnnPct, 0) + '% annualized). Chop — big daily swings with no net trend — compounds against any leveraged holder.';
+    return '<span class="lev-decay ' + cls + '" title="' + escapeHtml(tip) + '">Reset drag ~' + fmt(decay.dragMoPct, 1) + '%/mo' + (decay.chop ? ' · ⚠ choppy tape' : '') + '</span>';
+  }
+  function levSparkSvg(i){
+    var s = Array.isArray(i.spark) ? i.spark.filter(function(v){ return v != null && isFinite(v); }) : [];
+    if (s.length < 2) return '';
+    var W = 240, H = 44, PAD = 3;
+    var lo = Infinity, hi = -Infinity;
+    for (var k = 0; k < s.length; k++){ if (s[k] < lo) lo = s[k]; if (s[k] > hi) hi = s[k]; }
+    if (!(hi > lo)) hi = lo + 0.0001;
+    var poly = '', hover = [];
+    for (var n = 0; n < s.length; n++){
+      var x = PAD + (n * (W - 2*PAD)) / (s.length - 1);
+      var y = H - PAD - ((s[n] - lo) * (H - 2*PAD)) / (hi - lo);
+      poly += (n ? ' ' : '') + (Math.round(x*10)/10) + ',' + (Math.round(y*10)/10);
+      hover.push({ x: x, y: y, label: fmtMoney(s[n]) });
+    }
+    var up = s[s.length - 1] >= s[0];
+    var underLabel = i.under && i.under.symbol ? i.under.symbol : (i.proxy || i.label || 'underlying');
+    return '<svg class="lev-spark ' + (up ? 'lev-spark-up' : 'lev-spark-down') + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="' + escapeHtml(underLabel + ' ~3-month trend') + '"' + chHoverAttr(hover) + '>' +
+      '<polyline class="lev-spark-line" points="' + poly + '" fill="none"/>' +
+    '</svg>';
+  }
+  function levSymChip(sym, score){
+    return '<a class="lev-sym" data-sym="' + escapeHtml(sym) + '" href="?s=' + encodeURIComponent(sym) + '">' + escapeHtml(sym) +
+      (score != null ? ' <span class="lev-sym-score">' + (score > 0 ? '+' : '') + fmt(score, 1) + '</span>' : '') + '</a>';
+  }
+  function levUnderLine(i){
+    if (i.under && i.under.symbol){
+      var u = i.under;
+      return '<div class="lev-under">Rides ' + levSymChip(u.symbol) +
+        (u.name && u.name !== u.symbol ? ' <span class="lev-under-name">' + escapeHtml(u.name) + '</span>' : '') +
+        (u.spot != null ? ' <span class="lev-under-spot">' + fmtMoney(u.spot) + '</span>' : '') + '</div>';
+    }
+    // Group idea: label + breadth + the members behind the read.
+    var bits = '<div class="lev-under">Rides the <b>' + escapeHtml(i.label || i.group || '') + '</b> read';
+    if (i.memberCount > 1 && i.breadth != null){
+      bits += ' <span class="lev-breadth">' + i.agreeing + ' of ' + i.memberCount + ' tracked names lean ' + (i.direction === 'bull' ? 'bullish' : 'bearish') + '</span>';
+    } else if (i.proxy){
+      bits += ' <span class="lev-breadth">via ' + escapeHtml(i.proxy) + '\\'s own grade</span>';
+    }
+    bits += '</div>';
+    if (Array.isArray(i.members) && i.members.length > 1){
+      bits += '<div class="lev-members">' + i.members.map(function(m){ return levSymChip(m.sym, m.score); }).join('') + '</div>';
+    }
+    return bits;
+  }
+  function levDriverRows(i){
+    var ds = Array.isArray(i.drivers) ? i.drivers : [];
+    if (!ds.length) return '';
+    return '<ul class="lev-drivers">' + ds.map(function(dr){
+      return '<li class="lev-driver"><b>' + escapeHtml(dr.label || '') + '</b> <span>' + (dr.score > 0 ? '+' : '') + fmt(dr.score, 1) + '</span></li>';
+    }).join('') + '</ul>';
+  }
+  function levCard(i){
+    var tierTxt = i.tier === 'strong' ? 'Strong' : 'Moderate';
+    return '<div class="lev-card lev-' + (i.direction === 'bull' ? 'bull' : 'bear') + '">' +
+      '<header class="lev-head">' +
+        '<span class="lev-etf">' + escapeHtml(i.etf || '') + '</span>' +
+        levDirChip(i) +
+        '<span class="lev-kind">' + escapeHtml(levKindLabel(i.kind)) + '</span>' +
+        '<span class="lev-score lev-score-' + (i.tier || 'moderate') + '" title="Deterministic grade minus its options-only IV-cost pillar — an ETF pays no option premium.">' + tierTxt + ' · ' + fmt(i.conviction, 1) + '</span>' +
+      '</header>' +
+      '<div class="lev-live" data-lev-quote="' + escapeHtml(i.etf || '') + '">live quote…</div>' +
+      levUnderLine(i) +
+      levSparkSvg(i) +
+      levDriverRows(i) +
+      '<div class="lev-chips">' + levEntryChip(i.entry) + levDecayChip(i.decay) + '</div>' +
+      (i.note ? '<p class="lev-note">' + escapeHtml(i.note) + '</p>' : '') +
+    '</div>';
+  }
+  function levWatchReason(w){
+    return ({
+      'no-inverse-listing': 'no listed ' + (w.direction === 'bear' ? 'inverse' : 'long') + ' product — view is real, vehicle isn\\'t',
+      'avoid-timing': 'entry timing reads avoid right now',
+      'below-bar': 'conviction under the bar',
+      'ranked-out': 'passed the bar, ranked out of the top ' + (levState.data && levState.data.ideas ? levState.data.ideas.length : 8),
+    })[w.missReason] || w.missReason || '';
+  }
+  function renderLevEtf(){
+    var root = $('levetf-root'); var eye = $('levetf-eyebrow');
+    if (!root) return;
+    var d = levState.data;
+    if (!d){ root.textContent = 'Loading leveraged ETF screen…'; return; }
+    if (d.loadError && !Array.isArray(d.ideas)){
+      root.innerHTML = '<p class="lev-empty">Could not load the Leveraged ETFs data. It appears after the next scheduled build.</p>';
+      return;
+    }
+    var ideas = Array.isArray(d.ideas) ? d.ideas : [];
+    var watch = Array.isArray(d.watch) ? d.watch : [];
+    if (eye){
+      var when = d.builtAtIso ? new Date(d.builtAtIso).toLocaleString() : '';
+      eye.textContent = ideas.length + ' idea' + (ideas.length === 1 ? '' : 's') +
+        (watch.length ? ' · ' + watch.length + ' on watch' : '') + (when ? ' · updated ' + when : '');
+    }
+    var regime = '';
+    if (d.regime && d.regime.state){
+      regime = '<p class="lev-regime lev-regime-' + escapeHtml(d.regime.state) + '"><b>Market tape: ' + escapeHtml(d.regime.state) + '</b>' +
+        (d.regime.summary ? ' — ' + escapeHtml(d.regime.summary) : '') + '</p>';
+    }
+    var watchHtml = '';
+    if (watch.length){
+      watchHtml = '<h3 class="lev-sub">Watch — close but not actionable</h3><ul class="lev-watch">' + watch.map(function(w){
+        var name = w.etf ? '<b>' + escapeHtml(w.etf) + '</b>' : '<b>(no vehicle)</b>';
+        var underTxt = w.under && w.under.symbol ? levSymChip(w.under.symbol) : '<span>' + escapeHtml(w.label || '') + '</span>';
+        return '<li class="lev-watch-row">' + name + ' ' +
+          '<span class="lev-watch-dir lev-dir-' + (w.direction === 'bull' ? 'bull' : 'bear') + '">' + (w.direction === 'bull' ? 'bull' : 'bear') + '</span> ' +
+          underTxt + ' <span class="lev-watch-conv">conv ' + fmt(w.conviction, 1) + '</span>' +
+          ' <span class="lev-watch-why">' + escapeHtml(levWatchReason(w)) + '</span></li>';
+      }).join('') + '</ul>';
+    }
+    var foot = '<p class="lev-foot">Leveraged and inverse ETFs reset their leverage <b>daily</b> — over multi-day holds they compound the path, not the period move, and sideways chop bleeds value at any leverage (the per-card drag estimate). They are short-horizon trading vehicles, not investments: days to a few weeks, sized small, never held through a thesis change. Single-stock products carry full idiosyncratic risk — one bad print is a ~2× overnight gap. Educational screen, not financial advice.</p>';
+    root.innerHTML = regime + (ideas.length
+      ? '<div class="lev-grid">' + ideas.map(function(i){ return levCard(i); }).join('') + '</div>'
+      : '<p class="lev-empty">No leveraged idea clears the bar right now — the screen would rather show nothing than manufacture leverage. Ideas appear when a tracked name with a listed single-stock product, or a whole sector with a listed 3× pair, carries real conviction in one direction.</p>') +
+      watchHtml + foot;
+    bindBriefChips(root);
+  }
   function loadBrief(){
     if ((briefState.data && !tabDataStale(briefState)) || briefState.loading){ renderBrief(); return; }
     briefState.loading = true;
@@ -15849,7 +16043,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Stock Picks card + DCA symbols, Trending-IV symbols/chips/table rows).
   function bindBriefChips(rootEl){
     if (!rootEl) return;
-    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .stk-sym[data-sym], .stk-dca-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym], .cmd-watch[data-sym], .cr-tkr[data-sym], .f13-sym[data-sym], .ers-sym[data-sym], .ecl-sym[data-sym], .spill-sym[data-sym], .quant-sym[data-sym]');
+    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .stk-sym[data-sym], .stk-dca-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym], .cmd-watch[data-sym], .cr-tkr[data-sym], .f13-sym[data-sym], .ers-sym[data-sym], .ecl-sym[data-sym], .spill-sym[data-sym], .quant-sym[data-sym], .lev-sym[data-sym]');
     for (var i = 0; i < chips.length; i++){
       chips[i].addEventListener('click', function(ev){
         // Modified clicks fall through to the browser so the ?s= href opens

@@ -3431,6 +3431,61 @@ a.cmd-watch, a.cr-tkr, a.f13-sym, a.brief-chip, a.cal-chip-sym { text-decoration
 .stk-dca-h-hi { color: var(--pos); background: color-mix(in srgb, var(--pos) 14%, transparent); }
 .stk-dca-h-max { color: var(--pos); background: color-mix(in srgb, var(--pos) 26%, transparent); }
 
+/* --- Leveraged ETFs (daily-reset leverage screen, premium) -------------- */
+.lev-root { display: flex; flex-direction: column; gap: 14px; }
+.lev-regime { margin: 0; font-size: 12.5px; color: var(--muted-strong); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.lev-regime b { color: var(--text); text-transform: capitalize; }
+.lev-regime-risk-off b, .lev-regime-severe-risk-off b { color: var(--neg); }
+.lev-regime-risk-on b { color: var(--pos); }
+.lev-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.lev-card { border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; background: color-mix(in srgb, var(--border) 12%, transparent); }
+.lev-card.lev-bull { border-left: 3px solid color-mix(in srgb, var(--pos) 55%, var(--border)); }
+.lev-card.lev-bear { border-left: 3px solid color-mix(in srgb, var(--neg) 55%, var(--border)); }
+.lev-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lev-etf { font: 800 16px/1 var(--font-mono); letter-spacing: 0.02em; }
+.lev-dir { font: 700 10.5px/1 var(--font-mono); border-radius: 5px; padding: 4px 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+.lev-dir-bull { color: var(--pos); background: color-mix(in srgb, var(--pos) 15%, transparent); }
+.lev-dir-bear { color: var(--neg); background: color-mix(in srgb, var(--neg) 15%, transparent); }
+.lev-kind { font-size: 10.5px; color: var(--muted-strong); border: 1px solid var(--border); border-radius: 5px; padding: 3px 6px; }
+.lev-score { margin-left: auto; font: 700 11px/1 var(--font-mono); font-variant-numeric: tabular-nums; border-radius: 5px; padding: 4px 6px; color: var(--muted-strong); background: color-mix(in srgb, var(--border) 45%, transparent); cursor: help; }
+.lev-score-strong { color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, transparent); }
+.lev-live { font: 600 12.5px/1.3 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted-strong); min-height: 1.3em; }
+.lev-live-up { color: var(--pos); }
+.lev-live-down { color: var(--neg); }
+.lev-under { font-size: 12.5px; color: var(--text); }
+.lev-under-name { color: var(--muted-strong); }
+.lev-under-spot { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted-strong); }
+.lev-breadth { color: var(--muted-strong); font-size: 12px; }
+.lev-members { display: flex; gap: 5px; flex-wrap: wrap; }
+.lev-sym { display: inline-flex; align-items: center; gap: 4px; font: 700 11px/1 var(--font-mono); color: var(--accent); text-decoration: none; border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 5px; padding: 3px 6px; cursor: pointer; }
+.lev-sym:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.lev-sym-score { color: var(--muted-strong); font-weight: 600; }
+.lev-spark { width: 100%; height: 44px; display: block; }
+.lev-spark-line { stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+.lev-spark-up .lev-spark-line { stroke: var(--pos); }
+.lev-spark-down .lev-spark-line { stroke: var(--neg); }
+.lev-drivers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.lev-driver { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted-strong); }
+.lev-driver b { color: var(--text); font-weight: 600; }
+.lev-driver span { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.lev-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.lev-entry, .lev-decay { font: 600 11px/1.2 var(--font-sans); border-radius: 6px; padding: 4px 7px; cursor: help; }
+.lev-entry-go { color: var(--pos); background: color-mix(in srgb, var(--pos) 14%, transparent); }
+.lev-entry-wait { color: var(--warn, #d99a2b); background: color-mix(in srgb, var(--warn, #d99a2b) 14%, transparent); }
+.lev-entry-avoid { color: var(--neg); background: color-mix(in srgb, var(--neg) 14%, transparent); }
+.lev-decay-low { color: var(--muted-strong); background: color-mix(in srgb, var(--border) 45%, transparent); }
+.lev-decay-mod { color: var(--warn, #d99a2b); background: color-mix(in srgb, var(--warn, #d99a2b) 14%, transparent); }
+.lev-decay-high { color: var(--neg); background: color-mix(in srgb, var(--neg) 14%, transparent); }
+.lev-note { margin: 0; font-size: 11.5px; color: var(--muted-strong); font-style: italic; }
+.lev-sub { margin: 6px 0 0; font-size: 13px; }
+.lev-watch { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.lev-watch-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; }
+.lev-watch-dir { font: 700 10px/1 var(--font-mono); text-transform: uppercase; border-radius: 4px; padding: 3px 5px; }
+.lev-watch-conv { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted-strong); }
+.lev-watch-why { color: var(--muted-strong); }
+.lev-empty { color: var(--muted-strong); font-size: 13px; }
+.lev-foot { margin: 4px 0 0; font-size: 12px; color: var(--muted-strong); border-top: 1px solid var(--border); padding-top: 10px; }
+
 /* --- Capital raises (Macro) ------------------------------------------- */
 .cr-rows { display: flex; flex-direction: column; gap: 10px; }
 .cr-row { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-1); background: var(--surface); }

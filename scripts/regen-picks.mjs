@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks } from "./build.mjs";
+import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks, buildLeveragedEtfPicks, writeLeveragedEtfsFile, LEVERAGED_ETFS_FILE } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -250,6 +250,17 @@ try {
   console.log(`Regenerated ${STOCK_PICKS_FILE} — ${spInfo.candidates} dip candidates (${spInfo.buyZone} in the buy zone).`);
 } catch (err) {
   console.warn(`${STOCK_PICKS_FILE} skipped — ${String(err?.message || err).split("\n")[0]}`);
+}
+
+// Leveraged ETFs (premium tab) — the daily-reset leverage screen over the same
+// grade index. Mirrors build.mjs::main(); rebuilt fresh (no accumulation), so a
+// regen is exact — fully deterministic, no Yahoo, no AI.
+try {
+  const levPayload = buildLeveragedEtfPicks(chains, grades, builtAtIso, macroBackdrop?.macroRegime ?? null);
+  const levInfo = await writeLeveragedEtfsFile(levPayload);
+  console.log(`Regenerated ${LEVERAGED_ETFS_FILE} — ${levInfo.ideas} idea(s), ${levInfo.watch} watch row(s).`);
+} catch (err) {
+  console.warn(`${LEVERAGED_ETFS_FILE} skipped — ${String(err?.message || err).split("\n")[0]}`);
 }
 
 // Daily grade snapshot (universe-IC substrate) — upsert today's ET row, same as
