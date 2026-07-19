@@ -13413,11 +13413,11 @@
         var u = upList[uu];
         if (!u || !u.sym) continue;
         var uv = ersNum(u.pre15Pct) ? u.pre15Pct : u.pre10Pct;
-        upRows.push('<div class="ers-ldr-row">' +
+        upRows.push('<div class="ers-ldr-row ers-up-row">' +
           ersSymBtn(u.sym) +
           '<span class="ers-ldr-name">' + escapeHtml(u.name || '') + '</span>' +
-          '<span class="ers-ldr-meta">' + ersPreChip(u.pre, true) +
-            '<span class="ers-dim">' + ersDate(u.date) + (u.session === 'AM' ? ' AM' : u.session === 'PM' ? ' PM' : '') + (u.daysUntil === 0 ? ' · today' : ' · in ' + u.daysUntil + 'd') + '</span></span>' +
+          (ersPreChip(u.pre, true) || '<span class="ers-dim">—</span>') +
+          '<span class="ers-dim ers-up-date">' + ersDate(u.date) + (u.session === 'AM' ? ' AM' : u.session === 'PM' ? ' PM' : '') + (u.daysUntil === 0 ? ' · today' : ' · in ' + u.daysUntil + 'd') + '</span>' +
           '<span class="ers-ldr-val' + ersToneCls(uv) + '">' + ersPct(uv) + (ersNum(u.pre10Pct) && ersNum(u.pre15Pct) ? '<span class="ers-ldr-day">' + ersPct(u.pre10Pct) + ' 2wk</span>' : '') + '</span>' +
         '</div>');
       }
@@ -13427,11 +13427,12 @@
         for (var us = 0; us < upSorts.length; us++){
           upSortHtml += '<button type="button" class="ers-up-sort-chip" data-ers-upsort="' + upSorts[us][0] + '" aria-pressed="' + (upSort === upSorts[us][0] ? 'true' : 'false') + '">' + upSorts[us][1] + '</button>';
         }
+        var upTwo = upRows.length > 4;
         var upHalf = Math.ceil(upRows.length / 2);
-        var upCols = upRows.length > 4
+        var upCols = upTwo
           ? '<div class="ers-ldr-col">' + upRows.slice(0, upHalf).join('') + '</div><div class="ers-ldr-col">' + upRows.slice(upHalf).join('') + '</div>'
           : '<div class="ers-ldr-col">' + upRows.join('') + '</div>';
-        html += '<div class="ers-ldrs"><div class="ers-ldr-col" style="grid-column:1/-1;margin-bottom:-8px"><div class="ers-ldr-head ers-ldr-head-row"><span>Heading into earnings — next 3 weeks, drift so far</span><span class="ers-up-sort" role="toolbar" aria-label="Sort the upcoming reporters">' + upSortHtml + '</span></div></div>' + upCols + '</div>';
+        html += '<div class="ers-ldrs ers-up-ldrs' + (upTwo ? ' ers-up-two' : '') + '"><div class="ers-ldr-col" style="grid-column:1/-1;margin-bottom:-8px"><div class="ers-ldr-head ers-ldr-head-row"><span>Heading into earnings — next 3 weeks, drift so far</span><span class="ers-up-sort" role="toolbar" aria-label="Sort the upcoming reporters">' + upSortHtml + '</span></div></div>' + upCols + '</div>';
       }
     }
     // Stat tiles.

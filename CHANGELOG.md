@@ -20,6 +20,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
        (same format, plus the archive preamble) and add that month to the
        "Older changelogs" index below. -->
 
+## 2026-07-19
+
+### Fixed
+- **Earnings tracker: the "Heading into earnings" strip lines up and fills the panel.** The upcoming-reporter rows were a free-flowing flex line, so each row's trending-up/down/flat chip (and the date next to it) started wherever that row's name happened to end — a ragged column. Rows are now a fixed-column grid (ticker / name / drift chip / report date / drift %), so the chips, dates, and values align down each column; a row with no drift read shows an aligned "—" placeholder. The two-column wrapper also only spanned ~2/5 of a wide panel — its full-width header stopped the grid's `auto-fit` from collapsing the unused tracks — so the strip is now pinned to exactly two equal columns that fill the container (one column on phones). Artifacts hand-synced so it deploys ahead of the next bake. `scripts/render/{app-js,styles-css}.mjs`.
+
 ## 2026-07-16
 
 ### Added
