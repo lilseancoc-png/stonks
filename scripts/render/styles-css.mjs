@@ -3324,6 +3324,11 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .stk-dca-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
 .stk-dca-id { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .stk-dca-sym { font: 700 15px/1 var(--font-mono); color: var(--text-strong); }
+a.stk-dca-sym:hover, a.stk-dca-sym:focus-visible { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+/* Ticker jumps are real anchors now (?s= deep links) — keep the chip/button
+   look: no default underline (each class's hover rule opts back in). */
+a.ers-sym, a.ecl-sym, a.stk-sym, a.stk-dca-sym, a.ivt-sym, a.ivt-sum-chip, a.ivt-trow-symbtn,
+a.cmd-watch, a.cr-tkr, a.f13-sym, a.brief-chip, a.cal-chip-sym { text-decoration: none; }
 .stk-dca-name { font: 400 11px/1.3 var(--font-sans); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .stk-dca-stale { font: 700 9px/1 var(--font-sans); text-transform: uppercase; letter-spacing: 0.05em; color: var(--warn); background: var(--warn-soft); border-radius: 999px; padding: 3px 6px; cursor: help; }
 .stk-dca-px { margin-left: auto; font: 600 12.5px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-strong); }
@@ -3362,9 +3367,9 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .cr-buyback { color: var(--pos); background: color-mix(in srgb, var(--pos) 14%, transparent); }
 .cr-tkr { font: 700 14px/1 var(--font-sans); color: var(--text-strong); }
 /* As a button (tracked ticker → Grade tab): keep the plain-text look. */
-button.cr-tkr { background: none; border: 0; padding: 0; cursor: pointer; display: inline-flex; align-items: baseline; gap: 3px; }
-button.cr-tkr:hover, button.cr-tkr:focus-visible { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
-button.cr-tkr:hover .stk-sym-go, button.cr-tkr:focus-visible .stk-sym-go { color: var(--accent); }
+a.cr-tkr { background: none; border: 0; padding: 0; cursor: pointer; display: inline-flex; align-items: baseline; gap: 3px; }
+a.cr-tkr:hover, a.cr-tkr:focus-visible { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+a.cr-tkr:hover .stk-sym-go, a.cr-tkr:focus-visible .stk-sym-go { color: var(--accent); }
 .cr-name { font: 400 12px/1 var(--font-sans); color: var(--muted); }
 .cr-amt { margin-left: auto; font: 700 14px/1 var(--font-mono); color: var(--text-strong); }
 .cr-headline { font: 500 13.5px/1.45 var(--font-sans); color: var(--text); margin: 6px 0 4px; }
@@ -15975,7 +15980,7 @@ html::-webkit-scrollbar-thumb:hover {
   font: 600 0.72rem/1 var(--font-mono); color: var(--text);
   cursor: pointer; font-variant-numeric: tabular-nums;
 }
-button.brief-chip:hover { border-color: var(--border-strong); background: var(--surface-3); }
+a.brief-chip[data-sym]:hover { border-color: var(--border-strong); background: var(--surface-3); }
 .brief-chip span { color: var(--muted); font-weight: 500; }
 .brief-chip.pos { color: var(--pos); }
 .brief-chip.neg { color: var(--neg); }

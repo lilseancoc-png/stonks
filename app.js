@@ -4041,7 +4041,33 @@
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         return resp.json();
       })
+      .catch(function(){ return fetchChainLive(symbol); })
       .then(function(data){ CHAIN_CACHE[symbol] = data; return data; });
+  }
+  // Live fallback for names outside the baked universe (VOO, the commodity
+  // proxies LIT/BDRY, any valid symbol): builds a minimal entry from
+  // /api/chain — the nearest expiration's chain now, the rest of the listed
+  // expirations fetched on selection by the existing refreshLiveChain merge.
+  // No baked technicals/fundamentals/news, so those cards stay hidden
+  // (every renderer already null-guards); the contract grader still works.
+  function fetchChainLive(symbol){
+    return fetch('/api/chain?symbol=' + encodeURIComponent(symbol), { cache: 'no-store' })
+      .then(function(r){
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(j){
+        if (!j || j.spot == null || !j.exp || !j.chain) throw new Error('no live chain for ' + symbol);
+        // Newer /api/chain deploys list every expiration; older ones only
+        // return the fetched one — degrade to a single-expiry dropdown.
+        var exps = (Array.isArray(j.expirations) ? j.expirations : [])
+          .filter(function(e){ return isFinite(e) && e > 0; });
+        if (exps.indexOf(j.exp) < 0) exps.push(j.exp);
+        exps.sort(function(a, b){ return a - b; });
+        var chains = {};
+        chains[String(j.exp)] = j.chain;
+        return { spot: j.spot, expirations: exps, chains: chains, live: true };
+      });
   }
   function loadChain(){
     var symbol = state.symbol; if (!symbol) return;
@@ -4101,13 +4127,18 @@
       renderTickerNarrativeChips(symbol);
       renderAnalysisShell();
       // Land on Technicals — the chart-pattern read is the first thing a user
-      // should see on a fresh ticker. Contract handoffs still open the grader.
-      if (selectAnalysisTab) selectAnalysisTab(wantContract ? 'contract' : 'tech');
+      // should see on a fresh ticker. Contract handoffs still open the grader,
+      // and live-fallback entries (no baked technicals) skip straight to it.
+      if (selectAnalysisTab) selectAnalysisTab(wantContract || entry.live ? 'contract' : 'tech');
       renderTechnicals(symbol);
       renderFundamentals(symbol);
       renderImpliedVol(symbol);
       renderNewsPane();
-      setStatus('opt-eval-status', symbol + ' · spot ' + fmtMoney(state.spot) + ' · ' + state.expirations.length + ' expirations', 'ok');
+      setStatus('opt-eval-status', symbol + ' · spot ' + fmtMoney(state.spot) + ' · ' + state.expirations.length + ' expirations' + (entry.live ? ' · live fetch (outside the tracked universe — no baked technicals/news)' : ''), 'ok');
+      // Live entries carry only the nearest expiration's chain — if the ≥7-DTE
+      // default landed on a not-yet-loaded expiry, fetch it now (the merge
+      // repopulates strikes + re-grades on arrival).
+      if (entry.live && state.currentExp && !state.chains[state.currentExp]) refreshLiveChain(symbol, state.currentExp);
       evaluate();
       pushUrlState();
       // Kick off the live spot refresh in parallel — the page is already
@@ -13322,7 +13353,7 @@
     return '<div class="ers-bar" role="img" aria-label="' + escapeHtml(segs.map(function(s){ return s.label + ' ' + (s.n || 0); }).join(', ')) + '">' + bar + '</div>';
   }
   function ersSymBtn(sym){
-    return '<button type="button" class="ers-sym" data-sym="' + escapeHtml(sym) + '" title="Open ' + escapeHtml(sym) + ' in the Grade tab">' + escapeHtml(sym) + '</button>';
+    return '<a class="ers-sym" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '" title="Open ' + escapeHtml(sym) + ' in the Grade tab">' + escapeHtml(sym) + '</a>';
   }
   function ersDate(iso){
     if (!iso || iso.length < 10) return '—';
@@ -13590,7 +13621,7 @@
     return '';
   }
   function eclSymBtn(sym){
-    return '<button type="button" class="ecl-sym" data-sym="' + escapeHtml(sym) + '" title="Open ' + escapeHtml(sym) + ' in the Grade tab">' + escapeHtml(sym) + '</button>';
+    return '<a class="ecl-sym" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '" title="Open ' + escapeHtml(sym) + ' in the Grade tab">' + escapeHtml(sym) + '</a>';
   }
   function eclDate(iso){
     if (!iso || iso.length < 10) return '—';
@@ -14161,7 +14192,7 @@
     var watch = '';
     var ws = Array.isArray(it.watch) ? it.watch : [];
     for (var w=0; w<ws.length; w++){
-      watch += '<button type="button" class="cmd-watch" data-sym="' + escapeHtml(ws[w]) + '" title="Open ' + escapeHtml(ws[w]) + ' in the Grade tab">' + escapeHtml(ws[w]) + '</button>';
+      watch += '<a class="cmd-watch" data-sym="' + escapeHtml(ws[w]) + '" href="' + symGradeHref(ws[w]) + '" title="Open ' + escapeHtml(ws[w]) + ' in the Grade tab">' + escapeHtml(ws[w]) + '</a>';
     }
     var src = it.sourceUrl
       ? '<a class="cmd-src" href="' + escapeHtml(it.sourceUrl) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(it.sourceName || 'source') + '</a>'
@@ -14255,7 +14286,7 @@
       // Tracked tickers link out to the Grade tab (same data-sym pattern as
       // Stock Picks / Trending IV); anything outside the universe stays text.
       var tkr = !e.ticker ? '' : (SYMBOLS.indexOf(e.ticker) !== -1
-        ? '<button type="button" class="cr-tkr" data-sym="' + escapeHtml(e.ticker) + '" title="Open ' + escapeHtml(e.ticker) + ' in the Grade tab">' + escapeHtml(e.ticker) + '<span class="stk-sym-go" aria-hidden="true">↗</span></button>'
+        ? '<a class="cr-tkr" data-sym="' + escapeHtml(e.ticker) + '" href="' + symGradeHref(e.ticker) + '" title="Open ' + escapeHtml(e.ticker) + ' in the Grade tab">' + escapeHtml(e.ticker) + '<span class="stk-sym-go" aria-hidden="true">↗</span></a>'
         : '<span class="cr-tkr">' + escapeHtml(e.ticker) + '</span>');
       rows += '<div class="cr-row">' +
         '<div class="cr-row-top">' +
@@ -14708,11 +14739,11 @@
         } else if (st.chg5dPct != null && isFinite(st.chg5dPct)){
           stat = ' <b class="' + (st.chg5dPct >= 0 ? 'cx-up' : 'cx-down') + '">' + (st.chg5dPct >= 0 ? '+' : '') + Number(st.chg5dPct).toFixed(0) + '% 5d</b>';
         }
-        schips += '<button type="button" class="ivt-sum-chip' + (kindMeta ? ' ' + kindMeta.cls : (stMeta ? ' ' + stMeta.cls : '')) + '" data-sym="' + escapeHtml(st.symbol || '') + '" title="' + escapeHtml(tipBits.join(' · ')) + ' — open in the Grade tab">' +
+        schips += '<a class="ivt-sum-chip' + (kindMeta ? ' ' + kindMeta.cls : (stMeta ? ' ' + stMeta.cls : '')) + '" data-sym="' + escapeHtml(st.symbol || '') + '" href="' + symGradeHref(st.symbol) + '" title="' + escapeHtml(tipBits.join(' · ')) + ' — open in the Grade tab">' +
           (kindMeta ? '<em>' + kindMeta.label + '</em>' : (stMeta ? '<em>' + stMeta.label + '</em>' : '')) +
           escapeHtml(st.symbol || '') +
           stat +
-        '</button>';
+        '</a>';
       }
       html += '<section class="ivt-summary">' +
         '<p class="ivt-summary-text">' + escapeHtml(sum.text) + '</p>' +
@@ -14746,7 +14777,7 @@
         cards += '<article class="ivt-card ' + meta.cls + '">' +
           '<header class="ivt-card-head">' +
             '<span class="ivt-badge">' + meta.label + '</span>' +
-            '<button type="button" class="ivt-sym" data-sym="' + escapeHtml(r.symbol || '') + '" title="Open ' + escapeHtml(r.symbol || '') + ' in the Grade tab">' + escapeHtml(r.symbol || '') + '<span class="stk-sym-go" aria-hidden="true">↗</span></button>' +
+            '<a class="ivt-sym" data-sym="' + escapeHtml(r.symbol || '') + '" href="' + symGradeHref(r.symbol) + '" title="Open ' + escapeHtml(r.symbol || '') + ' in the Grade tab">' + escapeHtml(r.symbol || '') + '<span class="stk-sym-go" aria-hidden="true">↗</span></a>' +
             (r.name ? '<span class="ivt-name">' + escapeHtml(r.name) + '</span>' : '') +
             (r.sector ? '<span class="ivt-sector">' + escapeHtml(r.sector) + '</span>' : '') +
           '</header>' +
@@ -14782,7 +14813,7 @@
       var w = shown[t];
       var tierMeta = w.tier && IVT_TIER_META[w.tier] ? IVT_TIER_META[w.tier] : null;
       rows += '<div class="ivt-trow' + (tierMeta ? ' ' + tierMeta.cls : '') + '">' +
-        '<span class="ivt-trow-sym"><button type="button" class="ivt-trow-symbtn" data-sym="' + escapeHtml(w.symbol || '') + '" title="Open ' + escapeHtml(w.symbol || '') + ' in the Grade tab">' + escapeHtml(w.symbol || '') + '</button>' +
+        '<span class="ivt-trow-sym"><a class="ivt-trow-symbtn" data-sym="' + escapeHtml(w.symbol || '') + '" href="' + symGradeHref(w.symbol) + '" title="Open ' + escapeHtml(w.symbol || '') + ' in the Grade tab">' + escapeHtml(w.symbol || '') + '</a>' +
           (tierMeta ? ' <em class="ivt-trow-tier">' + tierMeta.label + '</em>' : (w.elevated ? ' <em class="ivt-trow-tier ivt-elev" title="IV well above its own history, but not currently climbing">Elevated</em>' : '')) + '</span>' +
         '<span class="ivt-trow-num">' + ivtIvPct(w.iv) + '</span>' +
         '<span class="ivt-trow-num">' + (w.z == null ? '—' : (w.z >= 0 ? '+' : '') + w.z.toFixed(1) + 'σ') + '</span>' +
@@ -15002,7 +15033,7 @@
     return '<article class="stk-card' + (row.clean ? ' stk-card-clean' : '') + '">' +
       '<header class="stk-head">' +
         '<div class="stk-head-id">' +
-          '<button type="button" class="stk-sym" data-sym="' + escapeHtml(row.symbol) + '" title="Open ' + escapeHtml(row.symbol) + ' in the Grade tab">' + escapeHtml(row.symbol) + '<span class="stk-sym-go" aria-hidden="true">↗</span></button>' + name + sector +
+          '<a class="stk-sym" data-sym="' + escapeHtml(row.symbol) + '" href="' + symGradeHref(row.symbol) + '" title="Open ' + escapeHtml(row.symbol) + ' in the Grade tab">' + escapeHtml(row.symbol) + '<span class="stk-sym-go" aria-hidden="true">↗</span></a>' + name + sector +
         '</div>' +
         '<div class="stk-head-badges">' + zone + scoreBadge + '</div>' +
       '</header>' +
@@ -15066,7 +15097,7 @@
     var stale = ix.stale ? '<span class="stk-dca-stale" title="Bars fetch missed this build — showing the last good read">stale</span>' : '';
     return '<article class="stk-dca-card ' + tierCls + '">' +
       '<header class="stk-dca-head">' +
-        '<div class="stk-dca-id"><b class="stk-dca-sym">' + escapeHtml(ix.symbol) + '</b>' +
+        '<div class="stk-dca-id"><a class="stk-dca-sym" data-sym="' + escapeHtml(ix.symbol) + '" href="' + symGradeHref(ix.symbol) + '" title="Open ' + escapeHtml(ix.symbol) + ' in the Grade tab">' + escapeHtml(ix.symbol) + '</a>' +
           (ix.label ? '<span class="stk-dca-name">' + escapeHtml(ix.label) + '</span>' : '') + stale + '</div>' +
         '<div class="stk-dca-px">' + fmtMoney(ix.price) + chHtml + '</div>' +
       '</header>' +
@@ -15201,7 +15232,7 @@
     return '<div class="brief-chips">' + (list || []).map(function(m){
       var inner = briefEsc(m.label || m.sym) + ' <span>' + briefEsc(briefFmtPct(m.chPct)) + '</span>';
       var cls = 'brief-chip ' + briefPctCls(m.chPct);
-      if (m.sym && /^[A-Z]{1,5}$/.test(m.sym)) return '<button type="button" class="' + cls + '" data-sym="' + briefEsc(m.sym) + '">' + inner + '</button>';
+      if (m.sym && /^[A-Z]{1,5}$/.test(m.sym)) return '<a class="' + cls + '" data-sym="' + briefEsc(m.sym) + '" href="' + symGradeHref(m.sym) + '" title="Open ' + briefEsc(m.sym) + ' in the Grade tab">' + inner + '</a>';
       return '<span class="' + cls + ' info">' + inner + '</span>';
     }).join('') + '</div>';
   }
@@ -15477,21 +15508,26 @@
       (blocksHtml ? '<div class="brief-blocks">' + blocksHtml + '</div>' : '') +
     '</article>';
   }
-  // Shared ticker-link binder: any button carrying a data-sym jumps to the
+  // Real hyperlink target for a ticker jump — the Grade tab's ?s= deep link.
+  // Every ticker affordance is an <a href> carrying this, so cmd/ctrl/middle-
+  // click opens the ticker in a new tab like any link; a plain click is
+  // intercepted for the in-page SPA jump (calGoToTicker).
+  function symGradeHref(sym){
+    return '?s=' + encodeURIComponent(String(sym || '').toUpperCase());
+  }
+  // Shared ticker-link binder: any anchor carrying a data-sym jumps to the
   // Grade tab with that ticker loaded (Brief chips, Track Record symbols,
-  // Stock Picks card symbols, Trending-IV symbols/chips/table rows).
+  // Stock Picks card + DCA symbols, Trending-IV symbols/chips/table rows).
   function bindBriefChips(rootEl){
     if (!rootEl) return;
-    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .stk-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym], .cmd-watch[data-sym], .cr-tkr[data-sym], .f13-sym[data-sym], .ers-sym[data-sym], .ecl-sym[data-sym]');
+    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .stk-sym[data-sym], .stk-dca-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym], .cmd-watch[data-sym], .cr-tkr[data-sym], .f13-sym[data-sym], .ers-sym[data-sym], .ecl-sym[data-sym]');
     for (var i = 0; i < chips.length; i++){
       chips[i].addEventListener('click', function(ev){
-        var sym = ev.currentTarget.getAttribute('data-sym');
-        if (!sym) return;
-        try {
-          var gt = document.querySelector('[data-page-tab="grade"]');
-          if (gt) gt.click();
-          setTimeout(function(){ if (typeof combo !== 'undefined' && combo && combo.commit) combo.commit(sym); }, 0);
-        } catch (_) {}
+        // Modified clicks fall through to the browser so the ?s= href opens
+        // in a new tab/window like a normal hyperlink.
+        if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+        ev.preventDefault();
+        calGoToTicker(ev.currentTarget.getAttribute('data-sym'));
       });
     }
   }
@@ -15983,7 +16019,7 @@
   function calChipSymBtn(sym){
     var s = String(sym || '');
     if (!s) return '';
-    return '<button type="button" class="cal-chip-sym cal-chip-sym-btn" data-cal-sym="' + escapeHtml(s) + '" title="Open ' + escapeHtml(s) + ' in the Grade tab">' + escapeHtml(s) + '</button>';
+    return '<a class="cal-chip-sym cal-chip-sym-btn" data-cal-sym="' + escapeHtml(s) + '" href="' + symGradeHref(s) + '" title="Open ' + escapeHtml(s) + ' in the Grade tab">' + escapeHtml(s) + '</a>';
   }
   // Normalize a 0-1 or 0-100 probability to [0,1]; null when absent.
   function calNormProb(p, key){
@@ -17079,8 +17115,14 @@
       calRoot.addEventListener('click', function(ev){
         if (!ev.target.closest) return;
         // Clickable ticker symbol inside an earnings/catalyst chip → Grade tab.
+        // (A modified click falls through to the browser — it's a real ?s= link.)
         var symBtn = ev.target.closest('.cal-chip-sym-btn[data-cal-sym]');
-        if (symBtn){ calGoToTicker(symBtn.getAttribute('data-cal-sym')); return; }
+        if (symBtn){
+          if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+          ev.preventDefault();
+          calGoToTicker(symBtn.getAttribute('data-cal-sym'));
+          return;
+        }
         // A real link / prediction-market pill inside a chip keeps its native
         // behavior — don't also open the report modal on top of it.
         if (ev.target.closest('a, .cal-report-pm-item')) return;
@@ -17517,7 +17559,7 @@
           // outside-the-universe names stay plain text.
           var tk = tickerOrFallback(r);
           var tkCell = (tk && SYMBOLS.indexOf(tk) !== -1)
-            ? '<button type="button" class="f13-sym" data-sym="' + escapeHtml(tk) + '" title="Open ' + escapeHtml(tk) + ' in the Grade tab">' + escapeHtml(tk) + '</button>'
+            ? '<a class="f13-sym" data-sym="' + escapeHtml(tk) + '" href="' + symGradeHref(tk) + '" title="Open ' + escapeHtml(tk) + ' in the Grade tab">' + escapeHtml(tk) + '</a>'
             : '<span>' + escapeHtml(tk) + '</span>';
           return '<tr>' +
             '<td class="f13-num"><span>' + (j + 1) + '</span></td>' +
@@ -25619,7 +25661,10 @@
     // Auto-load any ticker from the URL. combo.commit walks the same path
     // a user-pick takes, so loadChain consumes pendingUrlState as it lands.
     var initial = parseUrlState();
-    if (initial && initial.sym && SYMBOLS.indexOf(initial.sym) !== -1){
+    // Any allowlist-shaped symbol loads — tracked names from the baked JSON,
+    // anything else (VOO, the commodity proxies) via the live /api/chain
+    // fallback in fetchChain. Same shape /api/quote|chain enforce server-side.
+    if (initial && initial.sym && /^[A-Z][A-Z0-9.]{0,5}$/.test(initial.sym)){
       pendingUrlState = initial;
       // Default to landing on Grade, but a shared link like ?s=AAPL&tab=heatmap
       // explicitly asks for another tab — honor that and just load the contract
