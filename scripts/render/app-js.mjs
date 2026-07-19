@@ -19935,33 +19935,47 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // replacement, B times, compounding 1% risk per draw on a $100k base — the
   // simulator's model run on a reshuffled deck. Keeps a few full paths for the
   // fan chart; scalars (final, maxDD%, Sharpe) for every path. Seeded → stable.
+  // Because the PRNG is seeded and each simulation consumes EXACTLY horizon
+  // rng calls (one per draw), any simulation # can be replayed bit-for-bit
+  // after the fact — that's what powers the rare-anomaly cards: find the
+  // outlier runs by their scalars, then reconstruct the precise sequence of
+  // resampled trades that produced each one.
+  // one-sided upper-tail P(Z > z), z >= 0 (Abramowitz–Stegun 26.2.17)
+  function accNormTailProb(z){
+    if (!isFinite(z) || z < 0) return 0.5;
+    var t = 1 / (1 + 0.2316419 * z);
+    var d = Math.exp(-0.5 * z * z) / Math.sqrt(2 * Math.PI);
+    return d * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+  }
   function runMonteCarlo(closed, opts){
     opts = opts || {};
     var iters = opts.iters || 5000, start = opts.start || ACC_SIM_START, riskPct = opts.riskPct || ACC_SIM_RISK;
-    var pool = [];
+    var pool = [], poolMeta = [];
     var dec = accDecided(closed);
-    for (var i=0;i<dec.length;i++){ var d = tradeDollars(dec[i]); if (d && d.rr != null && isFinite(d.rr)) pool.push(d.rr); }
+    for (var i=0;i<dec.length;i++){ var d = tradeDollars(dec[i]); if (d && d.rr != null && isFinite(d.rr)){ pool.push(d.rr); poolMeta.push({ sym: dec[i].symbol || '?', side: dec[i].side === 'put' ? 'put' : 'call', r: d.rr }); } }
     if (pool.length < 8) return { empty:true, poolN: pool.length };
     var horizon = opts.horizon || pool.length;
-    var rng = accRng(opts.seed || 1337);
+    var seed = opts.seed || 1337;
+    var rng = accRng(seed);
     // Keep a large sample for the fan's median line + 5/95 envelope so they
     // track the all-iterations headline percentiles (the fan only DRAWS ~40
     // faint lines, but the band/median are quantiles over these kept paths).
     var pathsToKeep = Math.min(400, iters);
-    var finals = new Array(iters), maxDDs = new Array(iters), sharpes = new Array(iters);
+    var finals = new Array(iters), maxDDs = new Array(iters), sharpes = new Array(iters), lossStreaks = new Array(iters);
     var keptPaths = [];
     for (var s=0; s<iters; s++){
-      var eq = start, peak = start, mdd = 0, sumR = 0, sumR2 = 0;
+      var eq = start, peak = start, mdd = 0, sumR = 0, sumR2 = 0, curL = 0, maxL = 0;
       var keep = s < pathsToKeep, path = keep ? new Array(horizon + 1) : null; if (keep) path[0] = start;
       for (var h=0; h<horizon; h++){
         var r = pool[(rng() * pool.length) | 0];
         eq = eq * (1 + riskPct * r);
         sumR += r; sumR2 += r * r;
+        if (r < 0){ curL++; if (curL > maxL) maxL = curL; } else curL = 0;
         if (eq > peak) peak = eq;
         var dd = peak > 0 ? (peak - eq) / peak : 0; if (dd > mdd) mdd = dd;
         if (keep) path[h + 1] = eq;
       }
-      finals[s] = eq; maxDDs[s] = mdd;
+      finals[s] = eq; maxDDs[s] = mdd; lossStreaks[s] = maxL;
       var mR = sumR / horizon, vR = sumR2 / horizon - mR * mR;
       sharpes[s] = vR > 0 ? mR / Math.sqrt(vR) : 0;
       if (keep) keptPaths.push(path);
@@ -19973,14 +19987,75 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // pointwise median across the kept paths (the bold median line of the fan)
     var medianPath = new Array(horizon + 1);
     for (h=0; h<=horizon; h++){ var col = keptPaths.map(function(p){ return p[h]; }).sort(function(a,b){ return a-b; }); medianPath[h] = accQuantile(col, 0.5); }
+    // --- rare-anomaly detection + exact seeded replay ----------------------
+    // z-scores are taken on log(final/start): compounding makes the final-
+    // equity distribution lognormal-ish, so the log is the honest scale.
+    var logs = new Array(iters); for (i=0;i<iters;i++) logs[i] = Math.log(finals[i] / start);
+    var logMu = accMean(logs), logSd = accStd(logs) || 0;
+    var tail3 = 0; if (logSd > 0){ for (i=0;i<iters;i++){ if (Math.abs((logs[i] - logMu) / logSd) >= 3) tail3++; } }
+    var bestSim = 0, worstSim = 0, ddSim = 0, streakSim = 0;
+    for (i=1;i<iters;i++){
+      if (finals[i] > finals[bestSim]) bestSim = i;
+      if (finals[i] < finals[worstSim]) worstSim = i;
+      if (maxDDs[i] > maxDDs[ddSim]) ddSim = i;
+      if (lossStreaks[i] > lossStreaks[streakSim]) streakSim = i;
+    }
+    // pool context for the "what had to happen" story
+    var poolBestIdx = 0, poolWorstIdx = 0, poolWins = 0;
+    for (i=0;i<pool.length;i++){ if (pool[i] > pool[poolBestIdx]) poolBestIdx = i; if (pool[i] < pool[poolWorstIdx]) poolWorstIdx = i; if (pool[i] >= 0) poolWins++; }
+    // Replay simulation #simIdx exactly: a fresh PRNG from the same seed,
+    // fast-forwarded past the simIdx*horizon calls earlier sims consumed,
+    // re-deals the identical sequence (the main loop makes exactly one rng
+    // call per draw — keep that invariant or replays desync).
+    function replaySim(simIdx){
+      var rr = accRng(seed);
+      var skip = simIdx * horizon;
+      for (var k=0;k<skip;k++) rr();
+      var eq2 = start, pk = start, pkAt = 0, mdd2 = 0, ddPeakEq = start, ddPeakAt = 0, ddTroughEq = start, ddTroughAt = 0;
+      var wins = 0, losses = 0, curW = 0, curL2 = 0, maxW = 0, maxL2 = 0;
+      var counts = new Array(pool.length); for (k=0;k<pool.length;k++) counts[k] = 0;
+      var p2 = new Array(horizon + 1); p2[0] = start;
+      for (var h2=0; h2<horizon; h2++){
+        var idx = (rr() * pool.length) | 0;
+        counts[idx]++;
+        var rv = pool[idx];
+        eq2 = eq2 * (1 + riskPct * rv);
+        if (rv < 0){ losses++; curL2++; curW = 0; if (curL2 > maxL2) maxL2 = curL2; }
+        else { wins++; curW++; curL2 = 0; if (curW > maxW) maxW = curW; }
+        if (eq2 > pk){ pk = eq2; pkAt = h2 + 1; }
+        var dd2 = pk > 0 ? (pk - eq2) / pk : 0;
+        if (dd2 > mdd2){ mdd2 = dd2; ddPeakEq = pk; ddPeakAt = pkAt; ddTroughEq = eq2; ddTroughAt = h2 + 1; }
+        p2[h2 + 1] = eq2;
+      }
+      var top = null;
+      for (k=0;k<pool.length;k++){ if (counts[k] && (!top || counts[k] > top.count)) top = { count: counts[k], meta: poolMeta[k] }; }
+      return {
+        path: p2, final: eq2, maxDD: mdd2, wins: wins, losses: losses,
+        maxWinStreak: maxW, maxLossStreak: maxL2,
+        topDraw: top, bestDraws: counts[poolBestIdx], worstDraws: counts[poolWorstIdx],
+        dd: { peakEq: ddPeakEq, peakAt: ddPeakAt, troughEq: ddTroughEq, troughAt: ddTroughAt },
+      };
+    }
+    var marks = {};
+    function markSim(sim, kind){ (marks[sim] = marks[sim] || []).push(kind); }
+    markSim(bestSim, 'best'); markSim(worstSim, 'worst'); markSim(ddSim, 'deepest-dd'); markSim(streakSim, 'loss-streak');
+    var anomalies = Object.keys(marks).map(function(key){
+      var sim = Number(key);
+      var z = logSd > 0 ? (logs[sim] - logMu) / logSd : 0;
+      return Object.assign({ sim: sim, kinds: marks[sim], z: z }, replaySim(sim));
+    });
+    var kindRank = { best: 0, worst: 1, 'deepest-dd': 2, 'loss-streak': 3 };
+    anomalies.sort(function(a, b){ return kindRank[a.kinds[0]] - kindRank[b.kinds[0]]; });
     return {
-      empty:false, iters:iters, horizon:horizon, poolN:pool.length, start:start,
+      empty:false, iters:iters, horizon:horizon, poolN:pool.length, start:start, seed:seed,
       medianFinal: accQuantile(fs, 0.5), p5Final: accQuantile(fs, 0.05), p95Final: accQuantile(fs, 0.95),
       pctiles: { p5:accQuantile(fs,0.05), p25:accQuantile(fs,0.25), p50:accQuantile(fs,0.5), p75:accQuantile(fs,0.75), p95:accQuantile(fs,0.95) },
       probProfit: profit / iters, probDD20: dd20 / iters,
       medianMaxDD: accQuantile(ms, 0.5), p95MaxDD: accQuantile(ms, 0.95),
       sharpeMedian: accQuantile(ss, 0.5), sharpeP5: accQuantile(ss, 0.05), sharpeP95: accQuantile(ss, 0.95),
       finals: finals, keptPaths: keptPaths, medianPath: medianPath,
+      anomalies: anomalies, tail3Count: tail3, tail3Pct: tail3 / iters, logMu: logMu, logSd: logSd,
+      poolWinRate: poolWins / pool.length, poolBest: poolMeta[poolBestIdx], poolWorst: poolMeta[poolWorstIdx],
     };
   }
 
@@ -20127,8 +20202,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (!paths || !paths.length || !medianPath || medianPath.length < 2) return '';
     var W = 680, H = 260, padL = 56, padR = 14, padT = 14, padB = 26, plotW = W - padL - padR, plotH = H - padT - padB;
     var steps = medianPath.length;
+    // highlight paths (the anomaly replays) ride outside the kept-path sample,
+    // so they must be part of the y-scale scan or they'd draw off-plot.
+    var highlights = (opts.highlights || []).filter(function(hp){ return hp && hp.path && hp.path.length > 1; });
     var lo = Infinity, hi = -Infinity;
-    paths.forEach(function(p){ for (var i=0;i<p.length;i++){ if (p[i] < lo) lo = p[i]; if (p[i] > hi) hi = p[i]; } });
+    paths.concat(highlights.map(function(hp){ return hp.path; })).forEach(function(p){ for (var i=0;i<p.length;i++){ if (p[i] < lo) lo = p[i]; if (p[i] > hi) hi = p[i]; } });
     if (!isFinite(lo) || !isFinite(hi)) return '';
     var range = (hi - lo) || 1, yMin = lo - range * 0.05, yMax = hi + range * 0.05;
     var xFor = function(i){ return padL + (steps > 1 ? plotW * (i / (steps - 1)) : plotW / 2); };
@@ -20148,6 +20226,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var sN = Math.min(40, paths.length);
     for (var pi=0; pi<sN; pi++){ var pp = paths[pi]; var dd = 'M' + xFor(0).toFixed(1) + ',' + yFor(pp[0]).toFixed(1); for (var j=1;j<pp.length;j++) dd += ' L' + xFor(j).toFixed(1) + ',' + yFor(pp[j]).toFixed(1); sample += '<path class="acc-fan-path" d="' + dd + '"></path>'; }
     var medXy = medianPath.map(function(v, i){ return [xFor(i), yFor(v)]; });
+    // anomaly traces drawn on top of the sample + median so they always read
+    var hiSvg = '';
+    highlights.forEach(function(hp){
+      var hd = 'M' + xFor(0).toFixed(1) + ',' + yFor(hp.path[0]).toFixed(1);
+      for (var q=1;q<hp.path.length;q++) hd += ' L' + xFor(q).toFixed(1) + ',' + yFor(hp.path[q]).toFixed(1);
+      hiSvg += '<path class="acc-fan-hi ' + (hp.cls || '') + '" d="' + hd + '">' + (hp.label ? '<title>' + escapeHtml(hp.label) + '</title>' : '') + '</path>';
+    });
     var startY = yFor(opts.start != null ? opts.start : medianPath[0]);
     // Hover readout rides the median path; the label carries the pointwise
     // p5–p95 envelope so the fan's spread reads at every step.
@@ -20158,7 +20243,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return '<svg class="acc-fan-svg"' + hover + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Monte Carlo paths">' + grid +
       '<line class="acc-eq-base" x1="' + padL + '" y1="' + startY.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + startY.toFixed(1) + '"></line>' +
       '<path class="acc-fan-env" d="' + env + '"></path>' + sample +
-      '<path class="acc-fan-median" d="' + smoothPath(medXy) + '"></path>' +
+      '<path class="acc-fan-median" d="' + smoothPath(medXy) + '"></path>' + hiSvg +
     '</svg>';
   }
 
@@ -20822,14 +20907,62 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     for (var bI=0;bI<nb;bI++){ bins.push({ x0: lo + w * bI / nb, x1: lo + w * (bI + 1) / nb, count: 0 }); }
     for (i=0;i<fs.length;i++){ var bi = Math.min(nb - 1, Math.floor((fs[i] - lo) / w * nb)); bins[bi].count++; }
     var hist = '<div class="acc-an-subhead">Distribution of final equity</div>' + accBarsSvg(bins, { breakeven: res.start, fmtX: function(v){ return fmtBigDollars(v); } });
-    var fan = '<div class="acc-an-subhead">Equity-path fan — median + 5–95% band</div>' + accFanSvg(res.keptPaths, res.medianPath, { start: res.start, formatValue: function(v){ return fmtBigDollars(v); } });
+    var fanHighlights = (res.anomalies || []).map(function(a){
+      return { path: a.path, cls: a.kinds.indexOf('best') >= 0 ? 'acc-fan-hi-best' : 'acc-fan-hi-worst',
+        label: a.kinds.join(' + ') + ' — simulation #' + (a.sim + 1).toLocaleString() };
+    });
+    var fan = '<div class="acc-an-subhead">Equity-path fan — median + 5–95% band</div>' + accFanSvg(res.keptPaths, res.medianPath, { start: res.start, formatValue: function(v){ return fmtBigDollars(v); }, highlights: fanHighlights }) +
+      (fanHighlights.length ? '<p class="hint acc-an-note">Solid traces: this run\\'s outlier simulations (green = best case, red = worst-side) — dissected below.</p>' : '');
     // percentile table
     var pc = res.pctiles;
     var ptab = '<div class="acc-an-subhead">Final-equity percentiles</div><div class="acc-tscroll"><div class="acc-mtable" style="grid-template-columns:repeat(5,1fr)">' +
       '<div class="acc-mh">5th</div><div class="acc-mh">25th</div><div class="acc-mh">50th</div><div class="acc-mh">75th</div><div class="acc-mh">95th</div>' +
       '<div class="acc-mc">' + fmtBigDollars(pc.p5) + '</div><div class="acc-mc">' + fmtBigDollars(pc.p25) + '</div><div class="acc-mc">' + fmtBigDollars(pc.p50) + '</div><div class="acc-mc">' + fmtBigDollars(pc.p75) + '</div><div class="acc-mc">' + fmtBigDollars(pc.p95) + '</div>' +
     '</div></div>';
-    box.innerHTML = banner + controls + lead + '<p class="hint acc-an-note">' + res.iters.toLocaleString() + ' simulations · horizon ' + res.horizon + ' trades · pool ' + res.poolN + '.</p>' + cards + hist + fan + ptab;
+    // --- rare statistical anomalies: which simulation #, and what had to happen
+    var anomHtml = '';
+    if (res.anomalies && res.anomalies.length){
+      var KIND_LABEL = { best: 'Best case', worst: 'Worst case', 'deepest-dd': 'Deepest drawdown', 'loss-streak': 'Longest losing streak' };
+      var expDraws = res.horizon / res.poolN;   // expected deals of any one pool trade
+      var anomCards = '';
+      for (var aI=0;aI<res.anomalies.length;aI++){
+        var a = res.anomalies[aI];
+        var isPos = a.kinds.indexOf('best') >= 0;
+        var retPct = (a.final / res.start - 1) * 100;
+        var kindTxt = a.kinds.map(function(k){ return KIND_LABEL[k] || k; }).join(' · ');
+        // rarity: z on log-final + a normal-fit odds read; argmax/argmin are
+        // additionally literal 1-of-N extremes of this run.
+        var zAbs = Math.abs(a.z), tailP = accNormTailProb(zAbs);
+        var odds = (tailP > 0 && tailP < 0.5) ? Math.round(1 / tailP) : null;
+        var rar = 'z ' + (a.z >= 0 ? '+' : '-') + accNum(zAbs, 1) + '\\u03c3 on log final equity';
+        if (odds && zAbs >= 2) rar += ' \\u2014 under a normal fit, roughly a 1-in-' + odds.toLocaleString() + ' outcome';
+        if (isPos) rar += '; the single best final of all ' + res.iters.toLocaleString() + ' runs.';
+        else if (a.kinds.indexOf('worst') >= 0) rar += '; the single worst final of all ' + res.iters.toLocaleString() + ' runs.';
+        else rar += '.';
+        var decided = a.wins + a.losses;
+        var bits = [];
+        bits.push('the path ran a ' + (decided ? Math.round(a.wins / decided * 100) : 0) + '% win rate (' + a.wins + 'W\\u2013' + a.losses + 'L) vs the pool\\'s ' + Math.round(res.poolWinRate * 100) + '%');
+        if (isPos && res.poolBest && a.bestDraws > 0) bits.push('the deck dealt the pool\\'s best trade \\u2014 ' + escapeHtml(res.poolBest.sym) + ' ' + res.poolBest.side + ' (' + (res.poolBest.r >= 0 ? '+' : '') + accNum(res.poolBest.r, 1) + 'R) \\u2014 ' + a.bestDraws + '\\u00d7 (expected ~' + accNum(expDraws, 1) + '\\u00d7)');
+        if (!isPos && res.poolWorst && a.worstDraws > 0) bits.push('the deck dealt the pool\\'s worst trade \\u2014 ' + escapeHtml(res.poolWorst.sym) + ' ' + res.poolWorst.side + ' (' + accNum(res.poolWorst.r, 1) + 'R) \\u2014 ' + a.worstDraws + '\\u00d7 (expected ~' + accNum(expDraws, 1) + '\\u00d7)');
+        if (a.topDraw && a.topDraw.meta) bits.push('most-dealt card overall: ' + escapeHtml(a.topDraw.meta.sym) + ' ' + a.topDraw.meta.side + ' (' + (a.topDraw.meta.r >= 0 ? '+' : '') + accNum(a.topDraw.meta.r, 1) + 'R) \\u00d7 ' + a.topDraw.count);
+        bits.push('longest win streak ' + a.maxWinStreak + ', longest losing streak ' + a.maxLossStreak);
+        if (a.maxDD > 0.005) bits.push('worst stretch: peak ' + fmtBigDollars(a.dd.peakEq) + ' at draw ' + a.dd.peakAt + ' \\u2192 ' + fmtBigDollars(a.dd.troughEq) + ' at draw ' + a.dd.troughAt + ' (\\u2212' + Math.round(a.maxDD * 100) + '%)');
+        anomCards += '<div class="acc-mc-anom' + (isPos ? ' is-pos' : '') + '">' +
+          '<div class="acc-mc-anom-head">' +
+            '<span class="acc-mc-anom-kind">' + escapeHtml(kindTxt) + '</span>' +
+            '<span class="acc-mc-anom-sim">simulation #' + (a.sim + 1).toLocaleString() + ' of ' + res.iters.toLocaleString() + '</span>' +
+            '<b class="acc-mc-anom-val ' + (a.final >= res.start ? 'sig-pos' : 'sig-neg') + '">' + fmtBigDollars(a.final) + ' (' + (retPct >= 0 ? '+' : '') + Math.round(retPct) + '%)</b>' +
+          '</div>' +
+          '<p class="acc-mc-anom-rar">' + rar + '</p>' +
+          '<p class="acc-mc-anom-how"><b>How it was modeled:</b> ' + res.horizon + ' draws with replacement from the ' + res.poolN + '-trade resolved pool, risking ' + (ACC_SIM_RISK * 100) + '% of equity per draw on ' + fmtBigDollars(res.start) + ' (seed ' + res.seed + ' \\u2014 simulation #' + (a.sim + 1).toLocaleString() + ' replays deterministically). <b>What had to happen:</b> ' + bits.join('; ') + '.</p>' +
+        '</div>';
+      }
+      var tailNote = res.logSd > 0 ? '<p class="hint acc-an-note">' + res.tail3Count.toLocaleString() + ' of ' + res.iters.toLocaleString() + ' runs (' + accNum(res.tail3Pct * 100, 2) + '%) finished beyond \\u00b13\\u03c3 of the log-final distribution \\u2014 a normal fit expects ~0.27%; the excess is the fat tail you get from resampling a small pool of lumpy option outcomes.</p>' : '';
+      anomHtml = '<div class="acc-an-subhead">Rare statistical anomalies \\u2014 which sim, and what had to happen</div>' +
+        '<p class="hint acc-an-note">The PRNG is seeded, so every simulation is numbered and reproducible: the outliers below were found by their run statistics, then replayed draw-by-draw to reconstruct the exact resampled-trade sequence that produced each result.</p>' +
+        anomCards + tailNote;
+    }
+    box.innerHTML = banner + controls + lead + '<p class="hint acc-an-note">' + res.iters.toLocaleString() + ' simulations · horizon ' + res.horizon + ' trades · pool ' + res.poolN + '.</p>' + cards + hist + fan + ptab + anomHtml;
   }
 
   // re-render the toggle-driven analytics views (not Monte Carlo — button-run)

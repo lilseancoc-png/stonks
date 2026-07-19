@@ -11073,6 +11073,9 @@ body.tape-axm-open { overflow: hidden; }
 .acc-fan-path { fill: none; stroke: var(--accent); stroke-width: .6; opacity: .14; }
 .acc-fan-env { fill: color-mix(in srgb, var(--accent) 12%, transparent); stroke: none; }
 .acc-fan-median { fill: none; stroke: var(--accent); stroke-width: 2.5; }
+.acc-fan-hi { fill: none; stroke-width: 1.6; opacity: .9; }
+.acc-fan-hi-best { stroke: var(--pos); }
+.acc-fan-hi-worst { stroke: var(--neg); }
 /* monte carlo cards + run button */
 .acc-mc-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 10px 0; }
 .acc-mc-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 3px; }
@@ -11082,6 +11085,18 @@ body.tape-axm-open { overflow: hidden; }
 .acc-mc-lbl { font-size: 11px; color: var(--muted); }
 .acc-mc-run { cursor: pointer; background: var(--accent); color: #fff; border: none; border-radius: var(--r-pill); padding: 8px 18px; font-size: 13px; font-weight: 700; }
 .acc-mc-run:disabled { opacity: .5; cursor: not-allowed; }
+/* rare-anomaly dissection cards */
+.acc-mc-anom { background: var(--surface-2); border: 1px solid var(--border); border-left: 3px solid var(--neg); border-radius: 10px; padding: 12px 14px; margin: 10px 0; }
+.acc-mc-anom.is-pos { border-left-color: var(--pos); }
+.acc-mc-anom-head { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+.acc-mc-anom-kind { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--neg); }
+.acc-mc-anom.is-pos .acc-mc-anom-kind { color: var(--pos); }
+.acc-mc-anom-sim { font-size: 12px; color: var(--muted); }
+.acc-mc-anom-val { font-size: 14px; font-variant-numeric: tabular-nums; margin-left: auto; }
+.acc-mc-anom-val.sig-pos { color: var(--pos); }
+.acc-mc-anom-val.sig-neg { color: var(--neg); }
+.acc-mc-anom-rar { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+.acc-mc-anom-how { margin: 6px 0 0; font-size: 12px; line-height: 1.55; }
 /* engine summary (Summary sub-tab) */
 .acc-sum-verdict {
   display: flex; align-items: flex-start; gap: 12px;
