@@ -120,7 +120,15 @@ export default async function handler(req, res) {
         // on a live pick card.
         return res.status(404).json({ error: "not in the current picks" });
       }
-      items.unshift({ pick: p, addedAt: today, lastSeen: today, stale: false });
+      // savedGrade/savedSpot freeze the add-time baseline ON THE ITEM (the
+      // pick payload itself is adopted fresh each build), so the client can
+      // show "grade was X when you saved it → Y now" and price progress since
+      // the save — the thesis-health read the watchlist cards render.
+      items.unshift({
+        pick: p, addedAt: today, lastSeen: today, stale: false,
+        savedGrade: typeof p.total === "number" ? p.total : null,
+        savedSpot: typeof p.spot === "number" ? p.spot : null,
+      });
       if (items.length > MAX_ITEMS) items.length = MAX_ITEMS;
     }
     // Freshness pass while picks.json is in hand: entries still shipping adopt
@@ -134,6 +142,11 @@ export default async function handler(req, res) {
       } else {
         it.stale = true;
       }
+      // One-time migration for entries saved before the baseline existed:
+      // stamp it from the best snapshot in hand so the delta reads start
+      // accumulating from here instead of staying blank forever.
+      if (it.savedGrade == null && typeof it.pick?.total === "number") it.savedGrade = it.pick.total;
+      if (it.savedSpot == null && typeof it.pick?.spot === "number") it.savedSpot = it.pick.spot;
     }
     const out = { items, updatedAt: new Date().toISOString() };
     await store.put(KEY, JSON.stringify(out));

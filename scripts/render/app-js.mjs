@@ -8815,6 +8815,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // patched even when the board below has nothing to show (e.g. an empty
     // roster where only saved watchlist cards render).
     try { applyLiveEntryChips(); } catch (_){}
+    // Watchlist thesis-health chips ride the same tick: a live stop breach
+    // flips the card to "thesis broken" without waiting for the next build.
+    try { applyWatchHealthChips(); } catch (_){}
     var board = document.getElementById('picks-live-board');
     if (!board) return;
     var picks = trackedPicks();
@@ -23627,6 +23630,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       .then(function(){
         watchLoading = false;
         watchLoaded = true;
+        // The per-card "grade now" + thesis-health chips join each saved idea
+        // against the whole-universe grade index (rebuilt every build) — kick
+        // that load off as soon as the list shows there's something to assess.
+        if (PICKS_WATCHLIST.length && !picksGradesState.data && typeof loadGradesIndex === 'function'){
+          loadGradesIndex(function(){ if (picksState.data) renderPicks(true); });
+        }
         if (picksState.data) renderPicks(true);
       });
   }
@@ -23668,6 +23677,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       } else {
         w.stale = true;
       }
+      // One-time migration for entries saved before the frozen baseline
+      // existed — stamp it from the best snapshot in hand so the delta reads
+      // start accumulating from here.
+      if (w.savedGrade == null && w.pick && typeof w.pick.total === 'number') w.savedGrade = w.pick.total;
+      if (w.savedSpot == null && w.pick && typeof w.pick.spot === 'number') w.savedSpot = w.pick.spot;
     }
     saveWatchlist();
   }
@@ -23715,7 +23729,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       }
       if (!p) return;
       var today = new Date().toISOString().slice(0, 10);
-      PICKS_WATCHLIST.unshift({ pick: p, addedAt: today, lastSeen: today, stale: false });
+      // savedGrade/savedSpot freeze the add-time baseline on the ITEM (the
+      // pick payload refreshes with the roster) — the health chips read the
+      // grade/price drift since the save from them.
+      PICKS_WATCHLIST.unshift({
+        pick: p, addedAt: today, lastSeen: today, stale: false,
+        savedGrade: (typeof p.total === 'number') ? p.total : null,
+        savedSpot: (typeof p.spot === 'number') ? p.spot : null
+      });
       if (PICKS_WATCHLIST.length > WATCHLIST_LIMIT) PICKS_WATCHLIST.length = WATCHLIST_LIMIT;
     }
     saveWatchlist();
@@ -23731,6 +23752,128 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return '<span class="ptc-watch' + (on ? ' is-watched' : '') + '" data-watch-toggle="' + escapeHtml(p.symbol) + '" data-watch-side="' + watchSideOf(p.side) + '" title="' +
       (on ? 'On the watchlist — click to remove' : 'Save to the watchlist — the idea stays through pick refreshes until removed') +
       '">' + (on ? '★' : '☆') + '</span>';
+  }
+  // --- Watchlist thesis health ---------------------------------------------
+  // Re-score each saved idea against TODAY'S grade index (data/grades.json,
+  // rebuilt every build) — the same invalidation logic the track record's
+  // per-mark thesisStatus uses (build.mjs updatePicksAccuracyFile): the live
+  // grade flipping to the OPPOSITE actionable side, the saved stop level
+  // breached, or every supporting driver gone quiet ⇒ BROKEN (exit signal);
+  // positive direction-adjusted progress since the save with a majority of
+  // drivers still firing ⇒ on-track; anything else ⇒ mixed. Returns null until
+  // the grade index has loaded (or when the symbol left the tracked universe).
+  function watchThesisHealth(w){
+    var p = w && w.pick;
+    var gi = picksGradesState.data;
+    if (!p || !gi || !gi.grades) return null;
+    var g = gi.grades[p.symbol];
+    if (!g) return null;
+    var isCall = watchSideOf(p.side) === 'call';
+    var minConv = Number(gi.minConviction);
+    if (!isFinite(minConv) || minConv <= 0) minConv = 4;
+    var gradeNow = Number(g.total);
+    if (!isFinite(gradeNow)) gradeNow = null;
+    var gradeFlip = gradeNow != null && (isCall ? gradeNow <= -minConv : gradeNow >= minConv);
+    // Supporting-driver keys frozen in the saved thesis card, checked against
+    // which drivers still vote the trade's side in the LIVE grade.
+    var works = (p.thesisCard && Array.isArray(p.thesisCard.works)) ? p.thesisCard.works : [];
+    var driverKeys = [];
+    for (var i=0; i<works.length; i++){ if (works[i] && works[i].key) driverKeys.push(works[i].key); }
+    var supportSign = isCall ? 1 : -1;
+    var liveSupport = {};
+    var drv = Array.isArray(g.drivers) ? g.drivers : [];
+    for (i=0; i<drv.length; i++){
+      var d = drv[i];
+      if (d && d.key && d.score && (d.score > 0 ? 1 : -1) === supportSign) liveSupport[d.key] = 1;
+    }
+    var driversActive = 0;
+    for (i=0; i<driverKeys.length; i++){ if (liveSupport[driverKeys[i]]) driversActive++; }
+    // Stop breach vs the freshest spot in hand: the 30s live quote when the
+    // poll has one, else this build's spot from the grade index.
+    var q = picksLive.quotes[p.symbol];
+    var spot = (q && q.spot != null && isFinite(q.spot)) ? Number(q.spot)
+      : (g.spot != null && isFinite(g.spot)) ? Number(g.spot) : null;
+    var stop = (p.exitPlan && p.exitPlan.cut && p.exitPlan.cut.price != null && isFinite(p.exitPlan.cut.price))
+      ? Number(p.exitPlan.cut.price) : null;
+    var stopBreached = (stop != null && spot != null)
+      ? (isCall ? spot <= stop : spot >= stop) : false;
+    // Direction-adjusted underlying progress since the save (frozen baseline).
+    var base = (w.savedSpot != null && isFinite(w.savedSpot)) ? Number(w.savedSpot) : null;
+    var progress = (base > 0 && spot > 0) ? (isCall ? 1 : -1) * (spot / base - 1) * 100 : null;
+    var noSupport = driverKeys.length > 0 && driversActive === 0;
+    var verdict;
+    if (gradeFlip || stopBreached || noSupport) verdict = 'broken';
+    else if (progress != null && progress > 0 && (driverKeys.length === 0 || driversActive >= Math.ceil(driverKeys.length / 2))) verdict = 'on-track';
+    else verdict = 'mixed';
+    return { verdict: verdict, gradeNow: gradeNow, gradeFlip: gradeFlip, stopBreached: stopBreached,
+      noSupport: noSupport, stop: stop, spot: spot, driversActive: driversActive,
+      driversTotal: driverKeys.length, progressPct: progress };
+  }
+  function watchFmtGrade(v){ return v == null ? '—' : (v > 0 ? '+' : '') + Number(v).toFixed(0); }
+  // The two live chips on each watchlist card bar: "grade now vs saved" and
+  // the thesis-health verdict. Wrapped in a data-watch-health span so the 30s
+  // quote poll can re-patch them in place (stop breaches show up intraday).
+  function watchHealthChipsHtml(w){
+    var p = w.pick;
+    var wrapOpen = '<span class="pwl-live-chips" data-watch-health="' + escapeHtml(p.symbol) + '|' + watchSideOf(p.side) + '">';
+    var h = watchThesisHealth(w);
+    if (!h){
+      // Grade index not loaded yet (chips fill in when it lands) or the name
+      // left the tracked universe — say which, don't silently show nothing.
+      var giReady = picksGradesState.data && picksGradesState.data.grades;
+      return wrapOpen + (giReady
+        ? '<span class="pwl-tag pwl-grade" title="' + escapeHtml(p.symbol) + ' is no longer in the tracked universe — no live grade to re-score this idea against.">grade n/a</span>'
+        : '') + '</span>';
+    }
+    var isCall = watchSideOf(p.side) === 'call';
+    var saved = (w.savedGrade != null && isFinite(w.savedGrade)) ? Number(w.savedGrade) : null;
+    // Direction-adjusted drift: positive = the thesis STRENGTHENED since the
+    // save (for a put that means the grade got more negative).
+    var drift = (saved != null && h.gradeNow != null) ? (isCall ? 1 : -1) * (h.gradeNow - saved) : null;
+    var driftCls = drift == null || drift === 0 ? '' : (drift > 0 ? ' pwl-grade-up' : ' pwl-grade-down');
+    var gradeTip = 'This build\\'s grade for ' + p.symbol + ': ' + watchFmtGrade(h.gradeNow) +
+      (saved != null ? ' — it was ' + watchFmtGrade(saved) + ' when this idea was saved' + (w.addedAt ? ' (' + w.addedAt + ')' : '') + '.' : '.') +
+      (drift != null && drift !== 0 ? (drift > 0 ? ' The thesis has STRENGTHENED since.' : ' The thesis has WEAKENED since.') : '') +
+      ' Re-scored every build.';
+    var gradeHtml = '<span class="pwl-tag pwl-grade' + driftCls + '" title="' + escapeHtml(gradeTip) + '">' +
+      'grade ' + watchFmtGrade(h.gradeNow) +
+      (saved != null && h.gradeNow != null && Math.round(h.gradeNow) !== Math.round(saved) ? ' <s>' + watchFmtGrade(saved) + '</s>' : '') +
+      '</span>';
+    var healthHtml = '';
+    if (h.verdict === 'broken'){
+      var why = [];
+      if (h.gradeFlip) why.push('the live grade has flipped to the opposite side (' + watchFmtGrade(h.gradeNow) + ')');
+      if (h.stopBreached) why.push('the saved stop at $' + h.stop.toFixed(2) + ' is breached (spot $' + h.spot.toFixed(2) + ')');
+      if (h.noSupport) why.push('none of the ' + h.driversTotal + ' supporting drivers behind the saved thesis are still firing');
+      healthHtml = '<span class="pwl-tag pwl-health pwl-health-broken" title="' +
+        escapeHtml('THESIS BROKEN — ' + why.join('; ') + '. The reasoning this idea was saved on no longer holds: if you took the trade, this is the exit signal. Re-checked every build (and against the live tape while this tab is open).') +
+        '">⚠ thesis broken — exit</span>';
+    } else {
+      var det = (h.driversTotal > 0 ? h.driversActive + '/' + h.driversTotal + ' supporting drivers still firing. ' : '') +
+        (h.progressPct != null ? 'Underlying ' + (h.progressPct >= 0 ? '+' : '') + h.progressPct.toFixed(1) + '% in the trade\\'s direction since saved. ' : '') +
+        (h.stop != null && h.spot != null ? 'Stop $' + h.stop.toFixed(2) + ' not breached (spot $' + h.spot.toFixed(2) + '). ' : '') +
+        'Re-scored against every build\\'s fresh grade.';
+      healthHtml = h.verdict === 'on-track'
+        ? '<span class="pwl-tag pwl-health pwl-health-ok" title="' + escapeHtml('Thesis on track — ' + det) + '">✓ on track</span>'
+        : '<span class="pwl-tag pwl-health pwl-health-mixed" title="' + escapeHtml('Thesis mixed — not broken, but not confirming either. ' + det) + '">◐ mixed</span>';
+    }
+    return wrapOpen + gradeHtml + healthHtml + '</span>';
+  }
+  // Re-patch every rendered watchlist health chip from the latest state (grade
+  // index landing, 30s quote ticks) without a full grid re-render.
+  function applyWatchHealthChips(){
+    var els = document.querySelectorAll('[data-watch-health]');
+    if (!els.length) return;
+    for (var i=0; i<els.length; i++){
+      var key = els[i].getAttribute('data-watch-health') || '';
+      var parts = key.split('|');
+      var idx = watchIndexOf(parts[0], parts[1]);
+      if (idx < 0) continue;
+      var html = watchHealthChipsHtml(PICKS_WATCHLIST[idx]);
+      var tmp = document.createElement('span');
+      tmp.innerHTML = html;
+      els[i].innerHTML = tmp.firstChild ? tmp.firstChild.innerHTML : '';
+    }
   }
   // The pinned "★ My watchlist" group at the top of the picks grid — saved
   // cards render with the same tile the roster uses, wrapped in a bar carrying
@@ -23752,6 +23895,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           (w.stale
             ? '<span class="pwl-tag pwl-tag-stale" title="No longer in the current top picks — this card is the last snapshot before it dropped off' + (w.lastSeen ? ' (last seen ' + escapeHtml(w.lastSeen) + ')' : '') + '. It stays here until you remove it.">⏸ off today’s list</span>'
             : '<span class="pwl-tag pwl-tag-live" title="Also in the current top picks — this card tracks the live roster and refreshes with it.">● in today’s picks</span>') +
+          watchHealthChipsHtml(w) +
           (w.addedAt ? '<span class="pwl-added">saved ' + escapeHtml(w.addedAt) + '</span>' : '') +
           '<button type="button" class="pwl-remove" data-watch-toggle="' + escapeHtml(p.symbol) + '" data-watch-side="' + watchSideOf(p.side) + '" title="Remove ' + escapeHtml(p.symbol) + ' from the watchlist">✕ remove</button>' +
         '</div>' + inner + '</div>';
@@ -24022,6 +24166,20 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         var noteW = w.stale
           ? '<div class="pwl-detail-note">⏸ Watchlist snapshot — ' + escapeHtml(sym) + ' is no longer in the current top picks; everything below is from the last build it appeared in' + (w.lastSeen ? ' (' + escapeHtml(w.lastSeen) + ')' : '') + '. It stays on the watchlist until removed.</div>'
           : '';
+        // Thesis-health banner: the saved idea re-scored against TODAY'S grade
+        // — the detail page gets the full why, not just the card chip.
+        var hW = watchThesisHealth(w);
+        if (hW){
+          var savedW = (w.savedGrade != null && isFinite(w.savedGrade)) ? Number(w.savedGrade) : null;
+          var bitsW = ['Grade now ' + watchFmtGrade(hW.gradeNow) + (savedW != null ? ' (was ' + watchFmtGrade(savedW) + ' when saved' + (w.addedAt ? ' ' + escapeHtml(w.addedAt) : '') + ')' : '') + ' — re-scored every build'];
+          if (hW.driversTotal > 0) bitsW.push(hW.driversActive + '/' + hW.driversTotal + ' supporting drivers still firing');
+          if (hW.progressPct != null) bitsW.push('underlying ' + (hW.progressPct >= 0 ? '+' : '') + hW.progressPct.toFixed(1) + '% in the trade\\'s direction since saved');
+          if (hW.stop != null && hW.spot != null) bitsW.push('stop $' + hW.stop.toFixed(2) + (hW.stopBreached ? ' BREACHED' : ' holding') + ' (spot $' + hW.spot.toFixed(2) + ')');
+          var headW = hW.verdict === 'broken'
+            ? '⚠ THESIS BROKEN — the reasoning this idea was saved on no longer holds. If you took the trade, this is the exit signal.'
+            : hW.verdict === 'on-track' ? '✓ Thesis on track.' : '◐ Thesis mixed — not broken, but not confirming either.';
+          noteW += '<div class="pwl-detail-note pwl-detail-health-' + hW.verdict + '">' + headW + ' ' + bitsW.join(' · ') + '.</div>';
+        }
         try { holder.innerHTML = noteW + buildPickCardHtml(w.pick, 0); return; } catch (_){}
       }
       closePickDetail(); return;

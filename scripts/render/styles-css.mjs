@@ -9900,6 +9900,19 @@ body.tape-axm-open { overflow: hidden; }
 }
 .pwl-remove:hover { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 45%, var(--border)); }
 .pwl-stale .pick-tab-card { opacity: .82; filter: saturate(.75); }
+/* Live grade + thesis-health chips (re-scored every build, patched on the 30s poll). */
+.pwl-live-chips { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.pwl-grade { color: var(--text-muted); background: color-mix(in srgb, var(--text-muted) 10%, transparent); }
+.pwl-grade s { opacity: .6; font-weight: 500; margin-left: 1px; }
+.pwl-grade-up { color: var(--pos); background: color-mix(in srgb, var(--pos) 10%, transparent); }
+.pwl-grade-down { color: var(--warn, #d98a00); background: color-mix(in srgb, var(--warn, #d98a00) 12%, transparent); }
+.pwl-health-ok { color: var(--pos); background: color-mix(in srgb, var(--pos) 10%, transparent); }
+.pwl-health-mixed { color: var(--warn, #d98a00); background: color-mix(in srgb, var(--warn, #d98a00) 12%, transparent); }
+.pwl-health-broken { color: #fff; background: var(--neg); animation: pwl-broken-pulse 2.4s ease-in-out infinite; }
+@keyframes pwl-broken-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .72; } }
+@media (prefers-reduced-motion: reduce) { .pwl-health-broken { animation: none; } }
+.pwl-detail-health-broken { color: var(--neg); background: color-mix(in srgb, var(--neg) 8%, transparent); border-color: color-mix(in srgb, var(--neg) 35%, var(--border)); }
+.pwl-detail-health-on-track { color: var(--pos); background: color-mix(in srgb, var(--pos) 7%, transparent); border-color: color-mix(in srgb, var(--pos) 30%, var(--border)); }
 .pwl-broken { flex: 1; font: 400 12px/1.5 var(--font-sans); color: var(--text-muted); padding: 12px; border: 1px dashed var(--border); border-radius: var(--r-3); }
 .pwl-error { grid-column: 1 / -1; font: 500 12px/1.5 var(--font-sans); color: var(--neg); background: color-mix(in srgb, var(--neg) 8%, transparent); border: 1px solid color-mix(in srgb, var(--neg) 30%, var(--border)); border-radius: var(--r-2); padding: 6px 10px; }
 .pwl-detail-note {
