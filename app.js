@@ -49,7 +49,7 @@
   // default to "ungated, everyone's a member" so a legacy public deploy — or a
   // failed /me probe — never locks the site by accident. applyAuth() flips these
   // once /me resolves, before the first selectTab().
-  var PREMIUM_TABS = { market:1, brief:1, narratives:1, flow:1, volume:1, oi:1, 'index-cal':1, stocks:1, calls:1 };
+  var PREMIUM_TABS = { market:1, brief:1, narratives:1, flow:1, volume:1, oi:1, 'index-cal':1, stocks:1, calls:1, spillover:1 };
   var GATE_ON = false;
   var IS_MEMBER = true;
   // Track Record is a STRICTER tier than premium: a specific Discord role, not
@@ -69,7 +69,7 @@
   // header so the Discord is findable from anywhere on the site.
   var DISCORD_INVITE_URL = "https://discord.gg/GVYx7qSWxS";
   function premiumTabLabel(id){
-    return ({ market:'Market Analysis', brief:'Briefs', narratives:'Narratives', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', hot:'Hot Stocks', 'index-cal':'Index Calendar', stocks:'Stock Picks', calls:'Earnings calls' })[id] || 'This feature';
+    return ({ market:'Market Analysis', brief:'Briefs', narratives:'Narratives', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', hot:'Hot Stocks', 'index-cal':'Index Calendar', stocks:'Stock Picks', calls:'Earnings calls', spillover:'Event spillover' })[id] || 'This feature';
   }
   // Inject the members-only upsell card into a locked premium pane (idempotent).
   function ensurePremiumLock(pane, id){
@@ -86,7 +86,7 @@
           '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
         '</div>' +
         '<h2 class="premium-lock-title">' + escapeHtml(premiumTabLabel(id)) + ' is a members feature</h2>' +
-        '<p class="premium-lock-body">Market analysis, Stock Picks, Briefs, Narratives, Earnings calls, Unusual &amp; Volume flow, and Gamma exposure are unlocked with a premium <b>Discord</b> membership. Join the server to get access &mdash; everything else stays free.</p>' +
+        '<p class="premium-lock-body">Market analysis, Stock Picks, Briefs, Narratives, Earnings calls, Event spillover, Unusual &amp; Volume flow, and Gamma exposure are unlocked with a premium <b>Discord</b> membership. Join the server to get access &mdash; everything else stays free.</p>' +
         '<a class="premium-lock-cta" href="' + DISCORD_INVITE_URL + '" target="_blank" rel="noopener">' + DISCORD_ICON_SVG + '<span>Join the Discord to get premium</span></a>' +
         '<p class="premium-lock-foot">Already a member? <a href="/api/auth/discord-login">Log in with Discord</a>.</p>' +
       '</div>';
@@ -3141,7 +3141,7 @@
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','market','picks','stocks','heatmap','calendar','earnings','calls','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','features','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','market','picks','stocks','heatmap','calendar','earnings','calls','spillover','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','features','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3167,6 +3167,7 @@
     'earnings-tracker': 'earnings', 'earnings-season': 'earnings', season: 'earnings', eps: 'earnings',
     'earnings-calls': 'calls', 'earnings-call': 'calls', transcripts: 'calls', transcript: 'calls', call: 'calls',
     iv: 'iv-trend', 'trending-iv': 'iv-trend', 'iv-trending': 'iv-trend', ivtrend: 'iv-trend', 'implied-vol': 'iv-trend', 'implied-volatility': 'iv-trend',
+    'event-spillover': 'spillover', 'read-through': 'spillover', readthrough: 'spillover', 'spill-over': 'spillover', spill: 'spillover',
     // Reference / legal / info pages (now in-app tabs).
     'buyers-manual': 'cheatsheet', 'buyer-manual': 'cheatsheet', cheat: 'cheatsheet', 'cheat-sheet': 'cheatsheet', manual: 'cheatsheet',
     patterns: 'chart-patterns', chartpatterns: 'chart-patterns', 'chart-pattern': 'chart-patterns',
@@ -3443,6 +3444,7 @@
         if (name === 'capital-raises' && typeof loadCapitalRaises === 'function') loadCapitalRaises();
         if (name === 'ipo-credit' && typeof loadIpoCredit === 'function') loadIpoCredit();
         if (name === 'iv-trend' && typeof loadIvTrend === 'function') loadIvTrend();
+        if (name === 'spillover' && typeof loadSpillover === 'function') loadSpillover();
       }
       // The sidebar scrolls vertically when the tab list outgrows the
       // viewport. Programmatic selection (e.g. a ?tab= deep-link) can leave
@@ -14670,6 +14672,128 @@
     withV.sort(function(a,b){ return cs.dir * (ivtColValue(a, cs.key) - ivtColValue(b, cs.key)); });
     return withV.concat(without);
   }
+  // --- Event Spillover Matrix (premium tab; data/spillover-pairs.json) -------
+  // docs/event-spillover.md — an ANALYTICAL correlation map (which same-sector
+  // peers echo a driver print, how much, how consistently, and whether their
+  // options price it). Owner directive: it never suggests a trade.
+  var spilloverState = { data: null, loading: false };
+  function loadSpillover(){
+    if ((spilloverState.data && !tabDataStale(spilloverState)) || spilloverState.loading){ renderSpillover(); return; }
+    spilloverState.loading = true;
+    fetch('data/spillover-pairs.json', { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){
+        spilloverState.data = (j && typeof j === 'object') ? j : {};
+        spilloverState.loading = false;
+        spilloverState.fetchedAt = Date.now();
+        renderSpillover();
+      })
+      .catch(function(){ spilloverState.data = { loadError: true }; spilloverState.loading = false; renderSpillover(); });
+  }
+  function spillSymLink(sym){
+    var s = String(sym || '').toUpperCase();
+    return '<a class="spill-sym" data-sym="' + escapeHtml(s) + '" href="' + symGradeHref(s) + '">' + escapeHtml(s) + '</a>';
+  }
+  // Matrix stats ship as FRACTIONS (0.0149 = +1.49%); upcoming-event expected
+  // moves ship already in percent points — two formatters, do not mix.
+  function spillFrac(frac, dp){
+    if (frac == null || !isFinite(frac)) return '—';
+    var v = frac * 100;
+    return (v >= 0 ? '+' : '') + v.toFixed(dp == null ? 2 : dp) + '%';
+  }
+  function spillNum(v, dp){ return (v == null || !isFinite(v)) ? '—' : Number(v).toFixed(dp == null ? 2 : dp); }
+  function renderSpillover(){
+    var root = document.getElementById('spillover-root');
+    var empty = document.getElementById('spillover-empty');
+    var eyebrow = document.getElementById('spillover-eyebrow');
+    if (!root) return;
+    var d = spilloverState.data;
+    if (!d){ root.textContent = 'Loading event spillover…'; return; }
+    var pairs = Array.isArray(d.pairs) ? d.pairs : [];
+    if (d.loadError || !pairs.length){
+      root.innerHTML = ''; root.hidden = true; if (empty) empty.hidden = false;
+      if (eyebrow) eyebrow.textContent = '';
+      return;
+    }
+    root.hidden = false; if (empty) empty.hidden = true;
+    if (eyebrow) eyebrow.textContent = (d.pilot || []).join(' ') + ' vs ' + (d.etf || 'XLF') + (d.date ? ' · betas as of ' + d.date : '') + (d.stale ? ' · STALE (kept last-good)' : '');
+    var minN = (d.gates && d.gates.minEvents) || 6;
+    var html = '';
+    // Upcoming driver events with both engines' expected follower moves.
+    var up = Array.isArray(d.upcoming) ? d.upcoming : [];
+    html += '<div class="spill-sub">Upcoming driver events</div>';
+    if (!up.length){
+      html += '<p class="spill-none">No pilot-bank earnings inside the next month.</p>';
+    } else {
+      html += '<div class="spill-events">';
+      up.forEach(function(ev){
+        var isoState = (ev.isolation && ev.isolation.status) || 'clean';
+        var isoBits = [];
+        if (ev.isolation){
+          (ev.isolation.hard || []).forEach(function(r){ isoBits.push(r); });
+          (ev.isolation.flags || []).forEach(function(r){ isoBits.push(r); });
+        }
+        html += '<div class="spill-ev">' +
+          '<div class="spill-ev-head">' + spillSymLink(ev.driver) +
+          ' reports <b>' + escapeHtml(ev.date || '') + '</b> · ' + (ev.session === 'PM' ? 'after close' : 'before open') +
+          (ev.daysUntil != null ? ' · in ' + ev.daysUntil + 'd' : '') +
+          ' <span class="spill-chip spill-iso-' + escapeHtml(isoState) + '"' + (isoBits.length ? ' title="' + escapeHtml(isoBits.join(', ')) + '"' : '') + '>' + escapeHtml(isoState) + '</span>' +
+          (ev.impliedMovePct != null ? ' <span class="spill-ev-imp">own straddle implies ±' + spillNum(ev.impliedMovePct) + '%</span>' : '') +
+          '</div>';
+        var fl = Array.isArray(ev.followers) ? ev.followers : [];
+        if (fl.length){
+          html += '<div class="spill-scroll"><table class="spill-tbl"><thead><tr><th>Follower</th><th>Expected A (sector-routed)</th><th>Expected B (pair beta)</th><th>Priced / day</th><th>Pair status</th></tr></thead><tbody>';
+          fl.forEach(function(f){
+            html += '<tr><td>' + spillSymLink(f.follower) + '</td>' +
+              '<td>' + (f.expA != null ? '±' + spillNum(f.expA) + '%' : '—') + '</td>' +
+              '<td>' + (f.expB != null ? '±' + spillNum(f.expB) + '%' : '—') + '</td>' +
+              '<td>' + (f.pricedMovePct != null ? '±' + spillNum(f.pricedMovePct) + '%' : '—') + '</td>' +
+              '<td>' + (f.pairQualified ? '<span class="spill-q">qualified</span>' : '<span class="spill-nq">unqualified (n=' + (f.pairN || 0) + ')</span>') + '</td></tr>';
+          });
+          html += '</tbody></table></div>';
+        }
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+    // Engine A vs Engine B forward accuracy (from the resolved prediction log).
+    var fw = d.forward || {};
+    var fwLine = function(label, s){
+      if (!s || !s.n) return label + ': no resolved predictions yet';
+      return label + ': direction ' + Math.round((s.hit || 0) * 100) + '% · size MAE ' + spillNum(s.mae) + 'pt (' + s.n + ')';
+    };
+    html += '<div class="spill-forward"><b>Forward validation</b> — ' + (fw.resolvedEvents || 0) + ' resolved event' + ((fw.resolvedEvents || 0) === 1 ? '' : 's') + ' · ' +
+      fwLine('Engine A', fw.engineA) + ' · ' + fwLine('Engine B', fw.engineB) + '</div>';
+    // The pair matrix.
+    html += '<div class="spill-sub">Pair matrix — historical event-window read-through</div>';
+    html += '<div class="spill-scroll"><table class="spill-tbl spill-matrix"><thead><tr>' +
+      '<th>Pair</th><th>n</th><th>β shrunk</th><th>Hit</th><th>R²</th><th>p</th><th>Avg move→</th><th>Priced/day</th><th>Edge</th><th>Halves β</th><th>Resid β</th><th>Status</th>' +
+      '</tr></thead><tbody>';
+    pairs.forEach(function(p){
+      var qualified = !!(p.gates && p.fdrPass);
+      var thin = (p.n || 0) < minN;
+      var status = thin ? 'n&lt;' + minN : (qualified ? 'qualified' : 'fails gates');
+      var halves = (p.bH1 != null && p.bH2 != null) ? spillNum(p.bH1, 1) + '/' + spillNum(p.bH2, 1) : '—';
+      var resid = p.bResid != null ? spillNum(p.bResid) + (p.tResid != null ? ' (t ' + spillNum(p.tResid, 1) + ')' : '') + (p.residSignAgree === false ? ' ✗' : '') : '—';
+      html += '<tr class="' + (qualified ? 'spill-row-q' : 'spill-row-dim') + '">' +
+        '<td class="spill-pair">' + spillSymLink(p.driver) + '<span class="spill-arrow">→</span>' + spillSymLink(p.follower) + '</td>' +
+        '<td>' + (p.n || 0) + '</td>' +
+        '<td>' + (p.bShrunk != null ? spillNum(p.bShrunk) : '—') + '</td>' +
+        '<td>' + (p.hitB != null ? Math.round(p.hitB * 100) + '%' : '—') + '</td>' +
+        '<td>' + (p.r2 != null ? spillNum(p.r2) : '—') + '</td>' +
+        '<td>' + (p.p != null ? spillNum(p.p, 3) : '—') + (p.fdrPass ? ' ✓' : '') + '</td>' +
+        '<td>' + spillFrac(p.avgAligned) + '</td>' +
+        '<td>' + spillFrac(p.pricedMove) + '</td>' +
+        '<td class="' + (p.edge != null && p.edge > 0 ? 'spill-edge-pos' : 'spill-edge-neg') + '">' + spillFrac(p.edge) + '</td>' +
+        '<td>' + halves + '</td>' +
+        '<td>' + resid + '</td>' +
+        '<td>' + status + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+    html += '<p class="spill-note">β shrunk = the pair event beta shrunk toward the pooled sector beta (small samples). Hit = share of past events where the follower moved the same direction. A ✓ on p = survives the false-discovery correction. Avg move→ = the follower average event-window move in the driver direction; Edge = that average minus the follower current 1-day priced move (ATM IV) — positive means the options market underprices the echo. Bank prints cluster, so betas measure sector print-day read-through; Resid β (market-stripped) is the control. Correlation map only — nothing here is a trade recommendation.</p>';
+    root.innerHTML = html;
+    bindBriefChips(root);
+  }
   function loadIvTrend(){
     if ((ivTrendState.data && !tabDataStale(ivTrendState)) || ivTrendState.loading){ renderIvTrend(); return; }
     ivTrendState.loading = true;
@@ -15520,7 +15644,7 @@
   // Stock Picks card + DCA symbols, Trending-IV symbols/chips/table rows).
   function bindBriefChips(rootEl){
     if (!rootEl) return;
-    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .stk-sym[data-sym], .stk-dca-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym], .cmd-watch[data-sym], .cr-tkr[data-sym], .f13-sym[data-sym], .ers-sym[data-sym], .ecl-sym[data-sym]');
+    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .stk-sym[data-sym], .stk-dca-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym], .cmd-watch[data-sym], .cr-tkr[data-sym], .f13-sym[data-sym], .ers-sym[data-sym], .ecl-sym[data-sym], .spill-sym[data-sym]');
     for (var i = 0; i < chips.length; i++){
       chips[i].addEventListener('click', function(ev){
         // Modified clicks fall through to the browser so the ?s= href opens

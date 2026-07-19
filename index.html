@@ -79,6 +79,7 @@
     <button type="button" class="page-tab" role="tab" data-page-tab="calendar" aria-selected="false" aria-controls="page-pane-calendar" id="page-tab-calendar"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18"/></svg><span class="pt-label">Calendar</span></button>
     <button type="button" class="page-tab" role="tab" data-page-tab="earnings" aria-selected="false" aria-controls="page-pane-earnings" id="page-tab-earnings"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18"/><path d="m6.5 17.5 3-3.5 2.5 2 4-4.5"/><path d="M13.5 11.5H16V14"/></svg><span class="pt-label">Earnings tracker</span></button>
     <button type="button" class="page-tab" role="tab" data-page-tab="calls" aria-selected="false" aria-controls="page-pane-calls" id="page-tab-calls"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.9 8.9 0 0 1-3.9-.9L3 20l1-4.9a8.4 8.4 0 0 1-1-4A8.4 8.4 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5Z"/><path d="M8 10.5h8M8 14h5"/></svg><span class="pt-label">Earnings calls</span></button>
+    <button type="button" class="page-tab" role="tab" data-page-tab="spillover" aria-selected="false" aria-controls="page-pane-spillover" id="page-tab-spillover"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="2.5"/><path d="M12 5.5a6.5 6.5 0 0 1 6.5 6.5"/><path d="M12 2a10 10 0 0 1 10 10"/></svg><span class="pt-label">Event spillover</span></button>
     <button type="button" class="page-tab" role="tab" data-page-tab="index-cal" aria-selected="false" aria-controls="page-pane-index-cal" id="page-tab-index-cal"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18M8 15h.01M12 15h.01M16 15h.01"/></svg><span class="pt-label">Index calendar</span></button>
     <button type="button" class="page-tab" role="tab" data-page-tab="track" aria-selected="false" aria-controls="page-pane-track" id="page-tab-track"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14.5 2 2 4-4.5"/></svg><span class="pt-label">Track record</span></button>
   </div>
@@ -1591,6 +1592,21 @@
     <div id="calls-root" class="calls-root">Loading earnings calls&hellip;</div>
     <div id="calls-empty" class="calls-empty" hidden>Earnings-call summaries appear here as transcripts are published.</div>
     <p class="hint">Summaries are AI-generated from third-party transcripts and can contain errors &mdash; always verify against the linked transcript. Not financial advice.</p>
+  </section>
+  </div>
+  <div class="page-pane" id="page-pane-spillover" role="tabpanel" aria-labelledby="page-tab-spillover" hidden>
+  <section class="card" id="spillover-section">
+    <header class="card-header">
+      <h2 class="card-title">Event spillover</h2>
+      <span class="card-eyebrow" id="spillover-eyebrow" aria-live="polite"></span>
+    </header>
+    <details class="info-note">
+      <summary>What is this?</summary>
+      <div class="info-note-body"><p>When a company reports earnings, its <b>same-sector peers</b> move too &mdash; this matrix measures that <b>read-through</b> for the banks pilot (JPM, BAC, C, GS, MS). For every driver&rarr;follower pair it estimates the <b>event-window beta</b> (how much of the driver's print-day move the follower echoes, Newey-West significance, shrunk toward the pooled sector beta on small samples), the <b>direction hit rate</b>, and whether the follower's <b>options already price</b> the echo (its ATM implied move vs its realized average). Pairs must clear fixed statistical gates (R&sup2;, significance after a false-discovery correction, &ge;60% direction consistency) to count as qualified. Upcoming driver events show both engines' expected follower moves &mdash; sector-routed (via the ETF) and direct-pair &mdash; with the running forward accuracy of each. <b>This is a correlation map, not a trade signal</b>: nothing here is a recommendation to buy or sell anything.</p></div>
+    </details>
+    <div id="spillover-root" class="spill-root">Loading event spillover&hellip;</div>
+    <div id="spillover-empty" class="spill-empty" hidden>Spillover data will appear after the next daily build refresh.</div>
+    <p class="hint">Event betas re-estimate once per trading day; event depth accumulates from the earnings-history store. Bank prints cluster (often the same morning), so most windows carry shared-print/CPI-week flags &mdash; shown, not hidden. Analytical only. Not financial advice.</p>
   </section>
   </div>
   <div class="page-pane" id="page-pane-index-cal" role="tabpanel" aria-labelledby="page-tab-index-cal" hidden>

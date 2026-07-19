@@ -3214,6 +3214,37 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
   .ivt-trow > :nth-child(4), .ivt-trow > :nth-child(7), .ivt-trow > :nth-child(8) { display: none; }
 }
 
+/* --- Event Spillover Matrix (premium, docs/event-spillover.md) ---------- */
+.spill-root { display: flex; flex-direction: column; gap: 14px; }
+.spill-sub { font: 700 11px/1.2 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; color: var(--muted-strong); margin-top: 4px; }
+.spill-none { font: 400 12.5px/1.5 var(--font-sans); color: var(--muted); margin: 0; }
+.spill-events { display: flex; flex-direction: column; gap: 10px; }
+.spill-ev { border: 1px solid var(--border); border-radius: var(--r-1); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--surface); }
+.spill-ev-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font: 400 13px/1.4 var(--font-sans); color: var(--text-strong); }
+.spill-ev-imp { font: 600 11.5px/1.2 var(--font-mono); color: var(--muted-strong); font-variant-numeric: tabular-nums; }
+.spill-chip { font: 700 9.5px/1 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted-strong); cursor: default; }
+.spill-chip[title] { cursor: help; }
+.spill-iso-clean { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 45%, transparent); }
+.spill-iso-flagged { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.spill-iso-conflict { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 45%, transparent); }
+.spill-scroll { overflow-x: auto; }
+.spill-tbl { width: 100%; border-collapse: collapse; font: 500 12px/1.35 var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.spill-tbl th { font: 700 10px/1.2 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 5px 10px 5px 0; border-bottom: 1px solid var(--border); }
+.spill-tbl td { padding: 5px 10px 5px 0; border-bottom: 1px dashed color-mix(in srgb, var(--border) 60%, transparent); }
+.spill-sym { font: 700 12.5px/1.2 var(--font-mono); color: var(--text-strong); text-decoration: none; }
+.spill-sym:hover, .spill-sym:focus-visible { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.spill-arrow { color: var(--muted); margin: 0 3px; }
+.spill-row-dim td { color: var(--muted); }
+.spill-row-dim .spill-sym { color: var(--muted-strong); }
+.spill-row-q td { color: var(--text-strong); }
+.spill-edge-pos { color: var(--pos); font-weight: 700; }
+.spill-edge-neg { color: var(--muted-strong); }
+.spill-q { color: var(--pos); font: 700 10px/1 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; }
+.spill-nq { color: var(--muted); font: 600 10.5px/1 var(--font-sans); }
+.spill-forward { font: 500 12px/1.5 var(--font-sans); color: var(--muted-strong); border: 1px dashed var(--border); border-radius: var(--r-1); padding: 8px 12px; }
+.spill-forward b { color: var(--text-strong); }
+.spill-note { font: 400 11.5px/1.55 var(--font-sans); color: var(--muted); margin: 0; }
+
 /* --- Stock Picks (quality-dip screen, premium) ------------------------- */
 .stk-root { display: flex; flex-direction: column; gap: 14px; }
 .stk-funnel { font: 400 12.5px/1.55 var(--font-sans); color: var(--muted-strong); margin: 0; }

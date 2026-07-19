@@ -54,6 +54,7 @@ const SIDE_NAV_ICONS = {
   oi: '<path d="m12 3 10 5.5L12 14 2 8.5Z"/><path d="m2 14.5 10 5.5 10-5.5"/>',
   streaks: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
   'iv-trend': '<path d="m3 17.5 6-6 4 4 8-8.5"/><path d="M14.5 7h6.5v6.5"/>',
+  spillover: '<circle cx="12" cy="12" r="2.5"/><path d="M12 5.5a6.5 6.5 0 0 1 6.5 6.5"/><path d="M12 2a10 10 0 0 1 10 10"/>',
   overnight: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
   'fear-greed': '<path d="m12 14.5 3.5-3.5"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
   'bonds-usd': '<path d="M12 2.5v19M16.5 5.5H10a3 3 0 0 0 0 6h4a3 3 0 0 1 0 6H7"/>',
@@ -560,6 +561,23 @@ function ipoCreditSection() {
     <div id="ipo-credit-root" class="ipo-credit-root">Loading IPOs &amp; credit&hellip;</div>
     <div id="ipo-credit-empty" class="ipo-credit-empty" hidden>IPO &amp; credit data will appear after the next daily build refresh.</div>
     <p class="hint">IPO counts include SPACs and small-caps. Filing counts are filings, not companies. FRED series publish on a lag (G.19 ~2 months, H.8 ~1 week); the NY Fed report is quarterly. Not financial advice.</p>
+  </section>`;
+}
+
+function spilloverSection() {
+  // Card chrome only — content renders client-side from data/spillover-pairs.json,
+  // lazy-fetched on first tab activation by loadSpillover() in app.js. The Event
+  // Spillover Matrix (docs/event-spillover.md): same-sector earnings read-through,
+  // banks pilot. ANALYTICAL ONLY — it maps correlation, it never suggests trades.
+  return `<section class="card" id="spillover-section">
+    <header class="card-header">
+      <h2 class="card-title">Event spillover</h2>
+      <span class="card-eyebrow" id="spillover-eyebrow" aria-live="polite"></span>
+    </header>
+    ${infoNote('What is this?', `<p>When a company reports earnings, its <b>same-sector peers</b> move too &mdash; this matrix measures that <b>read-through</b> for the banks pilot (JPM, BAC, C, GS, MS). For every driver&rarr;follower pair it estimates the <b>event-window beta</b> (how much of the driver's print-day move the follower echoes, Newey-West significance, shrunk toward the pooled sector beta on small samples), the <b>direction hit rate</b>, and whether the follower's <b>options already price</b> the echo (its ATM implied move vs its realized average). Pairs must clear fixed statistical gates (R&sup2;, significance after a false-discovery correction, &ge;60% direction consistency) to count as qualified. Upcoming driver events show both engines' expected follower moves &mdash; sector-routed (via the ETF) and direct-pair &mdash; with the running forward accuracy of each. <b>This is a correlation map, not a trade signal</b>: nothing here is a recommendation to buy or sell anything.</p>`)}
+    <div id="spillover-root" class="spill-root">Loading event spillover&hellip;</div>
+    <div id="spillover-empty" class="spill-empty" hidden>Spillover data will appear after the next daily build refresh.</div>
+    <p class="hint">Event betas re-estimate once per trading day; event depth accumulates from the earnings-history store. Bank prints cluster (often the same morning), so most windows carry shared-print/CPI-week flags &mdash; shown, not hidden. Analytical only. Not financial advice.</p>
   </section>`;
 }
 
@@ -1341,6 +1359,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     ${sideNavItem('calendar', 'Calendar')}
     ${sideNavItem('earnings', 'Earnings tracker')}
     ${sideNavItem('calls', 'Earnings calls')}
+    ${sideNavItem('spillover', 'Event spillover')}
     ${sideNavItem('index-cal', 'Index calendar')}
     ${sideNavItem('track', 'Track record')}
   </div>
@@ -1620,6 +1639,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-calls" role="tabpanel" aria-labelledby="page-tab-calls" hidden>
   ${earningsCallsSection()}
+  </div>
+  <div class="page-pane" id="page-pane-spillover" role="tabpanel" aria-labelledby="page-tab-spillover" hidden>
+  ${spilloverSection()}
   </div>
   <div class="page-pane" id="page-pane-index-cal" role="tabpanel" aria-labelledby="page-tab-index-cal" hidden>
   ${indexCalSection()}

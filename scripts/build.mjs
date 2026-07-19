@@ -18634,6 +18634,586 @@ async function writeCorrelationsFile(chains, globalMarkets, builtAtIso, prior = 
   };
 }
 
+// ===================== EVENT SPILLOVER MATRIX ==============================
+// (data/spillover-pairs.json + data/spillover-log.json — the Event Spillover
+// tab.) Full spec: docs/event-spillover.md. ANALYTICAL ONLY (owner directive):
+// this maps same-sector earnings read-through — which peers move when a driver
+// reports, how much, how consistently, and whether their options price it. It
+// never suggests a trade, picks a contract, or sizes a position.
+//
+// Pilot (doc §3): drivers = followers = the five tracked banks; sector ETF =
+// XLF (price-only, module-private fetch — build-time chart() bypasses the
+// /api SYMBOL_RE allowlist, same mechanism as the GLOBAL_MARKETS sweep).
+//
+// Two artifacts, both PREMIUM keys (lib/premium-keys.mjs):
+//  - spillover-pairs.json — the matrix. The DEEP half (5y bar fetch + Engine
+//    A/B regressions) recomputes once per ET day (grades-daily pattern) and
+//    carries forward intra-day; the CHEAP half (upcoming-event expected-move
+//    translation off current straddles/IV) refreshes every bake.
+//  - spillover-log.json — the accumulating event + forward-validation log
+//    (doc §11): per upcoming event, Engine A vs B predicted follower moves,
+//    frozen at the session-aware entry point, resolved against realized moves
+//    + follower IV change after the window closes. Read-before-wipe.
+//
+// Event dates come from the earnings-history store (accumulating, ~12 prints/
+// name) UNION the log's own accumulated events — depth grows over time. The
+// deep 5-year backtest read stays in scripts/diagnose-spillover.mjs (which
+// also imports the stat helpers below, so the math is single-sourced).
+export const SPILLOVER_FILE = "spillover-pairs.json";
+export const SPILLOVER_LOG_FILE = "spillover-log.json";
+export const SPILLOVER_PILOT = ["JPM", "BAC", "C", "GS", "MS"];
+// Large financials whose prints contaminate a bank event window (doc §8).
+// Only pilot-name prints are DETECTABLE at bake time (the others aren't
+// tracked, so their dates are unknown here — diagnose-spillover's Nasdaq
+// back-walk is the deep tool); the list is kept for the diagnose script.
+export const SPILLOVER_CONTAMINATORS = ["WFC", "USB", "PNC", "TFC", "SCHW", "COF", "BLK", "BK", "AXP", "STT"];
+const SPILLOVER_ETF = (process.env.SPILLOVER_ETF || "XLF").toUpperCase() === "KBE" ? "KBE" : "XLF";
+const SPILLOVER_ROLL = 90;         // Engine A rolling window (trading days)
+const SPILLOVER_SHRINK_K = 6;      // Engine B shrinkage: w = n/(n+K)
+const SPILLOVER_NW_LAG_DAILY = 5;  // Newey-West lag, daily regressions
+const SPILLOVER_NW_LAG_EVENT = 2;  // Newey-West lag, sparse event series
+const SPILLOVER_MIN_EVENTS = 6;    // below this, stats ship marked insufficient
+const SPILLOVER_GATES = { r2: 0.25, p: 0.05, hit: 0.6, fdrQ: 0.1 }; // doc §7
+const SPILLOVER_NEAR_ZERO = 0.0005; // |driver ret| below this → no direction
+const SPILLOVER_BARS_YEARS = 5.2;  // deep-recompute bar lookback
+const SPILLOVER_UPCOMING_DAYS = 30; // horizon for the upcoming-events block
+const SPILLOVER_LOG_MAX_EVENTS = 60; // rolling cap on the forward log
+
+// FOMC decision days 2021–2024 — FOMC_MEETINGS_BASELINE starts at 2025; the
+// backtest-era isolation gate needs the earlier meetings. (Doc §8.)
+export const FOMC_MEETINGS_HISTORICAL = [
+  "2021-01-27", "2021-03-17", "2021-04-28", "2021-06-16", "2021-07-28", "2021-09-22", "2021-11-03", "2021-12-15",
+  "2022-01-26", "2022-03-16", "2022-05-04", "2022-06-15", "2022-07-27", "2022-09-21", "2022-11-02", "2022-12-14",
+  "2023-02-01", "2023-03-22", "2023-05-03", "2023-06-14", "2023-07-26", "2023-09-20", "2023-11-01", "2023-12-13",
+  "2024-01-31", "2024-03-20", "2024-05-01", "2024-06-12", "2024-07-31", "2024-09-18", "2024-11-07", "2024-12-18",
+];
+
+// Standard normal CDF (Abramowitz–Stegun) for Newey-West p-values.
+function spillNormCdf(x) {
+  const t = 1 / (1 + 0.2316419 * Math.abs(x));
+  const d = 0.3989423 * Math.exp((-x * x) / 2);
+  const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+  return x > 0 ? 1 - p : p;
+}
+
+// OLS y = a + b·x with a Newey-West (Bartlett-kernel) standard error on b.
+// Shared by the bake and scripts/diagnose-spillover.mjs — change here only.
+export function olsNeweyWest(x, y, lag) {
+  const n = x.length;
+  if (n < 3 || y.length !== n) return null;
+  const mx = x.reduce((s, v) => s + v, 0) / n;
+  const my = y.reduce((s, v) => s + v, 0) / n;
+  let sxx = 0, sxy = 0, syy = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = x[i] - mx, dy = y[i] - my;
+    sxx += dx * dx; sxy += dx * dy; syy += dy * dy;
+  }
+  if (!(sxx > 0) || !(syy > 0)) return null;
+  const b = sxy / sxx, a = my - b * mx;
+  let sse = 0;
+  const z = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const e = y[i] - a - b * x[i];
+    sse += e * e;
+    z[i] = (x[i] - mx) * e;
+  }
+  const r2 = 1 - sse / syy;
+  const L = Math.min(lag, n - 2);
+  let S = 0;
+  for (let i = 0; i < n; i++) S += z[i] * z[i];
+  for (let l = 1; l <= L; l++) {
+    const w = 1 - l / (L + 1);
+    let s = 0;
+    for (let i = l; i < n; i++) s += z[i] * z[i - l];
+    S += 2 * w * s;
+  }
+  const varB = S / (sxx * sxx);
+  if (!(varB > 0)) return { n, a, b, r2, se: null, t: null, p: null };
+  const se = Math.sqrt(varB), t = b / se;
+  return { n, a, b, r2, se, t, p: 2 * (1 - spillNormCdf(Math.abs(t))) };
+}
+
+// Benjamini-Hochberg: largest p that survives at FDR rate q (null if none).
+export function bhFdrThreshold(pvals, q) {
+  const ps = pvals.filter((p) => p != null && isFinite(p)).sort((a, b) => a - b);
+  const m = ps.length;
+  let thr = null;
+  for (let k = 1; k <= m; k++) if (ps[k - 1] <= (k / m) * q) thr = ps[k - 1];
+  return thr;
+}
+
+const spillIsoShift = (iso, days) =>
+  new Date(new Date(iso + "T00:00:00Z").getTime() + days * 86400000).toISOString().slice(0, 10);
+
+// Prep a daily close series ([{t,c}] rows) for date-indexed window math.
+export function spillPrepSeries(rows) {
+  const clean = (rows || []).filter((r) => r && r.t && r.c > 0).map((r) => ({ t: r.t, c: r.c }));
+  const idx = new Map();
+  clean.forEach((r, i) => idx.set(r.t, i));
+  return { rows: clean, idx };
+}
+
+// Session-aware event-window return (doc §1): the DRIVER's session defines the
+// bar pair applied to every symbol. AM → close[T-1]→close[T]; PM/TBD →
+// close[T]→close[T+1]. Returns { ret, startDate, endDate } or null.
+export function spilloverWindowReturn(series, dateIso, session) {
+  let i = series.idx.get(dateIso);
+  if (i == null) {
+    for (let d = 1; d <= 3 && i == null; d++) i = series.idx.get(spillIsoShift(dateIso, d));
+    if (i == null) return null;
+  }
+  const [i0, i1] = session === "AM" ? [i - 1, i] : [i, i + 1];
+  if (i0 < 0 || i1 >= series.rows.length) return null;
+  const c0 = series.rows[i0].c, c1 = series.rows[i1].c;
+  if (!(c0 > 0) || !(c1 > 0)) return null;
+  return { ret: c1 / c0 - 1, startDate: series.rows[i0].t, endDate: series.rows[i1].t };
+}
+
+// Rolling OLS beta of dep on indep daily returns over the last `roll` common
+// bars strictly BEFORE barDateExclusive (as-of fit — the event window never
+// leaks into its own fit).
+export function spillRollingBeta(depSeries, indepSeries, barDateExclusive, roll, lag) {
+  const x = [], y = [];
+  for (let i = depSeries.rows.length - 1; i > 0; i--) {
+    const row = depSeries.rows[i];
+    if (row.t >= barDateExclusive) continue;
+    const j = indepSeries.idx.get(row.t);
+    if (j == null || j === 0) continue;
+    y.push(row.c / depSeries.rows[i - 1].c - 1);
+    x.push(indepSeries.rows[j].c / indepSeries.rows[j - 1].c - 1);
+    if (x.length >= roll) break;
+  }
+  x.reverse(); y.reverse();
+  return x.length >= Math.min(40, roll) ? olsNeweyWest(x, y, lag) : null;
+}
+
+// Macro-date sets for the isolation gate (doc §8): exact FOMC, first-Friday
+// NFP (holiday shifts ignored — documented), CPI/PPI as an APPROXIMATE
+// weekday day-of-month 9–16 flag (BLS blocks schedule scraping; the residual
+// variant is the principled control, so this flags rather than excludes).
+export function buildSpilloverMacroSets(yearsBack) {
+  const fomc = new Set([...FOMC_MEETINGS_HISTORICAL, ...FOMC_MEETINGS_BASELINE.map((m) => m.date)]);
+  const nfp = new Set();
+  const startYear = new Date(Date.now() - (yearsBack + 0.2) * 365.25 * 86400000).getUTCFullYear();
+  const endYear = new Date().getUTCFullYear() + 1;
+  for (let y = startYear; y <= endYear; y++) {
+    for (let m = 0; m < 12; m++) {
+      const first = new Date(Date.UTC(y, m, 1));
+      const day = 1 + ((5 - first.getUTCDay() + 7) % 7);
+      nfp.add(`${y}-${String(m + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`);
+    }
+  }
+  return { fomc, nfp };
+}
+
+export function spillIsCpiPpiWindow(iso) {
+  const day = Number(iso.slice(8, 10));
+  if (day < 9 || day > 16) return false;
+  const wd = new Date(iso + "T00:00:00Z").getUTCDay();
+  return wd >= 1 && wd <= 5;
+}
+
+// Isolation scan over [windowStart-1, windowEnd+1] (doc §8). `reportersByDate`
+// maps ISO date → Set of watched symbols printing that day. Returns
+// { hard: [], flags: [] } — FOMC/NFP are hard (excluded from estimation),
+// CPI-approx and shared prints are flags (the STRICT variant excludes them).
+export function spillIsolate(startDate, endDate, macro, reportersByDate, driver) {
+  const reasons = { hard: [], flags: [] };
+  for (let d = spillIsoShift(startDate, -1); d <= spillIsoShift(endDate, 1); d = spillIsoShift(d, 1)) {
+    if (macro.fomc.has(d) || macro.fomc.has(spillIsoShift(d, 1))) reasons.hard.push(`fomc:${d}`);
+    if (macro.nfp.has(d)) reasons.hard.push(`nfp:${d}`);
+    if (spillIsCpiPpiWindow(d)) reasons.flags.push("cpi/ppi-approx");
+    const rep = reportersByDate.get(d);
+    if (rep) {
+      const others = [...rep].filter((s) => s !== driver);
+      if (others.length) reasons.flags.push(`shared:${others.join("+")}`);
+    }
+  }
+  reasons.hard = [...new Set(reasons.hard)];
+  reasons.flags = [...new Set(reasons.flags)];
+  return reasons;
+}
+
+// The matrix core — PURE given prepped bar series + events, so the diagnose
+// script and offline tests can drive it. events: [{driver, date, session}].
+// currentIv: {SYM: annualized ATM ~30d IV} for the priced-move column.
+export function buildSpilloverMatrix({ events, series, etf, currentIv = {}, builtAtIso, yearsBack = SPILLOVER_BARS_YEARS }) {
+  const macro = buildSpilloverMacroSets(yearsBack);
+  const reportersByDate = new Map();
+  for (const ev of events) {
+    if (!reportersByDate.has(ev.date)) reportersByDate.set(ev.date, new Set());
+    reportersByDate.get(ev.date).add(ev.driver);
+  }
+  // Per driver: window returns + isolation.
+  const perDriver = new Map(SPILLOVER_PILOT.map((s) => [s, []]));
+  for (const ev of events) {
+    if (!perDriver.has(ev.driver) || !series[ev.driver]) continue;
+    const win = spilloverWindowReturn(series[ev.driver], ev.date, ev.session);
+    if (!win) continue;
+    const etfWin = series[etf] ? spilloverWindowReturn(series[etf], ev.date, ev.session) : null;
+    const spyWin = series.SPY ? spilloverWindowReturn(series.SPY, ev.date, ev.session) : null;
+    const iso = spillIsolate(win.startDate, win.endDate, macro, reportersByDate, ev.driver);
+    perDriver.get(ev.driver).push({ ...ev, win, etfRet: etfWin?.ret ?? null, spyRet: spyWin?.ret ?? null, iso });
+  }
+  for (const list of perDriver.values()) list.sort((a, b) => (a.date < b.date ? -1 : 1));
+
+  // Full-sample beta to SPY per pilot name (residual variant).
+  const spyBeta = {};
+  for (const sym of SPILLOVER_PILOT) {
+    const fit = series[sym] && series.SPY ? spillRollingBeta(series[sym], series.SPY, "9999-12-31", 100000, SPILLOVER_NW_LAG_DAILY) : null;
+    spyBeta[sym] = fit?.b ?? 1;
+  }
+  const pairEvents = (driver, follower, variant) => {
+    const out = [];
+    for (const r of perDriver.get(driver) || []) {
+      if (r.iso.hard.length) continue;
+      const sharedSyms = r.iso.flags.filter((f) => f.startsWith("shared:")).flatMap((f) => f.slice(7).split("+"));
+      if (sharedSyms.includes(follower)) continue; // self-event
+      if (variant === "strict" && r.iso.flags.length) continue;
+      if (!series[follower]) continue;
+      const fWin = spilloverWindowReturn(series[follower], r.date, r.session);
+      if (!fWin || r.etfRet == null) continue;
+      out.push({ date: r.date, x: r.win.ret, y: fWin.ret, etf: r.etfRet, spy: r.spyRet });
+    }
+    return out;
+  };
+
+  const round4 = (v) => (v != null && isFinite(v) ? Math.round(v * 1e4) / 1e4 : null);
+  const variantStats = {};
+  const pooledByVariant = {};
+  for (const variant of ["strict", "shared"]) {
+    const poolX = [], poolY = [];
+    const evByPair = new Map();
+    for (const d of SPILLOVER_PILOT) for (const f of SPILLOVER_PILOT) {
+      if (d === f) continue;
+      const evs = pairEvents(d, f, variant);
+      evByPair.set(`${d}>${f}`, evs);
+      for (const e of evs) { poolX.push(e.x); poolY.push(e.y); }
+    }
+    const pooled = olsNeweyWest(poolX, poolY, SPILLOVER_NW_LAG_EVENT);
+    pooledByVariant[variant] = pooled ? { b: round4(pooled.b), n: pooled.n } : null;
+    const rows = [];
+    for (const d of SPILLOVER_PILOT) for (const f of SPILLOVER_PILOT) {
+      if (d === f) continue;
+      const evs = evByPair.get(`${d}>${f}`);
+      const n = evs.length;
+      const row = { driver: d, follower: f, n };
+      if (n >= 3) {
+        const fit = olsNeweyWest(evs.map((e) => e.x), evs.map((e) => e.y), SPILLOVER_NW_LAG_EVENT);
+        if (fit) {
+          const w = n / (n + SPILLOVER_SHRINK_K);
+          row.b = round4(fit.b); row.r2 = round4(fit.r2); row.t = round4(fit.t); row.p = round4(fit.p);
+          row.bShrunk = round4(pooled ? w * fit.b + (1 - w) * pooled.b : fit.b);
+          row.w = round4(w);
+          const half = Math.floor(n / 2);
+          const f1 = olsNeweyWest(evs.slice(0, half).map((e) => e.x), evs.slice(0, half).map((e) => e.y), SPILLOVER_NW_LAG_EVENT);
+          const f2 = olsNeweyWest(evs.slice(half).map((e) => e.x), evs.slice(half).map((e) => e.y), SPILLOVER_NW_LAG_EVENT);
+          row.bH1 = round4(f1?.b); row.bH2 = round4(f2?.b);
+          const rx = evs.filter((e) => e.spy != null).map((e) => e.x - spyBeta[d] * e.spy);
+          const ry = evs.filter((e) => e.spy != null).map((e) => e.y - spyBeta[f] * e.spy);
+          const rfit = olsNeweyWest(rx, ry, SPILLOVER_NW_LAG_EVENT);
+          row.bResid = round4(rfit?.b); row.tResid = round4(rfit?.t);
+          row.residSignAgree = rfit && fit ? Math.sign(rfit.b) === Math.sign(fit.b) : null;
+          let hits = 0, scored = 0, maeB = 0;
+          for (const e of evs) {
+            maeB += Math.abs(row.bShrunk * e.x - e.y);
+            if (Math.abs(e.x) < SPILLOVER_NEAR_ZERO) continue;
+            scored += 1;
+            if (Math.sign(row.bShrunk * e.x) === Math.sign(e.y)) hits += 1;
+          }
+          row.hitB = scored ? round4(hits / scored) : null;
+          row.maeB = round4(maeB / n);
+          let hitsA = 0, scoredA = 0, maeA = 0, nA = 0;
+          for (const e of evs) {
+            const fitA = spillRollingBeta(series[f], series[etf], e.date, SPILLOVER_ROLL, SPILLOVER_NW_LAG_DAILY);
+            if (!fitA) continue;
+            const pred = fitA.b * e.etf;
+            nA += 1; maeA += Math.abs(pred - e.y);
+            if (Math.abs(pred) < SPILLOVER_NEAR_ZERO) continue;
+            scoredA += 1;
+            if (Math.sign(pred) === Math.sign(e.y)) hitsA += 1;
+          }
+          row.hitA = scoredA ? round4(hitsA / scoredA) : null;
+          row.maeA = nA ? round4(maeA / nA) : null;
+          row.avgAligned = round4(evs.map((e) => e.y * Math.sign(e.x)).reduce((s, v) => s + v, 0) / n);
+        }
+      }
+      rows.push(row);
+    }
+    const thr = bhFdrThreshold(rows.map((r) => r.p), SPILLOVER_GATES.fdrQ);
+    for (const r of rows) {
+      r.fdrPass = r.p != null && thr != null && r.p <= thr;
+      r.gates =
+        r.n >= SPILLOVER_MIN_EVENTS &&
+        r.r2 != null && r.r2 > SPILLOVER_GATES.r2 &&
+        r.p != null && r.p < SPILLOVER_GATES.p &&
+        r.hitB != null && r.hitB >= SPILLOVER_GATES.hit;
+    }
+    variantStats[variant] = rows;
+  }
+
+  // Latest Engine A betas. latestBetaEtf = name ON ETF (the follower leg).
+  // etfOnDriver = ETF ON the name — the REVERSE regression, because the live
+  // translation needs E[ETF move | driver move] (doc §9): inverting the
+  // name-on-ETF beta over-attributes the driver's idiosyncratic move to the
+  // sector channel (it made every expected follower move ≈ the driver's own
+  // implied move); the reverse-regression slope is the correct conditional.
+  const latestBetaEtf = {};
+  const etfOnDriver = {};
+  for (const sym of SPILLOVER_PILOT) {
+    const fit = series[sym] && series[etf] ? spillRollingBeta(series[sym], series[etf], "9999-12-31", SPILLOVER_ROLL, SPILLOVER_NW_LAG_DAILY) : null;
+    latestBetaEtf[sym] = fit ? { b: round4(fit.b), r2: round4(fit.r2), t: round4(fit.t) } : null;
+    const rev = series[sym] && series[etf] ? spillRollingBeta(series[etf], series[sym], "9999-12-31", SPILLOVER_ROLL, SPILLOVER_NW_LAG_DAILY) : null;
+    etfOnDriver[sym] = rev ? round4(rev.b) : null;
+  }
+
+  // Merge variants into one pair list (shared primary, strict alongside).
+  const strictByKey = new Map(variantStats.strict.map((r) => [`${r.driver}>${r.follower}`, r]));
+  const pairs = variantStats.shared.map((r) => {
+    const priced = currentIv[r.follower] > 0 ? round4(currentIv[r.follower] / Math.sqrt(252)) : null;
+    const strict = strictByKey.get(`${r.driver}>${r.follower}`) || null;
+    return {
+      ...r,
+      nStrict: strict?.n ?? 0,
+      strict: strict && strict.n >= 3 ? { b: strict.b, bShrunk: strict.bShrunk, hitB: strict.hitB, r2: strict.r2, p: strict.p } : null,
+      pricedMove: priced,
+      edge: priced != null && r.avgAligned != null ? round4(r.avgAligned - priced) : null,
+    };
+  });
+  pairs.sort((a, b) => (b.edge ?? -Infinity) - (a.edge ?? -Infinity));
+
+  // Coverage summary for the tab header.
+  const eventCounts = {};
+  for (const d of SPILLOVER_PILOT) eventCounts[d] = (perDriver.get(d) || []).length;
+  return {
+    builtAtIso, etf, pilot: SPILLOVER_PILOT.slice(),
+    gates: { ...SPILLOVER_GATES, minEvents: SPILLOVER_MIN_EVENTS },
+    shrinkK: SPILLOVER_SHRINK_K, roll: SPILLOVER_ROLL,
+    pooled: pooledByVariant, latestBetaEtf, etfOnDriver, eventCounts, pairs,
+  };
+}
+
+// --- Bake-side orchestration -------------------------------------------------
+async function fetchSpilloverBars(symbols) {
+  const out = {};
+  const period2 = new Date();
+  const period1 = new Date(period2.getTime() - SPILLOVER_BARS_YEARS * 365.25 * 86400000);
+  for (const sym of symbols) {
+    try {
+      const r = await yahooFinance.chart(sym, { period1, period2, interval: "1d" });
+      const rows = (r?.quotes || [])
+        .filter((q) => q && q.close != null && q.date)
+        .map((q) => ({ t: new Date(q.date).toISOString().slice(0, 10), c: q.close }));
+      if (rows.length >= 250) out[sym] = spillPrepSeries(rows);
+    } catch (_) { /* per-symbol miss — matrix degrades below */ }
+    await new Promise((r) => setTimeout(r, 350));
+  }
+  return out;
+}
+
+export async function readPriorSpillover() {
+  const read = async (file) => {
+    try {
+      const parsed = JSON.parse(await readFile(resolve(DATA_DIR, file), "utf8"));
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch (_) { return null; }
+  };
+  return { pairs: await read(SPILLOVER_FILE), log: await read(SPILLOVER_LOG_FILE) };
+}
+
+// Assemble the event universe: earnings-history store (canonical recents,
+// ~12/name) UNION the log's accumulated events (survivors past the store's
+// cap). ±3-day dedupe, store wins on session.
+function spillCollectEvents(earningsHxStore, priorLog) {
+  const byDriver = new Map(SPILLOVER_PILOT.map((s) => [s, []]));
+  const push = (driver, date, session, preferSession) => {
+    const list = byDriver.get(driver);
+    if (!list || !/^\d{4}-\d{2}-\d{2}$/.test(date || "")) return;
+    const near = list.find((e) => Math.abs(new Date(e.date) - new Date(date)) <= 3 * 86400000);
+    const sess = session === "AM" || session === "PM" ? session : "AM"; // pilot banks are BMO reporters
+    if (near) { if (preferSession) near.session = sess; return; }
+    list.push({ driver, date, session: sess });
+  };
+  for (const ev of (priorLog?.events || [])) {
+    if (ev?.driver && ev?.date && ev.date <= etDateKey()) push(ev.driver, ev.date, ev.session, false);
+  }
+  for (const sym of SPILLOVER_PILOT) {
+    for (const ev of (earningsHxStore?.tickers?.[sym]?.events || [])) push(sym, ev?.date, ev?.session, true);
+  }
+  return [...byDriver.values()].flat();
+}
+
+// Upcoming pilot events inside the horizon, with the doc-§9 expected-move
+// translation (informational — the doc's owner directive: no sizing, ever).
+function spillUpcoming(chains, matrix, todayEt) {
+  const macro = buildSpilloverMacroSets(1);
+  const upcomingDates = new Map(); // date -> Set(driver) for shared-print flags
+  const list = [];
+  for (const d of SPILLOVER_PILOT) {
+    const next = chains[d]?.earningsHx?.next || {};
+    const date = next.date || chains[d]?.fundamentals?.nextEarningsDate || null;
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date) || date < todayEt) continue;
+    const daysUntil = Math.round((new Date(date + "T00:00:00Z") - new Date(todayEt + "T00:00:00Z")) / 86400000);
+    if (daysUntil > SPILLOVER_UPCOMING_DAYS) continue;
+    if (!upcomingDates.has(date)) upcomingDates.set(date, new Set());
+    upcomingDates.get(date).add(d);
+    list.push({ driver: d, date, daysUntil, session: next.session === "PM" ? "PM" : "AM", impliedMovePct: next.impliedMovePct ?? null });
+  }
+  return list.map((ev) => {
+    // Window for isolation: AM = [date-1, date], PM = [date, date+1] (calendar
+    // approximation pre-print — bar-exact isolation happens at resolution).
+    const start = ev.session === "AM" ? spillIsoShift(ev.date, -1) : ev.date;
+    const end = ev.session === "AM" ? ev.date : spillIsoShift(ev.date, 1);
+    const iso = spillIsolate(start, end, macro, upcomingDates, ev.driver);
+    let implied = ev.impliedMovePct;
+    if (implied == null) {
+      const im = computeImpliedMoveForDate(chains[ev.driver], ev.date);
+      implied = im ? Math.round(im.pct * 1e4) / 100 : null;
+    }
+    const dChannel = matrix?.etfOnDriver?.[ev.driver] ?? null;
+    const followers = SPILLOVER_PILOT.filter((f) => f !== ev.driver).map((f) => {
+      const fBeta = matrix?.latestBetaEtf?.[f]?.b ?? null;
+      const pair = (matrix?.pairs || []).find((p) => p.driver === ev.driver && p.follower === f) || null;
+      // Engine A live translation (doc §5A/§9): driver implied move → expected
+      // ETF move (× the ETF-on-driver reverse-regression beta, the correct
+      // conditional-expectation direction) → × follower-on-ETF beta.
+      // Engine B: × β_shrunk directly.
+      const expA = implied != null && dChannel != null && fBeta ? Math.round(implied * dChannel * fBeta * 100) / 100 : null;
+      const expB = implied != null && pair?.bShrunk != null ? Math.round(implied * pair.bShrunk * 100) / 100 : null;
+      const iv = chains[f]?.ivRank?.iv;
+      const priced = iv > 0 ? Math.round((iv / Math.sqrt(252)) * 1e4) / 100 : null;
+      return { follower: f, expA, expB, pricedMovePct: priced, pairN: pair?.n ?? 0, pairQualified: !!(pair?.gates && pair?.fdrPass) };
+    });
+    return { ...ev, impliedMovePct: implied, isolation: { status: iso.hard.length ? "conflict" : iso.flags.length ? "flagged" : "clean", hard: iso.hard, flags: iso.flags }, followers };
+  }).sort((a, b) => a.daysUntil - b.daysUntil);
+}
+
+// Forward-validation log (doc §11): enroll upcoming events, refresh their
+// predictions until the session-aware entry point passes (freeze), then
+// resolve realized follower moves + IV change once the window's bars exist.
+// Predictions and realizations only — no positions, no marks, no fills.
+function updateSpilloverLog(priorLog, { chains, upcoming, todayEt, builtAtIso }) {
+  const events = Array.isArray(priorLog?.events) ? priorLog.events.map((e) => ({ ...e })) : [];
+  const byId = new Map(events.map((e) => [e.id, e]));
+  const ivOf = (sym) => (chains[sym]?.ivRank?.iv > 0 ? Math.round(chains[sym].ivRank.iv * 1e4) / 1e4 : null);
+  for (const ev of upcoming) {
+    const id = `${ev.driver}|${ev.date}`;
+    let row = byId.get(id);
+    if (!row) {
+      row = { id, driver: ev.driver, date: ev.date, session: ev.session, createdAt: builtAtIso };
+      events.push(row); byId.set(id, row);
+    }
+    // Freeze at the session-aware entry point: AM print = last build BEFORE the
+    // print date (predictions as of T-1 close); PM = last build ON the print
+    // date. After that the forecast is what it was — no repainting.
+    const frozen = ev.session === "AM" ? todayEt >= ev.date : todayEt > ev.date;
+    if (!row.frozen && !frozen) {
+      row.session = ev.session;
+      row.isolation = ev.isolation;
+      row.impliedMovePct = ev.impliedMovePct;
+      row.predictions = ev.followers.map((f) => ({
+        follower: f.follower, expA: f.expA, expB: f.expB, pricedMovePct: f.pricedMovePct, ivPre: ivOf(f.follower),
+      }));
+      row.updatedAt = builtAtIso;
+    }
+    if (frozen && !row.frozen) row.frozen = true;
+  }
+  // Resolve frozen, unresolved events whose window bars exist.
+  for (const row of events) {
+    if (row.resolvedAt || !row.frozen || !Array.isArray(row.predictions)) continue;
+    const seriesOf = (sym) => {
+      const data = chains[sym];
+      if (!data) return null;
+      const rows = Array.isArray(data._bars) && data._bars.length
+        ? data._bars.map((b) => ({ t: b.t, c: b.c }))
+        : data.priceSeries?.t?.map((t, i) => ({ t, c: data.priceSeries.c[i] })) || [];
+      return rows.length ? spillPrepSeries(rows) : null;
+    };
+    const dSeries = seriesOf(row.driver);
+    const dWin = dSeries ? spilloverWindowReturn(dSeries, row.date, row.session) : null;
+    if (!dWin || dWin.endDate > todayEt) continue; // window not complete yet
+    let resolvedAny = false;
+    for (const p of row.predictions) {
+      const fSeries = seriesOf(p.follower);
+      const fWin = fSeries ? spilloverWindowReturn(fSeries, row.date, row.session) : null;
+      if (!fWin) continue;
+      p.realizedPct = Math.round(fWin.ret * 1e4) / 100;
+      const post = ivOf(p.follower);
+      if (p.ivPre != null && post != null) p.ivChange = Math.round((post - p.ivPre) * 1e4) / 1e4;
+      resolvedAny = true;
+    }
+    if (resolvedAny) {
+      row.driverRealizedPct = Math.round(dWin.ret * 1e4) / 100;
+      row.resolvedAt = todayEt;
+    }
+  }
+  events.sort((a, b) => (a.date < b.date ? -1 : 1));
+  while (events.length > SPILLOVER_LOG_MAX_EVENTS) events.shift();
+  // Running per-engine forward accuracy over resolved predictions.
+  // Predictions are magnitudes in the driver's direction; realized carries its
+  // own sign. Score direction as sign(realized) vs the driver's sign, and
+  // magnitude as |pred| vs |realized| (MAE in percentage points).
+  const score = (key) => {
+    let hit = 0, scored = 0, mae = 0, n = 0;
+    for (const row of events) {
+      if (!row.resolvedAt || row.driverRealizedPct == null) continue;
+      const dSign = Math.sign(row.driverRealizedPct);
+      if (!dSign) continue;
+      for (const p of row.predictions || []) {
+        const pred = p[key], real = p.realizedPct;
+        if (pred == null || real == null) continue;
+        n += 1;
+        mae += Math.abs(Math.abs(pred) - Math.abs(real));
+        scored += 1;
+        if (Math.sign(real) === dSign) hit += 1;
+      }
+    }
+    return n ? { n, hit: Math.round((hit / scored) * 1e4) / 1e4, mae: Math.round((mae / n) * 100) / 100 } : null;
+  };
+  return {
+    updatedAt: builtAtIso,
+    events,
+    forward: { engineA: score("expA"), engineB: score("expB"), resolvedEvents: events.filter((e) => e.resolvedAt).length },
+  };
+}
+
+// Main-loop entry: deep matrix once per ET day (carried forward intra-day),
+// cheap upcoming/log refresh every bake. Returns writable payloads.
+export async function buildSpilloverArtifacts(chains, earningsHxStore, prior, builtAtIso) {
+  const todayEt = etDateKey();
+  let matrix = null;
+  const priorMatrix = prior?.pairs && typeof prior.pairs === "object" ? prior.pairs : null;
+  if (priorMatrix?.date === todayEt && Array.isArray(priorMatrix.pairs)) {
+    matrix = { ...priorMatrix, builtAtIso }; // deep half already computed today
+  } else {
+    const symbols = [...SPILLOVER_PILOT, SPILLOVER_ETF, "SPY"];
+    const series = await fetchSpilloverBars([...new Set(symbols)]);
+    const missing = [...new Set(symbols)].filter((s) => !series[s]);
+    if (missing.length === 0) {
+      const events = spillCollectEvents(earningsHxStore, prior?.log);
+      const currentIv = {};
+      for (const sym of SPILLOVER_PILOT) if (chains[sym]?.ivRank?.iv > 0) currentIv[sym] = chains[sym].ivRank.iv;
+      matrix = { ...buildSpilloverMatrix({ events, series, etf: SPILLOVER_ETF, currentIv, builtAtIso }), date: todayEt };
+    } else if (priorMatrix) {
+      matrix = { ...priorMatrix, builtAtIso, stale: true }; // carry last-good
+    } else {
+      matrix = { builtAtIso, date: todayEt, etf: SPILLOVER_ETF, pilot: SPILLOVER_PILOT.slice(), pairs: [], eventCounts: {}, stale: true };
+    }
+  }
+  const upcoming = spillUpcoming(chains, matrix, todayEt);
+  const log = updateSpilloverLog(prior?.log, { chains, upcoming, todayEt, builtAtIso });
+  matrix.upcoming = upcoming;
+  matrix.forward = log.forward;
+  return { matrix, log };
+}
+
+async function writeSpilloverFiles(matrix, log) {
+  const pairsJson = JSON.stringify(matrix);
+  await writeFile(resolve(DATA_DIR, SPILLOVER_FILE), pairsJson, "utf8");
+  await writeFile(resolve(DATA_DIR, SPILLOVER_LOG_FILE), JSON.stringify(log), "utf8");
+  return { bytes: pairsJson.length, pairCount: (matrix.pairs || []).length, upcoming: (matrix.upcoming || []).length, resolved: log?.forward?.resolvedEvents || 0 };
+}
+
 // News-aware AI take per ticker. Runs after chains are fetched. The model
 // sees recent headlines + spot price and returns a one-paragraph plain-English
 // read plus a sentiment tag the runtime uses to nudge a borderline (Fair)
@@ -24133,6 +24713,12 @@ async function main() {
   // this build's entered/exited events append to the rolling log instead of
   // resetting it after the wipe.
   const picksChangesPrev = await readPicksChanges();
+  // Same rule for the Event Spillover files (data/spillover-pairs.json +
+  // data/spillover-log.json): the matrix's once-per-ET-day deep recompute
+  // carries forward intra-day off the prior payload, and the forward-
+  // validation log accumulates enrolled events across builds — both are gone
+  // by the post-wipe step without this pre-read. (docs/event-spillover.md §12.)
+  const priorSpillover = await readPriorSpillover();
   // Same rule for the calendar macro-report salvage: writeCalendarFile's
   // last-good fallback (carry in-window report rows when FRED + BLS both come
   // back empty) reads data/calendar.json, but it runs AFTER writeChainFiles
@@ -24399,6 +24985,17 @@ async function main() {
   // updated above, before the wipe).
   const earningsHxBytes = await writeEarningsEventsHistory(earningsHxStore);
   console.log(`wrote data/${EARNINGS_HISTORY_FILE} — ${Object.keys(earningsHxStore.tickers).length} tickers, ${earningsHxBytes} bytes`);
+  // Event Spillover Matrix (docs/event-spillover.md) — banks-pilot read-through
+  // map + forward-validation log. Deep half (5y bars + regressions) recomputes
+  // once per ET day; the upcoming-events translation + log refresh every bake.
+  // Non-fatal: a Yahoo miss carries the prior matrix forward stale-marked.
+  try {
+    const { matrix, log } = await buildSpilloverArtifacts(chains, earningsHxStore, priorSpillover, builtAtIso);
+    const spillInfo = await writeSpilloverFiles(matrix, log);
+    console.log(`wrote data/${SPILLOVER_FILE} + ${SPILLOVER_LOG_FILE} — ${spillInfo.pairCount} pairs, ${spillInfo.upcoming} upcoming, ${spillInfo.resolved} resolved forward events, ${spillInfo.bytes} bytes${matrix.stale ? " [stale — kept last-good]" : ""}`);
+  } catch (err) {
+    console.log(`  ⚠ Event-spillover step failed (non-fatal): ${err.message}`);
+  }
   // Earnings season tracker — the universe-wide season scoreboard derived from
   // the store just written above. Non-fatal on failure (the tab keeps its
   // last-good payload in the private store).
