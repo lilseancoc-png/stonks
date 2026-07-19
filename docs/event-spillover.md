@@ -1,10 +1,13 @@
 # Event Spillover Matrix — Build Spec (repo-native)
 
-> **Status: ALL THREE PHASES BUILT (2026-07-19)** — the offline backtest
+> **Status: ALL THREE PHASES BUILT (2026-07-19), then EXPANDED TO THE FULL
+> UNIVERSE the same day (Phase 4, §15)** — the offline backtest
 > (`scripts/diagnose-spillover.mjs`), the bake integration (the `EVENT SPILLOVER MATRIX`
 > block in `scripts/build.mjs` → `data/spillover-pairs.json` + `data/spillover-log.json`,
 > premium keys), and the Event Spillover tab (nav group 1, after Earnings calls). §15 has
-> the per-phase detail. This is the canonical reference for the feature (the role
+> the per-phase detail. **Coverage is no longer the banks pilot: every tracked non-ETF
+> ticker joins exactly one sector group (derived from `SECTORS` — see §3), pairs are
+> measured within groups, and the banks are now simply the `banks` group.** This is the canonical reference for the feature (the role
 > `docs/top-picks.md` plays for the picks engine). It supersedes the original Finnhub-based
 > draft: this repo has **zero Finnhub** — every data need below is mapped onto the existing
 > Yahoo / Nasdaq / BLS-FRED infrastructure, and most of it already exists in
@@ -66,26 +69,43 @@ Runtime question the system answers:
 > **options-implied expected move** (known before the print, priced into the driver's own
 > straddle). Do not mix these two.
 
-## 3. Universe & pilot scope
+## 3. Universe & scope (full universe since 2026-07-19; pilot history below)
 
-- **Pilot: the five banks already in the tracked universe** — `JPM, BAC, C, GS, MS`.
-  Drivers *and* followers are drawn from this same set (5 drivers × 4 candidate followers
-  each = 20 ordered pairs). WFC/USB/PNC/TFC are **out of the pilot** — they are not in
-  `TICKERS` (WFC/USB appear only in the `SECTORS` label map; PNC/TFC nowhere), so they have
-  no chains, no IV history, and no earnings history accumulating.
-- **Sector ETF = `XLF`, with `KBE` as the configurable purer-bank alternative.** Neither is
-  tracked today; they enter as a **module-private, price-only fetch list** — build-time
-  `chart()` calls bypass the `/api` proxies' `SYMBOL_RE` allowlist entirely (same mechanism
-  the `GLOBAL_MARKETS` foreign sweep uses), so no universe change is needed. **No ETF IV
+- **Coverage: the FULL tracked universe.** Every non-ETF ticker in `TICKERS` joins exactly
+  ONE sector group, derived from the `SECTORS` label map at module load
+  (`buildSpilloverGroups` in build.mjs) — so a new ticker auto-enrolls the day it's added.
+  Drivers *and* followers are drawn from a group's members (~2,000 ordered pairs across
+  ~14 groups at the current 128-name universe); **pairs are never measured across groups**
+  (read-through is a same-sector concept — the gates would drown in spurious cross-sector
+  regressions otherwise).
+- **The grouping registry** (`SPILLOVER_LABEL_GROUPS` + `SPILLOVER_GROUP_META` in
+  build.mjs): SECTORS labels merge into trader-recognizable complexes — Semis ∪ Storage
+  (`SMH`), Software ∪ IT/Tech services (`IGV`), Mega-cap tech ∪ Social (`QQQ`),
+  Hardware ∪ Networking ∪ Data center (`XLK`), Power ∪ Clean energy ∪ Nuclear (`XLU`),
+  Bank (`XLF`), Broker ∪ Asset mgmt ∪ Fintech ∪ Crypto (`XLF`), Payments (`XLF`),
+  Retail ∪ E-commerce ∪ Apparel ∪ Beauty ∪ Restaurants ∪ Homebuilder ∪ Consumer (`XRT`),
+  Media ∪ Cable ∪ Telecom (`XLC`), Industrial ∪ Defense ∪ Materials ∪ Logistics (`XLI`),
+  Pharma ∪ Insurance ∪ Medical ∪ Telehealth ∪ Pharmacy (`XLV`), Energy (`XLE`),
+  China tech (`KWEB`), Space (`ARKX`). One per-symbol override: **NVDA is grouped with
+  the semis** (its label is "Mega-cap tech" but NVDA→AMD/AVGO/… is the most-watched
+  read-through in the market). An unmapped future label becomes its own slugified
+  auto-group (no ETF → Engine B only), so nothing ever silently drops out. **Groups with
+  a single member (currently `china`: BABA) ship as explicit no-peer coverage** — the tab
+  lists them honestly instead of hiding them.
+- **Sector ETFs are price-only, module-private fetches** — build-time `chart()` calls
+  bypass the `/api` proxies' `SYMBOL_RE` allowlist entirely (same mechanism the
+  `GLOBAL_MARKETS` foreign sweep uses), so no universe change is needed. **No ETF IV
   history is collected**: the ETFs serve only as Engine A's regression leg and the
-  driver-implied-move → sector-move translation. All follower priced-move / IV data comes
-  from the five banks' existing `data/iv-history/` files, which are accumulating daily already.
-- **Expansion path:** widening the follower set later = adding names to `TICKERS`
-  (~2–3s bake wall-clock each; they become full site tickers and start accumulating IV +
-  earnings history from that day). Sector groups for later: Semis (`SMH` — already tracked),
-  Software (`IGV`), Energy (`XLE`), Retail (`XRT`). One ETF per group.
-- Prove the read-through is real on banks before scaling to the full ~138-ticker watchlist.
-  If the one-sector pilot shows nothing, the full matrix will not rescue it.
+  driver-implied-move → sector-move translation; a missing/unfetchable ETF degrades its
+  group to Engine B (never blocks the matrix). All follower priced-move / IV data comes
+  from the tracked names' existing `data/iv-history/` files.
+- **Pilot history:** the feature shipped 2026-07-19 as a five-bank pilot
+  (`JPM, BAC, C, GS, MS` vs `XLF`, 20 ordered pairs) and was expanded to the full
+  universe the same day after the pilot validated the method (§15 Phase-1 findings:
+  read-through real and stable, 8/12 measurable pairs qualified). The banks are now
+  simply the `banks` group. `scripts/diagnose-spillover.mjs` (the deep 5-year offline
+  backtest) intentionally **stays banks-scoped** — it's the validation tool, and its
+  Nasdaq back-walk is too slow to sweep 128 names.
 
 ## 4. Data requirements — mapped to the actual stack
 
@@ -423,6 +443,45 @@ the two storage files. All pure functions plus one orchestrator.
   the templates after verifying byte-parity with the committed files; index.html
   hand-inserted). Verified in-browser against a real smoke payload: full render, empty
   state, deep link, and the fail-open ungated path.
+
+- **Phase 4 — full-universe expansion — BUILT (2026-07-19, owner directive: "event
+  spillover should cover every ticker we have not just the banks").** What changed in the
+  `EVENT SPILLOVER MATRIX` block:
+  - `SPILLOVER_PILOT`/`SPILLOVER_ETF` replaced by the **sector-group registry** (§3):
+    `SPILLOVER_LABEL_GROUPS` (label merges) + `SPILLOVER_GROUP_META` (label + ETF per
+    group) + `buildSpilloverGroups()` → `SPILLOVER_GROUPS` derived from `TICKERS` ∩
+    `SECTORS` at module load (128 names / 14 groups at build time; verified by the smoke
+    test: every non-ETF ticker in exactly one group).
+  - `buildSpilloverMatrix` is group-aware: pair regressions and **pooled-shrinkage
+    targets are per group** (doc §5B "pooled sector event-beta"), same-sector
+    contamination (`reportersByDate`) is per group, the ETF window is the driver's
+    group's, and **BH-FDR runs across ALL groups' rows per variant** (the §7 clause that
+    was "mandatory at scale-up" is now active). Engine A per-(follower, as-of-date)
+    rolling fits are memoized (drivers in a group share the grid). Pairs with zero
+    measurable events are no longer emitted (the pilot shipped n=0 stubs); payload rows
+    are null-stripped (`spillStrip`). Payload shape: `groups` replaces `pilot`/`etf`;
+    `pooled` is keyed by group; pair rows carry `group`.
+  - Bar fetch: ~143 symbols (universe ∪ 13 ETFs ∪ SPY) × 5.2y once per ET day, four
+    paced workers (~300ms gap each, ~7-8 req/s — under the chain fetch's measured-safe
+    rate, ~20-35s wall clock). Deep recompute proceeds when SPY + ≥80% of the universe
+    fetched (`SPILLOVER_MIN_BAR_COVERAGE`) — a thin sweep carries last-good stale
+    instead; a missing sector ETF only degrades its group to Engine B. `barCoverage`
+    ships in the payload. A pilot-era prior (no `groups`) never short-circuits the deep
+    half, so the first bake after deploy recomputes immediately.
+  - Events: `spillCollectEvents` walks the whole universe from the earnings-history
+    store ∪ the log; the session default follows doc §1 (only explicit `AM` is AM —
+    PM/TBD react next session; the pilot's banks-are-BMO default is gone).
+  - Upcoming/log: every tracked name with a print inside 30d enrolls; follower rows per
+    event are capped at `SPILLOVER_UPCOMING_FOLLOWERS` (12; qualified pairs first, then
+    deepest n, `followersOmitted` count shipped); `SPILLOVER_LOG_MAX_EVENTS` 60 → 300
+    (~2 full earnings seasons at 128 names).
+  - Tab: eyebrow shows `N names · M sector groups`; upcoming events carry a sector
+    chip and an honest "no same-sector peer tracked" row; the matrix renders a
+    **qualified-pairs roll-up** (all sectors, ranked by edge) above **per-sector
+    collapsible tables**; singleton groups are listed as no-peer coverage. Legacy
+    pilot payloads still render (flat table fallback).
+  - `diagnose-spillover.mjs` unchanged (banks-scoped by design, §3); it imports only
+    the stat/window/isolation core, which did not change.
 
 ### Phase-1 findings (2026-07-19, FULL coverage — 20 events/driver, 2021-10 → 2026-07)
 

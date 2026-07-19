@@ -3244,6 +3244,13 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .spill-forward { font: 500 12px/1.5 var(--font-sans); color: var(--muted-strong); border: 1px dashed var(--border); border-radius: var(--r-1); padding: 8px 12px; }
 .spill-forward b { color: var(--text-strong); }
 .spill-note { font: 400 11.5px/1.55 var(--font-sans); color: var(--muted); margin: 0; }
+.spill-ev-grp { color: var(--muted-strong); }
+.spill-group { border: 1px solid var(--border); border-radius: var(--r-1); background: var(--surface); }
+.spill-group summary { cursor: pointer; padding: 9px 12px; font: 600 12px/1.4 var(--font-sans); color: var(--text-strong); }
+.spill-group summary:hover { color: var(--accent); }
+.spill-group[open] summary { border-bottom: 1px dashed color-mix(in srgb, var(--border) 60%, transparent); }
+.spill-group-etf { font: 600 10.5px/1 var(--font-mono); color: var(--muted); }
+.spill-group .spill-scroll, .spill-group .spill-none { padding: 8px 12px; margin: 0; }
 
 /* --- Quant Lab (deterministic screens, premium) ------------------------ */
 .quant-root { display: flex; flex-direction: column; gap: 14px; }

@@ -19632,9 +19632,15 @@ async function writeCorrelationsFile(chains, globalMarkets, builtAtIso, prior = 
 // reports, how much, how consistently, and whether their options price it. It
 // never suggests a trade, picks a contract, or sizes a position.
 //
-// Pilot (doc §3): drivers = followers = the five tracked banks; sector ETF =
-// XLF (price-only, module-private fetch — build-time chart() bypasses the
-// /api SYMBOL_RE allowlist, same mechanism as the GLOBAL_MARKETS sweep).
+// Coverage (doc §3, expanded 2026-07-19 from the banks pilot): the FULL
+// tracked universe. Every non-ETF ticker joins exactly ONE sector group
+// (derived from SECTORS at module load, so a new ticker auto-enrolls the day
+// it's added), pairs are measured WITHIN a group (read-through is a
+// same-sector concept), and each group carries a sector ETF for Engine A
+// (price-only, module-private fetch — build-time chart() bypasses the /api
+// SYMBOL_RE allowlist, same mechanism as the GLOBAL_MARKETS sweep). The
+// banks pilot (JPM/BAC/C/GS/MS vs XLF) proved the method; the banks are now
+// simply the `banks` group.
 //
 // Two artifacts, both PREMIUM keys (lib/premium-keys.mjs):
 //  - spillover-pairs.json — the matrix. The DEEP half (5y bar fetch + Engine
@@ -19652,13 +19658,82 @@ async function writeCorrelationsFile(chains, globalMarkets, builtAtIso, prior = 
 // also imports the stat helpers below, so the math is single-sourced).
 export const SPILLOVER_FILE = "spillover-pairs.json";
 export const SPILLOVER_LOG_FILE = "spillover-log.json";
-export const SPILLOVER_PILOT = ["JPM", "BAC", "C", "GS", "MS"];
 // Large financials whose prints contaminate a bank event window (doc §8).
-// Only pilot-name prints are DETECTABLE at bake time (the others aren't
+// Only tracked-name prints are DETECTABLE at bake time (the others aren't
 // tracked, so their dates are unknown here — diagnose-spillover's Nasdaq
 // back-walk is the deep tool); the list is kept for the diagnose script.
 export const SPILLOVER_CONTAMINATORS = ["WFC", "USB", "PNC", "TFC", "SCHW", "COF", "BLK", "BK", "AXP", "STT"];
-const SPILLOVER_ETF = (process.env.SPILLOVER_ETF || "XLF").toUpperCase() === "KBE" ? "KBE" : "XLF";
+// SECTORS-label → spillover-group merges. Merged labels are near-synonyms or
+// complexes that genuinely read through each other (Storage prints move the
+// memory names, Restaurants and Homebuilders trade on the same consumer
+// tape, …). A tracked label with no entry here becomes its own auto-group
+// (slugified, no ETF — Engine B still measures; only Engine A needs an ETF),
+// so a future SECTORS label can never silently drop a name from coverage.
+const SPILLOVER_LABEL_GROUPS = {
+  "Mega-cap tech": "megacap", "Social": "megacap",
+  "Semis": "semis", "Storage": "semis",
+  "Software": "software", "IT services": "software", "Tech services": "software",
+  "Hardware": "hardware", "Networking": "hardware", "Data center": "hardware",
+  "Power": "power", "Clean energy": "power", "Nuclear": "power",
+  "Bank": "banks",
+  "Broker": "brokers", "Asset mgmt": "brokers", "Fintech": "brokers", "Crypto": "brokers",
+  "Payments": "payments",
+  "Retail": "consumer", "E-commerce": "consumer", "Apparel": "consumer",
+  "Beauty": "consumer", "Restaurants": "consumer", "Homebuilder": "consumer",
+  "Consumer": "consumer", "Meme": "consumer",
+  "Media": "media", "Cable": "media", "Telecom": "media",
+  "Industrial": "industrials", "Defense": "industrials", "Materials": "industrials", "Logistics": "industrials",
+  "Pharma": "health", "Insurance": "health", "Medical": "health", "Telehealth": "health", "Pharmacy": "health",
+  "Energy": "energy", "China tech": "china", "Space": "space",
+};
+// Per-symbol overrides on top of the label map — NVDA is labeled "Mega-cap
+// tech" but its read-through complex is the semis (NVDA→AMD/AVGO/… is the
+// most-watched spillover in the market), so it's grouped with SMH.
+const SPILLOVER_SYMBOL_GROUP = { NVDA: "semis" };
+// Group key → display label + the Engine A sector ETF (regression leg +
+// driver-implied-move translation channel). ETFs are price-only symbols —
+// they never join TICKERS. A missing/unfetchable ETF degrades that group to
+// Engine B only (expA/hitA columns go null); it never blocks the matrix.
+export const SPILLOVER_GROUP_META = {
+  megacap:     { label: "Mega-cap tech & platforms", etf: "QQQ" },
+  semis:       { label: "Semis & memory",            etf: "SMH" },
+  software:    { label: "Software & IT services",    etf: "IGV" },
+  hardware:    { label: "Hardware & data center",    etf: "XLK" },
+  power:       { label: "Power & nuclear",           etf: "XLU" },
+  banks:       { label: "Banks",                     etf: "XLF" },
+  brokers:     { label: "Brokers & asset managers",  etf: "XLF" },
+  payments:    { label: "Payments",                  etf: "XLF" },
+  consumer:    { label: "Consumer & retail",         etf: "XRT" },
+  media:       { label: "Media & telecom",           etf: "XLC" },
+  industrials: { label: "Industrials & logistics",   etf: "XLI" },
+  health:      { label: "Healthcare",                etf: "XLV" },
+  energy:      { label: "Energy",                    etf: "XLE" },
+  china:       { label: "China tech",                etf: "KWEB" },
+  space:       { label: "Space",                     etf: "ARKX" },
+};
+// Derive the group registry from TICKERS ∩ SECTORS (ETF rows excluded — no
+// earnings events). Exported for the smoke tests; groups with ONE member
+// ship as explicit no-peer coverage (the tab lists them honestly) rather
+// than silently vanishing.
+export function buildSpilloverGroups(tickers = TICKERS, sectors = SECTORS) {
+  const byKey = new Map();
+  for (const sym of tickers) {
+    const label = sectors[sym];
+    if (!label || label === "ETF") continue;
+    const key = SPILLOVER_SYMBOL_GROUP[sym] || SPILLOVER_LABEL_GROUPS[label] ||
+      label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    if (!byKey.has(key)) {
+      const meta = SPILLOVER_GROUP_META[key] || { label, etf: null };
+      byKey.set(key, { key, label: meta.label, etf: meta.etf || null, members: [] });
+    }
+    byKey.get(key).members.push(sym);
+  }
+  return [...byKey.values()];
+}
+export const SPILLOVER_GROUPS = buildSpilloverGroups();
+const SPILLOVER_UNIVERSE = SPILLOVER_GROUPS.flatMap((g) => g.members);
+const SPILLOVER_GROUP_OF = new Map();
+for (const g of SPILLOVER_GROUPS) for (const m of g.members) SPILLOVER_GROUP_OF.set(m, g);
 const SPILLOVER_ROLL = 90;         // Engine A rolling window (trading days)
 const SPILLOVER_SHRINK_K = 6;      // Engine B shrinkage: w = n/(n+K)
 const SPILLOVER_NW_LAG_DAILY = 5;  // Newey-West lag, daily regressions
@@ -19668,7 +19743,9 @@ const SPILLOVER_GATES = { r2: 0.25, p: 0.05, hit: 0.6, fdrQ: 0.1 }; // doc §7
 const SPILLOVER_NEAR_ZERO = 0.0005; // |driver ret| below this → no direction
 const SPILLOVER_BARS_YEARS = 5.2;  // deep-recompute bar lookback
 const SPILLOVER_UPCOMING_DAYS = 30; // horizon for the upcoming-events block
-const SPILLOVER_LOG_MAX_EVENTS = 60; // rolling cap on the forward log
+const SPILLOVER_LOG_MAX_EVENTS = 300; // rolling cap on the forward log (~2 full earnings seasons at 128 names)
+const SPILLOVER_UPCOMING_FOLLOWERS = 12; // per-event follower rows shipped (qualified pairs first)
+const SPILLOVER_MIN_BAR_COVERAGE = 0.8; // deep recompute needs ≥80% of the universe's 5y bars
 
 // FOMC decision days 2021–2024 — FOMC_MEETINGS_BASELINE starts at 2025; the
 // backtest-era isolation gate needs the earlier meetings. (Doc §8.)
@@ -19825,32 +19902,54 @@ export function spillIsolate(startDate, endDate, macro, reportersByDate, driver)
   return reasons;
 }
 
+// Drop null/undefined fields from a payload row (false survives — the client
+// checks residSignAgree === false). At ~2k pair rows the null padding is real
+// bytes; thin rows shrink to {group, driver, follower, n}.
+const spillStrip = (o) => {
+  const out = {};
+  for (const k in o) if (o[k] != null) out[k] = o[k];
+  return out;
+};
+
 // The matrix core — PURE given prepped bar series + events, so the diagnose
-// script and offline tests can drive it. events: [{driver, date, session}].
+// script and offline tests can drive it. events: [{driver, date, session}];
+// groups: [{key, label, etf, members}] (defaults to the derived registry).
 // currentIv: {SYM: annualized ATM ~30d IV} for the priced-move column.
-export function buildSpilloverMatrix({ events, series, etf, currentIv = {}, builtAtIso, yearsBack = SPILLOVER_BARS_YEARS }) {
+// Pairs are measured WITHIN a group; pooled-shrinkage targets are per group
+// (doc §5B: "pooled sector event-beta"); BH-FDR runs across ALL groups' rows
+// per variant (doc §7 — mandatory at universe scale).
+export function buildSpilloverMatrix({ events, series, groups = SPILLOVER_GROUPS, currentIv = {}, builtAtIso, yearsBack = SPILLOVER_BARS_YEARS }) {
   const macro = buildSpilloverMacroSets(yearsBack);
-  const reportersByDate = new Map();
+  const groupOf = new Map();
+  for (const g of groups) for (const m of g.members) groupOf.set(m, g);
+  // Same-sector reporters per date, per group — contamination is a
+  // same-sector concept (a tech print doesn't contaminate a bank window).
+  const reportersByGroup = new Map(groups.map((g) => [g.key, new Map()]));
   for (const ev of events) {
-    if (!reportersByDate.has(ev.date)) reportersByDate.set(ev.date, new Set());
-    reportersByDate.get(ev.date).add(ev.driver);
+    const g = groupOf.get(ev.driver);
+    if (!g) continue;
+    const byDate = reportersByGroup.get(g.key);
+    if (!byDate.has(ev.date)) byDate.set(ev.date, new Set());
+    byDate.get(ev.date).add(ev.driver);
   }
-  // Per driver: window returns + isolation.
-  const perDriver = new Map(SPILLOVER_PILOT.map((s) => [s, []]));
+  // Per driver: window returns + isolation (ETF window = the driver's group's).
+  const perDriver = new Map();
   for (const ev of events) {
-    if (!perDriver.has(ev.driver) || !series[ev.driver]) continue;
+    const g = groupOf.get(ev.driver);
+    if (!g || !series[ev.driver]) continue;
     const win = spilloverWindowReturn(series[ev.driver], ev.date, ev.session);
     if (!win) continue;
-    const etfWin = series[etf] ? spilloverWindowReturn(series[etf], ev.date, ev.session) : null;
+    const etfWin = g.etf && series[g.etf] ? spilloverWindowReturn(series[g.etf], ev.date, ev.session) : null;
     const spyWin = series.SPY ? spilloverWindowReturn(series.SPY, ev.date, ev.session) : null;
-    const iso = spillIsolate(win.startDate, win.endDate, macro, reportersByDate, ev.driver);
+    const iso = spillIsolate(win.startDate, win.endDate, macro, reportersByGroup.get(g.key), ev.driver);
+    if (!perDriver.has(ev.driver)) perDriver.set(ev.driver, []);
     perDriver.get(ev.driver).push({ ...ev, win, etfRet: etfWin?.ret ?? null, spyRet: spyWin?.ret ?? null, iso });
   }
   for (const list of perDriver.values()) list.sort((a, b) => (a.date < b.date ? -1 : 1));
 
-  // Full-sample beta to SPY per pilot name (residual variant).
+  // Full-sample beta to SPY per name (residual variant).
   const spyBeta = {};
-  for (const sym of SPILLOVER_PILOT) {
+  for (const g of groups) for (const sym of g.members) {
     const fit = series[sym] && series.SPY ? spillRollingBeta(series[sym], series.SPY, "9999-12-31", 100000, SPILLOVER_NW_LAG_DAILY) : null;
     spyBeta[sym] = fit?.b ?? 1;
   }
@@ -19863,74 +19962,93 @@ export function buildSpilloverMatrix({ events, series, etf, currentIv = {}, buil
       if (variant === "strict" && r.iso.flags.length) continue;
       if (!series[follower]) continue;
       const fWin = spilloverWindowReturn(series[follower], r.date, r.session);
-      if (!fWin || r.etfRet == null) continue;
+      if (!fWin) continue; // a null etfRet only skips Engine A, not the event
       out.push({ date: r.date, x: r.win.ret, y: fWin.ret, etf: r.etfRet, spy: r.spyRet });
     }
     return out;
   };
 
   const round4 = (v) => (v != null && isFinite(v) ? Math.round(v * 1e4) / 1e4 : null);
-  const variantStats = {};
-  const pooledByVariant = {};
-  for (const variant of ["strict", "shared"]) {
-    const poolX = [], poolY = [];
-    const evByPair = new Map();
-    for (const d of SPILLOVER_PILOT) for (const f of SPILLOVER_PILOT) {
-      if (d === f) continue;
-      const evs = pairEvents(d, f, variant);
-      evByPair.set(`${d}>${f}`, evs);
-      for (const e of evs) { poolX.push(e.x); poolY.push(e.y); }
-    }
-    const pooled = olsNeweyWest(poolX, poolY, SPILLOVER_NW_LAG_EVENT);
-    pooledByVariant[variant] = pooled ? { b: round4(pooled.b), n: pooled.n } : null;
-    const rows = [];
-    for (const d of SPILLOVER_PILOT) for (const f of SPILLOVER_PILOT) {
-      if (d === f) continue;
-      const evs = evByPair.get(`${d}>${f}`);
-      const n = evs.length;
-      const row = { driver: d, follower: f, n };
-      if (n >= 3) {
-        const fit = olsNeweyWest(evs.map((e) => e.x), evs.map((e) => e.y), SPILLOVER_NW_LAG_EVENT);
-        if (fit) {
-          const w = n / (n + SPILLOVER_SHRINK_K);
-          row.b = round4(fit.b); row.r2 = round4(fit.r2); row.t = round4(fit.t); row.p = round4(fit.p);
-          row.bShrunk = round4(pooled ? w * fit.b + (1 - w) * pooled.b : fit.b);
-          row.w = round4(w);
-          const half = Math.floor(n / 2);
-          const f1 = olsNeweyWest(evs.slice(0, half).map((e) => e.x), evs.slice(0, half).map((e) => e.y), SPILLOVER_NW_LAG_EVENT);
-          const f2 = olsNeweyWest(evs.slice(half).map((e) => e.x), evs.slice(half).map((e) => e.y), SPILLOVER_NW_LAG_EVENT);
-          row.bH1 = round4(f1?.b); row.bH2 = round4(f2?.b);
-          const rx = evs.filter((e) => e.spy != null).map((e) => e.x - spyBeta[d] * e.spy);
-          const ry = evs.filter((e) => e.spy != null).map((e) => e.y - spyBeta[f] * e.spy);
-          const rfit = olsNeweyWest(rx, ry, SPILLOVER_NW_LAG_EVENT);
-          row.bResid = round4(rfit?.b); row.tResid = round4(rfit?.t);
-          row.residSignAgree = rfit && fit ? Math.sign(rfit.b) === Math.sign(fit.b) : null;
-          let hits = 0, scored = 0, maeB = 0;
-          for (const e of evs) {
-            maeB += Math.abs(row.bShrunk * e.x - e.y);
-            if (Math.abs(e.x) < SPILLOVER_NEAR_ZERO) continue;
-            scored += 1;
-            if (Math.sign(row.bShrunk * e.x) === Math.sign(e.y)) hits += 1;
-          }
-          row.hitB = scored ? round4(hits / scored) : null;
-          row.maeB = round4(maeB / n);
-          let hitsA = 0, scoredA = 0, maeA = 0, nA = 0;
-          for (const e of evs) {
-            const fitA = spillRollingBeta(series[f], series[etf], e.date, SPILLOVER_ROLL, SPILLOVER_NW_LAG_DAILY);
-            if (!fitA) continue;
-            const pred = fitA.b * e.etf;
-            nA += 1; maeA += Math.abs(pred - e.y);
-            if (Math.abs(pred) < SPILLOVER_NEAR_ZERO) continue;
-            scoredA += 1;
-            if (Math.sign(pred) === Math.sign(e.y)) hitsA += 1;
-          }
-          row.hitA = scoredA ? round4(hitsA / scoredA) : null;
-          row.maeA = nA ? round4(maeA / nA) : null;
-          row.avgAligned = round4(evs.map((e) => e.y * Math.sign(e.x)).reduce((s, v) => s + v, 0) / n);
-        }
+  // Engine A rolling fits are per (follower, as-of date) — memoized because
+  // every driver in a group shares its follower×date grid.
+  const fitAMemo = new Map();
+  const engineAFit = (f, etfSym, date) => {
+    if (!etfSym || !series[etfSym] || !series[f]) return null;
+    const key = `${f}|${etfSym}|${date}`;
+    if (!fitAMemo.has(key)) fitAMemo.set(key, spillRollingBeta(series[f], series[etfSym], date, SPILLOVER_ROLL, SPILLOVER_NW_LAG_DAILY));
+    return fitAMemo.get(key);
+  };
+  const variantStats = { strict: [], shared: [] };
+  const pooledByGroup = {};
+  for (const g of groups) {
+    if (g.members.length < 2) continue;
+    pooledByGroup[g.key] = {};
+    for (const variant of ["strict", "shared"]) {
+      const poolX = [], poolY = [];
+      const evByPair = new Map();
+      for (const d of g.members) for (const f of g.members) {
+        if (d === f) continue;
+        const evs = pairEvents(d, f, variant);
+        if (!evs.length) continue; // no measurable pair-events → no row
+        evByPair.set(`${d}>${f}`, evs);
+        for (const e of evs) { poolX.push(e.x); poolY.push(e.y); }
       }
-      rows.push(row);
+      const pooled = olsNeweyWest(poolX, poolY, SPILLOVER_NW_LAG_EVENT);
+      pooledByGroup[g.key][variant] = pooled ? { b: round4(pooled.b), n: pooled.n } : null;
+      for (const [pairKey, evs] of evByPair) {
+        const gt = pairKey.indexOf(">");
+        const d = pairKey.slice(0, gt), f = pairKey.slice(gt + 1);
+        const n = evs.length;
+        const row = { group: g.key, driver: d, follower: f, n };
+        if (n >= 3) {
+          const fit = olsNeweyWest(evs.map((e) => e.x), evs.map((e) => e.y), SPILLOVER_NW_LAG_EVENT);
+          if (fit) {
+            const w = n / (n + SPILLOVER_SHRINK_K);
+            row.b = round4(fit.b); row.r2 = round4(fit.r2); row.t = round4(fit.t); row.p = round4(fit.p);
+            row.bShrunk = round4(pooled ? w * fit.b + (1 - w) * pooled.b : fit.b);
+            row.w = round4(w);
+            const half = Math.floor(n / 2);
+            const f1 = olsNeweyWest(evs.slice(0, half).map((e) => e.x), evs.slice(0, half).map((e) => e.y), SPILLOVER_NW_LAG_EVENT);
+            const f2 = olsNeweyWest(evs.slice(half).map((e) => e.x), evs.slice(half).map((e) => e.y), SPILLOVER_NW_LAG_EVENT);
+            row.bH1 = round4(f1?.b); row.bH2 = round4(f2?.b);
+            const rx = evs.filter((e) => e.spy != null).map((e) => e.x - spyBeta[d] * e.spy);
+            const ry = evs.filter((e) => e.spy != null).map((e) => e.y - spyBeta[f] * e.spy);
+            const rfit = olsNeweyWest(rx, ry, SPILLOVER_NW_LAG_EVENT);
+            row.bResid = round4(rfit?.b); row.tResid = round4(rfit?.t);
+            row.residSignAgree = rfit && fit ? Math.sign(rfit.b) === Math.sign(fit.b) : null;
+            let hits = 0, scored = 0, maeB = 0;
+            for (const e of evs) {
+              maeB += Math.abs(row.bShrunk * e.x - e.y);
+              if (Math.abs(e.x) < SPILLOVER_NEAR_ZERO) continue;
+              scored += 1;
+              if (Math.sign(row.bShrunk * e.x) === Math.sign(e.y)) hits += 1;
+            }
+            row.hitB = scored ? round4(hits / scored) : null;
+            row.maeB = round4(maeB / n);
+            let hitsA = 0, scoredA = 0, maeA = 0, nA = 0;
+            for (const e of evs) {
+              if (e.etf == null) continue;
+              const fitA = engineAFit(f, g.etf, e.date);
+              if (!fitA) continue;
+              const pred = fitA.b * e.etf;
+              nA += 1; maeA += Math.abs(pred - e.y);
+              if (Math.abs(pred) < SPILLOVER_NEAR_ZERO) continue;
+              scoredA += 1;
+              if (Math.sign(pred) === Math.sign(e.y)) hitsA += 1;
+            }
+            row.hitA = scoredA ? round4(hitsA / scoredA) : null;
+            row.maeA = nA ? round4(maeA / nA) : null;
+            row.avgAligned = round4(evs.map((e) => e.y * Math.sign(e.x)).reduce((s, v) => s + v, 0) / n);
+          }
+        }
+        variantStats[variant].push(row);
+      }
     }
+  }
+  // Gates + BH-FDR across the WHOLE universe's rows per variant — thousands
+  // of pair regressions at p<0.05 would guarantee false positives otherwise.
+  for (const variant of ["strict", "shared"]) {
+    const rows = variantStats[variant];
     const thr = bhFdrThreshold(rows.map((r) => r.p), SPILLOVER_GATES.fdrQ);
     for (const r of rows) {
       r.fdrPass = r.p != null && thr != null && r.p <= thr;
@@ -19940,22 +20058,26 @@ export function buildSpilloverMatrix({ events, series, etf, currentIv = {}, buil
         r.p != null && r.p < SPILLOVER_GATES.p &&
         r.hitB != null && r.hitB >= SPILLOVER_GATES.hit;
     }
-    variantStats[variant] = rows;
   }
 
-  // Latest Engine A betas. latestBetaEtf = name ON ETF (the follower leg).
-  // etfOnDriver = ETF ON the name — the REVERSE regression, because the live
-  // translation needs E[ETF move | driver move] (doc §9): inverting the
-  // name-on-ETF beta over-attributes the driver's idiosyncratic move to the
-  // sector channel (it made every expected follower move ≈ the driver's own
-  // implied move); the reverse-regression slope is the correct conditional.
+  // Latest Engine A betas vs each name's own group ETF. latestBetaEtf = name
+  // ON ETF (the follower leg). etfOnDriver = ETF ON the name — the REVERSE
+  // regression, because the live translation needs E[ETF move | driver move]
+  // (doc §9): inverting the name-on-ETF beta over-attributes the driver's
+  // idiosyncratic move to the sector channel (it made every expected follower
+  // move ≈ the driver's own implied move); the reverse-regression slope is
+  // the correct conditional.
   const latestBetaEtf = {};
   const etfOnDriver = {};
-  for (const sym of SPILLOVER_PILOT) {
-    const fit = series[sym] && series[etf] ? spillRollingBeta(series[sym], series[etf], "9999-12-31", SPILLOVER_ROLL, SPILLOVER_NW_LAG_DAILY) : null;
-    latestBetaEtf[sym] = fit ? { b: round4(fit.b), r2: round4(fit.r2), t: round4(fit.t) } : null;
-    const rev = series[sym] && series[etf] ? spillRollingBeta(series[etf], series[sym], "9999-12-31", SPILLOVER_ROLL, SPILLOVER_NW_LAG_DAILY) : null;
-    etfOnDriver[sym] = rev ? round4(rev.b) : null;
+  for (const g of groups) {
+    if (!g.etf || !series[g.etf]) continue;
+    for (const sym of g.members) {
+      if (!series[sym]) continue;
+      const fit = spillRollingBeta(series[sym], series[g.etf], "9999-12-31", SPILLOVER_ROLL, SPILLOVER_NW_LAG_DAILY);
+      if (fit) latestBetaEtf[sym] = { b: round4(fit.b), r2: round4(fit.r2), t: round4(fit.t) };
+      const rev = spillRollingBeta(series[g.etf], series[sym], "9999-12-31", SPILLOVER_ROLL, SPILLOVER_NW_LAG_DAILY);
+      if (rev) etfOnDriver[sym] = round4(rev.b);
+    }
   }
 
   // Merge variants into one pair list (shared primary, strict alongside).
@@ -19963,42 +20085,52 @@ export function buildSpilloverMatrix({ events, series, etf, currentIv = {}, buil
   const pairs = variantStats.shared.map((r) => {
     const priced = currentIv[r.follower] > 0 ? round4(currentIv[r.follower] / Math.sqrt(252)) : null;
     const strict = strictByKey.get(`${r.driver}>${r.follower}`) || null;
-    return {
+    return spillStrip({
       ...r,
       nStrict: strict?.n ?? 0,
-      strict: strict && strict.n >= 3 ? { b: strict.b, bShrunk: strict.bShrunk, hitB: strict.hitB, r2: strict.r2, p: strict.p } : null,
+      strict: strict && strict.n >= 3 ? spillStrip({ b: strict.b, bShrunk: strict.bShrunk, hitB: strict.hitB, r2: strict.r2, p: strict.p }) : null,
       pricedMove: priced,
       edge: priced != null && r.avgAligned != null ? round4(r.avgAligned - priced) : null,
-    };
+    });
   });
   pairs.sort((a, b) => (b.edge ?? -Infinity) - (a.edge ?? -Infinity));
 
   // Coverage summary for the tab header.
   const eventCounts = {};
-  for (const d of SPILLOVER_PILOT) eventCounts[d] = (perDriver.get(d) || []).length;
+  for (const [d, list] of perDriver) eventCounts[d] = list.length;
   return {
-    builtAtIso, etf, pilot: SPILLOVER_PILOT.slice(),
+    builtAtIso,
+    groups: groups.map((g) => ({ key: g.key, label: g.label, etf: g.etf, members: g.members.slice() })),
     gates: { ...SPILLOVER_GATES, minEvents: SPILLOVER_MIN_EVENTS },
     shrinkK: SPILLOVER_SHRINK_K, roll: SPILLOVER_ROLL,
-    pooled: pooledByVariant, latestBetaEtf, etfOnDriver, eventCounts, pairs,
+    pooled: pooledByGroup, latestBetaEtf, etfOnDriver, eventCounts, pairs,
   };
 }
 
 // --- Bake-side orchestration -------------------------------------------------
+// ~140 symbols × 5.2y of daily bars, once per ET day. Four paced workers
+// (~300ms gap each ⇒ ~7-8 req/s aggregate) keep the sweep to ~20-35s while
+// staying well under the chain fetch's measured-safe Yahoo request rate.
 async function fetchSpilloverBars(symbols) {
   const out = {};
   const period2 = new Date();
   const period1 = new Date(period2.getTime() - SPILLOVER_BARS_YEARS * 365.25 * 86400000);
-  for (const sym of symbols) {
-    try {
-      const r = await yahooFinance.chart(sym, { period1, period2, interval: "1d" });
-      const rows = (r?.quotes || [])
-        .filter((q) => q && q.close != null && q.date)
-        .map((q) => ({ t: new Date(q.date).toISOString().slice(0, 10), c: q.close }));
-      if (rows.length >= 250) out[sym] = spillPrepSeries(rows);
-    } catch (_) { /* per-symbol miss — matrix degrades below */ }
-    await new Promise((r) => setTimeout(r, 350));
-  }
+  const queue = [...symbols];
+  const worker = async () => {
+    for (;;) {
+      const sym = queue.shift();
+      if (!sym) return;
+      try {
+        const r = await yahooFinance.chart(sym, { period1, period2, interval: "1d" });
+        const rows = (r?.quotes || [])
+          .filter((q) => q && q.close != null && q.date)
+          .map((q) => ({ t: new Date(q.date).toISOString().slice(0, 10), c: q.close }));
+        if (rows.length >= 250) out[sym] = spillPrepSeries(rows);
+      } catch (_) { /* per-symbol miss — matrix degrades below */ }
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  };
+  await Promise.all(Array.from({ length: 4 }, worker));
   return out;
 }
 
@@ -20016,55 +20148,61 @@ export async function readPriorSpillover() {
 // ~12/name) UNION the log's accumulated events (survivors past the store's
 // cap). ±3-day dedupe, store wins on session.
 function spillCollectEvents(earningsHxStore, priorLog) {
-  const byDriver = new Map(SPILLOVER_PILOT.map((s) => [s, []]));
+  const byDriver = new Map(SPILLOVER_UNIVERSE.map((s) => [s, []]));
   const push = (driver, date, session, preferSession) => {
     const list = byDriver.get(driver);
     if (!list || !/^\d{4}-\d{2}-\d{2}$/.test(date || "")) return;
     const near = list.find((e) => Math.abs(new Date(e.date) - new Date(date)) <= 3 * 86400000);
-    const sess = session === "AM" || session === "PM" ? session : "AM"; // pilot banks are BMO reporters
+    const sess = session === "AM" ? "AM" : "PM"; // doc §1: PM and TBD react on the NEXT session
     if (near) { if (preferSession) near.session = sess; return; }
     list.push({ driver, date, session: sess });
   };
   for (const ev of (priorLog?.events || [])) {
     if (ev?.driver && ev?.date && ev.date <= etDateKey()) push(ev.driver, ev.date, ev.session, false);
   }
-  for (const sym of SPILLOVER_PILOT) {
+  for (const sym of SPILLOVER_UNIVERSE) {
     for (const ev of (earningsHxStore?.tickers?.[sym]?.events || [])) push(sym, ev?.date, ev?.session, true);
   }
   return [...byDriver.values()].flat();
 }
 
-// Upcoming pilot events inside the horizon, with the doc-§9 expected-move
-// translation (informational — the doc's owner directive: no sizing, ever).
+// Upcoming driver events inside the horizon — full universe, grouped by
+// sector — with the doc-§9 expected-move translation (informational — the
+// doc's owner directive: no sizing, ever). Follower rows per event are
+// capped (qualified pairs first, then deepest n) so an earnings-season week
+// with dozens of reporters ships a readable payload.
 function spillUpcoming(chains, matrix, todayEt) {
   const macro = buildSpilloverMacroSets(1);
-  const upcomingDates = new Map(); // date -> Set(driver) for shared-print flags
+  const upcomingByGroup = new Map(SPILLOVER_GROUPS.map((g) => [g.key, new Map()])); // group -> date -> Set(driver)
   const list = [];
-  for (const d of SPILLOVER_PILOT) {
+  for (const g of SPILLOVER_GROUPS) for (const d of g.members) {
     const next = chains[d]?.earningsHx?.next || {};
     const date = next.date || chains[d]?.fundamentals?.nextEarningsDate || null;
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date) || date < todayEt) continue;
     const daysUntil = Math.round((new Date(date + "T00:00:00Z") - new Date(todayEt + "T00:00:00Z")) / 86400000);
     if (daysUntil > SPILLOVER_UPCOMING_DAYS) continue;
-    if (!upcomingDates.has(date)) upcomingDates.set(date, new Set());
-    upcomingDates.get(date).add(d);
-    list.push({ driver: d, date, daysUntil, session: next.session === "PM" ? "PM" : "AM", impliedMovePct: next.impliedMovePct ?? null });
+    const byDate = upcomingByGroup.get(g.key);
+    if (!byDate.has(date)) byDate.set(date, new Set());
+    byDate.get(date).add(d);
+    list.push({ driver: d, group: g.key, groupLabel: g.label, date, daysUntil, session: next.session === "AM" ? "AM" : "PM", impliedMovePct: next.impliedMovePct ?? null });
   }
+  const pairByKey = new Map((matrix?.pairs || []).map((p) => [`${p.driver}>${p.follower}`, p]));
   return list.map((ev) => {
+    const g = SPILLOVER_GROUP_OF.get(ev.driver);
     // Window for isolation: AM = [date-1, date], PM = [date, date+1] (calendar
     // approximation pre-print — bar-exact isolation happens at resolution).
     const start = ev.session === "AM" ? spillIsoShift(ev.date, -1) : ev.date;
     const end = ev.session === "AM" ? ev.date : spillIsoShift(ev.date, 1);
-    const iso = spillIsolate(start, end, macro, upcomingDates, ev.driver);
+    const iso = spillIsolate(start, end, macro, upcomingByGroup.get(ev.group) || new Map(), ev.driver);
     let implied = ev.impliedMovePct;
     if (implied == null) {
       const im = computeImpliedMoveForDate(chains[ev.driver], ev.date);
       implied = im ? Math.round(im.pct * 1e4) / 100 : null;
     }
     const dChannel = matrix?.etfOnDriver?.[ev.driver] ?? null;
-    const followers = SPILLOVER_PILOT.filter((f) => f !== ev.driver).map((f) => {
+    let followers = (g ? g.members : []).filter((f) => f !== ev.driver).map((f) => {
       const fBeta = matrix?.latestBetaEtf?.[f]?.b ?? null;
-      const pair = (matrix?.pairs || []).find((p) => p.driver === ev.driver && p.follower === f) || null;
+      const pair = pairByKey.get(`${ev.driver}>${f}`) || null;
       // Engine A live translation (doc §5A/§9): driver implied move → expected
       // ETF move (× the ETF-on-driver reverse-regression beta, the correct
       // conditional-expectation direction) → × follower-on-ETF beta.
@@ -20075,7 +20213,14 @@ function spillUpcoming(chains, matrix, todayEt) {
       const priced = iv > 0 ? Math.round((iv / Math.sqrt(252)) * 1e4) / 100 : null;
       return { follower: f, expA, expB, pricedMovePct: priced, pairN: pair?.n ?? 0, pairQualified: !!(pair?.gates && pair?.fdrPass) };
     });
-    return { ...ev, impliedMovePct: implied, isolation: { status: iso.hard.length ? "conflict" : iso.flags.length ? "flagged" : "clean", hard: iso.hard, flags: iso.flags }, followers };
+    followers.sort((a, b) => (Number(b.pairQualified) - Number(a.pairQualified)) || ((b.pairN || 0) - (a.pairN || 0)));
+    const followersOmitted = Math.max(0, followers.length - SPILLOVER_UPCOMING_FOLLOWERS);
+    if (followersOmitted) followers = followers.slice(0, SPILLOVER_UPCOMING_FOLLOWERS);
+    return {
+      ...ev, impliedMovePct: implied,
+      isolation: { status: iso.hard.length ? "conflict" : iso.flags.length ? "flagged" : "clean", hard: iso.hard, flags: iso.flags },
+      followers, ...(followersOmitted ? { followersOmitted } : {}),
+    };
   }).sort((a, b) => a.daysUntil - b.daysUntil);
 }
 
@@ -20174,21 +20319,35 @@ export async function buildSpilloverArtifacts(chains, earningsHxStore, prior, bu
   const todayEt = etDateKey();
   let matrix = null;
   const priorMatrix = prior?.pairs && typeof prior.pairs === "object" ? prior.pairs : null;
-  if (priorMatrix?.date === todayEt && Array.isArray(priorMatrix.pairs)) {
+  // A pilot-era prior (no `groups`) never short-circuits the deep half — the
+  // first bake after the universe expansion recomputes immediately.
+  if (priorMatrix?.date === todayEt && Array.isArray(priorMatrix.pairs) && Array.isArray(priorMatrix.groups)) {
     matrix = { ...priorMatrix, builtAtIso }; // deep half already computed today
   } else {
-    const symbols = [...SPILLOVER_PILOT, SPILLOVER_ETF, "SPY"];
-    const series = await fetchSpilloverBars([...new Set(symbols)]);
-    const missing = [...new Set(symbols)].filter((s) => !series[s]);
-    if (missing.length === 0) {
+    const etfs = [...new Set(SPILLOVER_GROUPS.map((g) => g.etf).filter(Boolean))];
+    const symbols = [...new Set([...SPILLOVER_UNIVERSE, ...etfs, "SPY"])];
+    const series = await fetchSpilloverBars(symbols);
+    const gotUniverse = SPILLOVER_UNIVERSE.filter((s) => series[s]).length;
+    // Deep recompute needs SPY + a healthy universe sweep — a thin sweep
+    // would bake a matrix full of holes, so carry last-good instead. A
+    // missing sector ETF only degrades its group to Engine B (never blocks).
+    if (series.SPY && gotUniverse >= Math.ceil(SPILLOVER_UNIVERSE.length * SPILLOVER_MIN_BAR_COVERAGE)) {
       const events = spillCollectEvents(earningsHxStore, prior?.log);
       const currentIv = {};
-      for (const sym of SPILLOVER_PILOT) if (chains[sym]?.ivRank?.iv > 0) currentIv[sym] = chains[sym].ivRank.iv;
-      matrix = { ...buildSpilloverMatrix({ events, series, etf: SPILLOVER_ETF, currentIv, builtAtIso }), date: todayEt };
+      for (const sym of SPILLOVER_UNIVERSE) if (chains[sym]?.ivRank?.iv > 0) currentIv[sym] = chains[sym].ivRank.iv;
+      matrix = {
+        ...buildSpilloverMatrix({ events, series, currentIv, builtAtIso }),
+        date: todayEt,
+        barCoverage: { fetched: gotUniverse, universe: SPILLOVER_UNIVERSE.length, etfsMissing: etfs.filter((e) => !series[e]) },
+      };
     } else if (priorMatrix) {
       matrix = { ...priorMatrix, builtAtIso, stale: true }; // carry last-good
     } else {
-      matrix = { builtAtIso, date: todayEt, etf: SPILLOVER_ETF, pilot: SPILLOVER_PILOT.slice(), pairs: [], eventCounts: {}, stale: true };
+      matrix = {
+        builtAtIso, date: todayEt,
+        groups: SPILLOVER_GROUPS.map((g) => ({ key: g.key, label: g.label, etf: g.etf, members: g.members.slice() })),
+        pairs: [], eventCounts: {}, stale: true,
+      };
     }
   }
   const upcoming = spillUpcoming(chains, matrix, todayEt);

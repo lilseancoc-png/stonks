@@ -14723,14 +14723,22 @@
       return;
     }
     root.hidden = false; if (empty) empty.hidden = true;
-    if (eyebrow) eyebrow.textContent = (d.pilot || []).join(' ') + ' vs ' + (d.etf || 'XLF') + (d.date ? ' · betas as of ' + d.date : '') + (d.stale ? ' · STALE (kept last-good)' : '');
+    // Full-universe payloads ship a groups registry; the legacy banks-pilot
+    // payload shipped pilot + a single etf — render either.
+    var spillGroups = Array.isArray(d.groups) && d.groups.length ? d.groups : null;
+    var universeCount = 0;
+    if (spillGroups) spillGroups.forEach(function(g){ universeCount += (g.members || []).length; });
+    if (eyebrow) eyebrow.textContent = (spillGroups
+      ? universeCount + ' names · ' + spillGroups.length + ' sector groups'
+      : (d.pilot || []).join(' ') + ' vs ' + (d.etf || 'XLF'))
+      + (d.date ? ' · betas as of ' + d.date : '') + (d.stale ? ' · STALE (kept last-good)' : '');
     var minN = (d.gates && d.gates.minEvents) || 6;
     var html = '';
     // Upcoming driver events with both engines' expected follower moves.
     var up = Array.isArray(d.upcoming) ? d.upcoming : [];
     html += '<div class="spill-sub">Upcoming driver events</div>';
     if (!up.length){
-      html += '<p class="spill-none">No pilot-bank earnings inside the next month.</p>';
+      html += '<p class="spill-none">No tracked-name earnings inside the next month.</p>';
     } else {
       html += '<div class="spill-events">';
       up.forEach(function(ev){
@@ -14744,6 +14752,7 @@
           '<div class="spill-ev-head">' + spillSymLink(ev.driver) +
           ' reports <b>' + escapeHtml(ev.date || '') + '</b> · ' + (ev.session === 'PM' ? 'after close' : 'before open') +
           (ev.daysUntil != null ? ' · in ' + ev.daysUntil + 'd' : '') +
+          (ev.groupLabel ? ' <span class="spill-chip spill-ev-grp">' + escapeHtml(ev.groupLabel) + '</span>' : '') +
           ' <span class="spill-chip spill-iso-' + escapeHtml(isoState) + '"' + (isoBits.length ? ' title="' + escapeHtml(isoBits.join(', ')) + '"' : '') + '>' + escapeHtml(isoState) + '</span>' +
           (ev.impliedMovePct != null ? ' <span class="spill-ev-imp">own straddle implies ±' + spillNum(ev.impliedMovePct) + '%</span>' : '') +
           '</div>';
@@ -14758,6 +14767,9 @@
               '<td>' + (f.pairQualified ? '<span class="spill-q">qualified</span>' : '<span class="spill-nq">unqualified (n=' + (f.pairN || 0) + ')</span>') + '</td></tr>';
           });
           html += '</tbody></table></div>';
+          if (ev.followersOmitted) html += '<p class="spill-none">+' + ev.followersOmitted + ' more same-sector peer' + (ev.followersOmitted === 1 ? '' : 's') + ' not shown (thinnest pairs).</p>';
+        } else {
+          html += '<p class="spill-none">No same-sector peer tracked for this name yet.</p>';
         }
         html += '</div>';
       });
@@ -14771,18 +14783,15 @@
     };
     html += '<div class="spill-forward"><b>Forward validation</b> — ' + (fw.resolvedEvents || 0) + ' resolved event' + ((fw.resolvedEvents || 0) === 1 ? '' : 's') + ' · ' +
       fwLine('Engine A', fw.engineA) + ' · ' + fwLine('Engine B', fw.engineB) + '</div>';
-    // The pair matrix.
-    html += '<div class="spill-sub">Pair matrix — historical event-window read-through</div>';
-    html += '<div class="spill-scroll"><table class="spill-tbl spill-matrix"><thead><tr>' +
-      '<th>Pair</th><th>n</th><th>β shrunk</th><th>Hit</th><th>R²</th><th>p</th><th>Avg move→</th><th>Priced/day</th><th>Edge</th><th>Halves β</th><th>Resid β</th><th>Status</th>' +
-      '</tr></thead><tbody>';
-    pairs.forEach(function(p){
+    // The pair matrix: one row builder shared by the qualified roll-up and
+    // the per-sector detail tables.
+    var spillRowHtml = function(p){
       var qualified = !!(p.gates && p.fdrPass);
       var thin = (p.n || 0) < minN;
       var status = thin ? 'n&lt;' + minN : (qualified ? 'qualified' : 'fails gates');
       var halves = (p.bH1 != null && p.bH2 != null) ? spillNum(p.bH1, 1) + '/' + spillNum(p.bH2, 1) : '—';
       var resid = p.bResid != null ? spillNum(p.bResid) + (p.tResid != null ? ' (t ' + spillNum(p.tResid, 1) + ')' : '') + (p.residSignAgree === false ? ' ✗' : '') : '—';
-      html += '<tr class="' + (qualified ? 'spill-row-q' : 'spill-row-dim') + '">' +
+      return '<tr class="' + (qualified ? 'spill-row-q' : 'spill-row-dim') + '">' +
         '<td class="spill-pair">' + spillSymLink(p.driver) + '<span class="spill-arrow">→</span>' + spillSymLink(p.follower) + '</td>' +
         '<td>' + (p.n || 0) + '</td>' +
         '<td>' + (p.bShrunk != null ? spillNum(p.bShrunk) : '—') + '</td>' +
@@ -14795,9 +14804,43 @@
         '<td>' + halves + '</td>' +
         '<td>' + resid + '</td>' +
         '<td>' + status + '</td></tr>';
-    });
-    html += '</tbody></table></div>';
-    html += '<p class="spill-note">β shrunk = the pair event beta shrunk toward the pooled sector beta (small samples). Hit = share of past events where the follower moved the same direction. A ✓ on p = survives the false-discovery correction. Avg move→ = the follower average event-window move in the driver direction; Edge = that average minus the follower current 1-day priced move (ATM IV) — positive means the options market underprices the echo. Bank prints cluster, so betas measure sector print-day read-through; Resid β (market-stripped) is the control. Correlation map only — nothing here is a trade recommendation.</p>';
+    };
+    var spillTable = function(rows){
+      return '<div class="spill-scroll"><table class="spill-tbl spill-matrix"><thead><tr>' +
+        '<th>Pair</th><th>n</th><th>β shrunk</th><th>Hit</th><th>R²</th><th>p</th><th>Avg move→</th><th>Priced/day</th><th>Edge</th><th>Halves β</th><th>Resid β</th><th>Status</th>' +
+        '</tr></thead><tbody>' + rows.join('') + '</tbody></table></div>';
+    };
+    html += '<div class="spill-sub">Pair matrix — historical event-window read-through</div>';
+    var qualifiedPairs = pairs.filter(function(p){ return p.gates && p.fdrPass; });
+    if (qualifiedPairs.length){
+      html += '<p class="spill-none">' + qualifiedPairs.length + ' of ' + pairs.length + ' measured pairs clear every statistical gate — ranked by edge across all sectors.</p>';
+      html += spillTable(qualifiedPairs.map(spillRowHtml));
+    } else {
+      html += '<p class="spill-none">No pair currently clears every statistical gate (' + pairs.length + ' measured). Per-sector detail below.</p>';
+    }
+    if (spillGroups){
+      // Per-sector detail, collapsed by default; singletons listed honestly.
+      var singles = [];
+      spillGroups.forEach(function(g){
+        var members = g.members || [];
+        if (members.length === 1){ singles.push(members[0] + ' (' + (g.label || g.key) + ')'); return; }
+        if (members.length < 2) return;
+        var gp = pairs.filter(function(p){ return p.group === g.key; });
+        var gq = gp.filter(function(p){ return p.gates && p.fdrPass; }).length;
+        html += '<details class="spill-group"><summary>' + escapeHtml(g.label || g.key) +
+          (g.etf ? ' <span class="spill-group-etf">vs ' + escapeHtml(g.etf) + '</span>' : '') +
+          ' — ' + members.length + ' names · ' + gp.length + ' measured pair' + (gp.length === 1 ? '' : 's') +
+          (gq ? ' · ' + gq + ' qualified' : '') + '</summary>' +
+          (gp.length ? spillTable(gp.map(spillRowHtml)) : '<p class="spill-none">No measurable pair events yet for this sector.</p>') +
+          '</details>';
+      });
+      if (singles.length){
+        html += '<p class="spill-note">No same-sector peer tracked yet (no pairs possible): ' + escapeHtml(singles.join(', ')) + '.</p>';
+      }
+    } else {
+      html += spillTable(pairs.map(spillRowHtml));
+    }
+    html += '<p class="spill-note">β shrunk = the pair event beta shrunk toward its sector’s pooled event beta (small samples). Hit = share of past events where the follower moved the same direction. A ✓ on p = survives the false-discovery correction, run across every sector’s pairs. Avg move→ = the follower average event-window move in the driver direction; Edge = that average minus the follower current 1-day priced move (ATM IV) — positive means the options market underprices the echo. Pairs are measured within sector groups only; sector prints often cluster (banks especially), so betas measure sector print-day read-through and Resid β (market-stripped) is the control. Correlation map only — nothing here is a trade recommendation.</p>';
     root.innerHTML = html;
     bindBriefChips(root);
   }
