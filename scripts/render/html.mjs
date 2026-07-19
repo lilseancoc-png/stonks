@@ -585,17 +585,19 @@ function ipoCreditSection() {
 function spilloverSection() {
   // Card chrome only — content renders client-side from data/spillover-pairs.json,
   // lazy-fetched on first tab activation by loadSpillover() in app.js. The Event
-  // Spillover Matrix (docs/event-spillover.md): same-sector earnings read-through,
-  // banks pilot. ANALYTICAL ONLY — it maps correlation, it never suggests trades.
+  // Spillover Matrix (docs/event-spillover.md): same-sector earnings read-through
+  // across the FULL tracked universe (sector groups derived from SECTORS; the
+  // 2026-07-19 banks pilot proved the method). ANALYTICAL ONLY — it maps
+  // correlation, it never suggests trades.
   return `<section class="card" id="spillover-section">
     <header class="card-header">
       <h2 class="card-title">Event spillover</h2>
       <span class="card-eyebrow" id="spillover-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote('What is this?', `<p>When a company reports earnings, its <b>same-sector peers</b> move too &mdash; this matrix measures that <b>read-through</b> for the banks pilot (JPM, BAC, C, GS, MS). For every driver&rarr;follower pair it estimates the <b>event-window beta</b> (how much of the driver's print-day move the follower echoes, Newey-West significance, shrunk toward the pooled sector beta on small samples), the <b>direction hit rate</b>, and whether the follower's <b>options already price</b> the echo (its ATM implied move vs its realized average). Pairs must clear fixed statistical gates (R&sup2;, significance after a false-discovery correction, &ge;60% direction consistency) to count as qualified. Upcoming driver events show both engines' expected follower moves &mdash; sector-routed (via the ETF) and direct-pair &mdash; with the running forward accuracy of each. <b>This is a correlation map, not a trade signal</b>: nothing here is a recommendation to buy or sell anything.</p>`)}
+    ${infoNote('What is this?', `<p>When a company reports earnings, its <b>same-sector peers</b> move too &mdash; this matrix measures that <b>read-through</b> across the whole tracked universe, grouped into sector complexes (semis &amp; memory, software, banks, payments, consumer, healthcare, space, &hellip;), each with its sector ETF. For every driver&rarr;follower pair inside a group it estimates the <b>event-window beta</b> (how much of the driver's print-day move the follower echoes, Newey-West significance, shrunk toward the pooled sector beta on small samples), the <b>direction hit rate</b>, and whether the follower's <b>options already price</b> the echo (its ATM implied move vs its realized average). Pairs must clear fixed statistical gates (R&sup2;, significance after a false-discovery correction run across every sector's pairs, &ge;60% direction consistency) to count as qualified. Upcoming driver events show both engines' expected follower moves &mdash; sector-routed (via the ETF) and direct-pair &mdash; with the running forward accuracy of each. <b>This is a correlation map, not a trade signal</b>: nothing here is a recommendation to buy or sell anything.</p>`)}
     <div id="spillover-root" class="spill-root">Loading event spillover&hellip;</div>
     <div id="spillover-empty" class="spill-empty" hidden>Spillover data will appear after the next daily build refresh.</div>
-    <p class="hint">Event betas re-estimate once per trading day; event depth accumulates from the earnings-history store. Bank prints cluster (often the same morning), so most windows carry shared-print/CPI-week flags &mdash; shown, not hidden. Analytical only. Not financial advice.</p>
+    <p class="hint">Event betas re-estimate once per trading day; event depth accumulates from the earnings-history store. Sector prints cluster (bank mornings especially), so many windows carry shared-print/CPI-week flags &mdash; shown, not hidden. Names with no same-sector peer tracked are listed rather than dropped. Analytical only. Not financial advice.</p>
   </section>`;
 }
 
