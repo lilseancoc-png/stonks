@@ -3217,7 +3217,7 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 
 /* --- Stock Picks (quality-dip screen, premium) ------------------------- */
 .stk-root { display: flex; flex-direction: column; gap: 14px; }
-.stk-funnel { font: 400 12.5px/1.55 var(--font-sans); color: var(--muted); margin: 0; }
+.stk-funnel { font: 400 12.5px/1.55 var(--font-sans); color: var(--muted-strong); margin: 0; }
 .stk-funnel b { font-weight: 700; color: var(--text-strong); font-variant-numeric: tabular-nums; }
 .stk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
 .stk-card {
@@ -3237,7 +3237,7 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .stk-sym:hover, .stk-sym:focus-visible { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
 .stk-sym-go { font: 600 10px/1 var(--font-sans); color: var(--muted); text-decoration: none; }
 .stk-sym:hover .stk-sym-go, .stk-sym:focus-visible .stk-sym-go { color: var(--accent); }
-.stk-name { font: 400 11.5px/1.3 var(--font-sans); color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; flex: 1 1 auto; }
+.stk-name { font: 400 11.5px/1.3 var(--font-sans); color: var(--muted-strong); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; flex: 1 1 auto; }
 .stk-sector { font: 600 10px/1 var(--font-sans); color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2.5px 7px; white-space: nowrap; }
 .stk-zone { font: 700 9.5px/1 var(--font-sans); text-transform: uppercase; letter-spacing: 0.05em; border-radius: 999px; padding: 3.5px 7px; white-space: nowrap; cursor: help; }
 .stk-zone-buy { color: var(--pos); background: color-mix(in srgb, var(--pos) 13%, transparent); }
@@ -3257,16 +3257,18 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .stk-quality { display: flex; flex-wrap: wrap; gap: 4px 6px; }
 .stk-q { font: 600 10.5px/1.2 var(--font-sans); color: var(--pos); border: 1px solid color-mix(in srgb, var(--pos) 35%, transparent); border-radius: 999px; padding: 2.5px 7px; white-space: nowrap; cursor: help; }
 .stk-q-fail { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 35%, transparent); }
-/* Module 2 — the five dip reads (fired = lit, unfired = dimmed but shown) */
+/* Module 2 — the five dip reads. Fired vs unfired is a COLOR split (text vs
+   muted-strong) + the ○/● bullet — not opacity, which was illegible in both
+   themes. */
 .stk-sigs, .stk-flags { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.stk-sig { font: 400 12px/1.45 var(--font-sans); color: var(--muted); opacity: 0.62; }
-.stk-sig b { font-weight: 650; color: var(--muted); }
-.stk-sig::before { content: '○'; font: 700 11px/1 var(--font-mono); color: var(--muted); margin-right: 5px; }
-.stk-sig-fired { opacity: 1; }
+.stk-sig { font: 400 12px/1.45 var(--font-sans); color: var(--muted-strong); }
+.stk-sig b { font-weight: 650; }
+.stk-sig::before { content: '○'; font: 700 11px/1 var(--font-mono); margin-right: 5px; }
+.stk-sig-fired { color: var(--text); }
 .stk-sig-fired b { color: var(--text-strong); }
 .stk-sig-fired::before { content: '●'; color: var(--accent); }
 /* Module 3 — trap flags (yellow warnings) / the zero-flag buy-zone line */
-.stk-flag { font: 400 12px/1.45 var(--font-sans); color: var(--muted); }
+.stk-flag { font: 400 12px/1.45 var(--font-sans); color: var(--muted-strong); }
 .stk-flag b { font-weight: 650; color: var(--warn); }
 .stk-flag::before { content: '⚠'; font: 700 11px/1 var(--font-mono); color: var(--warn); margin-right: 5px; }
 .stk-clean { font: 600 12px/1.45 var(--font-sans); color: var(--pos); }
@@ -3278,7 +3280,7 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .stk-thesis[open] > summary::before { content: '▾'; }
 .stk-thesis-title { font: 650 12px/1.3 var(--font-sans); color: var(--text-strong); }
 .stk-thesis-counts { font: 500 10.5px/1.3 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted); }
-.stk-thesis-note { font: 400 11px/1.5 var(--font-sans); color: var(--muted); margin: 8px 0 2px; }
+.stk-thesis-note { font: 400 11px/1.5 var(--font-sans); color: var(--muted-strong); margin: 8px 0 2px; }
 .stk-cl-bar { display: inline-flex; width: 56px; height: 5px; border-radius: 999px; overflow: hidden; align-self: center; background: color-mix(in srgb, var(--border) 45%, transparent); }
 .stk-cl-bar i { display: block; height: 100%; }
 .stk-cl-bar-a { background: var(--pos); }
@@ -3301,17 +3303,17 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .stk-cl-answered .stk-cl-badge { color: var(--pos); background: color-mix(in srgb, var(--pos) 13%, transparent); }
 .stk-cl-unsure .stk-cl-badge { color: var(--warn); background: var(--warn-soft); }
 .stk-cl-unanswered .stk-cl-badge { color: var(--muted); background: color-mix(in srgb, var(--border) 45%, transparent); }
-.stk-cl-text { font: 400 11.5px/1.5 var(--font-sans); color: var(--muted); display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.stk-cl-text { font: 400 11.5px/1.5 var(--font-sans); color: var(--muted-strong); display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .stk-cl-text b { font-weight: 650; color: var(--text-strong); }
 .stk-cl-unanswered .stk-cl-text b { color: var(--muted); }
-.stk-empty { font: 400 12.5px/1.5 var(--font-sans); color: var(--muted); font-style: italic; margin: 0; }
+.stk-empty { font: 400 12.5px/1.5 var(--font-sans); color: var(--muted-strong); font-style: italic; margin: 0; }
 /* Daily DCA dial (VOO/QQQ) — the sizing card block above the dip screen */
 .stk-dca { display: flex; flex-direction: column; gap: 10px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
 .stk-dca-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; }
 .stk-dca-title { font: 700 13.5px/1.3 var(--font-sans); color: var(--text-strong); margin: 0; }
-.stk-dca-baselab { margin-left: auto; display: inline-flex; align-items: baseline; gap: 4px; font: 600 11px/1.3 var(--font-sans); color: var(--muted); white-space: nowrap; }
+.stk-dca-baselab { margin-left: auto; display: inline-flex; align-items: baseline; gap: 4px; font: 600 11px/1.3 var(--font-sans); color: var(--muted-strong); white-space: nowrap; }
 .stk-dca-baselab input { width: 62px; font: 700 12px/1.2 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-strong); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 7px; }
-.stk-dca-hint { font: 400 11.5px/1.55 var(--font-sans); color: var(--muted); margin: 0; }
+.stk-dca-hint { font: 400 12px/1.55 var(--font-sans); color: var(--muted-strong); margin: 0; }
 .stk-dca-hint b { font-weight: 650; color: var(--text-strong); }
 .stk-dca-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 12px; }
 .stk-dca-card {
@@ -3329,27 +3331,30 @@ a.stk-dca-sym:hover, a.stk-dca-sym:focus-visible { color: var(--accent); text-de
    look: no default underline (each class's hover rule opts back in). */
 a.ers-sym, a.ecl-sym, a.stk-sym, a.stk-dca-sym, a.ivt-sym, a.ivt-sum-chip, a.ivt-trow-symbtn,
 a.cmd-watch, a.cr-tkr, a.f13-sym, a.brief-chip, a.cal-chip-sym { text-decoration: none; }
-.stk-dca-name { font: 400 11px/1.3 var(--font-sans); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stk-dca-name { font: 400 11.5px/1.3 var(--font-sans); color: var(--muted-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .stk-dca-stale { font: 700 9px/1 var(--font-sans); text-transform: uppercase; letter-spacing: 0.05em; color: var(--warn); background: var(--warn-soft); border-radius: 999px; padding: 3px 6px; cursor: help; }
 .stk-dca-px { margin-left: auto; font: 600 12.5px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-strong); }
 .stk-dca-verdict { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .stk-dca-amt { font: 800 24px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-strong); }
 .stk-dca-tier-double .stk-dca-amt, .stk-dca-tier-heavy .stk-dca-amt, .stk-dca-tier-max .stk-dca-amt { color: var(--pos); }
 .stk-dca-tier-lean .stk-dca-amt { color: var(--accent); }
-.stk-dca-verdict-sub { font: 600 11.5px/1.4 var(--font-sans); color: var(--muted); display: inline-flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.stk-dca-verdict-sub { font: 600 12px/1.4 var(--font-sans); color: var(--muted-strong); display: inline-flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
 .stk-dca-mult { font: 700 10px/1 var(--font-sans); text-transform: uppercase; letter-spacing: 0.04em; border: 1px solid var(--border); border-radius: 999px; padding: 3px 7px; color: var(--text-strong); }
-.stk-dca-pts { font: 500 10.5px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted); cursor: help; }
-.stk-dca-note { font: 400 11.5px/1.5 var(--font-sans); color: var(--muted); margin: 0; font-style: italic; }
+.stk-dca-pts { font: 500 11px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted-strong); cursor: help; }
+.stk-dca-note { font: 400 12px/1.5 var(--font-sans); color: var(--muted-strong); margin: 0; font-style: italic; }
 .stk-dca-reads { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.stk-dca-read { font: 400 11.5px/1.45 var(--font-sans); color: var(--muted); opacity: 0.6; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; }
+/* Fired vs un-fired reads are distinguished by COLOR (text vs muted-strong) and
+   the ○/● bullet — not opacity, which made the un-fired rows illegible in both
+   themes. Keep every row at full opacity. */
+.stk-dca-read { font: 400 12px/1.45 var(--font-sans); color: var(--muted-strong); display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; }
 .stk-dca-read b { font-weight: 650; }
 .stk-dca-read::before { content: '○'; font: 700 11px/1 var(--font-mono); }
-.stk-dca-read-on { opacity: 1; }
+.stk-dca-read-on { color: var(--text); }
 .stk-dca-read-on b { color: var(--text-strong); }
 .stk-dca-read-on::before { content: '●'; color: var(--pos); }
-.stk-dca-read-pts { font: 700 10px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 5px; }
+.stk-dca-read-pts { font: 700 10px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted-strong); border: 1px solid var(--border); border-radius: 999px; padding: 2px 5px; }
 .stk-dca-read-on .stk-dca-read-pts { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 35%, transparent); }
-.stk-dca-read-det { flex-basis: 100%; font-size: 10.5px; }
+.stk-dca-read-det { flex-basis: 100%; font-size: 11px; }
 .stk-dca-hist { display: flex; gap: 4px; flex-wrap: wrap; border-top: 1px solid var(--border); padding-top: 8px; }
 .stk-dca-h { font: 700 9.5px/1 var(--font-mono); font-variant-numeric: tabular-nums; border-radius: 5px; padding: 4px 6px; color: var(--muted); background: color-mix(in srgb, var(--border) 45%, transparent); cursor: help; }
 .stk-dca-h-lean { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
