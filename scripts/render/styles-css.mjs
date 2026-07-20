@@ -3477,13 +3477,40 @@ a.cmd-watch, a.cr-tkr, a.f13-sym, a.brief-chip, a.cal-chip-sym { text-decoration
 .lev-driver b { color: var(--text); font-weight: 600; }
 .lev-driver span { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .lev-chips { display: flex; gap: 6px; flex-wrap: wrap; }
-.lev-entry, .lev-decay { font: 600 11px/1.2 var(--font-sans); border-radius: 6px; padding: 4px 7px; cursor: help; }
+.lev-entry, .lev-decay, .lev-tape, .lev-horizon, .lev-pair, .lev-carry, .lev-earn, .lev-pick { font: 600 11px/1.2 var(--font-sans); border-radius: 6px; padding: 4px 7px; cursor: help; }
 .lev-entry-go { color: var(--pos); background: color-mix(in srgb, var(--pos) 14%, transparent); }
 .lev-entry-wait { color: var(--warn, #d99a2b); background: color-mix(in srgb, var(--warn, #d99a2b) 14%, transparent); }
 .lev-entry-avoid { color: var(--neg); background: color-mix(in srgb, var(--neg) 14%, transparent); }
 .lev-decay-low { color: var(--muted-strong); background: color-mix(in srgb, var(--border) 45%, transparent); }
 .lev-decay-mod { color: var(--warn, #d99a2b); background: color-mix(in srgb, var(--warn, #d99a2b) 14%, transparent); }
 .lev-decay-high { color: var(--neg); background: color-mix(in srgb, var(--neg) 14%, transparent); }
+.lev-tape { color: var(--warn, #d99a2b); background: color-mix(in srgb, var(--warn, #d99a2b) 18%, transparent); border: 1px solid color-mix(in srgb, var(--warn, #d99a2b) 35%, transparent); }
+.lev-horizon { color: var(--muted-strong); background: color-mix(in srgb, var(--border) 45%, transparent); }
+.lev-pair { color: var(--muted-strong); border: 1px dashed var(--border); background: transparent; }
+.lev-carry { color: var(--muted-strong); background: color-mix(in srgb, var(--border) 45%, transparent); }
+.lev-earn { color: var(--warn, #d99a2b); background: color-mix(in srgb, var(--warn, #d99a2b) 18%, transparent); border: 1px solid color-mix(in srgb, var(--warn, #d99a2b) 35%, transparent); }
+.lev-pick { color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
+.lev-live-vs { color: var(--muted-strong); font-weight: 500; font-size: 11.5px; cursor: help; }
+.lev-flagged { font-size: 11.5px; color: var(--muted-strong); }
+.lev-flag-pct { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.lev-spark-sim { stroke: var(--accent); stroke-width: 1.2; stroke-dasharray: 4 3; opacity: 0.75; vector-effect: non-scaling-stroke; }
+.lev-spark-key { font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+.lev-spark-key-under { font-weight: 700; }
+.lev-spark-key-sim { color: var(--accent); font-weight: 700; }
+.lev-record { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.lev-record .lev-sub { margin: 0; }
+.lev-stats { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.lev-stat { display: inline-flex; flex-direction: column; gap: 2px; padding: 6px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-1); }
+.lev-stat-label { font: 600 9px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.lev-stat-val { font: 700 0.8rem/1.1 var(--font-mono); color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.lev-stat-val.pos { color: var(--pos); }
+.lev-stat-val.neg { color: var(--neg); }
+.lev-stat-n { color: var(--muted); font-weight: 500; }
+.lev-stat-note { font-size: 11.5px; color: var(--muted-strong); }
+.lev-closed-row { display: flex; flex-wrap: wrap; gap: 5px; }
+.lev-closed-chip { font: 700 11px/1 var(--font-mono); font-variant-numeric: tabular-nums; border-radius: 5px; padding: 4px 6px; color: var(--muted-strong); background: color-mix(in srgb, var(--border) 45%, transparent); cursor: help; }
+.lev-closed-chip.pos { color: var(--pos); background: color-mix(in srgb, var(--pos) 12%, transparent); }
+.lev-closed-chip.neg { color: var(--neg); background: color-mix(in srgb, var(--neg) 12%, transparent); }
 .lev-note { margin: 0; font-size: 11.5px; color: var(--muted-strong); font-style: italic; }
 .lev-sub { margin: 6px 0 0; font-size: 13px; }
 .lev-watch { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
