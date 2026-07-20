@@ -13378,7 +13378,7 @@
     return MON[parseInt(iso.slice(5,7),10)-1] + ' ' + parseInt(iso.slice(8,10),10);
   }
   function loadEarningsTracker(){
-    if (earningsState.data || earningsState.loading){ renderEarningsTracker(); return; }
+    if ((earningsState.data && !earningsState.data.loadError) || earningsState.loading){ renderEarningsTracker(); return; }
     earningsState.loading = true;
     fetch('data/earnings-tracker.json', { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
@@ -13657,7 +13657,7 @@
     return bodyHtml ? '<div class="ecl-sec"><div class="ecl-sec-title">' + escapeHtml(title) + '</div>' + bodyHtml + '</div>' : '';
   }
   function loadEarningsCalls(){
-    if (callsState.idx || callsState.loading){ renderEarningsCalls(); return; }
+    if ((callsState.idx && !callsState.idx.loadError) || callsState.loading){ renderEarningsCalls(); return; }
     callsState.loading = true;
     fetch('data/earnings-calls.json', { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
@@ -13888,7 +13888,7 @@
     return '<span class="cx-yoy ' + cls + '">' + (p >= 0 ? '▲ +' : '▼ ') + p.toFixed(1) + '%</span>';
   }
   function loadAiCapex(){
-    if (aiCapexState.data || aiCapexState.loading){ renderAiCapex(); return; }
+    if ((aiCapexState.data && !aiCapexState.data.loadError) || aiCapexState.loading){ renderAiCapex(); return; }
     aiCapexState.loading = true;
     fetch('data/ai-capex.json', { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
@@ -14006,7 +14006,7 @@
     return MONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate() + " '" + String(d.getUTCFullYear()).slice(2);
   }
   function loadRamPrices(){
-    if (ramPricesState.data || ramPricesState.loading){ renderRamPrices(); return; }
+    if ((ramPricesState.data && !ramPricesState.data.loadError) || ramPricesState.loading){ renderRamPrices(); return; }
     ramPricesState.loading = true;
     fetch('data/ram-prices.json', { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
@@ -14275,7 +14275,7 @@
     catch (e){ return String(iso).slice(0,10); }
   }
   function loadCapitalRaises(){
-    if (capitalRaisesState.data || capitalRaisesState.loading){ renderCapitalRaises(); return; }
+    if ((capitalRaisesState.data && !capitalRaisesState.data.loadError) || capitalRaisesState.loading){ renderCapitalRaises(); return; }
     capitalRaisesState.loading = true;
     fetch('data/capital-raises.json', { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
@@ -14384,7 +14384,7 @@
     return rpChip(((cur - prev) / Math.abs(prev)) * 100, label || 'vs last qtr');
   }
   function loadIpoCredit(){
-    if (ipoCreditState.data || ipoCreditState.loading){ renderIpoCredit(); return; }
+    if ((ipoCreditState.data && !ipoCreditState.data.loadError) || ipoCreditState.loading){ renderIpoCredit(); return; }
     ipoCreditState.loading = true;
     fetch('data/ipo-credit.json', { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
@@ -15065,7 +15065,11 @@
       (d.pairs && d.pairs.rows && d.pairs.rows.length) || (d.surface && d.surface.rows && d.surface.rows.length) ||
       (d.confluence && d.confluence.rows && d.confluence.rows.length);
     if (d.loadError || !hasAny){
-      root.innerHTML = ''; root.hidden = true; if (empty) empty.hidden = false;
+      root.innerHTML = ''; root.hidden = true;
+      // Distinguish a failed fetch from genuinely-not-baked-yet — the shared
+      // "will appear after the next build" copy hid a 404/401 as if the data
+      // simply hadn't been generated.
+      if (empty){ empty.hidden = false; empty.textContent = d.loadError ? 'Could not load Quant Lab data — reopen the tab or refresh the page to retry.' : 'Quant Lab data will appear after the next daily build refresh.'; }
       if (eye) eye.textContent = '';
       return;
     }
@@ -15585,6 +15589,11 @@
   // screen until fresh data lands.
   var TAB_DATA_STALE_MS = 30 * 60 * 1000;
   function tabDataStale(state){
+    // A cached fetch FAILURE is always stale: fetchedAt is only stamped on
+    // success, so without this branch a single failed load (e.g. a 404 before
+    // a brand-new tab's first bake) pinned the error card for the whole page
+    // session — re-entering the tab must retry instead.
+    if (state.data && state.data.loadError) return true;
     return !!(state.data && state.fetchedAt && (Date.now() - state.fetchedAt > TAB_DATA_STALE_MS));
   }
   // ── Stock Picks (quality-dip screen, premium) ──────────────────────────
