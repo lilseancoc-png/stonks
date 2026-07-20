@@ -20,6 +20,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
        (same format, plus the archive preamble) and add that month to the
        "Older changelogs" index below. -->
 
+## 2026-07-20
+
+### Changed
+- **The owner-exclusive (role-hidden) tabs — Top picks and Track record — move into the "Quant" sidebar group**, alongside Quant Lab, instead of sitting in the first nav group. Pure nav reorganization: ids, `data-page-tab` wiring, premium locks, and the role-hidden removal (a visitor without the `tp`/`tr` claim still sees neither tab, leaving Quant Lab as the group's only entry) all work unchanged, and the Top-picks landing card stays under "Find ideas". index.html hand-synced (byte-verified against a stub render). `scripts/render/html.mjs`.
+
 ## 2026-07-19
 
 ### Changed

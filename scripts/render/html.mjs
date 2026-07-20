@@ -1394,7 +1394,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <span id="market-status" class="market-status" aria-live="off" hidden></span>
 </div>
 <!-- Collapsible sidebar navigation. Every destination is a flat, always-
-     visible item (grouped under Flow / Macro / Tools / Legal section labels)
+     visible item (grouped under Flow / Macro / Quant / Tools / Legal labels)
      instead of the old horizontal strip + dropdown menus. Items keep the
      same ids / data-page-tab / aria-controls wiring, so cmd-K targeting,
      the premium lock marker, and the role-hidden tab removal all work
@@ -1409,7 +1409,6 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     ${sideNavItem('tickers', 'Tickers')}
     ${sideNavItem('narratives', 'Narratives')}
     ${sideNavItem('market', 'Market analysis')}
-    ${sideNavItem('picks', 'Top picks')}
     ${sideNavItem('stocks', 'Stock picks')}
     ${sideNavItem('levetf', 'Leveraged ETFs')}
     ${sideNavItem('calendar', 'Calendar')}
@@ -1417,7 +1416,6 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     ${sideNavItem('calls', 'Earnings calls')}
     ${sideNavItem('spillover', 'Event spillover')}
     ${sideNavItem('index-cal', 'Index calendar')}
-    ${sideNavItem('track', 'Track record')}
   </div>
   <div class="side-nav-group">
     <div class="side-nav-group-label" aria-hidden="true">Flow</div>
@@ -1441,7 +1439,12 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     ${sideNavItem('f13', '13F filings')}
   </div>
   <div class="side-nav-group">
+    <!-- The Quant group also houses the owner-exclusive (role-hidden) tabs:
+         Top picks (tp claim) and Track record (tr claim). startApp() removes
+         their buttons for visitors without the role, leaving Quant Lab. -->
     <div class="side-nav-group-label" aria-hidden="true">Quant</div>
+    ${sideNavItem('picks', 'Top picks')}
+    ${sideNavItem('track', 'Track record')}
     ${sideNavItem('quant', 'Quant Lab')}
   </div>
   <div class="side-nav-group">
