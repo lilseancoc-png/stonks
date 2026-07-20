@@ -4858,6 +4858,217 @@ function buildQuantPed(earningsHxStore, chains, todayIso) {
   return rows;
 }
 
+// --- Aggregate ideas (confluence screen) -----------------------------------
+// Cross-references four INDEPENDENT flow screens the site already computes —
+// the session's largest unusual-options prints (unusual.json, scanner-owned),
+// the intraday volume / S-R-break flag board (volume-flags.json,
+// scanner-owned), fresh short price streaks (streaks.json, ≤3 sessions), and
+// 5-day rising / surging IV (iv-trending) — and ships every name that shows
+// on at least QUANT_CONF_MIN_SIGNALS of them; ≥ QUANT_CONF_QUALIFIED_SIGNALS
+// earns the "qualified" badge. Same owner directive as the rest of the Quant
+// Lab: confluence is a statistical observation (independent screens agreeing
+// on the same name), never a trade signal. The scanner-owned sources may lag
+// the bake by up to an hour (or a session on a pre-scan morning build), so
+// each source ships its own asOf + stale stamp rather than pretending the
+// four reads are simultaneous.
+const QUANT_CONF_TOP_PRINTS = 10; // top-N prints by this-hour premium (day-premium fallback)
+const QUANT_CONF_TOP_VOLUME = 10; // top-N flagged volume tickers by best vol ratio
+const QUANT_CONF_STREAK_MAX_DAYS = 3; // "fresh" streak: ≤3 sessions (and ≥2 same-direction days)
+const QUANT_CONF_MIN_SIGNALS = 2;
+const QUANT_CONF_QUALIFIED_SIGNALS = 3;
+const QUANT_CONF_MAX_ROWS = 40;
+
+// Pure given its inputs — exported for offline testing (a keyless/dataless
+// call degrades to an empty rows list with per-source availability stamps).
+export function buildQuantConfluence(sources, chains, builtAtIso) {
+  const { unusual, volumeFlags, streaksMap, ivTrending } = sources || {};
+  const todayEt = etDateKey(new Date(builtAtIso || Date.now()));
+  const bySym = new Map();
+  const slot = (sym) => {
+    let r = bySym.get(sym);
+    if (!r) {
+      r = { flow: null, volume: null, streak: null, iv: null };
+      bySym.set(sym, r);
+    }
+    return r;
+  };
+
+  // Flow — the session's largest single prints, ranked by this-hour dollars
+  // (deltaPremium) with the day's cumulative premium as the fallback: the same
+  // basis the Unusual Flow tab's "Top print" chip uses.
+  const prints = [];
+  for (const t of unusual?.tickers || []) {
+    for (const c of t.contracts || []) {
+      const prem = (c.deltaPremium != null ? c.deltaPremium : c.premium) || 0;
+      if (prem > 0) prints.push({ sym: t.symbol, prem, hourly: c.deltaPremium != null, c });
+    }
+  }
+  prints.sort((a, b) => b.prem - a.prem);
+  const topPrints = prints.slice(0, QUANT_CONF_TOP_PRINTS);
+  topPrints.forEach((p, i) => {
+    const s = slot(p.sym);
+    if (s.flow) return; // a ticker keeps only its biggest print
+    s.flow = {
+      rank: i + 1,
+      side: p.c.side === "put" ? "put" : "call",
+      strike: p.c.strike ?? null,
+      dte: p.c.dte ?? null,
+      prem: Math.round(p.prem),
+      hourly: p.hourly,
+      dayPrem: p.c.premium ?? null,
+      vol: p.c.vol ?? null,
+      oi: p.c.oi ?? null,
+    };
+  });
+
+  // Volume — the flag board's own "most interesting" ordering (best hourly
+  // bucket ratio, else EOD ratio), genuinely-flagged rows only (hourly flag,
+  // EOD flag, or a CONFIRMED S/R break — "None" placeholders don't count).
+  const volRows = [];
+  for (const row of volumeFlags?.tickers || []) {
+    const hits = row.bucketHits || [];
+    const srHit = hits.find((h) => h.srBreak && h.srBreak.conviction && h.srBreak.conviction !== "None");
+    const hourlyFlagged = hits.some((h) => h.hourlyFlagged);
+    const eodFlagged = !!row.eod?.flagged;
+    if (!srHit && !hourlyFlagged && !eodFlagged) continue;
+    let ratio = 0;
+    let movePct = null;
+    for (const h of hits) {
+      if (h.volRatio != null && h.volRatio > ratio) {
+        ratio = h.volRatio;
+        movePct = h.priceMovePct ?? movePct;
+      }
+    }
+    if (row.eod?.ratio != null && row.eod.ratio > ratio) {
+      ratio = row.eod.ratio;
+      movePct = row.eod.dayMovePct ?? movePct;
+    }
+    volRows.push({
+      sym: row.symbol,
+      ratio: ratio || null,
+      kind: srHit ? "sr-break" : hourlyFlagged ? "hourly" : "eod",
+      srBreak: srHit
+        ? { type: srHit.srBreak.type, level: srHit.srBreak.level ?? null, conviction: srHit.srBreak.conviction }
+        : null,
+      movePct: movePct != null ? quantRound(movePct, 1) : null,
+    });
+  }
+  volRows.sort((a, b) => (b.ratio || 0) - (a.ratio || 0));
+  volRows.slice(0, QUANT_CONF_TOP_VOLUME).forEach((v, i) => {
+    slot(v.sym).volume = {
+      rank: i + 1,
+      ratio: v.ratio != null ? quantRound(v.ratio, 2) : null,
+      kind: v.kind,
+      srBreak: v.srBreak,
+      movePct: v.movePct,
+    };
+  });
+
+  // Streaks — fresh runs only: a genuine (≥2 same-direction sessions) streak
+  // no older than QUANT_CONF_STREAK_MAX_DAYS sessions. Early confluence is
+  // the point — a 7-day run is already an old story.
+  let streakCount = 0;
+  for (const [sym, row] of Object.entries(streaksMap || {})) {
+    const cur = row?.current;
+    if (!cur || !(cur.sameDays >= 2) || !(cur.days <= QUANT_CONF_STREAK_MAX_DAYS)) continue;
+    if (cur.color !== "green" && cur.color !== "red") continue;
+    streakCount++;
+    slot(sym).streak = {
+      color: cur.color,
+      days: cur.days,
+      cumPct: quantRound(cur.cumulativePct, 1),
+      volumeTrend: cur.volumeTrend ?? null,
+    };
+  }
+
+  // IV — 5-day rising / surging premium, by the Trending-IV tab's own
+  // conventions: the surging tier, a fast 5-session ramp (≥ IV_SUMMARY_RAMP_5D
+  // %), or ≥ IV_SUMMARY_STREAK_DAYS consecutive rising sessions. Magnitude
+  // signal only — it never votes on direction.
+  let ivCount = 0;
+  for (const r of ivTrending?.tickers || []) {
+    const ramp = (r.chg5dPct ?? 0) >= IV_SUMMARY_RAMP_5D;
+    const streak5 = (r.risingStreak || 0) >= IV_SUMMARY_STREAK_DAYS;
+    if (r.tier !== "surging" && !ramp && !streak5) continue;
+    ivCount++;
+    slot(r.symbol).iv = {
+      tier: r.tier ?? null,
+      chg5dPct: r.chg5dPct ?? null,
+      risingStreak: r.risingStreak || 0,
+      z: r.z ?? null,
+      iv: quantVolPts(r.iv),
+      relPct: r.relPct ?? null,
+      earnings: r.earnings ? { date: r.earnings.date, inDays: r.earnings.inDays ?? null } : null,
+    };
+  }
+
+  // Assemble: every symbol on ≥ QUANT_CONF_MIN_SIGNALS screens ships. The
+  // lean is reported only from the directional screens (flow side, streak
+  // color, S/R-break direction / volume-day move) — full agreement reads
+  // bullish/bearish, any split reads mixed.
+  const rows = [];
+  for (const [sym, s] of bySym.entries()) {
+    const count = (s.flow ? 1 : 0) + (s.volume ? 1 : 0) + (s.streak ? 1 : 0) + (s.iv ? 1 : 0);
+    if (count < QUANT_CONF_MIN_SIGNALS) continue;
+    const votes = [];
+    if (s.flow) votes.push(s.flow.side === "put" ? -1 : 1);
+    if (s.streak) votes.push(s.streak.color === "red" ? -1 : 1);
+    if (s.volume) {
+      if (s.volume.srBreak) votes.push(s.volume.srBreak.type === "lower" ? -1 : 1);
+      else if (s.volume.movePct) votes.push(s.volume.movePct < 0 ? -1 : 1);
+    }
+    const lean = !votes.length
+      ? null
+      : votes.every((v) => v === 1) ? "bullish"
+      : votes.every((v) => v === -1) ? "bearish"
+      : "mixed";
+    const data = chains?.[sym] || null;
+    rows.push({
+      t: sym,
+      sector: SECTORS[sym] || data?.fundamentals?.sector || null,
+      spot: data?.spot != null ? quantRound(data.spot) : null,
+      count,
+      qualified: count >= QUANT_CONF_QUALIFIED_SIGNALS,
+      lean,
+      flow: s.flow,
+      volume: s.volume,
+      streak: s.streak,
+      iv: s.iv,
+    });
+  }
+  rows.sort(
+    (a, b) =>
+      b.count - a.count ||
+      (b.flow?.prem || 0) - (a.flow?.prem || 0) ||
+      (b.volume?.ratio || 0) - (a.volume?.ratio || 0) ||
+      a.t.localeCompare(b.t),
+  );
+
+  const flowEt = unusual?.scannedAt ? etDateKey(new Date(unusual.scannedAt)) : null;
+  const volEt = volumeFlags?.etDate
+    || (volumeFlags?.scannedAt ? etDateKey(new Date(volumeFlags.scannedAt)) : null);
+  return {
+    minSignals: QUANT_CONF_MIN_SIGNALS,
+    qualifiedMin: QUANT_CONF_QUALIFIED_SIGNALS,
+    streakMaxDays: QUANT_CONF_STREAK_MAX_DAYS,
+    ivRamp5d: IV_SUMMARY_RAMP_5D,
+    ivStreakDays: IV_SUMMARY_STREAK_DAYS,
+    topPrints: QUANT_CONF_TOP_PRINTS,
+    topVolume: QUANT_CONF_TOP_VOLUME,
+    sources: {
+      flow: unusual
+        ? { asOf: unusual.scannedAt || null, etDate: flowEt, stale: !!(flowEt && flowEt !== todayEt), prints: topPrints.length }
+        : null,
+      volume: volumeFlags
+        ? { asOf: volumeFlags.scannedAt || null, etDate: volEt, stale: !!(volEt && volEt !== todayEt), flagged: volRows.length }
+        : null,
+      streaks: streaksMap ? { fresh: streakCount } : null,
+      iv: ivTrending ? { asOf: ivTrending.asOf || null, flagged: ivCount } : null,
+    },
+    rows: rows.slice(0, QUANT_CONF_MAX_ROWS),
+  };
+}
+
 // Assemble the whole payload + the upserted quant-history. Pure given its
 // inputs (chains + the collected ivHistory map + the earnings store + the
 // prior history) — exported for offline testing / the diagnose harness.
@@ -4867,6 +5078,10 @@ export function buildQuantPayload(
   earningsHxStore,
   priorHistory,
   builtAtIso = new Date().toISOString(),
+  // Optional cross-feed sources for the Aggregate-ideas confluence screen:
+  // { unusual, volumeFlags, streaksMap, ivTrending }. Omitted (offline
+  // harness callers) → the confluence block ships with empty rows.
+  confluenceSources = null,
 ) {
   const todayIso = String(builtAtIso).slice(0, 10);
   const sigmaRows = buildQuantSigma(chains, todayIso);
@@ -4895,6 +5110,7 @@ export function buildQuantPayload(
     builtAtIso,
     date: todayIso,
     minHist: QUANT_SURFACE_MIN_HIST,
+    confluence: buildQuantConfluence(confluenceSources, chains, builtAtIso),
     sigma: { showZ: QUANT_SIGMA_SHOW_Z, retZ: QUANT_SIGMA_RET_Z, rows: sigmaRows },
     vrp: { minN: QUANT_VRP_MIN_N, mktVrp: vrp.mktVrp, rows: vrp.rows },
     pairs: {
@@ -26873,10 +27089,16 @@ async function main() {
   try {
     const { payload: quantPayload, history: quantHistoryNext } = buildQuantPayload(
       chains, ivHistory, earningsHxStore, priorQuantHistory, builtAtIso,
+      // Aggregate-ideas confluence sources: the scanner-owned flow/volume
+      // boards preserved across the wipe + the just-written streaks map and
+      // Trending-IV payload from earlier in this bake.
+      { unusual, volumeFlags, streaksMap: streaksInfo?.map, ivTrending: ivTrendingForBrief },
     );
     const quantInfo = await writeQuantFiles(quantPayload, quantHistoryNext);
     console.log(
-      `wrote data/${QUANT_FILE} — ${quantPayload.sigma.rows.length} sigma flags, ` +
+      `wrote data/${QUANT_FILE} — ${quantPayload.confluence.rows.length} confluence ideas ` +
+      `(${quantPayload.confluence.rows.filter((r) => r.qualified).length} qualified), ` +
+      `${quantPayload.sigma.rows.length} sigma flags, ` +
       `${quantPayload.vrp.rows.length} VRP names, ${quantPayload.pairs.rows.length}/${quantPayload.pairs.tested} pairs, ` +
       `${quantPayload.surface.rows.length} surface rows, ${quantPayload.ped.rows.length} post-print, ` +
       `${quantInfo.bytes} bytes (+${quantInfo.historyBytes} history, ${quantHistoryNext.days.length} days)`,

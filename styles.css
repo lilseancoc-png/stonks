@@ -3309,6 +3309,14 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .quant-play-tbl td { color: var(--muted-strong); min-width: 140px; }
 .quant-play-tbl td:first-child { font-weight: 650; color: var(--text-strong); }
 .quant-empty { font: 400 12.5px/1.5 var(--font-sans); color: var(--muted); }
+/* Aggregate ideas (confluence screen) */
+.quant-conf-note { border-style: solid; }
+.quant-conf-count { font: 700 11px/1 var(--font-mono); color: var(--muted-strong); border: 1px solid var(--border); border-radius: 999px; padding: 3px 7px; white-space: nowrap; }
+.quant-conf-count.is-q { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.quant-conf-q { font: 700 10px/1 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 999px; padding: 3px 8px; white-space: nowrap; }
+.quant-conf-qrow td { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.quant-conf-lean { font: 700 10px/1 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; }
+.quant-conf-src { font-size: 11.5px; }
 
 /* --- Stock Picks (quality-dip screen, premium) ------------------------- */
 .stk-root { display: flex; flex-direction: column; gap: 14px; }

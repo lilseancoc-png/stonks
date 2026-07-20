@@ -24,6 +24,7 @@ windows, the picks-engine philosophy).
 
 | Screen | Inputs | Key math |
 |---|---|---|
+| Aggregate ideas (confluence) | `unusual.json` + `volume-flags.json` (scanner-owned, preserved across the wipe) + the just-written streaks map + Trending-IV payload | cross-reference of four **independent** flow screens: top-10 unusual prints by this-hour `deltaPremium` (day `premium` fallback — the Unusual tab's "Top print" basis), top-10 genuinely-flagged volume names by best hourly/EOD ratio (confirmed S/R breaks included), fresh streaks (`sameDays ≥ 2 ∧ days ≤ 3`), and rising IV (surging tier ∨ `chg5dPct ≥ 20` ∨ `risingStreak ≥ 5` — the Trending-IV conventions). A name on ≥2 screens ships; ≥3 = the `qualified` badge; `lean` reported only when the directional screens (flow side, streak color, S/R-break direction / volume-day move) unanimously agree, else `mixed`; IV never votes (magnitude-only). Scanner sources carry per-source `asOf` + `stale` stamps (they can lag the bake by an hour, or a session pre-scan) — `buildQuantConfluence` (exported) |
 | Sigma deviations | `priceSeries`/`_bars` (252d closes), chain ATM IV | `z20 = (close − SMA20)/σ20` (population σ, Bollinger convention); `retZ = (ln-return − mean)/σ` of the **prior** 20 daily log returns (today's outlier can't inflate its own σ); expected move `k·S·IV·√(days/365)` for 1wk/1mo, k∈{1,2}; earnings move = `0.85 ×` ATM-straddle mid (`computeImpliedMoveForDate`; the 0.85 quick-read convention applies **only here**) |
 | Vol risk premium | `iv-history/` (~18mo ATM ~30d IV) × rolling 30d RV from closes | `vrp_d = iv_d − RV30(closes ≤ d)`; series depth ≈ min(iv n, 252−31) ≈ 220 — derived **retroactively**, no new accumulation; today's z + midrank percentile vs that series; requires n ≥ 60 |
 | Pairs | within-`INDUSTRY_OF_TICKER` groups (singleton industries pool by fine `SECTORS` label; ETFs excluded), aligned closes + joined iv-history | gate: 120d return corr ≥ 0.60 (no all-vs-all dredging); `pxZ` = 60d log price-ratio z; AR(1) on that window → `halfLife = −ln2/ln(1+φ)`, `mrOk` = φ<0 ∧ half-life ≤ 30 (the **honest substitute for cointegration** — 252 bars is too short for Engle-Granger, and the UI badges rows that fail rather than hiding them); `ivZ` = IV-spread (A−B) z vs its 120d norm, ≥ 60 joined obs |
@@ -46,11 +47,18 @@ Units convention: **all vol numbers ship as percentage points** (24.1 =
 ## 4. Feed shapes
 
 `data/quant.json` (premium, ~60–120 KB at full universe):
-`{ builtAtIso, date, minHist, sigma:{showZ,retZ,rows}, vrp:{minN,mktVrp,rows},
+`{ builtAtIso, date, minHist, confluence:{minSignals,qualifiedMin,sources,rows},
+sigma:{showZ,retZ,rows}, vrp:{minN,mktVrp,rows},
 pairs:{window,corrMin,halfLifeMax,tested,rows}, surface:{farDte,skewDelta,rows},
 dispersion, ped:{windowSessions,rows}, coverage:{notFeasible,existing} }` —
 row shapes in `buildQuant*` (build.mjs). Only names at/near an extreme ship in
-`sigma`; `pairs` ships rows with max(|pxZ|,|ivZ|) ≥ 1, capped at 80.
+`sigma`; `pairs` ships rows with max(|pxZ|,|ivZ|) ≥ 1, capped at 80. Confluence
+rows: `{ t, sector, spot, count, qualified, lean, flow, volume, streak, iv }`
+(per-signal detail objects, null when that screen didn't fire), capped at 40;
+`sources` carries each feed's availability/`asOf`/`stale` stamp so the UI never
+pretends the four reads are simultaneous. The bake threads the sources in via
+`buildQuantPayload`'s trailing `confluenceSources` param — offline callers
+(diagnose harness) omit it and get an empty-rows confluence block.
 
 `data/quant-history.json` (premium, read-before-wipe, cap 500 days):
 `{ days: [{ d, impliedCorr, idxIv, basketIv, mktVrp }] }` — upserted per ET
@@ -61,6 +69,10 @@ day; powers the dispersion percentile.
 Event read-through pair betas → **Event spillover** tab. Season-wide earnings
 stats → **Earnings tracker**. IV momentum/elevation → **Trending IV**. Price-dip
 shares screen → **Stock Picks**. The Quant Lab's coverage card points at each.
+The Aggregate-ideas screen is the deliberate exception: it does not re-derive
+any of those signals — it *joins* the already-computed flow/volume/streak/IV
+outputs by ticker and reports only the cross-reference (each row's cells link
+back to the numbers the source tabs already show).
 
 ## 6. Honestly out of scope (no data source)
 

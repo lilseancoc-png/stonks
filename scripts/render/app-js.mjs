@@ -15081,7 +15081,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var d = quantState.data;
     if (!d){ root.textContent = 'Loading Quant Lab…'; return; }
     var hasAny = (d.sigma && d.sigma.rows && d.sigma.rows.length) || (d.vrp && d.vrp.rows && d.vrp.rows.length) ||
-      (d.pairs && d.pairs.rows && d.pairs.rows.length) || (d.surface && d.surface.rows && d.surface.rows.length);
+      (d.pairs && d.pairs.rows && d.pairs.rows.length) || (d.surface && d.surface.rows && d.surface.rows.length) ||
+      (d.confluence && d.confluence.rows && d.confluence.rows.length);
     if (d.loadError || !hasAny){
       root.innerHTML = ''; root.hidden = true; if (empty) empty.hidden = false;
       if (eye) eye.textContent = '';
@@ -15096,6 +15097,75 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var minHist = d.minHist || 60;
     if (eye) eye.textContent = (d.date || '') + ' · ' + sigmaRows.length + ' sigma flags · ' + pairRows.length + ' pair reads';
     var html = '<div class="quant-note">Analytical screens — statistical extremes vs each name’s own history. Nothing here is a trade signal.</div>';
+    // --- Aggregate ideas (confluence) ------------------------------------
+    // Cross-reference of four independent flow screens (top unusual prints ·
+    // top volume flags · fresh ≤3d streaks · 5d rising/surging IV) baked by
+    // buildQuantConfluence in build.mjs. Older payloads without the block
+    // skip the section entirely.
+    var conf = d.confluence;
+    if (conf){
+      var confMin = conf.minSignals || 2;
+      html += '<div class="quant-sub">Aggregate ideas — names on ' + confMin + '+ of four independent flow screens</div>';
+      html += '<div class="quant-note quant-conf-note">Screens: <b>top prints</b> (the ' + (conf.topPrints || 10) + ' largest unusual-options prints this session) · <b>volume</b> (top ' + (conf.topVolume || 10) + ' flagged names by relative volume / S-R break) · <b>fresh streak</b> (a ' + (conf.streakMaxDays || 3) + '-sessions-or-younger green/red run) · <b>rising IV</b> (surging tier, a ' + (conf.ivRamp5d || 20) + '%+ 5-session IV ramp, or ' + (conf.ivStreakDays || 5) + '+ rising sessions). Independent screens agreeing is an observation about the tape, not a recommendation.</div>';
+      var confRows = conf.rows || [];
+      if (!confRows.length){
+        html += '<p class="quant-none">No name sits on ' + confMin + '+ screens right now — confluence is rare by construction. The next hourly scan or bake can change that.</p>';
+      } else {
+        var leanChip = function(lean){
+          if (lean === 'bullish') return '<span class="quant-conf-lean quant-pos">bullish</span>';
+          if (lean === 'bearish') return '<span class="quant-conf-lean quant-neg">bearish</span>';
+          if (lean === 'mixed') return '<span class="quant-conf-lean quant-dim">mixed</span>';
+          return '<span class="quant-dim">—</span>';
+        };
+        var flowCell = function(f){
+          if (!f) return '—';
+          var money = fmtBigDollars(f.prem) || ('$' + f.prem);
+          return '#' + f.rank + ' print · <b>' + escapeHtml(money) + (f.hourly ? '/hr' : '') + '</b> · $' + Number(f.strike) + (f.side === 'put' ? 'P' : 'C') + (f.dte != null ? ' <span class="quant-dim">' + f.dte + 'd</span>' : '');
+        };
+        var volCell = function(v){
+          if (!v) return '—';
+          var kind = v.kind === 'sr-break'
+            ? (v.srBreak && v.srBreak.type === 'lower' ? 'broke support' : 'broke resistance')
+            : v.kind === 'eod' ? 'day volume' : 'hourly surge';
+          return (v.ratio != null ? '<b>' + quantNum(v.ratio, 1) + '×</b> ' : '') + escapeHtml(kind) +
+            (v.movePct ? ' <span class="' + (v.movePct >= 0 ? 'quant-pos' : 'quant-neg') + '">' + quantSigned(v.movePct, 1) + '%</span>' : '');
+        };
+        var streakCell = function(s){
+          if (!s) return '—';
+          return '<span class="' + (s.color === 'red' ? 'quant-neg' : 'quant-pos') + '"><b>' + s.days + 'd ' + s.color + '</b></span> ' + quantSigned(s.cumPct, 1) + '%' +
+            (s.volumeTrend === 'rising' ? ' <span class="quant-dim">on rising vol</span>' : s.volumeTrend === 'falling' ? ' <span class="quant-dim">on fading vol</span>' : '');
+        };
+        var ivCell = function(v){
+          if (!v) return '—';
+          var bits = [];
+          if (v.tier) bits.push('<b>' + escapeHtml(v.tier) + '</b>');
+          if (v.chg5dPct != null) bits.push(quantSigned(v.chg5dPct, 0) + '% 5d');
+          if (v.risingStreak >= 2) bits.push('↑' + v.risingStreak + 'd');
+          if (v.earnings && v.earnings.date) bits.push('<span class="quant-dim">earnings ' + escapeHtml(v.earnings.date) + '</span>');
+          return bits.join(' · ') || '—';
+        };
+        html += '<div class="quant-scroll"><table class="quant-tbl"><thead><tr><th>Name</th><th>Screens</th><th>Lean</th><th>Top print</th><th>Volume</th><th>Fresh streak</th><th>Rising IV</th></tr></thead><tbody>';
+        confRows.forEach(function(r){
+          html += '<tr' + (r.qualified ? ' class="quant-conf-qrow"' : '') + '><td>' + quantSymLink(r.t) + (r.sector ? ' <span class="quant-dim">' + escapeHtml(r.sector) + '</span>' : '') + '</td>' +
+            '<td><span class="quant-conf-count' + (r.qualified ? ' is-q' : '') + '">' + r.count + '/4</span>' + (r.qualified ? ' <span class="quant-conf-q" title="On ' + (conf.qualifiedMin || 3) + '+ of the four screens">qualified</span>' : '') + '</td>' +
+            '<td>' + leanChip(r.lean) + '</td>' +
+            '<td>' + flowCell(r.flow) + '</td>' +
+            '<td>' + volCell(r.volume) + '</td>' +
+            '<td>' + streakCell(r.streak) + '</td>' +
+            '<td>' + ivCell(r.iv) + '</td></tr>';
+        });
+        html += '</tbody></table></div>';
+      }
+      // Per-source freshness: the flow/volume boards come from the hourly
+      // scanner and can lag the bake (or carry a prior session pre-scan).
+      var srcs = conf.sources || {};
+      var srcBits = [];
+      srcBits.push(srcs.flow ? ('flow scan ' + (srcs.flow.stale ? 'from ' + escapeHtml(srcs.flow.etDate || 'a prior session') + ' (stale)' : 'today')) : 'no flow scan yet');
+      srcBits.push(srcs.volume ? ('volume scan ' + (srcs.volume.stale ? 'from ' + escapeHtml(srcs.volume.etDate || 'a prior session') + ' (stale)' : 'today')) : 'no volume scan yet');
+      srcBits.push(srcs.streaks ? ((srcs.streaks.fresh || 0) + ' fresh streaks this bake') : 'no streak data');
+      srcBits.push(srcs.iv ? ((srcs.iv.flagged || 0) + ' rising-IV names') : 'no IV-trend data');
+      html += '<p class="quant-none quant-conf-src">Sources: ' + srcBits.join(' · ') + '.</p>';
+    }
     // --- Sigma deviations -----------------------------------------------
     html += '<div class="quant-sub">Sigma deviations — names at a statistical extreme</div>';
     if (!sigmaRows.length){
