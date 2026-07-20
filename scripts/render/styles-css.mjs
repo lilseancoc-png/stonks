@@ -3537,6 +3537,16 @@ a.cr-tkr:hover .stk-sym-go, a.cr-tkr:focus-visible .stk-sym-go { color: var(--ac
 .ic-bar-cur .ic-bar { background: var(--accent); }
 .ic-bar-n { font: 700 11px/1 var(--font-mono); color: var(--text-strong); }
 .ic-bar-q { font: 400 10px/1 var(--font-sans); color: var(--muted); white-space: nowrap; }
+.ic-bar-click { cursor: pointer; border-radius: 6px; }
+.ic-bar-click:hover .ic-bar { background: color-mix(in srgb, var(--accent) 62%, transparent); }
+.ic-bar-click:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.ic-bar-sel .ic-bar { background: var(--accent); box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 45%, transparent); }
+.ic-bar-sel .ic-bar-q { color: var(--text-strong); font-weight: 700; }
+.ic-spac { font: 600 8.5px/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 5px; margin-left: 6px; vertical-align: 1px; white-space: nowrap; }
+.ic-qtr-head { justify-content: space-between; flex-wrap: wrap; }
+.ic-qtr-agg { font: 400 11px/1.3 var(--font-sans); color: var(--muted); text-transform: none; letter-spacing: 0; }
+.ic-ipo-scroll { max-height: 380px; overflow-y: auto; }
+.ic-ipo-scroll .ic-table thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
 .ic-table-wrap { overflow-x: auto; }
 .ic-table { width: 100%; border-collapse: collapse; font: 400 12.5px/1.4 var(--font-sans); }
 .ic-table th { text-align: left; font: 700 10.5px/1.3 var(--font-sans); text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); padding: 4px 10px 4px 0; border-bottom: 1px solid var(--border); }

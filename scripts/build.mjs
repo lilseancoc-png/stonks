@@ -9510,6 +9510,46 @@ async function fetchIpoYear(year) {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return parseStockAnalysisIpos(await res.text());
 }
+// Primary IPO source: the site's internal screener-table endpoint (the JSON
+// the year pages' own column views fetch; index "histip" = priced IPOs).
+// One call returns the whole year with per-listing shares offered + deal
+// size, so each row also carries money raised (`ds`) and a market cap at
+// the IPO price (ipoPrice × current shares outstanding — an estimate; share
+// counts drift after listing, which is why completed quarters are snapshotted
+// once and reused rather than recomputed). The HTML table parse above stays
+// as the per-year fallback (date/symbol/name/price only).
+const IC_IPO_SCREENER_COLS = "ipoDate,s,n,ipoPrice,sharesOffered,ds,sharesOut,isSpac";
+async function fetchIpoScreenerYear(year) {
+  const url = `https://stockanalysis.com/_api/endpoints/screener/table?type=s&m=ipoDate&s=desc&c=${IC_IPO_SCREENER_COLS}&f=ipoDate-year-${year}&i=histip`;
+  const res = await fetch(url, {
+    headers: { "user-agent": IC_BROWSER_UA, accept: "application/json" },
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const rows = (await res.json())?.data?.data;
+  // An empty array is a VALID result (a brand-new year has no priced IPOs
+  // yet) — only a missing/non-array payload is a shape failure.
+  if (!Array.isArray(rows)) throw new Error("unexpected screener shape");
+  const out = [];
+  for (const r of rows) {
+    const date = String(r?.ipoDate || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    // A leading "=" is stockanalysis's delisted-symbol marker — keep the row
+    // (the IPO still happened that quarter), display the bare symbol.
+    const symbol = String(r?.s || "").replace(/^=/, "").toUpperCase();
+    if (!/^[A-Z][A-Z0-9.]{0,6}$/.test(symbol)) continue;
+    const price = Number(r?.ipoPrice);
+    const item = { date, symbol, name: String(r?.n || "").trim() || symbol, price: Number.isFinite(price) && price > 0 ? price : null };
+    const raised = Number(r?.ds);
+    if (Number.isFinite(raised) && raised > 0) item.raised = Math.round(raised);
+    const sharesOut = Number(r?.sharesOut);
+    if (item.price != null && Number.isFinite(sharesOut) && sharesOut > 0) item.mcap = Math.round(sharesOut * item.price);
+    if (String(r?.isSpac).toLowerCase() === "yes") item.spac = 1;
+    out.push(item);
+  }
+  if (rows.length && !out.length) throw new Error("no screener rows survived validation");
+  return out;
+}
 
 // ── SEC EDGAR full-text-search filing counts ────────────────────────────────
 // One tiny JSON GET per (form, quarter): the hit total is the filing count.
@@ -9784,28 +9824,99 @@ export async function buildIpoCreditPayload(builtAtIso, prior = null, priorCapit
     priorQuarter: { key: prevKey, label: icQuarterLabel(prevKey) },
   };
 
-  // 1) IPO calendar — current + prior calendar year covers 5-8 quarters.
+  // 1) IPO calendar — per-quarter counts + full listings for every tracked
+  //    quarter (each bar in the strip is clickable client-side). A completed
+  //    quarter's listing set is a frozen snapshot reused from the prior
+  //    payload — the mcap-at-IPO estimate uses current shares outstanding, so
+  //    re-deriving old quarters every build would let share-count drift rewrite
+  //    history. Refetched only while current, within a few days of quarter end
+  //    (late-posted pricings), or when the cache came from the enrichment-free
+  //    HTML fallback (retry the screener until the rich fields land).
   try {
-    const curYear = Number(etDate.slice(0, 4));
-    const items = [...await fetchIpoYear(curYear - 1), ...await fetchIpoYear(curYear)];
-    if (!items.length) throw new Error("no IPO rows parsed");
-    const counts = new Map();
-    for (const it of items) {
-      const k = icQuarterKey(it.date);
-      if (k) counts.set(k, (counts.get(k) || 0) + 1);
-    }
     const qKeys = icLastNQuarters(curKey, IC_QUARTERS_TRACKED);
-    const curItems = items.filter((it) => icQuarterKey(it.date) === curKey)
-      .sort((a, b) => (a.date < b.date ? 1 : -1));
+    const priorByQ = new Map((prior?.ipos?.byQuarter || []).map((q) => [q.key, q]));
+    const IC_IPO_REFRESH_LAG_DAYS = 7;
+    const daysPastQuarterEnd = (key) => {
+      const end = icQuarterBounds(key)?.end;
+      return end ? Math.floor((Date.parse(etDate) - Date.parse(end)) / 86400000) : Infinity;
+    };
+    const needsFetch = (key) => {
+      if (key === curKey) return true;
+      const cached = priorByQ.get(key);
+      if (!cached || !Array.isArray(cached.items) || !cached.items.length || cached.src !== "screener") return true;
+      return daysPastQuarterEnd(key) <= IC_IPO_REFRESH_LAG_DAYS;
+    };
+    const years = [...new Set(qKeys.filter(needsFetch).map((k) => k.slice(0, 4)))].sort();
+    const byYear = new Map();
+    for (const year of years) {
+      try {
+        byYear.set(year, { items: await fetchIpoScreenerYear(year), src: "screener" });
+      } catch (err) {
+        console.log(`    ⚠ ipo-credit: IPO screener ${year} failed (${err.message}) — trying HTML calendar`);
+        try {
+          byYear.set(year, { items: await fetchIpoYear(year), src: "html" });
+        } catch (err2) {
+          console.log(`    ⚠ ipo-credit: IPO calendar ${year} failed too (${err2.message})`);
+        }
+      }
+      await new Promise((r) => setTimeout(r, 300)); // politeness gap
+    }
+    const freshKeys = new Set();
+    const byQuarter = qKeys.map((key) => {
+      const fetched = needsFetch(key) ? byYear.get(key.slice(0, 4)) : null;
+      const cached = priorByQ.get(key);
+      if (fetched) {
+        let sourceItems = fetched.items;
+        // A bare HTML-fallback fetch must not erase a richer screener
+        // snapshot: keep the fresh row list but graft each cached row's
+        // mcap/raised/spac back on (new rows stay bare until the screener
+        // recovers — src stays "html" so needsFetch keeps retrying it).
+        if (fetched.src === "html" && cached?.src === "screener" && Array.isArray(cached.items)) {
+          const rich = new Map(cached.items.map((it) => [`${it.symbol}|${it.date}`, it]));
+          sourceItems = fetched.items.map((it) => {
+            const prev = rich.get(`${it.symbol}|${it.date}`);
+            if (!prev) return it;
+            const merged = { ...it };
+            if (prev.raised != null && merged.raised == null) merged.raised = prev.raised;
+            if (prev.mcap != null && merged.mcap == null) merged.mcap = prev.mcap;
+            if (prev.spac && !merged.spac) merged.spac = prev.spac;
+            return merged;
+          });
+        }
+        const inQ = sourceItems.filter((it) => icQuarterKey(it.date) === key)
+          .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+        // Zero rows where the prior payload had listings smells like a silent
+        // parse/source regression, not a real zero — fall through to the cache.
+        if (inQ.length || !(cached?.count > 0)) {
+          freshKeys.add(key);
+          return { key, label: icQuarterLabel(key), count: inQ.length, src: fetched.src, asOf: etDate, items: inQ.slice(0, 400) };
+        }
+      }
+      if (cached) return { ...cached, label: icQuarterLabel(key) };
+      return { key, label: icQuarterLabel(key), count: 0 };
+    });
+    // Two years of zero IPOs everywhere = a silent source failure, not data.
+    if (!byQuarter.some((q) => (Array.isArray(q.items) && q.items.length) || q.count > 0)) throw new Error("no IPO rows parsed");
+    const cur = byQuarter.find((q) => q.key === curKey);
+    const prev = byQuarter.find((q) => q.key === prevKey);
     payload.ipos = {
       source: "stockanalysis.com",
       sourceUrl: "https://stockanalysis.com/ipos/",
-      byQuarter: qKeys.map((k) => ({ key: k, label: icQuarterLabel(k), count: counts.get(k) || 0 })),
-      current: { key: curKey, label: icQuarterLabel(curKey), count: counts.get(curKey) || 0 },
-      prior: { key: prevKey, label: icQuarterLabel(prevKey), count: counts.get(prevKey) || 0 },
-      recent: curItems.slice(0, 12),
+      byQuarter,
+      current: { key: curKey, label: icQuarterLabel(curKey), count: cur?.count || 0 },
+      prior: { key: prevKey, label: icQuarterLabel(prevKey), count: prev?.count || 0 },
+      // Legacy shape kept for clients cached across the cutover: the current
+      // quarter's newest listings, original field set. Carried forward from
+      // the prior payload when this build has no fresh current-quarter rows.
+      recent: Array.isArray(cur?.items)
+        ? cur.items.slice(0, 12).map((it) => ({ date: it.date, symbol: it.symbol, name: it.name, price: it.price ?? null }))
+        : (prior?.ipos?.recent || []),
       note: "All US listings including SPACs, by pricing date.",
-      stale: false,
+      listingNote: "Mkt cap at IPO ≈ IPO price × shares outstanding (estimate); raised = the IPO deal size.",
+      // Current quarter not freshly derived this build (source failure or a
+      // suspicious-empty fallback) ⇒ stale badge. A genuinely-empty brand-new
+      // quarter/year still counts as fresh.
+      stale: !freshKeys.has(curKey),
     };
   } catch (err) {
     console.log(`    ⚠ ipo-credit: IPO calendar failed (${err.message})${prior?.ipos ? " — carrying last-good" : ""}`);
