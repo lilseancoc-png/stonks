@@ -1072,7 +1072,7 @@ export const DOC_PAGES = {
             <li><b>Market analysis</b> — the live market tape, risk barometer &amp; regime history</li>
             <li><b>Top Picks</b> — highest-conviction contracts, sizing &amp; breakeven</li>
             <li><b>Stock Picks</b> — shares-only buy-the-dip screen (quality names beaten down, trap flags shown) + a daily VOO/QQQ DCA dial</li>
-            <li><b>Leveraged ETFs</b> — the same grades mapped onto listed 2×/3× products, with reset-drag &amp; chop warnings</li>
+            <li><b>Leveraged ETFs</b> — the same grades mapped onto listed 2×/3× products, with reset-drag, carry-cost &amp; chop warnings and a live-priced track record</li>
             <li><b>Briefs</b> — hourly market digest, open through close</li>
             <li><b>Narratives</b> — AI theses driving capital, longs/shorts, lifecycle</li>
             <li><b>Earnings calls</b> — AI briefs of each name's latest call: guidance, tone, Q&amp;A</li>
@@ -1211,7 +1211,7 @@ export const DOC_PAGES = {
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Leveraged ETFs</span><span class="tier prem">Premium</span></div>
-          <p class="feat-desc">The Top Picks grades expressed through listed leveraged ETFs instead of option contracts — single-stock 2× products (NVDL, TSLL, …) for high-conviction names, sector/index 3× pairs (SOXL/SOXS, TQQQ/SQQQ, …) when a whole group leans one way with real breadth. Every card carries the daily-reset drag estimate at current realized vol, a chop warning when the tape is volatile but trendless, entry timing, and the drivers behind the read — and a direction with no listed product says so instead of inventing a ticker.</p>
+          <p class="feat-desc">The Top Picks grades expressed through listed leveraged ETFs instead of option contracts — single-stock 2× products (NVDL, TSLL, …) for high-conviction names, sector/index 3× pairs (SOXL/SOXS, TQQQ/SQQQ, …) when a whole group leans one way with real breadth. Every card carries the daily-reset drag estimate at current realized vol, a chop warning when the tape is volatile but trendless, the full cost of carry (verified fund fee + financing), a simulated daily-reset path drawn against the underlying, entry timing, and the drivers behind the read — and a direction with no listed product says so instead of inventing a ticker. The tab keeps its own track record: every flagged idea is logged at its live fund price and closed with a reason when the signal breaks, and the scoreboard (win rate, average move) is shown up front.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Briefs</span><span class="tier prem">Premium</span></div>

@@ -17467,39 +17467,43 @@ const LEVETF_WATCH_BAND = 1.5;        // missed the bar by ≤ this → shipped 
 // card surfaces (thin listings with likely wide spreads). Underlyings whose
 // only verified products were too thin to recommend (~<$1M/day: UNH, RBLX,
 // SHOP) are deliberately absent.
+// `er` = annual expense ratio as a decimal fraction, pulled live from Yahoo
+// quoteSummary (fundProfile.feesExpensesInvestment.annualReportExpenseRatio,
+// verified 2026-07-19); HOOZ is the one Yahoo gap — its 0.0129 comes from the
+// issuer's own site and matches its Defiance siblings (RKLZ/SMCZ).
 export const LEVERAGED_ETF_SINGLES = {
-  NVDA:  { bull: { sym: "NVDL", lev: 2 }, bear: { sym: "NVDD", lev: -1 } },
-  TSLA:  { bull: { sym: "TSLL", lev: 2 }, bear: { sym: "TSLS", lev: -1 } },
-  AAPL:  { bull: { sym: "AAPU", lev: 2 }, bear: { sym: "AAPD", lev: -1 } },
-  MSFT:  { bull: { sym: "MSFU", lev: 2 }, bear: { sym: "MSFD", lev: -1 } },
-  AMZN:  { bull: { sym: "AMZU", lev: 2 }, bear: { sym: "AMZD", lev: -1 } },
-  GOOGL: { bull: { sym: "GGLL", lev: 2 }, bear: { sym: "GGLS", lev: -1 } },
-  META:  { bull: { sym: "METU", lev: 2 }, bear: { sym: "METD", lev: -1 } },
-  PLTR:  { bull: { sym: "PLTU", lev: 2 }, bear: { sym: "PLTD", lev: -1 } },
-  NFLX:  { bull: { sym: "NFXL", lev: 2 }, bear: { sym: "NFXS", lev: -1 } },
-  MU:    { bull: { sym: "MUU",  lev: 2 }, bear: { sym: "MUD",  lev: -1 } },
-  AVGO:  { bull: { sym: "AVL",  lev: 2 }, bear: { sym: "AVS",  lev: -1 } },
-  AMD:   { bull: { sym: "AMDL", lev: 2 }, bear: { sym: "AMDD", lev: -1 } },
-  BABA:  { bull: { sym: "BABX", lev: 2 }, bear: null },
-  SMCI:  { bull: { sym: "SMCX", lev: 2 }, bear: { sym: "SMCZ", lev: -2 } },
+  NVDA:  { bull: { sym: "NVDL", lev: 2, er: 0.0105 }, bear: { sym: "NVDD", lev: -1, er: 0.0101 } },
+  TSLA:  { bull: { sym: "TSLL", lev: 2, er: 0.0083 }, bear: { sym: "TSLS", lev: -1, er: 0.0095 } },
+  AAPL:  { bull: { sym: "AAPU", lev: 2, er: 0.0096 }, bear: { sym: "AAPD", lev: -1, er: 0.0096 } },
+  MSFT:  { bull: { sym: "MSFU", lev: 2, er: 0.0098 }, bear: { sym: "MSFD", lev: -1, er: 0.0102 } },
+  AMZN:  { bull: { sym: "AMZU", lev: 2, er: 0.0099 }, bear: { sym: "AMZD", lev: -1, er: 0.0102 } },
+  GOOGL: { bull: { sym: "GGLL", lev: 2, er: 0.0096 }, bear: { sym: "GGLS", lev: -1, er: 0.0102 } },
+  META:  { bull: { sym: "METU", lev: 2, er: 0.0102 }, bear: { sym: "METD", lev: -1, er: 0.0102 } },
+  PLTR:  { bull: { sym: "PLTU", lev: 2, er: 0.0097 }, bear: { sym: "PLTD", lev: -1, er: 0.0098 } },
+  NFLX:  { bull: { sym: "NFXL", lev: 2, er: 0.0105 }, bear: { sym: "NFXS", lev: -1, er: 0.0103 } },
+  MU:    { bull: { sym: "MUU",  lev: 2, er: 0.0101 }, bear: { sym: "MUD",  lev: -1, er: 0.0102 } },
+  AVGO:  { bull: { sym: "AVL",  lev: 2, er: 0.01   }, bear: { sym: "AVS",  lev: -1, er: 0.0103 } },
+  AMD:   { bull: { sym: "AMDL", lev: 2, er: 0.0107 }, bear: { sym: "AMDD", lev: -1, er: 0.0103 } },
+  BABA:  { bull: { sym: "BABX", lev: 2, er: 0.0115 }, bear: null },
+  SMCI:  { bull: { sym: "SMCX", lev: 2, er: 0.0143 }, bear: { sym: "SMCZ", lev: -2, er: 0.0129 } },
   // 2026-07-19 expansion — tracked names whose listed products were missing.
-  TSM:   { bull: { sym: "TSMX", lev: 2 }, bear: { sym: "TSMZ", lev: -1 } },
-  ORCL:  { bull: { sym: "ORCU", lev: 2 }, bear: { sym: "ORCS", lev: -1 } },
-  QCOM:  { bull: { sym: "QCML", lev: 2 }, bear: { sym: "QCMD", lev: -1, note: "QCMD is a thin listing (~$0.4M/day) — expect wide spreads, use limit orders" } },
-  CRWD:  { bull: { sym: "CRWL", lev: 2 }, bear: null },
-  LLY:   { bull: { sym: "ELIL", lev: 2 }, bear: { sym: "ELIS", lev: -1, note: "ELIS is a thin listing (~$0.2M/day) — expect wide spreads, use limit orders" } },
-  ARM:   { bull: { sym: "ARMG", lev: 2 }, bear: null },
-  HOOD:  { bull: { sym: "HOOG", lev: 2 }, bear: { sym: "HOOZ", lev: -2 } },
-  APP:   { bull: { sym: "APPX", lev: 2 }, bear: null },
-  MRVL:  { bull: { sym: "MRVU", lev: 2 }, bear: null },
-  ASML:  { bull: { sym: "ASMG", lev: 2 }, bear: null },
-  PANW:  { bull: { sym: "PALU", lev: 2 }, bear: null },
-  CRWV:  { bull: { sym: "CRWU", lev: 2 }, bear: null },
-  RKLB:  { bull: { sym: "RKLX", lev: 2 }, bear: { sym: "RKLZ", lev: -2 } },
-  OKLO:  { bull: { sym: "OKLL", lev: 2 }, bear: { sym: "OKLS", lev: -2 } },
-  ASTS:  { bull: { sym: "ASTX", lev: 2 }, bear: null },
-  RDDT:  { bull: { sym: "RDTL", lev: 2 }, bear: null },
-  NOW:   { bull: { sym: "NOWL", lev: 2 }, bear: null },
+  TSM:   { bull: { sym: "TSMX", lev: 2, er: 0.0099 }, bear: { sym: "TSMZ", lev: -1, er: 0.0101 } },
+  ORCL:  { bull: { sym: "ORCU", lev: 2, er: 0.0097 }, bear: { sym: "ORCS", lev: -1, er: 0.0097 } },
+  QCOM:  { bull: { sym: "QCML", lev: 2, er: 0.015  }, bear: { sym: "QCMD", lev: -1, er: 0.01, note: "QCMD is a thin listing (~$0.4M/day) — expect wide spreads, use limit orders" } },
+  CRWD:  { bull: { sym: "CRWL", lev: 2, er: 0.015  }, bear: null },
+  LLY:   { bull: { sym: "ELIL", lev: 2, er: 0.0107 }, bear: { sym: "ELIS", lev: -1, er: 0.0101, note: "ELIS is a thin listing (~$0.2M/day) — expect wide spreads, use limit orders" } },
+  ARM:   { bull: { sym: "ARMG", lev: 2, er: 0.0078 }, bear: null },
+  HOOD:  { bull: { sym: "HOOG", lev: 2, er: 0.0085 }, bear: { sym: "HOOZ", lev: -2, er: 0.0129 } },
+  APP:   { bull: { sym: "APPX", lev: 2, er: 0.013  }, bear: null },
+  MRVL:  { bull: { sym: "MRVU", lev: 2, er: 0.0097 }, bear: null },
+  ASML:  { bull: { sym: "ASMG", lev: 2, er: 0.0077 }, bear: null },
+  PANW:  { bull: { sym: "PALU", lev: 2, er: 0.0108 }, bear: null },
+  CRWV:  { bull: { sym: "CRWU", lev: 2, er: 0.015  }, bear: null },
+  RKLB:  { bull: { sym: "RKLX", lev: 2, er: 0.0129 }, bear: { sym: "RKLZ", lev: -2, er: 0.0129 } },
+  OKLO:  { bull: { sym: "OKLL", lev: 2, er: 0.0131 }, bear: { sym: "OKLS", lev: -2, er: 0.0131 } },
+  ASTS:  { bull: { sym: "ASTX", lev: 2, er: 0.013  }, bear: null },
+  RDDT:  { bull: { sym: "RDTL", lev: 2, er: 0.015  }, bear: null },
+  NOW:   { bull: { sym: "NOWL", lev: 2, er: 0.015  }, bear: null },
 };
 
 // Sector / index groups. `proxy` is a TRACKED ticker whose own grade joins
@@ -17509,23 +17513,23 @@ export const LEVERAGED_ETF_SINGLES = {
 // watch row, not an idea. YANG is the nearest listed China inverse (FTSE
 // China 50, not the CSI internet basket CWEB tracks) — labeled a proxy.
 export const LEVERAGED_ETF_GROUPS = {
-  nasdaq:       { label: "Nasdaq-100",          kind: "index",  proxy: "QQQ",  bull: { sym: "TQQQ", lev: 3 }, bear: { sym: "SQQQ", lev: -3 } },
-  sp500:        { label: "S&P 500",             kind: "index",  proxy: "SPY",  bull: { sym: "UPRO", lev: 3 }, bear: { sym: "SPXU", lev: -3 } },
-  smallcaps:    { label: "Russell 2000",        kind: "index",  proxy: "IWM",  bull: { sym: "TNA",  lev: 3 }, bear: { sym: "TZA",  lev: -3 } },
-  semis:        { label: "Semiconductors",      kind: "sector", proxy: "SMH",  bull: { sym: "SOXL", lev: 3 }, bear: { sym: "SOXS", lev: -3 } },
-  tech:         { label: "Technology (XLK)",    kind: "sector", proxy: null,   bull: { sym: "TECL", lev: 3 }, bear: { sym: "TECS", lev: -3 } },
-  financials:   { label: "Financials",          kind: "sector", proxy: null,   bull: { sym: "FAS",  lev: 3 }, bear: { sym: "FAZ",  lev: -3 } },
-  healthcare:   { label: "Healthcare",          kind: "sector", proxy: null,   bull: { sym: "CURE", lev: 3 }, bear: null },
-  retail:       { label: "Retail (XRT)",        kind: "sector", proxy: null,   bull: { sym: "RETL", lev: 3 }, bear: null },
-  industrials:  { label: "Industrials",         kind: "sector", proxy: null,   bull: { sym: "DUSL", lev: 3 }, bear: null },
-  defense:      { label: "Aerospace & defense", kind: "sector", proxy: null,   bull: { sym: "DFEN", lev: 3 }, bear: null },
-  homebuilders: { label: "Homebuilders",        kind: "sector", proxy: null,   bull: { sym: "NAIL", lev: 3 }, bear: null },
-  china:        { label: "China internet",      kind: "index",  proxy: "KWEB", bull: { sym: "CWEB", lev: 2 }, bear: { sym: "YANG", lev: -3, note: "FTSE China 50 3× bear — nearest listed inverse to the China-internet basket" } },
-  korea:        { label: "South Korea",         kind: "index",  proxy: "EWY",  bull: { sym: "KORU", lev: 3 }, bear: null },
-  treasuries:   { label: "20+yr Treasuries",    kind: "macro",  proxy: "TLT",  bull: { sym: "TMF",  lev: 3 }, bear: { sym: "TMV",  lev: -3 } },
-  gold:         { label: "Gold",                kind: "macro",  proxy: "GLD",  bull: { sym: "UGL",  lev: 2 }, bear: { sym: "GLL",  lev: -2 } },
-  silver:       { label: "Silver",              kind: "macro",  proxy: "SLV",  bull: { sym: "AGQ",  lev: 2 }, bear: { sym: "ZSL",  lev: -2 } },
-  crude:        { label: "Crude oil",           kind: "macro",  proxy: "USO",  bull: { sym: "UCO",  lev: 2 }, bear: { sym: "SCO",  lev: -2 } },
+  nasdaq:       { label: "Nasdaq-100",          kind: "index",  proxy: "QQQ",  bull: { sym: "TQQQ", lev: 3, er: 0.0082 }, bear: { sym: "SQQQ", lev: -3, er: 0.0095 } },
+  sp500:        { label: "S&P 500",             kind: "index",  proxy: "SPY",  bull: { sym: "UPRO", lev: 3, er: 0.0089 }, bear: { sym: "SPXU", lev: -3, er: 0.009 } },
+  smallcaps:    { label: "Russell 2000",        kind: "index",  proxy: "IWM",  bull: { sym: "TNA",  lev: 3, er: 0.0105 }, bear: { sym: "TZA",  lev: -3, er: 0.0099 } },
+  semis:        { label: "Semiconductors",      kind: "sector", proxy: "SMH",  bull: { sym: "SOXL", lev: 3, er: 0.0075 }, bear: { sym: "SOXS", lev: -3, er: 0.01 } },
+  tech:         { label: "Technology (XLK)",    kind: "sector", proxy: null,   bull: { sym: "TECL", lev: 3, er: 0.0087 }, bear: { sym: "TECS", lev: -3, er: 0.0101 } },
+  financials:   { label: "Financials",          kind: "sector", proxy: null,   bull: { sym: "FAS",  lev: 3, er: 0.0088 }, bear: { sym: "FAZ",  lev: -3, er: 0.0103 } },
+  healthcare:   { label: "Healthcare",          kind: "sector", proxy: null,   bull: { sym: "CURE", lev: 3, er: 0.0094 }, bear: null },
+  retail:       { label: "Retail (XRT)",        kind: "sector", proxy: null,   bull: { sym: "RETL", lev: 3, er: 0.0096 }, bear: null },
+  industrials:  { label: "Industrials",         kind: "sector", proxy: null,   bull: { sym: "DUSL", lev: 3, er: 0.0097 }, bear: null },
+  defense:      { label: "Aerospace & defense", kind: "sector", proxy: null,   bull: { sym: "DFEN", lev: 3, er: 0.0096 }, bear: null },
+  homebuilders: { label: "Homebuilders",        kind: "sector", proxy: null,   bull: { sym: "NAIL", lev: 3, er: 0.0096 }, bear: null },
+  china:        { label: "China internet",      kind: "index",  proxy: "KWEB", bull: { sym: "CWEB", lev: 2, er: 0.0127 }, bear: { sym: "YANG", lev: -3, er: 0.0103, note: "FTSE China 50 3× bear — nearest listed inverse to the China-internet basket" } },
+  korea:        { label: "South Korea",         kind: "index",  proxy: "EWY",  bull: { sym: "KORU", lev: 3, er: 0.0132 }, bear: null },
+  treasuries:   { label: "20+yr Treasuries",    kind: "macro",  proxy: "TLT",  bull: { sym: "TMF",  lev: 3, er: 0.009 }, bear: { sym: "TMV",  lev: -3, er: 0.0097 } },
+  gold:         { label: "Gold",                kind: "macro",  proxy: "GLD",  bull: { sym: "UGL",  lev: 2, er: 0.0119 }, bear: { sym: "GLL",  lev: -2, er: 0.0126 } },
+  silver:       { label: "Silver",              kind: "macro",  proxy: "SLV",  bull: { sym: "AGQ",  lev: 2, er: 0.0129 }, bear: { sym: "ZSL",  lev: -2, er: 0.0133 } },
+  crude:        { label: "Crude oil",           kind: "macro",  proxy: "USO",  bull: { sym: "UCO",  lev: 2, er: 0.0147 }, bear: { sym: "SCO",  lev: -2, er: 0.011 } },
 };
 
 // SECTORS-label → group routing for the aggregate sector reads. Labels with
@@ -17588,23 +17592,74 @@ function levDecayRead(lev, vol) {
   return { rvAnnPct: vol.rvAnnPct, trendEff: vol.trendEff, dragMoPct, tier, chop, horizon };
 }
 
-function levSpark(data) {
+// Cost of carry BEYOND the vol drag: the fund fee plus financing. A k× long
+// finances (k−1)× notional at ~short rates inside its swaps, so at today's
+// rates financing is usually the LARGEST holding cost on a 2-3× long —
+// bigger than the vol drag on a calm name. An inverse fund's swap nets
+// interest the other way in the frictionless model, so financing is
+// estimated for leveraged LONGS only (bears show the fee alone). Estimates,
+// not statements of any fund's exact cost.
+function levCarryRead(lev, er, rfr) {
+  const feeYrPct = er != null ? r2(er * 100) : null;
+  const finYrPct = Number.isFinite(lev) && lev > 1 ? r2((lev - 1) * (rfr ?? FALLBACK_RISK_FREE_RATE) * 100) : null;
+  if (feeYrPct == null && finYrPct == null) return null;
+  const totalYrPct = r2((feeYrPct || 0) + (finYrPct || 0));
+  return { feeYrPct, finYrPct, totalYrPct, moPct: r2(totalYrPct / 12) };
+}
+
+// ~3-month spark of the underlying PLUS (when a leverage factor is given)
+// the simulated k× daily-reset path — each day compounds k × the underlying's
+// return minus the daily slice of fee+financing — downsampled on the same
+// grid. The browser overlays both (normalized to % change from t0), so the
+// amplification AND the decay are visible on every card instead of living
+// in a formula tooltip. Sim values share the underlying's price scale at t0.
+function levSpark(data, lev = null, carryYrFrac = 0) {
   const closes = Array.isArray(data?._bars) && data._bars.length
     ? data._bars.map((b) => pnum(b.c)).filter((c) => c > 0)
     : (Array.isArray(data?.priceSeries?.c) ? data.priceSeries.c.map(pnum).filter((c) => c > 0) : []);
   const tail = closes.slice(-60);
   if (tail.length < 10) return null;
+  let sim = null;
+  if (Number.isFinite(lev) && lev) {
+    sim = [tail[0]];
+    const dc = (carryYrFrac || 0) / 252;
+    // Floor at 0: a day where k×move ≤ −100% wipes the fund — without the
+    // clamp the sim goes negative and every later day compounds with
+    // inverted sign (a ±2× on a 50%-day name is a real scenario here).
+    for (let i = 1; i < tail.length; i++) sim.push(Math.max(0, sim[i - 1] * (1 + lev * (tail[i] / tail[i - 1] - 1) - dc)));
+  }
   const step = Math.max(1, Math.ceil(tail.length / 40));
-  const out = [];
-  for (let i = 0; i < tail.length; i += step) out.push(r2(tail[i]));
-  if (out[out.length - 1] !== r2(tail[tail.length - 1])) out.push(r2(tail[tail.length - 1]));
-  return out;
+  const spark = [];
+  const sparkSim = sim ? [] : null;
+  for (let i = 0; i < tail.length; i += step) {
+    spark.push(r2(tail[i]));
+    if (sim) sparkSim.push(r2(sim[i]));
+  }
+  if (spark[spark.length - 1] !== r2(tail[tail.length - 1])) {
+    spark.push(r2(tail[tail.length - 1]));
+    if (sim) sparkSim.push(r2(sim[sim.length - 1]));
+  }
+  return { spark, sparkSim };
 }
 
-export function buildLeveragedEtfPicks(chains, gradesIndex, builtAtIso, macroRegime = null) {
+export function buildLeveragedEtfPicks(chains, gradesIndex, builtAtIso, macroRegime = null, opts = {}) {
   const grades = gradesIndex || {};
+  const rfr = Number.isFinite(opts.rfr) ? opts.rfr : FALLBACK_RISK_FREE_RATE;
+  // symbol → side of the CURRENT Top Picks roster, for the "also a Top Pick"
+  // cross-badge (call↔bull, put↔bear; the grade is shared so a listed name
+  // on the roster should agree in direction — badge only when it does).
+  const pickSideOf = new Map(
+    (Array.isArray(opts.picks) ? opts.picks : [])
+      .filter((p) => p && p.symbol && (p.side === "call" || p.side === "put"))
+      .map((p) => [p.symbol, p.side]),
+  );
   const scoreFor = (sym) => levEtfScore(grades[sym]);
   const candidates = []; // { …idea fields, pass, missReason }
+  // Registry underlyings that actually HAVE a grade this build — shipped as
+  // payload.coverage so the track-record reconcile can tell "no data this
+  // bake" (a Yahoo flake on the underlying: keep the entry open, graceful
+  // degradation) apart from "graded and no longer qualifying" (close it).
+  const gradedSingles = [];
 
   // Tape alignment: is this idea trading with or against the current macro-
   // regime read? Only meaningful for equity exposure (macro-kind ideas —
@@ -17624,7 +17679,9 @@ export function buildLeveragedEtfPicks(chains, gradesIndex, builtAtIso, macroReg
   for (const [under, prods] of Object.entries(LEVERAGED_ETF_SINGLES)) {
     const g = grades[under];
     const score = scoreFor(under);
-    if (score == null || score === 0) continue;
+    if (score == null) continue; // no grade this build — excluded from coverage
+    gradedSingles.push(under);
+    if (score === 0) continue;
     const dir = score > 0 ? "bull" : "bear";
     const conviction = Math.abs(score);
     if (conviction < LEVETF_MIN_CONVICTION - LEVETF_WATCH_BAND) continue;
@@ -17632,6 +17689,20 @@ export function buildLeveragedEtfPicks(chains, gradesIndex, builtAtIso, macroReg
     const timing = g.timing?.[score > 0 ? "call" : "put"] || null;
     const data = chains[under] || null;
     const vol = levVolRead(data);
+    // Earnings inside a week is the single-stock gap-risk window — a 2×
+    // fund turns one bad print into a ~2× overnight gap, so the card says
+    // so up front (earningsHx.next is the enriched read; fundamentals is
+    // the raw fallback for names with no earnings history attached).
+    const ehNext = data?.earningsHx?.next || null;
+    const earnDays = ehNext?.daysUntil ?? etDaysUntil(data?.fundamentals?.nextEarningsDate);
+    const earnings = earnDays != null && earnDays >= 0 && earnDays <= 7
+      ? {
+          date: ehNext?.date || data?.fundamentals?.nextEarningsDate || null,
+          session: ehNext?.session || data?.fundamentals?.nextEarningsSession || null,
+          daysUntil: earnDays,
+          impliedMovePct: ehNext?.impliedMovePct ?? null,
+        }
+      : null;
     const base = {
       kind: "single", direction: dir, score, conviction: r1(conviction),
       tier: conviction >= LEVETF_STRONG ? "strong" : "moderate",
@@ -17646,17 +17717,23 @@ export function buildLeveragedEtfPicks(chains, gradesIndex, builtAtIso, macroReg
         : [],
       entry: timing ? { state: timing.state || null, headline: timing.headline || null, deferKind: timing.deferKind || null } : null,
       tape: tapeAlignFor("single", dir),
-      spark: levSpark(data),
+      earnings,
+      alsoPick: pickSideOf.get(under) === (dir === "bull" ? "call" : "put") || null,
     };
     if (!inst) {
-      candidates.push({ ...base, etf: null, leverage: null, pass: false, missReason: "no-inverse-listing" });
+      const sp = levSpark(data);
+      candidates.push({ ...base, spark: sp?.spark ?? null, sparkSim: null, etf: null, leverage: null, pass: false, missReason: "no-inverse-listing" });
       continue;
     }
+    const carry = levCarryRead(inst.lev, inst.er ?? null, rfr);
+    const sp = levSpark(data, inst.lev, (inst.er || 0) + (inst.lev > 1 ? (inst.lev - 1) * rfr : 0));
     const pass = conviction >= LEVETF_MIN_CONVICTION && (!timing || timing.state !== "avoid");
     candidates.push({
-      ...base, etf: inst.sym, leverage: inst.lev, note: inst.note || null,
+      ...base, spark: sp?.spark ?? null, sparkSim: sp?.sparkSim ?? null,
+      etf: inst.sym, leverage: inst.lev, note: inst.note || null,
       pair: prods[dir === "bull" ? "bear" : "bull"]?.sym || null,
       decay: levDecayRead(inst.lev, vol),
+      carry,
       pass,
       missReason: pass ? null : (timing?.state === "avoid" ? "avoid-timing" : "below-bar"),
     });
@@ -17739,7 +17816,7 @@ export function buildLeveragedEtfPicks(chains, gradesIndex, builtAtIso, macroReg
       proxy: def.proxy || null,
       entry,
       tape: tapeAlignFor(def.kind, dir),
-      spark: def.proxy ? levSpark(chains[def.proxy]) : null,
+      spark: def.proxy ? (levSpark(chains[def.proxy])?.spark ?? null) : null,
     };
     groupReads.push({ ...read, bull: def.bull?.sym || null, bear: def.bear?.sym || null, pass });
     if (conviction < bar - LEVETF_WATCH_BAND) continue;
@@ -17748,11 +17825,16 @@ export function buildLeveragedEtfPicks(chains, gradesIndex, builtAtIso, macroReg
       continue;
     }
     const avoidGated = entry?.state === "avoid";
+    const proxySp = def.proxy
+      ? levSpark(chains[def.proxy], inst.lev, (inst.er || 0) + (inst.lev > 1 ? (inst.lev - 1) * rfr : 0))
+      : null;
     candidates.push({
       ...read, etf: inst.sym, leverage: inst.lev, note: inst.note || null, under: null,
+      spark: proxySp?.spark ?? read.spark, sparkSim: proxySp?.sparkSim ?? null,
       pair: def[dir === "bull" ? "bear" : "bull"]?.sym || null,
       drivers: topMembers.slice(0, 4).filter((m) => m.score * sgn > 0).map((m) => ({ label: m.sym, score: m.score })),
       decay: levDecayRead(inst.lev, vol),
+      carry: levCarryRead(inst.lev, inst.er ?? null, rfr),
       pass: pass && !avoidGated,
       missReason: pass ? (avoidGated ? "avoid-timing" : null) : (breadthFailed ? "breadth-split" : "below-bar"),
     });
@@ -17765,7 +17847,7 @@ export function buildLeveragedEtfPicks(chains, gradesIndex, builtAtIso, macroReg
   const watch = [
     ...passing.slice(LEVETF_MAX_IDEAS).map((c) => ({ ...c, missReason: "ranked-out" })),
     ...candidates.filter((c) => !c.pass),
-  ].slice(0, 10).map(({ spark, ...rest }) => rest); // watch rows ship without sparks (size)
+  ].slice(0, 10).map(({ spark, sparkSim, ...rest }) => rest); // watch rows ship without sparks (size)
 
   return {
     builtAtIso,
@@ -17773,6 +17855,13 @@ export function buildLeveragedEtfPicks(chains, gradesIndex, builtAtIso, macroReg
     ideas,
     watch,
     groupReads,
+    // The reconcile's keep-open inputs, independent of the display caps:
+    // stillPassing = EVERY vehicle above the bar that merely ranked out of
+    // the top-8 (the watch list truncates at 10 rows for display, which must
+    // not close a live entry), coverage = which registry underlyings/groups
+    // actually had data this build (a missing grade keeps entries open).
+    stillPassing: passing.slice(LEVETF_MAX_IDEAS).map((c) => c.etf).filter(Boolean),
+    coverage: { singles: gradedSingles, groups: groupReads.map((r) => r.group) },
     universe: {
       graded: Object.keys(grades).length,
       singles: Object.keys(LEVERAGED_ETF_SINGLES).length,
@@ -17786,6 +17875,207 @@ export async function writeLeveragedEtfsFile(payload) {
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, LEVERAGED_ETFS_FILE), json, "utf8");
   return { bytes: json.length, ideas: payload.ideas.length, watch: payload.watch.length };
+}
+
+// ---------------------------------------------------------------------------
+// Leveraged-ETF track record (data/leveraged-etfs-log.json, PREMIUM): the
+// accumulating in/out log behind the tab's scoreboard. Every idea that ships
+// opens an entry stamped with the ETF's REAL quoted price (one batched Yahoo
+// quote in main() — the holder is always LONG the fund, bear ideas included,
+// so P&L is simply the fund's price change); while the idea keeps shipping
+// the entry marks forward, and when the SIGNAL breaks it closes with the
+// reason. A mere display-rank shuffle is not a signal break: any vehicle
+// still above the bar stays open (payload.stillPassing, deliberately
+// independent of the 10-row watch display cap), and NO DATA is not a signal
+// break either (payload.coverage — an underlying whose chain fetch flaked
+// this bake keeps its entries open, marks updated). An entry closes on
+// below-bar / avoid-timing / breadth-split / direction flip / vehicle loss /
+// disappearing while covered. Follows the same read-before-wipe rule as the other accumulating
+// files (readPriorLevEtfLog in main() BEFORE writeChainFiles). regen-picks
+// (offline) never reconciles — it re-attaches the prior log's scoreboard
+// unchanged, so an algo-regen can't pollute the record with unpriced churn.
+// ---------------------------------------------------------------------------
+export const LEVERAGED_ETFS_LOG_FILE = "leveraged-etfs-log.json";
+const LEVETF_LOG_CLOSED_MAX = 200;   // full closed history kept in the log file
+const LEVETF_RECORD_RECENT = 12;     // closed rows shipped in the tab payload
+
+export async function readPriorLevEtfLog() {
+  try { return JSON.parse(await readFile(resolve(DATA_DIR, LEVERAGED_ETFS_LOG_FILE), "utf8")); } catch { return null; }
+}
+
+export async function writeLevEtfLog(log) {
+  const json = JSON.stringify(log);
+  await writeFile(resolve(DATA_DIR, LEVERAGED_ETFS_LOG_FILE), json, "utf8");
+  return { bytes: json.length, open: log.open.length, closed: log.closed.length };
+}
+
+// The display block the tab renders (also re-derived by regen-picks from the
+// untouched prior log). Win-rate stats count only closed entries with BOTH
+// real price marks; unpriced closes are shown but never scored.
+export function levRecordFromLog(log) {
+  const open = Array.isArray(log?.open) ? log.open : [];
+  const closed = Array.isArray(log?.closed) ? log.closed : [];
+  const scored = closed.filter((e) => Number.isFinite(e.retPct));
+  const wins = scored.filter((e) => e.retPct > 0).length;
+  const losses = scored.filter((e) => e.retPct < 0).length; // flats are neither
+  const avg = scored.length ? r2(scored.reduce((a, e) => a + e.retPct, 0) / scored.length) : null;
+  return {
+    open: open.map((e) => {
+      // A back-filled entry mark (quote missed on the flag day) carries its
+      // own date so the card can say "marked $px on <date>" instead of
+      // passing the late mark off as the flag-day price.
+      const lateIso = e.entryPxIso && e.openedIso && e.entryPxIso !== e.openedIso ? Date.parse(e.entryPxIso) : NaN;
+      return {
+        etf: e.etf, direction: e.direction, under: e.under, openedDate: e.openedDate,
+        entryPx: e.entryPx ?? null, lastPx: e.lastPx ?? null,
+        entryPxDate: Number.isFinite(lateIso) ? etDateKey(new Date(lateIso)) : null,
+        sincePct: Number.isFinite(e.entryPx) && Number.isFinite(e.lastPx) && e.entryPx > 0
+          ? r2(((e.lastPx - e.entryPx) / e.entryPx) * 100) : null,
+      };
+    }),
+    closedRecent: closed.slice(-LEVETF_RECORD_RECENT).reverse().map((e) => ({
+      etf: e.etf, direction: e.direction, under: e.under,
+      openedDate: e.openedDate, closedDate: e.closedDate,
+      retPct: Number.isFinite(e.retPct) ? e.retPct : null, exitReason: e.exitReason || null,
+      ...(e.exitStale ? { stale: true } : {}),
+    })),
+    summary: {
+      openCount: open.length, closedCount: closed.length, scoredCount: scored.length,
+      wins, losses,
+      winRatePct: scored.length ? r1((wins / scored.length) * 100) : null,
+      avgRetPct: avg,
+    },
+  };
+}
+
+// Pure reconcile (exported for offline testing): (payload, priorLog, quotes,
+// builtAtIso) → { log, record }. quotes: { SYM: { price } } — missing quotes
+// degrade gracefully (entries open/close with null marks; a later bake's
+// quote back-fills a missing ENTRY mark, stamped entryPxIso so the late mark
+// is honest about when it was taken).
+export function reconcileLevEtfLog(payload, priorLog, quotes, builtAtIso) {
+  const q = quotes || {};
+  // Date entries by the BUILD's timestamp, not the wall clock — deterministic
+  // given the inputs, and the log's dates always agree with the payload's.
+  const builtMs = Date.parse(builtAtIso);
+  const today = etDateKey(Number.isFinite(builtMs) ? new Date(builtMs) : new Date());
+  const pxOf = (sym) => {
+    const v = pnum(q[sym]?.price ?? q[sym]?.regularMarketPrice);
+    return v > 0 ? v : null;
+  };
+  const ideas = Array.isArray(payload?.ideas) ? payload.ideas.filter((i) => i && i.etf) : [];
+  const watch = Array.isArray(payload?.watch) ? payload.watch : [];
+  const ideaBy = new Map(ideas.map((i) => [i.etf, i]));
+  // Keep-open set: still above the bar, merely out-ranked. The payload's
+  // stillPassing list is authoritative (immune to the 10-row watch display
+  // cap); the watch-derived ranked-out rows are kept as a belt for older
+  // payload shapes.
+  const rankedOut = new Set([
+    ...watch.filter((w) => w && w.etf && w.missReason === "ranked-out").map((w) => w.etf),
+    ...(Array.isArray(payload?.stillPassing) ? payload.stillPassing : []),
+  ]);
+  // Coverage: an underlying/group with NO grade this build (Yahoo flake on
+  // the chain fetch — the build tolerates up to 25% ticker failures) is
+  // missing data, not a broken signal: its entries stay open, marks updated.
+  const cov = payload?.coverage || null;
+  const covSingles = cov ? new Set(Array.isArray(cov.singles) ? cov.singles : []) : null;
+  const covGroups = cov ? new Set(Array.isArray(cov.groups) ? cov.groups : []) : null;
+  const prevOpen = Array.isArray(priorLog?.open) ? priorLog.open : [];
+  const closed = (Array.isArray(priorLog?.closed) ? priorLog.closed : []).slice();
+  const open = [];
+  const openBy = new Map();
+
+  for (const e of prevOpen) {
+    if (!e || !e.etf) continue;
+    const idea = ideaBy.get(e.etf);
+    const px = pxOf(e.etf);
+    const noData = covSingles != null && (e.group ? !covGroups.has(e.group) : !covSingles.has(e.under));
+    if (idea || rankedOut.has(e.etf) || noData) {
+      const next = { ...e };
+      if (px != null) {
+        if (!Number.isFinite(next.entryPx)) { next.entryPx = px; next.entryPxIso = builtAtIso; }
+        next.lastPx = px;
+        next.lastIso = builtAtIso;
+        const fav = px; // always long the fund
+        if (!Number.isFinite(next.peakPx) || fav > next.peakPx) next.peakPx = fav;
+      }
+      if (idea) next.convictionNow = idea.conviction ?? next.convictionNow ?? null;
+      next.lastSeenDate = today;
+      open.push(next);
+      openBy.set(next.etf, next);
+      continue;
+    }
+    // Signal broke — close. Reason: the watch row's missReason when the same
+    // vehicle is still listed there; a flip when the opposite-direction fund
+    // on the same underlying/group just opened; else it dropped entirely.
+    // A close with no live quote falls back to the prior bake's mark and is
+    // stamped exitStale so the scoreboard can disclose it (the fallback mark
+    // is usually one bake old, but a halted/delisted fund's real terminal
+    // value can be far worse than its last print).
+    const w = watch.find((x) => x && x.etf === e.etf);
+    const flipped = ideas.some((i) => i.pair === e.etf);
+    const exitPx = px ?? (Number.isFinite(e.lastPx) ? e.lastPx : null);
+    const exitStale = px == null && exitPx != null;
+    closed.push({
+      ...e,
+      status: "closed",
+      closedIso: builtAtIso, closedDate: today,
+      exitPx,
+      exitPxIso: exitStale ? (e.lastIso || null) : (exitPx != null ? builtAtIso : null),
+      ...(exitStale ? { exitStale: true } : {}),
+      exitReason: flipped ? "flipped" : (w?.missReason || "dropped"),
+      retPct: Number.isFinite(e.entryPx) && e.entryPx > 0 && Number.isFinite(exitPx)
+        ? r2(((exitPx - e.entryPx) / e.entryPx) * 100) : null,
+    });
+  }
+
+  for (const idea of ideas) {
+    if (openBy.has(idea.etf)) continue;
+    const px = pxOf(idea.etf);
+    const entry = {
+      etf: idea.etf, direction: idea.direction, leverage: idea.leverage ?? null,
+      kind: idea.kind, group: idea.group || null,
+      under: idea.under?.symbol || idea.label || idea.group || null,
+      pair: idea.pair || null,
+      openedIso: builtAtIso, openedDate: today,
+      entryPx: px, entryPxIso: px != null ? builtAtIso : null,
+      entryUnderSpot: idea.under?.spot ?? null,
+      conviction: idea.conviction ?? null, convictionNow: idea.conviction ?? null,
+      lastPx: px, lastIso: px != null ? builtAtIso : null, peakPx: px,
+      lastSeenDate: today,
+      status: "open",
+    };
+    open.push(entry);
+    openBy.set(entry.etf, entry);
+  }
+
+  const log = {
+    updatedAtIso: builtAtIso,
+    open,
+    closed: closed.slice(-LEVETF_LOG_CLOSED_MAX),
+  };
+  return { log, record: levRecordFromLog(log) };
+}
+
+// One batched quote for the active leveraged symbols (current ideas + open
+// log entries — well under one 50-symbol chunk). Warn-and-degrade like the
+// heatmap sweep: a Yahoo miss means unpriced marks this bake, never a throw.
+async function fetchLevEtfQuotes(symbols) {
+  const syms = [...new Set((symbols || []).filter(Boolean))];
+  if (!syms.length) return {};
+  try {
+    const r = await yahooFinance.quote(syms, { fields: ["regularMarketPrice", "regularMarketChangePercent"] });
+    const list = Array.isArray(r) ? r : r ? [r] : [];
+    const out = {};
+    for (const item of list) {
+      const px = pnum(item?.regularMarketPrice);
+      if (item?.symbol && px > 0) out[item.symbol] = { price: px };
+    }
+    return out;
+  } catch (err) {
+    console.warn(`[levetf] quote sweep failed (${syms.length} syms) — ${String(err?.message || err).split("\n")[0]}`);
+    return {};
+  }
 }
 
 // ============================================================================
@@ -26056,6 +26346,10 @@ async function main() {
   // wipes data/, so the brief is minted once per ET hour and carried forward
   // by a same-hour re-run. Threaded into buildMarketBriefs near the end of main().
   const briefsPrev = await readPriorBriefs();
+  // Leveraged-ETF track record: the in/out log accumulates across builds
+  // (data/leveraged-etfs-log.json), so same pre-read-before-wipe rule —
+  // reconciled + written back next to the leveraged-etfs payload below.
+  const levLogPrev = await readPriorLevEtfLog();
   const riskFreeRate = await fetchRiskFreeRate(cachedRfr);
   // Kick off 13F enrichment (SEC EDGAR per-firm holdings + OpenFIGI CUSIP map)
   // NOW so its ~60-80s runs CONCURRENTLY with the narratives + calendar + scoring
@@ -26638,11 +26932,27 @@ async function main() {
   }
   // Leveraged ETFs (premium tab): the daily-reset leverage screen — the same
   // grade index mapped onto listed single-stock 2× / sector-index 3× products.
-  // Rebuilt fresh every bake — no cross-build accumulation, no pre-wipe read.
+  // The IDEAS payload rebuilds fresh every bake; the track-record LOG
+  // accumulates (levLogPrev, pre-wipe read above): one batched Yahoo quote
+  // stamps real ETF prices on entries, the reconcile opens/marks/closes them
+  // against this bake's ideas, and the payload ships the derived scoreboard.
   try {
-    const levPayload = buildLeveragedEtfPicks(chains, gradesIndex, builtAtIso, macroBackdrop?.macroRegime ?? null);
+    let picksNow = null;
+    try { picksNow = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_FILE), "utf8")); } catch { /* picks skipped this bake — no cross-badge */ }
+    const levPayload = buildLeveragedEtfPicks(chains, gradesIndex, builtAtIso, macroBackdrop?.macroRegime ?? null, {
+      rfr: riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE,
+      picks: picksNow?.picks || null,
+    });
+    const levSyms = [
+      ...levPayload.ideas.map((i) => i.etf),
+      ...(Array.isArray(levLogPrev?.open) ? levLogPrev.open.map((e) => e.etf) : []),
+    ];
+    const levQuotes = await fetchLevEtfQuotes(levSyms);
+    const { log: levLog, record } = reconcileLevEtfLog(levPayload, levLogPrev, levQuotes, builtAtIso);
+    levPayload.record = record;
     const levInfo = await writeLeveragedEtfsFile(levPayload);
-    console.log(`wrote data/${LEVERAGED_ETFS_FILE} — ${levInfo.ideas} idea(s), ${levInfo.watch} watch row(s), ${levInfo.bytes} bytes`);
+    const logInfo = await writeLevEtfLog(levLog);
+    console.log(`wrote data/${LEVERAGED_ETFS_FILE} — ${levInfo.ideas} idea(s), ${levInfo.watch} watch row(s), ${levInfo.bytes} bytes; log ${logInfo.open} open / ${logInfo.closed} closed`);
   } catch (err) {
     console.warn(`[levetf] leveraged-etfs skipped — ${String(err?.message || err).split("\n")[0]}`);
   }

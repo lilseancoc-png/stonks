@@ -15665,6 +15665,20 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           }
           nodes[i].innerHTML = html;
         }
+        // Upgrade the track-record "since flagged" lines with the live spot
+        // (the baked sincePct is only as fresh as the last bake's mark).
+        var flags = document.querySelectorAll('[data-lev-flag][data-lev-entry]');
+        for (var f = 0; f < flags.length; f++){
+          var fq = map[flags[f].getAttribute('data-lev-flag')];
+          var entryPx = parseFloat(flags[f].getAttribute('data-lev-entry'));
+          if (!fq || fq.spot == null || !isFinite(entryPx) || entryPx <= 0) continue;
+          var since = ((fq.spot - entryPx) / entryPx) * 100;
+          var pctEl = flags[f].querySelector('.lev-flag-pct');
+          if (pctEl){
+            pctEl.textContent = (since >= 0 ? '+' : '') + fmt(since, 2) + '% since';
+            pctEl.className = 'lev-flag-pct ' + (since >= 0 ? 'lev-live-up' : 'lev-live-down');
+          }
+        }
       })
       .catch(function(){ /* live decoration only */ });
   }
@@ -15687,7 +15701,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function levDecayChip(decay){
     if (!decay || decay.dragMoPct == null) return '';
     var cls = decay.tier === 'high' ? 'lev-decay-high' : decay.tier === 'moderate' ? 'lev-decay-mod' : 'lev-decay-low';
-    var tip = 'Daily-reset volatility drag at the underlying\\'s current 20-day realized vol (' + fmt(decay.rvAnnPct, 0) + '% annualized). Chop — big daily swings with no net trend — compounds against any leveraged holder.';
+    var tip = 'Daily-reset volatility drag at the underlying\\'s current 20-day realized vol (' + fmt(decay.rvAnnPct, 0) + '% annualized). Chop — big daily swings with no net trend — compounds against any leveraged holder. This drag is already embedded in the dashed simulated path when one is shown; the chip is its closed-form ~monthly estimate, not an additional cost.';
     return '<span class="lev-decay ' + cls + '" title="' + escapeHtml(tip) + '">Reset drag ~' + fmt(decay.dragMoPct, 1) + '%/mo' + (decay.chop ? ' · ⚠ choppy tape' : '') + '</span>';
   }
   // Deterministic hold-length hint (decay.horizon from the bake): the chip
@@ -15717,25 +15731,148 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var label = i.direction === 'bull' ? 'Inverse' : 'Long side';
     return '<span class="lev-pair" title="The verified listed opposite-direction product on the same underlying.">' + label + ': ' + escapeHtml(i.pair) + '</span>';
   }
+  // Cost of carry beyond the vol drag: fund fee + (for leveraged longs) the
+  // ~(k−1)×short-rate financing inside the swaps — at current rates usually
+  // the LARGEST holding cost on a calm name, which is exactly why it gets
+  // its own chip instead of hiding in a footnote.
+  function levCarryChip(carry){
+    if (!carry || carry.totalYrPct == null) return '';
+    var bits = [];
+    if (carry.feeYrPct != null) bits.push('fee ' + fmt(carry.feeYrPct, 2) + '%/yr');
+    if (carry.finYrPct != null) bits.push('financing ~' + fmt(carry.finYrPct, 1) + '%/yr at the current short rate');
+    var tip = 'Estimated cost of holding this fund flat: ' + bits.join(' + ') +
+      '. Separate from (and often larger than) the volatility reset drag. Estimates, not the fund\\'s exact costs.';
+    return '<span class="lev-carry" title="' + escapeHtml(tip) + '">Carry ~' + fmt(carry.totalYrPct, 1) + '%/yr</span>';
+  }
+  // Single-stock gap risk: an earnings print inside a week on a 2× fund is a
+  // ~2× overnight gap — the card says so before anyone finds out the hard way.
+  function levEarnChip(i){
+    var e = i.earnings;
+    if (!e || e.daysUntil == null) return '';
+    var when = e.daysUntil === 0 ? 'today' : e.daysUntil === 1 ? 'tomorrow' : 'in ' + e.daysUntil + 'd';
+    var mv = e.impliedMovePct != null ? ' · options imply ±' + fmt(e.impliedMovePct, 1) + '%' : '';
+    var k = Math.abs(i.leverage || 2);
+    // For an inverse holder the risk is DIRECTION, not just magnitude — a
+    // positive surprise is their gap-down, so the tooltip says so.
+    var risk = (i.leverage || 0) < 0
+      ? 'An inverse fund gaps ~' + k + '\\u00d7 OPPOSITE the print — a positive surprise is this holder\\'s gap-down. Holding through it is an event bet, not a trend trade.'
+      : 'A ' + k + '\\u00d7 single-stock fund turns the print\\'s gap into ~' + k + '\\u00d7 the move — holding through it is an event bet, not a trend trade.';
+    var tip = 'Earnings ' + when + (e.date ? ' (' + e.date + (e.session && e.session !== 'TBD' ? ' ' + e.session : '') + ')' : '') + mv + '. ' + risk;
+    return '<span class="lev-earn" title="' + escapeHtml(tip) + '">⚠ earnings ' + when + mv + '</span>';
+  }
+  // Cross-badge: the underlying is on the current Top Picks roster in the
+  // same direction (same grade engine, different instrument).
+  function levPickChip(i){
+    if (!i.alsoPick) return '';
+    return '<span class="lev-pick" title="This underlying is also on the current Top Picks roster in the same direction — same grade engine, expressed through an option contract there and a leveraged fund here.">Top Picks ✓</span>';
+  }
+  // "Flagged <date> at $px · +x% since" — the idea's row in the accumulating
+  // track record (record.open, matched by fund symbol). Live quotes upgrade
+  // the since-% in place once /api/quotes answers.
+  function levFlaggedLine(i){
+    var rec = levState.data && levState.data.record;
+    var rows = rec && Array.isArray(rec.open) ? rec.open : [];
+    var e = null;
+    for (var k = 0; k < rows.length; k++){ if (rows[k] && rows[k].etf === i.etf){ e = rows[k]; break; } }
+    if (!e || !e.openedDate) return '';
+    // A back-filled mark (quote missed on the flag day) shows its own date —
+    // never passed off as the flag-day price.
+    var late = e.entryPxDate && e.entryPxDate !== e.openedDate;
+    var px = e.entryPx != null
+      ? (late ? ' · marked ' + fmtMoney(e.entryPx) + ' on ' + escapeHtml(e.entryPxDate) : ' at ' + fmtMoney(e.entryPx))
+      : '';
+    var since = '';
+    if (e.sincePct != null){
+      since = ' · <span class="lev-flag-pct ' + (e.sincePct >= 0 ? 'lev-live-up' : 'lev-live-down') + '">' + (e.sincePct >= 0 ? '+' : '') + fmt(e.sincePct, 2) + '% since</span>';
+    } else if (e.entryPx != null){
+      since = ' · <span class="lev-flag-pct">awaiting mark</span>';
+    }
+    return '<div class="lev-flagged" data-lev-flag="' + escapeHtml(i.etf || '') + '"' + (e.entryPx != null ? ' data-lev-entry="' + e.entryPx + '"' : '') +
+      (late ? ' title="The live quote was unavailable on the flag day — the entry mark was taken ' + escapeHtml(e.entryPxDate) + ', and the since-% measures from that mark."' : '') + '>' +
+      'Flagged ' + escapeHtml(e.openedDate) + px + since + '</div>';
+  }
+  // Scoreboard strip: the tab's own accountability — every shipped idea is
+  // logged at its live fund price when it appears and closed with a reason
+  // when the signal breaks, so the record is the screen's, not hindsight's.
+  function levRecordStrip(d){
+    var rec = d && d.record;
+    if (!rec || !rec.summary) return '';
+    var s = rec.summary;
+    if (!s.openCount && !s.closedCount) return '';
+    function stat(label, val, cls){
+      return '<span class="lev-stat"><span class="lev-stat-label">' + label + '</span>' +
+        '<span class="lev-stat-val' + (cls ? ' ' + cls : '') + '">' + val + '</span></span>';
+    }
+    var chips = [stat('Open ideas', s.openCount), stat('Closed', s.closedCount)];
+    if (s.winRatePct != null) chips.push(stat('Win rate', fmt(s.winRatePct, 0) + '% <span class="lev-stat-n">of ' + s.scoredCount + '</span>'));
+    if (s.avgRetPct != null) chips.push(stat('Avg closed move', (s.avgRetPct >= 0 ? '+' : '') + fmt(s.avgRetPct, 1) + '%', s.avgRetPct >= 0 ? 'pos' : 'neg'));
+    var closedChips = '';
+    var rc = Array.isArray(rec.closedRecent) ? rec.closedRecent.slice(0, 6) : [];
+    if (rc.length){
+      closedChips = '<div class="lev-closed-row">' + rc.map(function(c){
+        var pct = c.retPct != null ? (c.retPct >= 0 ? '+' : '') + fmt(c.retPct, 1) + '%' : 'n/a';
+        var tip = (c.direction === 'bull' ? 'Bull' : 'Bear') + ' on ' + (c.under || '') + ' · flagged ' + (c.openedDate || '?') + ', closed ' + (c.closedDate || '?') +
+          (c.exitReason ? ' (' + c.exitReason + ')' : '') + (c.retPct == null ? ' — no price mark' : '') +
+          (c.stale ? ' — exit scored at the last known mark; no live quote at close' : '');
+        return '<span class="lev-closed-chip ' + (c.retPct == null ? '' : c.retPct >= 0 ? 'pos' : 'neg') + '" title="' + escapeHtml(tip) + '">' + escapeHtml(c.etf || '') + ' ' + pct + '</span>';
+      }).join('') + '</div>';
+    }
+    var note = s.closedCount ? '' : '<span class="lev-stat-note">Record accumulates as flagged ideas close.</span>';
+    return '<div class="lev-record"><h3 class="lev-sub">Signal track record — flagged at live fund prices, closed when the signal breaks</h3>' +
+      '<div class="lev-stats">' + chips.join('') + note + '</div>' + closedChips + '</div>';
+  }
+  // Spark: the underlying's ~3-month closes, PLUS — when the bake shipped a
+  // simulated k×-daily-reset path (sparkSim, net of fee+financing) — a dashed
+  // overlay of what the leveraged product would have done over the same
+  // window, both normalized to % change from t0. The gap between the lines
+  // IS the leverage effect: amplification in trends, bleed in chop. Legacy
+  // payloads without sparkSim keep the old single-line price render.
   function levSparkSvg(i){
-    var s = Array.isArray(i.spark) ? i.spark.filter(function(v){ return v != null && isFinite(v); }) : [];
+    var raw = Array.isArray(i.spark) ? i.spark : [];
+    var rawSim = Array.isArray(i.sparkSim) && i.sparkSim.length === raw.length ? i.sparkSim : null;
+    var s = [], m = [];
+    for (var q = 0; q < raw.length; q++){
+      if (raw[q] == null || !isFinite(raw[q])) continue;
+      if (rawSim && (rawSim[q] == null || !isFinite(rawSim[q]))) continue;
+      s.push(raw[q]);
+      if (rawSim) m.push(rawSim[q]);
+    }
     if (s.length < 2) return '';
+    var sim = rawSim && m.length === s.length && s[0] > 0 && m[0] > 0 ? m : null;
+    var underLabel = i.under && i.under.symbol ? i.under.symbol : (i.proxy || i.label || 'underlying');
     var W = 240, H = 44, PAD = 3;
+    // Normalized dual-line mode when the sim rides along; price mode otherwise.
+    var a = s, b = null, fmtVal = function(v){ return fmtMoney(v); };
+    if (sim){
+      a = s.map(function(v){ return (v / s[0] - 1) * 100; });
+      b = sim.map(function(v){ return (v / sim[0] - 1) * 100; });
+      fmtVal = function(v){ return (v >= 0 ? '+' : '') + fmt(v, 1) + '%'; };
+    }
     var lo = Infinity, hi = -Infinity;
-    for (var k = 0; k < s.length; k++){ if (s[k] < lo) lo = s[k]; if (s[k] > hi) hi = s[k]; }
+    for (var k = 0; k < a.length; k++){
+      if (a[k] < lo) lo = a[k]; if (a[k] > hi) hi = a[k];
+      if (b){ if (b[k] < lo) lo = b[k]; if (b[k] > hi) hi = b[k]; }
+    }
     if (!(hi > lo)) hi = lo + 0.0001;
-    var poly = '', hover = [];
-    for (var n = 0; n < s.length; n++){
-      var x = PAD + (n * (W - 2*PAD)) / (s.length - 1);
-      var y = H - PAD - ((s[n] - lo) * (H - 2*PAD)) / (hi - lo);
-      poly += (n ? ' ' : '') + (Math.round(x*10)/10) + ',' + (Math.round(y*10)/10);
-      hover.push({ x: x, y: y, label: fmtMoney(s[n]) });
+    var yOf = function(v){ return H - PAD - ((v - lo) * (H - 2*PAD)) / (hi - lo); };
+    var simTag = b ? Math.abs(i.leverage || 0) + '×' + ((i.leverage || 0) < 0 ? ' inv' : '') + ' sim' : '';
+    var poly = '', polySim = '', hover = [];
+    for (var n = 0; n < a.length; n++){
+      var x = PAD + (n * (W - 2*PAD)) / (a.length - 1);
+      poly += (n ? ' ' : '') + (Math.round(x*10)/10) + ',' + (Math.round(yOf(a[n])*10)/10);
+      var label = b
+        ? underLabel + ' ' + fmtVal(a[n]) + '\\n' + simTag + ' ' + fmtVal(b[n])
+        : fmtVal(a[n]);
+      if (b) polySim += (n ? ' ' : '') + (Math.round(x*10)/10) + ',' + (Math.round(yOf(b[n])*10)/10);
+      hover.push({ x: x, y: yOf(b ? b[n] : a[n]), label: label });
     }
     var up = s[s.length - 1] >= s[0];
-    var underLabel = i.under && i.under.symbol ? i.under.symbol : (i.proxy || i.label || 'underlying');
-    return '<svg class="lev-spark ' + (up ? 'lev-spark-up' : 'lev-spark-down') + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="' + escapeHtml(underLabel + ' ~3-month trend') + '"' + chHoverAttr(hover) + '>' +
+    var aria = underLabel + ' ~3-month trend' + (b ? ' with simulated ' + simTag + ' daily-reset path' : '');
+    return '<svg class="lev-spark ' + (up ? 'lev-spark-up' : 'lev-spark-down') + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="' + escapeHtml(aria) + '"' + chHoverAttr(hover) + '>' +
+      (b ? '<polyline class="lev-spark-sim" points="' + polySim + '" fill="none"/>' : '') +
       '<polyline class="lev-spark-line" points="' + poly + '" fill="none"/>' +
-    '</svg>';
+    '</svg>' +
+    (b ? '<div class="lev-spark-key"><span class="lev-spark-key-under">' + escapeHtml(underLabel) + '</span> vs <span class="lev-spark-key-sim">' + escapeHtml(simTag) + '</span> — gap = leverage × path, net of costs</div>' : '');
   }
   function levSymChip(sym, score){
     return '<a class="lev-sym" data-sym="' + escapeHtml(sym) + '" href="?s=' + encodeURIComponent(sym) + '">' + escapeHtml(sym) +
@@ -15781,10 +15918,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="lev-score lev-score-' + (i.tier || 'moderate') + '" title="Deterministic grade minus its options-only IV-cost pillar — an ETF pays no option premium.">' + tierTxt + ' · ' + fmt(i.conviction, 1) + '</span>' +
       '</header>' +
       '<div class="lev-live" ' + liveAttrs + '>live quote…</div>' +
+      levFlaggedLine(i) +
       levUnderLine(i) +
       levSparkSvg(i) +
       levDriverRows(i) +
-      '<div class="lev-chips">' + levEntryChip(i.entry) + levTapeChip(i) + levDecayChip(i.decay) + levHorizonChip(i.decay) + levPairChip(i) + '</div>' +
+      '<div class="lev-chips">' + levEntryChip(i.entry) + levPickChip(i) + levEarnChip(i) + levTapeChip(i) + levDecayChip(i.decay) + levCarryChip(i.carry) + levHorizonChip(i.decay) + levPairChip(i) + '</div>' +
       (i.note ? '<p class="lev-note">' + escapeHtml(i.note) + '</p>' : '') +
     '</div>';
   }
@@ -15829,8 +15967,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           ' <span class="lev-watch-why">' + escapeHtml(levWatchReason(w)) + '</span></li>';
       }).join('') + '</ul>';
     }
-    var foot = '<p class="lev-foot">Leveraged and inverse ETFs reset their leverage <b>daily</b> — over multi-day holds they compound the path, not the period move, and sideways chop bleeds value at any leverage (the per-card drag estimate). They are short-horizon trading vehicles, not investments: days to a few weeks, sized small, never held through a thesis change. Single-stock products carry full idiosyncratic risk — one bad print is a ~2× overnight gap. Educational screen, not financial advice.</p>';
-    root.innerHTML = regime + (ideas.length
+    var foot = '<p class="lev-foot">Leveraged and inverse ETFs reset their leverage <b>daily</b> — over multi-day holds they compound the path, not the period move, and sideways chop bleeds value at any leverage (the per-card drag estimate). The dashed spark line simulates the fund\\'s daily-reset path net of fee + financing over the same window — the gap to the underlying line is the compounding effect made visible. Carry, drag and the simulated path are estimates, not fund statements. They are short-horizon trading vehicles, not investments: days to a few weeks, sized small, never held through a thesis change. Single-stock products carry full idiosyncratic risk — one bad print is a ~2× overnight gap. Educational screen, not financial advice.</p>';
+    root.innerHTML = regime + levRecordStrip(d) + (ideas.length
       ? '<div class="lev-grid">' + ideas.map(function(i){ return levCard(i); }).join('') + '</div>'
       : '<p class="lev-empty">No leveraged idea clears the bar right now — the screen would rather show nothing than manufacture leverage. Ideas appear when a tracked name with a listed single-stock product, or a whole sector with a listed 3× pair, carries real conviction in one direction.</p>') +
       watchHtml + foot;

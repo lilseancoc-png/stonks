@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks, buildLeveragedEtfPicks, writeLeveragedEtfsFile, LEVERAGED_ETFS_FILE } from "./build.mjs";
+import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks, buildLeveragedEtfPicks, writeLeveragedEtfsFile, LEVERAGED_ETFS_FILE, readPriorLevEtfLog, levRecordFromLog } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -253,10 +253,18 @@ try {
 }
 
 // Leveraged ETFs (premium tab) — the daily-reset leverage screen over the same
-// grade index. Mirrors build.mjs::main(); rebuilt fresh (no accumulation), so a
-// regen is exact — fully deterministic, no Yahoo, no AI.
+// grade index. Mirrors build.mjs::main(); the IDEAS payload regenerates exactly
+// (fully deterministic, no Yahoo, no AI). The track-record LOG is deliberately
+// NOT reconciled offline — an algo-regen has no live ETF quotes, so opening or
+// closing entries here would pollute the record with unpriced churn; instead
+// the prior log's scoreboard is re-attached unchanged (next bake reconciles).
 try {
-  const levPayload = buildLeveragedEtfPicks(chains, grades, builtAtIso, macroBackdrop?.macroRegime ?? null);
+  const levPayload = buildLeveragedEtfPicks(chains, grades, builtAtIso, macroBackdrop?.macroRegime ?? null, {
+    rfr: riskFreeRate,
+    picks: out?.picks || picks || null,
+  });
+  const levLogPrev = await readPriorLevEtfLog();
+  if (levLogPrev) levPayload.record = levRecordFromLog(levLogPrev);
   const levInfo = await writeLeveragedEtfsFile(levPayload);
   console.log(`Regenerated ${LEVERAGED_ETFS_FILE} — ${levInfo.ideas} idea(s), ${levInfo.watch} watch row(s).`);
 } catch (err) {
