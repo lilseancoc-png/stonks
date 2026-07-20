@@ -615,8 +615,10 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   **`hasSolidThesis`**, and the honest **`disclosure`**. The AI thesis degrades
   gracefully without `GEMINI_API_KEY` (the deterministic `marketRead` + card stand
   alone) and is cached per `symbol:side` in `pick-thesis-cache.json` on a signature
-  that turns over with the grade, the drivers, the relevant macro axes, the news
-  take, the IV bucket, the deterministic entry state (so the entry verdict
+  that turns over with the grade (2-point conviction buckets), the drivers, the
+  relevant macro axes, the news take's *direction* + dated-catalyst set (not the
+  paragraph wording — a text hash re-graded liquid roster names every bake on
+  same-conclusion rewording), the IV bucket, the deterministic entry state (so the entry verdict
   re-reads when the entry picture changes), **and the ET date** — the grader is
   web-grounded, so a cached verdict never outlives the trading day its research
   ran on (read-before-wipe / write-after, **not** written by the offline

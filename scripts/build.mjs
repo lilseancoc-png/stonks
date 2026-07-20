@@ -18382,6 +18382,12 @@ const AI_THESIS_MODEL = process.env.AI_THESIS_MODEL || "gemini-3.5-flash";
 // (the grader runs on baked data alone). AI_THESIS_SEARCH=0 disables.
 const AI_THESIS_SEARCH = process.env.AI_THESIS_SEARCH !== "0";
 const AI_THESIS_SEARCH_MODEL = process.env.AI_THESIS_SEARCH_MODEL || AI_THESIS_MODEL;
+// Thinking budget for the research call. Default 0: it is a search-and-list
+// task (dated bullet facts, no judgment — that lives in the grader call, which
+// keeps its real AI_THESIS_THINK budget). Left unset, Flash's DYNAMIC thinking
+// spent ~1.5k thought-tokens per call (~77k/day, billed at output rates) on
+// ~140-token bullet lists (measured 2026-07-17).
+const AI_THESIS_SEARCH_THINK = Math.max(0, Number(process.env.AI_THESIS_SEARCH_THINK ?? 0));
 // Names are graded CONCURRENTLY (each name's research→grade pair stays
 // sequential — the research digest feeds the grade prompt). Serial, this pass
 // was ~60% of the bake's wall clock (~1–1.5 min/name × ≤10 names); the calls,
@@ -18704,20 +18710,35 @@ function parseThesisResponse(text) {
 }
 
 // Cache signature: turns over with the grade, the in-direction drivers, the macro
-// state + the relevant axes' directions, the news take, the fundamental verdict,
-// the IV bucket, the deterministic ENTRY read — so a fresh news take, a macro
+// state + the relevant axes' directions, the news take's direction + dated-catalyst
+// set, the fundamental verdict, the IV bucket, the deterministic ENTRY read — so a
+// materially changed news read, a macro
 // shift, or an entry-picture change (a pullback filling, a reclaim confirming, an
 // event window opening) re-reads the thesis + the model's entry verdict — AND the
 // ET date: the grader is web-search-grounded, so a cached verdict must never
 // outlive the trading day its research was run on (a "wait" minted on yesterday's
 // news would otherwise stick until some other component churned).
 export function thesisCacheSig(r, side, kind, macroRegime, macroCalendar = null) {
-  const works = (r.drivers || []).filter((x) => x && x.score).slice(0, 5).map((x) => `${x.key}${Math.sign(x.score) > 0 ? "+" : "-"}`).join(",");
+  // Sorted: membership + sign is the semantic intent — two drivers swapping
+  // magnitude rank is not a material change worth a re-grade.
+  const works = (r.drivers || []).filter((x) => x && x.score).slice(0, 5).map((x) => `${x.key}${Math.sign(x.score) > 0 ? "+" : "-"}`).sort().join(",");
   const ax = (macroRegime && macroRegime.axes) || {};
   const profile = MACRO_PROFILES[kind] || MACRO_PROFILES.broad;
   const axSig = (profile.cite || []).map((k) => `${k}${axSign(ax[k]) > 0 ? "+" : axSign(ax[k]) < 0 ? "-" : "0"}`).join("");
   const state = macroRegime?.state || "neutral";
-  const newsHash = r.data?.news?.paragraph ? createHash("sha1").update(String(r.data.news.paragraph)).digest("hex").slice(0, 8) : "";
+  // Material-news signature: the take's DIRECTION + the dated-catalyst set —
+  // deliberately NOT a hash of the paragraph text. The judgment pass rewords
+  // its paragraph on every fresh call (spot-drift / new-headline re-reads hit
+  // liquid names most bakes), so a text hash forced a full re-grade of roster
+  // names EVERY bake (V/UNH/LULU re-graded 6/6 bakes on 2026-07-17, ~56 grader
+  // + ~53 grounded-research calls/day for a ≤10-name roster) even when the
+  // read itself hadn't moved. A sentiment flip or a new dated catalyst still
+  // re-grades; same-conclusion wording churn no longer does. Genuinely new
+  // material news also moves the score pillars (the conviction bucket / driver
+  // set below), and the ET-date key still forces a fresh grounded grade daily.
+  const cats = (Array.isArray(r.data?.catalysts) ? r.data.catalysts : [])
+    .map((c) => `${c?.date || ""}:${c?.category || ""}`).sort().join(",");
+  const newsHash = `${r.data?.news?.sentiment || ""}~${cats ? createHash("sha1").update(cats).digest("hex").slice(0, 8) : ""}`;
   const verdict = r.data?.fundamentals?.judgment?.verdict || "";
   const ivp = pnum(r.data?.ivRank?.pctile);
   const ivBucket = ivp != null ? Math.round(ivp / 20) : "";
@@ -18731,7 +18752,10 @@ export function thesisCacheSig(r, side, kind, macroRegime, macroCalendar = null)
   // far-out schedule nibble, and the etDay roll already refreshes daily.
   const calSig = Array.isArray(macroCalendar) && macroCalendar[0] ? `${macroCalendar[0].label}@${macroCalendar[0].date}` : "";
   const etDay = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-  return [THESIS_PROMPT_VERSION, etDay, r.sym, side, kind, Math.round(pnum(r.total) ?? 0), works, state, axSig, verdict, newsHash, ivBucket, entrySig, calSig].join("|");
+  // Conviction rides in 2-point buckets: a ±0.5 pillar wiggle across an integer
+  // boundary is score noise, not a changed thesis (the drivers/entry/macro
+  // components catch the moves that matter).
+  return [THESIS_PROMPT_VERSION, etDay, r.sym, side, kind, Math.round((pnum(r.total) ?? 0) / 2), works, state, axSig, verdict, newsHash, ivBucket, entrySig, calSig].join("|");
 }
 
 async function readPickThesisCache() {
@@ -18768,7 +18792,7 @@ async function fetchThesisWebResearch(ai, r, side) {
       await acquireAiSlot();
       response = await ai.models.generateContent({
         model: aiModelForAttempt(AI_THESIS_SEARCH_MODEL, attempt),
-        config: { tools: [{ googleSearch: {} }], temperature: 0.2, maxOutputTokens: 1200 },
+        config: { tools: [{ googleSearch: {} }], temperature: 0.2, maxOutputTokens: 1200, thinkingConfig: { thinkingBudget: AI_THESIS_SEARCH_THINK } },
         contents: prompt,
       });
       recordAiUsage({ model: aiModelForAttempt(AI_THESIS_SEARCH_MODEL, attempt), callType: "pick-thesis-research", symbol: r.sym, usage: response?.usageMetadata });
