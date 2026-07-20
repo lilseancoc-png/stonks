@@ -3846,6 +3846,14 @@ a.cr-tkr:hover .stk-sym-go, a.cr-tkr:focus-visible .stk-sym-go { color: var(--ac
 }
 .flow-row:hover { background: color-mix(in srgb, var(--accent) 4%, var(--surface-3)); border-color: var(--border-strong); }
 .flow-row.tier-hot { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+/* Surge tier (≥25k contracts/hr) — violet, distinct from the gold hot tier so
+   whale-sized prints can't blend into routine hot flow. */
+.flow-row.tier-surge { border-color: color-mix(in srgb, var(--violet) 60%, transparent); }
+.flow-row.tier-surge .flow-top {
+  color: var(--violet);
+  background: var(--violet-soft);
+  border-color: color-mix(in srgb, var(--violet) 45%, transparent);
+}
 .flow-row.is-collapsed { padding-bottom: var(--s-2); }
 .flow-row-head {
   display: flex;
@@ -4032,6 +4040,10 @@ a.cr-tkr:hover .stk-sym-go, a.cr-tkr:focus-visible .stk-sym-go { color: var(--ac
   background: color-mix(in srgb, var(--accent-soft) 70%, var(--surface-2));
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
 }
+.flow-chip.tier-surge {
+  background: color-mix(in srgb, var(--violet-soft) 75%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--violet) 60%, transparent);
+}
 .flow-side {
   font-weight: 700;
   font-size: 10px;
@@ -4061,6 +4073,7 @@ a.cr-tkr:hover .stk-sym-go, a.cr-tkr:focus-visible .stk-sym-go { color: var(--ac
 }
 .flow-chip.tier-warm .flow-delta { color: var(--warn); }
 .flow-chip.tier-mild .flow-delta { color: var(--text); }
+.flow-chip.tier-surge .flow-delta { color: var(--violet); }
 .flow-otm {
   font-size: 11px;
   font-weight: 600;
