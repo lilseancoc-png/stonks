@@ -3318,6 +3318,28 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .quant-conf-qrow td { background: color-mix(in srgb, var(--accent) 5%, transparent); }
 .quant-conf-lean { font: 700 10px/1 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; }
 .quant-conf-src { font-size: 11.5px; }
+/* Regime conditioning strip + regime-adjusted badges */
+.quant-regime { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: var(--r-1); padding: 9px 12px; background: var(--surface); }
+.quant-reg-title { font: 700 10px/1.2 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); cursor: help; }
+.quant-reg-chip { display: inline-flex; align-items: baseline; gap: 5px; font: 700 11px/1 var(--font-sans); color: var(--text-strong); border: 1px solid var(--border); border-radius: 999px; padding: 4px 9px; white-space: nowrap; cursor: help; }
+.quant-reg-chip em { font: 700 9px/1 var(--font-sans); font-style: normal; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.quant-reg-chip.is-good { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 40%, transparent); }
+.quant-reg-chip.is-warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.quant-reg-chip.is-bad { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 45%, transparent); }
+.quant-reg-bars { flex-basis: 100%; font: 400 11.5px/1.5 var(--font-sans); color: var(--muted); }
+.quant-pri { font: 700 9.5px/1 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; color: var(--neg); border: 1px solid color-mix(in srgb, var(--neg) 45%, transparent); border-radius: 999px; padding: 2px 7px; white-space: nowrap; cursor: help; }
+.quant-pri-cold { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 45%, transparent); }
+.quant-deprio td { opacity: .62; }
+.quant-evt { font: 700 9.5px/1 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); border-radius: 999px; padding: 2px 7px; white-space: nowrap; cursor: help; }
+/* Pairs methodology cells */
+.quant-eg-ok { font: 700 10px/1 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; color: var(--pos); border: 1px solid color-mix(in srgb, var(--pos) 40%, transparent); border-radius: 999px; padding: 3px 8px; white-space: nowrap; cursor: help; }
+.quant-eg-no { color: var(--muted); font: 600 11px/1.2 var(--font-sans); cursor: help; }
+.quant-stab-ok { font: 700 9.5px/1 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; color: var(--pos); cursor: help; }
+.quant-stab-no { font: 700 9.5px/1 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; color: var(--warn); cursor: help; }
+.quant-match { font: 700 10px/1 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; border: 1px solid var(--border); border-radius: 999px; padding: 3px 8px; white-space: nowrap; cursor: help; }
+.quant-match-good { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 40%, transparent); }
+.quant-match-fair { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.quant-match-poor { color: var(--muted); }
 
 /* --- Stock Picks (quality-dip screen, premium) ------------------------- */
 .stk-root { display: flex; flex-direction: column; gap: 14px; }

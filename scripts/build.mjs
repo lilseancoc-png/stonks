@@ -4326,6 +4326,62 @@ const QUANT_TERM_FAR_DTE = 90;
 const QUANT_DISP_TOP_N = 50;
 // Post-earnings-drift watch window (trading sessions since the reaction day).
 const QUANT_PED_WINDOW_SESSIONS = 10;
+// --- Regime conditioning (docs/quant-lab.md) --------------------------------
+// Four market regimes, read once per bake from data already in memory, that
+// re-tune WHICH rows the screens badge as extreme. Fixed per-regime threshold
+// TABLES (never continuous adaptive scaling), and rows are never hidden —
+// only badged / re-prioritized — so the conditioning stays auditable:
+//   vol      — VIX level + term structure (macroBackdrop) AND SPY 20d realized
+//              vol (so the read degrades to RV-only when the macro fetch flaked)
+//   trend    — SPY trending vs range-bound: Kaufman efficiency ratio over 60
+//              sessions, OR monotone higher-highs+higher-lows (or lower/lower)
+//              across the window's three 20-session thirds (close-based)
+//   risk     — the Market Analysis tape (computeMacroRegime state), threaded
+//              in from main(); "unknown" offline / when the macro fetch failed
+//   earnings — share of the tracked universe reporting inside ~2 weeks
+const QUANT_REGIME_VIX_HIGH = 25;
+const QUANT_REGIME_VIX_CRISIS = 30;
+const QUANT_REGIME_VIX_LOW = 15;
+const QUANT_REGIME_RV_HIGH = 20; // SPY RV20, vol points
+const QUANT_REGIME_RV_CRISIS = 30;
+const QUANT_REGIME_RV_LOW = 12;
+const QUANT_REGIME_TREND_WIN = 60; // sessions for the trend/range read
+const QUANT_REGIME_TREND_ER = 0.35; // efficiency-ratio bar for "trending"
+const QUANT_REGIME_EARN_DAYS = 14; // calendar days for the earnings-heavy count
+const QUANT_REGIME_EARN_FRAC = 0.2; // ≥20% of universe reporting = "heavy"
+// Per-regime badge bars. Base = the fixed bars the screens always used; the
+// conditioning rows encode the classic adjustments: mean-reversion flags
+// demand MORE sigma in strong trends / high-crisis vol (stretched keeps
+// stretching), VRP "rich" needs a higher z when high vol makes a fat premium
+// normal, and the pair-spread "stretched" read widens in high vol (spreads
+// are mechanically noisier) / tightens in calm range-bound tape.
+const QUANT_SIGMA_PRI_Z20 = 2; // priority bar, calm/range regimes
+const QUANT_SIGMA_PRI_Z20_TREND = 2.5; // …in strong trend or high/crisis vol
+const QUANT_SIGMA_PRI_RETZ = 2;
+const QUANT_SIGMA_PRI_RETZ_TREND = 3;
+const QUANT_VRP_RICH_Z = 1.5; // "rich/cheap" badge bar, normal regimes
+const QUANT_VRP_RICH_Z_HIGHVOL = 2;
+const QUANT_PAIR_SHOW_Z = 2; // pair "stretched" read bar, normal
+const QUANT_PAIR_SHOW_Z_CALM = 1.75; // low vol AND range-bound
+const QUANT_PAIR_SHOW_Z_HIGHVOL = 2.5;
+// Surface: a term-structure inversion inside this many days of the name's own
+// earnings print is mechanically expected (event vol loads the front) and is
+// badged + de-prioritized rather than read as stress.
+const QUANT_TERM_EVENT_DAYS = 35;
+// Pairs methodology (2026-07-20 rework): Engle-Granger on the FULL joined
+// close window (~1 year — honestly labeled; Johansen / multi-year tests stay
+// out of scope), hedge-ratio (EG β) spread with 60d + full-window z reads,
+// a rolling-β drift check, corr-stability across three lookbacks, and a
+// factor/liquidity match-quality read.
+const QUANT_PAIR_EG_MIN_N = 200; // joined closes required before EG is attempted
+const QUANT_PAIR_EG_CRIT = -3.34; // MacKinnon 5% τ, 2 vars + constant, n≈250
+const QUANT_PAIR_HL_MAX_LONG = 60; // half-life bar (sessions) on the 1y spread
+const QUANT_PAIR_STABLE_CORR = 0.5; // corr floor on the 60d + full windows
+const QUANT_PAIR_BETA_WIN = 120; // rolling hedge-ratio window (drift check)
+const QUANT_PAIR_LIQ_MIN_DV = 25e6; // $25M avg daily dollar-volume floor
+const QUANT_PAIR_MATCH_BETA = [0.4, 0.8]; // |SPY-beta gap| good/fair bars
+const QUANT_PAIR_MATCH_SIZE = [1, 1.7]; // |log10 mcap ratio| good/fair bars
+const QUANT_PAIR_MATCH_MOM = [25, 50]; // |120d return gap| pct-pts good/fair bars
 
 const quantRound = (n, dp = 2) =>
   n == null || !isFinite(n) ? null : Math.round(n * 10 ** dp) / 10 ** dp;
@@ -4396,6 +4452,203 @@ export function arOneHalfLife(series) {
   return { phi, halfLife };
 }
 
+// Small dense OLS via normal equations (k ≤ 3 regressors + intercept — pair
+// math only, no general linear algebra ambitions). cols = regressor columns.
+// Returns coefficient vector (intercept first), per-coefficient t-stats and
+// the residual series; null when the design is singular or underdetermined.
+function quantOlsFit(y, cols) {
+  const n = y.length;
+  const k = cols.length + 1;
+  if (n <= k + 2 || cols.some((c) => c.length !== n)) return null;
+  const x = (row, j) => (j === 0 ? 1 : cols[j - 1][row]);
+  const XtX = Array.from({ length: k }, () => new Array(k).fill(0));
+  const Xty = new Array(k).fill(0);
+  for (let i = 0; i < n; i++) {
+    for (let a = 0; a < k; a++) {
+      Xty[a] += x(i, a) * y[i];
+      for (let b = a; b < k; b++) XtX[a][b] += x(i, a) * x(i, b);
+    }
+  }
+  for (let a = 0; a < k; a++) for (let b = 0; b < a; b++) XtX[a][b] = XtX[b][a];
+  // Gauss-Jordan inverse of the (tiny, symmetric) normal matrix.
+  const aug = XtX.map((row, i) => [...row, ...Array.from({ length: k }, (_, j) => (i === j ? 1 : 0))]);
+  for (let c = 0; c < k; c++) {
+    let piv = c;
+    for (let r = c + 1; r < k; r++) if (Math.abs(aug[r][c]) > Math.abs(aug[piv][c])) piv = r;
+    if (!(Math.abs(aug[piv][c]) > 1e-12)) return null;
+    if (piv !== c) [aug[c], aug[piv]] = [aug[piv], aug[c]];
+    const d = aug[c][c];
+    for (let j = 0; j < 2 * k; j++) aug[c][j] /= d;
+    for (let r = 0; r < k; r++) {
+      if (r === c) continue;
+      const f = aug[r][c];
+      if (f === 0) continue;
+      for (let j = 0; j < 2 * k; j++) aug[r][j] -= f * aug[c][j];
+    }
+  }
+  const inv = aug.map((row) => row.slice(k));
+  const beta = inv.map((row) => row.reduce((s, v, j) => s + v * Xty[j], 0));
+  const resid = new Array(n);
+  let sse = 0;
+  for (let i = 0; i < n; i++) {
+    let fit = 0;
+    for (let a = 0; a < k; a++) fit += beta[a] * x(i, a);
+    resid[i] = y[i] - fit;
+    sse += resid[i] * resid[i];
+  }
+  const sigma2 = sse / (n - k);
+  const t = beta.map((b, a) => {
+    const se = Math.sqrt(Math.max(sigma2 * inv[a][a], 0));
+    return se > 0 ? b / se : null;
+  });
+  return { beta, t, resid, n };
+}
+
+// Engle-Granger cointegration test on ~1 year of joined log closes: OLS
+// lnA = α + β·lnB, then an ADF(1) test on the residual
+// (Δe_t = c + ρ·e_{t−1} + γ·Δe_{t−1}). The τ-stat on ρ is compared to the
+// MacKinnon 5% critical value for the 2-variable-with-constant cointegration
+// case (≈ −3.34 at n≈250). ONE-YEAR test by construction — priceSeries
+// carries ~252 bars — which is short for EG, so `ok` is a badge beside the
+// AR(1) half-life read, never a gate that hides rows. Exported for the
+// diagnose harness (which must mirror this math exactly).
+export function quantEngleGranger(lnA, lnB) {
+  if (!Array.isArray(lnA) || !Array.isArray(lnB) || lnA.length !== lnB.length) return null;
+  if (lnA.length < QUANT_PAIR_EG_MIN_N) return null;
+  const fit = quantOlsFit(lnA, [lnB]);
+  if (!fit) return null;
+  const e = fit.resid;
+  const de = [];
+  for (let i = 1; i < e.length; i++) de.push(e[i] - e[i - 1]);
+  const y = de.slice(1); // Δe_t for t = 2..n
+  const lag = e.slice(1, e.length - 1); // e_{t−1}
+  const dlag = de.slice(0, de.length - 1); // Δe_{t−1}
+  const adf = quantOlsFit(y, [lag, dlag]);
+  if (!adf || adf.t[1] == null) return null;
+  const tau = adf.t[1];
+  return {
+    beta: fit.beta[1],
+    alpha: fit.beta[0],
+    tau,
+    ok: tau <= QUANT_PAIR_EG_CRIT,
+    n: lnA.length,
+    resid: e,
+  };
+}
+
+// Kaufman efficiency ratio over a close window: |net move| / Σ|daily moves|.
+// ~1 = a straight-line trend, ~0 = pure chop. Exported for the diagnose
+// harness's retro regime classification.
+export function quantEfficiencyRatio(closes) {
+  if (!Array.isArray(closes) || closes.length < 3) return null;
+  const net = Math.abs(closes[closes.length - 1] - closes[0]);
+  let path = 0;
+  for (let i = 1; i < closes.length; i++) path += Math.abs(closes[i] - closes[i - 1]);
+  return path > 0 ? net / path : null;
+}
+
+// The four-regime read + the fixed per-regime threshold tables. Pure given
+// its inputs; macroBackdrop is optional (offline harness / macro-fetch flake
+// → the VIX half of the vol read and the risk axis degrade to "unknown"
+// rather than fabricating a state, and every threshold falls back to its
+// base value). Exported for offline testing.
+export function buildQuantRegime(chains, macroBackdrop = null, builtAtIso = new Date().toISOString()) {
+  const todayIso = String(builtAtIso).slice(0, 10);
+  const spyCloses = quantBarsOf(chains?.SPY || {}).map((b) => b.c);
+  // --- Volatility regime: VIX (level + term) × SPY realized vol -------------
+  const rv20 = spyCloses.length >= 22 ? annualizedRealizedVol(spyCloses, 20) : null;
+  const rvPts = quantVolPts(rv20);
+  const vixVal = Number(macroBackdrop?.vix?.value);
+  const vixOk = isFinite(vixVal) && vixVal > 0;
+  const backward = macroBackdrop?.vixTerm?.state === "backwardation";
+  let volLevel = "unknown";
+  if (vixOk || rvPts != null) {
+    const crisis =
+      (vixOk && (vixVal >= QUANT_REGIME_VIX_CRISIS || (vixVal >= QUANT_REGIME_VIX_HIGH && backward))) ||
+      (rvPts != null && rvPts >= QUANT_REGIME_RV_CRISIS);
+    const high =
+      (vixOk && vixVal >= QUANT_REGIME_VIX_HIGH) || (rvPts != null && rvPts >= QUANT_REGIME_RV_HIGH);
+    const low =
+      (!vixOk || vixVal <= QUANT_REGIME_VIX_LOW) && (rvPts != null ? rvPts <= QUANT_REGIME_RV_LOW : vixOk);
+    volLevel = crisis ? "crisis" : high ? "high" : low ? "low" : "normal";
+  }
+  const vol = {
+    level: volLevel,
+    vix: vixOk ? quantRound(vixVal, 1) : null,
+    vixTrend: macroBackdrop?.vix?.trend || null,
+    vixTermState: macroBackdrop?.vixTerm?.state || null,
+    rv20: rvPts,
+    basis: vixOk && rvPts != null ? "vix+rv" : vixOk ? "vix-only" : rvPts != null ? "rv-only" : "none",
+  };
+  // --- Trend vs range (SPY) -------------------------------------------------
+  let trend = { state: "unknown", direction: null, er: null, hhhl: null, lllh: null };
+  if (spyCloses.length >= QUANT_REGIME_TREND_WIN) {
+    const w = spyCloses.slice(-QUANT_REGIME_TREND_WIN);
+    const er = quantEfficiencyRatio(w);
+    const third = Math.floor(QUANT_REGIME_TREND_WIN / 3);
+    const hi = (arr) => Math.max(...arr);
+    const lo = (arr) => Math.min(...arr);
+    const t1 = w.slice(0, third);
+    const t2 = w.slice(third, 2 * third);
+    const t3 = w.slice(2 * third);
+    const hhhl = hi(t1) < hi(t2) && hi(t2) < hi(t3) && lo(t1) < lo(t2) && lo(t2) < lo(t3);
+    const lllh = hi(t1) > hi(t2) && hi(t2) > hi(t3) && lo(t1) > lo(t2) && lo(t2) > lo(t3);
+    const trending = (er != null && er >= QUANT_REGIME_TREND_ER) || hhhl || lllh;
+    const net = w[w.length - 1] - w[0];
+    trend = {
+      state: trending ? "trending" : "range",
+      direction: trending ? (net >= 0 ? "up" : "down") : null,
+      er: quantRound(er),
+      hhhl,
+      lllh,
+    };
+  }
+  // --- Risk-on / risk-off (the Market Analysis tape) ------------------------
+  const mr = macroBackdrop?.macroRegime || null;
+  const risk = {
+    state: mr?.state || "unknown",
+    stress: mr?.stress ?? null,
+    drivers: Array.isArray(mr?.drivers) ? mr.drivers.slice(0, 4) : [],
+  };
+  // --- Earnings-heavy vs quiet ----------------------------------------------
+  let reporting = 0;
+  let universe = 0;
+  const cutMs = Date.parse(`${todayIso}T00:00:00Z`) + QUANT_REGIME_EARN_DAYS * 86400000;
+  const cutIso = Number.isFinite(cutMs) ? new Date(cutMs).toISOString().slice(0, 10) : null;
+  for (const [sym, data] of Object.entries(chains || {})) {
+    if (!data || SECTORS[sym] === "ETF") continue;
+    universe++;
+    const next = data.fundamentals?.nextEarningsDate;
+    if (typeof next === "string" && next >= todayIso && cutIso && next <= cutIso) reporting++;
+  }
+  const earnFrac = universe > 0 ? reporting / universe : null;
+  const earnings = {
+    state: earnFrac != null ? (earnFrac >= QUANT_REGIME_EARN_FRAC ? "heavy" : "quiet") : "unknown",
+    reporting,
+    universe,
+    windowDays: QUANT_REGIME_EARN_DAYS,
+  };
+  // --- Fixed per-regime threshold tables ------------------------------------
+  const volHi = volLevel === "high" || volLevel === "crisis";
+  const trending = trend.state === "trending";
+  const calm = volLevel === "low" && trend.state === "range";
+  const thresholds = {
+    sigma: {
+      z20: volHi || trending ? QUANT_SIGMA_PRI_Z20_TREND : QUANT_SIGMA_PRI_Z20,
+      retZ: volHi || trending ? QUANT_SIGMA_PRI_RETZ_TREND : QUANT_SIGMA_PRI_RETZ,
+      raised: volHi || trending,
+    },
+    vrp: { richZ: volHi ? QUANT_VRP_RICH_Z_HIGHVOL : QUANT_VRP_RICH_Z, raised: volHi },
+    pairs: {
+      showZ: volHi ? QUANT_PAIR_SHOW_Z_HIGHVOL : calm ? QUANT_PAIR_SHOW_Z_CALM : QUANT_PAIR_SHOW_Z,
+      widened: volHi,
+      tightened: calm,
+    },
+    surface: { downweightInversions: volHi || earnings.state === "heavy", eventDays: QUANT_TERM_EVENT_DAYS },
+  };
+  return { asOf: builtAtIso, vol, trend, risk, earnings, thresholds };
+}
+
 // 25Δ skew at the ~30d expiry: IV of the ~25-delta put minus the ~25-delta
 // call (risk-reversal convention). Positive = downside protection bid (the
 // normal equity smirk); unusually positive = fear premium; negative = calls
@@ -4451,8 +4704,16 @@ export function computeSkew25(data) {
 // band convention), yesterday→today return z vs the PRIOR 20 daily log
 // returns (today's outlier must not inflate its own σ), and the IV
 // expected-move cone (k·S·IV·√(days/365), the market's own 1σ/2σ). Only
-// names at/near an extreme ship.
-function buildQuantSigma(chains, todayIso) {
+// names at/near an extreme ship. Regime conditioning: inclusion bars stay
+// FIXED (rows never hidden by regime), but the `priority` badge — the
+// "read this as a genuine extreme" flag — uses the regime-adjusted bars:
+// in a strong trend or high/crisis vol the Bollinger bar moves 2.0σ→2.5σ
+// and the return bar 2σ→3σ (a literal 3σ Bollinger bar would near-empty
+// the screen — the 20d population-σ z is mathematically bounded ~4.3 and
+// rarely exceeds ~3; the return z genuinely reaches 3–4σ).
+function buildQuantSigma(chains, todayIso, regime = null) {
+  const priZ20 = regime?.thresholds?.sigma?.z20 ?? QUANT_SIGMA_PRI_Z20;
+  const priRetZ = regime?.thresholds?.sigma?.retZ ?? QUANT_SIGMA_PRI_RETZ;
   const rows = [];
   for (const [sym, data] of Object.entries(chains)) {
     const bars = quantBarsOf(data);
@@ -4515,12 +4776,14 @@ function buildQuantSigma(chains, todayIso) {
       ivPctile: data.ivRank?.pctile ?? null,
       em,
       situation,
+      priority: Math.abs(z20) >= priZ20 || (retZ != null && Math.abs(retZ) >= priRetZ),
     });
   }
   rows.sort(
     (a, b) =>
+      (b.priority ? 1 : 0) - (a.priority ? 1 : 0) ||
       Math.max(Math.abs(b.z20 ?? 0), Math.abs(b.retZ ?? 0)) -
-      Math.max(Math.abs(a.z20 ?? 0), Math.abs(a.retZ ?? 0)),
+        Math.max(Math.abs(a.z20 ?? 0), Math.abs(a.retZ ?? 0)),
   );
   return rows;
 }
@@ -4575,11 +4838,121 @@ function buildQuantVrp(ivHistory, chains) {
   return { rows, mktVrp: mkt != null ? quantVolPts(mkt) : null };
 }
 
-// One candidate pair: return correlation gate, then the two spread reads —
-// the 60d log price-ratio z (+ AR(1) half-life) and the 120d IV-spread z off
-// the two names' joined iv-history series. Null when the pair doesn't clear
-// the correlation bar or has no readable spread.
-function computeQuantPair(a, b, ind, chains, ivHistory) {
+// Avg daily dollar volume over the last 20 bars (close × volume), read from
+// the in-memory _bars (bake) or the persisted priceSeries v array (offline
+// harness). Null when neither source carries volume.
+function quantAvgDollarVol(data) {
+  let rows = [];
+  if (Array.isArray(data?._bars) && data._bars.length) {
+    rows = data._bars.map((b) => ({ c: b?.c, v: b?.v }));
+  } else if (data?.priceSeries && Array.isArray(data.priceSeries.c) && Array.isArray(data.priceSeries.v)) {
+    const ps = data.priceSeries;
+    rows = ps.c.map((c, i) => ({ c, v: ps.v[i] }));
+  }
+  const tail = rows.filter((x) => x.c > 0 && x.v > 0).slice(-20);
+  if (tail.length < 10) return null;
+  return tail.reduce((s, x) => s + x.c * x.v, 0) / tail.length;
+}
+
+// Per-name factor snapshot for the pair match-quality read, computed ONCE per
+// symbol per build: SPY beta (last ~120 aligned return days), 120d momentum,
+// log10 market cap, 20d avg dollar volume. Any leg a source can't cover ships
+// null (the match read degrades per-factor rather than vanishing).
+function quantPairFactors(chains) {
+  const spyMap = new Map(quantBarsOf(chains?.SPY || {}).map((b) => [b.t, b.c]));
+  const out = new Map();
+  for (const [sym, data] of Object.entries(chains || {})) {
+    if (!data || SECTORS[sym] === "ETF") continue;
+    const bars = quantBarsOf(data);
+    let beta = null;
+    if (spyMap.size) {
+      const rn = [];
+      const rs = [];
+      let prevC = null;
+      let prevS = null;
+      for (const bar of bars) {
+        const s = spyMap.get(bar.t);
+        if (!(s > 0)) continue;
+        if (prevC != null) {
+          rn.push(Math.log(bar.c / prevC));
+          rs.push(Math.log(s / prevS));
+        }
+        prevC = bar.c;
+        prevS = s;
+      }
+      const w = Math.min(QUANT_PAIR_BETA_WIN, rn.length);
+      if (w >= 60) {
+        const rnW = rn.slice(-w);
+        const rsW = rs.slice(-w);
+        const mn = rnW.reduce((s2, v) => s2 + v, 0) / w;
+        const msp = rsW.reduce((s2, v) => s2 + v, 0) / w;
+        let cov = 0;
+        let varS = 0;
+        for (let i = 0; i < w; i++) {
+          cov += (rnW[i] - mn) * (rsW[i] - msp);
+          varS += (rsW[i] - msp) * (rsW[i] - msp);
+        }
+        if (varS > 0) beta = cov / varS;
+      }
+    }
+    const closes = bars.map((b) => b.c);
+    const mom120 =
+      closes.length >= QUANT_PAIR_BETA_WIN + 1
+        ? (closes[closes.length - 1] / closes[closes.length - 1 - QUANT_PAIR_BETA_WIN] - 1) * 100
+        : null;
+    const mc = Number(data.fundamentals?.marketCap);
+    out.set(sym, { beta, mom120, logMc: mc > 0 ? Math.log10(mc) : null, dv20: quantAvgDollarVol(data) });
+  }
+  return out;
+}
+
+// Match quality — how alike the two legs are on the factors that make a pair
+// hedge clean (market beta, size, momentum) plus a shared liquidity floor.
+// Fixed documented bars → good/fair/poor. Informational only, never a gate:
+// the ~138-name universe leaves few candidates per industry, and stock-borrow
+// availability (the remaining classic filter) has no data source here.
+function quantPairMatch(fa, fb) {
+  if (!fa || !fb) return null;
+  const gap = (x, y) => (x != null && y != null && isFinite(x) && isFinite(y) ? Math.abs(x - y) : null);
+  const betaGap = gap(fa.beta, fb.beta);
+  const sizeGap = gap(fa.logMc, fb.logMc);
+  const momGap = gap(fa.mom120, fb.mom120);
+  const liqOk =
+    fa.dv20 != null && fb.dv20 != null
+      ? fa.dv20 >= QUANT_PAIR_LIQ_MIN_DV && fb.dv20 >= QUANT_PAIR_LIQ_MIN_DV
+      : null;
+  const graded = [
+    [betaGap, QUANT_PAIR_MATCH_BETA],
+    [sizeGap, QUANT_PAIR_MATCH_SIZE],
+    [momGap, QUANT_PAIR_MATCH_MOM],
+  ].filter(([v]) => v != null);
+  let grade = null;
+  if (graded.length) {
+    const anyPoor = graded.some(([v, bars]) => v > bars[1]) || liqOk === false;
+    const allGood = graded.every(([v, bars]) => v <= bars[0]) && liqOk !== false;
+    grade = anyPoor ? "poor" : allGood ? "good" : "fair";
+  }
+  return {
+    betaGap: quantRound(betaGap),
+    sizeGap: quantRound(sizeGap, 1),
+    momGap: quantRound(momGap, 0),
+    liqOk,
+    grade,
+  };
+}
+
+// One candidate pair. Gate: 120d return correlation (primary, unchanged).
+// Spread methodology (2026-07-20 rework): a 1-year Engle-Granger regression
+// supplies the HEDGE RATIO (β), and the spread is lnA − β·lnB rather than the
+// raw log ratio; the residual's ADF τ vs the MacKinnon 5% bar is the `eg.ok`
+// cointegration badge (with <~200 joined closes EG is skipped and the raw
+// ratio is the honest fallback, flagged hedged:false). Two horizons ship —
+// the 60d z + AR(1) half-life (short) and the full-window z + half-life
+// (~1y, medium) — because some pairs only mean-revert on one of them. Plus:
+// rolling-β drift (β on the last 120d vs the full window), corr stability
+// across 60d/120d/full windows, and the factor match read. Null when the
+// pair doesn't clear the correlation bar or has no readable spread.
+function computeQuantPair(a, b, ind, chains, ivHistory, ctx = null) {
   const barsA = quantBarsOf(chains[a]);
   const barsB = quantBarsOf(chains[b]);
   if (barsA.length < 61 || barsB.length < 61) return null;
@@ -4597,33 +4970,78 @@ function computeQuantPair(a, b, ind, chains, ivHistory) {
     ra.push(Math.log(ca[i] / ca[i - 1]));
     rb.push(Math.log(cb[i] / cb[i - 1]));
   }
-  const wr = Math.min(QUANT_PAIR_CORR_WIN, ra.length);
-  const raW = ra.slice(-wr);
-  const rbW = rb.slice(-wr);
-  const ma = raW.reduce((s, v) => s + v, 0) / wr;
-  const mb = rbW.reduce((s, v) => s + v, 0) / wr;
-  let sab = 0;
-  let saa = 0;
-  let sbb = 0;
-  for (let i = 0; i < wr; i++) {
-    const da = raW[i] - ma;
-    const db = rbW[i] - mb;
-    sab += da * db;
-    saa += da * da;
-    sbb += db * db;
-  }
-  if (!(saa > 0) || !(sbb > 0)) return null;
-  const corr = sab / Math.sqrt(saa * sbb);
-  if (!(corr >= QUANT_PAIR_CORR_MIN)) return null;
-  const beta = sab / sbb; // sensitivity of A's return to B's
-  // Log price ratio — the classic stat-arb spread.
-  const ratio = [];
-  for (let i = 0; i < ca.length; i++) ratio.push(Math.log(ca[i] / cb[i]));
-  const rw = ratio.slice(-QUANT_PAIR_PXZ_WIN);
-  const rms = quantMeanStd(rw);
-  const pxZ = rms && rms.std > 0 ? (rw[rw.length - 1] - rms.mean) / rms.std : null;
-  const hl = arOneHalfLife(rw);
+  const corrOf = (win) => {
+    const w = Math.min(win, ra.length);
+    if (w < 40) return null;
+    const raW = ra.slice(-w);
+    const rbW = rb.slice(-w);
+    const ma = raW.reduce((s, v) => s + v, 0) / w;
+    const mb = rbW.reduce((s, v) => s + v, 0) / w;
+    let sab = 0;
+    let saa = 0;
+    let sbb = 0;
+    for (let i = 0; i < w; i++) {
+      const da = raW[i] - ma;
+      const db = rbW[i] - mb;
+      sab += da * db;
+      saa += da * da;
+      sbb += db * db;
+    }
+    if (!(saa > 0) || !(sbb > 0)) return null;
+    return { corr: sab / Math.sqrt(saa * sbb), beta: sab / sbb, n: w };
+  };
+  const cw = corrOf(QUANT_PAIR_CORR_WIN);
+  if (!cw || !(cw.corr >= QUANT_PAIR_CORR_MIN)) return null;
+  const corr = cw.corr;
+  const beta = cw.beta; // return sensitivity of A to B (display only)
+  // Stability filter: the relationship must hold on the short AND full
+  // lookbacks, not just the 120d gate window. Null until the full window is
+  // meaningfully longer than the gate window.
+  const c60 = corrOf(60);
+  const cFull = ra.length >= QUANT_PAIR_EG_MIN_N ? corrOf(ra.length) : null;
+  const stable =
+    c60 && cFull ? c60.corr >= QUANT_PAIR_STABLE_CORR && cFull.corr >= QUANT_PAIR_STABLE_CORR : null;
+  // Engle-Granger hedge ratio + cointegration badge on the full joined window.
+  const lnA = ca.map((c) => Math.log(c));
+  const lnB = cb.map((c) => Math.log(c));
+  const egRaw = quantEngleGranger(lnA, lnB);
+  // A negative hedge ratio on a corr-gated pair means the level regression
+  // disagrees with the return correlation — treat as no usable hedge.
+  const eg = egRaw && egRaw.beta > 0 ? egRaw : null;
+  // The spread: hedged (lnA − β·lnB) when EG produced a ratio, else the raw
+  // log ratio (β = 1) as the honest fallback.
+  const hedged = !!eg;
+  const hb = hedged ? eg.beta : 1;
+  const sp = lnA.map((v, i) => v - hb * lnB[i]);
+  const spW = sp.slice(-QUANT_PAIR_PXZ_WIN);
+  const rms = quantMeanStd(spW);
+  const pxZ = rms && rms.std > 0 ? (spW[spW.length - 1] - rms.mean) / rms.std : null;
+  const hl = arOneHalfLife(spW);
   const mrOk = !!(hl && hl.phi < 0 && hl.halfLife != null && hl.halfLife <= QUANT_PAIR_HL_MAX);
+  // Medium horizon: the same reads on the full (~1y) window — some pairs
+  // only mean-revert here. Only meaningful once EG-depth history exists.
+  let pxZ1y = null;
+  let halfLife1y = null;
+  let mrOk1y = null;
+  if (sp.length >= QUANT_PAIR_EG_MIN_N) {
+    const lms = quantMeanStd(sp);
+    pxZ1y = lms && lms.std > 0 ? (sp[sp.length - 1] - lms.mean) / lms.std : null;
+    const hlL = arOneHalfLife(sp);
+    halfLife1y = hlL?.halfLife ?? null;
+    mrOk1y = !!(hlL && hlL.phi < 0 && hlL.halfLife != null && hlL.halfLife <= QUANT_PAIR_HL_MAX_LONG);
+  }
+  // Rolling hedge-ratio drift: β re-estimated on the trailing 120d vs the
+  // full-window β. A drifting ratio = the relationship is moving and the
+  // full-window spread is dirtier than it looks.
+  let beta120 = null;
+  let betaDriftPct = null;
+  if (eg && lnA.length >= QUANT_PAIR_BETA_WIN + 5) {
+    const fit120 = quantOlsFit(lnA.slice(-QUANT_PAIR_BETA_WIN), [lnB.slice(-QUANT_PAIR_BETA_WIN)]);
+    if (fit120 && isFinite(fit120.beta[1])) {
+      beta120 = fit120.beta[1];
+      betaDriftPct = (Math.abs(beta120 - eg.beta) / Math.max(Math.abs(eg.beta), 0.05)) * 100;
+    }
+  }
   // IV spread — join the two names' iv-history by date.
   const ivMapB = new Map();
   for (const e of ivHistory?.get?.(b)?.entries || []) {
@@ -4651,13 +5069,20 @@ function computeQuantPair(a, b, ind, chains, ivHistory) {
   }
   if (pxZ == null && ivZ == null) return null;
   const sig = Math.max(Math.abs(pxZ ?? 0), Math.abs(ivZ ?? 0));
+  // The "stretched" wording bar is regime-conditioned (ctx.showZ): wider in
+  // high/crisis vol (spreads are mechanically noisier), tighter in calm
+  // range-bound tape. The row itself still ships from 1σ regardless.
+  const showZ = ctx?.showZ ?? QUANT_PAIR_SHOW_Z;
   const reads = [];
-  if (pxZ != null && Math.abs(pxZ) >= QUANT_SIGMA_SHOW_Z) {
+  if (pxZ != null && Math.abs(pxZ) >= showZ) {
     const rich = pxZ > 0 ? a : b;
     const cheap = pxZ > 0 ? b : a;
-    reads.push(`${rich} stretched vs ${cheap} on price (${Math.abs(pxZ).toFixed(1)}σ off the ${QUANT_PAIR_PXZ_WIN}d ratio)`);
+    reads.push(
+      `${rich} stretched vs ${cheap} on the ${hedged ? "hedged spread" : "price ratio"} ` +
+      `(${Math.abs(pxZ).toFixed(1)}σ off the ${QUANT_PAIR_PXZ_WIN}d norm)`,
+    );
   }
-  if (ivZ != null && Math.abs(ivZ) >= QUANT_SIGMA_SHOW_Z) {
+  if (ivZ != null && Math.abs(ivZ) >= showZ) {
     const rich = ivZ > 0 ? a : b;
     const cheap = ivZ > 0 ? b : a;
     reads.push(`${rich} options rich vs ${cheap} (IV spread ${Math.abs(ivZ).toFixed(1)}σ off its ${QUANT_PAIR_IVZ_WIN}d norm)`);
@@ -4667,11 +5092,25 @@ function computeQuantPair(a, b, ind, chains, ivHistory) {
     b,
     ind,
     corr: quantRound(corr),
+    corr60: c60 ? quantRound(c60.corr) : null,
+    corrFull: cFull ? quantRound(cFull.corr) : null,
+    stable,
     beta: quantRound(beta),
-    n: wr,
+    n: cw.n,
+    hedged,
+    hedgeBeta: hedged ? quantRound(eg.beta) : null,
+    beta120: quantRound(beta120),
+    betaDriftPct: quantRound(betaDriftPct, 0),
+    eg: egRaw
+      ? { tau: quantRound(egRaw.tau), ok: !!(eg && egRaw.ok), n: egRaw.n, crit: QUANT_PAIR_EG_CRIT }
+      : null,
     pxZ: quantRound(pxZ),
     halfLife: hl?.halfLife ?? null,
     mrOk,
+    pxZ1y: quantRound(pxZ1y),
+    halfLife1y,
+    mrOk1y,
+    match: ctx?.factors ? quantPairMatch(ctx.factors.get(a), ctx.factors.get(b)) : null,
     ivZ: quantRound(ivZ),
     ivA: quantVolPts(chains[a]?.ivRank?.iv),
     ivB: quantVolPts(chains[b]?.ivRank?.iv),
@@ -4686,8 +5125,13 @@ function computeQuantPair(a, b, ind, chains, ivHistory) {
 // Pair candidates: within INDUSTRY_OF_TICKER groups; industries with only one
 // tracked name fall back to pooling with the other singletons that share their
 // fine SECTORS label. ETFs excluded (an ETF-vs-constituent read is the
-// dispersion section's job).
-function buildQuantPairs(ivHistory, chains) {
+// dispersion section's job). regime (optional) conditions the "stretched"
+// read bar; factors are computed once per symbol for the match-quality read.
+function buildQuantPairs(ivHistory, chains, regime = null) {
+  const ctx = {
+    factors: quantPairFactors(chains),
+    showZ: regime?.thresholds?.pairs?.showZ ?? QUANT_PAIR_SHOW_Z,
+  };
   const groups = new Map();
   for (const sym of Object.keys(chains)) {
     if (!chains[sym] || SECTORS[sym] === "ETF") continue;
@@ -4720,7 +5164,7 @@ function buildQuantPairs(ivHistory, chains) {
     for (let i = 0; i < syms.length; i++) {
       for (let j = i + 1; j < syms.length; j++) {
         tested++;
-        const row = computeQuantPair(syms[i], syms[j], label, chains, ivHistory);
+        const row = computeQuantPair(syms[i], syms[j], label, chains, ivHistory, ctx);
         if (row) rows.push(row);
       }
     }
@@ -4734,8 +5178,17 @@ function buildQuantPairs(ivHistory, chains) {
 // z-scores read today's value against the name's own accumulated `s`/`t`
 // history in iv-history and stay null (UI: "collecting n/60") until
 // QUANT_SURFACE_MIN_HIST sessions exist — they self-activate, no code change.
-function buildQuantSurface(chains, ivHistory) {
+// Event conditioning: an inversion inside QUANT_TERM_EVENT_DAYS of the
+// name's OWN earnings print is mechanically expected (event vol loads the
+// front expiry) — those rows ship an `eventSoon` flag + the print date so
+// the UI badges + de-prioritizes them instead of reading them as stress.
+function buildQuantSurface(chains, ivHistory, todayIso = null) {
   const rows = [];
+  let evtCutIso = null;
+  if (typeof todayIso === "string" && todayIso) {
+    const cutMs = Date.parse(`${todayIso}T00:00:00Z`) + QUANT_TERM_EVENT_DAYS * 86400000;
+    if (Number.isFinite(cutMs)) evtCutIso = new Date(cutMs).toISOString().slice(0, 10);
+  }
   for (const [sym, data] of Object.entries(chains)) {
     if (!data?.spot) continue;
     const ivNear = computeAtmIvForDte(data, IV_HISTORY_TARGET_DTE);
@@ -4751,6 +5204,13 @@ function buildQuantSurface(chains, ivHistory) {
       const ms = quantMeanStd(hist);
       return ms && ms.std > 0 ? quantRound((cur - ms.mean) / ms.std) : null;
     };
+    const nextEarn = data.fundamentals?.nextEarningsDate;
+    const eventSoon = !!(
+      evtCutIso &&
+      typeof nextEarn === "string" &&
+      nextEarn >= todayIso &&
+      nextEarn <= evtCutIso
+    );
     rows.push({
       t: sym,
       sector: SECTORS[sym] || null,
@@ -4764,6 +5224,8 @@ function buildQuantSurface(chains, ivHistory) {
       skewZ: zOf(skew?.skew25 ?? null, sHist),
       sN: sHist.length,
       tN: tHist.length,
+      eventSoon,
+      evtDate: eventSoon ? nextEarn : null,
     });
   }
   rows.sort((a, b) => a.t.localeCompare(b.t));
@@ -5082,12 +5544,18 @@ export function buildQuantPayload(
   // { unusual, volumeFlags, streaksMap, ivTrending }. Omitted (offline
   // harness callers) → the confluence block ships with empty rows.
   confluenceSources = null,
+  // Optional macroBackdrop (main() threads it in AFTER computeMacroRegime has
+  // run) for the regime-conditioning block — VIX/term for the vol regime and
+  // macroRegime for the risk axis. Omitted (offline harness) → the regime
+  // degrades per-axis and every threshold stays at its base value.
+  macroBackdrop = null,
 ) {
   const todayIso = String(builtAtIso).slice(0, 10);
-  const sigmaRows = buildQuantSigma(chains, todayIso);
+  const regime = buildQuantRegime(chains, macroBackdrop, builtAtIso);
+  const sigmaRows = buildQuantSigma(chains, todayIso, regime);
   const vrp = buildQuantVrp(ivHistory, chains);
-  const pairs = buildQuantPairs(ivHistory, chains);
-  const surfaceRows = buildQuantSurface(chains, ivHistory);
+  const pairs = buildQuantPairs(ivHistory, chains, regime);
+  const surfaceRows = buildQuantSurface(chains, ivHistory, todayIso);
   const priorDays = Array.isArray(priorHistory?.days) ? priorHistory.days : [];
   const dispersion = buildQuantDispersion(
     chains,
@@ -5110,17 +5578,35 @@ export function buildQuantPayload(
     builtAtIso,
     date: todayIso,
     minHist: QUANT_SURFACE_MIN_HIST,
+    regime,
     confluence: buildQuantConfluence(confluenceSources, chains, builtAtIso),
-    sigma: { showZ: QUANT_SIGMA_SHOW_Z, retZ: QUANT_SIGMA_RET_Z, rows: sigmaRows },
-    vrp: { minN: QUANT_VRP_MIN_N, mktVrp: vrp.mktVrp, rows: vrp.rows },
+    sigma: {
+      showZ: QUANT_SIGMA_SHOW_Z,
+      retZ: QUANT_SIGMA_RET_Z,
+      priZ20: regime.thresholds.sigma.z20,
+      priRetZ: regime.thresholds.sigma.retZ,
+      rows: sigmaRows,
+    },
+    vrp: { minN: QUANT_VRP_MIN_N, richZ: regime.thresholds.vrp.richZ, mktVrp: vrp.mktVrp, rows: vrp.rows },
     pairs: {
       window: { corr: QUANT_PAIR_CORR_WIN, pxZ: QUANT_PAIR_PXZ_WIN, ivZ: QUANT_PAIR_IVZ_WIN },
       corrMin: QUANT_PAIR_CORR_MIN,
       halfLifeMax: QUANT_PAIR_HL_MAX,
+      halfLifeMaxLong: QUANT_PAIR_HL_MAX_LONG,
+      showZ: regime.thresholds.pairs.showZ,
+      egMinN: QUANT_PAIR_EG_MIN_N,
+      egCrit: QUANT_PAIR_EG_CRIT,
+      stableCorr: QUANT_PAIR_STABLE_CORR,
       tested: pairs.tested,
       rows: pairs.rows,
     },
-    surface: { farDte: QUANT_TERM_FAR_DTE, skewDelta: QUANT_SKEW_DELTA, rows: surfaceRows },
+    surface: {
+      farDte: QUANT_TERM_FAR_DTE,
+      skewDelta: QUANT_SKEW_DELTA,
+      eventDays: QUANT_TERM_EVENT_DAYS,
+      downweightInversions: regime.thresholds.surface.downweightInversions,
+      rows: surfaceRows,
+    },
     dispersion,
     ped: { windowSessions: QUANT_PED_WINDOW_SESSIONS, rows: pedRows },
     // Honest coverage: what this section deliberately does NOT attempt, and why.
@@ -5129,7 +5615,8 @@ export function buildQuantPayload(
         "M&A / spin-off screens — no deal or corporate-action data source",
         "Index add/delete prediction — no index-committee or flow data",
         "Gamma-scalping simulation — needs intraday delta-hedging data",
-        "Formal cointegration tests — 252-bar price history is too short; the AR(1) half-life badge is the honest substitute",
+        "Johansen / multi-year cointegration — priceSeries carries ~1 year of bars, so Engle-Granger runs on a single 1-year window (labeled as such); Johansen adds nothing for 2-asset pairs",
+        "Stock-borrow availability / borrow-fee screens — no borrow data source",
         "Alt-data earnings nowcasts (satellite / card spend / web traffic) — no alt-data feeds",
       ],
       existing: [
@@ -27081,31 +27568,9 @@ async function main() {
   } catch (err) {
     console.log(`Trending-IV write failed (non-fatal): ${err.message}`);
   }
-  // Quant Lab (docs/quant-lab.md) — deterministic sigma / VRP / pairs /
-  // surface / dispersion / post-earnings-drift screens over the data already
-  // in memory (chains + ivHistory + the earnings store). Analytical screens,
-  // never trade signals. Non-fatal: the tab keeps its last-good payload in
-  // the private store until the next clean bake.
-  try {
-    const { payload: quantPayload, history: quantHistoryNext } = buildQuantPayload(
-      chains, ivHistory, earningsHxStore, priorQuantHistory, builtAtIso,
-      // Aggregate-ideas confluence sources: the scanner-owned flow/volume
-      // boards preserved across the wipe + the just-written streaks map and
-      // Trending-IV payload from earlier in this bake.
-      { unusual, volumeFlags, streaksMap: streaksInfo?.map, ivTrending: ivTrendingForBrief },
-    );
-    const quantInfo = await writeQuantFiles(quantPayload, quantHistoryNext);
-    console.log(
-      `wrote data/${QUANT_FILE} — ${quantPayload.confluence.rows.length} confluence ideas ` +
-      `(${quantPayload.confluence.rows.filter((r) => r.qualified).length} qualified), ` +
-      `${quantPayload.sigma.rows.length} sigma flags, ` +
-      `${quantPayload.vrp.rows.length} VRP names, ${quantPayload.pairs.rows.length}/${quantPayload.pairs.tested} pairs, ` +
-      `${quantPayload.surface.rows.length} surface rows, ${quantPayload.ped.rows.length} post-print, ` +
-      `${quantInfo.bytes} bytes (+${quantInfo.historyBytes} history, ${quantHistoryNext.days.length} days)`,
-    );
-  } catch (err) {
-    console.log(`  ⚠ Quant Lab step failed (non-fatal): ${err.message}`);
-  }
+  // (The Quant Lab step used to run here — it moved BELOW the market-tape
+  // computation so buildQuantRegime can read macroBackdrop.macroRegime for
+  // its risk axis. Search "Quant Lab (docs/quant-lab.md)".)
   // Earnings-history store back into the freshly-recreated data/ (pre-read +
   // updated above, before the wipe).
   const earningsHxBytes = await writeEarningsEventsHistory(earningsHxStore);
@@ -27349,6 +27814,37 @@ async function main() {
       const m = macroBackdrop.macroRegime;
       console.log(`  · market tape: ${m.state} (stress ${m.stress}, ${m.riskOffAxes} risk-off axes)${m.drivers.length ? ` — ${m.drivers.join(", ")}` : ""}`);
     }
+  }
+  // Quant Lab (docs/quant-lab.md) — deterministic sigma / VRP / pairs /
+  // surface / dispersion / post-earnings-drift screens over the data already
+  // in memory (chains + ivHistory + the earnings store). Analytical screens,
+  // never trade signals. Runs HERE (after the market-tape computation above)
+  // so the regime-conditioning block can read macroBackdrop.macroRegime +
+  // VIX for its risk/vol axes. Non-fatal: the tab keeps its last-good
+  // payload in the private store until the next clean bake.
+  try {
+    const { payload: quantPayload, history: quantHistoryNext } = buildQuantPayload(
+      chains, ivHistory, earningsHxStore, priorQuantHistory, builtAtIso,
+      // Aggregate-ideas confluence sources: the scanner-owned flow/volume
+      // boards preserved across the wipe + the just-written streaks map and
+      // Trending-IV payload from earlier in this bake.
+      { unusual, volumeFlags, streaksMap: streaksInfo?.map, ivTrending: ivTrendingForBrief },
+      macroBackdrop,
+    );
+    const quantInfo = await writeQuantFiles(quantPayload, quantHistoryNext);
+    const qr = quantPayload.regime;
+    console.log(
+      `wrote data/${QUANT_FILE} — regime vol:${qr.vol.level}/trend:${qr.trend.state}/risk:${qr.risk.state}/earnings:${qr.earnings.state}, ` +
+      `${quantPayload.confluence.rows.length} confluence ideas ` +
+      `(${quantPayload.confluence.rows.filter((r) => r.qualified).length} qualified), ` +
+      `${quantPayload.sigma.rows.length} sigma flags (${quantPayload.sigma.rows.filter((r) => r.priority).length} priority), ` +
+      `${quantPayload.vrp.rows.length} VRP names, ${quantPayload.pairs.rows.length}/${quantPayload.pairs.tested} pairs ` +
+      `(${quantPayload.pairs.rows.filter((r) => r.eg && r.eg.ok).length} cointegrated), ` +
+      `${quantPayload.surface.rows.length} surface rows, ${quantPayload.ped.rows.length} post-print, ` +
+      `${quantInfo.bytes} bytes (+${quantInfo.historyBytes} history, ${quantHistoryNext.days.length} days)`,
+    );
+  } catch (err) {
+    console.log(`  ⚠ Quant Lab step failed (non-fatal): ${err.message}`);
   }
   const calendarInfo = await writeCalendarFile(chains, trends.macroHeadlines || [], builtAtIso, {
     reportEvents,

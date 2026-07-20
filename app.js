@@ -15078,6 +15078,41 @@
     var minHist = d.minHist || 60;
     if (eye) eye.textContent = (d.date || '') + ' · ' + sigmaRows.length + ' sigma flags · ' + pairRows.length + ' pair reads';
     var html = '<div class="quant-note">Analytical screens — statistical extremes vs each name’s own history. Nothing here is a trade signal.</div>';
+    // --- Regime conditioning strip (buildQuantRegime in build.mjs) -------
+    // Four regimes + the fixed per-regime bars they selected this build.
+    // Rows are never hidden by regime — only badged/re-prioritized — and
+    // older payloads without the block skip the strip entirely.
+    var reg = d.regime;
+    if (reg){
+      var regChip = function(label, state, cls, tip){
+        return '<span class="quant-reg-chip' + (cls ? ' ' + cls : '') + '"' + (tip ? ' title="' + escapeHtml(tip) + '"' : '') + '><em>' + label + '</em>' + escapeHtml(state || 'unknown') + '</span>';
+      };
+      var rv = reg.vol || {};
+      var volCls = rv.level === 'crisis' ? 'is-bad' : rv.level === 'high' ? 'is-warn' : rv.level === 'low' ? 'is-good' : '';
+      var volTip = 'Inputs: ' + (rv.vix != null ? 'VIX ' + rv.vix + (rv.vixTrend ? ' (' + rv.vixTrend + ')' : '') + (rv.vixTermState === 'backwardation' ? ', term inverted' : '') : 'no VIX') + ' · SPY 20d realized vol ' + (rv.rv20 != null ? rv.rv20 + '%' : '—');
+      var rt = reg.trend || {};
+      var trendState = rt.state === 'trending' ? 'trending' + (rt.direction ? ' ' + rt.direction : '') : rt.state;
+      var trendTip = 'SPY over 60 sessions: efficiency ratio ' + (rt.er != null ? rt.er : '—') + (rt.hhhl ? ' · higher highs + higher lows' : rt.lllh ? ' · lower highs + lower lows' : '');
+      var rr = reg.risk || {};
+      var riskCls = /severe/.test(rr.state || '') ? 'is-bad' : rr.state === 'risk-off' ? 'is-warn' : rr.state === 'risk-on' ? 'is-good' : '';
+      var riskTip = 'The Market Analysis tape' + (rr.drivers && rr.drivers.length ? ' — ' + rr.drivers.join(', ') : '');
+      var re = reg.earnings || {};
+      var earnTip = (re.reporting != null ? re.reporting + '/' + re.universe + ' tracked names report inside ' + (re.windowDays || 14) + ' days' : '');
+      var th = reg.thresholds || {};
+      var thBits = [];
+      if (th.sigma) thBits.push('sigma extreme ≥' + th.sigma.z20 + 'σ (return ≥' + th.sigma.retZ + 'σ)' + (th.sigma.raised ? ' — raised' : ''));
+      if (th.vrp) thBits.push('VRP rich |z| ≥ ' + th.vrp.richZ + (th.vrp.raised ? ' — raised' : ''));
+      if (th.pairs) thBits.push('pair stretched ≥' + th.pairs.showZ + 'σ' + (th.pairs.widened ? ' — widened' : th.pairs.tightened ? ' — tightened' : ''));
+      if (th.surface && th.surface.downweightInversions) thBits.push('term inversions down-weighted');
+      html += '<div class="quant-regime">' +
+        '<span class="quant-reg-title" title="Fixed per-regime threshold tables — see the What-is-this note. Rows are never hidden by regime, only badged.">Regime conditioning</span>' +
+        regChip('Vol', rv.level, volCls, volTip) +
+        regChip('Tape', trendState, '', trendTip) +
+        regChip('Risk', rr.state, riskCls, riskTip) +
+        regChip('Earnings', re.state, re.state === 'heavy' ? 'is-warn' : '', earnTip) +
+        (thBits.length ? '<span class="quant-reg-bars">Bars this build: ' + thBits.join(' · ') + '</span>' : '') +
+        '</div>';
+    }
     // --- Aggregate ideas (confluence) ------------------------------------
     // Cross-reference of four independent flow screens (top unusual prints ·
     // top volume flags · fresh ≤3d streaks · 5d rising/surging IV) baked by
@@ -15149,6 +15184,10 @@
     }
     // --- Sigma deviations -----------------------------------------------
     html += '<div class="quant-sub">Sigma deviations — names at a statistical extreme</div>';
+    var priZ20 = (d.sigma && d.sigma.priZ20) || null;
+    if (priZ20 != null){
+      html += '<div class="quant-note">The <b>extreme</b> badge marks names past the regime-adjusted bar (±' + priZ20 + 'σ Bollinger or ±' + (d.sigma.priRetZ || 2) + 'σ daily return this build' + (reg && reg.thresholds && reg.thresholds.sigma && reg.thresholds.sigma.raised ? ' — raised: mean-reversion fades are weakest in strong trends / crisis vol' : '') + '). Un-badged rows are context, not extremes.</div>';
+    }
     if (!sigmaRows.length){
       html += '<p class="quant-none">Nothing at ±' + ((d.sigma && d.sigma.showZ) || 1.5) + 'σ right now — the tape is inside its bands.</p>';
     } else {
@@ -15159,8 +15198,9 @@
         var sitCls = /oversold|down/.test(r.situation || '') ? 'quant-sit-neg' : 'quant-sit-pos';
         var em = r.em ? ('±' + quantNum(r.em.w1, 1) + '% wk · ±' + quantNum(r.em.m1, 1) + '% mo' +
           (r.em.earnImplied != null ? ' · earnings ' + escapeHtml(r.em.earnDate || '') + ' ~±' + quantNum(r.em.earnImplied, 1) + '%' : '')) : '—';
-        html += '<tr><td>' + quantSymLink(r.t) + '</td>' +
-          '<td><span class="quant-sit ' + sitCls + '">' + escapeHtml(sit) + '</span></td>' +
+        var priBadge = r.priority ? ' <span class="quant-pri" title="Past the regime-adjusted extreme bar">extreme</span>' : '';
+        html += '<tr' + (r.priority === false && priZ20 != null ? ' class="quant-deprio"' : '') + '><td>' + quantSymLink(r.t) + '</td>' +
+          '<td><span class="quant-sit ' + sitCls + '">' + escapeHtml(sit) + '</span>' + priBadge + '</td>' +
           '<td>' + quantNum(r.px) + '</td>' +
           quantZCell(r.z20) +
           '<td>' + quantNum(r.bandLo) + '–' + quantNum(r.bandHi) + '</td>' +
@@ -15179,39 +15219,73 @@
       html += '<p class="quant-none">Not enough joined IV + price history yet (needs ' + ((d.vrp && d.vrp.minN) || 60) + ' sessions per name).</p>';
     } else {
       if (d.vrp.mktVrp != null) html += '<div class="quant-line">Median premium across ' + vrpRows.length + ' names: <b>' + quantSigned(d.vrp.mktVrp, 1) + ' vol pts</b> (IV over realized — the carry option sellers harvest).</div>';
-      var vrpTable = function(title, rows){
+      var richZ = d.vrp.richZ || null;
+      if (richZ != null){
+        html += '<div class="quant-note">The <b>rich</b>/<b>cheap</b> badges use |z| ≥ ' + richZ + ' this build' + (reg && reg.thresholds && reg.thresholds.vrp && reg.thresholds.vrp.raised ? ' — raised: in a high-vol regime the normal premium is fatter, so it takes a bigger z to be genuinely extreme' : '') + '.</div>';
+      }
+      var vrpTable = function(title, rows, side){
         var h = '<div class="quant-mini"><div class="quant-mini-title">' + title + '</div>' +
           '<div class="quant-scroll"><table class="quant-tbl"><thead><tr><th>Name</th><th>IV30</th><th>RV30</th><th>VRP</th><th>z</th><th>%ile</th><th>IV %ile</th></tr></thead><tbody>';
         rows.forEach(function(r){
-          h += '<tr><td>' + quantSymLink(r.t) + '</td><td>' + quantNum(r.iv30, 1) + '</td><td>' + quantNum(r.rv30, 1) + '</td>' +
+          var badge = '';
+          if (richZ != null && r.z != null){
+            if (side === 'rich' && r.z >= richZ) badge = ' <span class="quant-pri" title="z past the regime-adjusted rich bar">rich</span>';
+            if (side === 'cheap' && r.z <= -richZ) badge = ' <span class="quant-pri quant-pri-cold" title="z past the regime-adjusted cheap bar">cheap</span>';
+          }
+          h += '<tr><td>' + quantSymLink(r.t) + badge + '</td><td>' + quantNum(r.iv30, 1) + '</td><td>' + quantNum(r.rv30, 1) + '</td>' +
             '<td>' + quantSigned(r.vrp, 1) + '</td>' + quantZCell(r.z) + '<td>' + (r.pctile != null ? r.pctile : '—') + '</td>' +
             '<td>' + (r.ivPctile != null ? r.ivPctile : '—') + '</td></tr>';
         });
         return h + '</tbody></table></div></div>';
       };
       html += '<div class="quant-cols">' +
-        vrpTable('Richest premium (IV furthest over its norm)', vrpRows.slice(0, 8)) +
-        vrpTable('Cheapest premium (IV furthest under its norm)', vrpRows.slice(-8).reverse()) +
+        vrpTable('Richest premium (IV furthest over its norm)', vrpRows.slice(0, 8), 'rich') +
+        vrpTable('Cheapest premium (IV furthest under its norm)', vrpRows.slice(-8).reverse(), 'cheap') +
         '</div>';
     }
     // --- Pairs -----------------------------------------------------------
     html += '<div class="quant-sub">Pair relative value — within-industry, return correlation ≥ ' + ((d.pairs && d.pairs.corrMin) || 0.6) + '</div>';
+    var hasEgCols = pairRows.some(function(p){ return p.hedged != null; });
+    if (hasEgCols){
+      html += '<div class="quant-note">Spread = lnA − β·lnB with β from a <b>1-year Engle-Granger</b> regression (τ vs the MacKinnon 5% bar ' + ((d.pairs && d.pairs.egCrit) || -3.34) + ' = the <b>cointegrated</b> badge; under ~' + ((d.pairs && d.pairs.egMinN) || 200) + ' joined sessions the raw log ratio is the labeled fallback). Two horizons ship — 60d and ~1y — because some pairs only mean-revert on one. <b>Stability</b> = correlation held ≥ ' + ((d.pairs && d.pairs.stableCorr) || 0.5) + ' across the 60d and 1y windows too; <b>match</b> grades how alike the legs are on SPY-beta / size / momentum + a liquidity floor. Stretched wording bar this build: ' + ((d.pairs && d.pairs.showZ) || 2) + 'σ (regime-adjusted).</div>';
+    }
     if (!pairRows.length){
       html += '<p class="quant-none">No correlated pair is stretched ≥1σ right now (' + ((d.pairs && d.pairs.tested) || 0) + ' candidate pairs tested).</p>';
     } else {
-      html += '<div class="quant-scroll"><table class="quant-tbl"><thead><tr><th>Pair</th><th>Industry</th><th>Corr</th><th>β</th><th>Price z (60d)</th><th>Mean-rev</th><th>IV z (120d)</th><th>IV A / B</th><th>Read</th></tr></thead><tbody>';
+      html += '<div class="quant-scroll"><table class="quant-tbl"><thead><tr><th>Pair</th><th>Industry</th><th>Corr</th><th>Hedge β</th><th>Cointegration</th><th>Spread z</th><th>Mean-rev</th><th>IV z (120d)</th><th>Match</th><th>Read</th></tr></thead><tbody>';
       pairRows.slice(0, 30).forEach(function(p){
+        var mrTip = 'AR(1) half-life of the ' + (p.hedged ? 'hedged spread' : 'price ratio');
         var mr = p.pxZ == null ? '—'
-          : p.mrOk ? '<span class="quant-mr-ok">~' + (p.halfLife != null ? p.halfLife + 'd half-life' : 'reverts') + '</span>'
-          : '<span class="quant-mr-no" title="The 60d price ratio shows no AR(1) pull back to its mean — a stretched spread can simply keep trending">no MR evidence</span>';
+          : p.mrOk ? '<span class="quant-mr-ok" title="' + mrTip + '">~' + (p.halfLife != null ? p.halfLife + 'd half-life' : 'reverts') + '</span>'
+          : '<span class="quant-mr-no" title="The 60d spread shows no AR(1) pull back to its mean — a stretched spread can simply keep trending">no MR evidence</span>';
+        if (p.mrOk1y != null){
+          mr += ' <span class="quant-dim" title="Same read on the ~1-year window — some pairs only mean-revert on the longer horizon">1y: ' + (p.mrOk1y ? '~' + (p.halfLife1y != null ? p.halfLife1y + 'd' : 'reverts') : 'no') + '</span>';
+        }
+        var corrTip = 'Return corr: 60d ' + quantNum(p.corr60) + ' · 120d ' + quantNum(p.corr) + ' · 1y ' + quantNum(p.corrFull);
+        var corrCell = quantNum(p.corr) + (p.stable === true ? ' <span class="quant-stab-ok" title="' + corrTip + ' — held across all three windows">stable</span>'
+          : p.stable === false ? ' <span class="quant-stab-no" title="' + corrTip + ' — the relationship does NOT hold across lookbacks">unstable</span>' : '');
+        var betaCell = p.hedged
+          ? quantNum(p.hedgeBeta) + (p.betaDriftPct != null && p.betaDriftPct >= 25 ? ' <span class="quant-mr-no" title="β re-estimated on the trailing 120d (' + quantNum(p.beta120) + ') is drifting ' + p.betaDriftPct + '% from the 1y ratio — the relationship is moving">drift ' + p.betaDriftPct + '%</span>' : '')
+          : '<span class="quant-dim" title="Under ~200 joined sessions — spread falls back to the raw log ratio (β = 1)">ratio</span>';
+        var egCell = p.eg
+          ? (p.eg.ok ? '<span class="quant-eg-ok" title="ADF τ ' + quantNum(p.eg.tau) + ' ≤ ' + quantNum(p.eg.crit) + ' (MacKinnon 5%, 1-year window)">cointegrated</span>'
+            : '<span class="quant-eg-no" title="ADF τ ' + quantNum(p.eg.tau) + ' — the 1y residual is not stationary at the 5% bar; treat the spread as a correlation, not an anchor">not coint (τ ' + quantNum(p.eg.tau, 1) + ')</span>')
+          : '<span class="quant-dim">n &lt; ' + ((d.pairs && d.pairs.egMinN) || 200) + '</span>';
+        var zCell = p.pxZ == null ? '<td>—</td>'
+          : quantZCell(p.pxZ).replace('</td>', (p.pxZ1y != null ? ' <span class="quant-dim" title="Spread z on the ~1-year window">1y ' + quantSigned(p.pxZ1y, 1) + 'σ</span>' : '') + '</td>');
+        var m = p.match;
+        var matchCell = m && m.grade
+          ? '<span class="quant-match quant-match-' + m.grade + '" title="' + escapeHtml('SPY-beta gap ' + quantNum(m.betaGap) + ' · size gap ' + quantNum(m.sizeGap, 1) + ' (log10 mcap) · 120d momentum gap ' + quantNum(m.momGap, 0) + 'pp · liquidity ' + (m.liqOk === true ? 'ok' : m.liqOk === false ? 'below floor' : 'unknown')) + '">' + m.grade + '</span>'
+          : '—';
         html += '<tr><td class="quant-pair">' + quantSymLink(p.a) + '<span class="quant-vs">/</span>' + quantSymLink(p.b) + '</td>' +
           '<td class="quant-dim">' + escapeHtml(p.ind || '') + '</td>' +
-          '<td>' + quantNum(p.corr) + '</td>' +
-          '<td>' + quantNum(p.beta) + '</td>' +
-          quantZCell(p.pxZ) +
+          '<td>' + corrCell + '</td>' +
+          '<td>' + betaCell + '</td>' +
+          '<td>' + egCell + '</td>' +
+          zCell +
           '<td>' + mr + '</td>' +
           quantZCell(p.ivZ) +
-          '<td>' + quantNum(p.ivA, 1) + ' / ' + quantNum(p.ivB, 1) + '</td>' +
+          '<td>' + matchCell + '</td>' +
           '<td class="quant-read">' + escapeHtml(p.read || '—') + '</td></tr>';
       });
       html += '</tbody></table></div>';
@@ -15226,13 +15300,21 @@
       var maxHist = 0;
       surfRows.forEach(function(r){ maxHist = Math.max(maxHist, r.sN || 0, r.tN || 0); });
       if (!histReady) html += '<div class="quant-line quant-collecting">Skew/term z-scores vs each name’s own history are collecting (' + maxHist + '/' + minHist + ' sessions) — they switch on automatically. Today’s snapshot values below.</div>';
-      var backw = surfRows.filter(function(r){ return r.slope != null && r.backwardated; }).sort(function(a, b){ return a.slope - b.slope; }).slice(0, 8);
+      // Event conditioning: an inversion inside ~35 days of the name's own
+      // print is mechanically expected (event vol loads the front expiry) —
+      // those rows sort AFTER the unexplained ones and carry an earnings
+      // badge instead of being read as stress.
+      var backw = surfRows.filter(function(r){ return r.slope != null && r.backwardated; })
+        .sort(function(a, b){ return ((a.eventSoon ? 1 : 0) - (b.eventSoon ? 1 : 0)) || (a.slope - b.slope); }).slice(0, 8);
       var skewed = surfRows.filter(function(r){ return r.skew25 != null; }).sort(function(a, b){ return b.skew25 - a.skew25; }).slice(0, 8);
       var surfTable = function(title, rows, kind){
         var h = '<div class="quant-mini"><div class="quant-mini-title">' + title + '</div>' +
           '<div class="quant-scroll"><table class="quant-tbl"><thead><tr><th>Name</th><th>IV 30d</th><th>IV 90d</th><th>' + (kind === 'term' ? 'Slope' : '25Δ skew') + '</th><th>z</th></tr></thead><tbody>';
         rows.forEach(function(r){
-          h += '<tr><td>' + quantSymLink(r.t) + '</td><td>' + quantNum(r.ivNear, 1) + '</td><td>' + quantNum(r.ivFar, 1) + '</td>' +
+          var evt = kind === 'term' && r.eventSoon
+            ? ' <span class="quant-evt" title="Earnings ' + escapeHtml(r.evtDate || 'soon') + ' — an inverted curve into a known print is expected, not a stress signal">earnings</span>'
+            : '';
+          h += '<tr' + (kind === 'term' && r.eventSoon ? ' class="quant-deprio"' : '') + '><td>' + quantSymLink(r.t) + evt + '</td><td>' + quantNum(r.ivNear, 1) + '</td><td>' + quantNum(r.ivFar, 1) + '</td>' +
             '<td>' + quantSigned(kind === 'term' ? r.slope : r.skew25, 1) + '</td>' + quantZCell(kind === 'term' ? r.slopeZ : r.skewZ) + '</tr>';
         });
         return h + '</tbody></table></div></div>';
@@ -15241,6 +15323,9 @@
         surfTable('Inverted term structures (near-term stress priced)', backw, 'term') +
         surfTable('Richest put skew (downside protection bid)', skewed, 'skew') +
         '</div>';
+      if (d.surface && d.surface.downweightInversions && backw.length){
+        html += '<p class="quant-none">Regime note: inversions are down-weighted this build — ' + (reg && reg.earnings && reg.earnings.state === 'heavy' ? 'an earnings-heavy stretch' : 'a high-vol regime') + ' makes an inverted front end common and less informative.</p>';
+      }
       if (!backw.length) html += '<p class="quant-none">No inverted term structures — the vol curves are in normal contango.</p>';
     }
     // --- Dispersion ------------------------------------------------------
