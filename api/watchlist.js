@@ -38,6 +38,32 @@ const SYM_RE = /^[A-Z][A-Z0-9.]{0,5}$/;
 const sideOf = (side) => (side === "put" ? "put" : "call");
 const keyOf = (sym, side) => `${sym}|${sideOf(side)}`;
 
+// Compact add-time baseline frozen ON THE ITEM alongside savedGrade/savedSpot:
+// the six pillar scores + the top scored drivers as of the save. The pick
+// payload itself refreshes with every roster (or freezes at lastSeen when the
+// name drops off), so these frozen copies are what the client's expandable
+// "what changed since saved" panel diffs today's grade against.
+const PILLAR_KEYS = ["fundamentals", "technicals", "mechanicals", "narrative", "timing", "ivCost"];
+function savedPillarsOf(p) {
+  const pil = p && p.pillars;
+  if (!pil || typeof pil !== "object") return null;
+  const out = {};
+  let any = false;
+  for (const k of PILLAR_KEYS) {
+    const s = Number(pil[k]?.score);
+    if (Number.isFinite(s)) { out[k] = s; any = true; }
+  }
+  return any ? out : null;
+}
+function savedDriversOf(p) {
+  if (!Array.isArray(p?.drivers)) return null;
+  const out = p.drivers
+    .filter((d) => d && d.key && Number.isFinite(Number(d.score)))
+    .slice(0, 6)
+    .map((d) => ({ key: String(d.key), label: String(d.label || d.key), score: Number(d.score) }));
+  return out.length ? out : null;
+}
+
 async function readJson(key) {
   const buf = await store.get(key);
   if (buf == null) return null;
@@ -128,6 +154,8 @@ export default async function handler(req, res) {
         pick: p, addedAt: today, lastSeen: today, stale: false,
         savedGrade: typeof p.total === "number" ? p.total : null,
         savedSpot: typeof p.spot === "number" ? p.spot : null,
+        savedPillars: savedPillarsOf(p),
+        savedDrivers: savedDriversOf(p),
       });
       if (items.length > MAX_ITEMS) items.length = MAX_ITEMS;
     }
@@ -147,6 +175,8 @@ export default async function handler(req, res) {
       // accumulating from here instead of staying blank forever.
       if (it.savedGrade == null && typeof it.pick?.total === "number") it.savedGrade = it.pick.total;
       if (it.savedSpot == null && typeof it.pick?.spot === "number") it.savedSpot = it.pick.spot;
+      if (it.savedPillars == null) it.savedPillars = savedPillarsOf(it.pick);
+      if (it.savedDrivers == null) it.savedDrivers = savedDriversOf(it.pick);
     }
     const out = { items, updatedAt: new Date().toISOString() };
     await store.put(KEY, JSON.stringify(out));

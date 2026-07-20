@@ -10018,6 +10018,53 @@ body.tape-axm-open { overflow: hidden; }
 .pwl-grade s { opacity: .6; font-weight: 500; margin-left: 1px; }
 .pwl-grade-up { color: var(--pos); background: color-mix(in srgb, var(--pos) 10%, transparent); }
 .pwl-grade-down { color: var(--warn, #d98a00); background: color-mix(in srgb, var(--warn, #d98a00) 12%, transparent); }
+/* The grade chip is a BUTTON: click expands the card's what-changed panel. */
+.pwl-grade-btn { appearance: none; border: 0; cursor: pointer; font: inherit; display: inline-flex; align-items: center; gap: 4px; }
+.pwl-grade-btn:hover { filter: brightness(1.18); }
+.pwl-grade-btn .pwl-arr { opacity: .55; font-weight: 500; }
+.pwl-grade-btn .pwl-x { font-size: 8px; opacity: .7; transition: transform .15s ease; }
+.pwl-open .pwl-grade-btn .pwl-x { transform: rotate(180deg); }
+/* The expandable "what changed since saved" breakdown under the card bar. */
+.pwl-delta {
+  font: 400 11.5px/1.5 var(--font-sans);
+  color: var(--text);
+  background: color-mix(in srgb, var(--text-muted) 5%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  padding: 9px 11px 8px;
+  margin: 0 2px 6px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.pwl-delta-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 10px; }
+.pwl-delta-title { font: 700 10px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
+.pwl-delta-sum { font: 600 11.5px/1.3 var(--font-mono); color: var(--text); }
+.pwl-delta-sum.pwl-up { color: var(--pos); }
+.pwl-delta-sum.pwl-down { color: var(--warn, #d98a00); }
+.pwl-delta-verdict { font-weight: 600; }
+.pwl-dv-broken { color: var(--neg); }
+.pwl-dv-ok { color: var(--pos); }
+.pwl-dv-mixed { color: var(--warn, #d98a00); }
+.pwl-delta-sec { font: 700 9.5px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin-top: 2px; }
+.pwl-delta-hint { font-weight: 500; text-transform: none; letter-spacing: 0; opacity: .8; }
+.pwl-dp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 2px 14px; }
+.pwl-dp-row { display: flex; align-items: baseline; gap: 6px; font: 500 11px/1.5 var(--font-mono); }
+.pwl-dp-row.pwl-dp-big .pwl-dp-name, .pwl-dp-row.pwl-dp-big .pwl-dp-delta { font-weight: 700; }
+.pwl-dp-name { color: var(--text-muted); flex: 1; min-width: 0; }
+.pwl-dp-vals { white-space: nowrap; }
+.pwl-dp-vals .pwl-arr { opacity: .5; }
+.pwl-dp-delta { min-width: 30px; text-align: right; white-space: nowrap; }
+.pwl-dp-flat { color: var(--text-muted); opacity: .7; }
+.pwl-dp-up { color: var(--pos); }
+.pwl-dp-down { color: var(--warn, #d98a00); }
+.pwl-dd-wrap { display: flex; flex-wrap: wrap; gap: 4px; }
+.pwl-dd { font: 600 10px/1 var(--font-mono); padding: 3px 6px; border-radius: 3px; white-space: nowrap; }
+.pwl-dd-ok { color: var(--pos); background: color-mix(in srgb, var(--pos) 10%, transparent); }
+.pwl-dd-quiet { color: var(--text-muted); background: color-mix(in srgb, var(--text-muted) 10%, transparent); text-decoration: line-through; text-decoration-thickness: 1px; }
+.pwl-dd-flip { color: var(--neg); background: color-mix(in srgb, var(--neg) 10%, transparent); }
+.pwl-dd-new-for { color: var(--pos); background: color-mix(in srgb, var(--pos) 7%, transparent); border: 1px dashed color-mix(in srgb, var(--pos) 35%, transparent); }
+.pwl-dd-new-against { color: var(--warn, #d98a00); background: color-mix(in srgb, var(--warn, #d98a00) 8%, transparent); border: 1px dashed color-mix(in srgb, var(--warn, #d98a00) 40%, transparent); }
+.pwl-delta-tape { font: 500 11px/1.5 var(--font-mono); color: var(--text); }
+.pwl-delta-note { font: 400 10.5px/1.4 var(--font-sans); color: var(--text-muted); }
 .pwl-health-ok { color: var(--pos); background: color-mix(in srgb, var(--pos) 10%, transparent); }
 .pwl-health-mixed { color: var(--warn, #d98a00); background: color-mix(in srgb, var(--warn, #d98a00) 12%, transparent); }
 .pwl-health-broken { color: #fff; background: var(--neg); animation: pwl-broken-pulse 2.4s ease-in-out infinite; }

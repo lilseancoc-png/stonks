@@ -24130,6 +24130,8 @@
       // start accumulating from here.
       if (w.savedGrade == null && w.pick && typeof w.pick.total === 'number') w.savedGrade = w.pick.total;
       if (w.savedSpot == null && w.pick && typeof w.pick.spot === 'number') w.savedSpot = w.pick.spot;
+      if (w.savedPillars == null) w.savedPillars = watchPillarsOf(w.pick);
+      if (w.savedDrivers == null) w.savedDrivers = watchDriversOf(w.pick);
     }
     saveWatchlist();
   }
@@ -24183,7 +24185,9 @@
       PICKS_WATCHLIST.unshift({
         pick: p, addedAt: today, lastSeen: today, stale: false,
         savedGrade: (typeof p.total === 'number') ? p.total : null,
-        savedSpot: (typeof p.spot === 'number') ? p.spot : null
+        savedSpot: (typeof p.spot === 'number') ? p.spot : null,
+        savedPillars: watchPillarsOf(p),
+        savedDrivers: watchDriversOf(p)
       });
       if (PICKS_WATCHLIST.length > WATCHLIST_LIMIT) PICKS_WATCHLIST.length = WATCHLIST_LIMIT;
     }
@@ -24200,6 +24204,32 @@
     return '<span class="ptc-watch' + (on ? ' is-watched' : '') + '" data-watch-toggle="' + escapeHtml(p.symbol) + '" data-watch-side="' + watchSideOf(p.side) + '" title="' +
       (on ? 'On the watchlist — click to remove' : 'Save to the watchlist — the idea stays through pick refreshes until removed') +
       '">' + (on ? '★' : '☆') + '</span>';
+  }
+  // Compact add-time baseline frozen ON THE ITEM alongside savedGrade/savedSpot
+  // (the pick payload refreshes with every roster): the six pillar scores + the
+  // top scored drivers as of the save — what the expandable "what changed since
+  // saved" panel diffs today's live grade against. Mirrors api/watchlist.js.
+  var WATCH_PILLAR_KEYS = ['technicals','mechanicals','fundamentals','narrative','timing','ivCost'];
+  var WATCH_PILLAR_LABEL = { technicals:'Technicals', mechanicals:'Mechanicals', fundamentals:'Fundamentals', narrative:'Narrative', timing:'Entry timing', ivCost:'IV cost' };
+  function watchPillarsOf(p){
+    var pil = p && p.pillars;
+    if (!pil || typeof pil !== 'object') return null;
+    var out = {}, any = false;
+    for (var i=0; i<WATCH_PILLAR_KEYS.length; i++){
+      var k = WATCH_PILLAR_KEYS[i];
+      var s = pil[k] ? Number(pil[k].score) : NaN;
+      if (isFinite(s)){ out[k] = s; any = true; }
+    }
+    return any ? out : null;
+  }
+  function watchDriversOf(p){
+    if (!p || !Array.isArray(p.drivers)) return null;
+    var out = [];
+    for (var i=0; i<p.drivers.length && out.length < 6; i++){
+      var d = p.drivers[i];
+      if (d && d.key && isFinite(Number(d.score))) out.push({ key: String(d.key), label: String(d.label || d.key), score: Number(d.score) });
+    }
+    return out.length ? out : null;
   }
   // --- Watchlist thesis health ---------------------------------------------
   // Re-score each saved idea against TODAY'S grade index (data/grades.json,
@@ -24282,11 +24312,14 @@
     var gradeTip = 'This build\'s grade for ' + p.symbol + ': ' + watchFmtGrade(h.gradeNow) +
       (saved != null ? ' — it was ' + watchFmtGrade(saved) + ' when this idea was saved' + (w.addedAt ? ' (' + w.addedAt + ')' : '') + '.' : '.') +
       (drift != null && drift !== 0 ? (drift > 0 ? ' The thesis has STRENGTHENED since.' : ' The thesis has WEAKENED since.') : '') +
-      ' Re-scored every build.';
-    var gradeHtml = '<span class="pwl-tag pwl-grade' + driftCls + '" title="' + escapeHtml(gradeTip) + '">' +
-      'grade ' + watchFmtGrade(h.gradeNow) +
-      (saved != null && h.gradeNow != null && Math.round(h.gradeNow) !== Math.round(saved) ? ' <s>' + watchFmtGrade(saved) + '</s>' : '') +
-      '</span>';
+      ' Re-scored every build. Click for the full what-changed breakdown — pillars, drivers, tape.';
+    var gradeChanged = saved != null && h.gradeNow != null && Math.round(h.gradeNow) !== Math.round(saved);
+    var gradeHtml = '<button type="button" class="pwl-tag pwl-grade pwl-grade-btn' + driftCls + '" data-watch-expand="' + escapeHtml(p.symbol) + '|' + watchSideOf(p.side) + '" title="' + escapeHtml(gradeTip) + '">' +
+      'grade ' + (gradeChanged
+        ? watchFmtGrade(saved) + ' <span class="pwl-arr">→</span> ' + watchFmtGrade(h.gradeNow)
+        : watchFmtGrade(h.gradeNow)) +
+      '<span class="pwl-x" aria-hidden="true">▾</span>' +
+      '</button>';
     var healthHtml = '';
     if (h.verdict === 'broken'){
       var why = [];
@@ -24322,6 +24355,165 @@
       tmp.innerHTML = html;
       els[i].innerHTML = tmp.firstChild ? tmp.firstChild.innerHTML : '';
     }
+    // Open what-changed panels ride the same tick so their tape/stop lines
+    // track the live quotes too.
+    var panels = document.querySelectorAll('[data-watch-delta]:not([hidden])');
+    for (var j=0; j<panels.length; j++){
+      var pkey = panels[j].getAttribute('data-watch-delta') || '';
+      var pp = pkey.split('|');
+      var pidx = watchIndexOf(pp[0], pp[1]);
+      if (pidx >= 0) panels[j].innerHTML = watchDeltaPanelHtml(PICKS_WATCHLIST[pidx]);
+    }
+  }
+  // Signed pillar/driver score, 1 decimal with a trimmed trailing .0.
+  function watchFmt1(v){
+    if (v == null || !isFinite(v)) return '—';
+    var r = Math.round(Number(v) * 10) / 10;
+    var s = Math.abs(r % 1) < 0.05 ? Math.abs(r).toFixed(0) : Math.abs(r).toFixed(1);
+    return (r < 0 ? '−' : r > 0 ? '+' : '') + s;
+  }
+  // The expandable "what changed since saved" breakdown behind each watchlist
+  // card's grade chip: the saved baseline (grade + pillar scores + the drivers
+  // the idea was saved on, frozen on the item at add time) diffed against
+  // TODAY'S live grade index — so the chip's "+9 → +2" always has a WHY one
+  // click away. Rebuilt fresh on every open + on the 30s live tick.
+  function watchDeltaPanelHtml(w){
+    var p = w.pick;
+    var isCall = watchSideOf(p.side) === 'call';
+    var sup = isCall ? 1 : -1;
+    var gi = picksGradesState.data;
+    var g = gi && gi.grades ? gi.grades[p.symbol] : null;
+    var h = watchThesisHealth(w);
+    if (!g || !h){
+      return '<div class="pwl-delta-note">' + ((gi && gi.grades)
+        ? escapeHtml(p.symbol) + ' has left the tracked universe — no live grade to diff this saved idea against.'
+        : 'Loading the live grade index…') + '</div>';
+    }
+    var saved = (w.savedGrade != null && isFinite(w.savedGrade)) ? Number(w.savedGrade) : null;
+    var drift = (saved != null && h.gradeNow != null) ? sup * (h.gradeNow - saved) : null;
+    var html = '';
+    // Headline: saved → now + the direction-adjusted read (for a put, a grade
+    // moving more negative is the thesis STRENGTHENING).
+    var sumCls = (drift == null || Math.round(drift * 10) === 0) ? '' : (drift > 0 ? ' pwl-up' : ' pwl-down');
+    var sumTxt = drift == null ? 'no saved baseline to compare against'
+      : Math.round(drift * 10) === 0 ? 'grade unchanged since saved'
+      : 'thesis ' + (drift > 0 ? 'strengthened' : 'weakened') + ' by ' + watchFmt1(Math.abs(drift)).replace('+', '') + ' pts';
+    html += '<div class="pwl-delta-head">' +
+      '<span class="pwl-delta-title">What changed' + (w.addedAt ? ' since saved ' + escapeHtml(w.addedAt) : '') + '</span>' +
+      '<span class="pwl-delta-sum' + sumCls + '">' +
+        (saved != null ? 'grade ' + watchFmtGrade(saved) + ' → ' + watchFmtGrade(h.gradeNow) + ' · ' : '') + sumTxt +
+      '</span>' +
+    '</div>';
+    // The verdict, spelled out (the card chip only has room for two words).
+    if (h.verdict === 'broken'){
+      var why = [];
+      if (h.gradeFlip) why.push('the live grade has flipped to the opposite side');
+      if (h.stopBreached) why.push('the saved stop at $' + h.stop.toFixed(2) + ' is breached');
+      if (h.noSupport) why.push('none of the drivers the idea was saved on still fire');
+      html += '<div class="pwl-delta-verdict pwl-dv-broken">⚠ Thesis broken — ' + escapeHtml(why.join('; ')) + '. If you took the trade, this is the exit signal.</div>';
+    } else if (h.verdict === 'on-track'){
+      html += '<div class="pwl-delta-verdict pwl-dv-ok">✓ Thesis on track — the idea is still doing what it was saved to do.</div>';
+    } else {
+      html += '<div class="pwl-delta-verdict pwl-dv-mixed">◐ Thesis mixed — not broken, but not confirming either. The breakdown below is why.</div>';
+    }
+    // Pillar-by-pillar: the saved score → today's, colored by whether the move
+    // HELPS or HURTS this trade's side (not raw sign — a put wants red pillars).
+    var savedPil = (w.savedPillars && typeof w.savedPillars === 'object') ? w.savedPillars : watchPillarsOf(p);
+    var livePil = (g.pillars && typeof g.pillars === 'object') ? g.pillars : null;
+    var rows = '';
+    if (savedPil && livePil){
+      for (var i=0; i<WATCH_PILLAR_KEYS.length; i++){
+        var k = WATCH_PILLAR_KEYS[i];
+        var sv = isFinite(Number(savedPil[k])) ? Number(savedPil[k]) : null;
+        var lv = livePil[k] ? Number(livePil[k].score) : NaN;
+        if (sv == null || !isFinite(lv)) continue;
+        var dd = lv - sv;
+        var adj = dd * sup;
+        var flat = Math.round(dd * 10) === 0;
+        var dCls = flat ? ' pwl-dp-flat' : (adj > 0 ? ' pwl-dp-up' : ' pwl-dp-down');
+        rows += '<div class="pwl-dp-row' + (Math.abs(dd) >= 2 ? ' pwl-dp-big' : '') + '">' +
+          '<span class="pwl-dp-name">' + WATCH_PILLAR_LABEL[k] + '</span>' +
+          '<span class="pwl-dp-vals">' + watchFmt1(sv) + ' <span class="pwl-arr">→</span> ' + watchFmt1(lv) + '</span>' +
+          '<span class="pwl-dp-delta' + dCls + '">' + (flat ? '=' : watchFmt1(dd)) + '</span>' +
+        '</div>';
+      }
+    }
+    if (rows){
+      html += '<div class="pwl-delta-sec">Pillars, saved → now <span class="pwl-delta-hint">green = moved the ' + (isCall ? 'call' : 'put') + '\'s way, amber = against it</span></div>' +
+        '<div class="pwl-dp-grid">' + rows + '</div>';
+    }
+    // The drivers the idea was saved on — still firing / gone quiet / flipped —
+    // plus anything new today's grade leans on that wasn't part of the thesis.
+    var savedDrv = (Array.isArray(w.savedDrivers) && w.savedDrivers.length) ? w.savedDrivers : (watchDriversOf(p) || []);
+    var liveDrv = Array.isArray(g.drivers) ? g.drivers : [];
+    var liveByKey = {}, savedKeys = {};
+    for (i=0; i<liveDrv.length; i++){ if (liveDrv[i] && liveDrv[i].key) liveByKey[liveDrv[i].key] = Number(liveDrv[i].score) || 0; }
+    var chips = '';
+    for (i=0; i<savedDrv.length; i++){
+      var sd = savedDrv[i];
+      if (!sd || !sd.key) continue;
+      savedKeys[sd.key] = 1;
+      var sScore = Number(sd.score) || 0;
+      if (sScore * sup <= 0) continue; // only the drivers that BACKED the trade are the thesis
+      var now = liveByKey[sd.key];
+      var st, stCls, stTip;
+      if (now == null || now === 0){
+        st = 'gone quiet'; stCls = 'quiet';
+        stTip = 'Backed the idea when it was saved (' + watchFmt1(sScore) + ') but no longer scores in today\'s grade.';
+      } else if ((now > 0 ? 1 : -1) === (sScore > 0 ? 1 : -1)){
+        st = 'still firing'; stCls = 'ok';
+        stTip = 'Backed the idea when it was saved (' + watchFmt1(sScore) + ') and still votes the same side today (' + watchFmt1(now) + ').';
+      } else {
+        st = 'flipped'; stCls = 'flip';
+        stTip = 'Backed the idea when it was saved (' + watchFmt1(sScore) + ') — today it votes the OPPOSITE side (' + watchFmt1(now) + ').';
+      }
+      chips += '<span class="pwl-dd pwl-dd-' + stCls + '" title="' + escapeHtml(stTip) + '">' + escapeHtml(sd.label || sd.key) + ' · ' + st + '</span>';
+    }
+    if (chips) html += '<div class="pwl-delta-sec">The drivers it was saved on</div><div class="pwl-dd-wrap">' + chips + '</div>';
+    var newChips = '';
+    for (i=0; i<liveDrv.length; i++){
+      var nd = liveDrv[i];
+      if (!nd || !nd.key || savedKeys[nd.key]) continue;
+      var nScore = Number(nd.score) || 0;
+      if (!nScore) continue;
+      var forTrade = nScore * sup > 0;
+      newChips += '<span class="pwl-dd pwl-dd-' + (forTrade ? 'new-for' : 'new-against') + '" title="' +
+        escapeHtml('Not part of the saved thesis — today\'s grade leans on it ' + (forTrade ? 'FOR' : 'AGAINST') + ' the trade (' + watchFmt1(nScore) + ').') +
+        '">' + (forTrade ? '+ ' : '! ') + escapeHtml(nd.label || nd.key) + '</span>';
+    }
+    if (newChips) html += '<div class="pwl-delta-sec">New since the save</div><div class="pwl-dd-wrap">' + newChips + '</div>';
+    // The tape: price progress since the save, the stop, entry timing now.
+    var tape = [];
+    var base = (w.savedSpot != null && isFinite(w.savedSpot)) ? Number(w.savedSpot) : null;
+    if (base > 0 && h.spot != null){
+      var mv = (h.spot / base - 1) * 100;
+      tape.push('stock $' + base.toFixed(2) + ' → $' + h.spot.toFixed(2) + ' (' + (mv >= 0 ? '+' : '') + mv.toFixed(1) + '%' +
+        (h.progressPct != null ? ', ' + (h.progressPct >= 0 ? 'with' : 'against') + ' the trade' : '') + ')');
+    }
+    if (h.stop != null && h.spot != null) tape.push('stop $' + h.stop.toFixed(2) + (h.stopBreached ? ' BREACHED' : ' holding'));
+    var liveT = g.timing && g.timing[isCall ? 'call' : 'put'];
+    var savedT = p.entryTiming && p.entryTiming.state;
+    if (liveT && liveT.state) tape.push('entry timing now ' + String(liveT.state).toUpperCase() + (savedT && savedT !== liveT.state ? ' (was ' + String(savedT).toUpperCase() + ')' : ''));
+    if (tape.length) html += '<div class="pwl-delta-tape">' + escapeHtml(tape.join(' · ')) + '</div>';
+    html += '<div class="pwl-delta-note">Baseline frozen when the idea was saved; compared against this build\'s grade — refreshes with every hourly build' + (h.spot != null ? ' and the 30s live quote' : '') + '.</div>';
+    return html;
+  }
+  // Open/close one card's what-changed panel (content rebuilt fresh each open).
+  function toggleWatchDelta(key){
+    var panel = document.querySelector('[data-watch-delta="' + key + '"]');
+    if (!panel) return;
+    var card = panel.closest ? panel.closest('.pwl-card') : null;
+    if (panel.hasAttribute('hidden')){
+      var parts = key.split('|');
+      var idx = watchIndexOf(parts[0], parts[1]);
+      if (idx < 0) return;
+      panel.innerHTML = watchDeltaPanelHtml(PICKS_WATCHLIST[idx]);
+      panel.removeAttribute('hidden');
+      if (card) card.classList.add('pwl-open');
+    } else {
+      panel.setAttribute('hidden', '');
+      if (card) card.classList.remove('pwl-open');
+    }
   }
   // The pinned "★ My watchlist" group at the top of the picks grid — saved
   // cards render with the same tile the roster uses, wrapped in a bar carrying
@@ -24346,7 +24538,9 @@
           watchHealthChipsHtml(w) +
           (w.addedAt ? '<span class="pwl-added">saved ' + escapeHtml(w.addedAt) + '</span>' : '') +
           '<button type="button" class="pwl-remove" data-watch-toggle="' + escapeHtml(p.symbol) + '" data-watch-side="' + watchSideOf(p.side) + '" title="Remove ' + escapeHtml(p.symbol) + ' from the watchlist">✕ remove</button>' +
-        '</div>' + inner + '</div>';
+        '</div>' +
+        '<div class="pwl-delta" data-watch-delta="' + escapeHtml(p.symbol) + '|' + watchSideOf(p.side) + '" hidden></div>' +
+        inner + '</div>';
     }).join('');
     var subTxt = WATCH_REMOTE
       ? 'Shared — anyone can save or remove an idea, and it stays through every pick refresh until removed'
@@ -24879,6 +25073,13 @@
         if (wtog){
           ev.preventDefault();
           toggleWatch(wtog.getAttribute('data-watch-toggle'), wtog.getAttribute('data-watch-side'));
+          return;
+        }
+        // Watchlist grade chip → expand/collapse the what-changed panel.
+        var wexp = ev.target && ev.target.closest ? ev.target.closest('[data-watch-expand]') : null;
+        if (wexp){
+          ev.preventDefault();
+          toggleWatchDelta(wexp.getAttribute('data-watch-expand'));
           return;
         }
         var btn = ev.target && ev.target.closest ? ev.target.closest('[data-pick-open]') : null;
