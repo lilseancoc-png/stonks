@@ -2849,10 +2849,13 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .ers-ldr-day { display: block; font: 400 10.5px/1.3 var(--font-mono); color: var(--muted); }
 /* Upcoming-reporters strip: the full-span header stops auto-fit from collapsing
    its empty tracks, so pin the wrapper to exactly one or two equal columns. Rows
-   are a fixed-column grid so the drift chip / date / value align across rows. */
+   are a fixed-column grid so the drift chip / date / value align across rows.
+   The value track is pinned too (each row is its own grid, so a max-content
+   track would resize per row — a wide "-26.5% 2wk" sub squeezed the 1fr name
+   and shifted that row's chip/date columns a few px left of its neighbors). */
 .ers-up-ldrs { grid-template-columns: 1fr; }
 .ers-up-ldrs.ers-up-two { grid-template-columns: 1fr 1fr; }
-.ers-up-row { display: grid; grid-template-columns: 52px minmax(0, 1fr) 94px 118px max-content; }
+.ers-up-row { display: grid; grid-template-columns: 52px minmax(0, 1fr) 94px 118px minmax(62px, max-content); }
 .ers-up-row > .ers-chip { justify-self: start; }
 .ers-up-date { font: 400 11px/1 var(--font-sans); white-space: nowrap; }
 @media (max-width: 700px) {
