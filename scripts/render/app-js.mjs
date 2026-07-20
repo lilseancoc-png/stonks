@@ -14351,8 +14351,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
   function icFmtT(t){ return (t == null || !isFinite(t)) ? '—' : '$' + t.toFixed(2) + 'T'; }
   function icQtrShort(key){
-    var m = /^(\d{4})Q([1-4])$/.exec(String(key || ''));
+    var m = /^(\\d{4})Q([1-4])$/.exec(String(key || ''));
     return m ? 'Q' + m[2] + " '" + m[1].slice(2) : String(key || '');
+  }
+  function icMonthShort(m){
+    var mm = /^(\\d{4})-(\\d{2})$/.exec(String(m || ''));
+    if (!mm) return String(m || '');
+    var M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return (M[Number(mm[2]) - 1] || mm[2]) + " '" + mm[1].slice(2);
   }
   function icStaleBadge(sec){
     return (sec && sec.stale) ? '<span class="cmd-badge cmd-badge-stale" title="Source unreachable this build — showing the last-good read">last-good</span>' : '';
@@ -14481,9 +14487,51 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
 
     // ── Capital / debt raises ──────────────────────────────────────────────
     var ra = d.raises || {};
-    var sec = ra.sec, uni = ra.universe;
-    if (sec || uni){
+    var sec = ra.sec, uni = ra.universe, bd = ra.bonds;
+    if (sec || uni || bd){
       var inner = '';
+      // Market-wide corporate bond issuance (SIFMA, monthly $B) — the actual
+      // dollars companies raised selling bonds, the headline debt-window read.
+      if (bd && bd.latest && bd.latest.totalB != null){
+        var bl = bd.latest;
+        var bmonths = Array.isArray(bd.months) ? bd.months.slice(-12) : [];
+        var btot = function(r){ return (r.ig || 0) + (r.hy || 0) + (r.cv || 0); };
+        var bmax = 1;
+        for (var bm = 0; bm < bmonths.length; bm++) if (btot(bmonths[bm]) > bmax) bmax = btot(bmonths[bm]);
+        var bbars = '';
+        for (var bm2 = 0; bm2 < bmonths.length; bm2++){
+          var br = bmonths[bm2];
+          var bT = btot(br);
+          var bh = Math.max(4, Math.round((bT / bmax) * 100));
+          var btip = icMonthShort(br.m) + ': ' + icFmtBn(bT) + ' total — investment grade ' + icFmtBn(br.ig) + ' · high yield ' + icFmtBn(br.hy) + ' · convertible ' + icFmtBn(br.cv);
+          bbars += '<div class="ic-bar-cell' + (bm2 === bmonths.length - 1 ? ' ic-bar-cur' : '') + '" title="' + escapeHtml(btip) + '">' +
+            '<span class="ic-bar-n">' + Math.round(bT) + '</span>' +
+            '<div class="ic-bar" style="height:' + bh + '%"></div>' +
+            '<span class="ic-bar-q">' + escapeHtml(icMonthShort(br.m)) + '</span>' +
+          '</div>';
+        }
+        var bqrows = '';
+        var bqs = Array.isArray(bd.quarters) ? bd.quarters : [];
+        for (var bq = 0; bq < bqs.length; bq++){
+          var bqr = bqs[bq];
+          bqrows += '<tr' + (bqr.partial ? ' class="ic-row-cur"' : '') + '><td>' + escapeHtml(bqr.label) + (bqr.partial ? ' <span class="ic-td-note">to date</span>' : '') + '</td>' +
+            '<td class="ic-num">' + icFmtBn(bqr.igB) + '</td>' +
+            '<td class="ic-num">' + icFmtBn(bqr.hyB) + '</td>' +
+            '<td class="ic-num">' + icFmtBn(bqr.cvB) + '</td>' +
+            '<td class="ic-num">' + icFmtBn(bqr.totalB) + '</td></tr>';
+        }
+        inner += '<div class="ic-sub-head">Corporate bond sales — market-wide, monthly ($B) ' + icStaleBadge(bd) + '</div>' +
+          '<div class="ic-hero">' +
+            '<div class="ic-stat"><span class="ic-stat-val">' + icFmtBn(bl.totalB) + '</span><span class="ic-stat-sub">raised in US corporate bonds, ' + escapeHtml(icMonthShort(bl.m)) + '</span></div>' +
+            '<div class="ic-stat ic-stat-prev"><span class="ic-stat-val">' + icFmtBn(bl.igB) + '</span><span class="ic-stat-sub">investment grade</span></div>' +
+            '<div class="ic-stat ic-stat-prev"><span class="ic-stat-val">' + icFmtBn(bl.hyB) + '</span><span class="ic-stat-sub">high yield</span></div>' +
+            '<div class="ic-stat ic-stat-prev"><span class="ic-stat-val">' + icFmtBn(bl.cvB) + '</span><span class="ic-stat-sub">convertible</span></div>' +
+          '</div>' +
+          '<div class="ic-chips">' + rpChip(bl.momPct, 'm/m') + rpChip(bl.yoyPct, 'y/y') + '</div>' +
+          (bbars ? '<div class="ic-bars">' + bbars + '</div>' : '') +
+          (bqrows ? '<div class="ic-table-wrap"><table class="ic-table"><thead><tr><th>Quarter</th><th class="ic-num">Investment grade</th><th class="ic-num">High yield</th><th class="ic-num">Convertible</th><th class="ic-num">Total</th></tr></thead><tbody>' + bqrows + '</tbody></table></div>' : '') +
+          '<p class="ic-note"><b>How to read this:</b> the dollars companies actually raised selling bonds each month, across the whole US market — the debt-side twin of the IPO strip above. <b>Investment grade</b> = bonds from solid-balance-sheet companies; <b>high yield</b> = riskier ("junk") issuers paying up to borrow; <b>convertible</b> = bonds that can turn into stock. Heavy issuance = an open debt window — companies can fund cheaply and underwriting desks are busy; a slammed-shut window (issuance drying up, high yield first) is an early credit-stress tell. Source: <a href="' + escapeHtml(bd.sourceUrl || '#') + '" target="_blank" rel="noopener noreferrer">SIFMA Research</a>.</p>';
+      }
       if (sec && Array.isArray(sec.quarters) && sec.quarters.length){
         var srows = '';
         for (var s = 0; s < sec.quarters.length; s++){
@@ -14507,6 +14555,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
             '<div class="ic-uni-cell"><span class="ic-uni-val">' + up.count + '</span><span class="ic-uni-sub">raise events ' + escapeHtml(icQtrShort(up.key)) + '</span></div>' +
             '<div class="ic-uni-cell"><span class="ic-uni-val">' + (up.withAmount ? cxDollars(up.totalUsd) : '—') + '</span><span class="ic-uni-sub">disclosed ' + escapeHtml(icQtrShort(up.key)) + '</span></div>' +
           '</div>' +
+          (function(){
+            var kindLbl = { debt: 'debt / notes', convertible: 'convertible', equity: 'share issuance' };
+            var kb = uc.byKind || {}, ku = uc.byKindUsd || {};
+            var bits = [];
+            for (var kk in kindLbl){
+              if (!kb[kk]) continue;
+              bits.push(kb[kk] + ' ' + kindLbl[kk] + (isFinite(ku[kk]) && ku[kk] > 0 ? ' (' + cxDollars(ku[kk]) + ' disclosed)' : ''));
+            }
+            return bits.length ? '<p class="ic-note">This quarter by type: ' + bits.join(' · ') + '.</p>' : '';
+          })() +
           '<p class="ic-note">Debt, share and convertible issuance flagged from the news cycle across the ~138 tracked names (buybacks excluded: ' + (uc.buybacks || 0) + ' this quarter). Tracking since ' + escapeHtml(icDateShort(uni.trackingSince || '')) + ' — the per-event feed lives in the Capital raises tab.</p>';
       }
       if (inner) html += '<article class="ic-card ic-card-wide"><div class="ic-card-head"><h3>Capital &amp; debt raises</h3></div>' + inner + '</article>';
@@ -14750,7 +14808,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // docs/event-spillover.md — an ANALYTICAL correlation map (which same-sector
   // peers echo a driver print, how much, how consistently, and whether their
   // options price it). Owner directive: it never suggests a trade.
-  var spilloverState = { data: null, loading: false };
+  var spilloverState = { data: null, loading: false, query: '', showAllEvents: false, refocus: false };
+  var SPILL_EVENTS_SHOWN = 6; // upcoming events visible before "show all" (earnings weeks ship dozens)
   function loadSpillover(){
     if ((spilloverState.data && !tabDataStale(spilloverState)) || spilloverState.loading){ renderSpillover(); return; }
     spilloverState.loading = true;
@@ -14801,11 +14860,31 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       + (d.date ? ' · betas as of ' + d.date : '') + (d.stale ? ' · STALE (kept last-good)' : '');
     var minN = (d.gates && d.gates.minEvents) || 6;
     var html = '';
+    // Ticker filter — the tab is long (every upcoming print + the full pair
+    // matrix), so a query narrows everything to rows touching that symbol.
+    var q = String(spilloverState.query || '').trim().toUpperCase();
+    var matchSym = function(s){ return !!q && String(s || '').toUpperCase().indexOf(q) === 0; };
+    html += '<div class="spill-tools">' +
+      '<input class="spill-search" id="spill-search" type="search" placeholder="Filter by ticker — e.g. NVDA" value="' + escapeHtml(spilloverState.query || '') + '" autocomplete="off" spellcheck="false" aria-label="Filter spillover by ticker">' +
+      (q ? '<button type="button" class="spill-btn" id="spill-clear">Clear</button>' : '') +
+      '</div>';
     // Upcoming driver events with both engines' expected follower moves.
     var up = Array.isArray(d.upcoming) ? d.upcoming : [];
-    html += '<div class="spill-sub">Upcoming driver events</div>';
+    var upAll = up;
+    if (q){
+      up = up.filter(function(ev){
+        if (matchSym(ev.driver)) return true;
+        return (Array.isArray(ev.followers) ? ev.followers : []).some(function(f){ return matchSym(f.follower); });
+      });
+    }
+    var evHidden = 0;
+    if (!q && !spilloverState.showAllEvents && up.length > SPILL_EVENTS_SHOWN){
+      evHidden = up.length - SPILL_EVENTS_SHOWN;
+      up = up.slice(0, SPILL_EVENTS_SHOWN);
+    }
+    html += '<div class="spill-sub">Upcoming driver events' + (q ? ' — ' + up.length + ' of ' + upAll.length + ' match "' + escapeHtml(q) + '"' : '') + '</div>';
     if (!up.length){
-      html += '<p class="spill-none">No tracked-name earnings inside the next month.</p>';
+      html += '<p class="spill-none">' + (q ? 'No upcoming event touches "' + escapeHtml(q) + '".' : 'No tracked-name earnings inside the next month.') + '</p>';
     } else {
       html += '<div class="spill-events">';
       up.forEach(function(ev){
@@ -14841,6 +14920,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         html += '</div>';
       });
       html += '</div>';
+      if (evHidden){
+        html += '<button type="button" class="spill-btn spill-showall" id="spill-showall">Show all ' + upAll.length + ' upcoming events (+' + evHidden + ' more)</button>';
+      } else if (!q && spilloverState.showAllEvents && upAll.length > SPILL_EVENTS_SHOWN){
+        html += '<button type="button" class="spill-btn spill-showall" id="spill-showall">Collapse to the next ' + SPILL_EVENTS_SHOWN + ' events</button>';
+      }
     }
     // Engine A vs Engine B forward accuracy (from the resolved prediction log).
     var fw = d.forward || {};
@@ -14877,39 +14961,77 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<th>Pair</th><th>n</th><th>β shrunk</th><th>Hit</th><th>R²</th><th>p</th><th>Avg move→</th><th>Priced/day</th><th>Edge</th><th>Halves β</th><th>Resid β</th><th>Status</th>' +
         '</tr></thead><tbody>' + rows.join('') + '</tbody></table></div>';
     };
-    html += '<div class="spill-sub">Pair matrix — historical event-window read-through</div>';
-    var qualifiedPairs = pairs.filter(function(p){ return p.gates && p.fdrPass; });
+    // The filter applies to the matrix too: only pairs touching the queried
+    // symbol, and matching sector groups render pre-opened.
+    var pairMatch = function(p){ return matchSym(p.driver) || matchSym(p.follower); };
+    var fPairs = q ? pairs.filter(pairMatch) : pairs;
+    html += '<div class="spill-sub">Pair matrix — historical event-window read-through' + (q ? ' — ' + fPairs.length + ' of ' + pairs.length + ' pairs match "' + escapeHtml(q) + '"' : '') + '</div>';
+    var qualifiedPairs = fPairs.filter(function(p){ return p.gates && p.fdrPass; });
     if (qualifiedPairs.length){
-      html += '<p class="spill-none">' + qualifiedPairs.length + ' of ' + pairs.length + ' measured pairs clear every statistical gate — ranked by edge across all sectors.</p>';
+      html += '<p class="spill-none">' + qualifiedPairs.length + ' of ' + fPairs.length + (q ? ' matching' : ' measured') + ' pairs clear every statistical gate — ranked by edge across all sectors.</p>';
       html += spillTable(qualifiedPairs.map(spillRowHtml));
+    } else if (q && !fPairs.length){
+      html += '<p class="spill-none">No measured pair touches "' + escapeHtml(q) + '".</p>';
     } else {
-      html += '<p class="spill-none">No pair currently clears every statistical gate (' + pairs.length + ' measured). Per-sector detail below.</p>';
+      html += '<p class="spill-none">No pair currently clears every statistical gate (' + fPairs.length + (q ? ' matching' : ' measured') + '). Per-sector detail below.</p>';
     }
     if (spillGroups){
-      // Per-sector detail, collapsed by default; singletons listed honestly.
+      // Per-sector detail, collapsed by default (pre-opened while filtering);
+      // singletons listed honestly.
       var singles = [];
       spillGroups.forEach(function(g){
         var members = g.members || [];
         if (members.length === 1){ singles.push(members[0] + ' (' + (g.label || g.key) + ')'); return; }
         if (members.length < 2) return;
-        var gp = pairs.filter(function(p){ return p.group === g.key; });
+        var gp = fPairs.filter(function(p){ return p.group === g.key; });
+        if (q && !gp.length) return; // hide sectors the filter empties out
         var gq = gp.filter(function(p){ return p.gates && p.fdrPass; }).length;
-        html += '<details class="spill-group"><summary>' + escapeHtml(g.label || g.key) +
+        html += '<details class="spill-group"' + (q ? ' open' : '') + '><summary>' + escapeHtml(g.label || g.key) +
           (g.etf ? ' <span class="spill-group-etf">vs ' + escapeHtml(g.etf) + '</span>' : '') +
-          ' — ' + members.length + ' names · ' + gp.length + ' measured pair' + (gp.length === 1 ? '' : 's') +
+          ' — ' + members.length + ' names · ' + gp.length + (q ? ' matching' : ' measured') + ' pair' + (gp.length === 1 ? '' : 's') +
           (gq ? ' · ' + gq + ' qualified' : '') + '</summary>' +
           (gp.length ? spillTable(gp.map(spillRowHtml)) : '<p class="spill-none">No measurable pair events yet for this sector.</p>') +
           '</details>';
       });
-      if (singles.length){
+      if (singles.length && !q){
         html += '<p class="spill-note">No same-sector peer tracked yet (no pairs possible): ' + escapeHtml(singles.join(', ')) + '.</p>';
       }
     } else {
-      html += spillTable(pairs.map(spillRowHtml));
+      html += spillTable(fPairs.map(spillRowHtml));
     }
     html += '<p class="spill-note">β shrunk = the pair event beta shrunk toward its sector’s pooled event beta (small samples). Hit = share of past events where the follower moved the same direction. A ✓ on p = survives the false-discovery correction, run across every sector’s pairs. Avg move→ = the follower average event-window move in the driver direction; Edge = that average minus the follower current 1-day priced move (ATM IV) — positive means the options market underprices the echo. Pairs are measured within sector groups only; sector prints often cluster (banks especially), so betas measure sector print-day read-through and Resid β (market-stripped) is the control. Correlation map only — nothing here is a trade recommendation.</p>';
     root.innerHTML = html;
     bindBriefChips(root);
+    // Wire the filter + show-all controls. The whole pane rebuilds through
+    // innerHTML each pass, so listeners re-attach fresh; typing re-renders
+    // with the caret restored via the refocus flag.
+    var searchEl = document.getElementById('spill-search');
+    if (searchEl){
+      searchEl.addEventListener('input', function(){
+        spilloverState.query = searchEl.value;
+        spilloverState.refocus = true;
+        renderSpillover();
+      });
+    }
+    var clearEl = document.getElementById('spill-clear');
+    if (clearEl) clearEl.addEventListener('click', function(){
+      spilloverState.query = '';
+      spilloverState.refocus = true;
+      renderSpillover();
+    });
+    var showAllEl = document.getElementById('spill-showall');
+    if (showAllEl) showAllEl.addEventListener('click', function(){
+      spilloverState.showAllEvents = !spilloverState.showAllEvents;
+      renderSpillover();
+    });
+    if (spilloverState.refocus){
+      spilloverState.refocus = false;
+      if (searchEl){
+        searchEl.focus({ preventScroll: true });
+        var ql = searchEl.value.length;
+        try { searchEl.setSelectionRange(ql, ql); } catch (e) {}
+      }
+    }
   }
   // --- Quant Lab (premium tab; data/quant.json) ------------------------------
   // docs/quant-lab.md — deterministic sigma / VRP / pairs / surface /

@@ -3220,6 +3220,13 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 
 /* --- Event Spillover Matrix (premium, docs/event-spillover.md) ---------- */
 .spill-root { display: flex; flex-direction: column; gap: 14px; }
+.spill-tools { display: flex; align-items: center; gap: 8px; }
+.spill-search { flex: 0 1 280px; min-width: 160px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-1); padding: 8px 11px; font: 600 12.5px/1.2 var(--font-mono); letter-spacing: .03em; color: var(--text-strong); text-transform: uppercase; }
+.spill-search::placeholder { font: 400 12px/1.2 var(--font-sans); letter-spacing: 0; color: var(--muted); text-transform: none; }
+.spill-search:focus { outline: none; border-color: var(--accent); }
+.spill-btn { cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--muted-strong); border-radius: var(--r-1); padding: 7px 11px; font: 600 11px/1.2 var(--font-sans); }
+.spill-btn:hover { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.spill-showall { align-self: flex-start; }
 .spill-sub { font: 700 11px/1.2 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; color: var(--muted-strong); margin-top: 4px; }
 .spill-none { font: 400 12.5px/1.5 var(--font-sans); color: var(--muted); margin: 0; }
 .spill-events { display: flex; flex-direction: column; gap: 10px; }

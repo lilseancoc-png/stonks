@@ -483,6 +483,15 @@ the two storage files. All pure functions plus one orchestrator.
   - `diagnose-spillover.mjs` unchanged (banks-scoped by design, §3); it imports only
     the stat/window/isolation core, which did not change.
 
+- **Tab usability (2026-07-20):** the tab gained a **ticker filter** (a query narrows
+  the upcoming events — driver OR follower match, prefix — plus the qualified roll-up
+  and the per-sector tables, which auto-open while filtering; emptied sectors hide,
+  match counts show per section) and the upcoming-events list renders only the first
+  6 events by default with a "Show all N" toggle (full-universe earnings weeks ship
+  dozens of events, each with a follower table — the page was unmanageably long).
+  Client-only: `renderSpillover` in `scripts/render/app-js.mjs` (`spilloverState.query`
+  / `.showAllEvents`), `.spill-tools`/`.spill-search`/`.spill-btn` styles.
+
 ### Phase-1 findings (2026-07-19, FULL coverage — 20 events/driver, 2021-10 → 2026-07)
 
 1. **STRICT isolation yields n=0 for every pair** — across five years, not one bank event

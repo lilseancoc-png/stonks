@@ -9589,6 +9589,157 @@ async function buildIcSecCounts(curKey, prior) {
   return { quarters, note: "424B4 = priced prospectuses (IPOs + follow-ons); 424B5 = shelf takedowns (seasoned equity/debt raises). Filing counts, not company counts." };
 }
 
+// ── SIFMA US corporate bond issuance (market-wide, monthly, $B) ─────────────
+// The debt half of the capital-formation picture: how much companies actually
+// SOLD in bonds each month, market-wide — investment grade + high yield +
+// convertibles — from SIFMA Research's "US Corporate Bonds Statistics". The
+// downloadable workbook is email-gated (HubSpot form), but the stats page
+// embeds an everviz chart whose public /embed/ page carries the chart's own
+// monthly CSV inline (~13 trailing months). SIFMA only publishes that rolling
+// window, so the series is ACCUMULATED across builds (upserted by month) like
+// the other rolling histories — depth grows past 13 months over time. The
+// chart id is re-discovered from the stats page each build (title-checked, so
+// a page redesign that swaps chart ids self-heals), with the last-known id as
+// the hardcoded fallback.
+const IC_SIFMA_PAGE_URL = "https://www.sifma.org/resources/research/statistics/us-corporate-bonds-statistics/";
+const IC_SIFMA_CHART_ID_FALLBACK = "FIA71bxVW"; // verified 2026-07-20
+const IC_BOND_MONTHS_KEPT = 40;
+
+// Parse an everviz /embed/<id>/ page into { title, months }: the inline
+// `var options = {...}` blob is pure JSON (regex-extracted), its data.csv is
+// the chart's own series — header row + "Jun-25";116.27;37.14;22.62 rows,
+// mapped to { m: "2025-06", ig, hy, cv } in $B. Exported for offline testing.
+export function parseSifmaBondEmbed(html) {
+  const src = String(html || "");
+  const optM = src.match(/var options = (\{[\s\S]*?\});\s*var optionsStub/);
+  let title = null, csv = null;
+  if (optM) {
+    try {
+      const options = JSON.parse(optM[1]);
+      title = options?.title?.text || null;
+      csv = options?.data?.csv || null;
+    } catch { /* fall through to the loose regexes */ }
+  }
+  if (!title) title = (src.match(/property="og:title" content='([^']+)'/) || [])[1] || null;
+  if (!csv) {
+    const csvM = src.match(/"csv":"((?:[^"\\]|\\.)*)"/);
+    if (csvM) { try { csv = JSON.parse(`"${csvM[1]}"`); } catch { csv = null; } }
+  }
+  if (!csv) return { title, months: [] };
+  const lines = String(csv).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (lines.length < 2) return { title, months: [] };
+  const delim = lines[0].includes(";") ? ";" : ",";
+  const cells = (line) => line.split(delim).map((c) => c.replace(/^"|"$/g, "").trim());
+  // Column mapping by header name — survives column reordering.
+  const header = cells(lines[0]).map((h) => h.toLowerCase());
+  const col = {
+    month: header.findIndex((h) => /month|date/.test(h)),
+    ig: header.findIndex((h) => /invest/.test(h)),
+    hy: header.findIndex((h) => /high/.test(h)),
+    cv: header.findIndex((h) => /convert/.test(h)),
+  };
+  if (col.month < 0 || col.ig < 0 || col.hy < 0) return { title, months: [] };
+  const months = [];
+  for (const line of lines.slice(1)) {
+    const row = cells(line);
+    const mM = String(row[col.month] || "").match(/^([A-Za-z]{3})[a-z]*[- ](\d{2,4})$/);
+    const mm = mM ? IC_MONTHS[mM[1].toLowerCase()] : null;
+    if (!mm) continue;
+    const year = mM[2].length === 2 ? `20${mM[2]}` : mM[2];
+    const num = (i) => { const v = Number(row[i]); return i >= 0 && Number.isFinite(v) && v >= 0 ? v : null; };
+    const entry = { m: `${year}-${mm}`, ig: num(col.ig), hy: num(col.hy), cv: num(col.cv) };
+    if (entry.ig == null && entry.hy == null) continue;
+    months.push(entry);
+  }
+  months.sort((a, b) => (a.m < b.m ? -1 : 1));
+  return { title, months };
+}
+
+async function fetchSifmaBondIssuance() {
+  let ids = [];
+  try {
+    const res = await fetch(IC_SIFMA_PAGE_URL, {
+      headers: { "user-agent": IC_BROWSER_UA, accept: "text/html,*/*" },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (res.ok) {
+      ids = [...new Set([...(await res.text()).matchAll(/everviz\.com\/inject\/([A-Za-z0-9_-]{6,})/g)].map((m) => m[1]))];
+    }
+  } catch { /* page unreachable — try the last-known chart id directly */ }
+  if (!ids.includes(IC_SIFMA_CHART_ID_FALLBACK)) ids.push(IC_SIFMA_CHART_ID_FALLBACK);
+  let lastErr = null;
+  for (const id of ids.slice(0, 4)) {
+    try {
+      const res = await fetch(`https://app.everviz.com/embed/${id}/`, {
+        headers: { "user-agent": IC_BROWSER_UA, accept: "text/html,*/*" },
+        signal: AbortSignal.timeout(20000),
+      });
+      if (!res.ok) throw new Error(`embed ${id} HTTP ${res.status}`);
+      const parsed = parseSifmaBondEmbed(await res.text());
+      // The stats page hosts several charts — the title check picks the
+      // issuance one (and rejects a repurposed id).
+      if (!/corporate bond issuance/i.test(parsed.title || "")) throw new Error(`embed ${id}: title "${parsed.title || "?"}" not the issuance chart`);
+      if (parsed.months.length < 6) throw new Error(`embed ${id}: only ${parsed.months.length} months parsed`);
+      const latest = parsed.months[parsed.months.length - 1];
+      // Sanity bounds: monthly IG issuance runs ~$40–350B; a parse drift ships nothing.
+      if (!(latest.ig > 10 && latest.ig < 800)) throw new Error(`embed ${id}: IG ${latest.ig} out of sanity bounds`);
+      return parsed.months;
+    } catch (err) { lastErr = err; }
+  }
+  throw lastErr || new Error("no everviz issuance chart found");
+}
+
+// Exported for offline testing (network-only, no creds, no writes).
+export async function buildIcBonds(prior) {
+  const byMonth = new Map();
+  for (const r of prior?.raises?.bonds?.months || []) {
+    if (r && /^\d{4}-\d{2}$/.test(String(r.m))) byMonth.set(r.m, { m: r.m, ig: r.ig ?? null, hy: r.hy ?? null, cv: r.cv ?? null });
+  }
+  // Fresh rows win — SIFMA revises recent months in place.
+  for (const r of await fetchSifmaBondIssuance()) byMonth.set(r.m, r);
+  const months = [...byMonth.values()].sort((a, b) => (a.m < b.m ? -1 : 1)).slice(-IC_BOND_MONTHS_KEPT);
+  if (!months.length) throw new Error("no bond issuance months");
+  const r1 = (v) => Number(v.toFixed(1));
+  const tot = (r) => (r.ig || 0) + (r.hy || 0) + (r.cv || 0);
+  const last = months[months.length - 1];
+  const prev = months[months.length - 2] || null;
+  const yearAgo = months.find((r) => r.m === `${Number(last.m.slice(0, 4)) - 1}${last.m.slice(4)}`) || null;
+  const pct = (a, b) => (b ? ((a - b) / Math.abs(b)) * 100 : null);
+  // Quarterly roll-up — only quarters the accumulated window fully covers,
+  // plus the still-filling quarter of the latest month (marked partial).
+  const byQ = new Map();
+  for (const r of months) {
+    const qk = icQuarterKey(`${r.m}-01`);
+    if (!qk) continue;
+    const agg = byQ.get(qk) || { key: qk, label: icQuarterLabel(qk), igB: 0, hyB: 0, cvB: 0, totalB: 0, monthsIn: 0 };
+    agg.igB += r.ig || 0; agg.hyB += r.hy || 0; agg.cvB += r.cv || 0; agg.totalB += tot(r); agg.monthsIn++;
+    byQ.set(qk, agg);
+  }
+  const lastQ = icQuarterKey(`${last.m}-01`);
+  const quarters = [...byQ.values()]
+    .filter((q) => q.monthsIn === 3 || q.key === lastQ)
+    .sort((a, b) => (a.key < b.key ? -1 : 1))
+    .slice(-6)
+    .map((q) => {
+      const out = { key: q.key, label: q.label, igB: r1(q.igB), hyB: r1(q.hyB), cvB: r1(q.cvB), totalB: r1(q.totalB) };
+      if (q.monthsIn < 3) { out.partial = true; out.monthsIn = q.monthsIn; }
+      return out;
+    });
+  return {
+    source: "SIFMA Research",
+    sourceUrl: IC_SIFMA_PAGE_URL,
+    months,
+    latest: {
+      m: last.m, igB: last.ig, hyB: last.hy, cvB: last.cv, totalB: r1(tot(last)),
+      momPct: prev ? pct(tot(last), tot(prev)) : null,
+      yoyPct: yearAgo ? pct(tot(last), tot(yearAgo)) : null,
+    },
+    quarters,
+    note: "Market-wide US corporate bond sales in $ billions — investment grade + high yield + convertibles, by month sold.",
+    stale: false,
+  };
+}
+
 // ── Tracked-universe issuance events (accumulated across builds) ────────────
 // The capital-raises classifier only sees a rolling ~21-day news window, so
 // per-quarter counts/totals need the events UPSERTED into a persistent list
@@ -9622,7 +9773,10 @@ function icQuarterRaiseAgg(events, key) {
   const withAmount = raises.filter((ev) => Number.isFinite(ev.amount));
   const byKind = {};
   for (const ev of inQ) byKind[ev.kind] = (byKind[ev.kind] || 0) + 1;
+  const byKindUsd = {};
+  for (const ev of inQ) if (Number.isFinite(ev.amount)) byKindUsd[ev.kind] = (byKindUsd[ev.kind] || 0) + ev.amount;
   return {
+    byKindUsd,
     key, label: icQuarterLabel(key),
     count: raises.length,
     totalUsd: withAmount.reduce((s, ev) => s + ev.amount, 0),
@@ -9932,6 +10086,12 @@ export async function buildIpoCreditPayload(builtAtIso, prior = null, priorCapit
     if (prior?.raises?.sec) raises.sec = { ...prior.raises.sec, stale: true };
   }
   try {
+    raises.bonds = await buildIcBonds(prior);
+  } catch (err) {
+    console.log(`    ⚠ ipo-credit: SIFMA bond issuance failed (${err.message})${prior?.raises?.bonds ? " — carrying last-good" : ""}`);
+    if (prior?.raises?.bonds) raises.bonds = { ...prior.raises.bonds, stale: true };
+  }
+  try {
     const events = icAccumulateRaiseEvents(prior, priorCapitalRaises, curKey);
     raises.universe = {
       trackingSince: prior?.raises?.universe?.trackingSince || etDate,
@@ -9985,12 +10145,13 @@ async function writeIpoCreditFile(builtAtIso, prior = null, priorCapitalRaises =
     bytes: json.length,
     ipoCount: payload.ipos?.current?.count ?? null,
     secQuarters: payload.raises?.sec?.quarters?.length ?? 0,
+    bondMonths: payload.raises?.bonds?.months?.length ?? 0,
     universeEvents: payload.raises?.universe?.events?.length ?? 0,
     nyfedQuarter: payload.credit?.nyfed?.asOfQuarter ?? null,
     staleSections: ["ipos", "raises", "credit"].filter((k) =>
       k === "credit"
         ? ["revolving", "deposits", "nyfed"].some((s) => payload.credit?.[s]?.stale)
-        : (k === "raises" ? payload.raises?.sec?.stale : payload[k]?.stale)),
+        : (k === "raises" ? (payload.raises?.sec?.stale || payload.raises?.bonds?.stale) : payload[k]?.stale)),
   };
 }
 
@@ -26551,7 +26712,7 @@ async function main() {
   // household credit) — per-section last-good carry-forward (graceful).
   try {
     const icInfo = await writeIpoCreditFile(builtAtIso, priorIpoCredit, priorCapitalRaises);
-    console.log(`wrote data/ipo-credit.json — ${icInfo.ipoCount ?? "?"} IPOs this quarter, ${icInfo.secQuarters} EDGAR quarters, ${icInfo.universeEvents} universe events, NY Fed ${icInfo.nyfedQuarter ?? "n/a"}, ${icInfo.bytes} bytes${icInfo.staleSections.length ? ` [stale: ${icInfo.staleSections.join(",")}]` : ""}`);
+    console.log(`wrote data/ipo-credit.json — ${icInfo.ipoCount ?? "?"} IPOs this quarter, ${icInfo.secQuarters} EDGAR quarters, ${icInfo.bondMonths} bond months, ${icInfo.universeEvents} universe events, NY Fed ${icInfo.nyfedQuarter ?? "n/a"}, ${icInfo.bytes} bytes${icInfo.staleSections.length ? ` [stale: ${icInfo.staleSections.join(",")}]` : ""}`);
   } catch (err) {
     console.log(`  ⚠ IPOs & Credit step failed (non-fatal): ${err.message}`);
   }
