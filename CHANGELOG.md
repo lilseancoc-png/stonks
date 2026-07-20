@@ -22,7 +22,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-07-20
 
+### Added
+- **IPOs & credit: the "Capital & debt raises" card now leads with market-wide corporate bond issuance in real dollars** — how much companies actually raised selling bonds each month across the whole US market, investment grade / high yield / convertible split (SIFMA Research). The monthly workbook download is email-gated, so the bake reads the stats page's own everviz chart (`parseSifmaBondEmbed`, chart id re-discovered from the page each build and title-checked, hardcoded fallback id): a hero stat for the latest month with m/m + y/y chips and the IG/HY/convertible split, a 12-month bar strip (the debt-side twin of the IPO strip), and a quarterly roll-up table. SIFMA only publishes a rolling ~13-month window, so the series accumulates across builds (`raises.bonds.months`, upserted by month, read-before-wipe carry-forward like the other histories; source failure carries last-good stale-marked). The tracked-universe raise block also gains a by-type line — debt/notes vs convertible vs share issuance counts with disclosed $ per kind (`byKindUsd`). `scripts/build.mjs`, `scripts/render/app-js.mjs`.
+- **Event Spillover: the tab is now searchable** — a ticker filter box narrows everything to rows touching the typed symbol (upcoming events where it's the driver OR a follower, the qualified roll-up, and the per-sector tables, which render pre-opened while filtering; sectors the filter empties are hidden and match counts show in each section header). The upcoming-events list is also capped at 6 events by default with a "Show all N" toggle, so the page stops being endless during earnings weeks. `scripts/render/{app-js,styles-css}.mjs`.
+
 ### Fixed
+- **IPOs & credit: quarter chips render as "Q2 '26" again.** `icQtrShort`'s regex was written with a single-backslash `\d` inside the app-js template literal, so the shipped code matched nothing and every short quarter label fell back to the raw "2026Q2" key. `scripts/render/app-js.mjs`.
 - **Earnings tracker: the "Heading into earnings" strip's columns now line up in every row.** Each row is its own CSS grid, so the drift column's `max-content` track resized per row — a wide 2-week sub-value ("-26.5% 2wk") squeezed the name column and shifted that row's trend chip and report date a few px left of its neighbors. The value track is now pinned (`minmax(62px, max-content)`), so chip / date / drift sit on identical tracks across all rows. `scripts/render/styles-css.mjs`.
 
 ### Changed
