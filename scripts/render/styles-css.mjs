@@ -3145,6 +3145,14 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 .ivt-sort-chip b { font: 700 10px/1 var(--font-mono); font-variant-numeric: tabular-nums; opacity: .8; }
+.ivt-search {
+  margin-left: auto; min-width: 170px;
+  padding: 5px 11px; border: 1px solid var(--border); border-radius: 999px;
+  font: 600 11px/1.4 var(--font-sans); color: var(--text-strong); background: none;
+}
+.ivt-search::placeholder { color: var(--muted); }
+.ivt-search:focus { border-color: var(--accent); outline: none; }
+@media (max-width: 560px) { .ivt-search { margin-left: 0; flex: 1 1 100%; } }
 .ivt-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; margin-bottom: 18px; }
 .ivt-card {
   display: flex; flex-direction: column; gap: 7px;

@@ -1669,7 +1669,16 @@ async function fetchFundamentals(symbol) {
         ?? num(row?.netIncomeCommonStockholders)
         ?? num(row?.netIncomeContinuousOperations);
       const netMargin = netIncome != null && totalRevenue ? (netIncome / totalRevenue) * 100 : null;
-      return { date, totalRevenue, grossProfit, netIncome, netMargin };
+      // Operating costs = opex below the gross-profit line (R&D + SG&A etc.,
+      // excluding cost of revenue) — gross profit − operating costs = operating
+      // income. Yahoo's operatingExpense is that line directly; reconstruct it
+      // from operating income / total expenses when absent.
+      const operatingIncome = num(row?.operatingIncome) ?? num(row?.totalOperatingIncomeAsReported);
+      const totalExpenses = num(row?.totalExpenses);
+      const operatingCosts = num(row?.operatingExpense)
+        ?? (grossProfit != null && operatingIncome != null ? grossProfit - operatingIncome : null)
+        ?? (totalExpenses != null && costOfRevenue != null ? totalExpenses - costOfRevenue : null);
+      return { date, totalRevenue, grossProfit, operatingCosts, netIncome, netMargin };
     })
     .filter((q) => q.date && (q.totalRevenue != null || q.netIncome != null))
     .sort((a, b) => a.date.localeCompare(b.date))
@@ -1680,6 +1689,9 @@ async function fetchFundamentals(symbol) {
   const grossProfitHistory = incomeQuarters
     .filter((q) => q.grossProfit != null)
     .map((q) => ({ date: q.date, value: q.grossProfit }));
+  const operatingCostsHistory = incomeQuarters
+    .filter((q) => q.operatingCosts != null)
+    .map((q) => ({ date: q.date, value: q.operatingCosts }));
   const netIncomeHistory = incomeQuarters
     .filter((q) => q.netIncome != null)
     .map((q) => ({ date: q.date, value: q.netIncome }));
@@ -1893,6 +1905,7 @@ async function fetchFundamentals(symbol) {
     earningsHistory: earningsHistory.slice(-8),
     revenueHistory,
     grossProfitHistory,
+    operatingCostsHistory,
     netIncomeHistory,
     netMarginHistory,
     fcfHistory,

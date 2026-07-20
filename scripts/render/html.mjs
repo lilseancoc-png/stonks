@@ -1027,6 +1027,7 @@ function optionEvalSection() {
             <div id="opt-fund-earnings-history"     class="opt-fund-eh" hidden></div>
             <div id="opt-fund-revenue-history"      class="opt-fund-eh" hidden></div>
             <div id="opt-fund-gross-profit-history" class="opt-fund-eh" hidden></div>
+            <div id="opt-fund-operating-costs-history" class="opt-fund-eh" hidden></div>
             <div id="opt-fund-net-income-history"   class="opt-fund-eh" hidden></div>
             <div id="opt-fund-fcf-history"          class="opt-fund-eh" hidden></div>
             <div id="opt-fund-net-margin-history"   class="opt-fund-eh" hidden></div>

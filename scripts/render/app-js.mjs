@@ -5777,6 +5777,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       fiscalYearEndMonth: fye,
     });
     renderHistoryChart({
+      boxId: 'opt-fund-operating-costs-history',
+      title: 'Operating costs',
+      points: f.operatingCostsHistory || [],
+      formatValue: fmtBigDollars,
+      fiscalYearEndMonth: fye,
+    });
+    renderHistoryChart({
       boxId: 'opt-fund-net-income-history',
       title: 'Net income',
       points: f.netIncomeHistory || [],
@@ -14639,7 +14646,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // (surging / trending / building) get a highlight card + sparkline; the
   // rest fill the ranked context table. Baked deterministically — see
   // buildIvTrendingPayload in scripts/build.mjs.
-  var ivTrendState = { data: null, loading: false, showAll: false, sort: 'score', colSort: null };
+  var ivTrendState = { data: null, loading: false, showAll: false, sort: 'score', colSort: null, search: '' };
   var IVT_TIER_META = {
     surging:  { label: 'Surging',  cls: 'ivt-tier-surging' },
     trending: { label: 'Trending', cls: 'ivt-tier-trending' },
@@ -15305,8 +15312,19 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       sortHtml += '<button type="button" class="ivt-sort-chip" data-ivt-sort="' + def.key + '" aria-pressed="' + (mode === def.key ? 'true' : 'false') + '">' +
         def.label + (cnt != null ? ' <b>' + cnt + '</b>' : '') + '</button>';
     }
-    html += '<div class="ivt-sort" role="toolbar" aria-label="Sort or filter the ranked tickers">' + sortHtml + '</div>';
+    html += '<div class="ivt-sort" role="toolbar" aria-label="Sort or filter the ranked tickers">' + sortHtml +
+      '<input type="search" id="ivt-search" class="ivt-search" placeholder="Search ticker or name…" value="' + escapeHtml(ivTrendState.search || '') + '" autocomplete="off" spellcheck="false" aria-label="Filter Trending-IV tickers by symbol or company name"></div>';
     var sorted = ivtApplySort(all, mode);
+    // Free-text search layers on top of the chip filter — matches symbol or
+    // company name, filters both the highlight cards and the ranked table.
+    var ivtQuery = String(ivTrendState.search || '').trim().toUpperCase();
+    if (ivtQuery){
+      sorted = sorted.filter(function(r){
+        if (!r) return false;
+        return String(r.symbol || '').toUpperCase().indexOf(ivtQuery) !== -1 ||
+          String(r.name || '').toUpperCase().indexOf(ivtQuery) !== -1;
+      });
+    }
     // The highlight cards follow the CHIP selection only — a ranked-table
     // header sort must not reshuffle the curated standouts strip above it,
     // so derive the flagged set before layering the column sort on.
@@ -15339,9 +15357,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '</article>';
       }
       html += '<div class="ivt-cards">' + cards + '</div>';
-    } else if (mode === 'score') {
+    } else if (mode === 'score' && !ivtQuery) {
       html += '<p class="ivt-none">No names screen as trending right now — implied vol is sitting at or below its own history across the board. The ranked table below still shows who is closest.</p>';
     }
+    if (ivtQuery && !sorted.length){
+      html += '<p class="ivt-none">No tickers match &ldquo;' + escapeHtml(String(ivTrendState.search || '').trim()) + '&rdquo;' + (mode !== 'score' ? ' in this filter' : '') + '.</p>';
+    } else {
     // Ranked context table, in the selected sort/filter order.
     var shown = ivTrendState.showAll ? sorted : sorted.slice(0, IVT_TABLE_DEFAULT_ROWS);
     var rows = '<div class="ivt-trow ivt-thead">';
@@ -15373,6 +15394,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       html += '<button type="button" class="ivt-show-all" id="ivt-show-all">' +
         (ivTrendState.showAll ? 'Show top ' + IVT_TABLE_DEFAULT_ROWS + ' only' : 'Show all ' + sorted.length + ' tickers') + '</button>';
     }
+    }
     root.innerHTML = html;
     bindBriefChips(root);
     var btn = $('ivt-show-all');
@@ -15397,6 +15419,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           ? { key: key, dir: -cur.dir }
           : { key: key, dir: def.dir };
         renderIvTrend();
+      });
+    }
+    var ivtSearchEl = $('ivt-search');
+    if (ivtSearchEl){
+      ivtSearchEl.addEventListener('input', function(ev){
+        ivTrendState.search = ev.target.value || '';
+        var pos = ev.target.selectionStart;
+        renderIvTrend();
+        var again = $('ivt-search');
+        if (again){ again.focus(); try { again.setSelectionRange(pos, pos); } catch (_) {} }
       });
     }
   }
