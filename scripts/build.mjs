@@ -6127,6 +6127,11 @@ export async function writeEarningsTrackerFile(store, chains, builtAtIso, prior 
 //      doesn't cover don't burn fetches every hour. When Fool yields nothing
 //      newer — or its newest transcript predates the name's latest print —
 //      the probe falls through to MarketBeat's per-ticker earnings hub.
+// A second, AI-side cooldown (the `fails` map in the index) throttles names
+// whose SUMMARY failed on content (MAX_TOKENS runaway, malformed JSON) to one
+// retry per ET day — a runaway transcript reproduces deterministically, and
+// without the stamp it re-burned ~30k full-model tokens + a summarize slot
+// every bake (UBS, every bake 2026-07-17→20).
 // Each matched transcript gets ONE structured Gemini call (AI_TRANSCRIPT_MODEL,
 // full gemini-3.5-flash — tone-reading and Q&A attribution are judgment work,
 // and the volume is tiny: one call per name per QUARTER, ~2/day off-season) that
@@ -6447,13 +6452,18 @@ export function parseMarketBeatTranscript(html, url = "") {
   return { company, sym: "", quarter, callDate, text };
 }
 
+// Every array carries a maxItems bound (matching normalizeTranscriptSummary's
+// caps, which would drop the overflow anyway): without them a garrulous call
+// (UBS, CAT) made the model enumerate until it slammed into maxOutputTokens,
+// truncating the JSON mid-array — 16k wasted output tokens per attempt.
 const TRANSCRIPT_SUMMARY_SCHEMA = {
   type: "object",
   properties: {
     headline: { type: "string" },
-    execSummary: { type: "array", items: { type: "string" } },
+    execSummary: { type: "array", maxItems: 8, items: { type: "string" } },
     financials: {
       type: "array",
+      maxItems: 12,
       items: {
         type: "object",
         properties: { label: { type: "string" }, value: { type: "string" }, context: { type: "string" } },
@@ -6462,6 +6472,7 @@ const TRANSCRIPT_SUMMARY_SCHEMA = {
     },
     guidance: {
       type: "array",
+      maxItems: 10,
       items: {
         type: "object",
         properties: {
@@ -6473,9 +6484,10 @@ const TRANSCRIPT_SUMMARY_SCHEMA = {
         required: ["metric", "value"],
       },
     },
-    operational: { type: "array", items: { type: "string" } },
+    operational: { type: "array", maxItems: 10, items: { type: "string" } },
     segments: {
       type: "array",
+      maxItems: 10,
       items: {
         type: "object",
         properties: { name: { type: "string" }, detail: { type: "string" } },
@@ -6484,17 +6496,18 @@ const TRANSCRIPT_SUMMARY_SCHEMA = {
     },
     kpis: {
       type: "array",
+      maxItems: 10,
       items: {
         type: "object",
         properties: { name: { type: "string" }, value: { type: "string" }, note: { type: "string" } },
         required: ["name", "value"],
       },
     },
-    capitalAllocation: { type: "array", items: { type: "string" } },
-    competitive: { type: "array", items: { type: "string" } },
-    macro: { type: "array", items: { type: "string" } },
-    pipeline: { type: "array", items: { type: "string" } },
-    legal: { type: "array", items: { type: "string" } },
+    capitalAllocation: { type: "array", maxItems: 8, items: { type: "string" } },
+    competitive: { type: "array", maxItems: 8, items: { type: "string" } },
+    macro: { type: "array", maxItems: 8, items: { type: "string" } },
+    pipeline: { type: "array", maxItems: 8, items: { type: "string" } },
+    legal: { type: "array", maxItems: 6, items: { type: "string" } },
     mgmtTone: {
       type: "object",
       properties: {
@@ -6503,6 +6516,7 @@ const TRANSCRIPT_SUMMARY_SCHEMA = {
         summary: { type: "string" },
         phrases: {
           type: "array",
+          maxItems: 5,
           items: {
             type: "object",
             properties: { quote: { type: "string" }, speaker: { type: "string" }, read: { type: "string" } },
@@ -6519,6 +6533,7 @@ const TRANSCRIPT_SUMMARY_SCHEMA = {
         summary: { type: "string" },
         phrases: {
           type: "array",
+          maxItems: 5,
           items: {
             type: "object",
             properties: { quote: { type: "string" }, analyst: { type: "string" }, read: { type: "string" } },
@@ -6530,6 +6545,7 @@ const TRANSCRIPT_SUMMARY_SCHEMA = {
     },
     qa: {
       type: "array",
+      maxItems: 6,
       items: {
         type: "object",
         properties: {
@@ -6543,9 +6559,10 @@ const TRANSCRIPT_SUMMARY_SCHEMA = {
         required: ["analyst", "question", "respondent", "answer"],
       },
     },
-    risks: { type: "array", items: { type: "string" } },
+    risks: { type: "array", maxItems: 10, items: { type: "string" } },
     quotes: {
       type: "array",
+      maxItems: 6,
       items: {
         type: "object",
         properties: { speaker: { type: "string" }, role: { type: "string" }, quote: { type: "string" } },
@@ -6554,6 +6571,7 @@ const TRANSCRIPT_SUMMARY_SCHEMA = {
     },
     participants: {
       type: "array",
+      maxItems: 12,
       items: {
         type: "object",
         properties: { name: { type: "string" }, role: { type: "string" } },
@@ -6603,7 +6621,9 @@ const TRANSCRIPT_SUMMARY_SYSTEM_PROMPT =
   "- quotes: 3-6 additional notable verbatim quotes {speaker, role, quote}.\n" +
   "- participants: the company speakers {name, role}. epsVerdict: beat/inline/miss/unclear — ONLY as characterized on " +
   "the call itself.\n" +
-  "Plain language, dense with the actual numbers. No investment advice, no hedging boilerplate.";
+  "Plain language, dense with the actual numbers. No investment advice, no hedging boilerplate. Be SELECTIVE, not " +
+  "exhaustive: every list has a hard schema item cap — pick the most consequential items and stop; never pad, repeat, " +
+  "or enumerate every mention. The whole brief must comfortably fit the response budget.";
 
 // Defensive normalization of the model's brief — coerce shapes, trim strings,
 // cap list lengths so a runaway response can't bloat the payload.
@@ -6727,13 +6747,35 @@ async function summarizeEarningsCall(sym, meta) {
     }
   }
   if (!response) throw lastErr ?? new Error("no response from Gemini");
+  // A response that slammed into maxOutputTokens is truncated mid-JSON and —
+  // because the runaway is a property of the transcript, not the call — it
+  // reproduces on every attempt (UBS did it every bake for days: ~16.4k output
+  // tokens burned per try on the priciest model). Detect the finishReason
+  // instead of letting JSON.parse throw, and tag it (like the parse/normalize
+  // failures below) as a CONTENT failure so the caller stamps the per-name
+  // daily cooldown rather than re-attempting every bake. Not thrown inside the
+  // retry loop — the API call "succeeded", so the model ladder never fires.
+  if (response?.candidates?.[0]?.finishReason === "MAX_TOKENS") {
+    const err = new Error("response hit the maxOutputTokens cap (finishReason MAX_TOKENS) — truncated JSON");
+    err.transcriptContentFailure = true;
+    throw err;
+  }
   const text = response.text;
   if (!text) throw new Error("empty Gemini response");
   const stripped = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
   const firstBrace = stripped.indexOf("{");
   const lastBrace = stripped.lastIndexOf("}");
-  const parsed = JSON.parse(firstBrace >= 0 && lastBrace > firstBrace ? stripped.slice(firstBrace, lastBrace + 1) : stripped);
-  return normalizeTranscriptSummary(parsed);
+  try {
+    const parsed = JSON.parse(firstBrace >= 0 && lastBrace > firstBrace ? stripped.slice(firstBrace, lastBrace + 1) : stripped);
+    return normalizeTranscriptSummary(parsed);
+  } catch (err) {
+    // The model answered but the content is unusable (malformed JSON, missing
+    // required sections) — deterministic for this transcript, so same-day
+    // re-attempts just re-burn tokens. Transient API errors (thrown from the
+    // retry loop above) stay untagged and retry next build as before.
+    err.transcriptContentFailure = true;
+    throw err;
+  }
 }
 
 export async function readPriorEarningsCalls() {
@@ -6762,6 +6804,16 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
   for (const [sym, at] of Object.entries(prior?.probes || {})) {
     if (uniSet.has(sym) && typeof at === "string") probes[sym] = at;
   }
+  // Per-name summarize-FAILURE cooldown (the AI-side sibling of the probe
+  // cooldown): a name whose summary failed on CONTENT (MAX_TOKENS runaway,
+  // truncated/malformed JSON) is stamped with the ET day and skipped from
+  // discovery for the rest of it — one retry per day, not one per bake (8×/day
+  // on the priciest model, plus a wasted TRANSCRIPTS_PER_BUILD slot each time).
+  // Only today's stamps are carried, so the map self-prunes on the date roll.
+  const fails = {};
+  for (const [sym, at] of Object.entries(prior?.fails || {})) {
+    if (uniSet.has(sym) && at === todayIso) fails[sym] = at;
+  }
   const finishIndex = () => ({
     builtAtIso: builtAtIso || nowIso,
     updatedAt: nowIso,
@@ -6770,6 +6822,7 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
     source: "The Motley Fool · MarketBeat",
     calls,
     probes,
+    fails,
   });
 
   // Keyless build: no point discovering transcripts we can't summarize — carry
@@ -6790,6 +6843,7 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
   const listed = parseFoolTranscriptLinks((await fetchFoolHtml(FOOL_LISTING_URL)) || "");
   for (const item of listed) {
     if (!uniSet.has(item.sym)) continue;
+    if (fails[item.sym]) continue; // summarize failed on content earlier today — retry tomorrow, don't burn a slot
     if (!transcriptCandidateIsNewer(freshEntry(item.sym), item)) continue;
     queue.set(item.sym, item);
   }
@@ -6814,7 +6868,7 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
   };
   const needsProbe = [];
   for (const sym of universe) {
-    if (queue.has(sym) || !probeCooldownOk(sym)) continue;
+    if (queue.has(sym) || fails[sym] || !probeCooldownOk(sym)) continue;
     const cur = freshEntry(sym);
     if (!cur) {
       needsProbe.push(sym);
@@ -6948,14 +7002,25 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
       };
       summarized.add(item.sym);
       delete probes[item.sym];
+      delete fails[item.sym];
       console.log(`  [calls] ${item.sym} ${quarter || ""} summarized (${parsed.text.length.toLocaleString()} chars in)`);
     } catch (err) {
-      console.log(`  ⚠ [calls] ${item.sym} summary failed: ${err.message}`);
+      // Content failures (MAX_TOKENS runaway, truncated/malformed JSON) are
+      // deterministic for the transcript — stamp the daily cooldown so this
+      // name doesn't re-burn a summarize slot + full-model tokens every bake.
+      // Transient failures (untagged: 5xx storms, timeouts) retry next build.
+      if (err?.transcriptContentFailure) {
+        fails[item.sym] = todayIso;
+        console.log(`  ⚠ [calls] ${item.sym} summary failed: ${err.message} — cooling down until the next ET day`);
+      } else {
+        console.log(`  ⚠ [calls] ${item.sym} summary failed: ${err.message}`);
+      }
     }
   });
   // A discovered transcript that didn't make it to a summary (parse/AI failure,
   // or over the attempt cap) shouldn't wait out the probe cooldown — clear the
-  // stamp so the next build re-discovers and retries. The cooldown only
+  // stamp so the next build re-discovers and retries (content failures stay
+  // throttled today by their `fails` stamp regardless). The probe cooldown only
   // throttles names where probing found NO transcript at all.
   for (const item of items) {
     if (!summarized.has(item.sym)) delete probes[item.sym];
