@@ -7089,6 +7089,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
   function deltaTier(d){
     if (!d || !isFinite(d)) return 'mild';
+    if (d >= 25000) return 'surge'; // whale tier — violet, so it can't blend into hot
     if (d >= 8000) return 'hot';
     if (d >= 4000) return 'warm';
     return 'mild';
