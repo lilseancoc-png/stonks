@@ -17430,10 +17430,17 @@ export async function readPriorStockPicks() {
 // still counts, IV richness doesn't. Leveraged-specific honesty is built in:
 // every idea carries a volatility-drag estimate (the ½·k·(k−1)·σ² daily-reset
 // decay, expressed as ~%/month at the underlying's current 20d realized vol),
-// a chop flag (high vol + no net trend = the decay worst case), and the
-// registry only contains VERIFIED listings — a graded direction with no
-// listed matched-direction product ships as a watch row saying so, never a
-// guessed ticker. Rebuilt fresh every bake (no cross-build accumulation, no
+// a chop flag (high vol + no net trend = the decay worst case), a hold-
+// horizon hint derived from it (decay.horizon: intraday/days/weeks), a tape-
+// alignment flag (`tape`: an equity idea fighting the current macro-regime
+// read is marked "against" and the card shows a caution chip; macro-kind
+// ideas — gold/treasuries/crude, often the hedge itself — are exempt), the
+// opposite-direction listing when one exists (`pair`), and the registry only
+// contains VERIFIED listings — a graded direction with no listed matched-
+// direction product ships as a watch row saying so, never a guessed ticker.
+// The browser also renders a live daily-reset tracking check (ETF's day move
+// vs leverage × the underlying's day move) from the same open /api/quotes
+// batch that decorates the cards. Rebuilt fresh every bake (no cross-build accumulation, no
 // pre-wipe read — same model as the stock-picks dip candidates); also
 // regenerated offline by regen-picks.mjs. The browser lazy-loads the file
 // and decorates it with live ETF quotes via the open /api/quotes proxy — the
@@ -17448,10 +17455,18 @@ const LEVETF_STRONG = 7;              // same absolute strong bar as PICKS_TIER_
 const LEVETF_MAX_IDEAS = 8;
 const LEVETF_WATCH_BAND = 1.5;        // missed the bar by ≤ this → shipped as a watch row
 
-// Single-underlying leveraged products (verified live US listings, 2026-07).
-// Direxion single-stock pairs are bull 2× / bear −1×; GraniteShares/Defiance
-// entries are bull-only 2× (no verified inverse listing → bear: null, and the
-// screen says so instead of guessing a ticker).
+// Single-underlying leveraged products (verified live US listings via Yahoo,
+// 2026-07 — every entry confirmed to quote with a fund longName naming the
+// underlying + factor before inclusion; the 2026-07-19 expansion also
+// compared day-$-volume across duplicate listings and took the most liquid
+// issuer per side, so a pair's bull and bear can come from different fund
+// families — Direxion / GraniteShares / Defiance / T-Rex / Tradr / Leverage
+// Shares all appear). Bears are −1× or −2× depending on what actually
+// trades; no verified inverse → bear: null, and the screen says so instead
+// of guessing a ticker. A per-instrument `note` is an honesty caveat the
+// card surfaces (thin listings with likely wide spreads). Underlyings whose
+// only verified products were too thin to recommend (~<$1M/day: UNH, RBLX,
+// SHOP) are deliberately absent.
 export const LEVERAGED_ETF_SINGLES = {
   NVDA:  { bull: { sym: "NVDL", lev: 2 }, bear: { sym: "NVDD", lev: -1 } },
   TSLA:  { bull: { sym: "TSLL", lev: 2 }, bear: { sym: "TSLS", lev: -1 } },
@@ -17464,9 +17479,27 @@ export const LEVERAGED_ETF_SINGLES = {
   NFLX:  { bull: { sym: "NFXL", lev: 2 }, bear: { sym: "NFXS", lev: -1 } },
   MU:    { bull: { sym: "MUU",  lev: 2 }, bear: { sym: "MUD",  lev: -1 } },
   AVGO:  { bull: { sym: "AVL",  lev: 2 }, bear: { sym: "AVS",  lev: -1 } },
-  AMD:   { bull: { sym: "AMDL", lev: 2 }, bear: null },
+  AMD:   { bull: { sym: "AMDL", lev: 2 }, bear: { sym: "AMDD", lev: -1 } },
   BABA:  { bull: { sym: "BABX", lev: 2 }, bear: null },
-  SMCI:  { bull: { sym: "SMCX", lev: 2 }, bear: null },
+  SMCI:  { bull: { sym: "SMCX", lev: 2 }, bear: { sym: "SMCZ", lev: -2 } },
+  // 2026-07-19 expansion — tracked names whose listed products were missing.
+  TSM:   { bull: { sym: "TSMX", lev: 2 }, bear: { sym: "TSMZ", lev: -1 } },
+  ORCL:  { bull: { sym: "ORCU", lev: 2 }, bear: { sym: "ORCS", lev: -1 } },
+  QCOM:  { bull: { sym: "QCML", lev: 2 }, bear: { sym: "QCMD", lev: -1, note: "QCMD is a thin listing (~$0.4M/day) — expect wide spreads, use limit orders" } },
+  CRWD:  { bull: { sym: "CRWL", lev: 2 }, bear: null },
+  LLY:   { bull: { sym: "ELIL", lev: 2 }, bear: { sym: "ELIS", lev: -1, note: "ELIS is a thin listing (~$0.2M/day) — expect wide spreads, use limit orders" } },
+  ARM:   { bull: { sym: "ARMG", lev: 2 }, bear: null },
+  HOOD:  { bull: { sym: "HOOG", lev: 2 }, bear: { sym: "HOOZ", lev: -2 } },
+  APP:   { bull: { sym: "APPX", lev: 2 }, bear: null },
+  MRVL:  { bull: { sym: "MRVU", lev: 2 }, bear: null },
+  ASML:  { bull: { sym: "ASMG", lev: 2 }, bear: null },
+  PANW:  { bull: { sym: "PALU", lev: 2 }, bear: null },
+  CRWV:  { bull: { sym: "CRWU", lev: 2 }, bear: null },
+  RKLB:  { bull: { sym: "RKLX", lev: 2 }, bear: { sym: "RKLZ", lev: -2 } },
+  OKLO:  { bull: { sym: "OKLL", lev: 2 }, bear: { sym: "OKLS", lev: -2 } },
+  ASTS:  { bull: { sym: "ASTX", lev: 2 }, bear: null },
+  RDDT:  { bull: { sym: "RDTL", lev: 2 }, bear: null },
+  NOW:   { bull: { sym: "NOWL", lev: 2 }, bear: null },
 };
 
 // Sector / index groups. `proxy` is a TRACKED ticker whose own grade joins
@@ -17543,12 +17576,16 @@ function levVolRead(data) {
 
 // Daily-reset volatility drag ≈ ½·k·(k−1)·σ²_daily per day (signed k, so a
 // −1× inverse decays like a 2× long), expressed as ~%/month (21 sessions).
+// `horizon` is the deterministic hold-length hint the card renders: a choppy
+// tape (the decay worst case) reads day-trade-only regardless of drag tier;
+// otherwise low drag stretches to days–weeks, anything worse stays days.
 function levDecayRead(lev, vol) {
   if (!vol) return null;
   const dragMoPct = r2(0.5 * lev * (lev - 1) * vol.sigmaDaily * vol.sigmaDaily * 21 * 100);
   const chop = vol.trendEff < 0.75 && vol.rvAnnPct >= 30;
   const tier = dragMoPct < 1 ? "low" : dragMoPct < 3 ? "moderate" : "high";
-  return { rvAnnPct: vol.rvAnnPct, trendEff: vol.trendEff, dragMoPct, tier, chop };
+  const horizon = chop ? "intraday" : tier === "low" ? "weeks" : "days";
+  return { rvAnnPct: vol.rvAnnPct, trendEff: vol.trendEff, dragMoPct, tier, chop, horizon };
 }
 
 function levSpark(data) {
@@ -17568,6 +17605,20 @@ export function buildLeveragedEtfPicks(chains, gradesIndex, builtAtIso, macroReg
   const grades = gradesIndex || {};
   const scoreFor = (sym) => levEtfScore(grades[sym]);
   const candidates = []; // { …idea fields, pass, missReason }
+
+  // Tape alignment: is this idea trading with or against the current macro-
+  // regime read? Only meaningful for equity exposure (macro-kind ideas —
+  // gold, treasuries, crude — are often the risk-off hedge itself, so they
+  // get no flag). Leveraged products compound the path, so fighting the tape
+  // is worth a caution chip; a neutral tape flags nothing.
+  const tapeState = macroRegime?.state || null;
+  const tapeAlignFor = (kind, direction) => {
+    if (!tapeState || kind === "macro") return null;
+    const off = tapeState === "risk-off" || tapeState === "severe-risk-off";
+    const on = tapeState === "risk-on";
+    if (!off && !on) return null;
+    return ((off && direction === "bull") || (on && direction === "bear")) ? "against" : "with";
+  };
 
   // ---- single-stock products -------------------------------------------
   for (const [under, prods] of Object.entries(LEVERAGED_ETF_SINGLES)) {
@@ -17594,6 +17645,7 @@ export function buildLeveragedEtfPicks(chains, gradesIndex, builtAtIso, macroReg
         ? g.drivers.filter((d) => d && d.score * score > 0).slice(0, 4).map((d) => ({ label: d.label, score: r1(d.score) }))
         : [],
       entry: timing ? { state: timing.state || null, headline: timing.headline || null, deferKind: timing.deferKind || null } : null,
+      tape: tapeAlignFor("single", dir),
       spark: levSpark(data),
     };
     if (!inst) {
@@ -17603,6 +17655,7 @@ export function buildLeveragedEtfPicks(chains, gradesIndex, builtAtIso, macroReg
     const pass = conviction >= LEVETF_MIN_CONVICTION && (!timing || timing.state !== "avoid");
     candidates.push({
       ...base, etf: inst.sym, leverage: inst.lev, note: inst.note || null,
+      pair: prods[dir === "bull" ? "bear" : "bull"]?.sym || null,
       decay: levDecayRead(inst.lev, vol),
       pass,
       missReason: pass ? null : (timing?.state === "avoid" ? "avoid-timing" : "below-bar"),
@@ -17634,6 +17687,12 @@ export function buildLeveragedEtfPicks(chains, gradesIndex, builtAtIso, macroReg
     const agree = leaning.filter((m) => m.score * sgn > 0).length;
     const breadth = leaning.length ? r2(agree / leaning.length) : 0;
     const conviction = Math.abs(mean);
+    // A thin group (<3 graded members) has no meaningful breadth read, so it
+    // must clear the full single-name bar instead; `bar` is also what the
+    // watch band below measures against (a 2-member group 2.8 under its real
+    // bar is not "close").
+    const bar = members.length >= 3 ? LEVETF_GROUP_MIN_SCORE : LEVETF_MIN_CONVICTION;
+    const breadthFailed = members.length >= 3 && conviction >= LEVETF_GROUP_MIN_SCORE && breadth < LEVETF_GROUP_MIN_BREADTH;
     const pass = members.length >= 3
       ? conviction >= LEVETF_GROUP_MIN_SCORE && breadth >= LEVETF_GROUP_MIN_BREADTH
       : conviction >= LEVETF_MIN_CONVICTION;
@@ -17679,10 +17738,11 @@ export function buildLeveragedEtfPicks(chains, gradesIndex, builtAtIso, macroReg
       members: topMembers.slice(0, 6).map((m) => ({ sym: m.sym, score: m.score })),
       proxy: def.proxy || null,
       entry,
+      tape: tapeAlignFor(def.kind, dir),
       spark: def.proxy ? levSpark(chains[def.proxy]) : null,
     };
     groupReads.push({ ...read, bull: def.bull?.sym || null, bear: def.bear?.sym || null, pass });
-    if (conviction < LEVETF_GROUP_MIN_SCORE - LEVETF_WATCH_BAND) continue;
+    if (conviction < bar - LEVETF_WATCH_BAND) continue;
     if (!inst) {
       candidates.push({ ...read, etf: null, leverage: null, under: null, drivers: [], pass: false, missReason: "no-inverse-listing" });
       continue;
@@ -17690,10 +17750,11 @@ export function buildLeveragedEtfPicks(chains, gradesIndex, builtAtIso, macroReg
     const avoidGated = entry?.state === "avoid";
     candidates.push({
       ...read, etf: inst.sym, leverage: inst.lev, note: inst.note || null, under: null,
+      pair: def[dir === "bull" ? "bear" : "bull"]?.sym || null,
       drivers: topMembers.slice(0, 4).filter((m) => m.score * sgn > 0).map((m) => ({ label: m.sym, score: m.score })),
       decay: levDecayRead(inst.lev, vol),
       pass: pass && !avoidGated,
-      missReason: pass ? (avoidGated ? "avoid-timing" : null) : "below-bar",
+      missReason: pass ? (avoidGated ? "avoid-timing" : null) : (breadthFailed ? "breadth-split" : "below-bar"),
     });
   }
 

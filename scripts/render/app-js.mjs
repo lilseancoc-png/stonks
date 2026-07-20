@@ -15619,14 +15619,20 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       .catch(function(){ levState.data = { loadError: true }; levState.loading = false; renderLevEtf(); });
   }
   // One batched live-quote call for every instrument on the page (ideas +
-  // watch rows that name an ETF). Failure is silent — the cards simply keep
-  // showing no live line; the screen itself never depends on it.
+  // watch rows that name an ETF) PLUS each idea's underlying/proxy symbol —
+  // the underlying's live day move powers the daily-reset tracking check
+  // (what the fund SHOULD be doing today = leverage × the underlying's move).
+  // Failure is silent — the cards simply keep showing no live line; the
+  // screen itself never depends on it.
   function loadLevQuotes(){
     var d = levState.data;
     if (!d || !Array.isArray(d.ideas)) return;
     var syms = [];
+    function addSym(s){ if (s && syms.indexOf(s) < 0) syms.push(s); }
     d.ideas.concat(Array.isArray(d.watch) ? d.watch : []).forEach(function(i){
-      if (i && i.etf && syms.indexOf(i.etf) < 0) syms.push(i.etf);
+      if (!i) return;
+      addSym(i.etf);
+      addSym(i.under && i.under.symbol ? i.under.symbol : i.proxy);
     });
     if (!syms.length) return;
     var key = syms.join(',');
@@ -15644,8 +15650,20 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           var q = map[nodes[i].getAttribute('data-lev-quote')];
           if (!q || q.spot == null) continue;
           var pct = q.changePct;
-          nodes[i].innerHTML = fmtMoney(q.spot) +
+          var html = fmtMoney(q.spot) +
             (pct != null ? ' <span class="' + (pct >= 0 ? 'lev-live-up' : 'lev-live-down') + '">' + (pct >= 0 ? '+' : '') + fmt(pct, 2) + '% today</span>' : '');
+          // Daily-reset tracking check: leverage × the underlying's live day
+          // move is today's target; rendering both makes the reset mechanics
+          // visible on every card instead of a footnote.
+          var uSym = nodes[i].getAttribute('data-lev-under');
+          var k = parseFloat(nodes[i].getAttribute('data-lev-k'));
+          var uq = uSym ? map[uSym] : null;
+          if (uq && uq.changePct != null && isFinite(k) && k && pct != null){
+            var tgt = k * uq.changePct;
+            html += ' <span class="lev-live-vs" title="Daily-reset check: this fund targets ' + Math.abs(k) + '× the ' + (k < 0 ? 'INVERSE of the ' : '') + 'underlying’s move each single day. Today’s target vs actual — a big persistent gap is tracking cost.">' +
+              escapeHtml(uSym) + ' ' + (uq.changePct >= 0 ? '+' : '') + fmt(uq.changePct, 2) + '% · target ' + (tgt >= 0 ? '+' : '') + fmt(tgt, 2) + '%</span>';
+          }
+          nodes[i].innerHTML = html;
         }
       })
       .catch(function(){ /* live decoration only */ });
@@ -15671,6 +15689,33 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var cls = decay.tier === 'high' ? 'lev-decay-high' : decay.tier === 'moderate' ? 'lev-decay-mod' : 'lev-decay-low';
     var tip = 'Daily-reset volatility drag at the underlying\\'s current 20-day realized vol (' + fmt(decay.rvAnnPct, 0) + '% annualized). Chop — big daily swings with no net trend — compounds against any leveraged holder.';
     return '<span class="lev-decay ' + cls + '" title="' + escapeHtml(tip) + '">Reset drag ~' + fmt(decay.dragMoPct, 1) + '%/mo' + (decay.chop ? ' · ⚠ choppy tape' : '') + '</span>';
+  }
+  // Deterministic hold-length hint (decay.horizon from the bake): the chip
+  // translates the drag math into the one question holders actually have.
+  function levHorizonChip(decay){
+    if (!decay || !decay.horizon) return '';
+    var m = ({
+      intraday: ['Hold: day-trade', 'Choppy tape at this vol is the daily-reset worst case — multi-day holds bleed drag. Treat as an intraday-to-1-session vehicle.'],
+      days: ['Hold: days', 'Reset drag is material at the underlying\\'s current vol — think days, not weeks.'],
+      weeks: ['Hold: days–weeks', 'Drag is mild at the underlying\\'s current vol — a days-to-weeks swing hold is reasonable while the thesis holds.']
+    })[decay.horizon];
+    if (!m) return '';
+    return '<span class="lev-horizon" title="' + escapeHtml(m[1]) + '">' + m[0] + '</span>';
+  }
+  // Caution chip only when the idea trades AGAINST the current macro-regime
+  // read (the bake-stamped tape field; macro-kind ideas are exempt by construction).
+  function levTapeChip(i){
+    if (i.tape !== 'against') return '';
+    var state = levState.data && levState.data.regime && levState.data.regime.state ? levState.data.regime.state : 'current';
+    var tip = 'The market tape reads ' + state + ' and this idea leans the other way. Leveraged funds compound the PATH — fighting the tape raises the odds of a drag-heavy chop ride even when the call is eventually right.';
+    return '<span class="lev-tape" title="' + escapeHtml(tip) + '">⚠ fights the tape</span>';
+  }
+  // The verified opposite-direction listing on the same underlying/group, so
+  // a reader who disagrees with the screen knows the other-side vehicle.
+  function levPairChip(i){
+    if (!i.pair) return '';
+    var label = i.direction === 'bull' ? 'Inverse' : 'Long side';
+    return '<span class="lev-pair" title="The verified listed opposite-direction product on the same underlying.">' + label + ': ' + escapeHtml(i.pair) + '</span>';
   }
   function levSparkSvg(i){
     var s = Array.isArray(i.spark) ? i.spark.filter(function(v){ return v != null && isFinite(v); }) : [];
@@ -15725,6 +15770,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
   function levCard(i){
     var tierTxt = i.tier === 'strong' ? 'Strong' : 'Moderate';
+    var underSym = i.under && i.under.symbol ? i.under.symbol : (i.proxy || '');
+    var liveAttrs = 'data-lev-quote="' + escapeHtml(i.etf || '') + '"' +
+      (underSym && i.leverage ? ' data-lev-under="' + escapeHtml(underSym) + '" data-lev-k="' + i.leverage + '"' : '');
     return '<div class="lev-card lev-' + (i.direction === 'bull' ? 'bull' : 'bear') + '">' +
       '<header class="lev-head">' +
         '<span class="lev-etf">' + escapeHtml(i.etf || '') + '</span>' +
@@ -15732,11 +15780,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="lev-kind">' + escapeHtml(levKindLabel(i.kind)) + '</span>' +
         '<span class="lev-score lev-score-' + (i.tier || 'moderate') + '" title="Deterministic grade minus its options-only IV-cost pillar — an ETF pays no option premium.">' + tierTxt + ' · ' + fmt(i.conviction, 1) + '</span>' +
       '</header>' +
-      '<div class="lev-live" data-lev-quote="' + escapeHtml(i.etf || '') + '">live quote…</div>' +
+      '<div class="lev-live" ' + liveAttrs + '>live quote…</div>' +
       levUnderLine(i) +
       levSparkSvg(i) +
       levDriverRows(i) +
-      '<div class="lev-chips">' + levEntryChip(i.entry) + levDecayChip(i.decay) + '</div>' +
+      '<div class="lev-chips">' + levEntryChip(i.entry) + levTapeChip(i) + levDecayChip(i.decay) + levHorizonChip(i.decay) + levPairChip(i) + '</div>' +
       (i.note ? '<p class="lev-note">' + escapeHtml(i.note) + '</p>' : '') +
     '</div>';
   }
@@ -15745,6 +15793,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       'no-inverse-listing': 'no listed ' + (w.direction === 'bear' ? 'inverse' : 'long') + ' product — view is real, vehicle isn\\'t',
       'avoid-timing': 'entry timing reads avoid right now',
       'below-bar': 'conviction under the bar',
+      'breadth-split': 'group mean clears the bar but the members are split — breadth under 60%',
       'ranked-out': 'passed the bar, ranked out of the top ' + (levState.data && levState.data.ideas ? levState.data.ideas.length : 8),
     })[w.missReason] || w.missReason || '';
   }

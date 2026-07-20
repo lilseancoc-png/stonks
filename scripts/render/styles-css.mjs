@@ -3477,13 +3477,17 @@ a.cmd-watch, a.cr-tkr, a.f13-sym, a.brief-chip, a.cal-chip-sym { text-decoration
 .lev-driver b { color: var(--text); font-weight: 600; }
 .lev-driver span { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .lev-chips { display: flex; gap: 6px; flex-wrap: wrap; }
-.lev-entry, .lev-decay { font: 600 11px/1.2 var(--font-sans); border-radius: 6px; padding: 4px 7px; cursor: help; }
+.lev-entry, .lev-decay, .lev-tape, .lev-horizon, .lev-pair { font: 600 11px/1.2 var(--font-sans); border-radius: 6px; padding: 4px 7px; cursor: help; }
 .lev-entry-go { color: var(--pos); background: color-mix(in srgb, var(--pos) 14%, transparent); }
 .lev-entry-wait { color: var(--warn, #d99a2b); background: color-mix(in srgb, var(--warn, #d99a2b) 14%, transparent); }
 .lev-entry-avoid { color: var(--neg); background: color-mix(in srgb, var(--neg) 14%, transparent); }
 .lev-decay-low { color: var(--muted-strong); background: color-mix(in srgb, var(--border) 45%, transparent); }
 .lev-decay-mod { color: var(--warn, #d99a2b); background: color-mix(in srgb, var(--warn, #d99a2b) 14%, transparent); }
 .lev-decay-high { color: var(--neg); background: color-mix(in srgb, var(--neg) 14%, transparent); }
+.lev-tape { color: var(--warn, #d99a2b); background: color-mix(in srgb, var(--warn, #d99a2b) 18%, transparent); border: 1px solid color-mix(in srgb, var(--warn, #d99a2b) 35%, transparent); }
+.lev-horizon { color: var(--muted-strong); background: color-mix(in srgb, var(--border) 45%, transparent); }
+.lev-pair { color: var(--muted-strong); border: 1px dashed var(--border); background: transparent; }
+.lev-live-vs { color: var(--muted-strong); font-weight: 500; font-size: 11.5px; cursor: help; }
 .lev-note { margin: 0; font-size: 11.5px; color: var(--muted-strong); font-style: italic; }
 .lev-sub { margin: 6px 0 0; font-size: 13px; }
 .lev-watch { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
