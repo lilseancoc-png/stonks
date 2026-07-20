@@ -14342,7 +14342,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // debt (FRED G.19 REVOLSL), bank deposits (FRED H.8) and the NY Fed
   // Household Debt & Credit quarterly read. Baked by writeIpoCreditFile in
   // scripts/build.mjs; every section carries last-good forward (stale-marked).
-  var ipoCreditState = { data: null, loading: false };
+  var ipoCreditState = { data: null, loading: false, ipoQuarter: null, refocus: false };
   function icFmtBn(b){
     if (b == null || !isFinite(b)) return '—';
     if (Math.abs(b) >= 1000) return '$' + (b / 1000).toFixed(2) + 'T';
@@ -14413,27 +14413,59 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // ── IPO window ─────────────────────────────────────────────────────────
     var ip = d.ipos;
     if (ip && ip.current){
-      var bars = '';
       var bq = Array.isArray(ip.byQuarter) ? ip.byQuarter : [];
+      // Selected quarter (the bars are clickable) — default current, and a
+      // selection that no longer exists in the payload falls back to current.
+      var selQ = null;
+      for (var v = 0; v < bq.length; v++) if (bq[v].key === ipoCreditState.ipoQuarter) selQ = bq[v];
+      if (!selQ) for (var v2 = 0; v2 < bq.length; v2++) if (bq[v2].key === ip.current.key) selQ = bq[v2];
+      var isCurSel = !!(selQ && selQ.key === ip.current.key);
+      var bars = '';
       var maxN = 1;
       for (var b = 0; b < bq.length; b++) if (bq[b].count > maxN) maxN = bq[b].count;
       for (var b2 = 0; b2 < bq.length; b2++){
         var q = bq[b2];
         var hpct = Math.max(4, Math.round((q.count / maxN) * 100));
-        bars += '<div class="ic-bar-cell' + (q.key === ip.current.key ? ' ic-bar-cur' : '') + '" title="' + escapeHtml(q.label + ': ' + q.count + ' IPOs' + (q.key === ip.current.key ? ' (to date)' : '')) + '">' +
+        var isSel = selQ && q.key === selQ.key;
+        bars += '<div class="ic-bar-cell ic-bar-click' + (q.key === ip.current.key ? ' ic-bar-cur' : '') + (isSel ? ' ic-bar-sel' : '') + '" data-icq="' + escapeHtml(q.key) + '" role="button" tabindex="0" aria-pressed="' + (isSel ? 'true' : 'false') + '" title="' + escapeHtml(q.label + ': ' + q.count + ' IPOs' + (q.key === ip.current.key ? ' (to date)' : '') + ' — click to see the listings') + '">' +
           '<span class="ic-bar-n">' + q.count + '</span>' +
           '<div class="ic-bar" style="height:' + hpct + '%"></div>' +
           '<span class="ic-bar-q">' + escapeHtml(icQtrShort(q.key)) + '</span>' +
         '</div>';
       }
+      // Listings for the selected quarter. Payloads baked before the
+      // per-quarter cutover only carry the legacy current-quarter "recent"
+      // rows (no mcap/raised) — use them for current, note-only otherwise.
+      var items = (selQ && Array.isArray(selQ.items)) ? selQ.items : null;
+      if (!items && isCurSel && Array.isArray(ip.recent)) items = ip.recent;
       var rows = '';
-      var rec = Array.isArray(ip.recent) ? ip.recent : [];
-      for (var r = 0; r < rec.length; r++){
-        var it = rec[r];
+      var raisedTot = 0, raisedN = 0;
+      for (var r = 0; r < (items || []).length; r++){
+        var it = items[r];
+        if (it.raised != null && isFinite(it.raised)){ raisedTot += it.raised; raisedN++; }
         rows += '<tr><td>' + escapeHtml(icDateShort(it.date)) + '</td>' +
           '<td class="ic-sym">' + escapeHtml(it.symbol || '') + '</td>' +
-          '<td class="ic-name">' + escapeHtml(it.name || '') + '</td>' +
-          '<td class="ic-num">' + (it.price != null && isFinite(it.price) ? '$' + Number(it.price).toFixed(2).replace(/\\.00$/, '') : '—') + '</td></tr>';
+          '<td class="ic-name">' + escapeHtml(it.name || '') + (it.spac ? '<span class="ic-spac">SPAC</span>' : '') + '</td>' +
+          '<td class="ic-num">' + (it.price != null && isFinite(it.price) ? '$' + Number(it.price).toFixed(2).replace(/\\.00$/, '') : '—') + '</td>' +
+          '<td class="ic-num">' + cxDollars(it.mcap != null && isFinite(it.mcap) ? it.mcap : null) + '</td>' +
+          '<td class="ic-num">' + cxDollars(it.raised != null && isFinite(it.raised) ? it.raised : null) + '</td></tr>';
+      }
+      // The headline count is the quarter's TRUE count — the shipped rows can
+      // be fewer (legacy 12-row fallback, or the bake's 400-row cap).
+      var selN = (selQ && selQ.count != null && isFinite(selQ.count)) ? selQ.count : (items ? items.length : 0);
+      var selHead = selQ ? '<div class="ic-sub-head ic-qtr-head"><span>' + escapeHtml(selQ.label) + ' listings' + (isCurSel ? ' (to date)' : '') + '</span>' +
+        '<span class="ic-qtr-agg">' + selN + ' IPO' + (selN === 1 ? '' : 's') +
+        (raisedN ? ' · ' + cxDollars(raisedTot) + ' raised' + (items && raisedN < items.length ? ' (' + raisedN + ' disclosed)' : '') : '') +
+        (items && items.length < selN ? ' · newest ' + items.length + ' shown' : '') + '</span></div>' : '';
+      var tableHtml;
+      if (rows){
+        tableHtml = '<div class="ic-table-wrap ic-ipo-scroll"><table class="ic-table"><thead><tr><th>Date</th><th>Symbol</th><th>Company</th><th class="ic-num">IPO price</th>' +
+          '<th class="ic-num" title="Estimated market cap at the listing price — IPO price × shares outstanding">Mkt cap at IPO</th>' +
+          '<th class="ic-num" title="IPO deal size — shares offered × IPO price">Raised</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+      } else if (items){
+        tableHtml = '<p class="ic-note">No listings priced ' + (isCurSel ? 'yet this quarter.' : 'in ' + escapeHtml(selQ ? selQ.label : '') + '.') + '</p>';
+      } else {
+        tableHtml = '<p class="ic-note">Listings for ' + escapeHtml(selQ ? selQ.label : 'that quarter') + ' will appear after the next data refresh.</p>';
       }
       html += '<article class="ic-card ic-card-wide"><div class="ic-card-head"><h3>Companies going public</h3>' + icStaleBadge(ip) + '</div>' +
         '<div class="ic-hero">' +
@@ -14441,8 +14473,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<div class="ic-stat ic-stat-prev"><span class="ic-stat-val">' + ip.prior.count + '</span><span class="ic-stat-sub">' + escapeHtml(ip.prior.label) + ' total</span></div>' +
         '</div>' +
         (bars ? '<div class="ic-bars">' + bars + '</div>' : '') +
-        (rows ? '<div class="ic-table-wrap"><table class="ic-table"><thead><tr><th>Date</th><th>Symbol</th><th>Company</th><th class="ic-num">IPO price</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<p class="ic-note">No listings priced yet this quarter.</p>') +
-        '<p class="ic-note">' + escapeHtml(ip.note || '') + ' Source: <a href="' + escapeHtml(ip.sourceUrl || '#') + '" target="_blank" rel="noopener noreferrer">stockanalysis.com</a>.</p>' +
+        selHead + tableHtml +
+        '<p class="ic-note">' + escapeHtml((ip.note || '') + (ip.listingNote ? ' ' + ip.listingNote : '')) + ' Source: <a href="' + escapeHtml(ip.sourceUrl || '#') + '" target="_blank" rel="noopener noreferrer">stockanalysis.com</a>.</p>' +
       '</article>';
     }
 
@@ -14524,6 +14556,21 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (cards) html += '<div class="ic-credit-head">National credit backdrop</div><div class="ic-grid">' + cards + '</div>';
 
     root.innerHTML = html || '<p class="ic-note">No data yet — check back after the next refresh.</p>';
+    // Quarter-bar clicks re-render with that quarter's listings. The whole
+    // card is rebuilt via innerHTML, so listeners re-attach fresh each pass.
+    var barCells = root.querySelectorAll('.ic-bar-click');
+    for (var bc = 0; bc < barCells.length; bc++){
+      (function(cell){
+        function pick(){ ipoCreditState.ipoQuarter = cell.getAttribute('data-icq'); ipoCreditState.refocus = true; renderIpoCredit(); }
+        cell.addEventListener('click', pick);
+        cell.addEventListener('keydown', function(ev){ if (ev.key === 'Enter' || ev.key === ' '){ ev.preventDefault(); pick(); } });
+      })(barCells[bc]);
+    }
+    if (ipoCreditState.refocus){
+      ipoCreditState.refocus = false;
+      var selCell = root.querySelector('.ic-bar-sel');
+      if (selCell) selCell.focus({ preventScroll: true });
+    }
   }
 
   // --- Trending IV (Flow tab) ----------------------------------------------
