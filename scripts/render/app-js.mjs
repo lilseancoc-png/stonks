@@ -3173,7 +3173,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','market','picks','stocks','heatmap','calendar','earnings','calls','spillover','quant','levetf','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','features','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','picks','stocks','heatmap','calendar','earnings','calls','spillover','quant','levetf','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','features','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3191,6 +3191,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     pick: 'picks', 'top-picks': 'picks', toppicks: 'picks',
     'stock-picks': 'stocks', stockpicks: 'stocks', stock: 'stocks', shares: 'stocks',
     'market-analysis': 'market', analysis: 'market', tape: 'market', regime: 'market',
+    headlines: 'news', 'stock-news': 'news', 'news-feed': 'news',
     narrative: 'narratives', strategy: 'strategies', streak: 'streaks',
     comparison: 'compare', compare2: 'compare', versus: 'compare', vs: 'compare',
     ticker: 'tickers',
@@ -3433,6 +3434,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (name !== 'oi' && typeof stopOiLive === 'function') stopOiLive();
       if (!premiumLocked){
         if (name === 'brief' && typeof loadBrief === 'function') loadBrief();
+        if (name === 'news' && typeof loadNewsFeed === 'function') loadNewsFeed();
         if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
         if (name === 'index-cal' && typeof loadIndexCal === 'function') loadIndexCal();
         if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
@@ -16858,7 +16860,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Stock Picks card + DCA symbols, Trending-IV symbols/chips/table rows).
   function bindBriefChips(rootEl){
     if (!rootEl) return;
-    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .stk-sym[data-sym], .stk-dca-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym], .cmd-watch[data-sym], .cr-tkr[data-sym], .f13-sym[data-sym], .ers-sym[data-sym], .ecl-sym[data-sym], .spill-sym[data-sym], .quant-sym[data-sym], .lev-sym[data-sym]');
+    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .news-feed-sym[data-sym], .stk-sym[data-sym], .stk-dca-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym], .cmd-watch[data-sym], .cr-tkr[data-sym], .f13-sym[data-sym], .ers-sym[data-sym], .ecl-sym[data-sym], .spill-sym[data-sym], .quant-sym[data-sym], .lev-sym[data-sym]');
     for (var i = 0; i < chips.length; i++){
       chips[i].addEventListener('click', function(ev){
         // Modified clicks fall through to the browser so the ?s= href opens
@@ -16900,6 +16902,239 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (latest && latest.generatedAtIso){ var d = new Date(latest.generatedAtIso); if (!isNaN(d.getTime())) w = d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
       eyebrow.textContent = w ? ('Updated ' + w) : '';
     }
+  }
+
+  // ── News desk (free cross-universe headline triage) ─────────────────────
+  // data/news-feed.json is assembled from the CURRENT raw ticker-headline
+  // fetch (before AI judgment-cache reuse) plus the market-wide press slate
+  // behind Briefs. Impact and direction are deliberately independent.
+  var newsFeedState = {
+    data: null, loading: false, error: false, bound: false, optionsReady: false,
+    limit: 40,
+    filters: { q:'', impact:'', scope:'', direction:'', sector:'', category:'', age:168, sort:'impact' }
+  };
+  function loadNewsFeed(){
+    bindNewsFeedControls();
+    if ((newsFeedState.data && !tabDataStale(newsFeedState)) || newsFeedState.loading){ renderNewsFeed(); return; }
+    newsFeedState.loading = true;
+    newsFeedState.error = false;
+    renderNewsFeed();
+    fetch(dataUrl('news-feed.json'), { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(json){
+        newsFeedState.data = (json && Array.isArray(json.items)) ? json : { items: [], counts: {} };
+        newsFeedState.loading = false;
+        newsFeedState.fetchedAt = Date.now();
+        newsFeedState.optionsReady = false;
+        populateNewsFeedOptions();
+        renderNewsFeed();
+      })
+      .catch(function(){
+        newsFeedState.loading = false;
+        newsFeedState.error = true;
+        renderNewsFeed();
+      });
+  }
+  function newsFeedAgeHours(item){
+    var t = Date.parse(item && item.publishedAt || '');
+    return isNaN(t) ? null : Math.max(0, (Date.now() - t) / 3600000);
+  }
+  function newsFeedTimeAgo(item){
+    var h = newsFeedAgeHours(item);
+    if (h == null) return 'time unavailable';
+    if (h < 1) return Math.max(1, Math.round(h * 60)) + 'm';
+    if (h < 24) return Math.round(h) + 'h';
+    return Math.round(h / 24) + 'd';
+  }
+  function newsFeedSafeHref(value){
+    if (!value) return '';
+    try {
+      var u = new URL(String(value), window.location.href);
+      return (u.protocol === 'http:' || u.protocol === 'https:') ? u.href : '';
+    } catch (_) { return ''; }
+  }
+  function newsFeedFmtMove(v){
+    var n = Number(v);
+    return isFinite(n) ? (n >= 0 ? '+' : '') + n.toFixed(2) + '%' : '';
+  }
+  function newsFeedImpactLabel(v){
+    return v === 'high' ? 'High impact' : v === 'notable' ? 'Notable' : 'Context';
+  }
+  function newsFeedDirectionLabel(v){
+    return v === 'positive' ? 'Favorable' : v === 'negative' ? 'Adverse' : v === 'mixed' ? 'Mixed' : 'Unclear';
+  }
+  function populateNewsFeedOptions(){
+    if (newsFeedState.optionsReady || !newsFeedState.data) return;
+    var items = newsFeedState.data.items || [];
+    var sectorMap = {}, categoryMap = {};
+    items.forEach(function(item){
+      (item.sectors || []).forEach(function(s){ if (s) sectorMap[s] = 1; });
+      if (item.category) categoryMap[item.category] = item.categoryLabel || item.category;
+    });
+    var sector = $('news-feed-sector');
+    if (sector){
+      sector.innerHTML = '<option value="">All sectors</option>' + Object.keys(sectorMap).sort().map(function(s){
+        return '<option value="' + escapeHtml(s) + '">' + escapeHtml(s) + '</option>';
+      }).join('');
+      sector.value = newsFeedState.filters.sector;
+    }
+    var category = $('news-feed-category');
+    if (category){
+      category.innerHTML = '<option value="">All categories</option>' + Object.keys(categoryMap).sort(function(a,b){ return String(categoryMap[a]).localeCompare(String(categoryMap[b])); }).map(function(k){
+        return '<option value="' + escapeHtml(k) + '">' + escapeHtml(categoryMap[k]) + '</option>';
+      }).join('');
+      category.value = newsFeedState.filters.category;
+    }
+    newsFeedState.optionsReady = true;
+  }
+  function syncNewsFilterCount(){
+    var f = newsFeedState.filters;
+    var n = (f.scope ? 1 : 0) + (f.direction ? 1 : 0) + (f.sector ? 1 : 0) + (f.category ? 1 : 0) + (Number(f.age) !== 168 ? 1 : 0);
+    var badge = $('news-filter-count');
+    if (badge){ badge.hidden = !n; badge.textContent = n ? String(n) : ''; }
+  }
+  function resetNewsFeedLimit(){ newsFeedState.limit = 40; }
+  function bindNewsFeedControls(){
+    if (newsFeedState.bound) return;
+    newsFeedState.bound = true;
+    var search = $('news-feed-search');
+    if (search) search.addEventListener('input', function(){ newsFeedState.filters.q = search.value || ''; resetNewsFeedLimit(); renderNewsFeed(); });
+    var sort = $('news-feed-sort');
+    if (sort) sort.addEventListener('change', function(){ newsFeedState.filters.sort = sort.value || 'impact'; resetNewsFeedLimit(); renderNewsFeed(); });
+    var mappings = [
+      ['news-feed-scope','scope'], ['news-feed-direction','direction'],
+      ['news-feed-sector','sector'], ['news-feed-category','category'], ['news-feed-age','age']
+    ];
+    mappings.forEach(function(pair){
+      var el = $(pair[0]);
+      if (!el) return;
+      el.addEventListener('change', function(){
+        newsFeedState.filters[pair[1]] = pair[1] === 'age' ? Number(el.value || 168) : (el.value || '');
+        resetNewsFeedLimit(); syncNewsFilterCount(); renderNewsFeed();
+      });
+    });
+    var impacts = document.querySelectorAll('[data-news-impact]');
+    for (var i=0; i<impacts.length; i++) impacts[i].addEventListener('click', function(){
+      newsFeedState.filters.impact = this.getAttribute('data-news-impact') || '';
+      for (var j=0; j<impacts.length; j++) impacts[j].classList.toggle('is-active', impacts[j] === this);
+      resetNewsFeedLimit(); renderNewsFeed();
+    });
+    var more = $('news-feed-more');
+    if (more) more.addEventListener('click', function(){ newsFeedState.limit += 40; renderNewsFeed(); });
+    syncNewsFilterCount();
+  }
+  function filteredNewsFeedItems(){
+    var f = newsFeedState.filters;
+    var q = String(f.q || '').trim().toLowerCase();
+    var out = (newsFeedState.data && Array.isArray(newsFeedState.data.items) ? newsFeedState.data.items : []).filter(function(item){
+      if (f.impact === 'high' && item.impact !== 'high') return false;
+      if (f.impact === 'notable' && item.impact !== 'high' && item.impact !== 'notable') return false;
+      if (f.scope && item.scope !== f.scope) return false;
+      if (f.direction && item.direction !== f.direction) return false;
+      if (f.sector && (item.sectors || []).indexOf(f.sector) < 0) return false;
+      if (f.category && item.category !== f.category) return false;
+      var age = newsFeedAgeHours(item);
+      if (age != null && age > Number(f.age || 168)) return false;
+      if (age == null && Number(f.age || 168) < 168) return false;
+      if (q){
+        var hay = [item.title, item.publisher, item.categoryLabel].concat(item.symbols || [], item.sectors || [], item.sources || []).join(' ').toLowerCase();
+        if (hay.indexOf(q) < 0) return false;
+      }
+      return true;
+    });
+    out.sort(function(a,b){
+      var ad = Date.parse(a.publishedAt || '') || 0, bd = Date.parse(b.publishedAt || '') || 0;
+      if (f.sort === 'latest') return (bd - ad) || ((b.impactScore || 0) - (a.impactScore || 0));
+      return ((b.impactScore || 0) - (a.impactScore || 0)) || (bd - ad);
+    });
+    return out;
+  }
+  function newsFeedStoryHtml(item){
+    var impact = item.impact || 'context';
+    var direction = item.direction || 'unclear';
+    var href = newsFeedSafeHref(item.link);
+    var title = escapeHtml(item.title || 'Untitled headline');
+    var headline = href
+      ? '<a class="news-feed-headline" href="' + escapeHtml(href) + '" target="_blank" rel="noopener noreferrer">' + title + '<span aria-hidden="true"> ↗</span></a>'
+      : '<div class="news-feed-headline">' + title + '</div>';
+    var symbols = (item.symbols || []).slice(0, 6).map(function(sym){
+      return '<a class="news-feed-sym" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '" title="Open ' + escapeHtml(sym) + ' in Grade">' + escapeHtml(sym) + '</a>';
+    }).join('');
+    if ((item.symbols || []).length > 6) symbols += '<span class="news-feed-related">+' + ((item.symbols || []).length - 6) + '</span>';
+    if (!symbols) symbols = '<span class="news-feed-market">MARKET</span>';
+    var sources = Array.isArray(item.sources) ? item.sources : [];
+    var sourceMeta = item.publisher ? escapeHtml(item.publisher) : 'Source unavailable';
+    if (sources.length > 1) sourceMeta += ' <span class="news-feed-related">+' + (sources.length - 1) + ' source' + (sources.length === 2 ? '' : 's') + '</span>';
+    var sectors = (item.sectors || []).slice(0, 2).map(escapeHtml).join(' · ');
+    var stamp = '';
+    if (item.publishedAt){
+      var td = new Date(item.publishedAt);
+      stamp = isNaN(td.getTime()) ? '' : td.toLocaleString(undefined, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+    }
+    var reaction = '';
+    if (item.reaction && item.reaction.active && impact !== 'context'){
+      var mv = newsFeedFmtMove(item.reaction.movePct);
+      var rv = Number(item.reaction.rvol);
+      var rc = Number(item.reaction.movePct) > 0 ? 'pos' : Number(item.reaction.movePct) < 0 ? 'neg' : '';
+      reaction = '<span class="news-feed-reaction ' + rc + '">Active tape · ' + escapeHtml(item.reaction.symbol || '') +
+        (mv ? ' ' + escapeHtml(mv) : '') + (isFinite(rv) && rv > 0 ? ' · ' + rv.toFixed(1) + '× vol' : '') + '</span>';
+    }
+    return '<article class="news-feed-item impact-' + escapeHtml(impact) + ' direction-' + escapeHtml(direction) + '">' +
+      '<div class="news-feed-item-top">' +
+        '<span class="news-impact-badge">' + escapeHtml(newsFeedImpactLabel(impact)) + '</span>' +
+        '<span class="news-direction-badge">' + escapeHtml(newsFeedDirectionLabel(direction)) + '</span>' +
+        (item.unconfirmed ? '<span class="news-unconfirmed">Unconfirmed</span>' : '') +
+        (item.carried ? '<span class="news-carried">Carried forward</span>' : '') +
+        '<time' + (stamp ? ' title="' + escapeHtml(stamp) + '"' : '') + '>' + escapeHtml(newsFeedTimeAgo(item)) + '</time>' +
+      '</div>' +
+      headline +
+      '<div class="news-feed-byline">' + symbols + '<span>' + sourceMeta + '</span>' +
+        '<span>' + escapeHtml(item.categoryLabel || 'Company') + '</span>' + (sectors ? '<span>' + sectors + '</span>' : '') + '</div>' +
+      '<div class="news-feed-why"><b>Why it matters:</b> ' + escapeHtml(item.impactReason || 'Fresh company context for the watchlist.') + reaction + '</div>' +
+    '</article>';
+  }
+  function renderNewsFeed(){
+    var root = $('news-feed-root'), empty = $('news-feed-empty'), more = $('news-feed-more');
+    var summary = $('news-feed-summary'), eyebrow = $('news-feed-eyebrow');
+    if (!root) return;
+    bindNewsFeedControls();
+    if (newsFeedState.loading && !newsFeedState.data){
+      root.innerHTML = '<p class="news-feed-status">Loading the latest headline slate…</p>';
+      if (empty) empty.hidden = true; if (more) more.hidden = true; return;
+    }
+    if (newsFeedState.error && !newsFeedState.data){
+      root.innerHTML = '<p class="news-feed-status news-feed-error">News is unavailable right now. Re-open the tab to retry.</p>';
+      if (empty) empty.hidden = true; if (more) more.hidden = true; return;
+    }
+    populateNewsFeedOptions();
+    var all = newsFeedState.data && newsFeedState.data.items || [];
+    var filtered = filteredNewsFeedItems();
+    var shown = filtered.slice(0, newsFeedState.limit);
+    root.innerHTML = shown.map(newsFeedStoryHtml).join('');
+    bindBriefChips(root);
+    if (empty) empty.hidden = filtered.length > 0;
+    if (more){
+      var remaining = Math.max(0, filtered.length - shown.length);
+      more.hidden = !remaining;
+      more.textContent = remaining ? ('Show ' + Math.min(40, remaining) + ' more · ' + remaining + ' remaining') : '';
+    }
+    var high = all.filter(function(i){ return i.impact === 'high'; }).length;
+    var active = all.filter(function(i){ return i.reaction && i.reaction.active && i.impact !== 'context'; }).length;
+    var companies = all.filter(function(i){ return i.scope === 'company'; }).length;
+    if (summary){
+      summary.innerHTML = '<div><b>' + high + '</b><span>high impact</span></div>' +
+        '<div><b>' + active + '</b><span>active tape</span></div>' +
+        '<div><b>' + companies + '</b><span>stock stories</span></div>' +
+        '<p>Showing ' + filtered.length + ' of ' + all.length + '</p>';
+    }
+    if (eyebrow){
+      var built = newsFeedState.data && (newsFeedState.data.generatedAtIso || newsFeedState.data.builtAtIso);
+      var when = built ? new Date(built) : null;
+      eyebrow.textContent = all.length + ' stor' + (all.length === 1 ? 'y' : 'ies') + (when && !isNaN(when.getTime()) ? ' · updated ' + when.toLocaleString(undefined, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : '');
+    }
+    var landStat = $('land-stat-news'), landSub = $('land-sub-news');
+    if (landStat) landStat.textContent = all.length ? String(all.length) : 'Ranked';
+    if (landSub && all.length) landSub.textContent = 'headlines · ' + high + ' high impact';
   }
 
   var overnightState = { data: null, loading: false };
@@ -26380,6 +26615,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       ['tickers', 'Tickers'],
       ['narratives', 'Narratives'],
       ['brief', 'Brief'],
+      ['news', 'News desk'],
       ['market', 'Market analysis'],
       ['picks', 'Top picks'],
       ['stocks', 'Stock picks'],

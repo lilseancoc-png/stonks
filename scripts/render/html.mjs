@@ -38,6 +38,7 @@ function docPanesHtml() {
 const SIDE_NAV_ICONS = {
   home: '<path d="m3 9.8 9-7.3 9 7.3V20a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 20Z"/><path d="M9.5 21.5V14h5v7.5"/>',
   brief: '<path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-4 0V6"/><path d="M18 14h-8M15 18h-5"/><path d="M10 6h8v4h-8V6Z"/>',
+  news: '<path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/>',
   tickers: '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
   narratives: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   market: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
@@ -459,6 +460,51 @@ function briefSection() {
     </header>
     <p class="hint">An AI<span class="tip ai-info" tabindex="0" role="button" aria-label="About the market brief" data-tip="One rolling digest per trading day, re-minted hourly by the build (default gemini-2.5-flash-lite; override AI_BRIEF_MODEL). The open build writes the morning setup from overnight &amp; foreign moves, macro levels, Fear &amp; Greed, the day's calendar and the top picks; mid-session builds refresh it with the session's breadth, movers and flow; the post-close build writes the closing read. Headlines are AI prose grounded in the numbers shown; the chips and stats are computed, not generated.">i</span>-written market digest, refreshed hourly with each build &mdash; the overnight setup at the open, where the tape stands mid-session, and the closing read after 4&nbsp;pm ET. Ticker chips are clickable. Not financial advice.</p>
     <div id="brief-root" class="brief-root">Loading brief&hellip;</div>
+  </section>`;
+}
+
+function newsFeedSection() {
+  // Compact, free triage queue from data/news-feed.json. The feed is built
+  // from current raw per-ticker headlines plus the market-wide press slate
+  // behind Briefs; it intentionally excludes premium brief prose and signals.
+  return `<section class="card" id="news-feed-section">
+    <header class="card-header">
+      <h2 class="card-title">News desk</h2>
+      <span class="card-eyebrow" id="news-feed-eyebrow" aria-live="polite"></span>
+    </header>
+    <p class="hint">Straight headlines for every covered stock, plus the market-wide press slate behind Briefs. Stories are ranked by likely materiality and active tape, with direction kept separate. Priority is a deterministic triage estimate &mdash; not a prediction that the headline caused the move.</p>
+    ${infoNote('How news priority works', `<p><b>High impact</b> surfaces hard events such as earnings or guidance, M&amp;A, approvals, court actions, capital raises, recalls, breaches and major contracts. <b>Notable</b> catches analyst actions, launches, restructuring and fast-moving market context; everything else stays <b>Context</b>. Freshness, source quality, corroboration and an already-active stock tape can move a story up. The green / red direction chip is read only from that story&rsquo;s wording and remains <b>Unclear</b> when the headline does not support a clean inference. Colors always carry a text label.</p>`) }
+    <div id="news-feed-summary" class="news-feed-summary" aria-live="polite"></div>
+    <div class="news-feed-toolbar" role="search" aria-label="Filter news">
+      <label class="news-feed-search-wrap">
+        <span class="sr-only">Search headlines, tickers, or publishers</span>
+        <input type="search" id="news-feed-search" class="news-feed-search" placeholder="Search ticker, headline, source&hellip;" autocomplete="off" />
+      </label>
+      <div class="news-impact-filter" role="group" aria-label="Impact priority">
+        <button type="button" class="news-filter-chip is-active" data-news-impact="">All</button>
+        <button type="button" class="news-filter-chip" data-news-impact="high">High impact</button>
+        <button type="button" class="news-filter-chip" data-news-impact="notable">Notable+</button>
+      </div>
+      <label class="news-feed-select-wrap"><span>Sort</span>
+        <select id="news-feed-sort" aria-label="Sort news">
+          <option value="impact">Impact first</option>
+          <option value="latest">Latest</option>
+        </select>
+      </label>
+    </div>
+    <details class="news-more-filters" id="news-more-filters">
+      <summary>More filters <span id="news-filter-count" class="news-filter-count" hidden></span></summary>
+      <div class="news-more-grid">
+        <label><span>Scope</span><select id="news-feed-scope"><option value="">Stocks + market</option><option value="company">Covered stocks</option><option value="market">Market-wide</option></select></label>
+        <label><span>Direction</span><select id="news-feed-direction"><option value="">Any direction</option><option value="positive">Favorable</option><option value="negative">Adverse</option><option value="mixed">Mixed</option><option value="unclear">Unclear</option></select></label>
+        <label><span>Sector</span><select id="news-feed-sector"><option value="">All sectors</option></select></label>
+        <label><span>Category</span><select id="news-feed-category"><option value="">All categories</option></select></label>
+        <label><span>Age</span><select id="news-feed-age"><option value="168">Past 7 days</option><option value="72">Past 72 hours</option><option value="24">Past 24 hours</option><option value="6">Past 6 hours</option></select></label>
+      </div>
+    </details>
+    <div id="news-feed-root" class="news-feed-root" aria-live="polite">Loading news&hellip;</div>
+    <div id="news-feed-empty" class="news-feed-empty" hidden>No headlines match those filters.</div>
+    <button type="button" id="news-feed-more" class="news-feed-more" hidden>Show more</button>
   </section>`;
 }
 
@@ -1406,6 +1452,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <div class="side-nav-group">
     ${sideNavItem('home', 'Home', { selected: true })}
     ${sideNavItem('brief', 'Brief')}
+    ${sideNavItem('news', 'News')}
     ${sideNavItem('tickers', 'Tickers')}
     ${sideNavItem('narratives', 'Narratives')}
     ${sideNavItem('market', 'Market analysis')}
@@ -1486,6 +1533,15 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           <div class="landing-card-stat" id="land-stat-brief">Hourly</div>
           <div class="landing-card-sub" id="land-sub-brief">market digest</div>
           <p class="landing-card-desc">An hourly read on what's interesting — the overnight setup, the session's movers, notable flow, what's next.</p>
+        </button>
+        <button type="button" class="landing-card" data-go="news" aria-label="Open the stock news desk">
+          <header class="landing-card-head">
+            <span class="landing-card-eyebrow">News desk</span>
+            <span class="landing-card-arrow" aria-hidden="true">&rarr;</span>
+          </header>
+          <div class="landing-card-stat" id="land-stat-news">Ranked</div>
+          <div class="landing-card-sub" id="land-sub-news">market-moving headlines</div>
+          <p class="landing-card-desc">Straight news across every covered stock, color-coded by likely impact with the active tape alongside it.</p>
         </button>
         <button type="button" class="landing-card" data-go="picks" aria-label="View top picks">
           <header class="landing-card-head">
@@ -1626,6 +1682,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-brief" role="tabpanel" aria-labelledby="page-tab-brief" hidden>
   ${briefSection()}
+  </div>
+  <div class="page-pane" id="page-pane-news" role="tabpanel" aria-labelledby="page-tab-news" hidden>
+  ${newsFeedSection()}
   </div>
   <div class="page-pane" id="page-pane-tickers" role="tabpanel" aria-labelledby="page-tab-tickers" hidden>
   ${tickersSection({ symbols, sectors: SECTORS, industries: INDUSTRY_OF_TICKER })}

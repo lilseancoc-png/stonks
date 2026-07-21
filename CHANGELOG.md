@@ -22,6 +22,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-07-21
 
+### Added
+
+- **News desk: a straight-news triage queue for the entire covered universe.** Each bake now preserves the current linked per-ticker headline slate before AI-cache reuse, merges it with the market-wide sources behind Briefs, and writes a compact free `data/news-feed.json`. A deterministic classifier ranks likely materiality (high impact / notable / context), keeps favorable/adverse/mixed direction separate, flags unconfirmed wording, deduplicates corroborated coverage, and shows the stock's already-active tape without claiming the headline caused it. The new lazy-loaded tab adds impact/search/scope/direction/sector/category/age filters, impact-vs-latest sorting, ticker deep links, and a dense responsive feed. `lib/news-feed.mjs`, `scripts/build.mjs`, `lib/premium-keys.mjs`, `scripts/render/{html,app-js,styles-css,docs}.mjs`.
+
 ### Changed
 
 - **The freemium tab split now puts Earnings Calls, Narratives, and Index Calendar in the free tier, while Trending IV and Streaks move to premium.** The server key policy, narrative manifest sidecar, client locks and home-card badges, and the in-app feature matrix all use the same split. `lib/premium-keys.mjs`, `scripts/render/{app-js,html,docs}.mjs`, `app.js`, `index.html`.

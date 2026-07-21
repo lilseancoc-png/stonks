@@ -20,6 +20,7 @@ import { GoogleGenAI } from "@google/genai";
 import YahooFinance from "yahoo-finance2";
 import { greeks, bsPrice, yearsToExpiry, ncdf } from "../lib/greeks.mjs";
 import { renderPriceChartPng } from "../lib/chart-image.mjs";
+import { buildNewsFeedPayload } from "../lib/news-feed.mjs";
 
 // Library prints a survey notice on first use and validates response
 // schemas — silence both since Yahoo occasionally omits optional fields
@@ -22451,6 +22452,69 @@ function classifyAiError(err, attempt, model = null) {
 // build still carries forward any brief a prior keyed build produced
 // (read-before-wipe in main()).
 const BRIEFS_FILE = "briefs.json";
+// Free, lazy-loaded cross-universe news desk. Unlike briefs.json, this ships
+// only source headline metadata + deterministic triage labels; no premium
+// brief prose, unusual-flow signal, or Top-Picks data crosses into it.
+const NEWS_FEED_FILE = "news-feed.json";
+let _newsFeedHeadlineRows = [];
+
+function resetNewsFeedHeadlineRows() {
+  _newsFeedHeadlineRows = [];
+}
+
+function recordNewsFeedHeadlines(symbol, headlines) {
+  for (const h of Array.isArray(headlines) ? headlines : []) {
+    if (!h || !h.title) continue;
+    _newsFeedHeadlineRows.push({
+      symbol,
+      title: h.title,
+      publisher: h.publisher || null,
+      publishedAt: h.publishedAt || null,
+      link: h.link || null,
+    });
+  }
+}
+
+async function collectNewsFeedHeadlinesOnly(chains) {
+  const symbols = Object.keys(chains || {});
+  let cursor = 0;
+  async function worker() {
+    while (true) {
+      const idx = cursor++;
+      if (idx >= symbols.length) return;
+      const symbol = symbols[idx];
+      try {
+        recordNewsFeedHeadlines(symbol, await fetchTickerHeadlines(symbol));
+      } catch (err) {
+        console.log(`    ⚠ ${symbol} news-feed fetch failed: ${String(err?.message || err).split("\n")[0]}`);
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(10, symbols.length) }, worker));
+}
+
+export async function readPriorNewsFeed() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, NEWS_FEED_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && Array.isArray(parsed.items)) return parsed;
+  } catch (_) { /* missing / unreadable — first run or wiped */ }
+  return null;
+}
+
+export async function writeNewsFeedFile({ prior, builtAtIso, chains, marketHeadlines }) {
+  const payload = buildNewsFeedPayload({
+    tickerHeadlines: _newsFeedHeadlineRows,
+    marketHeadlines,
+    chains,
+    sectors: SECTORS,
+    priorItems: prior?.items || [],
+    builtAtIso,
+  });
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, NEWS_FEED_FILE), json, "utf8");
+  return { ...payload.counts, bytes: json.length };
+}
 const AI_BRIEF_MODEL = process.env.AI_BRIEF_MODEL || "gemini-3.1-flash-lite";
 // Kind boundaries: a build before 10:00 ET (the 9:30 open bake) frames the
 // brief as the MORNING setup; 16:00 ET onward (the close bake) as the
@@ -25489,7 +25553,8 @@ async function attachFundamentalsJudgments(chains) {
 
 async function attachAiNewsTakes(chains, macroBackdrop) {
   if (!process.env.GEMINI_API_KEY) {
-    console.log("No GEMINI_API_KEY set — skipping AI news takes. Chain data will still build.");
+    console.log("No GEMINI_API_KEY set — fetching straight headlines for the News desk; skipping AI news takes.");
+    await collectNewsFeedHeadlinesOnly(chains);
     return;
   }
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
@@ -25504,6 +25569,7 @@ async function attachAiNewsTakes(chains, macroBackdrop) {
   const tasks = entries.map(([sym, data]) => hb.track(async () => {
     try {
       const rawHeadlines = await fetchTickerHeadlines(sym);
+      recordNewsFeedHeadlines(sym, rawHeadlines);
       const headlines = await enrichHeadlinesWithBodies(rawHeadlines);
       if (!rawHeadlines.length) {
         const sector = SECTORS[sym] || null;
@@ -25643,7 +25709,8 @@ async function writeTickerJudgmentCache(cache) {
 // the prior cache forward unchanged rather than clobbering it.
 async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
   if (!process.env.GEMINI_API_KEY) {
-    console.log("No GEMINI_API_KEY set — skipping AI ticker judgments. Chain data will still build.");
+    console.log("No GEMINI_API_KEY set — fetching straight headlines for the News desk; skipping AI ticker judgments.");
+    await collectNewsFeedHeadlinesOnly(chains);
     // Carry the prior cache forward unchanged (same rationale as
     // attachChartPatterns): a transiently-missing key must not force the next
     // keyed build to start cold.
@@ -25661,6 +25728,11 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
     Promise.all(passEntries.map(([sym, data]) => hb.track(async () => {
       try {
         const rawHeadlines = await fetchTickerHeadlines(sym);
+        // Capture the CURRENT linked source slate before the AI judgment cache
+        // can reuse an older paragraph/headline bundle. The News desk should
+        // never miss a story merely because one new title fell within the
+        // judgment cache's tolerance.
+        recordNewsFeedHeadlines(sym, rawHeadlines);
         // Only synthesize the deterministic fallback when Yahoo returned
         // literally zero recent news for the ticker. Not cached — there was
         // no AI call to save, and the fallback is pure + cheap.
@@ -27154,6 +27226,7 @@ async function main() {
   // prior map forward untouched so a temporary flag flip doesn't clear it.
   const tickerJudgmentCachePrev = await readTickerJudgmentCache();
   let tickerJudgmentCacheNext = tickerJudgmentCachePrev;
+  resetNewsFeedHeadlineRows();
   if (AI_COMBINED) {
     tickerJudgmentCacheNext = await attachTickerJudgments(chains, macroBackdrop, tickerJudgmentCachePrev);
   } else {
@@ -27352,6 +27425,10 @@ async function main() {
   // wipes data/, so the brief is minted once per ET hour and carried forward
   // by a same-hour re-run. Threaded into buildMarketBriefs near the end of main().
   const briefsPrev = await readPriorBriefs();
+  // Prior free news feed — recent rows carry through a transient RSS outage or
+  // keyless build instead of blanking the desk. Fresh raw headlines collected
+  // above win during dedup; stories hard-expire inside buildNewsFeedPayload.
+  const priorNewsFeed = await readPriorNewsFeed();
   // Leveraged-ETF track record: the in/out log accumulates across builds
   // (data/leveraged-etfs-log.json), so same pre-read-before-wipe rule —
   // reconciled + written back next to the leveraged-etfs payload below.
@@ -28137,6 +28214,21 @@ async function main() {
     console.log(`wrote data/${BRIEFS_FILE} — ${briefRes.current ? `${briefRes.kind} brief${briefRes.generated ? " (freshly generated)" : " (carried forward)"}` : "no brief yet"}`);
   } catch (err) {
     console.warn(`[briefs] skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
+  // Straight-news desk — compact, FREE and lazy-loaded. It aggregates the
+  // current raw per-ticker RSS/Google results (captured before judgment-cache
+  // reuse) with the same market-wide press slate that feeds Briefs. Impact is
+  // deterministic; article bodies and premium brief interpretation never ship.
+  try {
+    const ni = await writeNewsFeedFile({
+      prior: priorNewsFeed,
+      builtAtIso,
+      chains,
+      marketHeadlines: trends.macroHeadlines || [],
+    });
+    console.log(`wrote data/${NEWS_FEED_FILE} — ${ni.total} stories (${ni.high} high impact, ${ni.activeTape} active tape), ${ni.bytes} bytes`);
+  } catch (err) {
+    console.warn(`[news] feed skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
   // Persist AI usage now (rather than at the very end) so a hang/timeout in
   // the slow EDGAR fetch below can't leave data/ai-usage.json missing —

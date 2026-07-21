@@ -1048,6 +1048,7 @@ export const DOC_PAGES = {
           <ul class="cmp-list">
             <li><b>Grade a ticker</b> — AI chart-pattern read + technicals, fundamentals, IV, news + a contract grader</li>
             <li><b>Tickers</b> — chains, technicals, Greeks, IV term structure, AI news takes</li>
+            <li><b>News desk</b> — straight headlines ranked by likely impact, active tape and source corroboration</li>
             <li><b>Compare companies</b> — 2–4 names side by side: valuation, growth, margins, grade</li>
             <li><b>Calendar</b> — earnings, macro prints, FOMC + FedWatch odds</li>
             <li><b>Earnings tracker</b> — season scoreboard: beats, guidance, expected moves, drift</li>
@@ -1106,6 +1107,10 @@ export const DOC_PAGES = {
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Tickers</span><span class="tier free">Free</span></div>
           <p class="feat-desc">Per-ticker option chains, technicals (RSI/MACD/SMA/S&amp;R/IV regime), Greeks, IV term structure, earnings history, and an AI news take — for every tracked symbol.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">News desk</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">A linked headline queue across every covered stock plus the market-wide press slate behind Briefs. Deterministic high-impact / notable / context ranking keeps likely materiality separate from favorable or adverse wording, adds corroborating publishers and active-tape context, and never claims the headline caused the move.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Compare companies</span><span class="tier free">Free</span></div>
