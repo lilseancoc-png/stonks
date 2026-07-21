@@ -20,6 +20,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
        (same format, plus the archive preamble) and add that month to the
        "Older changelogs" index below. -->
 
+## 2026-07-21
+
+### Changed
+
+- **The freemium tab split now puts Earnings Calls, Narratives, and Index Calendar in the free tier, while Trending IV and Streaks move to premium.** The server key policy, narrative manifest sidecar, client locks and home-card badges, and the in-app feature matrix all use the same split. `lib/premium-keys.mjs`, `scripts/render/{app-js,html,docs}.mjs`, `app.js`, `index.html`.
+
 ## 2026-07-20
 
 ### Added

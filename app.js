@@ -49,7 +49,7 @@
   // default to "ungated, everyone's a member" so a legacy public deploy — or a
   // failed /me probe — never locks the site by accident. applyAuth() flips these
   // once /me resolves, before the first selectTab().
-  var PREMIUM_TABS = { market:1, brief:1, narratives:1, flow:1, volume:1, oi:1, 'index-cal':1, stocks:1, calls:1, spillover:1, levetf:1 };
+  var PREMIUM_TABS = { market:1, brief:1, flow:1, volume:1, oi:1, stocks:1, spillover:1, levetf:1, 'iv-trend':1, streaks:1 };
   var GATE_ON = false;
   var IS_MEMBER = true;
   // Track Record is a STRICTER tier than premium: a specific Discord role, not
@@ -72,7 +72,7 @@
   // header so the Discord is findable from anywhere on the site.
   var DISCORD_INVITE_URL = "https://discord.gg/GVYx7qSWxS";
   function premiumTabLabel(id){
-    return ({ market:'Market Analysis', brief:'Briefs', narratives:'Narratives', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', hot:'Hot Stocks', 'index-cal':'Index Calendar', stocks:'Stock Picks', calls:'Earnings calls', spillover:'Event spillover', quant:'Quant Lab', levetf:'Leveraged ETFs' })[id] || 'This feature';
+    return ({ market:'Market Analysis', brief:'Briefs', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', stocks:'Stock Picks', spillover:'Event spillover', quant:'Quant Lab', levetf:'Leveraged ETFs', 'iv-trend':'Trending IV', streaks:'Streaks' })[id] || 'This feature';
   }
   // Inject the members-only upsell card into a locked premium pane (idempotent).
   function ensurePremiumLock(pane, id){
@@ -89,7 +89,7 @@
           '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
         '</div>' +
         '<h2 class="premium-lock-title">' + escapeHtml(premiumTabLabel(id)) + ' is a members feature</h2>' +
-        '<p class="premium-lock-body">Market analysis, Stock Picks, Leveraged ETFs, Briefs, Narratives, Earnings calls, Event spillover, Unusual &amp; Volume flow, and Gamma exposure are unlocked with a premium <b>Discord</b> membership. Join the server to get access &mdash; everything else stays free.</p>' +
+        '<p class="premium-lock-body">Market analysis, Stock Picks, Leveraged ETFs, Briefs, Trending IV, Streaks, Event spillover, Unusual &amp; Volume flow, and Gamma exposure are unlocked with a premium <b>Discord</b> membership. Join the server to get access &mdash; everything else stays free.</p>' +
         '<a class="premium-lock-cta" href="' + DISCORD_INVITE_URL + '" target="_blank" rel="noopener">' + DISCORD_ICON_SVG + '<span>Join the Discord to get premium</span></a>' +
         '<p class="premium-lock-foot">Already a member? <a href="/api/auth/discord-login">Log in with Discord</a>.</p>' +
       '</div>';
@@ -99,7 +99,7 @@
   function markPremiumNav(){
     for (var id in PREMIUM_TABS){
       if (!PREMIUM_TABS.hasOwnProperty(id)) continue;
-      var els = document.querySelectorAll('[data-page-tab="' + id + '"]');
+      var els = document.querySelectorAll('[data-page-tab="' + id + '"], [data-go="' + id + '"]');
       for (var i = 0; i < els.length; i++) els[i].setAttribute('data-premium', '1');
     }
   }
@@ -3570,7 +3570,7 @@
         .catch(function(){});
 
       // Streaks — async fetch and show the green/red split (≥2-day runs).
-      fetch(dataUrl('streaks.json'), { cache: 'no-cache' })
+      if (IS_MEMBER) fetch(dataUrl('streaks.json'), { cache: 'no-cache' })
         .then(function(r){ return r.ok ? r.json() : null; })
         .then(function(j){
           if (!j || !Array.isArray(j.tickers)) return;
@@ -13618,7 +13618,7 @@
   }
 
   // --- Earnings calls (transcript AI briefs) --------------------------------
-  // Index from data/earnings-calls.json (premium); per-ticker detail briefs
+  // Index from data/earnings-calls.json (free); per-ticker detail briefs
   // lazy-fetched from data/transcript-<SYM>.json when a card is opened.
   var callsState = { idx: null, loading: false, sym: null, details: {}, detailLoading: null, filter: '' };
   function eclChip(cls, txt, title){

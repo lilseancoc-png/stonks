@@ -1053,8 +1053,10 @@ export const DOC_PAGES = {
             <li><b>Earnings tracker</b> — season scoreboard: beats, guidance, expected moves, drift</li>
             <li><b>Market heatmap</b> — live map by performance or relative volume</li>
             <li><b>Macro</b> — Overnight markets, Fear &amp; Greed, Bonds &amp; USD, 13F filings, Commodities, IPOs &amp; credit, AI CapEx, RAM prices, Capital raises</li>
-            <li><b>Trending IV</b> — implied vol running above a name's own history</li>
-            <li><b>Streaks</b> &amp; the <b>Strategies</b> entry engine</li>
+            <li><b>Narratives</b> — AI theses driving capital, longs/shorts, lifecycle</li>
+            <li><b>Earnings calls</b> — AI briefs covering guidance, tone and Q&amp;A</li>
+            <li><b>Index calendar</b> — daily SPY/QQQ/IWM and cross-asset closes by month</li>
+            <li><b>Strategies</b> — the multi-leg entry engine</li>
             <li><b>Reference</b> — Buyer's manual + Chart-patterns field guide</li>
           </ul>
           <div class="cmp-cta">
@@ -1074,13 +1076,12 @@ export const DOC_PAGES = {
             <li><b>Stock Picks</b> — shares-only buy-the-dip screen (quality names beaten down, trap flags shown) + a daily VOO/QQQ DCA dial</li>
             <li><b>Leveraged ETFs</b> — the same grades mapped onto listed 2×/3× products, with reset-drag, carry-cost &amp; chop warnings and a live-priced track record</li>
             <li><b>Briefs</b> — hourly market digest, open through close</li>
-            <li><b>Narratives</b> — AI theses driving capital, longs/shorts, lifecycle</li>
-            <li><b>Earnings calls</b> — AI briefs of each name's latest call: guidance, tone, Q&amp;A</li>
+            <li><b>Trending IV</b> — implied vol running above a name's own history</li>
+            <li><b>Streaks</b> — persistent green/red runs and mean-reversion context</li>
             <li><b>Unusual flow</b> — abnormal options prints &amp; directional skew</li>
             <li><b>Volume</b> — intraday volume + support/resistance breaks</li>
             <li><b>Gamma exposure</b> — dealer net-gamma matrix, flip &amp; walls</li>
             <li><b>Track Record</b> — resolved picks performance &amp; scorecard</li>
-            <li><b>Index calendar</b> — SPY/QQQ/IWM/SMH/DIA + VXUS/TLT/GLD/VIX daily closes, green/red by % move, month by month</li>
           </ul>
           <div class="cmp-cta">
             <a class="btn discord" href="/api/auth/discord-login">
@@ -1167,12 +1168,16 @@ export const DOC_PAGES = {
           <p class="feat-desc">News-flagged debt, convertible and share issuance — plus buybacks — across the tracked universe, enriched with the latest filed amounts from SEC filings.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Streaks</span><span class="tier free">Free</span></div>
-          <p class="feat-desc">Current green/red daily-close streaks for every ticker, a counter-day tolerance bank, rarity context, and a just-snapped mean-reversion strip.</p>
+          <div class="feat-top"><span class="feat-name">Narratives</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">AI-built theses on what's driving capital — longs, shorts, the 6-stage lifecycle, a fundamentals-vs-hype gauge, bull/base/bear cases, and cited sources.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Trending IV</span><span class="tier free">Free</span></div>
-          <p class="feat-desc">Every name's ATM ~30-day implied vol against its own ~18-month history — names running above their historical average and still climbing are flagged as pricing in a bigger-than-usual move, with earnings context and IV sparklines.</p>
+          <div class="feat-top"><span class="feat-name">Earnings calls</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">An AI research brief of each tracked name's latest earnings call, built from the full transcript — key takeaways, reported numbers, guidance, management and analyst tone, revealing Q&amp;A, and risks.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Index calendar</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">A month-grid record of how SPY, QQQ, IWM, SMH, DIA, VXUS, TLT, GLD and VIX closed each trading day, with the close-to-close move in every cell.</p>
         </div>
       </div>
 
@@ -1218,12 +1223,12 @@ export const DOC_PAGES = {
           <p class="feat-desc">A rolling market digest refreshed hourly through the session — overnight moves, the day's movers, notable flow, dealer gamma, what's next.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Narratives</span><span class="tier prem">Premium</span></div>
-          <p class="feat-desc">AI-built theses on what's driving capital — longs, shorts, the 6-stage lifecycle, a fundamentals-vs-hype gauge, bull/base/bear cases, and cited sources.</p>
+          <div class="feat-top"><span class="feat-name">Trending IV</span><span class="tier prem">Premium</span></div>
+          <p class="feat-desc">Every name's ATM ~30-day implied vol against its own ~18-month history — names running above their historical average and still climbing are flagged as pricing in a bigger-than-usual move, with earnings context and IV sparklines.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Earnings calls</span><span class="tier prem">Premium</span></div>
-          <p class="feat-desc">An AI research brief of each tracked name's latest earnings call, built from the full transcript — key takeaways, the reported numbers, every guidance figure (raised/held/cut), a management-tone read with the exact phrases, analyst-tone, the most revealing Q&amp;A with firm attribution, and risks.</p>
+          <div class="feat-top"><span class="feat-name">Streaks</span><span class="tier prem">Premium</span></div>
+          <p class="feat-desc">Current green/red daily-close streaks for every ticker, a counter-day tolerance bank, rarity context, and a just-snapped mean-reversion strip.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Unusual flow</span><span class="tier prem">Premium</span></div>
@@ -1240,10 +1245,6 @@ export const DOC_PAGES = {
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Track Record</span><span class="tier prem">Premium</span></div>
           <p class="feat-desc">The resolved Top-Picks performance — win rate, win/loss payoff, expectancy vs SPY, an engine-health summary that explains why each pick won or lost, a $100k backtest simulator with Monte Carlo, and the roster's in/out churn over time.</p>
-        </div>
-        <div class="feat">
-          <div class="feat-top"><span class="feat-name">Index calendar</span><span class="tier prem">Premium</span></div>
-          <p class="feat-desc">A month-grid record of how SPY, QQQ, IWM, SMH, DIA, VXUS, TLT, GLD and VIX closed each trading day — green for up, red for down, with the close-to-close % in every cell (VIX colours invert, so green reads "calmer"). Toggle the index, walk the months, and read the per-month green-vs-red tally and compounded return.</p>
         </div>
       </div>
     </section>

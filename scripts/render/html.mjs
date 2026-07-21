@@ -405,7 +405,7 @@ function indexCalSection() {
   // Card chrome only — the monthly index-close grid (SPY/QQQ/IWM/SMH/DIA/VXUS/
   // TLT/GLD/VIX red/green + %change), the index toggle, the month nav, and the
   // per-month summary render
-  // client-side from data/index-calendar.json (premium; lazy-fetched on first
+  // client-side from data/index-calendar.json (free; lazy-fetched on first
   // tab activation by loadIndexCal() in app.js).
   return `<section class="card" id="index-cal-section">
     <header class="card-header">
@@ -500,8 +500,7 @@ function earningsCallsSection() {
   // Card chrome only — content renders client-side from data/earnings-calls.json
   // (the covered-name index), lazy-fetched on first tab activation by
   // loadEarningsCalls() in app.js; opening a card fetches that name's full
-  // brief from data/transcript-<SYM>.json. PREMIUM tab — non-members get the
-  // lock card and the loaders are skipped.
+  // brief from data/transcript-<SYM>.json. The tab and both payloads are free.
   return `<section class="card" id="calls-section">
     <header class="card-header">
       <h2 class="card-title">Earnings calls</h2>
@@ -1274,21 +1273,20 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   // sector taxonomy, freshness-stub meta) plus a `deferred` flag. app.js then
   // fetches the sidecars and merges them before first paint. Two sidecars, by
   // tier (see lib/premium-keys.mjs):
-  //   \u2022 data/manifest.json (PREMIUM, gated) \u2014 the value-carrying half: AI
-  //     narratives, sector overviews, recently-ended picks, the unusual-flow
-  //     snapshot. Served only to a valid session.
+  //   \u2022 data/manifest.json (PREMIUM, gated) \u2014 the premium-only half:
+  //     unusual-flow snapshot. Served only to a valid session.
   //   \u2022 data/manifest-free.json (FREE, public) \u2014 the open-tab half: macro
-  //     headlines, last spots, fear-greed, macro backdrop, market backdrop.
-  //     Powers the free Bonds & USD / Fear & Greed / Grade / Heatmap surfaces
-  //     for everyone, member or not.
+  //     narratives, sector overviews, recently-ended narratives, headlines,
+  //     last spots, fear-greed, macro backdrop, market backdrop. Powers the free
+  //     Narratives / Bonds & USD / Fear & Greed / Grade / Heatmap surfaces.
   // Without dataDir, inline the full manifest (legacy/standalone render).
   const premiumManifest = {
-    narratives: narrativesTagged,
-    sectorOverviews: sectorOverviews || {},
-    recentlyEnded,
     unusual: unusual || null,
   };
   const freeManifest = {
+    narratives: narrativesTagged,
+    sectorOverviews: sectorOverviews || {},
+    recentlyEnded,
     macroHeadlines,
     spots,
     fearGreed: fearGreed || null,
