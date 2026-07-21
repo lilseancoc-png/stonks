@@ -36,7 +36,13 @@ export default function middleware(req) {
   if (path.startsWith("/data/")) {
     const target = new URL("/api/data/" + path.slice("/data/".length), url.origin);
     target.search = url.search;
-    return rewrite(target);
+    // Explicitly forward the original request headers. Vercel's middleware
+    // rewrite otherwise reaches the serverless reader without the browser's
+    // Cookie header in production, so /api/auth/me can recognize a member
+    // while every premium /data/* request still receives a false 401.
+    return rewrite(target, {
+      request: { headers: new Headers(req.headers) },
+    });
   }
 
   // First-visit intro: show a logged-out visitor the "What's included"
