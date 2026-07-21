@@ -7,8 +7,9 @@
 // cacheable; PREMIUM keys (picks, briefs, narratives/unusual manifest, volume,
 // OI, track-record histories — see lib/premium-keys.mjs) stream ONLY to a holder
 // of a valid Discord-role session and are never shared-cacheable. The browser
-// still calls fetch('data/<x>.json'); middleware.js rewrites /data/* to this
-// function when the gate is on. See docs/private-data-migration.md §4.4.
+// calls /api/data/<x>.json directly when the gate is on so the HttpOnly session
+// reaches this function without an Edge rewrite hop. middleware.js retains the
+// /data/* rewrite for compatibility. See docs/private-data-migration.md §4.4.
 //
 // Activation is behind PRIVATE_DATA_ENABLED: until it's "1" this endpoint is a
 // hard 404 (so a seeded store can't leak before the gate is live), and the site

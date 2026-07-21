@@ -374,9 +374,15 @@ most tabs are free, a premium subset stays gated. The wiring:
   `middleware.js` and `api/data`.
 - **`api/data` is tiered**, not all-or-nothing: free keys → `public, s-maxage` (edge
   cacheable); premium keys → session-or-401 + `private, no-store`.
-- **`middleware.js` shrank** to just the `/data/*` → `/api/data/*` rewrite (flag-gated).
-  The shell + live `/api/*` are open; the Edge layer no longer checks sessions (the
-  function does). Matcher narrowed to `/data/:path*`; the `jose`/session import is gone.
+- **The browser uses `/api/data/*` directly when the gate is on.** After
+  `/api/auth/me` reports `enabled: true`, `dataUrl()` routes the main app bundle's
+  data loaders to the same-origin API so the HttpOnly `stonks_session` reaches
+  the reader without an Edge rewrite hop; flag-off deployments retain the legacy
+  static `data/*` path.
+  `middleware.js` keeps the flag-gated `/data/*` → `/api/data/*` rewrite as a
+  compatibility route and explicitly forwards request headers, but the client no
+  longer depends on Vercel preserving cookies across that rewrite. The shell +
+  live `/api/*` remain open and premium enforcement remains inside `api/data`.
 - **Manifest split by tier.** Supersedes §7's open item: the premium fields go to the
   gated `data/manifest.json`, the free fields (macro/fear-greed/backdrop/spots/headlines)
   to a new public `data/manifest-free.json`. `app.js` fetches both before first paint.

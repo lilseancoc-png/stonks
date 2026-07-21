@@ -131,6 +131,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // Top Picks: same shape — ungated deploys (or a failed probe) keep the tab.
     HAS_TOP_PICKS = !GATE_ON || !!(me && me.topPicks);
   }
+  // Private-data deploys read the store through /api/data directly. The
+  // middleware /data/* rewrite remains as a compatibility route, but Vercel
+  // has dropped the session cookie on that hop in production even when the
+  // rewritten request headers are explicitly forwarded. Direct same-origin
+  // API requests preserve the HttpOnly Discord session normally. Flag-off
+  // deployments keep using the legacy static data/ directory.
+  function dataUrl(key){
+    var clean = String(key || '').replace(/^\\/+/, '');
+    return (GATE_ON ? '/api/data/' : 'data/') + clean;
+  }
   // industry -> parent sector, derived from INDUSTRIES_BY_SECTOR for tab routing.
   var SECTOR_OF_INDUSTRY = (function(){
     var m = {};
@@ -3051,7 +3061,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
   function fetchIvHistory(symbol){
     if (IV_HISTORY_CACHE[symbol] !== undefined) return Promise.resolve(IV_HISTORY_CACHE[symbol]);
-    return fetch('data/iv-history/' + encodeURIComponent(symbol) + '.json', { cache: 'no-cache' })
+    return fetch(dataUrl('iv-history/' + encodeURIComponent(symbol) + '.json'), { cache: 'no-cache' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .then(function(json){
         var entries = json && Array.isArray(json.entries) ? json.entries : [];
@@ -3552,7 +3562,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       // Picks count — async fetch the small picks.json. Skipped without the
       // Top Picks role (the landing card is removed at boot and the fetch
       // would just 401).
-      if (HAS_TOP_PICKS) fetch('data/picks.json', { cache: 'no-cache' })
+      if (HAS_TOP_PICKS) fetch(dataUrl('picks.json'), { cache: 'no-cache' })
         .then(function(r){ return r.ok ? r.json() : null; })
         .then(function(j){
           if (!j || !Array.isArray(j.picks)) return;
@@ -3562,7 +3572,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         .catch(function(){});
 
       // 13F period — async fetch (tiny header read).
-      fetch('data/13f.json', { cache: 'no-cache' })
+      fetch(dataUrl('13f.json'), { cache: 'no-cache' })
         .then(function(r){ return r.ok ? r.json() : null; })
         .then(function(j){
           if (!j) return;
@@ -3572,7 +3582,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         .catch(function(){});
 
       // Streaks — async fetch and show the green/red split (≥2-day runs).
-      fetch('data/streaks.json', { cache: 'no-cache' })
+      fetch(dataUrl('streaks.json'), { cache: 'no-cache' })
         .then(function(r){ return r.ok ? r.json() : null; })
         .then(function(j){
           if (!j || !Array.isArray(j.tickers)) return;
@@ -4061,7 +4071,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function fetchChain(symbol){
     if (CHAIN_CACHE[symbol]) return Promise.resolve(CHAIN_CACHE[symbol]);
     var v = (MANIFEST && MANIFEST.builtAtIso) ? '?v=' + encodeURIComponent(MANIFEST.builtAtIso) : '';
-    return fetch('data/' + encodeURIComponent(symbol) + '.json' + v, { cache: 'force-cache' })
+    return fetch(dataUrl(encodeURIComponent(symbol) + '.json') + v, { cache: 'force-cache' })
       .then(function(resp){
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         return resp.json();
@@ -6195,7 +6205,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       return;
     }
     NARR_PREV_LOADING = true;
-    fetch('data/trends-history.json', { cache: 'no-cache' })
+    fetch(dataUrl('trends-history.json'), { cache: 'no-cache' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .then(function(h){
         var map = {};
@@ -7679,7 +7689,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function loadVolumeFlagsData(){
     if (volFlagsLoad.loaded || volFlagsLoad.loading) return;
     volFlagsLoad.loading = true;
-    fetch('data/volume-flags.json', { cache: 'no-cache' })
+    fetch(dataUrl('volume-flags.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         VOLUME_FLAGS = json || null;
@@ -7719,7 +7729,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // just 401s, so skip it and the pinned Top Picks group simply doesn't render.
     if (!HAS_TOP_PICKS){ volPicks.loaded = true; return; }
     volPicks.loading = true;
-    fetch('data/picks.json', { cache: 'no-cache' })
+    fetch(dataUrl('picks.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         var picks = (json && Array.isArray(json.picks)) ? json.picks : [];
@@ -10080,14 +10090,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function loadMarketAnalysis(){
     if (marketState.data || marketState.loading){ renderMarketAnalysis(); return; }
     marketState.loading = true;
-    fetch('data/market-analysis.json', { cache: 'no-cache' })
+    fetch(dataUrl('market-analysis.json'), { cache: 'no-cache' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .then(function(json){
         if (json && json.macroRegime){ marketState.data = json; return null; }
         // Transition fallback: before the first bake ships market-analysis.json,
         // a Top-Picks role holder can still derive the regime from picks.json
         // (401s harmlessly for everyone else — the tape just stays hidden).
-        return fetch('data/picks.json', { cache: 'no-cache' })
+        return fetch(dataUrl('picks.json'), { cache: 'no-cache' })
           .then(function(r){ return r.ok ? r.json() : null; })
           .then(function(p){
             if (p && p.rosterMeta && p.rosterMeta.macroRegime){
@@ -10575,7 +10585,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function loadRegimeHistory(){
     if (regimeHistState.data || regimeHistState.loading){ renderRegimeHistory(); return; }
     regimeHistState.loading = true;
-    fetch('data/regime-history.json', { cache: 'no-cache' })
+    fetch(dataUrl('regime-history.json'), { cache: 'no-cache' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .then(function(json){
         regimeHistState.data = (json && Array.isArray(json.days)) ? json : { days: [] };
@@ -10772,7 +10782,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function loadOiData(){
     if (oiLoad.loaded || oiLoad.loading) return;
     oiLoad.loading = true;
-    fetch('data/oi-tracker.json', { cache: 'no-cache' })
+    fetch(dataUrl('oi-tracker.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         OI = json || null;
@@ -13189,13 +13199,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var jobs = [];
     if (!compareState.grades && !compareState.gradesLoading){
       compareState.gradesLoading = true;
-      jobs.push(fetch('data/grades.json', { cache: 'no-cache' })
+      jobs.push(fetch(dataUrl('grades.json'), { cache: 'no-cache' })
         .then(function(r){ return r.ok ? r.json() : null; })
         .then(function(j){ compareState.grades = j || { grades: {} }; })
         .catch(function(){ compareState.grades = { grades: {} }; }));
     }
     need.forEach(function(sym){
-      jobs.push(fetch('data/' + encodeURIComponent(sym) + '.json', { cache: 'no-cache' })
+      jobs.push(fetch(dataUrl(encodeURIComponent(sym) + '.json'), { cache: 'no-cache' })
         .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
         .then(function(j){ compareState.cache[sym] = (j && typeof j === 'object') ? j : 'error'; })
         .catch(function(){ compareState.cache[sym] = 'error'; }));
@@ -13399,7 +13409,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function loadEarningsTracker(){
     if ((earningsState.data && !earningsState.data.loadError) || earningsState.loading){ renderEarningsTracker(); return; }
     earningsState.loading = true;
-    fetch('data/earnings-tracker.json', { cache: 'no-cache' })
+    fetch(dataUrl('earnings-tracker.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){ earningsState.data = (j && typeof j === 'object') ? j : { seasons: [] }; earningsState.loading = false; renderEarningsTracker(); })
       .catch(function(){ earningsState.data = { seasons: [], loadError: true }; earningsState.loading = false; renderEarningsTracker(); });
@@ -13678,7 +13688,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function loadEarningsCalls(){
     if ((callsState.idx && !callsState.idx.loadError) || callsState.loading){ renderEarningsCalls(); return; }
     callsState.loading = true;
-    fetch('data/earnings-calls.json', { cache: 'no-cache' })
+    fetch(dataUrl('earnings-calls.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){ callsState.idx = (j && typeof j === 'object') ? j : { calls: {} }; callsState.loading = false; renderEarningsCalls(); })
       .catch(function(){ callsState.idx = { calls: {}, loadError: true }; callsState.loading = false; renderEarningsCalls(); });
@@ -13686,7 +13696,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function loadEarningsCallDetail(sym){
     if (callsState.details[sym] || callsState.detailLoading === sym){ renderEarningsCalls(); return; }
     callsState.detailLoading = sym;
-    fetch('data/transcript-' + encodeURIComponent(sym) + '.json', { cache: 'no-cache' })
+    fetch(dataUrl('transcript-' + encodeURIComponent(sym) + '.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){
         callsState.details[sym] = (j && typeof j === 'object' && j.summary) ? j : { loadError: true };
@@ -13909,7 +13919,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function loadAiCapex(){
     if ((aiCapexState.data && !aiCapexState.data.loadError) || aiCapexState.loading){ renderAiCapex(); return; }
     aiCapexState.loading = true;
-    fetch('data/ai-capex.json', { cache: 'no-cache' })
+    fetch(dataUrl('ai-capex.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){ aiCapexState.data = (j && typeof j === 'object') ? j : { companies: [] }; aiCapexState.loading = false; renderAiCapex(); })
       .catch(function(){ aiCapexState.data = { companies: [], loadError: true }; aiCapexState.loading = false; renderAiCapex(); });
@@ -14027,7 +14037,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function loadRamPrices(){
     if ((ramPricesState.data && !ramPricesState.data.loadError) || ramPricesState.loading){ renderRamPrices(); return; }
     ramPricesState.loading = true;
-    fetch('data/ram-prices.json', { cache: 'no-cache' })
+    fetch(dataUrl('ram-prices.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){ ramPricesState.data = (j && typeof j === 'object') ? j : {}; ramPricesState.loading = false; renderRamPrices(); })
       .catch(function(){ ramPricesState.data = { loadError: true }; ramPricesState.loading = false; renderRamPrices(); });
@@ -14244,7 +14254,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function loadCommodities(){
     if ((commoditiesState.data && !tabDataStale(commoditiesState)) || commoditiesState.loading){ renderCommodities(); return; }
     commoditiesState.loading = true;
-    fetch('data/commodities.json', { cache: 'no-cache' })
+    fetch(dataUrl('commodities.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){
         commoditiesState.data = (j && typeof j === 'object') ? j : {};
@@ -14296,7 +14306,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function loadCapitalRaises(){
     if ((capitalRaisesState.data && !capitalRaisesState.data.loadError) || capitalRaisesState.loading){ renderCapitalRaises(); return; }
     capitalRaisesState.loading = true;
-    fetch('data/capital-raises.json', { cache: 'no-cache' })
+    fetch(dataUrl('capital-raises.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){ capitalRaisesState.data = (j && typeof j === 'object') ? j : { events: [] }; capitalRaisesState.loading = false; renderCapitalRaises(); })
       .catch(function(){ capitalRaisesState.data = { events: [], loadError: true }; capitalRaisesState.loading = false; renderCapitalRaises(); });
@@ -14405,7 +14415,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function loadIpoCredit(){
     if ((ipoCreditState.data && !ipoCreditState.data.loadError) || ipoCreditState.loading){ renderIpoCredit(); return; }
     ipoCreditState.loading = true;
-    fetch('data/ipo-credit.json', { cache: 'no-cache' })
+    fetch(dataUrl('ipo-credit.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){ ipoCreditState.data = (j && typeof j === 'object') ? j : {}; ipoCreditState.loading = false; renderIpoCredit(); })
       .catch(function(){ ipoCreditState.data = { loadError: true }; ipoCreditState.loading = false; renderIpoCredit(); });
@@ -14820,7 +14830,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function loadSpillover(){
     if ((spilloverState.data && !tabDataStale(spilloverState)) || spilloverState.loading){ renderSpillover(); return; }
     spilloverState.loading = true;
-    fetch('data/spillover-pairs.json', { cache: 'no-cache' })
+    fetch(dataUrl('spillover-pairs.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){
         spilloverState.data = (j && typeof j === 'object') ? j : {};
@@ -15048,7 +15058,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function loadQuant(){
     if ((quantState.data && !tabDataStale(quantState)) || quantState.loading){ renderQuant(); return; }
     quantState.loading = true;
-    fetch('data/quant.json', { cache: 'no-cache' })
+    fetch(dataUrl('quant.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){
         quantState.data = (j && typeof j === 'object') ? j : {};
@@ -15383,7 +15393,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function loadIvTrend(){
     if ((ivTrendState.data && !tabDataStale(ivTrendState)) || ivTrendState.loading){ renderIvTrend(); return; }
     ivTrendState.loading = true;
-    fetch('data/iv-trending.json', { cache: 'no-cache' })
+    fetch(dataUrl('iv-trending.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){
         ivTrendState.data = (j && typeof j === 'object') ? j : {};
@@ -15628,7 +15638,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if ((stocksState.data && !tabDataStale(stocksState)) || stocksState.loading){ renderStocks(); return; }
     stocksState.loading = true;
     renderStocks();
-    fetch('data/stock-picks.json', { cache: 'no-cache' })
+    fetch(dataUrl('stock-picks.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){
         stocksState.data = (j && typeof j === 'object') ? j : {};
@@ -15925,7 +15935,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if ((levState.data && !tabDataStale(levState)) || levState.loading){ renderLevEtf(); return; }
     levState.loading = true;
     renderLevEtf();
-    fetch('data/leveraged-etfs.json', { cache: 'no-cache' })
+    fetch(dataUrl('leveraged-etfs.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){
         levState.data = (j && typeof j === 'object') ? j : {};
@@ -16296,7 +16306,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if ((briefState.data && !tabDataStale(briefState)) || briefState.loading){ renderBrief(); return; }
     briefState.loading = true;
     renderBrief();
-    fetch('data/briefs.json', { cache: 'no-cache' })
+    fetch(dataUrl('briefs.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         briefState.data = (json && typeof json === 'object') ? json : {};
@@ -16690,7 +16700,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function loadOvernight(){
     if ((overnightState.data && !tabDataStale(overnightState)) || overnightState.loading){ renderOvernight(); refreshOvernightWidgets(); return; }
     overnightState.loading = true;
-    fetch('data/correlations.json', { cache: 'no-cache' })
+    fetch(dataUrl('correlations.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         overnightState.data = (json && json.markets) ? json : { markets: {}, map: {}, regions: [], broad: [], tone: null };
@@ -16972,7 +16982,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       return;
     }
     calendarState.loading = true;
-    fetch('data/calendar.json', { cache: 'no-cache' })
+    fetch(dataUrl('calendar.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         calendarState.data = (json && Array.isArray(json.events)) ? json : { events: [] };
@@ -18358,7 +18368,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if ((indexCalState.data && !tabDataStale(indexCalState)) || indexCalState.loading){ renderIndexCal(); return; }
     indexCalState.loading = true;
     renderIndexCal();
-    fetch('data/index-calendar.json', { cache: 'no-cache' })
+    fetch(dataUrl('index-calendar.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         indexCalState.data = (json && Array.isArray(json.days)) ? json : { days: [] };
@@ -18533,7 +18543,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function loadF13(){
     if (f13State.data || f13State.loading) { renderF13(); return; }
     f13State.loading = true;
-    fetch('data/13f.json', { cache: 'no-cache' })
+    fetch(dataUrl('13f.json'), { cache: 'no-cache' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .then(function(json){
         f13State.data = json || null;
@@ -19253,7 +19263,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     heatmapState.loading = true;
     var root = $('heatmap-root');
     if (root) root.textContent = 'Loading heatmap…';
-    fetch('data/heatmap.json', { cache: 'no-cache' })
+    fetch(dataUrl('heatmap.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         var tickers = (json && Array.isArray(json.tickers)) ? json.tickers : [];
@@ -20240,10 +20250,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // effort, never blocks (or fails) the picks render. Reads picks-open.json
     // (open marks only), NOT picks-accuracy.json: the latter is the role-gated
     // Track Record, and Top Picks must keep its chip for every premium member.
-    var pAcc = fetch('data/picks-open.json', { cache: 'no-cache' })
+    var pAcc = fetch(dataUrl('picks-open.json'), { cache: 'no-cache' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .catch(function(){ return null; });
-    fetch('data/picks.json', { cache: 'no-cache' })
+    fetch(dataUrl('picks.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         picksState.data = (json && Array.isArray(json.picks)) ? json : { picks: [] };
@@ -20307,7 +20317,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         try { waiters[i](data); } catch (_) {}
       }
     }
-    fetch('data/grades.json', { cache: 'no-cache' })
+    fetch(dataUrl('grades.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         settle((json && json.grades) ? json : { grades: {}, minConviction: 12 });
@@ -20375,20 +20385,20 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function loadAccuracy(){
     if (accuracyState.data || accuracyState.loading){ renderAccuracy(); return; }
     accuracyState.loading = true;
-    var pAcc = fetch('data/picks-accuracy.json', { cache: 'no-cache' })
+    var pAcc = fetch(dataUrl('picks-accuracy.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
     // Grade-change log + picks-churn log are separate, optional files — a miss
     // must not fail the whole tab, so each resolves to null and its section just
     // stays empty.
-    var pGch = fetch('data/grades-history.json', { cache: 'no-cache' })
+    var pGch = fetch(dataUrl('grades-history.json'), { cache: 'no-cache' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .catch(function(){ return null; });
-    var pPch = fetch('data/picks-changes.json', { cache: 'no-cache' })
+    var pPch = fetch(dataUrl('picks-changes.json'), { cache: 'no-cache' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .catch(function(){ return null; });
     // The Top-10 roster snapshot (in/out + per-pillar deltas + forecast). Optional
     // — a miss leaves the roster section empty and the rest of the tab works.
-    var pRos = fetch('data/picks-roster.json', { cache: 'no-cache' })
+    var pRos = fetch(dataUrl('picks-roster.json'), { cache: 'no-cache' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .catch(function(){ return null; });
     Promise.all([pAcc, pGch, pPch, pRos]).then(function(res){
@@ -26376,7 +26386,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function loadBondsHistory(){
     if (bondsHist.loaded || bondsHist.loading) return;
     bondsHist.loading = true;
-    fetch('data/macro-history.json', { cache: 'no-cache' })
+    fetch(dataUrl('macro-history.json'), { cache: 'no-cache' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .then(function(j){
         var entries = (j && Array.isArray(j.entries)) ? j.entries : [];
@@ -26868,7 +26878,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       // Lazy-load the calendar once for the Fed-odds correlation (shared cache).
       if (!bondsCtx.loading){
         bondsCtx.loading = true;
-        fetch('data/calendar.json', { cache: 'no-cache' })
+        fetch(dataUrl('calendar.json'), { cache: 'no-cache' })
           .then(function(r){ return r.ok ? r.json() : null; })
           .then(function(j){ calendarState.data = (j && Array.isArray(j.events)) ? j : { events: [], loadError: true }; })
           .catch(function(){ calendarState.data = { events: [], loadError: true }; })
@@ -27398,24 +27408,27 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // selectTab() sees the right IS_MEMBER and the premium fields are present for
   // members. /api/auth/me reports {authed,enabled}; the free sidecar serves to
   // anyone; the premium sidecar 401s for non-members (degrades to no-premium).
-  var bootP = [
-    fetch('/api/auth/me', { cache: 'no-store' })
-      .then(function(r){ return r.ok ? r.json() : null; })
-      .then(applyAuth)
-      .catch(function(){ applyAuth(null); })
-  ];
+  var authBoot = fetch('/api/auth/me', { cache: 'no-store' })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(applyAuth)
+    .catch(function(){ applyAuth(null); });
+  var bootP = [authBoot];
   if (MANIFEST && MANIFEST.deferred) {
     bootP.push(
-      fetch('data/manifest-free.json', { cache: 'no-cache' })
-        .then(function(r){ return r.ok ? r.json() : null; })
-        .then(function(ext){ if (ext) applyManifest(ext); })
-        .catch(function(){})
+      authBoot.then(function(){
+        return fetch(dataUrl('manifest-free.json'), { cache: 'no-cache' })
+          .then(function(r){ return r.ok ? r.json() : null; })
+          .then(function(ext){ if (ext) applyManifest(ext); })
+          .catch(function(){});
+      })
     );
     bootP.push(
-      fetch('data/manifest.json', { cache: 'no-cache' })
-        .then(function(r){ return r.ok ? r.json() : null; }) // 401 for non-members -> null
-        .then(function(ext){ if (ext) applyManifest(ext); })
-        .catch(function(){})
+      authBoot.then(function(){
+        return fetch(dataUrl('manifest.json'), { cache: 'no-cache' })
+          .then(function(r){ return r.ok ? r.json() : null; }) // 401 for non-members -> null
+          .then(function(ext){ if (ext) applyManifest(ext); })
+          .catch(function(){});
+      })
     );
   }
   Promise.all(bootP).then(startApp);
