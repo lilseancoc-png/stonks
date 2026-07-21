@@ -374,15 +374,19 @@ most tabs are free, a premium subset stays gated. The wiring:
   `middleware.js` and `api/data`.
 - **`api/data` is tiered**, not all-or-nothing: free keys → `public, s-maxage` (edge
   cacheable); premium keys → session-or-401 + `private, no-store`.
-- **The browser uses `/api/data/*` directly when the gate is on.** After
-  `/api/auth/me` reports `enabled: true`, `dataUrl()` routes the main app bundle's
-  data loaders to the same-origin API so the HttpOnly `stonks_session` reaches
-  the reader without an Edge rewrite hop; flag-off deployments retain the legacy
-  static `data/*` path.
-  `middleware.js` keeps the flag-gated `/data/*` → `/api/data/*` rewrite as a
-  compatibility route and explicitly forwards request headers, but the client no
-  longer depends on Vercel preserving cookies across that rewrite. The shell +
-  live `/api/*` remain open and premium enforcement remains inside `api/data`.
+- **The browser uses the proven auth-function boundary when the gate is on.**
+  Production showed `/api/auth/me` recognizing a signed-in member while an adjacent
+  `/api/data/quant.json` invocation received no session cookie and returned a false
+  `401`. After the plain `/me` probe reports `enabled: true`, `dataUrl()` therefore
+  routes store reads to `/api/auth/me?data=<key>` — the exact function already known
+  to receive `stonks_session`. That data mode lazily imports
+  `lib/data-response.mjs`, which is also used by `/api/data/*`, so key validation,
+  free/premium classification, stricter `tr`/`tp` role claims, store access, and
+  cache headers remain single-sourced. Ordinary `/me` and OAuth requests do not
+  initialize the datastore SDKs. Flag-off deployments retain static `data/*`.
+  `middleware.js` sends legacy `/data/*` callers (including already-open cached
+  bundles) through the same auth data mode with a browser-followed same-origin
+  `307`. The shell + live `/api/*` remain open.
 - **Manifest split by tier.** Supersedes §7's open item: the premium fields go to the
   gated `data/manifest.json`, the free fields (macro/fear-greed/backdrop/spots/headlines)
   to a new public `data/manifest-free.json`. `app.js` fetches both before first paint.

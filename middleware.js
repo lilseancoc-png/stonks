@@ -2,11 +2,11 @@
 //
 // The site is freemium: the app shell, the live /api/* proxies, and the FREE
 // data/*.json are open to anyone; the PREMIUM data files are gated. The split
-// itself is enforced per-key inside the Node api/data reader (lib/premium-keys),
-// so this Edge layer only has ONE job when the gate is on: rewrite every
+// itself is enforced by the shared Node data response (lib/premium-keys),
+// so this Edge layer only has ONE job when the gate is on: redirect every
 // /data/* request to that gated store-reader (the private blob store isn't
 // directly servable). Free vs. premium, session checks, and cache headers are
-// all decided downstream in api/data.
+// all decided downstream in lib/data-response.mjs.
 //
 // ACTIVATION: behind PRIVATE_DATA_ENABLED. Until it's "1" this is a pass-through
 // no-op (the committed static data/ files serve as before) — the cutover is a
@@ -14,10 +14,10 @@
 //
 // Edge runtime: zero imports beyond @vercel/edge, so it stays Edge-trivial.
 
-import { next, rewrite } from "@vercel/edge";
+import { next } from "@vercel/edge";
 
 export const config = {
-  // /data/* needs the gated rewrite; / and /index.html are matched only so a
+  // /data/* needs the gated redirect; / and /index.html are matched only so a
   // first-time, logged-out visitor can be shown the "What's included" intro
   // once. Everything else (assets, live api, /api/data + /api/auth) passes
   // straight through.
@@ -31,17 +31,20 @@ export default function middleware(req) {
   const url = new URL(req.url);
   const path = url.pathname;
 
-  // Rewrite /data/* -> the gated store-reader, which tiers free vs. premium and
-  // requires a session only for premium keys.
+  // Redirect legacy /data/* callers through the exact /api/auth/me function
+  // proven to receive the session cookie. This repairs already-open tabs whose
+  // cached app.js still uses /data/*, while the shared data-response helper
+  // keeps free/premium/role policy identical to /api/data.
   if (path.startsWith("/data/")) {
-    const target = new URL("/api/data/" + path.slice("/data/".length), url.origin);
+    const target = new URL("/api/auth/me", url.origin);
     target.search = url.search;
-    // Explicitly forward the original request headers. Vercel's middleware
-    // rewrite otherwise reaches the serverless reader without the browser's
-    // Cookie header in production, so /api/auth/me can recognize a member
-    // while every premium /data/* request still receives a false 401.
-    return rewrite(target, {
-      request: { headers: new Headers(req.headers) },
+    target.searchParams.set("data", path.slice("/data/".length));
+    return new Response(null, {
+      status: 307,
+      headers: {
+        Location: target.toString(),
+        "Cache-Control": "private, no-store",
+      },
     });
   }
 

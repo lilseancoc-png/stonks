@@ -230,6 +230,25 @@ function logout(req, res) {
 // --- session probe -----------------------------------------------------------
 async function me(req, res) {
   res.setHeader("Cache-Control", "private, no-store");
+  // Authenticated data compatibility mode. Production has delivered the
+  // session cookie to this exact /api/auth/me function while a near-simultaneous
+  // /api/data/* invocation received no cookie and falsely returned 401. The app
+  // therefore sends store reads through this proven function when the private
+  // gate is on. Import lazily so the ordinary page-boot /me probe and OAuth
+  // actions do not initialize either datastore SDK. Authorization, key
+  // validation, and tiered cache policy remain single-sourced in data-response.
+  if (req.query?.data != null) {
+    if (Array.isArray(req.query.data)) {
+      return res.status(400).json({ error: "bad key" });
+    }
+    try {
+      const { serveDataKey } = await import("../../lib/data-response.mjs");
+      return await serveDataKey(req, res, req.query.data);
+    } catch (err) {
+      console.error("auth data route failed", { message: String(err?.message || err) });
+      return res.status(502).json({ error: "data unavailable" });
+    }
+  }
   // `enabled` tells the freemium client whether the gate is live at all. When
   // it's off (legacy fully-public deploy) the client treats everyone as a
   // member and shows no locks; when it's on, only an authed session unlocks

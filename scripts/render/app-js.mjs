@@ -131,15 +131,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // Top Picks: same shape — ungated deploys (or a failed probe) keep the tab.
     HAS_TOP_PICKS = !GATE_ON || !!(me && me.topPicks);
   }
-  // Private-data deploys read the store through /api/data directly. The
-  // middleware /data/* rewrite remains as a compatibility route, but Vercel
-  // has dropped the session cookie on that hop in production even when the
-  // rewritten request headers are explicitly forwarded. Direct same-origin
-  // API requests preserve the HttpOnly Discord session normally. Flag-off
-  // deployments keep using the legacy static data/ directory.
+  // Private-data deploys read through a data mode on the exact /api/auth/me
+  // function that established membership for this page. Production has
+  // delivered its HttpOnly cookie there while dropping it at the separate
+  // /api/data function boundary. The server delegates both routes to the same
+  // tier/key/role policy. Flag-off deployments keep the legacy static data/ dir.
   function dataUrl(key){
     var clean = String(key || '').replace(/^\\/+/, '');
-    return (GATE_ON ? '/api/data/' : 'data/') + clean;
+    return GATE_ON ? '/api/auth/me?data=' + encodeURIComponent(clean) : 'data/' + clean;
   }
   // industry -> parent sector, derived from INDUSTRIES_BY_SECTOR for tab routing.
   var SECTOR_OF_INDUSTRY = (function(){
@@ -4071,7 +4070,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function fetchChain(symbol){
     if (CHAIN_CACHE[symbol]) return Promise.resolve(CHAIN_CACHE[symbol]);
     var v = (MANIFEST && MANIFEST.builtAtIso) ? '?v=' + encodeURIComponent(MANIFEST.builtAtIso) : '';
-    return fetch(dataUrl(encodeURIComponent(symbol) + '.json') + v, { cache: 'force-cache' })
+    var url = dataUrl(encodeURIComponent(symbol) + '.json');
+    if (v) url += (url.indexOf('?') === -1 ? '?' : '&') + v.slice(1);
+    return fetch(url, { cache: 'force-cache' })
       .then(function(resp){
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         return resp.json();
@@ -15055,18 +15056,56 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // dispersion / post-earnings-drift screens. ANALYTICAL ONLY: z-scores and
   // ranks, never trade signals (the playbook table in the shell is educational).
   var quantState = { data: null, loading: false };
+  function quantFetchJson(url){
+    return fetch(url, { cache: 'no-store', credentials: 'same-origin' })
+      .then(function(r){
+        if (r.ok){
+          return r.json().catch(function(err){
+            err.url = url;
+            err.status = r.status;
+            throw err;
+          });
+        }
+        return r.text().catch(function(){ return ''; }).then(function(body){
+          var reason = '';
+          try {
+            var parsed = JSON.parse(body);
+            reason = parsed && parsed.error ? String(parsed.error) : '';
+          } catch (_) {}
+          var err = new Error('HTTP ' + r.status + (reason ? ': ' + reason : ''));
+          err.status = r.status;
+          err.url = url;
+          throw err;
+        });
+      });
+  }
   function loadQuant(){
     if ((quantState.data && !tabDataStale(quantState)) || quantState.loading){ renderQuant(); return; }
     quantState.loading = true;
-    fetch(dataUrl('quant.json'), { cache: 'no-cache' })
-      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    var primaryUrl = dataUrl('quant.json');
+    return quantFetchJson(primaryUrl)
       .then(function(j){
         quantState.data = (j && typeof j === 'object') ? j : {};
         quantState.loading = false;
         quantState.fetchedAt = Date.now();
+        try {
+          renderQuant();
+        } catch (err) {
+          console.error('Quant Lab render failed', err);
+          quantState.data = { loadError: true, loadErrorDetail: 'render failed' };
+          renderQuant();
+        }
+      }, function(err){
+        var detail = String(err && err.message || err || 'request failed');
+        console.error('Quant Lab data load failed', {
+          url: err && err.url || primaryUrl,
+          status: err && err.status || null,
+          message: detail,
+        });
+        quantState.data = { loadError: true, loadErrorDetail: detail };
+        quantState.loading = false;
         renderQuant();
-      })
-      .catch(function(){ quantState.data = { loadError: true }; quantState.loading = false; renderQuant(); });
+      });
   }
   function quantSymLink(sym){
     var s = String(sym || '').toUpperCase();
@@ -15098,7 +15137,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       // Distinguish a failed fetch from genuinely-not-baked-yet — the shared
       // "will appear after the next build" copy hid a 404/401 as if the data
       // simply hadn't been generated.
-      if (empty){ empty.hidden = false; empty.textContent = d.loadError ? 'Could not load Quant Lab data — reopen the tab or refresh the page to retry.' : 'Quant Lab data will appear after the next daily build refresh.'; }
+      if (empty){
+        empty.hidden = false;
+        empty.textContent = d.loadError
+          ? 'Could not load Quant Lab data' + (d.loadErrorDetail ? ' (' + d.loadErrorDetail + ')' : '') + '. Reopen the tab or refresh the page to retry.'
+          : 'Quant Lab data will appear after the next daily build refresh.';
+      }
       if (eye) eye.textContent = '';
       return;
     }
