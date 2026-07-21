@@ -398,3 +398,9 @@ most tabs are free, a premium subset stays gated. The wiring:
   ungated or a failed `/me` ⇒ no locks.
 - **`welcome.html`** is no longer a forced wall — it's the login/denied lander, linking
   back to the free site at `/`.
+- **Quant Lab is combined-role hidden.** `quant.json` and `quant-history.json`
+  require both the `tr` and `tp` session claims. The client removes the Quant Lab
+  nav entry, pane, deep-link target, and command-palette entry unless both are
+  true; the entire Quant nav group stays hidden until auth resolves so it cannot
+  flash for ordinary visitors. Deployments may point both role env settings at
+  the same Discord role, which mints both claims for holders of that role.

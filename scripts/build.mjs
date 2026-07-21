@@ -18584,6 +18584,44 @@ function levSpark(data, lev = null, carryYrFrac = 0) {
   return { spark, sparkSim };
 }
 
+// Concrete execution map for the leveraged-ETF card. The signal lives on the
+// UNDERLYING, so entry/invalidation/target levels are expressed there; the ETF
+// percentages are a same-day leverage translation used for risk budgeting,
+// never a promised fund price (daily resets, gaps and tracking error intervene).
+function levTradePlan(direction, total, data, timing, lev) {
+  const spot = pnum(data?.spot);
+  if (!(spot > 0) || !Number.isFinite(lev) || !lev) return null;
+  const side = direction === "bear" ? "put" : "call";
+  const entry = computeEntrySignal(side, spot, data, timing, { total });
+  const exit = buildExitPlan(side, spot, data, null);
+  const stopUnderPct = Math.abs(pnum(exit?.cut?.movePct) || 0);
+  const targetUnderPct = Math.abs(pnum(exit?.takeProfit?.movePct) || 0);
+  const etfStopPct = r1(stopUnderPct * Math.abs(lev));
+  const etfTargetPct = r1(targetUnderPct * Math.abs(lev));
+  return {
+    entry: entry ? {
+      now: !!entry.now,
+      trigger: pnum(entry.trigger),
+      zone: Array.isArray(entry.zone) ? entry.zone.map(pnum) : null,
+      basis: entry.basis || null,
+      headline: entry.headline || null,
+    } : null,
+    invalidation: exit?.cut ? {
+      underlyingPx: pnum(exit.cut.price),
+      underlyingMovePct: stopUnderPct,
+      etfMovePct: etfStopPct,
+      reason: exit.cut.reason || null,
+    } : null,
+    target: exit?.takeProfit ? {
+      underlyingPx: pnum(exit.takeProfit.price),
+      underlyingMovePct: targetUnderPct,
+      etfMovePct: etfTargetPct,
+      reason: exit.takeProfit.reason || null,
+    } : null,
+    riskReward: etfStopPct > 0 && etfTargetPct > 0 ? r2(etfTargetPct / etfStopPct) : null,
+  };
+}
+
 export function buildLeveragedEtfPicks(chains, gradesIndex, builtAtIso, macroRegime = null, opts = {}) {
   const grades = gradesIndex || {};
   const rfr = Number.isFinite(opts.rfr) ? opts.rfr : FALLBACK_RISK_FREE_RATE;
@@ -18676,6 +18714,7 @@ export function buildLeveragedEtfPicks(chains, gradesIndex, builtAtIso, macroReg
       pair: prods[dir === "bull" ? "bear" : "bull"]?.sym || null,
       decay: levDecayRead(inst.lev, vol),
       carry,
+      plan: levTradePlan(dir, score, data, timing, inst.lev),
       pass,
       missReason: pass ? null : (timing?.state === "avoid" ? "avoid-timing" : "below-bar"),
     });
@@ -18777,6 +18816,7 @@ export function buildLeveragedEtfPicks(chains, gradesIndex, builtAtIso, macroReg
       drivers: topMembers.slice(0, 4).filter((m) => m.score * sgn > 0).map((m) => ({ label: m.sym, score: m.score })),
       decay: levDecayRead(inst.lev, vol),
       carry: levCarryRead(inst.lev, inst.er ?? null, rfr),
+      plan: def.proxy ? levTradePlan(dir, mean, chains[def.proxy], entry, inst.lev) : null,
       pass: pass && !avoidGated,
       missReason: pass ? (avoidGated ? "avoid-timing" : null) : (breadthFailed ? "breadth-split" : "below-bar"),
     });

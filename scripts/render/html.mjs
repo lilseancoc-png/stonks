@@ -443,7 +443,7 @@ function leveragedEtfsSection() {
       <h2 class="card-title">Leveraged ETFs</h2>
       <span class="card-eyebrow" id="levetf-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote('How to read the leveraged ETF screen', `<p>The Top Picks engine&rsquo;s <b>same deterministic four-pillar grades</b> (trend / flow / fundamentals / narrative + entry timing &mdash; no AI anywhere in this screen), expressed through <b>listed leveraged ETFs instead of option contracts</b>. A directional read on a tracked name maps to its <b>single-stock leveraged product</b> when one actually trades (NVDL, TSLL, AAPU, &hellip; &mdash; Direxion pairs run 2&times; bull&nbsp;/&nbsp;&minus;1&times; bear); a read shared by a whole group maps to the <b>sector or index 3&times; pair</b> (SOXL/SOXS, TQQQ/SQQQ, FAS/FAZ, &hellip;) &mdash; and a sector idea additionally requires <b>breadth</b> (most of the group&rsquo;s tracked names leaning the same way), so one loud name can&rsquo;t buy a 3&times; sector bet. Because an ETF pays no option premium, the ranking score strips the grade&rsquo;s IV-cost pillar &mdash; expensive options never argue against (or for) an ETF idea. Every card shows the <b>reset-drag estimate</b> &mdash; leveraged ETFs rebalance daily, so volatility itself bleeds value (&frac12;&middot;k&middot;(k&minus;1)&middot;&sigma;&sup2; per day, shown as ~%/month at the underlying&rsquo;s current 20-day realized vol) &mdash; plus a <b>chop warning</b> when the tape is volatile but trendless (the decay worst case), the entry-timing read, and the drivers behind the grade. Directions with <b>no listed product</b> land in the watch list saying exactly that &mdash; the screen never invents a ticker. These are short-horizon trading vehicles: daily-reset compounding means a multi-day hold tracks the path, not the period move. Not financial advice.</p>`)}
+    ${infoNote('How to use this trade desk', `<p>Start with <b>Enter now</b> versus <b>Wait</b>, then read the card&rsquo;s <b>underlying entry, invalidation and first target</b> before looking at the leveraged ticker. The risk planner converts your account-level loss cap and the card&rsquo;s estimated ETF stop width into a maximum share count once the live quote arrives. Levels are deterministic and live on the underlying; the ETF percentages are only a same-day leverage translation, so gaps, daily resets, spreads and tracking error can make the actual exit worse. The screen maps the grade engine&rsquo;s trend / flow / fundamentals / narrative read onto verified listed products, requires breadth for sector trades, strips the options-only IV-cost pillar, and never invents a missing vehicle. Reset drag, carry, earnings risk, tape alignment and the simulated path remain on every card because a good direction with a bad vehicle or hold period is still a bad trade. Short-horizon trading tools only; not financial advice.</p>`)}
     <div id="levetf-root" class="lev-root">Loading leveraged ETF screen&hellip;</div>
   </section>`;
 }
@@ -1440,10 +1440,11 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     ${sideNavItem('ipo-credit', 'IPOs &amp; credit')}
     ${sideNavItem('f13', '13F filings')}
   </div>
-  <div class="side-nav-group">
-    <!-- The Quant group also houses the owner-exclusive (role-hidden) tabs:
-         Top picks (tp claim) and Track record (tr claim). startApp() removes
-         their buttons for visitors without the role, leaving Quant Lab. -->
+  <div class="side-nav-group" data-role-group="quant" hidden>
+    <!-- Every destination in this group is role-hidden. Quant Lab requires
+         BOTH the Track Record (tr) and Top Picks (tp) claims. The group starts
+         hidden to prevent a pre-auth flash; startApp() reveals it only when at
+         least one authorized destination remains. -->
     <div class="side-nav-group-label" aria-hidden="true">Quant</div>
     ${sideNavItem('picks', 'Top picks')}
     ${sideNavItem('track', 'Track record')}
