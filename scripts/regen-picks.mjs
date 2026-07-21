@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks, buildLeveragedEtfPicks, writeLeveragedEtfsFile, LEVERAGED_ETFS_FILE, readPriorLevEtfLog, levRecordFromLog } from "./build.mjs";
+import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks, buildSectorRotationRebounds, writeSectorRotationFile, SECTOR_ROTATION_FILE, buildLeveragedEtfPicks, writeLeveragedEtfsFile, LEVERAGED_ETFS_FILE, readPriorLevEtfLog, levRecordFromLog } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -250,6 +250,17 @@ try {
   console.log(`Regenerated ${STOCK_PICKS_FILE} — ${spInfo.candidates} dip candidates (${spInfo.buyZone} in the buy zone).`);
 } catch (err) {
   console.warn(`${STOCK_PICKS_FILE} skipped — ${String(err?.message || err).split("\n")[0]}`);
+}
+
+// Sector Rotation Rebounds (premium tab) — pure over the hydrated per-ticker
+// bars, grade index and company/news fields. Mirrors build.mjs::main() exactly;
+// no quotes or AI calls are needed for an algorithm-only regeneration.
+try {
+  const rotationPayload = buildSectorRotationRebounds(chains, grades, builtAtIso);
+  const rotationInfo = await writeSectorRotationFile(rotationPayload);
+  console.log(`Regenerated ${SECTOR_ROTATION_FILE} — ${rotationInfo.candidates} clean candidate(s) (${rotationInfo.confirmed} confirmed / ${rotationInfo.firstThrust} first thrust), ${rotationInfo.nearMisses} near miss(es).`);
+} catch (err) {
+  console.warn(`${SECTOR_ROTATION_FILE} skipped — ${String(err?.message || err).split("\n")[0]}`);
 }
 
 // Leveraged ETFs (premium tab) — the daily-reset leverage screen over the same

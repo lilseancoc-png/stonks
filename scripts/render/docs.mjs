@@ -1075,6 +1075,7 @@ export const DOC_PAGES = {
             <li><b>Market analysis</b> — the live market tape, risk barometer &amp; regime history</li>
             <li><b>Top Picks</b> — highest-conviction contracts, sizing &amp; breakeven</li>
             <li><b>Stock Picks</b> — shares-only buy-the-dip screen (quality names beaten down, trap flags shown) + a daily VOO/QQQ DCA dial</li>
+            <li><b>Sector Rotation</b> — quality companies washed out with their peer group, then ranked by rebound phase and trade levels</li>
             <li><b>Leveraged ETFs</b> — the same grades mapped onto listed 2×/3× products, with reset-drag, carry-cost &amp; chop warnings and a live-priced track record</li>
             <li><b>Briefs</b> — hourly market digest, open through close</li>
             <li><b>Trending IV</b> — implied vol running above a name's own history</li>
@@ -1218,6 +1219,10 @@ export const DOC_PAGES = {
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Stock Picks</span><span class="tier prem">Premium</span></div>
           <p class="feat-desc">Shares, not options — a buy-the-dip screen over the whole universe that answers three questions independently: is it a good business (a hard quality gate), is it beaten down right now (five "cheap vs its own recent self" reads), and did something actually break (trap flags that warn but never hide a name). Each card opens into a ~28-question investment-thesis checklist answered from tracked data, and a daily <b>DCA dial</b> sizes an everyday VOO/QQQ index buy — always at least the baseline, leaning in on the rare deep-discount days.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Sector Rotation</span><span class="tier prem">Premium</span></div>
+          <p class="feat-desc">A rebound desk for strong companies caught in a sector-wide washout rather than clear company-specific deterioration. It combines the existing fundamental quality gate with peer participation, clean-news checks and the stock&rsquo;s own reversal evidence, then classifies each setup as <b>washed out, first thrust, confirmed, or late</b>. First thrust waits for a pullback instead of chasing; every setup keeps its trigger, invalidation, first target and estimated reward/risk on the underlying stock so a dramatic bounce is never mistaken for a complete trade plan.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Leveraged ETFs</span><span class="tier prem">Premium</span></div>

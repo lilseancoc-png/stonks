@@ -18130,6 +18130,771 @@ export async function writeStockPicksFile(payload) {
 }
 
 // ============================================================================
+// SECTOR ROTATION REBOUNDS — quality names recovering from a peer-group washout
+// (data/sector-rotation.json, PREMIUM).
+//
+// This is deliberately NOT another generic dip rank. A row must establish a
+// sector/group episode first (shared drawdown + breadth + relative weakness),
+// then prove the company's own selloff was not materially worse than its
+// leave-one-out peers after beta, and finally classify the turn:
+//   washed-out   — the group/name are down, but there is no reversal yet
+//   first-thrust — broad rebound has fired; wait for a hold/pullback
+//   confirmed    — the thrust held for >=3 sessions and reclaimed structure
+//   late         — the turn is real but the entry is extended / payoff is thin
+//
+// Pure given chains + gradesIndex + builtAtIso. It makes no network calls and
+// reads either in-memory `_bars` (the bake) or persisted `priceSeries` (offline
+// regen-picks), preserving the repo's algo-regeneration boundary.
+// ============================================================================
+export const SECTOR_ROTATION_FILE = "sector-rotation.json";
+const SECTOR_ROTATION_MODEL_VERSION = 1;
+const SECTOR_ROTATION_LOOKBACK = 45;
+const SECTOR_ROTATION_MIN_BARS = 80;
+const SECTOR_ROTATION_MIN_GROUP = 4;
+const SECTOR_ROTATION_GROUP_DD = -4;
+const SECTOR_ROTATION_REL_SPY = -2;
+const SECTOR_ROTATION_BREADTH_DOWN = 60;
+const SECTOR_ROTATION_SPREAD = 4;
+const SECTOR_ROTATION_STOCK_DD = -8;
+const SECTOR_ROTATION_MAX_TROUGH_AGE = 7;
+const SECTOR_ROTATION_FIRST_THRUST = 3;
+const SECTOR_ROTATION_BREADTH_UP = 70;
+const SECTOR_ROTATION_CONFIRM_AGE = 3;
+const SECTOR_ROTATION_MIN_SCORE = 55;
+const SECTOR_ROTATION_HIGH_SCORE = 70;
+const SECTOR_ROTATION_MAX_CANDIDATES = 18;
+const SECTOR_ROTATION_MAX_NEAR_MISSES = 14;
+
+// Coherent trader-facing baskets built from the repo's curated SECTORS map.
+// Explicit groups avoid silently treating a whole Yahoo top-level sector as
+// one trade. The Semis complex intentionally absorbs Storage plus NVDA (whose
+// curated card group is Mega-cap tech) and uses tracked SMH as confirmation.
+const SECTOR_ROTATION_GROUP_DEFS = [
+  { key: "semis", label: "Semis complex", sectorTags: ["Semis", "Storage"], symbols: ["NVDA"], benchmark: "SMH" },
+  { key: "mega-tech", label: "Mega-cap tech", sectorTags: ["Mega-cap tech"], excludeSymbols: ["NVDA"], benchmark: "QQQ" },
+  { key: "software", label: "Software & cloud", sectorTags: ["Software", "IT services", "Tech services"] },
+  { key: "retail", label: "Retail", sectorTags: ["Retail"] },
+  { key: "consumer", label: "Consumer cyclicals", sectorTags: ["Apparel", "Beauty", "E-commerce", "Restaurants", "Media", "Homebuilder", "Consumer"] },
+  { key: "financials", label: "Banks & capital markets", sectorTags: ["Bank", "Broker", "Asset mgmt"] },
+  { key: "payments", label: "Payments & fintech", sectorTags: ["Payments", "Fintech"] },
+  { key: "healthcare", label: "Healthcare", sectorTags: ["Pharma", "Insurance", "Medical", "Telehealth", "Pharmacy"] },
+  { key: "industrials", label: "Industrials & logistics", sectorTags: ["Industrial", "Defense", "Logistics"] },
+  { key: "power", label: "Power & data center", sectorTags: ["Power", "Data center", "Clean energy", "Nuclear"] },
+  { key: "space", label: "Space", sectorTags: ["Space"] },
+  { key: "china-tech", label: "China tech", sectorTags: ["China tech"], benchmark: "KWEB" },
+];
+
+function sectorRotationDateKey(raw) {
+  if (raw == null) return null;
+  const s = String(raw);
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const d = new Date(raw);
+  return Number.isFinite(d.getTime()) ? d.toISOString().slice(0, 10) : null;
+}
+
+// Unified daily OHLCV rows. When the last bar is today's in-progress Yahoo
+// candle, live `spot` replaces its close; when the last stored bar is prior-day
+// (pre-market/offline fixture), append a deterministic as-of row instead.
+function sectorRotationRows(data, builtAtIso) {
+  let raw = [];
+  if (Array.isArray(data?._bars) && data._bars.length) {
+    raw = data._bars.map((b) => ({ t: b?.t, c: b?.c, h: b?.h, l: b?.l, v: b?.v }));
+  } else {
+    const ps = data?.priceSeries;
+    if (ps && Array.isArray(ps.t) && Array.isArray(ps.c)) {
+      raw = ps.t.map((t, i) => ({
+        t, c: ps.c[i],
+        h: Array.isArray(ps.h) ? ps.h[i] : ps.c[i],
+        l: Array.isArray(ps.l) ? ps.l[i] : ps.c[i],
+        v: Array.isArray(ps.v) ? ps.v[i] : null,
+      }));
+    }
+  }
+  const byDate = new Map();
+  for (const row of raw) {
+    const t = sectorRotationDateKey(row?.t);
+    const c = pnumN(row?.c);
+    if (!t || !(c > 0)) continue;
+    const h = pnumN(row?.h), l = pnumN(row?.l), v = pnumN(row?.v);
+    byDate.set(t, {
+      t, c,
+      h: h != null && h > 0 ? h : c,
+      l: l != null && l > 0 ? l : c,
+      v,
+    });
+  }
+  const rows = [...byDate.values()].sort((a, b) => a.t.localeCompare(b.t)).slice(-252);
+  if (!rows.length) return rows;
+  const asOf = (() => {
+    if (!builtAtIso) return rows[rows.length - 1].t;
+    const d = new Date(builtAtIso);
+    return Number.isFinite(d.getTime()) ? etDateStr(d) : sectorRotationDateKey(builtAtIso);
+  })();
+  const spot = pnumN(data?.spot);
+  if (asOf && spot > 0) {
+    const last = rows[rows.length - 1];
+    if (last.t === asOf) {
+      last.c = spot;
+      last.h = Math.max(last.h || spot, spot);
+      last.l = Math.min(last.l || spot, spot);
+    } else if (last.t < asOf) {
+      rows.push({ t: asOf, c: spot, h: spot, l: spot, v: null });
+    }
+  }
+  return rows.slice(-252);
+}
+
+function sectorRotationMedian(vals) {
+  if (!vals.length) return null;
+  const a = vals.slice().sort((x, y) => x - y);
+  const m = Math.floor(a.length / 2);
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+}
+
+function sectorRotationReturnMap(rows) {
+  const out = new Map();
+  for (let i = 1; i < rows.length; i++) {
+    const a = rows[i - 1], b = rows[i];
+    if (a?.c > 0 && b?.c > 0 && b?.t) out.set(b.t, b.c / a.c - 1);
+  }
+  return out;
+}
+
+// Median-return equal-weight proxy. The daily member floor scales with group
+// size but caps at eight so recent IPOs do not erase an otherwise deep basket.
+function sectorRotationBasket(members, rowsBySym) {
+  const maps = members.map((sym) => sectorRotationReturnMap(rowsBySym[sym] || []));
+  const dates = new Set();
+  for (const m of maps) for (const d of m.keys()) dates.add(d);
+  const ordered = [...dates].sort();
+  const need = Math.max(3, Math.min(8, Math.ceil(members.length * 0.35)));
+  let level = 100;
+  const out = [];
+  for (const t of ordered) {
+    const vals = maps.map((m) => m.get(t)).filter(Number.isFinite);
+    if (vals.length < need) continue;
+    const med = sectorRotationMedian(vals);
+    if (!Number.isFinite(med) || med <= -1) continue;
+    level *= 1 + med;
+    out.push({
+      t, c: level,
+      n: vals.length,
+      breadthUp: (vals.filter((v) => v > 0).length / vals.length) * 100,
+      breadthDown: (vals.filter((v) => v < 0).length / vals.length) * 100,
+    });
+  }
+  return out;
+}
+
+// Maximum peak-to-subsequent-trough drawdown inside the recent window. For a
+// stock, useLow=true measures the actual flush low; baskets use closes.
+function sectorRotationEpisode(rows, lookback = SECTOR_ROTATION_LOOKBACK, useLow = false) {
+  const tail = (rows || []).slice(-(lookback + 1));
+  if (tail.length < Math.min(20, lookback)) return null;
+  let peakI = 0, runningPeakI = 0, worst = 0, troughI = -1;
+  for (let i = 1; i < tail.length; i++) {
+    const peak = tail[runningPeakI]?.c;
+    const troughPx = useLow ? Math.min(tail[i]?.l || tail[i]?.c, tail[i]?.c) : tail[i]?.c;
+    if (!(peak > 0) || !(troughPx > 0)) continue;
+    const dd = (troughPx / peak - 1) * 100;
+    if (dd < worst) { worst = dd; peakI = runningPeakI; troughI = i; }
+    if (tail[i].c > tail[runningPeakI].c) runningPeakI = i;
+  }
+  if (troughI < 0) return null;
+  return {
+    peakDate: tail[peakI].t,
+    peakPrice: tail[peakI].c,
+    troughDate: tail[troughI].t,
+    troughPrice: useLow ? Math.min(tail[troughI].l || tail[troughI].c, tail[troughI].c) : tail[troughI].c,
+    drawdownPct: worst,
+    troughAge: tail.length - 1 - troughI,
+    peakIndex: peakI,
+    troughIndex: troughI,
+    tail,
+  };
+}
+
+function sectorRotationReturnBetween(rows, fromDate, toDate) {
+  if (!fromDate || !toDate) return null;
+  const a = (rows || []).find((x) => x.t === fromDate);
+  const b = (rows || []).find((x) => x.t === toDate);
+  return a?.c > 0 && b?.c > 0 ? (b.c / a.c - 1) * 100 : null;
+}
+
+function sectorRotationBreadthBetween(members, rowsBySym, fromDate, toDate) {
+  const vals = members
+    .map((sym) => sectorRotationReturnBetween(rowsBySym[sym], fromDate, toDate))
+    .filter(Number.isFinite);
+  return {
+    n: vals.length,
+    downPct: vals.length ? (vals.filter((v) => v < 0).length / vals.length) * 100 : null,
+    upPct: vals.length ? (vals.filter((v) => v > 0).length / vals.length) * 100 : null,
+  };
+}
+
+function sectorRotationSma(rows, period, throughDate = null) {
+  const vals = (rows || [])
+    .filter((r) => !throughDate || r.t <= throughDate)
+    .map((r) => r.c).filter((v) => v > 0);
+  if (vals.length < period) return null;
+  return vals.slice(-period).reduce((a, b) => a + b, 0) / period;
+}
+
+function sectorRotationRet(rows, sessions) {
+  if (!Array.isArray(rows) || rows.length <= sessions) return null;
+  const a = rows[rows.length - 1 - sessions]?.c, b = rows[rows.length - 1]?.c;
+  return a > 0 && b > 0 ? (b / a - 1) * 100 : null;
+}
+
+function sectorRotationAtrPct(rows) {
+  const a = (rows || []).slice(-16);
+  if (a.length < 15) return null;
+  const tr = [];
+  for (let i = 1; i < a.length; i++) {
+    const hi = a[i].h, lo = a[i].l, pc = a[i - 1].c;
+    if (![hi, lo, pc].every(Number.isFinite)) continue;
+    tr.push(Math.max(hi - lo, Math.abs(hi - pc), Math.abs(lo - pc)));
+  }
+  const spot = a[a.length - 1]?.c;
+  return tr.length && spot > 0 ? (tr.reduce((x, y) => x + y, 0) / tr.length / spot) * 100 : null;
+}
+
+function sectorRotationZAt(rows, date, period = 20) {
+  const a = (rows || []).filter((r) => r.t <= date);
+  if (a.length < period) return null;
+  const win = a.slice(-period).map((r) => r.c);
+  const mean = win.reduce((x, y) => x + y, 0) / win.length;
+  const sd = Math.sqrt(win.reduce((s, x) => s + (x - mean) ** 2, 0) / win.length);
+  const v = a[a.length - 1].c;
+  return sd > 0 ? (v - mean) / sd : null;
+}
+
+function sectorRotationCorrBeta(stockRows, peerRows) {
+  const a = sectorRotationReturnMap(stockRows), b = sectorRotationReturnMap(peerRows);
+  const dates = [...a.keys()].filter((d) => b.has(d)).sort().slice(-60);
+  const n = dates.length;
+  if (n < 20) return { correlation: null, beta: null, n };
+  const xs = dates.map((d) => b.get(d)), ys = dates.map((d) => a.get(d));
+  const mx = xs.reduce((s, x) => s + x, 0) / n;
+  const my = ys.reduce((s, x) => s + x, 0) / n;
+  let sxx = 0, syy = 0, sxy = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = xs[i] - mx, dy = ys[i] - my;
+    sxx += dx * dx; syy += dy * dy; sxy += dx * dy;
+  }
+  if (sxx <= 0 || syy <= 0) return { correlation: null, beta: null, n };
+  return { correlation: sxy / Math.sqrt(sxx * syy), beta: sxy / sxx, n };
+}
+
+function sectorRotationNormalizedSeries(stockRows, peerRows, maxPoints = 60) {
+  const sm = new Map((stockRows || []).map((r) => [r.t, r.c]));
+  const pm = new Map((peerRows || []).map((r) => [r.t, r.c]));
+  const dates = [...sm.keys()].filter((d) => pm.has(d)).sort().slice(-maxPoints);
+  if (dates.length < 2) return { dates: [], stock: [], peers: [] };
+  const sb = sm.get(dates[0]), pb = pm.get(dates[0]);
+  if (!(sb > 0) || !(pb > 0)) return { dates: [], stock: [], peers: [] };
+  return {
+    dates,
+    stock: dates.map((d) => r2((sm.get(d) / sb) * 100)),
+    peers: dates.map((d) => r2((pm.get(d) / pb) * 100)),
+  };
+}
+
+function sectorRotationDaysFrom(date, builtAtIso) {
+  const a = sectorRotationDateKey(date), b = sectorRotationDateKey(builtAtIso);
+  if (!a || !b) return null;
+  const x = Date.parse(`${a}T12:00:00Z`), y = Date.parse(`${b}T12:00:00Z`);
+  return Number.isFinite(x) && Number.isFinite(y) ? Math.round((x - y) / 86400000) : null;
+}
+
+// Conservative headline override for the aggregate AI sentiment. A neutral
+// paragraph must not wash out a concrete company-specific break, but generic
+// price-action prose ("stock drops", "shares slide") is intentionally absent
+// from every pattern — that is exactly the broad rotation this screen seeks.
+// Only reputable, dated headlines from the trailing seven calendar days count.
+function sectorRotationHeadlineRisk(news, builtAtIso) {
+  const asOf = Date.parse(builtAtIso || "");
+  if (!Number.isFinite(asOf)) return null;
+  const hardPatterns = [
+    { key: "guidance-cut", re: /\b(?:cuts?|slashes?|lowers?|reduces?|withdraws?)\b.{0,45}\b(?:guidance|outlook|forecast)\b|\b(?:guidance|outlook|forecast)\b.{0,45}\b(?:cut|lowered|slashed|reduced|withdrawn)\b/i },
+    { key: "earnings-miss", re: /\b(?:misses?|missed)\b.{0,40}\b(?:earnings|eps|revenue|sales|estimates?|expectations?)\b|\b(?:earnings|eps|revenue|sales)\b.{0,40}\b(?:miss|misses|missed)\b/i },
+    { key: "accounting", re: /\b(?:accounting irregularit|accounting probe|restatement|restate[sd]?|auditor resigns?|material weakness)\b/i },
+    { key: "investigation", re: /\b(?:sec|doj|justice department)\b.{0,45}\b(?:investigat|probe|subpoena|charge[sd]?)\b|\b(?:investigat|probe|subpoena)\b.{0,45}\b(?:sec|doj|justice department)\b/i },
+    { key: "recall", re: /\b(?:product|drug|vehicle|device|food)?\s*recall(?:s|ed|ing)?\b/i },
+    { key: "contract-loss", re: /\b(?:loses?|lost)\b.{0,45}\b(?:major |key |government |defense )?contract\b|\bcontract\b.{0,45}\b(?:lost|cancelled|canceled|terminated)\b/i },
+    { key: "insolvency", re: /\b(?:bankrupt(?:cy)?|chapter 11|default(?:s|ed)? on|debt default|insolven)\b/i },
+    { key: "executive-exit", re: /\b(?:ceo|cfo|chief executive|chief financial officer)\b.{0,45}\b(?:resigns?|resignation|departs?|departure|steps? down|ousted)\b|\b(?:resigns?|departure|steps? down)\b.{0,45}\b(?:ceo|cfo|chief executive|chief financial officer)\b/i },
+    { key: "financing", re: /\b(?:secondary|follow-on|public|equity|common stock|registered direct)\s+(?:share |stock )?offering\b|\bconvertible\s+(?:notes?|debt|securities)\s+(?:sale|offering)\b|\b(?:share|stock)\s+sale\b/i },
+  ];
+  const warningPatterns = [
+    { key: "downgrade", re: /\bdowngraded\b|\bdowngrades?\b.{0,35}\b(?:to|from|stock|shares)\b/i },
+    { key: "target-cut", re: /\b(?:cuts?|lowers?|slashes?)\b.{0,25}\bprice target\b|\bprice target\b.{0,25}\b(?:cut|lowered|slashed|reduced)\b/i },
+  ];
+  const recent = (Array.isArray(news?.headlines) ? news.headlines : [])
+    .filter((h) => h?.reputable === true && h?.title && h?.publishedAt)
+    .map((h) => ({ ...h, ageDays: (asOf - Date.parse(h.publishedAt)) / 86400000 }))
+    .filter((h) => Number.isFinite(h.ageDays) && h.ageDays >= -0.25 && h.ageDays <= 7.25)
+    .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
+  for (const h of recent) {
+    const title = String(h.title);
+    for (const p of hardPatterns) if (p.re.test(title)) {
+      return { status: "block", kind: p.key, title, publisher: h.publisher || null, publishedAt: h.publishedAt };
+    }
+  }
+  for (const h of recent) {
+    const title = String(h.title);
+    // Publisher roundup headings like "analyst upgrades/downgrades: A, B, C"
+    // do not say which side applies to this ticker, so they are not a warning.
+    if (/\bupgrades?\s*\/\s*downgrades?\s*:/i.test(title)) continue;
+    for (const p of warningPatterns) if (p.re.test(title)) {
+      return { status: "warn", kind: p.key, title, publisher: h.publisher || null, publishedAt: h.publishedAt };
+    }
+  }
+  return null;
+}
+
+function sectorRotationGuard(status, detail, extra = {}) {
+  return { status, detail, ...extra };
+}
+
+function sectorRotationScale(value, lo, hi, points) {
+  if (!Number.isFinite(value) || hi <= lo) return 0;
+  return clamp((value - lo) / (hi - lo), 0, 1) * points;
+}
+
+function sectorRotationPlan(row) {
+  const { data, phase, spot, atrPct, episode, blockedBy } = row;
+  const t = data?.technicals || {};
+  const atr = spot > 0 && atrPct > 0 ? spot * atrPct / 100 : spot * 0.025;
+  const rows = row.rows || [];
+  const troughPos = rows.findIndex((x) => x.t === episode.troughDate);
+  const afterTrough = troughPos >= 0 ? rows.slice(troughPos, -1) : rows.slice(-4, -1);
+  const pivotHigh = afterTrough.length ? Math.max(...afterTrough.map((x) => x.h || x.c).filter(Number.isFinite)) : null;
+  const sma20 = pnumN(t.sma?.sma20);
+  const reclaim = [pivotHigh, sma20].filter((x) => x > 0);
+  const trigger = reclaim.length ? Math.max(...reclaim) : spot;
+  const invalidation = Math.max(0.01, episode.troughPrice - atr * 0.25);
+  const sr = t.sr || {};
+  const targetChoices = [episode.peakPrice, pnumN(sr.r20), pnumN(sr.r50), pnumN(sr.r100)]
+    .filter((x) => x > trigger * 1.01).sort((a, b) => a - b);
+  const target = targetChoices.length ? targetChoices[0] : null;
+  const risk = trigger > invalidation ? trigger - invalidation : null;
+  const rewardRisk = risk > 0 && target > trigger ? (target - trigger) / risk : null;
+  let state = "wait-turn", headline = "Wait for the group and stock to turn";
+  if (blockedBy.length) { state = "blocked"; headline = "Pass — company-specific guard failed"; }
+  else if (phase === "first-thrust") { state = "wait-pullback"; headline = "First thrust — do not chase; wait for the first controlled pullback"; }
+  else if (phase === "late" || (phase === "confirmed" && rewardRisk != null && rewardRisk < 1.25)) { state = "pass"; headline = "Pass — rebound is late or payoff too thin"; }
+  else if (phase === "confirmed" && rewardRisk != null && rewardRisk >= 1.5) { state = "ready"; headline = "Confirmed — buy only inside the reclaim zone"; }
+  else if (phase === "confirmed") { state = "wait-payoff"; headline = "Confirmed turn, but wait for a better reward/risk"; }
+  return {
+    state,
+    headline,
+    trigger: r2(trigger),
+    entryZone: [r2(Math.max(invalidation, trigger - atr * 0.25)), r2(trigger + atr * 0.25)],
+    invalidation: r2(invalidation),
+    target1: target != null ? r2(target) : null,
+    rewardRisk: rewardRisk != null ? r2(rewardRisk) : null,
+    basis: "Underlying shares; reclaim/pivot entry, trough-plus-ATR invalidation, nearest prior resistance target",
+  };
+}
+
+export function buildSectorRotationRebounds(chains, gradesIndex, builtAtIso) {
+  const grades = gradesIndex || {};
+  const rowsBySym = {};
+  const stockSymbols = [];
+  let universe = 0, qualityPassed = 0;
+  for (const [sym, data] of Object.entries(chains || {})) {
+    const rows = sectorRotationRows(data, builtAtIso);
+    if (rows.length >= SECTOR_ROTATION_MIN_BARS) rowsBySym[sym] = rows;
+    if (SECTORS[sym] === "ETF" || !data) continue;
+    universe++;
+    if (rows.length >= SECTOR_ROTATION_MIN_BARS) stockSymbols.push(sym);
+    if (stockQualityGate(data).pass) qualityPassed++;
+  }
+
+  // Pass 1: form each explicit basket. Symbols explicitly named by an earlier
+  // group (NVDA -> Semis) are excluded from later tag-based groups.
+  const claimed = new Set();
+  const rawGroups = [];
+  for (const def of SECTOR_ROTATION_GROUP_DEFS) {
+    const explicit = new Set(def.symbols || []);
+    const excluded = new Set(def.excludeSymbols || []);
+    const members = stockSymbols.filter((sym) => {
+      if (excluded.has(sym)) return false;
+      if (explicit.has(sym)) return true;
+      return !claimed.has(sym) && def.sectorTags.includes(SECTORS[sym]);
+    });
+    if (members.length < SECTOR_ROTATION_MIN_GROUP) continue;
+    for (const sym of members) claimed.add(sym);
+    const basket = sectorRotationBasket(members, rowsBySym);
+    if (basket.length < SECTOR_ROTATION_MIN_BARS - 2) continue;
+    rawGroups.push({ def, members, basket, episode: sectorRotationEpisode(basket) });
+  }
+
+  const spyRows = rowsBySym.SPY || sectorRotationRows(chains?.SPY, builtAtIso);
+  const groupStates = [];
+  for (const g of rawGroups) {
+    const ep = g.episode;
+    if (!ep) continue;
+    const lastDate = g.basket[g.basket.length - 1]?.t;
+    const spyRet = sectorRotationReturnBetween(spyRows, ep.peakDate, ep.troughDate);
+    const relSpy = spyRet != null ? ep.drawdownPct - spyRet : null;
+    const otherRets = rawGroups
+      .filter((x) => x !== g)
+      .map((x) => sectorRotationReturnBetween(x.basket, ep.peakDate, ep.troughDate))
+      .filter(Number.isFinite);
+    const bestOther = otherRets.length ? Math.max(...otherRets) : null;
+    const rotationSpread = bestOther != null ? bestOther - ep.drawdownPct : null;
+    const breadthDrop = sectorRotationBreadthBetween(g.members, rowsBySym, ep.peakDate, ep.troughDate);
+    const breadthBounce = sectorRotationBreadthBetween(g.members, rowsBySym, ep.troughDate, lastDate);
+    const last = g.basket[g.basket.length - 1]?.c;
+    const bounce = last > 0 && ep.troughPrice > 0 ? (last / ep.troughPrice - 1) * 100 : null;
+    const spyBounce = sectorRotationReturnBetween(spyRows, ep.troughDate, lastDate);
+    const bounceRelSpy = bounce != null && spyBounce != null ? bounce - spyBounce : null;
+    const benchmarkRows = g.def.benchmark ? rowsBySym[g.def.benchmark] || sectorRotationRows(chains?.[g.def.benchmark], builtAtIso) : null;
+    const benchmarkDrop = benchmarkRows?.length ? sectorRotationReturnBetween(benchmarkRows, ep.peakDate, ep.troughDate) : null;
+    const benchmarkBounce = benchmarkRows?.length ? sectorRotationReturnBetween(benchmarkRows, ep.troughDate, lastDate) : null;
+    const benchmarkConfirmed = benchmarkDrop == null ? null : benchmarkDrop <= SECTOR_ROTATION_GROUP_DD;
+    const qualifies = ep.troughAge <= SECTOR_ROTATION_MAX_TROUGH_AGE
+      && ep.drawdownPct <= SECTOR_ROTATION_GROUP_DD
+      && breadthDrop.downPct >= SECTOR_ROTATION_BREADTH_DOWN
+      && ((relSpy != null && relSpy <= SECTOR_ROTATION_REL_SPY)
+        || (rotationSpread != null && rotationSpread >= SECTOR_ROTATION_SPREAD));
+    const firstThrust = qualifies && bounce >= SECTOR_ROTATION_FIRST_THRUST
+      && breadthBounce.upPct >= SECTOR_ROTATION_BREADTH_UP;
+    const afterTrough = g.basket.filter((x) => x.t > ep.troughDate);
+    const positiveBreadthDays = afterTrough.slice(-3).filter((x) => x.breadthUp >= 55).length;
+    const sma10 = sectorRotationSma(g.basket, 10), sma20 = sectorRotationSma(g.basket, 20);
+    const confirmed = firstThrust && ep.troughAge >= SECTOR_ROTATION_CONFIRM_AGE
+      && positiveBreadthDays >= 2 && last >= sma10 && bounceRelSpy > 0;
+    const extended = confirmed && ep.troughAge >= 5 && bounce >= 15
+      && sma20 > 0 && (last / sma20 - 1) * 100 >= 8;
+    const phase = extended ? "late" : confirmed ? "confirmed" : firstThrust ? "first-thrust" : "washed-out";
+    groupStates.push({
+      ...g,
+      qualifies,
+      phase,
+      metrics: {
+        drawdownPct: r1(ep.drawdownPct),
+        relSpyPct: r1(relSpy),
+        breadthDownPct: r1(breadthDrop.downPct),
+        bestOtherSpreadPct: r1(rotationSpread),
+        bouncePct: r1(bounce),
+        bounceRelSpyPct: r1(bounceRelSpy),
+        breadthUpPct: r1(breadthBounce.upPct),
+        positiveBreadthDays,
+      },
+      benchmark: g.def.benchmark ? {
+        symbol: g.def.benchmark,
+        drawdownPct: r1(benchmarkDrop),
+        bouncePct: r1(benchmarkBounce),
+        confirmed: benchmarkConfirmed,
+      } : null,
+    });
+  }
+
+  const clean = [], near = [];
+  const fundTrajectory = (data, grade) => grade?.pillars?.fundamentals?.trajectory || computeFundamentalsTrajectory(data);
+  for (const group of groupStates.filter((g) => g.qualifies)) {
+    const lastDate = group.basket[group.basket.length - 1]?.t;
+    for (const sym of group.members) {
+      const data = chains[sym], rows = rowsBySym[sym], grade = grades[sym] || null;
+      if (!data || !rows) continue;
+      const episode = sectorRotationEpisode(rows, SECTOR_ROTATION_LOOKBACK, true);
+      if (!episode || episode.drawdownPct > SECTOR_ROTATION_STOCK_DD || episode.troughAge > SECTOR_ROTATION_MAX_TROUGH_AGE) continue;
+
+      const peers = group.members.filter((x) => x !== sym);
+      const peerBasket = sectorRotationBasket(peers, rowsBySym);
+      const fit = sectorRotationCorrBeta(rows, peerBasket);
+      const betaForResidual = fit.beta == null ? 1 : clamp(fit.beta, 0.25, 3);
+      const stockEpisodeRet = sectorRotationReturnBetween(rows, group.episode.peakDate, group.episode.troughDate);
+      const peerEpisodeRet = sectorRotationReturnBetween(peerBasket, group.episode.peakDate, group.episode.troughDate);
+      const residual = stockEpisodeRet != null && peerEpisodeRet != null
+        ? stockEpisodeRet - betaForResidual * peerEpisodeRet : null;
+      const spot = rows[rows.length - 1]?.c;
+      const atrPct = sectorRotationAtrPct(rows) ?? 3;
+      const idioLimit = Math.max(4, atrPct * 1.25);
+      const bounce = spot > 0 && episode.troughPrice > 0 ? (spot / episode.troughPrice - 1) * 100 : null;
+      const ret1 = sectorRotationRet(rows, 1), ret3 = sectorRotationRet(rows, 3), ret5 = sectorRotationRet(rows, 5);
+      const sma10 = sectorRotationSma(rows, 10), sma20 = pnumN(data.technicals?.sma?.sma20) ?? sectorRotationSma(rows, 20);
+      const sma50 = pnumN(data.technicals?.sma?.sma50) ?? sectorRotationSma(rows, 50);
+      const sma200 = pnumN(data.technicals?.sma?.sma200) ?? sectorRotationSma(rows, 200);
+      const peakSma50 = sectorRotationSma(rows, 50, episode.peakDate);
+      const peakSma200 = sectorRotationSma(rows, 200, episode.peakDate);
+      const peakRet60 = (() => {
+        const through = rows.filter((r) => r.t <= episode.peakDate);
+        return sectorRotationRet(through, 60);
+      })();
+      const zTrough = sectorRotationZAt(rows, episode.troughDate);
+      const rsi = pnumN(data.technicals?.rsi), rsi5d = pnumN(data.technicals?.rsi5d);
+      const rsiChange = rsi != null && rsi5d != null ? rsi - rsi5d : null;
+      const rvol = pnumN(data.technicals?.volume?.rvol);
+      const lastRow = rows[rows.length - 1];
+      const closeLocation = lastRow?.h > lastRow?.l ? ((spot - lastRow.l) / (lastRow.h - lastRow.l)) * 100 : null;
+      const distSma20 = sma20 > 0 ? (spot / sma20 - 1) * 100 : null;
+      const higherCloses = rows.length >= 3 && rows[rows.length - 1].c > rows[rows.length - 2].c
+        && rows[rows.length - 2].c > rows[rows.length - 3].c;
+
+      const gate = stockQualityGate(data);
+      const f = data.fundamentals || {};
+      const trajectory = fundTrajectory(data, grade);
+      const news = data.news || null;
+      const newsAgeHours = news?.builtAt && Number.isFinite(Date.parse(news.builtAt)) && Number.isFinite(Date.parse(builtAtIso))
+        ? (Date.parse(builtAtIso) - Date.parse(news.builtAt)) / 3600000 : null;
+      const headlineRisk = sectorRotationHeadlineRisk(news, builtAtIso);
+      const analystNet = pnumN(f.analystRevisions?.net);
+      const guidance = data.aiSignals?.guidance?.direction || null;
+      const contract = data.aiSignals?.majorContract?.status || null;
+      const raiseKind = data.capitalRaise?.kind || null;
+      const judgment = f.judgment?.verdict || null;
+      const events = Array.isArray(data.earningsHx?.events) ? data.earningsHx.events : [];
+      const recentPrint = events.length ? events[events.length - 1] : null;
+      const printDays = recentPrint?.date ? sectorRotationDaysFrom(recentPrint.date, builtAtIso) : null;
+      const printMove = pnumN(recentPrint?.movePct);
+      const nextEarnDays = f.nextEarningsDate ? sectorRotationDaysFrom(f.nextEarningsDate, builtAtIso) : null;
+
+      const guards = {};
+      guards.quality = gate.pass
+        ? sectorRotationGuard("pass", `${gate.checks.filter((x) => x.ok).length}/${gate.checks.length} available quality checks pass`)
+        : sectorRotationGuard("block", gate.checks.filter((x) => !x.ok).map((x) => `${x.label} failed — ${x.detail}`).join("; ") || "business-quality gate failed");
+      guards.fundamentals = judgment === "weak"
+        ? sectorRotationGuard("block", "fundamentals judgment is weak")
+        : trajectory?.dir === "declining" && trajectory?.confidence !== "low"
+          ? sectorRotationGuard("warn", `fundamentals trajectory is declining — ${trajectory.reason}`)
+          : sectorRotationGuard("pass", `${judgment || "unrated"} fundamentals; ${trajectory?.dir || "steady"} trajectory`);
+      guards.news = headlineRisk?.status === "block"
+        ? sectorRotationGuard("block", `recent ${headlineRisk.kind} headline — “${headlineRisk.title}”`, { sentiment: news?.sentiment || null, matchedHeadline: headlineRisk })
+        : news?.sentiment === "bearish"
+          ? sectorRotationGuard("block", "fresh company-news tone is bearish", { sentiment: news.sentiment })
+          : headlineRisk?.status === "warn"
+            ? sectorRotationGuard("warn", `recent ${headlineRisk.kind} headline — “${headlineRisk.title}”`, { sentiment: news?.sentiment || null, matchedHeadline: headlineRisk })
+        : (!news || news.fallback || news.sentiment === "uncertain" || (newsAgeHours != null && newsAgeHours > 48))
+          ? sectorRotationGuard("warn", "company-specific news is unverified or stale", { sentiment: news?.sentiment || null })
+          : sectorRotationGuard("pass", `${news.sentiment || "neutral"} company-news tone`, { sentiment: news.sentiment || null });
+      guards.guidance = guidance === "lowered" || guidance === "soft" || contract === "lost" || raiseKind === "equity" || raiseKind === "convertible"
+        ? sectorRotationGuard("block", guidance === "lowered" || guidance === "soft" ? `guidance ${guidance}` : contract === "lost" ? "major contract lost" : `${raiseKind} financing headline`)
+        : sectorRotationGuard("pass", guidance && guidance !== "none" ? `guidance ${guidance}` : contract === "won" ? "major contract won" : "no negative structured catalyst");
+      guards.analysts = analystNet != null && analystNet <= -2
+        ? sectorRotationGuard("block", `${Math.abs(analystNet)} net analyst downgrades`, { net: analystNet })
+        : analystNet === -1
+          ? sectorRotationGuard("warn", "1 net analyst downgrade", { net: analystNet })
+        : sectorRotationGuard("pass", analystNet == null ? "no negative revision wave on file" : `${analystNet >= 0 ? "+" : ""}${analystNet} net revisions`, { net: analystNet });
+      guards.earnings = printDays != null && printDays <= 0 && printDays >= -7 && printMove != null && printMove <= -3
+        ? sectorRotationGuard("block", `fell ${r1(printMove)}% on earnings ${-printDays}d ago`)
+        : nextEarnDays != null && nextEarnDays >= 0 && nextEarnDays <= 7
+          ? sectorRotationGuard("warn", `earnings in ${nextEarnDays}d — binary event before confirmation`)
+          : sectorRotationGuard("pass", "no recent negative earnings break or imminent print");
+      guards.idiosyncratic = residual == null
+        ? sectorRotationGuard("warn", "peer residual unavailable; attribution confidence is lower")
+        : residual < -idioLimit || (fit.correlation != null && fit.correlation < 0.1 && residual < -2)
+          ? sectorRotationGuard("block", `${r1(residual)} pts worse than beta-adjusted peers (limit −${r1(idioLimit)})`, { residualPct: r1(residual) })
+          : sectorRotationGuard("pass", `${r1(residual)}-pt beta-adjusted residual stays inside the rotation band`, { residualPct: r1(residual) });
+
+      const thrustBar = Math.max(SECTOR_ROTATION_FIRST_THRUST, atrPct * 0.75);
+      const ownThrust = bounce >= thrustBar && ret1 > 0 && group.metrics.breadthUpPct >= SECTOR_ROTATION_BREADTH_UP;
+      let phase = ownThrust && group.phase !== "washed-out" ? "first-thrust" : "washed-out";
+      const structurallyConfirmed = ownThrust && group.phase === "confirmed"
+        && episode.troughAge >= SECTOR_ROTATION_CONFIRM_AGE
+        && spot >= sma10 && (higherCloses || (rsi >= 45 && rsiChange > 0));
+      if (structurallyConfirmed) phase = "confirmed";
+      const chase = episode.troughAge >= SECTOR_ROTATION_CONFIRM_AGE
+        && ((ret3 >= 15) || (rsi >= 70 && distSma20 >= 8) || (bounce >= 25 && distSma20 >= 10));
+      if (chase && phase !== "washed-out") phase = "late";
+      guards.chase = chase
+        ? sectorRotationGuard("warn", `extended after the turn (${r1(ret3)}%/3d, ${r1(distSma20)}% vs 20D SMA)`)
+        : sectorRotationGuard("pass", "not extended by the chase guard");
+
+      // Unverified news or an imminent print can stay visible, but cannot be
+      // called confirmed/actionable until refreshed or resolved.
+      if (phase === "confirmed" && (guards.news.status === "warn" || guards.earnings.status === "warn")) phase = "first-thrust";
+
+      let qualityScore = gate.checks.length ? (gate.checks.filter((x) => x.ok).length / gate.checks.length) * 10 : 0;
+      const fundScore = pnumN(grade?.pillars?.fundamentals?.score);
+      qualityScore += fundScore >= 3 ? 5 : fundScore >= 1 ? 4 : fundScore >= 0 ? 2 : 0;
+      qualityScore += trajectory?.dir === "improving" ? 3 : trajectory?.dir === "steady" ? 2 : 0;
+      qualityScore += guards.news.status === "pass" ? 3 : 1;
+      qualityScore += judgment === "strong" ? 3 : judgment === "mixed" ? 2 : 1;
+      qualityScore += analystNet != null && analystNet > 0 ? 1 : analystNet == null || analystNet === 0 ? 0.5 : 0;
+      qualityScore = clamp(qualityScore, 0, 25);
+
+      let rotationScore = 4;
+      rotationScore += sectorRotationScale(Math.abs(group.metrics.drawdownPct), 4, 24, 4);
+      rotationScore += sectorRotationScale(group.metrics.breadthDownPct, 60, 100, 5);
+      rotationScore += sectorRotationScale(Math.abs(Math.min(0, group.metrics.relSpyPct ?? 0)), 2, 12, 5);
+      rotationScore += sectorRotationScale(group.metrics.bestOtherSpreadPct, 4, 16, 3);
+      rotationScore += guards.idiosyncratic.status === "pass" ? 3 : guards.idiosyncratic.status === "warn" ? 1 : 0;
+      rotationScore += group.benchmark?.confirmed ? 1 : 0;
+      rotationScore = clamp(rotationScore, 0, 25);
+
+      let priorTrendScore = 0;
+      if (peakSma50 > 0 && episode.peakPrice >= peakSma50) priorTrendScore += 5;
+      if (peakSma200 > 0 && episode.peakPrice >= peakSma200) priorTrendScore += 4;
+      if (peakSma50 > 0 && peakSma200 > 0 && peakSma50 >= peakSma200) priorTrendScore += 3;
+      if (peakRet60 != null && peakRet60 > 0) priorTrendScore += 3;
+
+      let washoutScore = 4 + sectorRotationScale(Math.abs(episode.drawdownPct), 8, 35, 4);
+      if (zTrough != null && zTrough <= -2) washoutScore += 4;
+      else if (zTrough != null && zTrough <= -1.25) washoutScore += 2;
+      if (rsi != null && rsi <= 50) washoutScore += 1;
+      if (episode.troughAge <= 3) washoutScore += 2;
+      washoutScore = clamp(washoutScore, 0, 15);
+
+      let reversalScore = 0;
+      reversalScore += sectorRotationScale(bounce, thrustBar, Math.max(thrustBar + 1, 15), 7);
+      if (group.phase === "first-thrust" || group.phase === "confirmed" || group.phase === "late") reversalScore += 5;
+      if (ret1 > 0) reversalScore += 2;
+      if (ret3 > 0) reversalScore += 1;
+      if (rsiChange != null && rsiChange > 0) reversalScore += 2;
+      if (closeLocation != null && closeLocation >= 60) reversalScore += 1.5;
+      if (rvol != null && rvol >= 1.1) reversalScore += 1.5; // bonus only; ordinary volume never vetoes
+      reversalScore = clamp(reversalScore, 0, 20);
+
+      const components = {
+        quality: r1(qualityScore), rotation: r1(rotationScore), priorTrend: r1(priorTrendScore),
+        washout: r1(washoutScore), reversal: r1(reversalScore),
+      };
+      const score = r1(Object.values(components).reduce((a, b) => a + b, 0));
+      const blockedBy = Object.entries(guards).filter(([, v]) => v.status === "block").map(([k]) => k);
+      const warnings = Object.entries(guards).filter(([, v]) => v.status === "warn").map(([key, v]) => ({ key, detail: v.detail }));
+      const reasons = [
+        `${group.def.label} fell ${r1(Math.abs(group.metrics.drawdownPct))}% with ${r1(group.metrics.breadthDownPct)}% of tracked peers down`,
+        `${sym} washed out ${r1(Math.abs(episode.drawdownPct))}% and is ${r1(bounce)}% off its trough`,
+        `${gate.checks.filter((x) => x.ok).length}/${gate.checks.length} business-quality checks pass`,
+      ];
+      if (group.metrics.relSpyPct != null) reasons.push(`group lagged SPY by ${r1(Math.abs(group.metrics.relSpyPct))} pts during the selloff`);
+      if (residual != null) reasons.push(`beta-adjusted peer residual ${residual >= 0 ? "+" : ""}${r1(residual)} pts`);
+      if (ownThrust) reasons.push(`${r1(group.metrics.breadthUpPct)}% peer rebound breadth confirms the first thrust`);
+
+      const candidate = {
+        symbol: sym,
+        name: f.name || null,
+        group: { key: group.def.key, label: group.def.label, benchmark: group.def.benchmark || null },
+        sector: SECTORS[sym] || f.sector || null,
+        spot: r2(spot),
+        phase,
+        score,
+        highConfidence: score >= SECTOR_ROTATION_HIGH_SCORE && !blockedBy.length,
+        components,
+        episode: {
+          peakDate: episode.peakDate, peakPrice: r2(episode.peakPrice),
+          troughDate: episode.troughDate, troughPrice: r2(episode.troughPrice),
+          troughAge: episode.troughAge, drawdownPct: r1(episode.drawdownPct), bouncePct: r1(bounce),
+        },
+        relative: {
+          groupDrawdownPct: group.metrics.drawdownPct,
+          groupRelSpyPct: group.metrics.relSpyPct,
+          breadthDownPct: group.metrics.breadthDownPct,
+          breadthUpPct: group.metrics.breadthUpPct,
+          peerReturnPct: r1(peerEpisodeRet),
+          stockReturnPct: r1(stockEpisodeRet),
+          beta: r2(fit.beta), correlation: r2(fit.correlation), observations: fit.n,
+          residualPct: r1(residual), idiosyncraticLimitPct: r1(idioLimit),
+          benchmarkConfirmed: group.benchmark?.confirmed ?? null,
+        },
+        technicals: {
+          rsi: r1(rsi), rsiChange5d: r1(rsiChange), atrPct: r1(atrPct),
+          sma10: r2(sma10), sma20: r2(sma20), sma50: r2(sma50), sma200: r2(sma200),
+          ret1: r1(ret1), ret3: r1(ret3), ret5: r1(ret5), rvol: r2(rvol),
+          closeLocationPct: r1(closeLocation), zAtTrough: r2(zTrough),
+          preDrop: { aboveSma50: peakSma50 > 0 ? episode.peakPrice >= peakSma50 : null, aboveSma200: peakSma200 > 0 ? episode.peakPrice >= peakSma200 : null, sma50Above200: peakSma50 > 0 && peakSma200 > 0 ? peakSma50 >= peakSma200 : null, ret60: r1(peakRet60) },
+        },
+        quality: gate.checks,
+        guards,
+        blockedBy,
+        reasons,
+        warnings,
+        series: sectorRotationNormalizedSeries(rows, peerBasket),
+        rows, data, atrPct,
+      };
+      candidate.plan = sectorRotationPlan(candidate);
+      delete candidate.rows; delete candidate.data; delete candidate.atrPct;
+
+      if (!blockedBy.length && score >= SECTOR_ROTATION_MIN_SCORE) clean.push(candidate);
+      else if (score >= SECTOR_ROTATION_MIN_SCORE - 10) near.push(candidate);
+    }
+  }
+
+  const phaseRank = { confirmed: 4, "first-thrust": 3, "washed-out": 2, late: 1 };
+  const sortRows = (a, b) => (phaseRank[b.phase] || 0) - (phaseRank[a.phase] || 0) || b.score - a.score;
+  clean.sort(sortRows); near.sort((a, b) => b.score - a.score);
+  const candidates = clean.slice(0, SECTOR_ROTATION_MAX_CANDIDATES);
+  const nearMisses = near.slice(0, SECTOR_ROTATION_MAX_NEAR_MISSES);
+  const leadersByGroup = {};
+  for (const c of candidates) (leadersByGroup[c.group.key] ||= []).push(c.symbol);
+  const groups = groupStates.map((g) => ({
+    key: g.def.key,
+    label: g.def.label,
+    members: g.members.length,
+    symbols: g.members,
+    benchmark: g.benchmark,
+    qualifies: g.qualifies,
+    phase: g.phase,
+    episode: {
+      peakDate: g.episode.peakDate,
+      troughDate: g.episode.troughDate,
+      troughAge: g.episode.troughAge,
+      ...g.metrics,
+    },
+    leaders: (leadersByGroup[g.def.key] || []).slice(0, 5),
+  })).sort((a, b) => Number(b.qualifies) - Number(a.qualifies) || Math.abs(b.episode.drawdownPct) - Math.abs(a.episode.drawdownPct));
+
+  return {
+    builtAtIso,
+    modelVersion: SECTOR_ROTATION_MODEL_VERSION,
+    lookbackSessions: SECTOR_ROTATION_LOOKBACK,
+    minGroupMembers: SECTOR_ROTATION_MIN_GROUP,
+    summary: {
+      universe,
+      withHistory: stockSymbols.length,
+      qualityPassed,
+      groupsEvaluated: groups.length,
+      groupsInRotation: groups.filter((g) => g.qualifies).length,
+      candidates: candidates.length,
+      confirmed: candidates.filter((c) => c.phase === "confirmed").length,
+      firstThrust: candidates.filter((c) => c.phase === "first-thrust").length,
+      washedOut: candidates.filter((c) => c.phase === "washed-out").length,
+      late: candidates.filter((c) => c.phase === "late").length,
+      nearMisses: nearMisses.length,
+    },
+    groups,
+    candidates,
+    nearMisses,
+    thresholds: {
+      groupDrawdownPct: SECTOR_ROTATION_GROUP_DD,
+      groupRelSpyPct: SECTOR_ROTATION_REL_SPY,
+      breadthDownPct: SECTOR_ROTATION_BREADTH_DOWN,
+      crossGroupSpreadPct: SECTOR_ROTATION_SPREAD,
+      stockDrawdownPct: SECTOR_ROTATION_STOCK_DD,
+      maxTroughAge: SECTOR_ROTATION_MAX_TROUGH_AGE,
+      firstThrustPct: SECTOR_ROTATION_FIRST_THRUST,
+      firstThrustAtrMultiple: 0.75,
+      breadthUpPct: SECTOR_ROTATION_BREADTH_UP,
+      confirmationAge: SECTOR_ROTATION_CONFIRM_AGE,
+      confirmationPositiveBreadthDays: 2,
+      confirmationReclaimSma: 10,
+      idiosyncratic: { floorPct: 4, atrMultiple: 1.25, lowCorrelation: 0.1 },
+      late: { ret3Pct: 15, rsi: 70, distSma20Pct: 8, bouncePct: 25, bounceDistSma20Pct: 10 },
+      rewardRisk: { ready: 1.5, passBelow: 1.25 },
+      minScore: SECTOR_ROTATION_MIN_SCORE,
+      highScore: SECTOR_ROTATION_HIGH_SCORE,
+      componentMax: { quality: 25, rotation: 25, priorTrend: 15, washout: 15, reversal: 20 },
+    },
+  };
+}
+
+export async function writeSectorRotationFile(payload) {
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, SECTOR_ROTATION_FILE), json, "utf8");
+  return {
+    bytes: json.length,
+    candidates: payload?.candidates?.length || 0,
+    confirmed: payload?.candidates?.filter((c) => c.phase === "confirmed").length || 0,
+    firstThrust: payload?.candidates?.filter((c) => c.phase === "first-thrust").length || 0,
+    nearMisses: payload?.nearMisses?.length || 0,
+  };
+}
+
+// ============================================================================
 // DAILY DCA DIAL — VOO/QQQ index accumulation sizing (rides stock-picks.json
 // as the `dca` block; rendered at the top of the Stock Picks tab).
 //
@@ -28027,6 +28792,16 @@ async function main() {
     console.log(`wrote data/${STOCK_PICKS_FILE} — ${spInfo.candidates} dip candidates (${spInfo.buyZone} in the buy zone)${spPayload.dca ? `, DCA dial ${spPayload.dca.indexes.map((x) => `${x.symbol} ${x.multiplier}×`).join(" / ")}` : ""}, ${spInfo.bytes} bytes`);
   } catch (err) {
     console.warn(`[stocks] stock-picks skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
+  // Sector Rotation Rebounds (premium tab): peer-group washout attribution +
+  // quality/news guards + a rule-based washed-out/first-thrust/confirmed/late
+  // phase. Pure over the same chains + grade index; no additional fetches.
+  try {
+    const rotationPayload = buildSectorRotationRebounds(chains, gradesIndex, builtAtIso);
+    const rotationInfo = await writeSectorRotationFile(rotationPayload);
+    console.log(`wrote data/${SECTOR_ROTATION_FILE} — ${rotationInfo.candidates} clean candidate(s) (${rotationInfo.confirmed} confirmed / ${rotationInfo.firstThrust} first thrust), ${rotationInfo.nearMisses} near miss(es), ${rotationInfo.bytes} bytes`);
+  } catch (err) {
+    console.warn(`[rotation] ${SECTOR_ROTATION_FILE} skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
   // Leveraged ETFs (premium tab): the daily-reset leverage screen — the same
   // grade index mapped onto listed single-stock 2× / sector-index 3× products.

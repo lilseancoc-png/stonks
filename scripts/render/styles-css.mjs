@@ -3487,6 +3487,167 @@ a.cmd-watch, a.cr-tkr, a.f13-sym, a.brief-chip, a.cal-chip-sym { text-decoration
 .stk-dca-h-hi { color: var(--pos); background: color-mix(in srgb, var(--pos) 14%, transparent); }
 .stk-dca-h-max { color: var(--pos); background: color-mix(in srgb, var(--pos) 26%, transparent); }
 
+/* --- Sector Rotation (quality dislocation + rebound confirmation) ------- */
+.rot-root { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.rot-up { color: var(--pos) !important; }
+.rot-down { color: var(--neg) !important; }
+.rot-summary { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 14px; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border)); border-radius: 12px; background: var(--surface); }
+.rot-summary > div:first-child { min-width: 0; max-width: 720px; }
+.rot-kicker { display: block; margin-bottom: 5px; color: var(--accent); font: 700 9.5px/1 var(--font-mono); letter-spacing: .09em; text-transform: uppercase; }
+.rot-summary h3 { margin: 0; color: var(--text-strong); font: 750 17px/1.3 var(--font-sans); }
+.rot-summary p { margin: 6px 0 0; color: var(--muted-strong); font: 400 12.5px/1.5 var(--font-sans); }
+.rot-summary-stats { display: grid; grid-template-columns: repeat(2, minmax(82px, 1fr)); gap: 6px; flex: 0 0 auto; }
+.rot-summary-stats > span { display: flex; flex-direction: column; gap: 2px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
+.rot-summary-stats b { color: var(--text-strong); font: 800 17px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.rot-summary-stats small { color: var(--muted); font: 650 8.5px/1.15 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; }
+.rot-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 7px; }
+.rot-section-head h3 { margin: 0; color: var(--text-strong); font: 700 13px/1.2 var(--font-sans); }
+.rot-section-head > span { color: var(--muted); font: 500 10.5px/1.3 var(--font-sans); text-align: right; }
+.rot-tape { min-width: 0; }
+.rot-tape-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(205px, 1fr)); gap: 7px; }
+.rot-tape-card { appearance: none; min-width: 0; padding: 9px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); text-align: left; cursor: pointer; }
+.rot-tape-card:hover { border-color: var(--border-strong); background: var(--surface-2); }
+.rot-tape-card.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent); }
+.rot-tape-card.rot-tape-inactive { opacity: .68; }
+.rot-tape-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.rot-tape-top b { min-width: 0; color: var(--text-strong); font: 700 12px/1.25 var(--font-sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rot-tape-top strong { flex: 0 0 auto; font: 750 12px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.rot-tape-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 7px; margin-top: 5px; }
+.rot-tape-meta em { color: var(--warn); font: 650 9.5px/1.2 var(--font-sans); font-style: normal; }
+.rot-tape-meta span { color: var(--muted); font: 550 9.5px/1.2 var(--font-mono); }
+.rot-tape-card > small { display: block; margin-top: 5px; color: var(--muted-strong); font: 400 10.5px/1.35 var(--font-sans); }
+.rot-controls { display: flex; flex-direction: column; gap: 9px; padding: 11px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); min-width: 0; }
+.rot-filter-scroll { display: flex; gap: 4px; padding-bottom: 1px; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: thin; }
+.rot-filter-btn { appearance: none; flex: 0 0 auto; padding: 6px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted-strong); font: 650 10.5px/1 var(--font-sans); white-space: nowrap; cursor: pointer; }
+.rot-filter-btn:hover { color: var(--text); background: var(--surface-2); }
+.rot-filter-btn.active { border-color: var(--border-strong); background: var(--surface-2); color: var(--text-strong); }
+.rot-filter-btn b { margin-left: 3px; color: var(--muted); font: 700 9.5px/1 var(--font-mono); }
+.rot-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.rot-action-filter { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
+.rot-toolbar label { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font: 650 10.5px/1 var(--font-sans); white-space: nowrap; }
+.rot-toolbar select { min-width: 120px; max-width: 190px; padding: 6px 24px 6px 7px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text); font: 600 10.5px/1 var(--font-sans); }
+.rot-showing { margin-left: auto; color: var(--muted); font: 600 10px/1 var(--font-mono); white-space: nowrap; }
+.rot-risk { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding-top: 9px; border-top: 1px solid var(--border); }
+.rot-risk > div { display: flex; flex: 1 1 330px; flex-direction: column; gap: 2px; }
+.rot-risk > div b { color: var(--text-strong); font: 650 11.5px/1.2 var(--font-sans); }
+.rot-risk > div span { color: var(--muted); font: 400 10.5px/1.35 var(--font-sans); }
+.rot-risk label { display: inline-flex; align-items: center; gap: 4px; color: var(--muted-strong); font: 600 10.5px/1 var(--font-sans); white-space: nowrap; }
+.rot-risk input { width: 82px; padding: 5px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text); font: 700 11px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.rot-risk [data-rot-risk] { width: 58px; }
+.rot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 11px; min-width: 0; }
+.rot-card { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 12px; border: 1px solid var(--border); border-left-width: 3px; border-radius: 10px; background: var(--surface); overflow: hidden; }
+.rot-phase-washed-out { border-left-color: color-mix(in srgb, var(--neg) 58%, var(--border)); }
+.rot-phase-first-thrust { border-left-color: color-mix(in srgb, var(--warn) 72%, var(--border)); }
+.rot-phase-confirmed, .rot-phase-retest { border-left-color: color-mix(in srgb, var(--pos) 70%, var(--border)); }
+.rot-phase-extended { border-left-color: var(--neg); }
+.rot-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.rot-id { display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px 7px; min-width: 0; }
+.rot-sym { color: var(--accent); font: 800 16px/1 var(--font-mono); letter-spacing: .02em; text-decoration: none; }
+.rot-sym:hover, .rot-sym:focus-visible { color: var(--accent-strong); text-decoration: underline; text-underline-offset: 3px; }
+.rot-name { min-width: 0; max-width: 210px; color: var(--muted-strong); font: 500 11px/1.25 var(--font-sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rot-group { flex-basis: 100%; color: var(--muted); font: 600 9.5px/1.2 var(--font-sans); letter-spacing: .03em; text-transform: uppercase; }
+.rot-score { display: flex; flex: 0 0 auto; flex-direction: column; align-items: flex-end; gap: 2px; }
+.rot-score small { color: var(--muted); font: 600 8px/1 var(--font-sans); text-transform: uppercase; }
+.rot-score b { color: var(--text-strong); font: 800 17px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.rot-card-status { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.rot-phase-chip, .rot-action { padding: 4px 7px; border-radius: 6px; font: 700 10px/1.2 var(--font-sans); }
+.rot-phase-chip { color: var(--muted-strong); background: var(--surface-2); }
+.rot-phase-first-thrust .rot-phase-chip { color: var(--warn); background: var(--warn-soft); }
+.rot-phase-confirmed .rot-phase-chip, .rot-phase-retest .rot-phase-chip { color: var(--pos); background: var(--pos-soft); }
+.rot-phase-extended .rot-phase-chip { color: var(--neg); background: var(--neg-soft); }
+.rot-action-act { color: var(--pos); background: var(--pos-soft); }
+.rot-action-wait { color: var(--warn); background: var(--warn-soft); }
+.rot-action-pass { color: var(--neg); background: var(--neg-soft); }
+.rot-confidence { padding: 4px 7px; border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); border-radius: 6px; background: var(--accent-soft); color: var(--accent); font: 700 9.5px/1.2 var(--font-sans); }
+.rot-price { min-height: 17px; }
+.rot-live { color: var(--text-strong); font: 700 12.5px/1.3 var(--font-mono); font-variant-numeric: tabular-nums; }
+.rot-live small { margin-left: 3px; color: var(--muted); font: 600 8.5px/1 var(--font-sans); text-transform: uppercase; }
+.rot-episode, .rot-components, .rot-facts { display: flex; flex-wrap: wrap; gap: 5px; min-width: 0; }
+.rot-episode > span, .rot-components > span, .rot-facts > span { display: flex; flex: 1 1 76px; flex-direction: column; gap: 2px; min-width: 68px; padding: 6px 7px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-2); }
+.rot-episode small, .rot-components small, .rot-facts small { color: var(--muted); font: 600 8.5px/1.15 var(--font-sans); letter-spacing: .025em; text-transform: uppercase; }
+.rot-episode b, .rot-components b, .rot-facts b { color: var(--text-strong); font: 700 11px/1.15 var(--font-mono); font-variant-numeric: tabular-nums; }
+.rot-components > span { background: color-mix(in srgb, var(--accent) 4%, var(--surface-2)); }
+.rot-spark-wrap { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rot-spark { display: block; width: 100%; height: 48px; }
+.rot-spark polyline { stroke: var(--muted-strong); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.rot-spark-up polyline { stroke: var(--pos); }
+.rot-spark-down polyline { stroke: var(--neg); }
+.rot-spark-low { stroke: color-mix(in srgb, var(--muted) 55%, transparent); stroke-width: 1; stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; }
+.rot-spark-wrap > span { color: var(--muted); font: 500 9px/1.2 var(--font-sans); }
+.rot-guards { display: flex; flex-wrap: wrap; gap: 4px; }
+.rot-guards > span { padding: 4px 6px; border-radius: 5px; font: 600 9.5px/1.25 var(--font-sans); }
+.rot-guard-pass { color: var(--pos); background: var(--pos-soft); }
+.rot-guard-flag { color: var(--warn); background: var(--warn-soft); }
+.rot-guard-block { color: var(--neg); background: var(--neg-soft); }
+.rot-plan { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2); overflow: hidden; }
+.rot-plan-cell { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 8px 9px; }
+.rot-plan-entry { grid-column: 1 / -1; border-bottom: 1px solid var(--border); }
+.rot-plan-stop { border-right: 1px solid var(--border); }
+.rot-plan-cell small { color: var(--muted); font: 700 8.5px/1 var(--font-mono); letter-spacing: .07em; text-transform: uppercase; }
+.rot-plan-cell b { color: var(--text-strong); font: 700 11.5px/1.3 var(--font-sans); overflow-wrap: anywhere; }
+.rot-plan-entry b { color: var(--accent); }
+.rot-plan-stop b { color: var(--neg); }
+.rot-plan-target b { color: var(--pos); }
+.rot-plan-cell b em { margin-left: 3px; color: var(--text-strong); font: 700 9.5px/1 var(--font-mono); font-style: normal; }
+.rot-plan-cell span { color: var(--muted-strong); font: 400 10px/1.35 var(--font-sans); overflow-wrap: anywhere; }
+.rot-size { margin-top: -3px; padding: 6px 8px; border-radius: 6px; background: var(--accent-soft); color: var(--muted-strong); font: 500 10.5px/1.35 var(--font-sans); }
+.rot-size b { color: var(--text-strong); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.rot-no-plan { margin: 0; padding: 7px 8px; border: 1px dashed var(--border-strong); border-radius: 7px; color: var(--muted-strong); font: 500 10.5px/1.4 var(--font-sans); }
+.rot-reasons { display: flex; flex-direction: column; gap: 3px; margin: 0; padding-left: 17px; color: var(--muted-strong); font: 400 11px/1.4 var(--font-sans); }
+.rot-reasons li::marker { color: var(--pos); }
+.rot-blocked { display: flex; flex-direction: column; gap: 3px; }
+.rot-blocked span { color: var(--neg); font: 650 10.5px/1.35 var(--font-sans); }
+.rot-warnings { display: flex; flex-direction: column; gap: 3px; }
+.rot-warnings span { color: var(--warn); font: 550 10.5px/1.35 var(--font-sans); }
+.rot-near { min-width: 0; }
+.rot-near-list { display: flex; flex-direction: column; gap: 5px; }
+.rot-near-row { display: grid; grid-template-columns: 62px minmax(90px, .75fr) minmax(110px, .7fr) 42px minmax(180px, 1.5fr); align-items: center; gap: 8px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); min-width: 0; }
+.rot-near-row .rot-sym { font-size: 12px; }
+.rot-near-row > span { min-width: 0; color: var(--muted-strong); font: 500 10.5px/1.2 var(--font-sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rot-near-row > em { color: var(--warn); font: 600 9.5px/1.2 var(--font-sans); font-style: normal; }
+.rot-near-row > b { color: var(--text-strong); font: 700 11px/1 var(--font-mono); text-align: right; }
+.rot-near-row > small { min-width: 0; color: var(--muted); font: 400 10.5px/1.3 var(--font-sans); overflow-wrap: anywhere; }
+.rot-rules { border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
+.rot-rules summary { padding: 8px 10px; color: var(--muted-strong); font: 650 10.5px/1.2 var(--font-sans); cursor: pointer; }
+.rot-rules > div { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 1px; padding: 0 9px 9px; }
+.rot-rules > div span { display: flex; flex-direction: column; gap: 2px; padding: 6px; border-top: 1px solid var(--border); }
+.rot-rules b { color: var(--muted); font: 600 8.5px/1.15 var(--font-sans); letter-spacing: .03em; text-transform: uppercase; }
+.rot-rules em { color: var(--text); font: 600 10.5px/1.25 var(--font-mono); font-style: normal; overflow-wrap: anywhere; }
+.rot-empty { display: flex; flex-direction: column; gap: 4px; padding: 13px; border: 1px dashed var(--border-strong); border-radius: 9px; color: var(--muted-strong); font: 400 12px/1.45 var(--font-sans); }
+.rot-empty b { color: var(--text-strong); }
+.rot-error { border-color: color-mix(in srgb, var(--neg) 45%, var(--border)); }
+.rot-stale { margin: 0; padding: 7px 9px; border-radius: 7px; background: var(--warn-soft); color: var(--warn); font: 600 10.5px/1.35 var(--font-sans); }
+.rot-foot { margin: 0; padding-top: 9px; border-top: 1px solid var(--border); color: var(--muted); font: 400 10.5px/1.45 var(--font-sans); }
+@media (max-width: 760px) {
+  .rot-summary { flex-direction: column; }
+  .rot-summary-stats { width: 100%; }
+  .rot-tape-grid { display: flex; gap: 7px; overflow-x: auto; scroll-snap-type: x proximity; padding-bottom: 3px; }
+  .rot-tape-card { flex: 0 0 min(78vw, 250px); scroll-snap-align: start; }
+  .rot-grid { grid-template-columns: minmax(0, 1fr); }
+  .rot-toolbar { align-items: stretch; }
+  .rot-action-filter { width: 100%; overflow-x: auto; }
+  .rot-action-filter .rot-filter-btn { flex: 1 0 auto; }
+  .rot-toolbar label { flex: 1 1 150px; justify-content: space-between; min-width: 0; }
+  .rot-toolbar select { flex: 1 1 auto; min-width: 0; max-width: none; }
+  .rot-showing { width: 100%; margin-left: 0; }
+  .rot-risk > div { flex-basis: 100%; }
+  .rot-near-row { grid-template-columns: 58px minmax(0, 1fr) auto; gap: 5px 8px; }
+  .rot-near-row > em { grid-column: 1 / 3; }
+  .rot-near-row > b { grid-column: 3; grid-row: 1; }
+  .rot-near-row > small { grid-column: 1 / -1; }
+}
+@media (max-width: 480px) {
+  .rot-summary { padding: 11px; }
+  .rot-summary-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rot-card { padding: 10px; }
+  .rot-name { max-width: 180px; }
+  .rot-plan { grid-template-columns: minmax(0, 1fr); }
+  .rot-plan-entry { grid-column: auto; }
+  .rot-plan-stop { border-right: 0; border-bottom: 1px solid var(--border); }
+  .rot-risk label { width: 100%; justify-content: space-between; }
+  .rot-episode > span, .rot-components > span, .rot-facts > span { flex-basis: 72px; }
+}
+
 /* --- Leveraged ETFs (daily-reset leverage screen, premium) -------------- */
 .lev-root { display: flex; flex-direction: column; gap: 14px; }
 .lev-desk { border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border)); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 11px; background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent 55%); }

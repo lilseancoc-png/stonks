@@ -68,7 +68,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // default to "ungated, everyone's a member" so a legacy public deploy — or a
   // failed /me probe — never locks the site by accident. applyAuth() flips these
   // once /me resolves, before the first selectTab().
-  var PREMIUM_TABS = { market:1, brief:1, flow:1, volume:1, oi:1, stocks:1, spillover:1, levetf:1, 'iv-trend':1, streaks:1 };
+  var PREMIUM_TABS = { market:1, rotation:1, brief:1, flow:1, volume:1, oi:1, stocks:1, spillover:1, levetf:1, 'iv-trend':1, streaks:1 };
   var GATE_ON = false;
   var IS_MEMBER = true;
   // Track Record is a STRICTER tier than premium: a specific Discord role, not
@@ -91,7 +91,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // header so the Discord is findable from anywhere on the site.
   var DISCORD_INVITE_URL = ${JSON.stringify(DISCORD_INVITE_URL)};
   function premiumTabLabel(id){
-    return ({ market:'Market Analysis', brief:'Briefs', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', stocks:'Stock Picks', spillover:'Event spillover', quant:'Quant Lab', levetf:'Leveraged ETFs', 'iv-trend':'Trending IV', streaks:'Streaks' })[id] || 'This feature';
+    return ({ market:'Market Analysis', rotation:'Sector Rotation', brief:'Briefs', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', stocks:'Stock Picks', spillover:'Event spillover', quant:'Quant Lab', levetf:'Leveraged ETFs', 'iv-trend':'Trending IV', streaks:'Streaks' })[id] || 'This feature';
   }
   // Inject the members-only upsell card into a locked premium pane (idempotent).
   function ensurePremiumLock(pane, id){
@@ -108,7 +108,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
         '</div>' +
         '<h2 class="premium-lock-title">' + escapeHtml(premiumTabLabel(id)) + ' is a members feature</h2>' +
-        '<p class="premium-lock-body">Market analysis, Stock Picks, Leveraged ETFs, Briefs, Trending IV, Streaks, Event spillover, Unusual &amp; Volume flow, and Gamma exposure are unlocked with a premium <b>Discord</b> membership. Join the server to get access &mdash; everything else stays free.</p>' +
+        '<p class="premium-lock-body">Market analysis, Sector Rotation, Stock Picks, Leveraged ETFs, Briefs, Trending IV, Streaks, Event spillover, Unusual &amp; Volume flow, and Gamma exposure are unlocked with a premium <b>Discord</b> membership. Join the server to get access &mdash; everything else stays free.</p>' +
         '<a class="premium-lock-cta" href="' + DISCORD_INVITE_URL + '" target="_blank" rel="noopener">' + DISCORD_ICON_SVG + '<span>Join the Discord to get premium</span></a>' +
         '<p class="premium-lock-foot">Already a member? <a href="/api/auth/discord-login">Log in with Discord</a>.</p>' +
       '</div>';
@@ -3173,7 +3173,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','picks','stocks','heatmap','calendar','earnings','calls','spillover','quant','levetf','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','features','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','rotation','picks','stocks','heatmap','calendar','earnings','calls','spillover','quant','levetf','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','features','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3191,6 +3191,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     pick: 'picks', 'top-picks': 'picks', toppicks: 'picks',
     'stock-picks': 'stocks', stockpicks: 'stocks', stock: 'stocks', shares: 'stocks',
     'market-analysis': 'market', analysis: 'market', tape: 'market', regime: 'market',
+    'sector-rotation': 'rotation', rotation: 'rotation', rotate: 'rotation', rebound: 'rotation', 'rotation-radar': 'rotation',
     headlines: 'news', 'stock-news': 'news', 'news-feed': 'news',
     narrative: 'narratives', strategy: 'strategies', streak: 'streaks',
     comparison: 'compare', compare2: 'compare', versus: 'compare', vs: 'compare',
@@ -3441,6 +3442,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (name === 'stocks' && typeof loadStocks === 'function') loadStocks();
         // Market analysis: the tape/barometer/regime widgets + their data.
         if (name === 'market' && typeof loadMarketAnalysis === 'function') loadMarketAnalysis();
+        if (name === 'rotation' && typeof loadSectorRotation === 'function') loadSectorRotation();
         if (name === 'market' && typeof loadRegimeHistory === 'function') loadRegimeHistory();
         if (name === 'market' && typeof loadOvernight === 'function') loadOvernight();
         if (name === 'market' && typeof startMacroTapeLive === 'function') startMacroTapeLive();
@@ -15977,6 +15979,656 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     bindDcaBase(root);
     bindBriefChips(root);
   }
+  // --- Sector Rotation (premium) -------------------------------------------
+  // Quality names can sell off with an industry even when their own business
+  // is intact. This desk separates the initial reflex bounce from a confirmed
+  // reclaim, keeps extended/poor-payoff setups out of the chase bucket, and
+  // turns every actionable read into an entry / invalidation / target plan.
+  var rotationState = {
+    data: null, loading: false, error: false, quotes: null, quotesFor: '',
+    phase: 'all', action: 'all', group: 'all', sort: 'priority',
+    account: 25000, riskPct: 0.5
+  };
+  try {
+    var rotationPrefs = JSON.parse(localStorage.getItem('sectorRotationPrefs') || '{}');
+    if (rotationPrefs && isFinite(rotationPrefs.account) && rotationPrefs.account > 0) rotationState.account = Number(rotationPrefs.account);
+    if (rotationPrefs && isFinite(rotationPrefs.riskPct) && rotationPrefs.riskPct > 0 && rotationPrefs.riskPct <= 5) rotationState.riskPct = Number(rotationPrefs.riskPct);
+    if (rotationPrefs && rotationPrefs.phase) rotationState.phase = String(rotationPrefs.phase);
+    if (rotationPrefs && rotationPrefs.action) rotationState.action = String(rotationPrefs.action);
+    if (rotationPrefs && rotationPrefs.group) rotationState.group = String(rotationPrefs.group);
+    if (rotationPrefs && rotationPrefs.sort) rotationState.sort = String(rotationPrefs.sort);
+  } catch(e){}
+  function rotNum(v){
+    var n = Number(v);
+    return v !== '' && v != null && isFinite(n) ? n : null;
+  }
+  function rotValue(obj, keys){
+    if (!obj || typeof obj !== 'object') return null;
+    for (var i = 0; i < keys.length; i++){
+      if (obj[keys[i]] != null && obj[keys[i]] !== '') return obj[keys[i]];
+    }
+    return null;
+  }
+  function rotText(obj, keys){
+    var v = rotValue(obj, keys);
+    if (v == null || typeof v === 'object') return '';
+    return String(v);
+  }
+  function rotHuman(s){
+    return String(s || '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').replace(/\\b\\w/g, function(ch){ return ch.toUpperCase(); });
+  }
+  function rotKey(s){ return String(s || '').toLowerCase().replace(/[_\\s]+/g, '-'); }
+  function rotPhase(c){
+    var raw = rotKey((c && c.phase) || (c && c.episode && c.episode.phase) || 'watch');
+    if (raw === 'first-bounce' || raw === 'bounce' || raw === 'impulse' || raw === 'first-thrust-day') return 'first-thrust';
+    if (raw === 'washedout' || raw === 'selloff' || raw === 'base') return 'washed-out';
+    if (raw === 'reclaim' || raw === 'confirmation' || raw === 'confirmed-reclaim') return 'confirmed';
+    if (raw === 'pullback' || raw === 'backtest' || raw === 'retest-hold') return 'retest';
+    if (raw === 'overextended' || raw === 'chase' || raw === 'late' || raw === 'late-stage') return 'extended';
+    return raw;
+  }
+  function rotPhaseLabel(phase){
+    return ({
+      'washed-out':'Washed out',
+      'first-thrust':'First thrust - not confirmed',
+      confirmed:'Confirmed reclaim',
+      retest:'Retest / hold',
+      extended:'Extended - do not chase',
+      watch:'Watch'
+    })[phase] || rotHuman(phase || 'watch');
+  }
+  function rotCandidateScore(c){
+    var score = c ? c.score : null;
+    if (score && typeof score === 'object') score = rotValue(score, ['total','value','score']);
+    return rotNum(score);
+  }
+  function rotPlan(c){ return c && c.plan && typeof c.plan === 'object' ? c.plan : {}; }
+  function rotPlanRr(c){
+    var p = rotPlan(c);
+    return rotNum(rotValue(p, ['riskReward','riskRewardRatio','rewardRisk','rr']));
+  }
+  function rotPlanPoint(c, kind){
+    var p = rotPlan(c);
+    var aliases = kind === 'stop' ? ['stop','invalidation','stopPx','stopPrice','invalidationPx']
+      : kind === 'target' ? ['target','target1','firstTarget','targetPx','targetPrice']
+      : ['entry','entryZone','trigger','entryPx','entryPrice'];
+    var v = rotValue(p, aliases);
+    if (Array.isArray(v)){
+      var zoneLow = rotNum(v[0]), zoneHigh = rotNum(v[1]);
+      var plannedTrigger = rotNum(p.trigger);
+      if (plannedTrigger == null && zoneLow != null && zoneHigh != null) plannedTrigger = (zoneLow + zoneHigh) / 2;
+      return { price:plannedTrigger, low:zoneLow, high:zoneHigh, label:'', note:rotText(p, ['basis']) };
+    }
+    if (v && typeof v === 'object'){
+      var n = rotNum(rotValue(v, ['price','px','level','value','underlyingPx','trigger']));
+      var low = rotNum(rotValue(v, ['low','from','min']));
+      var high = rotNum(rotValue(v, ['high','to','max']));
+      return { price:n, low:low, high:high, label:rotText(v, ['label','headline','text','valueText']), note:rotText(v, ['note','detail','reason','basis']) };
+    }
+    return { price:rotNum(v), low:null, high:null, label:typeof v === 'string' && rotNum(v) == null ? v : '', note:'' };
+  }
+  function rotActionRaw(c){
+    var a = c && c.action;
+    if (a && typeof a === 'object') return rotText(a, ['state','kind','action','label','headline','text']);
+    if (a != null) return String(a);
+    return rotText(rotPlan(c), ['state']);
+  }
+  function rotActionLabel(c){
+    var a = c && c.action;
+    if (a && typeof a === 'object') return rotText(a, ['label','headline','text','state','kind','action']);
+    if (a != null) return String(a);
+    return rotText(rotPlan(c), ['headline','state']);
+  }
+  function rotDecision(c, thresholds){
+    var phase = rotPhase(c);
+    var rr = rotPlanRr(c);
+    var minRr = rotNum(rotValue(thresholds, ['minRiskReward','minimumRiskReward','riskRewardMin','minRr']));
+    if (!(minRr > 0)) minRr = 1;
+    if (rr != null && rr < minRr) return { kind:'pass', label:'Pass - payoff too thin', note:'Estimated ' + fmt(rr, 1) + ':1 R:R is below the ' + fmt(minRr, 1) + ':1 screen floor.' };
+    var rawLabel = rotActionLabel(c);
+    var raw = rotKey(rotActionRaw(c));
+    if (/pass|avoid|no-trade|reject|blocked/.test(raw)) return { kind:'pass', label:rawLabel || 'Pass', note:'' };
+    if (phase === 'extended') return { kind:'wait', label:'Wait - extended, do not chase', note:'Let price reset into support or build a new base.' };
+    if (phase === 'first-thrust') return { kind:'wait', label:'Wait - first thrust, not confirmed', note:'Look for follow-through or a retest that holds before sizing.' };
+    if (/wait|watch|monitor|hold-off|setup/.test(raw)) return { kind:'wait', label:rawLabel || 'Wait', note:'' };
+    if (/enter|buy|actionable|ready|starter|act-now/.test(raw)) return { kind:'act', label:rawLabel || 'Actionable', note:'' };
+    if (phase === 'confirmed' || phase === 'retest') return { kind:'act', label:'Actionable - structure confirmed', note:'' };
+    return { kind:'wait', label:rawLabel || 'Watch - needs confirmation', note:'' };
+  }
+  function rotList(v){
+    if (Array.isArray(v)) return v.filter(function(x){ return x != null && x !== ''; });
+    if (typeof v === 'string' && v) return [v];
+    return [];
+  }
+  function rotGroups(raw){
+    if (Array.isArray(raw)) return raw.slice();
+    if (!raw || typeof raw !== 'object') return [];
+    return Object.keys(raw).map(function(k){
+      var src = raw[k];
+      if (!src || typeof src !== 'object') return { id:k, label:k, changePct:src };
+      var out = {};
+      Object.keys(src).forEach(function(sk){ out[sk] = src[sk]; });
+      if (!out.id && !out.key && !out.group) out.id = k;
+      if (!out.label && !out.name) out.label = k;
+      return out;
+    });
+  }
+  function rotGroupId(g){ return String(rotValue(g, ['id','key','group','name','label']) || 'Other'); }
+  function rotCandidateGroup(c){
+    var g = c && c.group;
+    if (g && typeof g === 'object') return String(rotValue(g, ['label','name','key','id']) || rotValue(c, ['sector']) || 'Other');
+    return String(rotValue(c, ['group','industry','sector']) || 'Other');
+  }
+  function rotCandidateGroupKey(c){
+    var g = c && c.group;
+    if (g && typeof g === 'object') return String(rotValue(g, ['key','id','label','name']) || rotCandidateGroup(c));
+    return rotCandidateGroup(c);
+  }
+  function rotGroupMatches(c, value){
+    return value === 'all' || rotKey(rotCandidateGroupKey(c)) === rotKey(value) || rotKey(rotCandidateGroup(c)) === rotKey(value);
+  }
+  function rotSavePrefs(){
+    try {
+      localStorage.setItem('sectorRotationPrefs', JSON.stringify({
+        account:rotationState.account, riskPct:rotationState.riskPct,
+        phase:rotationState.phase, action:rotationState.action,
+        group:rotationState.group, sort:rotationState.sort
+      }));
+    } catch(e){}
+  }
+  function loadSectorRotation(){
+    if ((rotationState.data && !tabDataStale(rotationState)) || rotationState.loading){ renderSectorRotation(); return; }
+    rotationState.loading = true;
+    rotationState.error = false;
+    renderSectorRotation();
+    fetch(dataUrl('sector-rotation.json'), { cache:'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){
+        rotationState.data = j && typeof j === 'object' ? j : {};
+        rotationState.loading = false;
+        rotationState.error = false;
+        rotationState.fetchedAt = Date.now();
+        renderSectorRotation();
+        loadRotationQuotes();
+      })
+      .catch(function(){ rotationState.loading = false; rotationState.error = true; renderSectorRotation(); });
+  }
+  function loadRotationQuotes(){
+    var d = rotationState.data || {};
+    var rows = (Array.isArray(d.candidates) ? d.candidates : []).concat(Array.isArray(d.nearMisses) ? d.nearMisses : []);
+    var syms = [];
+    rows.forEach(function(c){
+      var sym = c && c.symbol ? String(c.symbol).toUpperCase() : '';
+      if (sym && syms.indexOf(sym) < 0) syms.push(sym);
+    });
+    if (!syms.length) return;
+    var key = syms.join(',');
+    if (rotationState.quotesFor === key && rotationState.quotes){ applyRotationLive(); return; }
+    fetch('/api/quotes?symbols=' + encodeURIComponent(key))
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){
+        var map = {};
+        (j && Array.isArray(j.quotes) ? j.quotes : []).forEach(function(q){ if (q && q.symbol) map[String(q.symbol).toUpperCase()] = q; });
+        rotationState.quotes = map;
+        rotationState.quotesFor = key;
+        applyRotationLive();
+      })
+      .catch(function(){ /* Live prices enhance the baked screen; they never gate it. */ });
+  }
+  function rotLiveHtml(c){
+    var sym = String((c && c.symbol) || '').toUpperCase();
+    var q = rotationState.quotes && rotationState.quotes[sym];
+    var spot = q && q.spot != null ? rotNum(q.spot) : rotNum(c && c.spot);
+    var pct = q ? rotNum(q.changePct) : null;
+    var source = q ? 'live' : 'baked';
+    return '<span class="rot-live" data-rot-live="' + escapeHtml(sym) + '" data-rot-baked="' + (rotNum(c && c.spot) == null ? '' : rotNum(c.spot)) + '">' +
+      (spot == null ? 'Price unavailable' : fmtMoney(spot)) +
+      (pct == null ? '' : ' <span class="rot-' + (pct >= 0 ? 'up' : 'down') + '">' + (pct >= 0 ? '+' : '') + fmt(pct, 2) + '% today</span>') +
+      ' <small>' + source + '</small></span>';
+  }
+  function applyRotationRiskSizing(){
+    var budget = rotationState.account * rotationState.riskPct / 100;
+    var map = rotationState.quotes || {};
+    var nodes = document.querySelectorAll('[data-rot-size]');
+    for (var i = 0; i < nodes.length; i++){
+      var sym = nodes[i].getAttribute('data-rot-size');
+      var decision = nodes[i].getAttribute('data-rot-decision');
+      if (decision === 'pass'){
+        nodes[i].innerHTML = '<b>No size:</b> this setup is a pass at the current payoff.';
+        continue;
+      }
+      var q = map[sym];
+      var spot = q && q.spot != null ? rotNum(q.spot) : rotNum(nodes[i].getAttribute('data-rot-baked'));
+      var plannedEntry = rotNum(nodes[i].getAttribute('data-rot-entry'));
+      if (decision === 'wait' && plannedEntry != null) spot = plannedEntry;
+      var stop = rotNum(nodes[i].getAttribute('data-rot-stop'));
+      if (!(spot > 0) || !(stop > 0) || Math.abs(spot - stop) < 0.005){
+        nodes[i].textContent = 'Share cap needs a numeric price and invalidation level.';
+        continue;
+      }
+      var perShare = Math.abs(spot - stop);
+      var byRisk = Math.floor(budget / perShare);
+      var byCash = Math.floor(rotationState.account / spot);
+      var shares = Math.min(byRisk, byCash);
+      if (shares < 1){
+        nodes[i].innerHTML = (decision === 'wait' ? 'If triggered, ' : '') + 'risk cap <b>' + fmtMoney(budget) + '</b> is smaller than one share at this stop.';
+        continue;
+      }
+      var capped = byCash < byRisk ? ' (cash-capped)' : '';
+      nodes[i].innerHTML = (decision === 'wait' ? '<b>Hypothetical at trigger:</b> ' : '') + 'risk cap <b>' + fmtMoney(budget) + '</b> &rarr; <b>' + shares + ' share' + (shares === 1 ? '' : 's') +
+        '</b> &middot; ' + fmtMoney(shares * spot) + ' notional' + capped;
+    }
+  }
+  function applyRotationLive(){
+    var map = rotationState.quotes || {};
+    var nodes = document.querySelectorAll('[data-rot-live]');
+    for (var i = 0; i < nodes.length; i++){
+      var sym = nodes[i].getAttribute('data-rot-live');
+      var q = map[sym];
+      if (!q || q.spot == null) continue;
+      var pct = rotNum(q.changePct);
+      nodes[i].innerHTML = fmtMoney(q.spot) + (pct == null ? '' : ' <span class="rot-' + (pct >= 0 ? 'up' : 'down') + '">' + (pct >= 0 ? '+' : '') + fmt(pct, 2) + '% today</span>') + ' <small>live</small>';
+    }
+    applyRotationRiskSizing();
+  }
+  function rotSeriesValues(c){
+    var raw = c && c.series;
+    if (raw && !Array.isArray(raw) && typeof raw === 'object') raw = rotValue(raw, ['stock','closes','values','points','prices','series']);
+    if (!Array.isArray(raw)) return [];
+    return raw.map(function(p){
+      if (p && typeof p === 'object') return rotNum(rotValue(p, ['close','price','value','spot','y']));
+      return rotNum(p);
+    }).filter(function(n){ return n != null; }).slice(-60);
+  }
+  function rotSpark(c){
+    var vals = rotSeriesValues(c);
+    if (vals.length < 2) return '';
+    var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+    var span = hi - lo || 1, W = 240, H = 48, pad = 3;
+    var pts = vals.map(function(v, idx){
+      var x = vals.length === 1 ? 0 : idx * W / (vals.length - 1);
+      var y = pad + (H - pad * 2) * (1 - (v - lo) / span);
+      return x.toFixed(1) + ',' + y.toFixed(1);
+    }).join(' ');
+    var trough = vals.indexOf(lo);
+    var tx = trough * W / (vals.length - 1);
+    var tone = vals[vals.length - 1] >= vals[0] ? 'up' : 'down';
+    return '<div class="rot-spark-wrap"><svg class="rot-spark rot-spark-' + tone + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="Recent price path; low-water mark is dotted">' +
+      '<line class="rot-spark-low" x1="' + tx.toFixed(1) + '" y1="2" x2="' + tx.toFixed(1) + '" y2="46"/>' +
+      '<polyline points="' + pts + '" fill="none"/></svg><span>Recent path &middot; dotted = episode low</span></div>';
+  }
+  function rotPct(v, digits){
+    var n = rotNum(v);
+    return n == null ? '' : (n > 0 ? '+' : '') + fmt(n, digits == null ? 1 : digits) + '%';
+  }
+  function rotMetricValue(v){
+    if (v && typeof v === 'object') v = rotValue(v, ['score','value','pct','percent','label','state']);
+    if (typeof v === 'boolean') return v ? 'yes' : 'no';
+    var n = rotNum(v);
+    return n == null ? String(v == null ? '' : v) : fmt(n, 1);
+  }
+  function rotComponentHtml(c){
+    var raw = c && c.components;
+    var rows = [];
+    if (Array.isArray(raw)){
+      raw.forEach(function(v){
+        if (v && typeof v === 'object') rows.push({ label:rotText(v, ['label','name','key']) || 'Component', value:rotValue(v, ['score','value','pct']) });
+      });
+    } else if (raw && typeof raw === 'object'){
+      Object.keys(raw).forEach(function(k){ rows.push({ label:rotHuman(k), value:raw[k] }); });
+    }
+    rows = rows.filter(function(r){ return r.value != null && r.value !== ''; }).slice(0, 6);
+    if (!rows.length) return '';
+    return '<div class="rot-components" aria-label="Score components">' + rows.map(function(r){
+      return '<span><small>' + escapeHtml(r.label) + '</small><b>' + escapeHtml(rotMetricValue(r.value)) + '</b></span>';
+    }).join('') + '</div>';
+  }
+  function rotEpisodeHtml(c){
+    var e = c && c.episode && typeof c.episode === 'object' ? c.episode : {};
+    var draw = rotNum(rotValue(e, ['drawdownPct','peakToTroughPct','dislocationPct','troughDrawdownPct']));
+    var bounce = rotNum(rotValue(e, ['bouncePct','reboundPct','offLowPct','lowToNowPct']));
+    var days = rotNum(rotValue(e, ['troughAge','sessionsSinceLow','daysSinceLow','ageSessions','lowAge']));
+    var peak = rotNum(rotValue(e, ['peakPx','peakPrice','priorHigh']));
+    var low = rotNum(rotValue(e, ['troughPx','troughPrice','lowPx','lowPrice','trough']));
+    var rows = [];
+    if (draw != null) rows.push({ label:'Peak to low', value:rotPct(draw > 0 ? -draw : draw), cls:'down' });
+    if (bounce != null) rows.push({ label:'Off the low', value:rotPct(bounce), cls:bounce >= 0 ? 'up' : 'down' });
+    if (days != null) rows.push({ label:'Low age', value:fmt(days, 0) + ' session' + (days === 1 ? '' : 's'), cls:'' });
+    if (peak != null) rows.push({ label:'Prior peak', value:fmtMoney(peak), cls:'' });
+    if (low != null) rows.push({ label:'Episode low', value:fmtMoney(low), cls:'' });
+    if (!rows.length) return '';
+    return '<div class="rot-episode">' + rows.slice(0, 5).map(function(r){
+      return '<span><small>' + r.label + '</small><b class="' + (r.cls ? 'rot-' + r.cls : '') + '">' + r.value + '</b></span>';
+    }).join('') + '</div>';
+  }
+  function rotFactsHtml(c){
+    var rel = c && c.relative && typeof c.relative === 'object' ? c.relative : {};
+    var tech = c && c.technicals && typeof c.technicals === 'object' ? c.technicals : {};
+    var facts = [];
+    function add(label, value, kind){
+      if (value == null || value === '') return;
+      facts.push({ label:label, value:value, kind:kind || '' });
+    }
+    var rsi = rotValue(tech, ['rsi14','rsi','relativeStrengthIndex']);
+    if (rotNum(rsi) != null) add('RSI 14', fmt(rsi, 1));
+    var ret5 = rotValue(tech, ['ret5','return5dPct','fiveDayPct']);
+    if (rotNum(ret5) != null) add('Stock 5D', rotPct(ret5), rotNum(ret5) >= 0 ? 'up' : 'down');
+    var rvol = rotValue(tech, ['relativeVolume','relVolume','volumeRatio','rvol']);
+    if (rotNum(rvol) != null) add('Rel volume', fmt(rvol, 2) + 'x');
+    var sma20 = rotValue(tech, ['distanceFrom20dPct','vsSma20Pct','above20dPct']);
+    if (rotNum(sma20) == null && rotNum(c && c.spot) != null && rotNum(tech.sma20) > 0) sma20 = (rotNum(c.spot) / rotNum(tech.sma20) - 1) * 100;
+    if (rotNum(sma20) != null) add('vs 20D', rotPct(sma20), rotNum(sma20) >= 0 ? 'up' : 'down');
+    var groupRel = rotValue(rel, ['groupRelSpyPct','vsGroup5dPct','vsGroupPct','relativeToGroupPct','groupAlphaPct']);
+    if (rotNum(groupRel) != null) add(rel.groupRelSpyPct != null ? 'Group vs SPY' : 'vs group', rotPct(groupRel), rotNum(groupRel) >= 0 ? 'up' : 'down');
+    var sectorRel = rotValue(rel, ['vsSector5dPct','vsSectorPct','relativeToSectorPct','sectorAlphaPct']);
+    if (rotNum(sectorRel) != null) add('vs sector', rotPct(sectorRel), rotNum(sectorRel) >= 0 ? 'up' : 'down');
+    var breadth = rotValue(rel, ['breadthUpPct','reboundBreadthPct']);
+    if (rotNum(breadth) != null) add('Peer breadth', fmt(breadth, 0) + '%', rotNum(breadth) >= 60 ? 'up' : 'down');
+    var rs = rotValue(rel, ['residualPct','rs5dPct','relativeStrengthPct','recoveryAlphaPct']);
+    if (rotNum(rs) != null) add(rel.residualPct != null ? 'Peer residual' : 'Recovery alpha', rotPct(rs), rotNum(rs) >= 0 ? 'up' : 'down');
+    ['higherLow','macdBullish','above20d','above50d'].forEach(function(k){
+      if (facts.length >= 7 || typeof tech[k] !== 'boolean') return;
+      add(rotHuman(k), tech[k] ? 'yes' : 'no', tech[k] ? 'up' : 'down');
+    });
+    if (!facts.length) return '';
+    return '<div class="rot-facts">' + facts.slice(0, 7).map(function(f){
+      return '<span><small>' + escapeHtml(f.label) + '</small><b class="' + (f.kind ? 'rot-' + f.kind : '') + '">' + escapeHtml(String(f.value)) + '</b></span>';
+    }).join('') + '</div>';
+  }
+  function rotGuardHtml(c){
+    var g = c && c.guards;
+    var chips = [];
+    if (Array.isArray(g)){
+      g.slice(0, 6).forEach(function(v){
+        if (typeof v === 'string') chips.push({ status:'pass', text:v });
+        else if (v && typeof v === 'object') chips.push({ status:v.pass === false ? 'flag' : 'pass', text:rotText(v, ['label','name','text','detail']) || 'Guard' });
+      });
+    } else if (g && typeof g === 'object'){
+      Object.keys(g).slice(0, 8).forEach(function(k){
+        var v = g[k];
+        if (v == null || Array.isArray(v)) return;
+        if (typeof v === 'object'){
+          var status = rotKey(rotText(v, ['status','state'])) || 'unknown';
+          var detail = rotText(v, ['detail','text','label','reason']);
+          var prefix = rotHuman(k);
+          chips.push({ status:/block|fail|reject/.test(status) ? 'block' : /pass|ok|clear/.test(status) ? 'pass' : 'flag', text:prefix + (detail ? ': ' + detail : '') });
+          return;
+        }
+        var inverse = /bad|negative|red.?flag|earnings.?risk|event.?risk|company.?news/i.test(k) && !/^no/i.test(k);
+        var good = typeof v === 'boolean' ? (inverse ? !v : v) : !/fail|risk|warn|bad|blocked/i.test(String(v));
+        var label = ({ noBadNews:'No company-specific bad news', fundamentalsPass:'Fundamentals pass', technicalsPass:'Technicals pass', newsClear:'News clear', liquidityPass:'Liquidity pass' })[k] || rotHuman(k);
+        if ((k === 'badNews' || k === 'companyNewsRisk') && v === false) label = 'No company-specific bad news';
+        if ((k === 'badNews' || k === 'companyNewsRisk') && v === true) label = 'Company-specific bad news detected';
+        var suffix = typeof v === 'boolean' ? '' : ': ' + String(v);
+        chips.push({ status:good ? 'pass' : 'flag', text:label + suffix });
+      });
+    }
+    if (!chips.length) return '';
+    return '<div class="rot-guards" aria-label="Quality and news guards">' + chips.map(function(x){
+      return '<span class="rot-guard-' + x.status + '">' + (x.status === 'pass' ? '&#10003; ' : '&#9888; ') + escapeHtml(x.text) + '</span>';
+    }).join('') + '</div>';
+  }
+  function rotPointText(point, fallback){
+    if (point.label) return point.label;
+    if (point.low != null && point.high != null) return fmtMoney(point.low) + ' - ' + fmtMoney(point.high);
+    if (point.price != null) return fmtMoney(point.price);
+    return fallback;
+  }
+  function rotPlanHtml(c, decision){
+    var entry = rotPlanPoint(c, 'entry'), stop = rotPlanPoint(c, 'stop'), target = rotPlanPoint(c, 'target');
+    var rr = rotPlanRr(c);
+    var sizingEntry = rotNum(rotValue(rotPlan(c), ['trigger','entryPx','entryPrice']));
+    if (sizingEntry == null) sizingEntry = entry.price != null ? entry.price : entry.high != null ? entry.high : entry.low;
+    var has = entry.price != null || entry.low != null || entry.label || stop.price != null || target.price != null || rr != null;
+    if (!has) return '<p class="rot-no-plan">Trade levels are not available for this candidate yet - keep it on watch, do not improvise a stop.</p>';
+    var entryLabel = decision.kind === 'pass' ? decision.label : decision.kind === 'wait' ? decision.label : rotPointText(entry, 'At trigger');
+    var entryDetail = decision.note || entry.note || rotText(rotPlan(c), ['basis']) || (decision.kind === 'act' ? 'Structure is actionable; use the stated invalidation.' : 'Wait for the stated condition.');
+    if (decision.kind === 'wait' && (entry.price != null || entry.low != null || entry.label)) entryDetail = 'Planned entry ' + rotPointText(entry, 'at trigger') + '. ' + entryDetail;
+    return '<div class="rot-plan" aria-label="Rotation trade plan">' +
+      '<div class="rot-plan-cell rot-plan-entry"><small>Entry state</small><b>' + escapeHtml(entryLabel) + '</b><span>' + escapeHtml(entryDetail) + '</span></div>' +
+      '<div class="rot-plan-cell rot-plan-stop"><small>Invalidation</small><b>' + escapeHtml(rotPointText(stop, 'Not supplied')) + '</b><span>' + escapeHtml(stop.note || 'Exit if the rotation-rebound structure breaks.') + '</span></div>' +
+      '<div class="rot-plan-cell rot-plan-target"><small>First target</small><b>' + escapeHtml(rotPointText(target, 'Not supplied')) + (rr == null ? '' : ' <em>' + fmt(rr, 1) + ':1 R:R</em>') + '</b><span>' + escapeHtml(target.note || 'Treat the first resistance test as the initial payoff.') + '</span></div>' +
+    '</div>' +
+    '<div class="rot-size" data-rot-size="' + escapeHtml(String(c.symbol || '').toUpperCase()) + '" data-rot-baked="' + (rotNum(c.spot) == null ? '' : rotNum(c.spot)) + '" data-rot-entry="' + (sizingEntry == null ? '' : sizingEntry) + '" data-rot-stop="' + (stop.price == null ? '' : stop.price) + '" data-rot-decision="' + decision.kind + '">Share cap is calculated from price, invalidation and your risk budget.</div>';
+  }
+  function rotReasonHtml(c){
+    var reasons = rotList(c && c.reasons).slice(0, 4);
+    var warnings = rotList(c && c.warnings).slice(0, 4);
+    var blocked = rotList(c && c.blockedBy).slice(0, 4);
+    var html = '';
+    if (reasons.length) html += '<ul class="rot-reasons">' + reasons.map(function(r){
+      var text = r && typeof r === 'object' ? rotText(r, ['text','detail','label','reason','key']) : String(r);
+      return '<li>' + escapeHtml(text) + '</li>';
+    }).join('') + '</ul>';
+    if (blocked.length) html += '<div class="rot-blocked">' + blocked.map(function(b){ return '<span>&#9940; Blocked by ' + escapeHtml(rotHuman(String(b))) + '</span>'; }).join('') + '</div>';
+    if (warnings.length) html += '<div class="rot-warnings">' + warnings.map(function(w){
+      var text = w && typeof w === 'object' ? rotText(w, ['detail','text','label','warning','key']) : String(w);
+      return '<span>&#9888; ' + escapeHtml(text) + '</span>';
+    }).join('') + '</div>';
+    return html;
+  }
+  function rotCandidateCard(c, thresholds){
+    var sym = String(c.symbol || '').toUpperCase();
+    var phase = rotPhase(c), decision = rotDecision(c, thresholds), score = rotCandidateScore(c);
+    return '<article class="rot-card rot-phase-' + escapeHtml(phase) + ' rot-decision-' + decision.kind + '">' +
+      '<header class="rot-card-head"><div class="rot-id"><a class="rot-sym" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '">' + escapeHtml(sym || '?') + '</a>' +
+        '<span class="rot-name">' + escapeHtml(c.name || '') + '</span><span class="rot-group">' + escapeHtml(rotCandidateGroup(c)) + '</span></div>' +
+        '<span class="rot-score"><small>Rotation score</small><b>' + (score == null ? '-' : fmt(score, 1)) + '</b></span></header>' +
+      '<div class="rot-card-status"><span class="rot-phase-chip">' + escapeHtml(rotPhaseLabel(phase)) + '</span><span class="rot-action rot-action-' + decision.kind + '">' + escapeHtml(decision.label) + '</span>' + (c.highConfidence ? '<span class="rot-confidence">Strong screen fit</span>' : '') + '</div>' +
+      '<div class="rot-price">' + rotLiveHtml(c) + '</div>' +
+      rotEpisodeHtml(c) + rotSpark(c) + rotComponentHtml(c) + rotFactsHtml(c) + rotGuardHtml(c) +
+      rotPlanHtml(c, decision) + rotReasonHtml(c) +
+    '</article>';
+  }
+  function rotGroupTape(groups){
+    if (!groups.length) return '<section class="rot-tape"><div class="rot-section-head"><h3>Group tape</h3><span>No group roll-up in this build</span></div></section>';
+    return '<section class="rot-tape"><div class="rot-section-head"><h3>Group tape</h3><span>Click a group to filter the candidates</span></div><div class="rot-tape-grid">' + groups.map(function(g){
+      var id = rotGroupId(g);
+      var label = rotText(g, ['label','name','group']) || id;
+      var episode = g && g.episode && typeof g.episode === 'object' ? g.episode : {};
+      var move = rotNum(rotValue(episode, ['bouncePct','reboundPct','offLowPct']));
+      if (move == null) move = rotNum(rotValue(g, ['changePct','return1dPct','dayPct','movePct','todayPct']));
+      var drawdown = rotNum(rotValue(episode, ['drawdownPct','peakToTroughPct']));
+      var breadth = rotNum(rotValue(episode, ['breadthUpPct','reboundBreadthPct']));
+      if (breadth == null) breadth = rotNum(rotValue(episode, ['breadthDownPct']));
+      if (breadth == null) breadth = rotNum(rotValue(g, ['breadthPct','positiveBreadthPct','advancersPct','breadth']));
+      var phase = rotPhase({ phase:rotValue(g, ['phase','state']) || 'watch' });
+      var qualifies = g && g.qualifies !== false;
+      var members = rotNum(rotValue(g, ['memberCount','members','count','tracked']));
+      if (Array.isArray(g.members)) members = g.members.length;
+      var summary = rotText(g, ['summary','note','read']);
+      if (!summary && drawdown != null) summary = 'Group drawdown ' + rotPct(drawdown > 0 ? -drawdown : drawdown) + (rotNum(episode.relSpyPct) == null ? '' : ' \u00b7 vs SPY ' + rotPct(episode.relSpyPct));
+      var active = rotKey(rotationState.group) === rotKey(id);
+      return '<button type="button" class="rot-tape-card' + (qualifies ? '' : ' rot-tape-inactive') + (active ? ' active' : '') + '" data-rot-group-card="' + escapeHtml(id) + '" aria-pressed="' + (active ? 'true' : 'false') + '">' +
+        '<span class="rot-tape-top"><b>' + escapeHtml(label) + '</b>' + (move == null ? '' : '<strong class="rot-' + (move >= 0 ? 'up' : 'down') + '">' + rotPct(move) + ' off low</strong>') + '</span>' +
+        '<span class="rot-tape-meta"><em>' + escapeHtml(qualifies ? rotPhaseLabel(phase) : 'No fresh rotation') + '</em>' + (breadth == null ? '' : '<span>' + fmt(breadth, 0) + '% breadth</span>') + (members == null ? '' : '<span>' + fmt(members, 0) + ' names</span>') + '</span>' +
+        (summary ? '<small>' + escapeHtml(summary) + '</small>' : '') + '</button>';
+    }).join('') + '</div></section>';
+  }
+  function rotSummaryHtml(d, candidates){
+    var s = d && d.summary;
+    var headline = typeof s === 'string' ? s : rotText(s, ['headline','title','label']);
+    var body = s && typeof s === 'object' ? rotText(s, ['text','summary','detail','note']) : '';
+    var thresholds = d && d.thresholds;
+    var first = 0, confirmed = 0, actionable = 0, waits = 0;
+    candidates.forEach(function(c){
+      var p = rotPhase(c), a = rotDecision(c, thresholds);
+      if (p === 'first-thrust') first++;
+      if (p === 'confirmed' || p === 'retest') confirmed++;
+      if (a.kind === 'act') actionable++; else waits++;
+    });
+    // Newer payloads carry precomputed desk counts in summary.counts; older
+    // ones do not. Prefer explicit finite counts, but retain client-derived
+    // fallbacks so either shape renders during a rolling deploy.
+    var counts = s && typeof s === 'object' && s.counts && typeof s.counts === 'object' ? s.counts : (s && typeof s === 'object' ? s : {});
+    var explicitActionable = rotNum(rotValue(counts, ['actionable','actionableCount','ready','readyCount']));
+    var explicitFirst = rotNum(rotValue(counts, ['firstThrust','firstThrustCount','first_thrust']));
+    var explicitConfirmed = rotNum(rotValue(counts, ['confirmed','confirmedCount','retestConfirmed']));
+    var explicitWaits = rotNum(rotValue(counts, ['waitOrPass','waitOrPassCount','waiting','waitingCount']));
+    if (explicitActionable != null) actionable = explicitActionable;
+    if (explicitFirst != null) first = explicitFirst;
+    if (explicitConfirmed != null) confirmed = explicitConfirmed;
+    if (explicitWaits != null) waits = explicitWaits;
+    return '<section class="rot-summary"><div><span class="rot-kicker">Rotation rebound desk</span><h3>' + escapeHtml(headline || 'Quality intact. Price dislocated. Confirmation still matters.') + '</h3>' +
+      '<p>' + escapeHtml(body || 'Ranks strong businesses caught in group-level selling, then separates the first bounce from a confirmed reclaim or clean retest.') + '</p></div>' +
+      '<div class="rot-summary-stats"><span><b>' + actionable + '</b><small>actionable</small></span><span><b>' + first + '</b><small>first thrust</small></span><span><b>' + confirmed + '</b><small>confirmed / retest</small></span><span><b>' + waits + '</b><small>wait or pass</small></span></div></section>';
+  }
+  function rotVisibleCandidates(candidates, thresholds){
+    var rows = candidates.filter(function(c){
+      if (rotationState.phase !== 'all' && rotPhase(c) !== rotationState.phase) return false;
+      if (rotationState.action !== 'all' && rotDecision(c, thresholds).kind !== rotationState.action) return false;
+      if (!rotGroupMatches(c, rotationState.group)) return false;
+      return true;
+    });
+    rows.sort(function(a, b){
+      if (rotationState.sort === 'priority'){
+        var actionRank = { act:3, wait:2, pass:1 };
+        var actionDelta = (actionRank[rotDecision(b, thresholds).kind] || 0) - (actionRank[rotDecision(a, thresholds).kind] || 0);
+        if (actionDelta) return actionDelta;
+      }
+      if (rotationState.sort === 'rr') return (rotPlanRr(b) == null ? -999 : rotPlanRr(b)) - (rotPlanRr(a) == null ? -999 : rotPlanRr(a));
+      if (rotationState.sort === 'drawdown'){
+        var ad = Math.abs(rotNum(rotValue(a.episode || {}, ['drawdownPct','peakToTroughPct','dislocationPct'])) || 0);
+        var bd = Math.abs(rotNum(rotValue(b.episode || {}, ['drawdownPct','peakToTroughPct','dislocationPct'])) || 0);
+        return bd - ad;
+      }
+      if (rotationState.sort === 'bounce'){
+        var ab = rotNum(rotValue(a.episode || {}, ['bouncePct','reboundPct','offLowPct'])) || -999;
+        var bb = rotNum(rotValue(b.episode || {}, ['bouncePct','reboundPct','offLowPct'])) || -999;
+        return bb - ab;
+      }
+      if (rotationState.sort === 'live'){
+        var aq = rotationState.quotes && rotationState.quotes[String(a.symbol || '').toUpperCase()];
+        var bq = rotationState.quotes && rotationState.quotes[String(b.symbol || '').toUpperCase()];
+        return (bq && rotNum(bq.changePct) != null ? rotNum(bq.changePct) : -999) - (aq && rotNum(aq.changePct) != null ? rotNum(aq.changePct) : -999);
+      }
+      return (rotCandidateScore(b) == null ? -999 : rotCandidateScore(b)) - (rotCandidateScore(a) == null ? -999 : rotCandidateScore(a));
+    });
+    return rows;
+  }
+  function rotToolbarHtml(candidates, visible, groups, thresholds){
+    var phases = [['all','All states'],['washed-out','Washed out'],['first-thrust','First thrust'],['confirmed','Confirmed'],['retest','Retest'],['extended','Extended']];
+    function phaseBtn(x){
+      var active = rotationState.phase === x[0];
+      return '<button type="button" class="rot-filter-btn' + (active ? ' active' : '') + '" data-rot-phase="' + x[0] + '" aria-pressed="' + (active ? 'true' : 'false') + '">' + x[1] + '</button>';
+    }
+    function actionBtn(key, label){
+      var active = rotationState.action === key;
+      var count = key === 'all' ? candidates.length : candidates.filter(function(c){ return rotDecision(c, thresholds).kind === key; }).length;
+      return '<button type="button" class="rot-filter-btn' + (active ? ' active' : '') + '" data-rot-action="' + key + '" aria-pressed="' + (active ? 'true' : 'false') + '">' + label + ' <b>' + count + '</b></button>';
+    }
+    var groupOpts = [];
+    groups.forEach(function(g){
+      var value = rotGroupId(g), label = rotText(g, ['label','name','group']) || value;
+      if (!groupOpts.some(function(x){ return rotKey(x.value) === rotKey(value); })) groupOpts.push({ value:value, label:label });
+    });
+    candidates.forEach(function(c){
+      var value = rotCandidateGroupKey(c), label = rotCandidateGroup(c);
+      if (!groupOpts.some(function(x){ return rotKey(x.value) === rotKey(value); })) groupOpts.push({ value:value, label:label });
+    });
+    var opts = '<option value="all">All groups</option>' + groupOpts.map(function(g){ return '<option value="' + escapeHtml(g.value) + '"' + (rotKey(rotationState.group) === rotKey(g.value) ? ' selected' : '') + '>' + escapeHtml(g.label) + '</option>'; }).join('');
+    return '<section class="rot-controls"><div class="rot-filter-scroll" aria-label="Rebound state">' + phases.map(phaseBtn).join('') + '</div>' +
+      '<div class="rot-toolbar"><div class="rot-action-filter">' + actionBtn('all','All') + actionBtn('act','Actionable') + actionBtn('wait','Wait') + actionBtn('pass','Pass') + '</div>' +
+        '<label>Group <select data-rot-group>' + opts + '</select></label>' +
+        '<label>Sort <select data-rot-sort><option value="priority"' + (rotationState.sort === 'priority' ? ' selected' : '') + '>Desk priority</option><option value="score"' + (rotationState.sort === 'score' ? ' selected' : '') + '>Rotation score</option><option value="rr"' + (rotationState.sort === 'rr' ? ' selected' : '') + '>Best R:R</option><option value="drawdown"' + (rotationState.sort === 'drawdown' ? ' selected' : '') + '>Deepest dislocation</option><option value="bounce"' + (rotationState.sort === 'bounce' ? ' selected' : '') + '>Strongest rebound</option><option value="live"' + (rotationState.sort === 'live' ? ' selected' : '') + '>Live day move</option></select></label>' +
+        '<span class="rot-showing">Showing ' + visible.length + ' of ' + candidates.length + '</span></div>' +
+      '<div class="rot-risk"><div><b>Position-risk cap</b><span>Uses live price for actionable setups and the planned trigger for waiting setups, both against structural invalidation.</span></div>' +
+        '<label>Account $<input type="number" min="100" step="500" value="' + Math.round(rotationState.account) + '" data-rot-account></label>' +
+        '<label>Max loss / trade <input type="number" min="0.05" max="5" step="0.05" value="' + rotationState.riskPct + '" data-rot-risk>%</label></div></section>';
+  }
+  function rotNearMissHtml(rows, thresholds){
+    if (!rows.length) return '';
+    var list = rows.slice().sort(function(a,b){ return (rotCandidateScore(b) || 0) - (rotCandidateScore(a) || 0); }).slice(0, 10);
+    return '<section class="rot-near"><div class="rot-section-head"><h3>Near misses</h3><span>Strong context, but one or more gates still fail</span></div><div class="rot-near-list">' + list.map(function(c){
+      var sym = String(c.symbol || '').toUpperCase(), score = rotCandidateScore(c), d = rotDecision(c, thresholds);
+      var why = rotText(c, ['missReason','reason','note']);
+      if (!why){
+        var blocked = rotList(c.blockedBy);
+        if (blocked.length){
+          var blockKey = String(blocked[0]);
+          var blockGuard = c && c.guards && c.guards[blockKey];
+          why = rotText(blockGuard, ['detail','text','label','reason']) || ('Blocked by ' + blocked.map(rotHuman).join(', '));
+        }
+      }
+      if (!why){ var ws = rotList(c.warnings); why = ws.length ? String(ws[0] && typeof ws[0] === 'object' ? rotText(ws[0], ['detail','text','label','warning','key']) : ws[0]) : d.label; }
+      return '<div class="rot-near-row"><a class="rot-sym" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '">' + escapeHtml(sym || '?') + '</a><span>' + escapeHtml(c.name || rotCandidateGroup(c)) + '</span>' +
+        '<em>' + escapeHtml(rotPhaseLabel(rotPhase(c))) + '</em><b>' + (score == null ? '-' : fmt(score,1)) + '</b><small>' + escapeHtml(why || 'Below the screen threshold.') + '</small></div>';
+    }).join('') + '</div></section>';
+  }
+  function rotThresholdHtml(thresholds, modelVersion){
+    var rows = [];
+    if (Array.isArray(thresholds)) rows = thresholds.map(function(v, i){ return { key:'Rule ' + (i + 1), value:v }; });
+    else if (thresholds && typeof thresholds === 'object') Object.keys(thresholds).forEach(function(k){ rows.push({ key:rotHuman(k), value:thresholds[k] }); });
+    if (!rows.length && !modelVersion) return '';
+    return '<details class="rot-rules"><summary>How the screen draws the line' + (modelVersion ? ' &middot; ' + escapeHtml(String(modelVersion)) : '') + '</summary>' +
+      (rows.length ? '<div>' + rows.slice(0, 16).map(function(r){
+        var v = r.value;
+        if (Array.isArray(v)) v = v.join(', ');
+        else if (v && typeof v === 'object') v = Object.keys(v).map(function(k){ return rotHuman(k) + ' ' + rotMetricValue(v[k]); }).join(' · ');
+        return '<span><b>' + escapeHtml(r.key) + '</b><em>' + escapeHtml(String(v)) + '</em></span>';
+      }).join('') + '</div>' : '') + '</details>';
+  }
+  function bindRotationDesk(root){
+    var phases = root.querySelectorAll('[data-rot-phase]');
+    for (var i = 0; i < phases.length; i++) phases[i].addEventListener('click', function(){ rotationState.phase = this.getAttribute('data-rot-phase') || 'all'; rotSavePrefs(); renderSectorRotation(); });
+    var actions = root.querySelectorAll('[data-rot-action]');
+    for (var j = 0; j < actions.length; j++) actions[j].addEventListener('click', function(){ rotationState.action = this.getAttribute('data-rot-action') || 'all'; rotSavePrefs(); renderSectorRotation(); });
+    var tape = root.querySelectorAll('[data-rot-group-card]');
+    for (var k = 0; k < tape.length; k++) tape[k].addEventListener('click', function(){
+      var id = this.getAttribute('data-rot-group-card') || 'all';
+      rotationState.group = rotKey(rotationState.group) === rotKey(id) ? 'all' : id;
+      rotSavePrefs(); renderSectorRotation();
+    });
+    var group = root.querySelector('[data-rot-group]');
+    if (group) group.addEventListener('change', function(){ rotationState.group = this.value || 'all'; rotSavePrefs(); renderSectorRotation(); });
+    var sort = root.querySelector('[data-rot-sort]');
+    if (sort) sort.addEventListener('change', function(){ rotationState.sort = this.value || 'priority'; rotSavePrefs(); renderSectorRotation(); });
+    function saveRisk(){
+      var account = root.querySelector('[data-rot-account]'), risk = root.querySelector('[data-rot-risk]');
+      var av = account ? rotNum(account.value) : null, rv = risk ? rotNum(risk.value) : null;
+      if (av != null && av > 0) rotationState.account = av;
+      if (rv != null && rv > 0 && rv <= 5) rotationState.riskPct = rv;
+      rotSavePrefs(); applyRotationRiskSizing();
+    }
+    var account = root.querySelector('[data-rot-account]'), risk = root.querySelector('[data-rot-risk]');
+    if (account){ account.addEventListener('input', saveRisk); account.addEventListener('change', saveRisk); }
+    if (risk){ risk.addEventListener('input', saveRisk); risk.addEventListener('change', saveRisk); }
+  }
+  function renderSectorRotation(){
+    var root = $('rotation-root') || $('sector-rotation-root');
+    var eye = $('rotation-eyebrow') || $('sector-rotation-eyebrow');
+    if (!root) return;
+    root.classList.add('rot-root');
+    if (rotationState.loading && !rotationState.data){ root.innerHTML = '<p class="rot-empty">Loading sector-rotation screen&hellip;</p>'; return; }
+    if (rotationState.error && !rotationState.data){
+      root.innerHTML = '<div class="rot-empty rot-error"><b>Sector Rotation is unavailable right now.</b><span>The premium data request failed; no stale candidate is being presented as current. Reopen the tab to retry.</span></div>';
+      return;
+    }
+    var d = rotationState.data || {};
+    var candidates = Array.isArray(d.candidates) ? d.candidates : [];
+    var near = Array.isArray(d.nearMisses) ? d.nearMisses : [];
+    var groups = rotGroups(d.groups);
+    var thresholds = d.thresholds && typeof d.thresholds === 'object' ? d.thresholds : {};
+    var validGroup = rotationState.group === 'all' || candidates.concat(near).some(function(c){ return rotGroupMatches(c, rotationState.group); }) || groups.some(function(g){ return rotKey(rotGroupId(g)) === rotKey(rotationState.group) || rotKey(rotText(g, ['label','name'])) === rotKey(rotationState.group); });
+    if (!validGroup) rotationState.group = 'all';
+    var visible = rotVisibleCandidates(candidates, thresholds);
+    if (eye){
+      var when = d.builtAtIso ? new Date(d.builtAtIso).toLocaleString() : '';
+      eye.textContent = candidates.length + ' candidate' + (candidates.length === 1 ? '' : 's') + (near.length ? ' \u00b7 ' + near.length + ' near miss' + (near.length === 1 ? '' : 'es') : '') + (when ? ' \u00b7 updated ' + when : '');
+    }
+    var stale = rotationState.error ? '<p class="rot-stale">Live refresh failed; the last successfully loaded build remains visible.</p>' : '';
+    var grid = visible.length ? '<div class="rot-grid">' + visible.map(function(c){ return rotCandidateCard(c, thresholds); }).join('') + '</div>'
+      : candidates.length ? '<div class="rot-empty"><b>No candidates match these desk filters.</b><span>Reset state, action, or group filters; the screen is not manufacturing a trade.</span></div>'
+      : '<div class="rot-empty"><b>No quality rotation-rebound candidate clears the bar.</b><span>That is a valid signal. Wait for a clean dislocation and confirmation instead of forcing a bounce trade.</span></div>';
+    var filteredNear = rotationState.group === 'all' ? near : near.filter(function(c){ return rotGroupMatches(c, rotationState.group); });
+    root.innerHTML = stale + rotSummaryHtml(d, candidates) + rotGroupTape(groups) + rotToolbarHtml(candidates, visible, groups, thresholds) + grid +
+      rotNearMissHtml(filteredNear, thresholds) + rotThresholdHtml(d.thresholds, d.modelVersion) +
+      '<p class="rot-foot">A sector-rotation diagnosis is probabilistic, not proof that company-specific risk is absent. First-thrust means an initial reflex move, never confirmation. Recheck fresh news and earnings timing before acting. Educational screen, not financial advice.</p>';
+    bindRotationDesk(root);
+    applyRotationLive();
+    bindBriefChips(root);
+  }
+
   // --- Leveraged ETFs (premium) --------------------------------------------
   // The daily-reset leverage screen: the same deterministic grades as Top
   // Picks, mapped onto LISTED leveraged products (single-stock 2× / sector-
@@ -16860,7 +17512,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Stock Picks card + DCA symbols, Trending-IV symbols/chips/table rows).
   function bindBriefChips(rootEl){
     if (!rootEl) return;
-    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .news-feed-sym[data-sym], .stk-sym[data-sym], .stk-dca-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym], .cmd-watch[data-sym], .cr-tkr[data-sym], .f13-sym[data-sym], .ers-sym[data-sym], .ecl-sym[data-sym], .spill-sym[data-sym], .quant-sym[data-sym], .lev-sym[data-sym]');
+    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .news-feed-sym[data-sym], .stk-sym[data-sym], .stk-dca-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym], .cmd-watch[data-sym], .cr-tkr[data-sym], .f13-sym[data-sym], .ers-sym[data-sym], .ecl-sym[data-sym], .spill-sym[data-sym], .quant-sym[data-sym], .rot-sym[data-sym], .lev-sym[data-sym]');
     for (var i = 0; i < chips.length; i++){
       chips[i].addEventListener('click', function(ev){
         // Modified clicks fall through to the browser so the ?s= href opens
@@ -26617,6 +27269,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       ['brief', 'Brief'],
       ['news', 'News desk'],
       ['market', 'Market analysis'],
+      ['rotation', 'Sector rotation'],
       ['picks', 'Top picks'],
       ['stocks', 'Stock picks'],
       ['heatmap', 'Heatmap'],
