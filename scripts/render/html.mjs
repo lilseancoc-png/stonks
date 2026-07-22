@@ -966,7 +966,7 @@ function compareCompaniesSection() {
     <header class="card-header">
       <h2 class="card-title">Compare companies</h2>
     </header>
-    <p class="hint">Put 2–4 companies side by side — price, valuation (P/E, PEG, P/S), growth, margins, the analyst read and our 4-pillar grade — with the leader on each row highlighted, the % difference vs the first name on every other column, and a plain-language summary of how they stack up. Reads the same free data as the Grade tab.</p>
+    <p class="hint">Put 2–4 companies side by side. The price overlay rebases every name to 0% on the first shared close, making relative strength easy to compare across 1 month to 1 year; the table then lines up valuation (P/E, PEG, P/S), growth, margins, the analyst read and our 4-pillar grade. Reads the same free data as the Grade tab.</p>
     <div class="cmp-controls">
       <div class="combo" id="cmp-combo">
         <input type="text" id="cmp-input" role="combobox"
@@ -978,11 +978,29 @@ function compareCompaniesSection() {
         <ul id="cmp-listbox" role="listbox" hidden></ul>
       </div>
       <button type="button" class="cmp-btn" id="cmp-add" aria-label="Add ticker">Add</button>
-      <button type="button" class="cmp-btn cmp-btn-quick" id="cmp-quick-mag7" title="Compare the Magnificent 7">Mag 7</button>
+      <button type="button" class="cmp-btn cmp-btn-quick" id="cmp-quick-mega4" title="Compare AAPL, MSFT, GOOGL and AMZN">Mega 4</button>
       <button type="button" class="cmp-btn cmp-btn-ghost" id="cmp-clear">Clear</button>
     </div>
     <div id="cmp-chips" class="cmp-chips" aria-label="Selected companies"></div>
     <div id="cmp-status" class="opt-status" role="status"></div>
+    <div id="cmp-chart-card" class="cmp-chart-card" hidden>
+      <div class="cmp-chart-head">
+        <div>
+          <div class="cmp-chart-eyebrow">Price overlay</div>
+          <h3 class="cmp-chart-title">Relative performance</h3>
+          <p class="cmp-chart-sub" id="cmp-chart-sub">Daily closes, rebased to 0% on the first shared session.</p>
+        </div>
+        <div id="cmp-range" class="cmp-range" role="group" aria-label="Comparison chart range">
+          <button type="button" class="cmp-range-btn" data-cmp-range="1m" aria-pressed="false">1M</button>
+          <button type="button" class="cmp-range-btn is-active" data-cmp-range="3m" aria-pressed="true">3M</button>
+          <button type="button" class="cmp-range-btn" data-cmp-range="6m" aria-pressed="false">6M</button>
+          <button type="button" class="cmp-range-btn" data-cmp-range="1y" aria-pressed="false">1Y</button>
+        </div>
+      </div>
+      <div id="cmp-chart-legend" class="cmp-chart-legend" aria-label="Chart legend"></div>
+      <div id="cmp-chart" class="cmp-chart"></div>
+      <div id="cmp-chart-read" class="cmp-chart-read" aria-live="polite"></div>
+    </div>
     <div id="cmp-summary" class="cmp-summary" hidden aria-live="polite"></div>
     <div id="cmp-table-wrap" class="cmp-table-wrap" hidden></div>
   </section>`;

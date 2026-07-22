@@ -1049,7 +1049,7 @@ export const DOC_PAGES = {
             <li><b>Grade a ticker</b> — AI chart-pattern read + technicals, fundamentals, IV, news + a contract grader</li>
             <li><b>Tickers</b> — chains, technicals, Greeks, IV term structure, AI news takes</li>
             <li><b>News desk</b> — straight headlines ranked by likely impact, active tape and source corroboration</li>
-            <li><b>Compare companies</b> — 2–4 names side by side: valuation, growth, margins, grade</li>
+            <li><b>Compare companies</b> — overlay 2–4 price histories, then compare valuation, growth, margins and grade</li>
             <li><b>Calendar</b> — earnings, macro prints, FOMC + FedWatch odds</li>
             <li><b>Earnings tracker</b> — season scoreboard: beats, guidance, expected moves, drift</li>
             <li><b>Market heatmap</b> — live map by performance or relative volume</li>
@@ -1115,7 +1115,7 @@ export const DOC_PAGES = {
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Compare companies</span><span class="tier free">Free</span></div>
-          <p class="feat-desc">Put 2–4 companies side by side — price, valuation (P/E, PEG, P/S), growth, margins, the analyst read and the 4-pillar grade — with the leader on each row highlighted, the % difference vs the first name, and a plain-language summary of how they stack up.</p>
+          <p class="feat-desc">Overlay 2–4 normalized price histories across 1 month to 1 year, with a shared hover readout that keeps each name's actual close visible. Then compare valuation (P/E, PEG, P/S), growth, margins, the analyst read and the 4-pillar grade side by side.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Calendar</span><span class="tier free">Free</span></div>

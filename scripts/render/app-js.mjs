@@ -13001,14 +13001,19 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
 
   // --- Compare companies (Tools tab) --------------------------------------
-  // Side-by-side fundamentals + grade comparator. Lazy-fetches each ticker's
-  // data/<SYM>.json (FREE) + grades.json (FREE), renders a metric table with the
-  // per-row leader highlighted, a delta vs the first (base) name on every other
-  // column, and a plain-language summary. Pure browser tool — no premium gate,
-  // no live polling.
-  var compareState = { inited: false, tickers: [], cache: {}, grades: null, gradesLoading: false };
+  // Side-by-side price, fundamentals + grade comparator. Lazy-fetches each
+  // ticker's data/<SYM>.json (FREE) + grades.json (FREE), overlays normalized
+  // daily closes, then renders a metric table with the per-row leader, deltas
+  // vs the first (base) name, and a plain-language summary. Pure browser tool —
+  // no premium gate and no live polling.
+  var compareState = { inited: false, tickers: [], cache: {}, grades: null, gradesLoading: false, range: '3m' };
   var CMP_MAX = 4;
-  var CMP_MAG7 = ['AAPL','MSFT','GOOGL','AMZN','NVDA','META','TSLA'];
+  var CMP_MEGA4 = ['AAPL','MSFT','GOOGL','AMZN'];
+  // Daily-session windows. The chart intersects normalized YYYY-MM-DD keys
+  // across every ready ticker before taking the tail, so all lines share the
+  // exact same baseline and every point is a true like-for-like session.
+  var CMP_RANGE_BARS = { '1m': 21, '3m': 63, '6m': 126, '1y': 252 };
+  var CMP_RANGE_LABELS = { '1m': '1 month', '3m': '3 months', '6m': '6 months', '1y': '1 year' };
   // Metric rows. get(j) reads from the per-ticker json (j.fundamentals, j.spot,
   // j._grade = the grades.json entry). better = which direction wins the row
   // (for the leader highlight); deltaKind controls how the vs-base diff reads.
@@ -13172,12 +13177,21 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       compareState.inited = true;
       cmpSearch.init();
       var add = $('cmp-add'); if (add) add.addEventListener('click', cmpAddFromInput);
-      var mag = $('cmp-quick-mag7'); if (mag) mag.addEventListener('click', function(){ cmpSetTickers(CMP_MAG7.slice(0, CMP_MAX)); });
+      var mega = $('cmp-quick-mega4'); if (mega) mega.addEventListener('click', function(){ cmpSetTickers(CMP_MEGA4); });
       var clr = $('cmp-clear'); if (clr) clr.addEventListener('click', function(){ cmpSetTickers([]); });
       var chips = $('cmp-chips');
       if (chips) chips.addEventListener('click', function(e){
         var b = e.target.closest && e.target.closest('[data-cmp-remove]');
         if (b) cmpRemoveTicker(b.getAttribute('data-cmp-remove'));
+      });
+      var ranges = $('cmp-range');
+      if (ranges) ranges.addEventListener('click', function(e){
+        var btn = e.target.closest && e.target.closest('[data-cmp-range]');
+        if (!btn) return;
+        var next = btn.getAttribute('data-cmp-range');
+        if (!CMP_RANGE_BARS[next] || next === compareState.range) return;
+        compareState.range = next;
+        renderCompare();
       });
     }
     renderCompare();
@@ -13193,14 +13207,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (!sym) return;
     if (compareState.tickers.indexOf(sym) !== -1) return;
     if (compareState.tickers.length >= CMP_MAX){ cmpStatus('Up to ' + CMP_MAX + ' companies at a time — remove one first.'); return; }
+    cmpStatus('');
     compareState.tickers.push(sym);
     cmpLoadAndRender();
   }
   function cmpRemoveTicker(sym){
+    cmpStatus('');
     compareState.tickers = compareState.tickers.filter(function(t){ return t !== sym; });
     renderCompare();
   }
   function cmpSetTickers(list){
+    cmpStatus('');
     compareState.tickers = (list || []).slice(0, CMP_MAX);
     cmpLoadAndRender();
   }
@@ -13232,7 +13249,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var sym = compareState.tickers[i];
       var j = compareState.cache[sym];
       var nm = (j && j !== 'error' && j.fundamentals && j.fundamentals.name) ? j.fundamentals.name : '';
-      out += '<span class="cmp-chip' + (i === 0 ? ' cmp-chip-base' : '') + '">' +
+      out += '<span class="cmp-chip cmp-series-' + i + (i === 0 ? ' cmp-chip-base' : '') + '">' +
+        '<span class="cmp-chip-swatch" aria-hidden="true"></span>' +
         '<b>' + escapeHtml(sym) + '</b>' + (i === 0 ? '<span class="cmp-chip-base-tag">base</span>' : '') +
         (nm ? '<span class="cmp-chip-name">' + escapeHtml(nm) + '</span>' : '') +
         '<button type="button" class="cmp-chip-x" data-cmp-remove="' + escapeHtml(sym) + '" aria-label="Remove ' + escapeHtml(sym) + '">&times;</button>' +
@@ -13240,13 +13258,285 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     return out;
   }
+  function cmpSyncRangeButtons(){
+    var btns = document.querySelectorAll('#cmp-range [data-cmp-range]');
+    for (var i=0; i<btns.length; i++){
+      var on = btns[i].getAttribute('data-cmp-range') === compareState.range;
+      btns[i].classList.toggle('is-active', on);
+      btns[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+  }
+  function cmpHideChart(){
+    var card = $('cmp-chart-card');
+    var chart = $('cmp-chart');
+    var legend = $('cmp-chart-legend');
+    var read = $('cmp-chart-read');
+    var floatingTip = document.querySelector('body > .cmp-chart-tip.cmp-chart-tip-floating');
+    if (floatingTip) floatingTip.remove();
+    if (card) card.hidden = true;
+    if (chart) chart.innerHTML = '';
+    if (legend) legend.innerHTML = '';
+    if (read) read.innerHTML = '';
+  }
+  function cmpDateKey(raw){
+    // Daily history normally ships YYYY-MM-DD. Accept an appended time while
+    // refusing locale-dependent dates so the intersection remains stable.
+    var s = String(raw == null ? '' : raw);
+    if (s.length < 10 || s.charAt(4) !== '-' || s.charAt(7) !== '-') return null;
+    var key = s.slice(0, 10);
+    return isFinite(Date.parse(key + 'T00:00:00Z')) ? key : null;
+  }
+  function cmpHistoryMap(j){
+    var ps = j && j.priceSeries;
+    if (!ps || !Array.isArray(ps.t) || !Array.isArray(ps.c)) return null;
+    var n = Math.min(ps.t.length, ps.c.length);
+    var map = Object.create(null), count = 0;
+    for (var i=0; i<n; i++){
+      var date = cmpDateKey(ps.t[i]);
+      var close = Number(ps.c[i]);
+      if (!date || !isFinite(close) || close <= 0) continue;
+      if (!Object.prototype.hasOwnProperty.call(map, date)) count++;
+      map[date] = close;
+    }
+    return count >= 2 ? map : null;
+  }
+  function cmpRetText(v){
+    if (!isFinite(v)) return 'n/a';
+    if (Math.abs(v) < 0.05) return '0.0%';
+    return (v > 0 ? '+' : '') + v.toFixed(1) + '%';
+  }
+  function cmpRetClass(v){
+    return !isFinite(v) || Math.abs(v) < 0.05 ? 'cmp-ret-flat' : (v > 0 ? 'cmp-ret-pos' : 'cmp-ret-neg');
+  }
+  function cmpBuildChartModel(ready){
+    var requested = CMP_RANGE_BARS[compareState.range] || CMP_RANGE_BARS['3m'];
+    var rangeLabel = CMP_RANGE_LABELS[compareState.range] || CMP_RANGE_LABELS['3m'];
+    var series = [];
+    for (var i=0; i<ready.length; i++){
+      var map = cmpHistoryMap(ready[i].j);
+      if (!map){
+        return { error: ready[i].sym + ' does not have enough daily close history to draw a fair overlay.' };
+      }
+      series.push({ sym: ready[i].sym, colorIdx: ready[i].idx == null ? i : ready[i].idx, map: map });
+    }
+    if (series.length < 2) return { error: 'Add at least two tickers with daily history to compare.' };
+
+    // Strict date intersection: every plotted session has an actual close for
+    // every selected ticker. Taking the tail AFTER intersecting prevents a new
+    // IPO or sparse payload from quietly using a different baseline/window.
+    var shared = Object.keys(series[0].map).sort().filter(function(date){
+      for (var si=1; si<series.length; si++){
+        if (!Object.prototype.hasOwnProperty.call(series[si].map, date)) return false;
+      }
+      return true;
+    });
+    var available = shared.length;
+    if (available < 2) return { error: 'These tickers do not have at least two shared daily closes yet.' };
+    var dates = shared.slice(-requested);
+    var lo = 0, hi = 0;
+    for (var s=0; s<series.length; s++){
+      var base = series[s].map[dates[0]];
+      var prices = [], returns = [];
+      for (var d=0; d<dates.length; d++){
+        var px = series[s].map[dates[d]];
+        var ret = (px / base - 1) * 100;
+        prices.push(px); returns.push(ret);
+        if (ret < lo) lo = ret;
+        if (ret > hi) hi = ret;
+      }
+      series[s].prices = prices;
+      series[s].returns = returns;
+      series[s].lastPrice = prices[prices.length - 1];
+      series[s].lastRet = returns[returns.length - 1];
+    }
+    var span = hi - lo;
+    if (span < 1){ lo -= (1 - span) / 2; hi += (1 - span) / 2; span = hi - lo; }
+    var pad = Math.max(0.45, span * 0.08);
+    lo -= pad; hi += pad;
+    return {
+      W: 1000, H: 320, dates: dates, series: series,
+      yMin: lo, yMax: hi, requested: requested, rangeLabel: rangeLabel,
+      shortened: available < requested, available: available,
+    };
+  }
+  function cmpBindChartInteraction(model){
+    var plot = $('cmp-chart') && $('cmp-chart').querySelector('.cmp-plot');
+    if (!plot) return;
+    var cross = plot.querySelector('.cmp-chart-cross');
+    var dots = plot.querySelectorAll('.cmp-chart-dot');
+    var tip = plot.querySelector('.cmp-chart-tip');
+    if (!cross || !tip || !model.dates.length) return;
+    // Move the readout to <body> so position:fixed is truly viewport-relative.
+    // Several page panes create transformed containing blocks; leaving the tip
+    // inside one can strand a phone tap readout far below the visible viewport.
+    tip.classList.add('cmp-chart-tip-floating');
+    tip.style.position = 'fixed';
+    document.body.appendChild(tip);
+    var activeIdx = model.dates.length - 1;
+    function yPct(v){ return (1 - (v - model.yMin) / (model.yMax - model.yMin)) * 100; }
+    function tipHtml(idx){
+      var html = '<div class="cmp-tip-date">' + escapeHtml(priceChartFmtDate(model.dates[idx], false)) + '</div>';
+      for (var i=0; i<model.series.length; i++){
+        var s = model.series[i], ret = s.returns[idx], px = s.prices[idx];
+        html += '<div class="cmp-tip-row">' +
+          '<span class="cmp-legend-swatch cmp-series-' + s.colorIdx + '" aria-hidden="true"></span>' +
+          '<span class="cmp-tip-sym">' + escapeHtml(s.sym) + ' <span class="cmp-tip-price">' + escapeHtml(fmtMoney(px)) + '</span></span>' +
+          '<span class="cmp-tip-val ' + cmpRetClass(ret) + '">' + escapeHtml(cmpRetText(ret)) + '</span>' +
+        '</div>';
+      }
+      return html;
+    }
+    function showIndex(idx){
+      idx = Math.max(0, Math.min(model.dates.length - 1, idx));
+      activeIdx = idx;
+      var frac = model.dates.length === 1 ? 0 : idx / (model.dates.length - 1);
+      cross.style.left = (frac * 100).toFixed(3) + '%';
+      cross.style.display = 'block';
+      for (var i=0; i<dots.length; i++){
+        var s = model.series[i];
+        if (!s) continue;
+        dots[i].style.left = (frac * 100).toFixed(3) + '%';
+        dots[i].style.top = yPct(s.returns[idx]).toFixed(3) + '%';
+        dots[i].style.display = 'block';
+      }
+      tip.innerHTML = tipHtml(idx);
+      tip.style.display = 'block';
+      // Desktop: beside the crosshair, flipping left near the right edge.
+      // Phone: a stable bottom sheet so all four rows stay within the viewport.
+      var rect = plot.getBoundingClientRect();
+      if (window.innerWidth <= 640){
+        tip.style.left = '8px'; tip.style.right = '8px';
+        tip.style.top = 'auto'; tip.style.bottom = '64px';
+      } else {
+        tip.style.right = 'auto'; tip.style.bottom = 'auto';
+        var px = frac * rect.width, tw = tip.offsetWidth;
+        var left = rect.left + px + 12;
+        if (left + tw > window.innerWidth - 4) left = rect.left + px - tw - 12;
+        var top = Math.max(8, Math.min(rect.top + 8, window.innerHeight - tip.offsetHeight - 8));
+        tip.style.left = Math.max(4, left).toFixed(1) + 'px';
+        tip.style.top = top.toFixed(1) + 'px';
+      }
+    }
+    function hide(){
+      cross.style.display = 'none';
+      for (var i=0; i<dots.length; i++) dots[i].style.display = 'none';
+      tip.style.display = 'none';
+    }
+    function indexFromClientX(clientX){
+      var rect = plot.getBoundingClientRect();
+      if (!rect.width) return activeIdx;
+      var frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      return Math.round(frac * (model.dates.length - 1));
+    }
+    plot.addEventListener('pointermove', function(e){ showIndex(indexFromClientX(e.clientX)); }, { passive: true });
+    plot.addEventListener('pointerdown', function(e){
+      try { plot.focus({ preventScroll: true }); } catch (_){ plot.focus(); }
+      showIndex(indexFromClientX(e.clientX));
+    }, { passive: true });
+    plot.addEventListener('pointerleave', function(){ if (document.activeElement !== plot) hide(); });
+    plot.addEventListener('pointercancel', hide);
+    plot.addEventListener('focus', function(){ showIndex(activeIdx); });
+    plot.addEventListener('blur', hide);
+    plot.addEventListener('keydown', function(e){
+      var next = activeIdx;
+      if (e.key === 'ArrowLeft') next--;
+      else if (e.key === 'ArrowRight') next++;
+      else if (e.key === 'Home') next = 0;
+      else if (e.key === 'End') next = model.dates.length - 1;
+      else if (e.key === 'Escape'){ hide(); plot.blur(); return; }
+      else return;
+      e.preventDefault();
+      showIndex(next);
+    });
+  }
+  function renderCompareChart(ready){
+    cmpSyncRangeButtons();
+    var card = $('cmp-chart-card'), sub = $('cmp-chart-sub'), legend = $('cmp-chart-legend');
+    var chart = $('cmp-chart'), read = $('cmp-chart-read');
+    if (!card || !sub || !legend || !chart || !read) return;
+    if (!ready || ready.length < 2){ cmpHideChart(); return; }
+    var priorTip = document.querySelector('body > .cmp-chart-tip.cmp-chart-tip-floating');
+    if (priorTip) priorTip.remove();
+    card.hidden = false;
+    var model = cmpBuildChartModel(ready);
+    if (model.error){
+      sub.textContent = 'Daily closes are rebased only when every selected ticker shares the same sessions.';
+      legend.innerHTML = '';
+      chart.innerHTML = '<div class="cmp-chart-empty">' + escapeHtml(model.error) + '</div>';
+      read.innerHTML = '';
+      return;
+    }
+
+    var from = priceChartFmtDate(model.dates[0], false);
+    var to = priceChartFmtDate(model.dates[model.dates.length - 1], false);
+    sub.textContent = model.shortened
+      ? 'Only ' + model.dates.length + ' shared daily closes are available for the requested ' + model.rangeLabel + ' view (' + from + ' to ' + to + '); the range is shortened so every line keeps the same baseline.'
+      : model.rangeLabel + ' view - ' + model.dates.length + ' shared daily closes, ' + from + ' to ' + to + ', all rebased to 0% on the first session.';
+
+    var lineStyles = ['solid', 'long-dash', 'dot', 'dash-dot'];
+    var legendHtml = '';
+    for (var s=0; s<model.series.length; s++){
+      var ser = model.series[s];
+      legendHtml += '<div class="cmp-legend-item cmp-series-' + ser.colorIdx + '" title="' + escapeHtml(ser.sym + ' uses the ' + lineStyles[ser.colorIdx] + ' line') + '">' +
+        '<span class="cmp-legend-swatch" aria-hidden="true"></span>' +
+        '<span class="cmp-legend-sym">' + escapeHtml(ser.sym) + '</span>' +
+        '<span class="cmp-legend-last"><span class="cmp-legend-return ' + cmpRetClass(ser.lastRet) + '">' + escapeHtml(cmpRetText(ser.lastRet)) + '</span>' +
+        '<span class="cmp-legend-price">' + escapeHtml(fmtMoney(ser.lastPrice)) + ' close</span></span></div>';
+    }
+    legend.innerHTML = legendHtml;
+
+    function xAt(i){ return model.dates.length === 1 ? 0 : (i / (model.dates.length - 1)) * model.W; }
+    function yAt(v){ return (1 - (v - model.yMin) / (model.yMax - model.yMin)) * model.H; }
+    var grid = '', yLabels = '', gridN = 5;
+    for (var g=0; g<gridN; g++){
+      var frac = g / (gridN - 1), y = frac * model.H;
+      var val = model.yMax - frac * (model.yMax - model.yMin);
+      grid += '<line class="cmp-chart-grid" x1="0" y1="' + y.toFixed(1) + '" x2="' + model.W + '" y2="' + y.toFixed(1) + '" />';
+      yLabels += '<span class="cmp-y-label' + (Math.abs(val) < 0.05 ? ' is-zero' : '') + '" style="top:' + (frac * 100).toFixed(2) + '%">' + escapeHtml(cmpRetText(val)) + '</span>';
+    }
+    var zeroY = yAt(0);
+    var paths = '';
+    for (var si=0; si<model.series.length; si++){
+      var pser = model.series[si], pts = '';
+      for (var pi=0; pi<pser.returns.length; pi++){
+        pts += (pi ? ' ' : '') + xAt(pi).toFixed(1) + ',' + yAt(pser.returns[pi]).toFixed(1);
+      }
+      paths += '<polyline class="cmp-chart-line cmp-series-' + pser.colorIdx + '" points="' + pts + '"><title>' +
+        escapeHtml(pser.sym + ', ' + lineStyles[pser.colorIdx] + ' line') + '</title></polyline>';
+    }
+    var svg = '<svg class="cmp-chart-svg" viewBox="0 0 ' + model.W + ' ' + model.H + '" preserveAspectRatio="none" aria-hidden="true" focusable="false">' +
+      grid + '<line class="cmp-chart-zero" x1="0" y1="' + zeroY.toFixed(1) + '" x2="' + model.W + '" y2="' + zeroY.toFixed(1) + '" />' + paths + '</svg>';
+    var dots = '';
+    for (var di=0; di<model.series.length; di++) dots += '<span class="cmp-chart-dot cmp-series-' + model.series[di].colorIdx + '" aria-hidden="true"></span>';
+    var mid = Math.floor((model.dates.length - 1) / 2);
+    var ranked = model.series.slice().sort(function(a,b){ return b.lastRet - a.lastRet; });
+    var leader = ranked[0], laggard = ranked[ranked.length - 1];
+    var spread = leader.lastRet - laggard.lastRet;
+    var aria = 'Relative performance for ' + model.series.map(function(s2){ return s2.sym + ' ' + cmpRetText(s2.lastRet); }).join(', ') +
+      '. ' + leader.sym + ' leads and ' + laggard.sym + ' trails. Use left and right arrow keys to inspect each shared daily close.';
+    chart.innerHTML = '<div class="cmp-chart-stage">' +
+      '<div class="cmp-y-axis" aria-hidden="true">' + yLabels + '</div>' +
+      '<div class="cmp-plot" tabindex="0" role="group" aria-label="' + escapeHtml(aria) + '" aria-describedby="cmp-chart-read">' + svg +
+        '<span class="cmp-chart-cross" aria-hidden="true"></span>' + dots +
+        '<div class="cmp-chart-tip" role="status" aria-live="polite"></div>' +
+      '</div>' +
+      '<div class="cmp-x-axis" aria-hidden="true"><span>' + escapeHtml(priceChartFmtDate(model.dates[0], false)) + '</span><span>' +
+        escapeHtml(priceChartFmtDate(model.dates[mid], false)) + '</span><span>' + escapeHtml(priceChartFmtDate(model.dates[model.dates.length - 1], false)) + '</span></div>' +
+    '</div>';
+
+    read.innerHTML = spread < 0.1
+      ? '<b>' + escapeHtml(leader.sym) + '</b> and <b>' + escapeHtml(laggard.sym) + '</b> finish effectively tied over the shared ' + escapeHtml(model.rangeLabel) + ' window.'
+      : '<b>' + escapeHtml(leader.sym) + '</b> leads at ' + escapeHtml(cmpRetText(leader.lastRet)) + '; <b>' + escapeHtml(laggard.sym) + '</b> trails at ' + escapeHtml(cmpRetText(laggard.lastRet)) + ' - a ' + spread.toFixed(1) + ' percentage-point spread over the shared ' + escapeHtml(model.rangeLabel) + ' window.';
+    cmpBindChartInteraction(model);
+  }
   function renderCompare(){
     var chipsEl = $('cmp-chips'); if (chipsEl) chipsEl.innerHTML = cmpChipsHtml();
+    cmpSyncRangeButtons();
     var wrap = $('cmp-table-wrap'); var sum = $('cmp-summary');
     if (!wrap || !sum) return;
     var syms = compareState.tickers.slice();
     if (syms.length < 2){
-      wrap.hidden = true; sum.hidden = true;
+      wrap.hidden = true; sum.hidden = true; cmpHideChart();
       cmpStatus(syms.length === 1 ? 'Add at least one more ticker to compare.' : '');
       return;
     }
@@ -13254,13 +13544,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var cols = [];
     for (var i=0; i<syms.length; i++){
       var sym = syms[i]; var j = compareState.cache[sym];
-      if (!j) { cols.push({ sym: sym, loading: true }); continue; }
-      if (j === 'error'){ cols.push({ sym: sym, error: true }); continue; }
+      if (!j) { cols.push({ sym: sym, idx: i, loading: true }); continue; }
+      if (j === 'error'){ cols.push({ sym: sym, idx: i, error: true }); continue; }
       j._grade = cmpGradeEntry(sym);
-      cols.push({ sym: sym, j: j, grade: j._grade });
+      cols.push({ sym: sym, idx: i, j: j, grade: j._grade });
     }
     var ready = cols.filter(function(c){ return c.j; });
-    if (ready.length < 2){ wrap.hidden = true; sum.hidden = true; return; }
+    if (ready.length < 2){ wrap.hidden = true; sum.hidden = true; cmpHideChart(); return; }
+    renderCompareChart(ready);
 
     var rows = cmpMetricRows();
     var baseJ = ready[0].j;
