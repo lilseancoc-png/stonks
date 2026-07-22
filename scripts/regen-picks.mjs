@@ -256,7 +256,11 @@ try {
 // bars, grade index and company/news fields. Mirrors build.mjs::main() exactly;
 // no quotes or AI calls are needed for an algorithm-only regeneration.
 try {
-  const rotationPayload = buildSectorRotationRebounds(chains, grades, builtAtIso);
+  // Do not append today's clock date with the last persisted `spot`: offline
+  // data may be days old, and that synthetic flat row would change trough age,
+  // z-scores and reversion progress without any new market observation. A
+  // persisted same-session quote timestamp may still refine its existing row.
+  const rotationPayload = buildSectorRotationRebounds(chains, grades, builtAtIso, { appendAsOfRow: false });
   const rotationInfo = await writeSectorRotationFile(rotationPayload);
   console.log(`Regenerated ${SECTOR_ROTATION_FILE} — ${rotationInfo.candidates} clean candidate(s) (${rotationInfo.confirmed} confirmed / ${rotationInfo.firstThrust} first thrust), ${rotationInfo.nearMisses} near miss(es).`);
 } catch (err) {
