@@ -3533,6 +3533,7 @@ a.cmd-watch, a.cr-tkr, a.f13-sym, a.brief-chip, a.cal-chip-sym { text-decoration
 .rot-risk > div span { color: var(--muted); font: 400 10.5px/1.35 var(--font-sans); }
 .rot-risk label { display: inline-flex; align-items: center; gap: 4px; color: var(--muted-strong); font: 600 10.5px/1 var(--font-sans); white-space: nowrap; }
 .rot-risk input { width: 82px; padding: 5px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); color: var(--text); font: 700 11px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.rot-risk input[aria-invalid="true"] { border-color: var(--neg); box-shadow: 0 0 0 2px color-mix(in srgb, var(--neg) 18%, transparent); }
 .rot-risk [data-rot-risk] { width: 58px; }
 .rot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 11px; min-width: 0; }
 .rot-card { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 12px; border: 1px solid var(--border); border-left-width: 3px; border-radius: 10px; background: var(--surface); overflow: hidden; }
@@ -3574,6 +3575,23 @@ a.cmd-watch, a.cr-tkr, a.f13-sym, a.brief-chip, a.cal-chip-sym { text-decoration
 .rot-spark-down polyline { stroke: var(--neg); }
 .rot-spark-low { stroke: color-mix(in srgb, var(--muted) 55%, transparent); stroke-width: 1; stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; }
 .rot-spark-wrap > span { color: var(--muted); font: 500 9px/1.2 var(--font-sans); }
+.rot-mean { display: flex; flex-direction: column; gap: 7px; min-width: 0; padding: 8px; border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--accent) 4%, var(--surface-2)); }
+.rot-mean > header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
+.rot-mean > header b { color: var(--text-strong); font: 700 10.5px/1.2 var(--font-sans); }
+.rot-mean > header span { color: var(--accent); font: 700 9px/1.2 var(--font-sans); text-align: right; }
+.rot-mean-extreme > header span { color: var(--warn); }
+.rot-mean-spent { border-color: color-mix(in srgb, var(--neg) 28%, var(--border)); background: color-mix(in srgb, var(--neg) 4%, var(--surface-2)); }
+.rot-mean-spent > header span { color: var(--neg); }
+.rot-mean-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+.rot-mean-grid > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rot-mean-grid small { color: var(--muted); font: 600 8px/1.1 var(--font-sans); letter-spacing: .025em; text-transform: uppercase; }
+.rot-mean-grid b { color: var(--text-strong); font: 750 10.5px/1.15 var(--font-mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.rot-mean-meter { height: 4px; border-radius: 999px; background: color-mix(in srgb, var(--border) 68%, transparent); overflow: hidden; }
+.rot-mean-meter > span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+.rot-mean-reverting .rot-mean-meter > span { background: var(--pos); }
+.rot-mean-spent .rot-mean-meter > span { background: var(--neg); }
+.rot-mean p { margin: 0; color: var(--muted); font: 500 9.5px/1.35 var(--font-sans); overflow-wrap: anywhere; }
+.rot-mean p b { color: var(--text-strong); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .rot-guards { display: flex; flex-wrap: wrap; gap: 4px; }
 .rot-guards > span { padding: 4px 6px; border-radius: 5px; font: 600 9.5px/1.25 var(--font-sans); }
 .rot-guard-pass { color: var(--pos); background: var(--pos-soft); }
@@ -3627,6 +3645,7 @@ a.cmd-watch, a.cr-tkr, a.f13-sym, a.brief-chip, a.cal-chip-sym { text-decoration
   .rot-toolbar { align-items: stretch; }
   .rot-action-filter { width: 100%; overflow-x: auto; }
   .rot-action-filter .rot-filter-btn { flex: 1 0 auto; }
+  .rot-filter-btn, .rot-toolbar select, .rot-risk input { min-height: 40px; }
   .rot-toolbar label { flex: 1 1 150px; justify-content: space-between; min-width: 0; }
   .rot-toolbar select { flex: 1 1 auto; min-width: 0; max-width: none; }
   .rot-showing { width: 100%; margin-left: 0; }
@@ -3646,6 +3665,7 @@ a.cmd-watch, a.cr-tkr, a.f13-sym, a.brief-chip, a.cal-chip-sym { text-decoration
   .rot-plan-stop { border-right: 0; border-bottom: 1px solid var(--border); }
   .rot-risk label { width: 100%; justify-content: space-between; }
   .rot-episode > span, .rot-components > span, .rot-facts > span { flex-basis: 72px; }
+  .rot-mean-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* --- Leveraged ETFs (daily-reset leverage screen, premium) -------------- */

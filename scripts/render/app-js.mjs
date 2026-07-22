@@ -15986,13 +15986,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // turns every actionable read into an entry / invalidation / target plan.
   var rotationState = {
     data: null, loading: false, error: false, quotes: null, quotesFor: '',
+    quotesFetchedAt: 0, quotesSourceAt: '', quotesLoading: false,
     phase: 'all', action: 'all', group: 'all', sort: 'priority',
     account: 25000, riskPct: 0.5
   };
+  var ROTATION_QUOTE_TTL_MS = 60000;
   try {
     var rotationPrefs = JSON.parse(localStorage.getItem('sectorRotationPrefs') || '{}');
-    if (rotationPrefs && isFinite(rotationPrefs.account) && rotationPrefs.account > 0) rotationState.account = Number(rotationPrefs.account);
-    if (rotationPrefs && isFinite(rotationPrefs.riskPct) && rotationPrefs.riskPct > 0 && rotationPrefs.riskPct <= 5) rotationState.riskPct = Number(rotationPrefs.riskPct);
+    if (rotationPrefs && isFinite(rotationPrefs.account) && rotationPrefs.account >= 100) rotationState.account = Number(rotationPrefs.account);
+    if (rotationPrefs && isFinite(rotationPrefs.riskPct) && rotationPrefs.riskPct >= 0.05 && rotationPrefs.riskPct <= 5) rotationState.riskPct = Number(rotationPrefs.riskPct);
     if (rotationPrefs && rotationPrefs.phase) rotationState.phase = String(rotationPrefs.phase);
     if (rotationPrefs && rotationPrefs.action) rotationState.action = String(rotationPrefs.action);
     if (rotationPrefs && rotationPrefs.group) rotationState.group = String(rotationPrefs.group);
@@ -16033,7 +16035,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       'first-thrust':'First thrust - not confirmed',
       confirmed:'Confirmed reclaim',
       retest:'Retest / hold',
-      extended:'Extended - do not chase',
+      extended:'Late / mean edge spent',
       watch:'Watch'
     })[phase] || rotHuman(phase || 'watch');
   }
@@ -16079,21 +16081,59 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (a != null) return String(a);
     return rotText(rotPlan(c), ['headline','state']);
   }
+  function rotRewardRiskRules(thresholds){
+    var rrRules = thresholds && thresholds.rewardRisk && typeof thresholds.rewardRisk === 'object' ? thresholds.rewardRisk : {};
+    var passBelow = rotNum(rotValue(rrRules, ['passBelow','minimum','floor']));
+    if (!(passBelow > 0)) passBelow = rotNum(rotValue(thresholds, ['minRiskReward','minimumRiskReward','riskRewardMin','minRr']));
+    if (!(passBelow > 0)) passBelow = 1;
+    var ready = rotNum(rotValue(rrRules, ['ready','readyAtLeast','actionable']));
+    if (!(ready > passBelow)) ready = Math.max(1.5, passBelow);
+    return { passBelow:passBelow, ready:ready };
+  }
   function rotDecision(c, thresholds){
     var phase = rotPhase(c);
+    var plan = rotPlan(c);
     var rr = rotPlanRr(c);
-    var minRr = rotNum(rotValue(thresholds, ['minRiskReward','minimumRiskReward','riskRewardMin','minRr']));
-    if (!(minRr > 0)) minRr = 1;
-    if (rr != null && rr < minRr) return { kind:'pass', label:'Pass - payoff too thin', note:'Estimated ' + fmt(rr, 1) + ':1 R:R is below the ' + fmt(minRr, 1) + ':1 screen floor.' };
+    var liveRr = rotNum(rotValue(plan, ['rewardRiskAtSpot','liveRewardRisk','rrAtSpot']));
+    var rrForFloor = plan.currentInEntryZone === true && liveRr != null ? liveRr : rr;
     var rawLabel = rotActionLabel(c);
     var raw = rotKey(rotActionRaw(c));
     if (/pass|avoid|no-trade|reject|blocked/.test(raw)) return { kind:'pass', label:rawLabel || 'Pass', note:'' };
+    var rules = rotRewardRiskRules(thresholds);
+    if (rrForFloor != null && rrForFloor < rules.passBelow) return { kind:'pass', label:'Pass - payoff too thin', note:'Estimated ' + fmt(rrForFloor, 1) + ':1 R:R is below the ' + fmt(rules.passBelow, 1) + ':1 screen floor.' };
     if (phase === 'extended') return { kind:'wait', label:'Wait - extended, do not chase', note:'Let price reset into support or build a new base.' };
     if (phase === 'first-thrust') return { kind:'wait', label:'Wait - first thrust, not confirmed', note:'Look for follow-through or a retest that holds before sizing.' };
     if (/wait|watch|monitor|hold-off|setup/.test(raw)) return { kind:'wait', label:rawLabel || 'Wait', note:'' };
     if (/enter|buy|actionable|ready|starter|act-now/.test(raw)) return { kind:'act', label:rawLabel || 'Actionable', note:'' };
     if (phase === 'confirmed' || phase === 'retest') return { kind:'act', label:'Actionable - structure confirmed', note:'' };
     return { kind:'wait', label:rawLabel || 'Watch - needs confirmation', note:'' };
+  }
+  function rotQuotesFresh(){
+    return !!rotationState.quotes && rotationState.quotesFetchedAt > 0
+      && Date.now() - rotationState.quotesFetchedAt >= 0
+      && Date.now() - rotationState.quotesFetchedAt < ROTATION_QUOTE_TTL_MS;
+  }
+  function rotQuoteMap(){ return rotQuotesFresh() ? rotationState.quotes : {}; }
+  function rotEffectiveDecision(c, thresholds){
+    var baked = rotDecision(c, thresholds);
+    if (baked.kind === 'pass') return baked;
+    var sym = String((c && c.symbol) || '').toUpperCase();
+    var q = rotQuoteMap()[sym];
+    var spot = q && q.spot != null ? rotNum(q.spot) : null;
+    if (!(spot > 0)) return baked;
+    var stop = rotPlanPoint(c, 'stop');
+    var target = rotPlanPoint(c, 'target');
+    var entry = rotPlanPoint(c, 'entry');
+    if (stop.price != null && spot <= stop.price) return { kind:'pass', label:'Pass - invalidation breached', note:'The latest quote is at or below structural invalidation.' };
+    if (target.price != null && spot >= target.price) return { kind:'pass', label:'Pass - first target reached', note:'The latest quote has already reached the first target.' };
+    if (baked.kind !== 'act') return baked;
+    var rules = rotRewardRiskRules(thresholds);
+    var liveRr = stop.price != null && target.price != null && spot > stop.price && target.price > spot
+      ? (target.price - spot) / (spot - stop.price) : null;
+    if (liveRr == null || liveRr < rules.passBelow) return { kind:'pass', label:'Pass - quote payoff too thin', note:'Latest-quote R:R is below the ' + fmt(rules.passBelow, 1) + ':1 screen floor.' };
+    if ((entry.low != null && spot < entry.low) || (entry.high != null && spot > entry.high)) return { kind:'wait', label:'Wait - quote outside entry zone', note:'Wait for price to return to the baked entry zone.' };
+    if (liveRr < rules.ready) return { kind:'wait', label:'Wait - quote payoff below ready bar', note:'Latest-quote R:R is below the ' + fmt(rules.ready, 1) + ':1 actionable threshold.' };
+    return baked;
   }
   function rotList(v){
     if (Array.isArray(v)) return v.filter(function(x){ return x != null && x !== ''; });
@@ -16137,7 +16177,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     } catch(e){}
   }
   function loadSectorRotation(){
-    if ((rotationState.data && !tabDataStale(rotationState)) || rotationState.loading){ renderSectorRotation(); return; }
+    if (rotationState.data && !tabDataStale(rotationState)){
+      renderSectorRotation();
+      if (!rotationState.loading) loadRotationQuotes();
+      return;
+    }
+    if (rotationState.loading){ renderSectorRotation(); return; }
     rotationState.loading = true;
     rotationState.error = false;
     renderSectorRotation();
@@ -16163,7 +16208,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     });
     if (!syms.length) return;
     var key = syms.join(',');
-    if (rotationState.quotesFor === key && rotationState.quotes){ applyRotationLive(); return; }
+    if (rotationState.quotesFor === key && rotQuotesFresh()){ applyRotationLive(); return; }
+    if (rotationState.quotesLoading) return;
+    rotationState.quotesLoading = true;
     fetch('/api/quotes?symbols=' + encodeURIComponent(key))
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){
@@ -16171,16 +16218,26 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         (j && Array.isArray(j.quotes) ? j.quotes : []).forEach(function(q){ if (q && q.symbol) map[String(q.symbol).toUpperCase()] = q; });
         rotationState.quotes = map;
         rotationState.quotesFor = key;
-        applyRotationLive();
+        rotationState.quotesFetchedAt = Date.now();
+        rotationState.quotesSourceAt = j && j.fetchedAt ? String(j.fetchedAt) : new Date().toISOString();
+        rotationState.quotesLoading = false;
+        renderSectorRotation();
       })
-      .catch(function(){ /* Live prices enhance the baked screen; they never gate it. */ });
+      .catch(function(){
+        rotationState.quotes = null;
+        rotationState.quotesFor = '';
+        rotationState.quotesFetchedAt = 0;
+        rotationState.quotesSourceAt = '';
+        rotationState.quotesLoading = false;
+        renderSectorRotation(); // fall back visibly to build prices; never retain a stale quote as current
+      });
   }
   function rotLiveHtml(c){
     var sym = String((c && c.symbol) || '').toUpperCase();
-    var q = rotationState.quotes && rotationState.quotes[sym];
+    var q = rotQuoteMap()[sym];
     var spot = q && q.spot != null ? rotNum(q.spot) : rotNum(c && c.spot);
     var pct = q ? rotNum(q.changePct) : null;
-    var source = q ? 'live' : 'baked';
+    var source = q ? 'quote' : 'build';
     return '<span class="rot-live" data-rot-live="' + escapeHtml(sym) + '" data-rot-baked="' + (rotNum(c && c.spot) == null ? '' : rotNum(c.spot)) + '">' +
       (spot == null ? 'Price unavailable' : fmtMoney(spot)) +
       (pct == null ? '' : ' <span class="rot-' + (pct >= 0 ? 'up' : 'down') + '">' + (pct >= 0 ? '+' : '') + fmt(pct, 2) + '% today</span>') +
@@ -16188,7 +16245,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
   function applyRotationRiskSizing(){
     var budget = rotationState.account * rotationState.riskPct / 100;
-    var map = rotationState.quotes || {};
+    var map = rotQuoteMap();
     var nodes = document.querySelectorAll('[data-rot-size]');
     for (var i = 0; i < nodes.length; i++){
       var sym = nodes[i].getAttribute('data-rot-size');
@@ -16198,15 +16255,30 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         continue;
       }
       var q = map[sym];
-      var spot = q && q.spot != null ? rotNum(q.spot) : rotNum(nodes[i].getAttribute('data-rot-baked'));
+      var liveSpot = q && q.spot != null ? rotNum(q.spot) : rotNum(nodes[i].getAttribute('data-rot-baked'));
       var plannedEntry = rotNum(nodes[i].getAttribute('data-rot-entry'));
-      if (decision === 'wait' && plannedEntry != null) spot = plannedEntry;
       var stop = rotNum(nodes[i].getAttribute('data-rot-stop'));
-      if (!(spot > 0) || !(stop > 0) || Math.abs(spot - stop) < 0.005){
-        nodes[i].textContent = 'Share cap needs a numeric price and invalidation level.';
+      var target = rotNum(nodes[i].getAttribute('data-rot-target'));
+      var entryLow = rotNum(nodes[i].getAttribute('data-rot-entry-low'));
+      var entryHigh = rotNum(nodes[i].getAttribute('data-rot-entry-high'));
+      if (q && liveSpot != null && stop != null && liveSpot <= stop){
+        nodes[i].innerHTML = '<b>No size:</b> the latest quote is at or below structural invalidation.';
         continue;
       }
-      var perShare = Math.abs(spot - stop);
+      if (q && liveSpot != null && target != null && liveSpot >= target){
+        nodes[i].innerHTML = '<b>No size:</b> the first target has already been reached.';
+        continue;
+      }
+      if (q && decision === 'act' && liveSpot != null && ((entryLow != null && liveSpot < entryLow) || (entryHigh != null && liveSpot > entryHigh))){
+        nodes[i].innerHTML = '<b>No size:</b> the latest quote is outside the baked entry zone.';
+        continue;
+      }
+      var spot = decision === 'wait' && plannedEntry != null ? plannedEntry : liveSpot;
+      if (!(spot > 0) || !(stop > 0) || spot <= stop || spot - stop < 0.005){
+        nodes[i].textContent = 'Share cap needs a price above structural invalidation.';
+        continue;
+      }
+      var perShare = spot - stop;
       var byRisk = Math.floor(budget / perShare);
       var byCash = Math.floor(rotationState.account / spot);
       var shares = Math.min(byRisk, byCash);
@@ -16220,14 +16292,20 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
   }
   function applyRotationLive(){
-    var map = rotationState.quotes || {};
+    var map = rotQuoteMap();
     var nodes = document.querySelectorAll('[data-rot-live]');
     for (var i = 0; i < nodes.length; i++){
       var sym = nodes[i].getAttribute('data-rot-live');
       var q = map[sym];
-      if (!q || q.spot == null) continue;
+      if (!q || q.spot == null){
+        var baked = rotNum(nodes[i].getAttribute('data-rot-baked'));
+        nodes[i].innerHTML = baked == null ? 'Price unavailable' : fmtMoney(baked) + ' <small>build</small>';
+        nodes[i].removeAttribute('title');
+        continue;
+      }
       var pct = rotNum(q.changePct);
-      nodes[i].innerHTML = fmtMoney(q.spot) + (pct == null ? '' : ' <span class="rot-' + (pct >= 0 ? 'up' : 'down') + '">' + (pct >= 0 ? '+' : '') + fmt(pct, 2) + '% today</span>') + ' <small>live</small>';
+      nodes[i].innerHTML = fmtMoney(q.spot) + (pct == null ? '' : ' <span class="rot-' + (pct >= 0 ? 'up' : 'down') + '">' + (pct >= 0 ? '+' : '') + fmt(pct, 2) + '% today</span>') + ' <small>quote</small>';
+      if (rotationState.quotesSourceAt) nodes[i].title = 'Quote fetched ' + rotationState.quotesSourceAt;
     }
     applyRotationRiskSizing();
   }
@@ -16301,6 +16379,57 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       return '<span><small>' + r.label + '</small><b class="' + (r.cls ? 'rot-' + r.cls : '') + '">' + r.value + '</b></span>';
     }).join('') + '</div>';
   }
+  function rotSigma(v, capped, cap){
+    var n = rotNum(v);
+    if (n == null) return '-';
+    if (capped && rotNum(cap) > 0) return (n < 0 ? '\u2264-' : '\u2265+') + fmt(Math.abs(cap), 0) + '\u03c3';
+    return (n > 0 ? '+' : '') + fmt(n, 2) + '\u03c3';
+  }
+  function rotMeanReversionHtml(c, thresholds){
+    var mr = c && c.meanReversion && typeof c.meanReversion === 'object' ? c.meanReversion : null;
+    if (!mr) return '';
+    var troughZRaw = rotNum(rotValue(mr, ['troughZ','zAtTrough','flushZ']));
+    var currentZRaw = rotNum(rotValue(mr, ['currentZ','zNow','nowZ']));
+    var troughZ = rotNum(rotValue(mr, ['troughZDisplay','troughZ','zAtTrough','flushZ']));
+    var currentZ = rotNum(rotValue(mr, ['currentZDisplay','currentZ','zNow','nowZ']));
+    var progress = rotNum(rotValue(mr, ['progressPct','progressRawPct','reversionPct']));
+    var meanTarget = rotNum(rotValue(mr, ['meanTarget','targetMean','frozenMean']));
+    var distance = rotNum(rotValue(mr, ['distanceToMeanPct','meanRunwayPct','runwayPct']));
+    var sigmaPct = rotNum(rotValue(mr, ['sigmaPct','stdDevPct','standardDeviationPct']));
+    var observations = rotNum(rotValue(mr, ['observations','n','sampleSize']));
+    if (troughZ == null && currentZ == null && meanTarget == null) return '';
+    var meanRules = thresholds && thresholds.meanReversion && typeof thresholds.meanReversion === 'object' ? thresholds.meanReversion : {};
+    var lateProgress = rotNum(meanRules.lateProgressPct); if (lateProgress == null) lateProgress = 80;
+    var lateZ = rotNum(meanRules.lateCurrentZ); if (lateZ == null) lateZ = -0.25;
+    var thrustProgress = rotNum(meanRules.firstThrustProgressPct); if (thrustProgress == null) thrustProgress = 15;
+    var edgeFloor = rotNum(meanRules.edgeFloorPct); if (edgeFloor == null) edgeFloor = 2;
+    var edgeAtr = rotNum(meanRules.edgeAtrMultiple); if (edgeAtr == null) edgeAtr = 0.5;
+    var atrPct = rotNum(c && c.technicals && c.technicals.atrPct);
+    if (atrPct != null) edgeFloor = Math.max(edgeFloor, atrPct * edgeAtr);
+    var spent = rotPhase(c) === 'extended' || (progress != null && progress >= lateProgress) || (currentZRaw != null && currentZRaw >= lateZ) || (distance != null && distance <= edgeFloor);
+    var reverting = !spent && progress != null && progress >= thrustProgress && currentZRaw != null && troughZRaw != null && currentZRaw > troughZRaw;
+    var tone = spent ? 'spent' : reverting ? 'reverting' : 'extreme';
+    var status = spent ? 'Runway mostly spent' : reverting ? 'Reverting toward mean' : 'Extreme; turn unproven';
+    var pct = progress == null ? 0 : Math.max(0, Math.min(100, progress));
+    var cap = rotNum(mr.zDisplayCap) || rotNum(meanRules.zDisplayCap) || 10;
+    var modelNote = mr.floorApplied ? ' Dispersion floor applied.' : '';
+    if (mr.troughZCapped || mr.currentZCapped) modelNote += ' Extreme z-score display is capped.';
+    var sym = String((c && c.symbol) || 'Stock').toUpperCase();
+    return '<section class="rot-mean rot-mean-' + tone + '" aria-label="' + escapeHtml(sym) + ' mean-reversion statistics as of the latest build">' +
+      '<header><b>Mean-reversion runway</b><span>' + escapeHtml(status) + '</span></header>' +
+      '<div class="rot-mean-grid">' +
+        '<span><small>Flush close</small><b>' + rotSigma(troughZ, !!mr.troughZCapped, cap) + '</b></span>' +
+        '<span><small>Build close</small><b>' + rotSigma(currentZ, !!mr.currentZCapped, cap) + '</b></span>' +
+        '<span><small>Frozen mean</small><b>' + (meanTarget == null ? '-' : fmtMoney(meanTarget)) + '</b></span>' +
+        '<span><small>Model std dev</small><b>' + (sigmaPct == null ? '-' : fmt(sigmaPct, 2) + '%') + '</b></span>' +
+      '</div>' +
+      '<div class="rot-mean-meter"><span style="width:' + pct.toFixed(1) + '%"></span></div>' +
+      '<p><b>' + (progress == null ? '-' : fmt(progress, 0) + '%') + ' reverted</b>' +
+        (distance == null ? '' : ' \u00b7 ' + (distance > 0 ? fmt(distance, 1) + '% runway remaining' : 'mean already reclaimed')) +
+        (observations == null ? '' : ' \u00b7 ' + fmt(observations, 0) + ' pre-drop closes') +
+        '. \u03c3 is the frozen pre-drop trend deviation, not a probability.' + escapeHtml(modelNote) + '</p>' +
+    '</section>';
+  }
   function rotFactsHtml(c){
     var rel = c && c.relative && typeof c.relative === 'object' ? c.relative : {};
     var tech = c && c.technicals && typeof c.technicals === 'object' ? c.technicals : {};
@@ -16344,7 +16473,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         else if (v && typeof v === 'object') chips.push({ status:v.pass === false ? 'flag' : 'pass', text:rotText(v, ['label','name','text','detail']) || 'Guard' });
       });
     } else if (g && typeof g === 'object'){
-      Object.keys(g).slice(0, 8).forEach(function(k){
+      var guardKeys = Object.keys(g).sort(function(a, b){
+        function rank(k){
+          var s = rotKey(rotText(g[k], ['status','state']));
+          return /block|fail|reject/.test(s) ? 0 : /warn|flag|caution/.test(s) ? 1 : 2;
+        }
+        return rank(a) - rank(b);
+      }).slice(0, 10);
+      guardKeys.forEach(function(k){
         var v = g[k];
         if (v == null || Array.isArray(v)) return;
         if (typeof v === 'object'){
@@ -16364,7 +16500,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       });
     }
     if (!chips.length) return '';
-    return '<div class="rot-guards" aria-label="Quality and news guards">' + chips.map(function(x){
+    return '<div class="rot-guards" aria-label="Quality, technical, and news guards">' + chips.map(function(x){
       return '<span class="rot-guard-' + x.status + '">' + (x.status === 'pass' ? '&#10003; ' : '&#9888; ') + escapeHtml(x.text) + '</span>';
     }).join('') + '</div>';
   }
@@ -16375,21 +16511,36 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return fallback;
   }
   function rotPlanHtml(c, decision){
+    var p = rotPlan(c);
     var entry = rotPlanPoint(c, 'entry'), stop = rotPlanPoint(c, 'stop'), target = rotPlanPoint(c, 'target');
     var rr = rotPlanRr(c);
-    var sizingEntry = rotNum(rotValue(rotPlan(c), ['trigger','entryPx','entryPrice']));
+    var rrAtSpot = rotNum(rotValue(p, ['rewardRiskAtSpot','liveRewardRisk','rrAtSpot']));
+    var rrAtEntry = rotNum(rotValue(p, ['rewardRiskAtEntry','entryRewardRisk','plannedRewardRisk','rrAtEntry']));
+    var meanTarget = rotNum(rotValue(p, ['meanTarget','frozenMean','targetMean']));
+    var targetKind = rotText(p, ['targetKind','targetBasis']);
+    var targetNote = rotText(p, ['targetNote','targetDetail']);
+    var sizingEntry = rotNum(rotValue(p, ['trigger','entryPx','entryPrice','entryCeiling']));
     if (sizingEntry == null) sizingEntry = entry.price != null ? entry.price : entry.high != null ? entry.high : entry.low;
     var has = entry.price != null || entry.low != null || entry.label || stop.price != null || target.price != null || rr != null;
     if (!has) return '<p class="rot-no-plan">Trade levels are not available for this candidate yet - keep it on watch, do not improvise a stop.</p>';
     var entryLabel = decision.kind === 'pass' ? decision.label : decision.kind === 'wait' ? decision.label : rotPointText(entry, 'At trigger');
-    var entryDetail = decision.note || entry.note || rotText(rotPlan(c), ['basis']) || (decision.kind === 'act' ? 'Structure is actionable; use the stated invalidation.' : 'Wait for the stated condition.');
+    var entryDetail = decision.note || entry.note || rotText(p, ['entryNote','basis']) || (decision.kind === 'act' ? 'Structure is actionable; use the stated invalidation.' : 'Wait for the stated condition.');
     if (decision.kind === 'wait' && (entry.price != null || entry.low != null || entry.label)) entryDetail = 'Planned entry ' + rotPointText(entry, 'at trigger') + '. ' + entryDetail;
+    if (!targetNote && meanTarget != null){
+      targetNote = /mean/i.test(targetKind) || (target.price != null && Math.abs(target.price - meanTarget) < 0.01)
+        ? 'Frozen pre-drop mean is the statistical destination; nearer resistance can cap the executable target.'
+        : 'First structural resistance comes before the frozen mean at ' + fmtMoney(meanTarget) + '.';
+    }
+    var rrText = rr == null ? '' : fmt(rr, 1) + ':1 R:R';
+    if (rrAtEntry != null && rrAtSpot != null && Math.abs(rrAtEntry - rrAtSpot) >= 0.05){
+      rrText = fmt(rrAtEntry, 1) + ':1 planned \u00b7 ' + fmt(rrAtSpot, 1) + ':1 at build';
+    }
     return '<div class="rot-plan" aria-label="Rotation trade plan">' +
       '<div class="rot-plan-cell rot-plan-entry"><small>Entry state</small><b>' + escapeHtml(entryLabel) + '</b><span>' + escapeHtml(entryDetail) + '</span></div>' +
       '<div class="rot-plan-cell rot-plan-stop"><small>Invalidation</small><b>' + escapeHtml(rotPointText(stop, 'Not supplied')) + '</b><span>' + escapeHtml(stop.note || 'Exit if the rotation-rebound structure breaks.') + '</span></div>' +
-      '<div class="rot-plan-cell rot-plan-target"><small>First target</small><b>' + escapeHtml(rotPointText(target, 'Not supplied')) + (rr == null ? '' : ' <em>' + fmt(rr, 1) + ':1 R:R</em>') + '</b><span>' + escapeHtml(target.note || 'Treat the first resistance test as the initial payoff.') + '</span></div>' +
+      '<div class="rot-plan-cell rot-plan-target"><small>First target</small><b>' + escapeHtml(rotPointText(target, 'Not supplied')) + (rrText ? ' <em>' + escapeHtml(rrText) + '</em>' : '') + '</b><span>' + escapeHtml(targetNote || target.note || 'Treat the first resistance test as the initial payoff.') + '</span></div>' +
     '</div>' +
-    '<div class="rot-size" data-rot-size="' + escapeHtml(String(c.symbol || '').toUpperCase()) + '" data-rot-baked="' + (rotNum(c.spot) == null ? '' : rotNum(c.spot)) + '" data-rot-entry="' + (sizingEntry == null ? '' : sizingEntry) + '" data-rot-stop="' + (stop.price == null ? '' : stop.price) + '" data-rot-decision="' + decision.kind + '">Share cap is calculated from price, invalidation and your risk budget.</div>';
+    '<div class="rot-size" data-rot-size="' + escapeHtml(String(c.symbol || '').toUpperCase()) + '" data-rot-baked="' + (rotNum(c.spot) == null ? '' : rotNum(c.spot)) + '" data-rot-entry="' + (sizingEntry == null ? '' : sizingEntry) + '" data-rot-entry-low="' + (entry.low == null ? '' : entry.low) + '" data-rot-entry-high="' + (entry.high == null ? '' : entry.high) + '" data-rot-stop="' + (stop.price == null ? '' : stop.price) + '" data-rot-target="' + (target.price == null ? '' : target.price) + '" data-rot-decision="' + decision.kind + '">Share cap is calculated from price, invalidation and your risk budget.</div>';
   }
   function rotReasonHtml(c){
     var reasons = rotList(c && c.reasons).slice(0, 4);
@@ -16409,14 +16560,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
   function rotCandidateCard(c, thresholds){
     var sym = String(c.symbol || '').toUpperCase();
-    var phase = rotPhase(c), decision = rotDecision(c, thresholds), score = rotCandidateScore(c);
-    return '<article class="rot-card rot-phase-' + escapeHtml(phase) + ' rot-decision-' + decision.kind + '">' +
-      '<header class="rot-card-head"><div class="rot-id"><a class="rot-sym" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '">' + escapeHtml(sym || '?') + '</a>' +
+    var cardTitleId = 'rot-card-title-' + sym.replace(/[^A-Z0-9_-]/g, '-');
+    var phase = rotPhase(c), decision = rotEffectiveDecision(c, thresholds), score = rotCandidateScore(c);
+    return '<article class="rot-card rot-phase-' + escapeHtml(phase) + ' rot-decision-' + decision.kind + '" aria-labelledby="' + escapeHtml(cardTitleId) + '">' +
+      '<header class="rot-card-head"><div class="rot-id"><a id="' + escapeHtml(cardTitleId) + '" class="rot-sym" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '">' + escapeHtml(sym || '?') + '</a>' +
         '<span class="rot-name">' + escapeHtml(c.name || '') + '</span><span class="rot-group">' + escapeHtml(rotCandidateGroup(c)) + '</span></div>' +
         '<span class="rot-score"><small>Rotation score</small><b>' + (score == null ? '-' : fmt(score, 1)) + '</b></span></header>' +
       '<div class="rot-card-status"><span class="rot-phase-chip">' + escapeHtml(rotPhaseLabel(phase)) + '</span><span class="rot-action rot-action-' + decision.kind + '">' + escapeHtml(decision.label) + '</span>' + (c.highConfidence ? '<span class="rot-confidence">Strong screen fit</span>' : '') + '</div>' +
       '<div class="rot-price">' + rotLiveHtml(c) + '</div>' +
-      rotEpisodeHtml(c) + rotSpark(c) + rotComponentHtml(c) + rotFactsHtml(c) + rotGuardHtml(c) +
+      rotEpisodeHtml(c) + rotSpark(c) + rotMeanReversionHtml(c, thresholds) + rotComponentHtml(c) + rotFactsHtml(c) + rotGuardHtml(c) +
       rotPlanHtml(c, decision) + rotReasonHtml(c) +
     '</article>';
   }
@@ -16452,7 +16604,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var thresholds = d && d.thresholds;
     var first = 0, confirmed = 0, actionable = 0, waits = 0;
     candidates.forEach(function(c){
-      var p = rotPhase(c), a = rotDecision(c, thresholds);
+      var p = rotPhase(c), a = rotEffectiveDecision(c, thresholds);
       if (p === 'first-thrust') first++;
       if (p === 'confirmed' || p === 'retest') confirmed++;
       if (a.kind === 'act') actionable++; else waits++;
@@ -16465,25 +16617,25 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var explicitFirst = rotNum(rotValue(counts, ['firstThrust','firstThrustCount','first_thrust']));
     var explicitConfirmed = rotNum(rotValue(counts, ['confirmed','confirmedCount','retestConfirmed']));
     var explicitWaits = rotNum(rotValue(counts, ['waitOrPass','waitOrPassCount','waiting','waitingCount']));
-    if (explicitActionable != null) actionable = explicitActionable;
+    if (explicitActionable != null && !rotQuotesFresh()) actionable = explicitActionable;
     if (explicitFirst != null) first = explicitFirst;
     if (explicitConfirmed != null) confirmed = explicitConfirmed;
-    if (explicitWaits != null) waits = explicitWaits;
+    if (explicitWaits != null && !rotQuotesFresh()) waits = explicitWaits;
     return '<section class="rot-summary"><div><span class="rot-kicker">Rotation rebound desk</span><h3>' + escapeHtml(headline || 'Quality intact. Price dislocated. Confirmation still matters.') + '</h3>' +
-      '<p>' + escapeHtml(body || 'Ranks strong businesses caught in group-level selling, then separates the first bounce from a confirmed reclaim or clean retest.') + '</p></div>' +
+      '<p>' + escapeHtml(body || 'Ranks strong businesses caught in group-level selling, measures the flush in standard deviations from a frozen pre-drop trend mean, and refuses entries after the reversion runway is spent.') + '</p></div>' +
       '<div class="rot-summary-stats"><span><b>' + actionable + '</b><small>actionable</small></span><span><b>' + first + '</b><small>first thrust</small></span><span><b>' + confirmed + '</b><small>confirmed / retest</small></span><span><b>' + waits + '</b><small>wait or pass</small></span></div></section>';
   }
   function rotVisibleCandidates(candidates, thresholds){
     var rows = candidates.filter(function(c){
       if (rotationState.phase !== 'all' && rotPhase(c) !== rotationState.phase) return false;
-      if (rotationState.action !== 'all' && rotDecision(c, thresholds).kind !== rotationState.action) return false;
+      if (rotationState.action !== 'all' && rotEffectiveDecision(c, thresholds).kind !== rotationState.action) return false;
       if (!rotGroupMatches(c, rotationState.group)) return false;
       return true;
     });
     rows.sort(function(a, b){
       if (rotationState.sort === 'priority'){
         var actionRank = { act:3, wait:2, pass:1 };
-        var actionDelta = (actionRank[rotDecision(b, thresholds).kind] || 0) - (actionRank[rotDecision(a, thresholds).kind] || 0);
+        var actionDelta = (actionRank[rotEffectiveDecision(b, thresholds).kind] || 0) - (actionRank[rotEffectiveDecision(a, thresholds).kind] || 0);
         if (actionDelta) return actionDelta;
       }
       if (rotationState.sort === 'rr') return (rotPlanRr(b) == null ? -999 : rotPlanRr(b)) - (rotPlanRr(a) == null ? -999 : rotPlanRr(a));
@@ -16498,8 +16650,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         return bb - ab;
       }
       if (rotationState.sort === 'live'){
-        var aq = rotationState.quotes && rotationState.quotes[String(a.symbol || '').toUpperCase()];
-        var bq = rotationState.quotes && rotationState.quotes[String(b.symbol || '').toUpperCase()];
+        var quoteMap = rotQuoteMap();
+        var aq = quoteMap[String(a.symbol || '').toUpperCase()];
+        var bq = quoteMap[String(b.symbol || '').toUpperCase()];
         return (bq && rotNum(bq.changePct) != null ? rotNum(bq.changePct) : -999) - (aq && rotNum(aq.changePct) != null ? rotNum(aq.changePct) : -999);
       }
       return (rotCandidateScore(b) == null ? -999 : rotCandidateScore(b)) - (rotCandidateScore(a) == null ? -999 : rotCandidateScore(a));
@@ -16507,14 +16660,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return rows;
   }
   function rotToolbarHtml(candidates, visible, groups, thresholds){
-    var phases = [['all','All states'],['washed-out','Washed out'],['first-thrust','First thrust'],['confirmed','Confirmed'],['retest','Retest'],['extended','Extended']];
+    var phases = [['all','All states'],['washed-out','Washed out'],['first-thrust','First thrust'],['confirmed','Confirmed'],['retest','Retest'],['extended','Late / spent']];
     function phaseBtn(x){
       var active = rotationState.phase === x[0];
       return '<button type="button" class="rot-filter-btn' + (active ? ' active' : '') + '" data-rot-phase="' + x[0] + '" aria-pressed="' + (active ? 'true' : 'false') + '">' + x[1] + '</button>';
     }
     function actionBtn(key, label){
       var active = rotationState.action === key;
-      var count = key === 'all' ? candidates.length : candidates.filter(function(c){ return rotDecision(c, thresholds).kind === key; }).length;
+      var count = key === 'all' ? candidates.length : candidates.filter(function(c){ return rotEffectiveDecision(c, thresholds).kind === key; }).length;
       return '<button type="button" class="rot-filter-btn' + (active ? ' active' : '') + '" data-rot-action="' + key + '" aria-pressed="' + (active ? 'true' : 'false') + '">' + label + ' <b>' + count + '</b></button>';
     }
     var groupOpts = [];
@@ -16531,7 +16684,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '<div class="rot-toolbar"><div class="rot-action-filter">' + actionBtn('all','All') + actionBtn('act','Actionable') + actionBtn('wait','Wait') + actionBtn('pass','Pass') + '</div>' +
         '<label>Group <select data-rot-group>' + opts + '</select></label>' +
         '<label>Sort <select data-rot-sort><option value="priority"' + (rotationState.sort === 'priority' ? ' selected' : '') + '>Desk priority</option><option value="score"' + (rotationState.sort === 'score' ? ' selected' : '') + '>Rotation score</option><option value="rr"' + (rotationState.sort === 'rr' ? ' selected' : '') + '>Best R:R</option><option value="drawdown"' + (rotationState.sort === 'drawdown' ? ' selected' : '') + '>Deepest dislocation</option><option value="bounce"' + (rotationState.sort === 'bounce' ? ' selected' : '') + '>Strongest rebound</option><option value="live"' + (rotationState.sort === 'live' ? ' selected' : '') + '>Live day move</option></select></label>' +
-        '<span class="rot-showing">Showing ' + visible.length + ' of ' + candidates.length + '</span></div>' +
+        '<span class="rot-showing" role="status" aria-live="polite" aria-atomic="true">Showing ' + visible.length + ' of ' + candidates.length + '</span></div>' +
       '<div class="rot-risk"><div><b>Position-risk cap</b><span>Uses live price for actionable setups and the planned trigger for waiting setups, both against structural invalidation.</span></div>' +
         '<label>Account $<input type="number" min="100" step="500" value="' + Math.round(rotationState.account) + '" data-rot-account></label>' +
         '<label>Max loss / trade <input type="number" min="0.05" max="5" step="0.05" value="' + rotationState.riskPct + '" data-rot-risk>%</label></div></section>';
@@ -16540,7 +16693,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (!rows.length) return '';
     var list = rows.slice().sort(function(a,b){ return (rotCandidateScore(b) || 0) - (rotCandidateScore(a) || 0); }).slice(0, 10);
     return '<section class="rot-near"><div class="rot-section-head"><h3>Near misses</h3><span>Strong context, but one or more gates still fail</span></div><div class="rot-near-list">' + list.map(function(c){
-      var sym = String(c.symbol || '').toUpperCase(), score = rotCandidateScore(c), d = rotDecision(c, thresholds);
+      var sym = String(c.symbol || '').toUpperCase(), score = rotCandidateScore(c), d = rotEffectiveDecision(c, thresholds);
       var why = rotText(c, ['missReason','reason','note']);
       if (!why){
         var blocked = rotList(c.blockedBy);
@@ -16569,30 +16722,45 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       }).join('') + '</div>' : '') + '</details>';
   }
   function bindRotationDesk(root){
+    function rerenderAndFocus(attr, value){
+      renderSectorRotation();
+      var nextRoot = $('rotation-root') || $('sector-rotation-root');
+      if (!nextRoot) return;
+      var nodes = nextRoot.querySelectorAll('[' + attr + ']');
+      for (var n = 0; n < nodes.length; n++){
+        if (value == null || nodes[n].getAttribute(attr) === value){ nodes[n].focus(); break; }
+      }
+    }
     var phases = root.querySelectorAll('[data-rot-phase]');
-    for (var i = 0; i < phases.length; i++) phases[i].addEventListener('click', function(){ rotationState.phase = this.getAttribute('data-rot-phase') || 'all'; rotSavePrefs(); renderSectorRotation(); });
+    for (var i = 0; i < phases.length; i++) phases[i].addEventListener('click', function(){ var value = this.getAttribute('data-rot-phase') || 'all'; rotationState.phase = value; rotSavePrefs(); rerenderAndFocus('data-rot-phase', value); });
     var actions = root.querySelectorAll('[data-rot-action]');
-    for (var j = 0; j < actions.length; j++) actions[j].addEventListener('click', function(){ rotationState.action = this.getAttribute('data-rot-action') || 'all'; rotSavePrefs(); renderSectorRotation(); });
+    for (var j = 0; j < actions.length; j++) actions[j].addEventListener('click', function(){ var value = this.getAttribute('data-rot-action') || 'all'; rotationState.action = value; rotSavePrefs(); rerenderAndFocus('data-rot-action', value); });
     var tape = root.querySelectorAll('[data-rot-group-card]');
     for (var k = 0; k < tape.length; k++) tape[k].addEventListener('click', function(){
       var id = this.getAttribute('data-rot-group-card') || 'all';
       rotationState.group = rotKey(rotationState.group) === rotKey(id) ? 'all' : id;
-      rotSavePrefs(); renderSectorRotation();
+      rotSavePrefs(); rerenderAndFocus('data-rot-group-card', id);
     });
     var group = root.querySelector('[data-rot-group]');
-    if (group) group.addEventListener('change', function(){ rotationState.group = this.value || 'all'; rotSavePrefs(); renderSectorRotation(); });
+    if (group) group.addEventListener('change', function(){ rotationState.group = this.value || 'all'; rotSavePrefs(); rerenderAndFocus('data-rot-group', null); });
     var sort = root.querySelector('[data-rot-sort]');
-    if (sort) sort.addEventListener('change', function(){ rotationState.sort = this.value || 'priority'; rotSavePrefs(); renderSectorRotation(); });
-    function saveRisk(){
+    if (sort) sort.addEventListener('change', function(){ rotationState.sort = this.value || 'priority'; rotSavePrefs(); rerenderAndFocus('data-rot-sort', null); });
+    function saveRisk(normalize){
       var account = root.querySelector('[data-rot-account]'), risk = root.querySelector('[data-rot-risk]');
       var av = account ? rotNum(account.value) : null, rv = risk ? rotNum(risk.value) : null;
-      if (av != null && av > 0) rotationState.account = av;
-      if (rv != null && rv > 0 && rv <= 5) rotationState.riskPct = rv;
+      var accountOk = av != null && av >= 100;
+      var riskOk = rv != null && rv >= 0.05 && rv <= 5;
+      if (account){ account.setAttribute('aria-invalid', accountOk ? 'false' : 'true'); account.setCustomValidity(accountOk ? '' : 'Account must be at least $100.'); }
+      if (risk){ risk.setAttribute('aria-invalid', riskOk ? 'false' : 'true'); risk.setCustomValidity(riskOk ? '' : 'Max loss must be between 0.05% and 5%.'); }
+      if (accountOk) rotationState.account = av;
+      if (riskOk) rotationState.riskPct = rv;
+      if (normalize && account && !accountOk){ account.value = Math.round(rotationState.account); account.setAttribute('aria-invalid','false'); account.setCustomValidity(''); }
+      if (normalize && risk && !riskOk){ risk.value = rotationState.riskPct; risk.setAttribute('aria-invalid','false'); risk.setCustomValidity(''); }
       rotSavePrefs(); applyRotationRiskSizing();
     }
     var account = root.querySelector('[data-rot-account]'), risk = root.querySelector('[data-rot-risk]');
-    if (account){ account.addEventListener('input', saveRisk); account.addEventListener('change', saveRisk); }
-    if (risk){ risk.addEventListener('input', saveRisk); risk.addEventListener('change', saveRisk); }
+    if (account){ account.addEventListener('input', function(){ saveRisk(false); }); account.addEventListener('change', function(){ saveRisk(true); }); }
+    if (risk){ risk.addEventListener('input', function(){ saveRisk(false); }); risk.addEventListener('change', function(){ saveRisk(true); }); }
   }
   function renderSectorRotation(){
     var root = $('rotation-root') || $('sector-rotation-root');
@@ -16614,7 +16782,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var visible = rotVisibleCandidates(candidates, thresholds);
     if (eye){
       var when = d.builtAtIso ? new Date(d.builtAtIso).toLocaleString() : '';
-      eye.textContent = candidates.length + ' candidate' + (candidates.length === 1 ? '' : 's') + (near.length ? ' \u00b7 ' + near.length + ' near miss' + (near.length === 1 ? '' : 'es') : '') + (when ? ' \u00b7 updated ' + when : '');
+      var dataAsOf = d.dataAsOfDate || d.marketDataAsOf || '';
+      eye.textContent = candidates.length + ' candidate' + (candidates.length === 1 ? '' : 's') + (near.length ? ' \u00b7 ' + near.length + ' near miss' + (near.length === 1 ? '' : 'es') : '') + (dataAsOf ? ' \u00b7 data through ' + dataAsOf : '') + (when ? ' \u00b7 built ' + when : '');
     }
     var stale = rotationState.error ? '<p class="rot-stale">Live refresh failed; the last successfully loaded build remains visible.</p>' : '';
     var grid = visible.length ? '<div class="rot-grid">' + visible.map(function(c){ return rotCandidateCard(c, thresholds); }).join('') + '</div>'
@@ -16623,7 +16792,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var filteredNear = rotationState.group === 'all' ? near : near.filter(function(c){ return rotGroupMatches(c, rotationState.group); });
     root.innerHTML = stale + rotSummaryHtml(d, candidates) + rotGroupTape(groups) + rotToolbarHtml(candidates, visible, groups, thresholds) + grid +
       rotNearMissHtml(filteredNear, thresholds) + rotThresholdHtml(d.thresholds, d.modelVersion) +
-      '<p class="rot-foot">A sector-rotation diagnosis is probabilistic, not proof that company-specific risk is absent. First-thrust means an initial reflex move, never confirmation. Recheck fresh news and earnings timing before acting. Educational screen, not financial advice.</p>';
+      '<p class="rot-foot">The frozen mean and \u03c3 describe a pre-drop trend regime; they do not prove price must revert or estimate a probability. First thrust is an initial reflex move, never confirmation. Latest quotes can update price and sizing; z-scores and the displayed at-build R:R remain frozen to the named build. Recheck fresh news and earnings timing before acting. Educational screen, not financial advice.</p>';
     bindRotationDesk(root);
     applyRotationLive();
     bindBriefChips(root);

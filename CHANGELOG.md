@@ -30,6 +30,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Changed
 
+- **Sector Rotation now measures the actual mean-reversion runway instead of treating every raw bounce alike.** Each stock is tested against a frozen pre-drop trend mean and robust standard deviation: the trough close must be at least 1.5 sigma below that baseline, the score separates statistical dislocation from reversion progress, confirmation requires meaningful recovery with edge still remaining, and a completed or overextended reversion becomes a pass. Cards show the trough/build z-scores, standard deviation, frozen mean, progress and runway; trade plans target the earlier of that mean and any overhead resistance, then enforce 1.25:1 pass and 1.5:1 actionable payoff bars. Offline regeneration no longer advances phases by appending a new date at a stale price. `scripts/build.mjs`, `scripts/regen-picks.mjs`, `scripts/render/{html,app-js,styles-css}.mjs`.
+
 - **The freemium tab split now puts Earnings Calls, Narratives, and Index Calendar in the free tier, while Trending IV and Streaks move to premium.** The server key policy, narrative manifest sidecar, client locks and home-card badges, and the in-app feature matrix all use the same split. `lib/premium-keys.mjs`, `scripts/render/{app-js,html,docs}.mjs`, `app.js`, `index.html`.
 
 ## 2026-07-20

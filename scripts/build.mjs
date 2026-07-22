@@ -2945,6 +2945,16 @@ async function fetchTickerChain(symbol) {
     initial.quote?.postMarketPrice ??
     initial.quote?.preMarketPrice ??
     null;
+  // Persist the exchange quote timestamp alongside spot.  The rotation model
+  // uses this to decide whether spot may update/append a daily row; build time
+  // alone is not proof of a trading session (weekends, holidays, stale Yahoo
+  // responses). yahoo-finance2 normalizes regularMarketTime to a Date.
+  const quoteDate = initial.quote?.regularMarketTime
+    ? new Date(initial.quote.regularMarketTime)
+    : null;
+  const quoteAsOf = quoteDate && Number.isFinite(quoteDate.getTime())
+    ? quoteDate.toISOString()
+    : null;
   const allExp = initial.expirationDates || [];
   if (!spot) throw new Error(`No spot for ${symbol}`);
   if (!allExp.length) throw new Error(`No expirations for ${symbol}`);
@@ -3018,6 +3028,8 @@ async function fetchTickerChain(symbol) {
 
   return {
     spot,
+    quoteAsOf,
+    marketState: initial.quote?.marketState ?? null,
     expirations: Object.keys(chains).map(Number).sort((a, b) => a - b),
     chains,
     technicals,
@@ -18147,7 +18159,7 @@ export async function writeStockPicksFile(payload) {
 // regen-picks), preserving the repo's algo-regeneration boundary.
 // ============================================================================
 export const SECTOR_ROTATION_FILE = "sector-rotation.json";
-const SECTOR_ROTATION_MODEL_VERSION = 1;
+const SECTOR_ROTATION_MODEL_VERSION = 2;
 const SECTOR_ROTATION_LOOKBACK = 45;
 const SECTOR_ROTATION_MIN_BARS = 80;
 const SECTOR_ROTATION_MIN_GROUP = 4;
@@ -18164,6 +18176,17 @@ const SECTOR_ROTATION_MIN_SCORE = 55;
 const SECTOR_ROTATION_HIGH_SCORE = 70;
 const SECTOR_ROTATION_MAX_CANDIDATES = 18;
 const SECTOR_ROTATION_MAX_NEAR_MISSES = 14;
+const SECTOR_ROTATION_MEAN_WINDOW = 60;
+const SECTOR_ROTATION_MEAN_MIN_OBS = 30;
+const SECTOR_ROTATION_TROUGH_Z = -1.5;
+const SECTOR_ROTATION_STRONG_TROUGH_Z = -2.5;
+const SECTOR_ROTATION_PROGRESS_THRUST = 0.15;
+const SECTOR_ROTATION_PROGRESS_CONFIRM = 0.25;
+const SECTOR_ROTATION_PROGRESS_LATE = 0.80;
+const SECTOR_ROTATION_CURRENT_Z_LATE = -0.25;
+const SECTOR_ROTATION_Z_DISPLAY_CAP = 10;
+const SECTOR_ROTATION_RR_READY = 1.5;
+const SECTOR_ROTATION_RR_PASS_BELOW = 1.25;
 
 // Coherent trader-facing baskets built from the repo's curated SECTORS map.
 // Explicit groups avoid silently treating a whole Yahoo top-level sector as
@@ -18192,10 +18215,12 @@ function sectorRotationDateKey(raw) {
   return Number.isFinite(d.getTime()) ? d.toISOString().slice(0, 10) : null;
 }
 
-// Unified daily OHLCV rows. When the last bar is today's in-progress Yahoo
-// candle, live `spot` replaces its close; when the last stored bar is prior-day
-// (pre-market/offline fixture), append a deterministic as-of row instead.
-function sectorRotationRows(data, builtAtIso) {
+// Unified daily OHLCV rows. A spot may update or append a row only when its
+// exchange quote timestamp proves the session date. Build wall-clock time alone
+// is not sufficient: otherwise a holiday, weekend, or stale Yahoo response can
+// manufacture a flat trading session and advance confirmation/trough age.
+function sectorRotationRows(data, builtAtIso, opts = {}) {
+  const appendAsOfRow = opts.appendAsOfRow !== false;
   let raw = [];
   if (Array.isArray(data?._bars) && data._bars.length) {
     raw = data._bars.map((b) => ({ t: b?.t, c: b?.c, h: b?.h, l: b?.l, v: b?.v }));
@@ -18221,6 +18246,7 @@ function sectorRotationRows(data, builtAtIso) {
       h: h != null && h > 0 ? h : c,
       l: l != null && l > 0 ? l : c,
       v,
+      live: false,
     });
   }
   const rows = [...byDate.values()].sort((a, b) => a.t.localeCompare(b.t)).slice(-252);
@@ -18231,14 +18257,21 @@ function sectorRotationRows(data, builtAtIso) {
     return Number.isFinite(d.getTime()) ? etDateStr(d) : sectorRotationDateKey(builtAtIso);
   })();
   const spot = pnumN(data?.spot);
-  if (asOf && spot > 0) {
+  const quoteDate = sectorRotationDateKey(data?.quoteAsOf);
+  const quoteDay = quoteDate ? new Date(`${quoteDate}T12:00:00Z`).getUTCDay() : null;
+  const quoteIsWeekday = quoteDay != null && quoteDay >= 1 && quoteDay <= 5;
+  if (quoteDate && quoteIsWeekday && spot > 0 && (!asOf || quoteDate <= asOf)) {
     const last = rows[rows.length - 1];
-    if (last.t === asOf) {
+    // Same-session overlay stays enabled for offline regeneration too. spot and
+    // quoteAsOf are persisted, so bake and regen use the same precise close;
+    // appendAsOfRow=false only forbids inventing a NEW session.
+    if (last.t === quoteDate) {
       last.c = spot;
       last.h = Math.max(last.h || spot, spot);
       last.l = Math.min(last.l || spot, spot);
-    } else if (last.t < asOf) {
-      rows.push({ t: asOf, c: spot, h: spot, l: spot, v: null });
+      last.live = true;
+    } else if (appendAsOfRow && quoteDate === asOf && last.t < quoteDate) {
+      rows.push({ t: quoteDate, c: spot, h: spot, l: spot, v: null, live: true });
     }
   }
   return rows.slice(-252);
@@ -18359,14 +18392,94 @@ function sectorRotationAtrPct(rows) {
   return tr.length && spot > 0 ? (tr.reduce((x, y) => x + y, 0) / tr.length / spot) * 100 : null;
 }
 
-function sectorRotationZAt(rows, date, period = 20) {
-  const a = (rows || []).filter((r) => r.t <= date);
-  if (a.length < period) return null;
-  const win = a.slice(-period).map((r) => r.c);
-  const mean = win.reduce((x, y) => x + y, 0) / win.length;
-  const sd = Math.sqrt(win.reduce((s, x) => s + (x - mean) ** 2, 0) / win.length);
-  const v = a[a.length - 1].c;
-  return sd > 0 ? (v - mean) / sd : null;
+// Frozen pre-drop mean-reversion model. Fit a robust Theil-Sen trend to log
+// closes ending at the episode peak, then keep its peak-date centre and scale
+// fixed for both trough and current z-scores. A rolling mean would sag after a
+// selloff and manufacture apparent progress. Statistical reads use the
+// trough-date CLOSE; the intraday low remains the trade invalidation anchor.
+function sectorRotationMeanReversion(rows, episode) {
+  const fail = (reason, extra = {}) => ({
+    valid: false,
+    reason,
+    window: SECTOR_ROTATION_MEAN_WINDOW,
+    observations: 0,
+    ...extra,
+  });
+  if (!episode?.peakDate || !episode?.troughDate) return fail("episode dates unavailable");
+
+  const baseline = (rows || [])
+    .filter((r) => r?.live !== true && r?.t <= episode.peakDate && r?.c > 0)
+    .slice(-SECTOR_ROTATION_MEAN_WINDOW);
+  const n = baseline.length;
+  if (n < SECTOR_ROTATION_MEAN_MIN_OBS) {
+    return fail(`only ${n} completed pre-peak closes`, { observations: n });
+  }
+
+  const ys = baseline.map((r) => Math.log(r.c));
+  const slopes = [];
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) slopes.push((ys[j] - ys[i]) / (j - i));
+  }
+  const slope = sectorRotationMedian(slopes);
+  if (!Number.isFinite(slope)) return fail("pre-peak trend is degenerate", { observations: n });
+  const intercept = sectorRotationMedian(ys.map((y, i) => y - slope * i));
+  const rawTarget = Math.exp(intercept + slope * (n - 1));
+  const meanTarget = Math.min(rawTarget, episode.peakPrice);
+  if (!(meanTarget > 0)) return fail("pre-drop mean target unavailable", { observations: n });
+
+  const residuals = ys.map((y, i) => y - (intercept + slope * i));
+  const residualMedian = sectorRotationMedian(residuals);
+  const mad = sectorRotationMedian(residuals.map((x) => Math.abs(x - residualMedian)));
+  const rawSigma = Number.isFinite(mad) ? 1.4826 * mad : null;
+  const prePeakAtrPct = sectorRotationAtrPct(baseline) ?? 2;
+  const sigmaFloorPct = Math.max(1, prePeakAtrPct * 0.5);
+  const sigmaFloor = Math.log1p(sigmaFloorPct / 100);
+  const sigma = Math.max(Number.isFinite(rawSigma) ? rawSigma : 0, sigmaFloor);
+  if (!(sigma > 0)) return fail("pre-drop residual scale unavailable", { observations: n });
+
+  const troughRow = (rows || []).find((r) => r?.t === episode.troughDate);
+  const currentRow = (rows || [])[rows.length - 1];
+  const troughClose = troughRow?.c;
+  const currentClose = currentRow?.c;
+  if (!(troughClose > 0) || !(currentClose > 0)) {
+    return fail("trough or current close unavailable", { observations: n });
+  }
+  const reversionDenominator = Math.log(meanTarget / troughClose);
+  if (!(reversionDenominator > 0)) {
+    return fail("pre-drop mean is not above the trough close", {
+      observations: n,
+      meanTarget,
+      troughClose,
+    });
+  }
+
+  const troughZ = Math.log(troughClose / meanTarget) / sigma;
+  const currentZ = Math.log(currentClose / meanTarget) / sigma;
+  const progressRaw = Math.log(currentClose / troughClose) / reversionDenominator;
+  return {
+    valid: true,
+    reason: null,
+    window: SECTOR_ROTATION_MEAN_WINDOW,
+    observations: n,
+    baselineStartDate: baseline[0]?.t || null,
+    baselineEndDate: baseline[n - 1]?.t || null,
+    slopeDailyPct: (Math.exp(slope) - 1) * 100,
+    rawMeanTarget: rawTarget,
+    meanTarget,
+    rawSigmaPct: (Math.exp(Number.isFinite(rawSigma) ? rawSigma : 0) - 1) * 100,
+    sigmaPct: (Math.exp(sigma) - 1) * 100,
+    sigmaFloorPct,
+    floorApplied: !(Number.isFinite(rawSigma) && rawSigma >= sigmaFloor),
+    troughClose,
+    troughZ,
+    currentZ,
+    troughDistancePct: (meanTarget / troughClose - 1) * 100,
+    distanceToMeanPct: (meanTarget / currentClose - 1) * 100,
+    progressRaw,
+    progressRawPct: progressRaw * 100,
+    progressPct: clamp(progressRaw * 100, 0, 125),
+    targetBasis: "60-session Theil-Sen log trend centre through the completed pre-drop peak, capped at the observed peak",
+  };
 }
 
 function sectorRotationCorrBeta(stockRows, peerRows) {
@@ -18463,54 +18576,105 @@ function sectorRotationScale(value, lo, hi, points) {
 }
 
 function sectorRotationPlan(row) {
-  const { data, phase, spot, atrPct, episode, blockedBy } = row;
+  const { data, phase, spot, atrPct, episode, blockedBy, meanReversion } = row;
   const t = data?.technicals || {};
   const atr = spot > 0 && atrPct > 0 ? spot * atrPct / 100 : spot * 0.025;
   const rows = row.rows || [];
   const troughPos = rows.findIndex((x) => x.t === episode.troughDate);
   const afterTrough = troughPos >= 0 ? rows.slice(troughPos, -1) : rows.slice(-4, -1);
   const pivotHigh = afterTrough.length ? Math.max(...afterTrough.map((x) => x.h || x.c).filter(Number.isFinite)) : null;
-  const sma20 = pnumN(t.sma?.sma20);
-  const reclaim = [pivotHigh, sma20].filter((x) => x > 0);
+  const sma10 = pnumN(t.sma?.sma10) ?? sectorRotationSma(rows, 10);
+  const reclaim = [pivotHigh, sma10].filter((x) => x > 0);
   const trigger = reclaim.length ? Math.max(...reclaim) : spot;
   const invalidation = Math.max(0.01, episode.troughPrice - atr * 0.25);
   const sr = t.sr || {};
-  const targetChoices = [episode.peakPrice, pnumN(sr.r20), pnumN(sr.r50), pnumN(sr.r100)]
-    .filter((x) => x > trigger * 1.01).sort((a, b) => a - b);
-  const target = targetChoices.length ? targetChoices[0] : null;
-  const risk = trigger > invalidation ? trigger - invalidation : null;
-  const rewardRisk = risk > 0 && target > trigger ? (target - trigger) / risk : null;
+  const meanTarget = meanReversion?.valid ? meanReversion.meanTarget : null;
+  const targetFloor = Math.max(trigger, spot);
+  const resistanceChoices = [pnumN(sr.r20), pnumN(sr.r50), pnumN(sr.r100)]
+    .filter((x) => x > targetFloor).sort((a, b) => a - b);
+  const nearestResistance = resistanceChoices.length ? resistanceChoices[0] : null;
+  const target = meanTarget > trigger * 1.01
+    ? Math.min(meanTarget, nearestResistance ?? meanTarget)
+    : null;
+  const entryRisk = trigger > invalidation ? trigger - invalidation : null;
+  const entryRewardRisk = entryRisk > 0 && target > trigger ? (target - trigger) / entryRisk : null;
+  const liveRisk = spot > invalidation ? spot - invalidation : null;
+  const liveRewardRisk = liveRisk > 0 && target > spot ? (target - spot) / liveRisk : null;
+  const entryZone = [Math.max(invalidation, trigger - atr * 0.25), trigger + atr * 0.25];
+  const currentInEntryZone = spot >= entryZone[0] && spot <= entryZone[1];
+  const targetEdgePct = target > trigger ? (target / trigger - 1) * 100 : null;
+  const liveTargetEdgePct = target > spot ? (target / spot - 1) * 100 : null;
+  const edgeFloorPct = row.edgeFloorPct ?? Math.max(2, atrPct * 0.5);
+  const entryPayoffTooThin = !(target > trigger) || targetEdgePct < edgeFloorPct
+    || entryRewardRisk == null || entryRewardRisk < SECTOR_ROTATION_RR_PASS_BELOW;
+  const livePayoffTooThin = !(target > spot) || liveTargetEdgePct < edgeFloorPct
+    || liveRewardRisk == null || liveRewardRisk < SECTOR_ROTATION_RR_PASS_BELOW;
   let state = "wait-turn", headline = "Wait for the group and stock to turn";
-  if (blockedBy.length) { state = "blocked"; headline = "Pass — company-specific guard failed"; }
-  else if (phase === "first-thrust") { state = "wait-pullback"; headline = "First thrust — do not chase; wait for the first controlled pullback"; }
-  else if (phase === "late" || (phase === "confirmed" && rewardRisk != null && rewardRisk < 1.25)) { state = "pass"; headline = "Pass — rebound is late or payoff too thin"; }
-  else if (phase === "confirmed" && rewardRisk != null && rewardRisk >= 1.5) { state = "ready"; headline = "Confirmed — buy only inside the reclaim zone"; }
-  else if (phase === "confirmed") { state = "wait-payoff"; headline = "Confirmed turn, but wait for a better reward/risk"; }
+  if (blockedBy.length) { state = "blocked"; headline = "Pass — a required guard failed"; }
+  else if (phase === "late") { state = "pass"; headline = "Pass — most of the mean-reversion runway is spent"; }
+  else if (phase === "first-thrust" && entryPayoffTooThin) {
+    state = "pass"; headline = "Pass — mean target or payoff is too thin";
+  } else if (phase === "first-thrust") {
+    state = "wait-pullback"; headline = "First thrust — do not chase; wait for the first controlled pullback";
+  } else if (phase === "confirmed" && currentInEntryZone && livePayoffTooThin) {
+    state = "pass"; headline = "Pass — live mean target or payoff is too thin";
+  } else if (phase === "confirmed" && currentInEntryZone && liveRewardRisk >= SECTOR_ROTATION_RR_READY) {
+    state = "ready"; headline = "Confirmed — price is inside the reclaim zone with sufficient live payoff";
+  } else if (phase === "confirmed" && currentInEntryZone) {
+    state = "wait-payoff"; headline = "Confirmed turn, but wait for a better reward/risk";
+  } else if (phase === "confirmed" && entryPayoffTooThin) {
+    state = "pass"; headline = "Pass — mean target or payoff is too thin at the planned trigger";
+  } else if (phase === "confirmed" && spot > entryZone[1]) {
+    state = "wait-pullback"; headline = "Confirmed, but price is above the reclaim zone — wait for a controlled pullback";
+  } else if (phase === "confirmed" && spot < entryZone[0]) {
+    state = "wait-reclaim"; headline = "Confirmed structure, but price must reclaim the entry zone";
+  } else if (phase === "confirmed") {
+    state = "wait-payoff"; headline = "Confirmed turn, but wait for a better reward/risk";
+  }
   return {
     state,
     headline,
     trigger: r2(trigger),
-    entryZone: [r2(Math.max(invalidation, trigger - atr * 0.25)), r2(trigger + atr * 0.25)],
+    entryZone: entryZone.map((x) => r2(x)),
+    currentInEntryZone,
     invalidation: r2(invalidation),
+    meanTarget: meanTarget != null ? r2(meanTarget) : null,
+    nearestResistance: nearestResistance != null ? r2(nearestResistance) : null,
     target1: target != null ? r2(target) : null,
-    rewardRisk: rewardRisk != null ? r2(rewardRisk) : null,
-    basis: "Underlying shares; reclaim/pivot entry, trough-plus-ATR invalidation, nearest prior resistance target",
+    targetEdgePct: r1(targetEdgePct),
+    liveTargetEdgePct: r1(liveTargetEdgePct),
+    rewardRisk: entryRewardRisk != null ? r2(entryRewardRisk) : null,
+    entryRewardRisk: entryRewardRisk != null ? r2(entryRewardRisk) : null,
+    liveRewardRisk: liveRewardRisk != null ? r2(liveRewardRisk) : null,
+    basis: "Underlying shares; pivot/SMA10 reclaim entry, trough-minus-0.25 ATR invalidation, frozen mean capped by nearest resistance",
   };
 }
 
-export function buildSectorRotationRebounds(chains, gradesIndex, builtAtIso) {
+export function buildSectorRotationRebounds(chains, gradesIndex, builtAtIso, opts = {}) {
   const grades = gradesIndex || {};
+  const rowOpts = { appendAsOfRow: opts.appendAsOfRow !== false };
   const rowsBySym = {};
   const stockSymbols = [];
   let universe = 0, qualityPassed = 0;
   for (const [sym, data] of Object.entries(chains || {})) {
-    const rows = sectorRotationRows(data, builtAtIso);
+    const rows = sectorRotationRows(data, builtAtIso, rowOpts);
     if (rows.length >= SECTOR_ROTATION_MIN_BARS) rowsBySym[sym] = rows;
     if (SECTORS[sym] === "ETF" || !data) continue;
     universe++;
     if (rows.length >= SECTOR_ROTATION_MIN_BARS) stockSymbols.push(sym);
     if (stockQualityGate(data).pass) qualityPassed++;
   }
+
+  // Modal latest date is more honest than the absolute max when one ticker is
+  // ahead of the rest. Full builds normally stamp today; offline regens expose
+  // the latest persisted session because appendAsOfRow is disabled there.
+  const asOfCounts = new Map();
+  for (const rows of Object.values(rowsBySym)) {
+    const d = rows[rows.length - 1]?.t;
+    if (d) asOfCounts.set(d, (asOfCounts.get(d) || 0) + 1);
+  }
+  const dataAsOfDate = [...asOfCounts.entries()]
+    .sort((a, b) => b[1] - a[1] || b[0].localeCompare(a[0]))[0]?.[0] || null;
 
   // Pass 1: form each explicit basket. Symbols explicitly named by an earlier
   // group (NVDA -> Semis) are excluded from later tag-based groups.
@@ -18531,7 +18695,7 @@ export function buildSectorRotationRebounds(chains, gradesIndex, builtAtIso) {
     rawGroups.push({ def, members, basket, episode: sectorRotationEpisode(basket) });
   }
 
-  const spyRows = rowsBySym.SPY || sectorRotationRows(chains?.SPY, builtAtIso);
+  const spyRows = rowsBySym.SPY || sectorRotationRows(chains?.SPY, builtAtIso, rowOpts);
   const groupStates = [];
   for (const g of rawGroups) {
     const ep = g.episode;
@@ -18551,7 +18715,7 @@ export function buildSectorRotationRebounds(chains, gradesIndex, builtAtIso) {
     const bounce = last > 0 && ep.troughPrice > 0 ? (last / ep.troughPrice - 1) * 100 : null;
     const spyBounce = sectorRotationReturnBetween(spyRows, ep.troughDate, lastDate);
     const bounceRelSpy = bounce != null && spyBounce != null ? bounce - spyBounce : null;
-    const benchmarkRows = g.def.benchmark ? rowsBySym[g.def.benchmark] || sectorRotationRows(chains?.[g.def.benchmark], builtAtIso) : null;
+    const benchmarkRows = g.def.benchmark ? rowsBySym[g.def.benchmark] || sectorRotationRows(chains?.[g.def.benchmark], builtAtIso, rowOpts) : null;
     const benchmarkDrop = benchmarkRows?.length ? sectorRotationReturnBetween(benchmarkRows, ep.peakDate, ep.troughDate) : null;
     const benchmarkBounce = benchmarkRows?.length ? sectorRotationReturnBetween(benchmarkRows, ep.troughDate, lastDate) : null;
     const benchmarkConfirmed = benchmarkDrop == null ? null : benchmarkDrop <= SECTOR_ROTATION_GROUP_DD;
@@ -18625,7 +18789,12 @@ export function buildSectorRotationRebounds(chains, gradesIndex, builtAtIso) {
         const through = rows.filter((r) => r.t <= episode.peakDate);
         return sectorRotationRet(through, 60);
       })();
-      const zTrough = sectorRotationZAt(rows, episode.troughDate);
+      const meanReversion = sectorRotationMeanReversion(rows, episode);
+      const currentZ = meanReversion.valid ? meanReversion.currentZ : null;
+      const progressRaw = meanReversion.valid ? meanReversion.progressRaw : null;
+      const progressPct = meanReversion.valid ? meanReversion.progressRawPct : null;
+      const distanceToMeanPct = meanReversion.valid ? meanReversion.distanceToMeanPct : null;
+      const edgeFloorPct = Math.max(2, atrPct * 0.5);
       const rsi = pnumN(data.technicals?.rsi), rsi5d = pnumN(data.technicals?.rsi5d);
       const rsiChange = rsi != null && rsi5d != null ? rsi - rsi5d : null;
       const rvol = pnumN(data.technicals?.volume?.rvol);
@@ -18684,24 +18853,49 @@ export function buildSectorRotationRebounds(chains, gradesIndex, builtAtIso) {
         : nextEarnDays != null && nextEarnDays >= 0 && nextEarnDays <= 7
           ? sectorRotationGuard("warn", `earnings in ${nextEarnDays}d — binary event before confirmation`)
           : sectorRotationGuard("pass", "no recent negative earnings break or imminent print");
+      // Mean reversion only has a bullish interpretation when the robust
+      // pre-drop regime itself was at least stable. Endpoint return can remain
+      // positive after the fitted trend has already rolled over, so it cannot
+      // override a clearly negative slope.
+      guards.trend = !meanReversion.valid
+        ? sectorRotationGuard("block", "pre-drop trend model is unavailable")
+        : meanReversion.slopeDailyPct < -0.05
+          ? sectorRotationGuard("block", `pre-drop trend was falling ${r2(meanReversion.slopeDailyPct)}% per session`)
+          : meanReversion.slopeDailyPct < 0
+            ? sectorRotationGuard("warn", `pre-drop robust trend was slightly negative (${r2(meanReversion.slopeDailyPct)}% per session)`)
+            : sectorRotationGuard("pass", `pre-drop robust trend was nonnegative (${r2(meanReversion.slopeDailyPct)}% per session)`);
       guards.idiosyncratic = residual == null
         ? sectorRotationGuard("warn", "peer residual unavailable; attribution confidence is lower")
         : residual < -idioLimit || (fit.correlation != null && fit.correlation < 0.1 && residual < -2)
           ? sectorRotationGuard("block", `${r1(residual)} pts worse than beta-adjusted peers (limit −${r1(idioLimit)})`, { residualPct: r1(residual) })
           : sectorRotationGuard("pass", `${r1(residual)}-pt beta-adjusted residual stays inside the rotation band`, { residualPct: r1(residual) });
+      guards.meanReversion = !meanReversion.valid
+        ? sectorRotationGuard("block", `robust mean model unavailable — ${meanReversion.reason}`)
+        : meanReversion.troughZ > SECTOR_ROTATION_TROUGH_Z
+          ? sectorRotationGuard("block", `trough close was only ${r2(meanReversion.troughZ)}σ below its frozen mean; requires ${SECTOR_ROTATION_TROUGH_Z}σ or lower`, { troughZ: r2(meanReversion.troughZ) })
+          : sectorRotationGuard("pass", `${r2(meanReversion.troughZ)}σ trough-close dislocation with ${meanReversion.observations} completed pre-peak closes`, { troughZ: r2(meanReversion.troughZ) });
 
       const thrustBar = Math.max(SECTOR_ROTATION_FIRST_THRUST, atrPct * 0.75);
       const ownThrust = bounce >= thrustBar && ret1 > 0 && group.metrics.breadthUpPct >= SECTOR_ROTATION_BREADTH_UP;
-      let phase = ownThrust && group.phase !== "washed-out" ? "first-thrust" : "washed-out";
+      const progressTurn = progressRaw != null && progressRaw >= SECTOR_ROTATION_PROGRESS_THRUST;
+      let phase = ownThrust && progressTurn && group.phase !== "washed-out" ? "first-thrust" : "washed-out";
       const structurallyConfirmed = ownThrust && group.phase === "confirmed"
         && episode.troughAge >= SECTOR_ROTATION_CONFIRM_AGE
+        && progressRaw >= SECTOR_ROTATION_PROGRESS_CONFIRM
+        && progressRaw < SECTOR_ROTATION_PROGRESS_LATE
+        && currentZ < SECTOR_ROTATION_CURRENT_Z_LATE
+        && distanceToMeanPct > edgeFloorPct
         && spot >= sma10 && (higherCloses || (rsi >= 45 && rsiChange > 0));
       if (structurallyConfirmed) phase = "confirmed";
       const chase = episode.troughAge >= SECTOR_ROTATION_CONFIRM_AGE
         && ((ret3 >= 15) || (rsi >= 70 && distSma20 >= 8) || (bounce >= 25 && distSma20 >= 10));
-      if (chase && phase !== "washed-out") phase = "late";
-      guards.chase = chase
-        ? sectorRotationGuard("warn", `extended after the turn (${r1(ret3)}%/3d, ${r1(distSma20)}% vs 20D SMA)`)
+      const meanExhausted = meanReversion.valid && (progressRaw >= SECTOR_ROTATION_PROGRESS_LATE
+        || currentZ >= SECTOR_ROTATION_CURRENT_Z_LATE || distanceToMeanPct <= edgeFloorPct);
+      if (meanExhausted || (chase && phase !== "washed-out")) phase = "late";
+      guards.chase = chase || meanExhausted
+        ? sectorRotationGuard("warn", meanExhausted
+          ? `mean runway mostly spent (${r1(progressPct)}% reverted, ${r1(distanceToMeanPct)}% remaining)`
+          : `extended after the turn (${r1(ret3)}%/3d, ${r1(distSma20)}% vs 20D SMA)`)
         : sectorRotationGuard("pass", "not extended by the chase guard");
 
       // Unverified news or an imminent print can stay visible, but cannot be
@@ -18732,26 +18926,28 @@ export function buildSectorRotationRebounds(chains, gradesIndex, builtAtIso) {
       if (peakSma50 > 0 && peakSma200 > 0 && peakSma50 >= peakSma200) priorTrendScore += 3;
       if (peakRet60 != null && peakRet60 > 0) priorTrendScore += 3;
 
-      let washoutScore = 4 + sectorRotationScale(Math.abs(episode.drawdownPct), 8, 35, 4);
-      if (zTrough != null && zTrough <= -2) washoutScore += 4;
-      else if (zTrough != null && zTrough <= -1.25) washoutScore += 2;
-      if (rsi != null && rsi <= 50) washoutScore += 1;
-      if (episode.troughAge <= 3) washoutScore += 2;
+      // One standardized dislocation signal only. Raw drawdown remains an
+      // economic hard gate and is deliberately not scored again here.
+      let washoutScore = meanReversion.valid
+        ? sectorRotationScale(-meanReversion.troughZ, Math.abs(SECTOR_ROTATION_TROUGH_Z), 3.5, 13)
+          + (meanReversion.observations >= 45 ? 2 : 1)
+        : 0;
       washoutScore = clamp(washoutScore, 0, 15);
 
-      let reversalScore = 0;
-      reversalScore += sectorRotationScale(bounce, thrustBar, Math.max(thrustBar + 1, 15), 7);
-      if (group.phase === "first-thrust" || group.phase === "confirmed" || group.phase === "late") reversalScore += 5;
-      if (ret1 > 0) reversalScore += 2;
-      if (ret3 > 0) reversalScore += 1;
-      if (rsiChange != null && rsiChange > 0) reversalScore += 2;
-      if (closeLocation != null && closeLocation >= 60) reversalScore += 1.5;
-      if (rvol != null && rvol >= 1.1) reversalScore += 1.5; // bonus only; ordinary volume never vetoes
-      reversalScore = clamp(reversalScore, 0, 20);
+      let meanReversionScore = 0;
+      // Reversion progress replaces raw bounce as the scored recovery read;
+      // bounce still supplies the economically meaningful phase threshold.
+      meanReversionScore += sectorRotationScale(progressPct, 10, 60, 8);
+      if (group.phase === "first-thrust" || group.phase === "confirmed" || group.phase === "late") meanReversionScore += 5;
+      if (ret1 > 0) meanReversionScore += 2;
+      if (higherCloses || (rsiChange != null && rsiChange > 0)) meanReversionScore += 2;
+      if (closeLocation != null && closeLocation >= 60) meanReversionScore += 1.5;
+      if (rvol != null && rvol >= 1.1) meanReversionScore += 1.5; // bonus only; ordinary volume never vetoes
+      meanReversionScore = clamp(meanReversionScore, 0, 20);
 
       const components = {
         quality: r1(qualityScore), rotation: r1(rotationScore), priorTrend: r1(priorTrendScore),
-        washout: r1(washoutScore), reversal: r1(reversalScore),
+        dislocation: r1(washoutScore), meanReversion: r1(meanReversionScore),
       };
       const score = r1(Object.values(components).reduce((a, b) => a + b, 0));
       const blockedBy = Object.entries(guards).filter(([, v]) => v.status === "block").map(([k]) => k);
@@ -18763,7 +18959,42 @@ export function buildSectorRotationRebounds(chains, gradesIndex, builtAtIso) {
       ];
       if (group.metrics.relSpyPct != null) reasons.push(`group lagged SPY by ${r1(Math.abs(group.metrics.relSpyPct))} pts during the selloff`);
       if (residual != null) reasons.push(`beta-adjusted peer residual ${residual >= 0 ? "+" : ""}${r1(residual)} pts`);
+      if (meanReversion.valid) reasons.push(`${r2(meanReversion.troughZ)}σ trough close; ${r1(meanReversion.progressRawPct)}% of the frozen-mean gap recovered`);
       if (ownThrust) reasons.push(`${r1(group.metrics.breadthUpPct)}% peer rebound breadth confirms the first thrust`);
+
+      const meanReversionPayload = meanReversion.valid ? {
+        valid: true,
+        reason: null,
+        window: meanReversion.window,
+        observations: meanReversion.observations,
+        baselineStartDate: meanReversion.baselineStartDate,
+        baselineEndDate: meanReversion.baselineEndDate,
+        slopeDailyPct: r2(meanReversion.slopeDailyPct),
+        rawMeanTarget: r2(meanReversion.rawMeanTarget),
+        meanTarget: r2(meanReversion.meanTarget),
+        rawSigmaPct: r2(meanReversion.rawSigmaPct),
+        sigmaPct: r2(meanReversion.sigmaPct),
+        sigmaFloorPct: r2(meanReversion.sigmaFloorPct),
+        floorApplied: meanReversion.floorApplied,
+        troughClose: r2(meanReversion.troughClose),
+        troughZ: r2(meanReversion.troughZ),
+        currentZ: r2(meanReversion.currentZ),
+        troughZDisplay: r2(clamp(meanReversion.troughZ, -SECTOR_ROTATION_Z_DISPLAY_CAP, SECTOR_ROTATION_Z_DISPLAY_CAP)),
+        currentZDisplay: r2(clamp(meanReversion.currentZ, -SECTOR_ROTATION_Z_DISPLAY_CAP, SECTOR_ROTATION_Z_DISPLAY_CAP)),
+        troughZCapped: Math.abs(meanReversion.troughZ) > SECTOR_ROTATION_Z_DISPLAY_CAP,
+        currentZCapped: Math.abs(meanReversion.currentZ) > SECTOR_ROTATION_Z_DISPLAY_CAP,
+        zDisplayCap: SECTOR_ROTATION_Z_DISPLAY_CAP,
+        troughDistancePct: r1(meanReversion.troughDistancePct),
+        distanceToMeanPct: r1(meanReversion.distanceToMeanPct),
+        progressPct: r1(meanReversion.progressPct),
+        progressRawPct: r1(meanReversion.progressRawPct),
+        targetBasis: meanReversion.targetBasis,
+      } : {
+        valid: false,
+        reason: meanReversion.reason,
+        window: meanReversion.window,
+        observations: meanReversion.observations,
+      };
 
       const candidate = {
         symbol: sym,
@@ -18773,7 +19004,7 @@ export function buildSectorRotationRebounds(chains, gradesIndex, builtAtIso) {
         spot: r2(spot),
         phase,
         score,
-        highConfidence: score >= SECTOR_ROTATION_HIGH_SCORE && !blockedBy.length,
+        highConfidence: false,
         components,
         episode: {
           peakDate: episode.peakDate, peakPrice: r2(episode.peakPrice),
@@ -18795,19 +19026,28 @@ export function buildSectorRotationRebounds(chains, gradesIndex, builtAtIso) {
           rsi: r1(rsi), rsiChange5d: r1(rsiChange), atrPct: r1(atrPct),
           sma10: r2(sma10), sma20: r2(sma20), sma50: r2(sma50), sma200: r2(sma200),
           ret1: r1(ret1), ret3: r1(ret3), ret5: r1(ret5), rvol: r2(rvol),
-          closeLocationPct: r1(closeLocation), zAtTrough: r2(zTrough),
+          closeLocationPct: r1(closeLocation),
           preDrop: { aboveSma50: peakSma50 > 0 ? episode.peakPrice >= peakSma50 : null, aboveSma200: peakSma200 > 0 ? episode.peakPrice >= peakSma200 : null, sma50Above200: peakSma50 > 0 && peakSma200 > 0 ? peakSma50 >= peakSma200 : null, ret60: r1(peakRet60) },
         },
+        meanReversion,
         quality: gate.checks,
         guards,
         blockedBy,
         reasons,
         warnings,
         series: sectorRotationNormalizedSeries(rows, peerBasket),
-        rows, data, atrPct,
+        rows, data, atrPct, edgeFloorPct,
       };
       candidate.plan = sectorRotationPlan(candidate);
-      delete candidate.rows; delete candidate.data; delete candidate.atrPct;
+      candidate.highConfidence = score >= SECTOR_ROTATION_HIGH_SCORE && !blockedBy.length
+        && candidate.plan.state !== "pass" && candidate.plan.state !== "blocked"
+        && (phase === "first-thrust" || phase === "confirmed")
+        && currentZ < SECTOR_ROTATION_CURRENT_Z_LATE
+        && meanReversion.troughZ <= SECTOR_ROTATION_STRONG_TROUGH_Z
+        && meanReversion.slopeDailyPct >= 0
+        && priorTrendScore >= 9;
+      candidate.meanReversion = meanReversionPayload;
+      delete candidate.rows; delete candidate.data; delete candidate.atrPct; delete candidate.edgeFloorPct;
 
       if (!blockedBy.length && score >= SECTOR_ROTATION_MIN_SCORE) clean.push(candidate);
       else if (score >= SECTOR_ROTATION_MIN_SCORE - 10) near.push(candidate);
@@ -18840,6 +19080,8 @@ export function buildSectorRotationRebounds(chains, gradesIndex, builtAtIso) {
 
   return {
     builtAtIso,
+    dataAsOfDate,
+    dataMode: rowOpts.appendAsOfRow ? "live-spot" : "persisted-closes",
     modelVersion: SECTOR_ROTATION_MODEL_VERSION,
     lookbackSessions: SECTOR_ROTATION_LOOKBACK,
     minGroupMembers: SECTOR_ROTATION_MIN_GROUP,
@@ -18873,11 +19115,28 @@ export function buildSectorRotationRebounds(chains, gradesIndex, builtAtIso) {
       confirmationPositiveBreadthDays: 2,
       confirmationReclaimSma: 10,
       idiosyncratic: { floorPct: 4, atrMultiple: 1.25, lowCorrelation: 0.1 },
-      late: { ret3Pct: 15, rsi: 70, distSma20Pct: 8, bouncePct: 25, bounceDistSma20Pct: 10 },
-      rewardRisk: { ready: 1.5, passBelow: 1.25 },
+      meanReversion: {
+        window: SECTOR_ROTATION_MEAN_WINDOW,
+        minObservations: SECTOR_ROTATION_MEAN_MIN_OBS,
+        troughZ: SECTOR_ROTATION_TROUGH_Z,
+        strongTroughZ: SECTOR_ROTATION_STRONG_TROUGH_Z,
+        sigmaFloorPct: 1,
+        sigmaAtrMultiple: 0.5,
+        firstThrustProgressPct: SECTOR_ROTATION_PROGRESS_THRUST * 100,
+        confirmationProgressPct: SECTOR_ROTATION_PROGRESS_CONFIRM * 100,
+        lateProgressPct: SECTOR_ROTATION_PROGRESS_LATE * 100,
+        lateCurrentZ: SECTOR_ROTATION_CURRENT_Z_LATE,
+        zDisplayCap: SECTOR_ROTATION_Z_DISPLAY_CAP,
+        edgeFloorPct: 2,
+        edgeAtrMultiple: 0.5,
+        completedBaselineClosesOnly: true,
+        targetCap: "episode-peak",
+      },
+      late: { ret3Pct: 15, rsi: 70, distSma20Pct: 8, bouncePct: 25, bounceDistSma20Pct: 10, reversionProgressPct: SECTOR_ROTATION_PROGRESS_LATE * 100, currentZ: SECTOR_ROTATION_CURRENT_Z_LATE },
+      rewardRisk: { ready: SECTOR_ROTATION_RR_READY, passBelow: SECTOR_ROTATION_RR_PASS_BELOW },
       minScore: SECTOR_ROTATION_MIN_SCORE,
       highScore: SECTOR_ROTATION_HIGH_SCORE,
-      componentMax: { quality: 25, rotation: 25, priorTrend: 15, washout: 15, reversal: 20 },
+      componentMax: { quality: 25, rotation: 25, priorTrend: 15, dislocation: 15, meanReversion: 20 },
     },
   };
 }
