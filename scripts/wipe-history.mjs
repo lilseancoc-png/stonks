@@ -1,4 +1,5 @@
-// wipe-history.mjs — reset the Top Picks track record in the PRIVATE data store
+// wipe-history.mjs — reset the Top Picks or Sector Rotation track record in the
+// PRIVATE data store
 // (Path B; see CLAUDE.md "Private data + Discord-role gating" and
 // docs/private-data-migration.md), and purge the now-removed Day Trades store
 // objects (the Day Trades tab + engine were deleted).
@@ -22,7 +23,11 @@
 //                   + picks-roster.json         Top-10 in/out roster snapshot
 //   --grade-logs    + grades-history.json       whole-universe grade-change log
 //                   + grades-daily.json         daily grade snapshots (IC substrate)
-//   --all           = --picks-logs --grade-logs
+//   --sector-rotation
+//                   sector-rotation-log.json    Sector Rotation model-entry
+//                                               ledger (standalone; does NOT
+//                                               reset Top Picks when used alone)
+//   --all           = core + --picks-logs --grade-logs --sector-rotation
 //
 // Mode:
 //   --empty   (default) overwrite each key with a VALID EMPTY payload — the
@@ -36,7 +41,14 @@
 //   node scripts/wipe-history.mjs                       # dry run, core only
 //   node scripts/wipe-history.mjs --picks-logs          # dry run, core + picks logs
 //   node scripts/wipe-history.mjs --picks-logs --apply  # really wipe
+//   node scripts/wipe-history.mjs --sector-rotation     # dry run, rotation only
 //   node scripts/wipe-history.mjs --all --delete --apply
+//
+// Sector Rotation's browser-facing record is embedded in sector-rotation.json,
+// which this maintenance command deliberately does not rewrite. The next full
+// bake projects the cleared ledger into that payload (and may enroll any setup
+// that is ready at that bake), so the old projection can remain visible until
+// then.
 //
 // NOTE on --grade-logs: wiping grades-history.json clears the `latest` baseline
 // that the next build diffs against, so that build will log every currently
@@ -54,14 +66,21 @@ const nowIso = new Date().toISOString();
 
 if (args.has("--help") || args.has("-h")) {
   console.log(
-    "Usage: node scripts/wipe-history.mjs [--picks-logs] [--grade-logs] [--all] [--empty|--delete] [--apply]\n" +
-      "Dry run by default. See the file header for full docs.",
+    "Usage: node scripts/wipe-history.mjs [--picks-logs] [--grade-logs] [--sector-rotation] [--all] [--empty|--delete] [--apply]\n" +
+      "Dry run by default. --sector-rotation alone resets only sector-rotation-log.json; its embedded browser projection refreshes on the next full bake. See the file header for full docs.",
   );
   process.exit(0);
 }
 
 const wantPicksLogs = args.has("--picks-logs") || args.has("--all");
 const wantGradeLogs = args.has("--grade-logs") || args.has("--all");
+const explicitSectorRotation = args.has("--sector-rotation");
+const wantSectorRotation = explicitSectorRotation || args.has("--all");
+// Preserve the established additive semantics for picks/grade scopes while
+// allowing the independent Sector Rotation strategy to be reset by itself.
+const sectorRotationOnly = explicitSectorRotation && !args.has("--all")
+  && !args.has("--picks-logs") && !args.has("--grade-logs");
+const wantCore = !sectorRotationOnly;
 
 // Each target: the store key + a VALID EMPTY payload the next-bake/scan reader
 // AND the browser both tolerate (verified against the read/render code).
@@ -116,19 +135,41 @@ const TARGETS = [
     empty: { days: [] },
     summarize: (p) => `${(p.days || []).length} days`,
   },
+  // ---- --sector-rotation: independent model-entry/outcome ledger ----
+  // Deliberately omit resetEpoch/modelVersion/recordVersion. The next full bake
+  // treats this as incompatible and self-heals it to the then-current schema,
+  // avoiding a version constant duplicated from build.mjs.
+  {
+    key: "sector-rotation-log.json", group: "sector-rotation", label: "Sector Rotation model-entry ledger",
+    empty: { updatedAtIso: nowIso, pending: [], open: [], closed: [] },
+    summarize: (p) => `${(p.pending || []).length} watching, ${(p.open || []).length} open, ${(p.closed || []).length} closed`,
+  },
 ];
 
 const selected = TARGETS.filter((t) =>
-  t.group === "core" ||
+  (t.group === "core" && wantCore) ||
   (t.group === "picks-logs" && wantPicksLogs) ||
-  (t.group === "grade-logs" && wantGradeLogs),
+  (t.group === "grade-logs" && wantGradeLogs) ||
+  (t.group === "sector-rotation" && wantSectorRotation),
 );
+
+const scopeParts = [
+  ...(wantCore ? ["core"] : []),
+  ...(wantPicksLogs ? ["picks-logs"] : []),
+  ...(wantGradeLogs ? ["grade-logs"] : []),
+  ...(wantSectorRotation ? ["sector-rotation"] : []),
+];
 
 console.log(
   `\nwipe-history — mode=${MODE} ${APPLY ? "APPLY (will mutate the store)" : "DRY RUN (no writes)"}\n` +
-    `scope: core${wantPicksLogs ? " + picks-logs" : ""}${wantGradeLogs ? " + grade-logs" : ""}\n` +
+    `scope: ${scopeParts.join(" + ")}\n` +
     `targets: ${selected.length} key(s)\n`,
 );
+if (wantSectorRotation) {
+  console.log(
+    "note: sector-rotation.json is not changed here; its embedded record projection refreshes from the cleared ledger on the next full bake.\n",
+  );
+}
 
 let mutated = 0, failed = 0;
 for (const t of selected) {
@@ -165,9 +206,17 @@ if (!APPLY) {
   console.log(`\nDry run complete — nothing changed. Re-run with --apply to execute.\n`);
 } else {
   console.log(`\nDone — ${mutated} key(s) ${MODE === "delete" ? "deleted" : "reset"}, ${failed} failed.`);
-  console.log(
-    `The next scheduled bake will repopulate the Top Picks track record (within ` +
-      `~1h). The deleted Day Trades keys are gone for good (the feature was removed).\n`,
-  );
+  if (wantCore) {
+    console.log(
+      `The next scheduled bake will repopulate the Top Picks track record (within ` +
+        `~1h). The deleted Day Trades keys are gone for good (the feature was removed).`,
+    );
+  }
+  if (wantSectorRotation) {
+    console.log(
+      "Sector Rotation's cleared ledger will be projected into sector-rotation.json on the next full bake; until then the prior browser projection may remain visible.",
+    );
+  }
+  console.log();
 }
 process.exit(failed > 0 ? 1 : 0);

@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks, buildSectorRotationRebounds, writeSectorRotationFile, SECTOR_ROTATION_FILE, buildLeveragedEtfPicks, writeLeveragedEtfsFile, LEVERAGED_ETFS_FILE, readPriorLevEtfLog, levRecordFromLog } from "./build.mjs";
+import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks, buildSectorRotationRebounds, writeSectorRotationFile, SECTOR_ROTATION_FILE, readPriorSectorRotationLog, sectorRotationRecordFromLog, buildLeveragedEtfPicks, writeLeveragedEtfsFile, LEVERAGED_ETFS_FILE, readPriorLevEtfLog, levRecordFromLog } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -253,14 +253,17 @@ try {
 }
 
 // Sector Rotation Rebounds (premium tab) — pure over the hydrated per-ticker
-// bars, grade index and company/news fields. Mirrors build.mjs::main() exactly;
-// no quotes or AI calls are needed for an algorithm-only regeneration.
+// bars, grade index and company/news fields. The accumulating record is NOT
+// reconciled offline: persisted spots must not manufacture entries or exits.
+// Reattach the last full bake's projection unchanged, like Leveraged ETFs.
 try {
   // Do not append today's clock date with the last persisted `spot`: offline
   // data may be days old, and that synthetic flat row would change trough age,
   // z-scores and reversion progress without any new market observation. A
   // persisted same-session quote timestamp may still refine its existing row.
   const rotationPayload = buildSectorRotationRebounds(chains, grades, builtAtIso, { appendAsOfRow: false });
+  const rotationLogPrev = await readPriorSectorRotationLog();
+  if (rotationLogPrev) rotationPayload.record = sectorRotationRecordFromLog(rotationLogPrev);
   const rotationInfo = await writeSectorRotationFile(rotationPayload);
   console.log(`Regenerated ${SECTOR_ROTATION_FILE} — ${rotationInfo.candidates} clean candidate(s) (${rotationInfo.confirmed} confirmed / ${rotationInfo.firstThrust} first thrust), ${rotationInfo.nearMisses} near miss(es).`);
 } catch (err) {

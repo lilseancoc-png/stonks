@@ -3631,6 +3631,62 @@ a.cmd-watch, a.cr-tkr, a.f13-sym, a.brief-chip, a.cal-chip-sym { text-decoration
 .rot-summary-stats > span { display: flex; flex-direction: column; gap: 2px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
 .rot-summary-stats b { color: var(--text-strong); font: 800 17px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
 .rot-summary-stats small { color: var(--muted); font: 650 8.5px/1.15 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; }
+.rot-record { display: flex; flex-direction: column; gap: 10px; padding: 13px 14px; border: 1px solid var(--border); border-radius: 12px; background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 5%, var(--surface)), var(--surface) 55%); min-width: 0; }
+.rot-record-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.rot-record-head > div { min-width: 0; }
+.rot-record-head .rot-kicker { margin-bottom: 4px; }
+.rot-record-head h3 { margin: 0; color: var(--text-strong); font: 750 15px/1.25 var(--font-sans); }
+.rot-record-head p { margin: 4px 0 0; color: var(--muted-strong); font: 400 11.5px/1.45 var(--font-sans); }
+.rot-record-badge { flex: 0 0 auto; padding: 5px 8px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); border-radius: 999px; color: var(--accent); background: var(--accent-soft); font: 700 9px/1 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; }
+.rot-record-stats { display: grid; grid-template-columns: repeat(6, minmax(86px, 1fr)); gap: 6px; min-width: 0; }
+.rot-record-stat { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 7px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
+.rot-record-stat small { color: var(--muted); font: 650 8px/1.1 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; }
+.rot-record-stat b { color: var(--text-strong); font: 750 13px/1.15 var(--font-mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.rot-record-stat b em { color: var(--muted); font: 500 9px/1 var(--font-sans); font-style: normal; white-space: nowrap; }
+.rot-entry-lab { display: flex; flex-direction: column; gap: 7px; padding: 9px 10px; border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border)); border-radius: 9px; background: color-mix(in srgb, var(--accent) 4%, var(--surface-2)); }
+.rot-entry-lab-actionable { border-color: color-mix(in srgb, var(--pos) 38%, var(--border)); background: color-mix(in srgb, var(--pos) 5%, var(--surface-2)); }
+.rot-entry-lab-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.rot-entry-lab-head > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rot-entry-lab-head small { color: var(--accent); font: 700 8.5px/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; }
+.rot-entry-lab-head b { color: var(--text-strong); font: 700 11.5px/1.3 var(--font-sans); }
+.rot-entry-lab-head > em { flex: 0 0 auto; color: var(--muted); font: 600 9px/1.2 var(--font-mono); font-style: normal; }
+.rot-entry-lab > p { margin: 0; color: var(--muted-strong); font: 400 10.5px/1.45 var(--font-sans); }
+.rot-entry-facts, .rot-entry-cohorts { display: flex; flex-wrap: wrap; gap: 5px; }
+.rot-entry-facts > span { display: flex; flex: 1 1 120px; flex-direction: column; gap: 2px; padding: 6px 7px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); }
+.rot-entry-facts small { color: var(--muted); font: 600 8px/1.1 var(--font-sans); text-transform: uppercase; }
+.rot-entry-facts b { color: var(--text-strong); font: 700 10.5px/1.15 var(--font-mono); font-variant-numeric: tabular-nums; }
+.rot-entry-cohorts > span { display: inline-flex; align-items: baseline; gap: 6px; padding: 4px 6px; border-radius: 6px; color: var(--muted-strong); background: color-mix(in srgb, var(--border) 45%, transparent); }
+.rot-entry-cohorts b { color: var(--text); font: 650 9.5px/1.2 var(--font-sans); }
+.rot-entry-cohorts em { color: var(--muted); font: 500 9px/1.2 var(--font-mono); font-style: normal; }
+.rot-record-ledger { border: 1px solid var(--border); border-radius: 9px; background: var(--surface); overflow: hidden; }
+.rot-record-ledger > summary { min-height: 40px; display: flex; align-items: center; gap: 7px; padding: 0 10px; list-style: none; color: var(--muted-strong); font: 650 10.5px/1.25 var(--font-sans); cursor: pointer; user-select: none; }
+.rot-record-ledger > summary::-webkit-details-marker { display: none; }
+.rot-record-ledger > summary::before { content: '▸'; flex: 0 0 auto; color: var(--accent); font-size: 12px; line-height: 1; }
+.rot-record-ledger[open] > summary::before { content: '▾'; }
+.rot-record-rows { display: grid; grid-template-columns: repeat(auto-fit, minmax(275px, 1fr)); gap: 6px; padding: 0 8px 8px; }
+.rot-record-row { display: flex; flex-direction: column; gap: 5px; min-width: 0; padding: 8px 9px; border: 1px solid var(--border); border-left-width: 3px; border-radius: 8px; background: var(--surface-2); }
+.rot-record-row-open { border-left-color: var(--accent); }
+.rot-record-row-win { border-left-color: var(--pos); }
+.rot-record-row-loss { border-left-color: var(--neg); }
+.rot-record-row-timeout { border-left-color: var(--warn); }
+.rot-record-row-top { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.rot-record-row-top .rot-sym { font-size: 12.5px; }
+.rot-record-row-top > span { min-width: 0; color: var(--muted); font: 500 9.5px/1.2 var(--font-sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rot-record-outcome { margin-left: auto; flex: 0 0 auto; color: var(--muted-strong); font: 750 8.5px/1 var(--font-sans); letter-spacing: .04em; }
+.rot-record-row-win .rot-record-outcome { color: var(--pos); }
+.rot-record-row-loss .rot-record-outcome { color: var(--neg); }
+.rot-record-row-timeout .rot-record-outcome { color: var(--warn); }
+.rot-record-path { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
+.rot-record-path > span { color: var(--text); font: 600 10px/1.25 var(--font-mono); font-variant-numeric: tabular-nums; }
+.rot-record-terminal { display: inline-flex; align-items: baseline; gap: 3px; white-space: nowrap; }
+.rot-record-terminal small { color: var(--accent); font: 700 8.5px/1 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; }
+.rot-record-mark { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: 3px 5px; color: var(--muted-strong); font: 600 9.5px/1.2 var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; }
+.rot-record-mark i, .rot-track-mark i { color: var(--muted); font-style: normal; }
+.rot-record-row > small { color: var(--muted); font: 400 9.5px/1.35 var(--font-sans); overflow-wrap: anywhere; }
+.rot-record-empty { margin: 0; padding: 8px 9px; border: 1px dashed var(--border-strong); border-radius: 8px; color: var(--muted-strong); font: 400 10.5px/1.45 var(--font-sans); }
+.rot-record-empty b { color: var(--text-strong); }
+.rot-record-method { margin: 0; color: var(--muted); font: 400 9.5px/1.4 var(--font-sans); }
+.rot-record-method b { color: var(--text); }
 .rot-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 7px; }
 .rot-section-head h3 { margin: 0; color: var(--text-strong); font: 700 13px/1.2 var(--font-sans); }
 .rot-section-head > span { color: var(--muted); font: 500 10.5px/1.3 var(--font-sans); text-align: right; }
@@ -3694,6 +3750,11 @@ a.cmd-watch, a.cr-tkr, a.f13-sym, a.brief-chip, a.cal-chip-sym { text-decoration
 .rot-price { min-height: 17px; }
 .rot-live { color: var(--text-strong); font: 700 12.5px/1.3 var(--font-mono); font-variant-numeric: tabular-nums; }
 .rot-live small { margin-left: 3px; color: var(--muted); font: 600 8.5px/1 var(--font-sans); text-transform: uppercase; }
+.rot-tracking { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 8px; padding: 6px 7px; border-radius: 7px; font: 550 9.5px/1.3 var(--font-sans); }
+.rot-tracking-open { color: var(--muted-strong); background: color-mix(in srgb, var(--accent) 9%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); }
+.rot-tracking-watch { color: var(--muted-strong); background: color-mix(in srgb, var(--warn) 7%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 18%, transparent); }
+.rot-tracking-watch b { color: var(--warn); font-weight: 650; }
+.rot-track-mark { display: inline-flex; flex-wrap: wrap; gap: 3px 5px; color: var(--muted-strong); font: 650 9.5px/1.2 var(--font-mono); font-variant-numeric: tabular-nums; }
 .rot-episode, .rot-components, .rot-facts { display: flex; flex-wrap: wrap; gap: 5px; min-width: 0; }
 .rot-episode > span, .rot-components > span, .rot-facts > span { display: flex; flex: 1 1 76px; flex-direction: column; gap: 2px; min-width: 68px; padding: 6px 7px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-2); }
 .rot-episode small, .rot-components small, .rot-facts small { color: var(--muted); font: 600 8.5px/1.15 var(--font-sans); letter-spacing: .025em; text-transform: uppercase; }
@@ -3770,6 +3831,8 @@ a.cmd-watch, a.cr-tkr, a.f13-sym, a.brief-chip, a.cal-chip-sym { text-decoration
 @media (max-width: 760px) {
   .rot-summary { flex-direction: column; }
   .rot-summary-stats { width: 100%; }
+  .rot-record-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .rot-record-rows { grid-template-columns: minmax(0, 1fr); }
   .rot-tape-grid { display: flex; gap: 7px; overflow-x: auto; scroll-snap-type: x proximity; padding-bottom: 3px; }
   .rot-tape-card { flex: 0 0 min(78vw, 250px); scroll-snap-align: start; }
   .rot-grid { grid-template-columns: minmax(0, 1fr); }
@@ -3789,6 +3852,18 @@ a.cmd-watch, a.cr-tkr, a.f13-sym, a.brief-chip, a.cal-chip-sym { text-decoration
 @media (max-width: 480px) {
   .rot-summary { padding: 11px; }
   .rot-summary-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rot-record { padding: 11px; }
+  .rot-record-head { align-items: flex-start; }
+  .rot-record-badge { display: none; }
+  .rot-record-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rot-record-path { flex-direction: column; align-items: flex-start; }
+  .rot-record-mark { justify-content: flex-start; text-align: left; }
+  .rot-entry-lab-head { flex-direction: column; }
+  .rot-record-stat small, .rot-entry-lab-head small, .rot-entry-facts small { font-size: 10px; line-height: 1.2; }
+  .rot-entry-lab-head > em, .rot-entry-cohorts em, .rot-record-terminal small { font-size: 10px; line-height: 1.25; }
+  .rot-record-outcome { font-size: 10px; line-height: 1.15; }
+  .rot-record-row-top > span, .rot-record-path > span, .rot-record-mark, .rot-track-mark, .rot-record-row > small, .rot-record-method, .rot-tracking { font-size: 10.5px; }
+  .rot-record-ledger > summary, .rot-entry-lab > p { font-size: 11px; }
   .rot-card { padding: 10px; }
   .rot-name { max-width: 180px; }
   .rot-plan { grid-template-columns: minmax(0, 1fr); }

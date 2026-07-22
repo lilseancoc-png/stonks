@@ -16492,11 +16492,18 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function loadRotationQuotes(){
     var d = rotationState.data || {};
     var rows = (Array.isArray(d.candidates) ? d.candidates : []).concat(Array.isArray(d.nearMisses) ? d.nearMisses : []);
+    var recOpen = d.record && Array.isArray(d.record.open) ? d.record.open : [];
     var syms = [];
     rows.forEach(function(c){
       var sym = c && c.symbol ? String(c.symbol).toUpperCase() : '';
       if (sym && syms.indexOf(sym) < 0) syms.push(sym);
     });
+    recOpen.forEach(function(e){
+      var sym = e && e.symbol ? String(e.symbol).toUpperCase() : '';
+      if (sym && syms.indexOf(sym) < 0) syms.push(sym);
+    });
+    // SPY is the frozen universal benchmark for every official model entry.
+    if (recOpen.length && syms.indexOf('SPY') < 0) syms.push('SPY');
     if (!syms.length) return;
     var key = syms.join(',');
     if (rotationState.quotesFor === key && rotQuotesFresh()){ applyRotationLive(); return; }
@@ -16598,7 +16605,81 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       nodes[i].innerHTML = fmtMoney(q.spot) + (pct == null ? '' : ' <span class="rot-' + (pct >= 0 ? 'up' : 'down') + '">' + (pct >= 0 ? '+' : '') + fmt(pct, 2) + '% today</span>') + ' <small>quote</small>';
       if (rotationState.quotesSourceAt) nodes[i].title = 'Quote fetched ' + rotationState.quotesSourceAt;
     }
+    applyRotationRecordLive(map);
     applyRotationRiskSizing();
+  }
+  function rotRecordMetricHtml(retPct, rMultiple, alphaPct){
+    retPct = rotNum(retPct);
+    rMultiple = rotNum(rMultiple);
+    alphaPct = rotNum(alphaPct);
+    var bits = [];
+    if (retPct != null) bits.push('<b class="' + (retPct >= 0 ? 'rot-up' : 'rot-down') + '">' + (retPct >= 0 ? '+' : '') + fmt(retPct, 2) + '%</b>');
+    if (rMultiple != null) bits.push('<b class="' + (rMultiple >= 0 ? 'rot-up' : 'rot-down') + '">' + (rMultiple >= 0 ? '+' : '') + fmt(rMultiple, 2) + 'R</b>');
+    if (alphaPct != null) bits.push('<span class="' + (alphaPct >= 0 ? 'rot-up' : 'rot-down') + '">' + (alphaPct >= 0 ? '+' : '') + fmt(alphaPct, 2) + 'pp vs SPY</span>');
+    return bits.length ? bits.join('<i>&middot;</i>') : '<span>awaiting mark</span>';
+  }
+  function applyRotationRecordLive(map){
+    var nodes = document.querySelectorAll('[data-rot-record-live]');
+    var spy = map && map.SPY;
+    for (var i = 0; i < nodes.length; i++){
+      var sym = nodes[i].getAttribute('data-rot-record-live');
+      var q = map && map[sym];
+      var entry = rotNum(nodes[i].getAttribute('data-rot-record-entry'));
+      var stop = rotNum(nodes[i].getAttribute('data-rot-record-stop'));
+      var spyEntry = rotNum(nodes[i].getAttribute('data-rot-record-spy-entry'));
+      var spot = q ? rotNum(q.spot) : null;
+      if (!(spot > 0) || !(entry > 0)) continue;
+      var ret = (spot / entry - 1) * 100;
+      var risk = stop != null && stop > 0 && entry > stop ? entry - stop : null;
+      var r = risk > 0 ? (spot - entry) / risk : null;
+      var spyRet = spy && rotNum(spy.spot) > 0 && spyEntry > 0 ? (rotNum(spy.spot) / spyEntry - 1) * 100 : null;
+      var alpha = spyRet == null ? null : ret - spyRet;
+      nodes[i].innerHTML = rotRecordMetricHtml(ret, r, alpha);
+      if (rotationState.quotesSourceAt) nodes[i].title = 'Open model-entry mark from quotes fetched ' + rotationState.quotesSourceAt;
+    }
+    var priceNodes = document.querySelectorAll('[data-rot-record-price]');
+    for (var j = 0; j < priceNodes.length; j++){
+      var priceSym = priceNodes[j].getAttribute('data-rot-record-price');
+      var priceQuote = map && map[priceSym];
+      var livePrice = priceQuote ? rotNum(priceQuote.spot) : null;
+      if (!(livePrice > 0)) continue;
+      priceNodes[j].innerHTML = fmtMoney(livePrice) + ' <small>live</small>';
+      if (rotationState.quotesSourceAt) priceNodes[j].title = 'Quote fetched ' + rotationState.quotesSourceAt;
+    }
+  }
+  function rotRecordMatch(rows, c){
+    var key = c && c.signalKey ? String(c.signalKey) : '';
+    var sym = String(c && c.symbol || '').toUpperCase();
+    for (var i = 0; i < rows.length; i++){
+      if (!rows[i]) continue;
+      if (key && rows[i].signalKey === key) return rows[i];
+      if (!key && String(rows[i].symbol || '').toUpperCase() === sym) return rows[i];
+    }
+    return null;
+  }
+  function rotRecordLiveAttrs(e){
+    var symbol = String(e && e.symbol || '').toUpperCase();
+    var entry = rotNum(e && e.entryPx);
+    var stop = rotNum(e && e.invalidation);
+    var spyEntry = rotNum(e && e.spyEntryPx);
+    return ' data-rot-record-live="' + escapeHtml(symbol) + '"' +
+      ' data-rot-record-entry="' + (entry == null ? '' : entry) + '"' +
+      ' data-rot-record-stop="' + (stop == null ? '' : stop) + '"' +
+      ' data-rot-record-spy-entry="' + (spyEntry == null ? '' : spyEntry) + '"';
+  }
+  function rotTrackingHtml(c){
+    var rec = rotationState.data && rotationState.data.record;
+    if (!rec) return '';
+    var open = rotRecordMatch(Array.isArray(rec.open) ? rec.open : [], c);
+    if (open){
+      var entry = rotNum(open.entryPx);
+      return '<div class="rot-tracking rot-tracking-open"><span>Model entry ' + escapeHtml(open.openedDate || '?') + (entry == null ? '' : ' @ ' + fmtMoney(entry)) + '</span>' +
+        '<span class="rot-track-mark"' + rotRecordLiveAttrs(open) + '>' + rotRecordMetricHtml(rotNum(open.retPct), rotNum(open.rMultiple), rotNum(open.alphaVsSpyPct)) + '</span></div>';
+    }
+    var watching = rotRecordMatch(Array.isArray(rec.watching) ? rec.watching : [], c);
+    if (!watching) return '';
+    return '<div class="rot-tracking rot-tracking-watch"><span>Tracking setup since ' + escapeHtml(watching.firstFlagDate || '?') +
+      (rotNum(watching.firstFlagPx) == null ? '' : ' @ ' + fmtMoney(watching.firstFlagPx)) + '</span><b>No model entry until ready + a fresh in-zone regular-session quote</b></div>';
   }
   function rotSeriesValues(c){
     var raw = c && c.series;
@@ -16859,9 +16940,133 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="rot-score"><small>Rotation score</small><b>' + (score == null ? '-' : fmt(score, 1)) + '</b></span></header>' +
       '<div class="rot-card-status"><span class="rot-phase-chip">' + escapeHtml(rotPhaseLabel(phase)) + '</span><span class="rot-action rot-action-' + decision.kind + '">' + escapeHtml(decision.label) + '</span>' + (c.highConfidence ? '<span class="rot-confidence">Strong screen fit</span>' : '') + '</div>' +
       '<div class="rot-price">' + rotLiveHtml(c) + '</div>' +
-      rotEpisodeHtml(c) + rotSpark(c) + rotMeanReversionHtml(c, thresholds) + rotComponentHtml(c) + rotFactsHtml(c) + rotGuardHtml(c) +
+      rotTrackingHtml(c) + rotEpisodeHtml(c) + rotSpark(c) + rotMeanReversionHtml(c, thresholds) + rotComponentHtml(c) + rotFactsHtml(c) + rotGuardHtml(c) +
       rotPlanHtml(c, decision) + rotReasonHtml(c) +
     '</article>';
+  }
+  function rotRecordCount(value){
+    var n = rotNum(value);
+    return n == null ? 0 : Math.max(0, Math.round(n));
+  }
+  function rotRecordStat(label, value, tone, suffix){
+    var cls = tone === 'rot-up' || tone === 'rot-down' ? tone : '';
+    var suffixHtml = suffix == null || suffix === '' ? '' : ' <em>' + escapeHtml(String(suffix)) + '</em>';
+    return '<span class="rot-record-stat"><small>' + escapeHtml(String(label || '')) + '</small><b' + (cls ? ' class="' + cls + '"' : '') + '>' +
+      escapeHtml(value == null ? '-' : String(value)) + suffixHtml + '</b></span>';
+  }
+  function rotRecordGroupLabel(e){
+    var g = e && e.group;
+    if (g && typeof g === 'object') return rotText(g, ['label','name','key']) || '';
+    return g ? String(g) : '';
+  }
+  function rotRecordOutcome(e, isOpen){
+    if (isOpen) return { label:'OPEN', cls:'open' };
+    if (e && e.outcome === 'target') return { label:'RIGHT - TARGET', cls:'win' };
+    if (e && e.outcome === 'stop') return { label:'WRONG - STOP', cls:'loss' };
+    return { label:'TIMEOUT', cls:'timeout' };
+  }
+  function rotRecordRow(e, isOpen){
+    e = e && typeof e === 'object' ? e : {};
+    var outcome = rotRecordOutcome(e, isOpen);
+    var sym = String(e.symbol || '').toUpperCase();
+    var entry = rotNum(e.entryPx);
+    var mark = rotNum(isOpen ? e.lastPx : e.exitPx);
+    var markHtml = '<span class="rot-record-mark"' + (isOpen ? rotRecordLiveAttrs(e) : '') + '>' +
+      rotRecordMetricHtml(e.retPct, e.rMultiple, e.alphaVsSpyPct) + '</span>';
+    var opened = e.openedDate ? escapeHtml(String(e.openedDate)) : '?';
+    var terminal = '';
+    if (isOpen){
+      terminal = '<span class="rot-record-terminal" data-rot-record-price="' + escapeHtml(sym) + '" aria-live="polite" aria-atomic="true">' +
+        (mark == null ? 'open' : fmtMoney(mark) + ' <small>build</small>') + '</span>';
+    } else {
+      terminal = (e.closedDate ? escapeHtml(String(e.closedDate)) : '?') + (mark == null ? '' : ' @ ' + fmtMoney(mark));
+    }
+    var path = opened + (entry == null ? '' : ' @ ' + fmtMoney(entry)) + ' &rarr; ' + terminal;
+    var facts = [];
+    var entryZonePct = rotNum(e.entryZonePct);
+    var waitSessions = rotNum(e.waitSessions);
+    var entryQuoteAgeSec = rotNum(e.entryQuoteAgeSec);
+    var sessionsHeld = rotNum(e.sessionsHeld);
+    var mfeR = rotNum(e.mfeR);
+    var maeR = rotNum(e.maeR);
+    if (entryZonePct != null) facts.push(escapeHtml(rotHuman(String(e.entryBand || 'entry'))) + ' zone &middot; ' + fmt(entryZonePct, 0) + '% through');
+    if (waitSessions != null) facts.push(fmt(waitSessions, 0) + ' session' + (waitSessions === 1 ? '' : 's') + ' from first flag to entry');
+    if (entryQuoteAgeSec != null && entryQuoteAgeSec >= 0) facts.push('regular-session entry quote ' + fmt(entryQuoteAgeSec, 0) + 's old');
+    if (sessionsHeld != null) facts.push(fmt(sessionsHeld, 0) + ' session' + (sessionsHeld === 1 ? '' : 's') + ' held');
+    if (mfeR != null || maeR != null) facts.push('MFE ' + (mfeR == null ? '-' : (mfeR >= 0 ? '+' : '') + fmt(mfeR, 2) + 'R') + ' / MAE ' + (maeR == null ? '-' : (maeR >= 0 ? '+' : '') + fmt(maeR, 2) + 'R'));
+    if (!isOpen && e.exitReason) facts.push(escapeHtml(rotHuman(String(e.exitReason))));
+    if (e.ambiguous === true) facts.push('Both levels traded in one bar; scored stop-first');
+    return '<div class="rot-record-row rot-record-row-' + outcome.cls + '"><div class="rot-record-row-top"><a class="rot-sym" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '">' + escapeHtml(sym || '?') + '</a>' +
+      '<span>' + escapeHtml(rotRecordGroupLabel(e)) + '</span><b class="rot-record-outcome">' + escapeHtml(outcome.label) + '</b></div>' +
+      '<div class="rot-record-path"><span>' + path + '</span>' + markHtml + '</div>' +
+      (facts.length ? '<small>' + facts.join(' &middot; ') + '</small>' : '') + '</div>';
+  }
+  function rotEntryLabHtml(rec){
+    var lab = rec && rec.entryLab;
+    if (!lab || typeof lab !== 'object') return '';
+    var lesson = lab.lesson && typeof lab.lesson === 'object' ? lab.lesson : {};
+    var avgEntryZonePct = rotNum(lab.avgEntryZonePct);
+    var avgWaitSessions = rotNum(lab.avgWaitSessions);
+    var avgMfeR = rotNum(lab.avgMfeR);
+    var avgMaeR = rotNum(lab.avgMaeR);
+    var facts = [];
+    if (avgEntryZonePct != null) facts.push('<span><small>Avg zone entry</small><b>' + fmt(avgEntryZonePct, 0) + '% through</b></span>');
+    if (avgWaitSessions != null) facts.push('<span><small>Avg wait to entry</small><b>' + fmt(avgWaitSessions, 1) + ' sessions</b></span>');
+    if (avgMfeR != null) facts.push('<span><small>Avg MFE</small><b class="' + (avgMfeR >= 0 ? 'rot-up' : 'rot-down') + '">' + (avgMfeR >= 0 ? '+' : '') + fmt(avgMfeR, 2) + 'R</b></span>');
+    if (avgMaeR != null) facts.push('<span><small>Avg MAE</small><b class="' + (avgMaeR >= 0 ? 'rot-up' : 'rot-down') + '">' + (avgMaeR >= 0 ? '+' : '') + fmt(avgMaeR, 2) + 'R</b></span>');
+    var cohorts = lab.zoneCohorts && typeof lab.zoneCohorts === 'object' ? lab.zoneCohorts : {};
+    var cohortHtml = ['lower','middle','upper'].map(function(key){
+      var x = cohorts[key];
+      if (!x || typeof x !== 'object') return '';
+      var count = rotRecordCount(x.count);
+      var targetHitRatePct = rotNum(x.targetHitRatePct);
+      var cohortAvgR = rotNum(x.avgR);
+      if (!count) return '';
+      return '<span><b>' + escapeHtml(rotHuman(key)) + ' third</b><em>n=' + escapeHtml(String(count)) +
+        (targetHitRatePct == null ? '' : ' &middot; ' + fmt(targetHitRatePct, 0) + '% target-first') +
+        (cohortAvgR == null ? '' : ' &middot; ' + (cohortAvgR >= 0 ? '+' : '') + fmt(cohortAvgR, 2) + 'R avg') + '</em></span>';
+    }).join('');
+    var lessonState = String(lesson.state || 'collecting').toLowerCase();
+    if (['collecting','actionable','stable'].indexOf(lessonState) < 0) lessonState = 'collecting';
+    return '<div class="rot-entry-lab rot-entry-lab-' + lessonState + '"><div class="rot-entry-lab-head"><span><small>Entry lab</small><b>' + escapeHtml(String(lesson.title || 'Collecting entry evidence')) + '</b></span><em>n=' + rotRecordCount(lab.sampleSize) + ' resolved</em></div>' +
+      '<p>' + escapeHtml(String(lesson.detail || 'The same frozen entry fields will be compared after enough outcomes accumulate.')) + '</p>' +
+      (facts.length ? '<div class="rot-entry-facts">' + facts.join('') + '</div>' : '') +
+      (cohortHtml ? '<div class="rot-entry-cohorts">' + cohortHtml + '</div>' : '') + '</div>';
+  }
+  function rotRecordHtml(d){
+    var rec = d && d.record;
+    if (!rec || !rec.summary || typeof rec.summary !== 'object') return '';
+    var s = rec.summary;
+    var hit = rotNum(s.targetHitRatePct);
+    var avgR = rotNum(s.avgR);
+    var alpha = rotNum(s.avgAlphaVsSpyPct);
+    var watchingCount = rotRecordCount(s.watchingCount);
+    var openCount = rotRecordCount(s.openCount);
+    var closedCount = rotRecordCount(s.closedCount);
+    var decidedCount = rotRecordCount(s.targets) + rotRecordCount(s.stops);
+    var stats = [
+      rotRecordStat('Watching', watchingCount),
+      rotRecordStat('Open entries', openCount),
+      rotRecordStat('Resolved', closedCount),
+      rotRecordStat('Target-first', hit == null ? '-' : fmt(hit, 0) + '%', '', hit == null ? '' : 'of ' + decidedCount),
+      rotRecordStat('Avg outcome', avgR == null ? '-' : (avgR >= 0 ? '+' : '') + fmt(avgR, 2) + 'R', avgR == null ? '' : avgR >= 0 ? 'rot-up' : 'rot-down'),
+      rotRecordStat('Avg vs SPY', alpha == null ? '-' : (alpha >= 0 ? '+' : '') + fmt(alpha, 2) + 'pp', alpha == null ? '' : alpha >= 0 ? 'rot-up' : 'rot-down')
+    ];
+    var open = Array.isArray(rec.open) ? rec.open : [];
+    var recent = Array.isArray(rec.closedRecent) ? rec.closedRecent : [];
+    var ledger = '';
+    if (open.length || recent.length){
+      ledger = '<details class="rot-record-ledger"' + (open.length ? ' open' : '') + '><summary data-rot-ledger-summary="model-entry">Model-entry ledger &middot; ' + open.length + ' open / ' + recent.length + ' recent outcome' + (recent.length === 1 ? '' : 's') + '</summary><div class="rot-record-rows">' +
+        open.slice(0, 10).map(function(e){ return rotRecordRow(e, true); }).join('') + recent.slice(0, 10).map(function(e){ return rotRecordRow(e, false); }).join('') + '</div></details>';
+    } else {
+      ledger = '<p class="rot-record-empty">No official model entry yet. Setups are observed from first appearance, but the scored ledger starts only when a full bake says <b>ready</b> and a recent regular-session quote is still inside the declared entry zone.</p>';
+    }
+    var method = rec.methodology || {};
+    var maxHoldSessions = rotNum(method.maxHoldSessions);
+    maxHoldSessions = maxHoldSessions > 0 ? Math.round(maxHoldSessions) : 20;
+    return '<section class="rot-record"><div class="rot-record-head"><div><span class="rot-kicker">Accountability</span><h3>Sector-rotation model record</h3><p>Frozen model entries answer whether the call was right and whether the entry helped or hurt. This is not your personal fill history.</p></div><span class="rot-record-badge">Plan-scored</span></div>' +
+      '<div class="rot-record-stats">' + stats.join('') + '</div>' + rotEntryLabHtml(rec) + ledger +
+      '<p class="rot-record-method">First baked <b>ready</b> signal plus a recent in-zone regular-session quote enrolls &middot; post-close setups wait for the next live session &middot; later entry-day 30-minute bars are tracked &middot; target before stop = right &middot; stop before target = wrong &middot; unresolved after ' + maxHoldSessions + ' sessions = timeout &middot; same-bar ties score stop-first &middot; SPY alpha uses its outcome-date close.</p></section>';
   }
   function rotGroupTape(groups){
     if (!groups.length) return '<section class="rot-tape"><div class="rot-section-head"><h3>Group tape</h3><span>No group roll-up in this build</span></div></section>';
@@ -17057,6 +17262,21 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var root = $('rotation-root') || $('sector-rotation-root');
     var eye = $('rotation-eyebrow') || $('sector-rotation-eyebrow');
     if (!root) return;
+    var priorLedger = root.querySelector('.rot-record-ledger');
+    var priorLedgerOpen = priorLedger ? priorLedger.open : null;
+    var priorFocus = null;
+    var active = document.activeElement;
+    if (active && root.contains(active)){
+      var focusAttrs = ['data-rot-ledger-summary','data-rot-phase','data-rot-action','data-rot-group-card','data-rot-group','data-rot-sort','data-rot-account','data-rot-risk','data-sym'];
+      for (var fi = 0; fi < focusAttrs.length; fi++){
+        var focusAttr = focusAttrs[fi];
+        if (!active.hasAttribute(focusAttr)) continue;
+        var focusValue = active.getAttribute(focusAttr);
+        var oldMatches = Array.prototype.filter.call(root.querySelectorAll('[' + focusAttr + ']'), function(node){ return node.getAttribute(focusAttr) === focusValue; });
+        priorFocus = { attr:focusAttr, value:focusValue, index:Math.max(0, oldMatches.indexOf(active)) };
+        break;
+      }
+    }
     root.classList.add('rot-root');
     if (rotationState.loading && !rotationState.data){ root.innerHTML = '<p class="rot-empty">Loading sector-rotation screen&hellip;</p>'; return; }
     if (rotationState.error && !rotationState.data){
@@ -17081,12 +17301,19 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       : candidates.length ? '<div class="rot-empty"><b>No candidates match these desk filters.</b><span>Reset state, action, or group filters; the screen is not manufacturing a trade.</span></div>'
       : '<div class="rot-empty"><b>No quality rotation-rebound candidate clears the bar.</b><span>That is a valid signal. Wait for a clean dislocation and confirmation instead of forcing a bounce trade.</span></div>';
     var filteredNear = rotationState.group === 'all' ? near : near.filter(function(c){ return rotGroupMatches(c, rotationState.group); });
-    root.innerHTML = stale + rotSummaryHtml(d, candidates) + rotGroupTape(groups) + rotToolbarHtml(candidates, visible, groups, thresholds) + grid +
+    root.innerHTML = stale + rotSummaryHtml(d, candidates) + rotRecordHtml(d) + rotGroupTape(groups) + rotToolbarHtml(candidates, visible, groups, thresholds) + grid +
       rotNearMissHtml(filteredNear, thresholds) + rotThresholdHtml(d.thresholds, d.modelVersion) +
       '<p class="rot-foot">The frozen mean and \u03c3 describe a pre-drop trend regime; they do not prove price must revert or estimate a probability. First thrust is an initial reflex move, never confirmation. Latest quotes can update price and sizing; z-scores and the displayed at-build R:R remain frozen to the named build. Recheck fresh news and earnings timing before acting. Educational screen, not financial advice.</p>';
+    var nextLedger = root.querySelector('.rot-record-ledger');
+    if (nextLedger && priorLedgerOpen != null) nextLedger.open = priorLedgerOpen;
     bindRotationDesk(root);
     applyRotationLive();
     bindBriefChips(root);
+    if (priorFocus){
+      var nextMatches = Array.prototype.filter.call(root.querySelectorAll('[' + priorFocus.attr + ']'), function(node){ return node.getAttribute(priorFocus.attr) === priorFocus.value; });
+      var focusTarget = nextMatches[Math.min(priorFocus.index, nextMatches.length - 1)];
+      if (focusTarget) try { focusTarget.focus({ preventScroll:true }); } catch (_) { focusTarget.focus(); }
+    }
   }
 
   // --- Leveraged ETFs (premium) --------------------------------------------
