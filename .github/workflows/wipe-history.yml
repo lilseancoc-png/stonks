@@ -1,6 +1,6 @@
 name: Wipe track record
 
-# Manual, one-shot maintenance: reset the Top Picks track record in the
+# Manual, one-shot maintenance: reset the Top Picks or Sector Rotation track record in the
 # PRIVATE data store via scripts/wipe-history.mjs (see its file header for
 # the full target/mode docs). Exists as a workflow because the R2 store
 # credentials live only in Actions secrets / Vercel env — there is no way
@@ -12,6 +12,8 @@ name: Wipe track record
 #               day-trades keys deleted) — the track record itself
 #   picks-logs  core + picks-changes.json + picks-roster.json
 #   grade-logs  core + grades-history.json + grades-daily.json (IC substrate)
+#   sector-rotation  sector-rotation-log.json only (the embedded browser
+#                    projection refreshes on the next full bake)
 #   all         everything above
 on:
   workflow_dispatch:
@@ -21,10 +23,10 @@ on:
         type: boolean
         default: false
       scope:
-        description: "What to wipe"
+        description: "What to wipe (Sector Rotation's browser projection refreshes next full bake)"
         type: choice
         default: core
-        options: [core, picks-logs, grade-logs, all]
+        options: [core, picks-logs, grade-logs, sector-rotation, all]
       mode:
         description: "empty = overwrite with a valid empty payload (no 404 window); delete = remove the key (next bake recreates it)"
         type: choice
@@ -69,6 +71,7 @@ jobs:
           case "${{ inputs.scope }}" in
             picks-logs) FLAGS="--picks-logs" ;;
             grade-logs) FLAGS="--grade-logs" ;;
+            sector-rotation) FLAGS="--sector-rotation" ;;
             all)        FLAGS="--all" ;;
           esac
           if [ "${{ inputs.mode }}" = "delete" ]; then FLAGS="$FLAGS --delete"; fi

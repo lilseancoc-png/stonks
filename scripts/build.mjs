@@ -18159,7 +18159,16 @@ export async function writeStockPicksFile(payload) {
 // regen-picks), preserving the repo's algo-regeneration boundary.
 // ============================================================================
 export const SECTOR_ROTATION_FILE = "sector-rotation.json";
+export const SECTOR_ROTATION_LOG_FILE = "sector-rotation-log.json";
 const SECTOR_ROTATION_MODEL_VERSION = 2;
+const SECTOR_ROTATION_RECORD_VERSION = 1;
+const SECTOR_ROTATION_RESET_EPOCH = `rotation-v${SECTOR_ROTATION_MODEL_VERSION}-record-v${SECTOR_ROTATION_RECORD_VERSION}`;
+const SECTOR_ROTATION_MAX_HOLD_SESSIONS = 20;
+const SECTOR_ROTATION_ENTRY_QUOTE_MAX_AGE_MS = 10 * 60 * 1000;
+const SECTOR_ROTATION_LOG_CLOSED_MAX = 250;
+const SECTOR_ROTATION_LOG_PENDING_MAX = 200;
+const SECTOR_ROTATION_RECORD_RECENT = 10;
+const SECTOR_ROTATION_ENTRY_LESSON_MIN = 12;
 const SECTOR_ROTATION_LOOKBACK = 45;
 const SECTOR_ROTATION_MIN_BARS = 80;
 const SECTOR_ROTATION_MIN_GROUP = 4;
@@ -18187,6 +18196,15 @@ const SECTOR_ROTATION_CURRENT_Z_LATE = -0.25;
 const SECTOR_ROTATION_Z_DISPLAY_CAP = 10;
 const SECTOR_ROTATION_RR_READY = 1.5;
 const SECTOR_ROTATION_RR_PASS_BELOW = 1.25;
+
+function sectorRotationSignalKey(candidate, modelVersion = SECTOR_ROTATION_MODEL_VERSION) {
+  const symbol = String(candidate?.symbol || "").toUpperCase();
+  const group = String(candidate?.group?.key || candidate?.group || "unknown");
+  // The peak stays fixed while a selloff makes incremental lower lows, so it
+  // identifies one economic washout more reliably than the moving trough.
+  const peakDate = sectorRotationDateKey(candidate?.episode?.peakDate) || "unknown";
+  return `${modelVersion}|${symbol}|${group}|${peakDate}`;
+}
 
 // Coherent trader-facing baskets built from the repo's curated SECTORS map.
 // Explicit groups avoid silently treating a whole Yahoo top-level sector as
@@ -18223,12 +18241,12 @@ function sectorRotationRows(data, builtAtIso, opts = {}) {
   const appendAsOfRow = opts.appendAsOfRow !== false;
   let raw = [];
   if (Array.isArray(data?._bars) && data._bars.length) {
-    raw = data._bars.map((b) => ({ t: b?.t, c: b?.c, h: b?.h, l: b?.l, v: b?.v }));
+    raw = data._bars.map((b) => ({ t: b?.t, o: b?.o, c: b?.c, h: b?.h, l: b?.l, v: b?.v }));
   } else {
     const ps = data?.priceSeries;
     if (ps && Array.isArray(ps.t) && Array.isArray(ps.c)) {
       raw = ps.t.map((t, i) => ({
-        t, c: ps.c[i],
+        t, o: null, c: ps.c[i],
         h: Array.isArray(ps.h) ? ps.h[i] : ps.c[i],
         l: Array.isArray(ps.l) ? ps.l[i] : ps.c[i],
         v: Array.isArray(ps.v) ? ps.v[i] : null,
@@ -18240,9 +18258,9 @@ function sectorRotationRows(data, builtAtIso, opts = {}) {
     const t = sectorRotationDateKey(row?.t);
     const c = pnumN(row?.c);
     if (!t || !(c > 0)) continue;
-    const h = pnumN(row?.h), l = pnumN(row?.l), v = pnumN(row?.v);
+    const o = pnumN(row?.o), h = pnumN(row?.h), l = pnumN(row?.l), v = pnumN(row?.v);
     byDate.set(t, {
-      t, c,
+      t, o: o != null && o > 0 ? o : null, c,
       h: h != null && h > 0 ? h : c,
       l: l != null && l > 0 ? l : c,
       v,
@@ -18260,6 +18278,8 @@ function sectorRotationRows(data, builtAtIso, opts = {}) {
   const quoteDate = sectorRotationDateKey(data?.quoteAsOf);
   const quoteDay = quoteDate ? new Date(`${quoteDate}T12:00:00Z`).getUTCDay() : null;
   const quoteIsWeekday = quoteDay != null && quoteDay >= 1 && quoteDay <= 5;
+  const marketState = String(data?.marketState || "").toUpperCase();
+  const quoteIsLive = quoteDate === asOf && (!marketState || marketState === "REGULAR");
   if (quoteDate && quoteIsWeekday && spot > 0 && (!asOf || quoteDate <= asOf)) {
     const last = rows[rows.length - 1];
     // Same-session overlay stays enabled for offline regeneration too. spot and
@@ -18269,9 +18289,11 @@ function sectorRotationRows(data, builtAtIso, opts = {}) {
       last.c = spot;
       last.h = Math.max(last.h || spot, spot);
       last.l = Math.min(last.l || spot, spot);
-      last.live = true;
+      last.live = quoteIsLive;
     } else if (appendAsOfRow && quoteDate === asOf && last.t < quoteDate) {
-      rows.push({ t: quoteDate, c: spot, h: spot, l: spot, v: null, live: true });
+      // A quote proves the live mark, not the session open. Keep `o` unknown so
+      // reconciliation never invents gap chronology from an intraday snapshot.
+      rows.push({ t: quoteDate, o: null, c: spot, h: spot, l: spot, v: null, live: quoteIsLive });
     }
   }
   return rows.slice(-252);
@@ -18998,6 +19020,7 @@ export function buildSectorRotationRebounds(chains, gradesIndex, builtAtIso, opt
 
       const candidate = {
         symbol: sym,
+        signalKey: null,
         name: f.name || null,
         group: { key: group.def.key, label: group.def.label, benchmark: group.def.benchmark || null },
         sector: SECTORS[sym] || f.sector || null,
@@ -19038,6 +19061,7 @@ export function buildSectorRotationRebounds(chains, gradesIndex, builtAtIso, opt
         series: sectorRotationNormalizedSeries(rows, peerBasket),
         rows, data, atrPct, edgeFloorPct,
       };
+      candidate.signalKey = sectorRotationSignalKey(candidate);
       candidate.plan = sectorRotationPlan(candidate);
       candidate.highConfidence = score >= SECTOR_ROTATION_HIGH_SCORE && !blockedBy.length
         && candidate.plan.state !== "pass" && candidate.plan.state !== "blocked"
@@ -19151,6 +19175,729 @@ export async function writeSectorRotationFile(payload) {
     firstThrust: payload?.candidates?.filter((c) => c.phase === "first-thrust").length || 0,
     nearMisses: payload?.nearMisses?.length || 0,
   };
+}
+
+// Sector-rotation accountability ledger. The fresh screen payload embeds a
+// derived projection; data/sector-rotation-log.json retains the raw history.
+// Candidate cards are a research funnel, not trades: only the first baked
+// `plan.state === "ready"` signal with a recent in-zone REGULAR-session quote
+// enrolls an official model entry.
+
+export async function readPriorSectorRotationLog() {
+  try { return JSON.parse(await readFile(resolve(DATA_DIR, SECTOR_ROTATION_LOG_FILE), "utf8")); } catch { return null; }
+}
+
+export async function writeSectorRotationLog(log) {
+  const json = JSON.stringify(log);
+  await writeFile(resolve(DATA_DIR, SECTOR_ROTATION_LOG_FILE), json, "utf8");
+  return {
+    bytes: json.length,
+    pending: Array.isArray(log?.pending) ? log.pending.length : 0,
+    open: Array.isArray(log?.open) ? log.open.length : 0,
+    closed: Array.isArray(log?.closed) ? log.closed.length : 0,
+  };
+}
+
+function sectorRotationAvg(rows, field) {
+  const vals = (rows || []).map((row) => pnumN(row?.[field])).filter(Number.isFinite);
+  return vals.length ? vals.reduce((sum, value) => sum + value, 0) / vals.length : null;
+}
+
+function sectorRotationMedianField(rows, field) {
+  const vals = (rows || []).map((row) => pnumN(row?.[field])).filter(Number.isFinite);
+  return vals.length ? sectorRotationMedian(vals) : null;
+}
+
+function sectorRotationZoneBand(zonePct) {
+  if (!Number.isFinite(zonePct)) return "unknown";
+  return zonePct <= 33.333 ? "lower" : zonePct <= 66.667 ? "middle" : "upper";
+}
+
+function sectorRotationOutcomeRow(entry) {
+  const entryPx = pnumN(entry?.entryPx);
+  const exitPx = pnumN(entry?.exitPx ?? entry?.lastPx);
+  const stop = pnumN(entry?.invalidation);
+  const risk = Number.isFinite(entryPx) && Number.isFinite(stop) && entryPx > stop
+    ? entryPx - stop
+    : null;
+  const retPct = entryPx > 0 && exitPx > 0 ? ((exitPx - entryPx) / entryPx) * 100 : null;
+  const rMultiple = risk > 0 && exitPx > 0 ? (exitPx - entryPx) / risk : null;
+  const maxPx = pnumN(entry?.maxPx);
+  const minPx = pnumN(entry?.minPx);
+  const mfeR = risk > 0 && maxPx != null ? (maxPx - entryPx) / risk : null;
+  const maeR = risk > 0 && minPx != null ? (minPx - entryPx) / risk : null;
+  const spyEntryPx = pnumN(entry?.spyEntryPx);
+  // A closed trade needs the benchmark mark from its exact outcome date. Never
+  // substitute an older open-position mark, which would fabricate 0% SPY and a
+  // false alpha when the event-date row is unavailable.
+  const isClosed = entry?.status === "closed" || (!!entry?.outcome && entry.outcome !== "open");
+  const spyPx = pnumN(isClosed ? entry?.spyExitPx : (entry?.spyLastPx ?? entry?.spyExitPx));
+  const spyRetPct = spyEntryPx > 0 && spyPx > 0 ? ((spyPx - spyEntryPx) / spyEntryPx) * 100 : null;
+  const alphaVsSpyPct = retPct != null && spyRetPct != null ? retPct - spyRetPct : null;
+  return {
+    retPct: retPct == null ? null : r2(retPct),
+    rMultiple: rMultiple == null ? null : r2(rMultiple),
+    mfeR: mfeR == null ? null : r2(mfeR),
+    maeR: maeR == null ? null : r2(maeR),
+    spyRetPct: spyRetPct == null ? null : r2(spyRetPct),
+    alphaVsSpyPct: alphaVsSpyPct == null ? null : r2(alphaVsSpyPct),
+  };
+}
+
+function sectorRotationCohort(rows, predicate) {
+  const cohort = (rows || []).filter(predicate);
+  const targets = cohort.filter((row) => row.outcome === "target").length;
+  const stops = cohort.filter((row) => row.outcome === "stop").length;
+  const decided = targets + stops;
+  const avgR = sectorRotationAvg(cohort, "rMultiple");
+  const avgRetPct = sectorRotationAvg(cohort, "retPct");
+  return {
+    count: cohort.length,
+    targets,
+    stops,
+    timeouts: cohort.filter((row) => row.outcome === "timeout").length,
+    targetHitRatePct: decided ? r1((targets / decided) * 100) : null,
+    avgR: avgR == null ? null : r2(avgR),
+    avgRetPct: avgRetPct == null ? null : r2(avgRetPct),
+  };
+}
+
+function sectorRotationEntryLesson(scored) {
+  const needed = Math.max(0, SECTOR_ROTATION_ENTRY_LESSON_MIN - scored.length);
+  if (needed > 0) {
+    return {
+      state: "collecting",
+      title: "Collecting entry evidence",
+      detail: `${scored.length}/${SECTOR_ROTATION_ENTRY_LESSON_MIN} resolved model entries. Keep the rule fixed until the sample can support an entry change.`,
+      sampleNeeded: needed,
+    };
+  }
+
+  const lower = scored.filter((row) => pnumN(row.entryZonePct) != null && row.entryZonePct <= 50);
+  const upper = scored.filter((row) => pnumN(row.entryZonePct) != null && row.entryZonePct > 50);
+  if (lower.length >= 4 && upper.length >= 4) {
+    const lowerR = sectorRotationAvg(lower, "rMultiple");
+    const upperR = sectorRotationAvg(upper, "rMultiple");
+    const delta = lowerR - upperR;
+    if (delta >= 0.35) {
+      return {
+        state: "actionable",
+        title: "Test a lower-half entry requirement",
+        detail: `Lower-half zone entries lead upper-half entries by ${r2(delta)}R on average (${lower.length} vs ${upper.length} trades). Validate on the next cohort before changing the live rule.`,
+        sampleNeeded: 0,
+      };
+    }
+    if (delta <= -0.35) {
+      return {
+        state: "actionable",
+        title: "Confirmation is earning its cost",
+        detail: `Upper-half zone entries lead lower-half entries by ${r2(Math.abs(delta))}R on average (${upper.length} vs ${lower.length} trades). Do not optimize only for the cheapest fill.`,
+        sampleNeeded: 0,
+      };
+    }
+  }
+
+  const stops = scored.filter((row) => row.outcome === "stop" && !row.ambiguous && Number.isFinite(row.mfeR));
+  const gaveBack = stops.filter((row) => row.mfeR >= 0.75);
+  if (stops.length >= 4 && gaveBack.length / stops.length >= 0.6) {
+    return {
+      state: "actionable",
+      title: "Test protection after +0.75R",
+      detail: `${gaveBack.length}/${stops.length} stopped trades first reached at least +0.75R. Test a partial or stop-tightening rule out of sample; do not rewrite past outcomes.`,
+      sampleNeeded: 0,
+    };
+  }
+
+  return {
+    state: "stable",
+    title: "No entry-rule edge has separated yet",
+    detail: "Zone location and early excursion do not yet show a large, repeatable split. Keep collecting the same frozen entry data.",
+    sampleNeeded: 0,
+  };
+}
+
+// Browser-facing projection. The raw pending ledger is reduced to active setup
+// observations; only a short recent slice of the closed ledger rides with the
+// already-premium screen payload.
+export function sectorRotationRecordFromLog(log) {
+  const compatible = log?.resetEpoch === SECTOR_ROTATION_RESET_EPOCH;
+  const pending = compatible && Array.isArray(log?.pending) ? log.pending : [];
+  const openRaw = compatible && Array.isArray(log?.open) ? log.open : [];
+  const closedRaw = compatible && Array.isArray(log?.closed) ? log.closed : [];
+  const closed = closedRaw.map((entry) => ({ ...entry, ...sectorRotationOutcomeRow(entry) }));
+  const scored = closed.filter((entry) => Number.isFinite(entry.rMultiple));
+  const targets = scored.filter((entry) => entry.outcome === "target").length;
+  const stops = scored.filter((entry) => entry.outcome === "stop").length;
+  const timeouts = scored.filter((entry) => entry.outcome === "timeout").length;
+  const decided = targets + stops;
+  const activePending = pending.filter((entry) => entry?.active);
+  const project = (entry, isOpen = false) => {
+    const metrics = sectorRotationOutcomeRow(entry);
+    return {
+      signalKey: entry.signalKey,
+      symbol: entry.symbol,
+      name: entry.name || null,
+      group: entry.group || null,
+      modelVersion: entry.modelVersion ?? null,
+      firstFlagDate: entry.firstFlagDate || null,
+      firstFlagPx: entry.firstFlagPx ?? null,
+      openedIso: entry.openedIso || null,
+      openedDate: entry.openedDate || null,
+      closedDate: entry.closedDate || null,
+      entryPx: entry.entryPx ?? null,
+      entrySource: entry.entrySource || null,
+      entryQuoteAsOfIso: entry.entryQuoteAsOfIso || null,
+      entryQuoteAgeSec: entry.entryQuoteAgeSec ?? null,
+      lastPx: entry.lastPx ?? null,
+      exitPx: entry.exitPx ?? null,
+      invalidation: entry.invalidation ?? null,
+      target1: entry.target1 ?? null,
+      plannedRr: entry.plannedRr ?? null,
+      entryZonePct: entry.entryZonePct ?? null,
+      entryBand: entry.entryBand || "unknown",
+      waitSessions: entry.waitSessions ?? null,
+      sessionsHeld: entry.sessionsHeld ?? null,
+      outcome: entry.outcome || (isOpen ? "open" : null),
+      exitReason: entry.exitReason || null,
+      ambiguous: !!entry.ambiguous,
+      spyEntryPx: entry.spyEntryPx ?? null,
+      spyLastPx: entry.spyLastPx ?? null,
+      spyExitPx: entry.spyExitPx ?? null,
+      ...metrics,
+    };
+  };
+  const open = openRaw.map((entry) => project(entry, true));
+  const recent = closed.slice(-SECTOR_ROTATION_RECORD_RECENT).reverse().map((entry) => project(entry, false));
+  const zoneCohorts = {
+    lower: sectorRotationCohort(scored, (row) => row.entryBand === "lower"),
+    middle: sectorRotationCohort(scored, (row) => row.entryBand === "middle"),
+    upper: sectorRotationCohort(scored, (row) => row.entryBand === "upper"),
+  };
+  const avgR = sectorRotationAvg(scored, "rMultiple");
+  const avgRetPct = sectorRotationAvg(scored, "retPct");
+  const avgAlpha = sectorRotationAvg(scored, "alphaVsSpyPct");
+  const avgMfe = sectorRotationAvg(scored, "mfeR");
+  const avgMae = sectorRotationAvg(scored, "maeR");
+  const medianR = sectorRotationMedianField(scored, "rMultiple");
+  return {
+    resetEpoch: SECTOR_ROTATION_RESET_EPOCH,
+    recordVersion: SECTOR_ROTATION_RECORD_VERSION,
+    watching: activePending.map((entry) => ({
+      signalKey: entry.signalKey,
+      symbol: entry.symbol,
+      group: entry.group || null,
+      firstFlagDate: entry.firstFlagDate || null,
+      firstFlagPx: entry.firstFlagPx ?? null,
+      firstPhase: entry.firstPhase || null,
+      currentPlanState: entry.currentPlanState || null,
+    })),
+    open,
+    closedRecent: recent,
+    summary: {
+      watchingCount: activePending.length,
+      openCount: open.length,
+      closedCount: closed.length,
+      scoredCount: scored.length,
+      targets,
+      stops,
+      timeouts,
+      targetHitRatePct: decided ? r1((targets / decided) * 100) : null,
+      avgRetPct: avgRetPct == null ? null : r2(avgRetPct),
+      avgR: avgR == null ? null : r2(avgR),
+      medianR: medianR == null ? null : r2(medianR),
+      avgAlphaVsSpyPct: avgAlpha == null ? null : r2(avgAlpha),
+      medianSessionsHeld: sectorRotationMedianField(scored, "sessionsHeld"),
+    },
+    entryLab: {
+      sampleSize: scored.length,
+      minimumSample: SECTOR_ROTATION_ENTRY_LESSON_MIN,
+      avgEntryZonePct: sectorRotationAvg(scored, "entryZonePct") == null ? null : r1(sectorRotationAvg(scored, "entryZonePct")),
+      avgWaitSessions: sectorRotationAvg(scored, "waitSessions") == null ? null : r1(sectorRotationAvg(scored, "waitSessions")),
+      avgMfeR: avgMfe == null ? null : r2(avgMfe),
+      avgMaeR: avgMae == null ? null : r2(avgMae),
+      zoneCohorts,
+      lesson: sectorRotationEntryLesson(scored),
+    },
+    methodology: {
+      enrollment: "first baked plan.state=ready plus fresh in-zone regular-session quote",
+      benchmark: "SPY",
+      maxHoldSessions: SECTOR_ROTATION_MAX_HOLD_SESSIONS,
+      sameBarPolicy: "stop-first-conservative",
+      entryDayPolicy: "30m-bars-after-entry-only",
+      entryQuotePolicy: `regular-session timestamped quote no older than ${SECTOR_ROTATION_ENTRY_QUOTE_MAX_AGE_MS / 60000} minutes`,
+    },
+  };
+}
+
+function sectorRotationEtWallStamp(raw) {
+  const d = new Date(raw);
+  if (!Number.isFinite(d.getTime())) return null;
+  const p = {};
+  for (const part of ET_PARTS_FMT.formatToParts(d)) p[part.type] = part.value;
+  let hour = parseInt(p.hour, 10);
+  if (hour === 24) hour = 0;
+  return `${p.year}-${p.month}-${p.day} ${String(hour).padStart(2, "0")}:${p.minute}`;
+}
+
+function sectorRotationIntradayRows(data) {
+  return (Array.isArray(data?._intraday) ? data._intraday : [])
+    .map((row) => ({
+      t: typeof row?.t === "string" ? row.t.slice(0, 16) : null,
+      c: pnumN(row?.c),
+      h: pnumN(row?.h ?? row?.c),
+      l: pnumN(row?.l ?? row?.c),
+    }))
+    .filter((row) => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(row.t || "") && row.c > 0)
+    .sort((a, b) => a.t.localeCompare(b.t));
+}
+
+// Refresh the small set of prices that can change ledger state at the end of a
+// long bake. The exchange timestamp travels with every mark; an undated quote
+// is never allowed to create an official entry.
+async function fetchSectorRotationTrackingQuotes(symbols) {
+  const syms = [...new Set((symbols || []).map((symbol) => String(symbol || "").toUpperCase()).filter(Boolean))];
+  if (!syms.length) return {};
+  try {
+    const response = await yahooFinance.quote(syms, { fields: ["regularMarketPrice", "regularMarketTime", "marketState"] });
+    const list = Array.isArray(response) ? response : response ? [response] : [];
+    const out = {};
+    for (const item of list) {
+      const symbol = String(item?.symbol || "").toUpperCase();
+      const price = pnumN(item?.regularMarketPrice);
+      const quoteTime = item?.regularMarketTime ? new Date(item.regularMarketTime) : null;
+      if (!symbol || !(price > 0) || !quoteTime || !Number.isFinite(quoteTime.getTime())) continue;
+      out[symbol] = { price, asOfIso: quoteTime.toISOString(), marketState: item?.marketState || null };
+    }
+    return out;
+  } catch (err) {
+    console.warn(`[rotation] late quote sweep failed (${syms.length} syms) — ${String(err?.message || err).split("\n")[0]}`);
+    return {};
+  }
+}
+
+function sectorRotationTrackingState(chains, symbol, builtAtIso, liveQuote = null) {
+  const data = chains?.[symbol] || null;
+  const rows = sectorRotationRows(data, builtAtIso);
+  const last = rows[rows.length - 1] || null;
+  const rawSpot = pnumN(data?.spot);
+  const chainDate = sectorRotationDateKey(data?.quoteAsOf) || last?.t || null;
+  let spot = rawSpot > 0 ? rawSpot : (pnumN(last?.c) > 0 ? pnumN(last.c) : null);
+  let date = chainDate;
+  let source = rawSpot > 0 ? "chain-quote" : (last ? "daily-close" : null);
+  let asOfIso = data?.quoteAsOf || null;
+  let marketState = String(data?.marketState || "").toUpperCase() || null;
+  const buildStamp = new Date(builtAtIso);
+  const buildDate = Number.isFinite(buildStamp.getTime()) ? etDateKey(buildStamp) : sectorRotationDateKey(builtAtIso);
+  const quotePx = pnumN(liveQuote?.price);
+  const quoteDate = sectorRotationDateKey(liveQuote?.asOfIso);
+  if (quotePx > 0 && quoteDate && (!buildDate || quoteDate <= buildDate) && (!date || quoteDate >= date)) {
+    spot = quotePx;
+    date = quoteDate;
+    source = "late-quote-sweep";
+    asOfIso = liveQuote.asOfIso;
+    marketState = String(liveQuote?.marketState || "").toUpperCase() || null;
+    const quoteIsLive = quoteDate === buildDate && (!marketState || marketState === "REGULAR");
+    const existing = rows.find((row) => row.t === quoteDate);
+    if (existing) {
+      existing.c = quotePx;
+      existing.h = Math.max(existing.h || quotePx, quotePx);
+      existing.l = Math.min(existing.l || quotePx, quotePx);
+      existing.live = quoteIsLive;
+    } else if (!last || last.t < quoteDate) {
+      rows.push({ t: quoteDate, o: null, c: quotePx, h: quotePx, l: quotePx, v: null, live: quoteIsLive });
+    }
+  }
+  return { rows: rows.slice(-252), intraday: sectorRotationIntradayRows(data), spot, date, source, asOfIso, marketState };
+}
+
+function sectorRotationPriceOnDate(state, date) {
+  if (!date) return state?.spot ?? null;
+  const row = (state?.rows || []).find((item) => item?.t === date);
+  if (pnumN(row?.c) > 0) return pnumN(row.c);
+  if (state?.date === date && pnumN(state?.spot) > 0) return pnumN(state.spot);
+  return null;
+}
+
+function sectorRotationPendingObservation(candidate, builtAtIso, date) {
+  return {
+    signalKey: candidate.signalKey || sectorRotationSignalKey(candidate),
+    symbol: candidate.symbol,
+    name: candidate.name || null,
+    group: candidate.group || null,
+    modelVersion: SECTOR_ROTATION_MODEL_VERSION,
+    firstSeenIso: builtAtIso,
+    firstFlagDate: date,
+    firstFlagPx: pnumN(candidate.spot),
+    firstPhase: candidate.phase || null,
+    firstScore: pnumN(candidate.score),
+    firstPlanState: candidate.plan?.state || null,
+    firstTrigger: pnumN(candidate.plan?.trigger),
+    firstEntryZone: Array.isArray(candidate.plan?.entryZone) ? candidate.plan.entryZone.slice(0, 2) : null,
+    firstPlannedRr: pnumN(candidate.plan?.liveRewardRisk ?? candidate.plan?.entryRewardRisk),
+    lastSeenIso: builtAtIso,
+    lastSeenDate: date,
+    lastSpot: pnumN(candidate.spot),
+    currentPhase: candidate.phase || null,
+    currentPlanState: candidate.plan?.state || null,
+    active: true,
+  };
+}
+
+function sectorRotationSessionsBetween(rows, fromDate, throughDate = null) {
+  return new Set((rows || [])
+    .filter((row) => row?.t && row.t > fromDate && (!throughDate || row.t <= throughDate))
+    .map((row) => row.t)).size;
+}
+
+// Pure reconciliation helper, exported for synthetic validation. `chains` is
+// the full-bake in-memory ticker map and `trackingQuotes` is the optional late
+// timestamped sweep supplied by main(). Frozen levels, not list membership,
+// decide exits, so rank caps and quote misses can never manufacture a close.
+export function reconcileSectorRotationLog(payload, priorLog, chains, builtAtIso, trackingQuotes = {}) {
+  const compatible = priorLog?.resetEpoch === SECTOR_ROTATION_RESET_EPOCH;
+  const previousPending = compatible && Array.isArray(priorLog?.pending) ? priorLog.pending : [];
+  const previousOpen = compatible && Array.isArray(priorLog?.open) ? priorLog.open : [];
+  const closed = compatible && Array.isArray(priorLog?.closed) ? priorLog.closed.slice() : [];
+  const builtMs = Date.parse(builtAtIso);
+  const today = etDateKey(Number.isFinite(builtMs) ? new Date(builtMs) : new Date());
+  const observationDate = sectorRotationDateKey(payload?.dataAsOfDate) || today;
+  const freshObservation = observationDate === today;
+  const candidates = Array.isArray(payload?.candidates) ? payload.candidates.filter((row) => row?.symbol) : [];
+  const pendingByKey = new Map();
+
+  for (const old of previousPending) {
+    if (!old?.signalKey || !old?.symbol) continue;
+    const lastMs = Date.parse(`${old.lastSeenDate || old.firstFlagDate || today}T12:00:00Z`);
+    const todayMs = Date.parse(`${today}T12:00:00Z`);
+    if (Number.isFinite(lastMs) && Number.isFinite(todayMs) && todayMs - lastMs > 45 * 86400000) continue;
+    pendingByKey.set(old.signalKey, { ...old, active: freshObservation ? false : old.active !== false });
+  }
+  for (const candidate of freshObservation ? candidates : []) {
+    const candidateSymbol = String(candidate?.symbol || "").toUpperCase();
+    const candidateState = sectorRotationTrackingState(chains, candidateSymbol, builtAtIso, trackingQuotes?.[candidateSymbol]);
+    // The payload date is modal across the universe. A lagging ticker must not
+    // acquire a new "first seen today" observation merely because its peers are
+    // current; wait until this symbol has a same-session mark of its own.
+    if (!candidateSymbol || candidateState.date !== observationDate) continue;
+    const key = candidate.signalKey || sectorRotationSignalKey(candidate, payload?.modelVersion);
+    candidate.signalKey = key;
+    const old = pendingByKey.get(key);
+    pendingByKey.set(key, old ? {
+      ...old,
+      name: candidate.name || old.name || null,
+      group: candidate.group || old.group || null,
+      lastSeenIso: builtAtIso,
+      lastSeenDate: observationDate,
+      lastSpot: pnumN(candidate.spot),
+      currentPhase: candidate.phase || null,
+      currentPlanState: candidate.plan?.state || null,
+      active: true,
+    } : sectorRotationPendingObservation(candidate, builtAtIso, observationDate));
+  }
+
+  const spyState = sectorRotationTrackingState(chains, "SPY", builtAtIso, trackingQuotes?.SPY);
+  const nextOpen = [];
+  const openKeys = new Set();
+  const openSymbols = new Set();
+  const closedKeys = new Set(closed.map((entry) => entry?.signalKey).filter(Boolean));
+
+  for (const prior of previousOpen) {
+    if (!prior?.signalKey || !prior?.symbol) continue;
+    const entry = { ...prior };
+    const state = sectorRotationTrackingState(chains, entry.symbol, builtAtIso, trackingQuotes?.[entry.symbol]);
+    const entryPx = pnumN(entry.entryPx);
+    const stop = pnumN(entry.invalidation);
+    const target = pnumN(entry.target1);
+    if (!(entryPx > 0) || !(stop > 0) || !(target > entryPx) || !(entryPx > stop)) {
+      // A malformed legacy row cannot be scored honestly. Preserve it open so
+      // a deploy never manufactures an exit from incomplete frozen levels.
+      nextOpen.push(entry);
+      openKeys.add(entry.signalKey);
+      openSymbols.add(entry.symbol);
+      continue;
+    }
+    if (!state.rows.length && state.spot == null) {
+      // Missing ticker coverage is not a flat session and must not advance the
+      // hold clock or SPY benchmark against a stale stock mark. Carry the full
+      // prior row unchanged until this symbol has a fresh tracked observation.
+      nextOpen.push(entry);
+      openKeys.add(entry.signalKey);
+      openSymbols.add(entry.symbol);
+      continue;
+    }
+
+    let maxPx = Math.max(entryPx, pnumN(entry.maxPx) ?? entryPx);
+    let minPx = Math.min(entryPx, pnumN(entry.minPx) ?? entryPx);
+    let event = null;
+    const priorSessions = Math.max(0, pnumN(entry.sessionsHeld) ?? 0);
+    const priorLastDate = sectorRotationDateKey(entry.lastDate);
+    const openedDate = sectorRotationDateKey(entry.openedDate);
+
+    // Entry-day daily OHLC includes time before the model fill. Instead, later
+    // builds inspect only 30-minute bars whose opens are after openedIso. This
+    // catches a same-session touch without pretending we know the path inside a
+    // partially overlapping bar.
+    const openedWall = sectorRotationEtWallStamp(entry.openedIso);
+    if (openedDate && openedWall) {
+      for (const row of state.intraday.filter((item) => item.t.slice(0, 10) === openedDate && item.t > openedWall)) {
+        const high = pnumN(row.h ?? row.c);
+        const low = pnumN(row.l ?? row.c);
+        const targetHit = high != null && high >= target;
+        const stopHit = low != null && low <= stop;
+        if (targetHit && stopHit) {
+          minPx = Math.min(minPx, stop);
+          event = { outcome: "stop", reason: "same-intraday-bar-both-stop-first", date: openedDate, px: stop, ambiguous: true, sessionsHeld: 0 };
+          break;
+        }
+        if (targetHit) {
+          maxPx = Math.max(maxPx, target);
+          event = { outcome: "target", reason: "intraday-target-hit", date: openedDate, px: target, ambiguous: false, sessionsHeld: 0 };
+          break;
+        }
+        if (stopHit) {
+          minPx = Math.min(minPx, stop);
+          event = { outcome: "stop", reason: "intraday-invalidation-hit", date: openedDate, px: stop, ambiguous: false, sessionsHeld: 0 };
+          break;
+        }
+        if (high != null) maxPx = Math.max(maxPx, high);
+        if (low != null) minPx = Math.min(minPx, low);
+      }
+    }
+
+    // Later daily bars preserve their open, which gives deterministic ordering
+    // for gap-through exits. If both levels occur later inside one bar, stop-first
+    // remains the conservative policy and the exit bar does not earn uncertain
+    // favorable/adverse excursion credit after the exit.
+    const afterEntry = state.rows.filter((row) => openedDate && row?.t > openedDate);
+    let scannedSessions = 0;
+    if (!event) for (const row of afterEntry) {
+      scannedSessions++;
+      const newSinceLast = priorLastDate && row.t > priorLastDate
+        ? sectorRotationSessionsBetween(state.rows, priorLastDate, row.t)
+        : 0;
+      const heldAtRow = Math.max(scannedSessions, priorLastDate && row.t > priorLastDate ? priorSessions + newSinceLast : 0);
+      const open = pnumN(row?.o);
+      const high = pnumN(row?.h ?? row?.c);
+      const low = pnumN(row?.l ?? row?.c);
+      if (open != null && open >= target) {
+        maxPx = Math.max(maxPx, open);
+        event = { outcome: "target", reason: "gap-through-target", date: row.t, px: open, ambiguous: false, sessionsHeld: heldAtRow };
+        break;
+      }
+      if (open != null && open <= stop) {
+        minPx = Math.min(minPx, open);
+        event = { outcome: "stop", reason: "gap-through-invalidation", date: row.t, px: open, ambiguous: false, sessionsHeld: heldAtRow };
+        break;
+      }
+      const targetHit = high != null && high >= target;
+      const stopHit = low != null && low <= stop;
+      if (targetHit && stopHit) {
+        minPx = Math.min(minPx, stop);
+        event = { outcome: "stop", reason: "same-bar-both-stop-first", date: row.t, px: stop, ambiguous: true, sessionsHeld: heldAtRow };
+        break;
+      }
+      if (targetHit) {
+        maxPx = Math.max(maxPx, target);
+        event = { outcome: "target", reason: "target-hit", date: row.t, px: target, ambiguous: false, sessionsHeld: heldAtRow };
+        break;
+      }
+      if (stopHit) {
+        minPx = Math.min(minPx, stop);
+        event = { outcome: "stop", reason: "invalidation-hit", date: row.t, px: stop, ambiguous: false, sessionsHeld: heldAtRow };
+        break;
+      }
+      if (high != null) maxPx = Math.max(maxPx, high);
+      if (low != null) minPx = Math.min(minPx, low);
+      // A live/incomplete 20th bar can still hit a frozen price level, but the
+      // time stop waits for a completed close. A delayed build closes on session
+      // 20 before a session-21 move can claim a late win.
+      if (heldAtRow >= SECTOR_ROTATION_MAX_HOLD_SESSIONS && row?.live !== true) {
+        event = { outcome: "timeout", reason: "20-session-timeout", date: row.t, px: pnumN(row.c), ambiguous: false, sessionsHeld: heldAtRow };
+        break;
+      }
+    }
+
+    const markEligible = state.spot > 0 && state.date
+      && (!priorLastDate || state.date >= priorLastDate);
+    const throughDate = event?.date || (markEligible ? state.date : priorLastDate);
+    const observedSessions = openedDate && throughDate
+      ? sectorRotationSessionsBetween(state.rows, openedDate, throughDate)
+      : 0;
+    const newSessions = priorLastDate && throughDate && throughDate > priorLastDate
+      ? sectorRotationSessionsBetween(state.rows, priorLastDate, throughDate)
+      : 0;
+    let sessionsHeld = event?.sessionsHeld ?? Math.max(priorSessions, observedSessions, priorSessions + newSessions);
+    if (!event && markEligible) {
+      if (state.spot >= target) {
+        maxPx = Math.max(maxPx, target);
+        event = { outcome: "target", reason: "target-hit-build-mark", date: state.date, px: target, ambiguous: false, sessionsHeld };
+      } else if (state.spot <= stop) {
+        minPx = Math.min(minPx, stop);
+        event = { outcome: "stop", reason: "invalidation-hit-build-mark", date: state.date, px: stop, ambiguous: false, sessionsHeld };
+      } else {
+        maxPx = Math.max(maxPx, state.spot);
+        minPx = Math.min(minPx, state.spot);
+      }
+    }
+    if (event?.sessionsHeld != null) sessionsHeld = event.sessionsHeld;
+
+    const markDate = event?.date || (markEligible ? state.date : priorLastDate);
+    const spyMark = sectorRotationPriceOnDate(spyState, markDate);
+    if (event) {
+      const done = {
+        ...entry,
+        status: "closed",
+        closedIso: builtAtIso,
+        closedDate: event.date,
+        detectedAtIso: builtAtIso,
+        exitPx: r2(event.px),
+        exitReason: event.reason,
+        exitSource: event.reason?.startsWith("gap-through-") ? "session-open"
+          : event.reason?.startsWith("intraday-") || event.reason?.startsWith("same-intraday-") ? "30m-bar"
+            : event.outcome === "timeout" ? "session-close"
+              : event.reason?.endsWith("build-mark") ? "fresh-build-mark"
+                : "frozen-plan-level",
+        outcome: event.outcome,
+        ambiguous: event.ambiguous,
+        lastPx: r2(event.px),
+        lastIso: builtAtIso,
+        lastDate: event.date,
+        maxPx: r2(maxPx),
+        minPx: r2(minPx),
+        sessionsHeld,
+        spyExitPx: spyMark != null ? r2(spyMark) : null,
+        spyLastPx: spyMark != null ? r2(spyMark) : (entry.spyLastPx ?? null),
+      };
+      Object.assign(done, sectorRotationOutcomeRow(done));
+      closed.push(done);
+      closedKeys.add(done.signalKey);
+      pendingByKey.delete(done.signalKey);
+      continue;
+    }
+
+    const marked = {
+      ...entry,
+      status: "open",
+      lastPx: markEligible ? r2(state.spot) : (entry.lastPx ?? null),
+      lastIso: markEligible ? builtAtIso : (entry.lastIso ?? null),
+      lastDate: markEligible ? state.date : (entry.lastDate || null),
+      maxPx: r2(maxPx),
+      minPx: r2(minPx),
+      sessionsHeld,
+      spyLastPx: spyMark != null ? r2(spyMark) : (entry.spyLastPx ?? null),
+    };
+    Object.assign(marked, sectorRotationOutcomeRow(marked));
+    nextOpen.push(marked);
+    openKeys.add(marked.signalKey);
+    openSymbols.add(marked.symbol);
+  }
+
+  for (const candidate of freshObservation ? candidates : []) {
+    if (candidate?.plan?.state !== "ready") continue;
+    const key = candidate.signalKey || sectorRotationSignalKey(candidate, payload?.modelVersion);
+    const symbol = String(candidate.symbol || "").toUpperCase();
+    if (!key || !symbol || openKeys.has(key) || closedKeys.has(key) || openSymbols.has(symbol)) continue;
+    const symbolState = sectorRotationTrackingState(chains, symbol, builtAtIso, trackingQuotes?.[symbol]);
+    // New entries require the late, timestamped quote sweep. If it flakes, the
+    // setup remains pending for the next bake rather than backdating a fill at a
+    // chain quote fetched much earlier in this run.
+    if (symbolState.source !== "late-quote-sweep" || symbolState.date !== observationDate) continue;
+    const quoteMs = Date.parse(symbolState.asOfIso);
+    const detectedMs = Date.parse(builtAtIso);
+    const quoteAgeMs = detectedMs - quoteMs;
+    if (symbolState.marketState !== "REGULAR" || !Number.isFinite(quoteAgeMs)
+      || quoteAgeMs < 0 || quoteAgeMs > SECTOR_ROTATION_ENTRY_QUOTE_MAX_AGE_MS) continue;
+    const entryPx = pnumN(symbolState.spot);
+    const stop = pnumN(candidate.plan?.invalidation);
+    const target = pnumN(candidate.plan?.target1);
+    if (!(entryPx > stop) || !(target > entryPx)) continue;
+    const zone = Array.isArray(candidate.plan?.entryZone) ? candidate.plan.entryZone.map(pnumN) : [];
+    const zoneLow = zone[0], zoneHigh = zone[1];
+    if (!(zoneLow > 0) || !(zoneHigh >= zoneLow) || entryPx < zoneLow || entryPx > zoneHigh) continue;
+    const zonePct = zoneHigh > zoneLow ? clamp(((entryPx - zoneLow) / (zoneHigh - zoneLow)) * 100, 0, 100) : null;
+    const risk = entryPx - stop;
+    const liveRr = (target - entryPx) / risk;
+    if (!(liveRr >= SECTOR_ROTATION_RR_READY)) continue;
+    const observation = pendingByKey.get(key) || sectorRotationPendingObservation(candidate, builtAtIso, observationDate);
+    const firstFlagPx = pnumN(observation.firstFlagPx);
+    const trigger = pnumN(candidate.plan?.trigger);
+    const spyEntryPx = spyState.date === observationDate && spyState.spot > 0 ? r2(spyState.spot) : null;
+    const entry = {
+      signalKey: key,
+      symbol,
+      name: candidate.name || null,
+      group: candidate.group || null,
+      sector: candidate.sector || null,
+      modelVersion: payload?.modelVersion ?? SECTOR_ROTATION_MODEL_VERSION,
+      recordVersion: SECTOR_ROTATION_RECORD_VERSION,
+      status: "open",
+      firstSeenIso: observation.firstSeenIso || builtAtIso,
+      firstFlagDate: observation.firstFlagDate || observationDate,
+      firstFlagPx: firstFlagPx != null ? r2(firstFlagPx) : null,
+      firstPhase: observation.firstPhase || null,
+      firstPlanState: observation.firstPlanState || null,
+      openedIso: builtAtIso,
+      detectedAtIso: builtAtIso,
+      openedDate: observationDate,
+      entryPx: r2(entryPx),
+      entrySource: "late-quote-sweep",
+      entryQuoteAsOfIso: symbolState.asOfIso,
+      entryQuoteAgeSec: Math.round(quoteAgeMs / 1000),
+      trigger: trigger != null ? r2(trigger) : null,
+      entryZone: zoneLow != null && zoneHigh != null ? [r2(zoneLow), r2(zoneHigh)] : null,
+      entryZonePct: zonePct == null ? null : r1(zonePct),
+      entryBand: sectorRotationZoneBand(zonePct),
+      entryVsTriggerPct: trigger > 0 ? r2(((entryPx - trigger) / trigger) * 100) : null,
+      entryVsFirstFlagPct: firstFlagPx > 0 ? r2(((entryPx - firstFlagPx) / firstFlagPx) * 100) : null,
+      invalidation: r2(stop),
+      target1: r2(target),
+      plannedRr: r2(liveRr),
+      waitSessions: sectorRotationSessionsBetween(symbolState.rows, observation.firstFlagDate || observationDate, observationDate),
+      sessionsHeld: 0,
+      score: pnumN(candidate.score),
+      highConfidence: !!candidate.highConfidence,
+      phase: candidate.phase || null,
+      components: candidate.components || null,
+      context: {
+        currentZ: pnumN(candidate.meanReversion?.currentZ),
+        troughZ: pnumN(candidate.meanReversion?.troughZ),
+        reversionProgressPct: pnumN(candidate.meanReversion?.progressRawPct ?? candidate.meanReversion?.progressPct),
+        breadthUpPct: pnumN(candidate.relative?.breadthUpPct),
+        rsi: pnumN(candidate.technicals?.rsi),
+        rvol: pnumN(candidate.technicals?.rvol),
+        troughAge: pnumN(candidate.episode?.troughAge),
+      },
+      warnings: Array.isArray(candidate.warnings) ? candidate.warnings.slice(0, 6) : [],
+      lastPx: r2(entryPx),
+      lastIso: builtAtIso,
+      lastDate: observationDate,
+      maxPx: r2(entryPx),
+      minPx: r2(entryPx),
+      spyEntryPx,
+      spyLastPx: spyEntryPx,
+    };
+    Object.assign(entry, sectorRotationOutcomeRow(entry));
+    nextOpen.push(entry);
+    openKeys.add(key);
+    openSymbols.add(symbol);
+    pendingByKey.delete(key);
+  }
+
+  const pending = [...pendingByKey.values()]
+    .filter((entry) => !openKeys.has(entry.signalKey) && !closedKeys.has(entry.signalKey))
+    .sort((a, b) => String(a.firstSeenIso || "").localeCompare(String(b.firstSeenIso || "")))
+    .slice(-SECTOR_ROTATION_LOG_PENDING_MAX);
+  const log = {
+    updatedAtIso: builtAtIso,
+    resetEpoch: SECTOR_ROTATION_RESET_EPOCH,
+    recordVersion: SECTOR_ROTATION_RECORD_VERSION,
+    modelVersion: payload?.modelVersion ?? SECTOR_ROTATION_MODEL_VERSION,
+    maxHoldSessions: SECTOR_ROTATION_MAX_HOLD_SESSIONS,
+    pending,
+    open: nextOpen,
+    closed: closed.slice(-SECTOR_ROTATION_LOG_CLOSED_MAX),
+  };
+  return { log, record: sectorRotationRecordFromLog(log) };
 }
 
 // ============================================================================
@@ -28453,6 +29200,10 @@ async function main() {
   // keyless build instead of blanking the desk. Fresh raw headlines collected
   // above win during dedup; stories hard-expire inside buildNewsFeedPayload.
   const priorNewsFeed = await readPriorNewsFeed();
+  // Sector-rotation model-entry ledger: observations, frozen entries and
+  // outcomes accumulate in data/sector-rotation-log.json. Snapshot it before
+  // writeChainFiles wipes data/, then reconcile from fresh chain marks below.
+  const sectorRotationLogPrev = await readPriorSectorRotationLog();
   // Leveraged-ETF track record: the in/out log accumulates across builds
   // (data/leveraged-etfs-log.json), so same pre-read-before-wipe rule —
   // reconciled + written back next to the leveraged-etfs payload below.
@@ -29054,11 +29805,26 @@ async function main() {
   }
   // Sector Rotation Rebounds (premium tab): peer-group washout attribution +
   // quality/news guards + a rule-based washed-out/first-thrust/confirmed/late
-  // phase. Pure over the same chains + grade index; no additional fetches.
+  // phase. The screen stays pure over chains + grades; its accountability
+  // ledger adds one small late quote sweep so official entries are not stamped
+  // at prices fetched much earlier in a long bake.
   try {
     const rotationPayload = buildSectorRotationRebounds(chains, gradesIndex, builtAtIso);
+    const rotationQuoteSymbols = [
+      ...rotationPayload.candidates.filter((row) => row?.plan?.state === "ready").map((row) => row.symbol),
+      ...(Array.isArray(sectorRotationLogPrev?.open) ? sectorRotationLogPrev.open.map((row) => row?.symbol) : []),
+      "SPY",
+    ];
+    const rotationQuotes = await fetchSectorRotationTrackingQuotes(rotationQuoteSymbols);
+    const rotationRecordAtIso = new Date().toISOString();
+    const { log: rotationLog, record } = reconcileSectorRotationLog(rotationPayload, sectorRotationLogPrev, chains, rotationRecordAtIso, rotationQuotes);
+    rotationPayload.record = record;
+    // The raw ledger is the source of truth. Persist it first: if the derived
+    // screen write fails, the next bake can recreate it; the reverse can orphan
+    // entries that the source never recorded.
+    const rotationLogInfo = await writeSectorRotationLog(rotationLog);
     const rotationInfo = await writeSectorRotationFile(rotationPayload);
-    console.log(`wrote data/${SECTOR_ROTATION_FILE} — ${rotationInfo.candidates} clean candidate(s) (${rotationInfo.confirmed} confirmed / ${rotationInfo.firstThrust} first thrust), ${rotationInfo.nearMisses} near miss(es), ${rotationInfo.bytes} bytes`);
+    console.log(`wrote data/${SECTOR_ROTATION_FILE} — ${rotationInfo.candidates} clean candidate(s) (${rotationInfo.confirmed} confirmed / ${rotationInfo.firstThrust} first thrust), ${rotationInfo.nearMisses} near miss(es), ${rotationInfo.bytes} bytes; record ${rotationLogInfo.pending} watching / ${rotationLogInfo.open} open / ${rotationLogInfo.closed} closed`);
   } catch (err) {
     console.warn(`[rotation] ${SECTOR_ROTATION_FILE} skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
