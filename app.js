@@ -23459,6 +23459,8 @@
     live: false,
     livePollTimer: null,
     liveOverlay: {},   // symbol -> { ch, sp, rv, hi52, lo52, dayHi, dayLo, marketState, prevSpot }
+    liveUpdatedAt: 0,
+    liveMarketState: '',
     bound: false,
     eodOpen: false,
     lastRect: null,
@@ -23839,6 +23841,175 @@
     return (t.rv != null && isFinite(t.rv)) ? t.rv : null;
   }
 
+  function heatmapEtDateParts(value){
+    var d = value instanceof Date ? value : new Date(value);
+    if (!d || isNaN(d.getTime())) return null;
+    var parts = new Intl.DateTimeFormat('en-US', {
+      timeZone:'America/New_York', year:'numeric', month:'2-digit', day:'2-digit',
+    }).formatToParts(d);
+    var out = {};
+    for (var i = 0; i < parts.length; i++){
+      if (parts[i].type === 'year' || parts[i].type === 'month' || parts[i].type === 'day') out[parts[i].type] = Number(parts[i].value);
+    }
+    return out.year && out.month && out.day ? out : null;
+  }
+  function heatmapSessionGap(iso){
+    var from = heatmapEtDateParts(iso);
+    var to = heatmapEtDateParts(new Date());
+    if (!from || !to) return null;
+    var cursor = Date.UTC(from.year, from.month - 1, from.day);
+    var end = Date.UTC(to.year, to.month - 1, to.day);
+    if (cursor > end) return null;
+    var sessions = 0;
+    while (cursor < end){
+      cursor += 86400000;
+      var day = new Date(cursor).getUTCDay();
+      if (day !== 0 && day !== 6) sessions++;
+    }
+    return sessions;
+  }
+  function heatmapDecisionStats(tickers){
+    var up = 0, down = 0, flat = 0, weighted = 0, weight = 0;
+    var groupMap = {};
+    for (var i = 0; i < tickers.length; i++){
+      var t = tickers[i];
+      var ch = heatmapEffectiveCh(t);
+      if (ch == null) continue;
+      if (ch > 0.05) up++; else if (ch < -0.05) down++; else flat++;
+      var mc = Number(t.mc);
+      if (isFinite(mc) && mc > 0){ weighted += ch * mc; weight += mc; }
+      var group = t.s || 'Other';
+      if (!groupMap[group]) groupMap[group] = { name:group, up:0, down:0, flat:0, sum:0, count:0, weighted:0, weight:0 };
+      var row = groupMap[group];
+      row.count++;
+      row.sum += ch;
+      if (ch > 0.05) row.up++; else if (ch < -0.05) row.down++; else row.flat++;
+      if (isFinite(mc) && mc > 0){ row.weighted += ch * mc; row.weight += mc; }
+    }
+    var total = up + down + flat;
+    var groups = Object.keys(groupMap).map(function(key){
+      var g = groupMap[key];
+      g.avg = g.weight > 0 ? g.weighted / g.weight : g.sum / Math.max(1, g.count);
+      g.upPct = g.count ? g.up / g.count * 100 : 0;
+      return g;
+    });
+    var ranked = groups.filter(function(g){ return g.count >= 3; });
+    if (!ranked.length) ranked = groups;
+    ranked.sort(function(a, b){ return b.avg - a.avg; });
+    return {
+      up:up, down:down, flat:flat, total:total,
+      upPct:total ? up / total * 100 : 0,
+      avg:weight > 0 ? weighted / weight : 0,
+      leader:ranked[0] || null,
+      laggard:ranked.length ? ranked[ranked.length - 1] : null,
+    };
+  }
+  function renderHeatmapDecision(){
+    var host = $('heatmap-decision');
+    if (!host) return;
+    var data = heatmapState.data;
+    var tickers = data && Array.isArray(data.tickers) ? data.tickers : [];
+    if (!data || data.loadError || !tickers.length){
+      host.className = 'heatmap-decision heatmap-decision-empty';
+      host.innerHTML = data && data.loadError
+        ? '<b>Tape decision unavailable</b><span>The heatmap request failed, so no breadth or leadership call is being inferred.</span>'
+        : '<b>Waiting for tape data</b><span>The next populated heatmap build will add breadth, leadership and freshness context here.</span>';
+      return;
+    }
+    var stats = heatmapDecisionStats(tickers);
+    var liveFresh = heatmapState.live && heatmapState.liveUpdatedAt > 0 &&
+      Date.now() - heatmapState.liveUpdatedAt >= 0 && Date.now() - heatmapState.liveUpdatedAt < 90000;
+    var sourceIso = data.refreshedAtIso || data.builtAtIso || '';
+    var sessionGap = liveFresh ? 0 : heatmapSessionGap(sourceIso);
+    var stale = !liveFresh && (sessionGap == null || sessionGap > 1);
+    var tone = 'mixed';
+    var state = 'Mixed tape';
+    var headline = 'Participation and cap-weighted direction do not fully agree.';
+    var action = 'Stay selective. Require the stock and its group to agree before treating a tile move as confirmation.';
+    var confirms = 'Breadth above 60% with a positive cap-weighted tape upgrades the long side.';
+    var breaks = 'Breadth below 40% with a negative cap-weighted tape shifts the read risk-off.';
+    if (stale){
+      tone = 'stale';
+      state = 'Reference only';
+      headline = sessionGap == null
+        ? 'This heatmap has no verifiable freshness stamp.'
+        : 'This heatmap is ' + sessionGap + ' trading session' + (sessionGap === 1 ? '' : 's') + ' old.';
+      action = 'Refresh the data or enable a successful Live overlay before using breadth or leadership as an entry filter.';
+      confirms = 'A fresh regular-session update must re-establish the same breadth and group leadership.';
+      breaks = 'Until then, every apparent leader and laggard is historical context only.';
+    } else if (stats.upPct >= 60 && stats.avg >= 0.25){
+      tone = 'risk-on';
+      state = 'Broad risk-on';
+      headline = 'Participation and cap-weighted direction agree on a constructive tape.';
+      action = 'Favor pullbacks in the leading group and demand extra proof before fading broad strength.';
+      confirms = 'The read holds while at least 60% advance and the cap-weighted tape stays positive.';
+      breaks = 'A drop below 50% advancers or a nonpositive cap-weighted return breaks confirmation.';
+    } else if (stats.upPct <= 40 && stats.avg <= -0.25){
+      tone = 'risk-off';
+      state = 'Broad risk-off';
+      headline = 'Participation and cap-weighted direction agree on defensive pressure.';
+      action = 'Reduce long-beta assumptions; require relative strength and a group reversal before buying weakness.';
+      confirms = 'The risk-off read holds while fewer than 40% advance and the cap-weighted tape stays negative.';
+      breaks = 'Breadth reclaiming 50% with a positive cap-weighted turn neutralizes the warning.';
+    } else if (stats.avg >= 0.25 && stats.upPct < 50){
+      tone = 'narrow';
+      state = 'Narrow index bid';
+      headline = 'Large caps are lifting the tape while most tracked names fail to confirm.';
+      action = 'Do not treat an index-green session as broad confirmation; concentrate only in groups with real participation.';
+      confirms = 'The divergence persists while cap-weighted return stays positive but fewer than half the names advance.';
+      breaks = 'Breadth reclaiming 55% broadens the move; a negative cap-weighted turn removes the index support.';
+    } else if (stats.avg <= -0.25 && stats.upPct >= 50){
+      tone = 'narrow';
+      state = 'Heavyweight drag';
+      headline = 'Breadth is holding up, but the largest names are pulling the cap-weighted tape lower.';
+      action = 'Look beneath the index for relative-strength groups, but keep position size modest until large-cap pressure eases.';
+      confirms = 'The split persists while at least half the names advance and cap-weighted return remains negative.';
+      breaks = 'A positive cap-weighted turn confirms the broader resilience; breadth below 45% turns the tape risk-off.';
+    }
+    var sourceLabel = liveFresh
+      ? 'Live overlay · ' + escapeHtml(heatmapState.liveMarketState || 'updated')
+      : (sessionGap === 0 ? 'Current session snapshot' : sessionGap === 1 ? 'Latest completed session' : 'Stale close snapshot');
+    var leader = stats.leader;
+    var laggard = stats.laggard;
+    function groupMetric(label, group, toneClass){
+      if (!group) return '<div><small>' + label + '</small><b>-</b><span>No group read</span></div>';
+      return '<div><small>' + label + '</small><b class="' + toneClass + '">' + escapeHtml(group.name) + '</b><span>' +
+        escapeHtml(heatmapFmtPct(group.avg)) + ' · ' + Math.round(group.upPct) + '% up</span></div>';
+    }
+    host.className = 'heatmap-decision heatmap-decision-' + tone;
+    host.innerHTML =
+      '<div class="heatmap-decision-read"><div class="heatmap-decision-head"><span><small>Current tape decision</small><b>' + escapeHtml(state) + '</b></span><em>' + sourceLabel + '</em></div>' +
+        '<h3>' + escapeHtml(headline) + '</h3><p>' + escapeHtml(action) + '</p>' +
+        '<div class="heatmap-decision-rules"><span><small>Confirms while</small><b>' + escapeHtml(confirms) + '</b></span><span><small>Invalidates when</small><b>' + escapeHtml(breaks) + '</b></span></div></div>' +
+      '<div class="heatmap-decision-side"><div class="heatmap-decision-metrics">' +
+        '<div><small>Participation</small><b>' + Math.round(stats.upPct) + '% up</b><span>' + stats.up + ' advancing / ' + stats.down + ' declining</span></div>' +
+        '<div><small>Cap-weighted</small><b class="' + eodDirClass(stats.avg) + '">' + escapeHtml(heatmapFmtPct(stats.avg)) + '</b><span>' + (stats.avg >= 0 ? 'largest names add' : 'largest names subtract') + '</span></div>' +
+        groupMetric('Leading group', leader, 'pos') + groupMetric('Lagging group', laggard, 'neg') +
+      '</div><div class="heatmap-decision-actions">' +
+        (leader ? '<button type="button" data-heatmap-focus-group="' + escapeHtml(leader.name) + '">Focus ' + escapeHtml(leader.name) + '</button>' : '') +
+        '<button type="button" data-heatmap-open-market>Open Market analysis</button></div></div>';
+
+    var focus = host.querySelector('[data-heatmap-focus-group]');
+    if (focus) focus.addEventListener('click', function(){
+      var name = focus.getAttribute('data-heatmap-focus-group');
+      var groupSel = $('heatmap-group-select');
+      heatmapState.groupBy = 'sector';
+      if (groupSel) groupSel.value = 'sector';
+      renderHeatmap();
+      var sector = Array.prototype.find.call(document.querySelectorAll('.heatmap-sector[data-group]'), function(el){
+        return el.getAttribute('data-group') === name;
+      });
+      if (sector) heatmapCenterOnTile(sector, 2);
+      var root = $('heatmap-root');
+      if (root) root.scrollIntoView({ behavior:'smooth', block:'center' });
+    });
+    var market = host.querySelector('[data-heatmap-open-market]');
+    if (market) market.addEventListener('click', function(){
+      var tab = document.querySelector('[data-page-tab="market"]');
+      if (tab) tab.click();
+    });
+  }
+
   // Advancers / decliners ribbon. Recomputed on every render and after each
   // live poll so it tracks the overlay. Counts mirror the EOD recap's ±0.05%
   // flat band so the two never disagree.
@@ -23942,6 +24113,7 @@
     var eyebrow = $('heatmap-eyebrow');
     var data = heatmapState.data;
     if (!data){ root.textContent = 'Loading heatmap…'; return; }
+    renderHeatmapDecision();
     renderHeatmapBreadthStreaks();
     if (data.loadError){
       root.classList.add('is-empty');
@@ -24429,6 +24601,8 @@
     }
     if (clearOverlay){
       heatmapState.liveOverlay = {};
+      heatmapState.liveUpdatedAt = 0;
+      heatmapState.liveMarketState = '';
       var stateEl = $('heatmap-live-state');
       if (stateEl){ stateEl.className = 'heatmap-live-state'; stateEl.textContent = ''; }
       // Restore baked colors.
@@ -24475,14 +24649,20 @@
           if (!marketState && q.marketState) marketState = q.marketState;
         }
         heatmapState.liveOverlay = overlay;
+        heatmapState.liveUpdatedAt = Date.now();
+        heatmapState.liveMarketState = marketState || '';
         applyHeatmapLiveOverlay();
         renderHeatmapBreadth();
+        renderHeatmapDecision();
         if (stateEl){
           stateEl.className = 'heatmap-live-state is-live';
           stateEl.textContent = 'Live · ' + (marketState || 'updated') + ' · ' + new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
         }
       })
       .catch(function(){
+        heatmapState.liveUpdatedAt = 0;
+        heatmapState.liveMarketState = '';
+        renderHeatmapDecision();
         if (stateEl){
           stateEl.className = 'heatmap-live-state is-error';
           stateEl.textContent = 'Live unavailable — showing baked close';
