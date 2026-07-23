@@ -10007,6 +10007,40 @@ export function classifyCapitalRaiseHeadline(title) {
   return null;
 }
 
+// Yahoo's per-ticker news stream occasionally carries syndicated stories about
+// a different issuer, and broad phrases such as "insider sells $39M in stock"
+// can resemble an equity raise. Require both an explicit issuer reference and
+// issuer-level transaction language before a flag can affect the feed or the
+// fundamentals score. Ambiguous legacy rows are quarantined client-side too.
+export function capitalRaiseHeadlineMatchesIssuer(sym, companyName, title) {
+  const lower = String(title || "").toLowerCase();
+  const ticker = String(sym || "").toLowerCase();
+  const words = lower.replace(/[^a-z0-9$]+/g, " ").split(/\s+/).filter(Boolean);
+  if (ticker.length >= 3 && (words.includes(ticker) || words.includes(`$${ticker}`))) return true;
+  const generic = new Set([
+    "inc", "incorporated", "corporation", "corp", "company", "limited", "ltd", "plc",
+    "holdings", "holding", "group", "technologies", "technology", "systems", "class",
+    "common", "stock",
+  ]);
+  const tokens = String(companyName || "").toLowerCase().replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/).filter((x) => x.length >= 4 && !generic.has(x));
+  return tokens.some((x) => lower.includes(x));
+}
+
+export function capitalRaiseActionIsExplicit(kind, title) {
+  const t = String(title || "");
+  if (kind === "equity") {
+    return /\b(?:registered direct|at[- ]the[- ]market|atm program|follow[- ]on|secondary offering|public offering|share issuance|equity raise|stock offering)\b/i.test(t);
+  }
+  if (kind === "convertible") {
+    return /\bconvertible\b.{0,45}\b(?:notes?|bonds?|debt|offering|securities)\b/i.test(t);
+  }
+  if (kind === "debt") {
+    return /\b(?:notes? offering|bond sale|bond offering|debt offering|issues? .{0,30}(?:notes?|bonds?|debt)|raises? .{0,30}(?:debt|bonds?|notes?))\b/i.test(t);
+  }
+  return kind === "buyback" && /\b(?:buyback|repurchase)\b/i.test(t);
+}
+
 // ── Thesis-category classifier (Track Record analytics) ─────────────────────
 // Deterministically tags a pick's thesis "style" from its dominant scored
 // drivers (+ an earnings-in-window catalyst boost + a macro-backbone nudge), so
@@ -10072,7 +10106,7 @@ export function classifyThesisCategory(pick) {
 // buildCapitalRaisesPayload can assemble the feed without re-fetching news.
 let _capitalRaiseFlags = [];
 const CAPITAL_RAISE_MAX_AGE_DAYS = 21;
-function scanCapitalRaiseHeadlines(sym, headlines) {
+function scanCapitalRaiseHeadlines(sym, headlines, companyName = null) {
   if (!Array.isArray(headlines) || !headlines.length) return [];
   const nowMs = Date.now();
   const perKind = new Map(); // keep the most recent flag per kind for this ticker
@@ -10080,6 +10114,7 @@ function scanCapitalRaiseHeadlines(sym, headlines) {
     if (!h || !h.title) continue;
     const kind = classifyCapitalRaiseHeadline(h.title);
     if (!kind) continue;
+    if (!capitalRaiseHeadlineMatchesIssuer(sym, companyName, h.title) || !capitalRaiseActionIsExplicit(kind, h.title)) continue;
     const tMs = h.publishedAt ? Date.parse(h.publishedAt) : NaN;
     const ageDays = Number.isFinite(tMs) ? (nowMs - tMs) / 86400000 : null;
     if (ageDays != null && ageDays > CAPITAL_RAISE_MAX_AGE_DAYS) continue; // only fresh news
@@ -18044,6 +18079,86 @@ export function buildStockChecklist(sym, data, grade, sectorPE, traps, peers) {
   return { sections, counts };
 }
 
+// Turn the quality-dip screen into an honest share-entry workflow. A clean
+// fundamental/trap read is necessary but not enough to call the exact low:
+// price must also stop deteriorating (positive close + RSI improvement) before
+// the desk suggests a starter tranche. Everything else either waits for a
+// named confirmation level or stays in research-first status. These are share
+// accumulation references, not option-style hard stops.
+function buildStockExecution(data, traps) {
+  const t = data?.technicals || {};
+  const spot = pnum(data?.spot);
+  if (!(spot > 0)) return null;
+  const closes = stockCloseHistory(data);
+  const prev = closes.length >= 2 ? pnum(closes[closes.length - 2]) : null;
+  const rsi = pnum(t.rsi), rsi5d = pnum(t.rsi5d);
+  const priceTurn = prev != null && spot > prev;
+  const momentumTurn = rsi != null && rsi5d != null && rsi > rsi5d;
+  const turning = priceTurn && momentumTurn;
+  const clean = !(traps || []).length;
+
+  let action;
+  if (!clean) {
+    action = {
+      key: "research",
+      label: "Research first",
+      detail: `${traps.length} yellow flag${traps.length === 1 ? "" : "s"} can mean the thesis changed. Do not average down until each is explained.`,
+    };
+  } else if (turning) {
+    action = {
+      key: "starter",
+      label: "Start small",
+      detail: "The business passed, no trap flag is active, and price plus RSI have started to turn. Use a starter tranche, not full size.",
+    };
+  } else {
+    action = {
+      key: "wait",
+      label: "Wait for turn",
+      detail: "The dip is clean, but price and momentum have not both turned yet. Cheap can stay cheap; wait for confirmation.",
+    };
+  }
+
+  const sma20 = pnum(t.sma?.sma20), sma50 = pnum(t.sma?.sma50);
+  const support20 = pnum(t.sr?.s20), resistance20 = pnum(t.sr?.r20);
+  const low52 = pnum(data?.fundamentals?.fiftyTwoWeekLow);
+  const priorFive = closes.length >= 6 ? closes.slice(-6, -1).filter((v) => Number.isFinite(v)) : [];
+  const fiveDayHigh = priorFive.length ? Math.max(...priorFive) : null;
+  const triggerCandidates = [sma20, fiveDayHigh].filter((v) => v > spot);
+  const trigger = triggerCandidates.length ? Math.min(...triggerCandidates) : null;
+  const triggerBasis = trigger == null ? null : (sma20 === trigger ? "20-day average reclaim" : "5-session high reclaim");
+
+  // The nearest visible structural floor is a REVIEW line, not an automatic
+  // sell order: a long-horizon owner must re-underwrite the business there.
+  const reviewCandidates = [support20, low52].filter((v) => v > 0 && v < spot);
+  const review = reviewCandidates.length ? Math.max(...reviewCandidates) : null;
+  const reviewBasis = review == null ? null : (support20 === review ? "20-day support" : "52-week low");
+
+  // The 50-day mean is the natural first objective for this dip screen. If it
+  // is already below spot, fall back to the next visible 20-day ceiling.
+  const target = sma50 > spot ? sma50 : resistance20 > spot ? resistance20 : null;
+  const targetBasis = target == null ? null : (sma50 === target ? "50-day mean" : "20-day resistance");
+  const upsidePct = target != null ? (target / spot - 1) * 100 : null;
+  const reviewPct = review != null ? (review / spot - 1) * 100 : null;
+  const rr = upsidePct != null && reviewPct != null && reviewPct < 0 ? upsidePct / Math.abs(reviewPct) : null;
+
+  return {
+    action,
+    evidence: { priceTurn, momentumTurn, rsi: rsi != null ? r1(rsi) : null, rsi5d: rsi5d != null ? r1(rsi5d) : null },
+    entry: action.key === "starter"
+      ? { price: r2(spot), basis: "starter near current close" }
+      : trigger != null
+        ? { price: r2(trigger), basis: triggerBasis }
+        : { price: null, basis: "positive close plus an improving RSI" },
+    review: review != null ? { price: r2(review), basis: reviewBasis } : null,
+    target: target != null ? { price: r2(target), basis: targetBasis } : null,
+    payoff: {
+      upsidePct: upsidePct != null ? r1(upsidePct) : null,
+      reviewPct: reviewPct != null ? r1(reviewPct) : null,
+      rr: rr != null ? r2(rr) : null,
+    },
+  };
+}
+
 // Assemble the page: gate the universe on quality (module 1), take the five
 // dip reads on every survivor (module 2), z-score each read ACROSS those
 // survivors and average into the composite dip score, then ship the names
@@ -18099,6 +18214,7 @@ export function buildStockPicks(chains, gradesIndex, builtAtIso) {
   const shipped = candidates.slice(0, STOCK_PICKS_MAX).map((r) => {
     const f = r.data.fundamentals || {};
     const traps = stockTrapFlags(r.data, r.grade);
+    const execution = buildStockExecution(r.data, traps);
     return {
       symbol: r.sym,
       name: f.name || null,
@@ -18116,6 +18232,7 @@ export function buildStockPicks(chains, gradesIndex, builtAtIso) {
       signals: r.dip.signals,
       traps,
       clean: traps.length === 0,
+      execution,
       checklist: buildStockChecklist(r.sym, r.data, r.grade, sectorPE[f.sector], traps, stockTrackedPeers(chains, r.sym)),
     };
   });
@@ -27517,7 +27634,7 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
         // share issuance, convertibles, buybacks) → the capital-raises feed AND
         // the per-ticker Fundamentals-pillar "Capital raise" driver. Runs on
         // cache hits too — the _capitalRaiseFlags accumulator resets each build.
-        const crFlags = scanCapitalRaiseHeadlines(sym, rawHeadlines);
+        const crFlags = scanCapitalRaiseHeadlines(sym, rawHeadlines, data.fundamentals?.name);
         const cr = pickCapitalRaiseForScoring(crFlags);
         if (cr) data.capitalRaise = cr; else delete data.capitalRaise;
         // Cross-build cache: same headlines (exactly, or within the new-title

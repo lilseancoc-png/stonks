@@ -145,8 +145,70 @@ export const DOC_PAGES = {
   }
   .scope b{color:var(--gold);font-weight:500}
 
+  /* decision-first layer: the manual is reference depth, but a trader should
+     be able to reject a bad contract before reading ten chapters. */
+  .manual-jump{
+    position:sticky;top:0;z-index:4;display:flex;gap:8px;overflow-x:auto;
+    margin:18px 0 0;padding:10px 0;background:color-mix(in srgb,var(--bg) 92%,transparent);
+    border-bottom:1px solid var(--line);scrollbar-width:none;backdrop-filter:blur(10px);
+  }
+  .manual-jump::-webkit-scrollbar{display:none}
+  .manual-jump a{
+    flex:none;padding:7px 11px;border:1px solid var(--line);border-radius:999px;
+    color:var(--muted);font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;
+    text-transform:uppercase;text-decoration:none;white-space:nowrap;
+  }
+  .manual-jump a:hover,.manual-jump a:focus-visible{color:var(--ink);border-color:var(--gold);outline:none}
+  .manual-gate{
+    padding-top:30px;scroll-margin-top:58px;
+  }
+  .gate-shell{
+    overflow:hidden;border:1px solid var(--gold-dim);border-radius:var(--radius);
+    background:linear-gradient(145deg,color-mix(in srgb,var(--gold) 8%,var(--surface)),var(--bg2));
+  }
+  .gate-head{
+    display:flex;align-items:flex-start;justify-content:space-between;gap:22px;
+    padding:24px 26px;border-bottom:1px solid var(--line);
+  }
+  .gate-kicker{display:block;margin-bottom:5px;color:var(--gold);font:600 10.5px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase}
+  .gate-head h2{font-family:var(--disp);font-size:27px;line-height:1.08;font-weight:600}
+  .gate-head p{max-width:570px;margin-top:7px;color:var(--muted);font-size:14px}
+  .gate-state{
+    flex:none;padding:7px 11px;border:1px solid var(--warn);border-radius:999px;
+    color:var(--warn);font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;
+  }
+  .gate-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr))}
+  .gate-step{min-width:0;padding:18px;border-right:1px solid var(--line)}
+  .gate-step:last-child{border-right:0}
+  .gate-step small{display:block;color:var(--faint);font:600 10px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase}
+  .gate-step b{display:block;margin:7px 0 6px;font-family:var(--disp);font-size:17px;line-height:1.1}
+  .gate-step span{display:block;color:var(--muted);font-size:12.5px;line-height:1.4}
+  .gate-step em{display:block;margin-top:9px;color:var(--warn);font:600 10.5px/1.35 var(--mono);font-style:normal}
+  .gate-actions{
+    display:flex;align-items:center;justify-content:space-between;gap:16px;
+    padding:18px 26px;border-top:1px solid var(--line);background:color-mix(in srgb,var(--surface2) 55%,transparent);
+  }
+  .gate-actions p{color:var(--muted);font-size:13px}
+  .gate-actions p b{color:var(--ink)}
+  .gate-links{display:flex;flex-wrap:wrap;gap:9px;justify-content:flex-end}
+  .gate-links a{
+    padding:9px 13px;border:1px solid var(--gold);border-radius:8px;color:var(--ink);
+    background:color-mix(in srgb,var(--gold) 10%,transparent);font:600 11px/1 var(--mono);
+    letter-spacing:.04em;text-decoration:none;white-space:nowrap;
+  }
+  .gate-links a:last-child{border-color:var(--line2);background:var(--surface)}
+  .gate-links a:hover,.gate-links a:focus-visible{background:color-mix(in srgb,var(--gold) 18%,var(--surface));outline:none}
+  @media(max-width:900px){.gate-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.gate-step{border-bottom:1px solid var(--line)}.gate-step:nth-child(2n){border-right:0}.gate-step:last-child{grid-column:1/-1;border-bottom:0}}
+  @media(max-width:620px){
+    .manual-jump{margin-top:12px}
+    .gate-head,.gate-actions{padding:18px;flex-direction:column;align-items:stretch}
+    .gate-head h2{font-size:23px}.gate-state{align-self:flex-start}
+    .gate-grid{grid-template-columns:1fr}.gate-step,.gate-step:nth-child(2n){border-right:0}.gate-step:last-child{grid-column:auto}
+    .gate-links{display:grid;grid-template-columns:1fr;justify-content:stretch}.gate-links a{text-align:center}
+  }
+
   /* section scaffolding */
-  section{padding-top:54px}
+  section{padding-top:54px;scroll-margin-top:58px}
   .shead{display:flex;align-items:baseline;gap:16px;margin-bottom:22px}
   .snum{
     font-family:var(--mono);font-size:13px;color:var(--gold);
@@ -222,12 +284,27 @@ export const DOC_PAGES = {
 
   /* checklist */
   .checklist{background:linear-gradient(180deg,var(--surface),var(--bg2));border:1px solid var(--gold-dim);border-radius:var(--radius);padding:24px 26px}
+  .check-progress{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--line)}
+  .check-progress-copy small{display:block;color:var(--faint);font:600 10px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase}
+  .check-progress-copy b{display:block;margin-top:5px;font-family:var(--disp);font-size:20px;color:var(--warn)}
+  .check-progress-copy b.is-review{color:var(--gold)}
+  .check-progress-copy b.is-ready{color:var(--call)}
+  .check-progress-meta{display:flex;align-items:center;gap:10px;color:var(--muted);font:600 11px/1 var(--mono)}
+  .check-progress-meta button{padding:6px 9px;border:1px solid var(--line2);border-radius:7px;background:var(--surface2);color:var(--muted);font:600 10px/1 var(--mono);cursor:pointer}
+  .check-progress-meta button:hover,.check-progress-meta button:focus-visible{color:var(--ink);border-color:var(--gold);outline:none}
+  .check-meter{height:5px;margin:-7px 0 19px;border-radius:999px;background:var(--surface2);overflow:hidden}
+  .check-meter span{display:block;width:0;height:100%;background:linear-gradient(90deg,var(--warn),var(--gold),var(--call));transition:width .2s ease}
   .checklist ul{list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:13px 28px}
   @media(max-width:780px){.checklist ul{grid-template-columns:1fr}}
-  .checklist li{display:flex;gap:12px;align-items:flex-start;font-size:14.5px;color:var(--ink)}
-  .checklist .box{flex:none;width:18px;height:18px;border:1.5px solid var(--gold);border-radius:4px;margin-top:2px}
-  .checklist li span{color:var(--muted)}
-  .checklist li b{color:var(--ink);font-weight:600}
+  .checklist li{min-width:0}
+  .checklist label{display:flex;gap:11px;align-items:flex-start;padding:9px;border:1px solid transparent;border-radius:9px;font-size:14.5px;color:var(--ink);cursor:pointer;transition:background .16s ease,border-color .16s ease}
+  .checklist label:hover{background:var(--surface2);border-color:var(--line)}
+  .checklist input{flex:none;width:18px;height:18px;margin-top:2px;accent-color:var(--call)}
+  .checklist label > span{color:var(--muted)}
+  .checklist label b{color:var(--ink);font-weight:600}
+  .checklist label:has(input:checked){background:color-mix(in srgb,var(--call) 7%,transparent);border-color:color-mix(in srgb,var(--call) 35%,var(--line))}
+  .checklist label:has(input:checked) > span{color:var(--ink)}
+  @media(max-width:620px){.checklist{padding:18px}.check-progress{align-items:flex-start}.check-progress-meta{flex-direction:column;align-items:flex-end}}
 
   /* traps */
   .traps{background:linear-gradient(180deg,#1c1417,#15101280);border:1px solid #54262b;border-radius:var(--radius);padding:24px 26px}
@@ -260,8 +337,38 @@ export const DOC_PAGES = {
     <div class="scope reveal">SCOPE&nbsp;→&nbsp;<b>long calls &amp; puts only</b>&nbsp;· directional bets, sold back before expiry</div>
   </header>
 
+  <nav class="manual-jump" aria-label="Buyer’s manual shortcuts">
+    <a href="#manual-gate">60-second gate</a>
+    <a href="#manual-greeks">Greeks</a>
+    <a href="#manual-iv">IV</a>
+    <a href="#manual-levers">Strike &amp; DTE</a>
+    <a href="#manual-execution">Execution</a>
+    <a href="#manual-checklist">Checklist</a>
+    <a href="#manual-traps">Traps</a>
+  </nav>
+
+  <section class="manual-gate" id="manual-gate">
+    <div class="gate-shell">
+      <div class="gate-head">
+        <div><span class="gate-kicker">Verdict before vocabulary</span><h2>The 60-second contract gate</h2><p>Run these in order. A clean contract cannot rescue a bad thesis, and a good thesis cannot rescue an untradeable contract.</p></div>
+        <span class="gate-state">Any red answer = wait or pass</span>
+      </div>
+      <div class="gate-grid">
+        <div class="gate-step"><small>01 · Thesis</small><b>Direction + trigger</b><span>What must happen, and what price action proves you wrong?</span><em>No invalidation → no trade</em></div>
+        <div class="gate-step"><small>02 · Timing</small><b>Enough time?</b><span>DTE must outlast the expected move without paying for dead time.</span><em>Right but early still loses</em></div>
+        <div class="gate-step"><small>03 · Price</small><b>IV + liquidity</b><span>Check IV rank, spread, volume and open interest before trusting the mid.</span><em>Wide spread → improve or pass</em></div>
+        <div class="gate-step"><small>04 · Event</small><b>Know the gap risk</b><span>Earnings or a binary catalyst before expiry can overwhelm the payoff model.</span><em>Event inside DTE → deliberate only</em></div>
+        <div class="gate-step"><small>05 · Risk</small><b>Size from max loss</b><span>Write the entry, stop, target and maximum dollar loss before the order.</span><em>No plan → zero contracts</em></div>
+      </div>
+      <div class="gate-actions">
+        <p><b>All five clear?</b> Validate the exact contract. If the payoff needs multiple legs, model the structure first.</p>
+        <div class="gate-links"><a href="/?tab=grade">Grade ticker + contract →</a><a href="/?tab=strategies">Model a strategy →</a></div>
+      </div>
+    </div>
+  </section>
+
   <!-- 01 BASICS -->
-  <section>
+  <section id="manual-basics">
     <div class="shead"><span class="snum">01</span><h2>The Building Blocks</h2><p>start here</p></div>
     <div class="grid g3">
       <div class="card lead-call"><h3>Call <span class="tag">bet up ↑</span></h3><p>The right to <strong>buy</strong> 100 shares at a fixed price. You want this when you think the stock <span class="up">rises</span>.</p></div>
@@ -276,7 +383,7 @@ export const DOC_PAGES = {
   </section>
 
   <!-- 02 MONEYNESS -->
-  <section>
+  <section id="manual-moneyness">
     <div class="shead"><span class="snum">02</span><h2>Moneyness &amp; Value</h2><p>where the strike sits</p></div>
     <div class="grid g2">
       <div class="card lead-call">
@@ -314,7 +421,7 @@ export const DOC_PAGES = {
   </section>
 
   <!-- 03 GREEKS -->
-  <section>
+  <section id="manual-greeks">
     <div class="shead"><span class="snum">03</span><h2>The Greeks</h2><p>what moves your option's price</p></div>
     <div class="tablewrap">
       <table>
@@ -356,7 +463,7 @@ export const DOC_PAGES = {
   </section>
 
   <!-- 04 IV -->
-  <section>
+  <section id="manual-iv">
     <div class="shead"><span class="snum">04</span><h2>Implied Volatility</h2><p>the market's guess at movement</p></div>
     <div class="grid g2">
       <div class="card lead-gold">
@@ -383,7 +490,7 @@ export const DOC_PAGES = {
   </section>
 
   <!-- 05 LIQUIDITY -->
-  <section>
+  <section id="manual-liquidity">
     <div class="shead"><span class="snum">05</span><h2>Liquidity</h2><p>can you actually get out?</p></div>
     <div class="grid g3">
       <div class="card"><h3>Bid–Ask Spread</h3><p>The gap between buyers' and sellers' prices = your <strong>cost to transact</strong>. <span class="up">Tight</span> = liquid &amp; cheap. <span class="down">Wide</span> = illiquid &amp; a hidden tax every round trip.</p></div>
@@ -396,7 +503,7 @@ export const DOC_PAGES = {
   </section>
 
   <!-- 06 STRIKE & EXPIRY -->
-  <section>
+  <section id="manual-levers">
     <div class="shead"><span class="snum">06</span><h2>Your Two Levers</h2><p>strike &amp; expiration</p></div>
     <div class="grid g3">
       <div class="card lead-put"><h3>OTM <span class="tag">lottery ticket</span></h3><p>Cheap, explosive % gains, but <strong>100% time value</strong> — decays fast and needs a big, fast move. <strong>Where beginners quietly lose.</strong></p></div>
@@ -411,7 +518,7 @@ export const DOC_PAGES = {
   </section>
 
   <!-- 07 DAY CLOCK -->
-  <section>
+  <section id="manual-day">
     <div class="shead"><span class="snum">07</span><h2>The Trading Day</h2><p>execution timing · ET</p></div>
     <div class="clock">
       <div class="slot"><span class="bar bar-hot"></span><span class="time">9:30 – 10:00</span><div class="name">The Open</div><p><strong>Widest spreads, wildest prices.</strong> Market makers don't know fair value yet. Quotes can be stale. Wait 15–30 min for it to settle. <strong>Never market orders.</strong></p></div>
@@ -422,7 +529,7 @@ export const DOC_PAGES = {
   </section>
 
   <!-- 08 ENTRY/EXIT -->
-  <section>
+  <section id="manual-execution">
     <div class="shead"><span class="snum">08</span><h2>Entry &amp; Exit Discipline</h2><p>the part you control</p></div>
     <div class="grid g2">
       <div class="card lead-call">
@@ -446,7 +553,7 @@ export const DOC_PAGES = {
   </section>
 
   <!-- 09 RISK -->
-  <section>
+  <section id="manual-risk">
     <div class="shead"><span class="snum">09</span><h2>Risk Management</h2><p>the one that actually matters</p></div>
     <div class="card lead-gold" style="padding:28px 26px">
       <h3 style="font-size:23px">Position Sizing</h3>
@@ -455,7 +562,7 @@ export const DOC_PAGES = {
   </section>
 
   <!-- 10 DECOMPOSITION -->
-  <section>
+  <section id="manual-review">
     <div class="shead"><span class="snum">10</span><h2>Read Your Own Trades</h2><p>the skill that compounds</p></div>
     <div class="grid g2">
       <div class="card">
@@ -473,24 +580,29 @@ export const DOC_PAGES = {
   </section>
 
   <!-- CHECKLIST -->
-  <section>
+  <section id="manual-checklist">
     <div class="shead"><span class="snum">✓</span><h2>Pre-Trade Checklist</h2><p>run it every time</p></div>
     <div class="checklist">
+      <div class="check-progress">
+        <div class="check-progress-copy"><small>Execution state</small><b data-manual-check-state aria-live="polite">Not ready</b></div>
+        <div class="check-progress-meta"><span data-manual-check-count aria-live="polite">0 / 8 cleared</span><button type="button" data-manual-check-reset>Reset</button></div>
+      </div>
+      <div class="check-meter" aria-hidden="true"><span data-manual-check-meter></span></div>
       <ul>
-        <li><span class="box"></span><span><b>Liquid?</b> Tight spread, real volume, solid open interest.</span></li>
-        <li><span class="box"></span><span><b>IV low / reasonable?</b> Not buying inflated premium.</span></li>
-        <li><span class="box"></span><span><b>No earnings</b> before my expiry (unless that's the plan).</span></li>
-        <li><span class="box"></span><span><b>Enough time?</b> DTE gives the thesis room to work.</span></li>
-        <li><span class="box"></span><span><b>Strike fits conviction?</b> OTM only for a strong, fast-move thesis.</span></li>
-        <li><span class="box"></span><span><b>Profit target + stop</b> defined before entry.</span></li>
-        <li><span class="box"></span><span><b>Size within</b> my max-loss-per-trade rule.</span></li>
-        <li><span class="box"></span><span><b>Limit order</b> near mid — not market, not at the open.</span></li>
+        <li><label><input type="checkbox" data-manual-check><span><b>Liquid?</b> Tight spread, real volume, solid open interest.</span></label></li>
+        <li><label><input type="checkbox" data-manual-check><span><b>IV low / reasonable?</b> Not buying inflated premium.</span></label></li>
+        <li><label><input type="checkbox" data-manual-check><span><b>Event risk deliberate?</b> Earnings or another binary event inside DTE is part of the plan—not a surprise.</span></label></li>
+        <li><label><input type="checkbox" data-manual-check><span><b>Enough time?</b> DTE gives the thesis room to work.</span></label></li>
+        <li><label><input type="checkbox" data-manual-check><span><b>Strike fits conviction?</b> OTM only for a strong, fast-move thesis.</span></label></li>
+        <li><label><input type="checkbox" data-manual-check><span><b>Entry, target + invalidation</b> defined before entry.</span></label></li>
+        <li><label><input type="checkbox" data-manual-check><span><b>Size within</b> my max-loss-per-trade rule.</span></label></li>
+        <li><label><input type="checkbox" data-manual-check><span><b>Limit order</b> near mid — not market, not at the open.</span></label></li>
       </ul>
     </div>
   </section>
 
   <!-- TRAPS -->
-  <section>
+  <section id="manual-traps">
     <div class="traps">
       <h3>Common Traps</h3>
       <p class="lead">The recurring ways buyers lose money — recognize them before they cost you.</p>
@@ -543,7 +655,34 @@ export const DOC_PAGES = {
   .sub{margin-top:22px;max-width:660px;color:var(--muted);font-size:16.5px}
   .scope{margin-top:26px;display:inline-flex;align-items:center;gap:10px;font-family:var(--mono);font-size:12px;letter-spacing:.05em;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--gold);padding:9px 16px;border-radius:8px}
   .scope b{color:var(--gold);font-weight:500}
-  section{padding-top:54px}
+  .pattern-desk{padding-top:30px;scroll-margin-top:24px}
+  .pattern-decision{overflow:hidden;border:1px solid var(--gold-dim);border-radius:var(--radius);background:linear-gradient(145deg,color-mix(in srgb,var(--gold) 7%,var(--surface)),var(--bg2))}
+  .pattern-decision-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;padding:23px 25px;border-bottom:1px solid var(--line)}
+  .pattern-decision-head small{display:block;color:var(--gold);font:600 10.5px/1 var(--mono);letter-spacing:.15em;text-transform:uppercase}
+  .pattern-decision-head h2{margin-top:6px;font-family:var(--disp);font-size:27px;line-height:1.08;font-weight:600}
+  .pattern-decision-head p{max-width:610px;margin-top:7px;color:var(--muted);font-size:14px}
+  .pattern-decision-head a{flex:none;padding:9px 12px;border:1px solid var(--gold);border-radius:8px;color:var(--ink);background:color-mix(in srgb,var(--gold) 10%,transparent);font:600 11px/1 var(--mono);text-decoration:none;white-space:nowrap}
+  .pattern-decision-head a:hover,.pattern-decision-head a:focus-visible{background:color-mix(in srgb,var(--gold) 18%,var(--surface));outline:none}
+  .pattern-states{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+  .pattern-state{padding:18px 20px;border-right:1px solid var(--line)}
+  .pattern-state:last-child{border-right:0}
+  .pattern-state span{display:block;font:600 10px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase}
+  .pattern-state b{display:block;margin:7px 0 5px;font-family:var(--disp);font-size:18px}
+  .pattern-state p{color:var(--muted);font-size:13px;line-height:1.45}
+  .pattern-state.wait span,.pattern-state.wait b{color:var(--gold)}
+  .pattern-state.ready span,.pattern-state.ready b{color:var(--call)}
+  .pattern-state.avoid span,.pattern-state.avoid b{color:var(--put)}
+  .pattern-flow{padding:14px 20px;border-top:1px solid var(--line);color:var(--muted);font:600 11px/1.55 var(--mono);text-align:center}
+  .pattern-flow b{color:var(--ink)}
+  .pattern-filter{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:18px 0 0;padding:12px 14px;border:1px solid var(--line);border-radius:11px;background:var(--surface)}
+  .pattern-filter-controls{display:flex;flex-wrap:wrap;gap:7px}
+  .pattern-filter button{padding:7px 10px;border:1px solid var(--line2);border-radius:999px;background:var(--bg2);color:var(--muted);font:600 10px/1 var(--mono);letter-spacing:.05em;text-transform:uppercase;cursor:pointer}
+  .pattern-filter button:hover,.pattern-filter button:focus-visible{color:var(--ink);border-color:var(--gold);outline:none}
+  .pattern-filter button[aria-pressed="true"]{color:var(--bg);border-color:var(--gold);background:var(--gold)}
+  .pattern-filter-count{flex:none;color:var(--faint);font:600 10.5px/1 var(--mono);white-space:nowrap}
+  @media(max-width:760px){.pattern-states{grid-template-columns:1fr}.pattern-state{border-right:0;border-bottom:1px solid var(--line)}.pattern-state:last-child{border-bottom:0}}
+  @media(max-width:620px){.pattern-decision-head{padding:18px;flex-direction:column;align-items:stretch}.pattern-decision-head h2{font-size:23px}.pattern-decision-head a{text-align:center}.pattern-filter{align-items:flex-start;flex-direction:column}.pattern-filter-count{align-self:flex-end}}
+  section{padding-top:54px;scroll-margin-top:24px}
   .shead{display:flex;align-items:baseline;gap:16px;margin-bottom:22px}
   .snum{font-family:var(--mono);font-size:13px;color:var(--gold);border:1px solid var(--gold-dim);border-radius:6px;padding:3px 9px;flex:none}
   .shead h2{font-family:var(--disp);font-weight:500;font-size:clamp(24px,3.4vw,33px);letter-spacing:-.01em}
@@ -556,6 +695,7 @@ export const DOC_PAGES = {
   .pgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
   @media(max-width:820px){.pgrid{grid-template-columns:1fr}}
   .pcard{background:linear-gradient(180deg,var(--surface),var(--bg2));border:1px solid var(--line);border-left-width:3px;border-radius:var(--radius);overflow:hidden;transition:transform .25s ease,border-color .25s ease,box-shadow .25s ease;display:flex;flex-direction:column}
+  .pcard[hidden]{display:none}
   .pcard:hover{transform:translateY(-3px);border-color:var(--line2);box-shadow:0 14px 40px -22px rgba(0,0,0,.9)}
   .lead-call{border-left-color:var(--call)}
   .lead-put{border-left-color:var(--put)}
@@ -578,6 +718,9 @@ export const DOC_PAGES = {
   .note{background:var(--surface2);border:1px dashed var(--line2);border-radius:10px;padding:16px 18px;color:var(--muted);font-size:14.5px;margin-top:8px}
   .note b{color:var(--ink);font-weight:600}
   .note code{font-family:var(--mono);color:var(--gold);font-size:13px}
+  .note p + p{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+  .note a{color:var(--gold);font:600 11px/1.5 var(--mono);text-decoration:none}
+  .note a:hover,.note a:focus-visible{text-decoration:underline;outline:none}
   footer{margin-top:64px;padding-top:24px;border-top:1px solid var(--line);color:var(--faint);font-size:12.5px;font-family:var(--mono);display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
   .reveal{opacity:0;transform:translateY(14px);animation:rise .7s cubic-bezier(.2,.7,.2,1) forwards}
   @keyframes rise{to{opacity:1;transform:none}}
@@ -596,7 +739,22 @@ export const DOC_PAGES = {
     <div class="scope reveal">SCOPE&nbsp;→&nbsp;<b>the 8 patterns the detector grades</b>&nbsp;· 1-month / 30-min intraday timeframe</div>
   </header>
 
-  <section>
+  <section class="pattern-desk" id="pattern-decision">
+    <div class="pattern-decision">
+      <div class="pattern-decision-head">
+        <div><small>Shape is context; the break is evidence</small><h2>Trade the confirmation—not the drawing</h2><p>The detector has two states. Forming means a recognizable shape is developing; confirmed means price has closed through the named level. Always compare that direction with the side you want to trade.</p></div>
+        <a href="/?tab=grade">Check a live ticker →</a>
+      </div>
+      <div class="pattern-states">
+        <div class="pattern-state wait"><span>Forming</span><b>Watch / wait</b><p>No directional permission yet. Use the named confirmation and invalidation levels to define what resolves the setup.</p></div>
+        <div class="pattern-state ready"><span>Confirmed + aligned</span><b>Supportive, not sufficient</b><p>The break supports your side, but fresh price, event risk, liquidity and payoff still decide whether the trade is executable.</p></div>
+        <div class="pattern-state avoid"><span>Confirmed + opposing</span><b>Avoid that side</b><p>Do not let a strong grade or attractive contract overrule a confirmed reversal against the selected direction. Wait for invalidation.</p></div>
+      </div>
+      <div class="pattern-flow"><b>Shape</b> → named trigger → closing confirmation → invalidation → contract + risk</div>
+    </div>
+  </section>
+
+  <section id="pattern-shapes">
     <div class="shead"><span class="snum">★</span><h2>The Eight Shapes</h2><p>reversal &amp; continuation</p></div>
     <div class="legend">
       <span class="up"><i></i>bullish shape</span>
@@ -604,8 +762,18 @@ export const DOC_PAGES = {
       <span><i class="dash"></i>key level (neckline / support / resistance)</span>
       <span class="gd"><i class="dash" style="border-color:var(--gold)"></i>breakout / confirmation</span>
     </div>
+    <div class="pattern-filter" aria-label="Filter chart patterns">
+      <div class="pattern-filter-controls">
+        <button type="button" data-pattern-filter="all" aria-pressed="true">All</button>
+        <button type="button" data-pattern-filter="bull" aria-pressed="false">Bullish</button>
+        <button type="button" data-pattern-filter="bear" aria-pressed="false">Bearish</button>
+        <button type="button" data-pattern-filter="reversal" aria-pressed="false">Reversal</button>
+        <button type="button" data-pattern-filter="continuation" aria-pressed="false">Continuation</button>
+      </div>
+      <span class="pattern-filter-count" data-pattern-count aria-live="polite">8 patterns</span>
+    </div>
     <div class="pgrid" style="margin-top:18px">
-      <article class="pcard lead-call">
+      <article class="pcard lead-call" data-pattern-direction="bull" data-pattern-type="continuation">
         <div class="pchart-wrap"><svg viewBox="0 0 340 196" class="pchart" role="img" aria-label="Cup and Handle chart shape" preserveAspectRatio="xMidYMid meet">
   <defs><linearGradient id="g-0" x1="0" y1="0" x2="0" y2="1">
     <stop offset="0" stop-color="var(--call)" stop-opacity=".22"/><stop offset="1" stop-color="var(--call)" stop-opacity="0"/>
@@ -629,7 +797,7 @@ export const DOC_PAGES = {
           </dl>
         </div>
       </article>
-      <article class="pcard lead-put">
+      <article class="pcard lead-put" data-pattern-direction="bear" data-pattern-type="reversal">
         <div class="pchart-wrap"><svg viewBox="0 0 340 196" class="pchart" role="img" aria-label="Head and Shoulders chart shape" preserveAspectRatio="xMidYMid meet">
   <defs><linearGradient id="g-1" x1="0" y1="0" x2="0" y2="1">
     <stop offset="0" stop-color="var(--put)" stop-opacity=".22"/><stop offset="1" stop-color="var(--put)" stop-opacity="0"/>
@@ -653,7 +821,7 @@ export const DOC_PAGES = {
           </dl>
         </div>
       </article>
-      <article class="pcard lead-call">
+      <article class="pcard lead-call" data-pattern-direction="bull" data-pattern-type="reversal">
         <div class="pchart-wrap"><svg viewBox="0 0 340 196" class="pchart" role="img" aria-label="Inverse Head and Shoulders chart shape" preserveAspectRatio="xMidYMid meet">
   <defs><linearGradient id="g-2" x1="0" y1="0" x2="0" y2="1">
     <stop offset="0" stop-color="var(--call)" stop-opacity=".22"/><stop offset="1" stop-color="var(--call)" stop-opacity="0"/>
@@ -677,7 +845,7 @@ export const DOC_PAGES = {
           </dl>
         </div>
       </article>
-      <article class="pcard lead-call">
+      <article class="pcard lead-call" data-pattern-direction="bull" data-pattern-type="continuation">
         <div class="pchart-wrap"><svg viewBox="0 0 340 196" class="pchart" role="img" aria-label="Bull Flag chart shape" preserveAspectRatio="xMidYMid meet">
   <defs><linearGradient id="g-3" x1="0" y1="0" x2="0" y2="1">
     <stop offset="0" stop-color="var(--call)" stop-opacity=".22"/><stop offset="1" stop-color="var(--call)" stop-opacity="0"/>
@@ -701,7 +869,7 @@ export const DOC_PAGES = {
           </dl>
         </div>
       </article>
-      <article class="pcard lead-call">
+      <article class="pcard lead-call" data-pattern-direction="bull" data-pattern-type="continuation">
         <div class="pchart-wrap"><svg viewBox="0 0 340 196" class="pchart" role="img" aria-label="Ascending Triangle chart shape" preserveAspectRatio="xMidYMid meet">
   <defs><linearGradient id="g-4" x1="0" y1="0" x2="0" y2="1">
     <stop offset="0" stop-color="var(--call)" stop-opacity=".22"/><stop offset="1" stop-color="var(--call)" stop-opacity="0"/>
@@ -725,7 +893,7 @@ export const DOC_PAGES = {
           </dl>
         </div>
       </article>
-      <article class="pcard lead-call">
+      <article class="pcard lead-call" data-pattern-direction="bull" data-pattern-type="reversal">
         <div class="pchart-wrap"><svg viewBox="0 0 340 196" class="pchart" role="img" aria-label="Double Bottom chart shape" preserveAspectRatio="xMidYMid meet">
   <defs><linearGradient id="g-5" x1="0" y1="0" x2="0" y2="1">
     <stop offset="0" stop-color="var(--call)" stop-opacity=".22"/><stop offset="1" stop-color="var(--call)" stop-opacity="0"/>
@@ -749,7 +917,7 @@ export const DOC_PAGES = {
           </dl>
         </div>
       </article>
-      <article class="pcard lead-put">
+      <article class="pcard lead-put" data-pattern-direction="bear" data-pattern-type="reversal">
         <div class="pchart-wrap"><svg viewBox="0 0 340 196" class="pchart" role="img" aria-label="Double Top chart shape" preserveAspectRatio="xMidYMid meet">
   <defs><linearGradient id="g-7" x1="0" y1="0" x2="0" y2="1">
     <stop offset="0" stop-color="var(--put)" stop-opacity=".22"/><stop offset="1" stop-color="var(--put)" stop-opacity="0"/>
@@ -773,7 +941,7 @@ export const DOC_PAGES = {
           </dl>
         </div>
       </article>
-      <article class="pcard lead-put">
+      <article class="pcard lead-put" data-pattern-direction="bear" data-pattern-type="continuation">
         <div class="pchart-wrap"><svg viewBox="0 0 340 196" class="pchart" role="img" aria-label="Descending Triangle chart shape" preserveAspectRatio="xMidYMid meet">
   <defs><linearGradient id="g-6" x1="0" y1="0" x2="0" y2="1">
     <stop offset="0" stop-color="var(--put)" stop-opacity=".22"/><stop offset="1" stop-color="var(--put)" stop-opacity="0"/>
@@ -800,10 +968,11 @@ export const DOC_PAGES = {
     </div>
   </section>
 
-  <section>
+  <section id="pattern-usage">
     <div class="shead"><span class="snum">i</span><h2>How stonks uses these</h2><p>where you'll see them</p></div>
     <div class="note">
-      <p>The <b>Technicals</b> and <b>Top&nbsp;Picks / Grade</b> tabs run an AI <b>chart-pattern detector</b> over each ticker's last ~month of 30-minute bars and label any of these eight it sees — as <code>forming</code> (the shape is two-thirds built, the decisive break hasn't happened) or <code>confirmed</code> (the break has happened). A confirmed bullish pattern nudges a borderline grade up; a bearish one nudges it down. This card is the human version: use it to sanity-check what the detector flags, or to spot a setup it hasn't caught yet.</p>
+      <p>The <b>Grade</b> tab runs an AI <b>chart-pattern detector</b> over each ticker's last ~month of 30-minute bars and labels any of these eight as <code>forming</code> or <code>confirmed</code>. Forming patterns score zero: they are an early warning with explicit confirmation and invalidation levels. A confirmed pattern can support an aligned thesis, while an opposing confirmed reversal blocks that selected side; an opposing forming reversal forces a wait. <b>Strategies uses the same gate</b>, so a high payoff score cannot turn a chart conflict into an entry. Use this guide to sanity-check the named shape and its levels on the current chart.</p>
+      <p><a href="/?tab=grade">Open Grade to inspect a live pattern →</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="/?tab=strategies">Model the payoff only after timing clears →</a></p>
     </div>
   </section>
 
