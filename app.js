@@ -7667,7 +7667,7 @@
   // — when no premium is available at all — to raw contract counts so the lean
   // still reads. The #flow-summary host ships in the next baked index.html; the
   // guard makes this a no-op against an older shell.
-  function flowEtDateParts(date){
+  function marketEtDateParts(date){
     try {
       var parts = new Intl.DateTimeFormat('en-US', {
         timeZone: 'America/New_York',
@@ -7683,11 +7683,11 @@
       return out;
     } catch (_) { return null; }
   }
-  function flowSessionGap(iso){
+  function marketSessionGap(iso){
     var scan = new Date(iso || '');
     if (!isFinite(scan.getTime())) return null;
-    var from = flowEtDateParts(scan);
-    var to = flowEtDateParts(new Date());
+    var from = marketEtDateParts(scan);
+    var to = marketEtDateParts(new Date());
     if (!from || !to) return null;
     var fromDay = new Date(Date.UTC(from.year, from.month - 1, from.day, 12));
     var toDay = new Date(Date.UTC(to.year, to.month - 1, to.day, 12));
@@ -7712,8 +7712,8 @@
     }
     var now = new Date();
     var ageMin = Math.floor((now.getTime() - scan.getTime()) / 60000);
-    var sessionGap = flowSessionGap(iso);
-    var nowEt = flowEtDateParts(now);
+    var sessionGap = marketSessionGap(iso);
+    var nowEt = marketEtDateParts(now);
     var nowUtcDay = nowEt ? new Date(Date.UTC(nowEt.year, nowEt.month - 1, nowEt.day, 12)).getUTCDay() : 0;
     var nowEtMin = nowEt ? nowEt.hour * 60 + nowEt.minute : -1;
     var regularNow = nowUtcDay >= 1 && nowUtcDay <= 5 && nowEtMin >= 570 && nowEtMin < 960;
@@ -11409,6 +11409,14 @@
       }
       oiLive.quotes = map;
       applyOiLive();
+      if (oiLoad.loaded && OI){
+        var decisionTickers = filteredOiTickers();
+        var decisionFiltered = !!(oiState.search || oiState.flaggedOnly);
+        renderOiDecision(decisionTickers, {
+          filtered: decisionFiltered,
+          filteredOut: decisionFiltered && !decisionTickers.length,
+        });
+      }
       liveStateMark('oi-live-state', true);
     },
     onError: function(){ liveStateMark('oi-live-state', false); },
@@ -11427,19 +11435,21 @@
   // ratio, and the top 12 OI strikes with ΔOI day-over-day vs the prior
   // trading day's snapshot.
   var OI = null;
-  var oiLoad = { loaded: false, loading: false };
+  var oiLoad = { loaded: false, loading: false, error: false };
   function loadOiData(){
     if (oiLoad.loaded || oiLoad.loading) return;
     oiLoad.loading = true;
+    oiLoad.error = false;
     fetch(dataUrl('oi-tracker.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         OI = json || null;
-        oiLoad.loaded = true; oiLoad.loading = false;
+        oiLoad.loaded = true; oiLoad.loading = false; oiLoad.error = false;
         if (typeof renderOI === 'function') renderOI();
       })
       .catch(function(){
-        oiLoad.loading = false; // tab re-entry retries; empty state meanwhile
+        oiLoad.loading = false; oiLoad.error = true; // tab re-entry retries
+        if (typeof renderOI === 'function') renderOI();
       });
   }
   var oiState = { search: '', flaggedOnly: false, sort: 'score', perRowCollapsed: {}, allCollapsed: true };
@@ -11526,6 +11536,253 @@
       out.sort(function(a, b){ return String(a.symbol).localeCompare(String(b.symbol)); });
     }
     return out;
+  }
+
+  function oiFreshnessMeta(){
+    var iso = OI && OI.scannedAt;
+    var scan = new Date(iso || '');
+    if (!isFinite(scan.getTime())){
+      return {
+        current: false,
+        tone: 'empty',
+        label: 'No scan timestamp',
+        detail: 'Wait for a completed OI scan before comparing walls or day-over-day changes.',
+      };
+    }
+    var gap = marketSessionGap(iso);
+    var scanType = String((OI && OI.scanType) || '').toLowerCase();
+    var baseline = !!(OI && OI.summary && OI.summary.hadBaseline);
+    var typeLabel = scanType === 'premarket' ? 'Pre-market' : scanType === 'eod' ? 'EOD' : 'Manual';
+    if (gap === 0){
+      return {
+        current: true,
+        baseline: baseline,
+        tone: baseline ? 'current' : 'incomplete',
+        label: typeLabel + ' positioning snapshot',
+        detail: baseline ? 'Current session map with ΔOI baseline.' : 'Current map, but no prior-day ΔOI baseline.',
+        gap: gap,
+      };
+    }
+    // Friday EOD legitimately carries into Monday (one market-session gap).
+    // An EOD snapshot is the official prior-session positioning map until the
+    // next pre-market scan lands.
+    if (gap === 1 && scanType === 'eod'){
+      return {
+        current: true,
+        baseline: baseline,
+        tone: baseline ? 'carry' : 'incomplete',
+        label: 'Current prior-session positioning',
+        detail: baseline ? 'Latest EOD map carried into this session.' : 'Latest EOD map, but no prior-day ΔOI baseline.',
+        gap: gap,
+      };
+    }
+    return {
+      current: false,
+      baseline: baseline,
+      tone: 'stale',
+      label: 'Reference only · stale OI',
+      detail: gap == null
+        ? 'The scan age could not be verified.'
+        : gap + ' market session' + (gap === 1 ? '' : 's') + ' behind.',
+      gap: gap,
+    };
+  }
+  function oiCandidateMeta(t){
+    t = t || {};
+    var symbol = String(t.symbol || '').toUpperCase();
+    var liveQuote = oiLive && oiLive.quotes ? oiLive.quotes[symbol] : null;
+    var liveSpot = liveQuote && liveQuote.spot != null && isFinite(liveQuote.spot) ? Number(liveQuote.spot) : null;
+    var spot = liveSpot > 0 ? liveSpot : Number(t.spot);
+    var callWall = t.callWall || null;
+    var putWall = t.putWall || null;
+    var callStrike = callWall && Number(callWall.strike);
+    var putStrike = putWall && Number(putWall.strike);
+    var callDistPct = spot > 0 && callStrike > 0 ? (callStrike - spot) / spot * 100 : null;
+    var putDistPct = spot > 0 && putStrike > 0 ? (spot - putStrike) / spot * 100 : null;
+    var callWallVolOi = null;
+    var topDelta = null;
+    var new30 = 0, new100 = 0;
+    (Array.isArray(t.strikes) ? t.strikes : []).forEach(function(s){
+      if (!s) return;
+      if (s.flagOiDelta30 || (s.oiDeltaPct != null && Number(s.oiDeltaPct) >= 0.30)) new30++;
+      if (s.flagOiDelta100 || (s.oiDeltaPct != null && Number(s.oiDeltaPct) >= 1)) new100++;
+      if (s.side === 'call' && callStrike > 0 && Number(s.strike) === callStrike && s.volOiRatio != null && isFinite(s.volOiRatio)){
+        callWallVolOi = callWallVolOi == null ? Number(s.volOiRatio) : Math.max(callWallVolOi, Number(s.volOiRatio));
+      }
+      if (s.oiDeltaPct != null && isFinite(s.oiDeltaPct) && Number(s.oiDeltaPct) > 0 &&
+          (!topDelta || Number(s.oiDeltaPct) > topDelta.pct)){
+        topDelta = {
+          side: s.side === 'put' ? 'put' : 'call',
+          strike: Number(s.strike),
+          pct: Number(s.oiDeltaPct),
+        };
+      }
+    });
+    var score = Number(t.score) || 0;
+    var flagged = !!t.flagged && score >= 4;
+    var cp = t.cpRatio != null && isFinite(t.cpRatio) ? Number(t.cpRatio) : null;
+    var rank =
+      (flagged ? 10000 : 0) +
+      score * 1000 +
+      (callDistPct != null ? Math.max(0, 100 - Math.abs(callDistPct) * 5) : 0) +
+      (callWallVolOi != null ? Math.min(50, callWallVolOi * 4) : 0) +
+      (cp != null ? Math.min(30, cp * 5) : 0) +
+      new100 * 3 + new30;
+    return {
+      ticker: t,
+      symbol: symbol,
+      spot: spot,
+      spotSource: liveSpot > 0 ? 'live' : 'snapshot',
+      score: score,
+      flagged: flagged,
+      callWall: callWall,
+      putWall: putWall,
+      callDistPct: callDistPct,
+      putDistPct: putDistPct,
+      callWallVolOi: callWallVolOi,
+      cpRatio: cp,
+      topDelta: topDelta,
+      new30: new30,
+      new100: new100,
+      rank: rank,
+    };
+  }
+  function oiDecisionStats(tickers){
+    var out = {
+      candidates: [],
+      flagged: 0,
+      watch: 0,
+      callHeavy: 0,
+      putHeavy: 0,
+      new30: 0,
+      new100: 0,
+      top: null,
+    };
+    (tickers || []).forEach(function(t){
+      var c = oiCandidateMeta(t);
+      out.candidates.push(c);
+      if (c.flagged) out.flagged++;
+      else if (c.score >= 3) out.watch++;
+      if (c.cpRatio != null && c.cpRatio >= 1.5) out.callHeavy++;
+      else if (c.cpRatio != null && c.cpRatio <= 0.67) out.putHeavy++;
+      out.new30 += c.new30;
+      out.new100 += c.new100;
+    });
+    out.candidates.sort(function(a, b){ return b.rank - a.rank; });
+    out.top = out.candidates[0] || null;
+    return out;
+  }
+  function renderOiDecision(tickers, mode){
+    var host = $('oi-decision');
+    if (!host) return;
+    mode = mode || {};
+    if (mode.noData){
+      var loadTitle = oiLoad.loading ? 'Loading the latest positioning scan' : oiLoad.error ? 'The latest OI scan is unavailable' : 'Waiting for the first OI scan';
+      var loadCopy = oiLoad.loading
+        ? 'The decision desk will rank the strongest setup after the twice-daily snapshot arrives.'
+        : oiLoad.error
+          ? 'The private OI payload could not be read. Re-enter the tab to retry; the per-ticker GEX map above still uses the baked chain.'
+          : 'No universe-wide positioning snapshot is loaded yet.';
+      host.className = 'flow-decision oi-decision flow-decision-empty';
+      host.innerHTML = '<div class="flow-decision-empty-copy"><span>OI positioning desk</span><h3>' + escapeHtml(loadTitle) + '</h3><p>' + escapeHtml(loadCopy) + '</p></div>';
+      return;
+    }
+    if (mode.filteredOut){
+      host.className = 'flow-decision oi-decision flow-decision-empty';
+      host.innerHTML =
+        '<div class="flow-decision-empty-copy"><span>Current filters</span><h3>No OI setup survives this view</h3>' +
+        '<p>Nothing matches the ticker search or flagged-only filter. Reset the desk before concluding that the scan found no concentration.</p></div>' +
+        '<button type="button" class="flow-decision-action is-primary" data-oi-reset>Reset filters</button>';
+      return;
+    }
+    if (!tickers || !tickers.length){
+      host.className = 'flow-decision oi-decision flow-decision-empty';
+      host.innerHTML =
+        '<div class="flow-decision-empty-copy"><span>Latest scan</span><h3>No near-term OI rows were published</h3>' +
+        '<p>Without a front-expiration ladder, the tab cannot rank a squeeze or wall setup.</p></div>';
+      return;
+    }
+    var freshness = oiFreshnessMeta();
+    var stats = oiDecisionStats(tickers);
+    var top = stats.top;
+    if (!top) return;
+    var filtered = !!mode.filtered;
+    var setup = freshness.current && freshness.baseline && top.flagged;
+    var tone = !freshness.current ? 'reference' : !freshness.baseline ? 'mixed' : setup ? 'call' : 'mixed';
+    var headline = '';
+    var copy = '';
+    if (!freshness.current){
+      headline = 'This OI map is reference only.';
+      copy = 'The strongest old concentration is ' + top.symbol + ', but walls and squeeze scores must be rebuilt before they can guide a current-session watchlist.';
+    } else if (!freshness.baseline){
+      headline = 'The OI map is incomplete without a ΔOI baseline.';
+      copy = 'Wall size is visible, but the desk cannot separate new positioning from carried contracts until the next comparable scan.';
+    } else if (setup){
+      headline = top.symbol + ' has a ' + top.score + '/5 potential squeeze setup.';
+      copy = 'The positioning rules align, but price still has to break the call wall with real share-volume and repeat call demand. OI is not an entry trigger.';
+    } else {
+      headline = 'No ticker clears the 4/5 squeeze threshold.';
+      copy = top.symbol + ' is the strongest watch at ' + top.score + '/5. Keep it on the research list until another rule fires instead of treating concentration alone as a trade.';
+    }
+    var callWallText = top.callWall ? fmtOiStrike(top.callWall.strike) : 'the call wall';
+    var putWallText = top.putWall ? fmtOiStrike(top.putWall.strike) : 'near-term support';
+    var confirm = setup
+      ? 'Spot breaks and holds above ' + callWallText + ' on heavy share volume while call Vol/OI stays ≥1.5× and the next scan confirms new call OI.'
+      : 'The score reaches 4/5: concentrated near-money call OI, C/P ≥2:1, call-wall Vol/OI ≥1.5×, spot within 10%, and ask-side call flow.';
+    var invalidate = setup
+      ? 'Price rejects ' + callWallText + ', loses ' + putWallText + ', ask-side call flow disappears, or the next score falls below 4.'
+      : 'Call OI disperses, price moves away from the wall, puts dominate the short-dated chain, or the next scan removes the concentration.';
+    if (!freshness.current){
+      confirm = 'A fresh pre-market or EOD scan rebuilds the same concentration, then price confirms at the current wall.';
+      invalidate = 'Fresh data moves the wall, removes the score, or shows the apparent OI increase was only stale carry-forward.';
+    } else if (!freshness.baseline){
+      confirm = 'The next comparable scan establishes a baseline and shows call OI genuinely increasing at the same wall.';
+      invalidate = 'The next scan shows no net-new call positioning or relocates the wall away from spot.';
+    }
+    var wallDistance = top.callDistPct == null
+      ? 'distance n/a'
+      : (top.callDistPct >= 0 ? '+' : '') + top.callDistPct.toFixed(1) + '% from ' + top.spotSource + ' spot';
+    var cpText = top.cpRatio == null ? 'n/a' : top.cpRatio.toFixed(2) + ':1';
+    var volOiText = top.callWallVolOi == null ? 'n/a' : top.callWallVolOi.toFixed(2) + '×';
+    var deltaText = top.topDelta
+      ? (top.topDelta.side === 'put' ? 'Put ' : 'Call ') + fmtOiStrike(top.topDelta.strike) + ' +' + Math.round(top.topDelta.pct * 100) + '%'
+      : 'No positive ΔOI';
+    var focusStatus = top.flagged
+      ? (freshness.current && freshness.baseline ? 'potential squeeze' : 'unconfirmed score')
+      : 'watch only';
+    var freshOiValue = freshness.baseline ? stats.new30 + ' strikes ≥30%' : 'Baseline pending';
+    var freshOiSub = freshness.baseline
+      ? stats.new100 + ' doubled · top ' + deltaText
+      : 'wall size only · no day-over-day read';
+    var filterNote = filtered ? ' · current filters' : '';
+    host.className = 'flow-decision oi-decision flow-decision-' + tone;
+    host.innerHTML =
+      '<div class="flow-decision-main">' +
+        '<div class="flow-decision-head"><span>OI positioning desk' + filterNote + '</span><em>' + escapeHtml(freshness.label) + '</em></div>' +
+        '<h3>' + escapeHtml(headline) + '</h3>' +
+        '<p>' + escapeHtml(copy) + '</p>' +
+        '<div class="flow-decision-rules">' +
+          '<div><span>Confirms when</span><b>' + escapeHtml(confirm) + '</b></div>' +
+          '<div><span>Invalidates when</span><b>' + escapeHtml(invalidate) + '</b></div>' +
+        '</div>' +
+      '</div>' +
+      '<aside class="flow-decision-side">' +
+        '<div class="flow-decision-source"><span>' + escapeHtml(freshness.detail) + '</span><small>OI is lagged positioning; live price must confirm.</small></div>' +
+        '<div class="flow-decision-metrics">' +
+          '<div><span>Top focus</span><b>' + escapeHtml(top.symbol) + ' · ' + top.score + '/5</b><small>' + escapeHtml(focusStatus) + '</small></div>' +
+          '<div><span>Call wall</span><b>' + escapeHtml(callWallText) + '</b><small>' + escapeHtml(wallDistance) + '</small></div>' +
+          '<div><span>Call-wall Vol/OI</span><b>' + escapeHtml(volOiText) + '</b><small>C/P ' + escapeHtml(cpText) + '</small></div>' +
+          '<div><span>ΔOI coverage</span><b>' + escapeHtml(freshOiValue) + '</b><small>' + escapeHtml(freshOiSub) + '</small></div>' +
+        '</div>' +
+        '<p class="flow-decision-context"><b>Desk breadth:</b> ' + stats.flagged + ' flagged · ' + stats.watch + ' score-3 watches · ' +
+          stats.callHeavy + ' call-heavy · ' + stats.putHeavy + ' put-heavy.</p>' +
+        '<div class="flow-decision-actions">' +
+          '<button type="button" class="flow-decision-action is-primary" data-oi-focus="' + escapeHtml(top.symbol) + '">Focus ' + escapeHtml(top.symbol) + '</button>' +
+          '<button type="button" class="flow-decision-action" data-oi-gex="' + escapeHtml(top.symbol) + '">Open GEX</button>' +
+          '<a class="flow-decision-action" data-oi-grade="' + escapeHtml(top.symbol) + '" href="' + symGradeHref(top.symbol) + '">Open Grade</a>' +
+          (filtered ? '<button type="button" class="flow-decision-action" data-oi-reset>Reset filters</button>' : '') +
+        '</div>' +
+      '</aside>';
   }
 
   function oiReasonChipsHtml(reasons){
@@ -11718,12 +11975,17 @@
     }
     if (!allTickers.length){
       list.innerHTML = '';
+      renderOiDecision([], { noData: !OI });
       if (noResults) noResults.hidden = true;
       if (empty){
         empty.hidden = false;
         empty.textContent = OI
           ? 'No tickers carried OI in the latest scan.'
-          : (oiLoad.loading ? 'Loading the latest OI scan…' : 'Waiting for the first OI scan to land.');
+          : (oiLoad.loading
+            ? 'Loading the latest OI scan…'
+            : oiLoad.error
+              ? 'Could not load the latest OI scan. Re-enter the tab to retry.'
+              : 'Waiting for the first OI scan to land.');
       }
       return;
     }
@@ -11731,6 +11993,7 @@
     var tickers = filteredOiTickers();
     if (!tickers.length){
       list.innerHTML = '';
+      renderOiDecision([], { filteredOut: true });
       if (noResults){
         noResults.hidden = false;
         noResults.textContent = 'No tickers match these filters.';
@@ -11738,6 +12001,7 @@
       return;
     }
     if (noResults) noResults.hidden = true;
+    renderOiDecision(tickers, { filtered: !!(oiState.search || oiState.flaggedOnly) });
     list.innerHTML = tickers.map(oiTickerRowHtml).join('');
     // Re-apply the live spot/wall-distance overlay — a filter/sort re-render
     // would otherwise blank it until the next 30s poll.
@@ -11745,6 +12009,57 @@
   }
 
   function bindOIControls(){
+    var decision = $('oi-decision');
+    if (decision){
+      decision.addEventListener('click', function(ev){
+        var focus = ev.target.closest && ev.target.closest('[data-oi-focus]');
+        if (focus){
+          var focusSym = String(focus.getAttribute('data-oi-focus') || '').toUpperCase();
+          oiState.search = focusSym;
+          oiState.perRowCollapsed[focusSym] = false;
+          var focusInput = $('oi-search-input');
+          if (focusInput) focusInput.value = focusSym;
+          var focusClear = $('oi-search-clear');
+          if (focusClear) focusClear.hidden = !focusSym;
+          renderOI();
+          requestAnimationFrame(function(){
+            var row = null;
+            var rows = document.querySelectorAll('.oi-row[data-symbol]');
+            for (var i = 0; i < rows.length; i++){
+              if (String(rows[i].getAttribute('data-symbol') || '').toUpperCase() === focusSym){ row = rows[i]; break; }
+            }
+            if (row && row.scrollIntoView) row.scrollIntoView({ behavior:'smooth', block:'center' });
+          });
+          return;
+        }
+        var gex = ev.target.closest && ev.target.closest('[data-oi-gex]');
+        if (gex){
+          var gexSym = String(gex.getAttribute('data-oi-gex') || '').toUpperCase();
+          if (gexSym && gexSearch && typeof gexSearch.commit === 'function') gexSearch.commit(gexSym);
+          var gexSection = $('gex-section');
+          if (gexSection && gexSection.scrollIntoView) gexSection.scrollIntoView({ behavior:'smooth', block:'start' });
+          return;
+        }
+        var grade = ev.target.closest && ev.target.closest('[data-oi-grade]');
+        if (grade){
+          if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+          ev.preventDefault();
+          calGoToTicker(grade.getAttribute('data-oi-grade'));
+          return;
+        }
+        var reset = ev.target.closest && ev.target.closest('[data-oi-reset]');
+        if (!reset) return;
+        oiState.search = '';
+        oiState.flaggedOnly = false;
+        var input = $('oi-search-input');
+        if (input) input.value = '';
+        var clear = $('oi-search-clear');
+        if (clear) clear.hidden = true;
+        var flagged = $('oi-flagged-only');
+        if (flagged) flagged.checked = false;
+        renderOI();
+      });
+    }
     var search = $('oi-search-input');
     var clear = $('oi-search-clear');
     if (search){
