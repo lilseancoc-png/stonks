@@ -19605,6 +19605,80 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     });
     return '<div class="brief-chips">' + html + '</div>';
   }
+  function briefDecisionCard(b){
+    var score = 0, tells = [];
+    var idx = (b.indexes || []).map(function(x){ return Number(x && x.chPct); }).filter(isFinite);
+    if (idx.length){
+      var avg = idx.reduce(function(a, v){ return a + v; }, 0) / idx.length;
+      if (avg >= 0.35){ score++; tells.push('indexes firm'); }
+      else if (avg <= -0.35){ score--; tells.push('indexes weak'); }
+      else tells.push('indexes mixed');
+    }
+    if (b.breadth){
+      var up = Number(b.breadth.up) || 0, down = Number(b.breadth.down) || 0;
+      if (up >= down * 1.25 && up > down){ score++; tells.push('breadth positive'); }
+      else if (down >= up * 1.25 && down > up){ score--; tells.push('breadth negative'); }
+      else tells.push('breadth split');
+    }
+    var tone = String(b.tone && b.tone.label || '').toLowerCase();
+    if (/risk[- ]?on|bull|constructive|positive/.test(tone)){ score++; tells.push('overnight constructive'); }
+    else if (/risk[- ]?off|bear|defensive|negative|stress/.test(tone)){ score--; tells.push('overnight defensive'); }
+
+    var key = score >= 2 ? 'press' : score <= -2 ? 'protect' : 'selective';
+    var label = key === 'press' ? 'Press selectively' : key === 'protect' ? 'Protect capital' : 'Stay selective';
+    var posture = key === 'press'
+      ? 'Long bias · normal size only after ticker confirmation'
+      : key === 'protect'
+        ? 'Lower gross · puts only on clean breakdowns'
+        : 'Small, ticker-specific risk · no broad-market bet';
+    var entry = key === 'press'
+      ? 'Buy pullbacks or confirmed retests; do not chase the opening extension.'
+      : key === 'protect'
+        ? 'Demand a reclaim for longs or a confirmed support break for shorts.'
+        : 'Let the ticker level break the tie; wait when price and volume disagree.';
+
+    var focus = null;
+    if (Array.isArray(b.watchlist) && b.watchlist.length) focus = b.watchlist[0];
+    else if (Array.isArray(b.picks) && b.picks.length) focus = { sym:b.picks[0].symbol, reasons:[b.picks[0].note || 'top model pick'] };
+    var focusSym = focus && (focus.sym || focus.symbol) ? String(focus.sym || focus.symbol).toUpperCase() : '';
+    var focusWhy = focus && Array.isArray(focus.reasons) && focus.reasons.length ? focus.reasons[0] : (focus && focus.take ? focus.take : 'No single-name focus ranked');
+
+    var risk = 'No scheduled catalyst is listed in this brief';
+    if (Array.isArray(b.events) && b.events.length){
+      risk = String(b.events[0].label || 'Scheduled event') + (b.events[0].detail ? ' · ' + b.events[0].detail : '');
+    } else if (Array.isArray(b.gex)) {
+      var shortGamma = b.gex.find(function(g){ return g && g.regime === 'negative'; });
+      if (shortGamma) risk = shortGamma.sym + ' short gamma can amplify the move';
+    }
+    var evidence = tells.length ? tells.join(' · ') : 'No coordinated index, breadth, or overnight read available';
+    return '<section class="brief-decision brief-decision-' + key + '" aria-label="Today&apos;s trading playbook">' +
+      '<header><div><span class="brief-decision-kicker">Today&apos;s playbook</span><h4>' + briefEsc(label) + '</h4><p>' + briefEsc(evidence) + '</p></div>' +
+        '<span class="brief-decision-score">Tape ' + (score > 0 ? '+' : '') + score + '</span></header>' +
+      '<div class="brief-decision-grid">' +
+        '<span><small>Book posture</small><b>' + briefEsc(posture) + '</b></span>' +
+        '<span><small>Entry bar</small><b>' + briefEsc(entry) + '</b></span>' +
+        '<span><small>First focus</small><b>' + briefEsc(focusSym || 'Index tape') + '</b><em>' + briefEsc(focusWhy) + '</em></span>' +
+        '<span><small>Next risk</small><b>' + briefEsc(risk) + '</b></span>' +
+      '</div>' +
+      '<div class="brief-decision-actions">' +
+        (focusSym ? '<button type="button" data-brief-sym="' + briefEsc(focusSym) + '">Grade ' + briefEsc(focusSym) + '</button>' : '') +
+        '<button type="button" data-brief-go="market">Open market posture</button>' +
+        '<button type="button" data-brief-go="calendar">Check calendar</button>' +
+      '</div>' +
+    '</section>';
+  }
+  function bindBriefDecision(root){
+    if (!root || root.getAttribute('data-brief-decision-bound') === '1') return;
+    root.setAttribute('data-brief-decision-bound', '1');
+    root.addEventListener('click', function(ev){
+      var symBtn = ev.target.closest ? ev.target.closest('[data-brief-sym]') : null;
+      if (symBtn){ calGoToTicker(symBtn.getAttribute('data-brief-sym')); return; }
+      var goBtn = ev.target.closest ? ev.target.closest('[data-brief-go]') : null;
+      if (!goBtn) return;
+      var tab = document.getElementById('page-tab-' + goBtn.getAttribute('data-brief-go'));
+      if (tab) tab.click();
+    });
+  }
   function renderBriefCard(b){
     if (!b) return '';
     var when = '';
@@ -19813,9 +19887,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // key takeaways), then the at-a-glance stat strip, then the detailed data
     // blocks grouped together below a rule so the prose reads first.
     var blocksHtml = blocks.filter(Boolean).join('');
+    var evidenceHtml = blocksHtml ? '<details class="brief-evidence"><summary>Open evidence &amp; watchlists <span>' + blocks.filter(Boolean).length + ' sections</span></summary><div class="brief-blocks">' + blocksHtml + '</div></details>' : '';
     return '<article class="brief-card" data-kind="' + briefEsc(b.kind || '') + '">' +
-      head + summary + highlights + stats +
-      (blocksHtml ? '<div class="brief-blocks">' + blocksHtml + '</div>' : '') +
+      head + briefDecisionCard(b) + summary + highlights + stats + evidenceHtml +
     '</article>';
   }
   // Real hyperlink target for a ticker jump — the Grade tab's ?s= deep link.
@@ -19865,6 +19939,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       return;
     }
     root.innerHTML = cards.map(renderBriefCard).join('');
+    bindBriefDecision(root);
     bindBriefChips(root);
     if (eyebrow){
       var latest = cards[0];
