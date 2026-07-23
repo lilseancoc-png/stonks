@@ -16621,6 +16621,40 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function rpEquityLinks(symbols){
     return symbols.map(function(sym){ return '<a class="rp-equity-link" data-sym="' + sym + '" href="' + symGradeHref(sym) + '">' + sym + '</a>'; }).join('');
   }
+  function rpFreshness(d, spot, retail, comp){
+    var builtMs = Date.parse(d && d.builtAtIso);
+    var ageHours = isFinite(builtMs) ? (Date.now() - builtMs) / 3600000 : null;
+    var current = !d.stale && !(spot && spot.stale) && !(retail && retail.stale) && ageHours != null && ageHours >= -1 && ageHours <= 72;
+    var ageLabel = 'build time unavailable';
+    if (ageHours != null){
+      if (ageHours < 1) ageLabel = 'built less than 1h ago';
+      else if (ageHours < 48) ageLabel = 'built ' + Math.floor(ageHours) + 'h ago';
+      else ageLabel = 'built ' + Math.floor(ageHours / 24) + 'd ago';
+    }
+    var wholesaleDate = spot && spot.updatedAt ? 'wholesale ' + String(spot.updatedAt).slice(0,16) + ' GMT+8' : 'wholesale date unavailable';
+    var retailLast = comp && comp.length && comp[comp.length - 1] && comp[comp.length - 1].d ? String(comp[comp.length - 1].d).slice(0,10) : '';
+    var retailDate = retailLast ? 'retail through ' + retailLast : 'retail date unavailable';
+    return {
+      current: current,
+      label: current ? 'Current decision read' : 'Reference only',
+      detail: ageLabel + ' · ' + wholesaleDate + ' · ' + retailDate
+    };
+  }
+  function bindRamPriceActions(root){
+    if (!root) return;
+    Array.prototype.forEach.call(root.querySelectorAll('[data-rp-tab]'), function(btn){
+      btn.addEventListener('click', function(){
+        var tab = document.querySelector('[data-page-tab="' + btn.getAttribute('data-rp-tab') + '"]');
+        if (tab) tab.click();
+      });
+    });
+    Array.prototype.forEach.call(root.querySelectorAll('[data-rp-grade]'), function(btn){
+      btn.addEventListener('click', function(){ calGoToTicker(btn.getAttribute('data-rp-grade')); });
+    });
+    Array.prototype.forEach.call(root.querySelectorAll('.rp-equity-link[data-sym]'), function(link){
+      link.addEventListener('click', function(ev){ ev.preventDefault(); calGoToTicker(link.getAttribute('data-sym')); });
+    });
+  }
   function loadRamPrices(){
     if ((ramPricesState.data && !ramPricesState.data.loadError) || ramPricesState.loading){ renderRamPrices(); return; }
     ramPricesState.loading = true;
@@ -16637,14 +16671,19 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var spot = d.spot && Array.isArray(d.spot.items) && d.spot.items.length ? d.spot : null;
     var retail = d.retail && Array.isArray(d.retail.categories) && d.retail.categories.length ? d.retail : null;
     if (!spot && !retail){
-      root.innerHTML = '';
-      if (empty){ empty.hidden = false; empty.textContent = d.loadError ? 'Could not load RAM price data.' : 'RAM price data will appear after the next daily build refresh.'; }
+      if (empty) empty.hidden = true;
+      if (eye) eye.textContent = 'Unavailable · no posture';
+      root.innerHTML = '<section class="rp-empty-desk"><span class="rp-desk-kicker">Memory-cycle desk</span><h3>' + (d.loadError ? 'The RAM price snapshot could not be loaded' : 'No RAM price snapshot is available yet') + '</h3>' +
+        '<p>' + (d.loadError ? 'Do not infer a tightening or easing cycle from missing data. Use current earnings and market evidence until both price layers return.' : 'The next successful daily build will restore wholesale, retail and category-breadth checks.') + '</p>' +
+        '<div class="rp-actions"><button type="button" class="rp-action rp-action-primary" data-rp-tab="market">Open Market analysis</button><button type="button" class="rp-action" data-rp-tab="calls">Open Earnings calls</button></div></section>';
+      bindRamPriceActions(root);
       return;
     }
     if (empty) empty.hidden = true;
-    if (eye && d.builtAtIso) eye.textContent = (d.stale ? 'last-good · ' : '') + 'as of ' + String(d.builtAtIso).slice(0,10);
     var html = '';
     var comp = retail && Array.isArray(retail.composite) ? retail.composite : [];
+    var freshness = rpFreshness(d, spot, retail, comp);
+    if (eye) eye.textContent = freshness.label + (d.builtAtIso ? ' · ' + String(d.builtAtIso).slice(0,10) : '');
     var last = comp.length ? comp[comp.length - 1] : null;
     var ch = retail ? (retail.change || {}) : {};
     var spot30 = spot ? rpMedian(spot.items.map(function(it){ return it.m1Pct; })) : null;
@@ -16660,76 +16699,105 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var retail30 = rpMedian(retailCats.map(function(cat){ return Number(cat.monthPct); }));
     var retail7 = rpMedian(retailCats.map(function(cat){ return cat.weekPct != null && isFinite(cat.weekPct) ? Number(cat.weekPct) : null; }));
     var retail30Composite = ch.m1Pct != null && isFinite(ch.m1Pct) ? Number(ch.m1Pct) : null;
-    var retail7Composite = ch.w1Pct != null && isFinite(ch.w1Pct) ? Number(ch.w1Pct) : null;
     var retailUpN = retailCats.filter(function(cat){ return Number(cat.monthPct) >= 1; }).length;
     var retailDownN = retailCats.filter(function(cat){ return Number(cat.monthPct) <= -1; }).length;
     var retailBreadth = retailCats.length ? retailUpN / retailCats.length : null;
     var compositeSkew = retail30 != null && retail30Composite != null && Math.abs(retail30Composite - retail30) >= 5;
     var cycleHeadline = 'Wholesale and retail memory signals are mixed', cycleTone = 'mixed', cycleCopy = 'Divergence between upstream chips and retail kits can mark a transition; wait for the two layers to confirm each other.';
     var cycleState = 'mixed';
+    var cycleLabel = 'Divergent';
     if (spot30 != null && retail30 != null && spot30 >= 5 && retail30 >= 3 && (retailBreadth == null || retailBreadth >= 0.5)){
       cycleHeadline = 'Memory inflation is broadening downstream'; cycleTone = 'up';
       cycleCopy = 'Wholesale and retail prices are both rising. Suppliers may be gaining pricing power while system builders need enough demand or pass-through to protect margins.';
-      cycleState = 'confirmed-up';
+      cycleState = 'confirmed-up'; cycleLabel = 'Confirmed tightening';
     } else if (spot30 != null && spot30 >= 5 && (retail30 == null || retail30 < 3)){
       cycleHeadline = 'Wholesale memory is tightening ahead of retail'; cycleTone = 'up';
       cycleCopy = 'The upstream signal is rising faster than finished-kit prices. Watch for retail pass-through before assuming the move is fully embedded.';
-      cycleState = 'upstream-lead';
+      cycleState = 'upstream-lead'; cycleLabel = 'Upstream lead';
     } else if (spot30 != null && retail30 != null && spot30 <= -5 && retail30 <= -3){
       cycleHeadline = 'Memory pricing is easing'; cycleTone = 'down';
       cycleCopy = 'Falling wholesale and retail prices can relieve hardware input costs, but they also weaken memory-supplier pricing power.';
-      cycleState = 'confirmed-down';
+      cycleState = 'confirmed-down'; cycleLabel = 'Confirmed easing';
     } else if (retail30 != null && retail30 >= 3 && (spot30 == null || spot30 < 5)){
       cycleHeadline = 'Retail memory is rising without wholesale confirmation'; cycleTone = 'mixed';
       cycleCopy = 'Downstream prices are moving first. Treat the signal as assortment or retail-demand noise until upstream chips confirm.';
-      cycleState = 'downstream-only';
+      cycleState = 'downstream-only'; cycleLabel = 'Retail-only spike';
     }
     var retailValue = last ? rpPrice(last.avg) : (retail && retail.categories[0] ? rpPrice(retail.categories[0].avgPrice) : '—');
     var postureTone = 'watch', postureTitle = 'No clean cycle trade yet';
     var postureCopy = 'Wholesale and retail signals do not yet agree strongly enough to support a broad memory-cycle call.';
-    var postureCheck = 'Trigger: both medians move at least 3% in the same direction with broad category participation.';
+    var postureConfirm = 'Both 30-day medians clear 3% in the same direction with at least half of stocked categories participating.';
+    var postureInvalidate = 'Wholesale and retail keep diverging, or stocked-category breadth remains below 50%.';
     if (cycleState === 'confirmed-up'){
       postureTone = 'ready';
       postureTitle = 'Confirmed tightening — supplier pricing power has breadth';
       postureCopy = 'Wholesale prices and the typical stocked retail category are rising together. Favor supplier relative-strength research while auditing buyer margin pass-through.';
-      postureCheck = 'Invalidation: wholesale falls below +3% over 30 days or the retail median/breadth rolls back toward flat.';
+      postureConfirm = 'Wholesale stays above +5%, the retail median stays above +3%, and at least half of stocked categories keep rising.';
+      postureInvalidate = 'Wholesale falls below +3%, or the retail median and breadth roll back toward flat.';
     } else if (cycleState === 'upstream-lead'){
       postureTitle = 'Early — wait for retail pass-through';
       postureCopy = 'Wholesale is tightening, but the stocked-category retail median is ' + (retail30 == null ? 'unavailable' : (retail30 >= 0 ? '+' : '') + retail30.toFixed(1) + '%') +
         (retailCats.length ? ' with only ' + retailUpN + ' of ' + retailCats.length + ' categories up at least 1%' : '') + '. Supplier pricing power is not yet confirmed downstream.';
-      postureCheck = 'Confirmation: the retail median reaches +3% and at least half of stocked categories rise; invalidation is wholesale slipping below +3%.';
+      postureConfirm = 'The retail median reaches +3% and at least half of stocked categories rise while wholesale remains above +5%.';
+      postureInvalidate = 'Wholesale slips below +3%, or retail breadth keeps weakening instead of confirming pass-through.';
     } else if (cycleState === 'confirmed-down'){
       postureTone = 'ready';
       postureTitle = 'Confirmed easing — buyer cost relief has breadth';
       postureCopy = 'Wholesale and retail medians are falling together. Favor buyer-margin research and avoid assuming supplier pricing power persists.';
-      postureCheck = 'Invalidation: either 30-day median turns positive or supplier guidance shows tightening despite softer spot prices.';
+      postureConfirm = 'Both 30-day medians stay negative and at least half of stocked categories keep falling.';
+      postureInvalidate = 'Either median turns positive, or supplier guidance shows tightening despite softer spot prices.';
     } else if (cycleState === 'downstream-only'){
       postureTone = 'caution';
       postureTitle = 'Retail spike lacks upstream confirmation';
       postureCopy = 'Retail prices are rising without matching wholesale pressure. Assortment and low-stock outliers can create a false cycle signal.';
-      postureCheck = 'Confirmation: wholesale reaches +5% over 30 days with supplier guidance and relative-strength follow-through.';
+      postureConfirm = 'Wholesale reaches +5% over 30 days with supplier guidance and relative-strength follow-through.';
+      postureInvalidate = 'The stocked-category retail median rolls back toward flat or the move stays concentrated in scarce kits.';
     }
-    if (d.stale || (spot && spot.stale) || (retail && retail.stale)){
+    if (!freshness.current){
+      cycleState = 'reference'; cycleTone = 'reference'; cycleLabel = 'Refresh required';
+      cycleHeadline = 'This memory-cycle map is reference only';
+      cycleCopy = 'The build or one of its price layers is too old to support a current tightening or easing call.';
       postureTone = 'watch';
-      postureTitle = 'Stale read — verify both price layers';
-      postureCopy = 'At least one source is carried forward, so upstream/downstream alignment may no longer describe the current cycle.';
-      postureCheck = 'Refresh trigger: fresh wholesale and retail observations agree before changing exposure.';
+      postureTitle = 'Refresh required — do not trade the prior cycle';
+      postureCopy = 'At least one source is carried forward or the build is outside the decision window, so prior alignment may no longer describe the current cycle.';
+      postureConfirm = 'A fresh build restores current wholesale and retail observations that agree on direction.';
+      postureInvalidate = 'No current two-layer read is available; any tightening or easing classification remains unverified.';
     }
     var posture = '<div class="rp-posture rp-posture-' + postureTone + '"><span class="rp-posture-label">Trade posture</span><div><b>' +
-      escapeHtml(postureTitle) + '</b><p>' + escapeHtml(postureCopy) + '</p><small>' + escapeHtml(postureCheck) + '</small></div></div>';
-    var retailMove = retail30 == null ? '30d unavailable' : (retail30 >= 0 ? '+' : '') + retail30.toFixed(1) + '% median 30d';
+      escapeHtml(postureTitle) + '</b><p>' + escapeHtml(postureCopy) + '</p></div></div>';
+    var rules = '<div class="rp-rules"><div class="rp-rule rp-rule-confirm"><span>Confirmation</span><p>' + escapeHtml(postureConfirm) + '</p></div>' +
+      '<div class="rp-rule rp-rule-invalidate"><span>Invalidation</span><p>' + escapeHtml(postureInvalidate) + '</p></div></div>';
     var retailSkew = compositeSkew ? ' · composite ' + (retail30Composite >= 0 ? '+' : '') + retail30Composite.toFixed(1) + '% is skewed' : '';
+    var layerGap = spot30 != null && retail30 != null ? spot30 - retail30 : null;
+    var layerLead = layerGap == null ? 'two-layer spread unavailable' : Math.abs(layerGap) < 0.5 ? 'layers are aligned' : (layerGap > 0 ? 'wholesale leads retail' : 'retail leads wholesale');
+    var breadthCount = cycleTone === 'down' ? retailDownN : retailUpN;
+    var breadthCopy = cycleTone === 'down' ? 'stocked categories down ≤−1% 30d' : 'stocked categories up ≥1% 30d';
+    var supplierLinks = rpEquityLinks(['MU','SNDK','STX']);
+    var buyerLinks = rpEquityLinks(['DELL','SMCI','ANET']);
+    var equityLens = cycleTone === 'down'
+      ? '<div class="rp-equity-lens"><div><div class="rp-lens-copy"><b>Buyer relief — prove margin capture</b><small>Gross margin, demand and relative strength must convert cheaper memory into earnings.</small></div><div class="rp-lens-links">' + buyerLinks + '</div></div><div><div class="rp-lens-copy"><b>Supplier pressure — watch guide cuts</b><small>Pricing, inventory and guidance must confirm that spot weakness is reaching results.</small></div><div class="rp-lens-links">' + supplierLinks + '</div></div></div>'
+      : '<div class="rp-equity-lens"><div><div class="rp-lens-copy"><b>Supplier upside — prove pricing power</b><small>Guidance, gross margin and relative strength must confirm that tighter spot becomes revenue.</small></div><div class="rp-lens-links">' + supplierLinks + '</div></div><div><div class="rp-lens-copy"><b>Buyer risk — prove pass-through</b><small>Demand, pricing and margins must absorb higher memory costs without estimate cuts.</small></div><div class="rp-lens-links">' + buyerLinks + '</div></div></div>';
+    var actions = cycleState === 'reference'
+      ? '<div class="rp-actions"><button type="button" class="rp-action rp-action-primary" data-rp-tab="market">Open Market analysis</button><button type="button" class="rp-action" data-rp-tab="calls">Open Earnings calls</button><button type="button" class="rp-action" data-rp-tab="compare">Compare companies</button></div>'
+      : cycleState === 'confirmed-down'
+        ? '<div class="rp-actions"><button type="button" class="rp-action rp-action-primary" data-rp-grade="DELL">Grade DELL</button><button type="button" class="rp-action" data-rp-tab="compare">Compare companies</button><button type="button" class="rp-action" data-rp-tab="calls">Open Earnings calls</button></div>'
+        : (cycleState === 'confirmed-up' || cycleState === 'upstream-lead')
+          ? '<div class="rp-actions"><button type="button" class="rp-action rp-action-primary" data-rp-grade="MU">Grade MU</button><button type="button" class="rp-action" data-rp-tab="compare">Compare companies</button><button type="button" class="rp-action" data-rp-tab="calls">Open Earnings calls</button></div>'
+          : '<div class="rp-actions"><button type="button" class="rp-action rp-action-primary" data-rp-tab="compare">Compare companies</button><button type="button" class="rp-action" data-rp-tab="calls">Open Earnings calls</button><button type="button" class="rp-action" data-rp-grade="MU">Grade MU</button></div>';
     html += '<section class="rp-desk rp-desk-' + cycleTone + '"><div class="rp-desk-head"><div><span class="rp-desk-kicker">Memory-cycle desk</span><h3>' + escapeHtml(cycleHeadline) + '</h3><p>' + escapeHtml(cycleCopy) + '</p></div>' +
-      '<span class="rp-desk-badge">' + escapeHtml(cycleTone === 'up' ? 'Tightening' : cycleTone === 'down' ? 'Easing' : 'Mixed') + '</span></div>' +
+      '<span class="rp-desk-badge">' + escapeHtml(cycleLabel) + '</span></div>' +
+      '<div class="rp-desk-source"><span>' + escapeHtml(freshness.label) + '</span><p>' + escapeHtml(freshness.detail) + '</p></div>' +
       '<div class="rp-signal-grid">' +
         '<div class="rp-signal"><span>Wholesale median</span><b>' + (spot30 == null ? '—' : (spot30 >= 0 ? '+' : '') + spot30.toFixed(1) + '%') + '</b><small>30d · ' + (spot7 == null ? '7d unavailable' : (spot7 >= 0 ? '+' : '') + spot7.toFixed(1) + '% 7d') + '</small></div>' +
-        '<div class="rp-signal"><span>US retail DDR5 avg</span><b>' + retailValue + '</b><small>' + retailMove + (retail7 == null ? '' : ' · ' + (retail7 >= 0 ? '+' : '') + retail7.toFixed(1) + '% median 7d') + retailSkew + '</small></div>' +
-        '<div class="rp-signal"><span>Retail breadth</span><b>' + (retailCats.length ? retailUpN + '/' + retailCats.length : '—') + '</b><small>stocked categories up ≥1% 30d' + (retail && retail.market && retail.market.inStock != null ? ' · ' + Number(retail.market.inStock).toLocaleString() + ' kits available' : '') + '</small></div>' +
+        '<div class="rp-signal"><span>Retail median</span><b>' + (retail30 == null ? '—' : (retail30 >= 0 ? '+' : '') + retail30.toFixed(1) + '%') + '</b><small>30d · ' + retailValue + ' composite avg' + (retail7 == null ? '' : ' · ' + (retail7 >= 0 ? '+' : '') + retail7.toFixed(1) + '% 7d') + retailSkew + '</small></div>' +
+        '<div class="rp-signal"><span>Retail breadth</span><b>' + (retailCats.length ? breadthCount + '/' + retailCats.length : '—') + '</b><small>' + breadthCopy + (retail && retail.market && retail.market.inStock != null ? ' · ' + Number(retail.market.inStock).toLocaleString() + ' kits' : '') + '</small></div>' +
+        '<div class="rp-signal"><span>Layer spread</span><b>' + (layerGap == null ? '—' : (layerGap >= 0 ? '+' : '') + layerGap.toFixed(1) + ' pts') + '</b><small>' + escapeHtml(layerLead) + '</small></div>' +
       '</div>' +
       posture +
-      '<div class="rp-equity-lens"><div><span>' + (cycleTone === 'down' ? 'Cost relief watch' : 'Pricing-power watch') + '</span><b>' + rpEquityLinks(cycleTone === 'down' ? ['DELL','SMCI','ANET'] : ['MU','SNDK','STX']) + '</b></div>' +
-        '<div><span>' + (cycleTone === 'down' ? 'Supplier pressure' : 'Margin pass-through watch') + '</span><b>' + rpEquityLinks(cycleTone === 'down' ? ['MU','SNDK','STX'] : ['DELL','SMCI','ANET']) + '</b></div></div>' +
-      '<p class="rp-desk-note">A price move is not enough by itself: confirm supplier strength or buyer margin pressure in relative performance and earnings commentary.</p></section>';
+      rules +
+      equityLens +
+      actions +
+      '<p class="rp-desk-note">The equity lists are cross-checks, not proof of company-specific earnings. Keep the underlying price tables collapsed until the desk signal needs investigation.</p></section>';
     // SPOT table — wholesale chips/modules.
     if (spot){
       var rows = '';
@@ -16764,6 +16832,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<div class="rp-block-head">Retail categories</div>' + crows + '</div></details>';
     }
     root.innerHTML = html;
+    bindRamPriceActions(root);
     // Retail composite trend chart (15 months of biweekly medians).
     if (retail){
       var pts = (Array.isArray(retail.composite) ? retail.composite : [])
