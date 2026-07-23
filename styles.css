@@ -20878,11 +20878,7 @@ input[type="checkbox"], input[type="radio"], summary {
 }
 
 /* Overnight markets / correlations tab + Grade-tab peer-read widget. */
-.overnight-tone{display:flex;flex-wrap:wrap;align-items:baseline;gap:.4rem .8rem;margin:.25rem 0 .85rem;padding:.55rem .85rem;border-radius:10px;border:1px solid var(--border);background:var(--surface-2);}
-.overnight-tone.ovn-up{border-color:color-mix(in srgb,var(--pos) 40%,var(--border));background:var(--pos-tint);}
-.overnight-tone.ovn-dn{border-color:color-mix(in srgb,var(--neg) 40%,var(--border));background:var(--neg-tint);}
-.ovn-tone-label{font-weight:700;text-transform:capitalize;}
-.ovn-tone-why{color:var(--muted-strong);font-size:.85em;}
+.overnight-decision{margin-top:.25rem;}
 .overnight-broad{display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:1rem;}
 .ovn-chip{display:inline-flex;align-items:center;gap:.4rem;padding:.22rem .55rem;border-radius:999px;border:1px solid var(--border);background:var(--surface);font-size:.78rem;white-space:nowrap;}
 .ovn-chip-name{color:var(--muted-strong);}
