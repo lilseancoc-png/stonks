@@ -8556,6 +8556,55 @@ main { padding-top: var(--s-2); }
 }
 .calendar-pill.is-on .calendar-pill-count { color: var(--accent-strong); }
 .calendar-pill-count:empty { display: none; }
+/* Trader-facing decision layer: scheduled risk translated into entry posture. */
+.cal-briefing {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.2fr) minmax(320px, 1fr);
+  gap: var(--s-4);
+  margin: var(--s-3) 0;
+  padding: clamp(16px, 2.2vw, 24px);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--muted);
+  border-radius: var(--r-3);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--surface-2) 92%, transparent), var(--surface));
+}
+.cal-briefing[hidden], .cal-overview[hidden], .fomc-widget[hidden] { display: none; }
+.cal-briefing.is-alert { border-left-color: var(--neg); }
+.cal-briefing.is-caution { border-left-color: var(--warn); }
+.cal-briefing.is-open { border-left-color: var(--pos); }
+.cal-brief-main { min-width: 0; }
+.cal-brief-eyebrow {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--muted-strong);
+  font: 700 10px/1 var(--font-mono);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.cal-briefing.is-alert .cal-brief-eyebrow { color: var(--neg); }
+.cal-briefing.is-caution .cal-brief-eyebrow { color: var(--warn); }
+.cal-briefing.is-open .cal-brief-eyebrow { color: var(--pos); }
+.cal-brief-main h3 { margin: 0 0 7px; color: var(--text-strong); font: 700 clamp(19px, 2vw, 24px)/1.12 var(--font-serif); letter-spacing: -.02em; }
+.cal-brief-main p { max-width: 62ch; margin: 0; color: var(--muted-strong); line-height: 1.55; }
+.cal-brief-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: var(--s-3); }
+.cal-brief-primary, .cal-brief-secondary {
+  min-height: 36px;
+  padding: 7px 12px;
+  border-radius: var(--r-2);
+  font: 650 12px/1 var(--font-sans);
+  cursor: pointer;
+}
+.cal-brief-primary { border: 1px solid var(--accent); background: var(--accent); color: var(--accent-fg); }
+.cal-brief-secondary { border: 1px solid var(--border); background: var(--surface-2); color: var(--text); }
+.cal-brief-primary:hover { filter: brightness(1.08); }
+.cal-brief-secondary:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); background: var(--surface-3); }
+.cal-brief-primary:focus-visible, .cal-brief-secondary:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.cal-brief-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--border); border-radius: var(--r-2); overflow: hidden; background: var(--surface); }
+.cal-brief-fact { display: flex; flex-direction: column; gap: 5px; min-width: 0; padding: 13px; border-left: 1px solid var(--border); }
+.cal-brief-fact:first-child { border-left: 0; }
+.cal-brief-fact span { color: var(--muted); font: 650 9px/1.2 var(--font-mono); letter-spacing: .07em; text-transform: uppercase; }
+.cal-brief-fact strong { color: var(--text-strong); font-size: 13px; line-height: 1.32; overflow-wrap: anywhere; }
+.cal-brief-fact small { color: var(--muted); font-size: 10px; line-height: 1.3; }
 /* "Up next" overview strip — at-a-glance highlight cards above the timeline,
    driven by the full (unfiltered) event set so it's a stable orientation aid. */
 .cal-overview {
@@ -14970,6 +15019,12 @@ body.tape-axm-open { overflow: hidden; }
   .cal-date { font-size: 12px; padding-top: 0; }
   .cal-chip { padding: 8px 10px; font-size: 13px; }
   .cal-chip-source { display: none; }
+  .cal-briefing { grid-template-columns: minmax(0, 1fr); gap: var(--s-3); padding: 14px; }
+  .cal-brief-facts { grid-template-columns: minmax(0, 1fr); }
+  .cal-brief-fact { border-left: 0; border-top: 1px solid var(--border); }
+  .cal-brief-fact:first-child { border-top: 0; }
+  .cal-brief-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .cal-brief-primary, .cal-brief-secondary { width: 100%; min-height: 40px; }
   .cal-overview {
     display: flex;
     overflow-x: auto;

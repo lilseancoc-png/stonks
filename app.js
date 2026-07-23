@@ -20708,6 +20708,119 @@
     if (!s) return '';
     return '<a class="cal-chip-sym cal-chip-sym-btn" data-cal-sym="' + escapeHtml(s) + '" href="' + symGradeHref(s) + '" title="Open ' + escapeHtml(s) + ' in the Grade tab">' + escapeHtml(s) + '</a>';
   }
+  // Map an event to the public filter enum so the briefing's action stays in
+  // sync with the filter pills that drive the month grid.
+  function calFilterForEvent(e){
+    if (!e) return 'all';
+    if (e.type === 'earnings') return 'earnings';
+    if (e.type === 'catalyst') return 'catalysts';
+    if (e.type === 'report') return 'reports';
+    if (e.type === 'fomc') return 'fomc';
+    return 'macro';
+  }
+  // Translate the date list into an entry-risk posture. This deliberately uses
+  // only scheduled facts: it warns about gaps without pretending to forecast
+  // the event's direction.
+  function buildCalendarBriefing(data, todayMs){
+    var events = (data && Array.isArray(data.events)) ? data.events : [];
+    var future = events.map(function(e){
+      return { event: e, days: calDaysFromToday(e.date, todayMs) };
+    }).filter(function(x){ return x.days != null && x.days >= 0; })
+      .sort(function(a, b){ return a.days - b.days; });
+    var today = future.filter(function(x){ return x.days === 0; }).map(function(x){ return x.event; });
+    var tomorrow = future.filter(function(x){ return x.days === 1; }).map(function(x){ return x.event; });
+    var first = future.length ? future[0].event : null;
+    var active = today.length ? today : tomorrow;
+    var macroActive = active.filter(function(e){ return e.type === 'report' || e.type === 'fomc' || (e.type !== 'earnings' && e.type !== 'catalyst'); });
+    var earningsActive = active.filter(function(e){ return e.type === 'earnings'; });
+    var catalystsActive = active.filter(function(e){ return e.type === 'catalyst'; });
+    var tone = today.length ? 'alert' : (tomorrow.length ? 'caution' : 'open');
+    var eyebrow = today.length ? 'Event risk · today' : (tomorrow.length ? 'Event risk · tomorrow' : 'Scheduled risk window');
+    var title, guidance;
+    if (today.length){
+      title = macroActive.length ? 'Let the first reaction settle' : 'Binary risk is active today';
+      guidance = macroActive.length
+        ? 'Avoid chasing the release candle. Wait for the number, the market reaction, and a retest before sizing a new entry.'
+        : 'Avoid opening a full-size position into a scheduled print. Use smaller size or wait until the event gap is known.';
+    } else if (tomorrow.length){
+      title = 'Tomorrow can reprice the setup';
+      guidance = macroActive.length
+        ? 'Treat overnight exposure as event risk. Keep room to add after the release confirms direction.'
+        : 'A fresh position carries overnight gap risk. Reduce initial size or wait until the scheduled event passes.';
+    } else {
+      title = 'No scheduled binary risk today';
+      guidance = 'Use normal technical confirmation and planned stops; the calendar is clear, but unscheduled headline risk still applies.';
+    }
+    function countSummary(list){
+      var reports = list.filter(function(e){ return e.type !== 'earnings' && e.type !== 'catalyst'; }).length;
+      var am = list.filter(function(e){ return e.type === 'earnings' && String(e.session || '').toUpperCase() === 'AM'; }).length;
+      var pm = list.filter(function(e){ return e.type === 'earnings' && String(e.session || '').toUpperCase() === 'PM'; }).length;
+      var untimed = list.filter(function(e){ return e.type === 'earnings' && !e.session; }).length;
+      var cats = list.filter(function(e){ return e.type === 'catalyst'; }).length;
+      var parts = [];
+      if (reports) parts.push(reports + ' macro/Fed');
+      if (am) parts.push(am + ' earnings AM');
+      if (pm) parts.push(pm + ' earnings PM');
+      if (untimed) parts.push(untimed + ' earnings');
+      if (cats) parts.push(cats + ' catalyst' + (cats === 1 ? '' : 's'));
+      return parts.length ? parts.join(' · ') : 'No scheduled events';
+    }
+    var topEarn = null;
+    future.forEach(function(x){
+      if (x.days > 6 || x.event.type !== 'earnings') return;
+      if (x.event.impliedMovePct == null) return;
+      var move = Number(x.event.impliedMovePct);
+      if (!isFinite(move)) return;
+      if (!topEarn || move > Number(topEarn.impliedMovePct)) topEarn = x.event;
+    });
+    var firstDays = first ? calDaysFromToday(first.date, todayMs) : null;
+    var firstLabel = first
+      ? ((first.symbol ? first.symbol + ' · ' : '') + (first.title || calendarTypeLabel(first.type)))
+      : 'No event in the current window';
+    var firstWhen = first
+      ? ((firstDays === 0 ? 'Today' : calRelativeLabel(firstDays) || fmtCalendarDateShort(first.date)) + (first.session ? ' · ' + String(first.session).toUpperCase() : ''))
+      : 'Calendar clear';
+    return {
+      tone: tone,
+      eyebrow: eyebrow,
+      title: title,
+      guidance: guidance,
+      activeSummary: countSummary(today.length ? today : tomorrow),
+      activeLabel: today.length ? 'Today' : (tomorrow.length ? 'Tomorrow' : 'Today'),
+      first: first,
+      firstLabel: firstLabel,
+      firstWhen: firstWhen,
+      topEarn: topEarn,
+      topEarnLabel: topEarn ? (topEarn.symbol + ' · ±' + (Number(topEarn.impliedMovePct) * 100).toFixed(1) + '%') : 'No priced earnings',
+      focus: macroActive.length ? macroActive[0] : (earningsActive.length ? earningsActive[0] : (catalystsActive.length ? catalystsActive[0] : first))
+    };
+  }
+  function renderCalendarBriefing(data){
+    var host = $('calendar-briefing');
+    if (!host) return;
+    var b = buildCalendarBriefing(data, calEtTodayMs());
+    var focus = b.focus;
+    var showLabel = focus
+      ? (focus.type === 'earnings' ? 'Show earnings risk' : focus.type === 'catalyst' ? 'Show catalyst risk' : 'Show event risk')
+      : '';
+    host.hidden = false;
+    host.className = 'cal-briefing is-' + b.tone;
+    host.innerHTML = '<div class="cal-brief-main">' +
+        '<span class="cal-brief-eyebrow">' + escapeHtml(b.eyebrow) + '</span>' +
+        '<h3>' + escapeHtml(b.title) + '</h3>' +
+        '<p>' + escapeHtml(b.guidance) + '</p>' +
+        '<div class="cal-brief-actions">' +
+          (focus ? '<button type="button" class="cal-brief-primary" data-cal-brief-filter="' + escapeHtml(calFilterForEvent(focus)) + '" data-cal-brief-date="' + escapeHtml(focus.date || '') + '">' + escapeHtml(showLabel) + '</button>' : '') +
+          (b.topEarn && b.topEarn.symbol ? '<button type="button" class="cal-brief-secondary" data-cal-brief-sym="' + escapeHtml(b.topEarn.symbol) + '">Grade ' + escapeHtml(b.topEarn.symbol) + '</button>' : '') +
+          '<button type="button" class="cal-brief-secondary" data-cal-brief-go="market">Check market regime</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="cal-brief-facts" aria-label="Event risk summary">' +
+        '<div class="cal-brief-fact"><span>' + escapeHtml(b.activeLabel) + '</span><strong>' + escapeHtml(b.activeSummary) + '</strong></div>' +
+        '<div class="cal-brief-fact"><span>First scheduled risk</span><strong>' + escapeHtml(b.firstLabel) + '</strong><small>' + escapeHtml(b.firstWhen) + '</small></div>' +
+        '<div class="cal-brief-fact"><span>Largest option move · 7d</span><strong>' + escapeHtml(b.topEarnLabel) + '</strong><small>' + (b.topEarn ? 'Market-implied, not a direction call' : 'No usable implied move') + '</small></div>' +
+      '</div>';
+  }
   // Normalize a 0-1 or 0-100 probability to [0,1]; null when absent.
   function calNormProb(p, key){
     if (!p || p[key] == null) return null;
@@ -21584,6 +21697,7 @@
     // The "up next" overview strip and the FOMC widget are month-independent —
     // they always read the FULL event set, so they stay put as the user walks
     // months or toggles type filters.
+    renderCalendarBriefing(data);
     renderCalendarOverview(data);
     renderFomcWidget(data.fomc || null);
     refreshFomcLive(data.fomc || null); // async: refetch live ZQ futures + re-render
@@ -21908,6 +22022,33 @@
         }
         var sym = card.getAttribute('data-cal-sym');
         if (sym) calGoToTicker(sym);
+      });
+    }
+    // Briefing actions: jump the grid directly to the exposed event, inspect
+    // the largest priced earnings name, or carry the decision into Market Analysis.
+    var calBrief = document.getElementById('calendar-briefing');
+    if (calBrief && !calBrief.dataset.bound){
+      calBrief.dataset.bound = '1';
+      calBrief.addEventListener('click', function(ev){
+        if (!ev.target.closest) return;
+        var filterBtn = ev.target.closest('[data-cal-brief-filter]');
+        if (filterBtn){
+          var jump = filterBtn.getAttribute('data-cal-brief-date') || '';
+          var type = filterBtn.getAttribute('data-cal-brief-filter') || 'all';
+          if (jump.length === 10){ calendarState.viewYm = jump.slice(0, 7); calendarState.selectedDate = jump; }
+          var pill = document.querySelector('.calendar-type-filter .calendar-pill[data-cal-type="' + type + '"]');
+          if (pill) pill.click();
+          else { calendarState.type = type; renderCalendar(); }
+          var anchor = document.querySelector('.calendar-controls') || document.getElementById('calendar-root');
+          if (anchor && anchor.scrollIntoView){ try { anchor.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_) { anchor.scrollIntoView(); } }
+          return;
+        }
+        var symBtn = ev.target.closest('[data-cal-brief-sym]');
+        if (symBtn){ calGoToTicker(symBtn.getAttribute('data-cal-brief-sym')); return; }
+        if (ev.target.closest('[data-cal-brief-go="market"]')){
+          var marketTab = document.querySelector('[data-page-tab="market"]');
+          if (marketTab) marketTab.click();
+        }
       });
     }
     // Header "Index calendar →" link: hop to the Index calendar tab (the daily
