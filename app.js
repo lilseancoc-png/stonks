@@ -17603,6 +17603,43 @@
     var hyMom = prev && prev.hy > 0 && bl.hyB != null ? ((Number(bl.hyB) - Number(prev.hy)) / Number(prev.hy)) * 100 : null;
     return { hyShare:hyShare, hyMom:hyMom };
   }
+  function icFreshness(d){
+    var ip = d && d.ipos, bd = d && d.raises && d.raises.bonds, dp = d && d.credit && d.credit.deposits;
+    var builtMs = Date.parse(d && d.builtAtIso);
+    var ageHours = isFinite(builtMs) ? (Date.now() - builtMs) / 3600000 : null;
+    var ipoOk = !!(ip && ip.current && ip.prior && !ip.stale);
+    var debtOk = !!(bd && bd.latest && bd.latest.totalB != null && !bd.stale);
+    var bankOk = !!(dp && dp.latestB != null && !dp.stale);
+    var coverage = (ipoOk ? 1 : 0) + (debtOk ? 1 : 0) + (bankOk ? 1 : 0);
+    var current = !d.stale && ageHours != null && ageHours >= -1 && ageHours <= 72 && coverage === 3;
+    var ageLabel = ageHours == null
+      ? 'build time unavailable'
+      : ageHours < 1
+        ? 'built under 1h ago'
+        : ageHours < 48
+          ? 'built ' + Math.round(ageHours) + 'h ago'
+          : 'built ' + Math.round(ageHours / 24) + 'd ago';
+    var dates = [];
+    if (ip && ip.current) dates.push('IPOs ' + (ip.current.label || ip.current.key || 'current quarter'));
+    if (bd && bd.latest && bd.latest.m) dates.push('bonds ' + icMonthShort(bd.latest.m));
+    if (dp && dp.asOf) dates.push('deposits ' + icDateShort(dp.asOf));
+    return {
+      current:current,
+      coverage:coverage,
+      label:current ? 'Current composite' : 'Reference only',
+      detail:ageLabel + ' · ' + coverage + '/3 core channels' + (dates.length ? ' · ' + dates.join(' · ') : '')
+    };
+  }
+  function bindIpoCreditActions(root){
+    if (!root || root.getAttribute('data-ic-actions-bound')) return;
+    root.setAttribute('data-ic-actions-bound', '1');
+    root.addEventListener('click', function(ev){
+      var btn = ev.target && ev.target.closest ? ev.target.closest('[data-ic-tab]') : null;
+      if (!btn) return;
+      var tab = document.querySelector('[data-page-tab="' + btn.getAttribute('data-ic-tab') + '"]');
+      if (tab) tab.click();
+    });
+  }
   function icDecisionPillar(section, label, value, detail, tone){
     return '<button type="button" class="ic-decision-pillar ic-decision-' + escapeHtml(tone || 'neutral') + '" data-ic-open-section="' + escapeHtml(section) + '">' +
       '<span>' + escapeHtml(label) + '</span><b>' + escapeHtml(value || '—') + '</b><small>' + escapeHtml(detail || '') + '</small><em>Open research</em></button>';
@@ -17610,17 +17647,19 @@
   function icDecisionDesk(d){
     var ip = d && d.ipos, bd = d && d.raises && d.raises.bonds, cr = d && d.credit;
     var bl = bd && bd.latest, rv = cr && cr.revolving, dp = cr && cr.deposits, ny = cr && cr.nyfed;
+    var freshness = icFreshness(d);
     var bondMom = bl && bl.momPct != null && isFinite(bl.momPct) ? Number(bl.momPct) : null;
     var depositMove = dp && dp.shortPct != null && isFinite(dp.shortPct) ? Number(dp.shortPct) : null;
     var cardYoy = rv && rv.yoyPct != null && isFinite(rv.yoyPct) ? Number(rv.yoyPct) : (ny && ny.creditCardYoyPct != null && isFinite(ny.creditCardYoyPct) ? Number(ny.creditCardYoyPct) : null);
     var ipoPace = icIpoPace(ip, d && d.builtAtIso);
     var bondPart = icBondParticipation(bd);
     var hyShare = bondPart.hyShare, hyMom = bondPart.hyMom;
-    var debtBroad = bondMom != null && bondMom >= 5 && (hyShare == null || hyShare >= 10) && (hyMom == null || hyMom >= 0);
+    var debtBroad = bondMom != null && bondMom >= 5 && hyShare != null && hyShare >= 10 && hyMom != null && hyMom >= 0;
     var equityBroad = !!(ipoPace && (ipoPace.paceVsPrior == null || ipoPace.paceVsPrior >= -10) && (ipoPace.spacShare == null || ipoPace.spacShare < 60));
-    var bankStable = depositMove == null || depositMove >= -0.5;
+    var bankStable = depositMove != null && depositMove >= -0.5;
     var headline = 'Funding signals are mixed', tone = 'mixed';
-    if (debtBroad && equityBroad && bankStable){ headline = 'Debt and equity access are broadening together'; tone = 'open'; }
+    if (!freshness.current){ headline = 'Funding snapshot is reference-only'; tone = 'reference'; }
+    else if (debtBroad && equityBroad && bankStable){ headline = 'Debt and equity access are broadening together'; tone = 'open'; }
     else if (debtBroad && bankStable){ headline = 'Debt access is open; equity appetite is narrower'; tone = 'mixed'; }
     else if (bondMom != null && bondMom <= -10 && !equityBroad && depositMove != null && depositMove < -0.5){ headline = 'Funding conditions are tightening across channels'; tone = 'tight'; }
     var why = [];
@@ -17635,22 +17674,60 @@
     if (rv) pillars += icDecisionPillar('credit', 'Consumer leverage', icFmtBn(rv.latestB), icSignedPct(cardYoy) + ' y/y', cardYoy != null && cardYoy >= 5 ? 'watch' : 'neutral');
     if (dp) pillars += icDecisionPillar('credit', 'Bank funding', icFmtBn(dp.latestB), icSignedPct(depositMove) + ' over 4 weeks', depositMove == null ? 'neutral' : depositMove < -0.5 ? 'negative' : depositMove > 0.5 ? 'positive' : 'neutral');
     if (!pillars) return '';
-    var postureTitle = tone === 'open' ? 'Broad funding access supports risk appetite' : tone === 'tight' ? 'Protect balance-sheet and refinancing exposure' : 'Favor selective refinancing beneficiaries; wait for equity breadth';
+    var postureTitle = tone === 'open'
+      ? 'Broad funding access supports risk appetite'
+      : tone === 'tight'
+        ? 'Protect balance-sheet and refinancing exposure'
+        : tone === 'reference'
+          ? 'Do not trade the composite until all core channels refresh'
+          : 'Favor selective refinancing beneficiaries; wait for equity breadth';
     var postureCopy = tone === 'open'
       ? 'Debt buyers, public-equity investors and bank funding are confirming one another. Favor issuers with productive uses of capital and avoid assuming every deal is accretive.'
       : tone === 'tight'
         ? 'Debt issuance, equity participation and deposits are weakening together. Prioritize cash runway, near-term maturities and dilution risk.'
-        : 'Bond buyers remain active, but the IPO pace and composition do not yet confirm a broad risk-on capital window.';
-    var postureCheck = tone === 'open'
-      ? 'Invalidation: high-yield participation fades below 10%, the IPO run-rate falls more than 15% below the prior quarter, or deposits contract more than 0.5% over four weeks.'
+        : tone === 'reference'
+          ? 'The build is aged, stale, or missing IPO, bond, or bank-funding coverage. Use the available sleeves as context, not a current regime call.'
+          : 'Bond buyers remain active, but the IPO pace and composition do not yet confirm a broad risk-on capital window.';
+    var confirmRule = tone === 'open'
+      ? 'High yield remains at least 10% of bond volume, the ex-SPAC IPO pace holds near the prior quarter, and deposits stay stable.'
       : tone === 'tight'
-        ? 'Confirmation of repair: bond sales rebound, high yield participates, the IPO run-rate stabilizes and deposits stop contracting.'
-        : 'Confirmation: the ex-SPAC IPO pace closes the gap with the prior quarter while high yield remains at least 10% of bond volume. Invalidation: bond sales fall more than 10% m/m or deposits contract more than 0.5%.';
+        ? 'Bond sales stay more than 10% below the prior month, high yield participation fades, and deposits continue contracting.'
+        : tone === 'reference'
+          ? 'IPO, bond, and deposit channels all refresh in a build no more than 72 hours old.'
+          : 'The ex-SPAC IPO pace closes the gap with the prior quarter while high yield remains at least 10% of bond volume.';
+    var invalidateRule = tone === 'open'
+      ? 'High yield falls below 10%, IPO pace drops more than 15% below the prior quarter, or deposits contract more than 0.5%.'
+      : tone === 'tight'
+        ? 'Bond sales rebound, high yield participates, the IPO run-rate stabilizes, and deposits stop contracting.'
+        : tone === 'reference'
+          ? 'Any core channel remains missing or stale; an incomplete composite cannot confirm an open or tight funding regime.'
+          : 'Bond sales fall more than 10% m/m or deposits contract more than 0.5% over four weeks.';
+    var favor = tone === 'open'
+      ? 'Profitable growth, underwriters, and productive refinancing'
+      : tone === 'tight'
+        ? 'Cash-rich issuers with low near-term maturity risk'
+        : tone === 'reference'
+          ? 'Company-specific setups with independently verified funding'
+          : 'Cash-generative refinancers and profitable issuers';
+    var avoid = tone === 'open'
+      ? 'Low-return issuance and leverage-funded expansion'
+      : tone === 'tight'
+        ? 'Near-term refinancing, dilution-dependent, and leveraged issuers'
+        : tone === 'reference'
+          ? 'Broad funding-regime bets based on incomplete evidence'
+          : 'Equity-dependent, SPAC-heavy, and near-term funding stories';
+    var actions = freshness.current
+      ? '<div class="ic-actions"><button type="button" class="ic-action ic-action-primary" data-ic-tab="capital-raises">Open Capital raises</button><button type="button" class="ic-action" data-ic-tab="bonds-usd">Open Bonds &amp; USD</button><button type="button" class="ic-action" data-ic-tab="compare">Compare companies</button></div>'
+      : '<div class="ic-actions"><button type="button" class="ic-action ic-action-primary" data-ic-tab="market">Open Market analysis</button><button type="button" class="ic-action" data-ic-tab="bonds-usd">Open Bonds &amp; USD</button><button type="button" class="ic-action" data-ic-tab="capital-raises">Open Capital raises</button></div>';
     return '<section class="ic-decision ic-decision-' + tone + '"><div class="ic-decision-head"><div><span class="ic-decision-kicker">Capital availability desk</span><h3>' + escapeHtml(headline) + '</h3>' +
-      '<p>' + escapeHtml(why.length ? why.join('; ') + '.' : 'Open a research sleeve to inspect the latest capital and credit data.') + '</p></div><span class="ic-decision-badge">' + escapeHtml(tone === 'open' ? 'Open' : tone === 'tight' ? 'Tightening' : 'Mixed') + '</span></div>' +
-      '<div class="ic-posture ic-posture-' + tone + '"><span class="ic-posture-label">Trade posture</span><div><b>' + escapeHtml(postureTitle) + '</b><p>' + escapeHtml(postureCopy) + '</p><small>' + escapeHtml(postureCheck) + '</small></div></div>' +
+      '<p>' + escapeHtml(why.length ? why.join('; ') + '.' : 'Open a research sleeve to inspect the latest capital and credit data.') + '</p></div><span class="ic-decision-badge">' + escapeHtml(tone === 'open' ? 'Open' : tone === 'tight' ? 'Tightening' : tone === 'reference' ? 'Reference' : 'Mixed') + '</span></div>' +
+      '<div class="ic-decision-source"><span><b>' + escapeHtml(freshness.label) + '</b> · ' + escapeHtml(freshness.detail) + '</span><small>IPO calendar + SIFMA + FRED</small></div>' +
+      '<div class="ic-posture ic-posture-' + tone + '"><span class="ic-posture-label">Trade posture</span><div><b>' + escapeHtml(postureTitle) + '</b><p>' + escapeHtml(postureCopy) + '</p></div></div>' +
+      '<div class="ic-rules"><div><span>' + (tone === 'reference' ? 'Required before acting' : 'Confirms posture') + '</span><b>' + escapeHtml(confirmRule) + '</b></div><div><span>' + (tone === 'reference' ? 'Do not infer' : 'Invalidates posture') + '</span><b>' + escapeHtml(invalidateRule) + '</b></div></div>' +
+      '<div class="ic-trade-map"><div><span>Research first</span><b>' + escapeHtml(favor) + '</b></div><div><span>Avoid / wait</span><b>' + escapeHtml(avoid) + '</b></div></div>' +
       '<div class="ic-decision-grid">' + pillars + '</div>' +
-      '<p class="ic-decision-note">Read participation, not just headline volume: a window led only by investment-grade borrowers is weaker than one that also admits high-yield and new equity.</p></section>';
+      actions +
+      '<p class="ic-decision-note">Read participation, not just headline volume. Use Capital raises for issuer-level events and Bonds &amp; USD to confirm whether the funding read is transmitting through rates and credit-sensitive assets.</p></section>';
   }
   function loadIpoCredit(){
     if ((ipoCreditState.data && !ipoCreditState.data.loadError) || ipoCreditState.loading){ renderIpoCredit(); return; }
@@ -17666,12 +17743,18 @@
     var d = ipoCreditState.data;
     if (!d){ root.textContent = 'Loading IPOs & credit…'; return; }
     if (d.loadError || (!d.ipos && !d.raises && !d.credit)){
-      root.innerHTML = '';
-      if (empty){ empty.hidden = false; empty.textContent = d.loadError ? 'IPO & credit data will appear after the next daily build refresh.' : 'No data yet — check back after the next refresh.'; }
+      if (empty) empty.hidden = true;
+      if (eye) eye.textContent = d.loadError ? 'load unavailable' : 'awaiting first composite';
+      root.innerHTML = '<section class="ic-empty-desk"><span class="ic-decision-kicker">' + (d.loadError ? 'Data unavailable' : 'Awaiting coverage') + '</span>' +
+        '<h3>' + (d.loadError ? 'Funding-regime data could not load' : 'No capital-availability composite yet') + '</h3>' +
+        '<p>' + (d.loadError ? 'Do not infer an open or closed funding window from a failed read. Use the broader market, rates, and issuer-level event workflows while this feed recovers.' : 'The IPO, bond, and bank-funding channels need to populate before this desk can classify the capital window.') + '</p>' +
+        '<div class="ic-actions"><button type="button" class="ic-action ic-action-primary" data-ic-tab="market">Open Market analysis</button><button type="button" class="ic-action" data-ic-tab="bonds-usd">Open Bonds &amp; USD</button><button type="button" class="ic-action" data-ic-tab="capital-raises">Open Capital raises</button></div></section>';
+      bindIpoCreditActions(root);
       return;
     }
     if (empty) empty.hidden = true;
-    if (eye && d.currentQuarter) eye.textContent = d.currentQuarter.label + ' to date';
+    var compositeFreshness = icFreshness(d);
+    if (eye) eye.textContent = (compositeFreshness.current ? '' : 'reference · ') + (d.currentQuarter ? d.currentQuarter.label + ' to date' : compositeFreshness.coverage + '/3 channels');
     var html = icDecisionDesk(d);
 
     // ── IPO window ─────────────────────────────────────────────────────────
@@ -17889,6 +17972,7 @@
     }
 
     root.innerHTML = html || '<p class="ic-note">No data yet — check back after the next refresh.</p>';
+    bindIpoCreditActions(root);
     if (!root.getAttribute('data-ic-decision-bound')){
       root.setAttribute('data-ic-decision-bound', '1');
       root.addEventListener('click', function(ev){
