@@ -33694,11 +33694,18 @@
     var modelSummary = document.getElementById('tickers-model-summary');
     var modelNote = document.getElementById('tickers-model-note');
     var empty = document.getElementById('tickers-empty');
+    var emptyText = empty ? empty.querySelector('span') : null;
     var cards = Array.prototype.slice.call(grid.querySelectorAll('.ticker-card'));
-    var state = { query: '', sector: '', sort: 'conviction', readyOnly: false };
+    var state = { query: '', sector: '', sort: 'conviction', modelFilter: 'all' };
     var gradesReady = false;
     var gradesRequested = false;
     var minConviction = 4;
+    var decision = document.createElement('section');
+    decision.className = 'tickers-decision';
+    decision.id = 'tickers-decision';
+    decision.hidden = true;
+    decision.setAttribute('aria-live', 'polite');
+    if (modelSummary && modelSummary.parentNode) modelSummary.parentNode.insertBefore(decision, modelSummary);
 
     // Populate baked spots immediately; live quote polling decorates the same
     // slots later without changing the model rank or filter state.
@@ -33741,20 +33748,45 @@
         var haystack = (sym + ' ' + cardSec + ' ' + industry).toUpperCase();
         var matchQ = !q || haystack.indexOf(q) !== -1;
         var matchS = !sec || cardSec === sec;
-        var matchR = !state.readyOnly || cardReady(card) === 1;
-        var show = matchQ && matchS && matchR;
+        var modelSide = card.getAttribute('data-model-side') || 'neutral';
+        var matchM = state.modelFilter === 'all'
+          || (state.modelFilter === 'ready' && cardReady(card) === 1)
+          || state.modelFilter === modelSide;
+        var show = matchQ && matchS && matchM;
         card.hidden = !show;
         if (show) shown++;
       });
       if (visibleCount) visibleCount.textContent = String(shown);
-      if (empty) empty.hidden = shown > 0;
+      if (empty) {
+        empty.hidden = shown > 0;
+        if (emptyText) emptyText.textContent = 'No tickers match the current search, sector, and model filters.';
+      }
+      if (modelSummary) {
+        var filterButtons = modelSummary.querySelectorAll('[data-tickers-model-filter]');
+        for (var fi = 0; fi < filterButtons.length; fi++) {
+          var active = filterButtons[fi].getAttribute('data-tickers-model-filter') === state.modelFilter;
+          filterButtons[fi].classList.toggle('is-active', active);
+          filterButtons[fi].setAttribute('aria-pressed', active ? 'true' : 'false');
+        }
+      }
+    }
+    function setModelFilter(next){
+      state.modelFilter = next || 'all';
+      if (readyBtn) {
+        var readyActive = state.modelFilter === 'ready';
+        readyBtn.setAttribute('aria-pressed', readyActive ? 'true' : 'false');
+        readyBtn.classList.toggle('is-active', readyActive);
+      }
+      applyView();
     }
     function resetFilters(){
       state.query = '';
       state.sector = '';
-      state.readyOnly = false;
+      state.sort = 'conviction';
+      state.modelFilter = 'all';
       if (search) search.value = '';
       if (sectorSelect) sectorSelect.value = '';
+      if (sortSelect) sortSelect.value = 'conviction';
       if (readyBtn){ readyBtn.setAttribute('aria-pressed', 'false'); readyBtn.classList.remove('is-active'); }
       applyView();
     }
@@ -33786,6 +33818,66 @@
         headline: (confirmed ? 'Avoid — confirmed ' : 'Wait — forming ') + name + ' conflicts with ' + side + 's'
       };
     }
+    function directoryFreshness(data, covered){
+      var builtMs = data && data.builtAtIso ? Date.parse(data.builtAtIso) : NaN;
+      var ageHours = isFinite(builtMs) ? (Date.now() - builtMs) / 3600000 : NaN;
+      var fullCoverage = covered === cards.length;
+      var current = isFinite(ageHours) && ageHours >= -2 && ageHours <= 72 && fullCoverage;
+      var ageLabel = 'timestamp unavailable';
+      if (isFinite(ageHours)) {
+        if (ageHours < 1) ageLabel = 'less than 1h old';
+        else if (ageHours < 48) ageLabel = Math.round(ageHours) + 'h old';
+        else ageLabel = Math.round(ageHours / 24) + 'd old';
+      }
+      return {
+        current: current,
+        label: current ? 'Current' : 'Reference only',
+        detail: covered + '/' + cards.length + ' graded · ' + ageLabel
+      };
+    }
+    function bindTickerDecisionActions(){
+      if (!decision) return;
+      var tabButtons = decision.querySelectorAll('[data-tickers-tab]');
+      for (var bi = 0; bi < tabButtons.length; bi++) tabButtons[bi].addEventListener('click', function(){
+        var tab = document.querySelector('[data-page-tab="' + this.getAttribute('data-tickers-tab') + '"]');
+        if (tab) tab.click();
+      });
+    }
+    function renderTickerDecision(stats, freshness, leader){
+      if (!decision) return;
+      var skew = stats.puts > stats.calls * 1.5
+        ? 'Put-heavy model skew'
+        : stats.calls > stats.puts * 1.5
+          ? 'Call-heavy model skew'
+          : 'Mixed directional skew';
+      var title = freshness.current
+        ? skew + ' · ' + (stats.ready ? stats.ready + ' setups clear entry timing' : 'no setup clears entry timing')
+        : 'Reference-only ranking · refresh before execution';
+      var primary = freshness.current && leader
+        ? '<a class="flow-decision-action is-primary" href="?s=' + encodeURIComponent(leader.symbol) + '&t=' + leader.side + '">Review ' + escapeHtml(leader.symbol) + ' ' + leader.side.toUpperCase() + '</a>'
+        : '<button type="button" class="flow-decision-action is-primary" data-tickers-tab="market">Open Market analysis</button>';
+      var marketAction = freshness.current && leader
+        ? '<button type="button" class="flow-decision-action" data-tickers-tab="market">Open Market analysis</button>'
+        : '';
+      decision.className = 'tickers-decision ' + (freshness.current ? 'is-current' : 'is-reference');
+      decision.innerHTML =
+        '<div class="tickers-decision-head">' +
+          '<div><span class="tickers-decision-kicker">Universe decision</span><h3>' + escapeHtml(title) + '</h3></div>' +
+          '<span class="tickers-decision-status">' + escapeHtml(freshness.label) + ' · ' + escapeHtml(freshness.detail) + '</span>' +
+        '</div>' +
+        '<p class="tickers-decision-read">' + stats.directional + ' directional grades: ' + stats.puts + ' puts, ' + stats.calls + ' calls; ' + stats.neutral + ' remain no-trade. ' +
+          (freshness.current ? 'The directory is suitable for today’s research pass.' : 'Treat every score as context until the grade index refreshes.') + '</p>' +
+        '<div class="tickers-decision-rules">' +
+          '<div><span>Entry rule</span><b>Ready = conviction ≥ ' + minConviction + ' + timing Go + no chart conflict.</b></div>' +
+          '<div><span>Risk rule</span><b>Wait / Avoid vetoes entry; set invalidation in Grade before sizing.</b></div>' +
+        '</div>' +
+        '<div class="tickers-decision-actions">' + primary +
+          marketAction +
+          '<button type="button" class="flow-decision-action" data-tickers-tab="heatmap">Open Heatmap</button>' +
+        '</div>';
+      decision.hidden = false;
+      bindTickerDecisionActions();
+    }
     function decorateGrades(data){
       if (!data || data.loadError){
         if (modelNote) modelNote.textContent = 'Model grades unavailable — alphabetical directory remains available.';
@@ -33796,7 +33888,10 @@
       }
       var grades = data.grades || {};
       minConviction = Number(data.minConviction || 4);
-      var readyN = 0, callN = 0, putN = 0;
+      var covered = 0;
+      cards.forEach(function(card){ if (grades[cardAlpha(card)]) covered++; });
+      var freshness = directoryFreshness(data, covered);
+      var readyN = 0, callN = 0, putN = 0, neutralN = 0, leader = null;
       cards.forEach(function(card){
         var sym = cardAlpha(card);
         var g = grades[sym];
@@ -33806,17 +33901,24 @@
         var conviction = Number(g.conviction || Math.abs(Number(g.total || 0)) || 0);
         var effectiveTiming = effectiveDirectoryTiming(g, side);
         var entryState = effectiveTiming.state;
-        var ready = !!(side && conviction >= minConviction && entryState === 'go');
+        var directional = !!(side && conviction >= minConviction);
+        if (!directional) side = '';
+        var ready = !!(freshness.current && directional && entryState === 'go');
         if (side === 'call') callN++;
         if (side === 'put') putN++;
-        if (ready) readyN++;
+        if (!side) neutralN++;
+        if (ready) {
+          readyN++;
+          if (!leader || conviction > leader.conviction) leader = { symbol:sym, side:side, conviction:conviction };
+        }
         card.setAttribute('data-conviction', String(conviction));
         card.setAttribute('data-entry-ready', ready ? '1' : '0');
         card.setAttribute('data-model-side', side || 'neutral');
+        card.setAttribute('data-entry-state', side ? entryState : 'neutral');
         card.setAttribute('href', '?s=' + encodeURIComponent(sym) + (side ? '&t=' + side : ''));
         badge.className = 'ticker-grade ' + (side ? 'is-' + side : 'is-neutral') + (ready ? ' is-ready' : '');
         if (side) {
-          var entryLabel = entryState === 'go' ? 'ready' : (entryState === 'avoid' ? 'avoid' : 'wait');
+          var entryLabel = freshness.current ? (entryState === 'go' ? 'ready' : (entryState === 'avoid' ? 'avoid' : 'wait')) : 'reference';
           badge.innerHTML = '<b>' + side.toUpperCase() + ' ' + scoreText(g.total) + '</b><small>' + entryLabel + '</small>';
           badge.title = (g.recommendation && g.recommendation.label ? g.recommendation.label : side) + ' · ' + effectiveTiming.headline;
         } else {
@@ -33826,14 +33928,22 @@
         badge.hidden = false;
       });
       gradesReady = true;
-      if (readyBtn) readyBtn.disabled = false;
+      if (readyBtn) readyBtn.disabled = !freshness.current;
       if (modelSummary){
         modelSummary.innerHTML =
-          '<div><b>' + readyN + '</b><span>entry ready</span></div>' +
-          '<div><b>' + callN + '</b><span>call grades</span></div>' +
-          '<div><b>' + putN + '</b><span>put grades</span></div>';
+          '<button type="button" data-tickers-model-filter="ready" aria-pressed="false"' + (freshness.current ? '' : ' disabled') + '><b>' + readyN + '</b><span>entry ready</span></button>' +
+          '<button type="button" data-tickers-model-filter="call" aria-pressed="false"><b>' + callN + '</b><span>call grades</span></button>' +
+          '<button type="button" data-tickers-model-filter="put" aria-pressed="false"><b>' + putN + '</b><span>put grades</span></button>' +
+          '<button type="button" data-tickers-model-filter="neutral" aria-pressed="false"><b>' + neutralN + '</b><span>no trade</span></button>';
         modelSummary.hidden = false;
       }
+      renderTickerDecision({
+        ready: readyN,
+        calls: callN,
+        puts: putN,
+        neutral: neutralN,
+        directional: callN + putN
+      }, freshness, leader);
       if (modelNote){
         var stamp = '';
         if (data.builtAtIso){ var d = new Date(data.builtAtIso); if (!isNaN(d.getTime())) stamp = ' · model ' + d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
@@ -33866,10 +33976,13 @@
     });
     if (readyBtn) readyBtn.addEventListener('click', function(){
       if (!gradesReady) return;
-      state.readyOnly = !state.readyOnly;
-      readyBtn.setAttribute('aria-pressed', state.readyOnly ? 'true' : 'false');
-      readyBtn.classList.toggle('is-active', state.readyOnly);
-      applyView();
+      setModelFilter(state.modelFilter === 'ready' ? 'all' : 'ready');
+    });
+    if (modelSummary) modelSummary.addEventListener('click', function(ev){
+      var btn = ev.target && ev.target.closest ? ev.target.closest('[data-tickers-model-filter]') : null;
+      if (!btn || btn.disabled) return;
+      var next = btn.getAttribute('data-tickers-model-filter') || 'all';
+      setModelFilter(state.modelFilter === next ? 'all' : next);
     });
     var emptyReset = document.getElementById('tickers-empty-reset');
     if (emptyReset) emptyReset.addEventListener('click', resetFilters);
