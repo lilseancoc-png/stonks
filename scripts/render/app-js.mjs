@@ -17030,6 +17030,50 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     for (var i=0; i<CMD_GROUPS.length; i++) if (CMD_GROUPS[i][0] === key) return CMD_GROUPS[i][1];
     return key || 'Other';
   }
+  function cmdFreshness(d, items){
+    var builtMs = Date.parse(d && d.builtAtIso);
+    var ageHours = isFinite(builtMs) ? (Date.now() - builtMs) / 3600000 : null;
+    var ageLabel = 'build time unavailable';
+    if (ageHours != null){
+      if (ageHours < 1) ageLabel = 'built less than 1h ago';
+      else if (ageHours < 48) ageLabel = 'built ' + Math.floor(ageHours) + 'h ago';
+      else ageLabel = 'built ' + Math.floor(ageHours / 24) + 'd ago';
+    }
+    var currentCount = 0, dailyDates = [], monthlyDates = [];
+    for (var i=0; i<items.length; i++){
+      var it = items[i];
+      if (it && !it._uiAged && !it.stale && !it.missing) currentCount++;
+      if (!it || !it.asOf) continue;
+      (it.cadence === 'monthly' ? monthlyDates : dailyDates).push(String(it.asOf).slice(0,10));
+    }
+    dailyDates.sort(); monthlyDates.sort();
+    var dailyLatest = dailyDates.length ? dailyDates[dailyDates.length - 1] : '';
+    var monthlyLatest = monthlyDates.length ? monthlyDates[monthlyDates.length - 1] : '';
+    var current = !d.stale && ageHours != null && ageHours >= -1 && ageHours <= 72 && currentCount > 0;
+    var detail = ageLabel + ' · ' + currentCount + '/' + items.length + ' current';
+    if (dailyLatest) detail += ' · daily through ' + dailyLatest;
+    if (monthlyLatest) detail += ' · monthly through ' + monthlyLatest;
+    return { current:current, currentCount:currentCount, label:current ? 'Current decision read' : 'Reference only', detail:detail };
+  }
+  function bindCommodityActions(root){
+    if (!root) return;
+    Array.prototype.forEach.call(root.querySelectorAll('[data-cmd-tab]'), function(btn){
+      btn.addEventListener('click', function(){
+        var tab = document.querySelector('[data-page-tab="' + btn.getAttribute('data-cmd-tab') + '"]');
+        if (tab) tab.click();
+      });
+    });
+    Array.prototype.forEach.call(root.querySelectorAll('[data-cmd-grade]'), function(btn){
+      btn.addEventListener('click', function(){ calGoToTicker(btn.getAttribute('data-cmd-grade')); });
+    });
+    Array.prototype.forEach.call(root.querySelectorAll('.cmd-driver-watch[data-sym]'), function(link){
+      link.addEventListener('click', function(ev){
+        if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+        ev.preventDefault();
+        calGoToTicker(link.getAttribute('data-sym'));
+      });
+    });
+  }
   function cmdDriverCard(it){
     var move = cmdPrimaryChange(it);
     if (!it || !move) return '';
@@ -17053,7 +17097,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<button type="button" data-cmd-open-group="' + escapeHtml(it.group || '') + '" data-cmd-open-item="' + escapeHtml(String(it.key || it.label || '')) + '">Full detail</button></div>' +
     '</article>';
   }
-  function cmdDesk(items){
+  function cmdDesk(items, freshness){
     var movers = [], rising = 0, falling = 0, aged = 0, groupStats = [];
     for (var g=0; g<CMD_GROUPS.length; g++){
       var groupKey = CMD_GROUPS[g][0], best = null, bestAbs = -1, groupMoves = [], groupRising = 0;
@@ -17078,31 +17122,58 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     movers.sort(function(a,b){
       return Math.abs(cmdPrimaryChange(b).pct) - Math.abs(cmdPrimaryChange(a).pct);
     });
-    if (!movers.length) return '';
     groupStats.sort(function(a,b){ return Math.abs(b.median) - Math.abs(a.median); });
-    var leadStat = groupStats[0] || { key:movers[0].group, median:cmdPrimaryChange(movers[0]).pct, rising:0, total:1 };
-    var up = leadStat.median >= 0;
-    var headline = cmdGroupLabel(leadStat.key) + (up ? ' is the clearest rising pressure' : ' is showing the clearest easing');
+    var leadStat = groupStats[0] || null;
+    var up = leadStat ? leadStat.median >= 0 : false;
+    var headline = leadStat ? cmdGroupLabel(leadStat.key) + (up ? ' is the clearest rising pressure' : ' is showing the clearest easing') : 'No current commodity drivers are available';
     var actionTitle = 'Confirm the move in exposed equities before changing risk';
-    var actionCopy = leadStat.rising + ' of ' + leadStat.total + ' current ' + cmdGroupLabel(leadStat.key).toLowerCase() + ' signals are rising; the median move is ' +
-      (up ? '+' : '') + leadStat.median.toFixed(1) + '% over the displayed decision horizon.';
-    var actionCheck = 'Confirmation: linked equities show matching relative strength, weakness, or margin guidance. Invalidation: the group median reverses through flat or the equity transmission fails.';
+    var actionCopy = leadStat
+      ? leadStat.rising + ' of ' + leadStat.total + ' current ' + cmdGroupLabel(leadStat.key).toLowerCase() + ' signals are rising; the median move is ' +
+        (up ? '+' : '') + leadStat.median.toFixed(1) + '% over the displayed decision horizon.'
+      : 'Every available observation is missing, stale, or outside its cadence window. Preserve the detailed history, but do not infer a current equity impact.';
+    var actionConfirm = 'Linked equities show matching relative strength, weakness, volume, or margin guidance.';
+    var actionInvalidate = 'The leading group median reverses through flat, or the expected equity transmission fails.';
     var postureTone = 'watch';
-    if (leadStat.key === 'softs'){
+    if (leadStat && leadStat.key === 'softs'){
       actionTitle = up ? 'Audit buyer margins and pricing power' : 'Audit whether cost relief reaches margins';
       actionCopy = leadStat.rising + ' of ' + leadStat.total + ' current soft-input signals are rising; the median move is ' + (up ? '+' : '') + leadStat.median.toFixed(1) + '%. ' +
         (up ? 'That is a cost-pressure screen, not an automatic short.' : 'That is potential margin relief, not an automatic long.');
-      actionCheck = up
-        ? 'Confirmation: exposed buyers underperform or guide margins lower. Invalidation: the softs median falls below +3% or companies absorb the increase without margin damage.'
-        : 'Confirmation: exposed buyers improve margins or relative strength. Invalidation: the softs median turns positive again.';
+      actionConfirm = up
+        ? 'Exposed buyers underperform, lose volume, or guide margins lower as input costs rise.'
+        : 'Exposed buyers improve margins or relative strength as lower inputs reach results.';
+      actionInvalidate = up
+        ? 'The softs median falls below +3%, or companies absorb the increase without margin damage.'
+        : 'The softs median turns positive again, or buyers fail to convert relief into better margins.';
       postureTone = up ? 'risk' : 'positive';
     }
-    return '<section class="cmd-desk"><div class="cmd-desk-head"><div><span class="cmd-desk-kicker">Equity impact desk</span>' +
+    if (!freshness.current){
+      headline = 'This commodity impact map is reference only';
+      actionTitle = 'Refresh required — do not trade the prior pressure map';
+      actionCopy = 'The build is outside the decision window or no current inputs remain. Detailed observations stay visible for context, but the ranked drivers are not a current trade signal.';
+      actionConfirm = 'A fresh build restores current inputs and the leading sleeve still shows the same direction and equity transmission.';
+      actionInvalidate = 'No current cross-commodity read is available; rising and falling classifications remain unverified.';
+      postureTone = 'watch';
+    }
+    var leadMover = null;
+    if (leadStat){
+      for (var lm=0; lm<movers.length; lm++) if (movers[lm].group === leadStat.key){ leadMover = movers[lm]; break; }
+    }
+    var leadWatches = leadMover && Array.isArray(leadMover.watch) ? leadMover.watch : [];
+    var leadSym = leadWatches.length ? String(leadWatches[0]) : '';
+    var actions = !freshness.current
+      ? '<div class="cmd-actions"><button type="button" class="cmd-action cmd-action-primary" data-cmd-tab="market">Open Market analysis</button><button type="button" class="cmd-action" data-cmd-tab="calls">Open Earnings calls</button><button type="button" class="cmd-action" data-cmd-tab="compare">Compare companies</button></div>'
+      : leadSym
+        ? '<div class="cmd-actions"><button type="button" class="cmd-action cmd-action-primary" data-cmd-grade="' + escapeHtml(leadSym) + '">Grade ' + escapeHtml(leadSym) + '</button><button type="button" class="cmd-action" data-cmd-tab="compare">Compare companies</button><button type="button" class="cmd-action" data-cmd-tab="calls">Open Earnings calls</button></div>'
+        : '<div class="cmd-actions"><button type="button" class="cmd-action cmd-action-primary" data-cmd-tab="compare">Compare companies</button><button type="button" class="cmd-action" data-cmd-tab="calls">Open Earnings calls</button></div>';
+    return '<section class="cmd-desk' + (!freshness.current ? ' cmd-desk-reference' : '') + '"><div class="cmd-desk-head"><div><span class="cmd-desk-kicker">Equity impact desk</span>' +
       '<h3>' + escapeHtml(headline) + '</h3>' +
       '<p>Decision horizons use 30 days for market series and month over month for monthly data; stale observations are excluded.</p></div>' +
       '<div class="cmd-desk-breadth"><span><b>' + rising + '</b> rising</span><span><b>' + falling + '</b> falling</span>' + (aged ? '<span><b>' + aged + '</b> aged</span>' : '') + '</div></div>' +
-      '<div class="cmd-posture cmd-posture-' + postureTone + '"><span class="cmd-posture-label">Trade posture</span><div><b>' + escapeHtml(actionTitle) + '</b><p>' + escapeHtml(actionCopy) + '</p><small>' + escapeHtml(actionCheck) + '</small></div></div>' +
-      '<div class="cmd-driver-grid">' + movers.map(cmdDriverCard).join('') + '</div>' +
+      '<div class="cmd-desk-source"><span>' + escapeHtml(freshness.label) + '</span><p>' + escapeHtml(freshness.detail) + '</p></div>' +
+      '<div class="cmd-posture cmd-posture-' + postureTone + '"><span class="cmd-posture-label">Trade posture</span><div><b>' + escapeHtml(actionTitle) + '</b><p>' + escapeHtml(actionCopy) + '</p></div></div>' +
+      '<div class="cmd-rules"><div class="cmd-rule cmd-rule-confirm"><span>Confirmation</span><p>' + escapeHtml(actionConfirm) + '</p></div><div class="cmd-rule cmd-rule-invalidate"><span>Invalidation</span><p>' + escapeHtml(actionInvalidate) + '</p></div></div>' +
+      (movers.length ? '<div class="cmd-driver-grid">' + movers.map(cmdDriverCard).join('') + '</div>' : '') +
+      actions +
       '<p class="cmd-desk-note">Each sleeve highlights its largest current decision-horizon move. Direction can mean cost pressure, cost relief, pricing power, or demand — read the impact label before using the ticker handoff.</p></section>';
   }
   function loadCommodities(){
@@ -17125,14 +17196,19 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (!d){ root.textContent = 'Loading commodities…'; return; }
     var items = Array.isArray(d.items) ? d.items : [];
     if (!items.length){
-      root.innerHTML = '';
-      if (empty){ empty.hidden = false; empty.textContent = d.loadError ? 'Could not load commodity data.' : 'Commodity data will appear after the next daily build refresh.'; }
+      if (empty) empty.hidden = true;
+      if (eye) eye.textContent = 'Unavailable · no posture';
+      root.innerHTML = '<section class="cmd-empty-desk"><span class="cmd-desk-kicker">Equity impact desk</span><h3>' + (d.loadError ? 'The commodity snapshot could not be loaded' : 'No commodity snapshot is available yet') + '</h3>' +
+        '<p>' + (d.loadError ? 'Do not infer input-cost pressure or demand from missing data. Use the live market and company earnings evidence until the commodity map returns.' : 'The next successful daily build will restore the ranked sleeves and equity-impact checks.') + '</p>' +
+        '<div class="cmd-actions"><button type="button" class="cmd-action cmd-action-primary" data-cmd-tab="market">Open Market analysis</button><button type="button" class="cmd-action" data-cmd-tab="calls">Open Earnings calls</button></div></section>';
+      bindCommodityActions(root);
       return;
     }
     if (empty) empty.hidden = true;
-    if (eye && d.builtAtIso) eye.textContent = (d.stale ? 'last-good · ' : '') + 'as of ' + String(d.builtAtIso).slice(0,10);
     for (var ai=0; ai<items.length; ai++) items[ai]._uiAged = !cmdItemCurrent(items[ai], d.builtAtIso) && !items[ai].missing && !items[ai].stale;
-    var html = cmdDesk(items);
+    var freshness = cmdFreshness(d, items);
+    if (eye) eye.textContent = freshness.label + (d.builtAtIso ? ' · ' + String(d.builtAtIso).slice(0,10) : '');
+    var html = cmdDesk(items, freshness);
     for (var g=0; g<CMD_GROUPS.length; g++){
       var gk = CMD_GROUPS[g][0];
       var cards = '';
@@ -17159,6 +17235,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     root.innerHTML = html;
     bindBriefChips(root);
+    bindCommodityActions(root);
     if (!root.getAttribute('data-cmd-groups-bound')){
       root.setAttribute('data-cmd-groups-bound', '1');
       root.addEventListener('click', function(ev){
