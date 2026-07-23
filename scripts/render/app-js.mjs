@@ -7686,6 +7686,303 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // — when no premium is available at all — to raw contract counts so the lean
   // still reads. The #flow-summary host ships in the next baked index.html; the
   // guard makes this a no-op against an older shell.
+  function flowEtDateParts(date){
+    try {
+      var parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+      }).formatToParts(date);
+      var out = {};
+      parts.forEach(function(p){ if (p.type !== 'literal') out[p.type] = Number(p.value); });
+      return out;
+    } catch (_) { return null; }
+  }
+  function flowSessionGap(iso){
+    var scan = new Date(iso || '');
+    if (!isFinite(scan.getTime())) return null;
+    var from = flowEtDateParts(scan);
+    var to = flowEtDateParts(new Date());
+    if (!from || !to) return null;
+    var fromDay = new Date(Date.UTC(from.year, from.month - 1, from.day, 12));
+    var toDay = new Date(Date.UTC(to.year, to.month - 1, to.day, 12));
+    if (toDay <= fromDay) return 0;
+    var sessions = 0;
+    for (var d = new Date(fromDay.getTime() + 86400000); d <= toDay; d = new Date(d.getTime() + 86400000)){
+      var wd = d.getUTCDay();
+      if (wd !== 0 && wd !== 6) sessions++;
+    }
+    return sessions;
+  }
+  function flowFreshnessMeta(){
+    var iso = UNUSUAL && UNUSUAL.scannedAt;
+    var scan = new Date(iso || '');
+    if (!isFinite(scan.getTime())){
+      return {
+        executable: false,
+        tone: 'empty',
+        label: 'No scanner timestamp',
+        detail: 'Wait for a completed hourly scan before treating any contract as current.',
+      };
+    }
+    var now = new Date();
+    var ageMin = Math.floor((now.getTime() - scan.getTime()) / 60000);
+    var sessionGap = flowSessionGap(iso);
+    var nowEt = flowEtDateParts(now);
+    var nowUtcDay = nowEt ? new Date(Date.UTC(nowEt.year, nowEt.month - 1, nowEt.day, 12)).getUTCDay() : 0;
+    var nowEtMin = nowEt ? nowEt.hour * 60 + nowEt.minute : -1;
+    var regularNow = nowUtcDay >= 1 && nowUtcDay <= 5 && nowEtMin >= 570 && nowEtMin < 960;
+    var scanState = String((UNUSUAL && UNUSUAL.marketState) || '').toUpperCase();
+    var executable = scanState === 'REGULAR' && regularNow && sessionGap === 0 && ageMin >= -5 && ageMin <= 90;
+    if (executable){
+      return {
+        executable: true,
+        tone: 'current',
+        label: 'Current regular-session scan',
+        detail: ageMin <= 2 ? 'Scanner just updated.' : 'Updated ' + ageMin + ' minutes ago.',
+        ageMin: ageMin,
+        sessionGap: sessionGap,
+      };
+    }
+    if (sessionGap != null && sessionGap > 0){
+      return {
+        executable: false,
+        tone: 'stale',
+        label: 'Reference only · old session',
+        detail: sessionGap + ' trading session' + (sessionGap === 1 ? '' : 's') + ' old.',
+        ageMin: ageMin,
+        sessionGap: sessionGap,
+      };
+    }
+    if (scanState === 'REGULAR' && regularNow && ageMin > 90){
+      return {
+        executable: false,
+        tone: 'stale',
+        label: 'Reference only · delayed scan',
+        detail: 'The last regular-session scan is ' + Math.max(0, ageMin) + ' minutes old.',
+        ageMin: ageMin,
+        sessionGap: sessionGap,
+      };
+    }
+    return {
+      executable: false,
+      tone: 'closed',
+      label: 'Closed-session reference',
+      detail: scanState === 'POST'
+        ? 'The scan was stamped after the regular close.'
+        : 'The market is outside the regular session.',
+      ageMin: ageMin,
+      sessionGap: sessionGap,
+    };
+  }
+  function flowDecisionCandidate(t){
+    var stats = {
+      ticker: t,
+      symbol: String((t && t.symbol) || '').toUpperCase(),
+      callPremium: 0,
+      putPremium: 0,
+      totalPremium: 0,
+      contracts: 0,
+      repeats: 0,
+      near: 0,
+      topDelta: 0,
+      maxVoi: null,
+      topContract: null,
+      score: 0,
+    };
+    (t && Array.isArray(t.contracts) ? t.contracts : []).forEach(function(c){
+      if (!c) return;
+      stats.contracts++;
+      if ((c.repeatCount || 0) >= 2) stats.repeats++;
+      if (c.dte != null && c.dte <= 14) stats.near++;
+      stats.topDelta = Math.max(stats.topDelta, Number(c.deltaVol) || 0);
+      var voi = (c.oi != null && c.oi > 0 && c.vol != null) ? Number(c.vol) / Number(c.oi) : null;
+      if (voi != null && isFinite(voi)) stats.maxVoi = stats.maxVoi == null ? voi : Math.max(stats.maxVoi, voi);
+      var premium = Number(c.deltaPremium != null ? c.deltaPremium : c.premium) || 0;
+      var tape = String(c.tape || '').toLowerCase();
+      // Directional synthesis only credits contracts printed at or above the
+      // midpoint. Bid/below-mid activity may be closing or selling and belongs
+      // in the evidence rows, not in a directional verdict.
+      var directionUsable = tape === 'ask' || tape === 'abv' || tape === 'mid';
+      if (directionUsable && premium > 0){
+        if (c.side === 'put') stats.putPremium += premium;
+        else stats.callPremium += premium;
+        stats.totalPremium += premium;
+      }
+      if (!stats.topContract || premium > stats.topContract.premium){
+        stats.topContract = { contract: c, premium: premium };
+      }
+    });
+    var callShare = stats.totalPremium > 0 ? stats.callPremium / stats.totalPremium : 0.5;
+    stats.callShare = callShare;
+    stats.putShare = 1 - callShare;
+    if (stats.totalPremium <= 0){
+      stats.direction = 'unclear';
+      stats.directionLabel = 'Intent unclear';
+    } else if (callShare >= 0.65){
+      stats.direction = 'call';
+      stats.directionLabel = 'Call-side demand';
+    } else if (callShare <= 0.35){
+      stats.direction = 'put';
+      stats.directionLabel = 'Put-side demand';
+    } else {
+      stats.direction = 'mixed';
+      stats.directionLabel = 'Two-sided event risk';
+    }
+    stats.score =
+      Math.log(Math.max(1, stats.totalPremium)) / Math.LN10 * 10 +
+      Math.min(30, stats.topDelta / 1000) +
+      stats.repeats * 4 +
+      Math.min(4, stats.near);
+    return stats;
+  }
+  function flowDecisionStats(tickers){
+    var out = {
+      candidates: [],
+      callPremium: 0,
+      putPremium: 0,
+      totalPremium: 0,
+      contracts: 0,
+      repeats: 0,
+      near: 0,
+      top: null,
+    };
+    (tickers || []).forEach(function(t){
+      var c = flowDecisionCandidate(t);
+      out.candidates.push(c);
+      out.callPremium += c.callPremium;
+      out.putPremium += c.putPremium;
+      out.totalPremium += c.totalPremium;
+      out.contracts += c.contracts;
+      out.repeats += c.repeats;
+      out.near += c.near;
+    });
+    out.candidates.sort(function(a, b){ return b.score - a.score; });
+    out.top = out.candidates[0] || null;
+    out.callShare = out.totalPremium > 0 ? out.callPremium / out.totalPremium : 0.5;
+    out.putShare = 1 - out.callShare;
+    return out;
+  }
+  function flowGexContext(candidate){
+    var t = candidate && candidate.ticker;
+    var g = t && t.gex;
+    if (!g || g.net == null || !isFinite(g.net)) return 'Dealer gamma context is unavailable for this scan.';
+    var net = Number(g.net);
+    var spot = Number(t.spot);
+    var flip = Number(g.flip);
+    if (net < 0){
+      return 'Net dealer gamma is negative' +
+        (isFinite(flip) && spot > 0 ? '; spot is ' + (spot >= flip ? 'above' : 'below') + ' the ' + fmtOiStrike(flip) + ' flip' : '') +
+        ', so a confirmed underlying break can travel faster.';
+    }
+    return 'Net dealer gamma is positive' +
+      (isFinite(flip) && spot > 0 ? '; spot is ' + (spot >= flip ? 'above' : 'below') + ' the ' + fmtOiStrike(flip) + ' flip' : '') +
+      ', so dealer hedging may damp the move or pull price toward a wall.';
+  }
+  function renderFlowDecision(tickers, mode){
+    var host = $('flow-decision');
+    if (!host) return;
+    mode = mode || {};
+    var freshness = flowFreshnessMeta();
+    if (mode.noData){
+      host.className = 'flow-decision flow-decision-empty';
+      host.innerHTML =
+        '<div class="flow-decision-empty-copy"><span>Flow decision queue</span><h3>Waiting for the first hourly scan</h3>' +
+        '<p>No contract snapshot is loaded. The scanner must complete before this tab can rank a watchlist.</p></div>';
+      return;
+    }
+    if (mode.filteredOut){
+      host.className = 'flow-decision flow-decision-empty';
+      host.innerHTML =
+        '<div class="flow-decision-empty-copy"><span>Current filters</span><h3>No flow survives this view</h3>' +
+        '<p>Nothing matches the selected side, expiry, repeat, or ticker filters. Reset the desk before concluding that the scanner found nothing.</p></div>' +
+        '<button type="button" class="flow-decision-action is-primary" data-flow-reset>Reset filters</button>';
+      return;
+    }
+    if (!tickers || !tickers.length){
+      host.className = 'flow-decision flow-decision-empty';
+      host.innerHTML =
+        '<div class="flow-decision-empty-copy"><span>Latest scan</span><h3>No unusual block or sweep flow passed</h3>' +
+        '<p>The absence of a flag is not a market direction call. Wait for the next hourly scan or inspect price and volume elsewhere.</p></div>';
+      return;
+    }
+    var stats = flowDecisionStats(tickers);
+    var top = stats.top;
+    if (!top) return;
+    var filtered = !!mode.filtered;
+    var directional = top.direction === 'call' || top.direction === 'put';
+    var tone = !freshness.executable ? 'reference' : directional ? top.direction : 'mixed';
+    var headline = '';
+    var copy = '';
+    if (!freshness.executable){
+      headline = 'This flow scan is context, not an entry.';
+      copy = 'The strongest visible cluster was ' + top.symbol + ' · ' + top.directionLabel.toLowerCase() +
+        '. Re-run the same read on a current regular-session scan before using it to change exposure.';
+    } else if (top.direction === 'mixed'){
+      headline = top.symbol + ' is pricing two-sided event risk.';
+      copy = 'Calls and puts are both attracting premium. Wait for the underlying to choose a direction instead of forcing a side from gross flow.';
+    } else if (top.direction === 'unclear'){
+      headline = top.symbol + ' has size, but intent is unclear.';
+      copy = 'The visible premium did not print cleanly enough at or above midpoint to support a directional read. Keep it on watch, not in a position.';
+    } else {
+      headline = 'Investigate ' + top.symbol + ' ' + (top.direction === 'call' ? 'call' : 'put') + '-side demand.';
+      copy = 'This is a ranked research lead, not entry permission. Confirm the same-side demand in the underlying tape before risking premium.';
+    }
+    var confirm = '';
+    var invalidate = '';
+    if (top.direction === 'call'){
+      confirm = 'The stock breaks and holds resistance on heavy share volume while call-side prints repeat at or above midpoint across more than one strike.';
+      invalidate = 'Price rejects the breakout, call activity moves to the bid, or put-side premium takes control of the next scan.';
+    } else if (top.direction === 'put'){
+      confirm = 'The stock loses and holds below support on heavy share volume while put-side prints repeat at or above midpoint across more than one strike.';
+      invalidate = 'Price reclaims support, put activity moves to the bid, or call-side premium takes control of the next scan.';
+    } else {
+      confirm = 'The underlying breaks its range with heavy share volume and the next scan becomes clearly one-sided.';
+      invalidate = 'Calls and puts remain balanced or price stays inside the range; that is event pricing, not directional confirmation.';
+    }
+    var callPct = Math.round(stats.callShare * 100);
+    var putPct = 100 - callPct;
+    var premiumText = fmtBigDollars(stats.totalPremium) || '$0';
+    var topShare = top.direction === 'put' ? Math.round(top.putShare * 100) : Math.round(top.callShare * 100);
+    var splitValue = top.direction === 'call'
+      ? topShare + '% calls'
+      : top.direction === 'put'
+        ? topShare + '% puts'
+        : Math.round(top.callShare * 100) + '/' + Math.round(top.putShare * 100);
+    var voiText = top.maxVoi == null ? 'V/OI n/a' : (top.maxVoi >= 10 ? Math.round(top.maxVoi) : Math.round(top.maxVoi * 10) / 10) + '× max V/OI';
+    var filterNote = filtered ? ' · current filters' : '';
+    host.className = 'flow-decision flow-decision-' + tone;
+    host.innerHTML =
+      '<div class="flow-decision-main">' +
+        '<div class="flow-decision-head"><span>Flow decision queue' + filterNote + '</span><em>' + escapeHtml(freshness.label) + '</em></div>' +
+        '<h3>' + escapeHtml(headline) + '</h3>' +
+        '<p>' + escapeHtml(copy) + '</p>' +
+        '<div class="flow-decision-rules">' +
+          '<div><span>Confirms when</span><b>' + escapeHtml(confirm) + '</b></div>' +
+          '<div><span>Invalidates when</span><b>' + escapeHtml(invalidate) + '</b></div>' +
+        '</div>' +
+      '</div>' +
+      '<aside class="flow-decision-side">' +
+        '<div class="flow-decision-source"><span>' + escapeHtml(freshness.detail) + '</span><small>Only regular-session scans ≤90 minutes old can be executable.</small></div>' +
+        '<div class="flow-decision-metrics">' +
+          '<div><span>Top focus</span><b>' + escapeHtml(top.symbol) + '</b><small>' + escapeHtml(top.directionLabel) + '</small></div>' +
+          '<div><span>Directional split</span><b>' + escapeHtml(splitValue) + '</b><small>desk total ' + callPct + '% calls / ' + putPct + '% puts</small></div>' +
+          '<div><span>Premium counted</span><b>' + escapeHtml(premiumText) + '</b><small>at / above midpoint</small></div>' +
+          '<div><span>Persistence</span><b>' + stats.repeats + ' repeat' + (stats.repeats === 1 ? '' : 's') + '</b><small>' + stats.near + ' near-term · ' + stats.contracts + ' contracts</small></div>' +
+        '</div>' +
+        '<p class="flow-decision-context"><b>' + escapeHtml(top.symbol) + ' evidence:</b> top print ' + escapeHtml(fmtDelta(top.topDelta)) + '/hr · ' +
+          escapeHtml(voiText) + '. ' + escapeHtml(flowGexContext(top)) + '</p>' +
+        '<div class="flow-decision-actions">' +
+          '<button type="button" class="flow-decision-action is-primary" data-flow-focus="' + escapeHtml(top.symbol) + '">Focus ' + escapeHtml(top.symbol) + '</button>' +
+          '<a class="flow-decision-action" data-flow-grade="' + escapeHtml(top.symbol) + '" href="' + symGradeHref(top.symbol) + '">Open Grade</a>' +
+          (filtered ? '<button type="button" class="flow-decision-action" data-flow-reset>Reset filters</button>' : '') +
+        '</div>' +
+      '</aside>';
+  }
   function renderFlowSummary(tickers){
     var el = $('flow-summary');
     if (!el) return;
@@ -7695,7 +7992,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       (t.contracts || []).forEach(function(c){
         var dp = (c.deltaPremium != null ? c.deltaPremium : (c.premium || 0)) || 0;
         total += dp;
-        if (c.side === 'put'){ putPrem += dp; putN++; } else { callPrem += dp; callN++; }
+        var tape = String(c.tape || '').toLowerCase();
+        var directionUsable = tape === 'ask' || tape === 'abv' || tape === 'mid';
+        if (c.side === 'put'){
+          putN++;
+          if (directionUsable) putPrem += dp;
+        } else {
+          callN++;
+          if (directionUsable) callPrem += dp;
+        }
         if (!top || dp > top.dp) top = { dp: dp, sym: t.symbol, c: c };
       });
     });
@@ -7703,15 +8008,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (!totalContracts){ el.hidden = true; el.innerHTML = ''; return; }
     el.hidden = false;
     var denom = callPrem + putPrem;
-    // When no dollar premium is available, fall back to the contract split for
-    // both the bar widths and the lean.
+    // When no at/above-mid premium is available, the side tags can still size
+    // the bar, but the lean stays explicitly unclear — contract type alone
+    // cannot reveal whether the customer bought or sold it.
     var bullBasis = denom > 0 ? callPrem : callN;
     var bearBasis = denom > 0 ? putPrem : putN;
     var basisSum = bullBasis + bearBasis;
     var callPct = basisSum > 0 ? Math.round((bullBasis / basisSum) * 100) : 50;
     var putPct = 100 - callPct;
     var leanCls = 'is-neutral', leanLbl = 'Balanced flow';
-    if (bullBasis >= bearBasis * 1.2){ leanCls = 'is-bull'; leanLbl = 'Bullish lean'; }
+    if (denom <= 0){ leanLbl = 'Intent unclear'; }
+    else if (bullBasis >= bearBasis * 1.2){ leanCls = 'is-bull'; leanLbl = 'Bullish lean'; }
     else if (bearBasis >= bullBasis * 1.2){ leanCls = 'is-bear'; leanLbl = 'Bearish lean'; }
     var totalStr = fmtBigDollars(total) || '$0';
     var callStr = fmtBigDollars(callPrem) || '$0';
@@ -7722,7 +8029,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var tp = fmtBigDollars(top.dp);
       topStr = escapeHtml(top.sym) + ' $' + Number(top.c.strike) + ts + (tp ? ' · ' + escapeHtml(tp) + '/hr' : '');
     }
-    var barLabel = 'Call premium ' + callPct + '%, put premium ' + putPct + '%';
+    var barLabel = denom > 0
+      ? 'At or above midpoint: call premium ' + callPct + '%, put premium ' + putPct + '%'
+      : 'No at or above midpoint premium; contract-side mix is ' + callPct + '% calls and ' + putPct + '% puts';
     el.innerHTML =
       '<div class="flow-sum-row">' +
         '<span class="flow-sum-lean ' + leanCls + '">' + leanLbl + '</span>' +
@@ -7735,8 +8044,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="flow-sum-bar-put" style="width:' + putPct + '%"></span>' +
       '</div>' +
       '<div class="flow-sum-legend">' +
-        '<span class="flow-sum-leg is-call"><span class="flow-sum-dot"></span>Calls ' + escapeHtml(callStr) + ' · ' + callPct + '% · ' + callN + '</span>' +
-        '<span class="flow-sum-leg is-put"><span class="flow-sum-dot"></span>Puts ' + escapeHtml(putStr) + ' · ' + putPct + '% · ' + putN + '</span>' +
+        '<span class="flow-sum-leg is-call"><span class="flow-sum-dot"></span>Calls ' + escapeHtml(callStr) + ' at/above mid · ' + callPct + '% · ' + callN + ' tagged</span>' +
+        '<span class="flow-sum-leg is-put"><span class="flow-sum-dot"></span>Puts ' + escapeHtml(putStr) + ' at/above mid · ' + putPct + '% · ' + putN + ' tagged</span>' +
       '</div>';
   }
   function renderUnusualFlow(){
@@ -7765,6 +8074,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (!allTickers.length){
       list.innerHTML = '';
       renderFlowSummary([]);
+      renderFlowDecision([], { noData: !UNUSUAL });
       if (noResults) noResults.hidden = true;
       if (empty){
         empty.hidden = false;
@@ -7783,6 +8093,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (!tickers.length){
       list.innerHTML = '';
       renderFlowSummary([]);
+      renderFlowDecision([], { filteredOut: hasFilters });
       if (noResults){
         noResults.hidden = false;
         noResults.textContent = hasFilters
@@ -7792,6 +8103,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       return;
     }
     if (noResults) noResults.hidden = true;
+    renderFlowDecision(tickers, { filtered: hasFilters });
     renderFlowSummary(tickers);
     list.innerHTML = tickers.map(function(t){
       var spot = t.spot != null ? '$' + Number(t.spot).toFixed(2) : '';
@@ -7815,6 +8127,58 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }).join('');
   }
   function bindFlowControls(){
+    var decision = $('flow-decision');
+    if (decision){
+      decision.addEventListener('click', function(ev){
+        var focus = ev.target.closest && ev.target.closest('[data-flow-focus]');
+        if (focus){
+          var focusSym = String(focus.getAttribute('data-flow-focus') || '').toUpperCase();
+          var focusInput = $('flow-search-input');
+          flowState.search = focusSym;
+          if (focusInput) focusInput.value = focusSym;
+          var focusClear = $('flow-search-clear');
+          if (focusClear) focusClear.hidden = !focusSym;
+          renderUnusualFlow();
+          requestAnimationFrame(function(){
+            var row = null;
+            var rows = document.querySelectorAll('.flow-row[data-symbol]');
+            for (var i = 0; i < rows.length; i++){
+              if (String(rows[i].getAttribute('data-symbol') || '').toUpperCase() === focusSym){ row = rows[i]; break; }
+            }
+            if (row && row.scrollIntoView) row.scrollIntoView({ behavior:'smooth', block:'center' });
+          });
+          return;
+        }
+        var grade = ev.target.closest && ev.target.closest('[data-flow-grade]');
+        if (grade){
+          if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+          ev.preventDefault();
+          calGoToTicker(grade.getAttribute('data-flow-grade'));
+          return;
+        }
+        var reset = ev.target.closest && ev.target.closest('[data-flow-reset]');
+        if (!reset) return;
+        flowState.search = '';
+        flowState.side = 'all';
+        flowState.nearOnly = false;
+        flowState.repeatOnly = false;
+        var input = $('flow-search-input');
+        if (input) input.value = '';
+        var clear = $('flow-search-clear');
+        if (clear) clear.hidden = true;
+        var near = $('flow-near-only');
+        if (near) near.checked = false;
+        var repeat = $('flow-repeat-only');
+        if (repeat) repeat.checked = false;
+        var pills = document.querySelectorAll('.flow-side-filter .flow-pill');
+        pills.forEach(function(p){
+          var on = p.getAttribute('data-side') === 'all';
+          p.classList.toggle('is-on', on);
+          p.setAttribute('aria-checked', on ? 'true' : 'false');
+        });
+        renderUnusualFlow();
+      });
+    }
     var searchInput = $('flow-search-input');
     var searchClear = $('flow-search-clear');
     if (searchInput){
