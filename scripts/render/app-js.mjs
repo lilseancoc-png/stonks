@@ -17317,11 +17317,57 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         : kind === 'debt'
           ? /\\b(?:notes? offering|bond sale|bond offering|debt offering|issues? .{0,30}(?:notes?|bonds?|debt)|raises? .{0,30}(?:debt|bonds?|notes?))\\b/i.test(title)
           : kind === 'buyback'
-            ? /\\b(?:buyback|repurchase)\\b/i.test(title)
+            ? (/\\b(?:announces?|authorizes?|approves?|boosts?|expands?|extends?|increases?|launches?|initiates?|resumes?|completes?|executes?)\\b.{0,90}\\b(?:buyback|share repurchase|stock repurchase)\\b/i.test(title) ||
+              /\\b(?:buyback|share repurchase|stock repurchase)\\b.{0,90}\\b(?:program|authorization|plan|agreement)\\b/i.test(title))
             : false;
     if (!issuerNamed) return { verified:false, reason:'The headline does not explicitly name the tracked issuer. Verify the association before using it.' };
     if (!actionExplicit) return { verified:false, reason:'The issuer is named, but the wording does not clearly describe company-level financing; it may be an insider sale or secondary context.' };
     return { verified:true, reason:'' };
+  }
+  function crFreshness(d, events){
+    var builtMs = Date.parse(d && d.builtAtIso);
+    var ageHours = isFinite(builtMs) ? (Date.now() - builtMs) / 3600000 : null;
+    var current = !d.stale && ageHours != null && ageHours >= -1 && ageHours <= 72;
+    var ageLabel = ageHours == null
+      ? 'build time unavailable'
+      : ageHours < 1
+        ? 'built under 1h ago'
+        : ageHours < 48
+          ? 'built ' + Math.round(ageHours) + 'h ago'
+          : 'built ' + Math.round(ageHours / 24) + 'd ago';
+    var latestMs = -Infinity, latestLabel = '';
+    (events || []).forEach(function(e){
+      var ms = Date.parse(e && e.publishedAt);
+      if (isFinite(ms) && ms > latestMs){ latestMs = ms; latestLabel = crDateShort(e.publishedAt); }
+    });
+    return {
+      current:current,
+      label:current ? 'Current decision read' : 'Reference only',
+      detail:ageLabel + (latestLabel ? ' · latest event ' + latestLabel : ' · no recent event flags')
+    };
+  }
+  function crLeadEvent(verified, review){
+    var list = (verified || []).length ? verified.slice() : (review || []).slice();
+    var priority = { equity:0, convertible:0, debt:1, buyback:2 };
+    list.sort(function(a,b){
+      var ap = priority[a && a.kind] == null ? 3 : priority[a.kind];
+      var bp = priority[b && b.kind] == null ? 3 : priority[b.kind];
+      if (ap !== bp) return ap - bp;
+      return (Date.parse(b && b.publishedAt) || 0) - (Date.parse(a && a.publishedAt) || 0);
+    });
+    return list[0] || null;
+  }
+  function bindCapitalRaiseActions(root){
+    if (!root) return;
+    Array.prototype.forEach.call(root.querySelectorAll('[data-cr-tab]'), function(btn){
+      btn.addEventListener('click', function(){
+        var tab = document.querySelector('[data-page-tab="' + btn.getAttribute('data-cr-tab') + '"]');
+        if (tab) tab.click();
+      });
+    });
+    Array.prototype.forEach.call(root.querySelectorAll('[data-cr-grade]'), function(btn){
+      btn.addEventListener('click', function(){ calGoToTicker(btn.getAttribute('data-cr-grade')); });
+    });
   }
   function loadCapitalRaises(){
     if ((capitalRaisesState.data && !capitalRaisesState.data.loadError) || capitalRaisesState.loading){ renderCapitalRaises(); return; }
@@ -17337,11 +17383,24 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var d = capitalRaisesState.data;
     if (!d){ root.textContent = 'Loading capital raises…'; return; }
     var ev = Array.isArray(d.events) ? d.events : [];
-    if (!ev.length){ root.innerHTML = ''; if (empty){ empty.hidden = false; empty.textContent = d.loadError ? 'Could not load capital-raises data.' : 'No capital-raise headlines flagged recently — check back after the next refresh.'; } return; }
+    var freshness = crFreshness(d, ev);
+    if (!ev.length){
+      if (empty) empty.hidden = true;
+      if (eye) eye.textContent = d.loadError ? 'load unavailable' : freshness.label.toLowerCase() + ' · 0 flags';
+      root.innerHTML = '<section class="cr-empty-desk">' +
+        '<span class="cr-desk-kicker">' + (d.loadError ? 'Data unavailable' : 'Clear scan') + '</span>' +
+        '<h3>' + (d.loadError ? 'Capital-event data could not load' : 'No financing headline needs action') + '</h3>' +
+        '<p>' + (d.loadError ? 'Do not infer a clean capital structure from a failed read. Use the broader market and earnings workflows while this feed recovers.' : 'No recent issuer-confirmed raise, debt, convertible or buyback headline was flagged. Keep the scan in context with current earnings and market risk.') + '</p>' +
+        '<div class="cr-desk-source"><span><b>' + escapeHtml(freshness.label) + '</b> · ' + escapeHtml(freshness.detail) + '</span><small>Headline scan + latest SEC context</small></div>' +
+        '<div class="cr-actions"><button type="button" class="cr-action cr-action-primary" data-cr-tab="market">Open Market analysis</button><button type="button" class="cr-action" data-cr-tab="calls">Open Earnings calls</button></div>' +
+      '</section>';
+      bindCapitalRaiseActions(root);
+      return;
+    }
     if (empty) empty.hidden = true;
     var verifiedEv = [], reviewEv = [];
     ev.forEach(function(e){ (crEventConfidence(e).verified ? verifiedEv : reviewEv).push(e); });
-    if (eye && d.builtAtIso) eye.textContent = (d.stale ? 'last-good · ' : '') + verifiedEv.length + ' verified · ' + reviewEv.length + ' review';
+    if (eye) eye.textContent = (freshness.current ? '' : 'reference · ') + verifiedEv.length + ' verified · ' + reviewEv.length + ' review';
     var byKind = { equity:[], convertible:[], debt:[], buyback:[], review:reviewEv };
     verifiedEv.forEach(function(e){ (byKind[e.kind] || byKind.review).push(e); });
     var dilution = byKind.equity.length + byKind.convertible.length;
@@ -17362,9 +17421,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         : buybacks
           ? 'Buyback headlines can support per-share value, but authorizations are not completed purchases. Confirm execution capacity against free cash flow and leverage.'
           : 'The automated scan found possible matches, but the issuer or transaction wording is not explicit. Verify the source before changing a position.';
-    if (d.stale) deskCopy = 'This is the last-good event set, so confirm fresh filings before acting. ' + deskCopy;
-    var lead = verifiedEv.filter(function(e){ return e.kind !== 'buyback'; })[0] || verifiedEv[0];
-    var leadRead = crEventRead(lead && lead.kind);
+    if (!freshness.current) deskCopy = 'This event set is reference-only, so confirm fresh filings before acting. ' + deskCopy;
+    var lead = crLeadEvent(verifiedEv, reviewEv);
+    var leadConfidence = crEventConfidence(lead);
+    var leadRead = leadConfidence.verified ? crEventRead(lead && lead.kind) : { tone:'review', label:'Issuer or action needs verification', check:leadConfidence.reason };
     var leadTkr = lead && lead.ticker ? (SYMBOLS.indexOf(lead.ticker) !== -1
       ? '<a class="cr-tkr" data-sym="' + escapeHtml(lead.ticker) + '" href="' + symGradeHref(lead.ticker) + '">' + escapeHtml(lead.ticker) + '<span class="stk-sym-go" aria-hidden="true">↗</span></a>'
       : '<span class="cr-tkr">' + escapeHtml(lead.ticker) + '</span>') : '';
@@ -17374,6 +17434,27 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var dilutionKnown = crKnownAmount(dilutionEvents);
     var debtKnown = crKnownAmount(byKind.debt);
     var buybackKnown = crKnownAmount(byKind.buyback);
+    var confirmRule = dilution
+      ? 'Deal prices below market, the share count expands, or conversion terms create overhang while price and volume weaken.'
+      : debt
+        ? 'The coupon, maturity wall or refinancing burden worsens relative to free cash flow and available liquidity.'
+        : buybacks
+          ? 'Actual repurchases begin, free cash flow covers them, and the net share count declines without more leverage.'
+          : 'The issuer and company-level transaction are confirmed at a primary source with complete terms.';
+    var invalidateRule = dilution
+      ? 'The transaction is withdrawn, proves non-dilutive, or the added runway outweighs dilution without estimate damage.'
+      : debt
+        ? 'A long-dated, lower-cost refinancing extends runway without adding material leverage or covenant pressure.'
+        : buybacks
+          ? 'The authorization remains unused, repurchases are offset by issuance, or the program requires higher leverage.'
+          : 'The issuer association stays ambiguous, or the headline is commentary, an insider sale, or secondary context.';
+    var leadTracked = !!(lead && lead.ticker && SYMBOLS.indexOf(lead.ticker) !== -1);
+    var actionsHtml = !freshness.current
+      ? '<div class="cr-actions"><button type="button" class="cr-action cr-action-primary" data-cr-tab="market">Open Market analysis</button><button type="button" class="cr-action" data-cr-tab="calls">Open Earnings calls</button><button type="button" class="cr-action" data-cr-tab="compare">Compare companies</button></div>'
+      : '<div class="cr-actions">' +
+          (lead && lead.link ? '<a class="cr-action cr-action-primary" href="' + escapeHtml(lead.link) + '" target="_blank" rel="noopener noreferrer">' + (leadConfidence.verified ? 'Open source terms' : 'Verify event source') + '</a>' : '') +
+          (leadTracked ? '<button type="button" class="cr-action" data-cr-grade="' + escapeHtml(lead.ticker) + '">Grade ' + escapeHtml(lead.ticker) + '</button>' : '') +
+          '<button type="button" class="cr-action" data-cr-tab="compare">Compare companies</button><button type="button" class="cr-action" data-cr-tab="calls">Open Earnings calls</button></div>';
     var groupDefs = [
       { key:'equity', label:'Share issuance' },
       { key:'convertible', label:'Convertible financing' },
@@ -17420,22 +17501,26 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '</details>';
     }).join('');
     root.innerHTML =
-      '<section class="cr-desk cr-desk-' + deskTone + '">' +
+      '<section class="cr-desk cr-desk-' + deskTone + (freshness.current ? '' : ' cr-desk-reference') + '">' +
         '<div class="cr-desk-head"><span class="cr-desk-kicker">Financing-risk desk</span><h3>' + escapeHtml(deskTitle) + '</h3><p>' + escapeHtml(deskCopy) + '</p></div>' +
+        '<div class="cr-desk-source"><span><b>' + escapeHtml(freshness.label) + '</b> · ' + escapeHtml(freshness.detail) + '</span><small>Headline scan + latest SEC context</small></div>' +
         '<div class="cr-mix" aria-label="Recent capital-event mix">' +
           '<span class="cr-mix-risk"><small>Dilution flags</small><b>' + dilution + '</b><em>' + (!dilution ? 'none verified' : dilutionKnown == null ? 'amounts unstated' : escapeHtml(cxDollars(dilutionKnown)) + ' stated') + '</em></span>' +
           '<span class="cr-mix-warn"><small>Debt flags</small><b>' + debt + '</b><em>' + (!debt ? 'none verified' : debtKnown == null ? 'amounts unstated' : escapeHtml(cxDollars(debtKnown)) + ' stated') + '</em></span>' +
           '<span class="cr-mix-positive"><small>Buybacks</small><b>' + buybacks + '</b><em>' + (!buybacks ? 'none verified' : buybackKnown == null ? 'authorization only' : escapeHtml(cxDollars(buybackKnown)) + ' stated') + '</em></span>' +
         '</div>' +
-        (lead ? '<div class="cr-lead cr-tone-' + leadRead.tone + '"><span class="cr-lead-label">Priority terms review</span><div>' + leadTkr + '<b>' + escapeHtml(leadRead.label) + '</b>' + (leadAmount ? '<strong>' + escapeHtml(leadAmount) + '</strong>' : '') + '</div><p>' + escapeHtml(lead.headline || '') + '</p>' +
+        (lead ? '<div class="cr-lead cr-tone-' + leadRead.tone + '"><span class="cr-lead-label">' + (leadConfidence.verified ? 'Priority terms review' : 'Priority verification') + '</span><div>' + leadTkr + '<b>' + escapeHtml(leadRead.label) + '</b>' + (leadAmount ? '<strong>' + escapeHtml(leadAmount) + '</strong>' : '') + '</div><p>' + escapeHtml(lead.headline || '') + '</p>' +
           '<div class="cr-lead-check"><span>Before acting</span><b>' + escapeHtml(leadRead.check) + '</b></div>' +
           (leadMeta ? '<small class="cr-lead-meta">' + escapeHtml(leadMeta) + '</small>' : '') + '</div>' : '') +
+        '<div class="cr-rules"><div><span>Confirms the read</span><b>' + escapeHtml(confirmRule) + '</b></div><div><span>Invalidates the read</span><b>' + escapeHtml(invalidateRule) + '</b></div></div>' +
+        actionsHtml +
       '</section>' +
       '<details class="cr-ledger">' +
         '<summary><span><b>Event ledger</b><small>News flags with SEC context</small></span><em>' + verifiedEv.length + ' verified · ' + reviewEv.length + ' review</em><i class="cr-chevron" aria-hidden="true"></i></summary>' +
         '<div class="cr-ledger-body">' + groupHtml + '<p class="cr-scope">Only headlines that explicitly name the issuer and describe company-level financing enter the risk totals. Ambiguous ticker associations and possible insider-sale wording stay in review. Amounts are included only when stated in the headline; the latest SEC figure is context, not necessarily the same transaction.</p></div>' +
       '</details>';
     bindBriefChips(root);
+    bindCapitalRaiseActions(root);
   }
 
   // --- IPOs & Credit (Macro tab) --------------------------------------------

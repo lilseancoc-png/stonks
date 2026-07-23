@@ -5159,6 +5159,7 @@ a.cmd-watch, a.cr-tkr, a.f13-sym, a.brief-chip, a.cal-chip-sym { text-decoration
 .cr-desk-risk { border-left-color: var(--neg); }
 .cr-desk-positive { border-left-color: var(--pos); }
 .cr-desk-review { border-left-color: var(--muted); }
+.cr-desk-reference { border-left-color: var(--muted); }
 .cr-desk-head { min-width: 0; }
 .cr-desk-kicker,
 .cr-lead-label {
@@ -5180,6 +5181,21 @@ a.cmd-watch, a.cr-tkr, a.f13-sym, a.brief-chip, a.cal-chip-sym { text-decoration
   font-size: var(--fs-sm);
   line-height: var(--lh-snug);
 }
+.cr-desk-source {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface-1);
+  color: var(--muted);
+  font: 500 var(--fs-2xs)/1.35 var(--font-sans);
+}
+.cr-desk-source b { color: var(--pos); }
+.cr-desk-reference .cr-desk-source b { color: var(--warn); }
+.cr-desk-source small { flex: 0 0 auto; color: var(--muted); font: 500 10px/1.3 var(--font-mono); }
 .cr-mix {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -5265,6 +5281,59 @@ a.cmd-watch, a.cr-tkr, a.f13-sym, a.brief-chip, a.cal-chip-sym { text-decoration
 }
 .cr-lead-check b { color: var(--text); font-size: var(--fs-xs); font-weight: 600; line-height: var(--lh-snug); }
 .cr-lead-meta { display: block; margin-top: 5px; color: var(--muted); font: 400 var(--fs-2xs)/1.2 var(--font-mono); }
+.cr-rules {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-2);
+}
+.cr-rules > div {
+  display: grid;
+  gap: 5px;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface-1);
+}
+.cr-rules span {
+  color: var(--muted);
+  font: 700 var(--fs-2xs)/1.2 var(--font-sans);
+  letter-spacing: var(--ls-caps);
+  text-transform: uppercase;
+}
+.cr-rules b { color: var(--text); font-size: var(--fs-xs); font-weight: 600; line-height: var(--lh-snug); }
+.cr-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.cr-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--text-strong);
+  font: 700 11px/1 var(--font-sans);
+  text-decoration: none;
+  cursor: pointer;
+}
+.cr-action:hover,
+.cr-action:focus-visible { border-color: var(--accent); color: var(--accent); }
+.cr-action-primary { border-color: var(--accent); background: var(--accent); color: var(--surface); }
+.cr-action-primary:hover,
+.cr-action-primary:focus-visible { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 86%, var(--text-strong)); color: var(--surface); }
+.cr-empty-desk {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-2);
+  padding: var(--s-4);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-4);
+  background: var(--surface-2);
+}
+.cr-empty-desk h3 { margin: 0; color: var(--text-strong); font-size: var(--fs-xl); line-height: var(--lh-tight); }
+.cr-empty-desk p { max-width: 78ch; margin: 0; color: var(--muted); font-size: var(--fs-sm); line-height: var(--lh-snug); }
+.cr-empty-desk .cr-desk-source { width: 100%; }
 .cr-ledger,
 .cr-kind-group {
   overflow: clip;
@@ -5368,6 +5437,8 @@ a.cr-tkr:hover .stk-sym-go, a.cr-tkr:focus-visible .stk-sym-go { color: var(--ac
   .cr-desk { padding: var(--s-3); }
   .cr-desk-head h3 { font-size: var(--fs-lg); }
   .cr-desk-head p { font-size: var(--fs-xs); }
+  .cr-desk-source { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .cr-desk-source small { flex: none; }
   .cr-mix { gap: 5px; }
   .cr-mix > span {
     display: flex;
@@ -5381,6 +5452,12 @@ a.cr-tkr:hover .stk-sym-go, a.cr-tkr:focus-visible .stk-sym-go { color: var(--ac
   .cr-mix em { max-width: 100%; font-size: 9px; }
   .cr-lead > div > strong { margin-left: 0; }
   .cr-lead-check { grid-template-columns: 1fr; gap: 3px; }
+  .cr-rules { grid-template-columns: minmax(0, 1fr); }
+  .cr-actions { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
+  .cr-action { width: 100%; min-height: 42px; }
+  .cr-empty-desk { padding: var(--s-3); }
+  .cr-empty-desk h3 { font-size: var(--fs-lg); }
+  .cr-empty-desk p { font-size: var(--fs-xs); }
   .cr-ledger > summary,
   .cr-kind-group > summary {
     grid-template-columns: minmax(0, 1fr) 14px;
