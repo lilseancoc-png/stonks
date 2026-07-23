@@ -22252,9 +22252,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // compounded return. Renders the premium, bake-accumulated
   // data/index-calendar.json ({ days:[{ date, spy:{c,chPct}, qqq, iwm, ... }] }),
   // lazy-fetched on first open and re-fetched when stale (mirrors loadBrief).
-  var indexCalState = { data: null, loading: false, error: false, viewYm: null, index: 'spy', fetchedAt: 0, bound: false };
+  var indexCalState = { data: null, loading: false, error: false, viewYm: null, index: 'spy', selectedDate: null, fetchedAt: 0, bound: false };
   var IDX_CAL_LABELS = { spy: 'SPY', qqq: 'QQQ', iwm: 'IWM', smh: 'SMH', dia: 'DIA', vxus: 'VXUS', tlt: 'TLT', gld: 'GLD', vix: 'VIX' };
   var IDX_CAL_ORDER = ['spy', 'qqq', 'iwm', 'smh', 'dia', 'vxus', 'tlt', 'gld', 'vix'];
+  var IDX_CAL_RISK = ['spy', 'qqq', 'iwm', 'smh', 'dia', 'vxus'];
   // VIX is a fear gauge — a spike is a risk-OFF day, so invert its red/green so
   // green reads "calm" (VIX down) and red "stress" (VIX up). The displayed %
   // stays the true move; only the colour + the green/red tally flip.
@@ -22321,6 +22322,101 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var viewYm = indexCalState.viewYm;
     if (!viewYm || viewYm < minYm || viewYm > maxYm) viewYm = maxYm;
     indexCalState.viewYm = viewYm;
+    var ymp = viewYm.split('-'); var vy = Number(ymp[0]); var vmi = Number(ymp[1]) - 1;
+    var firstWd = new Date(Date.UTC(vy, vmi, 1)).getUTCDay();
+    var daysInMonth = new Date(Date.UTC(vy, vmi + 1, 0)).getUTCDate();
+    var prevDays = new Date(Date.UTC(vy, vmi, 0)).getUTCDate();
+    var monthDates = [];
+    for (var mdi = 1; mdi <= daysInMonth; mdi++){
+      var mdKey = viewYm + '-' + String(mdi).padStart(2, '0');
+      if (byDate[mdKey]) monthDates.push(mdKey);
+    }
+    var selectedDate = indexCalState.selectedDate;
+    if (!selectedDate || selectedDate.slice(0, 7) !== viewYm || !byDate[selectedDate]){
+      selectedDate = monthDates.length ? monthDates[monthDates.length - 1] : null;
+      indexCalState.selectedDate = selectedDate;
+    }
+    function monthReturn(key){
+      var compounded = 1, count = 0;
+      for (var mi = 0; mi < monthDates.length; mi++){
+        var leg = (byDate[monthDates[mi]] || {})[key];
+        if (!leg || leg.chPct == null || isNaN(leg.chPct)) continue;
+        compounded *= 1 + Number(leg.chPct) / 100;
+        count++;
+      }
+      return count ? (compounded - 1) * 100 : null;
+    }
+    var monthReturns = {};
+    IDX_CAL_ORDER.forEach(function(k){ monthReturns[k] = monthReturn(k); });
+    var riskAvailable = IDX_CAL_RISK.filter(function(k){ return monthReturns[k] != null; });
+    var riskPositive = riskAvailable.filter(function(k){ return monthReturns[k] > 0; }).length;
+    var riskRanked = riskAvailable.slice().sort(function(a, b){ return monthReturns[b] - monthReturns[a]; });
+    var riskLeader = riskRanked[0] || null;
+    var riskLaggard = riskRanked.length ? riskRanked[riskRanked.length - 1] : null;
+    var vixMonth = monthReturns.vix;
+    var selectedMonth = monthReturns[idxKey];
+    var monthTone = 'mixed';
+    var monthBadge = 'Mixed';
+    var monthHeadline = 'Participation is mixed across the tape';
+    var monthWhy = 'Risk sleeves and volatility are not confirming one clean regime.';
+    var monthConfirm = 'Breadth improves to at least four risk sleeves while VIX remains lower.';
+    var monthBreak = 'VIX rises while SPY, IWM and SMH weaken together.';
+    if (riskAvailable.length >= 4 && riskPositive >= Math.ceil(riskAvailable.length * 0.75) && (vixMonth == null || vixMonth <= 0)){
+      monthTone = 'riskon'; monthBadge = 'Broad risk-on'; monthHeadline = 'Risk participation is broad';
+      monthWhy = riskPositive + ' of ' + riskAvailable.length + ' risk sleeves are positive' + (vixMonth != null ? ' while VIX is lower.' : '.');
+      monthConfirm = 'Small caps, semis and international equities stay positive while VIX remains lower.';
+      monthBreak = 'Breadth falls below four sleeves or VIX turns higher.';
+    } else if (riskAvailable.length >= 4 && riskPositive <= Math.floor(riskAvailable.length * 0.34) && (vixMonth == null || vixMonth > 0)){
+      monthTone = 'riskoff'; monthBadge = 'Defensive'; monthHeadline = 'Weak breadth is confirming risk pressure';
+      monthWhy = riskPositive + ' of ' + riskAvailable.length + ' risk sleeves are positive' + (vixMonth != null ? ' while VIX is higher.' : '.');
+      monthConfirm = 'VIX stays elevated while fewer than half of the risk sleeves recover.';
+      monthBreak = 'Breadth expands to four or more sleeves and VIX gives back the rise.';
+    } else if (IDX_CAL_RISK.indexOf(idxKey) >= 0 && riskAvailable.length >= 4 && riskPositive <= Math.ceil(riskAvailable.length / 2) && selectedMonth != null && selectedMonth > 0){
+      monthTone = 'narrow'; monthBadge = 'Narrow'; monthHeadline = IDX_CAL_LABELS[idxKey] + ' strength is not broad';
+      monthWhy = 'The selected sleeve is positive, but only ' + riskPositive + ' of ' + riskAvailable.length + ' risk sleeves agree.';
+      monthConfirm = 'IWM, SMH and VXUS join the move while VIX stays contained.';
+      monthBreak = IDX_CAL_LABELS[idxKey] + ' rolls over before breadth expands.';
+    }
+    var monthDecision = '<section class="idx-cal-decision idx-cal-decision-' + monthTone + '" aria-label="Cross-asset month read">' +
+      '<div class="idx-cal-decision-head"><div><span>' + (viewYm === todayYm ? 'Current month tape' : 'Viewed month tape') + '</span><h3>' + escapeHtml(monthHeadline) + '</h3><p>' + escapeHtml(monthWhy) + '</p></div><b>' + escapeHtml(monthBadge) + '</b></div>' +
+      '<div class="idx-cal-decision-grid">' +
+        '<div><small>' + IDX_CAL_LABELS[idxKey] + ' month</small><b class="' + idxCalPctCls((selectedMonth || 0) * idxInv) + '">' + (selectedMonth != null ? idxCalFmtPct(selectedMonth) : '—') + '</b></div>' +
+        '<div><small>Risk breadth</small><b>' + riskPositive + '/' + riskAvailable.length + '</b><em>positive sleeves</em></div>' +
+        '<div><small>Leader</small><b>' + (riskLeader ? IDX_CAL_LABELS[riskLeader] : '—') + '</b><em>' + (riskLeader ? idxCalFmtPct(monthReturns[riskLeader]) : 'no month data') + '</em></div>' +
+        '<div><small>VIX month</small><b class="' + idxCalPctCls((vixMonth || 0) * -1) + '">' + (vixMonth != null ? idxCalFmtPct(vixMonth) : '—') + '</b><em>' + (vixMonth == null ? 'not available' : vixMonth <= 0 ? 'stress eased' : 'stress rose') + '</em></div>' +
+      '</div>' +
+      '<div class="idx-cal-decision-tests"><div><span>Read strengthens if</span><b>' + escapeHtml(monthConfirm) + '</b></div><div><span>Read breaks if</span><b>' + escapeHtml(monthBreak) + '</b></div></div>' +
+      (riskLeader && riskLaggard && riskLeader !== riskLaggard ? '<p class="idx-cal-decision-note">Leadership spread: ' + IDX_CAL_LABELS[riskLeader] + ' ' + idxCalFmtPct(monthReturns[riskLeader]) + ' vs ' + IDX_CAL_LABELS[riskLaggard] + ' ' + idxCalFmtPct(monthReturns[riskLaggard]) + '.</p>' : '') +
+    '</section>';
+
+    var selectedRow = selectedDate ? byDate[selectedDate] : null;
+    var dayDetail = '';
+    if (selectedRow){
+      var dayRisk = IDX_CAL_RISK.filter(function(k){ var leg = selectedRow[k]; return leg && leg.chPct != null && !isNaN(leg.chPct); });
+      var dayUp = dayRisk.filter(function(k){ return Number(selectedRow[k].chPct) > 0; }).length;
+      var dayVix = selectedRow.vix && selectedRow.vix.chPct != null ? Number(selectedRow.vix.chPct) : null;
+      var dayTone = 'mixed';
+      var dayHeadline = 'Rotation, not a clean market-wide signal';
+      var dayCopy = dayUp + ' of ' + dayRisk.length + ' risk sleeves closed higher' + (dayVix != null ? '; VIX moved ' + idxCalFmtPct(dayVix) + '.' : '.');
+      if (dayRisk.length >= 4 && dayUp >= Math.ceil(dayRisk.length * 0.75) && (dayVix == null || dayVix <= 0)){
+        dayTone = 'riskon'; dayHeadline = 'Breadth and volatility agreed on risk-on';
+      } else if (dayRisk.length >= 4 && dayUp <= Math.floor(dayRisk.length * 0.34) && (dayVix == null || dayVix > 0)){
+        dayTone = 'riskoff'; dayHeadline = 'Weak breadth and volatility agreed on risk-off';
+      }
+      var dayTiles = IDX_CAL_ORDER.map(function(k){
+        var leg = selectedRow[k];
+        if (!leg || leg.chPct == null || isNaN(leg.chPct)) return '';
+        var ch = Number(leg.chPct);
+        return '<div class="idx-cal-day-tile ' + idxCalPctCls(ch * (IDX_CAL_INVERT[k] ? -1 : 1)) + '"><span>' + IDX_CAL_LABELS[k] + '</span><b>' + idxCalFmtPct(ch) + '</b><small>' + (leg.c != null ? 'close ' + idxCalFmtClose(leg.c) : '') + '</small></div>';
+      }).join('');
+      dayDetail = '<section class="idx-cal-day idx-cal-day-' + dayTone + '" aria-label="Selected trading day cross-asset read">' +
+        '<div class="idx-cal-day-head"><div><span>Selected session · ' + escapeHtml(fmtCalendarDateShort(selectedDate)) + '</span><h3>' + escapeHtml(dayHeadline) + '</h3><p>' + escapeHtml(dayCopy) + '</p></div>' +
+          '<div class="idx-cal-day-selected"><small>' + IDX_CAL_LABELS[idxKey] + '</small><b class="' + (selectedRow[idxKey] && selectedRow[idxKey].chPct != null ? idxCalPctCls(Number(selectedRow[idxKey].chPct) * idxInv) : '') + '">' + (selectedRow[idxKey] && selectedRow[idxKey].chPct != null ? idxCalFmtPct(Number(selectedRow[idxKey].chPct)) : '—') + '</b></div></div>' +
+        '<div class="idx-cal-day-grid">' + dayTiles + '</div>' +
+        '<div class="idx-cal-day-rule"><div><span>Confirmation</span><b>SPY, IWM and SMH agree while VIX moves in the opposite risk direction.</b></div><div><span>Guardrail</span><b>One session is context; require follow-through before changing exposure.</b></div></div>' +
+        '<div class="idx-cal-day-actions"><button type="button" data-idx-go="market">Open Market Analysis</button><button type="button" data-idx-go="calendar">Check event calendar</button></div>' +
+      '</section>';
+    }
 
     // Index toggle (SPY / QQQ / IWM / DIA / VXUS / TLT / GLD / VIX).
     var toggle = '<div class="idx-cal-toggle" role="tablist" aria-label="Index">' +
@@ -22345,20 +22441,19 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var ch = (leg && leg.chPct != null && !isNaN(leg.chPct)) ? Number(leg.chPct) : null;
       var has = ch != null;
       var isToday = date === todayYmd;
-      var cls = 'idx-cal-cell' + (isToday ? ' is-today' : '') + (has ? ' ' + idxCalPctCls(ch * idxInv) : ' is-empty');
+      var isSelected = date === selectedDate;
+      var cls = 'idx-cal-cell' + (isToday ? ' is-today' : '') + (isSelected ? ' is-selected' : '') + (has ? ' ' + idxCalPctCls(ch * idxInv) : ' is-empty');
       var title = IDX_CAL_LABELS[idxKey] + ' · ' + date +
         (has ? ' · ' + idxCalFmtPct(ch) : '') +
         (leg && leg.c != null ? ' · close ' + idxCalFmtClose(leg.c) : '');
-      return '<div class="' + cls + '" title="' + escapeHtml(title) + '">' +
+      var open = day ? '<button type="button" class="' + cls + '" data-idx-day="' + escapeHtml(date) + '" aria-pressed="' + (isSelected ? 'true' : 'false') + '" aria-label="' + escapeHtml(title + ' · open cross-asset session') + '" title="' + escapeHtml(title) + '">' : '<div class="' + cls + '" title="' + escapeHtml(title) + '">';
+      var close = day ? '</button>' : '</div>';
+      return open +
           '<span class="idx-cal-num">' + dayNum + '</span>' +
           (has ? '<span class="idx-cal-pct">' + idxCalFmtPct(ch) + '</span>' : '<span class="idx-cal-pct idx-cal-pct-na">·</span>') +
-        '</div>';
+        close;
     }
     var WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-    var ymp = viewYm.split('-'); var vy = Number(ymp[0]); var vmi = Number(ymp[1]) - 1;
-    var firstWd = new Date(Date.UTC(vy, vmi, 1)).getUTCDay();
-    var daysInMonth = new Date(Date.UTC(vy, vmi + 1, 0)).getUTCDate();
-    var prevDays = new Date(Date.UTC(vy, vmi, 0)).getUTCDate();
     var cells = [];
     for (var lead = 0; lead < firstWd; lead++){
       cells.push('<div class="idx-cal-cell is-out" aria-hidden="true"><span class="idx-cal-num">' + (prevDays - firstWd + 1 + lead) + '</span></div>');
@@ -22406,7 +22501,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         ? (n + ' session' + (n === 1 ? '' : 's') + (first ? ' since ' + fmtCalendarDateShort(first) : ''))
         : 'No sessions tracked yet';
     }
-    root.innerHTML = toggle + monthbar + grid + summary;
+    root.innerHTML = toggle + monthbar + monthDecision + grid + summary + dayDetail;
   }
   function bindIndexCalControls(){
     if (indexCalState.bound) return;
@@ -22419,12 +22514,21 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (!ev.target.closest) return;
       var tabBtn = ev.target.closest('[data-idx-cal]');
       if (tabBtn){ indexCalState.index = tabBtn.getAttribute('data-idx-cal') || 'spy'; renderIndexCal(); return; }
+      var dayBtn = ev.target.closest('[data-idx-day]');
+      if (dayBtn){ indexCalState.selectedDate = dayBtn.getAttribute('data-idx-day') || null; renderIndexCal(); return; }
+      var goBtn = ev.target.closest('[data-idx-go]');
+      if (goBtn){
+        var targetTab = document.querySelector('[data-page-tab="' + goBtn.getAttribute('data-idx-go') + '"]');
+        if (targetTab) targetTab.click();
+        return;
+      }
       var navBtn = ev.target.closest('[data-idx-nav]');
       if (navBtn){
         if (navBtn.disabled) return;
         var dir = navBtn.getAttribute('data-idx-nav');
         if (dir === 'today') indexCalState.viewYm = calTodayYm();
         else indexCalState.viewYm = calAddMonthsYm(indexCalState.viewYm || calTodayYm(), dir === 'next' ? 1 : -1);
+        indexCalState.selectedDate = null;
         renderIndexCal();
         return;
       }

@@ -8885,6 +8885,35 @@ button.cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 /* Index calendar — monthly SPY/QQQ/IWM daily-return grid (premium tab). Reuses
    the Calendar tab's .cal-monthbar / .cal-nav-btn / .cal-today-btn / .cal-grid-wd. */
 .idx-cal-root { display: flex; flex-direction: column; gap: var(--s-3); }
+.idx-cal-decision {
+  padding: 15px; border: 1px solid var(--border); border-top: 3px solid var(--warn); border-radius: var(--r-3);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--warn) 6%, var(--surface)), var(--surface) 58%);
+}
+.idx-cal-decision-riskon { border-top-color: var(--pos); background: linear-gradient(145deg, color-mix(in srgb, var(--pos) 6%, var(--surface)), var(--surface) 58%); }
+.idx-cal-decision-riskoff { border-top-color: var(--neg); background: linear-gradient(145deg, color-mix(in srgb, var(--neg) 6%, var(--surface)), var(--surface) 58%); }
+.idx-cal-decision-narrow { border-top-color: var(--warn); }
+.idx-cal-decision-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.idx-cal-decision-head > div { min-width: 0; }
+.idx-cal-decision-head span, .idx-cal-day-head span {
+  display: block; margin-bottom: 5px; font: 700 9.5px/1 var(--font-sans); letter-spacing: .08em; text-transform: uppercase; color: var(--accent);
+}
+.idx-cal-decision-head h3, .idx-cal-day-head h3 { margin: 0; font: 750 18px/1.2 var(--font-sans); color: var(--text-strong); }
+.idx-cal-decision-head p, .idx-cal-day-head p { margin: 5px 0 0; max-width: 72ch; font: 400 12px/1.45 var(--font-sans); color: var(--muted); }
+.idx-cal-decision-head > b { flex: 0 0 auto; padding: 5px 9px; border: 1px solid color-mix(in srgb, currentColor 42%, var(--border)); border-radius: var(--r-pill); color: var(--warn); background: var(--surface); font: 750 9.5px/1 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; }
+.idx-cal-decision-riskon .idx-cal-decision-head > b { color: var(--pos); }
+.idx-cal-decision-riskoff .idx-cal-decision-head > b { color: var(--neg); }
+.idx-cal-decision-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.idx-cal-decision-grid > div { min-width: 0; padding: 9px 10px; border: 1px solid color-mix(in srgb, var(--border) 76%, transparent); border-radius: var(--r-2); background: color-mix(in srgb, var(--surface-2) 72%, transparent); }
+.idx-cal-decision-grid small, .idx-cal-day-selected small { display: block; font: 700 8.5px/1.2 var(--font-sans); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.idx-cal-decision-grid b { display: block; margin-top: 5px; font: 700 15px/1.2 var(--font-mono); color: var(--text-strong); }
+.idx-cal-decision-grid em { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 9.5px/1.25 var(--font-sans); color: var(--muted); font-style: normal; }
+.idx-cal-decision-grid b.idx-up { color: var(--pos); }
+.idx-cal-decision-grid b.idx-dn { color: var(--neg); }
+.idx-cal-decision-tests, .idx-cal-day-rule { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+.idx-cal-decision-tests > div, .idx-cal-day-rule > div { min-width: 0; padding: 9px 10px; border: 1px solid var(--border); border-radius: var(--r-2); background: var(--surface); }
+.idx-cal-decision-tests span, .idx-cal-day-rule span { display: block; margin-bottom: 4px; font: 700 8.5px/1.2 var(--font-sans); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.idx-cal-decision-tests b, .idx-cal-day-rule b { display: block; font: 650 11px/1.4 var(--font-sans); color: var(--text-strong); }
+.idx-cal-decision-note { margin: 8px 0 0; font: 500 10.5px/1.4 var(--font-sans); color: var(--muted); }
 .idx-cal-toggle { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 3px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-pill); align-self: flex-start; }
 .idx-cal-tab { appearance: none; border: 0; background: transparent; color: var(--muted-strong); font: 600 12px/1 var(--font-mono); letter-spacing: .04em; padding: 6px 14px; border-radius: var(--r-pill); cursor: pointer; transition: color .12s, background .12s; }
 .idx-cal-tab:hover { color: var(--text); }
@@ -8892,6 +8921,10 @@ button.cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .idx-cal-monthbar { margin-top: 2px; }
 .idx-cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
 .idx-cal-cell { border: 1px solid var(--border); border-radius: var(--r-2); background: var(--surface-2); min-height: 68px; padding: 6px 7px; display: flex; flex-direction: column; justify-content: space-between; gap: 4px; overflow: hidden; }
+button.idx-cal-cell { appearance: none; width: 100%; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+button.idx-cal-cell:hover { border-color: color-mix(in srgb, var(--accent) 56%, var(--border)); transform: translateY(-1px); }
+button.idx-cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.idx-cal-cell.is-selected { box-shadow: inset 0 0 0 2px var(--accent); border-color: var(--accent); }
 .idx-cal-cell.is-out { background: transparent; border-color: transparent; min-height: 0; }
 .idx-cal-cell.is-out .idx-cal-num { color: color-mix(in srgb, var(--muted) 55%, transparent); }
 .idx-cal-cell.is-skel { min-height: 68px; align-items: center; justify-content: center; }
@@ -8911,15 +8944,42 @@ button.cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .idx-cal-sum-stat b { font-variant-numeric: tabular-nums; }
 .idx-cal-sum-ret { margin-left: auto; }
 .idx-cal-sum-label { font: 500 11px/1 var(--font-mono); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.idx-cal-day { padding: 14px; border: 1px solid var(--border); border-left: 3px solid var(--warn); border-radius: var(--r-3); background: var(--surface); }
+.idx-cal-day-riskon { border-left-color: var(--pos); }
+.idx-cal-day-riskoff { border-left-color: var(--neg); }
+.idx-cal-day-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.idx-cal-day-selected { flex: 0 0 auto; min-width: 86px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-2); background: var(--surface-2); text-align: right; }
+.idx-cal-day-selected b { display: block; margin-top: 5px; font: 750 16px/1.1 var(--font-mono); color: var(--text-strong); }
+.idx-cal-day-selected b.idx-up { color: var(--pos); }
+.idx-cal-day-selected b.idx-dn { color: var(--neg); }
+.idx-cal-day-grid { display: grid; grid-template-columns: repeat(9, minmax(76px, 1fr)); gap: 7px; margin-top: 11px; overflow-x: auto; padding-bottom: 3px; }
+.idx-cal-day-tile { min-width: 0; padding: 8px 9px; border: 1px solid var(--border); border-radius: var(--r-2); background: var(--surface-2); }
+.idx-cal-day-tile > span { display: block; font: 700 9px/1 var(--font-mono); color: var(--muted); }
+.idx-cal-day-tile > b { display: block; margin-top: 5px; font: 750 13px/1.1 var(--font-mono); color: var(--text-strong); }
+.idx-cal-day-tile > small { display: block; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 8.5px/1.2 var(--font-sans); color: var(--muted); }
+.idx-cal-day-tile.idx-up { border-color: color-mix(in srgb, var(--pos) 38%, var(--border)); background: color-mix(in srgb, var(--pos) 6%, var(--surface)); }
+.idx-cal-day-tile.idx-up > b { color: var(--pos); }
+.idx-cal-day-tile.idx-dn { border-color: color-mix(in srgb, var(--neg) 38%, var(--border)); background: color-mix(in srgb, var(--neg) 6%, var(--surface)); }
+.idx-cal-day-tile.idx-dn > b { color: var(--neg); }
+.idx-cal-day-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
+.idx-cal-day-actions button { min-height: 34px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: 650 10.5px/1.15 var(--font-sans); cursor: pointer; }
+.idx-cal-day-actions button:hover, .idx-cal-day-actions button:focus-visible { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 .idx-cal-empty { padding: 24px; text-align: center; color: var(--muted); }
 .idx-up { color: var(--pos); }
 .idx-dn { color: var(--neg); }
 @media (max-width: 640px) {
+  .idx-cal-decision, .idx-cal-day { padding: 12px; }
+  .idx-cal-decision-head h3, .idx-cal-day-head h3 { font-size: 16px; }
+  .idx-cal-decision-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .idx-cal-decision-tests, .idx-cal-day-rule { grid-template-columns: 1fr; }
   .idx-cal-grid { gap: 3px; }
   .idx-cal-cell { min-height: 52px; padding: 4px 5px; }
   .idx-cal-pct { font-size: 11px; }
   .idx-cal-summary { font-size: 12px; }
   .idx-cal-sum-ret { margin-left: 0; }
+  .idx-cal-day-grid { grid-template-columns: repeat(9, minmax(84px, 1fr)); }
+  .idx-cal-day-actions { display: grid; grid-template-columns: 1fr; }
+  .idx-cal-day-actions button { min-height: 42px; width: 100%; }
 }
 .cal-mini {
   display: flex;
