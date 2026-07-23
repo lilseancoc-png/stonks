@@ -18494,6 +18494,147 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     root.innerHTML = html;
     bindBriefChips(root);
   }
+  function ivtFreshnessMeta(d){
+    d = d || {};
+    var iso = d.builtAtIso || (d.asOf ? String(d.asOf) + 'T20:00:00Z' : '');
+    var gap = marketSessionGap(iso);
+    if (gap === 0){
+      return {
+        current: true,
+        label: 'Current daily IV map',
+        detail: d.asOf ? 'IV history through ' + ivtDateLabel(d.asOf) + '.' : 'Latest completed IV history.',
+      };
+    }
+    return {
+      current: false,
+      label: 'Reference only · stale IV',
+      detail: gap == null
+        ? 'The IV snapshot date could not be verified.'
+        : gap + ' market session' + (gap === 1 ? '' : 's') + ' behind.',
+    };
+  }
+  function ivtDecisionState(r){
+    r = r || {};
+    var chg5 = r.chg5dPct != null && isFinite(r.chg5dPct) ? Number(r.chg5dPct) : null;
+    var eventDays = r.earnings && r.earnings.inDays != null && isFinite(r.earnings.inDays)
+      ? Number(r.earnings.inDays)
+      : null;
+    if (chg5 != null && chg5 <= -12) return { key:'unwind', label:'IV unwinding' };
+    if (eventDays != null && eventDays <= 14 && (r.tier || r.elevated)) return { key:'event', label:'Event premium' };
+    if ((r.tier === 'surging' || r.tier === 'trending') && !r.earnings) return { key:'unexplained', label:'Unexplained ramp' };
+    if (r.elevated) return { key:'rich', label:'Rich premium' };
+    if (r.tier) return { key:'building', label:'IV building' };
+    if (chg5 != null && chg5 >= 10) return { key:'ramping', label:'IV ramping' };
+    return { key:'context', label:'Context only' };
+  }
+  function renderIvTrendDecision(d, rows, breadth, mode, query){
+    rows = Array.isArray(rows) ? rows : [];
+    breadth = breadth || {};
+    var filtered = !!query || mode !== 'score';
+    if (!rows.length){
+      return '<section class="flow-decision ivt-decision flow-decision-empty" aria-label="Trending IV decision desk">' +
+        '<div class="flow-decision-empty-copy"><span>Premium decision desk</span><h3>No IV setup survives this view</h3>' +
+        '<p>The current filter or ticker search removed every ranked name. Reset the view before concluding the market has no premium setup.</p></div>' +
+        '<button type="button" class="flow-decision-action is-primary" data-ivt-reset>Reset filters</button></section>';
+    }
+    var top = rows[0] || {};
+    var sym = String(top.symbol || '').toUpperCase();
+    var freshness = ivtFreshnessMeta(d);
+    var state = ivtDecisionState(top);
+    var ivText = ivtIvPct(top.iv);
+    var meanText = ivtIvPct(top.mean);
+    var relText = top.relPct != null && isFinite(top.relPct)
+      ? (top.relPct >= 0 ? '+' : '') + Number(top.relPct).toFixed(0) + '% vs own avg'
+      : 'own-history comparison unavailable';
+    var chg5Text = top.chg5dPct != null && isFinite(top.chg5dPct)
+      ? (top.chg5dPct >= 0 ? '+' : '') + Number(top.chg5dPct).toFixed(1) + '%'
+      : 'n/a';
+    var chg5Sub = top.risingStreak >= 2
+      ? top.risingStreak + ' sessions rising'
+      : top.chg20dPct != null && isFinite(top.chg20dPct)
+        ? (top.chg20dPct >= 0 ? '+' : '') + Number(top.chg20dPct).toFixed(1) + '% over 20d'
+        : 'short-term slope unavailable';
+    var eventText = top.earnings && top.earnings.date
+      ? (top.earnings.inDays === 0 ? 'Today' : top.earnings.inDays === 1 ? 'Tomorrow' : top.earnings.inDays + 'd to earnings')
+      : 'No print inside 45d';
+    var eventSub = top.earnings && top.earnings.impliedMovePct != null
+      ? '±' + Number(top.earnings.impliedMovePct).toFixed(1) + '% implied move'
+      : top.earnings && top.earnings.session && top.earnings.session !== 'TBD'
+        ? top.earnings.session
+        : 'direction is not supplied by IV';
+    var headline = '';
+    var copy = '';
+    var confirm = '';
+    var invalidate = '';
+    if (state.key === 'event'){
+      headline = sym + ' options are pricing the catalyst aggressively.';
+      copy = 'IV is ' + ivText + ' versus a ' + meanText + ' own-history average, with earnings ' +
+        (top.earnings.inDays === 0 ? 'today' : 'in ' + top.earnings.inDays + ' days') +
+        (top.earnings.impliedMovePct != null ? ' and a ±' + Number(top.earnings.impliedMovePct).toFixed(1) + '% implied move.' : '.') +
+        ' That is a price tag, not a direction call.';
+      confirm = 'A long-premium trade clears only when your price target exceeds the implied move and the Grade tab confirms the side; otherwise use defined risk or wait.';
+      invalidate = 'IV rolls over before the print, the directional thesis fails, or the planned underlying move no longer clears contract break-even.';
+    } else if (state.key === 'unexplained'){
+      headline = sym + "'s IV ramp has no scheduled earnings explanation.";
+      copy = 'Premium is repricing without a known print inside 45 days. Investigate news, flow, and volume before paying up; rising IV alone does not tell you which direction wins.';
+      confirm = 'Unusual flow or volume and the Grade tab agree on direction while IV stays above its own average and the 5-session ramp remains positive.';
+      invalidate = 'No catalyst appears, the 5-session IV change turns negative, or IV falls back toward its own average.';
+    } else if (state.key === 'unwind'){
+      headline = sym + ' premium is deflating fast.';
+      copy = 'IV fell ' + Math.abs(Number(top.chg5dPct)).toFixed(1) + '% over five sessions. Long options are losing volatility support even if the stock direction is right.';
+      confirm = 'For a defined-risk premium sale, IV remains above its own average, price stays inside the thesis range, and no near-term catalyst can restart the bid.';
+      invalidate = 'IV reaccelerates by 10% or more over five sessions, price breaks the thesis range, or a new event enters the calendar.';
+    } else if (state.key === 'rich'){
+      headline = sym + ' premium is rich, but not necessarily getting richer.';
+      copy = 'Current IV sits well above the name’s own history. Treat that as an expensive entry for long options and as a volatility-risk warning—not an automatic short-premium signal.';
+      confirm = 'A defined-risk premium sale also has a range thesis and no binary event; a long-premium trade forecasts a move larger than the market already prices.';
+      invalidate = 'A directional breakout, renewed IV acceleration, or fresh catalyst makes the rich-premium mean-reversion thesis unsafe.';
+    } else if (state.key === 'building' || state.key === 'ramping'){
+      headline = sym + ' options are repricing, but the setup is still building.';
+      copy = 'The IV trend is moving higher without yet becoming a complete trade. Use the screen to identify where contract pricing is changing, then establish direction elsewhere.';
+      confirm = 'IV remains above its own average, the 5-session change stays positive, and price or flow supplies an independent directional trigger.';
+      invalidate = 'The IV ramp stalls, falls back below its average, or the directional evidence conflicts.';
+    } else {
+      headline = 'No premium trade is ready from this IV read alone.';
+      copy = sym + ' is the top row in this view, but its volatility state does not clear an event, richness, ramp, or unwind threshold.';
+      confirm = 'A material IV dislocation develops and an independent price, flow, or catalyst thesis supplies direction.';
+      invalidate = 'IV remains near its own norm or the only evidence is a small one-day change.';
+    }
+    if (!freshness.current){
+      headline = 'This Trending IV map is reference only.';
+      copy = sym + ' was the strongest row in an older snapshot. Daily IV relationships can change quickly around news and earnings, so do not price a contract from this state.';
+      confirm = 'A current daily build reproduces the same richness or ramp and the live contract still clears the Grade tab.';
+      invalidate = 'Fresh IV, earnings timing, or the 5-session slope changes the state.';
+    }
+    var modeLabel = state.key === 'unwind' ? 'Show 5d falling' : 'Show 5d rising';
+    var modeKey = state.key === 'unwind' ? 'fall5' : 'rise5';
+    return '<section class="flow-decision ivt-decision flow-decision-' + (freshness.current ? 'mixed' : 'reference') + '" aria-label="Trending IV decision desk">' +
+      '<div class="flow-decision-main">' +
+        '<div class="flow-decision-head"><span>Premium decision desk' + (filtered ? ' · current view' : '') + '</span><em>' + escapeHtml(freshness.label) + '</em></div>' +
+        '<h3>' + escapeHtml(headline) + '</h3><p>' + escapeHtml(copy) + '</p>' +
+        '<div class="flow-decision-rules"><div><span>Clears the risk gate when</span><b>' + escapeHtml(confirm) + '</b></div>' +
+          '<div><span>Stand down when</span><b>' + escapeHtml(invalidate) + '</b></div></div>' +
+      '</div>' +
+      '<aside class="flow-decision-side">' +
+        '<div class="flow-decision-source"><span>' + escapeHtml(freshness.detail) + '</span><small>IV prices magnitude; direction must come from another screen.</small></div>' +
+        '<div class="flow-decision-metrics">' +
+          '<div><span>Top focus</span><b>' + escapeHtml(sym) + '</b><small>' + escapeHtml(state.label) + '</small></div>' +
+          '<div><span>Current IV</span><b>' + escapeHtml(ivText) + '</b><small>' + escapeHtml(relText) + '</small></div>' +
+          '<div><span>5-session IV</span><b>' + escapeHtml(chg5Text) + '</b><small>' + escapeHtml(chg5Sub) + '</small></div>' +
+          '<div><span>Catalyst</span><b>' + escapeHtml(eventText) + '</b><small>' + escapeHtml(eventSub) + '</small></div>' +
+        '</div>' +
+        '<p class="flow-decision-context"><b>Desk breadth:</b> ' + (breadth.surging || 0) + ' surging · ' +
+          (breadth.trending || 0) + ' trending · ' + (breadth.building || 0) + ' building · ' +
+          (breadth.elevated || 0) + ' elevated · ' + (breadth.deflating || 0) + ' deflating fast.</p>' +
+        '<div class="flow-decision-actions">' +
+          '<button type="button" class="flow-decision-action is-primary" data-ivt-focus="' + escapeHtml(sym) + '">Focus ' + escapeHtml(sym) + '</button>' +
+          '<button type="button" class="flow-decision-action" data-ivt-mode="' + modeKey + '">' + modeLabel + '</button>' +
+          '<a class="flow-decision-action" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '">Open Grade</a>' +
+          (filtered ? '<button type="button" class="flow-decision-action" data-ivt-reset>Reset filters</button>' : '') +
+        '</div>' +
+      '</aside>' +
+    '</section>';
+  }
   function loadIvTrend(){
     if ((ivTrendState.data && !tabDataStale(ivTrendState)) || ivTrendState.loading){ renderIvTrend(); return; }
     ivTrendState.loading = true;
@@ -18521,17 +18662,36 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (empty) empty.hidden = true;
     var tierCounts = { surging: 0, trending: 0, building: 0 };
     var elevatedCount = 0;
+    var deflatingCount = 0;
     for (var c0=0; c0<all.length; c0++){
       var rc = all[c0]; if (!rc) continue;
       if (rc.tier && tierCounts[rc.tier] != null) tierCounts[rc.tier]++;
       if (rc.elevated) elevatedCount++;
+      if (rc.chg5dPct != null && isFinite(rc.chg5dPct) && Number(rc.chg5dPct) <= -12) deflatingCount++;
     }
     var flaggedTotal = tierCounts.surging + tierCounts.trending + tierCounts.building;
     if (eye) eye.textContent = (d.asOf ? 'as of ' + d.asOf + ' · ' : '') + flaggedTotal + ' trending · ' + elevatedCount + ' elevated / ' + all.length + ' ranked';
     // Reset a tier/elevated filter whose bucket emptied on a data refresh.
     var mode = ivTrendState.sort || 'score';
     if ((tierCounts[mode] != null && tierCounts[mode] === 0) || (mode === 'elevated' && !elevatedCount)){ mode = 'score'; ivTrendState.sort = 'score'; }
-    var html = '';
+    var sorted = ivtApplySort(all, mode);
+    // Free-text search layers on top of the chip filter — matches symbol or
+    // company name, filters the decision desk, highlight cards, and table.
+    var ivtQuery = String(ivTrendState.search || '').trim().toUpperCase();
+    if (ivtQuery){
+      sorted = sorted.filter(function(r){
+        if (!r) return false;
+        return String(r.symbol || '').toUpperCase().indexOf(ivtQuery) !== -1 ||
+          String(r.name || '').toUpperCase().indexOf(ivtQuery) !== -1;
+      });
+    }
+    var html = renderIvTrendDecision(d, sorted, {
+      surging: tierCounts.surging,
+      trending: tierCounts.trending,
+      building: tierCounts.building,
+      elevated: elevatedCount,
+      deflating: deflatingCount,
+    }, mode, ivtQuery);
     // Deterministic summary strip (baked by buildIvTrendSummary in build.mjs):
     // standouts only — names way above their own norm, deflating fast,
     // ramping, climbing with no catalyst, or on a long rising streak. Each
@@ -18587,17 +18747,6 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     html += '<div class="ivt-sort" role="toolbar" aria-label="Sort or filter the ranked tickers">' + sortHtml +
       '<input type="search" id="ivt-search" class="ivt-search" placeholder="Search ticker or name…" value="' + escapeHtml(ivTrendState.search || '') + '" autocomplete="off" spellcheck="false" aria-label="Filter Trending-IV tickers by symbol or company name"></div>';
-    var sorted = ivtApplySort(all, mode);
-    // Free-text search layers on top of the chip filter — matches symbol or
-    // company name, filters both the highlight cards and the ranked table.
-    var ivtQuery = String(ivTrendState.search || '').trim().toUpperCase();
-    if (ivtQuery){
-      sorted = sorted.filter(function(r){
-        if (!r) return false;
-        return String(r.symbol || '').toUpperCase().indexOf(ivtQuery) !== -1 ||
-          String(r.name || '').toUpperCase().indexOf(ivtQuery) !== -1;
-      });
-    }
     // The highlight cards follow the CHIP selection only — a ranked-table
     // header sort must not reshuffle the curated standouts strip above it,
     // so derive the flagged set before layering the column sort on.
@@ -18670,6 +18819,46 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     root.innerHTML = html;
     bindBriefChips(root);
+    var decisionFocus = root.querySelectorAll('[data-ivt-focus]');
+    for (var df=0; df<decisionFocus.length; df++){
+      decisionFocus[df].addEventListener('click', function(){
+        var sym = String(this.getAttribute('data-ivt-focus') || '').toUpperCase();
+        ivTrendState.search = sym;
+        ivTrendState.sort = 'score';
+        ivTrendState.colSort = null;
+        ivTrendState.showAll = false;
+        renderIvTrend();
+        requestAnimationFrame(function(){
+          var links = root.querySelectorAll('.ivt-card [data-sym], .ivt-trow-symbtn[data-sym]');
+          for (var i3=0; i3<links.length; i3++){
+            if (String(links[i3].getAttribute('data-sym') || '').toUpperCase() === sym){
+              if (links[i3].scrollIntoView) links[i3].scrollIntoView({ behavior:'smooth', block:'center' });
+              break;
+            }
+          }
+        });
+      });
+    }
+    var decisionModes = root.querySelectorAll('[data-ivt-mode]');
+    for (var dm=0; dm<decisionModes.length; dm++){
+      decisionModes[dm].addEventListener('click', function(){
+        ivTrendState.sort = this.getAttribute('data-ivt-mode') || 'score';
+        ivTrendState.search = '';
+        ivTrendState.colSort = null;
+        ivTrendState.showAll = false;
+        renderIvTrend();
+      });
+    }
+    var decisionReset = root.querySelectorAll('[data-ivt-reset]');
+    for (var dr=0; dr<decisionReset.length; dr++){
+      decisionReset[dr].addEventListener('click', function(){
+        ivTrendState.sort = 'score';
+        ivTrendState.search = '';
+        ivTrendState.colSort = null;
+        ivTrendState.showAll = false;
+        renderIvTrend();
+      });
+    }
     var btn = $('ivt-show-all');
     if (btn) btn.addEventListener('click', function(){ ivTrendState.showAll = !ivTrendState.showAll; renderIvTrend(); });
     var sortBtns = root.querySelectorAll('.ivt-sort-chip');
