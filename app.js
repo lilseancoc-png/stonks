@@ -16756,6 +16756,52 @@
     return (v >= 0 ? '+' : '') + v.toFixed(dp == null ? 2 : dp) + '%';
   }
   function spillNum(v, dp){ return (v == null || !isFinite(v)) ? '—' : Number(v).toFixed(dp == null ? 2 : dp); }
+  function spillEventGuide(ev){
+    var followers = Array.isArray(ev && ev.followers) ? ev.followers : [];
+    var qualified = followers.filter(function(f){ return !!(f && f.pairQualified); });
+    var modeled = qualified.filter(function(f){ return f.expA != null && isFinite(f.expA) && f.expB != null && isFinite(f.expB); }).length;
+    var isolation = ev && ev.isolation || {};
+    var status = isolation.status || 'clean';
+    var tone = 'context';
+    var label = 'No qualified read-through yet';
+    var rule = 'Use this event as sector context only; the historical pair evidence does not clear every gate.';
+    if (status === 'conflict'){
+      tone = 'conflict';
+      label = 'Conflicted event window';
+      rule = 'Do not attribute the follower move to this print alone; another event overlaps the reaction window.';
+    } else if (status === 'flagged'){
+      tone = 'flagged';
+      label = qualified.length ? qualified.length + ' qualified peer map' + (qualified.length === 1 ? '' : 's') + ', but the window is flagged' : 'Flagged context only';
+      rule = 'Wait for the driver reaction, then treat any peer echo as shared-catalyst context rather than a clean read.';
+    } else if (qualified.length){
+      tone = 'clean';
+      label = qualified.length + ' qualified peer map' + (qualified.length === 1 ? '' : 's');
+      rule = 'Wait for the actual driver reaction; only then compare the qualified peers with the two expected-move models.';
+    }
+    return { tone:tone, label:label, rule:rule, qualified:qualified.length, total:followers.length, modeled:modeled };
+  }
+  function spillModelCredibility(fw){
+    fw = fw || {};
+    var a = fw.engineA || {}, b = fw.engineB || {};
+    var an = Number(a.n) || 0, bn = Number(b.n) || 0;
+    if (!an && !bn) return { tone:'building', label:'Forward record is still building', note:'Treat both expected-move columns as research estimates until events resolve.' };
+    if (Math.min(an, bn) < 5) return { tone:'early', label:'Early sample — no model preference', note:'Keep Engine A and Engine B side by side; the resolved sample is not deep enough to choose between them.' };
+    var aMae = Number(a.mae), bMae = Number(b.mae), aHit = Number(a.hit), bHit = Number(b.hit);
+    if (!isFinite(aMae) || !isFinite(bMae)) return { tone:'early', label:'Direction record available; size record incomplete', note:'Use hit rate as context and wait for both size-error series to fill in.' };
+    if (Math.abs(aMae - bMae) <= 0.15 && (!isFinite(aHit) || !isFinite(bHit) || Math.abs(aHit - bHit) <= 0.05)){
+      return { tone:'even', label:'No clear model leader', note:'The forward records are close enough that disagreement between the two models should remain visible.' };
+    }
+    var leader = aMae < bMae ? 'Engine A' : 'Engine B';
+    return { tone:'leader', label:leader + ' has the lower size error', note:'This is model calibration, not a direction call; continue showing both estimates until the lead persists.' };
+  }
+  function spillEngineCard(label, subtitle, s){
+    s = s || {};
+    var n = Number(s.n) || 0;
+    return '<div class="spill-engine"><span>' + escapeHtml(label) + '</span><small>' + escapeHtml(subtitle) + '</small>' +
+      '<div><b>' + (n ? Math.round((Number(s.hit) || 0) * 100) + '%' : '—') + '</b><em>direction hit</em></div>' +
+      '<div><b>' + (n && s.mae != null ? spillNum(s.mae) + 'pt' : '—') + '</b><em>size MAE</em></div>' +
+      '<p>' + n + ' resolved prediction' + (n === 1 ? '' : 's') + '</p></div>';
+  }
   function renderSpillover(){
     var root = document.getElementById('spillover-root');
     var empty = document.getElementById('spillover-empty');
@@ -16785,13 +16831,34 @@
     // matrix), so a query narrows everything to rows touching that symbol.
     var q = String(spilloverState.query || '').trim().toUpperCase();
     var matchSym = function(s){ return !!q && String(s || '').toUpperCase().indexOf(q) === 0; };
+    var upAll = Array.isArray(d.upcoming) ? d.upcoming : [];
+    var qualifiedAll = pairs.filter(function(p){ return p.gates && p.fdrPass; });
+    var cleanEvents = upAll.filter(function(ev){ return !ev.isolation || !ev.isolation.status || ev.isolation.status === 'clean'; }).length;
+    var mappedEvents = upAll.filter(function(ev){ return (ev.followers || []).some(function(f){ return !!f.pairQualified; }); }).length;
+    var fw = d.forward || {};
+    var modelRead = spillModelCredibility(fw);
+    html += '<section class="spill-desk" aria-label="Event read-through protocol">' +
+      '<div class="spill-desk-head"><span>Read-through protocol</span><h3>Map the peer echo, then wait for the driver</h3>' +
+        '<p>The matrix describes historical relationships. The driver&rsquo;s actual post-print direction is the missing input — the &plusmn; estimates are magnitude ranges, not calls.</p></div>' +
+      '<div class="spill-desk-grid">' +
+        '<div><small>Upcoming drivers</small><b>' + upAll.length + '</b></div>' +
+        '<div><small>Clean windows</small><b>' + cleanEvents + '</b></div>' +
+        '<div><small>Events with a map</small><b>' + mappedEvents + '</b></div>' +
+        '<div><small>Qualified pairs</small><b>' + qualifiedAll.length + '</b></div>' +
+      '</div>' +
+      '<div class="spill-protocol">' +
+        '<div><span>1</span><p><b>Map before the print</b><small>Start with isolation status and qualified pair evidence.</small></p></div>' +
+        '<div><span>2</span><p><b>Observe the driver</b><small>Wait for the actual reaction; never infer direction from &plusmn;.</small></p></div>' +
+        '<div><span>3</span><p><b>Validate the follower</b><small>Compare the echo with both models and priced/day, then Grade the name.</small></p></div>' +
+      '</div>' +
+      '<div class="spill-model-read spill-model-read-' + modelRead.tone + '"><span>Model credibility</span><b>' + escapeHtml(modelRead.label) + '</b><p>' + escapeHtml(modelRead.note) + '</p></div>' +
+    '</section>';
     html += '<div class="spill-tools">' +
       '<input class="spill-search" id="spill-search" type="search" placeholder="Filter by ticker — e.g. NVDA" value="' + escapeHtml(spilloverState.query || '') + '" autocomplete="off" spellcheck="false" aria-label="Filter spillover by ticker">' +
       (q ? '<button type="button" class="spill-btn" id="spill-clear">Clear</button>' : '') +
       '</div>';
     // Upcoming driver events with both engines' expected follower moves.
-    var up = Array.isArray(d.upcoming) ? d.upcoming : [];
-    var upAll = up;
+    var up = upAll;
     if (q){
       up = up.filter(function(ev){
         if (matchSym(ev.driver)) return true;
@@ -16809,23 +16876,26 @@
     } else {
       html += '<div class="spill-events">';
       up.forEach(function(ev){
+        var eventGuide = spillEventGuide(ev);
         var isoState = (ev.isolation && ev.isolation.status) || 'clean';
         var isoBits = [];
         if (ev.isolation){
           (ev.isolation.hard || []).forEach(function(r){ isoBits.push(r); });
           (ev.isolation.flags || []).forEach(function(r){ isoBits.push(r); });
         }
-        html += '<div class="spill-ev">' +
+        html += '<div class="spill-ev spill-ev-' + eventGuide.tone + '">' +
           '<div class="spill-ev-head">' + spillSymLink(ev.driver) +
           ' reports <b>' + escapeHtml(ev.date || '') + '</b> · ' + (ev.session === 'PM' ? 'after close' : 'before open') +
           (ev.daysUntil != null ? ' · in ' + ev.daysUntil + 'd' : '') +
           (ev.groupLabel ? ' <span class="spill-chip spill-ev-grp">' + escapeHtml(ev.groupLabel) + '</span>' : '') +
           ' <span class="spill-chip spill-iso-' + escapeHtml(isoState) + '"' + (isoBits.length ? ' title="' + escapeHtml(isoBits.join(', ')) + '"' : '') + '>' + escapeHtml(isoState) + '</span>' +
           (ev.impliedMovePct != null ? ' <span class="spill-ev-imp">own straddle implies ±' + spillNum(ev.impliedMovePct) + '%</span>' : '') +
-          '</div>';
+          '</div>' +
+          '<div class="spill-ev-guide"><div><span>Read-through rule</span><b>' + escapeHtml(eventGuide.label) + '</b><p>' + escapeHtml(eventGuide.rule) + '</p></div>' +
+            '<dl><div><dt>Qualified</dt><dd>' + eventGuide.qualified + '/' + eventGuide.total + '</dd></div><div><dt>Both models</dt><dd>' + eventGuide.modeled + '</dd></div></dl></div>';
         var fl = Array.isArray(ev.followers) ? ev.followers : [];
         if (fl.length){
-          html += '<div class="spill-scroll"><table class="spill-tbl"><thead><tr><th>Follower</th><th>Expected A (sector-routed)</th><th>Expected B (pair beta)</th><th>Priced / day</th><th>Pair status</th></tr></thead><tbody>';
+          html += '<div class="spill-scroll"><table class="spill-tbl"><thead><tr><th>Follower</th><th>Sector model</th><th>Pair model</th><th>Peer priced move</th><th>Evidence</th></tr></thead><tbody>';
           fl.forEach(function(f){
             html += '<tr><td>' + spillSymLink(f.follower) + '</td>' +
               '<td>' + (f.expA != null ? '±' + spillNum(f.expA) + '%' : '—') + '</td>' +
@@ -16848,13 +16918,10 @@
       }
     }
     // Engine A vs Engine B forward accuracy (from the resolved prediction log).
-    var fw = d.forward || {};
-    var fwLine = function(label, s){
-      if (!s || !s.n) return label + ': no resolved predictions yet';
-      return label + ': direction ' + Math.round((s.hit || 0) * 100) + '% · size MAE ' + spillNum(s.mae) + 'pt (' + s.n + ')';
-    };
-    html += '<div class="spill-forward"><b>Forward validation</b> — ' + (fw.resolvedEvents || 0) + ' resolved event' + ((fw.resolvedEvents || 0) === 1 ? '' : 's') + ' · ' +
-      fwLine('Engine A', fw.engineA) + ' · ' + fwLine('Engine B', fw.engineB) + '</div>';
+    html += '<section class="spill-validation"><div class="spill-validation-head"><span>Forward validation</span><h3>How credible are the expected-move columns?</h3>' +
+      '<p>' + (fw.resolvedEvents || 0) + ' resolved driver event' + ((fw.resolvedEvents || 0) === 1 ? '' : 's') + '. Direction hit measures sign; size MAE measures the miss in percentage points.</p></div>' +
+      '<div class="spill-engines">' + spillEngineCard('Engine A', 'sector-routed', fw.engineA) + spillEngineCard('Engine B', 'direct pair beta', fw.engineB) + '</div>' +
+      '<div class="spill-validation-verdict spill-model-read-' + modelRead.tone + '"><span>Current read</span><b>' + escapeHtml(modelRead.label) + '</b><p>' + escapeHtml(modelRead.note) + '</p></div></section>';
     // The pair matrix: one row builder shared by the qualified roll-up and
     // the per-sector detail tables.
     var spillRowHtml = function(p){

@@ -4194,6 +4194,35 @@ a.cx-tkr { border-bottom: 1px solid transparent; }
 
 /* --- Event Spillover Matrix (premium, docs/event-spillover.md) ---------- */
 .spill-root { display: flex; flex-direction: column; gap: 14px; }
+.spill-desk {
+  display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(360px, .9fr); gap: 14px 18px; padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border)); border-top: 3px solid var(--accent);
+  border-radius: var(--r-3); background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 7%, var(--surface)), var(--surface) 62%);
+}
+.spill-desk-head > span, .spill-validation-head > span {
+  display: block; margin-bottom: 5px; font: 700 10px/1 var(--font-sans); letter-spacing: .09em; text-transform: uppercase; color: var(--accent);
+}
+.spill-desk-head h3, .spill-validation-head h3 { margin: 0; font: 700 18px/1.2 var(--font-sans); color: var(--text-strong); }
+.spill-desk-head p, .spill-validation-head p { margin: 6px 0 0; max-width: 72ch; font: 400 12.5px/1.5 var(--font-sans); color: var(--muted); }
+.spill-desk-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.spill-desk-grid > div {
+  display: flex; flex-direction: column; justify-content: center; gap: 5px; min-width: 0; padding: 10px 11px;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent); border-radius: var(--r-2); background: color-mix(in srgb, var(--surface-2) 76%, transparent);
+}
+.spill-desk-grid small { font: 700 9px/1.2 var(--font-sans); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.spill-desk-grid b { font: 700 17px/1.2 var(--font-mono); color: var(--text-strong); }
+.spill-protocol { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.spill-protocol > div { display: flex; align-items: flex-start; gap: 9px; min-width: 0; padding: 10px 11px; border: 1px solid var(--border); border-radius: var(--r-2); background: var(--surface); }
+.spill-protocol > div > span { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 22px; width: 22px; height: 22px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font: 800 10px/1 var(--font-mono); }
+.spill-protocol p { margin: 0; min-width: 0; }
+.spill-protocol b { display: block; margin-bottom: 3px; font: 700 11.5px/1.25 var(--font-sans); color: var(--text-strong); }
+.spill-protocol small { display: block; font: 400 11px/1.4 var(--font-sans); color: var(--muted); }
+.spill-model-read { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(160px, .65fr) minmax(0, 1fr); align-items: center; gap: 7px 12px; padding: 9px 11px; border: 1px solid var(--border); border-radius: var(--r-2); background: color-mix(in srgb, var(--surface-2) 72%, transparent); }
+.spill-model-read > span, .spill-validation-verdict > span { font: 700 9px/1.2 var(--font-sans); letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+.spill-model-read > b, .spill-validation-verdict > b { font: 700 12px/1.35 var(--font-sans); color: var(--text-strong); }
+.spill-model-read > p, .spill-validation-verdict > p { margin: 0; font: 400 11px/1.4 var(--font-sans); color: var(--muted); }
+.spill-model-read-leader { border-color: color-mix(in srgb, var(--pos) 38%, var(--border)); background: color-mix(in srgb, var(--pos) 6%, var(--surface)); }
+.spill-model-read-early, .spill-model-read-building { border-color: color-mix(in srgb, var(--warn) 38%, var(--border)); background: color-mix(in srgb, var(--warn) 6%, var(--surface)); }
 .spill-tools { display: flex; align-items: center; gap: 8px; }
 .spill-search { flex: 0 1 280px; min-width: 160px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-1); padding: 8px 11px; font: 600 12.5px/1.2 var(--font-mono); letter-spacing: .03em; color: var(--text-strong); text-transform: uppercase; }
 .spill-search::placeholder { font: 400 12px/1.2 var(--font-sans); letter-spacing: 0; color: var(--muted); text-transform: none; }
@@ -4204,9 +4233,21 @@ a.cx-tkr { border-bottom: 1px solid transparent; }
 .spill-sub { font: 700 11px/1.2 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; color: var(--muted-strong); margin-top: 4px; }
 .spill-none { font: 400 12.5px/1.5 var(--font-sans); color: var(--muted); margin: 0; }
 .spill-events { display: flex; flex-direction: column; gap: 10px; }
-.spill-ev { border: 1px solid var(--border); border-radius: var(--r-1); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--surface); }
+.spill-ev { border: 1px solid var(--border); border-left: 3px solid var(--border); border-radius: var(--r-2); padding: 11px 12px; display: flex; flex-direction: column; gap: 9px; background: var(--surface); }
+.spill-ev-clean { border-left-color: var(--pos); }
+.spill-ev-flagged { border-left-color: var(--warn); }
+.spill-ev-conflict { border-left-color: var(--neg); }
+.spill-ev-context { border-left-color: var(--muted); }
 .spill-ev-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font: 400 13px/1.4 var(--font-sans); color: var(--text-strong); }
 .spill-ev-imp { font: 600 11.5px/1.2 var(--font-mono); color: var(--muted-strong); font-variant-numeric: tabular-nums; }
+.spill-ev-guide { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px 18px; padding: 10px 11px; border: 1px solid color-mix(in srgb, var(--border) 78%, transparent); border-radius: var(--r-2); background: color-mix(in srgb, var(--surface-2) 72%, transparent); }
+.spill-ev-guide > div > span { display: block; margin-bottom: 4px; font: 700 9px/1.2 var(--font-sans); letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+.spill-ev-guide > div > b { display: block; font: 700 12.5px/1.3 var(--font-sans); color: var(--text-strong); }
+.spill-ev-guide > div > p { margin: 4px 0 0; font: 400 11px/1.42 var(--font-sans); color: var(--muted); }
+.spill-ev-guide dl { display: grid; grid-template-columns: repeat(2, minmax(72px, 1fr)); gap: 7px; margin: 0; }
+.spill-ev-guide dl > div { min-width: 0; padding: 7px 9px; border-left: 1px solid var(--border); }
+.spill-ev-guide dt { font: 700 8.5px/1.2 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.spill-ev-guide dd { margin: 4px 0 0; font: 700 14px/1.2 var(--font-mono); color: var(--text-strong); }
 .spill-chip { font: 700 9.5px/1 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted-strong); cursor: default; }
 .spill-chip[title] { cursor: help; }
 .spill-iso-clean { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 45%, transparent); }
@@ -4226,8 +4267,16 @@ a.cx-tkr { border-bottom: 1px solid transparent; }
 .spill-edge-neg { color: var(--muted-strong); }
 .spill-q { color: var(--pos); font: 700 10px/1 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; }
 .spill-nq { color: var(--muted); font: 600 10.5px/1 var(--font-sans); }
-.spill-forward { font: 500 12px/1.5 var(--font-sans); color: var(--muted-strong); border: 1px dashed var(--border); border-radius: var(--r-1); padding: 8px 12px; }
-.spill-forward b { color: var(--text-strong); }
+.spill-validation { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, .95fr); gap: 12px 18px; padding: 15px; border: 1px solid var(--border); border-radius: var(--r-3); background: color-mix(in srgb, var(--surface-2) 52%, var(--surface)); }
+.spill-engines { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.spill-engine { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 10px; padding: 10px 11px; border: 1px solid var(--border); border-radius: var(--r-2); background: var(--surface); }
+.spill-engine > span { grid-column: 1 / -1; font: 750 11px/1.2 var(--font-sans); color: var(--text-strong); }
+.spill-engine > small { grid-column: 1 / -1; margin-top: -5px; font: 400 9.5px/1.3 var(--font-sans); color: var(--muted); }
+.spill-engine > div { min-width: 0; }
+.spill-engine > div b { display: block; font: 700 13px/1.2 var(--font-mono); color: var(--text-strong); }
+.spill-engine > div em { display: block; margin-top: 3px; font: 600 8.5px/1.2 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); font-style: normal; }
+.spill-engine > p { grid-column: 1 / -1; margin: 0; padding-top: 5px; border-top: 1px dashed var(--border); font: 400 9.5px/1.3 var(--font-sans); color: var(--muted); }
+.spill-validation-verdict { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(160px, .65fr) minmax(0, 1fr); align-items: center; gap: 7px 12px; padding: 9px 11px; border: 1px solid var(--border); border-radius: var(--r-2); background: var(--surface); }
 .spill-note { font: 400 11.5px/1.55 var(--font-sans); color: var(--muted); margin: 0; }
 .spill-ev-grp { color: var(--muted-strong); }
 .spill-group { border: 1px solid var(--border); border-radius: var(--r-1); background: var(--surface); }
@@ -4236,6 +4285,19 @@ a.cx-tkr { border-bottom: 1px solid transparent; }
 .spill-group[open] summary { border-bottom: 1px dashed color-mix(in srgb, var(--border) 60%, transparent); }
 .spill-group-etf { font: 600 10.5px/1 var(--font-mono); color: var(--muted); }
 .spill-group .spill-scroll, .spill-group .spill-none { padding: 8px 12px; margin: 0; }
+@media (max-width: 760px) {
+  .spill-desk, .spill-validation { grid-template-columns: 1fr; padding: 13px; }
+  .spill-protocol { grid-template-columns: 1fr; }
+  .spill-model-read, .spill-validation-verdict { grid-template-columns: 1fr; gap: 4px; }
+  .spill-ev-guide { grid-template-columns: 1fr; }
+  .spill-ev-guide dl { width: 100%; }
+  .spill-ev-guide dl > div:first-child { border-left: 0; }
+}
+@media (max-width: 460px) {
+  .spill-desk-grid, .spill-engines { grid-template-columns: 1fr; }
+  .spill-tools { align-items: stretch; flex-direction: column; }
+  .spill-search, .spill-btn { width: 100%; box-sizing: border-box; }
+}
 
 /* --- Quant Lab (deterministic screens, premium) ------------------------ */
 .quant-root { display: flex; flex-direction: column; gap: 14px; }
