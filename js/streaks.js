@@ -184,6 +184,249 @@ function makeSorter(mode) {
     || Math.abs(b.current.cumulativePct || 0) - Math.abs(a.current.cumulativePct || 0);
 }
 
+function streakMarketDayParts(date) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(date);
+    const out = {};
+    parts.forEach((p) => {
+      if (p.type !== "literal") out[p.type] = Number(p.value);
+    });
+    return out;
+  } catch (_) {
+    return null;
+  }
+}
+
+function streakSessionGap(iso) {
+  const scan = new Date(iso || "");
+  if (!isFinite(scan.getTime())) return null;
+  const from = streakMarketDayParts(scan);
+  const to = streakMarketDayParts(new Date());
+  if (!from || !to) return null;
+  const fromDay = new Date(Date.UTC(from.year, from.month - 1, from.day, 12));
+  const toDay = new Date(Date.UTC(to.year, to.month - 1, to.day, 12));
+  if (toDay <= fromDay) return 0;
+  let sessions = 0;
+  for (let d = new Date(fromDay.getTime() + 86400000); d <= toDay; d = new Date(d.getTime() + 86400000)) {
+    const wd = d.getUTCDay();
+    if (wd !== 0 && wd !== 6) sessions++;
+  }
+  return sessions;
+}
+
+function streakFreshnessMeta(builtAtIso) {
+  const gap = streakSessionGap(builtAtIso);
+  if (gap === 0) {
+    return {
+      current: true,
+      label: "Current daily streak map",
+      detail: "Latest completed daily-close build.",
+    };
+  }
+  return {
+    current: false,
+    label: "Reference only · stale streaks",
+    detail: gap == null
+      ? "The streak snapshot date could not be verified."
+      : `${gap} market session${gap === 1 ? "" : "s"} behind.`,
+  };
+}
+
+function streakCandidateMeta(t) {
+  const cur = t?.current || {};
+  const ended = t?.lastEnded || null;
+  const days = Number(cur.days || 0);
+  const cum = Number(cur.cumulativePct || 0);
+  const tol = Number(cur.tolerancePct || 0);
+  const tolBreak = Number(cur.toleranceBreakPct || 1.5);
+  const counterDays = Number(cur.counterDays || 0);
+  const counterBreak = Number(cur.counterDaysBreak || 4);
+  const bankPct = Math.max(
+    tolBreak > 0 ? (tol / tolBreak) * 100 : 0,
+    counterBreak > 0 ? (counterDays / counterBreak) * 100 : 0,
+  );
+  const fragile = days >= 2 && bankPct >= 66;
+  const volumeRatio = Number(cur.volumeRatio);
+  const continuation = days >= 3
+    && cur.volumeTrend === "rising"
+    && isFinite(volumeRatio)
+    && volumeRatio >= 1.05
+    && !fragile;
+  const stretched = days >= 5 || Math.abs(cum) >= 8;
+  const snapped = !!(ended
+    && Number(ended.days || 0) >= 2
+    && Number(ended.sessionsAgo || 0) <= 2);
+  let rank = days * 100 + Math.abs(cum) * 20;
+  if (snapped) {
+    rank += 100000
+      + Math.max(0, 2 - Number(ended.sessionsAgo || 0)) * 2000
+      + Number(ended.days || 0) * 200
+      + Math.abs(Number(ended.cumulativePct || 0)) * 30;
+  } else if (fragile) {
+    rank += 80000 + bankPct * 20;
+  } else if (continuation) {
+    rank += 60000 + volumeRatio * 100;
+  } else if (stretched) {
+    rank += 40000;
+  }
+  return {
+    ticker: t,
+    symbol: String(t?.symbol || "").toUpperCase(),
+    days,
+    color: cur.color === "red" ? "red" : "green",
+    cumulativePct: cum,
+    lastClose: Number(t?.lastClose),
+    volumeRatio,
+    volumeTrend: cur.volumeTrend || "",
+    bankPct,
+    counterDays,
+    fragile,
+    continuation,
+    stretched,
+    snapped,
+    ended,
+    rank,
+  };
+}
+
+function streakDecisionStats(tickers) {
+  const candidates = (tickers || []).map(streakCandidateMeta).sort((a, b) => b.rank - a.rank);
+  return {
+    candidates,
+    top: candidates[0] || null,
+    fragile: candidates.filter((c) => c.fragile).length,
+    continuation: candidates.filter((c) => c.continuation).length,
+    stretched: candidates.filter((c) => c.stretched).length,
+    snapped: candidates.filter((c) => c.snapped).length,
+  };
+}
+
+function renderStreakDecision(tickers, builtAtIso, breadth, filterActive) {
+  const stats = streakDecisionStats(tickers);
+  const top = stats.top;
+  if (!top) {
+    return `
+      <section class="flow-decision streaks-decision flow-decision-empty" aria-label="Streak decision desk">
+        <div class="flow-decision-empty-copy">
+          <span>Streak decision desk</span>
+          <h3>No streak setup survives this view</h3>
+          <p>The ticker, minimum-run, or sector filter removed every active or recently snapped run.</p>
+        </div>
+        <button type="button" class="flow-decision-action is-primary" data-streak-reset>Reset filters</button>
+      </section>`;
+  }
+  const freshness = streakFreshnessMeta(builtAtIso);
+  const anchor = isFinite(top.lastClose) ? fmtMoney(top.lastClose) : "No close";
+  const ended = top.ended || {};
+  const state = top.snapped
+    ? "snapped"
+    : top.fragile
+      ? "fragile"
+      : top.continuation
+        ? "continuation"
+        : top.stretched
+          ? "stretched"
+          : "context";
+  const runColor = top.snapped ? (ended.color === "red" ? "red" : "green") : top.color;
+  const reversal = runColor === "red" ? "bounce" : "pullback";
+  const confirmAbove = state === "snapped" || state === "fragile"
+    ? runColor === "red"
+    : runColor === "green";
+  const confirmSide = confirmAbove ? "above" : "below";
+  const failSide = confirmAbove ? "below" : "above";
+  let headline = "";
+  let copy = "";
+  let confirm = "";
+  let invalidate = "";
+  if (state === "snapped") {
+    headline = `${top.symbol}'s ${ended.days}d ${runColor} streak snapped; the ${reversal} is on watch.`;
+    copy = `The prior run moved ${fmtPct(ended.cumulativePct)} before breaking ${fmtSessionsAgo(ended.sessionsAgo)}. A snapped streak creates a mean-reversion candidate, not an automatic entry.`;
+    confirm = `The next daily close holds ${confirmSide} ${anchor}, and the Grade plus Volume tabs agree with the ${reversal} direction.`;
+    invalidate = `Price closes back ${failSide} ${anchor}, the old ${runColor} streak restarts, or the reversal lacks participation.`;
+  } else if (state === "fragile") {
+    headline = `${top.symbol}'s ${top.days}d ${top.color} run is near its break threshold.`;
+    copy = `${top.bankPct.toFixed(0)}% of the tolerance tripwire is used. The fade is not active until a daily close confirms against the run.`;
+    confirm = `A daily close prints ${confirmSide} ${anchor} against the ${top.color} run, then Grade and Volume confirm the reversal side.`;
+    invalidate = `The next close stays ${failSide} ${anchor}, tolerance heals, or same-direction volume expands and extends the run.`;
+  } else if (state === "continuation") {
+    headline = `${top.symbol}'s ${top.days}d ${top.color} streak still has continuation quality.`;
+    copy = `Run volume is ${top.volumeRatio.toFixed(2)}× its baseline and the tolerance bank is intact. Follow the run only after another close confirms; do not chase the cumulative move intraday.`;
+    confirm = `The next daily close holds ${confirmSide} ${anchor} with run volume at or above baseline, and Grade agrees with the ${top.color} direction.`;
+    invalidate = `Price closes ${failSide} ${anchor}, volume fades below baseline, or the tolerance bank moves into the fragile zone.`;
+  } else if (state === "stretched") {
+    headline = `${top.symbol}'s ${top.days}d ${top.color} run is stretched, not yet a fade.`;
+    copy = `The move has accumulated ${fmtPct(top.cumulativePct)}. Extension raises mean-reversion risk, but length alone does not confirm a reversal.`;
+    confirm = `For continuation, the next close holds ${confirmSide} ${anchor}; for a fade, wait for a close through the same anchor in the opposite direction.`;
+    invalidate = `A trade taken before either daily-close condition is met has no defined streak trigger.`;
+  } else {
+    headline = "No streak trade is ready from this view alone.";
+    copy = `${top.symbol} has the strongest remaining run, but it is neither volume-confirmed, fragile, stretched, nor freshly snapped.`;
+    confirm = `A clean continuation, fragile break, or fresh snap develops and another screen supplies direction and risk levels.`;
+    invalidate = `The run remains short and ordinary, or its only evidence is cumulative color without participation.`;
+  }
+  if (!freshness.current) {
+    headline = "This streak map is reference only.";
+    copy = `${top.symbol} was the strongest setup in an older daily-close snapshot. Run length and snap status must be rebuilt before using the anchor.`;
+    confirm = "A current daily build reproduces the same continuation, fragility, or snap state and the live Grade tab confirms the setup.";
+    invalidate = "Fresh closes change the run color, anchor, tolerance bank, or snapped status.";
+  }
+  const runDays = top.snapped ? Number(ended.days || 0) : top.days;
+  const runCum = top.snapped ? Number(ended.cumulativePct || 0) : top.cumulativePct;
+  const quality = top.snapped
+    ? `Snapped ${fmtSessionsAgo(ended.sessionsAgo)}`
+    : top.fragile
+      ? `${top.bankPct.toFixed(0)}% tripwire used`
+      : top.volumeTrend && isFinite(top.volumeRatio)
+        ? `${top.volumeRatio.toFixed(2)}× volume`
+        : "No volume confirmation";
+  const qualitySub = top.snapped
+    ? String(ended.brokeBy || "fresh reversal close")
+    : top.fragile
+      ? `${top.counterDays} counter day${top.counterDays === 1 ? "" : "s"}`
+      : top.volumeTrend
+        ? `${top.volumeTrend} run volume`
+        : "use Volume before acting";
+  return `
+    <section class="flow-decision streaks-decision flow-decision-${freshness.current ? "mixed" : "reference"}" aria-label="Streak decision desk">
+      <div class="flow-decision-main">
+        <div class="flow-decision-head">
+          <span>Streak decision desk${filterActive ? " · current filters" : ""}</span>
+          <em>${escapeHtml(freshness.label)}</em>
+        </div>
+        <h3>${escapeHtml(headline)}</h3>
+        <p>${escapeHtml(copy)}</p>
+        <div class="flow-decision-rules">
+          <div><span>Confirms when</span><b>${escapeHtml(confirm)}</b></div>
+          <div><span>Invalidates when</span><b>${escapeHtml(invalidate)}</b></div>
+        </div>
+      </div>
+      <aside class="flow-decision-side">
+        <div class="flow-decision-source">
+          <span>${escapeHtml(freshness.detail)}</span>
+          <small>Daily closes define the streak; intraday direction must be confirmed elsewhere.</small>
+        </div>
+        <div class="flow-decision-metrics">
+          <div><span>Top focus</span><b>${escapeHtml(top.symbol)}</b><small>${escapeHtml(state === "snapped" ? `fresh ${reversal} watch` : state)}</small></div>
+          <div><span>Run</span><b>${runDays}d ${escapeHtml(runColor)}</b><small>${escapeHtml(fmtPct(runCum))} cumulative</small></div>
+          <div><span>Daily anchor</span><b>${escapeHtml(anchor)}</b><small>next close must hold ${escapeHtml(confirmSide)}</small></div>
+          <div><span>Run quality</span><b>${escapeHtml(quality)}</b><small>${escapeHtml(qualitySub)}</small></div>
+        </div>
+        <p class="flow-decision-context"><b>Desk breadth:</b> ${breadth.bull || 0} bullish · ${breadth.bear || 0} bearish · ${breadth.continuation || 0} continuation quality · ${breadth.fragile || 0} fragile · ${breadth.snapped || 0} freshly snapped.</p>
+        <div class="flow-decision-actions">
+          ${freshness.current ? `<button type="button" class="flow-decision-action is-primary" data-streak-focus="${escapeHtml(top.symbol)}">${state === "snapped" ? "Review" : "Focus"} ${escapeHtml(top.symbol)}${state === "snapped" ? " snap" : ""}</button>` : ""}
+          <button type="button" class="flow-decision-action" data-streak-sort="tol">Sort fragile runs</button>
+          <button type="button" class="flow-decision-action${freshness.current ? "" : " is-primary"}" data-grade="${escapeHtml(top.symbol)}">Open Grade</button>
+          ${filterActive ? '<button type="button" class="flow-decision-action" data-streak-reset>Reset filters</button>' : ""}
+        </div>
+      </aside>
+    </section>`;
+}
+
 function render(root, footer, eyebrow, { builtAtIso, tickers }) {
   if (!Array.isArray(tickers) || !tickers.length) {
     root.innerHTML = `<p class="streaks-empty">No streak data available.</p>`;
@@ -214,6 +457,25 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
   const sorter = makeSorter(streaksState.sort);
   const greens = allGreens.filter(passes).sort(sorter);
   const reds = allReds.filter(passes).sort(sorter);
+  const decisionUniverse = tickers.filter((t) =>
+    Number(t?.current?.days || 0) >= 2
+    || (t?.lastEnded && Number(t.lastEnded.days || 0) >= 2 && Number(t.lastEnded.sessionsAgo || 0) <= 2));
+  const decisionTickers = decisionUniverse.filter((t) => {
+    const sym = String(t.symbol || "").toUpperCase();
+    if (q && !sym.includes(q)) return false;
+    if (sectorPick && (sectors[sym] || "") !== sectorPick) return false;
+    const activeDays = Number(t?.current?.days || 0);
+    const endedDays = Number(t?.lastEnded?.days || 0);
+    return activeDays >= minRun || endedDays >= minRun;
+  });
+  const fullDecisionStats = streakDecisionStats(decisionUniverse);
+  const decision = renderStreakDecision(decisionTickers, builtAtIso, {
+    bull: allGreens.length,
+    bear: allReds.length,
+    continuation: fullDecisionStats.continuation,
+    fragile: fullDecisionStats.fragile,
+    snapped: fullDecisionStats.snapped,
+  }, filterActive);
 
   if (eyebrow) {
     eyebrow.textContent = `${allGreens.length} bullish · ${allReds.length} bearish`;
@@ -278,6 +540,7 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
     : `<p class="streaks-empty">No active ${side} streaks today.</p>`;
 
   root.innerHTML = `
+    ${decision}
     ${summary}
     <div class="streaks-cols">
       <div class="streaks-col">
@@ -307,6 +570,64 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
 
   root.querySelectorAll("[data-grade]").forEach((btn) => {
     btn.addEventListener("click", () => jumpToGrade(btn.dataset.grade));
+  });
+  root.querySelectorAll("[data-streak-focus]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const sym = String(btn.dataset.streakFocus || "").toUpperCase();
+      const match = (streaksState.data?.tickers || [])
+        .find((t) => String(t?.symbol || "").toUpperCase() === sym);
+      const snapOnly = Number(match?.current?.days || 0) < streaksState.minStreak
+        && Number(match?.lastEnded?.days || 0) >= streaksState.minStreak;
+      if (snapOnly) {
+        const snapButtons = document.querySelectorAll("#streaks-snapped [data-grade]");
+        for (const snapButton of snapButtons) {
+          if (String(snapButton.dataset.grade || "").toUpperCase() === sym) {
+            snapButton.focus({ preventScroll: true });
+            snapButton.scrollIntoView({ behavior: "smooth", block: "center" });
+            break;
+          }
+        }
+        return;
+      }
+      streaksState.query = sym;
+      const input = $("streaks-search");
+      if (input) input.value = sym;
+      rerender();
+      requestAnimationFrame(() => {
+        const gradeButtons = root.querySelectorAll(".streaks-row [data-grade]");
+        for (const gradeButton of gradeButtons) {
+          if (String(gradeButton.dataset.grade || "").toUpperCase() === sym) {
+            gradeButton.closest(".streaks-row")?.scrollIntoView({ behavior: "smooth", block: "center" });
+            break;
+          }
+        }
+      });
+    });
+  });
+  root.querySelectorAll("[data-streak-sort]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      streaksState.sort = btn.dataset.streakSort || "streak";
+      const select = $("streaks-sort-select");
+      if (select) select.value = streaksState.sort;
+      rerender();
+    });
+  });
+  root.querySelectorAll("[data-streak-reset]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      streaksState.sort = "streak";
+      streaksState.minStreak = 2;
+      streaksState.sector = "";
+      streaksState.query = "";
+      const sortSelect = $("streaks-sort-select");
+      const minSelect = $("streaks-min-select");
+      const sectorSelect = $("streaks-sector-select");
+      const search = $("streaks-search");
+      if (sortSelect) sortSelect.value = "streak";
+      if (minSelect) minSelect.value = "2";
+      if (sectorSelect) sectorSelect.value = "";
+      if (search) search.value = "";
+      rerender();
+    });
   });
 }
 
