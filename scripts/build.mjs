@@ -8738,9 +8738,10 @@ function diffHoldings(latestByCusip, priorByCusip, cusipMap) {
 //   2. parse + normalize both
 //   3. diff to produce per-position deltas
 //   4. surface the top 20 most-bought and 20 most-sold (by $ change)
-// Also computes a cross-firm aggregate so the UI can show "what every
-// active manager piled into this quarter" and "what they collectively
-// dumped" in addition to the per-firm view.
+// Also computes a cross-firm aggregate for positive/negative dollar change,
+// plus true same-direction manager counts from share changes. Dollar change
+// includes price drift, so it must not be described as every manager buying
+// or selling the security.
 //
 // Returns:
 //   {
@@ -8755,9 +8756,44 @@ function diffHoldings(latestByCusip, priorByCusip, cusipMap) {
 //       } | null
 //     },
 //     overallTopBought: [{ ticker, name, cusip, valueChange, shareChange,
-//                          firmCount, sampleFirms }, ...20],
+//                          firmCount, sampleFirms, buyFirmCount,
+//                          sellFirmCount, buySampleFirms, sellSampleFirms }, ...20],
 //     overallTopSold:   [...20],
 //   }
+export function aggregate13FDeltaRows(allDeltaRows = []) {
+  const aggregate = new Map();
+  for (const d of allDeltaRows) {
+    const k = d.cusip;
+    let agg = aggregate.get(k);
+    if (!agg) {
+      agg = {
+        ticker: d.ticker, name: d.name, cusip: d.cusip,
+        valueChange: 0, shareChange: 0,
+        firms: new Set(), buyFirms: new Set(), sellFirms: new Set(),
+      };
+      aggregate.set(k, agg);
+    }
+    agg.valueChange += d.valueChange;
+    if (d.shareChange != null) {
+      agg.shareChange += d.shareChange;
+      if (d.shareChange > 0) agg.buyFirms.add(d.firm);
+      else if (d.shareChange < 0) agg.sellFirms.add(d.firm);
+    }
+    agg.firms.add(d.firm);
+    if (!agg.ticker && d.ticker) agg.ticker = d.ticker;
+  }
+  return [...aggregate.values()].map((a) => ({
+    ticker: a.ticker, name: a.name, cusip: a.cusip,
+    valueChange: a.valueChange, shareChange: a.shareChange,
+    firmCount: a.firms.size,
+    sampleFirms: [...a.firms].slice(0, 5),
+    buyFirmCount: a.buyFirms.size,
+    sellFirmCount: a.sellFirms.size,
+    buySampleFirms: [...a.buyFirms].slice(0, 5),
+    sellSampleFirms: [...a.sellFirms].slice(0, 5),
+  }));
+}
+
 export async function buildPerFirm13FHoldings() {
   // Step 1: pull EDGAR submissions + the two most recent 13Fs for each firm
   // in parallel. allSettled (not all) so one firm's failure doesn't drop
@@ -8849,29 +8885,10 @@ export async function buildPerFirm13FHoldings() {
     }
   }
   // Step 4: cross-firm aggregate. Sum valueChange and shareChange per
-  // CUSIP across every firm that traded it. Top 20 positive sum = "most
-  // bought overall"; top 20 most-negative sum = "most sold overall".
-  const aggregate = new Map(); // cusip → { ticker, name, valueChange, shareChange, firms: Set }
-  for (const d of allDeltaRows) {
-    const k = d.cusip;
-    let agg = aggregate.get(k);
-    if (!agg) {
-      agg = { ticker: d.ticker, name: d.name, cusip: d.cusip, valueChange: 0, shareChange: 0, firms: new Set() };
-      aggregate.set(k, agg);
-    }
-    agg.valueChange += d.valueChange;
-    if (d.shareChange != null) agg.shareChange += d.shareChange;
-    agg.firms.add(d.firm);
-    // Use whichever row has a ticker (some firms' rows might not have
-    // resolved via OpenFIGI but another firm's row for the same CUSIP did).
-    if (!agg.ticker && d.ticker) agg.ticker = d.ticker;
-  }
-  const aggregateRows = [...aggregate.values()].map((a) => ({
-    ticker: a.ticker, name: a.name, cusip: a.cusip,
-    valueChange: a.valueChange, shareChange: a.shareChange,
-    firmCount: a.firms.size,
-    sampleFirms: [...a.firms].slice(0, 5),
-  }));
+  // CUSIP across every firm with a non-zero value delta. Track actual
+  // positive/negative share changes in separate manager sets so the UI can
+  // distinguish directional breadth from the broader reporting footprint.
+  const aggregateRows = aggregate13FDeltaRows(allDeltaRows);
   const overallTopBought = aggregateRows
     .filter((a) => a.valueChange > 0)
     .sort((a, b) => b.valueChange - a.valueChange)

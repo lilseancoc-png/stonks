@@ -24477,6 +24477,42 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
       .replace(/&quot;/g, '"').replace(/&apos;/g, "'");
   }
+  function f13Freshness(d){
+    var builtMs = Date.parse(d && d.builtAtIso);
+    var buildHours = isFinite(builtMs) ? (Date.now() - builtMs) / 3600000 : null;
+    var periodMs = Date.parse(d && d.periodEnd);
+    var periodDays = isFinite(periodMs) ? Math.max(0, Math.floor((Date.now() - periodMs) / 86400000)) : null;
+    var filed = Number.isFinite(Number(d && d.realFirms)) ? Number(d.realFirms) : 0;
+    var tracked = Number.isFinite(Number(d && d.totalFirms)) ? Number(d.totalFirms) : filed;
+    var current = buildHours != null && buildHours >= -1 && buildHours <= 72 && periodDays != null && filed > 0;
+    var buildLabel = buildHours == null
+      ? 'build time unavailable'
+      : buildHours < 1
+        ? 'built under 1h ago'
+        : buildHours < 48
+          ? 'built ' + Math.round(buildHours) + 'h ago'
+          : 'built ' + Math.round(buildHours / 24) + 'd ago';
+    return {
+      current:current,
+      filed:filed,
+      tracked:tracked,
+      periodDays:periodDays,
+      label:current ? 'Fresh scan · delayed holdings' : 'Reference only',
+      detail:buildLabel + (periodDays == null ? '' : ' · ' + periodDays + 'd since quarter-end') + ' · ' + filed + '/' + tracked + ' managers'
+    };
+  }
+  function bindF13Actions(root){
+    if (!root || root.getAttribute('data-f13-actions-bound')) return;
+    root.setAttribute('data-f13-actions-bound', '1');
+    root.addEventListener('click', function(ev){
+      var grade = ev.target && ev.target.closest ? ev.target.closest('[data-f13-grade]') : null;
+      if (grade){ calGoToTicker(grade.getAttribute('data-f13-grade')); return; }
+      var go = ev.target && ev.target.closest ? ev.target.closest('[data-f13-tab]') : null;
+      if (!go) return;
+      var tab = document.querySelector('[data-page-tab="' + go.getAttribute('data-f13-tab') + '"]');
+      if (tab) tab.click();
+    });
+  }
 
   function renderF13(){
     var root = $('f13-root');
@@ -24494,11 +24530,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     var d = f13State.data;
     if (!d){
-      root.innerHTML = '';
-      if (empty){
-        empty.hidden = false;
-        empty.textContent = '13F summary will appear after the next daily build refresh.';
-      }
+      if (empty) empty.hidden = true;
+      if (eyebrow) eyebrow.textContent = 'load unavailable';
+      root.innerHTML = '<section class="f13-empty-desk"><span class="f13-kicker">Data unavailable</span><h3>Institutional filing data could not load</h3>' +
+        '<p>Do not infer that managers made no changes from a failed read. Use current market, narrative, and company-level evidence while the filing feed recovers.</p>' +
+        '<div class="f13-actions"><button type="button" class="f13-action f13-action-primary" data-f13-tab="market">Open Market analysis</button><button type="button" class="f13-action" data-f13-tab="narratives">Open Narratives</button><button type="button" class="f13-action" data-f13-tab="compare">Compare companies</button></div></section>';
+      bindF13Actions(root);
       return;
     }
     if (empty) empty.hidden = true;
@@ -24550,6 +24587,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // and distribution before the directory and full research tables.
     if ((Array.isArray(d.overallTopBought) && d.overallTopBought.length) ||
         (Array.isArray(d.overallTopSold) && d.overallTopSold.length)){
+      var freshness = f13Freshness(d);
       var perFirmCount = d.perFirm && typeof d.perFirm === 'object' ? Object.keys(d.perFirm).length : 0;
       var filedManagers = Number.isFinite(Number(d.realFirms)) ? Number(d.realFirms) : perFirmCount;
       var trackedManagers = Number.isFinite(Number(d.totalFirms)) ? Number(d.totalFirms)
@@ -24563,9 +24601,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
             return '<div class="f13-desk-row"><span class="f13-desk-symbol">' + f13TickerHtml(r) + '</span>' +
               '<span class="f13-desk-issuer">' + escapeHtml(decodeIssuerName(r.name) || '') + '</span>' +
               '<b>' + escapeHtml(fmtSignedDollarsF13(r.valueChange)) + '</b>' +
-              '<small>' + firmN + ' firm' + (firmN === 1 ? '' : 's') + '</small></div>';
+              '<small>' + firmN + ' report' + (firmN === 1 ? '' : 's') + '</small></div>';
           }).join('') +
         '</div>';
+      }
+      function f13DirectionalCount(row, side){
+        var raw = row && row[side === 'buy' ? 'buyFirmCount' : 'sellFirmCount'];
+        return raw != null && isFinite(Number(raw)) ? Number(raw) : null;
       }
       function f13BreadthLeader(rows, side){
         rows = Array.isArray(rows) ? rows.filter(function(r){
@@ -24573,23 +24615,36 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           return Number.isFinite(shares) && (side === 'buy' ? shares > 0 : shares < 0);
         }) : [];
         rows.sort(function(a, b){
-          return (Number(b.firmCount) || 0) - (Number(a.firmCount) || 0) ||
+          var ad = f13DirectionalCount(a, side), bd = f13DirectionalCount(b, side);
+          if (ad != null || bd != null){
+            if (ad == null) return 1;
+            if (bd == null) return -1;
+            if (ad !== bd) return bd - ad;
+          }
+          return Math.abs(Number(b.shareChange) || 0) - Math.abs(Number(a.shareChange) || 0) ||
             Math.abs(Number(b.valueChange) || 0) - Math.abs(Number(a.valueChange) || 0);
         });
         return rows[0] || null;
       }
       function f13SignalCard(row, side){
         if (!row) return '';
-        var firms = Number(row.firmCount) || 1;
-        var breadth = filedManagers > 0 ? Math.round((firms / filedManagers) * 100) : null;
+        var reports = Number(row.firmCount) || 1;
+        var firms = f13DirectionalCount(row, side);
+        var directionalKnown = firms != null;
+        var breadth = directionalKnown && filedManagers > 0 ? Math.round((firms / filedManagers) * 100) : null;
         var issuer = decodeIssuerName(row.name) || '';
-        var action = side === 'buy' ? 'Broadest share accumulation' : 'Broadest share reduction';
+        var action = directionalKnown
+          ? (side === 'buy' ? 'Broadest manager share accumulation' : 'Broadest manager share reduction')
+          : (side === 'buy' ? 'Largest aggregate share accumulation' : 'Largest aggregate share reduction');
         var stance = side === 'buy' ? 'Research long-side strength' : 'Audit existing exposure';
         return '<article class="f13-signal-card f13-signal-' + side + '">' +
-          '<header><span>' + action + '</span><b>' + firms + (filedManagers ? '/' + filedManagers : '') + ' managers</b></header>' +
+          '<header><span>' + action + '</span><b>' + (directionalKnown ? firms + (filedManagers ? '/' + filedManagers : '') + ' managers' : reports + ' manager reports') + '</b></header>' +
           '<div class="f13-signal-main"><span class="f13-signal-symbol">' + f13TickerHtml(row) + '</span><span class="f13-signal-issuer">' + escapeHtml(issuer) + '</span></div>' +
           '<div class="f13-signal-metrics"><strong>' + escapeHtml(fmtSignedSharesF13(row.shareChange)) + ' shares</strong><span>' + escapeHtml(fmtSignedDollarsF13(row.valueChange)) + ' total value change</span></div>' +
-          '<p><b>' + stance + '.</b> ' + (breadth == null ? '' : breadth + '% of reporting managers were on this side. ') + 'Open Grade to confirm the current trend, catalyst, and valuation before acting.</p>' +
+          '<p><b>' + stance + '.</b> ' + (directionalKnown
+            ? (breadth == null ? '' : breadth + '% of reporting managers changed shares in this direction. ')
+            : 'Directional manager breadth is unavailable in this snapshot; ' + reports + ' managers contributed to the aggregate. ') +
+            'Open Grade to confirm the current trend, catalyst, and valuation before acting.</p>' +
         '</article>';
       }
       var buyLeader = f13BreadthLeader(d.overallTopBought, 'buy');
@@ -24597,6 +24652,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var signalGrid = (buyLeader || sellLeader)
         ? '<div class="f13-signal-grid">' + f13SignalCard(buyLeader, 'buy') + f13SignalCard(sellLeader, 'sell') + '</div>'
         : '';
+      var buyTk = tickerOrFallback(buyLeader), sellTk = tickerOrFallback(sellLeader);
+      var buyTracked = buyTk && SYMBOLS.indexOf(buyTk) !== -1;
+      var sellTracked = sellTk && SYMBOLS.indexOf(sellTk) !== -1;
+      var actions = freshness.current
+        ? '<div class="f13-actions">' +
+            (buyTracked ? '<button type="button" class="f13-action f13-action-primary" data-f13-grade="' + escapeHtml(buyTk) + '">Grade ' + escapeHtml(buyTk) + '</button>' : '') +
+            (sellTracked ? '<button type="button" class="f13-action' + (buyTracked ? '' : ' f13-action-primary') + '" data-f13-grade="' + escapeHtml(sellTk) + '">Grade ' + escapeHtml(sellTk) + '</button>' : '') +
+            '<button type="button" class="f13-action' + (buyTracked || sellTracked ? '' : ' f13-action-primary') + '" data-f13-tab="compare">Compare companies</button><button type="button" class="f13-action" data-f13-tab="narratives">Open Narratives</button></div>'
+        : '<div class="f13-actions"><button type="button" class="f13-action f13-action-primary" data-f13-tab="market">Open Market analysis</button><button type="button" class="f13-action" data-f13-tab="compare">Compare companies</button><button type="button" class="f13-action" data-f13-tab="narratives">Open Narratives</button></div>';
       var lagAge = '';
       if (d.periodEnd){
         var periodEndMs = Date.parse(d.periodEnd);
@@ -24605,10 +24669,18 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           lagAge = ' This snapshot is ' + ageDays + ' days past quarter-end.';
         }
       }
-      html += '<section class="f13-desk" aria-label="Institutional rotation desk">' +
-        '<div class="f13-desk-head"><div><span class="f13-kicker">Institutional rotation desk</span><h3>Where active managers moved together</h3><p>Breadth leaders require actual share buying or selling. The smaller tables remain ranked by total dollar-value change, which also includes price drift.</p></div>' +
+      html += '<section class="f13-desk' + (freshness.current ? '' : ' f13-desk-reference') + '" aria-label="Institutional rotation desk">' +
+        '<div class="f13-desk-head"><div><span class="f13-kicker">Institutional rotation desk</span><h3>Where active managers moved together</h3><p>Directional breadth uses actual same-direction manager share changes when supplied. Older snapshots fall back to aggregate share change, never the number of manager reports.</p></div>' +
           '<span class="f13-coverage"><b>' + filedManagers + '/' + trackedManagers + '</b><small>managers with deltas</small></span></div>' +
+        '<div class="f13-desk-source"><span><b>' + escapeHtml(freshness.label) + '</b> · ' + escapeHtml(freshness.detail) + '</span><small>SEC EDGAR · quarterly positions</small></div>' +
         signalGrid +
+        '<div class="f13-rules"><div><span>' + (freshness.current ? 'Confirms today' : 'Required before acting') + '</span><b>' + (freshness.current
+          ? 'Current trend, sector relative strength, estimate revisions, and the live catalyst still align with the filing-side thesis.'
+          : 'Refresh the filing scan, then confirm the current chart, estimates, catalyst, and valuation independently.') + '</b></div>' +
+          '<div><span>' + (freshness.current ? 'Invalidates the lead' : 'Do not infer') + '</span><b>' + (freshness.current
+            ? 'The trend or catalyst has reversed, or the next filing shows managers unwound the position. A 13F never supplies the entry.'
+            : 'An aged or unavailable scan cannot establish current institutional positioning, and filing lag never establishes an entry.') + '</b></div></div>' +
+        actions +
         '<div class="f13-desk-grid">' +
           f13DeskSide(d.overallTopBought, 'buy', 'Largest positive Δ') +
           f13DeskSide(d.overallTopSold, 'sell', 'Largest negative Δ') +
@@ -24648,7 +24720,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       return '<div class="f13-table-scroll"><table class="f13-table">' +
         '<thead><tr>' +
           '<th>#</th><th>Ticker</th><th>Issuer</th>' +
-          '<th>Δ Value</th><th>Δ Shares</th><th># Firms</th>' +
+          '<th>Δ Value</th><th>Δ Shares</th><th># Reports</th>' +
         '</tr></thead>' +
         '<tbody>' +
         rows.map(function(r, j){
@@ -24669,15 +24741,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     if ((Array.isArray(d.overallTopBought) && d.overallTopBought.length) ||
         (Array.isArray(d.overallTopSold) && d.overallTopSold.length)){
-      html += '<details class="f13-disclosure f13-overall"><summary><span><b>Full consensus flow</b><small>Top 20 aggregate buys and sells with manager breadth</small></span><span class="f13-disclosure-count">40 rows</span></summary>' +
-        '<div class="f13-disclosure-body"><p class="f13-note">Sum of every qualifying firm&rsquo;s dollar change in each position vs prior quarter. Hover the # Firms cell to see which managers are on each side.</p>' +
+      html += '<details class="f13-disclosure f13-overall"><summary><span><b>Full aggregate change</b><small>Top 20 positive and negative dollar deltas with manager footprint</small></span><span class="f13-disclosure-count">40 rows</span></summary>' +
+        '<div class="f13-disclosure-body"><p class="f13-note">Sum of every qualifying firm&rsquo;s dollar change in each position vs prior quarter. Dollar change includes share changes and price drift; hover the # Reports cell to see which managers contributed to the aggregate.</p>' +
         '<div class="f13-flow-pair">' +
           '<div class="f13-flow-col f13-flow-buy">' +
-            '<h4 class="f13-subtitle">Most bought</h4>' +
+            '<h4 class="f13-subtitle">Positive Δ value</h4>' +
             renderDeltaTable(d.overallTopBought, 'buy') +
           '</div>' +
           '<div class="f13-flow-col f13-flow-sell">' +
-            '<h4 class="f13-subtitle">Most sold</h4>' +
+            '<h4 class="f13-subtitle">Negative Δ value</h4>' +
             renderDeltaTable(d.overallTopSold, 'sell') +
           '</div>' +
         '</div></div>' +
@@ -24844,6 +24916,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     root.innerHTML = html;
     bindBriefChips(root);
+    bindF13Actions(root);
   }
 
   // --- Fear & Greed tab ---------------------------------------------------

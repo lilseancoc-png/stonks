@@ -10240,6 +10240,21 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
 .f13-kicker { font: 700 9px/1 var(--font-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--accent-strong); }
 .f13-desk-head h3 { margin: 4px 0 0; font: 750 18px/1.25 var(--font-sans); color: var(--text-strong); }
 .f13-desk-head p { margin: 5px 0 0; font: 400 12.5px/1.5 var(--font-sans); color: var(--muted-strong); }
+.f13-desk-source {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+  color: var(--muted);
+  font: 500 10.5px/1.35 var(--font-sans);
+}
+.f13-desk-source b { color: var(--pos); }
+.f13-desk-reference .f13-desk-source b { color: var(--warn); }
+.f13-desk-source small { flex: 0 0 auto; color: var(--muted); font: 500 10px/1.2 var(--font-mono); }
 .f13-coverage {
   display: flex;
   flex-direction: column;
@@ -10288,6 +10303,43 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
 .f13-signal-sell .f13-signal-metrics strong { color: var(--neg); }
 .f13-signal-card p { margin: 0; color: var(--muted-strong); font: 500 11.5px/1.45 var(--font-sans); }
 .f13-signal-card p b { color: var(--text); }
+.f13-rules { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.f13-rules > div {
+  display: grid;
+  gap: 5px;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+}
+.f13-rules span { color: var(--muted); font: 750 9px/1.2 var(--font-mono); letter-spacing: .07em; text-transform: uppercase; }
+.f13-rules b { color: var(--text-strong); font: 650 11px/1.4 var(--font-sans); }
+.f13-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.f13-action {
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--text-strong);
+  font: 700 11px/1 var(--font-sans);
+  cursor: pointer;
+}
+.f13-action:hover, .f13-action:focus-visible { border-color: var(--accent); color: var(--accent); }
+.f13-action-primary { border-color: var(--accent); background: var(--accent); color: var(--surface); }
+.f13-action-primary:hover, .f13-action-primary:focus-visible { background: color-mix(in srgb, var(--accent) 86%, var(--text-strong)); color: var(--surface); }
+.f13-empty-desk {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 16px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-3);
+  background: var(--surface-2);
+}
+.f13-empty-desk h3 { margin: 0; color: var(--text-strong); font: 750 18px/1.25 var(--font-sans); }
+.f13-empty-desk p { max-width: 78ch; margin: 0; color: var(--muted); font: 500 12px/1.45 var(--font-sans); }
 .f13-desk-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .f13-desk-side { overflow: hidden; border: 1px solid var(--border); border-radius: var(--r-2); background: var(--surface-2); }
 .f13-desk-buy { border-left: 3px solid var(--pos); }
@@ -10530,8 +10582,16 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   .f13-desk-head { flex-direction: column; gap: 10px; }
   .f13-coverage { width: 100%; flex-direction: row; align-items: baseline; justify-content: space-between; }
   .f13-source { flex-direction: column; gap: 6px; }
+  .f13-desk-source { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .f13-desk-source small { flex: none; }
   .f13-signal-grid { grid-template-columns: 1fr; }
   .f13-signal-card header { align-items: flex-start; }
+  .f13-rules { grid-template-columns: minmax(0, 1fr); }
+  .f13-actions { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
+  .f13-action { width: 100%; min-height: 42px; }
+  .f13-empty-desk { padding: 12px; }
+  .f13-empty-desk h3 { font-size: 16px; }
+  .f13-empty-desk p { font-size: 11px; }
   .f13-desk-grid { grid-template-columns: 1fr; }
   .f13-desk-row { grid-template-columns: 58px minmax(0, 1fr) auto; gap: 7px; }
   .f13-desk-issuer { display: none; }
