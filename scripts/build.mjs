@@ -6783,6 +6783,15 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
     if (daysUntil > EARNINGS_UPCOMING_DAYS) continue;
     const bars = Array.isArray(data._bars) ? data._bars : null;
     const ru = bars ? computeRunupOverBars(bars, bars.length - 1) : null;
+    // attachEarningsHx() already matched the live pre-print stamp to the fresh
+    // fundamentals date. Carry that straddle-implied magnitude into the event
+    // desk so the UI can frame the hold's priced gap risk without inventing a
+    // direction. It stays null until a real final-week snapshot exists.
+    const hxNext = data.earningsHx?.next;
+    const impliedMovePct = hxNext?.date === nextIso
+      && typeof hxNext.impliedMovePct === "number" && isFinite(hxNext.impliedMovePct)
+      ? hxNext.impliedMovePct
+      : null;
     upcoming.push({
       sym,
       name: f?.name || sym,
@@ -6793,6 +6802,7 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
       pre10Pct: ru?.pre10Pct ?? null,
       pre15Pct: ru?.pre15Pct ?? null,
       pre: earningsRunupTrend(ru?.pre10Pct, ru?.pre15Pct),
+      impliedMovePct,
     });
   }
   upcoming.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.sym < b.sym ? -1 : 1));

@@ -3187,6 +3187,23 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .ers-posture-triggers > div { padding: 9px 10px; border: 1px solid var(--border); border-radius: var(--r-1); background: color-mix(in srgb, var(--surface-2) 78%, transparent); }
 .ers-posture-triggers span { display: block; margin-bottom: 4px; color: var(--muted); font: 700 8.5px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .07em; }
 .ers-posture-triggers b { color: var(--text); font: 600 11px/1.4 var(--font-sans); }
+.ers-posture-action {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 12px;
+  margin-top: 10px; padding-top: 11px; border-top: 1px solid var(--border);
+}
+.ers-posture-action > div:first-child { max-width: 650px; }
+.ers-posture-action span { display: block; margin-bottom: 4px; color: var(--accent); font: 700 8.5px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .07em; }
+.ers-posture-action b { color: var(--text-strong); font: 600 11.5px/1.45 var(--font-sans); }
+.ers-posture-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; flex: 0 0 auto; }
+.ers-action-primary, .ers-action-secondary {
+  min-height: 34px; padding: 7px 10px; border-radius: var(--r-2);
+  cursor: pointer; font: 650 10.5px/1 var(--font-sans);
+}
+.ers-action-primary { border: 1px solid var(--accent); background: var(--accent); color: var(--accent-fg); }
+.ers-action-secondary { border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+.ers-action-primary:hover { filter: brightness(1.08); }
+.ers-action-secondary:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); background: var(--surface-2); }
+.ers-action-primary:focus-visible, .ers-action-secondary:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .ers-pos { color: var(--pos); }
 .ers-neg { color: var(--neg); }
 .ers-dim { color: var(--muted); }
@@ -3326,9 +3343,31 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
    and shifted that row's chip/date columns a few px left of its neighbors). */
 .ers-up-ldrs { grid-template-columns: 1fr; margin-bottom: 0; }
 .ers-up-ldrs.ers-up-two { grid-template-columns: 1fr 1fr; }
-.ers-up-row { display: grid; grid-template-columns: 52px minmax(0, 1fr) 94px 118px minmax(62px, max-content); }
-.ers-up-row > .ers-chip { justify-self: start; }
+.ers-up-row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 94px minmax(62px, max-content);
+  grid-template-areas:
+    "sym name chip value"
+    "date date plan plan";
+  align-items: center; gap: 5px 8px; padding: 7px 0;
+}
+.ers-up-row > .ers-sym { grid-area: sym; }
+.ers-up-row > .ers-ldr-name { grid-area: name; }
+.ers-up-row > :nth-child(3) { grid-area: chip; justify-self: start; }
 .ers-up-date { font: 400 11px/1 var(--font-sans); white-space: nowrap; }
+.ers-up-row > .ers-up-date { grid-area: date; }
+.ers-up-row > .ers-ldr-val { grid-area: value; }
+.ers-up-plan {
+  grid-area: plan; display: inline-flex; align-items: baseline; justify-content: flex-end;
+  gap: 6px; min-width: 0; padding: 4px 7px; border-radius: var(--r-1);
+  background: color-mix(in srgb, var(--muted) 7%, transparent);
+}
+.ers-up-plan b { color: var(--text); font: 700 9.5px/1.2 var(--font-sans); white-space: nowrap; }
+.ers-up-plan small { color: var(--muted); font: 600 9px/1.2 var(--font-mono); white-space: nowrap; }
+.ers-up-plan-risk { background: color-mix(in srgb, var(--neg) 9%, transparent); }
+.ers-up-plan-risk b { color: var(--neg); }
+.ers-up-plan-warn { background: color-mix(in srgb, var(--warn) 9%, transparent); }
+.ers-up-plan-warn b { color: var(--warn); }
 .ers-up-more {
   width: 100%; min-height: 38px; margin-top: 10px;
   border: 1px solid var(--border); border-radius: var(--r-2);
@@ -3341,6 +3380,9 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
   .ers-posture { padding: 13px 12px; }
   .ers-posture-metrics { grid-template-columns: 1fr 1fr; }
   .ers-posture-triggers { grid-template-columns: 1fr; }
+  .ers-posture-action { align-items: stretch; flex-direction: column; }
+  .ers-posture-buttons { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
+  .ers-action-primary, .ers-action-secondary { width: 100%; min-height: 40px; }
   .ers-ai-toggle .ers-ai-headline { order: 3; flex-basis: calc(100% - 28px); }
   .ers-ai-toggle .ers-ai-date { margin-left: auto; }
   .ers-upcoming { padding: 12px; }
@@ -3353,7 +3395,8 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
     grid-template-columns: 52px minmax(0, 1fr) auto;
     grid-template-areas:
       "sym name value"
-      "date date chip";
+      "date date chip"
+      "plan plan plan";
     align-items: center;
     row-gap: 5px;
     padding: 8px 0;
@@ -3363,6 +3406,7 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
   .ers-up-row > :nth-child(3) { grid-area: chip; justify-self: end; }
   .ers-up-row > .ers-up-date { grid-area: date; white-space: normal; }
   .ers-up-row > .ers-ldr-val { grid-area: value; }
+  .ers-up-plan { justify-content: space-between; width: 100%; margin-top: 2px; }
   .ers-table-details > summary small { font-size: 8px; }
 }
 .ers-sym {

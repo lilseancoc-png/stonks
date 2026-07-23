@@ -14295,6 +14295,28 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     return ersPreChip(u && u.pre, true);
   }
+  // Per-name execution cue for the event desk. It is intentionally about the
+  // decision deadline and gap exposure, never the direction of the print.
+  function ersUpcomingHoldPlan(u){
+    var days = Number(u && u.daysUntil);
+    var session = String(u && u.session || '').toUpperCase();
+    var cls = 'ers-up-plan-watch';
+    var label = 'Plan the hold';
+    if (days === 0){
+      cls = 'ers-up-plan-risk';
+      label = session === 'PM' ? 'Decision due by close' : 'Decision due today';
+    } else if (days === 1){
+      cls = 'ers-up-plan-risk';
+      label = 'Overnight gap risk';
+    } else if (days <= 3){
+      cls = 'ers-up-plan-warn';
+      label = 'Size before the print';
+    }
+    var implied = u && ersNum(u.impliedMovePct) && u.impliedMovePct > 0
+      ? '±' + (u.impliedMovePct * 100).toFixed(1) + '% priced'
+      : 'expected move pending';
+    return '<span class="ers-up-plan ' + cls + '"><b>' + escapeHtml(label) + '</b><small>' + escapeHtml(implied) + '</small></span>';
+  }
   // Proportional 3-segment split bar. segs = [{n, cls, label}]; skips empty.
   function ersSplitBar(segs){
     var total = 0;
@@ -14393,6 +14415,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var nextLabel = nextDays === 0 ? 'report today' : nextDays === 1 ? 'report tomorrow' : 'report in ' + nextDays + 'd';
       var sampleLabel = c.reported < 20 ? ' · early sample' : '';
       var beatDown = c.beatButDown || 0;
+      var tradeRule = nextDays === 0
+        ? 'Decide before each reporter\\'s session cutoff; do not let an unplanned stock or long-premium position become an earnings bet.'
+        : nextDays === 1
+          ? 'Tomorrow\\'s reporters already carry overnight gap risk. Define the maximum loss now or wait for post-print confirmation.'
+          : 'Use the lead time to define maximum gap loss and the exact position size you are willing to carry through the print.';
       var postureBody = nextCount + ' ' + nextLabel + ' · ' + next7Count + ' inside 7 days' +
         (extreme7.length ? ' · ' + extreme7.length + ' already moved at least 10% into the print.' : ' · no double-digit pre-print moves inside 7 days.') +
         (c.reported ? ' The season is ' + c.reported + ' reports in' + sampleLabel +
@@ -14411,6 +14438,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<div class="ers-posture-triggers">' +
           '<div><span>Risk eases if</span><b>reaction breadth clears 55% and guidance raises keep outnumbering cuts</b></div>' +
           '<div><span>Risk worsens if</span><b>breadth slips below 45% or 30%+ of prints exceed the implied move</b></div>' +
+        '</div>' +
+        '<div class="ers-posture-action"><div><span>Trade rule</span><b>' + escapeHtml(tradeRule) + '</b></div>' +
+          '<div class="ers-posture-buttons">' +
+            '<button type="button" class="ers-action-primary" data-ers-jump-upcoming>Review ' + nextCount + ' due next</button>' +
+            '<button type="button" class="ers-action-secondary" data-ers-go="calendar">Open Calendar</button>' +
+            '<button type="button" class="ers-action-secondary" data-ers-go="spillover">Check spillover</button>' +
+          '</div>' +
         '</div>' +
       '</section>';
     }
@@ -14474,6 +14508,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           (ersUpcomingPositionChip(u) || '<span class="ers-dim">—</span>') +
           '<span class="ers-dim ers-up-date">' + ersDate(u.date) + ' · ' + sessionLabel + ' · ' + countdown + '</span>' +
           '<span class="ers-ldr-val' + ersToneCls(uv) + '">' + ersPct(uv) + (ersNum(u.pre10Pct) && ersNum(u.pre15Pct) ? '<span class="ers-ldr-day">' + ersPct(u.pre10Pct) + ' 2wk</span>' : '') + '</span>' +
+          ersUpcomingHoldPlan(u) +
         '</div>');
       }
       if (upRows.length){
@@ -14631,6 +14666,22 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       earningsState.upLimit += ersUpcomingPageSize();
       renderEarningsTracker();
     });
+    var upJump = root.querySelector('[data-ers-jump-upcoming]');
+    if (upJump) upJump.addEventListener('click', function(){
+      var desk = root.querySelector('.ers-upcoming');
+      if (desk && desk.scrollIntoView){
+        try { desk.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+        catch (_) { desk.scrollIntoView(); }
+      }
+    });
+    var ersGo = root.querySelectorAll('[data-ers-go]');
+    for (var eg = 0; eg < ersGo.length; eg++){
+      ersGo[eg].addEventListener('click', function(ev){
+        var key = ev.currentTarget.getAttribute('data-ers-go');
+        var tab = document.querySelector('[data-page-tab="' + key + '"]');
+        if (tab) tab.click();
+      });
+    }
     var aiDetails = root.querySelector('.ers-ai');
     if (aiDetails && aiDetails.tagName === 'DETAILS') aiDetails.addEventListener('toggle', function(){ earningsState.aiOpen = aiDetails.open; });
     var tableDetails = root.querySelector('.ers-table-details');
