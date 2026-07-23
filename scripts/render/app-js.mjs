@@ -18040,7 +18040,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     data: null, loading: false, error: false, quotes: null, quotesFor: '',
     quotesFetchedAt: 0, quotesSourceAt: '', quotesLoading: false,
     phase: 'all', action: 'all', group: 'all', sort: 'priority',
-    account: 25000, riskPct: 0.5
+    account: 25000, riskPct: 0.5, evidenceOpen: {}
   };
   var ROTATION_QUOTE_TTL_MS = 60000;
   try {
@@ -18715,18 +18715,32 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }).join('') + '</div>';
     return html;
   }
+  function rotEvidenceHtml(c, thresholds){
+    var sym = String((c && c.symbol) || '').toUpperCase();
+    var episode = c && c.episode && typeof c.episode === 'object' ? c.episode : {};
+    var mean = c && c.meanReversion && typeof c.meanReversion === 'object' ? c.meanReversion : {};
+    var drawdown = rotNum(rotValue(episode, ['drawdownPct','peakToTroughPct','dislocationPct','troughDrawdownPct']));
+    var progress = rotNum(rotValue(mean, ['progressPct','progressRawPct','reversionPct']));
+    var currentZ = rotNum(rotValue(mean, ['currentZDisplay','currentZ','zNow','nowZ']));
+    var summary = [];
+    if (drawdown != null) summary.push(rotPct(drawdown > 0 ? -drawdown : drawdown) + ' washout');
+    if (progress != null) summary.push(fmt(progress, 0) + '% reverted');
+    if (currentZ != null) summary.push(rotSigma(currentZ, !!mean.currentZCapped, rotNum(mean.zDisplayCap) || 10) + ' now');
+    return '<details class="rot-evidence" data-rot-evidence="' + escapeHtml(sym) + '"' + (rotationState.evidenceOpen[sym] ? ' open' : '') + '>' +
+      '<summary data-rot-evidence-summary="' + escapeHtml(sym) + '"><span><b>Why this setup is on the desk</b><small>' + escapeHtml(summary.join(' \u00b7 ') || 'Washout, recovery, score and guard evidence') + '</small></span><em>Model evidence</em></summary>' +
+      '<div class="rot-evidence-body">' + rotEpisodeHtml(c) + rotSpark(c) + rotMeanReversionHtml(c, thresholds) + rotComponentHtml(c) + rotFactsHtml(c) + rotGuardHtml(c) + '</div></details>';
+  }
   function rotCandidateCard(c, thresholds){
     var sym = String(c.symbol || '').toUpperCase();
     var cardTitleId = 'rot-card-title-' + sym.replace(/[^A-Z0-9_-]/g, '-');
     var phase = rotPhase(c), decision = rotEffectiveDecision(c, thresholds), score = rotCandidateScore(c);
-    return '<article class="rot-card rot-phase-' + escapeHtml(phase) + ' rot-decision-' + decision.kind + '" aria-labelledby="' + escapeHtml(cardTitleId) + '">' +
+    return '<article id="rot-card-' + escapeHtml(sym.replace(/[^A-Z0-9_-]/g, '-')) + '" class="rot-card rot-phase-' + escapeHtml(phase) + ' rot-decision-' + decision.kind + '" aria-labelledby="' + escapeHtml(cardTitleId) + '">' +
       '<header class="rot-card-head"><div class="rot-id"><a id="' + escapeHtml(cardTitleId) + '" class="rot-sym" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '">' + escapeHtml(sym || '?') + '</a>' +
         '<span class="rot-name">' + escapeHtml(c.name || '') + '</span><span class="rot-group">' + escapeHtml(rotCandidateGroup(c)) + '</span></div>' +
         '<span class="rot-score"><small>Setup score</small><b>' + (score == null ? '-' : fmt(score, 1) + '<em>/100</em>') + '</b></span></header>' +
       '<div class="rot-card-status"><span class="rot-phase-chip">' + escapeHtml(rotPhaseLabel(phase)) + '</span><span class="rot-action rot-action-' + decision.kind + '">' + escapeHtml(decision.label) + '</span>' + (c.highConfidence ? '<span class="rot-confidence">Strong screen fit</span>' : '') + '</div>' +
       '<div class="rot-price">' + rotLiveHtml(c) + '</div>' +
-      rotTrackingHtml(c) + rotEpisodeHtml(c) + rotSpark(c) + rotMeanReversionHtml(c, thresholds) + rotComponentHtml(c) + rotFactsHtml(c) + rotGuardHtml(c) +
-      rotPlanHtml(c, decision) + rotReasonHtml(c) +
+      rotTrackingHtml(c) + rotPlanHtml(c, decision) + rotReasonHtml(c) + rotEvidenceHtml(c, thresholds) +
     '</article>';
   }
   function rotRecordCount(value){
@@ -18849,7 +18863,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var method = rec.methodology || {};
     var maxHoldSessions = rotNum(method.maxHoldSessions);
     maxHoldSessions = maxHoldSessions > 0 ? Math.round(maxHoldSessions) : 20;
-    return '<section class="rot-record"><div class="rot-record-head"><div><span class="rot-kicker">Accountability</span><h3>Sector-rotation model record</h3><p>Frozen model entries answer whether the call was right and whether the entry helped or hurt. This is not your personal fill history.</p></div><span class="rot-record-badge">Plan-scored</span></div>' +
+    return '<section class="rot-record" id="rot-accountability"><div class="rot-record-head"><div><span class="rot-kicker">Accountability</span><h3>Sector-rotation model record</h3><p>Frozen model entries answer whether the call was right and whether the entry helped or hurt. This is not your personal fill history.</p></div><span class="rot-record-badge">Plan-scored</span></div>' +
       '<div class="rot-record-stats">' + stats.join('') + '</div>' + rotEntryLabHtml(rec) + ledger +
       '<p class="rot-record-method">First baked <b>ready</b> signal plus a recent in-zone regular-session quote enrolls &middot; post-close setups wait for the next live session &middot; later entry-day 30-minute bars are tracked &middot; target before stop = right &middot; stop before target = wrong &middot; unresolved after ' + maxHoldSessions + ' sessions = timeout &middot; same-bar ties score stop-first &middot; SPY alpha uses its outcome-date close.</p></section>';
   }
@@ -18906,13 +18920,65 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (explicitWaits != null && !rotQuotesFresh()) waits = explicitWaits;
     return '<section class="rot-summary"><div><span class="rot-kicker">Peer washout &rarr; stock rebound</span><h3>' + escapeHtml(headline || 'Quality intact. Price dislocated. Confirmation still matters.') + '</h3>' +
       '<p>' + escapeHtml(body || 'Ranks strong businesses caught in group-level selling, measures the flush in standard deviations from a frozen pre-drop trend mean, and refuses entries after the reversion runway is spent.') + '</p></div>' +
-      '<div class="rot-summary-stats"><span><b>' + actionable + '</b><small>actionable</small></span><span><b>' + first + '</b><small>first thrust</small></span><span><b>' + confirmed + '</b><small>confirmed / retest</small></span><span><b>' + waits + '</b><small>wait or pass</small></span></div></section>' +
-      '<ol class="rot-process" aria-label="How the Sector Rotation rebound screen works">' +
+      '<div class="rot-summary-stats"><span><b>' + actionable + '</b><small>actionable</small></span><span><b>' + first + '</b><small>first thrust</small></span><span><b>' + confirmed + '</b><small>confirmed / retest</small></span><span><b>' + waits + '</b><small>wait or pass</small></span></div></section>';
+  }
+  function rotProcessHtml(){
+    return '<ol class="rot-process" aria-label="How the Sector Rotation rebound screen works">' +
         '<li><b><em>1</em> Group washout</b><span>Broad peer selling, not one broken stock.</span></li>' +
         '<li><b><em>2</em> Quality survives</b><span>Fundamentals, news and peer damage must clear.</span></li>' +
         '<li><b><em>3</em> Turn confirms</b><span>Frozen-mean recovery plus breadth and structure.</span></li>' +
         '<li><b><em>4</em> Payoff qualifies</b><span>Enter only in-zone with at least 1.5:1 live R:R.</span></li>' +
       '</ol><p class="rot-scope-note"><b>This desk is separate from</b> the Market Tape offense/defense gauge and the Heatmap breadth alert.</p>';
+  }
+  function rotDeskBriefHtml(d, candidates, thresholds){
+    var ranked = candidates.map(function(c){ return { candidate:c, decision:rotEffectiveDecision(c, thresholds) }; });
+    var actionRank = { act:3, wait:2, pass:1 };
+    ranked.sort(function(a, b){
+      var delta = (actionRank[b.decision.kind] || 0) - (actionRank[a.decision.kind] || 0);
+      return delta || ((rotCandidateScore(b.candidate) || 0) - (rotCandidateScore(a.candidate) || 0));
+    });
+    var actionable = ranked.filter(function(x){ return x.decision.kind === 'act'; });
+    var waiting = ranked.filter(function(x){ return x.decision.kind === 'wait'; });
+    var passed = ranked.filter(function(x){ return x.decision.kind === 'pass'; });
+    var primary = actionable[0] || waiting[0] || ranked[0] || null;
+    var primaryCandidate = primary && primary.candidate;
+    var primaryDecision = primary && primary.decision;
+    var confirmed = candidates.filter(function(c){ var p = rotPhase(c); return p === 'confirmed' || p === 'retest'; }).length;
+    var stance = actionable.length ? 'Act only inside the plan' : waiting.length ? 'No entry yet' : 'Stand aside';
+    var tone = actionable.length ? 'act' : waiting.length ? 'wait' : 'pass';
+    var headline = actionable.length
+      ? actionable.length + ' setup' + (actionable.length === 1 ? '' : 's') + ' currently clear the entry bar.'
+      : waiting.length
+        ? 'The washout is real, but the turn is not ready to trade.'
+        : 'Nothing on this desk offers a qualified entry.';
+    var detail = actionable.length
+      ? 'Use the frozen zone, structural invalidation and first target below. A live quote outside the zone or below the payoff bar downgrades the setup automatically.'
+      : confirmed
+        ? 'Structure has confirmed in ' + confirmed + ' name' + (confirmed === 1 ? '' : 's') + ', but the current quote or payoff still fails the execution bar.'
+        : waiting.length
+          ? 'Do not buy the first reflex bounce. Wait for stock and peer breadth to follow through, then require price inside the declared zone with at least 1.5:1 live reward-to-risk.'
+          : 'A high score is not a trade when the target is too close, the move is late, or a guard fails.';
+    var primaryHtml = '';
+    if (primaryCandidate){
+      var sym = String(primaryCandidate.symbol || '').toUpperCase();
+      var entry = rotPlanPoint(primaryCandidate, 'entry');
+      var stop = rotPlanPoint(primaryCandidate, 'stop');
+      var target = rotPlanPoint(primaryCandidate, 'target');
+      var rr = rotPlanRr(primaryCandidate);
+      var next = primaryDecision.note || rotText(rotPlan(primaryCandidate), ['headline','basis']) || primaryDecision.label;
+      primaryHtml = '<div class="rot-brief-focus"><div class="rot-brief-focus-head"><span><small>' + (actionable.length ? 'Top executable setup' : waiting.length ? 'Primary watch' : 'Highest-ranked pass') + '</small><b>' + escapeHtml(sym || '?') + ' <em>' + escapeHtml(rotCandidateGroup(primaryCandidate)) + '</em></b></span><strong class="rot-action-' + primaryDecision.kind + '">' + escapeHtml(primaryDecision.label) + '</strong></div>' +
+        '<p>' + escapeHtml(next) + '</p><div class="rot-brief-levels">' +
+          '<span><small>Trigger / zone</small><b>' + escapeHtml(rotPointText(entry, 'Not ready')) + '</b></span>' +
+          '<span><small>Invalidation</small><b class="rot-down">' + escapeHtml(rotPointText(stop, 'Not supplied')) + '</b></span>' +
+          '<span><small>First target</small><b class="rot-up">' + escapeHtml(rotPointText(target, 'Not supplied')) + '</b></span>' +
+          '<span><small>Planned payoff</small><b>' + (rr == null ? '-' : fmt(rr, 1) + ':1') + '</b></span>' +
+        '</div><div class="rot-brief-actions"><button type="button" data-rot-jump-card="' + escapeHtml(sym) + '">Review ' + escapeHtml(sym) + ' plan</button><button type="button" data-rot-jump-record>Review model record</button></div></div>';
+    }
+    var rec = d && d.record && d.record.summary && typeof d.record.summary === 'object' ? d.record.summary : {};
+    var tracking = rotRecordCount(rec.watchingCount);
+    var open = rotRecordCount(rec.openCount);
+    var resolved = rotRecordCount(rec.closedCount);
+    return '<section class="rot-brief rot-brief-' + tone + (primaryCandidate ? '' : ' rot-brief-no-focus') + '" aria-labelledby="rot-brief-title"><div class="rot-brief-read"><span class="rot-kicker">Today&rsquo;s decision</span><div class="rot-brief-title"><h3 id="rot-brief-title">' + escapeHtml(stance) + '</h3><b class="rot-action-' + tone + '">' + actionable.length + ' actionable</b></div><p>' + escapeHtml(headline) + '</p><span>' + escapeHtml(detail) + '</span><div class="rot-brief-counts"><b>' + waiting.length + ' waiting</b><b>' + passed.length + ' pass decisions</b><b>' + tracking + ' tracked &middot; ' + open + ' open &middot; ' + resolved + ' resolved</b></div></div>' + primaryHtml + '</section>';
   }
   function rotVisibleCandidates(candidates, thresholds){
     var rows = candidates.filter(function(c){
@@ -19034,6 +19100,22 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (group) group.addEventListener('change', function(){ rotationState.group = this.value || 'all'; rotSavePrefs(); rerenderAndFocus('data-rot-group', null); });
     var sort = root.querySelector('[data-rot-sort]');
     if (sort) sort.addEventListener('change', function(){ rotationState.sort = this.value || 'priority'; rotSavePrefs(); rerenderAndFocus('data-rot-sort', null); });
+    var evidence = root.querySelectorAll('[data-rot-evidence]');
+    for (var ei = 0; ei < evidence.length; ei++) evidence[ei].addEventListener('toggle', function(){
+      var sym = this.getAttribute('data-rot-evidence');
+      if (sym) rotationState.evidenceOpen[sym] = this.open;
+    });
+    var jumpCards = root.querySelectorAll('[data-rot-jump-card]');
+    for (var ji = 0; ji < jumpCards.length; ji++) jumpCards[ji].addEventListener('click', function(){
+      var sym = this.getAttribute('data-rot-jump-card');
+      var target = sym ? document.getElementById('rot-card-' + sym.replace(/[^A-Z0-9_-]/g, '-')) : null;
+      if (target) target.scrollIntoView({ behavior:'smooth', block:'start' });
+    });
+    var jumpRecord = root.querySelector('[data-rot-jump-record]');
+    if (jumpRecord) jumpRecord.addEventListener('click', function(){
+      var target = document.getElementById('rot-accountability');
+      if (target) target.scrollIntoView({ behavior:'smooth', block:'start' });
+    });
     function saveRisk(normalize){
       var account = root.querySelector('[data-rot-account]'), risk = root.querySelector('[data-rot-risk]');
       var av = account ? rotNum(account.value) : null, rv = risk ? rotNum(risk.value) : null;
@@ -19060,7 +19142,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var priorFocus = null;
     var active = document.activeElement;
     if (active && root.contains(active)){
-      var focusAttrs = ['data-rot-ledger-summary','data-rot-phase','data-rot-action','data-rot-group-card','data-rot-group','data-rot-sort','data-rot-account','data-rot-risk','data-sym'];
+      var focusAttrs = ['data-rot-ledger-summary','data-rot-evidence-summary','data-rot-jump-card','data-rot-jump-record','data-rot-phase','data-rot-action','data-rot-group-card','data-rot-group','data-rot-sort','data-rot-account','data-rot-risk','data-sym'];
       for (var fi = 0; fi < focusAttrs.length; fi++){
         var focusAttr = focusAttrs[fi];
         if (!active.hasAttribute(focusAttr)) continue;
@@ -19094,8 +19176,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       : candidates.length ? '<div class="rot-empty"><b>No candidates match these desk filters.</b><span>Reset state, action, or group filters; the screen is not manufacturing a trade.</span></div>'
       : '<div class="rot-empty"><b>No quality rotation-rebound candidate clears the bar.</b><span>That is a valid signal. Wait for a clean dislocation and confirmation instead of forcing a bounce trade.</span></div>';
     var filteredNear = rotationState.group === 'all' ? near : near.filter(function(c){ return rotGroupMatches(c, rotationState.group); });
-    root.innerHTML = stale + rotSummaryHtml(d, candidates) + rotRecordHtml(d) + rotGroupTape(groups) + rotToolbarHtml(candidates, visible, groups, thresholds) + grid +
-      rotNearMissHtml(filteredNear, thresholds) + rotThresholdHtml(d.thresholds, d.modelVersion) +
+    root.innerHTML = stale + rotSummaryHtml(d, candidates) + rotDeskBriefHtml(d, candidates, thresholds) + rotProcessHtml() + rotGroupTape(groups) + rotToolbarHtml(candidates, visible, groups, thresholds) + grid +
+      rotRecordHtml(d) + rotNearMissHtml(filteredNear, thresholds) + rotThresholdHtml(d.thresholds, d.modelVersion) +
       '<p class="rot-foot">The frozen mean and \u03c3 describe a pre-drop trend regime; they do not prove price must revert or estimate a probability. First thrust is an initial reflex move, never confirmation. Latest quotes can update price and sizing; z-scores and the displayed at-build R:R remain frozen to the named build. Recheck fresh news and earnings timing before acting. Educational screen, not financial advice.</p>';
     var nextLedger = root.querySelector('.rot-record-ledger');
     if (nextLedger && priorLedgerOpen != null) nextLedger.open = priorLedgerOpen;

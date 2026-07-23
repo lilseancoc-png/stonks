@@ -4589,6 +4589,35 @@ a.cmd-watch, a.cr-tkr, a.f13-sym, a.brief-chip, a.cal-chip-sym { text-decoration
 .rot-process span { color: var(--muted); font: 400 10px/1.35 var(--font-sans); }
 .rot-scope-note { margin: -7px 0 0; color: var(--muted); font: 400 10px/1.35 var(--font-sans); }
 .rot-scope-note b { color: var(--muted-strong); font-weight: 650; }
+.rot-brief { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); gap: 10px; padding: 13px; border: 1px solid color-mix(in srgb, var(--warn) 34%, var(--border)); border-left-width: 3px; border-radius: 12px; background: linear-gradient(135deg, color-mix(in srgb, var(--warn) 6%, var(--surface)), var(--surface) 58%); min-width: 0; }
+.rot-brief-act { border-color: color-mix(in srgb, var(--pos) 42%, var(--border)); background: linear-gradient(135deg, color-mix(in srgb, var(--pos) 6%, var(--surface)), var(--surface) 58%); }
+.rot-brief-pass { border-color: color-mix(in srgb, var(--neg) 34%, var(--border)); background: linear-gradient(135deg, color-mix(in srgb, var(--neg) 5%, var(--surface)), var(--surface) 58%); }
+.rot-brief-no-focus { grid-template-columns: minmax(0, 1fr); }
+.rot-brief-read { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 2px 3px; }
+.rot-brief-read .rot-kicker { margin: 0; }
+.rot-brief-title { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.rot-brief-title h3 { margin: 0; color: var(--text-strong); font: 780 18px/1.2 var(--font-sans); }
+.rot-brief-title > b { padding: 4px 7px; border-radius: 6px; font: 750 9.5px/1 var(--font-sans); }
+.rot-brief-read > p { margin: 0; color: var(--text); font: 650 12px/1.4 var(--font-sans); }
+.rot-brief-read > span { color: var(--muted-strong); font: 400 10.5px/1.45 var(--font-sans); }
+.rot-brief-counts { display: flex; flex-wrap: wrap; gap: 5px; margin-top: auto; padding-top: 5px; }
+.rot-brief-counts b { padding: 4px 6px; border-radius: 5px; background: var(--surface-2); color: var(--muted-strong); font: 650 9px/1.2 var(--font-mono); font-variant-numeric: tabular-nums; }
+.rot-brief-focus { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2); }
+.rot-brief-focus-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; min-width: 0; }
+.rot-brief-focus-head > span { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.rot-brief-focus-head small { color: var(--muted); font: 650 8.5px/1 var(--font-sans); letter-spacing: .045em; text-transform: uppercase; }
+.rot-brief-focus-head b { color: var(--accent); font: 800 16px/1.15 var(--font-mono); }
+.rot-brief-focus-head b em { margin-left: 5px; color: var(--muted-strong); font: 550 10px/1.2 var(--font-sans); font-style: normal; }
+.rot-brief-focus-head > strong { flex: 0 0 auto; max-width: 48%; padding: 4px 7px; border-radius: 6px; font: 700 9.5px/1.2 var(--font-sans); text-align: right; }
+.rot-brief-focus > p { margin: 0; color: var(--muted-strong); font: 500 10.5px/1.4 var(--font-sans); }
+.rot-brief-levels { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+.rot-brief-levels > span { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 6px 7px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); }
+.rot-brief-levels small { color: var(--muted); font: 650 8px/1.1 var(--font-sans); letter-spacing: .03em; text-transform: uppercase; }
+.rot-brief-levels b { color: var(--text-strong); font: 730 10.5px/1.2 var(--font-mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.rot-brief-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.rot-brief-actions button { appearance: none; min-height: 34px; flex: 1 1 135px; padding: 7px 9px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--surface); color: var(--text); font: 700 10px/1.2 var(--font-sans); cursor: pointer; }
+.rot-brief-actions button:first-child { border-color: color-mix(in srgb, var(--accent) 48%, var(--border)); background: var(--accent-soft); color: var(--accent); }
+.rot-brief-actions button:hover { border-color: var(--accent); color: var(--accent); }
 .rot-record { display: flex; flex-direction: column; gap: 10px; padding: 13px 14px; border: 1px solid var(--border); border-radius: 12px; background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 5%, var(--surface)), var(--surface) 55%); min-width: 0; }
 .rot-record-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .rot-record-head > div { min-width: 0; }
@@ -4778,6 +4807,17 @@ a.cmd-watch, a.cr-tkr, a.f13-sym, a.brief-chip, a.cal-chip-sym { text-decoration
 .rot-blocked span { color: var(--neg); font: 650 10.5px/1.35 var(--font-sans); }
 .rot-warnings { display: flex; flex-direction: column; gap: 3px; }
 .rot-warnings span { color: var(--warn); font: 550 10.5px/1.35 var(--font-sans); }
+.rot-evidence { border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--surface-2) 72%, transparent); overflow: hidden; }
+.rot-evidence > summary { min-height: 43px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 9px; list-style: none; cursor: pointer; user-select: none; }
+.rot-evidence > summary::-webkit-details-marker { display: none; }
+.rot-evidence > summary > span { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.rot-evidence > summary b { color: var(--text); font: 680 10.5px/1.2 var(--font-sans); }
+.rot-evidence > summary small { color: var(--muted); font: 550 9px/1.2 var(--font-mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.rot-evidence > summary > em { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; color: var(--accent); font: 700 9px/1.1 var(--font-sans); font-style: normal; }
+.rot-evidence > summary > em::before { content: '▸'; font-size: 11px; }
+.rot-evidence[open] > summary { border-bottom: 1px solid var(--border); background: var(--surface-2); }
+.rot-evidence[open] > summary > em::before { content: '▾'; }
+.rot-evidence-body { display: flex; flex-direction: column; gap: 8px; padding: 9px; }
 .rot-near { min-width: 0; }
 .rot-near-list { display: flex; flex-direction: column; gap: 5px; }
 .rot-near-row { display: grid; grid-template-columns: 62px minmax(90px, .75fr) minmax(110px, .7fr) 42px minmax(180px, 1.5fr); align-items: center; gap: 8px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); min-width: 0; }
@@ -4801,6 +4841,8 @@ a.cmd-watch, a.cr-tkr, a.f13-sym, a.brief-chip, a.cal-chip-sym { text-decoration
   .rot-summary { flex-direction: column; }
   .rot-summary-stats { width: 100%; }
   .rot-process { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rot-brief { grid-template-columns: minmax(0, 1fr); }
+  .rot-brief-levels { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .rot-record-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .rot-record-rows { grid-template-columns: minmax(0, 1fr); }
   .rot-tape-grid { display: flex; gap: 7px; overflow-x: auto; scroll-snap-type: x proximity; padding-bottom: 3px; }
@@ -4823,6 +4865,11 @@ a.cmd-watch, a.cr-tkr, a.f13-sym, a.brief-chip, a.cal-chip-sym { text-decoration
   .rot-summary { padding: 11px; }
   .rot-summary-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .rot-process { grid-template-columns: minmax(0, 1fr); }
+  .rot-brief { padding: 10px; }
+  .rot-brief-focus-head { flex-direction: column; }
+  .rot-brief-focus-head > strong { max-width: none; text-align: left; }
+  .rot-brief-actions button { min-height: 42px; flex-basis: 100%; }
+  .rot-evidence > summary { min-height: 48px; }
   .rot-spark-caption em { width: 100%; margin-left: 0; }
   .rot-record { padding: 11px; }
   .rot-record-head { align-items: flex-start; }
