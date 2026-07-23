@@ -8280,20 +8280,22 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // timestamp for the freshness banner). See lib/volume-flags.mjs for the
   // flag classification rules.
   var VOLUME_FLAGS = null;
-  var volFlagsLoad = { loaded: false, loading: false };
+  var volFlagsLoad = { loaded: false, loading: false, error: false };
   function loadVolumeFlagsData(){
     if (volFlagsLoad.loaded || volFlagsLoad.loading) return;
     volFlagsLoad.loading = true;
+    volFlagsLoad.error = false;
     fetch(dataUrl('volume-flags.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         VOLUME_FLAGS = json || null;
-        volFlagsLoad.loaded = true; volFlagsLoad.loading = false;
+        volFlagsLoad.loaded = true; volFlagsLoad.loading = false; volFlagsLoad.error = false;
         renderVolumeFlags();
       })
       .catch(function(){
-        // Soft-fail: the tab shows its empty state; a tab re-entry retries.
-        volFlagsLoad.loading = false;
+        // Soft-fail: the tab shows an explicit retry state; tab re-entry retries.
+        volFlagsLoad.loading = false; volFlagsLoad.error = true;
+        renderVolumeFlags();
       });
   }
   // Ticker -> curated sector label (Semis / Software / Bank / Space / ETF / …)
@@ -8719,6 +8721,314 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return null;
   }
   // The EOD summary row — rendered inside an expanded card body.
+  // Lead the raw breadth scan with one ranked decision. The ranking only uses
+  // evidence already present on each ticker card: the strongest hourly move,
+  // the highest-conviction 20D S/R break, EOD participation, and whether the
+  // move's direction held through the session.
+  function volFreshnessMeta(){
+    var iso = VOLUME_FLAGS && VOLUME_FLAGS.scannedAt;
+    var scan = new Date(iso || '');
+    if (!isFinite(scan.getTime())){
+      return {
+        current: false,
+        label: 'No scan timestamp',
+        detail: 'Wait for a completed hourly scan before treating a volume flag as current.',
+      };
+    }
+    var now = new Date();
+    var ageMin = Math.max(0, Math.floor((now.getTime() - scan.getTime()) / 60000));
+    var gap = marketSessionGap(iso);
+    var marketState = String((VOLUME_FLAGS && VOLUME_FLAGS.marketState) || '').toUpperCase();
+    var ageText = ageMin < 60
+      ? ageMin + 'm old'
+      : (ageMin / 60).toFixed(ageMin < 600 ? 1 : 0) + 'h old';
+    if (gap === 0 && marketState === 'POST'){
+      return {
+        current: true,
+        label: 'Completed-session tape',
+        detail: 'Final session volume map · ' + ageText + '.',
+        ageMin: ageMin,
+        gap: gap,
+      };
+    }
+    if (gap === 0 && ageMin <= 100){
+      return {
+        current: true,
+        label: 'Current hourly scan',
+        detail: 'Latest session bucket · ' + ageText + '.',
+        ageMin: ageMin,
+        gap: gap,
+      };
+    }
+    return {
+      current: false,
+      label: 'Reference only · stale volume',
+      detail: gap == null
+        ? 'The scan age could not be verified.'
+        : gap > 0
+          ? gap + ' market session' + (gap === 1 ? '' : 's') + ' behind.'
+          : 'The latest intraday bucket is ' + ageText + ' and no longer current.',
+      ageMin: ageMin,
+      gap: gap,
+    };
+  }
+  function volBestSrBreak(t){
+    var buckets = Array.isArray(t && t.bucketHits) ? t.bucketHits : [];
+    var best = null;
+    for (var i = 0; i < buckets.length; i++){
+      var b = buckets[i];
+      var sr = b && b.srBreak;
+      if (!sr) continue;
+      var rank = VOL_CONV_RANK[sr.conviction] || 0;
+      var ratio = b.volRatio != null && isFinite(b.volRatio) ? Number(b.volRatio) : null;
+      if (!best || rank > best.rank || (rank === best.rank && (ratio || 0) > (best.ratio || 0))){
+        best = {
+          type: sr.type === 'lower' ? 'lower' : 'upper',
+          level: sr.level != null && isFinite(sr.level) ? Number(sr.level) : null,
+          conviction: sr.conviction || '',
+          action: sr.action || '',
+          rank: rank,
+          ratio: ratio,
+          movePct: b.priceMovePct != null && isFinite(b.priceMovePct) ? Number(b.priceMovePct) : null,
+          bucketLabel: b.bucketLabel || '',
+        };
+      }
+    }
+    return best;
+  }
+  function volCandidateMeta(t){
+    t = t || {};
+    var sum = volTickerSummary(t);
+    var verdict = volCaseVerdict(sum);
+    var sr = volBestSrBreak(t);
+    var side = verdict && verdict.side
+      ? verdict.side
+      : sr
+        ? (sr.type === 'lower' ? 'bear' : 'bull')
+        : sum.lean != null && Number(sum.lean) < 0 ? 'bear' : 'bull';
+    var srSide = sr ? (sr.type === 'lower' ? 'bear' : 'bull') : null;
+    var sideAligned = srSide == null ? null : side === srSide;
+    var spot = t.spot != null && isFinite(t.spot) ? Number(t.spot) : null;
+    var levelDistPct = spot != null && sr && sr.level > 0 ? (spot - sr.level) / sr.level * 100 : null;
+    var levelHolding = !sr || sr.level == null || spot == null
+      ? null
+      : sr.type === 'lower' ? spot < sr.level : spot > sr.level;
+    var eodRatio = t.eod && t.eod.ratio != null && isFinite(t.eod.ratio) ? Number(t.eod.ratio) : null;
+    var eodMove = t.eod && t.eod.dayMovePct != null && isFinite(t.eod.dayMovePct) ? Number(t.eod.dayMovePct) : null;
+    var consistent = eodMove == null ? null : (side === 'bull' ? eodMove > 0 : eodMove < 0);
+    var verdictRank = !verdict ? 0 : verdict.verdict === 'follow' ? 3 : verdict.verdict === 'wait' ? 2 : 1;
+    var badgeRank = sum.topBadge ? (VOL_CONV_RANK[sum.topBadge.conviction] || 0) : 0;
+    var rank =
+      verdictRank * 10000 +
+      (sr ? 1000 + sr.rank * 1200 : 0) +
+      (sr && sr.rank >= 3 && sideAligned === true && levelHolding === true ? 3500 : 0) +
+      (sr && sr.rank >= 3 && (sideAligned === false || levelHolding === false) ? -4500 : 0) +
+      badgeRank * 250 +
+      (consistent === true ? 500 : 0) +
+      (sum.eodFlagged ? 200 : 0) +
+      Math.min(150, (sum.peakRatio || 0) * 30);
+    return {
+      ticker: t,
+      symbol: String(t.symbol || '').toUpperCase(),
+      sector: sum.sector,
+      spot: spot,
+      sum: sum,
+      verdict: verdict,
+      side: side,
+      sideAligned: sideAligned,
+      sr: sr,
+      levelDistPct: levelDistPct,
+      levelHolding: levelHolding,
+      eodRatio: eodRatio,
+      eodMove: eodMove,
+      consistent: consistent,
+      rank: rank,
+    };
+  }
+  function volDecisionStats(tickers){
+    var out = {
+      candidates: [],
+      followBull: 0,
+      followBear: 0,
+      wait: 0,
+      avoid: 0,
+      strongBreaks: 0,
+      failedBreaks: 0,
+      fakeouts: 0,
+      top: null,
+    };
+    (tickers || []).forEach(function(t){
+      var c = volCandidateMeta(t);
+      out.candidates.push(c);
+      if (c.verdict && c.verdict.verdict === 'follow'){
+        if (c.side === 'bear') out.followBear++;
+        else out.followBull++;
+      } else if (c.verdict && c.verdict.verdict === 'wait'){
+        out.wait++;
+      } else if (c.verdict && c.verdict.verdict === 'avoid'){
+        out.avoid++;
+      }
+      if (c.sr && c.sr.rank >= 3 && c.sideAligned === true && c.levelHolding === true) out.strongBreaks++;
+      if (c.sr && c.sr.rank >= 3 && c.sideAligned === true && c.levelHolding === false) out.failedBreaks++;
+      if (c.sr && c.sr.rank === 1) out.fakeouts++;
+    });
+    out.candidates.sort(function(a, b){ return b.rank - a.rank; });
+    out.top = out.candidates[0] || null;
+    return out;
+  }
+  function renderVolumeDecision(tickers, mode){
+    var host = $('vol-decision');
+    if (!host) return;
+    mode = mode || {};
+    if (mode.noData){
+      var loadTitle = volFlagsLoad.loading
+        ? 'Loading the latest volume scan'
+        : volFlagsLoad.error
+          ? 'The latest volume scan is unavailable'
+          : 'Waiting for the first volume scan';
+      var loadCopy = volFlagsLoad.loading
+        ? 'The desk will rank the cleanest confirmed break after the hourly payload arrives.'
+        : volFlagsLoad.error
+          ? 'The private volume payload could not be read. Re-enter the tab to retry.'
+          : 'No session-wide volume payload is loaded yet.';
+      host.className = 'flow-decision vol-decision flow-decision-empty';
+      host.innerHTML =
+        '<div class="flow-decision-empty-copy"><span>Volume decision desk</span><h3>' +
+        escapeHtml(loadTitle) + '</h3><p>' + escapeHtml(loadCopy) + '</p></div>';
+      return;
+    }
+    if (mode.filteredOut){
+      host.className = 'flow-decision vol-decision flow-decision-empty';
+      host.innerHTML =
+        '<div class="flow-decision-empty-copy"><span>Current filters</span><h3>No volume setup survives this view</h3>' +
+        '<p>The ticker, flag-type, or directional filter removed every ranked setup. Reset the desk before concluding the scan found no participation.</p></div>' +
+        '<button type="button" class="flow-decision-action is-primary" data-vol-reset>Reset filters</button>';
+      return;
+    }
+    if (!tickers || !tickers.length){
+      host.className = 'flow-decision vol-decision flow-decision-empty';
+      host.innerHTML =
+        '<div class="flow-decision-empty-copy"><span>Latest scan</span><h3>No actionable volume rows were published</h3>' +
+        '<p>Without an hourly, S/R, or EOD flag, the desk cannot rank a current tape setup.</p></div>';
+      return;
+    }
+    var freshness = volFreshnessMeta();
+    var stats = volDecisionStats(tickers);
+    var top = stats.top;
+    if (!top) return;
+    var filtered = !!mode.filtered;
+    var isFollow = !!(top.verdict && top.verdict.verdict === 'follow');
+    var strongBreak = !!(top.sr && top.sr.rank >= 3 && top.sideAligned === true);
+    var failedBreak = strongBreak && top.levelHolding === false;
+    var ready = freshness.current && isFollow && strongBreak && top.levelHolding === true;
+    var tone = !freshness.current ? 'reference' : ready ? (top.side === 'bear' ? 'put' : 'call') : 'mixed';
+    var sideWord = top.side === 'bear' ? 'bearish' : 'bullish';
+    var levelWord = top.sr ? (top.sr.type === 'lower' ? 'support' : 'resistance') : '';
+    var levelText = top.sr && top.sr.level != null ? '$' + Number(top.sr.level).toFixed(2) : 'No clean level';
+    var headline = '';
+    var copy = '';
+    if (!freshness.current){
+      headline = 'This volume map is reference only.';
+      copy = top.symbol + ' carried the strongest old participation, but an intraday volume signal expires when its session bucket goes stale.';
+    } else if (ready){
+      headline = top.symbol + ' has the cleanest ' + sideWord + ' volume break.';
+      copy = levelText + ' ' + levelWord + ' broke on ' +
+        (top.sr.ratio == null ? 'heavy' : top.sr.ratio.toFixed(2) + '× expected') +
+        ' volume in the ' + (top.sr.bucketLabel || 'latest') + ' bucket. Treat the level as the trigger, not the headline move.';
+    } else if (failedBreak){
+      headline = top.symbol + "'s " + sideWord + ' volume break has already failed.';
+      copy = 'Price moved back ' + (top.sr.type === 'lower' ? 'above ' : 'below ') + levelText +
+        ' after the high-volume break. The participation is useful context, but the old trigger is no longer an entry.';
+    } else if (isFollow){
+      headline = top.symbol + ' has strong ' + sideWord + ' participation, but no clean S/R trigger.';
+      copy = 'The tape supports the ' + (top.side === 'bear' ? 'downside' : 'upside') +
+        ', but chasing without a defined break level weakens the trade. Wait for price to create one.';
+    } else {
+      headline = 'No volume setup is ready to follow.';
+      copy = top.symbol + ' is the strongest watch, but its current evidence still says ' +
+        (top.verdict ? top.verdict.label.toLowerCase() : 'wait for a decisive move') + '.';
+    }
+    var confirm = '';
+    var invalidate = '';
+    if (strongBreak && !failedBreak){
+      confirm = top.side === 'bear'
+        ? 'Price stays below ' + levelText + ' through the next bucket while volume remains ≥1.2× expected; stronger if EOD volume finishes ≥1.3×.'
+        : 'Price holds above ' + levelText + ' through the next bucket while volume remains ≥1.2× expected; stronger if EOD volume finishes ≥1.3×.';
+      invalidate = top.side === 'bear'
+        ? 'Price reclaims ' + levelText + ', the next bucket reverses on equal or heavier volume, or participation falls below 0.8×.'
+        : 'Price closes back below ' + levelText + ', the next bucket reverses on equal or heavier volume, or participation falls below 0.8×.';
+    } else if (failedBreak){
+      confirm = 'A fresh bucket breaks ' + (top.sr.type === 'lower' ? 'back below ' : 'back above ') + levelText +
+        ' on ≥1.3× expected volume and price holds there through the following bucket.';
+      invalidate = 'Price remains on the reclaimed side of ' + levelText +
+        ', or another break attempt fades below 1.0× participation.';
+    } else {
+      confirm = 'A fresh 20D ' + (top.side === 'bear' ? 'support' : 'resistance') +
+        ' break prints on ≥1.3× expected volume, or another decisive same-direction bucket clears 1.2×.';
+      invalidate = 'The next bucket reverses the move on equal or heavier volume, or the full-session ratio falls back below 1.0×.';
+    }
+    if (!freshness.current){
+      confirm = 'A current-session scan rebuilds the same setup and price confirms against the new S/R level.';
+      invalidate = 'Fresh data moves the level, reverses the lean, or removes the heavy-volume classification.';
+    }
+    var triggerSub = top.sr && top.levelDistPct != null
+      ? top.sr.type === 'lower'
+        ? top.levelHolding
+          ? Math.abs(top.levelDistPct).toFixed(1) + '% below trigger'
+          : '+' + Math.abs(top.levelDistPct).toFixed(1) + '% above trigger · reclaimed'
+        : top.levelHolding
+          ? '+' + Math.abs(top.levelDistPct).toFixed(1) + '% above trigger'
+          : Math.abs(top.levelDistPct).toFixed(1) + '% below trigger · failed'
+      : top.sr ? levelWord : 'wait for a 20D break';
+    var breakVolText = top.sr && top.sr.ratio != null
+      ? top.sr.ratio.toFixed(2) + '×'
+      : (top.sum.peakRatio ? top.sum.peakRatio.toFixed(2) + '× peak' : 'n/a');
+    var breakVolSub = top.sr
+      ? (top.sr.action || top.sr.conviction || 'S/R break') + (top.sr.bucketLabel ? ' · ' + top.sr.bucketLabel : '')
+      : (top.sum.topBadge ? top.sum.topBadge.action || top.sum.topBadge.conviction : 'directional volume only');
+    var followText = top.eodRatio != null ? top.eodRatio.toFixed(2) + '× EOD' : 'Bucket still open';
+    var followSub = top.eodMove != null
+      ? (top.eodMove >= 0 ? '+' : '') + top.eodMove.toFixed(2) + '% session move'
+      : 'next bucket must confirm';
+    var focusStatus = ready
+      ? 'trigger active'
+      : !freshness.current
+        ? 'stale reference'
+        : failedBreak ? 'level failed' : isFollow ? 'wait for level' : 'watch only';
+    var activeBreakText = stats.strongBreaks + ' active break' + (stats.strongBreaks === 1 ? '' : 's');
+    var failedBreakText = stats.failedBreaks + ' failed break' + (stats.failedBreaks === 1 ? '' : 's');
+    var fakeoutText = stats.fakeouts + ' fakeout' + (stats.fakeouts === 1 ? '' : 's');
+    var filterNote = filtered ? ' · current filters' : '';
+    host.className = 'flow-decision vol-decision flow-decision-' + tone;
+    host.innerHTML =
+      '<div class="flow-decision-main">' +
+        '<div class="flow-decision-head"><span>Volume decision desk' + filterNote + '</span><em>' + escapeHtml(freshness.label) + '</em></div>' +
+        '<h3>' + escapeHtml(headline) + '</h3>' +
+        '<p>' + escapeHtml(copy) + '</p>' +
+        '<div class="flow-decision-rules">' +
+          '<div><span>Confirms when</span><b>' + escapeHtml(confirm) + '</b></div>' +
+          '<div><span>Invalidates when</span><b>' + escapeHtml(invalidate) + '</b></div>' +
+        '</div>' +
+      '</div>' +
+      '<aside class="flow-decision-side">' +
+        '<div class="flow-decision-source"><span>' + escapeHtml(freshness.detail) + '</span><small>Volume confirms participation; price must hold the level.</small></div>' +
+        '<div class="flow-decision-metrics">' +
+          '<div><span>Top focus</span><b>' + escapeHtml(top.symbol) + ' · ' + escapeHtml(sideWord) + '</b><small>' + escapeHtml(focusStatus) + '</small></div>' +
+          '<div><span>Trigger</span><b>' + escapeHtml(levelText) + '</b><small>' + escapeHtml(triggerSub) + '</small></div>' +
+          '<div><span>Break volume</span><b>' + escapeHtml(breakVolText) + '</b><small>' + escapeHtml(breakVolSub) + '</small></div>' +
+          '<div><span>Follow-through</span><b>' + escapeHtml(followText) + '</b><small>' + escapeHtml(followSub) + '</small></div>' +
+        '</div>' +
+        '<p class="flow-decision-context"><b>Desk breadth:</b> ' + stats.followBull + ' bull follows · ' +
+          stats.followBear + ' bear follows · ' + stats.wait + ' waits · ' + activeBreakText +
+          ' · ' + failedBreakText + ' · ' + fakeoutText + '.</p>' +
+        '<div class="flow-decision-actions">' +
+          '<button type="button" class="flow-decision-action is-primary" data-vol-focus="' + escapeHtml(top.symbol) + '">Focus ' + escapeHtml(top.symbol) + '</button>' +
+          '<button type="button" class="flow-decision-action" data-vol-gex="' + escapeHtml(top.symbol) + '">Open GEX</button>' +
+          '<a class="flow-decision-action" data-vol-grade="' + escapeHtml(top.symbol) + '" href="' + symGradeHref(top.symbol) + '">Open Grade</a>' +
+          (filtered ? '<button type="button" class="flow-decision-action" data-vol-reset>Reset filters</button>' : '') +
+        '</div>' +
+      '</aside>';
+  }
   function volEodRowHtml(t){
     if (!t.eod || !t.eod.flagged) return '';
     var ratio = t.eod.ratio != null ? Number(t.eod.ratio).toFixed(2) + 'x' : '—';
@@ -9015,12 +9325,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (!allTickers.length){
       list.innerHTML = '';
       if (summary) summary.innerHTML = '';
+      renderVolumeDecision([], { noData: !VOLUME_FLAGS });
       if (noResults) noResults.hidden = true;
       if (empty){
         empty.hidden = false;
         empty.textContent = VOLUME_FLAGS
           ? 'No volume or S/R-break flags in the latest scan.'
-          : (volFlagsLoad.loading ? 'Loading the latest volume scan…' : 'Waiting for the first hourly scan to land.');
+          : (volFlagsLoad.loading
+            ? 'Loading the latest volume scan…'
+            : volFlagsLoad.error
+              ? 'Could not load the latest volume scan. Re-enter the tab to retry.'
+              : 'Waiting for the first hourly scan to land.');
       }
       return;
     }
@@ -9033,6 +9348,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (!tickers.length && !hasPicks){
       list.innerHTML = '';
       if (summary) summary.innerHTML = '';
+      renderVolumeDecision([], { filteredOut: true });
       if (noResults){
         noResults.hidden = false;
         noResults.textContent = 'No tickers match these filters.';
@@ -9040,6 +9356,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       return;
     }
     if (noResults) noResults.hidden = true;
+    renderVolumeDecision(tickers, {
+      filtered: !!(volState.search || volState.filter !== 'all' || volState.lean !== 'all'),
+      filteredOut: !tickers.length,
+    });
     if (summary) summary.innerHTML = volSummaryHtml(tickers);
     // Promote Top Picks into their own pinned group — drop them from the
     // sector/flat list below so each name shows in exactly one place.
@@ -9083,6 +9403,78 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     list.innerHTML = picksHtml + restHtml;
   }
   function bindVolumeControls(){
+    var decision = $('vol-decision');
+    if (decision){
+      decision.addEventListener('click', function(ev){
+        var focus = ev.target.closest && ev.target.closest('[data-vol-focus]');
+        if (focus){
+          var focusSym = String(focus.getAttribute('data-vol-focus') || '').toUpperCase();
+          var focusSector = VOL_SECTOR_OF[focusSym] || 'Other';
+          volState.search = focusSym;
+          volState.expand[focusSym] = true;
+          volState.sectorCollapsed[focusSector] = false;
+          volState.picksCollapsed = false;
+          var focusInput = $('vol-search-input');
+          if (focusInput) focusInput.value = focusSym;
+          var focusClear = $('vol-search-clear');
+          if (focusClear) focusClear.hidden = !focusSym;
+          renderVolumeFlags();
+          requestAnimationFrame(function(){
+            var row = null;
+            var rows = document.querySelectorAll('.vol-row[data-symbol]');
+            for (var i = 0; i < rows.length; i++){
+              if (String(rows[i].getAttribute('data-symbol') || '').toUpperCase() === focusSym){
+                row = rows[i];
+                break;
+              }
+            }
+            if (row && row.scrollIntoView) row.scrollIntoView({ behavior:'smooth', block:'center' });
+          });
+          return;
+        }
+        var gex = ev.target.closest && ev.target.closest('[data-vol-gex]');
+        if (gex){
+          var gexSym = String(gex.getAttribute('data-vol-gex') || '').toUpperCase();
+          var gexTab = $('page-tab-oi');
+          if (gexTab) gexTab.click();
+          if (gexSym && gexSearch && typeof gexSearch.commit === 'function') gexSearch.commit(gexSym);
+          requestAnimationFrame(function(){
+            var gexSection = $('gex-section');
+            if (gexSection && gexSection.scrollIntoView){
+              gexSection.scrollIntoView({ behavior:'smooth', block:'start' });
+            }
+          });
+          return;
+        }
+        var grade = ev.target.closest && ev.target.closest('[data-vol-grade]');
+        if (grade){
+          if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+          ev.preventDefault();
+          calGoToTicker(grade.getAttribute('data-vol-grade'));
+          return;
+        }
+        var reset = ev.target.closest && ev.target.closest('[data-vol-reset]');
+        if (!reset) return;
+        volState.search = '';
+        volState.filter = 'all';
+        volState.lean = 'all';
+        var input = $('vol-search-input');
+        if (input) input.value = '';
+        var clearBtn = $('vol-search-clear');
+        if (clearBtn) clearBtn.hidden = true;
+        document.querySelectorAll('[data-vol-filter]').forEach(function(btn){
+          var on = btn.getAttribute('data-vol-filter') === 'all';
+          btn.classList.toggle('is-on', on);
+          btn.setAttribute('aria-checked', on ? 'true' : 'false');
+        });
+        document.querySelectorAll('[data-vol-lean]').forEach(function(btn){
+          var on = btn.getAttribute('data-vol-lean') === 'all';
+          btn.classList.toggle('is-on', on);
+          btn.setAttribute('aria-checked', on ? 'true' : 'false');
+        });
+        renderVolumeFlags();
+      });
+    }
     var search = $('vol-search-input');
     var clear = $('vol-search-clear');
     if (search){
