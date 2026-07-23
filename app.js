@@ -24676,6 +24676,47 @@
       return d.toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
     }
   }
+  function fngFreshness(d){
+    var asOfMs = Date.parse(d && d.asOf ? d.asOf : '');
+    var ageHours = isFinite(asOfMs) ? Math.max(0, (Date.now() - asOfMs) / 3600000) : null;
+    var current = !!(d && !d.stale && ageHours != null && ageHours <= 48);
+    var ageText = ageHours == null
+      ? 'age unavailable'
+      : ageHours < 1
+        ? Math.max(1, Math.round(ageHours * 60)) + 'm ago'
+        : ageHours < 24
+          ? (ageHours < 2 ? ageHours.toFixed(1) : Math.round(ageHours)) + 'h ago'
+          : Math.round(ageHours / 24) + 'd ago';
+    return {
+      current: current,
+      label: current ? 'Current CNN snapshot' : 'Reference only',
+      detail: d && d.stale ? 'Last-good carry-forward - ' + ageText : 'Updated ' + ageText,
+    };
+  }
+  function bindFngDecisionActions(root){
+    if (!root) return;
+    root.querySelectorAll('[data-fng-tab]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var tab = document.querySelector('[data-page-tab="' + btn.getAttribute('data-fng-tab') + '"]');
+        if (tab) tab.click();
+      });
+    });
+    root.querySelectorAll('[data-fng-component]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var key = btn.getAttribute('data-fng-component');
+        var group = root.querySelector('.fng-components-section');
+        if (group) group.open = true;
+        var cards = root.querySelectorAll('[data-fng-key]');
+        for (var i = 0; i < cards.length; i++){
+          if (cards[i].getAttribute('data-fng-key') === key){
+            cards[i].open = true;
+            cards[i].scrollIntoView({ behavior:'smooth', block:'center' });
+            break;
+          }
+        }
+      });
+    });
+  }
   var fngRendered = false;
   function renderFearGreed(){
     var root = document.getElementById('fng-root');
@@ -24692,8 +24733,9 @@
     // theme toggles. fngRendered just suppresses redundant work mid-tab.
     if (fngRendered && root.dataset.painted === '1') return;
     var band = fngBandFromScore(d.score);
+    var freshness = fngFreshness(d);
     if (eyebrow) {
-      eyebrow.textContent = (d.stale ? 'stale · ' : '') + 'as of ' + fmtFngTimestamp(d.asOf);
+      eyebrow.textContent = freshness.label + ' - as of ' + fmtFngTimestamp(d.asOf);
     }
     var COMPONENTS = [
       { key:'momentum',   title:'Market momentum',     blurb:'S&P 500 vs its 125-day moving average. Above the average → bullish momentum (Greed); below → defensive (Fear).' },
@@ -24734,41 +24776,76 @@
     var deltaClose = fngDelta(prev.close);
     var deltaWeek = fngDelta(prev.week);
     var deltaMonth = fngDelta(prev.month);
+    var momentumScore = c.momentum && isFinite(Number(c.momentum.score)) ? Math.round(Number(c.momentum.score)) : null;
+    var breadthScore = c.breadth && isFinite(Number(c.breadth.score)) ? Math.round(Number(c.breadth.score)) : null;
+    var volatilityScore = c.volatility && isFinite(Number(c.volatility.score)) ? Math.round(Number(c.volatility.score)) : null;
+    var improving = (deltaClose != null && deltaClose >= 2)
+      || (deltaWeek != null && deltaWeek >= 4)
+      || (deltaMonth != null && deltaMonth >= 5);
+    var weakening = (deltaClose != null && deltaClose <= -2)
+      || (deltaWeek != null && deltaWeek <= -4)
+      || (deltaMonth != null && deltaMonth <= -5);
     var decisionTitle = 'Sentiment is mixed';
     var decisionCopy = 'Keep position sizing balanced until the composite and its underlying components move in the same direction.';
-    if (band === 'extreme-fear' || band === 'fear') {
-      if ((deltaMonth != null && deltaMonth >= 5) || (deltaWeek != null && deltaWeek >= 4)) {
-        decisionTitle = fearCount >= Math.ceil(componentReadings.length / 2)
-          ? 'Fear is easing, but confirmation is incomplete'
-          : 'Fear is easing across the tape';
-        decisionCopy = fearCount >= Math.ceil(componentReadings.length / 2)
-          ? 'Keep gross exposure measured. Require breadth and momentum to reclaim neutral before treating the rebound as broad risk-on.'
-          : 'The composite is improving. Add risk in stages and use the weakest component as the confirmation check.';
-      } else {
-        decisionTitle = 'Defensive sentiment still dominates';
-        decisionCopy = 'Treat oversold conditions as a watch signal, not an entry by themselves. Wait for breadth or momentum to improve before adding risk.';
-      }
+    var decisionPosture = 'Wait for alignment';
+    var decisionConfirm = 'The composite and a majority of its components move through the same sentiment band while Heatmap and Volume confirm the direction.';
+    var decisionInvalidate = 'The component vote remains split or the composite reverses before price and volume confirm.';
+    if (band === 'extreme-fear') {
+      decisionTitle = improving
+        ? 'Panic is easing; this is a rebound watch, not a blind buy'
+        : 'Extreme fear is a capitulation watch, not a buy signal';
+      decisionCopy = improving
+        ? 'The composite has started to recover, but fear-side internals still decide whether this is a durable turn or only an oversold bounce.'
+        : 'Sentiment is washed out. Preserve optionality and wait for the tape to turn instead of treating a low score as an automatic long entry.';
+      decisionPosture = improving ? 'Contrarian rebound watch' : 'Wait for the turn';
+      decisionConfirm = 'Breadth and momentum both reclaim 45 while the composite holds above its prior close; Heatmap breadth and Volume then confirm the rebound.';
+      decisionInvalidate = 'The composite undercuts its prior close while breadth or volatility makes a fresh fear-side low.';
+    } else if (band === 'fear') {
+      decisionTitle = improving ? 'Fear is easing, but confirmation is incomplete' : 'Defensive sentiment still dominates';
+      decisionCopy = improving
+        ? 'The rebound is becoming tradable only if market internals follow. Add risk in stages, not from the composite alone.'
+        : 'Oversold conditions remain context, not an entry. Require breadth or momentum to improve before adding risk.';
+      decisionPosture = improving ? 'Measured rebound watch' : 'Defensive';
+      decisionConfirm = 'Breadth or momentum reclaims 45, the composite stays above its prior close, and price plus Volume confirm the same direction.';
+      decisionInvalidate = 'The score falls back below its prior close and the weakest component remains fear-side or deteriorates.';
     } else if (band === 'neutral') {
-      if (deltaMonth != null && deltaMonth >= 5) {
+      if (improving) {
         decisionTitle = 'Sentiment has recovered to neutral';
-        decisionCopy = 'The panic premium is fading, but neutral is not a risk-on signal. Add exposure only where price and breadth confirm.';
-      } else if (deltaMonth != null && deltaMonth <= -5) {
+        decisionCopy = 'The panic premium is fading, but neutral is not a risk-on signal. Let price, breadth, and volume choose the side.';
+        decisionPosture = 'Selective risk';
+      } else if (weakening) {
         decisionTitle = 'Sentiment is fading toward fear';
-        decisionCopy = 'Reduce marginal risk and watch whether breadth or volatility breaks down before making a larger defensive move.';
+        decisionCopy = 'Reduce marginal risk and wait for breadth or volatility to confirm before making a larger defensive move.';
+        decisionPosture = 'Reduce marginal risk';
       }
-    } else if (band === 'greed' || band === 'extreme-greed') {
-      decisionTitle = (deltaMonth != null && deltaMonth >= 5) ? 'Risk appetite is broadening' : 'Risk appetite is elevated';
-      decisionCopy = band === 'extreme-greed'
-        ? 'Momentum supports risk, but the payoff for chasing is thinner. Tighten entry discipline and protect open gains.'
-        : 'The tape supports risk-taking. Favor confirmed leaders, while keeping invalidation levels close enough to protect gains.';
+      decisionConfirm = 'The score exits neutral through 55 or 44 with breadth and momentum on the same side, then Heatmap and Volume confirm.';
+      decisionInvalidate = 'The score stays trapped in neutral or its component vote keeps diverging; remain stock-specific and smaller.';
+    } else if (band === 'greed') {
+      decisionTitle = weakening ? 'Risk appetite is cooling from greed' : 'Risk appetite supports trend continuation';
+      decisionCopy = weakening
+        ? 'Momentum still has support, but the composite is losing altitude. Protect gains and demand cleaner entries.'
+        : 'Favor confirmed leaders and orderly pullbacks. Greed is trend context, not permission to chase extended price.';
+      decisionPosture = weakening ? 'Protect gains' : 'Follow confirmed leaders';
+      decisionConfirm = 'Breadth and momentum remain above 55 while the score holds the greed band; leaders then confirm on Heatmap and Volume.';
+      decisionInvalidate = 'Breadth or momentum falls below 45, or the composite loses at least 5 points versus its prior close or week.';
+    } else if (band === 'extreme-greed') {
+      decisionTitle = 'Extreme greed supports momentum, but chase risk is high';
+      decisionCopy = 'The trend can continue, but payoff compresses when everyone is already leaning the same way. Favor pullbacks and protect open gains.';
+      decisionPosture = 'Protect gains; do not chase';
+      decisionConfirm = 'Leaders hold pullbacks while breadth and momentum stay above 55, with Volume confirming renewed participation.';
+      decisionInvalidate = 'The score drops at least 5 points, breadth or momentum loses neutral, or leaders fail their opening-range support.';
     }
-    if (d.stale) {
-      decisionCopy = 'This reading is stale. Use it as context only and confirm the current tape before changing exposure. ' + decisionCopy;
+    if (!freshness.current) {
+      decisionTitle = 'This sentiment snapshot is reference only';
+      decisionCopy = 'The prior composite can explain positioning, but it cannot set today\'s exposure or entry trigger.';
+      decisionPosture = 'Refresh required';
+      decisionConfirm = 'A current CNN snapshot reproduces the same band and component alignment, then Heatmap and Volume confirm the tape.';
+      decisionInvalidate = 'Any fresh component materially changes the score, band, weakest input, or direction of travel.';
     }
     var cardsHtml = '<div class="fng-cards">' + COMPONENTS.map(function(spec){
       var entry = c[spec.key];
       if (!entry || !isFinite(Number(entry.score))) {
-        return '<details class="fng-card fng-card-empty">' +
+        return '<details class="fng-card fng-card-empty" data-fng-key="' + escapeHtml(spec.key) + '">' +
           '<summary class="fng-card-summary">' +
             '<span class="fng-card-title">' + escapeHtml(spec.title) + '</span>' +
             '<span class="fng-card-missing">No reading</span>' +
@@ -24779,7 +24856,7 @@
       }
       var v = Math.round(Number(entry.score));
       var b = fngBandFromScore(v);
-      return '<details class="fng-card fng-band-' + b + '">' +
+      return '<details class="fng-card fng-band-' + b + '" data-fng-key="' + escapeHtml(spec.key) + '">' +
         '<summary class="fng-card-summary">' +
           '<span class="fng-card-title">' + escapeHtml(spec.title) + '</span>' +
           '<span class="fng-card-meter">' + fngComponentBarHtml(v) + '</span>' +
@@ -24799,24 +24876,32 @@
         fngSparkline(d.history) +
       '</section>';
     }
-    var staleTag = d.stale
-      ? '<span class="fng-stale-tag" title="CNN\'s endpoint was unreachable on the latest build — showing the last good reading.">stale</span>'
+    var staleTag = !freshness.current
+      ? '<span class="fng-stale-tag" title="This sentiment snapshot is too old or carried forward from the last good CNN response.">reference only</span>'
       : '';
     var breadthSummary = fearCount + ' fear · ' + neutralCount + ' neutral · ' + greedCount + ' greed';
     var weakBand = weakest ? fngBandFromScore(weakest.score) : 'neutral';
     var strongBand = strongest ? fngBandFromScore(strongest.score) : 'neutral';
+    var primaryAction = freshness.current && weakest
+      ? '<button type="button" class="flow-decision-action is-primary" data-fng-component="' + escapeHtml(weakest.spec.key) + '">Review ' + escapeHtml(weakest.spec.title) + '</button>'
+      : '<button type="button" class="flow-decision-action is-primary" data-fng-tab="market">Open Market analysis</button>';
     root.innerHTML =
-      '<section class="fng-decision fng-band-' + band + '">' +
+      '<section class="fng-decision fng-band-' + band + (!freshness.current ? ' is-reference' : '') + '">' +
         '<div class="fng-decision-lead">' +
           '<div class="fng-score-lockup">' +
             '<span class="fng-score-value">' + Math.round(Number(d.score) || 0) + '</span>' +
             '<span class="fng-score-band">' + escapeHtml(fngBandLabel(band)) + '</span>' +
           '</div>' +
           '<div class="fng-decision-copy">' +
-            '<span class="fng-decision-eyebrow">Sentiment decision desk</span>' +
-            '<h3>' + escapeHtml(decisionTitle) + staleTag + '</h3>' +
+            '<div class="fng-decision-kicker"><span class="fng-decision-eyebrow">Sentiment playbook</span><span class="fng-decision-freshness">' + escapeHtml(freshness.label) + '</span></div>' +
+            '<h3>' + escapeHtml(decisionTitle) + '</h3>' +
             '<p>' + escapeHtml(decisionCopy) + '</p>' +
+            '<div class="fng-decision-source"><b>' + escapeHtml(decisionPosture) + '</b><span>' + escapeHtml(freshness.detail) + ' | Sentiment is context, not an entry trigger.</span></div>' +
           '</div>' +
+        '</div>' +
+        '<div class="fng-trade-plan">' +
+          '<div><span>Confirms when</span><b>' + escapeHtml(decisionConfirm) + '</b></div>' +
+          '<div><span>Invalidates when</span><b>' + escapeHtml(decisionInvalidate) + '</b></div>' +
         '</div>' +
         '<div class="fng-decision-grid">' +
           '<div class="fng-read-card">' +
@@ -24840,6 +24925,10 @@
           '<span><small>vs 1 week</small><strong>' + fngSigned(deltaWeek) + '</strong></span>' +
           '<span><small>vs 1 month</small><strong>' + fngSigned(deltaMonth) + '</strong></span>' +
         '</div>' +
+        '<div class="fng-decision-actions">' + primaryAction +
+          '<button type="button" class="flow-decision-action" data-fng-tab="heatmap">Open Heatmap</button>' +
+          '<button type="button" class="flow-decision-action" data-fng-tab="volume">Open Volume</button>' +
+        '</div>' +
       '</section>' +
       stripHtml +
       '<details class="fng-disclosure fng-composite-details">' +
@@ -24852,7 +24941,7 @@
           '<div class="fng-headline fng-band-' + band + '">' +
             fngGaugeSvg(d.score) +
             '<div class="fng-headline-meta">' +
-              '<div class="fng-rating">' + escapeHtml(fngBandLabel(band)) + staleTag + '</div>' +
+              '<div class="fng-rating">' + escapeHtml(fngBandLabel(band)) + (staleTag ? ' ' + staleTag : '') + '</div>' +
               '<div class="fng-headline-sub">CNN composite · ' + escapeHtml(fmtFngTimestamp(d.asOf)) + '</div>' +
               '<p class="fng-gauge-note">The composite blends price momentum, breadth, options, volatility, safe havens, and credit appetite into a 0–100 sentiment reading.</p>' +
             '</div>' +
@@ -24871,6 +24960,7 @@
     root.dataset.painted = '1';
     fngRendered = true;
     bindFngSparkHover();
+    bindFngDecisionActions(root);
   }
 
   // --- Heatmap tab --------------------------------------------------------

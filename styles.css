@@ -16604,21 +16604,24 @@ body.tape-axm-open { overflow: hidden; }
 }
 .fng-root { display: flex; flex-direction: column; gap: var(--s-3); }
 .fng-decision {
+  --fng-decision-tone: var(--fng-neutral);
+  --flow-decision-tone: var(--fng-decision-tone);
   display: flex;
   flex-direction: column;
   gap: var(--s-3);
   padding: var(--s-4);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--fng-neutral);
+  border-left: 3px solid var(--fng-decision-tone);
   border-radius: var(--r-4);
   background:
-    linear-gradient(135deg, color-mix(in srgb, var(--fng-neutral) 7%, transparent), transparent 58%),
+    linear-gradient(135deg, color-mix(in srgb, var(--fng-decision-tone) 7%, transparent), transparent 58%),
     var(--surface-2);
 }
-.fng-decision.fng-band-extreme-fear { border-left-color: var(--fng-extreme-fear); }
-.fng-decision.fng-band-fear { border-left-color: var(--fng-fear); }
-.fng-decision.fng-band-greed { border-left-color: var(--fng-greed); }
-.fng-decision.fng-band-extreme-greed { border-left-color: var(--fng-extreme-greed); }
+.fng-decision.fng-band-extreme-fear { --fng-decision-tone: var(--fng-extreme-fear); }
+.fng-decision.fng-band-fear { --fng-decision-tone: var(--fng-fear); }
+.fng-decision.fng-band-greed { --fng-decision-tone: var(--fng-greed); }
+.fng-decision.fng-band-extreme-greed { --fng-decision-tone: var(--fng-extreme-greed); }
+.fng-decision.is-reference { --fng-decision-tone: var(--muted); }
 .fng-decision-lead {
   display: grid;
   grid-template-columns: 116px minmax(0, 1fr);
@@ -16680,6 +16683,74 @@ body.tape-axm-open { overflow: hidden; }
   color: var(--muted);
   font-size: var(--fs-sm);
   line-height: var(--lh-snug);
+}
+.fng-decision-kicker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+}
+.fng-decision-freshness {
+  color: var(--fng-decision-tone);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  letter-spacing: var(--ls-caps);
+  text-transform: uppercase;
+}
+.fng-decision-source {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px var(--s-2);
+  margin-top: var(--s-2);
+}
+.fng-decision-source b {
+  color: var(--fng-decision-tone);
+  font-size: var(--fs-xs);
+}
+.fng-decision-source span {
+  color: var(--muted);
+  font-size: var(--fs-2xs);
+}
+.fng-trade-plan {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-2);
+}
+.fng-trade-plan > div {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  background: color-mix(in srgb, var(--surface-1) 78%, transparent);
+}
+.fng-trade-plan span {
+  display: block;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.fng-trade-plan b {
+  display: block;
+  margin-top: 4px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.38;
+}
+.fng-decision-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+.fng-decision.is-reference .flow-decision-action.is-primary {
+  color: var(--text);
+  background: var(--surface-3);
+  border-color: var(--border-strong);
 }
 .fng-decision-grid {
   display: grid;
@@ -17120,10 +17191,14 @@ body.tape-axm-open { overflow: hidden; }
 @media (max-width: 720px) {
   .fng-decision { padding: var(--s-3); }
   .fng-decision-lead { grid-template-columns: 82px minmax(0, 1fr); gap: var(--s-3); }
+  .fng-decision-kicker { align-items: flex-start; flex-direction: column; gap: 3px; }
   .fng-score-lockup { padding-right: var(--s-3); }
   .fng-score-value { font-size: 36px; }
   .fng-decision-copy h3 { font-size: var(--fs-lg); }
   .fng-decision-copy p { font-size: var(--fs-xs); }
+  .fng-trade-plan { grid-template-columns: minmax(0, 1fr); }
+  .fng-decision-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .fng-decision-actions .flow-decision-action { width: 100%; min-height: 42px; }
   .fng-decision-grid { gap: 5px; }
   .fng-read-card { padding: 7px; }
   .fng-read-card strong {
