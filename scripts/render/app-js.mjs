@@ -14805,7 +14805,35 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (!watch.length && s.analystTone && s.analystTone.summary) watch.push(s.analystTone.summary);
     if (!watch.length) watch.push('No explicit risk summary was extracted; verify the transcript and the next guidance checkpoint.');
     var guidanceLabel = lowered.length ? lowered.length + ' lowered / withdrawn' : raised.length ? raised.length + ' raised' : maintained.length ? maintained.length + ' maintained' : guidance.length ? guidance.length + ' items, no change tagged' : 'No numeric guide';
-    return { signal:signal, raised:raised, lowered:lowered, maintained:maintained, changed:changed, watch:watch, guidanceLabel:guidanceLabel };
+    var focus = lowered[0] || raised[0] || guidance[0] || null;
+    var checkpoint = focus
+      ? ((focus.period ? focus.period + ' ' : '') + (focus.metric || 'guidance') + ' update')
+      : 'Next company update or filing';
+    var posture = 'Wait for a cleaner inflection';
+    var confirmation = 'A later update supplies a forward change and price confirms it.';
+    var invalidation = 'Risks build before a clear guidance or KPI inflection appears.';
+    if (lowered.length){
+      posture = 'Recheck estimates first';
+      confirmation = 'Price stops making post-print lows and forward estimates stop falling.';
+      invalidation = 'Another estimate cut, a failed recovery, or worsening risk language.';
+    } else if (raised.length){
+      posture = 'Wait for price confirmation';
+      confirmation = 'Post-call strength holds while revised estimates move higher.';
+      invalidation = 'The gap fades or Q&A exposes a weak assumption behind the raise.';
+    } else if (signal.pressure){
+      posture = 'Resolve the Q&A dispute';
+      confirmation = 'The next KPI or filing supports management’s answer to the disputed issue.';
+      invalidation = 'The challenged KPI worsens or management avoids the issue next update.';
+    } else if (signal.tone === 'positive'){
+      posture = 'Verify durability';
+      confirmation = 'The price reaction holds and the next operating update supports the call.';
+      invalidation = 'Price rejects the print or the forward numbers fail to improve.';
+    }
+    return {
+      signal:signal, raised:raised, lowered:lowered, maintained:maintained,
+      changed:changed, watch:watch, guidanceLabel:guidanceLabel,
+      posture:posture, confirmation:confirmation, invalidation:invalidation, checkpoint:checkpoint
+    };
   }
   function loadEarningsCalls(){
     if ((callsState.idx && !callsState.idx.loadError) || callsState.loading){ renderEarningsCalls(); return; }
@@ -14965,7 +14993,18 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span><small>Risk flags</small><b>' + (s.risks || []).length + '</b></span>' +
       '</div>' +
       '<div class="ecl-decision-columns"><div><h4>What changed</h4>' + eclBullets(decision.changed) + '</div><div><h4>Watch next</h4>' + eclBullets(decision.watch) + '</div></div>' +
-      '<p class="ecl-decision-note">This is a transcript read, not a price entry. Check the Grade tab, post-call price reaction and actual transcript before acting.</p>' +
+      '<div class="ecl-decision-plan" aria-label="Post-call trade checklist">' +
+        '<div class="ecl-plan-posture"><span>Trade posture</span><b>' + escapeHtml(decision.posture) + '</b><p>Do not turn the transcript read into an entry until the confirmation test passes.</p></div>' +
+        '<div><span>Confirmation</span><b>' + escapeHtml(decision.confirmation) + '</b></div>' +
+        '<div><span>Thesis fails if</span><b>' + escapeHtml(decision.invalidation) + '</b></div>' +
+        '<div><span>Next checkpoint</span><b>' + escapeHtml(decision.checkpoint) + '</b></div>' +
+      '</div>' +
+      '<div class="ecl-decision-actions">' +
+        '<a class="ecl-sym ecl-action-primary" data-sym="' + escapeHtml(d.sym) + '" href="' + symGradeHref(d.sym) + '">Grade ' + escapeHtml(d.sym) + '</a>' +
+        '<button type="button" class="ecl-action-secondary" data-ecl-go="earnings">Open Earnings Tracker</button>' +
+        '<button type="button" class="ecl-action-secondary" data-ecl-go="spillover">Check event spillover</button>' +
+      '</div>' +
+      '<p class="ecl-decision-note">Transcript summaries can miss nuance. Verify the source transcript and the actual post-call price response before acting.</p>' +
     '</section>';
 
     var fin = '';
@@ -15237,6 +15276,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     });
     var backs = root.querySelectorAll('[data-ecl-back]');
     for (var b = 0; b < backs.length; b++) backs[b].addEventListener('click', function(){ callsState.sym = null; renderEarningsCalls(); });
+    var eclGo = root.querySelectorAll('[data-ecl-go]');
+    for (var eg = 0; eg < eclGo.length; eg++) eclGo[eg].addEventListener('click', function(ev){
+      var tab = document.querySelector('[data-page-tab="' + ev.currentTarget.getAttribute('data-ecl-go') + '"]');
+      if (tab) tab.click();
+    });
     bindBriefChips(root);
   }
 
