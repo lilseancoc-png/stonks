@@ -16378,6 +16378,37 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var cls = p >= 0 ? 'cx-up' : 'cx-down';
     return '<span class="cx-yoy ' + cls + '">' + (p >= 0 ? '▲ +' : '▼ ') + p.toFixed(1) + '%</span>';
   }
+  function cxFreshness(d, cos){
+    var builtMs = Date.parse(d && d.builtAtIso);
+    var ageHours = isFinite(builtMs) ? (Date.now() - builtMs) / 3600000 : null;
+    var current = !d.stale && ageHours != null && ageHours >= -1 && ageHours <= 72;
+    var ageLabel = 'build time unavailable';
+    if (ageHours != null){
+      if (ageHours < 1) ageLabel = 'built less than 1h ago';
+      else if (ageHours < 48) ageLabel = 'built ' + Math.floor(ageHours) + 'h ago';
+      else ageLabel = 'built ' + Math.floor(ageHours / 24) + 'd ago';
+    }
+    var filingDates = (cos || []).map(function(co){ return co && co.ttm && co.ttm.asOf ? String(co.ttm.asOf).slice(0,10) : ''; }).filter(Boolean).sort();
+    var coverage = filingDates.length + '/' + (cos || []).length + ' TTM';
+    var filings = filingDates.length ? 'filings ' + filingDates[0] + (filingDates[filingDates.length - 1] !== filingDates[0] ? ' to ' + filingDates[filingDates.length - 1] : '') : 'filing dates unavailable';
+    return {
+      current: current,
+      label: current ? 'Current decision read' : 'Reference only',
+      detail: ageLabel + ' · ' + coverage + ' · ' + filings
+    };
+  }
+  function bindAiCapexActions(root){
+    if (!root) return;
+    Array.prototype.forEach.call(root.querySelectorAll('[data-cx-tab]'), function(btn){
+      btn.addEventListener('click', function(){
+        var tab = document.querySelector('[data-page-tab="' + btn.getAttribute('data-cx-tab') + '"]');
+        if (tab) tab.click();
+      });
+    });
+    Array.prototype.forEach.call(root.querySelectorAll('[data-cx-grade]'), function(btn){
+      btn.addEventListener('click', function(){ calGoToTicker(btn.getAttribute('data-cx-grade')); });
+    });
+  }
   function loadAiCapex(){
     if ((aiCapexState.data && !aiCapexState.data.loadError) || aiCapexState.loading){ renderAiCapex(); return; }
     aiCapexState.loading = true;
@@ -16392,19 +16423,26 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var d = aiCapexState.data;
     if (!d){ root.textContent = 'Loading AI CapEx…'; return; }
     var cos = Array.isArray(d.companies) ? d.companies : [];
-    if (!cos.length){ root.innerHTML = ''; if (empty){ empty.hidden = false; empty.textContent = d.loadError ? 'Could not load AI CapEx data.' : 'AI CapEx data will appear after the next daily build refresh.'; } return; }
+    if (!cos.length){
+      if (empty) empty.hidden = true;
+      if (eye) eye.textContent = 'Unavailable · no posture';
+      root.innerHTML = '<section class="cx-empty-desk"><span class="cx-desk-kicker">AI buildout desk</span><h3>' + (d.loadError ? 'The CapEx snapshot could not be loaded' : 'No CapEx snapshot is available yet') + '</h3>' +
+        '<p>' + (d.loadError ? 'Do not infer an AI spending cycle from missing data. Use the live market and company earnings evidence until the SEC filing snapshot returns.' : 'The next successful daily build will restore the aggregate spending, revenue-burden and supplier read-through checks.') + '</p>' +
+        '<div class="cx-actions"><button type="button" class="cx-action cx-action-primary" data-cx-tab="market">Open Market analysis</button><button type="button" class="cx-action" data-cx-tab="calls">Open Earnings calls</button></div></section>';
+      bindAiCapexActions(root);
+      return;
+    }
     if (empty) empty.hidden = true;
-    if (eye && d.builtAtIso) eye.textContent = (d.stale ? 'last-good · ' : '') + 'as of ' + String(d.builtAtIso).slice(0,10);
+    var freshness = cxFreshness(d, cos);
+    if (eye) eye.textContent = freshness.label + (d.builtAtIso ? ' · ' + String(d.builtAtIso).slice(0,10) : '');
     var t = d.totals || null;
     var head = '', desk = '', top2Share = null;
     if (t){
       var dir = t.yoyPct == null ? '' : (t.yoyPct >= 0 ? 'cx-up' : 'cx-down');
       var deltaTxt = (t.deltaAbs != null) ? (' (' + (t.deltaAbs >= 0 ? '+' : '−') + cxDollars(Math.abs(t.deltaAbs)) + ')') : '';
       var fyLbl = t.fyLatestLabel ? escapeHtml(t.fyLatestLabel) : 'latest FY';
-      // "This year, projected" = the TTM run-rate annualized vs the last full
-      // FY (the 2025 figure) — the forward read the user asked for.
-      var projPct = (t.ttmSum != null && t.fyLatestSum > 0) ? (t.ttmSum / t.fyLatestSum - 1) * 100 : null;
-      var projDir = projPct == null ? '' : (projPct >= 0 ? 'cx-up' : 'cx-down');
+      var runRatePct = (t.ttmSum != null && t.fyLatestSum > 0) ? (t.ttmSum / t.fyLatestSum - 1) * 100 : null;
+      var runRateDir = runRatePct == null ? '' : (runRatePct >= 0 ? 'cx-up' : 'cx-down');
       head = '<div class="cx-hero">' +
         '<div class="cx-hero-main">' +
           '<div class="cx-hero-label">Total Mag-7 CapEx · ' + fyLbl + ' (latest reported)</div>' +
@@ -16416,8 +16454,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
             '</div>' : '') +
         '</div>' +
         (t.ttmSum != null ?
-          '<div class="cx-hero-ttm"><div class="cx-hero-label">This year, projected (run-rate)</div><div class="cx-hero-ttm-val">' + cxDollars(t.ttmSum) + '</div>' +
-          (projPct != null ? '<div class="cx-hero-sub ' + projDir + '">' + (projPct >= 0 ? '▲ up ' : '▼ down ') + Math.abs(projPct).toFixed(1) + '% vs ' + fyLbl + '</div>' : '') +
+          '<div class="cx-hero-ttm"><div class="cx-hero-label">Current TTM run-rate</div><div class="cx-hero-ttm-val">' + cxDollars(t.ttmSum) + '</div>' +
+          (runRatePct != null ? '<div class="cx-hero-sub ' + runRateDir + '">' + (runRatePct >= 0 ? '▲ up ' : '▼ down ') + Math.abs(runRatePct).toFixed(1) + '% vs ' + fyLbl + '</div>' : '') +
           (t.ttmCount < t.count ? '<div class="cx-hero-note">' + t.ttmCount + ' of ' + t.count + ' names</div>' : '') + '</div>' : '') +
       '</div>';
       // Revenue check — the same group's combined revenue on the same fiscal
@@ -16459,9 +16497,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var revGrowth = rv && rv.yoyPct != null ? rv.yoyPct : null;
       var growthGap = capexGrowth != null && revGrowth != null ? capexGrowth - revGrowth : null;
       var cycleHeadline = 'AI infrastructure spending remains elevated', cycleTone = 'steady';
-      if (capexGrowth != null && growthGap != null && growthGap >= 10 && (projPct == null || projPct >= 0)){
+      if (capexGrowth != null && growthGap != null && growthGap >= 10 && (runRatePct == null || runRatePct >= 0)){
         cycleHeadline = 'AI buildout is accelerating faster than revenue'; cycleTone = 'hot';
-      } else if ((capexGrowth != null && capexGrowth < 0) || (projPct != null && projPct < -5)){
+      } else if ((capexGrowth != null && capexGrowth < 0) || (runRatePct != null && runRatePct < -5)){
         cycleHeadline = 'AI buildout spending is cooling'; cycleTone = 'cool';
       }
       var burdenNames = cos.filter(function(co){ return co && co.capexToRevenuePct != null && isFinite(co.capexToRevenuePct); })
@@ -16474,7 +16512,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var postureTone = 'watch';
       var postureTitle = 'Selective — company-specific proof still matters';
       var postureCopy = 'Aggregate infrastructure spending is elevated, but spend does not guarantee supplier revenue capture or acceptable returns for the buyers.';
-      var postureCheck = 'Confirmation: supplier backlog, guidance and relative strength improve while spender margins and free cash flow remain resilient.';
+      var postureConfirm = 'Supplier backlog, guidance and relative strength improve while spender margins and free cash flow remain resilient.';
+      var postureInvalidate = 'The run-rate weakens or buyers cut guidance before suppliers convert the spending into orders.';
       if (cycleTone === 'hot'){
         postureTone = 'caution';
         postureTitle = 'Supplier tailwind, spender burden — require proof';
@@ -16482,34 +16521,49 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           (revGrowth == null ? ' than monetization' : ' versus ' + revGrowth.toFixed(1) + '% revenue growth') +
           (share != null && shareDelta != null ? ', while the revenue burden rose ' + Math.abs(shareDelta).toFixed(1) + ' points to ' + share.toFixed(1) + '%' : '') +
           '. That supports infrastructure demand but raises execution and free-cash-flow risk for the spenders.';
-        postureCheck = 'Invalidation: the run-rate falls below the latest full year, or supplier backlog and guidance fail to confirm the aggregate spend.';
+        postureConfirm = 'At least two suppliers raise backlog or guidance while relative strength holds and buyer cash flow remains resilient.';
+        postureInvalidate = 'The TTM run-rate falls below the latest full year, or suppliers fail to convert aggregate spend into stronger orders.';
       } else if (cycleTone === 'cool'){
         postureTone = 'pass';
         postureTitle = 'Cooling demand — stop extrapolating the buildout';
         postureCopy = 'Aggregate spend or its current run-rate is contracting. Treat prior supplier growth as backward-looking until order trends stabilize.';
-        postureCheck = 'Re-entry trigger: the run-rate turns positive again and at least two suppliers confirm stronger backlog or guidance.';
+        postureConfirm = 'The run-rate turns positive again and at least two suppliers confirm stronger backlog or guidance.';
+        postureInvalidate = 'Run-rate contraction deepens, buyer guidance falls, or supplier relative strength continues to break.';
       }
-      if (d.stale){
+      if (!freshness.current){
+        cycleTone = 'reference';
+        cycleHeadline = 'This AI spending map is reference only';
         postureTone = 'watch';
-        postureTitle = 'Stale read — verify current filings first';
-        postureCopy = 'This build carried forward the last-good CapEx snapshot, so the direction may no longer describe the current earnings cycle.';
-        postureCheck = 'Refresh trigger: new filings confirm the spend run-rate and revenue burden before changing exposure.';
+        postureTitle = 'Refresh required — do not trade the prior cycle';
+        postureCopy = 'The snapshot is too old or was carried forward from a prior build. Its spending direction may no longer describe the current earnings cycle.';
+        postureConfirm = 'A fresh build and current filings confirm the spend run-rate, revenue burden and supplier order trend.';
+        postureInvalidate = 'No current build is available; any hot, steady or cooling classification remains unverified.';
       }
       var posture = '<div class="cx-posture cx-posture-' + postureTone + '">' +
         '<span class="cx-posture-label">Trade posture</span><div><b>' + escapeHtml(postureTitle) + '</b>' +
-        '<p>' + escapeHtml(postureCopy) + '</p><small>' + escapeHtml(postureCheck) + '</small></div></div>';
+        '<p>' + escapeHtml(postureCopy) + '</p></div></div>';
+      var rules = '<div class="cx-rules"><div class="cx-rule cx-rule-confirm"><span>Confirmation</span><p>' + escapeHtml(postureConfirm) + '</p></div>' +
+        '<div class="cx-rule cx-rule-invalidate"><span>Invalidation</span><p>' + escapeHtml(postureInvalidate) + '</p></div></div>';
+      var actions = !freshness.current
+        ? '<div class="cx-actions"><button type="button" class="cx-action cx-action-primary" data-cx-tab="market">Open Market analysis</button><button type="button" class="cx-action" data-cx-tab="calls">Open Earnings calls</button><button type="button" class="cx-action" data-cx-tab="heatmap">Open Heatmap</button></div>'
+        : (cycleTone === 'cool'
+          ? '<div class="cx-actions"><button type="button" class="cx-action cx-action-primary" data-cx-tab="heatmap">Open Heatmap</button><button type="button" class="cx-action" data-cx-tab="calls">Open Earnings calls</button><button type="button" class="cx-action" data-cx-grade="NVDA">Grade NVDA</button></div>'
+          : '<div class="cx-actions"><button type="button" class="cx-action cx-action-primary" data-cx-grade="NVDA">Grade NVDA</button><button type="button" class="cx-action" data-cx-tab="heatmap">Open Heatmap</button><button type="button" class="cx-action" data-cx-tab="calls">Open Earnings calls</button></div>');
       desk = '<section class="cx-desk cx-desk-' + cycleTone + '"><div class="cx-desk-head"><div><span class="cx-desk-kicker">AI buildout desk</span><h3>' + escapeHtml(cycleHeadline) + '</h3>' +
         '<p>' + (growthGap == null ? 'Track whether infrastructure spending is accelerating, concentrating, or beginning to cool.' : 'CapEx growth is ' + Math.abs(growthGap).toFixed(1) + ' points ' + (growthGap >= 0 ? 'faster than' : 'slower than') + ' combined revenue growth.') + '</p></div>' +
-        '<span class="cx-desk-badge">' + (cycleTone === 'hot' ? 'Accelerating' : cycleTone === 'cool' ? 'Cooling' : 'Elevated') + '</span></div>' +
+        '<span class="cx-desk-badge">' + (cycleTone === 'hot' ? 'Accelerating' : cycleTone === 'cool' ? 'Cooling' : cycleTone === 'reference' ? 'Refresh required' : 'Elevated') + '</span></div>' +
+        '<div class="cx-desk-source"><span>' + escapeHtml(freshness.label) + '</span><p>' + escapeHtml(freshness.detail) + '</p></div>' +
         '<div class="cx-desk-grid">' +
           '<div class="cx-desk-stat"><span>Latest full-year spend</span><b>' + cxDollars(t.fyLatestSum) + '</b><small>' + (t.yoyPct == null ? 'prior-year comparison unavailable' : (t.yoyPct >= 0 ? '+' : '') + t.yoyPct.toFixed(1) + '% y/y') + '</small></div>' +
-          '<div class="cx-desk-stat"><span>Current run-rate</span><b>' + cxDollars(t.ttmSum) + '</b><small>' + (projPct == null ? 'projection unavailable' : (projPct >= 0 ? '+' : '') + projPct.toFixed(1) + '% vs latest FY') + '</small></div>' +
+          '<div class="cx-desk-stat"><span>Current TTM run-rate</span><b>' + cxDollars(t.ttmSum) + '</b><small>' + (runRatePct == null ? 'run-rate unavailable' : (runRatePct >= 0 ? '+' : '') + runRatePct.toFixed(1) + '% vs latest FY') + '</small></div>' +
           '<div class="cx-desk-stat"><span>Revenue burden</span><b>' + (share == null ? '—' : share.toFixed(1) + '%') + '</b><small>CapEx as share of combined revenue</small></div>' +
           '<div class="cx-desk-stat"><span>Top-two concentration</span><b>' + (top2Share == null ? '—' : top2Share.toFixed(0) + '%') + '</b><small>' + escapeHtml(top2.map(function(co){ return co.ticker; }).join(' + ') || 'spend leaders unavailable') + '</small></div>' +
         '</div>' +
         posture +
-        '<div class="cx-desk-lens"><div><span>Highest revenue burden</span><b>' + burdenLinks + '</b></div><div><span>Supplier read-through</span><b>' + supplierLinks + '</b></div></div>' +
-        '<p class="cx-desk-note">Supplier exposure is a confirmation list, not proof of revenue capture. Check relative strength, guidance and backlog before treating aggregate CapEx as company-specific demand.</p></section>';
+        rules +
+        '<div class="cx-desk-lens"><div><div class="cx-lens-copy"><b>Buyer burden — prove monetization</b><small>Revenue growth, margins and free cash flow must absorb the spend.</small></div><div class="cx-lens-links">' + burdenLinks + '</div></div><div><div class="cx-lens-copy"><b>Supplier tailwind — prove capture</b><small>Backlog, guidance and relative strength must confirm demand.</small></div><div class="cx-lens-links">' + supplierLinks + '</div></div></div>' +
+        actions +
+        '<p class="cx-desk-note">The supplier list is a cross-check, not proof of company-specific revenue. The company ledger below is research detail, not a standalone trade signal.</p></section>';
     }
     // Per-company bars, sorted by latest-FY spend (already sorted server-side).
     var maxV = 0;
@@ -16536,6 +16590,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     root.innerHTML = desk + '<details class="cx-research"><summary><span><small>Company ledger</small><b>Spend, revenue coverage &amp; concentration</b></span><span class="cx-research-signal"><b>' + cos.length + ' companies</b><small>' + (top2Share == null ? 'Full SEC detail' : 'top two = ' + top2Share.toFixed(0) + '% of spend') + '</small></span></summary>' +
       '<div class="cx-research-body">' + head + '<div class="cx-rows">' + rows + '</div>' + missing + '</div></details>';
     bindBriefChips(root);
+    bindAiCapexActions(root);
   }
 
   // --- RAM prices (Macro tab) -----------------------------------------------
