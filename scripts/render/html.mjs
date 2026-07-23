@@ -2002,8 +2002,8 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <div class="page-pane" id="page-pane-bonds-usd" role="tabpanel" aria-labelledby="page-tab-bonds-usd" hidden>
     <section class="card bonds-context-card" id="bonds-context-card">
       <header class="card-header">
-        <h2 class="card-title">Rates pressure desk</h2>
-        <span class="card-eyebrow" id="bonds-context-eyebrow">Move · alignment · equity lens</span>
+        <h2 class="card-title">Rates decision desk</h2>
+        <span class="card-eyebrow" id="bonds-context-eyebrow">Freshness · confirmation · equity lens</span>
       </header>
       <div id="bonds-context" class="bonds-context">Reading today&rsquo;s drivers&hellip;</div>
       <p class="hint">This is a deterministic cross-asset read, not a claim of causation. A catalyst that points against the observed move is shown as conflict, not confirmation.</p>

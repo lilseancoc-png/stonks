@@ -16329,6 +16329,10 @@ body.tape-axm-open { overflow: hidden; }
   border-color: rgba(185, 28, 28, 0.65);
   box-shadow: 0 0 0 1px rgba(185, 28, 28, 0.25);
 }
+.bonds-live-tile.is-focused {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+}
 .bonds-live-alert {
   display: inline-flex;
   align-items: center;
@@ -16470,6 +16474,32 @@ body.tape-axm-open { overflow: hidden; }
 .bonds-primer-body { display: flex; flex-direction: column; margin-top: var(--s-4); }
 /* "What's moving — and why it matters" context panel. */
 .bonds-context { display: flex; flex-direction: column; gap: var(--s-2); margin: var(--s-2) 0; }
+.bonds-ctx-source {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding-bottom: var(--s-2);
+  border-bottom: 1px solid var(--hairline);
+}
+.bonds-ctx-source span {
+  color: var(--accent);
+  font: 750 11px/1.2 var(--font-mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.bonds-ctx-source small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: right;
+}
+.bonds-context.is-reference .bonds-ctx-source span { color: var(--muted); }
+.bonds-context.is-reference .bonds-ctx-headline { border-left-color: var(--muted); }
+.bonds-context.is-reference .bonds-ctx-posture {
+  border-left-color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 5%, var(--surface-2));
+}
 .bonds-ctx-quiet { color: var(--muted); font-size: 13px; margin: var(--s-2) 0; }
 .bonds-ctx-headline {
   font-size: 14px; line-height: 1.5; color: var(--text);
@@ -16505,6 +16535,33 @@ body.tape-axm-open { overflow: hidden; }
 .bonds-ctx-posture-watch { border-left-color: var(--accent); }
 .bonds-ctx-posture-caution { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn-soft) 46%, var(--surface-2)); }
 .bonds-ctx-posture-pass { border-left-color: var(--muted); }
+.bonds-ctx-rules {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-2);
+}
+.bonds-ctx-rules > div {
+  min-width: 0;
+  padding: 9px 10px;
+  background: color-mix(in srgb, var(--surface) 74%, transparent);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-2);
+}
+.bonds-ctx-rules span {
+  display: block;
+  color: var(--muted);
+  font: 700 9px/1.2 var(--font-mono);
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.bonds-ctx-rules b {
+  display: block;
+  margin-top: 4px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+}
 .bonds-ctx-equity {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) minmax(180px, .7fr);
@@ -16575,6 +16632,36 @@ body.tape-axm-open { overflow: hidden; }
   background: var(--surface-2);
   border: 1px solid var(--border);
 }
+.bonds-ctx-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  padding-top: var(--s-1);
+}
+.bonds-context.is-reference .bonds-ctx-actions .is-primary,
+.bonds-context-empty .bonds-ctx-actions .is-primary {
+  color: var(--text);
+  background: var(--surface-3);
+  border-color: var(--border-strong);
+}
+.bonds-context-empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--muted);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+}
+.bonds-context-empty > span {
+  color: var(--muted);
+  font: 750 10px/1.2 var(--font-mono);
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.bonds-context-empty > b { color: var(--text-strong); }
+.bonds-context-empty > p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
 @media (max-width: 640px) {
   .bonds-live-grid { margin-bottom: var(--s-2); }
   .bonds-live-subgrid {
@@ -16592,6 +16679,9 @@ body.tape-axm-open { overflow: hidden; }
   }
   .bonds-ctx-posture { grid-template-columns: 1fr; gap: 5px; padding: 9px 10px; }
   .bonds-ctx-posture-label { padding-top: 0; }
+  .bonds-ctx-source { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .bonds-ctx-source small { text-align: left; }
+  .bonds-ctx-rules { grid-template-columns: minmax(0, 1fr); }
   .bonds-ctx-equity { grid-template-columns: 1fr; gap: 7px; }
   .bonds-ctx-equity-check { border-left: 0; border-top: 1px solid var(--border); padding: 7px 0 0; }
   .bonds-ctx-driver { flex-wrap: wrap; }
@@ -16602,6 +16692,8 @@ body.tape-axm-open { overflow: hidden; }
   .bonds-card-summary-copy { font-size: 12px; }
   .bonds-scale-scroll { margin-right: calc(-1 * var(--s-4)); padding-right: var(--s-4); }
   .bonds-scale-table { min-width: 560px; }
+  .bonds-ctx-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .bonds-ctx-actions .flow-decision-action { width: 100%; min-height: 42px; }
 }
 .fng-root { display: flex; flex-direction: column; gap: var(--s-3); }
 .fng-decision {

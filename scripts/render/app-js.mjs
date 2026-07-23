@@ -403,8 +403,21 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (tab === 'fear-greed' && MANIFEST.fearGreed && MANIFEST.fearGreed.asOf) {
       return { iso: MANIFEST.fearGreed.asOf, label: 'CNN Fear & Greed snapshot' };
     }
-    if (tab === 'bonds-usd' && MANIFEST.macro && MANIFEST.macro.asOf) {
-      return { iso: MANIFEST.macro.asOf, label: 'Treasury yields + DXY snapshot' };
+    if (tab === 'bonds-usd' && typeof bondsMacroSnapshot === 'function') {
+      var bondsMacro = bondsMacroSnapshot();
+      if (bondsMacro && bondsMacro._bondsAsOf) {
+        var bondsTabFreshness = typeof bondsFreshness === 'function' ? bondsFreshness(bondsMacro) : null;
+        return {
+          iso: bondsMacro._bondsAsOf,
+          label: bondsMacro._bondsSource === 'live'
+            ? (bondsTabFreshness && bondsTabFreshness.current
+              ? 'live Treasury yields + DXY overlay'
+              : 'partial live rates overlay - reference only')
+            : (bondsTabFreshness && !bondsTabFreshness.current
+              ? 'Treasury yields + DXY snapshot - reference only'
+              : 'Treasury yields + DXY snapshot'),
+        };
+      }
     }
     return null;
   }
@@ -32415,6 +32428,67 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // chart's prior line. Fetched once per pane open (lazy, best-effort): a miss
   // just means the tiles render without their trend lines.
   var bondsHist = { loading: false, loaded: false, series: null };
+  function bondsMacroSnapshot(){
+    var base = (window.STONKS_MANIFEST || {}).macro || null;
+    if (!base) return null;
+    var macro = Object.assign({}, base);
+    var live = bondsLive && bondsLive.legs ? bondsLive.legs : null;
+    var liveCount = 0;
+    if (live){
+      var liveKeys = ['twoY', 'tenY', 'thirtyY', 'dxy', 'vix'];
+      for (var lk = 0; lk < liveKeys.length; lk++){
+        var key = liveKeys[lk], current = live[key];
+        if (!current || current.value == null || !isFinite(current.value)) continue;
+        var leg = base[key] ? Object.assign({}, base[key]) : {};
+        leg.value = Number(current.value);
+        if (current.pctChange1d != null && isFinite(current.pctChange1d)) leg.pctChange1d = Number(current.pctChange1d);
+        if (current.bpsChange1d != null && isFinite(current.bpsChange1d)) leg.bpsChange1d = Number(current.bpsChange1d);
+        // Keep the exact previous-session baseline used by the live endpoint so
+        // the displayed move, prior close and decision desk all tell the same story.
+        if (current.prevClose != null && isFinite(current.prevClose)) leg.livePrevClose = Number(current.prevClose);
+        macro[key] = leg;
+        liveCount++;
+      }
+    }
+    macro._bondsSource = liveCount ? 'live' : 'build';
+    macro._bondsLiveCount = liveCount;
+    macro._bondsLiveCore = !!(live && live.tenY && live.tenY.value != null && isFinite(live.tenY.value) &&
+      live.dxy && live.dxy.value != null && isFinite(live.dxy.value));
+    macro._bondsAsOf = liveCount && bondsLive.fetchedAt ? bondsLive.fetchedAt : (base.asOf || null);
+    return macro;
+  }
+  function bondsAgeText(ageHours){
+    if (ageHours == null || !isFinite(ageHours)) return 'age unavailable';
+    var h = Math.max(0, ageHours);
+    if (h < 1) return Math.max(1, Math.round(h * 60)) + 'm ago';
+    if (h < 24) return (h < 2 ? h.toFixed(1) : Math.round(h)) + 'h ago';
+    return Math.round(h / 24) + 'd ago';
+  }
+  function bondsFreshness(macro){
+    var asOf = macro && (macro._bondsAsOf || macro.asOf);
+    var asOfMs = Date.parse(asOf || '');
+    var ageHours = isFinite(asOfMs) ? (Date.now() - asOfMs) / 3600000 : null;
+    var source = macro && macro._bondsSource === 'live' ? 'live' : 'build';
+    var liveCount = macro && macro._bondsLiveCount ? Number(macro._bondsLiveCount) : 0;
+    // A partial quote response should not make a mixed-timestamp cross-asset
+    // posture look live. Require at least three of the five fast legs, including
+    // both the 10Y and DXY anchors, plus a recent poll. The build snapshot remains
+    // current for the same 36h window used by the site-wide freshness banner.
+    var current = source === 'live'
+      ? liveCount >= 3 && macro._bondsLiveCore === true && ageHours != null && ageHours >= -0.25 && ageHours <= 0.5
+      : ageHours != null && ageHours >= -0.25 && ageHours <= 36;
+    return {
+      current: current,
+      source: source,
+      ageHours: ageHours,
+      label: current
+        ? (source === 'live' ? 'Current live overlay' : 'Current build snapshot')
+        : 'Reference only',
+      detail: source === 'live'
+        ? (liveCount + '/5 fast legs live · updated ' + bondsAgeText(ageHours))
+        : ('Build snapshot updated ' + bondsAgeText(ageHours)),
+    };
+  }
   function loadBondsHistory(){
     if (bondsHist.loaded || bondsHist.loading) return;
     bondsHist.loading = true;
@@ -32507,8 +32581,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function renderBondsLive(){
     var grid = document.getElementById('bonds-live-grid');
     if (!grid) return;
-    var m = window.STONKS_MANIFEST || {};
-    var macro = m.macro || null;
+    var macro = bondsMacroSnapshot();
     var eyebrow = document.getElementById('bonds-live-eyebrow');
     if (!macro || (!macro.twoY && !macro.tenY && !macro.thirtyY && !macro.dxy && !macro.vix)) {
       grid.innerHTML = '<p class="bonds-live-empty">No live macro data was captured in the last build.</p>';
@@ -32519,33 +32592,18 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // baked legs: value + 1d move go live, while 5d trend, VIX percentile and
     // the prev-EOD line stay baked — those need history the live endpoint
     // doesn't fetch. A leg the endpoint couldn't quote keeps its baked tile.
-    var live = bondsLive.legs;
-    if (live){
-      macro = Object.assign({}, macro);
-      var liveKeys = ['twoY', 'tenY', 'thirtyY', 'dxy', 'vix'];
-      for (var lk = 0; lk < liveKeys.length; lk++){
-        var k = liveKeys[lk], lv = live[k];
-        if (!lv || lv.value == null || !isFinite(lv.value)) continue;
-        var baseLeg = macro[k] ? Object.assign({}, macro[k]) : {};
-        baseLeg.value = lv.value;
-        if (lv.pctChange1d != null && isFinite(lv.pctChange1d)) baseLeg.pctChange1d = lv.pctChange1d;
-        if (lv.bpsChange1d != null && isFinite(lv.bpsChange1d)) baseLeg.bpsChange1d = lv.bpsChange1d;
-        // The live 1d move is measured vs Yahoo's previous session close,
-        // which can be a session NEWER than the baked previousClose (e.g.
-        // pre-market before the day's first bake) — carry it so the tile's
-        // "Prev" line matches the baseline the 1d move was computed against.
-        if (lv.prevClose != null && isFinite(lv.prevClose)) baseLeg.livePrevClose = lv.prevClose;
-        macro[k] = baseLeg;
-      }
-    }
+    var live = macro._bondsSource === 'live';
+    var headerFreshness = bondsFreshness(macro);
     if (eyebrow) {
       try {
         if (live && bondsLive.fetchedAt) {
           var ld = new Date(bondsLive.fetchedAt);
-          eyebrow.textContent = 'live · ' + ld.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }) + ' ET';
+          eyebrow.textContent = (headerFreshness.current ? 'live' : 'partial live · reference') + ' · ' +
+            ld.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }) + ' ET';
         } else if (macro.asOf) {
           var d = new Date(macro.asOf);
-          eyebrow.textContent = 'as of ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' });
+          eyebrow.textContent = (headerFreshness.current ? 'as of ' : 'reference · as of ') +
+            d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' });
         }
       } catch (_) {}
     }
@@ -32600,7 +32658,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '</span>';
       }
       var sparkHtml = (bondsHist.series && key) ? bondsSparkSvg(bondsHist.series[key]) : '';
-      return '<div class="bonds-live-tile' + (alerting ? ' is-alerting' : '') + '">' +
+      return '<div class="bonds-live-tile' + (alerting ? ' is-alerting' : '') + '" data-bonds-key="' + escapeHtml(key || scale) + '" tabindex="-1">' +
         '<div class="bonds-live-tile-head">' +
           '<span class="bonds-live-label">' + escapeHtml(label) + '</span>' +
           alertChip +
@@ -32795,10 +32853,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var macroTiles = '';
     macroTiles += inflationTile();
     macroTiles += unemploymentTile();
+    var monitorFreshness = bondsFreshness(macro);
+    var ratesCadence = monitorFreshness.source === 'live'
+      ? (monitorFreshness.current ? 'live' : 'partial live / reference')
+      : (monitorFreshness.current ? 'build snapshot' : 'reference only');
     var html = '';
     if (ratesTiles) {
       html += '<div class="bonds-live-group">' +
-        '<div class="bonds-live-group-label">Rates &amp; dollar <span>· live</span></div>' +
+        '<div class="bonds-live-group-label">Rates &amp; dollar <span>· ' + escapeHtml(ratesCadence) + '</span></div>' +
         '<div class="bonds-live-subgrid">' + ratesTiles + '</div></div>';
     }
     if (macroTiles) {
@@ -32809,6 +32871,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     grid.innerHTML = html || '<p class="bonds-live-empty">No live macro data was captured in the last build.</p>';
     renderBondsCurve(macro);
     renderBondsContext();
+    var pane = document.getElementById('page-pane-bonds-usd');
+    if (pane && !pane.hidden) renderFreshness('bonds-usd');
   }
 
   // --- Bonds & USD: Treasury yield-curve chart ----------------------------
@@ -32900,11 +32964,48 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (!isFinite(a) || !isFinite(c)) return null;
     return a > c ? 'hot' : a < c ? 'cool' : 'inline';
   }
+  function bindBondsDecisionActions(host){
+    if (!host) return;
+    host.querySelectorAll('[data-bonds-tab]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var tab = document.querySelector('[data-page-tab="' + btn.getAttribute('data-bonds-tab') + '"]');
+        if (tab) tab.click();
+      });
+    });
+    host.querySelectorAll('[data-bonds-review]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var key = btn.getAttribute('data-bonds-review');
+        var tile = document.querySelector('.bonds-live-tile[data-bonds-key="' + key + '"]');
+        if (!tile) return;
+        tile.classList.add('is-focused');
+        tile.scrollIntoView({ behavior:'smooth', block:'center', inline:'center' });
+        try { tile.focus({ preventScroll:true }); } catch (_) { tile.focus(); }
+        setTimeout(function(){ tile.classList.remove('is-focused'); }, 1800);
+      });
+    });
+  }
   function renderBondsContext(){
     var host = document.getElementById('bonds-context');
     if (!host) return;
-    var macro = (window.STONKS_MANIFEST || {}).macro || null;
-    if (!macro){ host.innerHTML = '<p class="bonds-ctx-quiet">No macro snapshot in the last build.</p>'; return; }
+    var macro = bondsMacroSnapshot();
+    if (!macro){
+      host.classList.add('is-reference');
+      var missingEyebrow = document.getElementById('bonds-context-eyebrow');
+      if (missingEyebrow) missingEyebrow.textContent = 'Unavailable · no posture';
+      host.innerHTML = '<section class="bonds-context-empty" aria-label="Rates decision unavailable">' +
+        '<span>Rates decision unavailable</span><b>No verified Treasury or dollar snapshot is available.</b>' +
+        '<p>Do not infer a macro posture from an empty monitor. Recheck the broader regime or the event calendar.</p>' +
+        '<div class="bonds-ctx-actions">' +
+          '<button type="button" class="flow-decision-action is-primary" data-bonds-tab="market">Open Market analysis</button>' +
+          '<button type="button" class="flow-decision-action" data-bonds-tab="calendar">Open Calendar</button>' +
+        '</div></section>';
+      bindBondsDecisionActions(host);
+      return;
+    }
+    var freshness = bondsFreshness(macro);
+    host.classList.toggle('is-reference', !freshness.current);
+    var contextEyebrow = document.getElementById('bonds-context-eyebrow');
+    if (contextEyebrow) contextEyebrow.textContent = freshness.label + ' · confirmation · equity lens';
     var cal = calendarState.data;
     if (!cal){
       // Lazy-load the calendar once for the Fed-odds correlation (shared cache).
@@ -32919,7 +33020,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       host.innerHTML = '<p class="bonds-ctx-quiet">Reading the calendar for Fed-rate context…</p>';
       return;
     }
-    var todayStr = bondsIsoDay(macro.asOf) || bondsIsoDay(Date.now());
+    var todayStr = freshness.current
+      ? (bondsIsoDay(macro._bondsAsOf || macro.asOf) || bondsIsoDay(Date.now()))
+      : bondsIsoDay(Date.now());
     var pct = function(n){ return (n == null) ? '—' : Math.round(n * 100) + '%'; };
     // 1) Lead bond/dollar move (most severe by movement band).
     var rankSev = { 'normal': 0, 'notable': 1, 'big': 2, 'very-large': 3 };
@@ -33010,42 +33113,68 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         }
       }
     }
-    var out = '<div class="bonds-ctx-headline' + headClass + '">' + headline + '</div>';
+    if (!freshness.current){
+      headClass = '';
+      headline = 'This rates snapshot is reference only. The last verified move can explain prior pressure, but it cannot set today\\'s equity posture.';
+    }
+    var out = '<div class="bonds-ctx-source">' +
+      '<span>' + escapeHtml(freshness.label) + '</span>' +
+      '<small>' + escapeHtml(freshness.detail) + '</small>' +
+    '</div>' +
+    '<div class="bonds-ctx-headline' + headClass + '">' + headline + '</div>';
     // A trader posture sits between the observed move and the equity lens.
     // Directionally conflicting drivers must never be narrated as confirmation.
     var postureTone = 'watch', postureTitle = 'Wait — confirmation is incomplete';
     var postureCopy = 'The tape has not produced a clean cross-asset signal. Keep exposure decisions tied to the individual chart.';
-    var postureCheck = 'Trigger: a notable close with a directionally matching catalyst and equity breadth.';
+    var postureConfirm = 'The lead move closes in a notable band while the catalyst and equity breadth point the same way.';
+    var postureInvalidate = 'The move stays inside normal noise or the cross-asset inputs keep disagreeing.';
     if (!lead){
       postureTone = 'pass';
       postureTitle = 'No macro trade — current move unavailable';
       postureCopy = 'There is not enough current rate or dollar data to form a defensible positioning view.';
-      postureCheck = 'Recheck after the next live macro refresh.';
+      postureConfirm = 'A current quote repopulates the lead rate or dollar move and its daily-change baseline.';
+      postureInvalidate = 'The fast legs remain incomplete or their timestamps cannot be verified.';
     } else if (driverAligned === false){
       postureTone = 'caution';
       postureTitle = 'Mixed — do not force a macro trade';
       postureCopy = 'The lead market move and the strongest identified catalyst point in opposite directions. Treat the move as positioning or noise until they converge.';
-      postureCheck = 'Confirmation: yields or DXY follow the catalyst into a notable band, or rate odds reverse to validate the current price move.';
+      postureConfirm = 'Yields or DXY follow the catalyst into a notable band, or rate odds reverse to validate the current price move.';
+      postureInvalidate = 'The lead move fades while the strongest catalyst remains opposed.';
     } else if (notable && driverAligned === true){
       postureTone = 'ready';
       postureTitle = moveHawkish ? 'Aligned pressure — respect the tighter backdrop' : 'Aligned relief — selective duration tailwind';
       postureCopy = 'The lead move is notable and the primary catalyst points the same way. Use the equity lens below to focus relative-strength research.';
-      postureCheck = 'Invalidation: the lead asset closes back inside its normal band or the aligned catalyst reverses.';
+      postureConfirm = 'The lead asset holds its notable band while Heatmap breadth and participation agree with the equity lens.';
+      postureInvalidate = 'The lead asset closes back inside its normal band or the aligned catalyst reverses.';
     } else if (notable){
       postureTone = 'watch';
       postureTitle = 'Notable move — catalyst still unconfirmed';
       postureCopy = 'Price has moved enough to matter, but the page cannot yet tie it to a directionally consistent driver.';
-      postureCheck = 'Confirmation: matching Fed odds, economic data, or volatility follow-through.';
+      postureConfirm = 'Matching Fed odds, economic data, or volatility follow-through appears with equity breadth.';
+      postureInvalidate = 'The lead asset closes back inside its normal band or a contrary catalyst takes control.';
     } else if (driverAligned === true){
       postureTitle = 'Early alignment — wait for a larger move';
       postureCopy = 'Price and the primary catalyst agree, but the move remains inside its normal daily band.';
+      postureConfirm = 'The lead asset expands into a notable band and the Heatmap shows the expected duration or dollar-sensitive leadership.';
+      postureInvalidate = 'The catalyst reverses, or the lead asset moves the other way while remaining inside normal noise.';
     } else {
       postureTitle = 'Noise — no regime change yet';
       postureCopy = 'The largest observed move remains normal and no directionally confirmed driver is present.';
     }
+    if (!freshness.current){
+      postureTone = 'pass';
+      postureTitle = 'Refresh required — do not trade the prior rates posture';
+      postureCopy = 'The last verified cross-asset map is useful as historical context only. Wait for a current build or a sufficiently complete live overlay.';
+      postureConfirm = 'A current snapshot reproduces the same lead move, curve shape and dollar direction, then Heatmap breadth confirms the equity transmission.';
+      postureInvalidate = 'Any fresh rate, dollar, volatility or Fed-odds input changes the lead move or the expected equity beneficiaries.';
+    }
     out += '<div class="bonds-ctx-posture bonds-ctx-posture-' + postureTone + '">' +
       '<span class="bonds-ctx-posture-label">Trade posture</span>' +
-      '<div><b>' + escapeHtml(postureTitle) + '</b><p>' + escapeHtml(postureCopy) + '</p><small>' + escapeHtml(postureCheck) + '</small></div>' +
+      '<div><b>' + escapeHtml(postureTitle) + '</b><p>' + escapeHtml(postureCopy) + '</p></div>' +
+    '</div>';
+    out += '<div class="bonds-ctx-rules">' +
+      '<div><span>Confirms when</span><b>' + escapeHtml(postureConfirm) + '</b></div>' +
+      '<div><span>Invalidates when</span><b>' + escapeHtml(postureInvalidate) + '</b></div>' +
     '</div>';
     // 5) Equity transmission lens. This is deliberately conditional language:
     // the same yield move can mean inflation pressure or a growth scare, so the
@@ -33074,8 +33203,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           : 'Lower yields ease the valuation hurdle for long-duration growth, REITs and utilities.';
         lensCheck = vixRisk ? 'Wait for VIX and equity breadth to confirm stabilization.' : 'Confirm with growth-vs-value breadth before chasing the first move.';
       }
+      var equityLensLabel = freshness.current ? 'Equity lens' : 'Prior equity lens';
+      if (!freshness.current) lensCheck = 'Revalidate the rate, dollar, VIX and breadth inputs before acting on this historical transmission map.';
       out += '<div class="bonds-ctx-equity">' +
-        '<span class="bonds-ctx-equity-label">Equity lens</span>' +
+        '<span class="bonds-ctx-equity-label">' + equityLensLabel + '</span>' +
         '<div class="bonds-ctx-equity-copy"><strong>' + escapeHtml(lensTitle) + '</strong><span>' + escapeHtml(lensBody) + '</span></div>' +
         '<span class="bonds-ctx-equity-check">' + escapeHtml(lensCheck) + '</span>' +
       '</div>';
@@ -33109,7 +33240,18 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         return '<span class="bonds-ctx-watch-item">' + escapeHtml(nm) + ' · ' + escapeHtml(fmtCalendarDate(e.date)) + '</span>';
       }).join('') + '</div>';
     }
+    var reviewKey = lead
+      ? ({ '2y':'twoY', '10y':'tenY', '30y':'thirtyY', dxy:'dxy' })[lead.scale]
+      : null;
+    var primaryAction = freshness.current && reviewKey
+      ? '<button type="button" class="flow-decision-action is-primary" data-bonds-review="' + escapeHtml(reviewKey) + '">Review ' + escapeHtml(lead.label) + '</button>'
+      : '<button type="button" class="flow-decision-action is-primary" data-bonds-tab="market">Open Market analysis</button>';
+    out += '<div class="bonds-ctx-actions">' + primaryAction +
+      '<button type="button" class="flow-decision-action" data-bonds-tab="heatmap">Open Heatmap</button>' +
+      '<button type="button" class="flow-decision-action" data-bonds-tab="calendar">Open Calendar</button>' +
+    '</div>';
     host.innerHTML = out;
+    bindBondsDecisionActions(host);
   }
 
   // --- Tickers landing grid (universe screen + live spots) ----------------
