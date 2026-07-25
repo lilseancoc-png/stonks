@@ -1480,7 +1480,105 @@ body.sidenav-open .side-nav {
   border-radius: var(--r-4);
 }
 .narr-pulse[hidden] { display: none; }
-@media (max-width: 720px) { .narr-pulse { grid-template-columns: 1fr; } }
+.narr-decision {
+  --flow-decision-tone: var(--text-strong);
+  grid-column: 1 / -1;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: var(--r-3);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 7%, var(--surface-2)), var(--surface));
+}
+.narr-decision.is-reference {
+  border-color: color-mix(in srgb, var(--warn) 38%, var(--border));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--warn) 7%, var(--surface-2)), var(--surface));
+}
+.narr-decision-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-4);
+}
+.narr-decision-kicker {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--accent-strong);
+  font: 800 9px/1 var(--font-mono);
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+.narr-decision h3,
+.narr-empty-decision h3 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: var(--fs-lg);
+  line-height: var(--lh-tight);
+}
+.narr-decision-status {
+  flex: none;
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--pos) 34%, var(--border));
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--pos);
+  font: 700 9px/1 var(--font-mono);
+  letter-spacing: .035em;
+  white-space: nowrap;
+}
+.narr-decision.is-reference .narr-decision-status {
+  border-color: color-mix(in srgb, var(--warn) 42%, var(--border));
+  color: var(--warn);
+}
+.narr-decision-read {
+  margin: 8px 0 0;
+  max-width: 84ch;
+  color: var(--muted-strong);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-relaxed);
+}
+.narr-decision-rules {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 11px;
+}
+.narr-decision-rules > div {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-2);
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+}
+.narr-decision-rules span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font: 800 8.5px/1 var(--font-mono);
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.narr-decision-rules b {
+  display: block;
+  color: var(--text);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-snug);
+}
+.narr-decision-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 11px;
+}
+@media (max-width: 720px) {
+  .narr-pulse { grid-template-columns: 1fr; }
+  .narr-decision-head { display: block; }
+  .narr-decision-status { display: inline-flex; margin-top: 9px; white-space: normal; }
+  .narr-decision-rules { grid-template-columns: 1fr; }
+  .narr-decision-actions .flow-decision-action { flex: 1 1 145px; justify-content: center; }
+}
+@media (max-width: 440px) {
+  .narr-decision { padding: 12px; }
+  .narr-decision-actions .flow-decision-action { flex-basis: 100%; }
+}
 .narr-pulse-tilt { display: flex; flex-direction: column; gap: 6px; justify-content: center; }
 .narr-pulse-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-2); }
 .narr-pulse-eyebrow {
@@ -1512,16 +1610,24 @@ body.sidenav-open .side-nav {
 .narr-pulse-legend .is-bear { color: var(--neg); }
 .narr-pulse-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s-2); align-content: center; }
 .narr-pulse-stat {
+  appearance: none;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
   padding: 8px 4px;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-2);
+  color: inherit; font: inherit; text-align: center;
 }
+.narr-pulse-stat:disabled { opacity: .58; }
+.narr-pulse-stat.is-actionable { cursor: pointer; transition: transform .12s var(--ease-out), border-color .12s var(--ease-out), background .12s var(--ease-out); }
+.narr-pulse-stat.is-actionable:hover { transform: translateY(-1px); border-color: var(--border-strong); background: var(--surface-2); }
+.narr-pulse-stat.is-actionable:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .narr-pulse-stat-num {
   font-family: var(--font-mono); font-size: var(--fs-lg); font-weight: 700;
   font-variant-numeric: tabular-nums; color: var(--text-strong); line-height: 1;
 }
 .narr-pulse-stat-num.is-warn { color: var(--warn); }
 .narr-pulse-stat-num.is-accent { color: var(--accent-strong); }
+.narr-pulse-stat-num.is-pos { color: var(--pos); }
+.narr-pulse-stat-num.is-neg { color: var(--neg); }
 .narr-pulse-stat-label {
   font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
   color: var(--muted);
@@ -1928,6 +2034,12 @@ body.sidenav-open .side-nav {
   background: color-mix(in srgb, var(--accent) 2%, var(--surface));
   transform: translateY(-1px);
 }
+.narr:focus-visible,
+.narr.is-review-target {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent), var(--elev-2);
+}
 .narr-accent {
   position: absolute; left: 12px; top: 14px; bottom: 14px;
   width: 2px; border-radius: 1px;
@@ -2094,6 +2206,20 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
 .narr-ended-name { font-size: var(--fs-sm); font-weight: 600; color: var(--text); margin-bottom: 2px; }
 .narr-ended-meta { font-size: 12px; color: var(--muted); }
 .narr-empty { color: var(--muted); font-size: var(--fs-sm); padding: var(--s-1) 0; }
+.narr-empty[hidden] { display: none; }
+.narr-empty-decision {
+  --flow-decision-tone: var(--text-strong);
+  padding: var(--s-5);
+  border: 1px dashed color-mix(in srgb, var(--warn) 42%, var(--border));
+  border-radius: var(--r-3);
+  background: color-mix(in srgb, var(--warn-soft) 28%, var(--surface));
+}
+.narr-empty-decision p {
+  max-width: 72ch;
+  margin: 7px 0 0;
+  color: var(--muted-strong);
+  line-height: var(--lh-relaxed);
+}
 
 /* Narrative rank, strength meter, status / timeframe tags, triggers, conflicts, macro digest */
 .narr-rank {

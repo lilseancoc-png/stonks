@@ -6380,14 +6380,15 @@
   }
   function tickerChipHtml(sym, side){
     var sec = SECTORS[sym] || '';
-    var titleAttr = sec ? ' title="' + escapeHtml(sec) + '"' : '';
+    var openLabel = 'Open ' + sym + ' in Grade';
+    var titleAttr = ' title="' + escapeHtml(openLabel + (sec ? ' · ' + sec : '')) + '"';
     // Render as a button when we recognize the symbol so the user can jump to
     // the Grade tab from anywhere a chip appears. Unknown symbols (the AI can
     // mention OTC names not on our list) stay as plain spans.
     var known = SYMBOLS.indexOf(sym) >= 0;
     if (known) {
       return '<button type="button" class="narr-chip ' + side + ' is-clickable"' + titleAttr +
-        ' data-narr-symbol="' + escapeHtml(sym) + '">' + escapeHtml(sym) + '</button>';
+        ' aria-label="' + escapeHtml(openLabel) + '" data-narr-symbol="' + escapeHtml(sym) + '">' + escapeHtml(sym) + '</button>';
     }
     return '<span class="narr-chip ' + side + '"' + titleAttr + '>' + escapeHtml(sym) + '</span>';
   }
@@ -6653,7 +6654,7 @@
     var evidence = [];
     if (n.sources && n.sources.length) evidence.push(n.sources.length + ' sources');
     if (n.watchFor && n.watchFor.length) evidence.push(n.watchFor.length + ' invalidation checks');
-    return '<details class="narr-research"><summary><span><b>Decision evidence</b><small>' + escapeHtml(evidence.join(' · ') || 'Lifecycle, scenarios and risk checks') + '</small></span><em>Open</em></summary><div class="narr-research-body">' + body + '</div></details>';
+    return '<details class="narr-research"><summary><span><b>Decision evidence</b><small>' + escapeHtml(evidence.join(' · ') || 'Lifecycle, scenarios and risk checks') + '</small></span><em aria-hidden="true"></em></summary><div class="narr-research-body">' + body + '</div></details>';
   }
   // Industry-group grade breakdown for a sector — makes the two-level rollup
   // visible (sector grade = the average of these). Each row: industry, a
@@ -6709,7 +6710,7 @@
     // then a muted metadata strip, then the THESIS as the lead paragraph, then
     // the names in play, and only THEN the supporting analytics (strength /
     // lifecycle / hype) grouped together below a hairline so the prose leads.
-    return '<article class="narr' + (n.stale ? ' is-stale' : '') + (isFresh ? ' is-fresh' : '') + '" data-sent="' + sent + '" data-status="' + status + '" role="listitem">' +
+    return '<article class="narr' + (n.stale ? ' is-stale' : '') + (isFresh ? ' is-fresh' : '') + '" data-sent="' + sent + '" data-status="' + status + '" data-narrative-name="' + escapeHtml(n.name || '') + '" tabindex="-1" role="listitem">' +
       '<span class="narr-accent" aria-hidden="true"></span>' +
       '<header class="narr-head">' +
         (rankInSector ? '<span class="narr-rank" aria-label="Rank">#' + rankInSector + '</span>' : '') +
@@ -6879,7 +6880,7 @@
     var sectorEvidence = lifecycleStepperHtml(overview.lifecycleStage) + lifecycleOutlookHtml(overview.lifecycleOutlook, overview.lifecycleStage) +
       hypeGaugeHtml(overview.hype) + scenariosHtml(overview) + industryGradesHtml(overview.industryGrades) + watchForHtml({ watchFor:overview.watchFor || [] });
     var detail = sectorEvidence ? '<details class="narr-sector-detail"><summary><span><b>Sector evidence &amp; scenarios</b>' +
-      '<small>Lifecycle, hype, industry grades and invalidation checks</small></span><em>Open</em></summary>' +
+      '<small>Lifecycle, hype, industry grades and invalidation checks</small></span><em aria-hidden="true"></em></summary>' +
       '<div class="narr-sector-detail-body">' + sectorEvidence + '</div></details>' : '';
     return '<section class="narr-sector-overview" data-stance="' + stance + '"' + (overview.stale ? ' data-stale="1"' : '') + '>' +
       '<header class="narr-sector-overview-head"><span class="narr-sector-overview-eyebrow">Sector overview</span>' +
@@ -7062,7 +7063,7 @@
     }
     return out;
   }
-  function jumpToSector(sec){
+  function jumpToSector(sec, skipScroll){
     var tabsEl = $('narratives-tabs');
     if (tabsEl){
       var all = tabsEl.querySelectorAll('.narr-tab');
@@ -7071,17 +7072,70 @@
       }
     }
     var panel = $('narratives-panel');
-    if (panel && panel.scrollIntoView){
+    if (!skipScroll && panel && panel.scrollIntoView){
       try { panel.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
       catch (_) { panel.scrollIntoView(); }
     }
+  }
+  function jumpToNarrative(sec, name){
+    jumpToSector(sec, true);
+    var panel = $('narratives-panel');
+    if (!panel || !name) return;
+    var cards = panel.querySelectorAll('[data-narrative-name]');
+    var target = null;
+    for (var i=0; i<cards.length; i++){
+      if (cards[i].getAttribute('data-narrative-name') === name){ target = cards[i]; break; }
+    }
+    if (!target) return;
+    try { target.scrollIntoView({ behavior:'smooth', block:'center' }); }
+    catch (_) { target.scrollIntoView(); }
+    try { target.focus({ preventScroll:true }); } catch (_) {}
+    target.classList.remove('is-review-target');
+    void target.offsetWidth;
+    target.classList.add('is-review-target');
+    setTimeout(function(){ target.classList.remove('is-review-target'); }, 1800);
+  }
+  function narrativeDecisionBucket(n){
+    var p = narrPosture(n);
+    if (n && n.stale) return 'risk';
+    if (p.tone === 'ready') return 'ready';
+    if (p.tone === 'caution') return 'risk';
+    if (p.tone === 'late' || p.tone === 'pass') return 'late';
+    return 'early';
+  }
+  function narrativeFeedFreshness(){
+    var builtMs = Date.parse(MANIFEST && MANIFEST.builtAtIso ? MANIFEST.builtAtIso : '');
+    var ageHours = isFinite(builtMs) ? (Date.now() - builtMs) / 3600000 : NaN;
+    var current = isFinite(ageHours) && ageHours >= -2 && ageHours <= 36;
+    var ageLabel = 'timestamp unavailable';
+    if (isFinite(ageHours)) {
+      if (ageHours < 1) ageLabel = 'less than 1h old';
+      else if (ageHours < 48) ageLabel = Math.round(ageHours) + 'h old';
+      else ageLabel = Math.round(ageHours / 24) + 'd old';
+    }
+    return { current:current, label:current ? 'Current' : 'Reference only', ageLabel:ageLabel };
+  }
+  function bindNarrativeDecisionActions(root){
+    if (!root) return;
+    root.querySelectorAll('[data-narr-tab]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var tab = document.querySelector('[data-page-tab="' + btn.getAttribute('data-narr-tab') + '"]');
+        if (tab) tab.click();
+      });
+    });
+    root.querySelectorAll('[data-pulse-sector][data-pulse-name]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        jumpToNarrative(btn.getAttribute('data-pulse-sector'), btn.getAttribute('data-pulse-name'));
+      });
+    });
   }
   function renderNarrativePulse(grouped){
     var box = $('narratives-pulse');
     if (!box) return;
     var real = collectRealNarratives(grouped);
     if (!real.length){ box.hidden = true; box.innerHTML = ''; return; }
-    var bullCount = 0, bearCount = 0, building = 0, fresh = 0, bullW = 0, bearW = 0;
+    var bullCount = 0, bearCount = 0, bullW = 0, bearW = 0;
+    var postureCounts = { ready:0, early:0, risk:0, late:0 };
     var sectorsSeen = {};
     for (var i=0; i<real.length; i++){
       var n = real[i].n;
@@ -7090,8 +7144,7 @@
       var w = Math.max(1, Math.min(100, n.strength | 0));
       if (n.sentiment === 'bearish'){ bearCount++; bearW += w; }
       else { bullCount++; bullW += w; }
-      if (n.status === 'building') building++;
-      if ((n.daysRunning | 0) <= 1 && !n.stale) fresh++;
+      postureCounts[narrativeDecisionBucket(n)]++;
       sectorsSeen[real[i].sector] = 1;
     }
     var totalW = bullW + bearW;
@@ -7101,17 +7154,55 @@
     if (bullPct >= 60){ verdict = 'Bullish lean'; vcls = 'is-bull'; }
     else if (bullPct <= 40){ verdict = 'Bearish lean'; vcls = 'is-bear'; }
     else { verdict = 'Mixed / balanced'; vcls = 'is-mixed'; }
-    var leaders = real.slice().sort(function(a, b){
+    var ranked = real.slice().sort(function(a, b){
       var d = (b.n.strength | 0) - (a.n.strength | 0);
       if (d) return d;
       return String(a.n.name).localeCompare(String(b.n.name));
-    }).slice(0, 3);
-    var statCell = function(num, label, cls){
-      return '<div class="narr-pulse-stat">' +
+    });
+    var leaders = ranked.slice(0, 3);
+    var bucketLeader = { ready:null, early:null, risk:null, late:null };
+    for (var ri=0; ri<ranked.length; ri++){
+      var rb = narrativeDecisionBucket(ranked[ri].n);
+      if (!bucketLeader[rb]) bucketLeader[rb] = ranked[ri];
+    }
+    var freshness = narrativeFeedFreshness();
+    var bestReady = bucketLeader.ready;
+    var statCell = function(num, label, cls, lead){
+      return '<button type="button" class="narr-pulse-stat' + (lead ? ' is-actionable' : '') + '"' +
+        (lead ? ' data-pulse-sector="' + escapeHtml(lead.sector) + '" data-pulse-name="' + escapeHtml(lead.n.name || '') + '" title="Review strongest ' + escapeHtml(label.toLowerCase()) + ' story"' : ' disabled') + '>' +
         '<span class="narr-pulse-stat-num' + (cls ? ' ' + cls : '') + '">' + num + '</span>' +
         '<span class="narr-pulse-stat-label">' + label + '</span>' +
-      '</div>';
+      '</button>';
     };
+    var postureTitle = '';
+    if (!freshness.current) postureTitle = 'Reference-only story map · refresh before acting';
+    else if (postureCounts.ready && postureCounts.risk) postureTitle = postureCounts.ready + ' validated theme' + (postureCounts.ready === 1 ? '' : 's') + ' · ' + postureCounts.risk + ' stor' + (postureCounts.risk === 1 ? 'y' : 'ies') + ' under pressure';
+    else if (postureCounts.ready) postureTitle = postureCounts.ready + ' validated theme' + (postureCounts.ready === 1 ? '' : 's') + ' lead the research queue';
+    else if (postureCounts.risk || postureCounts.late) postureTitle = 'Risk-management first · no validated theme leads';
+    else postureTitle = 'Early story map · wait for validation';
+    var firstInvalidation = freshness.current && bestReady && (watchForItems(bestReady.n)[0] || (bestReady.n.lifecycleOutlook && bestReady.n.lifecycleOutlook.trigger));
+    var primaryAction = freshness.current && bestReady
+      ? '<button type="button" class="flow-decision-action is-primary" data-pulse-sector="' + escapeHtml(bestReady.sector) + '" data-pulse-name="' + escapeHtml(bestReady.n.name || '') + '">Review ' + escapeHtml(bestReady.n.name) + '</button>'
+      : '<button type="button" class="flow-decision-action is-primary" data-narr-tab="market">Open Market analysis</button>';
+    var marketAction = freshness.current && bestReady
+      ? '<button type="button" class="flow-decision-action" data-narr-tab="market">Open Market analysis</button>'
+      : '';
+    var riskRuleCopy = !freshness.current
+      ? 'Refresh the story map before using prior invalidations or posture as an execution input.'
+      : firstInvalidation
+        ? 'First invalidation: ' + firstInvalidation
+        : 'Challenged, peak, broken, or stale stories veto new exposure until repaired.';
+    var decision = '<section class="narr-decision ' + (freshness.current ? 'is-current' : 'is-reference') + '">' +
+      '<div class="narr-decision-head"><div><span class="narr-decision-kicker">Narrative decision</span><h3>' + escapeHtml(postureTitle) + '</h3></div>' +
+        '<span class="narr-decision-status">' + escapeHtml(freshness.label) + ' · ' + escapeHtml(freshness.ageLabel) + '</span></div>' +
+      '<p class="narr-decision-read">' + real.length + ' live stor' + (real.length === 1 ? 'y' : 'ies') + ' across ' + Object.keys(sectorsSeen).length + ' sector' + (Object.keys(sectorsSeen).length === 1 ? '' : 's') + '. A narrative chooses where to research; Grade decides whether an individual ticker is enterable.</p>' +
+      '<div class="narr-decision-rules">' +
+        '<div><span>Entry rule</span><b>Validated = research priority, not permission to chase. Open a ticker and confirm timing.</b></div>' +
+        '<div><span>Risk rule</span><b>' + escapeHtml(riskRuleCopy) + '</b></div>' +
+      '</div>' +
+      '<div class="narr-decision-actions">' + primaryAction + marketAction +
+        '<button type="button" class="flow-decision-action" data-narr-tab="heatmap">Open Heatmap</button></div>' +
+    '</section>';
     var tilt = '<div class="narr-pulse-tilt">' +
       '<div class="narr-pulse-head">' +
         '<span class="narr-pulse-eyebrow">Market tilt</span>' +
@@ -7128,15 +7219,16 @@
       '</div>' +
     '</div>';
     var stats = '<div class="narr-pulse-stats">' +
-      statCell(real.length, 'Stories', '') +
-      statCell(building, 'Building', building ? 'is-warn' : '') +
-      statCell(fresh, 'Fresh', fresh ? 'is-accent' : '') +
-      statCell(Object.keys(sectorsSeen).length, 'Sectors', '') +
+      statCell(postureCounts.ready, freshness.current ? 'Validated' : 'Prior validated', 'is-pos', freshness.current ? bucketLeader.ready : null) +
+      statCell(postureCounts.early, freshness.current ? 'Early / watch' : 'Prior early', 'is-accent', freshness.current ? bucketLeader.early : null) +
+      statCell(postureCounts.risk, freshness.current ? 'Risk rising' : 'Prior risk', 'is-warn', freshness.current ? bucketLeader.risk : null) +
+      statCell(postureCounts.late, freshness.current ? 'Late / broken' : 'Prior late', 'is-neg', freshness.current ? bucketLeader.late : null) +
     '</div>';
     var leaderChips = leaders.map(function(l, idx){
       var sent = l.n.sentiment === 'bearish' ? 'bearish' : 'bullish';
       return '<button type="button" class="narr-pulse-leader ' + sent + '"' +
         ' data-pulse-sector="' + escapeHtml(l.sector) + '"' +
+        ' data-pulse-name="' + escapeHtml(l.n.name || '') + '"' +
         ' title="' + escapeHtml(l.n.thesis || '') + '">' +
         '<span class="narr-pulse-leader-rank">#' + (idx + 1) + '</span>' +
         '<span class="narr-pulse-leader-name">' + escapeHtml(l.n.name) + '</span>' +
@@ -7153,12 +7245,8 @@
         '</div>'
       : '';
     box.hidden = false;
-    box.innerHTML = tilt + stats + leadersBlock;
-    box.querySelectorAll('[data-pulse-sector]').forEach(function(btn){
-      btn.addEventListener('click', function(){
-        jumpToSector(btn.getAttribute('data-pulse-sector'));
-      });
-    });
+    box.innerHTML = decision + tilt + stats + leadersBlock;
+    bindNarrativeDecisionActions(box);
   }
   function renderNarratives(){
     var empty = $('narratives-empty');
@@ -7188,7 +7276,15 @@
       if (tabs) tabs.innerHTML = '';
       if (panel) panel.innerHTML = '';
       if (pulse){ pulse.hidden = true; pulse.innerHTML = ''; }
-      if (empty) empty.hidden = false;
+      if (empty) {
+        empty.innerHTML = '<section class="narr-empty-decision"><span class="narr-decision-kicker">Narrative feed unavailable</span>' +
+          '<h3>No active story map loaded</h3><p>Do not treat a missing narrative feed as an all-clear. Use the market tape and sector breadth while the story layer recovers.</p>' +
+          '<div class="narr-decision-actions"><button type="button" class="flow-decision-action is-primary" data-narr-tab="market">Open Market analysis</button>' +
+          '<button type="button" class="flow-decision-action" data-narr-tab="heatmap">Open Heatmap</button>' +
+          '<button type="button" class="flow-decision-action" data-narr-tab="news">Open News</button></div></section>';
+        empty.hidden = false;
+        bindNarrativeDecisionActions(empty);
+      }
     } else {
       if (empty) empty.hidden = true;
       // Default the active sector to the first one that actually has a
