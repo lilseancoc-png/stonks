@@ -1290,6 +1290,43 @@ function strategiesSection() {
       </div>
       <button type="button" class="strat-btn-ghost" id="strat-clear" hidden>Clear strategy</button>
     </div>
+    <section id="strat-starter" class="strat-starter" aria-labelledby="strat-starter-title">
+      <div class="strat-starter-head">
+        <div>
+          <span class="strat-starter-kicker">Start with the thesis</span>
+          <h3 id="strat-starter-title">What do you expect the stock to do?</h3>
+          <p>Pick the market view first. After you choose a ticker, the desk will load a defined-risk starting structure and test it against tape, volatility, events, liquidity and payoff.</p>
+        </div>
+        <span class="strat-starter-step">1 view &rarr; 2 ticker &rarr; 3 verify</span>
+      </div>
+      <div class="strat-start-grid">
+        <button type="button" class="strat-start-card strat-start-bull" data-strat-intent="bull-call-spread" aria-pressed="false">
+          <span>Upside</span><b>Bullish, defined risk</b><small>Start with a bull call spread</small>
+        </button>
+        <button type="button" class="strat-start-card strat-start-bear" data-strat-intent="bear-put-spread" aria-pressed="false">
+          <span>Downside</span><b>Bearish, defined risk</b><small>Start with a bear put spread</small>
+        </button>
+        <button type="button" class="strat-start-card strat-start-move" data-strat-intent="long-straddle" aria-pressed="false">
+          <span>Volatility</span><b>Big move, direction unclear</b><small>Start with a long straddle</small>
+        </button>
+        <button type="button" class="strat-start-card strat-start-range" data-strat-intent="iron-condor" aria-pressed="false">
+          <span>Range</span><b>Price stays contained</b><small>Start with an iron condor</small>
+        </button>
+      </div>
+      <div class="strat-start-next">
+        <div>
+          <span>Quick ticker</span>
+          <div class="strat-quick-symbols" aria-label="Popular strategy tickers">
+            <button type="button" data-strat-symbol="SPY">SPY</button>
+            <button type="button" data-strat-symbol="QQQ">QQQ</button>
+            <button type="button" data-strat-symbol="NVDA">NVDA</button>
+            <button type="button" data-strat-symbol="TSLA">TSLA</button>
+          </div>
+        </div>
+        <p id="strat-start-read" aria-live="polite">Choose a view, then search any ticker above.</p>
+      </div>
+      <p class="strat-start-rule"><b>No auto-trade:</b> this only builds the first draft. The live verdict, invalidation, event window, liquidity and reward-to-risk checks decide whether it is actionable.</p>
+    </section>
     <div id="strat-status" class="opt-status" role="status"></div>
     <div id="strat-ticker-meta" class="strat-ticker-meta" hidden aria-live="polite"></div>
     <div id="strat-guidance" class="strat-guidance" hidden aria-live="polite"></div>

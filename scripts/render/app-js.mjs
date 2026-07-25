@@ -13373,6 +13373,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     ivLabel: null,
     legs: [],
     strategyId: null,
+    pendingTemplate: null,
     nextLegId: 1,
     account: 25000,
     riskPct: 1,
@@ -13535,6 +13536,34 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function stratTemplateById(id){
     for (var i=0; i<STRAT_TEMPLATES.length; i++) if (STRAT_TEMPLATES[i].id === id) return STRAT_TEMPLATES[i];
     return null;
+  }
+  function stratRenderStarter(){
+    var box = $('strat-starter');
+    if (!box) return;
+    var hasStructure = stratState.legs.length > 0;
+    box.hidden = hasStructure;
+    if (hasStructure) return;
+    var selectedId = stratState.pendingTemplate;
+    var cards = box.querySelectorAll('[data-strat-intent]');
+    for (var i=0; i<cards.length; i++){
+      var on = cards[i].getAttribute('data-strat-intent') === selectedId;
+      cards[i].classList.toggle('is-selected', on);
+      cards[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    var read = $('strat-start-read');
+    if (!read) return;
+    var selected = stratTemplateById(selectedId);
+    if (stratState.loading){
+      read.textContent = 'Loading the chain. Your ' + (selected ? selected.name : 'strategy') + ' will be checked next.';
+    } else if (stratState.symbol && stratState.expirations.length){
+      read.textContent = selected
+        ? selected.name + ' is ready to build for ' + stratState.symbol + '.'
+        : stratState.symbol + ' is loaded. Choose the market view you want to test.';
+    } else if (selected){
+      read.textContent = selected.name + ' selected. Now choose a ticker.';
+    } else {
+      read.textContent = 'Choose a view, then search any ticker above.';
+    }
   }
   function stratPatternRead(){
     var t = stratState.technicals || {};
@@ -14488,6 +14517,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var clearBtn = $('strat-clear');
     if (clearBtn) clearBtn.hidden = stratState.legs.length === 0;
     stratRenderTemplates();
+    stratRenderStarter();
     stratRenderGuidance();
     if (!stratState.legs.length){
       stratRenderLegs({ legs: [] });
@@ -14543,6 +14573,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       return;
     }
     stratState.loading = true;
+    stratRenderStarter();
     setStatus('strat-status', 'Loading ' + symbol + ' chain…', 'loading');
     fetchChain(symbol).then(function(entry){
       stratState.loading = false;
@@ -14555,7 +14586,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       stratState.legs = [];
       stratState.strategyId = null;
       setStatus('strat-status', symbol + ' · spot ' + fmtMoney(stratState.spot) + ' · ' + stratState.expirations.length + ' expirations', 'ok');
-      stratRenderAll();
+      var pending = stratState.pendingTemplate;
+      stratState.pendingTemplate = null;
+      if (pending) stratApplyTemplate(pending);
+      else stratRenderAll();
       stratRefreshIvRank(symbol).then(function(){
         stratRenderTickerMeta();
         if (stratState.legs.length) stratRenderAll();
@@ -14563,6 +14597,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       });
     }).catch(function(err){
       stratState.loading = false;
+      stratRenderStarter();
       setStatus('strat-status', 'Failed to load ' + symbol + ': ' + (err && err.message || err), 'err');
     });
   }
@@ -14653,9 +14688,31 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var tpls = $('strat-section');
     if (tpls){
       tpls.addEventListener('click', function(e){
+        var intent = e.target.closest && e.target.closest('[data-strat-intent]');
+        if (intent){
+          var intentId = intent.getAttribute('data-strat-intent');
+          if (stratState.symbol && stratState.expirations.length){
+            stratState.pendingTemplate = null;
+            stratApplyTemplate(intentId);
+          } else {
+            stratState.pendingTemplate = intentId;
+            stratRenderStarter();
+            if (stratCombo.input){
+              stratCombo.input.focus();
+              stratCombo.close();
+            }
+            var chosen = stratTemplateById(intentId);
+            setStatus('strat-status', (chosen ? chosen.name : 'Strategy') + ' selected. Choose a ticker.', 'ok');
+          }
+          return;
+        }
+        var quick = e.target.closest && e.target.closest('[data-strat-symbol]');
+        if (quick){
+          stratCombo.commit(quick.getAttribute('data-strat-symbol'));
+          return;
+        }
         var btn = e.target.closest && e.target.closest('[data-strat-tpl]');
-        if (!btn) return;
-        stratApplyTemplate(btn.getAttribute('data-strat-tpl'));
+        if (btn) stratApplyTemplate(btn.getAttribute('data-strat-tpl'));
       });
       tpls.addEventListener('change', function(e){
         var account = e.target && e.target.getAttribute && e.target.getAttribute('data-strat-account') != null;
@@ -14765,6 +14822,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     stratCombo.init();
     stratBindControls();
     stratRenderTemplates();
+    stratRenderStarter();
   }
 
   // --- Compare companies (Tools tab) --------------------------------------
