@@ -13099,7 +13099,7 @@ body.tape-axm-open { overflow: hidden; }
 .ptc-watch.is-watched { color: var(--warn, #d98a00); }
 /* Saved-card wrapper: the status bar sits above the standard pick tile; the
    tile stretches so watchlist rows keep the grid's equal-height look. */
-.pwl-card { display: flex; flex-direction: column; }
+.pwl-card { display: flex; flex-direction: column; min-width: 0; }
 .pwl-card .pick-tab-card { flex: 1; }
 .pwl-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; padding: 0 2px 4px; min-width: 0; }
 .pwl-tag { font: 700 9.5px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .05em; padding: 3px 6px; border-radius: 3px; white-space: nowrap; }
@@ -13122,7 +13122,7 @@ body.tape-axm-open { overflow: hidden; }
 .pwl-remove:hover { color: var(--neg); border-color: color-mix(in srgb, var(--neg) 45%, var(--border)); }
 .pwl-stale .pick-tab-card { opacity: .82; filter: saturate(.75); }
 /* Live grade + thesis-health chips (re-scored every build, patched on the 30s poll). */
-.pwl-live-chips { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.pwl-live-chips { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
 .pwl-grade { color: var(--text-muted); background: color-mix(in srgb, var(--text-muted) 10%, transparent); }
 .pwl-grade s { opacity: .6; font-weight: 500; margin-left: 1px; }
 .pwl-grade-up { color: var(--pos); background: color-mix(in srgb, var(--pos) 10%, transparent); }
