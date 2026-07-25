@@ -28256,6 +28256,111 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     else rep.health = { key: 'struggling', label: 'Struggling' };
     return rep;
   }
+  // Keep signal quality separate from execution quality. A resolved option can
+  // lose even when the stock moved with the original bias, and a profitable
+  // option can still have taken a poor path. This split answers four different
+  // questions from the same frozen record:
+  //   thesis     — did the underlying move with the call / put bias?
+  //   entry path — did favorable excursion outweigh adverse excursion?
+  //   conversion — when direction was right, did the option finish green?
+  //   exit       — how many losers first had a bankable +15% modeled mark?
+  function accThesisExecutionReport(closed){
+    var dec = accDecided(closed);
+    var directional = [], right = [], wrong = [], flat = [];
+    var paths = [], cleanPaths = 0, mfe = [], mae = [];
+    var converted = 0, conversionN = 0, givebacks = 0, losses = 0;
+    dec.forEach(function(e){
+      var und = e.underlyingPnlPct == null ? null : Number(e.underlyingPnlPct);
+      if (und != null && isFinite(und)){
+        if (und >= ACC_FLAT_MOVE){ right.push(e); directional.push(e); }
+        else if (und <= -ACC_FLAT_MOVE){ wrong.push(e); directional.push(e); }
+        else flat.push(e);
+      }
+      var up = e.mfePct == null ? null : Number(e.mfePct);
+      var down = e.maePct == null ? null : Number(e.maePct);
+      if (up != null && down != null && isFinite(up) && isFinite(down)){
+        paths.push(e); mfe.push(up); mae.push(Math.abs(down));
+        if (up >= Math.abs(down)) cleanPaths++;
+      }
+      if (e.outcome === 'loss'){
+        losses++;
+        var hi = e.optHiPct == null ? null : Number(e.optHiPct);
+        if (hi != null && isFinite(hi) && hi >= ACC_GIVEBACK_PCT) givebacks++;
+      }
+    });
+    right.forEach(function(e){
+      var p = e.optionPnlPct == null ? null : Number(e.optionPnlPct);
+      if (p != null && isFinite(p)){ conversionN++; if (p >= 0) converted++; }
+    });
+    var thesisRate = directional.length ? right.length / directional.length : null;
+    var pathRate = paths.length ? cleanPaths / paths.length : null;
+    var conversionRate = conversionN ? converted / conversionN : null;
+    var givebackRate = losses ? givebacks / losses : null;
+    var goTrades = dec.filter(function(e){ return e.cohort === 'go'; });
+    var waitTrades = dec.filter(function(e){ return e.cohort === 'wait'; });
+    var go = tradeMetrics(goTrades, { basis:'contract' });
+    var wait = tradeMetrics(waitTrades, { basis:'contract' });
+    var focus = { key:'early', label:'Keep building the sample', detail:'No single improvement call is reliable until each side of the audit has enough resolved trades.' };
+    var issues = [];
+    if (directional.length >= 6 && thesisRate < 0.5){
+      issues.push({ score:(0.5 - thesisRate) * 1.25, key:'thesis', label:'Fix thesis selection first', detail:'The underlying is moving against the original call / put bias more often than with it. Better option structures cannot repair a wrong directional call.' });
+    }
+    if (paths.length >= 6 && pathRate < 0.5){
+      issues.push({ score:0.5 - pathRate, key:'entry', label:'Fix entry timing first', detail:'More trades suffer a larger adverse excursion than favorable excursion. The idea may be sound, but the trigger is arriving before the path is clean.' });
+    }
+    if (conversionN >= 4 && conversionRate < 0.6){
+      issues.push({ score:0.6 - conversionRate, key:'vehicle', label:'Fix the option vehicle first', detail:'The stock often moves with the thesis, but the option does not convert that call into a green result. Structure, DTE, IV paid and theta are the leak.' });
+    }
+    if (losses >= 4 && givebackRate >= 0.25){
+      issues.push({ score:givebackRate - 0.25, key:'exit', label:'Fix profit capture first', detail:'Too many resolved losses were meaningfully green before fading. Earlier partial exits or tighter profit protection deserve the next test.' });
+    }
+    if (issues.length){
+      issues.sort(function(a, b){ return b.score - a.score; });
+      focus = issues[0];
+    } else if (dec.length >= 8){
+      focus = { key:'balanced', label:'No single leak dominates', detail:'Thesis direction, entry path, vehicle conversion and profit capture are all inside their standing tolerances. Keep collecting forward evidence.' };
+    }
+    return {
+      n: dec.length,
+      right: right.length, wrong: wrong.length, flat: flat.length, thesisN: directional.length, thesisRate: thesisRate,
+      pathN: paths.length, cleanPaths: cleanPaths, pathRate: pathRate, avgMfe: accMean(mfe), avgMae: accMean(mae),
+      converted: converted, conversionN: conversionN, conversionRate: conversionRate,
+      givebacks: givebacks, losses: losses, givebackRate: givebackRate,
+      go: go, wait: wait, focus: focus,
+    };
+  }
+  function accThesisExecutionHtml(closed){
+    var a = accThesisExecutionReport(closed);
+    if (!a.n) return '';
+    var pct = function(v){ return v == null ? '—' : Math.round(v * 100) + '%'; };
+    var metric = function(value, label, detail, cls){
+      return '<div class="acc-audit-metric"><small>' + label + '</small><b' + (cls ? ' class="' + cls + '"' : '') + '>' + value + '</b><span>' + detail + '</span></div>';
+    };
+    var thesisCls = a.thesisRate == null ? '' : a.thesisRate >= 0.5 ? 'sig-pos' : 'sig-neg';
+    var pathCls = a.pathRate == null ? '' : a.pathRate >= 0.5 ? 'sig-pos' : 'sig-neg';
+    var convCls = a.conversionRate == null ? '' : a.conversionRate >= 0.6 ? 'sig-pos' : 'sig-neg';
+    var giveCls = a.givebackRate == null ? '' : a.givebackRate < 0.25 ? 'sig-pos' : 'sig-neg';
+    var cohorts = '';
+    if (a.go.n && a.wait.n){
+      var cohort = function(label, m){
+        return '<span><small>' + label + '</small><b class="' + accSignClass(m.expectancyR) + '">' + accNum(m.expectancyR, 2) + 'R</b><em>' + accPctRate(m.winRate) + ' win · n' + m.n + '</em></span>';
+      };
+      cohorts = '<div class="acc-audit-cohorts"><strong>Entry gate A/B</strong>' + cohort('Buy now', a.go) + cohort('Wait trigger', a.wait) + '</div>';
+    }
+    return '<section class="acc-audit acc-audit-' + a.focus.key + '" aria-labelledby="acc-audit-title">' +
+      '<div class="acc-audit-head"><div><span class="acc-audit-kicker">Accountability split</span><h3 id="acc-audit-title">' + escapeHtml(a.focus.label) + '</h3></div><span class="acc-audit-n">' + a.n + ' resolved</span></div>' +
+      '<p class="acc-audit-read">' + escapeHtml(a.focus.detail) + '</p>' +
+      '<div class="acc-audit-grid">' +
+        metric(pct(a.thesisRate), 'Thesis accuracy', a.right + ' right · ' + a.wrong + ' wrong · ' + a.flat + ' flat', thesisCls) +
+        metric(pct(a.pathRate), 'Clean entry path', a.pathN ? ('avg +' + accNum(a.avgMfe, 1) + '% MFE / -' + accNum(a.avgMae, 1) + '% MAE') : 'excursions unavailable', pathCls) +
+        metric(pct(a.conversionRate), 'Option conversion', a.converted + ' of ' + a.conversionN + ' right-way theses finished green', convCls) +
+        metric(pct(a.givebackRate), 'Losses that gave back', a.givebacks + ' of ' + a.losses + ' losses first reached +' + ACC_GIVEBACK_PCT + '%', giveCls) +
+      '</div>' +
+      cohorts +
+      '<p class="acc-audit-method"><b>Read separately:</b> thesis accuracy grades the directional call; entry path compares favorable vs adverse excursion; conversion grades the option structure; giveback grades the exit. Flat stock moves are excluded from directional accuracy.</p>' +
+      '<div class="acc-audit-actions"><button type="button" class="flow-decision-action is-primary" data-acc-open="picks">Inspect resolved picks</button><button type="button" class="flow-decision-action" data-acc-open="breakdowns">Compare cohorts</button></div>' +
+      '</section>';
+  }
   function accSumSegRow(s, good){
     return '<li class="acc-sum-seg"><span class="acc-sum-seg-lbl">' + escapeHtml(s.label) + '<span class="acc-sum-seg-dim">' + escapeHtml(s.dim) + '</span></span>' +
       '<span class="acc-sum-seg-val ' + (good ? 'sig-pos' : 'sig-neg') + '">' + accNum(s.expR, 2) + 'R</span>' +
@@ -28308,6 +28413,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       story += ' The open book: ' + open.length + ' position' + (open.length === 1 ? '' : 's') + (marks.length ? ', ' + greens + ' green, marked ' + accPct(accMean(marks)) + ' on average' : '') + '.';
     }
     var banner = '<div class="acc-sum-verdict acc-sum-' + rep.health.key + '"><span class="acc-sum-badge">' + escapeHtml(rep.health.label) + '</span><p class="acc-sum-story">' + story + '</p></div>';
+    var accountabilityBlock = accThesisExecutionHtml(closed);
     // Loss anatomy — the diagnose-pick-losses read, live on the tab.
     var lossBlock = '';
     if (L){
@@ -28383,8 +28489,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<ul class="acc-why-list">' + head + '</ul>' +
         (rest.length ? '<details class="acc-why-more"><summary>Show ' + rest.length + ' older resolution' + (rest.length === 1 ? '' : 's') + '</summary><ul class="acc-why-list">' + rest.map(rowFor).join('') + '</ul></details>' : '');
     }
-    box.innerHTML = lead + banner + lossBlock + winBlock + colsBlock + diagBlock + whyBlock;
+    box.innerHTML = lead + banner + accountabilityBlock + lossBlock + winBlock + colsBlock + diagBlock + whyBlock;
     bindBriefChips(box);
+    var accOpen = box.querySelectorAll('[data-acc-open]');
+    for (var ai = 0; ai < accOpen.length; ai++) accOpen[ai].addEventListener('click', function(){
+      var tab = $('acc-tab-' + this.getAttribute('data-acc-open'));
+      if (tab) tab.click();
+    });
   }
 
   // --- Scorecard $-lens block (#accuracy-profit) ---------------------------
