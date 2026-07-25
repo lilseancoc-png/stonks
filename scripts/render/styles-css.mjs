@@ -4548,7 +4548,36 @@ a.cx-tkr { border-bottom: 1px solid transparent; }
 
 /* --- Quant Lab (deterministic screens, premium) ------------------------ */
 .quant-root { display: flex; flex-direction: column; gap: 14px; }
+.quant-desk { display: flex; flex-direction: column; gap: 10px; padding: 13px 14px; border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border)); border-left: 3px solid var(--accent); border-radius: 10px; background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 5%, var(--surface)), var(--surface) 62%); }
+.quant-desk.is-reference { border-color: color-mix(in srgb, var(--warn) 40%, var(--border)); border-left-color: var(--warn); background: linear-gradient(135deg, color-mix(in srgb, var(--warn) 6%, var(--surface)), var(--surface) 62%); }
+.quant-desk-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.quant-desk-head > div { min-width: 0; }
+.quant-desk-kicker { display: block; margin-bottom: 4px; color: var(--accent); font: 700 9px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+.quant-desk.is-reference .quant-desk-kicker { color: var(--warn); }
+.quant-desk h3 { margin: 0; color: var(--text-strong); font: 760 16px/1.25 var(--font-sans); }
+.quant-desk-freshness { flex: 0 0 auto; padding: 4px 7px; border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border)); border-radius: 999px; color: var(--accent); background: var(--surface); font: 700 9px/1 var(--font-mono); white-space: nowrap; }
+.quant-desk.is-reference .quant-desk-freshness { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 38%, var(--border)); }
+.quant-desk-read { margin: 0; color: var(--muted-strong); font: 500 11.5px/1.5 var(--font-sans); }
+.quant-focus-map { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.quant-focus-map > span { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 8px 9px; border-right: 1px solid var(--border); }
+.quant-focus-map > span:last-child { border-right: 0; }
+.quant-focus-map small, .quant-desk-metric small { color: var(--muted); font: 700 8px/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; }
+.quant-focus-map b { color: var(--text-strong); font: 700 11px/1.25 var(--font-sans); overflow-wrap: anywhere; }
+.quant-focus-map em { color: var(--muted); font: 500 9px/1.3 var(--font-sans); font-style: normal; overflow-wrap: anywhere; }
+.quant-focus-empty { display: flex; flex-direction: column; gap: 4px; padding: 9px 10px; border: 1px dashed var(--border-strong); border-radius: 8px; background: var(--surface); }
+.quant-focus-empty b { color: var(--text-strong); font: 700 11px/1.3 var(--font-sans); }
+.quant-focus-empty span { color: var(--muted); font: 500 10px/1.4 var(--font-sans); }
+.quant-desk-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.quant-desk-actions .flow-decision-action { text-decoration: none; }
+.quant-desk-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.quant-desk-metric { appearance: none; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; min-height: 58px; padding: 8px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); color: inherit; text-align: left; cursor: pointer; }
+.quant-desk-metric:hover, .quant-desk-metric:focus-visible { border-color: var(--accent); background: var(--accent-soft); }
+.quant-desk-metric b { color: var(--text-strong); font: 750 14px/1.1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.quant-desk-metric span { color: var(--muted); font: 500 9.5px/1.25 var(--font-sans); overflow-wrap: anywhere; }
+.quant-desk-rule { margin: 0; color: var(--muted); font: 500 10px/1.45 var(--font-sans); }
+.quant-desk-rule b { color: var(--muted-strong); }
 .quant-sub { font: 700 11px/1.2 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; color: var(--muted-strong); margin-top: 4px; }
+.quant-sub[id] { scroll-margin-top: 86px; }
 .quant-note { font: 500 12px/1.5 var(--font-sans); color: var(--muted-strong); border: 1px dashed var(--border); border-radius: var(--r-1); padding: 8px 12px; }
 .quant-none { font: 400 12.5px/1.5 var(--font-sans); color: var(--muted); margin: 0; }
 .quant-line { font: 400 12.5px/1.55 var(--font-sans); color: var(--muted-strong); }
@@ -4615,6 +4644,26 @@ a.cx-tkr { border-bottom: 1px solid transparent; }
 .quant-match-good { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 40%, transparent); }
 .quant-match-fair { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
 .quant-match-poor { color: var(--muted); }
+.quant-ready, .quant-watch { display: inline-flex; align-items: center; padding: 3px 7px; border: 1px solid var(--border); border-radius: 999px; font: 700 9px/1 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; cursor: help; }
+.quant-ready { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 42%, var(--border)); background: color-mix(in srgb, var(--pos) 7%, transparent); }
+.quant-watch { color: var(--muted); }
+.quant-ready-row td { background: color-mix(in srgb, var(--pos) 4%, transparent); }
+
+@media (max-width: 760px) {
+  .quant-desk-head { flex-direction: column; }
+  .quant-desk-freshness { white-space: normal; }
+  .quant-focus-map { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .quant-focus-map > span { border-bottom: 1px solid var(--border); }
+  .quant-focus-map > span:nth-child(2n) { border-right: 0; }
+  .quant-focus-map > span:nth-last-child(-n+2) { border-bottom: 0; }
+  .quant-desk-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 480px) {
+  .quant-desk { padding: 11px; }
+  .quant-desk-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .quant-desk-actions .flow-decision-action { width: 100%; min-height: 42px; justify-content: center; }
+  .quant-desk-metric { min-height: 64px; }
+}
 
 /* --- Stock Picks (quality-dip screen, premium) ------------------------- */
 .stk-root { display: flex; flex-direction: column; gap: 14px; }

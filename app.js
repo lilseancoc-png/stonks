@@ -18644,6 +18644,95 @@
     var cls = v >= 2 ? 'quant-z-hot' : v <= -2 ? 'quant-z-cold' : Math.abs(v) >= 1.5 ? 'quant-z-warm' : '';
     return '<td class="quant-z ' + cls + '">' + quantSigned(v) + 'σ</td>';
   }
+  function quantPairResearchState(p, showZ){
+    p = p || {};
+    var z = Number(p.pxZ);
+    var stretched = isFinite(z) && Math.abs(z) >= showZ;
+    var coint = !!(p.eg && p.eg.ok);
+    var reverting = !!(p.mrOk || p.mrOk1y);
+    var stable = p.stable === true;
+    var betaOk = p.betaDriftPct == null || Number(p.betaDriftPct) < 25;
+    var matchOk = !!(p.match && (p.match.grade === 'good' || p.match.grade === 'fair'));
+    var ready = stretched && coint && reverting && stable && betaOk && matchOk;
+    var rich = z >= 0 ? p.a : p.b;
+    var cheap = z >= 0 ? p.b : p.a;
+    var halfLife = p.mrOk && p.halfLife != null ? p.halfLife : p.mrOk1y && p.halfLife1y != null ? p.halfLife1y : null;
+    var why = [];
+    if (!stretched) why.push('spread below entry bar');
+    if (!coint) why.push('no cointegration');
+    if (!reverting) why.push('no mean-reversion evidence');
+    if (!stable) why.push('correlation not stable');
+    if (!betaOk) why.push('hedge ratio drifting');
+    if (!matchOk) why.push('factor match weak');
+    return { ready: ready, stretched: stretched, rich: rich, cheap: cheap, halfLife: halfLife, why: why };
+  }
+  function quantDecisionDesk(d, sigmaRows, vrpRows, pairRows, reg){
+    var pairBar = (d.pairs && d.pairs.showZ) || 2;
+    var pairReads = pairRows.map(function(p){ return { row: p, state: quantPairResearchState(p, pairBar) }; });
+    var readyPairs = pairReads.filter(function(x){ return x.state.ready; }).sort(function(a, b){
+      return Math.abs(b.row.pxZ || 0) - Math.abs(a.row.pxZ || 0);
+    });
+    var stretchedPairs = pairReads.filter(function(x){ return x.state.stretched; });
+    var sigmaExtreme = sigmaRows.filter(function(r){ return r.priority; });
+    var richZ = (d.vrp && d.vrp.richZ) || 1.5;
+    var richVol = vrpRows.filter(function(r){ return r.z != null && r.z >= richZ; });
+    var cheapVol = vrpRows.filter(function(r){ return r.z != null && r.z <= -richZ; });
+    var qualified = d.confluence && d.confluence.rows
+      ? d.confluence.rows.filter(function(r){ return r.qualified; })
+      : [];
+    var builtMs = Date.parse(d.builtAtIso || '');
+    var ageHours = isFinite(builtMs) ? Math.max(0, Math.round((Date.now() - builtMs) / 36e5)) : null;
+    var current = ageHours != null && ageHours <= 36;
+    var freshness = current ? 'Current research build' : 'Reference build';
+    var age = ageHours == null ? (d.date || 'date unavailable') : ageHours < 1 ? 'just refreshed' : ageHours + 'h old';
+    var primary = readyPairs[0] || null;
+    var headline;
+    var body;
+    var focus;
+    var actions;
+    if (primary){
+      var p = primary.row;
+      var s = primary.state;
+      var horizon = s.halfLife != null ? '~' + s.halfLife + ' sessions' : 'reversion window varies';
+      headline = s.cheap + ' cheap / ' + s.rich + ' rich';
+      body = escapeHtml(p.a + '/' + p.b + (p.ind ? ' · ' + p.ind : '')) +
+        ' is beyond the ' + pairBar + 'σ entry bar and clears cointegration, correlation-stability, hedge-drift and factor-match gates.';
+      focus = '<div class="quant-focus-map">' +
+        '<span><small>Spread state</small><b>' + quantSigned(p.pxZ, 2) + 'σ</b><em>research bar ±' + pairBar + 'σ</em></span>' +
+        '<span><small>Mean anchor</small><b>0σ</b><em>not a forecast or price target</em></span>' +
+        '<span><small>Expected window</small><b>' + escapeHtml(horizon) + '</b><em>' + (p.mrOk ? '60d model' : '1y model') + '</em></span>' +
+        '<span><small>Model invalidation</small><b>Relationship breaks</b><em>cointegration, stable corr or β drift fails</em></span>' +
+        '</div>';
+      actions = '<a class="flow-decision-action is-primary" href="' + symGradeHref(s.cheap) + '">Grade ' + escapeHtml(s.cheap) + '</a>' +
+        '<a class="flow-decision-action" href="' + symGradeHref(s.rich) + '">Grade ' + escapeHtml(s.rich) + '</a>' +
+        '<button type="button" class="flow-decision-action" data-quant-jump="quant-pairs">Review pair evidence</button>';
+    } else {
+      headline = 'No structurally clean pair dislocation';
+      body = stretchedPairs.length
+        ? stretchedPairs.length + ' spread' + (stretchedPairs.length === 1 ? ' is' : 's are') + ' stretched, but none clears every relationship-quality gate. Keep them on research watch; do not confuse distance from the mean with proof of reversion.'
+        : 'No pair is beyond the regime-adjusted entry bar. The clean action is patience, not forcing a statistical-arbitrage setup.';
+      focus = '<div class="quant-focus-empty"><b>' + stretchedPairs.length + ' stretched · ' + pairRows.length + ' watched</b><span>Entry requires stretch plus cointegration, mean reversion, stable correlation, controlled hedge-ratio drift and a usable factor match.</span></div>';
+      actions = '<button type="button" class="flow-decision-action is-primary" data-quant-jump="quant-pairs">Review pair watchlist</button>' +
+        '<button type="button" class="flow-decision-action" data-quant-jump="quant-sigma">Review single-name extremes</button>';
+    }
+    var metric = function(id, label, value, detail){
+      return '<button type="button" class="quant-desk-metric" data-quant-jump="' + id + '"><small>' + label + '</small><b>' + value + '</b><span>' + detail + '</span></button>';
+    };
+    return '<section class="quant-desk' + (current ? '' : ' is-reference') + '" aria-labelledby="quant-desk-title">' +
+      '<div class="quant-desk-head"><div><span class="quant-desk-kicker">Quant decision desk</span><h3 id="quant-desk-title">' + escapeHtml(headline) + '</h3></div>' +
+        '<span class="quant-desk-freshness">' + freshness + ' · ' + escapeHtml(age) + '</span></div>' +
+      '<p class="quant-desk-read">' + body + '</p>' +
+      focus +
+      '<div class="quant-desk-actions">' + actions + '</div>' +
+      '<div class="quant-desk-metrics" aria-label="Quant research queues">' +
+        metric('quant-pairs', 'Pairs qualified', readyPairs.length, stretchedPairs.length + ' stretched') +
+        metric('quant-confluence', 'Tape confluence', qualified.length, 'qualified on 3+ screens') +
+        metric('quant-sigma', 'Sigma extremes', sigmaExtreme.length, sigmaRows.length + ' context rows') +
+        metric('quant-vrp', 'Vol extremes', richVol.length + ' / ' + cheapVol.length, 'rich / cheap') +
+      '</div>' +
+      '<p class="quant-desk-rule"><b>Workflow:</b> the screen finds statistical distance; the validation gates decide whether the relationship is credible; Grade checks each leg before any execution decision.</p>' +
+      '</section>';
+  }
   function renderQuant(){
     var root = $('quant-root'); var empty = $('quant-empty'); var eye = $('quant-eyebrow');
     if (!root) return;
@@ -18675,6 +18764,7 @@
     var minHist = d.minHist || 60;
     if (eye) eye.textContent = (d.date || '') + ' · ' + sigmaRows.length + ' sigma flags · ' + pairRows.length + ' pair reads';
     var html = '<div class="quant-note">Analytical screens — statistical extremes vs each name’s own history. Nothing here is a trade signal.</div>';
+    html += quantDecisionDesk(d, sigmaRows, vrpRows, pairRows, d.regime);
     // --- Regime conditioning strip (buildQuantRegime in build.mjs) -------
     // Four regimes + the fixed per-regime bars they selected this build.
     // Rows are never hidden by regime — only badged/re-prioritized — and
@@ -18718,7 +18808,7 @@
     var conf = d.confluence;
     if (conf){
       var confMin = conf.minSignals || 2;
-      html += '<div class="quant-sub">Aggregate ideas — names on ' + confMin + '+ of four independent flow screens</div>';
+      html += '<div class="quant-sub" id="quant-confluence">Aggregate ideas — names on ' + confMin + '+ of four independent flow screens</div>';
       html += '<div class="quant-note quant-conf-note">Screens: <b>top prints</b> (the ' + (conf.topPrints || 10) + ' largest unusual-options prints this session) · <b>volume</b> (top ' + (conf.topVolume || 10) + ' flagged names by relative volume / S-R break) · <b>fresh streak</b> (a ' + (conf.streakMaxDays || 3) + '-sessions-or-younger green/red run) · <b>rising IV</b> (surging tier, a ' + (conf.ivRamp5d || 20) + '%+ 5-session IV ramp, or ' + (conf.ivStreakDays || 5) + '+ rising sessions). Independent screens agreeing is an observation about the tape, not a recommendation.</div>';
       var confRows = conf.rows || [];
       if (!confRows.length){
@@ -18780,7 +18870,7 @@
       html += '<p class="quant-none quant-conf-src">Sources: ' + srcBits.join(' · ') + '.</p>';
     }
     // --- Sigma deviations -----------------------------------------------
-    html += '<div class="quant-sub">Sigma deviations — names at a statistical extreme</div>';
+    html += '<div class="quant-sub" id="quant-sigma">Sigma deviations — names at a statistical extreme</div>';
     var priZ20 = (d.sigma && d.sigma.priZ20) || null;
     if (priZ20 != null){
       html += '<div class="quant-note">The <b>extreme</b> badge marks names past the regime-adjusted bar (±' + priZ20 + 'σ Bollinger or ±' + (d.sigma.priRetZ || 2) + 'σ daily return this build' + (reg && reg.thresholds && reg.thresholds.sigma && reg.thresholds.sigma.raised ? ' — raised: mean-reversion fades are weakest in strong trends / crisis vol' : '') + '). Un-badged rows are context, not extremes.</div>';
@@ -18811,7 +18901,7 @@
       html += '</tbody></table></div>';
     }
     // --- Vol risk premium ------------------------------------------------
-    html += '<div class="quant-sub">Vol risk premium — IV30 vs RV30, z-scored vs each name’s own history</div>';
+    html += '<div class="quant-sub" id="quant-vrp">Vol risk premium — IV30 vs RV30, z-scored vs each name’s own history</div>';
     if (!vrpRows.length){
       html += '<p class="quant-none">Not enough joined IV + price history yet (needs ' + ((d.vrp && d.vrp.minN) || 60) + ' sessions per name).</p>';
     } else {
@@ -18841,7 +18931,7 @@
         '</div>';
     }
     // --- Pairs -----------------------------------------------------------
-    html += '<div class="quant-sub">Pair relative value — within-industry, return correlation ≥ ' + ((d.pairs && d.pairs.corrMin) || 0.6) + '</div>';
+    html += '<div class="quant-sub" id="quant-pairs">Pair relative value — within-industry, return correlation ≥ ' + ((d.pairs && d.pairs.corrMin) || 0.6) + '</div>';
     var hasEgCols = pairRows.some(function(p){ return p.hedged != null; });
     if (hasEgCols){
       html += '<div class="quant-note">Spread = lnA − β·lnB with β from a <b>1-year Engle-Granger</b> regression (τ vs the MacKinnon 5% bar ' + ((d.pairs && d.pairs.egCrit) || -3.34) + ' = the <b>cointegrated</b> badge; under ~' + ((d.pairs && d.pairs.egMinN) || 200) + ' joined sessions the raw log ratio is the labeled fallback). Two horizons ship — 60d and ~1y — because some pairs only mean-revert on one. <b>Stability</b> = correlation held ≥ ' + ((d.pairs && d.pairs.stableCorr) || 0.5) + ' across the 60d and 1y windows too; <b>match</b> grades how alike the legs are on SPY-beta / size / momentum + a liquidity floor. Stretched wording bar this build: ' + ((d.pairs && d.pairs.showZ) || 2) + 'σ (regime-adjusted).</div>';
@@ -18849,8 +18939,16 @@
     if (!pairRows.length){
       html += '<p class="quant-none">No correlated pair is stretched ≥1σ right now (' + ((d.pairs && d.pairs.tested) || 0) + ' candidate pairs tested).</p>';
     } else {
-      html += '<div class="quant-scroll"><table class="quant-tbl"><thead><tr><th>Pair</th><th>Industry</th><th>Corr</th><th>Hedge β</th><th>Cointegration</th><th>Spread z</th><th>Mean-rev</th><th>IV z (120d)</th><th>Match</th><th>Read</th></tr></thead><tbody>';
-      pairRows.slice(0, 30).forEach(function(p){
+      html += '<div class="quant-scroll"><table class="quant-tbl"><thead><tr><th>Pair</th><th>Research state</th><th>Industry</th><th>Corr</th><th>Hedge β</th><th>Cointegration</th><th>Spread z</th><th>Mean-rev</th><th>IV z (120d)</th><th>Match</th><th>Read</th></tr></thead><tbody>';
+      pairRows.slice().sort(function(a, b){
+        return (quantPairResearchState(b, (d.pairs && d.pairs.showZ) || 2).ready ? 1 : 0) -
+          (quantPairResearchState(a, (d.pairs && d.pairs.showZ) || 2).ready ? 1 : 0) ||
+          Math.abs(b.pxZ || 0) - Math.abs(a.pxZ || 0);
+      }).slice(0, 30).forEach(function(p){
+        var research = quantPairResearchState(p, (d.pairs && d.pairs.showZ) || 2);
+        var researchCell = research.ready
+          ? '<span class="quant-ready" title="Clears stretch, cointegration, mean-reversion, stability, hedge-drift and factor-match gates">research ready</span>'
+          : '<span class="quant-watch" title="' + escapeHtml(research.why.join(' · ') || 'context only') + '">watch</span>';
         var mrTip = 'AR(1) half-life of the ' + (p.hedged ? 'hedged spread' : 'price ratio');
         var mr = p.pxZ == null ? '—'
           : p.mrOk ? '<span class="quant-mr-ok" title="' + mrTip + '">~' + (p.halfLife != null ? p.halfLife + 'd half-life' : 'reverts') + '</span>'
@@ -18874,7 +18972,8 @@
         var matchCell = m && m.grade
           ? '<span class="quant-match quant-match-' + m.grade + '" title="' + escapeHtml('SPY-beta gap ' + quantNum(m.betaGap) + ' · size gap ' + quantNum(m.sizeGap, 1) + ' (log10 mcap) · 120d momentum gap ' + quantNum(m.momGap, 0) + 'pp · liquidity ' + (m.liqOk === true ? 'ok' : m.liqOk === false ? 'below floor' : 'unknown')) + '">' + m.grade + '</span>'
           : '—';
-        html += '<tr><td class="quant-pair">' + quantSymLink(p.a) + '<span class="quant-vs">/</span>' + quantSymLink(p.b) + '</td>' +
+        html += '<tr' + (research.ready ? ' class="quant-ready-row"' : '') + '><td class="quant-pair">' + quantSymLink(p.a) + '<span class="quant-vs">/</span>' + quantSymLink(p.b) + '</td>' +
+          '<td>' + researchCell + '</td>' +
           '<td class="quant-dim">' + escapeHtml(p.ind || '') + '</td>' +
           '<td>' + corrCell + '</td>' +
           '<td>' + betaCell + '</td>' +
@@ -18889,7 +18988,7 @@
       if (pairRows.length > 30) html += '<p class="quant-none">Showing 30 of ' + pairRows.length + ' stretched pairs (' + ((d.pairs && d.pairs.tested) || 0) + ' tested).</p>';
     }
     // --- Vol surface -----------------------------------------------------
-    html += '<div class="quant-sub">Vol surface — term slope (~90d − ~30d) and 25Δ skew</div>';
+    html += '<div class="quant-sub" id="quant-surface">Vol surface — term slope (~90d − ~30d) and 25Δ skew</div>';
     if (!surfRows.length){
       html += '<p class="quant-none">No surface reads this build.</p>';
     } else {
@@ -18928,14 +19027,14 @@
     // --- Dispersion ------------------------------------------------------
     if (d.dispersion){
       var disp = d.dispersion;
-      html += '<div class="quant-sub">Dispersion — implied correlation proxy</div>';
+      html += '<div class="quant-sub" id="quant-dispersion">Dispersion — implied correlation proxy</div>';
       html += '<div class="quant-disp">SPY IV <b>' + quantNum(disp.idxIv, 1) + '%</b> vs cap-weighted top-' + (disp.names || '?') + ' basket <b>' + quantNum(disp.basketIv, 1) + '%</b> → implied correlation ≈ <b>' + quantNum(disp.impliedCorr) + '</b>' +
         (disp.pctile != null ? ' (' + disp.pctile + 'th %ile of its own history — high = index options rich vs single names, the classic dispersion setup)'
           : ' <span class="quant-collecting">(percentile collecting: ' + (disp.histN || 0) + '/' + minHist + ' sessions)</span>') +
         '.<div class="quant-dim">' + escapeHtml(disp.note || '') + '</div></div>';
     }
     // --- Post-earnings drift --------------------------------------------
-    html += '<div class="quant-sub">Post-earnings drift — names inside ' + ((d.ped && d.ped.windowSessions) || 10) + ' sessions of a print</div>';
+    html += '<div class="quant-sub" id="quant-ped">Post-earnings drift — names inside ' + ((d.ped && d.ped.windowSessions) || 10) + ' sessions of a print</div>';
     if (!pedRows.length){
       html += '<p class="quant-none">No tracked name printed inside the window.</p>';
     } else {
@@ -18953,6 +19052,11 @@
     }
     root.innerHTML = html;
     bindBriefChips(root);
+    var jumps = root.querySelectorAll('[data-quant-jump]');
+    for (var qi = 0; qi < jumps.length; qi++) jumps[qi].addEventListener('click', function(){
+      var target = document.getElementById(this.getAttribute('data-quant-jump'));
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
   }
   function ivtFreshnessMeta(d){
     d = d || {};
