@@ -74,9 +74,86 @@
   function premiumTabLabel(id){
     return ({ market:'Market Analysis', rotation:'Sector Rotation', brief:'Briefs', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', stocks:'Stock Picks', spillover:'Event spillover', quant:'Quant Lab', levetf:'Leveraged ETFs', 'iv-trend':'Trending IV', streaks:'Streaks' })[id] || 'This feature';
   }
+  var PREMIUM_LOCK_PREVIEWS = {
+    market: {
+      title:'Set the market regime before the trade',
+      body:'See whether volatility, rates, the dollar, commodities and breadth support taking risk now—or argue for smaller size and more patience.',
+      points:['Live cross-asset tape and risk posture','Risk-on / risk-off barometer','Daily regime history and transition context'],
+      freeId:'heatmap', freeLabel:'Open the free Heatmap'
+    },
+    rotation: {
+      title:'Find quality names turning with their sector',
+      body:'Separate a shared peer washout from company-specific damage, then wait for the stock to prove the mean-reversion turn.',
+      points:['Peer participation and quality gates','Trigger, invalidation and first target','Rebound phase plus entry accountability'],
+      freeId:'news', freeLabel:'Check the free News desk'
+    },
+    brief: {
+      title:'Get the session read without assembling it yourself',
+      body:'The rolling desk brief compresses overnight moves, session leadership, flow, dealer positioning and the next scheduled risk into one scan.',
+      points:['Updated through the trading session','What changed and why it matters','What to watch next, with timing'],
+      freeId:'news', freeLabel:'Open the free News desk'
+    },
+    flow: {
+      title:'See where options activity breaks from normal',
+      body:'Surface abnormal contract volume and premium skew, then compare the flow with price action before treating it as directional evidence.',
+      points:['Unusual volume versus prior activity','Call / put premium and directional lean','Tape confirmation and freshness context'],
+      freeId:'news', freeLabel:'Check the free News desk'
+    },
+    volume: {
+      title:'Find the moves with real participation',
+      body:'Track intraday volume standouts and support or resistance breaks so a price move without participation does not masquerade as conviction.',
+      points:['Relative-volume leaders','Support / resistance break state','Hour-by-hour volume profile'],
+      freeId:'heatmap', freeLabel:'Open the free Heatmap'
+    },
+    oi: {
+      title:'Map where dealer positioning can change the move',
+      body:'Read the strike-by-strike gamma map, the flip level and the largest call and put walls before choosing a contract or chasing momentum.',
+      points:['Net-gamma matrix by strike','Gamma flip and key walls','Pinning versus acceleration context'],
+      freeId:'strategies', freeLabel:'Model a free Strategy'
+    },
+    stocks: {
+      title:'Find quality businesses on a cleaner dip',
+      body:'The shares-only screen separates business quality, statistical cheapness and possible value-trap evidence instead of blending them into one score.',
+      points:['Hard profitability and balance-sheet gate','Dip score versus the qualified universe','Entry, review level, target and trap flags'],
+      freeId:'compare', freeLabel:'Compare companies for free'
+    },
+    spillover: {
+      title:'See which names inherit another company’s event risk',
+      body:'Map earnings and catalyst shocks through customer, supplier and peer relationships before a read-through surprises an otherwise unrelated position.',
+      points:['Source event and linked exposures','Direction and confidence of the read-through','Timing window for confirmation'],
+      freeId:'calendar', freeLabel:'Open the free Calendar'
+    },
+    levetf: {
+      title:'Express the view through a listed leveraged vehicle',
+      body:'Match the underlying signal to a verified 2x or 3x ETF while keeping reset drag, financing, chop and the underlying stop in view.',
+      points:['Underlying entry, invalidation and target','Live ETF quote and risk-sized share cap','Reset-drag, carry and tracking checks'],
+      freeId:'strategies', freeLabel:'Model a free Strategy'
+    },
+    'iv-trend': {
+      title:'Find options pricing a larger move than usual',
+      body:'Compare current near-30-day implied volatility with each ticker’s own history, then separate rising opportunity from expensive event premium.',
+      points:['Historical IV percentile and trend','Earnings and event context','Names where option pricing is still expanding'],
+      freeId:'strategies', freeLabel:'Model a free Strategy'
+    },
+    streaks: {
+      title:'Know when persistence becomes exhaustion',
+      body:'Rank current green and red runs with rarity and counter-day tolerance so you can distinguish durable momentum from a stretched mean-reversion setup.',
+      points:['Current run and tolerance bank','Historical rarity context','Recently snapped streaks and reversal watch'],
+      freeId:'tickers', freeLabel:'Browse free Tickers'
+    }
+  };
+  function premiumLockPreview(id){
+    return PREMIUM_LOCK_PREVIEWS[id] || {
+      title:premiumTabLabel(id) + ' is a members feature',
+      body:'Unlock this decision-grade tool with a premium Discord membership.',
+      points:['Fresh decision context','Actionable levels and risk checks','Built for the next trading decision'],
+      freeId:'home', freeLabel:'Return to the free desk'
+    };
+  }
   // Inject the members-only upsell card into a locked premium pane (idempotent).
   function ensurePremiumLock(pane, id){
     if (!pane) return;
+    var preview = premiumLockPreview(id);
     var lock = pane.querySelector(':scope > .premium-lock');
     if (!lock){
       lock = document.createElement('div');
@@ -85,13 +162,28 @@
     }
     lock.innerHTML =
       '<div class="premium-lock-card">' +
-        '<div class="premium-lock-badge" aria-hidden="true">' +
-          '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
+        '<div class="premium-lock-head">' +
+          '<div class="premium-lock-badge" aria-hidden="true">' +
+            '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
+          '</div>' +
+          '<span><small>Premium preview</small><b>' + escapeHtml(premiumTabLabel(id)) + '</b></span>' +
         '</div>' +
-        '<h2 class="premium-lock-title">' + escapeHtml(premiumTabLabel(id)) + ' is a members feature</h2>' +
-        '<p class="premium-lock-body">Market analysis, Sector Rotation, Stock Picks, Leveraged ETFs, Briefs, Trending IV, Streaks, Event spillover, Unusual &amp; Volume flow, and Gamma exposure are unlocked with a premium <b>Discord</b> membership. Join the server to get access &mdash; everything else stays free.</p>' +
-        '<a class="premium-lock-cta" href="' + DISCORD_INVITE_URL + '" target="_blank" rel="noopener">' + DISCORD_ICON_SVG + '<span>Join the Discord to get premium</span></a>' +
-        '<p class="premium-lock-foot">Already a member? <a href="/api/auth/discord-login">Log in with Discord</a>.</p>' +
+        '<div class="premium-lock-grid">' +
+          '<div class="premium-lock-copy">' +
+            '<h2 class="premium-lock-title">' + escapeHtml(preview.title) + '</h2>' +
+            '<p class="premium-lock-body">' + escapeHtml(preview.body) + '</p>' +
+            '<div class="premium-lock-actions">' +
+              '<a class="premium-lock-cta" href="' + DISCORD_INVITE_URL + '" target="_blank" rel="noopener">' + DISCORD_ICON_SVG + '<span>Join Discord for premium</span></a>' +
+              '<a class="premium-lock-free" href="/?tab=' + encodeURIComponent(preview.freeId) + '">' + escapeHtml(preview.freeLabel) + '</a>' +
+            '</div>' +
+            '<p class="premium-lock-foot">Already a member? <a href="/api/auth/discord-login">Log in with Discord</a>.</p>' +
+          '</div>' +
+          '<div class="premium-lock-includes">' +
+            '<span>Inside this tab</span>' +
+            '<ul>' + preview.points.map(function(point){ return '<li><i aria-hidden="true">✓</i><b>' + escapeHtml(point) + '</b></li>'; }).join('') + '</ul>' +
+            '<p>Members see the live tool here—not a static report.</p>' +
+          '</div>' +
+        '</div>' +
       '</div>';
   }
   // Flag the premium tab buttons/menu-items so the nav can paint a lock for
