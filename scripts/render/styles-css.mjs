@@ -5175,11 +5175,11 @@ a.cmd-watch, a.cr-tkr, a.f13-sym, a.brief-chip, a.cal-chip-sym { text-decoration
 .rot-evidence-body { display: flex; flex-direction: column; gap: 8px; padding: 9px; }
 .rot-near { min-width: 0; }
 .rot-near-list { display: flex; flex-direction: column; gap: 5px; }
-.rot-near-row { display: grid; grid-template-columns: 62px minmax(90px, .75fr) minmax(110px, .7fr) 42px minmax(180px, 1.5fr); align-items: center; gap: 8px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); min-width: 0; }
+.rot-near-row { display: grid; grid-template-columns: 62px minmax(90px, .75fr) minmax(110px, .7fr) 64px minmax(180px, 1.5fr); align-items: center; gap: 8px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); min-width: 0; }
 .rot-near-row .rot-sym { font-size: 12px; }
 .rot-near-row > span { min-width: 0; color: var(--muted-strong); font: 500 10.5px/1.2 var(--font-sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rot-near-row > em { color: var(--warn); font: 600 9.5px/1.2 var(--font-sans); font-style: normal; }
-.rot-near-row > b { color: var(--text-strong); font: 700 11px/1 var(--font-mono); text-align: right; }
+.rot-near-row > b { color: var(--text-strong); font: 700 11px/1 var(--font-mono); text-align: right; white-space: nowrap; }
 .rot-near-row > small { min-width: 0; color: var(--muted); font: 400 10.5px/1.3 var(--font-sans); overflow-wrap: anywhere; }
 .rot-rules { border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
 .rot-rules summary { padding: 8px 10px; color: var(--muted-strong); font: 650 10.5px/1.2 var(--font-sans); cursor: pointer; }
