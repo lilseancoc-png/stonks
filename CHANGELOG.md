@@ -20,6 +20,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
        (same format, plus the archive preamble) and add that month to the
        "Older changelogs" index below. -->
 
+## 2026-07-25
+
+### Perf
+
+- **Gemini routing cuts cost without moving decision work to a weaker tier.** High-volume structured text remains on the cheaper stable `gemini-3.1-flash-lite`; the chart reader, Top Picks final grader, and earnings-call transcript brief move from full `gemini-3.5-flash` to `gemini-3.6-flash` (same input rate, 16.7% lower output/thinking rate, and stronger chart reasoning). The Top Picks Google-Search pass now uses Flash-Lite for compact grounded fact extraction while the 3.6 grader still makes the grade and entry decision. The full-Flash fallback ladder gains explicit 3.6 -> 3.5 failover, and the 14-day usage summary now includes thought tokens plus a cache-aware token-cost estimate so savings are visible in build logs. `scripts/build.mjs`, `CLAUDE.md`, `docs/top-picks.md`.
+
 ## 2026-07-21
 
 ### Added

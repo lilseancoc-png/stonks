@@ -7000,7 +7000,7 @@ export async function writeEarningsTrackerFile(store, chains, builtAtIso, prior 
 // without the stamp it re-burned ~30k full-model tokens + a summarize slot
 // every bake (UBS, every bake 2026-07-17→20).
 // Each matched transcript gets ONE structured Gemini call (AI_TRANSCRIPT_MODEL,
-// full gemini-3.5-flash — tone-reading and Q&A attribution are judgment work,
+// full gemini-3.6-flash — tone-reading and Q&A attribution are judgment work,
 // and the volume is tiny: one call per name per QUARTER, ~2/day off-season) that
 // emits the whole brief: exec summary, financial highlights, guidance table,
 // management tone (incl. hawkish/dovish wording read with quoted phrases),
@@ -7030,7 +7030,7 @@ const EARNINGS_CALLS_FILE = "earnings-calls.json";
 // per-ticker chain files and stays out of sync-data's delete-stale regex.
 const transcriptKeyForSym = (sym) => `transcript-${sym}.json`;
 const TRANSCRIPT_SUMMARY_VERSION = "ect3"; // bump after a prompt/schema change to phase re-summaries in (ect3: stance recalibrated — 'balanced' is the scripted-call norm, hawkish/dovish only for clear deviations)
-const AI_TRANSCRIPT_MODEL = process.env.AI_TRANSCRIPT_MODEL || "gemini-3.5-flash";
+const AI_TRANSCRIPT_MODEL = process.env.AI_TRANSCRIPT_MODEL || "gemini-3.6-flash";
 const AI_TRANSCRIPT_THINK = Number(process.env.AI_TRANSCRIPT_THINK ?? 512);
 const TRANSCRIPTS_PER_BUILD = Math.max(0, Number(process.env.TRANSCRIPTS_PER_BUILD ?? 6));
 const TRANSCRIPT_PROBES_PER_BUILD = Math.max(0, Number(process.env.TRANSCRIPT_PROBES_PER_BUILD ?? 20));
@@ -21171,7 +21171,11 @@ export async function readPriorPicks() {
 // The final grader runs on the CAPABLE tier (full Flash, not Lite) — it makes
 // the final grade + the buy-now/wait call on ≤ PICKS_MAX_AI_THESES names per
 // build, so the volume is tiny and the judgment quality is the product.
-const AI_THESIS_MODEL = process.env.AI_THESIS_MODEL || "gemini-3.5-flash";
+// 3.6 Flash keeps the full-model judgment tier while lowering billed
+// output/thinking tokens vs 3.5 Flash ($7.50/M vs $9.00/M as of 2026-07-25).
+// Google also positions it as the stronger chart/multimodal reasoner. Keep the
+// deterministic gates + cache unchanged; this only affects fresh final grades.
+const AI_THESIS_MODEL = process.env.AI_THESIS_MODEL || "gemini-3.6-flash";
 // WEB-SEARCH GROUNDING (2026-07-10, owner directive): before grading, each
 // cache-miss name gets ONE Google-Search-grounded research call so the grader
 // judges on live news (fresh catalysts, analyst moves, breaking developments the
@@ -21181,7 +21185,12 @@ const AI_THESIS_MODEL = process.env.AI_THESIS_MODEL || "gemini-3.5-flash";
 // with the research digest appended. A failed research step degrades gracefully
 // (the grader runs on baked data alone). AI_THESIS_SEARCH=0 disables.
 const AI_THESIS_SEARCH = process.env.AI_THESIS_SEARCH !== "0";
-const AI_THESIS_SEARCH_MODEL = process.env.AI_THESIS_SEARCH_MODEL || AI_THESIS_MODEL;
+// The grounded research pass is search-and-extract, not the final judgment.
+// Route it to the stable low-cost model (which supports Google Search grounding)
+// and let the full-Flash grader weigh the resulting dated facts + sources. This
+// cuts the research pass's token rates by 80–83% vs full Flash without moving
+// the decision itself off the capable tier. Override to AI_THESIS_MODEL for an A/B.
+const AI_THESIS_SEARCH_MODEL = process.env.AI_THESIS_SEARCH_MODEL || "gemini-3.1-flash-lite";
 // Thinking budget for the research call. Default 0: it is a search-and-list
 // task (dated bullet facts, no judgment — that lives in the grader call, which
 // keeps its real AI_THESIS_THINK budget). Left unset, Flash's DYNAMIC thinking
@@ -23941,9 +23950,11 @@ const AI_SIGNALS_COMBINED = process.env.AI_SIGNALS_COMBINED === "1";
 // mid-reply (Unterminated-string parse failures whose position scaled with the
 // token cap — 2048→~6.5k chars, 4096→~13.7k). The per-ticker chart-pattern cache
 // fires this ~once/ticker/trading day, so Flash here is cheap. Override with
-// AI_CHART_MODEL (but Flash-Lite is known-broken for it). 3.5, not 2.5: the 2.5
-// generation was shut down early (2026-07-08) — see AI_MODEL above.
-const AI_CHART_MODEL = process.env.AI_CHART_MODEL || "gemini-3.5-flash";
+// AI_CHART_MODEL (but Flash-Lite is known-broken for it). 3.6 keeps the same
+// full-Flash input price as 3.5, lowers output/thinking price by 16.7%, and is
+// explicitly stronger at chart interpretation. The 2.5 generation was shut
+// down early (2026-07-08) — see AI_MODEL above.
+const AI_CHART_MODEL = process.env.AI_CHART_MODEL || "gemini-3.6-flash";
 // Narrative extraction is the trickiest reasoning task in the build, so
 // it's the call where stronger models earn their keep — but Pro models
 // (gemini-2.5-pro, gemini-3.1-pro) require funded Tier 1+ billing and
@@ -23960,8 +23971,9 @@ const NARRATIVES_MODEL = process.env.NARRATIVES_MODEL || AI_MODEL;
 // next model in the same CLASS: a sibling version served from a separate pool that
 // usually has headroom. Text calls fall back lite→lite (to the current-gen
 // gemini-3.1-flash-lite, then the auto-tracking -latest alias); the VISION chart
-// call falls back flash→flash (gemini-3.5-flash, then -latest) so it keeps reading
-// the chart image (never lite — known-broken for it, see AI_CHART_MODEL).
+// call falls back flash→flash (gemini-3.6-flash, then 3.5 / -latest) so it
+// keeps reading the chart image (never lite — known-broken for it, see
+// AI_CHART_MODEL).
 // NOTE (2026-06): the prior 2.0-generation fallbacks (gemini-2.0-flash /
 // gemini-2.0-flash-lite) were SHUT DOWN by Google on 2026-06-01, so a 503 retry was
 // 404-ing on a dead model ("model no longer available"); the chain was repointed at
@@ -23983,11 +23995,12 @@ const AI_MODEL_FALLBACK = process.env.AI_MODEL_FALLBACK !== "0";
 const AI_FALLBACK_CHAINS = {
   // dead 2.5 ids (if still pinned by env/Actions vars) → current gen → alias
   "gemini-2.5-flash-lite": ["gemini-3.1-flash-lite", "gemini-flash-lite-latest"],
-  "gemini-2.5-flash": ["gemini-3.5-flash", "gemini-flash-latest"],
-  // current-gen primaries → the auto-tracking alias (a live pool) → the 2.5 id
+  "gemini-2.5-flash": ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest"],
+  // current-gen primaries → a live sibling → the auto-tracking alias → 2.5
   // as a last resort (dead since 2026-07-08; pruned at runtime once probed)
   "gemini-3.1-flash-lite": ["gemini-flash-lite-latest", "gemini-2.5-flash-lite"],
-  "gemini-3.5-flash": ["gemini-flash-latest", "gemini-2.5-flash"],
+  "gemini-3.6-flash": ["gemini-3.5-flash", "gemini-flash-latest", "gemini-2.5-flash"],
+  "gemini-3.5-flash": ["gemini-3.6-flash", "gemini-flash-latest", "gemini-2.5-flash"],
 };
 const AI_EXTRA_FALLBACKS = (process.env.AI_FALLBACK_MODELS || "").split(",").map((s) => s.trim()).filter(Boolean);
 function aiModelChain(primary) {
@@ -24173,6 +24186,41 @@ const AI_USAGE_FILE = "ai-usage.json";
 const AI_USAGE_HISTORY_DAYS = 14;
 let _aiUsageState = null;
 
+// Paid Gemini Developer API token rates, USD per 1M tokens (2026-07-25).
+// Search-grounding query charges are not represented in usageMetadata, so the
+// log labels this a token-only estimate. Unknown/alias models stay visibly
+// unpriced instead of being assigned a misleading rate.
+const AI_TOKEN_PRICES = {
+  "gemini-3.1-flash-lite": {
+    inline: { input: 0.25, cached: 0.025, output: 1.50 },
+    batch: { input: 0.125, cached: 0.0125, output: 0.75 },
+  },
+  "gemini-3.5-flash-lite": {
+    inline: { input: 0.30, cached: 0.03, output: 2.50 },
+    batch: { input: 0.15, cached: 0.02, output: 1.25 },
+  },
+  "gemini-3.5-flash": {
+    inline: { input: 1.50, cached: 0.15, output: 9.00 },
+    batch: { input: 0.75, cached: 0.075, output: 4.50 },
+  },
+  "gemini-3.6-flash": {
+    inline: { input: 1.50, cached: 0.15, output: 7.50 },
+    batch: { input: 0.75, cached: 0.075, output: 3.75 },
+  },
+};
+
+function estimateAiBucketCost(model, bucket) {
+  const table = AI_TOKEN_PRICES[model];
+  if (!table || !bucket) return null;
+  const price = bucket.mode === "batch" ? table.batch : table.inline;
+  const input = Math.max(0, Number(bucket.inputTokens) || 0);
+  const cached = Math.min(input, Math.max(0, Number(bucket.cachedTokens) || 0));
+  const uncached = input - cached;
+  const output = Math.max(0, Number(bucket.outputTokens) || 0) +
+    Math.max(0, Number(bucket.thoughtTokens) || 0);
+  return ((uncached * price.input) + (cached * price.cached) + (output * price.output)) / 1_000_000;
+}
+
 export async function loadAiUsageState() {
   try {
     const raw = await readFile(resolve(DATA_DIR, AI_USAGE_FILE), "utf8");
@@ -24252,14 +24300,23 @@ function logAiUsageSummary() {
   const dates = Object.keys(_aiUsageState.dates).sort();
   console.log(`AI usage summary (last ${dates.length} days):`);
   for (const date of dates) {
-    let calls = 0, inT = 0, outT = 0, cachedT = 0;
-    for (const byModel of Object.values(_aiUsageState.dates[date])) {
+    let calls = 0, inT = 0, outT = 0, cachedT = 0, thoughtT = 0, estimatedUsd = 0;
+    const unpricedModels = new Set();
+    for (const [model, byModel] of Object.entries(_aiUsageState.dates[date])) {
       for (const b of Object.values(byModel)) {
-        calls += b.calls; inT += b.inputTokens; outT += b.outputTokens; cachedT += b.cachedTokens;
+        calls += b.calls;
+        inT += b.inputTokens;
+        outT += b.outputTokens;
+        cachedT += b.cachedTokens;
+        thoughtT += b.thoughtTokens || 0;
+        const bucketCost = estimateAiBucketCost(model, b);
+        if (bucketCost == null) unpricedModels.add(model);
+        else estimatedUsd += bucketCost;
       }
     }
     const cachedPct = inT > 0 ? Math.round((cachedT / inT) * 100) : 0;
-    console.log(`  ${date}: ${calls} calls · in=${inT} out=${outT} cached=${cachedT} (${cachedPct}%)`);
+    const unpriced = unpricedModels.size ? ` · unpriced=${[...unpricedModels].join(",")}` : "";
+    console.log(`  ${date}: ${calls} calls · in=${inT} out=${outT} thought=${thoughtT} cached=${cachedT} (${cachedPct}%) · token-cost≈$${estimatedUsd.toFixed(4)}${unpriced}`);
   }
 }
 

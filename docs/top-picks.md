@@ -589,10 +589,12 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   the grader prompt as a `WEB RESEARCH` section, so the final grade + entry call
   weigh live news the baked Yahoo headlines miss. It is a **two-step** because the
   Gemini API rejects `googleSearch` + a forced `responseSchema` in one call; the
-  research step failing degrades gracefully (the grader runs on baked data alone),
+  research step uses `AI_THESIS_SEARCH_MODEL` (default
+  `gemini-3.1-flash-lite`) for this compact grounded extraction and failing it
+  degrades gracefully (the grader runs on baked data alone),
   `AI_THESIS_SEARCH=0` disables it, and the grounding **sources** ride the thesis
   payload (`ai.webResearch.sources`) for audit. The grader runs on the capable
-  tier (`AI_THESIS_MODEL`, default **full `gemini-3.5-flash`** with a real
+  tier (`AI_THESIS_MODEL`, default **full `gemini-3.6-flash`** with a real
   thinking budget — `AI_THESIS_THINK`, default 1024) since it grades ≤14
   names/build and its judgment is the product. The deterministic scaffolding
   remains the keyless/offline fallback: the
