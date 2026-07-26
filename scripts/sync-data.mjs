@@ -47,12 +47,14 @@ const UNUSUAL_EXCLUSIVE = [
 ];
 const OI_EXCLUSIVE = ["oi-tracker.json", "oi-history.json"];
 // Co-owned read-modify-write files (each producer pulls latest, applies its
-// once-per-window update, pushes). Safe under serialized runs. manifest.json
-// (premium half) + manifest-free.json (free half) are regenerated
+// once-per-window update, pushes). Safe under serialized runs. The hourly run
+// refreshes heatmap prices and the Market Analysis premarket cohort while the
+// bake rebuilds their slower fields. manifest.json (premium half) +
+// manifest-free.json (free half) are regenerated
 // deterministically by regen-static in EVERY workflow (they carry the bake's
 // narratives from the pulled trends.json + the scanner's fresh unusual
 // snapshot), so all producers push them — last-writer-wins is consistent.
-const UNUSUAL_SHARED = ["heatmap.json", "ai-usage.json", "manifest.json", "manifest-free.json"];
+const UNUSUAL_SHARED = ["heatmap.json", "market-analysis.json", "ai-usage.json", "manifest.json", "manifest-free.json"];
 // briefs.json left the OI set when the brief moved to hourly minting inside
 // the bake (the oi-tracker's regen-brief pre-market/backfill step is gone).
 const OI_SHARED = ["manifest.json", "manifest-free.json"];

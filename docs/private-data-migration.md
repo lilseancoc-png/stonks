@@ -166,11 +166,12 @@ output. A blob store has no merge, so we replicate that ownership explicitly.
 | unusual\*, volume-flags, volume-history, flow-explanations | unusual-flow scan | upsert (no delete) |
 | oi-tracker, oi-history | oi-tracker scan | upsert (no delete) |
 | **heatmap.json** | bake (seed/rebuild) **+** unusual (refresh) | upsert by whichever ran; serialized |
+| **market-analysis.json** | bake (macro regime) **+** unusual (premarket cohort + hourly marks) | read-modify-write; serialized |
 | **briefs.json** | bake (`buildMarketBriefs`, re-minted hourly) | upsert; once-per-ET-hour gating already in code |
 | **ai-usage.json** | bake + unusual-flow (per-day budget) | read-modify-write; serialized so increments don't race |
 | **picks-watchlist.json** | **request time** (`api/watchlist.js` — the shared Top Picks watchlist, written on user clicks) | **no workflow may push or delete it** (`REQUEST_TIME_EXCLUSIVE` in `sync-data.mjs`): the copy `pull` hydrates locally is stale the moment a user toggles mid-run, so re-uploading it would silently revert their change |
 
-The **shared read-modify-write** files (`heatmap`, `ai-usage`) are
+The **shared read-modify-write** files (`heatmap`, `market-analysis`, `ai-usage`) are
 safe because: every run `pull`s latest first, the in-code once-per-window gating
 already prevents double-generation, and the shared `concurrency` group serializes
 the push. No producer deletes another's keys (upsert-only outside the bake's two

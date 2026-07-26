@@ -220,6 +220,38 @@ This regime:
 - is recomputed in the browser from live `/api/macro-live` legs where possible;
 - never turns a weak ticker thesis into a good one by itself.
 
+### Premarket leader/laggard conviction check
+
+The 09:00 ET market-hours workflow freezes two equal-weight baskets from the
+same curated equity universe:
+
+- the five largest positive premarket gaps;
+- the five largest negative premarket gaps.
+
+The cohort is fixed for the session and stored in premium
+`data/market-analysis.json`. It never re-ranks after the bell. Every later
+hourly run, including the first post-close run, marks those same names versus
+the same prior-close baseline.
+
+The deterministic read has two independent axes:
+
+- **leader follow-through:** at least 60% of the gainer basket must hold at
+  least 65% of its premarket gap, with average gap retention of at least 65%;
+- **decliner recovery:** at least 60% of the decliner basket must recover at
+  least half of its premarket loss, with average loss recovery of at least 50%.
+
+The cross-check maps to four trader states:
+
+- leaders hold + decliners recover: **Risk-on + dip buying**;
+- leaders hold + decliners stay pressured: **Selective risk-on**;
+- leaders fail + decliners recover: **Dip-buying rotation**, not broad bullish
+  confirmation;
+- leaders fail + decliners stay pressured: **Risk-off**.
+
+Mixed participation stays explicitly unconfirmed. Before the bell the card is
+only a frozen baseline and makes no sentiment call. If either basket has fewer
+than two valid Yahoo premarket quotes, no cohort is minted.
+
 ## 6. Top Picks: how a name becomes an actionable trade
 
 Top Picks is not “the ten highest grades.” It is a narrowing funnel.

@@ -27,11 +27,13 @@ import YahooFinance from "yahoo-finance2";
 import { GoogleGenAI } from "@google/genai";
 import { recordAiUsage, loadAiUsageState, writeAiUsageState, computeSectorRotation, aiModelForAttempt } from "./build.mjs";
 import { cumFracExpected, etMinutesSinceOpen } from "../lib/volume-flags.mjs";
+import { updatePremarketMovers } from "../lib/premarket-movers.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
 const DATA_DIR = resolve(ROOT, "data");
 const HEATMAP_FILE = "heatmap.json";
+const MARKET_ANALYSIS_FILE = "market-analysis.json";
 
 // EOD recap generation — a single Gemini call per ET trading day that turns
 // the day's per-sector aggregates into a one-paragraph-per-sector recap.
@@ -309,6 +311,7 @@ async function generateEodSummary(ai, dateKey, stats, sectors) {
 async function main() {
   const path = resolve(DATA_DIR, HEATMAP_FILE);
   let prior;
+  let priorMarketAnalysis = null;
   try {
     prior = JSON.parse(await readFile(path, "utf8"));
   } catch (err) {
@@ -319,6 +322,13 @@ async function main() {
       `[heatmap] this script refreshes an existing payload — run a full daily build first.`,
     );
     process.exit(1);
+  }
+  try {
+    priorMarketAnalysis = JSON.parse(
+      await readFile(resolve(DATA_DIR, MARKET_ANALYSIS_FILE), "utf8"),
+    );
+  } catch (_) {
+    priorMarketAnalysis = null;
   }
   const priorTickers = Array.isArray(prior?.tickers) ? prior.tickers : [];
   if (!priorTickers.length) {
@@ -505,8 +515,34 @@ async function main() {
   await mkdir(dirname(path), { recursive: true });
   const json = JSON.stringify(payload);
   await writeFile(path, json, "utf8");
+
+  // Freeze the 09:00 ET leaders/laggards inside the premium Market Analysis
+  // payload, then mark those SAME baskets through regular trading and the
+  // first post-close refresh. Raw preMarketPrice is required here: heatmap
+  // `ch` is the regular-session move and is not a premarket gap.
+  const premarketMovers = updatePremarketMovers({
+    prior: priorMarketAnalysis?.premarketMovers || null,
+    quotes,
+    tickerRows: nextTickers,
+    date: todayEt,
+    capturedAtIso: builtAtIso,
+    marketState,
+  });
+  const marketAnalysisPayload = {
+    ...(priorMarketAnalysis && typeof priorMarketAnalysis === "object"
+      ? priorMarketAnalysis
+      : {}),
+    refreshedAtIso: builtAtIso,
+  };
+  if (premarketMovers) marketAnalysisPayload.premarketMovers = premarketMovers;
+  else delete marketAnalysisPayload.premarketMovers;
+  await writeFile(
+    resolve(DATA_DIR, MARKET_ANALYSIS_FILE),
+    JSON.stringify(marketAnalysisPayload),
+    "utf8",
+  );
   console.log(
-    `[heatmap] wrote ${HEATMAP_FILE} — ${refreshed} refreshed, ${stale} kept stale, marketState=${marketState || "—"}, eod=${eodSummary ? eodSummary.date : "—"}, rotation=${sectorRotation?.alerts?.length || 0} alert(s), ${json.length} bytes`,
+    `[heatmap] wrote ${HEATMAP_FILE} — ${refreshed} refreshed, ${stale} kept stale, marketState=${marketState || "—"}, eod=${eodSummary ? eodSummary.date : "—"}, rotation=${sectorRotation?.alerts?.length || 0} alert(s), movers=${premarketMovers?.summary?.state || "none"}, ${json.length} bytes`,
   );
 }
 

@@ -11876,8 +11876,84 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (marketState.data && marketState.data.macroRegime) return marketState.data.macroRegime;
     return (picksState.data && picksState.data.rosterMeta && picksState.data.rosterMeta.macroRegime) || null;
   }
+  function marketMoverPct(value){
+    if (value == null || !isFinite(value)) return '\u2014';
+    var n = Number(value);
+    return (n > 0 ? '+' : '') + n.toFixed(2) + '%';
+  }
+  function marketMoverStatusLabel(status){
+    return ({
+      soared:'Soared', held:'Held', faded:'Faded', reversed:'Reversed',
+      recovered:'Recovered', 'still-down':'Still down', worsened:'Worsened',
+      unpriced:'Unpriced'
+    })[status] || 'Pending';
+  }
+  function marketMoverBasketHtml(label, rows, side){
+    var list = Array.isArray(rows) ? rows : [];
+    var rowHtml = list.map(function(row){
+      var delta = Number(row.deltaFromPremarketPct);
+      var deltaClass = !isFinite(delta) || Math.abs(delta) < 0.05 ? 'zero' : delta > 0 ? 'pos' : 'neg';
+      return '<button type="button" class="market-mover-row" data-market-mover-grade="' + escapeHtml(row.t || '') + '">' +
+        '<span class="market-mover-symbol"><b>' + escapeHtml(row.t || '\u2014') + '</b><small>' + escapeHtml(row.s || '') + '</small></span>' +
+        '<span><small>Pre</small><b class="' + (side === 'gainers' ? 'pos' : 'neg') + '">' + escapeHtml(marketMoverPct(row.prePct)) + '</b></span>' +
+        '<span><small>Now</small><b class="' + (Number(row.currentPct) > 0.05 ? 'pos' : Number(row.currentPct) < -0.05 ? 'neg' : 'zero') + '">' + escapeHtml(marketMoverPct(row.currentPct)) + '</b></span>' +
+        '<span><small>Since pre</small><b class="' + deltaClass + '">' + escapeHtml(marketMoverPct(row.deltaFromPremarketPct)) + '</b></span>' +
+        '<em class="market-mover-status is-' + escapeHtml(row.status || 'unpriced') + '">' + escapeHtml(marketMoverStatusLabel(row.status)) + '</em>' +
+      '</button>';
+    }).join('');
+    return '<section class="market-mover-basket"><header><span><small>Frozen basket</small><b>' + escapeHtml(label) + '</b></span><em>' + list.length + ' names</em></header>' +
+      '<div class="market-mover-columns" aria-hidden="true"><span>Ticker</span><span>Pre</span><span>Now</span><span>Follow-through</span><span>Status</span></div>' +
+      '<div class="market-mover-list">' + rowHtml + '</div></section>';
+  }
+  function renderPremarketMovers(){
+    var host = document.getElementById('market-premarket-movers');
+    if (!host) return;
+    var tracker = marketState.data && marketState.data.premarketMovers;
+    if (!tracker || !tracker.summary){
+      host.hidden = true;
+      host.innerHTML = '';
+      return;
+    }
+    var sum = tracker.summary;
+    var leaderValue = sum.leaderAxis === 'holding'
+      ? sum.gainerHolding + '/' + sum.gainerCount + ' holding'
+      : sum.leaderAxis === 'failing'
+        ? (sum.gainerCount - sum.gainerHolding) + '/' + sum.gainerCount + ' fading'
+        : sum.leaderAxis === 'pending' ? 'Starts at bell' : 'Mixed';
+    var laggardValue = sum.laggardAxis === 'recovering'
+      ? sum.declinerRecovering + '/' + sum.declinerCount + ' recovering'
+      : sum.laggardAxis === 'pressured'
+        ? (sum.declinerCount - sum.declinerRecovering) + '/' + sum.declinerCount + ' still weak'
+        : sum.laggardAxis === 'pending' ? 'Starts at bell' : 'Mixed';
+    var phase = tracker.phase === 'postmarket' ? 'Postmarket cross-check'
+      : tracker.phase === 'regular' ? 'Regular-session mark'
+      : tracker.phase === 'premarket' ? 'Premarket baseline'
+      : 'Latest mark';
+    var stamp = tracker.updatedAtIso ? fmtTapeTime(tracker.updatedAtIso) : '';
+    host.className = 'market-movers market-movers-' + escapeHtml(sum.tone || 'mixed');
+    host.innerHTML =
+      '<article class="market-movers-card">' +
+        '<header class="market-movers-head"><div><span class="market-movers-kicker">Premarket conviction check</span><h3>' + escapeHtml(sum.label || 'Unconfirmed') + '</h3><p>' + escapeHtml(sum.headline || '') + '</p></div><em>' + escapeHtml(phase + (stamp ? ' \u00b7 ' + stamp : '')) + '</em></header>' +
+        '<div class="market-movers-axes">' +
+          '<span><small>Leader follow-through</small><b>' + escapeHtml(leaderValue) + '</b><em>' + (sum.avgGainerRetentionPct != null ? escapeHtml(Math.round(sum.avgGainerRetentionPct) + '% avg gap retained') : 'Frozen at 09:00 ET') + '</em></span>' +
+          '<span><small>Decliner recovery</small><b>' + escapeHtml(laggardValue) + '</b><em>' + (sum.avgDeclinerRecoveryPct != null ? escapeHtml(Math.round(sum.avgDeclinerRecoveryPct) + '% avg loss recovered') : 'Frozen at 09:00 ET') + '</em></span>' +
+        '</div>' +
+        '<p class="market-movers-action"><b>Trader read:</b> ' + escapeHtml(sum.action || '') + '</p>' +
+        '<div class="market-movers-baskets">' +
+          marketMoverBasketHtml('Biggest gainers', tracker.gainers, 'gainers') +
+          marketMoverBasketHtml('Biggest decliners', tracker.decliners, 'decliners') +
+        '</div>' +
+        '<p class="market-movers-foot">The 09:00 ET cohort is fixed for the session. “Now” remains measured versus the prior close, so leader retention and decliner recovery use one consistent baseline. Tap a ticker to open Grade.</p>' +
+      '</article>';
+    host.hidden = false;
+    host.onclick = function(ev){
+      var btn = ev.target && ev.target.closest ? ev.target.closest('[data-market-mover-grade]') : null;
+      if (btn) calGoToTicker(btn.getAttribute('data-market-mover-grade'));
+    };
+  }
   function renderMarketAnalysis(){
     bindPositionTool();
+    renderPremarketMovers();
     renderMacroTape();
     if (typeof renderRegimeHistory === 'function') renderRegimeHistory();
   }

@@ -129,7 +129,7 @@ jobs:
           # intraday volume + S/R break pass tacked onto the scanner —
           # they must be persisted across hourly runs (volume-history.json
           # is what the next scan reads to compute hour-over-hour deltas).
-          DATA_PATHS="data/unusual.json data/unusual-history.json data/unusual-log.json data/ai-usage.json data/volume-flags.json data/volume-history.json data/heatmap.json"
+          DATA_PATHS="data/unusual.json data/unusual-history.json data/unusual-log.json data/ai-usage.json data/volume-flags.json data/volume-history.json data/heatmap.json data/market-analysis.json"
           if [ -f data/flow-explanations.json ]; then
             DATA_PATHS="$DATA_PATHS data/flow-explanations.json"
           fi
@@ -180,8 +180,9 @@ jobs:
 
       - name: Flush data to private store
         # Path B cutover: push the scanner's data (unusual*, volume*,
-        # flow-explanations) + the co-owned heatmap/ai-usage/manifest. Upsert-only
-        # (no delete). No-op until the repo variable is set.
+        # flow-explanations) + the co-owned heatmap/market-analysis/
+        # ai-usage/manifest. Upsert-only (no delete). No-op until the repo
+        # variable is set.
         if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}

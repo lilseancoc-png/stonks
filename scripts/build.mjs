@@ -22788,6 +22788,19 @@ async function readPriorHeatmapSectorRotation() {
   }
 }
 
+// The hourly market-hours workflow owns the premarket leader/laggard marks
+// inside market-analysis.json. Snapshot the payload before writeChainFiles
+// wipes data/ so a 09:30+ full bake cannot erase the 09:00 frozen cohort.
+async function readPriorMarketAnalysis() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, "market-analysis.json"), "utf8");
+    const prior = JSON.parse(raw);
+    return prior && typeof prior === "object" ? prior : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 async function writeHeatmapFile(chains, builtAtIso, priorEodSummary = null, priorSectorRotation = null) {
   const payload = buildHeatmapPayload(chains, builtAtIso);
   let eodPreserved = false;
@@ -29578,6 +29591,7 @@ async function main() {
   // Rolling sector-rotation breadth snapshots — same pre-wipe read so the bake
   // carries them forward (and records today's close after the bell).
   const priorHeatmapRotation = await readPriorHeatmapSectorRotation();
+  const priorMarketAnalysis = await readPriorMarketAnalysis();
   // Prior correlations snapshot — fall back to it if tonight's foreign sweep
   // came back too thin (graceful degradation; data/ is about to be wiped).
   const priorCorrelations = await readPriorCorrelations();
@@ -30366,10 +30380,21 @@ async function main() {
   // role-restricted): the same macroRegime object that rides picks.json's
   // rosterMeta, split out so the Market analysis tab (market tape / barometer /
   // regime widgets) works for every premium member — picks.json itself is
-  // role-restricted to the Top Picks role (`tp`). Rebuilt every build from the
-  // in-memory backdrop; no cross-build accumulation, so no pre-wipe read.
+  // role-restricted to the Top Picks role (`tp`). The regime rebuilds from the
+  // in-memory backdrop; only today's frozen cohort carries across the wipe.
   try {
-    const maJson = JSON.stringify({ builtAtIso, macroRegime: macroBackdrop?.macroRegime || null });
+    const priorPremarketMovers =
+      priorMarketAnalysis?.premarketMovers?.date === etDateKey()
+        ? priorMarketAnalysis.premarketMovers
+        : null;
+    const maJson = JSON.stringify({
+      builtAtIso,
+      refreshedAtIso: priorPremarketMovers
+        ? priorMarketAnalysis?.refreshedAtIso || builtAtIso
+        : builtAtIso,
+      macroRegime: macroBackdrop?.macroRegime || null,
+      ...(priorPremarketMovers ? { premarketMovers: priorPremarketMovers } : {}),
+    });
     await writeFile(resolve(DATA_DIR, "market-analysis.json"), maJson, "utf8");
     console.log(`wrote data/market-analysis.json — market tape, ${maJson.length} bytes`);
   } catch (err) {
