@@ -993,6 +993,35 @@ function volumeFlagsSection() {
   </section>`;
 }
 
+function volumeCalendarSection() {
+  // Historical daily-volume tracker. The client joins each ticker's persisted
+  // priceSeries {t,c,v} with index-calendar.json so the calendar can distinguish
+  // stock-specific leadership/laggard behavior from a broad tape move.
+  return `<section class="card vol-cal-card" id="vol-cal-section">
+    <header class="card-header">
+      <div>
+        <span class="card-kicker">Daily participation</span>
+        <h2 class="card-title">Stock volume calendar</h2>
+      </div>
+      <span class="card-eyebrow" id="vol-cal-eyebrow" aria-live="polite"></span>
+    </header>
+    <p class="hint">Pick a stock, then select a session. Every completed day is compared with the prior 20-session average: green marks above-average participation and blue marks below-average participation. The detail card cross-checks SPY, QQQ, IWM and SMH to show whether the stock led or lagged the tape.</p>
+    ${infoNote('How to read the volume calendar', `<p>The comparison uses the <b>prior 20 completed sessions</b>, excluding the day being judged, so a volume shock cannot inflate its own baseline. Every eligible session is marked above or below average; stronger deviations at <b>&ge;1.30&times;</b> or <b>&le;0.70&times;</b> receive extra emphasis. An in-progress session shows its shares traded but is not classified against a full-day average.</p><p><b>Leader / laggard</b> compares the stock&rsquo;s close-to-close move with the median move of the available SPY, QQQ and IWM benchmarks. A gap of at least 0.50 percentage points is leadership; minus 0.50 points is lagging; smaller gaps are in line. Same-day reputable headlines are shown as a <em>likely catalyst</em>, never asserted as proven cause. If the tracked feed has no dated headline, the summary stays honest and describes only the observable price, volume and index context. Not financial advice.</p>`)}
+    <div class="vol-cal-controls" role="toolbar" aria-label="Stock volume calendar controls">
+      <label class="vol-cal-symbol-field">
+        <span>Stock</span>
+        <select id="vol-cal-symbol" aria-label="Choose stock for the volume calendar"></select>
+      </label>
+      <div class="vol-cal-legend" aria-label="Volume comparison legend">
+        <span><i class="is-above"></i>Above 20D avg</span>
+        <span><i class="is-below"></i>Below 20D avg</span>
+        <span><i class="is-strong"></i>Strong deviation</span>
+      </div>
+    </div>
+    <div id="vol-cal-root" class="vol-cal-root" aria-live="polite">Choose a stock to load its volume calendar&hellip;</div>
+  </section>`;
+}
+
 function compareCompaniesSection() {
   // Side-by-side fundamentals/grade comparator. Pure browser tool — adds
   // tickers as chips, lazy-fetches each data/<SYM>.json + grades.json (all FREE
@@ -1980,6 +2009,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   ${unusualFlowSection()}
   </div>
   <div class="page-pane" id="page-pane-volume" role="tabpanel" aria-labelledby="page-tab-volume" hidden>
+  ${volumeCalendarSection()}
   ${volumeFlagsSection()}
   </div>
   <div class="page-pane" id="page-pane-oi" role="tabpanel" aria-labelledby="page-tab-oi" hidden>

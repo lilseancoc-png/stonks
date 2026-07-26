@@ -3819,6 +3819,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (name === 'overnight' && typeof loadOvernight === 'function') loadOvernight();
         if (name === 'volume' && typeof renderVolumeFlags === 'function') renderVolumeFlags();
         if (name === 'volume' && typeof loadVolumePicks === 'function') loadVolumePicks();
+        if (name === 'volume' && typeof loadVolumeCalendar === 'function') loadVolumeCalendar();
         // Lazy data (manifest diet): the hourly scan payload backs the Volume
         // tab's flag list.
         if (name === 'volume' && typeof loadVolumeFlagsData === 'function') loadVolumeFlagsData();
@@ -8655,6 +8656,326 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         section.classList.toggle('is-collapsed', !next);
       });
     }
+  }
+
+  // --- Stock volume calendar ---------------------------------------------
+  // Daily ticker volume from data/<SYM>.json priceSeries, joined in-browser
+  // with index-calendar.json. The baseline is always the PRIOR 20 completed
+  // sessions (the judged day is excluded), and current partial sessions are
+  // never mislabeled as quiet full days.
+  var volCalState = {
+    symbol: null, data: null, loading: false, error: false, requestSeq: 0,
+    viewYm: null, selectedDate: null, bound: false,
+    indexFallback: null, indexLoading: false, indexLoaded: false
+  };
+  function volCalEtDateKey(value){
+    var d = value instanceof Date ? value : new Date(value);
+    if (!isFinite(d.getTime())) return null;
+    try {
+      var parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit'
+      }).formatToParts(d);
+      var out = {};
+      for (var i = 0; i < parts.length; i++) out[parts[i].type] = parts[i].value;
+      return out.year + '-' + out.month + '-' + out.day;
+    } catch (_) {
+      return d.toISOString().slice(0, 10);
+    }
+  }
+  function volCalSessionIncomplete(date){
+    if (date !== calEtTodayYmd()) return false;
+    try {
+      var parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit',
+        hourCycle: 'h23', weekday: 'short'
+      }).formatToParts(new Date());
+      var out = {};
+      for (var i = 0; i < parts.length; i++) out[parts[i].type] = parts[i].value;
+      if (out.weekday === 'Sat' || out.weekday === 'Sun') return false;
+      return Number(out.hour || 0) * 60 + Number(out.minute || 0) < 16 * 60 + 5;
+    } catch (_) { return true; }
+  }
+  function volCalMedian(vals){
+    vals = vals.filter(function(v){ return v != null && isFinite(v); }).sort(function(a, b){ return a - b; });
+    if (!vals.length) return null;
+    var mid = Math.floor(vals.length / 2);
+    return vals.length % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
+  }
+  function volCalNewsByDate(data){
+    var out = {};
+    var headlines = data && data.news && Array.isArray(data.news.headlines) ? data.news.headlines : [];
+    for (var i = 0; i < headlines.length; i++){
+      var h = headlines[i];
+      if (!h || !h.title || h.reputable === false) continue;
+      var key = volCalEtDateKey(h.publishedAt);
+      if (!key) continue;
+      (out[key] = out[key] || []).push(h);
+    }
+    return out;
+  }
+  function volCalIndexByDate(){
+    var out = volCalState.indexFallback ? Object.assign({}, volCalState.indexFallback) : {};
+    var days = indexCalState && indexCalState.data && Array.isArray(indexCalState.data.days)
+      ? indexCalState.data.days : [];
+    for (var i = 0; i < days.length; i++) if (days[i] && days[i].date) out[days[i].date] = Object.assign({}, out[days[i].date] || {}, days[i]);
+    return out;
+  }
+  function loadVolumeCalendarIndexes(){
+    if (volCalState.indexLoaded || volCalState.indexLoading) return;
+    volCalState.indexLoading = true;
+    Promise.all(['SPY','QQQ','IWM','SMH'].map(function(sym){
+      return fetch(dataUrl(sym + '.json'), { cache: 'no-cache' })
+        .then(function(r){ return r.ok ? r.json() : null; })
+        .catch(function(){ return null; });
+    })).then(function(payloads){
+      var byDate = {};
+      ['spy','qqq','iwm','smh'].forEach(function(key, idx){
+        var ps = payloads[idx] && payloads[idx].priceSeries || {};
+        var t = Array.isArray(ps.t) ? ps.t : [];
+        var c = Array.isArray(ps.c) ? ps.c : [];
+        for (var i = 0; i < t.length; i++){
+          var close = c[i] == null ? null : Number(c[i]);
+          var prev = i > 0 && c[i - 1] != null ? Number(c[i - 1]) : null;
+          if (!t[i] || close == null || !isFinite(close)) continue;
+          var ch = prev != null && isFinite(prev) && prev > 0 ? (close / prev - 1) * 100 : null;
+          var row = byDate[t[i]] || { date: t[i] };
+          row[key] = { c: close, chPct: ch };
+          byDate[t[i]] = row;
+        }
+      });
+      volCalState.indexFallback = byDate;
+      volCalState.indexLoaded = true;
+      volCalState.indexLoading = false;
+      if (volCalState.data) renderVolumeCalendar();
+    }).catch(function(){
+      volCalState.indexLoaded = true;
+      volCalState.indexLoading = false;
+    });
+  }
+  function volCalRows(){
+    var data = volCalState.data || {};
+    var ps = data.priceSeries || {};
+    var t = Array.isArray(ps.t) ? ps.t : [];
+    var c = Array.isArray(ps.c) ? ps.c : [];
+    var v = Array.isArray(ps.v) ? ps.v : [];
+    var idxByDate = volCalIndexByDate();
+    var newsByDate = volCalNewsByDate(data);
+    var rows = [];
+    for (var i = 0; i < t.length; i++){
+      var date = t[i];
+      var volume = v[i] == null ? null : Number(v[i]);
+      var close = c[i] == null ? null : Number(c[i]);
+      var prevClose = i > 0 && c[i - 1] != null ? Number(c[i - 1]) : null;
+      var prior = [];
+      for (var j = Math.max(0, i - 20); j < i; j++){
+        var pv = v[j] == null ? null : Number(v[j]);
+        if (pv != null && isFinite(pv) && pv > 0) prior.push(pv);
+      }
+      var avg = prior.length === 20 ? prior.reduce(function(a, b){ return a + b; }, 0) / prior.length : null;
+      var incomplete = volCalSessionIncomplete(date);
+      var ratio = (!incomplete && avg && volume != null && isFinite(volume)) ? volume / avg : null;
+      var stockCh = (close != null && isFinite(close) && prevClose != null && isFinite(prevClose) && prevClose > 0)
+        ? (close / prevClose - 1) * 100 : null;
+      var idx = idxByDate[date] || null;
+      var bench = idx ? volCalMedian(['spy','qqq','iwm'].map(function(k){
+        return idx[k] && idx[k].chPct != null ? Number(idx[k].chPct) : null;
+      })) : null;
+      var alpha = stockCh != null && bench != null ? stockCh - bench : null;
+      var relative = alpha == null ? 'unknown' : (alpha >= 0.5 ? 'leader' : (alpha <= -0.5 ? 'laggard' : 'inline'));
+      rows.push({
+        date: date, volume: volume, avg: avg, ratio: ratio, close: close,
+        stockCh: stockCh, index: idx, bench: bench, alpha: alpha,
+        relative: relative, incomplete: incomplete, news: newsByDate[date] || []
+      });
+    }
+    return rows;
+  }
+  function volCalRelativeLabel(row){
+    if (!row || row.relative === 'unknown') return 'Index context unavailable';
+    return row.relative === 'leader' ? 'Leader' : (row.relative === 'laggard' ? 'Laggard' : 'In line');
+  }
+  function volCalSummary(row){
+    if (!row) return '';
+    var sym = volCalState.symbol || 'Stock';
+    var ratioText = row.ratio == null ? 'without a completed 20-session comparison'
+      : 'on ' + row.ratio.toFixed(2) + '× its prior 20-session average';
+    var moveText = row.stockCh == null ? 'an unavailable price move' : idxCalFmtPct(row.stockCh);
+    var relText = row.alpha == null ? 'index leadership could not be scored'
+      : (volCalRelativeLabel(row).toLowerCase() + ' by ' + Math.abs(row.alpha).toFixed(2) + ' percentage points versus the benchmark basket');
+    if (row.incomplete) return sym + ' has traded ' + fmtVolNum(row.volume) + ' shares so far. The session is still in progress, so it is not being compared with a full-day average.';
+    if (row.news.length){
+      return 'Likely catalyst in the tracked feed: “' + row.news[0].title + '” ' + sym + ' moved ' + moveText + ' ' + ratioText + '; ' + relText + '.';
+    }
+    if (row.ratio != null && row.ratio >= 1.3 && row.stockCh != null && row.stockCh > 0 && row.relative === 'leader'){
+      return 'No verified same-day company headline is in the tracked feed. Heavy participation accompanied stock-specific buying: ' + sym + ' gained ' + idxCalFmtPct(row.stockCh) + ' ' + ratioText + ' and led the benchmark basket by ' + row.alpha.toFixed(2) + ' points.';
+    }
+    if (row.ratio != null && row.ratio >= 1.3 && row.stockCh != null && row.stockCh < 0 && row.relative === 'laggard'){
+      return 'No verified same-day company headline is in the tracked feed. Heavy participation accompanied stock-specific selling: ' + sym + ' fell ' + idxCalFmtPct(row.stockCh) + ' ' + ratioText + ' and lagged the benchmark basket by ' + Math.abs(row.alpha).toFixed(2) + ' points.';
+    }
+    if (row.ratio != null && row.ratio < 1){
+      return 'No verified same-day company headline is in the tracked feed. ' + sym + ' moved ' + moveText + ' on below-average participation (' + row.ratio.toFixed(2) + '×), so the move carried less volume confirmation; it was ' + relText + '.';
+    }
+    return 'No verified same-day company headline is in the tracked feed. ' + sym + ' moved ' + moveText + ' ' + ratioText + '; it was ' + relText + '. This is observable tape context, not proof of a specific cause.';
+  }
+  function loadVolumeCalendar(symbol){
+    bindVolumeCalendarControls();
+    if (typeof loadIndexCal === 'function') loadIndexCal();
+    loadVolumeCalendarIndexes();
+    var sym = String(symbol || volCalState.symbol || (SYMBOLS.indexOf('AAPL') >= 0 ? 'AAPL' : SYMBOLS[0] || '')).toUpperCase();
+    if (!sym) { renderVolumeCalendar(); return; }
+    if (volCalState.data && volCalState.symbol === sym && !volCalState.error){ renderVolumeCalendar(); return; }
+    volCalState.symbol = sym;
+    volCalState.loading = true;
+    volCalState.error = false;
+    volCalState.selectedDate = null;
+    var seq = ++volCalState.requestSeq;
+    renderVolumeCalendar();
+    fetch(dataUrl(sym + '.json'), { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(json){
+        if (seq !== volCalState.requestSeq) return;
+        volCalState.data = json || null;
+        volCalState.loading = false;
+        volCalState.error = false;
+        try { localStorage.setItem('stonks-vol-cal-symbol', sym); } catch (_) {}
+        renderVolumeCalendar();
+      })
+      .catch(function(){
+        if (seq !== volCalState.requestSeq) return;
+        volCalState.data = null;
+        volCalState.loading = false;
+        volCalState.error = true;
+        renderVolumeCalendar();
+      });
+  }
+  function renderVolumeCalendar(){
+    var root = $('vol-cal-root');
+    if (!root) return;
+    var eyebrow = $('vol-cal-eyebrow');
+    if (volCalState.loading && !volCalState.data){
+      root.innerHTML = '<div class="vol-cal-empty">Loading ' + escapeHtml(volCalState.symbol || 'stock') + ' daily volume…</div>';
+      return;
+    }
+    if (volCalState.error || !volCalState.data){
+      root.innerHTML = '<div class="vol-cal-empty">' + (volCalState.error ? 'Couldn’t load this stock’s daily history. Choose another ticker or retry.' : 'Choose a stock to load its volume calendar.') + '</div>';
+      return;
+    }
+    var rows = volCalRows();
+    if (!rows.length){
+      root.innerHTML = '<div class="vol-cal-empty">No daily volume history is available for ' + escapeHtml(volCalState.symbol) + '.</div>';
+      return;
+    }
+    var byDate = {};
+    var allYm = [];
+    for (var i = 0; i < rows.length; i++){ byDate[rows[i].date] = rows[i]; allYm.push(rows[i].date.slice(0, 7)); }
+    var minYm = allYm.reduce(function(a, b){ return a < b ? a : b; });
+    var maxYm = allYm.reduce(function(a, b){ return a > b ? a : b; });
+    var viewYm = volCalState.viewYm;
+    if (!viewYm || viewYm < minYm || viewYm > maxYm) viewYm = maxYm;
+    volCalState.viewYm = viewYm;
+    var monthRows = rows.filter(function(r){ return r.date.slice(0, 7) === viewYm; });
+    var selected = volCalState.selectedDate ? byDate[volCalState.selectedDate] : null;
+    if (!selected || selected.date.slice(0, 7) !== viewYm){
+      selected = monthRows.length ? monthRows[monthRows.length - 1] : null;
+      volCalState.selectedDate = selected ? selected.date : null;
+    }
+    var ymp = viewYm.split('-');
+    var vy = Number(ymp[0]), vmi = Number(ymp[1]) - 1;
+    var firstWd = new Date(Date.UTC(vy, vmi, 1)).getUTCDay();
+    var daysInMonth = new Date(Date.UTC(vy, vmi + 1, 0)).getUTCDate();
+    var prevDays = new Date(Date.UTC(vy, vmi, 0)).getUTCDate();
+    var above = 0, below = 0, strong = 0, leaders = 0, laggards = 0;
+    monthRows.forEach(function(r){
+      if (r.ratio != null){ if (r.ratio >= 1) above++; else below++; if (r.ratio >= 1.3 || r.ratio <= 0.7) strong++; }
+      if (r.relative === 'leader') leaders++; else if (r.relative === 'laggard') laggards++;
+    });
+    var monthRead = above > below ? 'Participation ran above normal more often' : (below > above ? 'Participation was mostly quiet' : 'Participation was balanced');
+    var monthDecision = '<section class="vol-cal-month-read">' +
+      '<div><span>' + escapeHtml(fmtCalendarMonth(viewYm)) + ' read</span><h3>' + escapeHtml(monthRead) + '</h3><p>' + above + ' above-average sessions, ' + below + ' below-average sessions and ' + strong + ' strong deviations.</p></div>' +
+      '<div class="vol-cal-month-stats"><span><small>Leader days</small><b>' + leaders + '</b></span><span><small>Laggard days</small><b>' + laggards + '</b></span></div>' +
+    '</section>';
+    var monthbar = '<div class="cal-monthbar vol-cal-monthbar">' +
+      '<button type="button" class="cal-nav-btn" data-vol-cal-nav="prev"' + (viewYm <= minYm ? ' disabled' : '') + ' aria-label="Previous month">‹</button>' +
+      '<span class="cal-monthbar-label">' + escapeHtml(fmtCalendarMonth(viewYm)) + '</span>' +
+      '<button type="button" class="cal-nav-btn" data-vol-cal-nav="next"' + (viewYm >= maxYm ? ' disabled' : '') + ' aria-label="Next month">›</button>' +
+      (viewYm !== maxYm ? '<button type="button" class="cal-today-btn" data-vol-cal-nav="latest">Latest</button>' : '') +
+    '</div>';
+    function cell(date, dayNum){
+      var row = byDate[date];
+      if (!row) return '<div class="vol-cal-cell is-empty"><span class="vol-cal-num">' + dayNum + '</span></div>';
+      var ratio = row.ratio;
+      var cls = 'vol-cal-cell' + (date === volCalState.selectedDate ? ' is-selected' : '');
+      if (row.incomplete) cls += ' is-live';
+      else if (ratio != null) cls += ratio >= 1 ? ' is-above' : ' is-below';
+      if (ratio != null && (ratio >= 1.3 || ratio <= 0.7)) cls += ' is-strong';
+      var title = volCalState.symbol + ' · ' + date + ' · ' + fmtVolNum(row.volume) + ' shares' +
+        (ratio != null ? ' · ' + ratio.toFixed(2) + '× 20D average' : row.incomplete ? ' · session in progress' : '');
+      return '<button type="button" class="' + cls + '" data-vol-cal-day="' + escapeHtml(date) + '" aria-pressed="' + (date === volCalState.selectedDate ? 'true' : 'false') + '" title="' + escapeHtml(title) + '">' +
+        '<span class="vol-cal-num">' + dayNum + '</span>' +
+        '<b>' + fmtVolNum(row.volume) + '</b>' +
+        '<small>' + (row.incomplete ? 'Live' : (ratio != null ? ratio.toFixed(2) + '× avg' : 'Building avg')) + '</small>' +
+      '</button>';
+    }
+    var cells = [];
+    for (var lead = 0; lead < firstWd; lead++) cells.push('<div class="vol-cal-cell is-out"><span class="vol-cal-num">' + (prevDays - firstWd + 1 + lead) + '</span></div>');
+    for (var dnum = 1; dnum <= daysInMonth; dnum++) cells.push(cell(viewYm + '-' + String(dnum).padStart(2, '0'), dnum));
+    var trail = 1;
+    while (cells.length % 7) cells.push('<div class="vol-cal-cell is-out"><span class="vol-cal-num">' + (trail++) + '</span></div>');
+    var grid = '<div class="vol-cal-grid" role="grid" aria-label="' + escapeHtml(fmtCalendarMonth(viewYm) + ' ' + volCalState.symbol + ' volume calendar') + '">' +
+      ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(function(w){ return '<span class="cal-grid-wd">' + w + '</span>'; }).join('') + cells.join('') +
+    '</div>';
+    var detail = '';
+    if (selected){
+      var relCls = selected.relative === 'leader' ? 'is-leader' : (selected.relative === 'laggard' ? 'is-laggard' : 'is-inline');
+      var indexTiles = ['spy','qqq','iwm','smh'].map(function(k){
+        var leg = selected.index && selected.index[k];
+        var ch = leg && leg.chPct != null ? Number(leg.chPct) : null;
+        return '<div class="vol-cal-index-tile"><span>' + k.toUpperCase() + '</span><b class="' + (ch == null ? '' : idxCalPctCls(ch)) + '">' + (ch == null ? '—' : idxCalFmtPct(ch)) + '</b></div>';
+      }).join('');
+      var headline = selected.news.length ? '<div class="vol-cal-catalyst"><span>Tracked same-day headline</span><b>' + escapeHtml(selected.news[0].title) + '</b><small>' + escapeHtml(selected.news[0].publisher || 'Tracked source') + '</small></div>' : '';
+      detail = '<section class="vol-cal-detail ' + relCls + '">' +
+        '<div class="vol-cal-detail-head"><div><span>Selected session · ' + escapeHtml(fmtCalendarDateShort(selected.date)) + '</span><h3>' + escapeHtml(volCalRelativeLabel(selected)) + '</h3><p>' + escapeHtml(volCalSummary(selected)) + '</p></div><b>' + (selected.alpha == null ? '—' : (selected.alpha >= 0 ? '+' : '') + selected.alpha.toFixed(2) + ' pts') + '</b></div>' +
+        '<div class="vol-cal-metrics">' +
+          '<div><small>Volume</small><b>' + fmtVolNum(selected.volume) + '</b></div>' +
+          '<div><small>Prior 20D avg</small><b>' + fmtVolNum(selected.avg) + '</b></div>' +
+          '<div><small>Relative volume</small><b>' + (selected.incomplete ? 'Live' : selected.ratio != null ? selected.ratio.toFixed(2) + '×' : '—') + '</b></div>' +
+          '<div><small>' + escapeHtml(volCalState.symbol) + ' move</small><b class="' + (selected.stockCh == null ? '' : idxCalPctCls(selected.stockCh)) + '">' + (selected.stockCh == null ? '—' : idxCalFmtPct(selected.stockCh)) + '</b></div>' +
+        '</div>' +
+        '<div class="vol-cal-indexes">' + indexTiles + '</div>' + headline +
+      '</section>';
+    }
+    if (eyebrow) eyebrow.textContent = volCalState.symbol + ' · ' + rows.length + ' sessions';
+    root.innerHTML = monthbar + monthDecision + grid + detail;
+  }
+  function bindVolumeCalendarControls(){
+    if (volCalState.bound) return;
+    var root = $('vol-cal-root');
+    var select = $('vol-cal-symbol');
+    if (!root || !select) return;
+    volCalState.bound = true;
+    var syms = SYMBOLS.slice().sort();
+    select.innerHTML = syms.map(function(sym){ return '<option value="' + escapeHtml(sym) + '">' + escapeHtml(sym) + '</option>'; }).join('');
+    var saved = null;
+    try { saved = localStorage.getItem('stonks-vol-cal-symbol'); } catch (_) {}
+    volCalState.symbol = saved && syms.indexOf(saved) >= 0 ? saved : (syms.indexOf('AAPL') >= 0 ? 'AAPL' : syms[0] || null);
+    if (volCalState.symbol) select.value = volCalState.symbol;
+    select.addEventListener('change', function(){
+      volCalState.viewYm = null;
+      volCalState.selectedDate = null;
+      loadVolumeCalendar(select.value);
+    });
+    root.addEventListener('click', function(ev){
+      if (!ev.target.closest) return;
+      var day = ev.target.closest('[data-vol-cal-day]');
+      if (day){ volCalState.selectedDate = day.getAttribute('data-vol-cal-day'); renderVolumeCalendar(); return; }
+      var nav = ev.target.closest('[data-vol-cal-nav]');
+      if (!nav || nav.disabled) return;
+      var dir = nav.getAttribute('data-vol-cal-nav');
+      if (dir === 'latest') volCalState.viewYm = null;
+      else volCalState.viewYm = calAddMonthsYm(volCalState.viewYm || calTodayYm(), dir === 'next' ? 1 : -1);
+      volCalState.selectedDate = null;
+      renderVolumeCalendar();
+    });
   }
 
   // --- Volume + S/R break tab --------------------------------------------
@@ -24747,11 +25068,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         indexCalState.error = false;
         indexCalState.fetchedAt = Date.now();
         renderIndexCal();
+        if (volCalState && volCalState.data) renderVolumeCalendar();
       })
       .catch(function(){
         indexCalState.error = true;
         indexCalState.loading = false;
         renderIndexCal();
+        if (volCalState && volCalState.data) renderVolumeCalendar();
       });
   }
   function idxCalPctCls(v){ return (v > 0) ? 'idx-up' : (v < 0 ? 'idx-dn' : 'idx-flat'); }
@@ -34752,6 +35075,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     bindFlowControls();
     renderVolumeFlags();
     bindVolumeControls();
+    bindVolumeCalendarControls();
     renderOI();
     bindOIControls();
     bindGexControls();
