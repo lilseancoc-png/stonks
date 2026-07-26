@@ -297,18 +297,43 @@
   // Charts with a bespoke hover overlay (price chart, IV term structure,
   // fundamentals history, F&G spark, yield curve) keep their own richer
   // handlers — this engine is for the rest.
+  function chRangeAttr(dates, series){
+    if (!Array.isArray(dates) || dates.length < 2 || !Array.isArray(series) || !series.length) return '';
+    var clean = [];
+    for (var i=0; i<series.length; i++){
+      var row = series[i];
+      if (!row || !Array.isArray(row.values) || row.values.length !== dates.length) continue;
+      clean.push({
+        n: String(row.name || 'Change'),
+        v: row.values.map(function(v){ v = Number(v); return isFinite(v) ? Math.round(v * 10000) / 10000 : null; })
+      });
+    }
+    if (!clean.length) return '';
+    var payload = { d: dates.map(function(d){ return String(d == null ? '' : d); }), s: clean };
+    return " data-cr='" + escapeHtml(JSON.stringify(payload)) + "'";
+  }
   function chHoverAttr(points){
-    // points: [{x,y,label}] in viewBox coords. Coords round to 0.1 to keep
-    // the attribute small on long series; invalid points are dropped.
+    // points: [{x,y,label,value,time}] in viewBox coords. Coords round to 0.1
+    // to keep the attribute small on long series; invalid points are dropped.
+    // Supplying value + time also opts the time series into the shared
+    // drag-to-compare interaction.
     if (!Array.isArray(points)) return '';
     var out = [];
+    var dates = [], values = [], rangeReady = true;
     for (var i=0; i<points.length; i++){
       var p = points[i];
       if (!p || p.x == null || p.y == null || !isFinite(p.x) || !isFinite(p.y)) continue;
       out.push([Math.round(p.x*10)/10, Math.round(p.y*10)/10, String(p.label == null ? '' : p.label)]);
+      var val = Number(p.value);
+      if (!isFinite(val)) rangeReady = false;
+      dates.push(String(p.time == null ? (i + 1) : p.time));
+      values.push(val);
     }
     if (!out.length) return '';
-    return ' data-ch="' + escapeHtml(JSON.stringify(out)) + '"';
+    var range = rangeReady && out.length === dates.length && out.length >= 2
+      ? chRangeAttr(dates, [{ name: 'Change', values: values }])
+      : '';
+    return ' data-ch="' + escapeHtml(JSON.stringify(out)) + '"' + range;
   }
   var chHover = { svg: null, pts: null, tip: null, line: null, dot: null };
   function chEnsureNodes(){
@@ -387,6 +412,114 @@
     document.addEventListener('pointerdown', onMove, { passive: true });
     document.addEventListener('scroll', chHide, { passive: true, capture: true });
     window.addEventListener('resize', chHide);
+  })();
+
+  // ---------------------------------------------------------------------
+  // Shared drag-to-compare interaction for time-series charts. A chart opts
+  // in with data-cr={d:[labels],s:[{n, v:[]}]}; the delegated handler then
+  // paints one viewport-fixed selection band and a compact start/end/% panel.
+  // Keeping the overlay under <body> avoids transformed-pane positioning bugs
+  // and makes regenerated/replaced charts work without per-chart listeners.
+  var chRange = { el:null, host:null, data:null, start:-1, end:-1, pointerId:null, band:null, tip:null };
+  function chRangeEnsure(){
+    if (chRange.band) return;
+    var band = document.createElement('div'); band.className = 'ch-range-band'; band.hidden = true;
+    var tip = document.createElement('div'); tip.className = 'ch-range-tip'; tip.hidden = true; tip.setAttribute('role', 'status');
+    document.body.appendChild(band); document.body.appendChild(tip);
+    chRange.band = band; chRange.tip = tip;
+  }
+  function chRangeHide(){
+    if (chRange.band){ chRange.band.hidden = true; chRange.tip.hidden = true; }
+    if (chRange.el && chRange.el.classList) chRange.el.classList.remove('is-range-comparing');
+    if (chRange.host && chRange.host !== chRange.el && chRange.host.classList) chRange.host.classList.remove('is-range-comparing');
+    chRange.el = null; chRange.host = null; chRange.data = null; chRange.start = -1; chRange.end = -1; chRange.pointerId = null;
+  }
+  function chRangeIndex(el, data, clientX){
+    var rect = el.getBoundingClientRect();
+    if (!rect.width || !data || !data.d || !data.d.length) return 0;
+    var frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return Math.round(frac * (data.d.length - 1));
+  }
+  function chRangePct(a, b){
+    if (!isFinite(a) || !isFinite(b) || a === 0) return null;
+    return (b - a) / Math.abs(a) * 100;
+  }
+  function chRangeFmtValue(v){
+    if (!isFinite(v)) return 'n/a';
+    var av = Math.abs(v);
+    return (av >= 1000 ? v.toLocaleString(undefined, { maximumFractionDigits: 1 }) : v.toFixed(av >= 100 ? 1 : 2));
+  }
+  function chRangeRender(){
+    if (!chRange.el || !chRange.data) return;
+    chRangeEnsure();
+    var data = chRange.data, n = data.d.length;
+    var a = Math.max(0, Math.min(chRange.start, chRange.end));
+    var b = Math.min(n - 1, Math.max(chRange.start, chRange.end));
+    var rect = chRange.el.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    var x1 = rect.left + (n === 1 ? 0 : a / (n - 1)) * rect.width;
+    var x2 = rect.left + (n === 1 ? 0 : b / (n - 1)) * rect.width;
+    chRange.band.style.left = x1 + 'px';
+    chRange.band.style.top = rect.top + 'px';
+    chRange.band.style.width = Math.max(2, x2 - x1) + 'px';
+    chRange.band.style.height = rect.height + 'px';
+    chRange.band.hidden = false;
+    var html = '<div class="ch-range-head"><span>' + escapeHtml(data.d[a]) + '</span><i>to</i><span>' + escapeHtml(data.d[b]) + '</span></div>';
+    if (a === b) html += '<div class="ch-range-guide">Drag to another date to compare.</div>';
+    for (var i=0; i<data.s.length; i++){
+      var s = data.s[i], va = s.v[a] == null ? NaN : Number(s.v[a]), vb = s.v[b] == null ? NaN : Number(s.v[b]), pct = chRangePct(va, vb);
+      var cls = pct == null || Math.abs(pct) < 0.005 ? 'is-flat' : (pct > 0 ? 'is-up' : 'is-down');
+      html += '<div class="ch-range-row"><b>' + escapeHtml(s.n) + '</b><span>' +
+        escapeHtml(chRangeFmtValue(va)) + ' → ' + escapeHtml(chRangeFmtValue(vb)) +
+        '</span><strong class="' + cls + '">' + (pct == null ? 'n/a' : ((pct > 0 ? '+' : '') + pct.toFixed(2) + '%')) + '</strong></div>';
+    }
+    chRange.tip.innerHTML = html;
+    chRange.tip.hidden = false;
+    var tw = chRange.tip.offsetWidth, th = chRange.tip.offsetHeight;
+    if (window.innerWidth <= 640){
+      chRange.tip.style.left = '8px'; chRange.tip.style.right = '8px';
+      chRange.tip.style.top = 'auto'; chRange.tip.style.bottom = '64px';
+    } else {
+      chRange.tip.style.right = 'auto'; chRange.tip.style.bottom = 'auto';
+      var left = Math.max(8, Math.min(window.innerWidth - tw - 8, x2 + 12));
+      if (left < x2 && x1 - tw - 12 >= 8) left = x1 - tw - 12;
+      var top = rect.top - th - 10;
+      if (top < 8) top = Math.min(window.innerHeight - th - 8, rect.bottom + 10);
+      chRange.tip.style.left = left + 'px'; chRange.tip.style.top = top + 'px';
+    }
+  }
+  (function initChartRangeCompare(){
+    document.addEventListener('pointerdown', function(e){
+      var el = e.target && e.target.closest ? e.target.closest('[data-cr]') : null;
+      if (!el){ chRangeHide(); return; }
+      if (e.button != null && e.button !== 0) return;
+      var data; try { data = JSON.parse(el.getAttribute('data-cr')); } catch(_){ return; }
+      if (!data || !Array.isArray(data.d) || data.d.length < 2 || !Array.isArray(data.s)) return;
+      chHide(); chRangeEnsure();
+      chRange.el = el; chRange.data = data; chRange.pointerId = e.pointerId;
+      el.classList.add('is-range-comparing');
+      chRange.host = el.closest('.opt-pc-chart') || el.closest('.opt-fund-eh') || el;
+      chRange.host.classList.add('is-range-comparing');
+      var cmpTip = document.querySelector('body > .cmp-chart-tip.cmp-chart-tip-floating');
+      if (cmpTip) cmpTip.style.display = 'none';
+      chRange.start = chRange.end = chRangeIndex(el, data, e.clientX);
+      try { el.setPointerCapture(e.pointerId); } catch(_){}
+      chRangeRender();
+    });
+    document.addEventListener('pointermove', function(e){
+      if (!chRange.el || e.pointerId !== chRange.pointerId) return;
+      chRange.end = chRangeIndex(chRange.el, chRange.data, e.clientX);
+      chRangeRender();
+    }, { passive: true });
+    document.addEventListener('pointerup', function(e){
+      if (!chRange.el || e.pointerId !== chRange.pointerId) return;
+      chRange.end = chRangeIndex(chRange.el, chRange.data, e.clientX);
+      if (chRange.end === chRange.start) chRangeHide(); else { chRange.pointerId = null; chRangeRender(); }
+    }, { passive: true });
+    document.addEventListener('pointercancel', chRangeHide, { passive: true });
+    document.addEventListener('keydown', function(e){ if (e.key === 'Escape') chRangeHide(); });
+    document.addEventListener('scroll', chRangeHide, { passive: true, capture: true });
+    window.addEventListener('resize', chRangeHide);
   })();
 
   // ---------------------------------------------------------------------
@@ -5014,7 +5147,11 @@
         '<line class="opt-pc-cross-y" x1="' + padL + '" x2="' + (W - padR) + '" />' +
         '<circle class="opt-pc-cross-dot" r="3.5" />' +
       '</g>';
-    var svg = '<svg class="opt-pc-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Price chart, ' + aria + ', with RSI(14)">' +
+    var rangeAttr = chRangeAttr(
+      hoverPts.map(function(p){ return priceChartFmtDate(p[2], intraday); }),
+      [{ name: 'Close', values: hoverPts.map(function(p){ return p[3]; }) }]
+    );
+    var svg = '<svg class="opt-pc-svg"' + rangeAttr + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Price chart, ' + aria + ', with RSI(14)">' +
       fanDefs + grid + hitEl + band + vol + rsiEl + smaBEl + smaAEl +
       '<polyline class="opt-pc-close" fill="none" points="' + pts(c) + '" />' +
       fanEl + spotEl + xlabels + fcXlabel + fanLabels + hoverEl +
@@ -5126,6 +5263,7 @@
         return '<div class="opt-pc-tip-row"><span>' + label + '</span><span>' + val + '</span></div>';
       }
       function show(clientX){
+        if (chRange.el === svg) return;
         var rect = svg.getBoundingClientRect();
         if (!rect.width) return;
         var p = nearest((clientX - rect.left) / rect.width * L.W);
@@ -5783,7 +5921,11 @@
         '<span class="opt-fund-eh-readout-value"></span>' +
       '</div>';
 
-    var svg = '<svg class="opt-fund-eh-svg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="' + escapeHtml(opts.title) + ' history">' +
+    var historyRangeAttr = chRangeAttr(
+      all.map(function(p, i){ return lblFor(p) + (i >= history.length ? ' est' : ''); }),
+      [{ name: opts.title || 'Change', values: all.map(function(p){ return p.value; }) }]
+    );
+    var svg = '<svg class="opt-fund-eh-svg"' + historyRangeAttr + ' viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="' + escapeHtml(opts.title) + ' history">' +
       defs + area + line + fwdPath + crosshair + secMarkup + endDots + fwdDots + xLabels + fwdLabels + hovers +
       '</svg>';
 
@@ -5799,6 +5941,7 @@
     var readoutValue = box.querySelector('.opt-fund-eh-readout-value');
     var hits = box.querySelectorAll('.opt-fund-eh-hit');
     function showCross(hit){
+      if (chRange.el === svgEl) return;
       var x = parseFloat(hit.getAttribute('data-x'));
       var y = parseFloat(hit.getAttribute('data-y'));
       crossLine.setAttribute('x1', x); crossLine.setAttribute('x2', x);
@@ -9917,8 +10060,35 @@
     },
     onError: function(){ liveStateMark('tickers-live-state', false); },
   });
-  function startTickersLive(){ tickersLivePoller.start(); }
-  function stopTickersLive(){ tickersLivePoller.stop(); }
+  var tickersVixTimer = null;
+  function pollTickerVix(){
+    fetch('api/macro-live', { cache: 'no-store' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){
+        var vix = j && j.legs && j.legs.vix;
+        if (!vix) return;
+        var spot = document.querySelector('[data-spot-for="^VIX"]');
+        if (spot && vix.value != null && isFinite(vix.value)) spot.textContent = Number(vix.value).toFixed(2);
+        var chg = document.querySelector('[data-chg-for="^VIX"]');
+        if (chg && vix.pctChange1d != null && isFinite(vix.pctChange1d)){
+          var v = Number(vix.pctChange1d);
+          chg.textContent = (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+          // A rising VIX is still an objectively positive index move; the card
+          // is a tracker, so preserve sign coloring rather than invert it.
+          chg.className = 'ticker-chg ' + (v >= 0 ? 'is-up' : 'is-dn');
+          chg.hidden = false;
+        }
+      })
+      .catch(function(){ /* normal ticker quotes can remain live independently */ });
+  }
+  function startTickersLive(){
+    tickersLivePoller.start();
+    if (!tickersVixTimer){ pollTickerVix(); tickersVixTimer = setInterval(pollTickerVix, 30000); }
+  }
+  function stopTickersLive(){
+    tickersLivePoller.stop();
+    if (tickersVixTimer){ clearInterval(tickersVixTimer); tickersVixTimer = null; }
+  }
 
   // --- Top Picks live overlay ----------------------------------------------
   // ~10 symbols per poll. A compact board above the picks grid tracks each
@@ -10937,7 +11107,8 @@
     var hover = chHoverAttr(s.map(function(v, i){
       var back = n - 1 - i;
       return { x: (i / (n - 1)) * (w - 2) + 1, y: Y(v),
-        label: String(opts.fmt ? opts.fmt(v) : (Math.round(v * 100) / 100)) + '\n' + (back === 0 ? 'latest' : back + ' back') };
+        label: String(opts.fmt ? opts.fmt(v) : (Math.round(v * 100) / 100)) + '\n' + (back === 0 ? 'latest' : back + ' back'),
+        value: v, time: back === 0 ? 'latest' : back + ' samples back' };
     }));
     return '<svg class="' + cls + '"' + hover + ' width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
       base + '<polyline points="' + pts + '" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/></svg>';
@@ -15335,6 +15506,7 @@
       return html;
     }
     function showIndex(idx){
+      if (chRange.el === plot) return;
       idx = Math.max(0, Math.min(model.dates.length - 1, idx));
       activeIdx = idx;
       var frac = model.dates.length === 1 ? 0 : idx / (model.dates.length - 1);
@@ -15464,7 +15636,7 @@
       '. ' + leader.sym + ' leads and ' + laggard.sym + ' trails. Use left and right arrow keys to inspect each shared daily close.';
     chart.innerHTML = '<div class="cmp-chart-stage">' +
       '<div class="cmp-y-axis" aria-hidden="true">' + yLabels + '</div>' +
-      '<div class="cmp-plot" tabindex="0" role="group" aria-label="' + escapeHtml(aria) + '" aria-describedby="cmp-chart-read">' + svg +
+      '<div class="cmp-plot"' + chRangeAttr(model.dates.map(function(d){ return priceChartFmtDate(d, false); }), model.series.map(function(s3){ return { name:s3.sym, values:s3.prices }; })) + ' tabindex="0" role="group" aria-label="' + escapeHtml(aria) + '" aria-describedby="cmp-chart-read">' + svg +
         '<span class="cmp-chart-cross" aria-hidden="true"></span>' + dots +
         '<div class="cmp-chart-tip" role="status" aria-live="polite"></div>' +
       '</div>' +
@@ -17209,7 +17381,7 @@
     for (var k=0; k<pts.length; k++){
       var x = X(k), y = Y(pts[k].v);
       poly += (k ? ' ' : '') + (Math.round(x*10)/10) + ',' + (Math.round(y*10)/10);
-      hover.push({ x: x, y: y, label: cmdDateLabel(pts[k].d) + '\n' + cmdFmtVal(pts[k].v, it.fmt) });
+      hover.push({ x: x, y: y, label: cmdDateLabel(pts[k].d) + '\n' + cmdFmtVal(pts[k].v, it.fmt), value: pts[k].v, time: cmdDateLabel(pts[k].d) });
     }
     var up = pts[pts.length - 1].v >= pts[0].v;
     return '<svg class="cmd-spark ' + (up ? 'cmd-spark-up' : 'cmd-spark-down') + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="' + escapeHtml(it.label || '') + ' price trend"' + chHoverAttr(hover) + '>' +
@@ -17843,7 +18015,7 @@
       var x = PAD + (k * (W - 2 * PAD)) / (pts.length - 1);
       var y = H - PAD - ((pts[k].v - lo) * (H - 2 * PAD)) / (hi - lo);
       poly += (k ? ' ' : '') + (Math.round(x * 10) / 10) + ',' + (Math.round(y * 10) / 10);
-      hover.push({ x: x, y: y, label: (labelFn ? labelFn(pts[k].d) : pts[k].d) + '\n' + fmtFn(pts[k].v) });
+      hover.push({ x: x, y: y, label: (labelFn ? labelFn(pts[k].d) : pts[k].d) + '\n' + fmtFn(pts[k].v), value: pts[k].v, time: (labelFn ? labelFn(pts[k].d) : pts[k].d) });
     }
     var up = pts[pts.length - 1].v >= pts[0].v;
     return '<svg class="ic-spark ' + (up ? 'ic-spark-up' : 'ic-spark-down') + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img"' + chHoverAttr(hover) + '>' +
@@ -18391,7 +18563,7 @@
     for (var k=0; k<pts.length; k++){
       var x = X(k), y = Y(pts[k].v);
       poly += (k ? ' ' : '') + (Math.round(x*10)/10) + ',' + (Math.round(y*10)/10);
-      hover.push({ x: x, y: y, label: ivtDateLabel(pts[k].d) + '\nIV ' + ivtIvPct(pts[k].v) });
+      hover.push({ x: x, y: y, label: ivtDateLabel(pts[k].d) + '\nIV ' + ivtIvPct(pts[k].v), value: pts[k].v, time: ivtDateLabel(pts[k].d) });
     }
     var meanLine = (row.mean != null && isFinite(row.mean))
       ? '<line x1="' + PAD + '" y1="' + (Math.round(Y(row.mean)*10)/10) + '" x2="' + (W-PAD) + '" y2="' + (Math.round(Y(row.mean)*10)/10) + '" class="ivt-spark-mean"/>'
@@ -19720,7 +19892,8 @@
       var x = PAD + (k * (W - 2*PAD)) / (s.length - 1);
       var y = H - PAD - ((s[k] - lo) * (H - 2*PAD)) / (hi - lo);
       poly += (k ? ' ' : '') + (Math.round(x*10)/10) + ',' + (Math.round(y*10)/10);
-      hover.push({ x: x, y: y, label: fmtMoney(s[k]) });
+      var back = s.length - 1 - k;
+      hover.push({ x: x, y: y, label: fmtMoney(s[k]), value: s[k], time: back === 0 ? 'latest' : back + ' sessions back' });
     }
     var up = s[s.length - 1] >= s[0];
     return '<svg class="stk-spark ' + (up ? 'stk-spark-up' : 'stk-spark-down') + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="6-month price trend"' + chHoverAttr(hover) + '>' +
@@ -21548,7 +21721,10 @@
     }
     var up = s[s.length - 1] >= s[0];
     var aria = underLabel + ' ~3-month trend' + (b ? ' with simulated ' + simTag + ' daily-reset path' : '');
-    return '<svg class="lev-spark ' + (up ? 'lev-spark-up' : 'lev-spark-down') + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="' + escapeHtml(aria) + '"' + chHoverAttr(hover) + '>' +
+    var rangeDates = a.map(function(_, ri){ var back = a.length - 1 - ri; return back === 0 ? 'latest' : back + ' sessions back'; });
+    var rangeSeries = [{ name: underLabel, values: s }];
+    if (sim) rangeSeries.push({ name: simTag, values: sim });
+    return '<svg class="lev-spark ' + (up ? 'lev-spark-up' : 'lev-spark-down') + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="' + escapeHtml(aria) + '"' + chHoverAttr(hover) + chRangeAttr(rangeDates, rangeSeries) + '>' +
       (b ? '<polyline class="lev-spark-sim" points="' + polySim + '" fill="none"/>' : '') +
       '<polyline class="lev-spark-line" points="' + poly + '" fill="none"/>' +
     '</svg>' +
@@ -23549,7 +23725,8 @@
     }
     var hover = chHoverAttr(points.map(function(p, pi){
       return { x: xAt(pi), y: yAt(p.v),
-        label: reportMonthLabel(p.m, true) + '\n' + fmtReportVal(p.v, unit, signed) };
+        label: reportMonthLabel(p.m, true) + '\n' + fmtReportVal(p.v, unit, signed),
+        value: p.v, time: reportMonthLabel(p.m, true) };
     }));
     return '<svg class="cal-rc-svg"' + hover + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Report history bar chart">' + grid + bars + xlabels + '</svg>';
   }
@@ -24051,7 +24228,8 @@
       var hover = chHoverAttr(series.map(function(val, i){
         var back = n - 1 - i;
         return { x: (i / (n - 1)) * (w - 2) + 1, y: h - 1 - ((val - min) / span) * (h - 2),
-          label: 'hold ' + Math.round(val) + '%\n' + (back === 0 ? 'latest' : back + ' back') };
+          label: 'hold ' + Math.round(val) + '%\n' + (back === 0 ? 'latest' : back + ' back'),
+          value: val, time: back === 0 ? 'latest' : back + ' meetings back' };
       }));
       return '<svg class="fomc-pm-spark"' + hover + ' width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
         '<polyline points="' + pts + '" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/></svg>';
@@ -25434,8 +25612,12 @@
     // .fng-spark-plot is the mouse target + positioning context; the cursor
     // guide, marker dot and tooltip are absolutely-positioned siblings of the
     // (stretched) SVG so they stay un-distorted and track the pointer.
+    var rangeAttr = chRangeAttr(
+      fngSparkGeom.map(function(g){ return g.date; }),
+      [{ name: 'Fear & Greed', values: fngSparkGeom.map(function(g){ return g.score; }) }]
+    );
     return '<div class="fng-spark-wrap">' +
-      '<div class="fng-spark-plot">' +
+      '<div class="fng-spark-plot"' + rangeAttr + '>' +
         '<svg class="fng-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" role="img" aria-label="Fear and Greed 1-year history">' +
           bands +
           '<polyline class="fng-spark-line" fill="none" points="' + poly + '" />' +
@@ -25460,6 +25642,7 @@
     if (!cursor || !dot || !tip) return;
     function hide(){ cursor.hidden = true; dot.hidden = true; tip.hidden = true; }
     function show(clientX){
+      if (chRange.el === plot) return;
       var n = fngSparkGeom.length;
       if (n < 2) return;
       var rect = plot.getBoundingClientRect();
@@ -28152,7 +28335,8 @@
       var dTxt = accAnyDateShort(p.date);
       return { x: xy[i][0], y: xy[i][1],
         label: (i === 0 ? 'start' : 'trade ' + i) + (dTxt ? ' · ' + dTxt : '') + '\n' +
-          fmtV(p.value) + (i === 0 ? '' : ' (' + accMoney(p.value - base, true) + ')') };
+          fmtV(p.value) + (i === 0 ? '' : ' (' + accMoney(p.value - base, true) + ')'),
+        value: p.value, time: dTxt || (i === 0 ? 'start' : 'trade ' + i) };
     }));
     return '<svg class="acc-eq-svg"' + hover + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Equity curve">' + grid +
       '<line class="acc-eq-base" x1="' + padL + '" y1="' + baseY.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + baseY.toFixed(1) + '"></line>' +
@@ -28227,7 +28411,8 @@
     // p5–p95 envelope so the fan's spread reads at every step.
     var hover = chHoverAttr(medianPath.map(function(v, i){
       return { x: xFor(i), y: yFor(v),
-        label: 'draw ' + i + ' of ' + (steps - 1) + '\nmedian ' + fmtV(v) + '\np5 ' + fmtV(p5[i]) + ' · p95 ' + fmtV(p95[i]) };
+        label: 'draw ' + i + ' of ' + (steps - 1) + '\nmedian ' + fmtV(v) + '\np5 ' + fmtV(p5[i]) + ' · p95 ' + fmtV(p95[i]),
+        value: v, time: 'draw ' + i };
     }));
     return '<svg class="acc-fan-svg"' + hover + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Monte Carlo paths">' + grid +
       '<line class="acc-eq-base" x1="' + padL + '" y1="' + startY.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + startY.toFixed(1) + '"></line>' +
@@ -33491,7 +33676,8 @@
     var hover = chHoverAttr(s.map(function(val, i){
       var back = n - 1 - i;
       return { x: (i / (n - 1)) * (w - 2) + 1, y: h - 1 - ((val - min) / span) * (h - 2),
-        label: (Math.round(val * 100) / 100) + '\n' + (back === 0 ? 'latest session' : back + ' sessions back') };
+        label: (Math.round(val * 100) / 100) + '\n' + (back === 0 ? 'latest session' : back + ' sessions back'),
+        value: val, time: back === 0 ? 'latest session' : back + ' sessions back' };
     }));
     return '<svg class="bonds-spark"' + hover + ' width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
       '<polyline points="' + pts + '" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/></svg>';
@@ -34220,6 +34406,7 @@
     var empty = document.getElementById('tickers-empty');
     var emptyText = empty ? empty.querySelector('span') : null;
     var cards = Array.prototype.slice.call(grid.querySelectorAll('.ticker-card'));
+    var modelCards = cards.filter(function(card){ return !card.hasAttribute('data-tracker-only'); });
     var state = { query: '', sector: '', sort: 'conviction', modelFilter: 'all' };
     var gradesReady = false;
     var gradesRequested = false;
@@ -34237,11 +34424,21 @@
     cards.forEach(function(card){
       var sym = card.getAttribute('data-ticker');
       var spot = spots[sym];
+      if (sym === '^VIX' && MANIFEST.macro && MANIFEST.macro.vix){
+        spot = Number(MANIFEST.macro.vix.value);
+        var bakedMove = Number(MANIFEST.macro.vix.pctChange1d);
+        var bakedChg = card.querySelector('[data-chg-for="^VIX"]');
+        if (bakedChg && isFinite(bakedMove)){
+          bakedChg.textContent = (bakedMove >= 0 ? '+' : '') + bakedMove.toFixed(2) + '%';
+          bakedChg.className = 'ticker-chg ' + (bakedMove >= 0 ? 'is-up' : 'is-dn');
+          bakedChg.hidden = false;
+        }
+      }
       card.setAttribute('data-conviction', '0');
       card.setAttribute('data-entry-ready', '0');
       if (typeof spot === 'number' && isFinite(spot) && spot > 0) {
         var slot = card.querySelector('[data-spot-for="' + sym + '"]');
-        if (slot) slot.textContent = '$' + spot.toFixed(spot >= 100 ? 0 : 2);
+        if (slot) slot.textContent = sym === '^VIX' ? spot.toFixed(2) : '$' + spot.toFixed(spot >= 100 ? 0 : 2);
       }
     });
 
@@ -34345,7 +34542,7 @@
     function directoryFreshness(data, covered){
       var builtMs = data && data.builtAtIso ? Date.parse(data.builtAtIso) : NaN;
       var ageHours = isFinite(builtMs) ? (Date.now() - builtMs) / 3600000 : NaN;
-      var fullCoverage = covered === cards.length;
+      var fullCoverage = covered === modelCards.length;
       var current = isFinite(ageHours) && ageHours >= -2 && ageHours <= 72 && fullCoverage;
       var ageLabel = 'timestamp unavailable';
       if (isFinite(ageHours)) {
@@ -34356,7 +34553,7 @@
       return {
         current: current,
         label: current ? 'Current' : 'Reference only',
-        detail: covered + '/' + cards.length + ' graded · ' + ageLabel
+        detail: covered + '/' + modelCards.length + ' gradable symbols · ' + ageLabel
       };
     }
     function bindTickerDecisionActions(){
@@ -34413,10 +34610,10 @@
       var grades = data.grades || {};
       minConviction = Number(data.minConviction || 4);
       var covered = 0;
-      cards.forEach(function(card){ if (grades[cardAlpha(card)]) covered++; });
+      modelCards.forEach(function(card){ if (grades[cardAlpha(card)]) covered++; });
       var freshness = directoryFreshness(data, covered);
       var readyN = 0, callN = 0, putN = 0, neutralN = 0, leader = null;
-      cards.forEach(function(card){
+      modelCards.forEach(function(card){
         var sym = cardAlpha(card);
         var g = grades[sym];
         var badge = card.querySelector('[data-grade-for="' + sym + '"]');
@@ -34510,6 +34707,11 @@
     });
     var emptyReset = document.getElementById('tickers-empty-reset');
     if (emptyReset) emptyReset.addEventListener('click', resetFilters);
+    var vixCard = grid.querySelector('[data-tracker-only="vix"]');
+    if (vixCard) vixCard.addEventListener('click', function(){
+      var marketTab = document.querySelector('[data-page-tab="market"]');
+      if (marketTab) marketTab.click();
+    });
     applyView();
     if (pane && !pane.hidden) ensureTickerDirectoryGrades();
   }

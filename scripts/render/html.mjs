@@ -108,7 +108,7 @@ function infoNote(summary, body) {
 // them together. htmlEscape is the only external dep.
 function tickersSection({ symbols, sectors, industries }) {
   const sorted = symbols.slice().sort();
-  const cards = sorted.map((sym) => {
+  const optionCards = sorted.map((sym) => {
     const sec = sectors[sym] || "";
     const ind = industries[sym] || "";
     const subtitle = [sec, ind].filter(Boolean).join(" · ");
@@ -124,6 +124,22 @@ function tickersSection({ symbols, sectors, industries }) {
       ${subtitle ? `<span class="ticker-sector">${htmlEscape(subtitle)}</span>` : ""}
     </a>`;
   }).join("");
+  // VIX is a tracked market gauge, not an option-chain symbol. Keep it out of
+  // the grader manifest/build loop, but give it a first-class directory card
+  // whose live value comes from the fixed-symbol /api/macro-live endpoint.
+  const trackerCards = `<button type="button" class="ticker-card ticker-card-tracker" data-ticker="^VIX" data-sector="Market gauge" data-industry="Volatility" data-tracker-only="vix" aria-label="Open VIX in Market analysis">
+      <span class="ticker-card-head">
+        <span class="ticker-sym">VIX</span>
+        <span class="ticker-tracker-badge">market gauge</span>
+      </span>
+      <span class="ticker-card-row">
+        <span class="ticker-spot" data-spot-for="^VIX"></span>
+        <span class="ticker-chg" data-chg-for="^VIX" hidden></span>
+      </span>
+      <span class="ticker-sector">Market gauge · Volatility</span>
+    </button>`;
+  const cards = trackerCards + optionCards;
+  const totalSymbols = sorted.length + 1;
   // Unique sectors for the filter chips. Sort by occurrence count so the
   // densest sectors come first — matches how the user is likely to scan.
   const sectorCounts = {};
@@ -134,11 +150,11 @@ function tickersSection({ symbols, sectors, industries }) {
     .join("");
   return `<section class="card" id="tickers-section">
     <header class="card-header">
-      <h2 class="card-title">All supported tickers</h2>
-      <span class="card-eyebrow"><span id="tickers-visible-count">${sorted.length}</span> / ${sorted.length} symbols</span>
+      <h2 class="card-title">Ticker tracker</h2>
+      <span class="card-eyebrow"><span id="tickers-visible-count">${totalSymbols}</span> / ${totalSymbols} symbols</span>
       <span class="tab-live-state" id="tickers-live-state" aria-live="polite"></span>
     </header>
-    <p class="hint">Search the universe, rank its strongest directional grades, then separate thesis strength from entry timing. Click any card to open the full ticker and contract grader.</p>
+    <p class="hint">Search the universe, rank its strongest directional grades, then separate thesis strength from entry timing. Stocks and ETFs open the full contract grader; market gauges such as VIX open the market-tape view.</p>
     <div class="tickers-model-summary" id="tickers-model-summary" hidden aria-live="polite"></div>
     <div class="tickers-controls">
       <label class="tickers-field tickers-search-wrap">
@@ -148,7 +164,8 @@ function tickersSection({ symbols, sectors, industries }) {
       <label class="tickers-field">
         <span class="tickers-field-label">Sector</span>
         <select id="tickers-sector" class="tickers-select" aria-label="Filter tickers by sector">
-          <option value="">All sectors (${sorted.length})</option>
+          <option value="">All sectors (${totalSymbols})</option>
+          <option value="Market gauge">Market gauge (1)</option>
           ${sectorOptions}
         </select>
       </label>
