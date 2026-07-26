@@ -228,12 +228,12 @@
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.03803;
+  var RFR = 0.03730;
   // Provenance for the risk-free rate baked above. source is
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-07-24","ageDays":null};
+  var RFR_META = {"source":"cached","asOf":"2026-07-21","ageDays":5};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -3808,7 +3808,11 @@
         .then(function(r){ return r.ok ? r.json() : null; })
         .then(function(j){
           if (!j || !Array.isArray(j.tickers)) return;
-          var flagged = j.tickers.filter(function(t){ return t && t.current && (t.current.days|0) >= 2; });
+          var flagged = j.tickers.filter(function(t){
+            if (!t || !t.current) return false;
+            var signalDays = t.current.sameDays != null ? Number(t.current.sameDays) : Number(t.current.days);
+            return signalDays >= 2;
+          });
           var g = flagged.filter(function(t){ return t.current.color === 'green'; }).length;
           var rd = flagged.filter(function(t){ return t.current.color === 'red'; }).length;
           setText('land-stat-streaks', g + '↑ / ' + rd + '↓');
@@ -7833,8 +7837,8 @@
     }
     return out;
   }
-  // Compact dealer gamma-exposure strip shown under each flagged ticker on the
-  // Unusual flow + Volume tabs — net GEX (long vs short gamma), the gamma flip
+  // Compact OI gamma-proxy strip shown under each flagged ticker on the
+  // Unusual flow + Volume tabs — call-minus-put GEX, the gamma flip
   // vs spot, and the call/put walls. Precomputed server-side onto each ticker
   // row by scripts/scan-unusual.mjs (lib/gex.mjs, same model as the GEX tab) so
   // there's no per-ticker fetch. Older scans without t.gex render no strip.
@@ -7852,9 +7856,9 @@
         (sub ? '<span class="flow-gex-sub">' + escapeHtml(sub) + '</span>' : '') +
       '</span>';
     }
-    return '<div class="flow-gex" title="Dealer gamma exposure from the latest baked chain — same model as the GEX tab">' +
-      '<span class="flow-gex-tag">GEX</span>' +
-      metric('Net', gexFmtSigned(g.net), pos ? 'is-pos' : 'is-neg', pos ? 'stabilizing' : 'amplifying') +
+    return '<div class="flow-gex" title="Open-interest gamma proxy from the latest baked chain; dealer inventory sign is not observable">' +
+      '<span class="flow-gex-tag">GEX proxy</span>' +
+      metric('Net', gexFmtSigned(g.net), pos ? 'is-pos' : 'is-neg', pos ? 'stabilizing bias' : 'amplifying bias') +
       metric('Flip', fmtOiStrike(g.flip), '', flipSub) +
       metric('Call wall', g.callWall ? fmtOiStrike(g.callWall.strike) : '—', 'is-pos', '') +
       metric('Put wall', g.putWall ? fmtOiStrike(g.putWall.strike) : '—', 'is-neg', '') +
@@ -7968,35 +7972,73 @@
       callPremium: 0,
       putPremium: 0,
       totalPremium: 0,
+      rawPremium: 0,
       contracts: 0,
+      rawContracts: 0,
+      watchContracts: 0,
       repeats: 0,
       near: 0,
       topDelta: 0,
+      actionTopDelta: 0,
       maxVoi: null,
       topContract: null,
       score: 0,
     };
-    (t && Array.isArray(t.contracts) ? t.contracts : []).forEach(function(c){
+    var contracts = t && Array.isArray(t.contracts) ? t.contracts : [];
+    var aggressiveStrikes = { call: {}, put: {} };
+    contracts.forEach(function(c){
       if (!c) return;
-      stats.contracts++;
-      if ((c.repeatCount || 0) >= 2) stats.repeats++;
-      if (c.dte != null && c.dte <= 14) stats.near++;
+      var tape = String(c.tape || '').toLowerCase();
+      if (tape !== 'ask' && tape !== 'abv') return;
+      var premium = Number(c.deltaPremium != null ? c.deltaPremium : c.premium) || 0;
+      if (premium < 25000) return;
+      var side = c.side === 'put' ? 'put' : 'call';
+      aggressiveStrikes[side][String(c.strike)] = true;
+    });
+    contracts.forEach(function(c){
+      if (!c) return;
+      stats.rawContracts++;
+      var premium = Number(c.deltaPremium != null ? c.deltaPremium : c.premium) || 0;
+      stats.rawPremium += premium;
       stats.topDelta = Math.max(stats.topDelta, Number(c.deltaVol) || 0);
+      if (!stats.topContract || premium > stats.topContract.premium){
+        stats.topContract = { contract: c, premium: premium };
+      }
+      var tape = String(c.tape || '').toLowerCase();
+      var side = c.side === 'put' ? 'put' : 'call';
+      var directionUsable = tape === 'ask' || tape === 'abv';
+      var multiStrike = Object.keys(aggressiveStrikes[side]).length >= 2;
+      var repeated = Number(c.repeatCount || 0) >= 2;
+      var material = premium >= 100000
+        || (repeated && premium >= 50000)
+        || (multiStrike && premium >= 25000);
+      var bid = Number(c.bid), ask = Number(c.ask);
+      var mid = bid > 0 && ask >= bid ? (bid + ask) / 2 : null;
+      var spreadPct = mid > 0 ? (ask - bid) / mid : null;
+      var liquidEnough = spreadPct == null || spreadPct <= 0.35;
+      var last = Number(c.last);
+      var notPennyNoise = !(last > 0) || last >= 0.05 || premium >= 100000;
+      var spot = Number(t && t.spot);
+      var strike = Number(c.strike);
+      var farOtm = spot > 0 && strike > 0
+        ? (side === 'call' ? strike / spot - 1 : spot / strike - 1) >= 0.25
+        : false;
+      var farOtmSupported = !farOtm || premium >= 100000 || repeated || multiStrike;
+      var actionable = directionUsable && material && liquidEnough && notPennyNoise && farOtmSupported;
+      if (!actionable){
+        stats.watchContracts++;
+        return;
+      }
+      stats.contracts++;
+      if (repeated) stats.repeats++;
+      if (c.dte != null && c.dte <= 14) stats.near++;
+      stats.actionTopDelta = Math.max(stats.actionTopDelta, Number(c.deltaVol) || 0);
       var voi = (c.oi != null && c.oi > 0 && c.vol != null) ? Number(c.vol) / Number(c.oi) : null;
       if (voi != null && isFinite(voi)) stats.maxVoi = stats.maxVoi == null ? voi : Math.max(stats.maxVoi, voi);
-      var premium = Number(c.deltaPremium != null ? c.deltaPremium : c.premium) || 0;
-      var tape = String(c.tape || '').toLowerCase();
-      // Directional synthesis only credits contracts printed at or above the
-      // midpoint. Bid/below-mid activity may be closing or selling and belongs
-      // in the evidence rows, not in a directional verdict.
-      var directionUsable = tape === 'ask' || tape === 'abv' || tape === 'mid';
-      if (directionUsable && premium > 0){
+      if (premium > 0){
         if (c.side === 'put') stats.putPremium += premium;
         else stats.callPremium += premium;
         stats.totalPremium += premium;
-      }
-      if (!stats.topContract || premium > stats.topContract.premium){
-        stats.topContract = { contract: c, premium: premium };
       }
     });
     var callShare = stats.totalPremium > 0 ? stats.callPremium / stats.totalPremium : 0.5;
@@ -8015,11 +8057,11 @@
       stats.direction = 'mixed';
       stats.directionLabel = 'Two-sided event risk';
     }
-    stats.score =
+    stats.score = stats.contracts ? (
       Math.log(Math.max(1, stats.totalPremium)) / Math.LN10 * 10 +
-      Math.min(30, stats.topDelta / 1000) +
+      Math.min(30, stats.actionTopDelta / 1000) +
       stats.repeats * 4 +
-      Math.min(4, stats.near);
+      Math.min(4, stats.near)) : 0;
     return stats;
   }
   function flowDecisionStats(tickers){
@@ -8043,7 +8085,7 @@
       out.repeats += c.repeats;
       out.near += c.near;
     });
-    out.candidates.sort(function(a, b){ return b.score - a.score; });
+    out.candidates.sort(function(a, b){ return b.score - a.score || b.rawPremium - a.rawPremium; });
     out.top = out.candidates[0] || null;
     out.callShare = out.totalPremium > 0 ? out.callPremium / out.totalPremium : 0.5;
     out.putShare = 1 - out.callShare;
@@ -8052,18 +8094,18 @@
   function flowGexContext(candidate){
     var t = candidate && candidate.ticker;
     var g = t && t.gex;
-    if (!g || g.net == null || !isFinite(g.net)) return 'Dealer gamma context is unavailable for this scan.';
+    if (!g || g.net == null || !isFinite(g.net)) return 'OI gamma-proxy context is unavailable for this scan.';
     var net = Number(g.net);
     var spot = Number(t.spot);
     var flip = Number(g.flip);
     if (net < 0){
-      return 'Net dealer gamma is negative' +
+      return 'The call-minus-put OI gamma proxy is negative' +
         (isFinite(flip) && spot > 0 ? '; spot is ' + (spot >= flip ? 'above' : 'below') + ' the ' + fmtOiStrike(flip) + ' flip' : '') +
-        ', so a confirmed underlying break can travel faster.';
+        '; under the conventional sign assumption, a confirmed underlying break can travel faster. Dealer inventory sign is not observable from OI alone.';
     }
-    return 'Net dealer gamma is positive' +
+    return 'The call-minus-put OI gamma proxy is positive' +
       (isFinite(flip) && spot > 0 ? '; spot is ' + (spot >= flip ? 'above' : 'below') + ' the ' + fmtOiStrike(flip) + ' flip' : '') +
-      ', so dealer hedging may damp the move or pull price toward a wall.';
+      '; under the conventional sign assumption, hedging may damp the move or pull price toward a wall. Dealer inventory sign is not observable from OI alone.';
   }
   function renderFlowDecision(tickers, mode){
     var host = $('flow-decision');
@@ -8109,7 +8151,7 @@
       copy = 'Calls and puts are both attracting premium. Wait for the underlying to choose a direction instead of forcing a side from gross flow.';
     } else if (top.direction === 'unclear'){
       headline = top.symbol + ' has size, but intent is unclear.';
-      copy = 'The visible premium did not print cleanly enough at or above midpoint to support a directional read. Keep it on watch, not in a position.';
+      copy = 'The visible contracts did not combine aggressive execution, material premium, and acceptable liquidity strongly enough for a directional read. Keep them on watch, not in a position.';
     } else {
       headline = 'Investigate ' + top.symbol + ' ' + (top.direction === 'call' ? 'call' : 'put') + '-side demand.';
       copy = 'This is a ranked research lead, not entry permission. Confirm the same-side demand in the underlying tape before risking premium.';
@@ -8153,8 +8195,8 @@
         '<div class="flow-decision-metrics">' +
           '<div><span>Top focus</span><b>' + escapeHtml(top.symbol) + '</b><small>' + escapeHtml(top.directionLabel) + '</small></div>' +
           '<div><span>Directional split</span><b>' + escapeHtml(splitValue) + '</b><small>desk total ' + callPct + '% calls / ' + putPct + '% puts</small></div>' +
-          '<div><span>Premium counted</span><b>' + escapeHtml(premiumText) + '</b><small>at / above midpoint</small></div>' +
-          '<div><span>Persistence</span><b>' + stats.repeats + ' repeat' + (stats.repeats === 1 ? '' : 's') + '</b><small>' + stats.near + ' near-term · ' + stats.contracts + ' contracts</small></div>' +
+          '<div><span>Actionable premium</span><b>' + escapeHtml(premiumText) + '</b><small>ask-side + material + liquid</small></div>' +
+          '<div><span>Persistence</span><b>' + stats.repeats + ' repeat' + (stats.repeats === 1 ? '' : 's') + '</b><small>' + stats.near + ' near-term · ' + stats.contracts + ' actionable / ' + top.rawContracts + ' visible</small></div>' +
         '</div>' +
         '<p class="flow-decision-context"><b>' + escapeHtml(top.symbol) + ' evidence:</b> top print ' + escapeHtml(fmtDelta(top.topDelta)) + '/hr · ' +
           escapeHtml(voiText) + '. ' + escapeHtml(flowGexContext(top)) + '</p>' +
@@ -8175,7 +8217,7 @@
         var dp = (c.deltaPremium != null ? c.deltaPremium : (c.premium || 0)) || 0;
         total += dp;
         var tape = String(c.tape || '').toLowerCase();
-        var directionUsable = tape === 'ask' || tape === 'abv' || tape === 'mid';
+        var directionUsable = tape === 'ask' || tape === 'abv';
         if (c.side === 'put'){
           putN++;
           if (directionUsable) putPrem += dp;
@@ -8212,8 +8254,8 @@
       topStr = escapeHtml(top.sym) + ' $' + Number(top.c.strike) + ts + (tp ? ' · ' + escapeHtml(tp) + '/hr' : '');
     }
     var barLabel = denom > 0
-      ? 'At or above midpoint: call premium ' + callPct + '%, put premium ' + putPct + '%'
-      : 'No at or above midpoint premium; contract-side mix is ' + callPct + '% calls and ' + putPct + '% puts';
+      ? 'Aggressive ask-side premium: calls ' + callPct + '%, puts ' + putPct + '%'
+      : 'No aggressive ask-side premium; contract-side mix is ' + callPct + '% calls and ' + putPct + '% puts';
     el.innerHTML =
       '<div class="flow-sum-row">' +
         '<span class="flow-sum-lean ' + leanCls + '">' + leanLbl + '</span>' +
@@ -8226,8 +8268,8 @@
         '<span class="flow-sum-bar-put" style="width:' + putPct + '%"></span>' +
       '</div>' +
       '<div class="flow-sum-legend">' +
-        '<span class="flow-sum-leg is-call"><span class="flow-sum-dot"></span>Calls ' + escapeHtml(callStr) + ' at/above mid · ' + callPct + '% · ' + callN + ' tagged</span>' +
-        '<span class="flow-sum-leg is-put"><span class="flow-sum-dot"></span>Puts ' + escapeHtml(putStr) + ' at/above mid · ' + putPct + '% · ' + putN + ' tagged</span>' +
+        '<span class="flow-sum-leg is-call"><span class="flow-sum-dot"></span>Calls ' + escapeHtml(callStr) + ' aggressive · ' + callPct + '% · ' + callN + ' tagged</span>' +
+        '<span class="flow-sum-leg is-put"><span class="flow-sum-dot"></span>Puts ' + escapeHtml(putStr) + ' aggressive · ' + putPct + '% · ' + putN + ' tagged</span>' +
       '</div>';
   }
   function renderUnusualFlow(){
@@ -8562,10 +8604,11 @@
   // classifier in lib/volume-flags.mjs gates on. These constants are a hand-kept
   // mirror of that module's exports (the IIFE can't import it — see CLAUDE.md
   // "Math is duplicated on purpose"); if you change them there, change them here.
-  var VOL_BIG_MOVE_PCT = 1.2;    // |move| >= 1.2% is a "real" move (MOVE_BIG_PCT)
-  var VOL_HEAVY_MULT = 1.2;      // >= 1.2x expected vol is heavy (MOVE_VOL_HIGH)
-  var VOL_SR_STRONG_MULT = 1.3;  // S/R break >= 1.3x = very-high conviction
-  var VOL_SR_WEAK_MULT = 0.8;    // 0.8-1.3x = medium, < 0.8x = likely fakeout
+  var VOL_BIG_MOVE_PCT = 1.2;    // fallback; scanner supplies an ATR-scaled threshold
+  var VOL_WATCH_MULT = 1.2;      // participation watch
+  var VOL_STRONG_MULT = 1.5;     // actionable participation
+  var VOL_SR_STRONG_MULT = 1.5;  // S/R break >= 1.5x = very-high conviction
+  var VOL_SR_WEAK_MULT = 0.8;    // 0.8-1.5x = medium, < 0.8x = likely fakeout
   var VOL_EOD_FLAG_MULT = 1.3;   // full-day vol >= 1.3x avg flags the session
   function volRatioWord(r){
     return (r != null && isFinite(r)) ? Number(r).toFixed(2) + 'x' : '';
@@ -8584,24 +8627,29 @@
     var parts = [];
     var mc = hit.moveClass;
     if (mc && mc.conviction && mc.conviction !== 'None' && r != null){
-      var big = p != null && Math.abs(Number(p)) >= VOL_BIG_MOVE_PCT;
-      var heavy = Number(r) >= VOL_HEAVY_MULT;
+      var moveBar = hit.moveThresholdPct != null && isFinite(hit.moveThresholdPct)
+        ? Number(hit.moveThresholdPct)
+        : VOL_BIG_MOVE_PCT;
+      var big = p != null && Math.abs(Number(p)) >= moveBar;
+      var strong = Number(r) >= VOL_STRONG_MULT;
+      var watch = Number(r) >= VOL_WATCH_MULT;
       var rW = volRatioWord(r);
       var mW = volMoveWord(p);
       var dirWord = p != null ? (Number(p) >= 0 ? 'bullish' : 'bearish') : '';
-      if (big && heavy){
+      if (big && strong){
         parts.push('Traded ' + rW + ' the volume normal for this part of the session on a ' + mW +
-          ' move — both clear the bar (≥' + VOL_HEAVY_MULT.toFixed(1) + 'x volume and ≥' +
-          VOL_BIG_MOVE_PCT.toFixed(1) + '% move), so real participation is driving it, not noise. ' +
+          ' move — both clear the bar (≥' + VOL_STRONG_MULT.toFixed(1) + 'x volume and ≥' +
+          moveBar.toFixed(1) + '% move), so real participation is driving it, not noise. ' +
           'Heavy volume behind a decisive move is what makes it an Important Move' +
           (dirWord ? ', and the ' + (Number(p) >= 0 ? 'gain leans ' : 'drop leans ') + dirWord : '') + '.');
-      } else if (!big && heavy){
-        parts.push('Volume ran ' + rW + ' the session-normal rate but price only moved ' + mW +
-          ' (under the ' + VOL_BIG_MOVE_PCT.toFixed(1) + '% bar) — heavy participation without a decisive move yet ' +
+      } else if (watch){
+        parts.push('Volume ran ' + rW + ' the session-normal rate' + (big ? ' with price ' + mW : ' but price only moved ' + mW) +
+          (big ? '' : ' (under the ' + moveBar.toFixed(1) + '% adaptive bar)') + ' — participation is noteworthy but below the ' +
+          VOL_STRONG_MULT.toFixed(1) + 'x action threshold ' +
           '(accumulation, distribution, or indecision), so it is a Watch, not a confirmed move.');
       } else if (big){
         parts.push('Price moved ' + mW + ' but on only ' + rW + ' of normal volume (under the ' +
-          VOL_HEAVY_MULT.toFixed(1) + 'x bar) — the move is not backed by participation, so treat it as ' +
+          VOL_WATCH_MULT.toFixed(1) + 'x watch bar) — the move is not backed by participation, so treat it as ' +
           'low-conviction and prone to fading.');
       }
     }
@@ -13171,7 +13219,7 @@
   function gexVerdictHeader(v){
     if (!v) return '';
     var arrow = v.dir === 'bull' ? '▲' : (v.dir === 'bear' ? '▼' : (v.dir === 'volatile' ? '⚡' : '●'));
-    var regimeLabel = v.posGamma ? 'Stable · dealers dampen' : 'Unstable · dealers amplify';
+    var regimeLabel = v.posGamma ? 'Positive proxy · stabilizing bias' : 'Negative proxy · amplifying bias';
     var posTxt = v.callShare >= 0.58 ? 'Call-heavy' : (v.callShare <= 0.42 ? 'Put-heavy' : 'Balanced');
     var posPct = isFinite(v.callShare) ? Math.round(v.callShare * 100) + '% call γ' : '';
     var posClass = v.callShare >= 0.58 ? 'is-pos' : (v.callShare <= 0.42 ? 'is-neg' : '');
@@ -13184,7 +13232,7 @@
     '</div>';
   }
 
-  // Plain-English read tying the verdict together: regime (dampen vs amplify) +
+  // Plain-English read tying the OI-based proxy together: conventional regime +
   // where price is heading (the pin), how strong the move could be (expected
   // move + tier), the flip as the trigger that flips the regime, and the walls
   // as the levels to watch. Pure given the computed data + verdict.
@@ -13193,13 +13241,15 @@
     if (!v || !(spot > 0)) return '';
     var lead;
     if (v.posGamma){
-      lead = escapeHtml(sym) + ' dealers are <strong>long gamma</strong> (' + gexFmtSigned(d.totalNet) +
-        ') — they fade the tape, selling rips and buying dips, so moves get <strong>dampened</strong> and price tends to <strong>pin</strong>' +
-        (v.pinStrike != null ? ' toward ' + fmtOiStrike(v.pinStrike) : '') + '.';
+      lead = escapeHtml(sym) + "'s call-minus-put OI gamma proxy is <strong>positive</strong> (" + gexFmtSigned(d.totalNet) +
+        '). Under the conventional call-positive / put-negative sign assumption, hedging would tend to <strong>dampen</strong> moves and price may <strong>pin</strong>' +
+        (v.pinStrike != null ? ' toward ' + fmtOiStrike(v.pinStrike) : '') +
+        '. OI does not reveal the actual dealer inventory sign.';
     } else {
-      lead = escapeHtml(sym) + ' dealers are <strong>short gamma</strong> (' + gexFmtSigned(d.totalNet) +
-        ') — they chase the tape, selling weakness and buying strength, so moves get <strong>amplified</strong> and trends extend' +
-        (d.flip != null && spot < d.flip ? ', with downside breaks accelerating fastest' : '') + '.';
+      lead = escapeHtml(sym) + "'s call-minus-put OI gamma proxy is <strong>negative</strong> (" + gexFmtSigned(d.totalNet) +
+        '). Under the conventional sign assumption, hedging would tend to <strong>amplify</strong> moves and extend trends' +
+        (d.flip != null && spot < d.flip ? ', with downside breaks potentially accelerating fastest' : '') +
+        '. OI does not reveal the actual dealer inventory sign.';
     }
     var bits = [];
     if (v.evMovePct != null){
@@ -13212,8 +13262,8 @@
       // sign, which only coincides with spot≥flip in the canonical single-
       // crossing case and would otherwise contradict the badge in one card.
       bits.push(spot >= d.flip
-        ? 'The stabilizing zone holds while spot stays above the <strong>' + fmtOiStrike(d.flip) + '</strong> gamma flip; lose it and dealers flip short, unlocking sharper swings.'
-        : 'Reclaiming the <strong>' + fmtOiStrike(d.flip) + '</strong> gamma flip would hand the dampening back to dealers and calm the tape.');
+        ? 'The proxy stays in its stabilizing zone while spot remains above the <strong>' + fmtOiStrike(d.flip) + '</strong> gamma flip; losing it shifts the model toward sharper swings.'
+        : 'Reclaiming the <strong>' + fmtOiStrike(d.flip) + '</strong> gamma flip shifts the proxy back toward a dampening regime.');
     }
     var levels = [];
     if (d.callWall && d.callWall.strike >= spot) levels.push('resistance at the ' + fmtOiStrike(d.callWall.strike) + ' call wall');
@@ -13232,7 +13282,7 @@
       spotExtra = ' <span class="gex-spot-chg ' + (up ? 'is-up' : 'is-dn') + '">' + (up ? '▲' : '▼') + ' ' +
         (up ? '+' : '') + gexState.liveChange.toFixed(2) + (pct ? ' · ' + pct : '') + '</span>';
     }
-    var regime = d.totalNet >= 0 ? 'positive — stabilizing' : 'negative — amplifying';
+    var regime = d.totalNet >= 0 ? 'positive proxy — stabilizing bias' : 'negative proxy — amplifying bias';
     var flipSub = d.flip != null ? (spot >= d.flip ? 'spot above flip' : 'spot below flip') : '';
     var pinSub = (v && v.pinDistPct != null)
       ? (Math.abs(v.pinDistPct) < 0.6 ? 'at spot' : (v.pinDistPct > 0 ? '+' : '') + v.pinDistPct.toFixed(1) + '% away')
@@ -13246,7 +13296,7 @@
     var emSub = (v && v.evMoveAbs != null) ? '≈ ' + fmtOiStrike(v.evMoveAbs) + '/day' + (v.atmIv > 0 ? ' · ' + (v.atmIv * 100).toFixed(0) + '% IV' : '') : '1-session, ATM IV';
     var tiles = [
       gexMetricTile('Spot', fmtOiStrike(spot) + spotExtra, '', gexState.spotSource === 'live' ? 'live' : 'last session'),
-      gexMetricTile('Total net GEX', gexFmtSigned(d.totalNet), d.totalNet >= 0 ? 'is-pos' : 'is-neg', regime),
+      gexMetricTile('Net GEX proxy', gexFmtSigned(d.totalNet), d.totalNet >= 0 ? 'is-pos' : 'is-neg', regime),
       gexMetricTile('Gamma flip', d.flip != null ? fmtOiStrike(d.flip) : '—', '', flipSub),
       gexMetricTile(pinLabel, (v && v.pinStrike != null) ? fmtOiStrike(v.pinStrike) : '—', pinClass, pinSub),
       gexMetricTile('Call wall', d.callWall ? fmtOiStrike(d.callWall.strike) : '—', 'is-pos', d.callWall ? gexFmtSigned(d.callWall.net) : ''),
@@ -13322,7 +13372,7 @@
     markers.sort(function(a, b){ return b.level - a.level; });
     var mi = 0;
     var html = '<table class="gex-table"><thead><tr><th class="gex-th-strike" scope="col">Strike</th>' +
-      '<th class="gex-th-total" scope="col" title="Net dealer gamma at this strike summed across the shown expirations — the aggregate profile"><span class="gex-th-date">Net Σ</span><span class="gex-th-dte">all exp</span></th>';
+      '<th class="gex-th-total" scope="col" title="Call-minus-put OI gamma proxy at this strike summed across the shown expirations"><span class="gex-th-date">Net Σ proxy</span><span class="gex-th-dte">all exp</span></th>';
     for (var e = 0; e < exps.length; e++){
       html += '<th class="gex-th-exp" scope="col"><span class="gex-th-date">' + escapeHtml(exps[e].label) +
         '</span><span class="gex-th-dte">' + exps[e].dte + 'd</span></th>';
@@ -19485,6 +19535,7 @@
             (r.relPct != null && isFinite(r.relPct) ? '<span class="ivt-stat ' + (r.relPct >= 0 ? 'cx-up' : 'cx-down') + '">' + (r.relPct >= 0 ? '+' : '') + r.relPct.toFixed(0) + '% vs avg</span>' : '') +
             ivtZBadge(r.z) +
             '<span class="ivt-stat">' + ivtOrdinal(r.pctile) + ' %ile</span>' +
+            (r.provisional ? '<span class="ivt-stat" title="Fewer than 60 comparable IV sessions; the scanner applies stricter tier thresholds">provisional history</span>' : '') +
             (r.risingStreak >= 2 ? '<span class="ivt-stat ivt-streak">↑ ' + r.risingStreak + 'd rising</span>' : '') +
           '</div>' +
           '<div class="ivt-chips">' + ivtChgChip(r.chg1dPct, '1d') + ivtChgChip(r.chg5dPct, '5d') + ivtChgChip(r.chg20dPct, '20d') + '</div>' +
@@ -19515,7 +19566,7 @@
       var tierMeta = w.tier && IVT_TIER_META[w.tier] ? IVT_TIER_META[w.tier] : null;
       rows += '<div class="ivt-trow' + (tierMeta ? ' ' + tierMeta.cls : '') + '">' +
         '<span class="ivt-trow-sym"><a class="ivt-trow-symbtn" data-sym="' + escapeHtml(w.symbol || '') + '" href="' + symGradeHref(w.symbol) + '" title="Open ' + escapeHtml(w.symbol || '') + ' in the Grade tab">' + escapeHtml(w.symbol || '') + '</a>' +
-          (tierMeta ? ' <em class="ivt-trow-tier">' + tierMeta.label + '</em>' : (w.elevated ? ' <em class="ivt-trow-tier ivt-elev" title="IV well above its own history, but not currently climbing">Elevated</em>' : '')) + '</span>' +
+          (tierMeta ? ' <em class="ivt-trow-tier" title="' + (w.provisional ? 'Provisional: fewer than 60 comparable IV sessions' : '') + '">' + tierMeta.label + (w.provisional ? '*' : '') + '</em>' : (w.elevated ? ' <em class="ivt-trow-tier ivt-elev" title="IV well above its own history, but not currently climbing">Elevated</em>' : '')) + '</span>' +
         '<span class="ivt-trow-num">' + ivtIvPct(w.iv) + '</span>' +
         '<span class="ivt-trow-num">' + (w.z == null ? '—' : (w.z >= 0 ? '+' : '') + w.z.toFixed(1) + 'σ') + '</span>' +
         '<span class="ivt-trow-num">' + (w.pctile == null ? '—' : w.pctile) + '</span>' +
@@ -21782,7 +21833,9 @@
     return '<div class="brief-chips">' + (list || []).map(function(g){
       var pos = g.regime === 'positive';
       var sub = briefGexFmtNet(g.net) + (g.flip != null ? ' · spot ' + (g.flipSide || '') + ' ' + g.flip + ' flip' : '');
-      var tip = pos ? 'Net long gamma — dealers dampen moves (stabilizing)' : 'Net short gamma — dealers amplify moves';
+      var tip = pos
+        ? 'Positive call-minus-put OI gamma proxy — stabilizing bias under the conventional sign assumption'
+        : 'Negative call-minus-put OI gamma proxy — amplifying bias under the conventional sign assumption';
       return '<span class="brief-chip ' + (pos ? 'pos' : 'neg') + ' info" title="' + briefEsc(tip) + '">' +
         briefEsc(g.sym) + ' <span>' + briefEsc(sub) + '</span></span>';
     }).join('') + '</div>';
@@ -21866,7 +21919,7 @@
       risk = String(b.events[0].label || 'Scheduled event') + (b.events[0].detail ? ' · ' + b.events[0].detail : '');
     } else if (Array.isArray(b.gex)) {
       var shortGamma = b.gex.find(function(g){ return g && g.regime === 'negative'; });
-      if (shortGamma) risk = shortGamma.sym + ' short gamma can amplify the move';
+      if (shortGamma) risk = shortGamma.sym + ' has a negative OI gamma proxy that can coincide with amplified moves';
     }
     var evidence = tells.length ? tells.join(' · ') : 'No coordinated index, breadth, or overnight read available';
     return '<section class="brief-decision brief-decision-' + key + '" aria-label="Today&apos;s trading playbook">' +
@@ -26948,17 +27001,27 @@
         var quotes = (json && Array.isArray(json.quotes)) ? json.quotes : [];
         var overlay = {};
         var marketState = null;
+        var rowBySymbol = {};
+        data.tickers.forEach(function(row){ if (row && row.t) rowBySymbol[row.t] = row; });
         for (var i = 0; i < quotes.length; i++){
           var q = quotes[i];
           if (!q || !q.symbol || q.changePct == null) continue;
           var prev = heatmapState.liveOverlay[q.symbol];
-          // /api/quotes already returns volume + 52-week extremes; derive an
-          // intraday relative volume (cumulative day volume vs the 10D average)
-          // so rvol mode + the tooltip go live, not just the % move.
-          var dv = Number(q.dayVolume), av = Number(q.avgVol10d);
-          var rv = (isFinite(dv) && dv > 0 && isFinite(av) && av > 0)
-            ? Math.round((dv / av) * 100) / 100
-            : null;
+          // Compare cumulative volume with the fraction of a normal 20-day
+          // session expected by this clock time. This avoids making every
+          // morning tile look quiet merely because the day is incomplete.
+          var bakedRow = rowBySymbol[q.symbol] || null;
+          var dv = Number(q.dayVolume);
+          var av = Number(bakedRow && bakedRow.av20);
+          if (!(av > 0)) av = Number(q.avgVol10d);
+          var qState = String(q.marketState || '');
+          var frac = qState.indexOf('REGULAR') === 0
+            ? Math.max(0.05, execCumFracExpected(execEtMinutesSinceOpen()))
+            : 1;
+          var canRefreshRv = qState.indexOf('PRE') !== 0 && isFinite(dv) && dv > 0 && isFinite(av) && av > 0;
+          var rv = canRefreshRv
+            ? Math.round((dv / (av * frac)) * 100) / 100
+            : (bakedRow && bakedRow.rv != null ? Number(bakedRow.rv) : null);
           overlay[q.symbol] = {
             ch: Math.round(Number(q.changePct) * 100) / 100,
             sp: q.spot,

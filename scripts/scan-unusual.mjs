@@ -733,15 +733,60 @@ async function writeFlowExplanations(cache) {
 // Reads avg20 daily vol + 20D support/resistance from the per-ticker JSON
 // baked by scripts/build.mjs. Returns null when the file is missing or the
 // expected fields aren't present — caller treats that as "skip this ticker."
-async function loadTickerTechnicals(symbol) {
+async function loadTickerTechnicals(symbol, todayKey) {
   try {
     const raw = await readFile(resolve(DATA_DIR, `${symbol}.json`), "utf8");
     const j = JSON.parse(raw);
     const t = j?.technicals;
     if (!t) return null;
+    const ps = j?.priceSeries;
+    let priorSr = null;
+    let atrPct = null;
+    if (
+      Array.isArray(ps?.t) &&
+      Array.isArray(ps?.h) &&
+      Array.isArray(ps?.l) &&
+      Array.isArray(ps?.c)
+    ) {
+      const n = Math.min(ps.t.length, ps.h.length, ps.l.length, ps.c.length);
+      // Freeze breakout levels to completed sessions. If today's in-progress
+      // daily candle is already in priceSeries, exclude it; otherwise the
+      // latest row is yesterday's completed session and belongs in the window.
+      const end = n > 0 && String(ps.t[n - 1]).slice(0, 10) === todayKey ? n - 1 : n;
+      if (end >= 20) {
+        const lows = ps.l.slice(end - 20, end).map(Number).filter(Number.isFinite);
+        const highs = ps.h.slice(end - 20, end).map(Number).filter(Number.isFinite);
+        if (lows.length === 20 && highs.length === 20) {
+          priorSr = { s20: Math.min(...lows), r20: Math.max(...highs) };
+        }
+      }
+      if (end >= 15) {
+        const trs = [];
+        for (let i = end - 14; i < end; i++) {
+          const hi = Number(ps.h[i]);
+          const lo = Number(ps.l[i]);
+          const prevClose = Number(ps.c[i - 1]);
+          if (!(hi > 0) || !(lo > 0) || !(prevClose > 0)) continue;
+          trs.push(Math.max(hi - lo, Math.abs(hi - prevClose), Math.abs(lo - prevClose)));
+        }
+        const lastClose = Number(ps.c[end - 1]);
+        if (trs.length >= 10 && lastClose > 0) {
+          atrPct = (trs.reduce((sum, x) => sum + x, 0) / trs.length) / lastClose * 100;
+        }
+      }
+    }
+    const moveThresholdPct = atrPct != null
+      ? Math.min(2, Math.max(0.6, atrPct * 0.5))
+      : 1.2;
+    const srBufferPct = atrPct != null
+      ? Math.min(0.005, Math.max(0.0015, (atrPct / 100) * 0.1))
+      : 0.0025;
     return {
       avg20: t.volume?.avg20 ?? null,
-      sr: t.sr ? { s20: t.sr.s20 ?? null, r20: t.sr.r20 ?? null } : null,
+      sr: priorSr || (t.sr ? { s20: t.sr.s20 ?? null, r20: t.sr.r20 ?? null } : null),
+      atrPct,
+      moveThresholdPct,
+      srBufferPct,
       // asOfClose is the most recent regular-session close baked into the
       // per-ticker data. We prefer the live quote's regularMarketPreviousClose,
       // but fall back to this when Yahoo omits it (rare).
@@ -797,6 +842,9 @@ function buildVolPrevSnapLookup(history, todayKey) {
   const map = new Map();
   for (const snap of history.snapshots || []) {
     if (snap.etDate !== todayKey) continue;
+    // Yahoo's pre-open cumulative volume/spot can still describe the prior
+    // regular session. Never use it as the first cash-session price anchor.
+    if (snap.etMin == null || snap.etMin < SESSION_OPEN_MIN) continue;
     for (const t of snap.tickers || []) {
       if (!t.symbol) continue;
       const prior = map.get(t.symbol);
@@ -949,6 +997,8 @@ function buildFlagRow(symbol, evalOut, scannedAt, isFinalScan, bucketStartGap) {
       hourlyFlagged: !!evalOut.hourly?.flagged,
       moveClass: evalOut.moveClass ?? null,
       srBreak: evalOut.srBreak ?? null,
+      moveThresholdPct: evalOut.hourly?.moveThresholdPct ?? null,
+      srBufferPct: evalOut.hourly?.srBufferPct ?? null,
       bucketStartGap: bucketStartGap ?? null,
       scannedAt,
     });
@@ -1014,7 +1064,7 @@ async function runVolumePass({
         cumVol: r.cumVol,
       });
     }
-    const tech = await loadTickerTechnicals(r.symbol);
+    const tech = await loadTickerTechnicals(r.symbol, todayKey);
     if (!tech || tech.avg20 == null) continue;
     const prevClose = r.prevClose ?? tech.asOfClose ?? null;
     const prev = prevLookup.get(r.symbol);
@@ -1051,6 +1101,8 @@ async function runVolumePass({
       prev,
       bucketStartCumVol,
       bucketStartEtMin,
+      moveThresholdPct: tech.moveThresholdPct,
+      srBufferPct: tech.srBufferPct,
     });
     const row = buildFlagRow(r.symbol, evalOut, scannedAt, isFinalScan, bucketStartGap);
     if (row) freshRows.push(row);
@@ -1063,6 +1115,20 @@ async function runVolumePass({
   const merged = sameSession
     ? mergeVolumeFlagRows(prior.tickers, freshRows)
     : freshRows;
+
+  // Keep event history and current state separate: a ticker can remain visible
+  // because an earlier bucket flagged even when the latest bucket is quiet.
+  // Refresh its spot anyway so "level holding" never evaluates an old quote.
+  const latestBySymbol = new Map(
+    (perTickerResults || [])
+      .filter((r) => r?.symbol && r?.spot != null)
+      .map((r) => [r.symbol, r.spot]),
+  );
+  for (const row of merged) {
+    if (!latestBySymbol.has(row.symbol)) continue;
+    row.spot = latestBySymbol.get(row.symbol);
+    row.scannedAt = scannedAt;
+  }
 
   // Inject scan-missed placeholders for past buckets where no scan ran. A
   // "missed" bucket is one whose endMin <= current etMin and no snapshot

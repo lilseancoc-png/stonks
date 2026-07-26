@@ -77,8 +77,8 @@ const DELTA_OI_PCT_AGGR = 1.00;
 // of the tracker rather than inventing a new magic number.
 const NEW_OI_FROM_ZERO_FLOOR = BIG_OI;
 
-// Gamma squeeze "near the money" band: 0–12% OTM (calls).
-const NEAR_THE_MONEY_OTM_MAX = 0.12;
+// Gamma squeeze "near the money" band: 0–10% OTM (calls).
+const NEAR_THE_MONEY_OTM_MAX = 0.10;
 
 // Gamma squeeze rule thresholds (made explicit for tuning).
 //   CONCENTRATED_RATIO: a near-the-money strike's OI must be at least
@@ -89,14 +89,14 @@ const NEAR_THE_MONEY_OTM_MAX = 0.12;
 //   CP_RATIO_HOT: call/put OI ratio that fires rule 2.
 //   VOL_OVER_OI_HOT: Vol/OI on the top call wall strike that fires
 //     rule 3. Spec says "Vol >> OI (Vol 1.5x+ higher than OI)".
-//   NEAR_WALL_PCT: how close spot has to be to the call wall for rule 4
-//     to fire. Spec says "within 10%".
+//   NEAR_WALL_PCT: how close spot has to be to an overhead call wall for
+//     rule 4 to fire.
 //   GAMMA_FLAG_MIN: score at which we set ticker.flagged = true. Spec
 //     says 4 or 5 = strong potential setup.
 const CONCENTRATED_RATIO = 1.5;
 const CP_RATIO_HOT = 2.0;
 const VOL_OVER_OI_HOT = 1.5;
-const NEAR_WALL_PCT = 0.10;
+const NEAR_WALL_PCT = 0.075;
 const GAMMA_FLAG_MIN = 4;
 
 // Rolling-history retention. Each snapshot stores per-strike OI for every
@@ -270,20 +270,39 @@ async function loadUnusualForFlow(todayKey, maxAgeDays = 4) {
   return null;
 }
 
-// Returns the set of symbols that have at least one CALL hit with
-// tape === "ask" in today's unusual.json. That's our rule-5 input.
-function buildAskCallSymbols(unusual) {
-  const set = new Set();
-  if (!unusual) return set;
+// Returns symbol -> aggressive call-flow records. Rule 5 later requires the
+// flow to align with the actual call-wall strike/expiry; a random call sweep
+// elsewhere on the ticker is not confirmation of that wall.
+function buildAskCallFlowLookup(unusual) {
+  const map = new Map();
+  if (!unusual) return map;
   for (const t of unusual.tickers || []) {
     for (const c of t.contracts || []) {
-      if (c.side === "call" && c.tape === "ask") {
-        set.add(t.symbol);
-        break;
-      }
+      const tape = String(c?.tape || "").toLowerCase();
+      const premium = Number(c?.deltaPremium ?? c?.premium);
+      if (
+        c?.side !== "call" ||
+        (tape !== "ask" && tape !== "abv") ||
+        !(premium >= 25000) ||
+        !(Number(c.strike) > 0) ||
+        !(Number(c.expSec) > 0)
+      ) continue;
+      if (!map.has(t.symbol)) map.set(t.symbol, []);
+      map.get(t.symbol).push({
+        strike: Number(c.strike),
+        expSec: Number(c.expSec),
+        premium,
+      });
     }
   }
-  return set;
+  return map;
+}
+
+function hasWallAlignedAskFlow(records, callWall) {
+  if (!callWall || !Array.isArray(records)) return false;
+  return records.some((r) =>
+    r.expSec === callWall.expSec &&
+    Math.abs(r.strike - callWall.strike) / callWall.strike <= 0.03);
 }
 
 // Fetches the front-N expirations for a ticker and returns every in-band
@@ -473,7 +492,7 @@ function computeGammaScore({ contracts, spot, callWall, callOiTotal, putOiTotal,
   const reasons = [];
   let score = 0;
 
-  // Rule 1: heavy call OI concentrated in the 0–12% OTM band, this/next
+  // Rule 1: heavy call OI concentrated in the 0–10% OTM band, this/next
   // week. "Concentrated" = a single strike's OI is ≥ CONCENTRATED_RATIO
   // × the average call OI across all short-dated strikes AND ≥ BIG_OI
   // in absolute terms.
@@ -520,11 +539,10 @@ function computeGammaScore({ contracts, spot, callWall, callOiTotal, putOiTotal,
     }
   }
 
-  // Rule 4: spot is within NEAR_WALL_PCT of the highest call OI strike.
-  // Distance is unsigned — a stock 5% above the wall or 5% below both
-  // count as "approaching".
-  if (callWall && spot > 0) {
-    const distance = Math.abs(callWall.strike - spot) / spot;
+  // Rule 4: an overhead call wall is within NEAR_WALL_PCT of spot. A wall
+  // already below price is not an approaching squeeze trigger.
+  if (callWall && spot > 0 && callWall.strike >= spot) {
+    const distance = (callWall.strike - spot) / spot;
     if (distance <= NEAR_WALL_PCT) {
       score += 1;
       reasons.push({
@@ -534,15 +552,14 @@ function computeGammaScore({ contracts, spot, callWall, callOiTotal, putOiTotal,
     }
   }
 
-  // Rule 5: unusual.json has at least one CALL hit on this ticker bought
-  // at the ask (sweep/block buying pressure). Captures the "fresh
-  // aggressive bet" signal from the spec without needing to re-fetch
-  // tape data ourselves.
+  // Rule 5: unusual.json has material ask-side call flow on the same expiry
+  // and within 3% of the call-wall strike. This avoids crediting unrelated
+  // far-away call activity on the same ticker.
   if (askCallFlow) {
     score += 1;
     reasons.push({
       rule: "ask_sweeps",
-      label: "Aggressive call buying at the ask in recent flow",
+      label: "Material ask-side call flow aligned to the call wall",
     });
   }
 
@@ -561,7 +578,7 @@ async function main() {
   const baselineEtDate = prevSnap?.etDate ?? null;
 
   const unusual = await loadUnusualForFlow(todayKey);
-  const askCallSymbols = buildAskCallSymbols(unusual);
+  const askCallFlow = buildAskCallFlowLookup(unusual);
 
   // OI_SCAN_LIMIT env var caps the universe to the first N tickers —
   // useful for local smoke tests and CI dry runs without hitting Yahoo
@@ -577,7 +594,7 @@ async function main() {
   console.log(
     `Scanning ${SCAN_TICKERS.length} tickers for near-term OI (${scanType} scan, ` +
       (prevOiLookup ? `ΔOI baseline: ${baselineEtDate}` : "no prior-day baseline yet") +
-      ", " + (unusual ? `${askCallSymbols.size} tickers with ask-side call flow` : "no unusual.json available") +
+      ", " + (unusual ? `${askCallFlow.size} tickers with material ask-side call flow` : "no unusual.json available") +
       ")…",
   );
 
@@ -629,7 +646,7 @@ async function main() {
         callWall,
         callOiTotal,
         putOiTotal,
-        askCallFlow: askCallSymbols.has(symbol),
+        askCallFlow: hasWallAlignedAskFlow(askCallFlow.get(symbol), callWall),
       });
 
       const topStrikes = pickTopStrikes(decorated).map(stripStrike);
