@@ -18569,6 +18569,41 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var ip = d.ipos;
     if (ip && ip.current){
       var ipPace = icIpoPace(ip, d.builtAtIso);
+      var upcoming = Array.isArray(ip.upcoming) ? ip.upcoming : null;
+      var upcomingHtml = '';
+      if (upcoming){
+        var upcomingRows = '';
+        for (var u = 0; u < upcoming.length; u++){
+          var nextIpo = upcoming[u] || {};
+          var low = nextIpo.priceLow != null && isFinite(nextIpo.priceLow) ? Number(nextIpo.priceLow) : null;
+          var high = nextIpo.priceHigh != null && isFinite(nextIpo.priceHigh) ? Number(nextIpo.priceHigh) : null;
+          var priceRange = nextIpo.priceRange || (low != null && high != null ? '$' + low.toFixed(2) + ' – $' + high.toFixed(2) : null);
+          var dateMs = Date.parse(String(nextIpo.date || '') + 'T12:00:00Z');
+          var etToday = etNowParts();
+          var todayMs = Date.parse((etToday && etToday.dateKey ? etToday.dateKey : new Date().toISOString().slice(0, 10)) + 'T12:00:00Z');
+          var daysUntil = isFinite(dateMs) && isFinite(todayMs) ? Math.max(0, Math.round((dateMs - todayMs) / 86400000)) : null;
+          var when = daysUntil == null ? '' : daysUntil === 0 ? 'Today' : daysUntil === 1 ? 'Tomorrow' : 'In ' + daysUntil + ' days';
+          var sector = nextIpo.sector || 'Sector not published';
+          var industry = nextIpo.industry || '';
+          upcomingRows += '<article class="ic-upcoming-card">' +
+            '<div class="ic-upcoming-date"><span>' + escapeHtml(icDateShort(nextIpo.date)) + '</span><small>' + escapeHtml(when) + '</small></div>' +
+            '<div class="ic-upcoming-company"><div><b>' + escapeHtml(nextIpo.symbol || 'TBD') + '</b><span>' + escapeHtml(nextIpo.name || '') + '</span></div>' +
+              '<p>' + escapeHtml(sector) + (industry ? ' · ' + escapeHtml(industry) : '') + '</p></div>' +
+            '<div class="ic-upcoming-terms"><span><small>Expected raise</small><b>' + cxDollars(nextIpo.raised != null && isFinite(nextIpo.raised) ? nextIpo.raised : null) + (nextIpo.raisedEstimated ? '<sup> est.</sup>' : '') + '</b></span>' +
+              '<span><small>Expected price</small><b>' + escapeHtml(priceRange || 'Not set') + '</b></span></div>' +
+            '<div class="ic-upcoming-meta"><span>' + escapeHtml(nextIpo.exchange || 'Exchange TBD') + '</span>' +
+              (nextIpo.sharesOffered != null && isFinite(nextIpo.sharesOffered) ? '<span>' + escapeHtml(Number(nextIpo.sharesOffered).toLocaleString()) + ' shares</span>' : '') + '</div>' +
+          '</article>';
+        }
+        upcomingHtml = '<section class="ic-upcoming"><div class="ic-upcoming-head"><div><span class="ic-decision-kicker">Upcoming IPO calendar</span><h3>' +
+          (upcoming.length ? upcoming.length + ' scheduled deal' + (upcoming.length === 1 ? '' : 's') : 'No IPOs currently scheduled') +
+          '</h3><p>' + (upcoming.length ? 'Expected proceeds, price range, timing and sector for the next public offerings.' : 'IPO dates are usually set only 7–10 days ahead; filed but unscheduled deals are not treated as imminent.') + '</p></div>' +
+          (ip.upcomingStale ? '<span class="cmd-badge cmd-badge-stale" title="One or more schedule buckets did not refresh — showing the available or last-good calendar">partial / last-good</span>' : '<span class="cmd-badge">calendar current</span>') +
+          '</div>' + (upcomingRows ? '<div class="ic-upcoming-grid">' + upcomingRows + '</div>' : '') +
+          '<p class="ic-note">' + escapeHtml(ip.upcomingNote || 'Scheduled dates and terms are estimates and can change.') + ' Source: <a href="' + escapeHtml(ip.upcomingSourceUrl || ip.sourceUrl || '#') + '" target="_blank" rel="noopener noreferrer">StockAnalysis IPO calendar</a>.</p></section>';
+      } else {
+        upcomingHtml = '<section class="ic-upcoming ic-upcoming-empty"><div><span class="ic-decision-kicker">Upcoming IPO calendar</span><h3>Schedule unavailable</h3><p>The next daily build will retry the calendar. Do not infer that zero IPOs are scheduled from a failed source read.</p></div></section>';
+      }
       var bq = Array.isArray(ip.byQuarter) ? ip.byQuarter : [];
       // Selected quarter (the bars are clickable) — default current, and a
       // selection that no longer exists in the payload falls back to current.
@@ -18625,8 +18660,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       }
       html += '<details class="ic-card ic-card-wide ic-section" data-ic-section="ipos"' + (ipoCreditState.openSection === 'ipos' ? ' open' : '') + '>' +
         '<summary class="ic-section-summary"><span><small>Equity issuance</small><b>Companies going public</b></span>' +
-          '<span class="ic-section-signal"><b>' + ip.current.count + ' IPOs' + (ipPace ? ' · ≈' + Math.round(ipPace.pace) + ' pace' : '') + '</b><small>' + escapeHtml(ip.current.label) + ' to date' + (ipPace && ipPace.spacShare != null ? ' · ' + ipPace.spacShare.toFixed(0) + '% SPAC' : '') + ' · prior ' + ip.prior.count + '</small></span></summary>' +
+          '<span class="ic-section-signal"><b>' + ip.current.count + ' IPOs' + (upcoming ? ' · ' + upcoming.length + ' upcoming' : '') + (ipPace ? ' · ≈' + Math.round(ipPace.pace) + ' pace' : '') + '</b><small>' + escapeHtml(ip.current.label) + ' to date' + (ipPace && ipPace.spacShare != null ? ' · ' + ipPace.spacShare.toFixed(0) + '% SPAC' : '') + ' · prior ' + ip.prior.count + '</small></span></summary>' +
         '<div class="ic-section-body">' +
+          upcomingHtml +
           (bars ? '<div class="ic-bars">' + bars + '</div>' : '') +
           selHead + tableHtml +
           '<p class="ic-note">' + escapeHtml((ip.note || '') + (ip.listingNote ? ' ' + ip.listingNote : '')) + ' Source: <a href="' + escapeHtml(ip.sourceUrl || '#') + '" target="_blank" rel="noopener noreferrer">stockanalysis.com</a>.</p>' +

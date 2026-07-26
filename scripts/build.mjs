@@ -10535,6 +10535,84 @@ async function fetchIpoScreenerYear(year) {
   return out;
 }
 
+// ── Upcoming IPO calendar ──────────────────────────────────────────────────
+// Upcoming IPOs use the calendar index rather than the historical/priced IPO
+// index above. The calendar normally reaches only 7-10 days forward, but query
+// all three schedule buckets so a rarer later-dated deal is not dropped. Sector
+// and industry are available directly in the screener response, avoiding a
+// per-company profile fetch. `ds` is the source's expected deal size; when it is
+// absent but a range and share count exist, compute and label a midpoint
+// estimate rather than presenting it as a disclosed amount.
+const IC_UPCOMING_IPO_COLS = "ipoDate,s,n,exchange,ipoPriceRange,ipoPriceLow,ipoPriceHigh,sharesOffered,ds,sector,industry";
+const IC_UPCOMING_IPO_FILTERS = [
+  "ipoDate-isdate-thisweek",
+  "ipoDate-isdate-nextweek",
+  "ipoDate-isdate-afternextweek",
+];
+export function normalizeUpcomingIpos(rows) {
+  const out = [];
+  for (const r of Array.isArray(rows) ? rows : []) {
+    const date = String(r?.ipoDate || "");
+    const symbol = String(r?.s || "").replace(/^=/, "").toUpperCase();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^[A-Z][A-Z0-9.]{0,6}$/.test(symbol)) continue;
+    const priceLowN = Number(r?.ipoPriceLow);
+    const priceHighN = Number(r?.ipoPriceHigh);
+    const priceLow = Number.isFinite(priceLowN) && priceLowN > 0 ? priceLowN : null;
+    const priceHigh = Number.isFinite(priceHighN) && priceHighN > 0 ? priceHighN : null;
+    const sharesN = Number(r?.sharesOffered);
+    const sharesOffered = Number.isFinite(sharesN) && sharesN > 0 ? Math.round(sharesN) : null;
+    const disclosedRaised = Number(r?.ds);
+    let raised = Number.isFinite(disclosedRaised) && disclosedRaised > 0 ? Math.round(disclosedRaised) : null;
+    let raisedEstimated = false;
+    if (raised == null && sharesOffered != null && priceLow != null && priceHigh != null) {
+      raised = Math.round(sharesOffered * ((priceLow + priceHigh) / 2));
+      raisedEstimated = true;
+    }
+    out.push({
+      date,
+      symbol,
+      name: String(r?.n || "").trim() || symbol,
+      exchange: String(r?.exchange || "").trim() || null,
+      priceRange: String(r?.ipoPriceRange || "").trim() || null,
+      priceLow,
+      priceHigh,
+      sharesOffered,
+      raised,
+      raisedEstimated,
+      sector: String(r?.sector || "").trim() || null,
+      industry: String(r?.industry || "").trim() || null,
+    });
+  }
+  return out;
+}
+export async function fetchUpcomingIpos() {
+  const results = await Promise.allSettled(IC_UPCOMING_IPO_FILTERS.map(async (filter) => {
+    const url = `https://stockanalysis.com/_api/endpoints/screener/table?type=s&m=ipoDate&s=asc&c=${IC_UPCOMING_IPO_COLS}&f=${filter}&i=futip-calendar`;
+    const res = await fetch(url, {
+      headers: { "user-agent": IC_BROWSER_UA, accept: "application/json" },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const rows = (await res.json())?.data?.data;
+    if (!Array.isArray(rows)) throw new Error("unexpected upcoming IPO screener shape");
+    return rows;
+  }));
+  const fulfilled = results.filter((r) => r.status === "fulfilled");
+  if (!fulfilled.length) {
+    const reasons = results.map((r) => r.status === "rejected" ? r.reason?.message || String(r.reason) : "").filter(Boolean);
+    throw new Error(reasons.join("; ") || "all upcoming IPO calendar requests failed");
+  }
+  const deduped = new Map();
+  for (const item of normalizeUpcomingIpos(fulfilled.flatMap((r) => r.value))) {
+    deduped.set(`${item.date}|${item.symbol}`, item);
+  }
+  return {
+    items: [...deduped.values()].sort((a, b) =>
+      a.date < b.date ? -1 : a.date > b.date ? 1 : a.symbol < b.symbol ? -1 : 1),
+    partial: fulfilled.length !== results.length,
+  };
+}
+
 // ── SEC EDGAR full-text-search filing counts ────────────────────────────────
 // One tiny JSON GET per (form, quarter): the hit total is the filing count.
 // Completed quarters are immutable, so counts already present in the prior
@@ -11037,9 +11115,21 @@ export async function buildIpoCreditPayload(builtAtIso, prior = null, priorCapit
     if (!byQuarter.some((q) => (Array.isArray(q.items) && q.items.length) || q.count > 0)) throw new Error("no IPO rows parsed");
     const cur = byQuarter.find((q) => q.key === curKey);
     const prev = byQuarter.find((q) => q.key === prevKey);
+    let upcoming = prior?.ipos?.upcoming || null;
+    let upcomingStale = true;
+    try {
+      const next = await fetchUpcomingIpos();
+      upcoming = next.items;
+      upcomingStale = next.partial;
+    } catch (err) {
+      console.log(`    ⚠ ipo-credit: upcoming IPO calendar failed (${err.message})${upcoming ? " — carrying last-good" : ""}`);
+    }
     payload.ipos = {
       source: "stockanalysis.com",
       sourceUrl: "https://stockanalysis.com/ipos/",
+      upcomingSourceUrl: "https://stockanalysis.com/ipos/calendar/",
+      upcoming,
+      upcomingStale,
       byQuarter,
       current: { key: curKey, label: icQuarterLabel(curKey), count: cur?.count || 0 },
       prior: { key: prevKey, label: icQuarterLabel(prevKey), count: prev?.count || 0 },
@@ -11051,6 +11141,7 @@ export async function buildIpoCreditPayload(builtAtIso, prior = null, priorCapit
         : (prior?.ipos?.recent || []),
       note: "All US listings including SPACs, by pricing date.",
       listingNote: "Mkt cap at IPO ≈ IPO price × shares outstanding (estimate); raised = the IPO deal size.",
+      upcomingNote: "Scheduled dates and price ranges are estimates and can change. Expected raise is the published deal size, or a labeled midpoint estimate when only shares and a range are available.",
       // Current quarter not freshly derived this build (source failure or a
       // suspicious-empty fallback) ⇒ stale badge. A genuinely-empty brand-new
       // quarter/year still counts as fresh.
