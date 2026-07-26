@@ -3867,6 +3867,17 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 }
 .cx-desk-source > span { flex: 0 0 auto; color: var(--text-strong); font: 750 9.5px/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; }
 .cx-desk-source > p { margin: 0; color: var(--muted); font: 500 10.5px/1.35 var(--font-sans); }
+.cx-guide {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px;
+  padding: 10px; border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+  border-radius: var(--r-2); background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+.cx-guide > div { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.cx-guide span { color: var(--muted); font: 750 9px/1 var(--font-mono); letter-spacing: .07em; text-transform: uppercase; }
+.cx-guide b { color: var(--text-strong); font: 750 19px/1.15 var(--font-mono); }
+.cx-guide small { color: var(--muted-strong); font: 500 10.5px/1.35 var(--font-sans); }
+.cx-guide p { grid-column: 1 / -1; margin: 1px 0 0; color: var(--muted); font: 500 10px/1.35 var(--font-sans); }
+.cx-guide a, .cx-guide-link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .cx-desk-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .cx-desk-stat { min-width: 0; display: flex; flex-direction: column; gap: 3px; padding: 10px; border: 1px solid var(--border); border-radius: var(--r-2); background: var(--surface-2); }
 .cx-desk-stat > span { color: var(--muted); font: 700 9px/1 var(--font-mono); letter-spacing: .07em; text-transform: uppercase; }
@@ -3992,6 +4003,8 @@ a.cx-tkr { border-bottom: 1px solid transparent; }
   .cx-desk-head h3 { font-size: 16px; }
   .cx-desk-badge { padding: 4px 7px; font-size: 9px; }
   .cx-desk-source { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .cx-guide { grid-template-columns: minmax(0, 1fr); }
+  .cx-guide p { grid-column: 1; }
   .cx-desk-grid { display: flex; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; padding-bottom: 3px; }
   .cx-desk-grid::-webkit-scrollbar { display: none; }
   .cx-desk-stat { flex: 0 0 min(182px, 61vw); scroll-snap-align: start; }

@@ -9127,6 +9127,60 @@ const AI_CAPEX_CONCEPTS = [
   "PaymentsToAcquirePropertyPlantAndEquipment",
   "PaymentsToAcquireProductiveAssets",
 ];
+// Management's latest full-year CapEx outlook, kept separate from the SEC cash
+// CapEx series below. Definitions are not perfectly uniform: MSFT includes
+// finance leases, META includes finance-lease principal payments, while the
+// other guides are company-defined CapEx. Do not blend these values into the
+// audited FY/TTM history or the CapEx-to-revenue ratios.
+//
+// Review after each reporting company's earnings. `high: null` means the
+// company gave a floor rather than a bounded range.
+export const AI_CAPEX_GUIDANCE = {
+  MSFT: {
+    period: "CY2026", low: 190e9, high: 190e9, qualifier: "roughly",
+    asOf: "2026-04-29", event: "FY26 Q3 earnings",
+    basis: "includes finance leases",
+    sourceUrl: "https://www.microsoft.com/en-us/investor/events/fy-2026/earnings-fy-2026-q3",
+  },
+  GOOGL: {
+    period: "CY2026", low: 195e9, high: 205e9, qualifier: "range",
+    asOf: "2026-07-22", event: "Q2 2026 earnings",
+    change: "raised from $180–190B",
+    basis: "company-defined CapEx",
+    sourceUrl: "https://abc.xyz/investor/events/event-details/2026/2026-Q2-Earnings-Call-2026-GgTAq7Is0z/default.aspx",
+  },
+  AMZN: {
+    period: "CY2026", low: 200e9, high: 200e9, qualifier: "about",
+    asOf: "2026-02-05", event: "Q4 2025 earnings",
+    basis: "company-defined CapEx",
+    sourceUrl: "https://ir.aboutamazon.com/news-release/news-release-details/2026/Amazon-com-Announces-Fourth-Quarter-Results/default.aspx",
+  },
+  META: {
+    period: "CY2026", low: 125e9, high: 145e9, qualifier: "range",
+    asOf: "2026-04-29", event: "Q1 2026 earnings",
+    basis: "includes finance-lease principal payments",
+    sourceUrl: "https://investor.atmeta.com/investor-news/press-release-details/2026/Meta-Reports-First-Quarter-2026-Results/default.aspx",
+  },
+  TSLA: {
+    period: "CY2026", low: 25e9, high: null, qualifier: "more than",
+    asOf: "2026-07-23", event: "Q2 2026 filing",
+    basis: "company-defined CapEx",
+    sourceUrl: "https://www.sec.gov/Archives/edgar/data/1318605/000162828026049270/tsla-20260630.htm",
+  },
+};
+export function buildAiCapexGuidanceTotals() {
+  const companies = Object.entries(AI_CAPEX_GUIDANCE).map(([ticker, g]) => ({ ticker, ...g }));
+  return {
+    period: "CY2026",
+    lowSum: companies.reduce((sum, g) => sum + g.low, 0),
+    highSum: companies.reduce((sum, g) => sum + (g.high == null ? g.low : g.high), 0),
+    hasFloor: companies.some((g) => g.high == null),
+    count: companies.length,
+    latestAsOf: companies.map((g) => g.asOf).sort().pop() || null,
+    companies,
+    comparabilityNote: "Company definitions differ; guidance is directional and is not added to SEC-reported cash CapEx.",
+  };
+}
 // Total-revenue concepts, probed the same most-recent-FY-wins way as capex so
 // the CapEx spend can be compared against the group's combined revenue (total
 // $ and YoY growth) on the SAME fiscal-year windows. "Revenues" is the
@@ -9235,6 +9289,7 @@ const capexFyLabel = (endIso) => {
 export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = null) {
   const companies = [];
   const missing = [];
+  const guidanceTotals = buildAiCapexGuidanceTotals();
   for (const ticker of AI_CAPEX_TICKERS) {
     const cik = cikMap ? cikMap.get(ticker) : null;
     if (!cik) { missing.push(ticker); continue; }
@@ -9295,13 +9350,22 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
       rev,
       revenue: revenue ?? null,
       capexToRevenuePct: revenue > 0 && reduced.ttm ? r1((reduced.ttm.val / revenue) * 100) : null,
+      guidance: AI_CAPEX_GUIDANCE[ticker] || null,
       history: a.slice(-5).map((x) => ({ label: capexFyLabel(x.endIso), end: x.endIso, val: x.val })),
     });
     console.log(`  · AI CapEx ${ticker}: ${capexFyLabel(fyLatest.endIso)} $${(fyLatest.val / 1e9).toFixed(1)}B${yoyPct != null ? ` (${yoyPct >= 0 ? "+" : ""}${yoyPct}% YoY)` : ""}${reduced.ttm ? ` · TTM $${(reduced.ttm.val / 1e9).toFixed(1)}B` : ""}`);
   }
   if (!companies.length) {
     // Total SEC failure — carry forward last-good rather than blank the tab.
-    if (prior && Array.isArray(prior.companies) && prior.companies.length) return { ...prior, stale: true, builtAtIso };
+    if (prior && Array.isArray(prior.companies) && prior.companies.length) {
+      return {
+        ...prior,
+        builtAtIso,
+        stale: true,
+        companies: prior.companies.map((c) => ({ ...c, guidance: AI_CAPEX_GUIDANCE[c.ticker] || null })),
+        totals: { ...(prior.totals || {}), guidance: guidanceTotals },
+      };
+    }
     return { builtAtIso, companies: [], totals: null, missing, stale: false };
   }
   // Aggregate on the common latest-FY label (the year most names report). Pick the
@@ -9354,6 +9418,7 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
     deltaAbs: haveBothFy ? fyLatestSum - fyPriorSum : null,
     ttmSum: ttmCount ? ttmSum : null, ttmCount, count: companies.length,
     revenue: revenueTotals,
+    guidance: guidanceTotals,
   };
   // Rank companies by latest-FY spend (biggest spenders first) for the table.
   companies.sort((a, b) => b.fyLatest.val - a.fyLatest.val);

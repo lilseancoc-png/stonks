@@ -20,6 +20,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
        (same format, plus the archive preamble) and add that month to the
        "Older changelogs" index below. -->
 
+## 2026-07-26
+
+### Fixed
+
+- **AI CapEx now reflects the latest earnings outlook instead of stopping at filed cash spend.** The tab keeps its audited SEC full-year and TTM series intact, but adds a separately labeled 2026 management-outlook layer: approximately **$735–765B+ across the five Mag-7 companies that provide a full-year guide**. Alphabet is current to its July 22 Q2 raise to $195–205B; Microsoft, Amazon, Meta, and Tesla carry their latest primary-source figures, while AAPL and NVDA are honestly excluded because they do not give a full-year CapEx guide. Per-company ledger rows link to the source disclosure, and the UI warns that company definitions differ rather than adding guidance to SEC cash CapEx or revenue-burden math. `scripts/build.mjs`, `scripts/render/{html,app-js,styles-css}.mjs`.
+
 ## 2026-07-25
 
 ### Perf

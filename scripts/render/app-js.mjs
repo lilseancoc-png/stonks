@@ -17161,6 +17161,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Aggregate Mag-7 capital expenditure from data/ai-capex.json — SEC XBRL
   // CapEx, latest full FY vs the year before (+ TTM run-rate), per company.
   var aiCapexState = { data: null, loading: false };
+  function cxGuidanceDollars(g){
+    if (!g || g.low == null || !isFinite(g.low)) return '&mdash;';
+    if (g.high == null || !isFinite(g.high)) return '>' + cxDollars(g.low);
+    if (g.high !== g.low) return cxDollars(g.low) + '&ndash;' + cxDollars(g.high);
+    return (g.qualifier === 'roughly' || g.qualifier === 'about' ? '~' : '') + cxDollars(g.low);
+  }
   function cxDollars(v){ if (v == null || !isFinite(v)) return '—'; return fmtBigDollars(v) || ('$' + Math.round(v).toLocaleString()); }
   function cxYoyChip(p){
     if (p == null || !isFinite(p)) return '';
@@ -17227,6 +17233,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var t = d.totals || null;
     var head = '', desk = '', top2Share = null;
     if (t){
+      var guide = t.guidance || null;
+      var guideCompanies = guide && Array.isArray(guide.companies) ? guide.companies : [];
+      var latestGuide = guideCompanies.filter(function(g){ return !!g.change; }).sort(function(a,b){ return String(b.asOf || '').localeCompare(String(a.asOf || '')); })[0] ||
+        guideCompanies.slice().sort(function(a,b){ return String(b.asOf || '').localeCompare(String(a.asOf || '')); })[0] || null;
+      var guideValue = guide ? cxGuidanceDollars({ low: guide.lowSum, high: guide.highSum, qualifier: guide.hasFloor ? 'floor' : 'range' }) + (guide.hasFloor ? '+' : '') : '&mdash;';
       var dir = t.yoyPct == null ? '' : (t.yoyPct >= 0 ? 'cx-up' : 'cx-down');
       var deltaTxt = (t.deltaAbs != null) ? (' (' + (t.deltaAbs >= 0 ? '+' : '−') + cxDollars(Math.abs(t.deltaAbs)) + ')') : '';
       var fyLbl = t.fyLatestLabel ? escapeHtml(t.fyLatestLabel) : 'latest FY';
@@ -17338,12 +17349,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         : (cycleTone === 'cool'
           ? '<div class="cx-actions"><button type="button" class="cx-action cx-action-primary" data-cx-tab="heatmap">Open Heatmap</button><button type="button" class="cx-action" data-cx-tab="calls">Open Earnings calls</button><button type="button" class="cx-action" data-cx-grade="NVDA">Grade NVDA</button></div>'
           : '<div class="cx-actions"><button type="button" class="cx-action cx-action-primary" data-cx-grade="NVDA">Grade NVDA</button><button type="button" class="cx-action" data-cx-tab="heatmap">Open Heatmap</button><button type="button" class="cx-action" data-cx-tab="calls">Open Earnings calls</button></div>');
+      var guideStrip = guide ? '<div class="cx-guide"><div class="cx-guide-total"><span>Management ' + escapeHtml(guide.period || '2026') + ' outlook</span><b>' + guideValue + '</b><small>' + guide.count + ' reporting companies; AAPL and NVDA give no full-year CapEx guide</small></div>' +
+        '<div class="cx-guide-latest"><span>Latest earnings revision</span>' +
+          (latestGuide ? '<b>' + escapeHtml(latestGuide.ticker) + ' ' + cxGuidanceDollars(latestGuide) + '</b><small>' + escapeHtml(latestGuide.event || latestGuide.asOf || '') + (latestGuide.change ? ' &middot; ' + escapeHtml(latestGuide.change) : '') + ' &middot; <a href="' + escapeHtml(latestGuide.sourceUrl || '#') + '" target="_blank" rel="noopener">primary source</a></small>' : '<b>No current guide</b>') +
+        '</div><p>' + escapeHtml(guide.comparabilityNote || '') + '</p></div>' : '';
       desk = '<section class="cx-desk cx-desk-' + cycleTone + '"><div class="cx-desk-head"><div><span class="cx-desk-kicker">AI buildout desk</span><h3>' + escapeHtml(cycleHeadline) + '</h3>' +
         '<p>' + (growthGap == null ? 'Track whether infrastructure spending is accelerating, concentrating, or beginning to cool.' : 'CapEx growth is ' + Math.abs(growthGap).toFixed(1) + ' points ' + (growthGap >= 0 ? 'faster than' : 'slower than') + ' combined revenue growth.') + '</p></div>' +
         '<span class="cx-desk-badge">' + (cycleTone === 'hot' ? 'Accelerating' : cycleTone === 'cool' ? 'Cooling' : cycleTone === 'reference' ? 'Refresh required' : 'Elevated') + '</span></div>' +
         '<div class="cx-desk-source"><span>' + escapeHtml(freshness.label) + '</span><p>' + escapeHtml(freshness.detail) + '</p></div>' +
+        guideStrip +
         '<div class="cx-desk-grid">' +
-          '<div class="cx-desk-stat"><span>Latest full-year spend</span><b>' + cxDollars(t.fyLatestSum) + '</b><small>' + (t.yoyPct == null ? 'prior-year comparison unavailable' : (t.yoyPct >= 0 ? '+' : '') + t.yoyPct.toFixed(1) + '% y/y') + '</small></div>' +
+          '<div class="cx-desk-stat"><span>Management 2026 outlook</span><b>' + guideValue + '</b><small>' + (guide ? guide.count + ' companies reporting' : 'guidance unavailable') + '</small></div>' +
           '<div class="cx-desk-stat"><span>Current TTM run-rate</span><b>' + cxDollars(t.ttmSum) + '</b><small>' + (runRatePct == null ? 'run-rate unavailable' : (runRatePct >= 0 ? '+' : '') + runRatePct.toFixed(1) + '% vs latest FY') + '</small></div>' +
           '<div class="cx-desk-stat"><span>Revenue burden</span><b>' + (share == null ? '—' : share.toFixed(1) + '%') + '</b><small>CapEx as share of combined revenue</small></div>' +
           '<div class="cx-desk-stat"><span>Top-two concentration</span><b>' + (top2Share == null ? '—' : top2Share.toFixed(0) + '%') + '</b><small>' + escapeHtml(top2.map(function(co){ return co.ticker; }).join(' + ') || 'spend leaders unavailable') + '</small></div>' +
@@ -17363,6 +17379,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var v = co.fyLatest ? co.fyLatest.val : 0;
       var w = maxV > 0 ? (v / maxV * 100) : 0;
       var ttmTxt = co.ttm ? cxDollars(co.ttm.val) + (co.ttm.basis === 'ttm' ? ' TTM' : ' FY') : '—';
+      var guideTxt = co.guidance ? ' &middot; ' + escapeHtml(co.guidance.period || '2026') + ' guide <a class="cx-guide-link" href="' + escapeHtml(co.guidance.sourceUrl || '#') + '" target="_blank" rel="noopener">' + cxGuidanceDollars(co.guidance) + '</a>' : '';
       rows += '<div class="cx-row">' +
         '<div class="cx-row-head"><a class="cx-tkr" data-sym="' + escapeHtml(co.ticker) + '" href="' + symGradeHref(co.ticker) + '">' + escapeHtml(co.ticker) + '</a> <span class="cx-name">' + escapeHtml(co.name || '') + '</span></div>' +
         '<div class="cx-bar-wrap" title="' + escapeHtml(co.ticker + ' capex ' + cxDollars(v) + (co.yoyPct != null ? ' · ' + (co.yoyPct >= 0 ? '+' : '') + co.yoyPct.toFixed(1) + '% YoY' : '')) + '"><div class="cx-bar-track"><div class="cx-bar" style="width:' + w.toFixed(1) + '%"></div></div>' +
@@ -17372,6 +17389,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           ' · run-rate ' + ttmTxt +
           (co.capexToRevenuePct != null ? ' · ' + co.capexToRevenuePct.toFixed(1) + '% of revenue' : '') +
           (co.rev && co.rev.yoyPct != null ? ' · revenue ' + (co.rev.yoyPct >= 0 ? '+' : '') + co.rev.yoyPct.toFixed(1) + '% YoY' + (co.rev.fyLatest ? ' (' + cxDollars(co.rev.fyLatest.val) + ')' : '') : '') +
+          guideTxt +
         '</div>' +
       '</div>';
     }

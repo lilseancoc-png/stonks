@@ -622,7 +622,7 @@ function aiCapexSection() {
       <h2 class="card-title">AI buildout spending</h2>
       <span class="card-eyebrow" id="ai-capex-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote('How to use the AI CapEx signal', `<p>Separate <b>infrastructure demand</b> from <b>investment quality</b>. Rising aggregate CapEx can support chip, networking, power, and data-center suppliers, but it can also pressure the buyers&rsquo; margins and free cash flow when spending outruns revenue. Start with the trade posture, compare CapEx growth with revenue growth and the current run-rate, then verify supplier backlog/guidance and each ticker&rsquo;s Grade before acting. Figures come from SEC filings; fiscal years differ by company.</p>`)}
+    ${infoNote('How to use the AI CapEx signal', `<p>Separate <b>infrastructure demand</b> from <b>investment quality</b>. Rising aggregate CapEx can support chip, networking, power, and data-center suppliers, but it can also pressure the buyers&rsquo; margins and free cash flow when spending outruns revenue. Start with management&rsquo;s latest full-year outlook, then compare SEC-reported CapEx growth with revenue growth and the current run-rate before checking supplier backlog/guidance and each ticker&rsquo;s Grade. Guidance definitions differ by company and remain separate from reported cash CapEx; fiscal years also differ.</p>`)}
     <div id="ai-capex-root" class="ai-capex-root">Loading AI CapEx…</div>
     <div id="ai-capex-empty" class="ai-capex-empty" hidden>AI CapEx data will appear after the next daily build refresh.</div>
   </section>`;
