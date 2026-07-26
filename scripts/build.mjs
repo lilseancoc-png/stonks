@@ -964,23 +964,14 @@ async function fetchIntradayBars(symbol) {
     }));
 }
 
-// Streak break thresholds. A "counter day" is a daily move opposite the
-// streak direction (red move during a green streak, or vice versa). Small
-// counter days don't break a streak immediately; they accumulate into a
-// tolerance bank and a consecutive-counter-day counter. The streak ends
-// only when one of these tripwires fires:
-//   • a single counter day's magnitude exceeds COUNTER_BREAK_PCT
-//   • the tolerance bank reaches CUM_TOLERANCE_BREAK_PCT
-//   • CONSECUTIVE_COUNTER_BREAK counter days line up in a row
-// A same-direction day "heals" only the trailing counter-day run: the
-// consecutive-counter-day counter resets to zero, but the tolerance bank and
-// the total counter-day count are cumulative across the whole streak window
-// and do NOT reset (see startStreak + the same-direction branch below).
-// Tolerance only kicks in once the streak has logged ≥ 2 same-direction days
-// -- a lone +0.5% day followed by a small red day isn't really a "streak" to
-// defend.
-const STREAK_COUNTER_BREAK_PCT = 1.2;
-const STREAK_CUM_TOLERANCE_BREAK_PCT = 1.5;
+// A counter day moves opposite the streak. The daily noise floor, one-day
+// break bar, and cumulative tolerance bar adapt to each ticker's own recent
+// median absolute move below. Four consecutive counter days remains a hard
+// behavioral stop. Same-direction closes heal half the tolerance bank and
+// one accumulated counter day, so old damage fades without resetting a
+// fragile run to pristine in a single session. Tolerance only begins after
+// two same-direction days; a one-day move followed by a reversal is not a
+// streak worth defending.
 const STREAK_CONSECUTIVE_COUNTER_BREAK = 4;
 // How recently a genuine streak must have broken to be surfaced as a
 // "just snapped" mean-reversion candidate (0 = snapped on the latest session).
@@ -994,18 +985,41 @@ export function computeStreakForTicker(symbol, bars) {
   // Cap at the most recent ~60 sessions so we don't carry decades of
   // history forward; the active streak is always recent by definition.
   const tail = bars.slice(-60);
-  const moves = [];
+  const rawMoves = [];
   for (let i = 1; i < tail.length; i++) {
     const prev = tail[i - 1];
     const curr = tail[i];
     if (!(prev?.c > 0) || !(curr?.c > 0)) continue;
     const changePct = ((curr.c - prev.c) / prev.c) * 100;
-    const color = changePct > 0 ? "green" : changePct < 0 ? "red" : "flat";
     // idx -> position in `tail` (for volume baseline lookup); volume -> the
     // session's share volume (used for the streak's volume-trend read).
-    moves.push({ idx: i, date: curr.t || null, close: curr.c, volume: curr.v ?? null, changePct, color });
+    rawMoves.push({ idx: i, date: curr.t || null, close: curr.c, volume: curr.v ?? null, changePct });
   }
-  if (!moves.length) return null;
+  if (!rawMoves.length) return null;
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const median = (values) => {
+    const sorted = values.slice().sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2
+      ? sorted[mid]
+      : (sorted[mid - 1] + sorted[mid]) / 2;
+  };
+  const recentAbs = rawMoves.slice(-20).map((m) => Math.abs(m.changePct));
+  const medianAbsMove = median(recentAbs);
+  // Ignore tape dust: a +0.03% close should not extend a streak. Scale the
+  // dead-band and break bars to each ticker's own recent daily movement.
+  const moveNoisePct = clamp(medianAbsMove * 0.20, 0.08, 0.35);
+  const counterBreakPct = clamp(medianAbsMove * 1.75, 0.8, 2.5);
+  const toleranceBreakPct = clamp(counterBreakPct * 1.25, 1.0, 3.0);
+  const materialRunPct = Math.max(2, medianAbsMove * 3);
+  const moves = rawMoves.map((m) => ({
+    ...m,
+    color: m.changePct > moveNoisePct
+      ? "green"
+      : m.changePct < -moveNoisePct
+        ? "red"
+        : "flat",
+  }));
 
   // Walk oldest -> newest, restarting the streak whenever a break fires.
   // Whatever streak survives to the end of the loop is the "current" one.
@@ -1017,8 +1031,8 @@ export function computeStreakForTicker(symbol, bars) {
   let maxRedDays = 0;
   const recordMax = (s) => {
     if (!s || s.sameDays < 2) return;
-    if (s.direction === "green") maxGreenDays = Math.max(maxGreenDays, s.days);
-    else if (s.direction === "red") maxRedDays = Math.max(maxRedDays, s.days);
+    if (s.direction === "green") maxGreenDays = Math.max(maxGreenDays, s.sameDays);
+    else if (s.direction === "red") maxRedDays = Math.max(maxRedDays, s.sameDays);
   };
   // The most-recently-ended genuine streak (a "snapped" run) — captured each
   // time a real streak breaks, surfaced at the end only if it broke within the
@@ -1029,10 +1043,10 @@ export function computeStreakForTicker(symbol, bars) {
     days: 1,
     sameDays: 1,
     cumulativePct: m.changePct,
-    // Cumulative counter-day drag across the *whole* streak window --
-    // do not reset when a same-direction day heals the trailing run.
+    growthFactor: 1 + m.changePct / 100,
+    // Counter-day drag, partially healed by later same-direction closes.
     tolerancePct: 0,
-    // Total counter days seen in the streak window, also cumulative.
+    // Net counter-day pressure after partial healing.
     counterDays: 0,
     // Current trailing run of counter days -- only this resets on a
     // same-direction day. Used solely for the N-in-a-row break rule.
@@ -1042,9 +1056,12 @@ export function computeStreakForTicker(symbol, bars) {
   for (const m of moves) {
     if (m.color === "flat") {
       // Flat days are neither same nor counter -- record them but don't
-      // touch the streak's bookkeeping.
+      // touch direction or tolerance bookkeeping. Their small return still
+      // belongs in the compounded window result.
       if (streak) {
         streak.days += 1;
+        streak.growthFactor *= 1 + m.changePct / 100;
+        streak.cumulativePct = (streak.growthFactor - 1) * 100;
         streak.history.push(m);
       }
       continue;
@@ -1054,12 +1071,15 @@ export function computeStreakForTicker(symbol, bars) {
       continue;
     }
     if (m.color === streak.direction) {
-      // Same-direction day: extend. The trailing counter run resets,
-      // but the cumulative tolerance bank + total counter-day count
-      // stay -- those are properties of the whole streak window.
+      // Same-direction day extends the run and heals half of prior counter-day
+      // damage. Old tiny pullbacks should not permanently poison a trend, but
+      // a recently fragile run should not reset to pristine in one close.
       streak.sameDays += 1;
       streak.days += 1;
-      streak.cumulativePct += m.changePct;
+      streak.growthFactor *= 1 + m.changePct / 100;
+      streak.cumulativePct = (streak.growthFactor - 1) * 100;
+      streak.tolerancePct *= 0.5;
+      streak.counterDays = Math.max(0, streak.counterDays - 1);
       streak.consecutiveCounterDays = 0;
       streak.history.push(m);
       continue;
@@ -1076,8 +1096,8 @@ export function computeStreakForTicker(symbol, bars) {
     const newTolerance = streak.tolerancePct + counterMag;
     const newCounterDays = streak.counterDays + 1;
     const newConsecutiveCounter = streak.consecutiveCounterDays + 1;
-    const breakSingleDay = counterMag > STREAK_COUNTER_BREAK_PCT;
-    const breakCumulative = newTolerance >= STREAK_CUM_TOLERANCE_BREAK_PCT;
+    const breakSingleDay = counterMag > counterBreakPct;
+    const breakCumulative = newTolerance >= toleranceBreakPct;
     const breakConsecutive = newConsecutiveCounter >= STREAK_CONSECUTIVE_COUNTER_BREAK;
     if (breakSingleDay || breakCumulative || breakConsecutive) {
       recordMax(streak);
@@ -1086,10 +1106,17 @@ export function computeStreakForTicker(symbol, bars) {
       // day's position in `tail`; recency is measured against it at the end.
       priorEnded = {
         color: streak.direction,
-        days: streak.days,
+        days: streak.sameDays,
+        windowDays: streak.days,
         sameDays: streak.sameDays,
         cumulativePct: streak.cumulativePct,
         endIdx: m.idx,
+        reversalPct: m.changePct,
+        material: (
+          streak.sameDays >= 3 &&
+          (streak.sameDays >= 5 || Math.abs(streak.cumulativePct) >= materialRunPct) &&
+          counterMag >= Math.max(moveNoisePct, counterBreakPct * 0.5)
+        ),
         brokeBy: breakSingleDay ? "big counter day" : breakCumulative ? "tolerance bank" : "counter days",
       };
       streak = startStreak(m);
@@ -1097,7 +1124,8 @@ export function computeStreakForTicker(symbol, bars) {
     }
     // Tolerated: streak survives but logs the counter day's drag.
     streak.days += 1;
-    streak.cumulativePct += m.changePct;
+    streak.growthFactor *= 1 + m.changePct / 100;
+    streak.cumulativePct = (streak.growthFactor - 1) * 100;
     streak.tolerancePct = newTolerance;
     streak.counterDays = newCounterDays;
     streak.consecutiveCounterDays = newConsecutiveCounter;
@@ -1136,14 +1164,20 @@ export function computeStreakForTicker(symbol, bars) {
   // Surface the snapped streak only if it broke within the last few sessions
   // (sessionsAgo 0 = snapped today). Older breaks aren't actionable, so drop.
   let lastEnded = null;
-  if (priorEnded && Number.isInteger(lastIdx) && Number.isInteger(priorEnded.endIdx)) {
+  if (
+    priorEnded?.material &&
+    Number.isInteger(lastIdx) &&
+    Number.isInteger(priorEnded.endIdx)
+  ) {
     const sessionsAgo = lastIdx - priorEnded.endIdx;
     if (sessionsAgo >= 0 && sessionsAgo <= STREAK_SNAPPED_RECENT_SESSIONS) {
       lastEnded = {
         color: priorEnded.color,
         days: priorEnded.days,
+        windowDays: priorEnded.windowDays,
         sameDays: priorEnded.sameDays,
         cumulativePct: priorEnded.cumulativePct,
+        reversalPct: priorEnded.reversalPct,
         brokeBy: priorEnded.brokeBy,
         sessionsAgo,
       };
@@ -1151,9 +1185,8 @@ export function computeStreakForTicker(symbol, bars) {
   }
 
   // History is emitted newest-first to match the existing data contract.
-  // Emit the full streak window so the rendered daily moves sum to
-  // cumulativePct -- the renderer slices by current.days, and long
-  // streaks were previously truncated to 10.
+  // Emit the full streak window. The renderer uses windowDays for the spark
+  // and sameDays for the signal length shown in filters and rankings.
   const histOut = streak.history.slice().reverse().map((m, idx) => ({
     sessionsBack: idx,
     date: m.date,
@@ -1167,17 +1200,19 @@ export function computeStreakForTicker(symbol, bars) {
     current: {
       color: streak.direction,
       days: streak.days,
+      windowDays: streak.days,
       sameDays: streak.sameDays,
       cumulativePct: streak.cumulativePct,
       tolerancePct: streak.tolerancePct,
       counterDays: streak.counterDays,
-      counterBreakPct: STREAK_COUNTER_BREAK_PCT,
-      toleranceBreakPct: STREAK_CUM_TOLERANCE_BREAK_PCT,
+      moveNoisePct,
+      counterBreakPct,
+      toleranceBreakPct,
       counterDaysBreak: STREAK_CONSECUTIVE_COUNTER_BREAK,
       volumeRatio,
       volumeTrend,
     },
-    // Longest comparable run (same `days` metric) for each direction over the
+    // Longest comparable run (same-direction-day metric) for each direction over the
     // ~60-session window — lets the UI flag an unusually long current run.
     context: { maxGreenDays, maxRedDays, windowSessions: moves.length },
     lastEnded,
@@ -3847,20 +3882,14 @@ function computeImpliedMoveForDate(data, earningsDateStr) {
 // computeAtm30dIv (the iv-history capture) and the Quant Lab's term-structure
 // read (30d vs ~90d slope). Same nearest-expiration + nearest-strike + call/put
 // average conventions as always so the two horizons stay comparable.
-function computeAtmIvForDte(data, dteTarget) {
+export function computeAtmIvForDte(data, dteTarget) {
   if (!data?.spot || !data?.chains) return null;
   const spot = data.spot;
   const nowSec = Math.floor(Date.now() / 1000);
-  const target = nowSec + dteTarget * 86400;
-  const exps = Object.keys(data.chains).map(Number)
-    .filter((e) => e > nowSec)
-    .sort((a, b) => Math.abs(a - target) - Math.abs(b - target));
-  if (!exps.length) return null;
-  const expSec = exps[0];
-  const chain = data.chains[expSec];
-  if (!chain) return null;
-  // Nearest-strike-to-spot with a finite positive IV. compressContract
-  // emits {s, b, a, l, iv, oi, v}.
+  const yearSec = 365 * 86400;
+  const targetT = Math.max(1 / 365, dteTarget / 365);
+  // Nearest-strike-to-spot with a finite positive IV. compressContract emits
+  // {s, b, a, l, iv, oi, v}. Average call+put IV to reduce ATM skew noise.
   const pickAtm = (contracts) => {
     const valid = (contracts || []).filter(
       (c) => c?.iv != null && isFinite(c.iv) && c.iv > 0 && c.s != null,
@@ -3870,15 +3899,40 @@ function computeAtmIvForDte(data, dteTarget) {
       Math.abs(c.s - spot) < Math.abs(best.s - spot) ? c : best,
     );
   };
-  const atmC = pickAtm(chain.c);
-  const atmP = pickAtm(chain.p);
-  // Average call+put IV when both available — smooths the put/call skew
-  // around the money so the series doesn't jump just because liquidity
-  // tilted to one side that day.
-  if (atmC && atmP) return (atmC.iv + atmP.iv) / 2;
-  if (atmC) return atmC.iv;
-  if (atmP) return atmP.iv;
-  return null;
+  const points = Object.keys(data.chains).map(Number)
+    .filter((e) => e > nowSec)
+    .sort((a, b) => a - b)
+    .map((expSec) => {
+      const chain = data.chains[expSec];
+      if (!chain) return null;
+      const atmC = pickAtm(chain.c);
+      const atmP = pickAtm(chain.p);
+      const iv = atmC && atmP ? (atmC.iv + atmP.iv) / 2
+        : atmC ? atmC.iv
+          : atmP ? atmP.iv
+            : null;
+      if (!(iv > 0)) return null;
+      return { expSec, T: Math.max(1 / 365, (expSec - nowSec) / yearSec), iv };
+    })
+    .filter(Boolean);
+  if (!points.length) return null;
+
+  const lower = points.filter((p) => p.T <= targetT).at(-1) || null;
+  const upper = points.find((p) => p.T >= targetT) || null;
+  if (!lower || !upper || lower.expSec === upper.expSec) {
+    const nearest = points.reduce((best, p) =>
+      Math.abs(p.T - targetT) < Math.abs(best.T - targetT) ? p : best);
+    return nearest.iv;
+  }
+
+  // Constant-maturity interpolation belongs in total-variance space
+  // (sigma² × T), not directly in IV. This removes expiry-roll jumps from the
+  // daily series while preserving genuine event-vol repricing.
+  const mix = (targetT - lower.T) / (upper.T - lower.T);
+  const lowerVar = lower.iv * lower.iv * lower.T;
+  const upperVar = upper.iv * upper.iv * upper.T;
+  const targetVar = lowerVar + mix * (upperVar - lowerVar);
+  return targetVar > 0 ? Math.sqrt(targetVar / targetT) : null;
 }
 
 function computeAtm30dIv(data) {
@@ -4060,9 +4114,12 @@ function ivTrendChangePct(ivs, back) {
 export function scoreIvTrend({ z, chg5dPct, chg20dPct, risingStreak }) {
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   const zC = clamp(z ?? 0, -1, 3);
-  const m5 = chg5dPct == null ? 0 : clamp(chg5dPct / 8, -1.5, 2.5);
-  const m20 = chg20dPct == null ? 0 : clamp(chg20dPct / 16, -1.5, 2.5);
-  const streak = 0.25 * Math.min(Math.max(risingStreak || 0, 0), 4);
+  // 5d is the active ramp. 20d and the streak are supporting context, not
+  // independent votes for the same move, so keep their weights deliberately
+  // smaller to avoid triple-counting one climb.
+  const m5 = chg5dPct == null ? 0 : clamp(chg5dPct / 10, -1.25, 2);
+  const m20 = chg20dPct == null ? 0 : clamp(chg20dPct / 25, -1, 1.5);
+  const streak = 0.15 * Math.min(Math.max(risingStreak || 0, 0), 4);
   return Number((1.6 * zC + m5 + m20 + streak).toFixed(2));
 }
 
@@ -4075,14 +4132,44 @@ export function scoreIvTrend({ z, chg5dPct, chg20dPct, risingStreak }) {
 // in %): a low-variance history makes z cheap — a ±2% wiggle on a dead-flat
 // series can print z ≥ 1 — so σ alone must never tier a name whose premium
 // hasn't actually expanded in real terms.
-export function ivTrendTier({ score, z, chg5dPct, chg20dPct, relPct }) {
+export function ivTrendTier({
+  score,
+  z,
+  chg5dPct,
+  chg20dPct,
+  relPct,
+  pctile = null,
+  histN = null,
+}) {
   if (z == null || score == null) return null;
   const rel = relPct ?? 0;
   const up5 = (chg5dPct ?? 0) > 0;
   const up20 = (chg20dPct ?? 0) > 0;
-  if (score >= 4.5 && z >= 1.5 && rel >= 15 && up5) return "surging";
-  if (score >= 3 && z >= 0.75 && rel >= 8 && (up5 || up20)) return "trending";
-  if (score >= 2 && z >= 0 && rel >= 3 && up5 && up20) return "building";
+  const provisional = histN != null && histN < 60;
+  const scorePenalty = provisional ? 0.5 : 0;
+  const zPenalty = provisional ? 0.2 : 0;
+  if (
+    score >= 4.5 + scorePenalty &&
+    z >= 1.5 + zPenalty &&
+    rel >= 15 &&
+    (pctile == null || pctile >= 90) &&
+    up5
+  ) return "surging";
+  if (
+    score >= 3 + scorePenalty &&
+    z >= 0.75 + zPenalty &&
+    rel >= 8 &&
+    (pctile == null || pctile >= 75) &&
+    (up5 || up20)
+  ) return "trending";
+  if (
+    score >= 2 + scorePenalty &&
+    z >= zPenalty &&
+    rel >= 3 &&
+    (pctile == null || pctile >= 60) &&
+    up5 &&
+    up20
+  ) return "building";
   return null;
 }
 
@@ -4199,12 +4286,20 @@ export function buildIvTrendSummary(rows) {
 }
 
 // Pure given the collected ivHistory map + chains (for spot / name / sector /
-// earnings context). Percentile + std conventions match attachIvRanks
-// (midrank percentile, sample std) so the two reads never disagree.
+// earnings context). Percentile uses midranks; elevation conservatively
+// combines classical sample-z and robust median/MAD-z.
 export function buildIvTrendingPayload(ivHistory, chains, builtAtIso = new Date().toISOString()) {
   const todayIso = String(builtAtIso).slice(0, 10);
   const rows = [];
   let asOf = null;
+  const median = (values) => {
+    if (!values.length) return null;
+    const sorted = values.slice().sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2
+      ? sorted[mid]
+      : (sorted[mid - 1] + sorted[mid]) / 2;
+  };
   for (const [sym, hist] of ivHistory?.entries?.() || []) {
     const entries = (hist?.entries || []).filter(
       (e) => e && typeof e.date === "string" && Number(e.iv) > 0,
@@ -4220,7 +4315,26 @@ export function buildIvTrendingPayload(ivHistory, chains, builtAtIso = new Date(
     const mean = ivs.reduce((a, b) => a + b, 0) / ivs.length;
     const variance = ivs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / (ivs.length - 1);
     const std = Math.sqrt(variance);
-    const z = std > 0 ? Number(((cur - mean) / std).toFixed(2)) : null;
+    const zClassical = std > 0 ? (cur - mean) / std : null;
+    const med = median(ivs);
+    const madRaw = med == null ? null : median(ivs.map((x) => Math.abs(x - med)));
+    const robustStd = madRaw > 0 ? madRaw * 1.4826 : null;
+    const zRobust = robustStd > 0 ? (cur - med) / robustStd : null;
+    // Require classical and robust histories to agree on direction, then use
+    // the more conservative magnitude. One event outlier or one dead-flat
+    // history cannot manufacture a trend tier by itself.
+    let zSignal = zClassical;
+    if (zClassical != null && zRobust != null) {
+      if (zClassical >= 0 && zRobust >= 0) zSignal = Math.min(zClassical, zRobust);
+      else if (zClassical <= 0 && zRobust <= 0) zSignal = Math.max(zClassical, zRobust);
+      else zSignal = 0;
+    } else if (zClassical != null && madRaw === 0) {
+      // If at least half the history is identical, one isolated print can
+      // create a classical z while robust dispersion is literally zero.
+      // Treat that elevation as unconfirmed instead of promoting an outlier.
+      zSignal = 0;
+    }
+    const z = zSignal == null ? null : Number(zSignal.toFixed(2));
     const chg1dPct = ivTrendChangePct(ivs, 1);
     const chg5dPct = ivTrendChangePct(ivs, 5);
     const chg20dPct = ivTrendChangePct(ivs, 20);
@@ -4228,12 +4342,23 @@ export function buildIvTrendingPayload(ivHistory, chains, builtAtIso = new Date(
     for (let i = ivs.length - 1; i > 0 && ivs[i] > ivs[i - 1]; i--) risingStreak++;
     const relPct = mean > 0 ? Number((((cur - mean) / mean) * 100).toFixed(1)) : null;
     const score = scoreIvTrend({ z, chg5dPct, chg20dPct, risingStreak });
-    const tier = ivTrendTier({ score, z, chg5dPct, chg20dPct, relPct });
+    const tier = ivTrendTier({
+      score,
+      z,
+      chg5dPct,
+      chg20dPct,
+      relPct,
+      pctile,
+      histN: ivs.length,
+    });
     // Elevated flag — current IV meaningfully above the name's OWN history,
     // regardless of direction. A name can sit rich without climbing (post-ramp
     // plateau, chronic event premium): no trend tier, but premium is still
     // expensive and worth marking. Same materiality bar as the trending tier.
-    const elevated = z != null && z >= 1 && (relPct ?? 0) >= 8;
+    const elevated = z != null &&
+      z >= (ivs.length < 60 ? 1.2 : 1) &&
+      (relPct ?? 0) >= 8 &&
+      pctile >= 75;
     const data = chains?.[sym] || null;
     const f = data?.fundamentals || null;
     const row = {
@@ -4245,8 +4370,11 @@ export function buildIvTrendingPayload(ivHistory, chains, builtAtIso = new Date(
       mean: Number(mean.toFixed(4)),
       relPct,
       z,
+      zClassical: zClassical == null ? null : Number(zClassical.toFixed(2)),
+      zRobust: zRobust == null ? null : Number(zRobust.toFixed(2)),
       pctile,
       n: ivs.length,
+      provisional: ivs.length < 60,
       chg1dPct,
       chg5dPct,
       chg20dPct,
@@ -22336,6 +22464,7 @@ export function buildHeatmapPayload(chains, builtAtIso) {
     const vol = data?.technicals?.volume || {};
     const mc = Number(f.marketCap);
     const ch = Number(vol.priceMove1dPct);
+    const avg20 = Number(vol.avg20);
     if (!isFinite(mc) || mc <= 0) continue;
     if (!isFinite(ch)) continue;
     // Relative volume (last session's volume vs its 20D average). Lets the
@@ -22353,6 +22482,7 @@ export function buildHeatmapPayload(chains, builtAtIso) {
       ch: Math.round(ch * 100) / 100,
       sp: data.spot ?? null,
       rv: isFinite(rvol) && rvol > 0 ? Math.round(rvol * 100) / 100 : null,
+      av20: isFinite(avg20) && avg20 > 0 ? Math.round(avg20) : null,
     });
   }
   // Largest market caps first — treemap layout depends on a descending sort.

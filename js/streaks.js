@@ -149,6 +149,14 @@ function fmtSessionsAgo(n) {
   return `${n} sessions ago`;
 }
 
+function streakSignalDays(t) {
+  return Number(t?.current?.sameDays ?? t?.current?.days ?? 0);
+}
+
+function streakWindowDays(t) {
+  return Number(t?.current?.windowDays ?? t?.current?.days ?? streakSignalDays(t));
+}
+
 function makeSorter(mode) {
   // Each column is filtered to one direction first, so secondary tiebreakers
   // can stay direction-agnostic (we just compare magnitudes).
@@ -157,7 +165,7 @@ function makeSorter(mode) {
   }
   if (mode === "cum") {
     return (a, b) => Math.abs(b.current.cumulativePct || 0) - Math.abs(a.current.cumulativePct || 0)
-      || (b.current.days || 0) - (a.current.days || 0);
+      || streakSignalDays(b) - streakSignalDays(a);
   }
   if (mode === "last") {
     return (a, b) => (Number(b.lastClose) || 0) - (Number(a.lastClose) || 0);
@@ -166,7 +174,7 @@ function makeSorter(mode) {
     // Strongest volume conviction first; names with no volume read sink.
     const vr = (t) => Number(t.current.volumeRatio) || 0;
     return (a, b) => vr(b) - vr(a)
-      || (b.current.days || 0) - (a.current.days || 0);
+      || streakSignalDays(b) - streakSignalDays(a);
   }
   if (mode === "tol") {
     // "Tolerance bank used" — bigger value = streak closer to breaking.
@@ -177,10 +185,10 @@ function makeSorter(mode) {
     };
     return (a, b) => bank(b) - bank(a)
       || (b.current.counterDays || 0) - (a.current.counterDays || 0)
-      || (b.current.days || 0) - (a.current.days || 0);
+      || streakSignalDays(b) - streakSignalDays(a);
   }
   // Default: streak length, then cumulative magnitude.
-  return (a, b) => (b.current.days || 0) - (a.current.days || 0)
+  return (a, b) => streakSignalDays(b) - streakSignalDays(a)
     || Math.abs(b.current.cumulativePct || 0) - Math.abs(a.current.cumulativePct || 0);
 }
 
@@ -240,7 +248,8 @@ function streakFreshnessMeta(builtAtIso) {
 function streakCandidateMeta(t) {
   const cur = t?.current || {};
   const ended = t?.lastEnded || null;
-  const days = Number(cur.days || 0);
+  const days = streakSignalDays(t);
+  const windowDays = streakWindowDays(t);
   const cum = Number(cur.cumulativePct || 0);
   const tol = Number(cur.tolerancePct || 0);
   const tolBreak = Number(cur.toleranceBreakPct || 1.5);
@@ -278,6 +287,7 @@ function streakCandidateMeta(t) {
     ticker: t,
     symbol: String(t?.symbol || "").toUpperCase(),
     days,
+    windowDays,
     color: cur.color === "red" ? "red" : "green",
     cumulativePct: cum,
     lastClose: Number(t?.lastClose),
@@ -437,7 +447,7 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
 
   // The unfiltered flagged universe drives the summary (the day's shape), so
   // the headline counts stay meaningful even when a filter narrows the columns.
-  const flagged = tickers.filter((t) => t?.current?.days >= 2);
+  const flagged = tickers.filter((t) => streakSignalDays(t) >= 2);
   const allGreens = flagged.filter((t) => t.current.color === "green");
   const allReds = flagged.filter((t) => t.current.color === "red");
 
@@ -446,7 +456,7 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
   const minRun = streaksState.minStreak || 2;
   const sectorPick = streaksState.sector;
   const passes = (t) => {
-    if (t.current.days < minRun) return false;
+    if (streakSignalDays(t) < minRun) return false;
     const sym = String(t.symbol || "").toUpperCase();
     if (q && !sym.includes(q)) return false;
     if (sectorPick && (sectors[sym] || "") !== sectorPick) return false;
@@ -458,13 +468,13 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
   const greens = allGreens.filter(passes).sort(sorter);
   const reds = allReds.filter(passes).sort(sorter);
   const decisionUniverse = tickers.filter((t) =>
-    Number(t?.current?.days || 0) >= 2
+    streakSignalDays(t) >= 2
     || (t?.lastEnded && Number(t.lastEnded.days || 0) >= 2 && Number(t.lastEnded.sessionsAgo || 0) <= 2));
   const decisionTickers = decisionUniverse.filter((t) => {
     const sym = String(t.symbol || "").toUpperCase();
     if (q && !sym.includes(q)) return false;
     if (sectorPick && (sectors[sym] || "") !== sectorPick) return false;
-    const activeDays = Number(t?.current?.days || 0);
+    const activeDays = streakSignalDays(t);
     const endedDays = Number(t?.lastEnded?.days || 0);
     return activeDays >= minRun || endedDays >= minRun;
   });
@@ -512,12 +522,12 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
       </div>
       ${longestGreen ? `
         <div class="streaks-summary-chip streaks-summary-best streaks-summary-bull">
-          <span class="streaks-summary-num">${longestGreen.current.days}d</span>
+          <span class="streaks-summary-num">${streakSignalDays(longestGreen)}d</span>
           <span class="streaks-summary-lbl">longest green · ${escapeHtml(String(longestGreen.symbol).toUpperCase())}</span>
         </div>` : ""}
       ${longestRed ? `
         <div class="streaks-summary-chip streaks-summary-best streaks-summary-bear">
-          <span class="streaks-summary-num">${longestRed.current.days}d</span>
+          <span class="streaks-summary-num">${streakSignalDays(longestRed)}d</span>
           <span class="streaks-summary-lbl">longest red · ${escapeHtml(String(longestRed.symbol).toUpperCase())}</span>
         </div>` : ""}
       <div class="streaks-summary-chip">
@@ -690,7 +700,7 @@ function distribution(flagged) {
     { key: "5", lbl: "5d+", n: 0 },
   ];
   for (const t of flagged) {
-    const d = t.current.days || 0;
+    const d = streakSignalDays(t);
     if (d >= 5) buckets[3].n++;
     else if (d === 4) buckets[2].n++;
     else if (d === 3) buckets[1].n++;
@@ -716,8 +726,10 @@ function entry(t, sectors) {
   const sym = String(t.symbol || "?").toUpperCase();
   const sector = sectors[sym] || "";
   const isGreen = t.current.color === "green";
+  const signalDays = streakSignalDays(t);
+  const windowDays = streakWindowDays(t);
   // Oldest -> newest reads the way humans say streaks ("+1%, +3%, +5%").
-  const moves = (t.history || []).slice(0, t.current.days).reverse();
+  const moves = (t.history || []).slice(0, windowDays).reverse();
   const cumCls = isGreen ? "streaks-pos" : "streaks-neg";
   const sideCls = isGreen ? "is-green" : t.current.color === "red" ? "is-red" : "is-flat";
   // Sparkline — each day in the streak becomes a vertical bar with height
@@ -749,7 +761,10 @@ function entry(t, sectors) {
   // One coherent label for the whole sparkline (fixes the prior aria-hidden +
   // per-bar-aria-label conflict, and gives touch/AT users the full per-day read
   // the hover tooltips can't).
-  const sparkLabel = `${sym} ${t.current.days}-day ${t.current.color} streak, ${fmtPct(t.current.cumulativePct)} cumulative. Daily moves oldest to newest: ${dayReads.join("; ")}`;
+  const windowRead = windowDays > signalDays
+    ? `${signalDays} same-direction days across a ${windowDays}-session run`
+    : `${signalDays}-day run`;
+  const sparkLabel = `${sym} ${windowRead}, ${t.current.color}, ${fmtPct(t.current.cumulativePct)} compounded. Daily moves oldest to newest: ${dayReads.join("; ")}`;
 
   // Start date of the run (oldest day in the streak window) for temporal grounding.
   const startDate = moves.length && moves[0].date ? fmtShortDate(moves[0].date) : "";
@@ -758,10 +773,10 @@ function entry(t, sectors) {
   // the longest run of its color in the ~3-month window. Badge it when notable.
   const ctx = t.context || {};
   const maxForColor = isGreen ? Number(ctx.maxGreenDays || 0) : Number(ctx.maxRedDays || 0);
-  const isRecord = maxForColor > 0 && t.current.days >= maxForColor && t.current.days >= 4;
+  const isRecord = maxForColor > 0 && signalDays >= maxForColor && signalDays >= 4;
   const rarityBadge = isRecord
     ? `<span class="streaks-badge streaks-badge-record" title="Longest ${t.current.color} run in the ~3-month window">★ longest in 3mo</span>`
-    : (maxForColor > t.current.days
+    : (maxForColor > signalDays
         ? `<span class="streaks-badge streaks-badge-ctx" title="Longest ${t.current.color} run seen in the ~3-month window">3mo high ${maxForColor}d</span>`
         : "");
 
@@ -811,8 +826,8 @@ function entry(t, sectors) {
           <span class="streaks-stat-lbl">cum</span>
         </span>
         <span class="streaks-stat-block">
-          <span class="streaks-stat-num">${t.current.days}<span class="streaks-stat-unit">d</span></span>
-          <span class="streaks-stat-lbl">streak</span>
+          <span class="streaks-stat-num">${signalDays}<span class="streaks-stat-unit">d</span></span>
+          <span class="streaks-stat-lbl">${windowDays > signalDays ? `green/red in ${windowDays}` : "streak"}</span>
         </span>
       </div>
       <div class="streaks-spark" role="img" aria-label="${escapeHtml(sparkLabel)}">${spark}</div>

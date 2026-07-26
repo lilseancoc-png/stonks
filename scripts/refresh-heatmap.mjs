@@ -26,6 +26,7 @@ import { fileURLToPath } from "node:url";
 import YahooFinance from "yahoo-finance2";
 import { GoogleGenAI } from "@google/genai";
 import { recordAiUsage, loadAiUsageState, writeAiUsageState, computeSectorRotation, aiModelForAttempt } from "./build.mjs";
+import { cumFracExpected, etMinutesSinceOpen } from "../lib/volume-flags.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -73,6 +74,7 @@ const QUOTE_FIELDS = [
   "regularMarketPrice",
   "regularMarketPreviousClose",
   "regularMarketChangePercent",
+  "regularMarketVolume",
   "marketState",
   "marketCap",
   "preMarketPrice",
@@ -332,6 +334,7 @@ async function main() {
 
   let refreshed = 0;
   let stale = 0;
+  const scanNow = new Date();
   const nextTickers = priorTickers.map((row) => {
     const q = quotes[row.t];
     if (!q) {
@@ -364,11 +367,24 @@ async function main() {
     }
     refreshed++;
     const mc = Number(q.marketCap);
+    const dayVolume = Number(q.regularMarketVolume);
+    const avg20 = Number(row.av20);
+    const qState = String(q.marketState || "");
+    const expectedFrac = qState.startsWith("REGULAR")
+      ? Math.max(0.05, cumFracExpected(etMinutesSinceOpen(scanNow)))
+      : 1;
+    const canRefreshRv = !qState.startsWith("PRE")
+      && isFinite(dayVolume) && dayVolume > 0
+      && isFinite(avg20) && avg20 > 0;
+    const rv = canRefreshRv
+      ? Math.round((dayVolume / (avg20 * expectedFrac)) * 100) / 100
+      : row.rv;
     return {
       ...row,
       ch: Math.round(ch * 100) / 100,
       sp: isFinite(sp) && sp > 0 ? sp : row.sp,
       mc: isFinite(mc) && mc > 0 ? mc : row.mc,
+      rv,
       // Clear any stale flag a prior run set — JSON.stringify drops undefined.
       stale: undefined,
     };
@@ -386,8 +402,8 @@ async function main() {
     (a, b) => stateCounts[b] - stateCounts[a],
   )[0] || null;
 
-  const builtAtIso = new Date().toISOString();
-  const now = new Date();
+  const builtAtIso = scanNow.toISOString();
+  const now = scanNow;
   const todayEt = etDateKey(now);
   const hourEt = etHour(now);
 
