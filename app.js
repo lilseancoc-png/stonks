@@ -233,7 +233,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"cached","asOf":"2026-07-21","ageDays":5};
+  var RFR_META = {"source":"cached","asOf":"2026-07-21","ageDays":6};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -5558,7 +5558,7 @@
     var f = state.fundamentals;
     if (!f){ box.hidden = true; return; }
     var hasJudgment = f.judgment && (f.judgment.positives && f.judgment.positives.length || f.judgment.negatives && f.judgment.negatives.length || f.judgment.summary);
-    var hasMetrics = (f.trailingPE != null || f.forwardPE != null || f.marketCap != null || f.profitMargin != null || f.revenueGrowthYoy != null || f.lastQuarter || f.nextEarningsDate);
+    var hasMetrics = (f.trailingPE != null || f.forwardPE != null || f.marketCap != null || f.profitMargin != null || f.revenueGrowthYoy != null || f.totalDebt != null || f.creditRating || f.lastQuarter || f.nextEarningsDate);
     if (!hasJudgment && !hasMetrics){ box.hidden = true; return; }
 
     var verdictEl = $('opt-fund-verdict');
@@ -5616,6 +5616,26 @@
       f.returnOnEquity != null ? (f.returnOnEquity > 15 ? 'pos' : f.returnOnEquity < 0 ? 'neg' : null) : null);
     metrics += fundMetric('Debt / Equity', f.debtToEquity != null ? f.debtToEquity.toFixed(0) : null,
       f.debtToEquity != null ? (f.debtToEquity > 200 ? 'neg' : null) : null);
+    var debtMeta = ['Yahoo Finance'];
+    if (f.totalDebtAsOf) debtMeta.push('as of ' + f.totalDebtAsOf);
+    var debtSub = ' <span class="opt-fund-metric-sub">' + escapeHtml(debtMeta.join(' · ')) + '</span>';
+    metrics += fundMetric('Total debt',
+      f.totalDebt != null ? fmtBigDollars(f.totalDebt) + debtSub : null);
+    if (f.creditRating && f.creditRating.rating){
+      var cr = f.creditRating;
+      var crParts = [];
+      if (cr.agency) crParts.push(cr.agency);
+      if (cr.asOf) crParts.push(cr.asOf);
+      if (cr.outlook) crParts.push(String(cr.outlook).toLowerCase() + ' outlook');
+      if (cr.classification) crParts.push(String(cr.classification).toLowerCase());
+      var crSub = crParts.length
+        ? ' <span class="opt-fund-metric-sub">' + escapeHtml(crParts.join(' · ')) + '</span>'
+        : '';
+      var crTone = /^(BBB-|Baa3)$/i.test(String(cr.rating)) ? 'warn'
+        : /^(BB|B|CCC|CC|C|D)/i.test(String(cr.rating)) || /^Ba|^B[123]$|^Caa|^Ca$|^C$/i.test(String(cr.rating)) ? 'neg'
+        : null;
+      metrics += fundMetric('Credit rating', escapeHtml(cr.rating) + crSub, crTone);
+    }
     metrics += fundMetric('Free cash flow', fmtBigDollars(f.freeCashFlow),
       f.freeCashFlow != null ? (f.freeCashFlow > 0 ? 'pos' : 'neg') : null);
     metrics += fundMetric('Dividend yield', f.dividendYield != null && f.dividendYield > 0 ? f.dividendYield.toFixed(2) + '%' : null);
@@ -20509,13 +20529,82 @@
           : 'No quality dip clears the screen today.';
     return '<section class="stk-desk" aria-label="Stock picks action summary">' +
       '<div><span class="stk-desk-kicker">Today&apos;s share desk</span><h3>' + escapeHtml(head) + '</h3>' +
-        '<p>Start small means a starter tranche only. Wait means price and RSI still need to turn. Research first means an earnings, volume, revisions, or news flag can invalidate the bargain story.</p></div>' +
+        '<p>Start small means a starter tranche only. Wait means price and RSI still need to turn. Research first means an earnings, volume, revisions, or news flag can invalidate the bargain story. Cards are grouped by Buy zone vs Watchlist, then by execution posture, with the strongest statistical stretch first inside each bucket.</p></div>' +
       '<div class="stk-desk-stats">' +
         '<span class="stk-desk-start"><b>' + counts.starter + '</b><small>Start small</small></span>' +
         '<span class="stk-desk-wait"><b>' + counts.wait + '</b><small>Wait for turn</small></span>' +
         '<span class="stk-desk-research"><b>' + counts.research + '</b><small>Research first</small></span>' +
       '</div>' +
     '</section>';
+  }
+  function stkActionKey(row){
+    var a = row && row.execution && row.execution.action;
+    var key = a && a.key ? a.key : (row && row.clean ? 'starter' : 'research');
+    return key === 'starter' || key === 'wait' || key === 'research' ? key : 'research';
+  }
+  function stkSigmaSort(a, b){
+    var av = a && a.dipScore != null ? Number(a.dipScore) : NaN;
+    var bv = b && b.dipScore != null ? Number(b.dipScore) : NaN;
+    var af = isFinite(av), bf = isFinite(bv);
+    if (af && bf && bv !== av) return bv - av;
+    if (af !== bf) return af ? -1 : 1;
+    return String(a && a.symbol || '').localeCompare(String(b && b.symbol || ''));
+  }
+  // Two-tier stock-picks hierarchy. The first decision is whether the quality
+  // dip is clean (Buy zone) or carries an active trap flag (Watchlist). The
+  // second is the independent execution posture. Sigma only ranks peers inside
+  // the same zone + posture bucket, so a statistically deep but flagged selloff
+  // can never jump ahead of a clean actionable setup.
+  function stkGroupRows(rows){
+    var actionDefs = [
+      { key:'starter', label:'Start small' },
+      { key:'wait', label:'Wait for turn' },
+      { key:'research', label:'Research first' },
+    ];
+    var zoneDefs = [
+      { key:'buy', label:'Buy zone', detail:'Quality passed, the dip screen fired, and no active trap flag is visible.' },
+      { key:'watch', label:'Watchlist', detail:'Quality passed and the dip is statistically notable, but at least one thesis-risk flag needs review.' },
+    ];
+    return zoneDefs.map(function(z){
+      var zoneRows = (rows || []).filter(function(r){
+        var clean = r && r.clean != null ? !!r.clean : !(r && Array.isArray(r.traps) && r.traps.length);
+        return z.key === 'buy' ? clean : !clean;
+      });
+      return {
+        key: z.key,
+        label: z.label,
+        detail: z.detail,
+        count: zoneRows.length,
+        actions: actionDefs.map(function(a){
+          return {
+            key: a.key,
+            label: a.label,
+            rows: zoneRows.filter(function(r){ return stkActionKey(r) === a.key; }).sort(stkSigmaSort),
+          };
+        }),
+      };
+    });
+  }
+  // END stkGroupRows
+  function stkGroupedCards(rows){
+    return '<div class="stk-tiers">' + stkGroupRows(rows).map(function(zone){
+      var chips = zone.actions.map(function(a){
+        return '<span class="stk-tier-chip stk-tier-chip-' + a.key + '"><b>' + a.rows.length + '</b> ' + escapeHtml(a.label) + '</span>';
+      }).join('');
+      var groups = zone.actions.filter(function(a){ return a.rows.length; }).map(function(a){
+        return '<section class="stk-action-group stk-action-' + a.key + '" aria-label="' + escapeHtml(zone.label + ' — ' + a.label) + '">' +
+          '<header class="stk-action-head"><div><small>Tier 2 · execution</small><h4>' + escapeHtml(a.label) + '</h4></div><span>' + a.rows.length + ' · strongest σ first</span></header>' +
+          '<div class="stk-grid">' + a.rows.map(function(r){ return stkCard(r); }).join('') + '</div>' +
+        '</section>';
+      }).join('');
+      return '<section class="stk-tier stk-tier-' + zone.key + '" aria-label="' + escapeHtml(zone.label) + '">' +
+        '<header class="stk-tier-head">' +
+          '<div><span class="stk-tier-kicker">Tier 1</span><h3>' + escapeHtml(zone.label) + ' <b>' + zone.count + '</b></h3><p>' + escapeHtml(zone.detail) + '</p></div>' +
+          '<div class="stk-tier-chips" aria-label="' + escapeHtml(zone.label + ' execution counts') + '">' + chips + '</div>' +
+        '</header>' +
+        (groups || '<p class="stk-tier-empty">No candidates in this tier today.</p>') +
+      '</section>';
+    }).join('') + '</div>';
   }
   function stkCard(row){
     var name = row.name ? '<span class="stk-name">' + escapeHtml(row.name) + '</span>' : '';
@@ -20675,7 +20764,7 @@
         (d.screened.beatenDown || 0) + '</b> beaten down right now' + shownNote + '</p>';
     }
     root.innerHTML = stkDesk(rows) + funnel + (rows.length
-      ? '<div class="stk-grid">' + rows.map(function(r){ return stkCard(r); }).join('') + '</div>'
+      ? stkGroupedCards(rows)
       : '<p class="stk-empty">No quality name is meaningfully beaten down right now — the screen would rather show nothing than stretch the definition of a dip. Candidates appear when a business that passes the quality gate trips at least ' + (d.minSignals || 2) + ' of the five dip reads.</p>') + stkDcaBlock(d);
     bindDcaBase(root);
     bindBriefChips(root);
@@ -26703,14 +26792,20 @@
         startX: ev.clientX, startY: ev.clientY,
         panX: heatmapState.panX, panY: heatmapState.panY, moved: false,
       };
-      try { root.setPointerCapture(ev.pointerId); } catch (e) {}
-      root.classList.add('is-panning');
     });
     root.addEventListener('pointermove', function(ev){
       var d = heatmapState.panDrag;
       if (!d) return;
       var dx = ev.clientX - d.startX, dy = ev.clientY - d.startY;
-      if (!d.moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) d.moved = true;
+      if (!d.moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)){
+        d.moved = true;
+        // Capture only after this is demonstrably a pan. Capturing on
+        // pointerdown retargets a stationary zoomed-tile click to the root in
+        // some browsers, so the tile symbol never reaches onClick().
+        try { root.setPointerCapture(ev.pointerId); } catch (e) {}
+        root.classList.add('is-panning');
+      }
+      if (!d.moved) return;
       heatmapState.panX = d.panX + dx;
       heatmapState.panY = d.panY + dy;
       applyHeatmapView();
@@ -26722,7 +26817,9 @@
       if (d.moved) heatmapState.suppressNextClick = true;
       heatmapState.panDrag = null;
       root.classList.remove('is-panning');
-      try { root.releasePointerCapture(ev.pointerId); } catch (e) {}
+      if (d.moved){
+        try { root.releasePointerCapture(ev.pointerId); } catch (e) {}
+      }
     }
     root.addEventListener('pointerup', endPan);
     root.addEventListener('pointercancel', endPan);

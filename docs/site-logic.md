@@ -419,6 +419,8 @@ At least two:
 
 The surviving quality companies are cross-sectionally ranked by the average z-score of the available dip measures. This is one of the few intentionally relative ranks on the site. Up to eight are shown.
 
+The Stock Picks renderer presents that roster as a two-tier decision tree: clean names in **Buy zone** first, flagged names in **Watchlist** second. Inside each tier it groups **Start small**, **Wait for turn**, then **Research first**; only candidates with the same zone and execution posture compete on the dip score, sorted from highest statistical stretch to lowest. This prevents a deeper but flagged selloff from outranking a clean actionable setup.
+
 ### Trap warnings
 
 These warn but do not automatically exclude:

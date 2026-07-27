@@ -21,6 +21,7 @@ import YahooFinance from "yahoo-finance2";
 import { greeks, bsPrice, yearsToExpiry, ncdf } from "../lib/greeks.mjs";
 import { renderPriceChartPng } from "../lib/chart-image.mjs";
 import { buildNewsFeedPayload } from "../lib/news-feed.mjs";
+import { issuerCreditRatingFor } from "../lib/issuer-credit-ratings.mjs";
 
 // Library prints a survey notice on first use and validates response
 // schemas — silence both since Yahoo occasionally omits optional fields
@@ -1925,6 +1926,14 @@ async function fetchFundamentals(symbol) {
     operatingCashFlow: num(fd.operatingCashflow),
     totalCash: num(fd.totalCash),
     totalDebt: num(fd.totalDebt),
+    // Yahoo supplies the latest reported balance-sheet debt, not cumulative
+    // historical debt issuance. The reporting date makes that distinction
+    // explicit in the Fundamentals card.
+    totalDebtAsOf: isoDate(ks.mostRecentQuarter),
+    // Ratings are externally published agency opinions and are therefore
+    // maintained as verified, agency-qualified entries rather than inferred
+    // from leverage ratios. Missing coverage stays null.
+    creditRating: issuerCreditRatingFor(symbol),
     revenue: num(fd.totalRevenue),
     dividendYield: pct(sd.dividendYield),
     payoutRatio: pct(sd.payoutRatio),
@@ -27216,6 +27225,12 @@ function formatFundamentalsForPrompt(symbol, spot, f) {
   ]);
   section("Balance sheet / cash flow:", [
     ["Debt/Equity", fmtNum(f.debtToEquity)],
+    ["Credit rating", f.creditRating?.rating
+      ? `${f.creditRating.rating} (${[
+          f.creditRating.agency,
+          f.creditRating.outlook ? `${f.creditRating.outlook} outlook` : null,
+        ].filter(Boolean).join(", ")})`
+      : "n/a"],
     ["Current ratio", fmtNum(f.currentRatio)],
     ["Quick ratio", fmtNum(f.quickRatio)],
     ["Total cash", fmtBig(f.totalCash)],
@@ -27933,6 +27948,10 @@ function tickerJudgmentSignature(rawHeadlines, fundamentals) {
     f.nextEarningsDate || "",
     f.recommendationKey || "",
     f.numberOfAnalystOpinions ?? "",
+    f.creditRating?.agency || "",
+    f.creditRating?.rating || "",
+    f.creditRating?.outlook || "",
+    f.creditRating?.asOf || "",
   ].join("|");
   const metaParts = [
     TICKER_JUDGMENT_CACHE_VERSION,
