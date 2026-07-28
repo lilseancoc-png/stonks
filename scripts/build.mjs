@@ -15282,8 +15282,11 @@ const MACRO_LIVE_THRESHOLDS = {
   vixReversal1d: PICKS_MACRO_VIX_REVERSAL_1D, riskoffVix: PICKS_RISKOFF_VIX, vixCalm: PICKS_MACRO_VIX_CALM, vixEasing: PICKS_MACRO_VIX_EASING,
   dxy1d: PICKS_MACRO_DXY_1D, dxy1dStrong: PICKS_MACRO_DXY_1D_STRONG, dxy5d: PICKS_MACRO_DXY_5D,
   yieldBps1d: PICKS_MACRO_YIELD_BPS_1D, yieldBps1dStrong: PICKS_MACRO_YIELD_BPS_1D_STRONG,
+  fedDriftPt: PICKS_MACRO_FED_DRIFT_PT,
   oil1d: PICKS_MACRO_OIL_1D, oil1dStrong: PICKS_MACRO_OIL_1D_STRONG, oil5d: PICKS_MACRO_OIL_5D,
   gold1d: PICKS_MACRO_GOLD_1D, gold5d: PICKS_MACRO_GOLD_5D,
+  cpiHot: PICKS_MACRO_CPI_HOT, cpiWarm: PICKS_MACRO_CPI_WARM, cpiReaccel: PICKS_MACRO_CPI_REACCEL, cpiCool: PICKS_MACRO_CPI_COOL,
+  ueSahm: PICKS_MACRO_UE_SAHM, ueSahmSoft: PICKS_MACRO_UE_SAHM_SOFT,
   fgFear: PICKS_MACRO_FG_FEAR, fgGreed: PICKS_MACRO_FG_GREED, fgDelta: PICKS_MACRO_FG_DELTA,
   fgInternalsExtreme: PICKS_MACRO_FG_INTERNALS_EXTREME, fgTrendPt: PICKS_MACRO_FG_TREND_PT, fgTrendFloor: PICKS_MACRO_FG_TREND_FLOOR,
   riskoffAxes: PICKS_MACRO_RISKOFF_AXES, riskoffStress: PICKS_MACRO_RISKOFF_STRESS, severeAxes: PICKS_MACRO_SEVERE_AXES, severeStress: PICKS_MACRO_SEVERE_STRESS,
@@ -15678,7 +15681,7 @@ export function computeMacroRegime(macroBackdrop, fedwatchHistory = null, narrat
     const sp = rot.spread; // offense − defense, pp
     const idx = axes.indexes ? axes.indexes.score : 0;
     let s = 0, label = `Rotation ${sp >= 0 ? "+" : ""}${sp.toFixed(2)}pp (offense − defense)`;
-    if (sp <= -PICKS_MACRO_ROTATION_PP && idx <= 0) { s = -2; label = `Defensive rotation ${sp.toFixed(2)}pp — defense leading, market weak`; }
+    if (sp <= -PICKS_MACRO_ROTATION_PP && idx <= 0) { s = -2; label = `Defensive rotation ${sp.toFixed(2)}pp — defense leading, indexes not risk-on`; }
     else if (sp <= -PICKS_MACRO_ROTATION_PP) { s = -1; label = `Defense leading ${sp.toFixed(2)}pp — risk-off rotation`; }
     else if (sp >= PICKS_MACRO_ROTATION_PP && idx >= 0) { s = 1; label = `Offense leading +${sp.toFixed(2)}pp — risk-on rotation`; }
     axes.rotation = { score: s, label };

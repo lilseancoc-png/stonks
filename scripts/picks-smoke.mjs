@@ -328,6 +328,47 @@ const lightRegime = computeMacroRegime(lightOff, null, [], null);
 ok("regime: lightweight axes alone (CPI + put/call) stay neutral", lightRegime.state === "neutral");
 ok("regime: axis weights ship in thresholds (fed outweighs inflation)",
   lightRegime.thresholds.axisWeights.fed > lightRegime.thresholds.axisWeights.inflation);
+// Screenshot-shaped audit fixture for the Market Analysis tiles. These values sit
+// near several boundaries, so they catch accidental threshold/direction drift in
+// the same cards whose "What moves it" drawer documents the rules.
+const screenshotFedwatch = { meetings: {
+  "2026-09-16": {
+    "2026-07-20": { hike: 0.10, cut: 0.10 },
+    "2026-07-28": { hike: 0.17, cut: 0.03 },
+  },
+} };
+const screenshotTape = computeMacroRegime({
+  indexes: {
+    spy: { pctChange1d: 0.10, pctChange5d: -0.59, aboveSma20: false },
+    qqq: { pctChange1d: -1.49, pctChange5d: -1.20, aboveSma20: false },
+  },
+  vix: { value: 19.3, pctChange1d: 1.0, trend: "rising" },
+  dxy: { pctChange1d: 0.09, pctChange5d: 0.1, trend: "flat" },
+  tenY: { bpsChange1d: -4.4, bpsChange5d: -2, trend: "flat" },
+  crude: { pctChange1d: 0.2, pctChange5d: 0.4 },
+  gold: { pctChange1d: 0.1, pctChange5d: 0.2 },
+  crossAsset: { score: 1, label: "Global tape risk-on — global equities +1.83%" },
+  inflation: { yoy: 3.5, yoy3mAgo: 3.4, trend: "flat" },
+  unemployment: { rate: 4.2, sahm: 0.1, trend: "flat" },
+  twoY: { bpsChange1d: -7.4, bpsChange5d: -3, trend: "flat" },
+  move: { value: 77, pctChange1d: 0 },
+  breadth: { pctAbove200: 54, pctAbove50: 55, nhnl: 0 },
+  putCall: { oiRatio: 1.05, volRatio: 1.0, totalVol: 0, oiSum: 1000 },
+  credit: { oas: 2.79, oasChg5d: 0.10, hygLqdChg5d: 0 },
+  rotation: { spread: -4.00 },
+}, screenshotFedwatch, [], { score: 40, rating: "fear", previous: { close: 41 } }, [
+  { title: "New tariffs announced", date: new Date().toISOString() },
+]);
+ok("regime screenshot: mixed SPY/QQQ stays neutral above the −0.8% average trigger", screenshotTape.axes.indexes.score === 0);
+ok("regime screenshot: VIX 19.3 rising votes −1", screenshotTape.axes.vix.score === -1);
+ok("regime screenshot: small DXY and long-yield moves stay neutral", screenshotTape.axes.dxy.score === 0 && screenshotTape.axes.yields.score === 0);
+ok("regime screenshot: +14pt FedWatch drift votes −2", screenshotTape.axes.fed.score === -2);
+ok("regime screenshot: calm commodities and CPI/jobs stay neutral", screenshotTape.axes.commodity.score === 0 && screenshotTape.axes.inflation.score === 0);
+ok("regime screenshot: Fear & Greed 40 and −7.4bp 2Y stay neutral", screenshotTape.axes.sentiment.score === 0 && screenshotTape.axes.twoY.score === 0);
+ok("regime screenshot: MOVE 77 votes +1", screenshotTape.axes.bondVol.score === 1);
+ok("regime screenshot: breadth 54% and put/call 1.05 stay neutral", screenshotTape.axes.breadth.score === 0 && screenshotTape.axes.putCall.score === 0);
+ok("regime screenshot: tight-but-widening HY OAS stays neutral", screenshotTape.axes.credit.score === 0);
+ok("regime screenshot: −4pp defensive rotation with neutral indexes votes −2", screenshotTape.axes.rotation.score === -2);
 ok("regime: detectMarketRegime maps to risk-off", detectMarketRegime({}, riskOff) === "risk-off");
 const picksOff = buildTopPicks(chains, [], null, null, riskOff, null, 0.045, {});
 const putShareOff = picksOff.length ? picksOff.filter((p) => p.side === "put").length / picksOff.length : 0;
