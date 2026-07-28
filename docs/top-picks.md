@@ -17,14 +17,17 @@ constant there. **If the code and this doc disagree, the code wins — fix the d
 
 ## 1. The one rule
 
-Everything folds into **one number per ticker, `total`** — the grade.
+Asset conviction folds into **one number per ticker, `total`**. Entry timing is
+a separate execution decision, so a strong thesis can remain strong while the
+correct action is still Wait or Avoid.
 
 ```
-total = Trend + Flow + Fundamentals + Narrative + entryTiming + ivCost
-        (each pillar clamped to ±5)         (−8..+2)   (−2..+1)
+total = Trend + Flow + Fundamentals + Narrative + ivCost
+        (each asset pillar clamped to ±5)              (−2..+1)
 
 side       = sign(total)        (+ = call, − = put)
 conviction = |total|
+entry      = entryTimingV2      (execution-only −8..+2 → Go / Wait / Avoid)
 ```
 
 `scoreTicker()` runs this for every ticker. `buildGradesIndex()` keeps them all
@@ -99,17 +102,40 @@ fixed scale, auditable forever.
 
 ## 3. Entry timing (`computeEntryTiming`) — the risk control
 
-Reads **confirmed** daily bars (drops the in-progress bar — no look-ahead) for
-the implied side and returns a state + a bounded contribution folded into `total`:
+Reads one aligned **confirmed OHLCV** series (the in-progress daily bar is
+dropped once) and returns an execution-only score clamped to `−8…+2`. It never
+changes `total`, side, or conviction.
 
-| State | When | Contribution |
-|---|---|---|
-| **avoid** | falling knife (−6% day / −8% over 3d) or chasing an extended top (hot RSI + >8% past the 20D SMA, or a +12% blow-off run) | −5 (to −8 for the egregious) |
-| **wait** | earnings within 7 calendar days (~5 sessions; IV-crush risk — the day-of print counts) or an imminent scheduled macro event (FOMC/CPI) or mixed structure | −1 / 0 |
-| **go** | clean, aligned entry (momentum + a healthy pullback to the 20D SMA, or confirming volume) | +2 |
+The five capped component groups are:
 
-When the broad tape **fights the trade** (a call in a risk-off tape), the knife
-thresholds tighten ~25%. An `avoid` name is gated out of the roster entirely.
+| Group | Core behavior |
+|---|---|
+| **Extension / exhaustion** | 4–8% past SMA20 is a mild `−1`; an 8%/RSI-72/fast-impulse stretch is `−2…−3`. A hard `−6…−8` top guard requires multiple extreme readings **plus** a momentum rollover or ≥1.8× volume climax, unless one reading is catastrophic. Extension alone is not exhaustion. |
+| **Pullback / setup** | Detects a real prior impulse over 20 sessions, requiring at least 4% or 2 ATR. An orderly 25–50% impulse retracement (or 0.75–1.75 ATR) that holds structure earns `+1`; drying pullback volume ≤0.90× adds another `+1`. Deep/stale pullbacks lose points. |
+| **Momentum confirmation** | MACD histogram turning with the trade on the correct side of SMA20, RSI recovery from the opposite extreme, and a directional ≥1.3× turn day are correlated evidence and therefore cap at `+2`. Strongly adverse momentum is `−2`; mixed RSI/MACD is `−1`. |
+| **Events** | Earnings ≤3 calendar days or a major macro event ≤1 day is a hard Wait. Earnings 4–7 days is `−2`; macro 2–3 days `−2`, 4–7 days `−1`. A hard event cannot be averaged away. |
+| **Structure / payoff** | A nearby support/resistance level defining invalidation within 2 ATR earns `+1`; level confluence adds `+1`; unclear structure is `−1`. Go additionally requires estimated reward/risk ≥1.5:1. |
+
+Falling-knife logic is an override, not just another negative row. The ordinary
+−6%/−8% adverse move becomes Avoid when confirmed by breakdown traits such as
+expanding volume, still-adverse momentum, broken structure, acceleration, and
+no higher low/lower high. A severe −8% session / −12% three-session move remains
+an unconditional safety veto.
+
+Final mapping:
+
+- hard knife/exhaustion → **Avoid**;
+- hard event → **Wait**;
+- score `≤−5` → **Avoid**;
+- score `−4…+1` → **Wait**, with a pullback/reclaim/reversal/event trigger;
+- score `≥+2` → **Go** only with positive directional confirmation, two
+  independent evidence families, invalidation within 2 ATR, and payoff ≥1.5:1.
+
+Regime changes the proof required instead of applying a blanket aligned-trade
+bonus. Countertrend calls/puts need a reclaim, full momentum confirmation and
+structure. In strong risk-on, an already-extended call needs full confirmation
+and payoff; the same applies to an already-extended put in risk-off. A clean
+pullback with the tape is not penalized.
 
 ### Entry signal (`computeEntrySignal`) — buy now vs a trigger price
 
@@ -120,15 +146,15 @@ entry" watch tier until an (hourly) build confirms the entry. Every actionable
 pick still enrolls in the track record (§9); with the gate live, new
 enrollments are by construction all buy-now entries.
 
-**The FINAL buy/wait call is the AI final grader's** (owner directive, same
-day): `generateAiTheses` returns an **`entryVerdict`** (`buy-now`/`wait`) +
+**The FINAL buy/wait call can still use the AI final grader**:
+`generateAiTheses` returns an **`entryVerdict`** (`buy-now`/`wait`) +
 `entryReason` alongside the grade, judged over the whole picture — catalyst
 urgency, the calendar, macro, IV, live **web-search research** (§9), and the
 deterministic price read below, which rides its prompt as *context, not the
 answer*. `buildTopPicks` resolves the gate as: **hard risk vetoes bind
-regardless** (the top-guard's HARD band — a parabolic stretch or blow-off
-RSI — and the event defer are risk controls, not judgment calls — an AI
-buy-now can never bless a parabola or an IV-crush entry); otherwise the AI
+regardless** (event defer, confirmed exhaustion, falling knife/broken setup,
+a required SMA20 reclaim, unclear invalidation, and payoff below 1.5:1 are
+risk controls); otherwise the AI
 verdict decides (it can hold back a price-ready name — `wait-ai`,
 `rosterMeta.aiEntryHeldBack` — or take a soft dip-trigger or **soft-extended**
 name now — `rosterMeta.aiEntryPromoted`); a missing verdict (keyless/offline,
@@ -138,59 +164,17 @@ chip, sizing haircut, enrolled cohort, and gate always agree, and the
 deterministic entry state is part of the thesis cache signature so the
 verdict re-reads when the entry picture changes.
 
-The deterministic read itself is **multi-factor** — it weighs the whole setup
-instead of only handing out a pullback price:
-
-1. **Hard vetoes:** an imminent earnings/macro event is never a buy
-   (`wait-event` — no price fixes an IV crush); an `avoid` timing state never
-   reads buy-now; and a name on the **wrong side of its own 20D SMA** always
-   waits for the reclaim (`wait-reclaim`) — long premium bought against
-   the trend bleeds theta while the "turn" fails to come.
-2. **The EXTENSION BANDS (2026-07-10, reworked same day — never buy the top /
-   short the hole, but momentum-vs-chase is a judgment call):** price
-   stretched more than `PICKS_ENTRY_EXTENDED_DIST` (4%) past the 20D in the
-   trade's direction, **or** RSI in the chase zone (`PICKS_TIMING_CHASE_RSI`,
-   72 for a call / 28 for a put), never reads a **deterministic** buy-now —
-   not on a `go` timing state (whose volume-confirm path can bless a
-   moderately extended name), not on a maxed readiness checklist. The trade
-   queues behind a `wait-pullback` trigger. But the band is **split in two**:
-   the **SOFT band** (4–15% / RSI 72–80, `basis: "extended"`) may be
-   **overridden by the AI final grader's `entryVerdict`** — a strong-momentum
-   name with a live catalyst can be a legitimate buy while extended, and the
-   original hard 4% veto proved self-defeating (it perpetually locked out the
-   engine's highest-momentum names — precisely the ones that grade best —
-   behind 20D pullback targets 10–15% below spot that a trending name never
-   fills, so the actionable list ran empty). Only the **HARD band**
-   (`PICKS_ENTRY_EXTENDED_HARD` >15% / `PICKS_ENTRY_CHASE_RSI_HARD` RSI ≥80 —
-   a genuine parabola / blow-off, `basis: "top-guard"`) stays a hard veto no
-   verdict can bless. Either way the wait **trigger is reachable**: a
-   ~1.5×ATR dip (`PICKS_ENTRY_PULLBACK_ATR_MULT`, clamped 2–5%), floored at
-   the 20D when that is nearer — never the raw 20D when it sits far below.
-   Because actionable membership requires `entry.now` (§9a gate 3), the hard
-   band is what keeps "buy it now" from ever meaning "chase a parabola".
-3. A confirmed **`go`** from the timing gate is a **buy-now** (once the
-   top-guard clears).
-4. Otherwise a weighted **entry-readiness checklist** decides: momentum
-   alignment (MACD + RSI on the trade's side, **+2** — the heavy factor), the
-   right side of the 20D trend (+1), a healthy entry location within ±3% of
-   the 20D (+1), confirming volume (rvol ≥ 1.3, +1), a ≥ +1% 3-day thrust with
-   the trade off confirmed closes (+1), the 20D/50D SMA stack aligned (+1),
-   and strong-tier conviction (+1) — **minus** a penalty for a broad tape that
-   fights the trade (−2). (The extension check still ships on the checklist
-   for card transparency, but the top-guard means it can never be the deciding
-   factor — an extended name never reaches the checklist.) Clearing
-   `PICKS_ENTRY_READY_BAR` (default **4**, env-tunable) = **buy-now**: a
-   steadily-trending, multi-confirmed name no longer idles behind a dip
-   trigger that may never fill.
-5. Below the bar the specific trigger prices stand: near the trend →
-   `buy-dip` toward the nearest support / minor weakness. The checklist ships
-   on every scored entry (`entry.checks` + `entry.readiness = {score, bar}`)
-   so the card can show *why*, whichever way the call went.
+`computeEntrySignal` no longer runs a second momentum checklist. It translates
+the single timing result into the action: Go → `buy-now`; hard event →
+`wait-event`; confirmed exhaustion → reachable `wait-pullback`; wrong-side
+trend → `wait-reclaim`; knife/broken setup → `wait-reversal`; other waits →
+a nearby structure/minor-weakness trigger. The entry payload carries the
+component audit, readiness prerequisites, invalidation, target, and R:R.
 
 **IV cost** (`computeIvCostContribution`, direction-agnostic): −2 when this name's
 own IV percentile is rich (≥80), +1 when cheap (≤20). Because it is direction-**agnostic**
 ("long premium is expensive when IV is rich"), `scoreTicker` folds it into `total`
-multiplied by `sign(base)` — exactly like `entryTiming` — so a rich-IV long-premium
+multiplied by `sign(base)` — so a rich-IV long-premium
 trade always *reduces* conviction on **both** sides and a cheap-IV one raises it.
 (Before #523 it was added unsigned, which made rich IV *inflate* a put's conviction —
 backwards: it boosted the long-put trade the IV read should have discouraged.)
@@ -735,8 +719,8 @@ All in the `// TOP PICKS ENGINE` constant block at the top of the engine:
 | `PICKS_COUNT` / `PICKS_WATCH_COUNT` | 10 / 6 | max Actionable / max Ideas·Watch roster size |
 | `PICKS_MAX_AI_THESES` | = `PICKS_COUNT` (10) | only the top N data-gate survivors BY DETERMINISTIC CONVICTION get the AI thesis + final grade (the AI factor applies ONLY to the deterministic top 10 — owner directive); the rest ship deterministic-only watch cards. No bench below the cut: an AI reject/wait honestly shrinks the roster instead of backfilling |
 | `PICKS_ENTRY_WAIT_SIZE_MULT` | 0.75 | size haircut on a contract-bearing pick whose entry signal is still a wait/dip trigger (`entry.now === false`). Since the 2026-07-10 entry gate an actionable pick is always entry-confirmed, so this only shapes the display sizing of watch ideas |
-| `PICKS_ENTRY_EXTENDED_DIST` / `PICKS_TIMING_CHASE_RSI` | 4 / 72 | the §3 SOFT extension band: stretched > 4% past the 20D in the trade's direction, or RSI ≥ 72 (≤ 28 for a put), never reads a *deterministic* buy-now — the AI final grader's `entryVerdict` may take it |
-| `PICKS_ENTRY_EXTENDED_HARD` / `PICKS_ENTRY_CHASE_RSI_HARD` | 15 / 80 | the §3 HARD top-guard band: a parabolic >15% stretch or RSI ≥ 80 (≤ 20 for a put) is never a buy-now — no AI verdict can bless it |
+| `PICKS_ENTRY_EXTENDED_DIST` / `PICKS_TIMING_CHASE_RSI` | 4 / 72 | mild/soft extension evidence. A single reading creates a penalty/wait, not a hard veto; the AI final grader may take a soft momentum ride |
+| `PICKS_ENTRY_EXTENDED_HARD` / `PICKS_ENTRY_CHASE_RSI_HARD` | 15 / 80 | extreme inputs to exhaustion confluence. Hard top-guard requires multiple extremes plus rollover/volume climax, or one catastrophic reading |
 | `PICKS_ENTRY_PULLBACK_ATR_MULT` | 1.5 | wait-pullback trigger = a ~1.5×ATR dip (clamped 2–5%), floored at the 20D when nearer — reachable, never the raw 20D far below spot |
 | `PICKS_MAX_PER_SECTOR` | 3 | correlation cap |
 | `PICKS_MAX_PER_FACTOR` | 5 | tech/AI-complex correlation cap |

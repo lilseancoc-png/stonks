@@ -34,6 +34,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { computeEntryTiming } from "./build.mjs";
 
 const DATA = resolve(dirname(fileURLToPath(import.meta.url)), "..", "data");
 const syms = readdirSync(DATA).filter((f) => /^[A-Z][A-Z0-9.]*\.json$/.test(f)).map((f) => f.replace(".json", ""));
@@ -78,7 +79,7 @@ let tk = 0;
 for (const s of syms) {
   let d; try { d = JSON.parse(readFileSync(`${DATA}/${s}.json`, "utf8")); } catch { continue; }
   const ps = d.priceSeries; if (!ps || !Array.isArray(ps.c) || ps.c.length < MINLB + 35) continue;
-  const { t, c, h, l } = ps; const N = c.length;
+  const { t, c, h, l, v } = ps; const N = c.length;
   const rsi = rsiSeries(c, 14);
   const e12 = ema(c, 12), e26 = ema(c, 26);
   const ml = e12.map((x, i) => (x == null || e26[i] == null) ? null : x - e26[i]);
@@ -105,15 +106,33 @@ for (const s of syms) {
     tech += (r > 50 && rsi[i - 5] != null && r > rsi[i - 5]) ? 1 : ((r < 50 && rsi[i - 5] != null && r < rsi[i - 5]) ? -1 : 0);
     tech += rangePos >= 0.95 ? -1 : (rangePos <= 0.05 ? 1 : 0);
     tech += mom20 > 0.05 ? 1 : (mom20 < -0.05 ? -1 : 0);
-    // entry-timing states (reconstructed from price)
-    const chase = (r >= 70 && distSma20 >= 8) || (rangePos >= 0.92 && r >= 70) || ret5 >= 0.10;
-    const knife = ret5 <= -0.10 || (c[i] / c[i - 1] - 1) <= -0.06;
-    const pullback = Math.abs(distSma20) <= 3 && stack >= 2;
-    const fwd = {}; let ok = false;
-    for (const hh of HOR) { if (i + hh < N) { fwd[hh] = c[i + hh] / c[i] - 1; ok = true; } }
+    // Run the production v2 gate point-in-time. Element i+1 is deliberately
+    // included as the synthetic in-progress bar that computeEntryTiming drops,
+    // leaving session i as the latest confirmed observation.
+    const pointData = {
+      spot: c[i],
+      fundamentals: {},
+      priceSeries: {
+        t: t.slice(0, i + 2), c: c.slice(0, i + 2),
+        h: h.slice(0, i + 2), l: l.slice(0, i + 2),
+        v: Array.isArray(v) ? v.slice(0, i + 2) : [],
+      },
+    };
+    const timingCall = computeEntryTiming("call", pointData, c[i], { regime: "neutral" });
+    const timingPut = computeEntryTiming("put", pointData, c[i], { regime: "neutral" });
+    const fwd = {}, maeCall = {}, maePut = {}; let ok = false;
+    for (const hh of HOR) {
+      if (i + hh < N) {
+        const path = c.slice(i + 1, i + hh + 1).map((x) => x / c[i] - 1);
+        fwd[hh] = path[path.length - 1];
+        maeCall[hh] = Math.min(0, ...path);
+        maePut[hh] = Math.min(0, ...path.map((x) => -x));
+        ok = true;
+      }
+    }
     if (!ok) continue;
     if (!byDate.has(t[i])) byDate.set(t[i], []);
-    byDate.get(t[i]).push({ sym: s, tech, mom20, mom60, rsi: r, stack, distSma20, rangePos, macdHist, streak: st, chase, knife, pullback, fwd });
+    byDate.get(t[i]).push({ sym: s, tech, mom20, mom60, rsi: r, stack, distSma20, rangePos, macdHist, streak: st, timingCall, timingPut, fwd, maeCall, maePut });
   }
 }
 
@@ -151,12 +170,35 @@ for (const hh of [10, 20, 30]) {
   console.log(`  h=${hh}d:  ` + rows.map(([k, a]) => `tech${k >= 0 ? "+" : ""}${k}:${(mean(a) * 100).toFixed(2)}%(n${a.length})`).join("  "));
 }
 
-console.log("\n=== 3. ENTRY TIMING: mean forward return by reconstructed state (chase / knife / pullback / other) ===");
+console.log("\n=== 3. ENTRY TIMING V2: side-aware mean directional return by production state ===");
 for (const hh of [10, 20, 30]) {
-  const g = { chase: [], knife: [], pullback: [], other: [] };
-  for (const [, recs] of byDate) for (const r of recs) { if (r.fwd[hh] == null) continue; (r.knife ? g.knife : r.chase ? g.chase : r.pullback ? g.pullback : g.other).push(r.fwd[hh]); }
-  console.log(`  h=${hh}d:  chase ${(mean(g.chase) * 100).toFixed(2)}% (n${g.chase.length}) | knife ${(mean(g.knife) * 100).toFixed(2)}% (n${g.knife.length}) | pullback ${(mean(g.pullback) * 100).toFixed(2)}% (n${g.pullback.length}) | other ${(mean(g.other) * 100).toFixed(2)}% (n${g.other.length})`);
+  const call = { go: [], wait: [], avoid: [] }, put = { go: [], wait: [], avoid: [] };
+  const callMae = { go: [], wait: [], avoid: [] }, putMae = { go: [], wait: [], avoid: [] };
+  for (const [, recs] of byDate) for (const r of recs) {
+    if (r.fwd[hh] == null) continue;
+    call[r.timingCall.state].push(r.fwd[hh]);
+    put[r.timingPut.state].push(-r.fwd[hh]);
+    callMae[r.timingCall.state].push(r.maeCall[hh]);
+    putMae[r.timingPut.state].push(r.maePut[hh]);
+  }
+  const fmt = (a) => `${(mean(a) * 100).toFixed(2)}% (n${a.length})`;
+  console.log(`  h=${hh}d CALL: GO ${fmt(call.go)} | WAIT ${fmt(call.wait)} | AVOID ${fmt(call.avoid)}`);
+  console.log(`        PUT : GO ${fmt(put.go)} | WAIT ${fmt(put.wait)} | AVOID ${fmt(put.avoid)}`);
+  if (hh === 10) {
+    console.log(`        MAE : CALL go ${(mean(callMae.go) * 100).toFixed(2)}% / wait ${(mean(callMae.wait) * 100).toFixed(2)}% / avoid ${(mean(callMae.avoid) * 100).toFixed(2)}% · PUT go ${(mean(putMae.go) * 100).toFixed(2)}% / wait ${(mean(putMae.wait) * 100).toFixed(2)}% / avoid ${(mean(putMae.avoid) * 100).toFixed(2)}%`);
+  }
 }
+const setupGroups = { healthy: [], knife: [], exhaustion: [], other: [] };
+for (const [, recs] of byDate) for (const r of recs) {
+  if (r.fwd[10] == null) continue;
+  for (const [timing, ret] of [[r.timingCall, r.fwd[10]], [r.timingPut, -r.fwd[10]]]) {
+    const k = timing.setupKind === "healthy-pullback" ? "healthy"
+      : timing.hardVeto === "knife" ? "knife"
+        : timing.hardVeto === "exhaustion" ? "exhaustion" : "other";
+    setupGroups[k].push(ret);
+  }
+}
+console.log("  10d setup detail: " + Object.entries(setupGroups).map(([k, a]) => `${k} ${(mean(a) * 100).toFixed(2)}% (n${a.length})`).join(" | "));
 
 console.log("\n=== 4. HOLDING HORIZON: top-minus-bottom-decile fwd-return spread of `tech`, by horizon ===");
 for (const hh of HOR) {
@@ -170,17 +212,20 @@ for (const hh of HOR) {
   console.log(`  h=${hh}d:  top decile ${(mean(top) * 100).toFixed(2)}%  -  bottom ${(mean(bot) * 100).toFixed(2)}%  =  spread ${((mean(top) - mean(bot)) * 100).toFixed(2)}%  (n/side ~${top.length})`);
 }
 
-console.log("\n=== 5. REGIME SPLIT (h=20d): does the momentum edge hold in DOWN tapes? ===");
+console.log("\n=== 5. REGIME SPLIT (h=20d): production GO/WAIT/AVOID directional returns ===");
 console.log("(tape per date = sign of the cross-sectional median trailing-20d return)");
-const U = { chase: [], pull: [], knife: [], top: [], bot: [] }, D = { chase: [], pull: [], knife: [], top: [], bot: [] };
+const U = { go: [], wait: [], avoid: [], top: [], bot: [] }, D = { go: [], wait: [], avoid: [], top: [], bot: [] };
 let upDates = 0, downDates = 0;
 for (const [, recs] of byDate) {
   const valid = recs.filter((r) => r.fwd[20] != null); if (valid.length < 30) continue;
   const up = median(valid.map((r) => r.mom20)) > 0; up ? upDates++ : downDates++;
   const G = up ? U : D;
-  for (const r of valid) { if (r.knife) G.knife.push(r.fwd[20]); else if (r.chase) G.chase.push(r.fwd[20]); else if (r.pullback) G.pull.push(r.fwd[20]); }
+  for (const r of valid) {
+    G[r.timingCall.state].push(r.fwd[20]);
+    G[r.timingPut.state].push(-r.fwd[20]);
+  }
   const arr = valid.map((r) => [r.tech, r.fwd[20]]).sort((a, b) => a[0] - b[0]); const q = Math.floor(arr.length / 10);
   for (let i = 0; i < q; i++) G.bot.push(arr[i][1]); for (let i = arr.length - q; i < arr.length; i++) G.top.push(arr[i][1]);
 }
-console.log(`  UP   tapes (${upDates} dates): chase ${(mean(U.chase) * 100).toFixed(2)}%  pullback ${(mean(U.pull) * 100).toFixed(2)}%  knife ${(mean(U.knife) * 100).toFixed(2)}%  |  tech decile spread ${((mean(U.top) - mean(U.bot)) * 100).toFixed(2)}%`);
-console.log(`  DOWN tapes (${downDates} dates): chase ${(mean(D.chase) * 100).toFixed(2)}%  pullback ${(mean(D.pull) * 100).toFixed(2)}%  knife ${(mean(D.knife) * 100).toFixed(2)}%  |  tech decile spread ${((mean(D.top) - mean(D.bot)) * 100).toFixed(2)}%`);
+console.log(`  UP   tapes (${upDates} dates): GO ${(mean(U.go) * 100).toFixed(2)}%  WAIT ${(mean(U.wait) * 100).toFixed(2)}%  AVOID ${(mean(U.avoid) * 100).toFixed(2)}%  |  tech decile spread ${((mean(U.top) - mean(U.bot)) * 100).toFixed(2)}%`);
+console.log(`  DOWN tapes (${downDates} dates): GO ${(mean(D.go) * 100).toFixed(2)}%  WAIT ${(mean(D.wait) * 100).toFixed(2)}%  AVOID ${(mean(D.avoid) * 100).toFixed(2)}%  |  tech decile spread ${((mean(D.top) - mean(D.bot)) * 100).toFixed(2)}%`);

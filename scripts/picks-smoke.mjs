@@ -39,11 +39,76 @@ function mkBars(spot, n, trend, lastShockPct = 0) {
   const bars = [];
   let px = spot / (1 + trend * n);
   for (let i = 0; i < n; i++) {
-    px = px * (1 + trend);
+    // Small alternating noise keeps synthetic RSI/MACD realistic. A perfectly
+    // monotonic fixture produces RSI 100/0 and correctly trips entry-v2's
+    // catastrophic exhaustion guard, which is not what most smoke rows test.
+    const wiggleAmp = Math.max(0.003, Math.abs(trend) * 2);
+    const wiggle = i % 2 === 0 ? wiggleAmp : -wiggleAmp;
+    px = px * (1 + trend + wiggle);
     const close = i === n - 2 && lastShockPct ? px * (1 + lastShockPct / 100) : px;
-    bars.push({ c: close, h: close * 1.01, l: close * 0.99 });
+    bars.push({
+      date: new Date(Date.UTC(2026, 0, 1 + i)).toISOString().slice(0, 10),
+      o: close * (1 - (trend + wiggle) / 2),
+      c: close, h: close * 1.01, l: close * 0.99,
+      v: i === n - 2 && lastShockPct ? 2_000_000 : 1_000_000 + (i % 5) * 20_000,
+    });
   }
   return bars;
+}
+
+function mkPathBars(spot, tailMoves, tailVol = []) {
+  const confirmedN = 44;
+  const closes = [];
+  const vols = [];
+  let px = 100;
+  const baseN = Math.max(1, confirmedN - tailMoves.length);
+  for (let i = 0; i < baseN; i++) {
+    px *= 1 + (i % 2 === 0 ? 0.003 : -0.003);
+    closes.push(px); vols.push(1_000_000);
+  }
+  for (let i = 0; i < tailMoves.length; i++) {
+    px *= 1 + tailMoves[i];
+    closes.push(px); vols.push(1_000_000 * (tailVol[i] ?? 1));
+  }
+  const scale = spot / closes[closes.length - 1];
+  const bars = closes.map((c, i) => {
+    const close = c * scale;
+    return {
+      date: new Date(Date.UTC(2026, 0, 1 + i)).toISOString().slice(0, 10),
+      o: close, c: close, h: close * 1.01, l: close * 0.99, v: vols[i],
+    };
+  });
+  const last = bars[bars.length - 1];
+  bars.push({ ...last, date: "2026-02-20" }); // in-progress bar, deliberately dropped
+  return bars;
+}
+
+function mkHealthyPullbackBars(spot) {
+  // 10% impulse, orderly ~45% retracement on light volume, then a directional
+  // turn on 1.6x volume. The recent pullback low leaves a real >=1.5:1 plan
+  // back to prior resistance — the v2 model's intended Go fixture.
+  return mkPathBars(
+    spot,
+    [0.02, 0.02, 0.02, 0.02, 0.02, -0.02, -0.02, -0.02, 0.015],
+    [1, 1, 1, 1, 1, 0.72, 0.70, 0.68, 1.6],
+  );
+}
+
+function mkSoftExtensionBars(spot) {
+  return mkPathBars(spot, [0.01, 0.01, 0.01, 0.01, 0.01, 0.01], [1, 1, 1, 1, 1, 1.4]);
+}
+
+function mkPayoffReadyWaitBars(spot, extended = false) {
+  // A small turn off a nearby pullback low leaves structure and payoff valid,
+  // but lacks momentum confirmation. The extended variant uses a larger prior
+  // impulse so it remains 4–8% above SMA20 after the reset.
+  return extended
+    ? mkPathBars(spot, [0.03, 0.03, 0.03, 0.03, 0.03, -0.025, -0.025, 0.005], [1, 1, 1, 1, 1, 0.72, 0.70, 1])
+    : mkPathBars(spot, [0.02, 0.02, 0.02, 0.02, 0.02, -0.02, -0.02, -0.02, 0.005], [1, 1, 1, 1, 1, 0.72, 0.70, 0.68, 1]);
+}
+
+function mkExhaustionBars(spot) {
+  return mkPathBars(spot, [0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03], [1, 1, 1, 1, 1, 1.3, 1.6, 2]);
 }
 
 function mkTicker(over = {}) {
@@ -73,7 +138,7 @@ function mkTicker(over = {}) {
     news: { sentiment: over.sentiment ?? "bullish" },
     social: { msgCount24h: 50, bullishPct: 60, bearishPct: 20 },
     ivRank: { pctile: over.ivPctile ?? 45, n: 60 },
-    _bars: over._bars ?? mkBars(spot, 40, 0.004),
+    _bars: over._bars ?? mkHealthyPullbackBars(spot),
     aiSignals: { guidance: { direction: "inline" }, majorContract: null },
     catalysts: [],
   };
@@ -101,6 +166,7 @@ ok("grades: BULLA is a call (positive total)", grades.BULLA.total > 0 && grades.
 ok("grades: BEAR is a put (negative total)", grades.BEAR.total < 0 && grades.BEAR.side === "put");
 ok("grades: pillars present w/ signals", grades.BULLA.pillars.fundamentals.signals.length > 0 && grades.BULLA.pillars.technicals.signals.length > 0);
 ok("grades: timing pillar has state", !!grades.BULLA.pillars.timing.state);
+ok("grades: timing is execution-only (not folded into conviction)", grades.BULLA.pillars.timing.executionOnly === true);
 ok("grades: ivCost pillar present", grades.BULLA.pillars.ivCost && grades.BULLA.pillars.ivCost.signals.length === 1);
 ok("grades: recommendation tier/label", !!grades.BULLA.recommendation.tier && !!grades.BULLA.recommendation.label);
 ok("grades: tierCutoffs stashed", grades.tierCutoffs && grades.tierCutoffs.tradeCut === PICKS_MIN_CONVICTION);
@@ -138,6 +204,22 @@ const goTiming = computeEntryTiming("call", chains.BULLA, chains.BULLA.spot, {})
 ok("timing: clean uptrend -> go or neutral (not avoid)", goTiming.state !== "avoid");
 const earnSoon = mkTicker({ spot: 100, fundamentals: { nextEarningsDate: new Date(Date.now() + 3 * dayMs).toISOString().slice(0, 10) } });
 ok("timing: earnings in 3d -> wait", computeEntryTiming("call", earnSoon, 100, {}).state === "wait" && computeEntryTiming("call", earnSoon, 100, {}).deferKind === "earnings");
+const earnLater = mkTicker({ spot: 100, fundamentals: { nextEarningsDate: new Date(Date.now() + 5 * dayMs).toISOString().slice(0, 10) } });
+const earnLaterTiming = computeEntryTiming("call", earnLater, 100, {});
+ok("entry-v2: earnings 4-7d is a soft -2 event penalty, not a hard defer", earnLaterTiming.components.event.score === -2 && !earnLaterTiming.hardWait);
+const wetPullback = mkTicker({
+  spot: 100,
+  _bars: mkPathBars(
+    100,
+    [0.02, 0.02, 0.02, 0.02, 0.02, -0.015, -0.015, -0.015, 0.018],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1.6],
+  ),
+});
+const dryPbTiming = computeEntryTiming("call", mkTicker({ spot: 100 }), 100, {});
+const wetPbTiming = computeEntryTiming("call", wetPullback, 100, {});
+ok("entry-v2: 25-50% impulse retracement is identified as a healthy pullback", dryPbTiming.setupKind === "healthy-pullback" && dryPbTiming.components.setup.retracePct >= 25 && dryPbTiming.components.setup.retracePct <= 50);
+ok("entry-v2: pullback dry-up earns one point over identical normal volume", dryPbTiming.components.setup.score === wetPbTiming.components.setup.score + 1);
+ok("entry-v2: execution score is clamped to -8…+2", [knifeTiming, goTiming, earnLaterTiming, dryPbTiming, wetPbTiming].every((x) => x.score >= -8 && x.score <= 2));
 
 // --- 3. contract selection ------------------------------------------------
 const ctr = pickContractForPick("call", chains.BULLA, 0.045, { requireClean: true });
@@ -162,15 +244,18 @@ ok("picks: exitPlan TP carries an option (contract) target price", picks.every((
 ok("picks: exitPlan optionStop summary present", picks.every((p) => p.exitPlan.optionStop && p.exitPlan.optionStop.price > 0 && p.exitPlan.optionStop.pct > 0));
 // entry guidance: every pick has a buy-now / wait-for-price signal
 ok("picks: every pick has an entry signal w/ headline", picks.every((p) => p.entry && typeof p.entry.now === "boolean" && p.entry.headline));
-// A go-timed pick reads buy-now UNLESS an extension band caught it (extended /
-// RSI-chase — the volume-confirm go path can bless a stretched name; soft band
-// basis "extended", hard band basis "top-guard").
-ok("picks: a clean-timing (go) pick reads buy-now (extension bands permitting)", picks.filter((p) => p.entryTiming.state === "go").every((p) => (p.entry.now === true && p.entry.signal === "buy-now") || p.entry.basis === "top-guard" || p.entry.basis === "extended"));
+// A deterministic Go has already cleared extension, setup, momentum, event,
+// structure/payoff, and regime prerequisites, so it translates to buy-now.
+ok("picks: a clean-timing (go) pick reads buy-now", picks.filter((p) => p.entryTiming.state === "go").every((p) => p.entry.now === true && p.entry.signal === "buy-now"));
 // THE ENTRY GATE (2026-07-10): actionable means "buy it right now" — every
 // actionable pick carries a confirmed buy-now entry; wait-entry names demote.
 ok("picks: every ACTIONABLE pick is a confirmed buy-now (entry gate)", picks.every((p) => p.group === "actionable" ? (p.entry.now === true && p.entry.signal === "buy-now") : true));
 // a below-trend call (spot under the 20D SMA) should wait for a reclaim, not buy now
-const belowTrend = mkTicker({ spot: 100, technicals: { rsi: 52, rsi5d: 50, macd: { hist: 0.1, line: 0.2, signal: 0.1 }, volume: { rvol: 1.0, priceMove1dPct: -0.5 }, sr: { s20: 95, r20: 108 }, sma: { sma20: 106, sma50: 104, sma100: 100 }, chartPattern: null, volRegime: { rv30Pctile: 45 } } });
+const belowTrend = mkTicker({
+  spot: 100,
+  technicals: { rsi: 52, rsi5d: 50, macd: { hist: 0.1, line: 0.2, signal: 0.1 }, volume: { rvol: 1.0, priceMove1dPct: -0.5 }, sr: { s20: 95, r20: 108 }, sma: { sma20: 106, sma50: 104, sma100: 100 }, chartPattern: null, volRegime: { rv30Pctile: 45 } },
+  _bars: mkPathBars(100, [-0.003, -0.003, -0.003, -0.003, -0.003, -0.003, -0.003, -0.003]),
+});
 const bg = buildGradesIndex({ X: belowTrend }, [], null, null, null, null, {});
 const es = computeEntrySmoke();
 ok("entry: below-20D call waits for a reclaim trigger (not buy-now)", es && es.now === false && es.signal === "wait-reclaim" && es.trigger > 100);
@@ -181,32 +266,31 @@ function computeEntrySmoke(){
   return p ? p.entry : null;
 }
 
-// --- 4b2. multi-factor buy-now (entry readiness) ----------------------------
-// A steadily-trending name — momentum aligned, right side of the 20D, 20D>50D
-// stack, 3-day thrust — is a BUY NOW even without a textbook pullback or a
-// volume spike (the old single-path logic parked it behind a dip trigger).
+// --- 4b2. one execution model (no duplicate readiness checklist) --------------
+// A healthy impulse/pullback with directional turn volume, tight invalidation
+// and >=1.5:1 payoff is a GO directly from computeEntryTiming.
 const steady = mkTicker({ spot: 100, technicals: {
   rsi: 60, rsi5d: 58, macd: { hist: 0.5, line: 1.1, signal: 0.6 },
   volume: { rvol: 1.0, priceMove1dPct: 0.4 },                       // NO volume confirmation
   sr: { s20: 93, r20: 108 }, sma: { sma20: 96.5, sma50: 92, sma100: 88 }, // +3.6% past 20D: outside pullback band, not extended
   chartPattern: null, volRegime: { rv30Pctile: 45 } } });
 const steadyTiming = computeEntryTiming("call", steady, 100, {});
-ok("entry: steady trend w/o pullback/volume -> timing gate is wait (not go)", steadyTiming.state === "wait");
+ok("entry-v2: healthy pullback + turn confirmation -> timing gate is go", steadyTiming.state === "go" && steadyTiming.score === 2);
 const steadyEntry = computeEntrySignal("call", 100, steady, steadyTiming, { total: 6 });
-ok("entry: multi-factor readiness clears the bar -> buy-now (no dip trigger)", steadyEntry.now === true && steadyEntry.signal === "buy-now" && steadyEntry.basis === "multi-factor readiness");
-ok("entry: readiness checklist ships (checks + score vs bar)", Array.isArray(steadyEntry.checks) && steadyEntry.checks.length >= 8 && steadyEntry.readiness && steadyEntry.readiness.score >= steadyEntry.readiness.bar);
+ok("entry-v2: go translates directly to buy-now", steadyEntry.now === true && steadyEntry.signal === "buy-now" && steadyEntry.basis === "confirmed entry");
+ok("entry-v2: component audit + structural plan ships", Array.isArray(steadyEntry.checks) && steadyEntry.checks.length >= 6 && steadyEntry.readiness?.payoffOk && steadyEntry.invalidation != null && steadyEntry.target != null && steadyEntry.rr >= 1.5);
 // Extended past the 20D WITHOUT broad confirmation still waits for the pullback.
 const stretched = mkTicker({ spot: 100, technicals: {
   rsi: 64, rsi5d: 60, macd: { hist: 0.4, line: 1.0, signal: 0.6 },
   volume: { rvol: 0.9, priceMove1dPct: 0.3 },
   sr: { s20: 90, r20: 110 }, sma: { sma20: 94.3, sma50: 96, sma100: 90 },  // +6% past 20D, 20D<50D (no stack)
   chartPattern: null, volRegime: { rv30Pctile: 45 } },
-  _bars: mkBars(100, 40, 0.002) });                                  // soft drift: no 3-day thrust
+  _bars: mkSoftExtensionBars(100) });
 const stretchedEntry = computeEntrySignal("call", 100, stretched, computeEntryTiming("call", stretched, 100, {}), { total: 5 });
 ok("entry: extended w/o confirmation still waits for the pullback", stretchedEntry.now === false && stretchedEntry.signal === "wait-pullback");
 // The wait trigger must be REACHABLE — a ~1.5×ATR dip floored at the 20D, never
 // an unreachable mean-reversion target (the old raw-20D trigger).
-ok("entry: the pullback trigger is reachable (>= the 20D, < spot)", stretchedEntry.trigger >= 94.3 && stretchedEntry.trigger < 100);
+ok("entry: the pullback trigger is reachable (nearby, < spot)", stretchedEntry.trigger >= 95 && stretchedEntry.trigger < 100);
 // Extended 4-15% past the 20D is the SOFT band (2026-07-10 rework): the
 // deterministic read still waits (keyless builds stay conservative) but the
 // basis is "extended" — NOT the hard "top-guard" — so the AI final grader's
@@ -216,20 +300,21 @@ const breakout = mkTicker({ spot: 100, technicals: {
   volume: { rvol: 1.2, priceMove1dPct: 1.0 },                       // below the go-gate's 1.3 rvol bar
   sr: { s20: 90, r20: 112 }, sma: { sma20: 94.3, sma50: 92, sma100: 88 },
   chartPattern: null, volRegime: { rv30Pctile: 45 } },
-  _bars: mkBars(100, 40, 0.006) });
+  _bars: mkSoftExtensionBars(100) });
 const breakoutTiming = computeEntryTiming("call", breakout, 100, {});
 const breakoutEntry = computeEntrySignal("call", 100, breakout, breakoutTiming, { total: 8 });
 ok("entry: extended breakout deterministically waits, SOFT basis (AI may take it)", breakoutTiming.state === "wait" && breakoutEntry.now === false && breakoutEntry.signal === "wait-pullback" && breakoutEntry.basis === "extended");
-// A PARABOLIC stretch (> PICKS_ENTRY_EXTENDED_HARD 15% past the 20D) is the
-// HARD top-guard veto — basis "top-guard", no verdict can bless it.
+// A true exhaustion CONFLUENCE (extension + RSI + fast impulse + climax volume)
+// is the HARD top-guard veto — one hot reading alone is not.
 const parabolic = mkTicker({ spot: 100, technicals: {
   rsi: 66, rsi5d: 62, macd: { hist: 0.6, line: 1.2, signal: 0.6 },
   volume: { rvol: 1.2, priceMove1dPct: 1.0 },
   sr: { s20: 80, r20: 112 }, sma: { sma20: 85, sma50: 82, sma100: 78 },   // +17.6% past the 20D
   chartPattern: null, volRegime: { rv30Pctile: 45 } },
-  _bars: mkBars(100, 40, 0.006) });
-const parabolicEntry = computeEntrySignal("call", 100, parabolic, computeEntryTiming("call", parabolic, 100, {}), { total: 8 });
-ok("entry: parabolic stretch (>15%) is HARD top-guarded", parabolicEntry.now === false && parabolicEntry.signal === "wait-pullback" && parabolicEntry.basis === "top-guard");
+  _bars: mkExhaustionBars(100) });
+const parabolicTiming = computeEntryTiming("call", parabolic, 100, {});
+const parabolicEntry = computeEntrySignal("call", 100, parabolic, parabolicTiming, { total: 8 });
+ok("entry-v2: exhaustion confluence is HARD top-guarded", parabolicTiming.hardVeto === "exhaustion" && parabolicEntry.now === false && parabolicEntry.signal === "wait-pullback" && parabolicEntry.basis === "top-guard");
 ok("entry: even the parabolic trigger is reachable (ATR-scaled, not the far 20D)", parabolicEntry.trigger >= 90 && parabolicEntry.trigger < 100);
 // RSI in the chase zone (72-80) is the SOFT band — even on a `go` timing state
 // the deterministic read waits, but the basis is overridable.
@@ -237,18 +322,21 @@ const hotRsi = mkTicker({ spot: 100, technicals: {
   rsi: 74, rsi5d: 70, macd: { hist: 0.6, line: 1.2, signal: 0.6 },
   volume: { rvol: 1.5, priceMove1dPct: 0.8 },
   sr: { s20: 93, r20: 110 }, sma: { sma20: 99.5, sma50: 95, sma100: 90 },  // +0.5% vs 20D: NOT extended
-  chartPattern: null, volRegime: { rv30Pctile: 45 } } });
+  chartPattern: null, volRegime: { rv30Pctile: 45 } },
+  _bars: mkSoftExtensionBars(100) });
 const hotTiming = computeEntryTiming("call", hotRsi, 100, {});
 const hotEntry = computeEntrySignal("call", 100, hotRsi, hotTiming, { total: 8 });
-ok("entry: RSI 74 (chase zone) waits even on a go state — SOFT basis", hotTiming.state === "go" && hotEntry.now === false && hotEntry.signal === "wait-pullback" && hotEntry.basis === "extended");
-// RSI at the blow-off extreme (>= PICKS_ENTRY_CHASE_RSI_HARD 80) is HARD.
+ok("entry-v2: a single hot/soft extension waits but is overridable", hotTiming.hardVeto == null && hotEntry.now === false && hotEntry.signal === "wait-pullback" && hotEntry.basis === "extended");
+// RSI above 80 by itself is no longer a hard veto; exhaustion needs confluence.
 const blowoff = mkTicker({ spot: 100, technicals: {
   rsi: 82, rsi5d: 78, macd: { hist: 0.6, line: 1.2, signal: 0.6 },
   volume: { rvol: 1.5, priceMove1dPct: 0.8 },
   sr: { s20: 93, r20: 110 }, sma: { sma20: 99.5, sma50: 95, sma100: 90 },
-  chartPattern: null, volRegime: { rv30Pctile: 45 } } });
-const blowoffEntry = computeEntrySignal("call", 100, blowoff, computeEntryTiming("call", blowoff, 100, {}), { total: 8 });
-ok("entry: RSI 82 (blow-off) is HARD top-guarded — never buy-now", blowoffEntry.now === false && blowoffEntry.signal === "wait-pullback" && blowoffEntry.basis === "top-guard");
+  chartPattern: null, volRegime: { rv30Pctile: 45 } },
+  _bars: mkSoftExtensionBars(100) });
+const blowoffTiming = computeEntryTiming("call", blowoff, 100, {});
+const blowoffEntry = computeEntrySignal("call", 100, blowoff, blowoffTiming, { total: 8 });
+ok("entry-v2: RSI 80+ alone is a soft wait, not a hard veto", blowoffTiming.hardVeto == null && blowoffEntry.now === false && blowoffEntry.signal === "wait-pullback" && blowoffEntry.basis === "extended");
 // Hard vetoes survive the checklist: an avoid (knife) state and an imminent
 // earnings print never read buy-now, whatever the factors say.
 const knifeEntry = computeEntrySignal("call", 50, chains.KNIFE, computeEntryTiming("call", chains.KNIFE, 50, {}), { total: 8 });
@@ -291,7 +379,7 @@ function mkWeakTechCall(sym) {
     fundamentals: { earningsGrowthYoy: 35, revenueGrowthYoy: 28, targetMeanPrice: 122, numberOfAnalystOpinions: 14, analystRevisions: { upgrades: 5, downgrades: 0 }, nextEarningsDate: new Date(Date.now() + 60 * dayMs).toISOString().slice(0, 10) },
     // soft, below-20D trend (a -4% 5d slide) — weak enough to roll the factor, not a knife
     technicals: { rsi: 48, rsi5d: 50, macd: { hist: -0.1, line: 0.1, signal: 0.2 }, volume: { rvol: 1.0, priceMove1dPct: -0.6 }, sr: { s20: 96, r20: 110, s50: 92, r50: 115 }, sma: { sma20: 103, sma50: 99, sma100: 95 }, chartPattern: null, volRegime: { rv30Pctile: 45 } },
-    _bars: mkBars(100, 40, -0.008),
+    _bars: mkPathBars(100, [-0.008, -0.008, -0.008, -0.008, -0.008, -0.008]),
   });
 }
 // SECTORS isn't re-exported here; map our synthetic symbols to Tech/AI sectors by hand.
@@ -308,7 +396,7 @@ function mkHealthyTechCall(sym) {
   const t = mkWeakTechCall(sym);
   t.technicals.sma = { sma20: 97, sma50: 93, sma100: 90 };
   t.technicals.rsi = 58; t.technicals.macd = { hist: 0.4, line: 1.0, signal: 0.6 };
-  t._bars = mkBars(100, 40, 0.006);
+  t._bars = mkHealthyPullbackBars(100);
   return t;
 }
 const healthyUniverse = { NVDA: mkHealthyTechCall("NVDA"), AVGO: mkHealthyTechCall("AVGO"), AMD: mkHealthyTechCall("AMD"), AMAT: mkHealthyTechCall("AMAT") };
@@ -541,7 +629,8 @@ ok("classify: moderate grade + weak thesis → idea / watch", classifyPick(5, "w
     rsi: 62, rsi5d: 60, macd: { hist: 0.5, line: 1.1, signal: 0.6 },
     volume: { rvol: 1.5, priceMove1dPct: 1.0 },
     sr: { s20: 92, r20: 110 }, sma: { sma20: 94, sma50: 90, sma100: 86 },  // +6.4% past the 20D (SOFT band)
-    chartPattern: { pattern: "Bull Flag", stage: "confirmed" }, volRegime: { rv30Pctile: 45 } } });
+    chartPattern: { pattern: "Bull Flag", stage: "confirmed" }, volRegime: { rv30Pctile: 45 } },
+    _bars: mkSoftExtensionBars(100) });
   const out = buildTopPicks({ EXTD: extended }, [], null, null, null, null, 0.045, {});
   const p = out.find((x) => x.symbol === "EXTD");
   ok("entry gate: soft-extended + no AI verdict reads wait (basis 'extended'), never buy-now", !p || (p.entry.now === false && p.entry.basis === "extended"));
@@ -563,9 +652,9 @@ ok("classify: moderate grade + weak thesis → idea / watch", classifyPick(5, "w
   const dipName = mkTicker({ spot: 100,
     fundamentals: { earningsGrowthYoy: 35, revenueGrowthYoy: 28, targetMeanPrice: 122, numberOfAnalystOpinions: 14, analystRevisions: { upgrades: 5, downgrades: 0 }, nextEarningsDate: new Date(Date.now() + 60 * dayMs).toISOString().slice(0, 10) },
     technicals: { rsi: 49, rsi5d: 50, macd: { hist: 0.3, line: 0.5, signal: 0.2 }, volume: { rvol: 0.9, priceMove1dPct: 0.2 }, sr: { s20: 96, r20: 108 }, sma: { sma20: 99, sma50: 103, sma100: 95 }, chartPattern: null, volRegime: { rv30Pctile: 45 } },
-    _bars: mkBars(100, 40, 0) });
+    _bars: mkPayoffReadyWaitBars(100) });
   const detE = computeEntrySignal("call", 100, dipName, computeEntryTiming("call", dipName, 100, {}), { total: 6 });
-  ok("ai-entry: fixture is a soft deterministic wait (buy-dip)", detE.now === false && detE.signal === "buy-dip");
+  ok("ai-entry: fixture is a payoff-ready soft deterministic wait", detE.now === false && detE.readiness?.payoffOk === true);
   const up = buildTopPicks({ DIPN: dipName }, [], null, null, null, null, 0.045, { aiThesisMap: { "DIPN:call": mkAi("buy-now") } });
   const pUp = up.find((x) => x.symbol === "DIPN");
   ok("ai-entry: AI buy-now overrides the soft price wait (final call is the grader's)", !!pUp && pUp.entry.now === true && pUp.entry.signal === "buy-now" && pUp.entry.basis === "ai-final-grader" && up.rosterMeta.aiEntryPromoted.includes("DIPN"));
@@ -585,16 +674,27 @@ ok("classify: moderate grade + weak thesis → idea / watch", classifyPick(5, "w
     rsi: 62, rsi5d: 60, macd: { hist: 0.5, line: 1.1, signal: 0.6 },
     volume: { rvol: 1.5, priceMove1dPct: 1.0 },
     sr: { s20: 92, r20: 110 }, sma: { sma20: 94, sma50: 90, sma100: 86 },  // +6.4%: SOFT band
-    chartPattern: { pattern: "Bull Flag", stage: "confirmed" }, volRegime: { rv30Pctile: 45 } } });
+    chartPattern: { pattern: "Bull Flag", stage: "confirmed" }, volRegime: { rv30Pctile: 45 } },
+    _bars: mkPayoffReadyWaitBars(100, true) });
   const tg = buildTopPicks({ EXTG: extg }, [], null, null, null, null, 0.045, { aiThesisMap: { "EXTG:call": mkAi("buy-now") } });
   const pTg = tg.find((x) => x.symbol === "EXTG");
   ok("ai-entry: an AI buy-now takes a SOFT-extended name (momentum ride is the grader's call)", !!pTg && pTg.entry.now === true && pTg.entry.basis === "ai-final-grader" && tg.rosterMeta.aiEntryPromoted.includes("EXTG"));
-  // The HARD band binds regardless: an AI buy-now can never bless a parabola.
+  // Soft extension is overridable only when the execution plan itself is real:
+  // unclear invalidation or sub-1.5:1 payoff remains deterministic.
+  const thinPayoff = mkTicker({ spot: 100, _bars: mkSoftExtensionBars(100) });
+  const thinTiming = computeEntryTiming("call", thinPayoff, 100, {});
+  ok("ai-entry: thin-payoff fixture actually fails a structure/payoff prerequisite", thinTiming.structure?.clear !== true || thinTiming.readiness?.payoffOk !== true);
+  const thinOut = buildTopPicks({ THIN: thinPayoff }, [], null, null, null, null, 0.045, { aiThesisMap: { "THIN:call": mkAi("buy-now") } });
+  const thinPick = thinOut.find((x) => x.symbol === "THIN");
+  ok("ai-entry: AI cannot override unclear structure or sub-1.5:1 payoff", !thinPick || (thinPick.entry.now === false && !thinOut.rosterMeta.aiEntryPromoted.includes("THIN")));
+  // Confirmed exhaustion binds regardless: an AI buy-now cannot bless a
+  // multi-extreme parabola with rollover or volume-climax evidence.
   const para = mkTicker({ spot: 100, technicals: {
     rsi: 62, rsi5d: 60, macd: { hist: 0.5, line: 1.1, signal: 0.6 },
     volume: { rvol: 1.5, priceMove1dPct: 1.0 },
-    sr: { s20: 80, r20: 110 }, sma: { sma20: 85, sma50: 80, sma100: 76 },  // +17.6%: HARD top-guard
-    chartPattern: { pattern: "Bull Flag", stage: "confirmed" }, volRegime: { rv30Pctile: 45 } } });
+    sr: { s20: 80, r20: 110 }, sma: { sma20: 85, sma50: 80, sma100: 76 },  // display metadata; bars supply exhaustion confluence
+    chartPattern: { pattern: "Bull Flag", stage: "confirmed" }, volRegime: { rv30Pctile: 45 } },
+    _bars: mkExhaustionBars(100) });
   const tgh = buildTopPicks({ PARA: para }, [], null, null, null, null, 0.045, { aiThesisMap: { "PARA:call": mkAi("buy-now") } });
   const pTgh = tgh.find((x) => x.symbol === "PARA");
   ok("ai-entry: the HARD top-guard binds — an AI buy-now can't bless a parabola", !pTgh || (pTgh.entry.now === false && pTgh.group !== "actionable" && !tgh.rosterMeta.aiEntryPromoted.includes("PARA")));
@@ -602,7 +702,7 @@ ok("classify: moderate grade + weak thesis → idea / watch", classifyPick(5, "w
   const legacy = { summary: "x", setup: "x", catalyst: "x", outlook: "x", macroSupport: "neutral", invalidation: ["a"], grade: "strong", score: 90 };
   const lg = buildTopPicks({ DIPN: dipName }, [], null, null, null, null, 0.045, { aiThesisMap: { "DIPN:call": legacy } });
   const pLg = lg.find((x) => x.symbol === "DIPN");
-  ok("ai-entry: no verdict → deterministic read stands (no fabricated buy)", !pLg || (pLg.entry.now === false && pLg.entry.signal === "buy-dip" && !pLg.entry.ai));
+  ok("ai-entry: no verdict → deterministic read stands (no fabricated buy)", !pLg || (pLg.entry.now === false && !pLg.entry.ai));
 }
 
 // --- 12b4. the final-pass prompt carries the FULL evidence table --------------

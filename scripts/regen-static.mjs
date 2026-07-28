@@ -95,7 +95,46 @@ const nextFomcDates = FOMC_MEETINGS_BASELINE
   .sort()
   .slice(0, 2);
 
-const builtAtIso = trends.builtAtIso || new Date().toISOString();
+// A local data/ hydrate can lag the committed shell (private-store data is not
+// versioned with the repo). Never make the shipped freshness stamp older just
+// because a renderer-only regen ran against that stale hydrate. Preserve the
+// newer existing shell timestamp; REGEN_BUILT_AT_ISO is a one-shot recovery
+// override for a workspace whose shell was already regenerated from stale data.
+let existingBuiltAtIso = null;
+let existingShellManifest = null;
+try {
+  const existingHtml = await readFile(resolve(ROOT, "index.html"), "utf8");
+  existingBuiltAtIso = existingHtml.match(/\bdata-built-at="([^"]+)"/)?.[1] || null;
+  const manifestMatch = existingHtml.match(/window\.STONKS_MANIFEST=(\{.*\});<\/script>/);
+  if (manifestMatch) existingShellManifest = JSON.parse(manifestMatch[1]);
+} catch {}
+const builtAtCandidates = [
+  trends.builtAtIso,
+  existingBuiltAtIso,
+  process.env.REGEN_BUILT_AT_ISO,
+].filter((value) => Number.isFinite(Date.parse(value)));
+const builtAtIso = builtAtCandidates.length
+  ? builtAtCandidates.sort((a, b) => Date.parse(b) - Date.parse(a))[0]
+  : new Date().toISOString();
+const parseMetaOverride = (name) => {
+  try { return process.env[name] ? JSON.parse(process.env[name]) : null; } catch { return null; }
+};
+const newerMeta = (current, existing, override) => [current, existing, override]
+  .filter((value) => value && Number.isFinite(Date.parse(value.scannedAt)))
+  .sort((a, b) => Date.parse(b.scannedAt) - Date.parse(a.scannedAt))[0] || null;
+// Scanner-owned freshness stubs can be newer than a local bake hydrate. Carry
+// the newest shell metadata forward so a renderer-only regen does not erase
+// evidence of the hourly volume or twice-daily OI refresh.
+const volumeFlagsMeta = newerMeta(
+  volumeFlags,
+  existingShellManifest?.volumeFlagsMeta,
+  parseMetaOverride("REGEN_VOLUME_FLAGS_META"),
+);
+const oiMeta = newerMeta(
+  oi,
+  existingShellManifest?.oiMeta,
+  parseMetaOverride("REGEN_OI_META"),
+);
 const builtAt = new Intl.DateTimeFormat("en-US", {
   timeZone: "America/New_York",
   month: "short",
@@ -123,10 +162,10 @@ const html = renderHtml({
   spots,
   fearGreed,
   macro,
-  volumeFlags,
+  volumeFlags: volumeFlagsMeta ? { ...(volumeFlags || {}), ...volumeFlagsMeta } : volumeFlags,
   marketBackdrop,
   nextFomcDates,
-  oi,
+  oi: oiMeta ? { ...(oi || {}), ...oiMeta } : oi,
   dataDir: DATA_DIR,
   // builtAtIso above is the PRIOR bake's timestamp (the data's age, shown in
   // the header), but app.js/styles.css ship under 1-year immutable caching

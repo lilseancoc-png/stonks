@@ -13698,10 +13698,11 @@ export function attachPredictionTrends(pmFomc, history, todayIso) {
 //
 // Returns { active, label, daysOut, topProb, alwaysDefer } or { active:false }.
 const PICKS_EVENT_RISK = process.env.PICKS_EVENT_RISK !== "0";
-// Anticipate scheduled events EARLIER (widened 3 → 5 days): a Fed meeting is a
-// known date weeks out, so the roster should de-risk into it across the whole
-// pre-meeting week, not only at the 3-day mark.
-const PICKS_TIMING_EVENT_DEFER_DAYS = Number(process.env.PICKS_TIMING_EVENT_DEFER_DAYS ?? 5);
+// Carry the nearest major event through the full seven-day scoring window.
+// computeEntryTiming distinguishes a hard same/next-session wait from the
+// softer 2–3 and 4–7 day penalties; downstream strategy selection can still
+// prefer defined-risk structures throughout the window.
+const PICKS_TIMING_EVENT_DEFER_DAYS = Number(process.env.PICKS_TIMING_EVENT_DEFER_DAYS ?? 7);
 const PICKS_EVENT_RISK_MAX_PROB = Number(process.env.PICKS_EVENT_RISK_MAX_PROB ?? 0.70);
 // Treat a scheduled FOMC / major macro print as an ALWAYS-ON event risk inside the
 // window (path 1 above), regardless of how confidently the crowd has priced it.
@@ -13811,8 +13812,8 @@ export function computeMacroEventRisk(predictionMarkets, meetings, reportEvents,
   return best || { active: false };
 }
 
-// Forward macro-calendar look-ahead for the AI final grader. The hard defer gate
-// above only sees PICKS_TIMING_EVENT_DEFER_DAYS (5) — but a pick's 1–2 week hold
+// Forward macro-calendar look-ahead for the AI final grader. The execution gate
+// above scores only the first PICKS_TIMING_EVENT_DEFER_DAYS (7) — but a pick's 1–2 week hold
 // rides THROUGH whatever lands later in the window, so the thesis prompt gets the
 // full horizon: scheduled FOMC decisions + the same guaranteed-vol major prints
 // the defer gate treats as always-on (CPI/PPI/NFP). Pure (no clock — a same-day
@@ -14082,23 +14083,43 @@ const PICKS_REGIME_TILT_SEVERE = 4;
 const PICKS_RISKOFF_PUT_BAR = -3;              // tactical-put bar in risk-off (sub-conviction)
 
 // ---- Entry-timing thresholds (also mirrored to the client live gate) -------
-const PICKS_TIMING_MIN_BARS = 15;
-const PICKS_TIMING_KNIFE_RET1D = -6;           // a -6% day is a falling knife
-const PICKS_TIMING_KNIFE_RET3D = -8;           // -8% over 3 sessions
-const PICKS_TIMING_CHASE_RSI = 72;             // overbought in the trade direction
-const PICKS_TIMING_CHASE_DIST_SMA20 = 8;       // stretched >8% past the 20D SMA
-const PICKS_TIMING_CHASE_DIST_SMA20_SOFT = 6;
-const PICKS_TIMING_CHASE_52W = 0.97;           // pinned to the 52w extreme
-const PICKS_TIMING_CHASE_RET5D = 12;           // +12% blow-off run
+// Entry timing is an EXECUTION overlay, not part of directional conviction.
+// Every price/volume indicator below is recomputed from one confirmed-bar cutoff.
+const PICKS_TIMING_MIN_BARS = 30;
+const PICKS_TIMING_KNIFE_RET1D = -6;           // candidate knife: adverse 1-session move
+const PICKS_TIMING_KNIFE_RET3D = -8;           // candidate knife: adverse 3-session move
+const PICKS_TIMING_KNIFE_SEVERE_1D = -8;       // unconditional crash/spike veto
+const PICKS_TIMING_KNIFE_SEVERE_3D = -12;
+const PICKS_TIMING_CHASE_RSI = 72;             // soft heat band in the trade direction
+const PICKS_TIMING_CHASE_DIST_SMA20 = 8;       // soft extension band
+const PICKS_TIMING_CHASE_DIST_SMA20_SOFT = 4;  // mild stretch
+const PICKS_TIMING_CHASE_52W = 0.97;           // retained for the live client gate
+const PICKS_TIMING_CHASE_RET5D = 12;           // exhaustion-confluence input
 const PICKS_TIMING_CHASE_RET3D = 10;
-const PICKS_TIMING_VOL_CONFIRM = 1.3;          // rvol that confirms a move
-const PICKS_TIMING_PULLBACK_BAND = 3;          // % band around 20D = healthy reset
-const PICKS_ENTRY_READY_BAR = Number(process.env.PICKS_ENTRY_READY_BAR ?? 4); // multi-factor buy-now readiness bar (computeEntrySignal)
-const PICKS_ENTRY_EXTENDED_DIST = 4;           // % past the 20D = SOFT extension; the deterministic read waits but the AI final grader may take it (momentum vs chase is a judgment call)
-const PICKS_ENTRY_EXTENDED_HARD = 15;          // % past the 20D = HARD top-guard (parabolic stretch) — no AI verdict can bless it
-const PICKS_ENTRY_CHASE_RSI_HARD = 80;         // RSI blow-off extreme (<=20 for a put) — the HARD half of the RSI chase band; PICKS_TIMING_CHASE_RSI (72) is the soft bar
-const PICKS_ENTRY_PULLBACK_ATR_MULT = 1.5;     // wait-pullback trigger = a ~1.5×ATR dip (clamped 2–5%), never the raw 20D when it sits unreachably far below
-const PICKS_TIMING_EARNINGS_DEFER_DAYS = 7;    // earnings within a week -> wait
+const PICKS_TIMING_VOL_CONFIRM = 1.3;          // directional turn-day confirmation
+const PICKS_TIMING_VOL_DRY = 0.90;             // pullback volume vs preceding baseline
+const PICKS_TIMING_VOL_CLIMAX = 1.80;
+const PICKS_TIMING_PULLBACK_BAND = 3;          // retained for the live client gate
+const PICKS_ENTRY_READY_BAR = 2;               // execution score bar; prerequisites also bind
+const PICKS_ENTRY_EXTENDED_DIST = 4;
+const PICKS_ENTRY_EXTENDED_HARD = 15;
+const PICKS_ENTRY_CHASE_RSI_HARD = 80;
+const PICKS_ENTRY_EXTREME_DIST = 25;           // a single catastrophic extension is still a veto
+const PICKS_ENTRY_EXTREME_RSI = 88;
+const PICKS_ENTRY_EXTREME_RET5D = 20;
+const PICKS_ENTRY_PULLBACK_ATR_MULT = 1.5;     // reachable wait trigger, clamped 2–5%
+const PICKS_TIMING_IMPULSE_LOOKBACK = 20;
+const PICKS_TIMING_IMPULSE_MIN_PCT = 4;
+const PICKS_TIMING_PULLBACK_RETRACE_LO = 0.25;
+const PICKS_TIMING_PULLBACK_RETRACE_HI = 0.50;
+const PICKS_TIMING_PULLBACK_RETRACE_DEEP = 0.67;
+const PICKS_TIMING_PULLBACK_MAX_SESSIONS = 10;
+const PICKS_TIMING_STRUCTURE_MAX_ATR = 2;
+const PICKS_TIMING_MIN_RR = 1.5;
+const PICKS_TIMING_EARNINGS_HARD_DAYS = 3;
+const PICKS_TIMING_EARNINGS_DEFER_DAYS = 7;
+const PICKS_TIMING_EVENT_HARD_DAYS = 1;
+const PICKS_ENTRY_TIMING_VERSION = 2;
 export const PICKS_TIMING_THRESHOLDS = Object.freeze({
   knifeRet1d: PICKS_TIMING_KNIFE_RET1D,
   knifeRet3d: PICKS_TIMING_KNIFE_RET3D,
@@ -14109,6 +14130,11 @@ export const PICKS_TIMING_THRESHOLDS = Object.freeze({
   chaseRet5d: PICKS_TIMING_CHASE_RET5D,
   chaseRet3d: PICKS_TIMING_CHASE_RET3D,
   volConfirm: PICKS_TIMING_VOL_CONFIRM,
+  volDry: PICKS_TIMING_VOL_DRY,
+  extendedDist: PICKS_ENTRY_EXTENDED_DIST,
+  extendedHard: PICKS_ENTRY_EXTENDED_HARD,
+  rsiHard: PICKS_ENTRY_CHASE_RSI_HARD,
+  minRewardRisk: PICKS_TIMING_MIN_RR,
 });
 
 // ---- IV cost ---------------------------------------------------------------
@@ -14322,7 +14348,12 @@ const PICKS_ACCURACY_MAX_CLOSED = 250;
 // entryVerdict decides momentum-ride vs chase); only a parabolic >15% / RSI-80
 // extreme stays a hard veto. Wait triggers became reachable (~1.5×ATR). A
 // different entry regime → fresh record.
-const PICKS_ACCURACY_RESET_EPOCH = "2026-07-10.3";
+// 2026-07-28: entry-v2 separates execution timing from the asset grade, scores
+// extension/setup/momentum/events/structure independently, and requires
+// confluence before an extreme becomes a hard exhaustion veto. Knife,
+// event-defer, reclaim/reversal, structure, and >=1.5:1 payoff gates now bind
+// the final buy-now call. The new enrolled population gets a fresh record.
+const PICKS_ACCURACY_RESET_EPOCH = "2026-07-28.entry-v2";
 // Hard cap on the concurrently-tracked open book. Each build ships <=10
 // actionable picks, but re-entry suppression means every build surfaces NEW
 // names while the previously-enrolled ones stay open until an exit rule fires —
@@ -14468,17 +14499,32 @@ function etDateStr(d) {
 }
 
 // Confirmed daily bars (drops the in-progress bar at call sites). Build path
-// uses data._bars (array of {c,h,l}); regen uses the persisted priceSeries
-// (column arrays). Shape returned: { c:[], h:[], l:[] } of Numbers, or null.
+// uses data._bars; regen uses the persisted priceSeries column arrays. Keep the
+// OHLCV/date columns aligned: pullback depth, dry-up volume, turn confirmation,
+// ATR and event copy must all describe the same completed session.
 // NOTE: also consumed by the briefs code (gatherBriefSignals) — keep the shape.
 function timingBarsFrom(data) {
   const b = data && data._bars;
   if (Array.isArray(b) && b.length >= PICKS_TIMING_MIN_BARS) {
-    return { c: b.map((x) => Number(x && x.c)), h: b.map((x) => Number(x && x.h)), l: b.map((x) => Number(x && x.l)) };
+    return {
+      t: b.map((x) => x && (x.date || x.t || x.timestamp || null)),
+      o: b.map((x) => Number(x && x.o)),
+      c: b.map((x) => Number(x && x.c)),
+      h: b.map((x) => Number(x && x.h)),
+      l: b.map((x) => Number(x && x.l)),
+      v: b.map((x) => Number(x && (x.v ?? x.volume))),
+    };
   }
   const ps = data && data.priceSeries;
   if (ps && Array.isArray(ps.c) && ps.c.length >= PICKS_TIMING_MIN_BARS) {
-    return { c: ps.c.map(Number), h: (Array.isArray(ps.h) ? ps.h : ps.c).map(Number), l: (Array.isArray(ps.l) ? ps.l : ps.c).map(Number) };
+    return {
+      t: (Array.isArray(ps.t) ? ps.t : ps.c.map(() => null)).slice(),
+      o: (Array.isArray(ps.o) ? ps.o : ps.c).map(Number),
+      c: ps.c.map(Number),
+      h: (Array.isArray(ps.h) ? ps.h : ps.c).map(Number),
+      l: (Array.isArray(ps.l) ? ps.l : ps.c).map(Number),
+      v: (Array.isArray(ps.v) ? ps.v : ps.c.map(() => NaN)).map(Number),
+    };
   }
   return null;
 }
@@ -14952,94 +14998,430 @@ function scoreNarrative(sym, data, narratives) {
 }
 
 // ============================================================================
-// Entry timing — the single most important risk control (see loss analysis).
-// Reads CONFIRMED daily bars (no look-ahead). Returns a state + a bounded
-// contribution folded into total, plus reasons/headline for the card.
-//   avoid (knife / chase)  -> -5 (to -8 for the egregious)
-//   wait  (earnings/mixed) -> -1
-//   go    (clean entry)    -> +2
-// `regime` tightens the knife thresholds when the tape fights the trade.
+// Entry timing — execution quality, intentionally separate from asset conviction.
+//
+// The old implementation mixed two jobs: it changed the directional grade and
+// then re-scored much of the same price path inside computeEntrySignal. This
+// version computes one auditable execution score (-8…+2), with hard vetoes that
+// cannot be averaged away. All indicators come from the same confirmed OHLCV
+// cutoff; extension, pullback, momentum, event and structure are capped groups
+// so correlated price signals cannot manufacture a "Go".
 // ============================================================================
+function timingMean(xs) {
+  const a = (xs || []).filter(Number.isFinite);
+  return a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
+}
+
+function timingConfirmedSeries(data) {
+  const b = timingBarsFrom(data);
+  if (!b || !Array.isArray(b.c)) return null;
+  const rows = [];
+  // The last daily bar can still be moving during a bake. Drop it once here and
+  // keep every remaining column aligned instead of filtering closes alone.
+  for (let i = 0; i < b.c.length - 1; i++) {
+    const c = Number(b.c[i]);
+    if (!Number.isFinite(c) || c <= 0) continue;
+    const h0 = Number(b.h?.[i]), l0 = Number(b.l?.[i]);
+    rows.push({
+      t: b.t?.[i] || null,
+      o: Number.isFinite(Number(b.o?.[i])) ? Number(b.o[i]) : c,
+      c,
+      h: Number.isFinite(h0) ? h0 : c,
+      l: Number.isFinite(l0) ? l0 : c,
+      v: Number.isFinite(Number(b.v?.[i])) && Number(b.v[i]) > 0 ? Number(b.v[i]) : NaN,
+    });
+  }
+  if (rows.length < PICKS_TIMING_MIN_BARS) return null;
+  return {
+    t: rows.map((r) => r.t), o: rows.map((r) => r.o), c: rows.map((r) => r.c),
+    h: rows.map((r) => r.h), l: rows.map((r) => r.l), v: rows.map((r) => r.v),
+  };
+}
+
+function timingImpulse(c, side, atrPct) {
+  const dir = side === "call" ? 1 : -1;
+  const start = Math.max(0, c.length - PICKS_TIMING_IMPULSE_LOOKBACK);
+  const w = c.slice(start);
+  if (w.length < 6) return null;
+  let extremeRel = 0;
+  for (let i = 1; i < w.length; i++) {
+    if ((dir > 0 && w[i] > w[extremeRel]) || (dir < 0 && w[i] < w[extremeRel])) extremeRel = i;
+  }
+  if (extremeRel < 2) return null;
+  let originRel = 0;
+  for (let i = 1; i <= extremeRel; i++) {
+    if ((dir > 0 && w[i] < w[originRel]) || (dir < 0 && w[i] > w[originRel])) originRel = i;
+  }
+  if (originRel >= extremeRel) return null;
+  const origin = w[originRel], extreme = w[extremeRel], last = w[w.length - 1];
+  const impulseAbs = Math.abs(extreme - origin);
+  const impulsePct = origin > 0 ? impulseAbs / origin * 100 : null;
+  const retraceAbs = dir > 0 ? Math.max(0, extreme - last) : Math.max(0, last - extreme);
+  const retrace = impulseAbs > 0 ? retraceAbs / impulseAbs : null;
+  const depthPct = extreme > 0 ? retraceAbs / extreme * 100 : null;
+  const minImpulse = Math.max(PICKS_TIMING_IMPULSE_MIN_PCT, (atrPct || 0) * 200);
+  return {
+    valid: impulsePct != null && impulsePct >= minImpulse,
+    origin, extreme, impulsePct, retrace, depthPct,
+    duration: w.length - 1 - extremeRel,
+    originIndex: start + originRel, extremeIndex: start + extremeRel,
+  };
+}
+
+function timingRoundStep(price) {
+  if (price < 20) return 0.5;
+  if (price < 100) return 1;
+  if (price < 500) return 5;
+  return 10;
+}
+
+function timingStructure(series, side, sma20, sma50, atrPct) {
+  const { c, h, l } = series;
+  const last = c[c.length - 1];
+  const atr = Math.max(last * (atrPct || 0.015), last * 0.005);
+  const priorLows = l.slice(Math.max(0, l.length - 21), -1).filter(Number.isFinite);
+  const priorHighs = h.slice(Math.max(0, h.length - 21), -1).filter(Number.isFinite);
+  const recentLows = l.slice(Math.max(0, l.length - 6), -1).filter(Number.isFinite);
+  const recentHighs = h.slice(Math.max(0, h.length - 6), -1).filter(Number.isFinite);
+  const swingLow = priorLows.length ? Math.min(...priorLows) : null;
+  const swingHigh = priorHighs.length ? Math.max(...priorHighs) : null;
+  const recentPivot = side === "call"
+    ? (recentLows.length ? Math.min(...recentLows) : null)
+    : (recentHighs.length ? Math.max(...recentHighs) : null);
+  const step = timingRoundStep(last);
+  const round = Math.round(last / step) * step;
+  const isCall = side === "call";
+  // A round number is useful confluence, but it is not sufficient evidence for
+  // a stop by itself. The anchor must be a price-derived level; this prevents a
+  // quote sitting near $50/$100 from manufacturing a tiny-risk, huge-R:R plan.
+  const coreLevels = [
+    { kind: "20D SMA", value: sma20 },
+    { kind: "50D SMA", value: sma50 },
+    { kind: isCall ? "recent pullback low" : "recent bounce high", value: recentPivot },
+    { kind: isCall ? "prior swing support" : "prior swing resistance", value: isCall ? swingLow : swingHigh },
+  ].filter((x) => Number.isFinite(x.value) && x.value > 0);
+  const rawLevels = [...coreLevels, { kind: "round number", value: round }];
+  const usable = coreLevels.filter((x) => isCall ? x.value <= last * 1.005 : x.value >= last * 0.995);
+  usable.sort((a, b) => Math.abs(a.value - last) - Math.abs(b.value - last));
+  const anchor = usable[0] || null;
+  const confluence = anchor
+    ? rawLevels.filter((x) => Math.abs(x.value - anchor.value) <= atr * 0.40).length
+    : 0;
+  const stop = anchor ? anchor.value - (isCall ? atr * 0.25 : -atr * 0.25) : null;
+  const risk = stop != null ? Math.abs(last - stop) : null;
+  const riskAtr = risk != null && atr > 0 ? risk / atr : null;
+  const priorTarget = isCall
+    ? (swingHigh != null && swingHigh > last + atr * 0.25 ? swingHigh : null)
+    : (swingLow != null && swingLow < last - atr * 0.25 ? swingLow : null);
+  // A breakout with no nearby historical level still gets a conservative
+  // volatility projection; it is labelled as such rather than invented as
+  // resistance/support.
+  const target = priorTarget ?? (last + (isCall ? 1 : -1) * atr * 2.5);
+  const reward = Math.abs(target - last);
+  const rr = risk != null && risk > 0 ? reward / risk : null;
+  const clear = !!anchor && riskAtr != null && riskAtr <= PICKS_TIMING_STRUCTURE_MAX_ATR;
+  return {
+    anchor: anchor ? r2(anchor.value) : null,
+    anchorKind: anchor?.kind || null,
+    confluence,
+    invalidation: stop != null ? r2(stop) : null,
+    target: r2(target),
+    targetKind: priorTarget != null ? (isCall ? "prior resistance" : "prior support") : "2.5 ATR projection",
+    riskAtr: riskAtr != null ? r2(riskAtr) : null,
+    rr: rr != null ? r2(rr) : null,
+    clear,
+  };
+}
+
 export function computeEntryTiming(side, data, spot, opts = {}) {
   const isCall = side === "call";
+  const dir = isCall ? 1 : -1;
   const regime = opts.regime || "neutral";
   const eventRisk = opts.eventRisk || null;
-  const reasons = [];
-  const bars = timingBarsFrom(data);
+  const series = timingConfirmedSeries(data);
   spot = pnum(spot) ?? pnum(data?.spot);
-
-  // Imminent scheduled vol event (FOMC / major print / earnings) -> wait.
-  if (eventRisk && eventRisk.active && pnum(eventRisk.daysOut) != null && eventRisk.daysOut <= PICKS_TIMING_EVENT_DEFER_DAYS) {
-    return { state: "wait", side, score: -1, contribution: -1, deferKind: "event",
-      headline: `Wait — ${eventRisk.label || "macro event"} in ${eventRisk.daysOut}d`, reasons: [`${eventRisk.label || "event"} in ${eventRisk.daysOut} sessions`] };
-  }
-  const f = data?.fundamentals || {};
-  if (f.nextEarningsDate) {
-    // ET day-diff, not Date.parse vs Date.now(): the raw-parse compare turned
-    // the defer OFF on the print day itself (UTC-midnight trap, see etDaysUntil).
-    const ed = etDaysUntil(f.nextEarningsDate);
-    if (ed != null && ed >= 0 && ed <= PICKS_TIMING_EARNINGS_DEFER_DAYS) {
-      return { state: "wait", side, score: -1, contribution: -1, deferKind: "earnings",
-        headline: `Wait — earnings in ~${Math.round(ed)}d (IV crush risk)`, reasons: [`earnings ~${Math.round(ed)} sessions out`] };
-    }
+  if (!series || !spot) {
+    return {
+      state: "wait", side, score: 0, contribution: 0, executionOnly: true,
+      deferKind: null, headline: "Wait — insufficient confirmed bars",
+      reasons: ["not enough aligned OHLCV history"], components: {}, metrics: null,
+    };
   }
 
-  if (!bars || !spot) {
-    return { state: "wait", side, score: 0, contribution: 0, deferKind: null, headline: "Insufficient confirmed bars", reasons: ["not enough price history"] };
-  }
-  const c = bars.c.filter(Number.isFinite).slice(0, -1);   // drop in-progress bar
-  const n = c.length;
-  if (n < PICKS_TIMING_MIN_BARS) return { state: "wait", side, score: 0, contribution: 0, deferKind: null, headline: "Insufficient confirmed bars", reasons: ["not enough price history"] };
-  const lastC = c[n - 1];
+  const { c, h, l, v } = series;
+  const n = c.length, lastC = c[n - 1];
   const retK = (k) => (n > k && c[n - 1 - k] > 0 ? (lastC / c[n - 1 - k] - 1) * 100 : null);
   const ret1 = retK(1), ret3 = retK(3), ret5 = retK(5);
-  const t = data?.technicals || {};
-  const rsi = pnum(t.rsi);
-  const sma20 = pnum(t.sma?.sma20);
+  const prevRet1 = n > 2 && c[n - 2] > 0 && c[n - 3] > 0 ? (c[n - 2] / c[n - 3] - 1) * 100 : null;
+  const sma20 = c.length >= 20 ? timingMean(c.slice(-20)) : null;
+  const sma50 = c.length >= 50 ? timingMean(c.slice(-50)) : null;
+  const rsi = computeRSI(c, 14);
+  const rsiPrev = computeRSI(c.slice(0, -1), 14);
+  const macd = computeMACD(c, 12, 26, 9);
+  const macdPrev = computeMACD(c.slice(0, -1), 12, 26, 9);
+  const macdHist = pnumN(macd?.hist), macdHistPrev = pnumN(macdPrev?.hist);
+  const atrPct = atrPctFrom(h, l, c);
+  const atr = lastC * (atrPct || 0.015);
   const distSma = sma20 > 0 ? (lastC / sma20 - 1) * 100 : null;
-  // (No ATR here — the exit ladder computes its own from the UNSLICED bars;
-  // an hh/ll slice against null-filtered closes was misaligned anyway.)
+  const dirDist = distSma != null ? distSma * dir : null;
+  const dirRet1 = ret1 != null ? ret1 * dir : null;
+  const dirRet3 = ret3 != null ? ret3 * dir : null;
+  const dirRet5 = ret5 != null ? ret5 * dir : null;
+  const prevDirRet1 = prevRet1 != null ? prevRet1 * dir : null;
+  const heat = rsi != null ? (isCall ? rsi : 100 - rsi) : null;
+  const priorVol = timingMean(v.slice(Math.max(0, n - 21), n - 1));
+  const lastVol = Number.isFinite(v[n - 1]) ? v[n - 1] : null;
+  const rvol = priorVol > 0 && lastVol != null ? lastVol / priorVol : null;
+  // Exclude a directional turn day from the dry-up sample: its desired volume
+  // expansion should not erase the evidence that selling/buying dried up first.
+  const pullbackVolEnd = dirRet1 != null && dirRet1 > 0 ? n - 1 : n;
+  const pullbackVolStart = Math.max(0, pullbackVolEnd - 3);
+  const pullbackVol = timingMean(v.slice(pullbackVolStart, pullbackVolEnd));
+  const pullbackVolBase = timingMean(v.slice(Math.max(0, pullbackVolStart - 20), pullbackVolStart));
+  const dryRatio = pullbackVolBase > 0 && pullbackVol != null ? pullbackVol / pullbackVolBase : null;
+  const higherLow = isCall
+    ? (n >= 3 && l[n - 1] > l[n - 2] && l[n - 2] >= l[n - 3])
+    : (n >= 3 && h[n - 1] < h[n - 2] && h[n - 2] <= h[n - 3]);
   const fightsTape = (isCall && (regime === "risk-off" || regime === "severe")) || (!isCall && regime === "risk-on");
-  const knifeTighten = fightsTape ? 0.75 : 1;               // tighten ~25% when tape fights us
+  const crowdedAligned = (isCall && regime === "risk-on") || (!isCall && (regime === "risk-off" || regime === "severe"));
+  const structure = timingStructure(series, side, sma20, sma50, atrPct);
+  const impulse = timingImpulse(c, side, atrPct);
+  const components = {};
+  const reasons = [];
+  let hardVeto = null, hardWait = null, deferKind = null;
 
-  // ---- AVOID: falling knife (for a call) / vertical spike (for a put) ----
-  const dirRet1 = isCall ? ret1 : (ret1 == null ? null : -ret1);
-  const dirRet3 = isCall ? ret3 : (ret3 == null ? null : -ret3);
-  if (dirRet1 != null && dirRet1 <= PICKS_TIMING_KNIFE_RET1D * knifeTighten) {
-    const sev = clamp(Math.abs(dirRet1) / Math.abs(PICKS_TIMING_KNIFE_RET1D), 1, 2);
-    reasons.push(`${r1(dirRet1)}% session against the trade`);
-    return { state: "avoid", side, score: -clamp(5 * sev, 5, 8), contribution: -clamp(5 * sev, 5, 8), deferKind: null, fightsTape, headline: `Avoid — falling knife (${r1(dirRet1)}% day)`, reasons };
+  // ---- Event/calendar risk -------------------------------------------------
+  let eventScore = 0;
+  const eventDays = eventRisk?.active ? pnumN(eventRisk.daysOut) : null;
+  if (eventDays != null && eventDays >= 0 && eventDays <= PICKS_TIMING_EVENT_DEFER_DAYS) {
+    if (eventDays <= PICKS_TIMING_EVENT_HARD_DAYS) {
+      eventScore = -4; hardWait = "event"; deferKind = "event";
+      reasons.push(`${eventRisk.label || "major macro event"} in ${Math.round(eventDays)} calendar day${eventDays === 1 ? "" : "s"} — wait for the binary event to clear`);
+    } else {
+      eventScore = eventDays <= 3 ? -2 : -1;
+      reasons.push(`- ${eventRisk.label || "major macro event"} in ${Math.round(eventDays)} calendar days`);
+    }
   }
-  if (dirRet3 != null && dirRet3 <= PICKS_TIMING_KNIFE_RET3D * knifeTighten) {
-    reasons.push(`${r1(dirRet3)}% over 3 sessions against the trade`);
-    return { state: "avoid", side, score: -6, contribution: -6, deferKind: null, fightsTape, headline: `Avoid — ${r1(dirRet3)}% 3-day slide`, reasons };
+  const ed = data?.fundamentals?.nextEarningsDate ? etDaysUntil(data.fundamentals.nextEarningsDate) : null;
+  if (ed != null && ed >= 0 && ed <= PICKS_TIMING_EARNINGS_DEFER_DAYS) {
+    if (ed <= PICKS_TIMING_EARNINGS_HARD_DAYS) {
+      eventScore = Math.min(eventScore, -4); hardWait = "earnings"; deferKind = "earnings";
+      reasons.push(`earnings in ~${Math.round(ed)} calendar day${Math.round(ed) === 1 ? "" : "s"} — long-premium IV-crush risk`);
+    } else {
+      eventScore = Math.min(eventScore, -2);
+      reasons.push(`- earnings in ~${Math.round(ed)} calendar days`);
+    }
   }
+  components.event = { score: eventScore, daysOut: ed, macroDaysOut: eventDays };
 
-  // ---- AVOID: chasing an extended top (for a call) / bottom (for a put) ----
-  const dirRet5 = isCall ? ret5 : (ret5 == null ? null : -ret5);
-  const dirDist = isCall ? distSma : (distSma == null ? null : -distSma);
-  const hot = isCall ? (rsi != null && rsi >= PICKS_TIMING_CHASE_RSI) : (rsi != null && rsi <= 100 - PICKS_TIMING_CHASE_RSI);
-  if (hot && dirDist != null && dirDist >= PICKS_TIMING_CHASE_DIST_SMA20) {
-    reasons.push(`RSI ${r1(rsi)} and ${r1(dirDist)}% past the 20D SMA`);
-    return { state: "avoid", side, score: -6, contribution: -6, deferKind: null, fightsTape, headline: `Avoid — chasing an extended move (RSI ${r1(rsi)})`, reasons };
+  // ---- Extension/exhaustion -----------------------------------------------
+  const extremeFlags = [
+    dirDist != null && dirDist >= PICKS_ENTRY_EXTENDED_HARD,
+    heat != null && heat >= PICKS_ENTRY_CHASE_RSI_HARD,
+    dirRet5 != null && dirRet5 >= PICKS_TIMING_CHASE_RET5D,
+  ].filter(Boolean).length;
+  const exhaustionRollover = (dirRet1 != null && dirRet1 < 0)
+    || (macdHist != null && macdHistPrev != null && macdHist * dir < macdHistPrev * dir);
+  const volumeClimax = rvol != null && rvol >= PICKS_TIMING_VOL_CLIMAX && dirRet1 != null && dirRet1 > 0;
+  const catastrophic = (dirDist != null && dirDist >= PICKS_ENTRY_EXTREME_DIST)
+    || (heat != null && heat >= PICKS_ENTRY_EXTREME_RSI)
+    || (dirRet5 != null && dirRet5 >= PICKS_ENTRY_EXTREME_RET5D);
+  let extensionScore = 0, extensionTier = "normal";
+  if (catastrophic || (extremeFlags >= 2 && (exhaustionRollover || volumeClimax))) {
+    extensionTier = "hard";
+    extensionScore = catastrophic ? -8 : -6;
+    hardVeto = "exhaustion";
+    reasons.push(`exhaustion confluence — ${[
+      dirDist != null ? `${r1(dirDist)}% past the 20D` : null,
+      rsi != null ? `RSI ${r1(rsi)}` : null,
+      dirRet5 != null ? `${r1(dirRet5)}% five-session impulse` : null,
+      volumeClimax ? `${r1(rvol)}x volume climax` : exhaustionRollover ? "momentum rollover" : null,
+    ].filter(Boolean).join(", ")}`);
+  } else {
+    const softFlags = [
+      dirDist != null && dirDist >= PICKS_TIMING_CHASE_DIST_SMA20,
+      heat != null && heat >= PICKS_TIMING_CHASE_RSI,
+      dirRet5 != null && dirRet5 >= 8,
+    ].filter(Boolean).length;
+    if (softFlags) {
+      extensionTier = "soft";
+      extensionScore = softFlags >= 2 ? -3 : -2;
+      reasons.push(`- extended move (${[
+        dirDist != null ? `${r1(dirDist)}% vs 20D` : null,
+        rsi != null ? `RSI ${r1(rsi)}` : null,
+        dirRet5 != null ? `${r1(dirRet5)}%/5d` : null,
+      ].filter(Boolean).join(", ")})`);
+    } else if (dirDist != null && dirDist >= PICKS_ENTRY_EXTENDED_DIST) {
+      extensionTier = "mild";
+      extensionScore = -1;
+      reasons.push(`- mild stretch: ${r1(dirDist)}% past the 20D`);
+    }
   }
-  if (dirRet5 != null && dirRet5 >= PICKS_TIMING_CHASE_RET5D) {
-    reasons.push(`${r1(dirRet5)}% blow-off run into the entry`);
-    return { state: "avoid", side, score: -5, contribution: -5, deferKind: null, fightsTape, headline: `Avoid — ${r1(dirRet5)}% 5-day blow-off`, reasons };
-  }
+  components.extension = { score: extensionScore, tier: extensionTier, extremeFlags, exhaustionRollover, volumeClimax };
 
-  // ---- GO: clean, well-located entry ----
-  const rvol = pnum(t.volume?.rvol);
-  const macdHist = pnum(t.macd?.hist);
-  const nearPullback = distSma != null && Math.abs(distSma) <= PICKS_TIMING_PULLBACK_BAND;
-  const momentumAligned = isCall ? (macdHist != null && macdHist > 0 && rsi != null && rsi > 50) : (macdHist != null && macdHist < 0 && rsi != null && rsi < 50);
-  if (!fightsTape && momentumAligned && (nearPullback || (rvol != null && rvol >= PICKS_TIMING_VOL_CONFIRM))) {
-    reasons.push(nearPullback ? "healthy pullback to the 20D SMA" : "momentum aligned on confirming volume");
-    return { state: "go", side, score: 2, contribution: 2, deferKind: null, fightsTape, headline: "Go — clean, aligned entry", reasons };
+  // ---- Pullback/setup quality + falling-knife override ---------------------
+  const macdDir = macdHist != null ? macdHist * dir : null;
+  const macdPrevDir = macdHistPrev != null ? macdHistPrev * dir : null;
+  const momentumAgainst = macdDir != null && macdPrevDir != null && macdDir < 0 && macdDir <= macdPrevDir
+    && rsi != null && rsiPrev != null
+    && (isCall ? (rsi < 45 && rsi <= rsiPrev) : (rsi > 55 && rsi >= rsiPrev));
+  const supportBroken = structure.anchor != null
+    ? (isCall ? lastC < structure.anchor - atr * 0.25 : lastC > structure.anchor + atr * 0.25)
+    : (dirDist != null && dirDist < 0);
+  const knifeTighten = fightsTape ? 0.75 : 1;
+  const knifeCandidate = (dirRet1 != null && dirRet1 <= PICKS_TIMING_KNIFE_RET1D * knifeTighten)
+    || (dirRet3 != null && dirRet3 <= PICKS_TIMING_KNIFE_RET3D * knifeTighten);
+  const severeKnife = (dirRet1 != null && dirRet1 <= PICKS_TIMING_KNIFE_SEVERE_1D * knifeTighten)
+    || (dirRet3 != null && dirRet3 <= PICKS_TIMING_KNIFE_SEVERE_3D * knifeTighten);
+  const knifeTraits = [
+    rvol != null && rvol >= PICKS_TIMING_VOL_CONFIRM,
+    momentumAgainst,
+    supportBroken,
+    !higherLow && dirRet1 != null && dirRet1 < 0,
+    impulse?.duration != null && impulse.duration <= 2,
+  ].filter(Boolean).length;
+  const acceleratingKnife = dirRet1 != null && prevDirRet1 != null
+    && dirRet1 <= -4 && dirRet1 < prevDirRet1
+    && rvol != null && rvol >= PICKS_TIMING_VOL_CONFIRM && supportBroken && !higherLow;
+  let setupScore = 0, setupKind = "unformed";
+  if (severeKnife || (knifeCandidate && knifeTraits >= 2) || acceleratingKnife) {
+    setupKind = "knife";
+    setupScore = severeKnife ? -8 : -5;
+    hardVeto = hardVeto || "knife";
+    reasons.unshift(`falling knife — ${r1(dirRet1)}% session / ${r1(dirRet3)}% over three, ${knifeTraits} breakdown traits`);
+  } else if (knifeCandidate) {
+    setupKind = "unstable";
+    setupScore = -4;
+    reasons.push(`- sharp adverse move has not formed a confirmed ${isCall ? "higher low" : "lower high"}`);
+  } else if (impulse?.valid && impulse.retrace != null) {
+    const depthAtr = atr > 0 ? Math.abs(impulse.extreme - lastC) / atr : null;
+    const holds = !supportBroken;
+    const dry = dryRatio != null && dryRatio <= PICKS_TIMING_VOL_DRY;
+    const orderlyDuration = impulse.duration >= 2 && impulse.duration <= PICKS_TIMING_PULLBACK_MAX_SESSIONS;
+    const idealDepth = (impulse.retrace >= PICKS_TIMING_PULLBACK_RETRACE_LO && impulse.retrace <= PICKS_TIMING_PULLBACK_RETRACE_HI)
+      || (depthAtr != null && depthAtr >= 0.75 && depthAtr <= 1.75);
+    if (impulse.retrace > 1 || (impulse.retrace > PICKS_TIMING_PULLBACK_RETRACE_DEEP && supportBroken)) {
+      setupKind = "broken";
+      setupScore = -5;
+      hardVeto = hardVeto || "knife";
+      reasons.unshift("prior impulse has fully failed through its origin/support");
+    } else if (idealDepth && holds && orderlyDuration) {
+      setupKind = "healthy-pullback";
+      setupScore = 1 + (dry ? 1 : 0);
+      reasons.push(`+ healthy ${r1(impulse.retrace * 100)}% impulse retracement${dry ? ` on ${r1(dryRatio)}x drying volume` : ""}`);
+    } else if (impulse.retrace > 0 && impulse.retrace < PICKS_TIMING_PULLBACK_RETRACE_LO) {
+      setupKind = "shallow";
+      const continuationVolume = dirRet1 != null && dirRet1 > 0 && rvol != null && rvol >= PICKS_TIMING_VOL_CONFIRM;
+      setupScore = continuationVolume ? 1 : 0;
+      reasons.push(`${continuationVolume ? "+ " : ""}shallow pullback${continuationVolume ? " with directional continuation volume" : " — momentum must confirm"}`);
+    } else if (impulse.retrace > PICKS_TIMING_PULLBACK_RETRACE_DEEP) {
+      setupKind = "deep";
+      setupScore = -2;
+      reasons.push(`- deep ${r1(impulse.retrace * 100)}% retracement of the prior impulse`);
+    } else if (impulse.duration > PICKS_TIMING_PULLBACK_MAX_SESSIONS) {
+      setupKind = "stale";
+      setupScore = -1;
+      reasons.push(`- pullback has drifted for ${impulse.duration} sessions without a clean turn`);
+    }
   }
+  components.setup = {
+    score: setupScore, kind: setupKind,
+    retracePct: impulse?.retrace != null ? r1(impulse.retrace * 100) : null,
+    depthPct: impulse?.depthPct != null ? r1(impulse.depthPct) : null,
+    duration: impulse?.duration ?? null,
+    dryRatio: dryRatio != null ? r2(dryRatio) : null,
+    higherLow,
+  };
 
-  reasons.push("mixed structure — no clear edge to the entry");
-  return { state: "wait", side, score: 0, contribution: 0, deferKind: null, fightsTape, headline: "Neutral entry", reasons };
+  // ---- Momentum alignment/confirmation (correlated group capped at +2) -----
+  const macdTurning = macdDir != null && macdPrevDir != null && macdDir > macdPrevDir && dirDist != null && dirDist >= 0;
+  const rsiRecovering = rsi != null && rsiPrev != null
+    && (isCall ? (rsiPrev <= 45 && rsi > rsiPrev) : (rsiPrev >= 55 && rsi < rsiPrev));
+  const turnVolume = dirRet1 != null && dirRet1 >= 0.3 && rvol != null && rvol >= PICKS_TIMING_VOL_CONFIRM;
+  const confirmationHits = [macdTurning, rsiRecovering, turnVolume].filter(Boolean).length;
+  let momentumScore = Math.min(2, confirmationHits);
+  if (momentumAgainst) momentumScore = -2;
+  else if (confirmationHits === 0 && macdDir != null && rsi != null) {
+    const macdAligned = macdDir > 0;
+    const rsiAligned = isCall ? rsi > 50 : rsi < 50;
+    if (macdAligned !== rsiAligned) momentumScore = -1;
+  }
+  if (macdTurning) reasons.push("+ MACD histogram is turning with the trade above/below the 20D correctly");
+  if (rsiRecovering) reasons.push(`+ RSI is recovering from the ${isCall ? "oversold" : "overbought"} side`);
+  if (turnVolume) reasons.push(`+ turn day confirmed on ${r1(rvol)}x volume`);
+  if (momentumAgainst) reasons.push("- momentum is still strongly against the intended side");
+  else if (momentumScore === -1) reasons.push("- RSI and MACD remain mixed");
+  components.momentum = { score: momentumScore, macdTurning, rsiRecovering, turnVolume, confirmationHits };
+
+  // ---- Structure, invalidation and payoff ----------------------------------
+  let structureScore = 0;
+  if (!structure.clear) {
+    structureScore = -1;
+    reasons.push("- no nearby level defines an invalidation within 2 ATR");
+  } else {
+    structureScore += 1;
+    reasons.push(`+ invalidation at ~$${structure.invalidation} is ${structure.riskAtr} ATR away`);
+    if (structure.confluence >= 2) {
+      structureScore += 1;
+      reasons.push(`+ ${structure.anchorKind} has ${structure.confluence}-level confluence`);
+    }
+  }
+  components.structure = { score: structureScore, ...structure };
+
+  // Regime is an interaction, not a blanket pro-cyclical bonus. Countertrend
+  // entries pay a small penalty and need a reclaim + full confirmation. In an
+  // already-extended tape-aligned trade, the score is unchanged but "Go"
+  // requires the full confirmation cap and acceptable payoff.
+  const regimeScore = fightsTape ? -1 : 0;
+  if (fightsTape) reasons.push("- broad regime fights the trade; reclaim and full confirmation required");
+  if (crowdedAligned && extensionTier !== "normal") reasons.push("- tape-aligned but crowded; extension needs full confirmation and payoff");
+  components.regime = { score: regimeScore, fightsTape, crowdedAligned };
+
+  const rawScore = eventScore + extensionScore + setupScore + momentumScore + structureScore + regimeScore;
+  const score = r1(clamp(rawScore, -8, 2));
+  const independentFamilies = [setupScore > 0, momentumScore > 0, structureScore > 0].filter(Boolean).length;
+  const payoffOk = structure.rr != null && structure.rr >= PICKS_TIMING_MIN_RR;
+  const directionConfirmed = momentumScore > 0;
+  const trendReclaimed = dirDist != null && dirDist >= 0;
+  const crowdedProof = !crowdedAligned || extensionTier === "normal" || momentumScore >= 2;
+  const countertrendProof = !fightsTape || (momentumScore >= 2 && structureScore > 0 && trendReclaimed);
+  const goReady = !hardVeto && !hardWait && score >= PICKS_ENTRY_READY_BAR
+    && directionConfirmed && independentFamilies >= 2 && payoffOk && crowdedProof && countertrendProof;
+
+  let state = "wait";
+  if (hardVeto || score <= -5) state = "avoid";
+  else if (goReady) state = "go";
+  const headline = state === "avoid"
+    ? `Avoid — ${hardVeto === "exhaustion" ? "exhaustion/chase risk" : "falling-knife or broken setup"}`
+    : hardWait
+      ? `Wait — ${hardWait === "earnings" ? "earnings" : eventRisk?.label || "macro event"} must clear`
+      : state === "go"
+        ? `Go — confirmed entry with ${structure.rr}:1 estimated payoff`
+        : score >= 0
+          ? `Wait — setup is close; require ${!directionConfirmed ? "a confirmed turn" : !payoffOk ? `at least ${PICKS_TIMING_MIN_RR}:1 payoff` : "one more independent confirmation"}`
+          : "Wait — entry quality is not ready";
+
+  return {
+    state, side, score,
+    // Kept for payload compatibility; scoreTicker deliberately does not fold it
+    // into the directional grade.
+    contribution: 0,
+    executionOnly: true,
+    deferKind, hardVeto, hardWait, fightsTape, crowdedAligned,
+    extensionTier, setupKind, headline, reasons, components, structure,
+    readiness: {
+      score, bar: PICKS_ENTRY_READY_BAR, independentFamilies, directionConfirmed,
+      payoffOk, crowdedProof, countertrendProof,
+    },
+    metrics: {
+      asOfClose: r2(lastC), sma20: r2(sma20), sma50: r2(sma50), atrPct: r2((atrPct || 0) * 100),
+      rsi: r1(rsi), rsiPrev: r1(rsiPrev), macdHist: r4(macdHist), macdHistPrev: r4(macdHistPrev),
+      distSma20: r1(distSma), directionalDistSma20: r1(dirDist),
+      ret1: r1(ret1), ret3: r1(ret3), ret5: r1(ret5),
+      directionalRet1: r1(dirRet1), directionalRet3: r1(dirRet3), directionalRet5: r1(dirRet5),
+      rvol: rvol != null ? r2(rvol) : null, dryRatio: dryRatio != null ? r2(dryRatio) : null,
+    },
+  };
 }
 
 // IV cost — direction-agnostic. Penalize buying long premium when this name's
@@ -15921,7 +16303,9 @@ function scoreTicker(sym, data, ctx) {
   const narr = scoreNarrative(sym, data, narratives);
   for (const p of [fund, tech, mech, narr]) p.score = clamp(p.score, -PICKS_PILLAR_CLAMP, PICKS_PILLAR_CLAMP);
 
-  // Provisional side from the asset pillars; timing & IV are graded on that side.
+  // Provisional side from the asset pillars; execution timing and IV are read
+  // on that side. Timing is deliberately NOT folded into conviction: a strong
+  // company with a poor entry stays strongly directional but is gated to Wait.
   let base = fund.score + tech.score + mech.score + narr.score;
   // Regime tilt: nudge the whole book bearish in a risk-off tape (re-ranks the
   // marginal calls toward "no trade" / puts).  Never flips a strong grade.
@@ -15930,28 +16314,32 @@ function scoreTicker(sym, data, ctx) {
 
   const timing = computeEntryTiming(provSide, data, spot, { regime, eventRisk });
   const ivCost = computeIvCostContribution(data);
-  const timingContribution = (timing.contribution || 0) * (base >= 0 ? 1 : -1); // help/hurt conviction in the implied direction
   // IV cost is direction-AGNOSTIC ("long premium is expensive when IV is rich"),
-  // so it must REDUCE conviction in the implied direction — same sign treatment as
-  // timing above. Folding the raw (always-negative-for-rich) value into `total`
+  // so it must REDUCE conviction in the implied direction. Folding the raw
+  // (always-negative-for-rich) value into `total`
   // unadjusted made rich IV *raise* a PUT's conviction (more-negative total),
   // exactly backwards; mirror sign(base) so it de-rates both sides' long premium.
   const ivContribution = (ivCost ? ivCost.contribution : 0) * (base >= 0 ? 1 : -1);
 
-  // Timing/IV penalties de-rate the implied direction — they must never CROSS
-  // zero and manufacture conviction on the OPPOSITE side. Without the clamp, a
-  // net-bullish base (+4) hit by a max falling-knife penalty (−8, computed for
-  // the CALL entry) shipped as a "high-conviction PUT" whose drivers were all
-  // bullish — and the phantom side leaked into grades.json, the grade-change
-  // log, grades-daily and the churn events.
-  let total = r1(base + timingContribution + ivContribution);
+  // IV cost de-rates the implied direction but must never CROSS zero and
+  // manufacture conviction on the opposite side.
+  let total = r1(base + ivContribution);
   const provSign = base >= 0 ? 1 : -1;
   if (total * provSign < 0) total = 0;
   const rec = tierForScore(total);
   const side = rec.tier === "no-trade" ? null : (total >= 0 ? "call" : "put");
 
   // Pillar objects in the shape the card renderer reads.
-  const timingPillar = { score: r1(timingContribution), state: timing.state, side: timing.side, headline: timing.headline, reasons: timing.reasons || [], deferKind: timing.deferKind || null, kind: timing.state === "avoid" ? (/knife|slide/i.test(timing.headline) ? "knife" : "chase") : null };
+  const timingPillar = {
+    score: r1(timing.score), executionOnly: true,
+    state: timing.state, side: timing.side, headline: timing.headline,
+    reasons: timing.reasons || [], deferKind: timing.deferKind || null,
+    hardVeto: timing.hardVeto || null, components: timing.components || {},
+    structure: timing.structure || null, readiness: timing.readiness || null,
+    kind: timing.state === "avoid"
+      ? (timing.hardVeto === "knife" ? "knife" : timing.hardVeto === "exhaustion" ? "chase" : "structure")
+      : null,
+  };
   const ivPillar = { score: r1(ivContribution), signals: [sig("ivCost", "IV cost", ivContribution, ivCost ? ivCost.pctile + "%ile" : null, "Long-premium richness vs own history", !!ivCost)] };
 
   const drivers = [];
@@ -16603,158 +16991,113 @@ function buildEntryPlan(side, spot, data, contract, total) {
   return { strategy: { name: strong ? "Full entry" : "Scale in", strength: strong ? "high" : "medium", blurb: strong ? "Conviction supports full size." : "Build the position in two tranches." }, stance, scaleCount: tranches.length, sizingRule: "Risk-based (see sizing).", atFiftyDaySma: false, tranches, summary: null };
 }
 
-// Entry guidance for a pick that already cleared the conviction bar: tell the
-// user WHEN to open it. The decision is MULTI-FACTOR — it weighs the whole
-// setup instead of only handing out a pullback price:
-//   1. Hard vetoes first: an imminent earnings/macro event is never a buy (no
-//      price fixes an IV crush); an `avoid` timing state (knife/chase) never
-//      reads buy-now — it falls through to a trigger price; and the HARD half
-//      of the extension band (below) means a truly parabolic / blow-off name
-//      never reads buy-now either, however confirmed the rest of the setup.
-//   2. EXTENSION BANDS — never buy the top (or short the hole), but momentum
-//      vs chase is a judgment call, so the band is split: price stretched
-//      more than PICKS_ENTRY_EXTENDED_DIST% (4) past the 20D in the trade's
-//      direction, or RSI at the chase zone (PICKS_TIMING_CHASE_RSI 72),
-//      queues the DETERMINISTIC read behind a reachable ~1.5×ATR pullback
-//      trigger (basis "extended") — but the AI final grader's entryVerdict
-//      may take it (buildTopPicks). Past PICKS_ENTRY_EXTENDED_HARD (15%) or
-//      PICKS_ENTRY_CHASE_RSI_HARD (RSI 80) it is a HARD top-guard veto
-//      (basis "top-guard") no verdict can bless. Both are checked BEFORE the
-//      timing gate's `go` (whose volume-confirm path can bless a moderately
-//      extended name) and are immune to the readiness checklist. Actionable
-//      membership requires entry.now, so the hard band is what keeps "buy it
-//      now" from ever meaning "chase a parabola".
-//   3. A confirmed GO from the timing gate is a buy-now.
-//   4. Below its own 20D trend (the "why is a down name a call?" case) it
-//      still waits for the reclaim — buying long premium against the trend
-//      bleeds theta while the "turn" fails to come.
-//   5. Otherwise a weighted ENTRY-READINESS checklist decides: momentum
-//      alignment (MACD + RSI, the heavy factor), the right side of the 20D
-//      trend, a healthy pullback location, confirming volume, a 3-day thrust
-//      in the trade's direction, the 20D/50D stack, and strong-tier
-//      conviction — minus a penalty for a tape that fights the trade.
-//      Clearing PICKS_ENTRY_READY_BAR = buy now, so a steadily-trending,
-//      multi-confirmed name no longer idles behind a dip trigger that may
-//      never fill.
-//   6. Below the bar the specific trigger prices stand: near the trend ->
-//      buy a minor dip toward support. The checklist ships on every scored
-//      entry (`checks` + `readiness`) so the card can show WHY, whichever
-//      way it went.
-// Mirrors for puts. Confirmed-bars only (same no-look-ahead rule as the gate).
+// Translate the one computeEntryTiming decision into a current-price action.
+// This function does not independently rescore momentum/volume/extension:
+// hard event and exhaustion vetoes bind, `go` means buy now, and every wait/
+// avoid state receives a reachable pullback, reclaim or reversal trigger.
+// Mirrors for puts and carries the timing component audit + structural
+// invalidation/target/R:R through to the pick payload.
 export function computeEntrySignal(side, spot, data, timing, opts = {}) {
   const isCall = side === "call";
+  const dir = isCall ? 1 : -1;
   spot = pnum(spot) ?? pnum(data?.spot);
-  const t = data?.technicals || {};
-  const sma20 = pnum(t.sma?.sma20);
-  const sma50 = pnum(t.sma?.sma50);
-  const sr = t.sr || {};
-  const bars = timingBarsFrom(data);
-  const atrPct = bars ? atrPctFrom(bars.h, bars.l, bars.c) : null;
+  const metrics = timing?.metrics || {};
+  const structure = timing?.structure || {};
+  const sma20 = pnumN(metrics.sma20);
+  const atrPct = pnumN(metrics.atrPct) != null ? metrics.atrPct / 100 : null;
   const buf = atrPct != null ? clamp(atrPct, 0.005, 0.03) : 0.01;
   const state = timing?.state || null;
   const fmt = (x) => "$" + r2(x);
   if (!(spot > 0)) return { now: false, signal: "wait", trigger: null, zone: null, basis: "no price", headline: "Wait for a cleaner setup" };
-  const dir = isCall ? 1 : -1;
-  const beyond = sma20 > 0 ? (spot / sma20 - 1) * dir : null;  // + = price already on the trade's side of the SMA
-  const rsi = pnum(t.rsi);
-  // EXTENSION BANDS (2026-07-10 → reworked same day): stretched past the 20D in
-  // the trade's direction, or RSI in the chase zone, never reads a DETERMINISTIC
-  // buy-now — the price read queues behind a pullback trigger. But the band is
-  // split in two:
-  //   * SOFT (> PICKS_ENTRY_EXTENDED_DIST 4% / RSI >= 72): `basis: "extended"` —
-  //     the AI final grader's entryVerdict MAY override it (a strong-momentum
-  //     name with a live catalyst can be a legitimate buy while extended; a
-  //     fixed % band can't tell a momentum regime from a chase — the old hard
-  //     4% veto perpetually locked out the engine's highest-momentum names,
-  //     handing out 20D pullback targets 10-15% below spot that a trending name
-  //     never fills).
-  //   * HARD (> PICKS_ENTRY_EXTENDED_HARD 15% / RSI >= 80): `basis: "top-guard"`
-  //     — a genuine parabola / blow-off extreme stays a HARD veto no verdict can
-  //     bless (buildTopPicks enforces it outside the model).
-  // Either way the wait trigger must be REACHABLE: a ~1.5×ATR dip (clamped
-  // 2-5%), floored at the 20D when that is nearer — never the raw 20D when it
-  // sits 10%+ below spot (a "wait for $584 on a $670 stock" is a never).
-  const extended = beyond != null && beyond * 100 > PICKS_ENTRY_EXTENDED_DIST;
-  const rsiExtreme = rsi != null && (isCall ? rsi >= PICKS_TIMING_CHASE_RSI : rsi <= 100 - PICKS_TIMING_CHASE_RSI);
-  if (extended || rsiExtreme) {
-    const extendedHard = beyond != null && beyond * 100 > PICKS_ENTRY_EXTENDED_HARD;
-    const rsiHard = rsi != null && (isCall ? rsi >= PICKS_ENTRY_CHASE_RSI_HARD : rsi <= 100 - PICKS_ENTRY_CHASE_RSI_HARD);
-    const hard = extendedHard || rsiHard;
+  const beyond = sma20 > 0 ? (spot / sma20 - 1) * dir : null;
+  const components = timing?.components || {};
+  const checks = Object.entries(components).map(([key, row]) => ({
+    key, short: key, label: `${key[0].toUpperCase()}${key.slice(1)} quality`,
+    points: pnumN(row?.score) ?? 0, max: null, pass: (pnumN(row?.score) ?? 0) > 0,
+    value: key === "structure" && row?.rr != null ? `${row.rr}:1 R:R` : null,
+  }));
+  const readiness = timing?.readiness || { score: timing?.score ?? 0, bar: PICKS_ENTRY_READY_BAR };
+  const plan = {
+    invalidation: structure.invalidation ?? null,
+    target: structure.target ?? null,
+    rr: structure.rr ?? null,
+  };
+  const withAudit = (x) => ({ ...x, checks, readiness, ...plan });
+
+  // Hard event defers and hard exhaustion/knife vetoes are resolved before any
+  // trigger translation. The AI final grader may override ordinary waits, but
+  // buildTopPicks also binds reclaim/reversal, structure, and payoff gates.
+  if (timing?.hardWait || (timing?.deferKind && state === "wait")) {
+    return withAudit({
+      now: false, signal: "wait-event", trigger: null, zone: null,
+      basis: timing.deferKind || timing.hardWait,
+      headline: `Hold off — ${timing.deferKind === "earnings" ? "earnings" : "the major macro event"} must clear; re-assess after`,
+    });
+  }
+  if (timing?.hardVeto === "exhaustion") {
     const pb = clamp((atrPct ?? 0.015) * PICKS_ENTRY_PULLBACK_ATR_MULT, 0.02, 0.05);
     const atrTrig = spot * (1 - dir * pb);
     const trig = r2(sma20 > 0 ? (isCall ? Math.max(sma20, atrTrig) : Math.min(sma20, atrTrig)) : atrTrig);
-    const why = extended
-      ? (hard
-        ? `Extended ${r1(beyond * 100)}% past the 20D — parabolic; don't buy the top; wait for a pullback toward ~${fmt(trig)}`
-        : `Extended ${r1(beyond * 100)}% past the 20D — stretched; prefer a pullback toward ~${fmt(trig)}`)
-      : (hard
-        ? `RSI ${r1(rsi)} is a blow-off ${isCall ? "overbought" : "oversold"} extreme — don't chase; wait for a reset toward ~${fmt(trig)}`
-        : `RSI ${r1(rsi)} is ${isCall ? "overbought" : "oversold"} — stretched; prefer a reset toward ~${fmt(trig)}`);
-    return { now: false, signal: "wait-pullback", trigger: trig, zone: [r2(Math.min(trig, spot)), r2(Math.max(trig, spot * (1 - dir * 0.02)))], basis: hard ? "top-guard" : "extended", headline: why };
+    return withAudit({
+      now: false, signal: "wait-pullback", trigger: trig,
+      zone: [r2(Math.min(trig, spot)), r2(Math.max(trig, spot * (1 - dir * 0.02)))],
+      basis: "top-guard",
+      headline: `Exhaustion confluence — do not chase; wait for a reset toward ~${fmt(trig)} and fresh confirmation`,
+    });
   }
-  // Clean, confirmed entry -> buy now (the gate already weighed momentum +
-  // location + volume against the tape; the top-guard above already cleared).
+  if (state === "avoid") {
+    const trig = r2(sma20 > 0 ? sma20 : (structure.anchor ?? spot * (1 + dir * buf)));
+    return withAudit({
+      now: false, signal: "wait-reversal", trigger: trig,
+      zone: trig ? [r2(trig * (1 - buf)), r2(trig * (1 + buf))] : null,
+      basis: timing?.hardVeto || timing?.setupKind || "avoid",
+      headline: `Avoid for now — wait for a confirmed ${isCall ? "higher low and reclaim" : "lower high and breakdown"} near ~${fmt(trig)}`,
+    });
+  }
   if (state === "go") {
-    return { now: true, signal: "buy-now", trigger: r2(spot), zone: [r2(spot * (1 - buf)), r2(spot * (1 + buf / 2))], basis: "confirmed entry", headline: `Buy now — clean entry near ${fmt(spot)}` };
-  }
-  // Deferred for an imminent event/earnings -> stand down until it clears.
-  if (state === "wait" && (timing.deferKind === "earnings" || timing.deferKind === "event")) {
-    return { now: false, signal: "wait-event", trigger: null, zone: null, basis: timing.deferKind, headline: `Hold off — ${timing.deferKind === "earnings" ? "earnings imminent" : "macro event imminent"}; re-assess after it clears` };
-  }
-  // Wrong side of the 20D trend -> wait for the reclaim, always. This stays a
-  // hard gate (not a scored factor): short-dated premium bought into a drift
-  // bleeds theta while the "turn" fails to come.
-  if (beyond != null && beyond < -0.005) {
-    const trig = r2(sma20);
-    return { now: false, signal: "wait-reclaim", trigger: trig, zone: [r2(sma20 * (1 - buf)), r2(sma20 * (1 + buf))], basis: "20D SMA reclaim", headline: `Wait for a ${isCall ? "close back above" : "break below"} the 20D SMA (~${fmt(trig)}) to confirm the turn` };
+    return withAudit({
+      now: true, signal: "buy-now", trigger: r2(spot),
+      zone: [r2(spot * (1 - buf)), r2(spot * (1 + buf / 2))],
+      basis: "confirmed entry",
+      headline: `Buy now — confirmed entry near ${fmt(spot)}${structure.rr != null ? ` with ${structure.rr}:1 estimated payoff` : ""}`,
+    });
   }
 
-  // ---- Multi-factor entry readiness ----------------------------------------
-  // Confirmed technicals only; each factor is independent evidence the move is
-  // live NOW. Weighted sum vs PICKS_ENTRY_READY_BAR.
-  const macdHist = pnum(t.macd?.hist);
-  const rvol = pnum(t.volume?.rvol);
-  let ret3 = null;                                    // 3-day thrust off CONFIRMED closes
-  if (bars) {
-    const c = bars.c.filter(Number.isFinite).slice(0, -1);  // drop in-progress bar
-    const n = c.length;
-    if (n > 3 && c[n - 4] > 0) ret3 = (c[n - 1] / c[n - 4] - 1) * 100 * dir;
+  // Wrong side of the confirmed 20D remains an explicit reclaim trigger.
+  if (beyond != null && beyond < -0.005) {
+    const trig = r2(sma20);
+    return withAudit({
+      now: false, signal: "wait-reclaim", trigger: trig,
+      zone: [r2(sma20 * (1 - buf)), r2(sma20 * (1 + buf))],
+      basis: "20D SMA reclaim",
+      headline: `Wait for a ${isCall ? "close back above" : "break below"} the confirmed 20D SMA (~${fmt(trig)})`,
+    });
   }
-  const momentumAligned = isCall ? (macdHist != null && macdHist > 0 && rsi != null && rsi > 50) : (macdHist != null && macdHist < 0 && rsi != null && rsi < 50);
-  const inPullbackBand = beyond != null && Math.abs(beyond * 100) <= PICKS_TIMING_PULLBACK_BAND;
-  const volConfirm = rvol != null && rvol >= PICKS_TIMING_VOL_CONFIRM;
-  const thrust = ret3 != null && ret3 >= 1;
-  const stackAligned = sma20 > 0 && sma50 > 0 && (isCall ? sma20 > sma50 : sma20 < sma50);
-  const strongConviction = pnum(opts.total) != null && Math.abs(opts.total) >= PICKS_TIER_STRONG;
-  const fightsTape = !!timing?.fightsTape;
-  const checks = [];
-  let ready = 0;
-  const factor = (key, short, label, pts, pass, value) => { checks.push({ key, short, label, points: pass ? pts : 0, max: pts, pass: !!pass, value: value ?? null }); if (pass) ready += pts; };
-  factor("momentum", "momentum", "Momentum aligned (MACD + RSI on the trade's side)", 2, momentumAligned, rsi != null ? `RSI ${r1(rsi)}` : null);
-  factor("trend", "trend", "Right side of the 20D trend", 1, beyond != null && beyond >= 0, beyond != null ? `${r1(beyond * 100)}% vs 20D` : null);
-  factor("location", "pullback zone", `Healthy entry location (within ±${PICKS_TIMING_PULLBACK_BAND}% of the 20D)`, 1, inPullbackBand, beyond != null ? `${r1(beyond * 100)}% vs 20D` : null);
-  factor("volume", "volume", `Confirming volume (rvol ≥ ${PICKS_TIMING_VOL_CONFIRM})`, 1, volConfirm, rvol != null ? `${r1(rvol)}x` : null);
-  factor("thrust", "3-day thrust", "3-day move with the trade (≥ +1%)", 1, thrust, ret3 != null ? `${r1(ret3)}%` : null);
-  factor("stack", "SMA stack", "20D/50D SMA stack aligned with the trade", 1, stackAligned, sma20 > 0 && sma50 > 0 ? `${fmt(sma20)} vs ${fmt(sma50)}` : null);
-  factor("conviction", "conviction", `Strong-tier conviction (|grade| ≥ ${PICKS_TIER_STRONG})`, 1, strongConviction, pnum(opts.total) != null ? String(opts.total) : null);
-  // Penalties — evidence AGAINST paying up right here (pass = clear of it).
-  // (The extension check is shown for transparency but can never be hit here —
-  // the extension bands above already routed any extended name to wait-pullback.)
-  const penalty = (key, short, label, pts, hit, value) => { checks.push({ key, short, label, points: hit ? -pts : 0, max: -pts, pass: !hit, value: value ?? null }); if (hit) ready -= pts; };
-  penalty("extended", "extended", `Extended > ${PICKS_ENTRY_EXTENDED_DIST}% past the 20D (chase risk)`, 2, extended, beyond != null ? `${r1(beyond * 100)}% vs 20D` : null);
-  penalty("tape", "tape", "Broad tape fights the trade", 2, fightsTape, null);
-  const readiness = { score: ready, bar: PICKS_ENTRY_READY_BAR };
-  // Enough independent confirmation -> buy now, even without a textbook
-  // pullback (an `avoid` timing state never buys, whatever the checklist says).
-  if (state !== "avoid" && ready >= PICKS_ENTRY_READY_BAR) {
-    const why = checks.filter((c) => c.pass && c.max > 0).map((c) => c.short).slice(0, 3).join(" + ");
-    return { now: true, signal: "buy-now", trigger: r2(spot), zone: [r2(spot * (1 - buf)), r2(spot * (1 + buf / 2))], basis: "multi-factor readiness", headline: `Buy now — ${why || "entry factors"} confirm near ${fmt(spot)}`, checks, readiness };
+
+  if (timing?.extensionTier && timing.extensionTier !== "normal") {
+    const pb = clamp((atrPct ?? 0.015) * PICKS_ENTRY_PULLBACK_ATR_MULT, 0.02, 0.05);
+    const atrTrig = spot * (1 - dir * pb);
+    const trig = r2(sma20 > 0 ? (isCall ? Math.max(sma20, atrTrig) : Math.min(sma20, atrTrig)) : atrTrig);
+    return withAudit({
+      now: false, signal: "wait-pullback", trigger: trig,
+      zone: [r2(Math.min(trig, spot)), r2(Math.max(trig, spot * (1 - dir * 0.02)))],
+      basis: "extended",
+      headline: `Wait for a reachable reset toward ~${fmt(trig)}; extension still needs full turn confirmation`,
+    });
   }
-  // Near the trend / no clean trigger -> buy a minor dip toward support.
-  const supp = isCall ? pnum(sr.s20) : pnum(sr.r20);
-  const useSupp = supp != null && ((isCall && supp < spot) || (!isCall && supp > spot)) && Math.abs(supp / spot - 1) <= 0.06;
-  const trig = r2(useSupp ? supp : spot * (1 - (isCall ? 1 : -1) * buf));
-  return { now: false, signal: "buy-dip", trigger: trig, zone: [r2(Math.min(spot, trig)), r2(Math.max(spot, trig))], basis: useSupp ? "nearest support" : "minor weakness", headline: `Buy on minor weakness toward ~${fmt(trig)}`, checks, readiness };
+
+  // A non-extended soft wait leans on the model's actual structure anchor. If
+  // none exists, ask for minor weakness rather than fabricating a distant level.
+  const anchor = pnumN(structure.anchor);
+  const usableAnchor = anchor != null
+    && (isCall ? anchor < spot && anchor >= spot * 0.94 : anchor > spot && anchor <= spot * 1.06);
+  const trig = r2(usableAnchor ? anchor : spot * (1 - dir * buf));
+  return withAudit({
+    now: false, signal: "buy-dip", trigger: trig,
+    zone: [r2(Math.min(spot, trig)), r2(Math.max(spot, trig))],
+    basis: usableAnchor ? structure.anchorKind || "nearby structure" : "minor weakness",
+    headline: `Wait for ${!readiness.directionConfirmed ? "a confirmed turn" : !readiness.payoffOk ? `at least ${PICKS_TIMING_MIN_RR}:1 payoff` : "one more independent confirmation"} near ~${fmt(trig)}`,
+  });
 }
 
 // ============================================================================
@@ -16939,14 +17282,12 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // be purely price-deterministic — the grader weighs catalyst urgency, the
     // calendar, macro, and IV alongside the price read, which rides its prompt
     // as context). Two bounds on that judgment:
-    //   * HARD RISK VETOES bind regardless of the verdict — the top-guard's
-    //     HARD band (a parabolic >15% stretch / RSI-80 blow-off, basis
-    //     "top-guard") and the event defer (imminent earnings/macro IV crush)
-    //     are risk controls, not judgment calls. The SOFT extension band
-    //     (4-15% past the 20D / RSI 72-80, basis "extended") is deliberately
-    //     NOT hard — whether an extended strong-momentum name is a chase or a
-    //     ride is exactly the judgment the grader exists to make. (The `avoid`
-    //     knife state was already roster-gated above.)
+    //   * HARD RISK VETOES bind regardless of the verdict: confirmed
+    //     exhaustion (multiple extremes plus rollover/volume climax, or a
+    //     catastrophic stretch), event defer, falling knife, wrong-side
+    //     reclaim/reversal, unclear invalidation, or sub-1.5:1 payoff. A lone
+    //     >15%/RSI-80 reading stays a soft wait so strong momentum is not
+    //     automatically rejected.
     //   * No verdict (keyless/offline build, legacy cached thesis, a name past
     //     the grader cap) falls back to the deterministic read — never a
     //     fabricated buy.
@@ -16956,7 +17297,14 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // bake re-judges, so it promotes itself the build the entry confirms — no
     // human judgment call in between.
     const entry = computeEntrySignal(side, pnum(r.data.spot), r.data, r.timing, { total: r.total });
-    const hardWait = entry.now !== true && (entry.basis === "top-guard" || entry.signal === "wait-event");
+    const hardWait = entry.now !== true && (
+      entry.basis === "top-guard"
+      || entry.signal === "wait-event"
+      || entry.signal === "wait-reclaim"
+      || entry.signal === "wait-reversal"
+      || r.timing?.structure?.clear !== true
+      || r.timing?.readiness?.payoffOk !== true
+    );
     const aiVerdict = (!tactical && aiThesis && (aiThesis.entryVerdict === "buy-now" || aiThesis.entryVerdict === "wait")) ? aiThesis.entryVerdict : null;
     const entryConfirmed = hardWait ? false : aiVerdict ? aiVerdict === "buy-now" : entry.now === true;
     if (aiVerdict) {
@@ -17096,7 +17444,12 @@ function buildPickObject(r, side, contract, exitPlan, entryPlan, peers, peerGrou
     analysis: thesis, thesis, thesisCard,
     strategy: strategy ? { type: strategy.type, label: strategy.label, reason: strategy.reason, ivZ: strategy.ivZ ?? null, ivPctile: strategy.ivPctile ?? null, ivTier: strategy.ivTier ?? null, fallback: !!strategy.fallback, requested: strategy.requested || null } : null,
     contract, entry,
-    entryTiming: { state: r.timing.state, headline: r.timing.headline, deferKind: r.timing.deferKind || null },
+    entryTiming: {
+      state: r.timing.state, score: r.timing.score,
+      headline: r.timing.headline, deferKind: r.timing.deferKind || null,
+      hardVeto: r.timing.hardVeto || null,
+      structure: r.timing.structure || null,
+    },
     tactical: !!tactical, firstSeen: null,
     streak: cs ? { color: cs.color, days: cs.sameDays, cumulativePct: cs.cumulativePct } : null,
     catalysts: Array.isArray(r.data?.catalysts) ? r.data.catalysts : [],
@@ -17702,8 +18055,9 @@ export function applyAiThesisGrade(detQuality, aiThesis) {
 //     actionable pick must be buyable RIGHT NOW. "Actionable" is the product's
 //     no-thinking-required promise: open the broker, buy the shown contract.
 //     The caller (buildTopPicks) resolves entryConfirmed as the AI final
-//     grader's entryVerdict when one exists (bounded by the hard risk vetoes:
-//     top-guard + event defer), falling back to the deterministic price read —
+//     grader's entryVerdict when one exists (bounded by the hard execution
+//     vetoes: exhaustion, event defer, knife/reversal, structure, and payoff),
+//     falling back to the deterministic price read —
 //     so the buy/wait call is a judgment over the whole picture, not a bare
 //     price trigger. A waiting name — however strong the grade and thesis —
 //     is a "wait for entry" WATCH idea until a later (hourly) build confirms
@@ -17886,7 +18240,15 @@ export function buildGradesIndex(chains, narratives, streaksMap = null, unusualP
   const grades = {};
   const gateRegime = regimeBand === "severe" ? "risk-off" : (regimeBand === "risk-on" || regimeBand === "risk-off") ? regimeBand : "neutral";
   const gateEventRisk = macroBackdrop?.eventRisk || null;
-  const compactTiming = (t) => t && t.state ? { state: t.state, kind: t.state === "avoid" ? (/knife|slide/i.test(t.headline || "") ? "knife" : /chas|extend|blow/i.test(t.headline || "") ? "chase" : "structure") : null, deferKind: t.deferKind || null, headline: t.headline || "" } : null;
+  const compactTiming = (t) => t && t.state ? {
+    state: t.state,
+    score: t.score ?? null,
+    kind: t.state === "avoid"
+      ? (t.hardVeto === "knife" ? "knife" : t.hardVeto === "exhaustion" ? "chase" : "structure")
+      : null,
+    deferKind: t.deferKind || null,
+    headline: t.headline || "",
+  } : null;
 
   for (const r of scored) {
     const sector = r.data?.fundamentals?.sector || null;
@@ -17908,7 +18270,8 @@ export function buildGradesIndex(chains, narratives, streaksMap = null, unusualP
       const nn = cc ? cc.length : 0;
       if (nn >= 5) {
         const retK = (k) => (nn > k && cc[nn - 1 - k] > 0 ? (cc[nn - 1] / cc[nn - 1 - k] - 1) * 100 : null);
-        techLive = { sma20: pnum(r.data?.technicals?.sma?.sma20), ret2: r2(retK(2)), ret4: r2(retK(4)) };
+        const confirmedSma20 = nn >= 20 ? timingMean(cc.slice(-20)) : null;
+        techLive = { sma20: r2(confirmedSma20), ret2: r2(retK(2)), ret4: r2(retK(4)) };
       }
     }
     grades[r.sym] = {
@@ -21597,8 +21960,9 @@ const THESIS_SCHEMA = {
     // The FINAL ENTRY CALL — the grader's judgment on whether NOW is the time
     // to open the trade (2026-07-10, owner directive: the buy/wait call must
     // not be purely price-deterministic). The deterministic entry read rides
-    // the prompt as context; hard risk vetoes (top-guard / event defer) are
-    // enforced outside the model in buildTopPicks.
+    // the prompt as context; hard execution vetoes (exhaustion, event defer,
+    // knife/reversal, structure, and payoff) are enforced outside the model in
+    // buildTopPicks.
     entryVerdict: { type: "string", enum: ["buy-now", "wait"] },
     entryReason: { type: "string" },
     // The FINAL GRADE — the AI is the final grader once a name clears the data
@@ -21934,7 +22298,7 @@ export function thesisCacheSig(r, side, kind, macroRegime, macroCalendar = null)
   // Conviction rides in 2-point buckets: a ±0.5 pillar wiggle across an integer
   // boundary is score noise, not a changed thesis (the drivers/entry/macro
   // components catch the moves that matter).
-  return [THESIS_PROMPT_VERSION, etDay, r.sym, side, kind, Math.round((pnum(r.total) ?? 0) / 2), works, state, axSig, verdict, newsHash, ivBucket, entrySig, calSig].join("|");
+  return [THESIS_PROMPT_VERSION, `entry-v${PICKS_ENTRY_TIMING_VERSION}`, etDay, r.sym, side, kind, Math.round((pnum(r.total) ?? 0) / 2), works, state, axSig, verdict, newsHash, ivBucket, entrySig, calSig].join("|");
 }
 
 async function readPickThesisCache() {
@@ -22722,6 +23086,14 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       cohort: p.entry?.signal === "buy-now" ? "go" : "wait",
       entrySignal: p.entry?.signal || null,
       entryReadiness: p.entry?.readiness?.score ?? null,
+      entryTimingScore: p.entryTiming?.score ?? p.pillars?.timing?.score ?? null,
+      entryTimingState: p.entryTiming?.state || null,
+      entryTimingComponents: p.pillars?.timing?.components
+        ? Object.fromEntries(Object.entries(p.pillars.timing.components).map(([k, v]) => [k, pnumN(v?.score)]))
+        : null,
+      entryInvalidation: p.entry?.invalidation ?? p.entryTiming?.structure?.invalidation ?? null,
+      entryTarget: p.entry?.target ?? p.entryTiming?.structure?.target ?? null,
+      entryRewardRisk: p.entry?.rr ?? p.entryTiming?.structure?.rr ?? null,
       thesisCategory: thesisCat.primary, thesisCategorySecondary: thesisCat.secondary,
       contract: p.contract ? {
         strike: p.contract.strike, expiry: p.contract.expiry, dte: p.contract.dte, mid: p.contract.mid, iv: p.contract.iv, delta: p.contract.delta, thetaDay: p.contract.thetaDay,
@@ -22789,7 +23161,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
   // resetEpoch stamps which enrollment-rules era this record belongs to —
   // readPicksAccuracyState discards a record from an older epoch (see
   // PICKS_ACCURACY_RESET_EPOCH).
-  const payload = { builtAtIso, resetEpoch: PICKS_ACCURACY_RESET_EPOCH, open, closed, stats };
+  const payload = { builtAtIso, resetEpoch: PICKS_ACCURACY_RESET_EPOCH, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, open, closed, stats };
   await writeFile(accPath, JSON.stringify(payload), "utf8");
   // Separate open-marks file for the Top Picks tab's "since it appeared" chip
   // (pickLiveChip + pickThesisStatusFor in app.js). It carries ONLY the

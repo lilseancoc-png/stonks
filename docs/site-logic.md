@@ -99,13 +99,16 @@ For every ticker:
 
 ```text
 total = Technicals + Mechanicals + Fundamentals + Narrative
-        + entryTiming + ivCost
+        + ivCost
 
 side       = sign(total)       positive = call bias; negative = put bias
 conviction = abs(total)
+entry      = entryTimingV2     execution-only Go / Wait / Avoid
 ```
 
-Each of the four main pillars is clamped to `-5…+5`. Entry timing is bounded to `-8…+2`; IV cost to `-2…+1`.
+Each of the four main pillars is clamped to `-5…+5`; IV cost is bounded to
+`-2…+1`. Entry timing is separately bounded to `-8…+2` and does not alter side
+or conviction.
 
 ### Technicals
 
@@ -151,13 +154,17 @@ ETFs suppress the entire company-fundamentals pillar. A fund does not have corpo
 
 ### Entry timing
 
-The timing model uses confirmed bars and the intended side:
+The timing model recomputes RSI, MACD, SMA, ATR and volume from one confirmed
+OHLCV cutoff. It combines capped extension, impulse/pullback quality,
+directional momentum/volume, calendar risk and level/payoff structure.
 
-- **Avoid:** falling knife, blow-off move, or extended top/hole; penalty `-5` to `-8`.
-- **Wait:** earnings within seven calendar days, imminent FOMC/CPI-type risk, or mixed structure; penalty `-1` or `0`.
-- **Go:** aligned momentum plus a healthy pullback or confirming volume; bonus `+2`.
+- **Avoid:** a confirmed falling knife/broken impulse, exhaustion confluence, or total score `≤-5`.
+- **Wait:** hard event risk, score `-4…+1`, missing confirmation, unclear invalidation, or payoff below 1.5:1.
+- **Go:** score `+2`, positive turn confirmation, two independent evidence families, invalidation within 2 ATR, and reward/risk at least 1.5:1.
 
-A trade fighting a risk-off/risk-on tape gets tighter knife thresholds.
+Countertrend trades require a reclaim plus full confirmation. Extended
+tape-aligned calls in risk-on and puts in risk-off require full confirmation
+and payoff rather than receiving a blanket pro-cyclical bonus.
 
 ### IV cost
 
@@ -272,24 +279,20 @@ The historical edge governor can raise the minimum bar:
 
 - `avoid` timing is excluded.
 - Existing open positions suppress a duplicate entry in the same ticker.
-- Hard entry vetoes bind: imminent event, wrong side of SMA20, or a true parabolic stretch.
+- Hard entry vetoes bind: imminent event, wrong side of SMA20, confirmed falling knife/broken setup, or exhaustion confluence.
 
-The hard extension band is more than 15% past SMA20 or RSI at least 80 for calls / at most 20 for puts. The softer 4–15% or RSI 72–80/28–20 band normally waits for a pullback but may be overridden by the final AI grader when the live catalyst justifies momentum.
+More than 15% past SMA20, RSI at least 80/at most 20, and a fast impulse are
+extreme inputs, not automatic vetoes in isolation. A hard top guard requires
+multiple extremes plus momentum rollover or a ≥1.8× volume climax, unless a
+single reading reaches the catastrophic circuit breaker. Soft extension waits
+for a reachable reset but may be overridden by the final AI grader.
 
 ### Gate 3: entry readiness
 
-The deterministic checklist scores:
-
-- momentum aligned: `+2`;
-- correct side of SMA20: `+1`;
-- within 3% of SMA20: `+1`;
-- relative volume at least 1.3: `+1`;
-- aligned three-day thrust at least 1%: `+1`;
-- aligned SMA20/SMA50 stack: `+1`;
-- Strong-grade conviction: `+1`;
-- broad tape fights the trade: `-2`.
-
-The default readiness bar is `4`. A clean `go` state can also produce Buy now. Below the bar, the system provides a specific dip, reclaim, or breakout trigger rather than pretending the setup is executable.
+There is no second, duplicative readiness checklist. `computeEntrySignal`
+translates the single timing-v2 result into Buy now or a specific event,
+pullback, reclaim, reversal, or nearby-structure trigger. Its payload retains
+the five component scores, prerequisite results, invalidation, target, and R:R.
 
 ### Gate 4: thesis quality
 

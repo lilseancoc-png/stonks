@@ -228,12 +228,12 @@
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.03760;
+  var RFR = 0.03730;
   // Provenance for the risk-free rate baked above. source is
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-07-28","ageDays":null};
+  var RFR_META = {"source":"cached","asOf":"2026-07-21","ageDays":7};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
   var evalTimer = null;
@@ -32062,9 +32062,8 @@
     '</div>';
   }
 
-  // Entry timing is no longer a separate "Execute now?" component — it's folded
-  // into the grade as the 5th score pillar (build.mjs::scorePillared), so it
-  // shows up inside the score breakdown below rather than as its own badge/banner.
+  // Entry timing is an execution-only overlay. It remains in the breakdown for
+  // auditability, but its −8…+2 score is not part of directional conviction.
 
   // Score breakdown side panel. Each pillar is a collapsible <details>
   // showing every signal (including "no data" ones at 0). Sign-coded for
@@ -32081,8 +32080,8 @@
     technicals: 'The price chart itself, graded across 10 signals (each −3 … +3). RSI momentum: >50 & rising +1, <50 & falling −1. RSI reading (contrarian): ≥75 overbought −3, ≤25 oversold +3. MACD ±1. A 3-day-plus green/red streak ±1. Confirmed support/resistance breaks: 20D ±1, 50D ±1, 100D ±2. The 52-week read (contrarian): within 5% of the high −1, within 5% of the low +1. The moving-average stack: above the majority of the 20/50/100D SMAs +1, below −1. Plus an AI-read chart pattern: confirmed bullish +1, bearish −1. (Raw relative volume is NOT scored here — it double-counted the Unusual Volume mechanical, and unsigned volume credits a crash day like a rally; volume-as-confirmation lives in the entry-timing read.) The contrarian reads mean a name pinned at its 52-week high or running overbought scores negative — stretched charts tend to mean-revert.',
     mechanicals: 'The name\'s OWN options plumbing, graded across 8 signals (each −3 … +3). Unusual options flow (today\'s aggressive bull vs. bear prints) ±1. Open-interest call/put skew: >1.5× calls +1, put-heavy −1. Short interest: a squeeze setup +1, short interest rising −1, falling +1. Hourly volume vs. its 20-day average ±1 by move direction. Put/call ratio (contrarian): >1.15 fear +2, <0.65 greed −2 — heavy put buying (fear) leans bullish, call-greed leans bearish. Plus three reads from the site\'s own scanners: overnight OI build (where new positioning actually LANDED in last night\'s settlement, net call vs. put ΔOI ±1 — opened-and-held bets, not intraday churn), a gamma-squeeze setup score (concentrated near-money call OI + a hot C/P ratio + spot near the call wall + ask-side sweeps: 3-of-5 rules +1, flagged ≥4 +2), and flow persistence (the rolling 7-day flagged-flow log — the same side flagged across 2+ sessions with ≥60% of real premium behind it ±1, across 4+ sessions ±2; one day\'s prints are the flow signal\'s job, a WEEK of them is positioning). Market-wide reads — the broad SPY tape and the VIX — are NOT scored here: they move the whole market, so they\'re owned by the risk-on/off regime gauge and reach the grade through its beta-weighted tilt, not double-counted per name.',
     narrative: 'The story driving the stock, graded on the name\'s OWN signals (each −3 … +3). AI-read news catalysts: good +2, bad −3 (deliberately asymmetric — one sentiment read is noisy, so good news is weighted lighter than bad). Sector narrative: rides an active strong story ±2, faded by its lifecycle stage and discounted when the story is hype-driven. Social sentiment: informational only (0) — self-tagged retail sentiment fired bullish-only across the whole universe, a structural long bias, so the chip shows the reading without scoring it. Media coverage: informational only (0) — sentiment is owned by the catalyst signals. Market-wide macro reads — macro tail/headwinds, the dollar (DXY) and the 10-year yield — are NOT scored here: they move the whole market, so they\'re owned by the risk-on/off regime gauge. Its bearish/bullish lean still reaches the grade through the beta-weighted Macro Regime tilt (the one market read scaled by each name\'s own beta). Catalysts move stocks faster than indicators, so they carry the most weight here.',
-    ivCost: 'How expensive is this name\'s OWN option vol right now, for a buyer of premium? Scored from its IV rank — where today\'s 30-day implied vol sits within the name\'s own trailing history (0 = its cheapest, 100 = its richest). A long call or put is long premium either way, so this is a direction-agnostic cost: above the name\'s median IV (rank 50) it subtracts conviction (up to −3 at the richest), below it adds a little (up to +1.5 at the cheapest, deliberately smaller — a cheap entry doesn\'t fix a bad trade). It weakens or strengthens conviction for whichever side without ever flipping it, so of two otherwise-equal setups the one whose vol is cheap relative to its own history ranks ahead — you\'re not paying up into a crush. (At an extreme ≥90th percentile the entry-timing gate also blocks the trade outright.)',
-    timing: 'Is *now* a good moment to put this trade on, independent of how good the asset is? Reads confirmed daily bars (the in-progress candle is dropped so a mid-session spike can\'t fake a signal) for the two dominant failure modes — catching a falling knife and chasing an extended top — then weighs the setups we want against the ones we don\'t. Volume is central: a breakout or a move the trade\'s way that volume confirms (relative volume ≥1.3×) is real participation, while the same move on thin volume (<0.8×) is a low-conviction drift that tends to fade. A healthy pullback to the 20-day average on drying-up volume with momentum turning back up is the dip-buy we want; a pullback on heavy volume looks like distribution. And an entry sitting right on the 20-day support (calls) or resistance (puts) it can lean on earns credit for a tight, defined-risk stop. It also reads the dealer-positioning map and the overnight tape: spot pressed within ~2% under the front expirations\' heaviest call-OI wall is entering into pinned dealer supply (a soft con for calls, a lid that helps puts), sitting just above the put wall has defended support underfoot, and the overnight cross-market sweep\'s peer-implied move (each name\'s correlated foreign peers, β-weighted) leans the entry with or against the trade into the open. It adds up to +4 to conviction for a clean entry and subtracts for a poor one — a knife or a chase starts at −8 and scales *deeper* (toward −16) the more egregious the setup is, so the worst blow-offs (a +50% five-day run, a −15% one-day collapse — the biggest historical losers) are fully neutralized off the roster rather than surviving on a high asset grade. It also tightens its thresholds when the broad tape is fighting the trade, and nudges the grade up or down without ever flipping the side.',
+    ivCost: 'How expensive is this name\'s OWN option vol right now, for a buyer of premium? Scored from its IV rank — where today\'s 30-day implied vol sits within the name\'s own trailing history (0 = its cheapest, 100 = its richest). A long call or put is long premium either way, so this is a direction-agnostic cost: rich IV subtracts conviction and cheap IV adds a smaller credit. It weakens or strengthens conviction for whichever side without ever flipping it, so of two otherwise-equal setups the one whose vol is cheap relative to its own history ranks ahead — you\'re not paying up into a crush.',
+    timing: 'Is *now* a good moment to enter, independent of the asset grade? This execution-only score (−8…+2) is computed from one confirmed daily OHLCV cutoff. Extension is mild, soft, or true exhaustion; a hard chase requires multiple extreme signals (or one catastrophic reading), so strong momentum is not rejected merely for being above its 20-day average. Pullbacks are measured against the actual prior impulse and in ATR units: an orderly 25–50% retracement on drying volume that holds support is preferred, while accelerating adverse price, expanding volume, broken support, and no higher-low/lower-high form a falling-knife veto. MACD turn, RSI recovery and directional ≥1.3× turn-day volume are one correlated confirmation group capped at +2. Earnings and major macro events are tiered by proximity. A GO additionally requires two independent evidence families, a defined invalidation within 2 ATR, and at least 1.5:1 estimated reward/risk. Regime changes the proof required: countertrend trades need a reclaim plus full confirmation, while already-extended tape-aligned calls/puts need full confirmation and payoff. Hard event, knife and exhaustion vetoes cannot be averaged away or overridden.',
   };
 
   // Expanded body for the Entry-timing pillar. The four asset pillars render a
@@ -32107,7 +32106,7 @@
     var stHint = state === 'go'
       ? 'Structure and timing line up — a clean entry.'
       : (state === 'avoid'
-          ? 'A disqualifying read fired — the grade is pulled down and the name usually drops off the roster on its own.'
+          ? 'A disqualifying execution read fired — the asset grade is unchanged, but this is not an entry.'
           : 'No clean entry yet — wait for the next bar to confirm.');
     // The reason strings are tagged at build time: "+ " = a pro, "- " = a con,
     // and an untagged leading line = a hard disqualifier (knife / chase /
@@ -32139,12 +32138,19 @@
       group('Supports entry now', pros, 'is-pro') +
       group('Reasons to hold off', cons, 'is-con');
     if (!flags.length && !pros.length && !cons.length){
-      out += '<p class="pick-timing-empty">No timing signals fired — entry reads neutral (0 to the grade).</p>';
+      out += '<p class="pick-timing-empty">No timing signals fired — entry reads neutral and remains a wait.</p>';
     }
-    // The gate's thresholds were fit to a small (~19-pick) in-sample set; its edge
-    // over the volatility-aware stop alone is not yet validated on forward,
-    // gate-era picks. Label it research/unproven so it isn't read as proven.
-    out += '<p class="pick-timing-research">⚗︎ Research / unproven — thresholds fit in-sample; marginal edge validates as gate-era picks accumulate (see the Track Record\'s modeled option expectancy).</p>';
+    var timingScore = Number(pil && pil.score);
+    var structure = pil && pil.structure;
+    if (isFinite(timingScore) || structure){
+      var audit = [];
+      if (isFinite(timingScore)) audit.push('execution score ' + (timingScore > 0 ? '+' : '') + timingScore + ' / +2');
+      if (structure && structure.invalidation != null) audit.push('invalidation $' + structure.invalidation);
+      if (structure && structure.target != null) audit.push('target $' + structure.target);
+      if (structure && structure.rr != null) audit.push(structure.rr + ':1 payoff');
+      if (audit.length) out += '<p class="pick-timing-hint">' + escapeHtml(audit.join(' · ')) + '</p>';
+    }
+    out += '<p class="pick-timing-research">⚗︎ Research / forward-validation — deterministic thresholds are frozen and logged; judge their marginal value with trigger fills, MAE/MFE and resolved option expectancy.</p>';
     return out;
   }
 
@@ -32225,6 +32231,9 @@
       var pil0 = pillars[pk0];
       if (!pil0) continue;
       var sc0 = Number(pil0.score) || 0;   // cross-sectional float (was | 0)
+      // Entry timing is shown as an execution audit below, but does not enter
+      // the directional score composition or lead-driver calculation.
+      if (pil0.executionOnly) continue;
       present.push({ key: pk0, score: sc0 });
       sumAbs += Math.abs(sc0);
       if (Math.abs(sc0) > maxAbs) maxAbs = Math.abs(sc0);
@@ -32272,7 +32281,9 @@
       // Diverging magnitude bar — fills right (green) for a positive pillar,
       // left (red) for a negative one, scaled against the biggest pillar so
       // the collapsed list reads as a mini bar chart.
-      var magPct = maxAbs > 0 ? (Math.abs(pscore) / maxAbs * 50) : 0;
+      var magPct = pil.executionOnly
+        ? Math.min(50, Math.abs(pscore) / 8 * 50)
+        : (maxAbs > 0 ? (Math.abs(pscore) / maxAbs * 50) : 0);
       var barHtml = '<span class="pick-pillar-bar ' + signClass(pscore) +
         '" style="--pill-mag:' + magPct.toFixed(1) + '%" aria-hidden="true"><i></i></span>';
       var sigList = '';
@@ -32362,7 +32373,9 @@
         '<summary class="pick-pillar-head">' +
           '<span class="pick-pillar-name">' + escapeHtml(nice[k]) + trajBadge + '</span>' +
           barHtml +
-          '<span class="pick-pillar-score ' + signClass(pscore) + '">' + escapeHtml(fmtSignedNum(pscore)) + '</span>' +
+          '<span class="pick-pillar-score ' + signClass(pscore) + '">' +
+            escapeHtml((pil.executionOnly ? 'Exec ' : '') + fmtSignedNum(pscore)) +
+          '</span>' +
         '</summary>' +
         descHtml +
         pillarBody +
