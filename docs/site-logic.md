@@ -56,8 +56,8 @@ Most important design rule: a strong observation is not automatically a trade. T
 | Macro | Overnight Markets | Global-market changes, cross-asset relationships, and beta-implied US moves. |
 | Macro | Fear & Greed | CNN's seven-component 0–100 sentiment composite and history. |
 | Macro | Bonds & USD | Treasury curve, dollar, inflation, labor, credit, and live cross-asset overlays. |
-| Macro | AI CapEx | Mag-7 reported CapEx, run rate, management guidance, revenue burden, and supplier read-through. |
-| Macro | RAM Prices | Wholesale DRAM plus retail DDR5 pricing and breadth. |
+| Alt Data | AI CapEx | Mag-7 reported CapEx, run rate, management guidance, revenue burden, and supplier read-through. |
+| Alt Data | RAM Prices | Wholesale DRAM plus retail DDR5 pricing and breadth. |
 | Macro | Commodities | Eleven input-cost, freight, and demand series mapped to exposed equities. |
 | Macro | Capital Raises | Issuer-level equity, convertible, debt, and buyback events. |
 | Macro | IPOs & Credit | IPO participation, bond issuance, bank funding, and household-credit backdrop. |
@@ -878,7 +878,11 @@ The desk combines:
 
 The interpretations are deterministic: rates, curve, dollar, and labor/inflation are mapped to equity, international, duration, and credit implications with notable-move bands.
 
-### AI CapEx
+### Alt Data
+
+This free navigation section groups two nontraditional semiconductor-cycle datasets while keeping each as its own directly linkable page.
+
+#### AI CapEx
 
 Tracked companies: MSFT, GOOGL, AMZN, META, NVDA, AAPL, TSLA.
 
@@ -906,7 +910,7 @@ Decision posture:
 
 The trade interpretation is two-sided: more spending may support GPUs, networking, power, and data centers while harming spender free cash flow or margins. Confirmation requires supplier backlog/guidance and relative strength, not aggregate spending alone.
 
-### RAM Prices
+#### RAM Prices
 
 Two independent layers:
 
@@ -1137,7 +1141,7 @@ Live polling is generally active only while the relevant tab is visible. Failure
 
 When `PRIVATE_DATA_ENABLED` is off, the deployment behaves as legacy public data. When on:
 
-**Free:** shell, per-ticker data, Grade, News, Calendar, Heatmap, Overnight, Fear & Greed, Bonds & USD, AI CapEx, RAM, Commodities, Capital Raises, IPOs & Credit, Narratives, Earnings Tracker, Earnings Calls, Index Calendar, 13F, Compare, Strategies, and reference/legal pages.
+**Free:** shell, per-ticker data, Grade, News, Calendar, Heatmap, Overnight, Fear & Greed, Bonds & USD, Alt Data (AI CapEx and RAM), Commodities, Capital Raises, IPOs & Credit, Narratives, Earnings Tracker, Earnings Calls, Index Calendar, 13F, Compare, Strategies, and reference/legal pages.
 
 **Premium session:** Market Analysis, Stock Picks, Sector Rotation, Leveraged ETFs, Brief, Event Spillover, Unusual Flow, Volume, Gamma Exposure/OI, Trending IV, and Streaks.
 

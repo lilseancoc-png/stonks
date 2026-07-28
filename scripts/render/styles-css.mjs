@@ -3841,7 +3841,7 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
   .ecl-tones { grid-template-columns: 1fr; }
 }
 
-/* --- AI CapEx (Macro) ------------------------------------------------- */
+/* --- AI CapEx (Alt data) --------------------------------------------- */
 .cx-desk {
   display: flex; flex-direction: column; gap: 11px; margin: 10px 0 12px; padding: 14px;
   border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border)); border-top: 3px solid var(--accent);
@@ -4022,7 +4022,7 @@ a.cx-tkr { border-bottom: 1px solid transparent; }
   .cx-hero-ttm { margin-left: 0; text-align: left; }
 }
 
-/* --- RAM prices (Macro) ------------------------------------------------ */
+/* --- RAM prices (Alt data) -------------------------------------------- */
 .rp-desk {
   display: flex; flex-direction: column; gap: 11px; margin: 10px 0 12px; padding: 14px;
   border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border)); border-top: 3px solid var(--warn);

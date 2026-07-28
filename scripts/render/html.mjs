@@ -1660,11 +1660,16 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       ${sideNavItem('overnight', 'Overnight markets')}
       ${sideNavItem('fear-greed', 'Fear &amp; Greed')}
       ${sideNavItem('bonds-usd', 'Bonds &amp; USD')}
-      ${sideNavItem('ai-capex', 'AI CapEx')}
-      ${sideNavItem('ram-prices', 'RAM prices')}
       ${sideNavItem('commodities', 'Commodities')}
       ${sideNavItem('capital-raises', 'Capital raises')}
       ${sideNavItem('ipo-credit', 'IPOs &amp; credit')}
+    </div>
+  </details>
+  <details class="side-nav-group" data-nav-group="alt-data">
+    <summary class="side-nav-group-label">Alt data</summary>
+    <div class="side-nav-group-items">
+      ${sideNavItem('ai-capex', 'AI CapEx')}
+      ${sideNavItem('ram-prices', 'RAM prices')}
     </div>
   </details>
   <details class="side-nav-group" data-nav-group="research">

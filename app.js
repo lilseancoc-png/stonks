@@ -17286,7 +17286,7 @@
     bindBriefChips(root);
   }
 
-  // --- AI CapEx (Macro tab) -----------------------------------------------
+  // --- AI CapEx (Alt data section) ----------------------------------------
   // Aggregate Mag-7 capital expenditure from data/ai-capex.json — SEC XBRL
   // CapEx, latest full FY vs the year before (+ TTM run-rate), per company.
   var aiCapexState = { data: null, loading: false };
@@ -17529,7 +17529,7 @@
     bindAiCapexActions(root);
   }
 
-  // --- RAM prices (Macro tab) -----------------------------------------------
+  // --- RAM prices (Alt data section) ---------------------------------------
   // data/ram-prices.json — wholesale DRAM spot (TrendForce/DRAMeXchange) +
   // US retail DDR5 kit prices (WhereIsMyRam), with % increases per window.
   var ramPricesState = { data: null, loading: false };
