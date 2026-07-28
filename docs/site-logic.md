@@ -58,6 +58,7 @@ Most important design rule: a strong observation is not automatically a trade. T
 | Macro | Bonds & USD | Treasury curve, dollar, inflation, labor, credit, and live cross-asset overlays. |
 | Alt Data | AI CapEx | Mag-7 reported CapEx, run rate, management guidance, revenue burden, and supplier read-through. |
 | Alt Data | RAM Prices | Wholesale DRAM plus retail DDR5 pricing and breadth. |
+| Alt Data | Search Interest | Daily Google Trends attention for the tracked ticker universe and key market themes, with top/rising queries and 7/30-day changes. |
 | Macro | Commodities | Eleven input-cost, freight, and demand series mapped to exposed equities. |
 | Macro | Capital Raises | Issuer-level equity, convertible, debt, and buyback events. |
 | Macro | IPOs & Credit | IPO participation, bond issuance, bank funding, and household-credit backdrop. |
@@ -880,7 +881,7 @@ The interpretations are deterministic: rates, curve, dollar, and labor/inflation
 
 ### Alt Data
 
-This free navigation section groups two nontraditional semiconductor-cycle datasets while keeping each as its own directly linkable page.
+This free navigation section groups nontraditional demand, participation, and semiconductor-cycle datasets while keeping each as its own directly linkable page.
 
 #### AI CapEx
 
@@ -909,6 +910,31 @@ Decision posture:
 - otherwise **elevated/selective**.
 
 The trade interpretation is two-sided: more spending may support GPUs, networking, power, and data centers while harming spender free cash flow or margins. Confirmation requires supplier backlog/guidance and relative strength, not aggregate spending alone.
+
+#### Search Interest
+
+`scripts/refresh-search-interest.mjs` runs once daily and writes
+`data/search-interest.json`. Coverage is the current `TICKERS` export plus a
+curated theme set including AI, AI chips, data centers, semiconductors,
+cybersecurity, nuclear energy, GLP-1, space, Bitcoin, rates, and recession.
+
+The job uses SerpApi's Google Trends endpoint (`SERPAPI_KEY`) because Google's
+official programmatic API is still alpha-only. Four tracked queries share one
+comparison request with a fifth `stock market` anchor. This makes the displayed
+relative-interest ratio comparable across batches while keeping the Google
+Trends 0-100 time series intact for each query. It stores:
+
+- trailing 90-day interest history;
+- current 7-day average relative to the shared anchor;
+- current 7-day average versus the preceding seven days;
+- current 30-day average versus the preceding 30 days;
+- top associated queries;
+- rising associated queries and explicit Breakout flags.
+
+Google's Breakout label means growth above 5,000%. Search attention is a
+participation/discovery signal, not absolute search volume, sentiment, causality,
+or a directional trade call. The UI therefore sends ticker rows into Grade and
+asks for price, volume, catalyst, and options confirmation.
 
 #### RAM Prices
 

@@ -1,0 +1,73 @@
+name: Daily search interest
+
+# Refreshes Google Trends relative interest for the tracked ticker universe and
+# the curated Alt-data theme list once per day. SerpApi is used because Google's
+# official Trends API remains alpha-only and the public Explore endpoints block
+# hosted automation. The collector preserves last-good rows on partial failure.
+on:
+  schedule:
+    - cron: "17 11 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stonks-data-commit
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref_name }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Hydrate data from private store
+        if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: node scripts/sync-data.mjs pull
+
+      - name: Refresh Google Trends search interest
+        env:
+          SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
+          SEARCH_TRENDS_GEO: "US"
+          SEARCH_TRENDS_RELATED_CONCURRENCY: "4"
+        run: node scripts/refresh-search-interest.mjs
+
+      - name: Push search-interest data to private store
+        if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: node scripts/sync-data.mjs push --owner=search-interest
+
+      - name: Commit legacy public-data output
+        if: ${{ vars.PRIVATE_DATA_ENABLED != '1' }}
+        run: |
+          set -euo pipefail
+          git config user.name "stonks-bot"
+          git config user.email "stonks-bot@users.noreply.github.com"
+          git add data/search-interest.json
+          if git diff --cached --quiet; then
+            echo "No search-interest change"
+            exit 0
+          fi
+          git commit -m "data: refresh Google Trends search interest"
+          git pull --rebase origin "${GITHUB_REF_NAME:-main}"
+          git push origin "HEAD:${GITHUB_REF_NAME:-main}"

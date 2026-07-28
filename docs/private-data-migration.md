@@ -141,7 +141,7 @@ node scripts/sync-data.mjs seed                  # one-time: upload current data
 
 ### 4.3 Concurrency & ownership model — **the load-bearing piece**
 
-Today the three workflows share a `concurrency: stonks-data-commit` group
+Today the four data workflows share a `concurrency: stonks-data-commit` group
 (serialized, never concurrent) and rely on **Git's merge/restore semantics** so a
 wholesale `data/` rebuild by the bake doesn't clobber a concurrent scanner's
 output. A blob store has no merge, so we replicate that ownership explicitly.
@@ -165,6 +165,7 @@ output. A blob store has no merge, so we replicate that ownership explicitly.
 | picks\*, grades\*, calendar, macro\*, correlations, trends\*, streaks, 13f, fear-greed\*, fedwatch-history, rfr-history, earnings-history, chart-pattern-cache, ticker-judgment-cache, prediction-history | bake | upsert |
 | unusual\*, volume-flags, volume-history, flow-explanations | unusual-flow scan | upsert (no delete) |
 | oi-tracker, oi-history | oi-tracker scan | upsert (no delete) |
+| search-interest | daily search-interest refresh | upsert (no delete) |
 | **heatmap.json** | bake (seed/rebuild) **+** unusual (refresh) | upsert by whichever ran; serialized |
 | **market-analysis.json** | bake (macro regime) **+** unusual (premarket cohort + hourly marks) | read-modify-write; serialized |
 | **briefs.json** | bake (`buildMarketBriefs`, re-minted hourly) | upsert; once-per-ET-hour gating already in code |
@@ -230,7 +231,8 @@ landing + "Login with Discord", like `cheatsheet.html`), `favicon.svg`, `/api/au
 
 ### 4.6 Workflow changes
 
-Each of `daily.yml`, `unusual-flow.yml`, `oi-tracker.yml`:
+Each of `daily.yml`, `unusual-flow.yml`, `oi-tracker.yml`, and
+`search-interest.yml`:
 
 - **Add** a step before build/scan: `node scripts/sync-data.mjs pull`
   (env: store token). Replaces the data that `git checkout` used to supply.

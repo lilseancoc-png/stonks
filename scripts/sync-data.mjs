@@ -10,6 +10,7 @@
 //   node scripts/sync-data.mjs push --owner=bake    # local data/ -> store   (flush)
 //   node scripts/sync-data.mjs push --owner=unusual
 //   node scripts/sync-data.mjs push --owner=oi
+//   node scripts/sync-data.mjs push --owner=search-interest
 //   node scripts/sync-data.mjs seed                 # one-time: upload ALL local data/
 //   ...any command + --dry-run to print actions without touching the store.
 //
@@ -46,6 +47,7 @@ const UNUSUAL_EXCLUSIVE = [
   "flow-explanations.json",
 ];
 const OI_EXCLUSIVE = ["oi-tracker.json", "oi-history.json"];
+const SEARCH_INTEREST_EXCLUSIVE = ["search-interest.json"];
 // Co-owned read-modify-write files (each producer pulls latest, applies its
 // once-per-window update, pushes). Safe under serialized runs. The hourly run
 // refreshes heatmap prices and the Market Analysis premarket cohort while the
@@ -59,7 +61,7 @@ const UNUSUAL_SHARED = ["heatmap.json", "market-analysis.json", "ai-usage.json",
 // the bake (the oi-tracker's regen-brief pre-market/backfill step is gone).
 const OI_SHARED = ["manifest.json", "manifest-free.json"];
 
-const SCANNER_EXCLUSIVE = new Set([...UNUSUAL_EXCLUSIVE, ...OI_EXCLUSIVE]);
+const SCANNER_EXCLUSIVE = new Set([...UNUSUAL_EXCLUSIVE, ...OI_EXCLUSIVE, ...SEARCH_INTEREST_EXCLUSIVE]);
 
 // REQUEST-TIME-owned keys: written by the live api/* functions from user
 // actions (api/watchlist.js), never by a workflow. NO producer may push or
@@ -181,7 +183,9 @@ async function pushScanner(owner, { dryRun }) {
   const keys =
     owner === "unusual"
       ? [...UNUSUAL_EXCLUSIVE, ...UNUSUAL_SHARED]
-      : [...OI_EXCLUSIVE, ...OI_SHARED];
+      : owner === "oi"
+        ? [...OI_EXCLUSIVE, ...OI_SHARED]
+        : SEARCH_INTEREST_EXCLUSIVE;
   await uploadKeys(keys, { dryRun, label: `push(${owner})` }); // upsert-only, no delete
 }
 
@@ -208,9 +212,9 @@ async function main() {
       break;
     case "push":
       if (opts.owner === "bake") await pushBake(opts);
-      else if (opts.owner === "unusual" || opts.owner === "oi") await pushScanner(opts.owner, opts);
+      else if (opts.owner === "unusual" || opts.owner === "oi" || opts.owner === "search-interest") await pushScanner(opts.owner, opts);
       else {
-        console.error("push requires --owner=bake|unusual|oi");
+        console.error("push requires --owner=bake|unusual|oi|search-interest");
         process.exit(1);
       }
       break;

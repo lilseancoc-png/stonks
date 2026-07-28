@@ -121,6 +121,7 @@
     <div class="side-nav-group-items">
       <button type="button" class="page-tab" role="tab" data-page-tab="ai-capex" aria-selected="false" aria-controls="page-pane-ai-capex" id="page-tab-ai-capex"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9.5" y="9.5" width="5" height="5"/><path d="M9 2.5V5M15 2.5V5M9 19v2.5M15 19v2.5M2.5 9H5M2.5 15H5M19 9h2.5M19 15h2.5"/></svg><span class="pt-label">AI CapEx</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="ram-prices" aria-selected="false" aria-controls="page-pane-ram-prices" id="page-tab-ram-prices"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6.5" width="19" height="9" rx="1.5"/><path d="M6 15.5v3M10 15.5v3M14 15.5v3M18 15.5v3"/><path d="M6.5 10v2M12 10v2M17.5 10v2"/></svg><span class="pt-label">RAM prices</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="search-interest" aria-selected="false" aria-controls="page-pane-search-interest" id="page-tab-search-interest"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/><path d="M7.5 12.5 10 10l2 1.8 3-4"/></svg><span class="pt-label">Search interest</span></button>
     </div>
   </details>
   <details class="side-nav-group" data-nav-group="research">
@@ -3212,6 +3213,21 @@
     <p class="hint">Spot prices are per chip/module in USD (session average); retail prices are per kit in USD (lowest in-stock offer / category average). Sources are scraped best-effort and can go stale. Not financial advice.</p>
   </section>
   </div>
+  <div class="page-pane" id="page-pane-search-interest" role="tabpanel" aria-labelledby="page-tab-search-interest" hidden>
+  <section class="card" id="search-interest-section">
+    <header class="card-header">
+      <h2 class="card-title">Search interest</h2>
+      <span class="card-eyebrow" id="search-interest-eyebrow" aria-live="polite"></span>
+    </header>
+    <details class="info-note">
+      <summary>How to use search interest</summary>
+      <div class="info-note-body"><p>Search attention is a <b>participation signal</b>, not a buy signal. Start with the 7-day change and breakout queries to find names or themes entering public attention, then check whether price, volume, options activity and fundamentals confirm the move. A surge without market confirmation can be curiosity, controversy or late-cycle crowding. Interest is Google Trends&rsquo; relative 0&ndash;100 index, normalized here against the same <em>stock market</em> anchor so rows can be compared; it is not absolute search volume.</p></div>
+    </details>
+    <div id="search-interest-root" class="si-root">Loading search interest&hellip;</div>
+    <div id="search-interest-empty" class="si-empty" hidden>Search-interest data will appear after the next daily refresh.</div>
+    <p class="hint">US Google Search interest over the trailing 90 days. Related queries are associated searches, not causal explanations. Breakout means Google measured growth above 5,000%. Source: Google Trends via SerpApi. Not financial advice.</p>
+  </section>
+  </div>
   <div class="page-pane" id="page-pane-commodities" role="tabpanel" aria-labelledby="page-tab-commodities" hidden>
   <section class="card" id="commodities-section">
     <header class="card-header">
@@ -4508,7 +4524,7 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
             <li><b>Earnings tracker</b> — season scoreboard: beats, guidance, expected moves, drift</li>
             <li><b>Market heatmap</b> — live map by performance or relative volume</li>
             <li><b>Macro</b> — Overnight markets, Fear &amp; Greed, Bonds &amp; USD, 13F filings, Commodities, IPOs &amp; credit, Capital raises</li>
-            <li><b>Alt data</b> — AI buildout spending and the RAM / memory pricing cycle in one focused desk</li>
+            <li><b>Alt data</b> — AI buildout spending, the RAM / memory pricing cycle, and daily Google Trends search-interest signals</li>
             <li><b>Narratives</b> — AI theses driving capital, longs/shorts, lifecycle</li>
             <li><b>Earnings calls</b> — AI briefs covering guidance, tone and Q&amp;A</li>
             <li><b>Index calendar</b> — daily SPY/QQQ/IWM and cross-asset closes by month</li>

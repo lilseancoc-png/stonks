@@ -29784,6 +29784,11 @@ async function main() {
   const volumeHistory = await loadVolumeHistory();
   const oiTracker = await loadOiTracker();
   const oiHistory = await loadOiHistory();
+  // Search interest is owned by its own once-daily workflow. Preserve the
+  // latest payload across this bake's wholesale data/ wipe for legacy
+  // flag-off deployments and local builds; sync-data excludes it from the
+  // bake's private-store push so only the dedicated producer can publish it.
+  const searchInterestCarry = await readFile(resolve(DATA_DIR, "search-interest.json"), "utf8").catch(() => null);
   // Fear & Greed history + last-good snapshot live in data/, which
   // writeChainFiles wipes. Load both now and rewrite after the wipe so
   // we keep prior days even if today's CNN fetch fails.
@@ -30095,6 +30100,9 @@ async function main() {
   await writeFile(resolve(ROOT, "styles.css"), css, "utf8");
   await writeFile(resolve(ROOT, "app.js"), js, "utf8");
   const totalChainBytes = await writeChainFiles(chains, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE);
+  if (searchInterestCarry) {
+    await writeFile(resolve(DATA_DIR, "search-interest.json"), searchInterestCarry, "utf8");
+  }
   // Bake-owned sidecar consumed by the unusual-flow and OI scanners. It carries
   // only published FINRA observations and matching historical-volume math.
   await writeFile(

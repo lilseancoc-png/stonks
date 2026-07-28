@@ -64,6 +64,7 @@ const SIDE_NAV_ICONS = {
   'bonds-usd': '<path d="M12 2.5v19M16.5 5.5H10a3 3 0 0 0 0 6h4a3 3 0 0 1 0 6H7"/>',
   'ai-capex': '<rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9.5" y="9.5" width="5" height="5"/><path d="M9 2.5V5M15 2.5V5M9 19v2.5M15 19v2.5M2.5 9H5M2.5 15H5M19 9h2.5M19 15h2.5"/>',
   'ram-prices': '<rect x="2.5" y="6.5" width="19" height="9" rx="1.5"/><path d="M6 15.5v3M10 15.5v3M14 15.5v3M18 15.5v3"/><path d="M6.5 10v2M12 10v2M17.5 10v2"/>',
+  'search-interest': '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/><path d="M7.5 12.5 10 10l2 1.8 3-4"/>',
   'capital-raises': '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/>',
   'ipo-credit': '<path d="M12 2.5c2.5 2 3.5 5 3.5 8l-1.5 3h-4L8.5 10.5c0-3 1-6 3.5-8z"/><path d="M10 13.5 8 18l2.5-1.5L12 19l1.5-2.5L16 18l-2-4.5"/><circle cx="12" cy="8.5" r="1.5"/>',
   commodities: '<path d="M3 20.5c0-6 3.5-9.5 9-9.5s9 3.5 9 9.5"/><path d="M12 11V3.5"/><path d="M12 3.5c2.5 0 4.5 1.5 5 3.5-2.5.5-4.5-.5-5-3.5zM12 3.5c-2.5 0-4.5 1.5-5 3.5 2.5.5 4.5-.5 5-3.5z"/>',
@@ -643,6 +644,21 @@ function ramPricesSection() {
     <div id="ram-prices-root" class="ram-prices-root">Loading RAM prices&hellip;</div>
     <div id="ram-prices-empty" class="ram-prices-empty" hidden>RAM price data will appear after the next daily build refresh.</div>
     <p class="hint">Spot prices are per chip/module in USD (session average); retail prices are per kit in USD (lowest in-stock offer / category average). Sources are scraped best-effort and can go stale. Not financial advice.</p>
+  </section>`;
+}
+
+function searchInterestSection() {
+  // Google Trends relative interest + related-query discovery, collected once
+  // daily by refresh-search-interest.mjs and lazy-loaded on first tab entry.
+  return `<section class="card" id="search-interest-section">
+    <header class="card-header">
+      <h2 class="card-title">Search interest</h2>
+      <span class="card-eyebrow" id="search-interest-eyebrow" aria-live="polite"></span>
+    </header>
+    ${infoNote('How to use search interest', `<p>Search attention is a <b>participation signal</b>, not a buy signal. Start with the 7-day change and breakout queries to find names or themes entering public attention, then check whether price, volume, options activity and fundamentals confirm the move. A surge without market confirmation can be curiosity, controversy or late-cycle crowding. Interest is Google Trends&rsquo; relative 0&ndash;100 index, normalized here against the same <em>stock market</em> anchor so rows can be compared; it is not absolute search volume.</p>`)}
+    <div id="search-interest-root" class="si-root">Loading search interest&hellip;</div>
+    <div id="search-interest-empty" class="si-empty" hidden>Search-interest data will appear after the next daily refresh.</div>
+    <p class="hint">US Google Search interest over the trailing 90 days. Related queries are associated searches, not causal explanations. Breakout means Google measured growth above 5,000%. Source: Google Trends via SerpApi. Not financial advice.</p>
   </section>`;
 }
 
@@ -1670,6 +1686,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <div class="side-nav-group-items">
       ${sideNavItem('ai-capex', 'AI CapEx')}
       ${sideNavItem('ram-prices', 'RAM prices')}
+      ${sideNavItem('search-interest', 'Search interest')}
     </div>
   </details>
   <details class="side-nav-group" data-nav-group="research">
@@ -2291,6 +2308,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-ram-prices" role="tabpanel" aria-labelledby="page-tab-ram-prices" hidden>
   ${ramPricesSection()}
+  </div>
+  <div class="page-pane" id="page-pane-search-interest" role="tabpanel" aria-labelledby="page-tab-search-interest" hidden>
+  ${searchInterestSection()}
   </div>
   <div class="page-pane" id="page-pane-commodities" role="tabpanel" aria-labelledby="page-tab-commodities" hidden>
   ${commoditiesSection()}

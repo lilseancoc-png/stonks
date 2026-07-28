@@ -3479,7 +3479,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','rotation','picks','stocks','heatmap','calendar','earnings','calls','spillover','quant','levetf','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','features','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','rotation','picks','stocks','heatmap','calendar','earnings','calls','spillover','quant','levetf','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','search-interest','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','features','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3491,6 +3491,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     bonds: 'bonds-usd', usd: 'bonds-usd',
     capex: 'ai-capex', 'ai-capex': 'ai-capex', mag7: 'ai-capex', 'mag-7': 'ai-capex',
     ram: 'ram-prices', dram: 'ram-prices', memory: 'ram-prices', 'ram-price': 'ram-prices', 'ram-prices': 'ram-prices', ddr5: 'ram-prices',
+    trends: 'search-interest', search: 'search-interest', 'search-interest': 'search-interest', 'google-trends': 'search-interest',
     commodity: 'commodities', 'commodity-prices': 'commodities', cocoa: 'commodities', coffee: 'commodities', cotton: 'commodities', lumber: 'commodities', sugar: 'commodities', lithium: 'commodities', potash: 'commodities', freight: 'commodities', bdi: 'commodities', 'baltic-dry': 'commodities', manheim: 'commodities', 'used-vehicles': 'commodities',
     'capital-raises': 'capital-raises', raises: 'capital-raises', issuance: 'capital-raises', debt: 'capital-raises', bonds2: 'capital-raises',
     'ipo-credit': 'ipo-credit', ipos: 'ipo-credit', ipo: 'ipo-credit', credit: 'ipo-credit', 'credit-card': 'ipo-credit', 'credit-cards': 'ipo-credit', deposits: 'ipo-credit', revolsl: 'ipo-credit', 'household-debt': 'ipo-credit',
@@ -3846,6 +3847,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (name === 'calls' && typeof loadEarningsCalls === 'function') loadEarningsCalls();
         if (name === 'ai-capex' && typeof loadAiCapex === 'function') loadAiCapex();
         if (name === 'ram-prices' && typeof loadRamPrices === 'function') loadRamPrices();
+        if (name === 'search-interest' && typeof loadSearchInterest === 'function') loadSearchInterest();
         if (name === 'commodities' && typeof loadCommodities === 'function') loadCommodities();
         if (name === 'capital-raises' && typeof loadCapitalRaises === 'function') loadCapitalRaises();
         if (name === 'ipo-credit' && typeof loadIpoCredit === 'function') loadIpoCredit();
@@ -17803,6 +17805,153 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         });
       }
     }
+  }
+
+  // --- Google Trends search interest (Alt data section) -------------------
+  var searchInterestState = { data: null, loading: false, mode: 'movers', search: '', showAll: false };
+  function siPct(value){
+    if (value == null || !isFinite(value)) return '&mdash;';
+    return (value > 0 ? '+' : '') + Number(value).toFixed(1) + '%';
+  }
+  function siTone(value){
+    if (value == null || !isFinite(value) || Math.abs(value) < 5) return 'flat';
+    return value > 0 ? 'up' : 'down';
+  }
+  function siSpark(history){
+    var values = (Array.isArray(history) ? history : []).slice(-45).map(function(p){ return Number(p.value); }).filter(isFinite);
+    if (values.length < 2) return '';
+    var lo = Math.min.apply(null, values), hi = Math.max.apply(null, values), span = Math.max(1, hi - lo);
+    var points = values.map(function(v, i){
+      return ((i / (values.length - 1)) * 100).toFixed(1) + ',' + (27 - ((v - lo) / span) * 23).toFixed(1);
+    }).join(' ');
+    return '<svg class="si-spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true"><polyline points="' + points + '"/></svg>';
+  }
+  function siQueryList(items, rising){
+    var list = Array.isArray(items) ? items : [];
+    if (!list.length) return '<span class="si-query-empty">No query data returned</span>';
+    return list.slice(0, 5).map(function(item){
+      var breakout = !!item.breakout;
+      var value = breakout ? 'Breakout' : (item.value || (item.score != null ? item.score : ''));
+      return '<span class="si-query' + (breakout ? ' is-breakout' : '') + '"><b>' + escapeHtml(item.query || '') + '</b>' +
+        (value ? '<small>' + escapeHtml(String(value)) + '</small>' : '') + '</span>';
+    }).join('');
+  }
+  function loadSearchInterest(){
+    if ((searchInterestState.data && !tabDataStale(searchInterestState)) || searchInterestState.loading){ renderSearchInterest(); return; }
+    searchInterestState.loading = true;
+    fetch(dataUrl('search-interest.json'), { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){
+        searchInterestState.data = (j && typeof j === 'object') ? j : { rows: [] };
+        searchInterestState.loading = false; searchInterestState.fetchedAt = Date.now(); renderSearchInterest();
+      })
+      .catch(function(){ searchInterestState.data = { rows: [], loadError: true }; searchInterestState.loading = false; renderSearchInterest(); });
+  }
+  function renderSearchInterest(){
+    var root = $('search-interest-root'); var empty = $('search-interest-empty'); var eye = $('search-interest-eyebrow');
+    if (!root) return;
+    var d = searchInterestState.data;
+    if (!d){ root.textContent = 'Loading search interest...'; return; }
+    var rows = Array.isArray(d.rows) ? d.rows.filter(function(row){ return row && !row.missing; }) : [];
+    if (!rows.length){
+      if (empty) empty.hidden = true;
+      if (eye) eye.textContent = 'Unavailable | no signal';
+      root.innerHTML = '<section class="si-empty-desk"><span>Attention desk</span><h3>' +
+        (d.loadError ? 'The search-interest snapshot could not be loaded' : 'No search-interest snapshot is available yet') +
+        '</h3><p>Do not infer public participation from missing data. The next successful daily Trends refresh will restore ticker, theme and related-query coverage.</p></section>';
+      return;
+    }
+    if (empty) empty.hidden = true;
+    var status = d.status || {}, summary = d.summary || {};
+    var ageMs = Date.now() - Date.parse(d.builtAtIso || 0);
+    var staleBuild = !isFinite(ageMs) || ageMs > 48 * 3600000;
+    if (eye) eye.textContent = (staleBuild ? 'Reference only' : (status.state === 'partial' ? 'Partial refresh' : 'Daily refresh')) +
+      ' | ' + rows.length + ' signals' + (d.builtAtIso ? ' | ' + String(d.builtAtIso).slice(0,10) : '');
+
+    var tickers = rows.filter(function(row){ return row.type === 'ticker'; });
+    var themes = rows.filter(function(row){ return row.type === 'theme'; });
+    var risingTickers = tickers.filter(function(row){ return Number(row.change7d) >= 15; }).length;
+    var fallingTickers = tickers.filter(function(row){ return Number(row.change7d) <= -15; }).length;
+    var topTicker = tickers.filter(function(row){ return typeof row.change7d === 'number' && isFinite(row.change7d); }).sort(function(a,b){ return b.change7d - a.change7d; })[0];
+    var topTheme = themes.filter(function(row){ return typeof row.change7d === 'number' && isFinite(row.change7d); }).sort(function(a,b){ return b.change7d - a.change7d; })[0];
+    var breakoutCount = Number(summary.breakoutCount) || rows.reduce(function(sum,row){
+      return sum + (row.risingQueries || []).filter(function(q){ return q.breakout; }).length;
+    }, 0);
+    var posture = staleBuild ? 'Refresh required - do not trade the old attention map'
+      : risingTickers > fallingTickers * 1.5 && risingTickers >= 8 ? 'Attention breadth is expanding'
+      : fallingTickers > risingTickers * 1.5 && fallingTickers >= 8 ? 'Search participation is cooling'
+      : 'Attention is selective - follow the individual movers';
+    var postureCopy = staleBuild
+      ? 'The snapshot is older than 48 hours. Wait for a current search read before treating a surge as participation.'
+      : 'Use the search move as a discovery trigger. Require price, volume and catalyst confirmation before taking risk.';
+    var hero = '<section class="si-desk"><div class="si-desk-head"><div><span class="si-kicker">Public-attention desk</span><h3>' +
+      escapeHtml(posture) + '</h3><p>' + escapeHtml(postureCopy) + '</p></div><span class="si-status' + (staleBuild ? ' is-stale' : '') + '">' +
+      (staleBuild ? 'Reference only' : status.state === 'partial' ? 'Partial' : 'Current') + '</span></div>' +
+      '<div class="si-summary">' +
+        '<div><small>Fastest ticker | 7d</small><b>' + (topTicker ? escapeHtml(topTicker.symbol || topTicker.label) : '&mdash;') + '</b><strong class="si-' + siTone(topTicker && topTicker.change7d) + '">' + siPct(topTicker && topTicker.change7d) + '</strong></div>' +
+        '<div><small>Fastest theme | 7d</small><b>' + (topTheme ? escapeHtml(topTheme.label) : '&mdash;') + '</b><strong class="si-' + siTone(topTheme && topTheme.change7d) + '">' + siPct(topTheme && topTheme.change7d) + '</strong></div>' +
+        '<div><small>Ticker breadth</small><b>' + risingTickers + ' surging</b><strong>' + fallingTickers + ' cooling</strong></div>' +
+        '<div><small>Breakout queries</small><b>' + breakoutCount + '</b><strong>&gt;5,000% growth</strong></div>' +
+      '</div><p class="si-source">Relative interest is calibrated to the shared <b>' + escapeHtml((d.source && d.source.anchor) || 'stock market') +
+      '</b> anchor. It measures attention, not absolute searches or directional intent.</p></section>';
+
+    var mode = searchInterestState.mode || 'movers';
+    var query = String(searchInterestState.search || '').trim().toLowerCase();
+    var filtered = rows.filter(function(row){
+      if (query && (String(row.symbol || '') + ' ' + String(row.label || '') + ' ' + String(row.query || '') + ' ' + String(row.sector || '')).toLowerCase().indexOf(query) < 0) return false;
+      if (mode === 'tickers') return row.type === 'ticker';
+      if (mode === 'themes') return row.type === 'theme';
+      if (mode === 'breakouts') return (row.risingQueries || []).some(function(item){ return item.breakout; });
+      if (mode === 'movers') return Math.abs(Number(row.change7d) || 0) >= 10 || (row.risingQueries || []).some(function(item){ return item.breakout; });
+      return true;
+    });
+    filtered.sort(function(a,b){
+      var ab = (a.risingQueries || []).some(function(item){ return item.breakout; }) ? 1 : 0;
+      var bb = (b.risingQueries || []).some(function(item){ return item.breakout; }) ? 1 : 0;
+      if (bb !== ab) return bb - ab;
+      return (Number(b.change7d) || -9999) - (Number(a.change7d) || -9999);
+    });
+    var shown = searchInterestState.showAll ? filtered : filtered.slice(0, 24);
+    function filterButton(id, label){
+      return '<button type="button" data-si-mode="' + id + '" class="' + (mode === id ? 'is-on' : '') + '">' + label + '</button>';
+    }
+    var toolbar = '<div class="si-toolbar"><div class="si-filters">' +
+      filterButton('movers','Movers') + filterButton('breakouts','Breakouts') + filterButton('themes','Themes') +
+      filterButton('tickers','Tickers') + filterButton('all','All') + '</div>' +
+      '<input type="search" id="si-search" placeholder="Search ticker, company or theme..." value="' + escapeHtml(searchInterestState.search || '') + '" aria-label="Filter search-interest signals"></div>';
+    var cards = shown.map(function(row, cardIndex){
+      var hasBreakout = (row.risingQueries || []).some(function(item){ return item.breakout; });
+      var title = row.symbol ? '<button type="button" class="si-symbol" data-si-grade="' + escapeHtml(row.symbol) + '">' + escapeHtml(row.symbol) + '</button>' : '<span class="si-symbol">' + escapeHtml(row.label || '') + '</span>';
+      var subtitle = row.symbol ? escapeHtml(row.label || '') : escapeHtml(row.sector || 'Theme');
+      return '<details class="si-card' + (hasBreakout ? ' has-breakout' : '') + '"' + (hasBreakout && cardIndex < 4 ? ' open' : '') + '><summary>' +
+        '<div class="si-card-title">' + title + '<small>' + subtitle + '</small></div>' +
+        (hasBreakout ? '<span class="si-breakout">Breakout</span>' : '') +
+        '<div class="si-metrics"><span><small>vs market</small><b>' + (row.relativeInterest == null ? '&mdash;' : Number(row.relativeInterest).toFixed(1)) + '</b></span>' +
+          '<span class="si-' + siTone(row.change7d) + '"><small>7d</small><b>' + siPct(row.change7d) + '</b></span>' +
+          '<span class="si-' + siTone(row.change30d) + '"><small>30d</small><b>' + siPct(row.change30d) + '</b></span></div>' +
+        siSpark(row.history) + '</summary><div class="si-card-body">' +
+          '<div><h4>Top queries</h4><div class="si-queries">' + siQueryList(row.topQueries, false) + '</div></div>' +
+          '<div><h4>Rising queries</h4><div class="si-queries">' + siQueryList(row.risingQueries, true) + '</div></div>' +
+          '<p>Query: &ldquo;' + escapeHtml(row.query || '') + '&rdquo; | through ' + escapeHtml(row.asOf || '-') +
+            (row.stale ? ' | <b>carried forward</b>' : '') + '</p></div></details>';
+    }).join('');
+    var more = filtered.length > shown.length ? '<button type="button" class="si-more" data-si-more="1">Show all ' + filtered.length + ' signals</button>' : '';
+    root.innerHTML = hero + toolbar + (cards ? '<div class="si-grid">' + cards + '</div>' + more : '<p class="si-no-match">No signals match this filter.</p>');
+
+    Array.prototype.forEach.call(root.querySelectorAll('[data-si-mode]'), function(btn){
+      btn.addEventListener('click', function(){ searchInterestState.mode = btn.getAttribute('data-si-mode') || 'movers'; searchInterestState.showAll = false; renderSearchInterest(); });
+    });
+    var search = $('si-search');
+    if (search) search.addEventListener('input', function(ev){
+      searchInterestState.search = ev.target.value || ''; searchInterestState.showAll = false;
+      var pos = ev.target.selectionStart; renderSearchInterest();
+      var again = $('si-search'); if (again){ again.focus(); try { again.setSelectionRange(pos, pos); } catch (_) {} }
+    });
+    var more = root.querySelector('[data-si-more]');
+    if (more) more.addEventListener('click', function(){ searchInterestState.showAll = true; renderSearchInterest(); });
+    Array.prototype.forEach.call(root.querySelectorAll('[data-si-grade]'), function(btn){
+      btn.addEventListener('click', function(ev){ ev.preventDefault(); calGoToTicker(btn.getAttribute('data-si-grade')); });
+    });
   }
 
   // --- Commodities (Macro tab) ----------------------------------------------
