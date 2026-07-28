@@ -11908,6 +11908,7 @@
   // to picks.json's rosterMeta when a Top-Picks role holder already loaded the
   // picks tab (also covers the window before the first bake ships the file).
   var marketState = { data: null, loading: false };
+  var scenarioState = { selected: null, query: '', sector: 'all', showAll: false, basket: '' };
   function marketRegimeBaked(){
     if (marketState.data && marketState.data.macroRegime) return marketState.data.macroRegime;
     return (picksState.data && picksState.data.rosterMeta && picksState.data.rosterMeta.macroRegime) || null;
@@ -11987,8 +11988,217 @@
       if (btn) calGoToTicker(btn.getAttribute('data-market-mover-grade'));
     };
   }
+  function scenarioSigned(value, suffix){
+    if (value == null || !isFinite(value)) return '—';
+    var n = Number(value);
+    return (n > 0 ? '+' : '') + n.toFixed(1) + (suffix || '');
+  }
+  function scenarioRangeHtml(impact){
+    if (!impact) return '—';
+    return '<b class="' + (impact.mid >= 1 ? 'pos' : impact.mid <= -1 ? 'neg' : 'zero') + '">' +
+      escapeHtml(scenarioSigned(impact.low, '%') + ' to ' + scenarioSigned(impact.high, '%')) +
+      '</b><small>weighted center ' + escapeHtml(scenarioSigned(impact.mid, '%')) + '</small>';
+  }
+  function scenarioProbabilityHtml(prob){
+    if (!prob) return '—';
+    return escapeHtml(String(prob.low) + '–' + String(prob.high) + '%') +
+      '<small>mid ' + escapeHtml(String(prob.mid)) + '%</small>';
+  }
+  function scenarioFactorSummary(row){
+    var v = row && row.vector ? row.vector : {};
+    var parts = [];
+    if (v.marketBeta) parts.push('beta ' + Number(v.marketBeta.value || 0).toFixed(2));
+    if (v.rate10y && Math.abs(Number(v.rate10y.value || 0)) >= .35) {
+      parts.push('10Y ' + scenarioSigned(v.rate10y.value, '%/10bp'));
+    }
+    if (v.usd && Math.abs(Number(v.usd.value || 0)) >= .35) parts.push('USD ' + scenarioSigned(v.usd.value, 'x'));
+    if (v.aiCapex && Number(v.aiCapex.value || 0) >= .35) parts.push('AI/CapEx ' + Number(v.aiCapex.value).toFixed(2));
+    if (v.commodity && Math.abs(Number(v.commodity.value || 0)) >= .35) parts.push('commodity ' + scenarioSigned(v.commodity.value, 'x'));
+    return parts.slice(0, 3).join(' · ') || 'broad-market profile';
+  }
+  function scenarioBasketResult(engine, scenario){
+    var raw = String(scenarioState.basket || '').toUpperCase();
+    var syms = raw.split(/[\s,]+/).map(function(s){ return s.trim(); }).filter(Boolean);
+    syms = syms.filter(function(s, i){ return syms.indexOf(s) === i; }).slice(0, 20);
+    if (!syms.length) return '<p>Enter 2–20 tracked symbols for an equal-weight basket stress read.</p>';
+    var by = {};
+    (engine.sensitivities || []).forEach(function(row){ by[row.symbol] = row; });
+    var found = syms.map(function(s){ return by[s]; }).filter(Boolean);
+    var missing = syms.filter(function(s){ return !by[s]; });
+    if (!found.length) return '<p class="neg">No tracked symbols matched.</p>';
+    var vals = found.map(function(row){ return row.scenarios && row.scenarios[scenario.key]; }).filter(Boolean);
+    var avg = function(k){ return vals.reduce(function(a, x){ return a + Number(x[k] || 0); }, 0) / Math.max(1, vals.length); };
+    var tags = {};
+    found.forEach(function(row){ (row.tags || []).forEach(function(tag){ tags[tag] = (tags[tag] || 0) + 1; }); });
+    var crowd = Object.keys(tags).sort(function(a,b){ return tags[b] - tags[a]; }).slice(0, 4);
+    return '<div class="scenario-basket-result">' +
+      '<span><small>Matched</small><b>' + found.length + '/' + syms.length + '</b></span>' +
+      '<span><small>Conditional range</small><b class="' + (avg('mid') >= 1 ? 'pos' : avg('mid') <= -1 ? 'neg' : 'zero') + '">' +
+        escapeHtml(scenarioSigned(avg('low'), '%') + ' to ' + scenarioSigned(avg('high'), '%')) + '</b></span>' +
+      '<span><small>Center</small><b>' + escapeHtml(scenarioSigned(avg('mid'), '%')) + '</b></span>' +
+      '<span><small>Concentrations</small><b>' + escapeHtml(crowd.join(', ') || 'none flagged') + '</b></span>' +
+      (missing.length ? '<p>Not found: ' + escapeHtml(missing.join(', ')) + '</p>' : '') +
+      '<p>Equal-weight stress estimate only; it does not know share counts, cost basis, options, or hedges.</p>' +
+    '</div>';
+  }
+  function renderScenarioEngine(){
+    var host = document.getElementById('market-scenario-engine');
+    if (!host) return;
+    var engine = marketState.data && marketState.data.scenarioEngine;
+    if (!engine || !Array.isArray(engine.scenarios) || !engine.scenarios.length){
+      host.hidden = true;
+      host.innerHTML = '';
+      return;
+    }
+    var scenarios = engine.scenarios;
+    if (!scenarioState.selected || !scenarios.some(function(s){ return s.key === scenarioState.selected; })) {
+      scenarioState.selected = scenarios[0].key;
+    }
+    var selected = scenarios.find(function(s){ return s.key === scenarioState.selected; }) || scenarios[0];
+    var transition = engine.transition || {};
+    var probs = transition.probabilities || {};
+    var frag = transition.fragility || {};
+    var warningFlags = (transition.flags || []).filter(function(f){ return f.state === 'warning'; });
+    var axisNames = {
+      indexes:'Indexes', vix:'VIX / term', dxy:'DXY', yields:'Long yields',
+      fed:'Fed path', commodity:'Commodities', geo:'Geopolitics', inflation:'Inflation / labor',
+      sentiment:'Fear & Greed', globalTape:'Global tape', twoY:'2Y yield', bondVol:'MOVE',
+      breadth:'Breadth', putCall:'Put / call', credit:'Credit', rotation:'Rotation'
+    };
+    var velocityHtml = Object.keys(axisNames).map(function(key){
+      var v = transition.axisVelocity && transition.axisVelocity[key] ? transition.axisVelocity[key] : { score:0, d1:0, d5:0, direction:'stable' };
+      return '<span class="is-' + escapeHtml(v.direction || 'stable') + '"><small>' + escapeHtml(axisNames[key]) + '</small>' +
+        '<b>' + escapeHtml(scenarioSigned(v.score, '')) + '</b><em>1d ' + escapeHtml(scenarioSigned(v.d1, '')) + ' · 5d ' + escapeHtml(scenarioSigned(v.d5, '')) + '</em></span>';
+    }).join('');
+    var catalystHtml = (engine.catalysts || []).slice(0, 10).map(function(ev){
+      var eventTitle = String(ev.title || 'Upcoming event');
+      if (ev.symbol && eventTitle.toUpperCase().startsWith(String(ev.symbol).toUpperCase() + ' ')) {
+        eventTitle = eventTitle.slice(String(ev.symbol).length).trim();
+      }
+      return '<article class="scenario-catalyst is-i' + escapeHtml(String(ev.importance || 1)) + '">' +
+        '<header><time datetime="' + escapeHtml(ev.date || '') + '">' + escapeHtml(ev.date || '—') + '</time>' +
+        '<span>Importance ' + escapeHtml(String(ev.importance || 1)) + '/5</span></header>' +
+        '<h4>' + (ev.symbol ? '<button type="button" data-scn-grade="' + escapeHtml(ev.symbol) + '">' + escapeHtml(ev.symbol) + '</button> ' : '') +
+        escapeHtml(eventTitle) + '</h4>' +
+        '<p>' + escapeHtml((ev.window || '') + (ev.channels && ev.channels.length ? ' · ' + ev.channels.join(' / ') : '')) + '</p>' +
+        (ev.analog ? '<small><b>Analog:</b> ' + escapeHtml(ev.analog) + '</small>' : '') +
+      '</article>';
+    }).join('');
+    var tabsHtml = scenarios.map(function(s){
+      return '<button type="button" class="scenario-tab' + (s.key === selected.key ? ' active' : '') + '" data-scn-select="' + escapeHtml(s.key) + '">' +
+        '<span>' + escapeHtml(s.name) + '</span><b>' + escapeHtml(String(s.probability.low) + '–' + String(s.probability.high) + '%') + '</b>' +
+      '</button>';
+    }).join('');
+    var pathsHtml = selected.paths.map(function(path, idx){
+      return '<details class="scenario-path"' + (idx === 0 ? ' open' : '') + '>' +
+        '<summary><span><small>Path ' + (idx + 1) + '</small><b>' + escapeHtml(path.label) + '</b></span>' +
+        '<em>' + scenarioProbabilityHtml(path.probability) + '</em></summary>' +
+        '<div class="scenario-path-body"><p><b>Condition:</b> ' + escapeHtml(path.condition || '') + '</p>' +
+        '<ul>' + (path.reactions || []).map(function(x){ return '<li>' + escapeHtml(x) + '</li>'; }).join('') + '</ul>' +
+        '<div class="scenario-shocks">' +
+          Object.keys(path.shocks || {}).map(function(k){ return '<span><small>' + escapeHtml(k.replace(/([A-Z])/g, ' $1')) + '</small><b>' + escapeHtml(scenarioSigned(path.shocks[k], k.toLowerCase().includes('bps') ? ' bps' : '%')) + '</b></span>'; }).join('') +
+        '</div></div></details>';
+    }).join('');
+    var exposureHtml = function(rows, tone){
+      return (rows || []).map(function(row){
+        return '<button type="button" data-scn-grade="' + escapeHtml(row.symbol) + '"><span><b>' + escapeHtml(row.symbol) + '</b><small>' + escapeHtml(row.sector || '') + '</small></span><em class="' + tone + '">' + escapeHtml(scenarioSigned(row.impact, '%')) + '</em></button>';
+      }).join('');
+    };
+    var sectors = Array.from(new Set((engine.sensitivities || []).map(function(r){ return r.sector; }))).sort();
+    var q = String(scenarioState.query || '').toUpperCase();
+    var rows = (engine.sensitivities || []).filter(function(row){
+      var queryOk = !q || String(row.symbol || '').includes(q) || String(row.name || '').toUpperCase().includes(q) || String(row.sector || '').toUpperCase().includes(q);
+      return queryOk && (scenarioState.sector === 'all' || row.sector === scenarioState.sector);
+    });
+    rows.sort(function(a,b){
+      return Math.abs(Number(b.scenarios?.[selected.key]?.mid || 0)) - Math.abs(Number(a.scenarios?.[selected.key]?.mid || 0));
+    });
+    var shown = scenarioState.showAll ? rows : rows.slice(0, 18);
+    var sensitivityRows = shown.map(function(row){
+      var impact = row.scenarios && row.scenarios[selected.key];
+      var d = Object.assign({}, row.decision || {});
+      var impactMid = Number(impact && impact.mid || 0);
+      var impactLow = Number(impact && impact.low || 0);
+      var impactWidth = Number(impact && impact.high || 0) - impactLow;
+      d.bias = impactMid >= 2 && impactLow > -10 ? 'supportive' : (impactMid <= -2 || impactLow <= -10 ? 'adverse' : 'mixed');
+      d.timing = frag.state === 'fragile' || d.bias === 'adverse' ? 'wait-for-confirmation' : (d.bias === 'supportive' ? 'normal-trigger' : 'selective');
+      d.vehicle = impactWidth >= 16 || impactLow <= -12 ? 'defined-risk spread' : (frag.state === 'fragile' ? 'shares or defined-risk' : 'best-fit vehicle');
+      return '<button type="button" class="scenario-sens-row" data-scn-grade="' + escapeHtml(row.symbol) + '">' +
+        '<span class="scenario-sens-name"><b>' + escapeHtml(row.symbol) + '</b><small>' + escapeHtml(row.sector || '') + ' · ' + escapeHtml(row.confidence || 'profile') + '</small></span>' +
+        '<span class="scenario-sens-impact">' + scenarioRangeHtml(impact) + '</span>' +
+        '<span class="scenario-sens-factors"><b>' + escapeHtml(scenarioFactorSummary(row)) + '</b><small>' + escapeHtml((row.tags || []).join(' · ') || row.kind || '') + '</small></span>' +
+        '<span class="scenario-sens-decision"><b class="is-' + escapeHtml(d.bias || 'mixed') + '">' + escapeHtml(d.bias || 'mixed') + '</b><small>' + escapeHtml((d.timing || '') + ' · ' + (d.sizeMultiplier != null ? Math.round(d.sizeMultiplier * 100) + '% size' : '') + ' · ' + (d.vehicle || '')) + '</small></span>' +
+      '</button>';
+    }).join('');
+    host.className = 'market-scenario-engine is-' + escapeHtml(frag.state || 'stable');
+    host.innerHTML =
+      '<article class="scenario-shell">' +
+        '<header class="scenario-head"><div><span class="scenario-kicker">Forward scenario engine · 5–10 sessions</span>' +
+          '<h3>' + escapeHtml(frag.label || 'Conditional risk overlay') + '</h3>' +
+          '<p>' + escapeHtml(engine.framing || 'Conditional risk and filtering overlay - not a point forecast.') + '</p></div>' +
+          '<em>v' + escapeHtml(String(engine.version || 1)) + ' · ' + escapeHtml((engine.builtAtIso || '').slice(0, 16).replace('T', ' ')) + '</em></header>' +
+        '<div class="scenario-transition">' +
+          '<span><small>Neutral / current → risk-off</small><b class="' + (Number(probs.riskOffShiftPct) >= 55 ? 'neg' : 'zero') + '">' + escapeHtml(String(probs.riskOffShiftPct ?? '—')) + '%</b><em>next 5–10 sessions</em></span>' +
+          '<span><small>Risk-on continuation</small><b class="pos">' + escapeHtml(String(probs.riskOnContinuationPct ?? '—')) + '%</b><em>conditional estimate</em></span>' +
+          '<span><small>Risk-on exhaustion</small><b class="' + (Number(probs.riskOnExhaustionPct) >= 55 ? 'neg' : 'zero') + '">' + escapeHtml(String(probs.riskOnExhaustionPct ?? '—')) + '%</b><em>positioning + breadth</em></span>' +
+          '<span><small>Scenario gross cap</small><b>' + escapeHtml(String(Math.round(Number(engine.decision?.grossMultiplier || 1) * 100))) + '%</b><em>of regime / edge budget</em></span>' +
+        '</div>' +
+        '<div class="scenario-warnings"><header><b>Early warnings</b><span>' + warningFlags.length + '/' + (transition.flags || []).length + ' firing</span></header>' +
+          ((transition.flags || []).map(function(flag){ return '<span class="is-' + escapeHtml(flag.state || 'stable') + '"><i></i>' + escapeHtml(flag.label || '') + '</span>'; }).join('') || '<p>No leading checks available.</p>') +
+        '</div>' +
+        '<div class="scenario-axis-velocity"><header><b>16-axis velocity</b><span>score now · 1d change · 5d change</span></header>' + velocityHtml + '</div>' +
+        '<section class="scenario-section"><header><div><small>Event map</small><h4>Upcoming catalysts and transmission channels</h4></div><span>Ranked from the existing calendar</span></header>' +
+          '<div class="scenario-catalysts">' + (catalystHtml || '<p class="scenario-empty">No calendar events available in the next 30 days.</p>') + '</div></section>' +
+        '<section class="scenario-section"><header><div><small>Layered tree</small><h4>Primary driver → path → market reaction</h4></div><span>Ranges replace point targets</span></header>' +
+          '<div class="scenario-tabs" role="tablist" aria-label="Scenario drivers">' + tabsHtml + '</div>' +
+          '<article class="scenario-driver"><header><div><small>Primary macro driver</small><h4>' + escapeHtml(selected.driver) + '</h4><p>' + escapeHtml((selected.channels || []).join(' → ')) + '</p></div>' +
+            '<strong>' + scenarioProbabilityHtml(selected.probability) + '</strong></header>' +
+            '<p class="scenario-analog"><b>Historical analog:</b> ' + escapeHtml(selected.analog || 'No close analog available.') + '</p>' +
+            '<div class="scenario-paths">' + pathsHtml + '</div>' +
+            '<div class="scenario-exposures"><section><header><b>Most positively exposed</b><span>conditional center</span></header>' + exposureHtml(selected.exposure?.positive, 'pos') + '</section>' +
+            '<section><header><b>Most negatively exposed</b><span>conditional center</span></header>' + exposureHtml(selected.exposure?.negative, 'neg') + '</section></div>' +
+          '</article></section>' +
+        '<section class="scenario-section scenario-sensitivity"><header><div><small>Stock-level map</small><h4>Scenario sensitivity lab</h4></div><span>' + (engine.sensitivities || []).length + ' tracked instruments</span></header>' +
+          '<div class="scenario-controls"><label><span>Scenario</span><select id="scenario-sens-scenario">' + scenarios.map(function(s){ return '<option value="' + escapeHtml(s.key) + '"' + (s.key === selected.key ? ' selected' : '') + '>' + escapeHtml(s.name) + '</option>'; }).join('') + '</select></label>' +
+          '<label><span>Sector</span><select id="scenario-sens-sector"><option value="all">All sectors</option>' + sectors.map(function(s){ return '<option value="' + escapeHtml(s) + '"' + (s === scenarioState.sector ? ' selected' : '') + '>' + escapeHtml(s) + '</option>'; }).join('') + '</select></label>' +
+          '<label class="scenario-search"><span>Find ticker</span><input id="scenario-sens-query" value="' + escapeHtml(scenarioState.query) + '" placeholder="NVDA or Semis"></label></div>' +
+          '<div class="scenario-sens-cols" aria-hidden="true"><span>Ticker</span><span>Conditional impact</span><span>Key sensitivities</span><span>Selected-scenario overlay</span></div>' +
+          '<div class="scenario-sens-list">' + (sensitivityRows || '<p class="scenario-empty">No matching sensitivities.</p>') + '</div>' +
+          (rows.length > 18 ? '<button type="button" class="scenario-show-all" data-scn-show-all="1">' + (scenarioState.showAll ? 'Show top 18' : 'Show all ' + rows.length) + '</button>' : '') +
+          '<div class="scenario-basket"><header><div><small>Manual exposure check</small><h4>Equal-weight basket stress test</h4></div><span>No portfolio data leaves this browser</span></header>' +
+            '<div><input id="scenario-basket-input" value="' + escapeHtml(scenarioState.basket) + '" placeholder="NVDA, MSFT, VST, JPM"><button type="button" data-scn-basket="1">Run basket</button></div>' +
+            '<div id="scenario-basket-result">' + scenarioBasketResult(engine, selected) + '</div>' +
+          '</div>' +
+        '</section>' +
+        '<footer class="scenario-foot"><b>How to use it:</b> A scenario may reduce conviction, delay timing, cap size, or favor a defined-risk vehicle. It never overrides a broken ticker thesis or manufactures a trade. ' +
+          escapeHtml(engine.methodology?.impact || '') + '</footer>' +
+      '</article>';
+    host.hidden = false;
+    host.onclick = function(ev){
+      var select = ev.target && ev.target.closest ? ev.target.closest('[data-scn-select]') : null;
+      var grade = ev.target && ev.target.closest ? ev.target.closest('[data-scn-grade]') : null;
+      var show = ev.target && ev.target.closest ? ev.target.closest('[data-scn-show-all]') : null;
+      var basket = ev.target && ev.target.closest ? ev.target.closest('[data-scn-basket]') : null;
+      if (select){ scenarioState.selected = select.getAttribute('data-scn-select'); scenarioState.showAll = false; renderScenarioEngine(); return; }
+      if (grade){ calGoToTicker(grade.getAttribute('data-scn-grade')); return; }
+      if (show){ scenarioState.showAll = !scenarioState.showAll; renderScenarioEngine(); return; }
+      if (basket){
+        var input = document.getElementById('scenario-basket-input');
+        scenarioState.basket = input ? input.value : '';
+        var result = document.getElementById('scenario-basket-result');
+        if (result) result.innerHTML = scenarioBasketResult(engine, selected);
+      }
+    };
+    var scenarioSelect = document.getElementById('scenario-sens-scenario');
+    if (scenarioSelect) scenarioSelect.onchange = function(){ scenarioState.selected = scenarioSelect.value; scenarioState.showAll = false; renderScenarioEngine(); };
+    var sectorSelect = document.getElementById('scenario-sens-sector');
+    if (sectorSelect) sectorSelect.onchange = function(){ scenarioState.sector = sectorSelect.value; scenarioState.showAll = false; renderScenarioEngine(); };
+    var queryInput = document.getElementById('scenario-sens-query');
+    if (queryInput) queryInput.onkeydown = function(ev){ if (ev.key === 'Enter'){ scenarioState.query = queryInput.value; scenarioState.showAll = false; renderScenarioEngine(); } };
+  }
   function renderMarketAnalysis(){
     bindPositionTool();
+    renderScenarioEngine();
     renderPremarketMovers();
     renderMacroTape();
     if (typeof renderRegimeHistory === 'function') renderRegimeHistory();
@@ -33217,6 +33427,14 @@
     var peersHtml = pickPeerList(p);
     var analysisHtml = pickAnalysisBlock(p);
     var thesisHtml = pickThesisBlock(p);
+    var scenarioHtml = p.scenarioOverlay
+      ? '<div class="pick-scenario-overlay is-' + escapeHtml(p.scenarioOverlay.bias || 'mixed') + '">' +
+          '<span><b>Scenario filter: ' + escapeHtml(p.scenarioOverlay.bias || 'mixed') + '</b><small>' +
+            escapeHtml(scenarioSigned(p.scenarioOverlay.weightedImpactPct, '%') + ' weighted · worst ' + scenarioSigned(p.scenarioOverlay.worstCasePct, '%')) +
+          '</small></span><em>' + escapeHtml(Math.round(Number(p.scenarioOverlay.sizeMultiplier || 1) * 100) + '% size · ' + (p.scenarioOverlay.vehicle || 'best-fit vehicle')) + '</em>' +
+          '<p>' + escapeHtml(p.scenarioOverlay.note || '') + '</p>' +
+        '</div>'
+      : '';
     var rankCls = idx < 3 ? ' pick-rank-top' + (idx + 1) : '';
     var tierCls = p.recommendation && p.recommendation.tier ? ' pick-card-' + p.recommendation.tier : '';
     // The card body is split into two switchable views: "Recommendation"
@@ -33224,7 +33442,7 @@
     // (the full 4-pillar score breakdown — so you can judge how the score was
     // arrived at, right next to the call). A legacy pick with no pillar data
     // renders the recommendation directly with no tabs.
-    var recBody = tierHtml + analysisHtml + thesisHtml + contractHtml + entryHtml + exitHtml + peersHtml;
+    var recBody = tierHtml + scenarioHtml + analysisHtml + thesisHtml + contractHtml + entryHtml + exitHtml + peersHtml;
     var bodyHtml;
     if (pillarsHtml){
       // Honor the tab the user last picked for this symbol so re-opening the
@@ -33381,6 +33599,11 @@
     // the legacy prose gloss; absent entirely on keyless / pre-upgrade payloads.
     var aiSum = (p.thesisCard && p.thesisCard.ai && p.thesisCard.ai.summary) ? p.thesisCard.ai.summary : (p.thesisCard && p.thesisCard.prose ? p.thesisCard.prose : '');
     var thesisLine = aiSum ? '<span class="ptc-thesis" title="' + escapeHtml(aiSum) + '">' + escapeHtml(aiSum) + '</span>' : '';
+    var scenarioLine = p.scenarioOverlay
+      ? '<span class="ptc-scenario is-' + escapeHtml(p.scenarioOverlay.bias || 'mixed') + '" title="' + escapeHtml(p.scenarioOverlay.note || 'Conditional scenario overlay') + '">' +
+          'Scenario ' + escapeHtml(p.scenarioOverlay.bias || 'mixed') + ' · ' + escapeHtml(Math.round(Number(p.scenarioOverlay.sizeMultiplier || 1) * 100) + '% size') +
+        '</span>'
+      : '';
     return '<button type="button" class="pick-tab-card ' + sideCls + (noRec ? ' ptc-norec-card' : '') + '" data-pick-open="' + escapeHtml(p.symbol) + '">' +
       '<span class="ptc-rank">' + (idx + 1) + '</span>' +
       '<span class="ptc-head"><span class="ptc-sym">' + escapeHtml(p.symbol) + '</span>' +
@@ -33392,6 +33615,7 @@
       '</span>' +
       (tierLabel ? '<span class="ptc-tier">' + tierLabel + '</span>' : '') +
       thesisLine +
+      scenarioLine +
       entryLine +
       econ +
       (metaBits.length ? '<span class="ptc-meta">' + metaBits.join(' · ') + '</span>' : '') +

@@ -228,6 +228,53 @@ This regime:
 - is recomputed in the browser from live `/api/macro-live` legs where possible;
 - never turns a weak ticker thesis into a good one by itself.
 
+### Forward scenario and sensitivity layer
+
+`lib/scenario-engine.mjs` turns the point-in-time regime into a deterministic,
+conditional risk overlay. It is built into premium `data/market-analysis.json`
+by both the full bake and `scripts/regen-picks.mjs`; the hourly heatmap refresh
+preserves the block when it updates the same payload.
+
+The engine has four linked layers:
+
+1. **Catalyst queue.** The next 30 calendar days are ranked from the existing
+   macro, FOMC, earnings, and market-event calendar. Each catalyst carries its
+   date or window, a `1–5` importance score, transmission channels, and a
+   historical reference pattern when one is appropriate.
+2. **Transition monitor.** Current levels are compared with regime and macro
+   history to measure all 16 regime axes plus six leading checks: curve speed,
+   VIX term structure, credit, breadth/index divergence, combined dollar and
+   commodity pressure, and sentiment/positioning extremes. The output is a
+   five-to-ten-session risk-off shift probability, risk-on continuation versus
+   exhaustion, a fragility warning, and a gross-exposure cap.
+3. **Layered scenarios.** The weekly set rotates among orderly disinflation,
+   sticky inflation, growth scare, geopolitical shock, AI CapEx
+   acceleration/slowdown, and a liquidity melt-up. The five most relevant
+   drivers are normalized to 100% total probability. Every driver has stress,
+   base, and optimistic paths with probability ranges, explicit trigger
+   conditions, two possible market reactions, factor-shock ranges, transmission
+   channels, and a historical reference pattern. These ranges deliberately
+   avoid single-point return forecasts.
+4. **Sensitivity map.** Every covered ticker receives empirical market,
+   10Y/2Y-rate, dollar, and oil sensitivities where history is sufficient,
+   combined with sector/business-profile growth, defensive, USD, commodity,
+   AI/CapEx, geopolitical, volatility, and Event Spillover exposures. Scenario
+   shocks multiplied by those sensitivities produce a conditional impact range,
+   factor attribution, positive/negative leader lists, and a decision overlay
+   for conviction, timing, size, and vehicle.
+
+Top Picks consumes the decision overlay twice: the global transition cap reduces
+gross exposure, while each ticker's scenario multiplier redistributes weight
+away from concentrated downside. Neither layer can increase the pre-existing
+regime/edge budget. The Market Analysis UI also provides an equal-weight manual
+basket stress test. It does not revive or read the dormant portfolio stack, so
+the product does not claim to know a member's actual portfolio.
+
+This layer is a filter, not a forecast. Its probabilities are transparent
+model-assisted weights, historical analogs are reference patterns rather than
+promises of repetition, and every stock impact remains conditional on the
+displayed path and trigger.
+
 ### Premarket leader/laggard conviction check
 
 The 09:00 ET market-hours workflow freezes two equal-weight baskets from the

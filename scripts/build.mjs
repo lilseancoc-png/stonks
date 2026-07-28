@@ -23,6 +23,7 @@ import { renderPriceChartPng } from "../lib/chart-image.mjs";
 import { buildNewsFeedPayload } from "../lib/news-feed.mjs";
 import { issuerCreditRatingFor } from "../lib/issuer-credit-ratings.mjs";
 import { fetchFinraMarketStructure, attachShortInterestToChains } from "../lib/market-structure.mjs";
+import { buildScenarioEngine, scenarioOverlayForSymbol } from "../lib/scenario-engine.mjs";
 
 // Library prints a survey notice on first use and validates response
 // schemas — silence both since Yahoo occasionally omits optional fields
@@ -8259,7 +8260,7 @@ export async function writeCalendarFile(chains, macroHeadlines, builtAtIso, extr
   }
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, CALENDAR_FILE), json, "utf8");
-  return { bytes: json.length, count: payload.events.length };
+  return { bytes: json.length, count: payload.events.length, payload };
 }
 
 // === 13F filings summary (built each run) ============================
@@ -17146,7 +17147,11 @@ function applyPickSizing(picks, regimeGross = 1) {
     // still a wait/dip trigger sizes down (PICKS_ENTRY_WAIT_SIZE_MULT) — entry
     // quality no longer gates enrollment, so it's priced into size instead.
     const waitMult = (p.entry && p.entry.now === false) ? PICKS_ENTRY_WAIT_SIZE_MULT : 1;
-    const tilt = clamp(Math.abs(p.total) / PICKS_TIER_STRONG, PICKS_SIZE_TILT_MIN, PICKS_SIZE_TILT_MAX) * waitMult;
+    // Scenario sensitivity is a relative risk tilt inside the already-capped
+    // gross book. It cannot create exposure: 0.5..1 only, and the weights are
+    // normalized after the haircut so safer names receive the freed allocation.
+    const scenarioMult = clamp(p.scenarioOverlay?.sizeMultiplier ?? 1, 0.5, 1);
+    const tilt = clamp(Math.abs(p.total) / PICKS_TIER_STRONG, PICKS_SIZE_TILT_MIN, PICKS_SIZE_TILT_MAX) * waitMult * scenarioMult;
     // No-contract WATCH ideas (weak-thesis "no recommendation") carry no position,
     // so they consume no gross — give them zero raw weight.
     raw.push(c ? (1 / risk) * tilt : 0);
@@ -17403,7 +17408,16 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   // only the fallback when no macro regime rode in; previously the display and
   // the applied sizing were two different formulas.
   const regimeGross = pnum(macroBackdrop?.macroRegime?.grossMult) ?? regimeGrossMult(regime);
-  applyPickSizing(finalPicks, edgeScale * regimeGross);
+  // The forward scenario layer is a filter, not another alpha score. It cannot
+  // promote a weak name or flip a side; it can only cap gross exposure while
+  // its per-name timing/vehicle context travels with the pick.
+  const scenarioGross = clamp(pnum(macroBackdrop?.scenarioEngine?.decision?.grossMultiplier) ?? 1, 0.5, 1);
+  for (const pick of finalPicks) {
+    const overlay = scenarioOverlayForSymbol(macroBackdrop?.scenarioEngine, pick.symbol);
+    if (overlay) pick.scenarioOverlay = overlay;
+  }
+  applyPickSizing(finalPicks, edgeScale * regimeGross * scenarioGross);
+  meta.scenarioGrossMult = scenarioGross;
   meta.book = computeBookRisk(finalPicks);
   meta.deployedGross = r2(finalPicks.reduce((a, p) => a + (p.sizing?.weight || 0), 0));
 
@@ -30622,8 +30636,10 @@ async function main() {
   // map + forward-validation log. Deep half (5y bars + regressions) recomputes
   // once per ET day; the upcoming-events translation + log refresh every bake.
   // Non-fatal: a Yahoo miss carries the prior matrix forward stale-marked.
+  let scenarioSpilloverMatrix = priorSpillover || null;
   try {
     const { matrix, log } = await buildSpilloverArtifacts(chains, earningsHxStore, priorSpillover, builtAtIso);
+    scenarioSpilloverMatrix = matrix;
     const spillInfo = await writeSpilloverFiles(matrix, log);
     console.log(`wrote data/${SPILLOVER_FILE} + ${SPILLOVER_LOG_FILE} — ${spillInfo.pairCount} pairs, ${spillInfo.upcoming} upcoming, ${spillInfo.resolved} resolved forward events, ${spillInfo.bytes} bytes${matrix.stale ? " [stale — kept last-good]" : ""}`);
   } catch (err) {
@@ -30903,6 +30919,41 @@ async function main() {
     priorCalendar,
   });
   console.log(`wrote data/calendar.json — ${calendarInfo.count} events (through ${new Date(cutoffMs).toISOString().slice(0, 10)}), ${calendarInfo.bytes} bytes`);
+  // Forward scenario layer: consumes only evidence already fetched by this
+  // bake. It is deterministic and non-fatal. Attach it to macroBackdrop before
+  // Top Picks so it may cap gross sizing (never promote or flip a thesis), and
+  // later publish the full tree/sensitivity map in market-analysis.json.
+  let scenarioEngine = null;
+  try {
+    const scenarioRegimeHistory = appendRegimeHistory(
+      regimeHistoryPrev,
+      macroBackdrop?.macroRegime || null,
+      null,
+      builtAtIso,
+    );
+    scenarioEngine = buildScenarioEngine({
+      builtAtIso,
+      asOfDate: etDateKey(),
+      chains,
+      macroBackdrop,
+      macroRegime: macroBackdrop?.macroRegime || null,
+      regimeHistory: scenarioRegimeHistory,
+      macroHistory: macroHistoryNext,
+      calendar: calendarInfo.payload,
+      sectors: SECTORS,
+      kindOf: macroKindOf,
+      profiles: MACRO_PROFILES,
+      spilloverMatrix: scenarioSpilloverMatrix,
+    });
+    if (macroBackdrop) macroBackdrop.scenarioEngine = scenarioEngine;
+    console.log(
+      `scenario layer: ${scenarioEngine.scenarios.length} drivers, ` +
+      `${scenarioEngine.sensitivities.length} ticker sensitivities, ` +
+      `${scenarioEngine.catalysts.length} catalysts, gross cap ${scenarioEngine.decision.grossMultiplier}x`,
+    );
+  } catch (err) {
+    console.warn(`[scenario] engine skipped - ${String(err?.message || err).split("\n")[0]}`);
+  }
   // Top picks: rank tickers by fused signal score and write data/picks.json.
   // Uses chains[sym]._bars which is still attached in memory (writeChainFiles
   // destructured it out of the serialized payload but never deleted it).
@@ -31043,6 +31094,7 @@ async function main() {
         ? priorMarketAnalysis?.refreshedAtIso || builtAtIso
         : builtAtIso,
       macroRegime: macroBackdrop?.macroRegime || null,
+      scenarioEngine,
       ...(priorPremarketMovers ? { premarketMovers: priorPremarketMovers } : {}),
     });
     await writeFile(resolve(DATA_DIR, "market-analysis.json"), maJson, "utf8");

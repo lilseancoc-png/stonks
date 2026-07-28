@@ -20,6 +20,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
        (same format, plus the archive preamble) and add that month to the
        "Older changelogs" index below. -->
 
+## 2026-07-28
+
+### Added
+
+- **Market Analysis gains a forward scenario and stock-sensitivity engine.** The premium regime desk now ranks the next 30 days of calendar catalysts, measures five-to-ten-session transition risk across all 16 axes and six early-warning checks, and presents five rotating macro drivers as stress/base/optimistic trees with probability ranges, trigger conditions, second-order reactions, factor shocks, and historical reference patterns. A universe-wide sensitivity map combines empirical rate, dollar, oil, and market betas with business-profile, AI/CapEx, geopolitical, volatility, and Event Spillover exposures to show conditional stock/sector ranges and translate them into conviction, timing, size, and vehicle guidance. Top Picks applies the same layer as a one-way risk reducer, and Market Analysis includes an equal-weight manual basket stress test without reconnecting the dormant portfolio stack. `lib/scenario-engine.mjs`, `scripts/{build,regen-picks,verify-scenario-engine}.mjs`, `scripts/render/{html,app-js,styles-css}.mjs`, `docs/site-logic.md`.
+
 ## 2026-07-26
 
 ### Fixed

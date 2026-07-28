@@ -4,7 +4,8 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks, buildSectorRotationRebounds, writeSectorRotationFile, SECTOR_ROTATION_FILE, readPriorSectorRotationLog, sectorRotationRecordFromLog, buildLeveragedEtfPicks, writeLeveragedEtfsFile, LEVERAGED_ETFS_FILE, readPriorLevEtfLog, levRecordFromLog } from "./build.mjs";
+import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks, buildSectorRotationRebounds, writeSectorRotationFile, SECTOR_ROTATION_FILE, readPriorSectorRotationLog, sectorRotationRecordFromLog, buildLeveragedEtfPicks, writeLeveragedEtfsFile, LEVERAGED_ETFS_FILE, readPriorLevEtfLog, levRecordFromLog, SECTORS, macroKindOf, MACRO_PROFILES } from "./build.mjs";
+import { buildScenarioEngine } from "../lib/scenario-engine.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -177,6 +178,35 @@ try {
 } catch { /* no rfr-history.json yet — keep the 4.5% fallback */ }
 
 const builtAtIso = new Date().toISOString();
+let scenarioEngine = null;
+if (macroBackdrop?.macroRegime) {
+  const readOptional = async (name) => {
+    try { return JSON.parse(await readFile(resolve(DATA_DIR, name), "utf8")); }
+    catch { return null; }
+  };
+  try {
+    scenarioEngine = buildScenarioEngine({
+      builtAtIso,
+      asOfDate: new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+      }).format(new Date()),
+      chains,
+      macroBackdrop,
+      macroRegime: macroBackdrop.macroRegime,
+      regimeHistory: await readOptional("regime-history.json"),
+      macroHistory: await readOptional("macro-history.json"),
+      calendar: await readOptional("calendar.json"),
+      sectors: SECTORS,
+      kindOf: macroKindOf,
+      profiles: MACRO_PROFILES,
+      spilloverMatrix: await readOptional("spillover-pairs.json"),
+    });
+    macroBackdrop.scenarioEngine = scenarioEngine;
+    console.log(`Scenario layer: ${scenarioEngine.scenarios.length} drivers, ${scenarioEngine.sensitivities.length} ticker sensitivities.`);
+  } catch (err) {
+    console.warn(`Scenario layer skipped - ${String(err?.message || err).split("\n")[0]}`);
+  }
+}
 const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, riskFreeRate, { priorClosed, priorGrades, openPositions: priorOpen, builtAtIso, reentryCooldown: true, ...scannerExtras });
 
 // Preserve the day-streak across a render-only regen. priorPicks was read above
@@ -211,9 +241,23 @@ await writeFile(
 // rosterMeta, split into its own premium-but-NOT-role-restricted key so the
 // Market analysis tab works for every premium member (picks.json itself is
 // role-restricted to the Top Picks role). Mirrors build.mjs::main().
+let priorMarketAnalysis = null;
+try { priorMarketAnalysis = JSON.parse(await readFile(resolve(DATA_DIR, "market-analysis.json"), "utf8")); } catch {}
+const todayEt = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+}).format(new Date());
+const priorPremarketMovers = priorMarketAnalysis?.premarketMovers?.date === todayEt
+  ? priorMarketAnalysis.premarketMovers
+  : null;
 await writeFile(
   resolve(DATA_DIR, "market-analysis.json"),
-  JSON.stringify({ builtAtIso, macroRegime: macroBackdrop?.macroRegime || null }),
+  JSON.stringify({
+    builtAtIso,
+    refreshedAtIso: priorPremarketMovers ? priorMarketAnalysis?.refreshedAtIso || builtAtIso : builtAtIso,
+    macroRegime: macroBackdrop?.macroRegime || null,
+    scenarioEngine,
+    ...(priorPremarketMovers ? { premarketMovers: priorPremarketMovers } : {}),
+  }),
   "utf8",
 );
 

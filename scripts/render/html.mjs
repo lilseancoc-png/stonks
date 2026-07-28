@@ -223,9 +223,10 @@ function marketAnalysisSection() {
       <h2 class="card-title">Market analysis</h2>
       <span class="card-eyebrow" id="market-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">The cross-asset risk read that sets the engine&rsquo;s posture &mdash; the live market tape, a frozen premarket leader/laggard follow-through check, the risk-on / risk-off barometer, and daily regime history &mdash; plus a grade lookup for any tracked ticker and a checker for a position you already hold.</p>
+    <p class="hint">The cross-asset risk read that sets the engine&rsquo;s posture &mdash; the live market tape, a conditional 5&ndash;10-session scenario and sensitivity layer, a frozen premarket leader/laggard follow-through check, the risk-on / risk-off barometer, and daily regime history &mdash; plus a grade lookup for any tracked ticker and a checker for a position you already hold.</p>
     <div id="market-regime-strip" class="picks-summary"><span id="picks-regime-chip" class="picks-regime-slot"></span></div>
     <div id="market-action" class="market-action" hidden aria-live="polite"></div>
+    <div id="market-scenario-engine" class="market-scenario-engine" hidden aria-live="polite"></div>
     <div id="market-premarket-movers" class="market-movers" hidden aria-live="polite"></div>
     <div id="picks-regime-drift" class="picks-regime-drift" hidden aria-live="polite"></div>
     <div id="picks-tape" class="picks-tape" hidden></div>
