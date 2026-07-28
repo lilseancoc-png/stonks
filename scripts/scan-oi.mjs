@@ -108,6 +108,17 @@ const GAMMA_FLAG_MIN = 4;
 // missed dispatch.
 const HISTORY_FILE = "oi-history.json";
 const HISTORY_MAX_SNAPSHOTS = 4;
+const MARKET_STRUCTURE_FILE = "market-structure.json";
+
+async function loadMarketStructure() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, MARKET_STRUCTURE_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed?.bySymbol && typeof parsed.bySymbol === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
 
 // Politeness between Yahoo expiration fetches per ticker. Same delay
 // scan-unusual.mjs uses.
@@ -579,6 +590,7 @@ async function main() {
 
   const unusual = await loadUnusualForFlow(todayKey);
   const askCallFlow = buildAskCallFlowLookup(unusual);
+  const marketStructure = await loadMarketStructure();
 
   // OI_SCAN_LIMIT env var caps the universe to the first N tickers —
   // useful for local smoke tests and CI dry runs without hitting Yahoo
@@ -674,6 +686,10 @@ async function main() {
         score,
         flagged,
         reasons,
+        // FINRA short interest is a delayed secondary squeeze context. It is
+        // intentionally excluded from the 0–5 gamma score, whose five rules
+        // remain purely near-term options-positioning evidence.
+        shortInterest: marketStructure?.bySymbol?.[symbol]?.shortInterest || null,
         strikes: topStrikes,
       });
 

@@ -120,6 +120,7 @@ const EXCLUDE_FROM_SCAN = new Set([]);
 const VOLUME_FLAGS_FILE = "volume-flags.json";
 const VOLUME_HISTORY_FILE = "volume-history.json";
 const VOLUME_HISTORY_MAX_SNAPSHOTS = 10;
+const MARKET_STRUCTURE_FILE = "market-structure.json";
 
 const yahooFinance = new YahooFinance({
   suppressNotices: ["yahooSurvey"],
@@ -282,6 +283,16 @@ async function loadPriorUnusual() {
     const parsed = JSON.parse(raw);
     if (parsed && Array.isArray(parsed.tickers)) return parsed;
     return null;
+  } catch {
+    return null;
+  }
+}
+
+async function loadMarketStructure() {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, MARKET_STRUCTURE_FILE), "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed?.bySymbol && typeof parsed.bySymbol === "object" ? parsed : null;
   } catch {
     return null;
   }
@@ -1459,6 +1470,14 @@ async function main() {
       t.gex = await loadTickerGex(t.symbol, t.spot);
     }),
   );
+  // Delayed FINRA ATS context is a secondary signal only. It does not alter
+  // unusual-contract discovery, direction, or the actionable queue score.
+  const marketStructure = await loadMarketStructure();
+  if (marketStructure) {
+    for (const t of mergedTickers) {
+      t.ats = marketStructure.bySymbol?.[t.symbol]?.ats || null;
+    }
+  }
 
   const contractCount = mergedTickers.reduce((sum, t) => sum + t.contracts.length, 0);
   const hottestDelta = mergedTickers[0]?.topDelta ?? 0;

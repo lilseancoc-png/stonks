@@ -5577,7 +5577,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var f = state.fundamentals;
     if (!f){ box.hidden = true; return; }
     var hasJudgment = f.judgment && (f.judgment.positives && f.judgment.positives.length || f.judgment.negatives && f.judgment.negatives.length || f.judgment.summary);
-    var hasMetrics = (f.trailingPE != null || f.forwardPE != null || f.marketCap != null || f.profitMargin != null || f.revenueGrowthYoy != null || f.totalDebt != null || f.creditRating || f.lastQuarter || f.nextEarningsDate);
+    var hasMetrics = (f.trailingPE != null || f.forwardPE != null || f.marketCap != null || f.profitMargin != null || f.revenueGrowthYoy != null || f.totalDebt != null || f.creditRating || f.lastQuarter || f.nextEarningsDate || f.shortInterest);
     if (!hasJudgment && !hasMetrics){ box.hidden = true; return; }
 
     var verdictEl = $('opt-fund-verdict');
@@ -5689,9 +5689,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var recTone = /buy|outperform/i.test(f.recommendationKey) ? 'pos' : /sell|underperform/i.test(f.recommendationKey) ? 'neg' : null;
       metrics += fundMetric('Consensus', recPretty + (f.numberOfAnalystOpinions ? ' <span class="opt-fund-metric-sub">' + f.numberOfAnalystOpinions + ' analysts</span>' : ''), recTone);
     }
-    // Short interest from Yahoo's twice-monthly settlement print. Tone the
-    // % of float so > 10% reads as the kind of crowded short setup that
-    // tends to whipsaw on positive news.
+    // FINRA's twice-monthly consolidated short-interest print is authoritative
+    // when present. Legacy Yahoo fields remain a graceful fallback for payloads
+    // built before the FINRA pipeline landed.
     var fmtShares = function(n){
       if (n == null || !isFinite(n)) return null;
       var a = Math.abs(n);
@@ -5700,24 +5700,36 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (a >= 1e3) return (n/1e3).toFixed(1) + 'K';
       return String(Math.round(n));
     };
-    if (f.shortPercentOfFloat != null){
-      var sf = f.shortPercentOfFloat;
+    var finraSi = f.shortInterest || null;
+    var shortPctFloat = finraSi && finraSi.percentFloat != null ? Number(finraSi.percentFloat) : f.shortPercentOfFloat;
+    var shortShares = finraSi && finraSi.sharesShort != null ? Number(finraSi.sharesShort) : f.sharesShort;
+    var shortAsOf = finraSi && finraSi.settlementDate ? finraSi.settlementDate : f.dateShortInterest;
+    if (shortPctFloat != null){
+      var sf = shortPctFloat;
       var sfTone = sf > 10 ? 'warn' : sf > 5 ? 'neg' : null;
       var sfVal = sf.toFixed(2) + '%';
-      var shCount = fmtShares(f.sharesShort);
+      var shCount = fmtShares(shortShares);
       if (shCount) sfVal += ' <span class="opt-fund-metric-sub">' + shCount + ' sh</span>';
-      var sfLabel = 'Short interest' + (f.dateShortInterest ? ' · ' + f.dateShortInterest : '');
+      var sfLabel = 'Short interest' + (shortAsOf ? ' · ' + shortAsOf : '');
       metrics += fundMetric(sfLabel, sfVal, sfTone);
-    } else if (f.sharesShort != null){
-      var shCountOnly = fmtShares(f.sharesShort);
-      var sfLabel2 = 'Short interest' + (f.dateShortInterest ? ' · ' + f.dateShortInterest : '');
+    } else if (shortShares != null){
+      var shCountOnly = fmtShares(shortShares);
+      var sfLabel2 = 'Short interest' + (shortAsOf ? ' · ' + shortAsOf : '');
       if (shCountOnly) metrics += fundMetric(sfLabel2, shCountOnly + ' sh');
     }
-    if (f.shortRatio != null){
-      // shortRatio = days-to-cover at avg daily volume. > 5 days is
-      // historically "hard to cover quickly" territory.
-      var srTone = f.shortRatio > 5 ? 'warn' : null;
-      metrics += fundMetric('Days to cover', f.shortRatio.toFixed(1) + 'd', srTone);
+    var daysToCover = finraSi && finraSi.daysToCover != null ? Number(finraSi.daysToCover) : f.shortRatio;
+    if (daysToCover != null){
+      var srTone = daysToCover > 5 ? 'warn' : null;
+      metrics += fundMetric('Days to cover', daysToCover.toFixed(2) + 'd' +
+        (finraSi ? ' <span class="opt-fund-metric-sub">FINRA reported cycle</span>' : ''), srTone);
+    }
+    if (finraSi && finraSi.changePct != null){
+      var shortChange = Number(finraSi.changePct);
+      var shortChangeTone = shortChange >= 5 ? 'neg' : shortChange <= -5 ? 'pos' : null;
+      metrics += fundMetric('Short interest vs prior',
+        (shortChange >= 0 ? '+' : '') + shortChange.toFixed(2) + '%' +
+        (finraSi.changeShares != null ? ' <span class="opt-fund-metric-sub">' + (finraSi.changeShares >= 0 ? '+' : '') + fmtShares(finraSi.changeShares) + ' sh</span>' : ''),
+        shortChangeTone);
     }
     metricsEl.innerHTML = metrics;
     renderEarningsHistory();
@@ -8000,6 +8012,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         totalPremium: totalPremium,
         totalDeltaPremium: totalDeltaPremium,
         topRepeat: topRepeat,
+        gex: t.gex || null,
+        ats: t.ats || null,
       });
     });
     if (flowState.sort === 'delta'){
@@ -8045,6 +8059,19 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       metric('Flip', fmtOiStrike(g.flip), '', flipSub) +
       metric('Call wall', g.callWall ? fmtOiStrike(g.callWall.strike) : '—', 'is-pos', '') +
       metric('Put wall', g.putWall ? fmtOiStrike(g.putWall.strike) : '—', 'is-neg', '') +
+    '</div>';
+  }
+  function atsStripHtml(t){
+    var a = t && t.ats;
+    if (!a || a.atsVolume == null) return '';
+    var pct = a.darkPoolPct != null && isFinite(Number(a.darkPoolPct)) ? Number(a.darkPoolPct) : null;
+    var wow = a.wowChangePp != null && isFinite(Number(a.wowChangePp)) ? Number(a.wowChangePp) : null;
+    var wowCls = wow == null || Math.abs(wow) < 0.5 ? '' : wow > 0 ? ' is-pos' : ' is-neg';
+    var lag = a.delayWeeks ? a.delayWeeks + 'wk delayed' : 'delayed';
+    return '<div class="flow-ats" title="FINRA ATS weekly volume is delayed market-structure context, not live order flow">' +
+      '<span class="flow-ats-tag">ATS context</span>' +
+      '<span class="flow-ats-metric"><b>' + (pct == null ? 'share n/a' : pct.toFixed(1) + '% of total volume') + '</b><small>week of ' + escapeHtml(a.weekStartDate || '—') + '</small></span>' +
+      '<span class="flow-ats-metric' + wowCls + '"><b>' + (wow == null ? 'WoW n/a' : (wow >= 0 ? '+' : '') + wow.toFixed(1) + ' pp WoW') + '</b><small>' + escapeHtml(lag) + ' · context only</small></span>' +
     '</div>';
   }
   // Directional summary bar for the whole (filtered) flagged set: call vs put
@@ -8382,7 +8409,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<div><span>Persistence</span><b>' + stats.repeats + ' repeat' + (stats.repeats === 1 ? '' : 's') + '</b><small>' + stats.near + ' near-term · ' + stats.contracts + ' actionable / ' + top.rawContracts + ' visible</small></div>' +
         '</div>' +
         '<p class="flow-decision-context"><b>' + escapeHtml(top.symbol) + ' evidence:</b> top print ' + escapeHtml(fmtDelta(top.topDelta)) + '/hr · ' +
-          escapeHtml(voiText) + '. ' + escapeHtml(flowGexContext(top)) + '</p>' +
+          escapeHtml(voiText) + '. ' + escapeHtml(flowGexContext(top)) +
+          (top.ticker && top.ticker.ats && top.ticker.ats.darkPoolPct != null
+            ? ' FINRA ATS was ' + escapeHtml(Number(top.ticker.ats.darkPoolPct).toFixed(1)) + '% of matching weekly volume' +
+              (top.ticker.ats.wowChangePp != null ? ' (' + escapeHtml((Number(top.ticker.ats.wowChangePp) >= 0 ? '+' : '') + Number(top.ticker.ats.wowChangePp).toFixed(1)) + ' pp WoW)' : '') +
+              '; delayed context only.'
+            : '') + '</p>' +
         '<div class="flow-decision-actions">' +
           '<button type="button" class="flow-decision-action is-primary" data-flow-focus="' + escapeHtml(top.symbol) + '">Focus ' + escapeHtml(top.symbol) + '</button>' +
           '<a class="flow-decision-action" data-flow-grade="' + escapeHtml(top.symbol) + '" href="' + symGradeHref(top.symbol) + '">Open Grade</a>' +
@@ -8527,6 +8559,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<span class="flow-top">Top · ' + fmtDelta(t.topDelta) + '/hr</span>' +
         '</button>' +
         gexStripHtml(t) +
+        atsStripHtml(t) +
         '<div class="' + contractsCls + '"' + (collapsed ? ' hidden' : '') + '>' +
           t.contracts.map(function(c){ return flowContractHtml(c, t.symbol); }).join('') +
         '</div>' +
@@ -12892,6 +12925,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       topDelta: topDelta,
       new30: new30,
       new100: new100,
+      shortInterest: t.shortInterest || null,
       rank: rank,
     };
   }
@@ -13003,6 +13037,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       ? stats.new100 + ' doubled · top ' + deltaText
       : 'wall size only · no day-over-day read';
     var filterNote = filtered ? ' · current filters' : '';
+    var shortRead = top.shortInterest;
+    var shortValue = shortRead && shortRead.percentFloat != null
+      ? Number(shortRead.percentFloat).toFixed(1) + '% float'
+      : 'Not reported';
+    var shortSub = shortRead
+      ? (shortRead.daysToCover != null ? Number(shortRead.daysToCover).toFixed(2) + 'd cover' : 'cover n/a') +
+        (shortRead.changePct != null ? ' · ' + (Number(shortRead.changePct) >= 0 ? '+' : '') + Number(shortRead.changePct).toFixed(1) + '% vs prior' : '') +
+        (shortRead.settlementDate ? ' · ' + shortRead.settlementDate : '')
+      : 'FINRA twice-monthly context unavailable';
     host.className = 'flow-decision oi-decision flow-decision-' + tone;
     host.innerHTML =
       '<div class="flow-decision-main">' +
@@ -13021,6 +13064,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<div><span>Call wall</span><b>' + escapeHtml(callWallText) + '</b><small>' + escapeHtml(wallDistance) + '</small></div>' +
           '<div><span>Call-wall Vol/OI</span><b>' + escapeHtml(volOiText) + '</b><small>C/P ' + escapeHtml(cpText) + '</small></div>' +
           '<div><span>ΔOI coverage</span><b>' + escapeHtml(freshOiValue) + '</b><small>' + escapeHtml(freshOiSub) + '</small></div>' +
+          '<div><span>Short interest</span><b>' + escapeHtml(shortValue) + '</b><small>' + escapeHtml(shortSub) + ' · secondary context</small></div>' +
         '</div>' +
         '<p class="flow-decision-context"><b>Desk breadth:</b> ' + stats.flagged + ' flagged · ' + stats.watch + ' score-3 watches · ' +
           stats.callHeavy + ' call-heavy · ' + stats.putHeavy + ' put-heavy.</p>' +
@@ -13148,6 +13192,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var cpHtml = t.cpRatio != null
       ? '<span class="oi-cp" title="Total call OI ÷ total put OI across the short-dated chain">C/P ' + Number(t.cpRatio).toFixed(2) + ':1</span>'
       : '';
+    var si = t.shortInterest || null;
+    var siHtml = si && si.percentFloat != null
+      ? '<span class="oi-short" title="FINRA twice-monthly short interest; secondary squeeze context, not part of the 0–5 gamma score">Short ' +
+        Number(si.percentFloat).toFixed(1) + '% float' +
+        (si.daysToCover != null ? ' · ' + Number(si.daysToCover).toFixed(1) + 'd cover' : '') +
+        (si.changePct != null ? ' · ' + (Number(si.changePct) >= 0 ? '+' : '') + Number(si.changePct).toFixed(1) + '% prior' : '') +
+        '</span>'
+      : '';
     // Split top-12 strikes into calls and puts, then sort each side by
     // absolute distance from spot (closest first, extending outwards).
     // Falls back to raw |strike - spot| when fromSpotPct is missing so a
@@ -13180,7 +13232,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         'Score ' + score + '/5' +
         (t.flagged ? ' · ⚠' : '') +
       '</span>';
-    var summaryBits = [cwHtml, pwHtml, cpHtml].filter(Boolean).join('');
+    var summaryBits = [cwHtml, pwHtml, cpHtml, siHtml].filter(Boolean).join('');
     return '<article class="oi-row ' + tier + (collapsed ? ' is-collapsed' : '') + (t.flagged ? ' is-flagged' : '') + '" role="listitem" data-symbol="' + escapeHtml(t.symbol) + '">' +
       '<button type="button" class="oi-row-head" aria-expanded="' + (!collapsed) + '" data-oi-toggle="' + escapeHtml(t.symbol) + '">' +
         '<svg class="oi-row-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>' +
@@ -25585,6 +25637,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   };
   function tickerOrFallback(row){
     if (row && row.ticker) return row.ticker;
+    if (row && row.symbol) return row.symbol;
     if (row && row.cusip && F13_CUSIP_FALLBACK[row.cusip]) return F13_CUSIP_FALLBACK[row.cusip];
     return '—';
   }
@@ -25809,6 +25862,54 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           f13DeskSide(d.overallTopSold, 'sell', 'Largest negative Δ') +
         '</div>' +
         '<p class="f13-lag-note"><strong>Lag check:</strong> 13F positions are delayed snapshots, not live flows.' + lagAge + ' Treat consensus as research context, then confirm the current chart, catalyst, and valuation.</p>' +
+      '</section>';
+    }
+    // === Form 4 insider tape =============================================
+    // Kept visibly separate from quarterly 13F ownership. P/S open-market
+    // transactions are the decision-first rows; grants/exercises/withholding
+    // remain available in the disclosure table with their transaction codes.
+    var f4 = d.insiderTransactions;
+    if (f4 && Array.isArray(f4.transactions) && f4.transactions.length){
+      function form4Role(row){
+        var roles = Array.isArray(row.roles) ? row.roles.filter(Boolean) : [];
+        return roles.join(' · ') || row.officerTitle || 'Reporting insider';
+      }
+      function form4Row(row, side){
+        var value = row.value != null ? fmtBigDollarsF13(row.value) : 'value not reported';
+        var price = row.price != null ? '$' + Number(row.price).toFixed(2) + '/sh' : 'price not reported';
+        return '<article class="f4-row f4-' + side + '">' +
+          '<div class="f4-row-top"><span class="f4-symbol">' + f13TickerHtml(row) + '</span><b>' + escapeHtml(row.ownerName || 'Reporting insider') + '</b><time>' + escapeHtml(row.transactionDate || row.filingDate || '') + '</time></div>' +
+          '<div class="f4-row-metrics"><strong>' + escapeHtml(fmtSharesF13(row.shares)) + ' shares</strong><span>' + escapeHtml(price) + '</span><span>' + escapeHtml(value) + '</span></div>' +
+          '<small>' + escapeHtml(form4Role(row)) + ' · SEC code ' + escapeHtml(row.code || '—') + (row.form === '4/A' ? ' · amended' : '') + '</small>' +
+        '</article>';
+      }
+      function form4Side(rows, side, title){
+        rows = Array.isArray(rows) ? rows.slice(0, 5) : [];
+        return '<div class="f4-side f4-side-' + side + '"><header><span>' + escapeHtml(title) + '</span><small>open-market only</small></header>' +
+          (rows.length ? rows.map(function(row){ return form4Row(row, side); }).join('') : '<p class="f4-none">No code ' + (side === 'buy' ? 'P purchases' : 'S sales') + ' in the current lookback.</p>') +
+        '</div>';
+      }
+      var marketRows = f4.transactions.filter(function(row){ return row && row.openMarket; });
+      var otherRows = f4.transactions.filter(function(row){ return row && !row.openMarket; });
+      html += '<section class="f4-desk" aria-label="Form 4 insider transactions">' +
+        '<div class="f4-head"><div><span class="f13-kicker">Form 4 insider tape</span><h3>What insiders actually reported</h3><p>Open-market purchases and sales are separated from grants, exercises, gifts, and tax withholding. A filing is evidence of the transaction—not proof of the insider&rsquo;s motive.</p></div>' +
+          '<span class="f13-coverage"><b>' + Number(f4.openMarketCount || marketRows.length) + '</b><small>open-market rows</small></span></div>' +
+        '<div class="f13-desk-source"><span><b>SEC EDGAR · ' + Number(f4.lookbackDays || 60) + '-day lookback</b> · ' + Number(f4.transactionCount || f4.transactions.length) + ' total non-derivative transactions</span><small>latest up to ' + Number(f4.filingsPerIssuerCap || 2) + ' filings / issuer · usually filed within two business days</small></div>' +
+        '<div class="f4-grid">' +
+          form4Side(f4.topPurchases, 'buy', 'Open-market purchases') +
+          form4Side(f4.topSales, 'sell', 'Open-market sales') +
+        '</div>' +
+        '<div class="f13-rules"><div><span>Higher-quality signal</span><b>Repeated code P buying by more than one insider, meaningful versus post-transaction ownership, while the current Grade and price action confirm.</b></div>' +
+          '<div><span>Do not overread</span><b>Code S sales can fund taxes or diversification; code A/M/F/G rows are not open-market conviction trades and never receive a bullish or bearish label here.</b></div></div>' +
+        '<details class="f4-all"><summary>All recent Form 4 rows <span>' + f4.transactions.length + '</span></summary>' +
+          '<div class="f13-table-scroll"><table class="f13-table f4-table"><thead><tr><th>Date</th><th>Ticker</th><th>Insider</th><th>Role</th><th>Code</th><th>Shares</th><th>Price</th><th>Value</th></tr></thead><tbody>' +
+            f4.transactions.slice(0, 60).map(function(row){
+              var link = row.url ? '<a href="' + escapeHtml(row.url) + '" target="_blank" rel="noopener" title="Open the SEC filing">' + escapeHtml(row.code || '—') + '</a>' : escapeHtml(row.code || '—');
+              return '<tr class="' + (row.openMarket ? 'f4-market-row' : 'f4-other-row') + '"><td>' + escapeHtml(row.transactionDate || '') + '</td><td class="f13-tkr">' + f13TickerHtml(row) + '</td><td>' + escapeHtml(row.ownerName || '') + '</td><td>' + escapeHtml(form4Role(row)) + '</td><td>' + link + '</td><td class="f13-num">' + escapeHtml(fmtSharesF13(row.shares)) + '</td><td class="f13-num">' + (row.price != null ? '$' + Number(row.price).toFixed(2) : '—') + '</td><td class="f13-num">' + escapeHtml(row.value != null ? fmtBigDollarsF13(row.value) : '—') + '</td></tr>';
+            }).join('') +
+          '</tbody></table></div>' +
+          (otherRows.length ? '<p class="f13-note">' + otherRows.length + ' non-market row' + (otherRows.length === 1 ? '' : 's') + ' retained for auditability; transaction code remains visible.</p>' : '') +
+        '</details>' +
       '</section>';
     }
     // === Tracked firms ($5B–$200B AUM band) =============================

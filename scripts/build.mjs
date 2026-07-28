@@ -22,6 +22,7 @@ import { greeks, bsPrice, yearsToExpiry, ncdf } from "../lib/greeks.mjs";
 import { renderPriceChartPng } from "../lib/chart-image.mjs";
 import { buildNewsFeedPayload } from "../lib/news-feed.mjs";
 import { issuerCreditRatingFor } from "../lib/issuer-credit-ratings.mjs";
+import { fetchFinraMarketStructure, attachShortInterestToChains } from "../lib/market-structure.mjs";
 
 // Library prints a survey notice on first use and validates response
 // schemas — silence both since Yahoo occasionally omits optional fields
@@ -1977,6 +1978,8 @@ async function fetchFundamentals(symbol) {
     shortPercentOfFloat: pct(ks.shortPercentOfFloat),
     shortPercentOfSharesOut: pct(ks.sharesPercentSharesOut),
     dateShortInterest: isoDate(ks.dateShortInterest),
+    floatShares: num(ks.floatShares),
+    sharesOutstanding: num(ks.sharesOutstanding),
   };
 }
 
@@ -9037,6 +9040,190 @@ export async function buildPerFirm13FHoldings() {
   return { perFirm, overallTopBought, overallTopSold };
 }
 
+// === SEC EDGAR Form 4 insider transactions ==========================
+// Form 4 is a near-current Section 16 ownership disclosure, not a 13F holding.
+// It shares the SEC-filings workspace in the UI but remains a separate payload
+// with its own dates, transaction codes, and explicit open-market classification.
+const FORM4_LOOKBACK_DAYS = 60;
+const FORM4_FILINGS_PER_TICKER = 2;
+
+function xmlTagValue(block, tag) {
+  const m = String(block || "").match(new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i"));
+  return m ? decodeXmlEntities(m[1].replace(/<[^>]+>/g, "").trim()) : null;
+}
+
+export function parseEdgarForm4Xml(xml, meta = {}) {
+  const clean = String(xml || "").replace(/(<\/?)[a-zA-Z0-9]+:/g, "$1");
+  const ownerBlock = (clean.match(/<reportingOwner\b[^>]*>[\s\S]*?<\/reportingOwner>/i) || [])[0] || "";
+  const relationship = (ownerBlock.match(/<reportingOwnerRelationship\b[^>]*>[\s\S]*?<\/reportingOwnerRelationship>/i) || [])[0] || "";
+  const ownerName = xmlTagValue(ownerBlock, "rptOwnerName");
+  const officerTitle = xmlTagValue(relationship, "officerTitle");
+  const roles = [];
+  if (/^1$/i.test(xmlTagValue(relationship, "isDirector") || "")) roles.push("Director");
+  if (/^1$/i.test(xmlTagValue(relationship, "isOfficer") || "")) roles.push(officerTitle || "Officer");
+  if (/^1$/i.test(xmlTagValue(relationship, "isTenPercentOwner") || "")) roles.push("10% owner");
+  if (/^1$/i.test(xmlTagValue(relationship, "isOther") || "")) roles.push("Other");
+  const issuerSymbol = normalizeSecTicker(xmlTagValue(clean, "issuerTradingSymbol") || meta.symbol);
+  const rows = [];
+  const blocks = clean.match(/<nonDerivativeTransaction\b[^>]*>[\s\S]*?<\/nonDerivativeTransaction>/gi) || [];
+  for (const block of blocks) {
+    const code = String(xmlTagValue(block, "transactionCode") || "").toUpperCase();
+    const shares = Number(xmlTagValue(block, "transactionShares"));
+    const price = Number(xmlTagValue(block, "transactionPricePerShare"));
+    const acquiredDisposed = String(xmlTagValue(block, "transactionAcquiredDisposedCode") || "").toUpperCase();
+    const postShares = Number(xmlTagValue(block, "sharesOwnedFollowingTransaction"));
+    const transactionDate = xmlTagValue(block, "transactionDate");
+    if (!code || !transactionDate || !Number.isFinite(shares)) continue;
+    const direction = code === "P" ? "buy" : code === "S" ? "sell" : "other";
+    rows.push({
+      symbol: issuerSymbol || meta.symbol || null,
+      ownerName: ownerName || "Reporting owner",
+      roles,
+      officerTitle: officerTitle || null,
+      transactionDate,
+      filingDate: meta.filingDate || null,
+      accessionNumber: meta.accessionNumber || null,
+      form: meta.form || "4",
+      code,
+      direction,
+      openMarket: code === "P" || code === "S",
+      acquiredDisposed: acquiredDisposed || null,
+      shares: Math.round(shares),
+      price: Number.isFinite(price) ? Math.round(price * 10000) / 10000 : null,
+      value: Number.isFinite(price) ? Math.round(shares * price) : null,
+      postShares: Number.isFinite(postShares) ? Math.round(postShares) : null,
+      ownership: xmlTagValue(block, "directOrIndirectOwnership") || null,
+      securityTitle: xmlTagValue(block, "securityTitle") || null,
+      url: meta.url || null,
+    });
+  }
+  return rows;
+}
+
+function normalizeSecTicker(value) {
+  return String(value || "").trim().toUpperCase().replace(/\//g, ".");
+}
+
+function recentForm4Filings(submissions, cutoffIso) {
+  const recent = submissions?.filings?.recent;
+  if (!recent) return [];
+  const rows = [];
+  for (let i = 0; i < (recent.form || []).length; i++) {
+    const form = recent.form[i];
+    const filingDate = recent.filingDate?.[i];
+    if ((form !== "4" && form !== "4/A") || !filingDate || filingDate < cutoffIso) continue;
+    rows.push({
+      form,
+      filingDate,
+      accessionNumber: recent.accessionNumber?.[i],
+      primaryDocument: recent.primaryDocument?.[i],
+    });
+  }
+  rows.sort((a, b) => String(b.filingDate).localeCompare(String(a.filingDate)));
+  return rows.slice(0, FORM4_FILINGS_PER_TICKER);
+}
+
+async function fetchEdgarForm4(cik, symbol, filing) {
+  const accession = String(filing?.accessionNumber || "");
+  const accessionNoDashes = accession.replace(/-/g, "");
+  const primary = String(filing?.primaryDocument || "").split("/").pop();
+  if (!accessionNoDashes || !primary) return [];
+  const cikNum = Number(cik);
+  const url = `https://www.sec.gov/Archives/edgar/data/${cikNum}/${accessionNoDashes}/${encodeURIComponent(primary)}`;
+  const res = await fetch(url, {
+    headers: { "user-agent": SEC_USER_AGENT, accept: "application/xml,text/xml,*/*" },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw new Error(`Form 4 HTTP ${res.status}`);
+  return parseEdgarForm4Xml(await res.text(), { ...filing, symbol, url });
+}
+
+export async function buildForm4InsiderTransactions(priorPayload = null, asOf = new Date()) {
+  const cutoffIso = new Date(asOf.getTime() - FORM4_LOOKBACK_DAYS * 86400000).toISOString().slice(0, 10);
+  const priorRows = Array.isArray(priorPayload?.insiderTransactions?.transactions)
+    ? priorPayload.insiderTransactions.transactions
+    : [];
+  const priorByAccession = new Map();
+  for (const row of priorRows) {
+    if (!row?.accessionNumber) continue;
+    if (!priorByAccession.has(row.accessionNumber)) priorByAccession.set(row.accessionNumber, []);
+    priorByAccession.get(row.accessionNumber).push(row);
+  }
+
+  const symbols = TICKERS.filter((symbol) => _cikMap?.get(symbol));
+  const transactions = [];
+  let cursor = 0;
+  let issuersChecked = 0;
+  let filingsParsed = 0;
+  const workers = Array.from({ length: Math.min(2, symbols.length) }, async () => {
+    while (cursor < symbols.length) {
+      const symbol = symbols[cursor++];
+      const cik = _cikMap.get(symbol);
+      try {
+        const submissions = await fetchEdgarSubmissions(cik);
+        issuersChecked++;
+        for (const filing of recentForm4Filings(submissions, cutoffIso)) {
+          const cached = priorByAccession.get(filing.accessionNumber);
+          if (cached?.length) {
+            transactions.push(...cached);
+            continue;
+          }
+          try {
+            const rows = await fetchEdgarForm4(cik, symbol, filing);
+            transactions.push(...rows);
+            filingsParsed++;
+          } catch (err) {
+            console.log(`    ⚠ ${symbol} Form 4 ${filing.accessionNumber} failed: ${err.message}`);
+          }
+          await new Promise((resolve) => setTimeout(resolve, 175));
+        }
+      } catch (err) {
+        console.log(`    ⚠ ${symbol} Form 4 submissions failed: ${err.message}`);
+      }
+      // Two workers × at most three SEC requests per ticker stays below the
+      // SEC's published 10-request/second fair-access ceiling.
+      await new Promise((resolve) => setTimeout(resolve, 650));
+    }
+  });
+  await Promise.all(workers);
+
+  const deduped = [...new Map(
+    transactions
+      .filter((row) => row?.transactionDate >= cutoffIso)
+      .map((row) => [
+        `${row.accessionNumber}|${row.symbol}|${row.ownerName}|${row.transactionDate}|${row.code}|${row.shares}|${row.price}`,
+        row,
+      ]),
+  ).values()];
+  deduped.sort((a, b) =>
+    String(b.transactionDate || "").localeCompare(String(a.transactionDate || ""))
+    || (Number(b.value) || 0) - (Number(a.value) || 0),
+  );
+  const topPurchases = deduped
+    .filter((row) => row.direction === "buy")
+    .sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))
+    .slice(0, 12);
+  const topSales = deduped
+    .filter((row) => row.direction === "sell")
+    .sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))
+    .slice(0, 12);
+  return {
+    asOf: asOf.toISOString(),
+    lookbackDays: FORM4_LOOKBACK_DAYS,
+    filingsPerIssuerCap: FORM4_FILINGS_PER_TICKER,
+    issuersChecked,
+    filingsParsed,
+    transactionCount: deduped.length,
+    openMarketCount: deduped.filter((row) => row.openMarket).length,
+    topPurchases,
+    topSales,
+    transactions: deduped.slice(0, 120),
+    sourceNote:
+      `SEC EDGAR Form 4 filings, latest ${FORM4_FILINGS_PER_TICKER} filings per tracked issuer inside the ${FORM4_LOOKBACK_DAYS}-day lookback. ` +
+      "Open-market code P purchases and code S sales are ranked separately; awards, option exercises, gifts, and tax withholding remain labeled non-market transactions.",
+  };
+}
+
 export function build13FPayload(chains, narratives, asOf, perFirmResult) {
   const q = currentF13Quarter(asOf);
   const monthNames = ["January","February","March","April","May","June",
@@ -9060,6 +9247,7 @@ export function build13FPayload(chains, narratives, asOf, perFirmResult) {
   const perFirm = perFirmResult && perFirmResult.perFirm ? perFirmResult.perFirm : {};
   const overallTopBought = perFirmResult && Array.isArray(perFirmResult.overallTopBought) ? perFirmResult.overallTopBought : [];
   const overallTopSold = perFirmResult && Array.isArray(perFirmResult.overallTopSold) ? perFirmResult.overallTopSold : [];
+  const insiderTransactions = perFirmResult?.insiderTransactions || null;
   const totalFirms = F13_TOP_FIRM_DIRECTORY.length;
   // A firm "counts" as real if EDGAR returned a current quarter we could
   // diff against (topBought + topSold non-empty, OR just topBought non-
@@ -9094,6 +9282,7 @@ export function build13FPayload(chains, narratives, asOf, perFirmResult) {
     perFirm,
     overallTopBought,
     overallTopSold,
+    insiderTransactions,
     biggestPositions,
     mostBought: themes.buys,
     mostSold: themes.sells,
@@ -14684,14 +14873,27 @@ function scoreMechanicals(sym, data, unusualPayload) {
 
   // Short interest (squeeze setup / unwind).
   const f = data?.fundamentals || {};
-  const si = pnum(f.shortPercentOfFloat), sNow = pnum(f.sharesShort), sPrev = pnum(f.sharesShortPriorMonth);
+  const finraSi = f.shortInterest || null;
+  const si = pnum(finraSi?.percentFloat) ?? pnum(f.shortPercentOfFloat);
+  const sNow = pnum(finraSi?.sharesShort) ?? pnum(f.sharesShort);
+  const sPrev = pnum(finraSi?.priorSharesShort) ?? pnum(f.sharesShortPriorMonth);
+  const dtc = pnum(finraSi?.daysToCover) ?? pnum(f.shortRatio);
+  const siChange = pnum(finraSi?.changePct)
+    ?? (sNow != null && sPrev > 0 ? (sNow / sPrev - 1) * 100 : null);
   let siScore = 0, siVal = null, siOk = false;
   if (si != null) {
-    siOk = true; siVal = r1(si) + "% float";
+    siOk = true;
+    const siBits = [r1(si) + "% float"];
+    if (dtc != null) siBits.push(r1(dtc) + "d cover");
+    if (siChange != null) siBits.push((siChange >= 0 ? "+" : "") + r1(siChange) + "% vs prior");
+    siVal = siBits.join(" · ");
     if (si >= 15) siScore += 1;                                    // squeeze fuel
     if (sNow != null && sPrev != null && sPrev > 0) { if (sNow < sPrev * 0.95) siScore += 1; else if (sNow > sPrev * 1.05) siScore -= 1; }
   }
-  out.push(sig("shortInterest", "Short interest", clamp(siScore, -1, 1), siVal, "Squeeze setup / covering", siOk));
+  const siNote = finraSi
+    ? `FINRA twice-monthly snapshot${finraSi.settlementDate ? ` · ${finraSi.settlementDate}` : ""}; squeeze fuel / covering context`
+    : "Squeeze setup / covering";
+  out.push(sig("shortInterest", "Short interest", clamp(siScore, -1, 1), siVal, siNote, siOk));
 
   // Unusual volume, direction-signed: prefer the hourly scanner read
   // (data.hourlyVolume, hourly-vs-20D-avg-hourly from volume-flags.json, attached
@@ -29459,6 +29661,22 @@ async function main() {
       `Leaving last-good index.html + data/ in place — GH Pages will keep serving the previous build.`
     );
   }
+  // FINRA market-structure context is fetched once for the whole universe:
+  // consolidated short interest is twice-monthly, while ATS volume is weekly
+  // and deliberately delayed. Read the prior payload before writeChainFiles
+  // wipes data/ so a transient FINRA outage carries the last-good observations.
+  let priorMarketStructure = null;
+  try {
+    priorMarketStructure = JSON.parse(await readFile(resolve(DATA_DIR, "market-structure.json"), "utf8"));
+  } catch { /* first run / hydration miss */ }
+  console.log("Fetching FINRA short interest + delayed ATS volume…");
+  const marketStructure = await fetchFinraMarketStructure(TICKERS, chains, priorMarketStructure);
+  attachShortInterestToChains(chains, marketStructure);
+  const marketStructureCount = Object.keys(marketStructure.bySymbol || {}).length;
+  console.log(
+    `  · market structure ${marketStructureCount}/${TICKERS.length} tickers` +
+    (marketStructure.errors.length ? ` (carried last-good after ${marketStructure.errors.join("; ")})` : ""),
+  );
   // Fetch the macro backdrop (10Y yield + DXY) BEFORE per-ticker AI judgments
   // so the fallback paragraph (used when a ticker has no readable articles)
   // can quote live macro values instead of returning an empty take.
@@ -29749,7 +29967,16 @@ async function main() {
   // (~125s with OPENFIGI_MAX_BATCHES_UNAUTH=50) and the slowest EDGAR firm can
   // burn its full per-firm budget on top — 185s observed in the wild.
   const F13_TIMEOUT_MS = 240_000;
-  const f13Empty = { perFirm: {}, overallTopBought: [], overallTopSold: [] };
+  let priorF13Payload = null;
+  try {
+    priorF13Payload = JSON.parse(await readFile(resolve(DATA_DIR, F13_FILE), "utf8"));
+  } catch { /* first run / hydration miss */ }
+  const f13Empty = {
+    perFirm: {},
+    overallTopBought: [],
+    overallTopSold: [],
+    insiderTransactions: priorF13Payload?.insiderTransactions || null,
+  };
   // The timer resolves a SENTINEL (not f13Empty) and stays silent: the
   // keep-or-discard decision + its log happen at the await site, because a
   // Promise.race locks in the first settlement — the old design resolved the
@@ -29763,11 +29990,25 @@ async function main() {
     f13TimeoutHandle = setTimeout(() => resolve(F13_TIMED_OUT), F13_TIMEOUT_MS);
   });
   let f13Settled = null;
-  const f13WorkPromise = buildPerFirm13FHoldings()
-    .catch((err) => {
+  const f13WorkPromise = Promise.all([
+    buildPerFirm13FHoldings().catch((err) => {
       console.log(`  ⚠ buildPerFirm13FHoldings failed: ${err?.message || err}`);
       return f13Empty;
-    })
+    }),
+    // Let the 13F submissions burst finish before starting the larger issuer
+    // sweep so aggregate SEC traffic stays inside fair-access guidance.
+    (async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20000));
+      return buildForm4InsiderTransactions(priorF13Payload).catch((err) => {
+        console.log(`  ⚠ Form 4 enrichment failed: ${err?.message || err}`);
+        return priorF13Payload?.insiderTransactions || null;
+      });
+    })(),
+  ])
+    .then(([holdings, insiderTransactions]) => ({
+      ...holdings,
+      insiderTransactions: insiderTransactions || holdings.insiderTransactions || null,
+    }))
     .then((res) => (f13Settled = res));
   // Macro releases are fetched EARLY (they used to live in the calendar batch
   // far below) so a day-of print — CPI at 8:30 ET, actual vs consensus, with
@@ -29854,6 +30095,13 @@ async function main() {
   await writeFile(resolve(ROOT, "styles.css"), css, "utf8");
   await writeFile(resolve(ROOT, "app.js"), js, "utf8");
   const totalChainBytes = await writeChainFiles(chains, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE);
+  // Bake-owned sidecar consumed by the unusual-flow and OI scanners. It carries
+  // only published FINRA observations and matching historical-volume math.
+  await writeFile(
+    resolve(DATA_DIR, "market-structure.json"),
+    JSON.stringify(marketStructure),
+    "utf8",
+  );
   // Persist the refreshed chart-pattern cache (read before the wipe, updated by
   // attachChartPatterns) so the next same-day build can reuse unchanged reads.
   // writeChainFiles just recreated data/, so this must come after it.
@@ -30575,7 +30823,7 @@ async function main() {
   // belt-and-suspenders setup, a slow OpenFIGI throttle (~2.5s × dozens of
   // batches per firm) can blow past the workflow budget and leave the
   // file deleted in the next commit.
-  const baselineInfo = await write13FFile(chains, trends.narratives, builtAtIso, {});
+  const baselineInfo = await write13FFile(chains, trends.narratives, builtAtIso, f13Empty);
   console.log(`wrote data/13f.json (baseline) — ${baselineInfo.positions} biggest positions, ${baselineInfo.bytes} bytes`);
   // The enrichment work + its 240s timeout race were kicked off concurrently up
   // near attachMarketNarratives so they overlapped the narratives/calendar/scoring
@@ -30597,12 +30845,13 @@ async function main() {
     .filter((v) => v && ((v.topBought && v.topBought.length) || (v.topSold && v.topSold.length)))
     .length;
   const totalFirms = Object.keys(perFirmMap).length;
-  console.log(`  · ${realFirms}/${totalFirms} firms returned QoQ deltas (overall: ${perFirmResult.overallTopBought.length} buys / ${perFirmResult.overallTopSold.length} sells)`);
-  if (realFirms > 0) {
+  const form4Count = perFirmResult.insiderTransactions?.transactionCount || 0;
+  console.log(`  · ${realFirms}/${totalFirms} firms returned QoQ deltas (overall: ${perFirmResult.overallTopBought.length} buys / ${perFirmResult.overallTopSold.length} sells); ${form4Count} recent Form 4 transactions`);
+  if (realFirms > 0 || form4Count > 0) {
     const f13Info = await write13FFile(chains, trends.narratives, builtAtIso, perFirmResult);
     console.log(`wrote data/13f.json (enriched) — ${f13Info.positions} biggest positions, ${f13Info.bytes} bytes`);
   } else {
-    console.log("keeping baseline data/13f.json — EDGAR returned no usable holdings.");
+    console.log("keeping baseline data/13f.json — EDGAR returned no usable holdings or Form 4 transactions.");
   }
   console.log(
     `wrote ${OUT} (${(html.length / 1024).toFixed(1)} KB) + styles.css (${(css.length / 1024).toFixed(1)} KB) + app.js (${(js.length / 1024).toFixed(1)} KB) + ${symbols.length} chain files (${(totalChainBytes / 1024).toFixed(1)} KB total) + trends (${trends.narratives.length} active, ${trends.history.length}-day history)`,
