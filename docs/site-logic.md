@@ -390,6 +390,8 @@ Only actionable Top Picks are enrolled.
 
 The scorecard reports win rate, expectancy, option P&L, return on risk, favorable/adverse excursion, and slices by grade, side, sector, strategy, market regime, and modeled probability of profit. It also includes diagnostics such as stop share, giveback, thesis-break frequency, side imbalance, and Monte Carlo paths.
 
+The dollar scorecard and equity curve can replay either a fixed `$10,000` per trade or a Market Analysis-sized book. Market-sized entries begin defensively at `$5,000`, return to `$10,000` only after three consecutive `risk-on` sessions, and fall back to `$5,000` after two consecutive `risk-off`/`severe-risk-off` sessions; `neutral` and missing history are always half-size. The size is frozen from the regime snapshot available on the entry date. The portfolio Simulator exposes the same hysteresis as a separate **Market environment** run mode, scaling its conviction-based risk budget to 50% or 100% while leaving the other portfolio gates unchanged.
+
 The point is not just to display wins. The diagnostics are intended to answer whether losses came from direction, entry, structure, sizing, or exits and to tighten the engine only after enough resolved evidence exists.
 
 ## 8. Stock Picks and the DCA dial

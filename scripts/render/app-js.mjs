@@ -27962,7 +27962,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Renders data/picks-accuracy.json: open picks marked to market + resolved
   // picks graded win/loss against their own take-profit / cut levels, plus a
   // win-rate-by-tier table answering "does a higher score actually win more?".
-  var accuracyState = { data: null, loading: false, gradeChanges: null, picksChanges: null, roster: null };
+  var accuracyState = { data: null, loading: false, gradeChanges: null, picksChanges: null, roster: null, regimeHistory: null };
   var ACC_TIER_LABEL = { 'strong-call':'Strong Call', 'call':'Call', 'put':'Put', 'strong-put':'Strong Put' };
   var ACC_TIER_ORDER = ['strong-call','call','put','strong-put'];
   // Resolved-list sort (Picks pane). Module-level so a re-render (sub-tab hop,
@@ -28032,12 +28032,19 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var pRos = fetch(dataUrl('picks-roster.json'), { cache: 'no-cache' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .catch(function(){ return null; });
-    Promise.all([pAcc, pGch, pPch, pRos]).then(function(res){
-      var j = res[0], gh = res[1], pc = res[2], ros = res[3];
+    // Daily Market Analysis regime history powers the environment-sized
+    // backtest. Optional so an older/missing payload degrades defensively to
+    // half-size instead of failing the role-gated Track Record tab.
+    var pReg = fetch(dataUrl('regime-history.json'), { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .catch(function(){ return null; });
+    Promise.all([pAcc, pGch, pPch, pRos, pReg]).then(function(res){
+      var j = res[0], gh = res[1], pc = res[2], ros = res[3], reg = res[4];
       accuracyState.data = (j && typeof j === 'object') ? j : { open: [], closed: [], stats: {} };
       accuracyState.gradeChanges = (gh && Array.isArray(gh.changes)) ? gh.changes : [];
       accuracyState.picksChanges = (pc && Array.isArray(pc.changes)) ? pc.changes : [];
       accuracyState.roster = (ros && Array.isArray(ros.roster)) ? ros : null;
+      accuracyState.regimeHistory = (reg && Array.isArray(reg.days)) ? reg.days : [];
       accuracyState.loading = false;
       renderAccuracy();
     }).catch(function(){
@@ -28045,6 +28052,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       accuracyState.gradeChanges = accuracyState.gradeChanges || [];
       accuracyState.picksChanges = accuracyState.picksChanges || [];
       accuracyState.roster = accuracyState.roster || null;
+      accuracyState.regimeHistory = accuracyState.regimeHistory || [];
       accuracyState.loading = false;
       renderAccuracy();
     });
@@ -28248,6 +28256,57 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   var ACC_THESIS_ORDER = ['valuation','momentum','event-driven','macro-sector','supply-demand','technical','other'];
   var ACC_REGIME_LABEL = { 'severe-risk-off':'Severe risk-off', 'risk-off':'Risk-off', 'risk-on':'Risk-on', 'neutral':'Neutral' };
   var ACC_REGIME_ORDER = ['risk-on','neutral','risk-off','severe-risk-off','Unknown'];
+  var ACC_ENV_FULL_DAYS = 3;
+  var ACC_ENV_HALF_DAYS = 2;
+
+  function accEtDateKey(value){
+    if (!value) return '';
+    if (/^\\d{4}-\\d{2}-\\d{2}$/.test(String(value))) return String(value);
+    var d = new Date(value);
+    if (!isFinite(d.getTime())) return String(value).slice(0, 10);
+    var p = marketEtDateParts(d);
+    if (!p) return String(value).slice(0, 10);
+    return p.year + '-' + String(p.month).padStart(2, '0') + '-' + String(p.day).padStart(2, '0');
+  }
+
+  // Market-environment sizing is deliberately stateful. The book begins
+  // defensive (half-size), earns full size only after three consecutive
+  // risk-on sessions, and cuts back after two consecutive risk-off/severe
+  // sessions. Neutral is always defensive and resets both confirmation streaks.
+  // One isolated risk-off print therefore does not whipsaw a confirmed full-size
+  // book, while missing history can never manufacture a full-size allocation.
+  function accEnvironmentTimeline(days){
+    var rows = (Array.isArray(days) ? days : []).filter(function(d){ return d && d.date; }).slice();
+    rows.sort(function(a,b){ return String(a.date).localeCompare(String(b.date)); });
+    var out = [], size = 'half', onStreak = 0, offStreak = 0;
+    for (var i=0;i<rows.length;i++){
+      var state = rows[i].state || 'neutral';
+      if (state === 'risk-on'){
+        onStreak++; offStreak = 0;
+        if (onStreak >= ACC_ENV_FULL_DAYS) size = 'full';
+      } else if (state === 'risk-off' || state === 'severe-risk-off'){
+        offStreak++; onStreak = 0;
+        if (offStreak >= ACC_ENV_HALF_DAYS) size = 'half';
+      } else {
+        onStreak = 0; offStreak = 0; size = 'half';
+      }
+      out.push({ date:String(rows[i].date), state:state, size:size, factor:size === 'full' ? 1 : 0.5, riskOnStreak:onStreak, riskOffStreak:offStreak });
+    }
+    return out;
+  }
+  function accEnvironmentAt(value){
+    var key = accEtDateKey(value);
+    var tl = accEnvironmentTimeline(accuracyState.regimeHistory);
+    var found = null;
+    for (var i=0;i<tl.length;i++){ if (tl[i].date <= key) found = tl[i]; else break; }
+    return found || { date:null, state:'unknown', size:'half', factor:0.5, riskOnStreak:0, riskOffStreak:0 };
+  }
+  function accEnvironmentNotional(e){ return ACC_NOTIONAL * accEnvironmentAt(e && e.entryDate).factor; }
+  function accEnvironmentMix(trades){
+    var mix = { full:0, half:0, missing:0 };
+    (trades || []).forEach(function(e){ var x = accEnvironmentAt(e && e.entryDate); if (!x.date) mix.missing++; x.factor === 1 ? mix.full++ : mix.half++; });
+    return mix;
+  }
 
   // --- small stat helpers --------------------------------------------------
   function accMean(a){ if(!a || !a.length) return null; var s=0; for(var i=0;i<a.length;i++) s+=a[i]; return s/a.length; }
@@ -28345,7 +28404,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var dec = accDecided(trades);
     for (var i=0;i<dec.length;i++){
       var e = dec[i], d = tradeDollars(e); if (!d) continue;
-      var pnl = (basis === 'notional') ? (d.pnlPct/100*notional) : d.pnl;
+      var pnl = basis === 'notional' ? (d.pnlPct/100*notional)
+              : basis === 'environment' ? (d.pnlPct/100*accEnvironmentNotional(e))
+              : d.pnl;
       if (!isFinite(pnl)) continue;
       rows.push({ e:e, d:d, pnl:pnl, R:d.rr, win:e.outcome === 'win', status:e.status });
     }
@@ -28419,13 +28480,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     opts = opts || {}; var basis = opts.basis || 'notional', notional = opts.notional || ACC_NOTIONAL;
     var seq = accSortByExit(accDecided(trades));
     var base;
-    if (basis === 'notional') base = notional;
+    if (basis === 'notional' || basis === 'environment') base = notional;
     else { var costs = []; for (var i=0;i<seq.length;i++){ var dd = tradeDollars(seq[i]); if (dd) costs.push(dd.entryCost); } base = costs.length ? accMean(costs) : notional; }
     var eq = base, peak = base, maxDD = 0, maxDDpct = 0, troughIdx = -1, peakAtTrough = base;
     var pts = [{ idx:0, value:base, date:(seq.length ? seq[0].entryDate : null) }];
     for (i=0;i<seq.length;i++){
       var e = seq[i], d = tradeDollars(e);
-      var pnl = (basis === 'notional') ? (Number(e.optionPnlPct)/100*notional) : (d ? d.pnl : NaN);
+      var pnl = basis === 'notional' ? (Number(e.optionPnlPct)/100*notional)
+              : basis === 'environment' ? (Number(e.optionPnlPct)/100*accEnvironmentNotional(e))
+              : (d ? d.pnl : NaN);
       if (!isFinite(pnl)) continue;
       eq += pnl;
       pts.push({ idx: pts.length, value: eq, date: e.exitDate });
@@ -28499,6 +28562,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var c = e.contract || {};
       var iv = Number(c.iv);
       var hi = Number(e.optHiPct);
+      var env = accEnvironmentAt(e.entryDate);
       trades.push({
         entryMs:entryMs, exitMs:exitMs, basis:d.basis, riskPC:d.maxLoss, maxProfitPC:d.maxProfit,
         closePct:closePct, pnlPC:d.basis*closePct, resolved:!isOpen,
@@ -28506,6 +28570,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         optHi: isFinite(hi) ? hi : null,
         tier: accConvictionTier(e), sector: e.sector || 'Unknown', side: e.side === 'put' ? 'put' : 'call',
         iv: (isFinite(iv) && iv > 0) ? iv : null,
+        envFactor: env.factor, envState: env.state, envDate: env.date,
         symbol: e.symbol, score: Math.abs(Number(e.score))||0,
       });
     }
@@ -28534,6 +28599,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var taken = 0, wins = 0, losses = 0, grossWin = 0, grossLoss = 0;
     var skip = { heat:0, sector:0, positions:0, correlation:0, tiny:0 };
     var rotations = 0, ladderAdds = 0, riskPcts = [], sizes = [], maxHeatFrac = 0;
+    var environmentMix = { full:0, half:0, missing:0 };
     var curve = [{ idx:0, value:start, date:null }];
     // Walk-forward Kelly state: per-conviction-bucket resolved PER-CONTRACT
     // stats, accumulated as source trades resolve (close events fire in date
@@ -28617,6 +28683,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (mode === 'fixed'){
           if (t.tier === 'Very High') riskPct = BT_RISK_MAX;      // full size, single tranche
           else { riskPct = 0.01; ladder = true; }                 // staggered: 1% now (+1% add on confirmation)
+        } else if (mode === 'environment'){
+          riskPct = btClampRisk(tierBase * t.envFactor);
         } else if (mode === 'vol'){
           riskPct = btClampRisk(tierBase * volAdj);
         } else if (mode === 'kelly'){
@@ -28652,6 +28720,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         openMap[E.id] = { tranches:[{ n:contracts, offset:0, mlpc:mlpc }], riskUsed:riskAmt, t:t, entryMs:E.t, ladder:ladder };
         openCount++; sectorCount[t.sector] = (sectorCount[t.sector]||0) + 1;
         taken++; riskPcts.push(riskPct); sizes.push(riskAmt);
+        if (mode === 'environment'){
+          if (!t.envDate) environmentMix.missing++;
+          t.envFactor === 1 ? environmentMix.full++ : environmentMix.half++;
+        }
         if (equity > 0 && committed / equity > maxHeatFrac) maxHeatFrac = committed / equity;
       }
     }
@@ -28667,7 +28739,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       peak:peak, recovery:recovery, winRate: decN ? wins/decN : null, profitFactor: grossLoss > 0 ? grossWin/grossLoss : (grossWin > 0 ? Infinity : null),
       nTaken:taken, nSkipped:nSkipped, skip:skip, rotations:rotations, ladderAdds:ladderAdds,
       avgRiskPct: riskPcts.length ? accMean(riskPcts) : null, avgPositionSize: sizes.length ? accMean(sizes) : null,
-      maxHeatPct: maxHeatFrac, kellyByTier: kellyByTier, avgEntryIV: ivN > 0 ? ivSum / ivN : null, curve:curve,
+      maxHeatPct: maxHeatFrac, kellyByTier: kellyByTier, environmentMix:environmentMix, avgEntryIV: ivN > 0 ? ivSum / ivN : null, curve:curve,
     };
   }
 
@@ -28807,7 +28879,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // per-contract) and re-renders on any toggle via accRerenderAnalytics().
   // ========================================================================
   var accView = { dataset:'closed', basis:'notional', xtabA:'thesis', xtabB:'conviction', simMode:'fixed', simOpens:false, simHighConv:false, mcIters:'5000', mcSeed:1337 };
-  (function(){ try { var sv = JSON.parse(localStorage.getItem('stonks-acc-view') || '{}'); ['dataset','basis','xtabA','xtabB','simMode','mcIters'].forEach(function(k){ if (sv[k] != null) accView[k] = sv[k]; }); ['simOpens','simHighConv'].forEach(function(k){ if (typeof sv[k] === 'boolean') accView[k] = sv[k]; }); if (['fixed','vol','kelly','combined'].indexOf(accView.simMode) < 0) accView.simMode = 'fixed'; } catch (e){} })();
+  (function(){ try { var sv = JSON.parse(localStorage.getItem('stonks-acc-view') || '{}'); ['dataset','basis','xtabA','xtabB','simMode','mcIters'].forEach(function(k){ if (sv[k] != null) accView[k] = sv[k]; }); ['simOpens','simHighConv'].forEach(function(k){ if (typeof sv[k] === 'boolean') accView[k] = sv[k]; }); if (['fixed','environment','vol','kelly','combined'].indexOf(accView.simMode) < 0) accView.simMode = 'fixed'; if (['notional','environment','contract'].indexOf(accView.basis) < 0) accView.basis = 'notional'; } catch (e){} })();
   function accSaveView(){ try { localStorage.setItem('stonks-acc-view', JSON.stringify({ dataset:accView.dataset, basis:accView.basis, xtabA:accView.xtabA, xtabB:accView.xtabB, simMode:accView.simMode, simOpens:accView.simOpens, simHighConv:accView.simHighConv, mcIters:accView.mcIters })); } catch (e){} }
   // The active trade set. 'closed' = resolved only; 'all' = also include the
   // open book, each open position "resolved" at its CURRENT modeled mark
@@ -29454,10 +29526,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var m = tradeMetrics(trades, { basis: basis });
     var toggles = '<div class="acc-controls">' +
       '<div class="acc-ctl"><span class="acc-ctl-lbl">Trades</span>' + accSeg('dataset', 'acc-ds-sc', accView.dataset, [{ value:'closed', label:'Resolved only' }, { value:'all', label:'Incl. open marks' }]) + '</div>' +
-      '<div class="acc-ctl"><span class="acc-ctl-lbl">$ basis</span>' + accSeg('basis', 'acc-bs-sc', basis, [{ value:'notional', label:'$10k / trade' }, { value:'contract', label:'Per contract' }]) + '</div>' +
+      '<div class="acc-ctl"><span class="acc-ctl-lbl">$ basis</span>' + accSeg('basis', 'acc-bs-sc', basis, [{ value:'notional', label:'$10k / trade' }, { value:'environment', label:'Market-sized' }, { value:'contract', label:'Per contract' }]) + '</div>' +
     '</div>';
     if (!m.n){ accPaneSummary('acc-sum-scorecard', []); box.innerHTML = toggles + '<p class="muted acc-an-note">No resolved trades yet — profitability metrics appear once picks start closing.' + accDatasetTip() + '</p>'; return; }
-    var basisTip = basis === 'notional' ? 'Assuming $' + ACC_NOTIONAL.toLocaleString() + ' bought per trade.' : 'Per single contract (×100 multiplier).';
+    var envMix = accEnvironmentMix(accDecided(trades));
+    var basisTip = basis === 'notional' ? 'Assuming $' + ACC_NOTIONAL.toLocaleString() + ' bought per trade.'
+      : basis === 'environment' ? 'Market-sized at entry: $' + ACC_NOTIONAL.toLocaleString() + ' after ' + ACC_ENV_FULL_DAYS + ' consecutive risk-on sessions; $' + (ACC_NOTIONAL / 2).toLocaleString() + ' after ' + ACC_ENV_HALF_DAYS + ' consecutive risk-off sessions or in neutral/unknown conditions.'
+      : 'Per single contract (×100 multiplier).';
     // "At a glance" strip — the scorecard in one line: does the win rate ×
     // payoff combination make money, and how much has it made?
     var scTake = '';
@@ -29504,7 +29579,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // conviction × side
     var xt = accCrossTabHtml('conviction', 'side', trades);
     var convBlock = '<div class="acc-an-subhead">Win rate &amp; expectancy by conviction × side</div>' + xt;
-    box.innerHTML = toggles + profit + risk + exits + convBlock;
+    var envNote = basis === 'environment'
+      ? '<p class="hint acc-an-note"><b>Market-sized mix:</b> ' + envMix.full + ' full-size / ' + envMix.half + ' half-size entr' + (envMix.full + envMix.half === 1 ? 'y' : 'ies') + (envMix.missing ? ' · ' + envMix.missing + ' lacked a prior regime snapshot and stayed half-size' : '') + '. Sizing is frozen from the Market Analysis state available on each entry date.</p>'
+      : '';
+    box.innerHTML = toggles + envNote + profit + risk + exits + convBlock;
   }
 
   // --- Equity & drawdown sub-tab (#an-equity) ------------------------------
@@ -29516,10 +29594,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var m = tradeMetrics(trades, { basis: basis });
     var toggles = '<div class="acc-controls">' +
       '<div class="acc-ctl"><span class="acc-ctl-lbl">Trades</span>' + accSeg('dataset', 'acc-ds-eq', accView.dataset, [{ value:'closed', label:'Resolved only' }, { value:'all', label:'Incl. open marks' }]) + '</div>' +
-      '<div class="acc-ctl"><span class="acc-ctl-lbl">$ basis</span>' + accSeg('basis', 'acc-bs-eq', basis, [{ value:'notional', label:'$10k / trade' }, { value:'contract', label:'Per contract' }]) + '</div>' +
+      '<div class="acc-ctl"><span class="acc-ctl-lbl">$ basis</span>' + accSeg('basis', 'acc-bs-eq', basis, [{ value:'notional', label:'$10k / trade' }, { value:'environment', label:'Market-sized' }, { value:'contract', label:'Per contract' }]) + '</div>' +
     '</div>';
     if (ec.points.length < 2){ accPaneSummary('acc-sum-equity', []); box.innerHTML = toggles + '<p class="muted acc-an-note">The cumulative-P&L equity curve appears once at least 2 trades resolve.' + accDatasetTip() + '</p>'; return; }
-    var basisLbl = basis === 'notional' ? '$' + ACC_NOTIONAL.toLocaleString() + ' per trade' : 'per contract (bankroll ' + accMoney(ec.base, false) + ')';
+    var basisLbl = basis === 'notional' ? '$' + ACC_NOTIONAL.toLocaleString() + ' per trade'
+      : basis === 'environment' ? '$' + ACC_NOTIONAL.toLocaleString() + ' full / $' + (ACC_NOTIONAL / 2).toLocaleString() + ' defensive, frozen at entry'
+      : 'per contract (bankroll ' + accMoney(ec.base, false) + ')';
     // "At a glance" strip — where the modeled equity curve stands right now.
     var eqPnl = ec.finalEquity - ec.base;
     var eqTake = 'After ' + (ec.points.length - 1) + ' trade' + (ec.points.length === 2 ? '' : 's') + ' the modeled book is ' +
@@ -29592,9 +29672,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
 
   // --- Portfolio backtest sub-tab (#an-sim) ---------------------------------
-  // One flexible engine (runPortfolioBacktest), four selectable run modes.
+  // One flexible engine (runPortfolioBacktest), five selectable run modes.
   var ACC_BT_MODES = [
     { value:'fixed',    label:'Fixed sizing',      desc:'Baseline: Very High conviction = full 2% risk in one tranche; High conviction ladders in — 1% now, +1% added only after the option confirms by trading ≥ +' + BT_LADDER_CONFIRM + '% (the add fills at the confirmed price).' },
+    { value:'environment', label:'Market environment', desc:'Market Analysis overlay: conviction-based risk stays half-size until the tape prints ' + ACC_ENV_FULL_DAYS + ' consecutive risk-on sessions. Full size returns on day ' + ACC_ENV_FULL_DAYS + '; ' + ACC_ENV_HALF_DAYS + ' consecutive risk-off/severe-risk-off sessions cut it in half, and neutral is always half-size. Each trade keeps its entry-date size.' },
     { value:'vol',      label:'Volatility target', desc:'Conviction base risk (2% Very High / 1.5% High) scaled by average entry IV ÷ this trade\\'s entry IV — a high-volatility name sizes smaller, a quiet one larger, clamped to ' + (BT_RISK_MIN * 100) + '–' + (BT_RISK_MAX * 100) + '%.' },
     { value:'kelly',    label:'½ Kelly',           desc:'Conviction base risk × the Half-Kelly multiplier computed walk-forward from that conviction bucket\\'s resolved per-contract record (win rate, avg win, avg loss). Buckets with fewer than ' + BT_KELLY_MIN_N + ' resolved trades fall back to the conviction base; the result is clamped to ' + (BT_RISK_MIN * 100) + '–' + (BT_RISK_MAX * 100) + '%.' },
     { value:'combined', label:'Vol × Kelly',       desc:'Both adjustments: the volatility-adjusted risk is multiplied by the Half-Kelly multiplier, then clamped to ' + (BT_RISK_MIN * 100) + '–' + (BT_RISK_MAX * 100) + '%.' },
@@ -29606,7 +29687,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var closed = Array.isArray(d.closed) ? d.closed : [], open = Array.isArray(d.open) ? d.open : [];
     var baseOpts = { includeOpens: accView.simOpens, highConvictionOnly: accView.simHighConv };
     var mode = accView.simMode || 'fixed';
-    // Run ALL four modes on the same trade set (cheap — the record is small):
+    // Run every mode on the same trade set (cheap — the record is small):
     // the selected one drives the detail view, the rest fill the comparison.
     var runs = {};
     for (var mi=0; mi<ACC_BT_MODES.length; mi++){ var mv = ACC_BT_MODES[mi].value; runs[mv] = runPortfolioBacktest(closed, open, Object.assign({ mode: mv }, baseOpts)); }
@@ -29651,10 +29732,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       chip(Math.round((sim.maxHeatPct || 0) * 100) + '%', 'peak heat', '', 'Highest total open risk reached, as a % of equity (cap ' + (BT_HEAT_CAP * 100) + '%).') +
       (sim.rotations ? chip(String(sim.rotations), 'winners rotated', '', 'Winning positions closed early (held >' + BT_ROT_MIN_DAYS + 'd, up ≥+' + BT_ROT_MIN_PNL + '%) to free heat for a new pick.') : '') +
       (mode === 'fixed' ? chip(String(sim.ladderAdds), 'ladder adds', '', 'Second 1% tranches added after the option confirmed by trading ≥ +' + BT_LADDER_CONFIRM + '%.') : '') +
+      (mode === 'environment' ? chip(sim.environmentMix.full + ' / ' + sim.environmentMix.half, 'full / half-size trades', '', 'Entry-date sizing from Market Analysis regime history.' + (sim.environmentMix.missing ? ' ' + sim.environmentMix.missing + ' entries had no prior snapshot and defaulted to half-size.' : '')) : '') +
       chip(sim.recovery != null ? sim.recovery + ' trades' : (sim.maxDD > 0 ? 'not yet' : '—'), 'recovery periods', '') +
     '</div>';
-    // --- run-mode comparison: same trades, same portfolio rules, four sizings
-    var cmp = '<div class="acc-an-subhead">Run-mode comparison — same trades, four sizing rules</div>' +
+    // --- run-mode comparison: same trades, same portfolio rules
+    var cmp = '<div class="acc-an-subhead">Run-mode comparison — same trades, five sizing rules</div>' +
       '<div class="acc-tscroll"><div class="acc-mtable" style="grid-template-columns:minmax(9em,1.4fr) repeat(5,1fr)">' +
       '<div class="acc-mh">Mode</div><div class="acc-mh">Final equity</div><div class="acc-mh">Return</div><div class="acc-mh">Max DD</div><div class="acc-mh">Trades</div><div class="acc-mh">Skipped</div>';
     for (mi=0; mi<ACC_BT_MODES.length; mi++){
