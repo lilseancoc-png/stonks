@@ -24901,6 +24901,79 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       })
       .catch(function(){ fomcLiveState.inFlight = false; });
   }
+  function renderFomcVoteMap(history){
+    var meetings = history && Array.isArray(history.meetings) ? history.meetings : [];
+    if (!meetings.length) return '';
+    var latest = meetings[0];
+    var stanceLabel = { hawk: 'Hawk', hold: 'Aligned', dove: 'Dove', unknown: 'Unclear' };
+    var countChip = function(key, counts){
+      var n = counts && Number.isFinite(Number(counts[key])) ? Number(counts[key]) : 0;
+      return '<span class="fomc-vote-count is-' + key + '"><b>' + escapeHtml(stanceLabel[key]) + '</b> ' + n + '</span>';
+    };
+    var group = function(record, key){
+      var voters = (record.voters || []).filter(function(v){ return v.stance === key; });
+      var count = record.counts && Number(record.counts[key]) || 0;
+      if (!count) return '';
+      var names = voters.map(function(v){
+        var title = v.preference
+          ? ' title="' + escapeHtml((v.vote === 'against' ? 'Dissented: ' : '') + v.preference) + '"'
+          : (v.vote === 'against' ? ' title="Dissented from the full policy action or statement"' : '');
+        return '<span class="fomc-voter-name' + (v.vote === 'against' ? ' is-dissent' : '') + '"' + title + '>' + escapeHtml(v.name) + '</span>';
+      }).join('');
+      var missing = Math.max(0, count - voters.length);
+      if (missing) names += '<span class="fomc-voter-name is-pending">' + missing + ' name' + (missing === 1 ? '' : 's') + ' pending</span>';
+      return '<div class="fomc-vote-group is-' + key + '">' +
+        '<div class="fomc-vote-group-label">' + escapeHtml(stanceLabel[key]) + ' <b>' + count + '</b></div>' +
+        '<div class="fomc-vote-names">' + names + '</div>' +
+      '</div>';
+    };
+    var switchLabel = function(key){ return stanceLabel[key] || key; };
+    var rows = meetings.map(function(record, idx){
+      var counts = record.counts || {};
+      var switches = Array.isArray(record.switches) ? record.switches : [];
+      var switchHtml = switches.length
+        ? '<div class="fomc-vote-switches"><b>Changed since prior vote</b>' +
+            switches.map(function(s){
+              return '<span class="fomc-vote-switch"><strong>' + escapeHtml(s.name) + '</strong> ' +
+                escapeHtml(switchLabel(s.from)) + ' &rarr; ' + escapeHtml(switchLabel(s.to)) + '</span>';
+            }).join('') +
+          '</div>'
+        : '<p class="fomc-vote-no-switch">No named rate-stance changes versus each member&rsquo;s prior recorded meeting.</p>';
+      var source = record.sourceUrl
+        ? '<a class="fomc-vote-source" href="' + escapeHtml(record.sourceUrl) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(record.source || 'Federal Reserve source') + ' &rarr;</a>'
+        : '';
+      return '<details class="fomc-vote-meeting"' + (idx === 0 ? ' open' : '') + '>' +
+        '<summary>' +
+          '<span class="fomc-vote-meeting-main"><b>' + escapeHtml(record.label || record.date) + '</b><small>' + escapeHtml(record.decisionLabel || '') + '</small></span>' +
+          '<span class="fomc-vote-mini-counts">' +
+            countChip('hawk', counts) + countChip('hold', counts) + countChip('dove', counts) +
+            ((counts.unknown || 0) ? countChip('unknown', counts) : '') +
+          '</span>' +
+          (switches.length ? '<span class="fomc-vote-switch-badge">' + switches.length + ' changed</span>' : '') +
+        '</summary>' +
+        '<div class="fomc-vote-meeting-body">' +
+          group(record, 'hawk') + group(record, 'hold') + group(record, 'dove') + group(record, 'unknown') +
+          switchHtml +
+          (record.pendingNames ? '<p class="fomc-vote-pending">The official tally is available; individual names will fill in when the Fed publishes them.</p>' : '') +
+          source +
+        '</div>' +
+      '</details>';
+    }).join('');
+    var latestCounts = latest.counts || {};
+    var changedTotal = meetings.reduce(function(sum, record){ return sum + ((record.switches || []).length); }, 0);
+    return '<section class="fomc-vote-panel" aria-label="Official FOMC rate vote map">' +
+      '<div class="fomc-vote-head">' +
+        '<div><span class="fomc-vote-kicker">Official vote map</span><h3>' + escapeHtml(latest.label || latest.date) + ' &middot; ' + escapeHtml(latest.decisionLabel || '') + '</h3></div>' +
+        '<div class="fomc-vote-head-counts">' + countChip('hawk', latestCounts) + countChip('hold', latestCounts) + countChip('dove', latestCounts) + ((latestCounts.unknown || 0) ? countChip('unknown', latestCounts) : '') + '</div>' +
+      '</div>' +
+      '<details class="fomc-vote-history">' +
+        '<summary><span><b>' + meetings.length + '-meeting member history</b><small>Names, dissents, and who changed rate stance</small></span><span>' + changedTotal + ' changes</span></summary>' +
+        '<div class="fomc-vote-history-body">' + rows + '</div>' +
+      '</details>' +
+      '<p class="fomc-vote-method">Official rate choices relative to the adopted action: preferring a <b>higher</b> rate is hawk, backing the adopted rate is <b>aligned</b>, and preferring a <b>lower</b> rate is dove. These are meeting votes, not subjective personality labels. Dot-plot projections are anonymous, so this panel does not guess who owns each dot.</p>' +
+    '</section>';
+  }
+
   function renderFomcWidget(fomc){
     var root = $('fomc-widget');
     if (!root) return;
@@ -25159,7 +25232,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '<summary><span><b>Fed path details</b><small>Two-meeting odds, prediction markets, and the full ' + escapeHtml(detailCount) + ' ladder</small></span><span class="fomc-details-action">' + (fomcLiveState.detailsOpen ? 'Hide' : 'Inspect') + '</span></summary>' +
       '<div class="fomc-details-body">' + meetingBlocks + ladder + legend + '</div>' +
     '</details>';
-    root.innerHTML = header + headlineHtml + details;
+    root.innerHTML = header + headlineHtml + renderFomcVoteMap(fomc.voteHistory) + details;
     var detailEl = root.querySelector('.fomc-details');
     if (detailEl) detailEl.addEventListener('toggle', function(){
       fomcLiveState.detailsOpen = detailEl.open;

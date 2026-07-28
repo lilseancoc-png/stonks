@@ -10358,6 +10358,160 @@ body.cal-rc-open { overflow: hidden; }
 .fomc-hl-key b { font-size: 13px; color: var(--text); }
 .fomc-hl-key.cut b { color: var(--pos); }
 .fomc-hl-key.hike b { color: var(--neg); }
+.fomc-vote-panel {
+  padding: 11px 13px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-3);
+  background: var(--surface);
+}
+.fomc-vote-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+.fomc-vote-kicker {
+  display: block;
+  margin-bottom: 3px;
+  font: 700 10px/1 var(--font-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--accent-strong);
+}
+.fomc-vote-head h3 { margin: 0; font: 700 14px/1.25 var(--font-serif); color: var(--text-strong); }
+.fomc-vote-head-counts, .fomc-vote-mini-counts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.fomc-vote-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 4px 7px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  color: var(--muted);
+  font: 600 11px/1 var(--font-mono);
+  white-space: nowrap;
+}
+.fomc-vote-count b { font: inherit; }
+.fomc-vote-count.is-hawk { color: var(--neg); background: color-mix(in srgb, var(--neg) 8%, var(--surface)); }
+.fomc-vote-count.is-hold { color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--surface)); }
+.fomc-vote-count.is-dove { color: var(--pos); background: color-mix(in srgb, var(--pos) 8%, var(--surface)); }
+.fomc-vote-history {
+  margin-top: 10px;
+  border-top: 1px solid var(--hairline);
+  padding-top: 7px;
+}
+.fomc-vote-history > summary {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  list-style: none;
+  cursor: pointer;
+}
+.fomc-vote-history > summary::-webkit-details-marker,
+.fomc-vote-meeting > summary::-webkit-details-marker { display: none; }
+.fomc-vote-history > summary > span:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.fomc-vote-history > summary b { font: 700 12px/1.2 var(--font-sans); color: var(--text); }
+.fomc-vote-history > summary small { font: 500 11px/1.3 var(--font-sans); color: var(--muted); }
+.fomc-vote-history > summary > span:last-child {
+  flex: none;
+  font: 700 10px/1 var(--font-mono);
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--accent-strong);
+}
+.fomc-vote-history-body { display: grid; gap: 7px; padding-top: 7px; }
+.fomc-vote-meeting {
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+}
+.fomc-vote-meeting > summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  list-style: none;
+  cursor: pointer;
+}
+.fomc-vote-meeting-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
+  margin-right: auto;
+}
+.fomc-vote-meeting-main b { font: 700 12px/1.2 var(--font-sans); color: var(--text); }
+.fomc-vote-meeting-main small { font: 600 10px/1.2 var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.fomc-vote-mini-counts .fomc-vote-count { padding: 3px 6px; font-size: 10px; }
+.fomc-vote-switch-badge {
+  flex: none;
+  padding: 3px 6px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent-strong);
+  font: 700 10px/1 var(--font-mono);
+  white-space: nowrap;
+}
+.fomc-vote-meeting-body {
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+  border-top: 1px solid var(--hairline);
+  background: var(--surface);
+  border-radius: 0 0 var(--r-2) var(--r-2);
+}
+.fomc-vote-group { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 8px; align-items: start; }
+.fomc-vote-group-label {
+  padding-top: 3px;
+  font: 700 10px/1.2 var(--font-mono);
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.fomc-vote-group.is-hawk .fomc-vote-group-label { color: var(--neg); }
+.fomc-vote-group.is-hold .fomc-vote-group-label { color: var(--warn); }
+.fomc-vote-group.is-dove .fomc-vote-group-label { color: var(--pos); }
+.fomc-vote-names { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.fomc-voter-name {
+  padding: 3px 6px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.2;
+}
+.fomc-voter-name.is-dissent { border-style: dashed; font-weight: 650; }
+.fomc-voter-name.is-pending { color: var(--muted); font-style: italic; }
+.fomc-vote-switches { display: flex; flex-wrap: wrap; gap: 5px; padding-top: 7px; border-top: 1px solid var(--hairline); }
+.fomc-vote-switches > b { width: 100%; font: 700 10px/1 var(--font-mono); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.fomc-vote-switch {
+  padding: 4px 7px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface-2));
+  color: var(--text);
+  font-size: 11px;
+}
+.fomc-vote-no-switch, .fomc-vote-pending { margin: 0; font-size: 11px; line-height: 1.4; color: var(--muted); }
+.fomc-vote-source { width: max-content; max-width: 100%; color: var(--accent-strong); font: 600 11px/1.3 var(--font-sans); text-decoration: none; }
+.fomc-vote-source:hover { text-decoration: underline; }
+.fomc-vote-method { margin: 9px 0 0; font-size: 11px; line-height: 1.45; color: var(--muted); }
+.fomc-vote-method b { color: var(--text); }
 .fomc-details {
   border-top: 1px solid var(--hairline);
   padding-top: var(--s-2);
@@ -16855,6 +17009,13 @@ body.tape-axm-open { overflow: hidden; }
   .cal-focus-head { align-items: flex-start; flex-direction: column; gap: 4px; }
   .cal-focus .cal-day { grid-template-columns: minmax(0, 1fr); }
   .fomc-widget { padding: 10px; gap: var(--s-2); }
+  .fomc-vote-panel { padding: 10px; }
+  .fomc-vote-head { align-items: flex-start; }
+  .fomc-vote-head-counts { width: 100%; }
+  .fomc-vote-meeting > summary { align-items: flex-start; flex-wrap: wrap; }
+  .fomc-vote-meeting-main { width: 100%; }
+  .fomc-vote-mini-counts { flex: 1 1 auto; }
+  .fomc-vote-group { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .fomc-details > summary small { max-width: 240px; }
   /* Month grid: tighten cells and collapse the per-day markers to colored dots
      so 7 columns fit a phone. Tapping a day opens its full events below. */

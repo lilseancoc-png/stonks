@@ -7991,6 +7991,7 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
   const fomcMeetings = extras?.fomcMeetings || [];
   const fedRate = extras?.fedRate || null;
   const fedwatch = extras?.fedwatch || null;
+  const fomcVoteHistory = extras?.fomcVoteHistory || extras?.priorCalendar?.fomc?.voteHistory || null;
   // Prediction-market overlay (Kalshi + Polymarket): { fomc, reports }. FOMC
   // odds ride along in fomc.predictionMarkets; macro readings attach to their
   // report rows below by "<subtype>|<date>" key. Absent → calendar unchanged.
@@ -8161,6 +8162,9 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
       effectiveRate: fedRate,
       meetings: fomcMeetings,
       probabilities: fedwatch || {},
+      // Named, official rate votes from FOMC statements/minutes. This is a
+      // meeting-action map (raise/hold/lower), not a subjective ideology score.
+      voteHistory: fomcVoteHistory,
       // Prediction-market cross-check on the futures-implied probabilities
       // above — hike/hold/cut per meeting from Kalshi + Polymarket, each with a
       // `divergence` (vs the futures math), `thin` (low-liquidity) flag, and a
@@ -11603,6 +11607,292 @@ export function mergeFomcMeetings(live, baseline) {
   for (const m of baseline) byDate.set(m.date, m);
   for (const m of live) byDate.set(m.date, m); // live wins on conflicts
   return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// === Official FOMC vote map ==========================================
+// "Hawkish" and "dovish" are often subjective labels. This feed avoids that
+// problem by comparing each named member's official RATE CHOICE with the action
+// the Committee adopted: higher = hawk, adopted = aligned, lower = dove. It does
+// not infer ideology from speeches or attach names to the anonymous SEP dot plot.
+//
+// Statements usually publish the named vote immediately. If the Fed ships only
+// a numeric tally (as it did in June 2026), the minutes page becomes the named
+// source once released. Prior complete records are carried forward so the daily
+// bake normally fetches only the newest or still-pending meeting.
+const FOMC_VOTE_HISTORY_LIMIT = 8;
+
+function fedHtmlToText(html) {
+  return String(html || "")
+    .replace(/<script\b[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;|&#160;/gi, " ")
+    .replace(/&ndash;|&#8211;|&#x2013;/gi, "–")
+    .replace(/&mdash;|&#8212;|&#x2014;/gi, "—")
+    .replace(/&frac14;|&#188;|&#xBC;/gi, "1/4")
+    .replace(/&frac12;|&#189;|&#xBD;/gi, "1/2")
+    .replace(/&frac34;|&#190;|&#xBE;/gi, "3/4")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function splitFomcVoterNames(raw) {
+  let text = String(raw || "")
+    .trim()
+    .replace(/\.$/, "")
+    .replace(/,\s*(Chairman|Chair|Vice Chair)\b/gi, "")
+    .trim();
+  if (!text || /^none$/i.test(text)) return [];
+  const parts = text.includes(";")
+    ? text.split(/\s*;\s*/)
+    : text.replace(/,\s+and\s+/gi, ", ").replace(/\s+and\s+/gi, ", ").split(/\s*,\s*/);
+  return [...new Set(parts
+    .map((name) => name.replace(/^(?:and\s+)/i, "").replace(/\s+/g, " ").trim())
+    .filter((name) => name && !/^(?:none|chair|vice chair)$/i.test(name)))];
+}
+
+function fomcMoveBps(action, text) {
+  if (action === "maintain") return 0;
+  const amount = String(text || "").match(/\b(?:by\s+)?(\d+(?:\.\d+)?|\d+\/\d+)\s+percentage point/i);
+  let bps = 25;
+  if (amount) {
+    const token = amount[1];
+    if (token.includes("/")) {
+      const [a, b] = token.split("/").map(Number);
+      if (Number.isFinite(a) && Number.isFinite(b) && b) bps = Math.round((a / b) * 100);
+    } else if (Number.isFinite(Number(token))) {
+      bps = Math.round(Number(token) * 100);
+    }
+  }
+  return action === "raise" ? bps : -bps;
+}
+
+function fomcPreferenceStance(preference, committeeDeltaBps) {
+  const text = String(preference || "").toLowerCase();
+  let action = null;
+  if (/\b(lower|reduce|reduction|cut)\b/.test(text)) action = "lower";
+  else if (/\b(raise|increase|higher|hike)\b/.test(text)) action = "raise";
+  else if (/\b(no change|maintain|maintaining|unchanged)\b/.test(text)) action = "maintain";
+  if (!action) return "unknown";
+  const preferredDeltaBps = fomcMoveBps(action, text);
+  if (preferredDeltaBps > committeeDeltaBps) return "hawk";
+  if (preferredDeltaBps < committeeDeltaBps) return "dove";
+  return "hold";
+}
+
+function fomcActionLabel(action, sentence) {
+  if (action === "maintain") return "Hold";
+  const amount = String(sentence || "").match(/\bby\s+(\d+(?:\.\d+)?|\d+\/\d+)\s+percentage point/i);
+  let bps = null;
+  if (amount) {
+    const token = amount[1];
+    if (token.includes("/")) {
+      const [a, b] = token.split("/").map(Number);
+      if (Number.isFinite(a) && Number.isFinite(b) && b) bps = Math.round((a / b) * 100);
+    } else if (Number.isFinite(Number(token))) {
+      bps = Math.round(Number(token) * 100);
+    }
+  }
+  const word = action === "raise" ? "hike" : "cut";
+  return bps ? `${bps} bp ${word}` : (action === "raise" ? "Hike" : "Cut");
+}
+
+function parseFomcAgainstVoters(body, committeeDeltaBps) {
+  const text = String(body || "").replace(/\.$/, "").trim();
+  if (!text || /^none$/i.test(text)) return [];
+  // A statement can contain multiple preference groups:
+  // "Miran, who preferred a 50bp cut, and Schmid, who preferred no change"
+  // or "...; and Goolsbee and Schmid, who preferred no change".
+  const semicolonParts = text.split(/;\s*(?:and\s+)?(?=[A-Z])/g);
+  const clauseParts = [];
+  for (const semicolonPart of semicolonParts) {
+    let rest = semicolonPart;
+    while (true) {
+      const next = rest.match(/,\s+and\s+(?=[A-Z][^,;]+,\s+who\b)/);
+      // Split ", and NAME, who..." only when the prefix already contains its
+      // own "who" clause. In "Beth, Neel, and Lorie, who..." all three names
+      // share one preference and must stay together.
+      if (!next || !/,\s+who\b/i.test(rest.slice(0, next.index))) break;
+      clauseParts.push(rest.slice(0, next.index));
+      rest = rest.slice(next.index + next[0].length);
+    }
+    clauseParts.push(rest);
+  }
+  const out = [];
+  for (const partRaw of clauseParts) {
+    const part = partRaw.trim();
+    const match = part.match(/^(.+?),\s+who\s+(.+)$/i);
+    const namesRaw = match ? match[1] : part;
+    const preference = match ? match[2].trim() : "";
+    const stance = preference ? fomcPreferenceStance(preference, committeeDeltaBps) : "unknown";
+    for (const name of splitFomcVoterNames(namesRaw)) {
+      out.push({
+        name,
+        stance,
+        vote: "against",
+        ...(preference ? { preference } : {}),
+      });
+    }
+  }
+  return out;
+}
+
+export function parseFomcVoteRecord(html, meeting, sourceUrl = "") {
+  const text = fedHtmlToText(html);
+  const decisionMatch = text.match(/Committee decided to\s+(maintain|lower|raise)\b([^.]*)\./i)
+    || text.match(/all members agreed to\s+(maintain|lower|raise)\b([^.]*)\./i);
+  if (!decisionMatch) return null;
+  const action = decisionMatch[1].toLowerCase();
+  const decisionSentence = decisionMatch[0];
+  const committeeDeltaBps = fomcMoveBps(action, decisionSentence);
+  const forMatch = text.match(/Voting for (?:the monetary policy action were|this action\s*:)\s*([\s\S]+?)(?=Voting against|Absent and not voting|For media inquiries|Implementation Note|Consistent with|It was agreed|Attendance|$)/i);
+  const againstMatch = text.match(/Voting against (?:this|the) action(?:\s*:|\s+was|\s+were)\s*([\s\S]+?)(?=Absent and not voting|For media inquiries|Implementation Note|Consistent with|It was agreed|Attendance|$)/i);
+  const forNames = splitFomcVoterNames(forMatch?.[1] || "");
+  const voters = forNames.map((name) => ({ name, stance: "hold", vote: "for" }));
+  let againstBody = againstMatch?.[1] || "";
+  // Some minutes put names in one sentence and the shared rate preference in
+  // the next ("X and Y. X and Y preferred to lower..."). Collapse that into
+  // the same "names, who preferred..." shape as the statement parser.
+  if (/\/fomcminutes/i.test(sourceUrl) && againstBody && !/,\s+who\b/i.test(againstBody)) {
+    const preferenceSentence = againstBody.match(/\b(preferred|supported)\b([\s\S]*?)(?:at this meeting|\.)(?:\s|$)/i);
+    if (preferenceSentence && preferenceSentence.index != null) {
+      // Find the first real sentence break before "preferred/supported".
+      // Middle initials end in an uppercase letter ("I.") and are excluded.
+      const beforePreference = againstBody.slice(0, preferenceSentence.index);
+      const boundaryMatch = beforePreference.match(/[a-z]\.\s+(?=[A-Z])/);
+      if (boundaryMatch && boundaryMatch.index != null) {
+        const sentenceBreak = boundaryMatch.index + 2;
+        const namesSentence = againstBody.slice(0, sentenceBreak - 1);
+        againstBody = `${namesSentence}, who ${preferenceSentence[1]}${preferenceSentence[2]} at this meeting`;
+      }
+    }
+  }
+  voters.push(...parseFomcAgainstVoters(againstBody, committeeDeltaBps));
+
+  const tallyMatch = text.match(/(?:by\s+)?(\d+)\s*[–—-]\s*(\d+)\s+vote/i);
+  const tallyFor = tallyMatch ? Number(tallyMatch[1]) : null;
+  const tallyAgainst = tallyMatch ? Number(tallyMatch[2]) : null;
+  if (!voters.length && tallyFor == null) return null;
+
+  const counts = { hawk: 0, hold: 0, dove: 0, unknown: 0 };
+  for (const voter of voters) {
+    if (Object.hasOwn(counts, voter.stance)) counts[voter.stance]++;
+    else counts.unknown++;
+  }
+  const namedFor = voters.filter((v) => v.vote === "for").length;
+  const namedAgainst = voters.filter((v) => v.vote === "against").length;
+  if (tallyFor != null && tallyFor > namedFor) counts.hold += tallyFor - namedFor;
+  if (tallyAgainst != null && tallyAgainst > namedAgainst) counts.unknown += tallyAgainst - namedAgainst;
+  const total = counts.hawk + counts.hold + counts.dove + counts.unknown;
+
+  return {
+    date: meeting?.date || "",
+    label: meeting?.label || meeting?.date || "",
+    decision: action,
+    decisionLabel: fomcActionLabel(action, decisionSentence),
+    counts,
+    voters,
+    total,
+    pendingNames: voters.length < total,
+    source: /\/fomcminutes/i.test(sourceUrl) ? "Federal Reserve minutes" : "Federal Reserve statement",
+    sourceUrl,
+  };
+}
+
+function addFomcVoteSwitches(records) {
+  const previousByName = new Map();
+  const chronological = [...records].sort((a, b) => a.date.localeCompare(b.date));
+  for (const record of chronological) {
+    record.switches = [];
+    for (const voter of record.voters || []) {
+      if (!["hawk", "hold", "dove"].includes(voter.stance)) continue;
+      const previous = previousByName.get(voter.name);
+      if (previous && previous.stance !== voter.stance) {
+        record.switches.push({
+          name: voter.name,
+          from: previous.stance,
+          to: voter.stance,
+          fromDate: previous.date,
+        });
+      }
+      previousByName.set(voter.name, { stance: voter.stance, date: record.date });
+    }
+  }
+  return chronological.sort((a, b) => b.date.localeCompare(a.date));
+}
+
+async function fetchFedPage(url) {
+  const res = await fetch(url, {
+    headers: {
+      "user-agent": "Mozilla/5.0 (compatible; StonksCalendar/1.0; +https://www.federalreserve.gov/)",
+      accept: "text/html,*/*",
+    },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) return null;
+  return res.text();
+}
+
+async function fetchFomcVoteRecord(meeting) {
+  const compact = String(meeting.date || "").replace(/-/g, "");
+  if (!/^\d{8}$/.test(compact)) return null;
+  const statementUrl = `https://www.federalreserve.gov/newsevents/pressreleases/monetary${compact}a.htm`;
+  const minutesUrl = `https://www.federalreserve.gov/monetarypolicy/fomcminutes${compact}.htm`;
+  const [statementResult, minutesResult] = await Promise.allSettled([
+    fetchFedPage(statementUrl),
+    fetchFedPage(minutesUrl),
+  ]);
+  let statement = null;
+  let minutes = null;
+  if (statementResult.status === "fulfilled" && statementResult.value) {
+    statement = parseFomcVoteRecord(statementResult.value, meeting, statementUrl);
+  }
+  if (minutesResult.status === "fulfilled" && minutesResult.value) {
+    minutes = parseFomcVoteRecord(minutesResult.value, meeting, minutesUrl);
+  }
+  // Statements are concise and carry explicit preference clauses, so they are
+  // the primary source whenever they name the full vote. Minutes win only when
+  // a shortened statement published a numeric tally without names.
+  if (statement && statement.voters.length && !statement.pendingNames) return statement;
+  if (minutes && minutes.voters.length >= (statement?.voters?.length || 0)) return minutes;
+  return statement || minutes || null;
+}
+
+export async function fetchFomcVoteHistory(meetings, priorHistory = null, nowMs = Date.now()) {
+  const todayIso = new Date(nowMs).toISOString().slice(0, 10);
+  const eligible = [...(meetings || [])]
+    .filter((meeting) => meeting?.date && meeting.date <= todayIso)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    // One extra preserves a full eight-row history on decision morning before
+    // that day's statement exists, and supplies the prior stance for the oldest
+    // displayed meeting once the new record lands.
+    .slice(-(FOMC_VOTE_HISTORY_LIMIT + 1));
+  const priorByDate = new Map(
+    (priorHistory?.meetings || []).filter((row) => row?.date).map((row) => [row.date, row]),
+  );
+  const records = await Promise.all(eligible.map(async (meeting) => {
+    const prior = priorByDate.get(meeting.date);
+    if (prior && Array.isArray(prior.voters) && prior.voters.length && !prior.pendingNames) {
+      return { ...prior, label: meeting.label || prior.label };
+    }
+    try {
+      return await fetchFomcVoteRecord(meeting) || prior || null;
+    } catch (_) {
+      return prior || null;
+    }
+  }));
+  const complete = addFomcVoteSwitches(records.filter(Boolean)).slice(0, FOMC_VOTE_HISTORY_LIMIT);
+  return {
+    asOf: complete[0]?.date || null,
+    source: "Federal Reserve meeting statements and minutes",
+    methodology: "Named rate votes only: higher than the adopted rate = hawk, adopted rate = aligned, lower = dove.",
+    meetings: complete,
+  };
 }
 
 // === U.S. economic release schedule (deterministic) ==================
@@ -30748,6 +31038,14 @@ async function main() {
     return ms >= todayMs;
   });
   const todayIso = new Date(todayMs).toISOString().slice(0, 10);
+  // Independent of the futures math below, so let the official statement /
+  // minutes fetch run alongside it. Complete prior records are reused and only
+  // the newest or still-unnamed meeting normally reaches the network.
+  const fomcVoteHistoryPromise = fetchFomcVoteHistory(
+    allFomcMeetings,
+    priorCalendar?.fomc?.voteHistory || null,
+    todayMs,
+  ).catch(() => priorCalendar?.fomc?.voteHistory || null);
   // Compute hike/hold/cut probabilities from the front-month ZQ contract
   // for each upcoming meeting. Requires the current effective rate as a
   // pre-meeting anchor — without it we can't separate pre/post-meeting
@@ -30905,6 +31203,7 @@ async function main() {
   } catch (err) {
     console.log(`  ⚠ Quant Lab step failed (non-fatal): ${err.message}`);
   }
+  const fomcVoteHistory = await fomcVoteHistoryPromise;
   const calendarInfo = await writeCalendarFile(chains, trends.macroHeadlines || [], builtAtIso, {
     reportEvents,
     fomcMeetings: upcomingMeetings,
@@ -30915,6 +31214,7 @@ async function main() {
     // the UI now renders a 'Cached · Xd' tag courtesy of the source field.
     fedRate: effectiveFedRate || fedRate,
     fedwatch,
+    fomcVoteHistory,
     sessionMap,
     priorCalendar,
   });

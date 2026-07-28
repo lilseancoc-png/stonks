@@ -80,6 +80,12 @@ async function main() {
   // matching build.mjs.
   const liveFomc = await build.fetchFomcSchedule();
   const allFomcMeetings = build.mergeFomcMeetings(liveFomc, build.FOMC_MEETINGS_BASELINE);
+  const priorCalendar = await build.readPriorCalendar();
+  const fomcVoteHistoryPromise = build.fetchFomcVoteHistory(
+    allFomcMeetings,
+    priorCalendar?.fomc?.voteHistory || null,
+    todayMs,
+  ).catch(() => priorCalendar?.fomc?.voteHistory || null);
   const upcomingMeetings = allFomcMeetings.filter((m) => {
     const ms = Date.UTC(
       Number(m.date.slice(0, 4)),
@@ -163,13 +169,16 @@ async function main() {
     if (Array.isArray(trends.macroHeadlines)) macroHeadlines = trends.macroHeadlines;
   } catch (_) { /* no trends.json yet — ok */ }
 
+  const fomcVoteHistory = await fomcVoteHistoryPromise;
   const info = await build.writeCalendarFile(chains, macroHeadlines, new Date().toISOString(), {
     reportEvents,
     fomcMeetings: upcomingMeetings,
     fedRate: effectiveFedRate ?? fedRate,
     fedwatch,
+    fomcVoteHistory,
     sessionMap,
     predictionMarkets,
+    priorCalendar,
   });
   console.log(`wrote data/calendar.json — ${info.count} events, ${info.bytes} bytes`);
 }

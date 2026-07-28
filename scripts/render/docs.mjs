@@ -1219,11 +1219,11 @@ export const DOC_PAGES = {
             <li><b>Tickers</b> — chains, technicals, Greeks, IV term structure, AI news takes</li>
             <li><b>News desk</b> — straight headlines ranked by likely impact, active tape and source corroboration</li>
             <li><b>Compare companies</b> — overlay 2–4 price histories, then compare valuation, growth, margins and grade</li>
-            <li><b>Calendar</b> — earnings, macro prints, FOMC + FedWatch odds</li>
+            <li><b>Calendar</b> — earnings, macro prints, FOMC + FedWatch odds, and the official member vote map</li>
             <li><b>Earnings tracker</b> — season scoreboard: beats, guidance, expected moves, drift</li>
             <li><b>Market heatmap</b> — live map by performance or relative volume</li>
-            <li><b>Macro</b> — Overnight markets, Fear &amp; Greed, Bonds &amp; USD, 13F filings, Commodities, IPOs &amp; credit, Capital raises</li>
-            <li><b>Alt data</b> — AI buildout spending, the RAM / memory pricing cycle, and daily Google Trends search-interest signals</li>
+            <li><b>Macro</b> — Overnight markets, Fear &amp; Greed, Bonds &amp; USD, Commodities, IPOs &amp; credit, Capital raises</li>
+            <li><b>Alt data</b> — SEC ownership filings, AI buildout spending, the RAM / memory pricing cycle, and daily Google Trends search-interest signals</li>
             <li><b>Narratives</b> — AI theses driving capital, longs/shorts, lifecycle</li>
             <li><b>Earnings calls</b> — AI briefs covering guidance, tone and Q&amp;A</li>
             <li><b>Index calendar</b> — daily SPY/QQQ/IWM and cross-asset closes by month</li>

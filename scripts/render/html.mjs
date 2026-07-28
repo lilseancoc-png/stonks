@@ -423,7 +423,7 @@ function calendarSection() {
       <button type="button" class="card-jump" id="calendar-idxcal-link" title="Open the Index calendar — daily SPY/QQQ/IWM/&hellip; moves, month by month">Index calendar &rarr;</button>
       <span class="card-eyebrow" id="calendar-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote("What's on this calendar?", `<p>A month-at-a-time view of every dated market event, opening on the <b>current month</b> — use <b>&lsaquo;</b> / <b>&rsaquo;</b> to step between months (or <b>Today</b> to jump back), and tap any day to see its full details below the grid. It tracks: confirmed earnings dates (with AM/PM session tagging) for every curated ticker, ticker-specific catalysts (FDA dates, contract decisions, product launches, court rulings, investor days — extracted from recent news), structured economic-report releases (NFP, Unemployment, JOLTS, CPI, PPI) with Actual / Previous / Consensus values, upcoming FOMC meetings, and the current effective Fed Funds rate plus CME FedWatch hike/hold/cut probabilities at four lookbacks. Ticker chips are clickable.</p>`)}
+    ${infoNote("What's on this calendar?", `<p>A month-at-a-time view of every dated market event, opening on the <b>current month</b> — use <b>&lsaquo;</b> / <b>&rsaquo;</b> to step between months (or <b>Today</b> to jump back), and tap any day to see its full details below the grid. It tracks: confirmed earnings dates (with AM/PM session tagging) for every curated ticker, ticker-specific catalysts (FDA dates, contract decisions, product launches, court rulings, investor days — extracted from recent news), structured economic-report releases (NFP, Unemployment, JOLTS, CPI, PPI) with Actual / Previous / Consensus values, upcoming FOMC meetings, the current effective Fed Funds rate plus CME FedWatch hike/hold/cut probabilities at four lookbacks, and an official meeting-by-meeting rate-vote map showing hawks, aligned voters, doves, and member stance changes. Ticker chips are clickable.</p>`)}
     <div id="calendar-briefing" class="cal-briefing" hidden aria-live="polite"></div>
     <div id="calendar-overview" class="cal-overview" hidden></div>
     <div id="fomc-widget" class="fomc-widget" hidden></div>
@@ -1688,6 +1688,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       ${sideNavItem('ai-capex', 'AI CapEx')}
       ${sideNavItem('ram-prices', 'RAM prices')}
       ${sideNavItem('search-interest', 'Search interest')}
+      ${sideNavItem('f13', 'SEC ownership')}
     </div>
   </details>
   <details class="side-nav-group" data-nav-group="research">
@@ -1695,7 +1696,6 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <div class="side-nav-group-items">
       ${sideNavItem('tickers', 'Tickers')}
       ${sideNavItem('narratives', 'Narratives')}
-      ${sideNavItem('f13', 'SEC ownership')}
     </div>
   </details>
   <details class="side-nav-group" data-nav-group="quant" data-role-group="quant" hidden>
