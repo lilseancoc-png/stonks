@@ -1089,7 +1089,7 @@ Regime changes badges and ordering but never hides results.
 ### Screens
 
 - **Confluence:** joins unusual flow, abnormal volume, fresh streak, and rising IV; at least two source families and generally three qualified signals, with directional lean only when all agree.
-- **Sigma:** 20-day price and return z-scores plus expected-move cones; earnings cone uses about `0.85 × straddle`.
+- **Sigma:** only absolute 3-sigma 20-day price or daily-return deviations ship, alongside expected-move cones; the earnings cone uses about `0.85 × straddle`.
 - **Volatility risk premium:** ATM IV minus realized 30-day volatility, with z-score/percentile after at least 60 observations.
 - **Pairs:** same-industry candidates, 120-day correlation at least 0.60, log-price OLS over about 252 days, Engle–Granger/ADF threshold around `-3.34`, positive hedge beta, z-score, half-life, beta drift, stability, and factor-match checks.
 - **Surface:** ATM 90D minus ATM 30D term slope and 25-delta put-call skew, standardized after sufficient history and marked for earnings context.

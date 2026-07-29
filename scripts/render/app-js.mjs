@@ -20154,13 +20154,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     html += '<div class="quant-sub" id="quant-sigma">Sigma deviations — names at a statistical extreme</div>';
     var priZ20 = (d.sigma && d.sigma.priZ20) || null;
     if (priZ20 != null){
-      html += '<div class="quant-note">The <b>extreme</b> badge marks names past the regime-adjusted bar (±' + priZ20 + 'σ Bollinger or ±' + (d.sigma.priRetZ || 2) + 'σ daily return this build' + (reg && reg.thresholds && reg.thresholds.sigma && reg.thresholds.sigma.raised ? ' — raised: mean-reversion fades are weakest in strong trends / crisis vol' : '') + '). Un-badged rows are context, not extremes.</div>';
+      html += '<div class="quant-note">The <b>extreme</b> badge marks names at a fixed ±' + priZ20 + 'σ Bollinger deviation or ±' + (d.sigma.priRetZ || 3) + 'σ daily return. The bar stays strict in every market regime.</div>';
     }
     if (!sigmaRows.length){
-      html += '<p class="quant-none">Nothing at ±' + ((d.sigma && d.sigma.showZ) || 1.5) + 'σ right now — the tape is inside its bands.</p>';
+      html += '<p class="quant-none">Nothing at ±' + ((d.sigma && d.sigma.showZ) || 3) + 'σ right now — the tape is inside its bands.</p>';
     } else {
-      var situationLabel = { overbought: '≥2σ overbought', oversold: '≤−2σ oversold', 'sigma-move-up': '2σ up move', 'sigma-move-down': '2σ down move', 'stretched-up': 'stretched high', 'stretched-down': 'stretched low' };
-      html += '<div class="quant-scroll"><table class="quant-tbl"><thead><tr><th>Name</th><th>Situation</th><th>Px</th><th>20d z</th><th>2σ band</th><th>1d move</th><th>HV20</th><th>RV30</th><th>RSI</th><th>IV %ile</th><th>Expected move (1σ)</th></tr></thead><tbody>';
+      var situationLabel = { overbought: '≥3σ overbought', oversold: '≤−3σ oversold', 'sigma-move-up': '3σ up move', 'sigma-move-down': '3σ down move', 'stretched-up': 'stretched high', 'stretched-down': 'stretched low' };
+      html += '<div class="quant-scroll"><table class="quant-tbl"><thead><tr><th>Name</th><th>Situation</th><th>Px</th><th>20d z</th><th>3σ band</th><th>1d move</th><th>HV20</th><th>RV30</th><th>RSI</th><th>IV %ile</th><th>Expected move (1σ)</th></tr></thead><tbody>';
       sigmaRows.slice(0, 40).forEach(function(r){
         var sit = situationLabel[r.situation] || r.situation || '—';
         var sitCls = /oversold|down/.test(r.situation || '') ? 'quant-sit-neg' : 'quant-sit-pos';

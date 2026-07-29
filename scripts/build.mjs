@@ -4457,9 +4457,9 @@ async function writeIvTrendingFile(ivHistory, chains) {
 const QUANT_FILE = "quant.json";
 const QUANT_HISTORY_FILE = "quant-history.json";
 const QUANT_HISTORY_MAX_DAYS = 500;
-// Sigma screen: ship rows from ±1.5σ (context) — the classic extreme flag is ±2σ.
-const QUANT_SIGMA_SHOW_Z = 1.5;
-const QUANT_SIGMA_RET_Z = 2;
+// Sigma screen: ship only genuine ±3σ price or return deviations.
+const QUANT_SIGMA_SHOW_Z = 3;
+const QUANT_SIGMA_RET_Z = 3;
 // Pairs: candidates pair only WITHIN an industry group (singleton industries
 // fall back to their fine SECTORS label) and must clear a return-correlation
 // gate — no all-vs-all dredging across 138 names.
@@ -4503,15 +4503,12 @@ const QUANT_REGIME_TREND_WIN = 60; // sessions for the trend/range read
 const QUANT_REGIME_TREND_ER = 0.35; // efficiency-ratio bar for "trending"
 const QUANT_REGIME_EARN_DAYS = 14; // calendar days for the earnings-heavy count
 const QUANT_REGIME_EARN_FRAC = 0.2; // ≥20% of universe reporting = "heavy"
-// Per-regime badge bars. Base = the fixed bars the screens always used; the
-// conditioning rows encode the classic adjustments: mean-reversion flags
-// demand MORE sigma in strong trends / high-crisis vol (stretched keeps
-// stretching), VRP "rich" needs a higher z when high vol makes a fat premium
-// normal, and the pair-spread "stretched" read widens in high vol (spreads
-// are mechanically noisier) / tightens in calm range-bound tape.
-const QUANT_SIGMA_PRI_Z20 = 2; // priority bar, calm/range regimes
-const QUANT_SIGMA_PRI_Z20_TREND = 2.5; // …in strong trend or high/crisis vol
-const QUANT_SIGMA_PRI_RETZ = 2;
+// Per-regime badge bars. The single-name sigma screen stays fixed at 3σ in
+// every regime; VRP and pair-spread bars still adapt because their baselines
+// change materially with the volatility/trend state.
+const QUANT_SIGMA_PRI_Z20 = 3;
+const QUANT_SIGMA_PRI_Z20_TREND = 3;
+const QUANT_SIGMA_PRI_RETZ = 3;
 const QUANT_SIGMA_PRI_RETZ_TREND = 3;
 const QUANT_VRP_RICH_Z = 1.5; // "rich/cheap" badge bar, normal regimes
 const QUANT_VRP_RICH_Z_HIGHVOL = 2;
@@ -4790,7 +4787,7 @@ export function buildQuantRegime(chains, macroBackdrop = null, builtAtIso = new 
     sigma: {
       z20: volHi || trending ? QUANT_SIGMA_PRI_Z20_TREND : QUANT_SIGMA_PRI_Z20,
       retZ: volHi || trending ? QUANT_SIGMA_PRI_RETZ_TREND : QUANT_SIGMA_PRI_RETZ,
-      raised: volHi || trending,
+      raised: false,
     },
     vrp: { richZ: volHi ? QUANT_VRP_RICH_Z_HIGHVOL : QUANT_VRP_RICH_Z, raised: volHi },
     pairs: {
@@ -4858,13 +4855,8 @@ export function computeSkew25(data) {
 // band convention), yesterday→today return z vs the PRIOR 20 daily log
 // returns (today's outlier must not inflate its own σ), and the IV
 // expected-move cone (k·S·IV·√(days/365), the market's own 1σ/2σ). Only
-// names at/near an extreme ship. Regime conditioning: inclusion bars stay
-// FIXED (rows never hidden by regime), but the `priority` badge — the
-// "read this as a genuine extreme" flag — uses the regime-adjusted bars:
-// in a strong trend or high/crisis vol the Bollinger bar moves 2.0σ→2.5σ
-// and the return bar 2σ→3σ (a literal 3σ Bollinger bar would near-empty
-// the screen — the 20d population-σ z is mathematically bounded ~4.3 and
-// rarely exceeds ~3; the return z genuinely reaches 3–4σ).
+// names at a genuine fixed ±3σ extreme ship; the threshold is deliberately
+// not relaxed in calmer regimes.
 function buildQuantSigma(chains, todayIso, regime = null) {
   const priZ20 = regime?.thresholds?.sigma?.z20 ?? QUANT_SIGMA_PRI_Z20;
   const priRetZ = regime?.thresholds?.sigma?.retZ ?? QUANT_SIGMA_PRI_RETZ;
@@ -4909,8 +4901,8 @@ function buildQuantSigma(chains, todayIso, regime = null) {
       }
     }
     let situation;
-    if (z20 >= 2) situation = "overbought";
-    else if (z20 <= -2) situation = "oversold";
+    if (z20 >= QUANT_SIGMA_SHOW_Z) situation = "overbought";
+    else if (z20 <= -QUANT_SIGMA_SHOW_Z) situation = "oversold";
     else if (retZ != null && retZ >= QUANT_SIGMA_RET_Z) situation = "sigma-move-up";
     else if (retZ != null && retZ <= -QUANT_SIGMA_RET_Z) situation = "sigma-move-down";
     else situation = z20 > 0 ? "stretched-up" : "stretched-down";
@@ -4920,8 +4912,8 @@ function buildQuantSigma(chains, todayIso, regime = null) {
       px: quantRound(last),
       z20: quantRound(z20),
       sma20: quantRound(mean20),
-      bandLo: quantRound(mean20 - 2 * sd20),
-      bandHi: quantRound(mean20 + 2 * sd20),
+      bandLo: quantRound(mean20 - QUANT_SIGMA_SHOW_Z * sd20),
+      bandHi: quantRound(mean20 + QUANT_SIGMA_SHOW_Z * sd20),
       retPct: quantRound((Math.exp(retToday) - 1) * 100),
       retZ: quantRound(retZ),
       hv20: quantVolPts(hv20),
