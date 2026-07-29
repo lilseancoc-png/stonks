@@ -1,12 +1,13 @@
-name: Daily search interest
+name: Weekly search interest
 
 # Refreshes Google Trends relative interest for the tracked ticker universe and
-# the curated Alt-data theme list once per day. SerpApi is used because Google's
-# official Trends API remains alpha-only and the public Explore endpoints block
-# hosted automation. The collector preserves last-good rows on partial failure.
+# the curated Alt-data theme list once per week. The free-tier workflow spends
+# at most 40 SerpApi requests per run (200 in a five-Monday month), leaving room
+# for one manual recovery run under the 250-request monthly allowance. Related
+# queries are disabled; the core 90-day timelines and change rankings remain.
 on:
   schedule:
-    - cron: "17 11 * * *"
+    - cron: "17 11 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -45,7 +46,9 @@ jobs:
         env:
           SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
           SEARCH_TRENDS_GEO: "US"
+          SEARCH_TRENDS_RELATED: "0"
           SEARCH_TRENDS_RELATED_CONCURRENCY: "4"
+          SEARCH_TRENDS_MAX_REQUESTS: "40"
         run: node scripts/refresh-search-interest.mjs
 
       - name: Push search-interest data to private store

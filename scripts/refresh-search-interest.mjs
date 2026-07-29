@@ -15,7 +15,9 @@
 //   SEARCH_TRENDS_GEO=US
 //   SEARCH_TRENDS_LIMIT=0              # 0 = the whole current universe
 //   SEARCH_TRENDS_RELATED_LIMIT=0      # 0 = related queries for every row
+//   SEARCH_TRENDS_RELATED=1            # 0 = skip all related-query requests
 //   SEARCH_TRENDS_RELATED_CONCURRENCY=4
+//   SEARCH_TRENDS_MAX_REQUESTS=40      # hard outbound cap; 0 = unlimited
 
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -94,7 +96,17 @@ async function mapLimit(items, limit, fn) {
   return results;
 }
 
-async function fetchSerpApi(params, apiKey, attempts = 3) {
+export function useRequestBudget(budget) {
+  if (!budget) return;
+  if (budget.limit > 0 && budget.used >= budget.limit) {
+    const error = new Error(`SerpApi request budget exhausted (${budget.used}/${budget.limit})`);
+    error.code = "REQUEST_BUDGET_EXHAUSTED";
+    throw error;
+  }
+  budget.used++;
+}
+
+async function fetchSerpApi(params, apiKey, attempts = 3, requestBudget = null) {
   const url = new URL("https://serpapi.com/search.json");
   const query = {
     engine: "google_trends",
@@ -109,6 +121,7 @@ async function fetchSerpApi(params, apiKey, attempts = 3) {
   }
   let lastError = null;
   for (let attempt = 0; attempt < attempts; attempt++) {
+    useRequestBudget(requestBudget);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 45_000);
     try {
@@ -229,6 +242,10 @@ async function main() {
   const apiKey = String(process.env.SERPAPI_KEY || "").trim();
   if (!apiKey) throw new Error("SERPAPI_KEY is required; existing search-interest.json was left untouched");
 
+  const requestBudget = {
+    limit: envInt("SEARCH_TRENDS_MAX_REQUESTS", 40),
+    used: 0,
+  };
   const prior = await readPrior();
   const priorById = new Map((Array.isArray(prior.rows) ? prior.rows : []).map((row) => [row.id, row]));
   const tickerLimit = envInt("SEARCH_TRENDS_LIMIT", 0);
@@ -256,7 +273,12 @@ async function main() {
     const batch = interestBatches[i];
     try {
       const queries = [...batch.map((item) => item.query), SEARCH_INTEREST_ANCHOR];
-      const payload = await fetchSerpApi({ q: queries.join(","), date: dateRange, data_type: "TIMESERIES" }, apiKey);
+      const payload = await fetchSerpApi(
+        { q: queries.join(","), date: dateRange, data_type: "TIMESERIES" },
+        apiKey,
+        3,
+        requestBudget,
+      );
       const anchorHistory = timelineSeries(payload, SEARCH_INTEREST_ANCHOR);
       for (const item of batch) {
         const history = timelineSeries(payload, item.query);
@@ -296,6 +318,7 @@ async function main() {
     throw new Error(`No Google Trends interest data returned (${errors[0] || "unknown error"}); output was not written`);
   }
 
+  const relatedEnabled = String(process.env.SEARCH_TRENDS_RELATED || "1").trim() !== "0";
   const relatedLimit = envInt("SEARCH_TRENDS_RELATED_LIMIT", 0);
   const relatedCandidates = items.slice().sort((a, b) => {
     if (a.type !== b.type) return a.type === "theme" ? -1 : 1;
@@ -303,12 +326,21 @@ async function main() {
     const bPrior = Date.parse(priorById.get(b.id)?.relatedUpdatedAtIso || 0);
     return aPrior - bPrior;
   });
-  const relatedItems = relatedLimit > 0 ? relatedCandidates.slice(0, relatedLimit) : relatedCandidates;
+  const relatedItems = !relatedEnabled
+    ? []
+    : relatedLimit > 0
+      ? relatedCandidates.slice(0, relatedLimit)
+      : relatedCandidates;
   const relatedConcurrency = clamp(envInt("SEARCH_TRENDS_RELATED_CONCURRENCY", 4), 1, 8);
   let freshRelated = 0;
   await mapLimit(relatedItems, relatedConcurrency, async (item, index) => {
     try {
-      const payload = await fetchSerpApi({ q: item.query, date: dateRange, data_type: "RELATED_QUERIES" }, apiKey);
+      const payload = await fetchSerpApi(
+        { q: item.query, date: dateRange, data_type: "RELATED_QUERIES" },
+        apiKey,
+        3,
+        requestBudget,
+      );
       const row = rowsById.get(item.id);
       if (!row) return;
       row.topQueries = relatedRows(payload?.related_queries?.top, false);
@@ -340,6 +372,9 @@ async function main() {
       state: errors.length ? "partial" : "ok",
       freshInterest,
       freshRelated,
+      relatedEnabled,
+      requestsUsed: requestBudget.used,
+      requestLimit: requestBudget.limit,
       errors: errors.slice(0, 20),
     },
     summary: buildSearchInterestSummary(rows),
