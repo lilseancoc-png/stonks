@@ -12688,7 +12688,18 @@ export function buildMacroReleaseReads(reportEvents, todayIso, lookbackDays = MA
       (consensus ? ` vs consensus ${consensus}` : "") +
       (previous ? `, prior ${previous}` : "") +
       (read ? ` — ${read}` : "");
-    out.push({ subtype: ev.subtype || null, title: ev.title, date, actual, consensus, previous, surprise, read, line });
+    out.push({
+      subtype: ev.subtype || null,
+      title: ev.title,
+      date,
+      actual,
+      consensus,
+      previous,
+      surprise,
+      read,
+      line,
+      source: ev.source || null,
+    });
   }
   // Newest first; today's prints lead.
   out.sort((x, y) => y.date.localeCompare(x.date));
@@ -25606,8 +25617,9 @@ function classifyAiError(err, attempt, model = null) {
 // (read-before-wipe in main()).
 const BRIEFS_FILE = "briefs.json";
 // Free, lazy-loaded cross-universe news desk. Unlike briefs.json, this ships
-// only source headline metadata + deterministic triage labels; no premium
-// brief prose, unusual-flow signal, or Top-Picks data crosses into it.
+// only source headline metadata, structured public macro releases, and
+// deterministic triage labels; no premium brief prose, unusual-flow signal,
+// or Top-Picks data crosses into it.
 const NEWS_FEED_FILE = "news-feed.json";
 let _newsFeedHeadlineRows = [];
 
@@ -25655,10 +25667,11 @@ export async function readPriorNewsFeed() {
   return null;
 }
 
-export async function writeNewsFeedFile({ prior, builtAtIso, chains, marketHeadlines }) {
+export async function writeNewsFeedFile({ prior, builtAtIso, chains, marketHeadlines, macroReleases }) {
   const payload = buildNewsFeedPayload({
     tickerHeadlines: _newsFeedHeadlineRows,
     marketHeadlines,
+    macroReleases,
     chains,
     sectors: SECTORS,
     priorItems: prior?.items || [],
@@ -31740,7 +31753,8 @@ async function main() {
   }
   // Straight-news desk — compact, FREE and lazy-loaded. It aggregates the
   // current raw per-ticker RSS/Google results (captured before judgment-cache
-  // reuse) with the same market-wide press slate that feeds Briefs. Impact is
+  // reuse), the same market-wide press slate that feeds Briefs, and the
+  // calendar's published actual-vs-consensus macro prints. Impact is
   // deterministic; article bodies and premium brief interpretation never ship.
   try {
     const ni = await writeNewsFeedFile({
@@ -31748,8 +31762,9 @@ async function main() {
       builtAtIso,
       chains,
       marketHeadlines: trends.macroHeadlines || [],
+      macroReleases: macroReleaseReads,
     });
-    console.log(`wrote data/${NEWS_FEED_FILE} — ${ni.total} stories (${ni.high} high impact, ${ni.activeTape} active tape), ${ni.bytes} bytes`);
+    console.log(`wrote data/${NEWS_FEED_FILE} — ${ni.total} stories (${ni.macro} macro, ${ni.high} high impact, ${ni.activeTape} active tape), ${ni.bytes} bytes`);
   } catch (err) {
     console.warn(`[news] feed skipped — ${String(err?.message || err).split("\n")[0]}`);
   }

@@ -521,23 +521,24 @@ function briefSection() {
 
 function newsFeedSection() {
   // Compact, free triage queue from data/news-feed.json. The feed is built
-  // from current raw per-ticker headlines plus the market-wide press slate
-  // behind Briefs; it intentionally excludes premium brief prose and signals.
+  // from current raw per-ticker headlines, published economic prints, and the
+  // market-wide press slate behind Briefs; it excludes premium prose/signals.
   return `<section class="card" id="news-feed-section">
     <header class="card-header">
       <h2 class="card-title">News desk</h2>
       <span class="card-eyebrow" id="news-feed-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">Straight headlines for every covered stock, plus the market-wide press slate behind Briefs. Stories are ranked by likely materiality and active tape, with direction kept separate. Priority is a deterministic triage estimate &mdash; not a prediction that the headline caused the move.</p>
-    ${infoNote('How news priority works', `<p><b>High impact</b> surfaces hard events such as earnings or guidance, M&amp;A, approvals, court actions, capital raises, recalls, breaches and major contracts. <b>Notable</b> catches analyst actions, launches, restructuring and fast-moving market context; everything else stays <b>Context</b>. Freshness, source quality and corroboration can move a story up. The green / red direction chip is read only from that story&rsquo;s wording and remains <b>Unclear</b> when the headline does not support a clean inference. Colors always carry a text label.</p><p><b>Active tape</b> means a related ticker is moving materially or trading unusually heavy at the same time; it does <em>not</em> prove the headline caused that move. Use it as a verification queue: open the source, confirm the event is new, then check whether price and volume agree with the stated direction. Carried-forward context is labeled, unconfirmed stories are labeled, and exact duplicate links are collapsed in the displayed results without removing distinct coverage of the same event.</p>`) }
+    <p class="hint">Straight headlines for every covered stock plus a dedicated macro lane for Fed, inflation, labor, growth, policy and energy news. Published economic releases include actual, consensus and prior values. Stories are ranked by likely materiality and active tape, with evidence kept separate from market direction.</p>
+    ${infoNote('How news priority works', `<p><b>High impact</b> surfaces hard company events plus major inflation, labor, Fed and policy catalysts. <b>Notable</b> catches analyst actions, launches, restructuring, growth data and fast-moving market context; everything else stays <b>Context</b>. Freshness, source quality and corroboration can move a story up. For articles, the green / red direction chip is read only from the headline wording. For a published economic print it stays <b>Unclear</b>, because hotter, cooler, stronger or weaker data is factual evidence &mdash; not a universal bullish or bearish verdict.</p><p><b>Active tape</b> means a related ticker or broad index is moving materially or trading unusually heavy at the same time; it does <em>not</em> prove the headline caused that move. Use it as a verification queue: open the source, confirm the event is new, then check whether price and volume agree. Carried-forward context is labeled, unconfirmed stories are labeled, and exact duplicate links are collapsed without removing distinct coverage of the same event.</p>`) }
     <div id="news-feed-summary" class="news-feed-summary" aria-live="polite"></div>
     <div class="news-feed-toolbar" role="search" aria-label="Filter news">
       <label class="news-feed-search-wrap">
         <span class="sr-only">Search headlines, tickers, or publishers</span>
-        <input type="search" id="news-feed-search" class="news-feed-search" placeholder="Search ticker, headline, source&hellip;" autocomplete="off" />
+        <input type="search" id="news-feed-search" class="news-feed-search" placeholder="Search ticker, macro topic, source&hellip;" autocomplete="off" />
       </label>
       <div class="news-impact-filter" role="group" aria-label="News triage view">
         <button type="button" class="news-filter-chip is-active" data-news-view="" aria-pressed="true">All</button>
+        <button type="button" class="news-filter-chip" data-news-view="macro" aria-pressed="false">Macro</button>
         <button type="button" class="news-filter-chip" data-news-view="active" aria-pressed="false">Active tape</button>
         <button type="button" class="news-filter-chip" data-news-view="high" aria-pressed="false">High impact</button>
         <button type="button" class="news-filter-chip" data-news-view="notable" aria-pressed="false">Notable+</button>
@@ -552,7 +553,7 @@ function newsFeedSection() {
     <details class="news-more-filters" id="news-more-filters">
       <summary>More filters <span id="news-filter-count" class="news-filter-count" hidden></span></summary>
       <div class="news-more-grid">
-        <label><span>Scope</span><select id="news-feed-scope"><option value="">Stocks + market</option><option value="company">Covered stocks</option><option value="market">Market-wide</option></select></label>
+        <label><span>Desk</span><select id="news-feed-scope"><option value="">Stocks + macro + market</option><option value="company">Covered stocks</option><option value="macro">Macro economy</option><option value="market">Market pulse</option></select></label>
         <label><span>Direction</span><select id="news-feed-direction"><option value="">Any direction</option><option value="positive">Favorable</option><option value="negative">Adverse</option><option value="mixed">Mixed</option><option value="unclear">Unclear</option></select></label>
         <label><span>Sector</span><select id="news-feed-sector"><option value="">All sectors</option></select></label>
         <label><span>Category</span><select id="news-feed-category"><option value="">All categories</option></select></label>
@@ -1776,14 +1777,14 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           <div class="landing-card-sub" id="land-sub-brief">market digest</div>
           <p class="landing-card-desc">An hourly read on what's interesting — the overnight setup, the session's movers, notable flow, what's next.</p>
         </button>
-        <button type="button" class="landing-card" data-go="news" aria-label="Open the stock news desk">
+        <button type="button" class="landing-card" data-go="news" aria-label="Open the stock and macro news desk">
           <header class="landing-card-head">
             <span class="landing-card-eyebrow">News desk</span>
             <span class="landing-card-arrow" aria-hidden="true">&rarr;</span>
           </header>
           <div class="landing-card-stat" id="land-stat-news">Ranked</div>
           <div class="landing-card-sub" id="land-sub-news">market-moving headlines</div>
-          <p class="landing-card-desc">Straight news across every covered stock, color-coded by likely impact with the active tape alongside it.</p>
+          <p class="landing-card-desc">Straight stock and macro news, ranked by likely impact with published economic prints and the active tape alongside it.</p>
         </button>
         <button type="button" class="landing-card" data-go="picks" aria-label="View top picks">
           <header class="landing-card-head">

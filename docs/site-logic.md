@@ -738,9 +738,9 @@ The ticker watchlist ranks concrete events: fresh earnings/guidance, unusual flo
 
 ### News
 
-The news desk is deterministic triage over public headlines:
+The news desk is deterministic triage over public stock and macro headlines:
 
-- category base scores put earnings/M&A, regulatory/clinical, risk, and financing above routine company coverage;
+- category base scores put earnings/M&A, regulatory/clinical, risk, financing, inflation, Fed/rates, and labor above routine coverage;
 - recency contributes up to 20 points;
 - source quality contributes up to 10;
 - multiple independent sources contribute up to 8;
@@ -748,7 +748,9 @@ The news desk is deterministic triage over public headlines:
 - rumors, clickbait, and stale/undated items are penalized;
 - observed market reaction can add weight.
 
-High impact begins at 70; Notable at 45. Undated items cannot be labeled High. Direction is a separate lexical read, so importance and bullish/bearish implication are not conflated. The feed keeps seven days, caps at 500 rows, validates links, and carries prior valid coverage through temporary source failures.
+High impact begins at 70; Notable at 45. Undated items cannot be labeled High. The macro lane classifies Fed/rates, inflation, labor, growth, policy/trade, and energy/geopolitics separately from generic market coverage. It also imports the calendar's published actual-versus-consensus releases as date-labeled ECON DATA rows and retains each row's BLS, FRED, ISM, or ForexFactory source attribution. Their hotter/cooler/stronger/weaker surprise read is shown as evidence while the directional chip remains Unclear, because one print is not universally bullish or bearish for risk assets.
+
+The feed keeps seven days, caps at 500 rows, validates links, and carries prior valid coverage through temporary source failures. The UI can isolate Macro, covered stocks, or general market pulse without creating a separate news surface.
 
 ## 12. Event workflows
 

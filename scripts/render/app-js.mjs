@@ -23480,8 +23480,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
 
   // ── News desk (free cross-universe headline triage) ─────────────────────
   // data/news-feed.json is assembled from the CURRENT raw ticker-headline
-  // fetch (before AI judgment-cache reuse) plus the market-wide press slate
-  // behind Briefs. Impact and direction are deliberately independent.
+  // fetch (before AI judgment-cache reuse), published actual-vs-consensus macro
+  // prints, and the market-wide press slate behind Briefs. Impact and
+  // direction are deliberately independent.
   var newsFeedState = {
     data: null, loading: false, error: false, bound: false, optionsReady: false,
     limit: 0,
@@ -23515,6 +23516,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return isNaN(t) ? null : Math.max(0, (Date.now() - t) / 3600000);
   }
   function newsFeedTimeAgo(item){
+    if (item && item.dateOnly && item.publishedAt){
+      var day = new Date(item.publishedAt);
+      return isNaN(day.getTime()) ? 'date unavailable' : day.toLocaleDateString(undefined, { month:'short', day:'numeric' });
+    }
     var h = newsFeedAgeHours(item);
     if (h == null) return 'time unavailable';
     if (h < 1) return Math.max(1, Math.round(h * 60)) + 'm';
@@ -23537,6 +23542,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
   function newsFeedDirectionLabel(v){
     return v === 'positive' ? 'Favorable' : v === 'negative' ? 'Adverse' : v === 'mixed' ? 'Mixed' : 'Unclear';
+  }
+  function newsFeedDesk(item){
+    return item && item.desk ? item.desk : (item && item.scope === 'company' ? 'company' : 'market');
   }
   function populateNewsFeedOptions(){
     if (newsFeedState.optionsReady || !newsFeedState.data) return;
@@ -23608,9 +23616,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var q = String(f.q || '').trim().toLowerCase();
     var out = (newsFeedState.data && Array.isArray(newsFeedState.data.items) ? newsFeedState.data.items : []).filter(function(item){
       if (f.view === 'active' && !(item.reaction && item.reaction.active && item.impact !== 'context')) return false;
+      if (f.view === 'macro' && newsFeedDesk(item) !== 'macro') return false;
       if (f.view === 'high' && item.impact !== 'high') return false;
       if (f.view === 'notable' && item.impact !== 'high' && item.impact !== 'notable') return false;
-      if (f.scope && item.scope !== f.scope) return false;
+      if (f.scope && newsFeedDesk(item) !== f.scope) return false;
       if (f.direction && item.direction !== f.direction) return false;
       if (f.sector && (item.sectors || []).indexOf(f.sector) < 0) return false;
       if (f.category && item.category !== f.category) return false;
@@ -23618,7 +23627,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (age != null && age > Number(f.age || 168)) return false;
       if (age == null && Number(f.age || 168) < 168) return false;
       if (q){
-        var hay = [item.title, item.publisher, item.categoryLabel].concat(item.symbols || [], item.sectors || [], item.sources || []).join(' ').toLowerCase();
+        var hay = [item.title, item.publisher, item.categoryLabel, item.macroRead, newsFeedDesk(item)].concat(item.symbols || [], item.sectors || [], item.sources || []).join(' ').toLowerCase();
         if (hay.indexOf(q) < 0) return false;
       }
       return true;
@@ -23654,7 +23663,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       return '<a class="news-feed-sym" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '" title="Open ' + escapeHtml(sym) + ' in Grade">' + escapeHtml(sym) + '</a>';
     }).join('');
     if ((item.symbols || []).length > 6) symbols += '<span class="news-feed-related">+' + ((item.symbols || []).length - 6) + '</span>';
-    if (!symbols) symbols = '<span class="news-feed-market">MARKET</span>';
+    if (!symbols){
+      var desk = newsFeedDesk(item);
+      var deskLabel = item.economicRelease ? 'ECON DATA' : desk === 'macro' ? 'MACRO' : 'MARKET';
+      symbols = '<span class="' + (desk === 'macro' ? 'news-feed-macro' : 'news-feed-market') + '">' + deskLabel + '</span>';
+    }
     var sources = Array.isArray(item.sources) ? item.sources : [];
     var sourceMeta = item.publisher ? escapeHtml(item.publisher) : 'Source unavailable';
     if (sources.length > 1) sourceMeta += ' <span class="news-feed-related">+' + (sources.length - 1) + ' source' + (sources.length === 2 ? '' : 's') + '</span>';
@@ -23672,10 +23685,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       reaction = '<span class="news-feed-reaction ' + rc + '" title="Active tape">Tape · ' + escapeHtml(item.reaction.symbol || '') +
         (mv ? ' ' + escapeHtml(mv) : '') + (isFinite(rv) && rv > 0 ? ' · ' + rv.toFixed(1) + '×' : '') + '</span>';
     }
+    var macroRead = item.macroRead
+      ? '<span class="news-macro-read surprise-' + escapeHtml(item.surprise || 'none') + '">' + escapeHtml(item.macroRead) + '</span>'
+      : '';
     return '<article class="news-feed-item impact-' + escapeHtml(impact) + ' direction-' + escapeHtml(direction) + '">' +
       '<div class="news-feed-item-top">' +
         '<span class="news-impact-badge">' + escapeHtml(newsFeedImpactLabel(impact)) + '</span>' +
         '<span class="news-direction-badge">' + escapeHtml(newsFeedDirectionLabel(direction)) + '</span>' +
+        macroRead +
         reaction +
         (item.unconfirmed ? '<span class="news-unconfirmed">Unconfirmed</span>' : '') +
         (item.carried ? '<span class="news-carried">Carried forward</span>' : '') +
@@ -23716,7 +23733,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var fresh24 = all.filter(function(i){ var age = newsFeedAgeHours(i); return age != null && age <= 24; });
     var high24 = fresh24.filter(function(i){ return i.impact === 'high'; });
     var active24 = fresh24.filter(function(i){ return i.reaction && i.reaction.active && i.impact !== 'context'; });
-    var market24 = fresh24.filter(function(i){ return i.scope === 'market'; });
+    var macro24 = fresh24.filter(function(i){ return newsFeedDesk(i) === 'macro'; });
     var favorable24 = high24.filter(function(i){ return i.direction === 'positive'; }).length;
     var adverse24 = high24.filter(function(i){ return i.direction === 'negative'; }).length;
     var unclear24 = high24.filter(function(i){ return i.direction === 'unclear' || !i.direction; }).length;
@@ -23747,7 +23764,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<div><b>' + high24.length + '</b><span>high impact · 24h</span></div>' +
           '<div><b>' + active24.length + '</b><span>active tape · 24h</span><small>price/volume coincidence</small></div>' +
           '<div><b>' + favorable24 + ' / ' + adverse24 + '</b><span>favorable / adverse</span><small>high-impact only</small></div>' +
-          '<div><b>' + market24.length + '</b><span>market-wide · 24h</span></div>' +
+          '<div><b>' + macro24.length + '</b><span>macro catalysts · 24h</span><small>news plus official prints</small></div>' +
         '</div>' +
         '<div class="news-posture-triggers">' +
           '<div><span>Follow-through</span><b>corroborated source plus price and volume confirming the same direction</b></div>' +
@@ -23763,7 +23780,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     var landStat = $('land-stat-news'), landSub = $('land-sub-news');
     if (landStat) landStat.textContent = all.length ? String(all.length) : 'Ranked';
-    if (landSub && all.length) landSub.textContent = 'headlines · ' + high + ' high impact';
+    if (landSub && all.length){
+      var macroTotal = all.filter(function(i){ return newsFeedDesk(i) === 'macro'; }).length;
+      landSub.textContent = macroTotal + ' macro · ' + high + ' high impact';
+    }
   }
 
   var overnightState = { data: null, loading: false };

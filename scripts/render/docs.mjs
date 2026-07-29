@@ -1217,7 +1217,7 @@ export const DOC_PAGES = {
           <ul class="cmp-list">
             <li><b>Grade a ticker</b> — AI chart-pattern read + technicals, fundamentals, IV, news + a contract grader</li>
             <li><b>Tickers</b> — chains, technicals, Greeks, IV term structure, AI news takes</li>
-            <li><b>News desk</b> — straight headlines ranked by likely impact, active tape and source corroboration</li>
+            <li><b>News desk</b> — stock and macro headlines, published economic prints, impact ranking and active-tape context</li>
             <li><b>Compare companies</b> — overlay 2–4 price histories, then compare valuation, growth, margins and grade</li>
             <li><b>Calendar</b> — earnings, macro prints, FOMC + FedWatch odds, and the official member vote map</li>
             <li><b>Earnings tracker</b> — season scoreboard: beats, guidance, expected moves, drift</li>
@@ -1281,7 +1281,7 @@ export const DOC_PAGES = {
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">News desk</span><span class="tier free">Free</span></div>
-          <p class="feat-desc">A linked headline queue across every covered stock plus the market-wide press slate behind Briefs. Deterministic high-impact / notable / context ranking keeps likely materiality separate from favorable or adverse wording, adds corroborating publishers and active-tape context, and never claims the headline caused the move.</p>
+          <p class="feat-desc">A linked queue across every covered stock plus a dedicated macro lane for Fed, inflation, labor, growth, policy and energy news. Published economic prints show actual, consensus and prior values with their source; deterministic impact ranking, factual surprise reads and active-tape context stay separate from causal claims.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Compare companies</span><span class="tier free">Free</span></div>
