@@ -45,6 +45,7 @@ jobs:
       - name: Refresh Google Trends search interest
         env:
           SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
+          SEARCH_TRENDS_CADENCE: "weekly"
           SEARCH_TRENDS_GEO: "US"
           SEARCH_TRENDS_RELATED: "0"
           SEARCH_TRENDS_RELATED_CONCURRENCY: "4"

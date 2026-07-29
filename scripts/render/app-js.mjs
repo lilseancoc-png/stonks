@@ -18069,14 +18069,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (eye) eye.textContent = 'Unavailable | no signal';
       root.innerHTML = '<section class="si-empty-desk"><span>Attention desk</span><h3>' +
         (d.loadError ? 'The search-interest snapshot could not be loaded' : 'No search-interest snapshot is available yet') +
-        '</h3><p>Do not infer public participation from missing data. The next successful daily Trends refresh will restore ticker, theme and related-query coverage.</p></section>';
+        '</h3><p>Do not infer public participation from missing data. The next successful weekly Trends refresh will restore ticker and theme coverage.</p></section>';
       return;
     }
     if (empty) empty.hidden = true;
     var status = d.status || {}, summary = d.summary || {};
+    var relatedEnabled = status.relatedEnabled !== false;
+    var weeklyCadence = !!(d.source && d.source.cadence === 'weekly') || !relatedEnabled;
     var ageMs = Date.now() - Date.parse(d.builtAtIso || 0);
-    var staleBuild = !isFinite(ageMs) || ageMs > 48 * 3600000;
-    if (eye) eye.textContent = (staleBuild ? 'Reference only' : (status.state === 'partial' ? 'Partial refresh' : 'Daily refresh')) +
+    var staleBuild = !isFinite(ageMs) || ageMs > (weeklyCadence ? 9 * 24 : 48) * 3600000;
+    var cadenceLabel = weeklyCadence ? 'Weekly refresh' : 'Daily refresh';
+    if (eye) eye.textContent = (staleBuild ? 'Reference only' : (status.state === 'partial' ? 'Partial refresh' : cadenceLabel)) +
       ' | ' + rows.length + ' signals' + (d.builtAtIso ? ' | ' + String(d.builtAtIso).slice(0,10) : '');
 
     var tickers = rows.filter(function(row){ return row.type === 'ticker'; });
@@ -18102,11 +18105,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<div><small>Fastest ticker | 7d</small><b>' + (topTicker ? escapeHtml(topTicker.symbol || topTicker.label) : '&mdash;') + '</b><strong class="si-' + siTone(topTicker && topTicker.change7d) + '">' + siPct(topTicker && topTicker.change7d) + '</strong></div>' +
         '<div><small>Fastest theme | 7d</small><b>' + (topTheme ? escapeHtml(topTheme.label) : '&mdash;') + '</b><strong class="si-' + siTone(topTheme && topTheme.change7d) + '">' + siPct(topTheme && topTheme.change7d) + '</strong></div>' +
         '<div><small>Ticker breadth</small><b>' + risingTickers + ' surging</b><strong>' + fallingTickers + ' cooling</strong></div>' +
-        '<div><small>Breakout queries</small><b>' + breakoutCount + '</b><strong>&gt;5,000% growth</strong></div>' +
+        (relatedEnabled ? '<div><small>Breakout queries</small><b>' + breakoutCount + '</b><strong>&gt;5,000% growth</strong></div>' : '') +
       '</div><p class="si-source">Relative interest is calibrated to the shared <b>' + escapeHtml((d.source && d.source.anchor) || 'stock market') +
-      '</b> anchor. It measures attention, not absolute searches or directional intent.</p></section>';
+      '</b> anchor. It measures attention, not absolute searches or directional intent.' +
+      (relatedEnabled ? '' : ' Related-query lookups are disabled to stay within the free API tier.') + '</p></section>';
 
     var mode = searchInterestState.mode || 'movers';
+    if (!relatedEnabled && mode === 'breakouts'){ mode = 'movers'; searchInterestState.mode = mode; }
     var query = String(searchInterestState.search || '').trim().toLowerCase();
     var filtered = rows.filter(function(row){
       if (query && (String(row.symbol || '') + ' ' + String(row.label || '') + ' ' + String(row.query || '') + ' ' + String(row.sector || '')).toLowerCase().indexOf(query) < 0) return false;
@@ -18127,7 +18132,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       return '<button type="button" data-si-mode="' + id + '" class="' + (mode === id ? 'is-on' : '') + '">' + label + '</button>';
     }
     var toolbar = '<div class="si-toolbar"><div class="si-filters">' +
-      filterButton('movers','Movers') + filterButton('breakouts','Breakouts') + filterButton('themes','Themes') +
+      filterButton('movers','Movers') + (relatedEnabled ? filterButton('breakouts','Breakouts') : '') + filterButton('themes','Themes') +
       filterButton('tickers','Tickers') + filterButton('all','All') + '</div>' +
       '<input type="search" id="si-search" placeholder="Search ticker, company or theme..." value="' + escapeHtml(searchInterestState.search || '') + '" aria-label="Filter search-interest signals"></div>';
     var cards = shown.map(function(row, cardIndex){
@@ -18141,8 +18146,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<span class="si-' + siTone(row.change7d) + '"><small>7d</small><b>' + siPct(row.change7d) + '</b></span>' +
           '<span class="si-' + siTone(row.change30d) + '"><small>30d</small><b>' + siPct(row.change30d) + '</b></span></div>' +
         siSpark(row.history) + '</summary><div class="si-card-body">' +
-          '<div><h4>Top queries</h4><div class="si-queries">' + siQueryList(row.topQueries, false) + '</div></div>' +
-          '<div><h4>Rising queries</h4><div class="si-queries">' + siQueryList(row.risingQueries, true) + '</div></div>' +
+          (relatedEnabled
+            ? '<div><h4>Top queries</h4><div class="si-queries">' + siQueryList(row.topQueries, false) + '</div></div>' +
+              '<div><h4>Rising queries</h4><div class="si-queries">' + siQueryList(row.risingQueries, true) + '</div></div>'
+            : '<div><h4>Free-tier mode</h4><div class="si-query-empty">Related-query lookups are disabled; timeline and change signals remain current.</div></div>') +
           '<p>Query: &ldquo;' + escapeHtml(row.query || '') + '&rdquo; | through ' + escapeHtml(row.asOf || '-') +
             (row.stale ? ' | <b>carried forward</b>' : '') + '</p></div></details>';
     }).join('');

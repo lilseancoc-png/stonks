@@ -12,6 +12,7 @@
 // Required:
 //   SERPAPI_KEY
 // Optional:
+//   SEARCH_TRENDS_CADENCE=daily        # payload label used by the UI
 //   SEARCH_TRENDS_GEO=US
 //   SEARCH_TRENDS_LIMIT=0              # 0 = the whole current universe
 //   SEARCH_TRENDS_RELATED_LIMIT=0      # 0 = related queries for every row
@@ -362,6 +363,7 @@ async function main() {
     source: {
       name: "Google Trends",
       provider: "SerpApi",
+      cadence: String(process.env.SEARCH_TRENDS_CADENCE || "daily").trim().toLowerCase() || "daily",
       geo: process.env.SEARCH_TRENDS_GEO || "US",
       periodDays: 90,
       anchor: SEARCH_INTEREST_ANCHOR,
