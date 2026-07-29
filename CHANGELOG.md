@@ -20,6 +20,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
        (same format, plus the archive preamble) and add that month to the
        "Older changelogs" index below. -->
 
+## 2026-07-29
+
+### Added
+
+- **Retail chatter becomes a real per-ticker sentiment tracker.** Every successful build now appends Stocktwits' self-tagged bullish/bearish split, net reading, message count and sample time to a rolling history, compares it with the prior sample, and retains a deduped seven-day message feed; source failures carry the last reading as visibly stale without inventing a new point. The Grade tab's News pane adds an interactive sentiment chart, current lean/change read, freshness and sample-size disclosure, and recent public posts. When an active Polymarket event safely matches the company, its public comments join the feed as linked context only—never text-classified or mixed into the directional score. `scripts/build.mjs`, `scripts/render/{app-js,styles-css}.mjs`, `docs/site-logic.md`.
+
 ## 2026-07-28
 
 ### Added

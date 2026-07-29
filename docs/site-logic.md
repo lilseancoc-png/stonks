@@ -152,6 +152,23 @@ ETFs suppress the entire company-fundamentals pillar. A fund does not have corpo
 - industry/sector narrative: up to `±2`, faded as the narrative lifecycle ages;
 - social sentiment: `±1`.
 
+The Grade tab's News pane also carries a per-ticker retail sentiment tracker.
+Stocktwits is the directional source because posters self-tag messages as
+Bullish or Bearish; untagged posts remain visible but do not enter the split.
+Each successful bake appends the directional net, trailing-24-hour message count
+and sample time to a rolling 35-day / 240-point history, then compares the new
+reading with the prior successful sample. Recent message excerpts are deduped
+and retained for seven days. A failed refresh carries the last reading forward
+as stale and does not manufacture a new history point.
+
+Polymarket comments are attached only when an active event safely matches the
+ticker's company. They are displayed as context, linked back to the event, and
+never mixed into the bullish/bearish bar: interpreting a comment's direction
+would require knowing the exact market question and the poster's side. Kalshi
+probabilities remain in Calendar/FedWatch; the tracker does not ingest Kalshi
+comments because no documented public comments endpoint is available to this
+pipeline.
+
 ### Entry timing
 
 The timing model recomputes RSI, MACD, SMA, ATR and volume from one confirmed

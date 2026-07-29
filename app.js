@@ -6511,53 +6511,113 @@
     container.hidden = !(seg.product || seg.geographic);
   }
 
-  function sentimentDot(sent){
+  function sentimentDot(sent, neutralLabel){
     var cls = sent === 'bullish' ? 'bull' : sent === 'bearish' ? 'bear' : 'neu';
-    var label = sent === 'bullish' ? 'Bullish' : sent === 'bearish' ? 'Bearish' : 'Neutral';
+    var label = sent === 'bullish' ? 'Bullish' : sent === 'bearish' ? 'Bearish' : (neutralLabel || 'Context');
     return '<span class="opt-social-ex-tag ' + cls + '" title="' + label + '">' + label + '</span>';
+  }
+  function socialMessageText(value){
+    return String(value == null ? '' : value)
+      .replace(/&#([0-9]+);/g, function(_, n){ return String.fromCodePoint(Number(n)); })
+      .replace(/&#x([0-9a-fA-F]+);/g, function(_, n){ return String.fromCodePoint(parseInt(n, 16)); })
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&apos;/g, "'");
   }
   function renderSocialSourceBlock(name, src, gradingNote){
     if (!src || !src.total) return '';
-    var b = src.bull | 0, r = src.bear | 0, n = src.neutral | 0;
-    var examples = Array.isArray(src.examples) ? src.examples : [];
-    var exHtml = '';
-    if (examples.length){
-      var rows = [];
-      for (var i = 0; i < examples.length; i++){
-        var e = examples[i];
-        // Stocktwits examples carry {user, sentiment, body}. (Legacy Reddit
-        // shapes carried subreddit/score/permalink — those branches were
-        // removed when we dropped Reddit as a source.)
-        var meta = [];
-        if (e.user) meta.push('@' + escapeHtml(String(e.user)));
-        var bodyText = escapeHtml(String(e.body || e.title || ''));
-        rows.push(
-          '<li class="opt-social-example ' + (e.sentiment || 'neutral') + '">' +
-            sentimentDot(e.sentiment) +
-            '<span class="opt-social-ex-body">' + bodyText + '</span>' +
-            (meta.length ? '<span class="opt-social-ex-meta">' + meta.join(' · ') + '</span>' : '') +
-          '</li>'
-        );
-      }
-      exHtml = '<ul class="opt-social-examples">' + rows.join('') + '</ul>';
-    }
-    // Drop the neutral count from the visible label — only directional
-    // (bullish / bearish) posts inform the chatter signal. The total post
-    // count stays so readers see the sample size.
+    var b = src.bull | 0, r = src.bear | 0;
+    var sourceTitle = src.url
+      ? '<a href="' + escapeHtml(String(src.url)) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(name) + '</a>'
+      : escapeHtml(name);
+    var counts = src.contextOnly
+      ? src.total + ' comment' + (src.total === 1 ? '' : 's') + ' sampled · context only'
+      : src.total + ' posts · ' + b + ' bullish · ' + r + ' bearish';
+    var eventTitle = src.contextOnly && src.title
+      ? '<div class="opt-social-source-event">' + escapeHtml(String(src.title)) + '</div>'
+      : '';
     return '<div class="opt-social-source">' +
       '<div class="opt-social-source-head">' +
-        '<span class="opt-social-source-name">' + escapeHtml(name) + '</span>' +
-        '<span class="opt-social-source-counts">' + src.total + ' posts · ' + b + ' bullish · ' + r + ' bearish</span>' +
+        '<span class="opt-social-source-name">' + sourceTitle + '</span>' +
+        '<span class="opt-social-source-counts">' + counts + (src.stale ? ' · stale' : '') + '</span>' +
       '</div>' +
+      eventTitle +
       '<div class="opt-social-source-method">' + escapeHtml(gradingNote) + '</div>' +
-      exHtml +
     '</div>';
+  }
+  function socialHistoryChart(s){
+    var history = (s && Array.isArray(s.history) ? s.history : []).filter(function(p){
+      return p && p.at && p.netPct != null && isFinite(Number(p.netPct));
+    });
+    if (history.length < 2) {
+      return '<div class="opt-social-collecting">History starts with this build. The tracker needs two successful samples before it can show direction.</div>';
+    }
+    var W = 520, H = 112, PX = 10, PY = 12;
+    var points = history.map(function(p, i){
+      var x = PX + (i / Math.max(1, history.length - 1)) * (W - PX * 2);
+      var net = Math.max(-100, Math.min(100, Number(p.netPct)));
+      var y = PY + ((100 - net) / 200) * (H - PY * 2);
+      var d = new Date(p.at);
+      var stamp = isNaN(d.getTime()) ? String(p.at) : d.toLocaleString('en-US', {
+        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+      });
+      return {
+        x: x, y: y, value: net, time: p.at,
+        label: stamp + '\n' + (net >= 0 ? '+' : '') + net.toFixed(0) + ' net bullish · ' + (p.msgCount24h || 0) + ' msgs/24h'
+      };
+    });
+    var path = points.map(function(p, i){ return (i ? 'L' : 'M') + p.x.toFixed(1) + ' ' + p.y.toFixed(1); }).join(' ');
+    var first = history[0], last = history[history.length - 1];
+    var latest = Number(last.netPct);
+    var tone = latest > 5 ? 'bullish' : latest < -5 ? 'bearish' : 'mixed';
+    var periodDays = Math.max(1, Math.round((Date.parse(last.at) - Date.parse(first.at)) / 86400000));
+    return '<div class="opt-social-history ' + tone + '">' +
+      '<div class="opt-social-history-head"><span>' + periodDays + '-day tracked trend</span><span>' +
+        (latest >= 0 ? '+' : '') + latest.toFixed(0) + ' net bullish now</span></div>' +
+      '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="Tracked retail sentiment history"' +
+        chHoverAttr(points) + '>' +
+        '<line class="opt-social-zero" x1="' + PX + '" y1="' + (H / 2) + '" x2="' + (W - PX) + '" y2="' + (H / 2) + '"></line>' +
+        '<path class="opt-social-history-line" d="' + path + '"></path>' +
+      '</svg>' +
+      '<div class="opt-social-history-axis"><span>Bearish</span><span>0</span><span>Bullish</span></div>' +
+    '</div>';
+  }
+  function renderTrackedSocialMessages(s){
+    var messages = s && Array.isArray(s.recentMessages) ? s.recentMessages.slice(0, 12) : [];
+    if (!messages.length) {
+      var st = s && s.sources && s.sources.stocktwits;
+      var pm = s && s.sources && s.sources.polymarket;
+      messages = []
+        .concat(st && Array.isArray(st.examples) ? st.examples.map(function(e){ return Object.assign({ source: 'stocktwits' }, e); }) : [])
+        .concat(pm && Array.isArray(pm.examples) ? pm.examples.map(function(e){ return Object.assign({ source: 'polymarket' }, e); }) : []);
+    }
+    if (!messages.length) return '';
+    var rows = messages.map(function(e){
+      var meta = [];
+      if (e.source) meta.push(e.source === 'stocktwits' ? 'Stocktwits' : e.source === 'polymarket' ? 'Polymarket' : String(e.source));
+      if (e.user) meta.push('@' + String(e.user).replace(/^@/, ''));
+      if (e.createdAt) {
+        var d = new Date(e.createdAt);
+        if (!isNaN(d.getTime())) meta.push(d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }));
+      }
+      if (e.reactions) meta.push(e.reactions + ' reaction' + (Number(e.reactions) === 1 ? '' : 's'));
+      var copy = escapeHtml(socialMessageText(e.body || e.title || ''));
+      var body = e.url
+        ? '<a class="opt-social-ex-body" href="' + escapeHtml(String(e.url)) + '" target="_blank" rel="noopener noreferrer">' + copy + '</a>'
+        : '<span class="opt-social-ex-body">' + copy + '</span>';
+      return '<li class="opt-social-example ' + (e.sentiment || 'neutral') + '">' +
+        sentimentDot(e.sentiment, e.source === 'stocktwits' ? 'Untagged' : 'Context') + body +
+        (meta.length ? '<span class="opt-social-ex-meta">' + escapeHtml(meta.join(' · ')) + '</span>' : '') +
+      '</li>';
+    });
+    return '<details class="opt-social-feed" open><summary>What people are saying <span>' + messages.length + ' recent</span></summary>' +
+      '<ul class="opt-social-examples">' + rows.join('') + '</ul></details>';
   }
   function renderSocialSentiment(){
     var box = $('opt-news-pane');
     if (!box) return null;
     var s = state.social;
-    if (!s || !s.msgCount24h || s.msgCount24h < 5) return '';
+    var sources = s && s.sources ? s.sources : {};
+    if (!s || (!sources.stocktwits && !sources.polymarket)) return '';
     // Re-normalize so the bar shows the directional split only — neutral
     // (untagged) messages don't carry sentiment signal, so they shouldn't
     // get bar real estate. The eyebrow label drops the neutral % too.
@@ -6570,18 +6630,31 @@
       ? (s.msgCount24h / 1000).toFixed(1) + 'k'
       : Math.round(s.msgCount24h).toString();
     var lean = bull > bear + 5 ? 'bullish' : bear > bull + 5 ? 'bearish' : 'mixed';
-    var st = s.sources && s.sources.stocktwits;
+    var hasDirectional = directional > 0 && s.msgCount24h >= 5;
+    var stale = !!(s.stale || s.directionalStale);
+    var change = s.change && isFinite(Number(s.change.deltaPct)) ? Number(s.change.deltaPct) : null;
+    var trendText = change == null ? 'collecting baseline'
+      : Math.abs(change) < 10 ? 'steady vs prior sample'
+      : (change > 0 ? '+' : '') + change.toFixed(0) + ' pts vs prior sample';
+    var st = sources.stocktwits;
     var stBlock = renderSocialSourceBlock('Stocktwits', st, 'Each poster tags their own message Bullish or Bearish; untagged messages are excluded from this split.');
+    var pm = sources.polymarket;
+    var pmBlock = renderSocialSourceBlock('Polymarket', pm, 'Matched event comments are shown as discussion context only. They are not text-classified or mixed into the bullish/bearish bar.');
     return '<div class="opt-social ' + lean + '">' +
       '<div class="opt-social-head">' +
-        '<span class="opt-social-label">Retail chatter</span>' +
-        '<span class="opt-social-stat">' + bull + '% bullish · ' + bear + '% bearish · ' + msgs + ' msgs/24h</span>' +
+        '<span class="opt-social-label">Retail sentiment tracker' + (stale ? ' <span class="opt-social-stale">stale</span>' : '') + '</span>' +
+        '<span class="opt-social-stat">' + (hasDirectional
+          ? bull + '% bullish · ' + bear + '% bearish · ' + msgs + ' msgs/24h'
+          : 'Discussion found · no reliable directional sample') + '</span>' +
       '</div>' +
-      '<div class="opt-social-bar" role="img" aria-label="' + bull + ' percent bullish, ' + bear + ' percent bearish" title="' + bull + '% bullish · ' + bear + '% bearish (' + msgs + ' msgs/24h)">' +
-        '<span class="bull" style="width:' + bull + '%"></span>' +
-        '<span class="bear" style="width:' + bear + '%"></span>' +
-      '</div>' +
-      stBlock +
+      (hasDirectional ? '<div class="opt-social-bar" role="img" aria-label="' + bull + ' percent bullish, ' + bear + ' percent bearish" title="' + bull + '% bullish · ' + bear + '% bearish (' + msgs + ' msgs/24h)">' +
+          '<span class="bull" style="width:' + bull + '%"></span>' +
+          '<span class="bear" style="width:' + bear + '%"></span>' +
+        '</div>' : '') +
+      '<div class="opt-social-read"><span class="opt-social-lean ' + lean + '">' + (hasDirectional ? lean : 'unscored') + '</span><span>' + trendText + '</span><span>Stocktwits sample capped at 30</span></div>' +
+      socialHistoryChart(s) +
+      '<div class="opt-social-source-grid">' + stBlock + pmBlock + '</div>' +
+      renderTrackedSocialMessages(s) +
     '</div>';
   }
 

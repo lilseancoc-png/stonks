@@ -27625,15 +27625,23 @@ function synthesizeFallbackNewsTake(symbol, sector, macroBackdrop, fundamentals,
   };
 }
 
-// --- Retail sentiment (Stocktwits only) -----------------------------------
+// --- Retail sentiment tracker ---------------------------------------------
 // Stocktwits exposes a free unauthenticated stream with self-tagged
-// Bullish/Bearish messages — high signal. Reddit was removed because the
-// keyword-graded approach (regex on r/wallstreetbets titles) produced too
-// much noise to act on. fetchStocktwitsSentiment returns null on any
-// failure so a single bad source never breaks the daily build.
+// Bullish/Bearish messages, so it owns the directional reading. Polymarket
+// comments are attached only when an active event safely matches the company;
+// those comments are context-only because a sentence cannot be called bullish
+// or bearish without also interpreting the market question and the user's
+// position. Reddit was removed because keyword-grading WSB titles produced too
+// much noise to act on. Every source fails soft, and mergeSocialSentiment()
+// carries the last directional reading + rolling history across the data wipe.
 
 const SOCIAL_FETCH_TIMEOUT_MS = 6000;
 const STOCKTWITS_MAX_MESSAGES = 30;
+const POLYMARKET_MAX_COMMENTS = 20;
+const SOCIAL_HISTORY_MAX_POINTS = 240; // ~30 trading days at the 8x bake cadence
+const SOCIAL_HISTORY_MAX_AGE_MS = 35 * 86400000;
+const SOCIAL_RECENT_MESSAGES_MAX = 30;
+const SOCIAL_RECENT_MESSAGES_MAX_AGE_MS = 7 * 86400000;
 
 async function fetchWithTimeout(url, opts = {}, timeoutMs = SOCIAL_FETCH_TIMEOUT_MS) {
   const ctrl = new AbortController();
@@ -27709,7 +27717,7 @@ async function fetchStocktwitsSentiment(symbol) {
       if (bucket.length < 2 && m?.body) {
         bucket.push({
           sentiment,
-          body: truncateText(m.body, 160),
+          body: truncateText(decodeHtmlEntities(m.body), 160),
           user: m?.user?.username || null,
           createdAt: m?.created_at || null,
         });
@@ -27735,20 +27743,208 @@ async function fetchStocktwitsSentiment(symbol) {
   }
 }
 
-async function fetchSocialSentiment(symbol) {
-  const stocktwits = await fetchStocktwitsSentiment(symbol);
-  if (!stocktwits) return null;
-  const { bull, bear, neutral, total, count24h } = stocktwits;
-  if (total === 0) return null;
+function findPolymarketCommentEvent(symbol, companyName, events) {
+  const normName = normalizeCompanyName(companyName);
+  const equityContext = /\b(earnings?|eps|stock|shares?|share price|market cap|revenue|acquir(?:e|es|ed|ing|ition)?|merger|ipo)\b/i;
+  let best = null;
+  for (const event of (Array.isArray(events) ? events : [])) {
+    const commentCount = Number(event?.commentCount) || 0;
+    if (!event || event.closed || event.active === false || event.commentsEnabled === false || commentCount < 1) continue;
+    const rawTitle = String(event.title || "");
+    // Company names such as Target, Unity and Caterpillar are ordinary words.
+    // Require an equity/issuer context before even attempting the name match;
+    // otherwise "Iran target Ukraine" or "U.S. invade" can look like TGT/U.
+    if (!equityContext.test(rawTitle)) continue;
+    const lowerTitle = rawTitle.toLowerCase();
+    const lead = normName.split(" ")[0];
+    const companyMatch = !!(normName && (lowerTitle.includes(normName)
+      || (lead.length >= 4 && new RegExp("\\b" + reEsc(lead) + "\\b").test(lowerTitle))));
+    // Tickers in Polymarket titles are conventionally uppercase. Keep this
+    // check case-sensitive so symbols that are ordinary words (CAT, NOW, V)
+    // cannot attach an unrelated event.
+    const upSymbol = String(symbol || "").toUpperCase();
+    const explicitTicker = !!(upSymbol && (
+      new RegExp("\\(" + reEsc(upSymbol) + "\\)").test(rawTitle)
+      || new RegExp("\\$" + reEsc(upSymbol) + "\\b").test(rawTitle)
+    ));
+    const tickerMatch = explicitTicker || !!(upSymbol.length >= 2
+      && new RegExp("\\b" + reEsc(upSymbol) + "\\b").test(rawTitle));
+    if (!companyMatch && !tickerMatch) continue;
+    const rank = commentCount * 1e9 + (Number(event.volume24hr) || Number(event.volume) || 0);
+    if (!best || rank > best.rank) best = { event, rank };
+  }
+  return best?.event || null;
+}
+
+async function fetchPolymarketComments(symbol, companyName, events) {
+  const event = findPolymarketCommentEvent(symbol, companyName, events);
+  if (!event?.id) return null;
+  try {
+    const qs = new URLSearchParams({
+      limit: String(POLYMARKET_MAX_COMMENTS),
+      parent_entity_type: "Event",
+      parent_entity_id: String(event.id),
+    });
+    const res = await fetchWithTimeout(`${POLYMARKET_GAMMA_BASE}/comments?${qs}`);
+    if (!res.ok) return null;
+    const body = await res.json();
+    const rows = (Array.isArray(body) ? body : [])
+      .filter((row) => row?.body)
+      .sort((a, b) => Date.parse(b?.createdAt || 0) - Date.parse(a?.createdAt || 0));
+    if (!rows.length) return null;
+    const cutoff24h = Date.now() - 24 * 3600 * 1000;
+    const url = event.slug ? `https://polymarket.com/event/${event.slug}` : "https://polymarket.com";
+    return {
+      source: "polymarket",
+      title: truncateText(event.title, 100),
+      url,
+      total: rows.length,
+      count24h: rows.filter((row) => {
+        const ts = Date.parse(row?.createdAt || "");
+        return Number.isFinite(ts) && ts >= cutoff24h;
+      }).length,
+      contextOnly: true,
+      examples: rows.slice(0, 6).map((row) => ({
+        sentiment: "neutral",
+        body: truncateText(decodeHtmlEntities(row.body), 180),
+        user: row?.profile?.name || row?.profile?.pseudonym || null,
+        createdAt: row?.createdAt || null,
+        reactions: Number(row?.reactionCount) || 0,
+        url,
+      })),
+      sampledAt: new Date().toISOString(),
+    };
+  } catch (err) {
+    console.log(`    ⚠ ${symbol} polymarket comments failed: ${err.message}`);
+    return null;
+  }
+}
+
+async function fetchSocialSentiment(symbol, companyName, polymarketEvents = []) {
+  const [stocktwits, polymarket] = await Promise.all([
+    fetchStocktwitsSentiment(symbol),
+    fetchPolymarketComments(symbol, companyName, polymarketEvents),
+  ]);
+  if (!stocktwits && !polymarket) return null;
+  const { bull = 0, bear = 0, neutral = 0, total = 0, count24h = 0 } = stocktwits || {};
   return {
-    bullishPct: (bull / total) * 100,
-    bearishPct: (bear / total) * 100,
-    neutralPct: (neutral / total) * 100,
+    bullishPct: total ? (bull / total) * 100 : 0,
+    bearishPct: total ? (bear / total) * 100 : 0,
+    neutralPct: total ? (neutral / total) * 100 : 0,
     msgCount24h: count24h || 0,
-    trend: "flat",
-    sources: { stocktwits },
+    trend: "new",
+    sources: {
+      ...(stocktwits ? { stocktwits } : {}),
+      ...(polymarket ? { polymarket } : {}),
+    },
     builtAt: new Date().toISOString(),
   };
+}
+
+function socialDirectionalPoint(social, at = null) {
+  const stocktwits = social?.sources?.stocktwits;
+  const bull = Number(stocktwits?.bull) || 0;
+  const bear = Number(stocktwits?.bear) || 0;
+  const directional = bull + bear;
+  if (!directional) return null;
+  const bullishSharePct = (bull / directional) * 100;
+  return {
+    at: at || stocktwits?.sampledAt || social?.builtAt || new Date().toISOString(),
+    bullishSharePct: Number(bullishSharePct.toFixed(1)),
+    netPct: Number((bullishSharePct * 2 - 100).toFixed(1)),
+    directionalCount: directional,
+    msgCount24h: Number(social?.msgCount24h) || 0,
+  };
+}
+
+function socialMessagesFromSources(sources) {
+  const out = [];
+  for (const [source, payload] of Object.entries(sources || {})) {
+    for (const row of (Array.isArray(payload?.examples) ? payload.examples : [])) {
+      if (!row?.body) continue;
+      out.push({ source, ...row });
+    }
+  }
+  return out;
+}
+
+export function mergeSocialSentiment(fresh, prior, nowIso = new Date().toISOString()) {
+  if (!fresh) {
+    return prior ? { ...prior, stale: true, lastAttemptAt: nowIso } : null;
+  }
+
+  // A Polymarket match can succeed while Stocktwits flakes. Preserve the last
+  // self-tagged directional sample in that case, but mark it so the UI never
+  // presents the old percentage as a current reading.
+  const sources = { ...(fresh.sources || {}) };
+  let directionalStale = false;
+  if (!sources.stocktwits && prior?.sources?.stocktwits) {
+    sources.stocktwits = { ...prior.sources.stocktwits, stale: true };
+    directionalStale = true;
+  }
+  const merged = {
+    ...fresh,
+    sources,
+    bullishPct: directionalStale ? Number(prior?.bullishPct) || 0 : fresh.bullishPct,
+    bearishPct: directionalStale ? Number(prior?.bearishPct) || 0 : fresh.bearishPct,
+    neutralPct: directionalStale ? Number(prior?.neutralPct) || 0 : fresh.neutralPct,
+    msgCount24h: directionalStale ? Number(prior?.msgCount24h) || 0 : fresh.msgCount24h,
+    directionalStale,
+    stale: false,
+  };
+
+  const cutoff = Date.parse(nowIso) - SOCIAL_HISTORY_MAX_AGE_MS;
+  const history = (Array.isArray(prior?.history) ? prior.history : [])
+    .filter((point) => Number.isFinite(Date.parse(point?.at || "")) && Date.parse(point.at) >= cutoff)
+    .slice(-SOCIAL_HISTORY_MAX_POINTS);
+  // Migration path: the pre-tracker payload still holds one valid current
+  // Stocktwits sample. Seed it as the baseline so the first upgraded bake can
+  // show a real before/after move instead of discarding that evidence.
+  if (!history.length && prior) {
+    const priorPoint = socialDirectionalPoint(prior);
+    if (priorPoint && Date.parse(priorPoint.at) >= cutoff) history.push(priorPoint);
+  }
+  const point = directionalStale ? null : socialDirectionalPoint(merged, fresh.builtAt || nowIso);
+  if (point) {
+    const sameSample = history.findIndex((row) => row.at === point.at);
+    if (sameSample >= 0) history[sameSample] = point;
+    else history.push(point);
+  }
+  merged.history = history.slice(-SOCIAL_HISTORY_MAX_POINTS);
+
+  const currentPoint = point || socialDirectionalPoint(merged);
+  const previousPoint = currentPoint
+    ? merged.history.slice(0, -1).reverse().find((row) => Number.isFinite(Number(row?.netPct)))
+    : null;
+  const deltaPct = currentPoint && previousPoint
+    ? Number((currentPoint.netPct - Number(previousPoint.netPct)).toFixed(1))
+    : null;
+  merged.trend = deltaPct == null ? "new" : deltaPct >= 10 ? "rising" : deltaPct <= -10 ? "falling" : "flat";
+  merged.change = currentPoint ? {
+    netPct: currentPoint.netPct,
+    deltaPct,
+    previousAt: previousPoint?.at || null,
+  } : null;
+
+  const messageCutoff = Date.parse(nowIso) - SOCIAL_RECENT_MESSAGES_MAX_AGE_MS;
+  const messages = [
+    ...socialMessagesFromSources(fresh.sources),
+    ...socialMessagesFromSources(prior?.sources),
+    ...(Array.isArray(prior?.recentMessages) ? prior.recentMessages : []),
+  ]
+    .filter((row) => {
+      const ts = Date.parse(row?.createdAt || "");
+      return row?.body && (!Number.isFinite(ts) || ts >= messageCutoff);
+    })
+    .sort((a, b) => Date.parse(b?.createdAt || 0) - Date.parse(a?.createdAt || 0));
+  const seen = new Set();
+  merged.recentMessages = messages.filter((row) => {
+    const key = `${row.source || ""}|${row.createdAt || ""}|${row.user || ""}|${row.body}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, SOCIAL_RECENT_MESSAGES_MAX);
+  return merged;
 }
 
 // Constrained-decoder schema for the news-take call. With responseSchema
@@ -29497,13 +29693,34 @@ async function attachChartPatterns(chains, priorCache = {}) {
 
 async function attachSocialSentiment(chains) {
   const entries = Object.entries(chains);
-  console.log(`Fetching retail sentiment (Stocktwits) for ${entries.length} tickers…`);
+  console.log(`Fetching retail sentiment (Stocktwits + matched Polymarket comments) for ${entries.length} tickers…`);
+  const [priorRows, polymarketEvents] = await Promise.all([
+    Promise.all(entries.map(async ([sym]) => {
+      try {
+        const payload = JSON.parse(await readFile(resolve(DATA_DIR, `${sym}.json`), "utf8"));
+        return [sym, payload?.social || null];
+      } catch {
+        return [sym, null];
+      }
+    })),
+    loadPolymarketEvents().catch((err) => {
+      console.log(`  ⚠ Polymarket event pool unavailable for social context: ${err.message}`);
+      return [];
+    }),
+  ]);
+  const priorBySymbol = new Map(priorRows);
   const hb = startHeartbeat("social sentiment", entries.length);
   const tasks = entries.map(([sym, data]) => hb.track(async () => {
-    const social = await fetchSocialSentiment(sym);
+    const socialEvents = SECTORS[sym] === "ETF" ? [] : polymarketEvents;
+    const fresh = await fetchSocialSentiment(sym, data?.fundamentals?.name || "", socialEvents);
+    const social = mergeSocialSentiment(fresh, priorBySymbol.get(sym));
     data.social = social;
-    if (social) {
-      console.log(`  ✓ ${sym} — ${social.bullishPct.toFixed(0)}% bull / ${social.bearishPct.toFixed(0)}% bear (${Math.round(social.msgCount24h)} msgs/24h)`);
+    if (social?.sources?.stocktwits) {
+      const suffix = social.directionalStale || social.stale ? " · stale carry" : "";
+      const poly = social.sources.polymarket ? " · Polymarket comments" : "";
+      console.log(`  ✓ ${sym} — ${social.bullishPct.toFixed(0)}% bull / ${social.bearishPct.toFixed(0)}% bear (${Math.round(social.msgCount24h)} msgs/24h${suffix}${poly})`);
+    } else if (social?.sources?.polymarket) {
+      console.log(`  ✓ ${sym} — Polymarket comments (context only)`);
     }
   }));
   await Promise.all(tasks);
