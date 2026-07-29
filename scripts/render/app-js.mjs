@@ -9005,20 +9005,51 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function bindVolumeCalendarControls(){
     if (volCalState.bound) return;
     var root = $('vol-cal-root');
-    var select = $('vol-cal-symbol');
-    if (!root || !select) return;
+    var input = $('vol-cal-symbol');
+    var list = $('vol-cal-symbol-list');
+    var go = $('vol-cal-symbol-go');
+    var status = $('vol-cal-symbol-status');
+    if (!root || !input || !list || !go) return;
     volCalState.bound = true;
     var syms = SYMBOLS.slice().sort();
-    select.innerHTML = syms.map(function(sym){ return '<option value="' + escapeHtml(sym) + '">' + escapeHtml(sym) + '</option>'; }).join('');
+    list.innerHTML = syms.map(function(sym){ return '<option value="' + escapeHtml(sym) + '"></option>'; }).join('');
     var saved = null;
     try { saved = localStorage.getItem('stonks-vol-cal-symbol'); } catch (_) {}
     volCalState.symbol = saved && syms.indexOf(saved) >= 0 ? saved : (syms.indexOf('AAPL') >= 0 ? 'AAPL' : syms[0] || null);
-    if (volCalState.symbol) select.value = volCalState.symbol;
-    select.addEventListener('change', function(){
+    if (volCalState.symbol) input.value = volCalState.symbol;
+    function clearSearchError(){
+      input.removeAttribute('aria-invalid');
+      if (status) status.textContent = '';
+    }
+    function submitTicker(){
+      var sym = String(input.value || '').trim().toUpperCase();
+      input.value = sym;
+      if (syms.indexOf(sym) < 0){
+        input.setAttribute('aria-invalid', 'true');
+        if (status) status.textContent = sym ? 'Ticker not tracked. Choose a suggested symbol.' : 'Enter a ticker symbol.';
+        return;
+      }
+      clearSearchError();
       volCalState.viewYm = null;
       volCalState.selectedDate = null;
-      loadVolumeCalendar(select.value);
+      loadVolumeCalendar(sym);
+    }
+    input.addEventListener('input', function(){
+      var start = input.selectionStart;
+      input.value = input.value.toUpperCase();
+      if (start != null) input.setSelectionRange(start, start);
+      clearSearchError();
     });
+    input.addEventListener('change', function(){
+      var sym = String(input.value || '').trim().toUpperCase();
+      if (syms.indexOf(sym) >= 0) submitTicker();
+    });
+    input.addEventListener('keydown', function(ev){
+      if (ev.key !== 'Enter') return;
+      ev.preventDefault();
+      submitTicker();
+    });
+    go.addEventListener('click', submitTicker);
     root.addEventListener('click', function(ev){
       if (!ev.target.closest) return;
       var day = ev.target.closest('[data-vol-cal-day]');

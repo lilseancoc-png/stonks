@@ -1023,12 +1023,17 @@ function volumeCalendarSection() {
       </div>
       <span class="card-eyebrow" id="vol-cal-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">Pick a stock, then select a session. Every completed day is compared with the prior 20-session average: green marks above-average participation and blue marks below-average participation. The detail card cross-checks SPY, QQQ, IWM and SMH to show whether the stock led or lagged the tape.</p>
+    <p class="hint">Search for a stock, then select a session. Every completed day is compared with the prior 20-session average: green marks above-average participation and blue marks below-average participation. The detail card cross-checks SPY, QQQ, IWM and SMH to show whether the stock led or lagged the tape.</p>
     ${infoNote('How to read the volume calendar', `<p>The comparison uses the <b>prior 20 completed sessions</b>, excluding the day being judged, so a volume shock cannot inflate its own baseline. Every eligible session is marked above or below average; stronger deviations at <b>&ge;1.30&times;</b> or <b>&le;0.70&times;</b> receive extra emphasis. An in-progress session shows its shares traded but is not classified against a full-day average.</p><p><b>Leader / laggard</b> compares the stock&rsquo;s close-to-close move with the median move of the available SPY, QQQ and IWM benchmarks. A gap of at least 0.50 percentage points is leadership; minus 0.50 points is lagging; smaller gaps are in line. Same-day reputable headlines are shown as a <em>likely catalyst</em>, never asserted as proven cause. If the tracked feed has no dated headline, the summary stays honest and describes only the observable price, volume and index context. Not financial advice.</p>`)}
     <div class="vol-cal-controls" role="toolbar" aria-label="Stock volume calendar controls">
       <label class="vol-cal-symbol-field">
-        <span>Stock</span>
-        <select id="vol-cal-symbol" aria-label="Choose stock for the volume calendar"></select>
+        <span>Ticker</span>
+        <span class="vol-cal-symbol-search">
+          <input id="vol-cal-symbol" type="search" list="vol-cal-symbol-list" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Search ticker" aria-label="Search ticker for the volume calendar" aria-describedby="vol-cal-symbol-status">
+          <datalist id="vol-cal-symbol-list"></datalist>
+          <button type="button" id="vol-cal-symbol-go">View</button>
+        </span>
+        <small id="vol-cal-symbol-status" class="vol-cal-symbol-status" aria-live="polite"></small>
       </label>
       <div class="vol-cal-legend" aria-label="Volume comparison legend">
         <span><i class="is-above"></i>Above 20D avg</span>

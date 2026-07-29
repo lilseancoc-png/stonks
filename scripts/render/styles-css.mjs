@@ -19169,7 +19169,8 @@ html::-webkit-scrollbar-thumb:hover {
   margin-bottom: var(--s-3);
 }
 .vol-cal-symbol-field {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: auto auto;
   align-items: center;
   gap: 9px;
   font: 700 10px/1 var(--font-mono);
@@ -19177,17 +19178,49 @@ html::-webkit-scrollbar-thumb:hover {
   text-transform: uppercase;
   color: var(--muted);
 }
-.vol-cal-symbol-field select {
-  min-width: 126px;
+.vol-cal-symbol-search {
+  display: inline-flex;
+  align-items: stretch;
+}
+.vol-cal-symbol-search input {
+  width: 150px;
   min-height: 38px;
-  padding: 7px 32px 7px 11px;
+  padding: 7px 11px;
   border: 1px solid var(--border);
-  border-radius: var(--r-2);
+  border-right: 0;
+  border-radius: var(--r-2) 0 0 var(--r-2);
+  appearance: none;
   background: var(--surface-2);
   color: var(--text-strong);
   font: 700 13px/1 var(--font-mono);
+  text-transform: uppercase;
 }
-.vol-cal-symbol-field select:focus-visible { outline: none; box-shadow: var(--focus-ring); border-color: var(--accent); }
+.vol-cal-symbol-search input::placeholder { color: var(--muted); text-transform: none; }
+.vol-cal-symbol-search input::-webkit-search-cancel-button { cursor: pointer; }
+.vol-cal-symbol-search input[aria-invalid="true"] { border-color: var(--neg); }
+.vol-cal-symbol-search button {
+  min-height: 38px;
+  padding: 7px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 0 var(--r-2) var(--r-2) 0;
+  background: var(--accent);
+  color: var(--accent-fg);
+  cursor: pointer;
+  font: 750 10px/1 var(--font-sans);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.vol-cal-symbol-search input:focus-visible, .vol-cal-symbol-search button:focus-visible { outline: none; box-shadow: var(--focus-ring); position: relative; z-index: 1; }
+.vol-cal-symbol-search input:focus-visible { border-color: var(--accent); }
+.vol-cal-symbol-search button:hover { filter: brightness(1.06); }
+.vol-cal-symbol-status {
+  grid-column: 2;
+  min-height: 11px;
+  color: var(--neg);
+  font: 600 9px/1.2 var(--font-sans);
+  letter-spacing: 0;
+  text-transform: none;
+}
 .vol-cal-legend { display: flex; flex-wrap: wrap; gap: 12px; color: var(--muted); font: 600 10px/1.2 var(--font-sans); }
 .vol-cal-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .vol-cal-legend i { width: 9px; height: 9px; border-radius: 3px; border: 1px solid var(--border); }
@@ -19310,8 +19343,10 @@ button.vol-cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring)
   .vol-cal-card { padding: var(--s-3); }
   .vol-cal-card > .hint { display: none; }
   .vol-cal-controls { align-items: stretch; }
-  .vol-cal-symbol-field { width: 100%; justify-content: space-between; }
-  .vol-cal-symbol-field select { flex: 1; max-width: 220px; min-height: 42px; }
+  .vol-cal-symbol-field { width: 100%; grid-template-columns: auto minmax(0, 220px); justify-content: space-between; }
+  .vol-cal-symbol-search { min-width: 0; }
+  .vol-cal-symbol-search input { width: 100%; min-width: 0; min-height: 42px; }
+  .vol-cal-symbol-search button { min-height: 42px; }
   .vol-cal-legend { gap: 8px 10px; }
   .vol-cal-month-read { align-items: flex-start; flex-direction: column; padding: 11px; }
   .vol-cal-month-stats { width: 100%; }
