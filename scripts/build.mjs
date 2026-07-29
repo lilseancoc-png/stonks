@@ -11743,7 +11743,7 @@ export function parseFomcVoteRecord(html, meeting, sourceUrl = "") {
   const decisionSentence = decisionMatch[0];
   const committeeDeltaBps = fomcMoveBps(action, decisionSentence);
   const forMatch = text.match(/Voting for (?:the monetary policy action were|this action\s*:)\s*([\s\S]+?)(?=Voting against|Absent and not voting|For media inquiries|Implementation Note|Consistent with|It was agreed|Attendance|$)/i);
-  const againstMatch = text.match(/Voting against (?:this|the) action(?:\s*:|\s+was|\s+were)\s*([\s\S]+?)(?=Absent and not voting|For media inquiries|Implementation Note|Consistent with|It was agreed|Attendance|$)/i);
+  const againstMatch = text.match(/Voting against (?:this|the(?: monetary policy)?) action(?:\s*:|\s+was|\s+were)\s*([\s\S]+?)(?=Absent and not voting|For media inquiries|Implementation Note|Consistent with|It was agreed|Attendance|$)/i);
   const forNames = splitFomcVoterNames(forMatch?.[1] || "");
   const voters = forNames.map((name) => ({ name, stance: "hold", vote: "for" }));
   let againstBody = againstMatch?.[1] || "";
