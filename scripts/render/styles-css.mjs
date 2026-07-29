@@ -17875,6 +17875,44 @@ body.tape-axm-open { overflow: hidden; }
   gap: var(--s-4);
   margin: var(--s-3) 0;
 }
+.bonds-live-status {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+  color: var(--muted);
+  font: 650 12px/1.35 var(--font-mono);
+}
+.bonds-live-status.is-fomc {
+  border-color: color-mix(in srgb, var(--accent) 46%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-2));
+  color: var(--text);
+}
+.bonds-live-status-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.bonds-live-status.is-live .bonds-live-status-dot {
+  background: var(--pos);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--pos) 14%, transparent);
+}
+.bonds-live-status.is-fomc .bonds-live-status-dot {
+  animation: bonds-live-status-pulse 1.8s ease-out infinite;
+}
+@keyframes bonds-live-status-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--pos) 12%, transparent); }
+  50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--pos) 2%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bonds-live-status.is-fomc .bonds-live-status-dot { animation: none; }
+}
 .bonds-context-card {
   border-top: 3px solid color-mix(in srgb, var(--accent) 72%, var(--border));
 }
@@ -18309,6 +18347,8 @@ body.tape-axm-open { overflow: hidden; }
 .bonds-context-empty > p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
 @media (max-width: 640px) {
   .bonds-live-grid { margin-bottom: var(--s-2); }
+  .bonds-live-status { align-items: flex-start; font-size: 11px; }
+  .bonds-live-status-dot { margin-top: 3px; }
   .bonds-live-subgrid {
     display: flex;
     gap: var(--s-2);

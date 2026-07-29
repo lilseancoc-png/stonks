@@ -24,8 +24,9 @@
 // geopolitical-shock axis) ride in the same batched quote, and ?fng=1 folds in
 // a best-effort CNN Fear & Greed read for the sentiment axis. The crude/gold
 // legs are harmless to the Bonds & USD tab (it only reads the five legs above),
-// and the CNN fetch only happens when ?fng=1 is passed, so the Bonds tab's 30s
-// poll incurs no extra upstream work.
+// and the CNN fetch only happens when ?fng=1 is passed, so the Bonds tab's
+// visible-tab poll (five minutes on FOMC decision days) incurs no extra
+// upstream work.
 
 import { yahooFinance, withYahooTimeout } from "../lib/yahoo.mjs";
 
@@ -159,7 +160,11 @@ export default async function handler(req, res) {
       withYahooTimeout(
         yahooFinance.quote(quoteSymbols, {
           fields: ["regularMarketPrice", "regularMarketPreviousClose", "marketState"],
-        }),
+        // yahoo-finance2's current runtime schema rejects otherwise-valid
+        // futures rows when Yahoo returns `contractSymbol: false` (2YY/CL/GC).
+        // This is a fixed server-owned symbol set and every field consumed below
+        // is checked for type/finite value, so bypass the brittle SDK shape gate.
+        }, { validateResult: false }),
         "macro-live",
       ),
       wantFng ? fetchFearGreedLive() : Promise.resolve(null),

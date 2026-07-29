@@ -2127,6 +2127,10 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         <h2 class="card-title">Rates &amp; dollar monitor</h2>
         <span class="card-eyebrow" id="bonds-live-eyebrow">as of last build</span>
       </header>
+      <div class="bonds-live-status" id="bonds-live-status" role="status" aria-live="polite">
+        <span class="bonds-live-status-dot" aria-hidden="true"></span>
+        <span>Live overlay starts when this tab is open.</span>
+      </div>
       <div class="bonds-live-grid" id="bonds-live-grid">
         <!-- Populated client-side from window.STONKS_MANIFEST.macro -->
       </div>
@@ -2139,7 +2143,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           <div class="bonds-curve" id="bonds-curve" hidden>
             <!-- Treasury yield-curve chart injected client-side from the 2Y/10Y/30Y legs -->
           </div>
-          <p class="hint">Yields and DXY come from the latest build, with a best-effort live overlay. Tiles show the 1-day move (basis points for yields, % for DXY), movement band, and 5-day trend. A <span class="bonds-live-alert" aria-hidden="true">!</span> chip marks DXY ±0.6% or the 10Y ±10 bps on a daily close.</p>
+          <p class="hint">Yields and DXY come from the latest build, with a best-effort live overlay. On an FOMC decision day the open tab refreshes the rates monitor every five minutes so the meeting-day move stays current. Tiles show the 1-day move (basis points for yields, % for DXY), movement band, and 5-day trend. A <span class="bonds-live-alert" aria-hidden="true">!</span> chip marks DXY ±0.6% or the 10Y ±10 bps on a daily close.</p>
           <p class="hint"><strong>CPI and unemployment</strong> are monthly BLS prints, not live quotes. The unemployment tile&rsquo;s Sahm read compares the 3-month average with its prior-year low; ≥0.5pp is the classic recession-onset threshold.</p>
         </div>
       </details>

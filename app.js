@@ -34872,14 +34872,17 @@
   // --- Bonds & USD live refresh -------------------------------------------
   // The Live snapshot tiles render from the baked manifest.macro, which goes
   // stale between hourly bakes (and overnight). While the Bonds & USD pane is
-  // visible we poll /api/macro-live every 30s — a fixed server-side symbol
+  // visible we poll /api/macro-live — a fixed server-side symbol
   // set, since the caret indices (^TNX, ^VIX, …) and DX-Y.NYB deliberately
   // fail /api/quotes' SYMBOL_RE — and overlay live value + 1d move onto the
   // baked legs in renderBondsLive. Same visibility gating as the heatmap /
   // volume live boards; the overlay is best-effort and a failed poll just
-  // keeps the baked tiles.
+  // keeps the baked tiles. FOMC decision days deliberately use a five-minute
+  // cadence: frequent enough to follow the post-statement repricing without
+  // turning one open browser tab into an unnecessary quote hammer.
   var BONDS_LIVE_POLL_MS = 30000;
-  var bondsLive = { timer: null, legs: null, fetchedAt: null, fedRate: null };
+  var BONDS_FOMC_POLL_MS = 5 * 60 * 1000;
+  var bondsLive = { timer: null, legs: null, fetchedAt: null, fedRate: null, pollMs: null, nextPollAt: null, inFlight: false };
   // 90-day macro close history (data/macro-history.json — a FREE key) powers
   // the per-tile sparklines, the 2s10s spread trend, and the yield-curve
   // chart's prior line. Fetched once per pane open (lazy, best-effort): a miss
@@ -34920,6 +34923,57 @@
     if (h < 1) return Math.max(1, Math.round(h * 60)) + 'm ago';
     if (h < 24) return (h < 2 ? h.toFixed(1) : Math.round(h)) + 'h ago';
     return Math.round(h / 24) + 'd ago';
+  }
+  function bondsEtDay(){
+    try {
+      return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit'
+      }).format(new Date());
+    } catch (_) {
+      return new Date().toISOString().slice(0, 10);
+    }
+  }
+  function bondsFomcMeetingToday(){
+    var cal = (typeof calendarState !== 'undefined' && calendarState.data) ? calendarState.data : null;
+    var today = bondsEtDay();
+    if (!cal || !today) return null;
+    var meetings = (cal.fomc && Array.isArray(cal.fomc.meetings)) ? cal.fomc.meetings : [];
+    for (var i = 0; i < meetings.length; i++){
+      if (meetings[i] && meetings[i].date === today) return meetings[i];
+    }
+    var events = Array.isArray(cal.events) ? cal.events : [];
+    for (var j = 0; j < events.length; j++){
+      if (events[j] && events[j].type === 'fomc' && events[j].date === today) {
+        return { date: today, label: events[j].title || 'FOMC rate decision' };
+      }
+    }
+    return null;
+  }
+  function bondsPollCadence(){
+    return bondsFomcMeetingToday() ? BONDS_FOMC_POLL_MS : BONDS_LIVE_POLL_MS;
+  }
+  function bondsClockEt(ms){
+    try {
+      return new Date(ms).toLocaleTimeString('en-US', {
+        hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York'
+      }) + ' ET';
+    } catch (_) {
+      return '';
+    }
+  }
+  function renderBondsLiveStatus(){
+    var host = document.getElementById('bonds-live-status');
+    if (!host) return;
+    var meeting = bondsFomcMeetingToday();
+    var isLive = !!(bondsLive.fetchedAt && bondsLive.legs);
+    host.classList.toggle('is-fomc', !!meeting);
+    host.classList.toggle('is-live', isLive);
+    var next = bondsLive.nextPollAt ? bondsClockEt(bondsLive.nextPollAt) : '';
+    var message = meeting
+      ? 'FOMC decision-day watch · live rates refresh every 5 minutes while this tab is open' +
+        (next ? ' · next by ' + next : '')
+      : 'Live rates overlay runs while this tab is open' + (next ? ' · next by ' + next : '');
+    host.innerHTML = '<span class="bonds-live-status-dot" aria-hidden="true"></span><span>' + escapeHtml(message) + '</span>';
   }
   function bondsFreshness(macro){
     var asOf = macro && (macro._bondsAsOf || macro.asOf);
@@ -35011,17 +35065,33 @@
     if (!pane || pane.hidden) return;
     loadBondsHistory();
     pollBondsFedRateOnce();
-    if (bondsLive.timer) return;
+    var cadence = bondsPollCadence();
+    if (bondsLive.timer && bondsLive.pollMs === cadence) {
+      renderBondsLiveStatus();
+      return;
+    }
+    if (bondsLive.timer) clearInterval(bondsLive.timer);
+    bondsLive.pollMs = cadence;
     pollBondsLiveOnce();
-    bondsLive.timer = setInterval(pollBondsLiveOnce, BONDS_LIVE_POLL_MS);
+    bondsLive.nextPollAt = Date.now() + cadence;
+    bondsLive.timer = setInterval(function(){
+      pollBondsLiveOnce();
+      bondsLive.nextPollAt = Date.now() + bondsLive.pollMs;
+      renderBondsLiveStatus();
+    }, cadence);
+    renderBondsLiveStatus();
   }
   function stopBondsLivePolling(){
     if (bondsLive.timer){
       clearInterval(bondsLive.timer);
       bondsLive.timer = null;
     }
+    bondsLive.nextPollAt = null;
+    renderBondsLiveStatus();
   }
   function pollBondsLiveOnce(){
+    if (bondsLive.inFlight) return;
+    bondsLive.inFlight = true;
     fetch('api/macro-live', { cache: 'no-store' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
@@ -35030,7 +35100,8 @@
         bondsLive.fetchedAt = json.fetchedAt || new Date().toISOString();
         renderBondsLive();
       })
-      .catch(function(){ /* baked tiles remain — live overlay is best-effort */ });
+      .catch(function(){ /* baked tiles remain — live overlay is best-effort */ })
+      .finally(function(){ bondsLive.inFlight = false; renderBondsLiveStatus(); });
   }
   document.addEventListener('visibilitychange', function(){
     if (document.hidden) stopBondsLivePolling();
@@ -35041,6 +35112,7 @@
     if (!grid) return;
     var macro = bondsMacroSnapshot();
     var eyebrow = document.getElementById('bonds-live-eyebrow');
+    renderBondsLiveStatus();
     if (!macro || (!macro.twoY && !macro.tenY && !macro.thirtyY && !macro.dxy && !macro.vix)) {
       grid.innerHTML = '<p class="bonds-live-empty">No live macro data was captured in the last build.</p>';
       renderBondsContext();
@@ -35473,7 +35545,14 @@
           .then(function(r){ return r.ok ? r.json() : null; })
           .then(function(j){ calendarState.data = (j && Array.isArray(j.events)) ? j : { events: [], loadError: true }; })
           .catch(function(){ calendarState.data = { events: [], loadError: true }; })
-          .finally(function(){ bondsCtx.loading = false; renderBondsContext(); });
+          .finally(function(){
+            bondsCtx.loading = false;
+            // Calendar hydration can reveal that today is an FOMC decision day.
+            // Re-arm the visible-tab poller so its interval switches immediately
+            // from the normal cadence to the required five-minute watch.
+            startBondsLivePolling();
+            renderBondsContext();
+          });
       }
       host.innerHTML = '<p class="bonds-ctx-quiet">Reading the calendar for Fed-rate context…</p>';
       return;
