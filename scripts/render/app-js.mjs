@@ -68,7 +68,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // default to "ungated, everyone's a member" so a legacy public deploy — or a
   // failed /me probe — never locks the site by accident. applyAuth() flips these
   // once /me resolves, before the first selectTab().
-  var PREMIUM_TABS = { market:1, rotation:1, brief:1, flow:1, volume:1, oi:1, stocks:1, spillover:1, levetf:1, 'iv-trend':1, streaks:1 };
+  var PREMIUM_TABS = { market:1, rotation:1, brief:1, flow:1, volume:1, oi:1, stocks:1, spillover:1, levetf:1, 'iv-trend':1, streaks:1, earnings:1 };
   var GATE_ON = false;
   var IS_MEMBER = true;
   // Track Record is a STRICTER tier than premium: a specific Discord role, not
@@ -91,7 +91,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // header so the Discord is findable from anywhere on the site.
   var DISCORD_INVITE_URL = ${JSON.stringify(DISCORD_INVITE_URL)};
   function premiumTabLabel(id){
-    return ({ market:'Market Analysis', rotation:'Sector Rotation', brief:'Briefs', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', stocks:'Stock Picks', spillover:'Event spillover', quant:'Quant Lab', levetf:'Leveraged ETFs', 'iv-trend':'Trending IV', streaks:'Streaks' })[id] || 'This feature';
+    return ({ market:'Market Analysis', rotation:'Sector Rotation', brief:'Briefs', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', stocks:'Stock Picks', spillover:'Event spillover', quant:'Quant Lab', levetf:'Leveraged ETFs', 'iv-trend':'Trending IV', streaks:'Streaks', earnings:'Earnings Tracker' })[id] || 'This feature';
   }
   var PREMIUM_LOCK_PREVIEWS = {
     market: {
@@ -159,6 +159,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       body:'Rank current green and red runs with rarity and counter-day tolerance so you can distinguish durable momentum from a stretched mean-reversion setup.',
       points:['Current run and tolerance bank','Historical rarity context','Recently snapped streaks and reversal watch'],
       freeId:'tickers', freeLabel:'Browse free Tickers'
+    },
+    earnings: {
+      title:'Turn earnings season into an event-risk map',
+      body:'See how the tracked universe is beating, guiding and moving versus options expectations, then identify crowded run-ups and the next overnight decision deadlines.',
+      points:['Season beat, guidance and reaction breadth','Implied-versus-realized move scorecard','Upcoming reports with pre-earnings drift'],
+      freeId:'calendar', freeLabel:'Open the free Calendar'
     }
   };
   function premiumLockPreview(id){
@@ -3479,7 +3485,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','rotation','picks','stocks','heatmap','calendar','earnings','calls','spillover','quant','levetf','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','search-interest','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','features','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','rotation','picks','stocks','heatmap','calendar','earnings','calls','spillover','quant','levetf','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','search-interest','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','features','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3491,6 +3497,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     bonds: 'bonds-usd', usd: 'bonds-usd',
     capex: 'ai-capex', 'ai-capex': 'ai-capex', mag7: 'ai-capex', 'mag-7': 'ai-capex',
     ram: 'ram-prices', dram: 'ram-prices', memory: 'ram-prices', 'ram-price': 'ram-prices', 'ram-prices': 'ram-prices', ddr5: 'ram-prices',
+    gpu: 'accelerator-prices', gpus: 'accelerator-prices', accelerator: 'accelerator-prices', accelerators: 'accelerator-prices', 'gpu-prices': 'accelerator-prices', 'gpu-cloud': 'accelerator-prices', 'accelerator-prices': 'accelerator-prices',
     trends: 'search-interest', search: 'search-interest', 'search-interest': 'search-interest', 'google-trends': 'search-interest',
     commodity: 'commodities', 'commodity-prices': 'commodities', cocoa: 'commodities', coffee: 'commodities', cotton: 'commodities', lumber: 'commodities', sugar: 'commodities', lithium: 'commodities', potash: 'commodities', freight: 'commodities', bdi: 'commodities', 'baltic-dry': 'commodities', manheim: 'commodities', 'used-vehicles': 'commodities',
     'capital-raises': 'capital-raises', raises: 'capital-raises', issuance: 'capital-raises', debt: 'capital-raises', bonds2: 'capital-raises',
@@ -3847,6 +3854,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (name === 'calls' && typeof loadEarningsCalls === 'function') loadEarningsCalls();
         if (name === 'ai-capex' && typeof loadAiCapex === 'function') loadAiCapex();
         if (name === 'ram-prices' && typeof loadRamPrices === 'function') loadRamPrices();
+        if (name === 'accelerator-prices' && typeof loadAcceleratorPrices === 'function') loadAcceleratorPrices();
         if (name === 'search-interest' && typeof loadSearchInterest === 'function') loadSearchInterest();
         if (name === 'commodities' && typeof loadCommodities === 'function') loadCommodities();
         if (name === 'capital-raises' && typeof loadCapitalRaises === 'function') loadCapitalRaises();
@@ -18120,6 +18128,228 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         });
       }
     }
+  }
+
+  // --- GPU / accelerator rental prices (Alt data section) -----------------
+  // Public CoreWeave, Vast.ai, Runpod and Lambda rates normalized to one
+  // GPU-hour. Provider/model/market histories accumulate in the bake payload.
+  var acceleratorPricesState = { data: null, loading: false, modelId: null, market: 'all' };
+  var AP_COLORS = ['#22c55e','#38bdf8','#f59e0b','#a78bfa','#fb7185','#14b8a6','#f97316'];
+  function apPrice(value){
+    var n = Number(value);
+    if (!isFinite(n) || n <= 0) return '&mdash;';
+    return '$' + (n >= 10 ? n.toFixed(2) : n >= 1 ? n.toFixed(2) : n.toFixed(3)) + '/hr';
+  }
+  function apPct(value, label){
+    if (value == null || value === '') return '<span class="ap-change ap-change-flat">Tracking</span>';
+    var n = Number(value);
+    if (!isFinite(n)) return '<span class="ap-change ap-change-flat">Tracking</span>';
+    var cls = n > 1 ? 'up' : n < -1 ? 'down' : 'flat';
+    return '<span class="ap-change ap-change-' + cls + '">' + (n > 0 ? '+' : '') + n.toFixed(1) + '%' + (label ? ' ' + label : '') + '</span>';
+  }
+  function apShortDate(value){
+    var ms = Date.parse(value);
+    if (!isFinite(ms)) return String(value || '');
+    var d = new Date(ms);
+    return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()] + ' ' + d.getUTCDate();
+  }
+  function apProviderLabel(quote){
+    var market = quote.market === 'spot' ? 'spot' : 'on-demand';
+    return String(quote.provider || '') + ' ' + market;
+  }
+  function apFilteredQuotes(benchmark){
+    var rows = benchmark && Array.isArray(benchmark.quotes) ? benchmark.quotes : [];
+    if (acceleratorPricesState.market === 'all') return rows;
+    return rows.filter(function(quote){ return quote.market === acceleratorPricesState.market; });
+  }
+  function apChart(benchmark){
+    if (!benchmark) return '<div class="ap-chart-empty">Choose an accelerator to begin tracking.</div>';
+    var quotes = apFilteredQuotes(benchmark).filter(function(quote){
+      return benchmark.history && Array.isArray(benchmark.history[quote.key]) && benchmark.history[quote.key].length;
+    });
+    if (!quotes.length) return '<div class="ap-chart-empty">No history for this market lane yet.</div>';
+    var dates = [];
+    var dateSet = {};
+    quotes.forEach(function(quote){
+      (benchmark.history[quote.key] || []).forEach(function(point){
+        if (point && point.d && point.p > 0 && !dateSet[point.d]){ dateSet[point.d] = 1; dates.push(point.d); }
+      });
+    });
+    dates.sort();
+    if (!dates.length) return '<div class="ap-chart-empty">Tracking begins with the next successful build.</div>';
+    var values = [];
+    quotes.forEach(function(quote){
+      (benchmark.history[quote.key] || []).forEach(function(point){ if (point && point.p > 0) values.push(Number(point.p)); });
+    });
+    var lo = Math.min.apply(null, values), hi = Math.max.apply(null, values);
+    var pad = Math.max((hi - lo) * 0.12, hi * 0.04, 0.02);
+    lo = Math.max(0, lo - pad); hi += pad;
+    var xFor = function(d){
+      var idx = dates.indexOf(d);
+      return dates.length === 1 ? 150 : 12 + (idx / (dates.length - 1)) * 276;
+    };
+    var yFor = function(p){ return 112 - ((p - lo) / Math.max(0.0001, hi - lo)) * 96; };
+    var lines = '', legend = '';
+    quotes.slice(0, AP_COLORS.length).forEach(function(quote, idx){
+      var color = AP_COLORS[idx];
+      var points = (benchmark.history[quote.key] || []).filter(function(point){ return point && point.d && point.p > 0; });
+      var coords = points.map(function(point){ return xFor(point.d).toFixed(1) + ',' + yFor(Number(point.p)).toFixed(1); }).join(' ');
+      if (points.length === 1){
+        lines += '<circle cx="' + xFor(points[0].d).toFixed(1) + '" cy="' + yFor(Number(points[0].p)).toFixed(1) + '" r="3.2" fill="' + color + '"/>';
+      } else {
+        lines += '<polyline points="' + coords + '" fill="none" stroke="' + color + '" stroke-width="2.2" vector-effect="non-scaling-stroke"/>';
+      }
+      legend += '<span><i style="background:' + color + '"></i>' + escapeHtml(apProviderLabel(quote)) + '</span>';
+    });
+    var tipPoints = dates.map(function(date){
+      var rows = [];
+      var vals = [];
+      quotes.slice(0, AP_COLORS.length).forEach(function(quote){
+        var point = (benchmark.history[quote.key] || []).find(function(item){ return item.d === date; });
+        if (!point || !(point.p > 0)) return;
+        vals.push(Number(point.p));
+        rows.push(apProviderLabel(quote) + ': $' + Number(point.p).toFixed(Number(point.p) < 1 ? 3 : 2));
+      });
+      vals.sort(function(a,b){ return a-b; });
+      var mid = vals.length ? vals[Math.floor(vals.length / 2)] : lo;
+      return { x:xFor(date), y:yFor(mid), label:apShortDate(date) + '\\n' + rows.join('\\n') };
+    });
+    var onlyBaseline = dates.length === 1
+      ? '<p class="ap-chart-baseline">History starts with this build; daily comparisons will fill in automatically.</p>'
+      : '';
+    return '<div class="ap-chart-head"><div><b>' + escapeHtml(benchmark.model) + '</b><span>USD per GPU-hour</span></div><div class="ap-chart-legend">' + legend + '</div></div>' +
+      '<div class="ap-chart-wrap"><span class="ap-axis ap-axis-hi">' + apPrice(hi) + '</span><span class="ap-axis ap-axis-lo">' + apPrice(lo) + '</span>' +
+      '<svg class="ap-chart-svg" viewBox="0 0 300 125" preserveAspectRatio="none" role="img" aria-label="' + escapeHtml(benchmark.model + ' rental price history') + '"' + chHoverAttr(tipPoints) + '>' +
+      '<path d="M12 16H288M12 64H288M12 112H288" class="ap-grid"/>' + lines + '</svg></div>' + onlyBaseline;
+  }
+  function bindAcceleratorPriceActions(root){
+    if (!root) return;
+    var select = root.querySelector('[data-ap-model]');
+    if (select) select.addEventListener('change', function(){
+      acceleratorPricesState.modelId = select.value;
+      renderAcceleratorPrices();
+    });
+    Array.prototype.forEach.call(root.querySelectorAll('[data-ap-market]'), function(btn){
+      btn.addEventListener('click', function(){
+        acceleratorPricesState.market = btn.getAttribute('data-ap-market') || 'all';
+        renderAcceleratorPrices();
+      });
+    });
+    Array.prototype.forEach.call(root.querySelectorAll('[data-ap-grade]'), function(btn){
+      btn.addEventListener('click', function(){ calGoToTicker(btn.getAttribute('data-ap-grade')); });
+    });
+  }
+  function loadAcceleratorPrices(){
+    if ((acceleratorPricesState.data && !acceleratorPricesState.data.loadError) || acceleratorPricesState.loading){ renderAcceleratorPrices(); return; }
+    acceleratorPricesState.loading = true;
+    fetch(dataUrl('accelerator-prices.json'), { cache: 'no-cache' })
+      .then(function(response){ if (!response.ok) throw new Error('HTTP ' + response.status); return response.json(); })
+      .then(function(json){
+        acceleratorPricesState.data = json && typeof json === 'object' ? json : {};
+        acceleratorPricesState.loading = false;
+        renderAcceleratorPrices();
+      })
+      .catch(function(){
+        acceleratorPricesState.data = { loadError:true };
+        acceleratorPricesState.loading = false;
+        renderAcceleratorPrices();
+      });
+  }
+  function renderAcceleratorPrices(){
+    var root = $('accelerator-prices-root');
+    var eye = $('accelerator-prices-eyebrow');
+    var empty = $('accelerator-prices-empty');
+    if (!root) return;
+    var data = acceleratorPricesState.data;
+    if (!data){ root.textContent = 'Loading GPU cloud prices...'; return; }
+    var benchmarks = Array.isArray(data.benchmarks) ? data.benchmarks : [];
+    if (!benchmarks.length){
+      if (empty) empty.hidden = true;
+      if (eye) eye.textContent = 'Unavailable / no compute read';
+      root.innerHTML = '<section class="ap-empty-desk"><span>Compute-cost desk</span><h3>' +
+        (data.loadError ? 'The accelerator snapshot could not be loaded' : 'No accelerator prices are available yet') +
+        '</h3><p>Do not infer capacity tightening or easing from missing marketplace data. The next successful daily build will retry every provider independently.</p></section>';
+      return;
+    }
+    if (empty) empty.hidden = true;
+    var summary = data.summary || {};
+    var focus = summary.focus || {};
+    if (!acceleratorPricesState.modelId || !benchmarks.some(function(row){ return row.modelId === acceleratorPricesState.modelId; })){
+      acceleratorPricesState.modelId = focus.modelId || benchmarks[0].modelId;
+    }
+    var selected = benchmarks.find(function(row){ return row.modelId === acceleratorPricesState.modelId; }) || benchmarks[0];
+    var builtMs = Date.parse(data.builtAtIso);
+    var ageHours = isFinite(builtMs) ? (Date.now() - builtMs) / 3600000 : null;
+    var current = !data.stale && summary.freshSources > 0 && ageHours != null && ageHours >= -1 && ageHours <= 72;
+    if (eye) eye.textContent = (current ? 'Current public pricing' : 'Reference only') + ' / ' + Number(summary.freshSources || 0) + '/' + Number(summary.sourceCount || 0) + ' sources';
+    var trend = Number(focus.change30dPct);
+    var hasTrend = focus.change30dPct != null && focus.change30dPct !== '' && isFinite(trend);
+    var headline = 'A new accelerator-cost baseline is forming';
+    var posture = 'Wait for history before calling capacity tighter or looser.';
+    var tone = 'watch';
+    if (!current){
+      headline = 'The accelerator-cost map needs a fresh build';
+      posture = 'At least one prior quote may be stale. Use the rows as reference, not a current capacity signal.';
+      tone = 'reference';
+    } else if (hasTrend && trend >= 5){
+      headline = focus.model + ' rental pricing is tightening';
+      posture = 'The cross-provider median is up ' + trend.toFixed(1) + '% over 30 days. Confirm with availability, utilization commentary and more than one provider before treating it as durable demand.';
+      tone = 'up';
+    } else if (hasTrend && trend <= -5){
+      headline = focus.model + ' rental pricing is easing';
+      posture = 'The cross-provider median is down ' + Math.abs(trend).toFixed(1) + '% over 30 days. Separate improving supply and newer hardware mix from genuinely softer compute demand.';
+      tone = 'down';
+    }
+    var discount = summary.medianSpotDiscountPct == null ? NaN : Number(summary.medianSpotDiscountPct);
+    var sourceText = Array.isArray(summary.staleSources) && summary.staleSources.length
+      ? 'Last-good: ' + summary.staleSources.join(', ')
+      : 'All public sources parsed';
+    var desk = '<section class="ap-desk ap-desk-' + tone + '"><div class="ap-desk-head"><div><span>Compute-cost desk</span><h3>' +
+      escapeHtml(headline) + '</h3><p>' + escapeHtml(posture) + '</p></div><b>' + (current ? 'Live list-price read' : 'Refresh required') + '</b></div>' +
+      '<div class="ap-metrics">' +
+        '<div><span>' + escapeHtml(focus.model || 'Focus accelerator') + ' spot</span><b>' + apPrice(focus.spotMedian) + '</b><small>median / low ' + apPrice(focus.spotLow) + '</small></div>' +
+        '<div><span>' + escapeHtml(focus.model || 'Focus accelerator') + ' on-demand</span><b>' + apPrice(focus.onDemandMedian) + '</b><small>median / low ' + apPrice(focus.onDemandLow) + '</small></div>' +
+        '<div><span>Matched spot discount</span><b>' + (isFinite(discount) ? discount.toFixed(1) + '%' : '&mdash;') + '</b><small>median where one provider lists both lanes</small></div>' +
+        '<div><span>Coverage</span><b>' + Number(summary.modelCount || benchmarks.length) + ' models</b><small>' + Number(summary.quoteCount || 0) + ' normalized quotes</small></div>' +
+      '</div><div class="ap-source-state"><span>' + escapeHtml(sourceText) + '</span><small>Built ' + escapeHtml(data.builtAtIso ? String(data.builtAtIso).replace('T',' ').slice(0,16) + 'Z' : 'time unavailable') + '</small></div>' +
+      '<div class="ap-actions"><button type="button" data-ap-grade="CRWV">Grade CRWV</button><button type="button" data-ap-grade="NVDA">Grade NVDA</button><button type="button" data-ap-grade="AMD">Grade AMD</button></div>' +
+      '<p class="ap-desk-note">Rental pricing is a conditional capacity and utilization overlay, not proof of chip demand or provider revenue. Confirm against guidance, backlog, availability and stock price action.</p></section>';
+    var options = benchmarks.map(function(row){
+      return '<option value="' + escapeHtml(row.modelId) + '"' + (row.modelId === selected.modelId ? ' selected' : '') + '>' + escapeHtml(row.model) + (row.vramGb ? ' / ' + Number(row.vramGb).toFixed(0) + 'GB' : '') + '</option>';
+    }).join('');
+    var controls = '<section class="ap-tracker"><div class="ap-controls"><label>Accelerator<select data-ap-model>' + options + '</select></label><div class="ap-market-toggle" role="group" aria-label="Price lane">' +
+      ['all','spot','on-demand'].map(function(market){
+        var label = market === 'all' ? 'All' : market === 'spot' ? 'Spot' : 'On-demand';
+        return '<button type="button" data-ap-market="' + market + '" class="' + (acceleratorPricesState.market === market ? 'active' : '') + '">' + label + '</button>';
+      }).join('') + '</div></div>' + apChart(selected) + '</section>';
+    var selectedQuotes = apFilteredQuotes(selected).slice().sort(function(a,b){
+      if (a.market !== b.market) return a.market === 'spot' ? -1 : 1;
+      return Number(a.price) - Number(b.price);
+    });
+    var quoteRows = selectedQuotes.map(function(quote){
+      var range = quote.offerCount && Number(quote.offerCount) > 1
+        ? apPrice(quote.low) + ' - ' + apPrice(quote.high) + ' / ' + Number(quote.offerCount) + ' offers'
+        : (quote.gpuCount > 1 ? apPrice(quote.instancePrice) + ' for ' + quote.gpuCount + ' GPUs' : 'per GPU');
+      return '<div class="ap-quote' + (quote.stale ? ' is-stale' : '') + '"><div><a href="' + escapeHtml(quote.providerUrl || quote.sourceUrl || '#') + '" target="_blank" rel="noopener">' + escapeHtml(quote.provider || '') + '</a><span class="ap-lane ap-lane-' + escapeHtml(quote.market) + '">' + escapeHtml(quote.market) + '</span></div><b>' +
+        apPrice(quote.price) + '</b><small>' + range + (quote.stale ? ' / last-good' : '') + '</small></div>';
+    }).join('');
+    var currentTable = '<details class="ap-current" open><summary><span><small>Current market</small><b>' + escapeHtml(selected.model) + ' provider quotes</b></span><strong>' + selectedQuotes.length + ' lanes</strong></summary><div class="ap-current-body">' +
+      (quoteRows || '<p class="ap-no-rows">No quotes match this market filter.</p>') + '</div></details>';
+    var cards = benchmarks.map(function(row){
+      return '<button type="button" class="ap-benchmark' + (row.modelId === selected.modelId ? ' active' : '') + '" data-ap-pick="' + escapeHtml(row.modelId) + '"><span><b>' + escapeHtml(row.model.replace(/^NVIDIA\s+/,'')) + '</b><small>' + (row.vramGb ? Number(row.vramGb).toFixed(0) + 'GB' : 'VRAM n/a') + '</small></span><div><em>Spot ' + apPrice(row.spot && row.spot.low) + '</em><em>On-demand ' + apPrice(row.onDemand && row.onDemand.low) + '</em></div>' + apPct(row.change30dPct, '30d') + '</button>';
+    }).join('');
+    var overview = '<details class="ap-overview"><summary><span><small>Full comparison</small><b>All accelerator benchmarks</b></span><strong>' + benchmarks.length + ' models</strong></summary><div class="ap-benchmark-grid">' + cards + '</div></details>';
+    var sources = (Array.isArray(data.sources) ? data.sources : []).map(function(source){
+      return '<a class="ap-source ' + (source.ok ? 'is-fresh' : 'is-stale') + '" href="' + escapeHtml(source.url || source.sourceUrl || '#') + '" target="_blank" rel="noopener"><i></i><span><b>' + escapeHtml(source.name || '') + '</b><small>' + (source.ok ? Number(source.quoteCount || 0) + ' quotes' : 'last-good / unavailable') + '</small></span></a>';
+    }).join('');
+    root.innerHTML = desk + controls + currentTable + overview + '<div class="ap-sources">' + sources + '</div><p class="ap-method">' + escapeHtml(data.methodology || '') + '</p>';
+    bindAcceleratorPriceActions(root);
+    Array.prototype.forEach.call(root.querySelectorAll('[data-ap-pick]'), function(btn){
+      btn.addEventListener('click', function(){
+        acceleratorPricesState.modelId = btn.getAttribute('data-ap-pick');
+        renderAcceleratorPrices();
+      });
+    });
   }
 
   // --- Google Trends search interest (Alt data section) -------------------

@@ -64,6 +64,7 @@ const SIDE_NAV_ICONS = {
   'bonds-usd': '<path d="M12 2.5v19M16.5 5.5H10a3 3 0 0 0 0 6h4a3 3 0 0 1 0 6H7"/>',
   'ai-capex': '<rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9.5" y="9.5" width="5" height="5"/><path d="M9 2.5V5M15 2.5V5M9 19v2.5M15 19v2.5M2.5 9H5M2.5 15H5M19 9h2.5M19 15h2.5"/>',
   'ram-prices': '<rect x="2.5" y="6.5" width="19" height="9" rx="1.5"/><path d="M6 15.5v3M10 15.5v3M14 15.5v3M18 15.5v3"/><path d="M6.5 10v2M12 10v2M17.5 10v2"/>',
+  'accelerator-prices': '<rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 9h6v6H9zM9 2.5V5M15 2.5V5M9 19v2.5M15 19v2.5M2.5 9H5M2.5 15H5M19 9h2.5M19 15h2.5"/><path d="m10.5 13 1.3-3 1.2 2 1.5-1"/>',
   'search-interest': '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/><path d="M7.5 12.5 10 10l2 1.8 3-4"/>',
   'capital-raises': '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/>',
   'ipo-credit': '<path d="M12 2.5c2.5 2 3.5 5 3.5 8l-1.5 3h-4L8.5 10.5c0-3 1-6 3.5-8z"/><path d="M10 13.5 8 18l2.5-1.5L12 19l1.5-2.5L16 18l-2-4.5"/><circle cx="12" cy="8.5" r="1.5"/>',
@@ -646,6 +647,21 @@ function ramPricesSection() {
     <div id="ram-prices-root" class="ram-prices-root">Loading RAM prices&hellip;</div>
     <div id="ram-prices-empty" class="ram-prices-empty" hidden>RAM price data will appear after the next daily build refresh.</div>
     <p class="hint">Spot prices are per chip/module in USD (session average); retail prices are per kit in USD (lowest in-stock offer / category average). Sources are scraped best-effort and can go stale. Not financial advice.</p>
+  </section>`;
+}
+
+function acceleratorPricesSection() {
+  // Public GPU-cloud marketplace and provider prices, normalized to one GPU
+  // hour and tracked daily in data/accelerator-prices.json.
+  return `<section class="card" id="accelerator-prices-section">
+    <header class="card-header">
+      <h2 class="card-title">GPU cloud prices</h2>
+      <span class="card-eyebrow" id="accelerator-prices-eyebrow" aria-live="polite"></span>
+    </header>
+    ${infoNote('How to use accelerator pricing', `<p>This desk tracks the <b>cost of renting compute</b>, not chip selling prices or provider revenue. Compare the same accelerator across spot and on-demand lanes, then watch whether the change persists across more than one provider. Falling rental prices can mean improving supply, weaker utilization, a newer hardware mix, or aggressive competition; rising prices can mean tighter capacity, but a posted rate does not prove that capacity was actually available. Vast.ai rows are medians and ranges of verified rentable offers; CoreWeave, Runpod and Lambda rows are provider-published list prices. Every value is normalized to USD per GPU-hour, while whole-instance size remains visible.</p>`) }
+    <div id="accelerator-prices-root" class="ap-root">Loading GPU cloud prices&hellip;</div>
+    <div id="accelerator-prices-empty" class="ap-empty" hidden>Accelerator price data will appear after the next daily build refresh.</div>
+    <p class="hint">Public list and marketplace prices only. Taxes, storage, networking, commitments, negotiated discounts, interruption risk and actual capacity can change the effective cost. Not financial advice.</p>
   </section>`;
 }
 
@@ -1693,6 +1709,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <div class="side-nav-group-items">
       ${sideNavItem('ai-capex', 'AI CapEx')}
       ${sideNavItem('ram-prices', 'RAM prices')}
+      ${sideNavItem('accelerator-prices', 'GPU cloud prices')}
       ${sideNavItem('search-interest', 'Search interest')}
       ${sideNavItem('f13', 'SEC ownership')}
     </div>
@@ -2319,6 +2336,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-ram-prices" role="tabpanel" aria-labelledby="page-tab-ram-prices" hidden>
   ${ramPricesSection()}
+  </div>
+  <div class="page-pane" id="page-pane-accelerator-prices" role="tabpanel" aria-labelledby="page-tab-accelerator-prices" hidden>
+  ${acceleratorPricesSection()}
   </div>
   <div class="page-pane" id="page-pane-search-interest" role="tabpanel" aria-labelledby="page-tab-search-interest" hidden>
   ${searchInterestSection()}

@@ -369,12 +369,12 @@ most tabs are free, a premium subset stays gated. The wiring:
 - **Tier table — `lib/premium-keys.mjs`.** `isPremiumKey(key)` is the single source of
   truth for which `data/` keys require a session. Premium: `manifest.json` (the premium
   half), `picks*`, `sector-rotation*` (fresh screen + raw accumulating model-entry
-  ledger), `briefs`, `trends*`, `unusual*`,
+  ledger), `briefs`, `earnings-tracker.json`, `iv-trending.json`, `streaks.json`, `unusual*`,
   `volume-flags/-history`, `oi-tracker/-history`, `flow-explanations`,
   `grades-history/-daily`, plus internal `ai-usage`/`chart-pattern-cache`/
   `pick-thesis-cache`/`ticker-judgment-cache`. Everything else (per-ticker chains,
   `grades.json`, `calendar`, `heatmap`, `13f`, `macro*`, `fear-greed*`,
-  `correlations`, `streaks`, `manifest-free.json`, …) is **free**. Edge-safe,
+  `correlations`, `accelerator-prices.json`, `manifest-free.json`, …) is **free**. Edge-safe,
   dependency-free — imported by both `middleware.js` and `api/data`.
 - **Sector Rotation accountability is bake-owned.** `sector-rotation-log.json`
   accumulates observed setups, timestamped model entries, and resolved outcomes;

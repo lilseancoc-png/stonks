@@ -24,6 +24,10 @@ import { buildNewsFeedPayload } from "../lib/news-feed.mjs";
 import { issuerCreditRatingFor } from "../lib/issuer-credit-ratings.mjs";
 import { fetchFinraMarketStructure, attachShortInterestToChains } from "../lib/market-structure.mjs";
 import { buildScenarioEngine, scenarioOverlayForSymbol } from "../lib/scenario-engine.mjs";
+import {
+  buildAcceleratorPricesPayload,
+  fetchAcceleratorMarketplaces,
+} from "../lib/accelerator-prices.mjs";
 
 // Library prints a survey notice on first use and validates response
 // schemas — silence both since Yahoo occasionally omits optional fields
@@ -9896,6 +9900,36 @@ export async function writeRamPricesFile(builtAtIso, prior = null) {
     stale: !!payload.stale,
     spotStale: !!payload.spot?.stale,
     retailStale: !!payload.retail?.stale,
+  };
+}
+
+// === GPU / accelerator rental tracker (data/accelerator-prices.json) ========
+// Public provider and marketplace rates, normalized to USD per GPU-hour:
+// CoreWeave (spot + on-demand), Vast.ai (live verified bid + on-demand offers),
+// Runpod (Community + Secure Cloud), and Lambda. Each quote carries its market
+// type and instance size; daily per-provider/model/type history accumulates
+// across builds. A failed source carries only that provider's last-good rows
+// as stale, so one broken page never blanks the rest of the desk.
+async function readPriorAcceleratorPrices() {
+  try {
+    return JSON.parse(await readFile(resolve(DATA_DIR, "accelerator-prices.json"), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+export async function writeAcceleratorPricesFile(builtAtIso, prior = null) {
+  const sources = await fetchAcceleratorMarketplaces();
+  const payload = buildAcceleratorPricesPayload({ sources, prior, builtAtIso });
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, "accelerator-prices.json"), json, "utf8");
+  return {
+    bytes: json.length,
+    sources: payload.summary?.sourceCount || 0,
+    freshSources: payload.summary?.freshSources || 0,
+    quotes: payload.summary?.quoteCount || 0,
+    models: payload.summary?.modelCount || 0,
+    staleSources: payload.summary?.staleSources || [],
   };
 }
 
@@ -30762,6 +30796,10 @@ async function main() {
   // daily history across builds (the sources only publish the current
   // session), so it must be pre-read before the wipe like the other histories.
   const priorRamPrices = await readPriorRamPrices();
+  // Prior accelerator-rental snapshot — provider/model/market histories grow
+  // one ET-date point per successful source refresh, while an unavailable
+  // marketplace carries only its own last-good rows. Read before the wipe.
+  const priorAcceleratorPrices = await readPriorAcceleratorPrices();
   // Prior commodities snapshot — per-item last-good carry-forward on a fetch
   // miss, plus the accumulated scrape-overlay history (Drewry/BDI/Manheim),
   // so it must be pre-read before the wipe like the other histories.
@@ -31072,6 +31110,15 @@ async function main() {
     console.log(`wrote data/ram-prices.json — ${ramInfo.spotItems} spot items${ramInfo.spotStale ? " [stale]" : ""}, ${ramInfo.retailCats} retail categories${ramInfo.retailStale ? " [stale]" : ""}, ${ramInfo.bytes} bytes`);
   } catch (err) {
     console.log(`  ⚠ RAM-prices step failed (non-fatal): ${err.message}`);
+  }
+  // Public GPU / accelerator rental tracker (CoreWeave, Vast.ai, Runpod,
+  // Lambda). Rates are normalized per GPU-hour; spot and on-demand remain
+  // separate, and each provider carries last-good independently.
+  try {
+    const acceleratorInfo = await writeAcceleratorPricesFile(builtAtIso, priorAcceleratorPrices);
+    console.log(`wrote data/accelerator-prices.json — ${acceleratorInfo.freshSources}/${acceleratorInfo.sources} sources fresh, ${acceleratorInfo.models} models, ${acceleratorInfo.quotes} quotes, ${acceleratorInfo.bytes} bytes${acceleratorInfo.staleSources.length ? ` [stale: ${acceleratorInfo.staleSources.join(",")}]` : ""}`);
+  } catch (err) {
+    console.log(`  ⚠ Accelerator-prices step failed (non-fatal): ${err.message}`);
   }
   // Commodity price tracker (Yahoo futures/ETF + FRED monthly + best-effort
   // Drewry/BDI/Manheim overlays) — per-item last-good carry-forward (graceful).

@@ -1220,10 +1220,9 @@ export const DOC_PAGES = {
             <li><b>News desk</b> — stock and macro headlines, published economic prints, impact ranking and active-tape context</li>
             <li><b>Compare companies</b> — overlay 2–4 price histories, then compare valuation, growth, margins and grade</li>
             <li><b>Calendar</b> — earnings, macro prints, FOMC + FedWatch odds, and the official member vote map</li>
-            <li><b>Earnings tracker</b> — season scoreboard: beats, guidance, expected moves, drift</li>
             <li><b>Market heatmap</b> — live map by performance or relative volume</li>
             <li><b>Macro</b> — Overnight markets, Fear &amp; Greed, Bonds &amp; USD, Commodities, IPOs &amp; credit, Capital raises</li>
-            <li><b>Alt data</b> — SEC ownership filings, AI buildout spending, the RAM / memory pricing cycle, and weekly Google Trends theme-interest signals</li>
+            <li><b>Alt data</b> — SEC ownership filings, AI buildout spending, RAM / memory prices, GPU-cloud rental and spot prices, and weekly Google Trends theme-interest signals</li>
             <li><b>Narratives</b> — AI theses driving capital, longs/shorts, lifecycle</li>
             <li><b>Earnings calls</b> — AI briefs covering guidance, tone and Q&amp;A</li>
             <li><b>Index calendar</b> — daily SPY/QQQ/IWM and cross-asset closes by month</li>
@@ -1248,6 +1247,7 @@ export const DOC_PAGES = {
             <li><b>Sector Rotation</b> — quality companies washed out with their peer group, then ranked by rebound phase and trade levels</li>
             <li><b>Leveraged ETFs</b> — the same grades mapped onto listed 2×/3× products, with reset-drag, carry-cost &amp; chop warnings and a live-priced track record</li>
             <li><b>Briefs</b> — hourly market digest, open through close</li>
+            <li><b>Earnings tracker</b> — season scoreboard: beats, guidance, expected moves, drift</li>
             <li><b>Trending IV</b> — implied vol running above a name's own history</li>
             <li><b>Streaks</b> — persistent green/red runs and mean-reversion context</li>
             <li><b>Unusual flow</b> — abnormal options prints &amp; directional skew</li>
@@ -1292,10 +1292,6 @@ export const DOC_PAGES = {
           <p class="feat-desc">Earnings AM/PM sessions, macro releases (CPI, NFP, PPI, JOLTS), FOMC dates and live FedWatch probabilities — with countdowns and clickable tickers.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Earnings tracker</span><span class="tier free">Free</span></div>
-          <p class="feat-desc">A season-by-season scoreboard of every tracked name's earnings — beats vs misses, guidance raised or cut, whether the stock moved more than the options market priced in, the pre-earnings drift into each print, sell-the-news counts, the biggest gap-ups and gap-downs, a sortable look at who reports next, and a daily AI season read.</p>
-        </div>
-        <div class="feat">
           <div class="feat-top"><span class="feat-name">Strategies</span><span class="tier free">Free</span></div>
           <p class="feat-desc">An entry-strategy engine that frames how to express a directional view with defined-risk option structures.</p>
         </div>
@@ -1338,6 +1334,10 @@ export const DOC_PAGES = {
         <div class="feat">
           <div class="feat-top"><span class="feat-name">RAM prices</span><span class="tier free">Free</span></div>
           <p class="feat-desc">DRAM / memory pricing from two independent sources — wholesale spot chips and modules plus US retail DDR5 kits — with a composite index, 7-day / 30-day / 3-month / 1-year changes, and a hoverable trend chart.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">GPU cloud prices</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">Public accelerator rental and spot prices from CoreWeave, Vast.ai, Runpod and Lambda, normalized to USD per GPU-hour with provider ranges, interruption labels, source freshness, daily history and hoverable comparisons by model.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Capital raises</span><span class="tier free">Free</span></div>
@@ -1401,6 +1401,10 @@ export const DOC_PAGES = {
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Briefs</span><span class="tier prem">Premium</span></div>
           <p class="feat-desc">A rolling market digest refreshed hourly through the session — overnight moves, the day's movers, notable flow, dealer gamma, what's next.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Earnings tracker</span><span class="tier prem">Premium</span></div>
+          <p class="feat-desc">A season-by-season scoreboard of every tracked name's earnings — beats vs misses, guidance raised or cut, whether the stock moved more than the options market priced in, pre-earnings drift, sell-the-news counts, the biggest gaps, upcoming event risk, and a daily AI season read.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Trending IV</span><span class="tier prem">Premium</span></div>

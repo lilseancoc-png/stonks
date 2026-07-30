@@ -14,11 +14,21 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
        lands (create the heading + "### Category" subhead if missing — newest
        date first, categories in the order Added / Changed / Fixed / Removed /
        Perf / Docs). One bullet per change, present tense, plain language,
-       reference the PR (#NNN) when there is one.
+     reference the PR (#NNN) when there is one.
      - MONTHLY ROLLOVER: on the first entry of a new month, move ALL of the
-       previous month's "## YYYY-MM-DD" sections into docs/changelog/YYYY-MM.md
-       (same format, plus the archive preamble) and add that month to the
-       "Older changelogs" index below. -->
+     previous month's "## YYYY-MM-DD" sections into docs/changelog/YYYY-MM.md
+     (same format, plus the archive preamble) and add that month to the
+     "Older changelogs" index below. -->
+
+## 2026-07-30
+
+### Added
+
+- **Alt data gains a GPU-cloud rental and spot-price tracker.** Every daily bake now collects live verified rentable Vast.ai bid/on-demand offers plus CoreWeave spot/on-demand, Runpod Community/Secure, and Lambda public rental tables; normalizes every quote to USD per GPU-hour while retaining instance size, VRAM, provider links, marketplace ranges and interruption labels; and accumulates per-provider/model/market daily history with independent last-good fallback. The new free GPU Cloud Prices tab adds an H100-led summary, spot-discount and coverage checks, selectable multi-provider history charts, current quote comparisons, source freshness, and conditional compute-capacity context. `lib/accelerator-prices.mjs`, `scripts/build.mjs`, `scripts/render/{html,app-js,styles-css,docs}.mjs`, `docs/site-logic.md`.
+
+### Changed
+
+- **Earnings Tracker is now a premium feature.** The server classifies `earnings-tracker.json` as premium data, the client locks the tab before its loader runs for signed-out visitors, and the premium preview, feature matrix, architecture docs, and access-policy copy all reflect the new tier. Calendar earnings dates and each ticker's own earnings history remain free. `lib/premium-keys.mjs`, `scripts/render/{app-js,docs}.mjs`, `docs/{private-data-migration,site-logic}.md`.
 
 ## 2026-07-29
 

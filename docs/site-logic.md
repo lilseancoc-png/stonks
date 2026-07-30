@@ -58,6 +58,7 @@ Most important design rule: a strong observation is not automatically a trade. T
 | Macro | Bonds & USD | Treasury curve, dollar, inflation, labor, credit, and live cross-asset overlays. |
 | Alt Data | AI CapEx | Mag-7 reported CapEx, run rate, management guidance, revenue burden, and supplier read-through. |
 | Alt Data | RAM Prices | Wholesale DRAM plus retail DDR5 pricing and breadth. |
+| Alt Data | GPU Cloud Prices | Public accelerator rental and spot rates normalized to USD per GPU-hour, with provider/model history. |
 | Alt Data | Search Interest | Weekly Google Trends attention for curated market and technology themes, with top/rising queries and 7/30-day changes. |
 | Macro | Commodities | Eleven input-cost, freight, and demand series mapped to exposed equities. |
 | Macro | Capital Raises | Issuer-level equity, convertible, debt, and buyback events. |
@@ -783,6 +784,9 @@ BLS is primary for major labor/inflation series, with FRED fallback. The FOMC sc
 
 The reaction direction is the market's actual response, not an assumption that a beat must be bullish.
 
+The tab and `data/earnings-tracker.json` require a premium session. Calendar
+earnings dates and each ticker's own earnings history remain free.
+
 ### Earnings Calls
 
 Motley Fool is the primary transcript source and MarketBeat the fallback. The system discovers new transcripts, generates a structured full-transcript brief, and writes both an index and per-ticker detail files.
@@ -1025,6 +1029,33 @@ Cycle states:
 
 The equity lens is again two-sided: rising memory can benefit suppliers but hurt system builders; falling prices can relieve buyer costs but pressure supplier pricing.
 
+#### GPU Cloud Prices
+
+The daily bake collects four provider-published public surfaces:
+
+- Vast.ai verified rentable marketplace offers in interruptible-bid and on-demand lanes;
+- CoreWeave's public whole-instance spot and on-demand table;
+- Runpod Community and Secure Cloud public rental rates;
+- Lambda public on-demand per-GPU rates.
+
+Every quote is normalized to USD per GPU-hour while preserving provider, market
+type, whole-instance price, GPU count, VRAM, source link, and marketplace offer
+range/count. Vast rows use the median and full range of verified rentable offers
+with at least 98% reliability so one unusually cheap host does not become the
+headline price.
+
+`data/accelerator-prices.json` accumulates one daily point per
+provider/model/market series. Each provider degrades independently: a failed
+page carries only that provider's last-good rows as stale and does not append a
+new history point. The UI compares spot and on-demand lanes, plots selectable
+model histories, and leads with H100 when available.
+
+The price read is a conditional capacity/utilization overlay. A higher rental
+rate can reflect scarce capacity, but posted price does not prove availability
+or chip demand; a lower rate can reflect supply growth, hardware-mix changes,
+competition, or softer utilization. Confirm with provider guidance, backlog,
+availability, and equity price action.
+
 ### Commodities
 
 Eleven trackers cover cocoa, cotton, coffee, sugar, palm oil, lumber, potash, lithium, container freight, Baltic Dry, and used vehicles. Reliable base series come from Yahoo futures/ETF proxies or FRED. Bot-wall/native series may add best-effort overlays.
@@ -1238,9 +1269,9 @@ Live polling is generally active only while the relevant tab is visible. Failure
 
 When `PRIVATE_DATA_ENABLED` is off, the deployment behaves as legacy public data. When on:
 
-**Free:** shell, per-ticker data, Grade, News, Calendar, Heatmap, Overnight, Fear & Greed, Bonds & USD, Alt Data (AI CapEx and RAM), Commodities, Capital Raises, IPOs & Credit, Narratives, Earnings Tracker, Earnings Calls, Index Calendar, 13F, Compare, Strategies, and reference/legal pages.
+**Free:** shell, per-ticker data, Grade, News, Calendar, Heatmap, Overnight, Fear & Greed, Bonds & USD, Alt Data (AI CapEx, RAM, GPU Cloud Prices, Search Interest, and 13F), Commodities, Capital Raises, IPOs & Credit, Narratives, Earnings Calls, Index Calendar, Compare, Strategies, and reference/legal pages.
 
-**Premium session:** Market Analysis, Stock Picks, Sector Rotation, Leveraged ETFs, Brief, Event Spillover, Unusual Flow, Volume, Gamma Exposure/OI, Trending IV, and Streaks.
+**Premium session:** Market Analysis, Stock Picks, Sector Rotation, Leveraged ETFs, Brief, Earnings Tracker, Event Spillover, Unusual Flow, Volume, Gamma Exposure/OI, Trending IV, and Streaks.
 
 **Top-Picks role (`tp`):** Top Picks and its shared watchlist.
 
@@ -1299,7 +1330,7 @@ Model resilience includes per-call model defaults, retry ladders, dead-model det
 
 ## 20. Audit findings and interpretation cautions
 
-1. **Current code and older repository guidance differ on tiering.** The current `PREMIUM_TABS` and `lib/premium-keys.mjs` are the authority. Narratives, Earnings Calls, and Index Calendar are currently free; Sector Rotation, Event Spillover, Trending IV, and Streaks are premium.
+1. **Current code and older repository guidance can differ on tiering.** The current `PREMIUM_TABS` and `lib/premium-keys.mjs` are the authority. Narratives, Earnings Calls, and Index Calendar are free; Earnings Tracker, Sector Rotation, Event Spillover, Trending IV, and Streaks are premium.
 2. **One UI help string overstates the IV-cost range.** The executable grade code and canonical Top Picks document use `-2…+1`; a tooltip in the generated app source still describes a broader `-3…+1.5` idea. This is copy drift, not scoring behavior.
 3. **“Sector rotation” names two different concepts.** Heatmap sector streaks measure breadth persistence. The Sector Rotation tab is the robust peer-washout rebound model.
 4. **Live price does not make every derived field live.** Entry zone and quote state may update, while a baked z-score, frozen mean, or historical volatility statistic remains anchored to its named build.
