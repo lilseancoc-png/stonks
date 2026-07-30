@@ -70,7 +70,7 @@
   // Public Discord invite (single-sourced in lib/links.mjs) — where non-members
   // join the server to purchase the premium role. Surfaced on the lock card +
   // header so the Discord is findable from anywhere on the site.
-  var DISCORD_INVITE_URL = "https://discord.gg/GVYx7qSWxS";
+  var DISCORD_INVITE_URL = "https://discord.gg/drTq2gkf6j";
   function premiumTabLabel(id){
     return ({ market:'Market Analysis', rotation:'Sector Rotation', brief:'Briefs', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', stocks:'Stock Picks', spillover:'Event spillover', quant:'Quant Lab', levetf:'Leveraged ETFs', 'iv-trend':'Trending IV', streaks:'Streaks', earnings:'Earnings Tracker' })[id] || 'This feature';
   }

@@ -1750,10 +1750,10 @@ export const DOC_PAGES = {
 
     <section id="contact">
       <h2><span class="snum">11</span>Contact Us</h2>
-      <p>If you have any questions or concerns about this Privacy Policy or our data practices, please contact us at:</p>
+      <p>If you have any questions or concerns about this Privacy Policy or our data practices, join our Discord and head to the <b>#Support</b> channel.</p>
       <div class="contact-card">
         <div class="row"><span class="lab">Email</span><a href="mailto:dddresearchlabs@gmail.com">dddresearchlabs@gmail.com</a></div>
-        <div class="row"><span class="lab">Discord</span><span>Ming Street</span></div>
+        <div class="row"><span class="lab">Discord</span><a href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">Join Ming Street &rarr; #Support</a></div>
       </div>
     </section>
   </main>
@@ -2068,10 +2068,10 @@ export const DOC_PAGES = {
 
     <section id="contact">
       <h2><span class="snum">16</span>Contact Us</h2>
-      <p>For questions about these Terms:</p>
+      <p>For questions about these Terms, join our Discord and head to the <b>#Support</b> channel.</p>
       <div class="contact-card">
         <div class="row"><span class="lab">Email</span><a href="mailto:dddresearchlabs@gmail.com">dddresearchlabs@gmail.com</a></div>
-        <div class="row"><span class="lab">Discord</span><span>Ming Street</span></div>
+        <div class="row"><span class="lab">Discord</span><a href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">Join Ming Street &rarr; #Support</a></div>
       </div>
     </section>
   </main>
