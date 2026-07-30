@@ -1,7 +1,7 @@
 name: Weekly search interest
 
-# Refreshes Google Trends relative interest for the tracked ticker universe and
-# the curated Alt-data theme list once per week. The free-tier workflow spends
+# Refreshes Google Trends relative interest for the curated Alt-data theme list
+# once per week. No individual stock tickers are collected. The workflow spends
 # at most 40 SerpApi requests per run (200 in a five-Monday month), leaving room
 # for one manual recovery run under the 250-request monthly allowance. Related
 # queries are disabled; the core 90-day timelines and change rankings remain.

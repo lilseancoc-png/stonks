@@ -165,7 +165,7 @@ output. A blob store has no merge, so we replicate that ownership explicitly.
 | picks\*, grades\*, calendar, macro\*, correlations, trends\*, streaks, 13f, fear-greed\*, fedwatch-history, rfr-history, earnings-history, chart-pattern-cache, ticker-judgment-cache, prediction-history | bake | upsert |
 | unusual\*, volume-flags, volume-history, flow-explanations | unusual-flow scan | upsert (no delete) |
 | oi-tracker, oi-history | oi-tracker scan | upsert (no delete) |
-| search-interest | daily search-interest refresh | upsert (no delete) |
+| search-interest | weekly theme search-interest refresh | upsert (no delete) |
 | **heatmap.json** | bake (seed/rebuild) **+** unusual (refresh) | upsert by whichever ran; serialized |
 | **market-analysis.json** | bake (macro regime) **+** unusual (premarket cohort + hourly marks) | read-modify-write; serialized |
 | **briefs.json** | bake (`buildMarketBriefs`, re-minted hourly) | upsert; once-per-ET-hour gating already in code |

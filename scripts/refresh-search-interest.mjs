@@ -1,8 +1,8 @@
-// Daily Google Trends search-interest collector.
+// Google Trends theme-interest collector.
 //
 // Google Trends' official API is still alpha-only, and its public Explore
 // endpoints routinely block hosted runners. This job therefore uses SerpApi's
-// structured Google Trends endpoint. It batches four tracked queries with a
+// structured Google Trends endpoint. It batches four themes with a
 // shared "stock market" anchor (Google permits five comparisons) so relative
 // interest remains comparable across batches, then fetches each query's top
 // and rising related searches separately.
@@ -12,9 +12,9 @@
 // Required:
 //   SERPAPI_KEY
 // Optional:
-//   SEARCH_TRENDS_CADENCE=daily        # payload label used by the UI
+//   SEARCH_TRENDS_CADENCE=weekly       # payload label used by the UI
 //   SEARCH_TRENDS_GEO=US
-//   SEARCH_TRENDS_LIMIT=0              # 0 = the whole current universe
+//   SEARCH_TRENDS_THEME_LIMIT=0        # 0 = the whole curated theme universe
 //   SEARCH_TRENDS_RELATED_LIMIT=0      # 0 = related queries for every row
 //   SEARCH_TRENDS_RELATED=1            # 0 = skip all related-query requests
 //   SEARCH_TRENDS_RELATED_CONCURRENCY=4
@@ -23,7 +23,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { TICKERS, SECTORS } from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -33,25 +32,50 @@ const TMP_OUT = resolve(DATA_DIR, "search-interest.json.tmp");
 
 export const SEARCH_INTEREST_ANCHOR = "stock market";
 export const SEARCH_INTEREST_TERMS = [
-  { id: "ai", label: "AI", query: "artificial intelligence", sector: "AI buildout" },
-  { id: "ai-chips", label: "AI chips", query: "AI chips", sector: "Semiconductors" },
-  { id: "data-center", label: "Data centers", query: "data center", sector: "AI infrastructure" },
-  { id: "semiconductors", label: "Semiconductors", query: "semiconductors", sector: "Semiconductors" },
-  { id: "cloud", label: "Cloud computing", query: "cloud computing", sector: "Software" },
-  { id: "cybersecurity", label: "Cybersecurity", query: "cybersecurity", sector: "Software" },
+  { id: "openai", label: "OpenAI", query: "OpenAI", sector: "AI labs" },
+  { id: "anthropic", label: "Anthropic", query: "Anthropic AI", sector: "AI labs" },
+  { id: "claude", label: "Claude", query: "Claude AI", sector: "AI assistants" },
+  { id: "deepseek", label: "DeepSeek", query: "DeepSeek AI", sector: "AI labs" },
+  { id: "kimi", label: "Kimi", query: "Kimi AI", sector: "AI assistants" },
+  { id: "chatgpt", label: "ChatGPT", query: "ChatGPT", sector: "AI assistants" },
+  { id: "gemini", label: "Google Gemini", query: "Google Gemini AI", sector: "AI assistants" },
+  { id: "perplexity", label: "Perplexity AI", query: "Perplexity AI", sector: "AI assistants" },
+  { id: "grok", label: "Grok", query: "Grok AI", sector: "AI assistants" },
+  { id: "mistral", label: "Mistral AI", query: "Mistral AI", sector: "AI labs" },
+  { id: "ai", label: "Artificial intelligence", query: "artificial intelligence", sector: "AI adoption" },
+  { id: "ai-agents", label: "AI agents", query: "AI agents", sector: "AI adoption" },
+  { id: "agentic-ai", label: "Agentic AI", query: "agentic AI", sector: "AI adoption" },
+  { id: "agi", label: "Artificial general intelligence", query: "artificial general intelligence", sector: "AI adoption" },
+  { id: "ai-coding", label: "AI coding", query: "AI coding", sector: "AI adoption" },
+  { id: "vibe-coding", label: "Vibe coding", query: "vibe coding", sector: "AI adoption" },
+  { id: "ai-automation", label: "AI automation", query: "AI automation", sector: "AI adoption" },
+  { id: "ai-chips", label: "AI chips", query: "AI chips", sector: "Compute" },
+  { id: "data-center", label: "Data centers", query: "data center", sector: "Compute" },
+  { id: "semiconductors", label: "Semiconductors", query: "semiconductors", sector: "Compute" },
+  { id: "cloud", label: "Cloud computing", query: "cloud computing", sector: "Compute" },
+  { id: "cybersecurity", label: "Cybersecurity", query: "cybersecurity", sector: "Compute" },
   { id: "quantum", label: "Quantum computing", query: "quantum computing", sector: "Emerging tech" },
-  { id: "robotics", label: "Robotics", query: "robotics", sector: "Automation" },
-  { id: "nuclear", label: "Nuclear energy", query: "nuclear energy", sector: "Power" },
+  { id: "autonomous", label: "Autonomous vehicles", query: "autonomous vehicles", sector: "Autonomy" },
+  { id: "robotaxi", label: "Robotaxis", query: "robotaxi", sector: "Autonomy" },
+  { id: "humanoid-robots", label: "Humanoid robots", query: "humanoid robots", sector: "Autonomy" },
+  { id: "robotics", label: "Robotics", query: "robotics", sector: "Autonomy" },
+  { id: "drones", label: "Drones", query: "drones", sector: "Autonomy" },
+  { id: "nuclear", label: "Nuclear energy", query: "nuclear energy", sector: "Energy" },
+  { id: "oil", label: "Oil", query: "oil price", sector: "Energy" },
+  { id: "gold", label: "Gold", query: "gold price", sector: "Markets" },
+  { id: "bitcoin", label: "Bitcoin", query: "Bitcoin", sector: "Markets" },
+  { id: "rates", label: "Interest rates", query: "interest rates", sector: "Macro" },
+  { id: "inflation", label: "Inflation", query: "inflation", sector: "Macro" },
+  { id: "recession", label: "Recession", query: "recession", sector: "Macro" },
+  { id: "war", label: "War", query: "war", sector: "Geopolitics" },
+  { id: "tariffs", label: "Tariffs", query: "tariffs", sector: "Geopolitics" },
+  { id: "trade-war", label: "Trade war", query: "trade war", sector: "Geopolitics" },
+  { id: "defense-tech", label: "Defense technology", query: "defense technology", sector: "Geopolitics" },
+  { id: "rare-earths", label: "Rare earths", query: "rare earth minerals", sector: "Geopolitics" },
+  { id: "space", label: "Space industry", query: "space industry", sector: "Emerging tech" },
   { id: "glp1", label: "GLP-1", query: "GLP-1", sector: "Healthcare" },
   { id: "weight-loss-drugs", label: "Weight-loss drugs", query: "weight loss drugs", sector: "Healthcare" },
-  { id: "space-stocks", label: "Space stocks", query: "space stocks", sector: "Space" },
-  { id: "defense-stocks", label: "Defense stocks", query: "defense stocks", sector: "Defense" },
-  { id: "fintech", label: "Fintech", query: "fintech", sector: "Financials" },
-  { id: "bitcoin", label: "Bitcoin", query: "Bitcoin", sector: "Crypto" },
-  { id: "gold", label: "Gold price", query: "gold price", sector: "Commodities" },
-  { id: "oil", label: "Oil price", query: "oil price", sector: "Energy" },
-  { id: "rates", label: "Interest rates", query: "interest rates", sector: "Macro" },
-  { id: "recession", label: "Recession", query: "recession", sector: "Macro" },
+  { id: "fintech", label: "Fintech", query: "fintech", sector: "Finance" },
 ];
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -72,15 +96,6 @@ async function readPrior() {
     return parsed && typeof parsed === "object" ? parsed : {};
   } catch {
     return {};
-  }
-}
-
-async function readCompanyName(sym) {
-  try {
-    const parsed = JSON.parse(await readFile(resolve(DATA_DIR, `${sym}.json`), "utf8"));
-    return String(parsed?.fundamentals?.name || "").trim() || sym;
-  } catch {
-    return sym;
   }
 }
 
@@ -227,11 +242,11 @@ export function buildSearchInterestSummary(rows) {
     .sort((a, b) => b.relativeInterest - a.relativeInterest);
   const breakouts = usable.flatMap((row) =>
     (row.risingQueries || []).filter((query) => query.breakout).map((query) => ({
-      id: row.id, symbol: row.symbol || null, label: row.label, query: query.query,
+      id: row.id, label: row.label, query: query.query,
     })));
   return {
-    top7d: sorted7d.slice(0, 6).map(({ id, symbol, label, change7d }) => ({ id, symbol, label, change7d })),
-    topInterest: sortedInterest.slice(0, 6).map(({ id, symbol, label, relativeInterest }) => ({ id, symbol, label, relativeInterest })),
+    top7d: sorted7d.slice(0, 6).map(({ id, label, change7d }) => ({ id, label, change7d })),
+    topInterest: sortedInterest.slice(0, 6).map(({ id, label, relativeInterest }) => ({ id, label, relativeInterest })),
     breakouts: breakouts.slice(0, 12),
     breakoutCount: breakouts.length,
     covered: usable.length,
@@ -249,18 +264,9 @@ async function main() {
   };
   const prior = await readPrior();
   const priorById = new Map((Array.isArray(prior.rows) ? prior.rows : []).map((row) => [row.id, row]));
-  const tickerLimit = envInt("SEARCH_TRENDS_LIMIT", 0);
-  const symbols = tickerLimit > 0 ? TICKERS.slice(0, tickerLimit) : TICKERS;
-  const tickerItems = await mapLimit(symbols, 12, async (sym) => ({
-    id: `ticker:${sym}`,
-    type: "ticker",
-    symbol: sym,
-    label: await readCompanyName(sym),
-    query: `${sym} stock`,
-    sector: SECTORS[sym] || "Other",
-  }));
-  const themeItems = SEARCH_INTEREST_TERMS.map((term) => ({ ...term, type: "theme", symbol: null }));
-  const items = [...tickerItems, ...themeItems];
+  const themeLimit = envInt("SEARCH_TRENDS_THEME_LIMIT", 0);
+  const themeTerms = themeLimit > 0 ? SEARCH_INTEREST_TERMS.slice(0, themeLimit) : SEARCH_INTEREST_TERMS;
+  const items = themeTerms.map((term) => ({ ...term, type: "theme" }));
   const interestBatches = batches(items, 4);
   const today = new Date();
   const start = new Date(today.getTime() - 90 * 86_400_000);
@@ -363,13 +369,13 @@ async function main() {
     source: {
       name: "Google Trends",
       provider: "SerpApi",
-      cadence: String(process.env.SEARCH_TRENDS_CADENCE || "daily").trim().toLowerCase() || "daily",
+      cadence: String(process.env.SEARCH_TRENDS_CADENCE || "weekly").trim().toLowerCase() || "weekly",
       geo: process.env.SEARCH_TRENDS_GEO || "US",
       periodDays: 90,
       anchor: SEARCH_INTEREST_ANCHOR,
       note: "Interest is Google Trends relative search interest, normalized against the shared stock-market anchor. It is not absolute search volume.",
     },
-    universe: { tickers: tickerItems.length, themes: themeItems.length, total: items.length },
+    universe: { themes: items.length, total: items.length },
     status: {
       state: errors.length ? "partial" : "ok",
       freshInterest,

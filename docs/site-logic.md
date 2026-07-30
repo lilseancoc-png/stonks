@@ -58,7 +58,7 @@ Most important design rule: a strong observation is not automatically a trade. T
 | Macro | Bonds & USD | Treasury curve, dollar, inflation, labor, credit, and live cross-asset overlays. |
 | Alt Data | AI CapEx | Mag-7 reported CapEx, run rate, management guidance, revenue burden, and supplier read-through. |
 | Alt Data | RAM Prices | Wholesale DRAM plus retail DDR5 pricing and breadth. |
-| Alt Data | Search Interest | Daily Google Trends attention for the tracked ticker universe and key market themes, with top/rising queries and 7/30-day changes. |
+| Alt Data | Search Interest | Weekly Google Trends attention for curated market and technology themes, with top/rising queries and 7/30-day changes. |
 | Macro | Commodities | Eleven input-cost, freight, and demand series mapped to exposed equities. |
 | Macro | Capital Raises | Issuer-level equity, convertible, debt, and buyback events. |
 | Macro | IPOs & Credit | IPO participation, bond issuance, bank funding, and household-credit backdrop. |
@@ -982,13 +982,15 @@ The trade interpretation is two-sided: more spending may support GPUs, networkin
 
 #### Search Interest
 
-`scripts/refresh-search-interest.mjs` runs once daily and writes
-`data/search-interest.json`. Coverage is the current `TICKERS` export plus a
-curated theme set including AI, AI chips, data centers, semiconductors,
-cybersecurity, nuclear energy, GLP-1, space, Bitcoin, rates, and recession.
+`scripts/refresh-search-interest.mjs` runs once weekly and writes
+`data/search-interest.json`. Coverage is theme-only: no individual stock
+tickers are collected. The curated set includes AI labs and assistants
+(OpenAI, Anthropic, Claude, DeepSeek, Kimi), AI agents and adoption, compute
+infrastructure, autonomy and robotics, energy, macro, geopolitics, healthcare,
+and other market-relevant themes.
 
 The job uses SerpApi's Google Trends endpoint (`SERPAPI_KEY`) because Google's
-official programmatic API is still alpha-only. Four tracked queries share one
+official programmatic API is still alpha-only. Four theme queries share one
 comparison request with a fifth `stock market` anchor. This makes the displayed
 relative-interest ratio comparable across batches while keeping the Google
 Trends 0-100 time series intact for each query. It stores:
@@ -1002,8 +1004,8 @@ Trends 0-100 time series intact for each query. It stores:
 
 Google's Breakout label means growth above 5,000%. Search attention is a
 participation/discovery signal, not absolute search volume, sentiment, causality,
-or a directional trade call. The UI therefore sends ticker rows into Grade and
-asks for price, volume, catalyst, and options confirmation.
+or a directional trade call. The UI asks for price, volume, catalyst, and
+fundamental confirmation in the assets exposed to each theme.
 
 #### RAM Prices
 

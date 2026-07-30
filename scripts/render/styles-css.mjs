@@ -4201,8 +4201,7 @@ a.cx-tkr { border-bottom: 1px solid transparent; }
 .si-card > summary { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; padding: 11px; list-style: none; cursor: pointer; }
 .si-card > summary::-webkit-details-marker { display: none; }
 .si-card-title { min-width: 0; display: flex; align-items: baseline; gap: 7px; }
-.si-symbol { appearance: none; padding: 0; border: 0; background: none; color: var(--text-strong); font: 800 13px/1 var(--font-mono); cursor: pointer; }
-button.si-symbol:hover, button.si-symbol:focus-visible { color: var(--accent); }
+.si-symbol { color: var(--text-strong); font: 800 13px/1 var(--font-mono); }
 .si-card-title small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: 500 10.5px/1.2 var(--font-sans); }
 .si-breakout {
   align-self: start; padding: 3px 6px; border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--border)); border-radius: var(--r-pill);

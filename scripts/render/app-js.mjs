@@ -18167,17 +18167,21 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (!root) return;
     var d = searchInterestState.data;
     if (!d){ root.textContent = 'Loading search interest...'; return; }
-    var rows = Array.isArray(d.rows) ? d.rows.filter(function(row){ return row && !row.missing; }) : [];
+    // The desk is theme-only. This also suppresses ticker rows from a legacy
+    // snapshot while the private-store producer rolls over to the new schema.
+    var rows = Array.isArray(d.rows) ? d.rows.filter(function(row){
+      return row && !row.missing && row.type !== 'ticker' && !row.symbol;
+    }) : [];
     if (!rows.length){
       if (empty) empty.hidden = true;
       if (eye) eye.textContent = 'Unavailable | no signal';
       root.innerHTML = '<section class="si-empty-desk"><span>Attention desk</span><h3>' +
         (d.loadError ? 'The search-interest snapshot could not be loaded' : 'No search-interest snapshot is available yet') +
-        '</h3><p>Do not infer public participation from missing data. The next successful weekly Trends refresh will restore ticker and theme coverage.</p></section>';
+        '</h3><p>Do not infer public participation from missing data. The next successful weekly Trends refresh will restore theme coverage.</p></section>';
       return;
     }
     if (empty) empty.hidden = true;
-    var status = d.status || {}, summary = d.summary || {};
+    var status = d.status || {};
     var relatedEnabled = status.relatedEnabled !== false;
     var weeklyCadence = !!(d.source && d.source.cadence === 'weekly') || !relatedEnabled;
     var ageMs = Date.now() - Date.parse(d.builtAtIso || 0);
@@ -18186,19 +18190,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (eye) eye.textContent = (staleBuild ? 'Reference only' : (status.state === 'partial' ? 'Partial refresh' : cadenceLabel)) +
       ' | ' + rows.length + ' signals' + (d.builtAtIso ? ' | ' + String(d.builtAtIso).slice(0,10) : '');
 
-    var tickers = rows.filter(function(row){ return row.type === 'ticker'; });
-    var themes = rows.filter(function(row){ return row.type === 'theme'; });
-    var risingTickers = tickers.filter(function(row){ return Number(row.change7d) >= 15; }).length;
-    var fallingTickers = tickers.filter(function(row){ return Number(row.change7d) <= -15; }).length;
-    var topTicker = tickers.filter(function(row){ return typeof row.change7d === 'number' && isFinite(row.change7d); }).sort(function(a,b){ return b.change7d - a.change7d; })[0];
-    var topTheme = themes.filter(function(row){ return typeof row.change7d === 'number' && isFinite(row.change7d); }).sort(function(a,b){ return b.change7d - a.change7d; })[0];
-    var breakoutCount = Number(summary.breakoutCount) || rows.reduce(function(sum,row){
+    var risingThemes = rows.filter(function(row){ return Number(row.change7d) >= 15; }).length;
+    var fallingThemes = rows.filter(function(row){ return Number(row.change7d) <= -15; }).length;
+    var topTheme = rows.filter(function(row){ return typeof row.change7d === 'number' && isFinite(row.change7d); }).sort(function(a,b){ return b.change7d - a.change7d; })[0];
+    var broadestTheme = rows.filter(function(row){ return typeof row.relativeInterest === 'number' && isFinite(row.relativeInterest); }).sort(function(a,b){ return b.relativeInterest - a.relativeInterest; })[0];
+    var breakoutCount = rows.reduce(function(sum,row){
       return sum + (row.risingQueries || []).filter(function(q){ return q.breakout; }).length;
     }, 0);
     var posture = staleBuild ? 'Refresh required - do not trade the old attention map'
-      : risingTickers > fallingTickers * 1.5 && risingTickers >= 8 ? 'Attention breadth is expanding'
-      : fallingTickers > risingTickers * 1.5 && fallingTickers >= 8 ? 'Search participation is cooling'
-      : 'Attention is selective - follow the individual movers';
+      : risingThemes > fallingThemes * 1.5 && risingThemes >= 5 ? 'Theme attention is broadening'
+      : fallingThemes > risingThemes * 1.5 && fallingThemes >= 5 ? 'Theme attention is cooling'
+      : 'Attention is selective - follow the theme movers';
     var postureCopy = staleBuild
       ? 'The snapshot is older than 48 hours. Wait for a current search read before treating a surge as participation.'
       : 'Use the search move as a discovery trigger. Require price, volume and catalyst confirmation before taking risk.';
@@ -18206,21 +18208,20 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       escapeHtml(posture) + '</h3><p>' + escapeHtml(postureCopy) + '</p></div><span class="si-status' + (staleBuild ? ' is-stale' : '') + '">' +
       (staleBuild ? 'Reference only' : status.state === 'partial' ? 'Partial' : 'Current') + '</span></div>' +
       '<div class="si-summary">' +
-        '<div><small>Fastest ticker | 7d</small><b>' + (topTicker ? escapeHtml(topTicker.symbol || topTicker.label) : '&mdash;') + '</b><strong class="si-' + siTone(topTicker && topTicker.change7d) + '">' + siPct(topTicker && topTicker.change7d) + '</strong></div>' +
         '<div><small>Fastest theme | 7d</small><b>' + (topTheme ? escapeHtml(topTheme.label) : '&mdash;') + '</b><strong class="si-' + siTone(topTheme && topTheme.change7d) + '">' + siPct(topTheme && topTheme.change7d) + '</strong></div>' +
-        '<div><small>Ticker breadth</small><b>' + risingTickers + ' surging</b><strong>' + fallingTickers + ' cooling</strong></div>' +
+        '<div><small>Broadest attention</small><b>' + (broadestTheme ? escapeHtml(broadestTheme.label) : '&mdash;') + '</b><strong>' + (broadestTheme ? Number(broadestTheme.relativeInterest).toFixed(1) + ' vs market' : '&mdash;') + '</strong></div>' +
+        '<div><small>Theme breadth</small><b>' + risingThemes + ' surging</b><strong>' + fallingThemes + ' cooling</strong></div>' +
         (relatedEnabled ? '<div><small>Breakout queries</small><b>' + breakoutCount + '</b><strong>&gt;5,000% growth</strong></div>' : '') +
       '</div><p class="si-source">Relative interest is calibrated to the shared <b>' + escapeHtml((d.source && d.source.anchor) || 'stock market') +
       '</b> anchor. It measures attention, not absolute searches or directional intent.' +
       (relatedEnabled ? '' : ' Related-query lookups are disabled to stay within the free API tier.') + '</p></section>';
 
     var mode = searchInterestState.mode || 'movers';
+    if (mode === 'tickers' || mode === 'themes') { mode = 'all'; searchInterestState.mode = mode; }
     if (!relatedEnabled && mode === 'breakouts'){ mode = 'movers'; searchInterestState.mode = mode; }
     var query = String(searchInterestState.search || '').trim().toLowerCase();
     var filtered = rows.filter(function(row){
       if (query && (String(row.symbol || '') + ' ' + String(row.label || '') + ' ' + String(row.query || '') + ' ' + String(row.sector || '')).toLowerCase().indexOf(query) < 0) return false;
-      if (mode === 'tickers') return row.type === 'ticker';
-      if (mode === 'themes') return row.type === 'theme';
       if (mode === 'breakouts') return (row.risingQueries || []).some(function(item){ return item.breakout; });
       if (mode === 'movers') return Math.abs(Number(row.change7d) || 0) >= 10 || (row.risingQueries || []).some(function(item){ return item.breakout; });
       return true;
@@ -18236,13 +18237,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       return '<button type="button" data-si-mode="' + id + '" class="' + (mode === id ? 'is-on' : '') + '">' + label + '</button>';
     }
     var toolbar = '<div class="si-toolbar"><div class="si-filters">' +
-      filterButton('movers','Movers') + (relatedEnabled ? filterButton('breakouts','Breakouts') : '') + filterButton('themes','Themes') +
-      filterButton('tickers','Tickers') + filterButton('all','All') + '</div>' +
-      '<input type="search" id="si-search" placeholder="Search ticker, company or theme..." value="' + escapeHtml(searchInterestState.search || '') + '" aria-label="Filter search-interest signals"></div>';
+      filterButton('movers','Movers') + (relatedEnabled ? filterButton('breakouts','Breakouts') : '') + filterButton('all','All themes') + '</div>' +
+      '<input type="search" id="si-search" placeholder="Search theme or topic..." value="' + escapeHtml(searchInterestState.search || '') + '" aria-label="Filter search-interest themes"></div>';
     var cards = shown.map(function(row, cardIndex){
       var hasBreakout = (row.risingQueries || []).some(function(item){ return item.breakout; });
-      var title = row.symbol ? '<button type="button" class="si-symbol" data-si-grade="' + escapeHtml(row.symbol) + '">' + escapeHtml(row.symbol) + '</button>' : '<span class="si-symbol">' + escapeHtml(row.label || '') + '</span>';
-      var subtitle = row.symbol ? escapeHtml(row.label || '') : escapeHtml(row.sector || 'Theme');
+      var title = '<span class="si-symbol">' + escapeHtml(row.label || '') + '</span>';
+      var subtitle = escapeHtml(row.sector || 'Theme');
       return '<details class="si-card' + (hasBreakout ? ' has-breakout' : '') + '"' + (hasBreakout && cardIndex < 4 ? ' open' : '') + '><summary>' +
         '<div class="si-card-title">' + title + '<small>' + subtitle + '</small></div>' +
         (hasBreakout ? '<span class="si-breakout">Breakout</span>' : '') +
@@ -18271,9 +18271,6 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     });
     var more = root.querySelector('[data-si-more]');
     if (more) more.addEventListener('click', function(){ searchInterestState.showAll = true; renderSearchInterest(); });
-    Array.prototype.forEach.call(root.querySelectorAll('[data-si-grade]'), function(btn){
-      btn.addEventListener('click', function(ev){ ev.preventDefault(); calGoToTicker(btn.getAttribute('data-si-grade')); });
-    });
   }
 
   // --- Commodities (Macro tab) ----------------------------------------------

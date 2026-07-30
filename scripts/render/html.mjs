@@ -657,7 +657,7 @@ function searchInterestSection() {
       <h2 class="card-title">Search interest</h2>
       <span class="card-eyebrow" id="search-interest-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote('How to use search interest', `<p>Search attention is a <b>participation signal</b>, not a buy signal. Start with the 7-day change to find names or themes entering public attention, then check whether price, volume, options activity and fundamentals confirm the move. A surge without market confirmation can be curiosity, controversy or late-cycle crowding. Interest is Google Trends&rsquo; relative 0&ndash;100 index, normalized here against the same <em>stock market</em> anchor so rows can be compared; it is not absolute search volume.</p>`)}
+    ${infoNote('How to use search interest', `<p>Search attention is a <b>participation signal</b>, not a buy signal. Start with the 7-day change to find themes entering public attention, then check whether price, volume, catalysts and fundamentals confirm the move in related assets. A surge without market confirmation can be curiosity, controversy or late-cycle crowding. Interest is Google Trends&rsquo; relative 0&ndash;100 index, normalized here against the same <em>stock market</em> anchor so themes can be compared; it is not absolute search volume.</p>`)}
     <div id="search-interest-root" class="si-root">Loading search interest&hellip;</div>
     <div id="search-interest-empty" class="si-empty" hidden>Search-interest data will appear after the next weekly refresh.</div>
     <p class="hint">US Google Search interest over the trailing 90 days, refreshed weekly on the free API tier. Source: Google Trends via SerpApi. Not financial advice.</p>
