@@ -1217,12 +1217,13 @@ export const DOC_PAGES = {
           <ul class="cmp-list">
             <li><b>Grade a ticker</b> — AI chart-pattern read + technicals, fundamentals, IV, news + a contract grader</li>
             <li><b>Tickers</b> — chains, technicals, Greeks, IV term structure, AI news takes</li>
+            <li><b>Live quotes &amp; chains</b> — live spot, option-chain lookups, the live Fed Funds rate and contract grading</li>
             <li><b>News desk</b> — stock and macro headlines, published economic prints, impact ranking and active-tape context</li>
             <li><b>Compare companies</b> — overlay 2–4 price histories, then compare valuation, growth, margins and grade</li>
             <li><b>Calendar</b> — earnings, macro prints, FOMC + FedWatch odds, and the official member vote map</li>
             <li><b>Market heatmap</b> — live map by performance or relative volume</li>
-            <li><b>Macro</b> — Overnight markets, Fear &amp; Greed, Bonds &amp; USD, Commodities, IPOs &amp; credit, Capital raises</li>
-            <li><b>Alt data</b> — SEC ownership filings, AI buildout spending, RAM / memory prices, GPU-cloud rental and spot prices, and weekly Google Trends theme-interest signals</li>
+            <li><b>Macro</b> — Overnight markets, Fear &amp; Greed, Bonds &amp; USD, Commodities, Capital raises, and IPOs &amp; credit</li>
+            <li><b>Alt data</b> — AI CapEx, RAM prices, GPU cloud prices, Search interest, and SEC ownership / 13F filings</li>
             <li><b>Narratives</b> — AI theses driving capital, longs/shorts, lifecycle</li>
             <li><b>Earnings calls</b> — AI briefs covering guidance, tone and Q&amp;A</li>
             <li><b>Index calendar</b> — daily SPY/QQQ/IWM and cross-asset closes by month</li>
@@ -1242,18 +1243,20 @@ export const DOC_PAGES = {
           <div class="cmp-sub">Everything in Free, plus the decision-grade layers.</div>
           <ul class="cmp-list">
             <li><b>Market analysis</b> — the live market tape, risk barometer &amp; regime history</li>
-            <li><b>Top Picks</b> — highest-conviction contracts, sizing &amp; breakeven</li>
+            <li><b>Top Picks</b> — highest-conviction contracts, sizing &amp; breakeven; optionally controlled by its own Discord role</li>
             <li><b>Stock Picks</b> — shares-only buy-the-dip screen (quality names beaten down, trap flags shown) + a daily VOO/QQQ DCA dial</li>
             <li><b>Sector Rotation</b> — quality companies washed out with their peer group, then ranked by rebound phase and trade levels</li>
             <li><b>Leveraged ETFs</b> — the same grades mapped onto listed 2×/3× products, with reset-drag, carry-cost &amp; chop warnings and a live-priced track record</li>
             <li><b>Briefs</b> — hourly market digest, open through close</li>
             <li><b>Earnings tracker</b> — season scoreboard: beats, guidance, expected moves, drift</li>
+            <li><b>Event Spillover</b> — upcoming-earnings read-through across same-sector peers, with historical tests and forward-validation results</li>
             <li><b>Trending IV</b> — implied vol running above a name's own history</li>
             <li><b>Streaks</b> — persistent green/red runs and mean-reversion context</li>
             <li><b>Unusual flow</b> — abnormal options prints &amp; directional skew</li>
             <li><b>Volume</b> — intraday volume + support/resistance breaks</li>
             <li><b>Gamma exposure</b> — dealer net-gamma matrix, flip &amp; walls</li>
-            <li><b>Track Record</b> — resolved picks performance &amp; scorecard</li>
+            <li><b>Track Record</b> — resolved picks performance &amp; scorecard; optionally controlled by its own Discord role</li>
+            <li><b>Quant Lab</b> — confluence, 3σ movers, variance-risk-premium, pairs, volatility-surface, dispersion and post-earnings-drift screens; available to members with both Top Picks and Track Record access</li>
           </ul>
           <div class="cmp-cta">
             <a class="btn discord" href="/api/auth/discord-login">
@@ -1340,6 +1343,10 @@ export const DOC_PAGES = {
           <p class="feat-desc">Public accelerator rental and spot prices from CoreWeave, Vast.ai, Runpod and Lambda, normalized to USD per GPU-hour with provider ranges, interruption labels, source freshness, daily history and hoverable comparisons by model.</p>
         </div>
         <div class="feat">
+          <div class="feat-top"><span class="feat-name">Search interest</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">Weekly US Google Search interest across tracked market themes, with a trailing 90-day history, momentum and linked equities for separating rising attention from an investable signal.</p>
+        </div>
+        <div class="feat">
           <div class="feat-top"><span class="feat-name">Capital raises</span><span class="tier free">Free</span></div>
           <p class="feat-desc">News-flagged debt, convertible and share issuance — plus buybacks — across the tracked universe, enriched with the latest filed amounts from SEC filings.</p>
         </div>
@@ -1361,7 +1368,7 @@ export const DOC_PAGES = {
       <div class="feat-grid">
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Live quotes &amp; chains</span><span class="tier free">Free</span></div>
-          <p class="feat-desc">Real-time spot, option chains, the live Fed Funds rate, and a "check a position you hold" pricer — the live data proxies are open to everyone.</p>
+          <p class="feat-desc">Live spot, option chains, the live Fed Funds rate and contract grading — the live data proxies are open to everyone.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Buyer's manual</span><span class="tier free">Free</span></div>
@@ -1407,6 +1414,10 @@ export const DOC_PAGES = {
           <p class="feat-desc">A season-by-season scoreboard of every tracked name's earnings — beats vs misses, guidance raised or cut, whether the stock moved more than the options market priced in, pre-earnings drift, sell-the-news counts, the biggest gaps, upcoming event risk, and a daily AI season read.</p>
         </div>
         <div class="feat">
+          <div class="feat-top"><span class="feat-name">Event Spillover</span><span class="tier prem">Premium</span></div>
+          <p class="feat-desc">A read-through matrix for upcoming earnings: which same-sector peers have historically moved with the reporting company, how consistently, what the driver&rsquo;s options-implied move suggests for each follower, and whether overlapping events contaminate the read. A forward-validation log keeps the relationships accountable.</p>
+        </div>
+        <div class="feat">
           <div class="feat-top"><span class="feat-name">Trending IV</span><span class="tier prem">Premium</span></div>
           <p class="feat-desc">Every name's ATM ~30-day implied vol against its own ~18-month history — names running above their historical average and still climbing are flagged as pricing in a bigger-than-usual move, with earnings context and IV sparklines.</p>
         </div>
@@ -1429,6 +1440,10 @@ export const DOC_PAGES = {
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Track Record</span><span class="tier prem">Premium</span></div>
           <p class="feat-desc">The resolved Top-Picks performance — win rate, win/loss payoff, expectancy vs SPY, an engine-health summary that explains why each pick won or lost, a $100k backtest simulator with Monte Carlo, and the roster's in/out churn over time.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Quant Lab</span><span class="tier prem">Premium + roles</span></div>
+          <p class="feat-desc">Deterministic screens for multi-signal confluence, fixed 3σ price and return outliers, realized-vs-implied volatility, pair-spread dislocations, volatility-surface shape, cross-sectional dispersion and post-earnings drift. This owner tier requires both Top Picks and Track Record access when the optional role gates are configured.</p>
         </div>
       </div>
     </section>

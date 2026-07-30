@@ -17,7 +17,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=2026-07-30T23%3A07%3A52.525Z">
+<link rel="stylesheet" href="styles.css?v=2026-07-30T23%3A31%3A34.076Z">
 </head>
 <body>
 <header class="site-header">
@@ -4545,12 +4545,13 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
           <ul class="cmp-list">
             <li><b>Grade a ticker</b> — AI chart-pattern read + technicals, fundamentals, IV, news + a contract grader</li>
             <li><b>Tickers</b> — chains, technicals, Greeks, IV term structure, AI news takes</li>
+            <li><b>Live quotes &amp; chains</b> — live spot, option-chain lookups, the live Fed Funds rate and contract grading</li>
             <li><b>News desk</b> — stock and macro headlines, published economic prints, impact ranking and active-tape context</li>
             <li><b>Compare companies</b> — overlay 2–4 price histories, then compare valuation, growth, margins and grade</li>
             <li><b>Calendar</b> — earnings, macro prints, FOMC + FedWatch odds, and the official member vote map</li>
             <li><b>Market heatmap</b> — live map by performance or relative volume</li>
-            <li><b>Macro</b> — Overnight markets, Fear &amp; Greed, Bonds &amp; USD, Commodities, IPOs &amp; credit, Capital raises</li>
-            <li><b>Alt data</b> — SEC ownership filings, AI buildout spending, RAM / memory prices, GPU-cloud rental and spot prices, and weekly Google Trends theme-interest signals</li>
+            <li><b>Macro</b> — Overnight markets, Fear &amp; Greed, Bonds &amp; USD, Commodities, Capital raises, and IPOs &amp; credit</li>
+            <li><b>Alt data</b> — AI CapEx, RAM prices, GPU cloud prices, Search interest, and SEC ownership / 13F filings</li>
             <li><b>Narratives</b> — AI theses driving capital, longs/shorts, lifecycle</li>
             <li><b>Earnings calls</b> — AI briefs covering guidance, tone and Q&amp;A</li>
             <li><b>Index calendar</b> — daily SPY/QQQ/IWM and cross-asset closes by month</li>
@@ -4570,18 +4571,20 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
           <div class="cmp-sub">Everything in Free, plus the decision-grade layers.</div>
           <ul class="cmp-list">
             <li><b>Market analysis</b> — the live market tape, risk barometer &amp; regime history</li>
-            <li><b>Top Picks</b> — highest-conviction contracts, sizing &amp; breakeven</li>
+            <li><b>Top Picks</b> — highest-conviction contracts, sizing &amp; breakeven; optionally controlled by its own Discord role</li>
             <li><b>Stock Picks</b> — shares-only buy-the-dip screen (quality names beaten down, trap flags shown) + a daily VOO/QQQ DCA dial</li>
             <li><b>Sector Rotation</b> — quality companies washed out with their peer group, then ranked by rebound phase and trade levels</li>
             <li><b>Leveraged ETFs</b> — the same grades mapped onto listed 2×/3× products, with reset-drag, carry-cost &amp; chop warnings and a live-priced track record</li>
             <li><b>Briefs</b> — hourly market digest, open through close</li>
             <li><b>Earnings tracker</b> — season scoreboard: beats, guidance, expected moves, drift</li>
+            <li><b>Event Spillover</b> — upcoming-earnings read-through across same-sector peers, with historical tests and forward-validation results</li>
             <li><b>Trending IV</b> — implied vol running above a name's own history</li>
             <li><b>Streaks</b> — persistent green/red runs and mean-reversion context</li>
             <li><b>Unusual flow</b> — abnormal options prints &amp; directional skew</li>
             <li><b>Volume</b> — intraday volume + support/resistance breaks</li>
             <li><b>Gamma exposure</b> — dealer net-gamma matrix, flip &amp; walls</li>
-            <li><b>Track Record</b> — resolved picks performance &amp; scorecard</li>
+            <li><b>Track Record</b> — resolved picks performance &amp; scorecard; optionally controlled by its own Discord role</li>
+            <li><b>Quant Lab</b> — confluence, 3σ movers, variance-risk-premium, pairs, volatility-surface, dispersion and post-earnings-drift screens; available to members with both Top Picks and Track Record access</li>
           </ul>
           <div class="cmp-cta">
             <a class="btn discord" href="/api/auth/discord-login">
@@ -4668,6 +4671,10 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
           <p class="feat-desc">Public accelerator rental and spot prices from CoreWeave, Vast.ai, Runpod and Lambda, normalized to USD per GPU-hour with provider ranges, interruption labels, source freshness, daily history and hoverable comparisons by model.</p>
         </div>
         <div class="feat">
+          <div class="feat-top"><span class="feat-name">Search interest</span><span class="tier free">Free</span></div>
+          <p class="feat-desc">Weekly US Google Search interest across tracked market themes, with a trailing 90-day history, momentum and linked equities for separating rising attention from an investable signal.</p>
+        </div>
+        <div class="feat">
           <div class="feat-top"><span class="feat-name">Capital raises</span><span class="tier free">Free</span></div>
           <p class="feat-desc">News-flagged debt, convertible and share issuance — plus buybacks — across the tracked universe, enriched with the latest filed amounts from SEC filings.</p>
         </div>
@@ -4689,7 +4696,7 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
       <div class="feat-grid">
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Live quotes &amp; chains</span><span class="tier free">Free</span></div>
-          <p class="feat-desc">Real-time spot, option chains, the live Fed Funds rate, and a "check a position you hold" pricer — the live data proxies are open to everyone.</p>
+          <p class="feat-desc">Live spot, option chains, the live Fed Funds rate and contract grading — the live data proxies are open to everyone.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Buyer's manual</span><span class="tier free">Free</span></div>
@@ -4735,6 +4742,10 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
           <p class="feat-desc">A season-by-season scoreboard of every tracked name's earnings — beats vs misses, guidance raised or cut, whether the stock moved more than the options market priced in, pre-earnings drift, sell-the-news counts, the biggest gaps, upcoming event risk, and a daily AI season read.</p>
         </div>
         <div class="feat">
+          <div class="feat-top"><span class="feat-name">Event Spillover</span><span class="tier prem">Premium</span></div>
+          <p class="feat-desc">A read-through matrix for upcoming earnings: which same-sector peers have historically moved with the reporting company, how consistently, what the driver&rsquo;s options-implied move suggests for each follower, and whether overlapping events contaminate the read. A forward-validation log keeps the relationships accountable.</p>
+        </div>
+        <div class="feat">
           <div class="feat-top"><span class="feat-name">Trending IV</span><span class="tier prem">Premium</span></div>
           <p class="feat-desc">Every name's ATM ~30-day implied vol against its own ~18-month history — names running above their historical average and still climbing are flagged as pricing in a bigger-than-usual move, with earnings context and IV sparklines.</p>
         </div>
@@ -4757,6 +4768,10 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Track Record</span><span class="tier prem">Premium</span></div>
           <p class="feat-desc">The resolved Top-Picks performance — win rate, win/loss payoff, expectancy vs SPY, an engine-health summary that explains why each pick won or lost, a $100k backtest simulator with Monte Carlo, and the roster's in/out churn over time.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Quant Lab</span><span class="tier prem">Premium + roles</span></div>
+          <p class="feat-desc">Deterministic screens for multi-signal confluence, fixed 3σ price and return outliers, realized-vs-implied volatility, pair-spread dislocations, volatility-surface shape, cross-sectional dispersion and post-earnings drift. This owner tier requires both Top Picks and Track Record access when the optional role gates are configured.</p>
         </div>
       </div>
     </section>
@@ -5472,7 +5487,7 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
   </div>
 </div>
 <script>window.STONKS_MANIFEST={"builtAt":"Jul 30, 2026, 3:04 PM","builtAtIso":"2026-07-30T19:04:15.446Z","symbols":["AAOI","AAPL","ABNB","ACN","ADBE","ALAB","AMAT","AMD","AMKR","AMZN","ANET","APO","APP","ARM","ASML","ASTS","AVGO","AXP","BABA","BAC","BE","BKSY","BSX","BX","C","CAT","CBRS","CI","CLS","COF","COHR","COST","CRM","CRWD","CRWV","CSCO","DASH","DDOG","DE","DELL","DIS","DRAM","EBAY","EL","ETSY","EWY","FDX","FIG","FLY","FTNT","GD","GLD","GLW","GOOGL","GS","HD","HIMS","HOOD","HUBS","IBKR","IBM","INTC","INTU","IWM","JPM","KULR","KWEB","LEN","LITE","LLY","LOW","LRCX","LULU","LUNR","MA","MCD","MDB","META","MP","MRVL","MS","MSFT","MU","NET","NFLX","NKE","NOW","NVDA","NVO","NXPI","OKLO","OKTA","ON","ORCL","PANW","PL","PLAB","PLTR","PYPL","QCOM","QQQ","RBLX","RDDT","RDW","RKLB","SBUX","SCHW","SHOP","SLV","SMCI","SMH","SNDK","SNOW","SPCX","SPOT","SPY","STX","SWKS","TEAM","TGT","TLT","TMO","TSEM","TSLA","TSM","TWLO","TXN","U","UBS","UNH","UPS","USO","UVXY","V","VRT","VST","WDAY","WMT","ZS"],"sectors":{"SPY":"ETF","QQQ":"ETF","IWM":"ETF","SMH":"ETF","UVXY":"ETF","TLT":"ETF","USO":"ETF","GLD":"ETF","SLV":"ETF","KWEB":"ETF","EWY":"ETF","AAPL":"Mega-cap tech","MSFT":"Mega-cap tech","NVDA":"Mega-cap tech","AMZN":"Mega-cap tech","GOOGL":"Mega-cap tech","META":"Mega-cap tech","TSLA":"Mega-cap tech","AMD":"Semis","NFLX":"Mega-cap tech","AVGO":"Semis","TSM":"Semis","ORCL":"Software","ASML":"Semis","QCOM":"Semis","TXN":"Semis","MRVL":"Semis","AMAT":"Semis","LRCX":"Semis","MU":"Semis","INTC":"Semis","NXPI":"Semis","ON":"Semis","SMCI":"Semis","AMKR":"Semis","PLAB":"Semis","ALAB":"Semis","TSEM":"Semis","DRAM":"Semis","SWKS":"Semis","SNDK":"Storage","STX":"Storage","GLW":"Semis","MP":"Materials","LITE":"Semis","AAOI":"Semis","ARM":"Semis","CBRS":"Semis","COHR":"Semis","DELL":"Hardware","CSCO":"Networking","ANET":"Networking","IBM":"Tech services","CRM":"Software","ADBE":"Software","ACN":"IT services","INTU":"Software","NOW":"Software","SNOW":"Software","NET":"Software","DDOG":"Software","CRWD":"Software","ZS":"Software","MDB":"Software","OKTA":"Software","PANW":"Software","WDAY":"Software","ZM":"Software","DOCU":"Software","TEAM":"Software","FTNT":"Software","HUBS":"Software","TTD":"Software","FIG":"Software","RBLX":"Software","U":"Software","APP":"Software","TWLO":"Software","CRWV":"Software","CEG":"Power","VST":"Power","TLN":"Power","VRT":"Data center","CLS":"Data center","BE":"Clean energy","OKLO":"Nuclear","JPM":"Bank","BAC":"Bank","WFC":"Bank","USB":"Bank","MS":"Bank","COF":"Bank","GS":"Bank","C":"Bank","HSBC":"Bank","UBS":"Bank","V":"Payments","MA":"Payments","AXP":"Payments","PYPL":"Payments","XYZ":"Payments","SCHW":"Broker","IBKR":"Broker","HOOD":"Broker","AFRM":"Fintech","APO":"Asset mgmt","BX":"Asset mgmt","WMT":"Retail","COST":"Retail","TGT":"Retail","HD":"Retail","LOW":"Retail","NKE":"Apparel","LULU":"Apparel","ONON":"Apparel","EL":"Beauty","ELF":"Beauty","W":"E-commerce","EBAY":"E-commerce","ETSY":"E-commerce","MCD":"Restaurants","SBUX":"Restaurants","DIS":"Media","LEN":"Homebuilder","BA":"Industrial","CAT":"Industrial","DE":"Industrial","MMM":"Industrial","GD":"Defense","LMT":"Defense","RTX":"Defense","NOC":"Defense","FDX":"Logistics","UPS":"Logistics","NVO":"Pharma","LLY":"Pharma","UNH":"Insurance","JNJ":"Pharma","PFE":"Pharma","TMO":"Medical","CI":"Insurance","ELV":"Insurance","MOH":"Insurance","CVS":"Pharmacy","BSX":"Medical","HIMS":"Telehealth","VZ":"Telecom","CHTR":"Cable","SPOT":"Media","XOM":"Energy","CVX":"Energy","OXY":"Energy","UBER":"Consumer","ABNB":"Consumer","DASH":"Consumer","BABA":"China tech","BIDU":"China tech","JD":"China tech","PDD":"China tech","TCEHY":"China tech","BILI":"China tech","NIO":"China tech","COIN":"Crypto","PLTR":"Software","SHOP":"Software","GME":"Meme","AMC":"Meme","RDDT":"Social","RKLB":"Space","ASTS":"Space","LUNR":"Space","PL":"Space","BKSY":"Space","RDW":"Space","KULR":"Space","SPCX":"Space","FLY":"Space"},"industries":{"MSFT":"Software Infrastructure","ORCL":"Software Infrastructure","SNOW":"Software Infrastructure","NET":"Software Infrastructure","CRWD":"Software Infrastructure","ZS":"Software Infrastructure","MDB":"Software Infrastructure","OKTA":"Software Infrastructure","PANW":"Software Infrastructure","FTNT":"Software Infrastructure","PLTR":"Software Infrastructure","CRWV":"Software Infrastructure","CRM":"Software Applications","ADBE":"Software Applications","NOW":"Software Applications","DDOG":"Software Applications","WDAY":"Software Applications","TEAM":"Software Applications","INTU":"Software Applications","HUBS":"Software Applications","TWLO":"Software Applications","SHOP":"Software Applications","FIG":"Software Applications","APP":"Software Applications","U":"Software Applications","NVDA":"Semiconductors","AMD":"Semiconductors","AVGO":"Semiconductors","TSM":"Semiconductors","MU":"Semiconductors","INTC":"Semiconductors","MRVL":"Semiconductors","QCOM":"Semiconductors","TXN":"Semiconductors","NXPI":"Semiconductors","ON":"Semiconductors","AMKR":"Semiconductors","PLAB":"Semiconductors","ALAB":"Semiconductors","TSEM":"Semiconductors","SNDK":"Semiconductors","SMCI":"Semiconductors","AAOI":"Semiconductors","LITE":"Semiconductors","STX":"Semiconductors","DRAM":"Semiconductors","SWKS":"Semiconductors","ARM":"Semiconductors","CBRS":"Semiconductors","COHR":"Semiconductors","AMAT":"Semiconductor Equipment & Materials","LRCX":"Semiconductor Equipment & Materials","ASML":"Semiconductor Equipment & Materials","ANET":"Communication Equipment","CSCO":"Communication Equipment","GLW":"Communication Equipment","DELL":"Computer Hardware","CLS":"Computer Hardware","ACN":"Information Technology Services","IBM":"Information Technology Services","AMZN":"Internet Retail","BABA":"Internet Retail","EBAY":"Internet Retail","ETSY":"Internet Retail","HD":"Specialty Retail","LOW":"Specialty Retail","NKE":"Apparel Retail","LULU":"Apparel Retail","SBUX":"Restaurants","MCD":"Restaurants","LEN":"Residential Construction","TSLA":"Auto Manufacturers","DASH":"Travel Services","ABNB":"Travel Services","GOOGL":"Internet Content & Information","META":"Internet Content & Information","RDDT":"Internet Content & Information","NFLX":"Entertainment","DIS":"Entertainment","SPOT":"Entertainment","RBLX":"Electronic Gaming & Multimedia","GD":"Aerospace & Defense","RKLB":"Aerospace & Defense","ASTS":"Aerospace & Defense","LUNR":"Aerospace & Defense","PL":"Aerospace & Defense","BKSY":"Aerospace & Defense","RDW":"Aerospace & Defense","SPCX":"Aerospace & Defense","FLY":"Aerospace & Defense","KULR":"Electrical Equipment & Parts","VRT":"Electrical Equipment & Parts","FDX":"Integrated Freight & Logistics","UPS":"Integrated Freight & Logistics","CAT":"Farm & Heavy Construction Machinery","DE":"Farm & Heavy Construction Machinery","NVO":"Drug Manufacturers - General","LLY":"Drug Manufacturers - General","UNH":"Healthcare Plans","CI":"Healthcare Plans","BSX":"Medical Devices","TMO":"Medical Devices","HIMS":"Consumer Health Products","JPM":"Banks - Diversified","BAC":"Banks - Diversified","C":"Banks - Diversified","COF":"Banks - Diversified","UBS":"Banks - Diversified","V":"Credit Services","MA":"Credit Services","AXP":"Credit Services","PYPL":"Credit Services","APO":"Asset Management","BX":"Asset Management","GS":"Capital Markets","MS":"Capital Markets","SCHW":"Capital Markets","HOOD":"Capital Markets","IBKR":"Capital Markets","WMT":"Discount Stores","COST":"Discount Stores","TGT":"Discount Stores","EL":"Household & Personal Products","VST":"Utilities - Independent Power Producers","BE":"Utilities - Renewable","OKLO":"Utilities - Renewable","MP":"Other Industrial Metals & Mining","GLD":"Gold","SLV":"Silver"},"sectorOrder":["Technology","Consumer Cyclical","Communication Services","Industrials","Healthcare","Financials","Consumer Defensive","Utilities","Basic Materials","Precious Metals"],"industriesBySector":{"Technology":["Software Infrastructure","Software Applications","Semiconductors","Semiconductor Equipment & Materials","Communication Equipment","Computer Hardware","Consumer Electronics","Information Technology Services"],"Consumer Cyclical":["Internet Retail","Specialty Retail","Apparel Retail","Restaurants","Residential Construction","Auto Manufacturers","Travel Services"],"Communication Services":["Internet Content & Information","Entertainment","Electronic Gaming & Multimedia","Advertising Agencies"],"Industrials":["Aerospace & Defense","Integrated Freight & Logistics","Farm & Heavy Construction Machinery","Electrical Equipment & Parts","Specialty Industrial Machinery"],"Healthcare":["Drug Manufacturers - General","Healthcare Plans","Medical Devices","Consumer Health Products"],"Financials":["Banks - Diversified","Credit Services","Asset Management","Capital Markets"],"Consumer Defensive":["Discount Stores","Household & Personal Products"],"Utilities":["Utilities - Independent Power Producers","Utilities - Renewable"],"Basic Materials":["Other Industrial Metals & Mining"],"Precious Metals":["Gold","Silver"]},"volumeFlagsMeta":{"scannedAt":"2026-07-30T20:00:32.256Z","etDate":"2026-07-30","marketState":"POST"},"nextFomcDates":["2026-09-16","2026-10-28"],"oiMeta":{"scannedAt":"2026-07-30T21:00:32.497Z","scanType":"eod"},"deferred":true};</script>
-<script src="app.js?v=2026-07-30T23%3A07%3A52.525Z" defer></script>
-<script type="module" src="js/streaks.js?v=2026-07-30T23%3A07%3A52.525Z"></script>
+<script src="app.js?v=2026-07-30T23%3A31%3A34.076Z" defer></script>
+<script type="module" src="js/streaks.js?v=2026-07-30T23%3A31%3A34.076Z"></script>
 </body>
 </html>
