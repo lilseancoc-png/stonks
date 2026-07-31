@@ -3142,7 +3142,7 @@ function etDaysUntil(dateStr, now = new Date()) {
 // Read macro-history.json BEFORE writeChainFiles wipes data/. Returns an
 // object of shape { entries: [{ date, asOf, twoY, tenY, thirtyY, dxy }, ...] }
 // sorted oldest→newest. Missing / unreadable file → empty entries.
-async function readMacroHistory() {
+export async function readMacroHistory() {
   try {
     const raw = await readFile(resolve(DATA_DIR, MACRO_HISTORY_FILE), "utf8");
     const parsed = JSON.parse(raw);
@@ -7988,6 +7988,14 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
   const fedRate = extras?.fedRate || null;
   const fedwatch = extras?.fedwatch || null;
   const fomcVoteHistory = extras?.fomcVoteHistory || extras?.priorCalendar?.fomc?.voteHistory || null;
+  const fomcDayHistory = buildFomcDayHistory({
+    voteHistory: fomcVoteHistory,
+    priorHistory: extras?.priorCalendar?.fomc?.dayHistory || null,
+    fedwatchHistory: extras?.fedwatchHistory || null,
+    chains,
+    macroHistory: extras?.macroHistory || null,
+    builtAtIso,
+  });
   // Prediction-market overlay (Kalshi + Polymarket): { fomc, reports }. FOMC
   // odds ride along in fomc.predictionMarkets; macro readings attach to their
   // report rows below by "<subtype>|<date>" key. Absent → calendar unchanged.
@@ -8161,6 +8169,9 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
       // Named, official rate votes from FOMC statements/minutes. This is a
       // meeting-action map (raise/hold/lower), not a subjective ideology score.
       voteHistory: fomcVoteHistory,
+      // Joined decision-day event study: SPY/QQQ/IWM, TLT/yields, the final
+      // pre-decision futures-implied path, and official named dissenters.
+      dayHistory: fomcDayHistory,
       // Prediction-market cross-check on the futures-implied probabilities
       // above — hike/hold/cut per meeting from Kalshi + Polymarket, each with a
       // `divergence` (vs the futures math), `thin` (low-liquidity) flag, and a
@@ -11921,6 +11932,179 @@ export async function fetchFomcVoteHistory(meetings, priorHistory = null, nowMs 
   };
 }
 
+// === FOMC decision-day event study ==================================
+// Joins the official vote record to the data already owned by the product:
+//   - SPY / QQQ / IWM daily OHLC for close-to-close return + session range
+//   - TLT daily bars and, when available, 30-minute bars for the 2pm→close move
+//   - the last PRE-decision ZQ Fed Funds futures probability snapshot
+//   - the rolling 2Y / 10Y close history for full-session yield changes
+// The compact result rides calendar.json so Bonds & USD can render it without
+// another gated/lazy data dependency. Prior rows are carried forward, which
+// freezes precise post-announcement reads after their 32-day intraday window
+// rolls out of the per-ticker files.
+const FOMC_DAY_HISTORY_LIMIT = 16;
+
+function fomcSeriesRows(chain) {
+  if (Array.isArray(chain?._bars) && chain._bars.length) return chain._bars;
+  const ps = chain?.priceSeries;
+  if (!ps || !Array.isArray(ps.t) || !Array.isArray(ps.c)) return [];
+  return ps.t.map((t, i) => ({
+    t,
+    o: Array.isArray(ps.o) ? ps.o[i] : null,
+    c: ps.c[i],
+    h: Array.isArray(ps.h) ? ps.h[i] : null,
+    l: Array.isArray(ps.l) ? ps.l[i] : null,
+  }));
+}
+
+function fomcIntradayRows(chain) {
+  if (Array.isArray(chain?._intraday) && chain._intraday.length) return chain._intraday;
+  const ps = chain?.intradaySeries;
+  if (!ps || !Array.isArray(ps.t) || !Array.isArray(ps.c)) return [];
+  return ps.t.map((t, i) => ({ t, c: ps.c[i] }));
+}
+
+function fomcDayMarketMove(chain, date) {
+  const rows = fomcSeriesRows(chain);
+  const idx = rows.findIndex((row) => String(row?.t || "").slice(0, 10) === date);
+  if (idx < 0) return null;
+  const row = rows[idx];
+  const close = Number(row?.c);
+  const prevClose = idx > 0 ? Number(rows[idx - 1]?.c) : NaN;
+  if (!Number.isFinite(close) || !(prevClose > 0)) return null;
+  const high = Number(row?.h), low = Number(row?.l), open = Number(row?.o);
+  return {
+    close: r2(close),
+    changePct: r2((close / prevClose - 1) * 100),
+    rangePct: Number.isFinite(high) && Number.isFinite(low)
+      ? r2(((high - low) / prevClose) * 100)
+      : null,
+    openClosePct: Number.isFinite(open) && open > 0 ? r2((close / open - 1) * 100) : null,
+  };
+}
+
+function fomcPostAnnouncementMove(chain, date) {
+  const rows = fomcIntradayRows(chain)
+    .filter((row) => String(row?.t || "").slice(0, 10) === date)
+    .sort((a, b) => String(a.t).localeCompare(String(b.t)));
+  // Yahoo's 30-minute bars are stamped at interval OPEN. The 13:30 bar closes
+  // at the 14:00 statement; the 15:30 bar closes with the regular session.
+  const before = rows.filter((row) => String(row?.t || "").slice(11, 16) <= "13:30").pop();
+  const close = rows.filter((row) => String(row?.t || "").slice(11, 16) <= "15:30").pop();
+  const a = Number(before?.c), b = Number(close?.c);
+  if (!(a > 0) || !Number.isFinite(b) || before === close) return null;
+  return r2((b / a - 1) * 100);
+}
+
+function fomcPreDecisionPricing(history, meetingDate) {
+  const archived = history?.resolved?.[meetingDate];
+  if (archived?.odds) return { asOf: archived.asOf || null, odds: archived.odds };
+  const snaps = history?.meetings?.[meetingDate];
+  if (!snaps || typeof snaps !== "object") return null;
+  const dates = Object.keys(snaps).filter((d) => d < meetingDate).sort();
+  const asOf = dates[dates.length - 1] || null;
+  return asOf && snaps[asOf] ? { asOf, odds: snaps[asOf] } : null;
+}
+
+function fomcYieldReaction(macroHistory, date) {
+  const entries = Array.isArray(macroHistory?.entries)
+    ? macroHistory.entries.slice().sort((a, b) => String(a?.date).localeCompare(String(b?.date)))
+    : [];
+  const idx = entries.findIndex((row) => row?.date === date);
+  if (idx < 0) return null;
+  const current = entries[idx];
+  const prior = entries.slice(0, idx).reverse().find((row) =>
+    Number.isFinite(Number(row?.twoY)) || Number.isFinite(Number(row?.tenY)));
+  if (!prior) return null;
+  const bps = (key) => {
+    const a = Number(prior[key]), b = Number(current[key]);
+    return Number.isFinite(a) && Number.isFinite(b) ? r1((b - a) * 100) : null;
+  };
+  const twoYBps = bps("twoY"), tenYBps = bps("tenY");
+  return (twoYBps == null && tenYBps == null) ? null : { twoYBps, tenYBps };
+}
+
+function fomcDefinedMerge(prior, fresh) {
+  const out = { ...(prior || {}) };
+  for (const [key, value] of Object.entries(fresh || {})) {
+    if (value != null) out[key] = value;
+  }
+  return out;
+}
+
+export function buildFomcDayHistory({
+  voteHistory,
+  priorHistory,
+  fedwatchHistory,
+  chains,
+  macroHistory,
+  builtAtIso,
+} = {}) {
+  const byDate = new Map(
+    (priorHistory?.meetings || []).filter((row) => row?.date).map((row) => [row.date, { ...row }]),
+  );
+  for (const record of (voteHistory?.meetings || [])) {
+    if (!record?.date || !record?.decision) continue;
+    const prior = byDate.get(record.date) || {};
+    const markets = {};
+    for (const [symbol, key] of [["SPY", "spy"], ["QQQ", "qqq"], ["IWM", "iwm"]]) {
+      const move = fomcDayMarketMove(chains?.[symbol], record.date);
+      markets[key] = fomcDefinedMerge(prior?.markets?.[key], move);
+    }
+    const tltDaily = fomcDayMarketMove(chains?.TLT, record.date);
+    const tltPost = fomcPostAnnouncementMove(chains?.TLT, record.date);
+    const yields = fomcYieldReaction(macroHistory, record.date);
+    const pricing = fomcPreDecisionPricing(fedwatchHistory, record.date);
+    const dissenters = (record.voters || [])
+      .filter((voter) => voter?.vote === "against")
+      .map((voter) => ({
+        name: voter.name,
+        stance: voter.stance || "unknown",
+        ...(voter.preference ? { preference: voter.preference } : {}),
+      }));
+    const counts = record.counts || {};
+    // "Dissenter" means an official vote against the adopted action/statement,
+    // even when the member backed the rate level but objected to the guidance
+    // language. Keep the narrower rate-direction count separately.
+    const rateDissentCount = (Number(counts.hawk) || 0) + (Number(counts.dove) || 0) + (Number(counts.unknown) || 0);
+    const dissentCount = Math.max(dissenters.length, rateDissentCount);
+    byDate.set(record.date, {
+      ...prior,
+      date: record.date,
+      label: record.label || prior.label || record.date,
+      decision: record.decision,
+      decisionLabel: record.decisionLabel || prior.decisionLabel || record.decision,
+      dissentCount,
+      rateDissentCount,
+      dissenters: dissenters.length ? dissenters : (prior.dissenters || []),
+      source: record.source || prior.source || null,
+      sourceUrl: record.sourceUrl || prior.sourceUrl || null,
+      markets,
+      bonds: fomcDefinedMerge(prior.bonds, {
+        tlt: fomcDefinedMerge(prior?.bonds?.tlt, tltDaily),
+        tltPost2pmPct: tltPost,
+        yields: fomcDefinedMerge(prior?.bonds?.yields, yields),
+      }),
+      pricing: pricing ? {
+        asOf: pricing.asOf,
+        source: "ZQ Fed Funds futures",
+        hike: Number.isFinite(Number(pricing.odds?.hike)) ? r4(Number(pricing.odds.hike)) : null,
+        hold: Number.isFinite(Number(pricing.odds?.hold)) ? r4(Number(pricing.odds.hold)) : null,
+        cut: Number.isFinite(Number(pricing.odds?.cut)) ? r4(Number(pricing.odds.cut)) : null,
+      } : (prior.pricing || null),
+    });
+  }
+  const meetings = [...byDate.values()]
+    .filter((row) => row?.date && row?.decision)
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, FOMC_DAY_HISTORY_LIMIT);
+  return {
+    asOf: builtAtIso || new Date().toISOString(),
+    methodology: "Equities are FOMC-session close-to-close returns. Session range is high-low versus the prior close. Bond reaction prefers TLT from 2:00pm ET to the close; older rows use the full-session TLT move. Yield changes are full-session closes. Pricing is the last archived pre-decision ZQ Fed Funds futures snapshot.",
+    meetings,
+  };
+}
+
 // === U.S. economic release schedule (deterministic) ==================
 // Replaces the previous year-locked table. NFP / Employment Situation
 // is released the first Friday of each month — a rule the BLS has held
@@ -13145,10 +13329,23 @@ const FEDWATCH_HISTORY_MAX_SNAPSHOTS_PER_MEETING = 40;
 // snapshots. Mutates `history` in place and returns it.
 export function pruneFedwatchHistory(history, todayIso) {
   if (!history?.meetings || !todayIso) return history;
+  if (!history.resolved || typeof history.resolved !== "object") history.resolved = {};
   for (const meetingDate of Object.keys(history.meetings)) {
     // ISO YYYY-MM-DD compares lexicographically; a meeting strictly before
     // today is in the past (today's meeting still counts as upcoming).
     if (meetingDate < todayIso) {
+      // Preserve the last snapshot from BEFORE the 2pm ET decision so the
+      // FOMC-day history can report what the market had priced going in. A
+      // same-day close can already contain the decision and must not be used as
+      // an ex-ante forecast. This compact archive is bounded below.
+      const snaps = history.meetings[meetingDate];
+      const preDates = snaps && typeof snaps === "object"
+        ? Object.keys(snaps).filter((d) => d < meetingDate).sort()
+        : [];
+      const asOf = preDates[preDates.length - 1] || null;
+      if (asOf && snaps[asOf]) {
+        history.resolved[meetingDate] = { asOf, odds: snaps[asOf] };
+      }
       delete history.meetings[meetingDate];
       continue;
     }
@@ -13159,6 +13356,11 @@ export function pruneFedwatchHistory(history, todayIso) {
       const keep = new Set(dates.slice(-FEDWATCH_HISTORY_MAX_SNAPSHOTS_PER_MEETING));
       for (const d of dates) if (!keep.has(d)) delete snaps[d];
     }
+  }
+  const resolvedDates = Object.keys(history.resolved).sort();
+  if (resolvedDates.length > 24) {
+    const keep = new Set(resolvedDates.slice(-24));
+    for (const d of resolvedDates) if (!keep.has(d)) delete history.resolved[d];
   }
   return history;
 }
@@ -31483,7 +31685,9 @@ async function main() {
     // the UI now renders a 'Cached · Xd' tag courtesy of the source field.
     fedRate: effectiveFedRate || fedRate,
     fedwatch,
+    fedwatchHistory,
     fomcVoteHistory,
+    macroHistory: macroHistoryNext,
     sessionMap,
     priorCalendar,
   });

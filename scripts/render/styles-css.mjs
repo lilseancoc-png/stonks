@@ -18201,6 +18201,238 @@ body.tape-axm-open { overflow: hidden; }
 .bonds-curve-axis { fill: var(--muted); font: 600 10px var(--font-mono); text-anchor: middle; }
 .bonds-curve-foot { margin-top: 4px; font: 500 12px/1.4 var(--font-mono); color: var(--muted); }
 .bonds-curve-foot strong { color: var(--text); }
+/* FOMC decision-day event study: grouped equity-return bars, a TLT reaction
+   line, meeting selector, and an auditable decision/odds/vote detail card. */
+.fomc-day-card { border-top: 3px solid color-mix(in srgb, var(--accent) 60%, var(--border)); }
+.fomc-day-root { display: flex; flex-direction: column; gap: var(--s-3); margin-top: var(--s-3); }
+.fomc-day-chart-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s-3);
+}
+.fomc-day-chart-head > small { color: var(--muted); font: 500 11px/1.35 var(--font-mono); text-align: right; }
+.fomc-day-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; }
+.fomc-day-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font: 650 11px/1 var(--font-mono);
+}
+.fomc-day-legend span::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.fomc-day-legend .is-qqq::before { background: #8b5cf6; }
+.fomc-day-legend .is-iwm::before { background: #e58b2a; }
+.fomc-day-legend .is-tlt::before { border-radius: 50%; background: #16a34a; }
+.fomc-day-chart-scroll {
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: color-mix(in srgb, var(--surface-2) 76%, transparent);
+  scrollbar-width: thin;
+}
+.fomc-day-chart { display: block; width: 100%; height: 238px; }
+.fomc-day-grid { stroke: var(--hairline); stroke-width: 1; }
+.fomc-day-grid.is-zero { stroke: var(--border-strong); }
+.fomc-day-y-label,
+.fomc-day-axis-label {
+  fill: var(--muted);
+  font: 600 9px var(--font-mono);
+  text-anchor: end;
+}
+.fomc-day-axis-label { text-anchor: middle; }
+.fomc-day-bar { fill: var(--accent); opacity: .86; pointer-events: none; }
+.fomc-day-bar.is-qqq { fill: #8b5cf6; }
+.fomc-day-bar.is-iwm { fill: #e58b2a; }
+.fomc-day-bar.is-down { opacity: .62; }
+.fomc-day-bond-line {
+  fill: none;
+  stroke: #16a34a;
+  stroke-width: 1.8;
+  stroke-dasharray: 4 3;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+.fomc-day-bond-dot { fill: #16a34a; stroke: var(--surface); stroke-width: 1.5; pointer-events: none; }
+.fomc-day-hit { fill: transparent; cursor: pointer; stroke: transparent; stroke-width: 1.5; }
+.fomc-day-hit:hover,
+.fomc-day-hit:focus,
+.fomc-day-hit.is-selected { fill: color-mix(in srgb, var(--accent) 5%, transparent); stroke: color-mix(in srgb, var(--accent) 42%, transparent); outline: none; }
+.fomc-day-meetings {
+  display: flex;
+  gap: var(--s-2);
+  overflow-x: auto;
+  padding-bottom: 3px;
+  scrollbar-width: thin;
+  scroll-snap-type: x proximity;
+}
+.fomc-day-meeting-btn {
+  flex: 0 0 106px;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.fomc-day-meeting-btn:hover,
+.fomc-day-meeting-btn:focus-visible { border-color: var(--accent); }
+.fomc-day-meeting-btn.is-active {
+  border-color: color-mix(in srgb, var(--accent) 64%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.fomc-day-meeting-btn span {
+  color: var(--muted);
+  font: 650 10px/1 var(--font-mono);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.fomc-day-meeting-btn b { color: var(--text-strong); font-size: 13px; }
+.fomc-day-meeting-btn small { color: var(--muted); font-size: 11px; }
+.fomc-day-detail {
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  background: color-mix(in srgb, var(--surface-2) 74%, transparent);
+  overflow: clip;
+}
+.fomc-day-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--s-4);
+  padding: var(--s-4);
+  border-bottom: 1px solid var(--border);
+}
+.fomc-day-detail-head > div:first-child > span,
+.fomc-day-actual > span,
+.fomc-day-odds > span,
+.fomc-day-bonds > span,
+.fomc-day-dissent > div > span {
+  color: var(--muted);
+  font: 700 10px/1.2 var(--font-mono);
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.fomc-day-detail-head h3 { margin: 5px 0 0; color: var(--text-strong); font-size: 17px; line-height: 1.3; }
+.fomc-day-actual {
+  flex: 0 0 auto;
+  min-width: 116px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+.fomc-day-actual b { color: var(--text-strong); font: 750 18px/1.1 var(--font-mono); }
+.fomc-day-actual b.is-raise { color: var(--neg); }
+.fomc-day-actual b.is-lower { color: var(--pos); }
+.fomc-day-actual small { color: var(--muted); font-size: 11px; }
+.fomc-day-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(210px, .8fr) minmax(270px, 1.2fr) minmax(220px, 1fr);
+  gap: var(--s-3);
+  padding: var(--s-4);
+}
+.fomc-day-odds,
+.fomc-day-bonds {
+  min-width: 0;
+  padding: var(--s-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-2);
+  background: var(--surface);
+}
+.fomc-day-odds > div { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin: 9px 0 7px; }
+.fomc-day-odds > div > b {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--text-strong);
+  font: 750 17px/1 var(--font-mono);
+}
+.fomc-day-odds > div > b small { color: var(--muted); font: 600 9px/1 var(--font-mono); text-transform: uppercase; }
+.fomc-day-odds > div > b.is-hike { color: var(--neg); }
+.fomc-day-odds > div > b.is-cut { color: var(--pos); }
+.fomc-day-odds > small,
+.fomc-day-bonds > small { color: var(--muted); font: 500 10px/1.35 var(--font-mono); }
+.fomc-day-odds.is-missing { display: flex; flex-direction: column; gap: 7px; }
+.fomc-day-odds.is-missing > b { color: var(--muted); }
+.fomc-day-market-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-2); }
+.fomc-day-market {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--s-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-2);
+  background: var(--surface);
+}
+.fomc-day-market span { color: var(--muted); font: 750 10px/1 var(--font-mono); }
+.fomc-day-market b { color: var(--muted); font: 750 19px/1.1 var(--font-mono); }
+.fomc-day-market.is-up b { color: var(--pos); }
+.fomc-day-market.is-down b { color: var(--neg); }
+.fomc-day-market small { color: var(--muted); font-size: 10px; line-height: 1.35; }
+.fomc-day-bonds { display: flex; flex-direction: column; gap: 6px; }
+.fomc-day-bonds b { color: var(--text-strong); font-size: 14px; line-height: 1.3; }
+.fomc-day-bonds b.is-up { color: var(--pos); }
+.fomc-day-bonds b.is-down { color: var(--neg); }
+.fomc-day-bonds p { margin: 0; color: var(--text); font-size: 12px; line-height: 1.4; }
+.fomc-day-dissent { padding: 0 var(--s-4) var(--s-4); }
+.fomc-day-dissent > div { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); padding-top: var(--s-3); border-top: 1px solid var(--border); }
+.fomc-day-dissent > div a { color: var(--accent); font-size: 11px; text-decoration: none; }
+.fomc-day-dissent ul { list-style: none; margin: var(--s-2) 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: var(--s-2); }
+.fomc-day-dissent li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-2);
+  background: var(--surface);
+}
+.fomc-day-dissent li > b { min-width: 0; color: var(--text-strong); font-size: 12px; }
+.fomc-day-dissent li > span { color: var(--muted); font: 700 10px/1 var(--font-mono); text-transform: uppercase; }
+.fomc-day-dissent li > span.is-hawk { color: var(--neg); }
+.fomc-day-dissent li > span.is-dove { color: var(--pos); }
+.fomc-day-dissent li > small { grid-column: 1 / -1; color: var(--muted); font-size: 10.5px; line-height: 1.4; }
+.fomc-day-dissent li.is-none { grid-template-columns: 1fr; }
+.fomc-day-method { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.fomc-day-empty { display: flex; flex-direction: column; gap: 5px; padding: var(--s-3); color: var(--muted); border: 1px dashed var(--border); border-radius: var(--r-2); }
+.fomc-day-empty b { color: var(--text-strong); }
+@media (max-width: 980px) {
+  .fomc-day-detail-grid { grid-template-columns: 1fr 1.4fr; }
+  .fomc-day-bonds { grid-column: 1 / -1; }
+}
+@media (max-width: 640px) {
+  .fomc-day-card .card-header { align-items: flex-start; flex-direction: column; }
+  .fomc-day-chart-head { align-items: flex-start; flex-direction: column; gap: 6px; }
+  .fomc-day-chart-head > small { text-align: left; }
+  .fomc-day-chart { width: auto; }
+  .fomc-day-detail-head { flex-direction: column; gap: var(--s-3); padding: var(--s-3); }
+  .fomc-day-actual { width: 100%; align-items: flex-start; }
+  .fomc-day-detail-grid { grid-template-columns: 1fr; padding: var(--s-3); }
+  .fomc-day-bonds { grid-column: auto; }
+  .fomc-day-market-grid { gap: 6px; }
+  .fomc-day-market { padding: 9px 7px; }
+  .fomc-day-market b { font-size: 16px; }
+  .fomc-day-dissent { padding: 0 var(--s-3) var(--s-3); }
+  .fomc-day-dissent > div { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .fomc-day-dissent ul { grid-template-columns: 1fr; }
+}
 .bonds-monitor-notes {
   margin-top: var(--s-3);
   border-top: 1px solid var(--border);

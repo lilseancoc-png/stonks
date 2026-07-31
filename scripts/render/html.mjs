@@ -2166,6 +2166,20 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       </details>
     </section>
 
+    <section class="card fomc-day-card" id="fomc-day-card">
+      <header class="card-header">
+        <div>
+          <span class="card-eyebrow">Decision-day event study</span>
+          <h2 class="card-title">FOMC day history</h2>
+        </div>
+        <span class="card-eyebrow">SPY &middot; QQQ &middot; IWM &middot; TLT</span>
+      </header>
+      <p class="hint">Compare what rate move was priced before each decision with the actual action, the equity close, the bond reaction, and the official dissenters.</p>
+      <div class="fomc-day-root" id="fomc-day-root" aria-live="polite">
+        <p class="bonds-live-empty">Loading meeting history&hellip;</p>
+      </div>
+    </section>
+
     <details class="card bonds-scale-card" id="bonds-scale-card">
       <summary class="bonds-card-summary">
         <span>

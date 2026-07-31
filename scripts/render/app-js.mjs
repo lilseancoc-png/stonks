@@ -25738,6 +25738,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     renderCalendarBriefing(data);
     renderCalendarOverview(data);
     renderFomcWidget(data.fomc || null);
+    renderFomcDayHistory();
     refreshFomcLive(data.fomc || null); // async: refetch live ZQ futures + re-render
     // Navigable month window. calendar.json only ever carries today→horizon
     // events, so the earliest navigable month is the current one (no empty
@@ -35362,6 +35363,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (!macro || (!macro.twoY && !macro.tenY && !macro.thirtyY && !macro.dxy && !macro.vix)) {
       grid.innerHTML = '<p class="bonds-live-empty">No live macro data was captured in the last build.</p>';
       renderBondsContext();
+      renderFomcDayHistory();
       return;
     }
     // Overlay live values (when the /api/macro-live poller has them) onto the
@@ -35647,6 +35649,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     grid.innerHTML = html || '<p class="bonds-live-empty">No live macro data was captured in the last build.</p>';
     renderBondsCurve(macro);
     renderBondsContext();
+    renderFomcDayHistory();
     var pane = document.getElementById('page-pane-bonds-usd');
     if (pane && !pane.hidden) renderFreshness('bonds-usd');
   }
@@ -35713,6 +35716,204 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           (prevLine ? '<span class="bonds-curve-key prev"></span>prev close' : '') + '</span>' +
       '</div>' + svg +
       '<div class="bonds-curve-foot">2Y10Y <strong>' + (bps >= 0 ? '+' : '') + Math.round(bps) + ' bps</strong> · ' + shape + '</div>';
+  }
+
+  // --- FOMC decision-day event study --------------------------------------
+  var fomcDaySelected = null;
+  function fomcDayNum(value){
+    if (value == null) return null;
+    var n = Number(value);
+    return isFinite(n) ? n : null;
+  }
+  function fomcDayPct(value, digits){
+    var n = fomcDayNum(value);
+    if (n == null) return '&mdash;';
+    return (n >= 0 ? '+' : '') + n.toFixed(digits == null ? 2 : digits) + '%';
+  }
+  function fomcDayOdds(value){
+    var n = fomcDayNum(value);
+    if (n == null) return '&mdash;';
+    if (n <= 1.5) n *= 100;
+    return Math.round(n) + '%';
+  }
+  function fomcDayTone(value){
+    var n = fomcDayNum(value);
+    return n == null ? 'flat' : n > 0 ? 'up' : n < 0 ? 'down' : 'flat';
+  }
+  function fomcDayShortDate(date){
+    var ms = Date.parse(String(date || '') + 'T12:00:00Z');
+    if (!isFinite(ms)) return date || '';
+    return new Date(ms).toLocaleDateString('en-US', { month:'short', day:'numeric', timeZone:'UTC' });
+  }
+  function fomcDayBondRead(row){
+    var bonds = row && row.bonds || {};
+    var post = fomcDayNum(bonds.tltPost2pmPct);
+    var daily = fomcDayNum(bonds.tlt && bonds.tlt.changePct);
+    var measured = post != null ? post : daily;
+    return {
+      value: measured,
+      post: post != null,
+      direction: measured == null ? 'Bond reaction unavailable'
+        : measured > 0.05 ? 'Long Treasuries rallied'
+        : measured < -0.05 ? 'Long Treasuries sold off'
+        : 'Long Treasuries finished little changed'
+    };
+  }
+  function fomcDayMarketTile(symbol, move){
+    var change = fomcDayNum(move && move.changePct);
+    if (change == null) {
+      return '<div class="fomc-day-market"><span>' + symbol + '</span><b>&mdash;</b><small>close pending</small></div>';
+    }
+    var range = fomcDayNum(move.rangePct);
+    return '<div class="fomc-day-market is-' + fomcDayTone(change) + '">' +
+      '<span>' + symbol + '</span><b>' + fomcDayPct(change) + '</b>' +
+      '<small>' + (range != null ? fomcDayPct(Math.abs(range)) + ' session range' : 'close to close') + '</small></div>';
+  }
+  function renderFomcDayHistory(){
+    var host = document.getElementById('fomc-day-root');
+    if (!host) return;
+    var cal = (typeof calendarState !== 'undefined') ? calendarState.data : null;
+    if (!cal){
+      host.innerHTML = '<p class="bonds-live-empty">Reading the calendar for meeting history&hellip;</p>';
+      return;
+    }
+    var history = cal.fomc && cal.fomc.dayHistory;
+    var rows = history && Array.isArray(history.meetings)
+      ? history.meetings.filter(function(row){ return row && row.date; })
+      : [];
+    if (!rows.length){
+      host.innerHTML = '<div class="fomc-day-empty"><b>No completed meeting rows yet.</b><span>The next calendar build will join official decisions with SPY, QQQ, IWM and bond data.</span></div>';
+      return;
+    }
+    if (!fomcDaySelected || !rows.some(function(row){ return row.date === fomcDaySelected; })) fomcDaySelected = rows[0].date;
+    var selected = rows.find(function(row){ return row.date === fomcDaySelected; }) || rows[0];
+    var chronological = rows.slice().sort(function(a, b){ return a.date.localeCompare(b.date); });
+    var values = [];
+    chronological.forEach(function(row){
+      ['spy','qqq','iwm'].forEach(function(key){
+        var n = fomcDayNum(row.markets && row.markets[key] && row.markets[key].changePct);
+        if (n != null) values.push(Math.abs(n));
+      });
+      var br = fomcDayBondRead(row);
+      if (br.value != null) values.push(Math.abs(br.value));
+    });
+    var maxAbs = Math.max(1, values.length ? Math.max.apply(null, values) : 1);
+    maxAbs = Math.ceil(maxAbs * 2) / 2;
+    var W = Math.max(620, chronological.length * 88 + 72), H = 238;
+    var padL = 42, padR = 22, padT = 24, padB = 44, plotH = H - padT - padB;
+    var zero = padT + plotH / 2;
+    var yScale = (plotH / 2 - 8) / maxAbs;
+    var groupW = (W - padL - padR) / chronological.length;
+    var barW = Math.min(9, Math.max(6, groupW / 7));
+    var series = [
+      { key:'spy', label:'SPY', cls:'spy', offset:-barW - 2 },
+      { key:'qqq', label:'QQQ', cls:'qqq', offset:0 },
+      { key:'iwm', label:'IWM', cls:'iwm', offset:barW + 2 }
+    ];
+    var bars = '', labels = '', bondPts = [], hit = '';
+    chronological.forEach(function(row, idx){
+      var x = padL + groupW * (idx + .5);
+      series.forEach(function(s){
+        var value = fomcDayNum(row.markets && row.markets[s.key] && row.markets[s.key].changePct);
+        if (value == null) return;
+        var height = Math.max(1, Math.abs(value) * yScale);
+        var y = value >= 0 ? zero - height : zero;
+        bars += '<rect class="fomc-day-bar is-' + s.cls + ' is-' + fomcDayTone(value) + '" x="' + (x + s.offset - barW / 2).toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + height.toFixed(1) + '"><title>' + s.label + ' ' + fomcDayPct(value) + '</title></rect>';
+      });
+      var bond = fomcDayBondRead(row);
+      if (bond.value != null) bondPts.push({ x:x, y:zero - bond.value * yScale, value:bond.value, row:row });
+      labels += '<text class="fomc-day-axis-label" x="' + x.toFixed(1) + '" y="' + (H - 18) + '">' + escapeHtml(fomcDayShortDate(row.date)) + '</text>';
+      hit += '<rect class="fomc-day-hit' + (row.date === fomcDaySelected ? ' is-selected' : '') + '" data-fomc-day="' + escapeHtml(row.date) + '" x="' + (x - groupW / 2 + 2).toFixed(1) + '" y="' + padT + '" width="' + Math.max(12, groupW - 4).toFixed(1) + '" height="' + (plotH + 24) + '" tabindex="0" role="button" aria-label="Show ' + escapeHtml(row.label || row.date) + ' details"></rect>';
+    });
+    var bondPath = bondPts.length > 1
+      ? '<polyline class="fomc-day-bond-line" points="' + bondPts.map(function(p){ return p.x.toFixed(1) + ',' + p.y.toFixed(1); }).join(' ') + '"></polyline>'
+      : '';
+    var bondDots = bondPts.map(function(p){
+      var isPost = p.row.bonds && fomcDayNum(p.row.bonds.tltPost2pmPct) != null;
+      return '<circle class="fomc-day-bond-dot" cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="3.5"><title>TLT ' + (isPost ? '2pm to close ' : 'full session ') + fomcDayPct(p.value) + '</title></circle>';
+    }).join('');
+    var grid = [-maxAbs, 0, maxAbs].map(function(value){
+      var y = zero - value * yScale;
+      return '<line class="fomc-day-grid' + (value === 0 ? ' is-zero' : '') + '" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y.toFixed(1) + '" y2="' + y.toFixed(1) + '"></line>' +
+        '<text class="fomc-day-y-label" x="' + (padL - 7) + '" y="' + (y + 3).toFixed(1) + '">' + (value > 0 ? '+' : '') + value.toFixed(1) + '%</text>';
+    }).join('');
+    var chart = '<div class="fomc-day-chart-head"><div class="fomc-day-legend">' +
+      '<span class="is-spy">SPY</span><span class="is-qqq">QQQ</span><span class="is-iwm">IWM</span><span class="is-tlt">TLT bond reaction</span>' +
+      '</div><small>bars = full session &middot; TLT line = 2pm to close when captured</small></div>' +
+      '<div class="fomc-day-chart-scroll"><svg class="fomc-day-chart" viewBox="0 0 ' + W + ' ' + H + '" style="min-width:' + W + 'px" role="img" aria-label="FOMC day returns for SPY, QQQ, IWM and TLT">' +
+      grid + bars + bondPath + bondDots + labels + hit + '</svg></div>';
+    var meetingButtons = rows.map(function(row){
+      var dissents = Number(row.dissentCount) || 0;
+      return '<button type="button" class="fomc-day-meeting-btn' + (row.date === selected.date ? ' is-active' : '') + '" data-fomc-day-button="' + escapeHtml(row.date) + '" aria-pressed="' + (row.date === selected.date ? 'true' : 'false') + '">' +
+        '<span>' + escapeHtml(fomcDayShortDate(row.date)) + '</span><b>' + escapeHtml(row.decisionLabel || row.decision || 'Decision') + '</b>' +
+        '<small>' + dissents + ' dissent' + (dissents === 1 ? '' : 's') + '</small></button>';
+    }).join('');
+    var pricing = selected.pricing || null;
+    var priceHeadline = 'Pre-decision odds were not archived for this meeting.';
+    var oddsHtml = '<div class="fomc-day-odds is-missing"><span>Pre-decision pricing</span><b>Unavailable</b><small>No historical odds are inferred.</small></div>';
+    if (pricing){
+      var oddsArr = [
+        { value:fomcDayNum(pricing.hike), label:'hike' },
+        { value:fomcDayNum(pricing.hold), label:'hold' },
+        { value:fomcDayNum(pricing.cut), label:'cut' }
+      ].filter(function(x){ return x.value != null; }).sort(function(a, b){ return b.value - a.value; });
+      if (oddsArr.length) priceHeadline = 'Market priced ' + fomcDayOdds(oddsArr[0].value) + ' ' + oddsArr[0].label + ' before the decision.';
+      oddsHtml = '<div class="fomc-day-odds"><span>Priced before meeting' + (pricing.asOf ? ' &middot; ' + escapeHtml(pricing.asOf) : '') + '</span>' +
+        '<div><b class="is-hike">' + fomcDayOdds(pricing.hike) + '<small>hike</small></b>' +
+        '<b class="is-hold">' + fomcDayOdds(pricing.hold) + '<small>hold</small></b>' +
+        '<b class="is-cut">' + fomcDayOdds(pricing.cut) + '<small>cut</small></b></div>' +
+        '<small>' + escapeHtml(pricing.source || 'ZQ Fed Funds futures') + '</small></div>';
+    }
+    var bondRead = fomcDayBondRead(selected);
+    var yieldMove = selected.bonds && selected.bonds.yields || {};
+    var yieldBits = [];
+    var twoYBps = fomcDayNum(yieldMove.twoYBps), tenYBps = fomcDayNum(yieldMove.tenYBps);
+    if (twoYBps != null) yieldBits.push('2Y ' + (twoYBps >= 0 ? '+' : '') + twoYBps.toFixed(1) + ' bps');
+    if (tenYBps != null) yieldBits.push('10Y ' + (tenYBps >= 0 ? '+' : '') + tenYBps.toFixed(1) + ' bps');
+    var bondWindow = bondRead.value == null ? 'No TLT reaction captured.'
+      : 'TLT ' + fomcDayPct(bondRead.value) + ' ' + (bondRead.post ? 'from 2:00pm ET to the close.' : 'close to close; post-2pm bars unavailable.');
+    var dissenters = Array.isArray(selected.dissenters) ? selected.dissenters : [];
+    var dissentHtml = dissenters.length
+      ? dissenters.map(function(voter){
+          var stance = voter.stance || 'unknown';
+          var stanceLabel = stance === 'hold' ? 'aligned rate' : stance;
+          return '<li><b>' + escapeHtml(voter.name || 'Unnamed dissenter') + '</b><span class="is-' + escapeHtml(stance) + '">' + escapeHtml(stanceLabel) + '</span>' +
+            (voter.preference ? '<small>' + escapeHtml(voter.preference) + '</small>' : '') + '</li>';
+        }).join('')
+      : '<li class="is-none"><b>No named dissenters</b><small>The official record shows no named vote against the adopted action.</small></li>';
+    var sourceLink = selected.sourceUrl
+      ? '<a href="' + escapeHtml(selected.sourceUrl) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(selected.source || 'Federal Reserve source') + ' &rarr;</a>'
+      : '';
+    var dissentCount = Number(selected.dissentCount) || 0;
+    var detail = '<section class="fomc-day-detail" aria-label="' + escapeHtml(selected.label || selected.date) + ' FOMC day details">' +
+      '<div class="fomc-day-detail-head"><div><span>' + escapeHtml(selected.label || selected.date) + '</span><h3>' + priceHeadline + '</h3></div>' +
+        '<div class="fomc-day-actual"><span>Actual decision</span><b class="is-' + escapeHtml(selected.decision || 'maintain') + '">' + escapeHtml(selected.decisionLabel || selected.decision || '&mdash;') + '</b><small>' + dissentCount + ' dissent' + (dissentCount === 1 ? '' : 's') + '</small></div></div>' +
+      '<div class="fomc-day-detail-grid">' + oddsHtml +
+        '<div class="fomc-day-market-grid">' +
+          fomcDayMarketTile('SPY', selected.markets && selected.markets.spy) +
+          fomcDayMarketTile('QQQ', selected.markets && selected.markets.qqq) +
+          fomcDayMarketTile('IWM', selected.markets && selected.markets.iwm) +
+        '</div>' +
+        '<div class="fomc-day-bonds"><span>Bond reaction</span><b class="is-' + fomcDayTone(bondRead.value) + '">' + escapeHtml(bondRead.direction) + '</b><p>' + bondWindow + '</p>' +
+          (yieldBits.length ? '<small>' + escapeHtml(yieldBits.join(' / ')) + ' &middot; full session</small>' : '') + '</div></div>' +
+      '<div class="fomc-day-dissent"><div><span>Official dissenters</span>' + sourceLink + '</div><ul>' + dissentHtml + '</ul></div>' +
+      '</section>';
+    host.innerHTML = chart + '<div class="fomc-day-meetings" aria-label="Choose an FOMC meeting">' + meetingButtons + '</div>' + detail +
+      '<p class="fomc-day-method">Equity bars are close-to-close returns; range is high-low versus the prior close. TLT is a long-duration Treasury proxy. The preferred bond read is the 2:00-4:00pm ET move; full-day TLT and yield changes include pre-announcement trading. Pricing is the final archived pre-decision futures snapshot, so unavailable history stays unavailable rather than being guessed.</p>';
+    function selectDate(date){
+      if (!date || date === fomcDaySelected) return;
+      fomcDaySelected = date;
+      renderFomcDayHistory();
+    }
+    host.querySelectorAll('[data-fomc-day-button]').forEach(function(btn){
+      btn.addEventListener('click', function(){ selectDate(btn.getAttribute('data-fomc-day-button')); });
+    });
+    host.querySelectorAll('[data-fomc-day]').forEach(function(hitbox){
+      hitbox.addEventListener('click', function(){ selectDate(hitbox.getAttribute('data-fomc-day')); });
+      hitbox.addEventListener('keydown', function(e){
+        if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); selectDate(hitbox.getAttribute('data-fomc-day')); }
+      });
+    });
   }
 
   // --- Bonds & USD context: "why it matters today" ------------------------
@@ -35798,6 +35999,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
             // from the normal cadence to the required five-minute watch.
             startBondsLivePolling();
             renderBondsContext();
+            renderFomcDayHistory();
           });
       }
       host.innerHTML = '<p class="bonds-ctx-quiet">Reading the calendar for Fed-rate context…</p>';

@@ -38,6 +38,7 @@ async function loadChains() {
 async function main() {
   const chains = await loadChains();
   console.log(`loaded ${Object.keys(chains).length} ticker chains`);
+  const macroHistory = await build.readMacroHistory();
 
   const todayMs = Date.UTC(
     new Date().getUTCFullYear(),
@@ -175,7 +176,9 @@ async function main() {
     fomcMeetings: upcomingMeetings,
     fedRate: effectiveFedRate ?? fedRate,
     fedwatch,
+    fedwatchHistory,
     fomcVoteHistory,
+    macroHistory,
     sessionMap,
     predictionMarkets,
     priorCalendar,
