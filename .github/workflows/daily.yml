@@ -4,19 +4,28 @@ name: Daily build
 # eight times a weekday. The commit it pushes triggers Vercel's GitHub
 # integration, which deploys the new static files automatically.
 #
-# Scheduling is handled externally by cron-job.org, which POSTs to the
+# Primary scheduling is handled externally by cron-job.org, which POSTs to the
 # workflow_dispatch endpoint at 9:30 America/New_York (the market open) and
 # then hourly from 10:00 to 16:00 (the close) on weekdays — eight runs a
 # trading day. It takes TWO cron-job.org jobs because one cron line can't mix
 # the :30 open with the top-of-hour cadence: `30 9 * * 1-5` fires the open and
 # `0 10-16 * * 1-5` fires 10:00–16:00. cron-job.org runs in ET, so it — not
-# this workflow — is the single authority on the ET slots and DST. (A previous
+# this workflow — is the authority on the normal ET slots and DST. A separate
+# close-bake-fallback.yml watchdog dispatches only when the 16:00 run is absent.
+# (A previous
 # in-workflow ET-hour re-check was dead code: with a workflow_dispatch-only
 # trigger it never ran.)
 on:
   workflow_dispatch:
+    inputs:
+      force:
+        description: "Run outside the normal 09:15-17:00 ET dispatch window"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
+  actions: read
   contents: write
   # The "AI health alert" step opens/updates/closes the ai-health incident
   # issue (issue creation is what emails the owner — the AI layer degrading
@@ -34,6 +43,39 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      - name: Validate ET dispatch window
+        env:
+          FORCE_RUN: ${{ inputs.force }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "${FORCE_RUN:-false}" = "true" ]; then
+            echo "Forced manual build; bypassing the ET dispatch-window guard."
+            exit 0
+          fi
+          # Validate when GitHub RECEIVED the dispatch, not when this queued
+          # job finally got a runner. The shared data concurrency group can
+          # legitimately delay the 16:00 close bake past 17:00 ET.
+          RUN_API="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          CREATED_AT=$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$RUN_API" | jq -r '.created_at // empty')
+          if [ -z "$CREATED_AT" ]; then
+            echo "::error::Could not resolve this run's dispatch timestamp. Re-dispatch with force=true only after confirming the intended slot."
+            exit 1
+          fi
+          ET_DAY=$(TZ=America/New_York date -d "$CREATED_AT" +%u)
+          ET_HOUR=$(TZ=America/New_York date -d "$CREATED_AT" +%H)
+          ET_MINUTE=$(TZ=America/New_York date -d "$CREATED_AT" +%M)
+          ET_MIN=$((10#$ET_HOUR * 60 + 10#$ET_MINUTE))
+          if [ "$ET_DAY" -gt 5 ] || [ "$ET_MIN" -lt 555 ] || [ "$ET_MIN" -gt 1020 ]; then
+            echo "::error::Rejected an out-of-window daily dispatch at $(TZ=America/New_York date -d "$CREATED_AT" '+%F %R %Z'). Use workflow_dispatch force=true for an intentional manual run."
+            exit 1
+          fi
+          echo "Dispatch at $(TZ=America/New_York date -d "$CREATED_AT" '+%F %R %Z') is inside the normal weekday 09:15-17:00 ET window."
+
       - uses: actions/checkout@v5
         with:
           # Resolve the freshest tip of the dispatched ref at checkout
@@ -72,13 +114,19 @@ jobs:
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: node scripts/sync-data.mjs pull
 
+      - name: Mark freshness window
+        # Start after hydration: downloaded prior-run files receive a current
+        # filesystem mtime and must not count as outputs rewritten by this bake.
+        run: echo "FRESHNESS_RUN_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" >> "$GITHUB_ENV"
+
       - name: Build site
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           # Funded Tier-1 project: Flash/Flash-Lite carry 1K-4K RPM quotas, so
           # the build's per-minute AI pacer (build.mjs AI_RPM, default 100) can
           # run well above the conservative default without risking 429s. The
-          # per-ticker passes run on gemini-2.5-flash-lite (4K RPM / 4M TPM).
+          # high-volume per-ticker text passes run on the configured
+          # Flash-Lite tier (code default gemini-3.1-flash-lite).
           # Measured peak at AI_RPM=300 was 279 RPM / 890K TPM (~3.2K tok/req) —
           # i.e. the pacer itself was the binding floor on the per-ticker AI passes.
           # 600 holds peak-minute TPM at ~53% of the 4M quota and ~15% of the 4K
@@ -96,7 +144,7 @@ jobs:
           # Model selection is plumbed through Actions Variables so we can
           # swap models (Gemma free tier → Gemini 2.5 Flash-Lite on paid
           # Tier 1, etc.) without touching code. Unset = build.mjs falls
-          # back to its hard-coded Gemma default.
+          # back to the current quality-tier defaults in build.mjs.
           AI_MODEL: ${{ vars.AI_MODEL }}
           NARRATIVES_MODEL: ${{ vars.NARRATIVES_MODEL }}
           # (PICKS_ACCURACY_AB removed: it was set here but read NOWHERE in the
@@ -194,7 +242,50 @@ jobs:
             echo "nothing to do (status=$STATUS, open incident=${EXISTING:-none})"
           fi
 
-      - name: Commit refreshed site
+      - name: Prepare final static output
+        run: node scripts/regen-static.mjs
+
+      - name: Ensure source revision is still current
+        run: |
+          set -euo pipefail
+          BRANCH="${GITHUB_REF_NAME:-main}"
+          git fetch origin "$BRANCH"
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse "origin/$BRANCH")" ]; then
+            echo "::error::Source branch moved while this build was running. Refusing to publish data generated by stale code."
+            exit 1
+          fi
+
+      - name: Verify fresh, coherent build data
+        run: node scripts/verify-data-freshness.mjs --owner=bake
+
+      - name: Flush verified data to private store
+        # Publish data before the static commit that triggers Vercel. If the
+        # upload fails, production stays on the prior coherent deployment.
+        if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: node scripts/sync-data.mjs push --owner=bake
+
+      - name: Commit verified private-store build
+        if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
+        run: |
+          set -euo pipefail
+          git config user.name "stonks-bot"
+          git config user.email "stonks-bot@users.noreply.github.com"
+          BRANCH="${GITHUB_REF_NAME:-main}"
+          git add index.html styles.css app.js
+          if git diff --cached --quiet; then
+            echo "No static changes to commit."
+            exit 0
+          fi
+          git commit -m "chore: daily refresh $(date -u +%Y-%m-%d)"
+          git push origin "HEAD:$BRANCH"
+
+      - name: Commit refreshed site (legacy public data)
+        if: ${{ vars.PRIVATE_DATA_ENABLED != '1' }}
         env:
           # Flag-off (default): commit data/ to the repo as today. Flag-on
           # (Path B cutover): data/ lives in the private store, so it's not staged.
@@ -260,17 +351,3 @@ jobs:
           done
           echo "Push failed after 3 attempts." >&2
           exit 1
-
-      - name: Flush data to private store
-        # Path B cutover: push the freshly-built data/ (incl. data/manifest.json)
-        # to the private blob store. Bake owns everything except the scanner-
-        # exclusive keys and delete-stales only the per-ticker + iv-history
-        # prefixes. Runs after the commit step so it flushes the final regen-static
-        # state. No-op until the repo variable is set.
-        if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
-        env:
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-        run: node scripts/sync-data.mjs push --owner=bake

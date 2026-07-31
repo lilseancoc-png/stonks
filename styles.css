@@ -6854,7 +6854,7 @@ a.cr-tkr:hover .stk-sym-go, a.cr-tkr:focus-visible .stk-sym-go { color: var(--ac
   flex-wrap: wrap;
   gap: 4px;
 }
-/* When any contract carries an AI flow-explanation note, switch to a
+/* When any contract carries a current-metrics explanation note, switch to a
    vertical stack so each chip + note pair owns its own row. Otherwise
    the dense pill layout keeps the original horizontal wrap. */
 .flow-contracts.has-notes {
@@ -7545,9 +7545,9 @@ a.cr-tkr:hover .stk-sym-go, a.cr-tkr:focus-visible .stk-sym-go { color: var(--ac
 }
 .opt-tech-pattern-foot { font-size: 11px; color: var(--muted); line-height: 1.4; }
 
-/* Forming (early-warning) vs confirmed. A forming pattern is unconfirmed, so it
-   reads as a caution (accent/gold) rather than a hard pos/neg signal. */
+/* Forming (early-warning), confirmed, and changed-bar stale context. */
 .opt-tech-pattern.forming { border-left-color: var(--accent); }
+.opt-tech-pattern.stale { border-left-color: var(--muted); }
 .opt-tech-pattern-stage {
   font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em;
   padding: 2px 8px; border-radius: var(--r-pill); white-space: nowrap;
@@ -7556,6 +7556,10 @@ a.cr-tkr:hover .stk-sym-go, a.cr-tkr:focus-visible .stk-sym-go { color: var(--ac
 .opt-tech-pattern-stage.confirmed {
   color: var(--pos); background: var(--pos-soft);
   border: 1px solid color-mix(in srgb, var(--pos) 35%, transparent);
+}
+.opt-tech-pattern-stage.stale {
+  color: var(--muted); background: var(--panel-2);
+  border: 1px solid var(--line);
 }
 .opt-tech-pattern-lvls {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

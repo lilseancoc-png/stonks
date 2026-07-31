@@ -63,7 +63,9 @@ GitHub Actions (build.mjs / scan-*.mjs)
 GitHub Actions (build.mjs / scan-*.mjs)
    ├─ sync-data.mjs pull   ◄── PRIVATE object store   (hydrate local data/)
    ├─ build/scan mutate local data/  (UNCHANGED internals)
-   └─ sync-data.mjs push   ──► PRIVATE object store    (flush owned keys)
+   ├─ verify-data-freshness.mjs       (fail closed on stale/partial owned data)
+   ├─ sync-data.mjs push   ──► PRIVATE object store    (flush verified owned keys)
+   └─ git commit static shell ──► Vercel deploy        (only after data upload)
 
 Browser
    └─ fetch('data/x.json')
@@ -163,13 +165,13 @@ output. A blob store has no merge, so we replicate that ownership explicitly.
 | `<SYM>.json` (per-ticker, dynamic) | bake | upload + **delete-stale** within prefix |
 | `iv-history/<SYM>.json` (dynamic) | bake | upload + **delete-stale** within prefix |
 | picks\*, grades\*, calendar, macro\*, correlations, trends\*, streaks, 13f, fear-greed\*, fedwatch-history, rfr-history, earnings-history, chart-pattern-cache, ticker-judgment-cache, prediction-history | bake | upsert |
-| unusual\*, volume-flags, volume-history, flow-explanations | unusual-flow scan | upsert (no delete) |
+| unusual\*, volume-flags, volume-history, flow-explanations | unusual-flow scan | upsert (no delete); explanations are rebuilt deterministically from current scan metrics and spend no AI |
 | oi-tracker, oi-history | oi-tracker scan | upsert (no delete) |
 | search-interest | weekly theme search-interest refresh | upsert (no delete) |
 | **heatmap.json** | bake (seed/rebuild) **+** unusual (refresh) | upsert by whichever ran; serialized |
 | **market-analysis.json** | bake (macro regime) **+** unusual (premarket cohort + hourly marks) | read-modify-write; serialized |
 | **briefs.json** | bake (`buildMarketBriefs`, re-minted hourly) | upsert; once-per-ET-hour gating already in code |
-| **ai-usage.json** | bake + unusual-flow (per-day budget) | read-modify-write; serialized so increments don't race |
+| **ai-usage.json** | bake + unusual-flow (shared daily accounting; unusual carries other producers' totals) | read-modify-write; serialized so increments don't race |
 | **picks-watchlist.json** | **request time** (`api/watchlist.js` — the shared Top Picks watchlist, written on user clicks) | **no workflow may push or delete it** (`REQUEST_TIME_EXCLUSIVE` in `sync-data.mjs`): the copy `pull` hydrates locally is stale the moment a user toggles mid-run, so re-uploading it would silently revert their change |
 
 The **shared read-modify-write** files (`heatmap`, `market-analysis`, `ai-usage`) are
@@ -237,7 +239,34 @@ Each of `daily.yml`, `unusual-flow.yml`, `oi-tracker.yml`, and
 - **Add** a step before build/scan: `node scripts/sync-data.mjs pull`
   (env: store token). Replaces the data that `git checkout` used to supply.
 - **Replace** the entire `git stash/commit/push data` block with
-  `node scripts/sync-data.mjs push --owner=<bake|unusual|oi>`.
+  `node scripts/sync-data.mjs push --owner=<bake|unusual|oi|search-interest>`.
+- Mark the run start, regenerate the final manifest sidecars, and run
+  `node scripts/verify-data-freshness.mjs --owner=<owner>` before any external
+  write. The verifier is ownership-aware: it requires current-run stamps for the
+  producer's outputs; the bake additionally requires ≥95% ticker coverage,
+  non-empty option chains, confirmed price history/technicals, current-session
+  quote provenance while the market is regular, coherent decision-artifact
+  stamps, and no explicit top-level `stale:true`. It also requires every
+  declared bake output/history/cache to have been rewritten, matches current IV
+  ranks to current-run, two-sided-quote-backed `iv-history/` samples (with at
+  least 90% coverage required during regular trading), and rejects any
+  bake-owned local key without an explicit publication policy. Flow and OI history files
+  must contain the exact current scan represented by their headline payload.
+  Ownership rules are single-sourced in `lib/data-ownership.mjs`, imported by
+  both the verifier and `sync-data.mjs`.
+- In private mode, **push verified data before committing the static shell**.
+  The static commit triggers Vercel, so this order prevents a new deployment
+  from pointing at an upload that has not finished (or failed). Also re-check
+  that the source branch SHA has not moved during a long build; if it has, abort
+  and let the next run rebuild with the new code.
+- `close-bake-fallback.yml` watches the two possible UTC equivalents of 16:05
+  ET and dispatches `daily.yml` only when no external close-slot dispatch exists
+  since 15:55 ET. This is a zero-AI DST-safe backstop for a missed
+  cron-job.org close slot, not a second normal bake.
+- `daily.yml` rejects ordinary dispatches outside weekdays 09:15-17:00 ET
+  before checkout or API use, which prevents a misconfigured 08:30 job from
+  spending a full build. An intentional off-hours manual recovery uses the
+  workflow's `force=true` input.
 - **Keep** committing the *render output* `index.html`/`app.js`/`styles.css`? →
   **No** — under Path B those are gated too, but they're still static code, not
   data. Decision: keep regenerating + committing them to the (public) repo as today

@@ -29,6 +29,12 @@ import { existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { store } from "../lib/datastore.mjs";
+import {
+  REQUEST_TIME_EXCLUSIVE_KEYS,
+  isBakeOwnedKey,
+  isDynamicBakeKey as sharedIsDynamicBakeKey,
+  keysForScannerOwner,
+} from "../lib/data-ownership.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -38,16 +44,6 @@ const DATA_DIR = resolve(ROOT, "data");
 // Scanner-EXCLUSIVE keys: written only by scan-unusual.mjs / scan-oi.mjs. The
 // bake preserves these across its wipe but must NOT push them (a concurrent
 // scan may have written a fresher copy since this run pulled).
-const UNUSUAL_EXCLUSIVE = [
-  "unusual.json",
-  "unusual-history.json",
-  "unusual-log.json",
-  "volume-flags.json",
-  "volume-history.json",
-  "flow-explanations.json",
-];
-const OI_EXCLUSIVE = ["oi-tracker.json", "oi-history.json"];
-const SEARCH_INTEREST_EXCLUSIVE = ["search-interest.json"];
 // Co-owned read-modify-write files (each producer pulls latest, applies its
 // once-per-window update, pushes). Safe under serialized runs. The hourly run
 // refreshes heatmap prices and the Market Analysis premarket cohort while the
@@ -56,27 +52,19 @@ const SEARCH_INTEREST_EXCLUSIVE = ["search-interest.json"];
 // deterministically by regen-static in EVERY workflow (they carry the bake's
 // narratives from the pulled trends.json + the scanner's fresh unusual
 // snapshot), so all producers push them — last-writer-wins is consistent.
-const UNUSUAL_SHARED = ["heatmap.json", "market-analysis.json", "ai-usage.json", "manifest.json", "manifest-free.json"];
 // briefs.json left the OI set when the brief moved to hourly minting inside
 // the bake (the oi-tracker's regen-brief pre-market/backfill step is gone).
-const OI_SHARED = ["manifest.json", "manifest-free.json"];
-
-const SCANNER_EXCLUSIVE = new Set([...UNUSUAL_EXCLUSIVE, ...OI_EXCLUSIVE, ...SEARCH_INTEREST_EXCLUSIVE]);
 
 // REQUEST-TIME-owned keys: written by the live api/* functions from user
 // actions (api/watchlist.js), never by a workflow. NO producer may push or
 // delete them — the copy `pull` hydrates locally is stale the moment a user
 // clicks mid-run, so re-uploading it would silently revert their change.
-const REQUEST_TIME_EXCLUSIVE = new Set(["picks-watchlist.json"]);
 
 // Bake delete-stales ONLY within these prefixes (dynamic per-ticker data).
 // transcripts/ is the RETIRED subdirectory form of the earnings-call briefs
 // (replaced by flat transcript-<SYM>.json keys, which are upsert-only and
 // deliberately NOT matched here) — listing it lets the bake sweep the
 // first-day orphans out of the store.
-const isDynamicBakeKey = (key) =>
-  /^[A-Z0-9.]+\.json$/.test(key) || key.startsWith("iv-history/") || key.startsWith("transcripts/");
-
 // --- small helpers ------------------------------------------------------------
 async function mapLimit(items, limit, fn) {
   const results = new Array(items.length);
@@ -161,7 +149,7 @@ async function pushBake({ dryRun }) {
   const local = await localKeys();
   // Everything local except the scanner-exclusive set (which a concurrent scan
   // owns) and the request-time set (which the live site owns).
-  const owned = local.filter((k) => !SCANNER_EXCLUSIVE.has(k) && !REQUEST_TIME_EXCLUSIVE.has(k));
+  const owned = local.filter(isBakeOwnedKey);
   const uploaded = await uploadKeys(owned, { dryRun, label: "push(bake)" });
   // Delete-stale: store keys in the dynamic per-ticker / iv-history prefixes
   // that no longer exist locally (a ticker left the universe). Never touch
@@ -170,7 +158,7 @@ async function pushBake({ dryRun }) {
   const remote = await store.list("");
   const stale = remote
     .map((e) => e.key)
-    .filter((k) => isDynamicBakeKey(k) && !SCANNER_EXCLUSIVE.has(k) && !REQUEST_TIME_EXCLUSIVE.has(k) && !localSet.has(k));
+    .filter((k) => sharedIsDynamicBakeKey(k) && isBakeOwnedKey(k) && !localSet.has(k));
   console.log(`push(bake): ${uploaded.length} uploaded, ${stale.length} stale to delete` + (dryRun ? " (dry-run)" : ""));
   if (dryRun) {
     for (const k of stale.slice(0, 30)) console.log(`  would delete ${k}`);
@@ -180,12 +168,7 @@ async function pushBake({ dryRun }) {
 }
 
 async function pushScanner(owner, { dryRun }) {
-  const keys =
-    owner === "unusual"
-      ? [...UNUSUAL_EXCLUSIVE, ...UNUSUAL_SHARED]
-      : owner === "oi"
-        ? [...OI_EXCLUSIVE, ...OI_SHARED]
-        : SEARCH_INTEREST_EXCLUSIVE;
+  const keys = keysForScannerOwner(owner);
   await uploadKeys(keys, { dryRun, label: `push(${owner})` }); // upsert-only, no delete
 }
 
@@ -193,7 +176,7 @@ async function seed({ dryRun }) {
   // Exclude request-time-owned keys (picks-watchlist.json): a pulled-then-seeded
   // copy is stale the moment a user clicks, and re-uploading it would silently
   // revert their add/remove. No producer may push it — seed included.
-  const local = (await localKeys()).filter((k) => !REQUEST_TIME_EXCLUSIVE.has(k));
+  const local = (await localKeys()).filter((k) => !REQUEST_TIME_EXCLUSIVE_KEYS.has(k));
   await uploadKeys(local, { dryRun, label: "seed" }); // upload everything, no delete
   console.log(`seed: ${local.length} file(s) from ${DATA_DIR}`);
 }

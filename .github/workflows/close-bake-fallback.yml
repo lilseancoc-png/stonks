@@ -1,0 +1,70 @@
+name: Close-bake fallback
+
+# cron-job.org remains the primary ET-aware dispatcher for daily.yml. This
+# watchdog closes one dangerous gap: if no external 16:00 ET dispatch appears,
+# it creates one at 16:05 ET. GitHub cron is UTC, so both possible UTC slots
+# are scheduled; a 16:00-17:30 ET delay-tolerant guard plus the GitHub API
+# duplicate check lets exactly one continue across DST. A healthy external
+# schedule costs no Gemini calls and creates no second bake.
+on:
+  schedule:
+    - cron: "5 20 * * 1-5"
+    - cron: "5 21 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  ensure-close-bake:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch missing 16:00 ET bake
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ET_DAY=$(TZ=America/New_York date +%u)
+          ET_HOUR=$(TZ=America/New_York date +%H)
+          ET_MINUTE=$(TZ=America/New_York date +%M)
+          ET_MIN=$((10#$ET_HOUR * 60 + 10#$ET_MINUTE))
+          if [ "$ET_DAY" -gt 5 ] || [ "$ET_MIN" -lt 960 ] || [ "$ET_MIN" -gt 1050 ]; then
+            echo "Not the delay-tolerant 16:00-17:30 ET watchdog window; no-op."
+            exit 0
+          fi
+
+          API="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/workflows/daily.yml/runs?event=workflow_dispatch&per_page=20"
+          TODAY_ET=$(TZ=America/New_York date +%F)
+          # Ignore a stray 15:30 run: only a dispatch at/around the documented
+          # close slot should suppress the fallback.
+          CUTOFF=$(TZ=America/New_York date -d "$TODAY_ET 15:55:00" +%s)
+          if RUNS=$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$API"); then
+            RECENT=$(jq --argjson cutoff "$CUTOFF" \
+              '[.workflow_runs[] | select((.created_at | fromdateiso8601) >= $cutoff)] | length' \
+              <<<"$RUNS")
+            if [ "$RECENT" -gt 0 ]; then
+              echo "A recent external daily.yml dispatch already exists; no fallback needed."
+              exit 0
+            fi
+          else
+            echo "::warning::Could not inspect recent runs; dispatching fail-open so the close bake is not missed."
+          fi
+
+          REF="${{ github.event.repository.default_branch }}"
+          # The trusted watchdog may arrive after daily.yml's normal dispatch
+          # window because GitHub cron is best-effort; force only bypasses that
+          # time guard and does not widen any data/publish permissions.
+          PAYLOAD=$(jq -cn --arg ref "$REF" '{ref:$ref,inputs:{force:"true"}}')
+          curl --fail --silent --show-error \
+            -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -d "$PAYLOAD" \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/workflows/daily.yml/dispatches"
+          echo "No 16:00 ET dispatch was found; close bake dispatched on $REF."

@@ -1811,7 +1811,8 @@
     var chartPatternStage = chartPattern ? String(chartPattern.stage || '').toLowerCase() : '';
     var chartPatternConfirm = chartPattern && chartPattern.confirm ? String(chartPattern.confirm) : '';
     var chartPatternInvalidate = chartPattern && chartPattern.invalidate ? String(chartPattern.invalidate) : '';
-    var chartPatternSign = chartPatternDir === 'bullish' ? 1 : chartPatternDir === 'bearish' ? -1 : 0;
+    var chartPatternCurrent = !!(chartPattern && chartPattern.stale !== true);
+    var chartPatternSign = chartPatternCurrent ? (chartPatternDir === 'bullish' ? 1 : chartPatternDir === 'bearish' ? -1 : 0) : 0;
     var patternAligned = !!(chartPatternName && chartPatternSign === dir);
     var patternAgainst = !!(chartPatternName && chartPatternSign === -dir);
     var patternAgainstConfirmed = patternAgainst && chartPatternStage === 'confirmed';
@@ -2881,7 +2882,7 @@
     support:    'Recent price floor — the lowest low over the lookback window. Stocks tend to find buyers around old lows. A break below is a meaningful technical event.',
     resistance: 'Recent price ceiling — the highest high over the lookback window. Stocks tend to stall at old highs. A clean break above is a meaningful technical event.',
     sma:        'Simple Moving Average — the average closing price over the last N trading days (sum of the closes ÷ N). Spot above the SMA = the average is acting as support (uptrend); below = resistance (downtrend). The longer windows (100d / 200d) define the bigger-picture trend.',
-    chartPattern: 'A classic chart formation identified by AI from the 1-month intraday (30-minute) chart — the timeframe where short-horizon reversals show up — one of 8 (Cup and Handle, Head and Shoulders, Inverse Head and Shoulders, Bull Flag, Ascending Triangle, Descending Triangle, Double Bottom, Double Top), or none. Flagged at two stages: FORMING (the shape is building but the decisive break has not happened — an early warning, with the neckline + what confirms/invalidates it, scores 0) and CONFIRMED (the break has happened, scores ±1). Re-rated about twice a day. Context only — confirm on your own chart before trading.'
+    chartPattern: 'A classic chart formation identified by AI from the 1-month intraday (30-minute) chart — the timeframe where short-horizon reversals show up — one of 8 (Cup and Handle, Head and Shoulders, Inverse Head and Shoulders, Bull Flag, Ascending Triangle, Descending Triangle, Double Bottom, Double Top), or none. Flagged at two stages: FORMING (the shape is building but the decisive break has not happened — an early warning, with the neckline + what confirms/invalidates it, scores 0) and CONFIRMED (the break has happened, scores ±1 only while the analyzed bars still match). Re-rated about twice a day. If newer bars arrive first, the old read is labeled STALE CONTEXT and cannot affect grades or trade decisions. Confirm on your own chart before trading.'
   };
   function tipChip(text){
     if (!text) return '';
@@ -5335,10 +5336,12 @@
     // muted note so the absence is explicit.
     var cp = t.chartPattern;
     if (cp && cp.pattern){
+      var stalePattern = cp.stale === true;
       if (cp.pattern === 'None'){
         html += '<div class="opt-tech-pattern none">' +
           '<div class="opt-tech-pattern-head">' +
             '<span class="opt-tech-pattern-label">Chart pattern' + tipChip(TIPS.chartPattern) + '</span>' +
+            (stalePattern ? '<span class="opt-tech-pattern-stage stale">Stale context</span>' : '') +
             '<span class="opt-tech-pattern-name">No clear pattern</span>' +
           '</div>' +
           '<div class="opt-tech-pattern-body">' +
@@ -5349,7 +5352,9 @@
       } else {
         var dirCls = cp.direction === 'bullish' ? 'pos' : (cp.direction === 'bearish' ? 'neg' : 'fair');
         var forming = cp.stage === 'forming';
-        var stageBadge = cp.stage
+        var stageBadge = stalePattern
+          ? '<span class="opt-tech-pattern-stage stale">Stale context</span>'
+          : cp.stage
           ? '<span class="opt-tech-pattern-stage ' + (forming ? 'forming' : 'confirmed') + '">' +
               (forming ? '&#9888; Forming' : '&#10003; Confirmed') + '</span>'
           : '';
@@ -5362,10 +5367,12 @@
         if (cp.invalidate) lvls += lvlRow('Invalidated if', escapeHtml(cp.invalidate));
         if (cp.target) lvls += lvlRow('Measured target', escapeHtml(cp.target));
         var lvlsHtml = lvls ? '<div class="opt-tech-pattern-lvls">' + lvls + '</div>' : '';
-        var foot = forming
+        var foot = stalePattern
+          ? 'New intraday bars arrived after this cached chart read. Display-only context: it scores 0 and cannot alter entries, vetoes, grades, strategy direction, or position advice.'
+          : forming
           ? 'Flagged EARLY — the pattern is still forming and is not confirmed until the level above breaks (it scores 0 on the grade until then). Context, not a trade signal.'
-          : 'AI-identified from the daily chart — one of 7 classic formations. Context, not a trade signal.';
-        html += '<div class="opt-tech-pattern ' + dirCls + (forming ? ' forming' : '') + '">' +
+          : 'AI-identified from the current 30-minute chart bars. Context, not a trade signal.';
+        html += '<div class="opt-tech-pattern ' + dirCls + (forming ? ' forming' : '') + (stalePattern ? ' stale' : '') + '">' +
           '<div class="opt-tech-pattern-head">' +
             '<span class="opt-tech-pattern-label">Chart pattern' + tipChip(TIPS.chartPattern) + '</span>' +
             stageBadge +
@@ -14656,12 +14663,14 @@
   function stratPatternRead(){
     var t = stratState.technicals || {};
     var cp = t.chartPattern && typeof t.chartPattern === 'object' ? t.chartPattern : null;
+    var stale = !!(cp && cp.stale === true);
     var name = cp && cp.pattern && cp.pattern !== 'None' ? String(cp.pattern) : '';
     var rawDirection = cp ? String(cp.direction || '').toLowerCase() : '';
     var direction = rawDirection === 'bullish' ? 'bull' : rawDirection === 'bearish' ? 'bear' : null;
     var stage = cp ? String(cp.stage || '').toLowerCase() : '';
     return {
-      active: !!(name && direction),
+      active: !!(name && direction && !stale),
+      stale: stale,
       name: name,
       direction: direction,
       directionLabel: direction === 'bull' ? 'bullish' : direction === 'bear' ? 'bearish' : '',
@@ -32462,8 +32471,9 @@
     }
 
     // AI-read chart pattern — confirmed counts double, a forming pattern half.
+    // A cached read whose exact bars no longer match is display-only context.
     var cp=chain.technicals && chain.technicals.chartPattern;
-    if(cp && cp.direction && cp.direction!=='neutral'){
+    if(cp && cp.direction && cp.direction!=='neutral' && cp.stale!==true){
       var cpSign=cp.direction==='bullish'?1:-1, cpAligned=cpSign===sign;
       var cpConfirmed=cp.stage && cp.stage!=='forming';
       tilt += (cpConfirmed?2:1)*(cpAligned?1:-1);
@@ -32471,6 +32481,8 @@
       if(cp.confirm) cpTxt += ' Confirms on '+cp.confirm+'.';
       if(cp.target) cpTxt += ' Target '+cp.target+'.';
       add(cpAligned?'good':'bad', 'Chart pattern', cpTxt);
+    } else if(cp && cp.pattern && cp.pattern!=='None' && cp.stale===true){
+      add('info', 'Chart pattern', (cp.pattern||'Chart pattern')+' is a stale cached read because newer intraday bars arrived. It is shown only as context and does not affect this position decision.');
     }
 
     // The grade's ranked drivers (news, fundamentals, mechanicals, technicals,
@@ -32719,7 +32731,7 @@
   // (entry timing). Purely presentational.
   var PILLAR_INFO = {
     fundamentals: 'The health of the underlying business, graded across 10 signals (each −3 … +3). Earnings surprise: beat/miss >25% ±2, 10–24% ±1. EPS growth YoY: ≥10% +1, <−25% −2. Revenue growth YoY: ≥8% +1, <−20% −2. Analyst price target: ≥+10% upside +1, ≤−10% −1 (needs ≥5 analysts). Analyst rating changes: net of recent upgrades vs. downgrades over ~90 days — ≥3 net upgrades +2, 1–2 +1, symmetric for downgrades. P/E vs. sector median: a clear discount +1, rich with no growth −1. Guidance: raised +3, in-line +2, lowered −3. A major contract or deal won +2 / lost −3 — including, for a bank/broker, a lead-underwriter or advisory mandate on a marquee IPO or M&A (e.g. leading the SpaceX IPO); this is a discrete win, so it lifts the grade even when the day\'s overall news nets out to neutral. Free cash flow ±1, and net-margin trend ±1. A strong business is a tailwind for the trade; a weak one is a headwind.',
-    technicals: 'The price chart itself, graded across 10 signals (each −3 … +3). RSI momentum: >50 & rising +1, <50 & falling −1. RSI reading (contrarian): ≥75 overbought −3, ≤25 oversold +3. MACD ±1. A 3-day-plus green/red streak ±1. Confirmed support/resistance breaks: 20D ±1, 50D ±1, 100D ±2. The 52-week read (contrarian): within 5% of the high −1, within 5% of the low +1. The moving-average stack: above the majority of the 20/50/100D SMAs +1, below −1. Plus an AI-read chart pattern: confirmed bullish +1, bearish −1. (Raw relative volume is NOT scored here — it double-counted the Unusual Volume mechanical, and unsigned volume credits a crash day like a rally; volume-as-confirmation lives in the entry-timing read.) The contrarian reads mean a name pinned at its 52-week high or running overbought scores negative — stretched charts tend to mean-revert.',
+    technicals: 'The price chart itself, graded across 10 signals (each −3 … +3). RSI momentum: >50 & rising +1, <50 & falling −1. RSI reading (contrarian): ≥75 overbought −3, ≤25 oversold +3. MACD ±1. A 3-day-plus green/red streak ±1. Confirmed support/resistance breaks: 20D ±1, 50D ±1, 100D ±2. The 52-week read (contrarian): within 5% of the high −1, within 5% of the low +1. The moving-average stack: above the majority of the 20/50/100D SMAs +1, below −1. Plus an AI-read chart pattern: confirmed bullish +1, bearish −1 only while its analyzed 30-minute bars still match; a changed-bar cached read is display-only and scores 0. (Raw relative volume is NOT scored here — it double-counted the Unusual Volume mechanical, and unsigned volume credits a crash day like a rally; volume-as-confirmation lives in the entry-timing read.) The contrarian reads mean a name pinned at its 52-week high or running overbought scores negative — stretched charts tend to mean-revert.',
     mechanicals: 'The name\'s OWN options plumbing, graded across 8 signals (each −3 … +3). Unusual options flow (today\'s aggressive bull vs. bear prints) ±1. Open-interest call/put skew: >1.5× calls +1, put-heavy −1. Short interest: a squeeze setup +1, short interest rising −1, falling +1. Hourly volume vs. its 20-day average ±1 by move direction. Put/call ratio (contrarian): >1.15 fear +2, <0.65 greed −2 — heavy put buying (fear) leans bullish, call-greed leans bearish. Plus three reads from the site\'s own scanners: overnight OI build (where new positioning actually LANDED in last night\'s settlement, net call vs. put ΔOI ±1 — opened-and-held bets, not intraday churn), a gamma-squeeze setup score (concentrated near-money call OI + a hot C/P ratio + spot near the call wall + ask-side sweeps: 3-of-5 rules +1, flagged ≥4 +2), and flow persistence (the rolling 7-day flagged-flow log — the same side flagged across 2+ sessions with ≥60% of real premium behind it ±1, across 4+ sessions ±2; one day\'s prints are the flow signal\'s job, a WEEK of them is positioning). Market-wide reads — the broad SPY tape and the VIX — are NOT scored here: they move the whole market, so they\'re owned by the risk-on/off regime gauge and reach the grade through its beta-weighted tilt, not double-counted per name.',
     narrative: 'The story driving the stock, graded on the name\'s OWN signals (each −3 … +3). AI-read news catalysts: good +2, bad −3 (deliberately asymmetric — one sentiment read is noisy, so good news is weighted lighter than bad). Sector narrative: rides an active strong story ±2, faded by its lifecycle stage and discounted when the story is hype-driven. Social sentiment: informational only (0) — self-tagged retail sentiment fired bullish-only across the whole universe, a structural long bias, so the chip shows the reading without scoring it. Media coverage: informational only (0) — sentiment is owned by the catalyst signals. Market-wide macro reads — macro tail/headwinds, the dollar (DXY) and the 10-year yield — are NOT scored here: they move the whole market, so they\'re owned by the risk-on/off regime gauge. Its bearish/bullish lean still reaches the grade through the beta-weighted Macro Regime tilt (the one market read scaled by each name\'s own beta). Catalysts move stocks faster than indicators, so they carry the most weight here.',
     ivCost: 'How expensive is this name\'s OWN option vol right now, for a buyer of premium? Scored from its IV rank — where today\'s 30-day implied vol sits within the name\'s own trailing history (0 = its cheapest, 100 = its richest). A long call or put is long premium either way, so this is a direction-agnostic cost: rich IV subtracts conviction and cheap IV adds a smaller credit. It weakens or strengthens conviction for whichever side without ever flipping it, so of two otherwise-equal setups the one whose vol is cheap relative to its own history ranks ahead — you\'re not paying up into a crush.',

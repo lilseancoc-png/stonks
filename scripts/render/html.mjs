@@ -1533,10 +1533,20 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   //     last spots, fear-greed, macro backdrop, market backdrop. Powers the free
   //     Narratives / Bonds & USD / Fear & Greed / Grade / Heatmap surfaces.
   // Without dataDir, inline the full manifest (legacy/standalone render).
+  // Both sidecars carry provenance that is deliberately separate from the
+  // shell's display timestamp. The publish-time freshness gate uses this to
+  // prove the sidecars were regenerated from the same bake before the private
+  // store is flushed; the browser ignores unknown `_meta` fields.
+  const sidecarMeta = {
+    dataBuiltAtIso: builtAtIso,
+    renderedAtIso: assetVersion || builtAtIso,
+  };
   const premiumManifest = {
+    _meta: sidecarMeta,
     unusual: unusual || null,
   };
   const freeManifest = {
+    _meta: sidecarMeta,
     narratives: narrativesTagged,
     sectorOverviews: sectorOverviews || {},
     recentlyEnded,

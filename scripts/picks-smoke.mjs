@@ -9,10 +9,25 @@ import {
   PICKS_MIN_CONVICTION, PICKS_TIER_STRONG, PICKS_TIMING_THRESHOLDS, computeEdgeScale,
   computeFactorTrendHealth, edgeGatedConviction,
   assessThesisQuality, selectStrategy, classifyPick, generateAiTheses, applyAiThesisGrade,
-  buildMarketRead, macroKindOf, thesisCacheSig, PICKS_MAX_AI_THESES, buildThesisUserMessage,
+  buildMarketRead, macroKindOf, thesisCacheSig, canReuseThesisCache, thesisInstructionSignature,
+  thesisResearchInputSignature, PICKS_MAX_AI_THESES, buildThesisUserMessage,
   buildMacroCalendarAhead, transcriptGuidanceDirection, impliedMoveFromIvCrush,
   buildDcaPlan, DCA_BASE_USD,
+  aiSignalsHeadlineSignature, canReuseAiSignals,
+  attachIvRanks, computeAtmIvForDte,
+  narrativeInputSignature, canReuseNarrativeExtraction,
+  decisionNarratives, scannerPayloadIsFresh,
+  socialSentimentIsCurrent,
+  shortInterestIsCurrent,
+  earningsSummaryInputSignature,
+  earningsSummaryUserMessage,
+  buildEarningsTrackerPayload,
+  tickerJudgmentInstructionSignature,
+  tickerJudgmentSignature,
+  chartPatternDecisionEligible,
+  chartPatternInstructionSignature,
 } from "./build.mjs";
+import { buildFlowExplanation } from "../lib/flow-explanation.mjs";
 
 let pass = 0, fail = 0;
 const ok = (name, cond) => { if (cond) { pass++; } else { fail++; console.log("  ✗ " + name); } };
@@ -20,6 +35,20 @@ const ok = (name, cond) => { if (cond) { pass++; } else { fail++; console.log(" 
 const dayMs = 86400000;
 const nowSec = Math.floor(Date.now() / 1000);
 const exp30 = (Math.floor((Date.now() + 32 * dayMs) / dayMs)) * 86400; // ~32 DTE, UTC midnight
+const etTodayParts = Object.fromEntries(
+  new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date()).map((part) => [part.type, part.value]),
+);
+const etTodayUtcMs = Date.UTC(
+  Number(etTodayParts.year),
+  Number(etTodayParts.month) - 1,
+  Number(etTodayParts.day),
+);
+const inEtDays = (days) => new Date(etTodayUtcMs + days * dayMs).toISOString().slice(0, 10);
 
 // Build an option chain around spot with a delta-friendly strike ladder.
 function mkChain(spot, ivCall = 0.4, ivPut = 0.42) {
@@ -123,7 +152,7 @@ function mkTicker(over = {}) {
       analystRevisions: { upgrades: 3, downgrades: 0 },
       freeCashFlow: 1e9, netMarginHistory: [{ value: 18 }, { value: 19 }, { value: 20 }],
       fiftyTwoWeekHigh: spot * 1.4, fiftyTwoWeekLow: spot * 0.7,
-      shortPercentOfFloat: 4, nextEarningsDate: new Date(Date.now() + 60 * dayMs).toISOString().slice(0, 10),
+      shortPercentOfFloat: 4, nextEarningsDate: inEtDays(60),
       growthEstimateCurY: 18,
       ...(over.fundamentals || {}),
     },
@@ -150,14 +179,152 @@ const chains = {
   BULLB: mkTicker({ spot: 80, sector: "Semis" }),
   KNIFE: mkTicker({ spot: 50, sector: "Banks", _bars: mkBars(50, 40, 0.003, -8) }), // -8% last bar
   BEAR: mkTicker({ spot: 200, sector: "Energy", sentiment: "bearish",
-    fundamentals: { earningsGrowthYoy: -30, revenueGrowthYoy: -22, analystRevisions: { upgrades: 0, downgrades: 4 }, targetMeanPrice: 170, numberOfAnalystOpinions: 10, sector: "Energy", nextEarningsDate: new Date(Date.now() + 60 * dayMs).toISOString().slice(0, 10) },
+    fundamentals: { earningsGrowthYoy: -30, revenueGrowthYoy: -22, analystRevisions: { upgrades: 0, downgrades: 4 }, targetMeanPrice: 170, numberOfAnalystOpinions: 10, sector: "Energy", nextEarningsDate: inEtDays(60) },
     technicals: { rsi: 38, rsi5d: 44, macd: { hist: -0.5, line: -1, signal: -0.4 }, volume: { rvol: 1.5, priceMove1dPct: -1.2 }, sr: { s20: 190, r20: 210, s100: 180, r100: 230 }, sma: { sma20: 210, sma50: 220, sma100: 230 }, chartPattern: { pattern: "Double Top", stage: "confirmed" }, volRegime: { rv30Pctile: 55 } },
     _bars: mkBars(200, 40, -0.003) }),
   MEH: mkTicker({ spot: 30, sector: "Pharma", sentiment: "neutral",
-    fundamentals: { earningsGrowthYoy: 2, revenueGrowthYoy: 1, analystRevisions: {}, targetMeanPrice: 31, numberOfAnalystOpinions: 6, sector: "Pharma", nextEarningsDate: new Date(Date.now() + 60 * dayMs).toISOString().slice(0, 10), netMarginHistory: [{ value: 10 }, { value: 10 }] },
+    fundamentals: { earningsGrowthYoy: 2, revenueGrowthYoy: 1, analystRevisions: {}, targetMeanPrice: 31, numberOfAnalystOpinions: 6, sector: "Pharma", nextEarningsDate: inEtDays(60), netMarginHistory: [{ value: 10 }, { value: 10 }] },
     technicals: { rsi: 50, rsi5d: 50, macd: { hist: 0, line: 0, signal: 0 }, volume: { rvol: 1.0 }, sr: {}, sma: { sma20: 30, sma50: 30, sma100: 30 }, chartPattern: null, volRegime: { rv30Pctile: 50 } } }),
   SPY: mkTicker({ spot: 500, sector: "ETF" }),
 };
+
+// The live build must score volatility from the history map after today's ATM
+// IV has been upserted. A disk-only read here would lag one session and could
+// select a debit structure while premium has already become rich (or vice
+// versa).
+const freshIvChains = { LIVE: {} };
+await attachIvRanks(freshIvChains, new Map([
+  ["LIVE", {
+    _sampledThisRun: true,
+    entries: [
+      ...Array.from({ length: 9 }, (_, index) => ({ date: `2026-07-${String(index + 1).padStart(2, "0")}`, iv: 0.2 })),
+      { date: inEtDays(0), iv: 0.8 },
+    ],
+  }],
+]));
+ok("IV rank: current in-memory ATM IV drives scoring", freshIvChains.LIVE.ivRank?.iv === 0.8);
+ok("IV rank: current volatility shock ranks as rich", freshIvChains.LIVE.ivRank?.pctile >= 90);
+const staleIvChains = { STALE: {} };
+await attachIvRanks(staleIvChains, new Map([
+  ["STALE", {
+    entries: Array.from({ length: 10 }, (_, index) => ({
+      date: `2026-06-${String(index + 1).padStart(2, "0")}`,
+      iv: 0.2 + index / 100,
+    })),
+  }],
+]));
+ok("IV rank: stale last sample is excluded from live scoring", staleIvChains.STALE.ivRank == null);
+const validAtmIv = computeAtmIvForDte({ spot: 100, chains: mkChain(100, 0.35, 0.37) }, 30);
+ok("IV sample: live two-sided quotes produce decision-grade ATM IV",
+  validAtmIv != null && validAtmIv >= 0.35 && validAtmIv <= 0.37);
+const placeholderChain = mkChain(100, 0.00001, 0.00001);
+for (const row of Object.values(placeholderChain)) {
+  for (const contract of [...row.c, ...row.p]) { contract.b = 0; contract.a = 0; }
+}
+ok("IV sample: zero-quote Yahoo placeholders are rejected",
+  computeAtmIvForDte({ spot: 100, chains: placeholderChain }, 30) == null);
+const flowNote = buildFlowExplanation({
+  symbol: "TEST", side: "call", strike: 110, dte: 5,
+  vol: 12_000, oi: 3_000, deltaVol: 4_500, tape: "ask",
+  iv: 0.55, premium: 2_400_000, otmPct: 0.1,
+}, 100);
+ok("flow explanation: current mechanical metrics are rendered exactly",
+  flowNote.includes("12,000") && flowNote.includes("3,000") &&
+  flowNote.includes("4,500") && flowNote.includes("55%") && flowNote.includes("$2.4M"));
+ok("flow explanation: no unsupported catalyst or trade direction is invented",
+  flowNote.includes("not the trader's motive or a confirmed stock direction") &&
+  !/earnings|contract win|news catalyst/i.test(flowNote));
+const thinFlowNote = buildFlowExplanation({ symbol: "TEST", side: "put", tape: "mid" });
+ok("flow explanation: missing metrics stay unknown instead of becoming zero",
+  thinFlowNote.includes("context is incomplete") && !/0 contracts|0% implied|\$0/.test(thinFlowNote));
+
+const earningsSig = earningsSummaryInputSignature("reports=5; beat=4; miss=1", "gemini-test");
+ok("earnings summary cache: exact evidence and model produce a stable signature",
+  earningsSig === earningsSummaryInputSignature("reports=5; beat=4; miss=1", "gemini-test"));
+ok("earnings summary cache: changed evidence invalidates immediately",
+  earningsSig !== earningsSummaryInputSignature("reports=6; beat=5; miss=1", "gemini-test"));
+ok("earnings summary cache: a model change invalidates immediately",
+  earningsSig !== earningsSummaryInputSignature("reports=5; beat=4; miss=1", "gemini-next"));
+const earningsStore = {
+  tickers: {
+    AAPL: {
+      events: Array.from({ length: 5 }, (_, index) => ({
+        date: `2025-10-0${index + 1}`,
+        epsActual: 1.2,
+        epsEstimate: 1,
+        surprisePct: 20,
+        movePct: 0.02,
+      })),
+    },
+  },
+};
+const priorGeminiKey = process.env.GEMINI_API_KEY;
+delete process.env.GEMINI_API_KEY;
+const earningsBaseline = await buildEarningsTrackerPayload(earningsStore, {}, "2026-07-31T15:00:00.000Z");
+const earningsSeason = earningsBaseline.seasons[0];
+const cachedEarningsAi = {
+  seasonKey: earningsSeason.key,
+  inputSig: earningsSummaryInputSignature(
+    earningsSummaryUserMessage(earningsSeason, earningsBaseline.universe),
+  ),
+  summary: "Exact cached season read",
+  headline: "Cached",
+};
+const earningsReused = await buildEarningsTrackerPayload(
+  earningsStore,
+  {},
+  "2026-07-31T16:00:00.000Z",
+  { ai: cachedEarningsAi },
+);
+ok("earnings summary cache: an exact prior read is reused on a keyless build",
+  earningsReused.ai === cachedEarningsAi);
+const changedEarningsStore = structuredClone(earningsStore);
+changedEarningsStore.tickers.AAPL.events.push({
+  date: "2025-10-06", epsActual: 0.8, epsEstimate: 1, surprisePct: -20, movePct: -0.03,
+});
+const earningsInvalidated = await buildEarningsTrackerPayload(
+  changedEarningsStore,
+  {},
+  "2026-07-31T17:00:00.000Z",
+  { ai: cachedEarningsAi },
+);
+ok("earnings summary cache: changed scoreboard ships without stale keyless prose",
+  earningsInvalidated.ai == null);
+if (priorGeminiKey == null) delete process.env.GEMINI_API_KEY;
+else process.env.GEMINI_API_KEY = priorGeminiKey;
+
+const narrativeSig = narrativeInputSignature("exact evidence payload", "gemini-test");
+const narrativeNow = Date.parse("2026-07-31T15:00:00.000Z");
+const narrativePrior = {
+  aiInputSig: narrativeSig,
+  aiGeneratedAtIso: "2026-07-31T12:00:00.000Z",
+  narratives: [{ name: "AI infrastructure", stale: false }],
+};
+ok("narrative cache: exact input reuses a recent extraction",
+  canReuseNarrativeExtraction(narrativePrior, narrativeSig, narrativeNow, 6 * 3600000));
+ok("narrative cache: evidence change invalidates immediately",
+  !canReuseNarrativeExtraction(narrativePrior, narrativeInputSignature("changed evidence", "gemini-test"), narrativeNow, 6 * 3600000));
+ok("narrative cache: stale fallback never becomes a cache hit",
+  !canReuseNarrativeExtraction({ ...narrativePrior, narratives: [{ name: "old", stale: true }] }, narrativeSig, narrativeNow, 6 * 3600000));
+ok("narrative cache: age cap forces a periodic refresh",
+  !canReuseNarrativeExtraction(narrativePrior, narrativeSig, narrativeNow + 7 * 3600000, 6 * 3600000));
+ok("freshness quarantine: stale narratives cannot vote in grades",
+  decisionNarratives([{ name: "fresh" }, { name: "old", stale: true }]).map((row) => row.name).join(",") === "fresh");
+const scannerNow = Date.parse("2026-07-31T15:00:00.000Z");
+ok("freshness quarantine: current same-day scanner payload is eligible",
+  scannerPayloadIsFresh({ scannedAt: "2026-07-31T14:15:00.000Z" }, 90 * 60000, scannerNow));
+ok("freshness quarantine: old scanner payload cannot vote",
+  !scannerPayloadIsFresh({ scannedAt: "2026-07-31T12:00:00.000Z" }, 90 * 60000, scannerNow));
+ok("freshness quarantine: prior-session payload cannot vote after midnight ET",
+  !scannerPayloadIsFresh({ scannedAt: "2026-07-30T20:00:00.000Z" }, 24 * 3600000, scannerNow));
+ok("freshness quarantine: stale social sentiment cannot vote",
+  !socialSentimentIsCurrent({ msgCount24h: 100, bullishPct: 90, stale: true }));
+ok("freshness quarantine: current social sentiment remains eligible",
+  socialSentimentIsCurrent({ msgCount24h: 100, bullishPct: 60, stale: false }));
+ok("freshness quarantine: current FINRA settlement remains eligible",
+  shortInterestIsCurrent("2026-07-15", Date.parse("2026-07-31T15:00:00.000Z")));
+ok("freshness quarantine: old FINRA settlement cannot vote",
+  !shortInterestIsCurrent("2026-05-01", Date.parse("2026-07-31T15:00:00.000Z")));
 
 // --- 1. grades index ------------------------------------------------------
 const grades = buildGradesIndex(chains, [], null, null, null, null, {});
@@ -168,6 +335,25 @@ ok("grades: pillars present w/ signals", grades.BULLA.pillars.fundamentals.signa
 ok("grades: timing pillar has state", !!grades.BULLA.pillars.timing.state);
 ok("grades: timing is execution-only (not folded into conviction)", grades.BULLA.pillars.timing.executionOnly === true);
 ok("grades: ivCost pillar present", grades.BULLA.pillars.ivCost && grades.BULLA.pillars.ivCost.signals.length === 1);
+ok("chart pattern: current confirmed read is decision-eligible",
+  chartPatternDecisionEligible({ pattern: "Bull Flag", stage: "confirmed" }) === true);
+ok("chart pattern: changed-bar cached read is display-only",
+  chartPatternDecisionEligible({ pattern: "Bull Flag", stage: "confirmed", stale: true }) === false);
+ok("chart pattern: forming read remains decision-ineligible",
+  chartPatternDecisionEligible({ pattern: "Bull Flag", stage: "forming" }) === false);
+ok("chart pattern cache: model, prompt and schema have an instruction signature",
+  /^[a-f0-9]{16}$/.test(chartPatternInstructionSignature()));
+const staleChartChains = {
+  STALECHART: mkTicker({
+    technicals: {
+      chartPattern: { pattern: "Bull Flag", direction: "bullish", stage: "confirmed", stale: true },
+    },
+  }),
+};
+const staleChartGrade = buildGradesIndex(staleChartChains, [], null, null, null, null, {}).STALECHART;
+const staleChartSignal = staleChartGrade.pillars.technicals.signals.find((signal) => signal.key === "chartPattern");
+ok("chart pattern: stale read contributes zero to the grade",
+  staleChartSignal?.score === 0 && staleChartSignal?.available === false && /stale context/i.test(staleChartSignal?.value || ""));
 ok("grades: recommendation tier/label", !!grades.BULLA.recommendation.tier && !!grades.BULLA.recommendation.label);
 ok("grades: tierCutoffs stashed", grades.tierCutoffs && grades.tierCutoffs.tradeCut === PICKS_MIN_CONVICTION);
 ok("grades: regimeBand stashed", grades.regimeBand === "neutral");
@@ -197,14 +383,68 @@ ok("flow: 7-day put-heavy flow-log persistence scores -1 via data.flowPersist", 
 const gradesFPthin = buildGradesIndex(chains, [], null, null, null, null, { flowLog: { entries: flowLog.entries.slice(0, 4) } });
 ok("flow: thin log (<5 flags in the window) stays unavailable", ufSig(gradesFPthin.BEAR) && !ufSig(gradesFPthin.BEAR).available && ufSig(gradesFPthin.BEAR).score === 0);
 
+// --- 1d. exact-input AI signal cache ---------------------------------------
+const signalHeadlines = [
+  { title: "Acme raises full-year guidance", publisher: "Reuters", publishedAt: "2026-07-30T14:00:00Z" },
+];
+const signalSig = aiSignalsHeadlineSignature("ACME", signalHeadlines, "gemini-3.1-flash-lite");
+const signalCache = {
+  signals: null,
+  signalsSig: signalSig,
+  signalsAt: "2026-07-30T14:05:00Z",
+};
+const signalNow = Date.parse("2026-07-30T15:00:00Z");
+ok("ai-signals cache: identical headline/model input reuses a cached null result", canReuseAiSignals(signalCache, signalSig, signalNow, 72 * 3600000));
+ok("ai-signals cache: a changed headline invalidates immediately", !canReuseAiSignals(
+  signalCache,
+  aiSignalsHeadlineSignature("ACME", [{ ...signalHeadlines[0], title: "Acme lowers full-year guidance" }], "gemini-3.1-flash-lite"),
+  signalNow,
+  72 * 3600000,
+));
+ok("ai-signals cache: a model change invalidates immediately", !canReuseAiSignals(
+  signalCache,
+  aiSignalsHeadlineSignature("ACME", signalHeadlines, "gemini-3.6-flash"),
+  signalNow,
+  72 * 3600000,
+));
+ok("ai-signals cache: the 72-hour age ceiling forces a refresh", !canReuseAiSignals(
+  signalCache,
+  signalSig,
+  Date.parse("2026-08-02T15:00:01Z"),
+  72 * 3600000,
+));
+const judgmentHeadlines = [
+  { title: "Acme raises outlook", publisher: "Reuters", publishedAt: "2026-07-31T13:00:00Z" },
+];
+const judgmentFundamentals = {
+  lastQuarter: { date: "2026-06-30", epsActual: 1.2 },
+  nextEarningsDate: "2026-10-20",
+  recommendationKey: "buy",
+  numberOfAnalystOpinions: 20,
+};
+const judgmentInstructionSig = tickerJudgmentInstructionSignature();
+const judgmentSig = tickerJudgmentSignature(judgmentHeadlines, judgmentFundamentals);
+ok("ticker-judgment cache: prompt/schema identity participates in the cache key",
+  /^[a-f0-9]{16}$/.test(judgmentInstructionSig) && judgmentSig.sig.includes(judgmentInstructionSig));
+ok("ticker-judgment cache: a changed title invalidates the exact key",
+  judgmentSig.sig !== tickerJudgmentSignature(
+    [{ ...judgmentHeadlines[0], title: "Acme lowers outlook" }],
+    judgmentFundamentals,
+  ).sig);
+ok("ticker-judgment cache: a changed slow fundamental invalidates the key",
+  judgmentSig.sig !== tickerJudgmentSignature(
+    judgmentHeadlines,
+    { ...judgmentFundamentals, recommendationKey: "hold" },
+  ).sig);
+
 // --- 2. entry timing ------------------------------------------------------
 const knifeTiming = computeEntryTiming("call", chains.KNIFE, chains.KNIFE.spot, {});
 ok("timing: -8% last bar -> avoid (falling knife)", knifeTiming.state === "avoid");
 const goTiming = computeEntryTiming("call", chains.BULLA, chains.BULLA.spot, {});
 ok("timing: clean uptrend -> go or neutral (not avoid)", goTiming.state !== "avoid");
-const earnSoon = mkTicker({ spot: 100, fundamentals: { nextEarningsDate: new Date(Date.now() + 3 * dayMs).toISOString().slice(0, 10) } });
+const earnSoon = mkTicker({ spot: 100, fundamentals: { nextEarningsDate: inEtDays(3) } });
 ok("timing: earnings in 3d -> wait", computeEntryTiming("call", earnSoon, 100, {}).state === "wait" && computeEntryTiming("call", earnSoon, 100, {}).deferKind === "earnings");
-const earnLater = mkTicker({ spot: 100, fundamentals: { nextEarningsDate: new Date(Date.now() + 5 * dayMs).toISOString().slice(0, 10) } });
+const earnLater = mkTicker({ spot: 100, fundamentals: { nextEarningsDate: inEtDays(5) } });
 const earnLaterTiming = computeEntryTiming("call", earnLater, 100, {});
 ok("entry-v2: earnings 4-7d is a soft -2 event penalty, not a hard defer", earnLaterTiming.components.event.score === -2 && !earnLaterTiming.hardWait);
 const wetPullback = mkTicker({
@@ -376,7 +616,7 @@ function mkWeakTechCall(sym) {
   return mkTicker({
     spot: 100, sector: SECTORS_FOR_SYM(sym),
     // strong fundamentals keep the grade an actionable CALL despite the soft trend
-    fundamentals: { earningsGrowthYoy: 35, revenueGrowthYoy: 28, targetMeanPrice: 122, numberOfAnalystOpinions: 14, analystRevisions: { upgrades: 5, downgrades: 0 }, nextEarningsDate: new Date(Date.now() + 60 * dayMs).toISOString().slice(0, 10) },
+    fundamentals: { earningsGrowthYoy: 35, revenueGrowthYoy: 28, targetMeanPrice: 122, numberOfAnalystOpinions: 14, analystRevisions: { upgrades: 5, downgrades: 0 }, nextEarningsDate: inEtDays(60) },
     // soft, below-20D trend (a -4% 5d slide) — weak enough to roll the factor, not a knife
     technicals: { rsi: 48, rsi5d: 50, macd: { hist: -0.1, line: 0.1, signal: 0.2 }, volume: { rvol: 1.0, priceMove1dPct: -0.6 }, sr: { s20: 96, r20: 110, s50: 92, r50: 115 }, sma: { sma20: 103, sma50: 99, sma100: 95 }, chartPattern: null, volRegime: { rv30Pctile: 45 } },
     _bars: mkPathBars(100, [-0.008, -0.008, -0.008, -0.008, -0.008, -0.008]),
@@ -650,7 +890,7 @@ ok("classify: moderate grade + weak thesis → idea / watch", classifyPick(5, "w
   // volume/thrust/stack — readiness below the bar — but NOT extended/overbought
   // and no imminent event, so the AI's judgment may take the entry.
   const dipName = mkTicker({ spot: 100,
-    fundamentals: { earningsGrowthYoy: 35, revenueGrowthYoy: 28, targetMeanPrice: 122, numberOfAnalystOpinions: 14, analystRevisions: { upgrades: 5, downgrades: 0 }, nextEarningsDate: new Date(Date.now() + 60 * dayMs).toISOString().slice(0, 10) },
+    fundamentals: { earningsGrowthYoy: 35, revenueGrowthYoy: 28, targetMeanPrice: 122, numberOfAnalystOpinions: 14, analystRevisions: { upgrades: 5, downgrades: 0 }, nextEarningsDate: inEtDays(60) },
     technicals: { rsi: 49, rsi5d: 50, macd: { hist: 0.3, line: 0.5, signal: 0.2 }, volume: { rvol: 0.9, priceMove1dPct: 0.2 }, sr: { s20: 96, r20: 108 }, sma: { sma20: 99, sma50: 103, sma100: 95 }, chartPattern: null, volRegime: { rv30Pctile: 45 } },
     _bars: mkPayoffReadyWaitBars(100) });
   const detE = computeEntrySignal("call", 100, dipName, computeEntryTiming("call", dipName, 100, {}), { total: 6 });
@@ -866,6 +1106,57 @@ ok("exit: credit ignores a stray scale-out field", resolvePickOutcome({ modeledO
   ok("ai-thesis: empty universe → no AI thesis generated", Object.keys(gen.map).length === 0 && Object.keys(gen.cache).length === 0);
 }
 
+// The full-quality final grade/entry call may only reuse an exact current
+// decision input inside the sub-hour retry window. Prompt/schema/model identity,
+// every headline, the full macro calendar, and IV momentum all participate.
+{
+  const thesisData = mkTicker({ spot: 200 });
+  thesisData.news = {
+    sentiment: "bullish",
+    headlines: [{ title: "Apple raises outlook", publisher: "Reuters", publishedAt: "2026-07-31T13:00:00Z" }],
+  };
+  const r = {
+    sym: "AAPL",
+    total: 8,
+    side: "call",
+    drivers: [{ key: "trend", score: 1 }],
+    timing: { state: "go" },
+    data: thesisData,
+  };
+  const cal = [
+    { label: "CPI", date: "2026-08-05", daysOut: 5 },
+    { label: "FOMC", date: "2026-08-08", daysOut: 8 },
+  ];
+  const ivRow = { chg1dPct: 2, chg5dPct: 6, risingStreak: 3, tier: "rising" };
+  const kind = macroKindOf(r.sym, r.data);
+  const sig = thesisCacheSig(r, "call", kind, null, cal, ivRow);
+  ok("ai-thesis cache: full instruction identity participates in the key",
+    sig.includes(thesisInstructionSignature().slice(0, 24)));
+  ok("ai-thesis cache: exact research query changes with a new headline",
+    thesisResearchInputSignature(r, "call") !== thesisResearchInputSignature({
+      ...r,
+      data: { ...r.data, news: { ...r.data.news, headlines: [{ ...r.data.news.headlines[0], title: "Apple lowers outlook" }] } },
+    }, "call"));
+  ok("ai-thesis cache: a current price change invalidates the final decision input",
+    sig !== thesisCacheSig({ ...r, data: { ...r.data, spot: 202 } }, "call", kind, null, cal, ivRow));
+  ok("ai-thesis cache: a secondary macro-event change invalidates the key",
+    sig !== thesisCacheSig(r, "call", kind, null, [cal[0], { ...cal[1], date: "2026-08-09" }], ivRow));
+  ok("ai-thesis cache: an IV-momentum change invalidates the key",
+    sig !== thesisCacheSig(r, "call", kind, null, cal, { ...ivRow, chg1dPct: -3 }));
+  const cachedAt = Date.parse("2026-07-31T14:00:00.000Z");
+  const cachedThesis = {
+    sig,
+    generatedAtIso: new Date(cachedAt).toISOString(),
+    ai: { grade: "strong", entryVerdict: "buy-now" },
+  };
+  ok("ai-thesis cache: an exact duplicate inside 20 minutes can reuse",
+    canReuseThesisCache(cachedThesis, sig, cachedAt + 19 * 60000, 20 * 60000));
+  ok("ai-thesis cache: the next scheduled build cannot reuse a 20-minute-old decision",
+    !canReuseThesisCache(cachedThesis, sig, cachedAt + 20 * 60000 + 1, 20 * 60000));
+  ok("ai-thesis cache: legacy rows without generation provenance cold-start",
+    !canReuseThesisCache({ sig, ai: cachedThesis.ai }, sig, cachedAt + 1000, 20 * 60000));
+}
+
 // --- 12d-cap. Only the BEST PICKS_MAX_AI_THESES gate survivors get a thesis ----
 // Many names can clear the data gate; only the top-N by deterministic conviction
 // are sent to the AI grader (the rest ship deterministic-only). Verified through
@@ -883,7 +1174,11 @@ ok("exit: credit ignores a stray scale-out field", resolvePickOutcome({ modeledO
     const r = { sym, total: 4 + i, side: "call", drivers: [], timing: { state: "go" }, data: { spot: 100, fundamentals: {} } };
     scored.push(r);
     const sig = thesisCacheSig(r, "call", macroKindOf(sym, r.data), null);
-    cache[sym + ":call"] = { sig, ai: { summary: "x", setup: "x", catalyst: "x", outlook: "x", macroSupport: "neutral", invalidation: ["a"], grade: "moderate", score: 50 } };
+    cache[sym + ":call"] = {
+      sig,
+      generatedAtIso: new Date().toISOString(),
+      ai: { summary: "x", setup: "x", catalyst: "x", outlook: "x", macroSupport: "neutral", invalidation: ["a"], grade: "moderate", score: 50 },
+    };
   }
   const cg = await generateAiTheses({ scored, regimeBand: "neutral" }, null, {}, cache);
   ok("ai-cap: exactly PICKS_MAX_AI_THESES survivors are graded", Object.keys(cg.map).length === N);
@@ -994,12 +1289,11 @@ ok("exit: credit ignores a stray scale-out field", resolvePickOutcome({ modeledO
 // --- 13. strategy routing through the full engine (IV z-score → structure) ---
 // mkTicker grades strongly bullish; the IV z-score then drives the structure.
 function mkStratTicker(iv, z, pctile, over) { const t = mkTicker({ spot: 120, sector: "Software", ...(over || {}) }); t.chains = mkBsChain(120, iv); t.ivRank = { pctile, n: 120, z }; return t; }
-const inDays = (n) => new Date(Date.now() + n * dayMs).toISOString().slice(0, 10);
 const routeRich = buildTopPicks({ RICHIV: mkStratTicker(0.95, 2.6, 88) }, [], null, null, null, null, 0.045, {}).find((p) => p.symbol === "RICHIV");
 const routeElevated = buildTopPicks({ ELEVIV: mkStratTicker(0.55, 1.6, 65) }, [], null, null, null, null, 0.045, {}).find((p) => p.symbol === "ELEVIV");
 // Debit needs a non-elevated IV that ISN'T a naked candidate — force it by putting
 // an earnings print in the window (blocks both naked and credit -> defined-risk debit).
-const routeDebit = buildTopPicks({ DBTIV: mkStratTicker(0.45, 0.4, 45, { fundamentals: { nextEarningsDate: inDays(10) } }) }, [], null, null, null, null, 0.045, {}).find((p) => p.symbol === "DBTIV");
+const routeDebit = buildTopPicks({ DBTIV: mkStratTicker(0.45, 0.4, 45, { fundamentals: { nextEarningsDate: inEtDays(10) } }) }, [], null, null, null, null, 0.045, {}).find((p) => p.symbol === "DBTIV");
 const routeNaked = buildTopPicks({ LOWIV: mkStratTicker(0.30, 0.0, 25) }, [], null, null, null, null, 0.045, {}).find((p) => p.symbol === "LOWIV");
 ok("route: rich IV (z≥2) → credit vertical (highly elevated — sells premium)", routeRich && routeRich.strategy.type === "credit" && routeRich.contract.structure === "credit_vertical" && routeRich.contract.optionType === "put");
 ok("route: ELEVATED IV (z≥1.5 / ≥60th pctile) → credit vertical (broadened band)", routeElevated && routeElevated.strategy.type === "credit" && routeElevated.contract.structure === "credit_vertical");

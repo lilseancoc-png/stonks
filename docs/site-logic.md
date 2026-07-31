@@ -121,7 +121,7 @@ or conviction.
 - Confirmed support/resistance break: `±2`.
 - Contrarian 52-week position: `±1`.
 - Volume confirmation: `±1`.
-- Confirmed chart pattern: `±1`. A merely forming pattern is context, not score.
+- Confirmed chart pattern: `±1` only while the exact analyzed 30-minute bars still match. A forming or changed-bar cached pattern is context, not score.
 
 ### Mechanicals
 
@@ -394,6 +394,13 @@ It cannot:
 - override diversification or liquidity gates.
 
 Without an AI key, the system falls back to deterministic behavior rather than fabricating a verdict.
+
+The final decision cache is intentionally narrower than the other AI caches.
+Its key hashes the exact base message, every current headline, the complete
+macro calendar, IV momentum, grounded-research query, models, prompt, and
+schema. Reuse expires after 20 minutes, shorter than the 09:30-to-10:00 opening
+gap, so every scheduled build refreshes live research and the full-Flash
+grade/entry decision; only an exact duplicate or immediate retry can reuse.
 
 ### Gate 6: contract eligibility
 
@@ -780,7 +787,9 @@ BLS is primary for major labor/inflation series, with FRED fallback. The FOMC sc
 - labels beat-but-down and miss-but-up;
 - tracks guidance up/inline/down;
 - shows upcoming events inside 21 days;
-- can generate one season-level AI summary per day after at least five reports.
+- can generate one season-level AI summary after at least five reports; the
+  summary is reused only while the complete evidence prompt and model are
+  unchanged, and changed evidence ships without old prose if AI is unavailable.
 
 The reaction direction is the market's actual response, not an assumption that a beat must be bullish.
 
@@ -851,7 +860,7 @@ Baseline flag:
 - volume increase versus the prior hourly snapshot;
 - increase at least 4,000 for DTE up to 14, otherwise 2,000.
 
-The first scan of a day cannot produce an hourly delta because there is no prior snapshot. Last-trade location is labeled at ask, above mid, mid, below mid, or bid. Same-day observations accumulate, and a seven-day repeat log marks recurring contracts after at least two appearances. AI explanations are cached by contract.
+The first scan of a day cannot produce an hourly delta because there is no prior snapshot. Last-trade location is labeled at ask, above mid, mid, below mid, or bid. Same-day observations accumulate, and a seven-day repeat log marks recurring contracts after at least two appearances. Each explanation is deterministic prose rebuilt from that observation's current volume, open interest, hourly delta, tape, DTE, moneyness, IV, and premium. It makes no unsupported catalyst or direction claim and has no AI cost or stale contract-note cache.
 
 The UI's decision queue is stricter than raw detection. It favors aggressive ask/above-mid prints, usually at least $100K premium, or $50K when repeated, or $25K across multiple strikes, with spread at most 35% and extra skepticism for penny-priced/far-OTM contracts. Stale or closed-session flow remains evidence, not an executable order.
 
@@ -1111,6 +1120,21 @@ The narrative engine receives validated ticker headlines, market-wide headlines,
 
 Ticker symbols, industries, and links are sanitized against the supplied universe/source pool. The AI cannot cite a source it was not given. Sector stance and strength are deterministic two-level averages of the industry narrative grades rather than a free-form model score. Consecutive-day lifecycle and recently ended narratives are retained for 90 days.
 
+The expensive cross-universe extraction may reuse a recent result for up to six
+hours only when a SHA-256 signature of the exact model, system prompt, validated
+ticker/news context, macro headlines, and published macro reads is unchanged.
+Any evidence change invalidates immediately, and an explicitly stale fallback is
+never eligible for reuse. Lifespan/history annotations are still recomputed on
+every bake.
+
+Display fallback and decision input are separate contracts. Stale narratives
+may remain on the Narratives tab with a visible stale label, but they are removed
+before regime, grade, Top Picks, scenario, and 13F-theme calculations. The same
+quarantine applies to stale Fear & Greed, correlations, Event Spillover, and
+social sentiment, FINRA short-interest settlements older than 45 days, and
+out-of-cadence unusual/volume/OI scans; those sources contribute a neutral/no-data
+read until their owner publishes a current sample.
+
 ### 13F
 
 The system tracks selected mid-sized institutional filers, intentionally excluding giant index-complex firms whose passive books would swamp the analysis.
@@ -1239,7 +1263,7 @@ The build renders roughly one month of intraday price action and asks a vision-c
 - target;
 - explanation and signal.
 
-Only confirmed patterns score in the grade. Forming patterns can change the Strategies timing guidance. Results are cached by half-day bucket plus bar-series signature; the system retries text-only if the image call fails.
+Only confirmed patterns whose exact analyzed bar window still matches can score or enter a decision path. Forming patterns can change Strategies timing guidance while current. To hold the full-quality vision pass to roughly two reads per ticker per trading day, results are cached by AM/PM bucket plus bar-series signature. If a new bar arrives inside the same bucket, the old read is labeled `Stale context` and becomes display-only: it cannot alter the grade, Top Picks prompt, entry veto, strategy direction, or position advice. Frozen charts reuse across buckets, model/prompt/schema changes invalidate automatically, and the system retries text-only if the image call fails.
 
 ## 18. Data freshness, live behavior, and access control
 
@@ -1308,13 +1332,13 @@ AI is used for:
 - Top Picks web research and final thesis/entry judgment;
 - Brief;
 - earnings-season and transcript summaries;
-- unusual-flow explanations;
 - post-close heatmap recap.
 
 Deterministic code controls:
 
 - every numeric grade contribution;
 - thresholds and eligibility;
+- unusual-flow mechanical explanations;
 - market-regime arithmetic;
 - contract liquidity and payoff;
 - portfolio caps;

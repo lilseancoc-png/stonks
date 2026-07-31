@@ -3807,7 +3807,7 @@ async function writeChainFiles(chains, rfr = FALLBACK_RISK_FREE_RATE) {
   for (const [sym, data] of Object.entries(chains)) {
     // _bars / _intraday are transient in-memory series; never write them raw to
     // the per-ticker JSON (they'd inflate each file). Compact series below.
-    const { _bars, _intraday, ...rest } = data;
+    const { _bars, _intraday, _signalHeadlines, ...rest } = data;
     // autoPick — the best call and best put the Top Picks engine would pick
     // for this name, scored with the exact same pickContractForPick() the
     // picks pipeline uses (same hard filters + composite + component grades).
@@ -3843,6 +3843,22 @@ const IV_HISTORY_MAX_ENTRIES = 400;
 // expiration to this many days out so the series tracks a comparable
 // horizon over time (1M IV is the conventional one).
 const IV_HISTORY_TARGET_DTE = 30;
+// Yahoo sometimes returns a pre/opening-auction chain with zero bid/ask and
+// placeholder IVs such as 0.00001. Those values are structurally present but
+// are not decision-grade option data. Only a plausible IV backed by a live
+// two-sided quote may enter the daily history, percentile, term structure, or
+// skew calculations. Missing is safer than a false low-volatility regime.
+const OPTION_IV_MIN = 0.02;
+const OPTION_IV_MAX = 5;
+function isPlausibleOptionIv(value) {
+  const iv = Number(value);
+  return Number.isFinite(iv) && iv >= OPTION_IV_MIN && iv <= OPTION_IV_MAX;
+}
+function hasDecisionGradeOptionQuote(contract) {
+  const bid = Number(contract?.b);
+  const ask = Number(contract?.a);
+  return isPlausibleOptionIv(contract?.iv) && bid > 0 && ask > 0 && ask >= bid;
+}
 
 // ATM straddle mid → implied move for a given earnings date. Picks the
 // first cached expiration on/after the event date and prices a long
@@ -3909,7 +3925,7 @@ export function computeAtmIvForDte(data, dteTarget) {
   // {s, b, a, l, iv, oi, v}. Average call+put IV to reduce ATM skew noise.
   const pickAtm = (contracts) => {
     const valid = (contracts || []).filter(
-      (c) => c?.iv != null && isFinite(c.iv) && c.iv > 0 && c.s != null,
+      (c) => hasDecisionGradeOptionQuote(c) && c.s != null,
     );
     if (!valid.length) return null;
     return valid.reduce((best, c) =>
@@ -3973,14 +3989,26 @@ async function loadIvHistoryEntries(symbol) {
 // entries. Direction-AGNOSTIC: rich premium is a headwind for ANY long debit, so
 // computeEntryTiming reads this as a side-aware soft con (not a directional score
 // signal, which would be wrong-signed for puts), and the picks card shows it as the
-// real implied-vol percentile (replacing the realized-vol proxy). Reads the prior
-// (pre-wipe) history — a ≤1-day lag, same convention as the chart-pattern cache.
-export async function attachIvRanks(chains) {
+// real implied-vol percentile (replacing the realized-vol proxy). Full builds
+// pass the history map after today's ATM-IV sample is upserted; offline callers
+// may still use the persisted history fallback.
+export async function attachIvRanks(chains, historyMap = null) {
   if (!chains) return;
+  const currentDate = etDateKey();
   for (const sym of Object.keys(chains)) {
     if (!chains[sym]) continue;
-    const entries = await loadIvHistoryEntries(sym);
-    const ivs = entries.map((e) => Number(e.iv)).filter((x) => x > 0);
+    // Full builds pass the just-updated in-memory history so scoring sees
+    // today's ATM IV. Offline callers retain the pre-existing disk fallback.
+    const historyRow = historyMap?.get(sym) || null;
+    const entries = historyRow?.entries || await loadIvHistoryEntries(sym);
+    const latestDate = entries.at(-1)?.date || null;
+    // A full build's map contains today's sample when the current chain had a
+    // usable ATM IV. If it does not, omit the rank instead of letting a stale
+    // premium regime influence today's structure choice. Disk-only/offline
+    // callers keep their historical behavior because they cannot prove a live
+    // sample was attempted.
+    if (historyMap && (historyRow?._sampledThisRun !== true || latestDate !== currentDate)) continue;
+    const ivs = entries.map((e) => Number(e.iv)).filter(isPlausibleOptionIv);
     if (ivs.length < PICKS_IVRANK_MIN_N) continue;
     const cur = ivs[ivs.length - 1];
     // Midrank percentile (below + half the ties), NOT at-or-below: counting
@@ -3993,7 +4021,7 @@ export async function attachIvRanks(chains) {
     const pctile = Math.round(((below + ties / 2) / ivs.length) * 100);
     const lo = Math.min(...ivs), hi = Math.max(...ivs);
     const rank = hi > lo ? Math.round(((cur - lo) / (hi - lo)) * 100) : 50;
-    chains[sym].ivRank = { pctile, rank, n: ivs.length, iv: Number(cur.toFixed(4)) };
+    chains[sym].ivRank = { pctile, rank, n: ivs.length, iv: Number(cur.toFixed(4)), asOf: latestDate };
     // Standard-deviation read of the CURRENT IV vs the name's own historical
     // mean — the substrate for the credit-vs-debit strategy split. A current ATM
     // IV that sits >= PICKS_IV_CREDIT_Z std-devs above its ~18-month mean is the
@@ -4016,25 +4044,34 @@ export async function attachIvRanks(chains) {
 // wipe via writeIvHistory.
 //
 // The returned map is the COMPLETE set re-persisted after `rm -rf data/`,
-// so it MUST carry forward every existing iv-history file — not just the
-// tickers that fetched (and produced an ATM IV) this build. A ticker that
-// flaked from Yahoo (the build tolerates up to 25% missing via
+// so it MUST carry forward every tracked ticker's existing iv-history file —
+// not just the tickers that fetched this build. Symbols removed from TICKERS
+// are deliberately not carried so sync-data can retire them.
+// A ticker that flaked from Yahoo (the build tolerates up to 25% missing via
 // MIN_SUCCESS_RATE) or that has no computable ATM IV today would otherwise
 // be dropped from the map and have its entire accumulated series wiped.
-// So: seed the map from every prior file on disk first, then layer today's
+// So: seed the map from every tracked prior file first, then layer today's
 // fresh sample on top only where computeAtm30dIv succeeds.
 async function collectIvHistory(chains) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = etDateKey();
+  const capturedAtIso = new Date().toISOString();
   const out = new Map();
-  // 1) Seed from every prior file so untouched/flaked tickers survive the wipe.
+  const tracked = new Set(TICKERS);
+  // 1) Seed current-universe prior files so untouched/flaked tickers survive
+  // the wipe while removed symbols can age out of the private store.
   let priorSyms = [];
   try {
     priorSyms = (await readdir(resolve(DATA_DIR, IV_HISTORY_DIR)))
       .filter((f) => f.endsWith(".json"))
-      .map((f) => f.slice(0, -5));
+      .map((f) => f.slice(0, -5))
+      .filter((sym) => tracked.has(sym));
   } catch (_) { /* dir missing on the first-ever build — nothing to carry */ }
   for (const sym of priorSyms) {
-    const prior = await loadIvHistoryEntries(sym);
+    // Retire historical Yahoo placeholders as they are encountered. This also
+    // self-heals any same-day bad sample written before the quote-quality gate
+    // existed, without touching legitimate older observations.
+    const prior = (await loadIvHistoryEntries(sym)).filter((entry) =>
+      entry && typeof entry.date === "string" && isPlausibleOptionIv(entry.iv));
     if (prior.length) {
       out.set(sym, {
         symbol: sym,
@@ -4051,7 +4088,7 @@ async function collectIvHistory(chains) {
     // Replace today's entry if a previous run already wrote one (the
     // build runs pre-market + EOD on weekdays — keep the later sample).
     const filtered = base.filter((e) => e?.date !== today);
-    const entry = { date: today, iv: Number(iv.toFixed(4)) };
+    const entry = { date: today, capturedAtIso, iv: Number(iv.toFixed(4)) };
     // Quant Lab surface accumulation (additive — every existing reader only
     // touches `.iv`): `s` = 25Δ skew (put IV − call IV at the ~30d expiry) and
     // `t` = term slope (ATM ~90d IV − ATM ~30d IV). One scalar each per day so
@@ -4064,7 +4101,14 @@ async function collectIvHistory(chains) {
     filtered.push(entry);
     filtered.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
     const capped = filtered.slice(-IV_HISTORY_MAX_ENTRIES);
-    out.set(sym, { symbol: sym, dteTarget: IV_HISTORY_TARGET_DTE, entries: capped });
+    out.set(sym, {
+      symbol: sym,
+      dteTarget: IV_HISTORY_TARGET_DTE,
+      entries: capped,
+      // Transient proof consumed by attachIvRanks. writeIvHistory deliberately
+      // strips it; capturedAtIso is the published provenance used by CI.
+      _sampledThisRun: true,
+    });
   }
   return out;
 }
@@ -4075,7 +4119,11 @@ async function writeIvHistory(historyMap) {
   await mkdir(dir, { recursive: true });
   let bytes = 0;
   for (const [sym, payload] of historyMap.entries()) {
-    const json = JSON.stringify(payload);
+    const json = JSON.stringify({
+      symbol: payload.symbol || sym,
+      dteTarget: payload.dteTarget || IV_HISTORY_TARGET_DTE,
+      entries: payload.entries || [],
+    });
     await writeFile(resolve(dir, `${sym}.json`), json, "utf8");
     bytes += json.length;
   }
@@ -4319,7 +4367,7 @@ export function buildIvTrendingPayload(ivHistory, chains, builtAtIso = new Date(
   };
   for (const [sym, hist] of ivHistory?.entries?.() || []) {
     const entries = (hist?.entries || []).filter(
-      (e) => e && typeof e.date === "string" && Number(e.iv) > 0,
+      (e) => e && typeof e.date === "string" && isPlausibleOptionIv(e.iv),
     );
     if (entries.length < IV_TRENDING_MIN_N) continue;
     const ivs = entries.map((e) => Number(e.iv));
@@ -4434,8 +4482,8 @@ export function buildIvTrendingPayload(ivHistory, chains, builtAtIso = new Date(
   };
 }
 
-async function writeIvTrendingFile(ivHistory, chains) {
-  const payload = buildIvTrendingPayload(ivHistory, chains);
+async function writeIvTrendingFile(ivHistory, chains, builtAtIso) {
+  const payload = buildIvTrendingPayload(ivHistory, chains, builtAtIso);
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, IV_TRENDING_FILE), json, "utf8");
   return { payload, bytes: json.length };
@@ -4827,7 +4875,7 @@ export function computeSkew25(data) {
     let best = null;
     let bestDist = Infinity;
     for (const c of contracts || []) {
-      if (!(c?.iv > 0) || c.s == null) continue;
+      if (!hasDecisionGradeOptionQuote(c) || c.s == null) continue;
       const g = greeks(type, spot, c.s, T, c.iv);
       if (!g) continue;
       const d = Math.abs(Math.abs(g.delta) - QUANT_SKEW_DELTA);
@@ -4837,7 +4885,7 @@ export function computeSkew25(data) {
     let fb = null;
     let fbDist = Infinity;
     for (const c of contracts || []) {
-      if (!(c?.iv > 0) || c.s == null) continue;
+      if (!hasDecisionGradeOptionQuote(c) || c.s == null) continue;
       const d = Math.abs(c.s - fallbackK);
       if (d < fbDist) { fb = c; fbDist = d; }
     }
@@ -6565,11 +6613,12 @@ export function attachEarningsHx(chains, store, nowMs = Date.now()) {
 // names exceeded vs stayed inside the straddle-implied expected move, post-
 // print up/down breadth, sell-the-news counts, the biggest gap-up/-down
 // movers, a "heading into earnings" forward look (every name reporting inside
-// the next ~3 weeks with its live drift-so-far), and a once-per-ET-day AI read
-// on the current season (notable standouts + was the season net positive or
-// negative for equities).
+// the next ~3 weeks with its live drift-so-far), and an exact-evidence-cached AI
+// read on the current season (notable standouts + was the season net positive
+// or negative for equities).
 // Rebuilt every bake from the just-updated store — no accumulation of its own;
-// only the AI summary carries forward (prior payload read before the wipe).
+// only an AI summary whose complete input signature still matches carries
+// forward (prior payload read before the wipe).
 // FREE key (aggregate stats, like the calendar). Browser lazy-loads it
 // (loadEarningsTracker/renderEarningsTracker in app-js.mjs).
 const EARNINGS_TRACKER_FILE = "earnings-tracker.json";
@@ -6659,7 +6708,7 @@ const EARNINGS_SUMMARY_SYSTEM_PROMPT =
   "sentence each); tone ('positive' | 'mixed' | 'negative'). " +
   "Ground EVERY claim in the supplied numbers — never invent figures, tickers, or causes. Plain language, no hedging boilerplate.";
 
-function earningsSummaryUserMessage(season, universeCount) {
+export function earningsSummaryUserMessage(season, universeCount) {
   const c = season.counts;
   const s = season.stats;
   const fpct = (v, dp = 1) => (v != null && isFinite(v) ? `${v >= 0 ? "+" : ""}${(v * 100).toFixed(dp)}%` : "n/a");
@@ -6707,9 +6756,20 @@ function earningsSummaryUserMessage(season, universeCount) {
   return lines.join("\n");
 }
 
-async function generateEarningsSeasonSummary(season, universeCount) {
+export function earningsSummaryInputSignature(userMessage, model = AI_EARNINGS_MODEL) {
+  return createHash("sha256")
+    .update("earnings-season-exact-v1\0")
+    .update(String(model || ""))
+    .update("\0")
+    .update(EARNINGS_SUMMARY_SYSTEM_PROMPT)
+    .update("\0")
+    .update(String(userMessage || ""))
+    .digest("hex");
+}
+
+async function generateEarningsSeasonSummary(season, universeCount, preparedUserMessage = null) {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
-  const userMessage = earningsSummaryUserMessage(season, universeCount);
+  const userMessage = preparedUserMessage ?? earningsSummaryUserMessage(season, universeCount);
   let response, lastErr;
   for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
     try {
@@ -6760,8 +6820,9 @@ async function generateEarningsSeasonSummary(season, universeCount) {
 }
 
 // Assemble the payload. Pure given the store + chains except for the AI season
-// read (one call, gated to once per ET day and carried forward from `prior`
-// otherwise — same budget pattern as the heatmap's eodSummary).
+// read. That call is cached only while the complete evidence prompt, model, and
+// system instruction are byte-for-byte unchanged; changed evidence is never
+// paired with an older narrative.
 export async function buildEarningsTrackerPayload(store, chains, builtAtIso, prior = null) {
   const todayIso = etDateKey();
   const rowsBySeason = new Map();
@@ -6943,29 +7004,34 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
     });
   }
   upcoming.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.sym < b.sym ? -1 : 1));
-  // AI season read for the CURRENT (most recent) season — minted at most once
-  // per ET day, carried forward otherwise; a failed mint keeps last-good.
+  // AI season read for the CURRENT (most recent) season. Exact input reuse
+  // avoids paying again when the scoreboard has not changed. If the evidence
+  // changes, generate a matching read immediately; keyless/failure builds omit
+  // the prose rather than attach a stale narrative to current deterministic
+  // counts. A legacy row without inputSig refreshes once into this contract.
   let aiRead = null;
   const current = seasons[0] || null;
   if (current) {
     const carry = prior?.ai && typeof prior.ai === "object" && prior.ai.seasonKey === current.key ? prior.ai : null;
-    const want = !carry || carry.date !== todayIso;
-    if (process.env.GEMINI_API_KEY && want && current.counts.reported >= EARNINGS_AI_MIN_REPORTS) {
+    const userMessage = earningsSummaryUserMessage(current, universe.size);
+    const inputSig = earningsSummaryInputSignature(userMessage);
+    const exactCarry = carry?.inputSig === inputSig ? carry : null;
+    if (exactCarry) {
+      aiRead = exactCarry;
+    } else if (process.env.GEMINI_API_KEY && current.counts.reported >= EARNINGS_AI_MIN_REPORTS) {
       try {
-        const gen = await generateEarningsSeasonSummary(current, universe.size);
+        const gen = await generateEarningsSeasonSummary(current, universe.size, userMessage);
         aiRead = {
           seasonKey: current.key,
           date: todayIso,
           generatedAtIso: new Date().toISOString(),
           model: AI_EARNINGS_MODEL,
+          inputSig,
           ...gen,
         };
       } catch (err) {
-        console.log(`  ⚠ earnings-season AI read failed (keeping last-good): ${String(err?.message || err).split("\n")[0]}`);
-        aiRead = carry;
+        console.log(`  ⚠ earnings-season AI read failed; changed evidence ships without stale prose: ${String(err?.message || err).split("\n")[0]}`);
       }
-    } else {
-      aiRead = carry;
     }
   }
   return { builtAtIso, updatedOn: todayIso, universe: universe.size, seasons, upcoming, ai: aiRead };
@@ -15411,11 +15477,21 @@ function scoreTechnicals(data, streakRow) {
   const rvol = pnum(t.volume?.rvol);
   out.push(sig("volume", "Volume confirmation", rvol == null ? 0 : rvol >= 1.3 ? 1 : rvol < 0.8 ? -1 : 0, rvol == null ? null : r2(rvol) + "x", "Relative volume", rvol != null));
 
-  // Chart pattern (confirmed only).
+  // Chart pattern (confirmed + exact current bar window only). The vision pass
+  // is intentionally limited to two reads/day; an intra-bucket cached pattern
+  // may remain visible as labeled context but cannot vote after a new bar.
   const cp = t.chartPattern || null;
   let cpScore = 0;
-  if (cp && cp.stage === "confirmed" && cp.pattern) cpScore = /bull|breakout|ascending|cup|double bottom|inverse/i.test(cp.pattern) ? 1 : /bear|breakdown|descending|double top|head/i.test(cp.pattern) ? -1 : 0;
-  out.push(sig("chartPattern", "Chart pattern", cpScore, cp?.pattern || null, "Confirmed daily formation", !!(cp && cp.stage === "confirmed")));
+  const cpCurrent = chartPatternDecisionEligible(cp);
+  if (cpCurrent) cpScore = /bull|breakout|ascending|cup|double bottom|inverse/i.test(cp.pattern) ? 1 : /bear|breakdown|descending|double top|head/i.test(cp.pattern) ? -1 : 0;
+  out.push(sig(
+    "chartPattern",
+    "Chart pattern",
+    cpScore,
+    cp?.pattern ? `${cp.pattern}${cp.stale === true ? " (stale context)" : ""}` : null,
+    "Confirmed current-bar formation",
+    cpCurrent,
+  ));
 
   const score = out.reduce((a, s) => a + s.score, 0);
   return { score, signals: out };
@@ -15450,7 +15526,8 @@ function scoreMechanicals(sym, data, unusualPayload) {
   // Short interest (squeeze setup / unwind).
   const f = data?.fundamentals || {};
   const finraSi = f.shortInterest || null;
-  const si = pnum(finraSi?.percentFloat) ?? pnum(f.shortPercentOfFloat);
+  const siCurrent = shortInterestIsCurrent(finraSi?.settlementDate || f.dateShortInterest);
+  const si = siCurrent ? (pnum(finraSi?.percentFloat) ?? pnum(f.shortPercentOfFloat)) : null;
   const sNow = pnum(finraSi?.sharesShort) ?? pnum(f.sharesShort);
   const sPrev = pnum(finraSi?.priorSharesShort) ?? pnum(f.sharesShortPriorMonth);
   const dtc = pnum(finraSi?.daysToCover) ?? pnum(f.shortRatio);
@@ -15517,7 +15594,7 @@ function scoreNarrative(sym, data, narratives) {
   // Social sentiment.
   const so = data?.social || null;
   let soc = 0, socVal = null, socOk = false;
-  if (so && pnum(so.msgCount24h) != null && so.msgCount24h >= 5) {
+  if (socialSentimentIsCurrent(so) && pnum(so.msgCount24h) != null && so.msgCount24h >= 5) {
     socOk = true; const net = (pnum(so.bullishPct) || 0) - (pnum(so.bearishPct) || 0); socVal = (net >= 0 ? "+" : "") + r1(net) + "%";
     soc = net >= 35 ? 1 : net <= -35 ? -1 : 0;
   }
@@ -15540,6 +15617,31 @@ function scoreNarrative(sym, data, narratives) {
 function timingMean(xs) {
   const a = (xs || []).filter(Number.isFinite);
   return a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
+}
+
+export function shortInterestIsCurrent(settlementDate, nowMs = Date.now(), maxAgeDays = 45) {
+  const ms = Date.parse(`${String(settlementDate || "").slice(0, 10)}T00:00:00Z`);
+  if (!Number.isFinite(ms)) return false;
+  const age = nowMs - ms;
+  return age >= 0 && age <= maxAgeDays * 86400000;
+}
+
+export function socialSentimentIsCurrent(social) {
+  return !!social && social.stale !== true && social.directionalStale !== true;
+}
+
+export function decisionNarratives(narratives) {
+  return Array.isArray(narratives)
+    ? narratives.filter((row) => row && row.stale !== true)
+    : [];
+}
+
+export function scannerPayloadIsFresh(payload, maxAgeMs, nowMs = Date.now()) {
+  const scanMs = Date.parse(payload?.scannedAt || "");
+  if (!Number.isFinite(scanMs) || !Number.isFinite(maxAgeMs) || maxAgeMs < 0) return false;
+  const age = nowMs - scanMs;
+  if (age < 0 || age > maxAgeMs) return false;
+  return etDateKey(new Date(scanMs)) === etDateKey(new Date(nowMs));
 }
 
 function timingConfirmedSeries(data) {
@@ -22440,17 +22542,15 @@ export async function readPriorPicks() {
 // have already CLEARED THE GRADE + every roster gate (a name earns a thesis after
 // it ships, not before), so it no longer feeds assessThesisQuality (the gate reads
 // the deterministic market read). Degrades gracefully without GEMINI_API_KEY
-// (the deterministic card stands), and is cached per symbol:side on a signature
-// that turns over with the grade, the drivers, the relevant macro axes, the news
-// take, and the IV bucket — so it re-reads when the picture materially changes
-// (incl. a fresh news take), not every build. regen-picks.mjs runs offline (no AI).
+// (the deterministic card stands). An exact-input, sub-hour retry cache avoids
+// duplicate spend, but every normal hourly build re-runs current web research
+// and the final decision. regen-picks.mjs runs offline (no AI).
 // The final grader runs on the CAPABLE tier (full Flash, not Lite) — it makes
 // the final grade + the buy-now/wait call on ≤ PICKS_MAX_AI_THESES names per
 // build, so the volume is tiny and the judgment quality is the product.
 // 3.6 Flash keeps the full-model judgment tier while lowering billed
 // output/thinking tokens vs 3.5 Flash ($7.50/M vs $9.00/M as of 2026-07-25).
-// Google also positions it as the stronger chart/multimodal reasoner. Keep the
-// deterministic gates + cache unchanged; this only affects fresh final grades.
+// Google also positions it as the stronger chart/multimodal reasoner.
 const AI_THESIS_MODEL = process.env.AI_THESIS_MODEL || "gemini-3.6-flash";
 // WEB-SEARCH GROUNDING (2026-07-10, owner directive): before grading, each
 // cache-miss name gets ONE Google-Search-grounded research call so the grader
@@ -22481,9 +22581,16 @@ const AI_THESIS_SEARCH_THINK = Math.max(0, Number(process.env.AI_THESIS_SEARCH_T
 // chart-pattern pass at 12. Results are keyed per symbol:side, so completion
 // order can't change the output.
 const AI_THESIS_CONCURRENCY = Math.max(1, Number(process.env.AI_THESIS_CONCURRENCY) || 4);
+// Normal production builds are an hour apart. Reuse only an exact-input result
+// inside the same freshness window (primarily duplicate/retry dispatches); the
+// next scheduled build re-runs the live search + full-quality final grader.
+const THESIS_CACHE_MAX_AGE_MS = Math.max(
+  0,
+  Number(process.env.AI_THESIS_CACHE_MAX_MINUTES ?? 20) * 60000,
+);
 
 // Bump when the schema / prompt changes so every cached thesis re-reads once.
-const THESIS_PROMPT_VERSION = "v8";
+const THESIS_PROMPT_VERSION = "v9";
 
 const THESIS_SCHEMA = {
   type: "object",
@@ -22561,6 +22668,39 @@ const THESIS_SYSTEM =
   "Rules: never invent news, events, numbers, or catalysts not in the context (the WEB RESEARCH section counts as context). Plain English a retail trader can follow. No hype, no disclaimers, no restating option strikes/Greeks. Be concrete and specific over vague. " +
   THESIS_GOLD_EXAMPLES;
 
+// Cache identity includes both model tiers and the exact instructions/schemas.
+// Material market-state inputs remain in thesisCacheSig below; instruction or
+// search-query changes can no longer reuse an older final grade accidentally.
+const THESIS_RESEARCH_PROMPT_VERSION = "research2";
+const THESIS_FINAL_THINK = Number(process.env.AI_THESIS_THINK) || 1024;
+
+export function thesisInstructionSignature() {
+  return createHash("sha256")
+    .update(THESIS_PROMPT_VERSION)
+    .update("\0")
+    .update(AI_THESIS_MODEL)
+    .update("\0")
+    .update(String(THESIS_FINAL_THINK))
+    .update("\0")
+    .update(THESIS_SYSTEM)
+    .update("\0")
+    .update(JSON.stringify(THESIS_SCHEMA))
+    .digest("hex");
+}
+
+export function thesisResearchInputSignature(r, side) {
+  const prompt = buildThesisResearchPrompt(r, side);
+  return createHash("sha256")
+    .update(THESIS_RESEARCH_PROMPT_VERSION)
+    .update("\0")
+    .update(AI_THESIS_SEARCH ? AI_THESIS_SEARCH_MODEL : "search-off")
+    .update("\0")
+    .update(String(AI_THESIS_SEARCH_THINK))
+    .update("\0")
+    .update(prompt)
+    .digest("hex");
+}
+
 // Assemble the full per-candidate context the AI reasons over. Pure; everything
 // is already on `r`/`r.data` and the macroRegime. Exported for the smoke test —
 // keyless runs never reach it, so without a direct check a runtime error here
@@ -22614,7 +22754,7 @@ export function buildThesisUserMessage(r, side, macroRegime, extras = {}) {
   if (pnum(t.sr?.r20) != null) struct.push(`nearest resistance ~$${pnum(t.sr.r20).toFixed(2)}`);
   const rvNow = pnum(t.volume?.rvol);
   if (rvNow != null) struct.push(`volume ${rvNow.toFixed(1)}x normal`);
-  if (t.chartPattern && t.chartPattern.pattern) struct.push(`chart pattern: ${t.chartPattern.pattern}${t.chartPattern.stage ? ` (${t.chartPattern.stage})` : ""}`);
+  if (chartPatternDecisionEligible(t.chartPattern)) struct.push(`chart pattern: ${t.chartPattern.pattern}${t.chartPattern.stage ? ` (${t.chartPattern.stage})` : ""}`);
   const cs = r.streakRow?.current;
   if (cs && pnum(cs.sameDays) >= 2) struct.push(`${cs.sameDays}-day ${cs.color} streak (${pct(cs.cumulativePct)} cumulative)`);
   if (struct.length) L.push(`TECHNICAL STRUCTURE: ${struct.join("; ")}.`);
@@ -22795,16 +22935,14 @@ function parseThesisResponse(text) {
   };
 }
 
-// Cache signature: turns over with the grade, the in-direction drivers, the macro
-// state + the relevant axes' directions, the news take's direction + dated-catalyst
-// set, the fundamental verdict, the IV bucket, the deterministic ENTRY read — so a
-// materially changed news read, a macro
-// shift, or an entry-picture change (a pullback filling, a reclaim confirming, an
-// event window opening) re-reads the thesis + the model's entry verdict — AND the
-// ET date: the grader is web-search-grounded, so a cached verdict must never
-// outlive the trading day its research was run on (a "wait" minted on yesterday's
-// news would otherwise stick until some other component churned).
-export function thesisCacheSig(r, side, kind, macroRegime, macroCalendar = null) {
+// Cache signature: the coarse material fields remain readable for diagnostics,
+// but v9 also hashes the EXACT base message, full macro calendar, IV-momentum
+// row, every current headline, research query, models, system prompt, and schema.
+// Reuse is further capped below 60 minutes, so the next scheduled hourly build
+// performs fresh web research + a full-quality grade/entry decision. This keeps
+// duplicate/retry dispatches cheap without letting a prior-hour verdict decide
+// against current evidence.
+export function thesisCacheSig(r, side, kind, macroRegime, macroCalendar = null, ivRow = null) {
   // Sorted: membership + sign is the semantic intent — two drivers swapping
   // magnitude rank is not a material change worth a re-grade.
   const works = (r.drivers || []).filter((x) => x && x.score).slice(0, 5).map((x) => `${x.key}${Math.sign(x.score) > 0 ? "+" : "-"}`).sort().join(",");
@@ -22824,7 +22962,14 @@ export function thesisCacheSig(r, side, kind, macroRegime, macroCalendar = null)
   // set below), and the ET-date key still forces a fresh grounded grade daily.
   const cats = (Array.isArray(r.data?.catalysts) ? r.data.catalysts : [])
     .map((c) => `${c?.date || ""}:${c?.category || ""}`).sort().join(",");
-  const newsHash = `${r.data?.news?.sentiment || ""}~${cats ? createHash("sha1").update(cats).digest("hex").slice(0, 8) : ""}`;
+  const headlineRows = (Array.isArray(r.data?.news?.headlines) ? r.data.news.headlines : [])
+    .map((h) => `${h?.publishedAt || ""}|${h?.publisher || ""}|${normalizeHeadlineTitle(h?.title)}`)
+    .join("\n");
+  const newsHash = [
+    r.data?.news?.sentiment || "",
+    cats ? createHash("sha1").update(cats).digest("hex").slice(0, 8) : "",
+    headlineRows ? createHash("sha1").update(headlineRows).digest("hex").slice(0, 12) : "",
+  ].join("~");
   const verdict = r.data?.fundamentals?.judgment?.verdict || "";
   const ivp = pnum(r.data?.ivRank?.pctile);
   const ivBucket = ivp != null ? Math.round(ivp / 20) : "";
@@ -22836,12 +22981,41 @@ export function thesisCacheSig(r, side, kind, macroRegime, macroCalendar = null)
   // print clears, a new event enters the horizon) the entry picture changed, so
   // re-grade. Only the NEAREST rides: the full list would churn the sig on every
   // far-out schedule nibble, and the etDay roll already refreshes daily.
-  const calSig = Array.isArray(macroCalendar) && macroCalendar[0] ? `${macroCalendar[0].label}@${macroCalendar[0].date}` : "";
+  const calSig = (Array.isArray(macroCalendar) ? macroCalendar : [])
+    .map((event) => `${event?.label || ""}@${event?.date || ""}:${event?.daysOut ?? ""}`)
+    .join(",");
   const etDay = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  // The exact base message is the final guard: OI walls, earnings behavior,
+  // technical levels, IV momentum, and every scored value all participate even
+  // when their coarse material buckets above did not change.
+  const basePromptHash = createHash("sha256")
+    .update(buildThesisUserMessage(r, side, macroRegime, { macroCalendar, ivRow }))
+    .digest("hex")
+    .slice(0, 24);
+  const instructionSig = thesisInstructionSignature().slice(0, 24);
+  const researchSig = thesisResearchInputSignature(r, side).slice(0, 24);
   // Conviction rides in 2-point buckets: a ±0.5 pillar wiggle across an integer
   // boundary is score noise, not a changed thesis (the drivers/entry/macro
   // components catch the moves that matter).
-  return [THESIS_PROMPT_VERSION, `entry-v${PICKS_ENTRY_TIMING_VERSION}`, etDay, r.sym, side, kind, Math.round((pnum(r.total) ?? 0) / 2), works, state, axSig, verdict, newsHash, ivBucket, entrySig, calSig].join("|");
+  return [THESIS_PROMPT_VERSION, instructionSig, researchSig, basePromptHash, `entry-v${PICKS_ENTRY_TIMING_VERSION}`, etDay, r.sym, side, kind, Math.round((pnum(r.total) ?? 0) / 2), works, state, axSig, verdict, newsHash, ivBucket, entrySig, calSig].join("|");
+}
+
+export function canReuseThesisCache(
+  prior,
+  signature,
+  nowMs = Date.now(),
+  maxAgeMs = THESIS_CACHE_MAX_AGE_MS,
+) {
+  const priorAtMs = Date.parse(prior?.generatedAtIso || "");
+  const ageMs = Number.isFinite(priorAtMs) ? nowMs - priorAtMs : Infinity;
+  return !!(
+    prior &&
+    prior.sig === signature &&
+    prior.ai &&
+    maxAgeMs > 0 &&
+    ageMs >= 0 &&
+    ageMs <= maxAgeMs
+  );
 }
 
 async function readPickThesisCache() {
@@ -22861,17 +23035,22 @@ async function writePickThesisCache(cache) {
 // googleSearch + a forced responseSchema in one call, hence the two steps.
 // Returns { text, sources } or null; a null degrades gracefully (the grader
 // runs on baked data alone, exactly the pre-grounding behavior).
-async function fetchThesisWebResearch(ai, r, side) {
+export function buildThesisResearchPrompt(r, side) {
   const bull = side === "call";
   const f = r.data?.fundamentals || {};
   const name = f.name && f.name !== r.sym ? `${r.sym} (${f.name})` : r.sym;
   const etDay = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
   const known = (Array.isArray(r.data?.news?.headlines) ? r.data.news.headlines : []).slice(0, 5).map((h) => `"${h.title}"`).join(" | ");
-  const prompt =
+  return (
     `Today is ${etDay} (US/Eastern). Research the LATEST developments on the stock ${name} relevant to a 1-2 week ${bull ? "BULLISH (call)" : "BEARISH (put)"} options trade. ` +
     `Search for: news from the last few days, upcoming dated catalysts (earnings, product events, regulatory decisions), analyst actions, and — most important — anything that CONTRADICTS the ${bull ? "bullish" : "bearish"} case or shows the driving catalyst has already played out or reversed. ` +
     (known ? `Headlines already known to us (look for what is NEW or has CHANGED since these): ${known}. ` : "") +
-    `Reply with at most 8 short bullet FACTS, each dated; no advice, no prose, no preamble. If nothing material is new, say exactly that.`;
+    `Reply with at most 8 short bullet FACTS, each dated; no advice, no prose, no preamble. If nothing material is new, say exactly that.`
+  );
+}
+
+async function fetchThesisWebResearch(ai, r, side) {
+  const prompt = buildThesisResearchPrompt(r, side);
   let response = null;
   for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
     try {
@@ -22969,9 +23148,13 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
   for (const { r, side } of gated) {
     const k = `${r.sym}:${side}`;
     const kind = macroKindOf(r.sym, r.data);
-    const sig = thesisCacheSig(r, side, kind, macroRegime, macroCalendar);
+    const sig = thesisCacheSig(r, side, kind, macroRegime, macroCalendar, ivBySym[r.sym] || null);
     const prior = priorCache[k];
-    if (prior && prior.sig === sig && prior.ai) { map[k] = prior.ai; next[k] = { sig, ai: prior.ai }; }
+    const canReuse = canReuseThesisCache(prior, sig);
+    if (canReuse) {
+      map[k] = prior.ai;
+      next[k] = { sig, ai: prior.ai, generatedAtIso: prior.generatedAtIso };
+    }
     else if (!keyless) toCall.push({ r, side, k, sig });
     // keyless miss → no AI thesis (buildMarketRead falls back to the deterministic read)
   }
@@ -22998,7 +23181,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
             // decides grade + entry on ≤14 names/build, so quality > tokens);
             // maxOutputTokens is raised to cover thinking + the JSON payload
             // (thinking tokens count against it). AI_THESIS_THINK overrides.
-            config: { systemInstruction: THESIS_SYSTEM, temperature: 0.45, maxOutputTokens: 6000, responseMimeType: "application/json", responseSchema: THESIS_SCHEMA, thinkingConfig: { thinkingBudget: Number(process.env.AI_THESIS_THINK) || 1024 } },
+            config: { systemInstruction: THESIS_SYSTEM, temperature: 0.45, maxOutputTokens: 6000, responseMimeType: "application/json", responseSchema: THESIS_SCHEMA, thinkingConfig: { thinkingBudget: THESIS_FINAL_THINK } },
             contents: userMsg,
           });
           recordAiUsage({ model: aiModelForAttempt(AI_THESIS_MODEL, attempt), callType: "pick-thesis", symbol: r.sym, usage: response?.usageMetadata });
@@ -23015,7 +23198,8 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
         // web-grounded verdict is auditable; absent when the research step was
         // disabled or failed. Additive — the client ignores unknown keys.
         if (research) parsed.webResearch = { at: new Date().toISOString(), sources: research.sources };
-        map[k] = parsed; next[k] = { sig, ai: parsed };
+        map[k] = parsed;
+        next[k] = { sig, ai: parsed, generatedAtIso: new Date().toISOString() };
       }
     } catch (err) {
       console.warn(`[picks] AI thesis for ${k} failed — ${String(err?.message || err).split("\n")[0]}`);
@@ -28342,6 +28526,66 @@ const AI_SIGNALS_SCHEMA = {
   required: ["majorContract", "guidance"],
 };
 
+const AI_SIGNALS_SYSTEM_PROMPT =
+  "You are an equity analyst extracting two structured facts from recent news for an options trader. " +
+  "From the supplied headlines, determine ONLY: " +
+  "(1) majorContract.status — 'won' if the company recently WON or was awarded a major new contract, order, or deal — OR, for a bank / broker / adviser, was named lead underwriter, bookrunner, or lead financial adviser on a major IPO, M&A, or capital raise (e.g. 'Goldman Sachs to lead the SpaceX IPO'); " +
+  "'lost' if it LOST a major contract/customer, had a major deal cancelled, or was dropped from such a mandate; 'none' if neither is clearly evidenced. " +
+  "(2) guidance.direction — the company's most recent forward GUIDANCE: 'raised' (guided up / above expectations), " +
+  "'inline' (reaffirmed / in line), 'soft' (modest cut / cautious tone), 'lowered' (guided down materially), or 'none' if no guidance is evident. " +
+  "A dividend increase/cut or a share-buyback announcement is capital-return news, NOT guidance — report 'none' for those. " +
+  "Be conservative: only report 'won'/'lost'/'raised'/'lowered' when the headlines clearly support it; otherwise use 'none'. " +
+  "Each evidence string: one short clause citing the headline. No markdown, no preamble.";
+
+// The dedicated signal extractor sees headline metadata only (no article
+// bodies). Reuse a successful structured extraction while that exact headline
+// slate is unchanged, even across the ET-date rollover that intentionally
+// invalidates the broader ticker judgment. A 72h ceiling forces a periodic
+// re-read even on an unusually frozen feed; any title/date/publisher, model,
+// prompt, or schema change invalidates immediately. This keeps the scoring
+// evidence and model tier unchanged while avoiding duplicate calls.
+const AI_SIGNALS_CACHE_VERSION = "signals3";
+const AI_SIGNALS_CACHE_MAX_AGE_MS =
+  Math.max(0, Number(process.env.AI_SIGNALS_CACHE_MAX_AGE_HOURS ?? 72)) * 3600000;
+export function aiSignalsHeadlineSignature(symbol, headlines, model) {
+  const rows = (headlines || []).map((h) => [
+    String(h?.publishedAt || ""),
+    String(h?.publisher || "").trim().toLowerCase(),
+    normalizeHeadlineTitle(h?.title),
+  ].join("|")).join("\n");
+  return createHash("sha1")
+    .update(AI_SIGNALS_CACHE_VERSION)
+    .update("\0")
+    .update(String(model || ""))
+    .update("\0")
+    .update(AI_SIGNALS_SYSTEM_PROMPT)
+    .update("\0")
+    .update(JSON.stringify(AI_SIGNALS_SCHEMA))
+    .update("\0")
+    .update(String(symbol || ""))
+    .update("\n")
+    .update(rows)
+    .digest("hex")
+    .slice(0, 20);
+}
+export function canReuseAiSignals(
+  cacheEntry,
+  signalsSig,
+  nowMs = Date.now(),
+  maxAgeMs = AI_SIGNALS_CACHE_MAX_AGE_MS,
+) {
+  const signalsAtMs = Date.parse(cacheEntry?.signalsAt || "");
+  const signalsAgeMs = Number.isFinite(signalsAtMs) ? nowMs - signalsAtMs : Infinity;
+  return !!(
+    cacheEntry &&
+    "signals" in cacheEntry &&
+    cacheEntry.signalsSig === signalsSig &&
+    maxAgeMs > 0 &&
+    signalsAgeMs >= 0 &&
+    signalsAgeMs <= maxAgeMs
+  );
+}
+
 // Deterministic guard on the AI guidance read: a dividend hike/cut or a
 // buyback announcement is capital-return news, NOT forward operating guidance,
 // but the extractor periodically grabs one as "raised" (live example: "General
@@ -28362,14 +28606,14 @@ function sanitizeGuidanceDirection(direction, evidence) {
 }
 
 // `judgmentCache` (optional) is the ticker-judgment cache built by
-// attachTickerJudgments THIS build. Its per-sym entries are keyed on the same
-// headline signature this pass reads (data.news.headlines is set from those
-// exact headlines), so an entry that already carries a `signals` key means the
-// extraction ran on identical input in a prior build — reuse it and skip the
-// call. The key holds null when the pass ran and found nothing (still a hit);
+// attachTickerJudgments THIS build. The broad judgment may legitimately reuse
+// a prior paragraph within its small new-headline tolerance, but this scoring
+// pass is stricter: `_signalHeadlines` carries the freshly fetched raw slate,
+// and signalsSig must match it exactly before an entry carrying `signals` can
+// be reused. The key holds null when the pass ran and found nothing (still a
+// hit);
 // a fresh result is stored back onto the entry, which main() persists after
-// the data/ wipe. Entries are current-build by construction, so no extra
-// signature check is needed here.
+// the data/ wipe. writeChainFiles strips the ephemeral headline field.
 async function attachAiContractGuidance(chains, judgmentCache = null) {
   if (!process.env.GEMINI_API_KEY) {
     console.log("No GEMINI_API_KEY set — Major Contract + Guidance signals stay on proxy / no-data.");
@@ -28377,16 +28621,6 @@ async function attachAiContractGuidance(chains, judgmentCache = null) {
   }
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
   const model = process.env.AI_SIGNALS_MODEL || AI_NEWS_MODEL;
-  const systemPrompt =
-    "You are an equity analyst extracting two structured facts from recent news for an options trader. " +
-    "From the supplied headlines, determine ONLY: " +
-    "(1) majorContract.status — 'won' if the company recently WON or was awarded a major new contract, order, or deal — OR, for a bank / broker / adviser, was named lead underwriter, bookrunner, or lead financial adviser on a major IPO, M&A, or capital raise (e.g. 'Goldman Sachs to lead the SpaceX IPO'); " +
-    "'lost' if it LOST a major contract/customer, had a major deal cancelled, or was dropped from such a mandate; 'none' if neither is clearly evidenced. " +
-    "(2) guidance.direction — the company's most recent forward GUIDANCE: 'raised' (guided up / above expectations), " +
-    "'inline' (reaffirmed / in line), 'soft' (modest cut / cautious tone), 'lowered' (guided down materially), or 'none' if no guidance is evident. " +
-    "A dividend increase/cut or a share-buyback announcement is capital-return news, NOT guidance — report 'none' for those. " +
-    "Be conservative: only report 'won'/'lost'/'raised'/'lowered' when the headlines clearly support it; otherwise use 'none'. " +
-    "Each evidence string: one short clause citing the headline. No markdown, no preamble.";
   let tagged = 0;
   let reusedSignals = 0;
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -28396,10 +28630,13 @@ async function attachAiContractGuidance(chains, judgmentCache = null) {
   // un-parallelized AI pass), summing a full round-trip per ticker on the
   // critical path; the other per-ticker passes already fan out via Promise.all.
   await Promise.all(Object.entries(chains).map(([sym, data]) => (async () => {
-    const headlines = (data && data.news && Array.isArray(data.news.headlines)) ? data.news.headlines : [];
+    const headlines = Array.isArray(data?._signalHeadlines)
+      ? data._signalHeadlines
+      : (Array.isArray(data?.news?.headlines) ? data.news.headlines : []);
     if (!headlines.length) return;
     const cacheEntry = AI_TICKER_CACHE && judgmentCache ? judgmentCache[sym] : null;
-    if (cacheEntry && "signals" in cacheEntry) {
+    const signalsSig = aiSignalsHeadlineSignature(sym, headlines, model);
+    if (canReuseAiSignals(cacheEntry, signalsSig)) {
       if (cacheEntry.signals) { data.aiSignals = cacheEntry.signals; tagged += 1; }
       reusedSignals += 1;
       return;
@@ -28419,7 +28656,7 @@ async function attachAiContractGuidance(chains, judgmentCache = null) {
         response = await ai.models.generateContent({
           model: aiModelForAttempt(model, attempt),
           config: {
-            systemInstruction: systemPrompt,
+            systemInstruction: AI_SIGNALS_SYSTEM_PROMPT,
             temperature: 0.2,
             maxOutputTokens: 400,
             responseMimeType: "application/json",
@@ -28458,7 +28695,11 @@ async function attachAiContractGuidance(chains, judgmentCache = null) {
       // Store on the judgment-cache entry (null = "ran, nothing found" — still
       // reusable) so the next unchanged-headlines build skips this call too.
       // Parse/call failures deliberately store nothing → retried next build.
-      if (cacheEntry) cacheEntry.signals = out;
+      if (cacheEntry) {
+        cacheEntry.signals = out;
+        cacheEntry.signalsSig = signalsSig;
+        cacheEntry.signalsAt = new Date().toISOString();
+      }
     } catch {
       // Bad JSON — leave aiSignals unset (proxy / no-data path).
     }
@@ -29220,8 +29461,10 @@ async function attachAiNewsTakes(chains, macroBackdrop) {
 // = the pass ran; null = ran and found nothing). AI_TICKER_CACHE=0 disables
 // (every build re-reads — the pre-cache behavior).
 const TICKER_JUDGMENT_CACHE_FILE = "ticker-judgment-cache.json";
-// Version tag — bump to invalidate every prior entry after a prompt/schema change.
-const TICKER_JUDGMENT_CACHE_VERSION = "tj1";
+// Shape version for non-prompt cache semantics. The live instruction/schema
+// hash below invalidates prompt edits automatically; bump this only when reuse
+// rules change without altering those inputs.
+const TICKER_JUDGMENT_CACHE_VERSION = "tj2";
 const AI_TICKER_CACHE = process.env.AI_TICKER_CACHE !== "0";
 const TICKER_JUDGMENT_SPOT_DRIFT = Number(process.env.AI_TICKER_CACHE_DRIFT ?? 0.02);
 // Headline-churn tolerance. Yahoo's top-10 news list churns intraday — one new
@@ -29236,7 +29479,10 @@ const TICKER_JUDGMENT_SPOT_DRIFT = Number(process.env.AI_TICKER_CACHE_DRIFT ?? 0
 // accumulate against the ORIGINAL cached title set (a reuse carries the entry
 // forward untouched), so a drip of articles re-reads as soon as the cumulative
 // drip crosses the tolerance. 0 restores exact-match-only reuse.
-const TICKER_JUDGMENT_NEWS_TOLERANCE = Math.max(0, Number(process.env.AI_TICKER_CACHE_NEWS_TOLERANCE ?? 1));
+// Exact-by-default for production decisions: one new title can be a filing,
+// guidance change, or earnings warning. A nonzero value remains an explicit
+// experiment knob, not the cost-saving default.
+const TICKER_JUDGMENT_NEWS_TOLERANCE = Math.max(0, Number(process.env.AI_TICKER_CACHE_NEWS_TOLERANCE ?? 0));
 
 // Titles are compared case-/whitespace-insensitively so a publisher touching
 // up capitalization doesn't count as "new news".
@@ -29244,13 +29490,31 @@ function normalizeHeadlineTitle(title) {
   return String(title || "").trim().toLowerCase();
 }
 
-// Returns { sig, metaSig, titles }: `sig` is the exact-match key (unchanged
-// composition from the pre-tolerance cache, so entries written by the previous
-// build stay exact-matchable across the deploy); `metaSig` is `sig` minus the
-// headline hash — the tolerance path requires it to match so a relaxed reuse
-// can never paper over a fundamentals / model / date change; `titles` is the
-// normalized title set the tolerance path counts new headlines against.
-function tickerJudgmentSignature(rawHeadlines, fundamentals) {
+// Returns { sig, metaSig, titles }: `sig` is the exact-match key; `metaSig` is
+// `sig` minus the headline hash, so a relaxed opt-in tolerance can never paper
+// over a fundamentals/model/date/instruction change. `titles` is the normalized
+// set used only by that default-off tolerance path. tj2 intentionally cold-
+// starts once because older entries did not prove prompt/schema identity.
+export function tickerJudgmentInstructionSignature() {
+  const systemInstruction = AI_SIGNALS_COMBINED
+    ? COMBINED_SYSTEM_PROMPT + SIGNALS_PROMPT_SECTION
+    : COMBINED_SYSTEM_PROMPT;
+  const judgmentSchema = AI_SIGNALS_COMBINED
+    ? {
+        ...TICKER_JUDGMENT_SCHEMA,
+        properties: { ...TICKER_JUDGMENT_SCHEMA.properties, signals: AI_SIGNALS_SCHEMA },
+        required: [...TICKER_JUDGMENT_SCHEMA.required, "signals"],
+      }
+    : TICKER_JUDGMENT_SCHEMA;
+  return createHash("sha1")
+    .update(systemInstruction)
+    .update("\0")
+    .update(JSON.stringify(judgmentSchema))
+    .digest("hex")
+    .slice(0, 16);
+}
+
+export function tickerJudgmentSignature(rawHeadlines, fundamentals) {
   const etDate = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // YYYY-MM-DD
   const heads = rawHeadlines
     .map((h) => `${h.title}|${h.publisher || ""}|${h.publishedAt || ""}`)
@@ -29277,6 +29541,7 @@ function tickerJudgmentSignature(rawHeadlines, fundamentals) {
     AI_SIGNALS_COMBINED ? 1 : 0,
     AI_TICKER_MODEL,
     process.env.AI_SIGNALS_MODEL || AI_NEWS_MODEL, // the split guidance pass's model
+    tickerJudgmentInstructionSignature(),
   ];
   const headsHash = createHash("sha1").update(heads).digest("hex").slice(0, 12);
   const fundHash = createHash("sha1").update(fundBits).digest("hex").slice(0, 12);
@@ -29336,6 +29601,10 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
     Promise.all(passEntries.map(([sym, data]) => hb.track(async () => {
       try {
         const rawHeadlines = await fetchTickerHeadlines(sym);
+        // Keep the scoring extractor on the CURRENT source slate even when the
+        // broader prose judgment reuses a prior read within its one-headline
+        // tolerance. writeChainFiles strips this transient field.
+        data._signalHeadlines = rawHeadlines;
         // Capture the CURRENT linked source slate before the AI judgment cache
         // can reuse an older paragraph/headline bundle. The News desk should
         // never miss a story merely because one new title fell within the
@@ -29401,7 +29670,20 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
         const headlines = await enrichHeadlinesWithBodies(rawHeadlines);
         const withBody = headlines.filter((h) => h.body).length;
         const { news, judgment, catalysts, aiSignals } = await generateTickerJudgment(ai, sym, data.spot, headlines, data.fundamentals);
-        nextCache[sym] = { sig, metaSig, titles, spot: data.spot, news, judgment, catalysts, aiSignals };
+        // Preserve the independent signal extraction across a broader
+        // judgment-cache rollover. Its exact signature + age guard decide
+        // whether attachAiContractGuidance may reuse it.
+        const priorSignals = prior && "signals" in prior
+          ? {
+              signals: prior.signals,
+              signalsSig: prior.signalsSig || null,
+              signalsAt: prior.signalsAt || null,
+            }
+          : {};
+        nextCache[sym] = {
+          sig, metaSig, titles, spot: data.spot, news, judgment, catalysts, aiSignals,
+          ...priorSignals,
+        };
         data.news = news;
         if (judgment) {
           data.fundamentals = { ...data.fundamentals, judgment };
@@ -29451,6 +29733,16 @@ const CHART_PATTERN_META = {
   "Descending Triangle":        { type: "Bearish Continuation", direction: "bearish" },
 };
 const CHART_PATTERN_NAMES = Object.keys(CHART_PATTERN_META);
+
+export function chartPatternDecisionEligible(pattern) {
+  return !!(
+    pattern &&
+    pattern.stale !== true &&
+    pattern.stage === "confirmed" &&
+    pattern.pattern &&
+    pattern.pattern !== "None"
+  );
+}
 
 // ----------------------------------------------------------------------------
 // Chart-pattern detection. Feeds the model a compact daily OHLC+volume series
@@ -29778,21 +30070,35 @@ const CHART_PATTERN_CACHE_FILE = "chart-pattern-cache.json";
 // every 30 min, so keying on the bar signature (as the old daily detector did)
 // would re-call the model on every build (8×/day, ~8× the Gemini spend). Instead
 // the key is the ET date + an AM/PM half: the FIRST build in each half is a miss
-// (re-reads), the rest of that half reuse it. Deliberate trade-off: a fast-
-// forming intraday pattern can lag by up to a few hours within a session.
+// (re-reads), while later changed-bar builds retain the prior read as explicitly
+// stale display context only. Exact frozen bars remain decision-eligible.
 // The same key string is used for every ticker in a given build, so a hit just
-// means "this ticker was already read this half-day". `img5` is the version tag
-// (intraday-timeframe detector) — bumping it invalidates all prior verdicts once.
-// Bumped img4→img5 with the truncation-salvage fix so the stale "None" reads that
-// the runaway-explanation bug cached (image call truncated → fell to a blind
-// text-only read → None) are all re-rated once with the image path working.
-const CHART_PATTERN_CACHE_VERSION = "img5";
+// means "this ticker was already read this half-day". `img6` adds automatic
+// model/prompt/schema identity and stale-decision quarantine; older verdicts
+// cold-start once.
+const CHART_PATTERN_CACHE_VERSION = "img6";
+
+export function chartPatternInstructionSignature() {
+  return createHash("sha256")
+    .update(CHART_PATTERN_CACHE_VERSION)
+    .update("\0")
+    .update(AI_CHART_MODEL)
+    .update("\0")
+    .update(String(Number(process.env.AI_CHART_THINK) || 384))
+    .update("\0")
+    .update(CHART_PATTERN_SYSTEM_PROMPT)
+    .update("\0")
+    .update(JSON.stringify(CHART_PATTERN_SCHEMA))
+    .digest("hex")
+    .slice(0, 16);
+}
+
 function chartPatternBucketKey() {
   const now = new Date();
   const etDate = now.toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // YYYY-MM-DD
   const etHour = Number(now.toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }));
   const half = etHour < 12 ? "am" : "pm";
-  return `${CHART_PATTERN_CACHE_VERSION}|${etDate}|${half}`;
+  return `${CHART_PATTERN_CACHE_VERSION}|${chartPatternInstructionSignature()}|${etDate}|${half}`;
 }
 
 // Signature of the exact bar window the detector would be shown (the same
@@ -29802,14 +30108,15 @@ function chartPatternBucketKey() {
 // what stops weekend / evening / holiday runs from re-rating ~139 identical
 // charts on the (pricey, thinking-enabled) full-Flash vision model: bars are
 // regular-session only, so from the Friday close until Monday's open every
-// re-read of a name was pure spend for a byte-identical answer. Zero freshness
-// trade-off — a changed bar (any new session print) changes the signature.
+// re-read of a name was pure spend for a byte-identical answer. A changed bar
+// changes the signature; same-bucket reuse is then explicitly stale and
+// decision-ineligible, while a new AM/PM bucket gets a fresh full-model read.
 // Versioned so a CHART_PATTERN_CACHE_VERSION bump invalidates these too.
 function chartPatternBarsSig(bars) {
   const series = bars.slice(-CHART_PATTERN_INTRADAY_BARS);
   const h = createHash("sha1");
   for (const b of series) h.update(`${b.t}|${b.c}|${b.h}|${b.l}|${b.v}\n`);
-  return `${CHART_PATTERN_CACHE_VERSION}|${series.length}|${h.digest("hex").slice(0, 16)}`;
+  return `${CHART_PATTERN_CACHE_VERSION}|${chartPatternInstructionSignature()}|${series.length}|${h.digest("hex").slice(0, 16)}`;
 }
 
 // Bounded-concurrency pool — at most `limit` workers run `fn` over `items` at
@@ -29873,12 +30180,13 @@ async function attachChartPatterns(chains, priorCache = {}) {
   const toCall = [];
   let reused = 0;
   let reusedFrozen = 0;
+  let reusedStaleContext = 0;
   for (const [sym, data] of entries) {
     const barsSig = chartPatternBarsSig(data._intraday);
     const priorEntry = priorCache[sym];
     const sameBucket = priorEntry && priorEntry.key === bucketKey;
     const frozenBars = priorEntry && priorEntry.barsSig && priorEntry.barsSig === barsSig;
-    if (priorEntry?.pattern && (sameBucket || frozenBars)) {
+    if (priorEntry?.pattern && frozenBars) {
       data.technicals = { ...(data.technicals || {}), chartPattern: priorEntry.pattern };
       // Carry the ORIGINAL entry forward untouched (same rule as the ticker-
       // judgment cache): its key/barsSig describe the read that actually
@@ -29889,12 +30197,28 @@ async function attachChartPatterns(chains, priorCache = {}) {
       nextCache[sym] = priorEntry;
       reused += 1;
       if (!sameBucket) reusedFrozen += 1;
+    } else if (priorEntry?.pattern && sameBucket) {
+      // Keep the last read for display/audit, but a new 30-minute bar means the
+      // geometry the model saw is no longer current. It cannot vote in grades
+      // or enter the final AI prompt until the next scheduled vision pass.
+      data.technicals = {
+        ...(data.technicals || {}),
+        chartPattern: {
+          ...priorEntry.pattern,
+          stale: true,
+          staleReason: "New intraday bars arrived after the cached chart read",
+        },
+      };
+      nextCache[sym] = priorEntry;
+      reused += 1;
+      reusedStaleContext += 1;
     } else {
       toCall.push([sym, data, barsSig]);
     }
   }
   const frozenTag = reusedFrozen ? ` — ${reusedFrozen} of them via unchanged bars` : "";
-  console.log(`Detecting chart patterns (1-month intraday) for ${entries.length} tickers… (${reused} reused${frozenTag}, ${toCall.length} fresh)`);
+  const staleTag = reusedStaleContext ? ` — ${reusedStaleContext} display-only after new bars` : "";
+  console.log(`Detecting chart patterns (1-month intraday) for ${entries.length} tickers… (${reused} reused${frozenTag}${staleTag}, ${toCall.length} fresh)`);
   if (toCall.length) {
     const hb = startHeartbeat("chart patterns", toCall.length);
     // Bounded concurrency so we don't burst ~137 image requests at once (that
@@ -30257,6 +30581,37 @@ function buildNarrativeUserMessage(chains, previousNames, macroHeadlines) {
   );
 }
 
+const requestedNarrativeExactCacheMs = Number(process.env.AI_NARRATIVE_EXACT_CACHE_MS ?? 6 * 3600000);
+const AI_NARRATIVE_EXACT_CACHE_MS = Number.isFinite(requestedNarrativeExactCacheMs)
+  ? Math.max(0, requestedNarrativeExactCacheMs)
+  : 6 * 3600000;
+
+export function narrativeInputSignature(userMessage, model = NARRATIVES_MODEL) {
+  return createHash("sha256")
+    .update("narratives-exact-v1\0")
+    .update(String(model || ""))
+    .update("\0")
+    .update(NARRATIVE_SYSTEM_PROMPT)
+    .update("\0")
+    .update(String(userMessage || ""))
+    .digest("hex");
+}
+
+export function canReuseNarrativeExtraction(
+  prior,
+  inputSig,
+  nowMs = Date.now(),
+  maxAgeMs = AI_NARRATIVE_EXACT_CACHE_MS,
+) {
+  if (!prior || prior.aiInputSig !== inputSig) return false;
+  if (!Array.isArray(prior.narratives) || !prior.narratives.length) return false;
+  if (prior.narratives.some((row) => row?.stale === true)) return false;
+  const generatedMs = Date.parse(prior.aiGeneratedAtIso || prior.builtAtIso || "");
+  if (!Number.isFinite(generatedMs)) return false;
+  const age = nowMs - generatedMs;
+  return age >= 0 && age <= maxAgeMs;
+}
+
 // Narrative extraction is a single critical call (vs the 65 per-ticker news
 // calls where one failure is acceptable), so we retry more aggressively here —
 // MORE attempts, not LONGER sleeps. The old schedule's 30/45/60s tail rungs
@@ -30269,8 +30624,8 @@ function buildNarrativeUserMessage(chains, previousNames, macroHeadlines) {
 const NARRATIVE_MAX_ATTEMPTS = 7;
 const NARRATIVE_RETRY_BACKOFF_MS = [3000, 6000, 10000, 15000, 15000, 15000];
 
-async function generateMarketNarratives(ai, chains, previousNames, macroHeadlines) {
-  const userMessage = buildNarrativeUserMessage(chains, previousNames, macroHeadlines);
+async function generateMarketNarratives(ai, chains, previousNames, macroHeadlines, preparedUserMessage = null) {
+  const userMessage = preparedUserMessage || buildNarrativeUserMessage(chains, previousNames, macroHeadlines);
   let response;
   let lastErr;
   for (let attempt = 0; attempt < NARRATIVE_MAX_ATTEMPTS; attempt++) {
@@ -30713,9 +31068,18 @@ async function attachMarketNarratives(chains, previousHistory, macroReleaseReads
   }));
   if (releaseItems.length) console.log(`  · ${releaseItems.length} same-day macro print(s) added to the digest`);
   const headlinesForPrompt = releaseItems.concat(macroHeadlines);
+  const narrativeUserMessage = buildNarrativeUserMessage(chains, previousNames, headlinesForPrompt);
+  const aiInputSig = narrativeInputSignature(narrativeUserMessage);
+  const lastGood = await loadLastGoodTrends();
   console.log(`Extracting market narratives across ${Object.keys(chains).length} tickers…`);
   try {
-    const raw = await generateMarketNarratives(ai, chains, previousNames, headlinesForPrompt);
+    const reused = canReuseNarrativeExtraction(lastGood, aiInputSig);
+    const raw = reused
+      ? { narratives: lastGood.narratives, sectorOverviews: lastGood.sectorOverviews || {} }
+      : await generateMarketNarratives(ai, chains, previousNames, headlinesForPrompt, narrativeUserMessage);
+    if (reused) {
+      console.log(`  [ai-cache] narratives exact-input reuse from ${lastGood.aiGeneratedAtIso || lastGood.builtAtIso}`);
+    }
     const builtAtIso = new Date().toISOString();
     const narratives = annotateNarrativesWithLifespan(raw.narratives, previousHistory, builtAtIso);
     const history = updateTrendHistory(previousHistory, narratives, builtAtIso);
@@ -30732,7 +31096,17 @@ async function attachMarketNarratives(chains, previousHistory, macroReleaseReads
       console.log(`    · ${n.name} [str ${n.strength}, ${n.status}, ${n.timeframe}, ${n.sentiment}, conf ${n.confidence}, day ${n.daysRunning}] long=${n.longs.join(",")||"—"} short=${n.shorts.join(",")||"—"}` +
         (n.conflictsWith.length ? ` ⚔ ${n.conflictsWith.join(" | ")}` : ""));
     }
-    return { narratives, sectorOverviews, recentlyEnded, history, macroHeadlines };
+    return {
+      narratives,
+      sectorOverviews,
+      recentlyEnded,
+      history,
+      macroHeadlines,
+      aiInputSig,
+      aiGeneratedAtIso: reused
+        ? (lastGood.aiGeneratedAtIso || lastGood.builtAtIso)
+        : builtAtIso,
+    };
   } catch (err) {
     const causeMsg = err?.cause?.code || err?.cause?.message || "";
     console.log(
@@ -30745,7 +31119,6 @@ async function attachMarketNarratives(chains, previousHistory, macroReleaseReads
     // and persist them back to trends.json — that way a SECOND failure can
     // still recover them. The history file is intentionally left unchanged:
     // history records what was extracted, not what was displayed.
-    const lastGood = await loadLastGoodTrends();
     const lastNarratives = lastGood && Array.isArray(lastGood.narratives) ? lastGood.narratives : [];
     const lastSectorOverviews = lastGood && lastGood.sectorOverviews && typeof lastGood.sectorOverviews === "object"
       ? lastGood.sectorOverviews
@@ -30774,6 +31147,8 @@ async function attachMarketNarratives(chains, previousHistory, macroReleaseReads
         recentlyEnded: Array.isArray(lastGood.recentlyEnded) ? lastGood.recentlyEnded : [],
         history: previousHistory,
         macroHeadlines,
+        aiInputSig: lastGood.aiInputSig || null,
+        aiGeneratedAtIso: lastGood.aiGeneratedAtIso || lastGood.builtAtIso || null,
       };
     }
     return { narratives: [], sectorOverviews: {}, recentlyEnded: [], history: previousHistory, macroHeadlines };
@@ -30947,10 +31322,9 @@ async function main() {
   // data/iv-history/ before writeChainFiles wipes the directory, then
   // returns an in-memory map to flush back after the wipe.
   const ivHistory = await collectIvHistory(chains);
-  // P1.6 — attach IV percentiles onto chains (reads the prior iv-history on disk,
-  // ≤1-day lag) BEFORE the wipe, so scoring/computeEntryTiming + the picks card see
-  // each name's real implied-vol rank. Mutates chains in-memory; survives the wipe.
-  await attachIvRanks(chains);
+  // Attach IV percentiles from the just-updated map so scoring and strategy
+  // selection use this run's ATM IV, not yesterday's persisted last sample.
+  await attachIvRanks(chains, ivHistory);
   // Earnings history — same read-before-wipe contract. The update pass needs
   // chains (live IV + straddle for the upcoming print, _bars for reactions)
   // and the just-collected ivHistory map (pre/post-print IV fills); the
@@ -30986,8 +31360,8 @@ async function main() {
   // before the wipe like the other cross-build histories.
   const priorIpoCredit = await readPriorIpoCredit();
   // Prior earnings-tracker snapshot — the season scoreboard is rebuilt from the
-  // earnings-history store every bake, but its AI season read is minted once
-  // per ET day and carried forward, so pre-read it before the wipe.
+  // earnings-history store every bake, while its AI read is reused only when
+  // the complete evidence/model/prompt signature is unchanged.
   const priorEarningsTracker = await readPriorEarningsTracker();
   // Prior earnings-calls index — the transcript summaries accumulate in the
   // private store (per-ticker details are upsert-only); the index that tracks
@@ -31179,6 +31553,22 @@ async function main() {
   console.log(`  · ${reportEvents.length} report rows (${macroReleaseReads.length} already printed in the last ${MACRO_RELEASE_LOOKBACK_DAYS}d)`);
   for (const r of macroReleaseReads) console.log(`    · ${r.line}`);
   const trends = await attachMarketNarratives(chains, previousHistory, macroReleaseReads);
+  const scoringNarratives = decisionNarratives(trends.narratives);
+  if (scoringNarratives.length !== trends.narratives.length) {
+    console.warn(
+      `[freshness] excluded ${trends.narratives.length - scoringNarratives.length} stale narrative(s) from grades, regime and picks`,
+    );
+  }
+  const scoringFearGreed = fearGreed?.stale === true ? null : fearGreed;
+  if (fearGreed?.stale === true) {
+    console.warn("[freshness] excluded stale Fear & Greed context from regime and AI brief inputs");
+  }
+  const scoringUnusual = scannerPayloadIsFresh(unusual, 90 * 60000) ? unusual : null;
+  const scoringVolumeFlags = scannerPayloadIsFresh(volumeFlags, 90 * 60000) ? volumeFlags : null;
+  const scoringOiTracker = scannerPayloadIsFresh(oiTracker, 12 * 3600000) ? oiTracker : null;
+  if (unusual && !scoringUnusual) console.warn("[freshness] excluded out-of-cadence unusual flow from scoring");
+  if (volumeFlags && !scoringVolumeFlags) console.warn("[freshness] excluded out-of-cadence volume flags from scoring");
+  if (oiTracker && !scoringOiTracker) console.warn("[freshness] excluded out-of-cadence OI tracker from scoring");
   const symbols = Object.keys(chains).sort();
   const spots = Object.fromEntries(symbols.map((s) => [s, chains[s].spot]));
   // Market backdrop — compact per-index snapshot for the Execute now? card so
@@ -31216,6 +31606,11 @@ async function main() {
     .sort()
     .slice(0, 2);
   const builtAtIso = new Date().toISOString();
+  // Recreate data/ before renderHtml writes its two manifest sidecars. The old
+  // order rendered first and then writeChainFiles removed data/ wholesale,
+  // which meant a direct `npm run build` finished without manifest.json or
+  // manifest-free.json; workflows only repaired that via a later regen pass.
+  const totalChainBytes = await writeChainFiles(chains, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE);
   const html = renderHtml({
     symbols,
     builtAt: nyTimestamp(),
@@ -31240,7 +31635,6 @@ async function main() {
   await writeFile(OUT, html, "utf8");
   await writeFile(resolve(ROOT, "styles.css"), css, "utf8");
   await writeFile(resolve(ROOT, "app.js"), js, "utf8");
-  const totalChainBytes = await writeChainFiles(chains, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE);
   if (searchInterestCarry) {
     await writeFile(resolve(DATA_DIR, "search-interest.json"), searchInterestCarry, "utf8");
   }
@@ -31346,6 +31740,8 @@ async function main() {
     macroHeadlines: trends.macroHeadlines || [],
     history: trends.history,
     builtAtIso,
+    aiInputSig: trends.aiInputSig || null,
+    aiGeneratedAtIso: trends.aiGeneratedAtIso || null,
   });
   if (unusual) {
     await writeFile(resolve(DATA_DIR, UNUSUAL_FILE), JSON.stringify(unusual), "utf8");
@@ -31380,7 +31776,7 @@ async function main() {
   // (tiered) flags.
   let ivTrendingForBrief = null;
   try {
-    const { payload: ivTrending, bytes: ivTrendingBytes } = await writeIvTrendingFile(ivHistory, chains);
+    const { payload: ivTrending, bytes: ivTrendingBytes } = await writeIvTrendingFile(ivHistory, chains, builtAtIso);
     ivTrendingForBrief = ivTrending;
     console.log(`wrote data/${IV_TRENDING_FILE} — ${ivTrending.tickers.length} ranked, ${ivTrending.trendingCount} trending, ${ivTrendingBytes} bytes`);
   } catch (err) {
@@ -31637,7 +32033,13 @@ async function main() {
     macroBackdrop.crossAsset = deriveGlobalTapeAxis(
       correlationsInfo?.payload?.stale ? null : (correlationsInfo?.payload?.markets || null),
     );
-    macroBackdrop.macroRegime = computeMacroRegime(macroBackdrop, fedwatchHistory, trends.narratives, fearGreed, trends.macroHeadlines);
+    macroBackdrop.macroRegime = computeMacroRegime(
+      macroBackdrop,
+      fedwatchHistory,
+      scoringNarratives,
+      scoringFearGreed,
+      trends.macroHeadlines,
+    );
     if (macroBackdrop.macroRegime && macroBackdrop.macroRegime.state !== "neutral") {
       const m = macroBackdrop.macroRegime;
       console.log(`  · market tape: ${m.state} (stress ${m.stress}, ${m.riskOffAxes} risk-off axes)${m.drivers.length ? ` — ${m.drivers.join(", ")}` : ""}`);
@@ -31716,7 +32118,10 @@ async function main() {
       sectors: SECTORS,
       kindOf: macroKindOf,
       profiles: MACRO_PROFILES,
-      spilloverMatrix: scenarioSpilloverMatrix,
+      spilloverMatrix:
+        scenarioSpilloverMatrix?.stale !== true && Array.isArray(scenarioSpilloverMatrix?.pairs)
+          ? scenarioSpilloverMatrix
+          : null,
     });
     if (macroBackdrop) macroBackdrop.scenarioEngine = scenarioEngine;
     console.log(
@@ -31735,18 +32140,18 @@ async function main() {
   // correlations sweep (tonight's fresh payload, falling back to the pre-wipe
   // snapshot if the foreign sweep came back too thin to write).
   const scannerExtras = {
-    oiTracker,
+    oiTracker: scoringOiTracker,
     // Trending-IV payload (written just above) — the AI final grader's prompt
     // cites each candidate's IV momentum (1d/5d/20d + rising streak) from it.
     ivTrending: ivTrendingForBrief,
-    flowLog: unusualLog,
-    correlations: correlationsInfo?.payload || priorCorrelations,
+    flowLog: scoringUnusual ? unusualLog : null,
+    correlations: correlationsInfo?.payload?.stale ? null : (correlationsInfo?.payload || null),
     // §9.6 IC bridge — per-signal forward IC from the prior accuracy stats, so the
     // cross-sectional weights can lean toward signals that have actually predicted.
     // No-op until gate-era outcomes accumulate (today: bySignal carries no IC).
     signalIc: buildSignalIcMap(picksAccuracyPrev?.stats?.bySignal),
   };
-  const picksInfo = await writeTopPicksFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, picksPrev, volumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, scannerExtras, picksAccuracyPrev?.open ?? null, true, thesisProseCachePrev, streaksInfo.map);
+  const picksInfo = await writeTopPicksFile(chains, scoringNarratives, builtAtIso, scoringUnusual, macroBackdrop, picksPrev, scoringVolumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, scannerExtras, picksAccuracyPrev?.open ?? null, true, thesisProseCachePrev, streaksInfo.map);
   // Persist the thesis-prose cache now that data/ has been recreated.
   await writePickThesisCache(picksInfo?.thesisProseCache || thesisProseCachePrev || {});
   console.log(`wrote data/picks.json — top ${picksInfo.count} picks, ${picksInfo.bytes} bytes`);
@@ -31755,8 +32160,8 @@ async function main() {
   // for names that don't clear the actionable threshold.
   // Build the grade index once and reuse it for the grades file, the grade-change
   // history diff, and the picks-accuracy checkpoint scores (avoids re-scoring).
-  const gradesIndex = buildGradesIndex(chains, trends.narratives, streaksInfo.map, unusual, macroBackdrop, volumeFlags, { priorGrades: gradesHistoryPrev?.latest ?? null, priorClosed: picksAccuracyPrev?.closed ?? null, ...scannerExtras });
-  const gradesInfo = await writeGradesFile(chains, trends.narratives, builtAtIso, unusual, macroBackdrop, volumeFlags, gradesIndex);
+  const gradesIndex = buildGradesIndex(chains, scoringNarratives, streaksInfo.map, scoringUnusual, macroBackdrop, scoringVolumeFlags, { priorGrades: gradesHistoryPrev?.latest ?? null, priorClosed: picksAccuracyPrev?.closed ?? null, ...scannerExtras });
+  const gradesInfo = await writeGradesFile(chains, scoringNarratives, builtAtIso, scoringUnusual, macroBackdrop, scoringVolumeFlags, gradesIndex);
   console.log(`wrote data/grades.json — ${gradesInfo.count} tickers, ${gradesInfo.bytes} bytes`);
   // Shares-only Stock Picks (premium tab): the deterministic quality-dip
   // screen over the same universe, reusing the grade index just built.
@@ -31988,8 +32393,9 @@ async function main() {
         : null,
     };
     const briefRes = await buildMarketBriefs({
-      briefsPrev, builtAtIso, chains, fearGreed, macro: macroBackdrop,
-      correlations: briefCorrelations, unusual, picks: picksForBrief, calendar: calForBrief,
+      briefsPrev, builtAtIso, chains, fearGreed: scoringFearGreed, macro: macroBackdrop,
+      correlations: briefCorrelations?.stale ? null : briefCorrelations,
+      unusual: scoringUnusual, picks: picksForBrief, calendar: calForBrief,
       rfr: riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksChanges: churnEventsForBrief,
       // The same filtered press/wire slate the narrative engine just read —
       // the brief's tape-driver input (fetched fresh by this bake).
@@ -32033,7 +32439,7 @@ async function main() {
   // belt-and-suspenders setup, a slow OpenFIGI throttle (~2.5s × dozens of
   // batches per firm) can blow past the workflow budget and leave the
   // file deleted in the next commit.
-  const baselineInfo = await write13FFile(chains, trends.narratives, builtAtIso, f13Empty);
+  const baselineInfo = await write13FFile(chains, scoringNarratives, builtAtIso, f13Empty);
   console.log(`wrote data/13f.json (baseline) — ${baselineInfo.positions} biggest positions, ${baselineInfo.bytes} bytes`);
   // The enrichment work + its 240s timeout race were kicked off concurrently up
   // near attachMarketNarratives so they overlapped the narratives/calendar/scoring
@@ -32058,7 +32464,7 @@ async function main() {
   const form4Count = perFirmResult.insiderTransactions?.transactionCount || 0;
   console.log(`  · ${realFirms}/${totalFirms} firms returned QoQ deltas (overall: ${perFirmResult.overallTopBought.length} buys / ${perFirmResult.overallTopSold.length} sells); ${form4Count} recent Form 4 transactions`);
   if (realFirms > 0 || form4Count > 0) {
-    const f13Info = await write13FFile(chains, trends.narratives, builtAtIso, perFirmResult);
+    const f13Info = await write13FFile(chains, scoringNarratives, builtAtIso, perFirmResult);
     console.log(`wrote data/13f.json (enriched) — ${f13Info.positions} biggest positions, ${f13Info.bytes} bytes`);
   } else {
     console.log("keeping baseline data/13f.json — EDGAR returned no usable holdings or Form 4 transactions.");
@@ -32070,10 +32476,27 @@ async function main() {
   await writeAiHealthReport();
 }
 
-async function writeTrendFiles({ narratives, sectorOverviews, recentlyEnded, macroHeadlines, history, builtAtIso }) {
+async function writeTrendFiles({
+  narratives,
+  sectorOverviews,
+  recentlyEnded,
+  macroHeadlines,
+  history,
+  builtAtIso,
+  aiInputSig = null,
+  aiGeneratedAtIso = null,
+}) {
   // writeChainFiles wiped data/ a moment ago, so write into the freshly
   // recreated directory.
-  const current = JSON.stringify({ builtAtIso, narratives, sectorOverviews: sectorOverviews || {}, recentlyEnded, macroHeadlines });
+  const current = JSON.stringify({
+    builtAtIso,
+    aiInputSig,
+    aiGeneratedAtIso,
+    narratives,
+    sectorOverviews: sectorOverviews || {},
+    recentlyEnded,
+    macroHeadlines,
+  });
   await writeFile(resolve(DATA_DIR, TRENDS_FILE), current, "utf8");
   const archive = JSON.stringify({ builtAtIso, days: NARRATIVE_HISTORY_DAYS, snapshots: history });
   await writeFile(resolve(DATA_DIR, TRENDS_HISTORY_FILE), archive, "utf8");

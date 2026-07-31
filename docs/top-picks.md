@@ -62,7 +62,8 @@ chip on the card (`{key,label,score,value,note}`).
 RSI movement (±1), RSI extreme reading (contrarian, ±3, reversal-confirmed),
 MACD (±1), moving-average trend (±1), streak (±1), support/resistance break
 (±2), 52-week position (contrarian, ±1), volume confirmation (±1), confirmed
-chart pattern (±1).
+chart pattern (±1 only while the exact analyzed 30-minute bars still match;
+forming or changed-bar cached reads score 0).
 
 **Mechanicals** (order flow leads price short-term):
 unusual options flow (±1), open-interest call/put skew (±1), short interest
@@ -305,6 +306,15 @@ The decision tree is checked top-down (first match wins):
 | 2 | Strong tier (`|total| ≥ 7`) **and** thesis tier `strong` **and** IV **not elevated** (neither z nor pctile in the credit band) + no event | **naked long** | **Rare.** Exceptional, multi-signal conviction *and* a strong thesis with low IV → a single long for max delta/gamma + uncapped upside. |
 | 3 | Everything else — moderate conviction/thesis, **or** a strong view into elevated-but-event-blocked IV, **or** an imminent event/earnings | **debit vertical** | The default: long near-money financed by a short OTM wing (same side). Caps theta/vega + the premium at risk; defined-risk into events (a naked long eats the IV crush, a credit spread eats the gap). |
 
+The IV percentile/z-score is computed from the in-memory history only after this
+build's ATM ~30-day IV sample has been upserted. A sample must have a plausible
+IV (2%-500%) backed by a positive two-sided bid/ask; Yahoo's premarket/opening
+placeholders (`bid=ask=0`, often with IV near zero) cannot enter IV history,
+skew, term structure, or the debit-versus-credit decision. Each observation has
+`capturedAtIso`, and each shipped rank carries its `asOf` date. If the current
+chain cannot produce a usable ATM IV, the rank is omitted from live scoring
+instead of reusing yesterday's premium regime.
+
 A binary **event/earnings within `PICKS_STRATEGY_EARNINGS_DAYS` (21d)** (or an active macro `eventRisk`) forces row 3 — defined-risk only, no naked long into the IV crush, no credit spread into the gap. A `none` pick carries **no contract** and is never enrolled in the track record (nothing to mark).
 
 > **Why the book skews all-debit (and how to see it).** The active-macro-`eventRisk` half of that gate is the dominant reason the engine rarely actually *sells* premium: a market-wide print (NFP/CPI/FOMC) inside the 5-day window sets `eventRisk.active` for the **whole book**, diverting **every** elevated-IV name from row 1 (credit) to row 3 (a long-premium debit). Since macro prints cluster ~monthly, a large fraction of bakes ship all-debit even when the z-score flags premium as richest. `buildTopPicks` now records this every bake in `rosterMeta.strategyMix` (the structure mix shipped) + `rosterMeta.creditDeferred` (each elevated-IV name that shipped non-credit, tagged `why: "fallback"` vs `"event-defer"`). The **default-OFF** `PICKS_CREDIT_INTO_MACRO_EVENT=1` flag lets a *defined-risk* credit spread fire through a market-wide macro event (it benefits from the post-print IV crush) while still deferring single-name **earnings** and never relaxing the naked-long gate. Validate it on **resolved** picks before flipping — see §11.
@@ -520,12 +530,13 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   grade) so every grade is held to that bar — the oil example also models the
   IV→structure logic (debit when IV is reasonable; the gold example sells a credit
   spread because gold IV is rich). (A bumped
-  `THESIS_PROMPT_VERSION` in the cache signature re-reads every cached thesis once
-  on a schema/prompt change; legacy `reasoning`-only payloads still render.) It is fed the
+  `THESIS_PROMPT_VERSION` remains a manual shape version, while the exact
+  model/system-prompt/schema hash automatically invalidates instruction changes;
+  legacy `reasoning`-only payloads still render.) It is fed the
   WHOLE picture per name — since 2026-07-10 the **full evidence table**: every
   scored signal across the four pillars, each with its display value and marked
   FOR/AGAINST the trade ("!" = a heavy vote), the technical structure & levels
-  (SMAs, nearest support/resistance, rvol, any confirmed chart pattern, the
+  (SMAs, nearest support/resistance, rvol, any confirmed current-bar chart pattern, the
   daily streak), the **earnings track record** (recent prints' EPS surprise vs
   the next-session move + the upcoming print's straddle-implied move from
   `earningsHx`), the **pre-earnings drift** (2026-07-16: when the upcoming print
@@ -600,14 +611,13 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   checklist }`, §9a) + matrix **`classification` / `group`**, a `conviction` label,
   **`hasSolidThesis`**, and the honest **`disclosure`**. The AI thesis degrades
   gracefully without `GEMINI_API_KEY` (the deterministic `marketRead` + card stand
-  alone) and is cached per `symbol:side` in `pick-thesis-cache.json` on a signature
-  that turns over with the grade (2-point conviction buckets), the drivers, the
-  relevant macro axes, the news take's *direction* + dated-catalyst set (not the
-  paragraph wording — a text hash re-graded liquid roster names every bake on
-  same-conclusion rewording), the IV bucket, the deterministic entry state (so the entry verdict
-  re-reads when the entry picture changes), **and the ET date** — the grader is
-  web-grounded, so a cached verdict never outlives the trading day its research
-  ran on (read-before-wipe / write-after, **not** written by the offline
+  alone) and is cached per `symbol:side` in `pick-thesis-cache.json` only for
+  exact duplicate/retry builds: v9 hashes the full base prompt, all current
+  headlines, complete macro calendar, IV momentum, research query, both model
+  configurations, system prompt, and schema. The default 20-minute lifetime is
+  shorter than even the 09:30→10:00 scheduled gap, so every normal build runs
+  current web research and a fresh full-Flash grade/entry decision
+  (read-before-wipe / write-after, **not** written by the offline
   `regen-picks`). The browser renders a **scannable head** (the AI summary
   + classification badge + strategy chip *or* "no recommendation" note + conviction
   + the AI confidence + disclosure) and a collapsed **"Expand for full reasoning"**
