@@ -31,7 +31,9 @@ try {
   assert.ok(ideasNav, "Ideas navigation group must render");
   assert.doesNotMatch(ideasNav, /data-page-tab="(?:picks|stocks|rotation|levetf|track)"/);
   assert.match(html, /href="https:\/\/ko-fi\.com\/mingstreetapp"/);
-  assert.match(html, /\/_vercel\/insights\/script\.js/);
+  assert.match(html, /window\.va=window\.va\|\|function\(\)\{/);
+  assert.equal((html.match(/\/_vercel\/insights\/script\.js/g) || []).length, 1);
+  assert.match(html, /<script defer data-disable-auto-track="1" src="\/_vercel\/insights\/script\.js"><\/script>/);
 
   const appJs = renderAppJs({});
   assert.match(appJs, /function loadOwnerTools\(\)[\s\S]*?loadStocks\(\);[\s\S]*?loadSectorRotation\(\);[\s\S]*?loadLevEtf\(\);/);
@@ -44,6 +46,14 @@ try {
   assert.match(appJs, /HAS_OWNER_ACCESS = !!\(GATE_ON && me && me\.trackRecord && me\.topPicks\)/);
   assert.match(appJs, /if \(OWNER_TABS\[name\] && !HAS_OWNER_ACCESS\)/);
   assert.match(appJs, /if \(!HAS_OWNER_ACCESS\) return;[\s\S]*?fetch\(dataUrl\('auto-picks\.json'\)/);
+  assert.match(appJs, /var lastAnalyticsTabPath = null;[\s\S]*?function trackPageTab\(name\)\{[\s\S]*?var path = '\/tabs\/' \+ name;[\s\S]*?if \(path === lastAnalyticsTabPath \|\| typeof window\.va !== 'function'\) return;[\s\S]*?window\.va\('pageview', \{ path: path \}\);[\s\S]*?lastAnalyticsTabPath = path;/);
+  assert.match(appJs, /syncTabToUrl\(name, !!\(nav && nav\.replace\)\);\s*trackPageTab\(name\);/);
+
+  const welcomeSource = await readFile(resolve("welcome.html"), "utf8");
+  assert.match(welcomeSource, /window\.va=window\.va\|\|function\(\)\{/);
+  assert.equal((welcomeSource.match(/\/_vercel\/insights\/script\.js/g) || []).length, 1);
+  assert.match(welcomeSource, /<script defer src="\/_vercel\/insights\/script\.js"><\/script>/);
+  assert.doesNotMatch(welcomeSource, /data-disable-auto-track/);
 
   for (const key of ["grades.json", "TSLA.json", "trends.json", "trends-history.json", "market-analysis.json", "briefs.json", "earnings-tracker.json", "index-calendar.json", "spillover-pairs.json", "unusual.json", "oi-tracker.json", "iv-history/TSLA.json", "manifest.json"]) {
     assert.equal(isPremiumKey(key), false, `${key} must take the public cache path`);

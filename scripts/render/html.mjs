@@ -2419,7 +2419,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 </div>
 <script>window.STONKS_MANIFEST=${manifestPayload};<\/script>
 <script>window.va=window.va||function(){(window.vaq=window.vaq||[]).push(arguments)};<\/script>
-<script defer src="/_vercel/insights/script.js"></script>
+<script defer data-disable-auto-track="1" src="/_vercel/insights/script.js"></script>
 <script src="app.js?v=${cacheBust}" defer></script>
 <script type="module" src="js/streaks.js?v=${cacheBust}"></script>
 </body>

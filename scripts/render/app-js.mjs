@@ -3418,6 +3418,20 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     } catch (_) {}
     return tab;
   }
+  // Vercel's static analytics loader only auto-counts pathname changes, while
+  // this SPA navigates with ?tab=. The HTML shell disables that auto tracker;
+  // report one synthetic page per canonical tab so the Pages report separates
+  // Home, Brief, Grade, etc. The consecutive-path guard avoids double counts
+  // when boot re-selects a pane or the active tab is clicked again.
+  var lastAnalyticsTabPath = null;
+  function trackPageTab(name){
+    var path = '/tabs/' + name;
+    if (path === lastAnalyticsTabPath || typeof window.va !== 'function') return;
+    try {
+      window.va('pageview', { path: path });
+      lastAnalyticsTabPath = path;
+    } catch (_) {}
+  }
   // Sidebar page tabs (Home / Tickers / Narratives / … / Terms). The active
   // tab is mirrored into ?tab= so bookmarks and back/forward resume the view.
   function bindPageTabs(){
@@ -3626,6 +3640,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       // is the point, not the menu.
       closeSideNavDrawer();
       syncTabToUrl(name, !!(nav && nav.replace));
+      trackPageTab(name);
       // A tab hop lands at the top of the destination pane — the scroll depth
       // of a long previous tab (e.g. a Brief ticker chip clicked from way down
       // the page) otherwise carries over and the new tab opens mid/bottom.
