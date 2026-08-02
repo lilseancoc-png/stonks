@@ -23560,6 +23560,36 @@
       if (tab) tab.click();
     });
   }
+  function briefToolScanPanel(b){
+    var scan = b && b.toolScan;
+    if (!scan || !Array.isArray(scan.checked)) return '';
+    var rows = Array.isArray(scan.standouts) ? scan.standouts : [];
+    var coverageCount = scan.checked.length + (Array.isArray(scan.coreChecked) ? scan.coreChecked.length : 0);
+    var coverage = coverageCount + (scan.total ? '/' + scan.total : '') + ' live desks checked';
+    var missing = Array.isArray(scan.missing) && scan.missing.length
+      ? ' · ' + scan.missing.length + ' unavailable or stale'
+      : '';
+    var body = '';
+    if (rows.length){
+      body = '<div class="brief-toolscan-grid">' + rows.map(function(row){
+        var tone = (row.tone === 'positive' || row.tone === 'risk' || row.tone === 'watch') ? row.tone : 'info';
+        var syms = Array.isArray(row.symbols) && row.symbols.length
+          ? '<span class="brief-toolscan-syms">' + row.symbols.map(function(sym){ return briefEsc(sym); }).join(' · ') + '</span>'
+          : '';
+        return '<article class="brief-toolscan-row is-' + tone + '">' +
+          '<button type="button" class="brief-toolscan-source" data-brief-go="' + briefEsc(row.tab || 'home') + '">' + briefEsc(row.source || 'Site tool') + '</button>' +
+          '<p>' + briefEsc(row.text || '') + '</p>' + syms +
+        '</article>';
+      }).join('') + '</div>';
+    } else {
+      body = '<p class="brief-toolscan-quiet">No additional cross-tool signal cleared the materiality bar this hour.</p>';
+    }
+    return '<section class="brief-toolscan" aria-label="Cross-tool standouts">' +
+      '<header><div><span class="brief-toolscan-kicker">Across the site</span><h4>What the other tools are flagging</h4></div>' +
+      '<span class="brief-toolscan-count" title="Every current evidence desk available to this Brief tier was checked; quiet desks emit no filler.">' + briefEsc(coverage + missing) + '</span></header>' +
+      body +
+    '</section>';
+  }
   function renderBriefCard(b){
     if (!b) return '';
     var when = '';
@@ -23575,6 +23605,7 @@
     '</header>';
     var summary = b.summary ? '<p class="brief-summary">' + briefEsc(b.summary) + '</p>' : '';
     var stats = briefStatStrip(b);
+    var toolScan = briefToolScanPanel(b);
     var highlights = '';
     if (Array.isArray(b.highlights) && b.highlights.length){
       highlights = '<ul class="brief-highlights">' + b.highlights.map(function(h){
@@ -23770,7 +23801,7 @@
     var blocksHtml = blocks.filter(Boolean).join('');
     var evidenceHtml = blocksHtml ? '<details class="brief-evidence"><summary>Open evidence &amp; watchlists <span>' + blocks.filter(Boolean).length + ' sections</span></summary><div class="brief-blocks">' + blocksHtml + '</div></details>' : '';
     return '<article class="brief-card" data-kind="' + briefEsc(b.kind || '') + '">' +
-      head + briefDecisionCard(b) + summary + highlights + stats + evidenceHtml +
+      head + briefDecisionCard(b) + summary + highlights + toolScan + stats + evidenceHtml +
     '</article>';
   }
   // Real hyperlink target for a ticker jump — the Grade tab's ?s= deep link.

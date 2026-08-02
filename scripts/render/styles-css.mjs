@@ -22429,6 +22429,36 @@ button.vol-cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring)
   color: var(--accent);
 }
 .brief-hl-text { flex: 1 1 200px; }
+.brief-toolscan {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 13px;
+  border: 1px solid color-mix(in srgb, var(--info) 30%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--info) 4%, var(--surface));
+}
+.brief-toolscan > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.brief-toolscan-kicker { display: block; margin-bottom: 4px; color: var(--info); font: 700 9px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; }
+.brief-toolscan h4 { margin: 0; color: var(--text-strong); font: 750 15px/1.25 var(--font-sans); }
+.brief-toolscan-count { flex: 0 0 auto; color: var(--muted); font: 650 9px/1.25 var(--font-mono); text-transform: uppercase; letter-spacing: .04em; text-align: right; }
+.brief-toolscan-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.brief-toolscan-row {
+  display: grid; grid-template-columns: minmax(92px, auto) minmax(0, 1fr); align-items: start; gap: 6px 10px;
+  min-width: 0; padding: 9px 10px;
+  border: 1px solid var(--border); border-left: 2px solid var(--info); border-radius: 8px;
+  background: var(--surface);
+}
+.brief-toolscan-row.is-positive { border-left-color: var(--pos); }
+.brief-toolscan-row.is-risk { border-left-color: var(--neg); }
+.brief-toolscan-row.is-watch { border-left-color: var(--warn); }
+.brief-toolscan-source {
+  appearance: none; justify-self: start; padding: 0; border: 0; background: none;
+  color: var(--info); font: 700 9px/1.35 var(--font-mono); letter-spacing: .05em; text-transform: uppercase;
+  text-align: left; cursor: pointer;
+}
+.brief-toolscan-source:hover, .brief-toolscan-source:focus-visible { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.brief-toolscan-row p { margin: 0; color: var(--text); font: 500 11px/1.45 var(--font-sans); overflow-wrap: anywhere; }
+.brief-toolscan-syms { grid-column: 2; color: var(--muted); font: 650 9px/1.2 var(--font-mono); letter-spacing: .03em; }
+.brief-toolscan-quiet { margin: 0; color: var(--muted); font: 500 11px/1.45 var(--font-sans); }
 /* Detailed data blocks, grouped below the story behind a rule so the prose
    (headline / summary / takeaways) reads first. */
 .brief-blocks {
@@ -22516,6 +22546,10 @@ a.brief-hline-title:hover .brief-hline-ext { color: var(--accent-strong); }
   .brief-decision-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
   .brief-decision-actions button { min-height: 40px; }
   .brief-hl-label { flex-basis: 100%; }
+  .brief-toolscan > header { flex-direction: column; }
+  .brief-toolscan-count { text-align: left; }
+  .brief-toolscan-grid { grid-template-columns: minmax(0, 1fr); }
+  .brief-toolscan-row { grid-template-columns: minmax(82px, auto) minmax(0, 1fr); }
 }
 
 /* ── News desk ───────────────────────────────────────────────────────── */

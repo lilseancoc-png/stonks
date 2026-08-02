@@ -26427,6 +26427,35 @@ const BRIEF_RATE_SIG_BP = 5;
 // in the index scorecard / levels blocks, not the single-name watchlist).
 const BRIEF_WATCH_MAX = 6;
 const BRIEF_WATCH_EXCLUDE = new Set(["SPY", "QQQ", "IWM", "DIA"]);
+// Cross-tool desk scan. The brief should be the site's front desk, not a
+// parallel mini-dashboard that only re-computes price movers. These are the
+// live, evidence-producing tabs whose baked payloads exist by the time the
+// hourly brief runs. Reference/manual tabs are intentionally absent, as are
+// Track Record and Quant: those payloads have stricter role gates than Briefs,
+// so copying their facts into briefs.json would bypass that access boundary.
+const BRIEF_TOOL_STANDOUT_MAX = 10;
+const BRIEF_TOOL_SOURCES = [
+  { key: "market", file: "market-analysis.json", label: "Market analysis", tab: "market", maxAgeHours: 30 },
+  { key: "stocks", file: "stock-picks.json", label: "Stock picks", tab: "stocks", maxAgeHours: 30 },
+  { key: "rotation", file: "sector-rotation.json", label: "Sector rotation", tab: "rotation", maxAgeHours: 30 },
+  { key: "levetf", file: "leveraged-etfs.json", label: "Leveraged ETFs", tab: "levetf", maxAgeHours: 30 },
+  { key: "earnings", file: "earnings-tracker.json", label: "Earnings tracker", tab: "earnings", maxAgeHours: 30 },
+  { key: "calls", file: "earnings-calls.json", label: "Earnings calls", tab: "calls", maxAgeHours: 30 },
+  { key: "spillover", file: "spillover-pairs.json", label: "Event spillover", tab: "spillover", maxAgeHours: 30 },
+  { key: "index-calendar", file: "index-calendar.json", label: "Index calendar", tab: "index-calendar", maxAgeHours: 30 },
+  { key: "heatmap", file: "heatmap.json", label: "Heatmap", tab: "heatmap", maxAgeHours: 30 },
+  { key: "volume", file: "volume-flags.json", label: "Volume", tab: "volume", maxAgeHours: 3 },
+  { key: "oi", file: "oi-tracker.json", label: "Gamma exposure", tab: "oi", maxAgeHours: 14 },
+  { key: "streaks", file: "streaks.json", label: "Streaks", tab: "streaks", maxAgeHours: 30 },
+  { key: "commodities", file: "commodities.json", label: "Commodities", tab: "commodities", maxAgeHours: 48 },
+  { key: "raises", file: "capital-raises.json", label: "Capital raises", tab: "capital-raises", maxAgeHours: 48 },
+  { key: "credit", file: "ipo-credit.json", label: "IPOs & credit", tab: "ipo-credit", maxAgeHours: 48 },
+  { key: "capex", file: "ai-capex.json", label: "AI CapEx", tab: "ai-capex", maxAgeHours: 48 },
+  { key: "ram", file: "ram-prices.json", label: "RAM prices", tab: "ram-prices", maxAgeHours: 48 },
+  { key: "accelerators", file: "accelerator-prices.json", label: "GPU cloud prices", tab: "accelerator-prices", maxAgeHours: 48 },
+  { key: "search", file: "search-interest.json", label: "Search interest", tab: "search-interest", maxAgeHours: 240 },
+  { key: "ownership", file: "13f.json", label: "SEC ownership", tab: "f13", maxAgeHours: 24 * 120 },
+];
 
 // ET wall-clock hour (0-23), DST-safe. build.mjs already has etDateKey(); this
 // is its hour sibling, used only by the brief window gating.
@@ -26839,12 +26868,200 @@ export function buildBriefWatchlist(ctx) {
   return rows.slice(0, BRIEF_WATCH_MAX).map(({ score, ...w }) => w);
 }
 
+function briefToolStamp(payload) {
+  return payload?.scannedAt || payload?.updatedAt || payload?.updatedAtIso ||
+    payload?.generatedAtIso || payload?.builtAtIso || payload?.builtAt || null;
+}
+
+function briefToolSourceIsCurrent(source, payload, nowMs = Date.now()) {
+  if (!payload || payload.stale === true) return false;
+  if (!Number.isFinite(source.maxAgeHours)) return true;
+  const stamp = briefToolStamp(payload);
+  if (!stamp) return true; // some accumulated payloads predate source stamps
+  const ms = Date.parse(stamp);
+  return !Number.isFinite(ms) || nowMs - ms <= source.maxAgeHours * 3600000;
+}
+
+function briefToolClean(text, max = 230) {
+  const s = String(text || "").replace(/\s+/g, " ").trim();
+  if (!s) return "";
+  return s.length > max ? s.slice(0, max - 1).trim() + "…" : s;
+}
+
+function briefToolPct(v, digits = 1) {
+  if (v == null || v === "") return null;
+  return Number.isFinite(Number(v)) ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(digits)}%` : null;
+}
+
+// Turn the payload of one site desk into zero or more MATERIAL facts. A tool
+// that found nothing stays in `checked` but emits no fact; quiet is a result,
+// not filler. Importance ranks presentation only and is never shown as a score.
+function briefToolFacts(source, p, kind) {
+  const facts = [];
+  const add = (text, importance, tone = "info", symbols = []) => {
+    const clean = briefToolClean(text);
+    if (!clean) return;
+    facts.push({ source: source.label, tab: source.tab, text: clean, importance, tone, symbols: symbols.filter(Boolean).slice(0, 4) });
+  };
+
+  if (source.key === "market") {
+    const r = p.macroRegime;
+    if (r && r.state && r.state !== "neutral") {
+      add(r.summary || `${r.state} tape${Array.isArray(r.drivers) && r.drivers.length ? ` — ${r.drivers.join(", ")}` : ""}`,
+        /severe/.test(r.state) ? 100 : 88, /off/.test(r.state) ? "risk" : "positive");
+    }
+    const d = p.scenarioEngine?.decision;
+    if (d && Number(d.grossMultiplier) < 1) add(d.note || `Scenario engine caps gross at ${Math.round(d.grossMultiplier * 100)}%.`, 86, "risk");
+  } else if (source.key === "stocks") {
+    const c = (p.candidates || []).find((r) => r?.clean);
+    if (c) add(`${c.symbol} is the leading clean quality-dip setup: ${c.fired || 0} dip reads, score ${c.dipScore ?? "n/a"}${c.execution?.action?.label ? `; ${c.execution.action.label}` : ""}.`, 82, "positive", [c.symbol]);
+  } else if (source.key === "rotation") {
+    const c = (p.candidates || []).find((r) => r?.phase === "confirmed" || r?.phase === "first-thrust");
+    if (c) add(`${c.symbol} is a ${String(c.phase).replace("-", " ")} rebound in ${c.group?.label || c.group?.key || c.sector || "its peer group"}${c.plan?.state ? `; entry read ${c.plan.state}` : ""}.`, c.phase === "confirmed" ? 86 : 76, "positive", [c.symbol]);
+  } else if (source.key === "levetf") {
+    const idea = (p.ideas || []).find((r) => r?.tier === "strong" || r?.entry?.state === "go" || r?.entry?.state === "ready") || (p.ideas || [])[0];
+    if (idea) add(`${idea.etf} expresses a ${idea.direction} ${idea.under?.symbol || idea.label || idea.group || "market"} view at ${idea.leverage || "leveraged"} exposure${idea.entry?.state ? `; entry ${idea.entry.state}` : ""}${idea.tape === "against" ? " and it fights the tape" : ""}.`, idea.tape === "against" ? 74 : 80, idea.direction === "bear" ? "risk" : "positive", [idea.under?.symbol, idea.etf]);
+  } else if (source.key === "earnings") {
+    const ai = p.ai;
+    if (ai?.headline && ai?.tone && ai.tone !== "mixed") add(`${ai.headline}${ai.summary ? ` — ${ai.summary}` : ""}`, 77, ai.tone === "positive" ? "positive" : "risk", (ai.standouts || []).map((x) => x.ticker));
+    const u = (p.upcoming || []).slice().sort((a, b) => Math.max(Math.abs(b.pre10Pct || 0), b.impliedMovePct || 0) - Math.max(Math.abs(a.pre10Pct || 0), a.impliedMovePct || 0))[0];
+    if (u && (Math.abs(u.pre10Pct || 0) >= 10 || Number(u.impliedMovePct) >= 8)) add(`${u.sym} reports ${u.date}${u.session ? ` ${u.session}` : ""}: ${u.pre10Pct != null ? `${briefToolPct(u.pre10Pct)} over 10 sessions` : ""}${u.pre10Pct != null && u.impliedMovePct != null ? ", " : ""}${u.impliedMovePct != null ? `±${u.impliedMovePct}% implied` : ""}.`, 80, "watch", [u.sym]);
+  } else if (source.key === "calls") {
+    const rows = Object.entries(p.calls || {}).map(([sym, row]) => ({ sym, ...row })).sort((a, b) => String(b.callDate || b.updatedAt || "").localeCompare(String(a.callDate || a.updatedAt || "")));
+    const c = rows.find((r) => r.headline && r.callDate && Date.now() - Date.parse(r.callDate + "T20:00:00Z") <= 4 * 86400000);
+    if (c) add(`${c.sym} call: ${c.headline}${c.mgmtTone ? ` (management ${c.mgmtTone})` : ""}.`, 75,
+      ["confident", "optimistic"].includes(c.mgmtTone) ? "positive" : ["cautious", "defensive"].includes(c.mgmtTone) ? "risk" : "watch", [c.sym]);
+  } else if (source.key === "spillover") {
+    const e = (p.upcoming || []).find((r) => r?.daysUntil <= 3 && r?.isolation?.status !== "conflict" && (r.followers || []).some((f) => f.pairQualified));
+    if (e) {
+      const followers = (e.followers || []).filter((f) => f.pairQualified).slice(0, 3).map((f) => f.follower);
+      add(`${e.driver} earnings in ${e.daysUntil}d has qualified historical read-throughs to ${followers.join(", ")}${e.impliedMovePct != null ? ` off a ±${e.impliedMovePct}% implied move` : ""}.`, 83, "watch", [e.driver, ...followers]);
+    }
+  } else if (source.key === "index-calendar") {
+    const day = (p.days || []).findLast((d) => d?.date === etDateKey());
+    const rows = [["SPY", day?.spy], ["QQQ", day?.qqq], ["IWM", day?.iwm]]
+      .map(([symbol, row]) => ({ symbol, session: row?.session }))
+      .filter((x) => x.session?.firstHourComplete)
+      .sort((a, b) => Math.max(Math.abs(b.session.firstHourRetPct || 0), b.session.firstHourRvol || 0) - Math.max(Math.abs(a.session.firstHourRetPct || 0), a.session.firstHourRvol || 0));
+    const x = rows.find((r) => Math.abs(r.session.firstHourRetPct || 0) >= 0.75 || Number(r.session.firstHourRvol) >= 1.5);
+    if (x) {
+      const s = x.session;
+      add(`${x.symbol}'s first hour moved ${briefToolPct(s.firstHourRetPct)}${s.firstHourRvol != null ? ` on ${Number(s.firstHourRvol).toFixed(1)}x normal first-hour volume` : ""}${kind === "afternoon" && s.outcomeAfterFirstHour ? `, then ${String(s.outcomeAfterFirstHour).replaceAll("-", " ")}` : ""}.`, 76, s.firstHourRetPct < 0 ? "risk" : "positive", [x.symbol]);
+    }
+  } else if (source.key === "heatmap") {
+    if (kind === "afternoon" && p.eodSummary?.headline &&
+        (!p.eodSummary.date || p.eodSummary.date === etDateKey())) {
+      add(`${p.eodSummary.headline}${p.eodSummary.stats?.avgChangeWeighted != null ? ` Cap-weighted breadth ${briefToolPct(p.eodSummary.stats.avgChangeWeighted)}.` : ""}`, 79, "watch");
+    }
+  } else if (source.key === "volume") {
+    const rows = (p.tickers || []).map((r) => {
+      const sr = (r.bucketHits || []).find((h) => h?.srBreak && h.srBreak.conviction && h.srBreak.conviction !== "None");
+      const best = Math.max(r.eod?.ratio || 0, ...(r.bucketHits || []).map((h) => h?.volRatio || 0));
+      return { r, sr, best };
+    }).sort((a, b) => Number(!!b.sr) - Number(!!a.sr) || b.best - a.best)[0];
+    if (rows && (rows.sr || rows.best >= 2.5)) add(`${rows.r.symbol} volume reached ${rows.best.toFixed(1)}x expected${rows.sr ? ` and confirmed a ${rows.sr.srBreak.type} break of ${rows.sr.srBreak.level}` : ""}.`, rows.sr ? 88 : 76, rows.sr?.srBreak?.type === "lower" ? "risk" : rows.sr ? "positive" : "watch", [rows.r.symbol]);
+  } else if (source.key === "oi") {
+    const r = (p.tickers || []).filter((x) => x?.flagged).sort((a, b) => (b.score || 0) - (a.score || 0))[0];
+    if (r) add(`${r.symbol} has the strongest OI/gamma flag: ${(r.reasons || []).slice(0, 2).map((x) => x.label).filter(Boolean).join("; ")}.`, 82, "watch", [r.symbol]);
+  } else if (source.key === "streaks") {
+    const r = (p.tickers || []).filter((x) => x?.current && (x.current.sameDays >= 5 || Math.abs(x.current.cumulativePct || 0) >= 10)).sort((a, b) => Math.abs(b.current.cumulativePct || 0) - Math.abs(a.current.cumulativePct || 0))[0];
+    if (r) add(`${r.symbol} is on a ${r.current.sameDays}-session ${r.current.color} streak totaling ${briefToolPct(r.current.cumulativePct)}${r.current.volumeTrend ? ` on ${r.current.volumeTrend} volume` : ""}.`, 72, r.current.color === "green" ? "positive" : "risk", [r.symbol]);
+  } else if (source.key === "commodities") {
+    const rows = (p.items || []).filter((x) => !x.stale).flatMap((x) => (x.changes || []).map((c) => ({ x, c }))).filter((r) => Number.isFinite(r.c.pct)).sort((a, b) => Math.abs(b.c.pct) - Math.abs(a.c.pct));
+    const r = rows.find((x) => Math.abs(x.c.pct) >= (x.c.label === "1d" ? 3 : 7));
+    if (r) add(`${r.x.label} moved ${briefToolPct(r.c.pct)} ${r.c.label}.`, 70, r.c.pct < 0 ? "risk" : "positive");
+  } else if (source.key === "raises") {
+    const e = (p.events || []).find((x) => x?.publishedAt && Date.now() - Date.parse(x.publishedAt) <= 7 * 86400000);
+    if (e) add(`${e.ticker}: ${e.kindLabel || e.kind} — ${e.headline}${e.headlineAmount ? ` (${e.headlineAmount})` : ""}.`, e.kind === "buyback" ? 72 : 78, e.kind === "buyback" ? "positive" : "risk", [e.ticker]);
+  } else if (source.key === "credit") {
+    const b = p.raises?.bonds?.latest;
+    if (b && (Math.abs(b.momPct || 0) >= 20 || Math.abs(b.yoyPct || 0) >= 25)) {
+      const changes = [b.momPct != null ? `${briefToolPct(b.momPct)} m/m` : null, b.yoyPct != null ? `${briefToolPct(b.yoyPct)} y/y` : null].filter(Boolean).join(" and ");
+      add(`US corporate bond issuance was $${b.totalB}B in ${b.m}${changes ? `, ${changes}` : ""}.`, 65, "watch");
+    }
+    const rev = p.credit?.revolving;
+    if (rev && Math.abs(rev.yoyPct || 0) >= 5) add(`Revolving consumer credit is $${rev.latestB}B, ${briefToolPct(rev.yoyPct)} y/y.`, 64, rev.yoyPct > 0 ? "risk" : "positive");
+  } else if (source.key === "capex") {
+    const t = p.totals;
+    if (t && Math.abs(t.yoyPct || 0) >= 20) add(`Mag 7 AI CapEx grew ${briefToolPct(t.yoyPct)} to $${(t.fyLatestSum / 1e9).toFixed(0)}B${t.revenue?.yoyPct != null ? ` versus revenue ${briefToolPct(t.revenue.yoyPct)}` : ""}.`, 68, "watch", ["MSFT", "META", "AMZN", "GOOGL"]);
+  } else if (source.key === "ram") {
+    const cats = p.retail?.categories || [];
+    const r = cats.slice().sort((a, b) => Math.abs(b.monthPct || 0) - Math.abs(a.monthPct || 0))[0];
+    if (r && Math.abs(r.monthPct || 0) >= 10) add(`${r.label} retail RAM prices moved ${briefToolPct(r.monthPct)} over one month.`, 67, r.monthPct > 0 ? "risk" : "positive");
+  } else if (source.key === "accelerators") {
+    const f = p.summary?.focus;
+    const move = Math.abs(f?.change7dPct || 0) >= Math.abs(f?.change30dPct || 0) ? { v: f?.change7dPct, w: "7d" } : { v: f?.change30dPct, w: "30d" };
+    if (f && Math.abs(move.v || 0) >= 8) add(`${f.model} GPU cloud pricing moved ${briefToolPct(move.v)} over ${move.w}; spot median is $${f.spotMedian}/GPU-hour.`, 66, move.v > 0 ? "risk" : "positive");
+  } else if (source.key === "search") {
+    const b = p.summary?.breakouts || [];
+    if (b.length) add(`${p.summary.breakoutCount || b.length} Google Trends breakouts; ${b.slice(0, 3).map((x) => `${x.label}: “${x.query}”`).join("; ")}.`, 64, "watch");
+  } else if (source.key === "ownership") {
+    const b = (p.overallTopBought || [])[0], s = (p.overallTopSold || [])[0];
+    if (b && b.firmCount >= 5) add(`${b.ticker} led active-manager 13F buying across ${b.firmCount} firms${s ? ` while ${s.ticker} led selling across ${s.firmCount} firms` : ""}.`, 60, "watch", [b.ticker, s?.ticker]);
+  }
+  return facts;
+}
+
+// Read every live desk in parallel, retain an auditable checked/missing list,
+// and rank only material outputs. Exported so an offline fixture can verify the
+// contract without a Yahoo/Gemini build.
+export async function collectBriefSiteTools({ kind = "intraday", narratives = [], dataDir = DATA_DIR, payloads = {} } = {}) {
+  const loaded = await Promise.all(BRIEF_TOOL_SOURCES.map(async (source) => {
+    try {
+      const payload = payloads[source.key] || JSON.parse(await readFile(resolve(dataDir, source.file), "utf8"));
+      return { source, payload, current: briefToolSourceIsCurrent(source, payload) };
+    } catch (_) {
+      return { source, payload: null, current: false };
+    }
+  }));
+  const facts = loaded.flatMap(({ source, payload, current }) => current ? briefToolFacts(source, payload, kind) : []);
+  // The Narratives tab is assembled in memory and its file is written after the
+  // brief, so thread its fresh objects directly into the same scan.
+  const liveNarratives = (Array.isArray(narratives) ? narratives : [])
+    .filter((n) => n && n.status !== "stale" && n.lifecycle !== "ended")
+    .sort((a, b) => Math.abs(Number(b.conviction || b.score || 0)) - Math.abs(Number(a.conviction || a.score || 0)));
+  const narr = liveNarratives.find((n) => n.posture || n.tradePosture || n.summary);
+  if (narr) {
+    const label = narr.title || narr.name || narr.narrative || "Active narrative";
+    const read = narr.tradePosture || narr.posture || narr.summary;
+    facts.push({ source: "Narratives", tab: "narratives", text: briefToolClean(`${label}: ${typeof read === "string" ? read : read?.label || read?.summary || "active"}.`), importance: 73, tone: "watch", symbols: (narr.tickers || narr.symbols || []).slice(0, 4) });
+  }
+  facts.sort((a, b) => b.importance - a.importance || a.source.localeCompare(b.source));
+  // Give the visible panel source diversity before allowing a second card from
+  // the same desk. The full ranked fact list still reaches the AI prompt.
+  const standouts = [];
+  const visibleSources = new Set();
+  for (const fact of facts) {
+    if (visibleSources.has(fact.source)) continue;
+    standouts.push(fact);
+    visibleSources.add(fact.source);
+    if (standouts.length >= BRIEF_TOOL_STANDOUT_MAX) break;
+  }
+  if (standouts.length < BRIEF_TOOL_STANDOUT_MAX) {
+    for (const fact of facts) {
+      if (standouts.includes(fact)) continue;
+      standouts.push(fact);
+      if (standouts.length >= BRIEF_TOOL_STANDOUT_MAX) break;
+    }
+  }
+  const checked = loaded.filter((x) => x.current).map((x) => x.source.label);
+  if (Array.isArray(narratives)) checked.push("Narratives");
+  const missing = loaded.filter((x) => !x.current).map((x) => x.source.label);
+  return {
+    checked: [...new Set(checked)],
+    missing,
+    total: BRIEF_TOOL_SOURCES.length + 1,
+    facts: facts.slice(0, 24),
+    standouts: standouts.map(({ importance, ...fact }) => fact),
+  };
+}
+
 export function gatherBriefSignals(kind, ctx) {
   const {
     chains = {}, fearGreed = null, macro = null, correlations = null,
     unusual = null, picks = [], calendar = {},
     rfr = FALLBACK_RISK_FREE_RATE, picksChanges = [], headlines = [],
-    ivTrending = null,
+    ivTrending = null, siteTools = null,
   } = ctx || {};
 
   // Fear & Greed + 1-day delta (green = greedier, red = more fearful).
@@ -26934,6 +27151,7 @@ export function gatherBriefSignals(kind, ctx) {
   }
 
   const signals = { kind, fearGreed: fng, macro: macroArr, picks: pickArr, events };
+  if (siteTools && Array.isArray(siteTools.checked)) signals.toolScan = siteTools;
   if (bonds.length) signals.bonds = bonds;
 
   // Tickers to watch this build — the deterministic single-name event/news
@@ -27190,6 +27408,15 @@ function briefRenderFields(s) {
   if (s.picksChanges && ((s.picksChanges.added && s.picksChanges.added.length) || (s.picksChanges.dropped && s.picksChanges.dropped.length))) out.picksChanges = s.picksChanges;
   if (s.picks && s.picks.length) out.picks = s.picks;
   if (s.events && s.events.length) out.events = s.events;
+  if (s.toolScan) {
+    out.toolScan = {
+      checked: s.toolScan.checked || [],
+      coreChecked: s.toolScan.coreChecked || [],
+      missing: s.toolScan.missing || [],
+      total: s.toolScan.total || 0,
+      standouts: s.toolScan.standouts || [],
+    };
+  }
   // Playbook cues ship without the recognition/reaction prose (prompt-only).
   if (s.playbook && s.playbook.length) out.playbook = s.playbook.map((c) => ({ id: c.id, name: c.name, cue: c.cue }));
   return out;
@@ -27198,10 +27425,17 @@ function briefRenderFields(s) {
 function briefSystemPrompt(kind) {
   const common =
     " Write (1) a one-sentence headline, (2) a 3-5 sentence summary in plain English, and " +
-    "(3) 4 to 6 highlight bullets — each a SHORT label (1-3 words) plus one sentence — calling out the " +
+    "(3) 6 to 8 highlight bullets — each a SHORT label (1-3 words) plus one sentence — calling out the " +
     "most interesting and actionable things. Cite specific magnitudes and tickers FROM THE SUPPLIED FACTS only. " +
     "Never invent news, earnings, analyst actions, or numbers beyond the facts given. Be factual and terse. " +
     "No emojis, no markdown, no hype, no buy/sell advice, no quotes around tickers. " +
+    "CROSS-TOOL SCAN: the facts may include a ranked scan of the site's other live desks. Treat those as " +
+    "first-class evidence: include at least one cross-tool finding in the highlights whenever the scan has a " +
+    "material standout, and prefer findings confirmed by two or more genuinely independent tools. Do not call " +
+    "shared-input outputs independent confirmation (for example, Top Picks and Leveraged ETFs both reuse the " +
+    "grade engine). Avoid repeating the same move in the summary, highlights, and several labels; synthesize it " +
+    "once, name the source desk when useful, and keep slow structural reads (13F, CapEx, hardware pricing) below " +
+    "fresh tape/event risk unless their change is exceptional. " +
     "HISTORICAL PLAYBOOK: when the facts include a 'Historical playbook' section listing active pattern cues, " +
     "judge whether today's tape GENUINELY resembles one of those historical patterns — a cue firing is a screen, " +
     "not a confirmed match. If one clearly fits, ALSO return an `analog` object with: pattern (the playbook " +
@@ -27419,6 +27653,16 @@ export function briefUserMessage(kind, dateKey, signals) {
     lines.push(kind === "afternoon" ? "Coming up:" : "On the calendar today / next:");
     for (const e of signals.events) lines.push(`- ${e.label}${e.detail ? ` — ${e.detail}` : ""}`);
   }
+  if (signals.toolScan) {
+    const scan = signals.toolScan;
+    const checkedCount = (scan.checked?.length || 0) + (scan.coreChecked?.length || 0);
+    lines.push(`Cross-tool site scan: ${checkedCount}/${scan.total || 0} live evidence desks checked. The core tape/news/calendar/flow inputs appear in their dedicated fact-sheet sections above; only additional material findings are listed here.`);
+    for (const f of (scan.facts || [])) {
+      lines.push(`- [${f.source}] ${f.text}${f.symbols?.length ? ` (tickers: ${f.symbols.join(", ")})` : ""}`);
+    }
+    const quiet = (scan.checked || []).filter((label) => !(scan.facts || []).some((f) => f.source === label));
+    if (quiet.length) lines.push(`No material flag from: ${quiet.join(", ")}.`);
+  }
   if (signals.playbook && signals.playbook.length) {
     lines.push("Historical playbook — pattern cues active today (deterministic screens; judge whether any genuinely fits):");
     for (const c of signals.playbook) {
@@ -27476,7 +27720,7 @@ async function generateBrief(ai, kind, dateKey, signals) {
         config: {
           systemInstruction: system,
           temperature: 0.4,
-          maxOutputTokens: 2048,
+          maxOutputTokens: 3072,
           responseMimeType: "application/json",
           responseSchema: BRIEF_SCHEMA,
           thinkingConfig: { thinkingBudget: 0 },
@@ -27511,7 +27755,7 @@ async function generateBrief(ai, kind, dateKey, signals) {
       text: String(h?.text || "").replace(/\s+/g, " ").trim(),
     }))
     .filter((h) => h.text)
-    .slice(0, 6);
+    .slice(0, 8);
   // Historical-playbook analog — accepted only when cues were actually in the
   // prompt (no cues → the model was never offered the playbook, so an analog
   // would be a hallucination) and the core fields are non-empty.
@@ -27544,7 +27788,7 @@ export function briefKindForHour(hourEt) {
 // anymore: the next hourly mint picks it up by construction. Never throws —
 // a failure leaves the tab on its last-good content.
 export async function buildMarketBriefs(opts) {
-  const { briefsPrev, builtAtIso, chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges, headlines, ivTrending } = opts;
+  const { briefsPrev, builtAtIso, chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges, headlines, ivTrending, narratives, siteToolPayloads } = opts;
   const now = new Date();
   const todayEt = etDateKey(now);
   const hourEt = etHourNY(now);
@@ -27570,7 +27814,25 @@ export async function buildMarketBriefs(opts) {
   if (haveKey && want) {
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
-      const signals = gatherBriefSignals(kind, { chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges, headlines, ivTrending });
+      const siteTools = await collectBriefSiteTools({ kind, narratives, payloads: siteToolPayloads });
+      // Core desks already have first-class fact-sheet sections in
+      // gatherBriefSignals. Include them in the coverage audit without
+      // duplicating their facts in the cross-tool list below.
+      const coreTools = [
+        ["Ticker tracker & Grade", !!Object.keys(chains || {}).length],
+        ["News desk", Array.isArray(headlines)],
+        ["Top picks", Array.isArray(picks)],
+        ["Calendar", !!calendar && typeof calendar === "object"],
+        ["Unusual flow", !!unusual],
+        ["Trending IV", !!ivTrending],
+        ["Overnight markets", !!correlations],
+        ["Fear & Greed", !!fearGreed],
+        ["Bonds & USD", !!macro],
+      ];
+      siteTools.coreChecked = coreTools.filter(([, present]) => present).map(([label]) => label);
+      siteTools.missing.push(...coreTools.filter(([, present]) => !present).map(([label]) => label));
+      siteTools.total += coreTools.length;
+      const signals = gatherBriefSignals(kind, { chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges, headlines, ivTrending, siteTools });
       const gen = await generateBrief(ai, kind, todayEt, signals);
       // On failure the catch keeps the prior brief (carry-forward).
       current = { kind, date: todayEt, etHour: hourEt, generatedAtIso: new Date().toISOString(), model: AI_BRIEF_MODEL, ...gen, ...briefRenderFields(signals) };
@@ -32720,6 +32982,12 @@ async function main() {
       // The just-written Trending-IV payload — the brief's IV-tracker section
       // (actionable tiered flags only).
       ivTrending: ivTrendingForBrief,
+      // Fresh narrative objects are still in memory here (trends.json is
+      // persisted later), so the cross-tool scan receives them directly.
+      narratives: scoringNarratives,
+      // 13F is written after the brief because its slow enrichment runs on a
+      // parallel promise; scan the pre-wipe last-good quarterly payload here.
+      siteToolPayloads: { ownership: priorF13Payload },
     });
     console.log(`wrote data/${BRIEFS_FILE} — ${briefRes.current ? `${briefRes.kind} brief${briefRes.generated ? " (freshly generated)" : " (carried forward)"}` : "no brief yet"}`);
   } catch (err) {
