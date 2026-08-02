@@ -40,6 +40,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - **The legal disclosures now state clearly that all analytical and editorial content is AI-generated or algorithmically produced.** The Terms allocate hallucination, stale-input, source, modeling, simulation, and no-human-review risks; the persistent footer and login page repeat the warning; the Privacy Policy now matches the actual Discord OAuth, short-lived cookie, local-storage, and third-party billing flow; and account, subscription, and AI-output ownership language no longer overstates what the product collects or controls. `scripts/render/{docs,html}.mjs`, `welcome.html`.
 
+### Removed
+
+- **The “What's included” overview is retired.** Its Tools navigation item, footer link, in-app page, tab aliases, and generated markup are removed; the legacy `/features.html` URL now returns visitors to the home page. `scripts/render/{docs,html,app-js}.mjs`, `vercel.json`, `docs/site-logic.md`, `CLAUDE.md`.
+
 ## 2026-07-30
 
 ### Added

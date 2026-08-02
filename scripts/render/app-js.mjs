@@ -3378,7 +3378,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','rotation','picks','stocks','heatmap','calendar','earnings','calls','spillover','quant','levetf','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','search-interest','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','features','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','rotation','picks','stocks','heatmap','calendar','earnings','calls','spillover','quant','levetf','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','search-interest','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3414,7 +3414,6 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // Reference / legal / info pages (now in-app tabs).
     'buyers-manual': 'cheatsheet', 'buyer-manual': 'cheatsheet', cheat: 'cheatsheet', 'cheat-sheet': 'cheatsheet', manual: 'cheatsheet',
     patterns: 'chart-patterns', chartpatterns: 'chart-patterns', 'chart-pattern': 'chart-patterns',
-    'whats-included': 'features', included: 'features', plans: 'features', pricing: 'features', membership: 'features', premium: 'features',
     privacypolicy: 'privacy', 'privacy-policy': 'privacy',
     tos: 'terms', 'terms-of-use': 'terms', 'terms-of-service': 'terms',
   };
@@ -3547,12 +3546,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         }
       } catch (_) {}
     }
-    // Reference / legal / info pages (Buyer's manual, Chart patterns, What's
-    // included, Privacy, Terms) are mounted into a Shadow DOM the first time
+    // Reference / legal / info pages (Buyer's manual, Chart patterns, Privacy,
+    // and Terms) are mounted into a Shadow DOM the first time
     // their tab opens — each page keeps its own bespoke <style> with zero
     // collision against the app's global CSS. The page markup + style ride in an
     // inert <template> in the pane (emitted by scripts/render/html.mjs).
-    var DOC_TAB_SET = { 'cheatsheet':1, 'chart-patterns':1, 'features':1, 'privacy':1, 'terms':1 };
+    var DOC_TAB_SET = { 'cheatsheet':1, 'chart-patterns':1, 'privacy':1, 'terms':1 };
     function mountDocPane(name){
       if (!DOC_TAB_SET[name]) return;
       var pane = document.getElementById('page-pane-' + name);
@@ -3629,7 +3628,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           if (t && t.scrollIntoView) { try { t.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_) { t.scrollIntoView(); } }
           return;
         }
-        var dm = href.match(/^\\/(cheatsheet|chart-patterns|features|privacy|terms)\\.html$/);
+        var dm = href.match(/^\\/(cheatsheet|chart-patterns|privacy|terms)\\.html$/);
         if (dm){ ev.preventDefault(); selectTab(dm[1]); return; }
         var qm = href.match(/^\\/\\?tab=([a-z0-9-]+)/i);
         if (qm){ var rk = resolveTab(qm[1]); if (rk){ ev.preventDefault(); selectTab(rk); } return; }

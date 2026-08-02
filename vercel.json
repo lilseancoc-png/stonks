@@ -6,7 +6,7 @@
   "redirects": [
     { "source": "/cheatsheet.html", "destination": "/?tab=cheatsheet", "permanent": false },
     { "source": "/chart-patterns.html", "destination": "/?tab=chart-patterns", "permanent": false },
-    { "source": "/features.html", "destination": "/?tab=features", "permanent": false },
+    { "source": "/features.html", "destination": "/", "permanent": false },
     { "source": "/privacy.html", "destination": "/?tab=privacy", "permanent": false },
     { "source": "/terms.html", "destination": "/?tab=terms", "permanent": false }
   ],

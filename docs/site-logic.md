@@ -74,7 +74,6 @@ Most important design rule: a strong observation is not automatically a trade. T
 | Owner | Strategies | Live multi-leg option payoff builder and structure guidance. |
 | Tools | Buyer's Manual | Educational options reference. |
 | Tools | Chart Patterns | Educational pattern reference used alongside the AI pattern detector. |
-| Tools | What's Included | Current product and tier overview. |
 | Legal | Privacy Policy / Terms of Use | Session, privacy, membership, risk, and legal disclosures. |
 
 ## 3. The shared ticker substrate

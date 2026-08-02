@@ -12,8 +12,8 @@ import {
 import { DOC_PAGES, DOC_ORDER, DOC_THEME_OVERRIDE } from './docs.mjs';
 import { KO_FI_URL } from '../../lib/links.mjs';
 
-// Reference / legal / info pages (Buyer's manual, Chart patterns, What's
-// included, Privacy, Terms) — formerly standalone .html files, now in-app tabs.
+// Reference / legal / info pages (Buyer's manual, Chart patterns, Privacy, and
+// Terms) — formerly standalone .html files, now in-app tabs.
 // Each is emitted as a pane carrying an empty shadow-host + an inert <template>
 // of the page's own <style> (+ the shared DOC_THEME_OVERRIDE appended last, so
 // the pages are re-skinned onto the app's design tokens) + markup; app.js mounts
@@ -75,7 +75,6 @@ const SIDE_NAV_ICONS = {
   strategies: '<circle cx="12" cy="12" r="9.5"/><path d="m15.8 8.2-2 5.6-5.6 2 2-5.6z"/>',
   cheatsheet: '<path d="M2.5 4.5H8a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2.5zM21.5 4.5H16a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h6.5z"/>',
   'chart-patterns': '<path d="M3.5 3.5v17h17"/><path d="m7.5 14 3.5-4 3 3 5-6.5"/>',
-  features: '<circle cx="12" cy="12" r="9.5"/><path d="m8.5 12.5 2.5 2.5 4.8-5.5"/>',
   privacy: '<path d="M12 21.5s7.5-3.7 7.5-9.5V5.5L12 2.5l-7.5 3V12c0 5.8 7.5 9.5 7.5 9.5z"/>',
   terms: '<path d="M12 3v18M7 21h10"/><path d="M4 7h2.5c1.8 0 3.8-.7 5.5-1.7C13.7 6.3 15.7 7 17.5 7H20"/><path d="m6.5 7-2.8 6.7c.8.6 1.8.9 2.8.9s2-.3 2.8-.9zM17.5 7l-2.8 6.7c.8.6 1.8.9 2.8.9s2-.3 2.8-.9z"/>',
 };
@@ -1761,7 +1760,6 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <div class="side-nav-group-items">
       ${sideNavItem('cheatsheet', "Buyer's manual")}
       ${sideNavItem('chart-patterns', 'Chart patterns')}
-      ${sideNavItem('features', "What's included")}
     </div>
   </details>
   <details class="side-nav-group" data-nav-group="legal">
@@ -2395,7 +2393,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <div>Built <span class="muted">${builtAt} (NY)</span></div>
   <div class="muted">All analytical and editorial content is AI-generated or algorithmically produced and may be wrong. Verify independently. Data: third-party sources. For information only — not investment advice.</div>
   <div><a class="foot-support" href="${KO_FI_URL}" target="_blank" rel="noopener">Support stonks on Ko-fi</a></div>
-  <div><a href="/?tab=features">What's included</a> · <a href="/?tab=privacy">Privacy Policy</a> · <a href="/?tab=terms">Terms of Use</a></div>
+  <div><a href="/?tab=privacy">Privacy Policy</a> · <a href="/?tab=terms">Terms of Use</a></div>
 </footer>
 <button id="back-to-top" class="back-to-top" type="button" aria-label="Back to top" title="Back to top">
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
