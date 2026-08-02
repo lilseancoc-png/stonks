@@ -10,7 +10,7 @@ import {
   htmlEscape,
 } from '../build.mjs';
 import { DOC_PAGES, DOC_ORDER, DOC_THEME_OVERRIDE } from './docs.mjs';
-import { KO_FI_URL } from '../../lib/links.mjs';
+import { DISCORD_INVITE_URL, KO_FI_URL } from '../../lib/links.mjs';
 
 // Reference / legal / info pages (Buyer's manual, Chart patterns, Privacy, and
 // Terms) — formerly standalone .html files, now in-app tabs.
@@ -1654,6 +1654,10 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         <span class="cmd-palette-trigger-label">Search ticker, narrative, tab…</span>
         <kbd class="cmd-palette-trigger-kbd">⌘K</kbd>
       </button>
+      <a class="discord-btn" href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener" aria-label="Join the Ming Street Discord to discuss market research" title="Join the Discord to discuss market research">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.25.5c1.6.4 2.9 1 4.1 1.8a13.5 13.5 0 0 0-11.5 0c1.2-.8 2.6-1.4 4.1-1.8L11.6 3A19.8 19.8 0 0 0 6.7 4.4 20.6 20.6 0 0 0 3 18.6 19.9 19.9 0 0 0 8 21l.6-.9c-.9-.3-1.7-.7-2.4-1.2.2-.1.4-.3.6-.4a14.2 14.2 0 0 0 12.4 0c.2.1.4.3.6.4-.7.5-1.5.9-2.4 1.2l.6.9a19.9 19.9 0 0 0 5-2.4 20.6 20.6 0 0 0-3.7-14.2ZM9 15.3c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg>
+        <span>Join Discord</span>
+      </a>
       <a class="donate-btn" href="${KO_FI_URL}" target="_blank" rel="noopener" aria-label="Support stonks on Ko-fi" title="Support stonks on Ko-fi">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h14v7a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5Z"/><path d="M17 10h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M7.5 11.5c1-1.4 3-1.4 4 0 1-1.4 3-1.4 4 0 0 2.2-2 3.5-4 4.7-2-1.2-4-2.5-4-4.7Z"/></svg>
         <span>Support</span>
@@ -2392,6 +2396,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <footer class="site-footer">
   <div>Built <span class="muted">${builtAt} (NY)</span></div>
   <div class="muted">All analytical and editorial content is AI-generated or algorithmically produced and may be wrong. Verify independently. Data: third-party sources. For information only — not investment advice.</div>
+  <div><a class="foot-discord" href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">Discuss the research in our Discord</a></div>
   <div><a class="foot-support" href="${KO_FI_URL}" target="_blank" rel="noopener">Support stonks on Ko-fi</a></div>
   <div><a href="/?tab=privacy">Privacy Policy</a> · <a href="/?tab=terms">Terms of Use</a></div>
 </footer>

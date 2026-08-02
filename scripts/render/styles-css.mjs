@@ -525,17 +525,32 @@ h1, h2, .landing-hero-title, .landing-section-title { text-wrap: balance; }
   background: transparent;
 }
 .site-nav { display: inline-flex; gap: var(--s-2); align-items: center; }
+.discord-btn,
 .donate-btn {
   display: inline-flex; align-items: center; gap: 7px;
   height: 34px; padding: 0 13px; border-radius: 999px;
-  color: #fff; background: #ff5e5b; border: 1px solid #ff7774;
+  color: #fff;
   font-size: 13px; font-weight: 700; line-height: 1; text-decoration: none;
-  box-shadow: 0 5px 16px color-mix(in srgb, #ff5e5b 24%, transparent);
   transition: transform .15s var(--ease-out), filter .15s var(--ease-out);
 }
+.discord-btn {
+  background: #5865f2; border: 1px solid #7480ff;
+  box-shadow: 0 5px 16px color-mix(in srgb, #5865f2 24%, transparent);
+}
+.donate-btn {
+  background: #ff5e5b; border: 1px solid #ff7774;
+  box-shadow: 0 5px 16px color-mix(in srgb, #ff5e5b 24%, transparent);
+}
+.discord-btn:hover,
 .donate-btn:hover { color: #fff; text-decoration: none; filter: brightness(1.06); transform: translateY(-1px); }
+.discord-btn:focus-visible,
+.donate-btn:focus-visible { outline: none; box-shadow: var(--focus-ring-bold); }
+.discord-btn svg,
 .donate-btn svg { flex: none; }
-@media (max-width: 620px) { .donate-btn span { display: none; } .donate-btn { width: 36px; padding: 0; justify-content: center; } }
+@media (max-width: 760px) {
+  .discord-btn span, .donate-btn span { display: none; }
+  .discord-btn, .donate-btn { width: 36px; padding: 0; justify-content: center; }
+}
 .auth-chip {
   display: inline-flex; align-items: center; gap: 7px;
   height: 32px; padding: 0 10px;
@@ -815,6 +830,16 @@ body.sidenav-open .side-nav {
   border-bottom-color: var(--accent);
   text-decoration: none;
 }
+/* Community invite stays recognizable in Discord's brand colour without
+   competing with the persistent header button. */
+.site-footer a.foot-discord {
+  color: #7480ff;
+  font-weight: 600;
+  border-bottom-color: transparent;
+}
+.site-footer a.foot-discord:hover { color: #8e97ff; border-bottom-color: #8e97ff; }
+:root[data-theme="light"] .site-footer a.foot-discord { color: #4652c4; }
+:root[data-theme="light"] .site-footer a.foot-discord:hover { color: #35409f; border-bottom-color: #35409f; }
 /* Donation link is accented without competing with the header button. */
 .site-footer a.foot-support {
   color: #ff6966;

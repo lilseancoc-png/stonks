@@ -24,6 +24,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Added
 
+- **A visible Discord community path.** Users can now join the Ming Street Discord from an always-visible header button or the site footer to discuss the public market research. The invite reuses the existing single-source public URL and stays separate from private Owner authentication. `lib/links.mjs`, `scripts/render/{html,styles-css}.mjs`.
+
 - **Public support and traffic visibility.** The header and footer now link to the Ming Street Ko-fi page, while the generated shell loads Vercel Web Analytics for privacy-friendly, cookie-free visitor/page-view, referrer, country, browser, and device reporting in the project dashboard. The Privacy Policy and Terms disclose analytics and clarify that donations are optional and unlock nothing. `lib/links.mjs`, `scripts/render/{html,styles-css,docs}.mjs`.
 
 ### Changed

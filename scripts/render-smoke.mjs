@@ -9,6 +9,7 @@ import { renderHtml } from "./render/html.mjs";
 import { renderAppJs } from "./render/app-js.mjs";
 import { isPremiumKey, roleClaimForKey } from "../lib/premium-keys.mjs";
 import { BRIEF_ACCESS_POLICY_VERSION, sanitizePublicJsonText } from "../lib/public-data-policy.mjs";
+import { DISCORD_INVITE_URL } from "../lib/links.mjs";
 
 const temp = await mkdtemp(resolve(tmpdir(), "stonks-render-"));
 try {
@@ -31,6 +32,10 @@ try {
   assert.ok(ideasNav, "Ideas navigation group must render");
   assert.doesNotMatch(ideasNav, /data-page-tab="(?:picks|stocks|rotation|levetf|track)"/);
   assert.match(html, /href="https:\/\/ko-fi\.com\/mingstreetapp"/);
+  assert.ok(html.includes(`class="discord-btn" href="${DISCORD_INVITE_URL}"`));
+  assert.ok(html.includes(`class="foot-discord" href="${DISCORD_INVITE_URL}"`));
+  assert.match(html, /Join Discord/);
+  assert.match(html, /Discuss the research in our Discord/);
   assert.match(html, /window\.va=window\.va\|\|function\(\)\{/);
   assert.equal((html.match(/\/_vercel\/insights\/script\.js/g) || []).length, 1);
   assert.match(html, /<script defer data-disable-auto-track="1" src="\/_vercel\/insights\/script\.js"><\/script>/);
