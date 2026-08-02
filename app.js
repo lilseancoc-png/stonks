@@ -45,26 +45,25 @@
   // --- Freemium gate (client half) ------------------------------------------
   // The data layer (api/data + lib/premium-keys) is the real enforcement; this
   // is the UI half: which tabs are members-only, and whether THIS visitor is a
-  // member. GATE_ON mirrors PRIVATE_DATA_ENABLED (reported by /api/auth/me); we
-  // default to "ungated, everyone's a member" so a legacy public deploy — or a
-  // failed /me probe — never locks the site by accident. applyAuth() flips these
-  // once /me resolves, before the first selectTab().
-  var PREMIUM_TABS = { market:1, rotation:1, brief:1, flow:1, volume:1, oi:1, stocks:1, spillover:1, levetf:1, 'iv-trend':1, streaks:1, earnings:1 };
+  // member. GATE_ON mirrors PRIVATE_DATA_ENABLED (reported by /api/auth/me).
+  // Ordinary membership keeps the historical fail-open behavior, but Owner
+  // access always fails closed until both explicit role claims are confirmed.
+  // Ordinary premium remains a research publication. Tabs that turn research
+  // into a security selection, direction, grade, structure, timing, entry,
+  // exit, or trade-size decision are internal Owner surfaces instead.
+  var PREMIUM_TABS = { earnings:1 };
+  var OWNER_TABS = {
+    market:1, brief:1, narratives:1, tickers:1, grade:1, compare:1,
+    strategies:1, stocks:1, rotation:1, levetf:1, flow:1, volume:1,
+    oi:1, 'iv-trend':1, streaks:1, spillover:1, 'index-cal':1, picks:1, track:1, quant:1
+  };
   var GATE_ON = false;
   var IS_MEMBER = true;
-  // Track Record is a STRICTER tier than premium: a specific Discord role, not
-  // just any membership. And it is HIDDEN (no nav button, not selectable), not
-  // "lock-carded" like the premium tabs — so it lives outside PREMIUM_TABS and
-  // gets its own flag. Defaults true so a legacy ungated deploy / a failed /me
-  // probe never makes the tab vanish; applyAuth() flips it from /api/auth/me.
-  var HAS_TRACK_RECORD = true;
-  // Top Picks is role-hidden the same way (the tp session claim, minted from
-  // DISCORD_TOPPICKS_ROLE_ID(S)): no nav button, no landing card, and api/data
-  // 401s picks.json/picks-open.json without the role. Same fail-open default.
-  var HAS_TOP_PICKS = true;
-  // Quant Lab is the combined owner tier: it is present only when the visitor
-  // can see BOTH Track Record and Top Picks. It is removed rather than lock-carded.
-  var HAS_QUANT_LAB = true;
+  // Owner surfaces are hidden (not upsold) unless both role claims are present.
+  var HAS_TRACK_RECORD = false;
+  var HAS_TOP_PICKS = false;
+  var HAS_QUANT_LAB = false;
+  var HAS_OWNER_ACCESS = false;
   var AUTH_ME = null;
   var DISCORD_ICON_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.25.5c1.6.4 2.9 1 4.1 1.8a13.5 13.5 0 0 0-11.5 0c1.2-.8 2.6-1.4 4.1-1.8L11.6 3A19.8 19.8 0 0 0 6.7 4.4 20.6 20.6 0 0 0 3 18.6 19.9 19.9 0 0 0 8 21l.6-.9c-.9-.3-1.7-.7-2.4-1.2.2-.1.4-.3.6-.4a14.2 14.2 0 0 0 12.4 0c.2.1.4.3.6.4-.7.5-1.5.9-2.4 1.2l.6.9a19.9 19.9 0 0 0 5-2.4 20.6 20.6 0 0 0-3.7-14.2ZM9 15.3c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg>';
   // Public Discord invite (single-sourced in lib/links.mjs) — where non-members
@@ -206,13 +205,14 @@
     GATE_ON = !!(me && me.enabled);
     // Ungated -> everyone's a member (no locks). Gated -> need an authed session.
     IS_MEMBER = !GATE_ON || !!(me && me.authed);
-    // Track Record: ungated -> visible to all; gated -> only when /me reports the
-    // Track Record role. Mirrors IS_MEMBER's fail-open default so a probe failure
-    // (me == null -> GATE_ON false) keeps the tab visible rather than hiding it.
-    HAS_TRACK_RECORD = !GATE_ON || !!(me && me.trackRecord);
-    // Top Picks: same shape — ungated deploys (or a failed probe) keep the tab.
-    HAS_TOP_PICKS = !GATE_ON || !!(me && me.topPicks);
-    HAS_QUANT_LAB = !GATE_ON || !!(me && me.trackRecord && me.topPicks);
+    // Owner access never fails open. A disabled gate, failed probe, legacy
+    // session, or either missing special claim leaves every Owner surface hidden.
+    HAS_OWNER_ACCESS = !!(GATE_ON && me && me.trackRecord && me.topPicks);
+    // Every actionable surface now shares the combined Owner entitlement.
+    HAS_TRACK_RECORD = HAS_OWNER_ACCESS;
+    HAS_TOP_PICKS = HAS_OWNER_ACCESS;
+    HAS_QUANT_LAB = HAS_OWNER_ACCESS;
+    if (document.body) document.body.classList.toggle('is-owner', HAS_OWNER_ACCESS);
   }
   // Private-data deploys read through a data mode on the exact /api/auth/me
   // function that established membership for this page. Production has
@@ -3538,14 +3538,9 @@
     var tabs = document.querySelectorAll('[data-page-tab]');
     if (!tabs.length) return;
     var valid = PAGE_TAB_IDS.slice();
-    // Track Record is role-hidden: drop it from the resolvable set so a
-    // ?tab=track deep-link / popstate / palette can't reach the pane for a
-    // visitor without the role (resolveTab returns null -> falls back to home).
-    if (!HAS_TRACK_RECORD) valid = valid.filter(function(t){ return t !== 'track'; });
-    // Top Picks is role-hidden the same way (the tp claim).
-    if (!HAS_TOP_PICKS) valid = valid.filter(function(t){ return t !== 'picks'; });
-    // Quant Lab requires both exclusive role claims.
-    if (!HAS_QUANT_LAB) valid = valid.filter(function(t){ return t !== 'quant'; });
+    // Actionable tabs are internal Owner surfaces. Remove them from URL,
+    // history, palette, and click resolution unless both role claims exist.
+    if (!HAS_OWNER_ACCESS) valid = valid.filter(function(t){ return !OWNER_TABS[t]; });
     function resolveTab(t){ return resolvePageTabId(t, valid); }
     // Collapsible sidebar. Desktop (>=1024px, matching the CSS breakpoint):
     // the sidebar pushes the page content, defaults open, and the collapsed
@@ -3716,14 +3711,9 @@
     function selectTab(name, nav){
       // nav.replace: sync the URL with replaceState instead of pushState —
       // set by boot + popstate (restoring state, not navigating).
-      // Track Record is role-hidden — bounce any attempt to open it (stale
-      // localStorage tab, deep-link, popstate, palette) to home BEFORE we
-      // re-persist it, so a demoted/non-role visitor can't land on the pane.
-      if (name === 'track' && !HAS_TRACK_RECORD) { return selectTab('home', nav); }
-      // Top Picks is role-hidden the same way.
-      if (name === 'picks' && !HAS_TOP_PICKS) { return selectTab('home', nav); }
-      // Quant Lab is role-hidden behind the combined tr + tp entitlement.
-      if (name === 'quant' && !HAS_QUANT_LAB) { return selectTab('home', nav); }
+      // Bounce stale/deep-linked Owner destinations before persisting or
+      // starting any loader. The server independently enforces stored data.
+      if (OWNER_TABS[name] && !HAS_OWNER_ACCESS) { return selectTab('home', nav); }
       try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
       var activeBtn = null;
       tabs.forEach(function(btn){
@@ -16704,6 +16694,7 @@
     return '<div class="ers-bar" role="img" aria-label="' + escapeHtml(segs.map(function(s){ return s.label + ' ' + (s.n || 0); }).join(', ')) + '">' + bar + '</div>';
   }
   function ersSymBtn(sym){
+    if (!HAS_OWNER_ACCESS) return '<span class="ers-sym">' + escapeHtml(sym) + '</span>';
     return '<a class="ers-sym" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '" title="Open ' + escapeHtml(sym) + ' in the Grade tab">' + escapeHtml(sym) + '</a>';
   }
   function ersDate(iso){
@@ -20033,6 +20024,7 @@
   }
   function spillSymLink(sym){
     var s = String(sym || '').toUpperCase();
+    if (!HAS_OWNER_ACCESS) return '<span class="spill-sym">' + escapeHtml(s) + '</span>';
     return '<a class="spill-sym" data-sym="' + escapeHtml(s) + '" href="' + symGradeHref(s) + '">' + escapeHtml(s) + '</a>';
   }
   // Matrix stats ship as FRACTIONS (0.0149 = +1.49%); upcoming-event expected
@@ -21743,7 +21735,7 @@
       '</header>' +
       '<p class="stk-dca-hint">' + (personalized
         ? 'Applies the published multiplier to your private dollar baseline. '
-        : 'Publishes the same baseline multiplier for every member; dollar sizing is isolated in Owner Lab. ') +
+        : 'Publishes one standardized baseline multiplier inside the Owner workspace; dollar sizing is isolated in Owner Lab. ') +
         'Five deterministic price reads per index (trend, drawdown off the 52-week high, RSI, 20-day stretch, red day) earn points; fixed point bars map to 1× / 1.5× / 2× / 3× / 4× the baseline. Every read and its points are on the card — no AI, no black box. Refreshed with each hourly build' + (when ? ' · updated ' + escapeHtml(when) : '') + '. Not financial advice.</p>' +
       '<div class="stk-dca-grid">' + dca.indexes.map(function(ix){ return stkDcaCard(ix, base, personalized); }).join('') + '</div>' +
     '</section>';
@@ -28963,7 +28955,7 @@
 
   // Sector-breadth persistence alert. The legacy payload key is still named
   // sectorRotation, but this is intentionally NOT presented as fund flow,
-  // relative leadership, or the premium Sector Rotation rebound model. It only
+  // relative leadership, or the Owner Sector Rotation rebound model. It only
   // proves that ≥70% of the tracked names in a group moved one way for 2+ closes.
   function renderHeatmapBreadthStreaks(){
     var host = $('heatmap-streaks');
@@ -35605,18 +35597,16 @@
 
     function buildCorpus(){
       var out = [];
-      SYMBOLS.forEach(function(sym){
-        out.push({ type:'ticker', label: sym, sub: INDUSTRIES[sym] || '', action:'open-ticker', payload: sym });
-      });
-      (NARRATIVES || []).forEach(function(n){
-        out.push({ type:'narrative', label: n.name, sub: n.sector || n.industry || '', action:'open-narrative', payload: n.name });
-      });
+      if (HAS_OWNER_ACCESS) {
+        SYMBOLS.forEach(function(sym){
+          out.push({ type:'ticker', label: sym, sub: INDUSTRIES[sym] || '', action:'open-ticker', payload: sym });
+        });
+        (NARRATIVES || []).forEach(function(n){
+          out.push({ type:'narrative', label: n.name, sub: n.sector || n.industry || '', action:'open-narrative', payload: n.name });
+        });
+      }
       TABS.forEach(function(tt){
-        // Skip the role-hidden Track Record / Top Picks tabs so they never
-        // appear in cmd-K for a visitor without the role.
-        if (tt[0] === 'track' && !HAS_TRACK_RECORD) return;
-        if (tt[0] === 'picks' && !HAS_TOP_PICKS) return;
-        if (tt[0] === 'quant' && !HAS_QUANT_LAB) return;
+        if (OWNER_TABS[tt[0]] && !HAS_OWNER_ACCESS) return;
         out.push({ type:'tab', label: tt[1], sub: 'Tab', action:'open-tab', payload: tt[0] });
       });
       return out;
@@ -37436,7 +37426,7 @@
     // Any allowlist-shaped symbol loads — tracked names from the baked JSON,
     // anything else (VOO, the commodity proxies) via the live /api/chain
     // fallback in fetchChain. Same shape /api/quote|chain enforce server-side.
-    if (initial && initial.sym && /^[A-Z][A-Z0-9.]{0,5}$/.test(initial.sym)){
+    if (HAS_OWNER_ACCESS && initial && initial.sym && /^[A-Z][A-Z0-9.]{0,5}$/.test(initial.sym)){
       pendingUrlState = initial;
       // Default to landing on Grade, but a shared link like ?s=AAPL&tab=heatmap
       // explicitly asks for another tab — honor that and just load the contract
@@ -37500,51 +37490,26 @@
   function startApp(){
     var go = function(){
       if (document.body) document.body.classList.toggle('is-member', IS_MEMBER);
-      // Track Record is role-hidden: physically remove the nav button + pane
-      // BEFORE bind() collects the tab NodeList (so 'track' never gets a click
-      // handler and isn't in the DOM at all for a visitor without the role).
-      // The server (api/data) is the real gate; this is the clean UI removal.
-      if (!HAS_TRACK_RECORD) {
-        // querySelectorAll (not querySelector) so a future duplicate nav entry
-        // — e.g. a top-strip + an overflow/dropdown clone, the reason
-        // markPremiumNav iterates all matches — is fully removed, not just the
-        // first. (The server api/data 401 is the real gate regardless.)
-        var trBtns = document.querySelectorAll('[data-page-tab="track"]');
-        for (var ti = 0; ti < trBtns.length; ti++) {
-          var trBtn = trBtns[ti];
-          if (trBtn && trBtn.parentNode) trBtn.parentNode.removeChild(trBtn);
+      // Physically remove every actionable destination before bind() collects
+      // tabs, so a non-owner gets no nav, landing card, pane, deep link, loader,
+      // or command-palette route. Stored data is independently role-enforced.
+      if (!HAS_OWNER_ACCESS) {
+        for (var ownerId in OWNER_TABS) {
+          if (!OWNER_TABS.hasOwnProperty(ownerId)) continue;
+          var ownerEntries = document.querySelectorAll('[data-page-tab="' + ownerId + '"], [data-go="' + ownerId + '"]');
+          for (var oi = 0; oi < ownerEntries.length; oi++) {
+            var ownerEntry = ownerEntries[oi];
+            if (ownerEntry && ownerEntry.parentNode) ownerEntry.parentNode.removeChild(ownerEntry);
+          }
+          var ownerPane = document.getElementById('page-pane-' + ownerId);
+          if (ownerPane && ownerPane.parentNode) ownerPane.parentNode.removeChild(ownerPane);
         }
-        var trPane = document.getElementById('page-pane-track');
-        if (trPane && trPane.parentNode) trPane.parentNode.removeChild(trPane);
-      }
-      // Top Picks is role-hidden the same way (tp claim): remove the nav
-      // button(s), the pane, AND the landing "Top picks" card (data-go).
-      if (!HAS_TOP_PICKS) {
-        var tpBtns = document.querySelectorAll('[data-page-tab="picks"], [data-go="picks"]');
-        for (var pi = 0; pi < tpBtns.length; pi++) {
-          var tpBtn = tpBtns[pi];
-          if (tpBtn && tpBtn.parentNode) tpBtn.parentNode.removeChild(tpBtn);
-        }
-        var tpPane = document.getElementById('page-pane-picks');
-        if (tpPane && tpPane.parentNode) tpPane.parentNode.removeChild(tpPane);
-      }
-      // Quant Lab requires both exclusive claims. Remove every entry point and
-      // the pane before bind() so deep links, history, and cmd-K cannot reach it.
-      if (!HAS_QUANT_LAB) {
-        var qlBtns = document.querySelectorAll('[data-page-tab="quant"], [data-go="quant"]');
-        for (var qi = 0; qi < qlBtns.length; qi++) {
-          var qlBtn = qlBtns[qi];
-          if (qlBtn && qlBtn.parentNode) qlBtn.parentNode.removeChild(qlBtn);
-        }
-        var qlPane = document.getElementById('page-pane-quant');
-        if (qlPane && qlPane.parentNode) qlPane.parentNode.removeChild(qlPane);
       }
       // The whole group starts hidden to prevent an entitlement-check flash.
-      // Reveal it only if at least one authorized destination remains.
-      var quantGroup = document.querySelector('[data-role-group="quant"]');
-      if (quantGroup) {
-        if (quantGroup.querySelector('[data-page-tab]')) quantGroup.hidden = false;
-        else if (quantGroup.parentNode) quantGroup.parentNode.removeChild(quantGroup);
+      var ownerGroup = document.querySelector('[data-role-group="owner"]');
+      if (ownerGroup) {
+        if (HAS_OWNER_ACCESS && ownerGroup.querySelector('[data-page-tab]')) ownerGroup.hidden = false;
+        else if (ownerGroup.parentNode) ownerGroup.parentNode.removeChild(ownerGroup);
       }
       try { markPremiumNav(); } catch (_) {}
       try { renderAuthChip(); } catch (_) {}
@@ -37567,7 +37532,7 @@
     var preTab = initialPageTabFromUrl(PAGE_TAB_IDS);
     // Role-hidden panes wait for /me so their labels/content never flash before
     // entitlement is known. bind() selects them normally for authorized users.
-    if (preTab !== 'home' && preTab !== 'picks' && preTab !== 'track' && preTab !== 'quant') {
+    if (preTab !== 'home' && !OWNER_TABS[preTab]) {
       var preBtns = document.querySelectorAll('[data-page-tab]');
       for (var pbi = 0; pbi < preBtns.length; pbi++) {
         var preSel = preBtns[pbi].getAttribute('data-page-tab') === preTab;
@@ -37580,8 +37545,8 @@
   } catch (_) {}
   // Boot: resolve membership + merge the manifest sidecars BEFORE first paint so
   // selectTab() sees the right IS_MEMBER and the premium fields are present for
-  // members. /api/auth/me reports {authed,enabled}; the free sidecar serves to
-  // anyone; the premium sidecar 401s for non-members (degrades to no-premium).
+  // authorized users. /api/auth/me reports the two Owner claims; the free
+  // sidecar serves to anyone and the Owner sidecar fails closed otherwise.
   var authBoot = fetch('/api/auth/me', { cache: 'no-store' })
     .then(function(r){ return r.ok ? r.json() : null; })
     .then(applyAuth)

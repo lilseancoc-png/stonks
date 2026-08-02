@@ -1,8 +1,7 @@
 // Vercel serverless function: the SHARED Top Picks watchlist.
 //
-// One list for everyone: any signed-in member (holding the Top Picks role,
-// when that tier is configured) can save a pick or remove a saved one, and
-// every member sees the same list. Stored in the private data store
+// One internal list for owners: a session carrying BOTH Owner claims can save
+// a pick or remove a saved one, and every owner sees the same list. Stored in the private data store
 // (lib/datastore.mjs) under REQUEST_TIME key "picks-watchlist.json" — a key
 // the workflows never push or delete (REQUEST_TIME_EXCLUSIVE in
 // scripts/sync-data.mjs), because a pulled copy is stale the moment a user
@@ -22,8 +21,8 @@
 //
 // Access mirrors the picks.json data it snapshots (see api/data/[...path].js):
 // hard-404 unless PRIVATE_DATA_ENABLED, valid Discord-role session required,
-// and the stricter Top Picks `tp` claim honored the same fail-open way (401
-// only when the mint explicitly set it false). Never shared-cacheable. When
+// and both Owner claims (`tr` + `tp`) must be explicitly true. Never
+// shared-cacheable. When
 // this endpoint is unreachable (gate off / signed out) the client falls back
 // to its original per-browser localStorage list, so local/dev keeps working.
 
@@ -95,9 +94,9 @@ export default async function handler(req, res) {
   if (!session) {
     return res.status(401).json({ error: "auth required" });
   }
-  // Top Picks role claim — same fail-open contract as api/data: 401 only when
-  // the mint explicitly set `tp` false (legacy sessions + env-unset pass).
-  if (session.tp === false) {
+  // Owner access is strict and fail-closed: legacy sessions and either missing
+  // claim are denied just like picks.json itself.
+  if (session.tr !== true || session.tp !== true) {
     return res.status(401).json({ error: "role required" });
   }
 

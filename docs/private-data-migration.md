@@ -1,10 +1,9 @@
 # Private data migration + Discord-role gating (Path B)
 
-> **Status:** design / pre-implementation. This document is the setup artifact for
-> moving the premium `data/*.json` artifacts out of the public Git repo into a
-> private object store, served through an authentication-gated API, with Discord
-> server-role membership as the entitlement. Nothing here is wired up yet — it is
-> the plan we implement against.
+> **Status:** implemented. The historical cutover notes remain below. The current
+> entitlement model is Public / Premium / Owner: Premium membership unlocks only
+> Earnings Tracker; actionable named-security and trade-decision
+> surfaces require both internal Owner claims (`tr` + `tp`) and fail closed.
 
 ## 1. Goal
 
@@ -403,15 +402,13 @@ The original design gated the **whole** site. It was later changed to **freemium
 most tabs are free, a premium subset stays gated. The wiring:
 
 - **Tier table — `lib/premium-keys.mjs`.** `isPremiumKey(key)` is the single source of
-  truth for which `data/` keys require a session. Premium: `manifest.json` (the premium
-  half), `picks*`, `sector-rotation*` (fresh screen + raw accumulating model-entry
-  ledger), `briefs`, `earnings-tracker.json`, `iv-trending.json`, `streaks.json`, `unusual*`,
-  `volume-flags/-history`, `oi-tracker/-history`, `flow-explanations`,
-  `grades-history/-daily`, plus internal `ai-usage`/`chart-pattern-cache`/
-  `pick-thesis-cache`/`ticker-judgment-cache`. Everything else (per-ticker chains,
-  `grades.json`, `calendar`, `heatmap`, `13f`, `macro*`, `fear-greed*`,
-  `correlations`, `accelerator-prices.json`, `manifest-free.json`, …) is **free**. Edge-safe,
-  dependency-free — imported by both `middleware.js` and `api/data`.
+  truth for which `data/` keys require a session. `roleClaimForKey()` then separates
+  ordinary member Premium from internal Owner. Only `earnings-tracker.json` is
+  ordinary Premium. Actionable payloads require both `tr` and
+  `tp`, including `manifest.json`, picks/briefs/grades/flow/volume/OI/IV/streak files,
+  uppercase per-ticker JSON, and `iv-history/*`. General calendars, heatmap, filings,
+  macro, fear/greed, correlations, transcripts, and `manifest-free.json` remain public.
+  Both classifiers are Edge-safe and shared by the data handlers.
 - **Sector Rotation accountability is bake-owned.** `sector-rotation-log.json`
   accumulates observed setups, timestamped model entries, and resolved outcomes;
   `sector-rotation.json` carries only its browser projection. Offline `regen-picks`
@@ -448,13 +445,11 @@ most tabs are free, a premium subset stays gated. The wiring:
   ungated or a failed `/me` ⇒ no locks.
 - **`welcome.html`** is no longer a forced wall — it's the login/denied lander, linking
   back to the free site at `/`.
-- **Owner Lab is combined-role hidden.** `quant.json`, `quant-history.json`,
-  `day-trading.json`, and `day-trading-history.json`
-  require both the `tr` and `tp` session claims. The client removes the Owner Lab
-  nav entry, pane, deep-link target, and command-palette entry unless both are
-  true; the entire Owner nav group stays hidden until auth resolves so it cannot
-  flash for ordinary visitors. The same pane contains the held-position checker
-  and personalized DCA, Sector Rotation, and Leveraged ETF sizing controls; the
-  standardized research remains on its existing premium pages. Deployments may
-  point both role env settings at the same Discord role, which mints both claims
-  for holders of that role.
+- **All actionable surfaces are combined-role hidden.** Market Analysis, Brief,
+  Narratives, Tickers, Grade, Compare, Strategies, Stock Picks, Sector Rotation,
+  Leveraged ETFs, Event Spillover, Unusual Flow, Volume, Gamma Exposure, Trending IV, Streaks,
+  Top Picks, Track Record, and Owner Lab require both `tr` and `tp`. The client
+  removes their nav, landing, palette, pane, and deep-link surfaces for nonowners;
+  server data independently enforces the same requirement. Both special role env
+  settings are required and fail closed, but may point to the same owner-only role.
+  They must never point to the paid membership role.

@@ -574,6 +574,17 @@ body:not(.is-member) [data-premium]::after {
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='11' width='18' height='11' rx='2'/%3E%3Cpath d='M7 11V7a5 5 0 0 1 10 0v4'/%3E%3C/svg%3E") center / contain no-repeat;
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='11' width='18' height='11' rx='2'/%3E%3Cpath d='M7 11V7a5 5 0 0 1 10 0v4'/%3E%3C/svg%3E") center / contain no-repeat;
 }
+/* Owner destinations are present in the generated shell so principals get the
+   same single-page app after authentication, but they must never flash as paid
+   membership features while /me is unresolved or for a non-owner visitor. */
+body:not(.is-owner) :is(
+  [data-go="market"], [data-go="brief"], [data-go="narratives"],
+  [data-go="tickers"], [data-go="grade"], [data-go="compare"],
+  [data-go="strategies"], [data-go="stocks"], [data-go="rotation"],
+  [data-go="levetf"], [data-go="flow"], [data-go="volume"],
+  [data-go="oi"], [data-go="iv-trend"], [data-go="streaks"], [data-go="spillover"], [data-go="index-cal"],
+  [data-go="picks"], [data-go="track"], [data-go="quant"]
+) { display:none !important; }
 /* A locked premium pane hides its real content and shows only the upsell card. */
 .page-pane.locked > :not(.premium-lock) { display: none !important; }
 .premium-lock { display: none; }
@@ -21801,7 +21812,7 @@ button.vol-cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring)
 
 /* Advancers / decliners ribbon between the controls and the map. */
 /* Persistent breadth-participation alert. This is deliberately distinct from
-   the premium Sector Rotation rebound model and never implies ETF/fund flow. */
+   the Owner Sector Rotation rebound model and never implies ETF/fund flow. */
 .heatmap-streaks {
   display: grid;
   gap: 9px;

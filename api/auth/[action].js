@@ -110,6 +110,15 @@ async function callback(req, res) {
   // yourself (owner/comp/trial). Sourced from the legacy single
   // DISCORD_REQUIRED_ROLE_ID plus an optional comma-separated DISCORD_REQUIRED_ROLE_IDS.
   const requiredRoleIds = parseRoleIds(DISCORD_REQUIRED_ROLE_ID, DISCORD_REQUIRED_ROLE_IDS);
+  const trackRecordRoleIds = parseRoleIds(
+    DISCORD_TRACKRECORD_ROLE_ID,
+    DISCORD_TRACKRECORD_ROLE_IDS,
+  );
+  const topPicksRoleIds = parseRoleIds(DISCORD_TOPPICKS_ROLE_ID, DISCORD_TOPPICKS_ROLE_IDS);
+  // A genuine owner must be able to authenticate even if the owner role is not
+  // duplicated in the paid-member role list. Access still requires the owner
+  // role to satisfy BOTH special claim sets below.
+  const loginRoleIds = new Set([...requiredRoleIds, ...trackRecordRoleIds, ...topPicksRoleIds]);
   if (
     !DISCORD_CLIENT_ID ||
     !DISCORD_CLIENT_SECRET ||
@@ -160,45 +169,24 @@ async function callback(req, res) {
     const roles = Array.isArray(member.roles) ? member.roles : [];
 
     // 3) the gate: must hold ANY of the accepted roles.
-    if (!roles.some((r) => requiredRoleIds.has(r))) {
+    if (!roles.some((r) => loginRoleIds.has(r))) {
       return redirect(res, "/welcome.html?denied=role", clearState);
     }
 
-    // 3b) STRICTER sub-tier — the Track Record tab. Computed from the SAME role
-    // list already in hand (no extra Discord fetch), reusing parseRoleIds. This
-    // is NOT a gate on entering the app: a member who lacks the Track Record
-    // role still gets in and keeps every other premium tab — only Track Record
-    // is withheld. Back-compat: when the env var is unset (size === 0) every
-    // member keeps Track Record, so the feature ships dormant until configured.
-    const trackRecordRoleIds = parseRoleIds(
-      DISCORD_TRACKRECORD_ROLE_ID,
-      DISCORD_TRACKRECORD_ROLE_IDS,
-    );
-    // size === 0 fails OPEN (every member keeps Track Record) — that's the
-    // intentional "ships dormant until configured" default. But a var that's
-    // SET yet parses to no IDs (whitespace / stray comma / wrong value) is
-    // almost certainly a fat-fingered restrict attempt that silently over-grants.
-    // Surface that one case in the logs so it's distinguishable from dormant.
-    if ((DISCORD_TRACKRECORD_ROLE_ID || DISCORD_TRACKRECORD_ROLE_IDS) && trackRecordRoleIds.size === 0) {
-      console.warn("DISCORD_TRACKRECORD_ROLE_ID/_IDS is set but parsed to no role IDs — Track Record stays open to ALL members. Check the value.");
+    // 3b) INTERNAL OWNER TIER. Every actionable surface requires BOTH claims.
+    // The two env settings may point at the same Discord owner role. Missing or
+    // malformed role configuration fails closed; it must never promote every
+    // paying member into the internal workspace.
+    const ownerRolesConfigured = trackRecordRoleIds.size > 0 && topPicksRoleIds.size > 0;
+    if (!ownerRolesConfigured) {
+      console.error("Owner role configuration missing or invalid — internal tabs fail closed. Set both DISCORD_TRACKRECORD_ROLE_ID(S) and DISCORD_TOPPICKS_ROLE_ID(S); they may use the same role ID.");
     }
-    const hasTrackRecord =
-      trackRecordRoleIds.size === 0 || roles.some((r) => trackRecordRoleIds.has(r));
-
-    // 3c) STRICTER sub-tier — the Top Picks tab. Identical mechanics to 3b
-    // (same role list, same dormant-when-unset default, same fat-finger warn):
-    // a member without the role keeps every other premium tab; only Top Picks
-    // (the tab + picks.json/picks-open.json) is withheld.
-    const topPicksRoleIds = parseRoleIds(DISCORD_TOPPICKS_ROLE_ID, DISCORD_TOPPICKS_ROLE_IDS);
-    if ((DISCORD_TOPPICKS_ROLE_ID || DISCORD_TOPPICKS_ROLE_IDS) && topPicksRoleIds.size === 0) {
-      console.warn("DISCORD_TOPPICKS_ROLE_ID/_IDS is set but parsed to no role IDs — Top Picks stays open to ALL members. Check the value.");
-    }
-    const hasTopPicks =
-      topPicksRoleIds.size === 0 || roles.some((r) => topPicksRoleIds.has(r));
+    const hasTrackRecord = ownerRolesConfigured && roles.some((r) => trackRecordRoleIds.has(r));
+    const hasTopPicks = ownerRolesConfigured && roles.some((r) => topPicksRoleIds.has(r));
 
     // 4) mint the session cookie and enter the app. `tr`/`tp` ride inside the
     // signed (HS256, tamper-proof) JWT payload — set EXPLICITLY true/false so
-    // api/data can 401 the role-restricted files on `=== false`.
+    // api/data can require both claims on strict `=== true` checks.
     const user = member.user || {};
     const jwt = await signSession({
       sub: user.id || null,
@@ -254,11 +242,9 @@ async function me(req, res) {
   // member and shows no locks; when it's on, only an authed session unlocks
   // the premium tabs.
   const enabled = process.env.PRIVATE_DATA_ENABLED === "1";
-  // trackRecord / topPicks: whether this visitor may see the Track Record /
-  // Top Picks tabs. Fail-CLOSED for the unauthed cases (logged-out / no secret
-  // → hide the tabs on a gated deploy); for an authed session, `!== false` so
-  // a legacy session minted before the claim existed (undefined) keeps the tab
-  // until it expires — no mid-session lockout.
+  // The pair of explicit claims is the internal Owner entitlement. Legacy or
+  // malformed sessions without explicit true values fail closed and must log
+  // in again after the Owner gate is deployed.
   if (!process.env.SESSION_SECRET) return res.status(200).json({ authed: false, enabled, trackRecord: false, topPicks: false });
   const session = await getSession(req).catch(() => null);
   if (!session) return res.status(200).json({ authed: false, enabled, trackRecord: false, topPicks: false });
@@ -267,7 +253,7 @@ async function me(req, res) {
     enabled,
     name: session.name || null,
     sub: session.sub || null,
-    trackRecord: session.tr !== false,
-    topPicks: session.tp !== false,
+    trackRecord: session.tr === true,
+    topPicks: session.tp === true,
   });
 }

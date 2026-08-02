@@ -1187,16 +1187,17 @@ export const DOC_PAGES = {
 
   <header class="pg">
     <div class="kicker">stonks &middot; what's included</div>
-    <h1>Free to browse.<br><em>Premium</em> to unlock.</h1>
-    <p class="intro">stonks is a freemium options desk. Most of it is <strong>free to use right now</strong> — no account, no card. A focused set of members-only tools is unlocked with a <strong>premium Discord membership</strong>. Here's exactly what sits on each side of the line. <a href="/">Start browsing &rarr;</a></p>
+    <h1>Market research,<br><em>clearly separated.</em></h1>
+    <p class="intro">stonks publishes general market research. Most of it is <strong>free to browse</strong>; a small research layer is unlocked with a <strong>premium Discord membership</strong>. Security-selection, trade-timing, contract-grading, sizing, and position-management tools are internal <strong>Owner</strong> tools and are not sold as membership benefits. <a href="/">Start browsing &rarr;</a></p>
   </header>
 
   <nav class="toc" aria-label="Table of contents">
     <h2>Contents</h2>
     <ol>
-      <li><a href="#glance">Free vs Premium at a glance</a></li>
+      <li><a href="#glance">Access at a glance</a></li>
       <li><a href="#free">What's free</a></li>
       <li><a href="#premium">What premium unlocks</a></li>
+      <li><a href="#owner">Internal Owner tools</a></li>
       <li><a href="#how">How membership works</a></li>
       <li><a href="#good">Good to know</a></li>
     </ol>
@@ -1204,8 +1205,8 @@ export const DOC_PAGES = {
 
   <main>
     <section id="glance">
-      <h2><span class="snum">01</span>Free vs Premium at a glance</h2>
-      <p class="sectlede">The whole app shell, every live quote/chain proxy, and the bulk of the research tabs are open to everyone. Premium adds the highest-signal, freshest, decision-grade layers — the stuff we'd charge for.</p>
+      <h2><span class="snum">01</span>Access at a glance</h2>
+      <p class="sectlede">Public and member areas provide impersonal market information and event research. Anything that turns that information into a named-security trade decision is kept inside the private Owner workspace.</p>
       <div class="cmp">
         <div class="cmp-col free">
           <div class="cmp-head">
@@ -1215,19 +1216,13 @@ export const DOC_PAGES = {
           <div class="cmp-price"><b>$0</b> &middot; browse anytime</div>
           <div class="cmp-sub">Open to anyone — nothing to sign up for.</div>
           <ul class="cmp-list">
-            <li><b>Grade a ticker</b> — AI chart-pattern read + technicals, fundamentals, IV, news + a contract grader</li>
-            <li><b>Tickers</b> — chains, technicals, Greeks, IV term structure, AI news takes</li>
-            <li><b>Live quotes &amp; chains</b> — live spot, option-chain lookups, the live Fed Funds rate and contract grading</li>
+            <li><b>Market data</b> — general live quotes, chains, and the live Fed Funds rate</li>
             <li><b>News desk</b> — stock and macro headlines, published economic prints, impact ranking and active-tape context</li>
-            <li><b>Compare companies</b> — overlay 2–4 price histories, then compare valuation, growth, margins and grade</li>
             <li><b>Calendar</b> — earnings, macro prints, FOMC + FedWatch odds, and the official member vote map</li>
             <li><b>Market heatmap</b> — live map by performance or relative volume</li>
             <li><b>Macro</b> — Overnight markets, Fear &amp; Greed, Bonds &amp; USD, Commodities, Capital raises, and IPOs &amp; credit</li>
             <li><b>Alt data</b> — AI CapEx, RAM prices, GPU cloud prices, Search interest, and SEC ownership / 13F filings</li>
-            <li><b>Narratives</b> — AI theses driving capital, longs/shorts, lifecycle</li>
             <li><b>Earnings calls</b> — AI briefs covering guidance, tone and Q&amp;A</li>
-            <li><b>Index calendar</b> — daily SPY/QQQ/IWM and cross-asset closes by month</li>
-            <li><b>Strategies</b> — the multi-leg entry engine</li>
             <li><b>Reference</b> — Buyer's manual + Chart-patterns field guide</li>
           </ul>
           <div class="cmp-cta">
@@ -1240,24 +1235,10 @@ export const DOC_PAGES = {
             <span class="tier prem">Discord member</span>
           </div>
           <div class="cmp-price"><b>Members</b> &middot; via Discord role</div>
-          <div class="cmp-sub">Everything in Free, plus the decision-grade layers.</div>
+          <div class="cmp-sub">Everything in Free, plus the earnings-season research view.</div>
           <ul class="cmp-list">
-            <li><b>Market analysis</b> — the live market tape, risk barometer &amp; regime history</li>
-            <li><b>Top Picks</b> — highest-conviction contracts, sizing &amp; breakeven; optionally controlled by its own Discord role</li>
-            <li><b>Stock Picks</b> — shares-only buy-the-dip screen (quality names beaten down, trap flags shown) + a uniform daily VOO/QQQ DCA multiplier</li>
-            <li><b>Sector Rotation</b> — quality companies washed out with their peer group, then ranked by rebound phase and trade levels</li>
-            <li><b>Leveraged ETFs</b> — the same grades mapped onto listed 2×/3× products, with reset-drag, carry-cost &amp; chop warnings and a live-priced track record</li>
-            <li><b>Briefs</b> — hourly market digest, open through close</li>
             <li><b>Earnings tracker</b> — season scoreboard: beats, guidance, expected moves, drift</li>
-            <li><b>Event Spillover</b> — upcoming-earnings read-through across same-sector peers, with historical tests and forward-validation results</li>
-            <li><b>Trending IV</b> — implied vol running above a name's own history</li>
-            <li><b>Streaks</b> — persistent green/red runs and mean-reversion context</li>
-            <li><b>Unusual flow</b> — abnormal options prints &amp; directional skew</li>
-            <li><b>Volume</b> — intraday volume + support/resistance breaks</li>
-            <li><b>Gamma exposure</b> — dealer net-gamma matrix, flip &amp; walls</li>
-            <li><b>Track Record</b> — resolved picks performance &amp; scorecard; optionally controlled by its own Discord role</li>
-            <li><b>Owner Lab</b> — the held-position checker and private dollar/account-risk sizing, plus confluence, 3σ movers, variance-risk-premium, pairs, volatility-surface, dispersion and post-earnings-drift screens; available only with both Top Picks and Track Record access</li>
-            <li><b>Index calendar</b> — daily close calendar plus SPY/QQQ/IWM first-hour, recovery, last-hour, extreme-timing and conditional seasonality stats</li>
+            <li><b>No stock picks or trade instructions</b> — membership does not include the internal Owner workspace</li>
           </ul>
           <div class="cmp-cta">
             <a class="btn discord" href="/api/auth/discord-login">
@@ -1273,31 +1254,15 @@ export const DOC_PAGES = {
       <h2><span class="snum">02</span>What's free</h2>
       <p class="sectlede">No account required — open the site and these are all live. Refreshed automatically through the trading day.</p>
 
-      <div class="grouplabel">Find &amp; act</div>
+      <div class="grouplabel">News &amp; events</div>
       <div class="feat-grid">
-        <div class="feat">
-          <div class="feat-top"><span class="feat-name">Grade a ticker</span><span class="tier free">Free</span></div>
-          <p class="feat-desc">Search any tracked ticker to land straight on its chart — the AI chart-pattern read leads, above the daily price chart and full technicals — alongside its fundamentals, implied-vol term structure, AI news take, and a live contract grader that scores any specific call/put on bid-ask spread, delta, and theta.</p>
-        </div>
-        <div class="feat">
-          <div class="feat-top"><span class="feat-name">Tickers</span><span class="tier free">Free</span></div>
-          <p class="feat-desc">Per-ticker option chains, technicals (RSI/MACD/SMA/S&amp;R/IV regime), Greeks, IV term structure, earnings history, and an AI news take — for every tracked symbol.</p>
-        </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">News desk</span><span class="tier free">Free</span></div>
           <p class="feat-desc">A linked queue across every covered stock plus a dedicated macro lane for Fed, inflation, labor, growth, policy and energy news. Published economic prints show actual, consensus and prior values with their source; deterministic impact ranking, factual surprise reads and active-tape context stay separate from causal claims.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Compare companies</span><span class="tier free">Free</span></div>
-          <p class="feat-desc">Overlay 2–4 normalized price histories across 1 month to 1 year, with a shared hover readout that keeps each name's actual close visible. Then compare valuation (P/E, PEG, P/S), growth, margins, the analyst read and the 4-pillar grade side by side.</p>
-        </div>
-        <div class="feat">
           <div class="feat-top"><span class="feat-name">Calendar</span><span class="tier free">Free</span></div>
           <p class="feat-desc">Earnings AM/PM sessions, macro releases (CPI, NFP, PPI, JOLTS), FOMC dates and live FedWatch probabilities — with countdowns and clickable tickers.</p>
-        </div>
-        <div class="feat">
-          <div class="feat-top"><span class="feat-name">Strategies</span><span class="tier free">Free</span></div>
-          <p class="feat-desc">An entry-strategy engine that frames how to express a directional view with defined-risk option structures.</p>
         </div>
       </div>
 
@@ -1352,16 +1317,8 @@ export const DOC_PAGES = {
           <p class="feat-desc">News-flagged debt, convertible and share issuance — plus buybacks — across the tracked universe, enriched with the latest filed amounts from SEC filings.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Narratives</span><span class="tier free">Free</span></div>
-          <p class="feat-desc">AI-built theses on what's driving capital — longs, shorts, the 6-stage lifecycle, a fundamentals-vs-hype gauge, bull/base/bear cases, and cited sources.</p>
-        </div>
-        <div class="feat">
           <div class="feat-top"><span class="feat-name">Earnings calls</span><span class="tier free">Free</span></div>
           <p class="feat-desc">An AI research brief of each tracked name's latest earnings call, built from the full transcript — key takeaways, reported numbers, guidance, management and analyst tone, revealing Q&amp;A, and risks.</p>
-        </div>
-        <div class="feat">
-          <div class="feat-top"><span class="feat-name">Index calendar</span><span class="tier free">Free</span></div>
-          <p class="feat-desc">A month-grid record of how SPY, QQQ, IWM, SMH, DIA, VXUS, TLT, GLD and VIX closed each trading day, with the close-to-close move in every cell.</p>
         </div>
       </div>
 
@@ -1369,7 +1326,7 @@ export const DOC_PAGES = {
       <div class="feat-grid">
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Live quotes &amp; chains</span><span class="tier free">Free</span></div>
-          <p class="feat-desc">Live spot, option chains, the live Fed Funds rate and contract grading — the live data proxies are open to everyone.</p>
+          <p class="feat-desc">General live spot, option chains, and the live Fed Funds rate. Internal scoring and trade-decision views are not included.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Buyer's manual</span><span class="tier free">Free</span></div>
@@ -1383,31 +1340,36 @@ export const DOC_PAGES = {
     </section>
 
     <section id="premium">
-      <h2><span class="snum">03</span>What premium unlocks</h2>
-      <p class="sectlede">The members-only layer — the freshest, highest-signal reads we'd put real money behind. These tabs (and the data that backs them) are gated behind a valid membership; everything above stays free.</p>
+      <span id="owner"></span>
+      <h2><span class="snum">03</span>Premium and Owner access</h2>
+      <p class="sectlede"><b>Premium membership unlocks only Earnings Tracker.</b> Every card labeled Owner below is an internal workspace for the site's principals: it is hidden from members, is not advertised or sold as a membership benefit, and requires both explicit Owner role claims.</p>
       <div class="feat-grid">
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Market analysis</span><span class="tier prem">Premium</span></div>
+          <div class="feat-top"><span class="feat-name">Named-security research &amp; grading</span><span class="tier prem">Owner</span></div>
+          <p class="feat-desc">Narratives, per-ticker chains and AI takes, Grade a Ticker, Compare Companies, and Strategies are internal because they can select a named security, assign direction or conviction, grade a contract, or propose a trade structure.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Market analysis</span><span class="tier prem">Owner</span></div>
           <p class="feat-desc">The cross-asset risk read that sets the engine's posture — the live market tape (VIX, dollar, yields, commodities, Fed path, geopolitics), a risk-on / risk-off barometer, and the daily regime history. Plus grade <em>any</em> ticker on demand. The held-position checker is reserved for Owner Lab.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Top Picks</span><span class="tier prem">Premium</span></div>
+          <div class="feat-top"><span class="feat-name">Top Picks</span><span class="tier prem">Owner</span></div>
           <p class="feat-desc">The highest-conviction contracts pulled from today's chains — a deterministic four-pillar grade, a web-research-grounded AI final grader making the buy-now / wait call, the suggested contract and structure, position sizing, move-to-breakeven, an exit plan, and a shared watchlist that keeps an idea pinned through every refresh.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Stock Picks</span><span class="tier prem">Premium</span></div>
-          <p class="feat-desc">Shares, not options — a buy-the-dip screen over the whole universe that answers three questions independently: is it a good business (a hard quality gate), is it beaten down right now (five "cheap vs its own recent self" reads), and did something actually break (trap flags that warn but never hide a name). Each card opens into a ~28-question investment-thesis checklist answered from tracked data, and a daily <b>DCA dial</b> publishes the same VOO/QQQ baseline multiplier for every member. Applying it to a personal dollar baseline is reserved for Owner Lab.</p>
+          <div class="feat-top"><span class="feat-name">Stock Picks</span><span class="tier prem">Owner</span></div>
+          <p class="feat-desc">Shares, not options — an internal buy-the-dip screen over the tracked universe that separates business quality, price dislocation, and active trap flags. Each card opens into a structured investment-thesis checklist, while Owner Lab holds the private dollar and account-risk controls.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Sector Rotation</span><span class="tier prem">Premium</span></div>
+          <div class="feat-top"><span class="feat-name">Sector Rotation</span><span class="tier prem">Owner</span></div>
           <p class="feat-desc">A rebound desk for strong companies caught in a sector-wide washout rather than clear company-specific deterioration. It combines the existing fundamental quality gate with peer participation, clean-news checks and the stock&rsquo;s own reversal evidence, then classifies each setup as <b>washed out, first thrust, confirmed, or late</b>. First thrust waits for a pullback instead of chasing; every setup keeps its trigger, invalidation, first target and estimated reward/risk on the underlying stock so a dramatic bounce is never mistaken for a complete trade plan.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Leveraged ETFs</span><span class="tier prem">Premium</span></div>
+          <div class="feat-top"><span class="feat-name">Leveraged ETFs</span><span class="tier prem">Owner</span></div>
           <p class="feat-desc">The Top Picks grades expressed through listed leveraged ETFs instead of option contracts — single-stock 2× products (NVDL, TSLL, …) for high-conviction names, sector/index 3× pairs (SOXL/SOXS, TQQQ/SQQQ, …) when a whole group leans one way with real breadth. Every card carries the daily-reset drag estimate at current realized vol, a chop warning when the tape is volatile but trendless, the full cost of carry (verified fund fee + financing), a simulated daily-reset path drawn against the underlying, entry timing, and the drivers behind the read — and a direction with no listed product says so instead of inventing a ticker. The tab keeps its own track record: every flagged idea is logged at its live fund price and closed with a reason when the signal breaks, and the scoreboard (win rate, average move) is shown up front.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Briefs</span><span class="tier prem">Premium</span></div>
+          <div class="feat-top"><span class="feat-name">Briefs</span><span class="tier prem">Owner</span></div>
           <p class="feat-desc">A rolling market digest refreshed hourly through the session — overnight moves, the day's movers, notable flow, dealer gamma, what's next.</p>
         </div>
         <div class="feat">
@@ -1415,39 +1377,39 @@ export const DOC_PAGES = {
           <p class="feat-desc">A season-by-season scoreboard of every tracked name's earnings — beats vs misses, guidance raised or cut, whether the stock moved more than the options market priced in, pre-earnings drift, sell-the-news counts, the biggest gaps, upcoming event risk, and a daily AI season read.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Event Spillover</span><span class="tier prem">Premium</span></div>
+          <div class="feat-top"><span class="feat-name">Event Spillover</span><span class="tier prem">Owner</span></div>
           <p class="feat-desc">A read-through matrix for upcoming earnings: which same-sector peers have historically moved with the reporting company, how consistently, what the driver&rsquo;s options-implied move suggests for each follower, and whether overlapping events contaminate the read. A forward-validation log keeps the relationships accountable.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Trending IV</span><span class="tier prem">Premium</span></div>
+          <div class="feat-top"><span class="feat-name">Trending IV</span><span class="tier prem">Owner</span></div>
           <p class="feat-desc">Every name's ATM ~30-day implied vol against its own ~18-month history — names running above their historical average and still climbing are flagged as pricing in a bigger-than-usual move, with earnings context and IV sparklines.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Streaks</span><span class="tier prem">Premium</span></div>
+          <div class="feat-top"><span class="feat-name">Streaks</span><span class="tier prem">Owner</span></div>
           <p class="feat-desc">Current green/red daily-close streaks for every ticker, a counter-day tolerance bank, rarity context, and a just-snapped mean-reversion strip.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Unusual flow</span><span class="tier prem">Premium</span></div>
+          <div class="feat-top"><span class="feat-name">Unusual flow</span><span class="tier prem">Owner</span></div>
           <p class="feat-desc">Options prints with abnormal volume vs the prior session, the call-vs-put premium skew, and a directional lean — who's pricing in what.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Volume</span><span class="tier prem">Premium</span></div>
+          <div class="feat-top"><span class="feat-name">Volume</span><span class="tier prem">Owner</span></div>
           <p class="feat-desc">Intraday volume standouts and support/resistance breaks, with an hour-by-hour volume-profile strip on every flagged name.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Gamma exposure</span><span class="tier prem">Premium</span></div>
+          <div class="feat-top"><span class="feat-name">Gamma exposure</span><span class="tier prem">Owner</span></div>
           <p class="feat-desc">The dealer net-gamma (GEX) matrix per strike, the gamma flip line, and the call/put walls — where moves get pinned or amplified.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Track Record</span><span class="tier prem">Premium</span></div>
+          <div class="feat-top"><span class="feat-name">Track Record</span><span class="tier prem">Owner</span></div>
           <p class="feat-desc">The resolved Top-Picks performance — win rate, win/loss payoff, expectancy vs SPY, an engine-health summary that explains why each pick won or lost, a $100k backtest simulator with Monte Carlo, and the roster's in/out churn over time.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Owner Lab</span><span class="tier prem">Top Picks + Track Record roles</span></div>
+          <div class="feat-top"><span class="feat-name">Owner Lab</span><span class="tier prem">Owner</span></div>
           <p class="feat-desc">The held-position checker and the private dollar/account-risk controls for the DCA, Sector Rotation, and Leveraged ETF screens live here, alongside deterministic confluence, fixed 3σ outlier, realized-vs-implied volatility, pairs, volatility-surface, dispersion, post-earnings drift, and paper-engine research. It requires both Top Picks and Track Record access; deployments may assign both claims through the same owner role.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Index calendar + hour tracker</span><span class="tier prem">Premium</span></div>
+          <div class="feat-top"><span class="feat-name">Index calendar + hour tracker</span><span class="tier prem">Owner</span></div>
           <p class="feat-desc">A month-grid of daily index closes plus a SPY / QQQ / IWM session log: overnight gap, first-hour return/range/volume, 10:30-to-close recovery, last-hour move, open-to-close result and when the day&rsquo;s high or low printed. Conditional probabilities run on rolling monthly / 30 / 40-session windows and can be sliced by gap, prior-close VIX, major morning data, Fed speakers, and pre-open trend / volatility / risk regime.</p>
         </div>
       </div>
@@ -1455,11 +1417,11 @@ export const DOC_PAGES = {
 
     <section id="how">
       <h2><span class="snum">04</span>How membership works</h2>
-      <p class="sectlede">Premium is unlocked through our Discord server. There's no separate stonks account — your Discord membership <em>is</em> your access.</p>
+      <p class="sectlede">Premium event research is unlocked through our Discord server. There is no separate stonks account. Owner access is a separate, internal entitlement and cannot be purchased through membership.</p>
       <ol class="steps">
         <li><b><a href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">Join the Discord</a> and get the member role.</b> Premium access rides on a role in our server. Members get it automatically; ask in the server if you don't see it yet.</li>
         <li><b>Log in with Discord.</b> Hit <a href="/api/auth/discord-login">Log in</a> (or the "Log in" button in the site header). We check your server membership and role — nothing else.</li>
-        <li><b>The premium tabs unlock.</b> Once you hold the role, the members-only tabs and their data open up. A non-member just sees a polite upsell where those tabs would be — the rest of the site never locks. (Top Picks and Track Record can additionally require their own roles.)</li>
+        <li><b>The premium research tab unlocks.</b> Earnings Tracker becomes available. The Owner group remains hidden because it requires two separately configured internal role claims and is not part of the subscription.</li>
       </ol>
       <div class="callout">
         <b>Privacy &amp; sessions:</b> we only read your Discord user ID, username, and the roles relevant to access. Login mints a short-lived, secure session cookie — sign out anytime. See the <a href="/privacy.html">Privacy Policy</a> for the full detail.
@@ -1987,7 +1949,7 @@ export const DOC_PAGES = {
       <p>The Service offers free features and may offer paid access through Discord or another identified third-party platform. The checkout interface presented by that platform states the price, billing period, included benefits, and other material purchase terms.</p>
 
       <h3>Account Creation and Security</h3>
-      <p>Premium access is tied to qualifying Discord membership and roles. You must maintain the third-party account used to purchase or verify access and comply with that platform&rsquo;s terms. We do not receive or store your full payment-card credentials.</p>
+      <p>Premium access is tied to qualifying Discord membership and roles. You must maintain the third-party account used to purchase or verify access and comply with that platform&rsquo;s terms. We do not receive or store your full payment-card credentials. Internal Owner tools are not included in, promised by, or sold as part of any paid membership.</p>
 
       <h3>Subscriptions and Auto-Renewal</h3>
       <p>Unless the checkout states otherwise, paid subscriptions recur at the disclosed interval until canceled. You may cancel through the same platform and device type used to subscribe; cancellation ordinarily takes effect at the end of the current paid period. The checkout provider&rsquo;s paid-services and refund terms apply in addition to these Terms. Nothing in these Terms limits any cancellation, refund, or consumer right that cannot lawfully be waived.</p>

@@ -6,11 +6,11 @@ PREMIUM keys (`lib/premium-keys.mjs`). Engine: the `QUANT LAB` block in
 `scripts/build.mjs` (after the Trending-IV section). Tab id `quant`, its own
 "Owner" nav group. Backtest harness: `scripts/diagnose-pairs.mjs`.
 
-The combined-role workspace also houses every premium control that consumes a
+The combined-role workspace also houses every Owner control that consumes a
 real holding, dollar baseline, account value, or max-loss budget: the live
 held-option checker, personalized VOO/QQQ DCA dollars, Sector Rotation share
-caps, and Leveraged ETF share caps. Their standardized research remains on the
-ordinary premium pages; only the owner-specific application is isolated here.
+caps, and Leveraged ETF share caps. Their standardized research remains in the
+broader Owner workspace; account-specific application remains isolated here.
 
 The same owner-only tab also contains a separate actionable **paper** Day
 Trading Engine. It has its own 15-minute producer and durable two-portfolio

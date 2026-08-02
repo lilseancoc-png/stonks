@@ -404,7 +404,7 @@ function calendarSection() {
   return `<section class="card" id="calendar-section">
     <header class="card-header">
       <h2 class="card-title">Calendar</h2>
-      <button type="button" class="card-jump" id="calendar-idxcal-link" title="Open the Index calendar — daily SPY/QQQ/IWM/&hellip; moves, month by month">Index calendar &rarr;</button>
+      <button type="button" class="card-jump" id="calendar-idxcal-link" data-go="index-cal" title="Open the Owner index calendar">Index calendar &rarr;</button>
       <span class="card-eyebrow" id="calendar-eyebrow" aria-live="polite"></span>
     </header>
     ${infoNote("What's on this calendar?", `<p>A month-at-a-time view of every dated market event, opening on the <b>current month</b> — use <b>&lsaquo;</b> / <b>&rsaquo;</b> to step between months (or <b>Today</b> to jump back), and tap any day to see its full details below the grid. It tracks: confirmed earnings dates (with AM/PM session tagging) for every curated ticker, ticker-specific catalysts (FDA dates, contract decisions, product launches, court rulings, investor days — extracted from recent news), structured economic-report releases (NFP, Unemployment, JOLTS, CPI, PPI) with Actual / Previous / Consensus values, upcoming FOMC meetings, the current effective Fed Funds rate plus CME FedWatch hike/hold/cut probabilities at four lookbacks, and an official meeting-by-meeting rate-vote map showing hawks, aligned voters, doves, and member stance changes. Ticker chips are clickable.</p>`)}
@@ -431,7 +431,7 @@ function indexCalSection() {
   // Card chrome only — the monthly index-close grid (SPY/QQQ/IWM/SMH/DIA/VXUS/
   // TLT/GLD/VIX red/green + %change), the index toggle, the month nav, and the
   // per-month summary render
-  // client-side from data/index-calendar.json (free; lazy-fetched on first
+  // client-side from data/index-calendar.json (Owner; lazy-fetched on first
   // tab activation by loadIndexCal() in app.js).
   return `<section class="card" id="index-cal-section">
     <header class="card-header">
@@ -1670,7 +1670,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     </nav>
   </div>
 </header>
-<p class="page-sub">Grade any ticker — conviction score, technicals, fundamentals, and a contract grader. ${tickerCount} curated tickers, refreshed daily.</p>
+<p class="page-sub">General market news, events, breadth, macro data, and source-backed company research. Refreshed throughout the trading day.</p>
 <div id="freshness-banner" class="freshness" data-built-at="${builtAtIso}" role="status" aria-live="polite">
   <span class="freshness-dot" aria-hidden="true"></span>
   <span id="freshness-text">Refreshed ${builtAt} (NY)</span>
@@ -1689,17 +1689,8 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <summary class="side-nav-group-label">Desk</summary>
     <div class="side-nav-group-items">
       ${sideNavItem('home', 'Home', { selected: true })}
-      ${sideNavItem('brief', 'Brief')}
       ${sideNavItem('news', 'News')}
-      ${sideNavItem('market', 'Market analysis')}
-    </div>
-  </details>
-  <details class="side-nav-group" data-nav-group="ideas" open>
-    <summary class="side-nav-group-label">Ideas</summary>
-    <div class="side-nav-group-items">
-      ${sideNavItem('stocks', 'Stock picks')}
-      ${sideNavItem('rotation', 'Sector rotation')}
-      ${sideNavItem('levetf', 'Leveraged ETFs')}
+      ${sideNavItem('heatmap', 'Heatmap')}
     </div>
   </details>
   <details class="side-nav-group" data-nav-group="events">
@@ -1708,19 +1699,6 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       ${sideNavItem('calendar', 'Calendar')}
       ${sideNavItem('earnings', 'Earnings tracker')}
       ${sideNavItem('calls', 'Earnings calls')}
-      ${sideNavItem('spillover', 'Event spillover')}
-      ${sideNavItem('index-cal', 'Index calendar')}
-    </div>
-  </details>
-  <details class="side-nav-group" data-nav-group="flow">
-    <summary class="side-nav-group-label">Flow</summary>
-    <div class="side-nav-group-items">
-      ${sideNavItem('heatmap', 'Heatmap')}
-      ${sideNavItem('flow', 'Unusual flow')}
-      ${sideNavItem('volume', 'Volume')}
-      ${sideNavItem('oi', 'Gamma exposure')}
-      ${sideNavItem('iv-trend', 'Trending IV')}
-      ${sideNavItem('streaks', 'Streaks')}
     </div>
   </details>
   <details class="side-nav-group" data-nav-group="macro">
@@ -1744,20 +1722,29 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       ${sideNavItem('f13', 'SEC ownership')}
     </div>
   </details>
-  <details class="side-nav-group" data-nav-group="research">
-    <summary class="side-nav-group-label">Research</summary>
-    <div class="side-nav-group-items">
-      ${sideNavItem('tickers', 'Tickers')}
-      ${sideNavItem('narratives', 'Narratives')}
-    </div>
-  </details>
-  <details class="side-nav-group" data-nav-group="quant" data-role-group="quant" hidden>
-    <!-- Every destination in this group is role-hidden. Quant Lab requires
-         BOTH the Track Record (tr) and Top Picks (tp) claims. The group starts
-         hidden to prevent a pre-auth flash; startApp() reveals it only when at
-         least one authorized destination remains. -->
+  <details class="side-nav-group" data-nav-group="owner" data-role-group="owner" hidden>
+    <!-- Actionable trade-decision surfaces are internal Owner tools. Every
+         destination requires BOTH the Track Record (tr) and Top Picks (tp)
+         claims. The group starts hidden to prevent a pre-auth flash. -->
     <summary class="side-nav-group-label">Owner</summary>
     <div class="side-nav-group-items">
+      ${sideNavItem('market', 'Market analysis')}
+      ${sideNavItem('brief', 'Brief')}
+      ${sideNavItem('narratives', 'Narratives')}
+      ${sideNavItem('tickers', 'Tickers')}
+      ${sideNavItem('grade', 'Grade a ticker')}
+      ${sideNavItem('compare', 'Compare companies')}
+      ${sideNavItem('strategies', 'Strategies')}
+      ${sideNavItem('stocks', 'Stock picks')}
+      ${sideNavItem('rotation', 'Sector rotation')}
+      ${sideNavItem('levetf', 'Leveraged ETFs')}
+      ${sideNavItem('flow', 'Unusual flow')}
+      ${sideNavItem('volume', 'Volume')}
+      ${sideNavItem('oi', 'Gamma exposure')}
+      ${sideNavItem('iv-trend', 'Trending IV')}
+      ${sideNavItem('streaks', 'Streaks')}
+      ${sideNavItem('spillover', 'Event spillover')}
+      ${sideNavItem('index-cal', 'Index calendar')}
       ${sideNavItem('picks', 'Top picks')}
       ${sideNavItem('track', 'Track record')}
       ${sideNavItem('quant', 'Owner Lab')}
@@ -1766,9 +1753,6 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <details class="side-nav-group" data-nav-group="tools">
     <summary class="side-nav-group-label">Tools</summary>
     <div class="side-nav-group-items">
-      ${sideNavItem('grade', 'Grade a ticker', { navHidden: true })}
-      ${sideNavItem('compare', 'Compare companies')}
-      ${sideNavItem('strategies', 'Strategies')}
       ${sideNavItem('cheatsheet', "Buyer's manual")}
       ${sideNavItem('chart-patterns', 'Chart patterns')}
       ${sideNavItem('features', "What's included")}
@@ -1788,9 +1772,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <section class="landing-hero">
       <div class="landing-hero-main">
         <div class="landing-hero-copy">
-          <span class="landing-hero-eyebrow">Today's desk</span>
-          <h1 class="landing-hero-title">Start with the next decision.</h1>
-          <p class="landing-hero-sub">Read the tape, find the setup, then validate the entry and risk across ${tickerCount} curated tickers.</p>
+          <span class="landing-hero-eyebrow">Today's market</span>
+          <h1 class="landing-hero-title">Start with the context.</h1>
+          <p class="landing-hero-sub">Review news, scheduled events, breadth, macro conditions, and source-backed company research across ${tickerCount} tracked names.</p>
         </div>
         <div class="landing-quick" role="group" aria-label="Trader shortcuts">
           <button type="button" class="landing-quick-card" data-go="brief" aria-label="Read today's market brief">
@@ -1811,8 +1795,8 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     </section>
     <section class="landing-section">
       <header class="landing-section-head">
-        <h2 class="landing-section-title">Find ideas</h2>
-        <p class="landing-section-sub">Where the next trade comes from — what's hot, what's lining up, what's on the calendar.</p>
+        <h2 class="landing-section-title">Follow the market</h2>
+        <p class="landing-section-sub">What changed, what is moving, and what is scheduled next.</p>
       </header>
       <div class="landing-grid">
         <button type="button" class="landing-card" data-go="brief" aria-label="Read the market brief">
@@ -1901,7 +1885,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <section class="landing-section">
       <header class="landing-section-head">
         <h2 class="landing-section-title">Research</h2>
-        <p class="landing-section-sub">Context for the trade — who's holding what, what the tape's been doing, where the macro is.</p>
+        <p class="landing-section-sub">Ownership, sentiment, rates, currencies, and the broader market backdrop.</p>
       </header>
       <div class="landing-grid">
         <button type="button" class="landing-card" data-go="market" aria-label="View market analysis">
@@ -1977,7 +1961,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         </button>
       </div>
     </section>
-    <p class="landing-foot">Or jump anywhere with the tab strip above · press <kbd>⌘K</kbd> for the command palette.</p>
+    <p class="landing-foot">Use the navigation menu or press <kbd>⌘K</kbd> to jump to available research.</p>
   </div>
   <div class="page-pane" id="page-pane-brief" role="tabpanel" aria-labelledby="page-tab-brief" hidden>
   ${briefSection()}
@@ -2016,7 +2000,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         <span class="card-eyebrow" id="heatmap-eyebrow" aria-live="polite"></span>
       </header>
       <p class="hint">Read the tape at a glance: tile size shows market cap and color shows the session move. Find a ticker, switch to relative volume, or tap any tile to open its Grade.</p>
-      ${infoNote('How to read this map', `<p>Deeper green and red mark larger session moves. In <b>Relative volume</b> mode, saturation shows current cumulative volume versus the fraction of a normal 20-day session expected by that clock time, using the same U-shaped intraday pace curve as the Volume desk. That keeps the morning comparable with the close instead of labeling every incomplete session quiet. Pre-market keeps the last completed-session read rather than treating prior-session volume as live. Hue still shows direction. Group by sector or industry, press Enter after searching to center the first match, and use the zoom controls or wheel/pinch to inspect the small-cap tail.</p><p>The <b>Sector breadth streak</b> flags a group only after at least 70% of its tracked names have closed in the same direction for two or more consecutive sessions. That proves participation is broad and persistent; it does <em>not</em> measure ETF inflows/outflows, relative strength versus SPY, or the premium Sector Rotation desk&rsquo;s quality-washout rebound setup. Use a green streak as a leadership candidate and a red streak as a group-risk flag, then confirm with relative performance and volume. Not financial advice.</p>`)}
+      ${infoNote('How to read this map', `<p>Deeper green and red mark larger session moves. In <b>Relative volume</b> mode, saturation shows current cumulative volume versus the fraction of a normal 20-day session expected by that clock time, using the same U-shaped intraday pace curve as the Volume desk. That keeps the morning comparable with the close instead of labeling every incomplete session quiet. Pre-market keeps the last completed-session read rather than treating prior-session volume as live. Hue still shows direction. Group by sector or industry, press Enter after searching to center the first match, and use the zoom controls or wheel/pinch to inspect the small-cap tail.</p><p>The <b>Sector breadth streak</b> flags a group only after at least 70% of its tracked names have closed in the same direction for two or more consecutive sessions. That proves participation is broad and persistent; it does <em>not</em> measure ETF inflows/outflows, relative strength versus SPY, or the Owner Sector Rotation desk&rsquo;s quality-washout rebound setup. Use a green streak as a leadership candidate and a red streak as a group-risk flag, then confirm with relative performance and volume. Not financial advice.</p>`)}
       <div id="heatmap-decision" class="heatmap-decision" aria-live="polite"></div>
       <div class="heatmap-controls" role="toolbar" aria-label="Heatmap controls">
         <label class="heatmap-control heatmap-group-control">

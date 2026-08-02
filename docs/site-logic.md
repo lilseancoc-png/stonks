@@ -36,23 +36,23 @@ Most important design rule: a strong observation is not automatically a trade. T
 | Area | Feature | What it is |
 |---|---|---|
 | Desk | Home | Launchpad into the main workflows; no independent trading model. |
-| Desk | Brief | Hourly AI market briefing built only from deterministic evidence supplied by the system. |
+| Owner | Brief | Hourly AI market briefing built only from deterministic evidence supplied by the system. |
 | Desk | News | Straight headline triage ranked by likely trading importance and labeled for direction. |
-| Desk | Market Analysis | The live multi-axis market regime and risk barometer. |
-| Ideas | Stock Picks | Shares-only quality-company dip screen plus the VOO/QQQ DCA dial. |
-| Ideas | Sector Rotation | Long-only peer-washout rebound desk with frozen-mean recovery logic. |
-| Ideas | Leveraged ETFs | The common grade mapped to verified listed leveraged products, with daily-reset risk. |
+| Owner | Market Analysis | The live multi-axis market regime and risk barometer. |
+| Owner | Stock Picks | Shares-only quality-company dip screen plus the VOO/QQQ DCA dial. |
+| Owner | Sector Rotation | Long-only peer-washout rebound desk with frozen-mean recovery logic. |
+| Owner | Leveraged ETFs | The common grade mapped to verified listed leveraged products, with daily-reset risk. |
 | Events | Calendar | Earnings, macro releases, FOMC/FedWatch, catalysts, and event history. |
 | Events | Earnings Tracker | Session-aware earnings reactions, implied-versus-realized moves, and season summaries. |
 | Events | Earnings Calls | Source-linked transcript briefs with outlook changes, risks, and Q&A pressure. |
-| Events | Event Spillover | Statistical read-through from an earnings reporter to same-industry followers. |
-| Events | Index Calendar | Long-history calendar returns for major indexes and cross-asset benchmarks. |
-| Flow | Heatmap | Market-cap-sized equity map, breadth, relative volume, and sector streaks. |
-| Flow | Unusual Flow | Front-expiry volume-versus-open-interest scanner with tape-location context. |
-| Flow | Volume | Time-of-day-adjusted stock-volume and support/resistance-break scanner. |
-| Flow | Gamma Exposure | Dealer-positioning proxy, walls, net GEX, and gamma-flip estimate. |
-| Flow | Trending IV | Names whose implied volatility is elevated and still accelerating versus their own history. |
-| Flow | Streaks | Noise-aware multi-day directional runs with reversal handling. |
+| Owner | Event Spillover | Statistical read-through from an earnings reporter to same-industry followers. |
+| Owner | Index Calendar | Long-history calendar returns and conditional timing statistics. |
+| Desk | Heatmap | Market-cap-sized equity map, breadth, relative volume, and sector streaks. |
+| Owner | Unusual Flow | Front-expiry volume-versus-open-interest scanner with tape-location context. |
+| Owner | Volume | Time-of-day-adjusted stock-volume and support/resistance-break scanner. |
+| Owner | Gamma Exposure | Dealer-positioning proxy, walls, net GEX, and gamma-flip estimate. |
+| Owner | Trending IV | Names whose implied volatility is elevated and still accelerating versus their own history. |
+| Owner | Streaks | Noise-aware multi-day directional runs with reversal handling. |
 | Macro | Overnight Markets | Global-market changes, cross-asset relationships, and beta-implied US moves. |
 | Macro | Fear & Greed | CNN's seven-component 0–100 sentiment composite and history. |
 | Macro | Bonds & USD | Treasury curve, dollar, inflation, labor, credit, and live cross-asset overlays. |
@@ -63,15 +63,15 @@ Most important design rule: a strong observation is not automatically a trade. T
 | Macro | Commodities | Eleven input-cost, freight, and demand series mapped to exposed equities. |
 | Macro | Capital Raises | Issuer-level equity, convertible, debt, and buyback events. |
 | Macro | IPOs & Credit | IPO participation, bond issuance, bank funding, and household-credit backdrop. |
-| Research | Tickers | Curated-universe browser and entry point to a ticker's full evidence. |
-| Research | Narratives | AI-generated industry and sector story arcs with lifecycle and invalidation. |
+| Owner | Tickers | Curated-universe browser and entry point to a ticker's full evidence. |
+| Owner | Narratives | AI-generated industry and sector story arcs with lifecycle and invalidation. |
 | Research | 13F Filings | Delayed institutional holdings and quarter-over-quarter share-direction changes. |
 | Owner | Top Picks | The most selective option-trade roster. |
 | Owner | Track Record | Modeled option P&L, diagnostics, and strategy accountability. |
 | Owner | Owner Lab | Private position/account-risk controls plus analytical statistical screens. |
-| Tools | Grade a Ticker | Full company/technical/flow/narrative grade plus option-contract grading. |
-| Tools | Compare Companies | Normalized multi-symbol performance comparison. |
-| Tools | Strategies | Live multi-leg option payoff builder and structure guidance. |
+| Owner | Grade a Ticker | Full company/technical/flow/narrative grade plus option-contract grading. |
+| Owner | Compare Companies | Normalized multi-symbol performance comparison. |
+| Owner | Strategies | Live multi-leg option payoff builder and structure guidance. |
 | Tools | Buyer's Manual | Educational options reference. |
 | Tools | Chart Patterns | Educational pattern reference used alongside the AI pattern detector. |
 | Tools | What's Included | Current product and tier overview. |
@@ -327,7 +327,7 @@ than two valid Yahoo premarket quotes, no cohort is minted.
 
 ### First-hour conditional event study
 
-The premium Index Calendar accumulates SPY, QQQ, and IWM 30-minute session
+The Owner Index Calendar accumulates SPY, QQQ, and IWM 30-minute session
 paths in `data/index-calendar.json`. Its first-hour desk is explicitly
 conditional: for a selected move threshold it reports the probability and
 average return from 10:30 ET to the close, plus the full-session finish, instead
@@ -548,7 +548,7 @@ No traps means a cleaner buy-zone candidate. Traps change the action to Research
 
 ### VOO/QQQ daily DCA dial
 
-The premium Stock Picks page publishes one uniform multiplier to every member. Owner Lab can apply that multiplier to the owner's private daily base amount; the base is kept in local storage and never changes the published signal. The dial adds a `0…14` dip score:
+The Owner Stock Picks page publishes one uniform internal multiplier. Owner Lab can apply that multiplier to the owner's private daily base amount; the base is kept in local storage and never changes the standardized signal. The dial adds a `0…14` dip score:
 
 - below SMA20 `+1`;
 - below SMA50 `+1`;
@@ -1177,7 +1177,7 @@ Share-direction breadth is more informative than dollar change because value cha
 
 ## 16. Owner Lab
 
-Owner Lab is the combined-role workspace. It contains the analytical Quant Lab screens and paper engine, plus the held-position checker and the personal dollar/account-risk controls removed from ordinary premium pages. The Stock Picks, Sector Rotation, and Leveraged ETF pages continue to publish the same research, triggers, invalidations, targets, and multiplier to every entitled member; only applying those outputs to an actual holding, dollar baseline, account value, or max-loss budget occurs here.
+Owner Lab is part of the combined-role internal workspace. It contains the analytical Quant Lab screens and paper engine, plus the held-position checker and personal dollar/account-risk controls. Stock Picks, Sector Rotation, Leveraged ETFs, and every other security-selection or execution surface now use the same Owner entitlement; none is included with ordinary paid membership.
 
 ### Regimes
 
@@ -1319,17 +1319,13 @@ Live polling is generally active only while the relevant tab is visible. Failure
 
 When `PRIVATE_DATA_ENABLED` is off, the deployment behaves as legacy public data. When on:
 
-**Free:** shell, per-ticker data, Grade, News, Calendar, Heatmap, Overnight, Fear & Greed, Bonds & USD, Alt Data (AI CapEx, RAM, GPU Cloud Prices, Search Interest, and 13F), Commodities, Capital Raises, IPOs & Credit, Narratives, Earnings Calls, Index Calendar, Compare, Strategies, and reference/legal pages.
+**Public:** shell, News, Calendar, Heatmap, Overnight, Fear & Greed, Bonds & USD, Alt Data (AI CapEx, RAM, GPU Cloud Prices, Search Interest, and 13F), Commodities, Capital Raises, IPOs & Credit, Earnings Calls, general live market-data proxies, and reference/legal pages.
 
-**Premium session:** Market Analysis, Stock Picks, Sector Rotation, Leveraged ETFs, Brief, Earnings Tracker, Event Spillover, Unusual Flow, Volume, Gamma Exposure/OI, Trending IV, and Streaks.
+**Premium session:** Earnings Tracker only. It is a general earnings-season research view and does not include Owner tools.
 
-**Top-Picks role (`tp`):** Top Picks and its shared watchlist.
+**Owner (`tp` and `tr` together):** Market Analysis, Brief, Narratives, Tickers/per-ticker payloads, Grade, Compare, Strategies, Stock Picks, Sector Rotation, Leveraged ETFs, Event Spillover, Unusual Flow, Volume, Gamma Exposure/OI, Trending IV, Streaks, Index Calendar, Top Picks, Track Record, and Owner Lab. Both role configurations are required and missing configuration fails closed. They may map to the same genuine owner-only role, but never to a subscriber role.
 
-**Track-Record role (`tr`):** Track Record.
-
-**Both `tp` and `tr`:** Owner Lab (Quant screens, paper engine, held-position checker, and private DCA/rotation/leveraged-ETF sizing controls). Deployments can map both claims to the same Discord owner role.
-
-Unauthorized role-only features are hidden rather than advertised as accessible tabs. Premium data uses `private, no-store`; free data uses a short public edge cache.
+Unauthorized Owner features are hidden rather than upsold. Premium and Owner data use `private, no-store`; public data uses a short public edge cache.
 
 ### Private data
 
