@@ -85,7 +85,9 @@ jobs:
           set -euo pipefail
           git config user.name "stonks-bot"
           git config user.email "stonks-bot@users.noreply.github.com"
-          git add data/search-interest.json
+          # /data/ remains ignored even in rollback mode; force this one legacy
+          # artifact just like the daily, unusual-flow, and OI workflows do.
+          git add -f data/search-interest.json
           if git diff --cached --quiet; then
             echo "No search-interest change"
             exit 0

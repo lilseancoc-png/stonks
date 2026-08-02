@@ -112,7 +112,9 @@ export interface DataStore {
   offline). `lib/datastore.mjs` now picks the backend by env: **R2** (SigV4 over its
   S3 API via the dependency-free `aws4fetch`) when `R2_ACCOUNT_ID` +
   `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY` + `R2_BUCKET` are set, else **Blob**
-  (`BLOB_READ_WRITE_TOKEN`). R2's free tier — **1M class-A ops/mo, 10 GB, zero
+  (`BLOB_READ_WRITE_TOKEN`) when none of those four R2 variables is present. A
+  partial R2 credential set fails immediately instead of silently selecting Blob.
+  R2's free tier — **1M class-A ops/mo, 10 GB, zero
   egress** — absorbs the ~40k ops/mo this pattern generates. Cutover is a pure
   env-var flip (set the four R2 vars in Vercel project env **and** GitHub Actions
   secrets, then `node scripts/sync-data.mjs seed` to copy the current `data/` into
@@ -133,9 +135,12 @@ node scripts/sync-data.mjs push --owner=daytrading
 node scripts/sync-data.mjs seed                  # one-time: upload current data/ wholesale
 ```
 
-- **pull**: `list("")` → `get` each key → write to local `DATA_DIR` (mkdir -p as
-  needed). This is what makes the prior accumulated state available to the build,
-  replacing `git checkout`.
+- **pull**: `list("")` → validate every key as a relative path contained by
+  `DATA_DIR` → `get` each key → write locally (mkdir -p as needed). Validation
+  completes before the existing directory is removed, so an unsafe or corrupt
+  object fails closed without overwriting checkout files or leaving partial data.
+  This makes the prior accumulated state available to the build, replacing
+  `git checkout`.
 - **push --owner=X**: upload the producer's owned keyset (§4.3), with delete-stale
   **only** inside the prefixes that producer exclusively owns. Upsert single-files.
 - Robustness: bounded concurrency (e.g. 8), per-key retry w/ backoff, and a content

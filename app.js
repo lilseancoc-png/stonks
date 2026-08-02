@@ -33897,27 +33897,42 @@
     } catch (_){ return []; }
   }
   function saveWatchlist(){
-    if (WATCH_REMOTE) return; // shared mode persists server-side on each toggle
+    if (WATCH_REMOTE !== false) return; // persist locally only after an intentional fallback
     try { localStorage.setItem(WATCHLIST_KEY, JSON.stringify(PICKS_WATCHLIST.slice(0, WATCHLIST_LIMIT))); } catch (_){}
   }
-  // One probe per page: the shared list when the endpoint answers, else the
-  // local fallback. Re-renders the (already-painted) grid when it lands.
+  // Use the shared list when the endpoint answers, or the local fallback when
+  // auth/gating intentionally makes it unavailable. Transient failures remain
+  // retryable on tab re-entry. Re-renders the painted grid when a probe lands.
   function loadWatchlist(){
     if (watchLoaded || watchLoading) return;
     watchLoading = true;
     fetch('/api/watchlist', { cache: 'no-store' })
-      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(r){
+        if (!r.ok){ var err = new Error('HTTP ' + r.status); err.status = r.status; throw err; }
+        return r.json();
+      })
       .then(function(j){
         WATCH_REMOTE = true;
         PICKS_WATCHLIST = (j && Array.isArray(j.items)) ? j.items.filter(function(w){ return w && w.pick && w.pick.symbol; }) : [];
+        WATCH_ERROR = null;
       })
-      .catch(function(){
-        WATCH_REMOTE = false;
-        PICKS_WATCHLIST = readLocalWatchlist();
+      .catch(function(err){
+        // 401/403/404 mean shared mode is intentionally unavailable (signed
+        // out, role-hidden, or gate off). Network/5xx failures are transient:
+        // leave the mode unresolved so re-entering the tab retries instead of
+        // silently diverting shared edits into localStorage.
+        if (err && (err.status === 401 || err.status === 403 || err.status === 404)) {
+          WATCH_REMOTE = false;
+          PICKS_WATCHLIST = readLocalWatchlist();
+          WATCH_ERROR = null;
+        } else {
+          WATCH_REMOTE = null;
+          WATCH_ERROR = 'Couldn’t reach the shared watchlist — reopen the tab or try again.';
+        }
       })
       .then(function(){
         watchLoading = false;
-        watchLoaded = true;
+        watchLoaded = WATCH_REMOTE !== null;
         // The per-card "grade now" + thesis-health chips join each saved idea
         // against the whole-universe grade index (rebuilt every build) — kick
         // that load off as soon as the list shows there's something to assess.
@@ -33983,6 +33998,12 @@
   // list, and the detail card refreshes in place so its watch button reflects
   // the new state.
   function toggleWatch(sym, side){
+    if (WATCH_REMOTE === null){
+      WATCH_ERROR = 'Connecting to the shared watchlist — try again in a moment.';
+      loadWatchlist();
+      renderPicks(true);
+      return;
+    }
     if (WATCH_REMOTE){
       if (watchPending) return; // one in-flight write at a time
       watchPending = true;

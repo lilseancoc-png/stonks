@@ -23,13 +23,14 @@
 // the universe). This re-encodes today's Git SCANNER_FILES ownership exactly,
 // so no producer can clobber another's output.
 //
-// Requires BLOB_READ_WRITE_TOKEN in the environment.
+// Requires a complete R2 credential set or BLOB_READ_WRITE_TOKEN.
 
 import { readdir, readFile, writeFile, mkdir, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { store } from "../lib/datastore.mjs";
+import { resolveStoreKeyPath } from "../lib/store-path.mjs";
 import {
   REQUEST_TIME_EXCLUSIVE_KEYS,
   isBakeOwnedKey,
@@ -108,21 +109,26 @@ function parseArgs(argv) {
 async function pull({ dryRun }) {
   const entries = await store.list("");
   console.log(`pull: ${entries.length} object(s) in store -> ${DATA_DIR}`);
+  // Validate every remote key before removing the existing local directory.
+  // A single poisoned object must fail closed without leaving a partial tree.
+  const planned = entries.map((entry) => ({
+    ...entry,
+    abs: resolveStoreKeyPath(DATA_DIR, entry.key),
+  }));
   if (dryRun) {
-    for (const e of entries.slice(0, 20)) console.log(`  would write ${e.key} (${e.size}b)`);
-    if (entries.length > 20) console.log(`  …and ${entries.length - 20} more`);
+    for (const e of planned.slice(0, 20)) console.log(`  would write ${e.key} (${e.size}b)`);
+    if (planned.length > 20) console.log(`  …and ${planned.length - 20} more`);
     return;
   }
   // Fresh local dir so a ticker dropped from the store also leaves locally.
   await rm(DATA_DIR, { recursive: true, force: true });
   await mkdir(DATA_DIR, { recursive: true });
   let bytes = 0;
-  await mapLimit(entries, 8, async (e) => {
+  await mapLimit(planned, 8, async (e) => {
     const buf = await store.get(e.key);
     if (buf == null) return;
-    const abs = resolve(DATA_DIR, e.key);
-    await mkdir(dirname(abs), { recursive: true });
-    await writeFile(abs, buf);
+    await mkdir(dirname(e.abs), { recursive: true });
+    await writeFile(e.abs, buf);
     bytes += buf.length;
   });
   console.log(`pull: wrote ${entries.length} file(s), ${(bytes / 1e6).toFixed(1)} MB`);

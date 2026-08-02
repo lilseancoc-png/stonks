@@ -76,4 +76,39 @@ lateMarket.clock.minute = 880; // 14:40 ET
 assert.equal(scoreDayTradeCandidate(candidate, lateMarket).pass, false);
 assert.ok(scoreDayTradeCandidate(candidate, lateMarket).blocked.some((reason) => /cutoff/.test(reason)));
 
+// The force-flat authority must close both books even when the final quote or
+// chain lookup fails. With no prior mark, the engine uses the entry reference
+// and records that fallback explicitly instead of carrying risk overnight.
+let forced = runDayTradingEngine({
+  history: emptyDayTradingHistory(), candidates: [candidate], market: structuredClone(market), now,
+});
+const closeMarket = structuredClone(market);
+closeMarket.clock.minute = DAY_TRADING_RULES.forceFlatEtMin;
+forced = runDayTradingEngine({
+  history: forced.history, candidates: [], market: closeMarket, marks: new Map(),
+  now: new Date("2026-07-30T19:55:00.000Z"),
+});
+assert.equal(forced.snapshot.open.options.length, 0);
+assert.equal(forced.snapshot.open.stock.length, 0);
+assert.equal(forced.history.portfolios.options.closed.at(-1).outcome, "session-close");
+assert.equal(forced.history.portfolios.stock.closed.at(-1).outcome, "session-close");
+assert.equal(forced.history.portfolios.options.closed.at(-1).exits.at(-1).markFallback, "entry-fill");
+assert.equal(forced.history.portfolios.stock.closed.at(-1).exits.at(-1).markFallback, "entry-spot");
+
+// Recovery time includes an active drawdown, not only drawdowns that later
+// recovered to their prior peak.
+const recoveryHistory = emptyDayTradingHistory();
+for (const book of Object.values(recoveryHistory.portfolios)) {
+  book.resetEquity = 9_000;
+  book.trueEquity = 9_000;
+  book.highWaterMark = 10_000;
+  book.equityCurve = [{ at: "2026-07-28T14:00:00.000Z", reset: 9_000, true: 9_000, reason: "loss" }];
+}
+const recovery = runDayTradingEngine({
+  history: recoveryHistory, candidates: [], market: structuredClone(market),
+  now: new Date("2026-07-30T15:00:00.000Z"),
+});
+assert.equal(recovery.snapshot.portfolios.options.longestRecoveryHours, 49);
+assert.equal(recovery.snapshot.portfolios.stock.longestRecoveryHours, 49);
+
 console.log("day-trading smoke test passed");

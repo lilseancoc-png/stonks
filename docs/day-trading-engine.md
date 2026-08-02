@@ -45,6 +45,10 @@ entries; a high-impact day outside the immediate release window halves size.
 - Stock: ATR/nearby-structure stop, 1.8R target, scale half at +1R and trail the
   rest above breakeven; 5 bp fill slippage and $0.005/share costs.
 - Both books time out after 75 minutes even if neither price level traded.
+- A forced 15:55 or daily-stop exit still closes when the final live lookup is
+  missing: it uses the last observed raw mark, or the entry reference when no
+  mark was ever recorded, applies normal exit costs, and records `markFallback`
+  on the exit for auditability.
 - Daily hard stops: −7% options / −5% stock; soft warnings at −3.5% / −3%;
   profit lock at +3.5%; weekly reduction/pause at −13.5%. A 10% high-water
   drawdown temporarily halves size.
