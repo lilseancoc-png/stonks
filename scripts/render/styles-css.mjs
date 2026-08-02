@@ -143,8 +143,8 @@ export function renderStylesCss() {
      white while keeping cards, controls, chart grids and dense tables clearly
      separated. Text tokens retain WCAG-friendly contrast on every surface. */
   --bg:#e9eef5;
-  --surface:#f8fafc;
-  --surface-2:#eef2f7;
+  --surface:#f2f5f8;
+  --surface-2:#e9eef4;
   --surface-3:#e1e7ef;
   --border:rgba(30,41,59,0.15);
   --border-strong:rgba(30,41,59,0.24);
