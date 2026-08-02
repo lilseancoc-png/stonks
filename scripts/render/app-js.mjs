@@ -19114,7 +19114,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         : kind === 'debt'
           ? /\\b(?:notes? offering|bond sale|bond offering|debt offering|issues? .{0,30}(?:notes?|bonds?|debt)|raises? .{0,30}(?:debt|bonds?|notes?))\\b/i.test(title)
           : kind === 'buyback'
-            ? (/\\b(?:announces?|authorizes?|approves?|boosts?|expands?|extends?|increases?|launches?|initiates?|resumes?|completes?|executes?)\\b.{0,90}\\b(?:buyback|share repurchase|stock repurchase)\\b/i.test(title) ||
+            ? (/\\b(?:announces?|authorizes?|approves?|boosts?|expands?|extends?|increases?|launches?|initiates?|resumes?|completes?|executes?|plans?|reports?)\\b.{0,90}\\b(?:buyback|share repurchase|stock repurchase)\\b/i.test(title) ||
               /\\b(?:buyback|share repurchase|stock repurchase)\\b.{0,90}\\b(?:program|authorization|plan|agreement)\\b/i.test(title))
             : false;
     if (!issuerNamed) return { verified:false, reason:'The headline does not explicitly name the tracked issuer. Verify the association before using it.' };

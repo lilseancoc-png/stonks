@@ -10512,6 +10512,7 @@ const CAPITAL_RAISE_KIND_LABEL = { debt: "Debt / notes", convertible: "Convertib
 // multi-billion-dollar raise is a dominant thesis driver, not a footnote (e.g.
 // a $20B note sale + a $60B dilutive deal IS why a name is a put right now).
 const CAPITAL_RAISE_KINDS = new Set(["buyback", "equity", "convertible", "debt"]);
+const CAPITAL_RAISE_MAX_EVENTS = 40;
 function capitalRaiseScore(kind, amount) {
   const amt = pnum(amount);
   const big = amt != null && amt >= 1e9;   // ≥ $1B — material
@@ -10559,14 +10560,30 @@ export function capitalRaiseHeadlineMatchesIssuer(sym, companyName, title) {
   const ticker = String(sym || "").toLowerCase();
   const words = lower.replace(/[^a-z0-9$]+/g, " ").split(/\s+/).filter(Boolean);
   if (ticker.length >= 3 && (words.includes(ticker) || words.includes(`$${ticker}`))) return true;
+  return capitalRaiseIssuerNameTokens(companyName).some((x) => lower.includes(x));
+}
+
+function capitalRaiseIssuerNameTokens(companyName) {
   const generic = new Set([
     "inc", "incorporated", "corporation", "corp", "company", "limited", "ltd", "plc",
     "holdings", "holding", "group", "technologies", "technology", "systems", "class",
     "common", "stock",
   ]);
-  const tokens = String(companyName || "").toLowerCase().replace(/[^a-z0-9]+/g, " ")
+  return String(companyName || "").toLowerCase().replace(/[^a-z0-9]+/g, " ")
     .split(/\s+/).filter((x) => x.length >= 4 && !generic.has(x));
-  return tokens.some((x) => lower.includes(x));
+}
+
+// The persistent IPO/Credit ledger contains rows captured before issuer
+// validation was tightened. For recovery, a ticker mention anywhere in the
+// title is not enough ("UBS: Micron could repurchase..." is about Micron, not
+// UBS). Require a distinctive company-name token, or a headline that starts
+// with the ticker immediately acting as the transaction subject.
+function capitalRaiseHistoryMatchesIssuer(sym, companyName, title) {
+  const lower = String(title || "").toLowerCase();
+  if (capitalRaiseIssuerNameTokens(companyName).some((x) => lower.includes(x))) return true;
+  const ticker = String(sym || "").trim().toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (!ticker) return false;
+  return new RegExp(`^\\$?${ticker}(?:\\s+stock)?\\s*(?:[:—–-]\\s*)?(?:announces?|authorizes?|approves?|boosts?|expands?|extends?|increases?|launches?|initiates?|resumes?|completes?|executes?|plans?|reports?|prices?|issues?|raises?)\\b`, "i").test(lower);
 }
 
 export function capitalRaiseActionIsExplicit(kind, title) {
@@ -10580,7 +10597,10 @@ export function capitalRaiseActionIsExplicit(kind, title) {
   if (kind === "debt") {
     return /\b(?:notes? offering|bond sale|bond offering|debt offering|issues? .{0,30}(?:notes?|bonds?|debt)|raises? .{0,30}(?:debt|bonds?|notes?))\b/i.test(t);
   }
-  return kind === "buyback" && /\b(?:buyback|repurchase)\b/i.test(t);
+  return kind === "buyback" && (
+    /\b(?:announces?|authorizes?|approves?|boosts?|expands?|extends?|increases?|launches?|initiates?|resumes?|completes?|executes?|plans?|reports?)\b.{0,90}\b(?:buyback|share repurchase|stock repurchase)\b/i.test(t) ||
+    /\b(?:buyback|share repurchase|stock repurchase)\b.{0,90}\b(?:program|authorization|plan|agreement)\b/i.test(t)
+  );
 }
 
 // ── Thesis-category classifier (Track Record analytics) ─────────────────────
@@ -10723,18 +10743,77 @@ async function fetchIssuanceForTicker(cik) {
   return out;
 }
 
-async function buildCapitalRaisesPayload(cikMap, chains, builtAtIso, prior = null) {
-  const flags = _capitalRaiseFlags.slice();
-  // Sort newest-first by publish date.
-  flags.sort((a, b) => (Date.parse(b.publishedAt) || 0) - (Date.parse(a.publishedAt) || 0));
-  if (!flags.length) {
-    // No fresh issuance news this build — carry forward last-good so the tab
-    // doesn't blank between news cycles (events are sparse).
-    if (prior && Array.isArray(prior.events) && prior.events.length) return { ...prior, stale: true, builtAtIso };
-    return { builtAtIso, events: [], stale: false };
-  }
-  // SEC-enrich each flagged ticker once (dedup tickers across kinds).
-  const tickers = [...new Set(flags.map((f) => f.ticker))];
+// Merge the volatile current RSS slate with the prior tab payload and the
+// persistent IPO/Credit event history. A ticker's feed only returns its newest
+// handful of stories, so rebuilding from _capitalRaiseFlags alone makes an
+// otherwise-still-current event disappear as soon as newer unrelated news
+// pushes it out of that slate. The IPO/Credit history is also the recovery
+// source for events that were already lost by older builds.
+export function mergeCapitalRaiseEvents({ flags = [], priorEvents = [], historyEvents = [], chains = {}, builtAtIso }) {
+  const builtMs = Date.parse(builtAtIso) || Date.now();
+  const byId = new Map();
+  const add = (raw, source) => {
+    if (!raw) return;
+    const ticker = String(raw.ticker || "").trim().toUpperCase();
+    const kind = String(raw.kind || "").trim();
+    const headline = String(raw.headline || raw.title || "").trim();
+    const publishedAt = raw.publishedAt || null;
+    const publishedMs = Date.parse(publishedAt);
+    if (!ticker || !CAPITAL_RAISE_KINDS.has(kind) || !headline || !Number.isFinite(publishedMs)) return;
+    const ageDays = (builtMs - publishedMs) / 86400000;
+    if (ageDays > CAPITAL_RAISE_MAX_AGE_DAYS) return;
+
+    const fund = chains?.[ticker]?.fundamentals || {};
+    const name = raw.name || fund.name || ticker;
+    // Historical IPO/Credit rows predate the stricter issuer/action guard.
+    // Re-run the current guard before restoring them so old false associations
+    // (insider sales, another issuer in a ticker's feed) do not return.
+    const issuerMatches = source === "history"
+      ? capitalRaiseHistoryMatchesIssuer(ticker, name, headline)
+      : capitalRaiseHeadlineMatchesIssuer(ticker, name, headline);
+    if (!issuerMatches || !capitalRaiseActionIsExplicit(kind, headline)) return;
+
+    const day = new Date(publishedMs).toISOString().slice(0, 10);
+    const id = `${ticker}|${kind}|${day}`;
+    const prev = byId.get(id) || {};
+    const amount = raw.headlineAmount ?? raw.amount ?? null;
+    const next = {
+      ...prev,
+      ticker,
+      name,
+      kind,
+      kindLabel: raw.kindLabel || CAPITAL_RAISE_KIND_LABEL[kind] || kind,
+      headline,
+      publisher: raw.publisher ?? prev.publisher ?? null,
+      link: raw.link ?? prev.link ?? null,
+      publishedAt,
+      headlineAmount: amount,
+      filed: raw.filed ?? prev.filed ?? null,
+      _source: source,
+    };
+    byId.set(id, next);
+  };
+
+  // Later sources win duplicate day/kind rows because they carry richer and
+  // fresher metadata: history < prior capital payload < this build's flags.
+  for (const event of historyEvents) add(event, "history");
+  for (const event of priorEvents) add(event, "prior");
+  for (const flag of flags) add(flag, "current");
+  return [...byId.values()]
+    .sort((a, b) => (Date.parse(b.publishedAt) || 0) - (Date.parse(a.publishedAt) || 0))
+    .slice(0, CAPITAL_RAISE_MAX_EVENTS);
+}
+
+async function buildCapitalRaisesPayload(cikMap, chains, builtAtIso, prior = null, historyEvents = []) {
+  const merged = mergeCapitalRaiseEvents({
+    flags: _capitalRaiseFlags,
+    priorEvents: Array.isArray(prior?.events) ? prior.events : [],
+    historyEvents: Array.isArray(historyEvents) ? historyEvents : [],
+    chains,
+    builtAtIso,
+  });
+  // SEC-enrich each retained ticker once (dedup tickers across kinds).
+  const tickers = [...new Set(merged.map((f) => f.ticker))];
   const secByTicker = {};
   for (const t of tickers) {
     const cik = cikMap ? cikMap.get(t) : null;
@@ -10742,7 +10821,7 @@ async function buildCapitalRaisesPayload(cikMap, chains, builtAtIso, prior = nul
     try { secByTicker[t] = await fetchIssuanceForTicker(cik); }
     catch { /* graceful — headline still ships without the filed number */ }
   }
-  const events = flags.slice(0, 40).map((f) => {
+  const events = merged.map((f) => {
     const sec = secByTicker[f.ticker] || null;
     const filed = sec && f.kind !== "convertible" ? sec[f.kind] || null : (sec ? sec.debt || null : null);
     const fund = chains?.[f.ticker]?.fundamentals || {};
@@ -10751,12 +10830,12 @@ async function buildCapitalRaisesPayload(cikMap, chains, builtAtIso, prior = nul
       name: fund.name || f.ticker,
       kind: f.kind,
       kindLabel: CAPITAL_RAISE_KIND_LABEL[f.kind] || f.kind,
-      headline: f.title,
+      headline: f.headline,
       publisher: f.publisher,
       link: f.link,
       publishedAt: f.publishedAt,
-      headlineAmount: f.amount,
-      filed: filed ? { val: filed.val, asOf: filed.end, concept: filed.concept } : null,
+      headlineAmount: f.headlineAmount,
+      filed: filed ? { val: filed.val, asOf: filed.end, concept: filed.concept } : (f.filed || null),
     };
   });
   return { builtAtIso, events, count: events.length, stale: false };
@@ -10765,8 +10844,8 @@ async function buildCapitalRaisesPayload(cikMap, chains, builtAtIso, prior = nul
 async function readPriorCapitalRaises() {
   try { return JSON.parse(await readFile(resolve(DATA_DIR, "capital-raises.json"), "utf8")); } catch { return null; }
 }
-async function writeCapitalRaisesFile(cikMap, chains, builtAtIso, prior = null) {
-  const payload = await buildCapitalRaisesPayload(cikMap, chains, builtAtIso, prior);
+async function writeCapitalRaisesFile(cikMap, chains, builtAtIso, prior = null, historyEvents = []) {
+  const payload = await buildCapitalRaisesPayload(cikMap, chains, builtAtIso, prior, historyEvents);
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, "capital-raises.json"), json, "utf8");
   return { bytes: json.length, count: (payload.events || []).length, stale: !!payload.stale };
@@ -31922,9 +32001,9 @@ async function main() {
   // came back too thin (graceful degradation; data/ is about to be wiped).
   const priorCorrelations = await readPriorCorrelations();
   // Prior AI-CapEx + capital-raises snapshots — both are SEC/news-sourced and
-  // change slowly (quarterly filings / sparse issuance news), so carry the
-  // last-good forward if a build's SEC fetch fails or no fresh issuance news
-  // landed. Read before the wipe like the other cross-build artifacts.
+  // change slowly (quarterly filings / sparse issuance news). Capital raises
+  // is a rolling 21-day ledger, so its prior rows must be merged with this
+  // build's volatile RSS slate. Read both before the wipe.
   const priorAiCapex = await readPriorAiCapex();
   const priorCapitalRaises = await readPriorCapitalRaises();
   // Prior IPOs & Credit snapshot — accumulates the universe issuance events
@@ -32259,15 +32338,20 @@ async function main() {
   console.log(`wrote data/heatmap.json — ${heatmapInfo.count} tickers, ${heatmapInfo.bytes} bytes${heatmapInfo.eodPreserved ? ` (carried over EOD recap from ${priorHeatmapEod.date})` : ""}${heatmapInfo.rotationAlerts ? ` (${heatmapInfo.rotationAlerts} sector-rotation alert${heatmapInfo.rotationAlerts === 1 ? "" : "s"})` : ""}`);
   const correlationsInfo = await writeCorrelationsFile(chains, globalMarkets, builtAtIso, priorCorrelations);
   console.log(`wrote data/correlations.json — ${correlationsInfo.symbols} markets, ${correlationsInfo.mapped} mapped tickers, ${correlationsInfo.bytes} bytes${correlationsInfo.stale ? " [stale — kept last-good]" : ""}`);
-  // AI CapEx (Mag 7 aggregate, from SEC XBRL) + capital-raises feed (news scan
-  // during the judgments pass, SEC-enriched). Both are SEC/news-sourced and
-  // carry last-good forward on a fetch miss (graceful). cikMap is the build's
-  // cached SEC ticker→CIK map (already loaded above).
+  // AI CapEx (Mag 7 aggregate, from SEC XBRL) + capital-raises feed (rolling
+  // current/prior/history merge from the judgments news scan, SEC-enriched).
+  // cikMap is the build's cached SEC ticker→CIK map (already loaded above).
   try {
     const cikMap = await fetchCikMap();
     const aiCapexInfo = await writeAiCapexFile(cikMap, chains, builtAtIso, priorAiCapex);
     console.log(`wrote data/ai-capex.json — ${aiCapexInfo.count} companies, ${aiCapexInfo.bytes} bytes${aiCapexInfo.stale ? " [stale — kept last-good]" : ""}${aiCapexInfo.missing.length ? ` (no data: ${aiCapexInfo.missing.join(",")})` : ""}`);
-    const capRaisesInfo = await writeCapitalRaisesFile(cikMap, chains, builtAtIso, priorCapitalRaises);
+    const capRaisesInfo = await writeCapitalRaisesFile(
+      cikMap,
+      chains,
+      builtAtIso,
+      priorCapitalRaises,
+      priorIpoCredit?.raises?.universe?.events || [],
+    );
     console.log(`wrote data/capital-raises.json — ${capRaisesInfo.count} events, ${capRaisesInfo.bytes} bytes${capRaisesInfo.stale ? " [stale — kept last-good]" : ""}`);
   } catch (err) {
     console.log(`  ⚠ AI CapEx / capital-raises step failed (non-fatal): ${err.message}`);
