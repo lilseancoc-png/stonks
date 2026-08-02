@@ -12822,17 +12822,18 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     wirePicksCrossHighlight();
   }
 
-  // --- Top Picks: risk-on / risk-off history calendar ----------------------
+  // --- Market Analysis: risk-on / risk-off history calendar ----------------
   // A month-grid timeline of the cross-asset macro regime that set the engine's
   // posture each day. Reads data/regime-history.json (one row per ET trading
-  // day, written by the bake) and renders the trailing up-to-2 calendar months;
+  // day, written by the bake) and renders one navigable calendar month at a time;
   // hover / focus / tap a day to see that session's regime, stress, drivers, and
   // how the roster leaned. Mirrors the macroStateMeta labels above so the chip,
   // the tape panel, and this calendar all speak the same language.
-  var regimeHistState = { data: null, loading: false };
+  var regimeHistState = { data: null, loading: false, viewYm: null, open: false };
   var REGIME_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var REGIME_MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   var REGIME_WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  var REGIME_DOW = ['S','M','T','W','T','F','S'];
+  var REGIME_DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   // Cell color class + label by regime state. Severe is a deeper red than plain
   // risk-off; a fragile neutral (calm surface, weak internals) gets an amber tone.
   function regimeCellMeta(d){
@@ -12844,6 +12845,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return { cls: 'is-neutral', lbl: 'Neutral' };
   }
   function regimePad2(n){ return n < 10 ? '0' + n : '' + n; }
+  function regimeMonthLabel(ym){
+    var p = String(ym || '').split('-');
+    var y = Number(p[0]), m = Number(p[1]);
+    return (y && m >= 1 && m <= 12) ? REGIME_MONTH_NAMES[m - 1] + ' ' + y : String(ym || '');
+  }
+  function regimeShiftMonth(ym, delta){
+    var p = String(ym || '').split('-');
+    var d = new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1 + delta, 1));
+    return d.getUTCFullYear() + '-' + regimePad2(d.getUTCMonth() + 1);
+  }
   function loadRegimeHistory(){
     if (regimeHistState.data || regimeHistState.loading){ renderRegimeHistory(); return; }
     regimeHistState.loading = true;
@@ -12901,13 +12912,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function renderRegimeHistory(){
     var host = document.getElementById('picks-regime-hist');
     if (!host) return;
+    var existingWrap = host.querySelector('.regime-wrap');
+    if (existingWrap) regimeHistState.open = existingWrap.open;
     var days = (regimeHistState.data && Array.isArray(regimeHistState.data.days)) ? regimeHistState.data.days : [];
     if (!days.length){ host.hidden = true; host.innerHTML = ''; return; }
     var byDate = {};
     for (var i = 0; i < days.length; i++){ if (days[i] && days[i].date) byDate[days[i].date] = days[i]; }
-    var last = days[days.length - 1];
-    // Trailing up-to-2 calendar months that actually contain data (days is
-    // sorted ascending, so the distinct YYYY-MM in order, last two).
+    // Bound the month navigator to the history window and start at the newest
+    // available month. Intermediate calendar months remain reachable even if
+    // a sparse history happens to contain no observations in one of them.
     var monthSeen = {}, monthList = [];
     for (var j = 0; j < days.length; j++){
       var dp = (days[j].date || '').split('-');
@@ -12915,29 +12928,42 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var mk = dp[0] + '-' + dp[1];
       if (!monthSeen[mk]){ monthSeen[mk] = 1; monthList.push({ y: +dp[0], m: +dp[1] }); }
     }
-    var months = monthList.slice(-2);
-    var monthHtml = months.map(function(mo){
-      var firstDow = new Date(Date.UTC(mo.y, mo.m - 1, 1)).getUTCDay();
-      var nDays = new Date(Date.UTC(mo.y, mo.m, 0)).getUTCDate();
-      var cells = '';
-      for (var b = 0; b < firstDow; b++) cells += '<span class="regime-cell is-blank" aria-hidden="true"></span>';
-      for (var dd = 1; dd <= nDays; dd++){
-        var key = mo.y + '-' + regimePad2(mo.m) + '-' + regimePad2(dd);
-        var rec = byDate[key];
-        var meta = regimeCellMeta(rec);
-        if (rec){
-          var title = REGIME_MONTHS[mo.m - 1] + ' ' + dd + ' — ' + meta.lbl + (rec.stress != null && isFinite(rec.stress) ? ' (stress ' + (rec.stress > 0 ? '+' : '') + rec.stress + ')' : '');
-          cells += '<button type="button" class="regime-cell ' + meta.cls + '" data-date="' + key + '" title="' + escapeHtml(title) + '" aria-label="' + escapeHtml(title) + '"><span class="regime-cell-day">' + dd + '</span></button>';
-        } else {
-          cells += '<span class="regime-cell is-empty"><span class="regime-cell-day">' + dd + '</span></span>';
-        }
+    var minYm = monthList[0].y + '-' + regimePad2(monthList[0].m);
+    var newest = monthList[monthList.length - 1];
+    var maxYm = newest.y + '-' + regimePad2(newest.m);
+    var viewYm = regimeHistState.viewYm;
+    if (!viewYm || viewYm < minYm || viewYm > maxYm) viewYm = maxYm;
+    regimeHistState.viewYm = viewYm;
+    var vp = viewYm.split('-'), vy = Number(vp[0]), vm = Number(vp[1]);
+    var firstDow = new Date(Date.UTC(vy, vm - 1, 1)).getUTCDay();
+    var nDays = new Date(Date.UTC(vy, vm, 0)).getUTCDate();
+    var prevDays = new Date(Date.UTC(vy, vm - 1, 0)).getUTCDate();
+    var cells = '';
+    for (var b = 0; b < firstDow; b++) cells += '<span class="regime-cell is-out" aria-hidden="true"><span class="regime-cell-day">' + (prevDays - firstDow + 1 + b) + '</span></span>';
+    var monthDays = [];
+    for (var dd = 1; dd <= nDays; dd++){
+      var key = viewYm + '-' + regimePad2(dd);
+      var rec = byDate[key];
+      var meta = regimeCellMeta(rec);
+      if (rec){
+        monthDays.push(rec);
+        var title = REGIME_MONTHS[vm - 1] + ' ' + dd + ' — ' + meta.lbl + (rec.stress != null && isFinite(rec.stress) ? ' (stress ' + (rec.stress > 0 ? '+' : '') + rec.stress + ')' : '');
+        cells += '<button type="button" class="regime-cell ' + meta.cls + '" data-date="' + key + '" title="' + escapeHtml(title) + '" aria-label="' + escapeHtml(title) + '"><span class="regime-cell-day">' + dd + '</span></button>';
+      } else {
+        cells += '<span class="regime-cell is-empty"><span class="regime-cell-day">' + dd + '</span></span>';
       }
-      var dowHead = REGIME_DOW.map(function(x){ return '<span class="regime-dow" aria-hidden="true">' + x + '</span>'; }).join('');
-      return '<div class="regime-month">' +
-          '<div class="regime-month-title">' + REGIME_MONTHS[mo.m - 1] + ' ' + mo.y + '</div>' +
-          '<div class="regime-grid">' + dowHead + cells + '</div>' +
-        '</div>';
-    }).join('');
+    }
+    var cellCount = firstDow + nDays, trail = 1;
+    while (cellCount++ % 7 !== 0) cells += '<span class="regime-cell is-out" aria-hidden="true"><span class="regime-cell-day">' + (trail++) + '</span></span>';
+    var dowHead = REGIME_DOW.map(function(x){ return '<span class="regime-dow" aria-hidden="true">' + x + '</span>'; }).join('');
+    var monthHtml = '<div class="regime-month"><div class="regime-grid" role="grid" aria-label="' + escapeHtml(regimeMonthLabel(viewYm)) + ' risk history">' + dowHead + cells + '</div></div>';
+    var monthbar = '<div class="regime-monthbar">' +
+        '<button type="button" class="cal-nav-btn" data-regime-nav="prev"' + (viewYm <= minYm ? ' disabled' : '') + ' aria-label="Previous month">‹</button>' +
+        '<span class="regime-month-label">' + escapeHtml(regimeMonthLabel(viewYm)) + '</span>' +
+        '<button type="button" class="cal-nav-btn" data-regime-nav="next"' + (viewYm >= maxYm ? ' disabled' : '') + ' aria-label="Next month">›</button>' +
+        '<span class="regime-month-count">' + monthDays.length + ' session' + (monthDays.length === 1 ? '' : 's') + '</span>' +
+      '</div>';
+    var monthLast = monthDays.length ? monthDays[monthDays.length - 1] : null;
     var legend = '<span class="regime-legend">' +
         '<span class="regime-legend-item"><i class="regime-swatch is-on"></i>Risk-on</span>' +
         '<span class="regime-legend-item"><i class="regime-swatch is-neutral"></i>Neutral</span>' +
@@ -12947,19 +12973,30 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '</span>';
     host.hidden = false;
     host.innerHTML =
-      '<details class="regime-wrap">' +
+      '<details class="regime-wrap"' + (regimeHistState.open ? ' open' : '') + '>' +
         '<summary class="regime-summary-bar">' +
           '<span class="regime-title">Risk-on / risk-off history</span>' +
           legend +
         '</summary>' +
         '<p class="regime-hint">The daily cross-asset market-regime read that set the engine’s posture — calmer tapes lean the list long and bigger, stressed tapes shrink it, tilt it toward puts, and size down. Hover, focus, or tap a day for that session’s read.</p>' +
+        monthbar +
         '<div class="regime-cal">' + monthHtml + '</div>' +
-        '<div class="regime-detail" id="regime-detail">' + regimeDayDetailHtml(last) + '</div>' +
+        '<div class="regime-detail" id="regime-detail">' + regimeDayDetailHtml(monthLast) + '</div>' +
       '</details>';
+    var wrap = host.querySelector('.regime-wrap');
+    if (wrap) wrap.addEventListener('toggle', function(){ regimeHistState.open = wrap.open; });
+    var nav = host.querySelector('.regime-monthbar');
+    if (nav) nav.addEventListener('click', function(e){
+      var btn = e.target && e.target.closest ? e.target.closest('[data-regime-nav]') : null;
+      if (!btn || btn.disabled) return;
+      regimeHistState.open = true;
+      regimeHistState.viewYm = regimeShiftMonth(viewYm, btn.getAttribute('data-regime-nav') === 'next' ? 1 : -1);
+      renderRegimeHistory();
+    });
     var cal = host.querySelector('.regime-cal');
     var detail = host.querySelector('#regime-detail');
     if (cal && detail){
-      var show = function(date){ detail.innerHTML = regimeDayDetailHtml((date && byDate[date]) || last); };
+      var show = function(date){ detail.innerHTML = regimeDayDetailHtml((date && byDate[date]) || monthLast); };
       var pick = function(e){ var t = e.target; var c = (t && t.closest) ? t.closest('.regime-cell[data-date]') : null; if (c) show(c.getAttribute('data-date')); };
       cal.addEventListener('mouseover', pick);
       cal.addEventListener('focusin', pick);

@@ -13143,7 +13143,7 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
 .picks-tape { margin: 0 0 14px; }
 .picks-tape[hidden] { display: none; }
 
-/* Top Picks — risk-on / risk-off history calendar (month grid of the daily
+/* Market Analysis — risk-on / risk-off history calendar (month grid of the daily
    cross-asset macro regime that set the engine's posture). */
 .picks-regime-hist { margin: 0 0 14px; }
 .picks-regime-hist[hidden] { display: none; }
@@ -13192,14 +13192,16 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   border-radius: 3px;
   border: 1px solid var(--border);
 }
-.regime-cal { display: flex; flex-wrap: wrap; gap: 18px; }
-.regime-month { flex: 1 1 220px; min-width: 196px; }
-.regime-month-title { font: 600 13px/1 var(--font-mono); color: var(--text); margin: 0 0 6px; }
+.regime-monthbar { display: flex; align-items: center; gap: var(--s-2); margin: 0 0 10px; }
+.regime-month-label { min-width: 9.5em; text-align: center; font: 700 17px/1.1 var(--font-serif); color: var(--text-strong); letter-spacing: -.01em; }
+.regime-month-count { margin-left: auto; font: 500 12px/1 var(--font-mono); color: var(--muted); letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
+.regime-cal { width: 100%; }
+.regime-month { width: 100%; }
 .regime-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
 .regime-dow { text-align: center; font: 600 10px/1 var(--font-mono); color: var(--muted); padding-bottom: 2px; }
 .regime-cell {
   position: relative;
-  aspect-ratio: 1 / 1;
+  min-height: 76px;
   border: 1px solid transparent;
   border-radius: 4px;
   display: flex;
@@ -13213,6 +13215,8 @@ button.regime-cell { cursor: pointer; transition: transform .1s, box-shadow .1s;
 button.regime-cell:hover,
 button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shadow-md); outline: none; z-index: 2; }
 .regime-cell.is-blank { background: transparent; border-color: transparent; }
+.regime-cell.is-out { background: transparent; border-color: transparent; }
+.regime-cell.is-out .regime-cell-day { color: color-mix(in srgb, var(--muted) 55%, transparent); }
 .regime-cell.is-empty { background: color-mix(in srgb, var(--text) 3%, transparent); }
 .regime-cell.is-on { background: color-mix(in srgb, var(--pos) 32%, var(--surface)); border-color: color-mix(in srgb, var(--pos) 45%, var(--border)); }
 .regime-cell.is-on .regime-cell-day { color: var(--text-strong); }
@@ -13260,7 +13264,12 @@ button.regime-cell:focus-visible { transform: scale(1.1); box-shadow: var(--shad
   color: var(--text);
 }
 .regime-detail-lean { margin-top: 8px; font-size: 13px; color: var(--text); }
-@media (max-width: 560px){ .regime-month { flex: 1 1 100%; } }
+@media (max-width: 560px){
+  .regime-monthbar { flex-wrap: wrap; }
+  .regime-month-label { min-width: 0; flex: 1; font-size: 16px; }
+  .regime-month-count { flex-basis: 100%; margin-left: 0; text-align: right; }
+  .regime-cell { min-height: 46px; }
+}
 .picks-tape-card {
   border: 1px solid var(--border);
   border-radius: var(--r-2);
