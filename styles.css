@@ -552,7 +552,12 @@ h1, h2, .landing-hero-title, .landing-section-title { text-wrap: balance; }
 }
 .auth-chip .auth-logout:hover { color: var(--text); text-decoration: underline; }
 @media (max-width: 560px) { .auth-chip .auth-name { display: none; } }
-/* Owner Lab must not flash while /me is unresolved or for public visitors. */
+/* Owner destinations must not flash while /me is unresolved or for visitors. */
+body:not(.is-owner) [data-go="picks"],
+body:not(.is-owner) [data-go="stocks"],
+body:not(.is-owner) [data-go="rotation"],
+body:not(.is-owner) [data-go="levetf"],
+body:not(.is-owner) [data-go="track"],
 body:not(.is-owner) [data-go="quant"] { display:none !important; }
 .icon-btn {
   display: inline-flex; align-items: center; justify-content: center;

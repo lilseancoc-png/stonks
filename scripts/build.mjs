@@ -24,6 +24,8 @@ import { buildNewsFeedPayload } from "../lib/news-feed.mjs";
 import { issuerCreditRatingFor } from "../lib/issuer-credit-ratings.mjs";
 import { fetchFinraMarketStructure, attachShortInterestToChains } from "../lib/market-structure.mjs";
 import { buildScenarioEngine, scenarioOverlayForSymbol } from "../lib/scenario-engine.mjs";
+import { isPremiumKey } from "../lib/premium-keys.mjs";
+import { BRIEF_ACCESS_POLICY_VERSION } from "../lib/public-data-policy.mjs";
 import {
   buildAcceleratorPricesPayload,
   fetchAcceleratorMarketplaces,
@@ -3803,35 +3805,39 @@ function buildIntradaySeries(bars) {
   };
 }
 
-async function writeChainFiles(chains, rfr = FALLBACK_RISK_FREE_RATE) {
+export const AUTO_PICKS_FILE = "auto-picks.json";
+
+export async function writeAutoPicksFile(picks, builtAtIso = new Date().toISOString()) {
+  const json = JSON.stringify({ builtAtIso, picks: picks || {} });
+  await writeFile(resolve(DATA_DIR, AUTO_PICKS_FILE), json, "utf8");
+  return { count: Object.keys(picks || {}).length, bytes: json.length };
+}
+
+async function writeChainFiles(chains, rfr = FALLBACK_RISK_FREE_RATE, builtAtIso = new Date().toISOString()) {
   // Wipe data/ first so tickers that fell out of the curated list (or
   // failed this run) don't leave stale files behind. The directory is
   // then recreated fresh.
   await rm(DATA_DIR, { recursive: true, force: true });
   await mkdir(DATA_DIR, { recursive: true });
   let totalBytes = 0;
+  const ownerAutoPicks = {};
   for (const [sym, data] of Object.entries(chains)) {
     // _bars / _intraday are transient in-memory series; never write them raw to
     // the per-ticker JSON (they'd inflate each file). Compact series below.
-    const { _bars, _intraday, _signalHeadlines, ...rest } = data;
-    // autoPick — the best call and best put the Top Picks engine would pick
-    // for this name, scored with the exact same pickContractForPick() the
-    // picks pipeline uses (same hard filters + composite + component grades).
-    // Top Picks only ships the conviction-chosen side for the ~10 strongest
-    // names; here we precompute BOTH sides for EVERY ticker so the Grade tab
-    // can show "graded with Top Picks criteria" for anything the user searches
-    // (the Grade tab has its own call/put toggle). Either side is null when no
-    // contract clears the bar. ~1 KB/file — negligible vs. the chain payload.
-    const autoPick = {
+    const { _bars, _intraday, _signalHeadlines, autoPick: _legacyAutoPick, ...rest } = data;
+    // Exact Top-Picks contract candidates are Owner research. Keep them out of
+    // the public per-ticker chain and collect them into one gated sidecar.
+    ownerAutoPicks[sym] = {
       call: pickContractForPick("call", data, rfr),
       put: pickContractForPick("put", data, rfr),
     };
     const priceSeries = buildPriceSeries(_bars);
     const intradaySeries = buildIntradaySeries(_intraday);
-    const json = JSON.stringify({ ...rest, priceSeries, intradaySeries, autoPick });
+    const json = JSON.stringify({ ...rest, priceSeries, intradaySeries });
     await writeFile(resolve(DATA_DIR, `${sym}.json`), json, "utf8");
     totalBytes += json.length;
   }
+  await writeAutoPicksFile(ownerAutoPicks, builtAtIso);
   return totalBytes;
 }
 
@@ -23410,8 +23416,14 @@ export async function writeGradesDaily(payload) {
 export async function readRegimeHistory() {
   try { const raw = await readFile(resolve(DATA_DIR, REGIME_HISTORY_FILE), "utf8"); const p = JSON.parse(raw); return { days: Array.isArray(p.days) ? p.days : [] }; } catch { return { days: [] }; }
 }
-export function appendRegimeHistory(prev, regime, lean, builtAtIso) {
-  const days = (prev?.days || []).slice();
+export function appendRegimeHistory(prev, regime, _legacyLean, builtAtIso) {
+  // This timeline is public Market Analysis context. Remove Top-Picks direction
+  // from every carried legacy row as well as today's write.
+  const days = (prev?.days || []).map((day) => {
+    if (!day || typeof day !== "object") return day;
+    const { lean: _lean, picks: _picks, ...publicDay } = day;
+    return publicDay;
+  });
   const date = etDateStr(builtAtIso);
   // Per-axis score snapshot for the tape's daily per-axis sparklines (the browser
   // reads days[].axisScores[k]; absent on pre-upgrade rows → live-session fallback).
@@ -23420,7 +23432,7 @@ export function appendRegimeHistory(prev, regime, lean, builtAtIso) {
     axisScores = {};
     for (const [k, a] of Object.entries(regime.axes)) if (a && Number.isFinite(a.score)) axisScores[k] = a.score;
   }
-  const row = { date, state: regime?.state || "neutral", stress: regime?.stress ?? 0, riskOffAxes: regime?.riskOffAxes ?? null, lean: lean || null, drivers: regime?.drivers || [], axisScores };
+  const row = { date, state: regime?.state || "neutral", stress: regime?.stress ?? 0, riskOffAxes: regime?.riskOffAxes ?? null, drivers: regime?.drivers || [], axisScores };
   const idx = days.findIndex((d) => d.date === date);
   if (idx >= 0) days[idx] = row; else days.push(row);
   days.sort((a, b) => String(a.date).localeCompare(String(b.date)));
@@ -26458,19 +26470,19 @@ function classifyAiError(err, attempt, model = null) {
 // at most once per ET hour and carried forward on a same-hour re-run), but
 // holistic: the brief fuses overnight & foreign moves, the session's breadth +
 // biggest movers, unusual options flow, macro levels (10Y / dollar / VIX),
-// CNN Fear & Greed, the calendar, and the model's top picks into a headline +
+// CNN Fear & Greed, and the calendar into a headline +
 // summary + a few highlight bullets. The framing follows the clock: the open
 // build writes a "morning" setup read (overnight/futures context), mid-session
 // builds an "intraday" where-the-tape-stands read, and the 16:00+ build the
 // "afternoon" closing read. Written to data/briefs.json ({ current }),
 // rendered on the Brief tab. Self-skips without GEMINI_API_KEY; a keyless
-// build still carries forward any brief a prior keyed build produced
+// build still carries forward a same-policy brief a prior keyed build produced
 // (read-before-wipe in main()).
 const BRIEFS_FILE = "briefs.json";
 // Free, lazy-loaded cross-universe news desk. Unlike briefs.json, this ships
 // only source headline metadata, structured public macro releases, and
-// deterministic triage labels; no premium brief prose, unusual-flow signal,
-// or Top-Picks data crosses into it.
+// deterministic triage labels; no Brief prose or Owner-desk data crosses into
+// it.
 const NEWS_FEED_FILE = "news-feed.json";
 let _newsFeedHeadlineRows = [];
 
@@ -26551,14 +26563,12 @@ const BRIEF_WATCH_EXCLUDE = new Set(["SPY", "QQQ", "IWM", "DIA"]);
 // parallel mini-dashboard that only re-computes price movers. These are the
 // live, evidence-producing tabs whose baked payloads exist by the time the
 // hourly brief runs. Reference/manual tabs are intentionally absent, as are
-// Track Record and Quant: those payloads have stricter role gates than Briefs,
-// so copying their facts into briefs.json would bypass that access boundary.
+// Top Picks, Stock Picks, Sector Rotation, Leveraged ETFs, Track Record, and
+// Quant are absent: those payloads have stricter Owner gates than Briefs, so
+// copying their facts into briefs.json would bypass that access boundary.
 const BRIEF_TOOL_STANDOUT_MAX = 10;
 const BRIEF_TOOL_SOURCES = [
   { key: "market", file: "market-analysis.json", label: "Market analysis", tab: "market", maxAgeHours: 30 },
-  { key: "stocks", file: "stock-picks.json", label: "Stock picks", tab: "stocks", maxAgeHours: 30 },
-  { key: "rotation", file: "sector-rotation.json", label: "Sector rotation", tab: "rotation", maxAgeHours: 30 },
-  { key: "levetf", file: "leveraged-etfs.json", label: "Leveraged ETFs", tab: "levetf", maxAgeHours: 30 },
   { key: "earnings", file: "earnings-tracker.json", label: "Earnings tracker", tab: "earnings", maxAgeHours: 30 },
   { key: "calls", file: "earnings-calls.json", label: "Earnings calls", tab: "calls", maxAgeHours: 30 },
   { key: "spillover", file: "spillover-pairs.json", label: "Event spillover", tab: "spillover", maxAgeHours: 30 },
@@ -26576,6 +26586,11 @@ const BRIEF_TOOL_SOURCES = [
   { key: "search", file: "search-interest.json", label: "Search interest", tab: "search-interest", maxAgeHours: 240 },
   { key: "ownership", file: "13f.json", label: "SEC ownership", tab: "f13", maxAgeHours: 24 * 120 },
 ];
+for (const source of BRIEF_TOOL_SOURCES) {
+  if (isPremiumKey(source.file)) {
+    throw new Error(`Owner-only payload cannot feed public Brief: ${source.file}`);
+  }
+}
 
 // ET wall-clock hour (0-23), DST-safe. build.mjs already has etDateKey(); this
 // is its hour sibling, used only by the brief window gating.
@@ -26612,14 +26627,6 @@ function briefClause(text, max = 110) {
   const cut = s.search(/(?:\s[—–-]\s|;|\.\s)/);
   const head = cut > 20 ? s.slice(0, cut) : s;
   return head.length > max ? head.slice(0, max - 1).trim() + "…" : head;
-}
-
-// Most-moved pillar behind a Top-Picks churn event, for the fact sheet.
-function briefChurnNote(e) {
-  const why = Array.isArray(e?.why) ? e.why.slice().sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)) : [];
-  const top = why[0];
-  if (!top || !Number.isFinite(top.delta)) return null;
-  return `${top.pillar} ${top.delta >= 0 ? "+" : ""}${top.delta.toFixed(1)}`;
 }
 
 // Human B/M/K for a signed dealer-gamma dollar figure (fact-sheet + render share).
@@ -26883,8 +26890,8 @@ export function detectPlaybookCues(ctx, now = new Date()) {
 // rendering (briefRenderFields) and fed verbatim to the prompt builder, so the
 // model only ever narrates facts we computed. Pure — exported for testing.
 // Single names to WATCH this build — a deterministic screen over the WHOLE
-// curated universe, deliberately NOT sourced from the Top Picks roster (picks
-// are conviction-graded trades; this is "where today's news/action is"). Each
+// curated universe, deliberately independent of the Owner Top Picks roster.
+// Each
 // name scores from: the per-ticker AI news take (bullish/bearish only — the
 // keyless/no-news fallback take is "uncertain" and never fires), dated
 // near-term catalysts from the news read, fresh capital-raise / buyback
@@ -26892,22 +26899,16 @@ export function detectPlaybookCues(ctx, now = new Date()) {
 // options flow, heavy relative volume, the size of the day's move, and a
 // 52-week-extreme touch. A name must carry at least one EVENT-ish reason
 // (news / catalyst / raise / earnings / flow) or a 2-signal tape pile-up, so
-// the section doesn't just mirror the biggest-movers block. Top-picks overlap
-// is allowed but labelled (`pick: true`) — never a re-print of the picks
-// strip. Ships in every brief kind. Exported for testing.
+// the section doesn't just mirror the biggest-movers block. Owner roster/churn
+// data is not an input. Ships in every brief kind. Exported for testing.
 export function buildBriefWatchlist(ctx) {
-  const { chains = {}, unusual = null, calendar = {}, picks = [], picksChanges = [] } = ctx || {};
+  const { chains = {}, unusual = null, calendar = {} } = ctx || {};
   const nowMs = Date.now();
-  const pickSyms = new Set((Array.isArray(picks) ? picks : []).map((p) => p?.symbol).filter(Boolean));
   const flowBySym = new Map();
   for (const t of (unusual && Array.isArray(unusual.tickers) ? unusual.tickers : [])) {
     if (!t || !t.symbol || flowBySym.has(t.symbol)) continue;
     const c = Array.isArray(t.contracts) && t.contracts.length ? t.contracts[0] : null;
     flowBySym.set(t.symbol, { side: c?.side || null, note: briefClause(c?.note, 140) });
-  }
-  const churnBySym = new Map();
-  for (const e of (Array.isArray(picksChanges) ? picksChanges : [])) {
-    if (e && e.symbol && (e.event === "entered" || e.event === "exited")) churnBySym.set(e.symbol, e.event);
   }
   const earnToday = new Map();
   for (const e of (calendar?.todayEarnings || [])) if (e && e.sym) earnToday.set(e.sym, e.session && e.session !== "TBD" ? e.session : "today");
@@ -26977,11 +26978,8 @@ export function buildBriefWatchlist(ctx) {
         else if (spot <= lo * 1.005) { score += 1; reasons.push("at 52w low"); }
       }
     }
-    // Crossing the actionable picks bar this build is context, not a qualifier.
-    const churn = churnBySym.get(sym);
-    if (churn) { score += 1; reasons.push(churn === "entered" ? "crossed the picks bar" : "dropped off the picks bar"); }
     if (!(event >= 1 || (reasons.length >= 2 && score >= 3))) continue;
-    rows.push({ sym, ch, score, reasons: reasons.slice(0, 4), take: take || null, ...(pickSyms.has(sym) ? { pick: true } : {}) });
+    rows.push({ sym, ch, score, reasons: reasons.slice(0, 4), take: take || null });
   }
   rows.sort((a, b) => (b.score - a.score) || (Math.abs(b.ch ?? 0) - Math.abs(a.ch ?? 0)));
   // score is a ranking device, not a shipped fact — strip it from the payload.
@@ -27179,8 +27177,8 @@ export async function collectBriefSiteTools({ kind = "intraday", narratives = []
 export function gatherBriefSignals(kind, ctx) {
   const {
     chains = {}, fearGreed = null, macro = null, correlations = null,
-    unusual = null, picks = [], calendar = {},
-    rfr = FALLBACK_RISK_FREE_RATE, picksChanges = [], headlines = [],
+    unusual = null, calendar = {},
+    rfr = FALLBACK_RISK_FREE_RATE, headlines = [],
     ivTrending = null, siteTools = null,
   } = ctx || {};
 
@@ -27241,14 +27239,6 @@ export function gatherBriefSignals(kind, ctx) {
   bondArr.sort((a, b) => Math.abs(b.chgBp) - Math.abs(a.chgBp));
   const bonds = bondArr.slice(0, 4);
 
-  // Top model picks (picks.json is already conviction-ranked).
-  const pickArr = (Array.isArray(picks) ? picks : []).slice(0, 3).map((p) => ({
-    symbol: p.symbol,
-    side: p.side,
-    conviction: Number.isFinite(p.conviction) ? Math.round(p.conviction) : null,
-    note: briefClause(p.thesis),
-  })).filter((p) => p.symbol);
-
   // Calendar chips — today's catalysts (morning/intraday: the session isn't
   // over, so today's prints + PM earnings still matter) vs what's coming
   // (afternoon/closing).
@@ -27270,13 +27260,13 @@ export function gatherBriefSignals(kind, ctx) {
     events.push({ label: "FOMC decision", detail: `${cal.nextFomc.date} · ${cal.nextFomc.daysOut}d` });
   }
 
-  const signals = { kind, fearGreed: fng, macro: macroArr, picks: pickArr, events };
+  const signals = { kind, fearGreed: fng, macro: macroArr, events };
   if (siteTools && Array.isArray(siteTools.checked)) signals.toolScan = siteTools;
   if (bonds.length) signals.bonds = bonds;
 
   // Tickers to watch this build — the deterministic single-name event/news
   // screen over the whole universe (NOT the picks roster). Every brief kind.
-  const watchlist = buildBriefWatchlist({ chains, unusual, calendar, picks, picksChanges });
+  const watchlist = buildBriefWatchlist({ chains, unusual, calendar });
   if (watchlist.length) signals.watchlist = watchlist;
 
   // Market-wide press/wire headlines — the media input behind headline-driven
@@ -27318,18 +27308,6 @@ export function gatherBriefSignals(kind, ctx) {
     if (g) gexArr.push(g);
   }
   if (gexArr.length) signals.gex = gexArr;
-
-  // Top-Picks churn — names that crossed the actionable conviction bar onto /
-  // off the set this build (data/picks-changes events), with the pillar "why".
-  const churn = Array.isArray(picksChanges) ? picksChanges : [];
-  const pcAdded = [], pcDropped = [];
-  for (const e of churn) {
-    if (!e || !e.symbol) continue;
-    const rec = { symbol: e.symbol, side: e.side || null, tier: e.tier || null, note: briefChurnNote(e) };
-    if (e.event === "entered") pcAdded.push(rec);
-    else if (e.event === "exited") pcDropped.push(rec);
-  }
-  if (pcAdded.length || pcDropped.length) signals.picksChanges = { added: pcAdded.slice(0, 6), dropped: pcDropped.slice(0, 6) };
 
   // Notable unusual flow — shared by both briefs. Afternoon: the session's
   // heaviest names. Morning: the prior session's last scan, which reads as
@@ -27525,8 +27503,6 @@ function briefRenderFields(s) {
   if (s.flow && s.flow.length) out.flow = s.flow;
   if (s.ivTrend && s.ivTrend.length) out.ivTrend = s.ivTrend;
   if (s.gex && s.gex.length) out.gex = s.gex;
-  if (s.picksChanges && ((s.picksChanges.added && s.picksChanges.added.length) || (s.picksChanges.dropped && s.picksChanges.dropped.length))) out.picksChanges = s.picksChanges;
-  if (s.picks && s.picks.length) out.picks = s.picks;
   if (s.events && s.events.length) out.events = s.events;
   if (s.toolScan) {
     out.toolScan = {
@@ -27552,8 +27528,8 @@ function briefSystemPrompt(kind) {
     "CROSS-TOOL SCAN: the facts may include a ranked scan of the site's other live desks. Treat those as " +
     "first-class evidence: include at least one cross-tool finding in the highlights whenever the scan has a " +
     "material standout, and prefer findings confirmed by two or more genuinely independent tools. Do not call " +
-    "shared-input outputs independent confirmation (for example, Top Picks and Leveraged ETFs both reuse the " +
-    "grade engine). Avoid repeating the same move in the summary, highlights, and several labels; synthesize it " +
+    "two outputs built from the same source data independent confirmation. Avoid repeating the same move in the " +
+    "summary, highlights, and several labels; synthesize it " +
     "once, name the source desk when useful, and keep slow structural reads (13F, CapEx, hardware pricing) below " +
     "fresh tape/event risk unless their change is exceptional. " +
     "HISTORICAL PLAYBOOK: when the facts include a 'Historical playbook' section listing active pattern cues, " +
@@ -27600,8 +27576,7 @@ function briefSystemPrompt(kind) {
       "macro levels (the 2Y / 10Y / 30Y Treasury curve and the 2s10s spread, the dollar, VIX), foreign sovereign " +
       "bonds including Japan's 10Y JGB, the CNN Fear & Greed reading, dealer gamma (GEX) positioning on SPY/QQQ " +
       "(net long vs short gamma and where spot sits vs the gamma flip — short gamma below the flip means dealers " +
-      "amplify moves), any names added to or dropped from the model's actionable top picks, the model's top " +
-      "option picks, the economic data that printed today or in recent days (actual vs consensus vs prior — " +
+      "amplify moves), the economic data that printed today or in recent days (actual vs consensus vs prior — " +
       "weigh how the tape is trading against it), today's market-wide press/wire headlines (Fed, policy, " +
       "geopolitics, trade), and what's still on today's calendar. Frame it as where the tape stands right now " +
       "and what to watch into the close — everything is a live session read, so say 'so far' rather than " +
@@ -27618,11 +27593,10 @@ function briefSystemPrompt(kind) {
       "levels to watch on SPY and QQQ, dealer gamma (GEX) positioning on SPY/QQQ (net long vs short gamma and " +
       "where spot sits vs the gamma flip — short gamma below the flip means dealers amplify moves), notable " +
       "options flow from the prior session, the IV tracker's actionable flags (names whose implied vol is " +
-      "elevated vs their own history and climbing), any names added to or dropped from the model's actionable top picks, " +
+      "elevated vs their own history and climbing), " +
       "today's earnings + economic calendar, any economic data that already PRINTED (actual vs consensus vs prior " +
       "— an 8:30 ET release like CPI may already be out; if so, lead with it and how it sets up the session), " +
-      "the overnight market-wide press/wire headlines (Fed, policy, geopolitics, trade), " +
-      "and the model's current top option picks. Frame it as the setup " +
+      "the overnight market-wide press/wire headlines (Fed, policy, geopolitics, trade). Frame it as the setup " +
       "for today's session: what happened overnight, and what to watch as trading gets underway." + common
     );
   }
@@ -27635,8 +27609,7 @@ function briefSystemPrompt(kind) {
     "elevated vs their own history and climbing), where macro levels (the 2Y / 10Y / 30Y Treasury curve and the 2s10s " +
     "spread, the dollar, VIX) and foreign sovereign bonds (incl. Japan's 10Y JGB) and the CNN Fear & " +
     "Greed reading closed, dealer gamma (GEX) positioning on SPY/QQQ (net long vs short gamma and where spot sits " +
-    "vs the gamma flip), any names added to or dropped from the model's actionable top picks, the model's top " +
-    "option picks, the economic data that printed today or in recent days (actual vs consensus vs prior — weigh " +
+    "vs the gamma flip), the economic data that printed today or in recent days (actual vs consensus vs prior — weigh " +
     "how the tape traded against it), the day's market-wide press/wire headlines (Fed, policy, geopolitics, " +
     "trade), and what's on the calendar next. Frame it as what happened today and what " +
     "to watch next." + common
@@ -27726,9 +27699,9 @@ export function briefUserMessage(kind, dateKey, signals) {
     }
   }
   if (signals.watchlist && signals.watchlist.length) {
-    lines.push("Tickers to watch this build (deterministic single-name screen — news takes, dated catalysts, capital raises, earnings timing, unusual flow, heavy tape; NOT the model's picks roster — weave the interesting ones into the narrative):");
+    lines.push("Tickers to watch this build (deterministic public single-name screen — news takes, dated catalysts, capital raises, earnings timing, unusual flow, heavy tape; weave the interesting ones into the narrative):");
     for (const w of signals.watchlist) {
-      lines.push(`- ${w.sym}${w.ch != null ? ` (${briefPctStr(w.ch)})` : ""}: ${(w.reasons || []).join("; ")}${w.pick ? " [also on the Top Picks roster]" : ""}${w.take ? ` — ${w.take}` : ""}`);
+      lines.push(`- ${w.sym}${w.ch != null ? ` (${briefPctStr(w.ch)})` : ""}: ${(w.reasons || []).join("; ")}${w.take ? ` — ${w.take}` : ""}`);
     }
   }
   if (signals.flow && signals.flow.length) {
@@ -27756,18 +27729,6 @@ export function briefUserMessage(kind, dateKey, signals) {
       lines.push(`- ${g.sym}: net ${g.regime === "positive" ? "positive (long gamma — dealers dampen moves)" : "negative (short gamma — dealers amplify moves)"} ${briefGexFmt(g.net)}` +
         `${g.flip != null ? `, spot ${g.flipSide} the ${g.flip} gamma flip` : ""}.`);
     }
-  }
-  if (signals.picksChanges) {
-    if (signals.picksChanges.added && signals.picksChanges.added.length) {
-      lines.push("Top picks added this session: " + signals.picksChanges.added.map((p) => `${p.symbol}${p.side ? ` ${p.side}` : ""}${p.note ? ` (${p.note})` : ""}`).join(", ") + ".");
-    }
-    if (signals.picksChanges.dropped && signals.picksChanges.dropped.length) {
-      lines.push("Top picks dropped this session: " + signals.picksChanges.dropped.map((p) => `${p.symbol}${p.side ? ` ${p.side}` : ""}`).join(", ") + ".");
-    }
-  }
-  if (signals.picks && signals.picks.length) {
-    lines.push("Top model picks:");
-    for (const p of signals.picks) lines.push(`- ${p.symbol} ${p.side}${p.conviction != null ? ` (conviction ${p.conviction})` : ""}: ${p.note}`);
   }
   if (signals.events && signals.events.length) {
     lines.push(kind === "afternoon" ? "Coming up:" : "On the calendar today / next:");
@@ -27908,20 +27869,21 @@ export function briefKindForHour(hourEt) {
 // anymore: the next hourly mint picks it up by construction. Never throws —
 // a failure leaves the tab on its last-good content.
 export async function buildMarketBriefs(opts) {
-  const { briefsPrev, builtAtIso, chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges, headlines, ivTrending, narratives, siteToolPayloads } = opts;
+  const { briefsPrev, builtAtIso, chains, fearGreed, macro, correlations, unusual, calendar, rfr, headlines, ivTrending, narratives, siteToolPayloads } = opts;
+  // Public function boundary: Owner roster/churn fields are not accepted.
   const now = new Date();
   const todayEt = etDateKey(now);
   const hourEt = etHourNY(now);
   const kind = briefKindForHour(hourEt);
-  // Carry forward whatever the prior file holds for TODAY; drop stale days.
-  // Accept the legacy { morning, afternoon } shape once (pre-cutover file) so
-  // the tab never blanks across the deploy — latest of the two wins.
-  let current = briefsPrev?.current && briefsPrev.current.date === todayEt ? briefsPrev.current : null;
-  if (!current) {
-    const legacy = [briefsPrev?.afternoon, briefsPrev?.morning].filter((b) => b && b.date === todayEt);
-    legacy.sort((a, b) => String(b.generatedAtIso || "").localeCompare(String(a.generatedAtIso || "")));
-    if (legacy.length) current = legacy[0];
-  }
+  // Carry forward only a same-day brief minted under the current public-source
+  // policy. AI prose cannot be reliably scrubbed field-by-field, so a legacy
+  // or mismatched payload is discarded and regenerated (or omitted on a
+  // keyless/failing build) rather than risk exposing Owner-desk facts.
+  let current = briefsPrev?.current
+    && briefsPrev.current.date === todayEt
+    && briefsPrev.current.accessPolicyVersion === BRIEF_ACCESS_POLICY_VERSION
+    ? briefsPrev.current
+    : null;
   const haveKey = !!process.env.GEMINI_API_KEY;
   // Hourly gating: mint unless the carried brief was already minted this same
   // ET hour (etHour stamp; fall back to the generatedAtIso timestamp for a
@@ -27941,7 +27903,6 @@ export async function buildMarketBriefs(opts) {
       const coreTools = [
         ["Ticker tracker & Grade", !!Object.keys(chains || {}).length],
         ["News desk", Array.isArray(headlines)],
-        ["Top picks", Array.isArray(picks)],
         ["Calendar", !!calendar && typeof calendar === "object"],
         ["Unusual flow", !!unusual],
         ["Trending IV", !!ivTrending],
@@ -27952,10 +27913,19 @@ export async function buildMarketBriefs(opts) {
       siteTools.coreChecked = coreTools.filter(([, present]) => present).map(([label]) => label);
       siteTools.missing.push(...coreTools.filter(([, present]) => !present).map(([label]) => label));
       siteTools.total += coreTools.length;
-      const signals = gatherBriefSignals(kind, { chains, fearGreed, macro, correlations, unusual, picks, calendar, rfr, picksChanges, headlines, ivTrending, siteTools });
+      const signals = gatherBriefSignals(kind, { chains, fearGreed, macro, correlations, unusual, calendar, rfr, headlines, ivTrending, siteTools });
       const gen = await generateBrief(ai, kind, todayEt, signals);
       // On failure the catch keeps the prior brief (carry-forward).
-      current = { kind, date: todayEt, etHour: hourEt, generatedAtIso: new Date().toISOString(), model: AI_BRIEF_MODEL, ...gen, ...briefRenderFields(signals) };
+      current = {
+        kind,
+        date: todayEt,
+        etHour: hourEt,
+        accessPolicyVersion: BRIEF_ACCESS_POLICY_VERSION,
+        generatedAtIso: new Date().toISOString(),
+        model: AI_BRIEF_MODEL,
+        ...gen,
+        ...briefRenderFields(signals),
+      };
       generated++;
       console.log(`[briefs] ${kind} brief generated for ${todayEt} (${String(hourEt).padStart(2, "0")}:xx ET)`);
     } catch (err) {
@@ -32303,7 +32273,11 @@ async function main() {
   // order rendered first and then writeChainFiles removed data/ wholesale,
   // which meant a direct `npm run build` finished without manifest.json or
   // manifest-free.json; workflows only repaired that via a later regen pass.
-  const totalChainBytes = await writeChainFiles(chains, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE);
+  const totalChainBytes = await writeChainFiles(
+    chains,
+    riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE,
+    builtAtIso,
+  );
   const html = renderHtml({
     symbols,
     builtAt: nyTimestamp(),
@@ -32941,13 +32915,12 @@ async function main() {
   } catch (err) {
     console.warn(`[grades] daily snapshot skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
-  // Daily market-regime timeline (Top Picks "risk-on / risk-off history"
-  // calendar): upsert today's ET row from the macro-regime gauge that drove this
-  // build's roster + the day's call/put lean (from writeTopPicksFile's return).
+  // Daily public market-regime timeline: upsert today's ET row from the same
+  // macro-regime gauge. Top-Picks direction is intentionally excluded.
   // Pre-read above (regimeHistoryPrev) before the wipe, same as the grade
   // histories; carries forward unchanged when there's no macro backdrop.
   try {
-    const regimeNext = appendRegimeHistory(regimeHistoryPrev, macroBackdrop?.macroRegime || null, picksInfo?.lean || null, builtAtIso);
+    const regimeNext = appendRegimeHistory(regimeHistoryPrev, macroBackdrop?.macroRegime || null, null, builtAtIso);
     const rh = await writeRegimeHistory(regimeNext);
     console.log(`wrote data/${REGIME_HISTORY_FILE} — ${rh.days} day snapshot(s), ${rh.bytes} bytes`);
   } catch (err) {
@@ -33017,11 +32990,8 @@ async function main() {
   // log uses (gradesHistoryPrev.latest), so it's immune to the pre-bell pick
   // collapse. Deterministic detection first, then an optional AI one-liner per
   // new event (self-skips without GEMINI_API_KEY), then append + prune + write.
-  // Hoisted so the market briefs below can surface today's entered/exited names.
-  let churnEventsForBrief = [];
   try {
     const churnEvents = buildPicksChanges(gradesHistoryPrev.latest, gradesIndex, builtAtIso, picksChangesPrev);
-    churnEventsForBrief = churnEvents;
     const picksChangesNext = appendPicksChanges(picksChangesPrev, churnEvents, builtAtIso, gradeTradeCut(gradesIndex));
     await writePicksChanges(picksChangesNext);
     const entered = churnEvents.filter((e) => e.event === "entered").length;
@@ -33069,15 +33039,11 @@ async function main() {
   // so every hourly bake ships a fresh read and a same-hour re-run carries the
   // existing one forward. Built from the data already in memory: overnight
   // correlations, the session's breadth + movers, unusual flow, macro levels,
-  // Fear & Greed, the calendar, and the top picks.
+  // Fear & Greed, and the calendar. Owner-only idea desks are deliberately
+  // omitted so their facts never get copied into the public brief payload.
   // Runs BEFORE writeAiUsageState so the brief's token usage is persisted.
   try {
     const briefTodayIso = etDateKey();
-    let picksForBrief = [];
-    try {
-      const pj = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_FILE), "utf8"));
-      picksForBrief = Array.isArray(pj?.picks) ? pj.picks : [];
-    } catch (_) { /* no picks.json yet — brief omits the picks block */ }
     // Pure rebuild of the correlations payload (no fetch — reuses the already-
     // fetched globalMarkets + chains bars) for the overnight signal block.
     const briefCorrelations = buildCorrelationsPayload(chains, globalMarkets, builtAtIso, priorCorrelations);
@@ -33099,8 +33065,8 @@ async function main() {
     const briefRes = await buildMarketBriefs({
       briefsPrev, builtAtIso, chains, fearGreed: scoringFearGreed, macro: macroBackdrop,
       correlations: briefCorrelations?.stale ? null : briefCorrelations,
-      unusual: scoringUnusual, picks: picksForBrief, calendar: calForBrief,
-      rfr: riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksChanges: churnEventsForBrief,
+      unusual: scoringUnusual, calendar: calForBrief,
+      rfr: riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE,
       // The same filtered press/wire slate the narrative engine just read —
       // the brief's tape-driver input (fetched fresh by this bake).
       headlines: trends.macroHeadlines || [],

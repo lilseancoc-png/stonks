@@ -777,6 +777,7 @@ const gd = appendGradesDaily({ days: [] }, grades, new Date().toISOString());
 ok("daily: appendGradesDaily upserts a day", gd.days.length === 1 && gd.days[0].totals.BULLA != null);
 const rh = appendRegimeHistory({ days: [] }, riskOff.macroRegime, "put", new Date().toISOString());
 ok("regime-history: appendRegimeHistory upserts a day", rh.days.length === 1 && rh.days[0].state);
+ok("regime-history: public rows omit Top-Picks lean", !("lean" in rh.days[0]) && !("picks" in rh.days[0]));
 applyPickFirstSeen(picks, [], new Date().toISOString());
 ok("tenure: applyPickFirstSeen stamps firstSeen", picks.length === 0 || picks.every((p) => p.firstSeen));
 ok("edge: computeEdgeScale handles empty/negative", computeEedge());

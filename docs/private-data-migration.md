@@ -1,9 +1,9 @@
 # Private data migration + Discord-role gating (Path B)
 
 > **Status:** implemented. The historical cutover notes remain below. As of the
-> free-public pivot, there is no member or premium tier: every user-facing
-> research payload is public. Only Owner Lab, its paper-engine/shared-owner
-> state, and internal cache/accounting keys require a signed Owner session. The
+> free-public pivot, there is no member or paid premium tier. Most research is
+> public; Top Picks, Stock Picks, Sector Rotation, Leveraged ETFs, Track Record,
+> Owner Lab, and their backing state require a signed Owner session. The
 > existing Top Picks owner role is the single Discord entitlement; after it is
 > verified, OAuth mints both internal compatibility claims (`tr` + `tp`).
 
@@ -462,13 +462,15 @@ The private-store architecture remains in place, but it is now a storage and
 Owner-isolation boundary rather than a membership paywall:
 
 - `lib/premium-keys.mjs` retains its legacy export names for compatibility, but
-  `isPremiumKey()` returns true only for `quant*.json`, `day-trading*.json`, the
-  shared owners' `picks-watchlist.json`, and browser-inaccessible pipeline
-  cache/accounting keys. Every ticker, grade, pick, track-record, brief,
-  narrative, flow, volume, OI, IV, earnings, and manifest payload is public.
+  `isPremiumKey()` returns true only for the Owner idea/record payloads and raw
+  logs (including `auto-picks.json`), `quant*.json`, `day-trading*.json`, the shared owners'
+  `picks-watchlist.json`, and browser-inaccessible pipeline cache/accounting
+  keys. Ticker/grade, brief, narrative, flow, volume, OI, IV, earnings, and
+  manifest payloads remain public.
 - The client has no premium tabs or signed-out login CTA. All public navigation,
   ticker links, deep links, loaders, and command-palette entries work without a
-  session. Only the `quant` Owner Lab route is hidden until the Owner session resolves.
+  session. `picks`, `stocks`, `rotation`, `levetf`, `track`, and `quant` are
+  physically removed until the Owner session resolves.
 - Discord OAuth reuses the existing `DISCORD_TOPPICKS_ROLE_ID(S)` owner role as
   the single entitlement, mints both signed compatibility claims, then redirects
   directly to `/?tab=quant`. `DISCORD_TRACKRECORD_ROLE_ID(S)` is no longer read.
@@ -477,3 +479,8 @@ Owner-isolation boundary rather than a membership paywall:
   first-visit pricing/membership redirect was removed.
 - Public data remains edge-cacheable. Owner/internal responses remain
   `private, no-store` and are enforced server-side, independently of the UI.
+- Public Brief generation excludes all Owner-only idea/record sources so it
+  cannot republish their facts through `briefs.json`.
+- The public response boundary sanitizes pre-cutover store objects immediately:
+  legacy per-ticker `autoPick` fields, old-policy Brief content, and Top-Picks
+  lean/count fields in `regime-history.json` are stripped before public caching.

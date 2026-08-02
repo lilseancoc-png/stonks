@@ -445,7 +445,7 @@ function indexCalSection() {
 
 function stockPicksSection() {
   // Card chrome only — the quality-dip candidate cards render client-side
-  // from data/stock-picks.json (public; lazy-fetched on first tab activation
+  // from data/stock-picks.json (Owner; lazy-fetched on first tab activation
   // by loadStocks() in app.js). A separate product from Top Picks: shares,
   // not option contracts.
   return `<section class="card" id="stocks-section">
@@ -460,7 +460,7 @@ function stockPicksSection() {
 
 function sectorRotationSection() {
   // Card chrome only — the sector-led rebound candidates render client-side
-  // from data/sector-rotation.json (public; lazy-fetched on first tab
+  // from data/sector-rotation.json (Owner; lazy-fetched on first tab
   // activation). The screen separates a shared group washout from company-
   // specific damage, then waits for the stock itself to prove it is turning.
   return `<section class="card" id="rotation-section">
@@ -475,7 +475,7 @@ function sectorRotationSection() {
 
 function leveragedEtfsSection() {
   // Card chrome only — the leveraged-ETF idea cards render client-side from
-  // data/leveraged-etfs.json (public; lazy-fetched on first tab activation by
+  // data/leveraged-etfs.json (Owner; lazy-fetched on first tab activation by
   // loadLevEtf() in app.js, then decorated with live quotes via /api/quotes).
   // Functions like Top Picks but the instrument is a leveraged ETF, not an
   // option contract.
@@ -498,7 +498,7 @@ function briefSection() {
       <h2 class="card-title">Market brief</h2>
       <span class="card-eyebrow" id="brief-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">An AI<span class="tip ai-info" tabindex="0" role="button" aria-label="About the market brief" data-tip="One rolling digest per trading day, re-minted hourly by the build (default gemini-3.1-flash-lite; override AI_BRIEF_MODEL). Each mint checks the site's live market, event, flow, volatility, stock, sector-rotation, leveraged-ETF, macro, hardware-price and ownership desks available to the Brief tier, ranks only material standouts, then grounds the prose in those computed facts. The open build frames the morning setup; mid-session builds refresh the live tape; the post-close build writes the closing read. AI writes the headline and prose; standouts, chips and stats are computed.">i</span>-written market digest, refreshed hourly with each build &mdash; the overnight setup at the open, where the tape stands mid-session, and the closing read after 4&nbsp;pm ET. Each update checks the site&rsquo;s live tools and surfaces only material standouts. Ticker chips are clickable. Not financial advice.</p>
+    <p class="hint">An AI<span class="tip ai-info" tabindex="0" role="button" aria-label="About the market brief" data-tip="One rolling digest per trading day, re-minted hourly by the build (default gemini-3.1-flash-lite; override AI_BRIEF_MODEL). Each mint checks the site's public live-market, event, flow, volatility, macro, hardware-price, ownership and other evidence-producing desks, ranks only material standouts, then grounds the prose in those computed facts. Private Owner desks never feed this public payload. The open build frames the morning setup; mid-session builds refresh the live tape; the post-close build writes the closing read. AI writes the headline and prose; standouts, chips and stats are computed.">i</span>-written market digest, refreshed hourly with each build &mdash; the overnight setup at the open, where the tape stands mid-session, and the closing read after 4&nbsp;pm ET. Each update checks the site&rsquo;s live tools and surfaces only material standouts. Ticker chips are clickable. Not financial advice.</p>
     <div id="brief-root" class="brief-root">Loading brief&hellip;</div>
   </section>`;
 }
@@ -1004,7 +1004,7 @@ function volumeFlagsSection() {
     ${infoNote('How the volume flags work', `<p>Hourly volume is compared with the U-shaped 25/14/11/11/14/25% intraday distribution. <strong>≥1.2×</strong> expected pace is a participation watch; <strong>≥1.5×</strong> is the stronger action threshold. The required price move adapts to each ticker's ATR (roughly half an ATR, bounded at 0.6–2.0%) so a quiet utility and a volatile semiconductor are not judged by the same fixed move. At/after 16:00 ET, full-day volume <strong>≥1.3×</strong> the 20D average flags as EOD. Support/resistance uses the prior completed sessions only plus an ATR-scaled crossing buffer; Strong Alert requires ≥1.5×, Watch is 0.8–1.5×, and &lt;0.8× is Likely Fakeout.</p>
     <p>Each row reads <em>Vol actual / expected · ratio</em> — shares traded in that bucket vs. the bucket's share of the 20-day average, and the multiple between them. The trailing % is the price change across the bucket. A flag leans <span class="vol-key-up">bullish</span> when price is up on heavy volume (real demand) and <span class="vol-key-dn">bearish</span> when price is down on heavy volume (real selling pressure).</p>
     <p>Each card also carries a <strong>follow-the-case verdict</strong> — whether the volume evidence says to <em>follow</em> the bull or bear case (heavy volume confirmed the move), <em>wait for confirmation</em> (heavy participation but no decisive direction yet), or <em>not follow</em> it (a weak move or a likely fakeout, prone to fading). Expand a ticker to read the verdict's reasoning in full.</p>
-    <p>The build's current <strong>★ Top Picks</strong> are pinned in their own group at the top so you can track flow on just those names; the rest are grouped by sector and <strong>collapsed by default</strong> — click a sector header to open it, then a ticker to expand its hour-by-hour breakdown with the reasoning. Each row's one-line summary shows its strongest flag, bullish/bearish lean, peak hour ratio, and EOD move, and a six-bar <strong>intraday volume profile</strong> — one bar per session hour (open → close), taller where volume ran hotter and tinted <span class="vol-key-up">green</span>/<span class="vol-key-dn">red</span> by that hour's price direction — so you can see <em>when</em> the heavy tape hit (the open, midday, or into the close) without expanding. <em>Group by sector</em> and <em>Expand all</em> toggle the layout.</p>`)}
+    <p>Names are grouped by sector and <strong>collapsed by default</strong> — click a sector header to open it, then a ticker to expand its hour-by-hour breakdown with the reasoning. Each row's one-line summary shows its strongest flag, bullish/bearish lean, peak hour ratio, and EOD move, and a six-bar <strong>intraday volume profile</strong> — one bar per session hour (open → close), taller where volume ran hotter and tinted <span class="vol-key-up">green</span>/<span class="vol-key-dn">red</span> by that hour's price direction — so you can see <em>when</em> the heavy tape hit (the open, midday, or into the close) without expanding. <em>Group by sector</em> and <em>Expand all</em> toggle the layout.</p>`)}
     <div id="vol-decision" class="flow-decision vol-decision flow-decision-empty" aria-live="polite"></div>
     <div class="vol-controls" role="toolbar" aria-label="Filter volume flags">
       <label class="vol-search">
@@ -1706,10 +1706,6 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <details class="side-nav-group" data-nav-group="ideas">
     <summary class="side-nav-group-label">Ideas &amp; flow</summary>
     <div class="side-nav-group-items">
-      ${sideNavItem('picks', 'Top picks')}
-      ${sideNavItem('stocks', 'Stock picks')}
-      ${sideNavItem('rotation', 'Sector rotation')}
-      ${sideNavItem('levetf', 'Leveraged ETFs')}
       ${sideNavItem('flow', 'Unusual flow')}
       ${sideNavItem('volume', 'Volume')}
       ${sideNavItem('oi', 'Gamma exposure')}
@@ -1717,7 +1713,6 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       ${sideNavItem('streaks', 'Streaks')}
       ${sideNavItem('spillover', 'Event spillover')}
       ${sideNavItem('index-cal', 'Index calendar')}
-      ${sideNavItem('track', 'Track record')}
     </div>
   </details>
   <details class="side-nav-group" data-nav-group="events">
@@ -1750,9 +1745,14 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     </div>
   </details>
   <details class="side-nav-group" data-nav-group="owner" data-role-group="owner" hidden>
-    <!-- The one private workspace; hidden until the Top Picks owner session resolves. -->
+    <!-- Private research; hidden until the Top Picks owner session resolves. -->
     <summary class="side-nav-group-label">Owner</summary>
     <div class="side-nav-group-items">
+      ${sideNavItem('picks', 'Top picks')}
+      ${sideNavItem('stocks', 'Stock picks')}
+      ${sideNavItem('rotation', 'Sector rotation')}
+      ${sideNavItem('levetf', 'Leveraged ETFs')}
+      ${sideNavItem('track', 'Track record')}
       ${sideNavItem('quant', 'Owner Lab')}
     </div>
   </details>

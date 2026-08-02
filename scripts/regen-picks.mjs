@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks, buildSectorRotationRebounds, writeSectorRotationFile, SECTOR_ROTATION_FILE, readPriorSectorRotationLog, sectorRotationRecordFromLog, buildLeveragedEtfPicks, writeLeveragedEtfsFile, LEVERAGED_ETFS_FILE, readPriorLevEtfLog, levRecordFromLog, SECTORS, macroKindOf, MACRO_PROFILES } from "./build.mjs";
+import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks, buildSectorRotationRebounds, writeSectorRotationFile, SECTOR_ROTATION_FILE, readPriorSectorRotationLog, sectorRotationRecordFromLog, buildLeveragedEtfPicks, writeLeveragedEtfsFile, LEVERAGED_ETFS_FILE, readPriorLevEtfLog, levRecordFromLog, SECTORS, macroKindOf, MACRO_PROFILES, pickContractForPick, writeAutoPicksFile } from "./build.mjs";
 import { buildScenarioEngine } from "../lib/scenario-engine.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -178,6 +178,15 @@ try {
 } catch { /* no rfr-history.json yet — keep the 4.5% fallback */ }
 
 const builtAtIso = new Date().toISOString();
+const ownerAutoPicks = {};
+for (const [symbol, chain] of Object.entries(chains)) {
+  ownerAutoPicks[symbol] = {
+    call: pickContractForPick("call", chain, riskFreeRate),
+    put: pickContractForPick("put", chain, riskFreeRate),
+  };
+}
+const autoPicksInfo = await writeAutoPicksFile(ownerAutoPicks, builtAtIso);
+console.log(`Updated private auto-picks.json — ${autoPicksInfo.count} ticker candidate sets.`);
 let scenarioEngine = null;
 if (macroBackdrop?.macroRegime) {
   const readOptional = async (name) => {
@@ -343,14 +352,11 @@ try {
   console.warn(`grades-daily.json skipped — ${String(err?.message || err).split("\n")[0]}`);
 }
 
-// Daily market-regime timeline (Top Picks "risk-on / risk-off history" calendar)
-// — upsert today's ET row from the same macro-regime gauge + roster lean as the
-// full build. Read-modify-write on the live file (no wipe here).
+// Daily public market-regime timeline — upsert today's ET row from the same
+// macro-regime gauge, without copying Owner Top-Picks direction into it.
 try {
   const rhPrev = await readRegimeHistory();
-  let calls = 0, puts = 0;
-  for (const p of picks) { if (p && p.side === "put") puts++; else if (p) calls++; }
-  const rh = await writeRegimeHistory(appendRegimeHistory(rhPrev, macroBackdrop?.macroRegime || null, { calls, puts }, builtAtIso));
+  const rh = await writeRegimeHistory(appendRegimeHistory(rhPrev, macroBackdrop?.macroRegime || null, null, builtAtIso));
   console.log(`Updated regime-history.json — ${rh.days} day snapshot(s).`);
 } catch (err) {
   console.warn(`regime-history.json skipped — ${String(err?.message || err).split("\n")[0]}`);

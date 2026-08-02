@@ -45,6 +45,7 @@ const MIN_IV_SUCCESS_RATE = Number.isFinite(requestedIvSuccessRate)
   : 0.9;
 
 const BAKE_STAMPED_FILES = [
+  "auto-picks.json",
   "trends.json",
   "grades.json",
   "calendar.json",
@@ -73,6 +74,7 @@ const BAKE_REQUIRED_REWRITTEN_FILES = [
   "accelerator-prices.json",
   "ai-capex.json",
   "ai-usage.json",
+  "auto-picks.json",
   "briefs.json",
   "calendar.json",
   "capital-raises.json",

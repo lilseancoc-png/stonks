@@ -61,14 +61,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // whipsaws multi-percent intraday, so structure-based entries should defer.
   var NEXT_FOMC_DATES = Array.isArray(MANIFEST.nextFomcDates) ? MANIFEST.nextFomcDates : [];
   // --- Owner gate (client half) ---------------------------------------------
-  // Every public research tab is open without a login. The server independently
-  // protects Owner Lab data; this UI boundary keeps that one destination hidden
-  // until the owner session's compatibility claims are confirmed. Discord mints
-  // both only after verifying the existing Top Picks owner role.
-  var OWNER_TABS = { quant:1 };
+  // Most research is public without a login. The server independently protects
+  // the Owner idea/record desks and Owner Lab; this UI boundary keeps those six
+  // destinations hidden until the owner session's compatibility claims resolve.
+  // Discord mints both only after verifying the existing Top Picks owner role.
+  var OWNER_TABS = { picks:1, stocks:1, rotation:1, levetf:1, track:1, quant:1 };
   var GATE_ON = false;
-  var HAS_TRACK_RECORD = true;
-  var HAS_TOP_PICKS = true;
+  var HAS_TRACK_RECORD = false;
+  var HAS_TOP_PICKS = false;
   var HAS_QUANT_LAB = false;
   var HAS_OWNER_ACCESS = false;
   var AUTH_ME = null;
@@ -79,8 +79,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // Owner access never fails open. A disabled gate, failed probe, legacy
     // session, or either missing special claim leaves every Owner surface hidden.
     HAS_OWNER_ACCESS = !!(GATE_ON && me && me.trackRecord && me.topPicks);
-    HAS_TRACK_RECORD = true;
-    HAS_TOP_PICKS = true;
+    HAS_TRACK_RECORD = HAS_OWNER_ACCESS;
+    HAS_TOP_PICKS = HAS_OWNER_ACCESS;
     HAS_QUANT_LAB = HAS_OWNER_ACCESS;
     if (document.body) document.body.classList.toggle('is-owner', HAS_OWNER_ACCESS);
   }
@@ -112,6 +112,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   var RFR_META = ${rfrMetaLiteral};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
+  var ownerAutoPicks = { data: null, pending: null };
   var evalTimer = null;
   var stickyIO = null;
 
@@ -1114,8 +1115,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
 
   // --- Top-Picks grade banner --------------------------------------------
-  // Surfaces the best call/put the Top Picks engine baked for this ticker
-  // (state.autoPick[side], computed by pickContractForPick() at build time)
+  // Surfaces the best call/put the Top Picks engine baked for this ticker from
+  // the private Owner auto-picks.json sidecar
   // graded with the exact same criteria the Picks tab uses. Reuses the
   // pick-contract* / pick-qchip* / pick-stat* markup + CSS so it reads
   // identically to a Picks-tab contract card. Nothing is recomputed in the
@@ -1236,6 +1237,24 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     box.innerHTML = head + body;
     box.hidden = false;
+  }
+  function loadOwnerAutoPick(symbol){
+    state.autoPick = null;
+    if (!HAS_OWNER_ACCESS) return;
+    function apply(data){
+      if (state.symbol !== symbol) return;
+      var map = data && data.picks && typeof data.picks === 'object' ? data.picks : {};
+      state.autoPick = map[symbol] || null;
+      renderTopPickBanner();
+    }
+    if (ownerAutoPicks.data){ apply(ownerAutoPicks.data); return; }
+    if (!ownerAutoPicks.pending){
+      ownerAutoPicks.pending = fetch(dataUrl('auto-picks.json'), { cache: 'no-cache' })
+        .then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(json){ ownerAutoPicks.data = json || { picks: {} }; return ownerAutoPicks.data; })
+        .catch(function(){ ownerAutoPicks.data = { picks: {} }; return ownerAutoPicks.data; });
+    }
+    ownerAutoPicks.pending.then(apply);
   }
 
   // --- Grading ------------------------------------------------------------
@@ -4347,11 +4366,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       // build.mjs' earnings-history pass. Older data (pre-feature) lacks the
       // field → the card stays hidden.
       state.earningsHx = entry.earningsHx || null;
-      // autoPick — the best call/put the Top Picks engine would select for this
-      // name, scored at bake time with the exact pickContractForPick() the
-      // picks pipeline uses. Drives the "★ Top-Picks grade" banner. Older data
-      // (pre-feature) lacks the field → banner stays hidden.
-      state.autoPick = entry.autoPick || null;
+      // Exact Top-Picks candidates live in a separate Owner-only sidecar. The
+      // public chain deliberately carries no autoPick field.
+      loadOwnerAutoPick(symbol);
       // Reset any prior Top-Pick lock — applyPendingUrlState re-arms it below
       // only if this load came from a pick-card "Grade this contract" handoff.
       state.topPickLock = null;
@@ -12651,9 +12668,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // A month-grid timeline of the cross-asset macro regime that set the engine's
   // posture each day. Reads data/regime-history.json (one row per ET trading
   // day, written by the bake) and renders one navigable calendar month at a time;
-  // hover / focus / tap a day to see that session's regime, stress, drivers, and
-  // how the roster leaned. Mirrors the macroStateMeta labels above so the chip,
-  // the tape panel, and this calendar all speak the same language.
+  // hover / focus / tap a day to see that session's regime, stress, and public
+  // drivers. Mirrors the macroStateMeta labels above so the chip, tape panel,
+  // and this calendar all speak the same language.
   var regimeHistState = { data: null, loading: false, viewYm: null, open: false };
   var REGIME_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var REGIME_MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -12714,25 +12731,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (d.riskOffAxes != null && isFinite(d.riskOffAxes) && d.riskOffAxes > 0) bits.push(d.riskOffAxes + ' risk-off ax' + (d.riskOffAxes === 1 ? 'is' : 'es'));
     if (d.persisted && d.rawState && d.rawState !== d.state) bits.push('held · read ' + String(d.rawState).replace('severe-risk-off', 'severe risk-off'));
     var drivers = (d.drivers && d.drivers.length) ? d.drivers : [];
-    // The roster lean rides under d.lean (appendRegimeHistory), not d.picks, and
-    // its shape varies by producer: the bake stores a 'call'|'put' string, regen
-    // stores { calls, puts }. Handle both so the line renders either way.
-    var lean = d.lean, leanHtml = '';
-    if (lean && typeof lean === 'object' && (lean.calls || lean.puts)){
-      leanHtml = '<div class="regime-detail-lean">Picks leaned <b>' + lean.calls + '</b> call' + (lean.calls === 1 ? '' : 's') + ' / <b>' + lean.puts + '</b> put' + (lean.puts === 1 ? '' : 's') + ' that day</div>';
-    } else if (typeof lean === 'string' && (lean === 'call' || lean === 'put')){
-      leanHtml = '<div class="regime-detail-lean">Picks leaned <b>' + (lean === 'call' ? 'long (calls)' : 'short (puts)') + '</b> that day</div>';
-    } else if (lean && typeof lean === 'object' && lean.total === 0){
-      leanHtml = '<div class="regime-detail-lean">No actionable picks that day</div>';
-    }
     return '<div class="regime-detail-head">' +
         '<span class="regime-badge ' + meta.cls + '">' + escapeHtml(meta.lbl) + '</span>' +
         '<span class="regime-detail-date">' + escapeHtml(String(dateLbl)) + '</span>' +
         (bits.length ? '<span class="regime-detail-stress">' + escapeHtml(bits.join(' · ')) + '</span>' : '') +
       '</div>' +
       (d.summary ? '<div class="regime-detail-summary">' + escapeHtml(d.summary) + '</div>' : '') +
-      (drivers.length ? '<div class="regime-detail-drivers">' + drivers.map(function(x){ return '<span class="regime-driver">' + escapeHtml(String(x)) + '</span>'; }).join('') + '</div>' : '') +
-      leanHtml;
+      (drivers.length ? '<div class="regime-detail-drivers">' + drivers.map(function(x){ return '<span class="regime-driver">' + escapeHtml(String(x)) + '</span>'; }).join('') + '</div>' : '');
   }
   function renderRegimeHistory(){
     var host = document.getElementById('picks-regime-hist');
@@ -23509,18 +23514,6 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // pill under the card.)
     return html ? briefBlock('Historical playbook', html) : '';
   }
-  function briefChurnChips(pc){
-    var html = '';
-    (pc.added || []).forEach(function(p){
-      html += '<button type="button" class="brief-chip pick" data-sym="' + briefEsc(p.symbol) + '"' + (p.note ? ' title="' + briefEsc(p.note) + '"' : '') + '>+ ' +
-        briefEsc(p.symbol) + (p.side ? ' <span>' + briefEsc(p.side) + '</span>' : '') + '</button>';
-    });
-    (pc.dropped || []).forEach(function(p){
-      html += '<button type="button" class="brief-chip neg" data-sym="' + briefEsc(p.symbol) + '"' + (p.note ? ' title="' + briefEsc(p.note) + '"' : '') + '>− ' +
-        briefEsc(p.symbol) + (p.side ? ' <span>' + briefEsc(p.side) + '</span>' : '') + '</button>';
-    });
-    return '<div class="brief-chips">' + html + '</div>';
-  }
   function briefDecisionCard(b){
     var score = 0, tells = [];
     var idx = (b.indexes || []).map(function(x){ return Number(x && x.chPct); }).filter(isFinite);
@@ -23555,7 +23548,6 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
 
     var focus = null;
     if (Array.isArray(b.watchlist) && b.watchlist.length) focus = b.watchlist[0];
-    else if (Array.isArray(b.picks) && b.picks.length) focus = { sym:b.picks[0].symbol, reasons:[b.picks[0].note || 'top model pick'] };
     var focusSym = focus && (focus.sym || focus.symbol) ? String(focus.sym || focus.symbol).toUpperCase() : '';
     var focusWhy = focus && Array.isArray(focus.reasons) && focus.reasons.length ? focus.reasons[0] : (focus && focus.take ? focus.take : 'No single-name focus ranked');
 
@@ -23621,7 +23613,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     return '<section class="brief-toolscan" aria-label="Cross-tool standouts">' +
       '<header><div><span class="brief-toolscan-kicker">Across the site</span><h4>What the other tools are flagging</h4></div>' +
-      '<span class="brief-toolscan-count" title="Every current evidence desk available to this Brief tier was checked; quiet desks emit no filler.">' + briefEsc(coverage + missing) + '</span></header>' +
+      '<span class="brief-toolscan-count" title="Every current public evidence desk available to the Brief was checked; quiet desks emit no filler and Owner desks are excluded.">' + briefEsc(coverage + missing) + '</span></header>' +
       body +
     '</section>';
   }
@@ -23654,9 +23646,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     blocks.push(briefAnalogBlock(b));
     // Tickers to watch this build — the deterministic single-name event/news
     // screen over the whole universe (news takes, dated catalysts, capital
-    // raises, earnings timing, unusual flow, heavy tape). Deliberately NOT the
-    // Top Picks strip — roster overlap is labelled instead. Chip click opens
-    // the Grade tab; the news/catalyst clause rides the chip tooltip.
+    // raises, earnings timing, unusual flow, heavy tape). It is independent of
+    // private Owner desks. Chip click opens the Grade tab; the news/catalyst
+    // clause rides the chip tooltip.
     if (Array.isArray(b.watchlist) && b.watchlist.length){
       // Group gainers with gainers and losers with losers (each ordered by
       // move size, no-print names last) so the strip reads as two blocks
@@ -23667,7 +23659,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         return bv - av;
       });
       var wl = wlSorted.map(function(w){
-        var why = (w.reasons || []).join(' · ') + (w.pick ? ' · also a top pick' : '');
+        var why = (w.reasons || []).join(' · ');
         return '<li class="brief-hline">' +
           '<button type="button" class="brief-chip ' + briefPctCls(w.ch) + '" data-sym="' + briefEsc(w.sym) + '"' + (w.take ? ' title="' + briefEsc(w.take) + '"' : '') + '>' +
             briefEsc(w.sym) + (w.ch != null ? ' <span>' + briefEsc(briefFmtPct(w.ch)) + '</span>' : '') + '</button>' +
@@ -23809,18 +23801,6 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // Dealer gamma (GEX) — SPY/QQQ net-gamma regime + flip (both briefs).
     if (Array.isArray(b.gex) && b.gex.length){
       blocks.push(briefBlock('Dealer gamma (GEX)', briefGexChips(b.gex)));
-    }
-    // Top-Picks churn — names that entered / dropped the actionable set (both briefs).
-    if (b.picksChanges && ((b.picksChanges.added && b.picksChanges.added.length) || (b.picksChanges.dropped && b.picksChanges.dropped.length))){
-      blocks.push(briefBlock('Picks in & out', briefChurnChips(b.picksChanges)));
-    }
-    // Top picks.
-    if (Array.isArray(b.picks) && b.picks.length){
-      var picks = b.picks.map(function(p){
-        return '<button type="button" class="brief-chip pick" data-sym="' + briefEsc(p.symbol) + '"' + (p.note ? ' title="' + briefEsc(p.note) + '"' : '') + '>' +
-          briefEsc(p.symbol) + (p.side ? ' <span>' + briefEsc(p.side) + '</span>' : '') + '</button>';
-      }).join('');
-      blocks.push(briefBlock('Top picks', '<div class="brief-chips">' + picks + '</div>'));
     }
     // Calendar.
     if (Array.isArray(b.events) && b.events.length){
@@ -29257,8 +29237,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     picksState.loading = true;
     // Live open-position marks for the per-card "since it appeared" chip — best
     // effort, never blocks (or fails) the picks render. Reads picks-open.json
-    // (open marks only), NOT picks-accuracy.json: the latter is the role-gated
-    // Track Record, and Top Picks must keep its chip for every premium member.
+    // (open marks only), NOT picks-accuracy.json: the latter is the much larger
+    // Track Record payload. Both remain inside the same Owner boundary.
     var pAcc = fetch(dataUrl('picks-open.json'), { cache: 'no-cache' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .catch(function(){ return null; });
@@ -37324,8 +37304,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
   function startApp(){
     var go = function(){
-      // Physically remove Owner Lab before bind() collects routes. Stored data
-      // is independently role-enforced.
+      // Physically remove every Owner destination before bind() collects routes.
+      // Stored data is independently role-enforced.
       if (!HAS_OWNER_ACCESS) {
         for (var ownerId in OWNER_TABS) {
           if (!OWNER_TABS.hasOwnProperty(ownerId)) continue;

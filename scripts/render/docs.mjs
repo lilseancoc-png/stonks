@@ -1188,7 +1188,7 @@ export const DOC_PAGES = {
   <header class="pg">
     <div class="kicker">stonks &middot; what's included</div>
     <h1>Market research,<br><em>open to everyone.</em></h1>
-    <p class="intro">stonks is completely free to browse. There is no public account, subscription, premium tier, or paywall. The only private area is <strong>Owner Lab</strong>, an internal workspace for the site's principals. <a href="/">Start browsing &rarr;</a></p>
+    <p class="intro">Most of stonks is free to browse, with no public account, subscription, premium tier, or paywall. Six internal research destinations are reserved for the site's principals under <strong>Owner</strong>. <a href="/">Start browsing &rarr;</a></p>
   </header>
 
   <nav class="toc" aria-label="Table of contents">
@@ -1197,7 +1197,7 @@ export const DOC_PAGES = {
       <li><a href="#glance">Access at a glance</a></li>
       <li><a href="#free">Public research</a></li>
       <li><a href="#premium">Ideas and decision tools</a></li>
-      <li><a href="#owner">Private Owner Lab</a></li>
+      <li><a href="#owner">Private owner research</a></li>
       <li><a href="#how">Support the site</a></li>
       <li><a href="#good">Good to know</a></li>
     </ol>
@@ -1206,7 +1206,7 @@ export const DOC_PAGES = {
   <main>
     <section id="glance">
       <h2><span class="snum">01</span>Access at a glance</h2>
-      <p class="sectlede">Every visitor gets the same public research and decision tools with no login. Owner Lab alone stays private because it contains personal holdings, account values, dollar-risk controls, and the owners' paper engine.</p>
+      <p class="sectlede">Most research is public with no login. Top Picks, Stock Picks, Sector Rotation, Leveraged ETFs, Track Record, and Owner Lab stay private for the site's principals.</p>
       <div class="cmp">
         <div class="cmp-col free">
           <div class="cmp-head">
@@ -1223,7 +1223,7 @@ export const DOC_PAGES = {
             <li><b>Macro</b> — Overnight markets, Fear &amp; Greed, Bonds &amp; USD, Commodities, Capital raises, and IPOs &amp; credit</li>
             <li><b>Alt data</b> — AI CapEx, RAM prices, GPU cloud prices, Search interest, and SEC ownership / 13F filings</li>
             <li><b>Earnings calls</b> — AI briefs covering guidance, tone and Q&amp;A</li>
-            <li><b>Research and ideas</b> — briefs, narratives, ticker grades, picks, flow, gamma, IV, and track record</li>
+            <li><b>Research and ideas</b> — briefs, narratives, ticker grades, flow, gamma, IV, and event research</li>
             <li><b>Reference</b> — Buyer's manual + Chart-patterns field guide</li>
           </ul>
           <div class="cmp-cta">
@@ -1232,12 +1232,14 @@ export const DOC_PAGES = {
         </div>
         <div class="cmp-col prem" id="owner">
           <div class="cmp-head">
-            <span class="cmp-title">Owner Lab</span>
+            <span class="cmp-title">Owner research</span>
             <span class="tier prem">Private</span>
           </div>
           <div class="cmp-price"><b>Internal only</b> &middot; not for sale</div>
           <div class="cmp-sub">A private workspace for the site's principals.</div>
           <ul class="cmp-list">
+            <li><b>Idea desks</b> — Top Picks, Stock Picks, Sector Rotation, and Leveraged ETFs</li>
+            <li><b>Track Record</b> — private performance, churn, simulation, and history views</li>
             <li><b>Personal controls</b> — held-position checks, account values, and dollar-risk sizing</li>
             <li><b>Owner paper engine</b> — private simulations and internal research state</li>
           </ul>
@@ -1337,7 +1339,7 @@ export const DOC_PAGES = {
 
     <section id="premium">
       <h2><span class="snum">03</span>Ideas and decision tools</h2>
-      <p class="sectlede"><b>All of these tabs are public and free.</b> They are automated research outputs, not personalized advice, and should be independently verified before use.</p>
+      <p class="sectlede">Public tools are marked Public. The five Owner idea/record tabs and Owner Lab are internal, not sold, and require the existing owner-only Discord role. Every output is automated research—not personalized advice—and should be independently verified.</p>
       <div class="feat-grid">
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Named-security research &amp; grading</span><span class="tier free">Public</span></div>
@@ -1348,19 +1350,19 @@ export const DOC_PAGES = {
           <p class="feat-desc">The cross-asset risk read that sets the engine's posture — the live market tape (VIX, dollar, yields, commodities, Fed path, geopolitics), a risk-on / risk-off barometer, and the daily regime history. Plus grade <em>any</em> ticker on demand. The held-position checker is reserved for Owner Lab.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Top Picks</span><span class="tier free">Public</span></div>
+          <div class="feat-top"><span class="feat-name">Top Picks</span><span class="tier prem">Owner</span></div>
           <p class="feat-desc">The highest-conviction contracts pulled from today's chains — a deterministic four-pillar grade, a web-research-grounded AI final grader making the buy-now / wait call, the suggested contract and structure, position sizing, move-to-breakeven, an exit plan, and a browser-local watchlist that keeps an idea pinned through refreshes.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Stock Picks</span><span class="tier free">Public</span></div>
+          <div class="feat-top"><span class="feat-name">Stock Picks</span><span class="tier prem">Owner</span></div>
           <p class="feat-desc">Shares, not options — a buy-the-dip screen over the tracked universe that separates business quality, price dislocation, and active trap flags. Each card opens into a structured investment-thesis checklist, while Owner Lab holds the private dollar and account-risk controls.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Sector Rotation</span><span class="tier free">Public</span></div>
+          <div class="feat-top"><span class="feat-name">Sector Rotation</span><span class="tier prem">Owner</span></div>
           <p class="feat-desc">A rebound desk for strong companies caught in a sector-wide washout rather than clear company-specific deterioration. It combines the existing fundamental quality gate with peer participation, clean-news checks and the stock&rsquo;s own reversal evidence, then classifies each setup as <b>washed out, first thrust, confirmed, or late</b>. First thrust waits for a pullback instead of chasing; every setup keeps its trigger, invalidation, first target and estimated reward/risk on the underlying stock so a dramatic bounce is never mistaken for a complete trade plan.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Leveraged ETFs</span><span class="tier free">Public</span></div>
+          <div class="feat-top"><span class="feat-name">Leveraged ETFs</span><span class="tier prem">Owner</span></div>
           <p class="feat-desc">The Top Picks grades expressed through listed leveraged ETFs instead of option contracts — single-stock 2× products (NVDL, TSLL, …) for high-conviction names, sector/index 3× pairs (SOXL/SOXS, TQQQ/SQQQ, …) when a whole group leans one way with real breadth. Every card carries the daily-reset drag estimate at current realized vol, a chop warning when the tape is volatile but trendless, the full cost of carry (verified fund fee + financing), a simulated daily-reset path drawn against the underlying, entry timing, and the drivers behind the read — and a direction with no listed product says so instead of inventing a ticker. The tab keeps its own track record: every flagged idea is logged at its live fund price and closed with a reason when the signal breaks, and the scoreboard (win rate, average move) is shown up front.</p>
         </div>
         <div class="feat">
@@ -1396,7 +1398,7 @@ export const DOC_PAGES = {
           <p class="feat-desc">The dealer net-gamma (GEX) matrix per strike, the gamma flip line, and the call/put walls — where moves get pinned or amplified.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Track Record</span><span class="tier free">Public</span></div>
+          <div class="feat-top"><span class="feat-name">Track Record</span><span class="tier prem">Owner</span></div>
           <p class="feat-desc">The resolved Top-Picks performance — win rate, win/loss payoff, expectancy vs SPY, an engine-health summary that explains why each pick won or lost, a $100k backtest simulator with Monte Carlo, and the roster's in/out churn over time.</p>
         </div>
         <div class="feat">
@@ -1413,7 +1415,7 @@ export const DOC_PAGES = {
     <section id="how">
       <h2><span class="snum">04</span>Support the site</h2>
       <p class="sectlede">stonks is free to use. If the research saves you time and you want to help cover data, AI, and hosting costs, you can leave an optional donation on Ko-fi.</p>
-      <div class="callout"><b>Donations do not unlock access or buy investment advice.</b> They are voluntary support for keeping the public site running. Owner Lab remains a private internal workspace.</div>
+      <div class="callout"><b>Donations do not unlock access or buy investment advice.</b> They are voluntary support for keeping the public site running. Owner research remains private and internal.</div>
       <div class="ctarow">
         <a class="btn discord" href="${KO_FI_URL}" target="_blank" rel="noopener">Support stonks on Ko-fi</a>
         <a class="btn ghost" href="/">Keep browsing</a>
@@ -1608,7 +1610,7 @@ export const DOC_PAGES = {
       <h3>Owner Access Information</h3>
       <ul>
         <li>Public visitors do not need an account or login.</li>
-        <li>If a principal uses the private Owner Lab login, we process their Discord user ID, username or display name, server membership, and the two roles required for Owner access.</li>
+        <li>If a principal uses the private Owner login, we process their Discord user ID, username or display name, server membership, and the existing Top Picks owner role required for access.</li>
         <li>A signed session token containing that limited Owner identity and access claims is stored in a short-lived, secure, HttpOnly cookie.</li>
       </ul>
       <p>We do not receive a Discord password. The OAuth access token used for the internal Owner check is processed during login and is not intentionally retained after the request completes.</p>
@@ -1633,7 +1635,7 @@ export const DOC_PAGES = {
       <ul>
         <li>To provide, maintain, and improve the Service.</li>
         <li>To measure aggregate traffic and understand which public pages and referral sources are useful.</li>
-        <li>To authenticate principals through Discord and enforce private Owner Lab access.</li>
+        <li>To authenticate principals through Discord and enforce private Owner research access.</li>
         <li>To maintain an Owner's short-lived session and respond to login, logout, and support requests.</li>
         <li>To detect and prevent fraud, security issues, and abuse.</li>
         <li>To comply with legal obligations.</li>
@@ -1928,14 +1930,14 @@ export const DOC_PAGES = {
     <section id="eligibility">
       <h2><span class="snum">04</span>Eligibility and Owner Access</h2>
       <p>You must be at least 18 years old (or the age of majority in your jurisdiction) to use the Service. By using the Site you represent that you meet this requirement.</p>
-      <p>The public Service does not require or create an account. Discord login exists only for the private Owner Lab used by the site's principals. An authorized principal is responsible for securing that Discord account and associated session.</p>
+      <p>The public Service does not require or create an account. Discord login exists only for the private Owner research section used by the site's principals. An authorized principal is responsible for securing that Discord account and associated session.</p>
       <p>We may refuse or revoke Service access at our discretion, subject to applicable law.</p>
     </section>
 
     <section id="billing">
       <h2><span class="snum">05</span>Optional Donations</h2>
       <p>The public Service is free and has no paid access tier. You may optionally support operating costs through the Ko-fi link shown on the Site.</p>
-      <p>A donation does not purchase premium features, personalized analysis, investment advice, ownership, influence over published outputs, or access to Owner Lab. Ko-fi processes payments under its own terms and privacy policy; questions about payment processing or refunds should be directed to Ko-fi, subject to rights that cannot lawfully be waived.</p>
+      <p>A donation does not purchase premium features, personalized analysis, investment advice, ownership, influence over published outputs, or access to private Owner research. Ko-fi processes payments under its own terms and privacy policy; questions about payment processing or refunds should be directed to Ko-fi, subject to rights that cannot lawfully be waived.</p>
       <p>We may suspend or terminate access for a violation of these Terms, abuse, security risk, or discontinuation of the Service.</p>
     </section>
 
