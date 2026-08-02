@@ -20,6 +20,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-08-02
+
+### Changed
+
+- **The legal disclosures now state clearly that all analytical and editorial content is AI-generated or algorithmically produced.** The Terms allocate hallucination, stale-input, source, modeling, simulation, and no-human-review risks; the persistent footer and login page repeat the warning; the Privacy Policy now matches the actual Discord OAuth, short-lived cookie, local-storage, and third-party billing flow; and account, subscription, and AI-output ownership language no longer overstates what the product collects or controls. `scripts/render/{docs,html}.mjs`, `welcome.html`.
+
 ## 2026-07-30
 
 ### Added

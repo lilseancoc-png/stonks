@@ -2394,7 +2394,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 </main>
 <footer class="site-footer">
   <div>Built <span class="muted">${builtAt} (NY)</span></div>
-  <div class="muted">Greeks computed locally with Black-Scholes. Data: Yahoo Finance. For information only — not investment advice.</div>
+  <div class="muted">All analytical and editorial content is AI-generated or algorithmically produced and may be wrong. Verify independently. Data: third-party sources. For information only — not investment advice.</div>
   <div><a class="foot-discord" href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">Join our Discord to unlock premium</a></div>
   <div><a href="/?tab=features">What's included</a> · <a href="/?tab=privacy">Privacy Policy</a> · <a href="/?tab=terms">Terms of Use</a></div>
 </footer>
