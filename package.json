@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
+    "test:day-trading": "node scripts/day-trading-smoke.mjs",
     "verify:freshness": "node scripts/verify-data-freshness.mjs --self-test"
   },
   "dependencies": {

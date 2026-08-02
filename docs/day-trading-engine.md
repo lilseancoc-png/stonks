@@ -1,0 +1,75 @@
+# Day Trading Engine — owner-only Quant Lab paper portfolios
+
+**Status: live implementation.** Current feed: `data/day-trading.json`; durable
+ledger: `data/day-trading-history.json`. Both are private, no-store, and require
+the same combined `tr` + `tp` claims as Quant Lab. The scanner is
+`scripts/scan-day-trading.mjs`, the pure decision/risk/accounting core is
+`lib/day-trading-engine.mjs`, and `.github/workflows/day-trading.yml` runs the
+pass every 15 minutes during the regular ET session. It is a simulator: no code
+path submits an order.
+
+## Decision stack
+
+The scanner supplies live underlying quotes, SPY/QQQ five-minute opening bars,
+the prior index calendar, VIX/term structure, scheduled macro events, the volume
+board, per-name technicals/ATR, grades, GEX and a small set of liquid 1DTE
+contracts. The engine scores seven auditable components:
+
+1. market bias;
+2. locked first-hour direction;
+3. recent SPY/QQQ close context;
+4. dealer gamma and wall placement;
+5. relative-volume and support/resistance trigger;
+6. RSI/MACD/SMA technical confirmation;
+7. the existing Grade as a cross-check.
+
+The normal entry bar is 72/100. A neutral tape raises it to 82; high/crisis
+volatility, scheduled-event risk and a portfolio soft-loss warning raise it
+again. The first hour must be complete. Scheduled high-impact windows block
+entries; a high-impact day outside the immediate release window halves size.
+
+## Time and risk authority
+
+- Entries: 10:30–14:30 ET only. No new last-hour trades. All remaining paper
+  positions flatten at 15:55 ET.
+- Maximum eight entries per book per session and 25% of current reset equity in
+  any position.
+- Same-direction heat is capped at three positions and same-sector/same-side
+  heat at two positions.
+- Options risk targets 0.5–1.0% per entry and aggregate open stop risk is capped
+  at 2.5%. Stock risk targets 0.4–0.8% per entry.
+- Options: an expiry exactly one trading session after entry (otherwise that
+  setup is skipped by the options book), bought
+  at ask + 3% slippage, sold at bid − 3%, $0.65/contract each side; hard stop
+  −35%, scale half at +35%, trail the rest, final target +70%.
+- Stock: ATR/nearby-structure stop, 1.8R target, scale half at +1R and trail the
+  rest above breakeven; 5 bp fill slippage and $0.005/share costs.
+- Both books time out after 75 minutes even if neither price level traded.
+- Daily hard stops: −7% options / −5% stock; soft warnings at −3.5% / −3%;
+  profit lock at +3.5%; weekly reduction/pause at −13.5%. A 10% high-water
+  drawdown temporarily halves size.
+
+## Accounting and track record
+
+Two independent books start at $10,000. Each keeps `resetEquity` and
+`trueEquity`: realized dollars hit both, but only the reset curve jumps back to
+$10,000 below $2,000. The reset event is logged; the never-reset curve remains
+untouched for honest drawdown measurement.
+
+Every trade freezes its score components, size mode, entry window, invalidation,
+cost-aware fill, stop/target, time exit, MFE and MAE. The Quant Lab renderer
+derives daily P&L distribution, hard-stop frequency, win/payoff/profit factor,
+MAE, first-hour versus mid-day contribution, rally versus sell-off conditioning,
+full-size versus half-size results, resets, true maximum drawdown, recovery time
+and first-half versus later-half stability from the durable ledger.
+
+## Verification
+
+```bash
+npm run test:day-trading
+npm run verify:freshness
+node scripts/regen-static.mjs
+```
+
+The workflow verifies both files were written inside the current run before
+uploading only the `daytrading` ownership set to the private store.

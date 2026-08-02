@@ -20308,11 +20308,14 @@
       }
     }
   }
-  // --- Quant Lab (combined tr + tp role tier; data/quant.json) ---------------
+  // --- Quant Lab (combined tr + tp owner tier) -------------------------------
   // docs/quant-lab.md — deterministic sigma / VRP / pairs / surface /
   // dispersion / post-earnings-drift screens. ANALYTICAL ONLY: z-scores and
   // ranks, never trade signals (the playbook table in the shell is educational).
-  var quantState = { data: null, loading: false };
+  // data/quant.json is the daily analytical research payload. The owner-only
+  // intraday paper engine is a separate producer and therefore has separate
+  // current/history objects; all three keys require the same tr+tp claims.
+  var quantState = { data: null, dayTrading: null, dayTradingHistory: null, loading: false };
   function quantFetchJson(url){
     return fetch(url, { cache: 'no-store', credentials: 'same-origin' })
       .then(function(r){
@@ -20340,12 +20343,21 @@
     if ((quantState.data && !tabDataStale(quantState)) || quantState.loading){ renderQuant(); return; }
     quantState.loading = true;
     var primaryUrl = dataUrl('quant.json');
-    return quantFetchJson(primaryUrl)
-      .then(function(j){
-        quantState.data = (j && typeof j === 'object') ? j : {};
+    var dayUrl = dataUrl('day-trading.json');
+    var histUrl = dataUrl('day-trading-history.json');
+    return Promise.all([
+      quantFetchJson(primaryUrl).catch(function(err){ return { loadError: true, loadErrorDetail: String(err && err.message || err) }; }),
+      quantFetchJson(dayUrl).catch(function(){ return null; }),
+      quantFetchJson(histUrl).catch(function(){ return null; })
+    ])
+      .then(function(rows){
+        quantState.data = (rows[0] && typeof rows[0] === 'object') ? rows[0] : {};
+        quantState.dayTrading = rows[1];
+        quantState.dayTradingHistory = rows[2];
         quantState.loading = false;
         quantState.fetchedAt = Date.now();
         try {
+          renderDayTrading();
           renderQuant();
         } catch (err) {
           console.error('Quant Lab render failed', err);
@@ -20361,6 +20373,7 @@
         });
         quantState.data = { loadError: true, loadErrorDetail: detail };
         quantState.loading = false;
+        renderDayTrading();
         renderQuant();
       });
   }
@@ -20469,6 +20482,113 @@
       '</div>' +
       '<p class="quant-desk-rule"><b>Workflow:</b> the screen finds statistical distance; the validation gates decide whether the relationship is credible; Grade checks each leg before any execution decision.</p>' +
       '</section>';
+  }
+  function dtMoney(v){
+    if (v == null || !isFinite(v)) return '—';
+    return (v < 0 ? '−' : '') + '$' + Math.abs(Number(v)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function dtPct(v){
+    if (v == null || !isFinite(v)) return '—';
+    return (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%';
+  }
+  function dtPnlClass(v){ return Number(v) > 0 ? 'quant-pos' : Number(v) < 0 ? 'quant-neg' : 'quant-dim'; }
+  function dtAverage(rows, key){
+    var vals = rows.map(function(row){ return Number(typeof key === 'function' ? key(row) : row[key]); }).filter(isFinite);
+    return vals.length ? vals.reduce(function(a, b){ return a + b; }, 0) / vals.length : null;
+  }
+  function dtBucket(closed, label, predicate){
+    var rows = closed.filter(predicate);
+    return '<span><small>' + label + '</small><b>' + rows.length + ' trades</b><em>' + dtMoney(dtAverage(rows, 'pnl')) + ' avg</em></span>';
+  }
+  function dtAnalytics(kind, book, sessions){
+    book = book || {};
+    var closed = Array.isArray(book.closed) ? book.closed : [];
+    var pnlKey = kind === 'options' ? 'optionsPnl' : 'stockPnl';
+    var days = sessions.map(function(row){ return Number(row[pnlKey]); }).filter(isFinite);
+    var sorted = closed.slice().sort(function(a, b){ return Date.parse(a.closedAt || 0) - Date.parse(b.closedAt || 0); });
+    var half = Math.floor(sorted.length / 2);
+    var early = half ? sorted.slice(0, half) : [];
+    var late = half ? sorted.slice(half) : sorted;
+    var firstRally = new Set(sessions.filter(function(row){
+      var f = row.firstHour || {}; var vals = [Number(f.spyRetPct), Number(f.qqqRetPct)].filter(isFinite);
+      return vals.length && vals.reduce(function(a,b){return a+b;},0) / vals.length > 0.15;
+    }).map(function(row){ return row.date; }));
+    var firstSell = new Set(sessions.filter(function(row){
+      var f = row.firstHour || {}; var vals = [Number(f.spyRetPct), Number(f.qqqRetPct)].filter(isFinite);
+      return vals.length && vals.reduce(function(a,b){return a+b;},0) / vals.length < -0.15;
+    }).map(function(row){ return row.date; }));
+    var best = days.length ? Math.max.apply(null, days) : null;
+    var worst = days.length ? Math.min.apply(null, days) : null;
+    return '<div class="dt-analytics">' +
+      '<span><small>Daily P&amp;L distribution</small><b>' + dtMoney(dtAverage(days, function(x){ return x; })) + ' avg</b><em>' + dtMoney(worst) + ' worst · ' + dtMoney(best) + ' best</em></span>' +
+      '<span><small>Loss-limit hits</small><b>' + Number(book.dailyStopHits || 0) + '</b><em>hard flatten + session stop</em></span>' +
+      '<span><small>Win / payoff</small><b>' + (book.winRate == null ? '—' : Number(book.winRate).toFixed(1) + '%') + '</b><em>' + dtMoney(book.avgWin) + ' / ' + dtMoney(book.avgLoss) + ' · PF ' + (book.profitFactor == null ? '—' : book.profitFactor) + '</em></span>' +
+      '<span><small>Adverse excursion</small><b>' + dtPct(book.averageMaePct) + '</b><em>average closed-trade MAE</em></span>' +
+      '<span><small>True max drawdown</small><b>' + dtPct(book.trueMaxDrawdownPct) + '</b><em>never-reset curve · recovery ' + (book.longestRecoveryHours == null ? '—' : book.longestRecoveryHours + 'h') + '</em></span>' +
+      '<span><small>Resets</small><b>' + Number(book.resets || 0) + '</b><em>reset curve only; true curve preserved</em></span>' +
+      dtBucket(closed, 'First-hour follow-through', function(row){ return row.entryWindow === 'first-hour-follow-through'; }) +
+      dtBucket(closed, 'Mid-day', function(row){ return row.entryWindow === 'mid-day'; }) +
+      dtBucket(closed, 'Last hour (blocked)', function(row){ return row.entryWindow === 'last-hour'; }) +
+      dtBucket(closed, 'After first-hour rally', function(row){ return firstRally.has(row.session); }) +
+      dtBucket(closed, 'After first-hour sell-off', function(row){ return firstSell.has(row.session); }) +
+      dtBucket(closed, 'Full-size periods', function(row){ return row.sizeMode !== 'half'; }) +
+      dtBucket(closed, 'Half-size periods', function(row){ return row.sizeMode === 'half'; }) +
+      '<span><small>Edge stability</small><b>' + dtMoney(dtAverage(late, 'pnl')) + ' later</b><em>' + dtMoney(dtAverage(early, 'pnl')) + ' earlier · split sample</em></span>' +
+      '</div>';
+  }
+  function renderDayTrading(){
+    var root = $('day-trading-root'); var empty = $('day-trading-empty'); var stamp = $('dt-engine-stamp');
+    if (!root) return;
+    var d = quantState.dayTrading; var h = quantState.dayTradingHistory || {};
+    if (!d){
+      root.hidden = true; if (empty) empty.hidden = false; if (stamp) stamp.textContent = 'Awaiting first scan';
+      return;
+    }
+    root.hidden = false; if (empty) empty.hidden = true;
+    var updated = Date.parse(d.updatedAt || '');
+    if (stamp) stamp.textContent = (d.status || 'paper') + (isFinite(updated) ? ' · ' + new Date(updated).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '');
+    var market = d.market || {}; var first = market.firstHour || {}; var vol = market.volatility || {}; var event = market.event || {};
+    var html = '<div class="dt-market">' +
+      '<span><small>Directional bias</small><b class="' + (market.bias === 'long' ? 'quant-pos' : market.bias === 'short' ? 'quant-neg' : 'quant-dim') + '">' + escapeHtml(market.bias || 'unknown') + '</b><em>score ' + (market.biasScore == null ? '—' : market.biasScore) + ' · analysis ' + escapeHtml(market.analysisState || 'neutral') + '</em></span>' +
+      '<span><small>First hour</small><b>' + (first.complete ? 'Locked' : 'Waiting') + '</b><em>SPY ' + dtPct(first.spyRetPct) + ' · QQQ ' + dtPct(first.qqqRetPct) + '</em></span>' +
+      '<span><small>Volatility regime</small><b>' + escapeHtml(vol.state || 'unknown') + '</b><em>VIX ' + (vol.vix == null ? '—' : vol.vix) + (vol.term ? ' · ' + escapeHtml(vol.term) : '') + '</em></span>' +
+      '<span><small>Event authority</small><b class="' + (event.block ? 'quant-neg' : event.reduce ? 'quant-warn' : 'quant-pos') + '">' + (event.block ? 'Blocked' : event.reduce ? 'Reduced' : 'Clear') + '</b><em>' + escapeHtml(event.reason || 'no high-impact window') + '</em></span>' +
+      '<span><small>Execution window</small><b>10:30–14:30 ET</b><em>forced flat 15:55 · 75m max hold' + (market.lastHour && market.lastHour.active ? ' · last hour SPY ' + dtPct(market.lastHour.spyRetPct) + ' / QQQ ' + dtPct(market.lastHour.qqqRetPct) : '') + '</em></span>' +
+      '</div>';
+    var summaries = d.portfolios || {}; var books = h.portfolios || {}; var sessions = Array.isArray(h.sessions) ? h.sessions : [];
+    html += '<div class="dt-books">';
+    [['options','1DTE options'],['stock','Stock long / short']].forEach(function(pair){
+      var key = pair[0]; var s = summaries[key] || {}; var p = s.policy || {};
+      var gate = p.hardStopped ? 'hard stopped' : p.weeklyCut ? 'weekly cut' : p.profitLocked ? 'profit lock' : p.softWarning ? 'soft warning' : 'normal risk';
+      html += '<section class="dt-book"><div class="dt-book-head"><div><small>' + pair[1] + '</small><h4>' + dtMoney(s.resetEquity) + '</h4></div><span>' + escapeHtml(gate) + '</span></div>' +
+        '<div class="dt-book-grid"><span><small>Never-reset</small><b>' + dtMoney(s.trueEquity) + '</b></span><span><small>Today</small><b class="' + dtPnlClass(s.dayRealized) + '">' + dtMoney(s.dayRealized) + ' (' + dtPct(s.dayPct) + ')</b></span><span><small>Open / trades</small><b>' + Number(s.openCount || 0) + ' / ' + Number(s.tradesToday || 0) + '</b></span><span><small>Record</small><b>' + (s.winRate == null ? '—' : s.winRate + '%') + ' · PF ' + (s.profitFactor == null ? '—' : s.profitFactor) + '</b></span></div>' +
+        '<details class="dt-track"><summary>Day Trade Track Record · ' + Number(s.closedCount || 0) + ' closed</summary>' + dtAnalytics(key, books[key], sessions) + '</details></section>';
+    });
+    html += '</div>';
+    var open = (d.open?.options || []).concat(d.open?.stock || []);
+    html += '<div class="quant-sub">Open paper trades</div>';
+    if (!open.length) html += '<p class="quant-none">No open trades. Cash is the default until a setup clears every score and risk gate.</p>';
+    else {
+      html += '<div class="quant-scroll"><table class="quant-tbl dt-table"><thead><tr><th>Book</th><th>Name</th><th>Side</th><th>Entry</th><th>Position</th><th>Stop / target</th><th>Confidence</th><th>Invalidation</th><th>Time exit</th></tr></thead><tbody>';
+      open.forEach(function(row){
+        var contract = row.book === 'options' ? ('$' + row.strike + row.optionSide.charAt(0).toUpperCase() + ' · ' + row.expiry) : (row.quantity + ' shares');
+        var levels = row.book === 'options' ? '−35% / +70%' : ('$' + row.stop + ' / $' + row.target);
+        html += '<tr><td>' + escapeHtml(row.book) + '</td><td>' + quantSymLink(row.symbol) + '</td><td class="' + (row.direction === 'long' ? 'quant-pos' : 'quant-neg') + '">' + escapeHtml(row.direction) + '</td><td>$' + Number(row.entryFill).toFixed(2) + '</td><td>' + escapeHtml(contract) + '</td><td>' + escapeHtml(levels) + '</td><td>' + row.confidence + ' / ' + row.threshold + '</td><td class="dt-wrap">' + escapeHtml(row.invalidation || '') + '</td><td class="dt-wrap">' + escapeHtml(row.timeExit || '') + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+    var decisions = Array.isArray(d.decisions) ? d.decisions : [];
+    html += '<div class="quant-sub">Latest decision queue</div>';
+    if (!decisions.length) html += '<p class="quant-none">No volume-qualified candidates in the latest pass.</p>';
+    else {
+      html += '<div class="quant-scroll"><table class="quant-tbl dt-table"><thead><tr><th>Name</th><th>Lean</th><th>Score</th><th>Decision</th><th>Books</th><th>Risk-gate reason</th></tr></thead><tbody>';
+      decisions.forEach(function(row){
+        html += '<tr><td>' + quantSymLink(row.symbol) + '</td><td class="' + (row.direction === 'long' ? 'quant-pos' : 'quant-neg') + '">' + escapeHtml(row.direction) + '</td><td><b>' + row.score + '</b> / ' + row.threshold + '</td><td>' + escapeHtml(row.status) + '</td><td>' + escapeHtml((row.opened || []).join(' + ') || '—') + '</td><td class="dt-wrap">' + escapeHtml((row.reasons || []).join(' · ') || 'cleared') + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+    html += '<p class="quant-none">Simulation only. Option fills use the ask plus 3% entry slippage, bid minus 3% exit slippage and $0.65/contract each side; stock fills use 5 bp slippage plus $0.005/share. No order is ever sent.</p>';
+    root.innerHTML = html;
   }
   function renderQuant(){
     var root = $('quant-root'); var empty = $('quant-empty'); var eye = $('quant-eyebrow');

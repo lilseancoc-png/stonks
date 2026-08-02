@@ -129,6 +129,7 @@ node scripts/sync-data.mjs pull                 # store → local data/  (hydrat
 node scripts/sync-data.mjs push --owner=bake    # local data/ → store (flush owned keys)
 node scripts/sync-data.mjs push --owner=unusual
 node scripts/sync-data.mjs push --owner=oi
+node scripts/sync-data.mjs push --owner=daytrading
 node scripts/sync-data.mjs seed                  # one-time: upload current data/ wholesale
 ```
 
@@ -143,7 +144,7 @@ node scripts/sync-data.mjs seed                  # one-time: upload current data
 
 ### 4.3 Concurrency & ownership model — **the load-bearing piece**
 
-Today the four data workflows share a `concurrency: stonks-data-commit` group
+Today the data workflows share a `concurrency: stonks-data-commit` group
 (serialized, never concurrent) and rely on **Git's merge/restore semantics** so a
 wholesale `data/` rebuild by the bake doesn't clobber a concurrent scanner's
 output. A blob store has no merge, so we replicate that ownership explicitly.
@@ -168,6 +169,7 @@ output. A blob store has no merge, so we replicate that ownership explicitly.
 | unusual\*, volume-flags, volume-history, flow-explanations | unusual-flow scan | upsert (no delete); explanations are rebuilt deterministically from current scan metrics and spend no AI |
 | oi-tracker, oi-history | oi-tracker scan | upsert (no delete) |
 | search-interest | weekly theme search-interest refresh | upsert (no delete) |
+| day-trading, day-trading-history | 15-minute owner paper engine | upsert (no delete) |
 | **heatmap.json** | bake (seed/rebuild) **+** unusual (refresh) | upsert by whichever ran; serialized |
 | **market-analysis.json** | bake (macro regime) **+** unusual (premarket cohort + hourly marks) | read-modify-write; serialized |
 | **briefs.json** | bake (`buildMarketBriefs`, re-minted hourly) | upsert; once-per-ET-hour gating already in code |
@@ -233,13 +235,13 @@ landing + "Login with Discord", like `cheatsheet.html`), `favicon.svg`, `/api/au
 
 ### 4.6 Workflow changes
 
-Each of `daily.yml`, `unusual-flow.yml`, `oi-tracker.yml`, and
-`search-interest.yml`:
+Each of `daily.yml`, `unusual-flow.yml`, `oi-tracker.yml`,
+`search-interest.yml`, and `day-trading.yml`:
 
 - **Add** a step before build/scan: `node scripts/sync-data.mjs pull`
   (env: store token). Replaces the data that `git checkout` used to supply.
 - **Replace** the entire `git stash/commit/push data` block with
-  `node scripts/sync-data.mjs push --owner=<bake|unusual|oi|search-interest>`.
+  `node scripts/sync-data.mjs push --owner=<bake|unusual|oi|search-interest|daytrading>`.
 - Mark the run start, regenerate the final manifest sidecars, and run
   `node scripts/verify-data-freshness.mjs --owner=<owner>` before any external
   write. The verifier is ownership-aware: it requires current-run stamps for the
@@ -441,7 +443,8 @@ most tabs are free, a premium subset stays gated. The wiring:
   ungated or a failed `/me` ⇒ no locks.
 - **`welcome.html`** is no longer a forced wall — it's the login/denied lander, linking
   back to the free site at `/`.
-- **Quant Lab is combined-role hidden.** `quant.json` and `quant-history.json`
+- **Quant Lab is combined-role hidden.** `quant.json`, `quant-history.json`,
+  `day-trading.json`, and `day-trading-history.json`
   require both the `tr` and `tp` session claims. The client removes the Quant Lab
   nav entry, pane, deep-link target, and command-palette entry unless both are
   true; the entire Quant nav group stays hidden until auth resolves so it cannot

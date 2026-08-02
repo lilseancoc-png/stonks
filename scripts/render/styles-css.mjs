@@ -4874,6 +4874,36 @@ a.cx-tkr { border-bottom: 1px solid transparent; }
 }
 
 /* --- Quant Lab (deterministic screens, premium) ------------------------ */
+.dt-lab { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; padding: 15px; border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border)); border-radius: 12px; background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 5%, var(--surface)), var(--surface) 48%); }
+.dt-lab-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.dt-lab-head > div > span { display: block; margin-bottom: 4px; color: var(--accent); font: 750 9px/1 var(--font-mono); letter-spacing: .09em; text-transform: uppercase; }
+.dt-lab-head h3 { margin: 0; color: var(--text-strong); font: 780 19px/1.2 var(--font-sans); }
+.dt-stamp { padding: 5px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted-strong); background: var(--surface); font: 700 9px/1 var(--font-mono); text-transform: capitalize; white-space: nowrap; }
+.dt-root { display: flex; flex-direction: column; gap: 12px; }
+.dt-market { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
+.dt-market > span { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 9px 10px; border-right: 1px solid var(--border); }
+.dt-market > span:last-child { border-right: 0; }
+.dt-market small, .dt-book small, .dt-analytics small { color: var(--muted); font: 700 8.5px/1.1 var(--font-mono); letter-spacing: .055em; text-transform: uppercase; }
+.dt-market b { color: var(--text-strong); font: 750 12px/1.2 var(--font-sans); text-transform: capitalize; }
+.dt-market em { color: var(--muted); font: 500 9px/1.35 var(--font-sans); font-style: normal; overflow-wrap: anywhere; }
+.dt-books { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.dt-book { min-width: 0; padding: 11px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
+.dt-book-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
+.dt-book-head h4 { margin: 3px 0 0; color: var(--text-strong); font: 760 18px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.dt-book-head > span { padding: 4px 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted-strong); font: 700 8.5px/1 var(--font-sans); text-transform: uppercase; white-space: nowrap; }
+.dt-book-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.dt-book-grid > span { display: flex; flex-direction: column; gap: 3px; padding: 7px 8px; border-radius: 7px; background: var(--surface-2); }
+.dt-book-grid b { color: var(--text-strong); font: 700 11px/1.25 var(--font-mono); font-variant-numeric: tabular-nums; }
+.dt-track { margin-top: 9px; border-top: 1px dashed var(--border); }
+.dt-track summary { padding-top: 8px; color: var(--accent); cursor: pointer; font: 700 10px/1.3 var(--font-sans); }
+.dt-analytics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin-top: 8px; }
+.dt-analytics > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 7px; border: 1px solid var(--border); border-radius: 6px; }
+.dt-analytics b { color: var(--text-strong); font: 700 10.5px/1.25 var(--font-mono); }
+.dt-analytics em { color: var(--muted); font: 500 8.5px/1.3 var(--font-sans); font-style: normal; overflow-wrap: anywhere; }
+.dt-table .dt-wrap { min-width: 190px; white-space: normal; color: var(--muted-strong); font-family: var(--font-sans); }
+.quant-warn { color: var(--warn) !important; }
+@media (max-width: 900px) { .dt-market { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dt-market > span { border-bottom: 1px solid var(--border); } .dt-books { grid-template-columns: 1fr; } }
+@media (max-width: 520px) { .dt-lab { padding: 11px; } .dt-lab-head { flex-direction: column; } .dt-market, .dt-book-grid, .dt-analytics { grid-template-columns: 1fr; } .dt-market > span { border-right: 0; } }
 .quant-root { display: flex; flex-direction: column; gap: 14px; }
 .quant-desk { display: flex; flex-direction: column; gap: 10px; padding: 13px 14px; border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border)); border-left: 3px solid var(--accent); border-radius: 10px; background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 5%, var(--surface)), var(--surface) 62%); }
 .quant-desk.is-reference { border-color: color-mix(in srgb, var(--warn) 40%, var(--border)); border-left-color: var(--warn); background: linear-gradient(135deg, color-mix(in srgb, var(--warn) 6%, var(--surface)), var(--surface) 62%); }

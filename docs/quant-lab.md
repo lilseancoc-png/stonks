@@ -6,6 +6,11 @@ PREMIUM keys (`lib/premium-keys.mjs`). Engine: the `QUANT LAB` block in
 `scripts/build.mjs` (after the Trending-IV section). Tab id `quant`, its own
 "Quant" nav group. Backtest harness: `scripts/diagnose-pairs.mjs`.
 
+The same owner-only tab also contains a separate actionable **paper** Day
+Trading Engine. It has its own 15-minute producer and durable two-portfolio
+ledger; it does not change the analytical-only contract of `quant.json` or any
+screen documented below. See [`day-trading-engine.md`](day-trading-engine.md).
+
 ## 1. Owner directive — analytical screens, never trade signals
 
 Same rule as the Event Spillover Matrix (`docs/event-spillover.md`): every

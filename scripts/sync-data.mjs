@@ -11,6 +11,7 @@
 //   node scripts/sync-data.mjs push --owner=unusual
 //   node scripts/sync-data.mjs push --owner=oi
 //   node scripts/sync-data.mjs push --owner=search-interest
+//   node scripts/sync-data.mjs push --owner=daytrading
 //   node scripts/sync-data.mjs seed                 # one-time: upload ALL local data/
 //   ...any command + --dry-run to print actions without touching the store.
 //
@@ -195,9 +196,9 @@ async function main() {
       break;
     case "push":
       if (opts.owner === "bake") await pushBake(opts);
-      else if (opts.owner === "unusual" || opts.owner === "oi" || opts.owner === "search-interest") await pushScanner(opts.owner, opts);
+      else if (opts.owner === "unusual" || opts.owner === "oi" || opts.owner === "search-interest" || opts.owner === "daytrading") await pushScanner(opts.owner, opts);
       else {
-        console.error("push requires --owner=bake|unusual|oi|search-interest");
+        console.error("push requires --owner=bake|unusual|oi|search-interest|daytrading");
         process.exit(1);
       }
       break;

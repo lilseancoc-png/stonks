@@ -1,0 +1,77 @@
+name: Owner Day Trading Engine
+
+# GitHub's scheduler is UTC and does not follow US daylight saving time, so the
+# broad UTC window is narrowed by an America/New_York clock check below. The
+# engine itself also enforces the 10:30–14:30 entry window and 15:55 flatten.
+on:
+  schedule:
+    - cron: "*/15 13-21 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Same private-store serialization boundary as every other data producer.
+  group: stonks-data-commit
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref_name }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Check ET session window
+        id: window
+        shell: bash
+        run: |
+          NOW=$(TZ=America/New_York date +%H%M)
+          DOW=$(TZ=America/New_York date +%u)
+          if [ "$DOW" -le 5 ] && [ "$NOW" -ge 0925 ] && [ "$NOW" -le 1605 ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Outside the regular ET session ($NOW); no engine write."
+          fi
+
+      - name: Install dependencies
+        if: ${{ steps.window.outputs.run == 'true' && vars.PRIVATE_DATA_ENABLED == '1' }}
+        run: npm ci --no-audit --no-fund
+
+      - name: Hydrate private data
+        if: ${{ steps.window.outputs.run == 'true' && vars.PRIVATE_DATA_ENABLED == '1' }}
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: node scripts/sync-data.mjs pull
+
+      - name: Mark freshness window
+        if: ${{ steps.window.outputs.run == 'true' && vars.PRIVATE_DATA_ENABLED == '1' }}
+        run: echo "FRESHNESS_RUN_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" >> "$GITHUB_ENV"
+
+      - name: Run deterministic paper engine
+        if: ${{ steps.window.outputs.run == 'true' && vars.PRIVATE_DATA_ENABLED == '1' }}
+        run: node scripts/scan-day-trading.mjs
+
+      - name: Verify current-run artifacts
+        if: ${{ steps.window.outputs.run == 'true' && vars.PRIVATE_DATA_ENABLED == '1' }}
+        run: node scripts/verify-data-freshness.mjs --owner=daytrading
+
+      - name: Flush owner-only artifacts
+        if: ${{ steps.window.outputs.run == 'true' && vars.PRIVATE_DATA_ENABLED == '1' }}
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: node scripts/sync-data.mjs push --owner=daytrading

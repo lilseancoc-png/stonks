@@ -1,0 +1,75 @@
+// Offline deterministic smoke test for lib/day-trading-engine.mjs.
+// No network, no data writes. Run: node scripts/day-trading-smoke.mjs
+
+import assert from "node:assert/strict";
+import {
+  DAY_TRADING_RULES,
+  emptyDayTradingHistory,
+  runDayTradingEngine,
+  scoreDayTradeCandidate,
+} from "../lib/day-trading-engine.mjs";
+import { tradingDaysBetween } from "./scan-day-trading.mjs";
+
+assert.equal(tradingDaysBetween("2026-07-30", "2026-07-31"), 1);
+assert.equal(tradingDaysBetween("2026-07-31", "2026-08-03"), 1);
+assert.equal(tradingDaysBetween("2026-07-30", "2026-08-03"), 2);
+
+const now = new Date("2026-07-30T15:00:00.000Z"); // 11:00 ET
+const market = {
+  clock: { date: "2026-07-30", weekday: "Thu", minute: 660 },
+  bias: "long",
+  biasScore: 1.1,
+  priorContextPct: 0.6,
+  firstHour: { complete: true, spyRetPct: 0.8, qqqRetPct: 1.1 },
+  volatility: { state: "normal", vix: 19 },
+  event: { block: false, reduce: false, events: [] },
+  sizeMultiplier: 1,
+  thresholdAdd: 0,
+};
+const candidate = {
+  symbol: "TEST", sector: "Technology", spot: 100, direction: "long",
+  volumeRatio: 3, srBreak: { type: "upper", level: 99 },
+  gex: { net: -1_000_000, callWall: { strike: 105 } }, grade: 16, atr: 1.2,
+  technicals: {
+    rsi: 58, macd: { hist: 1.2 }, sma: { sma20: 98 }, sr: { s20: 99, r20: 106 },
+  },
+  option: { side: "call", expiry: "2026-07-31", strike: 100, bid: 0.95, ask: 1, last: 0.98, iv: 0.5, oi: 1000, volume: 500 },
+};
+
+const score = scoreDayTradeCandidate(candidate, market);
+assert.equal(score.pass, true);
+assert.ok(score.total >= score.threshold);
+
+let result = runDayTradingEngine({ history: emptyDayTradingHistory(), candidates: [candidate], market: structuredClone(market), now });
+assert.equal(result.snapshot.open.options.length, 1);
+assert.equal(result.snapshot.open.stock.length, 1);
+assert.ok(result.snapshot.open.options[0].initialCash <= DAY_TRADING_RULES.startingEquity * 0.25);
+assert.ok(result.snapshot.open.stock[0].initialCash <= DAY_TRADING_RULES.startingEquity * 0.25 + 1);
+
+// Same symbol cannot be opened twice; the existing positions remain one each.
+result = runDayTradingEngine({ history: result.history, candidates: [candidate], market: structuredClone(market), now: new Date(now.getTime() + 15 * 60000) });
+assert.equal(result.snapshot.open.options.length, 1);
+assert.equal(result.snapshot.open.stock.length, 1);
+
+// Both books honor their hard stops and create closed, cost-aware records.
+const optionTrade = result.snapshot.open.options[0];
+const stockTrade = result.snapshot.open.stock[0];
+const marks = new Map([
+  [optionTrade.id, { bid: 0.45, ask: 0.5, last: 0.47 }],
+  [stockTrade.id, { spot: stockTrade.stop - 0.1 }],
+]);
+result = runDayTradingEngine({ history: result.history, candidates: [], market: structuredClone(market), marks, now: new Date(now.getTime() + 30 * 60000) });
+assert.equal(result.snapshot.open.options.length, 0);
+assert.equal(result.snapshot.open.stock.length, 0);
+assert.equal(result.history.portfolios.options.closed.at(-1).outcome, "hard-stop");
+assert.equal(result.history.portfolios.stock.closed.at(-1).outcome, "hard-stop");
+assert.ok(result.history.portfolios.options.closed.at(-1).pnl < 0);
+assert.ok(result.history.portfolios.stock.closed.at(-1).pnl < 0);
+
+// Entry cutoff is an absolute risk-authority gate even for a perfect score.
+const lateMarket = structuredClone(market);
+lateMarket.clock.minute = 880; // 14:40 ET
+assert.equal(scoreDayTradeCandidate(candidate, lateMarket).pass, false);
+assert.ok(scoreDayTradeCandidate(candidate, lateMarket).blocked.some((reason) => /cutoff/.test(reason)));
+
+console.log("day-trading smoke test passed");
