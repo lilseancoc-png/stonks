@@ -1,10 +1,16 @@
-# Quant Lab — deterministic quant screens (premium tab)
+# Owner Lab — private controls and deterministic quant screens
 
 **Status: live.** Feed: `data/quant.json` (rebuilt fresh every bake) +
 `data/quant-history.json` (per-ET-day accumulator, read-before-wipe). Both
 PREMIUM keys (`lib/premium-keys.mjs`). Engine: the `QUANT LAB` block in
 `scripts/build.mjs` (after the Trending-IV section). Tab id `quant`, its own
-"Quant" nav group. Backtest harness: `scripts/diagnose-pairs.mjs`.
+"Owner" nav group. Backtest harness: `scripts/diagnose-pairs.mjs`.
+
+The combined-role workspace also houses every premium control that consumes a
+real holding, dollar baseline, account value, or max-loss budget: the live
+held-option checker, personalized VOO/QQQ DCA dollars, Sector Rotation share
+caps, and Leveraged ETF share caps. Their standardized research remains on the
+ordinary premium pages; only the owner-specific application is isolated here.
 
 The same owner-only tab also contains a separate actionable **paper** Day
 Trading Engine. It has its own 15-minute producer and durable two-portfolio

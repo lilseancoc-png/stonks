@@ -1,8 +1,8 @@
-# Day Trading Engine — owner-only Quant Lab paper portfolios
+# Day Trading Engine — owner-only Owner Lab paper portfolios
 
 **Status: live implementation.** Current feed: `data/day-trading.json`; durable
 ledger: `data/day-trading-history.json`. Both are private, no-store, and require
-the same combined `tr` + `tp` claims as Quant Lab. The scanner is
+the same combined `tr` + `tp` claims as Owner Lab. The scanner is
 `scripts/scan-day-trading.mjs`, the pure decision/risk/accounting core is
 `lib/day-trading-engine.mjs`, and `.github/workflows/day-trading.yml` runs the
 pass every 15 minutes during the regular ET session. It is a simulator: no code
@@ -61,7 +61,7 @@ $10,000 below $2,000. The reset event is logged; the never-reset curve remains
 untouched for honest drawdown measurement.
 
 Every trade freezes its score components, size mode, entry window, invalidation,
-cost-aware fill, stop/target, time exit, MFE and MAE. The Quant Lab renderer
+cost-aware fill, stop/target, time exit, MFE and MAE. The Owner Lab renderer
 derives daily P&L distribution, hard-stop frequency, win/payoff/profit factor,
 MAE, first-hour versus mid-day contribution, rally versus sell-off conditioning,
 full-size versus half-size results, resets, true maximum drawdown, recovery time

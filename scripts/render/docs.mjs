@@ -1244,7 +1244,7 @@ export const DOC_PAGES = {
           <ul class="cmp-list">
             <li><b>Market analysis</b> — the live market tape, risk barometer &amp; regime history</li>
             <li><b>Top Picks</b> — highest-conviction contracts, sizing &amp; breakeven; optionally controlled by its own Discord role</li>
-            <li><b>Stock Picks</b> — shares-only buy-the-dip screen (quality names beaten down, trap flags shown) + a daily VOO/QQQ DCA dial</li>
+            <li><b>Stock Picks</b> — shares-only buy-the-dip screen (quality names beaten down, trap flags shown) + a uniform daily VOO/QQQ DCA multiplier</li>
             <li><b>Sector Rotation</b> — quality companies washed out with their peer group, then ranked by rebound phase and trade levels</li>
             <li><b>Leveraged ETFs</b> — the same grades mapped onto listed 2×/3× products, with reset-drag, carry-cost &amp; chop warnings and a live-priced track record</li>
             <li><b>Briefs</b> — hourly market digest, open through close</li>
@@ -1256,7 +1256,7 @@ export const DOC_PAGES = {
             <li><b>Volume</b> — intraday volume + support/resistance breaks</li>
             <li><b>Gamma exposure</b> — dealer net-gamma matrix, flip &amp; walls</li>
             <li><b>Track Record</b> — resolved picks performance &amp; scorecard; optionally controlled by its own Discord role</li>
-            <li><b>Quant Lab</b> — confluence, 3σ movers, variance-risk-premium, pairs, volatility-surface, dispersion and post-earnings-drift screens; available to members with both Top Picks and Track Record access</li>
+            <li><b>Owner Lab</b> — the held-position checker and private dollar/account-risk sizing, plus confluence, 3σ movers, variance-risk-premium, pairs, volatility-surface, dispersion and post-earnings-drift screens; available only with both Top Picks and Track Record access</li>
             <li><b>Index calendar</b> — daily close calendar plus SPY/QQQ/IWM first-hour, recovery, last-hour, extreme-timing and conditional seasonality stats</li>
           </ul>
           <div class="cmp-cta">
@@ -1388,7 +1388,7 @@ export const DOC_PAGES = {
       <div class="feat-grid">
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Market analysis</span><span class="tier prem">Premium</span></div>
-          <p class="feat-desc">The cross-asset risk read that sets the engine's posture — the live market tape (VIX, dollar, yields, commodities, Fed path, geopolitics), a risk-on / risk-off barometer, and the daily regime history. Plus grade <em>any</em> ticker on demand and check a position you already hold.</p>
+          <p class="feat-desc">The cross-asset risk read that sets the engine's posture — the live market tape (VIX, dollar, yields, commodities, Fed path, geopolitics), a risk-on / risk-off barometer, and the daily regime history. Plus grade <em>any</em> ticker on demand. The held-position checker is reserved for Owner Lab.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Top Picks</span><span class="tier prem">Premium</span></div>
@@ -1396,7 +1396,7 @@ export const DOC_PAGES = {
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Stock Picks</span><span class="tier prem">Premium</span></div>
-          <p class="feat-desc">Shares, not options — a buy-the-dip screen over the whole universe that answers three questions independently: is it a good business (a hard quality gate), is it beaten down right now (five "cheap vs its own recent self" reads), and did something actually break (trap flags that warn but never hide a name). Each card opens into a ~28-question investment-thesis checklist answered from tracked data, and a daily <b>DCA dial</b> sizes an everyday VOO/QQQ index buy — always at least the baseline, leaning in on the rare deep-discount days.</p>
+          <p class="feat-desc">Shares, not options — a buy-the-dip screen over the whole universe that answers three questions independently: is it a good business (a hard quality gate), is it beaten down right now (five "cheap vs its own recent self" reads), and did something actually break (trap flags that warn but never hide a name). Each card opens into a ~28-question investment-thesis checklist answered from tracked data, and a daily <b>DCA dial</b> publishes the same VOO/QQQ baseline multiplier for every member. Applying it to a personal dollar baseline is reserved for Owner Lab.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Sector Rotation</span><span class="tier prem">Premium</span></div>
@@ -1443,8 +1443,8 @@ export const DOC_PAGES = {
           <p class="feat-desc">The resolved Top-Picks performance — win rate, win/loss payoff, expectancy vs SPY, an engine-health summary that explains why each pick won or lost, a $100k backtest simulator with Monte Carlo, and the roster's in/out churn over time.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Quant Lab</span><span class="tier prem">Premium + roles</span></div>
-          <p class="feat-desc">Deterministic screens for multi-signal confluence, fixed 3σ price and return outliers, realized-vs-implied volatility, pair-spread dislocations, volatility-surface shape, cross-sectional dispersion and post-earnings drift. This owner tier requires both Top Picks and Track Record access when the optional role gates are configured.</p>
+          <div class="feat-top"><span class="feat-name">Owner Lab</span><span class="tier prem">Top Picks + Track Record roles</span></div>
+          <p class="feat-desc">The held-position checker and the private dollar/account-risk controls for the DCA, Sector Rotation, and Leveraged ETF screens live here, alongside deterministic confluence, fixed 3σ outlier, realized-vs-implied volatility, pairs, volatility-surface, dispersion, post-earnings drift, and paper-engine research. It requires both Top Picks and Track Record access; deployments may assign both claims through the same owner role.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Index calendar + hour tracker</span><span class="tier prem">Premium</span></div>

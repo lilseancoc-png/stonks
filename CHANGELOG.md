@@ -24,6 +24,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Changed
 
+- **Personalized premium controls move into the combined-role Owner Lab.** Market Analysis no longer exposes the held-option hold/trim/sell checker; Stock Picks publishes only the uniform VOO/QQQ DCA multiplier; and Sector Rotation and Leveraged ETFs retain their standardized setups without account-based share caps. The position checker, personal DCA dollars, and both account/max-loss sizing desks now live in Owner Lab, which continues to require both `tp` and `tr` claims and can therefore share the same Discord owner role as Top Picks and Track Record. `scripts/render/{html,app-js,styles-css,docs}.mjs`, `docs/{site-logic,quant-lab,day-trading-engine,private-data-migration}.md`.
+
 - **The legal disclosures now state clearly that all analytical and editorial content is AI-generated or algorithmically produced.** The Terms allocate hallucination, stale-input, source, modeling, simulation, and no-human-review risks; the persistent footer and login page repeat the warning; the Privacy Policy now matches the actual Discord OAuth, short-lived cookie, local-storage, and third-party billing flow; and account, subscription, and AI-output ownership language no longer overstates what the product collects or controls. `scripts/render/{docs,html}.mjs`, `welcome.html`.
 
 ## 2026-07-30

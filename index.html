@@ -17,7 +17,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=2026-08-02T18%3A26%3A03.007Z">
+<link rel="stylesheet" href="styles.css?v=2026-08-02T18%3A48%3A04.864Z">
 </head>
 <body>
 <header class="site-header">
@@ -138,11 +138,11 @@
          BOTH the Track Record (tr) and Top Picks (tp) claims. The group starts
          hidden to prevent a pre-auth flash; startApp() reveals it only when at
          least one authorized destination remains. -->
-    <summary class="side-nav-group-label">Quant</summary>
+    <summary class="side-nav-group-label">Owner</summary>
     <div class="side-nav-group-items">
       <button type="button" class="page-tab" role="tab" data-page-tab="picks" aria-selected="false" aria-controls="page-pane-picks" id="page-tab-picks"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 2.5 2.9 5.9 6.5 1-4.7 4.5 1.1 6.4L12 17.3l-5.8 3 1.1-6.4-4.7-4.5 6.5-1z"/></svg><span class="pt-label">Top picks</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="track" aria-selected="false" aria-controls="page-pane-track" id="page-tab-track"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14.5 2 2 4-4.5"/></svg><span class="pt-label">Track record</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="quant" aria-selected="false" aria-controls="page-pane-quant" id="page-tab-quant"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6.5V4H6l6.5 8L6 20h12v-2.5"/></svg><span class="pt-label">Quant Lab</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="quant" aria-selected="false" aria-controls="page-pane-quant" id="page-tab-quant"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6.5V4H6l6.5 8L6 20h12v-2.5"/></svg><span class="pt-label">Owner Lab</span></button>
     </div>
   </details>
   <details class="side-nav-group" data-nav-group="tools">
@@ -1881,7 +1881,7 @@
       <h2 class="card-title">Market analysis</h2>
       <span class="card-eyebrow" id="market-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">The cross-asset risk read that sets the engine&rsquo;s posture &mdash; the live market tape, a conditional 5&ndash;10-session scenario and sensitivity layer, a frozen premarket leader/laggard follow-through check, the risk-on / risk-off barometer, and daily regime history &mdash; plus a grade lookup for any tracked ticker and a checker for a position you already hold.</p>
+    <p class="hint">The cross-asset risk read that sets the engine&rsquo;s posture &mdash; the live market tape, a conditional 5&ndash;10-session scenario and sensitivity layer, a frozen premarket leader/laggard follow-through check, the risk-on / risk-off barometer, and daily regime history &mdash; plus a grade lookup for any tracked ticker. Position-specific guidance lives in Owner Lab.</p>
     <div id="market-regime-strip" class="picks-summary"><span id="picks-regime-chip" class="picks-regime-slot"></span></div>
     <div id="market-action" class="market-action" hidden aria-live="polite"></div>
     <div id="market-scenario-engine" class="market-scenario-engine" hidden aria-live="polite"></div>
@@ -1904,23 +1904,6 @@
       </div>
       <p class="picks-search-hint">See the full 4-pillar grade &amp; conviction for any of the tracked tickers &mdash; not just today&rsquo;s top picks.</p>
     </div>
-    <details class="picks-position" id="picks-position">
-      <summary>Check a position you already hold &rarr;</summary>
-      <div class="picks-position-body">
-        <p class="hint">Already own a call or put? Enter it below and get a <b>hold / trim / sell / wait</b> read &mdash; priced live and judged against the <b>full picture</b>: the engine&rsquo;s current grade, the AI news take, the chart pattern, sector narrative, entry-timing, and the same premium take-profit / stop the track record uses. Tracked tickers only. Not financial advice.</p>
-        <div class="pos-form">
-          <label class="pos-field"><span>Ticker</span><input type="text" id="pos-symbol" autocomplete="off" spellcheck="false" placeholder="e.g. NVDA" maxlength="6"></label>
-          <label class="pos-field pos-field-sm"><span>Side</span><select id="pos-side"><option value="call">Call</option><option value="put">Put</option></select></label>
-          <label class="pos-field"><span>Expiry</span><select id="pos-expiry" disabled><option value="">&mdash;</option></select></label>
-          <label class="pos-field pos-field-sm"><span>Strike</span><input type="number" id="pos-strike" list="pos-strike-list" step="0.5" min="0" inputmode="decimal" placeholder="&mdash;" disabled><datalist id="pos-strike-list"></datalist></label>
-          <label class="pos-field pos-field-sm"><span>Price paid</span><input type="number" id="pos-entry" step="0.01" min="0" inputmode="decimal" placeholder="per share"></label>
-          <label class="pos-field pos-field-xs"><span>Contracts</span><input type="number" id="pos-qty" step="1" min="1" value="1" inputmode="numeric"></label>
-          <button type="button" id="pos-check" class="pos-check-btn" disabled>Check position</button>
-        </div>
-        <div id="pos-status" class="pos-status" role="status" aria-live="polite"></div>
-        <div id="pos-result" class="pos-result" role="status" aria-live="polite" hidden></div>
-      </div>
-    </details>
   </section>
   </div>
   <div class="page-pane" id="page-pane-picks" role="tabpanel" aria-labelledby="page-tab-picks" hidden>
@@ -2217,13 +2200,39 @@
   <div class="page-pane" id="page-pane-quant" role="tabpanel" aria-labelledby="page-tab-quant" hidden>
   <section class="card" id="quant-section">
     <header class="card-header">
-      <h2 class="card-title">Quant Lab</h2>
+      <h2 class="card-title">Owner Lab</h2>
       <span class="card-eyebrow" id="quant-eyebrow" aria-live="polite"></span>
     </header>
     <details class="info-note">
       <summary>What is this?</summary>
       <div class="info-note-body"><p>Statistical screens quants actually run, over the same data the rest of the site already collects. <b>Regime conditioning</b> &mdash; every build first classifies the tape on four axes (volatility: VIX + term structure + SPY realized vol; trend vs range: SPY efficiency ratio + higher-highs/lower-lows; risk-on/off: the Market Analysis tape; earnings-heavy vs quiet: share of the universe reporting inside ~2 weeks). The single-name sigma screen keeps a fixed 3&sigma; bar in every regime; VRP &ldquo;rich&rdquo; needs a bigger z when high vol makes fat premium normal, pair-spread &ldquo;stretched&rdquo; widens in high vol and tightens in calm tape, and term-structure inversions are down-weighted through earnings-heavy stretches. Rows are never hidden by regime &mdash; only badged and re-ordered &mdash; and the strip at the top shows the bars in force. <b>Aggregate ideas</b> &mdash; a confluence table cross-referencing four <em>independent</em> flow screens the site already runs (the session&rsquo;s largest unusual-options prints, the top intraday volume / S&ndash;R-break flags, fresh &le;3-session price streaks, and 5-day rising / surging IV): a name showing on two-plus screens ships as a candidate, three-plus is badged <b>qualified</b>, and a lean is reported only when the directional screens agree. <b>Sigma deviations</b> &mdash; names at or past their 3&sigma; Bollinger band (20-day price z-score) or printing a 3&sigma; daily move vs their own trailing volatility, with the option market&rsquo;s <b>expected move</b> (1&sigma;/2&sigma; = S &times; IV &times; &radic;(days/365)) beside the realized one. <b>Vol risk premium</b> &mdash; each name&rsquo;s ATM ~30-day implied vol minus its 30-day realized vol, z-scored against the name&rsquo;s own derived history: persistently positive is the premium option sellers harvest; an extreme z flags premium unusually rich (or cheap) vs that name&rsquo;s norm. <b>Pairs</b> &mdash; within-industry pairs whose daily returns correlate &ge;0.60, watched on two spreads: the <em>hedged</em> price spread lnA &minus; &beta;&middot;lnB, with &beta; from a <b>one-year Engle-Granger regression</b> whose residual ADF test (vs the MacKinnon 5% bar) supplies a <b>cointegrated</b> badge &mdash; read on both a 60-day and a ~1-year horizon (some pairs only mean-revert on one), with a rolling hedge-ratio drift check, a corr-stability-across-lookbacks badge, and a factor match grade (SPY-beta / size / momentum gaps + a liquidity floor) &mdash; and the implied-vol spread vs its 120-day norm (relative options mispricing between peers). <b>Vol surface</b> &mdash; term-structure slope (~90d vs ~30d ATM; inverted = near-term stress, badged when the name&rsquo;s own print is inside ~5 weeks &mdash; event vol loading the front is expected) and 25&Delta; put&minus;call skew per name; their z-scores activate automatically once enough surface history accumulates. <b>Dispersion</b> &mdash; an implied-correlation proxy from SPY&rsquo;s IV vs the cap-weighted basket of tracked large-caps: high = index options rich relative to single names. <b>Post-earnings drift</b> &mdash; names inside two weeks of a print, their reaction and drift so far, against their own historical beat/miss drift tendency. Everything is deterministic &mdash; fixed formulas, documented windows and threshold tables, no AI and no cross-sectional curve-fitting.</p></div>
     </details>
+    <section class="owner-suite" aria-labelledby="owner-tools-title">
+      <header class="owner-suite-head">
+        <div><span>Private workspace</span><h3 id="owner-tools-title">Owner tools</h3></div>
+        <p>Personalized controls are isolated here because they use an actual holding, account value, or dollar-risk budget. Access requires both the Top Picks and Track Record roles.</p>
+      </header>
+      <details class="picks-position owner-position" id="picks-position">
+        <summary>Check a position you already hold &rarr;</summary>
+        <div class="picks-position-body">
+          <p class="hint">Already own a call or put? Enter it below and get a <b>hold / trim / sell / wait</b> read &mdash; priced live and judged against the <b>full picture</b>: the engine&rsquo;s current grade, the AI news take, the chart pattern, sector narrative, entry-timing, and the same premium take-profit / stop the track record uses. Tracked tickers only. Not financial advice.</p>
+          <div class="pos-form">
+            <label class="pos-field"><span>Ticker</span><input type="text" id="pos-symbol" autocomplete="off" spellcheck="false" placeholder="e.g. NVDA" maxlength="6"></label>
+            <label class="pos-field pos-field-sm"><span>Side</span><select id="pos-side"><option value="call">Call</option><option value="put">Put</option></select></label>
+            <label class="pos-field"><span>Expiry</span><select id="pos-expiry" disabled><option value="">&mdash;</option></select></label>
+            <label class="pos-field pos-field-sm"><span>Strike</span><input type="number" id="pos-strike" list="pos-strike-list" step="0.5" min="0" inputmode="decimal" placeholder="&mdash;" disabled><datalist id="pos-strike-list"></datalist></label>
+            <label class="pos-field pos-field-sm"><span>Price paid</span><input type="number" id="pos-entry" step="0.01" min="0" inputmode="decimal" placeholder="per share"></label>
+            <label class="pos-field pos-field-xs"><span>Contracts</span><input type="number" id="pos-qty" step="1" min="1" value="1" inputmode="numeric"></label>
+            <button type="button" id="pos-check" class="pos-check-btn" disabled>Check position</button>
+          </div>
+          <div id="pos-status" class="pos-status" role="status" aria-live="polite"></div>
+          <div id="pos-result" class="pos-result" role="status" aria-live="polite" hidden></div>
+        </div>
+      </details>
+      <div id="owner-dca-root" class="owner-tool-root">Loading personalized DCA sizing&hellip;</div>
+      <div id="owner-rotation-root" class="owner-tool-root">Loading Sector Rotation sizing&hellip;</div>
+      <div id="owner-lev-root" class="owner-tool-root">Loading leveraged-ETF sizing&hellip;</div>
+    </section>
     <section class="dt-lab" aria-labelledby="dt-lab-title">
       <div class="dt-lab-head">
         <div><span>Owner paper engine</span><h3 id="dt-lab-title">Day Trading Engine</h3></div>
@@ -4598,7 +4607,7 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
           <ul class="cmp-list">
             <li><b>Market analysis</b> — the live market tape, risk barometer &amp; regime history</li>
             <li><b>Top Picks</b> — highest-conviction contracts, sizing &amp; breakeven; optionally controlled by its own Discord role</li>
-            <li><b>Stock Picks</b> — shares-only buy-the-dip screen (quality names beaten down, trap flags shown) + a daily VOO/QQQ DCA dial</li>
+            <li><b>Stock Picks</b> — shares-only buy-the-dip screen (quality names beaten down, trap flags shown) + a uniform daily VOO/QQQ DCA multiplier</li>
             <li><b>Sector Rotation</b> — quality companies washed out with their peer group, then ranked by rebound phase and trade levels</li>
             <li><b>Leveraged ETFs</b> — the same grades mapped onto listed 2×/3× products, with reset-drag, carry-cost &amp; chop warnings and a live-priced track record</li>
             <li><b>Briefs</b> — hourly market digest, open through close</li>
@@ -4610,7 +4619,7 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
             <li><b>Volume</b> — intraday volume + support/resistance breaks</li>
             <li><b>Gamma exposure</b> — dealer net-gamma matrix, flip &amp; walls</li>
             <li><b>Track Record</b> — resolved picks performance &amp; scorecard; optionally controlled by its own Discord role</li>
-            <li><b>Quant Lab</b> — confluence, 3σ movers, variance-risk-premium, pairs, volatility-surface, dispersion and post-earnings-drift screens; available to members with both Top Picks and Track Record access</li>
+            <li><b>Owner Lab</b> — the held-position checker and private dollar/account-risk sizing, plus confluence, 3σ movers, variance-risk-premium, pairs, volatility-surface, dispersion and post-earnings-drift screens; available only with both Top Picks and Track Record access</li>
             <li><b>Index calendar</b> — daily close calendar plus SPY/QQQ/IWM first-hour, recovery, last-hour, extreme-timing and conditional seasonality stats</li>
           </ul>
           <div class="cmp-cta">
@@ -4742,7 +4751,7 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
       <div class="feat-grid">
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Market analysis</span><span class="tier prem">Premium</span></div>
-          <p class="feat-desc">The cross-asset risk read that sets the engine's posture — the live market tape (VIX, dollar, yields, commodities, Fed path, geopolitics), a risk-on / risk-off barometer, and the daily regime history. Plus grade <em>any</em> ticker on demand and check a position you already hold.</p>
+          <p class="feat-desc">The cross-asset risk read that sets the engine's posture — the live market tape (VIX, dollar, yields, commodities, Fed path, geopolitics), a risk-on / risk-off barometer, and the daily regime history. Plus grade <em>any</em> ticker on demand. The held-position checker is reserved for Owner Lab.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Top Picks</span><span class="tier prem">Premium</span></div>
@@ -4750,7 +4759,7 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Stock Picks</span><span class="tier prem">Premium</span></div>
-          <p class="feat-desc">Shares, not options — a buy-the-dip screen over the whole universe that answers three questions independently: is it a good business (a hard quality gate), is it beaten down right now (five "cheap vs its own recent self" reads), and did something actually break (trap flags that warn but never hide a name). Each card opens into a ~28-question investment-thesis checklist answered from tracked data, and a daily <b>DCA dial</b> sizes an everyday VOO/QQQ index buy — always at least the baseline, leaning in on the rare deep-discount days.</p>
+          <p class="feat-desc">Shares, not options — a buy-the-dip screen over the whole universe that answers three questions independently: is it a good business (a hard quality gate), is it beaten down right now (five "cheap vs its own recent self" reads), and did something actually break (trap flags that warn but never hide a name). Each card opens into a ~28-question investment-thesis checklist answered from tracked data, and a daily <b>DCA dial</b> publishes the same VOO/QQQ baseline multiplier for every member. Applying it to a personal dollar baseline is reserved for Owner Lab.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Sector Rotation</span><span class="tier prem">Premium</span></div>
@@ -4797,8 +4806,8 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
           <p class="feat-desc">The resolved Top-Picks performance — win rate, win/loss payoff, expectancy vs SPY, an engine-health summary that explains why each pick won or lost, a $100k backtest simulator with Monte Carlo, and the roster's in/out churn over time.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Quant Lab</span><span class="tier prem">Premium + roles</span></div>
-          <p class="feat-desc">Deterministic screens for multi-signal confluence, fixed 3σ price and return outliers, realized-vs-implied volatility, pair-spread dislocations, volatility-surface shape, cross-sectional dispersion and post-earnings drift. This owner tier requires both Top Picks and Track Record access when the optional role gates are configured.</p>
+          <div class="feat-top"><span class="feat-name">Owner Lab</span><span class="tier prem">Top Picks + Track Record roles</span></div>
+          <p class="feat-desc">The held-position checker and the private dollar/account-risk controls for the DCA, Sector Rotation, and Leveraged ETF screens live here, alongside deterministic confluence, fixed 3σ outlier, realized-vs-implied volatility, pairs, volatility-surface, dispersion, post-earnings drift, and paper-engine research. It requires both Top Picks and Track Record access; deployments may assign both claims through the same owner role.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Index calendar + hour tracker</span><span class="tier prem">Premium</span></div>
@@ -5525,7 +5534,7 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
   </div>
 </div>
 <script>window.STONKS_MANIFEST={"builtAt":"Jul 31, 2026, 5:10 PM","builtAtIso":"2026-07-31T21:10:50.161Z","symbols":["AAOI","AAPL","ABNB","ACN","ADBE","ALAB","AMAT","AMD","AMKR","AMZN","ANET","APO","APP","ARM","ASML","ASTS","AVGO","AXP","BABA","BAC","BE","BKSY","BSX","BX","C","CAT","CBRS","CI","CLS","COF","COHR","COST","CRM","CRWD","CRWV","CSCO","DASH","DDOG","DE","DELL","DIS","DRAM","EBAY","EL","ETSY","EWY","FDX","FIG","FLY","FTNT","GD","GLD","GLW","GOOGL","GS","HD","HIMS","HOOD","HUBS","IBKR","IBM","INTC","INTU","IWM","JPM","KULR","KWEB","LEN","LITE","LLY","LOW","LRCX","LULU","LUNR","MA","MCD","MDB","META","MP","MRVL","MS","MSFT","MU","NET","NFLX","NKE","NOW","NVDA","NVO","NXPI","OKLO","OKTA","ON","ORCL","PANW","PL","PLAB","PLTR","PYPL","QCOM","QQQ","RBLX","RDDT","RDW","RKLB","SBUX","SCHW","SHOP","SLV","SMCI","SMH","SNDK","SNOW","SPCX","SPOT","SPY","STX","SWKS","TEAM","TGT","TLT","TMO","TSEM","TSLA","TSM","TWLO","TXN","U","UBS","UNH","UPS","USO","UVXY","V","VRT","VST","WDAY","WMT","ZS"],"sectors":{"SPY":"ETF","QQQ":"ETF","IWM":"ETF","SMH":"ETF","UVXY":"ETF","TLT":"ETF","USO":"ETF","GLD":"ETF","SLV":"ETF","KWEB":"ETF","EWY":"ETF","AAPL":"Mega-cap tech","MSFT":"Mega-cap tech","NVDA":"Mega-cap tech","AMZN":"Mega-cap tech","GOOGL":"Mega-cap tech","META":"Mega-cap tech","TSLA":"Mega-cap tech","AMD":"Semis","NFLX":"Mega-cap tech","AVGO":"Semis","TSM":"Semis","ORCL":"Software","ASML":"Semis","QCOM":"Semis","TXN":"Semis","MRVL":"Semis","AMAT":"Semis","LRCX":"Semis","MU":"Semis","INTC":"Semis","NXPI":"Semis","ON":"Semis","SMCI":"Semis","AMKR":"Semis","PLAB":"Semis","ALAB":"Semis","TSEM":"Semis","DRAM":"Semis","SWKS":"Semis","SNDK":"Storage","STX":"Storage","GLW":"Semis","MP":"Materials","LITE":"Semis","AAOI":"Semis","ARM":"Semis","CBRS":"Semis","COHR":"Semis","DELL":"Hardware","CSCO":"Networking","ANET":"Networking","IBM":"Tech services","CRM":"Software","ADBE":"Software","ACN":"IT services","INTU":"Software","NOW":"Software","SNOW":"Software","NET":"Software","DDOG":"Software","CRWD":"Software","ZS":"Software","MDB":"Software","OKTA":"Software","PANW":"Software","WDAY":"Software","ZM":"Software","DOCU":"Software","TEAM":"Software","FTNT":"Software","HUBS":"Software","TTD":"Software","FIG":"Software","RBLX":"Software","U":"Software","APP":"Software","TWLO":"Software","CRWV":"Software","CEG":"Power","VST":"Power","TLN":"Power","VRT":"Data center","CLS":"Data center","BE":"Clean energy","OKLO":"Nuclear","JPM":"Bank","BAC":"Bank","WFC":"Bank","USB":"Bank","MS":"Bank","COF":"Bank","GS":"Bank","C":"Bank","HSBC":"Bank","UBS":"Bank","V":"Payments","MA":"Payments","AXP":"Payments","PYPL":"Payments","XYZ":"Payments","SCHW":"Broker","IBKR":"Broker","HOOD":"Broker","AFRM":"Fintech","APO":"Asset mgmt","BX":"Asset mgmt","WMT":"Retail","COST":"Retail","TGT":"Retail","HD":"Retail","LOW":"Retail","NKE":"Apparel","LULU":"Apparel","ONON":"Apparel","EL":"Beauty","ELF":"Beauty","W":"E-commerce","EBAY":"E-commerce","ETSY":"E-commerce","MCD":"Restaurants","SBUX":"Restaurants","DIS":"Media","LEN":"Homebuilder","BA":"Industrial","CAT":"Industrial","DE":"Industrial","MMM":"Industrial","GD":"Defense","LMT":"Defense","RTX":"Defense","NOC":"Defense","FDX":"Logistics","UPS":"Logistics","NVO":"Pharma","LLY":"Pharma","UNH":"Insurance","JNJ":"Pharma","PFE":"Pharma","TMO":"Medical","CI":"Insurance","ELV":"Insurance","MOH":"Insurance","CVS":"Pharmacy","BSX":"Medical","HIMS":"Telehealth","VZ":"Telecom","CHTR":"Cable","SPOT":"Media","XOM":"Energy","CVX":"Energy","OXY":"Energy","UBER":"Consumer","ABNB":"Consumer","DASH":"Consumer","BABA":"China tech","BIDU":"China tech","JD":"China tech","PDD":"China tech","TCEHY":"China tech","BILI":"China tech","NIO":"China tech","COIN":"Crypto","PLTR":"Software","SHOP":"Software","GME":"Meme","AMC":"Meme","RDDT":"Social","RKLB":"Space","ASTS":"Space","LUNR":"Space","PL":"Space","BKSY":"Space","RDW":"Space","KULR":"Space","SPCX":"Space","FLY":"Space"},"industries":{"MSFT":"Software Infrastructure","ORCL":"Software Infrastructure","SNOW":"Software Infrastructure","NET":"Software Infrastructure","CRWD":"Software Infrastructure","ZS":"Software Infrastructure","MDB":"Software Infrastructure","OKTA":"Software Infrastructure","PANW":"Software Infrastructure","FTNT":"Software Infrastructure","PLTR":"Software Infrastructure","CRWV":"Software Infrastructure","CRM":"Software Applications","ADBE":"Software Applications","NOW":"Software Applications","DDOG":"Software Applications","WDAY":"Software Applications","TEAM":"Software Applications","INTU":"Software Applications","HUBS":"Software Applications","TWLO":"Software Applications","SHOP":"Software Applications","FIG":"Software Applications","APP":"Software Applications","U":"Software Applications","NVDA":"Semiconductors","AMD":"Semiconductors","AVGO":"Semiconductors","TSM":"Semiconductors","MU":"Semiconductors","INTC":"Semiconductors","MRVL":"Semiconductors","QCOM":"Semiconductors","TXN":"Semiconductors","NXPI":"Semiconductors","ON":"Semiconductors","AMKR":"Semiconductors","PLAB":"Semiconductors","ALAB":"Semiconductors","TSEM":"Semiconductors","SNDK":"Semiconductors","SMCI":"Semiconductors","AAOI":"Semiconductors","LITE":"Semiconductors","STX":"Semiconductors","DRAM":"Semiconductors","SWKS":"Semiconductors","ARM":"Semiconductors","CBRS":"Semiconductors","COHR":"Semiconductors","AMAT":"Semiconductor Equipment & Materials","LRCX":"Semiconductor Equipment & Materials","ASML":"Semiconductor Equipment & Materials","ANET":"Communication Equipment","CSCO":"Communication Equipment","GLW":"Communication Equipment","DELL":"Computer Hardware","CLS":"Computer Hardware","ACN":"Information Technology Services","IBM":"Information Technology Services","AMZN":"Internet Retail","BABA":"Internet Retail","EBAY":"Internet Retail","ETSY":"Internet Retail","HD":"Specialty Retail","LOW":"Specialty Retail","NKE":"Apparel Retail","LULU":"Apparel Retail","SBUX":"Restaurants","MCD":"Restaurants","LEN":"Residential Construction","TSLA":"Auto Manufacturers","DASH":"Travel Services","ABNB":"Travel Services","GOOGL":"Internet Content & Information","META":"Internet Content & Information","RDDT":"Internet Content & Information","NFLX":"Entertainment","DIS":"Entertainment","SPOT":"Entertainment","RBLX":"Electronic Gaming & Multimedia","GD":"Aerospace & Defense","RKLB":"Aerospace & Defense","ASTS":"Aerospace & Defense","LUNR":"Aerospace & Defense","PL":"Aerospace & Defense","BKSY":"Aerospace & Defense","RDW":"Aerospace & Defense","SPCX":"Aerospace & Defense","FLY":"Aerospace & Defense","KULR":"Electrical Equipment & Parts","VRT":"Electrical Equipment & Parts","FDX":"Integrated Freight & Logistics","UPS":"Integrated Freight & Logistics","CAT":"Farm & Heavy Construction Machinery","DE":"Farm & Heavy Construction Machinery","NVO":"Drug Manufacturers - General","LLY":"Drug Manufacturers - General","UNH":"Healthcare Plans","CI":"Healthcare Plans","BSX":"Medical Devices","TMO":"Medical Devices","HIMS":"Consumer Health Products","JPM":"Banks - Diversified","BAC":"Banks - Diversified","C":"Banks - Diversified","COF":"Banks - Diversified","UBS":"Banks - Diversified","V":"Credit Services","MA":"Credit Services","AXP":"Credit Services","PYPL":"Credit Services","APO":"Asset Management","BX":"Asset Management","GS":"Capital Markets","MS":"Capital Markets","SCHW":"Capital Markets","HOOD":"Capital Markets","IBKR":"Capital Markets","WMT":"Discount Stores","COST":"Discount Stores","TGT":"Discount Stores","EL":"Household & Personal Products","VST":"Utilities - Independent Power Producers","BE":"Utilities - Renewable","OKLO":"Utilities - Renewable","MP":"Other Industrial Metals & Mining","GLD":"Gold","SLV":"Silver"},"sectorOrder":["Technology","Consumer Cyclical","Communication Services","Industrials","Healthcare","Financials","Consumer Defensive","Utilities","Basic Materials","Precious Metals"],"industriesBySector":{"Technology":["Software Infrastructure","Software Applications","Semiconductors","Semiconductor Equipment & Materials","Communication Equipment","Computer Hardware","Consumer Electronics","Information Technology Services"],"Consumer Cyclical":["Internet Retail","Specialty Retail","Apparel Retail","Restaurants","Residential Construction","Auto Manufacturers","Travel Services"],"Communication Services":["Internet Content & Information","Entertainment","Electronic Gaming & Multimedia","Advertising Agencies"],"Industrials":["Aerospace & Defense","Integrated Freight & Logistics","Farm & Heavy Construction Machinery","Electrical Equipment & Parts","Specialty Industrial Machinery"],"Healthcare":["Drug Manufacturers - General","Healthcare Plans","Medical Devices","Consumer Health Products"],"Financials":["Banks - Diversified","Credit Services","Asset Management","Capital Markets"],"Consumer Defensive":["Discount Stores","Household & Personal Products"],"Utilities":["Utilities - Independent Power Producers","Utilities - Renewable"],"Basic Materials":["Other Industrial Metals & Mining"],"Precious Metals":["Gold","Silver"]},"volumeFlagsMeta":{"scannedAt":"2026-07-31T20:00:43.949Z","etDate":"2026-07-31","marketState":"POST"},"nextFomcDates":["2026-09-16","2026-10-28"],"oiMeta":{"scannedAt":"2026-07-31T21:00:42.621Z","scanType":"eod"},"deferred":true};</script>
-<script src="app.js?v=2026-08-02T18%3A26%3A03.007Z" defer></script>
-<script type="module" src="js/streaks.js?v=2026-08-02T18%3A26%3A03.007Z"></script>
+<script src="app.js?v=2026-08-02T18%3A48%3A04.864Z" defer></script>
+<script type="module" src="js/streaks.js?v=2026-08-02T18%3A48%3A04.864Z"></script>
 </body>
 </html>

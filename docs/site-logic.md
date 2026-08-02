@@ -66,9 +66,9 @@ Most important design rule: a strong observation is not automatically a trade. T
 | Research | Tickers | Curated-universe browser and entry point to a ticker's full evidence. |
 | Research | Narratives | AI-generated industry and sector story arcs with lifecycle and invalidation. |
 | Research | 13F Filings | Delayed institutional holdings and quarter-over-quarter share-direction changes. |
-| Quant | Top Picks | The most selective option-trade roster. |
-| Quant | Track Record | Modeled option P&L, diagnostics, and strategy accountability. |
-| Quant | Quant Lab | Analytical statistical screens; it does not issue trade recommendations. |
+| Owner | Top Picks | The most selective option-trade roster. |
+| Owner | Track Record | Modeled option P&L, diagnostics, and strategy accountability. |
+| Owner | Owner Lab | Private position/account-risk controls plus analytical statistical screens. |
 | Tools | Grade a Ticker | Full company/technical/flow/narrative grade plus option-contract grading. |
 | Tools | Compare Companies | Normalized multi-symbol performance comparison. |
 | Tools | Strategies | Live multi-leg option payoff builder and structure guidance. |
@@ -548,7 +548,7 @@ No traps means a cleaner buy-zone candidate. Traps change the action to Research
 
 ### VOO/QQQ daily DCA dial
 
-The dial starts from the user's daily base amount and never skips that base. It adds a `0…14` dip score:
+The premium Stock Picks page publishes one uniform multiplier to every member. Owner Lab can apply that multiplier to the owner's private daily base amount; the base is kept in local storage and never changes the published signal. The dial adds a `0…14` dip score:
 
 - below SMA20 `+1`;
 - below SMA50 `+1`;
@@ -1175,9 +1175,9 @@ For each manager:
 
 Share-direction breadth is more informative than dollar change because value change includes market-price movement. The data can be 45 days late and excludes shorts, cash, non-13F assets, and the manager's current-quarter activity. It is a delayed research lead, never an entry trigger.
 
-## 16. Quant Lab
+## 16. Owner Lab
 
-Quant Lab is analytical and owner-tier. It deliberately does not output trade recommendations.
+Owner Lab is the combined-role workspace. It contains the analytical Quant Lab screens and paper engine, plus the held-position checker and the personal dollar/account-risk controls removed from ordinary premium pages. The Stock Picks, Sector Rotation, and Leveraged ETF pages continue to publish the same research, triggers, invalidations, targets, and multiplier to every entitled member; only applying those outputs to an actual holding, dollar baseline, account value, or max-loss budget occurs here.
 
 ### Regimes
 
@@ -1327,7 +1327,7 @@ When `PRIVATE_DATA_ENABLED` is off, the deployment behaves as legacy public data
 
 **Track-Record role (`tr`):** Track Record.
 
-**Both `tp` and `tr`:** Quant Lab.
+**Both `tp` and `tr`:** Owner Lab (Quant screens, paper engine, held-position checker, and private DCA/rotation/leveraged-ETF sizing controls). Deployments can map both claims to the same Discord owner role.
 
 Unauthorized role-only features are hidden rather than advertised as accessible tabs. Premium data uses `private, no-store`; free data uses a short public edge cache.
 
@@ -1395,7 +1395,7 @@ Model resilience includes per-call model defaults, retry ladders, dead-model det
 |---|---|
 | Shared build, grades, Top Picks, Stock Picks, Sector Rotation, Leveraged ETFs, calendars, research payloads | `scripts/build.mjs` |
 | Canonical Top Picks explanation | `docs/top-picks.md` |
-| Quant Lab | `docs/quant-lab.md` |
+| Owner Lab / Quant screens | `docs/quant-lab.md` |
 | Event Spillover | `docs/event-spillover.md` |
 | Navigation and per-tab explanatory copy | `scripts/render/html.mjs` |
 | Client decisions, live overlays, contract grader, Strategies, render logic | `scripts/render/app-js.mjs` |

@@ -224,7 +224,7 @@ function marketAnalysisSection() {
       <h2 class="card-title">Market analysis</h2>
       <span class="card-eyebrow" id="market-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">The cross-asset risk read that sets the engine&rsquo;s posture &mdash; the live market tape, a conditional 5&ndash;10-session scenario and sensitivity layer, a frozen premarket leader/laggard follow-through check, the risk-on / risk-off barometer, and daily regime history &mdash; plus a grade lookup for any tracked ticker and a checker for a position you already hold.</p>
+    <p class="hint">The cross-asset risk read that sets the engine&rsquo;s posture &mdash; the live market tape, a conditional 5&ndash;10-session scenario and sensitivity layer, a frozen premarket leader/laggard follow-through check, the risk-on / risk-off barometer, and daily regime history &mdash; plus a grade lookup for any tracked ticker. Position-specific guidance lives in Owner Lab.</p>
     <div id="market-regime-strip" class="picks-summary"><span id="picks-regime-chip" class="picks-regime-slot"></span></div>
     <div id="market-action" class="market-action" hidden aria-live="polite"></div>
     <div id="market-scenario-engine" class="market-scenario-engine" hidden aria-live="polite"></div>
@@ -247,23 +247,6 @@ function marketAnalysisSection() {
       </div>
       <p class="picks-search-hint">See the full 4-pillar grade &amp; conviction for any of the tracked tickers &mdash; not just today&rsquo;s top picks.</p>
     </div>
-    <details class="picks-position" id="picks-position">
-      <summary>Check a position you already hold &rarr;</summary>
-      <div class="picks-position-body">
-        <p class="hint">Already own a call or put? Enter it below and get a <b>hold / trim / sell / wait</b> read &mdash; priced live and judged against the <b>full picture</b>: the engine&rsquo;s current grade, the AI news take, the chart pattern, sector narrative, entry-timing, and the same premium take-profit / stop the track record uses. Tracked tickers only. Not financial advice.</p>
-        <div class="pos-form">
-          <label class="pos-field"><span>Ticker</span><input type="text" id="pos-symbol" autocomplete="off" spellcheck="false" placeholder="e.g. NVDA" maxlength="6"></label>
-          <label class="pos-field pos-field-sm"><span>Side</span><select id="pos-side"><option value="call">Call</option><option value="put">Put</option></select></label>
-          <label class="pos-field"><span>Expiry</span><select id="pos-expiry" disabled><option value="">&mdash;</option></select></label>
-          <label class="pos-field pos-field-sm"><span>Strike</span><input type="number" id="pos-strike" list="pos-strike-list" step="0.5" min="0" inputmode="decimal" placeholder="&mdash;" disabled><datalist id="pos-strike-list"></datalist></label>
-          <label class="pos-field pos-field-sm"><span>Price paid</span><input type="number" id="pos-entry" step="0.01" min="0" inputmode="decimal" placeholder="per share"></label>
-          <label class="pos-field pos-field-xs"><span>Contracts</span><input type="number" id="pos-qty" step="1" min="1" value="1" inputmode="numeric"></label>
-          <button type="button" id="pos-check" class="pos-check-btn" disabled>Check position</button>
-        </div>
-        <div id="pos-status" class="pos-status" role="status" aria-live="polite"></div>
-        <div id="pos-result" class="pos-result" role="status" aria-live="polite" hidden></div>
-      </div>
-    </details>
   </section>`;
 }
 
@@ -746,10 +729,36 @@ function quantSection() {
   // static (they never change per build), so they live here in the shell.
   return `<section class="card" id="quant-section">
     <header class="card-header">
-      <h2 class="card-title">Quant Lab</h2>
+      <h2 class="card-title">Owner Lab</h2>
       <span class="card-eyebrow" id="quant-eyebrow" aria-live="polite"></span>
     </header>
     ${infoNote('What is this?', `<p>Statistical screens quants actually run, over the same data the rest of the site already collects. <b>Regime conditioning</b> &mdash; every build first classifies the tape on four axes (volatility: VIX + term structure + SPY realized vol; trend vs range: SPY efficiency ratio + higher-highs/lower-lows; risk-on/off: the Market Analysis tape; earnings-heavy vs quiet: share of the universe reporting inside ~2 weeks). The single-name sigma screen keeps a fixed 3&sigma; bar in every regime; VRP &ldquo;rich&rdquo; needs a bigger z when high vol makes fat premium normal, pair-spread &ldquo;stretched&rdquo; widens in high vol and tightens in calm tape, and term-structure inversions are down-weighted through earnings-heavy stretches. Rows are never hidden by regime &mdash; only badged and re-ordered &mdash; and the strip at the top shows the bars in force. <b>Aggregate ideas</b> &mdash; a confluence table cross-referencing four <em>independent</em> flow screens the site already runs (the session&rsquo;s largest unusual-options prints, the top intraday volume / S&ndash;R-break flags, fresh &le;3-session price streaks, and 5-day rising / surging IV): a name showing on two-plus screens ships as a candidate, three-plus is badged <b>qualified</b>, and a lean is reported only when the directional screens agree. <b>Sigma deviations</b> &mdash; names at or past their 3&sigma; Bollinger band (20-day price z-score) or printing a 3&sigma; daily move vs their own trailing volatility, with the option market&rsquo;s <b>expected move</b> (1&sigma;/2&sigma; = S &times; IV &times; &radic;(days/365)) beside the realized one. <b>Vol risk premium</b> &mdash; each name&rsquo;s ATM ~30-day implied vol minus its 30-day realized vol, z-scored against the name&rsquo;s own derived history: persistently positive is the premium option sellers harvest; an extreme z flags premium unusually rich (or cheap) vs that name&rsquo;s norm. <b>Pairs</b> &mdash; within-industry pairs whose daily returns correlate &ge;0.60, watched on two spreads: the <em>hedged</em> price spread lnA &minus; &beta;&middot;lnB, with &beta; from a <b>one-year Engle-Granger regression</b> whose residual ADF test (vs the MacKinnon 5% bar) supplies a <b>cointegrated</b> badge &mdash; read on both a 60-day and a ~1-year horizon (some pairs only mean-revert on one), with a rolling hedge-ratio drift check, a corr-stability-across-lookbacks badge, and a factor match grade (SPY-beta / size / momentum gaps + a liquidity floor) &mdash; and the implied-vol spread vs its 120-day norm (relative options mispricing between peers). <b>Vol surface</b> &mdash; term-structure slope (~90d vs ~30d ATM; inverted = near-term stress, badged when the name&rsquo;s own print is inside ~5 weeks &mdash; event vol loading the front is expected) and 25&Delta; put&minus;call skew per name; their z-scores activate automatically once enough surface history accumulates. <b>Dispersion</b> &mdash; an implied-correlation proxy from SPY&rsquo;s IV vs the cap-weighted basket of tracked large-caps: high = index options rich relative to single names. <b>Post-earnings drift</b> &mdash; names inside two weeks of a print, their reaction and drift so far, against their own historical beat/miss drift tendency. Everything is deterministic &mdash; fixed formulas, documented windows and threshold tables, no AI and no cross-sectional curve-fitting.</p>`)}
+    <section class="owner-suite" aria-labelledby="owner-tools-title">
+      <header class="owner-suite-head">
+        <div><span>Private workspace</span><h3 id="owner-tools-title">Owner tools</h3></div>
+        <p>Personalized controls are isolated here because they use an actual holding, account value, or dollar-risk budget. Access requires both the Top Picks and Track Record roles.</p>
+      </header>
+      <details class="picks-position owner-position" id="picks-position">
+        <summary>Check a position you already hold &rarr;</summary>
+        <div class="picks-position-body">
+          <p class="hint">Already own a call or put? Enter it below and get a <b>hold / trim / sell / wait</b> read &mdash; priced live and judged against the <b>full picture</b>: the engine&rsquo;s current grade, the AI news take, the chart pattern, sector narrative, entry-timing, and the same premium take-profit / stop the track record uses. Tracked tickers only. Not financial advice.</p>
+          <div class="pos-form">
+            <label class="pos-field"><span>Ticker</span><input type="text" id="pos-symbol" autocomplete="off" spellcheck="false" placeholder="e.g. NVDA" maxlength="6"></label>
+            <label class="pos-field pos-field-sm"><span>Side</span><select id="pos-side"><option value="call">Call</option><option value="put">Put</option></select></label>
+            <label class="pos-field"><span>Expiry</span><select id="pos-expiry" disabled><option value="">&mdash;</option></select></label>
+            <label class="pos-field pos-field-sm"><span>Strike</span><input type="number" id="pos-strike" list="pos-strike-list" step="0.5" min="0" inputmode="decimal" placeholder="&mdash;" disabled><datalist id="pos-strike-list"></datalist></label>
+            <label class="pos-field pos-field-sm"><span>Price paid</span><input type="number" id="pos-entry" step="0.01" min="0" inputmode="decimal" placeholder="per share"></label>
+            <label class="pos-field pos-field-xs"><span>Contracts</span><input type="number" id="pos-qty" step="1" min="1" value="1" inputmode="numeric"></label>
+            <button type="button" id="pos-check" class="pos-check-btn" disabled>Check position</button>
+          </div>
+          <div id="pos-status" class="pos-status" role="status" aria-live="polite"></div>
+          <div id="pos-result" class="pos-result" role="status" aria-live="polite" hidden></div>
+        </div>
+      </details>
+      <div id="owner-dca-root" class="owner-tool-root">Loading personalized DCA sizing&hellip;</div>
+      <div id="owner-rotation-root" class="owner-tool-root">Loading Sector Rotation sizing&hellip;</div>
+      <div id="owner-lev-root" class="owner-tool-root">Loading leveraged-ETF sizing&hellip;</div>
+    </section>
     <section class="dt-lab" aria-labelledby="dt-lab-title">
       <div class="dt-lab-head">
         <div><span>Owner paper engine</span><h3 id="dt-lab-title">Day Trading Engine</h3></div>
@@ -1747,11 +1756,11 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
          BOTH the Track Record (tr) and Top Picks (tp) claims. The group starts
          hidden to prevent a pre-auth flash; startApp() reveals it only when at
          least one authorized destination remains. -->
-    <summary class="side-nav-group-label">Quant</summary>
+    <summary class="side-nav-group-label">Owner</summary>
     <div class="side-nav-group-items">
       ${sideNavItem('picks', 'Top picks')}
       ${sideNavItem('track', 'Track record')}
-      ${sideNavItem('quant', 'Quant Lab')}
+      ${sideNavItem('quant', 'Owner Lab')}
     </div>
   </details>
   <details class="side-nav-group" data-nav-group="tools">

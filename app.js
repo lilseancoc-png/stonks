@@ -20339,7 +20339,14 @@
         });
       });
   }
+  function loadOwnerTools(){
+    bindPositionTool();
+    loadStocks();
+    loadSectorRotation();
+    loadLevEtf();
+  }
   function loadQuant(){
+    loadOwnerTools();
     if ((quantState.data && !tabDataStale(quantState)) || quantState.loading){ renderQuant(); return; }
     quantState.loading = true;
     var primaryUrl = dataUrl('quant.json');
@@ -21350,9 +21357,10 @@
   // from the Top Picks options roster: shares, not contracts.
   var stocksState = { data: null, loading: false };
   function loadStocks(){
-    if ((stocksState.data && !tabDataStale(stocksState)) || stocksState.loading){ renderStocks(); return; }
+    if ((stocksState.data && !tabDataStale(stocksState)) || stocksState.loading){ renderStocks(); renderOwnerDca(); return; }
     stocksState.loading = true;
     renderStocks();
+    renderOwnerDca();
     fetch(dataUrl('stock-picks.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){
@@ -21360,8 +21368,9 @@
         stocksState.loading = false;
         stocksState.fetchedAt = Date.now();
         renderStocks();
+        renderOwnerDca();
       })
-      .catch(function(){ stocksState.data = { loadError: true }; stocksState.loading = false; renderStocks(); });
+      .catch(function(){ stocksState.data = { loadError: true }; stocksState.loading = false; renderStocks(); renderOwnerDca(); });
   }
   // Close-price sparkline (~6 months, downsampled at bake time) with the
   // shared data-ch hover. Tone follows the window's net direction.
@@ -21692,7 +21701,7 @@
     });
     return cells ? '<div class="stk-dca-hist" aria-label="Recent dial calls">' + cells + '</div>' : '';
   }
-  function stkDcaCard(ix, base){
+  function stkDcaCard(ix, base, personalized){
     var mult = Number(ix.multiplier) || 1;
     var amt = base * mult;
     var ch = Number(ix.chPct);
@@ -21709,8 +21718,10 @@
         '<div class="stk-dca-px">' + fmtMoney(ix.price) + chHtml + '</div>' +
       '</header>' +
       '<div class="stk-dca-verdict">' +
-        '<b class="stk-dca-amt" data-dca-mult="' + mult + '">' + stkDcaUsd(amt) + '</b>' +
-        '<span class="stk-dca-verdict-sub"><span class="stk-dca-mult">' + mult + '× baseline</span> · ' + escapeHtml(tier.label || '') + pts + '</span>' +
+        (personalized
+          ? '<b class="stk-dca-amt" data-dca-mult="' + mult + '">' + stkDcaUsd(amt) + '</b>'
+          : '<b class="stk-dca-amt">' + mult + '× baseline</b>') +
+        '<span class="stk-dca-verdict-sub">' + (personalized ? '<span class="stk-dca-mult">' + mult + '× baseline</span> · ' : '') + escapeHtml(tier.label || '') + pts + '</span>' +
       '</div>' +
       (tier.note ? '<p class="stk-dca-note">' + escapeHtml(tier.note) + '</p>' : '') +
       stkSpark({ series: ix.series }) +
@@ -21718,7 +21729,7 @@
       stkDcaHistStrip(stocksState.data && stocksState.data.dca ? stocksState.data.dca.history : null, ix.symbol) +
     '</article>';
   }
-  function stkDcaBlock(d){
+  function stkDcaBlock(d, personalized){
     var dca = d && d.dca;
     if (!dca || !Array.isArray(dca.indexes) || !dca.indexes.length) return '';
     var base = stkDcaBase(dca);
@@ -21726,12 +21737,15 @@
     return '<section class="stk-dca" aria-label="Daily index DCA dial">' +
       '<header class="stk-dca-top">' +
         '<h3 class="stk-dca-title">Daily DCA dial — VOO &amp; QQQ</h3>' +
-        '<label class="stk-dca-baselab">Your daily baseline $' +
+        (personalized ? '<label class="stk-dca-baselab">Your daily baseline $' +
           '<input id="stk-dca-base" type="number" min="1" step="1" inputmode="decimal" value="' + base + '" aria-label="Daily baseline dollars">' +
-        '</label>' +
+        '</label>' : '') +
       '</header>' +
-      '<p class="stk-dca-hint">Sizes the everyday index buy, never times it: the dial <b>always says buy at least the baseline</b> — skipping days is how DCA plans die — and only answers whether today is a discount day worth leaning into. Five deterministic price reads per index (trend, drawdown off the 52-week high, RSI, 20-day stretch, red day) earn points; fixed point bars map to 1× / 1.5× / 2× / 3× / 4× the baseline. Every read and its points are on the card — no AI, no black box. Refreshed with each hourly build' + (when ? ' · updated ' + escapeHtml(when) : '') + '. Not financial advice.</p>' +
-      '<div class="stk-dca-grid">' + dca.indexes.map(function(ix){ return stkDcaCard(ix, base); }).join('') + '</div>' +
+      '<p class="stk-dca-hint">' + (personalized
+        ? 'Applies the published multiplier to your private dollar baseline. '
+        : 'Publishes the same baseline multiplier for every member; dollar sizing is isolated in Owner Lab. ') +
+        'Five deterministic price reads per index (trend, drawdown off the 52-week high, RSI, 20-day stretch, red day) earn points; fixed point bars map to 1× / 1.5× / 2× / 3× / 4× the baseline. Every read and its points are on the card — no AI, no black box. Refreshed with each hourly build' + (when ? ' · updated ' + escapeHtml(when) : '') + '. Not financial advice.</p>' +
+      '<div class="stk-dca-grid">' + dca.indexes.map(function(ix){ return stkDcaCard(ix, base, personalized); }).join('') + '</div>' +
     '</section>';
   }
   // The baseline input only rescales the displayed $ amounts in place (no
@@ -21748,6 +21762,16 @@
         amts[i].textContent = stkDcaUsd(v * (parseFloat(amts[i].getAttribute('data-dca-mult')) || 1));
       }
     });
+  }
+  function renderOwnerDca(){
+    var root = $('owner-dca-root');
+    if (!root) return;
+    var d = stocksState.data;
+    if (!d){ root.innerHTML = '<p class="owner-tool-loading">Loading personalized DCA sizing&hellip;</p>'; return; }
+    if (d.loadError || !d.dca){ root.innerHTML = '<p class="owner-tool-loading">Personalized DCA sizing is unavailable right now.</p>'; return; }
+    root.innerHTML = stkDcaBlock(d, true);
+    bindDcaBase(root);
+    bindBriefChips(root);
   }
   function renderStocks(){
     var root = $('stocks-root'); var eye = $('stocks-eyebrow');
@@ -21779,8 +21803,7 @@
     }
     root.innerHTML = stkDesk(rows) + funnel + (rows.length
       ? stkGroupedCards(rows)
-      : '<p class="stk-empty">No quality name is meaningfully beaten down right now — the screen would rather show nothing than stretch the definition of a dip. Candidates appear when a business that passes the quality gate trips at least ' + (d.minSignals || 2) + ' of the five dip reads.</p>') + stkDcaBlock(d);
-    bindDcaBase(root);
+        : '<p class="stk-empty">No quality name is meaningfully beaten down right now — the screen would rather show nothing than stretch the definition of a dip. Candidates appear when a business that passes the quality gate trips at least ' + (d.minSignals || 2) + ' of the five dip reads.</p>') + stkDcaBlock(d, false);
     bindBriefChips(root);
   }
   // --- Sector Rotation (premium) -------------------------------------------
@@ -22420,8 +22443,6 @@
     var meanTarget = rotNum(rotValue(p, ['meanTarget','frozenMean','targetMean']));
     var targetKind = rotText(p, ['targetKind','targetBasis']);
     var targetNote = rotText(p, ['targetNote','targetDetail']);
-    var sizingEntry = rotNum(rotValue(p, ['trigger','entryPx','entryPrice','entryCeiling']));
-    if (sizingEntry == null) sizingEntry = entry.price != null ? entry.price : entry.high != null ? entry.high : entry.low;
     var has = entry.price != null || entry.low != null || entry.label || stop.price != null || target.price != null || rr != null;
     if (!has) return '<p class="rot-no-plan">Trade levels are not available for this candidate yet - keep it on watch, do not improvise a stop.</p>';
     var entryLabel = decision.kind === 'pass' ? decision.label : decision.kind === 'wait' ? decision.label : rotPointText(entry, 'At trigger');
@@ -22448,8 +22469,14 @@
       '<div class="rot-plan-cell rot-plan-entry"><small>Entry state</small><b>' + escapeHtml(entryLabel) + '</b><span>' + escapeHtml(entryDetail) + '</span></div>' +
       '<div class="rot-plan-cell rot-plan-stop"><small>Invalidation</small><b>' + escapeHtml(rotPointText(stop, 'Not supplied')) + '</b><span>' + escapeHtml(stop.note || 'Exit if the rotation-rebound structure breaks.') + '</span></div>' +
       '<div class="rot-plan-cell rot-plan-target"><small>First target</small><b>' + escapeHtml(rotPointText(target, 'Not supplied')) + (rrText ? ' <em>' + escapeHtml(rrText) + '</em>' : '') + '</b><span>' + escapeHtml(targetNote || target.note || 'Treat the first resistance test as the initial payoff.') + '</span></div>' +
-    '</div>' +
-    '<div class="rot-size" data-rot-size="' + escapeHtml(String(c.symbol || '').toUpperCase()) + '" data-rot-baked="' + (rotNum(c.spot) == null ? '' : rotNum(c.spot)) + '" data-rot-entry="' + (sizingEntry == null ? '' : sizingEntry) + '" data-rot-entry-low="' + (entry.low == null ? '' : entry.low) + '" data-rot-entry-high="' + (entry.high == null ? '' : entry.high) + '" data-rot-stop="' + (stop.price == null ? '' : stop.price) + '" data-rot-target="' + (target.price == null ? '' : target.price) + '" data-rot-decision="' + decision.kind + '">Share cap is calculated from price, invalidation and your risk budget.</div>';
+    '</div>';
+  }
+  function rotSizeHtml(c, decision){
+    var p = rotPlan(c);
+    var entry = rotPlanPoint(c, 'entry'), stop = rotPlanPoint(c, 'stop'), target = rotPlanPoint(c, 'target');
+    var sizingEntry = rotNum(rotValue(p, ['trigger','entryPx','entryPrice','entryCeiling']));
+    if (sizingEntry == null) sizingEntry = entry.price != null ? entry.price : entry.high != null ? entry.high : entry.low;
+    return '<div class="rot-size" data-rot-size="' + escapeHtml(String(c.symbol || '').toUpperCase()) + '" data-rot-baked="' + (rotNum(c.spot) == null ? '' : rotNum(c.spot)) + '" data-rot-entry="' + (sizingEntry == null ? '' : sizingEntry) + '" data-rot-entry-low="' + (entry.low == null ? '' : entry.low) + '" data-rot-entry-high="' + (entry.high == null ? '' : entry.high) + '" data-rot-stop="' + (stop.price == null ? '' : stop.price) + '" data-rot-target="' + (target.price == null ? '' : target.price) + '" data-rot-decision="' + decision.kind + '">Share cap is calculated from price, invalidation and your risk budget.</div>';
   }
   function rotReasonHtml(c){
     var reasons = rotList(c && c.reasons).slice(0, 4);
@@ -22792,9 +22819,7 @@
         '<label>Group <select data-rot-group>' + opts + '</select></label>' +
         '<label>Sort <select data-rot-sort><option value="priority"' + (rotationState.sort === 'priority' ? ' selected' : '') + '>Desk priority</option><option value="score"' + (rotationState.sort === 'score' ? ' selected' : '') + '>Setup score</option><option value="rr"' + (rotationState.sort === 'rr' ? ' selected' : '') + '>Best R:R</option><option value="drawdown"' + (rotationState.sort === 'drawdown' ? ' selected' : '') + '>Deepest dislocation</option><option value="bounce"' + (rotationState.sort === 'bounce' ? ' selected' : '') + '>Strongest rebound</option><option value="live"' + (rotationState.sort === 'live' ? ' selected' : '') + '>Live day move</option></select></label>' +
         '<span class="rot-showing" role="status" aria-live="polite" aria-atomic="true">Showing ' + visible.length + ' of ' + candidates.length + '</span></div>' +
-      '<div class="rot-risk"><div><b>Position-risk cap</b><span>Uses live price for actionable setups and the planned trigger for waiting setups, both against structural invalidation.</span></div>' +
-        '<label>Account $<input type="number" min="100" step="500" value="' + Math.round(rotationState.account) + '" data-rot-account></label>' +
-        '<label>Max loss / trade <input type="number" min="0.05" max="5" step="0.05" value="' + rotationState.riskPct + '" data-rot-risk>%</label></div></section>';
+      '</section>';
   }
   function rotNearMissHtml(rows, thresholds){
     if (!rows.length) return '';
@@ -22905,9 +22930,10 @@
       }
     }
     root.classList.add('rot-root');
-    if (rotationState.loading && !rotationState.data){ root.innerHTML = '<p class="rot-empty">Loading sector-rotation screen&hellip;</p>'; return; }
+    if (rotationState.loading && !rotationState.data){ root.innerHTML = '<p class="rot-empty">Loading sector-rotation screen&hellip;</p>'; renderOwnerRotationSizing(); return; }
     if (rotationState.error && !rotationState.data){
       root.innerHTML = '<div class="rot-empty rot-error"><b>Sector Rotation is unavailable right now.</b><span>The premium data request failed; no stale candidate is being presented as current. Reopen the tab to retry.</span></div>';
+      renderOwnerRotationSizing();
       return;
     }
     var d = rotationState.data || {};
@@ -22935,12 +22961,36 @@
     if (nextLedger && priorLedgerOpen != null) nextLedger.open = priorLedgerOpen;
     bindRotationDesk(root);
     applyRotationLive();
+    renderOwnerRotationSizing();
     bindBriefChips(root);
     if (priorFocus){
       var nextMatches = Array.prototype.filter.call(root.querySelectorAll('[' + priorFocus.attr + ']'), function(node){ return node.getAttribute(priorFocus.attr) === priorFocus.value; });
       var focusTarget = nextMatches[Math.min(priorFocus.index, nextMatches.length - 1)];
       if (focusTarget) try { focusTarget.focus({ preventScroll:true }); } catch (_) { focusTarget.focus(); }
     }
+  }
+  function renderOwnerRotationSizing(){
+    var root = $('owner-rotation-root');
+    if (!root) return;
+    if (rotationState.loading && !rotationState.data){ root.innerHTML = '<p class="owner-tool-loading">Loading Sector Rotation sizing&hellip;</p>'; return; }
+    if (rotationState.error && !rotationState.data){ root.innerHTML = '<p class="owner-tool-loading">Sector Rotation sizing is unavailable right now.</p>'; return; }
+    var d = rotationState.data || {};
+    var candidates = Array.isArray(d.candidates) ? d.candidates : [];
+    var thresholds = d.thresholds && typeof d.thresholds === 'object' ? d.thresholds : {};
+    var rows = candidates.map(function(c){
+      var sym = String(c.symbol || '').toUpperCase();
+      var decision = rotEffectiveDecision(c, thresholds);
+      return '<article class="owner-size-row"><header><a class="rot-sym" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '">' + escapeHtml(sym || '?') + '</a>' +
+        '<span>' + escapeHtml(decision.label || decision.kind) + '</span>' + rotLiveHtml(c) + '</header>' + rotSizeHtml(c, decision) + '</article>';
+    }).join('');
+    root.innerHTML = '<section class="owner-risk-card" aria-label="Owner Sector Rotation sizing"><header><div><small>Private sizing</small><h3>Sector Rotation risk caps</h3><p>Applies your account and max-loss inputs to the standardized setup levels published on the Sector Rotation page.</p></div></header>' +
+      '<div class="rot-risk"><div><b>Position-risk cap</b><span>Uses live price for actionable setups and the planned trigger for waiting setups.</span></div>' +
+        '<label>Account $<input type="number" min="100" step="500" value="' + Math.round(rotationState.account) + '" data-rot-account></label>' +
+        '<label>Max loss / trade <input type="number" min="0.05" max="5" step="0.05" value="' + rotationState.riskPct + '" data-rot-risk>%</label></div>' +
+      (rows ? '<div class="owner-size-list">' + rows + '</div>' : '<p class="owner-tool-loading">No Sector Rotation candidate clears the screen right now.</p>') + '</section>';
+    bindRotationDesk(root);
+    applyRotationLive();
+    bindBriefChips(root);
   }
 
   // --- Leveraged ETFs (premium) --------------------------------------------
@@ -23336,8 +23386,12 @@
       '<div class="lev-plan-cell lev-plan-entry"><span class="lev-plan-label">Entry</span><b>' + escapeHtml(entryValue) + '</b><small>' + escapeHtml(entryNote) + '</small></div>' +
       '<div class="lev-plan-cell lev-plan-stop"><span class="lev-plan-label">Invalidation</span><b>' + escapeHtml(sym) + ' ' + cutVerb + ' ' + fmtMoney(p.invalidation.underlyingPx) + '</b><small>ETF approx. -' + fmt(p.invalidation.etfMovePct, 1) + '% &middot; ' + escapeHtml(p.invalidation.reason || 'structural stop') + '</small></div>' +
       '<div class="lev-plan-cell lev-plan-target"><span class="lev-plan-label">First target</span><b>' + escapeHtml(sym) + ' ' + targetVerb + ' ' + fmtMoney(p.target.underlyingPx) + '</b><small>ETF approx. +' + fmt(p.target.etfMovePct, 1) + '% ' + rr + '</small></div>' +
-    '</div>' +
-    '<div class="lev-size" data-lev-size="' + escapeHtml(i.etf || '') + '" data-lev-stop-pct="' + (p.invalidation.etfMovePct || '') + '">Share cap appears with the live ETF quote.</div>';
+    '</div>';
+  }
+  function levSizeHtml(i){
+    var p = i && i.plan;
+    if (!p || !p.invalidation) return '<div class="lev-size">Share cap needs a published invalidation level.</div>';
+    return '<div class="lev-size" data-lev-size="' + escapeHtml(i.etf || '') + '" data-lev-stop-pct="' + (p.invalidation.etfMovePct || '') + '">Share cap appears with the live ETF quote.</div>';
   }
   function levCard(i){
     var tierTxt = i.tier === 'strong' ? 'Strong' : 'Moderate';
@@ -23406,10 +23460,6 @@
         '<label class="lev-sort">Sort <select data-lev-sort><option value="conviction"' + (levState.sort === 'conviction' ? ' selected' : '') + '>Conviction</option><option value="setup"' + (levState.sort === 'setup' ? ' selected' : '') + '>Cleanest setup</option><option value="rr"' + (levState.sort === 'rr' ? ' selected' : '') + '>Best est. R:R</option><option value="drag"' + (levState.sort === 'drag' ? ' selected' : '') + '>Lowest reset drag</option></select></label>' +
         '<span class="lev-showing">Showing ' + visible.length + ' of ' + ideas.length + '</span>' +
       '</div>' +
-      '<div class="lev-risk-box"><div><b>Risk budget</b><span>Caps shares from the live ETF price and each setup&rsquo;s estimated stop width.</span></div>' +
-        '<label>Account $<input type="number" min="100" step="500" value="' + Math.round(levState.account) + '" data-lev-account></label>' +
-        '<label>Max loss / trade <input type="number" min="0.05" max="5" step="0.05" value="' + levState.riskPct + '" data-lev-risk>%</label>' +
-      '</div>' +
     '</section>';
   }
   function bindLevDesk(root){
@@ -23442,9 +23492,10 @@
     var root = $('levetf-root'); var eye = $('levetf-eyebrow');
     if (!root) return;
     var d = levState.data;
-    if (!d){ root.textContent = 'Loading leveraged ETF screen…'; return; }
+    if (!d){ root.textContent = 'Loading leveraged ETF screen…'; renderOwnerLevSizing(); return; }
     if (d.loadError && !Array.isArray(d.ideas)){
       root.innerHTML = '<p class="lev-empty">Could not load the Leveraged ETFs data. It appears after the next scheduled build.</p>';
+      renderOwnerLevSizing();
       return;
     }
     var ideas = Array.isArray(d.ideas) ? d.ideas : [];
@@ -23480,7 +23531,27 @@
     root.innerHTML = levDeskHtml(ideas, visible) + regime + grid + levRecordStrip(d) + watchHtml + foot;
     bindLevDesk(root);
     applyLevRiskSizing();
+    renderOwnerLevSizing();
     bindBriefChips(root);
+  }
+  function renderOwnerLevSizing(){
+    var root = $('owner-lev-root');
+    if (!root) return;
+    var d = levState.data;
+    if (!d){ root.innerHTML = '<p class="owner-tool-loading">Loading leveraged-ETF sizing&hellip;</p>'; return; }
+    if (d.loadError && !Array.isArray(d.ideas)){ root.innerHTML = '<p class="owner-tool-loading">Leveraged-ETF sizing is unavailable right now.</p>'; return; }
+    var ideas = Array.isArray(d.ideas) ? d.ideas : [];
+    var rows = ideas.map(function(i){
+      return '<article class="owner-size-row"><header><b class="lev-etf">' + escapeHtml(i.etf || '?') + '</b>' + levDirChip(i) + levLiveLine(i) + '</header>' + levSizeHtml(i) + '</article>';
+    }).join('');
+    root.innerHTML = '<section class="owner-risk-card" aria-label="Owner leveraged ETF sizing"><header><div><small>Private sizing</small><h3>Leveraged ETF risk caps</h3><p>Converts each standardized stop width into a share cap using your account and max-loss budget.</p></div></header>' +
+      '<div class="lev-risk-box"><div><b>Risk budget</b><span>Caps shares from the live ETF price and each setup&rsquo;s estimated stop width.</span></div>' +
+        '<label>Account $<input type="number" min="100" step="500" value="' + Math.round(levState.account) + '" data-lev-account></label>' +
+        '<label>Max loss / trade <input type="number" min="0.05" max="5" step="0.05" value="' + levState.riskPct + '" data-lev-risk>%</label>' +
+      '</div>' +
+      (rows ? '<div class="owner-size-list">' + rows + '</div>' : '<p class="owner-tool-loading">No leveraged-ETF idea clears the screen right now.</p>') + '</section>';
+    bindLevDesk(root);
+    applyLevRiskSizing();
   }
   function loadBrief(){
     if ((briefState.data && !tabDataStale(briefState)) || briefState.loading){ renderBrief(); return; }
