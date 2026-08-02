@@ -18147,6 +18147,59 @@
     var market = quote.market === 'spot' ? 'spot' : 'on-demand';
     return String(quote.provider || '') + ' ' + market;
   }
+  function apMedian(values){
+    var nums = (values || []).map(Number).filter(isFinite).sort(function(a,b){ return a-b; });
+    if (!nums.length) return null;
+    var mid = Math.floor(nums.length / 2);
+    return nums.length % 2 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
+  }
+  function apCompositeHistory(benchmark, quotes){
+    var buckets = {};
+    (quotes || []).forEach(function(quote){
+      var rows = benchmark && benchmark.history && Array.isArray(benchmark.history[quote.key]) ? benchmark.history[quote.key] : [];
+      rows.forEach(function(point){
+        if (!point || !point.d || !(Number(point.p) > 0)) return;
+        if (!buckets[point.d]) buckets[point.d] = [];
+        buckets[point.d].push(Number(point.p));
+      });
+    });
+    return Object.keys(buckets).sort().map(function(date){ return { d:date, p:apMedian(buckets[date]) }; }).filter(function(point){ return point.p > 0; });
+  }
+  function apHistoryChange(history, days){
+    if (!Array.isArray(history) || history.length < 2) return null;
+    var last = history[history.length - 1];
+    var lastMs = Date.parse(last.d);
+    if (!isFinite(lastMs) || !(last.p > 0)) return null;
+    var base = null;
+    for (var i=history.length - 2; i>=0; i--){
+      var row = history[i];
+      var ms = Date.parse(row && row.d);
+      if (!isFinite(ms) || !(row && row.p > 0)) continue;
+      var age = (lastMs - ms) / 86400000;
+      base = { age:age, p:Number(row.p) };
+      if (age >= days) break;
+    }
+    if (!base || base.age < days * 0.6 || base.age > days * 2.5) return null;
+    return (Number(last.p) / base.p - 1) * 100;
+  }
+  function apCostMove(value, pending){
+    if (value == null || !isFinite(value)) return '<b class="ap-history-pending">' + escapeHtml(pending || 'Building') + '</b>';
+    var n = Number(value);
+    var cls = n > 0.05 ? 'up' : n < -0.05 ? 'down' : 'flat';
+    return '<b class="ap-cost-' + cls + '">' + (n > 0 ? '+' : '') + n.toFixed(1) + '%</b>';
+  }
+  function apMatchedDiscount(benchmark){
+    var byProvider = {};
+    (benchmark && Array.isArray(benchmark.quotes) ? benchmark.quotes : []).forEach(function(quote){
+      if (!byProvider[quote.providerId]) byProvider[quote.providerId] = {};
+      byProvider[quote.providerId][quote.market] = Number(quote.price);
+    });
+    var discounts = Object.keys(byProvider).map(function(key){
+      var row = byProvider[key];
+      return row.spot > 0 && row['on-demand'] > 0 ? (1 - row.spot / row['on-demand']) * 100 : null;
+    }).filter(function(value){ return value != null && isFinite(value); });
+    return apMedian(discounts);
+  }
   function apFilteredQuotes(benchmark){
     var rows = benchmark && Array.isArray(benchmark.quotes) ? benchmark.quotes : [];
     if (acceleratorPricesState.market === 'all') return rows;
@@ -18158,6 +18211,7 @@
       return benchmark.history && Array.isArray(benchmark.history[quote.key]) && benchmark.history[quote.key].length;
     });
     if (!quotes.length) return '<div class="ap-chart-empty">No history for this market lane yet.</div>';
+    var composite = apCompositeHistory(benchmark, quotes);
     var dates = [];
     var dateSet = {};
     quotes.forEach(function(quote){
@@ -18167,6 +18221,24 @@
     });
     dates.sort();
     if (!dates.length) return '<div class="ap-chart-empty">Tracking begins with the next successful build.</div>';
+    var currentMedian = composite.length ? composite[composite.length - 1].p : null;
+    var change7d = apHistoryChange(composite, 7);
+    var change30d = apHistoryChange(composite, 30);
+    var sinceChange = composite.length >= 2 && composite[0].p > 0
+      ? (composite[composite.length - 1].p / composite[0].p - 1) * 100
+      : null;
+    var laneLabel = acceleratorPricesState.market === 'all' ? 'all price lanes' : acceleratorPricesState.market;
+    var historyHead = '<div class="ap-history-title"><div><small>Daily price history</small><b>' + escapeHtml(benchmark.model) + '</b><span>' + escapeHtml(laneLabel) + ' · cross-provider median</span></div>' +
+      '<div><strong>' + apPrice(currentMedian) + '</strong><span>current median</span></div></div>' +
+      '<div class="ap-history-signals"><div><span>7 days</span>' + apCostMove(change7d) + '</div><div><span>30 days</span>' + apCostMove(change30d) + '</div><div><span>Since tracking</span>' + apCostMove(sinceChange) + '</div><div><span>History</span><b>' + dates.length + ' daily snapshot' + (dates.length === 1 ? '' : 's') + '</b></div></div>' +
+      '<p class="ap-read-key"><span>Line down = compute is getting cheaper</span><span>Line up = compute is getting more expensive</span></p>';
+    if (dates.length === 1){
+      var baselineRows = quotes.slice(0, AP_COLORS.length).map(function(quote, idx){
+        var point = (benchmark.history[quote.key] || [])[0];
+        return '<div><i style="background:' + AP_COLORS[idx] + '"></i><span>' + escapeHtml(apProviderLabel(quote)) + '</span><b>' + apPrice(point && point.p) + '</b></div>';
+      }).join('');
+      return historyHead + '<div class="ap-baseline-state"><span>Tracking started ' + escapeHtml(apShortDate(dates[0])) + '</span><h4>This is the first snapshot, so there is no trend line yet.</h4><p>These are baseline prices, not a tightening or easing signal. Each successful daily build adds another point; two points show direction, while the 7-day and 30-day reads need enough elapsed history.</p><div class="ap-baseline-quotes">' + baselineRows + '</div></div>';
+    }
     var values = [];
     quotes.forEach(function(quote){
       (benchmark.history[quote.key] || []).forEach(function(point){ if (point && point.p > 0) values.push(Number(point.p)); });
@@ -18187,10 +18259,17 @@
       if (points.length === 1){
         lines += '<circle cx="' + xFor(points[0].d).toFixed(1) + '" cy="' + yFor(Number(points[0].p)).toFixed(1) + '" r="3.2" fill="' + color + '"/>';
       } else {
-        lines += '<polyline points="' + coords + '" fill="none" stroke="' + color + '" stroke-width="2.2" vector-effect="non-scaling-stroke"/>';
+        lines += '<polyline class="ap-provider-line" points="' + coords + '" fill="none" stroke="' + color + '" stroke-width="1.7" vector-effect="non-scaling-stroke"/>';
       }
       legend += '<span><i style="background:' + color + '"></i>' + escapeHtml(apProviderLabel(quote)) + '</span>';
     });
+    var compositeCoords = composite.map(function(point){ return xFor(point.d).toFixed(1) + ',' + yFor(Number(point.p)).toFixed(1); }).join(' ');
+    if (composite.length > 1){
+      lines += '<polyline class="ap-composite-line" points="' + compositeCoords + '" fill="none" stroke="var(--text-strong)" stroke-width="3" vector-effect="non-scaling-stroke"/>';
+      var lastComposite = composite[composite.length - 1];
+      lines += '<circle class="ap-composite-dot" cx="' + xFor(lastComposite.d).toFixed(1) + '" cy="' + yFor(Number(lastComposite.p)).toFixed(1) + '" r="3.2"/>';
+      legend = '<span class="ap-legend-median"><i></i>Cross-provider median</span>' + legend;
+    }
     var tipPoints = dates.map(function(date){
       var rows = [];
       var vals = [];
@@ -18202,15 +18281,14 @@
       });
       vals.sort(function(a,b){ return a-b; });
       var mid = vals.length ? vals[Math.floor(vals.length / 2)] : lo;
-      return { x:xFor(date), y:yFor(mid), label:apShortDate(date) + '\n' + rows.join('\n') };
+      var medianPoint = composite.find(function(point){ return point.d === date; });
+      var medianText = medianPoint ? 'Median: $' + Number(medianPoint.p).toFixed(Number(medianPoint.p) < 1 ? 3 : 2) + '\n' : '';
+      return { x:xFor(date), y:yFor(mid), label:apShortDate(date) + '\n' + medianText + rows.join('\n'), value:medianPoint ? medianPoint.p : mid, time:date };
     });
-    var onlyBaseline = dates.length === 1
-      ? '<p class="ap-chart-baseline">History starts with this build; daily comparisons will fill in automatically.</p>'
-      : '';
-    return '<div class="ap-chart-head"><div><b>' + escapeHtml(benchmark.model) + '</b><span>USD per GPU-hour</span></div><div class="ap-chart-legend">' + legend + '</div></div>' +
+    return historyHead + '<div class="ap-chart-head"><div><b>Provider history</b><span>USD per GPU-hour · hover or tap for exact prices</span></div><div class="ap-chart-legend">' + legend + '</div></div>' +
       '<div class="ap-chart-wrap"><span class="ap-axis ap-axis-hi">' + apPrice(hi) + '</span><span class="ap-axis ap-axis-lo">' + apPrice(lo) + '</span>' +
       '<svg class="ap-chart-svg" viewBox="0 0 300 125" preserveAspectRatio="none" role="img" aria-label="' + escapeHtml(benchmark.model + ' rental price history') + '"' + chHoverAttr(tipPoints) + '>' +
-      '<path d="M12 16H288M12 64H288M12 112H288" class="ap-grid"/>' + lines + '</svg></div>' + onlyBaseline;
+      '<path d="M12 16H288M12 64H288M12 112H288" class="ap-grid"/>' + lines + '</svg><span class="ap-date ap-date-first">' + escapeHtml(apShortDate(dates[0])) + '</span><span class="ap-date ap-date-last">' + escapeHtml(apShortDate(dates[dates.length - 1])) + '</span></div>';
   }
   function bindAcceleratorPriceActions(root){
     if (!root) return;
@@ -18263,24 +18341,42 @@
     }
     if (empty) empty.hidden = true;
     var summary = data.summary || {};
-    var focus = summary.focus || {};
+    var defaultFocus = summary.focus || {};
     if (!acceleratorPricesState.modelId || !benchmarks.some(function(row){ return row.modelId === acceleratorPricesState.modelId; })){
-      acceleratorPricesState.modelId = focus.modelId || benchmarks[0].modelId;
+      acceleratorPricesState.modelId = defaultFocus.modelId || benchmarks[0].modelId;
     }
     var selected = benchmarks.find(function(row){ return row.modelId === acceleratorPricesState.modelId; }) || benchmarks[0];
+    // Every desk read must follow the selected accelerator. Previously this
+    // stayed pinned to summary.focus (normally H100), so choosing B300 could
+    // leave an H100 headline and H100 metrics above a B300 chart.
+    var selectedHistory = apCompositeHistory(selected, Array.isArray(selected.quotes) ? selected.quotes : []);
+    var focus = {
+      modelId: selected.modelId,
+      model: selected.model,
+      spotMedian: selected.spot && selected.spot.median,
+      spotLow: selected.spot && selected.spot.low,
+      onDemandMedian: selected.onDemand && selected.onDemand.median,
+      onDemandLow: selected.onDemand && selected.onDemand.low,
+      change7dPct: apHistoryChange(selectedHistory, 7),
+      change30dPct: apHistoryChange(selectedHistory, 30)
+    };
     var builtMs = Date.parse(data.builtAtIso);
     var ageHours = isFinite(builtMs) ? (Date.now() - builtMs) / 3600000 : null;
     var current = !data.stale && summary.freshSources > 0 && ageHours != null && ageHours >= -1 && ageHours <= 72;
     if (eye) eye.textContent = (current ? 'Current public pricing' : 'Reference only') + ' / ' + Number(summary.freshSources || 0) + '/' + Number(summary.sourceCount || 0) + ' sources';
     var trend = Number(focus.change30dPct);
     var hasTrend = focus.change30dPct != null && focus.change30dPct !== '' && isFinite(trend);
-    var headline = 'A new accelerator-cost baseline is forming';
-    var posture = 'Wait for history before calling capacity tighter or looser.';
+    var historyStart = selectedHistory.length ? apShortDate(selectedHistory[0].d) : null;
+    var headline = focus.model + ' price history starts here';
+    var posture = 'One daily snapshot is a baseline, not a trend. The desk will classify compute as cheaper or more expensive after history accumulates.';
     var tone = 'watch';
     if (!current){
       headline = 'The accelerator-cost map needs a fresh build';
       posture = 'At least one prior quote may be stale. Use the rows as reference, not a current capacity signal.';
       tone = 'reference';
+    } else if (selectedHistory.length >= 2 && !hasTrend){
+      headline = focus.model + ' history is accumulating';
+      posture = 'The median has moved ' + ((selectedHistory[selectedHistory.length - 1].p / selectedHistory[0].p - 1) >= 0 ? '+' : '') + ((selectedHistory[selectedHistory.length - 1].p / selectedHistory[0].p - 1) * 100).toFixed(1) + '% since ' + historyStart + ', but there is not yet enough elapsed history for a 30-day signal.';
     } else if (hasTrend && trend >= 5){
       headline = focus.model + ' rental pricing is tightening';
       posture = 'The cross-provider median is up ' + trend.toFixed(1) + '% over 30 days. Confirm with availability, utilization commentary and more than one provider before treating it as durable demand.';
@@ -18290,7 +18386,9 @@
       posture = 'The cross-provider median is down ' + Math.abs(trend).toFixed(1) + '% over 30 days. Separate improving supply and newer hardware mix from genuinely softer compute demand.';
       tone = 'down';
     }
-    var discount = summary.medianSpotDiscountPct == null ? NaN : Number(summary.medianSpotDiscountPct);
+    var discount = apMatchedDiscount(selected);
+    var selectedProviders = {};
+    (selected.quotes || []).forEach(function(quote){ if (quote && quote.providerId) selectedProviders[quote.providerId] = 1; });
     var sourceText = Array.isArray(summary.staleSources) && summary.staleSources.length
       ? 'Last-good: ' + summary.staleSources.join(', ')
       : 'All public sources parsed';
@@ -18298,9 +18396,9 @@
       escapeHtml(headline) + '</h3><p>' + escapeHtml(posture) + '</p></div><b>' + (current ? 'Live list-price read' : 'Refresh required') + '</b></div>' +
       '<div class="ap-metrics">' +
         '<div><span>' + escapeHtml(focus.model || 'Focus accelerator') + ' spot</span><b>' + apPrice(focus.spotMedian) + '</b><small>median / low ' + apPrice(focus.spotLow) + '</small></div>' +
-        '<div><span>' + escapeHtml(focus.model || 'Focus accelerator') + ' on-demand</span><b>' + apPrice(focus.onDemandMedian) + '</b><small>median / low ' + apPrice(focus.onDemandLow) + '</small></div>' +
-        '<div><span>Matched spot discount</span><b>' + (isFinite(discount) ? discount.toFixed(1) + '%' : '&mdash;') + '</b><small>median where one provider lists both lanes</small></div>' +
-        '<div><span>Coverage</span><b>' + Number(summary.modelCount || benchmarks.length) + ' models</b><small>' + Number(summary.quoteCount || 0) + ' normalized quotes</small></div>' +
+        '<div><span>' + escapeHtml(focus.model || 'Focus accelerator') + ' on-demand</span><b>' + apPrice(focus.onDemandMedian) + '</b><small>' + (discount != null && isFinite(discount) ? 'spot is ' + discount.toFixed(1) + '% cheaper' : 'median / low ' + apPrice(focus.onDemandLow)) + '</small></div>' +
+        '<div><span>30-day price change</span><b>' + (hasTrend ? (trend > 0 ? '+' : '') + trend.toFixed(1) + '%' : 'Building') + '</b><small>' + (hasTrend ? (trend > 0 ? 'compute got more expensive' : trend < 0 ? 'compute got cheaper' : 'compute cost was flat') : (selectedHistory.length + ' daily snapshot' + (selectedHistory.length === 1 ? '' : 's'))) + '</small></div>' +
+        '<div><span>Selected coverage</span><b>' + Object.keys(selectedProviders).length + ' providers</b><small>' + Number((selected.quotes || []).length) + ' normalized ' + escapeHtml(focus.model || 'accelerator') + ' quotes</small></div>' +
       '</div><div class="ap-source-state"><span>' + escapeHtml(sourceText) + '</span><small>Built ' + escapeHtml(data.builtAtIso ? String(data.builtAtIso).replace('T',' ').slice(0,16) + 'Z' : 'time unavailable') + '</small></div>' +
       '<div class="ap-actions"><button type="button" data-ap-grade="CRWV">Grade CRWV</button><button type="button" data-ap-grade="NVDA">Grade NVDA</button><button type="button" data-ap-grade="AMD">Grade AMD</button></div>' +
       '<p class="ap-desk-note">Rental pricing is a conditional capacity and utilization overlay, not proof of chip demand or provider revenue. Confirm against guidance, backlog, availability and stock price action.</p></section>';
