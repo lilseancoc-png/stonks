@@ -1,9 +1,10 @@
 # Private data migration + Discord-role gating (Path B)
 
-> **Status:** implemented. The historical cutover notes remain below. The current
-> entitlement model is Public / Premium / Owner: Premium membership unlocks only
-> Earnings Tracker; actionable named-security and trade-decision
-> surfaces require both internal Owner claims (`tr` + `tp`) and fail closed.
+> **Status:** implemented. The historical cutover notes remain below. As of the
+> free-public pivot, there is no member or premium tier: every user-facing
+> research payload is public. Only Owner Lab, its paper-engine/shared-owner
+> state, and internal cache/accounting keys require both Owner claims (`tr` +
+> `tp`) and fail closed.
 
 ## 1. Goal
 
@@ -453,3 +454,24 @@ most tabs are free, a premium subset stays gated. The wiring:
   server data independently enforces the same requirement. Both special role env
   settings are required and fail closed, but may point to the same owner-only role.
   They must never point to the paid membership role.
+
+## 13. Free-public pivot (supersedes the freemium entitlement notes)
+
+The private-store architecture remains in place, but it is now a storage and
+Owner-isolation boundary rather than a membership paywall:
+
+- `lib/premium-keys.mjs` retains its legacy export names for compatibility, but
+  `isPremiumKey()` returns true only for `quant*.json`, `day-trading*.json`, the
+  shared owners' `picks-watchlist.json`, and browser-inaccessible pipeline
+  cache/accounting keys. Every ticker, grade, pick, track-record, brief,
+  narrative, flow, volume, OI, IV, earnings, and manifest payload is public.
+- The client has no premium tabs or signed-out login CTA. All public navigation,
+  ticker links, deep links, loaders, and command-palette entries work without a
+  session. Only the `quant` Owner Lab route is hidden until both claims resolve.
+- Discord OAuth mints a session only when both configured Owner role sets are
+  satisfied, then redirects directly to `/?tab=quant`. `welcome.html` is an
+  unlinked Owner entry page, not a membership landing page.
+- `middleware.js` only routes `/data/*` into the private-store reader. The old
+  first-visit pricing/membership redirect was removed.
+- Public data remains edge-cacheable. Owner/internal responses remain
+  `private, no-store` and are enforced server-side, independently of the UI.

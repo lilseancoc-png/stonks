@@ -1,5 +1,4 @@
 import { FALLBACK_RISK_FREE_RATE } from '../build.mjs';
-import { DISCORD_INVITE_URL } from '../../lib/links.mjs';
 
 export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRateMeta = null } = {}) {
   // Accept either a bare number (legacy) or the structured payload from
@@ -61,175 +60,26 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // caveat in the Execute card — a Powell presser ≤2 sessions out routinely
   // whipsaws multi-percent intraday, so structure-based entries should defer.
   var NEXT_FOMC_DATES = Array.isArray(MANIFEST.nextFomcDates) ? MANIFEST.nextFomcDates : [];
-  // --- Freemium gate (client half) ------------------------------------------
-  // The data layer (api/data + lib/premium-keys) is the real enforcement; this
-  // is the UI half: which tabs are members-only, and whether THIS visitor is a
-  // member. GATE_ON mirrors PRIVATE_DATA_ENABLED (reported by /api/auth/me).
-  // Ordinary membership keeps the historical fail-open behavior, but Owner
-  // access always fails closed until both explicit role claims are confirmed.
-  // Ordinary premium remains a research publication. Tabs that turn research
-  // into a security selection, direction, grade, structure, timing, entry,
-  // exit, or trade-size decision are internal Owner surfaces instead.
-  var PREMIUM_TABS = { earnings:1 };
-  var OWNER_TABS = {
-    market:1, brief:1, narratives:1, tickers:1, grade:1, compare:1,
-    strategies:1, stocks:1, rotation:1, levetf:1, flow:1, volume:1,
-    oi:1, 'iv-trend':1, streaks:1, spillover:1, 'index-cal':1, picks:1, track:1, quant:1
-  };
+  // --- Owner gate (client half) ---------------------------------------------
+  // Every public research tab is open without a login. The server independently
+  // protects Owner Lab data; this UI boundary keeps that one destination hidden
+  // until both explicit Owner claims are confirmed.
+  var OWNER_TABS = { quant:1 };
   var GATE_ON = false;
-  var IS_MEMBER = true;
-  // Owner surfaces are hidden (not upsold) unless both role claims are present.
-  var HAS_TRACK_RECORD = false;
-  var HAS_TOP_PICKS = false;
+  var HAS_TRACK_RECORD = true;
+  var HAS_TOP_PICKS = true;
   var HAS_QUANT_LAB = false;
   var HAS_OWNER_ACCESS = false;
   var AUTH_ME = null;
   var DISCORD_ICON_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.25.5c1.6.4 2.9 1 4.1 1.8a13.5 13.5 0 0 0-11.5 0c1.2-.8 2.6-1.4 4.1-1.8L11.6 3A19.8 19.8 0 0 0 6.7 4.4 20.6 20.6 0 0 0 3 18.6 19.9 19.9 0 0 0 8 21l.6-.9c-.9-.3-1.7-.7-2.4-1.2.2-.1.4-.3.6-.4a14.2 14.2 0 0 0 12.4 0c.2.1.4.3.6.4-.7.5-1.5.9-2.4 1.2l.6.9a19.9 19.9 0 0 0 5-2.4 20.6 20.6 0 0 0-3.7-14.2ZM9 15.3c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg>';
-  // Public Discord invite (single-sourced in lib/links.mjs) — where non-members
-  // join the server to purchase the premium role. Surfaced on the lock card +
-  // header so the Discord is findable from anywhere on the site.
-  var DISCORD_INVITE_URL = ${JSON.stringify(DISCORD_INVITE_URL)};
-  function premiumTabLabel(id){
-    return ({ market:'Market Analysis', rotation:'Sector Rotation', brief:'Briefs', flow:'Unusual Flow', volume:'Volume', oi:'Gamma Exposure', stocks:'Stock Picks', spillover:'Event spillover', quant:'Quant Lab', levetf:'Leveraged ETFs', 'iv-trend':'Trending IV', streaks:'Streaks', earnings:'Earnings Tracker' })[id] || 'This feature';
-  }
-  var PREMIUM_LOCK_PREVIEWS = {
-    market: {
-      title:'Set the market regime before the trade',
-      body:'See whether volatility, rates, the dollar, commodities and breadth support taking risk now—or argue for smaller size and more patience.',
-      points:['Live cross-asset tape and risk posture','Risk-on / risk-off barometer','Daily regime history and transition context'],
-      freeId:'heatmap', freeLabel:'Open the free Heatmap'
-    },
-    rotation: {
-      title:'Find quality names turning with their sector',
-      body:'Separate a shared peer washout from company-specific damage, then wait for the stock to prove the mean-reversion turn.',
-      points:['Peer participation and quality gates','Trigger, invalidation and first target','Rebound phase plus entry accountability'],
-      freeId:'news', freeLabel:'Check the free News desk'
-    },
-    brief: {
-      title:'Get the session read without assembling it yourself',
-      body:'The rolling desk brief compresses overnight moves, session leadership, flow, dealer positioning and the next scheduled risk into one scan.',
-      points:['Updated through the trading session','What changed and why it matters','What to watch next, with timing'],
-      freeId:'news', freeLabel:'Open the free News desk'
-    },
-    flow: {
-      title:'See where options activity breaks from normal',
-      body:'Surface abnormal contract volume and premium skew, then compare the flow with price action before treating it as directional evidence.',
-      points:['Unusual volume versus prior activity','Call / put premium and directional lean','Tape confirmation and freshness context'],
-      freeId:'news', freeLabel:'Check the free News desk'
-    },
-    volume: {
-      title:'Find the moves with real participation',
-      body:'Track intraday volume standouts and support or resistance breaks so a price move without participation does not masquerade as conviction.',
-      points:['Relative-volume leaders','Support / resistance break state','Hour-by-hour volume profile'],
-      freeId:'heatmap', freeLabel:'Open the free Heatmap'
-    },
-    oi: {
-      title:'Map where dealer positioning can change the move',
-      body:'Read the strike-by-strike gamma map, the flip level and the largest call and put walls before choosing a contract or chasing momentum.',
-      points:['Net-gamma matrix by strike','Gamma flip and key walls','Pinning versus acceleration context'],
-      freeId:'strategies', freeLabel:'Model a free Strategy'
-    },
-    stocks: {
-      title:'Find quality businesses on a cleaner dip',
-      body:'The shares-only screen separates business quality, statistical cheapness and possible value-trap evidence instead of blending them into one score.',
-      points:['Hard profitability and balance-sheet gate','Dip score versus the qualified universe','Entry, review level, target and trap flags'],
-      freeId:'compare', freeLabel:'Compare companies for free'
-    },
-    spillover: {
-      title:'See which names inherit another company’s event risk',
-      body:'Map earnings and catalyst shocks through customer, supplier and peer relationships before a read-through surprises an otherwise unrelated position.',
-      points:['Source event and linked exposures','Direction and confidence of the read-through','Timing window for confirmation'],
-      freeId:'calendar', freeLabel:'Open the free Calendar'
-    },
-    levetf: {
-      title:'Express the view through a listed leveraged vehicle',
-      body:'Match the underlying signal to a verified 2x or 3x ETF while keeping reset drag, financing, chop and the underlying stop in view.',
-      points:['Underlying entry, invalidation and target','Live ETF quote and risk-sized share cap','Reset-drag, carry and tracking checks'],
-      freeId:'strategies', freeLabel:'Model a free Strategy'
-    },
-    'iv-trend': {
-      title:'Find options pricing a larger move than usual',
-      body:'Compare current near-30-day implied volatility with each ticker’s own history, then separate rising opportunity from expensive event premium.',
-      points:['Historical IV percentile and trend','Earnings and event context','Names where option pricing is still expanding'],
-      freeId:'strategies', freeLabel:'Model a free Strategy'
-    },
-    streaks: {
-      title:'Know when persistence becomes exhaustion',
-      body:'Rank current green and red runs with rarity and counter-day tolerance so you can distinguish durable momentum from a stretched mean-reversion setup.',
-      points:['Current run and tolerance bank','Historical rarity context','Recently snapped streaks and reversal watch'],
-      freeId:'tickers', freeLabel:'Browse free Tickers'
-    },
-    earnings: {
-      title:'Turn earnings season into an event-risk map',
-      body:'See how the tracked universe is beating, guiding and moving versus options expectations, then identify crowded run-ups and the next overnight decision deadlines.',
-      points:['Season beat, guidance and reaction breadth','Implied-versus-realized move scorecard','Upcoming reports with pre-earnings drift'],
-      freeId:'calendar', freeLabel:'Open the free Calendar'
-    }
-  };
-  function premiumLockPreview(id){
-    return PREMIUM_LOCK_PREVIEWS[id] || {
-      title:premiumTabLabel(id) + ' is a members feature',
-      body:'Unlock this decision-grade tool with a premium Discord membership.',
-      points:['Fresh decision context','Actionable levels and risk checks','Built for the next trading decision'],
-      freeId:'home', freeLabel:'Return to the free desk'
-    };
-  }
-  // Inject the members-only upsell card into a locked premium pane (idempotent).
-  function ensurePremiumLock(pane, id){
-    if (!pane) return;
-    var preview = premiumLockPreview(id);
-    var lock = pane.querySelector(':scope > .premium-lock');
-    if (!lock){
-      lock = document.createElement('div');
-      lock.className = 'premium-lock';
-      pane.insertBefore(lock, pane.firstChild);
-    }
-    lock.innerHTML =
-      '<div class="premium-lock-card">' +
-        '<div class="premium-lock-head">' +
-          '<div class="premium-lock-badge" aria-hidden="true">' +
-            '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>' +
-          '</div>' +
-          '<span><small>Premium preview</small><b>' + escapeHtml(premiumTabLabel(id)) + '</b></span>' +
-        '</div>' +
-        '<div class="premium-lock-grid">' +
-          '<div class="premium-lock-copy">' +
-            '<h2 class="premium-lock-title">' + escapeHtml(preview.title) + '</h2>' +
-            '<p class="premium-lock-body">' + escapeHtml(preview.body) + '</p>' +
-            '<div class="premium-lock-actions">' +
-              '<a class="premium-lock-cta" href="' + DISCORD_INVITE_URL + '" target="_blank" rel="noopener">' + DISCORD_ICON_SVG + '<span>Join Discord for premium</span></a>' +
-              '<a class="premium-lock-free" href="/?tab=' + encodeURIComponent(preview.freeId) + '">' + escapeHtml(preview.freeLabel) + '</a>' +
-            '</div>' +
-            '<p class="premium-lock-foot">Already a member? <a href="/api/auth/discord-login">Log in with Discord</a>.</p>' +
-          '</div>' +
-          '<div class="premium-lock-includes">' +
-            '<span>Inside this tab</span>' +
-            '<ul>' + preview.points.map(function(point){ return '<li><i aria-hidden="true">✓</i><b>' + escapeHtml(point) + '</b></li>'; }).join('') + '</ul>' +
-            '<p>Members see the live tool here—not a static report.</p>' +
-          '</div>' +
-        '</div>' +
-      '</div>';
-  }
-  // Flag the premium tab buttons/menu-items so the nav can paint a lock for
-  // non-members (CSS keys off body.is-member). Safe to call once DOM is ready.
-  function markPremiumNav(){
-    for (var id in PREMIUM_TABS){
-      if (!PREMIUM_TABS.hasOwnProperty(id)) continue;
-      var els = document.querySelectorAll('[data-page-tab="' + id + '"], [data-go="' + id + '"]');
-      for (var i = 0; i < els.length; i++) els[i].setAttribute('data-premium', '1');
-    }
-  }
   function applyAuth(me){
     AUTH_ME = me || null;
     GATE_ON = !!(me && me.enabled);
-    // Ungated -> everyone's a member (no locks). Gated -> need an authed session.
-    IS_MEMBER = !GATE_ON || !!(me && me.authed);
     // Owner access never fails open. A disabled gate, failed probe, legacy
     // session, or either missing special claim leaves every Owner surface hidden.
     HAS_OWNER_ACCESS = !!(GATE_ON && me && me.trackRecord && me.topPicks);
-    // Every actionable surface now shares the combined Owner entitlement.
-    HAS_TRACK_RECORD = HAS_OWNER_ACCESS;
-    HAS_TOP_PICKS = HAS_OWNER_ACCESS;
+    HAS_TRACK_RECORD = true;
+    HAS_TOP_PICKS = true;
     HAS_QUANT_LAB = HAS_OWNER_ACCESS;
     if (document.body) document.body.classList.toggle('is-owner', HAS_OWNER_ACCESS);
   }
@@ -3770,21 +3620,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       // Volume / Fear & Greed / Bonds & USD show their per-source timestamp
       // instead of the daily build's "2 hours ago" which can be misleading.
       try { renderFreshness(name); } catch (_) {}
-      // Freemium gate (UI half): a premium tab opened by a non-member renders the
-      // members-only upsell card and starts NONE of its data loaders/pollers (the
-      // /api/data layer 401s the premium files too). The stop-pollers below still
-      // run so leaving a live free tab for a locked one halts its polling.
-      var premiumLocked = !!(PREMIUM_TABS[name] && !IS_MEMBER);
-      if (activeBtn){
-        var lockPaneId = activeBtn.getAttribute('aria-controls');
-        var lockPane = lockPaneId ? document.getElementById(lockPaneId) : null;
-        if (lockPane){
-          if (premiumLocked){ ensurePremiumLock(lockPane, name); lockPane.classList.add('locked'); }
-          else lockPane.classList.remove('locked');
-        }
-      }
-      // Stop pollers owned by the tab we're leaving — unconditionally, so a hop
-      // into a locked premium tab still halts the previous tab's polling.
+      // Stop pollers owned by the tab we're leaving.
       // (heatmap /api/quotes, Grade /api/chain, bonds macro-live,
       // tickers/picks/oi live spot.)
       if (name !== 'heatmap' && typeof stopHeatmapLivePolling === 'function') stopHeatmapLivePolling(false);
@@ -3794,8 +3630,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (name !== 'picks' && typeof stopPicksLive === 'function') stopPicksLive();
       if (name !== 'market' && typeof stopMacroTapeLive === 'function') stopMacroTapeLive();
       if (name !== 'oi' && typeof stopOiLive === 'function') stopOiLive();
-      if (!premiumLocked){
-        if (name === 'brief' && typeof loadBrief === 'function') loadBrief();
+      if (name === 'brief' && typeof loadBrief === 'function') loadBrief();
         if (name === 'news' && typeof loadNewsFeed === 'function') loadNewsFeed();
         if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
         if (name === 'index-cal' && typeof loadIndexCal === 'function') loadIndexCal();
@@ -3853,8 +3688,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (name === 'iv-trend' && typeof loadIvTrend === 'function') loadIvTrend();
         if (name === 'spillover' && typeof loadSpillover === 'function') loadSpillover();
         if (name === 'quant' && typeof loadQuant === 'function') loadQuant();
-        if (name === 'levetf' && typeof loadLevEtf === 'function') loadLevEtf();
-      }
+      if (name === 'levetf' && typeof loadLevEtf === 'function') loadLevEtf();
       // The sidebar scrolls vertically when the tab list outgrows the
       // viewport. Programmatic selection (e.g. a ?tab= deep-link) can leave
       // the active item off-screen — scroll it into view (block: 'nearest'
@@ -3958,7 +3792,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         .catch(function(){});
 
       // Streaks — async fetch and show the green/red split (≥2-day runs).
-      if (IS_MEMBER) fetch(dataUrl('streaks.json'), { cache: 'no-cache' })
+      fetch(dataUrl('streaks.json'), { cache: 'no-cache' })
         .then(function(r){ return r.ok ? r.json() : null; })
         .then(function(j){
           if (!j || !Array.isArray(j.tickers)) return;
@@ -16713,7 +16547,6 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return '<div class="ers-bar" role="img" aria-label="' + escapeHtml(segs.map(function(s){ return s.label + ' ' + (s.n || 0); }).join(', ')) + '">' + bar + '</div>';
   }
   function ersSymBtn(sym){
-    if (!HAS_OWNER_ACCESS) return '<span class="ers-sym">' + escapeHtml(sym) + '</span>';
     return '<a class="ers-sym" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '" title="Open ' + escapeHtml(sym) + ' in the Grade tab">' + escapeHtml(sym) + '</a>';
   }
   function ersDate(iso){
@@ -20043,7 +19876,6 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
   function spillSymLink(sym){
     var s = String(sym || '').toUpperCase();
-    if (!HAS_OWNER_ACCESS) return '<span class="spill-sym">' + escapeHtml(s) + '</span>';
     return '<a class="spill-sym" data-sym="' + escapeHtml(s) + '" href="' + symGradeHref(s) + '">' + escapeHtml(s) + '</a>';
   }
   // Matrix stats ship as FRACTIONS (0.0149 = +1.49%); upcoming-event expected
@@ -35616,14 +35448,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
 
     function buildCorpus(){
       var out = [];
-      if (HAS_OWNER_ACCESS) {
-        SYMBOLS.forEach(function(sym){
-          out.push({ type:'ticker', label: sym, sub: INDUSTRIES[sym] || '', action:'open-ticker', payload: sym });
-        });
-        (NARRATIVES || []).forEach(function(n){
-          out.push({ type:'narrative', label: n.name, sub: n.sector || n.industry || '', action:'open-narrative', payload: n.name });
-        });
-      }
+      SYMBOLS.forEach(function(sym){
+        out.push({ type:'ticker', label: sym, sub: INDUSTRIES[sym] || '', action:'open-ticker', payload: sym });
+      });
+      (NARRATIVES || []).forEach(function(n){
+        out.push({ type:'narrative', label: n.name, sub: n.sector || n.industry || '', action:'open-narrative', payload: n.name });
+      });
       TABS.forEach(function(tt){
         if (OWNER_TABS[tt[0]] && !HAS_OWNER_ACCESS) return;
         out.push({ type:'tab', label: tt[1], sub: 'Tab', action:'open-tab', payload: tt[0] });
@@ -37445,7 +37275,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // Any allowlist-shaped symbol loads — tracked names from the baked JSON,
     // anything else (VOO, the commodity proxies) via the live /api/chain
     // fallback in fetchChain. Same shape /api/quote|chain enforce server-side.
-    if (HAS_OWNER_ACCESS && initial && initial.sym && /^[A-Z][A-Z0-9.]{0,5}$/.test(initial.sym)){
+    if (initial && initial.sym && /^[A-Z][A-Z0-9.]{0,5}$/.test(initial.sym)){
       pendingUrlState = initial;
       // Default to landing on Grade, but a shared link like ?s=AAPL&tab=heatmap
       // explicitly asks for another tab — honor that and just load the contract
@@ -37459,14 +37289,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       combo.commit(initial.sym);
     }
   }
-  // The manifest's heavy fields are externalized to two tiered sidecars so the
-  // public index.html carries no product data: data/manifest-free.json (macro /
-  // fear-greed / backdrop / spots / headlines — served to anyone) and
-  // data/manifest.json (AI narratives, sector overviews, recently-ended, the
-  // unusual snapshot — gated). The boot fetches both and merges each via this
-  // fn before first paint; the premium one 401s for non-members, degrading to a
-  // no-premium render (free tabs still work, premium tabs lock). Legacy index.html
-  // (full inline manifest, no deferred flag) skips the fetches entirely.
+  // The manifest's heavy fields are externalized to two public sidecars so the
+  // index shell stays small. Legacy full-inline manifests skip these fetches.
   function applyManifest(ext){
     if (!ext || typeof ext !== 'object') return;
     Object.assign(MANIFEST, ext); // MANIFEST === window.STONKS_MANIFEST (same ref)
@@ -37479,9 +37303,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     MACRO = (MANIFEST.macro && typeof MANIFEST.macro === 'object') ? MANIFEST.macro : null;
     MARKET_BACKDROP = (MANIFEST.marketBackdrop && typeof MANIFEST.marketBackdrop === 'object') ? MANIFEST.marketBackdrop : {};
   }
-  // Auth chip — renders from the already-fetched AUTH_ME (set in the boot). When
-  // signed in: "<name> · Log out". When the gate is on but signed out: a "Log in"
-  // CTA. Gate off (legacy public) -> hidden.
+  // The public site has no login CTA. A principal who enters through the private
+  // owner login URL sees a compact signed-in chip with a logout action.
   function renderAuthChip(){
     var chip = document.getElementById('auth-chip');
     if (!chip) return;
@@ -37489,29 +37312,19 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (me && me.authed){
       chip.innerHTML =
         DISCORD_ICON_SVG +
-        '<span class="auth-name">' + escapeHtml(me.name || 'member') + '</span>' +
+        '<span class="auth-name">' + escapeHtml(me.name || 'owner') + '</span>' +
         '<a class="auth-logout" href="/api/auth/logout" title="Log out">Log out</a>';
       chip.removeAttribute('data-anon');
       chip.hidden = false;
-    } else if (GATE_ON){
-      // Signed-out + gated: surface BOTH a "Join" (the Discord invite — where
-      // premium is purchased) and a "Log in" (for members who already have the
-      // role), so the Discord is findable from the header on every page.
-      chip.innerHTML =
-        '<a class="auth-join" href="' + DISCORD_INVITE_URL + '" target="_blank" rel="noopener" title="Join our Discord to unlock premium">' + DISCORD_ICON_SVG + '<span>Join</span></a>' +
-        '<a class="auth-login" href="/api/auth/discord-login">Log in</a>';
-      chip.setAttribute('data-anon', '1');
-      chip.hidden = false;
     } else {
+      chip.innerHTML = '';
       chip.hidden = true;
     }
   }
   function startApp(){
     var go = function(){
-      if (document.body) document.body.classList.toggle('is-member', IS_MEMBER);
-      // Physically remove every actionable destination before bind() collects
-      // tabs, so a non-owner gets no nav, landing card, pane, deep link, loader,
-      // or command-palette route. Stored data is independently role-enforced.
+      // Physically remove Owner Lab before bind() collects routes. Stored data
+      // is independently role-enforced.
       if (!HAS_OWNER_ACCESS) {
         for (var ownerId in OWNER_TABS) {
           if (!OWNER_TABS.hasOwnProperty(ownerId)) continue;
@@ -37530,7 +37343,6 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (HAS_OWNER_ACCESS && ownerGroup.querySelector('[data-page-tab]')) ownerGroup.hidden = false;
         else if (ownerGroup.parentNode) ownerGroup.parentNode.removeChild(ownerGroup);
       }
-      try { markPremiumNav(); } catch (_) {}
       try { renderAuthChip(); } catch (_) {}
       bind();
     };
@@ -37563,9 +37375,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
   } catch (_) {}
   // Boot: resolve membership + merge the manifest sidecars BEFORE first paint so
-  // selectTab() sees the right IS_MEMBER and the premium fields are present for
-  // authorized users. /api/auth/me reports the two Owner claims; the free
-  // sidecar serves to anyone and the Owner sidecar fails closed otherwise.
+  // selectTab() sees the Owner claims and both public manifest sidecars are
+  // present before first paint.
   var authBoot = fetch('/api/auth/me', { cache: 'no-store' })
     .then(function(r){ return r.ok ? r.json() : null; })
     .then(applyAuth)
@@ -37583,7 +37394,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     bootP.push(
       authBoot.then(function(){
         return fetch(dataUrl('manifest.json'), { cache: 'no-cache' })
-          .then(function(r){ return r.ok ? r.json() : null; }) // 401 for non-members -> null
+          .then(function(r){ return r.ok ? r.json() : null; })
           .then(function(ext){ if (ext) applyManifest(ext); })
           .catch(function(){});
       })

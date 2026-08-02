@@ -22,7 +22,13 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-08-02
 
+### Added
+
+- **Public support and traffic visibility.** The header and footer now link to the Ming Street Ko-fi page, while the generated shell loads Vercel Web Analytics for privacy-friendly, cookie-free visitor/page-view, referrer, country, browser, and device reporting in the project dashboard. The Privacy Policy and Terms disclose analytics and clarify that donations are optional and unlock nothing. `lib/links.mjs`, `scripts/render/{html,styles-css,docs}.mjs`.
+
 ### Changed
+
+- **stonks is now completely free except for the private Owner Lab.** Every public research tab and its stored payload—including ticker chains, grades, picks, briefs, narratives, flow, gamma, IV, earnings, and track record—opens without an account. The public Discord membership/login and first-visit upsell flow are removed. Only Owner Lab, its paper engine/shared owner watchlist, and internal cache/accounting keys require both Owner claims; OAuth now mints sessions only for those principals and redirects straight into Owner Lab. `lib/premium-keys.mjs`, `lib/data-response.mjs`, `middleware.js`, `api/{auth/[action],watchlist}.js`, `scripts/render/{html,app-js,styles-css,docs}.mjs`, `welcome.html`, `docs/private-data-migration.md`, `CLAUDE.md`.
 
 - **Every actionable named-security and trade-decision surface moves into a fail-closed internal Owner section.** Market Analysis, Brief, Narratives, Tickers, Grade, Compare, Strategies, Stock Picks, Sector Rotation, Leveraged ETFs, Event Spillover, Unusual Flow, Volume, Gamma Exposure, Trending IV, Streaks, Index Calendar, Top Picks, Track Record, and Owner Lab now require both `tr` and `tp`; the same policy protects their server-side payloads, including per-ticker JSON, grades, and IV history. Missing role configuration, legacy sessions, disabled gating, and failed auth probes do not expose Owner UI. Paid membership now unlocks only Earnings Tracker, and product/legal copy makes clear that Owner tools are internal and not sold. `api/auth/[action].js`, `lib/premium-keys.mjs`, `scripts/render/{html,app-js,styles-css,docs}.mjs`, `welcome.html`, `docs/{site-logic,private-data-migration}.md`, `CLAUDE.md`.
 

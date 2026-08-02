@@ -1,7 +1,8 @@
 // Vercel serverless function: the SHARED Top Picks watchlist.
 //
 // One internal list for owners: a session carrying BOTH Owner claims can save
-// a pick or remove a saved one, and every owner sees the same list. Stored in the private data store
+// a pick or remove a saved one, and every owner sees the same list. Public
+// visitors use the existing per-browser localStorage watchlist. Stored in the private data store
 // (lib/datastore.mjs) under REQUEST_TIME key "picks-watchlist.json" — a key
 // the workflows never push or delete (REQUEST_TIME_EXCLUSIVE in
 // scripts/sync-data.mjs), because a pulled copy is stale the moment a user
@@ -19,9 +20,9 @@
 // without a cron. Writes are last-writer-wins: fine at this scale, and the
 // worst case is a lost toggle, not corruption.
 //
-// Access mirrors the picks.json data it snapshots (see api/data/[...path].js):
-// hard-404 unless PRIVATE_DATA_ENABLED, valid Discord-role session required,
-// and both Owner claims (`tr` + `tp`) must be explicitly true. Never
+// Access is stricter than the now-public picks.json it snapshots: hard-404
+// unless PRIVATE_DATA_ENABLED, valid Owner session required, and both Owner
+// claims (`tr` + `tp`) must be explicitly true. Never
 // shared-cacheable. When
 // this endpoint is unreachable (gate off / signed out) the client falls back
 // to its original per-browser localStorage list, so local/dev keeps working.
@@ -87,8 +88,8 @@ export default async function handler(req, res) {
   if (process.env.PRIVATE_DATA_ENABLED !== "1") {
     return res.status(404).json({ error: "not found" });
   }
-  // The list is derived from the role-hidden picks.json — never cacheable
-  // across users. Set FIRST so no error branch can be edge-cached either.
+  // The shared owners' list is never cacheable. Set FIRST so no error branch
+  // can be edge-cached either.
   res.setHeader("Cache-Control", "private, no-store");
   const session = await getSession(req).catch(() => null);
   if (!session) {

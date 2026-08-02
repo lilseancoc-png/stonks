@@ -24328,7 +24328,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
   // ROLE-restricted (Track Record tab, `tr`) independently of the Top Picks
   // tab. picks-open.json is itself role-restricted to the Top Picks role
   // (`tp`, same tier as picks.json — it names the open roster); see
-  // lib/premium-keys.mjs (PREMIUM_KEYS vs ROLE_RESTRICTED_KEYS).
+  // lib/premium-keys.mjs (public vs Owner/internal keys).
   const openMarks = open.map((e) => ({
     symbol: e.symbol, side: e.side, entryDate: e.entryDate,
     optionPnlPct: e.optionPnlPct, thesisStatus: e.thesisStatus || null,

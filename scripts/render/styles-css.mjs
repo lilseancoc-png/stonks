@@ -525,6 +525,17 @@ h1, h2, .landing-hero-title, .landing-section-title { text-wrap: balance; }
   background: transparent;
 }
 .site-nav { display: inline-flex; gap: var(--s-2); align-items: center; }
+.donate-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 34px; padding: 0 13px; border-radius: 999px;
+  color: #fff; background: #ff5e5b; border: 1px solid #ff7774;
+  font-size: 13px; font-weight: 700; line-height: 1; text-decoration: none;
+  box-shadow: 0 5px 16px color-mix(in srgb, #ff5e5b 24%, transparent);
+  transition: transform .15s var(--ease-out), filter .15s var(--ease-out);
+}
+.donate-btn:hover { color: #fff; text-decoration: none; filter: brightness(1.06); transform: translateY(-1px); }
+.donate-btn svg { flex: none; }
+@media (max-width: 620px) { .donate-btn span { display: none; } .donate-btn { width: 36px; padding: 0; justify-content: center; } }
 .auth-chip {
   display: inline-flex; align-items: center; gap: 7px;
   height: 32px; padding: 0 10px;
@@ -542,141 +553,8 @@ h1, h2, .landing-hero-title, .landing-section-title { text-wrap: balance; }
 }
 .auth-chip .auth-logout:hover { color: var(--text); text-decoration: underline; }
 @media (max-width: 560px) { .auth-chip .auth-name { display: none; } }
-/* Logged-out CTAs in the chip slot (freemium): a filled "Join" (the Discord
-   invite — where premium is bought) + a ghost "Log in" for existing members. */
-.auth-chip[data-anon] { padding: 0; border: 0; background: transparent; }
-.auth-chip .auth-join {
-  display: inline-flex; align-items: center; gap: 7px;
-  height: 32px; padding: 0 13px; border-radius: 999px;
-  background: var(--accent); color: var(--accent-fg); text-decoration: none;
-  font-size: 13.5px; font-weight: 600; line-height: 1; transition: filter .15s;
-}
-.auth-chip .auth-join:hover { filter: brightness(1.08); }
-.auth-chip .auth-join svg { color: var(--accent-fg); }
-.auth-chip .auth-login {
-  color: var(--muted); text-decoration: none; font-weight: 600;
-  font-size: 13.5px; line-height: 1; padding: 0 4px;
-}
-.auth-chip .auth-login:hover { color: var(--text); text-decoration: underline; }
-
-/* --- Freemium gate -------------------------------------------------------- */
-/* Lock glyph on premium nav items, only while the visitor is NOT a member.
-   Drawn with a currentColor mask (not the emoji glyph, which renders in
-   full color and clashes with the rail) and pushed to the row's right edge
-   by the sidebar item's flex layout. */
-body:not(.is-member) [data-premium]::after {
-  content: "";
-  flex: 0 0 auto;
-  width: 11px; height: 11px;
-  margin-left: auto;
-  background: currentColor;
-  opacity: .45;
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='11' width='18' height='11' rx='2'/%3E%3Cpath d='M7 11V7a5 5 0 0 1 10 0v4'/%3E%3C/svg%3E") center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='11' width='18' height='11' rx='2'/%3E%3Cpath d='M7 11V7a5 5 0 0 1 10 0v4'/%3E%3C/svg%3E") center / contain no-repeat;
-}
-/* Owner destinations are present in the generated shell so principals get the
-   same single-page app after authentication, but they must never flash as paid
-   membership features while /me is unresolved or for a non-owner visitor. */
-body:not(.is-owner) :is(
-  [data-go="market"], [data-go="brief"], [data-go="narratives"],
-  [data-go="tickers"], [data-go="grade"], [data-go="compare"],
-  [data-go="strategies"], [data-go="stocks"], [data-go="rotation"],
-  [data-go="levetf"], [data-go="flow"], [data-go="volume"],
-  [data-go="oi"], [data-go="iv-trend"], [data-go="streaks"], [data-go="spillover"], [data-go="index-cal"],
-  [data-go="picks"], [data-go="track"], [data-go="quant"]
-) { display:none !important; }
-/* A locked premium pane hides its real content and shows only the upsell card. */
-.page-pane.locked > :not(.premium-lock) { display: none !important; }
-.premium-lock { display: none; }
-.page-pane.locked > .premium-lock { display: block; }
-.premium-lock {
-  padding: 48px 18px; display: flex; justify-content: center;
-}
-.premium-lock-card {
-  max-width: 780px; width: 100%;
-  background:
-    radial-gradient(circle at 92% 8%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 34%),
-    var(--surface, var(--panel, #12151c));
-  border: 1px solid var(--border); border-radius: 18px;
-  padding: 30px;
-  box-shadow: 0 18px 48px rgba(0,0,0,.28);
-}
-.premium-lock-head {
-  display: flex; align-items: center; gap: 11px;
-  padding-bottom: 18px; margin-bottom: 22px;
-  border-bottom: 1px solid var(--hairline);
-}
-.premium-lock-badge {
-  width: 46px; height: 46px; flex: 0 0 auto;
-  display: grid; place-items: center; border-radius: 14px;
-  color: var(--accent, #5865f2);
-  background: color-mix(in srgb, var(--accent, #5865f2) 14%, transparent);
-}
-.premium-lock-head span { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
-.premium-lock-head small {
-  color: var(--accent); font: 700 10px/1.1 var(--font-mono);
-  letter-spacing: .08em; text-transform: uppercase;
-}
-.premium-lock-head b { color: var(--text-strong); font-size: 15px; line-height: 1.2; }
-.premium-lock-grid {
-  display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(250px, .88fr);
-  gap: 28px; align-items: stretch;
-}
-.premium-lock-copy { min-width: 0; }
-.premium-lock-title { color: var(--text-strong); font-size: clamp(22px, 3vw, 30px); margin: 0 0 10px; line-height: 1.12; letter-spacing: -.025em; }
-.premium-lock-body { color: var(--muted-strong); font-size: 14px; line-height: 1.6; margin: 0 0 22px; }
-.premium-lock-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
-.premium-lock-cta {
-  display: inline-flex; align-items: center; justify-content: center; gap: 9px;
-  min-height: 42px; padding: 11px 16px; border-radius: 10px;
-  background: var(--accent); color: var(--accent-fg); text-decoration: none;
-  font-size: 13px; font-weight: 700; transition: filter .15s;
-}
-.premium-lock-cta:hover { filter: brightness(1.08); }
-.premium-lock-cta svg { color: var(--accent-fg); }
-.premium-lock-free {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-height: 42px; padding: 10px 14px;
-  border: 1px solid var(--border-strong); border-radius: 10px;
-  background: var(--surface-2); color: var(--text-strong);
-  font: 650 12px/1.2 var(--font-sans); text-decoration: none;
-}
-.premium-lock-free:hover { border-color: var(--accent); color: var(--accent); }
-.premium-lock-foot { color: var(--muted); font-size: 12.5px; margin: 15px 0 0; }
-.premium-lock-foot a { color: var(--accent, #5865f2); text-decoration: none; }
-.premium-lock-foot a:hover { text-decoration: underline; }
-.premium-lock-includes {
-  display: flex; flex-direction: column; min-width: 0;
-  padding: 18px; border: 1px solid var(--border);
-  border-radius: 14px; background: color-mix(in srgb, var(--surface-2) 84%, transparent);
-}
-.premium-lock-includes > span {
-  color: var(--muted); font: 700 10px/1.1 var(--font-mono);
-  letter-spacing: .075em; text-transform: uppercase;
-}
-.premium-lock-includes ul {
-  display: flex; flex-direction: column; gap: 11px;
-  margin: 16px 0; padding: 0; list-style: none;
-}
-.premium-lock-includes li { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; align-items: start; }
-.premium-lock-includes li i {
-  display: grid; place-items: center; width: 18px; height: 18px;
-  border-radius: 50%; background: color-mix(in srgb, var(--pos) 15%, transparent);
-  color: var(--pos); font: 800 10px/1 var(--font-sans); font-style: normal;
-}
-.premium-lock-includes li b { color: var(--text); font-size: 12.5px; line-height: 1.35; }
-.premium-lock-includes p {
-  margin: auto 0 0; padding-top: 12px; border-top: 1px solid var(--hairline);
-  color: var(--muted); font-size: 11.5px; line-height: 1.4;
-}
-@media (max-width: 680px) {
-  .premium-lock { padding: 24px 0; }
-  .premium-lock-card { padding: 20px; border-radius: 14px; }
-  .premium-lock-grid { grid-template-columns: minmax(0, 1fr); gap: 18px; }
-  .premium-lock-actions { align-items: stretch; flex-direction: column; }
-  .premium-lock-cta,
-  .premium-lock-free { width: 100%; }
-}
+/* Owner Lab must not flash while /me is unresolved or for public visitors. */
+body:not(.is-owner) [data-go="quant"] { display:none !important; }
 .icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 32px; height: 32px;
@@ -932,14 +810,13 @@ body.sidenav-open .side-nav {
   border-bottom-color: var(--accent);
   text-decoration: none;
 }
-/* Discord join link in the footer — accented so it stands out as the path to
-   premium without shouting like a button. */
-.site-footer a.foot-discord {
-  color: var(--accent, #5865f2);
+/* Donation link is accented without competing with the header button. */
+.site-footer a.foot-support {
+  color: #ff6966;
   font-weight: 600;
   border-bottom-color: transparent;
 }
-.site-footer a.foot-discord:hover { border-bottom-color: var(--accent, #5865f2); }
+.site-footer a.foot-support:hover { color: #ff6966; border-bottom-color: #ff6966; }
 
 /* === Status strip ===
    Sits between the header and the page tabs. Three slots laid out like a

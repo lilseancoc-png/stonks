@@ -819,8 +819,7 @@ BLS is primary for major labor/inflation series, with FRED fallback. The FOMC sc
 
 The reaction direction is the market's actual response, not an assumption that a beat must be bullish.
 
-The tab and `data/earnings-tracker.json` require a premium session. Calendar
-earnings dates and each ticker's own earnings history remain free.
+The tab and `data/earnings-tracker.json` are public and require no session.
 
 ### Earnings Calls
 
@@ -1376,7 +1375,7 @@ Model resilience includes per-call model defaults, retry ladders, dead-model det
 
 ## 20. Audit findings and interpretation cautions
 
-1. **Current code and older repository guidance can differ on tiering.** The current `PREMIUM_TABS` and `lib/premium-keys.mjs` are the authority. Narratives, Earnings Calls, and Index Calendar are free; Earnings Tracker, Sector Rotation, Event Spillover, Trending IV, and Streaks are premium.
+1. **Current code and older repository guidance can differ on tiering.** The current `OWNER_TABS` and `lib/premium-keys.mjs` are the authority. Every user-facing research tab is public; only Owner Lab and its internal state require both Owner claims.
 2. **One UI help string overstates the IV-cost range.** The executable grade code and canonical Top Picks document use `-2…+1`; a tooltip in the generated app source still describes a broader `-3…+1.5` idea. This is copy drift, not scoring behavior.
 3. **“Sector rotation” names two different concepts.** Heatmap sector streaks measure breadth persistence. The Sector Rotation tab is the robust peer-washout rebound model.
 4. **Live price does not make every derived field live.** Entry zone and quote state may update, while a baked z-score, frozen mean, or historical volatility statistic remains anchored to its named build.

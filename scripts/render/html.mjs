@@ -10,7 +10,7 @@ import {
   htmlEscape,
 } from '../build.mjs';
 import { DOC_PAGES, DOC_ORDER, DOC_THEME_OVERRIDE } from './docs.mjs';
-import { DISCORD_INVITE_URL } from '../../lib/links.mjs';
+import { KO_FI_URL } from '../../lib/links.mjs';
 
 // Reference / legal / info pages (Buyer's manual, Chart patterns, What's
 // included, Privacy, Terms) — formerly standalone .html files, now in-app tabs.
@@ -445,7 +445,7 @@ function indexCalSection() {
 
 function stockPicksSection() {
   // Card chrome only — the quality-dip candidate cards render client-side
-  // from data/stock-picks.json (premium; lazy-fetched on first tab activation
+  // from data/stock-picks.json (public; lazy-fetched on first tab activation
   // by loadStocks() in app.js). A separate product from Top Picks: shares,
   // not option contracts.
   return `<section class="card" id="stocks-section">
@@ -460,7 +460,7 @@ function stockPicksSection() {
 
 function sectorRotationSection() {
   // Card chrome only — the sector-led rebound candidates render client-side
-  // from data/sector-rotation.json (premium; lazy-fetched on first tab
+  // from data/sector-rotation.json (public; lazy-fetched on first tab
   // activation). The screen separates a shared group washout from company-
   // specific damage, then waits for the stock itself to prove it is turning.
   return `<section class="card" id="rotation-section">
@@ -475,7 +475,7 @@ function sectorRotationSection() {
 
 function leveragedEtfsSection() {
   // Card chrome only — the leveraged-ETF idea cards render client-side from
-  // data/leveraged-etfs.json (premium; lazy-fetched on first tab activation by
+  // data/leveraged-etfs.json (public; lazy-fetched on first tab activation by
   // loadLevEtf() in app.js, then decorated with live quotes via /api/quotes).
   // Functions like Top Picks but the instrument is a leveraged ETF, not an
   // option contract.
@@ -1539,17 +1539,15 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   // Manifest is embedded inline so the narratives card + combobox can paint
   // on first frame. Per-ticker chain JSON is still lazy-fetched from
   // data/<SYMBOL>.json on demand.
-  // --- Manifest split (private-data migration / Path B + freemium tiering) ---
+  // --- Manifest split (private-data migration / Path B) ----------------------
   // The manifest's heavy fields are externalized to sidecars so the committed
   // (public-repo) index.html carries only a non-sensitive SHELL (ticker list,
   // sector taxonomy, freshness-stub meta) plus a `deferred` flag. app.js then
-  // fetches the sidecars and merges them before first paint. Two sidecars, by
-  // tier (see lib/premium-keys.mjs):
-  //   \u2022 data/manifest.json (PREMIUM, gated) \u2014 the premium-only half:
-  //     unusual-flow snapshot. Served only to a valid session.
-  //   \u2022 data/manifest-free.json (FREE, public) \u2014 the open-tab half: macro
+  // fetches two public sidecars and merges them before first paint:
+  //   \u2022 data/manifest.json \u2014 unusual-flow snapshot.
+  //   \u2022 data/manifest-free.json \u2014 macro
   //     narratives, sector overviews, recently-ended narratives, headlines,
-  //     last spots, fear-greed, macro backdrop, market backdrop. Powers the free
+  //     last spots, fear-greed, macro backdrop, market backdrop. Powers the
   //     Narratives / Bonds & USD / Fear & Greed / Grade / Heatmap surfaces.
   // Without dataDir, inline the full manifest (legacy/standalone render).
   // Both sidecars carry provenance that is deliberately separate from the
@@ -1560,7 +1558,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     dataBuiltAtIso: builtAtIso,
     renderedAtIso: assetVersion || builtAtIso,
   };
-  const premiumManifest = {
+  const flowManifest = {
     _meta: sidecarMeta,
     unusual: unusual || null,
   };
@@ -1596,17 +1594,15 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   let inlineManifest;
   if (dataDir) {
     try {
-      writeFileSync(resolve(dataDir, "manifest.json"), JSON.stringify(premiumManifest), "utf8");
+      writeFileSync(resolve(dataDir, "manifest.json"), JSON.stringify(flowManifest), "utf8");
       writeFileSync(resolve(dataDir, "manifest-free.json"), JSON.stringify(freeManifest), "utf8");
       inlineManifest = { ...shellManifest, deferred: true };
     } catch (err) {
-      // A private-data render must never recover by embedding the premium half
-      // in the public HTML. Abort the publish instead: the prior deployment and
-      // private-store objects remain intact, while CI surfaces the disk failure.
+      // Abort rather than shipping a partial manifest split.
       throw new Error(`manifest sidecar write failed: ${err?.message || err}`, { cause: err });
     }
   } else {
-    inlineManifest = { ...shellManifest, ...freeManifest, ...premiumManifest };
+    inlineManifest = { ...shellManifest, ...freeManifest, ...flowManifest };
   }
   const manifestPayload = JSON.stringify(inlineManifest)
     .replace(/</g, "\\u003C").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
@@ -1659,13 +1655,15 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         <span class="cmd-palette-trigger-label">Search ticker, narrative, tab…</span>
         <kbd class="cmd-palette-trigger-kbd">⌘K</kbd>
       </button>
+      <a class="donate-btn" href="${KO_FI_URL}" target="_blank" rel="noopener" aria-label="Support stonks on Ko-fi" title="Support stonks on Ko-fi">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h14v7a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5Z"/><path d="M17 10h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M7.5 11.5c1-1.4 3-1.4 4 0 1-1.4 3-1.4 4 0 0 2.2-2 3.5-4 4.7-2-1.2-4-2.5-4-4.7Z"/></svg>
+        <span>Support</span>
+      </a>
       <button id="theme-toggle" class="icon-btn" aria-label="Toggle theme" type="button">
         <svg class="i-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
         <svg class="i-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
       </button>
-      <!-- Auth chip — content (member name + Log out, or a "Log in" CTA) is
-           rendered at runtime by renderAuthChip() from /api/auth/me; hidden by
-           default so nothing flashes before membership resolves. -->
+      <!-- Owner session chip. Public visitors never see a login CTA. -->
       <div id="auth-chip" class="auth-chip" hidden></div>
     </nav>
   </div>
@@ -1689,8 +1687,37 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <summary class="side-nav-group-label">Desk</summary>
     <div class="side-nav-group-items">
       ${sideNavItem('home', 'Home', { selected: true })}
+      ${sideNavItem('market', 'Market analysis')}
+      ${sideNavItem('brief', 'Brief')}
       ${sideNavItem('news', 'News')}
       ${sideNavItem('heatmap', 'Heatmap')}
+    </div>
+  </details>
+  <details class="side-nav-group" data-nav-group="research" open>
+    <summary class="side-nav-group-label">Research</summary>
+    <div class="side-nav-group-items">
+      ${sideNavItem('narratives', 'Narratives')}
+      ${sideNavItem('tickers', 'Tickers')}
+      ${sideNavItem('grade', 'Grade a ticker')}
+      ${sideNavItem('compare', 'Compare companies')}
+      ${sideNavItem('strategies', 'Strategies')}
+    </div>
+  </details>
+  <details class="side-nav-group" data-nav-group="ideas">
+    <summary class="side-nav-group-label">Ideas &amp; flow</summary>
+    <div class="side-nav-group-items">
+      ${sideNavItem('picks', 'Top picks')}
+      ${sideNavItem('stocks', 'Stock picks')}
+      ${sideNavItem('rotation', 'Sector rotation')}
+      ${sideNavItem('levetf', 'Leveraged ETFs')}
+      ${sideNavItem('flow', 'Unusual flow')}
+      ${sideNavItem('volume', 'Volume')}
+      ${sideNavItem('oi', 'Gamma exposure')}
+      ${sideNavItem('iv-trend', 'Trending IV')}
+      ${sideNavItem('streaks', 'Streaks')}
+      ${sideNavItem('spillover', 'Event spillover')}
+      ${sideNavItem('index-cal', 'Index calendar')}
+      ${sideNavItem('track', 'Track record')}
     </div>
   </details>
   <details class="side-nav-group" data-nav-group="events">
@@ -1723,30 +1750,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     </div>
   </details>
   <details class="side-nav-group" data-nav-group="owner" data-role-group="owner" hidden>
-    <!-- Actionable trade-decision surfaces are internal Owner tools. Every
-         destination requires BOTH the Track Record (tr) and Top Picks (tp)
-         claims. The group starts hidden to prevent a pre-auth flash. -->
+    <!-- The one private workspace; hidden until both Owner claims resolve. -->
     <summary class="side-nav-group-label">Owner</summary>
     <div class="side-nav-group-items">
-      ${sideNavItem('market', 'Market analysis')}
-      ${sideNavItem('brief', 'Brief')}
-      ${sideNavItem('narratives', 'Narratives')}
-      ${sideNavItem('tickers', 'Tickers')}
-      ${sideNavItem('grade', 'Grade a ticker')}
-      ${sideNavItem('compare', 'Compare companies')}
-      ${sideNavItem('strategies', 'Strategies')}
-      ${sideNavItem('stocks', 'Stock picks')}
-      ${sideNavItem('rotation', 'Sector rotation')}
-      ${sideNavItem('levetf', 'Leveraged ETFs')}
-      ${sideNavItem('flow', 'Unusual flow')}
-      ${sideNavItem('volume', 'Volume')}
-      ${sideNavItem('oi', 'Gamma exposure')}
-      ${sideNavItem('iv-trend', 'Trending IV')}
-      ${sideNavItem('streaks', 'Streaks')}
-      ${sideNavItem('spillover', 'Event spillover')}
-      ${sideNavItem('index-cal', 'Index calendar')}
-      ${sideNavItem('picks', 'Top picks')}
-      ${sideNavItem('track', 'Track record')}
       ${sideNavItem('quant', 'Owner Lab')}
     </div>
   </details>
@@ -2388,7 +2394,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <footer class="site-footer">
   <div>Built <span class="muted">${builtAt} (NY)</span></div>
   <div class="muted">All analytical and editorial content is AI-generated or algorithmically produced and may be wrong. Verify independently. Data: third-party sources. For information only — not investment advice.</div>
-  <div><a class="foot-discord" href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">Join our Discord to unlock premium</a></div>
+  <div><a class="foot-support" href="${KO_FI_URL}" target="_blank" rel="noopener">Support stonks on Ko-fi</a></div>
   <div><a href="/?tab=features">What's included</a> · <a href="/?tab=privacy">Privacy Policy</a> · <a href="/?tab=terms">Terms of Use</a></div>
 </footer>
 <button id="back-to-top" class="back-to-top" type="button" aria-label="Back to top" title="Back to top">
@@ -2412,6 +2418,8 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
 </div>
 <script>window.STONKS_MANIFEST=${manifestPayload};<\/script>
+<script>window.va=window.va||function(){(window.vaq=window.vaq||[]).push(arguments)};<\/script>
+<script defer src="/_vercel/insights/script.js"></script>
 <script src="app.js?v=${cacheBust}" defer></script>
 <script type="module" src="js/streaks.js?v=${cacheBust}"></script>
 </body>

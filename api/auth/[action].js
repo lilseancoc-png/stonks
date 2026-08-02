@@ -8,9 +8,9 @@
 //   logout           -> clear session
 //   me               -> report session for the "signed in as …" chip
 //
-// Entitlement = a Discord role you assign by hand; we only READ it via
-// `guilds.members.read`. See docs/private-data-migration.md §4.5.
-// INERT until the gate (middleware) is wired up.
+// Discord auth is intentionally an INTERNAL Owner Lab mechanism. Public site
+// access never requires a login; only principals holding both configured Owner
+// roles can mint a session.
 
 import { randomBytes } from "node:crypto";
 import {
@@ -40,8 +40,7 @@ function redirect(res, location, cookies) {
   res.setHeader("Location", location);
   res.end();
 }
-// Union of the legacy single role ID + an optional comma-separated list, trimmed
-// and de-duped. Holding ANY one of these unlocks the gate.
+// Union of a single role ID + an optional comma-separated list.
 function parseRoleIds(single, list) {
   return new Set(
     [single, ...String(list || "").split(",")]
@@ -96,37 +95,26 @@ async function callback(req, res) {
     DISCORD_CLIENT_ID,
     DISCORD_CLIENT_SECRET,
     DISCORD_GUILD_ID,
-    DISCORD_REQUIRED_ROLE_ID,
-    DISCORD_REQUIRED_ROLE_IDS,
     DISCORD_TRACKRECORD_ROLE_ID,
     DISCORD_TRACKRECORD_ROLE_IDS,
     DISCORD_TOPPICKS_ROLE_ID,
     DISCORD_TOPPICKS_ROLE_IDS,
     SESSION_SECRET,
   } = process.env;
-  // Accept ANY of a set of role IDs so a member can be unlocked by either the
-  // Discord-managed subscription role (auto-granted to paying subscribers, but
-  // un-assignable by hand — even by the owner) OR a normal role you assign
-  // yourself (owner/comp/trial). Sourced from the legacy single
-  // DISCORD_REQUIRED_ROLE_ID plus an optional comma-separated DISCORD_REQUIRED_ROLE_IDS.
-  const requiredRoleIds = parseRoleIds(DISCORD_REQUIRED_ROLE_ID, DISCORD_REQUIRED_ROLE_IDS);
   const trackRecordRoleIds = parseRoleIds(
     DISCORD_TRACKRECORD_ROLE_ID,
     DISCORD_TRACKRECORD_ROLE_IDS,
   );
   const topPicksRoleIds = parseRoleIds(DISCORD_TOPPICKS_ROLE_ID, DISCORD_TOPPICKS_ROLE_IDS);
-  // A genuine owner must be able to authenticate even if the owner role is not
-  // duplicated in the paid-member role list. Access still requires the owner
-  // role to satisfy BOTH special claim sets below.
-  const loginRoleIds = new Set([...requiredRoleIds, ...trackRecordRoleIds, ...topPicksRoleIds]);
+  const ownerRolesConfigured = trackRecordRoleIds.size > 0 && topPicksRoleIds.size > 0;
   if (
     !DISCORD_CLIENT_ID ||
     !DISCORD_CLIENT_SECRET ||
     !DISCORD_GUILD_ID ||
-    requiredRoleIds.size === 0 ||
+    !ownerRolesConfigured ||
     !SESSION_SECRET
   ) {
-    return res.status(503).json({ error: "discord auth not configured" });
+    return res.status(503).json({ error: "owner auth not configured" });
   }
 
   const secure = proto(req) === "https";
@@ -168,21 +156,13 @@ async function callback(req, res) {
     const member = await memRes.json();
     const roles = Array.isArray(member.roles) ? member.roles : [];
 
-    // 3) the gate: must hold ANY of the accepted roles.
-    if (!roles.some((r) => loginRoleIds.has(r))) {
+    // 3) INTERNAL OWNER GATE. The two settings may point at the same role,
+    // but both claims must be satisfied before any session is minted.
+    const hasTrackRecord = roles.some((r) => trackRecordRoleIds.has(r));
+    const hasTopPicks = roles.some((r) => topPicksRoleIds.has(r));
+    if (!hasTrackRecord || !hasTopPicks) {
       return redirect(res, "/welcome.html?denied=role", clearState);
     }
-
-    // 3b) INTERNAL OWNER TIER. Every actionable surface requires BOTH claims.
-    // The two env settings may point at the same Discord owner role. Missing or
-    // malformed role configuration fails closed; it must never promote every
-    // paying member into the internal workspace.
-    const ownerRolesConfigured = trackRecordRoleIds.size > 0 && topPicksRoleIds.size > 0;
-    if (!ownerRolesConfigured) {
-      console.error("Owner role configuration missing or invalid — internal tabs fail closed. Set both DISCORD_TRACKRECORD_ROLE_ID(S) and DISCORD_TOPPICKS_ROLE_ID(S); they may use the same role ID.");
-    }
-    const hasTrackRecord = ownerRolesConfigured && roles.some((r) => trackRecordRoleIds.has(r));
-    const hasTopPicks = ownerRolesConfigured && roles.some((r) => topPicksRoleIds.has(r));
 
     // 4) mint the session cookie and enter the app. `tr`/`tp` ride inside the
     // signed (HS256, tamper-proof) JWT payload — set EXPLICITLY true/false so
@@ -190,7 +170,7 @@ async function callback(req, res) {
     const user = member.user || {};
     const jwt = await signSession({
       sub: user.id || null,
-      name: user.global_name || user.username || "member",
+      name: user.global_name || user.username || "owner",
       tr: hasTrackRecord,
       tp: hasTopPicks,
     });
@@ -199,7 +179,7 @@ async function callback(req, res) {
       secure,
       sameSite: "Lax",
     });
-    return redirect(res, "/", [clearState, sessionCookie]);
+    return redirect(res, "/?tab=quant", [clearState, sessionCookie]);
   } catch (err) {
     console.error("discord-callback failed", { message: String(err?.message || err) });
     return redirect(res, "/welcome.html?denied=error", clearState);
@@ -237,10 +217,7 @@ async function me(req, res) {
       return res.status(502).json({ error: "data unavailable" });
     }
   }
-  // `enabled` tells the freemium client whether the gate is live at all. When
-  // it's off (legacy fully-public deploy) the client treats everyone as a
-  // member and shows no locks; when it's on, only an authed session unlocks
-  // the premium tabs.
+  // `enabled` tells the client whether reads should use the private-store API.
   const enabled = process.env.PRIVATE_DATA_ENABLED === "1";
   // The pair of explicit claims is the internal Owner entitlement. Legacy or
   // malformed sessions without explicit true values fail closed and must log

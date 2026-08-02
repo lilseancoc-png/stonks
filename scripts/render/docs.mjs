@@ -12,7 +12,7 @@
 // absolute). To retune the shared skin (colours/fonts/chrome), edit
 // DOC_THEME_OVERRIDE. Hand-maintained; no build step regenerates this file.
 
-import { DISCORD_INVITE_URL } from "../../lib/links.mjs";
+import { DISCORD_INVITE_URL, KO_FI_URL } from "../../lib/links.mjs";
 
 export const DOC_ORDER = ["cheatsheet","chart-patterns","features","privacy","terms"];
 
@@ -1187,18 +1187,18 @@ export const DOC_PAGES = {
 
   <header class="pg">
     <div class="kicker">stonks &middot; what's included</div>
-    <h1>Market research,<br><em>clearly separated.</em></h1>
-    <p class="intro">stonks publishes general market research. Most of it is <strong>free to browse</strong>; a small research layer is unlocked with a <strong>premium Discord membership</strong>. Security-selection, trade-timing, contract-grading, sizing, and position-management tools are internal <strong>Owner</strong> tools and are not sold as membership benefits. <a href="/">Start browsing &rarr;</a></p>
+    <h1>Market research,<br><em>open to everyone.</em></h1>
+    <p class="intro">stonks is completely free to browse. There is no public account, subscription, premium tier, or paywall. The only private area is <strong>Owner Lab</strong>, an internal workspace for the site's principals. <a href="/">Start browsing &rarr;</a></p>
   </header>
 
   <nav class="toc" aria-label="Table of contents">
     <h2>Contents</h2>
     <ol>
       <li><a href="#glance">Access at a glance</a></li>
-      <li><a href="#free">What's free</a></li>
-      <li><a href="#premium">What premium unlocks</a></li>
-      <li><a href="#owner">Internal Owner tools</a></li>
-      <li><a href="#how">How membership works</a></li>
+      <li><a href="#free">Public research</a></li>
+      <li><a href="#premium">Ideas and decision tools</a></li>
+      <li><a href="#owner">Private Owner Lab</a></li>
+      <li><a href="#how">Support the site</a></li>
       <li><a href="#good">Good to know</a></li>
     </ol>
   </nav>
@@ -1206,11 +1206,11 @@ export const DOC_PAGES = {
   <main>
     <section id="glance">
       <h2><span class="snum">01</span>Access at a glance</h2>
-      <p class="sectlede">Public and member areas provide impersonal market information and event research. Anything that turns that information into a named-security trade decision is kept inside the private Owner workspace.</p>
+      <p class="sectlede">Every visitor gets the same public research and decision tools with no login. Owner Lab alone stays private because it contains personal holdings, account values, dollar-risk controls, and the owners' paper engine.</p>
       <div class="cmp">
         <div class="cmp-col free">
           <div class="cmp-head">
-            <span class="cmp-title">Free</span>
+            <span class="cmp-title">Public site</span>
             <span class="tier free">No login</span>
           </div>
           <div class="cmp-price"><b>$0</b> &middot; browse anytime</div>
@@ -1223,36 +1223,32 @@ export const DOC_PAGES = {
             <li><b>Macro</b> — Overnight markets, Fear &amp; Greed, Bonds &amp; USD, Commodities, Capital raises, and IPOs &amp; credit</li>
             <li><b>Alt data</b> — AI CapEx, RAM prices, GPU cloud prices, Search interest, and SEC ownership / 13F filings</li>
             <li><b>Earnings calls</b> — AI briefs covering guidance, tone and Q&amp;A</li>
+            <li><b>Research and ideas</b> — briefs, narratives, ticker grades, picks, flow, gamma, IV, and track record</li>
             <li><b>Reference</b> — Buyer's manual + Chart-patterns field guide</li>
           </ul>
           <div class="cmp-cta">
             <a class="btn ghost" href="/">Browse the free site</a>
           </div>
         </div>
-        <div class="cmp-col prem">
+        <div class="cmp-col prem" id="owner">
           <div class="cmp-head">
-            <span class="cmp-title">Premium</span>
-            <span class="tier prem">Discord member</span>
+            <span class="cmp-title">Owner Lab</span>
+            <span class="tier prem">Private</span>
           </div>
-          <div class="cmp-price"><b>Members</b> &middot; via Discord role</div>
-          <div class="cmp-sub">Everything in Free, plus the earnings-season research view.</div>
+          <div class="cmp-price"><b>Internal only</b> &middot; not for sale</div>
+          <div class="cmp-sub">A private workspace for the site's principals.</div>
           <ul class="cmp-list">
-            <li><b>Earnings tracker</b> — season scoreboard: beats, guidance, expected moves, drift</li>
-            <li><b>No stock picks or trade instructions</b> — membership does not include the internal Owner workspace</li>
+            <li><b>Personal controls</b> — held-position checks, account values, and dollar-risk sizing</li>
+            <li><b>Owner paper engine</b> — private simulations and internal research state</li>
           </ul>
-          <div class="cmp-cta">
-            <a class="btn discord" href="/api/auth/discord-login">
-              <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.25.5c1.6.4 2.9 1 4.1 1.8a13.5 13.5 0 0 0-11.5 0c1.2-.8 2.6-1.4 4.1-1.8L11.6 3A19.8 19.8 0 0 0 6.7 4.4 20.6 20.6 0 0 0 3 18.6 19.9 19.9 0 0 0 8 21l.6-.9c-.9-.3-1.7-.7-2.4-1.2.2-.1.4-.3.6-.4a14.2 14.2 0 0 0 12.4 0c.2.1.4.3.6.4-.7.5-1.5.9-2.4 1.2l.6.9a19.9 19.9 0 0 0 5-2.4 20.6 20.6 0 0 0-3.7-14.2ZM9 15.3c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg>
-              Log in with Discord
-            </a>
-          </div>
+          <div class="cmp-cta"><span class="btn ghost" aria-disabled="true">Not a public product</span></div>
         </div>
       </div>
     </section>
 
     <section id="free">
-      <h2><span class="snum">02</span>What's free</h2>
-      <p class="sectlede">No account required — open the site and these are all live. Refreshed automatically through the trading day.</p>
+      <h2><span class="snum">02</span>Public research</h2>
+      <p class="sectlede">No account required — open the site and every public tab is live. Refreshed automatically through the trading day.</p>
 
       <div class="grouplabel">News &amp; events</div>
       <div class="feat-grid">
@@ -1340,98 +1336,87 @@ export const DOC_PAGES = {
     </section>
 
     <section id="premium">
-      <span id="owner"></span>
-      <h2><span class="snum">03</span>Premium and Owner access</h2>
-      <p class="sectlede"><b>Premium membership unlocks only Earnings Tracker.</b> Every card labeled Owner below is an internal workspace for the site's principals: it is hidden from members, is not advertised or sold as a membership benefit, and requires both explicit Owner role claims.</p>
+      <h2><span class="snum">03</span>Ideas and decision tools</h2>
+      <p class="sectlede"><b>All of these tabs are public and free.</b> They are automated research outputs, not personalized advice, and should be independently verified before use.</p>
       <div class="feat-grid">
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Named-security research &amp; grading</span><span class="tier prem">Owner</span></div>
-          <p class="feat-desc">Narratives, per-ticker chains and AI takes, Grade a Ticker, Compare Companies, and Strategies are internal because they can select a named security, assign direction or conviction, grade a contract, or propose a trade structure.</p>
+          <div class="feat-top"><span class="feat-name">Named-security research &amp; grading</span><span class="tier free">Public</span></div>
+          <p class="feat-desc">Narratives, per-ticker chains and AI takes, Grade a Ticker, Compare Companies, and Strategies are open research tools for exploring named securities, conviction, contracts, and trade structures.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Market analysis</span><span class="tier prem">Owner</span></div>
+          <div class="feat-top"><span class="feat-name">Market analysis</span><span class="tier free">Public</span></div>
           <p class="feat-desc">The cross-asset risk read that sets the engine's posture — the live market tape (VIX, dollar, yields, commodities, Fed path, geopolitics), a risk-on / risk-off barometer, and the daily regime history. Plus grade <em>any</em> ticker on demand. The held-position checker is reserved for Owner Lab.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Top Picks</span><span class="tier prem">Owner</span></div>
-          <p class="feat-desc">The highest-conviction contracts pulled from today's chains — a deterministic four-pillar grade, a web-research-grounded AI final grader making the buy-now / wait call, the suggested contract and structure, position sizing, move-to-breakeven, an exit plan, and a shared watchlist that keeps an idea pinned through every refresh.</p>
+          <div class="feat-top"><span class="feat-name">Top Picks</span><span class="tier free">Public</span></div>
+          <p class="feat-desc">The highest-conviction contracts pulled from today's chains — a deterministic four-pillar grade, a web-research-grounded AI final grader making the buy-now / wait call, the suggested contract and structure, position sizing, move-to-breakeven, an exit plan, and a browser-local watchlist that keeps an idea pinned through refreshes.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Stock Picks</span><span class="tier prem">Owner</span></div>
-          <p class="feat-desc">Shares, not options — an internal buy-the-dip screen over the tracked universe that separates business quality, price dislocation, and active trap flags. Each card opens into a structured investment-thesis checklist, while Owner Lab holds the private dollar and account-risk controls.</p>
+          <div class="feat-top"><span class="feat-name">Stock Picks</span><span class="tier free">Public</span></div>
+          <p class="feat-desc">Shares, not options — a buy-the-dip screen over the tracked universe that separates business quality, price dislocation, and active trap flags. Each card opens into a structured investment-thesis checklist, while Owner Lab holds the private dollar and account-risk controls.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Sector Rotation</span><span class="tier prem">Owner</span></div>
+          <div class="feat-top"><span class="feat-name">Sector Rotation</span><span class="tier free">Public</span></div>
           <p class="feat-desc">A rebound desk for strong companies caught in a sector-wide washout rather than clear company-specific deterioration. It combines the existing fundamental quality gate with peer participation, clean-news checks and the stock&rsquo;s own reversal evidence, then classifies each setup as <b>washed out, first thrust, confirmed, or late</b>. First thrust waits for a pullback instead of chasing; every setup keeps its trigger, invalidation, first target and estimated reward/risk on the underlying stock so a dramatic bounce is never mistaken for a complete trade plan.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Leveraged ETFs</span><span class="tier prem">Owner</span></div>
+          <div class="feat-top"><span class="feat-name">Leveraged ETFs</span><span class="tier free">Public</span></div>
           <p class="feat-desc">The Top Picks grades expressed through listed leveraged ETFs instead of option contracts — single-stock 2× products (NVDL, TSLL, …) for high-conviction names, sector/index 3× pairs (SOXL/SOXS, TQQQ/SQQQ, …) when a whole group leans one way with real breadth. Every card carries the daily-reset drag estimate at current realized vol, a chop warning when the tape is volatile but trendless, the full cost of carry (verified fund fee + financing), a simulated daily-reset path drawn against the underlying, entry timing, and the drivers behind the read — and a direction with no listed product says so instead of inventing a ticker. The tab keeps its own track record: every flagged idea is logged at its live fund price and closed with a reason when the signal breaks, and the scoreboard (win rate, average move) is shown up front.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Briefs</span><span class="tier prem">Owner</span></div>
+          <div class="feat-top"><span class="feat-name">Briefs</span><span class="tier free">Public</span></div>
           <p class="feat-desc">A rolling market digest refreshed hourly through the session — overnight moves, the day's movers, notable flow, dealer gamma, what's next.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Earnings tracker</span><span class="tier prem">Premium</span></div>
+          <div class="feat-top"><span class="feat-name">Earnings tracker</span><span class="tier free">Public</span></div>
           <p class="feat-desc">A season-by-season scoreboard of every tracked name's earnings — beats vs misses, guidance raised or cut, whether the stock moved more than the options market priced in, pre-earnings drift, sell-the-news counts, the biggest gaps, upcoming event risk, and a daily AI season read.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Event Spillover</span><span class="tier prem">Owner</span></div>
+          <div class="feat-top"><span class="feat-name">Event Spillover</span><span class="tier free">Public</span></div>
           <p class="feat-desc">A read-through matrix for upcoming earnings: which same-sector peers have historically moved with the reporting company, how consistently, what the driver&rsquo;s options-implied move suggests for each follower, and whether overlapping events contaminate the read. A forward-validation log keeps the relationships accountable.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Trending IV</span><span class="tier prem">Owner</span></div>
+          <div class="feat-top"><span class="feat-name">Trending IV</span><span class="tier free">Public</span></div>
           <p class="feat-desc">Every name's ATM ~30-day implied vol against its own ~18-month history — names running above their historical average and still climbing are flagged as pricing in a bigger-than-usual move, with earnings context and IV sparklines.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Streaks</span><span class="tier prem">Owner</span></div>
+          <div class="feat-top"><span class="feat-name">Streaks</span><span class="tier free">Public</span></div>
           <p class="feat-desc">Current green/red daily-close streaks for every ticker, a counter-day tolerance bank, rarity context, and a just-snapped mean-reversion strip.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Unusual flow</span><span class="tier prem">Owner</span></div>
+          <div class="feat-top"><span class="feat-name">Unusual flow</span><span class="tier free">Public</span></div>
           <p class="feat-desc">Options prints with abnormal volume vs the prior session, the call-vs-put premium skew, and a directional lean — who's pricing in what.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Volume</span><span class="tier prem">Owner</span></div>
+          <div class="feat-top"><span class="feat-name">Volume</span><span class="tier free">Public</span></div>
           <p class="feat-desc">Intraday volume standouts and support/resistance breaks, with an hour-by-hour volume-profile strip on every flagged name.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Gamma exposure</span><span class="tier prem">Owner</span></div>
+          <div class="feat-top"><span class="feat-name">Gamma exposure</span><span class="tier free">Public</span></div>
           <p class="feat-desc">The dealer net-gamma (GEX) matrix per strike, the gamma flip line, and the call/put walls — where moves get pinned or amplified.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Track Record</span><span class="tier prem">Owner</span></div>
+          <div class="feat-top"><span class="feat-name">Track Record</span><span class="tier free">Public</span></div>
           <p class="feat-desc">The resolved Top-Picks performance — win rate, win/loss payoff, expectancy vs SPY, an engine-health summary that explains why each pick won or lost, a $100k backtest simulator with Monte Carlo, and the roster's in/out churn over time.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Owner Lab</span><span class="tier prem">Owner</span></div>
-          <p class="feat-desc">The held-position checker and the private dollar/account-risk controls for the DCA, Sector Rotation, and Leveraged ETF screens live here, alongside deterministic confluence, fixed 3σ outlier, realized-vs-implied volatility, pairs, volatility-surface, dispersion, post-earnings drift, and paper-engine research. It requires both Top Picks and Track Record access; deployments may assign both claims through the same owner role.</p>
+          <div class="feat-top"><span class="feat-name">Owner Lab</span><span class="tier prem">Private</span></div>
+          <p class="feat-desc">The held-position checker, personal dollar/account-risk controls, deterministic quant research, and paper engine live here. It is an internal workspace for the site's principals, requires both Owner claims, and is not sold or exposed as a public signup.</p>
         </div>
         <div class="feat">
-          <div class="feat-top"><span class="feat-name">Index calendar + hour tracker</span><span class="tier prem">Owner</span></div>
+          <div class="feat-top"><span class="feat-name">Index calendar + hour tracker</span><span class="tier free">Public</span></div>
           <p class="feat-desc">A month-grid of daily index closes plus a SPY / QQQ / IWM session log: overnight gap, first-hour return/range/volume, 10:30-to-close recovery, last-hour move, open-to-close result and when the day&rsquo;s high or low printed. Conditional probabilities run on rolling monthly / 30 / 40-session windows and can be sliced by gap, prior-close VIX, major morning data, Fed speakers, and pre-open trend / volatility / risk regime.</p>
         </div>
       </div>
     </section>
 
     <section id="how">
-      <h2><span class="snum">04</span>How membership works</h2>
-      <p class="sectlede">Premium event research is unlocked through our Discord server. There is no separate stonks account. Owner access is a separate, internal entitlement and cannot be purchased through membership.</p>
-      <ol class="steps">
-        <li><b><a href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">Join the Discord</a> and get the member role.</b> Premium access rides on a role in our server. Members get it automatically; ask in the server if you don't see it yet.</li>
-        <li><b>Log in with Discord.</b> Hit <a href="/api/auth/discord-login">Log in</a> (or the "Log in" button in the site header). We check your server membership and role — nothing else.</li>
-        <li><b>The premium research tab unlocks.</b> Earnings Tracker becomes available. The Owner group remains hidden because it requires two separately configured internal role claims and is not part of the subscription.</li>
-      </ol>
-      <div class="callout">
-        <b>Privacy &amp; sessions:</b> we only read your Discord user ID, username, and the roles relevant to access. Login mints a short-lived, secure session cookie — sign out anytime. See the <a href="/privacy.html">Privacy Policy</a> for the full detail.
-      </div>
+      <h2><span class="snum">04</span>Support the site</h2>
+      <p class="sectlede">stonks is free to use. If the research saves you time and you want to help cover data, AI, and hosting costs, you can leave an optional donation on Ko-fi.</p>
+      <div class="callout"><b>Donations do not unlock access or buy investment advice.</b> They are voluntary support for keeping the public site running. Owner Lab remains a private internal workspace.</div>
       <div class="ctarow">
-        <a class="btn discord" href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">
-          <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.25.5c1.6.4 2.9 1 4.1 1.8a13.5 13.5 0 0 0-11.5 0c1.2-.8 2.6-1.4 4.1-1.8L11.6 3A19.8 19.8 0 0 0 6.7 4.4 20.6 20.6 0 0 0 3 18.6 19.9 19.9 0 0 0 8 21l.6-.9c-.9-.3-1.7-.7-2.4-1.2.2-.1.4-.3.6-.4a14.2 14.2 0 0 0 12.4 0c.2.1.4.3.6.4-.7.5-1.5.9-2.4 1.2l.6.9a19.9 19.9 0 0 0 5-2.4 20.6 20.6 0 0 0-3.7-14.2ZM9 15.3c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg>
-          Join the Discord
-        </a>
-        <a class="btn ghost" href="/api/auth/discord-login">Already a member? Log in</a>
+        <a class="btn discord" href="${KO_FI_URL}" target="_blank" rel="noopener">Support stonks on Ko-fi</a>
+        <a class="btn ghost" href="/">Keep browsing</a>
       </div>
     </section>
 
@@ -1444,7 +1429,7 @@ export const DOC_PAGES = {
         <li><strong>Greeks are computed locally.</strong> Black-Scholes math runs in your browser against the live risk-free rate — nothing about a contract you grade is uploaded.</li>
         <li><strong>Not financial advice.</strong> stonks is a research and educational tool. Nothing here is a recommendation to buy or sell any security. Options carry risk; do your own diligence.</li>
       </ul>
-      <p>Questions about membership? Ask in the Discord, or see the <a href="/terms.html">Terms of Use</a> and <a href="/privacy.html">Privacy Policy</a>.</p>
+      <p>Questions? Ask in the <a href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">Discord</a>, or see the <a href="/terms.html">Terms of Use</a> and <a href="/privacy.html">Privacy Policy</a>.</p>
     </section>
   </main>
 
@@ -1620,24 +1605,26 @@ export const DOC_PAGES = {
       <h2><span class="snum">01</span>Information We Collect</h2>
       <p>We collect several types of information from and about users of our Service, including:</p>
 
-      <h3>Discord Account Information</h3>
+      <h3>Owner Access Information</h3>
       <ul>
-        <li>If you log in, your Discord user ID, username or display name, membership in our Discord server, and the roles relevant to Service access.</li>
-        <li>A signed session token containing your Discord user ID, display name, and access entitlements. The token is stored in a short-lived, secure, HttpOnly cookie.</li>
+        <li>Public visitors do not need an account or login.</li>
+        <li>If a principal uses the private Owner Lab login, we process their Discord user ID, username or display name, server membership, and the two roles required for Owner access.</li>
+        <li>A signed session token containing that limited Owner identity and access claims is stored in a short-lived, secure, HttpOnly cookie.</li>
       </ul>
-      <p>We do not receive your Discord password. The Discord OAuth access token used to verify your server membership and roles is processed during login and is not intentionally retained after the login request is completed.</p>
+      <p>We do not receive a Discord password. The OAuth access token used for the internal Owner check is processed during login and is not intentionally retained after the request completes.</p>
 
-      <h3>Subscription and Payment Information</h3>
-      <p>Paid membership is purchased and managed through Discord or another identified third-party platform. The Site does not receive or store your full payment-card number or billing credentials. We may infer your current access level from the Discord roles returned during login.</p>
+      <h3>Donations</h3>
+      <p>Optional donations are handled on Ko-fi. The Site does not receive or store your full payment-card number or billing credentials. Ko-fi processes information under its own terms and privacy policy.</p>
 
       <h3>Usage and Technical Information</h3>
       <ul>
         <li>Standard request and security-log information that our hosting infrastructure may process, such as IP address, request date and time, requested URL, referrer, browser or user-agent information, and error or abuse signals.</li>
+        <li>Vercel Web Analytics provides aggregated, cookie-free traffic measurements such as page views, daily visitors, page URL without query parameters, referrer, country, browser, device type, and operating system. Vercel uses a short-lived hash rather than a persistent cross-site identifier.</li>
         <li>Necessary cookies and browser storage described in &ldquo;Cookies and Local Storage&rdquo; below.</li>
       </ul>
 
       <h3>Information from Third Parties</h3>
-      <p>We receive the limited account and role information described above from Discord when you choose to log in. Third-party platforms that sell a membership may separately collect payment, billing, and account information under their own terms and privacy policies.</p>
+      <p>We receive the limited account and role information described above from Discord only when an authorized principal uses Owner access. Ko-fi may separately collect donation, billing, and account information under its own terms and privacy policy.</p>
     </section>
 
     <section id="use">
@@ -1645,8 +1632,9 @@ export const DOC_PAGES = {
       <p>We use the information we collect for the following purposes:</p>
       <ul>
         <li>To provide, maintain, and improve the Service.</li>
-        <li>To authenticate you through Discord and enforce free, premium, and role-restricted access.</li>
-        <li>To maintain your short-lived session and respond to login, logout, and support requests.</li>
+        <li>To measure aggregate traffic and understand which public pages and referral sources are useful.</li>
+        <li>To authenticate principals through Discord and enforce private Owner Lab access.</li>
+        <li>To maintain an Owner's short-lived session and respond to login, logout, and support requests.</li>
         <li>To detect and prevent fraud, security issues, and abuse.</li>
         <li>To comply with legal obligations.</li>
         <li>To diagnose errors, maintain availability, and improve the Service.</li>
@@ -1657,8 +1645,8 @@ export const DOC_PAGES = {
       <h2><span class="snum">03</span>How We Share Your Information</h2>
       <p>We do not sell your personal information. We may share your information in the following limited circumstances:</p>
       <ul>
-        <li><strong>Service Providers:</strong> With vendors that host, secure, store, or deliver the Service, only as reasonably necessary for those functions.</li>
-        <li><strong>Discord:</strong> With Discord as necessary to complete OAuth login and verify your membership and roles. Discord processes information under its own privacy policy.</li>
+        <li><strong>Service Providers:</strong> With vendors such as Vercel that host, secure, store, deliver, or measure aggregate use of the Service, only as reasonably necessary for those functions.</li>
+        <li><strong>Discord:</strong> For authorized principals, with Discord as necessary to complete OAuth login and verify Owner roles. Discord processes information under its own privacy policy.</li>
         <li><strong>Legal Requirements:</strong> When required by law, regulation, or legal process.</li>
         <li><strong>Business Transfers:</strong> In connection with a merger, acquisition, or sale of assets.</li>
         <li><strong>With Your Consent:</strong> When you give us permission to share your information.</li>
@@ -1667,13 +1655,13 @@ export const DOC_PAGES = {
 
     <section id="cookies">
       <h2><span class="snum">04</span>Cookies and Local Storage</h2>
-      <p>We use strictly necessary cookies to:</p>
+      <p>Public browsing does not require a login cookie. For private Owner access only, we use strictly necessary cookies to:</p>
       <ul>
         <li>Protect the Discord OAuth flow against request forgery.</li>
-        <li>Keep you logged in and carry your access entitlements for the session.</li>
+        <li>Keep the principal logged in and carry Owner access claims for the session.</li>
       </ul>
       <p>The Site also uses your browser&rsquo;s local storage for preferences and user-entered settings such as theme, selected tabs, pinned symbols, watchlist fallback data, and optional sizing or simulation inputs. Local-storage data normally remains on your device and is not a cookie. Authenticated collaborative features may separately send the action described in the interface to our server.</p>
-      <p>We do not currently use third-party advertising cookies or cross-site behavioral advertising trackers. We therefore do not respond differently to browser &ldquo;Do Not Track&rdquo; signals. Blocking necessary cookies may prevent login or premium access; you can clear local storage through your browser controls.</p>
+      <p>Vercel Web Analytics does not use cookies. We do not use third-party advertising cookies or cross-site behavioral advertising trackers. We therefore do not respond differently to browser &ldquo;Do Not Track&rdquo; signals. Blocking necessary cookies may prevent private Owner access but does not block the public site; you can clear local storage through your browser controls.</p>
     </section>
 
     <section id="security">
@@ -1683,7 +1671,7 @@ export const DOC_PAGES = {
 
     <section id="retention">
       <h2><span class="snum">06</span>Data Retention</h2>
-      <p>The login session normally expires within 12 hours unless a different session period is configured. OAuth state cookies expire within about 10 minutes. We retain security and infrastructure logs only as long as reasonably necessary to operate and protect the Service, comply with legal obligations, resolve disputes, and enforce our agreements. Browser local-storage data remains until you or your browser clears it. We delete or anonymize personal information when it is no longer reasonably necessary for these purposes.</p>
+      <p>An Owner login session normally expires within 12 hours unless a different session period is configured. OAuth state cookies expire within about 10 minutes. Vercel retains analytics under the reporting window for our plan. We retain security and infrastructure logs only as long as reasonably necessary to operate and protect the Service, comply with legal obligations, resolve disputes, and enforce our agreements. Browser local-storage data remains until you or your browser clears it. We delete or anonymize personal information when it is no longer reasonably necessary for these purposes.</p>
     </section>
 
     <section id="rights">
@@ -1885,8 +1873,8 @@ export const DOC_PAGES = {
       <li><a href="#disclaimers">Disclaimers</a></li>
       <li><a href="#ai-content">AI and Automated Content</a></li>
       <li><a href="#acceptance">Acceptance of Terms</a></li>
-      <li><a href="#eligibility">Eligibility and User Accounts</a></li>
-      <li><a href="#billing">Subscriptions and Billing</a></li>
+      <li><a href="#eligibility">Eligibility and Owner Access</a></li>
+      <li><a href="#billing">Optional Donations</a></li>
       <li><a href="#ip">Intellectual Property and Ownership</a></li>
       <li><a href="#conduct">User Conduct</a></li>
       <li><a href="#ugc">User-Submitted Content</a></li>
@@ -1933,35 +1921,22 @@ export const DOC_PAGES = {
 
     <section id="acceptance">
       <h2><span class="snum">03</span>Acceptance of Terms</h2>
-      <p>By accessing, browsing, registering for, or using the Site or any Service (including free or paid features), you acknowledge that you have read, understood, and agree to be bound by these Terms of Use and Conditions and our <a href="/privacy.html">Privacy Policy</a>. If you do not agree, please do not use the Site.</p>
+      <p>By accessing, browsing, or using the Site or any Service, you acknowledge that you have read, understood, and agree to be bound by these Terms of Use and Conditions and our <a href="/privacy.html">Privacy Policy</a>. If you do not agree, please do not use the Site.</p>
       <p>These Terms constitute a legally binding agreement between you and the Company.</p>
     </section>
 
     <section id="eligibility">
-      <h2><span class="snum">04</span>Eligibility and User Accounts</h2>
+      <h2><span class="snum">04</span>Eligibility and Owner Access</h2>
       <p>You must be at least 18 years old (or the age of majority in your jurisdiction) to use the Service. By using the Site you represent that you meet this requirement.</p>
-      <p>The Service does not create a separate password account. If you use Discord login, you are responsible for securing your Discord account and for activity performed through a valid session associated with it. Notify Discord and us promptly if you believe your account or Service session has been compromised.</p>
+      <p>The public Service does not require or create an account. Discord login exists only for the private Owner Lab used by the site's principals. An authorized principal is responsible for securing that Discord account and associated session.</p>
       <p>We may refuse or revoke Service access at our discretion, subject to applicable law.</p>
     </section>
 
     <section id="billing">
-      <h2><span class="snum">05</span>Subscriptions and Billing</h2>
-      <p>The Service offers free features and may offer paid access through Discord or another identified third-party platform. The checkout interface presented by that platform states the price, billing period, included benefits, and other material purchase terms.</p>
-
-      <h3>Account Creation and Security</h3>
-      <p>Premium access is tied to qualifying Discord membership and roles. You must maintain the third-party account used to purchase or verify access and comply with that platform&rsquo;s terms. We do not receive or store your full payment-card credentials. Internal Owner tools are not included in, promised by, or sold as part of any paid membership.</p>
-
-      <h3>Subscriptions and Auto-Renewal</h3>
-      <p>Unless the checkout states otherwise, paid subscriptions recur at the disclosed interval until canceled. You may cancel through the same platform and device type used to subscribe; cancellation ordinarily takes effect at the end of the current paid period. The checkout provider&rsquo;s paid-services and refund terms apply in addition to these Terms. Nothing in these Terms limits any cancellation, refund, or consumer right that cannot lawfully be waived.</p>
-
-      <h3>Trial Periods</h3>
-      <p>If a trial or promotional period is offered, the checkout will disclose its duration, the price and billing frequency after it ends, and how to cancel. Unless the offer states otherwise, it converts to a paid recurring subscription if not canceled before the disclosed deadline.</p>
-
-      <h3>Payment and Anti-Fraud</h3>
-      <p>You agree not to circumvent, or attempt to circumvent, any security or billing systems. Any attempt to obtain paid services without proper payment may result in immediate termination of your account and additional charges, in addition to any other remedies available to us.</p>
-
-      <h3>Termination</h3>
-      <p>We may suspend or terminate Service access for a violation of these Terms, loss of the required Discord role, nonpayment reported by the billing platform, abuse, security risk, or discontinuation of the Service. Subscription cancellation and refunds remain governed by the purchase platform and applicable law.</p>
+      <h2><span class="snum">05</span>Optional Donations</h2>
+      <p>The public Service is free and has no paid access tier. You may optionally support operating costs through the Ko-fi link shown on the Site.</p>
+      <p>A donation does not purchase premium features, personalized analysis, investment advice, ownership, influence over published outputs, or access to Owner Lab. Ko-fi processes payments under its own terms and privacy policy; questions about payment processing or refunds should be directed to Ko-fi, subject to rights that cannot lawfully be waived.</p>
+      <p>We may suspend or terminate access for a violation of these Terms, abuse, security risk, or discontinuation of the Service.</p>
     </section>
 
     <section id="ip">

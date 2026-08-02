@@ -4,12 +4,12 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <meta name="color-scheme" content="light dark" />
-<title>stonks · log in</title>
-<meta name="description" content="Log in with Discord to unlock stonks member event research." />
+<title>stonks · owner access</title>
+<meta name="description" content="Private Owner Lab access for stonks principals." />
 <meta name="robots" content="noindex" />
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
-<!-- Hand-maintained, NOT generated. The site is freemium: most tabs are free to
-     browse at "/"; this page is the Discord login + the denied-reason lander. -->
+<!-- Hand-maintained, NOT generated. Public research requires no login; this is
+     the unlinked Owner Lab login + denied-reason lander. -->
 <style>
   :root {
     --bg: #0b0d12; --panel: #12151c; --line: #232838; --ink: #e7ebf3;
@@ -42,8 +42,6 @@
     font-size: 15px; font-weight: 600; cursor: pointer; transition: filter .15s;
   }
   .btn:hover { filter: brightness(1.08); }
-  /* Secondary "Join the Discord" CTA — the path to premium for anyone not yet
-     in the server. Outline style so the primary "Log in" stays dominant. */
   .btn.secondary {
     background: transparent; color: var(--ink);
     border: 1px solid var(--line); margin-top: 11px;
@@ -67,26 +65,22 @@
         <circle cx="11" cy="11" r="9" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="1.4 2.6" opacity="0.55"/>
       </svg>
       <b>stonks</b>
-      <span>members</span>
+      <span>owner access</span>
     </div>
 
     <div id="msg" class="msg deny" role="alert"></div>
 
-    <h1>Log in to unlock premium</h1>
-    <p class="lede">Most of stonks is free to browse. Log in with Discord to unlock the members-only features — Market analysis, Briefs, Narratives, Unusual &amp; Volume flow, Gamma exposure, and more (Top Picks and the full Track Record unlock with their own roles). You'll get access if you're in the server with the member role.</p>
+    <h1>Owner Lab sign in</h1>
+    <p class="lede">The public stonks site is free and needs no account. This private entry is only for principals with both configured Owner roles.</p>
 
     <a class="btn" href="/api/auth/discord-login">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.25.5c1.6.4 2.9 1 4.1 1.8a13.5 13.5 0 0 0-11.5 0c1.2-.8 2.6-1.4 4.1-1.8L11.6 3A19.8 19.8 0 0 0 6.7 4.4 20.6 20.6 0 0 0 3 18.6 19.9 19.9 0 0 0 8 21l.6-.9c-.9-.3-1.7-.7-2.4-1.2.2-.1.4-.3.6-.4a14.2 14.2 0 0 0 12.4 0c.2.1.4.3.6.4-.7.5-1.5.9-2.4 1.2l.6.9a19.9 19.9 0 0 0 5-2.4 20.6 20.6 0 0 0-3.7-14.2ZM9 15.3c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg>
-      Log in with Discord
+      Continue with Discord
     </a>
 
-    <!-- DISCORD_INVITE_URL — keep in sync with lib/links.mjs (static file, can't import). -->
-    <a class="btn secondary" href="https://discord.gg/drTq2gkf6j" target="_blank" rel="noopener">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.25.5c1.6.4 2.9 1 4.1 1.8a13.5 13.5 0 0 0-11.5 0c1.2-.8 2.6-1.4 4.1-1.8L11.6 3A19.8 19.8 0 0 0 6.7 4.4 20.6 20.6 0 0 0 3 18.6 19.9 19.9 0 0 0 8 21l.6-.9c-.9-.3-1.7-.7-2.4-1.2.2-.1.4-.3.6-.4a14.2 14.2 0 0 0 12.4 0c.2.1.4.3.6.4-.7.5-1.5.9-2.4 1.2l.6.9a19.9 19.9 0 0 0 5-2.4 20.6 20.6 0 0 0-3.7-14.2ZM9 15.3c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/></svg>
-      Join the Discord to get premium
-    </a>
+    <a class="btn secondary" href="/">Back to the public site</a>
 
-    <p class="note">Not a member yet? Premium event research comes with the member role in our Discord &mdash; <a href="https://discord.gg/drTq2gkf6j" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">join the server</a>, get the role, then log in here. Internal Owner tools are not included with membership. <a href="/?tab=features" style="color:var(--accent);text-decoration:none;">See what's included &rarr;</a> &middot; <a href="/" style="color:var(--accent);text-decoration:none;">Browse the free site &rarr;</a></p>
+    <p class="note">Owner access is not sold and cannot be unlocked by a public signup. If you reached this page by mistake, everything available to visitors is already open at <a href="/" style="color:var(--accent);text-decoration:none;">mingstreet.app</a>.</p>
 
     <div class="foot">stonks · Option Contract Rater — research / educational tool, not financial advice.<br />All analytical and editorial content is AI-generated or algorithmically produced and may be wrong. Verify independently.<br />By logging in you agree to our <a href="/?tab=terms" style="color:var(--muted);">Terms of Use</a> and <a href="/?tab=privacy" style="color:var(--muted);">Privacy Policy</a>.</div>
   </main>
@@ -97,8 +91,8 @@
       var reason = new URLSearchParams(location.search).get("denied");
       if (!reason) return;
       var map = {
-        role: "You're in the server, but you don't have the member role yet. Ask in Discord to get it, then sign in again.",
-        guild: "That Discord account isn't in our server. Join the server and get the member role, then sign in.",
+        role: "That Discord account does not have both required Owner roles.",
+        guild: "That Discord account is not in the configured Owner server.",
         state: "Your sign-in session expired or didn't match. Please try again.",
         token: "Discord sign-in failed partway through. Please try again.",
         member: "Couldn't read your server membership. Please try again.",

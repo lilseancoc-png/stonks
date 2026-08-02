@@ -49,7 +49,7 @@ const DATA_DIR = resolve(ROOT, "data");
 // Co-owned read-modify-write files (each producer pulls latest, applies its
 // once-per-window update, pushes). Safe under serialized runs. The hourly run
 // refreshes heatmap prices and the Market Analysis premarket cohort while the
-// bake rebuilds their slower fields. manifest.json (premium half) +
+// bake rebuilds their slower fields. manifest.json (flow sidecar) +
 // manifest-free.json (free half) are regenerated
 // deterministically by regen-static in EVERY workflow (they carry the bake's
 // narratives from the pulled trends.json + the scanner's fresh unusual

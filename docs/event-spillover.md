@@ -423,15 +423,15 @@ the two storage files. All pure functions plus one orchestrator.
     change from bars; rolling cap `SPILLOVER_LOG_MAX_EVENTS` (60); per-engine running
     direction-hit/MAE ship on `matrix.forward`.
   - Wiring: `readPriorSpillover()` pre-read in the read-before-wipe block; compute+write
-    after the earnings-history write; non-fatal try/catch. Both keys premium in
-    `lib/premium-keys.mjs`; `sync-data.mjs` auto-owns them (flat bake-written keys).
+    after the earnings-history write; non-fatal try/catch. Both keys are public;
+    `sync-data.mjs` auto-owns them (flat bake-written keys).
   - The stat/window/isolation core (`olsNeweyWest`, `bhFdrThreshold`, `spillPrepSeries`,
     `spilloverWindowReturn`, `spillRollingBeta`, `buildSpilloverMacroSets`,
     `spillIsolate`, `FOMC_MEETINGS_HISTORICAL`) is exported and **imported by
     `diagnose-spillover.mjs`** — one implementation, verified to reproduce the Phase-1
     numbers exactly after the refactor.
-- **Phase 3 — site tab — BUILT (2026-07-19).** "Event spillover", nav group 1 after
-  Earnings calls, premium (`PREMIUM_TABS.spillover` + lock card + nav 🔒). Wired like
+- **Phase 3 — site tab — BUILT (2026-07-19).** "Event spillover", public and
+  available without login. Wired like
   Trending IV: `spilloverSection()` in `scripts/render/html.mjs`,
   `loadSpillover`/`renderSpillover` + `?tab=spillover` aliases in
   `scripts/render/app-js.mjs`, `.spill-*` styles in `scripts/render/styles-css.mjs`.
