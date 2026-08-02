@@ -1026,7 +1026,7 @@ The trade interpretation is two-sided: more spending may support GPUs, networkin
 tickers are collected. The curated set includes AI labs and assistants
 (OpenAI, Anthropic, Claude, DeepSeek, Kimi), AI agents and adoption, compute
 infrastructure, autonomy and robotics, energy, macro, geopolitics, healthcare,
-and other market-relevant themes.
+political figures, and other market-relevant themes.
 
 The job uses SerpApi's Google Trends endpoint (`SERPAPI_KEY`) because Google's
 official programmatic API is still alpha-only. Four theme queries share one
