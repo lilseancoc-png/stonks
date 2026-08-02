@@ -10556,21 +10556,66 @@ export function classifyCapitalRaiseHeadline(title) {
 // issuer-level transaction language before a flag can affect the feed or the
 // fundamentals score. Ambiguous legacy rows are quarantined client-side too.
 export function capitalRaiseHeadlineMatchesIssuer(sym, companyName, title) {
-  const lower = String(title || "").toLowerCase();
-  const ticker = String(sym || "").toLowerCase();
-  const words = lower.replace(/[^a-z0-9$]+/g, " ").split(/\s+/).filter(Boolean);
-  if (ticker.length >= 3 && (words.includes(ticker) || words.includes(`$${ticker}`))) return true;
-  return capitalRaiseIssuerNameTokens(companyName).some((x) => lower.includes(x));
+  if (capitalRaiseTickerActsAsIssuer(sym, title)) return true;
+  const ticker = String(sym || "").trim().toLowerCase();
+  const nameParts = capitalRaiseIssuerNameParts(companyName);
+  // When fundamentals are missing, callers fall back to companyName=ticker.
+  // Do not let that turn an incidental ticker mention back into issuer proof.
+  if (nameParts.length === 1 && nameParts[0] === ticker) return false;
+  return capitalRaiseHeadlineNamesCompany(companyName, title);
 }
 
-function capitalRaiseIssuerNameTokens(companyName) {
-  const generic = new Set([
-    "inc", "incorporated", "corporation", "corp", "company", "limited", "ltd", "plc",
-    "holdings", "holding", "group", "technologies", "technology", "systems", "class",
-    "common", "stock",
-  ]);
+const CAPITAL_RAISE_LEGAL_NAME_WORDS = new Set([
+  "ag", "inc", "incorporated", "corporation", "corp", "company", "limited", "llc",
+  "lp", "ltd", "nv", "plc", "sa", "se", "holdings", "holding", "group", "class",
+  "common", "stock",
+]);
+// Words that occur across many unrelated issuers or ordinary financing prose.
+// They are useful inside an exact full company name ("Bank of America",
+// "General Motors") but are not sufficient issuer evidence by themselves.
+const CAPITAL_RAISE_GENERIC_NAME_WORDS = new Set([
+  ...CAPITAL_RAISE_LEGAL_NAME_WORDS,
+  "america", "american", "bank", "bancorp", "capital", "communications", "consumer",
+  "digital", "energy", "financial", "finance", "general", "global", "health",
+  "healthcare", "industrial", "industries", "international", "materials", "motor",
+  "motors", "national", "resources", "systems", "target", "technologies", "technology",
+  "united",
+]);
+function capitalRaiseIssuerNameParts(companyName) {
   return String(companyName || "").toLowerCase().replace(/[^a-z0-9]+/g, " ")
-    .split(/\s+/).filter((x) => x.length >= 4 && !generic.has(x));
+    .split(/\s+/).filter(Boolean)
+    .filter((x) => !CAPITAL_RAISE_LEGAL_NAME_WORDS.has(x));
+}
+function capitalRaiseIssuerNameTokens(companyName) {
+  return capitalRaiseIssuerNameParts(companyName)
+    .filter((x) => x.length >= 4 && !CAPITAL_RAISE_GENERIC_NAME_WORDS.has(x));
+}
+function capitalRaiseTickerActsAsIssuer(sym, title) {
+  const ticker = String(sym || "").trim().toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (ticker.length < 2) return false;
+  // A ticker is issuer evidence only when it is grammatically the transaction
+  // subject. Merely appearing elsewhere in a syndicated headline is not enough.
+  return new RegExp(
+    `(?:^|[|:;—–-]\\s*)\\$?${ticker}(?:\\s+stock)?\\s*(?:[:—–-]\\s*)?(?:to\\s+)?` +
+    `(?:announces?|authorizes?|approves?|boosts?|expands?|extends?|increases?|launches?|` +
+    `initiates?|resumes?|completes?|executes?|plans?|reports?|prices?|issues?|raises?|files?|` +
+    `(?:stock|share|equity|debt|bond|notes?|convertible\\s+notes?)\\s+offering)\\b`,
+    "i",
+  ).test(String(title || ""));
+}
+function capitalRaiseHeadlineNamesCompany(companyName, title) {
+  const headlineWords = String(title || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const nameParts = capitalRaiseIssuerNameParts(companyName);
+  if (!headlineWords || !nameParts.length) return false;
+  const phrase = nameParts.join(" ");
+  // A multi-word legal name is strong evidence only as the complete contiguous
+  // phrase. This accepts "Bank of America" and "General Motors" without letting
+  // the generic fragments "bank" or "general" identify another issuer.
+  if (nameParts.length > 1 && (` ${headlineWords} `).includes(` ${phrase} `)) return true;
+  if (capitalRaiseIssuerNameTokens(companyName).some((x) => (` ${headlineWords} `).includes(` ${x} `))) return true;
+  // Single-word generic brands (for example Block or Target) remain usable when
+  // they are the headline subject, but not when the word appears incidentally.
+  return nameParts.length === 1 && headlineWords.startsWith(`${nameParts[0]} `);
 }
 
 // The persistent IPO/Credit ledger contains rows captured before issuer
@@ -10579,11 +10624,7 @@ function capitalRaiseIssuerNameTokens(companyName) {
 // UBS). Require a distinctive company-name token, or a headline that starts
 // with the ticker immediately acting as the transaction subject.
 function capitalRaiseHistoryMatchesIssuer(sym, companyName, title) {
-  const lower = String(title || "").toLowerCase();
-  if (capitalRaiseIssuerNameTokens(companyName).some((x) => lower.includes(x))) return true;
-  const ticker = String(sym || "").trim().toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  if (!ticker) return false;
-  return new RegExp(`^\\$?${ticker}(?:\\s+stock)?\\s*(?:[:—–-]\\s*)?(?:announces?|authorizes?|approves?|boosts?|expands?|extends?|increases?|launches?|initiates?|resumes?|completes?|executes?|plans?|reports?|prices?|issues?|raises?)\\b`, "i").test(lower);
+  return capitalRaiseHeadlineMatchesIssuer(sym, companyName, title);
 }
 
 export function capitalRaiseActionIsExplicit(kind, title) {

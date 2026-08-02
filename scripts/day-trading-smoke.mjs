@@ -8,11 +8,15 @@ import {
   runDayTradingEngine,
   scoreDayTradeCandidate,
 } from "../lib/day-trading-engine.mjs";
-import { tradingDaysBetween } from "./scan-day-trading.mjs";
+import { isUsEquityMarketHoliday, tradingDaysBetween } from "./scan-day-trading.mjs";
 
 assert.equal(tradingDaysBetween("2026-07-30", "2026-07-31"), 1);
 assert.equal(tradingDaysBetween("2026-07-31", "2026-08-03"), 1);
 assert.equal(tradingDaysBetween("2026-07-30", "2026-08-03"), 2);
+assert.equal(tradingDaysBetween("2026-07-02", "2026-07-06"), 1); // Independence Day observed
+assert.equal(tradingDaysBetween("2026-12-24", "2026-12-28"), 1); // Christmas
+assert.equal(tradingDaysBetween("2026-04-02", "2026-04-06"), 1); // Good Friday
+assert.equal(isUsEquityMarketHoliday("2021-12-31"), true); // New Year's Day 2022 observed
 
 const now = new Date("2026-07-30T15:00:00.000Z"); // 11:00 ET
 const market = {

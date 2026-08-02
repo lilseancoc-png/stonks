@@ -266,6 +266,75 @@ function optionDateKey(value) {
   return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10) : null;
 }
 
+function utcDateKey(year, month, day) {
+  return new Date(Date.UTC(year, month, day)).toISOString().slice(0, 10);
+}
+
+function observedFixedHoliday(year, month, day) {
+  const date = new Date(Date.UTC(year, month, day));
+  const weekday = date.getUTCDay();
+  if (weekday === 6) date.setUTCDate(date.getUTCDate() - 1);
+  else if (weekday === 0) date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString().slice(0, 10);
+}
+
+function nthWeekdayOfMonth(year, month, weekday, nth) {
+  const first = new Date(Date.UTC(year, month, 1));
+  const day = 1 + ((weekday - first.getUTCDay() + 7) % 7) + (nth - 1) * 7;
+  return utcDateKey(year, month, day);
+}
+
+function lastWeekdayOfMonth(year, month, weekday) {
+  const last = new Date(Date.UTC(year, month + 1, 0));
+  last.setUTCDate(last.getUTCDate() - ((last.getUTCDay() - weekday + 7) % 7));
+  return last.toISOString().slice(0, 10);
+}
+
+// Anonymous Gregorian computus. US equity markets close on Good Friday even
+// though it is not a federal holiday.
+function easterSundayUtc(year) {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31) - 1;
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(Date.UTC(year, month, day));
+}
+
+function marketHolidayKeysForYear(year) {
+  const keys = new Set([
+    observedFixedHoliday(year, 0, 1),
+    nthWeekdayOfMonth(year, 0, 1, 3), // Martin Luther King Jr. Day
+    nthWeekdayOfMonth(year, 1, 1, 3), // Washington's Birthday
+    lastWeekdayOfMonth(year, 4, 1),   // Memorial Day
+    observedFixedHoliday(year, 6, 4),
+    nthWeekdayOfMonth(year, 8, 1, 1), // Labor Day
+    nthWeekdayOfMonth(year, 10, 4, 4), // Thanksgiving
+    observedFixedHoliday(year, 11, 25),
+  ]);
+  if (year >= 2022) keys.add(observedFixedHoliday(year, 5, 19)); // Juneteenth
+  const goodFriday = easterSundayUtc(year);
+  goodFriday.setUTCDate(goodFriday.getUTCDate() - 2);
+  keys.add(goodFriday.toISOString().slice(0, 10));
+  return keys;
+}
+
+export function isUsEquityMarketHoliday(dateKey) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ""))) return false;
+  const year = Number(dateKey.slice(0, 4));
+  // New Year's Day can be observed on Dec 31 of the preceding calendar year.
+  return marketHolidayKeysForYear(year).has(dateKey) || marketHolidayKeysForYear(year + 1).has(dateKey);
+}
+
 function tradingDaysBetween(fromKey, toKey) {
   const from = new Date(`${fromKey}T12:00:00Z`);
   const to = new Date(`${toKey}T12:00:00Z`);
@@ -273,7 +342,8 @@ function tradingDaysBetween(fromKey, toKey) {
   let count = 0;
   for (const cursor = new Date(from.getTime() + 86400_000); cursor <= to; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
     const day = cursor.getUTCDay();
-    if (day !== 0 && day !== 6) count += 1;
+    const key = cursor.toISOString().slice(0, 10);
+    if (day !== 0 && day !== 6 && !isUsEquityMarketHoliday(key)) count += 1;
   }
   return count;
 }

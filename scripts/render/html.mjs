@@ -1590,10 +1590,11 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       writeFileSync(resolve(dataDir, "manifest.json"), JSON.stringify(premiumManifest), "utf8");
       writeFileSync(resolve(dataDir, "manifest-free.json"), JSON.stringify(freeManifest), "utf8");
       inlineManifest = { ...shellManifest, deferred: true };
-    } catch (_err) {
-      // Couldn't write the sidecars \u2014 fail SAFE to a full inline manifest so the
-      // page still works (a transient leak beats a blank app).
-      inlineManifest = { ...shellManifest, ...freeManifest, ...premiumManifest };
+    } catch (err) {
+      // A private-data render must never recover by embedding the premium half
+      // in the public HTML. Abort the publish instead: the prior deployment and
+      // private-store objects remain intact, while CI surfaces the disk failure.
+      throw new Error(`manifest sidecar write failed: ${err?.message || err}`, { cause: err });
     }
   } else {
     inlineManifest = { ...shellManifest, ...freeManifest, ...premiumManifest };
