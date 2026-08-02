@@ -961,6 +961,11 @@ async function fetchIntradayBars(symbol) {
     // 15:30 bar covers the last regular half-hour; pre/post-market is dropped.
     .filter((x) => x.mins >= 570 && x.mins <= 930)
     .map((x) => ({
+      // Open/high/low stay transient in-memory (the browser's compact line-chart
+      // series still persists close + volume only). The Index Calendar's
+      // first/last-hour logger consumes the full OHLC bar before the raw series
+      // is stripped by writeChainFiles().
+      o: x.q.open ?? x.q.close,
       c: x.q.close,
       h: x.q.high ?? x.q.close,
       l: x.q.low ?? x.q.close,
@@ -3775,6 +3780,7 @@ function buildPriceSeries(bars) {
   const r2 = (n) => (n == null || !isFinite(n) ? null : Math.round(n * 100) / 100);
   return {
     t: tail.map((b) => b.t || null),
+    o: tail.map((b) => r2(b.o)),
     c: tail.map((b) => r2(b.c)),
     h: tail.map((b) => r2(b.h)),
     l: tail.map((b) => r2(b.l)),
@@ -23307,8 +23313,166 @@ function indexCalendarBars(chain) {
   if (!chain) return [];
   if (Array.isArray(chain._bars) && chain._bars.length) return chain._bars;
   const ps = chain.priceSeries;
-  if (ps && Array.isArray(ps.t) && Array.isArray(ps.c)) return ps.t.map((t, i) => ({ t, c: ps.c[i] }));
+  if (ps && Array.isArray(ps.t) && Array.isArray(ps.c)) return ps.t.map((t, i) => ({
+    t,
+    o: Array.isArray(ps.o) ? ps.o[i] : null,
+    c: ps.c[i],
+    h: Array.isArray(ps.h) ? ps.h[i] : null,
+    l: Array.isArray(ps.l) ? ps.l[i] : null,
+    v: Array.isArray(ps.v) ? ps.v[i] : null,
+  }));
   return [];
+}
+
+const INDEX_HOUR_SYMBOLS = { SPY: "spy", QQQ: "qqq", IWM: "iwm" };
+const INDEX_HOUR_FLAT_PCT = 0.05;
+const INDEX_GAP_FLAT_PCT = 0.30;
+
+function indexHourPct(from, to) {
+  return Number.isFinite(from) && from > 0 && Number.isFinite(to)
+    ? Math.round(((to / from) - 1) * 10000) / 100
+    : null;
+}
+function indexHourDirection(v) {
+  return !Number.isFinite(v) || Math.abs(v) < INDEX_HOUR_FLAT_PCT ? "flat" : (v > 0 ? "up" : "down");
+}
+function indexGapClass(v) {
+  return !Number.isFinite(v) || Math.abs(v) <= INDEX_GAP_FLAT_PCT ? "flat" : (v > 0 ? "gap-up" : "gap-down");
+}
+function indexHourTime(bar) {
+  const t = String(bar?.t || "");
+  const hh = Number(t.slice(11, 13));
+  const mm = Number(t.slice(14, 16));
+  return Number.isFinite(hh) && Number.isFinite(mm) ? hh * 60 + mm : null;
+}
+function indexHourNum(v) {
+  return v == null || !Number.isFinite(Number(v)) ? null : Number(v);
+}
+function indexHourRoundPrice(v) {
+  return Number.isFinite(v) ? Math.round(v * 100) / 100 : null;
+}
+function indexHourExtremeWindow(bars, target, side) {
+  if (!Number.isFinite(target)) return null;
+  const tol = Math.max(0.01, Math.abs(target) * 1e-6);
+  for (const bar of bars) {
+    const value = indexHourNum(bar?.[side]);
+    if (value == null || Math.abs(value - target) > tol) continue;
+    const mins = indexHourTime(bar);
+    if (mins == null) return null;
+    if (mins < 630) return "first"; // 09:30 + 10:00 bars
+    if (mins >= 900) return "last"; // 15:00 + 15:30 bars
+    return "middle";
+  }
+  return null;
+}
+
+// Build one SPY/QQQ/IWM session log from the already-fetched daily + 30-minute
+// bars. A row becomes `firstHourComplete` after the 10:00 bar closes at 10:30 ET;
+// it becomes `dayComplete` once both 15:00/15:30 bars are present. Half-days do
+// not fabricate a 3–4pm reading: their first-hour record remains useful while
+// the last-hour/full-day path fields stay null.
+export function buildIndexHourSession(dailyBars, intradayBars, dailyIdx) {
+  const daily = dailyBars?.[dailyIdx];
+  if (!daily?.t) return null;
+  const date = daily.t;
+  const prevClose = indexHourNum(dailyBars?.[dailyIdx - 1]?.c);
+  const open = indexHourNum(daily.o);
+  const close = indexHourNum(daily.c);
+  const dailyHigh = indexHourNum(daily.h);
+  const dailyLow = indexHourNum(daily.l);
+  const bars = (intradayBars || [])
+    .filter((b) => String(b?.t || "").slice(0, 10) === date)
+    .slice()
+    .sort((a, b) => String(a.t).localeCompare(String(b.t)));
+  const at = new Map(bars.map((b) => [indexHourTime(b), b]));
+  const firstBars = [at.get(570), at.get(600)].filter(Boolean);
+  const lastBars = [at.get(900), at.get(930)].filter(Boolean);
+  const firstHourComplete = firstBars.length === 2 && open != null && indexHourNum(firstBars[1].c) != null;
+  const dayComplete = firstHourComplete && lastBars.length === 2 && close != null;
+  const gapPct = indexHourPct(prevClose, open);
+  const out = {
+    prevClose: indexHourRoundPrice(prevClose),
+    open: indexHourRoundPrice(open),
+    gapPct,
+    gapClass: gapPct == null ? null : indexGapClass(gapPct),
+    firstHourComplete,
+    dayComplete,
+  };
+  if (!firstHourComplete) return out;
+
+  const at1030 = indexHourNum(firstBars[1].c);
+  const firstHigh = Math.max(...firstBars.map((b) => indexHourNum(b.h)).filter(Number.isFinite));
+  const firstLow = Math.min(...firstBars.map((b) => indexHourNum(b.l)).filter(Number.isFinite));
+  const firstVolumeVals = firstBars.map((b) => indexHourNum(b.v)).filter(Number.isFinite);
+  const firstRet = indexHourPct(open, at1030);
+  out.at1030 = indexHourRoundPrice(at1030);
+  out.firstHourRetPct = firstRet;
+  out.firstHourDirection = indexHourDirection(firstRet);
+  out.firstHourHigh = indexHourRoundPrice(firstHigh);
+  out.firstHourLow = indexHourRoundPrice(firstLow);
+  out.firstHourHighPct = indexHourPct(open, firstHigh);
+  out.firstHourLowPct = indexHourPct(open, firstLow);
+  out.firstHourVolume = firstVolumeVals.length === firstBars.length
+    ? Math.round(firstVolumeVals.reduce((sum, v) => sum + v, 0))
+    : null;
+  if (!dayComplete) return out;
+
+  const at1500 = indexHourNum(lastBars[0].o) ?? indexHourNum(at.get(870)?.c);
+  const restRet = indexHourPct(at1030, close);
+  const openCloseRet = indexHourPct(open, close);
+  const lastRet = indexHourPct(at1500, close);
+  const restDir = indexHourDirection(restRet);
+  const firstDir = out.firstHourDirection;
+  const fullDir = indexHourDirection(openCloseRet);
+  let outcome = restDir;
+  if (firstDir === "down") {
+    outcome = close >= open ? "recovered" : (restDir === "up" ? "partial-recovery" : (restDir === "down" ? "continued-lower" : "flat"));
+  } else if (firstDir === "up") {
+    outcome = close <= open ? "reversed" : (restDir === "down" ? "pulled-back" : (restDir === "up" ? "continued-higher" : "flat"));
+  }
+  const fullDayVsFirst = firstDir === "flat" || fullDir === "flat"
+    ? "flat"
+    : (firstDir === fullDir ? "continuation" : "reversal");
+  const highWindow = indexHourExtremeWindow(bars, dailyHigh, "h");
+  const lowWindow = indexHourExtremeWindow(bars, dailyLow, "l");
+  Object.assign(out, {
+    close: indexHourRoundPrice(close),
+    dailyHigh: indexHourRoundPrice(dailyHigh),
+    dailyLow: indexHourRoundPrice(dailyLow),
+    at1500: indexHourRoundPrice(at1500),
+    restOfDayRetPct: restRet,
+    openToCloseRetPct: openCloseRet,
+    lastHourRetPct: lastRet,
+    lowToClosePct: indexHourPct(firstLow, close),
+    recoveredFirstHourLoss: firstDir === "down" ? close >= open : null,
+    extendedFirstHourMove: firstDir === "flat" ? null : (firstDir === "up" ? restRet > INDEX_HOUR_FLAT_PCT : restRet < -INDEX_HOUR_FLAT_PCT),
+    outcomeAfterFirstHour: outcome,
+    fullDayDirection: fullDir,
+    fullDayVsFirst,
+    dailyHighWindow: highWindow,
+    dailyLowWindow: lowWindow,
+    firstHourSetDailyHigh: highWindow === "first",
+    firstHourSetDailyLow: lowWindow === "first",
+    lastHourSetDailyHigh: highWindow === "last",
+    lastHourSetDailyLow: lowWindow === "last",
+  });
+  return out;
+}
+
+function attachIndexHourRvol(days) {
+  for (const key of Object.values(INDEX_HOUR_SYMBOLS)) {
+    const trailing = [];
+    for (const day of days) {
+      const session = day?.[key]?.session;
+      const vol = indexHourNum(session?.firstHourVolume);
+      if (vol == null) continue;
+      const base = trailing.slice(-20);
+      session.firstHourRvol = base.length >= 5
+        ? Math.round((vol / (base.reduce((sum, v) => sum + v, 0) / base.length)) * 100) / 100
+        : null;
+      trailing.push(vol);
+    }
+  }
 }
 export function appendIndexCalendar(prev, chains, builtAtIso, extraBars = {}) {
   const byDate = new Map();
@@ -23343,9 +23507,28 @@ export function appendIndexCalendar(prev, chains, builtAtIso, extraBars = {}) {
       byDate.set(date, row);
     }
   }
+  // Add/refresh the intraday path for the three core US index ETFs. Yahoo's
+  // 30-minute window is only ~1 month, but prior rows are retained above, so the
+  // log grows one trading day at a time instead of rolling off with the fetch.
+  for (const [sym, key] of Object.entries(INDEX_HOUR_SYMBOLS)) {
+    const dailyBars = indexCalendarBars(chains?.[sym]);
+    const intradayBars = Array.isArray(chains?.[sym]?._intraday) ? chains[sym]._intraday : [];
+    if (!dailyBars.length || !intradayBars.length) continue;
+    for (let i = 0; i < dailyBars.length; i++) {
+      const date = dailyBars[i]?.t;
+      if (!date || !intradayBars.some((b) => String(b?.t || "").startsWith(date))) continue;
+      const session = buildIndexHourSession(dailyBars, intradayBars, i);
+      if (!session) continue;
+      const row = byDate.get(date) || { date };
+      const leg = row[key] || {};
+      row[key] = { ...leg, session };
+      byDate.set(date, row);
+    }
+  }
   const days = Array.from(byDate.values())
     .sort((a, b) => String(a.date).localeCompare(String(b.date)))
     .slice(-INDEX_CALENDAR_MAX_DAYS);
+  attachIndexHourRvol(days);
   return { days, updatedAt: builtAtIso };
 }
 export async function writeIndexCalendar(payload) {

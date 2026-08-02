@@ -1257,6 +1257,7 @@ export const DOC_PAGES = {
             <li><b>Gamma exposure</b> — dealer net-gamma matrix, flip &amp; walls</li>
             <li><b>Track Record</b> — resolved picks performance &amp; scorecard; optionally controlled by its own Discord role</li>
             <li><b>Quant Lab</b> — confluence, 3σ movers, variance-risk-premium, pairs, volatility-surface, dispersion and post-earnings-drift screens; available to members with both Top Picks and Track Record access</li>
+            <li><b>Index calendar</b> — daily close calendar plus SPY/QQQ/IWM first-hour, recovery, last-hour, extreme-timing and conditional seasonality stats</li>
           </ul>
           <div class="cmp-cta">
             <a class="btn discord" href="/api/auth/discord-login">
@@ -1444,6 +1445,10 @@ export const DOC_PAGES = {
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Quant Lab</span><span class="tier prem">Premium + roles</span></div>
           <p class="feat-desc">Deterministic screens for multi-signal confluence, fixed 3σ price and return outliers, realized-vs-implied volatility, pair-spread dislocations, volatility-surface shape, cross-sectional dispersion and post-earnings drift. This owner tier requires both Top Picks and Track Record access when the optional role gates are configured.</p>
+        </div>
+        <div class="feat">
+          <div class="feat-top"><span class="feat-name">Index calendar + hour tracker</span><span class="tier prem">Premium</span></div>
+          <p class="feat-desc">A month-grid of daily index closes plus a SPY / QQQ / IWM session log: overnight gap, first-hour return/range/volume, 10:30-to-close recovery, last-hour move, open-to-close result and when the day&rsquo;s high or low printed. Filter the conditional stats by opening-move threshold, gap size or prior-close VIX.</p>
         </div>
       </div>
     </section>

@@ -10179,6 +10179,53 @@ button.idx-cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring)
 .idx-cal-empty { padding: 24px; text-align: center; color: var(--muted); }
 .idx-up { color: var(--pos); }
 .idx-dn { color: var(--neg); }
+/* First + last hour intraday seasonality tracker, nested under Index Calendar. */
+.idx-hour-tracker { display: flex; flex-direction: column; gap: var(--s-3); margin-top: var(--s-4); padding-top: var(--s-4); border-top: 1px solid var(--border); }
+.idx-hour-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--s-4); }
+.idx-hour-heading h3 { margin: 2px 0 0; font: 700 22px/1.15 var(--font-serif); color: var(--text-strong); }
+.idx-hour-heading p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+.idx-hour-kicker, .idx-hour-condition-kicker { display: block; font: 700 10px/1 var(--font-mono); letter-spacing: .09em; text-transform: uppercase; color: var(--accent-strong); }
+.idx-hour-filters { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.idx-hour-filters label { display: flex; flex-direction: column; gap: 4px; font: 600 10px/1 var(--font-mono); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.idx-hour-filters select { min-height: 34px; appearance: none; border: 1px solid var(--border); border-radius: var(--r-2); background: var(--surface-2); color: var(--text); padding: 6px 28px 6px 9px; font: 600 12px/1 var(--font-sans); cursor: pointer; background-image: linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%); background-position: calc(100% - 13px) 14px,calc(100% - 9px) 14px; background-size: 4px 4px,4px 4px; background-repeat: no-repeat; }
+.idx-hour-filters select:hover { border-color: var(--border-strong); }
+.idx-hour-filters select:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.idx-hour-overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.idx-hour-metric { min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: var(--r-2); background: var(--surface-2); }
+.idx-hour-metric.is-down { border-color: color-mix(in srgb, var(--neg) 35%, var(--border)); background: var(--neg-tint); }
+.idx-hour-metric.is-up { border-color: color-mix(in srgb, var(--pos) 35%, var(--border)); background: var(--pos-tint); }
+.idx-hour-metric-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 10px/1.15 var(--font-mono); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.idx-hour-metric strong { display: block; margin-top: 7px; font: 750 20px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-strong); }
+.idx-hour-metric-sub { display: block; margin-top: 5px; font-size: 11px; color: var(--muted); }
+.idx-hour-conditions, .idx-hour-context { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.idx-hour-condition, .idx-hour-timing, .idx-hour-pair, .idx-hour-log { border: 1px solid var(--border); border-radius: var(--r-3); background: var(--surface); overflow: hidden; }
+.idx-hour-condition.is-down { border-top: 2px solid var(--neg); }
+.idx-hour-condition.is-up { border-top: 2px solid var(--pos); }
+.idx-hour-condition > header, .idx-hour-timing > header, .idx-hour-pair > header, .idx-hour-log > header { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.idx-hour-condition h4, .idx-hour-timing h4, .idx-hour-pair h4, .idx-hour-log h4 { margin: 3px 0 0; font: 700 15px/1.15 var(--font-serif); color: var(--text-strong); }
+.idx-hour-condition header > b, .idx-hour-timing header > b, .idx-hour-pair header > b { font: 600 11px/1 var(--font-mono); color: var(--muted); }
+.idx-hour-condition-grid, .idx-hour-pair-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.idx-hour-condition-grid .idx-hour-metric, .idx-hour-pair-grid .idx-hour-metric { border: 0; border-radius: 0; background: transparent; }
+.idx-hour-condition-grid .idx-hour-metric:nth-child(odd), .idx-hour-pair-grid .idx-hour-metric:nth-child(odd) { border-right: 1px solid var(--border); }
+.idx-hour-condition-grid .idx-hour-metric:nth-child(n+3), .idx-hour-pair-grid .idx-hour-metric:nth-child(n+3) { border-top: 1px solid var(--border); }
+.idx-hour-timing-row { display: grid; grid-template-columns: 100px repeat(3, minmax(0, 1fr)); align-items: center; gap: 8px; padding: 12px 14px; }
+.idx-hour-timing-row + .idx-hour-timing-row { border-top: 1px solid var(--border); }
+.idx-hour-timing-row > b { font: 650 12px/1.2 var(--font-sans); color: var(--text); }
+.idx-hour-timing-row span { display: flex; flex-direction: column; gap: 4px; text-align: right; }
+.idx-hour-timing-row em { font: 600 9px/1 var(--font-mono); font-style: normal; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.idx-hour-timing-row strong { font: 700 15px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-strong); }
+.idx-hour-log > header > span { font: 500 11px/1 var(--font-mono); color: var(--muted); }
+.idx-hour-table-wrap { overflow-x: auto; overscroll-behavior-inline: contain; }
+.idx-hour-log table { width: 100%; min-width: 1050px; border-collapse: collapse; font-size: 12px; }
+.idx-hour-log th { position: sticky; top: 0; z-index: 1; padding: 9px 10px; border-bottom: 1px solid var(--border); background: var(--surface-2); text-align: right; font: 650 9px/1.1 var(--font-mono); letter-spacing: .045em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.idx-hour-log th:first-child, .idx-hour-log td:first-child, .idx-hour-log th:nth-child(7), .idx-hour-log td:nth-child(7) { text-align: left; }
+.idx-hour-log td { padding: 10px; border-bottom: 1px solid var(--hairline); text-align: right; font: 600 11px/1.25 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text); white-space: nowrap; }
+.idx-hour-log tbody tr:last-child td { border-bottom: 0; }
+.idx-hour-log tbody tr:hover td { background: color-mix(in srgb, var(--accent) 3%, transparent); }
+.idx-hour-log td small { display: block; margin-top: 3px; font: 500 9px/1.1 var(--font-sans); color: var(--muted); text-transform: capitalize; }
+.idx-hour-log time { color: var(--text-strong); }
+.idx-hour-outcome { display: inline-block; padding: 4px 7px; border-radius: var(--r-pill); background: var(--surface-3); font: 600 10px/1 var(--font-sans); text-transform: capitalize; color: var(--muted-strong); }
+.idx-hour-foot { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 @media (max-width: 640px) {
   .idx-cal-decision, .idx-cal-day { padding: 12px; }
   .idx-cal-decision-head h3, .idx-cal-day-head h3 { font-size: 16px; }
@@ -10192,6 +10239,14 @@ button.idx-cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring)
   .idx-cal-day-grid { grid-template-columns: repeat(9, minmax(84px, 1fr)); }
   .idx-cal-day-actions { display: grid; grid-template-columns: 1fr; }
   .idx-cal-day-actions button { min-height: 42px; width: 100%; }
+  .idx-hour-heading { align-items: flex-start; flex-direction: column; }
+  .idx-hour-filters { width: 100%; justify-content: flex-start; }
+  .idx-hour-filters label { flex: 1 1 120px; }
+  .idx-hour-filters select { width: 100%; }
+  .idx-hour-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .idx-hour-conditions, .idx-hour-context { grid-template-columns: 1fr; }
+  .idx-hour-timing-row { grid-template-columns: 74px repeat(3, minmax(0, 1fr)); padding: 10px; }
+  .idx-hour-timing-row em { font-size: 8px; }
 }
 .cal-mini {
   display: flex;
