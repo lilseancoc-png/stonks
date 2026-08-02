@@ -3,8 +3,9 @@
 > **Status:** implemented. The historical cutover notes remain below. As of the
 > free-public pivot, there is no member or premium tier: every user-facing
 > research payload is public. Only Owner Lab, its paper-engine/shared-owner
-> state, and internal cache/accounting keys require both Owner claims (`tr` +
-> `tp`) and fail closed.
+> state, and internal cache/accounting keys require a signed Owner session. The
+> existing Top Picks owner role is the single Discord entitlement; after it is
+> verified, OAuth mints both internal compatibility claims (`tr` + `tp`).
 
 ## 1. Goal
 
@@ -467,10 +468,11 @@ Owner-isolation boundary rather than a membership paywall:
   narrative, flow, volume, OI, IV, earnings, and manifest payload is public.
 - The client has no premium tabs or signed-out login CTA. All public navigation,
   ticker links, deep links, loaders, and command-palette entries work without a
-  session. Only the `quant` Owner Lab route is hidden until both claims resolve.
-- Discord OAuth mints a session only when both configured Owner role sets are
-  satisfied, then redirects directly to `/?tab=quant`. `welcome.html` is an
-  unlinked Owner entry page, not a membership landing page.
+  session. Only the `quant` Owner Lab route is hidden until the Owner session resolves.
+- Discord OAuth reuses the existing `DISCORD_TOPPICKS_ROLE_ID(S)` owner role as
+  the single entitlement, mints both signed compatibility claims, then redirects
+  directly to `/?tab=quant`. `DISCORD_TRACKRECORD_ROLE_ID(S)` is no longer read.
+  `welcome.html` is an unlinked Owner entry page, not a membership landing page.
 - `middleware.js` only routes `/data/*` into the private-store reader. The old
   first-visit pricing/membership redirect was removed.
 - Public data remains edge-cacheable. Owner/internal responses remain

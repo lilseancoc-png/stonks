@@ -1176,7 +1176,7 @@ Share-direction breadth is more informative than dollar change because value cha
 
 ## 16. Owner Lab
 
-Owner Lab is part of the combined-role internal workspace. It contains the analytical Quant Lab screens and paper engine, plus the held-position checker and personal dollar/account-risk controls. Stock Picks, Sector Rotation, Leveraged ETFs, and every other security-selection or execution surface now use the same Owner entitlement; none is included with ordinary paid membership.
+Owner Lab is the private internal workspace. It contains the analytical Quant Lab screens and paper engine, plus the held-position checker and personal dollar/account-risk controls. Its signed session is minted only for holders of the pre-existing Top Picks owner role; every other research and execution surface is public.
 
 ### Regimes
 
@@ -1318,13 +1318,11 @@ Live polling is generally active only while the relevant tab is visible. Failure
 
 When `PRIVATE_DATA_ENABLED` is off, the deployment behaves as legacy public data. When on:
 
-**Public:** shell, News, Calendar, Heatmap, Overnight, Fear & Greed, Bonds & USD, Alt Data (AI CapEx, RAM, GPU Cloud Prices, Search Interest, and 13F), Commodities, Capital Raises, IPOs & Credit, Earnings Calls, general live market-data proxies, and reference/legal pages.
+**Public:** every user-facing research tab and payload, including ticker chains, grades, all picks, briefs, narratives, flow, gamma/OI, IV, earnings, Track Record, macro/alternative-data desks, live market-data proxies, and reference/legal pages.
 
-**Premium session:** Earnings Tracker only. It is a general earnings-season research view and does not include Owner tools.
+**Owner:** Owner Lab, its paper-engine state, shared owner watchlist, and internal cache/accounting payloads. OAuth verifies the existing `DISCORD_TOPPICKS_ROLE_ID(S)` owner role and then mints both signed compatibility claims (`tp` + `tr`) expected by the private APIs. Missing Top Picks role configuration fails closed; `DISCORD_TRACKRECORD_ROLE_ID(S)` is no longer read.
 
-**Owner (`tp` and `tr` together):** Market Analysis, Brief, Narratives, Tickers/per-ticker payloads, Grade, Compare, Strategies, Stock Picks, Sector Rotation, Leveraged ETFs, Event Spillover, Unusual Flow, Volume, Gamma Exposure/OI, Trending IV, Streaks, Index Calendar, Top Picks, Track Record, and Owner Lab. Both role configurations are required and missing configuration fails closed. They may map to the same genuine owner-only role, but never to a subscriber role.
-
-Unauthorized Owner features are hidden rather than upsold. Premium and Owner data use `private, no-store`; public data uses a short public edge cache.
+Unauthorized Owner features are hidden rather than upsold. Owner data uses `private, no-store`; public data uses a short public edge cache.
 
 ### Private data
 
@@ -1375,7 +1373,7 @@ Model resilience includes per-call model defaults, retry ladders, dead-model det
 
 ## 20. Audit findings and interpretation cautions
 
-1. **Current code and older repository guidance can differ on tiering.** The current `OWNER_TABS` and `lib/premium-keys.mjs` are the authority. Every user-facing research tab is public; only Owner Lab and its internal state require both Owner claims.
+1. **Current code and older repository guidance can differ on tiering.** The current `OWNER_TABS` and `lib/premium-keys.mjs` are the authority. Every user-facing research tab is public; only Owner Lab and its internal state require the signed session minted from the existing Top Picks owner role.
 2. **One UI help string overstates the IV-cost range.** The executable grade code and canonical Top Picks document use `-2…+1`; a tooltip in the generated app source still describes a broader `-3…+1.5` idea. This is copy drift, not scoring behavior.
 3. **“Sector rotation” names two different concepts.** Heatmap sector streaks measure breadth persistence. The Sector Rotation tab is the robust peer-washout rebound model.
 4. **Live price does not make every derived field live.** Entry zone and quote state may update, while a baked z-score, frozen mean, or historical volatility statistic remains anchored to its named build.

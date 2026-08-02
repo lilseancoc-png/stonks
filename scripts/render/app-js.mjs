@@ -63,7 +63,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // --- Owner gate (client half) ---------------------------------------------
   // Every public research tab is open without a login. The server independently
   // protects Owner Lab data; this UI boundary keeps that one destination hidden
-  // until both explicit Owner claims are confirmed.
+  // until the owner session's compatibility claims are confirmed. Discord mints
+  // both only after verifying the existing Top Picks owner role.
   var OWNER_TABS = { quant:1 };
   var GATE_ON = false;
   var HAS_TRACK_RECORD = true;
@@ -20151,13 +20152,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       }
     }
   }
-  // --- Quant Lab (combined tr + tp owner tier) -------------------------------
+  // --- Quant Lab (Top Picks owner-role tier) ---------------------------------
   // docs/quant-lab.md — deterministic sigma / VRP / pairs / surface /
   // dispersion / post-earnings-drift screens. ANALYTICAL ONLY: z-scores and
   // ranks, never trade signals (the playbook table in the shell is educational).
   // data/quant.json is the daily analytical research payload. The owner-only
   // intraday paper engine is a separate producer and therefore has separate
-  // current/history objects; all three keys require the same tr+tp claims.
+  // current/history objects; all three keys require the signed Owner session.
   var quantState = { data: null, dayTrading: null, dayTradingHistory: null, loading: false };
   function quantFetchJson(url){
     return fetch(url, { cache: 'no-store', credentials: 'same-origin' })

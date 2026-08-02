@@ -1,7 +1,7 @@
 // Vercel serverless function: the SHARED Top Picks watchlist.
 //
-// One internal list for owners: a session carrying BOTH Owner claims can save
-// a pick or remove a saved one, and every owner sees the same list. Public
+// One internal list for owners: the Top Picks owner role mints a session carrying
+// BOTH compatibility claims, which can save/remove picks for every owner. Public
 // visitors use the existing per-browser localStorage watchlist. Stored in the private data store
 // (lib/datastore.mjs) under REQUEST_TIME key "picks-watchlist.json" — a key
 // the workflows never push or delete (REQUEST_TIME_EXCLUSIVE in
@@ -21,8 +21,8 @@
 // worst case is a lost toggle, not corruption.
 //
 // Access is stricter than the now-public picks.json it snapshots: hard-404
-// unless PRIVATE_DATA_ENABLED, valid Owner session required, and both Owner
-// claims (`tr` + `tp`) must be explicitly true. Never
+// unless PRIVATE_DATA_ENABLED, valid Owner session required, and both signed
+// compatibility claims (`tr` + `tp`) must be explicitly true. Never
 // shared-cacheable. When
 // this endpoint is unreachable (gate off / signed out) the client falls back
 // to its original per-browser localStorage list, so local/dev keeps working.
@@ -96,7 +96,7 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: "auth required" });
   }
   // Owner access is strict and fail-closed: legacy sessions and either missing
-  // claim are denied just like picks.json itself.
+  // compatibility claim are denied just like other Owner data.
   if (session.tr !== true || session.tp !== true) {
     return res.status(401).json({ error: "role required" });
   }

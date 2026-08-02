@@ -9,8 +9,8 @@
 //   me               -> report session for the "signed in as …" chip
 //
 // Discord auth is intentionally an INTERNAL Owner Lab mechanism. Public site
-// access never requires a login; only principals holding both configured Owner
-// roles can mint a session.
+// access never requires a login; only principals holding the existing Top Picks
+// owner role can mint a session.
 
 import { randomBytes } from "node:crypto";
 import {
@@ -95,23 +95,17 @@ async function callback(req, res) {
     DISCORD_CLIENT_ID,
     DISCORD_CLIENT_SECRET,
     DISCORD_GUILD_ID,
-    DISCORD_TRACKRECORD_ROLE_ID,
-    DISCORD_TRACKRECORD_ROLE_IDS,
     DISCORD_TOPPICKS_ROLE_ID,
     DISCORD_TOPPICKS_ROLE_IDS,
     SESSION_SECRET,
   } = process.env;
-  const trackRecordRoleIds = parseRoleIds(
-    DISCORD_TRACKRECORD_ROLE_ID,
-    DISCORD_TRACKRECORD_ROLE_IDS,
-  );
   const topPicksRoleIds = parseRoleIds(DISCORD_TOPPICKS_ROLE_ID, DISCORD_TOPPICKS_ROLE_IDS);
-  const ownerRolesConfigured = trackRecordRoleIds.size > 0 && topPicksRoleIds.size > 0;
+  const ownerRoleConfigured = topPicksRoleIds.size > 0;
   if (
     !DISCORD_CLIENT_ID ||
     !DISCORD_CLIENT_SECRET ||
     !DISCORD_GUILD_ID ||
-    !ownerRolesConfigured ||
+    !ownerRoleConfigured ||
     !SESSION_SECRET
   ) {
     return res.status(503).json({ error: "owner auth not configured" });
@@ -156,23 +150,22 @@ async function callback(req, res) {
     const member = await memRes.json();
     const roles = Array.isArray(member.roles) ? member.roles : [];
 
-    // 3) INTERNAL OWNER GATE. The two settings may point at the same role,
-    // but both claims must be satisfied before any session is minted.
-    const hasTrackRecord = roles.some((r) => trackRecordRoleIds.has(r));
-    const hasTopPicks = roles.some((r) => topPicksRoleIds.has(r));
-    if (!hasTrackRecord || !hasTopPicks) {
+    // 3) INTERNAL OWNER GATE. Reuse the pre-existing Top Picks Discord role as
+    // the single source of Owner entitlement; it was already owner-only.
+    const hasOwnerRole = roles.some((r) => topPicksRoleIds.has(r));
+    if (!hasOwnerRole) {
       return redirect(res, "/welcome.html?denied=role", clearState);
     }
 
-    // 4) mint the session cookie and enter the app. `tr`/`tp` ride inside the
-    // signed (HS256, tamper-proof) JWT payload — set EXPLICITLY true/false so
-    // api/data can require both claims on strict `=== true` checks.
+    // 4) Mint the session cookie and enter the app. Owner endpoints still
+    // require the combined `tr` + `tp` compatibility claims, so the verified
+    // owner role mints both explicitly inside the signed, tamper-proof JWT.
     const user = member.user || {};
     const jwt = await signSession({
       sub: user.id || null,
       name: user.global_name || user.username || "owner",
-      tr: hasTrackRecord,
-      tp: hasTopPicks,
+      tr: true,
+      tp: true,
     });
     const sessionCookie = serializeCookie(SESSION_COOKIE, jwt, {
       maxAge: SESSION_TTL_SEC,

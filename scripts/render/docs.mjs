@@ -1401,7 +1401,7 @@ export const DOC_PAGES = {
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Owner Lab</span><span class="tier prem">Private</span></div>
-          <p class="feat-desc">The held-position checker, personal dollar/account-risk controls, deterministic quant research, and paper engine live here. It is an internal workspace for the site's principals, requires both Owner claims, and is not sold or exposed as a public signup.</p>
+          <p class="feat-desc">The held-position checker, personal dollar/account-risk controls, deterministic quant research, and paper engine live here. It is an internal workspace for the site's principals, requires the existing Top Picks owner role, and is not sold or exposed as a public signup.</p>
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Index calendar + hour tracker</span><span class="tier free">Public</span></div>

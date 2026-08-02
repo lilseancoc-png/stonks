@@ -1750,7 +1750,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     </div>
   </details>
   <details class="side-nav-group" data-nav-group="owner" data-role-group="owner" hidden>
-    <!-- The one private workspace; hidden until both Owner claims resolve. -->
+    <!-- The one private workspace; hidden until the Top Picks owner session resolves. -->
     <summary class="side-nav-group-label">Owner</summary>
     <div class="side-nav-group-items">
       ${sideNavItem('quant', 'Owner Lab')}

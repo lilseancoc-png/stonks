@@ -142,7 +142,8 @@ of these requires a new data source first.
 `loadQuant`/`renderQuant` in `scripts/render/app-js.mjs` (spillover-loader
 pattern; one fetch of `quant.json`); section chrome + the static playbook and
 coverage cards in `html.mjs` (`quantSection`); `.quant-*` styles. Owner
-wiring: `OWNER_TABS.quant`, combined `tr` + `tp` claims, `PAGE_TAB_IDS`, aliases
+wiring: `OWNER_TABS.quant`, the Top Picks owner role (minting combined `tr` +
+`tp` compatibility claims), `PAGE_TAB_IDS`, aliases
 (`quant-lab`, `pairs`, `pair-trading`, `sigma`, `vrp`, `dispersion`), the
 selectTab lazy-load hook, and `.quant-sym` in the `bindBriefChips` selector so
 every ticker deep-links to Grade. The regime renders as a chip strip at the

@@ -50,6 +50,10 @@ try {
   const watchlistSource = await readFile(resolve("api/watchlist.js"), "utf8");
   assert.match(watchlistSource, /session\.tr !== true \|\| session\.tp !== true/);
   assert.doesNotMatch(watchlistSource, /session\.tp === false/);
+  const authSource = await readFile(resolve("api/auth/[action].js"), "utf8");
+  assert.match(authSource, /const hasOwnerRole = roles\.some/);
+  assert.match(authSource, /tr: true,[\s\S]*?tp: true,/);
+  assert.doesNotMatch(authSource, /DISCORD_TRACKRECORD_ROLE_ID/);
 
   const blocker = resolve(temp, "not-a-directory");
   await writeFile(blocker, "block", "utf8");
