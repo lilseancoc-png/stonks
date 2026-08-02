@@ -86,14 +86,14 @@
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.03700;
+  var RFR = 0.04500;
   // Provenance for the risk-free rate baked above. source is
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"cached","asOf":"2026-07-01","ageDays":32};
+  var RFR_META = {"source":"fallback","asOf":"2026-08-02","ageDays":null};
   var CHAIN_CACHE = Object.create(null);
-  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null };
+  var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null, chainRequestSeq: 0 };
   var ownerAutoPicks = { data: null, pending: null };
   var evalTimer = null;
   var stickyIO = null;
@@ -636,17 +636,9 @@
     var iso = year + '-' + (mm<10?'0':'') + mm + '-' + (dd<10?'0':'') + dd;
     return { root: m[1], type: m[5]==='C' ? 'call' : 'put', strike: parseInt(m[6],10)/1000, expiryISO: iso };
   }
-  // Chain expiration keys are midnight UTC of the expiry date — ~8 PM ET the
-  // *evening before* the contract's last trading day — but the contract
-  // trades until the 16:00 ET close ~20h later. Add this offset before
-  // differencing a chain key against "now" so greeks/DTE stay live through
-  // the final session instead of going negative at the prior evening.
-  // (Manual entries don't need it — they anchor via etCloseEpochSec below.)
-  var EXPIRY_CLOSE_OFFSET_MS = 20 * 3600 * 1000;
-  var EXPIRY_CLOSE_OFFSET_SEC = EXPIRY_CLOSE_OFFSET_MS / 1000;
   // 16:00 ET on the given YYYY-MM-DD expressed as a UTC epoch (seconds).
-  // Resolves the EDT/EST offset for that calendar date via Intl, so DST
-  // transitions don't shift theta by an hour for manually-entered contracts.
+  // Resolves the EDT/EST offset for that calendar date via Intl, so DST never
+  // shifts theta or DTE by an hour.
   function etCloseEpochSec(yyyymmdd){
     if (!yyyymmdd) return NaN;
     var probe = new Date(yyyymmdd + 'T16:00:00Z');
@@ -662,6 +654,19 @@
     if (h === 24) h = 0; // some impls emit '24' for midnight
     var diffMin = (16*60) - (h*60 + mi);
     return Math.floor((probe.getTime() + diffMin*60*1000) / 1000);
+  }
+  // Chain expiration keys are midnight UTC of the expiry date. Convert that
+  // calendar date to the real 16:00 New York close instead of adding a fixed
+  // 20 hours (which is one hour early during standard time).
+  var CHAIN_EXPIRY_CLOSE_CACHE = Object.create(null);
+  function chainExpiryCloseEpochSec(epochSec){
+    var midnight = new Date(Number(epochSec) * 1000);
+    if (isNaN(midnight.getTime())) return NaN;
+    var iso = midnight.toISOString().slice(0, 10);
+    if (Object.prototype.hasOwnProperty.call(CHAIN_EXPIRY_CLOSE_CACHE, iso)) return CHAIN_EXPIRY_CLOSE_CACHE[iso];
+    var closeSec = etCloseEpochSec(iso);
+    CHAIN_EXPIRY_CLOSE_CACHE[iso] = closeSec;
+    return closeSec;
   }
 
   // --- Theme toggle -------------------------------------------------------
@@ -871,6 +876,11 @@
   function pushUrlState(){
     if (suppressUrlWrite) return;
     if (!state.symbol) return;
+    // A Grade fetch may finish after the user has already navigated Home (or
+    // elsewhere). Keep warming its state/cache, but never let the hidden pane
+    // resurrect contract params or its document title in the current URL.
+    var gradePane = $('page-pane-grade');
+    if (gradePane && gradePane.hidden) return;
     try {
       var url = buildShareUrl();
       window.history.replaceState(null, '', url);
@@ -1593,7 +1603,11 @@
     // priceMove1dPct (last close vs prior close, frozen at bake time).
     // During RTH the live number is what actually reflects "today's move".
     var sym = input.ticker || input.symbol || state.symbol || null;
-    var live = (sym && LIVE_CACHE[sym]) ? LIVE_CACHE[sym].q : null;
+    var liveCandidate = (sym && LIVE_CACHE[sym]) ? LIVE_CACHE[sym].q : null;
+    // Extended-hours prices are useful context in the quote pill, but option
+    // entry timing is a regular-session decision. Do not let PRE/POST data flip
+    // the Execute-now card while the tape and option market are closed.
+    var live = liveCandidate && liveCandidate.marketState === 'REGULAR' ? liveCandidate : null;
     var liveChgPct = (live && live.changePct != null && isFinite(live.changePct)) ? live.changePct : null;
     var bakedMove = tech.volume ? tech.volume.priceMove1dPct : null;
     var todayMovePct = liveChgPct != null ? liveChgPct : bakedMove;
@@ -1814,7 +1828,7 @@
     // last-close move when the cache isn't populated yet.
     function readBackdropMove(s){
       var lv = LIVE_CACHE[s] && LIVE_CACHE[s].q;
-      if (lv && lv.changePct != null && isFinite(lv.changePct)) {
+      if (lv && lv.marketState === 'REGULAR' && lv.changePct != null && isFinite(lv.changePct)) {
         return { pct: lv.changePct, src: 'live' };
       }
       var bk = MARKET_BACKDROP[s];
@@ -2065,8 +2079,16 @@
     // Verdict — collapse signals into EXECUTE / WAIT / AVOID.
     var hasStrongPro = pros.some(function(p){ return p.strong; });
     var hasStrongCon = cons.some(function(c){ return c.strong; });
+    var decisionMarketState = (typeof currentMarketState === 'function') ? currentMarketState() : null;
+    var marketClosedForEntry = !!decisionMarketState && decisionMarketState !== 'REGULAR';
     var verdict, vCls, vHeadline, vBody;
-    if (catalystImminent) {
+    if (marketClosedForEntry) {
+      verdict = 'WAIT'; vCls = 'fair';
+      var sessionName = decisionMarketState === 'PRE' ? 'Pre-market' :
+        ((decisionMarketState === 'POST' || decisionMarketState === 'POSTPOST') ? 'After hours' : 'Market closed');
+      vHeadline = sessionName + ' — wait for the option market to reopen';
+      vBody = 'The extended-hours stock quote is context only. Option spreads, IV, and executable size are frozen, so reassess this setup during the regular session before entering.';
+    } else if (catalystImminent) {
       // Scheduled events override every chart pattern. AVOID would imply
       // "fight the tape now"; the right framing is "defer, then re-read".
       verdict = 'WAIT'; vCls = 'fair';
@@ -2626,7 +2648,7 @@
       var bestExp = null, bestExpDist = Infinity;
       for (var i = 0; i < state.expirations.length; i++){
         var exp = state.expirations[i];
-        var dte = Math.round((exp + EXPIRY_CLOSE_OFFSET_SEC - nowSec) / 86400);
+        var dte = Math.round((chainExpiryCloseEpochSec(exp) - nowSec) / 86400);
         if (dte < 45) continue;
         var dist = Math.abs(dte - 60);
         if (dist >= bestExpDist) continue;
@@ -2644,7 +2666,7 @@
       }
       if (bestExp){
         var newRowExp = bestExp.row;
-        var Texp = Math.max(0, (bestExp.expEpoch + EXPIRY_CLOSE_OFFSET_SEC - nowSec) / (365 * 86400));
+        var Texp = Math.max(0, (chainExpiryCloseEpochSec(bestExp.expEpoch) - nowSec) / (365 * 86400));
         var newDeltaExp = deltaOf(newRowExp, Texp);
         var newSpExp = spreadPctOf(newRowExp);
         return {
@@ -2668,7 +2690,7 @@
     // 2) Far-OTM delta → find a near-ATM strike in the same expiry whose
     //    |delta| sits in the balanced 0.40-0.70 zone with a workable spread.
     if (kinds.indexOf('delta') >= 0 && input.expEpoch){
-      var T = Math.max(0, (input.expEpoch + EXPIRY_CLOSE_OFFSET_SEC - nowSec) / (365 * 86400));
+      var T = Math.max(0, (chainExpiryCloseEpochSec(input.expEpoch) - nowSec) / (365 * 86400));
       var rows2 = rowsFor(input.expEpoch);
       var best = null, bestQuality = -Infinity;
       for (var k = 0; k < rows2.length; k++){
@@ -2714,7 +2736,7 @@
         if (score3 < bestSpScore){ bestSpScore = score3; bestSp = { row: rows3[n], sp: sp3 }; }
       }
       if (bestSp){
-        var Tsp = Math.max(0, (input.expEpoch + EXPIRY_CLOSE_OFFSET_SEC - nowSec) / (365 * 86400));
+        var Tsp = Math.max(0, (chainExpiryCloseEpochSec(input.expEpoch) - nowSec) / (365 * 86400));
         var newDeltaSp = deltaOf(bestSp.row, Tsp);
         return {
           kind: 'strike',
@@ -3090,7 +3112,7 @@
     var pts = [];
     for (var i=0; i<state.expirations.length; i++){
       var expSec = state.expirations[i];
-      var dte = Math.max(0, Math.round((expSec + EXPIRY_CLOSE_OFFSET_SEC - nowSec) / 86400));
+      var dte = Math.max(0, Math.round((chainExpiryCloseEpochSec(expSec) - nowSec) / 86400));
       var iv = atmIvForExpiration(state.chains[expSec], state.spot);
       if (iv != null) pts.push({ expSec: expSec, dte: dte, iv: iv });
     }
@@ -3495,8 +3517,11 @@
       // (the unchanged-URL guard below already no-ops most of those).
       try {
         var url = new URL(window.location.href);
-        if (name === 'home') url.searchParams.delete('tab');
-        else url.searchParams.set('tab', name);
+        if (name === 'home') {
+          // Home is the canonical bare landing state. Grade contract params
+          // must leave with it or a reload re-opens Grade via ?s=.
+          ['tab', 's', 'exp', 'k', 't'].forEach(function(key){ url.searchParams.delete(key); });
+        } else url.searchParams.set('tab', name);
         var next = url.pathname + (url.search || '') + (url.hash || '');
         if (next !== window.location.pathname + window.location.search + window.location.hash) {
           if (replace) history.replaceState(null, '', next);
@@ -3622,6 +3647,7 @@
       // is the point, not the menu.
       closeSideNavDrawer();
       syncTabToUrl(name, !!(nav && nav.replace));
+      if (name !== 'grade') document.title = 'stonks · Option Contract Rater';
       trackPageTab(name);
       // A tab hop lands at the top of the destination pane — the scroll depth
       // of a long previous tab (e.g. a Brief ticker chip clicked from way down
@@ -3873,9 +3899,10 @@
     var quoteStale = (input.source === 'chain') &&
       ((bid == null || ask == null || bid <= 0 || ask <= 0) || (mkt != null && mkt !== 'REGULAR'));
     var iv = input.iv;
-    // Manual entries already anchor expEpoch at the 16:00 ET close; chain
-    // rows carry the raw midnight-UTC expiration key and need the offset.
-    var expMs = input.expEpoch*1000 + (input.source === 'manual' ? 0 : EXPIRY_CLOSE_OFFSET_MS);
+    // Manual entries already anchor expEpoch at the 16:00 ET close; chain rows
+    // carry a midnight-UTC calendar key that needs a DST-aware conversion.
+    var expSec = input.source === 'manual' ? Number(input.expEpoch) : chainExpiryCloseEpochSec(input.expEpoch);
+    var expMs = expSec * 1000;
     var T = (expMs - Date.now()) / (365*24*3600*1000);
     var g = (T > 0 && iv > 0 && input.spot > 0 && input.strike > 0)
       ? greeks(input.type, input.spot, input.strike, T, iv, RFR) : null;
@@ -3977,7 +4004,7 @@
       ? '$' + fmt(bid) + ' / $' + fmt(ask)
       : (input.last > 0 ? '— / — · last $' + fmt(input.last) : '— / —');
     var lGrade = gradeLiquidity(input.oi);
-    var earn = computeEarningsContext(input.fundamentals, input.spot, iv, input.expEpoch);
+    var earn = computeEarningsContext(input.fundamentals, input.spot, iv, expSec);
     var volRegime = input.technicals && input.technicals.volRegime;
     var vGrade = volRegime ? gradeVolRegime(volRegime.rv30Pctile) : null;
 
@@ -4339,6 +4366,7 @@
   }
   function loadChain(){
     var symbol = state.symbol; if (!symbol) return;
+    var requestSeq = ++state.chainRequestSeq;
     var cached = !!CHAIN_CACHE[symbol];
     // The per-ticker JSON (chain + AI news take + technicals) is fetched here
     // and only here — nothing about a ticker is preloaded before the user
@@ -4349,7 +4377,7 @@
       // The user may have switched tickers while this fetch was in flight; a
       // slow earlier response must not overwrite the newer ticker's state and
       // paint a mismatched grade. Matches refreshLiveQuote/refreshLiveChain.
-      if (state.symbol !== symbol) return;
+      if (requestSeq !== state.chainRequestSeq || state.symbol !== symbol) return;
       state.spot = entry.spot;
       state.expirations = (entry.expirations || []).slice();
       state.chains = entry.chains || {};
@@ -4378,7 +4406,7 @@
       var nowSec = Math.floor(Date.now() / 1000);
       var minDteSec = 30 * 86400;
       var defaultExp = state.expirations.find(function(e){
-        return (e + EXPIRY_CLOSE_OFFSET_SEC - nowSec) >= minDteSec;
+        return (chainExpiryCloseEpochSec(e) - nowSec) >= minDteSec;
       });
       state.currentExp = defaultExp != null ? defaultExp : state.expirations[0];
       populateExpiry();
@@ -4419,6 +4447,9 @@
       // call is 30s-cached so re-picking tickers doesn't re-hit Yahoo.
       prefetchMarketBackdrop();
     }).catch(function(err){
+      // A rejection from an earlier ticker must not overwrite the status for
+      // the ticker the user has since selected.
+      if (requestSeq !== state.chainRequestSeq || state.symbol !== symbol) return;
       setStatus('opt-eval-status', 'Failed to load ' + symbol + ': ' + (err && err.message || err), 'err');
     });
   }
@@ -4522,7 +4553,8 @@
   }
   function applyLiveQuote(symbol, q){
     renderLiveQuote(symbol, q);
-    if (q.spot != null && isFinite(q.spot) && q.spot > 0 && q.spot !== state.spot){
+    var regularSession = String(q.marketState || '').toUpperCase() === 'REGULAR';
+    if (regularSession && q.spot != null && isFinite(q.spot) && q.spot > 0 && q.spot !== state.spot){
       state.spot = q.spot;
       // Re-snap the strike ladder to the live spot, then regrade — but PRESERVE
       // the user's current strike selection (a deep-linked ?k= or a Top-Picks
@@ -4541,20 +4573,23 @@
       }
       evaluate();
     }
-    // Always fire one immediate chain refresh on ticker selection so the
-    // user sees fresh bid/ask the moment they pick a name, instead of
-    // waiting up to 30s for the first poll. Outside regular hours Yahoo
-    // typically returns bid=0/ask=0 (no live market), so the dropdown's
-    // last-trade fallback still applies — but last prices, OI, and volume
-    // can move during pre/post sessions and this keeps them current.
-    if (state.symbol === symbol && state.currentExp) {
-      refreshLiveChain(symbol, state.currentExp);
+    if (!regularSession && state.symbol === symbol) {
+      // Repaint the timing card as WAIT without replacing the baked evaluation
+      // spot. Extended-hours stock prints are context, not an executable option
+      // market.
+      evaluate();
     }
     // Once we know the market is open, start polling the chain endpoint
     // every 30s so bid/ask/IV/volume stay fresh while the user is on the
     // page. Polling stops automatically on ticker change, market close,
-    // tab hide, or page unload.
+    // tab hide, or page unload. Install/reset the timer BEFORE the immediate
+    // refresh below: startLivePolling intentionally aborts any old request.
     startLivePolling();
+    // Fire one immediate regular-session chain refresh on ticker selection so
+    // the user sees fresh bid/ask now instead of waiting for the first 30s tick.
+    if (regularSession && state.symbol === symbol && state.currentExp) {
+      refreshLiveChain(symbol, state.currentExp);
+    }
   }
 
   // --- Live chain polling -------------------------------------------------
@@ -4566,12 +4601,11 @@
   // state.chains[exp] and regrade without any other state changes.
   var CHAIN_POLL_MS = 30000;
   // Abort a hung chain fetch well inside the poll interval so a single
-  // never-settling request can't wedge livePollInFlight (and silently kill
-  // all further polling) for the rest of the session.
+  // never-settling request cannot stall all further polling.
   var CHAIN_FETCH_TIMEOUT_MS = 12000;
   var livePollTimer = null;
-  var livePollInFlight = false;
-  var livePollController = null;
+  var livePollRequest = null;
+  var livePollQueued = null;
   var liveLastRefreshAt = null;
   function liveRefreshLabel(state){
     if (state === 'REGULAR') return 'Live · auto-refresh 30s';
@@ -4593,11 +4627,29 @@
   }
   function refreshLiveChain(symbol, exp){
     if (!symbol || !exp) return;
-    if (livePollInFlight) return;
     if (state.symbol !== symbol) return;
-    livePollInFlight = true;
+    if (Number(state.currentExp) !== Number(exp)) return;
+    var requestKey = symbol + '|' + Number(exp);
+    if (livePollRequest){
+      if (livePollRequest.key === requestKey) {
+        // ABA expiry switch: the matching request may already have been
+        // aborted while a different expiry was queued. Re-queue this current
+        // expiry so the abort's finally block launches a fresh request. If it
+        // is still healthy, it already satisfies this request and any queued
+        // different expiry is stale.
+        var wasAborted = !!(livePollRequest.controller && livePollRequest.controller.signal && livePollRequest.controller.signal.aborted);
+        livePollQueued = wasAborted ? { symbol: symbol, exp: exp } : null;
+        return;
+      }
+      // An expiry switch should supersede the old poll, not disappear behind
+      // its in-flight guard. Keep only the newest requested contract.
+      livePollQueued = { symbol: symbol, exp: exp };
+      if (livePollRequest.controller){ try { livePollRequest.controller.abort(); } catch (_){} }
+      return;
+    }
     var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-    livePollController = controller;
+    var request = { key: requestKey, symbol: symbol, exp: exp, controller: controller };
+    livePollRequest = request;
     var abortTimer = controller ? setTimeout(function(){ controller.abort(); }, CHAIN_FETCH_TIMEOUT_MS) : null;
     fetch('/api/chain?symbol=' + encodeURIComponent(symbol) + '&exp=' + encodeURIComponent(exp), { cache: 'no-store', signal: controller ? controller.signal : undefined })
       .then(function(resp){ if (!resp.ok) throw new Error('HTTP ' + resp.status); return resp.json(); })
@@ -4605,6 +4657,30 @@
         if (!r || !r.chain) return;
         if (state.symbol !== symbol) return;
         if (Number(state.currentExp) !== Number(exp)) return;
+        if (r.marketState !== 'REGULAR') {
+          // A request can cross the closing bell. Surface the newer session
+          // price in the quote pill, but leave the last tradable chain/spot in
+          // the evaluator so a frozen market cannot create an entry signal.
+          var closingQ = (LIVE_CACHE[symbol] && LIVE_CACHE[symbol].q) || {};
+          var closingSpot = r.spot != null && isFinite(r.spot) ? r.spot : closingQ.spot;
+          var closingPrev = closingQ.prevClose != null && isFinite(closingQ.prevClose) && closingQ.prevClose !== 0
+            ? closingQ.prevClose : null;
+          var closingChange = closingPrev != null && closingSpot != null ? closingSpot - closingPrev : closingQ.change;
+          var closingChangePct = closingPrev != null && closingSpot != null ? closingChange / closingPrev * 100 : closingQ.changePct;
+          var closedPillQ = {
+            spot: closingSpot,
+            marketState: r.marketState,
+            prevClose: closingPrev,
+            change: closingChange,
+            changePct: closingChangePct,
+          };
+          LIVE_CACHE[symbol] = { q: closedPillQ, at: Date.now() };
+          renderLiveQuote(symbol, closedPillQ);
+          evaluate();
+          renderLiveRefreshIndicator(r.marketState);
+          stopLivePolling();
+          return;
+        }
         // Preserve the strike the user is currently looking at — picking
         // ATM every 30s would yank their selection.
         var prevContract = findContract();
@@ -4652,8 +4728,6 @@
         renderMaxPain();
         evaluate();
         renderLiveRefreshIndicator(r.marketState);
-        // Market just closed — stop polling.
-        if (r.marketState !== 'REGULAR') stopLivePolling();
       })
       .catch(function(){
         // Silent failure (including timeout/abort); next interval will try
@@ -4661,8 +4735,15 @@
       })
       .finally(function(){
         if (abortTimer) clearTimeout(abortTimer);
-        if (livePollController === controller) livePollController = null;
-        livePollInFlight = false;
+        // stopLivePolling may already have invalidated this request. Only the
+        // current request is allowed to release the guard or launch its queue.
+        if (livePollRequest !== request) return;
+        livePollRequest = null;
+        var queued = livePollQueued;
+        livePollQueued = null;
+        if (queued && state.symbol === queued.symbol && Number(state.currentExp) === Number(queued.exp)) {
+          refreshLiveChain(queued.symbol, queued.exp);
+        }
       });
   }
   function currentMarketState(){
@@ -4690,10 +4771,12 @@
   }
   function stopLivePolling(){
     if (livePollTimer){ clearInterval(livePollTimer); livePollTimer = null; }
-    // Abort any in-flight request and clear the guard so a ticker/tab switch
-    // recovers immediately even if the prior fetch is still pending.
-    if (livePollController){ try { livePollController.abort(); } catch (_){} livePollController = null; }
-    livePollInFlight = false;
+    // Invalidate before aborting so the old finally handler cannot launch a
+    // queued refresh after the user leaves the tab or switches tickers.
+    var request = livePollRequest;
+    livePollRequest = null;
+    livePollQueued = null;
+    if (request && request.controller){ try { request.controller.abort(); } catch (_){} }
   }
   // Pause when the tab is hidden — no point burning Yahoo calls for a
   // tab the user can't see. Resume on visibility return.
@@ -10342,6 +10425,23 @@
   // costs at most ~2 Yahoo calls/min site-wide. The heatmap + volume tabs
   // keep their own opt-in pollers — live mode changes their layout, so it
   // stays a user choice there; these three only refresh text in place.
+  function isRegularMarketQuote(q){
+    return !!q && String(q.marketState || '').toUpperCase() === 'REGULAR';
+  }
+  function marketStateOfQuotes(quotes){
+    var fallback = '';
+    for (var i = 0; i < quotes.length; i++){
+      var stateName = String((quotes[i] && quotes[i].marketState) || '').toUpperCase();
+      if (stateName === 'REGULAR') return 'REGULAR';
+      if (!fallback && stateName) fallback = stateName;
+    }
+    return fallback;
+  }
+  function pausedMarketLabel(marketState){
+    if (marketState === 'PRE') return 'Pre-market · live paused';
+    if (marketState === 'POST' || marketState === 'POSTPOST') return 'After hours · last close';
+    return 'Market closed · last close';
+  }
   function createQuotesPoller(opts){
     var timer = null;
     function poll(){
@@ -10351,7 +10451,12 @@
         .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
         .then(function(json){
           var quotes = (json && Array.isArray(json.quotes)) ? json.quotes : [];
-          if (quotes.length) opts.onQuotes(quotes);
+          if (quotes.length) {
+            var marketState = marketStateOfQuotes(quotes);
+            // Yahoo keeps returning regularMarketPrice after the bell. Never
+            // feed that closed-session snapshot into "live" entry/exit logic.
+            opts.onQuotes(quotes.filter(isRegularMarketQuote), marketState);
+          }
           else if (opts.onError) opts.onError();
         })
         .catch(function(){ if (opts.onError) opts.onError(); });
@@ -10370,12 +10475,15 @@
       poke: function(){ if (timer) poll(); },
     };
   }
-  function liveStateMark(id, ok){
+  function liveStateMark(id, marketState, ok){
     var el = document.getElementById(id);
     if (!el) return;
-    if (ok){
+    if (ok && marketState === 'REGULAR'){
       el.className = 'tab-live-state is-live';
       el.textContent = 'Live · ' + new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    } else if (ok) {
+      el.className = 'tab-live-state';
+      el.textContent = pausedMarketLabel(marketState);
     } else {
       el.className = 'tab-live-state is-error';
       el.textContent = 'Live unavailable';
@@ -10389,7 +10497,7 @@
   var tickersLivePoller = createQuotesPoller({
     paneId: 'page-pane-tickers',
     symbols: function(){ return Array.isArray(MANIFEST.symbols) ? MANIFEST.symbols : []; },
-    onQuotes: function(quotes){
+    onQuotes: function(quotes, marketState){
       for (var i = 0; i < quotes.length; i++){
         var q = quotes[i];
         if (!q || !q.symbol) continue;
@@ -10409,9 +10517,9 @@
           }
         }
       }
-      liveStateMark('tickers-live-state', true);
+      liveStateMark('tickers-live-state', marketState, true);
     },
-    onError: function(){ liveStateMark('tickers-live-state', false); },
+    onError: function(){ liveStateMark('tickers-live-state', null, false); },
   });
   var tickersVixTimer = null;
   function pollTickerVix(){
@@ -10449,7 +10557,7 @@
   // is direction-aware — down is green for a put) and live distance to the
   // exit plan's take-profit / cut levels, with a badge the moment either
   // level is crossed intraday.
-  var picksLive = { quotes: {} };
+  var picksLive = { quotes: {}, marketState: '' };
   // The track record tracks only ACTIONABLE picks (the recommended trades). The
   // watch/ideas list isn't enrolled (matches picks-accuracy + picks-roster), so
   // the live board + the live poll restrict to group === 'actionable'.
@@ -10659,17 +10767,25 @@
   var picksLivePoller = createQuotesPoller({
     paneId: 'page-pane-picks',
     symbols: picksLiveSymbols,
-    onQuotes: function(quotes){
+    onQuotes: function(quotes, marketState){
       var map = {};
       for (var i = 0; i < quotes.length; i++){
         var q = quotes[i];
         if (q && q.symbol) map[String(q.symbol).toUpperCase()] = q;
       }
+      var leftRegularSession = picksLive.marketState === 'REGULAR' && marketState !== 'REGULAR';
       picksLive.quotes = map;
+      picksLive.marketState = marketState;
+      // Restore baked spot/Greeks markup when the market closes; otherwise
+      // the final regular poll remains decorated as "live" indefinitely.
+      if (leftRegularSession){
+        renderPicks(true);
+        if (picksState.openSym) renderPickDetailCard(picksState.openSym);
+      }
       renderPicksLive();
-      liveStateMark('picks-live-state', true);
+      liveStateMark('picks-live-state', marketState, true);
     },
-    onError: function(){ liveStateMark('picks-live-state', false); },
+    onError: function(){ liveStateMark('picks-live-state', null, false); },
   });
   // The macro-tape live poll moved to the Market analysis tab (startMacroTapeLive
   // is started/stopped by selectTab on 'market') — picks live is just the quotes poller.
@@ -12837,7 +12953,7 @@
   // where spot sits relative to the call/put walls is an intraday read.
   // Refresh each row's spot and show the live distance to its walls; crossing
   // a wall is called out explicitly.
-  var oiLive = { quotes: {} };
+  var oiLive = { quotes: {}, marketState: '' };
   function applyOiLive(){
     var list = $('oi-list');
     if (!list) return;
@@ -12878,13 +12994,16 @@
       var tickers = (OI && Array.isArray(OI.tickers)) ? OI.tickers : [];
       return tickers.map(function(t){ return t && t.symbol ? String(t.symbol).toUpperCase() : null; });
     },
-    onQuotes: function(quotes){
+    onQuotes: function(quotes, marketState){
       var map = {};
       for (var i = 0; i < quotes.length; i++){
         var q = quotes[i];
         if (q && q.symbol) map[String(q.symbol).toUpperCase()] = q;
       }
+      var leftRegularSession = oiLive.marketState === 'REGULAR' && marketState !== 'REGULAR';
       oiLive.quotes = map;
+      oiLive.marketState = marketState;
+      if (leftRegularSession && typeof renderOI === 'function') renderOI();
       applyOiLive();
       if (oiLoad.loaded && OI){
         var decisionTickers = filteredOiTickers();
@@ -12894,9 +13013,9 @@
           filteredOut: decisionFiltered && !decisionTickers.length,
         });
       }
-      liveStateMark('oi-live-state', true);
+      liveStateMark('oi-live-state', marketState, true);
     },
-    onError: function(){ liveStateMark('oi-live-state', false); },
+    onError: function(){ liveStateMark('oi-live-state', null, false); },
   });
   function startOiLive(){ oiLivePoller.start(); }
   function stopOiLive(){ oiLivePoller.stop(); }
@@ -13639,7 +13758,6 @@
   var GEX_CONTRACT_MULT = 100;          // shares per contract
   var GEX_MIN_T_DAYS = 1;               // floor on time-to-expiry so 0DTE ATM gamma stays finite + readable
   var GEX_MAX_EXPS = 8;                 // near-term expiration columns shown
-  var GEX_EXPIRY_OFFSET_MS = EXPIRY_CLOSE_OFFSET_MS; // ~16:00 ET close vs the midnight-UTC expiration key (shared constant)
   var GEX_YEAR_MS = 365 * 24 * 3600 * 1000;
   var GEX_RANGES = { near: 12, mid: 22, wide: 40 }; // strikes shown each side of spot
   var gexState = {
@@ -13662,7 +13780,7 @@
     return (n > 0 ? '+' : '') + gexFmt(n);
   }
   function gexYearsTo(expSec, now){
-    var yrs = ((Number(expSec) * 1000 + GEX_EXPIRY_OFFSET_MS) - now) / GEX_YEAR_MS;
+    var yrs = (chainExpiryCloseEpochSec(expSec) * 1000 - now) / GEX_YEAR_MS;
     return Math.max(yrs, GEX_MIN_T_DAYS / 365);
   }
   function gexBuildLabel(){
@@ -13748,7 +13866,7 @@
     var exps = [];
     for (var i = 0; i < expKeys.length && exps.length < GEX_MAX_EXPS; i++){
       var sec = expKeys[i];
-      var dte = Math.round((sec * 1000 + GEX_EXPIRY_OFFSET_MS - now) / dayMs);
+      var dte = Math.round((chainExpiryCloseEpochSec(sec) * 1000 - now) / dayMs);
       if (dte < 0) continue; // already expired — drop the dead column
       exps.push({ sec: sec, dte: dte, T: gexYearsTo(sec, now), label: fmtOiExpiry(sec) });
     }
@@ -13978,7 +14096,7 @@
     fetch('/api/quote?symbol=' + encodeURIComponent(sym), { cache: 'no-store' })
       .then(function(resp){ return resp.ok ? resp.json() : null; })
       .then(function(q){
-        if (!q || token !== gexState.token || gexState.symbol !== sym || !gexState.entry) return;
+        if (!q || String(q.marketState || '').toUpperCase() !== 'REGULAR' || token !== gexState.token || gexState.symbol !== sym || !gexState.entry) return;
         var s = Number(q.spot);
         if (!(s > 0)) return;
         gexState.spotSource = 'live';
@@ -14341,6 +14459,7 @@
   var stratState = {
     inited: false,
     loading: false,
+    requestSeq: 0,
     symbol: null,
     spot: null,
     expirations: [],
@@ -14366,7 +14485,7 @@
   }
   function stratDte(epochSec){
     if (!epochSec) return null;
-    return Math.max(0, Math.round((epochSec * 1000 + EXPIRY_CLOSE_OFFSET_MS - Date.now()) / 86400000));
+    return Math.max(0, Math.round((chainExpiryCloseEpochSec(epochSec) * 1000 - Date.now()) / 86400000));
   }
   function stratBsPrice(type, S, K, T, sigma, r){
     // Intrinsic-at-expiry needs no vol — the T<=0 branch must run BEFORE the
@@ -14829,7 +14948,7 @@
       var qty = Math.max(1, parseInt(L.qty, 10) || 1);
       var mid = null, bid = null, ask = null, iv = null, oi = null, vol = null;
       var g = null;
-      var T = Math.max(0, (L.expSec + EXPIRY_CLOSE_OFFSET_SEC - nowSec) / (365*86400));
+      var T = Math.max(0, (chainExpiryCloseEpochSec(L.expSec) - nowSec) / (365*86400));
       if (row){
         bid = row.b; ask = row.a; iv = row.iv; oi = row.oi; vol = row.v;
         if (bid != null && ask != null) mid = (bid + ask) / 2;
@@ -15548,7 +15667,9 @@
 
   // --- Load chain for a ticker -------------------------------------------
   function stratLoadSymbol(symbol){
+    var requestSeq = ++stratState.requestSeq;
     if (!symbol || !SYMBOLS || SYMBOLS.indexOf(symbol) < 0){
+      stratState.loading = false;
       setStatus('strat-status', symbol ? ('Unknown ticker: ' + symbol) : '', symbol ? 'err' : '');
       return;
     }
@@ -15556,6 +15677,7 @@
     stratRenderStarter();
     setStatus('strat-status', 'Loading ' + symbol + ' chain…', 'loading');
     fetchChain(symbol).then(function(entry){
+      if (requestSeq !== stratState.requestSeq) return;
       stratState.loading = false;
       stratState.symbol = symbol;
       stratState.spot = entry.spot;
@@ -15571,11 +15693,13 @@
       if (pending) stratApplyTemplate(pending);
       else stratRenderAll();
       stratRefreshIvRank(symbol).then(function(){
+        if (requestSeq !== stratState.requestSeq || stratState.symbol !== symbol) return;
         stratRenderTickerMeta();
         if (stratState.legs.length) stratRenderAll();
         else stratRenderGuidance();
       });
     }).catch(function(err){
+      if (requestSeq !== stratState.requestSeq) return;
       stratState.loading = false;
       stratRenderStarter();
       setStatus('strat-status', 'Failed to load ' + symbol + ': ' + (err && err.message || err), 'err');
@@ -21895,7 +22019,11 @@
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){
         var map = {};
-        (j && Array.isArray(j.quotes) ? j.quotes : []).forEach(function(q){ if (q && q.symbol) map[String(q.symbol).toUpperCase()] = q; });
+        // Model entry, stop, target, R:R, and size are regular-session
+        // decisions. Extended-hours equity prints must not mutate them.
+        (j && Array.isArray(j.quotes) ? j.quotes : []).forEach(function(q){
+          if (q && q.symbol && String(q.marketState || '').toUpperCase() === 'REGULAR') map[String(q.symbol).toUpperCase()] = q;
+        });
         rotationState.quotes = map;
         rotationState.quotesFor = key;
         rotationState.quotesFetchedAt = Date.now();
@@ -22940,7 +23068,11 @@
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(j){
         var map = {};
-        (j && Array.isArray(j.quotes) ? j.quotes : []).forEach(function(q){ if (q && q.symbol) map[q.symbol] = q; });
+        // Share caps and daily-reset tracking are regular-session decisions;
+        // do not resize a trade from a thin pre/post-market print.
+        (j && Array.isArray(j.quotes) ? j.quotes : []).forEach(function(q){
+          if (q && q.symbol && String(q.marketState || '').toUpperCase() === 'REGULAR') map[q.symbol] = q;
+        });
         levState.quotes = map;
         levState.quotesFor = key;
         // Patch the live lines in place — no full re-render (keeps hover state).
@@ -27979,7 +28111,7 @@
 
   function loadHeatmap(){
     bindHeatmapControls();
-    if (heatmapState.data) { renderHeatmap(); return; }
+    if (heatmapState.data && !heatmapState.data.loadError) { renderHeatmap(); return; }
     if (heatmapState.loading) return;
     heatmapState.loading = true;
     var root = $('heatmap-root');
@@ -28601,7 +28733,7 @@
     renderHeatmapBreadthStreaks();
     if (data.loadError){
       root.classList.add('is-empty');
-      root.textContent = 'Heatmap data unavailable — try reloading.';
+      root.textContent = 'Heatmap data unavailable — re-open this tab to try again.';
       if (eyebrow) eyebrow.textContent = '';
       renderHeatmapBreadth();
       return;
@@ -29106,8 +29238,27 @@
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         var quotes = (json && Array.isArray(json.quotes)) ? json.quotes : [];
+        if (!quotes.length) throw new Error('No quotes');
+        var marketState = marketStateOfQuotes(quotes);
+        quotes = quotes.filter(isRegularMarketQuote);
+        if (!quotes.length){
+          // regularMarketPrice is still present outside market hours, but it
+          // is the close—not a live tick. Clear any prior overlay so colors,
+          // breadth, volume pace, and decision text all return to baked data.
+          heatmapState.liveOverlay = {};
+          heatmapState.liveUpdatedAt = 0;
+          heatmapState.liveMarketState = marketState || '';
+          renderHeatmap();
+          renderHeatmapDecision();
+          if (stateEl){
+            stateEl.className = 'heatmap-live-state';
+            var sessionLabel = marketState === 'PRE' ? 'Pre-market' :
+              ((marketState === 'POST' || marketState === 'POSTPOST') ? 'After hours' : 'Market closed');
+            stateEl.textContent = sessionLabel + ' · showing baked close';
+          }
+          return;
+        }
         var overlay = {};
-        var marketState = null;
         var rowBySymbol = {};
         data.tickers.forEach(function(row){ if (row && row.t) rowBySymbol[row.t] = row; });
         for (var i = 0; i < quotes.length; i++){
@@ -29140,7 +29291,6 @@
             marketState: q.marketState,
             prevSpot: prev ? prev.sp : null,
           };
-          if (!marketState && q.marketState) marketState = q.marketState;
         }
         heatmapState.liveOverlay = overlay;
         heatmapState.liveUpdatedAt = Date.now();
@@ -29230,7 +29380,7 @@
     // Shared watchlist rides alongside the roster — one probe per page, never
     // blocks the picks render (re-renders the grid in place when it lands).
     loadWatchlist();
-    if (picksState.data || picksState.loading) { renderPicks(); return; }
+    if ((picksState.data && !picksState.data.loadError) || picksState.loading) { renderPicks(); return; }
     picksState.loading = true;
     // Live open-position marks for the per-card "since it appeared" chip — best
     // effort, never blocks (or fails) the picks render. Reads picks-open.json
@@ -29369,7 +29519,7 @@
   }
   var ACC_CP_LABEL = { 'day0':'Day 0', '2wk':'2 weeks', '1mo':'1 month' };
   function loadAccuracy(){
-    if (accuracyState.data || accuracyState.loading){ renderAccuracy(); return; }
+    if ((accuracyState.data && !accuracyState.data.loadError) || accuracyState.loading){ renderAccuracy(); return; }
     accuracyState.loading = true;
     var pAcc = fetch(dataUrl('picks-accuracy.json'), { cache: 'no-cache' })
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
@@ -31694,7 +31844,7 @@
       // Surface the error on the default (Scorecard) pane — accuracy-root now
       // lives in the hidden Picks pane, so an error written only there would be
       // invisible until the user clicked over.
-      if (statsEl) statsEl.innerHTML = '<p class="muted">Couldn’t load the track record. Try a hard reload.</p>';
+      if (statsEl) statsEl.innerHTML = '<p class="muted">Couldn’t load the track record. Re-open this tab to try again.</p>';
       root.innerHTML = '';
       if (eyebrow) eyebrow.textContent = '';
       accPaneSummary('acc-sum-picks', []);
@@ -32829,7 +32979,7 @@
   var posState = { chain: null, symbol: null, bound: false };
   var POS_TP = 20, POS_STOP = 50; // % of entry premium — mirrors the engine's +20% TP / −50% stop
 
-  function posYrs(exp){ return Math.max(1e-6, (Number(exp) + EXPIRY_CLOSE_OFFSET_SEC - Date.now()/1000) / (365.25*86400)); }
+  function posYrs(exp){ return Math.max(1e-6, (chainExpiryCloseEpochSec(exp) - Date.now()/1000) / (365.25*86400)); }
   function posRows(chain, side, exp){
     var ch = chain && chain.chains && chain.chains[String(exp)];
     if (!ch) return [];
@@ -32866,7 +33016,7 @@
     var nowSec=Date.now()/1000;
     // Chain keys are midnight UTC of the expiry date — keep the expiry-day
     // contract selectable through its final session (16:00 ET close).
-    var exps=(posState.chain.expirations||[]).slice().filter(function(e){return Number(e)+EXPIRY_CLOSE_OFFSET_SEC>nowSec;}).sort(function(a,b){return a-b;});
+    var exps=(posState.chain.expirations||[]).slice().filter(function(e){return chainExpiryCloseEpochSec(e)>nowSec;}).sort(function(a,b){return a-b;});
     if(!exps.length){ expSel.innerHTML='<option value="">no live expirations</option>'; expSel.disabled=true; return; }
     expSel.innerHTML=exps.map(function(e){return '<option value="'+e+'">'+escapeHtml(fmtExpiryLabel(e))+'</option>';}).join('');
     expSel.disabled=false;
@@ -33004,7 +33154,7 @@
     // implied. The mid is the fairer liquidation value (your real exit is nearer
     // the bid), but surface the spread + last so the gap is never a mystery.
     var spreadPct = (m.bid>0 && m.ask>0 && mark>0) ? ((m.ask-m.bid)/mark)*100 : NaN;
-    var dte = Math.max(0, Math.round((o.exp + EXPIRY_CLOSE_OFFSET_SEC - Date.now()/1000)/86400));
+    var dte = Math.max(0, Math.round((chainExpiryCloseEpochSec(o.exp) - Date.now()/1000)/86400));
     var g = (m.iv>0 && m.spot>0) ? greeks(side, m.spot, o.strike, posYrs(o.exp), m.iv, RFR) : null;
     var thetaPctDay = (g && isFinite(g.thetaDay) && mark>0) ? (Math.abs(g.thetaDay)/mark)*100 : null;
     var grade = (picksGradesState.data && picksGradesState.data.grades) ? picksGradesState.data.grades[o.sym] : null;
@@ -33015,7 +33165,7 @@
     var earnFund = posState.chain && posState.chain.fundamentals;
     var earnIso = earnFund && earnFund.nextEarningsDate;
     var earnDays=null, earnBeforeExp=false;
-    if(earnIso){ var em=earningsAnchorMsLive(earnIso, earnFund.nextEarningsSession); if(em!=null){ earnDays=Math.round((em-Date.now())/86400000); earnBeforeExp = earnDays>=0 && (em/1000)<=o.exp; } }
+    if(earnIso){ var em=earningsAnchorMsLive(earnIso, earnFund.nextEarningsSession); if(em!=null){ earnDays=Math.round((em-Date.now())/86400000); earnBeforeExp = earnDays>=0 && (em/1000)<=chainExpiryCloseEpochSec(o.exp); } }
     var tpPrice=entry*(1+POS_TP/100), cutPrice=entry*(1-POS_STOP/100);
     var gRound = gTotal==null?null:((gTotal>=0?'+':'')+Math.round(gTotal));
     var pnlTxt = isFinite(pnlPct)?((pnlPct>=0?'+':'')+pnlPct.toFixed(0)+'%'):'—';
@@ -34970,7 +35120,7 @@
         var rmE = data.rosterMeta || null;
         var nHeld = ((rmE && rmE.eliteGated && rmE.eliteGated.length) || 0) + ((rmE && rmE.safetyGated && rmE.safetyGated.length) || 0);
         empty.textContent = data.loadError
-          ? 'Couldn’t load picks — refresh the page to try again.'
+          ? 'Couldn’t load picks — re-open this tab to try again.'
           : (rmE && (rmE.eliteOnly || rmE.safetyFilter))
             ? ('No top picks today — nothing cleared the safety bar' + (nHeld ? ' (' + nHeld + ' name' + (nHeld === 1 ? '' : 's') + ' graded high but the data didn’t show a strong enough chance of profit, so held back)' : '') + '. A top pick only lists when the odds of making money are clearly in your favour — most days that is nothing, and cash is a position.')
             : 'No high-conviction picks in this build — every ticker scored below the minimum.';
@@ -35430,7 +35580,10 @@
         out.push({ type:'ticker', label: sym, sub: INDUSTRIES[sym] || '', action:'open-ticker', payload: sym });
       });
       (NARRATIVES || []).forEach(function(n){
-        out.push({ type:'narrative', label: n.name, sub: n.sector || n.industry || '', action:'open-narrative', payload: n.name });
+        var firstTicker = (n.longs && n.longs[0]) || (n.shorts && n.shorts[0]);
+        var sector = n.sector || SECTOR_OF_INDUSTRY[n.industry] ||
+          (firstTicker && SECTOR_OF_INDUSTRY[INDUSTRIES[firstTicker]]) || SECTOR_ORDER[0];
+        out.push({ type:'narrative', label: n.name, sub: sector || n.industry || '', action:'open-narrative', payload: n.name, sector: sector });
       });
       TABS.forEach(function(tt){
         if (OWNER_TABS[tt[0]] && !HAS_OWNER_ACCESS) return;
@@ -35506,6 +35659,7 @@
       } else if (it.action === 'open-narrative'){
         var nbtn = document.querySelector('[data-page-tab="narratives"]');
         if (nbtn) nbtn.click();
+        setTimeout(function(){ jumpToNarrative(it.sector, it.payload); }, 0);
       }
     }
     function open(){
@@ -37291,9 +37445,26 @@
       chip.innerHTML =
         DISCORD_ICON_SVG +
         '<span class="auth-name">' + escapeHtml(me.name || 'owner') + '</span>' +
-        '<a class="auth-logout" href="/api/auth/logout" title="Log out">Log out</a>';
+        '<a class="auth-logout" href="/welcome.html" title="Log out">Log out</a>';
       chip.removeAttribute('data-anon');
       chip.hidden = false;
+      var logout = chip.querySelector('.auth-logout');
+      if (logout) logout.addEventListener('click', function(ev){
+        ev.preventDefault();
+        if (logout.getAttribute('aria-disabled') === 'true') return;
+        logout.setAttribute('aria-disabled', 'true');
+        logout.textContent = 'Logging out…';
+        fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' })
+          .then(function(resp){
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            window.location.assign('/welcome.html');
+          })
+          .catch(function(){
+            logout.removeAttribute('aria-disabled');
+            logout.textContent = 'Try logout again';
+            logout.title = 'Logout failed — try again';
+          });
+      });
     } else {
       chip.innerHTML = '';
       chip.hidden = true;

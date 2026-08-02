@@ -1,5 +1,18 @@
 # Files excluded from the Vercel deployment (kept in the repo).
 #
+# Local/private build inputs. Vercel CLI reads this file independently of
+# .gitignore, and outputDirectory is the repository root, so omitting these
+# exclusions would package local credentials and hydrated private-store data in
+# a manual `vercel` / `vercel --prod` deployment.
+/data/
+/r2.env
+*.env
+.env*
+/ai-health.json
+/.codex/
+/AGENTS.md
+*.log
+#
 # Dormant portfolio stack (#269): the Portfolio tab was removed from the site,
 # so these endpoints are unreachable (gated/503) anyway. Excluding them from the
 # deploy keeps the project under Vercel Hobby's 12-serverless-function limit so

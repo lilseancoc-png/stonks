@@ -40,6 +40,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import YahooFinance from "yahoo-finance2";
 import { TICKERS } from "./build.mjs";
+import { expiryCloseEpochSec } from "../lib/greeks.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -98,6 +99,14 @@ const CP_RATIO_HOT = 2.0;
 const VOL_OVER_OI_HOT = 1.5;
 const NEAR_WALL_PCT = 0.075;
 const GAMMA_FLAG_MIN = 4;
+
+// A successful Yahoo response is not sufficient publication evidence by
+// itself: schema regressions can leave most otherwise-valid chains with no OI
+// to surface. Require at least one surfaced ticker for every four fetched
+// tickers before replacing the last-good tracker/history. This remains useful
+// with OI_SCAN_LIMIT because it is ratio-based (the first ticker is SPY), not a
+// hard minimum sized for the production universe.
+const MIN_SURFACED_COVERAGE_RATE = 0.25;
 
 // Rolling-history retention. Each snapshot stores per-strike OI for every
 // in-band contract across every ticker (~3 MB/snapshot), and the file is
@@ -322,12 +331,8 @@ function hasWallAlignedAskFlow(records, callWall) {
 // call, then iterate the remaining expirationDates with explicit { date }.
 async function fetchTickerChain(symbol) {
   const first = await fetchOptionsWithRetry(symbol);
-  const spot =
-    first.quote?.regularMarketPrice ??
-    first.quote?.postMarketPrice ??
-    first.quote?.preMarketPrice ??
-    null;
-  if (spot == null) return null;
+  const spot = first.quote?.regularMarketPrice ?? first.quote?.postMarketPrice ?? first.quote?.preMarketPrice;
+  if (!(Number.isFinite(spot) && spot > 0)) return null;
   const marketState = first.quote?.marketState ?? null;
   const minK = spot * (1 - STRIKE_BAND);
   const maxK = spot * (1 + STRIKE_BAND);
@@ -339,14 +344,14 @@ async function fetchTickerChain(symbol) {
   // close, so the post-close EOD scan would otherwise spend a slot on the dead
   // 0DTE chain for daily-expiry names (SPY/QQQ/IWM) and let its frozen
   // settlement OI/volume drive the walls / cpRatio / gamma score. Treat an
-  // expiration as live until 21:00 UTC of its calendar day (covers the latest
-  // US close, 16:00 EST) — the pre-market scan keeps today's chain, the EOD
-  // scan (~19:00 ET, hours later) correctly drops it.
+  // expiration as live until 16:00 America/New_York (20:00Z under daylight
+  // time, 21:00Z under standard time) — the pre-market scan keeps today's
+  // chain, the EOD scan (~19:00 ET, hours later) correctly drops it.
   const nowSec = Math.floor(Date.now() / 1000);
-  const EXP_GRACE_SEC = 21 * 3600;
   const isLiveExpiration = (d) => {
     const ymd = d.toISOString().slice(0, 10);
-    return Math.floor(Date.parse(ymd + "T00:00:00Z") / 1000) + EXP_GRACE_SEC > nowSec;
+    const rawSec = Math.floor(Date.parse(ymd + "T00:00:00Z") / 1000);
+    return expiryCloseEpochSec(rawSec) > nowSec;
   };
   const expirations = expirationDates.filter(isLiveExpiration).slice(0, FRONT_EXPIRATIONS);
 
@@ -428,6 +433,12 @@ async function fetchTickerChain(symbol) {
     }
   }
 
+  // Yahoo can return a quote and expiration metadata while silently omitting
+  // every contract row (API/schema outage). Count that ticker as a fetch
+  // failure so the systemic-success guard can preserve last-good data. A real
+  // chain whose contracts all have zero OI still succeeds here; OI is an
+  // output/surfacing concern below, not a transport-validity requirement.
+  if (!contracts.length) return null;
   return { symbol, spot, marketState, contracts };
 }
 
@@ -715,6 +726,25 @@ async function main() {
   if (!attempted || scannedCount / attempted < MIN_SCAN_SUCCESS_RATE) {
     console.error(
       `Only ${scannedCount}/${attempted} tickers fetched (${((scannedCount / attempted) * 100).toFixed(0)}% < ${MIN_SCAN_SUCCESS_RATE * 100}%) — likely a systemic Yahoo block. Leaving last-good OI data in place.`,
+    );
+    process.exit(1);
+  }
+
+  // A schema change can preserve contract rows while zeroing/omitting OI
+  // throughout the universe. Do not publish an empty or systemically sparse
+  // tracker, nor append an unusable baseline snapshot. The ratio scales down
+  // with OI_SCAN_LIMIT; a one-ticker SPY smoke scan simply requires SPY to
+  // produce one surfaced row.
+  const surfacedCoverage = scannedCount > 0 ? tickerRows.length / scannedCount : 0;
+  if (
+    tickerRows.length === 0 ||
+    historyContracts.length === 0 ||
+    surfacedCoverage < MIN_SURFACED_COVERAGE_RATE
+  ) {
+    console.error(
+      `Only ${tickerRows.length}/${scannedCount} fetched tickers produced usable OI ` +
+        `(${(surfacedCoverage * 100).toFixed(0)}% < ${MIN_SURFACED_COVERAGE_RATE * 100}%), ` +
+        `with ${historyContracts.length} history contracts — leaving last-good OI data in place.`,
     );
     process.exit(1);
   }

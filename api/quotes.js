@@ -16,7 +16,12 @@
 // a move that has already retraced most of its day range); the heatmap
 // overlay ignores them all.
 
-import { yahooFinance, isValidSymbol, withYahooTimeout } from "../lib/yahoo.mjs";
+import {
+  yahooFinance,
+  isValidSymbol,
+  selectYahooQuotePrice,
+  withYahooTimeout,
+} from "../lib/yahoo.mjs";
 
 const MAX_SYMBOLS = 150;
 
@@ -65,17 +70,16 @@ export default async function handler(req, res) {
     const list = Array.isArray(r) ? r : r ? [r] : [];
     const quotes = list
       .map((q) => {
-        const reg = q?.regularMarketPrice ?? null;
-        const spot = reg ?? q?.postMarketPrice ?? q?.preMarketPrice ?? null;
+        const { spot, extended } = selectYahooQuotePrice(q);
         if (spot == null) return null;
         const prevClose = q?.regularMarketPreviousClose ?? null;
-        // When spot falls back to a pre/post-market price, Yahoo's
+        // When spot is a selected pre/post-market price, Yahoo's
         // regularMarketChange/Percent (regular-session close vs prior close)
         // no longer matches the price we're showing. Re-derive off prevClose
         // so the spot and the % move share one baseline.
         let change = q?.regularMarketChange ?? null;
         let changePct = q?.regularMarketChangePercent ?? null;
-        if (reg == null) {
+        if (extended) {
           if (prevClose != null && prevClose !== 0) {
             change = spot - prevClose;
             changePct = ((spot - prevClose) / prevClose) * 100;

@@ -13,6 +13,10 @@
 
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+// Keep the worst-case sequential path (primary timeout + fallback timeout)
+// comfortably inside vercel.json's 20-second function budget.
+const NYFED_TIMEOUT_MS = 6500;
+const FRED_TIMEOUT_MS = 9000;
 
 // Reject any value outside the plausible Fed-rate range — catches a
 // mis-parsed field (which has bitten rate consumers before) so we never
@@ -28,7 +32,7 @@ async function fetchNyFedEffr() {
       "https://markets.newyorkfed.org/api/rates/unsecured/effr/last/1.json",
       {
         headers: { accept: "application/json", "user-agent": UA },
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(NYFED_TIMEOUT_MS),
       },
     );
     if (!r.ok) return null;
@@ -58,7 +62,7 @@ async function fetchFredDff() {
           referer: "https://fred.stlouisfed.org/",
         },
         // FRED's Cloudflare hop can take >8s under load — give it room.
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(FRED_TIMEOUT_MS),
       },
     );
     if (!r.ok) return null;

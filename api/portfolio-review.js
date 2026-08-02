@@ -19,7 +19,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { GoogleGenAI } from "@google/genai";
 import { fetchContract, fetchQuote, isValidSymbol } from "../lib/yahoo.mjs";
-import { greeks, yearsToExpiry, bsPrice } from "../lib/greeks.mjs";
+import { bsPrice, expiryCloseEpochSec, greeks, yearsToExpiry } from "../lib/greeks.mjs";
 
 const MAX_POSITIONS = 50;
 const RFR = 0.045;
@@ -178,15 +178,12 @@ async function hydratePosition(p) {
   if (!isValidSymbol(p.symbol)) {
     return { id: p.id, error: "invalid symbol" };
   }
-  // Equity options trade until 4:00 PM ET on the expiry date, but p.expiry is
-  // stored as 00:00 UTC of that date (~8 PM ET the prior evening). Comparing the
-  // raw epoch against now() marks a still-tradable contract "expired" for its
-  // entire final session — nulling its greeks and triggering a bogus "expired,
-  // close it" rec. Anchor to the ~4 PM ET close (+21h covers EST exactly; in EDT
-  // it runs ~1h past the close, which is harmless).
-  const settleSec = p.expiry + 21 * 3600;
-  const T = yearsToExpiry(settleSec);
-  const expired = settleSec * 1000 < Date.now();
+  // p.expiry is Yahoo's midnight-UTC calendar key. Convert it to the actual
+  // 16:00 New York close so expiration is correct in both EDT and EST. Pass the
+  // RAW key to yearsToExpiry—the shared helper performs this conversion itself.
+  const settleSec = expiryCloseEpochSec(p.expiry);
+  const T = yearsToExpiry(p.expiry);
+  const expired = settleSec * 1000 <= Date.now();
 
   try {
     const row = await fetchContract(p.symbol, p.expiry, p.side, p.strike);

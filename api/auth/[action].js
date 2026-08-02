@@ -5,7 +5,7 @@
 // unchanged — Vercel routes /api/auth/<action> here with req.query.action:
 //   discord-login    -> start OAuth (redirect to Discord)
 //   discord-callback -> validate, role-check, mint session  (registered redirect URI)
-//   logout           -> clear session
+//   logout           -> clear session (same-origin POST only)
 //   me               -> report session for the "signed in as …" chip
 //
 // Discord auth is intentionally an INTERNAL Owner Lab mechanism. Public site
@@ -33,6 +33,19 @@ function proto(req) {
 function baseUrl(req) {
   const host = req.headers["x-forwarded-host"] || req.headers.host;
   return `${proto(req)}://${host}`;
+}
+function isSameOriginRequest(req) {
+  const origin = req.headers.origin;
+  if (origin) {
+    try {
+      return new URL(origin).origin === new URL(baseUrl(req)).origin;
+    } catch {
+      return false;
+    }
+  }
+  // Browsers set Sec-Fetch-Site even in the uncommon cases where Origin is
+  // omitted. Cross-site pages cannot forge this forbidden request header.
+  return String(req.headers["sec-fetch-site"] || "").toLowerCase() === "same-origin";
 }
 function redirect(res, location, cookies) {
   if (cookies) res.setHeader("Set-Cookie", cookies);
@@ -181,11 +194,17 @@ async function callback(req, res) {
 
 // --- logout ------------------------------------------------------------------
 function logout(req, res) {
+  res.setHeader("Cache-Control", "private, no-store");
+  if (req.method !== "POST") {
+    res.setHeader("Allow", "POST");
+    return res.status(405).json({ error: "method not allowed" });
+  }
+  if (!isSameOriginRequest(req)) {
+    return res.status(403).json({ error: "origin denied" });
+  }
   const secure = proto(req) === "https";
   res.setHeader("Set-Cookie", serializeCookie(SESSION_COOKIE, "", { maxAge: 0, secure }));
-  res.statusCode = 302;
-  res.setHeader("Location", "/welcome.html");
-  res.end();
+  return res.status(204).end();
 }
 
 // --- session probe -----------------------------------------------------------

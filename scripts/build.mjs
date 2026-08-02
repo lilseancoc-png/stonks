@@ -18,7 +18,7 @@ import { createHash } from "node:crypto";
 import { inflateRawSync } from "node:zlib";
 import { GoogleGenAI } from "@google/genai";
 import YahooFinance from "yahoo-finance2";
-import { greeks, bsPrice, yearsToExpiry, ncdf } from "../lib/greeks.mjs";
+import { expiryCloseEpochSec, greeks, bsPrice, yearsToExpiry, ncdf } from "../lib/greeks.mjs";
 import { renderPriceChartPng } from "../lib/chart-image.mjs";
 import { buildNewsFeedPayload } from "../lib/news-feed.mjs";
 import { issuerCreditRatingFor } from "../lib/issuer-credit-ratings.mjs";
@@ -3110,7 +3110,7 @@ async function fetchTickerChain(symbol) {
 // reading (up to RFR_CACHE_MAX_DAYS old); the static fallback is the
 // last resort and is visibly tagged in the greeks tooltip when used.
 export const FALLBACK_RISK_FREE_RATE = 0.045;
-const RFR_CACHE_MAX_DAYS = 14;
+export const RFR_CACHE_MAX_DAYS = 14;
 const RFR_HISTORY_FILE = "rfr-history.json";
 
 // Persistent rolling log of macro snapshots (yields + DXY). Each entry is
@@ -3262,10 +3262,10 @@ async function fetchRiskFreeRate(cachedRfr = null) {
   } catch (err) {
     console.warn(`^IRX fetch failed (${err.message}).`);
   }
-  if (cachedRfr && Number.isFinite(cachedRfr.rate)) {
+  if (cachedRfr && Number.isFinite(cachedRfr.rate) && cachedRfr.rate >= 0 && cachedRfr.rate < 0.20) {
     const capturedMs = Date.parse(cachedRfr.capturedAt || cachedRfr.asOf || "");
     const ageDays = Number.isFinite(capturedMs) ? (Date.now() - capturedMs) / 86400000 : Infinity;
-    if (ageDays <= RFR_CACHE_MAX_DAYS) {
+    if (ageDays >= 0 && ageDays <= RFR_CACHE_MAX_DAYS) {
       console.warn(`  ↩ falling back to cached ^IRX ${cachedRfr.rate * 100}% from ${cachedRfr.capturedAt || cachedRfr.asOf} (${ageDays.toFixed(1)}d old)`);
       return { rate: cachedRfr.rate, asOf: cachedRfr.asOf || todayIso, source: "cached", ageDays };
     }
@@ -3878,7 +3878,7 @@ function hasDecisionGradeOptionQuote(contract) {
 // as a decimal of spot (0.04 → ±4%) plus the expiration epoch used.
 // Filters on bid+ask > 0 because we want a tradable mid; falls back to
 // `last` only when both quotes are missing but the print is positive.
-function computeImpliedMoveForDate(data, earningsDateStr) {
+export function computeImpliedMoveForDate(data, earningsDateStr, earningsSession = "TBD") {
   if (!data?.spot || !(data.spot > 0) || !data?.chains) return null;
   if (typeof earningsDateStr !== "string") return null;
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(earningsDateStr);
@@ -3886,8 +3886,13 @@ function computeImpliedMoveForDate(data, earningsDateStr) {
   const thresholdSec = Math.floor(
     Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / 1000,
   );
+  // A before-open print can use that date's chain. A same-day expiration has
+  // already stopped trading before an after-close (or unknown-session) print,
+  // so it cannot price the event; choose the following expiration instead.
+  const normalizedSession = String(earningsSession || "TBD").trim().toUpperCase();
+  const allowSameDay = normalizedSession === "AM" || normalizedSession === "BMO" || normalizedSession === "BEFORE MARKET OPEN";
   const exps = Object.keys(data.chains).map(Number)
-    .filter((e) => Number.isFinite(e) && e >= thresholdSec)
+    .filter((e) => Number.isFinite(e) && (allowSameDay ? e >= thresholdSec : e > thresholdSec))
     .sort((a, b) => a - b);
   if (!exps.length) return null;
   const expSec = exps[0];
@@ -3945,9 +3950,10 @@ export function computeAtmIvForDte(data, dteTarget) {
     );
   };
   const points = Object.keys(data.chains).map(Number)
-    .filter((e) => e > nowSec)
-    .sort((a, b) => a - b)
-    .map((expSec) => {
+    .map((expSec) => ({ expSec, closeSec: expiryCloseEpochSec(expSec) }))
+    .filter((e) => Number.isFinite(e.closeSec) && e.closeSec > nowSec)
+    .sort((a, b) => a.closeSec - b.closeSec)
+    .map(({ expSec, closeSec }) => {
       const chain = data.chains[expSec];
       if (!chain) return null;
       const atmC = pickAtm(chain.c);
@@ -3957,7 +3963,7 @@ export function computeAtmIvForDte(data, dteTarget) {
           : atmP ? atmP.iv
             : null;
       if (!(iv > 0)) return null;
-      return { expSec, T: Math.max(1 / 365, (expSec - nowSec) / yearSec), iv };
+      return { expSec, T: Math.max(1 / 365, (closeSec - nowSec) / yearSec), iv };
     })
     .filter(Boolean);
   if (!points.length) return null;
@@ -4469,7 +4475,7 @@ export function buildIvTrendingPayload(ivHistory, chains, builtAtIso = new Date(
       const days = Math.round((Date.parse(nextIso) - Date.parse(todayIso)) / 86400000);
       if (Number.isFinite(days) && days <= IV_TRENDING_EARNINGS_WINDOW_DAYS) {
         const earnings = { date: nextIso, session: f?.nextEarningsSession || "TBD", inDays: days };
-        const im = computeImpliedMoveForDate(data, nextIso);
+        const im = computeImpliedMoveForDate(data, nextIso, f?.nextEarningsSession);
         if (im) earnings.impliedMovePct = Number((im.pct * 100).toFixed(1));
         row.earnings = earnings;
       }
@@ -4876,13 +4882,14 @@ export function computeSkew25(data) {
   const nowSec = Math.floor(Date.now() / 1000);
   const target = nowSec + IV_HISTORY_TARGET_DTE * 86400;
   const exps = Object.keys(data.chains).map(Number)
-    .filter((e) => e > nowSec)
-    .sort((a, b) => Math.abs(a - target) - Math.abs(b - target));
+    .map((expSec) => ({ expSec, closeSec: expiryCloseEpochSec(expSec) }))
+    .filter((e) => Number.isFinite(e.closeSec) && e.closeSec > nowSec)
+    .sort((a, b) => Math.abs(a.closeSec - target) - Math.abs(b.closeSec - target));
   if (!exps.length) return null;
-  const expSec = exps[0];
+  const { expSec, closeSec } = exps[0];
   const chain = data.chains[expSec];
   if (!chain) return null;
-  const T = Math.max((expSec - nowSec) / (365.25 * 86400), 1 / 365);
+  const T = Math.max((closeSec - nowSec) / (365.25 * 86400), 1 / 365);
   const hunt = (contracts, type, fallbackK) => {
     let best = null;
     let bestDist = Infinity;
@@ -4911,7 +4918,7 @@ export function computeSkew25(data) {
     ivPut25: put.iv,
     ivCall25: call.iv,
     expiry: expSec,
-    dte: Math.round((expSec - nowSec) / 86400),
+    dte: Math.round((closeSec - nowSec) / 86400),
   };
 }
 
@@ -4955,7 +4962,7 @@ function buildQuantSigma(chains, todayIso, regime = null) {
       };
       const nextIso = data.fundamentals?.nextEarningsDate;
       if (typeof nextIso === "string" && nextIso >= todayIso) {
-        const im = computeImpliedMoveForDate(data, nextIso);
+        const im = computeImpliedMoveForDate(data, nextIso, data.fundamentals?.nextEarningsSession);
         if (im) {
           em.earnDate = nextIso;
           // 0.85× the ATM straddle — the standard quick expected-move read.
@@ -6394,7 +6401,7 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
       });
       if (untilMs <= EARNINGS_PREPRINT_STAMP_DAYS * 86400000) {
         const ivNow = computeAtm30dIv(data);
-        const implied = computeImpliedMoveForDate(data, nextIso);
+        const implied = computeImpliedMoveForDate(data, nextIso, f?.nextEarningsSession);
         upsertEarningsEvent(entry.events, {
           date: nextIso,
           session: f?.nextEarningsSession || "TBD",
@@ -8098,7 +8105,7 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
       const fresh = sessionMap.get(sym + "|" + date);
       if (fresh) session = fresh;
     }
-    const implied = computeImpliedMoveForDate(data, date);
+    const implied = computeImpliedMoveForDate(data, date, session);
     // Best-effort Polymarket "will they beat?" reading, matched at fetch time and
     // keyed by SYMBOL|date (same overlay object as the macro-report readings).
     // Absent for most names — Polymarket only lists earnings markets for a few
@@ -8412,6 +8419,31 @@ const F13_TOP_FIRM_DIRECTORY = F13_FIRM_DIRECTORY.filter(
   (f) => f.aumBillions >= F13_AUM_MIN_BILLIONS && f.aumBillions < F13_AUM_MAX_BILLIONS
 );
 
+function describeF13QuarterEnd(end) {
+  if (!(end instanceof Date) || !Number.isFinite(end.getTime())) return null;
+  const quarter = Math.floor(end.getUTCMonth() / 3) + 1;
+  if (![2, 5, 8, 11].includes(end.getUTCMonth())) return null;
+  const year = end.getUTCFullYear();
+  const monthNames = ["January","February","March","April","May","June",
+    "July","August","September","October","November","December"];
+  const periodEnd = `${monthNames[end.getUTCMonth()]} ${end.getUTCDate()}, ${year}`;
+  const winStart = new Date(end.getTime() + 30 * 86400000);
+  const winEnd = new Date(end.getTime() + 45 * 86400000);
+  const winLabel = `${monthNames[winStart.getUTCMonth()].slice(0, 3)} ${winStart.getUTCDate()}–${monthNames[winEnd.getUTCMonth()].slice(0, 3)} ${winEnd.getUTCDate()}, ${winEnd.getUTCFullYear()}`;
+  return {
+    period: `Q${quarter} ${year}`,
+    periodEnd,
+    periodEndIso: end.toISOString().slice(0, 10),
+    filingWindow: winLabel,
+    filingDeadlineDate: winEnd,
+  };
+}
+
+function f13QuarterForReportDate(reportDate) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(reportDate || ""))) return null;
+  return describeF13QuarterEnd(new Date(`${reportDate}T00:00:00Z`));
+}
+
 // Compute which 13F quarter is "current" given today's date. 13Fs are
 // due 45 days after quarter end; before that deadline the prior quarter
 // is still the most recently reportable period. Returns the quarter
@@ -8437,19 +8469,7 @@ function currentF13Quarter(asOf) {
     const deadlineMs = c.end.getTime() + 45 * 86400000;
     if (deadlineMs <= asOf.getTime()) { active = c; break; }
   }
-  const monthNames = ["January","February","March","April","May","June",
-    "July","August","September","October","November","December"];
-  const periodEnd = `${monthNames[active.end.getUTCMonth()]} ${active.end.getUTCDate()}, ${active.year}`;
-  const winStart = new Date(active.end.getTime() + 30 * 86400000);
-  const winEnd = new Date(active.end.getTime() + 45 * 86400000);
-  const winLabel = `${monthNames[winStart.getUTCMonth()].slice(0, 3)} ${winStart.getUTCDate()}–${monthNames[winEnd.getUTCMonth()].slice(0, 3)} ${winEnd.getUTCDate()}, ${winEnd.getUTCFullYear()}`;
-  return {
-    period: `Q${active.q} ${active.year}`,
-    periodEnd,
-    periodEndIso: active.end.toISOString().slice(0, 10),
-    filingWindow: winLabel,
-    filingDeadlineDate: winEnd,
-  };
+  return describeF13QuarterEnd(active.end);
 }
 
 // Rank curated tickers by marketCap and produce the "biggest positions"
@@ -8569,7 +8589,7 @@ function findLatest13F(submissions) {
 // If the firm has only one 13F on file (first-time filer), the second
 // slot is omitted and downstream code treats every current holding as a
 // "new" position.
-function findLatestTwo13Fs(submissions) {
+export function findLatestTwo13Fs(submissions, targetReportDate = null) {
   const recent = submissions?.filings?.recent;
   if (!recent) return [];
   const forms = recent.form || [];
@@ -8611,11 +8631,29 @@ function findLatestTwo13Fs(submissions) {
   // lexicographic compare is chronological) rather than trusting insertion
   // order: a recently filed amendment to an OLD quarter carries a new
   // filingDate but an old period, and must not displace a more recent quarter.
-  return [...byPeriod.values()]
+  const distinctPeriods = [...byPeriod.values()]
     .sort((a, b) =>
       String(b.reportDate || b.filingDate).localeCompare(String(a.reportDate || a.filingDate)),
-    )
-    .slice(0, 2);
+    );
+  if (!targetReportDate) return distinctPeriods.slice(0, 2);
+
+  // The 13F page has one global quarter label, so every firm's delta must use
+  // that exact report period. During the 45-day filing window, taking each
+  // manager's newest filing mixes early filers' new-quarter deltas with
+  // laggards' prior-quarter deltas under one label. Select the target period
+  // and its exact predecessor instead. If the target is absent, return no
+  // filings (rather than accidentally promoting the predecessor to `latest`).
+  const target = distinctPeriods.find((row) => row.reportDate === targetReportDate);
+  if (!target) return [];
+  const targetDate = new Date(`${targetReportDate}T00:00:00Z`);
+  if (!Number.isFinite(targetDate.getTime())) return [];
+  const priorReportDate = new Date(Date.UTC(
+    targetDate.getUTCFullYear(),
+    targetDate.getUTCMonth() - 2,
+    0,
+  )).toISOString().slice(0, 10);
+  const prior = distinctPeriods.find((row) => row.reportDate === priorReportDate);
+  return prior ? [target, prior] : [target];
 }
 
 async function fetchEdgar13FHoldings(cik, filing) {
@@ -8627,7 +8665,9 @@ async function fetchEdgar13FHoldings(cik, filing) {
       headers: { "user-agent": SEC_USER_AGENT, accept: "application/json" },
       signal: AbortSignal.timeout(15000),
     });
-    if (!idxRes.ok) return [];
+    if (!idxRes.ok) {
+      return { ok: false, holdings: [], error: `filing index HTTP ${idxRes.status}` };
+    }
     const idx = await idxRes.json();
     const items = idx?.directory?.item || [];
     // The information table XML is a separate file from the primary doc.
@@ -8635,7 +8675,9 @@ async function fetchEdgar13FHoldings(cik, filing) {
     const xmlFile = items.find((f) => /information.*table.*\.xml$/i.test(f.name))
       || items.find((f) => /infotable\.xml$/i.test(f.name))
       || items.find((f) => /\.xml$/i.test(f.name) && !/primary_doc/i.test(f.name) && f.name !== filing.primaryDocument);
-    if (!xmlFile) return [];
+    if (!xmlFile) {
+      return { ok: false, holdings: [], error: "information-table XML not found" };
+    }
     const xmlUrl = `https://www.sec.gov/Archives/edgar/data/${cikNum}/${accessionNoDashes}/${xmlFile.name}`;
     // EDGAR's XML mirror occasionally stalls beyond 30s on large filings;
     // a single retry catches transient hops without doubling worst-case
@@ -8647,9 +8689,15 @@ async function fetchEdgar13FHoldings(cik, filing) {
           headers: { "user-agent": SEC_USER_AGENT, accept: "application/xml,text/xml,*/*" },
           signal: AbortSignal.timeout(20000),
         });
-        if (!xmlRes.ok) return [];
+        if (!xmlRes.ok) {
+          return { ok: false, holdings: [], error: `information-table HTTP ${xmlRes.status}` };
+        }
         const xml = await xmlRes.text();
-        return parseEdgar13FXml(xml);
+        const holdings = parseEdgar13FXml(xml);
+        if (!holdings.length) {
+          return { ok: false, holdings: [], error: "information table parsed zero holdings" };
+        }
+        return { ok: true, holdings, error: null };
       } catch (err) {
         xmlErr = err;
         if (attempt < 2) {
@@ -8662,7 +8710,7 @@ async function fetchEdgar13FHoldings(cik, filing) {
     throw xmlErr || new Error("EDGAR XML fetch failed");
   } catch (err) {
     console.log(`    ⚠ EDGAR holdings CIK${cik} accession ${filing.accessionNumber} failed: ${err.message}`);
-    return [];
+    return { ok: false, holdings: [], error: err.message };
   }
 }
 
@@ -9034,25 +9082,58 @@ export function aggregate13FDeltaRows(allDeltaRows = []) {
   }));
 }
 
-export async function buildPerFirm13FHoldings() {
-  // Step 1: pull EDGAR submissions + the two most recent 13Fs for each firm
-  // in parallel. allSettled (not all) so one firm's failure doesn't drop
-  // the rest, and each firm races against its own 60s budget.
+// A missing predecessor is valid for a genuine first-time filer. A predecessor
+// that exists but failed to download is not: diffing against [] would fabricate
+// the entire current portfolio as new buying.
+export function canDiff13FFirmSnapshot(firm) {
+  return !!(
+    firm?.latest &&
+    firm.latestFetchOk &&
+    Array.isArray(firm.latestHoldings) &&
+    firm.latestHoldings.length &&
+    (!firm.prior || firm.priorFetchOk)
+  );
+}
+
+export async function buildPerFirm13FHoldings(asOf = new Date()) {
+  // Freeze one report period for the whole fan-out. currentF13Quarter waits
+  // until the filing deadline has passed, avoiding a partially reported
+  // quarter; findLatestTwo13Fs then enforces this exact period per firm.
+  const targetQuarter = currentF13Quarter(asOf);
+  // Step 1: pull EDGAR submissions + the target and immediately preceding 13F
+  // for each firm in parallel. allSettled (not all) so one firm's failure
+  // doesn't drop the rest, and each firm races against its own 60s budget.
   const settled = await Promise.allSettled(
     F13_TOP_FIRM_DIRECTORY.map((f) => Promise.race([
       (async () => {
         const subs = await fetchEdgarSubmissions(f.cik);
-        const filings = subs ? findLatestTwo13Fs(subs) : [];
+        const filings = subs ? findLatestTwo13Fs(subs, targetQuarter.periodEndIso) : [];
         if (!filings.length) {
-          return { firm: f.firm, cik: f.cik, latest: null, prior: null, latestHoldings: [], priorHoldings: [] };
+          return {
+            firm: f.firm, cik: f.cik, latest: null, prior: null,
+            latestHoldings: [], priorHoldings: [], latestFetchOk: false, priorFetchOk: false,
+          };
         }
         const [latest, prior] = filings;
-        const latestHoldings = await fetchEdgar13FHoldings(f.cik, latest);
-        let priorHoldings = [];
-        if (prior) {
-          priorHoldings = await fetchEdgar13FHoldings(f.cik, prior);
+        const latestFetch = await fetchEdgar13FHoldings(f.cik, latest);
+        if (!latestFetch.ok) {
+          console.log(`    ⚠ EDGAR ${f.firm} ${latest.reportDate || latest.filingDate} skipped: ${latestFetch.error}`);
         }
-        return { firm: f.firm, cik: f.cik, latest, prior, latestHoldings, priorHoldings };
+        let priorHoldings = [];
+        let priorFetchOk = !prior;
+        if (prior) {
+          const priorFetch = await fetchEdgar13FHoldings(f.cik, prior);
+          priorHoldings = priorFetch.holdings;
+          priorFetchOk = priorFetch.ok;
+          if (!priorFetch.ok) {
+            console.log(`    ⚠ EDGAR ${f.firm} prior ${prior.reportDate || prior.filingDate} skipped: ${priorFetch.error}`);
+          }
+        }
+        return {
+          firm: f.firm, cik: f.cik, latest, prior,
+          latestHoldings: latestFetch.holdings, priorHoldings,
+          latestFetchOk: latestFetch.ok, priorFetchOk,
+        };
       })(),
       new Promise((_, reject) => setTimeout(
         () => reject(new Error(`per-firm timeout ${F13_PER_FIRM_TIMEOUT_MS / 1000}s`)),
@@ -9064,7 +9145,10 @@ export async function buildPerFirm13FHoldings() {
     const f = F13_TOP_FIRM_DIRECTORY[i];
     if (res.status === "fulfilled") return res.value;
     console.log(`    ⚠ EDGAR firm ${f.firm} (CIK${f.cik}) failed: ${res.reason?.message || res.reason}`);
-    return { firm: f.firm, cik: f.cik, latest: null, prior: null, latestHoldings: [], priorHoldings: [] };
+    return {
+      firm: f.firm, cik: f.cik, latest: null, prior: null,
+      latestHoldings: [], priorHoldings: [], latestFetchOk: false, priorFetchOk: false,
+    };
   });
   // Step 2: one OpenFIGI lookup across the union of CUSIPs from BOTH
   // quarters of every firm. Exit positions show up only in the prior
@@ -9078,7 +9162,14 @@ export async function buildPerFirm13FHoldings() {
   const perFirm = {};
   const allDeltaRows = []; // for cross-firm aggregation
   for (const f of firmsRaw) {
-    if (!f.latest || !f.latestHoldings.length) { perFirm[f.firm] = null; continue; }
+    // A real first-time filer has no prior filing and may safely diff against
+    // an empty portfolio. A prior filing that exists but failed to fetch is a
+    // different state: omit that firm instead of fabricating every position as
+    // a new buy (and contaminating the cross-firm aggregate).
+    if (!canDiff13FFirmSnapshot(f)) {
+      perFirm[f.firm] = null;
+      continue;
+    }
     const latestCollapsed = collapseHoldingsByCusip(f.latestHoldings);
     const priorCollapsed = f.priorHoldings.length
       ? collapseHoldingsByCusip(f.priorHoldings)
@@ -9097,8 +9188,10 @@ export async function buildPerFirm13FHoldings() {
     perFirm[f.firm] = {
       firm: f.firm,
       filingDate: f.latest.filingDate,
+      reportDate: f.latest.reportDate,
       filingForm: f.latest.form,
       priorFilingDate: f.prior ? f.prior.filingDate : null,
+      priorReportDate: f.prior ? f.prior.reportDate : null,
       totalValue: latestCollapsed.total,
       priorTotalValue: priorCollapsed.total,
       totalPositions: latestCollapsed.byCusip.size,
@@ -9137,7 +9230,13 @@ export async function buildPerFirm13FHoldings() {
     .filter((a) => a.valueChange < 0)
     .sort((a, b) => a.valueChange - b.valueChange)
     .slice(0, F13_TOP_N_PER_SIDE);
-  return { perFirm, overallTopBought, overallTopSold };
+  return {
+    perFirm,
+    overallTopBought,
+    overallTopSold,
+    targetPeriod: targetQuarter.period,
+    targetReportDate: targetQuarter.periodEndIso,
+  };
 }
 
 // === SEC EDGAR Form 4 insider transactions ==========================
@@ -9238,6 +9337,24 @@ async function fetchEdgarForm4(cik, symbol, filing) {
   return parseEdgarForm4Xml(await res.text(), { ...filing, symbol, url });
 }
 
+function form4TransactionKey(row) {
+  return `${row.accessionNumber}|${row.symbol}|${row.ownerName}|${row.transactionDate}|${row.code}|${row.shares}|${row.price}`;
+}
+
+// Merge fresh rows over the retained in-window cache. Keeping this pure makes
+// the outage behavior testable: zero fresh rows must not erase valid prior SEC
+// disclosures, while a successful refetch of the same transaction wins.
+export function mergeForm4TransactionRows(priorRows = [], freshRows = [], cutoffIso) {
+  const rows = [...(priorRows || []), ...(freshRows || [])]
+    .filter((row) => row?.transactionDate >= cutoffIso);
+  const deduped = [...new Map(rows.map((row) => [form4TransactionKey(row), row])).values()];
+  deduped.sort((a, b) =>
+    String(b.transactionDate || "").localeCompare(String(a.transactionDate || ""))
+    || (Number(b.value) || 0) - (Number(a.value) || 0),
+  );
+  return deduped;
+}
+
 export async function buildForm4InsiderTransactions(priorPayload = null, asOf = new Date()) {
   const cutoffIso = new Date(asOf.getTime() - FORM4_LOOKBACK_DAYS * 86400000).toISOString().slice(0, 10);
   const priorRows = Array.isArray(priorPayload?.insiderTransactions?.transactions)
@@ -9251,7 +9368,9 @@ export async function buildForm4InsiderTransactions(priorPayload = null, asOf = 
   }
 
   const symbols = TICKERS.filter((symbol) => _cikMap?.get(symbol));
-  const transactions = [];
+  // Fresh rows stay separate until the final merge; a per-issuer submissions
+  // outage therefore cannot erase still-in-window prior disclosures.
+  const freshTransactions = [];
   let cursor = 0;
   let issuersChecked = 0;
   let filingsParsed = 0;
@@ -9265,12 +9384,11 @@ export async function buildForm4InsiderTransactions(priorPayload = null, asOf = 
         for (const filing of recentForm4Filings(submissions, cutoffIso)) {
           const cached = priorByAccession.get(filing.accessionNumber);
           if (cached?.length) {
-            transactions.push(...cached);
             continue;
           }
           try {
             const rows = await fetchEdgarForm4(cik, symbol, filing);
-            transactions.push(...rows);
+            freshTransactions.push(...rows);
             filingsParsed++;
           } catch (err) {
             console.log(`    ⚠ ${symbol} Form 4 ${filing.accessionNumber} failed: ${err.message}`);
@@ -9287,18 +9405,7 @@ export async function buildForm4InsiderTransactions(priorPayload = null, asOf = 
   });
   await Promise.all(workers);
 
-  const deduped = [...new Map(
-    transactions
-      .filter((row) => row?.transactionDate >= cutoffIso)
-      .map((row) => [
-        `${row.accessionNumber}|${row.symbol}|${row.ownerName}|${row.transactionDate}|${row.code}|${row.shares}|${row.price}`,
-        row,
-      ]),
-  ).values()];
-  deduped.sort((a, b) =>
-    String(b.transactionDate || "").localeCompare(String(a.transactionDate || ""))
-    || (Number(b.value) || 0) - (Number(a.value) || 0),
-  );
+  const deduped = mergeForm4TransactionRows(priorRows, freshTransactions, cutoffIso);
   const topPurchases = deduped
     .filter((row) => row.direction === "buy")
     .sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))
@@ -9325,7 +9432,11 @@ export async function buildForm4InsiderTransactions(priorPayload = null, asOf = 
 }
 
 export function build13FPayload(chains, narratives, asOf, perFirmResult) {
-  const q = currentF13Quarter(asOf);
+  // Prefer the exact report period used by the holdings fan-out. This keeps the
+  // global heading aligned even if a long-running build crosses a quarter's
+  // filing-deadline boundary between fetching holdings and writing the file.
+  const q = f13QuarterForReportDate(perFirmResult?.targetReportDate)
+    || currentF13Quarter(asOf);
   const monthNames = ["January","February","March","April","May","June",
     "July","August","September","October","November","December"];
   // Filing date for each top firm — use the May/Aug/Nov/Feb deadline of
@@ -9373,6 +9484,7 @@ export function build13FPayload(chains, narratives, asOf, perFirmResult) {
     builtAtIso: asOf.toISOString(),
     period: q.period,
     periodEnd: q.periodEnd,
+    periodEndIso: q.periodEndIso,
     filingWindow: q.filingWindow,
     aumBandBillions: { min: F13_AUM_MIN_BILLIONS, max: F13_AUM_MAX_BILLIONS },
     sourceNote,
@@ -17246,7 +17358,7 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
   for (const [expKey, chain] of Object.entries(chains)) {
     const expSec = Number(expKey);
     if (!Number.isFinite(expSec)) continue;
-    const dte = Math.round((expSec * 1000 - nowMs) / 86400000);
+    const dte = Math.round((expiryCloseEpochSec(expSec) * 1000 - nowMs) / 86400000);
     if (dte < minDte || dte > PICKS_MAX_DTE) continue;
     const rows = isCall ? chain.c : chain.p;
     if (!Array.isArray(rows)) continue;
@@ -17493,7 +17605,7 @@ export function pickVerticalForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
   for (const [expKey, chain] of Object.entries(chains)) {
     const expSec = Number(expKey);
     if (!Number.isFinite(expSec)) continue;
-    const dte = Math.round((expSec * 1000 - nowMs) / 86400000);
+    const dte = Math.round((expiryCloseEpochSec(expSec) * 1000 - nowMs) / 86400000);
     if (dte < minDte || dte > PICKS_MAX_DTE) continue;
     const rows = isCallLeg ? chain.c : chain.p;
     if (!Array.isArray(rows)) continue;
@@ -23945,7 +24057,10 @@ export function resolvePickOutcome(opts) {
   if (PICKS_UNDERLYING_STOP && pnum(o.stopUnder) != null && o.stopUnder > 0 && o.cur != null && pnum(o.cur) > 0) {
     if (o.isCall ? o.cur <= o.stopUnder : o.cur >= o.stopUnder) return { status: "hit-stop-under", outcome: byPnl };
   }
-  if (o.expSec != null && o.nowSec != null && pnum(o.expSec) > 0 && o.nowSec >= o.expSec) return { status: "expired", outcome: byPnl };
+  const expiryCloseSec = o.expSec != null ? expiryCloseEpochSec(pnum(o.expSec)) : NaN;
+  if (o.nowSec != null && Number.isFinite(expiryCloseSec) && o.nowSec >= expiryCloseSec) {
+    return { status: "expired", outcome: byPnl };
+  }
   // Thesis invalidation is the ONLY non-price/non-expiry exit: a position is
   // held indefinitely — through earnings prints, past two weeks — for as long
   // as the original thesis stays intact and the contract has time left. The
@@ -25644,7 +25759,7 @@ function spillUpcoming(chains, matrix, todayEt) {
     const iso = spillIsolate(start, end, macro, upcomingByGroup.get(ev.group) || new Map(), ev.driver);
     let implied = ev.impliedMovePct;
     if (implied == null) {
-      const im = computeImpliedMoveForDate(chains[ev.driver], ev.date);
+      const im = computeImpliedMoveForDate(chains[ev.driver], ev.date, ev.session);
       implied = im ? Math.round(im.pct * 1e4) / 100 : null;
     }
     const dChannel = matrix?.etfOnDriver?.[ev.driver] ?? null;
@@ -26646,7 +26761,6 @@ function briefGexFmt(n) {
 // where net dealer gamma crosses zero.
 const BRIEF_GEX_MAX_EXPS = 8;
 const BRIEF_GEX_MIN_T_DAYS = 1;
-const BRIEF_GEX_EXP_OFFSET_MS = 20 * 3600 * 1000; // ~16:00 ET close vs the midnight-UTC expiry key
 const BRIEF_GEX_YEAR_MS = 365 * 24 * 3600 * 1000;
 function briefNpdf(x) { return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI); }
 function briefBsGamma(S, K, T, sigma, r) {
@@ -26663,9 +26777,9 @@ function briefGexContracts(entry, nowMs) {
   let used = 0;
   for (const sec of expKeys) {
     if (used >= BRIEF_GEX_MAX_EXPS) break;
-    const dte = Math.round((sec * 1000 + BRIEF_GEX_EXP_OFFSET_MS - nowMs) / 86400000);
-    if (dte < 0) continue; // already expired — skip the dead expiration
-    const yrs = Math.max(((sec * 1000 + BRIEF_GEX_EXP_OFFSET_MS) - nowMs) / BRIEF_GEX_YEAR_MS, BRIEF_GEX_MIN_T_DAYS / 365);
+    const expiryCloseMs = expiryCloseEpochSec(sec) * 1000;
+    if (!Number.isFinite(expiryCloseMs) || expiryCloseMs <= nowMs) continue;
+    const yrs = Math.max((expiryCloseMs - nowMs) / BRIEF_GEX_YEAR_MS, BRIEF_GEX_MIN_T_DAYS / 365);
     const ch = chains[String(sec)];
     if (!ch) continue;
     used++;
@@ -32134,9 +32248,10 @@ async function main() {
   // NOW so its ~60-80s runs CONCURRENTLY with the narratives + calendar + scoring
   // phases below, instead of serially after them — it was the build's second
   // biggest stage and is fully off the critical path once overlapped.
-  // buildPerFirm13FHoldings() takes no args and reads only the network (never
-  // data/, chains, or narratives), so starting it here is safe; the result is
-  // awaited far below where the 13F files are written.
+  // buildPerFirm13FHoldings() reads only the network (never data/, chains, or
+  // narratives), so starting it here is safe; the result is awaited far below
+  // where the 13F files are written. Its frozen as-of time ensures every firm
+  // is selected against one report quarter even if the build runs long.
   // SEC-safety: the only per-ticker SEC (data.sec.gov) work — fetchRevenueSegments
   // inside fetchAllTickerChains — already finished (chains were awaited above), so
   // this 13F SEC burst is temporally DISJOINT from the per-ticker XBRL burst and
@@ -32154,11 +32269,15 @@ async function main() {
   try {
     priorF13Payload = JSON.parse(await readFile(resolve(DATA_DIR, F13_FILE), "utf8"));
   } catch { /* first run / hydration miss */ }
+  const f13AsOf = new Date();
+  const f13TargetQuarter = currentF13Quarter(f13AsOf);
   const f13Empty = {
     perFirm: {},
     overallTopBought: [],
     overallTopSold: [],
     insiderTransactions: priorF13Payload?.insiderTransactions || null,
+    targetPeriod: f13TargetQuarter.period,
+    targetReportDate: f13TargetQuarter.periodEndIso,
   };
   // The timer resolves a SENTINEL (not f13Empty) and stays silent: the
   // keep-or-discard decision + its log happen at the await site, because a
@@ -32174,7 +32293,7 @@ async function main() {
   });
   let f13Settled = null;
   const f13WorkPromise = Promise.all([
-    buildPerFirm13FHoldings().catch((err) => {
+    buildPerFirm13FHoldings(f13AsOf).catch((err) => {
       console.log(`  ⚠ buildPerFirm13FHoldings failed: ${err?.message || err}`);
       return f13Empty;
     }),

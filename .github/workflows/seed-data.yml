@@ -1,13 +1,16 @@
-name: Seed / sync private data store
+name: Inspect / flatten private data store
 
 # Manual maintenance tool for the Path B private-data migration
-# (docs/private-data-migration.md). Seeding uploads the currently committed
-# data/ into the private store (Cloudflare R2); `pull` is a read-only
-# connectivity check (nothing is persisted — the runner is ephemeral).
+# (docs/private-data-migration.md). `pull` is a read-only connectivity and
+# snapshot-integrity check (nothing is persisted — the runner is ephemeral), and
+# `flatten` materializes the active generation at legacy roots before a code
+# rollback. Generation publishes flip one pointer only after all objects land.
 #
 # Dispatch from the Actions tab (must be on the default branch to appear).
-# Default is a DRY RUN so the first click is safe — re-run with dry_run=false
-# to actually write. Requires the R2_* Actions secrets.
+# `data/` is intentionally absent from a public-repo checkout, so seeding must
+# be run locally from an explicitly hydrated directory; exposing `seed` here
+# could only attempt an empty snapshot. Default is a DRY RUN so the first click
+# is safe — re-run flatten with dry_run=false to write. Requires R2_* secrets.
 on:
   workflow_dispatch:
     inputs:
@@ -15,9 +18,9 @@ on:
         description: "sync-data command"
         type: choice
         options:
-          - seed
           - pull
-        default: seed
+          - flatten
+        default: pull
       dry_run:
         description: "Dry run (print actions, write nothing)"
         type: boolean
@@ -27,7 +30,7 @@ permissions:
   contents: read
 
 concurrency:
-  # Share the data-commit group so a seed never overlaps a bake/scan run.
+  # Share the data-commit group so maintenance never overlaps a bake/scan run.
   group: stonks-data-commit
   cancel-in-progress: false
 

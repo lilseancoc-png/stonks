@@ -83,16 +83,17 @@ The public repo now contains **only code** (`scripts/`, `api/`, `lib/`,
 
 ### 4.1 Storage adapter (backend-agnostic)
 
-A thin module `lib/datastore.mjs` exposing a 4-method interface so the backend is
-swappable without touching the pipeline or the API:
+A thin module `lib/datastore.mjs` exposes logical data keys so the backend and
+physical publication format stay invisible to the pipeline and API:
 
 ```js
 // lib/datastore.mjs
 export interface DataStore {
   get(key: string): Promise<Buffer | null>;   // null if missing
-  put(key: string, body: Buffer): Promise<void>;
-  list(prefix: string): Promise<string[]>;     // keys under prefix
-  del(key: string): Promise<void>;
+  put(key: string, body: Buffer): Promise<void>; // atomic one-key overlay
+  list(prefix: string): Promise<string[]>;       // logical keys only
+  del(key: string): Promise<void>;               // atomic one-key overlay
+  publishGeneration({ owner, updates, deletes }): Promise<Publication>;
 }
 ```
 
@@ -119,11 +120,20 @@ export interface DataStore {
   egress** — absorbs the ~40k ops/mo this pattern generates. Cutover is a pure
   env-var flip (set the four R2 vars in Vercel project env **and** GitHub Actions
   secrets, then `node scripts/sync-data.mjs seed` to copy the current `data/` into
-  the bucket); rollback is unsetting them. Optional `R2_ENDPOINT` overrides the
-  default `https://<account>.r2.cloudflarestorage.com` for any S3-compatible store.
+  the bucket). Switching backends is still an env flip, but the destination must
+  first contain a current seed; unsetting R2 variables selects Blob. Optional
+  `R2_ENDPOINT` overrides the default
+  `https://<account>.r2.cloudflarestorage.com` for any S3-compatible store.
 
 Keys mirror today's paths exactly: `picks.json`, `NVDA.json`, `iv-history/NVDA.json`,
-etc. — a 1:1 map from `DATA_DIR` relative paths, so nothing else has to learn new names.
+etc. Those are **logical** names. Workflow-owned bytes live under immutable
+`_stonks/generations/<id>/objects/<key>` paths, beside an immutable manifest; the
+single mutable `_stonks/published.json` pointer selects the active manifest.
+The entire `_stonks/` namespace is server-internal: logical reads/listing hide it,
+logical mutations reject it, and `/api/data` rejects it before tier classification,
+so a caller cannot traverse a pointer/manifest into a premium physical object.
+`picks-watchlist.json` is request-time state and deliberately remains at its mutable
+root pathname outside generations.
 
 ### 4.2 `sync-data.mjs` (the hydrate/flush tool)
 
@@ -134,19 +144,35 @@ node scripts/sync-data.mjs push --owner=unusual
 node scripts/sync-data.mjs push --owner=oi
 node scripts/sync-data.mjs push --owner=daytrading
 node scripts/sync-data.mjs seed                  # one-time: upload current data/ wholesale
+node scripts/sync-data.mjs flatten               # active snapshot → legacy roots for rollback
 ```
 
-- **pull**: `list("")` → validate every key as a relative path contained by
-  `DATA_DIR` → `get` each key → write locally (mkdir -p as needed). Validation
-  completes before the existing directory is removed, so an unsafe or corrupt
-  object fails closed without overwriting checkout files or leaving partial data.
-  This makes the prior accumulated state available to the build, replacing
-  `git checkout`.
-- **push --owner=X**: upload the producer's owned keyset (§4.3), with delete-stale
-  **only** inside the prefixes that producer exclusively owns. Upsert single-files.
-- Robustness: bounded concurrency (e.g. 8), per-key retry w/ backoff, and a content
-  hash so unchanged files are skipped on push (most per-ticker files change every
-  bake, but skipping the unchanged ones still trims op count + bandwidth).
+`seed` is intentionally a **local hydrated-data command**. The hosted maintenance
+workflow offers only `pull` and `flatten`, because a public-repo checkout correctly
+contains no `data/`. The publisher rejects an empty logical manifest, so an empty
+checkout can never flip the authoritative pointer.
+
+- **pull**: pin the active manifest once, validate every logical key as a relative
+  path contained by `DATA_DIR`, then fetch the manifest's immutable physical paths
+  into a sibling staging directory. Every body must exist and match its declared
+  byte length; an empty or request-time-only (watchlist-only) remote snapshot is
+  rejected. Only after the entire stage is complete does one directory swap replace
+  `data/`, so a wrong backend, torn object, or pointer flip midway through a large
+  hydrate cannot destroy/mix last-good data.
+- **push --owner=X**: upload changed owned bytes under a never-reused generation,
+  write its complete logical manifest, then replace the tiny publication pointer
+  **last**. Delete-stale removes mappings only inside the bake-owned dynamic
+  prefixes; physical old objects age out later.
+- **flatten**: copy the active immutable snapshot to legacy root keys while the
+  pointer remains authoritative, then delete the pointer last. Run this before
+  deploying a pre-generation reader; a generation-aware reader never observes the
+  partial root copy. The retained generation objects remain a recovery source.
+- Robustness: bounded concurrency (8), per-key network retry/backoff, fail-closed
+  pointer/manifest validation, and conservative generation GC after a 26-hour grace.
+  GC walks the active manifest's actual predecessor chain and measures retention
+  from each snapshot's **retirement** (its successor's `publishedAt`), not the age
+  of reused object bytes. A missing/invalid in-grace predecessor defers the whole
+  GC pass because that manifest may reference bodies from older generation prefixes.
 
 ### 4.3 Concurrency & ownership model — **the load-bearing piece**
 
@@ -155,7 +181,7 @@ Today the data workflows share a `concurrency: stonks-data-commit` group
 wholesale `data/` rebuild by the bake doesn't clobber a concurrent scanner's
 output. A blob store has no merge, so we replicate that ownership explicitly.
 
-**Two invariants make it safe** (both already true / easy to keep):
+**Three invariants make it safe:**
 
 1. **Keep the shared `concurrency` group** — runs stay serialized, so every run's
    `pull` at start sees the previous run's `push`. No simultaneous writers.
@@ -164,6 +190,12 @@ output. A blob store has no merge, so we replicate that ownership explicitly.
    + `iv-history/` prefixes (the only place keys disappear, when a ticker leaves the
    universe). This is the exact ownership the Git workflows already encode via
    `SCANNER_FILES` / per-workflow `DATA_PATHS`.
+3. **A snapshot becomes visible at one pointer write.** Each new manifest begins
+   with every mapping in the currently-published manifest, overlays only the
+   producer's owned updates/deletes, and is written after all referenced objects.
+   A failed object or manifest upload leaves the old pointer unchanged. Scanner
+   publications therefore carry bake mappings and bake publications carry scanner
+   mappings without copying unchanged object bodies.
 
 **Ownership map** (derived from the current workflows):
 
@@ -187,6 +219,14 @@ safe because: every run `pull`s latest first, the in-code once-per-window gating
 already prevents double-generation, and the shared `concurrency` group serializes
 the push. No producer deletes another's keys (upsert-only outside the bake's two
 dynamic prefixes), so cross-clobbering is structurally impossible.
+
+Request-time keys bypass generations for both reads and writes and are merged into
+the logical `list()` surface for hydration. An **absent** pointer means a clean
+pre-cutover legacy store and permits root-key fallback. A pointer that exists but is
+malformed, or references a missing/invalid manifest, fails closed; silently falling
+back in that case could expose a stale or partial root snapshot. Maintenance tools
+such as `wipe-history.mjs` use ordinary logical `put`/`del`, which create a small
+manifest overlay when a pointer is active.
 
 > Net: the concurrency model is a faithful re-encoding of the Git ownership we
 > already run, with "push only your keyset, delete-stale only your dynamic prefixes,
@@ -221,7 +261,7 @@ New endpoints (repurpose the dormant auth slot; raw Discord OAuth, no Supabase):
 |---|---|
 | `api/auth/discord-login.js` | Set short-lived `state` cookie (CSRF), 302 → Discord authorize (`scope=identify guilds.members.read`). |
 | `api/auth/discord-callback.js` | Validate `state`; exchange `code` → access token; `GET /users/@me/guilds/{GUILD_ID}/member`; check `roles` includes `REQUIRED_ROLE_ID`; on success set signed httpOnly session cookie, 302 `/`; else 302 `/welcome.html?denied=1`. |
-| `api/auth/logout.js` | Clear cookie, 302 `/welcome.html`. |
+| `api/auth/logout.js` | Same-origin `POST`; clear cookie and return `204` (GET is rejected). |
 | `api/auth/me.js` *(optional)* | `{ authed, name, avatar }` for a "signed in as … · log out" chip. |
 | `lib/session.mjs` | Shared HS256 sign/verify (`jose`, works in both Node fns and Edge middleware). Used by `api/data/*`, `api/auth/*`, and `middleware.js`. |
 
@@ -304,7 +344,11 @@ Each of `daily.yml`, `unusual-flow.yml`, `oi-tracker.yml`,
    change materially) and `CHANGELOG.md`.
 
 Rollback at any step before 6 is trivial (re-enable static serving / revert the
-rewrite). After step 6 the store is the source of truth.
+rewrite). After step 6 the store is the source of truth. Before rolling code back
+to a reader that predates generation manifests, run `sync-data.mjs flatten` against
+the active backend; it materializes the exact published snapshot at legacy roots
+and removes the pointer last. Do not deploy the old reader first, because roots may
+be stale after the first generation-based publication.
 
 ## 6. Local dev & sibling scripts
 
@@ -382,9 +426,10 @@ Refinements made while implementing (supersede the sketch above where they diffe
   hard-404s so a seeded store can't leak pre-cutover). **The whole cutover is a single
   env-var flip** — no code change — and is reversible. The static `data/*.json` keep
   serving until the flag flips.
-- **Storage prefix.** `lib/datastore.mjs` namespaces every blob under a prefix derived
-  from `sha256(BLOB_READ_WRITE_TOKEN)` (override `BLOB_PREFIX`) so URLs aren't guessable
-  from the store host; the gate only ever fetches server-side.
+- **Storage namespace.** `lib/datastore.mjs` keeps workflow-owned bytes beneath
+  immutable `_stonks/generations/<id>/...` paths and resolves them through the
+  server-only publication pointer described in §4.1–4.3. Raw object URLs are never
+  returned; the gate always fetches bytes server-side.
 - **Vercel Hobby 12-function limit.** The 4 Discord endpoints are consolidated into one
   dynamic-route function `api/auth/[action].js` (URLs unchanged), and the 4 dormant
   portfolio functions are excluded from the deploy via `.vercelignore` (kept in the
@@ -393,10 +438,11 @@ Refinements made while implementing (supersede the sketch above where they diffe
   no `node:crypto`); `lib/datastore.mjs` (node:crypto) is imported only by the Node
   `api/data` function, never the Edge middleware.
 
-**Still to do (steps 4–5, post-merge):** seed the store (`sync-data.mjs seed` via a
-workflow_dispatch, which must be on `main` to appear), flip the bake/scan workflows to
-`pull`/`push`, then on the preview deploy set `PRIVATE_DATA_ENABLED=1` + test §8, then
-flip it on production, then `git rm --cached data/` + `.gitignore data/`.
+**Historical cutover status:** these steps are complete. The store was seeded from an
+explicitly hydrated local `data/`, the bake/scanner workflows now use `pull`/`push`,
+and `data/` is gitignored. The hosted maintenance action intentionally offers only
+`pull` and `flatten`; any future backend seed must likewise be run locally from a
+verified, nonempty hydrate.
 
 ## 12. Freemium pivot (the gate became a tier, not a wall)
 

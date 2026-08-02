@@ -119,10 +119,15 @@ export default async function handler(req, res) {
   const body = req.body && typeof req.body === "object" ? req.body : {};
   const action = body.action;
   const symbol = String(body.symbol || "").toUpperCase();
-  const side = sideOf(body.side);
-  if ((action !== "add" && action !== "remove") || !SYM_RE.test(symbol)) {
+  const requestedSide = typeof body.side === "string" ? body.side.toLowerCase() : "";
+  if (
+    (action !== "add" && action !== "remove") ||
+    !SYM_RE.test(symbol) ||
+    (requestedSide !== "call" && requestedSide !== "put")
+  ) {
     return res.status(400).json({ error: "bad request" });
   }
+  const side = requestedSide;
 
   try {
     const items = await readItems();

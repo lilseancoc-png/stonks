@@ -15,6 +15,7 @@ import {
   buildDcaPlan, DCA_BASE_USD,
   aiSignalsHeadlineSignature, canReuseAiSignals,
   attachIvRanks, computeAtmIvForDte,
+  computeImpliedMoveForDate,
   narrativeInputSignature, canReuseNarrativeExtraction,
   decisionNarratives, scannerPayloadIsFresh,
   socialSentimentIsCurrent,
@@ -26,8 +27,11 @@ import {
   tickerJudgmentSignature,
   chartPatternDecisionEligible,
   chartPatternInstructionSignature,
+  canDiff13FFirmSnapshot, findLatestTwo13Fs, mergeForm4TransactionRows,
 } from "./build.mjs";
 import { buildFlowExplanation } from "../lib/flow-explanation.mjs";
+import { computeGexSummary } from "../lib/gex.mjs";
+import { expiryCloseEpochSec, yearsToExpiry } from "../lib/greeks.mjs";
 
 let pass = 0, fail = 0;
 const ok = (name, cond) => { if (cond) { pass++; } else { fail++; console.log("  ✗ " + name); } };
@@ -712,6 +716,55 @@ const persisted = applyMacroRegimePersistence(computeMacroRegime({ vix: { value:
 ok("regime: persistence holds a recovering state one build", persisted.persisted === true);
 
 // --- 6. resolvePickOutcome ------------------------------------------------
+
+const summerExpiry = Date.UTC(2026, 6, 17) / 1000;
+const winterExpiry = Date.UTC(2026, 0, 16) / 1000;
+ok("expiry clock: summer close is 20:00Z", expiryCloseEpochSec(summerExpiry) === Date.UTC(2026, 6, 17, 20) / 1000);
+ok("expiry clock: winter close is 21:00Z", expiryCloseEpochSec(winterExpiry) === Date.UTC(2026, 0, 16, 21) / 1000);
+ok("expiry clock: summer contract remains open before New York close", resolvePickOutcome({ modeledOptPnlPct: 5, expSec: summerExpiry, entrySec: Date.UTC(2026, 6, 16) / 1000, nowSec: Date.UTC(2026, 6, 17, 19, 59) / 1000 }) === null);
+ok("expiry clock: summer contract expires at New York close", resolvePickOutcome({ modeledOptPnlPct: 5, expSec: summerExpiry, entrySec: Date.UTC(2026, 6, 16) / 1000, nowSec: Date.UTC(2026, 6, 17, 20) / 1000 })?.status === "expired");
+ok("expiry clock: winter contract remains open through 20:59Z", resolvePickOutcome({ modeledOptPnlPct: 5, expSec: winterExpiry, entrySec: Date.UTC(2026, 0, 15) / 1000, nowSec: Date.UTC(2026, 0, 16, 20, 59) / 1000 }) === null);
+ok("expiry clock: winter contract expires at 21:00Z", resolvePickOutcome({ modeledOptPnlPct: 5, expSec: winterExpiry, entrySec: Date.UTC(2026, 0, 15) / 1000, nowSec: Date.UTC(2026, 0, 16, 21) / 1000 })?.status === "expired");
+ok("expiry clock: Black-Scholes T uses the same summer close", yearsToExpiry(summerExpiry, Date.UTC(2026, 6, 17, 19) / 1000) > 0 && yearsToExpiry(summerExpiry, Date.UTC(2026, 6, 17, 20) / 1000) < 0.00001);
+const expiryGexFixture = { [summerExpiry]: { c: [{ s: 100, oi: 1000, iv: 0.3 }], p: [] } };
+ok("expiry clock: GEX includes the contract before summer close", computeGexSummary(expiryGexFixture, 100, { now: Date.UTC(2026, 6, 17, 19, 59) }) != null);
+ok("expiry clock: GEX drops the contract at summer close", computeGexSummary(expiryGexFixture, 100, { now: Date.UTC(2026, 6, 17, 20) }) == null);
+
+const fridayEvent = "2026-08-07";
+const fridayExpiry = Date.UTC(2026, 7, 7) / 1000;
+const followingExpiry = Date.UTC(2026, 7, 14) / 1000;
+const earningsMoveFixture = {
+  spot: 100,
+  chains: {
+    [fridayExpiry]: { c: [{ s: 100, b: 1, a: 1 }], p: [{ s: 100, b: 1, a: 1 }] },
+    [followingExpiry]: { c: [{ s: 100, b: 5, a: 5 }], p: [{ s: 100, b: 5, a: 5 }] },
+  },
+};
+ok("earnings move: Friday AM print may use same-day expiry", computeImpliedMoveForDate(earningsMoveFixture, fridayEvent, "AM")?.expiry === fridayExpiry);
+ok("earnings move: BMO alias may use same-day expiry", computeImpliedMoveForDate(earningsMoveFixture, fridayEvent, "BMO")?.expiry === fridayExpiry);
+ok("earnings move: Friday PM print uses following expiry", computeImpliedMoveForDate(earningsMoveFixture, fridayEvent, "PM")?.expiry === followingExpiry);
+ok("earnings move: unknown Friday session conservatively uses following expiry", computeImpliedMoveForDate(earningsMoveFixture, fridayEvent, "TBD")?.expiry === followingExpiry);
+
+const filingFixture = {
+  filings: { recent: {
+    form: ["13F-HR/A", "13F-HR", "13F-HR", "13F-HR"],
+    filingDate: ["2026-07-20", "2026-05-14", "2026-02-13", "2025-11-14"],
+    reportDate: ["2026-03-31", "2026-03-31", "2025-12-31", "2025-09-30"],
+    accessionNumber: ["amended", "original", "prior", "older"],
+    primaryDocument: ["a.xml", "o.xml", "p.xml", "old.xml"],
+  } },
+};
+const exactQuarter = findLatestTwo13Fs(filingFixture, "2026-03-31");
+ok("13F: newest amendment wins within the exact target period", exactQuarter[0]?.accessionNumber === "amended");
+ok("13F: target period pairs with its exact predecessor", exactQuarter[1]?.reportDate === "2025-12-31");
+ok("13F: a lagging firm cannot leak a different quarter under the global label", findLatestTwo13Fs(filingFixture, "2026-06-30").length === 0);
+ok("13F: failed prior fetch cannot fabricate all-current holdings as buys", !canDiff13FFirmSnapshot({ latest: {}, latestFetchOk: true, latestHoldings: [{}], prior: {}, priorFetchOk: false }));
+ok("13F: genuine first-time filer may diff against an empty predecessor", canDiff13FFirmSnapshot({ latest: {}, latestFetchOk: true, latestHoldings: [{}], prior: null, priorFetchOk: true }));
+
+const retainedForm4 = { accessionNumber: "old-accession", symbol: "TEST", ownerName: "A", transactionDate: "2026-07-15", code: "P", shares: 10, price: 5, value: 50 };
+const expiredForm4 = { ...retainedForm4, accessionNumber: "expired", transactionDate: "2026-01-01" };
+ok("Form 4: transient zero-fresh outage retains in-window cached rows", mergeForm4TransactionRows([retainedForm4], [], "2026-06-01").length === 1);
+ok("Form 4: retention still drops rows outside the lookback", mergeForm4TransactionRows([retainedForm4, expiredForm4], [], "2026-06-01").length === 1);
 // 2026-07-15 exit flip: flat +20% TP / -50% stop, scale-out opt-in (off by default).
 ok("exit: -55% option -> hit-stop loss", resolvePickOutcome({ modeledOptPnlPct: -55, entrySec: nowSec - dayMs / 1000, nowSec })?.outcome === "loss");
 ok("exit: -35% option -> stays open (stop now -50%)", resolvePickOutcome({ modeledOptPnlPct: -35, entrySec: nowSec - dayMs / 1000, nowSec }) === null);

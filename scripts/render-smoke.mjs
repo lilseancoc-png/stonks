@@ -47,7 +47,61 @@ try {
   assert.match(appJs, /if \(OWNER_TABS\[name\] && !HAS_OWNER_ACCESS\)/);
   assert.match(appJs, /if \(!HAS_OWNER_ACCESS\) return;[\s\S]*?fetch\(dataUrl\('auto-picks\.json'\)/);
   assert.match(appJs, /var lastAnalyticsTabPath = null;[\s\S]*?function trackPageTab\(name\)\{[\s\S]*?var path = '\/tabs\/' \+ name;[\s\S]*?if \(path === lastAnalyticsTabPath \|\| typeof window\.va !== 'function'\) return;[\s\S]*?window\.va\('pageview', \{ path: path \}\);[\s\S]*?lastAnalyticsTabPath = path;/);
-  assert.match(appJs, /syncTabToUrl\(name, !!\(nav && nav\.replace\)\);\s*trackPageTab\(name\);/);
+  assert.match(appJs, /syncTabToUrl\(name, !!\(nav && nav\.replace\)\);\s*if \(name !== 'grade'\) document\.title = 'stonks · Option Contract Rater';\s*trackPageTab\(name\);/);
+
+  // Client regression coverage: URL cleanup, DST-aware option expiry, stale
+  // requests, retryable tab loads, market-session filtering, and POST logout.
+  assert.match(appJs, /\['tab', 's', 'exp', 'k', 't'\]\.forEach\(function\(key\)\{ url\.searchParams\.delete\(key\); \}\)/);
+  assert.match(appJs, /function pushUrlState\(\)\{[\s\S]*?var gradePane = \$\('page-pane-grade'\);[\s\S]*?if \(gradePane && gradePane\.hidden\) return;/);
+  assert.doesNotMatch(appJs, /EXPIRY_CLOSE_OFFSET/);
+  const expiryHelperSource = appJs.match(/function etCloseEpochSec\(yyyymmdd\)\{[\s\S]*?function chainExpiryCloseEpochSec\(epochSec\)\{[\s\S]*?\n  \}/)?.[0] || "";
+  assert.ok(expiryHelperSource, "generated expiry helpers must exist");
+  const expiryHelpers = new Function(`${expiryHelperSource}\nreturn { chainExpiryCloseEpochSec, cache: CHAIN_EXPIRY_CLOSE_CACHE };`)();
+  const winterExpiry = Date.parse("2026-01-16T00:00:00Z") / 1000;
+  const summerExpiry = Date.parse("2026-07-17T00:00:00Z") / 1000;
+  assert.equal(expiryHelpers.chainExpiryCloseEpochSec(winterExpiry), Date.parse("2026-01-16T21:00:00Z") / 1000);
+  assert.equal(expiryHelpers.chainExpiryCloseEpochSec(summerExpiry), Date.parse("2026-07-17T20:00:00Z") / 1000);
+  expiryHelpers.chainExpiryCloseEpochSec(winterExpiry);
+  assert.equal(Object.keys(expiryHelpers.cache).length, 2, "expiry-close conversions should cache by date");
+
+  const gradeLoadSource = appJs.match(/function loadChain\(\)\{[\s\S]*?\n  \}\n\n  \/\/ --- Live spot/)?.[0] || "";
+  assert.ok(gradeLoadSource, "generated Grade chain loader must exist");
+  assert.match(gradeLoadSource, /var requestSeq = \+\+state\.chainRequestSeq;/);
+  assert.equal((gradeLoadSource.match(/requestSeq !== state\.chainRequestSeq \|\| state\.symbol !== symbol/g) || []).length, 2);
+  assert.match(appJs, /var livePollRequest = null;\s*var livePollQueued = null;/);
+  assert.match(appJs, /livePollQueued = \{ symbol: symbol, exp: exp \};[\s\S]*?livePollRequest\.controller\.abort\(\)/);
+  assert.match(appJs, /var wasAborted = !!\(livePollRequest\.controller[\s\S]*?livePollQueued = wasAborted \? \{ symbol: symbol, exp: exp \} : null;/);
+  assert.match(appJs, /Install\/reset the timer BEFORE the immediate[\s\S]*?startLivePolling\(\);[\s\S]*?if \(regularSession && state\.symbol === symbol && state\.currentExp\) \{\s*refreshLiveChain\(symbol, state\.currentExp\);/);
+  assert.doesNotMatch(appJs, /livePollInFlight/);
+
+  const strategyLoadSource = appJs.match(/function stratLoadSymbol\(symbol\)\{[\s\S]*?\n  \}\n\n  \/\/ --- Combobox/)?.[0] || "";
+  assert.ok(strategyLoadSource, "generated strategy loader must exist");
+  assert.match(strategyLoadSource, /var requestSeq = \+\+stratState\.requestSeq;/);
+  assert.match(strategyLoadSource, /fetchChain\(symbol\)\.then\(function\(entry\)\{\s*if \(requestSeq !== stratState\.requestSeq\) return;/);
+  assert.match(strategyLoadSource, /\.catch\(function\(err\)\{\s*if \(requestSeq !== stratState\.requestSeq\) return;/);
+
+  assert.match(appJs, /action:'open-narrative', payload: n\.name, sector: sector/);
+  assert.match(appJs, /setTimeout\(function\(\)\{ jumpToNarrative\(it\.sector, it\.payload\); \}, 0\);/);
+  assert.match(appJs, /if \(heatmapState\.data && !heatmapState\.data\.loadError\)/);
+  assert.match(appJs, /if \(\(picksState\.data && !picksState\.data\.loadError\) \|\| picksState\.loading\)/);
+  assert.match(appJs, /if \(\(accuracyState\.data && !accuracyState\.data\.loadError\) \|\| accuracyState\.loading\)/);
+
+  assert.match(appJs, /opts\.onQuotes\(quotes\.filter\(isRegularMarketQuote\), marketState\)/);
+  assert.match(appJs, /quotes = quotes\.filter\(isRegularMarketQuote\);[\s\S]*?showing baked close/);
+  assert.match(appJs, /var live = liveCandidate && liveCandidate\.marketState === 'REGULAR' \? liveCandidate : null;/);
+  assert.match(appJs, /if \(lv && lv\.marketState === 'REGULAR' && lv\.changePct/);
+  assert.match(appJs, /var regularSession = String\(q\.marketState \|\| ''\)\.toUpperCase\(\) === 'REGULAR';/);
+  assert.match(appJs, /if \(r\.marketState !== 'REGULAR'\) \{[\s\S]*?stopLivePolling\(\);[\s\S]*?return;/);
+  assert.match(appJs, /var marketClosedForEntry = !!decisionMarketState && decisionMarketState !== 'REGULAR';/);
+  assert.match(appJs, /marketClosedForEntry[\s\S]*?wait for the option market to reopen/);
+  assert.match(appJs, /Model entry, stop, target, R:R, and size are regular-session[\s\S]*?String\(q\.marketState \|\| ''\)\.toUpperCase\(\) === 'REGULAR'[\s\S]*?rotationState\.quotes = map/);
+  assert.match(appJs, /if \(!q \|\| String\(q\.marketState \|\| ''\)\.toUpperCase\(\) !== 'REGULAR' \|\| token !== gexState\.token/);
+  assert.match(appJs, /Share caps and daily-reset tracking are regular-session decisions;[\s\S]*?String\(q\.marketState \|\| ''\)\.toUpperCase\(\) === 'REGULAR'[\s\S]*?levState\.quotes = map/);
+  assert.match(appJs, /var picksLive = \{ quotes: \{\}, marketState: '' \}/);
+  assert.match(appJs, /leftRegularSession[\s\S]*?renderPicks\(true\)/);
+  assert.match(appJs, /fetch\('\/api\/auth\/logout', \{ method: 'POST', credentials: 'same-origin' \}\)/);
+  assert.match(appJs, /window\.location\.assign\('\/welcome\.html'\)/);
+  assert.doesNotMatch(appJs, /href="\/api\/auth\/logout"/);
 
   const welcomeSource = await readFile(resolve("welcome.html"), "utf8");
   assert.match(welcomeSource, /window\.va=window\.va\|\|function\(\)\{/);

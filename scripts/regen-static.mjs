@@ -4,7 +4,17 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { renderHtml, renderAppJs, renderStylesCss, ensureTickerCoverage, FOMC_MEETINGS_BASELINE, buildHeatmapPayload, readRfrHistory } from "./build.mjs";
+import {
+  FALLBACK_RISK_FREE_RATE,
+  FOMC_MEETINGS_BASELINE,
+  RFR_CACHE_MAX_DAYS,
+  buildHeatmapPayload,
+  ensureTickerCoverage,
+  readRfrHistory,
+  renderAppJs,
+  renderHtml,
+  renderStylesCss,
+} from "./build.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -183,10 +193,15 @@ const css = renderStylesCss();
 // workflows regen app.js from here too, with no build to bake the rate. Pass
 // it as the structured payload so the greeks tooltip's source label stays
 // honest ("fresh" only if captured today, else "cached").
-let riskFreeRate;
+let riskFreeRate = {
+  rate: FALLBACK_RISK_FREE_RATE,
+  asOf: todayIsoForFomc,
+  source: "fallback",
+  ageDays: null,
+};
 try {
   const rfr = await readRfrHistory();
-  if (rfr && Number.isFinite(rfr.rate)) {
+  if (rfr && Number.isFinite(rfr.rate) && rfr.rate >= 0 && rfr.rate < 0.20) {
     const capturedIso = rfr.capturedAt || rfr.asOf || null;
     const isFresh = capturedIso === todayIsoForFomc;
     // On a non-fresh (cached) reading, carry the age so the greeks tooltip can
@@ -197,18 +212,26 @@ try {
       const capturedMs = Date.parse(capturedIso);
       const todayMs = Date.parse(todayIsoForFomc);
       if (Number.isFinite(capturedMs) && Number.isFinite(todayMs)) {
-        ageDays = Math.max(0, (todayMs - capturedMs) / 86400000);
+        const rawAgeDays = (todayMs - capturedMs) / 86400000;
+        if (rawAgeDays >= 0) ageDays = rawAgeDays;
       }
     }
-    riskFreeRate = {
-      rate: rfr.rate,
-      asOf: rfr.asOf || null,
-      source: isFresh ? "fresh" : "cached",
-      ageDays,
-    };
+    if (isFresh || (ageDays != null && ageDays <= RFR_CACHE_MAX_DAYS)) {
+      riskFreeRate = {
+        rate: rfr.rate,
+        asOf: rfr.asOf || null,
+        source: isFresh ? "fresh" : "cached",
+        ageDays,
+      };
+    } else {
+      console.warn(
+        `regen-static: cached ^IRX is missing a valid date or older than ${RFR_CACHE_MAX_DAYS}d; ` +
+        `using ${(FALLBACK_RISK_FREE_RATE * 100).toFixed(1)}% fallback`,
+      );
+    }
   }
-} catch { /* no rfr-history.json yet — renderAppJs falls back to 4.5% */ }
-const js = renderAppJs(riskFreeRate ? { riskFreeRate } : {});
+} catch { /* no readable rfr-history.json — keep the explicit 4.5% fallback */ }
+const js = renderAppJs({ riskFreeRate });
 
 await writeFile(resolve(ROOT, "index.html"), html, "utf8");
 await writeFile(resolve(ROOT, "styles.css"), css, "utf8");

@@ -43,6 +43,11 @@ const requestedIvSuccessRate = Number(process.env.FRESHNESS_MIN_IV_SUCCESS_RATE 
 const MIN_IV_SUCCESS_RATE = Number.isFinite(requestedIvSuccessRate)
   ? Math.min(1, Math.max(0.5, requestedIvSuccessRate))
   : 0.9;
+// Must match scan-oi.mjs's publication guard. Keeping this verifier-side
+// invariant explicit prevents a malformed or hand-produced scanner payload
+// from bypassing the scanner's last-good-data protection.
+const MIN_OI_SURFACED_COVERAGE_RATE = 0.25;
+const MIN_OI_FETCH_SUCCESS_RATE = 0.5;
 
 const BAKE_STAMPED_FILES = [
   "auto-picks.json",
@@ -618,7 +623,7 @@ async function auditUnusual({ report, dataDir, runStartedAt, now }) {
 
 async function auditOi({ report, dataDir, runStartedAt, now }) {
   const tracker = await requireStampedFile(report, dataDir, "oi-tracker.json", null, runStartedAt, now, ["scannedAt"]);
-  await requireCurrentHistorySnapshot(
+  const history = await requireCurrentHistorySnapshot(
     report,
     dataDir,
     "oi-history.json",
@@ -626,6 +631,106 @@ async function auditOi({ report, dataDir, runStartedAt, now }) {
     now,
     validMs(tracker?.scannedAt),
   );
+
+  if (tracker) {
+    const rows = Array.isArray(tracker.tickers) ? tracker.tickers : null;
+    const scanned = tracker?.summary?.scanned;
+    const failed = tracker?.summary?.failed;
+    const declaredCount = tracker?.summary?.tickerCount;
+    if (!rows) {
+      fail(report, "oi-tracker.json: tickers must be an array");
+    } else if (!rows.length) {
+      fail(report, "oi-tracker.json: no surfaced tickers; refusing an empty OI publication");
+    } else {
+      const invalidRows = rows.filter((row) =>
+        !row?.symbol ||
+        !(Number.isFinite(row?.spot) && row.spot > 0) ||
+        !(Number.isFinite(row?.callOiTotal) && row.callOiTotal >= 0) ||
+        !(Number.isFinite(row?.putOiTotal) && row.putOiTotal >= 0) ||
+        row.callOiTotal + row.putOiTotal <= 0 ||
+        !Array.isArray(row?.strikes) ||
+        !row.strikes.length);
+      if (invalidRows.length) {
+        fail(report, `oi-tracker.json: ${invalidRows.length} surfaced ticker row(s) have no usable OI/strikes`);
+      } else {
+        pass(report, `oi-tracker.json: ${rows.length} surfaced ticker row(s) have usable OI`);
+      }
+      if (new Set(rows.map((row) => row?.symbol)).size !== rows.length) {
+        fail(report, "oi-tracker.json: duplicate surfaced ticker symbols");
+      }
+    }
+
+    if (!Number.isInteger(scanned) || scanned <= 0) {
+      fail(report, "oi-tracker.json: summary.scanned must be a positive integer");
+    }
+    if (!Number.isInteger(failed) || failed < 0) {
+      fail(report, "oi-tracker.json: summary.failed must be a non-negative integer");
+    }
+    if (rows && declaredCount !== rows.length) {
+      fail(report, `oi-tracker.json: summary.tickerCount ${declaredCount} does not match ${rows.length} ticker row(s)`);
+    }
+    if (rows && Number.isInteger(scanned) && scanned > 0) {
+      const coverage = rows.length / scanned;
+      if (rows.length > scanned) {
+        fail(report, `oi-tracker.json: surfaced ticker count ${rows.length} exceeds fetched count ${scanned}`);
+      } else if (coverage < MIN_OI_SURFACED_COVERAGE_RATE) {
+        fail(
+          report,
+          `oi-tracker.json: surfaced coverage ${(coverage * 100).toFixed(0)}% is below ${MIN_OI_SURFACED_COVERAGE_RATE * 100}%`,
+        );
+      } else {
+        pass(report, `oi-tracker.json: surfaced coverage ${(coverage * 100).toFixed(0)}%`);
+      }
+    }
+    if (Number.isInteger(scanned) && scanned > 0 && Number.isInteger(failed) && failed >= 0) {
+      const attempted = scanned + failed;
+      const successRate = scanned / attempted;
+      if (successRate < MIN_OI_FETCH_SUCCESS_RATE) {
+        fail(
+          report,
+          `oi-tracker.json: fetch success ${(successRate * 100).toFixed(0)}% is below ${MIN_OI_FETCH_SUCCESS_RATE * 100}%`,
+        );
+      } else {
+        pass(report, `oi-tracker.json: fetch success ${(successRate * 100).toFixed(0)}%`);
+      }
+    }
+  }
+
+  if (history) {
+    const current = latestSnapshot(history)?.row;
+    const contracts = Array.isArray(current?.contracts) ? current.contracts : null;
+    if (!contracts?.length) {
+      fail(report, "oi-history.json: latest snapshot has no contracts");
+    } else {
+      const malformed = contracts.filter((contract) =>
+        !contract?.symbol ||
+        !["call", "put"].includes(contract?.side) ||
+        !(Number.isFinite(contract?.strike) && contract.strike > 0) ||
+        !(Number.isFinite(contract?.expSec) && contract.expSec > 0) ||
+        !(Number.isFinite(contract?.oi) && contract.oi >= 0));
+      if (malformed.length) {
+        fail(report, `oi-history.json: latest snapshot has ${malformed.length} malformed contract row(s)`);
+      } else {
+        pass(report, `oi-history.json: latest snapshot has ${contracts.length} usable contract row(s)`);
+      }
+      if (Array.isArray(tracker?.tickers)) {
+        const positiveOiSymbols = new Set(
+          contracts.filter((contract) => contract?.oi > 0).map((contract) => contract.symbol),
+        );
+        const missing = tracker.tickers
+          .map((row) => row?.symbol)
+          .filter((symbol) => symbol && !positiveOiSymbols.has(symbol));
+        if (missing.length) {
+          fail(
+            report,
+            `oi-history.json: latest snapshot lacks positive-OI contracts for surfaced ticker(s): ${missing.slice(0, 8).join(", ")}${missing.length > 8 ? ", ..." : ""}`,
+          );
+        } else if (tracker.tickers.length) {
+          pass(report, "oi-history.json: latest snapshot covers every surfaced ticker");
+        }
+      }
+    }
+  }
   for (const key of ["manifest.json", "manifest-free.json"]) {
     await requireStampedFile(report, dataDir, key, null, runStartedAt, now, ["_meta.renderedAtIso"]);
   }
@@ -769,14 +874,31 @@ async function selfTest() {
     });
     await write("manifest.json", { _meta: { dataBuiltAtIso: stamp, renderedAtIso: stamp } });
     await write("manifest-free.json", { _meta: { dataBuiltAtIso: stamp, renderedAtIso: stamp } });
-    await write("oi-tracker.json", { scannedAt: stamp });
+    const validOiTracker = {
+      scannedAt: stamp,
+      summary: { tickerCount: 1, flaggedCount: 0, scanned: 1, failed: 0 },
+      tickers: [{
+        symbol: "TEST",
+        spot: 100,
+        callOiTotal: 1200,
+        putOiTotal: 800,
+        strikes: [{ side: "call", strike: 105, expSec: 1780000000, oi: 1200 }],
+      }],
+    };
+    const validOiHistory = {
+      snapshots: [{
+        scannedAt: stamp,
+        contracts: [{ symbol: "TEST", side: "call", strike: 105, expSec: 1780000000, oi: 1200 }],
+      }],
+    };
+    await write("oi-tracker.json", validOiTracker);
     await write("search-interest.json", { builtAtIso: stamp });
     await write("unusual.json", { scannedAt: stamp });
     await write("unusual-history.json", { snapshots: [{ scannedAt: stamp }] });
     await write("unusual-log.json", { updatedAt: stamp, entries: [] });
     await write("volume-flags.json", { scannedAt: stamp });
     await write("volume-history.json", { snapshots: [{ scannedAt: stamp }] });
-    await write("oi-history.json", { snapshots: [{ scannedAt: stamp }] });
+    await write("oi-history.json", validOiHistory);
     await write("flow-explanations.json", { updatedAt: stamp, mode: "deterministic-v1", entries: {} });
     await write("day-trading.json", { updatedAt: stamp, portfolios: { options: {}, stock: {} } });
     await write("day-trading-history.json", { updatedAt: stamp, portfolios: { options: {}, stock: {} } });
@@ -835,6 +957,44 @@ async function selfTest() {
       if (ownerReport.errors.length) throw new Error(renderReport(ownerReport));
     }
 
+    await write("oi-tracker.json", {
+      scannedAt: stamp,
+      summary: { tickerCount: 0, flaggedCount: 0, scanned: 12, failed: 0 },
+      tickers: [],
+    });
+    await write("oi-history.json", { snapshots: [{ scannedAt: stamp, contracts: [] }] });
+    const emptyOi = await auditFreshness({
+      owner: "oi",
+      dataDir: dir,
+      runStartedAt: start.toISOString(),
+      now: new Date("2026-07-30T14:05:00.000Z"),
+      expectedSymbols: ["TEST"],
+    });
+    if (!emptyOi.errors.some((message) => message.includes("no surfaced tickers"))) {
+      throw new Error("self-test expected an empty OI tracker to fail");
+    }
+    if (!emptyOi.errors.some((message) => message.includes("latest snapshot has no contracts"))) {
+      throw new Error("self-test expected an empty OI history snapshot to fail");
+    }
+
+    await write("oi-tracker.json", {
+      ...validOiTracker,
+      summary: { ...validOiTracker.summary, scanned: 5 },
+    });
+    await write("oi-history.json", validOiHistory);
+    const sparseOi = await auditFreshness({
+      owner: "oi",
+      dataDir: dir,
+      runStartedAt: start.toISOString(),
+      now: new Date("2026-07-30T14:05:00.000Z"),
+      expectedSymbols: ["TEST"],
+    });
+    if (!sparseOi.errors.some((message) => message.includes("surfaced coverage"))) {
+      throw new Error("self-test expected a systemically sparse OI tracker to fail");
+    }
+    await write("oi-tracker.json", validOiTracker);
+    await write("oi-history.json", validOiHistory);
+
     const stale = await auditFreshness({
       owner: "bake",
       dataDir: dir,
@@ -855,7 +1015,7 @@ async function selfTest() {
     if (!staleOiHistory.errors.some((message) => message.includes("oi-history.json latest snapshot"))) {
       throw new Error("self-test expected stale OI history to fail");
     }
-    await write("oi-history.json", { snapshots: [{ scannedAt: stamp }] });
+    await write("oi-history.json", validOiHistory);
 
     await rm(resolve(dir, "briefs.json"));
     const missingRequired = await auditFreshness({
