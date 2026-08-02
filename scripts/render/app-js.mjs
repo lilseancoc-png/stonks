@@ -26121,7 +26121,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // lazy-fetched on first open and re-fetched when stale (mirrors loadBrief).
   var indexCalState = {
     data: null, loading: false, error: false, viewYm: null, index: 'spy', selectedDate: null, fetchedAt: 0, bound: false,
-    hourThreshold: 0.25, hourGap: 'all', hourVix: 'all'
+    hourThreshold: 0.25, hourGap: 'all', hourVix: 'all', hourEvent: 'all', hourRegime: 'all', hourWindow: '40'
   };
   var IDX_CAL_LABELS = { spy: 'SPY', qqq: 'QQQ', iwm: 'IWM', smh: 'SMH', dia: 'DIA', vxus: 'VXUS', tlt: 'TLT', gld: 'GLD', vix: 'VIX' };
   var IDX_CAL_ORDER = ['spy', 'qqq', 'iwm', 'smh', 'dia', 'vxus', 'tlt', 'gld', 'vix'];
@@ -26190,7 +26190,31 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (bucket === 'high' && !(vix >= 20 && vix < 30)) return false;
       if (bucket === 'stress' && !(vix >= 30)) return false;
     }
+    var eventFilter = indexCalState.hourEvent || 'all';
+    var eventCtx = day && day.eventContext || {};
+    if (eventFilter === 'major-data' && !eventCtx.morningMajorData) return false;
+    if (eventFilter === 'fed-speaker' && !eventCtx.morningFedSpeaker) return false;
+    if (eventFilter === 'event-morning' && !eventCtx.morningMajorData && !eventCtx.morningFedSpeaker) return false;
+    if (eventFilter === 'quiet' && (eventCtx.morningMajorData || eventCtx.morningFedSpeaker)) return false;
+    var regimeFilter = indexCalState.hourRegime || 'all';
+    var regime = day && day.sessionContext || {};
+    if (regimeFilter === 'trending' && regime.trend !== 'trending') return false;
+    if (regimeFilter === 'range' && regime.trend !== 'range') return false;
+    if (regimeFilter === 'high-vol' && regime.vol !== 'high') return false;
+    if (regimeFilter === 'low-vol' && regime.vol !== 'low') return false;
+    if (regimeFilter === 'risk-on' && regime.risk !== 'risk-on') return false;
+    if (regimeFilter === 'risk-off' && regime.risk !== 'risk-off') return false;
     return true;
+  }
+  function idxHourWindowRows(rows){
+    var mode = String(indexCalState.hourWindow || '40');
+    if (mode === 'all') return rows.slice();
+    if (mode === 'month'){
+      var last = rows.length ? String(rows[rows.length - 1].day.date || '').slice(0, 7) : '';
+      return rows.filter(function(x){ return String(x.day.date || '').slice(0, 7) === last; });
+    }
+    var size = Number(mode);
+    return Number.isFinite(size) && size > 0 ? rows.slice(-size) : rows.slice(-40);
   }
   function idxHourMetricCard(label, value, sub, cls){
     return '<div class="idx-hour-metric' + (cls ? ' ' + cls : '') + '">' +
@@ -26199,26 +26223,74 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       (sub ? '<span class="idx-hour-metric-sub">' + escapeHtml(sub) + '</span>' : '') +
     '</div>';
   }
-  function idxHourConditionalCard(direction, rows, threshold){
+  function idxHourConditionalStats(direction, rows, threshold){
     var isDown = direction === 'down';
     var matched = rows.filter(function(x){
       var v = Number(x.session.firstHourRetPct);
       return isDown ? v <= -threshold : v >= threshold;
     });
-    var restPositive = idxHourRate(matched, function(x){ return Number(x.session.restOfDayRetPct) > 0; });
-    var closeAboveOpen = idxHourRate(matched, function(x){ return Number(x.session.openToCloseRetPct) > 0; });
-    var avgLowRecovery = idxHourAvg(matched.map(function(x){ return x.session.lowToClosePct; }));
-    var avgOc = idxHourAvg(matched.map(function(x){ return x.session.openToCloseRetPct; }));
-    var title = 'First hour ' + direction + ' ≥ ' + threshold.toFixed(2) + '%';
+    return {
+      matched: matched,
+      restPositive: idxHourRate(matched, function(x){ return Number(x.session.restOfDayRetPct) > 0; }),
+      closeAboveOpen: idxHourRate(matched, function(x){ return Number(x.session.openToCloseRetPct) > 0; }),
+      avgRest: idxHourAvg(matched.map(function(x){ return x.session.restOfDayRetPct; })),
+      avgOc: idxHourAvg(matched.map(function(x){ return x.session.openToCloseRetPct; }))
+    };
+  }
+  function idxHourConditionalCard(direction, rows, threshold, idxKey){
+    var isDown = direction === 'down';
+    var stats = idxHourConditionalStats(direction, rows, threshold);
+    var matched = stats.matched;
+    var signedBar = (isDown ? '−' : '+') + threshold.toFixed(2) + '%';
+    var title = 'First hour ' + (isDown ? '≤ −' : '≥ +') + threshold.toFixed(2) + '%';
+    var sampleRead = matched.length < 10 ? 'Exploratory — fewer than 10 matches.' : (matched.length < 25 ? 'Thin sample — treat the rate as provisional.' : 'Rolling conditional sample.');
+    var sentence = matched.length
+      ? 'When ' + IDX_CAL_LABELS[idxKey] + ' first hour is ' + signedBar + (isDown ? ' or worse' : ' or better') +
+        ', the rest of the day finishes green ' + idxHourFmtRate(stats.restPositive) + ' of the time with an average ' +
+        (stats.avgRest == null ? 'unavailable' : idxCalFmtPct(stats.avgRest)) + ' move from 10:30 ET to the close.'
+      : 'No sessions in this review window meet the ' + signedBar + ' first-hour condition.';
     return '<article class="idx-hour-condition ' + (isDown ? 'is-down' : 'is-up') + '">' +
       '<header><div><span class="idx-hour-condition-kicker">Conditional read</span><h4>' + escapeHtml(title) + '</h4></div><b>n=' + matched.length + '</b></header>' +
+      '<p class="idx-hour-probability">' + escapeHtml(sentence) + '<small>' + escapeHtml(sampleRead) + '</small></p>' +
       '<div class="idx-hour-condition-grid">' +
-        idxHourMetricCard('Rest of day positive', idxHourFmtRate(restPositive), '10:30 → close') +
-        idxHourMetricCard('Avg low → close', avgLowRecovery == null ? '—' : idxCalFmtPct(avgLowRecovery), 'recovery from first-hour low') +
-        idxHourMetricCard('Close above open', idxHourFmtRate(closeAboveOpen), 'full-session finish') +
-        idxHourMetricCard('Avg open → close', avgOc == null ? '—' : idxCalFmtPct(avgOc), 'net regular session') +
+        idxHourMetricCard('Rest of day positive', idxHourFmtRate(stats.restPositive), '10:30 → close') +
+        idxHourMetricCard('Avg rest of day', stats.avgRest == null ? '—' : idxCalFmtPct(stats.avgRest), '10:30 → close') +
+        idxHourMetricCard('Close above open', idxHourFmtRate(stats.closeAboveOpen), 'full-session finish') +
+        idxHourMetricCard('Avg open → close', stats.avgOc == null ? '—' : idxCalFmtPct(stats.avgOc), 'net regular session') +
       '</div>' +
     '</article>';
+  }
+  function idxHourReviewCard(rows, threshold){
+    var size = 40;
+    var complete = rows.filter(function(x){ return x.session.dayComplete; });
+    var current = complete.slice(-size);
+    var prior = complete.slice(Math.max(0, complete.length - size * 2), Math.max(0, complete.length - size));
+    var curDown = idxHourConditionalStats('down', current, threshold);
+    var curUp = idxHourConditionalStats('up', current, threshold);
+    var prevDown = idxHourConditionalStats('down', prior, threshold);
+    var prevUp = idxHourConditionalStats('up', prior, threshold);
+    function delta(now, before){
+      return now == null || before == null ? '—' : ((now - before) >= 0 ? '+' : '') + (now - before).toFixed(0) + ' pp';
+    }
+    var enoughPrior = prior.length >= 30;
+    var trending = idxHourRate(current, function(x){ return x.day.sessionContext && x.day.sessionContext.trend === 'trending'; });
+    var highVol = idxHourRate(current, function(x){ return x.day.sessionContext && x.day.sessionContext.vol === 'high'; });
+    var riskOff = idxHourRate(current, function(x){ return x.day.sessionContext && x.day.sessionContext.risk === 'risk-off'; });
+    var due = current.length < size
+      ? (size - current.length) + ' more completed session' + (size - current.length === 1 ? '' : 's') + ' to the first 40-session review.'
+      : enoughPrior
+        ? 'Rolling comparison is active; reassess monthly or whenever the next 40-session block completes.'
+        : (30 - prior.length) + ' more prior-window session' + (30 - prior.length === 1 ? '' : 's') + ' before drift deltas are shown.';
+    return '<section class="idx-hour-review">' +
+      '<header><div><span class="idx-hour-condition-kicker">Pattern drift</span><h4>40-session regime review</h4></div><b>' + current.length + '/40 current · ' + prior.length + ' prior</b></header>' +
+      '<p>Probabilities are re-estimated on the latest 40 completed sessions and compared with the preceding block. Use the regime filter to test whether an apparent edge survives trending/range, volatility and risk-on/off states.</p>' +
+      '<div class="idx-hour-review-grid">' +
+        idxHourMetricCard('Down-move recovery odds', idxHourFmtRate(curDown.restPositive), enoughPrior ? delta(curDown.restPositive, prevDown.restPositive) + ' vs prior window' : 'waiting for prior window') +
+        idxHourMetricCard('Up-move follow-through', idxHourFmtRate(curUp.restPositive), enoughPrior ? delta(curUp.restPositive, prevUp.restPositive) + ' vs prior window' : 'waiting for prior window') +
+        idxHourMetricCard('Trending mix', idxHourFmtRate(trending), 'latest 40 pre-open regimes') +
+        idxHourMetricCard('High-vol / risk-off', idxHourFmtRate(highVol) + ' / ' + idxHourFmtRate(riskOff), 'latest 40 pre-open regimes') +
+      '</div><small class="idx-hour-review-due">' + escapeHtml(due) + '</small>' +
+    '</section>';
   }
   function idxHourTimingBlock(rows, field, label){
     var timed = rows.filter(function(x){ return x.session[field] === 'first' || x.session[field] === 'middle' || x.session[field] === 'last'; });
@@ -26229,13 +26301,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '<span><em>Last hour</em><strong>' + idxHourFmtRate(rate('last')) + '</strong></span>' +
     '</div>';
   }
-  function idxHourPairRead(days, vixByDate){
+  function idxHourPairRead(days, vixByDate, allowedDates){
     var pairs = [];
     (days || []).forEach(function(day){
+      if (allowedDates && !allowedDates[day && day.date]) return;
       var spy = day && day.spy && day.spy.session;
       var qqq = day && day.qqq && day.qqq.session;
-      var selected = day && day[indexCalState.index] && day[indexCalState.index].session;
-      if (!spy || !qqq || !spy.dayComplete || !qqq.dayComplete || !idxHourPassFilters(day, selected, vixByDate)) return;
+      if (!spy || !qqq || !spy.dayComplete || !qqq.dayComplete) return;
       pairs.push({ spy: spy, qqq: qqq });
     });
     var spread = idxHourAvg(pairs.map(function(x){ return Number(x.qqq.firstHourRetPct) - Number(x.spy.firstHourRetPct); }));
@@ -26254,16 +26326,26 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
   function renderIndexHourTracker(days, idxKey){
     var vixByDate = idxHourVixByDate(days);
-    var rows = [];
+    var baseRows = [];
     (days || []).forEach(function(day){
       var session = day && day[idxKey] && day[idxKey].session;
-      if (idxHourPassFilters(day, session, vixByDate)) rows.push({ day: day, session: session });
+      if (session && session.firstHourComplete) baseRows.push({ day: day, session: session });
     });
+    var reviewRows = baseRows.filter(function(x){ return idxHourPassFilters(x.day, x.session, vixByDate); });
+    var rows = idxHourWindowRows(baseRows).filter(function(x){ return idxHourPassFilters(x.day, x.session, vixByDate); });
+    var allowedDates = {};
+    rows.forEach(function(x){ allowedDates[x.day.date] = true; });
     var complete = rows.filter(function(x){ return x.session.dayComplete; });
     var down = complete.filter(function(x){ return x.session.firstHourDirection === 'down'; });
     var up = complete.filter(function(x){ return x.session.firstHourDirection === 'up'; });
     var threshold = Number(indexCalState.hourThreshold) || 0.25;
     var filterBar = '<div class="idx-hour-filters" role="group" aria-label="First and last hour filters">' +
+      '<label>Review window<select data-idx-hour-filter="window">' +
+        idxHourSelectOption('month', indexCalState.hourWindow, 'Latest month') +
+        idxHourSelectOption('30', indexCalState.hourWindow, 'Latest 30 sessions') +
+        idxHourSelectOption('40', indexCalState.hourWindow, 'Latest 40 sessions') +
+        idxHourSelectOption('all', indexCalState.hourWindow, 'All history') +
+      '</select></label>' +
       '<label>Move threshold<select data-idx-hour-filter="threshold">' +
         [0.10,0.25,0.50,0.75,1.00].map(function(v){ return idxHourSelectOption(v.toFixed(2), threshold.toFixed(2), v.toFixed(2) + '%'); }).join('') +
       '</select></label>' +
@@ -26279,6 +26361,22 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         idxHourSelectOption('normal', indexCalState.hourVix, '15–20') +
         idxHourSelectOption('high', indexCalState.hourVix, '20–30') +
         idxHourSelectOption('stress', indexCalState.hourVix, '30+') +
+      '</select></label>' +
+      '<label>Morning catalyst<select data-idx-hour-filter="event">' +
+        idxHourSelectOption('all', indexCalState.hourEvent, 'All mornings') +
+        idxHourSelectOption('event-morning', indexCalState.hourEvent, 'Major data or Fed') +
+        idxHourSelectOption('major-data', indexCalState.hourEvent, 'Major economic data') +
+        idxHourSelectOption('fed-speaker', indexCalState.hourEvent, 'Fed speaker') +
+        idxHourSelectOption('quiet', indexCalState.hourEvent, 'No tagged catalyst') +
+      '</select></label>' +
+      '<label>Pre-open regime<select data-idx-hour-filter="regime">' +
+        idxHourSelectOption('all', indexCalState.hourRegime, 'All regimes') +
+        idxHourSelectOption('trending', indexCalState.hourRegime, 'Trending') +
+        idxHourSelectOption('range', indexCalState.hourRegime, 'Range-bound') +
+        idxHourSelectOption('low-vol', indexCalState.hourRegime, 'Low volatility') +
+        idxHourSelectOption('high-vol', indexCalState.hourRegime, 'High volatility') +
+        idxHourSelectOption('risk-on', indexCalState.hourRegime, 'Risk-on') +
+        idxHourSelectOption('risk-off', indexCalState.hourRegime, 'Risk-off') +
       '</select></label>' +
     '</div>';
     if (!rows.length){
@@ -26306,7 +26404,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var outcome = s.outcomeAfterFirstHour || (s.firstHourComplete ? 'awaiting close' : '—');
       var vol = s.firstHourVolume == null ? '—' : fmtVolume(s.firstHourVolume);
       if (s.firstHourRvol != null) vol += ' · ' + Number(s.firstHourRvol).toFixed(2) + '×';
-      return '<tr><td><time datetime="' + escapeHtml(x.day.date) + '">' + escapeHtml(fmtCalendarDateShort(x.day.date)) + '</time></td>' +
+      var contextBits = [];
+      var eventLabels = x.day.eventContext && Array.isArray(x.day.eventContext.labels) ? x.day.eventContext.labels : [];
+      if (eventLabels.length) contextBits.push(eventLabels.join(' + '));
+      var rc = x.day.sessionContext || {};
+      if (rc.trend) contextBits.push(rc.trend + (rc.trendDirection && rc.trendDirection !== 'flat' ? ' ' + rc.trendDirection : ''));
+      if (rc.vol) contextBits.push(rc.vol + ' vol');
+      if (rc.risk && rc.risk !== 'neutral') contextBits.push(rc.risk);
+      return '<tr><td><time datetime="' + escapeHtml(x.day.date) + '">' + escapeHtml(fmtCalendarDateShort(x.day.date)) + '</time>' +
+        (contextBits.length ? '<small class="idx-hour-row-context">' + escapeHtml(contextBits.join(' · ')) + '</small>' : '') + '</td>' +
         '<td class="' + idxCalPctCls(Number(s.gapPct)) + '">' + (s.gapPct == null ? '—' : idxCalFmtPct(s.gapPct)) + '<small>' + escapeHtml((s.gapClass || '').replace('-', ' ')) + '</small></td>' +
         '<td class="' + cls + '">' + idxCalFmtPct(s.firstHourRetPct) + '<small>' + escapeHtml(s.firstHourDirection || 'flat') + ' · ' + idxHourFmtNum(s.firstHourLowPct) + '% / ' + idxHourFmtNum(s.firstHourHighPct) + '% low / high</small></td>' +
         '<td class="' + idxCalPctCls(Number(s.restOfDayRetPct)) + '">' + (s.restOfDayRetPct == null ? '—' : idxCalFmtPct(s.restOfDayRetPct)) + '</td>' +
@@ -26320,12 +26426,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '<div class="idx-hour-table-wrap"><table><thead><tr><th>Date</th><th>Gap</th><th>9:30 → 10:30</th><th>10:30 → close</th><th>3:00 → close</th><th>Open → close</th><th>Path</th><th>Extreme window</th><th>First-hour vol</th></tr></thead><tbody>' + logRows + '</tbody></table></div>' +
     '</section>';
     return '<section class="idx-hour-tracker">' +
-      '<div class="idx-hour-heading"><div><span class="idx-hour-kicker">Intraday seasonality</span><h3>First &amp; last hour tracker</h3><p>Regular-session 30-minute bars · filters apply to every stat below</p></div>' + filterBar + '</div>' +
+      '<div class="idx-hour-heading"><div><span class="idx-hour-kicker">Intraday seasonality</span><h3>First &amp; last hour tracker</h3><p>Conditional probabilities · rolling 30–40-session review · pre-open regime labels avoid look-ahead</p></div>' + filterBar + '</div>' +
       overview +
-      '<div class="idx-hour-conditions">' + idxHourConditionalCard('down', complete, threshold) + idxHourConditionalCard('up', complete, threshold) + '</div>' +
-      '<div class="idx-hour-context">' + timing + idxHourPairRead(days, vixByDate) + '</div>' +
+      '<div class="idx-hour-conditions">' + idxHourConditionalCard('down', complete, threshold, idxKey) + idxHourConditionalCard('up', complete, threshold, idxKey) + '</div>' +
+      idxHourReviewCard(reviewRows, threshold) +
+      '<div class="idx-hour-context">' + timing + idxHourPairRead(days, vixByDate, allowedDates) + '</div>' +
       table +
-      '<p class="idx-hour-foot">Gap = previous close → open. First hour = 9:30–10:30 ET; last hour = 3:00–4:00 ET. “Low → close” measures recovery from the first-hour low. VIX filters use the prior session’s close to avoid same-day look-ahead. Half-days keep their first-hour record but do not fabricate a 3–4pm last hour.</p>' +
+      '<p class="idx-hour-foot">Gap = previous close → open. First hour = 9:30–10:30 ET; last hour = 3:00–4:00 ET. Major-data and Fed-speaker labels include only events timestamped by 10:30 ET and accumulate from this release forward. Trend/risk use the prior 20 SPY closes; volatility uses prior-close VIX, so no same-day outcome leaks into the regime. These are descriptive samples, not forecasts. Half-days keep their first-hour record but do not fabricate a 3–4pm last hour.</p>' +
     '</section>';
   }
   function renderIndexCal(){
@@ -26584,6 +26691,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (filter === 'threshold') indexCalState.hourThreshold = Number(ev.target.value) || 0.25;
       else if (filter === 'gap') indexCalState.hourGap = ev.target.value || 'all';
       else if (filter === 'vix') indexCalState.hourVix = ev.target.value || 'all';
+      else if (filter === 'event') indexCalState.hourEvent = ev.target.value || 'all';
+      else if (filter === 'regime') indexCalState.hourRegime = ev.target.value || 'all';
+      else if (filter === 'window') indexCalState.hourWindow = ev.target.value || '40';
       renderIndexCal();
     });
   }

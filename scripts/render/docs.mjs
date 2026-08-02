@@ -1448,7 +1448,7 @@ export const DOC_PAGES = {
         </div>
         <div class="feat">
           <div class="feat-top"><span class="feat-name">Index calendar + hour tracker</span><span class="tier prem">Premium</span></div>
-          <p class="feat-desc">A month-grid of daily index closes plus a SPY / QQQ / IWM session log: overnight gap, first-hour return/range/volume, 10:30-to-close recovery, last-hour move, open-to-close result and when the day&rsquo;s high or low printed. Filter the conditional stats by opening-move threshold, gap size or prior-close VIX.</p>
+          <p class="feat-desc">A month-grid of daily index closes plus a SPY / QQQ / IWM session log: overnight gap, first-hour return/range/volume, 10:30-to-close recovery, last-hour move, open-to-close result and when the day&rsquo;s high or low printed. Conditional probabilities run on rolling monthly / 30 / 40-session windows and can be sliced by gap, prior-close VIX, major morning data, Fed speakers, and pre-open trend / volatility / risk regime.</p>
         </div>
       </div>
     </section>

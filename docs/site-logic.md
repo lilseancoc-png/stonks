@@ -325,6 +325,32 @@ Mixed participation stays explicitly unconfirmed. Before the bell the card is
 only a frozen baseline and makes no sentiment call. If either basket has fewer
 than two valid Yahoo premarket quotes, no cohort is minted.
 
+### First-hour conditional event study
+
+The premium Index Calendar accumulates SPY, QQQ, and IWM 30-minute session
+paths in `data/index-calendar.json`. Its first-hour desk is explicitly
+conditional: for a selected move threshold it reports the probability and
+average return from 10:30 ET to the close, plus the full-session finish, instead
+of presenting an unconditional “usually rises/falls” claim.
+
+Every session can be filtered by opening gap, prior-close VIX, and two pieces of
+pre-open context:
+
+- **morning catalyst:** major scheduled economic releases or observed Fed
+  speaker headlines timestamped no later than 10:30 ET; positive labels persist
+  on the accumulated session row after `calendar.json` rolls forward;
+- **regime:** trending versus range-bound, high versus low volatility, and
+  risk-on versus risk-off. Trend/risk use only the prior 20 SPY closes and
+  volatility uses prior-close VIX, so the same day's outcome cannot classify
+  its own cohort.
+
+The default review is the latest 40 sessions, with latest-month and 30-session
+alternatives. A drift card compares the latest 40 completed sessions with the
+preceding block once at least 30 prior observations exist, exposes the regime
+mix, and keeps thin samples visibly provisional. Event labels accumulate from
+the feature's release forward; the UI does not pretend to have a historical Fed
+speaker database for older rows.
+
 ## 6. Top Picks: how a name becomes an actionable trade
 
 Top Picks is not “the ten highest grades.” It is a narrowing funnel.

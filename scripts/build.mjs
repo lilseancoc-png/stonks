@@ -8199,10 +8199,20 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
     if (!h?.publishedAt) continue;
     const eventMs = Date.parse(h.publishedAt);
     if (!Number.isFinite(eventMs) || eventMs < startMs || eventMs > cutoffMs) continue;
-    const date = new Date(eventMs).toISOString().slice(0, 10);
+    const date = new Date(eventMs).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
     events.push({
       type: classifyMacroEvent(h.publisher, h.title),
       date,
+      // Keep the observed headline time so the first-hour event study can
+      // distinguish a Fed speaker/headline that landed before 10:30 ET from
+      // one that arrived after the morning window.
+      time: new Date(eventMs).toLocaleTimeString("en-US", {
+        timeZone: "America/New_York",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      }) + " ET",
+      publishedAt: h.publishedAt,
       title: h.title,
       source: h.publisher || h.source || "Macro feed",
     });
@@ -12884,6 +12894,9 @@ export async function fetchMacroReleases(startMs, cutoffMs) {
         type: "report",
         subtype: report.subtype,
         date: dateStr,
+        // Scheduled release time is also consumed by the first-hour event
+        // study. JOLTS and ISM print at 10:00 ET; the remaining slate is 08:30.
+        time: report.subtype === "jolts" || report.subtype === "ism-mfg" ? "10:00 ET" : "08:30 ET",
         title: report.label,
         // Prefer ForexFactory's actual when present (it publishes within
         // minutes of release); fall back to the primary (BLS, or FRED's
@@ -23474,7 +23487,121 @@ function attachIndexHourRvol(days) {
     }
   }
 }
-export function appendIndexCalendar(prev, chains, builtAtIso, extraBars = {}) {
+
+const INDEX_HOUR_MAJOR_REPORTS = new Set([
+  "nfp", "unrate", "jolts", "cpi-mom", "cpi-yoy", "core-cpi-mom",
+  "core-cpi-yoy", "ppi-mom", "ism-mfg", "gdp-final", "core-pce-mom",
+]);
+
+function indexHourEventMinute(event) {
+  const raw = String(event?.time || "").trim();
+  const m = /^(\d{1,2}):(\d{2})(?:\s*(AM|PM))?/i.exec(raw);
+  if (!m) return null;
+  let hour = Number(m[1]);
+  const minute = Number(m[2]);
+  const ap = String(m[3] || "").toUpperCase();
+  if (!Number.isFinite(hour) || !Number.isFinite(minute) || minute > 59) return null;
+  if (ap === "PM" && hour < 12) hour += 12;
+  if (ap === "AM" && hour === 12) hour = 0;
+  if (hour === 24) hour = 0;
+  return hour >= 0 && hour < 24 ? hour * 60 + minute : null;
+}
+
+function indexHourReportLabel(event) {
+  const s = String(event?.subtype || "");
+  if (/cpi/.test(s)) return "CPI";
+  if (s === "ppi-mom") return "PPI";
+  if (s === "nfp" || s === "unrate") return "Jobs report";
+  if (s === "jolts") return "JOLTS";
+  if (s === "ism-mfg") return "ISM manufacturing";
+  if (s === "gdp-final") return "GDP";
+  if (s === "core-pce-mom") return "Core PCE";
+  return event?.title || "Economic data";
+}
+
+function indexHourIsFedSpeaker(event) {
+  if (event?.type !== "fed") return false;
+  const title = String(event?.title || "");
+  // Rate decisions/minutes are separate afternoon event studies. Require a
+  // person/remarks cue as well so a generic Federal Reserve press release does
+  // not masquerade as a speaker observation.
+  if (/\bfomc\b.*(?:decision|statement)|\bminutes\b|rate decision/i.test(title)) return false;
+  return /\b(?:chair|chief|governor|president)\b.*\bfed\b|\bfed\b.*\b(?:chair|chief|governor|president)\b|\b(?:speaks?|speech|remarks?|testif(?:y|ies|ied|imony)|interview|says?|said|warns?|signals?)\b/i.test(title);
+}
+
+// Compact, persistable event labels for the intraday study. The source
+// calendar only covers today forward, so positive labels are merged into the
+// accumulated index row and survive after the calendar window rolls on.
+export function buildIndexHourEventContexts(calendarPayload) {
+  const byDate = new Map();
+  for (const event of (calendarPayload?.events || [])) {
+    if (!event?.date) continue;
+    const minute = indexHourEventMinute(event);
+    if (minute == null || minute > 630) continue; // morning = through 10:30 ET
+    const majorData = event.type === "report" && INDEX_HOUR_MAJOR_REPORTS.has(event.subtype);
+    const fedSpeaker = indexHourIsFedSpeaker(event);
+    if (!majorData && !fedSpeaker) continue;
+    const current = byDate.get(event.date) || {
+      morningMajorData: false,
+      morningFedSpeaker: false,
+      labels: [],
+    };
+    current.morningMajorData ||= majorData;
+    current.morningFedSpeaker ||= fedSpeaker;
+    const label = majorData ? indexHourReportLabel(event) : "Fed speaker";
+    if (!current.labels.includes(label)) current.labels.push(label);
+    byDate.set(event.date, current);
+  }
+  return byDate;
+}
+
+// Classify every session from information available BEFORE its open. The
+// first-hour conditional study must not use the same day's close to decide its
+// regime: trend/risk use the prior 20 SPY closes and volatility uses prior-close
+// VIX. This also backfills regime tags across the existing one-year history.
+export function attachIndexHourSessionContexts(days, calendarPayload = null) {
+  const sorted = (days || []).slice().sort((a, b) => String(a?.date || "").localeCompare(String(b?.date || "")));
+  const eventByDate = buildIndexHourEventContexts(calendarPayload);
+  const spyCloses = [];
+  let priorVix = null;
+  for (const day of sorted) {
+    if (!day?.date) continue;
+    const lookback = spyCloses.slice(-20);
+    let context = null;
+    if (lookback.length >= 20) {
+      const first = lookback[0];
+      const last = lookback[lookback.length - 1];
+      const sma20 = lookback.reduce((sum, v) => sum + v, 0) / lookback.length;
+      const ret20 = indexHourPct(first, last);
+      const vsSma20 = indexHourPct(sma20, last);
+      const trending = Math.abs(ret20 || 0) >= 2 && Math.abs(vsSma20 || 0) >= 0.75;
+      const trendDirection = !trending ? "flat" : (ret20 > 0 ? "up" : "down");
+      const vol = priorVix == null ? null : (priorVix >= 20 ? "high" : "low");
+      let risk = "neutral";
+      if (trendDirection === "up" && (priorVix == null || priorVix < 22)) risk = "risk-on";
+      else if (trendDirection === "down" || (priorVix != null && priorVix >= 25)) risk = "risk-off";
+      context = {
+        trend: trending ? "trending" : "range",
+        trendDirection,
+        vol,
+        risk,
+        priorVix: priorVix == null ? null : Math.round(priorVix * 100) / 100,
+        spy20dRetPct: ret20,
+        spyVsSma20Pct: vsSma20,
+      };
+    }
+    if (context) day.sessionContext = context;
+    const freshEvent = eventByDate.get(day.date);
+    if (freshEvent) day.eventContext = freshEvent;
+    const spy = indexHourNum(day?.spy?.c);
+    const vix = indexHourNum(day?.vix?.c);
+    if (spy != null) spyCloses.push(spy);
+    if (vix != null) priorVix = vix;
+  }
+  return days;
+}
+
+export function appendIndexCalendar(prev, chains, builtAtIso, extraBars = {}, calendarPayload = null) {
   const byDate = new Map();
   for (const d of (prev?.days || [])) if (d && d.date) byDate.set(d.date, { ...d });
   for (const [sym, key] of Object.entries(INDEX_CALENDAR_SYMBOLS)) {
@@ -23529,6 +23656,7 @@ export function appendIndexCalendar(prev, chains, builtAtIso, extraBars = {}) {
     .sort((a, b) => String(a.date).localeCompare(String(b.date)))
     .slice(-INDEX_CALENDAR_MAX_DAYS);
   attachIndexHourRvol(days);
+  attachIndexHourSessionContexts(days, calendarPayload);
   return { days, updatedAt: builtAtIso };
 }
 export async function writeIndexCalendar(payload) {
@@ -32478,7 +32606,13 @@ async function main() {
       try { indexCalExtra[sym] = (await fetchGlobalMarketBars(sym)).bars; }
       catch (err) { console.log(`    ⚠ index-cal ${sym} bars fetch failed: ${err.message}`); }
     }
-    const ic = await writeIndexCalendar(appendIndexCalendar(indexCalendarPrev, chains, builtAtIso, indexCalExtra));
+    const ic = await writeIndexCalendar(appendIndexCalendar(
+      indexCalendarPrev,
+      chains,
+      builtAtIso,
+      indexCalExtra,
+      calendarInfo.payload,
+    ));
     console.log(`wrote data/${INDEX_CALENDAR_FILE} — ${ic.days} session row(s), ${ic.bytes} bytes`);
   } catch (err) {
     console.warn(`[index-cal] calendar skipped — ${String(err?.message || err).split("\n")[0]}`);

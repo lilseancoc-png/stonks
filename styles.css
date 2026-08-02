@@ -10198,12 +10198,14 @@ button.idx-cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring)
 .idx-hour-metric strong { display: block; margin-top: 7px; font: 750 20px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-strong); }
 .idx-hour-metric-sub { display: block; margin-top: 5px; font-size: 11px; color: var(--muted); }
 .idx-hour-conditions, .idx-hour-context { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.idx-hour-condition, .idx-hour-timing, .idx-hour-pair, .idx-hour-log { border: 1px solid var(--border); border-radius: var(--r-3); background: var(--surface); overflow: hidden; }
+.idx-hour-condition, .idx-hour-timing, .idx-hour-pair, .idx-hour-log, .idx-hour-review { border: 1px solid var(--border); border-radius: var(--r-3); background: var(--surface); overflow: hidden; }
 .idx-hour-condition.is-down { border-top: 2px solid var(--neg); }
 .idx-hour-condition.is-up { border-top: 2px solid var(--pos); }
-.idx-hour-condition > header, .idx-hour-timing > header, .idx-hour-pair > header, .idx-hour-log > header { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); padding: 12px 14px; border-bottom: 1px solid var(--border); }
-.idx-hour-condition h4, .idx-hour-timing h4, .idx-hour-pair h4, .idx-hour-log h4 { margin: 3px 0 0; font: 700 15px/1.15 var(--font-serif); color: var(--text-strong); }
-.idx-hour-condition header > b, .idx-hour-timing header > b, .idx-hour-pair header > b { font: 600 11px/1 var(--font-mono); color: var(--muted); }
+.idx-hour-condition > header, .idx-hour-timing > header, .idx-hour-pair > header, .idx-hour-log > header, .idx-hour-review > header { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.idx-hour-condition h4, .idx-hour-timing h4, .idx-hour-pair h4, .idx-hour-log h4, .idx-hour-review h4 { margin: 3px 0 0; font: 700 15px/1.15 var(--font-serif); color: var(--text-strong); }
+.idx-hour-condition header > b, .idx-hour-timing header > b, .idx-hour-pair header > b, .idx-hour-review header > b { font: 600 11px/1 var(--font-mono); color: var(--muted); }
+.idx-hour-probability { margin: 0; padding: 12px 14px; border-bottom: 1px solid var(--hairline); font: 650 13px/1.5 var(--font-sans); color: var(--text-strong); }
+.idx-hour-probability small { display: block; margin-top: 5px; font: 500 10px/1.3 var(--font-sans); color: var(--muted); }
 .idx-hour-condition-grid, .idx-hour-pair-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .idx-hour-condition-grid .idx-hour-metric, .idx-hour-pair-grid .idx-hour-metric { border: 0; border-radius: 0; background: transparent; }
 .idx-hour-condition-grid .idx-hour-metric:nth-child(odd), .idx-hour-pair-grid .idx-hour-metric:nth-child(odd) { border-right: 1px solid var(--border); }
@@ -10214,6 +10216,10 @@ button.idx-cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring)
 .idx-hour-timing-row span { display: flex; flex-direction: column; gap: 4px; text-align: right; }
 .idx-hour-timing-row em { font: 600 9px/1 var(--font-mono); font-style: normal; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .idx-hour-timing-row strong { font: 700 15px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-strong); }
+.idx-hour-review { border-top: 2px solid var(--accent); }
+.idx-hour-review > p { margin: 0; padding: 12px 14px 0; color: var(--muted-strong); font-size: 12px; line-height: 1.5; }
+.idx-hour-review-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 12px 14px; gap: 8px; }
+.idx-hour-review-due { display: block; padding: 0 14px 12px; color: var(--muted); font-size: 10px; line-height: 1.4; }
 .idx-hour-log > header > span { font: 500 11px/1 var(--font-mono); color: var(--muted); }
 .idx-hour-table-wrap { overflow-x: auto; overscroll-behavior-inline: contain; }
 .idx-hour-log table { width: 100%; min-width: 1050px; border-collapse: collapse; font-size: 12px; }
@@ -10223,6 +10229,7 @@ button.idx-cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring)
 .idx-hour-log tbody tr:last-child td { border-bottom: 0; }
 .idx-hour-log tbody tr:hover td { background: color-mix(in srgb, var(--accent) 3%, transparent); }
 .idx-hour-log td small { display: block; margin-top: 3px; font: 500 9px/1.1 var(--font-sans); color: var(--muted); text-transform: capitalize; }
+.idx-hour-log td small.idx-hour-row-context { max-width: 220px; white-space: normal; line-height: 1.35; text-transform: none; }
 .idx-hour-log time { color: var(--text-strong); }
 .idx-hour-outcome { display: inline-block; padding: 4px 7px; border-radius: var(--r-pill); background: var(--surface-3); font: 600 10px/1 var(--font-sans); text-transform: capitalize; color: var(--muted-strong); }
 .idx-hour-foot { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
@@ -10244,6 +10251,7 @@ button.idx-cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring)
   .idx-hour-filters label { flex: 1 1 120px; }
   .idx-hour-filters select { width: 100%; }
   .idx-hour-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .idx-hour-review-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 10px; }
   .idx-hour-conditions, .idx-hour-context { grid-template-columns: 1fr; }
   .idx-hour-timing-row { grid-template-columns: 74px repeat(3, minmax(0, 1fr)); padding: 10px; }
   .idx-hour-timing-row em { font-size: 8px; }
