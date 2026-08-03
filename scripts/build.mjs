@@ -7126,7 +7126,10 @@ const transcriptKeyForSym = (sym) => `transcript-${sym}.json`;
 const TRANSCRIPT_SUMMARY_VERSION = "ect3"; // bump after a prompt/schema change to phase re-summaries in (ect3: stance recalibrated — 'balanced' is the scripted-call norm, hawkish/dovish only for clear deviations)
 const AI_TRANSCRIPT_MODEL = process.env.AI_TRANSCRIPT_MODEL || "gemini-3.6-flash";
 const AI_TRANSCRIPT_THINK = Number(process.env.AI_TRANSCRIPT_THINK ?? 512);
-const TRANSCRIPTS_PER_BUILD = Math.max(0, Number(process.env.TRANSCRIPTS_PER_BUILD ?? 6));
+// Twelve lets an earnings-heavy day and the launch backfill clear twice as
+// quickly without increasing simultaneous full-model pressure; concurrency
+// remains independently capped below.
+export const TRANSCRIPTS_PER_BUILD = Math.max(0, Number(process.env.TRANSCRIPTS_PER_BUILD ?? 12));
 const TRANSCRIPT_PROBES_PER_BUILD = Math.max(0, Number(process.env.TRANSCRIPT_PROBES_PER_BUILD ?? 20));
 // Fetch+summarize workers running at once (step 3). Serial, a single sick AI
 // call retrying through the model ladder stalled the whole bake for 4+ minutes

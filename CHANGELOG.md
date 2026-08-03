@@ -28,6 +28,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - **Earnings-call backfills now run from the latest earnings print to the oldest.** Transcript discovery no longer spends its capped per-build probe budget in static ticker-list order; it prioritizes recently reported companies, keeps same-day ties deterministic, and sends names without a known print date to the end of the queue. `scripts/{build,transcript-smoke}.mjs`.
 
+- **Full builds can mint up to 12 new earnings-call briefs, up from six.** The higher cap clears earnings-heavy days and the initial archive backfill faster while the existing concurrency limit remains at three simultaneous full-model requests. `scripts/{build,transcript-smoke}.mjs`.
+
 ### Fixed
 
 - **Earnings-call summaries resume after the structured-output schema regression.** The transcript prompt now sends its numeric array caps through Gemini's native `responseJsonSchema` field instead of the legacy `responseSchema` type, which rejected those constraints before generation and left the archive frozen while builds stayed green. A keyless smoke check now runs before every regular-session build and locks the request contract so new transcripts, including Intel's July call, can be minted again. `.github/workflows/daily.yml`, `scripts/{build,transcript-smoke}.mjs`, `package.json`.

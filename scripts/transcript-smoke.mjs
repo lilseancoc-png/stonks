@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import {
   orderTranscriptProbeSymbols,
+  TRANSCRIPTS_PER_BUILD,
   transcriptSummaryGenerateConfig,
 } from "./build.mjs";
 
@@ -11,6 +12,7 @@ const config = transcriptSummaryGenerateConfig();
 assert.equal(config.responseMimeType, "application/json");
 assert.ok(config.responseJsonSchema, "transcript config must use responseJsonSchema");
 assert.ok(!Object.hasOwn(config, "responseSchema"), "legacy responseSchema rejects numeric maxItems constraints");
+assert.equal(TRANSCRIPTS_PER_BUILD, 12, "default transcript capacity must cover 12 new calls per build");
 
 let arraySchemas = 0;
 const visit = (node, path = "$") => {
