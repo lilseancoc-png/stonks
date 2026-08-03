@@ -489,7 +489,7 @@ function leveragedEtfsSection() {
 }
 
 function briefSection() {
-  // Card chrome only — the rolling hourly brief card renders client-side
+  // Card chrome only — the pre-market + rolling hourly brief renders client-side
   // from data/briefs.json (fetched lazily on first tab activation by
   // loadBrief() in app.js).
   return `<section class="card" id="brief-section">
@@ -497,7 +497,7 @@ function briefSection() {
       <h2 class="card-title">Market brief</h2>
       <span class="card-eyebrow" id="brief-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">An AI<span class="tip ai-info" tabindex="0" role="button" aria-label="About the market brief" data-tip="One rolling digest per trading day, re-minted hourly by the build (default gemini-3.1-flash-lite; override AI_BRIEF_MODEL). Each mint checks the site's public live-market, event, flow, volatility, macro, hardware-price, ownership and other evidence-producing desks, ranks only material standouts, then grounds the prose in those computed facts. Private Owner desks never feed this public payload. The open build frames the morning setup; mid-session builds refresh the live tape; the post-close build writes the closing read. AI writes the headline and prose; standouts, chips and stats are computed.">i</span>-written market digest, refreshed hourly with each build &mdash; the overnight setup at the open, where the tape stands mid-session, and the closing read after 4&nbsp;pm ET. Each update checks the site&rsquo;s live tools and surfaces only material standouts. Ticker chips are clickable. Not financial advice.</p>
+    <p class="hint">An AI<span class="tip ai-info" tabindex="0" role="button" aria-label="About the market brief" data-tip="One rolling digest per trading day (default gemini-3.1-flash-lite; override AI_BRIEF_MODEL). A lightweight Brief-only job writes the morning setup at 8:30 a.m. ET from overnight and foreign moves, macro levels, Fear &amp; Greed, the day's calendar and the prior verified public market data; private Owner desks never feed this payload and no full pre-market bake runs. Session builds refresh it with the site's live evidence desks, and the close build writes the closing read. AI writes the headline and prose; standouts, chips and stats are computed.">i</span>-written market digest: a fresh overnight setup one hour before the bell, hourly session updates, and the closing read after 4&nbsp;pm ET. Each update checks the site&rsquo;s live tools and surfaces only material standouts. Ticker chips are clickable. Not financial advice.</p>
     <div id="brief-root" class="brief-root">Loading brief&hellip;</div>
   </section>`;
 }

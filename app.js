@@ -86,12 +86,12 @@
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.03700;
+  var RFR = 0.03675;
   // Provenance for the risk-free rate baked above. source is
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-08-03","ageDays":null};
+  var RFR_META = {"source":"cached","asOf":"2026-07-31","ageDays":3};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null, chainRequestSeq: 0 };
   var ownerAutoPicks = { data: null, pending: null };
@@ -21297,9 +21297,10 @@
   // Foreign lead-lag signals from data/correlations.json: per-region tiles of
   // overnight foreign moves, a derived risk tone, and the broad backdrop.
   // Shared with the Grade tab's per-ticker "overnight peer read" widget.
-  // ── Market brief (rolling hourly digest) ───────────────────────────────
-  // Renders data/briefs.json ({ current } — re-minted hourly by the bake:
-  // morning read at the open, intraday reads through the session, closing
+  // ── Market brief (pre-market + rolling hourly digest) ──────────────────
+  // Renders data/briefs.json ({ current } — minted at 08:30 ET by the
+  // Brief-only route, then re-minted hourly by the bake: morning pre-open,
+  // intraday reads through the session, closing
   // read on the 16:00 build). The headline/summary/highlights are AI prose;
   // the stat strip + ticker chips are deterministic facts baked alongside.
   var briefState = { data: null, loading: false, error: false };
@@ -23989,7 +23990,7 @@
       cards = cards.slice(0, 1);
     }
     if (!cards.length){
-      root.innerHTML = '<p class="brief-empty">No brief yet today — the brief updates hourly with each build during market hours (first read posts around the 9:30&nbsp;am&nbsp;ET open).</p>';
+      root.innerHTML = '<p class="brief-empty">No brief yet today — the first read posts around 8:30&nbsp;am&nbsp;ET, then updates hourly with each regular-session build.</p>';
       if (eyebrow) eyebrow.textContent = '';
       return;
     }

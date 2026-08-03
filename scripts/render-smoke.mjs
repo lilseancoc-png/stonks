@@ -136,7 +136,7 @@ try {
 
   // The public Brief is a derived payload, so its build inputs and carried AI
   // prose need the same Owner-boundary regression coverage as direct reads.
-  const buildSource = await readFile(resolve("scripts/build.mjs"), "utf8");
+  const buildSource = (await readFile(resolve("scripts/build.mjs"), "utf8")).replace(/\r\n/g, "\n");
   assert.ok(BRIEF_ACCESS_POLICY_VERSION > 0);
   assert.match(buildSource, /briefsPrev\.current\.accessPolicyVersion === BRIEF_ACCESS_POLICY_VERSION/);
   assert.match(buildSource, /accessPolicyVersion: BRIEF_ACCESS_POLICY_VERSION/);

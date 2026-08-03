@@ -746,9 +746,14 @@ The record opens ideas with a real ETF quote and always records a long position 
 
 One current brief is minted at most once per ET hour:
 
-- morning before the configured morning cutoff;
+- morning at the dedicated 08:30 ET Brief-only dispatch, using the last
+  verified bake plus fresh overnight markets, headlines, Fear & Greed, and
+  released macro data;
 - intraday during the session;
 - afternoon/closing near the close.
+
+The pre-market route does not fetch the full ticker universe or publish any
+other bake-owned payload. The 09:30 ET dispatch remains the first full build.
 
 The deterministic packet supplied to the AI includes:
 

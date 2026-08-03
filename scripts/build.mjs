@@ -7586,6 +7586,25 @@ const TRANSCRIPT_SUMMARY_SYSTEM_PROMPT =
   "exhaustive: every list has a hard schema item cap — pick the most consequential items and stop; never pad, repeat, " +
   "or enumerate every mention. The whole brief must comfortably fit the response budget.";
 
+// This is JSON Schema, not the SDK's legacy OpenAPI `Schema` object. In
+// @google/genai 2.x, legacy responseSchema models int64 constraints such as
+// maxItems as strings; passing this schema's numeric caps through that field
+// makes the request fail validation before the model can answer. Keep the
+// native JSON Schema on responseJsonSchema so numeric maxItems stay valid.
+export function transcriptSummaryGenerateConfig() {
+  return {
+    systemInstruction: TRANSCRIPT_SUMMARY_SYSTEM_PROMPT,
+    temperature: 0.3,
+    // A verbose call can push the forced-JSON brief past 8k tokens and
+    // truncate mid-array (AAPL Q2 2026 did, on the first live run) —
+    // give it real headroom; the normalizer caps the payload size anyway.
+    maxOutputTokens: 16384,
+    responseMimeType: "application/json",
+    responseJsonSchema: TRANSCRIPT_SUMMARY_SCHEMA,
+    thinkingConfig: { thinkingBudget: AI_TRANSCRIPT_THINK },
+  };
+}
+
 // Defensive normalization of the model's brief — coerce shapes, trim strings,
 // cap list lengths so a runaway response can't bloat the payload.
 function normalizeTranscriptSummary(parsed) {
@@ -7680,17 +7699,7 @@ async function summarizeEarningsCall(sym, meta) {
       await acquireAiSlot();
       response = await ai.models.generateContent({
         model: aiModelForAttempt(AI_TRANSCRIPT_MODEL, attempt),
-        config: {
-          systemInstruction: TRANSCRIPT_SUMMARY_SYSTEM_PROMPT,
-          temperature: 0.3,
-          // A verbose call can push the forced-JSON brief past 8k tokens and
-          // truncate mid-array (AAPL Q2 2026 did, on the first live run) —
-          // give it real headroom; the normalizer caps the payload size anyway.
-          maxOutputTokens: 16384,
-          responseMimeType: "application/json",
-          responseSchema: TRANSCRIPT_SUMMARY_SCHEMA,
-          thinkingConfig: { thinkingBudget: AI_TRANSCRIPT_THINK },
-        },
+        config: transcriptSummaryGenerateConfig(),
         contents: userMessage,
       });
       recordAiUsage({
@@ -26578,9 +26587,9 @@ function classifyAiError(err, attempt, model = null) {
 
 // ───────────────────────────────────────────────────────────────────────────
 // Market brief — ONE rolling digest that summarizes / points out the
-// interesting things happening in the tape, re-minted HOURLY by the bake
-// (which runs 9:30 ET open, then hourly to the 16:00 close — so the brief
-// rides along with every build instead of separate pre-/post-market mints).
+// interesting things happening in the tape. A lightweight 08:30 ET route mints
+// the pre-market morning read; the bake re-mints it hourly from the 9:30 ET
+// open through the 16:00 close.
 // Modeled on the heatmap EOD recap (one Flash-Lite call, JSON schema, minted
 // at most once per ET hour and carried forward on a same-hour re-run), but
 // holistic: the brief fuses overnight & foreign moves, the session's breadth +
@@ -26660,8 +26669,8 @@ export async function writeNewsFeedFile({ prior, builtAtIso, chains, marketHeadl
   return { ...payload.counts, bytes: json.length };
 }
 const AI_BRIEF_MODEL = process.env.AI_BRIEF_MODEL || "gemini-3.1-flash-lite";
-// Kind boundaries: a build before 10:00 ET (the 9:30 open bake) frames the
-// brief as the MORNING setup; 16:00 ET onward (the close bake) as the
+// Kind boundaries: the 08:30 Brief-only job and any build before 10:00 ET frame
+// the brief as the MORNING setup; 16:00 ET onward (the close bake) as the
 // AFTERNOON closing read; everything between is the INTRADAY session read.
 const BRIEF_MORNING_END_ET_HOUR = 10;
 const BRIEF_EOD_TRIGGER_ET_HOUR = 16;
@@ -33154,9 +33163,9 @@ async function main() {
   } catch (err) {
     console.warn(`[picks] accuracy tracker skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
-  // Market brief (rolling hourly digest) — re-minted at most once per ET hour,
-  // so every hourly bake ships a fresh read and a same-hour re-run carries the
-  // existing one forward. Built from the data already in memory: overnight
+  // Market brief (rolling hourly digest) — after the separate 08:30 ET morning
+  // mint, every hourly bake ships a fresh read and a same-hour re-run carries
+  // the existing one forward. Built from the data already in memory: overnight
   // correlations, the session's breadth + movers, unusual flow, macro levels,
   // Fear & Greed, and the calendar. Owner-only idea desks are deliberately
   // omitted so their facts never get copied into the public brief payload.

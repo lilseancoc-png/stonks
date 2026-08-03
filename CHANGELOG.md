@@ -20,6 +20,16 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-08-03
+
+### Changed
+
+- **The 08:30 ET dispatch now generates only the pre-market market brief.** The Daily workflow routes that slot to a lightweight generator that hydrates the last verified store snapshot, refreshes overnight global markets, Fear & Greed, macro releases, and market headlines, then publishes only `briefs.json` plus shared AI accounting. Full ticker/chain builds begin at 09:30 ET and continue hourly through the close. The Brief-only output has its own freshness proof and shares the existing serialized ownership boundary with the regular-session brief producer. `.github/workflows/daily.yml`, `scripts/{regen-brief,sync-data,verify-data-freshness}.mjs`, `lib/data-ownership.mjs`, `scripts/render/{html,app-js}.mjs`, `docs/{private-data-migration,site-logic}.md`.
+
+### Fixed
+
+- **Earnings-call summaries resume after the structured-output schema regression.** The transcript prompt now sends its numeric array caps through Gemini's native `responseJsonSchema` field instead of the legacy `responseSchema` type, which rejected those constraints before generation and left the archive frozen while builds stayed green. A keyless smoke check now runs before every regular-session build and locks the request contract so new transcripts, including Intel's July call, can be minted again. `.github/workflows/daily.yml`, `scripts/{build,transcript-smoke}.mjs`, `package.json`.
+
 ## 2026-08-02
 
 ### Added

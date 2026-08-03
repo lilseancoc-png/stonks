@@ -740,6 +740,37 @@ async function auditSearchInterest({ report, dataDir, runStartedAt, now }) {
   await requireStampedFile(report, dataDir, "search-interest.json", null, runStartedAt, now);
 }
 
+async function auditBrief({ report, dataDir, runStartedAt, now }) {
+  const payload = await requireStampedFile(
+    report,
+    dataDir,
+    "briefs.json",
+    null,
+    runStartedAt,
+    now,
+    ["builtAtIso"],
+  );
+  const current = payload?.current;
+  if (!current || typeof current !== "object") {
+    fail(report, "briefs.json: missing current morning brief");
+  } else {
+    const generatedMs = validMs(current.generatedAtIso);
+    const generated = generatedMs == null ? null : new Date(generatedMs);
+    if (current.date !== etDateKey(now)) {
+      fail(report, `briefs.json: current brief is for ${current.date || "an unknown date"}, not ${etDateKey(now)}`);
+    }
+    if (current.kind !== "morning" || Number(current.etHour) !== 8) {
+      fail(report, `briefs.json: expected an 08:xx ET morning brief, found ${current.kind || "unknown"} at ${current.etHour ?? "unknown"}`);
+    }
+    if (!generated || etDateKey(generated) !== etDateKey(now) || Number(etParts(generated).hour) !== 8) {
+      fail(report, "briefs.json: generatedAtIso is not from today's 08:xx ET brief window");
+    } else {
+      pass(report, `briefs.json: current morning brief was minted at ${current.generatedAtIso}`);
+    }
+  }
+  await requireRewrittenJson(report, dataDir, "ai-usage.json", runStartedAt);
+}
+
 async function auditDayTrading({ report, dataDir, runStartedAt, now }) {
   const snapshot = await requireStampedFile(report, dataDir, "day-trading.json", null, runStartedAt, now, ["updatedAt"]);
   const history = await requireStampedFile(report, dataDir, "day-trading-history.json", null, runStartedAt, now, ["updatedAt"]);
@@ -758,8 +789,8 @@ export async function auditFreshness({
   now = new Date(),
   expectedSymbols = TICKERS,
 } = {}) {
-  if (!["bake", "unusual", "oi", "search-interest", "daytrading"].includes(owner)) {
-    throw new Error("owner must be bake|unusual|oi|search-interest|daytrading");
+  if (!["bake", "unusual", "oi", "brief", "search-interest", "daytrading"].includes(owner)) {
+    throw new Error("owner must be bake|unusual|oi|brief|search-interest|daytrading");
   }
   const startMs = validMs(runStartedAt);
   if (startMs == null) {
@@ -770,6 +801,7 @@ export async function auditFreshness({
   if (owner === "bake") await auditBake({ report, dataDir, runStartedAt: start, now, expectedSymbols });
   else if (owner === "unusual") await auditUnusual({ report, dataDir, runStartedAt: start, now });
   else if (owner === "oi") await auditOi({ report, dataDir, runStartedAt: start, now });
+  else if (owner === "brief") await auditBrief({ report, dataDir, runStartedAt: start, now });
   else if (owner === "daytrading") await auditDayTrading({ report, dataDir, runStartedAt: start, now });
   else await auditSearchInterest({ report, dataDir, runStartedAt: start, now });
   return report;
@@ -994,6 +1026,29 @@ async function selfTest() {
     }
     await write("oi-tracker.json", validOiTracker);
     await write("oi-history.json", validOiHistory);
+
+    const briefStart = new Date("2026-07-30T12:30:00.000Z");
+    const briefStamp = "2026-07-30T12:32:00.000Z";
+    await write("briefs.json", {
+      builtAtIso: briefStamp,
+      current: {
+        kind: "morning",
+        date: "2026-07-30",
+        etHour: 8,
+        generatedAtIso: briefStamp,
+      },
+    });
+    await write("ai-usage.json", { updatedAt: briefStamp });
+    const briefReport = await auditFreshness({
+      owner: "brief",
+      dataDir: dir,
+      runStartedAt: briefStart.toISOString(),
+      now: new Date("2026-07-30T12:35:00.000Z"),
+      expectedSymbols: ["TEST"],
+    });
+    if (briefReport.errors.length) throw new Error(renderReport(briefReport));
+    await write("briefs.json", { builtAtIso: stamp });
+    await write("ai-usage.json", {});
 
     const stale = await auditFreshness({
       owner: "bake",

@@ -21315,9 +21315,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Foreign lead-lag signals from data/correlations.json: per-region tiles of
   // overnight foreign moves, a derived risk tone, and the broad backdrop.
   // Shared with the Grade tab's per-ticker "overnight peer read" widget.
-  // ── Market brief (rolling hourly digest) ───────────────────────────────
-  // Renders data/briefs.json ({ current } — re-minted hourly by the bake:
-  // morning read at the open, intraday reads through the session, closing
+  // ── Market brief (pre-market + rolling hourly digest) ──────────────────
+  // Renders data/briefs.json ({ current } — minted at 08:30 ET by the
+  // Brief-only route, then re-minted hourly by the bake: morning pre-open,
+  // intraday reads through the session, closing
   // read on the 16:00 build). The headline/summary/highlights are AI prose;
   // the stat strip + ticker chips are deterministic facts baked alongside.
   var briefState = { data: null, loading: false, error: false };
@@ -24007,7 +24008,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       cards = cards.slice(0, 1);
     }
     if (!cards.length){
-      root.innerHTML = '<p class="brief-empty">No brief yet today — the brief updates hourly with each build during market hours (first read posts around the 9:30&nbsp;am&nbsp;ET open).</p>';
+      root.innerHTML = '<p class="brief-empty">No brief yet today — the first read posts around 8:30&nbsp;am&nbsp;ET, then updates hourly with each regular-session build.</p>';
       if (eyebrow) eyebrow.textContent = '';
       return;
     }

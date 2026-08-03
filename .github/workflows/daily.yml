@@ -1,25 +1,20 @@
 name: Daily build
 
-# Regenerates the baked per-ticker JSON (chains, AI news takes, technicals)
-# eight times a weekday. The commit it pushes triggers Vercel's GitHub
-# integration, which deploys the new static files automatically.
+# Routes the 08:30 ET dispatch to a lightweight pre-market Brief-only refresh,
+# then regenerates the full baked data at the 09:30 open and hourly through the
+# 16:00 close. Full-bake commits trigger Vercel's GitHub integration.
 #
 # Primary scheduling is handled externally by cron-job.org, which POSTs to the
-# workflow_dispatch endpoint at 9:30 America/New_York (the market open) and
-# then hourly from 10:00 to 16:00 (the close) on weekdays — eight runs a
-# trading day. It takes TWO cron-job.org jobs because one cron line can't mix
-# the :30 open with the top-of-hour cadence: `30 9 * * 1-5` fires the open and
-# `0 10-16 * * 1-5` fires 10:00–16:00. cron-job.org runs in ET, so it — not
-# this workflow — is the authority on the normal ET slots and DST. A separate
-# close-bake-fallback.yml watchdog dispatches only when the 16:00 run is absent.
-# (A previous
-# in-workflow ET-hour re-check was dead code: with a workflow_dispatch-only
-# trigger it never ran.)
+# workflow_dispatch endpoint at 08:30 (brief only), 09:30 (market-open bake),
+# and hourly from 10:00 to 16:00 on weekdays. Two cron lines cover those slots:
+# `30 8,9 * * 1-5` and `0 10-16 * * 1-5`. cron-job.org runs in ET, so it — not
+# this workflow — owns DST. A separate close-bake-fallback.yml watchdog
+# dispatches only when the 16:00 bake is absent.
 on:
   workflow_dispatch:
     inputs:
       force:
-        description: "Run outside the normal 09:15-17:00 ET dispatch window"
+        description: "Force a full build outside the normal ET windows"
         required: false
         default: false
         type: boolean
@@ -40,22 +35,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
+  route:
     runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.route.outputs.mode }}
     steps:
-      - name: Validate ET dispatch window
+      - name: Route ET dispatch window
+        id: route
         env:
           FORCE_RUN: ${{ inputs.force }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ "${FORCE_RUN:-false}" = "true" ]; then
-            echo "Forced manual build; bypassing the ET dispatch-window guard."
+            echo "mode=build" >> "$GITHUB_OUTPUT"
+            echo "Forced manual full build; bypassing the ET dispatch router."
             exit 0
           fi
-          # Validate when GitHub RECEIVED the dispatch, not when this queued
-          # job finally got a runner. The shared data concurrency group can
-          # legitimately delay the 16:00 close bake past 17:00 ET.
+          # Route by the time GitHub RECEIVED the dispatch, not when a queued
+          # job finally gets a runner.
           RUN_API="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           CREATED_AT=$(curl --fail --silent --show-error \
             -H "Authorization: Bearer ${GH_TOKEN}" \
@@ -70,11 +68,97 @@ jobs:
           ET_HOUR=$(TZ=America/New_York date -d "$CREATED_AT" +%H)
           ET_MINUTE=$(TZ=America/New_York date -d "$CREATED_AT" +%M)
           ET_MIN=$((10#$ET_HOUR * 60 + 10#$ET_MINUTE))
-          if [ "$ET_DAY" -gt 5 ] || [ "$ET_MIN" -lt 555 ] || [ "$ET_MIN" -gt 1020 ]; then
-            echo "::error::Rejected an out-of-window daily dispatch at $(TZ=America/New_York date -d "$CREATED_AT" '+%F %R %Z'). Use workflow_dispatch force=true for an intentional manual run."
+          LABEL=$(TZ=America/New_York date -d "$CREATED_AT" '+%F %R %Z')
+          if [ "$ET_DAY" -le 5 ] && [ "$ET_MIN" -ge 495 ] && [ "$ET_MIN" -le 525 ]; then
+            echo "mode=brief" >> "$GITHUB_OUTPUT"
+            echo "Dispatch at $LABEL routes to the pre-market Brief-only refresh."
+          elif [ "$ET_DAY" -le 5 ] && [ "$ET_MIN" -ge 555 ] && [ "$ET_MIN" -le 1020 ]; then
+            echo "mode=build" >> "$GITHUB_OUTPUT"
+            echo "Dispatch at $LABEL routes to the full market-data build."
+          else
+            echo "::error::Rejected an unsupported dispatch at $LABEL. Use force=true for an intentional full build."
             exit 1
           fi
-          echo "Dispatch at $(TZ=America/New_York date -d "$CREATED_AT" '+%F %R %Z') is inside the normal weekday 09:15-17:00 ET window."
+
+  premarket-brief:
+    needs: route
+    if: ${{ needs.route.outputs.mode == 'brief' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref_name }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Hydrate data from private store
+        if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: node scripts/sync-data.mjs pull
+
+      - name: Mark freshness window
+        run: echo "FRESHNESS_RUN_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" >> "$GITHUB_ENV"
+
+      - name: Generate pre-market brief
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          AI_BRIEF_MODEL: ${{ vars.AI_BRIEF_MODEL }}
+          BLS_API_KEY: ${{ secrets.BLS_API_KEY }}
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: node scripts/regen-brief.mjs
+
+      - name: Ensure source revision is still current
+        run: |
+          set -euo pipefail
+          BRANCH="${GITHUB_REF_NAME:-main}"
+          git fetch origin "$BRANCH"
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse "origin/$BRANCH")" ]; then
+            echo "::error::Source branch moved while the brief was generating. Refusing to publish output from stale code."
+            exit 1
+          fi
+
+      - name: Verify fresh pre-market brief
+        run: node scripts/verify-data-freshness.mjs --owner=brief
+
+      - name: Flush verified brief to private store
+        if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: node scripts/sync-data.mjs push --owner=brief
+
+      - name: Commit verified brief (legacy public data)
+        if: ${{ vars.PRIVATE_DATA_ENABLED != '1' }}
+        run: |
+          set -euo pipefail
+          git config user.name "stonks-bot"
+          git config user.email "stonks-bot@users.noreply.github.com"
+          BRANCH="${GITHUB_REF_NAME:-main}"
+          git add -f data/briefs.json data/ai-usage.json
+          if git diff --cached --quiet; then
+            echo "No brief changes to commit."
+            exit 0
+          fi
+          git commit -m "chore: pre-market brief $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push origin "HEAD:$BRANCH"
+
+  build:
+    needs: route
+    if: ${{ needs.route.outputs.mode == 'build' }}
+    runs-on: ubuntu-latest
+    steps:
 
       - uses: actions/checkout@v5
         with:
@@ -118,6 +202,9 @@ jobs:
         # Start after hydration: downloaded prior-run files receive a current
         # filesystem mtime and must not count as outputs rewritten by this bake.
         run: echo "FRESHNESS_RUN_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" >> "$GITHUB_ENV"
+
+      - name: Verify earnings-call schema
+        run: npm run verify:transcripts
 
       - name: Build site
         env:

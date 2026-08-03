@@ -10,6 +10,7 @@
 //   node scripts/sync-data.mjs push --owner=bake    # local data/ -> store   (flush)
 //   node scripts/sync-data.mjs push --owner=unusual
 //   node scripts/sync-data.mjs push --owner=oi
+//   node scripts/sync-data.mjs push --owner=brief
 //   node scripts/sync-data.mjs push --owner=search-interest
 //   node scripts/sync-data.mjs push --owner=daytrading
 //   node scripts/sync-data.mjs seed                 # one-time: upload ALL local data/
@@ -58,8 +59,9 @@ const DATA_DIR = resolve(ROOT, "data");
 // deterministically by regen-static in EVERY workflow (they carry the bake's
 // narratives from the pulled trends.json + the scanner's fresh unusual
 // snapshot), so all producers push them — last-writer-wins is consistent.
-// briefs.json left the OI set when the brief moved to hourly minting inside
-// the bake (the oi-tracker's regen-brief pre-market/backfill step is gone).
+// briefs.json + ai-usage.json are co-owned by the bake and the 08:30 ET
+// Brief-only route. Shared workflow concurrency serializes their pull/update/
+// push cycle, so the morning read cannot race an intraday bake.
 
 // REQUEST-TIME-owned keys: written by the live api/* functions from user
 // actions (api/watchlist.js), never by a workflow. NO producer may push or
