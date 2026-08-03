@@ -7757,6 +7757,23 @@ const transcriptDaysBetween = (aIso, bIso) => {
   return Number.isFinite(a) && Number.isFinite(b) ? (b - a) / 86_400_000 : null;
 };
 
+// Backfill the freshest earnings season first. The universe itself is ordered
+// by product importance, not report recency, so walking it directly can spend
+// the per-build transcript budget on older calls while newly reported names
+// wait. Unknown print dates sort last; equal dates retain the universe order.
+export function orderTranscriptProbeSymbols(symbols, lastPrintBySymbol = {}) {
+  return [...symbols]
+    .map((sym, index) => ({
+      sym,
+      index,
+      date: typeof lastPrintBySymbol?.[sym]?.date === "string"
+        ? lastPrintBySymbol[sym].date.slice(0, 10)
+        : "",
+    }))
+    .sort((a, b) => b.date.localeCompare(a.date) || a.index - b.index)
+    .map(({ sym }) => sym);
+}
+
 // The discovery + summarize pass. Pure orchestration over the fetch/parse/AI
 // helpers above; exported so regen-transcripts.mjs can run it standalone.
 export async function updateEarningsCallsData({ prior = null, earningsHxStore = null, builtAtIso = null } = {}) {
@@ -7859,7 +7876,11 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
       needsProbe.push(sym);
     }
   }
-  for (const sym of needsProbe.slice(0, TRANSCRIPT_PROBES_PER_BUILD)) {
+  const orderedProbes = orderTranscriptProbeSymbols(
+    needsProbe,
+    Object.fromEntries(needsProbe.map((sym) => [sym, lastPrint(sym)])),
+  );
+  for (const sym of orderedProbes.slice(0, TRANSCRIPT_PROBES_PER_BUILD)) {
     // No point discovering more than this build can summarize — unprobed names
     // carry no cooldown stamp, so the next build picks them up immediately.
     if (queue.size >= TRANSCRIPTS_PER_BUILD) break;

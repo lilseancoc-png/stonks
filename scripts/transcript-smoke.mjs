@@ -2,7 +2,10 @@
 // Offline regression check for the earnings-call structured-output contract.
 // No network or GEMINI_API_KEY required.
 import assert from "node:assert/strict";
-import { transcriptSummaryGenerateConfig } from "./build.mjs";
+import {
+  orderTranscriptProbeSymbols,
+  transcriptSummaryGenerateConfig,
+} from "./build.mjs";
 
 const config = transcriptSummaryGenerateConfig();
 assert.equal(config.responseMimeType, "application/json");
@@ -27,4 +30,18 @@ const visit = (node, path = "$") => {
 
 visit(config.responseJsonSchema);
 assert.ok(arraySchemas >= 17, `expected the capped transcript arrays, found ${arraySchemas}`);
+
+assert.deepEqual(
+  orderTranscriptProbeSymbols(
+    ["AAPL", "TSLA", "INTC", "MSFT", "NVDA"],
+    {
+      AAPL: { date: "2026-07-30" },
+      TSLA: { date: "2026-07-23" },
+      INTC: { date: "2026-07-24" },
+      MSFT: { date: "2026-07-30" },
+    },
+  ),
+  ["AAPL", "MSFT", "INTC", "TSLA", "NVDA"],
+  "transcript probes must run from the latest earnings print to the oldest, with unknown dates last",
+);
 console.log(`transcript smoke passed — ${arraySchemas} capped arrays use responseJsonSchema`);
