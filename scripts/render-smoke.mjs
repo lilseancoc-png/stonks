@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { renderHtml } from "./render/html.mjs";
 import { renderAppJs } from "./render/app-js.mjs";
+import { renderStylesCss } from "./render/styles-css.mjs";
 import { isPremiumKey, roleClaimForKey } from "../lib/premium-keys.mjs";
 import { BRIEF_ACCESS_POLICY_VERSION, sanitizePublicJsonText } from "../lib/public-data-policy.mjs";
 import { DISCORD_INVITE_URL } from "../lib/links.mjs";
@@ -39,6 +40,9 @@ try {
   assert.match(html, /window\.va=window\.va\|\|function\(\)\{/);
   assert.equal((html.match(/\/_vercel\/insights\/script\.js/g) || []).length, 1);
   assert.match(html, /<script defer data-disable-auto-track="1" src="\/_vercel\/insights\/script\.js"><\/script>/);
+
+  const stylesCss = renderStylesCss();
+  assert.match(stylesCss, /@media \(max-width: 1023px\)\s*\{[\s\S]*?\.side-nav\s*\{[\s\S]*?top: 0;[\s\S]*?z-index: 65;[\s\S]*?\.side-nav-backdrop\s*\{[\s\S]*?inset: 0;/);
 
   const appJs = renderAppJs({});
   assert.match(appJs, /function loadOwnerTools\(\)[\s\S]*?loadStocks\(\);[\s\S]*?loadSectorRotation\(\);[\s\S]*?loadLevEtf\(\);/);

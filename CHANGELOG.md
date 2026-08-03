@@ -42,6 +42,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - **The legal disclosures now state clearly that all analytical and editorial content is AI-generated or algorithmically produced.** The Terms allocate hallucination, stale-input, source, modeling, simulation, and no-human-review risks; the persistent footer and login page repeat the warning; the Privacy Policy now matches the actual Discord OAuth, short-lived cookie, local-storage, and third-party billing flow; and account, subscription, and AI-output ownership language no longer overstates what the product collects or controls. `scripts/render/{docs,html}.mjs`, `welcome.html`.
 
+### Fixed
+
+- **The mobile navigation drawer no longer leaves an empty black strip above the menu.** On tablet and phone widths the drawer and its backdrop now cover the full viewport, while preserving safe-area spacing for notched devices. `scripts/render/styles-css.mjs` (+ regenerated `styles.css`).
+
 ### Removed
 
 - **The “What's included” overview is retired.** Its Tools navigation item, footer link, in-app page, tab aliases, and generated markup are removed; the legacy `/features.html` URL now returns visitors to the home page. `scripts/render/{docs,html,app-js}.mjs`, `vercel.json`, `docs/site-logic.md`, `CLAUDE.md`.

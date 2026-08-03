@@ -668,6 +668,20 @@ body.sidenav-open .side-nav {
   backdrop-filter: blur(2px);
 }
 .side-nav-backdrop[hidden] { display: none; }
+@media (max-width: 1023px) {
+  /* The mobile drawer owns the full viewport. Leaving it below --header-h
+     creates an empty dark strip whenever the sticky header is outside the
+     captured/visible area, which reads as a blank black box above the menu. */
+  .side-nav {
+    top: 0;
+    z-index: 65;
+    padding-top: env(safe-area-inset-top);
+  }
+  .side-nav-backdrop {
+    inset: 0;
+    z-index: 64;
+  }
+}
 @media (min-width: 1024px) {
   /* Desktop: open by default (no body class), pushes the content over.
      body.sidenav-closed collapses it off-canvas. */
