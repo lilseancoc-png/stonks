@@ -23,7 +23,7 @@ import { renderPriceChartPng } from "../lib/chart-image.mjs";
 import { buildNewsFeedPayload } from "../lib/news-feed.mjs";
 import { issuerCreditRatingFor } from "../lib/issuer-credit-ratings.mjs";
 import { fetchFinraMarketStructure, attachShortInterestToChains } from "../lib/market-structure.mjs";
-import { buildScenarioEngine, scenarioOverlayForSymbol } from "../lib/scenario-engine.mjs";
+import { appendScenarioHistory, buildScenarioEngine, scenarioOverlayForSymbol } from "../lib/scenario-engine.mjs";
 import { isPremiumKey } from "../lib/premium-keys.mjs";
 import { BRIEF_ACCESS_POLICY_VERSION } from "../lib/public-data-policy.mjs";
 import { contentAssetVersion } from "../lib/asset-version.mjs";
@@ -1949,6 +1949,7 @@ async function fetchFundamentals(symbol) {
     // maintained as verified, agency-qualified entries rather than inferred
     // from leverage ratios. Missing coverage stays null.
     creditRating: issuerCreditRatingFor(symbol),
+    financialCurrency: typeof fd.financialCurrency === "string" ? fd.financialCurrency.toUpperCase() : null,
     revenue: num(fd.totalRevenue),
     dividendYield: pct(sd.dividendYield),
     payoutRatio: pct(sd.payoutRatio),
@@ -6293,7 +6294,7 @@ function upsertEarningsEvent(events, ev, overwriteStamps = false) {
     }
     near.session = ev.session;
   } else if (!near.session) near.session = ev.session || "TBD";
-  for (const k of ["epsActual", "epsEstimate", "surprisePct"]) {
+  for (const k of ["epsActual", "epsEstimate", "surprisePct", "revenueActual"]) {
     if (ev[k] != null) near[k] = ev[k];
   }
   for (const k of ["ivPre", "impliedMovePct"]) {
@@ -6317,6 +6318,24 @@ function earningsBackfillNeeded(entry, todayIso) {
   const staleCutoff = new Date(Date.parse(`${todayIso}T00:00:00Z`) - EARNINGS_STALE_AFTER_DAYS * 86400000)
     .toISOString().slice(0, 10);
   return newest < staleCutoff;
+}
+
+// Match a report announcement to the most recent fiscal-quarter revenue row.
+// Yahoo's quarterly financials carry actual revenue by quarter end, while the
+// earnings event carries the later announcement date; a 100-day window matches
+// the same contract attachEarningsHx uses for its fiscal-quarter label.
+function revenueActualForEarningsEvent(data, dateIso) {
+  const history = Array.isArray(data?.fundamentals?.revenueHistory)
+    ? data.fundamentals.revenueHistory
+    : [];
+  for (let i = history.length - 1; i >= 0; i--) {
+    const row = history[i];
+    if (!row?.date || row.date > dateIso) continue;
+    const gap = Date.parse(dateIso) - Date.parse(row.date);
+    const value = Number(row.value);
+    return gap <= 100 * 86400000 && Number.isFinite(value) ? value : null;
+  }
+  return null;
 }
 
 // The per-build pass: backfill where thin, stamp the upcoming event's
@@ -6434,6 +6453,8 @@ export async function updateEarningsEventsHistory(store, chains, ivHistoryMap) {
       if (!ev?.date || ev.date > todayIso) continue;
       const anchorMs = earningsAnchorMs(ev.date, ev.session);
       if (anchorMs != null && anchorMs > nowMs) continue; // today's print hasn't landed yet
+      const revenueActual = revenueActualForEarningsEvent(data, ev.date);
+      if (ev.revenueActual == null && revenueActual != null) ev.revenueActual = revenueActual;
       const barsStart = data._bars?.find((b) => b?.t)?.t || null;
       const bars = backfillBars && (!barsStart || ev.date <= barsStart) ? backfillBars : data._bars;
       if (!ev.week1Done) {
@@ -6605,6 +6626,7 @@ export function attachEarningsHx(chains, store, nowMs = Date.now()) {
         epsActual: ev.epsActual ?? null,
         epsEstimate: ev.epsEstimate ?? null,
         surprisePct: ev.surprisePct ?? null,
+        revenueActual: ev.revenueActual ?? revenueActualForEarningsEvent(data, ev.date),
         ivPre: ev.ivPre ?? null,
         ivPost: ev.ivPost ?? null,
         impliedMovePct: ev.impliedMovePct ?? null,
@@ -6879,6 +6901,10 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
         epsActual: hasEps ? ev.epsActual : null,
         epsEstimate: typeof ev.epsEstimate === "number" && isFinite(ev.epsEstimate) ? ev.epsEstimate : null,
         surprisePct: typeof ev.surprisePct === "number" && isFinite(ev.surprisePct) ? ev.surprisePct : null,
+        revenueActual: typeof ev.revenueActual === "number" && isFinite(ev.revenueActual)
+          ? ev.revenueActual
+          : revenueActualForEarningsEvent(data, ev.date),
+        revenueCurrency: data?.fundamentals?.financialCurrency || null,
         eps: earningsEpsVerdict(ev),                    // beat | miss | inline | null
         guidance: earningsGuidanceBucket(ev.guidance),  // up | inline | down | null
         movePct: hasMove ? ev.movePct : null,           // fractions, like earningsHx
@@ -33172,12 +33198,19 @@ async function main() {
   // Market analysis payload (data/market-analysis.json, Owner-only): the same
   // macroRegime object that rides picks.json's rosterMeta, split out for the
   // private Market analysis tab. The regime rebuilds from the
-  // in-memory backdrop; only today's frozen cohort carries across the wipe.
+  // in-memory backdrop; today's frozen cohort and the rolling one-row-per-day
+  // scenario ledger carry across the wipe from the pre-read payload.
   try {
     const priorPremarketMovers =
       priorMarketAnalysis?.premarketMovers?.date === etDateKey()
         ? priorMarketAnalysis.premarketMovers
         : null;
+    const scenarioHistory = appendScenarioHistory(
+      priorMarketAnalysis?.scenarioHistory,
+      scenarioEngine,
+      builtAtIso,
+      etDateKey(),
+    );
     const maJson = JSON.stringify({
       builtAtIso,
       refreshedAtIso: priorPremarketMovers
@@ -33185,6 +33218,7 @@ async function main() {
         : builtAtIso,
       macroRegime: macroBackdrop?.macroRegime || null,
       scenarioEngine,
+      ...(scenarioHistory ? { scenarioHistory } : {}),
       ...(priorPremarketMovers ? { premarketMovers: priorPremarketMovers } : {}),
     });
     await writeFile(resolve(DATA_DIR, "market-analysis.json"), maJson, "utf8");

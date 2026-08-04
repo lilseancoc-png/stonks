@@ -2,7 +2,7 @@
 // Read-only by default; --write-ui-fixture emits a gitignored local payload for browser QA.
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
-import { buildScenarioEngine } from "../lib/scenario-engine.mjs";
+import { appendScenarioHistory, buildScenarioEngine } from "../lib/scenario-engine.mjs";
 
 const AXES = [
   "indexes", "vix", "dxy", "yields", "fed", "commodity", "geo", "inflation",
@@ -110,11 +110,19 @@ assert.equal(nvda.vector.aiCapex.value, 1, "AI exposure map applied");
 assert.equal(nvda.vector.eventSpillover.value, 0.72, "Event Spillover strength applied");
 assert.ok(wmt.vector.growthDefensive.value < 0, "defensive profile applied");
 assert.ok(nvda.decision.sizeMultiplier <= 1 && nvda.decision.sizeMultiplier >= 0.5, "per-name size overlay is bounded");
+const historyDay1 = appendScenarioHistory(null, out, "2026-07-28T15:00:00Z", "2026-07-28");
+const historyDay1Updated = appendScenarioHistory(historyDay1, out, "2026-07-28T20:00:00Z", "2026-07-28");
+const historyDay2 = appendScenarioHistory(historyDay1Updated, out, "2026-07-29T15:00:00Z", "2026-07-29");
+assert.equal(historyDay1Updated.observations.length, 1, "same-day scenario builds upsert one daily observation");
+assert.equal(historyDay1Updated.observations[0].recordedAtIso, "2026-07-28T20:00:00Z", "same-day scenario history keeps the latest build");
+assert.equal(historyDay2.observations.length, 2, "a new ET date appends scenario history");
+assert.equal(historyDay2.observations[0].riskOffShiftPct, out.transition.probabilities.riskOffShiftPct, "history records the displayed transition estimate");
+assert.equal(historyDay2.observations[0].grossMultiplier, out.decision.grossMultiplier, "history records the displayed gross cap");
 
 if (process.argv.includes("--write-ui-fixture")) {
   await writeFile(
     new URL("../data/market-analysis.json", import.meta.url),
-    JSON.stringify({ builtAtIso: "2026-07-28T15:00:00Z", macroRegime: regime, scenarioEngine: out }, null, 2) + "\n",
+    JSON.stringify({ builtAtIso: "2026-07-28T15:00:00Z", macroRegime: regime, scenarioEngine: out, scenarioHistory: historyDay2 }, null, 2) + "\n",
   );
 }
 

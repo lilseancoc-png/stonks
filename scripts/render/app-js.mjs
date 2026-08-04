@@ -12064,7 +12064,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // back to picks.json's rosterMeta when the owner already loaded the picks tab
   // (also covers the window before the first bake ships the file).
   var marketState = { data: null, loading: false };
-  var scenarioState = { selected: null, query: '', sector: 'all', showAll: false, basket: '' };
+  var scenarioState = { selected: null, query: '', sector: 'all', showAll: false, basket: '', historyOpen: false };
   function marketRegimeBaked(){
     if (marketState.data && marketState.data.macroRegime) return marketState.data.macroRegime;
     return (picksState.data && picksState.data.rosterMeta && picksState.data.rosterMeta.macroRegime) || null;
@@ -12159,6 +12159,56 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (!prob) return '\u2014';
     return escapeHtml(String(prob.low) + '\u2013' + String(prob.high) + '%') +
       '<small>mid ' + escapeHtml(String(prob.mid)) + '%</small>';
+  }
+  function scenarioHistoryHtml(engine){
+    var stored = marketState.data && marketState.data.scenarioHistory;
+    var observations = Array.isArray(stored && stored.observations) ? stored.observations.slice() : [];
+    var isCurrentOnly = false;
+    if (!observations.length){
+      var t = engine.transition || {};
+      var p = t.probabilities || {};
+      var f = t.fragility || {};
+      var primary = Array.isArray(engine.scenarios) ? engine.scenarios[0] : null;
+      observations.push({
+        date: String(engine.builtAtIso || '').slice(0, 10),
+        currentRegime: t.currentRegime || marketRegimeBaked()?.state || null,
+        fragilityState: f.state || 'stable',
+        riskOffShiftPct: p.riskOffShiftPct,
+        riskOnContinuationPct: p.riskOnContinuationPct,
+        riskOnExhaustionPct: p.riskOnExhaustionPct,
+        grossMultiplier: engine.decision && engine.decision.grossMultiplier,
+        warningCount: f.warningCount,
+        leadingCount: f.leadingCount,
+        primaryScenario: primary ? { name: primary.name, low: primary.probability?.low, high: primary.probability?.high } : null,
+      });
+      isCurrentOnly = true;
+    }
+    observations.sort(function(a, b){ return String(b.date || '').localeCompare(String(a.date || '')); });
+    var rows = observations.slice(0, 30).map(function(row){
+      function pct(v){ return v != null && isFinite(v) ? Math.max(0, Math.min(100, Math.round(Number(v)))) : 0; }
+      var riskOff = pct(row.riskOffShiftPct);
+      var continuation = pct(row.riskOnContinuationPct);
+      var exhaustion = pct(row.riskOnExhaustionPct);
+      var gross = row.grossMultiplier != null && isFinite(row.grossMultiplier) ? Math.round(Number(row.grossMultiplier) * 100) + '%' : '\u2014';
+      var warnings = row.warningCount != null
+        ? String(row.warningCount) + '/' + String(row.leadingCount != null ? row.leadingCount : '\u2014')
+        : '\u2014';
+      var primary = row.primaryScenario || {};
+      var primaryLabel = primary.name || '\u2014';
+      if (primary.low != null && primary.high != null) primaryLabel += ' ' + primary.low + '\u2013' + primary.high + '%';
+      return '<tr><td><time datetime="' + escapeHtml(row.date || '') + '">' + escapeHtml(row.date || '\u2014') + '</time></td>' +
+        '<td><b class="scenario-history-state is-' + escapeHtml(row.fragilityState || 'stable') + '">' + escapeHtml((row.currentRegime || 'unknown') + ' \u00b7 ' + (row.fragilityState || 'stable')) + '</b></td>' +
+        '<td class="scenario-history-bars"><span><i class="is-risk" style="width:' + riskOff + '%"></i><b>' + riskOff + '%</b></span>' +
+          '<span><i class="is-cont" style="width:' + continuation + '%"></i><b>' + continuation + '%</b></span>' +
+          '<span><i class="is-exhaust" style="width:' + exhaustion + '%"></i><b>' + exhaustion + '%</b></span></td>' +
+        '<td>' + escapeHtml(gross) + '</td><td>' + escapeHtml(warnings) + '</td><td class="scenario-history-primary">' + escapeHtml(primaryLabel) + '</td></tr>';
+    }).join('');
+    return '<details class="scenario-history"' + (scenarioState.historyOpen ? ' open' : '') + '>' +
+      '<summary><span><small>Daily ledger</small><b>Forward-overlay history</b></span><em>' + observations.length + ' snapshot' + (observations.length === 1 ? '' : 's') + '</em></summary>' +
+      '<div class="scenario-history-body"><p>One last-good ET snapshot per date; later same-day builds replace the row. Bars are separate conditional screens, not mutually exclusive odds or realized outcomes.</p>' +
+      '<div class="scenario-history-scroll"><table><thead><tr><th>Date</th><th>Regime \u00b7 filter</th><th><span class="scenario-history-key"><i class="is-risk"></i>Risk-off <i class="is-cont"></i>Continue <i class="is-exhaust"></i>Exhaust</span></th><th>Gross cap</th><th>Warnings</th><th>Primary scenario</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      (isCurrentOnly ? '<p class="scenario-history-collecting">Current build shown; the persisted daily ledger starts with the next scenario-producing build.</p>' : '') +
+      '</div></details>';
   }
   function scenarioFactorSummary(row){
     var v = row && row.vector ? row.vector : {};
@@ -12299,6 +12349,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<span><small>Risk-on exhaustion</small><b class="' + (Number(probs.riskOnExhaustionPct) >= 55 ? 'neg' : 'zero') + '">' + escapeHtml(String(probs.riskOnExhaustionPct ?? '\u2014')) + '%</b><em>positioning + breadth</em></span>' +
           '<span><small>Scenario gross cap</small><b>' + escapeHtml(String(Math.round(Number(engine.decision?.grossMultiplier || 1) * 100))) + '%</b><em>of regime / edge budget</em></span>' +
         '</div>' +
+        scenarioHistoryHtml(engine) +
         '<div class="scenario-warnings"><header><b>Early warnings</b><span>' + warningFlags.length + '/' + (transition.flags || []).length + ' firing</span></header>' +
           ((transition.flags || []).map(function(flag){ return '<span class="is-' + escapeHtml(flag.state || 'stable') + '"><i></i>' + escapeHtml(flag.label || '') + '</span>'; }).join('') || '<p>No leading checks available.</p>') +
         '</div>' +
@@ -12351,6 +12402,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (sectorSelect) sectorSelect.onchange = function(){ scenarioState.sector = sectorSelect.value; scenarioState.showAll = false; renderScenarioEngine(); };
     var queryInput = document.getElementById('scenario-sens-query');
     if (queryInput) queryInput.onkeydown = function(ev){ if (ev.key === 'Enter'){ scenarioState.query = queryInput.value; scenarioState.showAll = false; renderScenarioEngine(); } };
+    var historyDetails = host.querySelector('.scenario-history');
+    if (historyDetails) historyDetails.addEventListener('toggle', function(){ scenarioState.historyOpen = historyDetails.open; });
   }
   function renderMarketAnalysis(){
     bindPositionTool();
@@ -16652,11 +16705,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // breadth, biggest gaps, the "heading into earnings" forward look
   // (d.upcoming — names reporting inside ~3 weeks with drift-so-far), and the
   // AI season read. All move fields are FRACTIONS (0.04 = 4%), like
-  // earningsHx; surprisePct is a %.
+  // earningsHx; surprisePct is a %, revenueActual is reported revenue in the
+  // issuer's financialCurrency when Yahoo supplies that currency.
   var earningsState = {
     data: null, loading: false, seasonKey: null,
     upSort: 'date', upWindow: 7, upLimit: 0,
-    aiOpen: false, tableOpen: false,
+    aiOpen: false, tableOpen: false, search: '',
   };
   function ersUpcomingPageSize(){ return window.innerWidth <= 640 ? 8 : 12; }
   function ersResetUpcomingLimit(){ earningsState.upLimit = ersUpcomingPageSize(); }
@@ -16744,6 +16798,77 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     return MON[parseInt(iso.slice(5,7),10)-1] + ' ' + parseInt(iso.slice(8,10),10);
   }
+  function ersRevenueAmount(value, currency){
+    if (!ersNum(value)) return null;
+    if (currency) return fmtBigCurrency(value, String(currency).toUpperCase());
+    var a = Math.abs(value);
+    if (a >= 1e12) return (value / 1e12).toFixed(2) + 'T';
+    if (a >= 1e9) return (value / 1e9).toFixed(2) + 'B';
+    if (a >= 1e6) return (value / 1e6).toFixed(2) + 'M';
+    return Math.round(value).toLocaleString();
+  }
+  function ersSearchQuery(v){ return String(v || '').trim().replace(/^\\$/, '').toUpperCase(); }
+  function ersSearchResults(d, raw){
+    var q = ersSearchQuery(raw);
+    if (!q) return '';
+    var matches = [];
+    function addMatch(kind, row, seasonLabel, order){
+      if (!row || !row.sym) return;
+      var sym = String(row.sym).toUpperCase();
+      var name = String(row.name || '');
+      var hay = sym + ' ' + name.toUpperCase();
+      if (hay.indexOf(q) < 0) return;
+      var rank = sym === q ? 0 : sym.indexOf(q) === 0 ? 1 : 2;
+      matches.push({ kind: kind, row: row, season: seasonLabel || '', rank: rank, order: order });
+    }
+    var upcoming = Array.isArray(d.upcoming) ? d.upcoming : [];
+    for (var u = 0; u < upcoming.length; u++) addMatch('upcoming', upcoming[u], '', u);
+    var seasons = Array.isArray(d.seasons) ? d.seasons : [];
+    var order = upcoming.length;
+    for (var s = 0; s < seasons.length; s++){
+      var season = seasons[s] || {};
+      var rows = Array.isArray(season.rows) ? season.rows : [];
+      for (var r = 0; r < rows.length; r++) addMatch('reported', rows[r], season.fiscal || season.key, order++);
+    }
+    matches.sort(function(a, b){ return a.rank - b.rank || a.order - b.order; });
+    if (!matches.length){
+      return '<div class="ers-search-empty">No upcoming or reported earnings matches for <b>' + escapeHtml(q) + '</b>.</div>';
+    }
+    var limit = 30;
+    var shown = matches.slice(0, limit);
+    var resultRows = '';
+    for (var i = 0; i < shown.length; i++){
+      var m = shown[i];
+      var x = m.row;
+      var session = x.session === 'AM' ? 'before open' : x.session === 'PM' ? 'after close' : '';
+      var context = '';
+      var signal = '';
+      var value = '';
+      if (m.kind === 'upcoming'){
+        var days = Number(x.daysUntil);
+        var countdown = days === 0 ? 'today' : days === 1 ? 'tomorrow' : isFinite(days) ? 'in ' + days + 'd' : '';
+        context = [ersDate(x.date), session, countdown].filter(Boolean).join(' · ');
+        signal = '<span class="ers-chip ers-chip-warn">upcoming</span>';
+        value = ersNum(x.impliedMovePct) && x.impliedMovePct > 0
+          ? '<b>±' + (x.impliedMovePct * 100).toFixed(1) + '%</b><small>priced move</small>'
+          : '<b>—</b><small>priced move</small>';
+      } else {
+        context = [m.season, ersDate(x.date), session].filter(Boolean).join(' · ');
+        signal = ersEpsChip(x.eps) + (x.guidance ? ersGuidChip(x.guidance) : '');
+        value = '<b class="' + (ersNum(x.movePct) && x.movePct > 0 ? 'ers-pos' : ersNum(x.movePct) && x.movePct < 0 ? 'ers-neg' : '') + '">' + ersPct(x.movePct) + '</b><small>report-day move</small>';
+      }
+      resultRows += '<div class="ers-search-result" role="listitem">' +
+        '<div class="ers-search-company">' + ersSymBtn(x.sym) + '<span>' + escapeHtml(x.name || '') + '</span></div>' +
+        '<div class="ers-search-context"><span class="ers-search-signal">' + signal + '</span><span>' + escapeHtml(context) + '</span></div>' +
+        '<div class="ers-search-value">' + value + '</div>' +
+      '</div>';
+    }
+    var clipped = matches.length > shown.length ? ' · first ' + shown.length + ' shown' : '';
+    return '<section class="ers-search-results" aria-label="Ticker search results">' +
+      '<div class="ers-search-results-head"><span>Matches across upcoming and reported earnings</span><b>' + matches.length + ' result' + (matches.length === 1 ? '' : 's') + clipped + '</b></div>' +
+      '<div class="ers-search-list" role="list">' + resultRows + '</div>' +
+    '</section>';
+  }
   function loadEarningsTracker(){
     if ((earningsState.data && !earningsState.data.loadError) || earningsState.loading){ renderEarningsTracker(); return; }
     earningsState.loading = true;
@@ -16781,6 +16906,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     html += '<div class="ers-pills" role="tablist" aria-label="Earnings seasons">' + pills + '</div>';
     html += '<div class="ers-season-head"><span class="ers-season-title">' + escapeHtml(season.fiscal || season.key) + ' earnings season</span>' +
       '<span class="ers-season-sub">announced ' + escapeHtml(season.window || '') + ' · ' + c.reported + ' report' + (c.reported === 1 ? '' : 's') + (d.universe ? ' across ' + d.universe + ' tracked names' : '') + '</span></div>';
+    var searchValue = earningsState.search || '';
+    html += '<div class="ers-searchbar" role="search">' +
+      '<label for="ers-ticker-search"><span>Find a ticker</span><small>upcoming + every season</small></label>' +
+      '<div class="ers-search-actions"><div class="ers-search-input-wrap"><input id="ers-ticker-search" class="ers-search-input" type="search" value="' + escapeHtml(searchValue) + '" placeholder="Search ticker, e.g. NVDA" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-controls="ers-search-output">' +
+      '<button type="button" class="ers-search-clear" data-ers-search-clear aria-label="Clear ticker search"' + (ersSearchQuery(searchValue) ? '' : ' hidden') + '>Clear</button></div>' +
+      '<button type="button" class="ers-search-submit" data-ers-search-submit>Search</button></div>' +
+    '</div>' +
+    '<div id="ers-search-output" class="ers-search-output" aria-live="polite">' + ersSearchResults(d, searchValue) + '</div>';
     var isCurrentSeason = season === seasons[0];
     var upcomingAll = isCurrentSeason && Array.isArray(d.upcoming) ? d.upcoming.filter(function(u){
       return u && u.sym && ersNum(Number(u.daysUntil)) && Number(u.daysUntil) >= 0;
@@ -17009,6 +17142,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       for (var t = 0; t < rowsArr.length; t++){
         var rw = rowsArr[t];
         var epsTxt = ersNum(rw.epsActual) ? rw.epsActual.toFixed(2) + (ersNum(rw.epsEstimate) ? ' <span class="ers-dim">vs ' + rw.epsEstimate.toFixed(2) + '</span>' : '') : '<span class="ers-dim">—</span>';
+        var revTxt = ersNum(rw.revenueActual) ? escapeHtml(ersRevenueAmount(rw.revenueActual, rw.revenueCurrency) || '—') : '<span class="ers-dim">—</span>';
         var surTxt = ersNum(rw.surprisePct) ? '<span class="' + (rw.surprisePct > 0 ? 'ers-pos' : rw.surprisePct < 0 ? 'ers-neg' : '') + '">' + (rw.surprisePct >= 0 ? '+' : '') + rw.surprisePct.toFixed(1) + '%</span>' : '<span class="ers-dim">—</span>';
         var impTxt = ersNum(rw.impliedMovePct)
           ? (rw.impliedEst
@@ -17023,6 +17157,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<td class="ers-td-date">' + ersDate(rw.date) + (rw.session === 'AM' ? ' <span class="ers-dim">AM</span>' : rw.session === 'PM' ? ' <span class="ers-dim">PM</span>' : '') + '</td>' +
           '<td>' + ersEpsChip(rw.eps) + '</td>' +
           '<td class="ers-td-num">' + epsTxt + '</td>' +
+          '<td class="ers-td-num">' + revTxt + '</td>' +
           '<td class="ers-td-num">' + surTxt + '</td>' +
           '<td>' + ersGuidChip(rw.guidance) + '</td>' +
           '<td class="ers-td-num' + ersToneCls(preVal) + '" title="' + preTitle + '">' + ersPct(preVal) + '</td>' +
@@ -17035,7 +17170,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       html += '<details class="ers-table-details"' + (earningsState.tableOpen ? ' open' : '') + '>' +
         '<summary><span>Review every reported name</span><small>' + rowsArr.length + ' reports · full season table</small></summary>' +
         '<div class="ers-table-wrap"><table class="ers-table"><thead><tr>' +
-        '<th>Ticker</th><th>Reported</th><th>Result</th><th class="ers-td-num">EPS</th><th class="ers-td-num">Surprise</th><th>Guidance</th><th class="ers-td-num" title="Close-to-close drift over the ~3 trading weeks into the print (2-week read in the cell tooltip)">3wk in</th><th class="ers-td-num">Gap</th><th class="ers-td-num">Day</th><th class="ers-td-num" title="The options market\\'s straddle-implied expected move, snapshotted live before the print; ~ marks older prints where it is estimated from the pre- vs post-print IV crush instead">Expected</th><th class="ers-td-num">1 wk</th>' +
+        '<th>Ticker</th><th>Reported</th><th>Result</th><th class="ers-td-num">EPS</th><th class="ers-td-num">Revenue</th><th class="ers-td-num">EPS surprise</th><th>Guidance</th><th class="ers-td-num" title="Close-to-close drift over the ~3 trading weeks into the print (2-week read in the cell tooltip)">3wk in</th><th class="ers-td-num">Gap</th><th class="ers-td-num">Day</th><th class="ers-td-num" title="The options market\\'s straddle-implied expected move, snapshotted live before the print; ~ marks older prints where it is estimated from the pre- vs post-print IV crush instead">Expected</th><th class="ers-td-num">1 wk</th>' +
         '</tr></thead><tbody>' + trows + '</tbody></table></div></details>';
     }
     root.innerHTML = html;
@@ -17050,6 +17185,31 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         renderEarningsTracker();
       });
     }
+    var searchInput = root.querySelector('#ers-ticker-search');
+    var searchOutput = root.querySelector('#ers-search-output');
+    var searchClear = root.querySelector('[data-ers-search-clear]');
+    var searchSubmit = root.querySelector('[data-ers-search-submit]');
+    function updateEarningsSearch(){
+      earningsState.search = searchInput ? searchInput.value : '';
+      if (searchOutput) searchOutput.innerHTML = ersSearchResults(d, earningsState.search);
+      if (searchClear) searchClear.hidden = !ersSearchQuery(earningsState.search);
+    }
+    if (searchInput){
+      searchInput.addEventListener('input', function(){ if (searchClear) searchClear.hidden = !ersSearchQuery(searchInput.value); });
+      searchInput.addEventListener('search', updateEarningsSearch);
+      searchInput.addEventListener('keydown', function(ev){
+        if (ev.key !== 'Enter') return;
+        ev.preventDefault();
+        updateEarningsSearch();
+      });
+    }
+    if (searchSubmit) searchSubmit.addEventListener('click', updateEarningsSearch);
+    if (searchClear) searchClear.addEventListener('click', function(){
+      if (!searchInput) return;
+      searchInput.value = '';
+      updateEarningsSearch();
+      searchInput.focus();
+    });
     // Upcoming-strip sort chips.
     var upSortEls = root.querySelectorAll('[data-ers-upsort]');
     for (var ue = 0; ue < upSortEls.length; ue++){
@@ -20273,15 +20433,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // symbol, and matching sector groups render pre-opened.
     var pairMatch = function(p){ return matchSym(p.driver) || matchSym(p.follower); };
     var fPairs = q ? pairs.filter(pairMatch) : pairs;
-    html += '<div class="spill-sub">Pair matrix — historical event-window read-through' + (q ? ' — ' + fPairs.length + ' of ' + pairs.length + ' pairs match "' + escapeHtml(q) + '"' : '') + '</div>';
+    var matrixHtml = '';
     var qualifiedPairs = fPairs.filter(function(p){ return p.gates && p.fdrPass; });
     if (qualifiedPairs.length){
-      html += '<p class="spill-none">' + qualifiedPairs.length + ' of ' + fPairs.length + (q ? ' matching' : ' measured') + ' pairs clear every statistical gate — ranked by edge across all sectors.</p>';
-      html += spillTable(qualifiedPairs.map(spillRowHtml));
+      matrixHtml += '<p class="spill-none">' + qualifiedPairs.length + ' of ' + fPairs.length + (q ? ' matching' : ' measured') + ' pairs clear every statistical gate — ranked by edge across all sectors.</p>';
+      matrixHtml += spillTable(qualifiedPairs.map(spillRowHtml));
     } else if (q && !fPairs.length){
-      html += '<p class="spill-none">No measured pair touches "' + escapeHtml(q) + '".</p>';
+      matrixHtml += '<p class="spill-none">No measured pair touches "' + escapeHtml(q) + '".</p>';
     } else {
-      html += '<p class="spill-none">No pair currently clears every statistical gate (' + fPairs.length + (q ? ' matching' : ' measured') + '). Per-sector detail below.</p>';
+      matrixHtml += '<p class="spill-none">No pair currently clears every statistical gate (' + fPairs.length + (q ? ' matching' : ' measured') + '). Per-sector detail below.</p>';
     }
     if (spillGroups){
       // Per-sector detail, collapsed by default (pre-opened while filtering);
@@ -20294,7 +20454,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         var gp = fPairs.filter(function(p){ return p.group === g.key; });
         if (q && !gp.length) return; // hide sectors the filter empties out
         var gq = gp.filter(function(p){ return p.gates && p.fdrPass; }).length;
-        html += '<details class="spill-group"' + (q ? ' open' : '') + '><summary>' + escapeHtml(g.label || g.key) +
+        matrixHtml += '<details class="spill-group"' + (q ? ' open' : '') + '><summary>' + escapeHtml(g.label || g.key) +
           (g.etf ? ' <span class="spill-group-etf">vs ' + escapeHtml(g.etf) + '</span>' : '') +
           ' — ' + members.length + ' names · ' + gp.length + (q ? ' matching' : ' measured') + ' pair' + (gp.length === 1 ? '' : 's') +
           (gq ? ' · ' + gq + ' qualified' : '') + '</summary>' +
@@ -20302,12 +20462,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '</details>';
       });
       if (singles.length && !q){
-        html += '<p class="spill-note">No same-sector peer tracked yet (no pairs possible): ' + escapeHtml(singles.join(', ')) + '.</p>';
+        matrixHtml += '<p class="spill-note">No same-sector peer tracked yet (no pairs possible): ' + escapeHtml(singles.join(', ')) + '.</p>';
       }
     } else {
-      html += spillTable(fPairs.map(spillRowHtml));
+      matrixHtml += spillTable(fPairs.map(spillRowHtml));
     }
-    html += '<p class="spill-note">β shrunk = the pair event beta shrunk toward its sector’s pooled event beta (small samples). Hit = share of past events where the follower moved the same direction. A ✓ on p = survives the false-discovery correction, run across every sector’s pairs. Avg move→ = the follower average event-window move in the driver direction; Edge = that average minus the follower current 1-day priced move (ATM IV) — positive means the options market underprices the echo. Pairs are measured within sector groups only; sector prints often cluster (banks especially), so betas measure sector print-day read-through and Resid β (market-stripped) is the control. Correlation map only — nothing here is a trade recommendation.</p>';
+    matrixHtml += '<p class="spill-note">β shrunk = the pair event beta shrunk toward its sector’s pooled event beta (small samples). Hit = share of past events where the follower moved the same direction. A ✓ on p = survives the false-discovery correction, run across every sector’s pairs. Avg move→ = the follower average event-window move in the driver direction; Edge = that average minus the follower current 1-day priced move (ATM IV) — positive means the options market underprices the echo. Pairs are measured within sector groups only; sector prints often cluster (banks especially), so betas measure sector print-day read-through and Resid β (market-stripped) is the control. Correlation map only — nothing here is a trade recommendation.</p>';
+    html += '<details class="spill-matrix-details"' + (q ? ' open' : '') + '><summary><span>Pair matrix <small>historical event-window read-through</small></span>' +
+      '<em>' + qualifiedPairs.length + ' qualified · ' + fPairs.length + (q ? ' matching' : ' measured') + '</em></summary>' +
+      '<div class="spill-matrix-body">' + matrixHtml + '</div></details>';
     root.innerHTML = html;
     bindBriefChips(root);
     // Wire the filter + show-all controls. The whole pane rebuilds through

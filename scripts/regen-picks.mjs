@@ -5,7 +5,7 @@ import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks, buildSectorRotationRebounds, writeSectorRotationFile, SECTOR_ROTATION_FILE, readPriorSectorRotationLog, sectorRotationRecordFromLog, buildLeveragedEtfPicks, writeLeveragedEtfsFile, LEVERAGED_ETFS_FILE, readPriorLevEtfLog, levRecordFromLog, SECTORS, macroKindOf, MACRO_PROFILES, pickContractForPick, writeAutoPicksFile } from "./build.mjs";
-import { buildScenarioEngine } from "../lib/scenario-engine.mjs";
+import { appendScenarioHistory, buildScenarioEngine } from "../lib/scenario-engine.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -249,7 +249,8 @@ await writeFile(
 // Market analysis payload — the same macroRegime object that rides picks.json's
 // rosterMeta, split into its own premium-but-NOT-role-restricted key so the
 // Market analysis tab works for every premium member (picks.json itself is
-// role-restricted to the Top Picks role). Mirrors build.mjs::main().
+// role-restricted to the Top Picks role). Mirrors build.mjs::main(), including
+// the one-row-per-ET-day scenario ledger.
 let priorMarketAnalysis = null;
 try { priorMarketAnalysis = JSON.parse(await readFile(resolve(DATA_DIR, "market-analysis.json"), "utf8")); } catch {}
 const todayEt = new Intl.DateTimeFormat("en-CA", {
@@ -258,6 +259,12 @@ const todayEt = new Intl.DateTimeFormat("en-CA", {
 const priorPremarketMovers = priorMarketAnalysis?.premarketMovers?.date === todayEt
   ? priorMarketAnalysis.premarketMovers
   : null;
+const scenarioHistory = appendScenarioHistory(
+  priorMarketAnalysis?.scenarioHistory,
+  scenarioEngine,
+  builtAtIso,
+  todayEt,
+);
 await writeFile(
   resolve(DATA_DIR, "market-analysis.json"),
   JSON.stringify({
@@ -265,6 +272,7 @@ await writeFile(
     refreshedAtIso: priorPremarketMovers ? priorMarketAnalysis?.refreshedAtIso || builtAtIso : builtAtIso,
     macroRegime: macroBackdrop?.macroRegime || null,
     scenarioEngine,
+    ...(scenarioHistory ? { scenarioHistory } : {}),
     ...(priorPremarketMovers ? { premarketMovers: priorPremarketMovers } : {}),
   }),
   "utf8",
