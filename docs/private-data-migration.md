@@ -142,6 +142,7 @@ node scripts/sync-data.mjs pull                 # store → local data/  (hydrat
 node scripts/sync-data.mjs push --owner=bake    # local data/ → store (flush owned keys)
 node scripts/sync-data.mjs push --owner=unusual
 node scripts/sync-data.mjs push --owner=oi
+node scripts/sync-data.mjs push --owner=brief
 node scripts/sync-data.mjs push --owner=daytrading
 node scripts/sync-data.mjs seed                  # one-time: upload current data/ wholesale
 node scripts/sync-data.mjs flatten               # active snapshot → legacy roots for rollback
@@ -287,7 +288,7 @@ Each of `daily.yml`, `unusual-flow.yml`, `oi-tracker.yml`,
 - **Add** a step before build/scan: `node scripts/sync-data.mjs pull`
   (env: store token). Replaces the data that `git checkout` used to supply.
 - **Replace** the entire `git stash/commit/push data` block with
-  `node scripts/sync-data.mjs push --owner=<bake|unusual|oi|search-interest|daytrading>`.
+  `node scripts/sync-data.mjs push --owner=<bake|unusual|oi|brief|search-interest|daytrading>`.
 - Mark the run start, regenerate the final manifest sidecars, and run
   `node scripts/verify-data-freshness.mjs --owner=<owner>` before any external
   write. The verifier is ownership-aware: it requires current-run stamps for the

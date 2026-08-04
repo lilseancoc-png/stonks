@@ -26,6 +26,8 @@ import { fetchFinraMarketStructure, attachShortInterestToChains } from "../lib/m
 import { buildScenarioEngine, scenarioOverlayForSymbol } from "../lib/scenario-engine.mjs";
 import { isPremiumKey } from "../lib/premium-keys.mjs";
 import { BRIEF_ACCESS_POLICY_VERSION } from "../lib/public-data-policy.mjs";
+import { contentAssetVersion } from "../lib/asset-version.mjs";
+import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
 import {
   buildAcceleratorPricesPayload,
   fetchAcceleratorMarketplaces,
@@ -32047,6 +32049,22 @@ async function main() {
       `Leaving last-good index.html + data/ in place — GH Pages will keep serving the previous build.`
     );
   }
+  const preAiFreshness = assessDecisionInputsBeforeAi({
+    chains,
+    expectedSymbols: TICKERS,
+    sampleIv: computeAtm30dIv,
+  });
+  if (preAiFreshness.errors.length) {
+    throw new Error(
+      "Pre-AI freshness gate failed; skipping paid AI for a build that cannot publish: " +
+      preAiFreshness.errors.join("; "),
+    );
+  }
+  console.log(
+    `Pre-AI freshness gate passed: ${preAiFreshness.valid}/${preAiFreshness.expected} valid tickers, ` +
+    `${preAiFreshness.currentIvSamples}/${preAiFreshness.available} current IV samples` +
+    (preAiFreshness.regularSession ? " during regular trading." : " outside regular trading."),
+  );
   // FINRA market-structure context is fetched once for the whole universe:
   // consolidated short interest is twice-monthly, while ATS volume is weekly
   // and deliberately delayed. Read the prior payload before writeChainFiles
@@ -32494,6 +32512,9 @@ async function main() {
     riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE,
     builtAtIso,
   );
+  const css = renderStylesCss();
+  const js = renderAppJs({ riskFreeRate });
+  const streaksJs = await readFile(resolve(ROOT, "js", "streaks.js"), "utf8");
   const html = renderHtml({
     symbols,
     builtAt: nyTimestamp(),
@@ -32511,9 +32532,13 @@ async function main() {
     nextFomcDates,
     oi: oiTracker,
     dataDir: DATA_DIR,
+    renderedAtIso: builtAtIso,
+    assetVersions: {
+      styles: contentAssetVersion(css),
+      app: contentAssetVersion(js),
+      streaks: contentAssetVersion(streaksJs),
+    },
   });
-  const css = renderStylesCss();
-  const js = renderAppJs({ riskFreeRate });
   await mkdir(dirname(OUT), { recursive: true });
   await writeFile(OUT, html, "utf8");
   await writeFile(resolve(ROOT, "styles.css"), css, "utf8");
