@@ -20,6 +20,18 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-08-04
+
+### Added
+
+- **Forward Scenario Engine history records one last-good conditional-risk snapshot per trading day.** Market Analysis now shows a compact, auditable ledger of regime, continuation/exhaustion probabilities, gross cap, and warning counts while preserving the overlay as conditional risk rather than a point forecast. (#589) `lib/scenario-engine.mjs`, `scripts/{build,regen-picks,verify-scenario-engine}.mjs`, `scripts/render/{app-js,styles-css}.mjs`.
+
+- **Earnings Tracker adds direct ticker discovery and reported revenue context.** The desk can search upcoming and historical earnings across seasons, and the full report table places fiscal-quarter revenue beside EPS and EPS surprise. (#589) `scripts/{build,picks-smoke}.mjs`, `scripts/render/app-js.mjs`.
+
+- **The full earnings-season report table has its own ticker and company search.** The expanded table filters rows as users type or submit, reports the matching count, handles no-match and clear states, and resets cleanly when the season changes. (#590) `scripts/render/{app-js,styles-css}.mjs`, `scripts/render-smoke.mjs`.
+
+- **Event Spillover keeps the pair matrix compact until it is needed.** The matrix starts collapsed to reduce page weight and automatically opens when a ticker filter is applied. (#589) `scripts/render/{app-js,styles-css}.mjs`.
+
 ## 2026-08-03
 
 ### Changed

@@ -16692,7 +16692,7 @@
   var earningsState = {
     data: null, loading: false, seasonKey: null,
     upSort: 'date', upWindow: 7, upLimit: 0,
-    aiOpen: false, tableOpen: false, search: '',
+    aiOpen: false, tableOpen: false, search: '', tableSearch: '',
   };
   function ersUpcomingPageSize(){ return window.innerWidth <= 640 ? 8 : 12; }
   function ersResetUpcomingLimit(){ earningsState.upLimit = ersUpcomingPageSize(); }
@@ -17120,9 +17120,14 @@
     // Full season table.
     var rowsArr = Array.isArray(season.rows) ? season.rows : [];
     if (rowsArr.length){
+      var tableQuery = ersSearchQuery(earningsState.tableSearch);
+      var tableVisible = 0;
       var trows = '';
       for (var t = 0; t < rowsArr.length; t++){
         var rw = rowsArr[t];
+        var tableHaystack = (String(rw.sym || '') + ' ' + String(rw.name || '')).toUpperCase();
+        var tableMatch = !tableQuery || tableHaystack.indexOf(tableQuery) >= 0;
+        if (tableMatch) tableVisible++;
         var epsTxt = ersNum(rw.epsActual) ? rw.epsActual.toFixed(2) + (ersNum(rw.epsEstimate) ? ' <span class="ers-dim">vs ' + rw.epsEstimate.toFixed(2) + '</span>' : '') : '<span class="ers-dim">—</span>';
         var revTxt = ersNum(rw.revenueActual) ? escapeHtml(ersRevenueAmount(rw.revenueActual, rw.revenueCurrency) || '—') : '<span class="ers-dim">—</span>';
         var surTxt = ersNum(rw.surprisePct) ? '<span class="' + (rw.surprisePct > 0 ? 'ers-pos' : rw.surprisePct < 0 ? 'ers-neg' : '') + '">' + (rw.surprisePct >= 0 ? '+' : '') + rw.surprisePct.toFixed(1) + '%</span>' : '<span class="ers-dim">—</span>';
@@ -17134,7 +17139,7 @@
           : '<span class="ers-dim">—</span>';
         var preVal = ersNum(rw.pre15Pct) ? rw.pre15Pct : (ersNum(rw.pre10Pct) ? rw.pre10Pct : null);
         var preTitle = 'Drift into the print — 2wk ' + ersPct(rw.pre10Pct) + ' · 3wk ' + ersPct(rw.pre15Pct);
-        trows += '<tr>' +
+        trows += '<tr data-ers-table-row data-ers-haystack="' + escapeHtml(tableHaystack) + '"' + (tableMatch ? '' : ' hidden') + '>' +
           '<td>' + ersSymBtn(rw.sym) + '</td>' +
           '<td class="ers-td-date">' + ersDate(rw.date) + (rw.session === 'AM' ? ' <span class="ers-dim">AM</span>' : rw.session === 'PM' ? ' <span class="ers-dim">PM</span>' : '') + '</td>' +
           '<td>' + ersEpsChip(rw.eps) + '</td>' +
@@ -17149,11 +17154,25 @@
           '<td class="ers-td-num' + ersToneCls(rw.week1Pct) + '">' + ersPct(rw.week1Pct) + '</td>' +
         '</tr>';
       }
+      var tableSummary = tableQuery
+        ? tableVisible + ' of ' + rowsArr.length + ' reports'
+        : rowsArr.length + ' reports · full season table';
+      var tableStatus = tableQuery
+        ? tableVisible + ' matching ' + tableQuery
+        : rowsArr.length + ' reports shown';
       html += '<details class="ers-table-details"' + (earningsState.tableOpen ? ' open' : '') + '>' +
-        '<summary><span>Review every reported name</span><small>' + rowsArr.length + ' reports · full season table</small></summary>' +
+        '<summary><span>Review every reported name</span><small data-ers-table-summary>' + tableSummary + '</small></summary>' +
+        '<div class="ers-searchbar ers-table-searchbar" role="search">' +
+          '<label for="ers-season-table-search"><span>Search this season</span><small>ticker or company</small></label>' +
+          '<div class="ers-search-actions"><div class="ers-search-input-wrap"><input id="ers-season-table-search" class="ers-search-input" type="search" value="' + escapeHtml(earningsState.tableSearch || '') + '" placeholder="Search ticker or company" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-controls="ers-season-table-body">' +
+          '<button type="button" class="ers-search-clear" data-ers-table-search-clear aria-label="Clear season table search"' + (tableQuery ? '' : ' hidden') + '>Clear</button></div>' +
+          '<button type="button" class="ers-search-submit" data-ers-table-search-submit>Search</button></div>' +
+          '<span class="ers-table-filter-status" data-ers-table-status aria-live="polite">' + escapeHtml(tableStatus) + '</span>' +
+        '</div>' +
+        '<div class="ers-table-empty" data-ers-table-empty' + (tableVisible ? ' hidden' : '') + '>No reported names match <b>' + escapeHtml(tableQuery) + '</b> in this season.</div>' +
         '<div class="ers-table-wrap"><table class="ers-table"><thead><tr>' +
         '<th>Ticker</th><th>Reported</th><th>Result</th><th class="ers-td-num">EPS</th><th class="ers-td-num">Revenue</th><th class="ers-td-num">EPS surprise</th><th>Guidance</th><th class="ers-td-num" title="Close-to-close drift over the ~3 trading weeks into the print (2-week read in the cell tooltip)">3wk in</th><th class="ers-td-num">Gap</th><th class="ers-td-num">Day</th><th class="ers-td-num" title="The options market\'s straddle-implied expected move, snapshotted live before the print; ~ marks older prints where it is estimated from the pre- vs post-print IV crush instead">Expected</th><th class="ers-td-num">1 wk</th>' +
-        '</tr></thead><tbody>' + trows + '</tbody></table></div></details>';
+        '</tr></thead><tbody id="ers-season-table-body">' + trows + '</tbody></table></div></details>';
     }
     root.innerHTML = html;
     // Season pill clicks re-render in place.
@@ -17162,6 +17181,7 @@
       pillEls[pe].addEventListener('click', function(ev){
         earningsState.seasonKey = ev.currentTarget.getAttribute('data-ers-season');
         earningsState.tableOpen = false;
+        earningsState.tableSearch = '';
         earningsState.aiOpen = false;
         ersResetUpcomingLimit();
         renderEarningsTracker();
@@ -17234,6 +17254,47 @@
     if (aiDetails && aiDetails.tagName === 'DETAILS') aiDetails.addEventListener('toggle', function(){ earningsState.aiOpen = aiDetails.open; });
     var tableDetails = root.querySelector('.ers-table-details');
     if (tableDetails) tableDetails.addEventListener('toggle', function(){ earningsState.tableOpen = tableDetails.open; });
+    var tableSearchInput = root.querySelector('#ers-season-table-search');
+    var tableSearchClear = root.querySelector('[data-ers-table-search-clear]');
+    var tableSearchSubmit = root.querySelector('[data-ers-table-search-submit]');
+    function updateSeasonTableSearch(){
+      if (!tableSearchInput) return;
+      earningsState.tableSearch = tableSearchInput.value || '';
+      var q = ersSearchQuery(earningsState.tableSearch);
+      var tableRows = root.querySelectorAll('[data-ers-table-row]');
+      var visible = 0;
+      for (var tr = 0; tr < tableRows.length; tr++){
+        var show = !q || String(tableRows[tr].getAttribute('data-ers-haystack') || '').indexOf(q) >= 0;
+        tableRows[tr].hidden = !show;
+        if (show) visible++;
+      }
+      if (tableSearchClear) tableSearchClear.hidden = !q;
+      var tableSummaryEl = root.querySelector('[data-ers-table-summary]');
+      if (tableSummaryEl) tableSummaryEl.textContent = q ? visible + ' of ' + tableRows.length + ' reports' : tableRows.length + ' reports · full season table';
+      var tableStatusEl = root.querySelector('[data-ers-table-status]');
+      if (tableStatusEl) tableStatusEl.textContent = q ? visible + ' matching ' + q : tableRows.length + ' reports shown';
+      var tableEmpty = root.querySelector('[data-ers-table-empty]');
+      if (tableEmpty){
+        tableEmpty.hidden = visible > 0;
+        tableEmpty.innerHTML = 'No reported names match <b>' + escapeHtml(q) + '</b> in this season.';
+      }
+    }
+    if (tableSearchInput){
+      tableSearchInput.addEventListener('input', updateSeasonTableSearch);
+      tableSearchInput.addEventListener('search', updateSeasonTableSearch);
+      tableSearchInput.addEventListener('keydown', function(ev){
+        if (ev.key !== 'Enter') return;
+        ev.preventDefault();
+        updateSeasonTableSearch();
+      });
+    }
+    if (tableSearchSubmit) tableSearchSubmit.addEventListener('click', updateSeasonTableSearch);
+    if (tableSearchClear) tableSearchClear.addEventListener('click', function(){
+      if (!tableSearchInput) return;
+      tableSearchInput.value = '';
+      updateSeasonTableSearch();
+      tableSearchInput.focus();
+    });
     bindBriefChips(root);
   }
 
