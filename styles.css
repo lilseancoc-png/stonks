@@ -3632,6 +3632,19 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
   margin-left: auto; color: var(--muted);
   font: 600 9px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .06em;
 }
+.ers-table-searchbar {
+  margin: 0; border-width: 1px 0; border-radius: 0;
+  background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+}
+.ers-table-filter-status {
+  flex: 0 0 auto; color: var(--muted); font: 600 9px/1.2 var(--font-mono);
+  text-transform: uppercase; letter-spacing: .045em; white-space: nowrap;
+}
+.ers-table-empty {
+  padding: 18px 12px; border-bottom: 1px solid var(--border); text-align: center;
+  color: var(--muted); font: 500 12px/1.45 var(--font-sans);
+}
+.ers-table-empty b { color: var(--text-strong); }
 .ers-table-wrap { overflow-x: auto; }
 .ers-table { width: 100%; border-collapse: collapse; font: 400 12px/1.35 var(--font-sans); }
 .ers-table th {
@@ -3642,6 +3655,10 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .ers-table td { padding: 6px 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); white-space: nowrap; }
 .ers-table th.ers-td-num, .ers-table td.ers-td-num { text-align: right; font-variant-numeric: tabular-nums; }
 .ers-td-date { color: var(--muted); }
+@media (max-width: 640px) {
+  .ers-table-searchbar { gap: 8px; }
+  .ers-table-filter-status { white-space: normal; }
+}
 
 /* --- Earnings calls (transcript AI briefs) ------------------------------ */
 .ecl-dim { color: var(--muted); }
