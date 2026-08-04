@@ -7589,23 +7589,41 @@ const TRANSCRIPT_SUMMARY_SYSTEM_PROMPT =
   "exhaustive: every list has a hard schema item cap — pick the most consequential items and stop; never pad, repeat, " +
   "or enumerate every mention. The whole brief must comfortably fit the response budget.";
 
-// The backend JSON-Schema route rejects this large, deeply nested schema with
-// INVALID_ARGUMENT. Keep the historically working OpenAPI `responseSchema`
-// route, but encode its int64 constraints as strings as required by the
-// current @google/genai Schema wire type. The source schema stays numeric so
-// its caps remain natural to author and validate.
+// Keep the historically working OpenAPI `responseSchema` route, but do NOT
+// send maxItems for this large, deeply nested contract. Adding those 17
+// constraints on 2026-07-20 made every newly-discovered transcript request
+// fail with INVALID_ARGUMENT before the model could answer. The model still
+// receives the exact limits in its instruction below, and the normalizer caps
+// every array after parsing, so output quality/size remain bounded without
+// making the backend compile the combinatorial constrained-decoding grammar.
 function transcriptOpenApiSchema(node = TRANSCRIPT_SUMMARY_SCHEMA) {
   if (Array.isArray(node)) return node.map((value) => transcriptOpenApiSchema(value));
   if (!node || typeof node !== "object") return node;
-  return Object.fromEntries(Object.entries(node).map(([key, value]) => [
-    key,
-    key === "maxItems" ? String(value) : transcriptOpenApiSchema(value),
-  ]));
+  return Object.fromEntries(
+    Object.entries(node)
+      .filter(([key]) => key !== "maxItems")
+      .map(([key, value]) => [key, transcriptOpenApiSchema(value)]),
+  );
+}
+
+function transcriptArrayCapInstruction(node = TRANSCRIPT_SUMMARY_SCHEMA, path = "") {
+  if (!node || typeof node !== "object") return [];
+  const caps = [];
+  if (node.type === "array" && Number.isFinite(Number(node.maxItems))) {
+    caps.push(`${path || "array"}<=${Number(node.maxItems)}`);
+  }
+  if (node.items) caps.push(...transcriptArrayCapInstruction(node.items, `${path}[]`));
+  for (const [key, child] of Object.entries(node.properties || {})) {
+    caps.push(...transcriptArrayCapInstruction(child, path ? `${path}.${key}` : key));
+  }
+  return caps;
 }
 
 export function transcriptSummaryGenerateConfig() {
   return {
-    systemInstruction: TRANSCRIPT_SUMMARY_SYSTEM_PROMPT,
+    systemInstruction:
+      `${TRANSCRIPT_SUMMARY_SYSTEM_PROMPT}\nHard JSON array limits: ` +
+      `${transcriptArrayCapInstruction().join(", ")}.`,
     temperature: 0.3,
     // A verbose call can push the forced-JSON brief past 8k tokens and
     // truncate mid-array (AAPL Q2 2026 did, on the first live run) —

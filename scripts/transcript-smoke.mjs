@@ -19,10 +19,7 @@ const visit = (node, path = "$") => {
   if (!node || typeof node !== "object") return;
   if (node.type === "array") {
     arraySchemas += 1;
-    assert.ok(
-      typeof node.maxItems === "string" && /^\d+$/.test(node.maxItems) && Number(node.maxItems) > 0,
-      `${path}.maxItems must be a positive string-encoded OpenAPI int64`,
-    );
+    assert.ok(!Object.hasOwn(node, "maxItems"), `${path}.maxItems must stay off the API wire schema`);
   }
   if (node.items) visit(node.items, `${path}.items`);
   for (const [key, child] of Object.entries(node.properties || {})) {
@@ -32,6 +29,9 @@ const visit = (node, path = "$") => {
 
 visit(config.responseSchema);
 assert.ok(arraySchemas >= 17, `expected the capped transcript arrays, found ${arraySchemas}`);
+assert.match(config.systemInstruction, /Hard JSON array limits: .*execSummary<=8/);
+assert.match(config.systemInstruction, /mgmtTone\.phrases<=5/);
+assert.match(config.systemInstruction, /participants<=12/);
 
 assert.deepEqual(
   orderTranscriptProbeSymbols(
@@ -46,4 +46,4 @@ assert.deepEqual(
   ["AAPL", "MSFT", "INTC", "TSLA", "NVDA"],
   "transcript probes must run from the latest earnings print to the oldest, with unknown dates last",
 );
-console.log(`transcript smoke passed — ${arraySchemas} capped arrays use OpenAPI responseSchema int64 strings`);
+console.log(`transcript smoke passed — ${arraySchemas} arrays keep caps in the prompt and off the API wire schema`);
