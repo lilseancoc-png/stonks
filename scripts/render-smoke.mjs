@@ -44,10 +44,13 @@ try {
   assert.equal(contentAssetVersion("same\r\nlines\r\n"), contentAssetVersion("same\nlines\n"));
   assert.equal((html.match(/id="picks-position"/g) || []).length, 1);
   assert.ok(html.indexOf('id="picks-position"') > html.indexOf('id="quant-section"'));
-  assert.match(html, /data-nav-group="owner"[\s\S]*?side-nav-group-label">Owner[\s\S]*?data-page-tab="picks"[\s\S]*?data-page-tab="stocks"[\s\S]*?data-page-tab="rotation"[\s\S]*?data-page-tab="levetf"[\s\S]*?data-page-tab="track"[\s\S]*?data-page-tab="quant"/);
+  assert.match(html, /data-nav-group="owner"[\s\S]*?side-nav-group-label">Owner[\s\S]*?data-page-tab="market"[\s\S]*?data-page-tab="picks"[\s\S]*?data-page-tab="stocks"[\s\S]*?data-page-tab="rotation"[\s\S]*?data-page-tab="levetf"[\s\S]*?data-page-tab="track"[\s\S]*?data-page-tab="daytrade"[\s\S]*?data-page-tab="daytrack"[\s\S]*?data-page-tab="quant"/);
   const ideasNav = html.match(/<details class="side-nav-group" data-nav-group="ideas"[\s\S]*?<\/details>/)?.[0] || "";
   assert.ok(ideasNav, "Ideas navigation group must render");
   assert.doesNotMatch(ideasNav, /data-page-tab="(?:picks|stocks|rotation|levetf|track)"/);
+  assert.doesNotMatch(html.match(/<details class="side-nav-group" data-nav-group="desk"[\s\S]*?<\/details>/)?.[0] || "", /data-page-tab="market"/);
+  assert.match(html, /data-page-tab="timeline"[\s\S]*?id="page-pane-timeline"/);
+  assert.match(html, /08:30 ET[\s\S]*?Premarket Brief[\s\S]*?09:30, then hourly 10:00&ndash;16:00 ET/);
   assert.match(html, /href="https:\/\/ko-fi\.com\/mingstreetapp"/);
   assert.ok(html.includes(`class="discord-btn" href="${DISCORD_INVITE_URL}"`));
   assert.ok(html.includes(`class="foot-discord" href="${DISCORD_INVITE_URL}"`));
@@ -65,7 +68,7 @@ try {
   assert.match(appJs, /stkDcaBlock\(d, false\)/);
   assert.equal((appJs.match(/data-rot-account><\/label>/g) || []).length, 1);
   assert.equal((appJs.match(/data-lev-account><\/label>/g) || []).length, 1);
-  assert.match(appJs, /var OWNER_TABS = \{ picks:1, stocks:1, rotation:1, levetf:1, track:1, quant:1 \}/);
+  assert.match(appJs, /var OWNER_TABS = \{ market:1, picks:1, stocks:1, rotation:1, levetf:1, track:1, daytrade:1, daytrack:1, quant:1 \}/);
   assert.match(appJs, /HAS_TRACK_RECORD = HAS_OWNER_ACCESS/);
   assert.match(appJs, /HAS_TOP_PICKS = HAS_OWNER_ACCESS/);
   assert.match(appJs, /HAS_OWNER_ACCESS = !!\(GATE_ON && me && me\.trackRecord && me\.topPicks\)/);
@@ -134,11 +137,11 @@ try {
   assert.match(welcomeSource, /<script defer src="\/_vercel\/insights\/script\.js"><\/script>/);
   assert.doesNotMatch(welcomeSource, /data-disable-auto-track/);
 
-  for (const key of ["grades.json", "TSLA.json", "trends.json", "trends-history.json", "market-analysis.json", "briefs.json", "earnings-tracker.json", "index-calendar.json", "spillover-pairs.json", "unusual.json", "oi-tracker.json", "iv-history/TSLA.json", "manifest.json"]) {
+  for (const key of ["grades.json", "TSLA.json", "trends.json", "trends-history.json", "briefs.json", "earnings-tracker.json", "index-calendar.json", "spillover-pairs.json", "unusual.json", "oi-tracker.json", "iv-history/TSLA.json", "manifest.json"]) {
     assert.equal(isPremiumKey(key), false, `${key} must take the public cache path`);
     assert.equal(roleClaimForKey(key), null, `${key} must not require a login`);
   }
-  for (const key of ["picks.json", "picks-open.json", "picks-0dte.json", "picks-0dte-accuracy.json", "auto-picks.json", "stock-picks.json", "sector-rotation.json", "sector-rotation-log.json", "leveraged-etfs.json", "leveraged-etfs-log.json", "picks-accuracy.json", "picks-changes.json", "picks-roster.json", "grades-history.json", "grades-daily.json", "quant.json", "quant-history.json", "day-trading.json", "day-trading-history.json", "day-trades.json", "day-trades-history.json", "picks-watchlist.json", "ai-usage.json"]) {
+  for (const key of ["market-analysis.json", "picks.json", "picks-open.json", "picks-0dte.json", "picks-0dte-accuracy.json", "auto-picks.json", "stock-picks.json", "sector-rotation.json", "sector-rotation-log.json", "leveraged-etfs.json", "leveraged-etfs-log.json", "picks-accuracy.json", "picks-changes.json", "picks-roster.json", "grades-history.json", "grades-daily.json", "quant.json", "quant-history.json", "day-trading.json", "day-trading-history.json", "day-trades.json", "day-trades-history.json", "picks-watchlist.json", "ai-usage.json"]) {
     assert.equal(isPremiumKey(key), true);
     assert.deepEqual(roleClaimForKey(key), ["tr", "tp"], `${key} must require both Owner claims`);
   }
@@ -164,6 +167,7 @@ try {
   const coreTools = buildSource.match(/const coreTools = \[[\s\S]*?\n      \];/)?.[0] || "";
   assert.ok(coreTools, "Brief core-tool coverage list must exist");
   assert.doesNotMatch(coreTools, /Top picks/i);
+  assert.doesNotMatch(briefSources, /market-analysis\.json/);
   const briefBuilder = buildSource.match(/export async function buildMarketBriefs\(opts\)[\s\S]*?\n}\n\nconst AI_SYSTEM_PROMPT/)?.[0] || "";
   assert.ok(briefBuilder, "Brief builder must exist");
   assert.doesNotMatch(briefBuilder, /picksChanges|\bpicks\b/);
@@ -171,6 +175,8 @@ try {
   assert.ok(briefCall, "Brief production call must exist");
   assert.doesNotMatch(briefCall, /picksChanges|\bpicks\s*:/);
   assert.match(buildSource, /writeAutoPicksFile\(ownerAutoPicks, builtAtIso\)/);
+  assert.match(buildSource, /function buildIntradaySeries\(bars\)[\s\S]*?o: tail\.map[\s\S]*?h: tail\.map[\s\S]*?l: tail\.map/);
+  assert.match(appJs, /opt-pc-candle-body[\s\S]*?opt-pc-fib-label[\s\S]*?opt-pc-vol-up/);
   assert.match(buildSource, /autoPick: _legacyAutoPick, \.\.\.rest/);
   assert.doesNotMatch(buildSource, /JSON\.stringify\(\{ \.\.\.rest, priceSeries, intradaySeries, autoPick \}\)/);
 

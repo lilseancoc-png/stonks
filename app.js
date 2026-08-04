@@ -44,10 +44,10 @@
   var NEXT_FOMC_DATES = Array.isArray(MANIFEST.nextFomcDates) ? MANIFEST.nextFomcDates : [];
   // --- Owner gate (client half) ---------------------------------------------
   // Most research is public without a login. The server independently protects
-  // the Owner idea/record desks and Owner Lab; this UI boundary keeps those six
+  // the Owner analysis/idea/record desks and Owner Lab; this UI boundary keeps
   // destinations hidden until the owner session's compatibility claims resolve.
   // Discord mints both only after verifying the existing Top Picks owner role.
-  var OWNER_TABS = { picks:1, stocks:1, rotation:1, levetf:1, track:1, quant:1 };
+  var OWNER_TABS = { market:1, picks:1, stocks:1, rotation:1, levetf:1, track:1, daytrade:1, daytrack:1, quant:1 };
   var GATE_ON = false;
   var HAS_TRACK_RECORD = false;
   var HAS_TOP_PICKS = false;
@@ -86,12 +86,12 @@
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.03730;
+  var RFR = 0.03675;
   // Provenance for the risk-free rate baked above. source is
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-08-04","ageDays":null};
+  var RFR_META = {"source":"cached","asOf":"2026-07-31","ageDays":4};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null, chainRequestSeq: 0 };
   var ownerAutoPicks = { data: null, pending: null };
@@ -3360,7 +3360,7 @@
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','rotation','picks','stocks','heatmap','calendar','earnings','calls','spillover','quant','levetf','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','search-interest','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','rotation','picks','stocks','heatmap','calendar','earnings','calls','spillover','quant','daytrade','daytrack','levetf','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','search-interest','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3392,10 +3392,13 @@
     iv: 'iv-trend', 'trending-iv': 'iv-trend', 'iv-trending': 'iv-trend', ivtrend: 'iv-trend', 'implied-vol': 'iv-trend', 'implied-volatility': 'iv-trend',
     'event-spillover': 'spillover', 'read-through': 'spillover', readthrough: 'spillover', 'spill-over': 'spillover', spill: 'spillover',
     'quant-lab': 'quant', quantlab: 'quant', pairs: 'quant', 'pair-trading': 'quant', sigma: 'quant', vrp: 'quant', dispersion: 'quant',
+    'day-trading': 'daytrade', daytrading: 'daytrade', 'day-trade': 'daytrade',
+    'day-trading-track-record': 'daytrack', 'day-trading-record': 'daytrack', daytrack: 'daytrack',
     'leveraged-etfs': 'levetf', 'leveraged-etf': 'levetf', leveraged: 'levetf', letf: 'levetf', 'lev-etf': 'levetf', tqqq: 'levetf', soxl: 'levetf',
     // Reference / legal / info pages (now in-app tabs).
     'buyers-manual': 'cheatsheet', 'buyer-manual': 'cheatsheet', cheat: 'cheatsheet', 'cheat-sheet': 'cheatsheet', manual: 'cheatsheet',
     patterns: 'chart-patterns', chartpatterns: 'chart-patterns', 'chart-pattern': 'chart-patterns',
+    timeline: 'timeline', schedule: 'timeline', refresh: 'timeline', 'refresh-schedule': 'timeline', 'build-timeline': 'timeline',
     privacypolicy: 'privacy', 'privacy-policy': 'privacy',
     tos: 'terms', 'terms-of-use': 'terms', 'terms-of-service': 'terms',
   };
@@ -3730,6 +3733,7 @@
         if (name === 'iv-trend' && typeof loadIvTrend === 'function') loadIvTrend();
         if (name === 'spillover' && typeof loadSpillover === 'function') loadSpillover();
         if (name === 'quant' && typeof loadQuant === 'function') loadQuant();
+        if ((name === 'daytrade' || name === 'daytrack') && typeof loadDayTrading === 'function') loadDayTrading();
       if (name === 'levetf' && typeof loadLevEtf === 'function') loadLevEtf();
       // The sidebar scrolls vertically when the tab list outgrows the
       // viewport. Programmatic selection (e.g. a ?tab= deep-link) can leave
@@ -4829,8 +4833,8 @@
   }
   // Daily price chart for the Technicals tab, drawn from the compact priceSeries
   // baked into each ticker JSON (build.mjs buildPriceSeries). Lets a human eyeball
-  // formations the AI chart-pattern detector may miss — close line + range-
-  // adaptive SMA overlays + high/low range band + volume strip + spot line.
+  // formations the AI chart-pattern detector may miss — OHLC candles, range-
+  // adaptive SMA overlays, directional volume, Fibonacci levels and spot line.
   function priceChartSma(arr, p){
     // Queue of the actual contributed (non-null) values so a null gap can't
     // desync the rolling sum from the window — evict the value that truly left,
@@ -4895,10 +4899,13 @@
   // for that range (points feed the hover crosshair + tooltip).
   function priceChartRender(ps, spot, startIdx, opts){
     opts = opts || {};
-    var intraday = !!opts.intraday;                 // clean line, no band/SMA (Robinhood-style)
+    var intraday = !!opts.intraday;
     var smaPeriods = opts.smaPeriods || [50, 200];
-    var c = ps.c, h = ps.h || c, l = ps.l || c, v = ps.v || [], dates = ps.t || [];
+    var c = ps.c, o = ps.o || [], h = ps.h || c, l = ps.l || c, v = ps.v || [], dates = ps.t || [];
     var n = c.length;
+    var hasOhlc = o.length === n && h.length === n && l.length === n && o.some(function(x, idx){
+      return x != null && isFinite(x) && h[idx] != null && isFinite(h[idx]) && l[idx] != null && isFinite(l[idx]);
+    });
     var s0 = Math.max(0, startIdx | 0);
     if (n - s0 < 2) s0 = Math.max(0, n - 2);
     var dN = n - s0;
@@ -4940,10 +4947,9 @@
       }
       return s;
     }
-    // high/low range band — daily only (the intraday series ships close-only and
-    // a Robinhood-style intraday chart is a clean line with no band anyway).
+    // Legacy close-only payloads retain the old high/low band + line fallback.
     var band = '';
-    if (!intraday){
+    if (!hasOhlc && !intraday){
       var topPts = [], botPts = [];
       for (i = s0; i < n; i++){
         var hv = (h[i] != null ? h[i] : c[i]), lv = (l[i] != null ? l[i] : c[i]);
@@ -4961,19 +4967,58 @@
       grid += '<line class="opt-pc-grid" x1="' + padL + '" y1="' + gy.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + gy.toFixed(1) + '" />';
       grid += '<text class="opt-pc-ylabel" x="' + (padL - 6) + '" y="' + (gy + 3).toFixed(1) + '">$' + fmt(gval) + '</text>';
     }
-    // volume strip (single path of vertical strokes)
+    // Candlesticks and visible-range Fibonacci retracements. Direction follows
+    // the chronological swing: low→high draws pullback levels down from the high;
+    // high→low draws rebound levels up from the low.
+    var candleEl = '', fibEl = '';
+    if (hasOhlc){
+      var candleStep = histW / Math.max(1, dN - 1);
+      var candleW = Math.max(1.2, Math.min(8, candleStep * 0.62));
+      var candleParts = [];
+      for (i = s0; i < n; i++){
+        var ov = Number(o[i]), cv = Number(c[i]), hv2 = Number(h[i]), lv2 = Number(l[i]);
+        if (![ov, cv, hv2, lv2].every(isFinite)) continue;
+        var cx = xAt(i), cyO = yAt(ov), cyC = yAt(cv), cyH = yAt(hv2), cyL = yAt(lv2);
+        var up = cv >= ov, bodyY = Math.min(cyO, cyC), bodyH = Math.max(1.2, Math.abs(cyC - cyO));
+        var cls = up ? 'is-up' : 'is-down';
+        candleParts.push('<line class="opt-pc-candle-wick ' + cls + '" x1="' + cx.toFixed(1) + '" y1="' + cyH.toFixed(1) + '" x2="' + cx.toFixed(1) + '" y2="' + cyL.toFixed(1) + '" />');
+        candleParts.push('<rect class="opt-pc-candle-body ' + cls + '" x="' + (cx - candleW / 2).toFixed(1) + '" y="' + bodyY.toFixed(1) + '" width="' + candleW.toFixed(1) + '" height="' + bodyH.toFixed(1) + '" rx=".35" />');
+      }
+      candleEl = candleParts.join('');
+      var swingHi = -Infinity, swingLo = Infinity, swingHiIdx = s0, swingLoIdx = s0;
+      for (i = s0; i < n; i++){
+        if (h[i] != null && isFinite(h[i]) && Number(h[i]) > swingHi){ swingHi = Number(h[i]); swingHiIdx = i; }
+        if (l[i] != null && isFinite(l[i]) && Number(l[i]) < swingLo){ swingLo = Number(l[i]); swingLoIdx = i; }
+      }
+      if (isFinite(swingHi) && isFinite(swingLo) && swingHi > swingLo){
+        var swingUp = swingLoIdx < swingHiIdx;
+        [0.236, 0.382, 0.5, 0.618, 0.786].forEach(function(ratio){
+          var price = swingUp ? swingHi - (swingHi - swingLo) * ratio : swingLo + (swingHi - swingLo) * ratio;
+          var fy = yAt(price).toFixed(1), pct = (ratio * 100).toFixed(ratio === 0.5 ? 0 : 1) + '%';
+          fibEl += '<line class="opt-pc-fib' + (ratio === 0.5 ? ' is-mid' : '') + '" x1="' + padL + '" y1="' + fy + '" x2="' + (padL + histW).toFixed(1) + '" y2="' + fy + '" />' +
+            '<text class="opt-pc-fib-label" text-anchor="end" x="' + (padL + histW - 4).toFixed(1) + '" y="' + (Number(fy) - 3).toFixed(1) + '">' + pct + ' $' + fmt(price) + '</text>';
+        });
+      }
+    }
+    // Directional volume: green when close >= open, red when close < open.
     var vmax = 0; for (i = s0; i < n; i++){ if (v[i] != null && v[i] > vmax) vmax = v[i]; }
-    var volPath = '';
+    var volUpPath = '', volDownPath = '', volNeutralPath = '';
     if (vmax > 0){
       for (i = s0; i < n; i++){
         if (v[i] == null) continue;
         var vh = (v[i] / vmax) * (volBot - volTop);
         var vx = xAt(i).toFixed(1);
-        volPath += 'M' + vx + ' ' + volBot.toFixed(1) + 'L' + vx + ' ' + (volBot - vh).toFixed(1);
+        var seg = 'M' + vx + ' ' + volBot.toFixed(1) + 'L' + vx + ' ' + (volBot - vh).toFixed(1);
+        var openForBar = o[i] != null && isFinite(o[i]) ? Number(o[i]) : (i > 0 && c[i - 1] != null ? Number(c[i - 1]) : null);
+        if (openForBar == null || c[i] == null || !isFinite(c[i])) volNeutralPath += seg;
+        else if (Number(c[i]) >= openForBar) volUpPath += seg;
+        else volDownPath += seg;
       }
     }
     var barW = Math.max(1, (histW / dN) * 0.6).toFixed(2);
-    var vol = volPath ? '<path class="opt-pc-vol" style="stroke-width:' + barW + '" d="' + volPath + '" />' : '';
+    var vol = (volUpPath ? '<path class="opt-pc-vol opt-pc-vol-up" style="stroke-width:' + barW + '" d="' + volUpPath + '" />' : '') +
+      (volDownPath ? '<path class="opt-pc-vol opt-pc-vol-down" style="stroke-width:' + barW + '" d="' + volDownPath + '" />' : '') +
+      (volNeutralPath ? '<path class="opt-pc-vol" style="stroke-width:' + barW + '" d="' + volNeutralPath + '" />' : '');
     // RSI(14) sub-panel below the volume strip — shares the price x-axis.
     // Computed over the FULL closes (correct lookback behind a zoomed window),
     // drawn only within the visible window, mapped 0..100 -> [rsiBot, rsiTop].
@@ -5022,7 +5067,9 @@
         xlabels += '<text class="opt-pc-xlabel" text-anchor="' + anch[i] + '" x="' + xAt(idxs[i]).toFixed(1) + '" y="' + (rsiBot + 14) + '">' + escapeHtml(priceChartFmtDate(dates[idxs[i]], intraday)) + '</text>';
       }
     }
-    var legend = '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-close"></i>Close</span>';
+    var legend = hasOhlc
+      ? '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-bull"></i>Bull candle / volume</span><span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-bear"></i>Bear candle / volume</span><span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-fib"></i>Fib retracement</span>'
+      : '<span class="opt-pc-leg"><i class="opt-pc-key opt-pc-key-close"></i>Close</span>';
     var smaAEl = '', smaBEl = '';
     // adaptive SMAs — daily ranges only. Computed over the FULL closes (correct
     // lookback behind a zoomed window), drawn only within the visible window.
@@ -5074,7 +5121,7 @@
       fcXlabel = '<text class="opt-pc-xlabel" text-anchor="middle" x="' + X((xb + xr) / 2) + '" y="' + (rsiBot + 14) + '">1Y forecast' + (fc.n ? ' · ' + fc.n + ' analysts' : '') + '</text>';
     }
     var aria = intraday ? '30-minute intraday bars, ' + dN + ' points' : 'daily, ' + dN + ' sessions';
-    // Hover points — one [x, y, dateRaw, close, vol(, high, low)] per visible bar
+    // Hover points — one [x, y, dateRaw, close, vol, open, high, low] per bar
     // with a finite close, pre-projected to SVG coords so attachPriceChartHover
     // can snap a crosshair + tooltip to the nearest bar without redoing the math.
     var hoverPts = [];
@@ -5082,11 +5129,10 @@
       if (c[i] == null || !isFinite(c[i])) continue;
       var hpt = [ +xAt(i).toFixed(1), +yAt(c[i]).toFixed(1), (dates[i] || ''),
         +c[i].toFixed(2), (v[i] != null && isFinite(v[i]) ? v[i] : null) ];
-      if (!intraday){
-        var hpH = (h[i] != null ? h[i] : c[i]), hpL = (l[i] != null ? l[i] : c[i]);
-        hpt.push(hpH != null && isFinite(hpH) ? +hpH.toFixed(2) : null);
-        hpt.push(hpL != null && isFinite(hpL) ? +hpL.toFixed(2) : null);
-      }
+      var hpO = (o[i] != null ? o[i] : null), hpH = (h[i] != null ? h[i] : c[i]), hpL = (l[i] != null ? l[i] : c[i]);
+      hpt.push(hpO != null && isFinite(hpO) ? +Number(hpO).toFixed(2) : null);
+      hpt.push(hpH != null && isFinite(hpH) ? +Number(hpH).toFixed(2) : null);
+      hpt.push(hpL != null && isFinite(hpL) ? +Number(hpL).toFixed(2) : null);
       hoverPts.push(hpt);
     }
     // Crosshair scaffolding: a transparent hit rect so moves over empty gaps
@@ -5103,15 +5149,15 @@
       hoverPts.map(function(p){ return priceChartFmtDate(p[2], intraday); }),
       [{ name: 'Close', values: hoverPts.map(function(p){ return p[3]; }) }]
     );
-    var svg = '<svg class="opt-pc-svg"' + rangeAttr + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Price chart, ' + aria + ', with RSI(14)">' +
-      fanDefs + grid + hitEl + band + vol + rsiEl + smaBEl + smaAEl +
-      '<polyline class="opt-pc-close" fill="none" points="' + pts(c) + '" />' +
+    var svg = '<svg class="opt-pc-svg"' + rangeAttr + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Price chart, ' + aria + ', with directional volume, Fibonacci retracements and RSI(14)">' +
+      fanDefs + grid + fibEl + hitEl + band + vol + rsiEl + smaBEl + smaAEl + candleEl +
+      (hasOhlc ? '' : '<polyline class="opt-pc-close" fill="none" points="' + pts(c) + '" />') +
       fanEl + spotEl + xlabels + fcXlabel + fanLabels + hoverEl +
       '</svg>';
     return { svg: svg, legend: legend, points: hoverPts, intraday: intraday };
   }
   // Price chart with range tabs (default 1M). 1W and 1M draw the 30-minute
-  // INTRADAY series (Robinhood-style clean line) so short-horizon shapes are
+    // INTRADAY OHLCV series so short-horizon candles and volume are visible;
   // visible; 3M and 1Y draw the DAILY series with range-adaptive SMAs. CSS-only
   // switching via hidden radios. Falls back to daily slices for 1W/1M when a
   // ticker has no intraday series (older payload / failed fetch).
@@ -5167,15 +5213,15 @@
     }
     if (!shown) return '';
     var foot = hasIntra
-      ? '1W &amp; 1M are 30-minute intraday bars (like Robinhood); 3M &amp; 1Y are daily closes with moving averages.'
-      : 'Daily closes with range-adaptive moving averages (intraday unavailable for this ticker).';
+      ? '1W &amp; 1M are 30-minute intraday candles; 3M &amp; 1Y are daily candles with moving averages.'
+      : 'Daily candles with range-adaptive moving averages (intraday unavailable for this ticker).';
     return '<div class="opt-tech-chart">' + radios +
       '<div class="opt-tech-chart-head">' +
         '<span class="opt-tech-chart-title">Price</span>' +
         '<div class="opt-pc-ranges">' + tabs + '</div>' +
       '</div>' +
       '<div class="opt-pc-charts">' + charts + '</div>' +
-      '<div class="opt-tech-chart-foot">' + foot + ' Pick a range and eyeball it against the chart-pattern read above.</div>' +
+      '<div class="opt-tech-chart-foot">' + foot + ' Green volume closes at/above the bar open; red volume closes below it. Fibonacci levels use the visible range\'s chronological swing high/low and redraw with each range. Use both as setup context, not standalone signals.</div>' +
     '</div>';
   }
   // Wire crosshair + tooltip hover onto every price chart inside root (one per
@@ -5226,10 +5272,10 @@
         crossX.setAttribute('x1', px); crossX.setAttribute('x2', px);
         crossY.setAttribute('y1', py); crossY.setAttribute('y2', py);
         dot.setAttribute('cx', px); dot.setAttribute('cy', py);
-        // p = [x, y, dateRaw, close, vol(, high, low)]
+        // p = [x, y, dateRaw, close, vol, open, high, low]
         var rows = tipRow('Close', '$' + fmt(p[3]));
-        if (!intraday && p.length > 6 && p[5] != null && p[6] != null){
-          rows += tipRow('High', '$' + fmt(p[5])) + tipRow('Low', '$' + fmt(p[6]));
+        if (p.length > 7 && p[5] != null && p[6] != null && p[7] != null){
+          rows = tipRow('Open', '$' + fmt(p[5])) + tipRow('High', '$' + fmt(p[6])) + tipRow('Low', '$' + fmt(p[7])) + rows;
         }
         if (p[4] != null && isFinite(p[4])) rows += tipRow('Vol', fmtVolume(p[4]));
         tip.innerHTML = '<div class="opt-pc-tip-head">' + escapeHtml(priceChartFmtDate(p[2], intraday)) + '</div>' + rows;
@@ -11994,11 +12040,11 @@
     var cb = el.querySelector('.tape-axm-close'); if (cb) cb.focus();
   }
   // --- Market analysis tab: baked-regime source + loader --------------------
-  // The regime widgets read the dedicated data/market-analysis.json payload
-  // (premium, NOT role-restricted — written by the bake + regen-picks with the
-  // same macroRegime object that rides picks.json's rosterMeta), falling back
-  // to picks.json's rosterMeta when a Top-Picks role holder already loaded the
-  // picks tab (also covers the window before the first bake ships the file).
+  // The regime widgets read the dedicated Owner-only
+  // data/market-analysis.json payload (written by the bake + regen-picks with
+  // the same macroRegime object that rides picks.json's rosterMeta), falling
+  // back to picks.json's rosterMeta when the owner already loaded the picks tab
+  // (also covers the window before the first bake ships the file).
   var marketState = { data: null, loading: false };
   var scenarioState = { selected: null, query: '', sector: 'all', showAll: false, basket: '' };
   function marketRegimeBaked(){
@@ -20282,9 +20328,9 @@
   // dispersion / post-earnings-drift screens. ANALYTICAL ONLY: z-scores and
   // ranks, never trade signals (the playbook table in the shell is educational).
   // data/quant.json is the daily analytical research payload. The owner-only
-  // intraday paper engine is a separate producer and therefore has separate
-  // current/history objects; all three keys require the signed Owner session.
-  var quantState = { data: null, dayTrading: null, dayTradingHistory: null, loading: false };
+  // intraday paper engine is a separate producer and separate pair of tabs.
+  var quantState = { data: null, loading: false };
+  var dayTradingState = { data: null, history: null, loading: false };
   function quantFetchJson(url){
     return fetch(url, { cache: 'no-store', credentials: 'same-origin' })
       .then(function(r){
@@ -20319,21 +20365,12 @@
     if ((quantState.data && !tabDataStale(quantState)) || quantState.loading){ renderQuant(); return; }
     quantState.loading = true;
     var primaryUrl = dataUrl('quant.json');
-    var dayUrl = dataUrl('day-trading.json');
-    var histUrl = dataUrl('day-trading-history.json');
-    return Promise.all([
-      quantFetchJson(primaryUrl).catch(function(err){ return { loadError: true, loadErrorDetail: String(err && err.message || err) }; }),
-      quantFetchJson(dayUrl).catch(function(){ return null; }),
-      quantFetchJson(histUrl).catch(function(){ return null; })
-    ])
-      .then(function(rows){
-        quantState.data = (rows[0] && typeof rows[0] === 'object') ? rows[0] : {};
-        quantState.dayTrading = rows[1];
-        quantState.dayTradingHistory = rows[2];
+    return quantFetchJson(primaryUrl)
+      .then(function(row){
+        quantState.data = (row && typeof row === 'object') ? row : {};
         quantState.loading = false;
         quantState.fetchedAt = Date.now();
         try {
-          renderDayTrading();
           renderQuant();
         } catch (err) {
           console.error('Quant Lab render failed', err);
@@ -20349,9 +20386,29 @@
         });
         quantState.data = { loadError: true, loadErrorDetail: detail };
         quantState.loading = false;
-        renderDayTrading();
         renderQuant();
       });
+  }
+  function loadDayTrading(){
+    if ((dayTradingState.data && !tabDataStale(dayTradingState)) || dayTradingState.loading){
+      renderDayTrading(); renderDayTradingTrack(); return;
+    }
+    dayTradingState.loading = true;
+    return Promise.all([
+      quantFetchJson(dataUrl('day-trading.json')).catch(function(){ return null; }),
+      quantFetchJson(dataUrl('day-trading-history.json')).catch(function(){ return null; })
+    ]).then(function(rows){
+      dayTradingState.data = rows[0];
+      dayTradingState.history = rows[1];
+      dayTradingState.loading = false;
+      dayTradingState.fetchedAt = Date.now();
+      renderDayTrading();
+      renderDayTradingTrack();
+    }, function(){
+      dayTradingState.loading = false;
+      renderDayTrading();
+      renderDayTradingTrack();
+    });
   }
   function quantSymLink(sym){
     var s = String(sym || '').toUpperCase();
@@ -20476,8 +20533,9 @@
     var rows = closed.filter(predicate);
     return '<span><small>' + label + '</small><b>' + rows.length + ' trades</b><em>' + dtMoney(dtAverage(rows, 'pnl')) + ' avg</em></span>';
   }
-  function dtAnalytics(kind, book, sessions){
+  function dtAnalytics(kind, book, summary, sessions){
     book = book || {};
+    summary = summary || {};
     var closed = Array.isArray(book.closed) ? book.closed : [];
     var pnlKey = kind === 'options' ? 'optionsPnl' : 'stockPnl';
     var days = sessions.map(function(row){ return Number(row[pnlKey]); }).filter(isFinite);
@@ -20498,13 +20556,13 @@
     return '<div class="dt-analytics">' +
       '<span><small>Daily P&amp;L distribution</small><b>' + dtMoney(dtAverage(days, function(x){ return x; })) + ' avg</b><em>' + dtMoney(worst) + ' worst · ' + dtMoney(best) + ' best</em></span>' +
       '<span><small>Loss-limit hits</small><b>' + Number(book.dailyStopHits || 0) + '</b><em>hard flatten + session stop</em></span>' +
-      '<span><small>Win / payoff</small><b>' + (book.winRate == null ? '—' : Number(book.winRate).toFixed(1) + '%') + '</b><em>' + dtMoney(book.avgWin) + ' / ' + dtMoney(book.avgLoss) + ' · PF ' + (book.profitFactor == null ? '—' : book.profitFactor) + '</em></span>' +
-      '<span><small>Adverse excursion</small><b>' + dtPct(book.averageMaePct) + '</b><em>average closed-trade MAE</em></span>' +
-      '<span><small>True max drawdown</small><b>' + dtPct(book.trueMaxDrawdownPct) + '</b><em>never-reset curve · recovery ' + (book.longestRecoveryHours == null ? '—' : book.longestRecoveryHours + 'h') + '</em></span>' +
-      '<span><small>Resets</small><b>' + Number(book.resets || 0) + '</b><em>reset curve only; true curve preserved</em></span>' +
+      '<span><small>Win / payoff</small><b>' + (summary.winRate == null ? '—' : Number(summary.winRate).toFixed(1) + '%') + '</b><em>' + dtMoney(summary.avgWin) + ' / ' + dtMoney(summary.avgLoss) + ' · PF ' + (summary.profitFactor == null ? '—' : summary.profitFactor) + '</em></span>' +
+      '<span><small>Adverse excursion</small><b>' + dtPct(summary.averageMaePct) + '</b><em>average closed-trade MAE</em></span>' +
+      '<span><small>True max drawdown</small><b>' + dtPct(summary.trueMaxDrawdownPct) + '</b><em>never-reset curve · recovery ' + (summary.longestRecoveryHours == null ? '—' : summary.longestRecoveryHours + 'h') + '</em></span>' +
+      '<span><small>Resets</small><b>' + Number(summary.resets || 0) + '</b><em>reset curve only; true curve preserved</em></span>' +
       dtBucket(closed, 'First-hour follow-through', function(row){ return row.entryWindow === 'first-hour-follow-through'; }) +
       dtBucket(closed, 'Mid-day', function(row){ return row.entryWindow === 'mid-day'; }) +
-      dtBucket(closed, 'Last hour (blocked)', function(row){ return row.entryWindow === 'last-hour'; }) +
+      dtBucket(closed, 'Last hour', function(row){ return row.entryWindow === 'last-hour'; }) +
       dtBucket(closed, 'After first-hour rally', function(row){ return firstRally.has(row.session); }) +
       dtBucket(closed, 'After first-hour sell-off', function(row){ return firstSell.has(row.session); }) +
       dtBucket(closed, 'Full-size periods', function(row){ return row.sizeMode !== 'half'; }) +
@@ -20515,7 +20573,7 @@
   function renderDayTrading(){
     var root = $('day-trading-root'); var empty = $('day-trading-empty'); var stamp = $('dt-engine-stamp');
     if (!root) return;
-    var d = quantState.dayTrading; var h = quantState.dayTradingHistory || {};
+    var d = dayTradingState.data;
     if (!d){
       root.hidden = true; if (empty) empty.hidden = false; if (stamp) stamp.textContent = 'Awaiting first scan';
       return;
@@ -20526,19 +20584,18 @@
     var market = d.market || {}; var first = market.firstHour || {}; var vol = market.volatility || {}; var event = market.event || {};
     var html = '<div class="dt-market">' +
       '<span><small>Directional bias</small><b class="' + (market.bias === 'long' ? 'quant-pos' : market.bias === 'short' ? 'quant-neg' : 'quant-dim') + '">' + escapeHtml(market.bias || 'unknown') + '</b><em>score ' + (market.biasScore == null ? '—' : market.biasScore) + ' · analysis ' + escapeHtml(market.analysisState || 'neutral') + '</em></span>' +
-      '<span><small>First hour</small><b>' + (first.complete ? 'Locked' : 'Waiting') + '</b><em>SPY ' + dtPct(first.spyRetPct) + ' · QQQ ' + dtPct(first.qqqRetPct) + '</em></span>' +
+      '<span><small>Opening 30m</small><b>' + (first.complete ? 'Complete' : 'Unavailable') + '</b><em>SPY ' + dtPct(first.spyRetPct) + ' · QQQ ' + dtPct(first.qqqRetPct) + '</em></span>' +
       '<span><small>Volatility regime</small><b>' + escapeHtml(vol.state || 'unknown') + '</b><em>VIX ' + (vol.vix == null ? '—' : vol.vix) + (vol.term ? ' · ' + escapeHtml(vol.term) : '') + '</em></span>' +
       '<span><small>Event authority</small><b class="' + (event.block ? 'quant-neg' : event.reduce ? 'quant-warn' : 'quant-pos') + '">' + (event.block ? 'Blocked' : event.reduce ? 'Reduced' : 'Clear') + '</b><em>' + escapeHtml(event.reason || 'no high-impact window') + '</em></span>' +
-      '<span><small>Execution window</small><b>10:30–14:30 ET</b><em>forced flat 15:55 · 75m max hold' + (market.lastHour && market.lastHour.active ? ' · last hour SPY ' + dtPct(market.lastHour.spyRetPct) + ' / QQQ ' + dtPct(market.lastHour.qqqRetPct) : '') + '</em></span>' +
+      '<span><small>Execution window</small><b>10:00–16:00 ET</b><em>entries until the close · forced flat 16:00 · 75m max hold' + (market.lastHour && market.lastHour.active ? ' · last hour SPY ' + dtPct(market.lastHour.spyRetPct) + ' / QQQ ' + dtPct(market.lastHour.qqqRetPct) : '') + '</em></span>' +
       '</div>';
-    var summaries = d.portfolios || {}; var books = h.portfolios || {}; var sessions = Array.isArray(h.sessions) ? h.sessions : [];
+    var summaries = d.portfolios || {};
     html += '<div class="dt-books">';
     [['options','1DTE options'],['stock','Stock long / short']].forEach(function(pair){
       var key = pair[0]; var s = summaries[key] || {}; var p = s.policy || {};
       var gate = p.hardStopped ? 'hard stopped' : p.weeklyCut ? 'weekly cut' : p.profitLocked ? 'profit lock' : p.softWarning ? 'soft warning' : 'normal risk';
       html += '<section class="dt-book"><div class="dt-book-head"><div><small>' + pair[1] + '</small><h4>' + dtMoney(s.resetEquity) + '</h4></div><span>' + escapeHtml(gate) + '</span></div>' +
-        '<div class="dt-book-grid"><span><small>Never-reset</small><b>' + dtMoney(s.trueEquity) + '</b></span><span><small>Today</small><b class="' + dtPnlClass(s.dayRealized) + '">' + dtMoney(s.dayRealized) + ' (' + dtPct(s.dayPct) + ')</b></span><span><small>Open / trades</small><b>' + Number(s.openCount || 0) + ' / ' + Number(s.tradesToday || 0) + '</b></span><span><small>Record</small><b>' + (s.winRate == null ? '—' : s.winRate + '%') + ' · PF ' + (s.profitFactor == null ? '—' : s.profitFactor) + '</b></span></div>' +
-        '<details class="dt-track"><summary>Day Trade Track Record · ' + Number(s.closedCount || 0) + ' closed</summary>' + dtAnalytics(key, books[key], sessions) + '</details></section>';
+        '<div class="dt-book-grid"><span><small>Never-reset</small><b>' + dtMoney(s.trueEquity) + '</b></span><span><small>Today</small><b class="' + dtPnlClass(s.dayRealized) + '">' + dtMoney(s.dayRealized) + ' (' + dtPct(s.dayPct) + ')</b></span><span><small>Open / trades</small><b>' + Number(s.openCount || 0) + ' / ' + Number(s.tradesToday || 0) + '</b></span><span><small>1DTE universe</small><b>' + (key === 'options' ? 'SPY / QQQ / IWM' : 'Tracked stocks') + '</b></span></div></section>';
     });
     html += '</div>';
     var open = (d.open?.options || []).concat(d.open?.stock || []);
@@ -20564,6 +20621,44 @@
       html += '</tbody></table></div>';
     }
     html += '<p class="quant-none">Simulation only. Option fills use the ask plus 3% entry slippage, bid minus 3% exit slippage and $0.65/contract each side; stock fills use 5 bp slippage plus $0.005/share. No order is ever sent.</p>';
+    root.innerHTML = html;
+  }
+  function renderDayTradingTrack(){
+    var root = $('day-trading-track-root'); var empty = $('day-trading-track-empty'); var stamp = $('dt-track-stamp');
+    if (!root) return;
+    var d = dayTradingState.data; var h = dayTradingState.history || {};
+    if (!d || !h.portfolios){
+      root.hidden = true; if (empty) empty.hidden = false; if (stamp) stamp.textContent = 'Awaiting ledger';
+      return;
+    }
+    root.hidden = false; if (empty) empty.hidden = true;
+    var updated = Date.parse(h.updatedAt || d.updatedAt || '');
+    if (stamp) stamp.textContent = isFinite(updated) ? 'Updated ' + new Date(updated).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : 'Paper ledger';
+    var summaries = d.portfolios || {}; var books = h.portfolios || {}; var sessions = Array.isArray(h.sessions) ? h.sessions : [];
+    var html = '<div class="dt-books">';
+    [['options','1DTE options'],['stock','Stock long / short']].forEach(function(pair){
+      var key = pair[0]; var s = summaries[key] || {}; var b = books[key] || {};
+      html += '<section class="dt-book"><div class="dt-book-head"><div><small>' + pair[1] + '</small><h4>' + Number(s.closedCount || 0) + ' closed</h4></div><span>' + (s.winRate == null ? '— win rate' : s.winRate + '% wins') + '</span></div>' +
+        '<div class="dt-book-grid"><span><small>Reset equity</small><b>' + dtMoney(s.resetEquity) + '</b></span><span><small>Never-reset</small><b>' + dtMoney(s.trueEquity) + '</b></span><span><small>Profit factor</small><b>' + (s.profitFactor == null ? '—' : s.profitFactor) + '</b></span><span><small>Avg win / loss</small><b>' + dtMoney(s.avgWin) + ' / ' + dtMoney(s.avgLoss) + '</b></span></div>' +
+        dtAnalytics(key, b, s, sessions) + '</section>';
+    });
+    html += '</div>';
+    var closed = [];
+    ['options','stock'].forEach(function(kind){
+      (Array.isArray(books[kind]?.closed) ? books[kind].closed : []).forEach(function(row){ closed.push(row); });
+    });
+    closed.sort(function(a, b){ return Date.parse(b.closedAt || 0) - Date.parse(a.closedAt || 0); });
+    html += '<div class="quant-sub">Recent closed paper trades</div>';
+    if (!closed.length) html += '<p class="quant-none">No trades have closed yet. The record begins only after a simulated position exits.</p>';
+    else {
+      html += '<div class="quant-scroll"><table class="quant-tbl dt-table"><thead><tr><th>Closed</th><th>Book</th><th>Name</th><th>Side</th><th>Entry</th><th>Exit reason</th><th>P&amp;L</th><th>Hold</th></tr></thead><tbody>';
+      closed.slice(0, 100).forEach(function(row){
+        var closedAt = Date.parse(row.closedAt || '');
+        html += '<tr><td>' + (isFinite(closedAt) ? new Date(closedAt).toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}) : '—') + '</td><td>' + escapeHtml(row.book || '') + '</td><td>' + quantSymLink(row.symbol) + '</td><td class="' + (row.direction === 'long' ? 'quant-pos' : 'quant-neg') + '">' + escapeHtml(row.direction || '') + '</td><td>' + dtMoney(row.initialCash) + '</td><td>' + escapeHtml(row.outcome || '') + '</td><td class="' + dtPnlClass(row.pnl) + '"><b>' + dtMoney(row.pnl) + '</b></td><td>' + Number(row.holdMinutes || 0) + 'm</td></tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+    html += '<p class="quant-none">Paper results include modeled slippage and commissions. Historical entries keep the rules that were frozen when they opened; this record is not a live brokerage statement.</p>';
     root.innerHTML = html;
   }
   function renderQuant(){

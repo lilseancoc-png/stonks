@@ -2,7 +2,8 @@ name: Owner Day Trading Engine
 
 # GitHub's scheduler is UTC and does not follow US daylight saving time, so the
 # broad UTC window is narrowed by an America/New_York clock check below. The
-# engine itself also enforces the 10:30–14:30 entry window and 15:55 flatten.
+# engine itself also enforces no entry before 10:00 ET and a 16:00 flatten;
+# otherwise it may enter throughout the rest of the regular session.
 on:
   schedule:
     - cron: "*/15 13-21 * * 1-5"
