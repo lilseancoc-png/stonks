@@ -45,6 +45,9 @@ try {
   assert.equal((html.match(/id="picks-position"/g) || []).length, 1);
   assert.ok(html.indexOf('id="picks-position"') > html.indexOf('id="quant-section"'));
   assert.match(html, /data-nav-group="owner"[\s\S]*?side-nav-group-label">Owner[\s\S]*?data-page-tab="market"[\s\S]*?data-page-tab="picks"[\s\S]*?data-page-tab="stocks"[\s\S]*?data-page-tab="rotation"[\s\S]*?data-page-tab="levetf"[\s\S]*?data-page-tab="track"[\s\S]*?data-page-tab="daytrade"[\s\S]*?data-page-tab="daytrack"[\s\S]*?data-page-tab="quant"/);
+  const navGroups = html.match(/<details class="side-nav-group"[^>]*>/g) || [];
+  assert.equal(navGroups.length, 9, "All sidebar navigation groups must render");
+  assert.ok(navGroups.every((tag) => /\sopen(?:\s|>)/.test(tag)), "All sidebar navigation groups must start expanded");
   const ideasNav = html.match(/<details class="side-nav-group" data-nav-group="ideas"[\s\S]*?<\/details>/)?.[0] || "";
   assert.ok(ideasNav, "Ideas navigation group must render");
   assert.doesNotMatch(ideasNav, /data-page-tab="(?:picks|stocks|rotation|levetf|track)"/);
