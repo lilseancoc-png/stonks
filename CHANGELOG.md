@@ -24,6 +24,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Changed
 
+- **Gemini chart vision now refreshes once daily at midday instead of twice per session.** The full-quality visual model still reads the complete ticker universe, but the 09:30 ET build defers the expensive pass until noon when the intraday chart is more representative; later changed bars keep the verdict as labeled display context and remove it from scoring exactly as before. The AI ledger now prices concrete 2.5 fallbacks and conservatively prices moving `-latest` aliases instead of omitting those calls from the dollar estimate, with an offline schedule/pricing check enforced before each build. `.github/workflows/daily.yml`, `scripts/{build,ai-cost-smoke}.mjs`, `package.json`.
+
 - **The 08:30 ET dispatch now generates only the pre-market market brief.** The Daily workflow routes that slot to a lightweight generator that hydrates the last verified store snapshot, refreshes overnight global markets, Fear & Greed, macro releases, and market headlines, then publishes only `briefs.json` plus shared AI accounting. Full ticker/chain builds begin at 09:30 ET and continue hourly through the close. The Brief-only output has its own freshness proof and shares the existing serialized ownership boundary with the regular-session brief producer. `.github/workflows/daily.yml`, `scripts/{regen-brief,sync-data,verify-data-freshness}.mjs`, `lib/data-ownership.mjs`, `scripts/render/{html,app-js}.mjs`, `docs/{private-data-migration,site-logic}.md`.
 
 - **Earnings-call backfills now run from the latest earnings print to the oldest.** Transcript discovery no longer spends its capped per-build probe budget in static ticker-list order; it prioritizes recently reported companies, keeps same-day ties deterministic, and sends names without a known print date to the end of the queue. `scripts/{build,transcript-smoke}.mjs`.
@@ -32,7 +34,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
-- **Earnings-call summaries resume after the structured-output schema regression.** The transcript prompt now sends its numeric array caps through Gemini's native `responseJsonSchema` field instead of the legacy `responseSchema` type, which rejected those constraints before generation and left the archive frozen while builds stayed green. A keyless smoke check now runs before every regular-session build and locks the request contract so new transcripts, including Intel's July call, can be minted again. `.github/workflows/daily.yml`, `scripts/{build,transcript-smoke}.mjs`, `package.json`.
+- **Earnings-call summaries resume after the structured-output schema regression.** The transcript prompt keeps its historically working OpenAPI `responseSchema` path while adapting numeric array caps to the current Gemini SDK's string-encoded int64 wire type; the large, deeply nested native JSON-Schema route returned `INVALID_ARGUMENT` for every live candidate. A keyless smoke check now runs before every regular-session build and locks both request-shape requirements so new transcripts, including Intel's July call, can be minted again. `.github/workflows/daily.yml`, `scripts/{build,transcript-smoke}.mjs`, `package.json`.
 
 ## 2026-08-02
 

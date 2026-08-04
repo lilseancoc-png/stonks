@@ -10,8 +10,8 @@ import {
 
 const config = transcriptSummaryGenerateConfig();
 assert.equal(config.responseMimeType, "application/json");
-assert.ok(config.responseJsonSchema, "transcript config must use responseJsonSchema");
-assert.ok(!Object.hasOwn(config, "responseSchema"), "legacy responseSchema rejects numeric maxItems constraints");
+assert.ok(config.responseSchema, "transcript config must use the OpenAPI responseSchema path");
+assert.ok(!Object.hasOwn(config, "responseJsonSchema"), "the backend rejects this deeply nested JSON Schema");
 assert.equal(TRANSCRIPTS_PER_BUILD, 12, "default transcript capacity must cover 12 new calls per build");
 
 let arraySchemas = 0;
@@ -20,8 +20,8 @@ const visit = (node, path = "$") => {
   if (node.type === "array") {
     arraySchemas += 1;
     assert.ok(
-      Number.isInteger(node.maxItems) && node.maxItems > 0,
-      `${path}.maxItems must be a positive JSON Schema integer`,
+      typeof node.maxItems === "string" && /^\d+$/.test(node.maxItems) && Number(node.maxItems) > 0,
+      `${path}.maxItems must be a positive string-encoded OpenAPI int64`,
     );
   }
   if (node.items) visit(node.items, `${path}.items`);
@@ -30,7 +30,7 @@ const visit = (node, path = "$") => {
   }
 };
 
-visit(config.responseJsonSchema);
+visit(config.responseSchema);
 assert.ok(arraySchemas >= 17, `expected the capped transcript arrays, found ${arraySchemas}`);
 
 assert.deepEqual(
@@ -46,4 +46,4 @@ assert.deepEqual(
   ["AAPL", "MSFT", "INTC", "TSLA", "NVDA"],
   "transcript probes must run from the latest earnings print to the oldest, with unknown dates last",
 );
-console.log(`transcript smoke passed — ${arraySchemas} capped arrays use responseJsonSchema`);
+console.log(`transcript smoke passed — ${arraySchemas} capped arrays use OpenAPI responseSchema int64 strings`);

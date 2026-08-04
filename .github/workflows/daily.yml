@@ -206,6 +206,9 @@ jobs:
       - name: Verify earnings-call schema
         run: npm run verify:transcripts
 
+      - name: Verify AI cost controls
+        run: npm run verify:ai-cost
+
       - name: Build site
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

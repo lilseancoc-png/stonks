@@ -7589,11 +7589,20 @@ const TRANSCRIPT_SUMMARY_SYSTEM_PROMPT =
   "exhaustive: every list has a hard schema item cap — pick the most consequential items and stop; never pad, repeat, " +
   "or enumerate every mention. The whole brief must comfortably fit the response budget.";
 
-// This is JSON Schema, not the SDK's legacy OpenAPI `Schema` object. In
-// @google/genai 2.x, legacy responseSchema models int64 constraints such as
-// maxItems as strings; passing this schema's numeric caps through that field
-// makes the request fail validation before the model can answer. Keep the
-// native JSON Schema on responseJsonSchema so numeric maxItems stay valid.
+// The backend JSON-Schema route rejects this large, deeply nested schema with
+// INVALID_ARGUMENT. Keep the historically working OpenAPI `responseSchema`
+// route, but encode its int64 constraints as strings as required by the
+// current @google/genai Schema wire type. The source schema stays numeric so
+// its caps remain natural to author and validate.
+function transcriptOpenApiSchema(node = TRANSCRIPT_SUMMARY_SCHEMA) {
+  if (Array.isArray(node)) return node.map((value) => transcriptOpenApiSchema(value));
+  if (!node || typeof node !== "object") return node;
+  return Object.fromEntries(Object.entries(node).map(([key, value]) => [
+    key,
+    key === "maxItems" ? String(value) : transcriptOpenApiSchema(value),
+  ]));
+}
+
 export function transcriptSummaryGenerateConfig() {
   return {
     systemInstruction: TRANSCRIPT_SUMMARY_SYSTEM_PROMPT,
@@ -7603,7 +7612,7 @@ export function transcriptSummaryGenerateConfig() {
     // give it real headroom; the normalizer caps the payload size anyway.
     maxOutputTokens: 16384,
     responseMimeType: "application/json",
-    responseJsonSchema: TRANSCRIPT_SUMMARY_SCHEMA,
+    responseSchema: transcriptOpenApiSchema(),
     thinkingConfig: { thinkingBudget: AI_TRANSCRIPT_THINK },
   };
 }
@@ -15768,8 +15777,8 @@ function scoreTechnicals(data, streakRow) {
   out.push(sig("volume", "Volume confirmation", rvol == null ? 0 : rvol >= 1.3 ? 1 : rvol < 0.8 ? -1 : 0, rvol == null ? null : r2(rvol) + "x", "Relative volume", rvol != null));
 
   // Chart pattern (confirmed + exact current bar window only). The vision pass
-  // is intentionally limited to two reads/day; an intra-bucket cached pattern
-  // may remain visible as labeled context but cannot vote after a new bar.
+  // is intentionally limited to one midday read/day; a cached pattern may
+  // remain visible as labeled context but cannot vote after a new bar.
   const cp = t.chartPattern || null;
   let cpScore = 0;
   const cpCurrent = chartPatternDecisionEligible(cp);
@@ -26261,9 +26270,17 @@ let _aiUsageState = null;
 
 // Paid Gemini Developer API token rates, USD per 1M tokens (2026-07-25).
 // Search-grounding query charges are not represented in usageMetadata, so the
-// log labels this a token-only estimate. Unknown/alias models stay visibly
-// unpriced instead of being assigned a misleading rate.
+// log labels this a token-only estimate. Unknown concrete models stay visibly
+// unpriced; moving -latest aliases use a conservative same-class ceiling.
 const AI_TOKEN_PRICES = {
+  "gemini-2.5-flash-lite": {
+    inline: { input: 0.10, cached: 0.01, output: 0.40 },
+    batch: { input: 0.05, cached: 0.005, output: 0.20 },
+  },
+  "gemini-2.5-flash": {
+    inline: { input: 0.30, cached: 0.03, output: 2.50 },
+    batch: { input: 0.15, cached: 0.015, output: 1.25 },
+  },
   "gemini-3.1-flash-lite": {
     inline: { input: 0.25, cached: 0.025, output: 1.50 },
     batch: { input: 0.125, cached: 0.0125, output: 0.75 },
@@ -26280,9 +26297,20 @@ const AI_TOKEN_PRICES = {
     inline: { input: 1.50, cached: 0.15, output: 7.50 },
     batch: { input: 0.75, cached: 0.075, output: 3.75 },
   },
+  // Auto aliases can move without a code change. Use the highest current
+  // same-class rate as a conservative estimate so fallback traffic is never
+  // silently omitted from the daily dollar total.
+  "gemini-flash-lite-latest": {
+    inline: { input: 0.30, cached: 0.03, output: 2.50 },
+    batch: { input: 0.15, cached: 0.015, output: 1.25 },
+  },
+  "gemini-flash-latest": {
+    inline: { input: 1.50, cached: 0.15, output: 9.00 },
+    batch: { input: 0.75, cached: 0.075, output: 4.50 },
+  },
 };
 
-function estimateAiBucketCost(model, bucket) {
+export function estimateAiBucketCost(model, bucket) {
   const table = AI_TOKEN_PRICES[model];
   if (!table || !bucket) return null;
   const price = bucket.mode === "batch" ? table.batch : table.inline;
@@ -30864,9 +30892,8 @@ async function generateChartPattern(ai, symbol, spot, bars, opts = {}) {
   };
 }
 
-// data/chart-pattern-cache.json — cross-build cache keyed on the AM/PM session
-// bucket (see chartPatternBucketKey) so the hourly builds within a half-day
-// reuse that half-day's read instead of re-rating the intraday chart every time,
+// data/chart-pattern-cache.json — cross-build cache keyed on the ET session day
+// so hourly builds reuse that day's read instead of re-rating every time,
 // PLUS a bar-series signature (chartPatternBarsSig) that lets a new bucket
 // reuse the read outright when the bars haven't changed (market closed).
 // Mirrors the read-before-wipe / write-after-wipe pattern used for macro /
@@ -30875,18 +30902,22 @@ async function generateChartPattern(ai, symbol, spot, bars, opts = {}) {
 // { [sym]: { key, barsSig, pattern } }.
 const CHART_PATTERN_CACHE_FILE = "chart-pattern-cache.json";
 
-// Re-rate the 1-month INTRADAY pattern ~2× per trading day — once at the open
-// and again midday — and reuse the cached read otherwise. Intraday bars change
-// every 30 min, so keying on the bar signature (as the old daily detector did)
-// would re-call the model on every build (8×/day, ~8× the Gemini spend). Instead
-// the key is the ET date + an AM/PM half: the FIRST build in each half is a miss
-// (re-reads), while later changed-bar builds retain the prior read as explicitly
+// Re-rate the 1-month INTRADAY pattern once per trading day, beginning at noon
+// ET, and reuse the cached read otherwise. Intraday bars change every 30 min, so
+// keying on the bar signature would re-call the model on every build (8×/day).
+// The noon gate avoids paying for a thin 09:30 chart and cuts the former AM/PM
+// cadence in half. Later changed-bar builds retain the prior read as explicitly
 // stale display context only. Exact frozen bars remain decision-eligible.
 // The same key string is used for every ticker in a given build, so a hit just
-// means "this ticker was already read this half-day". `img6` adds automatic
-// model/prompt/schema identity and stale-decision quarantine; older verdicts
-// cold-start once.
-const CHART_PATTERN_CACHE_VERSION = "img6";
+// means "this ticker was already read today". `img7` adds the noon-only cadence
+// while retaining automatic model/prompt/schema identity and stale-decision
+// quarantine; older verdicts cold-start once.
+const CHART_PATTERN_CACHE_VERSION = "img7";
+const chartPatternRefreshHourRaw = Number(process.env.AI_CHART_REFRESH_HOUR_ET ?? 12);
+const CHART_PATTERN_REFRESH_HOUR_ET = Math.min(
+  23,
+  Math.max(0, Number.isFinite(chartPatternRefreshHourRaw) ? Math.trunc(chartPatternRefreshHourRaw) : 12),
+);
 
 export function chartPatternInstructionSignature() {
   return createHash("sha256")
@@ -30903,12 +30934,16 @@ export function chartPatternInstructionSignature() {
     .slice(0, 16);
 }
 
-function chartPatternBucketKey() {
-  const now = new Date();
+export function chartPatternRefreshState(now = new Date()) {
   const etDate = now.toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // YYYY-MM-DD
   const etHour = Number(now.toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }));
-  const half = etHour < 12 ? "am" : "pm";
-  return `${CHART_PATTERN_CACHE_VERSION}|${chartPatternInstructionSignature()}|${etDate}|${half}`;
+  return {
+    bucketKey: `${CHART_PATTERN_CACHE_VERSION}|${chartPatternInstructionSignature()}|${etDate}`,
+    etDate,
+    etHour,
+    refreshHourEt: CHART_PATTERN_REFRESH_HOUR_ET,
+    freshAllowed: etHour >= CHART_PATTERN_REFRESH_HOUR_ET,
+  };
 }
 
 // Signature of the exact bar window the detector would be shown (the same
@@ -30920,7 +30955,7 @@ function chartPatternBucketKey() {
 // regular-session only, so from the Friday close until Monday's open every
 // re-read of a name was pure spend for a byte-identical answer. A changed bar
 // changes the signature; same-bucket reuse is then explicitly stale and
-// decision-ineligible, while a new AM/PM bucket gets a fresh full-model read.
+// decision-ineligible, while the next eligible ET day gets a fresh full-model read.
 // Versioned so a CHART_PATTERN_CACHE_VERSION bump invalidates these too.
 function chartPatternBarsSig(bars) {
   const series = bars.slice(-CHART_PATTERN_INTRADAY_BARS);
@@ -30978,19 +31013,22 @@ async function attachChartPatterns(chains, priorCache = {}) {
   const entries = Object.entries(chains).filter(
     ([, data]) => Array.isArray(data._intraday) && data._intraday.length >= CHART_PATTERN_MIN_BARS,
   );
-  // Cross-build cache keyed on the AM/PM half-day bucket: the first build in each
-  // half re-reads, the rest reuse it (≈2 reads/ticker/day). A second reuse path
+  // Cross-build cache keyed on the ET day: the first build at/after the configured
+  // refresh hour re-reads, while earlier builds defer (≈1 read/ticker/day). A
+  // second reuse path
   // fires when the bar series itself is unchanged since the cached read
   // (chartPatternBarsSig) — a new bucket over FROZEN bars (weekend / evening /
   // holiday runs) reuses instead of re-rating an identical chart. nextCache is
   // returned for main() to persist after the data/ wipe; only successfully-read
   // names are cached, so a failure is retried on the next build.
-  const bucketKey = chartPatternBucketKey();
+  const refresh = chartPatternRefreshState();
+  const bucketKey = refresh.bucketKey;
   const nextCache = {};
   const toCall = [];
   let reused = 0;
   let reusedFrozen = 0;
   let reusedStaleContext = 0;
+  let deferred = 0;
   for (const [sym, data] of entries) {
     const barsSig = chartPatternBarsSig(data._intraday);
     const priorEntry = priorCache[sym];
@@ -31007,7 +31045,7 @@ async function attachChartPatterns(chains, priorCache = {}) {
       nextCache[sym] = priorEntry;
       reused += 1;
       if (!sameBucket) reusedFrozen += 1;
-    } else if (priorEntry?.pattern && sameBucket) {
+    } else if (priorEntry?.pattern && (sameBucket || !refresh.freshAllowed)) {
       // Keep the last read for display/audit, but a new 30-minute bar means the
       // geometry the model saw is no longer current. It cannot vote in grades
       // or enter the final AI prompt until the next scheduled vision pass.
@@ -31016,19 +31054,27 @@ async function attachChartPatterns(chains, priorCache = {}) {
         chartPattern: {
           ...priorEntry.pattern,
           stale: true,
-          staleReason: "New intraday bars arrived after the cached chart read",
+          staleReason: !refresh.freshAllowed
+            ? `Daily chart refresh waits until ${String(refresh.refreshHourEt).padStart(2, "0")}:00 ET`
+            : "New intraday bars arrived after the cached chart read",
         },
       };
       nextCache[sym] = priorEntry;
       reused += 1;
       reusedStaleContext += 1;
+      if (!refresh.freshAllowed) deferred += 1;
+    } else if (!refresh.freshAllowed) {
+      // Cold-cache names intentionally remain neutral until the scheduled daily
+      // refresh. Never spend a full-universe vision pass on the thin opening bar.
+      deferred += 1;
     } else {
       toCall.push([sym, data, barsSig]);
     }
   }
   const frozenTag = reusedFrozen ? ` — ${reusedFrozen} of them via unchanged bars` : "";
   const staleTag = reusedStaleContext ? ` — ${reusedStaleContext} display-only after new bars` : "";
-  console.log(`Detecting chart patterns (1-month intraday) for ${entries.length} tickers… (${reused} reused${frozenTag}${staleTag}, ${toCall.length} fresh)`);
+  const deferredTag = deferred ? ` — ${deferred} deferred until ${String(refresh.refreshHourEt).padStart(2, "0")}:00 ET` : "";
+  console.log(`Detecting chart patterns (1-month intraday) for ${entries.length} tickers… (${reused} reused${frozenTag}${staleTag}${deferredTag}, ${toCall.length} fresh)`);
   if (toCall.length) {
     const hb = startHeartbeat("chart patterns", toCall.length);
     // Bounded concurrency so we don't burst ~137 image requests at once (that

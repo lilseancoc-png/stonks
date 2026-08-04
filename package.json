@@ -13,6 +13,7 @@
     "test:api": "node scripts/api-smoke.mjs",
     "test:private-store": "node scripts/private-store-smoke.mjs",
     "test:render": "node scripts/render-smoke.mjs",
+    "verify:ai-cost": "node scripts/ai-cost-smoke.mjs",
     "verify:freshness": "node scripts/verify-data-freshness.mjs --self-test",
     "verify:transcripts": "node scripts/transcript-smoke.mjs"
   },
