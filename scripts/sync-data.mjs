@@ -38,6 +38,7 @@ import { store } from "../lib/datastore.mjs";
 import { resolveStoreKeyPath } from "../lib/store-path.mjs";
 import {
   REQUEST_TIME_EXCLUSIVE_KEYS,
+  SCANNER_OWNERS,
   isBakeOwnedKey,
   isDynamicBakeKey as sharedIsDynamicBakeKey,
   keysForScannerOwner,
@@ -365,9 +366,9 @@ async function main() {
       break;
     case "push":
       if (opts.owner === "bake") await pushBake(opts);
-      else if (opts.owner === "unusual" || opts.owner === "oi" || opts.owner === "search-interest" || opts.owner === "daytrading") await pushScanner(opts.owner, opts);
+      else if (SCANNER_OWNERS.includes(opts.owner)) await pushScanner(opts.owner, opts);
       else {
-        console.error("push requires --owner=bake|unusual|oi|search-interest|daytrading");
+        console.error(`push requires --owner=bake|${SCANNER_OWNERS.join("|")}`);
         process.exit(1);
       }
       break;

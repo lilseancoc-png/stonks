@@ -4,6 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { contentAssetVersion } from "../lib/asset-version.mjs";
 import {
   FALLBACK_RISK_FREE_RATE,
   FOMC_MEETINGS_BASELINE,
@@ -160,7 +161,7 @@ const builtAt = new Intl.DateTimeFormat("en-US", {
 // produced before that lacks watchlists for quiet sub-industries.
 const coveredNarratives = ensureTickerCoverage(trends.narratives || [], symbols);
 
-const html = renderHtml({
+const renderInput = {
   symbols,
   builtAt,
   builtAtIso,
@@ -177,12 +178,9 @@ const html = renderHtml({
   nextFomcDates,
   oi: oiMeta ? { ...(oi || {}), ...oiMeta } : oi,
   dataDir: DATA_DIR,
-  // builtAtIso above is the PRIOR bake's timestamp (the data's age, shown in
-  // the header), but app.js/styles.css ship under 1-year immutable caching
-  // keyed on the ?v= token — a regen-only deploy rewrites their content, so
-  // it must mint a fresh token or returning visitors keep the old script.
-  assetVersion: new Date().toISOString(),
-});
+  // Asset versions are added only after the rendered bytes are available.
+  // Keep this input focused on the data provenance and display timestamp.
+};
 const css = renderStylesCss();
 // The committed data/rfr-history.json holds the last fetched 3M T-bill rate
 // (written by build.mjs, and it survives the build's data/ wipe). Thread it
@@ -232,6 +230,16 @@ try {
   }
 } catch { /* no readable rfr-history.json — keep the explicit 4.5% fallback */ }
 const js = renderAppJs({ riskFreeRate });
+const streaksJs = await readFile(resolve(ROOT, "js", "streaks.js"), "utf8");
+const html = renderHtml({
+  ...renderInput,
+  renderedAtIso: new Date().toISOString(),
+  assetVersions: {
+    styles: contentAssetVersion(css),
+    app: contentAssetVersion(js),
+    streaks: contentAssetVersion(streaksJs),
+  },
+});
 
 await writeFile(resolve(ROOT, "index.html"), html, "utf8");
 await writeFile(resolve(ROOT, "styles.css"), css, "utf8");

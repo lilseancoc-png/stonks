@@ -11,6 +11,7 @@ import { renderStylesCss } from "./render/styles-css.mjs";
 import { isPremiumKey, roleClaimForKey } from "../lib/premium-keys.mjs";
 import { BRIEF_ACCESS_POLICY_VERSION, sanitizePublicJsonText } from "../lib/public-data-policy.mjs";
 import { DISCORD_INVITE_URL } from "../lib/links.mjs";
+import { contentAssetVersion } from "../lib/asset-version.mjs";
 
 const temp = await mkdtemp(resolve(tmpdir(), "stonks-render-"));
 try {
@@ -20,12 +21,27 @@ try {
     symbols: [],
     builtAt: "test",
     builtAtIso: "2026-08-02T00:00:00.000Z",
+    renderedAtIso: "2026-08-02T00:01:00.000Z",
+    assetVersions: {
+      styles: "sha256-styles",
+      app: "sha256-app",
+      streaks: "sha256-streaks",
+    },
     unusual: { premiumSentinel: "must-not-inline" },
     dataDir,
   });
   assert.match(html, /"deferred":true/);
   assert.doesNotMatch(html, /must-not-inline/);
   assert.match(await readFile(resolve(dataDir, "manifest.json"), "utf8"), /must-not-inline/);
+  const freeManifest = JSON.parse(await readFile(resolve(dataDir, "manifest-free.json"), "utf8"));
+  assert.equal(freeManifest._meta.dataBuiltAtIso, "2026-08-02T00:00:00.000Z");
+  assert.equal(freeManifest._meta.renderedAtIso, "2026-08-02T00:01:00.000Z");
+  assert.match(html, /styles\.css\?v=sha256-styles/);
+  assert.match(html, /app\.js\?v=sha256-app/);
+  assert.match(html, /js\/streaks\.js\?v=sha256-streaks/);
+  assert.equal(contentAssetVersion("unchanged"), contentAssetVersion("unchanged"));
+  assert.notEqual(contentAssetVersion("unchanged"), contentAssetVersion("changed"));
+  assert.equal(contentAssetVersion("same\r\nlines\r\n"), contentAssetVersion("same\nlines\n"));
   assert.equal((html.match(/id="picks-position"/g) || []).length, 1);
   assert.ok(html.indexOf('id="picks-position"') > html.indexOf('id="quant-section"'));
   assert.match(html, /data-nav-group="owner"[\s\S]*?side-nav-group-label">Owner[\s\S]*?data-page-tab="picks"[\s\S]*?data-page-tab="stocks"[\s\S]*?data-page-tab="rotation"[\s\S]*?data-page-tab="levetf"[\s\S]*?data-page-tab="track"[\s\S]*?data-page-tab="quant"/);

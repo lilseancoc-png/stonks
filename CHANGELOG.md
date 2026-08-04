@@ -34,7 +34,15 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
+- **The pre-market Brief-only workflow can publish its completed output.** The sync CLI now accepts the existing `brief` ownership profile from the shared producer registry instead of spending the Gemini call and failing only at the final upload step; the private-store smoke test locks the route. `lib/data-ownership.mjs`, `scripts/{sync-data,private-store-smoke}.mjs`, `docs/private-data-migration.md`.
+
 - **Earnings-call summaries resume after the structured-output schema regression.** The transcript prompt keeps its historically working OpenAPI `responseSchema` path while adapting numeric array caps to the current Gemini SDK's string-encoded int64 wire type; the large, deeply nested native JSON-Schema route returned `INVALID_ARGUMENT` for every live candidate. A keyless smoke check now runs before every regular-session build and locks both request-shape requirements so new transcripts, including Intel's July call, can be minted again. `.github/workflows/daily.yml`, `scripts/{build,transcript-smoke}.mjs`, `package.json`.
+
+### Perf
+
+- **Rejected bakes stop before paid AI work.** After the Yahoo universe fetch, a shared preflight now mirrors the final publication gate's 95% ticker/schema/session-provenance and 90% live-IV requirements; a build that is already guaranteed to fail leaves the last-good release active without paying for Gemini or continuing the downstream pipeline. The final serialized freshness verifier remains authoritative and unchanged in strictness. `lib/freshness-policy.mjs`, `scripts/{build,verify-data-freshness,ai-cost-smoke}.mjs`.
+
+- **Unchanged static assets keep stable immutable URLs across scanner deploys.** `app.js`, `styles.css`, and `js/streaks.js` now receive independent SHA-256 content versions instead of a shared timestamp, so a data-only regeneration no longer forces returning browsers to redownload the multi-megabyte asset bundle. Manifest render provenance remains a separate timestamp. `lib/asset-version.mjs`, `scripts/{build,regen-static,render-smoke}.mjs`, `scripts/render/html.mjs`.
 
 ## 2026-08-02
 

@@ -1516,7 +1516,7 @@ function strategiesSection() {
   </section>`;
 }
 
-export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sectorOverviews = {}, recentlyEnded = [], macroHeadlines = [], unusual = null, spots = {}, fearGreed = null, macro = null, volumeFlags = null, marketBackdrop = null, nextFomcDates = [], oi = null, assetVersion = null, dataDir = null }) {
+export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sectorOverviews = {}, recentlyEnded = [], macroHeadlines = [], unusual = null, spots = {}, fearGreed = null, macro = null, volumeFlags = null, marketBackdrop = null, nextFomcDates = [], oi = null, assetVersion = null, assetVersions = null, renderedAtIso = null, dataDir = null }) {
   const tickerCount = symbols.length;
   // Backfill industry on narratives loaded from older trends.json snapshots
   // (pre-taxonomy builds didn't tag one). Also accept legacy `triggers` as
@@ -1555,7 +1555,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   // store is flushed; the browser ignores unknown `_meta` fields.
   const sidecarMeta = {
     dataBuiltAtIso: builtAtIso,
-    renderedAtIso: assetVersion || builtAtIso,
+    renderedAtIso: renderedAtIso || assetVersion || builtAtIso,
   };
   const flowManifest = {
     _meta: sidecarMeta,
@@ -1605,12 +1605,11 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   }
   const manifestPayload = JSON.stringify(inlineManifest)
     .replace(/</g, "\\u003C").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
-  // app.js/styles.css are served with 1-year immutable caching keyed solely on
-  // this ?v= token. The full bake mints a fresh builtAtIso every run, but
-  // regen-static.mjs reuses the PRIOR bake's builtAtIso (it's the data's bake
-  // time, shown in the header) — so render-only deploys must pass a fresh
-  // assetVersion or cached clients keep the old script under the same URL.
-  const cacheBust = encodeURIComponent(assetVersion || builtAtIso);
+  // Static assets are served with 1-year immutable caching. Prefer independent
+  // content-derived versions so an unchanged multi-megabyte asset keeps its URL
+  // across scanner deploys; assetVersion remains a compatibility fallback.
+  const legacyAssetVersion = assetVersion || builtAtIso;
+  const cacheBustFor = (key) => encodeURIComponent(assetVersions?.[key] || legacyAssetVersion);
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -1630,7 +1629,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=${cacheBust}">
+<link rel="stylesheet" href="styles.css?v=${cacheBustFor("styles")}">
 </head>
 <body>
 <header class="site-header">
@@ -2423,8 +2422,8 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <script>window.STONKS_MANIFEST=${manifestPayload};<\/script>
 <script>window.va=window.va||function(){(window.vaq=window.vaq||[]).push(arguments)};<\/script>
 <script defer data-disable-auto-track="1" src="/_vercel/insights/script.js"></script>
-<script src="app.js?v=${cacheBust}" defer></script>
-<script type="module" src="js/streaks.js?v=${cacheBust}"></script>
+<script src="app.js?v=${cacheBustFor("app")}" defer></script>
+<script type="module" src="js/streaks.js?v=${cacheBustFor("streaks")}"></script>
 </body>
 </html>`;
 }

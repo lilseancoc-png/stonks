@@ -21,6 +21,10 @@ import {
   isRetainedRemoteBakeKey,
   isTickerDataKey,
 } from "../lib/data-ownership.mjs";
+import {
+  MIN_IV_SUCCESS_RATE,
+  MIN_TICKER_SUCCESS_RATE,
+} from "../lib/freshness-policy.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -32,17 +36,6 @@ const CLOCK_SLOP_MS = 5000;
 const FILE_MTIME_SLOP_MS = 0;
 const FUTURE_SLOP_MS = 5 * 60000;
 const STAMP_MATCH_MS = 1500;
-// The fetch layer still aborts obvious systemic failures at 75%; publication
-// is stricter because silently dropping a quarter of the universe can distort
-// rankings even when every remaining file is internally valid.
-const requestedTickerSuccessRate = Number(process.env.FRESHNESS_MIN_TICKER_SUCCESS_RATE ?? 0.95);
-const MIN_TICKER_SUCCESS_RATE = Number.isFinite(requestedTickerSuccessRate)
-  ? Math.min(1, Math.max(0.75, requestedTickerSuccessRate))
-  : 0.95;
-const requestedIvSuccessRate = Number(process.env.FRESHNESS_MIN_IV_SUCCESS_RATE ?? 0.9);
-const MIN_IV_SUCCESS_RATE = Number.isFinite(requestedIvSuccessRate)
-  ? Math.min(1, Math.max(0.5, requestedIvSuccessRate))
-  : 0.9;
 // Must match scan-oi.mjs's publication guard. Keeping this verifier-side
 // invariant explicit prevents a malformed or hand-produced scanner payload
 // from bypassing the scanner's last-good-data protection.
