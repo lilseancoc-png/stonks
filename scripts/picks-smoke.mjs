@@ -262,10 +262,21 @@ const earningsStore = {
     },
   },
 };
+const earningsChains = {
+  AAPL: {
+    fundamentals: {
+      name: "Apple",
+      financialCurrency: "USD",
+      revenueHistory: [{ date: "2025-09-30", value: 102466000000 }],
+    },
+  },
+};
 const priorGeminiKey = process.env.GEMINI_API_KEY;
 delete process.env.GEMINI_API_KEY;
-const earningsBaseline = await buildEarningsTrackerPayload(earningsStore, {}, "2026-07-31T15:00:00.000Z");
+const earningsBaseline = await buildEarningsTrackerPayload(earningsStore, earningsChains, "2026-07-31T15:00:00.000Z");
 const earningsSeason = earningsBaseline.seasons[0];
+ok("earnings tracker: reported revenue is matched from the fiscal-quarter actual",
+  earningsSeason.rows.every((row) => row.revenueActual === 102466000000 && row.revenueCurrency === "USD"));
 const cachedEarningsAi = {
   seasonKey: earningsSeason.key,
   inputSig: earningsSummaryInputSignature(
@@ -276,7 +287,7 @@ const cachedEarningsAi = {
 };
 const earningsReused = await buildEarningsTrackerPayload(
   earningsStore,
-  {},
+  earningsChains,
   "2026-07-31T16:00:00.000Z",
   { ai: cachedEarningsAi },
 );
@@ -288,7 +299,7 @@ changedEarningsStore.tickers.AAPL.events.push({
 });
 const earningsInvalidated = await buildEarningsTrackerPayload(
   changedEarningsStore,
-  {},
+  earningsChains,
   "2026-07-31T17:00:00.000Z",
   { ai: cachedEarningsAi },
 );
