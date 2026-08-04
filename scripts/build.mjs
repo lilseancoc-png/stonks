@@ -3792,9 +3792,9 @@ function buildPriceSeries(bars) {
   };
 }
 
-// Compact intraday series for the browser's 1W/1M chart tabs. Close + volume
-// only (a Robinhood-style chart is a clean line with no high/low band), keeping
-// the full ~1-month 30m window so the client can slice the last ~week for 1W.
+// Compact intraday OHLCV series for the browser's 1W/1M chart tabs. Keeping the
+// full ~1-month 30m window lets the client draw red/green candles, directional
+// volume and per-range Fibonacci retracements while still slicing 1W locally.
 const INTRADAY_SERIES_BARS = 320; // ~22 trading days * ~13 regular-session 30m bars
 function buildIntradaySeries(bars) {
   if (!Array.isArray(bars) || bars.length < 2) return null;
@@ -3802,7 +3802,10 @@ function buildIntradaySeries(bars) {
   const r2 = (n) => (n == null || !isFinite(n) ? null : Math.round(n * 100) / 100);
   return {
     t: tail.map((b) => b.t || null),
+    o: tail.map((b) => r2(b.o)),
     c: tail.map((b) => r2(b.c)),
+    h: tail.map((b) => r2(b.h)),
+    l: tail.map((b) => r2(b.l)),
     v: tail.map((b) => (b && Number.isFinite(b.v) ? Math.round(b.v) : null)),
   };
 }
@@ -26758,13 +26761,12 @@ const BRIEF_WATCH_EXCLUDE = new Set(["SPY", "QQQ", "IWM", "DIA"]);
 // Cross-tool desk scan. The brief should be the site's front desk, not a
 // parallel mini-dashboard that only re-computes price movers. These are the
 // live, evidence-producing tabs whose baked payloads exist by the time the
-// hourly brief runs. Reference/manual tabs are intentionally absent, as are
-// Top Picks, Stock Picks, Sector Rotation, Leveraged ETFs, Track Record, and
-// Quant are absent: those payloads have stricter Owner gates than Briefs, so
+// hourly brief runs. Reference/manual tabs are intentionally absent. Owner-only
+// Market Analysis, Top Picks, Stock Picks, Sector Rotation, Leveraged ETFs,
+// Track Record, and Quant are absent: those payloads have stricter gates than Briefs, so
 // copying their facts into briefs.json would bypass that access boundary.
 const BRIEF_TOOL_STANDOUT_MAX = 10;
 const BRIEF_TOOL_SOURCES = [
-  { key: "market", file: "market-analysis.json", label: "Market analysis", tab: "market", maxAgeHours: 30 },
   { key: "earnings", file: "earnings-tracker.json", label: "Earnings tracker", tab: "earnings", maxAgeHours: 30 },
   { key: "calls", file: "earnings-calls.json", label: "Earnings calls", tab: "calls", maxAgeHours: 30 },
   { key: "spillover", file: "spillover-pairs.json", label: "Event spillover", tab: "spillover", maxAgeHours: 30 },
@@ -33167,11 +33169,9 @@ async function main() {
   } catch (err) {
     console.warn(`[regime] history skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
-  // Market analysis payload (data/market-analysis.json, premium but NOT
-  // role-restricted): the same macroRegime object that rides picks.json's
-  // rosterMeta, split out so the Market analysis tab (market tape / barometer /
-  // regime widgets) works for every premium member — picks.json itself is
-  // role-restricted to the Top Picks role (`tp`). The regime rebuilds from the
+  // Market analysis payload (data/market-analysis.json, Owner-only): the same
+  // macroRegime object that rides picks.json's rosterMeta, split out for the
+  // private Market analysis tab. The regime rebuilds from the
   // in-memory backdrop; only today's frozen cohort carries across the wipe.
   try {
     const priorPremarketMovers =

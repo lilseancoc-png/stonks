@@ -58,6 +58,8 @@ const SIDE_NAV_ICONS = {
   'iv-trend': '<path d="m3 17.5 6-6 4 4 8-8.5"/><path d="M14.5 7h6.5v6.5"/>',
   spillover: '<circle cx="12" cy="12" r="2.5"/><path d="M12 5.5a6.5 6.5 0 0 1 6.5 6.5"/><path d="M12 2a10 10 0 0 1 10 10"/>',
   quant: '<path d="M18 6.5V4H6l6.5 8L6 20h12v-2.5"/>',
+  daytrade: '<path d="M3 12h4l2.2-5 4.2 10 2.1-5H21"/><circle cx="12" cy="12" r="9.5"/>',
+  daytrack: '<path d="M4 19.5V10m5 9.5V5m5 14.5v-7m5 7V3"/><path d="M3 21h18"/>',
   levetf: '<path d="M3.5 20.5v-17"/><path d="M3.5 20.5h17"/><path d="m6 16.5 3.5-4 2.5 2 4-5.5"/><path d="m11.5 6.5 3-3 3 3"/><path d="M14.5 3.5v7"/>',
   overnight: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
   'fear-greed': '<path d="m12 14.5 3.5-3.5"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
@@ -75,6 +77,7 @@ const SIDE_NAV_ICONS = {
   strategies: '<circle cx="12" cy="12" r="9.5"/><path d="m15.8 8.2-2 5.6-5.6 2 2-5.6z"/>',
   cheatsheet: '<path d="M2.5 4.5H8a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2.5zM21.5 4.5H16a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h6.5z"/>',
   'chart-patterns': '<path d="M3.5 3.5v17h17"/><path d="m7.5 14 3.5-4 3 3 5-6.5"/>',
+  timeline: '<circle cx="12" cy="12" r="9.5"/><path d="M12 6.5V12l3.5 2"/>',
   privacy: '<path d="M12 21.5s7.5-3.7 7.5-9.5V5.5L12 2.5l-7.5 3V12c0 5.8 7.5 9.5 7.5 9.5z"/>',
   terms: '<path d="M12 3v18M7 21h10"/><path d="M4 7h2.5c1.8 0 3.8-.7 5.5-1.7C13.7 6.3 15.7 7 17.5 7H20"/><path d="m6.5 7-2.8 6.7c.8.6 1.8.9 2.8.9s2-.3 2.8-.9zM17.5 7l-2.8 6.7c.8.6 1.8.9 2.8.9s2-.3 2.8-.9z"/>',
 };
@@ -719,7 +722,6 @@ function spilloverSection() {
 
 function quantSection() {
   // Card chrome only — content renders client-side from data/quant.json plus
-  // the owner-only day-trading snapshot + history,
   // lazy-fetched on first tab activation by loadQuant() in app.js. The Quant
   // Lab (docs/quant-lab.md): deterministic sigma-deviation, vol-risk-premium,
   // pair relative-value, vol-surface, dispersion and post-earnings-drift
@@ -758,15 +760,6 @@ function quantSection() {
       <div id="owner-rotation-root" class="owner-tool-root">Loading Sector Rotation sizing&hellip;</div>
       <div id="owner-lev-root" class="owner-tool-root">Loading leveraged-ETF sizing&hellip;</div>
     </section>
-    <section class="dt-lab" aria-labelledby="dt-lab-title">
-      <div class="dt-lab-head">
-        <div><span>Owner paper engine</span><h3 id="dt-lab-title">Day Trading Engine</h3></div>
-        <span id="dt-engine-stamp" class="dt-stamp" aria-live="polite">Loading&hellip;</span>
-      </div>
-      ${infoNote('How the Day Trading Engine works', `<p>A deterministic <b>paper-trading</b> engine, refreshed every 15 minutes during the regular session. Market bias and dealer gamma set the directional lean; the locked SPY/QQQ first hour, recent index closes, volatility regime and scheduled events modify the threshold and size; volume and technical structure supply the ticker trigger. The risk layer has final authority: no entry before 10:30 or after 14:30&nbsp;ET, at most eight trades per book per session, no position above 25% of equity, correlated exposure caps, fixed invalidation, mandatory 75-minute time stops and a 15:55 flatten. Two independent $10,000 simulations run in parallel: liquid <b>1DTE calls/puts</b> with modeled spread, 3% premium slippage and contract fees, and <b>long/short stock</b> with ATR/structure stops, five-basis-point slippage and per-share costs. Each keeps both a reset curve (reset to $10,000 below $2,000) and a never-reset curve. This is a simulation, not an order router or financial advice.</p>`)}
-      <div id="day-trading-root" class="dt-root">Loading owner Day Trading Engine&hellip;</div>
-      <div id="day-trading-empty" class="quant-empty" hidden>The engine has not published its first intraday snapshot yet.</div>
-    </section>
     <div id="quant-root" class="quant-root">Loading Quant Lab&hellip;</div>
     <div id="quant-empty" class="quant-empty" hidden>Quant Lab data will appear after the next daily build refresh.</div>
     <div class="quant-playbook">
@@ -786,6 +779,50 @@ function quantSection() {
     </div>
     ${infoNote('What this tab deliberately does NOT do', `<p><b>Not feasible with current data</b> (listed honestly rather than faked): M&amp;A / spin-off screens (no deal data source), index add/delete prediction (no committee or flow data), gamma-scalping simulation (needs intraday delta-hedging data), Johansen / multi-year cointegration (the price history carries ~1 year of bars, so the Engle-Granger test runs on a single 1-year window and is labeled as such; Johansen adds nothing for 2-asset pairs), stock-borrow availability / borrow-fee screens (no borrow data source), and alt-data earnings nowcasts (no satellite / card-spend / web-traffic feeds). <b>Already covered elsewhere</b>: earnings read-through pair betas live in <b>Event spillover</b>, season-wide earnings stats in <b>Earnings tracker</b>, IV momentum in <b>Trending IV</b>, and the quality-dip shares screen in <b>Stock Picks</b> &mdash; this tab links to them instead of duplicating them.</p>`)}
     <p class="hint">All screens are deterministic and rebuilt every bake; z-scores use each name's own history, never a cross-sectional curve. Surface z-scores and the dispersion percentile activate automatically once ~60 sessions of history accumulate. Analytical screens only &mdash; nothing here is a recommendation to buy or sell anything. Not financial advice.</p>
+  </section>`;
+}
+
+function dayTradingSection() {
+  return `<section class="card dt-lab" id="day-trading-section" aria-labelledby="dt-lab-title">
+    <div class="dt-lab-head">
+      <div><span>Owner paper engine</span><h2 id="dt-lab-title" class="card-title">Day Trading</h2></div>
+      <span id="dt-engine-stamp" class="dt-stamp" aria-live="polite">Loading&hellip;</span>
+    </div>
+    ${infoNote('How the Day Trading Engine works', `<p>A deterministic <b>paper-trading</b> engine refreshed every 15 minutes during the regular session. Market bias, the SPY/QQQ 9:30&ndash;10:00 opening range, dealer gamma, recent index closes, volatility regime, scheduled events, volume and technical structure determine whether a setup clears the score. <b>No entry is allowed before 10:00&nbsp;ET; after 10:00 it may enter through the rest of the regular session until the mandatory 16:00 close flatten.</b> The 1DTE options book is limited to <b>SPY, QQQ and IWM</b>; the stock long/short book may use the broader tracked universe. Risk authority remains in force: at most eight trades per book, no position above 25% of equity, correlated-exposure caps, fixed invalidation and 75-minute time stops. This is a simulation, not an order router or financial advice.</p>`)}
+    <div id="day-trading-root" class="dt-root">Loading owner Day Trading Engine&hellip;</div>
+    <div id="day-trading-empty" class="quant-empty" hidden>The engine has not published its first intraday snapshot yet.</div>
+  </section>`;
+}
+
+function dayTradingTrackSection() {
+  return `<section class="card dt-lab" id="day-trading-track-section" aria-labelledby="dt-track-title">
+    <div class="dt-lab-head">
+      <div><span>Durable paper ledger</span><h2 id="dt-track-title" class="card-title">Day Trading Track Record</h2></div>
+      <span id="dt-track-stamp" class="dt-stamp" aria-live="polite">Loading&hellip;</span>
+    </div>
+    ${infoNote('What this record includes', `<p>The 1DTE and stock simulations keep independent $10,000 books. This tab reports every closed paper trade after modeled costs, win rate, profit factor, average win/loss, daily distribution, MAE, true maximum drawdown, reset events and performance by entry period. The reset curve jumps back to $10,000 below $2,000; the never-reset curve does not, so losses cannot be hidden by a reset. Results before the 10:00&nbsp;ET / SPY-QQQ-IWM rule change remain in the durable ledger and are labeled by their frozen entry window.</p>`)}
+    <div id="day-trading-track-root" class="dt-root">Loading Day Trading Track Record&hellip;</div>
+    <div id="day-trading-track-empty" class="quant-empty" hidden>No paper trades have closed yet.</div>
+  </section>`;
+}
+
+function buildTimelineSection() {
+  return `<section class="card refresh-schedule" id="refresh-schedule-section">
+    <header class="card-header">
+      <div><span class="card-eyebrow">All times America/New_York</span><h2 class="card-title">Build &amp; refresh timeline</h2></div>
+      <span class="card-eyebrow">Weekdays unless noted</span>
+    </header>
+    <p class="hint">A scheduled start is not a guaranteed publish minute: GitHub runner queues, source latency and validation time vary. A service is live only when its own tab shows the new timestamp. Failed or incomplete runs publish nothing, so the prior coherent snapshot remains visible.</p>
+    <div class="refresh-schedule-grid">
+      <article class="refresh-schedule-card is-lead"><span>08:30 ET</span><h3>Premarket Brief</h3><p>The lightweight Brief run starts one hour before the bell and refreshes overnight markets, Fear &amp; Greed, macro releases and headlines. It becomes live immediately after freshness verification and the private-store push; confirm the timestamp in Brief.</p><em>Brief only &middot; no full chain build</em></article>
+      <article class="refresh-schedule-card"><span>09:30, then hourly 10:00&ndash;16:00 ET</span><h3>Full market build</h3><p>Refreshes ticker chains and daily/intraday bars, grades, technicals, narratives, calendars, earnings, Market Analysis, Owner idea desks, Quant Lab and the hourly in-session Brief.</p><em>Publishes only after decision-grade freshness checks pass</em></article>
+      <article class="refresh-schedule-card"><span>Hourly 09:00&ndash;16:00 ET</span><h3>Flow, Volume &amp; Heatmap</h3><p>Re-scans unusual options flow and intraday volume/S&amp;R breaks, then refreshes heatmap price/change fields. The post-close pass may also publish the sector EOD recap.</p><em>One serialized scan &middot; no partial publish</em></article>
+      <article class="refresh-schedule-card"><span>Every 15 minutes, 09:25&ndash;16:05 guard</span><h3>Owner Day Trading</h3><p>Marks open paper positions and evaluates new setups. Entries run from 10:00 until the 16:00 close; 1DTE entries are SPY/QQQ/IWM only.</p><em>Private snapshot + durable ledger</em></article>
+      <article class="refresh-schedule-card"><span>~08:30 and ~19:00 ET</span><h3>Near-term OI</h3><p>Sweeps the front two expirations, updates strike walls, day-over-day open-interest changes and the Gamma Squeeze Score before the bell and after settlement has had time to update.</p><em>Twice daily</em></article>
+      <article class="refresh-schedule-card"><span>Monday 11:17 UTC</span><h3>Search Interest</h3><p>Refreshes the 90-day Google Trends theme timelines and change rankings. That is about 07:17 ET during daylight time and 06:17 ET during standard time.</p><em>Weekly &middot; up to 40 source requests</em></article>
+      <article class="refresh-schedule-card"><span>About every 30 seconds while open</span><h3>Live browser overlays</h3><p>Relevant tabs poll live quotes/chains only while visible and the market is regular. These overlays do not replace the stamped build or scanner snapshot and pause outside the session.</p><em>Best-effort request-time data</em></article>
+    </div>
+    <div class="refresh-schedule-rule"><b>How to verify freshness:</b> use the timestamp inside the service you are reading, not the footer alone. The footer describes the generated shell; scanner-owned data can be newer.</div>
   </section>`;
 }
 
@@ -1689,7 +1726,6 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <summary class="side-nav-group-label">Desk</summary>
     <div class="side-nav-group-items">
       ${sideNavItem('home', 'Home', { selected: true })}
-      ${sideNavItem('market', 'Market analysis')}
       ${sideNavItem('brief', 'Brief')}
       ${sideNavItem('news', 'News')}
       ${sideNavItem('heatmap', 'Heatmap')}
@@ -1750,11 +1786,14 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <!-- Private research; hidden until the Top Picks owner session resolves. -->
     <summary class="side-nav-group-label">Owner</summary>
     <div class="side-nav-group-items">
+      ${sideNavItem('market', 'Market analysis')}
       ${sideNavItem('picks', 'Top picks')}
       ${sideNavItem('stocks', 'Stock picks')}
       ${sideNavItem('rotation', 'Sector rotation')}
       ${sideNavItem('levetf', 'Leveraged ETFs')}
-      ${sideNavItem('track', 'Track record')}
+      ${sideNavItem('track', 'Top Picks track record')}
+      ${sideNavItem('daytrade', 'Day Trading')}
+      ${sideNavItem('daytrack', 'Day Trading track record')}
       ${sideNavItem('quant', 'Owner Lab')}
     </div>
   </details>
@@ -1763,6 +1802,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <div class="side-nav-group-items">
       ${sideNavItem('cheatsheet', "Buyer's manual")}
       ${sideNavItem('chart-patterns', 'Chart patterns')}
+      ${sideNavItem('timeline', 'Refresh schedule')}
     </div>
   </details>
   <details class="side-nav-group" data-nav-group="legal">
@@ -2066,6 +2106,12 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-quant" role="tabpanel" aria-labelledby="page-tab-quant" hidden>
   ${quantSection()}
+  </div>
+  <div class="page-pane" id="page-pane-daytrade" role="tabpanel" aria-labelledby="page-tab-daytrade" hidden>
+  ${dayTradingSection()}
+  </div>
+  <div class="page-pane" id="page-pane-daytrack" role="tabpanel" aria-labelledby="page-tab-daytrack" hidden>
+  ${dayTradingTrackSection()}
   </div>
   <div class="page-pane" id="page-pane-index-cal" role="tabpanel" aria-labelledby="page-tab-index-cal" hidden>
   ${indexCalSection()}
@@ -2389,6 +2435,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-f13" role="tabpanel" aria-labelledby="page-tab-f13" hidden>
   ${f13Section()}
+  </div>
+  <div class="page-pane" id="page-pane-timeline" role="tabpanel" aria-labelledby="page-tab-timeline" hidden>
+  ${buildTimelineSection()}
   </div>
   ${docPanesHtml()}
 </main>

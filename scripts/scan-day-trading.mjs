@@ -111,7 +111,7 @@ async function openingRange(symbol, now) {
     const allBars = (result?.quotes || []).map((bar) => ({ ...bar, et: barEtParts(bar.date) }))
       .filter((bar) => bar.et?.date === today && bar.et.minute >= 570 && bar.et.minute < 960)
       .sort((a, b) => a.et.minute - b.et.minute);
-    const bars = allBars.filter((bar) => bar.et.minute < 630);
+    const bars = allBars.filter((bar) => bar.et.minute < DAY_TRADING_RULES.entryStartEtMin);
     if (!bars.length) return null;
     const summarize = (rows) => {
       if (!rows.length) return null;
@@ -204,7 +204,7 @@ function buildMarket({ now, quoteMap, firstHour, indexCalendar, calendar, macro,
     priorContextPct: round(priorIndexContext(indexCalendar, clock.date), 2),
     firstHour: {
       complete: clock.minute >= DAY_TRADING_RULES.entryStartEtMin &&
-        Number(firstHour.spy?.bars || 0) >= 10 && Number(firstHour.qqq?.bars || 0) >= 10,
+        Number(firstHour.spy?.bars || 0) >= 6 && Number(firstHour.qqq?.bars || 0) >= 6,
       spyRetPct: firstHour.spy?.retPct ?? null,
       qqqRetPct: firstHour.qqq?.retPct ?? null,
       spyHigh: firstHour.spy?.high ?? null,
@@ -214,7 +214,7 @@ function buildMarket({ now, quoteMap, firstHour, indexCalendar, calendar, macro,
     },
     lastHour: {
       active: clock.minute >= 15 * 60,
-      entriesAllowed: false,
+      entriesAllowed: clock.minute < DAY_TRADING_RULES.forceFlatEtMin,
       spyRetPct: firstHour.spy?.lastHour?.retPct ?? null,
       qqqRetPct: firstHour.qqq?.lastHour?.retPct ?? null,
     },
@@ -367,8 +367,8 @@ async function fetchOneDteChain(symbol, today, wantedExpiry = null) {
   const selected = wantedExpiry
     ? dates.find((row) => row.key === wantedExpiry)
     // Strict 1DTE: the contract must expire one trading session after entry.
-    // If a single-name chain only lists a later weekly expiry, the options book
-    // skips it while the parallel stock book may still take the setup.
+    // If an allowed index ETF only lists a later expiry, the options book skips
+    // it while the parallel stock book may still take the setup.
     : dates.find((row) => row.key > today && tradingDaysBetween(today, row.key) === 1);
   if (!selected) return null;
   const firstEntry = first?.options?.[0];
@@ -408,7 +408,7 @@ async function main() {
     readJson("oi-tracker.json", { tickers: [] }),
     readJson(HISTORY_FILE, emptyDayTradingHistory()),
   ]);
-  const symbols = [...new Set((heatmap?.tickers || []).map((row) => row.t).filter(Boolean).concat(["SPY", "QQQ"]))];
+  const symbols = [...new Set((heatmap?.tickers || []).map((row) => row.t).filter(Boolean).concat(DAY_TRADING_RULES.options.symbols))];
   if (!symbols.length) throw new Error("no ticker universe available (heatmap.json missing/empty)");
   const quotes = await fetchQuotes(symbols);
   if (quotes.length < Math.max(10, Math.ceil(symbols.length * 0.5))) throw new Error(`systemic quote failure: ${quotes.length}/${symbols.length}`);
@@ -453,9 +453,11 @@ async function main() {
   // Fetch the candidate contracts plus marks for every open options trade.
   const openOptions = priorHistory?.portfolios?.options?.open || [];
   const canEnterNow = !["Sat", "Sun"].includes(clock.weekday) &&
-    clock.minute >= DAY_TRADING_RULES.entryStartEtMin && clock.minute <= DAY_TRADING_RULES.entryCutoffEtMin &&
-    market.firstHour.complete && !market.event.block;
-  const optionSymbols = [...new Set((canEnterNow ? candidates.map((row) => row.symbol) : []).concat(openOptions.map((row) => row.symbol)))];
+    clock.minute >= DAY_TRADING_RULES.entryStartEtMin && clock.minute < DAY_TRADING_RULES.forceFlatEtMin &&
+    market.marketOpen !== false && !market.event.block;
+  const allowedOptionSymbols = new Set(DAY_TRADING_RULES.options.symbols);
+  const optionSymbols = [...new Set((canEnterNow ? candidates.filter((row) => allowedOptionSymbols.has(row.symbol)).map((row) => row.symbol) : [])
+    .concat(openOptions.map((row) => row.symbol)))];
   const chainRows = await mapLimit(optionSymbols, 4, async (symbol) => {
     const open = openOptions.find((trade) => trade.symbol === symbol);
     const chain = await fetchOneDteChain(symbol, clock.date, open?.expiry || null);

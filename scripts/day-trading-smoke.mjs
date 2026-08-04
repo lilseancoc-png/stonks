@@ -31,7 +31,7 @@ const market = {
   thresholdAdd: 0,
 };
 const candidate = {
-  symbol: "TEST", sector: "Technology", spot: 100, direction: "long",
+  symbol: "SPY", sector: "Indexes", spot: 100, direction: "long",
   volumeRatio: 3, srBreak: { type: "upper", level: 99 },
   gex: { net: -1_000_000, callWall: { strike: 105 } }, grade: 16, atr: 1.2,
   technicals: {
@@ -70,11 +70,26 @@ assert.equal(result.history.portfolios.stock.closed.at(-1).outcome, "hard-stop")
 assert.ok(result.history.portfolios.options.closed.at(-1).pnl < 0);
 assert.ok(result.history.portfolios.stock.closed.at(-1).pnl < 0);
 
-// Entry cutoff is an absolute risk-authority gate even for a perfect score.
+// The only opening-clock restriction is 10:00 ET; entries remain eligible in
+// the last hour until the mandatory 16:00 close flatten begins.
+const earlyMarket = structuredClone(market);
+earlyMarket.clock.minute = 599;
+assert.equal(scoreDayTradeCandidate(candidate, earlyMarket).pass, false);
+assert.ok(scoreDayTradeCandidate(candidate, earlyMarket).blocked.some((reason) => /10:00/.test(reason)));
 const lateMarket = structuredClone(market);
 lateMarket.clock.minute = 880; // 14:40 ET
+assert.equal(scoreDayTradeCandidate(candidate, lateMarket).pass, true);
+lateMarket.clock.minute = DAY_TRADING_RULES.forceFlatEtMin;
 assert.equal(scoreDayTradeCandidate(candidate, lateMarket).pass, false);
-assert.ok(scoreDayTradeCandidate(candidate, lateMarket).blocked.some((reason) => /cutoff/.test(reason)));
+
+// The stock book can use the wider candidate universe; the 1DTE book cannot.
+const singleName = { ...candidate, symbol: "TEST" };
+const singleNameResult = runDayTradingEngine({
+  history: emptyDayTradingHistory(), candidates: [singleName], market: structuredClone(market), now,
+});
+assert.equal(singleNameResult.snapshot.open.options.length, 0);
+assert.equal(singleNameResult.snapshot.open.stock.length, 1);
+assert.ok(singleNameResult.snapshot.decisions[0].reasons.some((reason) => /SPY\/QQQ\/IWM/.test(reason)));
 
 // The force-flat authority must close both books even when the final quote or
 // chain lookup fails. With no prior mark, the engine uses the entry reference
@@ -86,7 +101,7 @@ const closeMarket = structuredClone(market);
 closeMarket.clock.minute = DAY_TRADING_RULES.forceFlatEtMin;
 forced = runDayTradingEngine({
   history: forced.history, candidates: [], market: closeMarket, marks: new Map(),
-  now: new Date("2026-07-30T19:55:00.000Z"),
+  now: new Date("2026-07-30T20:00:00.000Z"),
 });
 assert.equal(forced.snapshot.open.options.length, 0);
 assert.equal(forced.snapshot.open.stock.length, 0);

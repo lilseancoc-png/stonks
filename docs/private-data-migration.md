@@ -2,8 +2,9 @@
 
 > **Status:** implemented. The historical cutover notes remain below. As of the
 > free-public pivot, there is no member or paid premium tier. Most research is
-> public; Top Picks, Stock Picks, Sector Rotation, Leveraged ETFs, Track Record,
-> Owner Lab, and their backing state require a signed Owner session. The
+> public; Market Analysis, Top Picks, Stock Picks, Sector Rotation, Leveraged
+> ETFs, Top Picks Track Record, Day Trading, Day Trading Track Record, Owner
+> Lab, and their backing state require a signed Owner session. The
 > existing Top Picks owner role is the single Discord entitlement; after it is
 > verified, OAuth mints both internal compatibility claims (`tr` + `tp`).
 
@@ -210,7 +211,7 @@ output. A blob store has no merge, so we replicate that ownership explicitly.
 | search-interest | weekly theme search-interest refresh | upsert (no delete) |
 | day-trading, day-trading-history | 15-minute owner paper engine | upsert (no delete) |
 | **heatmap.json** | bake (seed/rebuild) **+** unusual (refresh) | upsert by whichever ran; serialized |
-| **market-analysis.json** | bake (macro regime) **+** unusual (premarket cohort + hourly marks) | read-modify-write; serialized |
+| **market-analysis.json** (Owner-only) | bake (macro regime) **+** unusual (premarket cohort + hourly marks) | read-modify-write; serialized |
 | **briefs.json** | 08:30 ET Brief-only route + bake (`buildMarketBriefs`, re-minted hourly in-session) | read-modify-write; serialized; once-per-ET-hour gating already in code |
 | **ai-usage.json** | Brief-only route + bake + unusual-flow (shared daily accounting; each carries other producers' totals) | read-modify-write; serialized so increments don't race |
 | **picks-watchlist.json** | **request time** (`api/watchlist.js` — the shared Top Picks watchlist, written on user clicks) | **no workflow may push or delete it** (`REQUEST_TIME_EXCLUSIVE` in `sync-data.mjs`): the copy `pull` hydrates locally is stale the moment a user toggles mid-run, so re-uploading it would silently revert their change |
@@ -509,14 +510,15 @@ The private-store architecture remains in place, but it is now a storage and
 Owner-isolation boundary rather than a membership paywall:
 
 - `lib/premium-keys.mjs` retains its legacy export names for compatibility, but
-  `isPremiumKey()` returns true only for the Owner idea/record payloads and raw
-  logs (including `auto-picks.json`), `quant*.json`, `day-trading*.json`, the shared owners'
+  `isPremiumKey()` returns true only for the Owner analysis/idea/record payloads and raw
+  logs (including `market-analysis.json` and `auto-picks.json`), `quant*.json`, `day-trading*.json`, the shared owners'
   `picks-watchlist.json`, and browser-inaccessible pipeline cache/accounting
   keys. Ticker/grade, brief, narrative, flow, volume, OI, IV, earnings, and
   manifest payloads remain public.
 - The client has no premium tabs or signed-out login CTA. All public navigation,
   ticker links, deep links, loaders, and command-palette entries work without a
-  session. `picks`, `stocks`, `rotation`, `levetf`, `track`, and `quant` are
+  session. `market`, `picks`, `stocks`, `rotation`, `levetf`, `track`,
+  `daytrade`, `daytrack`, and `quant` are
   physically removed until the Owner session resolves.
 - Discord OAuth reuses the existing `DISCORD_TOPPICKS_ROLE_ID(S)` owner role as
   the single entitlement, mints both signed compatibility claims, then redirects
