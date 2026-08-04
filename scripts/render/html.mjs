@@ -1741,7 +1741,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       ${sideNavItem('strategies', 'Strategies')}
     </div>
   </details>
-  <details class="side-nav-group" data-nav-group="ideas">
+  <details class="side-nav-group" data-nav-group="ideas" open>
     <summary class="side-nav-group-label">Ideas &amp; flow</summary>
     <div class="side-nav-group-items">
       ${sideNavItem('flow', 'Unusual flow')}
@@ -1753,7 +1753,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       ${sideNavItem('index-cal', 'Index calendar')}
     </div>
   </details>
-  <details class="side-nav-group" data-nav-group="events">
+  <details class="side-nav-group" data-nav-group="events" open>
     <summary class="side-nav-group-label">Events</summary>
     <div class="side-nav-group-items">
       ${sideNavItem('calendar', 'Calendar')}
@@ -1761,7 +1761,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       ${sideNavItem('calls', 'Earnings calls')}
     </div>
   </details>
-  <details class="side-nav-group" data-nav-group="macro">
+  <details class="side-nav-group" data-nav-group="macro" open>
     <summary class="side-nav-group-label">Macro</summary>
     <div class="side-nav-group-items">
       ${sideNavItem('overnight', 'Overnight markets')}
@@ -1772,7 +1772,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       ${sideNavItem('ipo-credit', 'IPOs &amp; credit')}
     </div>
   </details>
-  <details class="side-nav-group" data-nav-group="alt-data">
+  <details class="side-nav-group" data-nav-group="alt-data" open>
     <summary class="side-nav-group-label">Alt data</summary>
     <div class="side-nav-group-items">
       ${sideNavItem('ai-capex', 'AI CapEx')}
@@ -1782,7 +1782,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       ${sideNavItem('f13', 'SEC ownership')}
     </div>
   </details>
-  <details class="side-nav-group" data-nav-group="owner" data-role-group="owner" hidden>
+  <details class="side-nav-group" data-nav-group="owner" data-role-group="owner" open hidden>
     <!-- Private research; hidden until the Top Picks owner session resolves. -->
     <summary class="side-nav-group-label">Owner</summary>
     <div class="side-nav-group-items">
@@ -1797,7 +1797,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       ${sideNavItem('quant', 'Owner Lab')}
     </div>
   </details>
-  <details class="side-nav-group" data-nav-group="tools">
+  <details class="side-nav-group" data-nav-group="tools" open>
     <summary class="side-nav-group-label">Tools</summary>
     <div class="side-nav-group-items">
       ${sideNavItem('cheatsheet', "Buyer's manual")}
@@ -1805,7 +1805,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       ${sideNavItem('timeline', 'Refresh schedule')}
     </div>
   </details>
-  <details class="side-nav-group" data-nav-group="legal">
+  <details class="side-nav-group" data-nav-group="legal" open>
     <summary class="side-nav-group-label">Legal</summary>
     <div class="side-nav-group-items">
       ${sideNavItem('privacy', 'Privacy Policy')}

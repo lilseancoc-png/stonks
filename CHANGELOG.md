@@ -32,6 +32,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - **Event Spillover keeps the pair matrix compact until it is needed.** The matrix starts collapsed to reduce page weight and automatically opens when a ticker filter is applied. (#589) `scripts/render/{app-js,styles-css}.mjs`.
 
+### Changed
+
+- **Every sidebar navigation section starts expanded.** All destinations are visible on first load while each section remains manually collapsible. `scripts/render/html.mjs`, `scripts/render-smoke.mjs`.
+
 ## 2026-08-03
 
 ### Changed
