@@ -28,7 +28,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - **Earnings Tracker adds direct ticker discovery and reported revenue context.** The desk can search upcoming and historical earnings across seasons, and the full report table places fiscal-quarter revenue beside EPS and EPS surprise. (#589) `scripts/{build,picks-smoke}.mjs`, `scripts/render/app-js.mjs`.
 
-- **The full earnings-season report table has its own ticker and company search.** The expanded table filters rows as users type or submit, reports the matching count, handles no-match and clear states, and resets cleanly when the season changes. (PR_NUMBER) `scripts/render/{app-js,styles-css}.mjs`, `scripts/render-smoke.mjs`.
+- **The full earnings-season report table has its own ticker and company search.** The expanded table filters rows as users type or submit, reports the matching count, handles no-match and clear states, and resets cleanly when the season changes. (#590) `scripts/render/{app-js,styles-css}.mjs`, `scripts/render-smoke.mjs`.
 
 - **Event Spillover keeps the pair matrix compact until it is needed.** The matrix starts collapsed to reduce page weight and automatically opens when a ticker filter is applied. (#589) `scripts/render/{app-js,styles-css}.mjs`.
 
