@@ -119,6 +119,9 @@ try {
   assert.match(appJs, /id="ers-season-table-search"[\s\S]*?data-ers-table-search-submit[\s\S]*?id="ers-season-table-body"/);
   assert.match(appJs, /function updateSeasonTableSearch\(\)[\s\S]*?data-ers-haystack[\s\S]*?tableRows\[tr\]\.hidden = !show/);
   assert.match(appJs, /earningsState\.tableSearch = '';/);
+  assert.match(appJs, /d\.recentlyReported/);
+  assert.match(appJs, /<h3>Recently reported<\/h3>/);
+  assert.match(appJs, /data-ers-recent-window="7"/);
 
   assert.match(appJs, /opts\.onQuotes\(quotes\.filter\(isRegularMarketQuote\), marketState\)/);
   assert.match(appJs, /quotes = quotes\.filter\(isRegularMarketQuote\);[\s\S]*?showing baked close/);
