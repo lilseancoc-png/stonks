@@ -20,9 +20,25 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-08-08
+
+### Added
+
+- **Earnings Tracker adds a newest-first recently reported tape and Western Digital coverage.** The current-season desk now shows resolved prints from the last 7 days or 3 weeks across season boundaries, with the same EPS, revenue, guidance, expected-move, and reaction evidence as the full report; WDC joins the tracked Storage universe. (#593) `scripts/build.mjs`, `scripts/render/{app-js,styles-css}.mjs`, `scripts/{picks-smoke,render-smoke}.mjs`.
+
+- **Alt Data adds a free Central-bank gold desk.** The daily bake tracks estimated quarterly global net purchases separately from disclosed country holdings, including demand trends, reserve shares, buyer/seller leaderboards, country history, source dates, and independent last-good fallback for the World Gold Council inputs. (#596) `lib/central-bank-gold.mjs`, `scripts/build.mjs`, `scripts/render/{html,app-js,styles-css}.mjs`, `docs/site-logic.md`.
+
+### Changed
+
+- **Day Trading extends the maximum paper-trade hold from 75 to 120 minutes.** Open positions adopt the current time authority while closed records retain the rule frozen at entry, and the UI reads the limit from the payload. (#594) `lib/day-trading-engine.mjs`, `scripts/day-trading-smoke.mjs`, `scripts/render/{html,app-js}.mjs`, `docs/day-trading-engine.md`.
+
+- **Top Picks tightens decision quality and makes every promotion auditable.** The engine adds standardized price/volume dislocation and CapEx-quality evidence, universe-relative IV cost, a side-aware continuous regime/scenario overlay, trading-session event distance, stronger structure/payoff validation, and a fail-closed GO-invariant contract shared by baked and live entry decisions; AI may hold back a setup but cannot waive deterministic risk requirements. Empty current builds now publish an empty roster instead of carrying yesterday's picks forward. (#595) `scripts/{build,regen-picks,picks-smoke,verify-scenario-engine}.mjs`, `lib/scenario-engine.mjs`, `scripts/render/{html,app-js}.mjs`, `docs/top-picks.md`.
+
 ## 2026-08-04
 
 ### Added
+
+- **Owner gains dedicated Day Trading and Day Trading Track Record desks plus a public refresh schedule.** The private 15-minute paper engine and durable ledger move out of Owner Lab into their own signed-session tabs, Market Analysis joins the Owner boundary, entries can run from 10:00 ET until the 16:00 close, and a Tools page explains when each build, scanner, Brief, OI, and live overlay updates. (#588) `.github/workflows/day-trading.yml`, `lib/{day-trading-engine,premium-keys}.mjs`, `scripts/{build,scan-day-trading,day-trading-smoke,render-smoke}.mjs`, `scripts/render/{html,app-js,styles-css}.mjs`, `docs/{day-trading-engine,private-data-migration,site-logic}.md`.
 
 - **Forward Scenario Engine history records one last-good conditional-risk snapshot per trading day.** Market Analysis now shows a compact, auditable ledger of regime, continuation/exhaustion probabilities, gross cap, and warning counts while preserving the overlay as conditional risk rather than a point forecast. (#589) `lib/scenario-engine.mjs`, `scripts/{build,regen-picks,verify-scenario-engine}.mjs`, `scripts/render/{app-js,styles-css}.mjs`.
 
