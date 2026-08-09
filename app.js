@@ -16685,17 +16685,20 @@
   // drift split (pre10Pct/pre15Pct = the 2/3-week close-to-close run-up INTO
   // each print, pre = up|flat|down), expected-move hit rate, post-print
   // breadth, biggest gaps, the "heading into earnings" forward look
-  // (d.upcoming — names reporting inside ~3 weeks with drift-so-far), and the
-  // AI season read. All move fields are FRACTIONS (0.04 = 4%), like
+  // (d.upcoming — names reporting inside ~3 weeks with drift-so-far), the
+  // recently reported tape (d.recentlyReported — resolved prints from the last
+  // ~3 weeks across season boundaries), and the AI season read. All move fields are FRACTIONS (0.04 = 4%), like
   // earningsHx; surprisePct is a %, revenueActual is reported revenue in the
   // issuer's financialCurrency when Yahoo supplies that currency.
   var earningsState = {
     data: null, loading: false, seasonKey: null,
     upSort: 'date', upWindow: 7, upLimit: 0,
+    recentWindow: 7, recentLimit: 0,
     aiOpen: false, tableOpen: false, search: '', tableSearch: '',
   };
   function ersUpcomingPageSize(){ return window.innerWidth <= 640 ? 8 : 12; }
   function ersResetUpcomingLimit(){ earningsState.upLimit = ersUpcomingPageSize(); }
+  function ersResetRecentLimit(){ earningsState.recentLimit = ersUpcomingPageSize(); }
   function ersNum(v){ return v != null && isFinite(v); }
   function ersPct(v, signed){
     if (!ersNum(v)) return '—';
@@ -16900,7 +16903,31 @@
     var upcomingAll = isCurrentSeason && Array.isArray(d.upcoming) ? d.upcoming.filter(function(u){
       return u && u.sym && ersNum(Number(u.daysUntil)) && Number(u.daysUntil) >= 0;
     }) : [];
+    var recentSource = Array.isArray(d.recentlyReported) ? d.recentlyReported : [];
+    // Backward compatibility for a newly deployed shell reading the prior
+    // payload: derive the tape from season rows until the next data bake adds
+    // d.recentlyReported. Anchor to the payload's own as-of date so stale data
+    // cannot masquerade as current browser-time results.
+    if (isCurrentSeason && !recentSource.length && d.updatedOn){
+      var recentAsOfMs = Date.parse(String(d.updatedOn).slice(0, 10));
+      if (isFinite(recentAsOfMs)){
+        for (var rs = 0; rs < seasons.length; rs++){
+          var recentSeasonRows = Array.isArray(seasons[rs] && seasons[rs].rows) ? seasons[rs].rows : [];
+          for (var rx = 0; rx < recentSeasonRows.length; rx++){
+            var recentRowMs = Date.parse(String(recentSeasonRows[rx] && recentSeasonRows[rx].date || '').slice(0, 10));
+            if (!isFinite(recentRowMs)) continue;
+            var derivedDaysSince = Math.round((recentAsOfMs - recentRowMs) / 86400000);
+            if (derivedDaysSince >= 0 && derivedDaysSince <= 21) recentSource.push(Object.assign({}, recentSeasonRows[rx], { daysSince: derivedDaysSince }));
+          }
+        }
+        recentSource.sort(function(a, b){ return String(a.date) < String(b.date) ? 1 : String(a.date) > String(b.date) ? -1 : String(a.sym).localeCompare(String(b.sym)); });
+      }
+    }
+    var recentAll = isCurrentSeason ? recentSource.filter(function(r){
+      return r && r.sym && ersNum(Number(r.daysSince)) && Number(r.daysSince) >= 0;
+    }) : [];
     if (!earningsState.upLimit) ersResetUpcomingLimit();
+    if (!earningsState.recentLimit) ersResetRecentLimit();
     if (upcomingAll.length){
       var nextDays = Math.min.apply(null, upcomingAll.map(function(u){ return Number(u.daysUntil); }));
       var nextCount = upcomingAll.filter(function(u){ return Number(u.daysUntil) === nextDays; }).length;
@@ -17055,7 +17082,52 @@
         '</section>';
       }
     }
-    html += upcomingHtml + aiHtml;
+    // Recently reported — resolved prints from the trailing 7 days by default,
+    // expandable to the same 3-week horizon as the upcoming-event desk.
+    var recentHtml = '';
+    if (recentAll.length){
+      var recentWindow = earningsState.recentWindow === 21 ? 21 : 7;
+      var recentList = recentAll.filter(function(r){ return Number(r.daysSince) <= recentWindow; });
+      var shownRecent = recentList.slice(0, earningsState.recentLimit);
+      var recentRows = [];
+      for (var rr = 0; rr < shownRecent.length; rr++){
+        var rec = shownRecent[rr];
+        if (!rec || !rec.sym) continue;
+        var recDays = Number(rec.daysSince);
+        var recAgo = recDays === 0 ? 'today' : recDays === 1 ? '1d ago' : recDays + 'd ago';
+        var recSession = rec.session === 'AM' ? 'before open' : rec.session === 'PM' ? 'after close' : 'time TBD';
+        var recEps = ersNum(rec.epsActual) ? rec.epsActual.toFixed(2) : '—';
+        var recEstimate = ersNum(rec.epsEstimate) ? ' vs ' + rec.epsEstimate.toFixed(2) : '';
+        var recSurprise = ersNum(rec.surprisePct)
+          ? '<small class="' + (rec.surprisePct > 0 ? 'ers-pos' : rec.surprisePct < 0 ? 'ers-neg' : '') + '">' + (rec.surprisePct >= 0 ? '+' : '') + rec.surprisePct.toFixed(1) + '% surprise</small>'
+          : '<small>surprise unavailable</small>';
+        recentRows.push('<div class="ers-ldr-row ers-recent-row">' +
+          ersSymBtn(rec.sym) +
+          '<span class="ers-ldr-name">' + escapeHtml(rec.name || '') + '</span>' +
+          '<span class="ers-recent-result">' + ersEpsChip(rec.eps) + (rec.guidance ? ersGuidChip(rec.guidance) : '') + '</span>' +
+          '<span class="ers-dim ers-recent-date">' + ersDate(rec.date) + ' · ' + recSession + ' · ' + recAgo + '</span>' +
+          '<span class="ers-recent-eps"><b>' + escapeHtml(recEps + recEstimate) + '</b>' + recSurprise + '</span>' +
+          '<span class="ers-ldr-val' + ersToneCls(rec.movePct) + '">' + ersPct(rec.movePct) + '<span class="ers-ldr-day">report-day move</span></span>' +
+        '</div>');
+      }
+      if (recentRows.length){
+        var recentWindowButtons = '<button type="button" class="ers-up-window" data-ers-recent-window="7" aria-pressed="' + (recentWindow === 7 ? 'true' : 'false') + '">Last 7 days <span>' + recentAll.filter(function(r){ return Number(r.daysSince) <= 7; }).length + '</span></button>' +
+          '<button type="button" class="ers-up-window" data-ers-recent-window="21" aria-pressed="' + (recentWindow === 21 ? 'true' : 'false') + '">Last 3 weeks <span>' + recentAll.length + '</span></button>';
+        var recentTwo = recentRows.length > 4;
+        var recentHalf = Math.ceil(recentRows.length / 2);
+        var recentCols = recentTwo
+          ? '<div class="ers-ldr-col">' + recentRows.slice(0, recentHalf).join('') + '</div><div class="ers-ldr-col">' + recentRows.slice(recentHalf).join('') + '</div>'
+          : '<div class="ers-ldr-col">' + recentRows.join('') + '</div>';
+        var recentRemaining = Math.max(0, recentList.length - shownRecent.length);
+        var recentMore = recentRemaining ? '<button type="button" class="ers-up-more" data-ers-recent-more>Show ' + Math.min(ersUpcomingPageSize(), recentRemaining) + ' more · ' + recentRemaining + ' remaining</button>' : '';
+        recentHtml = '<section class="ers-upcoming ers-recent" aria-label="Recently reported earnings">' +
+          '<div class="ers-upcoming-head"><div><span class="ers-upcoming-kicker">Results tape</span><h3>Recently reported</h3></div><span class="ers-up-showing">' + shownRecent.length + ' of ' + recentList.length + ' shown</span></div>' +
+          '<div class="ers-up-controls"><div class="ers-up-window-group" role="group" aria-label="Recently reported earnings horizon">' + recentWindowButtons + '</div><span class="ers-recent-order">newest first</span></div>' +
+          '<div class="ers-ldrs ers-recent-ldrs' + (recentTwo ? ' ers-recent-two' : '') + '">' + recentCols + '</div>' + recentMore +
+        '</section>';
+      }
+    }
+    html += upcomingHtml + recentHtml + aiHtml;
     // Stat tiles.
     var tiles = '';
     tiles += '<div class="ers-tile"><div class="ers-tile-label">EPS vs estimates</div>' +
@@ -17184,6 +17256,7 @@
         earningsState.tableSearch = '';
         earningsState.aiOpen = false;
         ersResetUpcomingLimit();
+        ersResetRecentLimit();
         renderEarningsTracker();
       });
     }
@@ -17232,6 +17305,19 @@
     var upMore = root.querySelector('[data-ers-upmore]');
     if (upMore) upMore.addEventListener('click', function(){
       earningsState.upLimit += ersUpcomingPageSize();
+      renderEarningsTracker();
+    });
+    var recentWindowEls = root.querySelectorAll('[data-ers-recent-window]');
+    for (var rwe = 0; rwe < recentWindowEls.length; rwe++){
+      recentWindowEls[rwe].addEventListener('click', function(ev){
+        earningsState.recentWindow = Number(ev.currentTarget.getAttribute('data-ers-recent-window')) === 21 ? 21 : 7;
+        ersResetRecentLimit();
+        renderEarningsTracker();
+      });
+    }
+    var recentMore = root.querySelector('[data-ers-recent-more]');
+    if (recentMore) recentMore.addEventListener('click', function(){
+      earningsState.recentLimit += ersUpcomingPageSize();
       renderEarningsTracker();
     });
     var upJump = root.querySelector('[data-ers-jump-upcoming]');

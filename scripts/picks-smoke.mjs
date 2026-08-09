@@ -2,6 +2,7 @@
 // data/, no AI — builds fake chains and asserts the engine's behaviour + the
 // output shapes the UI/serialization depend on. Run: node scripts/picks-smoke.mjs
 import {
+  TICKERS, SECTORS,
   buildTopPicks, buildGradesIndex, pickContractForPick, pickVerticalForPick, markOptionToMarket, computeEntryTiming, computeEntrySignal,
   detectMarketRegime, computeMacroRegime, applyMacroRegimePersistence,
   resolvePickOutcome, gradeTradeCut, buildPicksChanges, buildPicksRoster,
@@ -273,10 +274,21 @@ const earningsChains = {
 };
 const priorGeminiKey = process.env.GEMINI_API_KEY;
 delete process.env.GEMINI_API_KEY;
+ok("ticker universe: WDC is tracked as Storage", TICKERS.includes("WDC") && SECTORS.WDC === "Storage");
 const earningsBaseline = await buildEarningsTrackerPayload(earningsStore, earningsChains, "2026-07-31T15:00:00.000Z");
 const earningsSeason = earningsBaseline.seasons[0];
 ok("earnings tracker: reported revenue is matched from the fiscal-quarter actual",
   earningsSeason.rows.every((row) => row.revenueActual === 102466000000 && row.revenueCurrency === "USD"));
+const recentDate = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+}).format(new Date());
+const recentEarnings = await buildEarningsTrackerPayload(
+  { tickers: { WDC: { events: [{ date: recentDate, epsActual: 1.6, epsEstimate: 1.5, surprisePct: 6.67, movePct: 0.04 }] } } },
+  { WDC: { fundamentals: { name: "Western Digital", financialCurrency: "USD" } } },
+  new Date().toISOString(),
+);
+ok("earnings tracker: recently reported contains today's resolved WDC print",
+  recentEarnings.recentlyReported.length === 1 && recentEarnings.recentlyReported[0].sym === "WDC" && recentEarnings.recentlyReported[0].daysSince === 0);
 const cachedEarningsAi = {
   seasonKey: earningsSeason.key,
   inputSig: earningsSummaryInputSignature(

@@ -83,7 +83,7 @@ export const TICKERS = [
   "TWLO", "LOW", "SBUX", "MCD", "EL", "ANET", "TXN", "INTC", "SMCI", "NVO",
   "U", "FDX", "EBAY", "APP", "UPS", "LRCX", "CRWV", "ON", "CLS",
   "MRVL", "PLAB", "AMAT", "AMKR", "MU", "BE", "OKLO", "SNDK", "GLW",
-  "STX", "ALAB", "MP", "LITE", "AAOI", "HIMS", "TSEM", "DRAM",
+  "STX", "WDC", "ALAB", "MP", "LITE", "AAOI", "HIMS", "TSEM", "DRAM",
   // Space — satellite, lunar lander, in-space mfg, thermal mgmt, launch
   "LUNR", "PL", "BKSY", "RDW", "KULR", "SPCX",
   // Added coverage — AI silicon, RF/optics, Arm IP, broker, med-tech, DC infra, retail, gaming, travel, launch
@@ -106,7 +106,7 @@ export const SECTORS = {
   ASML: "Semis", QCOM: "Semis", TXN: "Semis", MRVL: "Semis", AMAT: "Semis",
   LRCX: "Semis", MU: "Semis", INTC: "Semis", NXPI: "Semis", ON: "Semis",
   SMCI: "Semis", AMKR: "Semis", PLAB: "Semis", ALAB: "Semis", TSEM: "Semis",
-  DRAM: "Semis", SWKS: "Semis", SNDK: "Storage", STX: "Storage", GLW: "Semis",
+  DRAM: "Semis", SWKS: "Semis", SNDK: "Storage", STX: "Storage", WDC: "Storage", GLW: "Semis",
   MP: "Materials", LITE: "Semis", AAOI: "Semis", ARM: "Semis", CBRS: "Semis",
   COHR: "Semis",
   // Hardware / networking / tech services
@@ -6669,6 +6669,9 @@ export function attachEarningsHx(chains, store, nowMs = Date.now()) {
 // (loadEarningsTracker/renderEarningsTracker in app-js.mjs).
 const EARNINGS_TRACKER_FILE = "earnings-tracker.json";
 const EARNINGS_TRACKER_MAX_SEASONS = 9;
+// The resolved-event tape mirrors the forward desk's longest horizon so users
+// can review the prints that just landed without depending on season boundaries.
+const EARNINGS_RECENT_DAYS = 21;
 // EPS surprise within ±this % of the estimate counts as "in line" — a
 // sub-percent wiggle isn't a beat.
 const EARNINGS_INLINE_SURPRISE_PCT = 1;
@@ -7015,6 +7018,14 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
     const labels = earningsSeasonLabels(key) || { fiscal: key, window: "" };
     return { key, fiscal: labels.fiscal, window: labels.window, counts: c, stats, leaders, tone, rows };
   });
+  // Recently reported tape — newest first across reporting-season boundaries.
+  // Keep the full resolved row shape so the compact tape and full-season table
+  // use the same EPS, revenue, guidance, expected-move, and reaction evidence.
+  const recentlyReported = [...rowsBySeason.values()]
+    .flat()
+    .map((row) => ({ ...row, daysSince: -etDaysUntil(row.date) }))
+    .filter((row) => Number.isFinite(row.daysSince) && row.daysSince >= 0 && row.daysSince <= EARNINGS_RECENT_DAYS)
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.sym < b.sym ? -1 : 1));
   // Heading INTO earnings — the current quarter's forward look: every tracked
   // name reporting inside the next ~3 weeks with its live 2/3-week drift so
   // far (same windows as the per-print run-up, ending at the latest close).
@@ -7084,7 +7095,7 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
       }
     }
   }
-  return { builtAtIso, updatedOn: todayIso, universe: universe.size, seasons, upcoming, ai: aiRead };
+  return { builtAtIso, updatedOn: todayIso, universe: universe.size, seasons, recentlyReported, upcoming, ai: aiRead };
 }
 
 async function readPriorEarningsTracker() {
