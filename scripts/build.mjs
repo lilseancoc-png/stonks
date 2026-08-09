@@ -1735,7 +1735,7 @@ async function fetchFundamentals(symbol) {
     .filter((q) => q.date && (q.totalRevenue != null || q.netIncome != null))
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(-8);
-  const revenueHistory = incomeQuarters
+  const revenueHistoryFresh = incomeQuarters
     .filter((q) => q.totalRevenue != null)
     .map((q) => ({ date: q.date, value: q.totalRevenue }));
   const grossProfitHistory = incomeQuarters
@@ -1762,6 +1762,7 @@ async function fetchFundamentals(symbol) {
       const fcfQ = num(row?.freeCashFlow) ?? (ocfQ != null && capexQ != null ? ocfQ + capexQ : null);
       return {
         date,
+        ocf: ocfQ,
         fcf: fcfQ,
         buyback: num(row?.repurchaseOfCapitalStock),
         dividends: num(row?.cashDividendsPaid),
@@ -1769,8 +1770,19 @@ async function fetchFundamentals(symbol) {
         debtRepay: num(row?.repaymentOfDebt),
       };
     })
-    .filter((q) => q.date && (q.fcf != null || q.buyback != null || q.dividends != null || q.capex != null || q.debtRepay != null))
+    .filter((q) => q.date && (q.ocf != null || q.fcf != null || q.buyback != null || q.dividends != null || q.capex != null || q.debtRepay != null))
     .sort((a, b) => a.date.localeCompare(b.date));
+
+  // Keep the quarterly inputs behind the Top Picks CapEx-quality read. CapEx
+  // is normalized to a positive cash-deployed number; OCF/FCF retain their
+  // statement signs. Yahoo exposes only a rolling handful of quarters, so the
+  // histories are accumulated across builds below, exactly like fcfHistory.
+  const capexHistoryFresh = cashflowQuarters
+    .filter((q) => q.capex != null)
+    .map((q) => ({ date: q.date, value: Math.abs(q.capex) }));
+  const operatingCashFlowHistoryFresh = cashflowQuarters
+    .filter((q) => q.ocf != null)
+    .map((q) => ({ date: q.date, value: q.ocf }));
 
   // Prior build's fundamentals from the per-ticker JSON (still on disk at
   // fetch time — writeChainFiles wipes data/ only after every fetch is done;
@@ -1783,6 +1795,24 @@ async function fetchFundamentals(symbol) {
   try {
     priorFund = JSON.parse(await readFile(resolve(DATA_DIR, `${symbol}.json`), "utf8"))?.fundamentals || null;
   } catch { /* first run / hydration miss — no prior */ }
+  const mergeQuarterValues = (priorRows, freshRows, cap = 12) => {
+    const byDate = new Map();
+    for (const row of Array.isArray(priorRows) ? priorRows : []) {
+      const value = num(row?.value);
+      if (row?.date && value != null) byDate.set(row.date, { date: row.date, value });
+    }
+    for (const row of Array.isArray(freshRows) ? freshRows : []) {
+      const value = num(row?.value);
+      if (row?.date && value != null) byDate.set(row.date, { date: row.date, value });
+    }
+    return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)).slice(-cap);
+  };
+  const revenueHistory = mergeQuarterValues(priorFund?.revenueHistory, revenueHistoryFresh);
+  const capexHistory = mergeQuarterValues(priorFund?.capexHistory, capexHistoryFresh);
+  const operatingCashFlowHistory = mergeQuarterValues(
+    priorFund?.operatingCashFlowHistory,
+    operatingCashFlowHistoryFresh,
+  );
   const fcfByDate = new Map();
   for (const p of Array.isArray(priorFund?.fcfHistory) ? priorFund.fcfHistory : []) {
     if (p?.date && num(p.value) != null) fcfByDate.set(p.date, { date: p.date, value: num(p.value) });
@@ -1797,8 +1827,10 @@ async function fetchFundamentals(symbol) {
   // Rebuilt fresh each build — it only needs the newest 4 quarters — and
   // carried forward untouched when the cash-flow fetch missed.
   let capitalAllocation = priorFund?.capitalAllocation || null;
-  if (cashflowQuarters.length) {
-    const last4 = cashflowQuarters.slice(-4);
+  const allocationQuarters = cashflowQuarters.filter((q) =>
+    q.buyback != null || q.dividends != null || q.capex != null || q.debtRepay != null);
+  if (allocationQuarters.length) {
+    const last4 = allocationQuarters.slice(-4);
     const spent = (k) => {
       const vals = last4.map((q) => q[k]).filter((v) => v != null);
       return vals.length ? -vals.reduce((s, v) => s + v, 0) : null;
@@ -1970,6 +2002,8 @@ async function fetchFundamentals(symbol) {
     netIncomeHistory,
     netMarginHistory,
     fcfHistory,
+    capexHistory,
+    operatingCashFlowHistory,
     capitalAllocation,
     epsForwardEstimates,
     revenueForwardEstimates,
@@ -3149,6 +3183,33 @@ function etDaysUntil(dateStr, now = new Date()) {
   return Math.round((target - today) / 86400000);
 }
 
+// Count US trading sessions strictly after `fromIso` through `toIso`. This is
+// the calendar distance Entry Timing actually needs: Friday -> Tuesday is two
+// sessions, not four calendar days. The shared holiday set handles the regular
+// federal/exchange closures used elsewhere in the build.
+export function tradingSessionsBetween(fromIso, toIso) {
+  const fm = /^(\d{4}-\d{2}-\d{2})/.exec(String(fromIso || ""));
+  const tm = /^(\d{4}-\d{2}-\d{2})/.exec(String(toIso || ""));
+  if (!fm || !tm) return null;
+  const from = Date.parse(`${fm[1]}T00:00:00Z`), to = Date.parse(`${tm[1]}T00:00:00Z`);
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return null;
+  if (from === to) return 0;
+  if (to < from) {
+    const reverse = tradingSessionsBetween(tm[1], fm[1]);
+    return reverse == null ? null : -reverse;
+  }
+  let sessions = 0;
+  const holidaysByYear = new Map();
+  for (let ms = from + 86400000; ms <= to; ms += 86400000) {
+    const d = new Date(ms), day = d.getUTCDay();
+    if (day === 0 || day === 6) continue;
+    const year = d.getUTCFullYear();
+    if (!holidaysByYear.has(year)) holidaysByYear.set(year, usTradingHolidaySet(year));
+    if (!holidaysByYear.get(year).has(d.toISOString().slice(0, 10))) sessions++;
+  }
+  return sessions;
+}
+
 // Read macro-history.json BEFORE writeChainFiles wipes data/. Returns an
 // object of shape { entries: [{ date, asOf, twoY, tenY, thirtyY, dxy }, ...] }
 // sorted oldest→newest. Missing / unreadable file → empty entries.
@@ -4059,6 +4120,35 @@ export async function attachIvRanks(chains, historyMap = null) {
       chains[sym].ivRank.mean = Number(mean.toFixed(4));
       chains[sym].ivRank.std = Number(std.toFixed(4));
       chains[sym].ivRank.z = std > 0 ? Number(((cur - mean) / std).toFixed(2)) : null;
+    }
+
+    // Reuse the surface observations already accumulated for Quant Lab rather
+    // than recomputing a second Top Picks definition. `t` is IV90-IV30 and `s`
+    // is 25-delta put IV minus call IV. Raw values are immediately useful as
+    // context; z-scores activate only after the same 60-session history floor.
+    const latest = entries.at(-1) || null;
+    const surfaceZ = (key, current) => {
+      const prior = entries.slice(0, -1).map((e) => Number(e?.[key])).filter(Number.isFinite);
+      if (current == null || prior.length < QUANT_SURFACE_MIN_HIST) return { z: null, n: prior.length };
+      const mean = prior.reduce((a, b) => a + b, 0) / prior.length;
+      const variance = prior.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, prior.length - 1);
+      const std = Math.sqrt(variance);
+      return { z: std > 0 ? Number(((current - mean) / std).toFixed(2)) : null, n: prior.length };
+    };
+    const termSlope = Number.isFinite(Number(latest?.t)) ? Number(latest.t) : null;
+    const skew25 = Number.isFinite(Number(latest?.s)) ? Number(latest.s) : null;
+    if (termSlope != null || skew25 != null) {
+      const term = surfaceZ("t", termSlope);
+      const skew = surfaceZ("s", skew25);
+      chains[sym].ivSurface = {
+        termSlope: termSlope != null ? Number(termSlope.toFixed(4)) : null,
+        termZ: term.z,
+        termN: term.n,
+        skew25: skew25 != null ? Number(skew25.toFixed(4)) : null,
+        skewZ: skew.z,
+        skewN: skew.n,
+        asOf: latestDate,
+      };
     }
   }
 }
@@ -12621,6 +12711,31 @@ function usMarketHolidaySet(year) {
   return set;
 }
 
+// Exchange-session closures add Good Friday to the federal-style observances
+// above. Also carry a Saturday Jan 1 into the prior year's Dec 31 so session
+// counts stay correct across New Year boundaries.
+function usTradingHolidaySet(year) {
+  const set = new Set(usMarketHolidaySet(year));
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  set.add(isoUtcDate(new Date(Date.UTC(year, month - 1, day) - 2 * 86400000)));
+  const nextNewYear = new Date(Date.UTC(year + 1, 0, 1));
+  if (nextNewYear.getUTCDay() === 6) set.add(`${year}-12-31`);
+  return set;
+}
+
 // First business day (Mon–Fri, non-holiday) of a month — ISM Manufacturing
 // PMI's release rule (08:30/10:00 ET on the first business day, for the prior
 // month). Skips weekends AND federal holidays so the January row doesn't land
@@ -14651,11 +14766,12 @@ export function attachPredictionTrends(pmFomc, history, todayIso) {
 //  2. ODDS-GATED events — any OTHER release whose prediction-market top outcome is
 //     priced below PICKS_EVENT_RISK_MAX_PROB (a coin-flip the crowd can't call).
 //
-// Returns { active, label, daysOut, topProb, alwaysDefer } or { active:false }.
+// Returns { active, label, daysOut, sessionsOut, topProb, alwaysDefer } or
+// { active:false }.
 const PICKS_EVENT_RISK = process.env.PICKS_EVENT_RISK !== "0";
 // Carry the nearest major event through the full seven-day scoring window.
-// computeEntryTiming distinguishes a hard same/next-session wait from the
-// softer 2–3 and 4–7 day penalties; downstream strategy selection can still
+// computeEntryTiming distinguishes a hard next-two-trading-session wait from
+// the softer 3 and 4–7 session penalties; downstream strategy selection can still
 // prefer defined-risk structures throughout the window.
 const PICKS_TIMING_EVENT_DEFER_DAYS = Number(process.env.PICKS_TIMING_EVENT_DEFER_DAYS ?? 7);
 const PICKS_EVENT_RISK_MAX_PROB = Number(process.env.PICKS_EVENT_RISK_MAX_PROB ?? 0.70);
@@ -14758,11 +14874,14 @@ export function computeMacroEventRisk(predictionMarkets, meetings, reportEvents,
     const ms = Date.parse(c.date + "T00:00:00Z");
     if (!Number.isFinite(ms)) continue;
     const daysOut = Math.round((ms - nowMs) / 86400000);
-    if (daysOut < 0 || daysOut > PICKS_TIMING_EVENT_DEFER_DAYS) continue; // not imminent
+    const sessionsOut = tradingSessionsBetween(todayIso, c.date);
+    if (daysOut < 0 || sessionsOut == null || sessionsOut < 0 || sessionsOut > PICKS_TIMING_EVENT_DEFER_DAYS) continue; // not imminent
     // Odds-gated events only fire when the crowd CAN'T call them; always-defer
     // (scheduled FOMC / major prints) fire regardless of how confident the odds are.
     if (!c.alwaysDefer && !(Number.isFinite(c.topProb) && c.topProb < PICKS_EVENT_RISK_MAX_PROB)) continue;
-    if (!best || daysOut < best.daysOut) best = { active: true, label: c.label, date: c.date, daysOut, topProb: c.topProb, alwaysDefer: !!c.alwaysDefer };
+    if (!best || sessionsOut < best.sessionsOut || (sessionsOut === best.sessionsOut && daysOut < best.daysOut)) {
+      best = { active: true, label: c.label, date: c.date, daysOut, sessionsOut, topProb: c.topProb, alwaysDefer: !!c.alwaysDefer };
+    }
   }
   return best || { active: false };
 }
@@ -14939,6 +15058,7 @@ const PICKS_STRATEGY_AUTO = process.env.PICKS_STRATEGY_AUTO !== "0"; // off -> a
 const PICKS_IV_CREDIT_Z = Number(process.env.PICKS_IV_CREDIT_Z ?? 2.0);     // ATM IV z >= this -> "highly elevated" (strongest sell-premium label)
 const PICKS_IV_CREDIT_Z_ELEVATED = Number(process.env.PICKS_IV_CREDIT_Z_ELEVATED ?? 1.5); // z >= this -> "elevated" -> credit (broadened band)
 const PICKS_IV_CREDIT_PCTILE = Number(process.env.PICKS_IV_CREDIT_PCTILE ?? 60); // IV pctile >= this -> "elevated" -> credit (z fallback)
+const PICKS_SKEW_ADVERSE_RAW = Number(process.env.PICKS_SKEW_ADVERSE_RAW ?? 0.05); // 5 vol-point side premium before skew history matures
 const PICKS_CREDIT_WIDTH_FRAC = Number(process.env.PICKS_CREDIT_WIDTH_FRAC ?? 0.34); // target credit ~ 1/3 of the spread width
 const PICKS_CREDIT_WIDTH_FRAC_MIN = 0.22;      // reject a credit spread paying < this fraction of width
 const PICKS_CREDIT_SHORT_DELTA = 0.34;         // credit spread: sell ~this delta (near-the-money); the long wing is chosen by pickCreditWing to hit PICKS_CREDIT_WIDTH_FRAC
@@ -15025,6 +15145,19 @@ const PICKS_SIZE_TILT_MIN = 0.6, PICKS_SIZE_TILT_MAX = 1.4;
 // entry-confirmed (a wait-entry name demotes to the watch group), so this
 // haircut now only shapes the display sizing of contract-bearing WATCH ideas.
 const PICKS_ENTRY_WAIT_SIZE_MULT = Number(process.env.PICKS_ENTRY_WAIT_SIZE_MULT ?? 0.75);
+// Tactical puts are a below-bar defensive exception, so their advertised size
+// reduction must survive portfolio normalization rather than being redistributed
+// to the same name when the roster is small.
+const PICKS_TACTICAL_SIZE_CONFIG = Number(process.env.PICKS_TACTICAL_SIZE_MULT ?? 0.50);
+export const PICKS_TACTICAL_SIZE_MULT = Number.isFinite(PICKS_TACTICAL_SIZE_CONFIG)
+  ? Math.max(0.25, Math.min(0.75, PICKS_TACTICAL_SIZE_CONFIG))
+  : 0.50;
+
+// A high-cap continuation regime may favor primary-scenario alignment in rank,
+// but only by a small bounded amount. Against-primary names in that state must
+// already be Strong before the regime layer touches them.
+const PICKS_SCENARIO_HIGH_GROSS_MIN = Number(process.env.PICKS_SCENARIO_HIGH_GROSS_MIN ?? 0.85);
+const PICKS_PRIMARY_ALIGNMENT_SORT_NUDGE = 0.15;
 
 // ---- One simple market regime (SPY trend + VIX) ----------------------------
 const PICKS_RISKOFF_VIX = 20;
@@ -15033,8 +15166,6 @@ const PICKS_RISKOFF_SPY = -1.0;                // SPY 1d % that confirms risk-of
 const PICKS_RISKON_SPY = 0.6;
 const PICKS_RISKOFF_GROSS = 0.6;               // de-gross multipliers
 const PICKS_SEVERE_GROSS = 0.4;
-const PICKS_REGIME_TILT = 2;                   // bearish nudge to every grade in risk-off
-const PICKS_REGIME_TILT_SEVERE = 4;
 const PICKS_RISKOFF_PUT_BAR = -3;              // tactical-put bar in risk-off (sub-conviction)
 
 // ---- Entry-timing thresholds (also mirrored to the client live gate) -------
@@ -15071,10 +15202,10 @@ const PICKS_TIMING_PULLBACK_RETRACE_DEEP = 0.67;
 const PICKS_TIMING_PULLBACK_MAX_SESSIONS = 10;
 const PICKS_TIMING_STRUCTURE_MAX_ATR = 2;
 const PICKS_TIMING_MIN_RR = 1.5;
-const PICKS_TIMING_EARNINGS_HARD_DAYS = 3;
+const PICKS_TIMING_EARNINGS_HARD_DAYS = 2;
 const PICKS_TIMING_EARNINGS_DEFER_DAYS = 7;
-const PICKS_TIMING_EVENT_HARD_DAYS = 1;
-const PICKS_ENTRY_TIMING_VERSION = 2;
+const PICKS_TIMING_EVENT_HARD_DAYS = 2;
+export const PICKS_ENTRY_TIMING_VERSION = 3;
 export const PICKS_TIMING_THRESHOLDS = Object.freeze({
   knifeRet1d: PICKS_TIMING_KNIFE_RET1D,
   knifeRet3d: PICKS_TIMING_KNIFE_RET3D,
@@ -15308,7 +15439,7 @@ const PICKS_ACCURACY_MAX_CLOSED = 250;
 // confluence before an extreme becomes a hard exhaustion veto. Knife,
 // event-defer, reclaim/reversal, structure, and >=1.5:1 payoff gates now bind
 // the final buy-now call. The new enrolled population gets a fresh record.
-const PICKS_ACCURACY_RESET_EPOCH = "2026-07-28.entry-v2";
+export const PICKS_ACCURACY_RESET_EPOCH = "2026-08-08.top-picks-v3";
 // Hard cap on the concurrently-tracked open book. Each build ships <=10
 // actionable picks, but re-entry suppression means every build surfaces NEW
 // names while the previously-enrolled ones stay open until an exit rule fires —
@@ -15501,6 +15632,301 @@ function atrPctFrom(h, l, c) {
   return last > 0 ? atr / last : null;
 }
 
+const picksMeanStd = (values) => {
+  const a = (Array.isArray(values) ? values : []).map(Number).filter(Number.isFinite);
+  if (a.length < 2) return null;
+  const mean = a.reduce((s, x) => s + x, 0) / a.length;
+  const variance = a.reduce((s, x) => s + (x - mean) ** 2, 0) / (a.length - 1);
+  return { n: a.length, mean, std: Math.sqrt(Math.max(0, variance)) };
+};
+
+const picksMedian = (values) => {
+  const a = (Array.isArray(values) ? values : []).map(Number).filter(Number.isFinite).sort((x, y) => x - y);
+  if (!a.length) return null;
+  const m = Math.floor(a.length / 2);
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+};
+
+// One non-stacking standardized price/volume component for Top Picks. All
+// inputs come from the same confirmed daily OHLCV cutoff as Entry Timing. The
+// 5/10/20-session returns are compared with prior rolling returns of the same
+// horizon; today's observation is excluded from each reference distribution.
+export function computeStandardizedMove(data, regime = "neutral", streakRow = null) {
+  const series = timingConfirmedSeries(data);
+  if (!series || series.c.length < 40) {
+    return {
+      score: 0, state: "insufficient-history", returnZ: { d5: null, d10: null, d20: null },
+      volumeZ: null, atrDistance: null, bollingerZ: null, bollingerPctB: null,
+      confirmedBars: series?.c?.length || 0, positiveExtreme: false, negativeExtreme: false,
+      volumeConfirmed: false, dryingVolume: false, supportHold: false,
+      trendUp: false, trendDown: false, exhaustionUp: false, exhaustionDown: false,
+    };
+  }
+  const { c, h, l, v } = series;
+  const n = c.length;
+  const currentReturnZ = (window) => {
+    if (n <= window + 15 || !(c[n - 1] > 0) || !(c[n - 1 - window] > 0)) return null;
+    const current = Math.log(c[n - 1] / c[n - 1 - window]);
+    const history = [];
+    for (let end = window; end <= n - 2; end++) {
+      if (!(c[end] > 0) || !(c[end - window] > 0)) continue;
+      history.push(Math.log(c[end] / c[end - window]));
+    }
+    const ms = picksMeanStd(history.slice(-252));
+    return ms && ms.std > 0 ? r2((current - ms.mean) / ms.std) : null;
+  };
+  const returnZ = { d5: currentReturnZ(5), d10: currentReturnZ(10), d20: currentReturnZ(20) };
+  const zs = Object.values(returnZ).filter(Number.isFinite);
+  const maxZ = zs.length ? Math.max(...zs) : null;
+  const minZ = zs.length ? Math.min(...zs) : null;
+
+  const priorLogVol = v.slice(Math.max(0, n - 21), n - 1)
+    .filter((x) => Number.isFinite(x) && x > 0).map(Math.log);
+  const latestVol = Number(v[n - 1]);
+  const vms = picksMeanStd(priorLogVol);
+  const volumeZ = latestVol > 0 && vms && vms.std > 0 ? r2((Math.log(latestVol) - vms.mean) / vms.std) : null;
+
+  const last = c[n - 1];
+  const sma20 = timingMean(c.slice(-20));
+  const priorSma20 = timingMean(c.slice(-21, -1));
+  const atrPct = atrPctFrom(h, l, c);
+  const atr = atrPct != null ? atrPct * last : null;
+  const atrDistance = atr > 0 ? r2((last - sma20) / atr) : null;
+  const bms = picksMeanStd(c.slice(-20));
+  const bollingerZ = bms && bms.std > 0 ? r2((last - bms.mean) / bms.std) : null;
+  const bollingerPctB = bms && bms.std > 0
+    ? r2((last - (bms.mean - 2 * bms.std)) / (4 * bms.std))
+    : null;
+
+  const tailStreak = (dir) => {
+    let count = 0;
+    for (let i = n - 1; i > 0; i--) {
+      const move = c[i] - c[i - 1];
+      if ((dir > 0 && move > 0) || (dir < 0 && move < 0)) count++;
+      else break;
+    }
+    return count;
+  };
+  const supplied = streakRow?.current || null;
+  const upStreak = supplied?.color === "green" ? Number(supplied.sameDays) || 0 : tailStreak(1);
+  const downStreak = supplied?.color === "red" ? Number(supplied.sameDays) || 0 : tailStreak(-1);
+  const trendUp = last > sma20 && sma20 > priorSma20;
+  const trendDown = last < sma20 && sma20 < priorSma20;
+  const priorSupport = Math.min(...l.slice(Math.max(0, n - 21), n - 1).filter(Number.isFinite));
+  const higherLowTurn = n >= 3 && l[n - 1] > l[n - 2] && c[n - 1] > c[n - 2];
+  const supportHold = Number.isFinite(priorSupport) && (atr == null || l[n - 1] >= priorSupport - atr * 0.25);
+  const positiveExtreme = maxZ != null && maxZ >= 2;
+  const negativeExtreme = minZ != null && minZ <= -2;
+  // A 20-session upside extreme and a 5-session downside extreme can coexist
+  // during a sharp reversal. That is conflicting evidence, not a continuation
+  // signal. Volume expansion also confirms only the direction of the latest
+  // completed bar; an expanding-volume selloff cannot validate an older rally.
+  const conflictingExtreme = positiveExtreme && negativeExtreme;
+  const latestMove = n >= 2 ? c[n - 1] - c[n - 2] : 0;
+  const volumeExpanded = volumeZ != null && volumeZ >= 1;
+  const upsideVolumeConfirmed = volumeExpanded && latestMove > 0;
+  const downsideVolumeConfirmed = volumeExpanded && latestMove < 0;
+  const volumeConfirmed = conflictingExtreme
+    ? false
+    : positiveExtreme
+      ? upsideVolumeConfirmed
+      : negativeExtreme
+        ? downsideVolumeConfirmed
+        : volumeExpanded;
+  const dryingVolume = volumeZ != null && volumeZ <= 0;
+  const exhaustionUp = !conflictingExtreme && positiveExtreme
+    && (upStreak >= 4 || !upsideVolumeConfirmed);
+  const exhaustionDown = !conflictingExtreme && negativeExtreme
+    && (downStreak >= 4 || !downsideVolumeConfirmed);
+
+  let score = 0, state = "normal";
+  if (conflictingExtreme) {
+    state = "conflicting-horizons";
+  } else if (positiveExtreme) {
+    if (trendUp && volumeConfirmed && !exhaustionUp) { score = 1; state = "continuation-up"; }
+    else if (exhaustionUp) { score = -1; state = "exhaustion-up"; }
+  } else if (negativeExtreme) {
+    const meanReversionRegime = regime === "neutral" || regime === "risk-off" || regime === "severe" || regime === "severe-risk-off";
+    if (meanReversionRegime && supportHold && higherLowTurn && dryingVolume) { score = 1; state = "mean-reversion"; }
+    else if (trendDown && volumeConfirmed) { score = -1; state = "continuation-down"; }
+  }
+  return {
+    score: clamp(score, -1, 1), state, returnZ, volumeZ,
+    atrDistance, bollingerZ, bollingerPctB, confirmedBars: n,
+    positiveExtreme, negativeExtreme, volumeConfirmed, dryingVolume, supportHold,
+    trendUp, trendDown, exhaustionUp, exhaustionDown,
+  };
+}
+
+const alignedRatioRows = (numeratorRows, denominatorRows, absNumerator = true) => {
+  const den = new Map((Array.isArray(denominatorRows) ? denominatorRows : [])
+    .filter((x) => x?.date && pnumN(x.value) != null).map((x) => [x.date, Number(x.value)]));
+  return (Array.isArray(numeratorRows) ? numeratorRows : [])
+    .filter((x) => x?.date && pnumN(x.value) != null && den.get(x.date) > 0)
+    .map((x) => ({ date: x.date, pct: (absNumerator ? Math.abs(Number(x.value)) : Number(x.value)) / den.get(x.date) * 100 }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+};
+
+const PICKS_CAPEX_MIN_HISTORY_N = 5;            // current + four-quarter comparator
+const PICKS_CAPEX_MAX_AGE_DAYS = 200;           // quarter end plus normal filing lag
+
+const picksReferenceDateKey = (reference = null) => {
+  const raw = reference && typeof reference === "object" && !(reference instanceof Date)
+    ? (reference.asOfDate ?? reference.asOfIso ?? reference.builtAtIso ?? null)
+    : reference;
+  if (typeof raw === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw.trim())) return raw.trim();
+  const d = raw instanceof Date ? raw : new Date(raw ?? Date.now());
+  return Number.isFinite(d.getTime()) ? etDateKey(d) : etDateKey();
+};
+
+const ratioHistoryStats = (rows, asOfDate, minHistoryN = PICKS_CAPEX_MIN_HISTORY_N) => {
+  const a = Array.isArray(rows) ? rows : [];
+  if (!a.length) return {
+    currentPct: null, currentDate: null,
+    sequentialDeltaPp: null, sequentialPriorDate: null,
+    yoyDeltaPp: null, yoyPriorDate: null,
+    ownMedianPct: null, n: 0, ageDays: null, fresh: false,
+    minHistoryN, maxAgeDays: PICKS_CAPEX_MAX_AGE_DAYS, historyEligible: false,
+  };
+  const currentPct = a.at(-1).pct;
+  const sequentialDeltaPp = a.length >= 2 ? currentPct - a.at(-2).pct : null;
+  const yoyDeltaPp = a.length >= 5 ? currentPct - a.at(-5).pct : null;
+  const ownMedianPct = picksMedian(a.slice(0, -1).map((x) => x.pct));
+  const currentDate = a.at(-1).date || null;
+  const currentMs = currentDate ? Date.parse(`${currentDate}T00:00:00Z`) : NaN;
+  const asOfMs = Date.parse(`${asOfDate}T00:00:00Z`);
+  const ageDays = Number.isFinite(currentMs) && Number.isFinite(asOfMs)
+    ? Math.floor((asOfMs - currentMs) / 86400000)
+    : null;
+  const fresh = ageDays != null && ageDays >= 0 && ageDays <= PICKS_CAPEX_MAX_AGE_DAYS;
+  return {
+    currentPct, currentDate,
+    sequentialDeltaPp, sequentialPriorDate: a.length >= 2 ? a.at(-2).date || null : null,
+    yoyDeltaPp, yoyPriorDate: a.length >= 5 ? a.at(-5).date || null : null,
+    ownMedianPct, n: a.length, ageDays, fresh,
+    minHistoryN, maxAgeDays: PICKS_CAPEX_MAX_AGE_DAYS,
+    historyEligible: a.length >= minHistoryN && fresh,
+  };
+};
+
+// Auditable CapEx-intensity inputs. Missing structured management revenue
+// guidance, backlog growth and ROIC trend remain null instead of being inferred
+// from prose, generic guidance, ROA or ROE. Analyst revenue estimates are
+// labeled as estimates, never management guidance.
+export function computeCapexQualityMetrics(fundamentals = {}, opts = {}) {
+  const asOfDate = picksReferenceDateKey(opts);
+  const capexRows = fundamentals.capexHistory || [];
+  const sales = ratioHistoryStats(alignedRatioRows(capexRows, fundamentals.revenueHistory), asOfDate);
+  const ocf = ratioHistoryStats(alignedRatioRows(capexRows, fundamentals.operatingCashFlowHistory), asOfDate);
+  const fcfConversion = ratioHistoryStats(
+    alignedRatioRows(fundamentals.fcfHistory, fundamentals.operatingCashFlowHistory, false),
+    asOfDate,
+    2,
+  );
+  const capexTtmRaw = pnumN(fundamentals.capitalAllocation?.capexTtm);
+  const capexTtm = capexTtmRaw == null ? null : Math.abs(capexTtmRaw);
+  const salesTtm = pnumN(fundamentals.revenue);
+  const ocfTtm = pnumN(fundamentals.operatingCashFlow);
+  if (capexTtm != null && salesTtm > 0) sales.ttmPct = capexTtm / salesTtm * 100;
+  else sales.ttmPct = null;
+  if (capexTtm != null && ocfTtm > 0) ocf.ttmPct = capexTtm / ocfTtm * 100;
+  else ocf.ttmPct = null;
+  const eligibleBasis = sales.historyEligible ? "sales" : ocf.historyEligible ? "ocf" : null;
+  const basis = eligibleBasis
+    || (sales.n || sales.ttmPct != null ? "sales" : ocf.n || ocf.ttmPct != null ? "ocf" : null);
+  const primary = basis === "sales" ? sales : basis === "ocf" ? ocf : null;
+  const available = !!eligibleBasis;
+  const acceleration = !!(available && primary && (
+    (primary.yoyDeltaPp != null && primary.yoyDeltaPp >= 2)
+    || (primary.sequentialDeltaPp != null && primary.sequentialDeltaPp >= 1.5)
+  ));
+  const fcfImproving = fcfConversion.historyEligible && fcfConversion.sequentialDeltaPp != null && fcfConversion.sequentialDeltaPp >= 3;
+  const fcfWorsening = fcfConversion.historyEligible && fcfConversion.sequentialDeltaPp != null && fcfConversion.sequentialDeltaPp <= -5;
+  const forwardRevenueGrowthPct = salesTtm > 0 && pnumN(fundamentals.revenueEstimateCurY) != null
+    ? (Number(fundamentals.revenueEstimateCurY) / salesTtm - 1) * 100
+    : null;
+  const forwardRevenueEstimateSupport = forwardRevenueGrowthPct != null
+    && forwardRevenueGrowthPct >= Math.max(5, pnumN(fundamentals.revenueGrowthYoy) ?? 0);
+  const availabilityReason = available
+    ? null
+    : !primary || primary.n === 0
+      ? "history-unavailable"
+      : primary.n < PICKS_CAPEX_MIN_HISTORY_N
+        ? "history-thin"
+        : !primary.fresh
+          ? "history-stale"
+          : "history-ineligible";
+  return {
+    available,
+    snapshotAvailable: !!basis,
+    availabilityReason,
+    asOfDate,
+    minHistoryN: PICKS_CAPEX_MIN_HISTORY_N,
+    maxAgeDays: PICKS_CAPEX_MAX_AGE_DAYS,
+    basis,
+    sales,
+    ocf,
+    fcfConversion,
+    acceleration,
+    confirmations: {
+      forwardRevenueEstimateSupport,
+      forwardRevenueGrowthPct: forwardRevenueGrowthPct != null ? r1(forwardRevenueGrowthPct) : null,
+      managementRevenueGuidance: null,
+      fcfImproving,
+      fcfWorsening,
+      backlogGrowth: null,
+      roicTrend: null,
+    },
+  };
+}
+
+function sectorCapexBenchmarks(chains, asOfIso = null) {
+  const bySector = {};
+  for (const [symbol, data] of Object.entries(chains || {})) {
+    if (SECTORS[symbol] === "ETF") continue;
+    const sector = data?.fundamentals?.sector;
+    if (!sector) continue;
+    const metrics = computeCapexQualityMetrics(data.fundamentals, { asOfIso });
+    const row = (bySector[sector] ||= { sales: [], ocf: [] });
+    if (metrics.sales.historyEligible && metrics.sales.ttmPct != null) row.sales.push(metrics.sales.ttmPct);
+    if (metrics.ocf.historyEligible && metrics.ocf.ttmPct != null) row.ocf.push(metrics.ocf.ttmPct);
+  }
+  const out = {};
+  for (const [sector, row] of Object.entries(bySector)) {
+    out[sector] = {
+      salesMedianPct: picksMedian(row.sales), salesN: row.sales.length,
+      ocfMedianPct: picksMedian(row.ocf), ocfN: row.ocf.length,
+    };
+  }
+  return out;
+}
+
+// Universe-relative standardization for the IV Cost points. Own-history rank/z
+// remain the interpretation and strategy inputs; only fresh, adequately sampled
+// percentile rows enter this cross-section.
+export function computeIvUniverseContext(chains, reference = null) {
+  const asOf = picksReferenceDateKey(reference);
+  const rows = [];
+  for (const [symbol, data] of Object.entries(chains || {})) {
+    const rank = data?.ivRank;
+    const pctile = pnumN(rank?.pctile);
+    if (!(pnum(data?.spot) > 0) || !data?.chains || pctile == null || pnum(rank?.n) < PICKS_IVRANK_MIN_N) continue;
+    // A missing date cannot prove that this percentile belongs to the same
+    // option snapshot as its peers. Offline regen supplies the persisted
+    // snapshot date explicitly instead of comparing old data to wall-clock now.
+    if (rank.asOf !== asOf) continue;
+    rows.push({ symbol, pctile });
+  }
+  const ms = picksMeanStd(rows.map((x) => x.pctile));
+  return {
+    ready: !!(ms && ms.n >= 10 && ms.std > 0),
+    n: ms?.n || rows.length,
+    meanPctile: ms ? r2(ms.mean) : null,
+    stdPctile: ms ? r2(ms.std) : null,
+    asOf,
+  };
+}
+
 // Sector-median trailing P/E across the universe (for the valuation signal).
 function sectorMedianPEs(chains) {
   const bySector = {};
@@ -15638,7 +16064,7 @@ function computeFundamentalsTrajectory(data) {
 // ============================================================================
 // The four pillars.  Each returns { score, signals:[] }, score clamped later.
 // ============================================================================
-function scoreFundamentals(data, sectorMedianPE, isEtf = false) {
+function scoreFundamentals(data, sectorMedianPE, sectorCapex = null, isEtf = false, opts = {}) {
   const f = data?.fundamentals || {};
   const out = [];
 
@@ -15729,6 +16155,48 @@ function scoreFundamentals(data, sectorMedianPE, isEtf = false) {
   }
   out.push(sig("capitalRaise", "Capital raise", crScore, crVal, "Recent debt/equity issuance or buyback", !!cr));
 
+  // CapEx quality: penalize a material acceleration only when it is expensive
+  // versus the company's own history / sector and lacks the structured evidence
+  // that the spend is converting into growth or cash. Generic guidance, prose
+  // narratives, ROA and ROE are deliberately not treated as revenue guidance,
+  // backlog growth, or ROIC trend.
+  const capexQuality = computeCapexQualityMetrics(f, { asOfIso: opts.asOfIso });
+  const capexPrimary = capexQuality.basis === "sales" ? capexQuality.sales : capexQuality.ocf;
+  const capexCurrent = capexPrimary?.currentPct ?? capexPrimary?.ttmPct ?? null;
+  const capexPeer = capexQuality.basis === "sales"
+    ? (sectorCapex?.salesN >= 3 ? sectorCapex.salesMedianPct : null)
+    : (sectorCapex?.ocfN >= 3 ? sectorCapex.ocfMedianPct : null);
+  const aboveOwn = capexCurrent != null && capexPrimary?.ownMedianPct != null
+    && capexCurrent >= capexPrimary.ownMedianPct * 1.15;
+  const peerCurrent = capexPrimary?.ttmPct ?? capexCurrent;
+  const abovePeer = peerCurrent != null && capexPeer != null && peerCurrent >= capexPeer * 1.20;
+  const growthConfirmed = capexQuality.confirmations.forwardRevenueEstimateSupport === true;
+  const cashConfirmed = capexQuality.confirmations.fcfImproving === true;
+  let capexScore = 0;
+  if (capexQuality.acceleration && (aboveOwn || abovePeer) && !(growthConfirmed || cashConfirmed)) {
+    capexScore = aboveOwn && abovePeer && (capexQuality.confirmations.fcfWorsening || pnumN(f.freeCashFlow) < 0) ? -2 : -1;
+  } else if (capexQuality.acceleration && growthConfirmed && cashConfirmed) {
+    capexScore = 0.5;
+  }
+  const capexBits = [];
+  if (capexCurrent != null) capexBits.push(`${r1(capexCurrent)}% of ${capexQuality.basis === "sales" ? "sales" : "OCF"}`);
+  if (capexPrimary?.yoyDeltaPp != null) capexBits.push(`YoY ${capexPrimary.yoyDeltaPp >= 0 ? "+" : ""}${r1(capexPrimary.yoyDeltaPp)}pp`);
+  if (capexPrimary?.sequentialDeltaPp != null) capexBits.push(`seq ${capexPrimary.sequentialDeltaPp >= 0 ? "+" : ""}${r1(capexPrimary.sequentialDeltaPp)}pp`);
+  if (capexPeer != null) capexBits.push(`sector ${r1(capexPeer)}%`);
+  const capexWhy = !capexQuality.available
+    ? capexQuality.availabilityReason === "history-stale"
+      ? `Quarterly CapEx history is stale (latest ${capexPrimary?.currentDate || "unknown"})`
+      : capexQuality.availabilityReason === "history-thin"
+        ? `Quarterly CapEx history is still collecting (${capexPrimary?.n || 0}/${capexQuality.minHistoryN} aligned quarters)`
+        : "Quarterly CapEx intensity unavailable"
+    : capexScore < 0
+        ? "CapEx intensity accelerated without verified forward-revenue or improving FCF-conversion support"
+        : capexScore > 0
+          ? "CapEx acceleration is matched by forward revenue estimates and improving FCF conversion"
+          : "CapEx intensity is not an unsupported capital-efficiency warning";
+  out.push(sig("capexQuality", "CapEx quality", capexScore,
+    capexBits.length ? capexBits.join(" · ") : null, capexWhy, capexQuality.available));
+
   // Free cash flow TTM. Score stays the TTM sign; the value string cites the
   // quarterly FCF track's consistency when the series has accumulated.
   const fcf = pnumN(f.freeCashFlow);
@@ -15758,10 +16226,10 @@ function scoreFundamentals(data, sectorMedianPE, isEtf = false) {
     trajectory.reason, trajectory.inputs >= 2));
 
   const score = out.reduce((a, s) => a + s.score, 0);
-  return { score, signals: out, trajectory };
+  return { score, signals: out, trajectory, capexQuality: { ...capexQuality, peerMedianPct: capexPeer } };
 }
 
-function scoreTechnicals(data, streakRow) {
+function scoreTechnicals(data, streakRow, regime = "neutral") {
   const t = data?.technicals || {};
   const out = [];
   const spot = pnum(data?.spot);
@@ -15832,9 +16300,26 @@ function scoreTechnicals(data, streakRow) {
   }
   out.push(sig("fiftyTwoWeek", "52-week position", fw, fwVal, "Near high (extended) / low (washed)", hi > 0 && lo > 0));
 
-  // Volume confirmation.
-  const rvol = pnum(t.volume?.rvol);
-  out.push(sig("volume", "Volume confirmation", rvol == null ? 0 : rvol >= 1.3 ? 1 : rvol < 0.8 ? -1 : 0, rvol == null ? null : r2(rvol) + "x", "Relative volume", rvol != null));
+  // Standardized move (one capped family, never 5d+10d+20d stacking). This
+  // replaces the old unsigned raw-rvol point, which could reward a crash day
+  // simply because volume expanded and penalize a drying-volume support hold.
+  const standardizedMove = computeStandardizedMove(data, regime, streakRow);
+  const zBits = Object.entries(standardizedMove.returnZ || {})
+    .filter(([, z]) => Number.isFinite(z))
+    .map(([k, z]) => `${k.slice(1)}d ${z >= 0 ? "+" : ""}${r2(z)}σ`);
+  if (standardizedMove.volumeZ != null) zBits.push(`vol ${standardizedMove.volumeZ >= 0 ? "+" : ""}${r2(standardizedMove.volumeZ)}σ`);
+  out.push(sig(
+    "standardizedMove",
+    "Standardized move",
+    standardizedMove.score,
+    zBits.length ? zBits.join(" · ") : null,
+    standardizedMove.state === "continuation-up" ? "Extreme upside move confirmed by trend and standardized volume"
+      : standardizedMove.state === "continuation-down" ? "Extreme downside move confirmed by trend and standardized volume"
+        : standardizedMove.state === "exhaustion-up" ? "Upside sigma extreme lacks confirmation or follows an extended streak"
+          : standardizedMove.state === "mean-reversion" ? "Downside sigma extreme held support on drying volume and formed a turn"
+            : "5/10/20-session return z, volume z, ATR distance and Bollinger location",
+    standardizedMove.confirmedBars >= 40,
+  ));
 
   // Chart pattern (confirmed + exact current bar window only). The vision pass
   // is intentionally limited to one midday read/day; a cached pattern may
@@ -15853,7 +16338,7 @@ function scoreTechnicals(data, streakRow) {
   ));
 
   const score = out.reduce((a, s) => a + s.score, 0);
-  return { score, signals: out };
+  return { score, signals: out, standardizedMove };
 }
 
 function scoreMechanicals(sym, data, unusualPayload) {
@@ -16098,8 +16583,14 @@ function timingStructure(series, side, sma20, sma50, atrPct) {
   const confluence = anchor
     ? rawLevels.filter((x) => Math.abs(x.value - anchor.value) <= atr * 0.40).length
     : 0;
-  const stop = anchor ? anchor.value - (isCall ? atr * 0.25 : -atr * 0.25) : null;
-  const risk = stop != null ? Math.abs(last - stop) : null;
+  const stopCandidate = anchor ? r2(anchor.value - (isCall ? atr * 0.25 : -atr * 0.25)) : null;
+  // A stop is an invalidation only when it is beyond entry in the loss
+  // direction. Do not let Math.abs manufacture tiny risk / huge R:R from a
+  // 20D/50D anchor that still sits on the wrong side of the intended entry.
+  const invalidation = stopCandidate != null && (isCall ? stopCandidate < last : stopCandidate > last)
+    ? stopCandidate
+    : null;
+  const risk = invalidation != null ? Math.abs(last - invalidation) : null;
   const riskAtr = risk != null && atr > 0 ? risk / atr : null;
   const priorTarget = isCall
     ? (swingHigh != null && swingHigh > last + atr * 0.25 ? swingHigh : null)
@@ -16110,12 +16601,12 @@ function timingStructure(series, side, sma20, sma50, atrPct) {
   const target = priorTarget ?? (last + (isCall ? 1 : -1) * atr * 2.5);
   const reward = Math.abs(target - last);
   const rr = risk != null && risk > 0 ? reward / risk : null;
-  const clear = !!anchor && riskAtr != null && riskAtr <= PICKS_TIMING_STRUCTURE_MAX_ATR;
+  const clear = !!anchor && invalidation != null && riskAtr != null && riskAtr <= PICKS_TIMING_STRUCTURE_MAX_ATR;
   return {
     anchor: anchor ? r2(anchor.value) : null,
     anchorKind: anchor?.kind || null,
     confluence,
-    invalidation: stop != null ? r2(stop) : null,
+    invalidation,
     target: r2(target),
     targetKind: priorTarget != null ? (isCall ? "prior resistance" : "prior support") : "2.5 ATR projection",
     riskAtr: riskAtr != null ? r2(riskAtr) : null,
@@ -16145,6 +16636,7 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
   const ret1 = retK(1), ret3 = retK(3), ret5 = retK(5);
   const prevRet1 = n > 2 && c[n - 2] > 0 && c[n - 3] > 0 ? (c[n - 2] / c[n - 3] - 1) * 100 : null;
   const sma20 = c.length >= 20 ? timingMean(c.slice(-20)) : null;
+  const sma20Prev = c.length >= 21 ? timingMean(c.slice(-21, -1)) : null;
   const sma50 = c.length >= 50 ? timingMean(c.slice(-50)) : null;
   const rsi = computeRSI(c, 14);
   const rsiPrev = computeRSI(c.slice(0, -1), 14);
@@ -16171,12 +16663,13 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
   const pullbackVolBase = timingMean(v.slice(Math.max(0, pullbackVolStart - 20), pullbackVolStart));
   const dryRatio = pullbackVolBase > 0 && pullbackVol != null ? pullbackVol / pullbackVolBase : null;
   const higherLow = isCall
-    ? (n >= 3 && l[n - 1] > l[n - 2] && l[n - 2] >= l[n - 3])
-    : (n >= 3 && h[n - 1] < h[n - 2] && h[n - 2] <= h[n - 3]);
+    ? (n >= 2 && l[n - 1] > l[n - 2])
+    : (n >= 2 && h[n - 1] < h[n - 2]);
   const fightsTape = (isCall && (regime === "risk-off" || regime === "severe")) || (!isCall && regime === "risk-on");
   const crowdedAligned = (isCall && regime === "risk-on") || (!isCall && (regime === "risk-off" || regime === "severe"));
   const structure = timingStructure(series, side, sma20, sma50, atrPct);
   const impulse = timingImpulse(c, side, atrPct);
+  const standardizedMove = computeStandardizedMove(data, regime);
   const components = {};
   const reasons = [];
   let hardVeto = null, hardWait = null, deferKind = null;
@@ -16184,39 +16677,49 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
   // ---- Event/calendar risk -------------------------------------------------
   let eventScore = 0;
   const eventDays = eventRisk?.active ? pnumN(eventRisk.daysOut) : null;
-  if (eventDays != null && eventDays >= 0 && eventDays <= PICKS_TIMING_EVENT_DEFER_DAYS) {
-    if (eventDays <= PICKS_TIMING_EVENT_HARD_DAYS) {
+  const eventSessions = eventRisk?.active ? (pnumN(eventRisk.sessionsOut) ?? eventDays) : null;
+  if (eventSessions != null && eventSessions >= 0 && eventSessions <= PICKS_TIMING_EVENT_DEFER_DAYS) {
+    if (eventSessions <= PICKS_TIMING_EVENT_HARD_DAYS) {
       eventScore = -4; hardWait = "event"; deferKind = "event";
-      reasons.push(`${eventRisk.label || "major macro event"} in ${Math.round(eventDays)} calendar day${eventDays === 1 ? "" : "s"} — wait for the binary event to clear`);
+      reasons.push(`${eventRisk.label || "major macro event"} in ${Math.round(eventSessions)} trading session${eventSessions === 1 ? "" : "s"} — wait for the binary event to clear`);
     } else {
-      eventScore = eventDays <= 3 ? -2 : -1;
-      reasons.push(`- ${eventRisk.label || "major macro event"} in ${Math.round(eventDays)} calendar days`);
+      eventScore = eventSessions <= 3 ? -2 : -1;
+      reasons.push(`- ${eventRisk.label || "major macro event"} in ${Math.round(eventSessions)} trading sessions`);
     }
   }
   const ed = data?.fundamentals?.nextEarningsDate ? etDaysUntil(data.fundamentals.nextEarningsDate) : null;
-  if (ed != null && ed >= 0 && ed <= PICKS_TIMING_EARNINGS_DEFER_DAYS) {
-    if (ed <= PICKS_TIMING_EARNINGS_HARD_DAYS) {
+  const earningsSessions = data?.fundamentals?.nextEarningsDate
+    ? tradingSessionsBetween(etDateKey(), data.fundamentals.nextEarningsDate)
+    : null;
+  if (earningsSessions != null && earningsSessions >= 0 && earningsSessions <= PICKS_TIMING_EARNINGS_DEFER_DAYS) {
+    if (earningsSessions <= PICKS_TIMING_EARNINGS_HARD_DAYS) {
       eventScore = Math.min(eventScore, -4); hardWait = "earnings"; deferKind = "earnings";
-      reasons.push(`earnings in ~${Math.round(ed)} calendar day${Math.round(ed) === 1 ? "" : "s"} — long-premium IV-crush risk`);
+      reasons.push(`earnings in ${Math.round(earningsSessions)} trading session${Math.round(earningsSessions) === 1 ? "" : "s"} — long-premium IV-crush risk`);
     } else {
       eventScore = Math.min(eventScore, -2);
-      reasons.push(`- earnings in ~${Math.round(ed)} calendar days`);
+      reasons.push(`- earnings in ${Math.round(earningsSessions)} trading sessions`);
     }
   }
-  components.event = { score: eventScore, daysOut: ed, macroDaysOut: eventDays };
+  components.event = { score: eventScore, daysOut: ed, sessionsOut: earningsSessions, macroDaysOut: eventDays, macroSessionsOut: eventSessions };
 
   // ---- Extension/exhaustion -----------------------------------------------
+  const sigmaZs = Object.values(standardizedMove.returnZ || {}).filter(Number.isFinite);
+  const directionalSigmaZ = sigmaZs.length ? Math.max(...sigmaZs.map((z) => z * dir)) : null;
+  const sigmaExhaustion = isCall ? standardizedMove.exhaustionUp : standardizedMove.exhaustionDown;
   const extremeFlags = [
     dirDist != null && dirDist >= PICKS_ENTRY_EXTENDED_HARD,
     heat != null && heat >= PICKS_ENTRY_CHASE_RSI_HARD,
     dirRet5 != null && dirRet5 >= PICKS_TIMING_CHASE_RET5D,
+    sigmaExhaustion,
   ].filter(Boolean).length;
   const exhaustionRollover = (dirRet1 != null && dirRet1 < 0)
     || (macdHist != null && macdHistPrev != null && macdHist * dir < macdHistPrev * dir);
   const volumeClimax = rvol != null && rvol >= PICKS_TIMING_VOL_CLIMAX && dirRet1 != null && dirRet1 > 0;
   const catastrophic = (dirDist != null && dirDist >= PICKS_ENTRY_EXTREME_DIST)
     || (heat != null && heat >= PICKS_ENTRY_EXTREME_RSI)
-    || (dirRet5 != null && dirRet5 >= PICKS_ENTRY_EXTREME_RET5D);
+    || (dirRet5 != null && dirRet5 >= PICKS_ENTRY_EXTREME_RET5D)
+    || (directionalSigmaZ != null && directionalSigmaZ >= 4
+      && Math.abs(standardizedMove.atrDistance ?? 0) >= 4 && standardizedMove.volumeConfirmed);
   let extensionScore = 0, extensionTier = "normal";
   if (catastrophic || (extremeFlags >= 2 && (exhaustionRollover || volumeClimax))) {
     extensionTier = "hard";
@@ -16226,6 +16729,7 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
       dirDist != null ? `${r1(dirDist)}% past the 20D` : null,
       rsi != null ? `RSI ${r1(rsi)}` : null,
       dirRet5 != null ? `${r1(dirRet5)}% five-session impulse` : null,
+      sigmaExhaustion && directionalSigmaZ != null ? `${r1(directionalSigmaZ)}σ standardized move without clean confirmation` : null,
       volumeClimax ? `${r1(rvol)}x volume climax` : exhaustionRollover ? "momentum rollover" : null,
     ].filter(Boolean).join(", ")}`);
   } else {
@@ -16248,7 +16752,10 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
       reasons.push(`- mild stretch: ${r1(dirDist)}% past the 20D`);
     }
   }
-  components.extension = { score: extensionScore, tier: extensionTier, extremeFlags, exhaustionRollover, volumeClimax };
+  components.extension = {
+    score: extensionScore, tier: extensionTier, extremeFlags, exhaustionRollover, volumeClimax,
+    sigmaExhaustion, directionalSigmaZ: directionalSigmaZ != null ? r2(directionalSigmaZ) : null,
+  };
 
   // ---- Pullback/setup quality + falling-knife override ---------------------
   const macdDir = macdHist != null ? macdHist * dir : null;
@@ -16296,10 +16803,14 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
       setupScore = -5;
       hardVeto = hardVeto || "knife";
       reasons.unshift("prior impulse has fully failed through its origin/support");
-    } else if (idealDepth && holds && orderlyDuration) {
+    } else if (idealDepth && holds && orderlyDuration && higherLow) {
       setupKind = "healthy-pullback";
       setupScore = 1 + (dry ? 1 : 0);
       reasons.push(`+ healthy ${r1(impulse.retrace * 100)}% impulse retracement${dry ? ` on ${r1(dryRatio)}x drying volume` : ""}`);
+    } else if (idealDepth && holds && orderlyDuration) {
+      setupKind = "pullback-unconfirmed";
+      setupScore = 0;
+      reasons.push(`orderly ${r1(impulse.retrace * 100)}% retracement is holding, but a ${isCall ? "higher low" : "lower high"} has not formed yet`);
     } else if (impulse.retrace > 0 && impulse.retrace < PICKS_TIMING_PULLBACK_RETRACE_LO) {
       setupKind = "shallow";
       const continuationVolume = dirRet1 != null && dirRet1 > 0 && rvol != null && rvol >= PICKS_TIMING_VOL_CONFIRM;
@@ -16373,11 +16884,15 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
   const independentFamilies = [setupScore > 0, momentumScore > 0, structureScore > 0].filter(Boolean).length;
   const payoffOk = structure.rr != null && structure.rr >= PICKS_TIMING_MIN_RR;
   const directionConfirmed = momentumScore > 0;
-  const trendReclaimed = dirDist != null && dirDist >= 0;
+  const trendReclaimed = sma20Prev != null && sma20 != null && n >= 2 && (
+    isCall
+      ? c[n - 2] <= sma20Prev && lastC > sma20
+      : c[n - 2] >= sma20Prev && lastC < sma20
+  );
   const crowdedProof = !crowdedAligned || extensionTier === "normal" || momentumScore >= 2;
   const countertrendProof = !fightsTape || (momentumScore >= 2 && structureScore > 0 && trendReclaimed);
   const goReady = !hardVeto && !hardWait && score >= PICKS_ENTRY_READY_BAR
-    && directionConfirmed && independentFamilies >= 2 && payoffOk && crowdedProof && countertrendProof;
+    && directionConfirmed && independentFamilies >= 2 && structure.clear && payoffOk && crowdedProof && countertrendProof;
 
   let state = "wait";
   if (hardVeto || score <= -5) state = "avoid";
@@ -16402,7 +16917,7 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
     extensionTier, setupKind, headline, reasons, components, structure,
     readiness: {
       score, bar: PICKS_ENTRY_READY_BAR, independentFamilies, directionConfirmed,
-      payoffOk, crowdedProof, countertrendProof,
+      structureOk: structure.clear, payoffOk, crowdedProof, countertrendProof, trendReclaimed,
     },
     metrics: {
       asOfClose: r2(lastC), sma20: r2(sma20), sma50: r2(sma50), atrPct: r2((atrPct || 0) * 100),
@@ -16411,19 +16926,59 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
       ret1: r1(ret1), ret3: r1(ret3), ret5: r1(ret5),
       directionalRet1: r1(dirRet1), directionalRet3: r1(dirRet3), directionalRet5: r1(dirRet5),
       rvol: rvol != null ? r2(rvol) : null, dryRatio: dryRatio != null ? r2(dryRatio) : null,
+      standardizedMove,
     },
   };
 }
 
-// IV cost — direction-agnostic. Penalize buying long premium when this name's
-// own IV is at the rich end of its history; small credit when it's cheap.
-export function computeIvCostContribution(data) {
-  const p = pnum(data?.ivRank?.pctile);
+// IV cost is direction-agnostic. The name's own-history percentile remains the
+// raw interpretation, while the points are standardized against today's fresh
+// investable universe; a thin cross-section contributes zero.
+export function computeIvCostContribution(data, universe = null, opts = {}) {
+  const rank = data?.ivRank || null;
+  const p = pnumN(rank?.pctile);
   if (p == null) return null;
-  let contribution = 0;
-  if (p >= PICKS_IV_RICH) contribution = -2 * clamp((p - PICKS_IV_RICH) / (100 - PICKS_IV_RICH) + 0.5, 0.5, 1);
-  else if (p <= PICKS_IV_CHEAP) contribution = 1 * clamp((PICKS_IV_CHEAP - p) / PICKS_IV_CHEAP + 0.5, 0.5, 1);
-  return { contribution: r2(contribution), pctile: p, n: pnum(data?.ivRank?.n) };
+  const rankAsOf = rank?.asOf || null;
+  if (universe?.asOf && rankAsOf !== universe.asOf) return null;
+  let core = 0, crossZ = null, method = "universe-thin-neutral";
+  if (universe?.ready && universe.stdPctile > 0 && universe.n >= 10) {
+    crossZ = (p - universe.meanPctile) / universe.stdPctile;
+    method = "universe-relative";
+    // A name can be less rich than today's universe without being cheap versus
+    // itself. In that case it earns no credit but still outranks the richer peer.
+    if (crossZ >= 0.5 && p >= 50) core = -clamp(0.5 + (crossZ - 0.5) * 0.75, 0.5, 2);
+    else if (crossZ <= -0.5 && p <= 50) core = clamp(0.25 + (-crossZ - 0.5) * 0.5, 0.25, 1);
+  }
+
+  // Fixed, small term overlay: steep front-loaded IV is an extra cost for a
+  // long-premium trade, except when the inversion is already explained by the
+  // name's scheduled earnings event (the event gates own that risk).
+  const surface = data?.ivSurface || null;
+  const surfaceAsOf = surface?.asOf || null;
+  const surfaceFresh = !universe?.asOf || surfaceAsOf === universe.asOf;
+  const termZ = surfaceFresh ? pnumN(surface?.termZ) : null;
+  const termSlope = surfaceFresh ? pnumN(surface?.termSlope) : null;
+  const referenceNow = opts.asOfIso && Number.isFinite(Date.parse(opts.asOfIso))
+    ? new Date(opts.asOfIso)
+    : new Date();
+  const earnDays = data?.fundamentals?.nextEarningsDate
+    ? etDaysUntil(data.fundamentals.nextEarningsDate, referenceNow)
+    : null;
+  const earningsLoaded = earnDays != null && earnDays >= 0 && earnDays <= QUANT_TERM_EVENT_DAYS;
+  const macroLoaded = opts?.eventRisk?.active === true;
+  const termExplained = earningsLoaded || macroLoaded;
+  const termInverted = !termExplained && ((termZ != null && termZ <= -1.5) || (termSlope != null && termSlope <= -0.03));
+  const termPenalty = termInverted ? -0.5 : 0;
+  const contribution = clamp(core + termPenalty, -2, 1);
+  return {
+    contribution: r2(contribution), coreContribution: r2(core), termPenalty,
+    pctile: p, ownZ: pnumN(rank?.z), currentIv: pnumN(rank?.iv),
+    n: pnumN(rank?.n), rankAsOf, surfaceAsOf,
+    universeN: universe?.n || 0,
+    meanPctile: universe?.meanPctile ?? null, stdPctile: universe?.stdPctile ?? null,
+    universeAsOf: universe?.asOf || null,
+    method, termZ, termSlope, termInverted, termExplained, surfaceFresh,
+  };
 }
 
 // ============================================================================
@@ -17273,6 +17828,165 @@ export function computeHeadlineGeoTone(macroHeadlines, nowMs = Date.now()) {
 // ============================================================================
 // Tier mapping (fixed absolute bars — no percentile drift).
 // ============================================================================
+// Canonical, server-side regime overlay consumed by both Top Picks and Grades.
+// The market bias is continuous (-2..+2), direction-aware, warning/gross
+// attenuated, and applied only after the four pillars plus IV Cost. Entry Timing
+// stays execution-only. Positive regime support may re-rank an already-qualified
+// name, but it cannot recruit a below-bar idea or promote a sub-Strong name into
+// the Strong tier; adverse evidence may demote it. No adjustment flips a side.
+export function isDominantHighGrossContinuation(macroBackdrop) {
+  const engine = macroBackdrop?.scenarioEngine || null;
+  const probs = engine?.transition?.probabilities || null;
+  const gross = pnumN(engine?.decision?.grossMultiplier);
+  const continuation = pnumN(probs?.riskOnContinuationPct);
+  const riskOff = pnumN(probs?.riskOffShiftPct);
+  const exhaustion = pnumN(probs?.riskOnExhaustionPct);
+  const highGrossMin = clamp(Number.isFinite(PICKS_SCENARIO_HIGH_GROSS_MIN) ? PICKS_SCENARIO_HIGH_GROSS_MIN : 0.85, 0.5, 1);
+  return gross != null && gross >= highGrossMin
+    && continuation != null && riskOff != null && exhaustion != null
+    && continuation > riskOff && continuation > exhaustion;
+}
+
+export function regimePrimaryGateClears(row, macroBackdrop) {
+  if (!isDominantHighGrossContinuation(macroBackdrop)) return true;
+  if (row?.regimeOverlay?.alignment !== "against-primary") return true;
+  const pre = pnumN(row?.preRegimeTotal) ?? pnumN(row?.regimeOverlay?.preRegimeTotal) ?? pnumN(row?.total) ?? 0;
+  return Math.abs(pre) >= PICKS_TIER_STRONG;
+}
+
+export function regimeCandidateSortKey(row, macroBackdrop) {
+  const conviction = Math.abs(pnumN(row?.total) ?? 0);
+  if (!isDominantHighGrossContinuation(macroBackdrop)) return conviction;
+  const alignment = row?.regimeOverlay?.alignment;
+  const alignmentNudge = alignment === "with-primary" ? PICKS_PRIMARY_ALIGNMENT_SORT_NUDGE : 0;
+  return conviction + alignmentNudge;
+}
+
+export function compareRegimeCandidates(a, b, macroBackdrop) {
+  const aConviction = Math.abs(pnumN(a?.total) ?? 0);
+  const bConviction = Math.abs(pnumN(b?.total) ?? 0);
+  const aTier = aConviction >= PICKS_TIER_STRONG ? 2 : aConviction >= PICKS_MIN_CONVICTION ? 1 : 0;
+  const bTier = bConviction >= PICKS_TIER_STRONG ? 2 : bConviction >= PICKS_MIN_CONVICTION ? 1 : 0;
+  if (aTier !== bTier) return bTier - aTier;
+  const keyDelta = regimeCandidateSortKey(b, macroBackdrop) - regimeCandidateSortKey(a, macroBackdrop);
+  if (Math.abs(keyDelta) > 1e-9) return keyDelta;
+  const convictionDelta = bConviction - aConviction;
+  if (Math.abs(convictionDelta) > 1e-9) return convictionDelta;
+  const signedDelta = (pnumN(b?.total) ?? 0) - (pnumN(a?.total) ?? 0);
+  if (Math.abs(signedDelta) > 1e-9) return signedDelta;
+  return a?.sym < b?.sym ? -1 : a?.sym > b?.sym ? 1 : 0;
+}
+
+export function computeRegimeOverlay(macroBackdrop, symbol, side, preRegimeTotal) {
+  const mr = macroBackdrop?.macroRegime || null;
+  const engine = macroBackdrop?.scenarioEngine || null;
+  const stress = pnumN(mr?.stress) ?? 0;
+  // The Market Analysis rail uses 0=risk-off, 50=neutral, 100=risk-on (for
+  // example, 56 is a modest risk-on lean), matching the existing dashboard.
+  const riskScore = Math.round(clamp(50 + stress * 7, 0, 100));
+  const probs = engine?.transition?.probabilities || null;
+  const warningCount = pnumN(engine?.transition?.fragility?.warningCount) ?? 0;
+  const leadingCount = pnumN(engine?.transition?.fragility?.leadingCount) ?? 0;
+  const scenarioReady = !!(
+    probs && pnumN(probs.riskOffShiftPct) != null
+    && pnumN(probs.riskOnContinuationPct) != null
+    && pnumN(probs.riskOnExhaustionPct) != null
+  );
+  const stressBias = clamp(stress / 4, -1.25, 1.25);
+  const forwardBias = scenarioReady
+    ? clamp((Number(probs.riskOnContinuationPct) - Math.max(Number(probs.riskOffShiftPct), Number(probs.riskOnExhaustionPct))) / 50, -1, 1)
+    : 0;
+  const warningShare = leadingCount > 0 ? clamp(warningCount / leadingCount, 0, 1) : 0;
+  const scenarioGross = clamp(pnumN(engine?.decision?.grossMultiplier) ?? 1, 0.5, 1);
+  const attenuation = scenarioGross * (1 - warningShare * 0.5);
+  let bias = clamp((stressBias + forwardBias) * attenuation, -2, 2);
+  // Missing scenario inputs can still de-risk current macro stress, but they
+  // never manufacture a positive regime boost.
+  if (!scenarioReady && bias > 0) bias = 0;
+  bias = r2(bias);
+
+  const normalizedSide = String(side || "").toLowerCase() === "put" ? "put" : "call";
+  const tradeBias = r2(normalizedSide === "put" ? -bias : bias);
+  const primary = Array.isArray(engine?.scenarios) ? engine.scenarios[0] : null;
+  const sensitivity = Array.isArray(engine?.sensitivities)
+    ? engine.sensitivities.find((row) => row?.symbol === symbol)
+    : null;
+  const underlyingPrimaryImpact = primary ? pnumN(sensitivity?.scenarios?.[primary.key]?.mid) : null;
+  const primaryTradeImpact = underlyingPrimaryImpact != null
+    ? r1((normalizedSide === "put" ? -1 : 1) * underlyingPrimaryImpact)
+    : null;
+  const alignment = primaryTradeImpact == null || Math.abs(primaryTradeImpact) < 1
+    ? "neutral"
+    : primaryTradeImpact > 0 ? "with-primary" : "against-primary";
+
+  const pre = pnumN(preRegimeTotal) ?? 0;
+  const preSign = pre < 0 ? -1 : 1;
+  const preConviction = Math.abs(pre);
+  let tradeAdjustment = tradeBias - (alignment === "against-primary" ? 0.5 : 0);
+  // In a dominant, high-gross continuation state an against-primary name must
+  // stand on its own Strong pre-overlay evidence. The regime can still demote it,
+  // but may not manufacture extra conviction for it.
+  if (alignment === "against-primary" && isDominantHighGrossContinuation(macroBackdrop)) {
+    tradeAdjustment = Math.min(tradeAdjustment, -0.5);
+  }
+  if (tradeAdjustment > 0 && preConviction < PICKS_MIN_CONVICTION) tradeAdjustment = 0;
+  if (tradeAdjustment > 0 && preConviction < PICKS_TIER_STRONG) {
+    tradeAdjustment = Math.min(tradeAdjustment, Math.max(0, PICKS_TIER_STRONG - 0.1 - preConviction));
+  }
+  const adjustedConviction = Math.max(0, preConviction + tradeAdjustment);
+  let adjustedTotal = r1(preSign * adjustedConviction);
+  if (adjustedTotal * preSign < 0) adjustedTotal = 0;
+
+  const desiredAxisSign = normalizedSide === "put" ? -1 : 1;
+  const tapeSignals = Object.entries(mr?.axes || {})
+    .filter(([, axis]) => axis && pnumN(axis.score) != null && Number(axis.score) !== 0)
+    .sort((a, b) => {
+      const aAligned = Math.sign(Number(a[1].score)) === desiredAxisSign ? 1 : 0;
+      const bAligned = Math.sign(Number(b[1].score)) === desiredAxisSign ? 1 : 0;
+      return (bAligned - aAligned) || (Math.abs(Number(b[1].score)) - Math.abs(Number(a[1].score)));
+    })
+    .slice(0, 3)
+    .map(([key, axis]) => ({ key, score: Number(axis.score), label: axis.label || key }));
+  return {
+    state: mr?.state || "neutral",
+    riskScore,
+    bias,
+    tradeBias,
+    adjustment: r1(adjustedTotal - pre),
+    preRegimeTotal: r1(pre),
+    adjustedTotal,
+    alignment,
+    primaryScenario: primary ? { key: primary.key || null, name: primary.name || null, impactMidPct: primaryTradeImpact } : null,
+    tapeSignals,
+    warningCount,
+    grossMultiplier: r2(clamp((pnumN(mr?.grossMult) ?? 1) * scenarioGross, 0.25, 1)),
+    asOf: engine?.builtAtIso || macroBackdrop?.asOf || null,
+  };
+}
+
+// Bound the AI's entry verdict to the deterministic execution contract. An
+// ordinary nonnegative soft Wait is the only promotable state, and only after
+// every GO invariant already clears; hard/negative/incomplete states stay out.
+export function entryPromotionBlocked(entry, timing) {
+  const ready = timing?.readiness || {};
+  return (
+    entry?.basis === "top-guard"
+    || entry?.signal === "wait-event"
+    || entry?.signal === "wait-reclaim"
+    || entry?.signal === "wait-reversal"
+    || !!timing?.hardWait
+    || !!timing?.hardVeto
+    || !(pnumN(timing?.score) >= 0)
+    || !(pnumN(ready.independentFamilies) >= 2)
+    || ready.directionConfirmed !== true
+    || timing?.structure?.clear !== true
+    || ready.structureOk !== true
+    || ready.payoffOk !== true
+    || ready.crowdedProof !== true
+    || ready.countertrendProof !== true
+  );
+}
+
 function tierForScore(total) {
   const a = Math.abs(total);
   if (a >= PICKS_TIER_STRONG) return total >= 0 ? { tier: "strong-call", label: "Strong Call", conviction: "Very High" } : { tier: "strong-put", label: "Strong Put", conviction: "Very High" };
@@ -17284,12 +17998,13 @@ function tierForScore(total) {
 // Score one ticker -> the full grade object used by both grades & picks.
 // ============================================================================
 function scoreTicker(sym, data, ctx) {
-  const { narratives, streaksMap, unusualPayload, sectorMedianPE, regime, eventRisk, regimeTilt } = ctx;
+  const { narratives, streaksMap, unusualPayload, sectorMedianPE, sectorCapex, ivUniverse, regime, eventRisk, macroBackdrop, asOfIso } = ctx;
   const streakRow = streaksMap ? streaksMap[sym] : null;
   const spot = pnum(data?.spot);
 
-  const fund = scoreFundamentals(data, sectorMedianPE[data?.fundamentals?.sector], SECTORS[sym] === "ETF");
-  const tech = scoreTechnicals(data, streakRow);
+  const sector = data?.fundamentals?.sector;
+  const fund = scoreFundamentals(data, sectorMedianPE[sector], sectorCapex[sector], SECTORS[sym] === "ETF", { asOfIso });
+  const tech = scoreTechnicals(data, streakRow, regime);
   const mech = scoreMechanicals(sym, data, unusualPayload);
   const narr = scoreNarrative(sym, data, narratives);
   for (const p of [fund, tech, mech, narr]) p.score = clamp(p.score, -PICKS_PILLAR_CLAMP, PICKS_PILLAR_CLAMP);
@@ -17297,14 +18012,11 @@ function scoreTicker(sym, data, ctx) {
   // Provisional side from the asset pillars; execution timing and IV are read
   // on that side. Timing is deliberately NOT folded into conviction: a strong
   // company with a poor entry stays strongly directional but is gated to Wait.
-  let base = fund.score + tech.score + mech.score + narr.score;
-  // Regime tilt: nudge the whole book bearish in a risk-off tape (re-ranks the
-  // marginal calls toward "no trade" / puts).  Never flips a strong grade.
-  if (regimeTilt) base -= regimeTilt;
+  const base = fund.score + tech.score + mech.score + narr.score;
   const provSide = base >= 0 ? "call" : "put";
 
   const timing = computeEntryTiming(provSide, data, spot, { regime, eventRisk });
-  const ivCost = computeIvCostContribution(data);
+  const ivCost = computeIvCostContribution(data, ivUniverse, { eventRisk, asOfIso });
   // IV cost is direction-AGNOSTIC ("long premium is expensive when IV is rich"),
   // so it must REDUCE conviction in the implied direction. Folding the raw
   // (always-negative-for-rich) value into `total`
@@ -17314,8 +18026,11 @@ function scoreTicker(sym, data, ctx) {
 
   // IV cost de-rates the implied direction but must never CROSS zero and
   // manufacture conviction on the opposite side.
-  let total = r1(base + ivContribution);
+  let preRegimeTotal = r1(base + ivContribution);
   const provSign = base >= 0 ? 1 : -1;
+  if (preRegimeTotal * provSign < 0) preRegimeTotal = 0;
+  const regimeOverlay = computeRegimeOverlay(macroBackdrop, sym, provSide, preRegimeTotal);
+  let total = regimeOverlay.adjustedTotal;
   if (total * provSign < 0) total = 0;
   const rec = tierForScore(total);
   const side = rec.tier === "no-trade" ? null : (total >= 0 ? "call" : "put");
@@ -17331,20 +18046,39 @@ function scoreTicker(sym, data, ctx) {
       ? (timing.hardVeto === "knife" ? "knife" : timing.hardVeto === "exhaustion" ? "chase" : "structure")
       : null,
   };
-  const ivPillar = { score: r1(ivContribution), signals: [sig("ivCost", "IV cost", ivContribution, ivCost ? ivCost.pctile + "%ile" : null, "Long-premium richness vs own history", !!ivCost)] };
+  const ivValue = ivCost
+    ? [
+      `${ivCost.pctile}%ile own history`,
+      ivCost.crossZ != null ? `${ivCost.crossZ >= 0 ? "+" : ""}${ivCost.crossZ}σ vs universe` : `universe n=${ivCost.universeN} (neutral)`,
+      ivCost.termInverted ? "front IV inverted" : null,
+    ].filter(Boolean).join(" · ")
+    : null;
+  const ivPillar = {
+    score: r1(ivContribution),
+    signals: [sig(
+      "ivCost", "IV cost", ivContribution, ivValue,
+      ivCost?.termInverted
+        ? "Universe-relative long-premium cost plus a small unexplained front-IV penalty"
+        : "Own-history IV is interpreted through today's fresh universe distribution",
+      !!ivCost,
+    )],
+    context: ivCost,
+  };
 
   const drivers = [];
   for (const p of [fund, tech, mech, narr]) for (const s of p.signals) if (s.score) drivers.push({ key: s.key, label: s.label, score: s.score });
   drivers.sort((a, b) => Math.abs(b.score) - Math.abs(a.score));
 
   return {
-    sym, data, total, base: r1(base),
+    sym, data, total, base: r1(base), preRegimeTotal,
     recommendation: { ...rec },
     side,
     pillars: { fundamentals: fund, technicals: tech, mechanicals: mech, narrative: narr, timing: timingPillar, ivCost: ivPillar },
     drivers: drivers.slice(0, 6),
     streakRow,
     timing,
+    regimeOverlay,
+    ivAsOfDate: ivUniverse?.asOf || null,
   };
 }
 
@@ -17380,13 +18114,15 @@ function flowPersistBySymbol(flowLog, nowMs = Date.now()) {
 
 // Score the whole universe once. Shared by buildTopPicks & buildGradesIndex.
 function scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, opts = {}) {
+  const asOfIso = opts.builtAtIso || null;
   const sectorMedianPE = sectorMedianPEs(chains);
+  const sectorCapex = sectorCapexBenchmarks(chains, asOfIso);
+  const ivUniverse = computeIvUniverseContext(chains, opts.ivAsOfDate || opts.ivAsOfIso || asOfIso);
   const macroState = macroBackdrop?.macroRegime?.state || "neutral";
   const regime = macroState === "severe-risk-off" ? "severe" : macroState === "risk-off" ? "risk-off" : macroState === "risk-on" ? "risk-on" : "neutral";
   const regimeBand = regime;
-  const regimeTilt = regime === "severe" ? PICKS_REGIME_TILT_SEVERE : regime === "risk-off" ? PICKS_REGIME_TILT : 0;
   const eventRisk = macroBackdrop?.eventRisk || null;
-  const ctx = { narratives, streaksMap, unusualPayload, sectorMedianPE, regime, eventRisk, regimeTilt };
+  const ctx = { narratives, streaksMap, unusualPayload, sectorMedianPE, sectorCapex, ivUniverse, regime, eventRisk, macroBackdrop, asOfIso };
 
   // OI-tracker rows by symbol (scanner-owned extra, threaded via opts.oiTracker).
   // Attached per ticker so scoreMechanicals' OI C/P skew signal actually sees the
@@ -17554,9 +18290,25 @@ export function selectStrategy(r, side, opts = {}) {
   const conv = Math.abs(pnum(r.total) ?? 0);
   const strong = conv >= PICKS_TIER_STRONG;
   const thesisTier = opts.thesisTier || "moderate";
-  const ivr = r.data?.ivRank || null;
-  const z = pnum(ivr?.z);
-  const pctile = pnum(ivr?.pctile);
+  const rawIvr = r.data?.ivRank || null;
+  const ivr = opts.ivAsOfDate && rawIvr?.asOf !== opts.ivAsOfDate ? null : rawIvr;
+  const z = pnumN(ivr?.z);
+  const pctile = pnumN(ivr?.pctile);
+  const rawSurface = r.data?.ivSurface || null;
+  const surface = opts.ivAsOfDate && rawSurface?.asOf !== opts.ivAsOfDate ? null : rawSurface;
+  const termSlope = pnumN(surface?.termSlope);
+  const termZ = pnumN(surface?.termZ);
+  const skew25 = pnumN(surface?.skew25);
+  const skewZ = pnumN(surface?.skewZ);
+  // 25-delta skew is a structure-only guard. Rich puts (positive put-call
+  // skew) make a naked long put unattractive; rich calls do the mirror image.
+  // It never changes direction or conviction. Before the 60-session z-score
+  // matures, a five-vol-point raw side premium routes naked -> debit.
+  const adverseSkewByZ = skewZ != null && (side === "put" ? skewZ >= 1.5 : skewZ <= -1.5);
+  const adverseSkewByRaw = skewZ == null && skew25 != null
+    && (side === "put" ? skew25 >= PICKS_SKEW_ADVERSE_RAW : skew25 <= -PICKS_SKEW_ADVERSE_RAW);
+  const adverseSkew = adverseSkewByZ || adverseSkewByRaw;
+  const skewBasis = adverseSkewByZ ? "history-z" : adverseSkewByRaw ? "raw-fallback" : null;
   const eventImminent = !!(opts.eventRisk && opts.eventRisk.active);
   const earningsInWindow = !!opts.earningsInWindow;
   // IV reads — the spec's OR of the two measures: a z-score (std-devs above the
@@ -17570,7 +18322,10 @@ export function selectStrategy(r, side, opts = {}) {
   const ivReasonable = !ivElevated;
   const ivTier = ivHighlyElevated ? "highly-elevated" : ivElevated ? "elevated" : "reasonable";
   const ivBasis = z != null ? `IV ${z >= 0 ? "+" : ""}${z}σ vs its own normal` : (pctile != null ? `IV ${pctile}th pctile` : "IV history thin");
-  const mk = (type, label, reason) => ({ type, label, reason, ivZ: z, ivPctile: pctile, ivBasis, ivTier });
+  const mk = (type, label, reason) => ({
+    type, label, reason, ivZ: z, ivPctile: pctile, ivBasis, ivTier,
+    termSlope, termZ, skew25, skewZ, adverseSkew, skewBasis,
+  });
 
   if (!PICKS_STRATEGY_AUTO) return mk("long", "Long " + side, "Single long (strategy-auto off).");
 
@@ -17602,13 +18357,23 @@ export function selectStrategy(r, side, opts = {}) {
 
   // 2) RARE: very-high grade (Strong tier) AND a STRONG thesis AND IV not elevated
   //    -> naked long for maximum delta/gamma + uncapped upside.
-  if (strong && thesisTier === "strong" && ivReasonable && !eventImminent && !earningsInWindow) {
+  if (strong && thesisTier === "strong" && ivReasonable && !eventImminent && !earningsInWindow && !adverseSkew) {
     return mk("long", "Long " + side,
       `Exceptional, multi-signal conviction (grade ${r.total >= 0 ? "+" : ""}${r.total}, strong thesis) with ${ivBasis} (not elevated) — a single long captures the most delta/gamma and uncapped upside; the edge justifies the full premium + theta.`);
   }
 
   // 3) Default: a grounded directional view without extreme conviction (or into an
   //    event, or a strong view fighting rich-but-sub-2σ IV) -> defined-risk debit.
+  if (adverseSkew) {
+    const skewRichness = skewZ != null
+      ? `${Math.abs(skewZ).toFixed(1)}σ rich versus its own history`
+      : `${(Math.abs(skew25) * 100).toFixed(1)} volatility points rich while history matures`;
+    return mk(
+      "debit",
+      (side === "call" ? "Bull" : "Bear") + " debit spread",
+      `Recommended: 25-delta ${side} skew is ${skewRichness}; cap premium outlay with a debit spread instead of a naked long.`,
+    );
+  }
   const why = eventImminent || earningsInWindow
     ? `a ${earningsInWindow ? "print" : "macro event"} is imminent — defined-risk only (a naked long eats the IV crush + gap)`
     : `a grounded ${side === "call" ? "bullish" : "bearish"} view without extreme conviction and ${ivBasis} — a debit spread delivers the direction at a lower cost with slower net theta than a naked long`;
@@ -17845,7 +18610,12 @@ function buildPickContract(side, data, rfr, strategy) {
   const tryCredit = () => pickVerticalForPick(side, data, rfr, { type: "credit", minDte: PICKS_MIN_DTE });
   let contract = null, used = want;
   if (want === "credit") { contract = tryCredit(); if (!contract) { contract = tryDebit(); used = "debit"; } if (!contract) { contract = tryLong(); used = "long"; } }
-  else if (want === "debit") { contract = tryDebit(); if (!contract) { contract = tryLong(); used = "long"; } }
+  else if (want === "debit") {
+    contract = tryDebit();
+    // An adverse 25-delta skew explicitly ruled out a naked long. If a clean
+    // debit wing is unavailable, fail closed instead of undoing that router.
+    if (!contract && !strategy?.adverseSkew) { contract = tryLong(); used = "long"; }
+  }
   else { contract = tryLong(); if (!contract) { contract = tryDebit(); used = "debit"; } }
   if (!contract) return null;
   const labelFor = (t) => t === "credit" ? "credit spread" : t === "debit" ? "debit spread" : "naked long";
@@ -18124,11 +18894,13 @@ export function computeBookRisk(picks, account = PICKS_DISPLAY_ACCOUNT) {
   };
 }
 
-function applyPickSizing(picks, regimeGross = 1) {
+export function applyPickSizing(picks, regimeGross = 1) {
   const n = picks.length;
   if (!n) return;
   const grossTarget = PICKS_GROSS_TARGET * Math.min(1, n / PICKS_SIZE_FULL_ROSTER_N) * regimeGross;
   const raw = [];
+  const postNormalizationCaps = [];
+  const tacticalSizeMult = clamp(Number.isFinite(PICKS_TACTICAL_SIZE_MULT) ? PICKS_TACTICAL_SIZE_MULT : 0.50, 0.25, 0.75);
   for (const p of picks) {
     const c = p.contract;
     const stopFrac = PICKS_OPT_STOP_PCT;                          // option risk to stop
@@ -18137,11 +18909,13 @@ function applyPickSizing(picks, regimeGross = 1) {
     // still a wait/dip trigger sizes down (PICKS_ENTRY_WAIT_SIZE_MULT) — entry
     // quality no longer gates enrollment, so it's priced into size instead.
     const waitMult = (p.entry && p.entry.now === false) ? PICKS_ENTRY_WAIT_SIZE_MULT : 1;
-    // Scenario sensitivity is a relative risk tilt inside the already-capped
-    // gross book. It cannot create exposure: 0.5..1 only, and the weights are
-    // normalized after the haircut so safer names receive the freed allocation.
-    const scenarioMult = clamp(p.scenarioOverlay?.sizeMultiplier ?? 1, 0.5, 1);
-    const tilt = clamp(Math.abs(p.total) / PICKS_TIER_STRONG, PICKS_SIZE_TILT_MIN, PICKS_SIZE_TILT_MAX) * waitMult * scenarioMult;
+    const tilt = clamp(Math.abs(p.total) / PICKS_TIER_STRONG, PICKS_SIZE_TILT_MIN, PICKS_SIZE_TILT_MAX) * waitMult;
+    // Scenario and tactical reductions are genuine caps, applied only AFTER the
+    // base book has been normalized. The released allocation stays cash instead
+    // of being redistributed back into this or another name.
+    const scenarioMult = clamp(pnumN(p.scenarioOverlay?.sizeMultiplier) ?? 1, 0.5, 1);
+    const tacticalMult = p.tactical ? tacticalSizeMult : 1;
+    postNormalizationCaps.push(scenarioMult * tacticalMult);
     // No-contract WATCH ideas (weak-thesis "no recommendation") carry no position,
     // so they consume no gross — give them zero raw weight.
     raw.push(c ? (1 / risk) * tilt : 0);
@@ -18150,7 +18924,8 @@ function applyPickSizing(picks, regimeGross = 1) {
   picks.forEach((p, i) => {
     const c = p.contract;
     if (!c) { p.sizing = null; return; }                          // grade-only idea, no size
-    const weight = (raw[i] / sum) * grossTarget;
+    const normalizedWeight = (raw[i] / sum) * grossTarget;
+    const weight = normalizedWeight * postNormalizationCaps[i];
     // Size by capital at risk per contract — premium for a naked long / debit
     // (maxLoss === mid), but width − credit for a credit spread (NOT the small
     // credit, which would suggest far too many contracts).
@@ -18210,34 +18985,35 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const edgeGate = opts.priorClosed ? edgeGatedConviction(opts.priorClosed) : { bar: PICKS_MIN_CONVICTION, edge: null, n: 0 };
   const minConv = edgeGate.bar;
 
-  const meta = { tradeCut: minConv, strongCut: PICKS_TIER_STRONG, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], confluenceDemoted: [], aiUngraded: [], entryDemoted: [], aiEntryPromoted: [], aiEntryHeldBack: [], reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
+  const meta = { modelEpoch: PICKS_ACCURACY_RESET_EPOCH, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, tradeCut: minConv, strongCut: PICKS_TIER_STRONG, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], primaryScenarioGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], confluenceDemoted: [], aiUngraded: [], entryDemoted: [], aiEntryPromoted: [], aiEntryHeldBack: [], reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
 
   // Candidate set: actionable grade, OR a tactical put in a confirmed risk-off tape.
   const candidates = [];
   for (const r of scored) {
-    const actionable = Math.abs(r.total) >= minConv && r.side;
+    const preClearsBar = Math.abs(pnumN(r.preRegimeTotal) ?? r.total) >= minConv;
+    const actionable = preClearsBar && Math.abs(r.total) >= minConv && r.side;
+    const tactical = (regime === "risk-off" || regime === "severe") && r.total <= PICKS_RISKOFF_PUT_BAR && r.timing?.state !== "avoid";
+    if ((actionable || tactical) && !regimePrimaryGateClears(r, macroBackdrop)) {
+      meta.primaryScenarioGated.push(r.sym);
+      continue;
+    }
     if (actionable) candidates.push({ r, tactical: false });
-    else if ((regime === "risk-off" || regime === "severe") && r.total <= PICKS_RISKOFF_PUT_BAR && r.timing?.state !== "avoid") candidates.push({ r, tactical: true });
+    else if (tactical) candidates.push({ r, tactical: true });
   }
 
-  // RANK is DETERMINISTIC (2026-07-10, owner directive): the deterministic
-  // conviction (|total|) orders the roster and decides which names survive the
-  // sector/factor/side caps + the combined cap — the same order that picks the
-  // top-PICKS_MAX_AI_THESES names the grader sees. The AI's 0–100 score is NOT
-  // a ranker anymore (it stays on the card as the grader's confidence): the AI
-  // factor is ONLY the final should-we-act check — grade tier (classification),
-  // reject veto, and the entry verdict. Ties break on signed total then symbol
-  // (mirrors generateAiTheses's cut) so the order is stable build-to-build.
+  // RANK is DETERMINISTIC (2026-07-10, owner directive): conviction orders the
+  // roster by tier, with only a bounded +0.15 primary-alignment nudge inside a
+  // tier when high-gross continuation dominates. That can settle a near-tie but
+  // cannot materially override conviction. The same order chooses the names the
+  // grader sees. The AI's 0–100 score is display confidence, never a ranker; its
+  // levers remain classification, reject veto, and entry verdict.
   const aiMap = opts.aiThesisMap || null;
   // The AI final grader counts as LIVE this build when it produced at least one
   // grade (fresh or cache-reused). classifyPick then requires an AI grade for
   // the actionable group; an empty map (keyless build, or a total AI outage)
   // degrades to the deterministic tiers instead of blanking the roster.
   const aiActive = !!(aiMap && Object.keys(aiMap).length);
-  candidates.sort((a, b) =>
-    (Math.abs(b.r.total) - Math.abs(a.r.total)) ||
-    (b.r.total - a.r.total) ||
-    (a.r.sym < b.r.sym ? -1 : a.r.sym > b.r.sym ? 1 : 0));
+  candidates.sort((a, b) => compareRegimeCandidates(a.r, b.r, macroBackdrop));
 
   const picks = [];
   const sectorCount = {}, factorCount = {};
@@ -18292,18 +19068,14 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // bake re-judges, so it promotes itself the build the entry confirms — no
     // human judgment call in between.
     const entry = computeEntrySignal(side, pnum(r.data.spot), r.data, r.timing, { total: r.total });
-    const hardWait = entry.now !== true && (
-      entry.basis === "top-guard"
-      || entry.signal === "wait-event"
-      || entry.signal === "wait-reclaim"
-      || entry.signal === "wait-reversal"
-      || r.timing?.structure?.clear !== true
-      || r.timing?.readiness?.payoffOk !== true
-    );
     const aiVerdict = (!tactical && aiThesis && (aiThesis.entryVerdict === "buy-now" || aiThesis.entryVerdict === "wait")) ? aiThesis.entryVerdict : null;
-    const entryConfirmed = hardWait ? false : aiVerdict ? aiVerdict === "buy-now" : entry.now === true;
+    // AI can adjudicate only an ordinary, non-negative soft wait. Every audited
+    // GO invariant remains deterministic and binding even when the price-only
+    // entry helper would otherwise report a usable trigger.
+    const entryBlocked = entryPromotionBlocked(entry, r.timing);
+    const entryConfirmed = entryBlocked ? false : aiVerdict ? aiVerdict === "buy-now" : entry.now === true;
     if (aiVerdict) {
-      entry.ai = { verdict: aiVerdict, reason: aiThesis.entryReason || null, overrode: !hardWait && (aiVerdict === "buy-now") !== (entry.now === true) };
+      entry.ai = { verdict: aiVerdict, reason: aiThesis.entryReason || null, blocked: entryBlocked, overrode: !entryBlocked && (aiVerdict === "buy-now") !== (entry.now === true) };
       if (entry.ai.overrode) {
         if (aiVerdict === "buy-now") {
           // The grader judges the entry ready even though the price read wanted a
@@ -18336,7 +19108,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // -> naked ladder); a "none" pick ships as a grade-only WATCH idea, no contract.
     const earnDaysSel = etDaysUntil(r.data?.fundamentals?.nextEarningsDate);
     const earningsSoon = earnDaysSel != null && earnDaysSel >= 0 && earnDaysSel <= PICKS_STRATEGY_EARNINGS_DAYS;
-    const strategy = selectStrategy(r, side, { eventRisk: macroBackdrop?.eventRisk || null, earningsInWindow: earningsSoon, thesisTier: thesisQuality.tier, tactical });
+    const strategy = selectStrategy(r, side, { eventRisk: macroBackdrop?.eventRisk || null, earningsInWindow: earningsSoon, thesisTier: thesisQuality.tier, tactical, ivAsOfDate: r.ivAsOfDate });
 
     let contract = null, stratFinal = strategy, exitPlan = null, entryPlan = null;
     if (strategy.type !== "none") {
@@ -18403,7 +19175,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   // its per-name timing/vehicle context travels with the pick.
   const scenarioGross = clamp(pnum(macroBackdrop?.scenarioEngine?.decision?.grossMultiplier) ?? 1, 0.5, 1);
   for (const pick of finalPicks) {
-    const overlay = scenarioOverlayForSymbol(macroBackdrop?.scenarioEngine, pick.symbol);
+    const overlay = scenarioOverlayForSymbol(macroBackdrop?.scenarioEngine, pick.symbol, pick.side);
     if (overlay) pick.scenarioOverlay = overlay;
   }
   applyPickSizing(finalPicks, edgeScale * regimeGross * scenarioGross);
@@ -18445,8 +19217,16 @@ function buildPickObject(r, side, contract, exitPlan, entryPlan, peers, peerGrou
     classification: thesisCard.classification, group: thesisCard.group,
     finalGrade,
     pillars: r.pillars, drivers: r.drivers,
+    regimeOverlay: r.regimeOverlay || null,
     analysis: thesis, thesis, thesisCard,
-    strategy: strategy ? { type: strategy.type, label: strategy.label, reason: strategy.reason, ivZ: strategy.ivZ ?? null, ivPctile: strategy.ivPctile ?? null, ivTier: strategy.ivTier ?? null, fallback: !!strategy.fallback, requested: strategy.requested || null } : null,
+    strategy: strategy ? {
+      type: strategy.type, label: strategy.label, reason: strategy.reason,
+      ivZ: strategy.ivZ ?? null, ivPctile: strategy.ivPctile ?? null, ivTier: strategy.ivTier ?? null,
+      termSlope: strategy.termSlope ?? null, termZ: strategy.termZ ?? null,
+      skew25: strategy.skew25 ?? null, skewZ: strategy.skewZ ?? null,
+      adverseSkew: !!strategy.adverseSkew, skewBasis: strategy.skewBasis || null,
+      fallback: !!strategy.fallback, requested: strategy.requested || null,
+    } : null,
     contract, entry,
     entryTiming: {
       state: r.timing.state, score: r.timing.score,
@@ -19219,7 +19999,14 @@ function buildThesisCard(r, side, contract, tactical, exitPlan, strategy, macroR
     group,
     hasSolidThesis,
     disclosure,
-    strategy: strategy ? { type: strategy.type, label: strategy.label, reason: strategy.reason, ivZ: strategy.ivZ ?? null, ivPctile: strategy.ivPctile ?? null, ivTier: strategy.ivTier ?? null, fallback: !!strategy.fallback } : null,
+    strategy: strategy ? {
+      type: strategy.type, label: strategy.label, reason: strategy.reason,
+      ivZ: strategy.ivZ ?? null, ivPctile: strategy.ivPctile ?? null, ivTier: strategy.ivTier ?? null,
+      termSlope: strategy.termSlope ?? null, termZ: strategy.termZ ?? null,
+      skew25: strategy.skew25 ?? null, skewZ: strategy.skewZ ?? null,
+      adverseSkew: !!strategy.adverseSkew, skewBasis: strategy.skewBasis || null,
+      fallback: !!strategy.fallback,
+    } : null,
     invalidators,
     target,
     // The everything-aware AI thesis: summary + the setup/catalyst/confirmation/
@@ -19280,8 +20067,10 @@ export function buildGradesIndex(chains, narratives, streaksMap = null, unusualP
     }
     grades[r.sym] = {
       symbol: r.sym, side: r.recommendation.tier === "no-trade" ? null : ownSide,
-      total: r.total, conviction: Math.abs(r.total), recommendation: r.recommendation,
+      total: r.total, preRegimeTotal: r.preRegimeTotal ?? r.total,
+      conviction: Math.abs(r.total), recommendation: r.recommendation,
       pillars: r.pillars, drivers: r.drivers, spot: r.data?.spot ?? null, sector, peerGroup: pg,
+      regimeOverlay: r.regimeOverlay || null,
       sentiment: r.data?.news?.sentiment || null,
       rsi: r.data?.technicals?.rsi ?? null,
       tech: techLive,
@@ -19293,13 +20082,20 @@ export function buildGradesIndex(chains, narratives, streaksMap = null, unusualP
   }
   Object.defineProperty(grades, "tierCutoffs", { value: tierCutoffs || null, enumerable: false });
   Object.defineProperty(grades, "regimeBand", { value: regimeBand || "neutral", enumerable: false });
+  Object.defineProperty(grades, "modelEpoch", { value: PICKS_ACCURACY_RESET_EPOCH, enumerable: false });
+  Object.defineProperty(grades, "entryTimingVersion", { value: PICKS_ENTRY_TIMING_VERSION, enumerable: false });
   return grades;
 }
 
 export async function writeGradesFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, volumeFlags = null, prebuiltGrades = null) {
-  const grades = prebuiltGrades || buildGradesIndex(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags);
+  const grades = prebuiltGrades || buildGradesIndex(chains, narratives, null, unusualPayload, macroBackdrop, volumeFlags, { builtAtIso });
   const minConviction = grades.tierCutoffs?.tradeCut ?? PICKS_MIN_CONVICTION;
-  const payload = { builtAtIso, minConviction, regimeBand: grades.regimeBand || "neutral", grades };
+  const payload = {
+    builtAtIso, minConviction, regimeBand: grades.regimeBand || "neutral",
+    modelEpoch: grades.modelEpoch || PICKS_ACCURACY_RESET_EPOCH,
+    entryTimingVersion: grades.entryTimingVersion || PICKS_ENTRY_TIMING_VERSION,
+    grades,
+  };
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, GRADES_FILE), json, "utf8");
   return { bytes: json.length, count: Object.keys(grades).length };
@@ -22842,8 +23638,21 @@ async function fetchLevEtfQuotes(symbols) {
 }
 
 // ============================================================================
-// picks.json writer (+ tenure stamp + zero-pick stale reuse).
+// picks.json writer (+ tenure stamp). A zero-candidate current build stays empty;
+// prior picks are never republished as current recommendations.
 // ============================================================================
+export function buildTopPicksPayload(picks, builtAtIso) {
+  const roster = Array.isArray(picks) ? picks : [];
+  return {
+    builtAtIso,
+    modelEpoch: PICKS_ACCURACY_RESET_EPOCH,
+    entryTimingVersion: PICKS_ENTRY_TIMING_VERSION,
+    minConviction: roster.rosterMeta?.tradeCut ?? PICKS_MIN_CONVICTION,
+    rosterMeta: roster.rosterMeta || null,
+    picks: roster,
+  };
+}
+
 async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, priorClosed = null, priorGrades = null, scannerExtras = null, priorOpen = null, reentryCooldown = true, thesisProsePrior = null, streaksMap = null) {
   const baseOpts = { priorClosed, priorGrades, openPositions: priorOpen, builtAtIso, reentryCooldown, ...(scannerExtras || {}) };
   // Score the universe ONCE, then run the two-stage pipeline:
@@ -22864,14 +23673,7 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   applyPickFirstSeen(picks, priorPayload?.picks, builtAtIso);
 
   if (picks.length === 0 && Array.isArray(priorPayload?.picks) && priorPayload.picks.length > 0) {
-    const stalePayload = { builtAtIso, minConviction: priorPayload.minConviction ?? PICKS_MIN_CONVICTION, rosterMeta: picks.rosterMeta ?? priorPayload.rosterMeta ?? null, picks: priorPayload.picks, stale: true, stalePicksFromIso: priorPayload.builtAtIso || null };
-    const staleJson = JSON.stringify(stalePayload);
-    await writeFile(picksPath, staleJson, "utf8");
-    console.warn(`[picks] buildTopPicks returned 0 — reusing ${priorPayload.picks.length} from ${priorPayload.builtAtIso || "previous run"} (stale)`);
-    // Carry the thesis cache forward — the reused picks keep the thesis they were
-    // baked with (this build's freshly-graded cache still persists so a recovering
-    // roster reuses it next build).
-    return { bytes: staleJson.length, count: priorPayload.picks.length, stale: true, lean: pickSideLean(priorPayload.picks), thesisProseCache: aiThesis.cache };
+    console.warn(`[picks] buildTopPicks returned 0 — publishing an empty current roster; ${priorPayload.picks.length} prior pick${priorPayload.picks.length === 1 ? "" : "s"} not reused`);
   }
 
   // The AI thesis + final grade are already attached to each pick (via the map →
@@ -22879,7 +23681,7 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   // main()). Deterministic grade ships regardless, so a keyless build still works.
   const thesisProseCache = aiThesis.cache;
 
-  const payload = { builtAtIso, minConviction: picks.rosterMeta?.tradeCut ?? PICKS_MIN_CONVICTION, rosterMeta: picks.rosterMeta || null, picks };
+  const payload = buildTopPicksPayload(picks, builtAtIso);
   const json = JSON.stringify(payload);
   await writeFile(picksPath, json, "utf8");
   return { bytes: json.length, count: picks.length, lean: pickSideLean(picks), thesisProseCache };
@@ -23475,8 +24277,10 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
   const cands = [];
   for (const r of scored) {
     if (!r || !r.data) continue;
+    if (!regimePrimaryGateClears(r, macroBackdrop)) continue;
     let side = null, tactical = false;
-    if (Math.abs(r.total) >= minConv && r.side) side = r.side;
+    const preClearsBar = Math.abs(pnumN(r.preRegimeTotal) ?? r.total) >= minConv;
+    if (preClearsBar && Math.abs(r.total) >= minConv && r.side) side = r.side;
     else if ((regime === "risk-off" || regime === "severe") && r.total <= PICKS_RISKOFF_PUT_BAR && r.timing?.state !== "avoid") { side = "put"; tactical = true; }
     if (!side) continue;
     if (opts.rosterKeys instanceof Set && !opts.rosterKeys.has(`${r.sym}:${side}`)) continue;
@@ -23489,14 +24293,10 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
   if (!cands.length) return { map, cache: next };
 
   // CAP: only the BEST PICKS_MAX_AI_THESES gate survivors get a thesis + final
-  // grade. Rank by |total| (the deterministic conviction the data gate itself
-  // uses), ties broken deterministically (signed total, then symbol) so the cut
-  // is stable build-to-build. Names below the cut get no AI thesis → they ship the
-  // deterministic card via buildTopPicks's keyless-style fallback.
-  cands.sort((a, b) =>
-    (Math.abs(b.r.total) - Math.abs(a.r.total)) ||
-    (b.r.total - a.r.total) ||
-    (a.r.sym < b.r.sym ? -1 : a.r.sym > b.r.sym ? 1 : 0));
+  // grade. The same bounded, continuation-only alignment nudge used by the final
+  // roster can break near-ties without materially overriding conviction. Names
+  // below the cut get no AI thesis → they ship deterministic-only.
+  cands.sort((a, b) => compareRegimeCandidates(a.r, b.r, macroBackdrop));
   const gated = cands.slice(0, PICKS_MAX_AI_THESES);
   if (cands.length > gated.length) {
     console.log(`Thesis gate: ${gated.length}/${cands.length} data-gate survivors graded (capped at PICKS_MAX_AI_THESES=${PICKS_MAX_AI_THESES}); ${cands.length - gated.length} ship deterministic-only.`);
@@ -24044,8 +24844,8 @@ export function appendPicksChanges(prevLog, newEvents, builtAtIso, minConviction
 export function buildPickForecast(entry, side = null) {
   // A light, deterministic upgrade/downgrade read off the pre-computed pillar
   // signals, normalized to the trade's direction. Callers that decorate a HELD
-  // pick pass its side explicitly: on a stale-reused roster the live grade's
-  // sign can have flipped from the side actually held, and normalizing by
+  // pick pass its side explicitly: the live grade's sign can have flipped from
+  // the side actually held, and normalizing by
   // sign(total) then forecast the OPPOSITE trade of the row it decorates.
   if (!entry) return { direction: null, confidence: "low", earningsCatalyst: false };
   const sign = side ? (side === "put" ? -1 : 1) : ((entry.total || 0) >= 0 ? 1 : -1);
@@ -24463,6 +25263,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     // for the Track Record by-thesis + cross-tab analytics. Frozen at entry.
     const thesisCat = classifyThesisCategory(p);
     open.push({
+      modelEpoch: PICKS_ACCURACY_RESET_EPOCH,
       symbol: p.symbol, side: p.side, tier: p.recommendation?.tier || null, label: p.recommendation?.label || null,
       score: p.total, entryDate: builtAtIso, entrySpot: r2(p.spot), lastSpot: r2(p.spot),
       // Entry-quality cohort, frozen at enrollment: "go" = the entry signal was
@@ -24512,7 +25313,11 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       // without it derive a name from contract.structure client-side.
       strategy: p.strategy ? {
         type: p.strategy.type, label: p.strategy.label || null, reason: p.strategy.reason || null,
-        ivTier: p.strategy.ivTier ?? null, fallback: !!p.strategy.fallback, requested: p.strategy.requested || null,
+        ivTier: p.strategy.ivTier ?? null,
+        termSlope: p.strategy.termSlope ?? null, termZ: p.strategy.termZ ?? null,
+        skew25: p.strategy.skew25 ?? null, skewZ: p.strategy.skewZ ?? null,
+        adverseSkew: !!p.strategy.adverseSkew, skewBasis: p.strategy.skewBasis || null,
+        fallback: !!p.strategy.fallback, requested: p.strategy.requested || null,
       } : null,
       takeProfit: p.exitPlan?.takeProfit?.price ?? null, cut: p.exitPlan?.cut?.price ?? null,
       sector: SECTORS[p.symbol] || p.sector || null, entryRegime: picksPayload?.rosterMeta?.regimeBand || null,
@@ -32339,9 +33144,9 @@ async function main() {
   // macro / iv / fedwatch histories above.
   const picksAccuracyPrev = await readPicksAccuracyState();
   // Snapshot the prior picks.json the same way, BEFORE writeChainFiles wipes
-  // data/. Threaded into writeTopPicksFile so the consecutive-build tenure
-  // counts survive the wipe and the zero-pick (pre-bell) stale-reuse path can
-  // actually find last-good picks instead of overwriting them with [].
+  // data/. Threaded into writeTopPicksFile so consecutive-build tenure counts
+  // survive the wipe. It is audit/history input only when today's roster is empty;
+  // prior picks are never republished as current recommendations.
   const picksPrev = await readPriorPicks();
   // Same pre-read-before-wipe rule for the grade-change log: data/grades-history.json
   // lives in data/, so snapshot it now and thread it into diffGradesHistory after
@@ -33112,7 +33917,7 @@ async function main() {
   // for names that don't clear the actionable threshold.
   // Build the grade index once and reuse it for the grades file, the grade-change
   // history diff, and the picks-accuracy checkpoint scores (avoids re-scoring).
-  const gradesIndex = buildGradesIndex(chains, scoringNarratives, streaksInfo.map, scoringUnusual, macroBackdrop, scoringVolumeFlags, { priorGrades: gradesHistoryPrev?.latest ?? null, priorClosed: picksAccuracyPrev?.closed ?? null, ...scannerExtras });
+  const gradesIndex = buildGradesIndex(chains, scoringNarratives, streaksInfo.map, scoringUnusual, macroBackdrop, scoringVolumeFlags, { builtAtIso, priorGrades: gradesHistoryPrev?.latest ?? null, priorClosed: picksAccuracyPrev?.closed ?? null, ...scannerExtras });
   const gradesInfo = await writeGradesFile(chains, scoringNarratives, builtAtIso, scoringUnusual, macroBackdrop, scoringVolumeFlags, gradesIndex);
   console.log(`wrote data/grades.json — ${gradesInfo.count} tickers, ${gradesInfo.bytes} bytes`);
   // Shares-only Stock Picks (premium tab): the deterministic quality-dip
@@ -33289,8 +34094,8 @@ async function main() {
   // Top-10 roster snapshot: the current 10-name list with each pick's in/held/new
   // status, prior→current pillar deltas, the names that dropped OUT (paired to the
   // entrant that took their slot), and a per-pick upgrade/downgrade FORECAST.
-  // Reads the just-written picks.json (so it reflects the stale-reused set on a
-  // pre-bell run) and diffs against the prior visible top-N (picksPrev) plus the
+  // Reads the just-written picks.json (including an honestly empty current set)
+  // and diffs against the prior visible top-N (picksPrev) plus the
   // pre-wipe whole-universe grade snapshot (gradesHistoryPrev.latest, which keeps
   // status pre-bell-collapse immune). Deterministic forecast first, then an
   // optional AI gloss (self-skips without GEMINI_API_KEY).

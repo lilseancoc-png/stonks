@@ -2,7 +2,7 @@
 // Read-only by default; --write-ui-fixture emits a gitignored local payload for browser QA.
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
-import { appendScenarioHistory, buildScenarioEngine } from "../lib/scenario-engine.mjs";
+import { appendScenarioHistory, buildScenarioEngine, scenarioOverlayForSymbol } from "../lib/scenario-engine.mjs";
 
 const AXES = [
   "indexes", "vix", "dxy", "yields", "fed", "commodity", "geo", "inflation",
@@ -110,6 +110,81 @@ assert.equal(nvda.vector.aiCapex.value, 1, "AI exposure map applied");
 assert.equal(nvda.vector.eventSpillover.value, 0.72, "Event Spillover strength applied");
 assert.ok(wmt.vector.growthDefensive.value < 0, "defensive profile applied");
 assert.ok(nvda.decision.sizeMultiplier <= 1 && nvda.decision.sizeMultiplier >= 0.5, "per-name size overlay is bounded");
+
+const directionalEngine = {
+  scenarios: [{ key: "single-path", probability: { mid: 100 } }],
+  transition: { fragility: { state: "stable" }, probabilities: { riskOffShiftPct: 20 } },
+  sensitivities: [
+    {
+      symbol: "DOWN",
+      scenarios: { "single-path": { low: -14, mid: -6, high: -4 } },
+      decision: { contract: "underlying-down" },
+    },
+    {
+      symbol: "UP",
+      scenarios: { "single-path": { low: 4, mid: 6, high: 14 } },
+      decision: { contract: "underlying-up" },
+    },
+  ],
+};
+const downUnderlying = scenarioOverlayForSymbol(directionalEngine, "DOWN");
+const downCall = scenarioOverlayForSymbol(directionalEngine, "DOWN", "call");
+const downPut = scenarioOverlayForSymbol(directionalEngine, "DOWN", "put");
+assert.equal(downUnderlying.contract, "underlying-down", "side-less overlay preserves the underlying decision contract");
+assert.deepEqual(
+  {
+    bias: downCall.bias,
+    weighted: downCall.weightedImpactPct,
+    worst: downCall.worstCasePct,
+    conviction: downCall.convictionDelta,
+    timing: downCall.timing,
+    size: downCall.sizeMultiplier,
+    vehicle: downCall.vehicle,
+  },
+  {
+    bias: "adverse",
+    weighted: -6,
+    worst: -14,
+    conviction: -1,
+    timing: "wait-for-confirmation",
+    size: 0.8,
+    vehicle: "defined-risk spread",
+  },
+  "a negative underlying scenario remains adverse for calls",
+);
+assert.deepEqual(
+  {
+    bias: downPut.bias,
+    weighted: downPut.weightedImpactPct,
+    worst: downPut.worstCasePct,
+    conviction: downPut.convictionDelta,
+    timing: downPut.timing,
+    size: downPut.sizeMultiplier,
+    vehicle: downPut.vehicle,
+  },
+  {
+    bias: "supportive",
+    weighted: 6,
+    worst: 0,
+    conviction: 1,
+    timing: "normal-trigger",
+    size: 1,
+    vehicle: "best-fit vehicle",
+  },
+  "a negative underlying scenario is correctly supportive for puts",
+);
+assert.match(downCall.note, /bullish exposure/, "call note names the bullish trade direction");
+assert.match(downPut.note, /bearish exposure/, "put note names the bearish trade direction");
+
+const upCall = scenarioOverlayForSymbol(directionalEngine, "UP", "call");
+const upPut = scenarioOverlayForSymbol(directionalEngine, "UP", "PUT");
+assert.equal(upCall.bias, "supportive", "a positive underlying scenario supports calls");
+assert.equal(upPut.bias, "adverse", "a positive underlying scenario is adverse for puts");
+assert.equal(upPut.weightedImpactPct, -6, "put weighted impact inverts the underlying midpoint");
+assert.equal(upPut.worstCasePct, -14, "put worst case uses the inverted underlying high bound");
+assert.equal(upPut.sizeMultiplier, 0.8, "put sizing responds to the side-correct worst case");
+assert.equal(upPut.vehicle, "defined-risk spread", "put vehicle responds to the side-correct worst case");
+
 const historyDay1 = appendScenarioHistory(null, out, "2026-07-28T15:00:00Z", "2026-07-28");
 const historyDay1Updated = appendScenarioHistory(historyDay1, out, "2026-07-28T20:00:00Z", "2026-07-28");
 const historyDay2 = appendScenarioHistory(historyDay1Updated, out, "2026-07-29T15:00:00Z", "2026-07-29");

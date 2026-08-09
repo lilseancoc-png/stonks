@@ -4,10 +4,15 @@
 import {
   TICKERS, SECTORS,
   buildTopPicks, buildGradesIndex, pickContractForPick, pickVerticalForPick, markOptionToMarket, computeEntryTiming, computeEntrySignal,
+  entryPromotionBlocked,
+  computeStandardizedMove, computeCapexQualityMetrics,
+  computeIvUniverseContext, computeIvCostContribution, computeRegimeOverlay,
+  isDominantHighGrossContinuation, regimePrimaryGateClears, compareRegimeCandidates,
+  tradingSessionsBetween,
   detectMarketRegime, computeMacroRegime, applyMacroRegimePersistence,
   resolvePickOutcome, gradeTradeCut, buildPicksChanges, buildPicksRoster,
   diffGradesHistory, appendGradesDaily, appendRegimeHistory, applyPickFirstSeen,
-  PICKS_MIN_CONVICTION, PICKS_TIER_STRONG, PICKS_TIMING_THRESHOLDS, computeEdgeScale,
+  PICKS_MIN_CONVICTION, PICKS_TIER_STRONG, PICKS_TIMING_THRESHOLDS, PICKS_TACTICAL_SIZE_MULT, computeEdgeScale,
   computeFactorTrendHealth, edgeGatedConviction,
   assessThesisQuality, selectStrategy, classifyPick, generateAiTheses, applyAiThesisGrade,
   buildMarketRead, macroKindOf, thesisCacheSig, canReuseThesisCache, thesisInstructionSignature,
@@ -27,7 +32,7 @@ import {
   tickerJudgmentInstructionSignature,
   tickerJudgmentSignature,
   chartPatternDecisionEligible,
-  chartPatternInstructionSignature,
+  chartPatternInstructionSignature, applyPickSizing, buildTopPicksPayload,
   canDiff13FFirmSnapshot, findLatestTwo13Fs, mergeForm4TransactionRows,
 } from "./build.mjs";
 import { buildFlowExplanation } from "../lib/flow-explanation.mjs";
@@ -54,6 +59,14 @@ const etTodayUtcMs = Date.UTC(
   Number(etTodayParts.day),
 );
 const inEtDays = (days) => new Date(etTodayUtcMs + days * dayMs).toISOString().slice(0, 10);
+const inEtSessions = (sessions) => {
+  const today = inEtDays(0);
+  for (let days = 1; days <= 20; days++) {
+    const candidate = inEtDays(days);
+    if (tradingSessionsBetween(today, candidate) >= sessions) return candidate;
+  }
+  throw new Error(`could not locate ${sessions} future trading sessions`);
+};
 
 // Build an option chain around spot with a delta-friendly strike ladder.
 function mkChain(spot, ivCall = 0.4, ivPut = 0.42) {
@@ -145,6 +158,96 @@ function mkExhaustionBars(spot) {
   return mkPathBars(spot, [0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03], [1, 1, 1, 1, 1, 1.3, 1.6, 2]);
 }
 
+// Long, low-noise history plus one confirmed shock. The final row is always an
+// in-progress bar and must not affect standardized-move or timing decisions.
+function mkStandardizedBars({ shock = 0.10, shockVolume = 3, inProgressShock = 0 } = {}) {
+  const bars = [];
+  let px = 100;
+  const noise = [0.002, -0.0015, 0.001, -0.002, 0.0015, -0.0005];
+  for (let i = 0; i < 79; i++) {
+    px *= 1 + noise[i % noise.length];
+    bars.push({
+      date: new Date(Date.UTC(2025, 0, 1 + i)).toISOString().slice(0, 10),
+      o: px, c: px, h: px * 1.006, l: px * 0.994,
+      v: 1_000_000 * (1 + ((i % 5) - 2) * 0.04),
+    });
+  }
+  px *= 1 + shock;
+  bars.push({
+    date: "2025-04-01", o: px / (1 + shock), c: px,
+    h: px * 1.006, l: px * 0.994, v: 1_000_000 * shockVolume,
+  });
+  const live = px * (1 + inProgressShock);
+  bars.push({
+    date: "2025-04-02", o: px, c: live,
+    h: Math.max(px, live) * 1.006, l: Math.min(px, live) * 0.994,
+    v: inProgressShock ? 20_000_000 : 1_000_000,
+  });
+  return bars;
+}
+
+function mkMixedHorizonBars() {
+  const bars = [];
+  let px = 100;
+  for (let i = 0; i < 100; i++) {
+    const move = i < 80 ? (i % 2 ? 0.001 : -0.001) : i < 95 ? 0.015 : -0.01;
+    px *= 1 + move;
+    bars.push({
+      date: new Date(Date.UTC(2025, 0, 1 + i)).toISOString().slice(0, 10),
+      o: px, c: px, h: px * 1.005, l: px * 0.995,
+      v: i === 99 ? 3_000_000 : 1_000_000 * (1 + ((i % 5) - 2) * 0.04),
+    });
+  }
+  bars.push({ ...bars[bars.length - 1], date: "2025-05-01" });
+  return bars;
+}
+
+function mkOppositeVolumeExtremeBars() {
+  const bars = mkStandardizedBars({ shock: 0.10, shockVolume: 1 });
+  bars.pop();
+  const prior = bars[bars.length - 1];
+  const close = prior.c * 0.995;
+  bars.push({
+    date: "2025-04-02", o: prior.c, c: close,
+    h: prior.c * 1.006, l: close * 0.994, v: 3_000_000,
+  });
+  bars.push({ ...bars[bars.length - 1], date: "2025-04-03" });
+  return bars;
+}
+
+function mkWrongSideInvalidationBars(side) {
+  const isCall = side === "call";
+  const base = isCall ? 99.5 : 100.5;
+  const closes = Array.from({ length: 43 }, (_, i) => base * (1 + (i % 2 ? 0.0002 : -0.0002)));
+  closes.push(...(isCall ? [98.6, 99] : [101.4, 101]));
+  const bars = closes.map((c, i) => ({
+    date: new Date(Date.UTC(2025, 0, 1 + i)).toISOString().slice(0, 10),
+    o: c, c, h: c * 1.006, l: c * 0.994,
+    v: i === closes.length - 1 ? 1_600_000 : 1_000_000,
+  }));
+  bars.push({ ...bars[bars.length - 1], date: "2025-03-01" });
+  return bars;
+}
+
+// A deliberately attractive payoff with its nearest real stop 2+ ATR away.
+// Before the structure.clear prerequisite was explicit, this could incorrectly
+// reach GO through setup + momentum even though the invalidation was too wide.
+function mkUnclearStructureBars() {
+  const pre = Array.from({ length: 25 }, (_, i) => 110 * (1 + (i % 2 ? 0.001 : -0.001)));
+  const tail = [116, 116, 116, 116, 116, 100, 104, 108, 112, 116, 120, 119, 118, 117, 116, 115, 114, 113, 112, 113];
+  const bars = [...pre, ...tail].map((c, i) => ({
+    date: new Date(Date.UTC(2025, 0, 1 + i)).toISOString().slice(0, 10),
+    o: c, c, h: c * 1.001, l: c * 0.999, v: 1_000_000,
+  }));
+  const off = pre.length;
+  bars[off].h = 150; // old resistance leaves payoff attractive
+  for (let j = 15; j <= 18; j++) bars[off + j].l = 100 + (j - 15);
+  for (let j = 16; j <= 18; j++) bars[off + j].v = 700_000; // healthy dry pullback
+  bars[bars.length - 1].v = 2_000_000; // directional turn confirmation
+  bars.push({ ...bars[bars.length - 1], date: "2025-03-01" });
+  return bars;
+}
+
 function mkTicker(over = {}) {
   const spot = over.spot ?? 100;
   return {
@@ -219,6 +322,73 @@ await attachIvRanks(staleIvChains, new Map([
   }],
 ]));
 ok("IV rank: stale last sample is excluded from live scoring", staleIvChains.STALE.ivRank == null);
+const surfaceIvChains = { SURF: {} };
+await attachIvRanks(surfaceIvChains, new Map([[
+  "SURF",
+  {
+    _sampledThisRun: true,
+    entries: [
+      ...Array.from({ length: 60 }, (_, index) => ({
+        date: inEtDays(index - 60), iv: 0.30 + (index % 7) * 0.005,
+        t: 0.01 + (index % 5) * 0.002,
+        s: 0.02 + (index % 6) * 0.003,
+      })),
+      { date: inEtDays(0), iv: 0.40, t: -0.08, s: 0.14 },
+    ],
+  },
+]]));
+ok("IV surface: existing Quant term/skew observations are threaded into Top Picks after the history floor",
+  surfaceIvChains.SURF.ivSurface?.termSlope === -0.08
+    && surfaceIvChains.SURF.ivSurface?.skew25 === 0.14
+    && surfaceIvChains.SURF.ivSurface.termZ < -1.5
+    && surfaceIvChains.SURF.ivSurface.skewZ > 1.5);
+const ivReferenceDate = "2026-07-31";
+const ivUniverseFixture = Object.fromEntries(Array.from({ length: 12 }, (_, index) => [
+  `IV${index}`,
+  { spot: 100, chains: mkChain(100), ivRank: { pctile: 5 + index * 8, n: 60, asOf: ivReferenceDate } },
+]));
+ivUniverseFixture.STALE = { spot: 100, chains: mkChain(100), ivRank: { pctile: 99, n: 60, asOf: "2026-07-30" } };
+const ivUniverse = computeIvUniverseContext(ivUniverseFixture, { asOfDate: ivReferenceDate });
+ok("IV cost: fresh adequately sampled universe activates cross-sectional standardization",
+  ivUniverse.ready === true && ivUniverse.n === 12 && ivUniverse.stdPctile > 0 && ivUniverse.asOf === ivReferenceDate);
+const ivRich = computeIvCostContribution(
+  {
+    ivRank: { pctile: 95, n: 60, z: 1.2, iv: 0.42, asOf: ivReferenceDate },
+    ivSurface: { termSlope: -0.05, termZ: -2, asOf: ivReferenceDate },
+  },
+  ivUniverse,
+);
+const ivCheap = computeIvCostContribution({ ivRank: { pctile: 5, n: 60, asOf: ivReferenceDate } }, ivUniverse);
+ok("IV cost: universe-relative rich/cheap points are bounded and direction agnostic",
+  ivRich.contribution < 0 && ivRich.contribution >= -2
+    && ivCheap.contribution > 0 && ivCheap.contribution <= 1
+    && ivRich.method === "universe-relative");
+ok("IV cost: own-history value/z and rank/surface provenance ship alongside universe-relative points",
+  ivRich.ownZ === 1.2 && ivRich.currentIv === 0.42
+    && ivRich.rankAsOf === ivReferenceDate && ivRich.surfaceAsOf === ivReferenceDate
+    && ivRich.universeAsOf === ivReferenceDate);
+ok("IV cost: a rank outside the selected snapshot cannot vote",
+  computeIvCostContribution({ ivRank: { pctile: 95, n: 60, asOf: "2026-07-30" } }, ivUniverse) == null);
+const ivStaleSurface = computeIvCostContribution({
+  ivRank: { pctile: 95, n: 60, asOf: ivReferenceDate },
+  ivSurface: { termSlope: -0.08, termZ: -3, asOf: "2026-07-30" },
+}, ivUniverse);
+ok("IV cost: stale surface provenance ships but cannot apply a term penalty",
+  ivStaleSurface.surfaceAsOf === "2026-07-30" && ivStaleSurface.surfaceFresh === false
+    && ivStaleSurface.termZ == null && ivStaleSurface.termSlope == null && ivStaleSurface.termPenalty === 0);
+const ivThin = computeIvCostContribution({ ivRank: { pctile: 99, n: 60 } }, { ready: false, n: 4 });
+ok("IV cost: a thin universe is neutral instead of mapping legacy thresholds to points",
+  ivThin.coreContribution === 0 && ivThin.method === "universe-thin-neutral");
+const ivMacroExplained = computeIvCostContribution(
+  {
+    ivRank: { pctile: 95, n: 60, asOf: ivReferenceDate },
+    ivSurface: { termSlope: -0.05, termZ: -2, asOf: ivReferenceDate },
+  },
+  ivUniverse,
+  { eventRisk: { active: true } },
+);
+ok("IV cost: unexplained front-IV inversion is capped, scheduled macro risk owns explained inversion",
+  ivRich.termPenalty === -0.5 && ivMacroExplained.termPenalty === 0 && ivMacroExplained.termExplained === true);
 const validAtmIv = computeAtmIvForDte({ spot: 100, chains: mkChain(100, 0.35, 0.37) }, 30);
 ok("IV sample: live two-sided quotes produce decision-grade ATM IV",
   validAtmIv != null && validAtmIv >= 0.35 && validAtmIv <= 0.37);
@@ -362,6 +532,72 @@ ok("grades: pillars present w/ signals", grades.BULLA.pillars.fundamentals.signa
 ok("grades: timing pillar has state", !!grades.BULLA.pillars.timing.state);
 ok("grades: timing is execution-only (not folded into conviction)", grades.BULLA.pillars.timing.executionOnly === true);
 ok("grades: ivCost pillar present", grades.BULLA.pillars.ivCost && grades.BULLA.pillars.ivCost.signals.length === 1);
+ok("model epoch: grades metadata stamps the new decision era",
+  grades.modelEpoch === "2026-08-08.top-picks-v3" && grades.entryTimingVersion === 3);
+const capexAsOfIso = "2026-08-08T16:00:00.000Z";
+const capexDates = ["2025-03-31", "2025-06-30", "2025-09-30", "2025-12-31", "2026-03-31", "2026-06-30"];
+const capexRows = (values, dates = capexDates) => dates.map((date, index) => ({ date, value: values[index] }));
+const unsupportedCapexFund = {
+  revenue: 400, operatingCashFlow: 160,
+  revenueHistory: capexRows([100, 100, 100, 100, 100, 100]),
+  capexHistory: capexRows([5, 5, 5, 5, 5, 12]),
+  operatingCashFlowHistory: capexRows([40, 40, 40, 40, 40, 40]),
+  fcfHistory: capexRows([30, 30, 30, 30, 30, 15]),
+  capitalAllocation: { capexTtm: 27 },
+};
+const unsupportedCapex = computeCapexQualityMetrics(unsupportedCapexFund, { asOfIso: capexAsOfIso });
+ok("CapEx quality: sequential/YoY intensity, own history and honest confirmation fields are auditable",
+  unsupportedCapex.available && unsupportedCapex.basis === "sales" && unsupportedCapex.acceleration
+    && unsupportedCapex.sales.currentDate === "2026-06-30"
+    && unsupportedCapex.sales.yoyPriorDate === "2025-06-30"
+    && unsupportedCapex.sales.historyEligible === true
+    && unsupportedCapex.sales.sequentialDeltaPp >= 6
+    && unsupportedCapex.sales.yoyDeltaPp >= 6
+    && unsupportedCapex.confirmations.managementRevenueGuidance == null
+    && unsupportedCapex.confirmations.backlogGrowth == null
+    && unsupportedCapex.confirmations.roicTrend == null);
+const capexUnsupportedGrade = buildGradesIndex({ CAPX: mkTicker({ fundamentals: unsupportedCapexFund }) }, [], null, null, null, null, { builtAtIso: capexAsOfIso }).CAPX;
+const capexUnsupportedSignal = capexUnsupportedGrade.pillars.fundamentals.signals.find((s) => s.key === "capexQuality");
+ok("CapEx quality: material above-history acceleration without growth/cash confirmation is negative",
+  capexUnsupportedSignal?.score < 0 && /without verified/.test(capexUnsupportedSignal.note || ""));
+const supportedCapexFund = {
+  ...unsupportedCapexFund,
+  revenueEstimateCurY: 460,
+  revenueGrowthYoy: 8,
+  fcfHistory: capexRows([20, 20, 20, 20, 20, 30]),
+};
+const capexSupportedGrade = buildGradesIndex({ CAPG: mkTicker({ fundamentals: supportedCapexFund }) }, [], null, null, null, null, { builtAtIso: capexAsOfIso }).CAPG;
+const capexSupportedSignal = capexSupportedGrade.pillars.fundamentals.signals.find((s) => s.key === "capexQuality");
+ok("CapEx quality: supported acceleration is only modestly positive when revenue and FCF conversion both improve",
+  capexSupportedSignal?.score === 0.5);
+const staleCapexDates = ["2019-03-31", "2019-06-30", "2019-09-30", "2019-12-31", "2020-03-31", "2020-06-30"];
+const staleCapex = computeCapexQualityMetrics({
+  ...unsupportedCapexFund,
+  revenueHistory: capexRows([100, 100, 100, 100, 100, 100], staleCapexDates),
+  capexHistory: capexRows([5, 5, 5, 5, 5, 12], staleCapexDates),
+  operatingCashFlowHistory: capexRows([40, 40, 40, 40, 40, 40], staleCapexDates),
+  fcfHistory: capexRows([30, 30, 30, 30, 30, 15], staleCapexDates),
+}, { asOfIso: capexAsOfIso });
+ok("CapEx quality: a deep but stale history retains its dates and cannot vote",
+  staleCapex.available === false && staleCapex.acceleration === false
+    && staleCapex.availabilityReason === "history-stale"
+    && staleCapex.sales.currentDate === "2020-06-30" && staleCapex.sales.fresh === false);
+const thinCapex = computeCapexQualityMetrics({
+  revenue: 400,
+  revenueHistory: capexRows([100, 100], capexDates.slice(-2)),
+  capexHistory: capexRows([5, 12], capexDates.slice(-2)),
+  capitalAllocation: { capexTtm: 17 },
+}, { asOfIso: capexAsOfIso });
+ok("CapEx quality: fewer than five aligned quarters is display-only",
+  thinCapex.available === false && thinCapex.acceleration === false
+    && thinCapex.availabilityReason === "history-thin" && thinCapex.sales.n === 2);
+const zeroTtmCapex = computeCapexQualityMetrics({
+  revenue: 400,
+  capitalAllocation: { capexTtm: 0 },
+}, { asOfIso: capexAsOfIso });
+ok("CapEx quality: a valid zero TTM CapEx remains zero but cannot bypass the history gate",
+  zeroTtmCapex.sales.ttmPct === 0 && zeroTtmCapex.snapshotAvailable === true
+    && zeroTtmCapex.available === false);
 ok("chart pattern: current confirmed read is decision-eligible",
   chartPatternDecisionEligible({ pattern: "Bull Flag", stage: "confirmed" }) === true);
 ok("chart pattern: changed-bar cached read is display-only",
@@ -386,16 +622,72 @@ ok("grades: tierCutoffs stashed", grades.tierCutoffs && grades.tierCutoffs.trade
 ok("grades: regimeBand stashed", grades.regimeBand === "neutral");
 ok("grades: timing both-sides gate", grades.BULLA.timing && "call" in grades.BULLA.timing && "put" in grades.BULLA.timing);
 
-// --- 1b. volume is factored in -------------------------------------------
+// --- 1b. standardized price/volume moves ---------------------------------
+const stdUp = computeStandardizedMove({ _bars: mkStandardizedBars() }, "neutral");
+const stdExtremeHorizons = Object.values(stdUp.returnZ).filter((z) => Number.isFinite(z) && Math.abs(z) >= 2).length;
+ok("standardized move: 5/10/20 extremes are one capped technical family",
+  stdExtremeHorizons === 3 && stdUp.score === 1 && Math.abs(stdUp.score) <= 1);
+
+const stdCrashBars = mkStandardizedBars({ shock: -0.10, shockVolume: 3 });
+const stdCrash = computeStandardizedMove({ _bars: stdCrashBars }, "neutral");
+ok("standardized move: expanding-volume crash is directional, never an unsigned positive",
+  stdCrash.negativeExtreme === true && stdCrash.volumeConfirmed === true && stdCrash.score <= 0);
+const stdMixed = computeStandardizedMove({ _bars: mkMixedHorizonBars() }, "neutral");
+ok("standardized move: conflicting extreme horizons fail neutral",
+  stdMixed.returnZ.d5 <= -2 && stdMixed.returnZ.d20 >= 2
+    && stdMixed.positiveExtreme === true && stdMixed.negativeExtreme === true
+    && stdMixed.volumeConfirmed === false && stdMixed.score === 0
+    && stdMixed.state === "conflicting-horizons");
+const stdOppositeVolume = computeStandardizedMove({ _bars: mkOppositeVolumeExtremeBars() }, "neutral");
+ok("standardized move: opposite-direction volume cannot confirm an upside extreme",
+  stdOppositeVolume.positiveExtreme === true && stdOppositeVolume.negativeExtreme === false
+    && stdOppositeVolume.volumeZ >= 1 && stdOppositeVolume.volumeConfirmed === false
+    && stdOppositeVolume.exhaustionUp === true && stdOppositeVolume.score === -1
+    && stdOppositeVolume.state === "exhaustion-up");
+const crashGrade = buildGradesIndex({ CRASHVOL: mkTicker({
+  spot: stdCrashBars[stdCrashBars.length - 2].c,
+  _bars: stdCrashBars,
+  technicals: { volume: { rvol: 3, priceMove1dPct: -10 } },
+}) }, [], null, null, null, null, {}).CRASHVOL;
+const crashStdSignal = crashGrade.pillars.technicals.signals.find((s) => s.key === "standardizedMove");
+ok("standardized move: Top Picks no longer carries the old unsigned raw-volume credit",
+  crashStdSignal?.score <= 0 && !crashGrade.pillars.technicals.signals.some((s) => s.key === "volume" && s.score > 0));
+
+const stdQuietBars = mkStandardizedBars({ shock: 0, shockVolume: 1 });
+const stdLiveShockBars = mkStandardizedBars({ shock: 0, shockVolume: 1, inProgressShock: 0.50 });
+const stdQuiet = computeStandardizedMove({ _bars: stdQuietBars }, "neutral");
+const stdLiveShock = computeStandardizedMove({ _bars: stdLiveShockBars }, "neutral");
+ok("standardized move: in-progress price/volume shock is ignored",
+  stdQuiet.confirmedBars === stdLiveShock.confirmedBars
+    && JSON.stringify(stdQuiet.returnZ) === JSON.stringify(stdLiveShock.returnZ)
+    && stdQuiet.volumeZ === stdLiveShock.volumeZ
+    && stdQuiet.score === stdLiveShock.score);
+
+const thinStd = computeStandardizedMove({ _bars: mkStandardizedBars().slice(0, 25) }, "neutral");
+const flatBars = Array.from({ length: 51 }, (_, i) => ({
+  date: new Date(Date.UTC(2025, 0, 1 + i)).toISOString().slice(0, 10),
+  o: 100, c: 100, h: 100, l: 100, v: 1_000_000,
+}));
+const flatStd = computeStandardizedMove({ _bars: flatBars }, "neutral");
+const allNumbersFinite = (value) => {
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every(allNumbersFinite);
+  if (value && typeof value === "object") return Object.values(value).every(allNumbersFinite);
+  return true;
+};
+ok("standardized move: thin and zero-variance histories fail neutral without non-finite values",
+  thinStd.score === 0 && flatStd.score === 0 && allNumbersFinite(thinStd) && allNumbersFinite(flatStd));
+
+// --- 1c. directional volume is factored in -------------------------------
 const uvSig = (g) => g.pillars.mechanicals.signals.find((s) => s.key === "unusualVolume");
 ok("volume: daily-rvol fallback fires the unusual-volume signal", uvSig(grades.BULLA) && uvSig(grades.BULLA).available && uvSig(grades.BULLA).score === 1);
-ok("volume: daily 'Volume confirmation' signal in technicals fires", grades.BULLA.pillars.technicals.signals.find((s) => s.key === "volume")?.score === 1);
+ok("volume: raw relative volume is not separately double-counted in technicals", !grades.BULLA.pillars.technicals.signals.some((s) => s.key === "volume"));
 const vflags = { etDate: "2026-06-18", tickers: [{ symbol: "BULLA", bucketHits: [{ volRatio: 2.4, priceMovePct: 1.8, bucketLabel: "10-11am" }] }] };
 const gradesVF = buildGradesIndex(chains, [], null, null, null, vflags, {});
 const bvf = uvSig(gradesVF.BULLA);
 ok("volume: hourly volume-flags read is attached + scored", bvf && bvf.available && bvf.score === 1 && /hrly/.test(bvf.value || ""));
 
-// --- 1c. unusual flow is factored in ---------------------------------------
+// --- 1d. unusual flow is factored in ---------------------------------------
 const ufSig = (g) => g.pillars.mechanicals.signals.find((s) => s.key === "unusualFlow");
 ok("flow: unavailable without scanner data", ufSig(grades.BULLA) && !ufSig(grades.BULLA).available && ufSig(grades.BULLA).score === 0);
 const mkFlag = (symbol, side, hoursAgo = 4) => ({ scannedAt: new Date(Date.now() - hoursAgo * 3600000).toISOString(), symbol, side, strike: 100, expSec: exp30, deltaVol: 800, vol: 1200, premium: 150000 });
@@ -469,11 +761,26 @@ const knifeTiming = computeEntryTiming("call", chains.KNIFE, chains.KNIFE.spot, 
 ok("timing: -8% last bar -> avoid (falling knife)", knifeTiming.state === "avoid");
 const goTiming = computeEntryTiming("call", chains.BULLA, chains.BULLA.spot, {});
 ok("timing: clean uptrend -> go or neutral (not avoid)", goTiming.state !== "avoid");
-const earnSoon = mkTicker({ spot: 100, fundamentals: { nextEarningsDate: inEtDays(3) } });
-ok("timing: earnings in 3d -> wait", computeEntryTiming("call", earnSoon, 100, {}).state === "wait" && computeEntryTiming("call", earnSoon, 100, {}).deferKind === "earnings");
-const earnLater = mkTicker({ spot: 100, fundamentals: { nextEarningsDate: inEtDays(5) } });
+ok("entry-v2: trading-session distance skips weekends and is signed",
+  tradingSessionsBetween("2026-07-31", "2026-08-04") === 2
+  && tradingSessionsBetween("2026-08-04", "2026-07-31") === -2);
+ok("entry-v3: trading-session distance skips exchange holidays",
+  tradingSessionsBetween("2026-03-31", "2026-04-06") === 3
+  && tradingSessionsBetween("2021-12-30", "2022-01-03") === 1);
+const earnSoon = mkTicker({ spot: 100, fundamentals: { nextEarningsDate: inEtSessions(2) } });
+const earnSoonTiming = computeEntryTiming("call", earnSoon, 100, {});
+ok("timing: earnings inside the next two trading sessions is an absolute wait",
+  earnSoonTiming.state === "wait" && earnSoonTiming.hardWait === "earnings" && earnSoonTiming.deferKind === "earnings");
+const macroWeekendTiming = computeEntryTiming("call", mkTicker({ spot: 100 }), 100, {
+  eventRisk: { active: true, label: "FOMC decision", daysOut: 4, sessionsOut: 2 },
+});
+ok("timing: macro event two sessions away is hard even across four calendar days",
+  macroWeekendTiming.state === "wait"
+  && macroWeekendTiming.hardWait === "event"
+  && macroWeekendTiming.components.event.macroSessionsOut === 2);
+const earnLater = mkTicker({ spot: 100, fundamentals: { nextEarningsDate: inEtSessions(5) } });
 const earnLaterTiming = computeEntryTiming("call", earnLater, 100, {});
-ok("entry-v2: earnings 4-7d is a soft -2 event penalty, not a hard defer", earnLaterTiming.components.event.score === -2 && !earnLaterTiming.hardWait);
+ok("entry-v2: earnings 4-7 sessions out is a soft -2 event penalty, not a hard defer", earnLaterTiming.components.event.score === -2 && !earnLaterTiming.hardWait);
 const wetPullback = mkTicker({
   spot: 100,
   _bars: mkPathBars(
@@ -488,6 +795,61 @@ ok("entry-v2: 25-50% impulse retracement is identified as a healthy pullback", d
 ok("entry-v2: pullback dry-up earns one point over identical normal volume", dryPbTiming.components.setup.score === wetPbTiming.components.setup.score + 1);
 ok("entry-v2: execution score is clamped to -8…+2", [knifeTiming, goTiming, earnLaterTiming, dryPbTiming, wetPbTiming].every((x) => x.score >= -8 && x.score <= 2));
 
+const unclearStructureName = mkTicker({ spot: 113, _bars: mkUnclearStructureBars() });
+const unclearStructureTiming = computeEntryTiming("call", unclearStructureName, 113, {});
+ok("entry-v2: GO requires a clear structure and mirrors it in readiness.structureOk",
+  unclearStructureTiming.structure.clear === false
+  && unclearStructureTiming.readiness.structureOk === false
+  && unclearStructureTiming.readiness.payoffOk === true
+  && unclearStructureTiming.state !== "go");
+
+const wrongSideCallTiming = computeEntryTiming(
+  "call",
+  mkTicker({ spot: 99, _bars: mkWrongSideInvalidationBars("call") }),
+  99,
+  {},
+);
+const wrongSidePutTiming = computeEntryTiming(
+  "put",
+  mkTicker({ spot: 101, _bars: mkWrongSideInvalidationBars("put") }),
+  101,
+  {},
+);
+ok("entry-v2: a call cannot use an invalidation above entry to manufacture payoff",
+  wrongSideCallTiming.structure.invalidation === null
+  && wrongSideCallTiming.structure.riskAtr === null
+  && wrongSideCallTiming.structure.rr === null
+  && wrongSideCallTiming.structure.clear === false
+  && wrongSideCallTiming.readiness.structureOk === false
+  && wrongSideCallTiming.state !== "go");
+ok("entry-v2: a put cannot use an invalidation below entry to manufacture payoff",
+  wrongSidePutTiming.structure.invalidation === null
+  && wrongSidePutTiming.structure.riskAtr === null
+  && wrongSidePutTiming.structure.rr === null
+  && wrongSidePutTiming.structure.clear === false
+  && wrongSidePutTiming.readiness.structureOk === false
+  && wrongSidePutTiming.state !== "go");
+
+const heldAboveBars = mkPathBars(
+  100,
+  [-0.02, -0.005, 0.015, -0.01, 0.015, 0.015, 0.005, 0.005],
+  [1, 1.3, 1.6, 1.7, 0.9, 1, 1.9, 1.85],
+);
+const noFreshReclaim = computeEntryTiming("call", mkTicker({ spot: 100, _bars: heldAboveBars }), 100, { regime: "risk-off" });
+ok("entry-v2: merely holding above the 20D is not literal reclaim proof",
+  noFreshReclaim.readiness.directionConfirmed === true
+  && noFreshReclaim.structure.clear === true
+  && noFreshReclaim.readiness.countertrendProof === false
+  && noFreshReclaim.state !== "go");
+const literalReclaimBars = mkPathBars(
+  100,
+  [0.02, 0.02, 0.02, -0.03, -0.03, 0.04],
+  [1, 1, 1, 0.8, 0.8, 1.6],
+);
+const literalReclaim = computeEntryTiming("call", mkTicker({ spot: 100, _bars: literalReclaimBars }), 100, { regime: "risk-off" });
+ok("entry-v2: a confirmed below-to-above 20D cross counts as literal reclaim proof",
+  literalReclaim.components.momentum.score === 2 && literalReclaim.readiness.countertrendProof === true);
+
 // --- 3. contract selection ------------------------------------------------
 const ctr = pickContractForPick("call", chains.BULLA, 0.045, { requireClean: true });
 ok("contract: found a clean call", !!ctr);
@@ -500,6 +862,8 @@ ok("contract: pop computed", ctr && ctr.pop != null && ctr.pop >= 0 && ctr.pop <
 const picks = buildTopPicks(chains, [], null, null, null, null, 0.045, {});
 ok("picks: returns an array", Array.isArray(picks));
 ok("picks: rosterMeta attached", picks.rosterMeta && picks.rosterMeta.tradeCut === PICKS_MIN_CONVICTION);
+ok("model epoch: roster metadata stamps the same decision era",
+  picks.rosterMeta.modelEpoch === grades.modelEpoch && picks.rosterMeta.entryTimingVersion === grades.entryTimingVersion);
 ok("picks: KNIFE timing-gated (not shipped)", !picks.some((p) => p.symbol === "KNIFE") );
 ok("picks: each pick has contract + sizing", picks.length === 0 || picks.every((p) => p.contract && p.sizing && p.sizing.weight != null));
 ok("picks: each pick has pillars + recommendation + thesis", picks.every((p) => p.pillars && p.recommendation && p.analysis));
@@ -612,6 +976,29 @@ const earnEntry = computeEntrySignal("call", 100, earnSoon, computeEntryTiming("
 ok("entry: imminent earnings never a buy-now (checklist can't override)", earnEntry.now === false && earnEntry.signal === "wait-event");
 ok("picks: book risk in rosterMeta", picks.rosterMeta.book && picks.rosterMeta.book.account > 0);
 ok("picks: deployed gross <= target", picks.rosterMeta.deployedGross <= 0.81);
+
+// Per-name scenario and tactical reductions are post-normalization caps: unlike
+// a relative tilt, their released allocation remains cash even in a tiny roster.
+const sizingContract = { maxLoss: 2, mid: 2 };
+const scenarioSized = [
+  { total: 7, contract: sizingContract, scenarioOverlay: { sizeMultiplier: 0.5 } },
+  { total: 7, contract: sizingContract, scenarioOverlay: { sizeMultiplier: 1 } },
+];
+applyPickSizing(scenarioSized, 1);
+ok("sizing: a 50% scenario cap survives normalization",
+  Math.abs(scenarioSized[0].sizing.weight / scenarioSized[1].sizing.weight - 0.5) < 1e-9);
+ok("sizing: scenario-capped allocation stays cash",
+  scenarioSized.reduce((sum, p) => sum + p.sizing.weight, 0) < 0.32);
+
+const tacticalSized = [
+  { total: -4, contract: sizingContract, tactical: true },
+  { total: -4, contract: sizingContract, tactical: false },
+];
+applyPickSizing(tacticalSized, 1);
+ok("sizing: tactical reduction survives normalization",
+  Math.abs(tacticalSized[0].sizing.weight / tacticalSized[1].sizing.weight - PICKS_TACTICAL_SIZE_MULT) < 1e-9);
+ok("sizing: tactical cap leaves unused gross in cash",
+  tacticalSized.reduce((sum, p) => sum + p.sizing.weight, 0) < 0.32);
 
 // sector cap: 4 software names, only <=3 should ship
 const manySoftware = {};
@@ -730,6 +1117,88 @@ const putShareOff = picksOff.length ? picksOff.filter((p) => p.side === "put").l
 const putShareNeutral = picks.length ? picks.filter((p) => p.side === "put").length / picks.length : 0;
 ok("regime: risk-off tilts the book more bearish (put share up or equal)", putShareOff >= putShareNeutral);
 ok("regime: risk-off de-grosses", picksOff.length === 0 || picksOff.rosterMeta.deployedGross <= picks.rosterMeta.deployedGross + 1e-9);
+const riskOnOverlayInput = {
+  asOf: "2026-08-07T20:00:00.000Z",
+  macroRegime: {
+    state: "risk-on", stress: 4, grossMult: 1,
+    axes: {
+      breadth: { score: 1, label: "Breadth supportive" },
+      credit: { score: 1, label: "HY spreads tight" },
+      vix: { score: -1, label: "VIX warning" },
+    },
+  },
+  scenarioEngine: {
+    builtAtIso: "2026-08-07T20:00:00.000Z",
+    transition: {
+      probabilities: { riskOffShiftPct: 15, riskOnContinuationPct: 70, riskOnExhaustionPct: 15 },
+      fragility: { warningCount: 0, leadingCount: 4 },
+    },
+    decision: { grossMultiplier: 1 },
+    scenarios: [{ key: "continuation", name: "Risk-on continuation" }],
+    sensitivities: [
+      { symbol: "ALIGN", scenarios: { continuation: { mid: 3 } } },
+      { symbol: "AGAINST", scenarios: { continuation: { mid: -3 } } },
+    ],
+  },
+};
+const alignedCallOverlay = computeRegimeOverlay(riskOnOverlayInput, "ALIGN", "call", 5);
+const againstPutOverlay = computeRegimeOverlay(riskOnOverlayInput, "ALIGN", "put", -5);
+ok("regime overlay: market score/bias are continuous and side-aware",
+  alignedCallOverlay.riskScore > 50 && alignedCallOverlay.bias > 0
+    && Math.abs(alignedCallOverlay.adjustedTotal) > 5
+    && Math.abs(againstPutOverlay.adjustedTotal) < 5);
+ok("regime overlay: primary-scenario alignment and selected tape inputs ship as structured audit",
+  alignedCallOverlay.alignment === "with-primary"
+    && againstPutOverlay.alignment === "against-primary"
+    && alignedCallOverlay.primaryScenario?.impactMidPct === 3
+    && alignedCallOverlay.tapeSignals.length === 3);
+const againstPrimaryCallOverlay = computeRegimeOverlay(riskOnOverlayInput, "AGAINST", "call", 5);
+const strongAgainstPrimaryCallOverlay = computeRegimeOverlay(riskOnOverlayInput, "AGAINST", "call", 7);
+ok("regime overlay: high-gross continuation is recognized deterministically",
+  isDominantHighGrossContinuation(riskOnOverlayInput));
+ok("regime overlay: dominant continuation cannot boost an against-primary name",
+  againstPrimaryCallOverlay.alignment === "against-primary"
+    && againstPrimaryCallOverlay.adjustedTotal === 4.5
+    && strongAgainstPrimaryCallOverlay.adjustedTotal === 6.5);
+ok("regime gate: against-primary requires Strong pre-overlay conviction",
+  !regimePrimaryGateClears({ preRegimeTotal: 5, total: 5, regimeOverlay: againstPrimaryCallOverlay }, riskOnOverlayInput)
+    && regimePrimaryGateClears({ preRegimeTotal: 7, total: 6.5, regimeOverlay: strongAgainstPrimaryCallOverlay }, riskOnOverlayInput));
+const nearAligned = { sym: "ALIGNED", total: 5, regimeOverlay: { alignment: "with-primary" } };
+const nearNeutral = { sym: "NEUTRAL", total: 5.1, regimeOverlay: { alignment: "neutral" } };
+const materiallyStrongerNeutral = { ...nearNeutral, total: 5.3 };
+ok("regime rank: dominant continuation favors alignment beyond an exact tie",
+  compareRegimeCandidates(nearAligned, nearNeutral, riskOnOverlayInput) < 0);
+ok("regime rank: bounded alignment nudge cannot override material conviction",
+  compareRegimeCandidates(nearAligned, materiallyStrongerNeutral, riskOnOverlayInput) > 0);
+ok("regime rank: alignment preference never jumps the Strong tier",
+  compareRegimeCandidates(
+    { ...nearAligned, total: 6.9 },
+    { ...nearNeutral, total: 7 },
+    riskOnOverlayInput,
+  ) > 0);
+const lowGrossContinuationInput = {
+  ...riskOnOverlayInput,
+  scenarioEngine: { ...riskOnOverlayInput.scenarioEngine, decision: { grossMultiplier: 0.75 } },
+};
+ok("regime gate/rank: primary preference is conditional on a high gross cap",
+  !isDominantHighGrossContinuation(lowGrossContinuationInput)
+    && regimePrimaryGateClears({ preRegimeTotal: 5, total: 5, regimeOverlay: againstPrimaryCallOverlay }, lowGrossContinuationInput)
+    && compareRegimeCandidates(nearAligned, nearNeutral, lowGrossContinuationInput) > 0);
+const belowBarOverlay = computeRegimeOverlay(riskOnOverlayInput, "ALIGN", "call", 3.9);
+const subStrongOverlay = computeRegimeOverlay(riskOnOverlayInput, "ALIGN", "call", 6.5);
+ok("regime overlay: support cannot recruit below the trade bar or promote into Strong",
+  belowBarOverlay.adjustedTotal === 3.9 && subStrongOverlay.adjustedTotal < 7);
+const adverseNoFlip = computeRegimeOverlay(riskOnOverlayInput, "ALIGN", "put", -0.2);
+ok("regime overlay: adverse pressure can neutralize but never flip the formed side",
+  adverseNoFlip.adjustedTotal <= 0 && adverseNoFlip.adjustedTotal >= -0.2);
+const missingForwardOverlay = computeRegimeOverlay({ macroRegime: { state: "risk-on", stress: 4, grossMult: 1 } }, "ALIGN", "call", 5);
+ok("regime overlay: missing forward probabilities cannot manufacture a positive boost",
+  missingForwardOverlay.bias === 0 && missingForwardOverlay.adjustedTotal === 5);
+const regimeGrade = buildGradesIndex({ ALIGN: mkTicker() }, [], null, null, riskOnOverlayInput, null, {}).ALIGN;
+ok("regime overlay: every grade carries pre/post totals and the canonical audit object",
+  regimeGrade.regimeOverlay?.alignment === "with-primary"
+    && regimeGrade.preRegimeTotal != null
+    && regimeGrade.regimeOverlay.adjustedTotal === regimeGrade.total);
 // A tactical put is a DEFENSIVE trade — its thin single-name thesis must NOT
 // collapse it to a contract-less "no recommendation"; it always carries a structure.
 ok("regime: tactical puts carry a real contract (never 'none'), in the watch group",
@@ -856,6 +1325,15 @@ ok("regime-history: appendRegimeHistory upserts a day", rh.days.length === 1 && 
 ok("regime-history: public rows omit Top-Picks lean", !("lean" in rh.days[0]) && !("picks" in rh.days[0]));
 applyPickFirstSeen(picks, [], new Date().toISOString());
 ok("tenure: applyPickFirstSeen stamps firstSeen", picks.length === 0 || picks.every((p) => p.firstSeen));
+const emptyCurrentRoster = [];
+emptyCurrentRoster.rosterMeta = { tradeCut: 6, macroRegime: { state: "risk-off" } };
+const emptyCurrentPayload = buildTopPicksPayload(emptyCurrentRoster, "2026-08-08T20:00:00.000Z");
+ok("picks payload: zero current candidates publish an honestly empty roster",
+  emptyCurrentPayload.picks.length === 0
+    && emptyCurrentPayload.minConviction === 6
+    && emptyCurrentPayload.rosterMeta === emptyCurrentRoster.rosterMeta
+    && !("stale" in emptyCurrentPayload)
+    && !("stalePicksFromIso" in emptyCurrentPayload));
 ok("edge: computeEdgeScale handles empty/negative", computeEedge());
 function computeEedge() { return computeEdgeScale(null) === 1 && computeEdgeScale([{ outcome: "loss", optionPnlPct: -40 }, { outcome: "loss", optionPnlPct: -40 }]) < 1; }
 // Edge-governed selection bar: no/insufficient/positive history keeps the base
@@ -893,7 +1371,7 @@ ok("matrix: a weak thesis ⇒ no strategy, no contract, watch group", picks.ever
 ok("roster: rosterMeta.groups counts the two tiers", picks.rosterMeta && picks.rosterMeta.groups && (picks.rosterMeta.groups.actionable + picks.rosterMeta.groups.watch) === picks.length);
 
 // --- 12b. thesis-quality rubric / strategy gate / matrix (unit) -------------
-const mkR = (total, p) => ({ sym: "Z", total, data: { ivRank: p.iv || null }, pillars: p.pillars, drivers: p.drivers });
+const mkR = (total, p) => ({ sym: "Z", total, data: { ivRank: p.iv || null, ivSurface: p.surface || null }, pillars: p.pillars, drivers: p.drivers });
 const mrSup = { support: "supports", group: "broad", drivers: [] };
 const mrNeu = { support: "neutral", group: "broad", drivers: [] };
 // multi-pillar + supportive macro -> strong
@@ -911,6 +1389,19 @@ ok("strategy gate: elevated IV (z 1.6) → credit", selectStrategy(mkR(6, { iv: 
 ok("strategy gate: elevated by PCTILE (65th, z null) → credit", selectStrategy(mkR(6, { iv: { pctile: 65 } }), "call", { thesisTier: "moderate" }).type === "credit");
 ok("strategy gate: low IV + strong grade + strong thesis → naked", selectStrategy(mkR(8, { iv: { z: 0, pctile: 30 } }), "call", { thesisTier: "strong" }).type === "long");
 ok("strategy gate: low IV + only moderate thesis → debit (naked needs strong)", selectStrategy(mkR(8, { iv: { z: 0, pctile: 30 } }), "call", { thesisTier: "moderate" }).type === "debit");
+const richCallSkew = selectStrategy(mkR(8, { iv: { z: 0, pctile: 30 }, surface: { skew25: -0.08, skewZ: -2 } }), "call", { thesisTier: "strong" });
+const richPutSkew = selectStrategy(mkR(-8, { iv: { z: 0, pctile: 30 }, surface: { skew25: 0.08, skewZ: 2 } }), "put", { thesisTier: "strong" });
+const supportiveCallSkew = selectStrategy(mkR(8, { iv: { z: 0, pctile: 30 }, surface: { skew25: 0.08, skewZ: 2 } }), "call", { thesisTier: "strong" });
+const rawRichCallSkew = selectStrategy(mkR(8, { iv: { z: 0, pctile: 30 }, surface: { skew25: -0.06, skewZ: null } }), "call", { thesisTier: "strong" });
+const rawRichPutSkew = selectStrategy(mkR(-8, { iv: { z: 0, pctile: 30 }, surface: { skew25: 0.06, skewZ: null } }), "put", { thesisTier: "strong" });
+ok("strategy gate: adverse 25-delta skew demotes an otherwise-naked long to debit on both sides",
+  richCallSkew.type === "debit" && richCallSkew.adverseSkew === true
+    && richPutSkew.type === "debit" && richPutSkew.adverseSkew === true);
+ok("strategy gate: skew never changes direction and supportive/thin skew does not block a naked long",
+  supportiveCallSkew.type === "long" && supportiveCallSkew.adverseSkew === false);
+ok("strategy gate: raw adverse skew routes naked to debit before z-history matures",
+  rawRichCallSkew.type === "debit" && rawRichCallSkew.skewBasis === "raw-fallback"
+    && rawRichPutSkew.type === "debit" && rawRichPutSkew.skewBasis === "raw-fallback");
 // classification matrix
 ok("classify: strong grade + strong thesis → actionable", classifyPick(8, "strong", false).group === "actionable" && classifyPick(8, "strong", false).classification === "actionable");
 ok("classify: strong grade + weak thesis → high-grade-weak-thesis / watch", classifyPick(8, "weak", false).classification === "highGradeWeakThesis" && classifyPick(8, "weak", false).group === "watch");
@@ -955,27 +1446,61 @@ ok("classify: moderate grade + weak thesis → idea / watch", classifyPick(5, "w
   ok("entry gate: a demoted strong+strong pick is instrumented in entryDemoted", !p || p.classification !== "waitEntry" || out.rosterMeta.entryDemoted.includes("EXTD"));
 }
 
-// --- 12b3. AI final entry call (the grader's verdict, not the price read, decides) --
+// --- 12b3. AI final entry call (deterministic readiness remains binding) --------
 // The AI final grader returns entryVerdict (buy-now/wait) alongside the grade;
-// buildTopPicks uses it as the final buy/wait call — overriding a soft price
-// trigger in EITHER direction — while the hard risk vetoes (top-guard, event
-// defer) bind regardless, and a missing verdict (legacy cache / keyless) falls
-// back to the deterministic read.
+// a wait can hold back a price-ready name, while buy-now can promote only a
+// non-negative setup with complete confirmation and structure/payoff readiness.
+// Hard risk vetoes bind regardless, and a missing verdict falls back to the
+// deterministic read.
 {
+  const promotableSoftTiming = {
+    score: 0, structure: { clear: true }, hardWait: null, hardVeto: null,
+    readiness: {
+      independentFamilies: 2, directionConfirmed: true, structureOk: true,
+      payoffOk: true, crowdedProof: true, countertrendProof: true,
+    },
+  };
+  ok("ai-entry: a nonnegative ordinary soft Wait is adjudicable only after every invariant clears",
+    entryPromotionBlocked({ basis: "extended", signal: "wait-pullback" }, promotableSoftTiming) === false);
+  ok("ai-entry: negative score or one missing invariant blocks the same soft Wait",
+    entryPromotionBlocked({ basis: "extended", signal: "wait-pullback" }, { ...promotableSoftTiming, score: -1 }) === true
+      && entryPromotionBlocked({ basis: "extended", signal: "wait-pullback" }, {
+        ...promotableSoftTiming,
+        readiness: { ...promotableSoftTiming.readiness, countertrendProof: false },
+      }) === true);
   const mkAi = (verdict) => ({ summary: "x", setup: "x", catalyst: "x", outlook: "x", macroSupport: "neutral", invalidation: ["a"], grade: "strong", score: 90, entryVerdict: verdict, entryReason: "the catalyst is live" });
-  // A soft deterministic WAIT (buy-dip): momentum not aligned (RSI 49), no
-  // volume/thrust/stack — readiness below the bar — but NOT extended/overbought
-  // and no imminent event, so the AI's judgment may take the entry.
+  // A soft deterministic WAIT (buy-dip): payoff is ready, but independent
+  // confirmation and direction are incomplete. AI may explain it, not promote it.
   const dipName = mkTicker({ spot: 100,
     fundamentals: { earningsGrowthYoy: 35, revenueGrowthYoy: 28, targetMeanPrice: 122, numberOfAnalystOpinions: 14, analystRevisions: { upgrades: 5, downgrades: 0 }, nextEarningsDate: inEtDays(60) },
     technicals: { rsi: 49, rsi5d: 50, macd: { hist: 0.3, line: 0.5, signal: 0.2 }, volume: { rvol: 0.9, priceMove1dPct: 0.2 }, sr: { s20: 96, r20: 108 }, sma: { sma20: 99, sma50: 103, sma100: 95 }, chartPattern: null, volRegime: { rv30Pctile: 45 } },
     _bars: mkPayoffReadyWaitBars(100) });
   const detE = computeEntrySignal("call", 100, dipName, computeEntryTiming("call", dipName, 100, {}), { total: 6 });
-  ok("ai-entry: fixture is a payoff-ready soft deterministic wait", detE.now === false && detE.readiness?.payoffOk === true);
+  ok("ai-entry: fixture is payoff-ready but confirmation-incomplete",
+    detE.now === false
+    && detE.readiness?.payoffOk === true
+    && (detE.readiness?.independentFamilies < 2 || detE.readiness?.directionConfirmed !== true));
   const up = buildTopPicks({ DIPN: dipName }, [], null, null, null, null, 0.045, { aiThesisMap: { "DIPN:call": mkAi("buy-now") } });
   const pUp = up.find((x) => x.symbol === "DIPN");
-  ok("ai-entry: AI buy-now overrides the soft price wait (final call is the grader's)", !!pUp && pUp.entry.now === true && pUp.entry.signal === "buy-now" && pUp.entry.basis === "ai-final-grader" && up.rosterMeta.aiEntryPromoted.includes("DIPN"));
-  ok("ai-entry: the AI verdict rides the entry object", !!pUp && pUp.entry.ai && pUp.entry.ai.verdict === "buy-now" && pUp.entry.ai.overrode === true);
+  ok("ai-entry: AI cannot promote incomplete deterministic readiness",
+    !!pUp && pUp.entry.now === false && pUp.group !== "actionable" && !up.rosterMeta.aiEntryPromoted.includes("DIPN"));
+  ok("ai-entry: a blocked buy-now verdict remains audit context without overriding",
+    !!pUp && (!pUp.entry.ai || (pUp.entry.ai.verdict === "buy-now" && pUp.entry.ai.overrode === false)));
+
+  const negativeWait = mkTicker({ spot: 100, _bars: mkPathBars(
+    100,
+    [-0.005, -0.005, 0.02, 0.04, -0.02, -0.02, -0.005],
+    [1.25, 1.47, 1.42, 0.85, 1.32, 0.79, 1.25],
+  ) });
+  const negativeTiming = computeEntryTiming("call", negativeWait, 100, {});
+  ok("ai-entry: negative-score fixture still has a usable structure/payoff plan",
+    negativeTiming.score < 0 && !negativeTiming.hardWait
+    && negativeTiming.structure.clear === true && negativeTiming.readiness.payoffOk === true);
+  const negativeOut = buildTopPicks({ NEGW: negativeWait }, [], null, null, null, null, 0.045, { aiThesisMap: { "NEGW:call": mkAi("buy-now") } });
+  const negativePick = negativeOut.find((x) => x.symbol === "NEGW");
+  ok("ai-entry: AI cannot promote a negative deterministic execution score",
+    !!negativePick && negativePick.entry.now === false && negativePick.group !== "actionable"
+    && !negativeOut.rosterMeta.aiEntryPromoted.includes("NEGW"));
   // AI WAIT holds back a price-ready name — never actionable, no price trigger.
   const lead = healthyPicks[0];
   if (lead) {
@@ -984,9 +1509,7 @@ ok("classify: moderate grade + weak thesis → idea / watch", classifyPick(5, "w
     const pH = held.find((x) => x.symbol === lead.symbol && x.side === lead.side);
     ok("ai-entry: AI wait holds back a price-ready name (watch, wait-ai, instrumented)", !pH || (pH.group !== "actionable" && pH.entry.now === false && pH.entry.signal === "wait-ai" && held.rosterMeta.aiEntryHeldBack.includes(lead.symbol)));
   }
-  // The SOFT extension band is the grader's judgment zone (2026-07-10 rework):
-  // an AI buy-now TAKES a +6.4%-extended momentum name (the old 4% hard veto
-  // perpetually locked out the engine's strongest names).
+  // A SOFT extension is still not promotable when full confirmation is missing.
   const extg = mkTicker({ spot: 100, technicals: {
     rsi: 62, rsi5d: 60, macd: { hist: 0.5, line: 1.1, signal: 0.6 },
     volume: { rvol: 1.5, priceMove1dPct: 1.0 },
@@ -995,9 +1518,9 @@ ok("classify: moderate grade + weak thesis → idea / watch", classifyPick(5, "w
     _bars: mkPayoffReadyWaitBars(100, true) });
   const tg = buildTopPicks({ EXTG: extg }, [], null, null, null, null, 0.045, { aiThesisMap: { "EXTG:call": mkAi("buy-now") } });
   const pTg = tg.find((x) => x.symbol === "EXTG");
-  ok("ai-entry: an AI buy-now takes a SOFT-extended name (momentum ride is the grader's call)", !!pTg && pTg.entry.now === true && pTg.entry.basis === "ai-final-grader" && tg.rosterMeta.aiEntryPromoted.includes("EXTG"));
-  // Soft extension is overridable only when the execution plan itself is real:
-  // unclear invalidation or sub-1.5:1 payoff remains deterministic.
+  ok("ai-entry: AI cannot promote a SOFT-extended name without full confirmation",
+    !!pTg && pTg.entry.now === false && pTg.group !== "actionable" && !tg.rosterMeta.aiEntryPromoted.includes("EXTG"));
+  // Unclear invalidation or sub-1.5:1 payoff remains deterministic too.
   const thinPayoff = mkTicker({ spot: 100, _bars: mkSoftExtensionBars(100) });
   const thinTiming = computeEntryTiming("call", thinPayoff, 100, {});
   ok("ai-entry: thin-payoff fixture actually fails a structure/payoff prerequisite", thinTiming.structure?.clear !== true || thinTiming.readiness?.payoffOk !== true);
@@ -1365,7 +1888,7 @@ ok("exit: credit ignores a stray scale-out field", resolvePickOutcome({ modeledO
 
 // --- 13. strategy routing through the full engine (IV z-score → structure) ---
 // mkTicker grades strongly bullish; the IV z-score then drives the structure.
-function mkStratTicker(iv, z, pctile, over) { const t = mkTicker({ spot: 120, sector: "Software", ...(over || {}) }); t.chains = mkBsChain(120, iv); t.ivRank = { pctile, n: 120, z }; return t; }
+function mkStratTicker(iv, z, pctile, over) { const t = mkTicker({ spot: 120, sector: "Software", ...(over || {}) }); t.chains = mkBsChain(120, iv); t.ivRank = { pctile, n: 120, z, asOf: inEtDays(0) }; return t; }
 const routeRich = buildTopPicks({ RICHIV: mkStratTicker(0.95, 2.6, 88) }, [], null, null, null, null, 0.045, {}).find((p) => p.symbol === "RICHIV");
 const routeElevated = buildTopPicks({ ELEVIV: mkStratTicker(0.55, 1.6, 65) }, [], null, null, null, null, 0.045, {}).find((p) => p.symbol === "ELEVIV");
 // Debit needs a non-elevated IV that ISN'T a naked candidate — force it by putting

@@ -10656,9 +10656,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // The baked "✅ Buy now / ⏳ Wait $X" entry call (computeEntrySignal, re-baked
   // hourly) goes LIVE while this tab is open: every 30s quote poll re-checks
   // the live spot against each pick's own trigger and flips the chip in place.
-  //   • wait-pullback / buy-dip — the trigger price IS the plan's entry, so
-  //     reaching it flips to a green "Buy zone now" (this is the price the
-  //     pick told you to wait for);
+  //   • wait-pullback / buy-dip — a live trigger can flip green only when the
+  //     baked confirmed-bar read already cleared every GO prerequisite. Price
+  //     alone never repairs incomplete confirmation, structure, or payoff;
   //   • wait-reclaim — the thesis needs a confirming CLOSE through the level
   //     (same no-look-ahead rule as the timing gate), so an intraday cross
   //     only ARMS an amber "trigger hit — needs today's close";
@@ -10683,9 +10683,26 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         short: '⚡ Hit ' + fmtT + ' — confirm close',
         long: 'Trigger hit live (' + fmtS + ') — the 20D level at ' + fmtT + ' is ' + (isCall ? 'reclaimed' : 'broken') + ' intraday, but this entry wants a confirming CLOSE through it before it becomes a buy. If today closes through the level, tomorrow\\'s build should flip this to Buy now.' };
     }
-    // wait-pullback / buy-dip — reaching the trigger IS the plan's entry.
+    // Avoid/reversal, AI-held, and unknown wait states are not price triggers.
+    if (e.signal !== 'wait-pullback' && e.signal !== 'buy-dip') return null;
     var reached = isCall ? spot <= trig : spot >= trig;
     if (!reached) return null;
+    var ready = e.readiness || {};
+    var timing = (p && p.entryTiming) || {};
+    var readyBar = Number(ready.bar);
+    var readyScore = Number(ready.score);
+    var bakedReady = isFinite(readyBar) && isFinite(readyScore) && readyScore >= readyBar &&
+      Number(ready.independentFamilies) >= 2 && ready.directionConfirmed === true &&
+      ready.structureOk === true && ready.payoffOk === true &&
+      ready.crowdedProof === true && ready.countertrendProof === true &&
+      timing.structure && timing.structure.clear === true && Number(timing.score) >= 0 &&
+      !timing.hardVeto && !timing.deferKind && timing.state !== 'avoid' &&
+      e.basis !== 'top-guard' && !(e.ai && e.ai.blocked === true);
+    if (!bakedReady){
+      return { kind: 'arm',
+        short: '⚡ Hit ' + fmtT + ' — confirmation still required',
+        long: 'Price reached the planned zone live (' + fmtS + '), but the last confirmed daily build did not clear every entry prerequisite. Hold for a confirmed bar and the next build; an intraday quote cannot waive direction, structure, payoff, event, crowded-trade, or counter-trend proof.' };
+    }
     return { kind: 'go',
       short: '✅ Buy zone now ' + fmtS,
       long: 'In the buy zone live — ' + fmtS + ' has reached the plan\\'s ' + (e.basis || 'entry') + ' trigger at ' + fmtT + '. This is the price the pick said to wait for; opening here follows the plan. (Live intraday read, refreshed ~30s while this tab is open — the hourly build re-confirms it.)' };
@@ -11424,11 +11441,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var grossTxt = (regime.grossMult != null && regime.grossMult < 1) ? ' Gross cut to ~' + Math.round(regime.grossMult * 100) + '% of target.' : '';
     var base = 'The market tape — fused from the overall market (SPY + QQQ), the VIX, the dollar (DXY), long-end yields, the Fed path / FOMC, a commodity / geopolitical-shock axis (crude and gold), a geopolitical-news axis (war / tariffs / Iran), an inflation / labor axis, and the overnight global tape. Resets every build. ';
     var body;
-    if (st === 'risk-on') body = 'A clean risk-on tape leans the list long.';
-    else if (severe) body = 'A SEVERE tightening tape: the long book is discounted hard (beta-weighted), tactical puts open wider, calls are capped, and gross is cut.';
-    else if (st === 'risk-off') body = 'A risk-off / tightening tape: the long book is discounted (beta-weighted), reduced-size tactical puts open, and gross is cut.';
-    else if (regime.fragile) body = 'Fragile neutral tape — price and vol read neutral but breadth and credit internals are deteriorating (' + (regime.internalsLabel || 'breadth + credit weak') + '). Size is trimmed and the long side capped, without flipping to puts.';
-    else body = 'A neutral tape — no coordinated cross-asset stress.';
+    if (st === 'risk-on') body = 'A constructive tape feeds a continuous bullish Regime Bias after each ticker\\'s four pillars and IV Cost, supporting eligible calls and opposing puts.';
+    else if (severe) body = 'Acute tightening feeds a continuous bearish Regime Bias after pillars and IV Cost, opposing calls and supporting already-qualified puts while gross is cut.';
+    else if (st === 'risk-off') body = 'A tightening tape feeds a continuous bearish Regime Bias after pillars and IV Cost, opposing calls and supporting already-qualified puts while gross is reduced as stress rises.';
+    else if (regime.fragile) body = 'Fragile neutral tape — price and vol read neutral but breadth and credit internals are deteriorating (' + (regime.internalsLabel || 'breadth + credit weak') + '). Warnings attenuate the continuous bias and trim gross.';
+    else body = 'A neutral descriptive state leaves ticker evidence in control, although forward scenario probabilities can still create a modest continuous bias.';
+    body += ' The overlay is side-aware and cannot flip a side, recruit a below-bar name, or promote a tier. Entry Timing remains a separate execution gate.';
     var liveNote = opts && opts.live ? ' Recomputed LIVE from the fast price axes (SPY / QQQ, the VIX, the dollar, long yields, the 2Y, MOVE, crude, gold, Fear and Greed, and the global cross-asset tape — futures / yen / BTC); the slow axes (Fed path, geopolitical news, inflation, breadth, put/call, HY credit and rotation) stay from the last build. The HY-credit rail can still show live 1-day HYG/LQD context without changing its baked 5-day regime score.' : '';
     var heldNote = (regime.persisted && regime.rawState && regime.rawState !== regime.state) ? ' RECOVERING: the live read is ' + regime.rawState + ' but the chip holds the more defensive state until a build confirms.' : '';
     return base + body + (drv ? ' Drivers: ' + drv + '.' : '') + grossTxt + liveNote + heldNote;
@@ -11439,7 +11457,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       // Feature off / pre-macro data — fall back to the SPY+VIX entryRegime read.
       if (entryRegime !== 'risk-off' && entryRegime !== 'risk-on' && entryRegime !== 'neutral') return '';
       var m0 = macroStateMeta(entryRegime, false);
-      var t0 = 'Today’s market regime, derived from the S&P move and the VIX. Risk-off (a sell-off) pulls grades down, makes entry timing stricter, opens reduced-size tactical puts, and holds more cash; risk-on is a tailwind that leans the list long.';
+      var t0 = 'Fallback tape context derived from the S&P move and the VIX. On a full build, the continuous side-aware Regime Bias is applied only after the four pillars and IV Cost; it cannot flip a side, recruit a below-bar name, or promote a tier, and Entry Timing stays separate.';
       return '<div class="picks-summary-chip ' + m0.cls + '" title="' + t0 + '"><span class="picks-summary-num">' + (entryRegime === 'risk-off' ? '⚠ ' : '') + m0.lbl + '</span><span class="picks-summary-lbl">market tape</span></div>';
     }
     var meta = macroStateMeta(regime.state, regime.fragile);
@@ -11511,16 +11529,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (roster && roster.total){
       rosterTxt = roster.total + ' pick' + (roster.total === 1 ? '' : 's') + ' (' + roster.calls + ' call' + (roster.calls === 1 ? '' : 's') + ' · ' + roster.puts + ' put' + (roster.puts === 1 ? '' : 's') + ')';
     }
+    var overlayRule = ' The continuous side-aware overlay is applied after the four pillars and IV Cost. It may demote or re-rank an already-qualified name, but it cannot flip the side, recruit a below-bar idea, or promote a tier; <b>Entry Timing remains a separate execution gate</b>.';
     var head, body, change, tone;
     if (st === 'risk-on'){
       tone = 'on';
-      head = 'Tailwind — the engine is leaning the book long.';
-      body = 'A clean risk-on tape across the cross-asset axes. Grades get a small bullish tilt (beta-weighted), entry timing reads as a tailwind (a long bought into a rising tape is not penalized), <b>full size</b> is deployed, and the engine opens <b>no tactical puts</b> — which is why today’s list runs call-heavy and sized up' + (rosterTxt ? ': <b>' + rosterTxt + '</b>' : '') + '.';
+      head = 'Constructive tape — the continuous bias favors bullish exposure.';
+      body = 'A clean risk-on read across the cross-asset axes supports eligible calls and opposes puts in proportion to the measured bias and forward scenario balance. Tape gross is <b>~' + gp + '%</b> before any additional Scenario Engine cap' + (rosterTxt ? '. Today: <b>' + rosterTxt + '</b>' : '') + '.' + overlayRule;
       change = 'A VIX spike, a sharp dollar or long-yield surge, an oil shock, or fresh <i>escalation</i> headlines would pull the tape back toward neutral / risk-off.';
     } else if (st === 'severe-risk-off'){
       tone = 'off';
       head = 'Acute stress — maximum defense.';
-      body = 'A SEVERE tightening tape: the long book is discounted hard (beta-weighted), the tactical-put bar is relaxed so puts open wider, <b>calls are capped</b> (about ≤3 shipped), and gross is cut to <b>~' + gp + '%</b> of target' + (rosterTxt ? ' — today: <b>' + rosterTxt + '</b>' : '') + '.';
+      body = 'A severe tightening read produces a strong bearish bias: it opposes calls, supports qualified puts, and cuts tape gross to <b>~' + gp + '%</b> before any additional Scenario Engine cap. A separate labeled, reduced-size tactical-put watch path remains the narrow defensive exception below the normal grade bar' + (rosterTxt ? '. Today: <b>' + rosterTxt + '</b>' : '') + '.' + overlayRule;
       change = 'This is the break-glass tape. Defense applies immediately, but it only steps back down once two consecutive builds confirm the recovery — no whipsaw on one green print.';
     } else if (st === 'risk-off'){
       tone = 'off';
@@ -11530,17 +11549,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var roGross = gp >= 99
         ? '<b>near-full size</b> is deployed — the size cut ramps with the stress, and stress is light right now, so the defensive <i>posture</i> is held without slashing size'
         : 'gross is cut to <b>~' + gp + '%</b> of target';
-      body = 'A risk-off / tightening tape. Grades are <b>discounted</b> in proportion to the measured stress (beta-weighted toward the downside — lightest when stress is low), entry timing turns strict (the falling-knife thresholds tighten ~25%), the <b>tactical-put path opens</b> (bearish names that miss the long bar can ship as reduced-size puts), and ' + roGross + (rosterTxt ? ' — today: <b>' + rosterTxt + '</b>' : '') + '.';
+      body = 'A risk-off / tightening read produces a continuous bearish bias, opposing calls and supporting qualified puts in proportion to current stress and the forward scenario balance; ' + roGross + ' before any additional Scenario Engine cap. A separate labeled, reduced-size tactical-put watch path remains the narrow defensive exception below the normal grade bar' + (rosterTxt ? '. Today: <b>' + rosterTxt + '</b>' : '') + '.' + overlayRule;
       change = 'Defense applies <i>immediately</i>; a recovery is <b>held</b> until a fresh build confirms it, so the chip will not whipsaw back to risk-on on one green bounce.';
     } else if (regime.fragile){
       tone = 'warn';
       head = 'Calm on the surface, weak underneath.';
-      body = 'Price and vol read neutral, but the market’s <b>internals are deteriorating</b> (' + escapeHtml(regime.internalsLabel || 'breadth + credit weak') + '). The engine does not flip to puts — price is not confirming a break — but it <b>trims size</b> to ~' + gp + '% and caps the long side rather than leaning maximally long into weakening breadth' + (rosterTxt ? '. Today: <b>' + rosterTxt + '</b>' : '') + '.';
+      body = 'Price and vol read neutral, but the market’s <b>internals are deteriorating</b> (' + escapeHtml(regime.internalsLabel || 'breadth + credit weak') + '). Warning density attenuates the continuous bias and trims tape gross to <b>~' + gp + '%</b> before any additional Scenario Engine cap' + (rosterTxt ? '. Today: <b>' + rosterTxt + '</b>' : '') + '.' + overlayRule;
       change = 'If price and vol confirm the weakness it tips to risk-off; if breadth and credit repair it returns to a full-size neutral.';
     } else {
       tone = 'neutral';
       head = 'Balanced tape — no coordinated stress.';
-      body = 'No cross-asset axis is lit strongly enough to tilt the book. The engine grades each name on its <b>own merits</b> with full size and no macro tilt — neither a tailwind nor a brake' + (rosterTxt ? '. Today: <b>' + rosterTxt + '</b>' : '') + '.';
+      body = 'No cross-asset axis is coordinated strongly enough to set a directional state. Ticker evidence leads, while the forward scenario probabilities can still produce a modest continuous bias; tape gross is <b>~' + gp + '%</b> before any additional Scenario Engine cap' + (rosterTxt ? '. Today: <b>' + rosterTxt + '</b>' : '') + '.' + overlayRule;
       change = 'A VIX spike, a dollar / long-yield surge, an oil shock, or escalation headlines would tip it risk-off; a clean vol-crush with a dovish Fed and de-escalation would tip it risk-on.';
     }
     return { head: head, body: body, change: change, tone: tone, drivers: drv };
@@ -12333,7 +12352,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="scenario-sens-name"><b>' + escapeHtml(row.symbol) + '</b><small>' + escapeHtml(row.sector || '') + ' \u00b7 ' + escapeHtml(row.confidence || 'profile') + '</small></span>' +
         '<span class="scenario-sens-impact">' + scenarioRangeHtml(impact) + '</span>' +
         '<span class="scenario-sens-factors"><b>' + escapeHtml(scenarioFactorSummary(row)) + '</b><small>' + escapeHtml((row.tags || []).join(' \u00b7 ') || row.kind || '') + '</small></span>' +
-        '<span class="scenario-sens-decision"><b class="is-' + escapeHtml(d.bias || 'mixed') + '">' + escapeHtml(d.bias || 'mixed') + '</b><small>' + escapeHtml((d.timing || '') + ' \u00b7 ' + (d.sizeMultiplier != null ? Math.round(d.sizeMultiplier * 100) + '% size' : '') + ' \u00b7 ' + (d.vehicle || '')) + '</small></span>' +
+        '<span class="scenario-sens-decision"><b class="is-' + escapeHtml(d.bias || 'mixed') + '">' + escapeHtml(d.bias || 'mixed') + '</b><small>' + escapeHtml((d.timing || '') + ' \u00b7 ' + (d.sizeMultiplier != null ? Number(d.sizeMultiplier).toFixed(2).replace(/0+$/, '').replace(/\\.$/, '') + '× risk cap' : '') + ' \u00b7 ' + (d.vehicle || '')) + '</small></span>' +
       '</button>';
     }).join('');
     host.className = 'market-scenario-engine is-' + escapeHtml(frag.state || 'stable');
@@ -33777,12 +33796,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // in sync with docs/top-picks.md §2 (the four asset pillars) and §3
   // (entry timing). Purely presentational.
   var PILLAR_INFO = {
-    fundamentals: 'The health of the underlying business, graded across 10 signals (each −3 … +3). Earnings surprise: beat/miss >25% ±2, 10–24% ±1. EPS growth YoY: ≥10% +1, <−25% −2. Revenue growth YoY: ≥8% +1, <−20% −2. Analyst price target: ≥+10% upside +1, ≤−10% −1 (needs ≥5 analysts). Analyst rating changes: net of recent upgrades vs. downgrades over ~90 days — ≥3 net upgrades +2, 1–2 +1, symmetric for downgrades. P/E vs. sector median: a clear discount +1, rich with no growth −1. Guidance: raised +3, in-line +2, lowered −3. A major contract or deal won +2 / lost −3 — including, for a bank/broker, a lead-underwriter or advisory mandate on a marquee IPO or M&A (e.g. leading the SpaceX IPO); this is a discrete win, so it lifts the grade even when the day\\'s overall news nets out to neutral. Free cash flow ±1, and net-margin trend ±1. A strong business is a tailwind for the trade; a weak one is a headwind.',
-    technicals: 'The price chart itself, graded across 10 signals (each −3 … +3). RSI momentum: >50 & rising +1, <50 & falling −1. RSI reading (contrarian): ≥75 overbought −3, ≤25 oversold +3. MACD ±1. A 3-day-plus green/red streak ±1. Confirmed support/resistance breaks: 20D ±1, 50D ±1, 100D ±2. The 52-week read (contrarian): within 5% of the high −1, within 5% of the low +1. The moving-average stack: above the majority of the 20/50/100D SMAs +1, below −1. Plus an AI-read chart pattern: confirmed bullish +1, bearish −1 only while its analyzed 30-minute bars still match; a changed-bar cached read is display-only and scores 0. (Raw relative volume is NOT scored here — it double-counted the Unusual Volume mechanical, and unsigned volume credits a crash day like a rally; volume-as-confirmation lives in the entry-timing read.) The contrarian reads mean a name pinned at its 52-week high or running overbought scores negative — stretched charts tend to mean-revert.',
-    mechanicals: 'The name\\'s OWN options plumbing, graded across 8 signals (each −3 … +3). Unusual options flow (today\\'s aggressive bull vs. bear prints) ±1. Open-interest call/put skew: >1.5× calls +1, put-heavy −1. Short interest: a squeeze setup +1, short interest rising −1, falling +1. Hourly volume vs. its 20-day average ±1 by move direction. Put/call ratio (contrarian): >1.15 fear +2, <0.65 greed −2 — heavy put buying (fear) leans bullish, call-greed leans bearish. Plus three reads from the site\\'s own scanners: overnight OI build (where new positioning actually LANDED in last night\\'s settlement, net call vs. put ΔOI ±1 — opened-and-held bets, not intraday churn), a gamma-squeeze setup score (concentrated near-money call OI + a hot C/P ratio + spot near the call wall + ask-side sweeps: 3-of-5 rules +1, flagged ≥4 +2), and flow persistence (the rolling 7-day flagged-flow log — the same side flagged across 2+ sessions with ≥60% of real premium behind it ±1, across 4+ sessions ±2; one day\\'s prints are the flow signal\\'s job, a WEEK of them is positioning). Market-wide reads — the broad SPY tape and the VIX — are NOT scored here: they move the whole market, so they\\'re owned by the risk-on/off regime gauge and reach the grade through its beta-weighted tilt, not double-counted per name.',
-    narrative: 'The story driving the stock, graded on the name\\'s OWN signals (each −3 … +3). AI-read news catalysts: good +2, bad −3 (deliberately asymmetric — one sentiment read is noisy, so good news is weighted lighter than bad). Sector narrative: rides an active strong story ±2, faded by its lifecycle stage and discounted when the story is hype-driven. Social sentiment: informational only (0) — self-tagged retail sentiment fired bullish-only across the whole universe, a structural long bias, so the chip shows the reading without scoring it. Media coverage: informational only (0) — sentiment is owned by the catalyst signals. Market-wide macro reads — macro tail/headwinds, the dollar (DXY) and the 10-year yield — are NOT scored here: they move the whole market, so they\\'re owned by the risk-on/off regime gauge. Its bearish/bullish lean still reaches the grade through the beta-weighted Macro Regime tilt (the one market read scaled by each name\\'s own beta). Catalysts move stocks faster than indicators, so they carry the most weight here.',
-    ivCost: 'How expensive is this name\\'s OWN option vol right now, for a buyer of premium? Scored from its IV rank — where today\\'s 30-day implied vol sits within the name\\'s own trailing history (0 = its cheapest, 100 = its richest). A long call or put is long premium either way, so this is a direction-agnostic cost: rich IV subtracts conviction and cheap IV adds a smaller credit. It weakens or strengthens conviction for whichever side without ever flipping it, so of two otherwise-equal setups the one whose vol is cheap relative to its own history ranks ahead — you\\'re not paying up into a crush.',
-    timing: 'Is *now* a good moment to enter, independent of the asset grade? This execution-only score (−8…+2) is computed from one confirmed daily OHLCV cutoff. Extension is mild, soft, or true exhaustion; a hard chase requires multiple extreme signals (or one catastrophic reading), so strong momentum is not rejected merely for being above its 20-day average. Pullbacks are measured against the actual prior impulse and in ATR units: an orderly 25–50% retracement on drying volume that holds support is preferred, while accelerating adverse price, expanding volume, broken support, and no higher-low/lower-high form a falling-knife veto. MACD turn, RSI recovery and directional ≥1.3× turn-day volume are one correlated confirmation group capped at +2. Earnings and major macro events are tiered by proximity. A GO additionally requires two independent evidence families, a defined invalidation within 2 ATR, and at least 1.5:1 estimated reward/risk. Regime changes the proof required: countertrend trades need a reclaim plus full confirmation, while already-extended tape-aligned calls/puts need full confirmation and payoff. Hard event, knife and exhaustion vetoes cannot be averaged away or overridden.',
+    fundamentals: 'The health and forward trajectory of the underlying business. It scores reported earnings and revenue growth, analyst targets and revisions, valuation versus sector, guidance, major contracts, capital raises, free cash flow, margin trend, and the improving/declining trajectory audit. CapEx quality is a bounded component: it compares sequential and year-over-year CapEx intensity with the company\\'s own history and eligible sector peers, penalizes material acceleration that lacks forward-revenue-estimate or improving FCF-conversion support, and gives only a modest credit when both growth and cash conversion confirm the spend. It requires five aligned quarters and a latest quarter no more than 200 days old; missing, thin, stale, or misaligned inputs stay explicitly unavailable and score zero rather than being inferred from prose.',
+    technicals: 'The confirmed daily price chart: RSI movement and extremes, MACD, moving-average trend, streak, confirmed support/resistance, 52-week position, one standardized-move family, and a current-bar AI chart pattern. The standardized family computes 5/10/20-session return z-scores plus volume z-score, interpreted with ATR distance and Bollinger location, but emits only one capped −1…+1 contribution — the correlated horizons never stack. Conflicting extreme horizons fail neutral. Upside extremes need trend plus expanding volume on the latest confirmed up bar; unsupported upside scores exhaustion. Downside mean reversion needs support and drying volume. Unsigned raw relative volume never earns a bullish point: directional volume remains evidence in Mechanicals and Entry Timing. A changed-bar cached chart read is display-only and scores zero.',
+    mechanicals: 'The name\\'s OWN options and positioning plumbing: unusual directional flow, open-interest call/put skew, short-interest change or squeeze conditions, signed hourly volume, the contrarian aggregate put/call read, overnight net call-versus-put ΔOI, gamma-squeeze setup quality, and multi-session flow persistence. Market-wide SPY/VIX and cross-asset tape are not scored again here. After the four pillars and IV Cost form the side, the separate continuous Regime overlay can support or oppose that side without beta weighting, pillar reweighting, side flips, below-bar recruitment, or tier promotion.',
+    narrative: 'The story driving the stock on the name\\'s OWN evidence: AI-read news catalysts, sector narrative with lifecycle/hype controls, and informational social/media context where the feed is not decision-grade. Market-wide macro, DXY, yields, breadth, credit, and volatility are not duplicated inside Narrative. They enter only through the continuous side-aware Regime overlay after the four pillars and IV Cost; the overlay does not reweight Fundamentals or Narrative, consume Entry Timing, flip a side, recruit a below-bar name, or promote a tier.',
+    ivCost: 'The direction-agnostic cost of buying option premium. The point contribution (bounded −2…+1) is standardized against today\\'s fresh, eligible investable universe; the ticker\\'s own-history IV value, percentile, z-score, rank date, and surface date remain visible interpretation/provenance, not the direct point map. A thin universe cohort fails closed to neutral. A materially inverted front term structure may add only a small −0.5 penalty when earnings or a scheduled macro event does not already explain it; explained inversion is context only, never double-counted. IV Cost is mirrored to reduce or increase conviction on calls and puts symmetrically and cannot cross zero or manufacture the opposite side.',
+    timing: 'Is now a good entry for the next 1–2 trading sessions, independent of the asset grade? This execution-only score (−8…+2) uses one confirmed daily OHLCV cutoff. Extension must distinguish strong momentum from true exhaustion; pullbacks are measured against the prior impulse and in ATR units; an accelerating adverse move with expanding volume, broken support, and no turn is a falling-knife veto. MACD turn, RSI recovery, and directional ≥1.3× turn-day volume are one correlated confirmation family capped at +2. Earnings or a major macro event inside the next two trading sessions forces WAIT. GO requires every invariant: no event-window or hard knife/exhaustion veto, positive directional confirmation, at least two independent evidence families, a call invalidation below entry or put invalidation above entry within 2 ATR, estimated reward/risk ≥1.5:1, and full crowded/counter-regime proof including a reclaim when required. AI and the live quote overlay cannot promote a negative or incomplete read, a hard-event WAIT, or AVOID, and cannot waive a prerequisite. Entry Timing never changes conviction and cannot be averaged away by the pillars, IV Cost, or Regime overlay.',
   };
 
   // Expanded body for the Entry-timing pillar. The four asset pillars render a
@@ -33860,43 +33879,155 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // (which truncates floats to int). Reuses the timing-group pro/con styling.
   function pickIvCostPanelBody(pil){
     var sig = pil && Array.isArray(pil.signals) ? pil.signals[0] : null;
-    var sc = sig ? (Number(sig.score) || 0) : 0;
     var note = sig && sig.note ? sig.note : 'IV cost';
+    var value = sig && sig.value != null ? String(sig.value) : '';
+    var ctx = pil && pil.context ? pil.context : null;
+    // The signal score is mirrored for put-grade arithmetic. Economic cost
+    // semantics stay direction-agnostic in context.contribution: negative = expensive.
+    var sc = ctx && ctx.contribution != null && isFinite(ctx.contribution)
+      ? Number(ctx.contribution)
+      : (sig ? (Number(sig.contribution != null ? sig.contribution : sig.score) || 0) : 0);
+    var thin = ctx && ctx.method === 'universe-thin-neutral';
     var cls = sc > 0 ? 'is-pro' : (sc < 0 ? 'is-con' : '');
-    var head = sc > 0 ? 'Cheap vol — favorable entry' : (sc < 0 ? 'Rich vol — premium headwind' : 'Vol near its own median');
+    var head = sc > 0
+      ? 'Cheaper universe-relative premium — favorable'
+      : (sc < 0 ? 'Universe-relative premium headwind' : (thin ? 'Thin IV cohort — neutral by design' : 'Universe-relative IV cost — neutral'));
+    var rows = '';
+    if (value) rows += '<li><b>Signal:</b> ' + escapeHtml(value) + '</li>';
+    if (note) rows += '<li><b>Method:</b> ' + escapeHtml(note) + '</li>';
+    if (ctx){
+      var context = [];
+      var ownZ = ctx.ownZ != null ? ctx.ownZ : ctx.z;
+      var currentIv = ctx.currentIv != null ? ctx.currentIv : ctx.iv;
+      if (currentIv != null && isFinite(currentIv)) context.push('ATM ~30d IV ' + (Number(currentIv) * 100).toFixed(1) + '%');
+      if (ctx.pctile != null && isFinite(ctx.pctile)) context.push('own history ' + Number(ctx.pctile).toFixed(1) + '%ile');
+      if (ownZ != null && isFinite(ownZ)) context.push('own z ' + scenarioSigned(ownZ, 'σ'));
+      if (ctx.universeN != null) context.push('eligible universe n=' + ctx.universeN);
+      if (ctx.meanPctile != null && isFinite(ctx.meanPctile)) context.push('mean ' + Number(ctx.meanPctile).toFixed(1) + '%ile');
+      if (ctx.stdPctile != null && isFinite(ctx.stdPctile)) context.push('dispersion ' + Number(ctx.stdPctile).toFixed(1));
+      if (ctx.crossZ != null && isFinite(ctx.crossZ)) context.push('cross-section ' + scenarioSigned(ctx.crossZ, 'σ'));
+      if (ctx.termSlope != null && isFinite(ctx.termSlope)) context.push('IV90−IV30 ' + Number(ctx.termSlope).toFixed(3));
+      if (ctx.termZ != null && isFinite(ctx.termZ)) context.push('term ' + scenarioSigned(ctx.termZ, 'σ'));
+      if (ctx.termInverted) context.push('unexplained inversion penalty ' + scenarioSigned(ctx.termPenalty != null ? ctx.termPenalty : -0.5, ''));
+      else if (ctx.termExplained) context.push('event-explained term shape: context only');
+      if (ctx.rankAsOf) context.push('rank as of ' + String(ctx.rankAsOf));
+      if (ctx.surfaceAsOf) context.push('surface as of ' + String(ctx.surfaceAsOf));
+      if (context.length) rows += '<li><b>Context:</b> ' + escapeHtml(context.join(' · ')) + '</li>';
+    }
+    if (!rows) rows = '<li>IV cost inputs unavailable — neutral.</li>';
     return '<div class="pick-timing-group ' + cls + '">' +
       '<div class="pick-timing-group-head">' + head + '</div>' +
-      '<ul class="pick-timing-list"><li>' + escapeHtml(note) + '</li></ul>' +
+      '<ul class="pick-timing-list">' + rows + '</ul>' +
     '</div>';
   }
 
-  // The market-regime weighting band in force this build (§3.5.1). Global per build,
-  // so it's read from whichever payload is loaded — the picks roster meta first,
-  // then the grade-index payload (the grade-any-ticker search). Defaults to neutral
-  // (the common case + any legacy payload without the field).
-  function activeRegimeBand(){
-    var pm = (typeof picksState !== 'undefined' && picksState.data && picksState.data.rosterMeta) || null;
-    if (pm && pm.regimeBand) return pm.regimeBand;
-    var gd = (typeof picksGradesState !== 'undefined' && picksGradesState.data) || null;
-    if (gd && gd.regimeBand) return gd.regimeBand;
-    return 'neutral';
+  function regimeOverlayStateLabel(state){
+    var labels = {
+      'severe-risk-off': 'Severe risk-off',
+      'risk-off': 'Risk-off',
+      'risk-on': 'Risk-on',
+      neutral: 'Neutral',
+    };
+    return labels[state] || String(state || 'neutral').replace(/-/g, ' ');
   }
-  // A one-line banner on the score breakdown explaining how the active market
-  // regime is re-weighting the grade — so it's obvious WHY a slow-pillar score
-  // shifted when the tape turned. Empty in the neutral tape (the base weights, no
-  // banner needed).
-  var REGIME_WEIGHT_NOTE = {
-    'risk-off': { cls: 'pp-regime-off', ico: '⚠', txt: 'Risk-off tape — Fundamentals & Narrative weighted down (×0.67), leaning on Technicals, Mechanicals, Entry timing & IV cost. In a falling market single-name stories carry less.' },
-    'severe':   { cls: 'pp-regime-severe', ico: '⚠', txt: 'Severe risk-off tape — Fundamentals & Narrative halved (×0.5); in a crisis only the fast factors (price, flow, timing, vol) carry, and rich premium is penalized harder.' },
-    'risk-on':  { cls: 'pp-regime-on', ico: '↑', txt: 'Risk-on tape — Fundamentals & Narrative weighted up (×1.2); in a calm, trending market single-name stories carry more.' },
-  };
-  function regimeWeightNote(band){
-    var m = REGIME_WEIGHT_NOTE[band];
-    if (!m) return '';
-    return '<div class="pick-pillars-regime ' + m.cls + '" title="Grade weighting flexes with the market regime — see the Top Picks rubric §3.5.1">' +
-      '<span class="ppr-ico" aria-hidden="true">' + m.ico + '</span>' +
-      '<span class="ppr-txt">' + escapeHtml(m.txt) + '</span>' +
+
+  function regimeOverlayAlignmentLabel(alignment){
+    return alignment === 'with-primary' ? 'with-primary'
+      : alignment === 'against-primary' ? 'against-primary'
+        : 'neutral';
+  }
+
+  function regimeOverlayTone(overlay){
+    var before = Number(overlay && overlay.preRegimeTotal);
+    var after = Number(overlay && overlay.adjustedTotal);
+    var convictionDelta = isFinite(before) && isFinite(after) ? Math.abs(after) - Math.abs(before) : 0;
+    return convictionDelta > 0.05 ? 'supportive' : convictionDelta < -0.05 ? 'adverse' : 'mixed';
+  }
+
+  function regimeOverlayPrimaryText(overlay){
+    var primary = overlay && overlay.primaryScenario;
+    if (!primary) return '';
+    var name = primary.name || primary.key || 'Primary scenario';
+    return name + (primary.impactMidPct != null && isFinite(primary.impactMidPct)
+      ? ' (' + scenarioSigned(primary.impactMidPct, '%') + ' trade impact)'
+      : '');
+  }
+
+  function regimeOverlayTapeText(overlay, limit){
+    var rows = overlay && Array.isArray(overlay.tapeSignals) ? overlay.tapeSignals : [];
+    return rows.slice(0, limit || 3).map(function(row){
+      return String(row.label || row.key || 'Tape') + ' ' + scenarioSigned(row.score, '');
+    }).join(' · ');
+  }
+
+  function pickRegimeGradeNote(p){
+    var o = p && p.regimeOverlay;
+    if (!o) return '';
+    var tone = regimeOverlayTone(o);
+    var cls = tone === 'supportive' ? 'pp-regime-on' : tone === 'adverse' ? 'pp-regime-off' : '';
+    var ico = tone === 'supportive' ? '↑' : tone === 'adverse' ? '⚠' : '→';
+    var before = scenarioSigned(o.preRegimeTotal, '');
+    var after = scenarioSigned(o.adjustedTotal, '');
+    var parts = [
+      regimeOverlayStateLabel(o.state) + ' continuous overlay',
+      'market bias ' + scenarioSigned(o.bias, ''),
+      'pick-side bias ' + scenarioSigned(o.tradeBias, ''),
+      'grade adjustment ' + scenarioSigned(o.adjustment, '') + ' (' + before + ' → ' + after + ')',
+      regimeOverlayAlignmentLabel(o.alignment),
+    ];
+    var primary = regimeOverlayPrimaryText(o);
+    if (primary) parts.push(primary);
+    parts.push('Applied after the four pillars + IV Cost; Entry Timing is separate; no side flip, below-bar recruitment, or tier promotion.');
+    return '<div class="pick-pillars-regime ' + cls + '" title="Continuous side-aware post-pillar and IV overlay; Entry Timing remains separate.">' +
+      '<span class="ppr-ico" aria-hidden="true">' + ico + '</span>' +
+      '<span class="ppr-txt">' + escapeHtml(parts.join(' · ')) + '</span>' +
     '</div>';
+  }
+
+  function pickRegimeOverlayHtml(p){
+    var o = p && p.regimeOverlay;
+    if (!o) return '';
+    var tone = regimeOverlayTone(o);
+    var metrics = [];
+    if (o.riskScore != null && isFinite(o.riskScore)) metrics.push('market score ' + Math.round(Number(o.riskScore)) + '/100');
+    metrics.push('market bias ' + scenarioSigned(o.bias, ''));
+    metrics.push('pick-side bias ' + scenarioSigned(o.tradeBias, ''));
+    metrics.push('grade adjustment ' + scenarioSigned(o.adjustment, ''));
+    var alignment = regimeOverlayAlignmentLabel(o.alignment);
+    var primary = regimeOverlayPrimaryText(o);
+    var audit = [];
+    var tape = regimeOverlayTapeText(o, 3);
+    if (tape) audit.push('Relevant tape: ' + tape);
+    if (o.warningCount != null && isFinite(o.warningCount)) audit.push(Math.round(Number(o.warningCount)) + ' transition warning' + (Math.round(Number(o.warningCount)) === 1 ? '' : 's'));
+    if (o.grossMultiplier != null && isFinite(o.grossMultiplier)) audit.push(Math.round(Number(o.grossMultiplier) * 100) + '% combined gross cap');
+    audit.push('Post-pillar + IV only; Entry Timing stays separate; no side flip, below-bar recruitment, or tier promotion.');
+    return '<div class="pick-scenario-overlay is-' + tone + '">' +
+      '<span><b>Regime overlay: ' + escapeHtml(regimeOverlayStateLabel(o.state)) + '</b><small>' +
+        escapeHtml(metrics.join(' · ')) +
+      '</small></span>' +
+      '<em>' + escapeHtml(alignment + (primary ? ' · ' + primary : '')) + '</em>' +
+      '<p>' + escapeHtml(audit.join(' · ')) + '</p>' +
+    '</div>';
+  }
+
+  function pickRegimeCompactHtml(p){
+    var o = p && p.regimeOverlay;
+    if (!o) return '';
+    var bits = [
+      regimeOverlayStateLabel(o.state),
+      'bias ' + scenarioSigned(o.bias, ''),
+      'adjustment ' + scenarioSigned(o.adjustment, ''),
+      regimeOverlayAlignmentLabel(o.alignment),
+    ];
+    var primary = regimeOverlayPrimaryText(o);
+    var tape = regimeOverlayTapeText(o, 3);
+    if (primary) bits.push(primary);
+    if (tape) bits.push('tape ' + tape);
+    var rule = 'Continuous side-aware overlay after pillars + IV Cost; Entry Timing is separate; no side flip, below-bar recruitment, or tier promotion.';
+    return '<span class="ptc-scenario is-' + regimeOverlayTone(o) + '" title="' +
+      escapeHtml(bits.join(' · ') + '. ' + rule) + '">Regime ' +
+      escapeHtml(bits.join(' · ')) +
+    '</span>';
   }
 
   function pickPillarPanel(p){
@@ -34037,18 +34168,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         }
       }
       // Plain-language explainer for the category, shown above its signals so
-      // the breakdown is legible without prior knowledge of the rubric. On the
-      // cross-sectional path (P3.1 — detected by a contribution field on any
-      // signal) the listed fixed thresholds are the legacy reference: continuous
-      // signals are actually scored RELATIVE to the universe this build, so the ±
-      // value on each row is the standardized contribution that entered the
-      // score. Events and macro factors stay on those fixed thresholds.
+      // the breakdown is legible without prior knowledge of the rubric. Each
+      // category explains its own normalization explicitly: standardized price
+      // moves use the ticker's history, while IV Cost alone uses today's universe.
       var descTxt = PILLAR_INFO[k] || '';
-      var hasXsec = k !== 'timing' && Array.isArray(pil.signals) && pil.signals.some(function(s){ return s && s.contribution != null; });
       var descHtml = descTxt
-        ? '<p class="pick-pillar-desc">' + escapeHtml(descTxt) +
-            (hasXsec ? ' <em>Scored cross-sectionally this build: continuous signals are standardized against the universe, so each ± below is the relative contribution that entered the score (the thresholds above are the legacy reference); events and macro factors stay fixed.</em>' : '') +
-          '</p>'
+        ? '<p class="pick-pillar-desc">' + escapeHtml(descTxt) + '</p>'
         : '';
       // Entry timing renders a verdict + classified reason list; IV cost renders a
       // single float-safe note (its score is a float, which the flat list would
@@ -34088,7 +34213,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="pick-pillars-total ' + (total>=0?'sig-pos':'sig-neg') + '">' + ((total>=0?'+':'') + Number(total).toFixed(1)) + '</span>' +
       '</div>' +
       leadHtml +
-      regimeWeightNote(activeRegimeBand()) +
+      pickRegimeGradeNote(p) +
       viz +
       body +
     '</aside>';
@@ -34939,11 +35064,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var peersHtml = pickPeerList(p);
     var analysisHtml = pickAnalysisBlock(p);
     var thesisHtml = pickThesisBlock(p);
+    var regimeHtml = pickRegimeOverlayHtml(p);
     var scenarioHtml = p.scenarioOverlay
       ? '<div class="pick-scenario-overlay is-' + escapeHtml(p.scenarioOverlay.bias || 'mixed') + '">' +
           '<span><b>Scenario filter: ' + escapeHtml(p.scenarioOverlay.bias || 'mixed') + '</b><small>' +
             escapeHtml(scenarioSigned(p.scenarioOverlay.weightedImpactPct, '%') + ' weighted \u00b7 worst ' + scenarioSigned(p.scenarioOverlay.worstCasePct, '%')) +
-          '</small></span><em>' + escapeHtml(Math.round(Number(p.scenarioOverlay.sizeMultiplier || 1) * 100) + '% size \u00b7 ' + (p.scenarioOverlay.vehicle || 'best-fit vehicle')) + '</em>' +
+          '</small></span><em>' + escapeHtml(Number(p.scenarioOverlay.sizeMultiplier || 1).toFixed(2).replace(/0+$/, '').replace(/\\.$/, '') + '× max size \u00b7 ' + (p.scenarioOverlay.vehicle || 'best-fit vehicle')) + '</em>' +
           '<p>' + escapeHtml(p.scenarioOverlay.note || '') + '</p>' +
         '</div>'
       : '';
@@ -34954,7 +35080,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // (the full 4-pillar score breakdown — so you can judge how the score was
     // arrived at, right next to the call). A legacy pick with no pillar data
     // renders the recommendation directly with no tabs.
-    var recBody = tierHtml + scenarioHtml + analysisHtml + thesisHtml + contractHtml + entryHtml + exitHtml + peersHtml;
+    var recBody = tierHtml + regimeHtml + scenarioHtml + analysisHtml + thesisHtml + contractHtml + entryHtml + exitHtml + peersHtml;
     var bodyHtml;
     if (pillarsHtml){
       // Honor the tab the user last picked for this symbol so re-opening the
@@ -35113,9 +35239,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var thesisLine = aiSum ? '<span class="ptc-thesis" title="' + escapeHtml(aiSum) + '">' + escapeHtml(aiSum) + '</span>' : '';
     var scenarioLine = p.scenarioOverlay
       ? '<span class="ptc-scenario is-' + escapeHtml(p.scenarioOverlay.bias || 'mixed') + '" title="' + escapeHtml(p.scenarioOverlay.note || 'Conditional scenario overlay') + '">' +
-          'Scenario ' + escapeHtml(p.scenarioOverlay.bias || 'mixed') + ' \u00b7 ' + escapeHtml(Math.round(Number(p.scenarioOverlay.sizeMultiplier || 1) * 100) + '% size') +
+          'Scenario ' + escapeHtml(p.scenarioOverlay.bias || 'mixed') + ' \u00b7 ' + escapeHtml(Number(p.scenarioOverlay.sizeMultiplier || 1).toFixed(2).replace(/0+$/, '').replace(/\\.$/, '') + '× max size') +
         '</span>'
       : '';
+    var regimeLine = pickRegimeCompactHtml(p);
     return '<button type="button" class="pick-tab-card ' + sideCls + (noRec ? ' ptc-norec-card' : '') + '" data-pick-open="' + escapeHtml(p.symbol) + '">' +
       '<span class="ptc-rank">' + (idx + 1) + '</span>' +
       '<span class="ptc-head"><span class="ptc-sym">' + escapeHtml(p.symbol) + '</span>' +
@@ -35127,6 +35254,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '</span>' +
       (tierLabel ? '<span class="ptc-tier">' + tierLabel + '</span>' : '') +
       thesisLine +
+      regimeLine +
       scenarioLine +
       entryLine +
       econ +
@@ -35520,11 +35648,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       return;
     }
     var data = picksState.data || { picks: [] };
-    var picksRaw = Array.isArray(data.picks) ? data.picks : [];
+    // Legacy stale-carry payloads are audit context, never current trade ideas.
+    // The build now publishes an empty roster directly, but keep the client
+    // fail-closed if an older cached payload still carries stale=true.
+    var staleBuild = data.stale === true;
+    var picksRaw = !staleBuild && Array.isArray(data.picks) ? data.picks : [];
     // Refresh the saved watchlist snapshots against the roster that just
     // rendered — but never off a failed load, which would wrongly freeze
     // every saved idea as "off today’s list".
-    if (!data.loadError) syncWatchlist(picksRaw);
+    if (!data.loadError && !staleBuild) syncWatchlist(picksRaw);
     var watchlistHtml = buildWatchlistGroupHtml();
     var picks = sortPicks(picksRaw, picksState.sort);
     picksState.sorted = picks;
@@ -35546,6 +35678,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         var nHeld = ((rmE && rmE.eliteGated && rmE.eliteGated.length) || 0) + ((rmE && rmE.safetyGated && rmE.safetyGated.length) || 0);
         empty.textContent = data.loadError
           ? 'Couldn’t load picks — re-open this tab to try again.'
+          : staleBuild
+            ? 'No current Top Picks roster — the last carried snapshot is stale and has been withheld. Cash is a position; wait for a fresh build.'
           : (rmE && (rmE.eliteOnly || rmE.safetyFilter))
             ? ('No top picks today — nothing cleared the safety bar' + (nHeld ? ' (' + nHeld + ' name' + (nHeld === 1 ? '' : 's') + ' graded high but the data didn’t show a strong enough chance of profit, so held back)' : '') + '. A top pick only lists when the odds of making money are clearly in your favour — most days that is nothing, and cash is a position.')
             : 'No high-conviction picks in this build — every ticker scored below the minimum.';

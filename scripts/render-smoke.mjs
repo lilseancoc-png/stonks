@@ -136,6 +136,43 @@ try {
   assert.match(appJs, /Share caps and daily-reset tracking are regular-session decisions;[\s\S]*?String\(q\.marketState \|\| ''\)\.toUpperCase\(\) === 'REGULAR'[\s\S]*?levState\.quotes = map/);
   assert.match(appJs, /var picksLive = \{ quotes: \{\}, marketState: '' \}/);
   assert.match(appJs, /leftRegularSession[\s\S]*?renderPicks\(true\)/);
+  assert.match(appJs, /e\.signal !== 'wait-pullback' && e\.signal !== 'buy-dip'/);
+  assert.match(appJs, /readyScore >= readyBar[\s\S]*?ready\.countertrendProof === true/);
+  assert.match(appJs, /timing\.structure && timing\.structure\.clear === true[\s\S]*?e\.ai && e\.ai\.blocked === true/);
+  assert.match(appJs, /var staleBuild = data\.stale === true;[\s\S]*?var picksRaw = !staleBuild/);
+  const liveEntrySource = appJs.match(/function liveEntryOverlay\(p, spot\)\{[\s\S]*?\n  \}/)?.[0];
+  assert.ok(liveEntrySource, "live entry overlay must render");
+  const liveEntryOverlay = Function(`${liveEntrySource}; return liveEntryOverlay;`)();
+  const fullReadiness = {
+    score: 2, bar: 2, independentFamilies: 2, directionConfirmed: true,
+    structureOk: true, payoffOk: true, crowdedProof: true, countertrendProof: true,
+  };
+  const liveBase = {
+    side: "call",
+    entry: { now: false, signal: "buy-dip", trigger: 100, basis: "nearby structure", headline: "Wait", readiness: fullReadiness },
+    entryTiming: { state: "wait", score: 2, hardVeto: null, deferKind: null, structure: { clear: true } },
+  };
+  assert.equal(liveEntryOverlay(liveBase, 99)?.kind, "go", "complete baked readiness may activate its live price trigger");
+  assert.equal(liveEntryOverlay({ ...liveBase, entry: { ...liveBase.entry, readiness: { ...fullReadiness, independentFamilies: 1, directionConfirmed: false } } }, 99)?.kind, "arm", "price cannot promote incomplete readiness");
+  assert.equal(liveEntryOverlay({ ...liveBase, entry: { ...liveBase.entry, signal: "wait-reversal" } }, 99), null, "price cannot promote a reversal wait");
+  assert.equal(liveEntryOverlay({ ...liveBase, entry: { ...liveBase.entry, basis: "top-guard" } }, 99)?.kind, "arm", "price cannot waive a hard exhaustion guard");
+  const ivPanelSource = appJs.match(/function pickIvCostPanelBody\(pil\)\{[\s\S]*?\n  \}/)?.[0];
+  assert.ok(ivPanelSource, "IV Cost panel must render");
+  const pickIvCostPanelBody = Function("escapeHtml", "scenarioSigned", `${ivPanelSource}; return pickIvCostPanelBody;`)(
+    (value) => String(value),
+    (value, unit = "") => `${Number(value) >= 0 ? "+" : ""}${value}${unit}`,
+  );
+  const putRichIvPanel = pickIvCostPanelBody({
+    score: 1,
+    signals: [{ score: 1, contribution: 1, value: "rich put IV", note: "mirrored grade adjustment" }],
+    context: {
+      contribution: -1, method: "universe-relative", pctile: 82, ownZ: 1.7, currentIv: 0.44,
+      rankAsOf: "2026-08-08", surfaceAsOf: "2026-08-08", universeN: 20,
+    },
+  });
+  assert.match(putRichIvPanel, /premium headwind/i, "put-side panel uses direction-agnostic cost semantics");
+  assert.doesNotMatch(putRichIvPanel, /Cheaper universe-relative premium/);
+  assert.match(putRichIvPanel, /ATM ~30d IV 44\.0%[\s\S]*?own z \+1\.7σ[\s\S]*?rank as of 2026-08-08[\s\S]*?surface as of 2026-08-08/);
   assert.match(appJs, /fetch\('\/api\/auth\/logout', \{ method: 'POST', credentials: 'same-origin' \}\)/);
   assert.match(appJs, /window\.location\.assign\('\/welcome\.html'\)/);
   assert.doesNotMatch(appJs, /href="\/api\/auth\/logout"/);

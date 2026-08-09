@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks, buildSectorRotationRebounds, writeSectorRotationFile, SECTOR_ROTATION_FILE, readPriorSectorRotationLog, sectorRotationRecordFromLog, buildLeveragedEtfPicks, writeLeveragedEtfsFile, LEVERAGED_ETFS_FILE, readPriorLevEtfLog, levRecordFromLog, SECTORS, macroKindOf, MACRO_PROFILES, pickContractForPick, writeAutoPicksFile } from "./build.mjs";
+import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, PICKS_ACCURACY_RESET_EPOCH, PICKS_ENTRY_TIMING_VERSION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks, buildSectorRotationRebounds, writeSectorRotationFile, SECTOR_ROTATION_FILE, readPriorSectorRotationLog, sectorRotationRecordFromLog, buildLeveragedEtfPicks, writeLeveragedEtfsFile, LEVERAGED_ETFS_FILE, readPriorLevEtfLog, levRecordFromLog, SECTORS, macroKindOf, MACRO_PROFILES, pickContractForPick, writeAutoPicksFile } from "./build.mjs";
 import { appendScenarioHistory, buildScenarioEngine } from "../lib/scenario-engine.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -150,6 +150,30 @@ if (macroBackdrop) {
 // computeEntryTiming's IV-rank soft read + the picks card's ivPctile populate.
 await attachIvRanks(chains);
 
+// Offline regen intentionally scores the persisted IV snapshot, which may be
+// older than the machine's wall-clock date. Use the modal attached-rank date
+// as the cohort reference; fall back to the prior build/quote snapshot only
+// when no rank has accumulated yet.
+const modalDate = (values) => {
+  const counts = new Map();
+  for (const value of values) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) continue;
+    counts.set(value, (counts.get(value) || 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || b[0].localeCompare(a[0]))[0]?.[0] || null;
+};
+const etDateFromIso = (value) => {
+  const d = new Date(value || "");
+  return Number.isFinite(d.getTime())
+    ? new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(d)
+    : null;
+};
+const ivAsOfDate = modalDate(Object.values(chains).map((data) => data?.ivRank?.asOf))
+  || etDateFromIso(priorPicksPayload?.builtAtIso)
+  || modalDate(Object.values(chains).map((data) => etDateFromIso(data?.quoteAsOf)));
+
 // P1.3 edge governor: read the live (pre-update) accuracy `closed` set so gross
 // scales by the trailing realized option edge, exactly as the full build threads
 // picksAccuracyPrev.closed. Missing/corrupt → null (governor uses its default).
@@ -216,7 +240,7 @@ if (macroBackdrop?.macroRegime) {
     console.warn(`Scenario layer skipped - ${String(err?.message || err).split("\n")[0]}`);
   }
 }
-const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, riskFreeRate, { priorClosed, priorGrades, openPositions: priorOpen, builtAtIso, reentryCooldown: true, ...scannerExtras });
+const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, riskFreeRate, { priorClosed, priorGrades, openPositions: priorOpen, builtAtIso, ivAsOfDate, reentryCooldown: true, ...scannerExtras });
 
 // Preserve the day-streak across a render-only regen. priorPicks was read above
 // (before this overwrite), exactly as the full build's writeTopPicksFile does (a
@@ -227,6 +251,8 @@ applyPickFirstSeen(picks, priorPicks, builtAtIso);
 
 const out = {
   builtAtIso,
+  modelEpoch: PICKS_ACCURACY_RESET_EPOCH,
+  entryTimingVersion: PICKS_ENTRY_TIMING_VERSION,
   // P3.2 — publish the live percentile actionable cutoff (matches build.mjs::
   // writeTopPicksFile), not the legacy ±PICKS_MIN_CONVICTION — the cross-sectional
   // rework retired the fixed bar, so a hardcoded 12 here ships an actionable-bar that
@@ -281,7 +307,7 @@ await writeFile(
 // Grade index for every tracked ticker (powers the Top Picks tab's grade-any-
 // ticker search). Same 4-pillar scoring as buildTopPicks; kept in step with the
 // regen'd picks. Same minified format as build.mjs::writeGradesFile.
-const grades = buildGradesIndex(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, { priorGrades, priorClosed, ...scannerExtras });
+const grades = buildGradesIndex(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, { builtAtIso, ivAsOfDate, priorGrades, priorClosed, ...scannerExtras });
 // minConviction = the live percentile trade cutoff (P3.2), mirroring
 // build.mjs::writeGradesFile exactly — the grade-any-ticker card reads this as the
 // "actionable bar", so a hardcoded ±PICKS_MIN_CONVICTION here makes a searched name
@@ -293,7 +319,7 @@ await writeFile(
   resolve(DATA_DIR, "grades.json"),
   // regimeBand (§3.5.1) is stashed non-enumerable on grades — lift it into the
   // payload so the grade-any-ticker breakdown shows the active weighting.
-  JSON.stringify({ builtAtIso, minConviction: gradesMinConviction, regimeBand: grades.regimeBand || "neutral", grades }),
+  JSON.stringify({ builtAtIso, modelEpoch: PICKS_ACCURACY_RESET_EPOCH, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, minConviction: gradesMinConviction, regimeBand: grades.regimeBand || "neutral", grades }),
   "utf8",
 );
 console.log(`Regenerated grades.json — ${Object.keys(grades).length} tickers (minConviction ${Number(gradesMinConviction).toFixed(2)}).`);
