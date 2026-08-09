@@ -11,23 +11,29 @@ constant there. **If the code and this doc disagree, the code wins — fix the d
 > the full ~138-name index, a FREE feature). Both share one `scoreTicker()` pass;
 > Top Picks then adds gates (a tradeable contract, re-entry suppression, sector
 > caps) and ships only the survivors. The roster may honestly ship **fewer than
-> 10, or zero** — *cash is a position.*
+> 10, or zero** — *cash is a position.* A zero-candidate current build publishes
+> an empty roster; it never republishes yesterday's picks as current trades.
 
 ---
 
 ## 1. The one rule
 
-Asset conviction folds into **one number per ticker, `total`**. Entry timing is
+Asset conviction folds into **one number per ticker, `total`**. Entry Timing is
 a separate execution decision, so a strong thesis can remain strong while the
-correct action is still Wait or Avoid.
+correct action is still Wait or Avoid. The market regime is a continuous,
+directional overlay applied only after the four asset pillars and IV Cost have
+formed the side; it is not a fifth alpha pillar and it never consumes the Entry
+Timing score.
 
 ```
-total = Trend + Flow + Fundamentals + Narrative + ivCost
-        (each asset pillar clamped to ±5)              (−2..+1)
+base       = Trend + Flow + Fundamentals + Narrative
+             (each asset pillar clamped to ±5)
+side       = sign(base)            (+ = call, − = put)
+preRegime  = side × max(0, |base| + ivCost)        (ivCost −2..+1)
+total      = regimeOverlay(preRegime, side)
 
-side       = sign(total)        (+ = call, − = put)
 conviction = |total|
-entry      = entryTimingV2      (execution-only −8..+2 → Go / Wait / Avoid)
+entry      = entryTimingV3      (execution-only −8..+2 → Go / Wait / Avoid)
 ```
 
 `scoreTicker()` runs this for every ticker. `buildGradesIndex()` keeps them all
@@ -61,9 +67,24 @@ chip on the card (`{key,label,score,value,note}`).
 **Technicals** (trend & momentum — the core read for a ~2-week option):
 RSI movement (±1), RSI extreme reading (contrarian, ±3, reversal-confirmed),
 MACD (±1), moving-average trend (±1), streak (±1), support/resistance break
-(±2), 52-week position (contrarian, ±1), volume confirmation (±1), confirmed
-chart pattern (±1 only while the exact analyzed 30-minute bars still match;
-forming or changed-bar cached reads score 0).
+(±2), 52-week position (contrarian, ±1), a capped **standardized-move** family,
+and a confirmed chart pattern (±1 only while the exact analyzed 30-minute bars
+still match; forming or changed-bar cached reads score 0).
+
+The standardized-move family computes trailing return z-scores at 5, 10 and 20
+sessions plus a volume z-score, with ATR-normalized distance or Bollinger `%B`
+as volatility-regime context. The correlated readings produce **one capped
+contribution**, never four stackable points. An extreme positive move earns only
+a modest continuation credit when the latest confirmed bar rises on expanding
+volume and the prevailing trend agrees. Conflicting positive/negative extreme
+horizons fail neutral rather than letting an older rally hide a fresh selloff.
+The same upside move without direction-matched volume confirmation, or after an
+extended streak, scores `−1` and feeds the Entry Timing exhaustion audit. An extreme
+negative move may support a mean-reversion setup only when price holds/reclaims
+support and selling volume is drying; it cannot average away the falling-knife
+veto. **Unsigned raw volume never scores.** Raw relative volume remains evidence
+for signed Mechanicals and Entry Timing confirmation, not an automatic bullish
+grade point.
 
 **Mechanicals** (order flow leads price short-term):
 unusual options flow (±1), open-interest call/put skew (±1), short interest
@@ -82,7 +103,33 @@ free cash flow (±1), net-margin trend (±1), plus a forward **trajectory** nudg
 acceleration vs the trailing rate, analyst revisions, margin slope and
 earnings-surprise momentum — the "is the business improving or declining?" read,
 blended into the snapshot score and surfaced as a ↗/↘ arrow
-(`pillars.fundamentals.trajectory = { dir, score, confidence, reason }`).
+(`pillars.fundamentals.trajectory = { dir, score, confidence, reason }`), and a
+bounded **CapEx quality** signal (−2..+1).
+
+CapEx quality measures the sequential and year-over-year change in CapEx/Sales
+(CapEx/Operating Cash Flow is the fallback only when OCF is positive), compares
+the current burden with the company's own multi-year history and with eligible
+sector peers, and ships every ratio, comparison window and availability flag in
+the signal audit. Large acceleration is negative when it is above its own/peer
+burden and lacks a corresponding structured forward-revenue estimate or
+improving FCF/OCF conversion. The current implementation awards only `+0.5`, and
+only when both the forward revenue estimate and FCF conversion improve. A prose
+growth narrative already scored in Narrative is not counted again inside CapEx
+quality; without a structured tie between the spend and that growth, it stays
+context rather than a second point award.
+
+Availability is honest. The engine does **not** infer backlog growth from a
+contract headline, does not substitute ROA/ROE for ROIC, and does not treat
+generic guidance as revenue guidance. Until backlog or ROIC arrives as a dated,
+structured source, management revenue guidance, backlog and ROIC remain
+`unavailable`, not `false` and not zero. Analyst forward revenue support is
+labeled as an estimate, never as management guidance.
+Thin, stale or misaligned CapEx, sales, OCF or peer histories likewise produce an
+available-false, zero-point signal rather than a guessed ratio. Scoring requires
+at least five aligned quarterly observations (current plus the year-ago
+comparator), and the latest quarter must be no more than 200 days old. The separate
+Mag-7 AI CapEx desk is context only and never fills a missing company-level
+Top Picks observation.
 
 > **ETFs / funds have no Fundamentals pillar.** For a curated `SECTORS[sym] ===
 > "ETF"` (GLD, SLV, USO, SPY, TLT, …) the whole company-fundamentals pillar is
@@ -95,9 +142,11 @@ blended into the snapshot score and surfaced as a ↗/↘ arrow
 news catalyst (bullish +2 / bearish −3, asymmetric), sector narrative (±2, faded
 by lifecycle), social sentiment (±1).
 
-Continuous signals are scored against fixed, documented thresholds — **no
-cross-sectional z-scoring, no percentile tiers, no horizon-weight overlays.** One
-fixed scale, auditable forever.
+Continuous signals retain their raw values and documented transforms in the
+payload. Price/volume dislocations use the own-series z family above; IV Cost is
+the one deliberate universe-relative score described in §3. Absolute bars still
+define grade tiers, and no rolling normalization may silently change a tier or
+erase an availability failure.
 
 ---
 
@@ -114,8 +163,8 @@ The five capped component groups are:
 | **Extension / exhaustion** | 4–8% past SMA20 is a mild `−1`; an 8%/RSI-72/fast-impulse stretch is `−2…−3`. A hard `−6…−8` top guard requires multiple extreme readings **plus** a momentum rollover or ≥1.8× volume climax, unless one reading is catastrophic. Extension alone is not exhaustion. |
 | **Pullback / setup** | Detects a real prior impulse over 20 sessions, requiring at least 4% or 2 ATR. An orderly 25–50% impulse retracement (or 0.75–1.75 ATR) that holds structure earns `+1`; drying pullback volume ≤0.90× adds another `+1`. Deep/stale pullbacks lose points. |
 | **Momentum confirmation** | MACD histogram turning with the trade on the correct side of SMA20, RSI recovery from the opposite extreme, and a directional ≥1.3× turn day are correlated evidence and therefore cap at `+2`. Strongly adverse momentum is `−2`; mixed RSI/MACD is `−1`. |
-| **Events** | Earnings ≤3 calendar days or a major macro event ≤1 day is a hard Wait. Earnings 4–7 days is `−2`; macro 2–3 days `−2`, 4–7 days `−1`. A hard event cannot be averaged away. |
-| **Structure / payoff** | A nearby support/resistance level defining invalidation within 2 ATR earns `+1`; level confluence adds `+1`; unclear structure is `−1`. Go additionally requires estimated reward/risk ≥1.5:1. |
+| **Events** | A scheduled earnings release or major macro event inside the **next two trading sessions** is a hard Wait. Session distance, not calendar-day distance, controls the veto so a Monday event is treated correctly on Friday. The next near-term tier is a moderate penalty; distant events are neutral/context only. A hard event cannot be averaged away or cleared by the AI. |
+| **Structure / payoff** | A nearby support/resistance level defining invalidation within 2 ATR earns `+1`; level confluence adds `+1`; unclear structure is `−1`. A call invalidation must be below entry and a put invalidation above entry before risk or R:R is computed. Go additionally requires estimated reward/risk ≥1.5:1. |
 
 Falling-knife logic is an override, not just another negative row. The ordinary
 −6%/−8% adverse move becomes Avoid when confirmed by breakdown traits such as
@@ -126,7 +175,7 @@ an unconditional safety veto.
 Final mapping:
 
 - hard knife/exhaustion → **Avoid**;
-- hard event → **Wait**;
+- event inside the next two trading sessions → **Wait**;
 - score `≤−5` → **Avoid**;
 - score `−4…+1` → **Wait**, with a pullback/reclaim/reversal/event trigger;
 - score `≥+2` → **Go** only with positive directional confirmation, two
@@ -147,23 +196,32 @@ entry" watch tier until an (hourly) build confirms the entry. Every actionable
 pick still enrolls in the track record (§9); with the gate live, new
 enrollments are by construction all buy-now entries.
 
-**The FINAL buy/wait call can still use the AI final grader**:
+**The FINAL buy/wait call still uses the AI final grader, but AI is a ratchet,
+not an exception to GO**:
 `generateAiTheses` returns an **`entryVerdict`** (`buy-now`/`wait`) +
 `entryReason` alongside the grade, judged over the whole picture — catalyst
 urgency, the calendar, macro, IV, live **web-search research** (§9), and the
 deterministic price read below, which rides its prompt as *context, not the
-answer*. `buildTopPicks` resolves the gate as: **hard risk vetoes bind
-regardless** (event defer, confirmed exhaustion, falling knife/broken setup,
-a required SMA20 reclaim, unclear invalidation, and payoff below 1.5:1 are
-risk controls); otherwise the AI
-verdict decides (it can hold back a price-ready name — `wait-ai`,
-`rosterMeta.aiEntryHeldBack` — or take a soft dip-trigger or **soft-extended**
-name now — `rosterMeta.aiEntryPromoted`); a missing verdict (keyless/offline,
-legacy cache, past the grader cap) falls back to the deterministic read —
-never a fabricated buy. The final call is overlaid onto `entry` so the card
-chip, sizing haircut, enrolled cohort, and gate always agree, and the
-deterministic entry state is part of the thesis cache signature so the
-verdict re-reads when the entry picture changes.
+answer*. A final Buy Now requires **all deterministic GO invariants**: no
+next-two-session event or hard veto, positive directional confirmation, at
+least two independent evidence families, a clear invalidation within 2 ATR,
+reward/risk ≥1.5:1, and the full crowded/counter-regime proof (including a
+successful reclaim when required). The AI may turn a deterministic Go into
+Wait (`wait-ai`, `rosterMeta.aiEntryHeldBack`). It may promote only an ordinary
+**nonnegative soft Wait whose complete invariant package already clears**; it
+can never promote a negative/incomplete/hard Wait or Avoid, bless a soft
+extension that lacks full proof, or bypass an unavailable payoff/structure input. A missing verdict
+(keyless/offline, legacy cache, past the grader cap) falls back to the
+deterministic read — never a fabricated buy. The final call is overlaid onto
+`entry` so the card, enrolled cohort and gate always agree, and the full GO
+invariant state is part of the thesis cache signature so the verdict re-reads
+when any prerequisite changes.
+
+The live quote overlay is bound by the same contract. A reached reclaim or an
+incompletely confirmed pullback can arm an amber alert intraday, but price alone
+cannot waive a prerequisite. A green live buy-zone appears only when the baked
+daily read had already cleared the readiness bar plus every direction,
+structure, payoff, event, crowded-trade and counter-regime invariant.
 
 `computeEntrySignal` no longer runs a second momentum checklist. It translates
 the single timing result into the action: Go → `buy-now`; hard event →
@@ -172,13 +230,28 @@ trend → `wait-reclaim`; knife/broken setup → `wait-reversal`; other waits �
 a nearby structure/minor-weakness trigger. The entry payload carries the
 component audit, readiness prerequisites, invalidation, target, and R:R.
 
-**IV cost** (`computeIvCostContribution`, direction-agnostic): −2 when this name's
-own IV percentile is rich (≥80), +1 when cheap (≤20). Because it is direction-**agnostic**
-("long premium is expensive when IV is rich"), `scoreTicker` folds it into `total`
-multiplied by `sign(base)` — so a rich-IV long-premium
-trade always *reduces* conviction on **both** sides and a cheap-IV one raises it.
-(Before #523 it was added unsigned, which made rich IV *inflate* a put's conviction —
-backwards: it boosted the long-put trade the IV read should have discouraged.)
+**IV cost** (`computeIvCostContribution`, direction-agnostic) remains bounded
+`−2..+1`, but the **points** come from a standardized comparison across the
+current investable universe. The raw ATM ~30-day IV percentile and z-score versus
+the name's own history remain mandatory interpretation/provenance fields (and
+may still inform structure thresholds); they no longer add grade points
+directly. The cross-sectional cohort contains only fresh, decision-grade names
+with sufficient own history, ships its sample size/location/scale, and fails
+closed to a neutral contribution when coverage is thin. Thus two otherwise
+identical setups rank the cheaper universe-relative premium first without a
+stale or tiny cohort manufacturing conviction.
+
+A materially inverted **non-event** term structure (`IV90 − IV30` below a
+documented negative materiality threshold) may add one small long-premium
+penalty, capped at `−0.5` inside the existing IV Cost bound. If earnings or a
+scheduled macro event already explains the front volatility, the event overlay
+owns that risk and the inversion is context only — never a duplicate penalty.
+IV Cost is mirrored by `sign(base)`, so expensive
+premium reduces call and put conviction symmetrically and can never cross zero or
+manufacture the opposite side. The 25-delta risk reversal is **not** an IV Cost
+point: adverse intended-side skew can only route an otherwise eligible naked long
+to a debit spread (§6.5); it cannot change direction, conviction, or create a
+credit trade on its own.
 
 ---
 
@@ -190,16 +263,24 @@ backwards: it boosted the long-put trade the IV read should have discouraged.)
 | ≥ `PICKS_MIN_CONVICTION` (4) | Call / Put | High |
 | else | No Trade | — (not shipped) |
 
-Absolute and stable — no percentile recomputation, no recalibration treadmill.
+The bars are absolute and stable. Universe-relative IV and the continuous regime
+overlay may re-rank or demote within those bars, but neither may promote a name
+that failed its pre-overlay bar or lift a Moderate name into the Strong tier.
 
 ---
 
-## 5. Market regime — the "market tape" (`computeMacroRegime`)
+## 5. Market regime — continuous tape overlay (`computeMacroRegime`)
 
 A multi-axis cross-asset gauge that **resets every build** from the live factors
 (no cross-build persistence — the chip reflects *this* build's tape). Each axis
-votes −2..+2 (negative = risk-off); the composite sets the state ∈ `risk-on` /
-`neutral` / `risk-off` / `severe-risk-off`. The axes:
+votes −2..+2 (negative = risk-off); the composite sets the descriptive state ∈
+`risk-on` / `neutral` / `risk-off` / `severe-risk-off`. The descriptive state is
+not itself a flat score nudge. The engine combines the overall risk score with
+the forward Scenario Engine's risk-off, continuation and exhaustion
+probabilities, gross cap and warning count into a continuous **Regime Bias**
+(practical range approximately `−2..+2`). The shipped `riskScore` uses the
+dashboard convention `0 = risk-off`, `50 = neutral`, `100 = risk-on` (so 56 is
+a modest risk-on lean). The axes:
 
 | Axis | Reads |
 |---|---|
@@ -239,16 +320,49 @@ axis, a non-negative VIX **and Indexes axis**, and no axis at −2 (an acute
 reading vetoes at any weight). (The table
 above lists the original ten axes; the gauge has since grown to sixteen — 2Y
 yields, bond vol/MOVE, breadth, put/call, credit spreads and sector rotation
-vote alongside them, same −2..+2 convention.) In a risk-off tape the engine:
+vote alongside them, same −2..+2 convention.)
 
-- **tilts the whole book bearish** (`PICKS_REGIME_TILT`, −2; −4 severe) so the
-  marginal calls fall toward No-Trade / flip to puts;
-- **de-grosses** deployed size with the regime's stress-ramped `grossMult`
-  (`PICKS_MACRO_GROSS_*` — the same figure the chip displays; the flat
-  ×0.6/×0.4 `regimeGrossMult` is only the fallback when no macro regime rode
-  into the build);
-- **lowers the bar for tactical puts** (a sub-conviction bearish name — total ≤
-  −3 with timing not `avoid` — can ship as a reduced-size put).
+The overlay is applied **after pillars + IV Cost and before roster ranking**;
+Entry Timing remains separate. Its direction is side-aware: positive Bias
+amplifies calls and dampens puts, while negative Bias amplifies puts and dampens
+calls. The side is frozen from `preRegime`, so the overlay cannot cross zero,
+turn a call into a put, or create a thesis. Promotion is also prohibited: a name
+below the actionable bar before the overlay remains below-bar, and the overlay
+cannot lift a Moderate pre-overlay grade into Strong. Operationally the allowed
+tier is the lower of the pre- and post-overlay tiers; the overlay may demote or
+re-rank within a tier, never promote across one. Hard Entry Timing vetoes remain
+absolute.
+
+The Scenario Engine is a **side-correct conditional filter**, not a second
+alpha pillar. Alignment
+compares the candidate's actual side with the scenario direction: a put aligned
+with a bearish primary scenario is `with-primary`, not automatically
+counter-regime; the symmetric rule holds for calls in a bullish scenario.
+Dominant high-gross continuation gives already-eligible aligned names only a
+bounded `+0.15` ranking nudge. An against-primary name in that state is admitted
+only when its **pre-overlay** grade was already Strong / Very High, and the
+regime layer cannot boost it. Against-scenario names otherwise receive a small
+adverse adjustment and explicit labeling; the filter may only retain, demote,
+downsize or remove them — never raise a weak name, flip its side, or backfill a
+below-bar idea. The scenario size multiplier is enforced after portfolio
+normalization as a genuine per-name cap, so released allocation stays cash
+instead of being redistributed. The regime's stress-ramped `grossMult` can
+de-gross the whole book independently of conviction.
+
+Every shipped pick carries a structured `regimeOverlay` audit:
+
+```text
+{ state, riskScore, bias, tradeBias, adjustment,
+  preRegimeTotal, adjustedTotal, alignment, primaryScenario,
+  tapeSignals[], warningCount, grossMultiplier, asOf }
+```
+
+`tapeSignals` cites the selected decision-grade components (for example
+Breadth, aggregate Put/Call, HY credit, MOVE, VIX level/change, and
+Offense/Defense Rotation). Missing/stale tape is unavailable and cannot vote.
+The global per-axis breakdown, raw inputs, scenario probabilities and threshold
+snapshot remain in `rosterMeta`; the per-pick object explains exactly which
+bias and alignment affected that name.
 
 The engine ships a per-axis breakdown + the raw inputs + a threshold snapshot in
 `picks.json`'s `rosterMeta.macroRegime`, so the browser's **live market tape**
@@ -293,17 +407,20 @@ The grade decides the **side + conviction**; the strategy layer decides the
 engine stops reflexively buying a single long into every setup *and* never
 recommends a trade when the **thesis** is too thin to justify one. It is
 **deterministic** and keyed on the IV regime + conviction + the **thesis tier**
-(`assessThesisQuality`, §9). The IV read is a **z-score of the current ATM-30d IV
-vs the name's own ~18-month mean** (`ivRank.z`, computed in `attachIvRanks`;
-falls back to the percentile when history is thin).
+(`assessThesisQuality`, §9). Structure may interpret the current ATM-30d IV's
+own-history z-score/percentile (`ivRank`, computed in `attachIvRanks`), the
+non-event term slope, and 25-delta skew. These raw reads are distinct from the
+universe-relative IV Cost points in §3. Top Picks consumes only the bounded term
+penalty and one-way skew router specified here; the full term/skew surfaces and
+history remain Quant Lab context rather than a new alpha pillar.
 
 The decision tree is checked top-down (first match wins):
 
 | # | Condition | Structure | Why |
 |---|---|---|---|
-| 0 | **Thesis tier is `weak`** | **none** | The grade cleared the bar but the case is thin / single-pillar → recommend *no trade*. Ship the grade + thesis as a watch idea (the "high grade but weak thesis → no strategy recommendation" rule). Exception: a tactical-tape put always gets a defined-risk structure. |
+| 0 | **Thesis tier is `weak`**, except an explicitly labeled defensive tactical put | **none** | The grade cleared the bar but the case is thin / single-pillar → recommend *no trade*. Ship the grade + thesis as a watch idea (the "high grade but weak thesis → no strategy recommendation" rule). The pre-existing risk-off tactical-put path is the narrow exception: it stays watch-only but must carry a real defined-risk structure. |
 | 1 | IV **elevated** — `z ≥ PICKS_IV_CREDIT_Z_ELEVATED` (1.5σ) **OR** `pctile ≥ PICKS_IV_CREDIT_PCTILE` (60th) — **and** no imminent event/earnings | **credit vertical** | Premium is statistically expensive → *sell* it on the bias side (bullish → bull-put, bearish → bear-call); sell near-money, buy a further-OTM wing, targeting a credit ≈ ⅓ of the width. High IV mean-reverts and theta works for you. The **highly-elevated** band (`z ≥ PICKS_IV_CREDIT_Z` 2σ OR `pctile ≥ PICKS_IV_RICH` 80th) is the same structure, labelled as the strongest sell-premium case. The IV read is the spec's **OR** of the two measures (the z-score *or* the percentile — either qualifying counts). The **headline rule** — fires even at strong conviction. |
-| 2 | Strong tier (`|total| ≥ 7`) **and** thesis tier `strong` **and** IV **not elevated** (neither z nor pctile in the credit band) + no event | **naked long** | **Rare.** Exceptional, multi-signal conviction *and* a strong thesis with low IV → a single long for max delta/gamma + uncapped upside. |
+| 2 | Strong tier (`|total| ≥ 7`) **and** thesis tier `strong` **and** IV **not elevated** (neither z nor pctile in the credit band), no event, and no materially adverse intended-side 25Δ skew | **naked long** | **Rare.** Exceptional, multi-signal conviction and a strong thesis with reasonable IV/skew → a single long for max delta/gamma + uncapped upside. Rich put skew blocks a naked put; rich call skew blocks a naked call. |
 | 3 | Everything else — moderate conviction/thesis, **or** a strong view into elevated-but-event-blocked IV, **or** an imminent event/earnings | **debit vertical** | The default: long near-money financed by a short OTM wing (same side). Caps theta/vega + the premium at risk; defined-risk into events (a naked long eats the IV crush, a credit spread eats the gap). |
 
 The IV percentile/z-score is computed from the in-memory history only after this
@@ -315,9 +432,27 @@ skew, term structure, or the debit-versus-credit decision. Each observation has
 chain cannot produce a usable ATM IV, the rank is omitted from live scoring
 instead of reusing yesterday's premium regime.
 
-A binary **event/earnings within `PICKS_STRATEGY_EARNINGS_DAYS` (21d)** (or an active macro `eventRisk`) forces row 3 — defined-risk only, no naked long into the IV crush, no credit spread into the gap. A `none` pick carries **no contract** and is never enrolled in the track record (nothing to mark).
+Skew is a one-way safety router. When the intended long option is materially
+rich relative to the opposite wing, row 2 demotes to row 3 so the short leg helps
+finance that skew. Skew never awards points, changes side, upgrades debit to
+naked, or selects a credit spread by itself. The non-event term inversion is
+already bounded inside IV Cost; Strategy displays it but does not subtract it a
+second time. The own-history skew z-score is preferred once mature; while that
+history is collecting, a raw intended-side premium of at least five volatility
+points is the documented fail-closed fallback that still blocks a naked long.
 
-> **Why the book skews all-debit (and how to see it).** The active-macro-`eventRisk` half of that gate is the dominant reason the engine rarely actually *sells* premium: a market-wide print (NFP/CPI/FOMC) inside the 5-day window sets `eventRisk.active` for the **whole book**, diverting **every** elevated-IV name from row 1 (credit) to row 3 (a long-premium debit). Since macro prints cluster ~monthly, a large fraction of bakes ship all-debit even when the z-score flags premium as richest. `buildTopPicks` now records this every bake in `rosterMeta.strategyMix` (the structure mix shipped) + `rosterMeta.creditDeferred` (each elevated-IV name that shipped non-credit, tagged `why: "fallback"` vs `"event-defer"`). The **default-OFF** `PICKS_CREDIT_INTO_MACRO_EVENT=1` flag lets a *defined-risk* credit spread fire through a market-wide macro event (it benefits from the post-print IV crush) while still deferring single-name **earnings** and never relaxing the naked-long gate. Validate it on **resolved** picks before flipping — see §11.
+A binary **earnings date within `PICKS_STRATEGY_EARNINGS_DAYS` (21d)** or an
+active scheduled macro-event window forces row 3 — defined-risk only, no naked
+long into the IV crush, no credit spread
+into the gap. This broader structure window is distinct from §3's hard GO veto
+inside the next two trading sessions. A `none` pick carries **no contract** and
+is never enrolled in the track record (nothing to mark).
+
+> **Audit the structure mix.** `buildTopPicks` records
+> `rosterMeta.strategyMix` plus `rosterMeta.creditDeferred` so an event, skew, or
+> unavailable wing cannot silently turn every name into the same structure.
+> Event and skew deferrals must carry their exact reason. Validate any routing
+> threshold on resolved picks before changing it — see §11.
 
 `pickVerticalForPick(side, data, rfr, {type})` builds the two-leg contract:
 - **debit** legs are the *same* type as the side (bull-call / bear-put): long
@@ -335,7 +470,9 @@ The payload carries `structure` (`long` / `debit_vertical` / `credit_vertical`),
 `longStrike`, `mid` (net debit/credit), `maxLoss` / `maxProfit` / `width`,
 breakeven, net greeks, PoP, and `contractQuality`. `buildPickContract` falls back
 down the defined-risk → naked ladder if the preferred structure has no liquid
-wing (and stamps `strategy.fallback`). Off via `PICKS_STRATEGY_AUTO=0` (always
+wing (and stamps `strategy.fallback`), **except when adverse skew explicitly
+blocked a naked long**; then a missing debit wing fails closed and drops the
+trade. Off via `PICKS_STRATEGY_AUTO=0` (always
 naked long, legacy). Each pick ships `strategy = {type,label,reason,ivZ,…}`.
 
 **Track-record marking is structure-aware** (`markOptionToMarket` /
@@ -351,8 +488,9 @@ skips spreads — its single-leg model would mislead.)
 
 ## 7. Roster construction (`buildTopPicks`)
 
-1. Candidates = grade actionable (`|total| ≥ 4`), or a tactical put in a confirmed
-   risk-off tape. **The actionable bar is edge-governed** (`edgeGatedConviction`):
+1. A normal candidate must clear the edge-governed bar on **both `preRegime`
+   and `total`**, so positive regime support cannot recruit a below-bar name.
+   **The actionable bar is edge-governed** (`edgeGatedConviction`):
    when the trailing resolved book's realized option edge is materially negative
    (the live record had run a ~33% win rate against the legacy +20/−30 exits, an
    expectancy that needs >60% to break even), the bar steps **up** — to
@@ -360,22 +498,33 @@ skips spreads — its single-leg model would mislead.)
    — so a losing book ships only its highest-conviction reads (genuinely standing
    down, lesson #1/#6) instead of trading the same breadth smaller. It needs
    `PICKS_EDGE_GATE_MIN_N` (12) decided closes to engage and relaxes automatically
-   as the trailing record recovers. Tactical puts (the defensive side) keep the
-   `PICKS_RISKOFF_PUT_BAR` and are unaffected. Off via `PICKS_EDGE_GATE=0`; the
-   raised bar ships in `rosterMeta.edgeGate`/`tradeCut`.
-2. **Drop names with an open tracked position** (re-entry suppression).
-3. **Drop `avoid`-timed names.** (Steps 1–3 are the **DATA GATE** — they decide
+   as the trailing record recovers. Off via `PICKS_EDGE_GATE=0`; the raised bar
+   ships in `rosterMeta.edgeGate`/`tradeCut`. The existing, explicitly labeled
+   **risk-off tactical-put** path remains a separate defensive exception at
+   `PICKS_RISKOFF_PUT_BAR`; it is watch-only, capped at `0.5×` normal size after
+   portfolio normalization, and never a regime promotion into Actionable.
+2. Apply the continuous Regime Bias with the §5 promotion clamp. It may demote
+   or re-rank a candidate but cannot rescue a failed bar, cross a tier upward,
+   or flip the side formed by `preRegime`.
+3. **Drop names with an open tracked position** (re-entry suppression).
+4. **Drop `avoid`-timed names.** (Steps 1–4 are the **DATA GATE** — they decide
    which names are *eligible*; the AI then grades only the **top
    `PICKS_MAX_AI_THESES` (= `PICKS_COUNT`, 10)** of them, ranked by
    deterministic conviction — the AI factor is applied ONLY to the
    deterministic top 10 (owner directive). The rest ship a deterministic-only
    card.)
-4. **AI veto** — the AI final grade is `reject` (the thesis doesn't hold up even
+5. **AI veto** — the AI final grade is `reject` (the thesis doesn't hold up even
    though the data cleared): drop the name (`rosterMeta.aiVetoed`).
-5. **Require a tradeable contract** (else drop).
-6. **Sector cap** ≤3 per sector + a correlation-factor cap (the tech/AI complex),
+6. Apply the **side-correct Scenario context**. Primary-scenario alignment was
+   already reflected conservatively in the overlay/tie-break: a bearish-aligned
+   put and bullish-aligned call are treated symmetrically, while an against-
+   primary name carries the explicit label and small adverse adjustment. The
+   detailed scenario adapter then recomputes side-correct impact, timing,
+   vehicle and size context for the actual call/put; it never promotes or flips.
+7. **Require a tradeable contract** (else drop).
+8. **Sector cap** ≤3 per sector + a correlation-factor cap (the tech/AI complex),
    ETFs uncapped; plus a per-side cap so the book isn't wildly one-way.
-7. **Factor-trend gate** (`computeFactorTrendHealth`): the resolved track record's
+9. **Factor-trend gate** (`computeFactorTrendHealth`): the resolved track record's
    worst loss was a long-Tech/AI-call book wiped while the *broad* tape barely moved
    (SPY ≈ −1.5%, the picks ≈ −9.6%) — a factor-specific drawdown the broad
    SPY/QQQ/VIX regime can't see. So each correlated factor's **own** trend is
@@ -385,9 +534,10 @@ skips spreads — its single-leg model would mislead.)
    it are suppressed — only a strong-tier, `go`-timed call earns a reprieve. **Puts
    are unaffected** (a falling factor is fine to be short). Ships
    `rosterMeta.factorTrend` + `factorTrendGated`; off via `PICKS_FACTOR_TREND_GATE=0`.
-8. **Rank by deterministic conviction** (|total|, ties on signed total then
+10. **Rank by deterministic post-overlay conviction** (`|total|`, then
+   with-primary/neutral/against-primary on an exact tie, then signed total and
    symbol — the same order that picked the grader's top 10), ship up to 10. The
-   rank order also governs which names survive the caps in steps 5–7. The AI's
+   rank order also governs which names survive the caps above. The AI's
    0–100 `score` does NOT rank (owner directive: deterministic-first) — it ships
    on the card as the grader's confidence; the AI's levers are the grade tier
    (classification), the `reject` veto, and the entry verdict.
@@ -475,8 +625,9 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   on the exit rules above, and computes stats (`winRate`, option expectancy,
   option peak/dip `avgOptHiPct`/`avgOptLoPct`, `byTier`/`bySector`/`byRegime`).
   Each enrolled entry also **freezes a display snapshot at entry** — the
-  `strategy` object (`type`/`label`/`reason`/`ivTier`/`fallback`, i.e. *why* the
-  engine shipped this structure) plus the contract's `expiryLabel`, `breakeven`,
+  `strategy` object (`type`/`label`/`reason`/`ivTier`, term slope, 25-delta
+  skew, adverse-skew guard, and `fallback`, i.e. *why* the engine shipped this
+  structure) plus the contract's `expiryLabel`, `breakeven`,
   and per-leg `shortMid`/`longMid` on verticals — which powers the Track Record
   tab's per-pick **"Strategy & entry details"** disclosure (`accStrategyBlock` in
   `app-js.mjs`: the trade as taken, per-leg buy-in prices, entry cost per
@@ -506,7 +657,18 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   after the bump starts a fresh record (open book + closed history + stats;
   used 2026-07-07 when the BUY-NOW enrollment gate landed, and again 2026-07-10
   when that gate was replaced by enroll-all-actionable + the tightened
-  actionable definition). **The Track Record tab shows only this contract (option)
+  actionable definition).
+
+  **This specification bundle is a new decision-model epoch.** CapEx quality,
+  standardized price/volume moves, universe-relative IV points, the continuous
+  Regime overlay, side-correct Scenario filter, and full GO invariants change
+  enrollment semantics together. The implementation release must bump
+  `PICKS_ACCURACY_RESET_EPOCH` once before its first production bake and stamp
+  that epoch on picks, grades and enrolled records. Never blend pre-change open
+  positions or closed expectancy with the new model's scorecard; preserve any
+  old export only as explicitly labeled historical evidence.
+
+  **The Track Record tab shows only this contract (option)
   scorecard** — the win/loss already resolves on the modeled option P&L, and the
   stock-move chips (stock expectancy, vs-SPY, stock peak/dip) were dropped; the
   generic stock win-rate chip remains only as a fallback for legacy pre-snapshot data.
@@ -550,8 +712,9 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   macro-kind sensitivity, the **forward macro calendar** (2026-07-16:
   `buildMacroCalendarAhead` — the scheduled FOMC decisions + major prints
   (CPI/PPI/NFP, family-deduped, already-printed rows dropped) inside the full
-  ~2-week trade horizon (`PICKS_THESIS_CAL_DAYS`, 14) that the hard 5-day defer
-  gate can't see; the nearest event also rides the cache signature so a print
+  ~2-week trade horizon (`PICKS_THESIS_CAL_DAYS`, 14) that the hard
+  next-two-trading-session defer gate can't see; the nearest event also rides
+  the cache signature so a print
   clearing re-grades), the **near-term OI positioning** (the scanner's
   `oiTrackerRow`, front two expirations: call/put walls with OI, total C/P,
   gamma-squeeze score, scan stamp), the IV regime **and its momentum** (the
@@ -642,11 +805,12 @@ PICKS_THESIS_MOD_SCORE` + multi-pillar), or `weak` (thin / single-pillar). This
 deterministic rubric is the **keyless/offline fallback**. When an AI thesis exists
 (the normal keyed build), the **AI's final `grade` is authoritative** and
 `applyAiThesisGrade` overlays it onto the assessment — its tier replaces the
-deterministic tier in the matrix below and its 0–100 `score` ranks the roster (a
-`reject` grade is handled upstream as a veto and never reaches the matrix). So the
-AI is the final grader for which names ship, how they're classified, and in what
-order. The **data grade stays AI-free** (deterministic 4-pillar score → direction +
-conviction — it is the *entry gate*), as does the **structure** selection.
+deterministic thesis tier in the matrix below; its 0–100 `score` is displayed
+confidence and never a rank input (a `reject` grade is handled upstream as a
+veto and never reaches the matrix). The AI is the final should-we-act grader for
+classification/veto/entry, while roster order stays deterministic. The **data
+grade stays AI-free** (four pillars + universe-relative IV Cost + the bounded
+Regime overlay → direction and conviction), as does **structure** selection.
 
 The grade tier (Strong `|total| ≥ 7` / Moderate `4–6`) **crosses** the thesis tier
 in `classifyPick` to set `classification` + `group`:
@@ -674,15 +838,19 @@ to the trades the engine truly stands behind):
    (`rosterMeta.aiUngraded`) instead of shipping ungraded. Keyless/offline
    builds (and a total AI outage — an empty thesis map) keep the deterministic
    tier as the fallback grade, so the site never blanks.
-3. **A confirmed buy-now entry** (owner directive, 2026-07-10) — "actionable"
+3. **A confirmed buy-now entry with the full GO invariants** — "actionable"
    is the product's no-thinking-required promise: open the broker and buy the
-   shown contract *now*. `buildTopPicks` resolves `entryConfirmed` as the
-   **AI final grader's `entryVerdict`** when one exists (§3 — the buy/wait
-   call is a judgment over the whole picture, not a bare price trigger),
-   bounded by the hard risk vetoes (the HARD top-guard band + event defer;
-   the SOFT extension band is deliberately the grader's judgment zone, §3)
-   and falling back to the deterministic price read when there's no verdict; any final wait
-   demotes the name to the watch group as classification **`waitEntry`**
+   shown contract *now*. The deterministic timing result must already be Go:
+   no event in the next two trading sessions or hard knife/exhaustion veto,
+   positive directional confirmation, two independent evidence families,
+   invalidation within 2 ATR, payoff ≥1.5:1, and full crowded/counter-regime
+   reclaim proof. When the grader is live its **`entryVerdict` must also be
+   `buy-now`**. AI may hold a deterministic Go back and may adjudicate a
+   nonnegative ordinary soft Wait only after every listed invariant clears; it
+   cannot promote a negative/incomplete/hard Wait or Avoid or waive an
+   invariant. Without a verdict the deterministic Go
+   stands as the keyless/offline fallback. Any final wait demotes the name to
+   the watch group as classification **`waitEntry`**
    ("Wait for entry" badge, its trigger price — or the grader's reason — on
    the card, counted in `rosterMeta.entryDemoted`). The
    hourly bake re-evaluates, so the pick promotes itself to Actionable the
@@ -690,9 +858,10 @@ to the trades the engine truly stands behind):
    deliberately means the actionable list can be **empty on many builds**
    (everything strong is stretched, event-blocked, or waiting on a reclaim) —
    that IS the signal: nothing is a buy right now, cash is the position.
-   Combined with the §3 hard top-guard band, an actionable pick can never be
-   a parabolic/blow-off chase (a *moderately* extended momentum name can ship
-   — but only on the grader's explicit buy-now judgment). (History: a buy-now **enrollment** gate shipped
+   Combined with the §3 invariants, an actionable pick can never be a
+   parabolic/blow-off chase or an unconfirmed soft momentum exception. A mildly
+   extended name can ship only if the complete deterministic GO package still
+   clears and the grader agrees. (History: a buy-now **enrollment** gate shipped
    2026-07-07 and was retired 2026-07-10 for starving the record; this gate is
    different — it moves wait-entry names to the visible watch queue instead of
    silently not scoring them, and it exists because the actionable list's job
@@ -711,7 +880,8 @@ honest disclosure) but carries no strategy and no contract — *cash is a positi
 The **data grade is deterministic — no AI** (direction + conviction + the trade
 structure). The AI enters **after** the data gate as the **final grader**: it writes
 the thesis narrative AND assigns the final grade (`strong`/`moderate`/`weak`/`reject`
-+ score) that sets classification, ranks the roster, and vetoes a `reject` (§9 / §9a).
++ score) that sets classification, may hold an entry back, and vetoes a `reject`
+(§9 / §9a). It never ranks the roster or relaxes a deterministic GO invariant.
 It degrades gracefully without `GEMINI_API_KEY` — the deterministic rubric stands in
 as the fallback grade, so the engine still grades, gates, and ships a full card.
 
@@ -719,7 +889,9 @@ as the fallback grade, so the engine still grades, gates, and ships a full card.
 
 ## 10. The constants you'll reach for
 
-All in the `// TOP PICKS ENGINE` constant block at the top of the engine:
+Existing knobs live in the `// TOP PICKS ENGINE` constant block at the top of
+the engine. Rows without a code-style knob name are required controls whose
+implementation must expose the stated value and audit fields:
 
 | Knob | Default | Effect |
 |---|---|---|
@@ -729,7 +901,8 @@ All in the `// TOP PICKS ENGINE` constant block at the top of the engine:
 | `PICKS_COUNT` / `PICKS_WATCH_COUNT` | 10 / 6 | max Actionable / max Ideas·Watch roster size |
 | `PICKS_MAX_AI_THESES` | = `PICKS_COUNT` (10) | only the top N data-gate survivors BY DETERMINISTIC CONVICTION get the AI thesis + final grade (the AI factor applies ONLY to the deterministic top 10 — owner directive); the rest ship deterministic-only watch cards. No bench below the cut: an AI reject/wait honestly shrinks the roster instead of backfilling |
 | `PICKS_ENTRY_WAIT_SIZE_MULT` | 0.75 | size haircut on a contract-bearing pick whose entry signal is still a wait/dip trigger (`entry.now === false`). Since the 2026-07-10 entry gate an actionable pick is always entry-confirmed, so this only shapes the display sizing of watch ideas |
-| `PICKS_ENTRY_EXTENDED_DIST` / `PICKS_TIMING_CHASE_RSI` | 4 / 72 | mild/soft extension evidence. A single reading creates a penalty/wait, not a hard veto; the AI final grader may take a soft momentum ride |
+| `PICKS_TACTICAL_SIZE_MULT` | 0.50 | post-normalization max-size cap for the labeled risk-off tactical-put exception; released gross stays cash |
+| `PICKS_ENTRY_EXTENDED_DIST` / `PICKS_TIMING_CHASE_RSI` | 4 / 72 | mild/soft extension evidence. A single reading creates a penalty/wait, not a hard veto, but AI cannot promote it: Actionable still requires every deterministic GO invariant |
 | `PICKS_ENTRY_EXTENDED_HARD` / `PICKS_ENTRY_CHASE_RSI_HARD` | 15 / 80 | extreme inputs to exhaustion confluence. Hard top-guard requires multiple extremes plus rollover/volume climax, or one catastrophic reading |
 | `PICKS_ENTRY_PULLBACK_ATR_MULT` | 1.5 | wait-pullback trigger = a ~1.5×ATR dip (clamped 2–5%), floored at the 20D when nearer — reachable, never the raw 20D far below spot |
 | `PICKS_MAX_PER_SECTOR` | 3 | correlation cap |
@@ -745,13 +918,22 @@ All in the `// TOP PICKS ENGINE` constant block at the top of the engine:
 | `PICKS_DELTA_MIN/MAX/IDEAL` | 0.45 / 0.65 / 0.55 | contract moneyness |
 | `PICKS_MIN_DTE` / `PICKS_MAX_DTE` | 30 / 90 | contract clock (ideal 45–75 — the 2026-07-10 hold-longer window) |
 | `PICKS_STRATEGY_AUTO` | on | structure auto-select (off = always naked long) |
-| `PICKS_IV_CREDIT_Z_ELEVATED` / `PICKS_IV_CREDIT_PCTILE` | 1.5 / 60 | **elevated** IV → credit (broadened band: z≥1.5σ OR ≥60th pctile) |
-| `PICKS_IV_CREDIT_Z` / `PICKS_IV_RICH` | 2.0 / 80 | **highly-elevated** IV labels (z≥2σ / ≥80th) |
+| IV Cost cohort controls | disclose cohort N / location / scale; thin = neutral | IV Cost **points** come only from the fresh eligible universe's standardized result; a ticker's own-history percentile/z remains shipped interpretation and structure context and never maps directly to points through the legacy thresholds |
+| CapEx quality bounds / eligibility | −2 / +1; 5 quarters; ≤200d old | confirmed CapEx burden/efficiency sub-signal inside Fundamentals; thin/stale history, unavailable backlog, or true ROIC evidence stays explicitly unavailable and never becomes zero/false evidence |
+| standardized move windows | 5 / 10 / 20 sessions | capped return z-scores are interpreted with volume z; unsigned raw volume contributes no points |
+| non-event term-inversion cap | −0.5 | small penalty inside IV Cost only beyond a documented negative `IV90 − IV30` materiality threshold; event-driven inversion is context only and cannot be double-counted |
+| `PICKS_IV_CREDIT_Z_ELEVATED` / `PICKS_IV_CREDIT_PCTILE` | 1.5 / 60 | own-history **elevated** IV → credit-structure interpretation (z≥1.5σ OR ≥60th pctile); not the cross-sectional IV Cost score |
+| `PICKS_IV_CREDIT_Z` / `PICKS_IV_RICH` | 2.0 / 80 | own-history **highly-elevated** IV labels (z≥2σ / ≥80th); interpretation only |
+| `PICKS_SKEW_ADVERSE_RAW` | 0.05 | before the 25Δ-skew z-score matures, a five-vol-point intended-side raw premium blocks naked and routes to debit |
 | (naked IV gate) | not elevated | naked needs IV **not** in the credit band (the spec's "IV Rank < 60") **and** a strong grade + strong thesis |
+| 25Δ skew gate | adverse intended-side skew | routing-only safety gate: demote naked long to a debit vertical; never add/subtract points, choose the side, or route to credit |
 | `PICKS_CREDIT_WIDTH_FRAC` / `_MIN` | 0.34 / 0.22 | credit-spread target / floor (credit ÷ width) |
 | `PICKS_CREDIT_TP_PCT` / `_STOP_PCT` | 0.50 / 0.50 | credit-spread exits (% of the credit; stop = buy-back ≈1.5×) |
 | `PICKS_GROSS_TARGET` | 0.80 | deployed gross (rest cash) |
-| `PICKS_REGIME_TILT` | 2 (4 severe) | risk-off bearish tilt |
+| continuous Regime Bias cap | ±2 | side-aware tape overlay applied after pillars + IV; cannot cross zero, flip side, clear a below-bar name, or promote a tier |
+| `PICKS_SCENARIO_HIGH_GROSS_MIN` / alignment nudge | 0.85 / +0.15 aligned | dominant-continuation Strong-only counter-regime gate plus a bounded conditional ranking preference; it cannot materially outrank conviction |
+| hard event window | next 2 trading sessions | earnings or major macro inside the window forces Wait; calendar-day approximations and AI overrides are forbidden |
+| `PICKS_ACCURACY_RESET_EPOCH` | bump once for this bundle | start a clean accuracy epoch before the first production bake and stamp the new epoch on picks, grades and enrollments |
 
 ---
 
@@ -759,9 +941,16 @@ All in the `// TOP PICKS ENGINE` constant block at the top of the engine:
 
 There is no live `data/` in a fresh checkout, so the engine is exercised by a
 synthetic smoke test: `node scripts/picks-smoke.mjs` (asserts grades, timing
-gates, contract selection, caps, re-entry suppression, the regime tilt, exits,
-and every output shape the UI reads). To regenerate from a hydrated `data/`
-(`node scripts/sync-data.mjs pull`), run `node scripts/regen-picks.mjs`.
+gates, contract selection, caps, re-entry suppression, the continuous Regime
+overlay, exits, and every output shape the UI reads). The epoch implementation
+must also cover CapEx availability/confirmation; capped 5/10/20-session return
+z-scores with volume z and no unsigned-volume points; disclosed universe-IV
+cohort statistics and thin-cohort neutrality; non-event term-inversion capping;
+skew-only naked-to-debit routing; no below-bar, cross-tier, or side-flip regime
+promotion; side-correct Scenario filtering; the next-two-trading-session hard
+event Wait; full deterministic GO invariants under AI; and the accuracy-epoch
+reset/stamps. To regenerate from a hydrated `data/`, first run
+`node scripts/sync-data.mjs pull`, then `node scripts/regen-picks.mjs`.
 
 > **Retune gates on *resolved* picks, not day-1 marks.** An open position is marked
 > the session it's entered, so its visible P/L is `netDelta × one-session move ÷ a
