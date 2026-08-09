@@ -67,6 +67,7 @@ const SIDE_NAV_ICONS = {
   'ai-capex': '<rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9.5" y="9.5" width="5" height="5"/><path d="M9 2.5V5M15 2.5V5M9 19v2.5M15 19v2.5M2.5 9H5M2.5 15H5M19 9h2.5M19 15h2.5"/>',
   'ram-prices': '<rect x="2.5" y="6.5" width="19" height="9" rx="1.5"/><path d="M6 15.5v3M10 15.5v3M14 15.5v3M18 15.5v3"/><path d="M6.5 10v2M12 10v2M17.5 10v2"/>',
   'accelerator-prices': '<rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 9h6v6H9zM9 2.5V5M15 2.5V5M9 19v2.5M15 19v2.5M2.5 9H5M2.5 15H5M19 9h2.5M19 15h2.5"/><path d="m10.5 13 1.3-3 1.2 2 1.5-1"/>',
+  'central-bank-gold': '<circle cx="12" cy="12" r="8.5"/><path d="M9 8.5h6M8.5 12h7M10 15.5h4"/><path d="M12 3.5v17"/>',
   'search-interest': '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/><path d="M7.5 12.5 10 10l2 1.8 3-4"/>',
   'capital-raises': '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/>',
   'ipo-credit': '<path d="M12 2.5c2.5 2 3.5 5 3.5 8l-1.5 3h-4L8.5 10.5c0-3 1-6 3.5-8z"/><path d="M10 13.5 8 18l2.5-1.5L12 19l1.5-2.5L16 18l-2-4.5"/><circle cx="12" cy="8.5" r="1.5"/>',
@@ -648,6 +649,19 @@ function acceleratorPricesSection() {
   </section>`;
 }
 
+function centralBankGoldSection() {
+  return `<section class="card" id="central-bank-gold-section">
+    <header class="card-header">
+      <h2 class="card-title">Central-bank gold</h2>
+      <span class="card-eyebrow" id="central-bank-gold-eyebrow" aria-live="polite"></span>
+    </header>
+    ${infoNote('How to read official-sector gold demand', `<p>Use the two series for different questions. <b>Global net demand</b> is the World Gold Council / Metals Focus quarterly estimate of purchases minus sales, including activity that may not yet be publicly reported. <b>Country holdings</b> are official reported reserves compiled from IMF IFS and central-bank sources; reporting dates vary and can lag. The country table shows each bank&rsquo;s latest known tonnes, gold&rsquo;s share of its reserves, and changes over roughly three and twelve months. A rising total supports the structural gold-demand backdrop, but it is not a short-term entry signal for gold or miners &mdash; confirm price, real yields, the dollar, valuation and each ticker&rsquo;s Grade.</p>`)}
+    <div id="central-bank-gold-root" class="cbg-root">Loading central-bank gold data&hellip;</div>
+    <div id="central-bank-gold-empty" class="cbg-empty" hidden>Central-bank gold data will appear after the next daily build refresh.</div>
+    <p class="hint">Holdings are latest reported by country and may have different as-of dates. Global demand is an estimate and can be revised; it will not equal the sum of disclosed country changes. Sources: World Gold Council, IMF IFS, central banks and Metals Focus. Not financial advice.</p>
+  </section>`;
+}
+
 function searchInterestSection() {
   // Google Trends relative interest, collected once weekly on the free API
   // tier by refresh-search-interest.mjs and lazy-loaded on first tab entry.
@@ -817,6 +831,7 @@ function buildTimelineSection() {
       <article class="refresh-schedule-card"><span>Hourly 09:00&ndash;16:00 ET</span><h3>Flow, Volume &amp; Heatmap</h3><p>Re-scans unusual options flow and intraday volume/S&amp;R breaks, then refreshes heatmap price/change fields. The post-close pass may also publish the sector EOD recap.</p><em>One serialized scan &middot; no partial publish</em></article>
       <article class="refresh-schedule-card"><span>Every 15 minutes, 09:25&ndash;16:05 guard</span><h3>Owner Day Trading</h3><p>Marks open paper positions and evaluates new setups. Entries run from 10:00 until the 16:00 close; 1DTE entries are SPY/QQQ/IWM only.</p><em>Private snapshot + durable ledger</em></article>
       <article class="refresh-schedule-card"><span>~08:30 and ~19:00 ET</span><h3>Near-term OI</h3><p>Sweeps the front two expirations, updates strike walls, day-over-day open-interest changes and the Gamma Squeeze Score before the bell and after settlement has had time to update.</p><em>Twice daily</em></article>
+      <article class="refresh-schedule-card"><span>Checked on each full build</span><h3>Central-bank gold</h3><p>Checks the World Gold Council for a new quarterly global-demand estimate and refreshed official country holdings. Source reporting normally lags the current date.</p><em>Quarterly source cadence &middot; last-good carry-forward</em></article>
       <article class="refresh-schedule-card"><span>Monday 11:17 UTC</span><h3>Search Interest</h3><p>Refreshes the 90-day Google Trends theme timelines and change rankings. That is about 07:17 ET during daylight time and 06:17 ET during standard time.</p><em>Weekly &middot; up to 40 source requests</em></article>
       <article class="refresh-schedule-card"><span>About every 30 seconds while open</span><h3>Live browser overlays</h3><p>Relevant tabs poll live quotes/chains only while visible and the market is regular. These overlays do not replace the stamped build or scanner snapshot and pause outside the session.</p><em>Best-effort request-time data</em></article>
     </div>
@@ -1776,6 +1791,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       ${sideNavItem('ai-capex', 'AI CapEx')}
       ${sideNavItem('ram-prices', 'RAM prices')}
       ${sideNavItem('accelerator-prices', 'GPU cloud prices')}
+      ${sideNavItem('central-bank-gold', 'Central-bank gold')}
       ${sideNavItem('search-interest', 'Search interest')}
       ${sideNavItem('f13', 'SEC ownership')}
     </div>
@@ -2418,6 +2434,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-accelerator-prices" role="tabpanel" aria-labelledby="page-tab-accelerator-prices" hidden>
   ${acceleratorPricesSection()}
+  </div>
+  <div class="page-pane" id="page-pane-central-bank-gold" role="tabpanel" aria-labelledby="page-tab-central-bank-gold" hidden>
+  ${centralBankGoldSection()}
   </div>
   <div class="page-pane" id="page-pane-search-interest" role="tabpanel" aria-labelledby="page-tab-search-interest" hidden>
   ${searchInterestSection()}

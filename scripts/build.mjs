@@ -32,6 +32,10 @@ import {
   buildAcceleratorPricesPayload,
   fetchAcceleratorMarketplaces,
 } from "../lib/accelerator-prices.mjs";
+import {
+  buildCentralBankGoldPayload,
+  fetchCentralBankGoldSources,
+} from "../lib/central-bank-gold.mjs";
 
 // Library prints a survey notice on first use and validates response
 // schemas — silence both since Yahoo occasionally omits optional fields
@@ -10333,6 +10337,32 @@ export async function writeAcceleratorPricesFile(builtAtIso, prior = null) {
     quotes: payload.summary?.quoteCount || 0,
     models: payload.summary?.modelCount || 0,
     staleSources: payload.summary?.staleSources || [],
+  };
+}
+
+// === Central-bank gold tracker (data/central-bank-gold.json) =============
+// WGC/IMF official country holdings and WGC/Metals Focus estimated global
+// net demand remain separate because reported changes do not fully reconcile
+// with the global estimate. Each source carries last-good independently.
+async function readPriorCentralBankGold() {
+  try {
+    return JSON.parse(await readFile(resolve(DATA_DIR, "central-bank-gold.json"), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+export async function writeCentralBankGoldFile(builtAtIso, prior = null) {
+  const sources = await fetchCentralBankGoldSources();
+  const payload = buildCentralBankGoldPayload({ sources, prior, builtAtIso });
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, "central-bank-gold.json"), json, "utf8");
+  return {
+    bytes: json.length,
+    sourceState: payload.sourceState,
+    countries: payload.summary?.countryCount || 0,
+    demandPeriod: payload.summary?.latestPeriod || "n/a",
+    demandTonnes: payload.summary?.latestTonnes ?? null,
   };
 }
 
@@ -27623,6 +27653,7 @@ const BRIEF_TOOL_SOURCES = [
   { key: "capex", file: "ai-capex.json", label: "AI CapEx", tab: "ai-capex", maxAgeHours: 48 },
   { key: "ram", file: "ram-prices.json", label: "RAM prices", tab: "ram-prices", maxAgeHours: 48 },
   { key: "accelerators", file: "accelerator-prices.json", label: "GPU cloud prices", tab: "accelerator-prices", maxAgeHours: 48 },
+  { key: "central-bank-gold", file: "central-bank-gold.json", label: "Central-bank gold", tab: "central-bank-gold", maxAgeHours: 48 },
   { key: "search", file: "search-interest.json", label: "Search interest", tab: "search-interest", maxAgeHours: 240 },
   { key: "ownership", file: "13f.json", label: "SEC ownership", tab: "f13", maxAgeHours: 24 * 120 },
 ];
@@ -28149,6 +28180,12 @@ function briefToolFacts(source, p, kind) {
     const f = p.summary?.focus;
     const move = Math.abs(f?.change7dPct || 0) >= Math.abs(f?.change30dPct || 0) ? { v: f?.change7dPct, w: "7d" } : { v: f?.change30dPct, w: "30d" };
     if (f && Math.abs(move.v || 0) >= 8) add(`${f.model} GPU cloud pricing moved ${briefToolPct(move.v)} over ${move.w}; spot median is $${f.spotMedian}/GPU-hour.`, 66, move.v > 0 ? "risk" : "positive");
+  } else if (source.key === "central-bank-gold") {
+    const demandSource = (p.sources || []).find((row) => row?.id === "demand");
+    const s = p.summary || {};
+    if (demandSource?.ok && Number.isFinite(Number(s.latestTonnes))) {
+      add(`Central banks bought an estimated net ${Number(s.latestTonnes).toFixed(0)}t of gold in ${s.latestPeriod || "the latest quarter"}${s.yoyPct != null ? `, ${briefToolPct(s.yoyPct)} y/y` : ""}; trailing-four-quarter demand is ${Number(s.trailing4QuarterTonnes || 0).toFixed(0)}t.`, 71, "watch");
+    }
   } else if (source.key === "search") {
     const b = p.summary?.breakouts || [];
     if (b.length) add(`${p.summary.breakoutCount || b.length} Google Trends breakouts; ${b.slice(0, 3).map((x) => `${x.label}: “${x.query}”`).join("; ")}.`, 64, "watch");
@@ -33112,7 +33149,11 @@ async function main() {
   // one ET-date point per successful source refresh, while an unavailable
   // marketplace carries only its own last-good rows. Read before the wipe.
   const priorAcceleratorPrices = await readPriorAcceleratorPrices();
-  // Prior commodities snapshot — per-item last-good carry-forward on a fetch
+  // Prior central-bank gold snapshot - country holdings and global demand are
+  // sourced independently, so either side can carry last-good across a WGC
+  // outage while the other refreshes. Read it before the wholesale wipe.
+  const priorCentralBankGold = await readPriorCentralBankGold();
+  // Prior commodities snapshot - per-item last-good carry-forward on a fetch
   // miss, plus the accumulated scrape-overlay history (Drewry/BDI/Manheim),
   // so it must be pre-read before the wipe like the other histories.
   const priorCommodities = await readPriorCommodities();
@@ -33472,6 +33513,14 @@ async function main() {
     console.log(`wrote data/accelerator-prices.json — ${acceleratorInfo.freshSources}/${acceleratorInfo.sources} sources fresh, ${acceleratorInfo.models} models, ${acceleratorInfo.quotes} quotes, ${acceleratorInfo.bytes} bytes${acceleratorInfo.staleSources.length ? ` [stale: ${acceleratorInfo.staleSources.join(",")}]` : ""}`);
   } catch (err) {
     console.log(`  ⚠ Accelerator-prices step failed (non-fatal): ${err.message}`);
+  }
+  // Central-bank gold: reported WGC/IMF holdings by country plus the separate
+  // WGC/Metals Focus estimated global net-purchase series.
+  try {
+    const goldInfo = await writeCentralBankGoldFile(builtAtIso, priorCentralBankGold);
+    console.log(`wrote data/central-bank-gold.json — ${goldInfo.countries} countries, ${goldInfo.demandPeriod} demand ${goldInfo.demandTonnes ?? "n/a"}t, ${goldInfo.bytes} bytes [${goldInfo.sourceState}]`);
+  } catch (err) {
+    console.log(`  ⚠ Central-bank gold step failed (non-fatal): ${err.message}`);
   }
   // Commodity price tracker (Yahoo futures/ETF + FRED monthly + best-effort
   // Drewry/BDI/Manheim overlays) — per-item last-good carry-forward (graceful).

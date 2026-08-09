@@ -3360,7 +3360,7 @@
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','rotation','picks','stocks','heatmap','calendar','earnings','calls','spillover','quant','daytrade','daytrack','levetf','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','search-interest','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','rotation','picks','stocks','heatmap','calendar','earnings','calls','spillover','quant','daytrade','daytrack','levetf','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3373,6 +3373,7 @@
     capex: 'ai-capex', 'ai-capex': 'ai-capex', mag7: 'ai-capex', 'mag-7': 'ai-capex',
     ram: 'ram-prices', dram: 'ram-prices', memory: 'ram-prices', 'ram-price': 'ram-prices', 'ram-prices': 'ram-prices', ddr5: 'ram-prices',
     gpu: 'accelerator-prices', gpus: 'accelerator-prices', accelerator: 'accelerator-prices', accelerators: 'accelerator-prices', 'gpu-prices': 'accelerator-prices', 'gpu-cloud': 'accelerator-prices', 'accelerator-prices': 'accelerator-prices',
+    gold: 'central-bank-gold', 'gold-reserves': 'central-bank-gold', 'central-bank': 'central-bank-gold', 'central-bank-gold': 'central-bank-gold', 'official-gold': 'central-bank-gold',
     trends: 'search-interest', search: 'search-interest', 'search-interest': 'search-interest', 'google-trends': 'search-interest',
     commodity: 'commodities', 'commodity-prices': 'commodities', cocoa: 'commodities', coffee: 'commodities', cotton: 'commodities', lumber: 'commodities', sugar: 'commodities', lithium: 'commodities', potash: 'commodities', freight: 'commodities', bdi: 'commodities', 'baltic-dry': 'commodities', manheim: 'commodities', 'used-vehicles': 'commodities',
     'capital-raises': 'capital-raises', raises: 'capital-raises', issuance: 'capital-raises', debt: 'capital-raises', bonds2: 'capital-raises',
@@ -3726,6 +3727,7 @@
         if (name === 'ai-capex' && typeof loadAiCapex === 'function') loadAiCapex();
         if (name === 'ram-prices' && typeof loadRamPrices === 'function') loadRamPrices();
         if (name === 'accelerator-prices' && typeof loadAcceleratorPrices === 'function') loadAcceleratorPrices();
+        if (name === 'central-bank-gold' && typeof loadCentralBankGold === 'function') loadCentralBankGold();
         if (name === 'search-interest' && typeof loadSearchInterest === 'function') loadSearchInterest();
         if (name === 'commodities' && typeof loadCommodities === 'function') loadCommodities();
         if (name === 'capital-raises' && typeof loadCapitalRaises === 'function') loadCapitalRaises();
@@ -18816,6 +18818,143 @@
         renderAcceleratorPrices();
       });
     });
+  }
+
+  // --- Central-bank gold (Alt data section) -------------------------------
+  // Country holdings are reported official reserves; the global demand chart
+  // is a separate estimated net-purchase series. The UI never adds the two.
+  var centralBankGoldState = { data: null, loading: false, countryIso: null, search: '', sort: 'holdings', showAll: false };
+  function cbgNumber(value, digits){
+    if (value == null || value === '') return '&mdash;';
+    var n = Number(value);
+    if (!isFinite(n)) return '&mdash;';
+    return n.toLocaleString('en-US', { minimumFractionDigits:digits || 0, maximumFractionDigits:digits || 0 });
+  }
+  function cbgTonnes(value, signed){
+    if (value == null || value === '') return '&mdash;';
+    var n = Number(value);
+    if (!isFinite(n)) return '&mdash;';
+    return (signed && n > 0 ? '+' : '') + cbgNumber(n, Math.abs(n) < 10 ? 2 : 1) + 't';
+  }
+  function cbgPct(value, signed){
+    if (value == null || value === '') return '&mdash;';
+    var n = Number(value);
+    if (!isFinite(n)) return '&mdash;';
+    return (signed && n > 0 ? '+' : '') + n.toFixed(Math.abs(n) < 10 ? 2 : 1) + '%';
+  }
+  function cbgTone(value){
+    var n = Number(value);
+    return !isFinite(n) || Math.abs(n) < 0.005 ? 'flat' : n > 0 ? 'up' : 'down';
+  }
+  function cbgDate(value){
+    var ms = Date.parse(value);
+    if (!isFinite(ms)) return String(value || 'date unavailable');
+    return new Date(ms).toLocaleDateString('en-US', { timeZone:'UTC', month:'short', day:'numeric', year:'numeric' });
+  }
+  function cbgDemandChart(rows){
+    var history = (Array.isArray(rows) ? rows : []).slice(-24);
+    if (history.length < 2) return '<div class="cbg-chart-empty">Demand history is unavailable.</div>';
+    var values = history.map(function(row){ return Number(row.tonnes); }).filter(isFinite);
+    var lo = Math.min(0, Math.min.apply(null, values));
+    var hi = Math.max(0, Math.max.apply(null, values));
+    var span = Math.max(1, hi - lo);
+    var zeroY = 112 - ((0 - lo) / span) * 96;
+    var slot = 276 / history.length;
+    var width = Math.max(3, slot * 0.68);
+    var bars = '', tips = [];
+    history.forEach(function(row, index){
+      var value = Number(row.tonnes);
+      var x = 12 + index * slot + (slot - width) / 2;
+      var y = 112 - ((value - lo) / span) * 96;
+      var top = Math.min(y, zeroY), height = Math.max(1, Math.abs(zeroY - y));
+      bars += '<rect class="cbg-demand-bar ' + (value < 0 ? 'is-negative' : '') + '" x="' + x.toFixed(1) + '" y="' + top.toFixed(1) + '" width="' + width.toFixed(1) + '" height="' + height.toFixed(1) + '" rx="1.5"/>';
+      tips.push({ x:x + width / 2, y:y, label:row.period + '\nNet demand: ' + cbgNumber(value, 2) + ' tonnes', value:value, time:row.endDate });
+    });
+    var first = history[0], last = history[history.length - 1];
+    return '<div class="cbg-chart-head"><div><small>Estimated global demand</small><b>Quarterly central-bank net purchases</b></div><span>tonnes</span></div>' +
+      '<div class="cbg-chart-wrap"><span class="cbg-axis cbg-axis-hi">' + cbgTonnes(hi) + '</span><span class="cbg-axis cbg-axis-lo">' + cbgTonnes(lo) + '</span>' +
+      '<svg class="cbg-demand-svg" viewBox="0 0 300 125" preserveAspectRatio="none" role="img" aria-label="Quarterly central-bank net gold purchases"' + chHoverAttr(tips) + '>' +
+      '<path d="M12 16H288M12 64H288M12 112H288" class="cbg-grid"/><path d="M12 ' + zeroY.toFixed(1) + 'H288" class="cbg-zero"/>' + bars + '</svg>' +
+      '<span class="cbg-date cbg-date-first">' + escapeHtml(first.period) + '</span><span class="cbg-date cbg-date-last">' + escapeHtml(last.period) + '</span></div>';
+  }
+  function cbgCountryChart(country){
+    var history = country && Array.isArray(country.history) ? country.history : [];
+    if (history.length < 2) return '<div class="cbg-chart-empty">No country history is available.</div>';
+    var values = history.map(function(row){ return Number(row.tonnes); }).filter(isFinite);
+    var lo = Math.min.apply(null, values), hi = Math.max.apply(null, values);
+    var pad = Math.max((hi - lo) * 0.12, hi * 0.002, 0.2);
+    lo = Math.max(0, lo - pad); hi += pad;
+    var xFor = function(index){ return 12 + (index / Math.max(1, history.length - 1)) * 276; };
+    var yFor = function(value){ return 112 - ((value - lo) / Math.max(0.0001, hi - lo)) * 96; };
+    var coords = history.map(function(row,index){ return xFor(index).toFixed(1) + ',' + yFor(Number(row.tonnes)).toFixed(1); }).join(' ');
+    var tips = history.map(function(row,index){ return { x:xFor(index), y:yFor(Number(row.tonnes)), label:cbgDate(row.date) + '\n' + cbgNumber(row.tonnes, 2) + ' tonnes' + (row.goldSharePct != null ? '\n' + cbgPct(row.goldSharePct) + ' of reserves' : ''), value:row.tonnes, time:row.date }; });
+    return '<div class="cbg-country-chart"><div class="cbg-chart-head"><div><small>Reported holdings history</small><b>' + escapeHtml(country.country) + '</b></div><span>' + cbgTonnes(country.holdingsTonnes) + '</span></div>' +
+      '<div class="cbg-chart-wrap"><span class="cbg-axis cbg-axis-hi">' + cbgTonnes(hi) + '</span><span class="cbg-axis cbg-axis-lo">' + cbgTonnes(lo) + '</span>' +
+      '<svg class="cbg-country-svg" viewBox="0 0 300 125" preserveAspectRatio="none" role="img" aria-label="' + escapeHtml(country.country + ' official gold holdings history') + '"' + chHoverAttr(tips) + '>' +
+      '<path d="M12 16H288M12 64H288M12 112H288" class="cbg-grid"/><polyline points="' + coords + '"/></svg>' +
+      '<span class="cbg-date cbg-date-first">' + escapeHtml(cbgDate(history[0].date)) + '</span><span class="cbg-date cbg-date-last">' + escapeHtml(cbgDate(history[history.length - 1].date)) + '</span></div></div>';
+  }
+  function loadCentralBankGold(){
+    if ((centralBankGoldState.data && !tabDataStale(centralBankGoldState)) || centralBankGoldState.loading){ renderCentralBankGold(); return; }
+    centralBankGoldState.loading = true;
+    fetch(dataUrl('central-bank-gold.json'), { cache:'no-cache' })
+      .then(function(response){ if (!response.ok) throw new Error('HTTP ' + response.status); return response.json(); })
+      .then(function(data){ centralBankGoldState.data = data && typeof data === 'object' ? data : {}; centralBankGoldState.loading = false; centralBankGoldState.fetchedAt = Date.now(); renderCentralBankGold(); })
+      .catch(function(){ centralBankGoldState.data = { loadError:true, countries:[], demand:[] }; centralBankGoldState.loading = false; renderCentralBankGold(); });
+  }
+  function renderCentralBankGold(){
+    var root = $('central-bank-gold-root');
+    var eye = $('central-bank-gold-eyebrow');
+    if (!root) return;
+    var data = centralBankGoldState.data;
+    if (!data){ root.textContent = 'Loading central-bank gold data...'; return; }
+    var countries = Array.isArray(data.countries) ? data.countries : [];
+    var demand = Array.isArray(data.demand) ? data.demand : [];
+    if (!countries.length && !demand.length){
+      if (eye) eye.textContent = 'Unavailable | no signal';
+      root.innerHTML = '<section class="cbg-unavailable"><span>Official-sector gold desk</span><h3>' + (data.loadError ? 'The snapshot could not be loaded' : 'No central-bank gold snapshot is available yet') + '</h3><p>Do not infer demand or reserve changes from missing data. The next successful full build will restore this desk.</p></section>';
+      return;
+    }
+    var summary = data.summary || {};
+    var sourceState = data.sourceState || 'stale';
+    var current = sourceState === 'fresh';
+    if (eye) eye.textContent = (current ? 'Current sources' : sourceState === 'partial' ? 'Partial | last-good present' : 'Reference only') +
+      (summary.latestPeriod ? ' | demand ' + summary.latestPeriod : '') + (data.holdingsAsOf ? ' | holdings through ' + data.holdingsAsOf : '');
+    var topBuyer = (summary.topBuyers || [])[0];
+    var topSeller = (summary.topSellers || [])[0];
+    var hero = '<section class="cbg-hero ' + (current ? '' : 'is-stale') + '"><div class="cbg-hero-head"><div><span>Reserve-demand desk</span><h3>' +
+      (summary.latestTonnes > 0 ? 'Central banks remained net buyers' : summary.latestTonnes < 0 ? 'Central banks turned net sellers' : 'Global demand is awaiting an update') +
+      '</h3><p>Global demand is estimated; country holdings are reported and can lag. Read the source dates before comparing banks.</p></div><b>' + (current ? 'Official WGC update' : 'Last-good / partial') + '</b></div>' +
+      '<div class="cbg-metrics">' +
+        '<div><small>Latest global net demand</small><b>' + cbgTonnes(summary.latestTonnes) + '</b><span>' + escapeHtml(summary.latestPeriod || 'latest quarter') + ' | ' + cbgPct(summary.yoyPct, true) + ' y/y</span></div>' +
+        '<div><small>Trailing four quarters</small><b>' + cbgTonnes(summary.trailing4QuarterTonnes) + '</b><span>' + cbgPct(summary.qoqPct, true) + ' latest q/q</span></div>' +
+        '<div><small>Latest reported holdings</small><b>' + cbgTonnes(summary.reportedHoldingsTonnes) + '</b><span>' + cbgNumber(summary.countryCount) + ' countries | mixed as-of dates</span></div>' +
+        '<div><small>Largest reported 3m buyer</small><b>' + (topBuyer ? escapeHtml(topBuyer.country) : '&mdash;') + '</b><span>' + (topBuyer ? cbgTonnes(topBuyer.changeTonnes, true) + ' | ' + cbgPct(topBuyer.changePct, true) : 'awaiting comparable reports') + '</span></div>' +
+      '</div><p class="cbg-hero-note">The estimated global demand total includes undisclosed and subsequently revised activity. The disclosed-country change is a transparency read, not a substitute for global demand.</p></section>';
+    var leaders = '<div class="cbg-leaders"><section><div class="cbg-section-head"><div><small>Reported reserve changes</small><b>Largest 3-month buyers</b></div><span>tonnes</span></div>' +
+      (summary.topBuyers || []).map(function(row){ return '<button type="button" data-cbg-pick="' + escapeHtml(row.iso3) + '"><span>' + escapeHtml(row.country) + '</span><b class="cbg-up">' + cbgTonnes(row.changeTonnes, true) + '</b><small>' + cbgPct(row.changePct, true) + '</small></button>'; }).join('') + '</section>' +
+      '<section><div class="cbg-section-head"><div><small>Reported reserve changes</small><b>Largest 3-month sellers</b></div><span>tonnes</span></div>' +
+      ((summary.topSellers || []).length ? (summary.topSellers || []).map(function(row){ return '<button type="button" data-cbg-pick="' + escapeHtml(row.iso3) + '"><span>' + escapeHtml(row.country) + '</span><b class="cbg-down">' + cbgTonnes(row.changeTonnes, true) + '</b><small>' + cbgPct(row.changePct, true) + '</small></button>'; }).join('') : '<p>No material reported sellers in the latest comparable quarter.</p>') + '</section></div>';
+    if (!centralBankGoldState.countryIso || !countries.some(function(row){ return row.iso3 === centralBankGoldState.countryIso; })) centralBankGoldState.countryIso = topBuyer && topBuyer.iso3 || countries[0] && countries[0].iso3;
+    var selected = countries.find(function(row){ return row.iso3 === centralBankGoldState.countryIso; }) || countries[0];
+    var options = countries.slice().sort(function(a,b){ return a.country.localeCompare(b.country); }).map(function(row){ return '<option value="' + escapeHtml(row.iso3) + '"' + (selected && row.iso3 === selected.iso3 ? ' selected' : '') + '>' + escapeHtml(row.country) + '</option>'; }).join('');
+    var focus = selected ? '<section class="cbg-focus"><div class="cbg-focus-head"><label>Country<select data-cbg-country>' + options + '</select></label><div><span>As reported ' + escapeHtml(cbgDate(selected.dataAsOf)) + '</span><b>' + cbgPct(selected.goldSharePct) + ' of reserves in gold</b></div></div><div class="cbg-focus-moves"><div><small>3-month change</small><b class="cbg-' + cbgTone(selected.change3mTonnes) + '">' + cbgTonnes(selected.change3mTonnes, true) + '</b><span>' + cbgPct(selected.change3mPct, true) + '</span></div><div><small>12-month change</small><b class="cbg-' + cbgTone(selected.change12mTonnes) + '">' + cbgTonnes(selected.change12mTonnes, true) + '</b><span>' + cbgPct(selected.change12mPct, true) + '</span></div></div>' + cbgCountryChart(selected) + '</section>' : '';
+    var query = String(centralBankGoldState.search || '').trim().toLowerCase();
+    var rows = countries.filter(function(row){ return !query || (row.country + ' ' + row.iso3 + ' ' + row.region).toLowerCase().indexOf(query) >= 0; });
+    var sort = centralBankGoldState.sort || 'holdings';
+    var sortKey = sort === 'change3m' ? 'change3mTonnes' : sort === 'change12m' ? 'change12mTonnes' : sort === 'share' ? 'goldSharePct' : 'holdingsTonnes';
+    rows.sort(function(a,b){ var av=Number(a[sortKey]), bv=Number(b[sortKey]); if(!isFinite(av)) av=-Infinity; if(!isFinite(bv)) bv=-Infinity; return bv-av || a.country.localeCompare(b.country); });
+    var shown = centralBankGoldState.showAll ? rows : rows.slice(0, 40);
+    var toolbar = '<div class="cbg-toolbar"><input type="search" data-cbg-search placeholder="Search country or region..." value="' + escapeHtml(centralBankGoldState.search || '') + '" aria-label="Filter central-bank gold holdings"><label>Rank by<select data-cbg-sort><option value="holdings"' + (sort === 'holdings' ? ' selected' : '') + '>Holdings</option><option value="change3m"' + (sort === 'change3m' ? ' selected' : '') + '>3m tonnes</option><option value="change12m"' + (sort === 'change12m' ? ' selected' : '') + '>12m tonnes</option><option value="share"' + (sort === 'share' ? ' selected' : '') + '>Gold share</option></select></label></div>';
+    var tableRows = shown.map(function(row){ return '<tr><td><button type="button" data-cbg-pick="' + escapeHtml(row.iso3) + '"><b>' + escapeHtml(row.country) + '</b><small>' + escapeHtml(row.region) + ' | ' + escapeHtml(cbgDate(row.dataAsOf)) + '</small></button></td><td>' + cbgTonnes(row.holdingsTonnes) + '</td><td>' + cbgPct(row.goldSharePct) + '</td><td class="cbg-' + cbgTone(row.change3mTonnes) + '">' + cbgTonnes(row.change3mTonnes, true) + '</td><td class="cbg-' + cbgTone(row.change3mPct) + '">' + cbgPct(row.change3mPct, true) + '</td><td class="cbg-' + cbgTone(row.change12mTonnes) + '">' + cbgTonnes(row.change12mTonnes, true) + '</td><td class="cbg-' + cbgTone(row.change12mPct) + '">' + cbgPct(row.change12mPct, true) + '</td></tr>'; }).join('');
+    var countryTable = '<section class="cbg-country-table"><div class="cbg-section-head"><div><small>Latest reported by country</small><b>Official gold holdings and changes</b></div><span>' + rows.length + ' matches</span></div>' + toolbar + '<div class="cbg-table-scroll"><table><thead><tr><th>Country / as of</th><th>Holdings</th><th>Gold share</th><th>3m &Delta;t</th><th>3m &Delta;%</th><th>12m &Delta;t</th><th>12m &Delta;%</th></tr></thead><tbody>' + tableRows + '</tbody></table></div>' + (rows.length > shown.length ? '<button type="button" class="cbg-more" data-cbg-more>Show all ' + rows.length + ' countries</button>' : '') + '</section>';
+    var sources = (data.sources || []).map(function(source){ return '<a class="cbg-source ' + (source.ok ? 'is-fresh' : 'is-stale') + '" href="' + escapeHtml(source.url || '#') + '" target="_blank" rel="noopener"><i></i><span><b>' + escapeHtml(source.name || source.id || 'Source') + '</b><small>' + (source.ok ? 'data through ' + escapeHtml(cbgDate(source.dataAsOf)) : 'last-good | source unavailable') + '</small></span></a>'; }).join('');
+    root.innerHTML = hero + '<section class="cbg-demand">' + cbgDemandChart(demand) + '</section>' + leaders + focus + countryTable + '<div class="cbg-sources">' + sources + '</div><p class="cbg-method">' + escapeHtml(data.methodology || '') + '</p>';
+    Array.prototype.forEach.call(root.querySelectorAll('[data-cbg-pick]'), function(button){ button.addEventListener('click', function(){ centralBankGoldState.countryIso = button.getAttribute('data-cbg-pick'); renderCentralBankGold(); var focusEl = root.querySelector('.cbg-focus'); if (focusEl) focusEl.scrollIntoView({ behavior:'smooth', block:'center' }); }); });
+    var countrySelect = root.querySelector('[data-cbg-country]'); if (countrySelect) countrySelect.addEventListener('change', function(){ centralBankGoldState.countryIso = countrySelect.value; renderCentralBankGold(); });
+    var searchInput = root.querySelector('[data-cbg-search]'); if (searchInput) searchInput.addEventListener('input', function(){ centralBankGoldState.search = searchInput.value; centralBankGoldState.showAll = false; renderCentralBankGold(); var next = root.querySelector('[data-cbg-search]'); if (next){ next.focus(); next.setSelectionRange(next.value.length,next.value.length); } });
+    var sortSelect = root.querySelector('[data-cbg-sort]'); if (sortSelect) sortSelect.addEventListener('change', function(){ centralBankGoldState.sort = sortSelect.value; centralBankGoldState.showAll = false; renderCentralBankGold(); });
+    var more = root.querySelector('[data-cbg-more]'); if (more) more.addEventListener('click', function(){ centralBankGoldState.showAll = true; renderCentralBankGold(); });
   }
 
   // --- Google Trends search interest (Alt data section) -------------------
