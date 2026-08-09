@@ -17,6 +17,9 @@ assert.equal(tradingDaysBetween("2026-07-02", "2026-07-06"), 1); // Independence
 assert.equal(tradingDaysBetween("2026-12-24", "2026-12-28"), 1); // Christmas
 assert.equal(tradingDaysBetween("2026-04-02", "2026-04-06"), 1); // Good Friday
 assert.equal(isUsEquityMarketHoliday("2021-12-31"), true); // New Year's Day 2022 observed
+assert.equal(DAY_TRADING_RULES.entryStartEtMin, 10 * 60);
+assert.equal(DAY_TRADING_RULES.forceFlatEtMin, 16 * 60);
+assert.equal(DAY_TRADING_RULES.maxHoldMinutes, 120);
 
 const now = new Date("2026-07-30T15:00:00.000Z"); // 11:00 ET
 const market = {
@@ -49,6 +52,7 @@ assert.equal(result.snapshot.open.options.length, 1);
 assert.equal(result.snapshot.open.stock.length, 1);
 assert.ok(result.snapshot.open.options[0].initialCash <= DAY_TRADING_RULES.startingEquity * 0.25);
 assert.ok(result.snapshot.open.stock[0].initialCash <= DAY_TRADING_RULES.startingEquity * 0.25 + 1);
+assert.match(result.snapshot.open.options[0].timeExit, /^120 minutes/);
 
 // Same symbol cannot be opened twice; the existing positions remain one each.
 result = runDayTradingEngine({ history: result.history, candidates: [candidate], market: structuredClone(market), now: new Date(now.getTime() + 15 * 60000) });
@@ -81,6 +85,41 @@ lateMarket.clock.minute = 880; // 14:40 ET
 assert.equal(scoreDayTradeCandidate(candidate, lateMarket).pass, true);
 lateMarket.clock.minute = DAY_TRADING_RULES.forceFlatEtMin;
 assert.equal(scoreDayTradeCandidate(candidate, lateMarket).pass, false);
+
+// The 1DTE book can actually open in the final hour; 9:30-10:00 is observation,
+// not its only entry window.
+const afternoonMarket = structuredClone(market);
+afternoonMarket.clock.minute = 15 * 60 + 45;
+const afternoon = runDayTradingEngine({
+  history: emptyDayTradingHistory(), candidates: [candidate], market: afternoonMarket,
+  now: new Date("2026-07-30T19:45:00.000Z"),
+});
+assert.equal(afternoon.snapshot.open.options.length, 1);
+
+// A flat trade remains open through minute 119 and times out at minute 120.
+let timed = runDayTradingEngine({
+  history: emptyDayTradingHistory(), candidates: [candidate], market: structuredClone(market), now,
+});
+const timedOption = timed.snapshot.open.options[0];
+const timedStock = timed.snapshot.open.stock[0];
+const flatMarks = new Map([
+  [timedOption.id, { bid: 1.05, ask: 1.06, last: 1.05 }],
+  [timedStock.id, { spot: 100 }],
+]);
+timed = runDayTradingEngine({
+  history: timed.history, candidates: [], market: structuredClone(market), marks: flatMarks,
+  now: new Date(now.getTime() + 119 * 60000),
+});
+assert.equal(timed.snapshot.open.options.length, 1);
+assert.equal(timed.snapshot.open.stock.length, 1);
+timed = runDayTradingEngine({
+  history: timed.history, candidates: [], market: structuredClone(market), marks: flatMarks,
+  now: new Date(now.getTime() + 120 * 60000),
+});
+assert.equal(timed.snapshot.open.options.length, 0);
+assert.equal(timed.snapshot.open.stock.length, 0);
+assert.equal(timed.history.portfolios.options.closed.at(-1).outcome, "time-stop");
+assert.equal(timed.history.portfolios.stock.closed.at(-1).outcome, "time-stop");
 
 // The stock book can use the wider candidate universe; the 1DTE book cannot.
 const singleName = { ...candidate, symbol: "TEST" };

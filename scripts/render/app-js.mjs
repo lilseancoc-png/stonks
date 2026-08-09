@@ -20910,12 +20910,14 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var updated = Date.parse(d.updatedAt || '');
     if (stamp) stamp.textContent = (d.status || 'paper') + (isFinite(updated) ? ' · ' + new Date(updated).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '');
     var market = d.market || {}; var first = market.firstHour || {}; var vol = market.volatility || {}; var event = market.event || {};
+    var maxHoldMinutes = Number(d.rules && d.rules.maxHoldMinutes);
+    if (!(maxHoldMinutes > 0)) maxHoldMinutes = 120;
     var html = '<div class="dt-market">' +
       '<span><small>Directional bias</small><b class="' + (market.bias === 'long' ? 'quant-pos' : market.bias === 'short' ? 'quant-neg' : 'quant-dim') + '">' + escapeHtml(market.bias || 'unknown') + '</b><em>score ' + (market.biasScore == null ? '—' : market.biasScore) + ' · analysis ' + escapeHtml(market.analysisState || 'neutral') + '</em></span>' +
       '<span><small>Opening 30m</small><b>' + (first.complete ? 'Complete' : 'Unavailable') + '</b><em>SPY ' + dtPct(first.spyRetPct) + ' · QQQ ' + dtPct(first.qqqRetPct) + '</em></span>' +
       '<span><small>Volatility regime</small><b>' + escapeHtml(vol.state || 'unknown') + '</b><em>VIX ' + (vol.vix == null ? '—' : vol.vix) + (vol.term ? ' · ' + escapeHtml(vol.term) : '') + '</em></span>' +
       '<span><small>Event authority</small><b class="' + (event.block ? 'quant-neg' : event.reduce ? 'quant-warn' : 'quant-pos') + '">' + (event.block ? 'Blocked' : event.reduce ? 'Reduced' : 'Clear') + '</b><em>' + escapeHtml(event.reason || 'no high-impact window') + '</em></span>' +
-      '<span><small>Execution window</small><b>10:00–16:00 ET</b><em>entries until the close · forced flat 16:00 · 75m max hold' + (market.lastHour && market.lastHour.active ? ' · last hour SPY ' + dtPct(market.lastHour.spyRetPct) + ' / QQQ ' + dtPct(market.lastHour.qqqRetPct) : '') + '</em></span>' +
+      '<span><small>Execution window</small><b>10:00–16:00 ET</b><em>entries until the close · forced flat 16:00 · ' + maxHoldMinutes + 'm max hold' + (market.lastHour && market.lastHour.active ? ' · last hour SPY ' + dtPct(market.lastHour.spyRetPct) + ' / QQQ ' + dtPct(market.lastHour.qqqRetPct) : '') + '</em></span>' +
       '</div>';
     var summaries = d.portfolios || {};
     html += '<div class="dt-books">';
