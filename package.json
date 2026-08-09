@@ -10,6 +10,7 @@
     "build": "node scripts/build.mjs",
     "test:day-trading": "node scripts/day-trading-smoke.mjs",
     "test:capital-raises": "node scripts/capital-raises-smoke.mjs",
+    "test:central-bank-gold": "node scripts/central-bank-gold-smoke.mjs",
     "test:api": "node scripts/api-smoke.mjs",
     "test:private-store": "node scripts/private-store-smoke.mjs",
     "test:render": "node scripts/render-smoke.mjs",

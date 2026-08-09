@@ -59,6 +59,7 @@ Most important design rule: a strong observation is not automatically a trade. T
 | Alt Data | AI CapEx | Mag-7 reported CapEx, run rate, management guidance, revenue burden, and supplier read-through. |
 | Alt Data | RAM Prices | Wholesale DRAM plus retail DDR5 pricing and breadth. |
 | Alt Data | GPU Cloud Prices | Public accelerator rental and spot rates normalized to USD per GPU-hour, with provider/model history. |
+| Alt Data | Central-bank Gold | Quarterly estimated global net demand plus latest reported official holdings, reserve share, and 3/12-month changes by country. |
 | Alt Data | Search Interest | Weekly Google Trends attention for curated market and technology themes, with top/rising queries and 7/30-day changes. |
 | Macro | Commodities | Eleven input-cost, freight, and demand series mapped to exposed equities. |
 | Macro | Capital Raises | Issuer-level equity, convertible, debt, and buyback events. |
@@ -1096,6 +1097,27 @@ rate can reflect scarce capacity, but posted price does not prove availability
 or chip demand; a lower rate can reflect supply growth, hardware-mix changes,
 competition, or softer utilization. Confirm with provider guidance, backlog,
 availability, and equity price action.
+
+#### Central-bank Gold
+
+The full bake writes `data/central-bank-gold.json` from two World Gold Council
+public chart surfaces:
+
+- quarterly global net purchases from Gold Demand Trends (Metals Focus and WGC);
+- quarterly official holdings compiled from IMF IFS, central banks, and WGC.
+
+These are separate measures. Global demand is estimated, can include activity
+not yet publicly disclosed, and is revised. Country holdings are reported data
+with country-specific publication lags. Summed country changes therefore do not
+need to equal the global demand estimate.
+
+For every reporting country the payload keeps latest holdings in tonnes, gold
+as a percentage of total reserves, the actual country data date, three-month
+and twelve-month changes in both tonnes and percent, and six years of quarterly
+history. The UI adds the global demand history, trailing-four-quarter total,
+buyer/seller leaderboards, a country history selector, and a searchable/sortable
+all-country table. Holdings and demand sources carry last-good independently;
+source failures are disclosed and never silently presented as fresh.
 
 ### Commodities
 
