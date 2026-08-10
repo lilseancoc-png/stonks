@@ -24,7 +24,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
-- **Daily builds publish the Central-bank gold dataset.** The freshness gate now explicitly requires `central-bank-gold.json` to be rewritten and permits its documented last-good fallback, preventing the new desk from blocking every otherwise-coherent full bake. `scripts/verify-data-freshness.mjs`.
+- **Daily builds publish the Central-bank gold dataset.** The freshness gate now explicitly requires `central-bank-gold.json` to be rewritten and permits its documented last-good fallback, preventing the new desk from blocking every otherwise-coherent full bake. (#598) `scripts/verify-data-freshness.mjs`.
 
 ## 2026-08-08
 
