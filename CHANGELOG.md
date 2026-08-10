@@ -20,6 +20,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-08-10
+
+### Fixed
+
+- **Daily builds publish the Central-bank gold dataset.** The freshness gate now explicitly requires `central-bank-gold.json` to be rewritten and permits its documented last-good fallback, preventing the new desk from blocking every otherwise-coherent full bake. `scripts/verify-data-freshness.mjs`.
+
 ## 2026-08-08
 
 ### Added
