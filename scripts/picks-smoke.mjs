@@ -15,7 +15,7 @@ import {
   PICKS_MIN_CONVICTION, PICKS_TIER_STRONG, PICKS_TIMING_THRESHOLDS, PICKS_TACTICAL_SIZE_MULT, computeEdgeScale,
   computeFactorTrendHealth, edgeGatedConviction,
   assessThesisQuality, selectStrategy, classifyPick, generateAiTheses, applyAiThesisGrade,
-  buildMarketRead, macroKindOf, thesisCacheSig, canReuseThesisCache, thesisInstructionSignature,
+  buildMarketRead, macroKindOf, thesisCacheSig, thesisDecisionGuardSig, canReuseThesisCache, thesisInstructionSignature,
   thesisResearchInputSignature, PICKS_MAX_AI_THESES, buildThesisUserMessage,
   buildMacroCalendarAhead, transcriptGuidanceDirection, impliedMoveFromIvCrush,
   buildDcaPlan, DCA_BASE_USD,
@@ -1706,9 +1706,10 @@ ok("exit: credit ignores a stray scale-out field", resolvePickOutcome({ modeledO
   ok("ai-thesis: empty universe → no AI thesis generated", Object.keys(gen.map).length === 0 && Object.keys(gen.cache).length === 0);
 }
 
-// The full-quality final grade/entry call may only reuse an exact current
-// decision input inside the sub-hour retry window. Prompt/schema/model identity,
-// every headline, the full macro calendar, and IV momentum all participate.
+// The full-quality final grade/entry call reuses exact retry inputs briefly and
+// may reuse a swing-thesis verdict for five hours while its material decision
+// guard is stable. Prompt/schema/model identity and risk-state changes still
+// invalidate immediately.
 {
   const thesisData = mkTicker({ spot: 200 });
   thesisData.news = {
@@ -1730,6 +1731,7 @@ ok("exit: credit ignores a stray scale-out field", resolvePickOutcome({ modeledO
   const ivRow = { chg1dPct: 2, chg5dPct: 6, risingStreak: 3, tier: "rising" };
   const kind = macroKindOf(r.sym, r.data);
   const sig = thesisCacheSig(r, "call", kind, null, cal, ivRow);
+  const decisionGuardSig = thesisDecisionGuardSig(r, "call", kind, null, cal);
   ok("ai-thesis cache: full instruction identity participates in the key",
     sig.includes(thesisInstructionSignature().slice(0, 24)));
   ok("ai-thesis cache: exact research query changes with a new headline",
@@ -1746,13 +1748,20 @@ ok("exit: credit ignores a stray scale-out field", resolvePickOutcome({ modeledO
   const cachedAt = Date.parse("2026-07-31T14:00:00.000Z");
   const cachedThesis = {
     sig,
+    decisionGuardSig,
     generatedAtIso: new Date(cachedAt).toISOString(),
     ai: { grade: "strong", entryVerdict: "buy-now" },
   };
   ok("ai-thesis cache: an exact duplicate inside 20 minutes can reuse",
     canReuseThesisCache(cachedThesis, sig, cachedAt + 19 * 60000, 20 * 60000));
   ok("ai-thesis cache: the next scheduled build cannot reuse a 20-minute-old decision",
-    !canReuseThesisCache(cachedThesis, sig, cachedAt + 20 * 60000 + 1, 20 * 60000));
+    !canReuseThesisCache(cachedThesis, sig, cachedAt + 20 * 60000 + 1, 20 * 60000, null));
+  ok("ai-thesis cache: prompt noise can reuse inside the five-hour swing window",
+    canReuseThesisCache(cachedThesis, `${sig}-spot-noise`, cachedAt + 4 * 3600000, 20 * 60000, decisionGuardSig, 5 * 3600000));
+  ok("ai-thesis cache: the five-hour swing window still forces a later refresh",
+    !canReuseThesisCache(cachedThesis, `${sig}-spot-noise`, cachedAt + 5 * 3600000 + 1, 20 * 60000, decisionGuardSig, 5 * 3600000));
+  ok("ai-thesis cache: a material decision-guard change invalidates immediately",
+    !canReuseThesisCache(cachedThesis, `${sig}-material`, cachedAt + 60 * 60000, 20 * 60000, `${decisionGuardSig}-changed`, 5 * 3600000));
   ok("ai-thesis cache: legacy rows without generation provenance cold-start",
     !canReuseThesisCache({ sig, ai: cachedThesis.ai }, sig, cachedAt + 1000, 20 * 60000));
 }

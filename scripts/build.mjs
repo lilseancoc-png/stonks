@@ -23779,6 +23779,15 @@ const THESIS_CACHE_MAX_AGE_MS = Math.max(
   0,
   Number(process.env.AI_THESIS_CACHE_MAX_MINUTES ?? 20) * 60000,
 );
+// A 1-2 week swing thesis does not need a new full-Flash grade and Google
+// search every hour just because spot/OI values moved inside the exact prompt.
+// Reuse for five hours while the material decision guard below is unchanged;
+// deterministic entry, event, structure, and payoff vetoes still update on
+// every build outside the model.
+const THESIS_MIN_REFRESH_INTERVAL_MS = Math.max(
+  0,
+  Number(process.env.AI_THESIS_MIN_REFRESH_MINUTES ?? 300) * 60000,
+);
 
 // Bump when the schema / prompt changes so every cached thesis re-reads once.
 const THESIS_PROMPT_VERSION = "v9";
@@ -24191,15 +24200,55 @@ export function thesisCacheSig(r, side, kind, macroRegime, macroCalendar = null,
   return [THESIS_PROMPT_VERSION, instructionSig, researchSig, basePromptHash, `entry-v${PICKS_ENTRY_TIMING_VERSION}`, etDay, r.sym, side, kind, Math.round((pnum(r.total) ?? 0) / 2), works, state, axSig, verdict, newsHash, ivBucket, entrySig, calSig].join("|");
 }
 
+export function thesisDecisionGuardSig(r, side, kind, macroRegime, macroCalendar = null) {
+  const works = (r.drivers || [])
+    .filter((x) => x && x.score)
+    .slice(0, 5)
+    .map((x) => `${x.key}${Math.sign(x.score) > 0 ? "+" : "-"}`)
+    .sort()
+    .join(",");
+  const ax = (macroRegime && macroRegime.axes) || {};
+  const profile = MACRO_PROFILES[kind] || MACRO_PROFILES.broad;
+  const axSig = (profile.cite || []).map((k) => `${k}${axSign(ax[k]) > 0 ? "+" : axSign(ax[k]) < 0 ? "-" : "0"}`).join("");
+  const cats = (Array.isArray(r.data?.catalysts) ? r.data.catalysts : [])
+    .map((c) => `${c?.date || ""}:${c?.category || ""}`)
+    .sort()
+    .join(",");
+  const ivp = pnum(r.data?.ivRank?.pctile);
+  const det = computeEntrySignal(side, pnum(r.data?.spot), r.data, r.timing, { total: r.total });
+  const nearestEvent = (Array.isArray(macroCalendar) ? macroCalendar : [])[0];
+  const material = [
+    THESIS_PROMPT_VERSION,
+    thesisInstructionSignature().slice(0, 24),
+    new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }),
+    r.sym,
+    side,
+    kind,
+    Math.round((pnum(r.total) ?? 0) / 2),
+    works,
+    macroRegime?.state || "neutral",
+    axSig,
+    r.data?.fundamentals?.judgment?.verdict || "",
+    r.data?.news?.sentiment || "",
+    cats,
+    ivp != null ? Math.round(ivp / 20) : "",
+    det.now ? "buy" : `${det.signal || "wait"}${det.basis === "top-guard" ? "!" : ""}`,
+    nearestEvent ? `${nearestEvent.label || ""}@${nearestEvent.date || ""}:${nearestEvent.daysOut ?? ""}` : "",
+  ].join("|");
+  return createHash("sha256").update(material).digest("hex");
+}
+
 export function canReuseThesisCache(
   prior,
   signature,
   nowMs = Date.now(),
   maxAgeMs = THESIS_CACHE_MAX_AGE_MS,
+  decisionGuardSig = null,
+  minRefreshIntervalMs = THESIS_MIN_REFRESH_INTERVAL_MS,
 ) {
   const priorAtMs = Date.parse(prior?.generatedAtIso || "");
   const ageMs = Number.isFinite(priorAtMs) ? nowMs - priorAtMs : Infinity;
-  return !!(
+  const exactHit = !!(
     prior &&
     prior.sig === signature &&
     prior.ai &&
@@ -24207,6 +24256,16 @@ export function canReuseThesisCache(
     ageMs >= 0 &&
     ageMs <= maxAgeMs
   );
+  const stableSwingHit = !!(
+    prior &&
+    prior.ai &&
+    decisionGuardSig &&
+    prior.decisionGuardSig === decisionGuardSig &&
+    minRefreshIntervalMs > 0 &&
+    ageMs >= 0 &&
+    ageMs <= minRefreshIntervalMs
+  );
+  return exactHit || stableSwingHit;
 }
 
 async function readPickThesisCache() {
@@ -24251,7 +24310,14 @@ async function fetchThesisWebResearch(ai, r, side) {
         config: { tools: [{ googleSearch: {} }], temperature: 0.2, maxOutputTokens: 1200, thinkingConfig: { thinkingBudget: AI_THESIS_SEARCH_THINK } },
         contents: prompt,
       });
-      recordAiUsage({ model: aiModelForAttempt(AI_THESIS_SEARCH_MODEL, attempt), callType: "pick-thesis-research", symbol: r.sym, usage: response?.usageMetadata });
+      const webSearchQueries = response?.candidates?.[0]?.groundingMetadata?.webSearchQueries;
+      recordAiUsage({
+        model: aiModelForAttempt(AI_THESIS_SEARCH_MODEL, attempt),
+        callType: "pick-thesis-research",
+        symbol: r.sym,
+        usage: response?.usageMetadata,
+        searchQueries: Array.isArray(webSearchQueries) ? webSearchQueries.length : 0,
+      });
       break;
     } catch (err) {
       const wait = classifyAiError(err, attempt, aiModelForAttempt(AI_THESIS_SEARCH_MODEL, attempt));
@@ -24338,20 +24404,21 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
     const k = `${r.sym}:${side}`;
     const kind = macroKindOf(r.sym, r.data);
     const sig = thesisCacheSig(r, side, kind, macroRegime, macroCalendar, ivBySym[r.sym] || null);
+    const decisionGuardSig = thesisDecisionGuardSig(r, side, kind, macroRegime, macroCalendar);
     const prior = priorCache[k];
-    const canReuse = canReuseThesisCache(prior, sig);
+    const canReuse = canReuseThesisCache(prior, sig, Date.now(), THESIS_CACHE_MAX_AGE_MS, decisionGuardSig);
     if (canReuse) {
       map[k] = prior.ai;
-      next[k] = { sig, ai: prior.ai, generatedAtIso: prior.generatedAtIso };
+      next[k] = { sig, decisionGuardSig, ai: prior.ai, generatedAtIso: prior.generatedAtIso };
     }
-    else if (!keyless) toCall.push({ r, side, k, sig });
+    else if (!keyless) toCall.push({ r, side, k, sig, decisionGuardSig });
     // keyless miss → no AI thesis (buildMarketRead falls back to the deterministic read)
   }
   if (keyless || !toCall.length) return { map, cache: next };
 
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
   console.log(`Writing AI thesis for ${toCall.length} candidate(s)… (${Object.keys(next).length} reused${AI_THESIS_SEARCH ? ", web-search grounded" : ""})`);
-  await runPooled(toCall, AI_THESIS_CONCURRENCY, async ({ r, side, k, sig }) => {
+  await runPooled(toCall, AI_THESIS_CONCURRENCY, async ({ r, side, k, sig, decisionGuardSig }) => {
     // Per-candidate isolation: a bad data shape or a hard API failure on ONE name
     // must never reject the whole picks write — that name just ships its
     // deterministic card (graceful degradation, like every other AI step).
@@ -24388,10 +24455,15 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
         // disabled or failed. Additive — the client ignores unknown keys.
         if (research) parsed.webResearch = { at: new Date().toISOString(), sources: research.sources };
         map[k] = parsed;
-        next[k] = { sig, ai: parsed, generatedAtIso: new Date().toISOString() };
+        next[k] = { sig, decisionGuardSig, ai: parsed, generatedAtIso: new Date().toISOString() };
       }
     } catch (err) {
       console.warn(`[picks] AI thesis for ${k} failed — ${String(err?.message || err).split("\n")[0]}`);
+      const prior = priorCache[k];
+      if (prior?.ai) {
+        map[k] = prior.ai;
+        next[k] = { ...prior };
+      }
     }
   });
   return { map, cache: next };
@@ -27090,17 +27162,20 @@ const MACRO_TOTAL_CAP = 28;
 const AI_RPM = Number(process.env.AI_RPM) || 100;
 const AI_WINDOW_MS = 60000;
 const AI_SLOT_POLL_BUFFER_MS = 120;
-// Hard DAILY token ceiling (input+output+thought, across all models and all
-// four scripts sharing data/ai-usage.json). The ledger used to be
+// Hard DAILY token + request ceilings (across all models sharing
+// data/ai-usage.json). The ledger used to be
 // cost-REPORTING only — nothing stopped a runaway retry loop or a misbehaving
 // pass from burning the whole quota. Every AI call funnels through
 // acquireAiSlot (fresh calls AND retries), so the cap is enforced there:
 // once today's recorded spend crosses the ceiling the slot REJECTS, the
 // caller's existing degrade-gracefully catch path kicks in (reuse last-good,
-// skip the gloss), and the build still ships. Sized ~2.5× a normal full day
-// (~10M tokens observed) so it only trips on genuine runaways. 0 disables.
-const AI_DAILY_TOKEN_CAP = Number(process.env.AI_DAILY_TOKEN_CAP ?? 25_000_000);
+// skip the gloss), and the build still ships. Four million recorded tokens and
+// 750 reserved attempts bound both verbose calls and concurrent fan-outs. 0
+// disables either guard explicitly.
+const AI_DAILY_TOKEN_CAP = Number(process.env.AI_DAILY_TOKEN_CAP || 4_000_000);
+const AI_DAILY_CALL_CAP = Number(process.env.AI_DAILY_CALL_CAP || 750);
 let _aiCapLogged = false;
+let _aiBudgetStopped = false;
 function aiTokensToday() {
   if (!_aiUsageState || !_aiUsageState.dates) return 0;
   const byDate = _aiUsageState.dates[new Date().toISOString().slice(0, 10)];
@@ -27112,6 +27187,21 @@ function aiTokensToday() {
     }
   }
   return total;
+}
+function aiCallsToday() {
+  if (!_aiUsageState || !_aiUsageState.dates) return 0;
+  const byDate = _aiUsageState.dates[new Date().toISOString().slice(0, 10)];
+  if (!byDate) return 0;
+  let total = 0;
+  for (const byModel of Object.values(byDate)) {
+    for (const b of Object.values(byModel)) total += Number(b.calls) || 0;
+  }
+  return total;
+}
+let _aiCallsAtBuildStart = 0;
+let _aiAttemptSlots = 0;
+export function aiDailyCallCapReached(recordedCalls, reservedAttempts, cap) {
+  return Number(cap) > 0 && (Math.max(0, Number(recordedCalls) || 0) + Math.max(0, Number(reservedAttempts) || 0)) >= Number(cap);
 }
 const _aiSlotTimestamps = [];
 // Serialize acquisition so two callers can't read-then-write the window in
@@ -27126,12 +27216,28 @@ function acquireAiSlot() {
       if (AI_DAILY_TOKEN_CAP > 0) {
         const spent = aiTokensToday();
         if (spent >= AI_DAILY_TOKEN_CAP) {
+          _aiBudgetStopped = true;
           if (!_aiCapLogged) {
             _aiCapLogged = true;
             console.log(`  ⚠ AI daily token cap hit (${spent.toLocaleString()} ≥ ${AI_DAILY_TOKEN_CAP.toLocaleString()}) — refusing further AI calls today; deterministic paths continue.`);
           }
           throw new Error(`AI daily token cap exceeded (${spent} >= ${AI_DAILY_TOKEN_CAP})`);
         }
+      }
+      // Reserve before the request starts. Successful responses are recorded
+      // later, so a ledger-only check lets a whole concurrent fan-out cross the
+      // line together. Attempts (including retries) count conservatively.
+      if (AI_DAILY_CALL_CAP > 0) {
+        const reserved = _aiCallsAtBuildStart + _aiAttemptSlots;
+        if (aiDailyCallCapReached(_aiCallsAtBuildStart, _aiAttemptSlots, AI_DAILY_CALL_CAP)) {
+          _aiBudgetStopped = true;
+          if (!_aiCapLogged) {
+            _aiCapLogged = true;
+            console.log(`  ⚠ AI daily call cap hit (${reserved.toLocaleString()} ≥ ${AI_DAILY_CALL_CAP.toLocaleString()}) — refusing further AI calls today; deterministic paths continue.`);
+          }
+          throw new Error(`AI daily call cap exceeded (${reserved} >= ${AI_DAILY_CALL_CAP})`);
+        }
+        _aiAttemptSlots += 1;
       }
       while (true) {
         const now = Date.now();
@@ -27163,10 +27269,11 @@ const AI_USAGE_FILE = "ai-usage.json";
 const AI_USAGE_HISTORY_DAYS = 14;
 let _aiUsageState = null;
 
-// Paid Gemini Developer API token rates, USD per 1M tokens (2026-07-25).
-// Search-grounding query charges are not represented in usageMetadata, so the
-// log labels this a token-only estimate. Unknown concrete models stay visibly
-// unpriced; moving -latest aliases use a conservative same-class ceiling.
+// Paid Gemini Developer API token rates, USD per 1M tokens (verified
+// 2026-08-11). Grounding query counts are taken from response metadata and
+// conservatively priced at the post-allowance rate. Unknown concrete models
+// stay visibly unpriced; moving -latest aliases use a same-class ceiling.
+const AI_SEARCH_QUERY_USD = 14 / 1000;
 const AI_TOKEN_PRICES = {
   "gemini-2.5-flash-lite": {
     inline: { input: 0.10, cached: 0.01, output: 0.40 },
@@ -27214,7 +27321,11 @@ export function estimateAiBucketCost(model, bucket) {
   const uncached = input - cached;
   const output = Math.max(0, Number(bucket.outputTokens) || 0) +
     Math.max(0, Number(bucket.thoughtTokens) || 0);
-  return ((uncached * price.input) + (cached * price.cached) + (output * price.output)) / 1_000_000;
+  const tokenCost = ((uncached * price.input) + (cached * price.cached) + (output * price.output)) / 1_000_000;
+  // Google includes 5,000 Gemini 3 grounding queries per month, then charges
+  // $14/1,000. Price every observed query at the overage rate so this remains a
+  // conservative spend ceiling even after the shared allowance is exhausted.
+  return tokenCost + ((Math.max(0, Number(bucket.searchQueries) || 0)) * AI_SEARCH_QUERY_USD);
 }
 
 export async function loadAiUsageState() {
@@ -27225,6 +27336,8 @@ export async function loadAiUsageState() {
   } catch (_) {
     _aiUsageState = { dates: {} };
   }
+  _aiCallsAtBuildStart = aiCallsToday();
+  _aiAttemptSlots = 0;
   return _aiUsageState;
 }
 
@@ -27247,7 +27360,7 @@ const AI_HEALTH = {
   byCallType: {},    // callType -> successful-call count
 };
 
-export function recordAiUsage({ model, callType, symbol, usage, mode }) {
+export function recordAiUsage({ model, callType, symbol, usage, mode, searchQueries = 0 }) {
   AI_HEALTH.ok += 1;
   noteAiModelSuccess(model); // a serving model clears its overload strikes/cooldown
   AI_HEALTH.byCallType[callType] = (AI_HEALTH.byCallType[callType] || 0) + 1;
@@ -27256,20 +27369,21 @@ export function recordAiUsage({ model, callType, symbol, usage, mode }) {
   const byDate = (_aiUsageState.dates[today] ??= {});
   const byModel = (byDate[model] ??= {});
   const bucket = (byModel[callType] ??= {
-    calls: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, thoughtTokens: 0, mode: mode || "inline",
+    calls: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, thoughtTokens: 0, searchQueries: 0, mode: mode || "inline",
   });
   bucket.calls += 1;
   bucket.inputTokens += usage?.promptTokenCount || 0;
   bucket.outputTokens += usage?.candidatesTokenCount || 0;
   bucket.cachedTokens += usage?.cachedContentTokenCount || 0;
   bucket.thoughtTokens += usage?.thoughtsTokenCount || 0;
+  bucket.searchQueries = (bucket.searchQueries || 0) + Math.max(0, Number(searchQueries) || 0);
   if (mode) bucket.mode = mode;
   const inT = usage?.promptTokenCount ?? "?";
   const outT = usage?.candidatesTokenCount ?? "?";
   const cachedT = usage?.cachedContentTokenCount ?? 0;
   const thoughtT = usage?.thoughtsTokenCount ?? 0;
   const sym = symbol ? ` ${symbol}` : "";
-  console.log(`    [ai]${sym} ${callType} ${model} in=${inT} cached=${cachedT} out=${outT}${thoughtT ? ` thought=${thoughtT}` : ""}`);
+  console.log(`    [ai]${sym} ${callType} ${model} in=${inT} cached=${cachedT} out=${outT}${thoughtT ? ` thought=${thoughtT}` : ""}${searchQueries ? ` search=${searchQueries}` : ""}`);
 }
 
 // NOTE: this is a full read-modify-overwrite of data/ai-usage.json, shared by
@@ -27277,8 +27391,7 @@ export function recordAiUsage({ model, callType, symbol, usage, mode }) {
 // three workflows now serialized under one concurrency group they no longer
 // overlap. The ledger now ALSO feeds the AI_DAILY_TOKEN_CAP runaway brake in
 // acquireAiSlot (aiTokensToday), so a lost update can under-count the daily
-// total and let the cap trip slightly late — acceptable: the cap is a 2.5×
-// emergency ceiling, not an accounting-grade budget.
+// total. The reserved-request ceiling now bounds same-process fan-out overshoot.
 export async function writeAiUsageState() {
   if (!_aiUsageState) return;
   const cutoff = new Date(Date.now() - AI_USAGE_HISTORY_DAYS * 86400000)
@@ -27296,7 +27409,7 @@ function logAiUsageSummary() {
   const dates = Object.keys(_aiUsageState.dates).sort();
   console.log(`AI usage summary (last ${dates.length} days):`);
   for (const date of dates) {
-    let calls = 0, inT = 0, outT = 0, cachedT = 0, thoughtT = 0, estimatedUsd = 0;
+    let calls = 0, inT = 0, outT = 0, cachedT = 0, thoughtT = 0, searchQueries = 0, estimatedUsd = 0;
     const unpricedModels = new Set();
     for (const [model, byModel] of Object.entries(_aiUsageState.dates[date])) {
       for (const b of Object.values(byModel)) {
@@ -27305,6 +27418,7 @@ function logAiUsageSummary() {
         outT += b.outputTokens;
         cachedT += b.cachedTokens;
         thoughtT += b.thoughtTokens || 0;
+        searchQueries += b.searchQueries || 0;
         const bucketCost = estimateAiBucketCost(model, b);
         if (bucketCost == null) unpricedModels.add(model);
         else estimatedUsd += bucketCost;
@@ -27312,7 +27426,7 @@ function logAiUsageSummary() {
     }
     const cachedPct = inT > 0 ? Math.round((cachedT / inT) * 100) : 0;
     const unpriced = unpricedModels.size ? ` · unpriced=${[...unpricedModels].join(",")}` : "";
-    console.log(`  ${date}: ${calls} calls · in=${inT} out=${outT} thought=${thoughtT} cached=${cachedT} (${cachedPct}%) · token-cost≈$${estimatedUsd.toFixed(4)}${unpriced}`);
+    console.log(`  ${date}: ${calls} calls · in=${inT} out=${outT} thought=${thoughtT} cached=${cachedT} (${cachedPct}%) · search=${searchQueries} · cost-ceiling≈$${estimatedUsd.toFixed(4)}${unpriced}`);
   }
 }
 
@@ -27333,7 +27447,9 @@ export function computeAiHealthReport() {
     status = "keyless";
     reasons.push("no GEMINI_API_KEY — AI steps skipped by design");
   } else if (attempts === 0) {
-    reasons.push("no fresh AI calls needed (all outputs cache-reused)");
+    reasons.push(_aiBudgetStopped
+      ? "daily AI spend cap reached — remaining outputs reused or skipped"
+      : "no fresh AI calls needed (all outputs cache-reused)");
   } else if (AI_HEALTH.ok === 0 && AI_HEALTH.failAttempts >= 3) {
     status = "down";
     reasons.push(`every fresh AI call failed (${AI_HEALTH.failAttempts} failed attempts, 0 successes)`);
@@ -27347,7 +27463,10 @@ export function computeAiHealthReport() {
       status = "degraded";
       reasons.push(`${Math.round(failRate * 100)}% of AI attempts failed (${AI_HEALTH.failAttempts}/${attempts})`);
     }
-    if (status === "ok") reasons.push(`${AI_HEALTH.ok} fresh call(s) succeeded`);
+    if (status === "ok") {
+      reasons.push(`${AI_HEALTH.ok} fresh call(s) succeeded`);
+      if (_aiBudgetStopped) reasons.push("daily AI spend cap reached — remaining outputs reused or skipped");
+    }
   }
   return {
     status, reasons, keyed,
@@ -27499,6 +27618,9 @@ function classifyAiError(err, attempt, model = null) {
   const msg = String(err?.message || "");
   const causeMsg = String(err?.cause?.message || err?.cause?.code || "");
   const combined = msg + " " + causeMsg;
+  // An intentional local spend stop is not a provider-health incident and must
+  // never trigger retries, model failover, or an AI-down alert.
+  if (/AI daily (?:token|call) cap exceeded/i.test(combined)) return null;
   const isDeadModel = /\b404\b|NOT_FOUND/i.test(combined) && /model/i.test(combined);
   AI_HEALTH.failAttempts += 1;
   if (isDeadModel) {
@@ -30374,13 +30496,26 @@ async function attachAiContractGuidance(chains, judgmentCache = null) {
       : (Array.isArray(data?.news?.headlines) ? data.news.headlines : []);
     if (!headlines.length) return;
     const cacheEntry = AI_TICKER_CACHE && judgmentCache ? judgmentCache[sym] : null;
-    const signalsSig = aiSignalsHeadlineSignature(sym, headlines, model);
+    // The model only has headline titles here (no article bodies). If none of
+    // them even names earnings/guidance/contract evidence, the only supported
+    // result is "none"; avoid paying 140 times/hour to rediscover that.
+    const signalHeadlines = headlines.filter((h) => headlineCanContainAiSignals(h?.title));
+    const signalsSig = aiSignalsHeadlineSignature(sym, signalHeadlines, model);
     if (canReuseAiSignals(cacheEntry, signalsSig)) {
       if (cacheEntry.signals) { data.aiSignals = cacheEntry.signals; tagged += 1; }
       reusedSignals += 1;
       return;
     }
-    const headlineBlock = headlines
+    if (!signalHeadlines.length) {
+      delete data.aiSignals;
+      if (cacheEntry) {
+        cacheEntry.signals = null;
+        cacheEntry.signalsSig = signalsSig;
+        cacheEntry.signalsAt = new Date().toISOString();
+      }
+      return;
+    }
+    const headlineBlock = signalHeadlines
       .map((h, i) => `${i + 1}. [${h.publishedAt || "unknown date"}] (${h.publisher || "unknown"}) ${h.title}`)
       .join("\n");
     const userMessage =
@@ -30417,6 +30552,7 @@ async function attachAiContractGuidance(chains, judgmentCache = null) {
     }
     if (!response) {
       if (lastErr) console.warn(`[picks] contract/guidance extraction failed for ${sym} — fundamentals fall back to proxy (${String(lastErr.message || lastErr).split("\n")[0]})`);
+      if (cacheEntry?.signals) data.aiSignals = cacheEntry.signals;
       return;
     }
     try {
@@ -31218,15 +31354,37 @@ const TICKER_JUDGMENT_SPOT_DRIFT = Number(process.env.AI_TICKER_CACHE_DRIFT ?? 0
 // accumulate against the ORIGINAL cached title set (a reuse carries the entry
 // forward untouched), so a drip of articles re-reads as soon as the cumulative
 // drip crosses the tolerance. 0 restores exact-match-only reuse.
-// Exact-by-default for production decisions: one new title can be a filing,
-// guidance change, or earnings warning. A nonzero value remains an explicit
-// experiment knob, not the cost-saving default.
-const TICKER_JUDGMENT_NEWS_TOLERANCE = Math.max(0, Number(process.env.AI_TICKER_CACHE_NEWS_TOLERANCE ?? 0));
+// Default one-title tolerance is guarded by the material-headline classifier
+// below: earnings, guidance, analyst, capital, legal, management, product, and
+// contract developments still force an immediate re-read.
+const TICKER_JUDGMENT_NEWS_TOLERANCE = Math.max(0, Number(process.env.AI_TICKER_CACHE_NEWS_TOLERANCE ?? 1));
 
 // Titles are compared case-/whitespace-insensitively so a publisher touching
 // up capitalization doesn't count as "new news".
 function normalizeHeadlineTitle(title) {
   return String(title || "").trim().toLowerCase();
+}
+
+// One ordinary syndication/SEO headline should not trigger a full-universe AI
+// re-read. These terms cover the discrete developments that can change a swing
+// thesis or the two AI-derived fundamentals signals; any new matching title
+// bypasses the tolerance and refreshes immediately. The raw linked headline
+// feed is always current regardless of cache reuse.
+const MATERIAL_AI_HEADLINE_RE = /\b(?:earnings|results?|revenue|eps|guidance|outlook|forecast|preannounc|profit warning|raises?|cuts?|lowers?|downgrad|upgrad|price target|fda|clinical trial|phase [123]|approval|reject|merger|acqui(?:re|res|red|sition)|takeover|bankrupt|restructur|layoffs?|ceo|cfo|resign|appoint|investigation|subpoena|lawsuit|settlement|offering|dilution|buyback|repurchase|dividend|contract|award|order|deal|agreement|partnership|selected|launch|recall|breach|cyberattack)\b/i;
+export function isMaterialAiHeadline(title) {
+  return MATERIAL_AI_HEADLINE_RE.test(String(title || ""));
+}
+export function newMaterialAiHeadlineCount(cachedTitles, freshTitles) {
+  const cached = new Set((cachedTitles || []).map(normalizeHeadlineTitle));
+  return (freshTitles || [])
+    .map(normalizeHeadlineTitle)
+    .filter((title) => title && !cached.has(title) && isMaterialAiHeadline(title))
+    .length;
+}
+
+const AI_SIGNAL_HEADLINE_RE = /\b(?:earnings|results?|guidance|outlook|forecast|preannounc|raises?|cuts?|lowers?|full[- ]year|fiscal|fy ?'?\d{2,4}|contract|award|order|deal|agreement|partnership|selected|backlog)\b/i;
+export function headlineCanContainAiSignals(title) {
+  return AI_SIGNAL_HEADLINE_RE.test(String(title || ""));
 }
 
 // Returns { sig, metaSig, titles }: `sig` is the exact-match key; `metaSig` is
@@ -31384,7 +31542,8 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
           ) {
             const cachedTitles = new Set(prior.titles);
             const freshCount = titles.filter((t) => !cachedTitles.has(t)).length;
-            if (freshCount <= TICKER_JUDGMENT_NEWS_TOLERANCE) {
+            const materialFresh = newMaterialAiHeadlineCount(prior.titles, titles);
+            if (freshCount <= TICKER_JUDGMENT_NEWS_TOLERANCE && materialFresh === 0) {
               reuseWhy = `${freshCount} new headline(s) within tolerance ${TICKER_JUDGMENT_NEWS_TOLERANCE}`;
             }
           }
@@ -31437,7 +31596,17 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
         console.log(`  ✓ ${sym} — ${news.sentiment} (${headlines.length} articles, ${withBody} with body)${fundTag}${catTag}`);
       } catch (err) {
         console.log(`  ✗ ${sym} ticker judgment failed: ${err.message}`);
-        if (!data.news) data.news = null;
+        // Budget stops and transient provider failures keep the last successful
+        // interpretation. Fresh raw headlines were already captured above, so
+        // the News desk still updates while the AI layer degrades explicitly.
+        const prior = AI_TICKER_CACHE ? priorCache[sym] : null;
+        if (prior?.news) {
+          data.news = prior.news;
+          if (prior.judgment) data.fundamentals = { ...data.fundamentals, judgment: prior.judgment };
+          data.catalysts = Array.isArray(prior.catalysts) ? prior.catalysts : [];
+          if (prior.aiSignals) data.aiSignals = prior.aiSignals;
+          nextCache[sym] = prior;
+        } else if (!data.news) data.news = null;
       }
     })));
   await runPass(entries);

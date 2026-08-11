@@ -225,6 +225,11 @@ jobs:
           # TPM line at this token size; 750 is the aggressive option.) Leave
           # UNSET on a free-tier fork (Gemma free = 15 RPM; even 100 is too high).
           AI_RPM: "600"
+          # Hard spend brakes shared with the private ai-usage ledger. Defaults
+          # in build.mjs remain active when these variables are unset; repo
+          # variables let the owner tighten them immediately without a deploy.
+          AI_DAILY_TOKEN_CAP: ${{ vars.AI_DAILY_TOKEN_CAP }}
+          AI_DAILY_CALL_CAP: ${{ vars.AI_DAILY_CALL_CAP }}
           # The chart-pattern pass is the build's largest AI wall-clock block on
           # its twice-daily cache-rollover builds (~139 fresh vision+thinking
           # calls at ~30-60s each). 12-wide instead of the code default 6 halves

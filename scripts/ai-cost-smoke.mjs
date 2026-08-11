@@ -3,8 +3,12 @@
 // No network or GEMINI_API_KEY required.
 import assert from "node:assert/strict";
 import {
+  aiDailyCallCapReached,
   chartPatternRefreshState,
   estimateAiBucketCost,
+  headlineCanContainAiSignals,
+  isMaterialAiHeadline,
+  newMaterialAiHeadlineCount,
 } from "./build.mjs";
 import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
 
@@ -25,6 +29,19 @@ assert.equal(estimateAiBucketCost("gemini-2.5-flash", oneMillion), 0.30);
 assert.equal(estimateAiBucketCost("gemini-2.5-flash-lite", oneMillion), 0.10);
 assert.equal(estimateAiBucketCost("gemini-flash-latest", oneMillion), 1.50);
 assert.equal(estimateAiBucketCost("gemini-flash-lite-latest", oneMillion), 0.30);
+assert.equal(
+  estimateAiBucketCost("gemini-3.1-flash-lite", { ...oneMillion, searchQueries: 2 }),
+  0.25 + (2 * 0.014),
+  "grounding overage must be visible in the conservative cost ceiling",
+);
+
+assert.equal(isMaterialAiHeadline("Company raises full-year guidance after earnings"), true);
+assert.equal(isMaterialAiHeadline("Three stocks investors are watching this morning"), false);
+assert.equal(newMaterialAiHeadlineCount(["routine market recap"], ["routine market recap", "FDA approves lead drug"]), 1);
+assert.equal(headlineCanContainAiSignals("Wins a $2 billion defense contract"), true);
+assert.equal(headlineCanContainAiSignals("Shares move in afternoon trading"), false);
+assert.equal(aiDailyCallCapReached(600, 149, 750), false, "the final reserved slot must remain available");
+assert.equal(aiDailyCallCapReached(600, 150, 750), true, "concurrent reservations must close the daily call budget exactly at the cap");
 
 const symbols = Array.from({ length: 10 }, (_, i) => `T${i}`);
 const validTicker = (symbol, overrides = {}) => ({
