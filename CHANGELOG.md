@@ -24,7 +24,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
-- **Gemini spend is bounded and repeated hourly reasoning is reused safely.** Full builds stop at 4 million recorded tokens or 750 reserved requests per UTC day, preserve last-good AI output when a brake trips, price observed Google Search grounding in the usage ceiling, reuse Top Picks grades for five hours only while material thesis inputs are stable, tolerate one non-material syndicated headline while refreshing immediately for decision-moving news, and skip contract/guidance extraction when no relevant headline exists. Fresh market data, raw linked headlines, deterministic scoring, and hard execution gates still update every build. `.github/workflows/daily.yml`, `scripts/{build,ai-cost-smoke,picks-smoke}.mjs`.
+- **Gemini spend is bounded and repeated hourly reasoning is reused safely.** Full builds stop at 4 million recorded tokens or 750 reserved requests per UTC day, preserve last-good AI output when a brake trips, price observed Google Search grounding in the usage ceiling, reuse Top Picks grades for five hours only while material thesis inputs are stable, tolerate one non-material syndicated headline while refreshing immediately for decision-moving news, and skip contract/guidance extraction when no relevant headline exists. Fresh market data, raw linked headlines, deterministic scoring, and hard execution gates still update every build. (#599) `.github/workflows/daily.yml`, `scripts/{build,ai-cost-smoke,picks-smoke}.mjs`.
 
 ## 2026-08-10
 
