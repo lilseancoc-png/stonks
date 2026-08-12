@@ -22,6 +22,18 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-08-11
 
+### Added
+
+- **Ideas & Flow adds a moving-average crossover tracker.** Every tracked stock is screened against its 20/50/100/200-day SMA, names within 5% are separated into cross-above and cross-below queues, and a transparent 0–100 priority score ranks proximity, gap contraction, aligned 1D/5D momentum, relative volume, and nearby-average confluence. The public desk refreshes from regular-session quotes while open and labels its ranking as evidence, not a calibrated probability. `scripts/{build,regen-static,ma-tracker-smoke,verify-data-freshness}.mjs`, `scripts/render/{html,app-js,styles-css}.mjs`, `docs/site-logic.md`.
+
+### Changed
+
+- **AI CapEx expands beyond the Mag-7 to ORCL, TSM and MU.** The SEC-backed history, revenue burden, and aggregate buildout read now cover ten major infrastructure buyers; TSMC routes through its IFRS PP&E-purchase and revenue concepts while management guidance remains a separate comparable subset. `scripts/build.mjs`, `scripts/render/{html,app-js}.mjs`, `docs/site-logic.md`.
+
+### Removed
+
+- **Day Trading and its Track Record remove the 1DTE options book.** The 15-minute owner engine now scans, sizes, marks, and reports only stock long/short paper trades; history schema v2 drops the retired options ledger and option session aggregates while retaining the stock record, and the scanner no longer fetches option chains. `lib/day-trading-engine.mjs`, `scripts/{scan-day-trading,day-trading-smoke,verify-data-freshness}.mjs`, `scripts/render/{html,app-js}.mjs`, `docs/day-trading-engine.md`.
+
 ### Fixed
 
 - **Gemini spend is bounded and repeated hourly reasoning is reused safely.** Full builds stop at 4 million recorded tokens or 750 reserved requests per UTC day, preserve last-good AI output when a brake trips, price observed Google Search grounding in the usage ceiling, reuse Top Picks grades for five hours only while material thesis inputs are stable, tolerate one non-material syndicated headline while refreshing immediately for decision-moving news, and skip contract/guidance extraction when no relevant headline exists. Fresh market data, raw linked headlines, deterministic scoring, and hard execution gates still update every build. (#599) `.github/workflows/daily.yml`, `scripts/{build,ai-cost-smoke,picks-smoke}.mjs`.

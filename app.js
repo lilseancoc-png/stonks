@@ -86,12 +86,12 @@
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.03730;
+  var RFR = 0.03675;
   // Provenance for the risk-free rate baked above. source is
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-08-11","ageDays":null};
+  var RFR_META = {"source":"cached","asOf":"2026-07-31","ageDays":12};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null, chainRequestSeq: 0 };
   var ownerAutoPicks = { data: null, pending: null };
@@ -3360,13 +3360,14 @@
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','rotation','picks','stocks','heatmap','calendar','earnings','calls','spillover','quant','daytrade','daytrack','levetf','index-cal','overnight','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','rotation','picks','stocks','heatmap','calendar','earnings','calls','spillover','quant','daytrade','daytrack','levetf','index-cal','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
   // home, which made shared URLs look broken.
   var PAGE_TAB_ALIASES = {
     unusual: 'flow', 'unusual-flow': 'flow',
+    ma: 'ma-tracker', 'moving-average': 'ma-tracker', 'moving-averages': 'ma-tracker', 'ma-cross': 'ma-tracker',
     fear: 'fear-greed', greed: 'fear-greed', 'fear-and-greed': 'fear-greed',
     '13f': 'f13', '13f-filings': 'f13',
     bonds: 'bonds-usd', usd: 'bonds-usd',
@@ -3676,6 +3677,7 @@
       if (name !== 'picks' && typeof stopPicksLive === 'function') stopPicksLive();
       if (name !== 'market' && typeof stopMacroTapeLive === 'function') stopMacroTapeLive();
       if (name !== 'oi' && typeof stopOiLive === 'function') stopOiLive();
+      if (name !== 'ma-tracker' && typeof stopMaTrackerLive === 'function') stopMaTrackerLive();
       if (name === 'brief' && typeof loadBrief === 'function') loadBrief();
         if (name === 'news' && typeof loadNewsFeed === 'function') loadNewsFeed();
         if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
@@ -3703,6 +3705,8 @@
         // Lazy data (manifest diet): the hourly scan payload backs the Volume
         // tab's flag list.
         if (name === 'volume' && typeof loadVolumeFlagsData === 'function') loadVolumeFlagsData();
+        if (name === 'ma-tracker' && typeof loadMaTracker === 'function') loadMaTracker();
+        if (name === 'ma-tracker' && typeof startMaTrackerLive === 'function') startMaTrackerLive();
         // Auto-live spot refreshes — poll only while the owning tab is visible.
         if (name === 'tickers' && typeof startTickersLive === 'function') startTickersLive();
         if (name === 'tickers' && typeof ensureTickerDirectoryGrades === 'function') ensureTickerDirectoryGrades();
@@ -18000,8 +18004,109 @@
     bindBriefChips(root);
   }
 
+  // --- Moving-average crossover tracker (Ideas & flow) --------------------
+  var maTrackerState = { data: null, loading: false, live: {}, marketState: '', fetchedAt: 0 };
+  function maTrackerScore(row, period, spot){
+    var level = Number(row && row.levels && row.levels[period]);
+    if (!(spot > 0) || !(level > 0)) return null;
+    var distancePct = (spot / level - 1) * 100;
+    var absDistancePct = Math.abs(distancePct);
+    var band = Number(maTrackerState.data && maTrackerState.data.thresholdPct) || 5;
+    if (absDistancePct > band) return null;
+    var direction = distancePct <= 0 ? 'above' : 'below';
+    var towardSign = direction === 'above' ? 1 : -1;
+    var previous = Number(row && row.previousDistances && row.previousDistances[period]);
+    var sameSide = isFinite(previous) && Math.sign(previous || distancePct) === Math.sign(distancePct || previous);
+    var gapChange = sameSide ? Math.abs(previous) - absDistancePct : null;
+    var live = maTrackerState.live && maTrackerState.live[row.symbol];
+    var move1d = live && isFinite(Number(live.changePct)) ? Number(live.changePct) : Number(row && row.move1dPct);
+    var fiveDayBase = Number(row && row.fiveDayBase);
+    var move5d = live && fiveDayBase > 0 ? (spot / fiveDayBase - 1) * 100 : Number(row && row.move5dPct);
+    var aligned1d = isFinite(move1d) ? move1d * towardSign : null;
+    var aligned5d = isFinite(move5d) ? move5d * towardSign : null;
+    var nearCount = (maTrackerState.data.periods || [20,50,100,200]).filter(function(other){
+      var otherLevel = Number(row && row.levels && row.levels[other]);
+      return otherLevel > 0 && Math.abs(otherLevel / level - 1) * 100 <= 1;
+    }).length;
+    var proximity = Math.max(0, Math.min(50, (band - absDistancePct) / band * 50));
+    var approach = gapChange == null ? 0 : Math.max(0, Math.min(25, gapChange / 1.5 * 25));
+    var momentum = Math.max(0, Math.min(8, (aligned1d || 0) / 2 * 8)) + Math.max(0, Math.min(12, (aligned5d || 0) / 5 * 12));
+    var rvol = Number(row && row.rvol);
+    var volume = rvol >= 2 ? 5 : rvol >= 1.25 ? 4 : rvol >= 1 ? 2 : 0;
+    var confluence = Math.max(0, Math.min(5, (nearCount - 1) * 2.5));
+    var score = Math.round(Math.min(100, proximity + approach + momentum + volume + confluence) * 10) / 10;
+    var status = score >= 70 && gapChange > 0 && aligned5d > 0 ? 'likely' : score >= 55 && gapChange > 0 ? 'building' : 'watch';
+    var sessions = gapChange > .05 ? Math.min(20, Math.max(1, Math.ceil(absDistancePct / gapChange))) : null;
+    return { symbol: row.symbol, name: row.name, sector: row.sector, period: Number(period), level: level, spot: spot,
+      direction: direction, distancePct: distancePct, absDistancePct: absDistancePct, gapChangePct: gapChange,
+      aligned1dPct: aligned1d, aligned5dPct: aligned5d, rvol: rvol, score: score, status: status,
+      projectedSessions: sessions, live: !!(maTrackerState.live && maTrackerState.live[row.symbol]) };
+  }
+  function maTrackerCandidates(){
+    var d = maTrackerState.data || {}; var periods = d.periods || [20,50,100,200]; var out = [];
+    (d.tickers || []).forEach(function(row){
+      var live = maTrackerState.live && maTrackerState.live[row.symbol];
+      var spot = live && live.spot > 0 ? Number(live.spot) : Number(row.spot);
+      periods.forEach(function(period){ var read = maTrackerScore(row, period, spot); if (read) out.push(read); });
+    });
+    return out.sort(function(a,b){ return b.score - a.score || a.absDistancePct - b.absDistancePct || a.symbol.localeCompare(b.symbol) || a.period - b.period; });
+  }
+  function maTrackerRow(read){
+    var tone = read.status === 'likely' ? ' likely' : read.status === 'building' ? ' building' : '';
+    var move = read.direction === 'above' ? 'Cross above' : 'Cross below';
+    var approach = read.gapChangePct == null ? 'prior gap unavailable' : read.gapChangePct > 0 ? 'gap narrowed ' + read.gapChangePct.toFixed(2) + ' pts' : 'gap widened ' + Math.abs(read.gapChangePct).toFixed(2) + ' pts';
+    var eta = read.projectedSessions ? '~' + read.projectedSessions + ' session' + (read.projectedSessions === 1 ? '' : 's') + ' at recent approach rate' : 'no stable approach rate';
+    return '<tr class="ma-track-row' + tone + '"><td><a class="quant-sym" href="' + symGradeHref(read.symbol) + '">' + escapeHtml(read.symbol) + '</a><small>' + escapeHtml(read.sector || '') + '</small></td>' +
+      '<td><b>' + read.period + 'D</b><small>' + move + '</small></td><td>' + fmtMoney(read.spot) + '<small>' + (read.live ? 'live regular session' : 'build price') + '</small></td>' +
+      '<td>' + fmtMoney(read.level) + '<small class="' + (read.direction === 'above' ? 'quant-pos' : 'quant-neg') + '">' + (read.distancePct > 0 ? '+' : '') + read.distancePct.toFixed(2) + '% vs MA</small></td>' +
+      '<td><span class="ma-track-score ' + read.status + '">' + Math.round(read.score) + '</span><small>' + read.status + '</small></td>' +
+      '<td class="dt-wrap">' + escapeHtml(approach) + '<small>' + escapeHtml(eta) + '</small></td><td>' + (isFinite(read.aligned5dPct) ? (read.aligned5dPct > 0 ? '+' : '') + read.aligned5dPct.toFixed(2) + '%' : '—') + '<small>5D toward level</small></td><td>' + (isFinite(read.rvol) ? read.rvol.toFixed(2) + '×' : '—') + '<small>relative volume</small></td></tr>';
+  }
+  function renderMaTracker(){
+    var root = $('ma-tracker-root'); var empty = $('ma-tracker-empty'); var eye = $('ma-tracker-eyebrow');
+    if (!root) return; var d = maTrackerState.data;
+    if (!d){ root.textContent = maTrackerState.loading ? 'Loading moving-average tracker…' : 'Moving-average tracker unavailable.'; return; }
+    var rows = maTrackerCandidates();
+    if (eye) eye.textContent = rows.length + ' levels · ' + new Set(rows.map(function(row){ return row.symbol; })).size + ' stocks' + (maTrackerState.marketState === 'REGULAR' ? ' · live' : ' · build prices');
+    if (!rows.length){ root.hidden = true; if (empty) empty.hidden = false; return; }
+    root.hidden = false; if (empty) empty.hidden = true;
+    var above = rows.filter(function(row){ return row.direction === 'above'; });
+    var below = rows.filter(function(row){ return row.direction === 'below'; });
+    var likely = rows.filter(function(row){ return row.status === 'likely'; });
+    var lead = rows[0]; var leadText = lead ? lead.symbol + ' toward a ' + lead.period + 'D cross ' + lead.direction : 'No current leader';
+    var summary = '<section class="ma-track-desk"><div><span class="ma-track-kicker">Crossover priority</span><h3>' + escapeHtml(leadText) + '</h3><p>' + (lead ? Math.round(lead.score) + '/100 priority · ' + lead.absDistancePct.toFixed(2) + '% from the average · ' + (lead.gapChangePct > 0 ? 'gap contracting' : 'needs fresh approach confirmation') : 'Cash/watch mode until a name enters the 5% band.') + '</p></div>' +
+      '<div class="ma-track-stats"><span><b>' + likely.length + '</b><small>Likely</small></span><span><b>' + above.length + '</b><small>Cross above</small></span><span><b>' + below.length + '</b><small>Cross below</small></span></div></section>';
+    var leaderPanel = function(label, list, cls){
+      return '<section class="ma-track-leader ' + cls + '"><header><span>' + label + '</span><small>Highest crossover priority</small></header>' +
+        (list.length ? list.slice(0, 3).map(function(read){
+          return '<a href="' + symGradeHref(read.symbol) + '"><b>' + escapeHtml(read.symbol) + '</b><span>' + read.period + 'D · ' + Math.round(read.score) + '/100</span><em>' + read.absDistancePct.toFixed(2) + '% away · ' + escapeHtml(read.status) + '</em></a>';
+        }).join('') : '<p>No stock in the 5% band.</p>') + '</section>';
+    };
+    var leaders = '<div class="ma-track-leaders">' + leaderPanel('Most likely to cross above', above, 'is-above') + leaderPanel('Most likely to cross below', below, 'is-below') + '</div>';
+    var table = '<div class="ma-track-table-wrap"><table class="ma-track-table"><thead><tr><th>Stock</th><th>Average</th><th>Price</th><th>Level / gap</th><th>Priority</th><th>Approach</th><th>Momentum</th><th>Volume</th></tr></thead><tbody>' + rows.map(maTrackerRow).join('') + '</tbody></table></div>';
+    root.innerHTML = summary + leaders + '<p class="ma-track-note"><b>Interpretation:</b> ranking measures evidence of an approaching cross; it does not estimate the probability that a cross will hold. Confirm with a daily close and volume before acting.</p>' + table;
+  }
+  function loadMaTracker(){
+    if (maTrackerState.data || maTrackerState.loading){ renderMaTracker(); return; }
+    maTrackerState.loading = true;
+    fetch(dataUrl('ma-tracker.json'), { cache: 'no-cache' }).then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){ maTrackerState.data = j && typeof j === 'object' ? j : { tickers: [] }; maTrackerState.loading = false; renderMaTracker(); if (maTrackerLivePoller) maTrackerLivePoller.poke(); })
+      .catch(function(){ maTrackerState.loading = false; maTrackerState.data = { tickers: [], loadError: true }; renderMaTracker(); });
+  }
+  var maTrackerLivePoller = createQuotesPoller({
+    paneId: 'page-pane-ma-tracker',
+    symbols: function(){ return (maTrackerState.data && maTrackerState.data.tickers || []).map(function(row){ return row.symbol; }); },
+    onQuotes: function(quotes, marketState){
+      var map = {}; quotes.forEach(function(q){ if (q && q.symbol && q.spot > 0) map[String(q.symbol).toUpperCase()] = q; });
+      maTrackerState.live = map; maTrackerState.marketState = marketState || ''; maTrackerState.fetchedAt = Date.now(); renderMaTracker();
+    },
+    onError: function(){ maTrackerState.live = {}; maTrackerState.marketState = ''; renderMaTracker(); },
+  });
+  function startMaTrackerLive(){ maTrackerLivePoller.start(); }
+  function stopMaTrackerLive(){ maTrackerLivePoller.stop(); }
+
   // --- AI CapEx (Alt data section) ----------------------------------------
-  // Aggregate Mag-7 capital expenditure from data/ai-capex.json — SEC XBRL
+  // Aggregate major AI infrastructure buyers' CapEx from data/ai-capex.json — SEC XBRL
   // CapEx, latest full FY vs the year before (+ TTM run-rate), per company.
   var aiCapexState = { data: null, loading: false };
   function cxGuidanceDollars(g){
@@ -18088,7 +18193,7 @@
       var runRateDir = runRatePct == null ? '' : (runRatePct >= 0 ? 'cx-up' : 'cx-down');
       head = '<div class="cx-hero">' +
         '<div class="cx-hero-main">' +
-          '<div class="cx-hero-label">Total Mag-7 CapEx · ' + fyLbl + ' (latest reported)</div>' +
+          '<div class="cx-hero-label">Tracked AI CapEx · ' + fyLbl + ' (latest reported)</div>' +
           '<div class="cx-hero-val">' + cxDollars(t.fyLatestSum) + '</div>' +
           (t.fyPriorSum != null ?
             '<div class="cx-hero-sub ' + dir + '">' +
@@ -18192,7 +18297,7 @@
         : (cycleTone === 'cool'
           ? '<div class="cx-actions"><button type="button" class="cx-action cx-action-primary" data-cx-tab="heatmap">Open Heatmap</button><button type="button" class="cx-action" data-cx-tab="calls">Open Earnings calls</button><button type="button" class="cx-action" data-cx-grade="NVDA">Grade NVDA</button></div>'
           : '<div class="cx-actions"><button type="button" class="cx-action cx-action-primary" data-cx-grade="NVDA">Grade NVDA</button><button type="button" class="cx-action" data-cx-tab="heatmap">Open Heatmap</button><button type="button" class="cx-action" data-cx-tab="calls">Open Earnings calls</button></div>');
-      var guideStrip = guide ? '<div class="cx-guide"><div class="cx-guide-total"><span>Management ' + escapeHtml(guide.period || '2026') + ' outlook</span><b>' + guideValue + '</b><small>' + guide.count + ' reporting companies; AAPL and NVDA give no full-year CapEx guide</small></div>' +
+      var guideStrip = guide ? '<div class="cx-guide"><div class="cx-guide-total"><span>Management ' + escapeHtml(guide.period || '2026') + ' outlook</span><b>' + guideValue + '</b><small>' + guide.count + ' companies with a comparable full-year guide; unreported guides are excluded</small></div>' +
         '<div class="cx-guide-latest"><span>Latest earnings revision</span>' +
           (latestGuide ? '<b>' + escapeHtml(latestGuide.ticker) + ' ' + cxGuidanceDollars(latestGuide) + '</b><small>' + escapeHtml(latestGuide.event || latestGuide.asOf || '') + (latestGuide.change ? ' &middot; ' + escapeHtml(latestGuide.change) : '') + ' &middot; <a href="' + escapeHtml(latestGuide.sourceUrl || '#') + '" target="_blank" rel="noopener">primary source</a></small>' : '<b>No current guide</b>') +
         '</div><p>' + escapeHtml(guide.comparabilityNote || '') + '</p></div>' : '';
@@ -21005,7 +21110,7 @@
     book = book || {};
     summary = summary || {};
     var closed = Array.isArray(book.closed) ? book.closed : [];
-    var pnlKey = kind === 'options' ? 'optionsPnl' : 'stockPnl';
+    var pnlKey = 'stockPnl';
     var days = sessions.map(function(row){ return Number(row[pnlKey]); }).filter(isFinite);
     var sorted = closed.slice().sort(function(a, b){ return Date.parse(a.closedAt || 0) - Date.parse(b.closedAt || 0); });
     var half = Math.floor(sorted.length / 2);
@@ -21061,21 +21166,21 @@
       '</div>';
     var summaries = d.portfolios || {};
     html += '<div class="dt-books">';
-    [['options','1DTE options'],['stock','Stock long / short']].forEach(function(pair){
+    [['stock','Stock long / short']].forEach(function(pair){
       var key = pair[0]; var s = summaries[key] || {}; var p = s.policy || {};
       var gate = p.hardStopped ? 'hard stopped' : p.weeklyCut ? 'weekly cut' : p.profitLocked ? 'profit lock' : p.softWarning ? 'soft warning' : 'normal risk';
       html += '<section class="dt-book"><div class="dt-book-head"><div><small>' + pair[1] + '</small><h4>' + dtMoney(s.resetEquity) + '</h4></div><span>' + escapeHtml(gate) + '</span></div>' +
-        '<div class="dt-book-grid"><span><small>Never-reset</small><b>' + dtMoney(s.trueEquity) + '</b></span><span><small>Today</small><b class="' + dtPnlClass(s.dayRealized) + '">' + dtMoney(s.dayRealized) + ' (' + dtPct(s.dayPct) + ')</b></span><span><small>Open / trades</small><b>' + Number(s.openCount || 0) + ' / ' + Number(s.tradesToday || 0) + '</b></span><span><small>1DTE universe</small><b>' + (key === 'options' ? 'SPY / QQQ / IWM' : 'Tracked stocks') + '</b></span></div></section>';
+        '<div class="dt-book-grid"><span><small>Never-reset</small><b>' + dtMoney(s.trueEquity) + '</b></span><span><small>Today</small><b class="' + dtPnlClass(s.dayRealized) + '">' + dtMoney(s.dayRealized) + ' (' + dtPct(s.dayPct) + ')</b></span><span><small>Open / trades</small><b>' + Number(s.openCount || 0) + ' / ' + Number(s.tradesToday || 0) + '</b></span><span><small>Universe</small><b>Tracked stocks</b></span></div></section>';
     });
     html += '</div>';
-    var open = (d.open?.options || []).concat(d.open?.stock || []);
+    var open = d.open?.stock || [];
     html += '<div class="quant-sub">Open paper trades</div>';
     if (!open.length) html += '<p class="quant-none">No open trades. Cash is the default until a setup clears every score and risk gate.</p>';
     else {
       html += '<div class="quant-scroll"><table class="quant-tbl dt-table"><thead><tr><th>Book</th><th>Name</th><th>Side</th><th>Entry</th><th>Position</th><th>Stop / target</th><th>Confidence</th><th>Invalidation</th><th>Time exit</th></tr></thead><tbody>';
       open.forEach(function(row){
-        var contract = row.book === 'options' ? ('$' + row.strike + row.optionSide.charAt(0).toUpperCase() + ' · ' + row.expiry) : (row.quantity + ' shares');
-        var levels = row.book === 'options' ? '−35% / +70%' : ('$' + row.stop + ' / $' + row.target);
+        var contract = row.quantity + ' shares';
+        var levels = '$' + row.stop + ' / $' + row.target;
         html += '<tr><td>' + escapeHtml(row.book) + '</td><td>' + quantSymLink(row.symbol) + '</td><td class="' + (row.direction === 'long' ? 'quant-pos' : 'quant-neg') + '">' + escapeHtml(row.direction) + '</td><td>$' + Number(row.entryFill).toFixed(2) + '</td><td>' + escapeHtml(contract) + '</td><td>' + escapeHtml(levels) + '</td><td>' + row.confidence + ' / ' + row.threshold + '</td><td class="dt-wrap">' + escapeHtml(row.invalidation || '') + '</td><td class="dt-wrap">' + escapeHtml(row.timeExit || '') + '</td></tr>';
       });
       html += '</tbody></table></div>';
@@ -21090,7 +21195,7 @@
       });
       html += '</tbody></table></div>';
     }
-    html += '<p class="quant-none">Simulation only. Option fills use the ask plus 3% entry slippage, bid minus 3% exit slippage and $0.65/contract each side; stock fills use 5 bp slippage plus $0.005/share. No order is ever sent.</p>';
+    html += '<p class="quant-none">Simulation only. Stock fills use 5 bp slippage plus $0.005/share. No order is ever sent.</p>';
     root.innerHTML = html;
   }
   function renderDayTradingTrack(){
@@ -21106,7 +21211,7 @@
     if (stamp) stamp.textContent = isFinite(updated) ? 'Updated ' + new Date(updated).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : 'Paper ledger';
     var summaries = d.portfolios || {}; var books = h.portfolios || {}; var sessions = Array.isArray(h.sessions) ? h.sessions : [];
     var html = '<div class="dt-books">';
-    [['options','1DTE options'],['stock','Stock long / short']].forEach(function(pair){
+    [['stock','Stock long / short']].forEach(function(pair){
       var key = pair[0]; var s = summaries[key] || {}; var b = books[key] || {};
       html += '<section class="dt-book"><div class="dt-book-head"><div><small>' + pair[1] + '</small><h4>' + Number(s.closedCount || 0) + ' closed</h4></div><span>' + (s.winRate == null ? '— win rate' : s.winRate + '% wins') + '</span></div>' +
         '<div class="dt-book-grid"><span><small>Reset equity</small><b>' + dtMoney(s.resetEquity) + '</b></span><span><small>Never-reset</small><b>' + dtMoney(s.trueEquity) + '</b></span><span><small>Profit factor</small><b>' + (s.profitFactor == null ? '—' : s.profitFactor) + '</b></span><span><small>Avg win / loss</small><b>' + dtMoney(s.avgWin) + ' / ' + dtMoney(s.avgLoss) + '</b></span></div>' +
@@ -21114,7 +21219,7 @@
     });
     html += '</div>';
     var closed = [];
-    ['options','stock'].forEach(function(kind){
+    ['stock'].forEach(function(kind){
       (Array.isArray(books[kind]?.closed) ? books[kind].closed : []).forEach(function(row){ closed.push(row); });
     });
     closed.sort(function(a, b){ return Date.parse(b.closedAt || 0) - Date.parse(a.closedAt || 0); });

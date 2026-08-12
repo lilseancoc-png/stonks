@@ -56,6 +56,7 @@ const SIDE_NAV_ICONS = {
   oi: '<path d="m12 3 10 5.5L12 14 2 8.5Z"/><path d="m2 14.5 10 5.5 10-5.5"/>',
   streaks: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
   'iv-trend': '<path d="m3 17.5 6-6 4 4 8-8.5"/><path d="M14.5 7h6.5v6.5"/>',
+  'ma-tracker': '<path d="M3.5 19.5h17"/><path d="M3.5 4.5v15"/><path d="m6 15 4-4 3 2 5-6"/><path d="M6 9.5h12"/>',
   spillover: '<circle cx="12" cy="12" r="2.5"/><path d="M12 5.5a6.5 6.5 0 0 1 6.5 6.5"/><path d="M12 2a10 10 0 0 1 10 10"/>',
   quant: '<path d="M18 6.5V4H6l6.5 8L6 20h12v-2.5"/>',
   daytrade: '<path d="M3 12h4l2.2-5 4.2 10 2.1-5H21"/><circle cx="12" cy="12" r="9.5"/>',
@@ -605,7 +606,7 @@ function earningsCallsSection() {
 function aiCapexSection() {
   // Card chrome only — content renders client-side from data/ai-capex.json,
   // lazy-fetched on first tab activation by loadAiCapex() in app.js. SEC XBRL
-  // CapEx for the Mag 7: aggregate this-FY-vs-last-FY + per-company comparison.
+  // CapEx for major AI infrastructure buyers: aggregate this-FY-vs-last-FY + per-company comparison.
   return `<section class="card" id="ai-capex-section">
     <header class="card-header">
       <h2 class="card-title">AI buildout spending</h2>
@@ -800,7 +801,7 @@ function dayTradingSection() {
       <div><span>Owner paper engine</span><h2 id="dt-lab-title" class="card-title">Day Trading</h2></div>
       <span id="dt-engine-stamp" class="dt-stamp" aria-live="polite">Loading&hellip;</span>
     </div>
-    ${infoNote('How the Day Trading Engine works', `<p>A deterministic <b>paper-trading</b> engine refreshed every 15 minutes during the regular session. Market bias, the SPY/QQQ 9:30&ndash;10:00 opening range, dealer gamma, recent index closes, volatility regime, scheduled events, volume and technical structure determine whether a setup clears the score. <b>No entry is allowed before 10:00&nbsp;ET; after 10:00 it may enter through the rest of the regular session until the mandatory 16:00 close flatten.</b> The 1DTE options book is limited to <b>SPY, QQQ and IWM</b>; the stock long/short book may use the broader tracked universe. Risk authority remains in force: at most eight trades per book, no position above 25% of equity, correlated-exposure caps, fixed invalidation and 120-minute time stops. This is a simulation, not an order router or financial advice.</p>`)}
+    ${infoNote('How the Day Trading Engine works', `<p>A deterministic <b>stock-only paper-trading</b> engine refreshed every 15 minutes during the regular session. Market bias, the SPY/QQQ 9:30&ndash;10:00 opening range, dealer gamma, recent index closes, volatility regime, scheduled events, volume and technical structure determine whether a long or short setup clears the score. <b>No entry is allowed before 10:00&nbsp;ET; after 10:00 it may enter through the rest of the regular session until the mandatory 16:00 close flatten.</b> Risk authority remains in force: at most eight trades per session, no position above 25% of equity, correlated-exposure caps, fixed invalidation and 120-minute time stops. This is a simulation, not an order router or financial advice.</p>`)}
     <div id="day-trading-root" class="dt-root">Loading owner Day Trading Engine&hellip;</div>
     <div id="day-trading-empty" class="quant-empty" hidden>The engine has not published its first intraday snapshot yet.</div>
   </section>`;
@@ -812,7 +813,7 @@ function dayTradingTrackSection() {
       <div><span>Durable paper ledger</span><h2 id="dt-track-title" class="card-title">Day Trading Track Record</h2></div>
       <span id="dt-track-stamp" class="dt-stamp" aria-live="polite">Loading&hellip;</span>
     </div>
-    ${infoNote('What this record includes', `<p>The 1DTE and stock simulations keep independent $10,000 books. This tab reports every closed paper trade after modeled costs, win rate, profit factor, average win/loss, daily distribution, MAE, true maximum drawdown, reset events and performance by entry period. The reset curve jumps back to $10,000 below $2,000; the never-reset curve does not, so losses cannot be hidden by a reset. Results before the 10:00&nbsp;ET / SPY-QQQ-IWM rule change remain in the durable ledger and are labeled by their frozen entry window.</p>`)}
+    ${infoNote('What this record includes', `<p>The stock long/short simulation starts with a $10,000 paper book. This tab reports every closed stock trade after modeled costs, win rate, profit factor, average win/loss, daily distribution, MAE, true maximum drawdown, reset events and performance by entry period. The reset curve jumps back to $10,000 below $2,000; the never-reset curve does not, so losses cannot be hidden by a reset. Retired 1DTE option results are no longer carried in this tracker.</p>`)}
     <div id="day-trading-track-root" class="dt-root">Loading Day Trading Track Record&hellip;</div>
     <div id="day-trading-track-empty" class="quant-empty" hidden>No paper trades have closed yet.</div>
   </section>`;
@@ -829,7 +830,7 @@ function buildTimelineSection() {
       <article class="refresh-schedule-card is-lead"><span>08:30 ET</span><h3>Premarket Brief</h3><p>The lightweight Brief run starts one hour before the bell and refreshes overnight markets, Fear &amp; Greed, macro releases and headlines. It becomes live immediately after freshness verification and the private-store push; confirm the timestamp in Brief.</p><em>Brief only &middot; no full chain build</em></article>
       <article class="refresh-schedule-card"><span>09:30, then hourly 10:00&ndash;16:00 ET</span><h3>Full market build</h3><p>Refreshes ticker chains and daily/intraday bars, grades, technicals, narratives, calendars, earnings, Market Analysis, Owner idea desks, Quant Lab and the hourly in-session Brief.</p><em>Publishes only after decision-grade freshness checks pass</em></article>
       <article class="refresh-schedule-card"><span>Hourly 09:00&ndash;16:00 ET</span><h3>Flow, Volume &amp; Heatmap</h3><p>Re-scans unusual options flow and intraday volume/S&amp;R breaks, then refreshes heatmap price/change fields. The post-close pass may also publish the sector EOD recap.</p><em>One serialized scan &middot; no partial publish</em></article>
-      <article class="refresh-schedule-card"><span>Every 15 minutes, 09:25&ndash;16:05 guard</span><h3>Owner Day Trading</h3><p>Marks open paper positions and evaluates new setups. Entries run from 10:00 until the 16:00 close; 1DTE entries are SPY/QQQ/IWM only.</p><em>Private snapshot + durable ledger</em></article>
+      <article class="refresh-schedule-card"><span>Every 15 minutes, 09:25&ndash;16:05 guard</span><h3>Owner Day Trading</h3><p>Marks open stock paper positions and evaluates new long/short setups. Entries run from 10:00 until the mandatory 16:00 close flatten.</p><em>Private snapshot + durable ledger</em></article>
       <article class="refresh-schedule-card"><span>~08:30 and ~19:00 ET</span><h3>Near-term OI</h3><p>Sweeps the front two expirations, updates strike walls, day-over-day open-interest changes and the Gamma Squeeze Score before the bell and after settlement has had time to update.</p><em>Twice daily</em></article>
       <article class="refresh-schedule-card"><span>Checked on each full build</span><h3>Central-bank gold</h3><p>Checks the World Gold Council for a new quarterly global-demand estimate and refreshed official country holdings. Source reporting normally lags the current date.</p><em>Quarterly source cadence &middot; last-good carry-forward</em></article>
       <article class="refresh-schedule-card"><span>Monday 11:17 UTC</span><h3>Search Interest</h3><p>Refreshes the 90-day Google Trends theme timelines and change rankings. That is about 07:17 ET during daylight time and 06:17 ET during standard time.</p><em>Weekly &middot; up to 40 source requests</em></article>
@@ -942,6 +943,18 @@ function unusualFlowSection() {
       <div id="flow-empty" class="flow-empty" hidden>No unusual flow flagged in the latest scan.</div>
       <div id="flow-no-results" class="flow-empty" hidden>No tickers match these filters.</div>
     </div>
+  </section>`;
+}
+
+function movingAverageTrackerSection() {
+  return `<section class="card ma-track-card" id="ma-tracker-section">
+    <header class="card-header">
+      <h2 class="card-title">Moving-average crossover tracker</h2>
+      <span class="card-eyebrow" id="ma-tracker-eyebrow" aria-live="polite"></span>
+    </header>
+    ${infoNote('How crossover priority is ranked', `<p>The desk watches every tracked stock against its <b>20, 50, 100 and 200-day simple moving averages</b> and surfaces only levels within 5% of the latest regular-session price. The 0&ndash;100 priority score is deterministic, not a probability: proximity contributes up to 50 points, a contracting gap 25, aligned 1-day/5-day momentum 20, relative volume 5, and nearby-average confluence 5 (the total is capped at 100). &ldquo;Likely&rdquo; requires a high score, a contracting gap and aligned five-session momentum. A cross is a watch trigger, not a trade by itself; confirm the close, volume, broader trend and event risk.</p>`)}
+    <div id="ma-tracker-root" class="ma-track-root">Loading moving-average tracker&hellip;</div>
+    <div id="ma-tracker-empty" class="quant-empty" hidden>No tracked stock is currently within 5% of a monitored moving average.</div>
   </section>`;
 }
 
@@ -1757,6 +1770,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <details class="side-nav-group" data-nav-group="ideas" open>
     <summary class="side-nav-group-label">Ideas &amp; flow</summary>
     <div class="side-nav-group-items">
+      ${sideNavItem('ma-tracker', 'MA tracker')}
       ${sideNavItem('flow', 'Unusual flow')}
       ${sideNavItem('volume', 'Volume')}
       ${sideNavItem('oi', 'Gamma exposure')}
@@ -2135,6 +2149,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-flow" role="tabpanel" aria-labelledby="page-tab-flow" hidden>
   ${unusualFlowSection()}
+  </div>
+  <div class="page-pane" id="page-pane-ma-tracker" role="tabpanel" aria-labelledby="page-tab-ma-tracker" hidden>
+  ${movingAverageTrackerSection()}
   </div>
   <div class="page-pane" id="page-pane-volume" role="tabpanel" aria-labelledby="page-tab-volume" hidden>
   ${volumeCalendarSection()}

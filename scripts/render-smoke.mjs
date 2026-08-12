@@ -50,6 +50,7 @@ try {
   assert.ok(navGroups.every((tag) => /\sopen(?:\s|>)/.test(tag)), "All sidebar navigation groups must start expanded");
   const ideasNav = html.match(/<details class="side-nav-group" data-nav-group="ideas"[\s\S]*?<\/details>/)?.[0] || "";
   assert.ok(ideasNav, "Ideas navigation group must render");
+  assert.match(ideasNav, /data-page-tab="ma-tracker"[\s\S]*?data-page-tab="flow"/);
   assert.doesNotMatch(ideasNav, /data-page-tab="(?:picks|stocks|rotation|levetf|track)"/);
   assert.doesNotMatch(html.match(/<details class="side-nav-group" data-nav-group="desk"[\s\S]*?<\/details>/)?.[0] || "", /data-page-tab="market"/);
   assert.match(html, /data-page-tab="timeline"[\s\S]*?id="page-pane-timeline"/);
@@ -67,6 +68,9 @@ try {
   assert.match(stylesCss, /@media \(max-width: 1023px\)\s*\{[\s\S]*?\.side-nav\s*\{[\s\S]*?top: 0;[\s\S]*?z-index: 65;[\s\S]*?\.side-nav-backdrop\s*\{[\s\S]*?inset: 0;/);
 
   const appJs = renderAppJs({});
+  assert.match(appJs, /function loadMaTracker\(\)[\s\S]*?ma-tracker\.json/);
+  assert.match(appJs, /function maTrackerScore\([\s\S]*?proximity[\s\S]*?approach[\s\S]*?momentum/);
+  assert.match(appJs, /name === 'ma-tracker'[\s\S]*?startMaTrackerLive/);
   assert.match(appJs, /function loadOwnerTools\(\)[\s\S]*?loadStocks\(\);[\s\S]*?loadSectorRotation\(\);[\s\S]*?loadLevEtf\(\);/);
   assert.match(appJs, /stkDcaBlock\(d, false\)/);
   assert.equal((appJs.match(/data-rot-account><\/label>/g) || []).length, 1);
@@ -183,7 +187,7 @@ try {
   assert.match(welcomeSource, /<script defer src="\/_vercel\/insights\/script\.js"><\/script>/);
   assert.doesNotMatch(welcomeSource, /data-disable-auto-track/);
 
-  for (const key of ["grades.json", "TSLA.json", "trends.json", "trends-history.json", "briefs.json", "earnings-tracker.json", "index-calendar.json", "spillover-pairs.json", "unusual.json", "oi-tracker.json", "iv-history/TSLA.json", "manifest.json"]) {
+  for (const key of ["grades.json", "TSLA.json", "trends.json", "trends-history.json", "briefs.json", "earnings-tracker.json", "index-calendar.json", "spillover-pairs.json", "ma-tracker.json", "unusual.json", "oi-tracker.json", "iv-history/TSLA.json", "manifest.json"]) {
     assert.equal(isPremiumKey(key), false, `${key} must take the public cache path`);
     assert.equal(roleClaimForKey(key), null, `${key} must not require a login`);
   }

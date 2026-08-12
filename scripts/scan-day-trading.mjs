@@ -1,8 +1,7 @@
 // Owner-only Quant Lab Day Trading Engine runner.
 //
-// A cheap intraday pass: one batched underlying-quote sweep, two 5-minute index
-// charts, then option-chain requests only for the small candidate/open-position
-// set. It writes data/day-trading.json + data/day-trading-history.json and never
+// A cheap intraday pass: one batched underlying-quote sweep plus two 5-minute
+// index charts. It writes data/day-trading.json + data/day-trading-history.json and never
 // submits an order. The workflow runs it every 15 minutes during the ET session.
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -38,7 +37,6 @@ const yahooFinance = new YahooFinance({
   },
 });
 
-const sleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 const round = (value, digits = 2) => {
   if (!Number.isFinite(Number(value))) return null;
   const k = 10 ** digits;
@@ -261,137 +259,6 @@ function candidateDirection({ signal, grade, technicals, market }) {
   return vote >= 1.5 ? "long" : vote <= -1.5 ? "short" : null;
 }
 
-function optionDateKey(value) {
-  const date = value instanceof Date ? value : new Date(value);
-  return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10) : null;
-}
-
-function utcDateKey(year, month, day) {
-  return new Date(Date.UTC(year, month, day)).toISOString().slice(0, 10);
-}
-
-function observedFixedHoliday(year, month, day) {
-  const date = new Date(Date.UTC(year, month, day));
-  const weekday = date.getUTCDay();
-  if (weekday === 6) date.setUTCDate(date.getUTCDate() - 1);
-  else if (weekday === 0) date.setUTCDate(date.getUTCDate() + 1);
-  return date.toISOString().slice(0, 10);
-}
-
-function nthWeekdayOfMonth(year, month, weekday, nth) {
-  const first = new Date(Date.UTC(year, month, 1));
-  const day = 1 + ((weekday - first.getUTCDay() + 7) % 7) + (nth - 1) * 7;
-  return utcDateKey(year, month, day);
-}
-
-function lastWeekdayOfMonth(year, month, weekday) {
-  const last = new Date(Date.UTC(year, month + 1, 0));
-  last.setUTCDate(last.getUTCDate() - ((last.getUTCDay() - weekday + 7) % 7));
-  return last.toISOString().slice(0, 10);
-}
-
-// Anonymous Gregorian computus. US equity markets close on Good Friday even
-// though it is not a federal holiday.
-function easterSundayUtc(year) {
-  const a = year % 19;
-  const b = Math.floor(year / 100);
-  const c = year % 100;
-  const d = Math.floor(b / 4);
-  const e = b % 4;
-  const f = Math.floor((b + 8) / 25);
-  const g = Math.floor((b - f + 1) / 3);
-  const h = (19 * a + b - d - g + 15) % 30;
-  const i = Math.floor(c / 4);
-  const k = c % 4;
-  const l = (32 + 2 * e + 2 * i - h - k) % 7;
-  const m = Math.floor((a + 11 * h + 22 * l) / 451);
-  const month = Math.floor((h + l - 7 * m + 114) / 31) - 1;
-  const day = ((h + l - 7 * m + 114) % 31) + 1;
-  return new Date(Date.UTC(year, month, day));
-}
-
-function marketHolidayKeysForYear(year) {
-  const keys = new Set([
-    observedFixedHoliday(year, 0, 1),
-    nthWeekdayOfMonth(year, 0, 1, 3), // Martin Luther King Jr. Day
-    nthWeekdayOfMonth(year, 1, 1, 3), // Washington's Birthday
-    lastWeekdayOfMonth(year, 4, 1),   // Memorial Day
-    observedFixedHoliday(year, 6, 4),
-    nthWeekdayOfMonth(year, 8, 1, 1), // Labor Day
-    nthWeekdayOfMonth(year, 10, 4, 4), // Thanksgiving
-    observedFixedHoliday(year, 11, 25),
-  ]);
-  if (year >= 2022) keys.add(observedFixedHoliday(year, 5, 19)); // Juneteenth
-  const goodFriday = easterSundayUtc(year);
-  goodFriday.setUTCDate(goodFriday.getUTCDate() - 2);
-  keys.add(goodFriday.toISOString().slice(0, 10));
-  return keys;
-}
-
-export function isUsEquityMarketHoliday(dateKey) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ""))) return false;
-  const year = Number(dateKey.slice(0, 4));
-  // New Year's Day can be observed on Dec 31 of the preceding calendar year.
-  return marketHolidayKeysForYear(year).has(dateKey) || marketHolidayKeysForYear(year + 1).has(dateKey);
-}
-
-function tradingDaysBetween(fromKey, toKey) {
-  const from = new Date(`${fromKey}T12:00:00Z`);
-  const to = new Date(`${toKey}T12:00:00Z`);
-  if (![from.getTime(), to.getTime()].every(Number.isFinite) || to <= from) return 0;
-  let count = 0;
-  for (const cursor = new Date(from.getTime() + 86400_000); cursor <= to; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
-    const day = cursor.getUTCDay();
-    const key = cursor.toISOString().slice(0, 10);
-    if (day !== 0 && day !== 6 && !isUsEquityMarketHoliday(key)) count += 1;
-  }
-  return count;
-}
-
-function chooseContract(entry, side, spot) {
-  const rows = side === "call" ? entry?.calls || [] : entry?.puts || [];
-  return rows.map((row) => {
-    const bid = Number(row.bid); const ask = Number(row.ask); const strike = Number(row.strike);
-    if (!(ask > 0) || !(bid >= 0) || !(strike > 0)) return null;
-    const spreadPct = (ask - bid) / ask;
-    const moneyness = Math.abs(strike - spot) / spot;
-    if (spreadPct > 0.35 || moneyness > 0.06 || Number(row.openInterest || 0) < 25) return null;
-    const quality = moneyness * 100 + spreadPct * 3 - Math.log10(1 + Number(row.openInterest || 0)) * 0.08;
-    return { row, quality };
-  }).filter(Boolean).sort((a, b) => a.quality - b.quality)[0]?.row || null;
-}
-
-async function fetchOneDteChain(symbol, today, wantedExpiry = null) {
-  const first = await withTimeout(yahooFinance.options(symbol), `options(${symbol})`);
-  const dates = (first?.expirationDates || []).map((date) => ({ date, key: optionDateKey(date) })).filter((row) => row.key);
-  const selected = wantedExpiry
-    ? dates.find((row) => row.key === wantedExpiry)
-    // Strict 1DTE: the contract must expire one trading session after entry.
-    // If an allowed index ETF only lists a later expiry, the options book skips
-    // it while the parallel stock book may still take the setup.
-    : dates.find((row) => row.key > today && tradingDaysBetween(today, row.key) === 1);
-  if (!selected) return null;
-  const firstEntry = first?.options?.[0];
-  const firstKey = optionDateKey(firstEntry?.expirationDate);
-  const response = firstKey === selected.key ? first : await withTimeout(yahooFinance.options(symbol, { date: selected.date }), `options(${symbol},${selected.key})`);
-  const entry = response?.options?.[0];
-  return entry ? { expiry: selected.key, entry, quote: response.quote || first.quote } : null;
-}
-
-async function mapLimit(rows, limit, fn) {
-  const output = new Array(rows.length);
-  let index = 0;
-  await Promise.all(Array.from({ length: Math.min(limit, rows.length) }, async () => {
-    while (index < rows.length) {
-      const i = index++;
-      try { output[i] = await fn(rows[i]); }
-      catch (err) { console.log(`  · ${rows[i]} option chain unavailable: ${err.message}`); output[i] = null; }
-      await sleep(100);
-    }
-  }));
-  return output;
-}
-
 async function main() {
   const now = process.env.DAY_TRADING_NOW ? new Date(process.env.DAY_TRADING_NOW) : new Date();
   const clock = etClock(now);
@@ -408,7 +275,7 @@ async function main() {
     readJson("oi-tracker.json", { tickers: [] }),
     readJson(HISTORY_FILE, emptyDayTradingHistory()),
   ]);
-  const symbols = [...new Set((heatmap?.tickers || []).map((row) => row.t).filter(Boolean).concat(DAY_TRADING_RULES.options.symbols))];
+  const symbols = [...new Set((heatmap?.tickers || []).map((row) => row.t).filter(Boolean))];
   if (!symbols.length) throw new Error("no ticker universe available (heatmap.json missing/empty)");
   const quotes = await fetchQuotes(symbols);
   if (quotes.length < Math.max(10, Math.ceil(symbols.length * 0.5))) throw new Error(`systemic quote failure: ${quotes.length}/${symbols.length}`);
@@ -450,43 +317,11 @@ async function main() {
     if (candidates.length >= CANDIDATE_LIMIT) break;
   }
 
-  // Fetch the candidate contracts plus marks for every open options trade.
-  const openOptions = priorHistory?.portfolios?.options?.open || [];
-  const canEnterNow = !["Sat", "Sun"].includes(clock.weekday) &&
-    clock.minute >= DAY_TRADING_RULES.entryStartEtMin && clock.minute < DAY_TRADING_RULES.forceFlatEtMin &&
-    market.marketOpen !== false && !market.event.block;
-  const allowedOptionSymbols = new Set(DAY_TRADING_RULES.options.symbols);
-  const optionSymbols = [...new Set((canEnterNow ? candidates.filter((row) => allowedOptionSymbols.has(row.symbol)).map((row) => row.symbol) : [])
-    .concat(openOptions.map((row) => row.symbol)))];
-  const chainRows = await mapLimit(optionSymbols, 4, async (symbol) => {
-    const open = openOptions.find((trade) => trade.symbol === symbol);
-    const chain = await fetchOneDteChain(symbol, clock.date, open?.expiry || null);
-    return chain ? { symbol, chain } : null;
-  });
-  const chainBySymbol = new Map(chainRows.filter(Boolean).map((row) => [row.symbol, row.chain]));
-  for (const candidate of candidates) {
-    const chain = chainBySymbol.get(candidate.symbol);
-    if (!chain) continue;
-    const side = candidate.direction === "long" ? "call" : "put";
-    const contract = chooseContract(chain.entry, side, candidate.spot);
-    if (contract) candidate.option = {
-      side, expiry: chain.expiry, strike: Number(contract.strike), bid: Number(contract.bid), ask: Number(contract.ask),
-      last: Number(contract.lastPrice), iv: Number(contract.impliedVolatility), oi: Number(contract.openInterest), volume: Number(contract.volume),
-    };
-  }
-
   const marks = new Map();
   for (const trade of priorHistory?.portfolios?.stock?.open || []) {
     const quote = quoteMap.get(trade.symbol);
     if (quote) marks.set(trade.id, { spot: quote.spot });
   }
-  for (const trade of openOptions) {
-    const chain = chainBySymbol.get(trade.symbol);
-    const rows = trade.optionSide === "call" ? chain?.entry?.calls || [] : chain?.entry?.puts || [];
-    const contract = rows.find((row) => Number(row.strike) === Number(trade.strike));
-    if (contract) marks.set(trade.id, { bid: Number(contract.bid), ask: Number(contract.ask), last: Number(contract.lastPrice) });
-  }
-
   const { history, snapshot } = runDayTradingEngine({ history: priorHistory, candidates, market, marks, now });
   await mkdir(DATA_DIR, { recursive: true });
   await Promise.all([
@@ -495,11 +330,11 @@ async function main() {
   ]);
   console.log(
     `wrote ${STATE_FILE} + ${HISTORY_FILE} — bias ${market.bias}, ${candidates.length} candidates, ` +
-    `${snapshot.open.options.length} option / ${snapshot.open.stock.length} stock open`,
+    `${snapshot.open.stock.length} stock open`,
   );
 }
 
 const isEntryPoint = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isEntryPoint) main().catch((err) => { console.error(err); process.exit(1); });
 
-export { buildMarket, candidateDirection, chooseContract, eventGate, openingRange, tradingDaysBetween };
+export { buildMarket, candidateDirection, eventGate, openingRange };

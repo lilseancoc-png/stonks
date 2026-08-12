@@ -10,6 +10,7 @@ import {
   FOMC_MEETINGS_BASELINE,
   RFR_CACHE_MAX_DAYS,
   buildHeatmapPayload,
+  buildMovingAverageTracker,
   ensureTickerCoverage,
   readRfrHistory,
   renderAppJs,
@@ -262,9 +263,17 @@ try {
   heatmapNote = `data/heatmap.json (${heatmapPayload.tickers.length} tickers, seeded)`;
 }
 
+// The MA tracker is bake-owned and deterministic over the same persisted
+// ticker payloads, so renderer-only regeneration can keep its local contract
+// current without any Yahoo or AI calls.
+const maTrackerPayload = buildMovingAverageTracker(chainsForHeatmap, builtAtIso);
+const maTrackerJson = JSON.stringify(maTrackerPayload);
+await writeFile(resolve(DATA_DIR, "ma-tracker.json"), maTrackerJson, "utf8");
+const maTrackerNote = `data/ma-tracker.json (${maTrackerPayload.summary.inBand} in-band levels)`;
+
 console.log(
   `Regenerated index.html (${(html.length / 1024).toFixed(1)} KB), ` +
     `styles.css (${(css.length / 1024).toFixed(1)} KB), ` +
     `app.js (${(js.length / 1024).toFixed(1)} KB), ` +
-    `${heatmapNote}.`,
+    `${heatmapNote}, ${maTrackerNote}.`,
 );
