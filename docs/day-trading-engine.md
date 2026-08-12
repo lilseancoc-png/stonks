@@ -1,20 +1,20 @@
-# Day Trading Engine — owner-only paper portfolios
+# Day Trading Engine — owner-only stock paper portfolio
 
 **Status: live implementation.** Current feed: `data/day-trading.json`; durable
 ledger: `data/day-trading-history.json`. Both are private, no-store, and require
-the same combined `tr` + `tp` claims as the rest of Owner. Current state and
-the durable record render in separate Day Trading tabs. The scanner is
-`scripts/scan-day-trading.mjs`, the pure decision/risk/accounting core is
-`lib/day-trading-engine.mjs`, and `.github/workflows/day-trading.yml` runs the
-pass every 15 minutes during the regular ET session. It is a simulator: no code
-path submits an order.
+the Owner claims. Current state and the durable record render in separate Day
+Trading tabs. The scanner is `scripts/scan-day-trading.mjs`, the pure
+decision/risk/accounting core is `lib/day-trading-engine.mjs`, and
+`.github/workflows/day-trading.yml` runs the pass every 15 minutes during the
+regular ET session. It is a stock-only simulator: no code path submits an
+order, and the retired 1DTE options book is not generated or retained.
 
 ## Decision stack
 
 The scanner supplies live underlying quotes, SPY/QQQ five-minute opening bars,
 the prior index calendar, VIX/term structure, scheduled macro events, the volume
-board, per-name technicals/ATR, grades, GEX and a small set of liquid 1DTE
-contracts. The engine scores seven auditable components:
+board, per-name technicals/ATR, grades and GEX. The engine scores seven auditable
+components:
 
 1. market bias;
 2. the completed 9:30–10:00 ET opening-range direction;
@@ -28,46 +28,45 @@ The normal entry bar is 72/100. A neutral tape raises it to 82; high/crisis
 volatility, scheduled-event risk and a portfolio soft-loss warning raise it
 again. Missing opening-range bars score zero for that component but do not
 silently extend the time gate beyond 10:00 ET. Scheduled high-impact windows
-block entries; a high-impact day outside the immediate release window halves size.
+block entries; a high-impact day outside the immediate release window halves
+size.
 
 ## Time and risk authority
 
 - No entry before 10:00 ET. New entries may occur throughout the rest of the
   regular session until the mandatory 16:00 ET close flatten begins.
-- Maximum eight entries per book per session and 25% of current reset equity in
-  any position.
+- Maximum eight entries per session and 25% of current reset equity in any
+  position.
 - Same-direction heat is capped at three positions and same-sector/same-side
   heat at two positions.
-- Options risk targets 0.5–1.0% per entry and aggregate open stop risk is capped
-  at 2.5%. Stock risk targets 0.4–0.8% per entry.
-- Options: SPY, QQQ and IWM only, with an expiry exactly one trading session
-  after entry (otherwise that setup is skipped by the options book), bought
-  at ask + 3% slippage, sold at bid − 3%, $0.65/contract each side; hard stop
-  −35%, scale half at +35%, trail the rest, final target +70%.
-- Stock: ATR/nearby-structure stop, 1.8R target, scale half at +1R and trail the
-  rest above breakeven; 5 bp fill slippage and $0.005/share costs.
-- Both books time out after 120 minutes even if neither price level traded.
-- A forced 16:00 close or daily-stop exit still closes when the final live lookup is
-  missing: it uses the last observed raw mark, or the entry reference when no
-  mark was ever recorded, applies normal exit costs, and records `markFallback`
-  on the exit for auditability.
-- Daily hard stops: −7% options / −5% stock; soft warnings at −3.5% / −3%;
-  profit lock at +3.5%; weekly reduction/pause at −13.5%. A 10% high-water
-  drawdown temporarily halves size.
+- Stock risk targets 0.4–0.8% per entry.
+- Each position uses an ATR/nearby-structure stop, 1.8R target, scales half at
+  +1R and trails the rest above breakeven; modeled execution uses 5 bp slippage
+  and $0.005/share costs.
+- Positions time out after 120 minutes even if neither price level traded.
+- A forced 16:00 close or daily-stop exit still closes when the final live
+  lookup is missing: it uses the last observed raw mark, or the entry reference
+  when no mark was recorded, applies normal exit costs, and records
+  `markFallback` for auditability.
+- Daily hard stop: −5%; soft warning: −3%; profit lock: +3.5%; weekly reduction
+  or pause: −13.5%. A 10% high-water drawdown temporarily halves size.
 
 ## Accounting and track record
 
-Two independent books start at $10,000. Each keeps `resetEquity` and
-`trueEquity`: realized dollars hit both, but only the reset curve jumps back to
-$10,000 below $2,000. The reset event is logged; the never-reset curve remains
-untouched for honest drawdown measurement.
+The stock book starts at $10,000 and keeps `resetEquity` and `trueEquity`:
+realized dollars hit both, but only the reset curve jumps back to $10,000 below
+$2,000. The reset event is logged; the never-reset curve remains untouched for
+honest drawdown measurement.
 
 Every trade freezes its score components, size mode, entry window, invalidation,
-cost-aware fill, stop/target, time exit, MFE and MAE. The Owner Lab renderer
-derives daily P&L distribution, hard-stop frequency, win/payoff/profit factor,
-MAE, opening-follow-through versus mid-day/last-hour contribution, rally versus sell-off conditioning,
-full-size versus half-size results, resets, true maximum drawdown, recovery time
-and first-half versus later-half stability from the durable ledger.
+cost-aware fill, stop/target, time exit, MFE and MAE. The tracker derives daily
+P&L distribution, hard-stop frequency, win/payoff/profit factor, MAE,
+opening-follow-through versus mid-day/last-hour contribution, rally versus
+sell-off conditioning, full-size versus half-size results, resets, true maximum
+drawdown, recovery time and first-half versus later-half stability.
+
+Version 2 of the history schema removes `portfolios.options` and the related
+session aggregates during normalization. The stock ledger remains intact.
 
 ## Verification
 

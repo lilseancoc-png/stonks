@@ -52,11 +52,12 @@ Most important design rule: a strong observation is not automatically a trade. T
 | Owner | Volume | Time-of-day-adjusted stock-volume and support/resistance-break scanner. |
 | Owner | Gamma Exposure | Dealer-positioning proxy, walls, net GEX, and gamma-flip estimate. |
 | Owner | Trending IV | Names whose implied volatility is elevated and still accelerating versus their own history. |
+| Ideas & Flow | MA Tracker | Stocks within 5% of their 20/50/100/200-day averages, ranked by crossover evidence. |
 | Owner | Streaks | Noise-aware multi-day directional runs with reversal handling. |
 | Macro | Overnight Markets | Global-market changes, cross-asset relationships, and beta-implied US moves. |
 | Macro | Fear & Greed | CNN's seven-component 0–100 sentiment composite and history. |
 | Macro | Bonds & USD | Treasury curve, dollar, inflation, labor, credit, and live cross-asset overlays. |
-| Alt Data | AI CapEx | Mag-7 reported CapEx, run rate, management guidance, revenue burden, and supplier read-through. |
+| Alt Data | AI CapEx | Major AI buyers' reported CapEx, run rate, management guidance, revenue burden, and supplier read-through. |
 | Alt Data | RAM Prices | Wholesale DRAM plus retail DDR5 pricing and breadth. |
 | Alt Data | GPU Cloud Prices | Public accelerator rental and spot rates normalized to USD per GPU-hour, with provider/model history. |
 | Alt Data | Central-bank Gold | Quarterly estimated global net demand plus latest reported official holdings, reserve share, and 3/12-month changes by country. |
@@ -71,7 +72,7 @@ Most important design rule: a strong observation is not automatically a trade. T
 | Owner | Track Record | Modeled option P&L, diagnostics, and strategy accountability. |
 | Owner | Owner Lab | Private position/account-risk controls plus analytical statistical screens. |
 | Owner | Day Trading | Current 15-minute paper-engine state, open trades, and decision queue. |
-| Owner | Day Trading Track Record | Durable 1DTE and stock paper ledgers, diagnostics, and closed trades. |
+| Owner | Day Trading Track Record | Durable stock long/short paper ledger, diagnostics, and closed trades. |
 | Owner | Grade a Ticker | Full company/technical/flow/narrative grade plus option-contract grading. |
 | Owner | Compare Companies | Normalized multi-symbol performance comparison. |
 | Owner | Strategies | Live multi-leg option payoff builder and structure guidance. |
@@ -964,6 +965,29 @@ Tiers:
 
 Streaks use a ticker-specific daily noise floor derived from median absolute movement and bounded near `0.08–0.35%`. Small counter-days do not automatically reset a meaningful run. A streak only snaps after a material reversal, and the UI emphasizes runs of at least three days. The point is to distinguish persistent order flow from a sequence of statistically meaningless tiny closes.
 
+### Moving-average crossover tracker
+
+The full bake writes public `data/ma-tracker.json` from the same confirmed daily
+price series used by the ticker technicals. ETFs are excluded. The payload
+contains every tracked stock's 20/50/100/200-day SMA levels so the browser can
+re-evaluate the 5% band against regular-session `/api/quotes` while the tab is
+open.
+
+Each stock/average pair inside the band receives a capped 0–100 priority score:
+
+- proximity to the average: up to 50 points;
+- contraction of the gap since the prior confirmed close: up to 25;
+- 1-day and 5-day movement toward the level: up to 20;
+- relative-volume confirmation: up to 5;
+- another monitored average within 1% of the same level: up to 5.
+
+`Likely` requires a score of at least 70, a contracting gap and aligned
+five-session momentum. `Building` requires at least 55 and a contracting gap;
+everything else remains `Watch`. These labels rank approach evidence and are
+not calibrated crossing probabilities. The desk separates cross-above and
+cross-below queues, shows estimated sessions at the recent gap-closing rate
+when one exists, and requires close/volume confirmation before use.
+
 ## 14. Macro and capital-cycle research
 
 ### Overnight Markets
@@ -1000,9 +1024,10 @@ This free navigation section groups nontraditional demand, participation, and se
 
 #### AI CapEx
 
-Tracked companies: MSFT, GOOGL, AMZN, META, NVDA, AAPL, TSLA.
+Tracked companies: MSFT, GOOGL, AMZN, META, ORCL, TSM, NVDA, MU, AAPL, TSLA.
 
-Reported data comes from SEC company-concept cash-flow facts:
+Reported data comes from SEC company-concept cash-flow facts. US filers use
+`us-gaap` concepts; TSMC uses its `ifrs-full` PP&E-purchase and revenue concepts:
 
 - full fiscal years;
 - YoY change;

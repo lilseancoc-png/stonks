@@ -9719,20 +9719,26 @@ export async function write13FFile(chains, narratives, builtAtIso, perFirmResult
 }
 
 // === AI CapEx tracker (data/ai-capex.json) ==========================
-// Aggregate "Magnificent 7" capital expenditure — the cleanest single proxy for
-// the AI data-center / GPU / networking buildout. CapEx is reported in the
+// Aggregate major AI infrastructure buyers' capital expenditure — a direct
+// proxy for the data-center / GPU / networking / memory buildout. CapEx is reported in the
 // cash-flow statement as PaymentsToAcquirePropertyPlantAndEquipment (AMZN tags
 // it PaymentsToAcquireProductiveAssets), which SEC's companyconcept REST API
 // returns as a plain dollar total per period — no XBRL-instance parse needed
 // (unlike revenue segments, which need the segment dimensions). We surface each
 // name's last two full fiscal years (YoY) + a trailing-12-month run-rate, then
 // sum across the group for "total AI CapEx this year vs last year, and by how
-// much". Order roughly by AI relevance (the hyperscalers first).
-export const AI_CAPEX_TICKERS = ["MSFT", "GOOGL", "AMZN", "META", "NVDA", "AAPL", "TSLA"];
+// much". Order roughly by AI relevance (the hyperscalers first). TSMC files
+// under IFRS, so its SEC companyconcept tags are routed separately below.
+export const AI_CAPEX_TICKERS = ["MSFT", "GOOGL", "AMZN", "META", "ORCL", "TSM", "NVDA", "MU", "AAPL", "TSLA"];
 const AI_CAPEX_CONCEPTS = [
-  "PaymentsToAcquirePropertyPlantAndEquipment",
-  "PaymentsToAcquireProductiveAssets",
+  { taxonomy: "us-gaap", name: "PaymentsToAcquirePropertyPlantAndEquipment" },
+  { taxonomy: "us-gaap", name: "PaymentsToAcquireProductiveAssets" },
 ];
+const AI_CAPEX_CONCEPTS_BY_TICKER = {
+  TSM: [
+    { taxonomy: "ifrs-full", name: "PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities" },
+  ],
+};
 // Management's latest full-year CapEx outlook, kept separate from the SEC cash
 // CapEx series below. Definitions are not perfectly uniform: MSFT includes
 // finance leases, META includes finance-lease principal payments, while the
@@ -9793,16 +9799,21 @@ export function buildAiCapexGuidanceTotals() {
 // catch-all total; the ASC 606 contract-revenue tags are what most of the
 // seven actually file (for these names they equal total revenue).
 const AI_CAPEX_REVENUE_CONCEPTS = [
-  "Revenues",
-  "RevenueFromContractWithCustomerExcludingAssessedTax",
-  "RevenueFromContractWithCustomerIncludingAssessedTax",
+  { taxonomy: "us-gaap", name: "Revenues" },
+  { taxonomy: "us-gaap", name: "RevenueFromContractWithCustomerExcludingAssessedTax" },
+  { taxonomy: "us-gaap", name: "RevenueFromContractWithCustomerIncludingAssessedTax" },
 ];
+const AI_CAPEX_REVENUE_CONCEPTS_BY_TICKER = {
+  TSM: [{ taxonomy: "ifrs-full", name: "Revenue" }],
+};
 
 // SEC companyconcept REST API — every reported value for ONE us-gaap concept.
 // Returns the units.USD array (or [] on any failure — graceful).
 async function fetchCompanyConceptUsd(cik, concept) {
   const padded = String(cik).padStart(10, "0");
-  const url = `https://data.sec.gov/api/xbrl/companyconcept/CIK${padded}/us-gaap/${concept}.json`;
+  const taxonomy = concept?.taxonomy || "us-gaap";
+  const name = concept?.name || String(concept || "");
+  const url = `https://data.sec.gov/api/xbrl/companyconcept/CIK${padded}/${taxonomy}/${name}.json`;
   try {
     const res = await fetch(url, { headers: { "user-agent": SEC_USER_AGENT, accept: "application/json" }, signal: AbortSignal.timeout(20000) });
     if (!res.ok) return [];
@@ -9901,9 +9912,10 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
     if (!cik) { missing.push(ticker); continue; }
     let reduced = { annual: [], ttm: null };
     let reducedEnd = -Infinity;
-    for (let i = 0; i < AI_CAPEX_CONCEPTS.length; i++) {
+    const capexConcepts = AI_CAPEX_CONCEPTS_BY_TICKER[ticker] || AI_CAPEX_CONCEPTS;
+    for (let i = 0; i < capexConcepts.length; i++) {
       if (i > 0) await new Promise((res) => setTimeout(res, 120)); // SEC politeness between concept probes
-      const facts = await fetchCompanyConceptUsd(cik, AI_CAPEX_CONCEPTS[i]);
+      const facts = await fetchCompanyConceptUsd(cik, capexConcepts[i]);
       const r = reduceCapexFacts(facts);
       if (!r.annual.length) continue;
       // Pick the concept whose latest fiscal year is the MOST RECENT — a name
@@ -9918,7 +9930,8 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
     // comparison on the exact same fiscal calendar as the capex numbers.
     let revReduced = null;
     let revEnd = -Infinity;
-    for (const concept of AI_CAPEX_REVENUE_CONCEPTS) {
+    const revenueConcepts = AI_CAPEX_REVENUE_CONCEPTS_BY_TICKER[ticker] || AI_CAPEX_REVENUE_CONCEPTS;
+    for (const concept of revenueConcepts) {
       await new Promise((res) => setTimeout(res, 120)); // SEC politeness
       const facts = await fetchCompanyConceptUsd(cik, concept);
       const r = reduceCapexFacts(facts); // generic duration-concept reducer — works for revenue too
@@ -25492,6 +25505,164 @@ async function writeStreaksFile(chains, builtAtIso) {
   return { bytes: json.length, count: tickers.length, map };
 }
 
+// Moving-average proximity tracker. The compact payload carries every tracked
+// stock (ETFs excluded), not just today's in-band names, so the browser can
+// apply live /api/quotes prices and immediately add/remove candidates as they
+// enter or leave the 5% band between hourly builds.
+export const MA_TRACKER_PERIODS = Object.freeze([20, 50, 100, 200]);
+export const MA_TRACKER_BAND_PCT = 5;
+const maTrackerRound = (value, digits = 2) => {
+  if (!Number.isFinite(Number(value))) return null;
+  const scale = 10 ** digits;
+  return Math.round(Number(value) * scale) / scale;
+};
+
+function maTrackerCloses(data) {
+  const bars = Array.isArray(data?._bars) ? data._bars : [];
+  const fromBars = bars.map((bar) => Number(bar?.c ?? bar?.close)).filter((value) => Number.isFinite(value) && value > 0);
+  if (fromBars.length) return fromBars;
+  return (Array.isArray(data?.priceSeries?.c) ? data.priceSeries.c : [])
+    .map(Number).filter((value) => Number.isFinite(value) && value > 0);
+}
+
+function maTrackerMean(values) {
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+}
+
+export function scoreMovingAverageCandidate({
+  spot,
+  level,
+  previousDistancePct = null,
+  move1dPct = null,
+  move5dPct = null,
+  rvol = null,
+  nearbyCount = 1,
+} = {}) {
+  spot = Number(spot); level = Number(level);
+  if (!(spot > 0) || !(level > 0)) return null;
+  const distancePct = (spot / level - 1) * 100;
+  const absDistancePct = Math.abs(distancePct);
+  if (absDistancePct > MA_TRACKER_BAND_PCT) return null;
+  const direction = distancePct <= 0 ? "above" : "below";
+  const towardSign = direction === "above" ? 1 : -1;
+  const previous = Number(previousDistancePct);
+  const sameSide = Number.isFinite(previous) && Math.sign(previous || distancePct) === Math.sign(distancePct || previous);
+  const gapChangePct = sameSide ? Math.abs(previous) - absDistancePct : null;
+  const aligned1dPct = Number.isFinite(Number(move1dPct)) ? Number(move1dPct) * towardSign : null;
+  const aligned5dPct = Number.isFinite(Number(move5dPct)) ? Number(move5dPct) * towardSign : null;
+  const proximityPoints = clamp((MA_TRACKER_BAND_PCT - absDistancePct) / MA_TRACKER_BAND_PCT * 50, 0, 50);
+  const approachPoints = gapChangePct == null ? 0 : clamp(gapChangePct / 1.5 * 25, 0, 25);
+  const momentumPoints = clamp((aligned1dPct || 0) / 2 * 8, 0, 8) + clamp((aligned5dPct || 0) / 5 * 12, 0, 12);
+  const volumePoints = Number(rvol) >= 2 ? 5 : Number(rvol) >= 1.25 ? 4 : Number(rvol) >= 1 ? 2 : 0;
+  const confluencePoints = clamp((Number(nearbyCount) - 1) * 2.5, 0, 5);
+  const score = maTrackerRound(Math.min(100, proximityPoints + approachPoints + momentumPoints + volumePoints + confluencePoints), 1);
+  const status = score >= 70 && gapChangePct > 0 && aligned5dPct > 0
+    ? "likely"
+    : score >= 55 && gapChangePct > 0
+      ? "building"
+      : "watch";
+  const projectedSessions = gapChangePct > 0.05
+    ? Math.min(20, Math.max(1, Math.ceil(absDistancePct / gapChangePct)))
+    : null;
+  return {
+    direction,
+    distancePct: maTrackerRound(distancePct, 2),
+    absDistancePct: maTrackerRound(absDistancePct, 2),
+    gapChangePct: gapChangePct == null ? null : maTrackerRound(gapChangePct, 2),
+    aligned1dPct: aligned1dPct == null ? null : maTrackerRound(aligned1dPct, 2),
+    aligned5dPct: aligned5dPct == null ? null : maTrackerRound(aligned5dPct, 2),
+    score,
+    status,
+    projectedSessions,
+    components: {
+      proximity: maTrackerRound(proximityPoints, 1),
+      approach: maTrackerRound(approachPoints, 1),
+      momentum: maTrackerRound(momentumPoints, 1),
+      volume: maTrackerRound(volumePoints, 1),
+      confluence: maTrackerRound(confluencePoints, 1),
+    },
+  };
+}
+
+export function buildMovingAverageTracker(chains, builtAtIso) {
+  const tickers = [];
+  const candidates = [];
+  for (const [symbol, data] of Object.entries(chains || {})) {
+    if (!data || SECTORS[symbol] === "ETF") continue;
+    const spot = Number(data.spot);
+    if (!(spot > 0)) continue;
+    const closes = maTrackerCloses(data);
+    const levels = {};
+    const previousDistances = {};
+    for (const period of MA_TRACKER_PERIODS) {
+      const baked = Number(data?.technicals?.sma?.[`sma${period}`]);
+      const calculated = closes.length >= period ? maTrackerMean(closes.slice(-period)) : null;
+      const level = baked > 0 ? baked : calculated;
+      if (!(level > 0)) continue;
+      levels[period] = maTrackerRound(level, 4);
+      if (closes.length >= period + 1) {
+        const priorClose = closes[closes.length - 2];
+        const priorMa = maTrackerMean(closes.slice(-(period + 1), -1));
+        if (priorClose > 0 && priorMa > 0) previousDistances[period] = maTrackerRound((priorClose / priorMa - 1) * 100, 3);
+      }
+    }
+    if (!Object.keys(levels).length) continue;
+    const move1dPct = Number(data?.technicals?.volume?.priceMove1dPct);
+    const fiveDayBase = closes.length >= 6 ? closes[closes.length - 6] : null;
+    const move5dPct = fiveDayBase > 0 ? (spot / fiveDayBase - 1) * 100 : null;
+    const row = {
+      symbol,
+      name: data?.fundamentals?.name || symbol,
+      sector: SECTORS[symbol] || data?.fundamentals?.sector || "Other",
+      spot: maTrackerRound(spot, 4),
+      fiveDayBase: fiveDayBase > 0 ? maTrackerRound(fiveDayBase, 4) : null,
+      move1dPct: Number.isFinite(move1dPct) ? maTrackerRound(move1dPct, 2) : null,
+      move5dPct: Number.isFinite(move5dPct) ? maTrackerRound(move5dPct, 2) : null,
+      rvol: Number.isFinite(Number(data?.technicals?.volume?.rvol)) ? maTrackerRound(Number(data.technicals.volume.rvol), 2) : null,
+      levels,
+      previousDistances,
+    };
+    tickers.push(row);
+    const nearPeriods = MA_TRACKER_PERIODS.filter((period) => levels[period] > 0 && Math.abs((spot / levels[period] - 1) * 100) <= MA_TRACKER_BAND_PCT);
+    for (const period of nearPeriods) {
+      const scored = scoreMovingAverageCandidate({
+        spot,
+        level: levels[period],
+        previousDistancePct: previousDistances[period],
+        move1dPct: row.move1dPct,
+        move5dPct: row.move5dPct,
+        rvol: row.rvol,
+        nearbyCount: nearPeriods.filter((other) => Math.abs(levels[other] / levels[period] - 1) * 100 <= 1).length,
+      });
+      if (scored) candidates.push({ symbol, period, level: levels[period], ...scored });
+    }
+  }
+  tickers.sort((a, b) => a.symbol.localeCompare(b.symbol));
+  candidates.sort((a, b) => b.score - a.score || a.absDistancePct - b.absDistancePct || a.symbol.localeCompare(b.symbol));
+  return {
+    version: 1,
+    builtAtIso,
+    thresholdPct: MA_TRACKER_BAND_PCT,
+    periods: [...MA_TRACKER_PERIODS],
+    methodology: "Priority score: proximity 50, contracting gap 25, aligned 1d/5d momentum 20, relative volume 5, nearby-MA confluence 5; capped at 100.",
+    tickers,
+    summary: {
+      inBand: candidates.length,
+      stocksInBand: new Set(candidates.map((row) => row.symbol)).size,
+      likely: candidates.filter((row) => row.status === "likely").length,
+      topAbove: candidates.filter((row) => row.direction === "above").slice(0, 5),
+      topBelow: candidates.filter((row) => row.direction === "below").slice(0, 5),
+    },
+  };
+}
+
+async function writeMovingAverageTrackerFile(chains, builtAtIso) {
+  const payload = buildMovingAverageTracker(chains, builtAtIso);
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, "ma-tracker.json"), json, "utf8");
+  return { bytes: json.length, tickers: payload.tickers.length, inBand: payload.summary.inBand };
+}
+
 // Finviz-style market-map data. One row per non-ETF curated ticker, with
 // the four fields the treemap needs: sector grouping (from the SECTORS map,
 // which is curated so "Mega-cap tech" / "Semis" / "Software" stay
@@ -33646,6 +33817,8 @@ async function main() {
   console.log(`wrote data/streaks.json — ${streaksInfo.count} tickers, ${streaksInfo.bytes} bytes`);
   const heatmapInfo = await writeHeatmapFile(chains, builtAtIso, priorHeatmapEod, priorHeatmapRotation);
   console.log(`wrote data/heatmap.json — ${heatmapInfo.count} tickers, ${heatmapInfo.bytes} bytes${heatmapInfo.eodPreserved ? ` (carried over EOD recap from ${priorHeatmapEod.date})` : ""}${heatmapInfo.rotationAlerts ? ` (${heatmapInfo.rotationAlerts} sector-rotation alert${heatmapInfo.rotationAlerts === 1 ? "" : "s"})` : ""}`);
+  const maTrackerInfo = await writeMovingAverageTrackerFile(chains, builtAtIso);
+  console.log(`wrote data/ma-tracker.json — ${maTrackerInfo.tickers} stocks, ${maTrackerInfo.inBand} in-band moving-average levels, ${maTrackerInfo.bytes} bytes`);
   const correlationsInfo = await writeCorrelationsFile(chains, globalMarkets, builtAtIso, priorCorrelations);
   console.log(`wrote data/correlations.json — ${correlationsInfo.symbols} markets, ${correlationsInfo.mapped} mapped tickers, ${correlationsInfo.bytes} bytes${correlationsInfo.stale ? " [stale — kept last-good]" : ""}`);
   // AI CapEx (Mag 7 aggregate, from SEC XBRL) + capital-raises feed (rolling

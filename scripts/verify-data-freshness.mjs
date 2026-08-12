@@ -51,6 +51,7 @@ const BAKE_STAMPED_FILES = [
   "correlations.json",
   "streaks.json",
   "market-analysis.json",
+  "ma-tracker.json",
   "picks.json",
   "picks-open.json",
   "stock-picks.json",
@@ -97,6 +98,7 @@ const BAKE_REQUIRED_REWRITTEN_FILES = [
   "leveraged-etfs.json",
   "macro-history.json",
   "macro.json",
+  "ma-tracker.json",
   "manifest-free.json",
   "manifest.json",
   "market-analysis.json",
@@ -769,11 +771,11 @@ async function auditBrief({ report, dataDir, runStartedAt, now }) {
 async function auditDayTrading({ report, dataDir, runStartedAt, now }) {
   const snapshot = await requireStampedFile(report, dataDir, "day-trading.json", null, runStartedAt, now, ["updatedAt"]);
   const history = await requireStampedFile(report, dataDir, "day-trading-history.json", null, runStartedAt, now, ["updatedAt"]);
-  if (!snapshot?.portfolios?.options || !snapshot?.portfolios?.stock) {
-    fail(report, "day-trading.json: missing parallel options/stock portfolio summaries");
+  if (!snapshot?.portfolios?.stock || snapshot?.portfolios?.options) {
+    fail(report, "day-trading.json: expected the stock-only portfolio summary");
   }
-  if (!history?.portfolios?.options || !history?.portfolios?.stock) {
-    fail(report, "day-trading-history.json: missing parallel options/stock ledgers");
+  if (!history?.portfolios?.stock || history?.portfolios?.options) {
+    fail(report, "day-trading-history.json: expected the stock-only ledger");
   }
 }
 
@@ -927,8 +929,8 @@ async function selfTest() {
     await write("volume-history.json", { snapshots: [{ scannedAt: stamp }] });
     await write("oi-history.json", validOiHistory);
     await write("flow-explanations.json", { updatedAt: stamp, mode: "deterministic-v1", entries: {} });
-    await write("day-trading.json", { updatedAt: stamp, portfolios: { options: {}, stock: {} } });
-    await write("day-trading-history.json", { updatedAt: stamp, portfolios: { options: {}, stock: {} } });
+    await write("day-trading.json", { updatedAt: stamp, portfolios: { stock: {} } });
+    await write("day-trading-history.json", { updatedAt: stamp, portfolios: { stock: {} } });
 
     const report = await auditFreshness({
       owner: "bake",
