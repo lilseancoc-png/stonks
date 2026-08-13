@@ -34268,7 +34268,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (primary) bits.push(primary);
     if (tape) bits.push('tape ' + tape);
     var rule = 'Continuous side-aware overlay after pillars + IV Cost; Entry Timing is separate; no side flip, below-bar recruitment, or tier promotion.';
-    return '<span class="ptc-scenario is-' + regimeOverlayTone(o) + '" title="' +
+    return '<span class="ptc-regime is-' + regimeOverlayTone(o) + '" title="' +
       escapeHtml(bits.join(' · ') + '. ' + rule) + '">Regime ' +
       escapeHtml(bits.join(' · ')) +
     '</span>';

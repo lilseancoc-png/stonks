@@ -20,6 +20,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-08-13
+
+### Fixed
+
+- **Top Picks cards keep their full content width when both market overlays are present.** Compact regime and scenario evidence now occupy explicit full-width grid rows instead of auto-placed cells that could widen the rank gutter and collapse the judgment content. `scripts/render/{app-js,styles-css}.mjs`, `scripts/render-smoke.mjs`.
+
 ## 2026-08-12
 
 ### Perf
