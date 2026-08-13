@@ -54,7 +54,8 @@ try {
   assert.doesNotMatch(ideasNav, /data-page-tab="(?:picks|stocks|rotation|levetf|track)"/);
   assert.doesNotMatch(html.match(/<details class="side-nav-group" data-nav-group="desk"[\s\S]*?<\/details>/)?.[0] || "", /data-page-tab="market"/);
   assert.match(html, /data-page-tab="timeline"[\s\S]*?id="page-pane-timeline"/);
-  assert.match(html, /08:30 ET[\s\S]*?Premarket Brief[\s\S]*?09:30, then hourly 10:00&ndash;16:00 ET/);
+  assert.match(html, /08:30 ET[\s\S]*?Premarket Brief[\s\S]*?09:30, hourly 10:00&ndash;14:00, 15:30 &amp; 16:00 ET/);
+  assert.match(html, /11:00 &amp; 15:30 ET[\s\S]*?Top Picks[\s\S]*?Friday 11:30 ET[\s\S]*?Weekly Alt Data/);
   assert.match(html, /href="https:\/\/ko-fi\.com\/mingstreetapp"/);
   assert.ok(html.includes(`class="discord-btn" href="${DISCORD_INVITE_URL}"`));
   assert.ok(html.includes(`class="foot-discord" href="${DISCORD_INVITE_URL}"`));

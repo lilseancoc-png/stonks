@@ -6,8 +6,10 @@ name: Daily build
 #
 # Primary scheduling is handled externally by cron-job.org, which POSTs to the
 # workflow_dispatch endpoint at 08:30 (brief only), 09:30 (market-open bake),
-# and hourly from 10:00 to 16:00 on weekdays. Two cron lines cover those slots:
-# `30 8,9 * * 1-5` and `0 10-16 * * 1-5`. cron-job.org runs in ET, so it — not
+# hourly from 10:00 to 14:00, 15:30, and 16:00 on weekdays. Two cron lines cover
+# those slots: `30 8,9,15 * * 1-5` and `0 10-14,16 * * 1-5`. The 11:00 and
+# 15:30 builds refresh Top Picks; every other build carries its last coherent
+# snapshot. cron-job.org runs in ET, so it — not
 # this workflow — owns DST. A separate close-bake-fallback.yml watchdog
 # dispatches only when the 16:00 bake is absent.
 on:
@@ -15,6 +17,11 @@ on:
     inputs:
       force:
         description: "Force a full build outside the normal ET windows"
+        required: false
+        default: false
+        type: boolean
+      refresh_top_picks:
+        description: "Refresh Top Picks during a forced manual build"
         required: false
         default: false
         type: boolean
@@ -39,17 +46,20 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       mode: ${{ steps.route.outputs.mode }}
+      refresh_top_picks: ${{ steps.route.outputs.refresh_top_picks }}
     steps:
       - name: Route ET dispatch window
         id: route
         env:
           FORCE_RUN: ${{ inputs.force }}
+          MANUAL_TOP_PICKS: ${{ inputs.refresh_top_picks }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [ "${FORCE_RUN:-false}" = "true" ]; then
             echo "mode=build" >> "$GITHUB_OUTPUT"
-            echo "Forced manual full build; bypassing the ET dispatch router."
+            echo "refresh_top_picks=${MANUAL_TOP_PICKS:-false}" >> "$GITHUB_OUTPUT"
+            echo "Forced manual full build; bypassing the ET dispatch router (Top Picks=${MANUAL_TOP_PICKS:-false})."
             exit 0
           fi
           # Route by the time GitHub RECEIVED the dispatch, not when a queued
@@ -69,6 +79,11 @@ jobs:
           ET_MINUTE=$(TZ=America/New_York date -d "$CREATED_AT" +%M)
           ET_MIN=$((10#$ET_HOUR * 60 + 10#$ET_MINUTE))
           LABEL=$(TZ=America/New_York date -d "$CREATED_AT" '+%F %R %Z')
+          REFRESH_TOP_PICKS=false
+          if [ "$ET_DAY" -le 5 ] && { [ "$ET_MIN" -eq 660 ] || [ "$ET_MIN" -eq 930 ]; }; then
+            REFRESH_TOP_PICKS=true
+          fi
+          echo "refresh_top_picks=$REFRESH_TOP_PICKS" >> "$GITHUB_OUTPUT"
           if [ "$ET_DAY" -le 5 ] && [ "$ET_MIN" -ge 495 ] && [ "$ET_MIN" -le 525 ]; then
             echo "mode=brief" >> "$GITHUB_OUTPUT"
             echo "Dispatch at $LABEL routes to the pre-market Brief-only refresh."
@@ -158,6 +173,8 @@ jobs:
     needs: route
     if: ${{ needs.route.outputs.mode == 'build' }}
     runs-on: ubuntu-latest
+    env:
+      REFRESH_TOP_PICKS: ${{ needs.route.outputs.refresh_top_picks }}
     steps:
 
       - uses: actions/checkout@v5

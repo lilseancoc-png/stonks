@@ -85,9 +85,12 @@ Timing is driven by cron-job.org (two jobs that POST the `workflow_dispatch`
 endpoint), which runs in ET so daylight saving is handled for us:
 
 - **9:30 ET weekdays** — at the market open.
-- **Hourly 10:00–16:00 ET weekdays** — through the trading day to the close.
+- **Hourly 10:00–14:00, then 15:30 and 16:00 ET weekdays** — through the trading day to the close. Top Picks runs only at 11:00 and 15:30 ET.
 
 That's eight runs per trading day.
+
+The weekly Alt Data workflow runs once Friday at 11:30 ET and refreshes Search
+Interest, RAM prices, and GPU-cloud prices together.
 
 Each run fetches the option chains and ~6 months of daily history per ticker
 (with retries on transient Yahoo errors), computes RSI / MACD / 20- and

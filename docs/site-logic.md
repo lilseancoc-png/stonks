@@ -359,6 +359,12 @@ speaker database for older rows.
 
 Top Picks is not “the ten highest grades.” It is a narrowing funnel.
 
+The complete Top Picks decision run executes twice per regular market day, at
+11:00 and 15:30 ET. Those runs refresh the final roster, grounded research,
+contract choice, churn, roster snapshot, and accuracy marks as one coherent
+unit. Other full builds continue refreshing shared market data and grades but
+carry the last Top Picks snapshot forward byte-for-byte.
+
 ### Gate 1: sufficient directional evidence
 
 A normal candidate needs `abs(grade) >= 4`. A tactical put can enter the candidate pool during a confirmed risk-off tape.
@@ -1053,7 +1059,7 @@ The trade interpretation is two-sided: more spending may support GPUs, networkin
 
 #### Search Interest
 
-`scripts/refresh-search-interest.mjs` runs once weekly and writes
+`scripts/refresh-search-interest.mjs` runs Friday at 11:30 ET and writes
 `data/search-interest.json`. Coverage is theme-only: no individual stock
 tickers are collected. The curated set includes AI labs and assistants
 (OpenAI, Anthropic, Claude, DeepSeek, Kimi), AI agents and adoption, compute
@@ -1085,7 +1091,7 @@ Two independent layers:
 - wholesale DRAM spot from TrendForce, with DRAMeXchange fallback;
 - US retail DDR5-kit pricing from WhereIsMyRam.
 
-Wholesale history is accumulated daily; retail arrives with deeper source history. The retail composite is the median across at least three categories so one scarce kit cannot dominate.
+Wholesale history is accumulated once each Friday; retail arrives with deeper source history. The retail composite is the median across at least three categories so one scarce kit cannot dominate.
 
 Cycle states:
 
@@ -1098,7 +1104,7 @@ The equity lens is again two-sided: rising memory can benefit suppliers but hurt
 
 #### GPU Cloud Prices
 
-The daily bake collects four provider-published public surfaces:
+The Friday 11:30 ET weekly Alt Data workflow collects four provider-published public surfaces:
 
 - Vast.ai verified rentable marketplace offers in interruptible-bid and on-demand lanes;
 - CoreWeave's public whole-instance spot and on-demand table;
@@ -1111,7 +1117,7 @@ range/count. Vast rows use the median and full range of verified rentable offers
 with at least 98% reliability so one unusually cheap host does not become the
 headline price.
 
-`data/accelerator-prices.json` accumulates one daily point per
+`data/accelerator-prices.json` accumulates one weekly point per
 provider/model/market series. Each provider degrades independently: a failed
 page carries only that provider's last-good rows as stale and does not append a
 new history point. The UI compares spot and on-demand lanes, plots selectable
@@ -1392,7 +1398,7 @@ Scheduled jobs:
 3. regenerate static artifacts;
 4. push only their owned data families.
 
-The daily build owns normal bake output; unusual/OI scanners own their histories; co-owned files are regenerated deterministically; the request-time watchlist is excluded from every workflow push. This prevents one job from deleting or overwriting another job's accumulating ledger.
+The daily build owns normal bake output; the Friday weekly Alt Data workflow owns Search Interest, RAM prices, and GPU-cloud prices; unusual/OI scanners own their histories; co-owned files are regenerated deterministically; the request-time watchlist is excluded from every workflow push. This prevents one job from deleting or overwriting another job's accumulating ledger.
 
 ## 19. Where AI is and is not allowed to decide
 
@@ -1457,4 +1463,4 @@ Model resilience includes per-call model defaults, retry ladders, dead-model det
 | Private storage | `lib/datastore.mjs`, `scripts/sync-data.mjs` |
 | Sessions and OAuth | `lib/session.mjs`, `api/auth/[action].js` |
 | Tiered data response | `api/data/[...path].js`, `lib/data-response.mjs`, `middleware.js` |
-| Refresh cadence | `.github/workflows/daily.yml`, `unusual-flow.yml`, `oi-tracker.yml` |
+| Refresh cadence | `.github/workflows/daily.yml`, `search-interest.yml`, `unusual-flow.yml`, `oi-tracker.yml` |
