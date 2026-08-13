@@ -20,6 +20,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-08-12
+
+### Perf
+
+- **Slow or costly decision producers move to explicit lower-frequency windows.** Top Picks now runs only at 11:00 and 15:30 ET on market days, carrying its roster, research cache, churn, roster snapshot, and track record forward coherently through other full builds. Search Interest, RAM prices, and GPU-cloud prices move into one DST-safe Friday 11:30 ET workflow with one scan each; the hourly bake no longer calls those price sources. `.github/workflows/{daily,search-interest,close-bake-fallback}.yml`, `scripts/{build,refresh-weekly-prices,verify-data-freshness,render-smoke}.mjs`, `lib/data-ownership.mjs`, `scripts/render/{html,app-js}.mjs`, `docs/{site-logic,top-picks}.md`, `README.md`, `CLAUDE.md`.
+
 ## 2026-08-11
 
 ### Added

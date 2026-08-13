@@ -10303,10 +10303,6 @@ export function buildRamPricesPayload({ spot, retail, prior = null, builtAtIso }
   return { builtAtIso, spot: spotBlock, retail: retailBlock, stale: !!((spotBlock?.stale ?? true) && (retailBlock?.stale ?? true)) };
 }
 
-async function readPriorRamPrices() {
-  try { return JSON.parse(await readFile(resolve(DATA_DIR, "ram-prices.json"), "utf8")); } catch { return null; }
-}
-
 export async function writeRamPricesFile(builtAtIso, prior = null) {
   const spot = await fetchRamSpot();
   const retail = await fetchRamRetail();
@@ -10330,14 +10326,6 @@ export async function writeRamPricesFile(builtAtIso, prior = null) {
 // type and instance size; daily per-provider/model/type history accumulates
 // across builds. A failed source carries only that provider's last-good rows
 // as stale, so one broken page never blanks the rest of the desk.
-async function readPriorAcceleratorPrices() {
-  try {
-    return JSON.parse(await readFile(resolve(DATA_DIR, "accelerator-prices.json"), "utf8"));
-  } catch {
-    return null;
-  }
-}
-
 export async function writeAcceleratorPricesFile(builtAtIso, prior = null) {
   const sources = await fetchAcceleratorMarketplaces();
   const payload = buildAcceleratorPricesPayload({ sources, prior, builtAtIso });
@@ -33409,11 +33397,15 @@ async function main() {
   const volumeHistory = await loadVolumeHistory();
   const oiTracker = await loadOiTracker();
   const oiHistory = await loadOiHistory();
-  // Search interest is owned by its own once-daily workflow. Preserve the
-  // latest payload across this bake's wholesale data/ wipe for legacy
-  // flag-off deployments and local builds; sync-data excludes it from the
-  // bake's private-store push so only the dedicated producer can publish it.
-  const searchInterestCarry = await readFile(resolve(DATA_DIR, "search-interest.json"), "utf8").catch(() => null);
+  // Search Interest, RAM prices, and GPU-cloud prices are owned by the Friday
+  // 11:30 ET workflow. Preserve them across the wipe; the bake cannot publish
+  // these keys through the ownership boundary.
+  const weeklyAltCarry = Object.fromEntries(await Promise.all(
+    ["search-interest.json", "ram-prices.json", "accelerator-prices.json"].map(async (file) => [
+      file,
+      await readFile(resolve(DATA_DIR, file), "utf8").catch(() => null),
+    ]),
+  ));
   // Fear & Greed history + last-good snapshot live in data/, which
   // writeChainFiles wipes. Load both now and rewrite after the wipe so
   // we keep prior days even if today's CNN fetch fails.
@@ -33481,14 +33473,6 @@ async function main() {
   // what's covered must be pre-read before the wipe or every bake would
   // re-discover (and re-pay for) the whole universe.
   const priorEarningsCalls = await readPriorEarningsCalls();
-  // Prior RAM-prices snapshot — the wholesale-spot side accumulates its own
-  // daily history across builds (the sources only publish the current
-  // session), so it must be pre-read before the wipe like the other histories.
-  const priorRamPrices = await readPriorRamPrices();
-  // Prior accelerator-rental snapshot — provider/model/market histories grow
-  // one ET-date point per successful source refresh, while an unavailable
-  // marketplace carries only its own last-good rows. Read before the wipe.
-  const priorAcceleratorPrices = await readPriorAcceleratorPrices();
   // Prior central-bank gold snapshot - country holdings and global demand are
   // sourced independently, so either side can carry last-good across a WGC
   // outage while the other refreshes. Read it before the wholesale wipe.
@@ -33529,6 +33513,23 @@ async function main() {
   // survive the wipe. It is audit/history input only when today's roster is empty;
   // prior picks are never republished as current recommendations.
   const picksPrev = await readPriorPicks();
+  // The decision roster and every dependent ledger/cache move as one unit.
+  // Off-cadence bakes rewrite the exact prior bytes after writeChainFiles wipes
+  // data/, avoiding a new recommendation or partial track-record update.
+  const topPicksCarryFiles = [
+    PICKS_FILE,
+    PICK_THESIS_CACHE_FILE,
+    PICKS_ACCURACY_FILE,
+    "picks-open.json",
+    PICKS_CHANGES_FILE,
+    PICKS_ROSTER_FILE,
+  ];
+  const topPicksCarry = Object.fromEntries(await Promise.all(
+    topPicksCarryFiles.map(async (file) => [
+      file,
+      await readFile(resolve(DATA_DIR, file), "utf8").catch(() => null),
+    ]),
+  ));
   // Same pre-read-before-wipe rule for the grade-change log: data/grades-history.json
   // lives in data/, so snapshot it now and thread it into diffGradesHistory after
   // the wipe, or the change log resets every build.
@@ -33768,8 +33769,8 @@ async function main() {
   await writeFile(OUT, html, "utf8");
   await writeFile(resolve(ROOT, "styles.css"), css, "utf8");
   await writeFile(resolve(ROOT, "app.js"), js, "utf8");
-  if (searchInterestCarry) {
-    await writeFile(resolve(DATA_DIR, "search-interest.json"), searchInterestCarry, "utf8");
+  for (const [file, raw] of Object.entries(weeklyAltCarry)) {
+    if (raw) await writeFile(resolve(DATA_DIR, file), raw, "utf8");
   }
   // Bake-owned sidecar consumed by the unusual-flow and OI scanners. It carries
   // only published FINRA observations and matching historical-volume math.
@@ -33839,23 +33840,8 @@ async function main() {
   } catch (err) {
     console.log(`  ⚠ AI CapEx / capital-raises step failed (non-fatal): ${err.message}`);
   }
-  // RAM price tracker (TrendForce/DRAMeXchange spot + WhereIsMyRam retail) —
-  // carries last-good forward on a fetch/parse miss (graceful).
-  try {
-    const ramInfo = await writeRamPricesFile(builtAtIso, priorRamPrices);
-    console.log(`wrote data/ram-prices.json — ${ramInfo.spotItems} spot items${ramInfo.spotStale ? " [stale]" : ""}, ${ramInfo.retailCats} retail categories${ramInfo.retailStale ? " [stale]" : ""}, ${ramInfo.bytes} bytes`);
-  } catch (err) {
-    console.log(`  ⚠ RAM-prices step failed (non-fatal): ${err.message}`);
-  }
-  // Public GPU / accelerator rental tracker (CoreWeave, Vast.ai, Runpod,
-  // Lambda). Rates are normalized per GPU-hour; spot and on-demand remain
-  // separate, and each provider carries last-good independently.
-  try {
-    const acceleratorInfo = await writeAcceleratorPricesFile(builtAtIso, priorAcceleratorPrices);
-    console.log(`wrote data/accelerator-prices.json — ${acceleratorInfo.freshSources}/${acceleratorInfo.sources} sources fresh, ${acceleratorInfo.models} models, ${acceleratorInfo.quotes} quotes, ${acceleratorInfo.bytes} bytes${acceleratorInfo.staleSources.length ? ` [stale: ${acceleratorInfo.staleSources.join(",")}]` : ""}`);
-  } catch (err) {
-    console.log(`  ⚠ Accelerator-prices step failed (non-fatal): ${err.message}`);
-  }
+  // RAM and GPU-cloud sources are scanned by the Friday 11:30 ET workflow.
+  console.log("carried weekly RAM and GPU-cloud price snapshots forward without source scans");
   // Central-bank gold: reported WGC/IMF holdings by country plus the separate
   // WGC/Metals Focus estimated global net-purchase series.
   try {
@@ -34299,10 +34285,21 @@ async function main() {
     // No-op until gate-era outcomes accumulate (today: bySignal carries no IC).
     signalIc: buildSignalIcMap(picksAccuracyPrev?.stats?.bySignal),
   };
-  const picksInfo = await writeTopPicksFile(chains, scoringNarratives, builtAtIso, scoringUnusual, macroBackdrop, picksPrev, scoringVolumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, scannerExtras, picksAccuracyPrev?.open ?? null, true, thesisProseCachePrev, streaksInfo.map);
-  // Persist the thesis-prose cache now that data/ has been recreated.
-  await writePickThesisCache(picksInfo?.thesisProseCache || thesisProseCachePrev || {});
-  console.log(`wrote data/picks.json — top ${picksInfo.count} picks, ${picksInfo.bytes} bytes`);
+  const refreshTopPicks = !/^(?:0|false)$/i.test(process.env.REFRESH_TOP_PICKS || "1");
+  if (refreshTopPicks) {
+    const picksInfo = await writeTopPicksFile(chains, scoringNarratives, builtAtIso, scoringUnusual, macroBackdrop, picksPrev, scoringVolumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, scannerExtras, picksAccuracyPrev?.open ?? null, true, thesisProseCachePrev, streaksInfo.map);
+    // Persist the thesis-prose cache now that data/ has been recreated.
+    await writePickThesisCache(picksInfo?.thesisProseCache || thesisProseCachePrev || {});
+    console.log(`wrote data/picks.json — top ${picksInfo.count} picks, ${picksInfo.bytes} bytes`);
+  } else {
+    const missing = topPicksCarryFiles.filter((file) => !topPicksCarry[file]);
+    if (missing.length) {
+      throw new Error(`Top Picks carry-forward is missing prior artifact(s): ${missing.join(", ")}`);
+    }
+    await Promise.all(topPicksCarryFiles.map((file) =>
+      writeFile(resolve(DATA_DIR, file), topPicksCarry[file], "utf8")));
+    console.log("carried Top Picks roster, track record and thesis cache forward without a decision run");
+  }
   // Grade index for every tracked ticker (powers the Top Picks tab's grade-any-
   // ticker search). Same 4-pillar scoring as the picks above; full breakdown
   // for names that don't clear the actionable threshold.
@@ -34472,15 +34469,19 @@ async function main() {
   // log uses (gradesHistoryPrev.latest), so it's immune to the pre-bell pick
   // collapse. Deterministic detection first, then an optional AI one-liner per
   // new event (self-skips without GEMINI_API_KEY), then append + prune + write.
-  try {
-    const churnEvents = buildPicksChanges(gradesHistoryPrev.latest, gradesIndex, builtAtIso, picksChangesPrev);
-    const picksChangesNext = appendPicksChanges(picksChangesPrev, churnEvents, builtAtIso, gradeTradeCut(gradesIndex));
-    await writePicksChanges(picksChangesNext);
-    const entered = churnEvents.filter((e) => e.event === "entered").length;
-    const exited = churnEvents.length - entered;
-    console.log(`wrote data/${PICKS_CHANGES_FILE} — ${entered} in, ${exited} out this build (${picksChangesNext.changes.length} logged)`);
-  } catch (err) {
-    console.warn(`[picks] churn log skipped — ${String(err?.message || err).split("\n")[0]}`);
+  if (refreshTopPicks) {
+    try {
+      const churnEvents = buildPicksChanges(gradesHistoryPrev.latest, gradesIndex, builtAtIso, picksChangesPrev);
+      const picksChangesNext = appendPicksChanges(picksChangesPrev, churnEvents, builtAtIso, gradeTradeCut(gradesIndex));
+      await writePicksChanges(picksChangesNext);
+      const entered = churnEvents.filter((e) => e.event === "entered").length;
+      const exited = churnEvents.length - entered;
+      console.log(`wrote data/${PICKS_CHANGES_FILE} — ${entered} in, ${exited} out this build (${picksChangesNext.changes.length} logged)`);
+    } catch (err) {
+      console.warn(`[picks] churn log skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
+  } else {
+    console.log(`[picks] carried data/${PICKS_CHANGES_FILE} forward until the next scheduled Top Picks run`);
   }
   // Top-10 roster snapshot: the current 10-name list with each pick's in/held/new
   // status, prior→current pillar deltas, the names that dropped OUT (paired to the
@@ -34490,32 +34491,40 @@ async function main() {
   // pre-wipe whole-universe grade snapshot (gradesHistoryPrev.latest, which keeps
   // status pre-bell-collapse immune). Deterministic forecast first, then an
   // optional AI gloss (self-skips without GEMINI_API_KEY).
-  try {
-    let currentPicksPayload = null;
-    try { currentPicksPayload = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_FILE), "utf8")); } catch {}
-    const rosterPayload = buildPicksRoster(
-      currentPicksPayload?.picks || [],
-      picksPrev?.picks || null,
-      gradesHistoryPrev.latest,
-      gradesIndex,
-      builtAtIso,
-      !!currentPicksPayload?.stale,
-    );
-    await writePicksRoster(rosterPayload);
-    console.log(`wrote data/${PICKS_ROSTER_FILE} — ${rosterPayload.count} in roster, ${rosterPayload.exited.length} out, ${rosterPayload.swaps.length} swap(s)`);
-  } catch (err) {
-    console.warn(`[picks] roster snapshot skipped — ${String(err?.message || err).split("\n")[0]}`);
+  if (refreshTopPicks) {
+    try {
+      let currentPicksPayload = null;
+      try { currentPicksPayload = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_FILE), "utf8")); } catch {}
+      const rosterPayload = buildPicksRoster(
+        currentPicksPayload?.picks || [],
+        picksPrev?.picks || null,
+        gradesHistoryPrev.latest,
+        gradesIndex,
+        builtAtIso,
+        !!currentPicksPayload?.stale,
+      );
+      await writePicksRoster(rosterPayload);
+      console.log(`wrote data/${PICKS_ROSTER_FILE} — ${rosterPayload.count} in roster, ${rosterPayload.exited.length} out, ${rosterPayload.swaps.length} swap(s)`);
+    } catch (err) {
+      console.warn(`[picks] roster snapshot skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
+  } else {
+    console.log(`[picks] carried data/${PICKS_ROSTER_FILE} forward until the next scheduled Top Picks run`);
   }
   // Pick accuracy tracker: enroll today's picks, mark open ones to market, and
   // resolve any that hit take-profit / cut / expiry. Reads the picks.json we
   // just wrote; uses chains[sym].spot for the marks. Carries the prior tracker
   // state forward via picksAccuracyPrev (snapshotted before writeChainFiles
   // wiped data/). Degrades to a no-op on a first run / missing files.
-  try {
-    const acc = await updatePicksAccuracyFile(chains, builtAtIso, picksAccuracyPrev, gradesIndex);
-    console.log(`wrote data/${PICKS_ACCURACY_FILE} — ${acc.open} open, ${acc.closed} closed${acc.winRate != null ? `, ${(acc.winRate * 100).toFixed(0)}% win rate` : ""}`);
-  } catch (err) {
-    console.warn(`[picks] accuracy tracker skipped — ${String(err?.message || err).split("\n")[0]}`);
+  if (refreshTopPicks) {
+    try {
+      const acc = await updatePicksAccuracyFile(chains, builtAtIso, picksAccuracyPrev, gradesIndex);
+      console.log(`wrote data/${PICKS_ACCURACY_FILE} — ${acc.open} open, ${acc.closed} closed${acc.winRate != null ? `, ${(acc.winRate * 100).toFixed(0)}% win rate` : ""}`);
+    } catch (err) {
+      console.warn(`[picks] accuracy tracker skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
+  } else {
+    console.log(`[picks] carried data/${PICKS_ACCURACY_FILE} and data/picks-open.json forward until the next scheduled Top Picks run`);
   }
   // Market brief (rolling hourly digest) — after the separate 08:30 ET morning
   // mint, every hourly bake ships a fresh read and a same-hour re-run carries

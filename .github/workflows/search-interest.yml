@@ -1,13 +1,14 @@
-name: Weekly search interest
+name: Weekly Alt Data refresh
 
-# Refreshes Google Trends relative interest for the curated Alt-data theme list
-# once per week. No individual stock tickers are collected. The workflow spends
-# at most 40 SerpApi requests per run (200 in a five-Monday month), leaving room
-# for one manual recovery run under the 250-request monthly allowance. Related
-# queries are disabled; the core 90-day timelines and change rankings remain.
+# Refreshes Search Interest, RAM prices, and GPU-cloud prices once each Friday
+# at 11:30 ET. No individual stock tickers are collected by Search Interest.
+# The workflow spends at most 40 SerpApi requests per run (200 in a five-Friday
+# month), leaving room for one manual recovery under the 250-request allowance.
+# The paired UTC schedules plus ET route make the slot DST-safe.
 on:
   schedule:
-    - cron: "17 11 * * 1"
+    - cron: "30 15 * * 5"
+    - cron: "30 16 * * 5"
   workflow_dispatch:
 
 permissions:
@@ -18,7 +19,38 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  route:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.route.outputs.run }}
+    steps:
+      - name: Route Friday 11:30 ET slot
+        id: route
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          TRIGGER_SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Manual weekly Alt Data refresh."
+            exit 0
+          fi
+          UTC_HOUR=$(awk '{print $2}' <<<"$TRIGGER_SCHEDULE")
+          UTC_DATE=$(date -u +%F)
+          ET_DAY=$(TZ=America/New_York date -d "$UTC_DATE ${UTC_HOUR}:30 UTC" +%u)
+          ET_TIME=$(TZ=America/New_York date -d "$UTC_DATE ${UTC_HOUR}:30 UTC" +%H:%M)
+          if [ "$ET_DAY" = "5" ] && [ "$ET_TIME" = "11:30" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Scheduled Friday 11:30 ET weekly Alt Data refresh."
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Companion UTC slot is outside Friday 11:30 ET; no-op."
+          fi
+
   refresh:
+    needs: route
+    if: ${{ needs.route.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -57,6 +89,9 @@ jobs:
           SEARCH_TRENDS_MAX_REQUESTS: "40"
         run: node scripts/refresh-search-interest.mjs
 
+      - name: Refresh RAM and GPU-cloud prices
+        run: node scripts/refresh-weekly-prices.mjs
+
       - name: Ensure source revision is still current
         run: |
           set -euo pipefail
@@ -67,10 +102,10 @@ jobs:
             exit 1
           fi
 
-      - name: Verify fresh search-interest data
+      - name: Verify fresh weekly Alt Data
         run: node scripts/verify-data-freshness.mjs --owner=search-interest
 
-      - name: Push search-interest data to private store
+      - name: Push weekly Alt Data to private store
         if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
@@ -85,13 +120,11 @@ jobs:
           set -euo pipefail
           git config user.name "stonks-bot"
           git config user.email "stonks-bot@users.noreply.github.com"
-          # /data/ remains ignored even in rollback mode; force this one legacy
-          # artifact just like the daily, unusual-flow, and OI workflows do.
-          git add -f data/search-interest.json
+          git add -f data/search-interest.json data/ram-prices.json data/accelerator-prices.json
           if git diff --cached --quiet; then
-            echo "No search-interest change"
+            echo "No weekly Alt Data change"
             exit 0
           fi
-          git commit -m "data: refresh Google Trends search interest"
+          git commit -m "data: refresh weekly Alt Data"
           git pull --rebase origin "${GITHUB_REF_NAME:-main}"
           git push origin "HEAD:${GITHUB_REF_NAME:-main}"

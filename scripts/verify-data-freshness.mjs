@@ -52,8 +52,6 @@ const BAKE_STAMPED_FILES = [
   "streaks.json",
   "market-analysis.json",
   "ma-tracker.json",
-  "picks.json",
-  "picks-open.json",
   "stock-picks.json",
   "sector-rotation.json",
   "leveraged-etfs.json",
@@ -70,7 +68,6 @@ const BAKE_STAMPED_FILES = [
 // its freshness semantics are reviewed here.
 const BAKE_REQUIRED_REWRITTEN_FILES = [
   "13f.json",
-  "accelerator-prices.json",
   "ai-capex.json",
   "ai-usage.json",
   "auto-picks.json",
@@ -113,7 +110,6 @@ const BAKE_REQUIRED_REWRITTEN_FILES = [
   "prediction-history.json",
   "quant-history.json",
   "quant.json",
-  "ram-prices.json",
   "regime-history.json",
   "rfr-history.json",
   "sector-rotation-log.json",
@@ -349,6 +345,10 @@ async function warnCadence(report, dataDir, key, paths, maxAgeMs, now) {
 }
 
 async function auditBake({ report, dataDir, runStartedAt, now, expectedSymbols }) {
+  const refreshTopPicks = !/^(?:0|false)$/i.test(process.env.REFRESH_TOP_PICKS || "1");
+  const stampedFiles = refreshTopPicks
+    ? [...BAKE_STAMPED_FILES, "picks.json", "picks-open.json"]
+    : BAKE_STAMPED_FILES;
   const grades = await requireJson(report, dataDir, "grades.json");
   const canonicalValue = stampOf(grades);
   const canonicalMs = requireRunStamp(report, "grades.json", canonicalValue, runStartedAt, now);
@@ -439,10 +439,16 @@ async function auditBake({ report, dataDir, runStartedAt, now, expectedSymbols }
     pass(report, `${staleChartRows} changed-bar chart pattern(s) are display-only in grades.json`);
   }
 
-  for (const key of BAKE_STAMPED_FILES) {
+  for (const key of stampedFiles) {
     if (key !== "grades.json") {
       await requireStampedFile(report, dataDir, key, canonicalMs, runStartedAt, now);
     }
+  }
+  if (!refreshTopPicks) {
+    for (const key of ["picks.json", "picks-open.json"]) {
+      await requireRewrittenJson(report, dataDir, key, runStartedAt);
+    }
+    pass(report, "Top Picks cadence is carry-forward for this bake");
   }
 
   // Prove that every static object the bake owns was recreated after the
@@ -734,7 +740,9 @@ async function auditOi({ report, dataDir, runStartedAt, now }) {
 }
 
 async function auditSearchInterest({ report, dataDir, runStartedAt, now }) {
-  await requireStampedFile(report, dataDir, "search-interest.json", null, runStartedAt, now);
+  for (const key of ["search-interest.json", "ram-prices.json", "accelerator-prices.json"]) {
+    await requireStampedFile(report, dataDir, key, null, runStartedAt, now);
+  }
 }
 
 async function auditBrief({ report, dataDir, runStartedAt, now }) {
@@ -875,7 +883,7 @@ async function selfTest() {
       symbol: "TEST",
       entries: [{ date: "2026-07-30", capturedAtIso: stamp, iv: 0.4 }],
     });
-    for (const key of BAKE_STAMPED_FILES) {
+    for (const key of [...BAKE_STAMPED_FILES, "picks.json", "picks-open.json"]) {
       const payload = key === "grades.json"
         ? {
             builtAtIso: stamp,
@@ -922,6 +930,8 @@ async function selfTest() {
     };
     await write("oi-tracker.json", validOiTracker);
     await write("search-interest.json", { builtAtIso: stamp });
+    await write("ram-prices.json", { builtAtIso: stamp });
+    await write("accelerator-prices.json", { builtAtIso: stamp });
     await write("unusual.json", { scannedAt: stamp });
     await write("unusual-history.json", { snapshots: [{ scannedAt: stamp }] });
     await write("unusual-log.json", { updatedAt: stamp, entries: [] });
@@ -940,6 +950,23 @@ async function selfTest() {
       expectedSymbols: ["TEST"],
     });
     if (report.errors.length) throw new Error(renderReport(report));
+
+    const priorRefreshTopPicks = process.env.REFRESH_TOP_PICKS;
+    process.env.REFRESH_TOP_PICKS = "0";
+    await write("picks.json", { builtAtIso: "2026-07-29T15:30:00.000Z" });
+    await write("picks-open.json", { builtAtIso: "2026-07-29T15:30:00.000Z", open: [] });
+    const carryReport = await auditFreshness({
+      owner: "bake",
+      dataDir: dir,
+      runStartedAt: start.toISOString(),
+      now: new Date("2026-07-30T14:05:00.000Z"),
+      expectedSymbols: ["TEST"],
+    });
+    if (priorRefreshTopPicks == null) delete process.env.REFRESH_TOP_PICKS;
+    else process.env.REFRESH_TOP_PICKS = priorRefreshTopPicks;
+    if (carryReport.errors.length) throw new Error(renderReport(carryReport));
+    await write("picks.json", { builtAtIso: stamp });
+    await write("picks-open.json", { builtAtIso: stamp, open: [] });
 
     await write("grades.json", {
       builtAtIso: stamp,

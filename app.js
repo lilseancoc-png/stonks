@@ -3986,7 +3986,7 @@
     html += '<div class="opt-verdict ' + verdict.cls + '" id="opt-verdict-main">' + verdict.label + '</div>';
     if (input.topPick){
       html += '<div class="opt-news-note">This contract is a vetted Top Pick — it cleared every mechanical gate (spread, liquidity, theta, expiry) at the last build, so the grader won’t suggest swapping it.' +
-        (topPickDrift ? ' A figure above has drifted on live quotes since then; Top Picks re-checks the contract on each refresh (~3×/day).' : '') +
+        (topPickDrift ? ' A figure above has drifted on live quotes since then; Top Picks re-checks the contract at 11:00 and 15:30 ET.' : '') +
         '</div>';
     }
     if (nudgedVerdict.nudged && input.news && input.news.sentiment && !verdict.forced && !input.topPick){
@@ -10693,7 +10693,7 @@
     }
     return { kind: 'go',
       short: '✅ Buy zone now ' + fmtS,
-      long: 'In the buy zone live — ' + fmtS + ' has reached the plan\'s ' + (e.basis || 'entry') + ' trigger at ' + fmtT + '. This is the price the pick said to wait for; opening here follows the plan. (Live intraday read, refreshed ~30s while this tab is open — the hourly build re-confirms it.)' };
+      long: 'In the buy zone live — ' + fmtS + ' has reached the plan\'s ' + (e.basis || 'entry') + ' trigger at ' + fmtT + '. This is the price the pick said to wait for; opening here follows the plan. (Live intraday read, refreshed ~30s while this tab is open — the next 11:00 or 15:30 ET Top Picks run re-confirms it.)' };
   }
   // Patch every rendered entry chip (grid tiles, watchlist cards, the open
   // detail card — all tagged data-live-entry="SYM|side") from the latest quote
@@ -18429,7 +18429,7 @@
       if (empty) empty.hidden = true;
       if (eye) eye.textContent = 'Unavailable · no posture';
       root.innerHTML = '<section class="rp-empty-desk"><span class="rp-desk-kicker">Memory-cycle desk</span><h3>' + (d.loadError ? 'The RAM price snapshot could not be loaded' : 'No RAM price snapshot is available yet') + '</h3>' +
-        '<p>' + (d.loadError ? 'Do not infer a tightening or easing cycle from missing data. Use current earnings and market evidence until both price layers return.' : 'The next successful daily build will restore wholesale, retail and category-breadth checks.') + '</p>' +
+        '<p>' + (d.loadError ? 'Do not infer a tightening or easing cycle from missing data. Use current earnings and market evidence until both price layers return.' : 'The next successful Friday 11:30 ET scan will restore wholesale, retail and category-breadth checks.') + '</p>' +
         '<div class="rp-actions"><button type="button" class="rp-action rp-action-primary" data-rp-tab="market">Open Market analysis</button><button type="button" class="rp-action" data-rp-tab="calls">Open Earnings calls</button></div></section>';
       bindRamPriceActions(root);
       return;
@@ -18722,7 +18722,7 @@
         var point = (benchmark.history[quote.key] || [])[0];
         return '<div><i style="background:' + AP_COLORS[idx] + '"></i><span>' + escapeHtml(apProviderLabel(quote)) + '</span><b>' + apPrice(point && point.p) + '</b></div>';
       }).join('');
-      return historyHead + '<div class="ap-baseline-state"><span>Tracking started ' + escapeHtml(apShortDate(dates[0])) + '</span><h4>This is the first snapshot, so there is no trend line yet.</h4><p>These are baseline prices, not a tightening or easing signal. Each successful daily build adds another point; two points show direction, while the 7-day and 30-day reads need enough elapsed history.</p><div class="ap-baseline-quotes">' + baselineRows + '</div></div>';
+      return historyHead + '<div class="ap-baseline-state"><span>Tracking started ' + escapeHtml(apShortDate(dates[0])) + '</span><h4>This is the first snapshot, so there is no trend line yet.</h4><p>These are baseline prices, not a tightening or easing signal. Each successful Friday scan adds another point; two points show direction, while the 7-day and 30-day reads need enough elapsed history.</p><div class="ap-baseline-quotes">' + baselineRows + '</div></div>';
     }
     var values = [];
     quotes.forEach(function(quote){
@@ -18821,7 +18821,7 @@
       if (eye) eye.textContent = 'Unavailable / no compute read';
       root.innerHTML = '<section class="ap-empty-desk"><span>Compute-cost desk</span><h3>' +
         (data.loadError ? 'The accelerator snapshot could not be loaded' : 'No accelerator prices are available yet') +
-        '</h3><p>Do not infer capacity tightening or easing from missing marketplace data. The next successful daily build will retry every provider independently.</p></section>';
+        '</h3><p>Do not infer capacity tightening or easing from missing marketplace data. The next Friday 11:30 ET scan will retry every provider independently.</p></section>';
       return;
     }
     if (empty) empty.hidden = true;
@@ -18853,7 +18853,7 @@
     var hasTrend = focus.change30dPct != null && focus.change30dPct !== '' && isFinite(trend);
     var historyStart = selectedHistory.length ? apShortDate(selectedHistory[0].d) : null;
     var headline = focus.model + ' price history starts here';
-    var posture = 'One daily snapshot is a baseline, not a trend. The desk will classify compute as cheaper or more expensive after history accumulates.';
+    var posture = 'One weekly snapshot is a baseline, not a trend. The desk will classify compute as cheaper or more expensive after history accumulates.';
     var tone = 'watch';
     if (!current){
       headline = 'The accelerator-cost map needs a fresh build';
@@ -35887,7 +35887,7 @@
     var picks = sortPicks(picksRaw, picksState.sort);
     picksState.sorted = picks;
     if (eyebrow){
-      eyebrow.textContent = picks.length + ' pick' + (picks.length === 1 ? '' : 's') + ' · rebuilt with each daily refresh';
+      eyebrow.textContent = picks.length + ' pick' + (picks.length === 1 ? '' : 's') + ' · refreshed 11:00 & 15:30 ET';
     }
     // Always (re)enter on the landing grid — leaving and returning to the tab
     // should show the menu, not a stale detail page.

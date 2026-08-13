@@ -14,6 +14,12 @@ constant there. **If the code and this doc disagree, the code wins — fix the d
 > 10, or zero** — *cash is a position.* A zero-candidate current build publishes
 > an empty roster; it never republishes yesterday's picks as current trades.
 
+The full Top Picks decision pipeline runs twice each regular market day, at
+11:00 and 15:30 ET. The roster, grounded research, contract selection, churn,
+roster snapshot, and track-record marks refresh together. Other full builds
+carry that coherent snapshot forward unchanged while shared grades and market
+data continue to refresh.
+
 ---
 
 ## 1. The one rule
