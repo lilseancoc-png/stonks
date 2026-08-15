@@ -13,6 +13,7 @@
     "test:ma-tracker": "node scripts/ma-tracker-smoke.mjs",
     "test:capital-raises": "node scripts/capital-raises-smoke.mjs",
     "test:central-bank-gold": "node scripts/central-bank-gold-smoke.mjs",
+    "test:narrative-risk": "node scripts/narrative-risk-smoke.mjs",
     "test:api": "node scripts/api-smoke.mjs",
     "test:private-store": "node scripts/private-store-smoke.mjs",
     "test:render": "node scripts/render-smoke.mjs",

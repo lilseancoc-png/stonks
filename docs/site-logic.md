@@ -1205,6 +1205,10 @@ The narrative engine receives validated ticker headlines, market-wide headlines,
 
 Ticker symbols, industries, and links are sanitized against the supplied universe/source pool. The AI cannot cite a source it was not given. Sector stance and strength are deterministic two-level averages of the industry narrative grades rather than a free-form model score. Consecutive-day lifecycle and recently ended narratives are retained for 90 days.
 
+After extraction, a deterministic adversarial overlay prevents a dominant bullish theme from remaining clean when the supplied evidence turns against it. Explicit rate-hike, persistent-inflation, or AI-capex-friction language must come from a named high-influence source (Citadel Securities, a listed major-bank strategy desk, a key Fed speaker, or an official inflation release). Current-only unusual flow, confirmed volume/S&amp;R breaks, front-expiry OI/gamma crowding, and current FINRA short-interest changes receive higher lifecycle weight when their direction conflicts with a linked long/short role; quarantined scanner rows remain neutral.
+
+Linked earnings are importance-weighted checkpoints inside the same Watch/conflict/lifecycle model. A core imminent print forces Watch. Recent reported outcomes use validated EPS surprise plus official earnings-call guidance only: weighted confirmation can move an early story toward Validation and lower the hype score; a keystone hard miss plus guidance cut forces Risk Rising; only critical-mass failure can collapse the broad story, so one peripheral miss cannot. Validated forced-liquidation or violent long/short reversal evidence raises hype/unwind risk and carries a sticky conflict for several days through the 90-day history. This overlay never changes narrative sentiment, strength, ticker membership, or the deterministic sector-grade score.
+
 The expensive cross-universe extraction may reuse a recent result for up to six
 hours only when a SHA-256 signature of the exact model, system prompt, validated
 ticker/news context, macro headlines, and published macro reads is unchanged.

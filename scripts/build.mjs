@@ -21,6 +21,7 @@ import YahooFinance from "yahoo-finance2";
 import { expiryCloseEpochSec, greeks, bsPrice, yearsToExpiry, ncdf } from "../lib/greeks.mjs";
 import { renderPriceChartPng } from "../lib/chart-image.mjs";
 import { buildNewsFeedPayload } from "../lib/news-feed.mjs";
+import { computeGexSummary } from "../lib/gex.mjs";
 import { issuerCreditRatingFor } from "../lib/issuer-credit-ratings.mjs";
 import { fetchFinraMarketStructure, attachShortInterestToChains } from "../lib/market-structure.mjs";
 import { appendScenarioHistory, buildScenarioEngine, scenarioOverlayForSymbol } from "../lib/scenario-engine.mjs";
@@ -680,6 +681,377 @@ export function normalizeHype(raw) {
     : hypeLabelFromScore(score);
   const rationale = String(raw.rationale || "").replace(/\s+/g, " ").trim().slice(0, 180);
   return { score, label, rationale };
+}
+
+// Deterministic narrative-risk overlay. The AI discovers and describes the
+// stories; this layer decides whether current, auditable evidence makes a
+// bullish story unsafe to leave "clean". It never changes sentiment, strength,
+// ticker membership, or the sector-grade number.
+export const NARRATIVE_RISK_OVERLAY_VERSION = 1;
+const NARRATIVE_RISK_RANK = { none: 0, watch: 1, "risk-rising": 2, fading: 3, invalidated: 4 };
+const NARRATIVE_EARNINGS_PRE_DAYS = 7;
+const NARRATIVE_EARNINGS_POST_DAYS = 14;
+const NARRATIVE_CONFLICT_STICKY_DAYS = 3;
+const NARRATIVE_REVERSAL_STICKY_DAYS = 10;
+const NARRATIVE_HARD_MISS_PCT = -5;
+const NARRATIVE_SOFT_MISS_PCT = -1;
+const NARRATIVE_BEAT_PCT = 1;
+const HIGH_INFLUENCE_SOURCE_RE = /\b(?:citadel securities|goldman sachs|j\.?p\.?\s?morgan|morgan stanley|bank of america|bofa|citigroup|citi strategy|ubs|barclays|deutsche bank|wells fargo|evercore|rbc capital|federal reserve|fomc|jerome powell|christopher waller|john williams|michelle bowman|philip jefferson|austan goolsbee|mary daly|lisa cook|adriana kugler)\b/i;
+const RATE_HIKE_FRICTION_RE = /\b(?:rate hikes?|hike rates?|higher for longer|hawkish(?:er)?|no (?:near-term )?rate cuts?|delay(?:ed|ing)? rate cuts?|tighten(?:ing|ed)? (?:policy|financial conditions))\b/i;
+const INFLATION_FRICTION_RE = /\b(?:sticky|persistent|persistence|reaccelerat(?:e|es|ed|ing|ion)|hotter)\b.{0,45}\binflation\b|\binflation\b.{0,45}\b(?:sticky|persistent|persistence|reaccelerat(?:e|es|ed|ing|ion)|hotter)\b/i;
+const AI_CAPEX_FRICTION_RE = /\b(?:ai|artificial intelligence|data cent(?:er|re)|hyperscaler|gpu)\b.{0,80}\b(?:capex cuts?|cut(?:ting)? spending|spending slowdown|slower spending|roi concerns?|returns? (?:lag|disappoint)|financing friction|power constraints?|overbuild|overspend|unsustainable)\b|\b(?:capex cuts?|cut(?:ting)? spending|spending slowdown|slower spending|roi concerns?|overbuild|overspend|unsustainable)\b.{0,80}\b(?:ai|artificial intelligence|data cent(?:er|re)|hyperscaler|gpu)\b/i;
+const REVERSAL_HEADLINE_RE = /\b(?:forced liquidation|forced sale|margin call|deleverag(?:e|ing)|liquidat(?:e|ion)|crowded unwind|position unwind|violent reversal|spread reversal|capitulation)\b/i;
+const AI_THEME_RE = /\b(?:ai|artificial intelligence|data cent(?:er|re)|hyperscaler|gpu|semiconductor|accelerator|capex)\b/i;
+
+function riskRank(state) { return NARRATIVE_RISK_RANK[state] || 0; }
+function maxRiskState(a, b) { return riskRank(b) > riskRank(a) ? b : a; }
+function isoPlusDays(iso, days) {
+  const ms = Date.parse(String(iso || "").slice(0, 10) + "T00:00:00Z");
+  return Number.isFinite(ms) ? new Date(ms + days * 86400000).toISOString().slice(0, 10) : null;
+}
+function narrativeRiskText(n) {
+  return [n?.name, n?.thesis, n?.industry, n?.sector, ...(n?.watchFor || [])].filter(Boolean).join(" ");
+}
+function baseNarrativeForRisk(n) {
+  const out = { ...n };
+  if (n?.riskOverlayVersion === NARRATIVE_RISK_OVERLAY_VERSION) {
+    out.status = n.baseStatus || n.status;
+    out.lifecycleStage = n.baseLifecycleStage || n.lifecycleStage;
+    if (n.hype && Number.isFinite(Number(n.baseHypeScore))) {
+      out.hype = { ...n.hype, score: Number(n.baseHypeScore), label: hypeLabelFromScore(Number(n.baseHypeScore)) };
+    }
+  }
+  delete out.riskState;
+  delete out.riskDays;
+  delete out.conflictFlags;
+  delete out.earningsCheckpoint;
+  return out;
+}
+function highInfluenceMacroEvidence(macroHeadlines, macroReleaseReads) {
+  const out = [];
+  for (const h of (Array.isArray(macroHeadlines) ? macroHeadlines : []).slice(0, MACRO_TOTAL_CAP)) {
+    const publisher = String(h?.publisher || h?.source || "");
+    const title = String(h?.title || "");
+    const sourceText = `${publisher} ${title}`;
+    if (!HIGH_INFLUENCE_SOURCE_RE.test(sourceText)) continue;
+    let category = null;
+    if (AI_CAPEX_FRICTION_RE.test(title)) category = "ai-capex-friction";
+    else if (RATE_HIKE_FRICTION_RE.test(title)) category = "rate-hike-risk";
+    else if (INFLATION_FRICTION_RE.test(title)) category = "inflation-persistence";
+    if (!category) continue;
+    const observedAt = String(h?.publishedAt || "").slice(0, 10) || null;
+    out.push({
+      type: "macro",
+      category,
+      severity: "conflict",
+      source: publisher || "high-influence source",
+      title: title.slice(0, 180),
+      observedAt,
+      stickyUntil: isoPlusDays(observedAt, NARRATIVE_CONFLICT_STICKY_DAYS),
+      reason: category === "ai-capex-friction"
+        ? "High-influence AI-capex friction challenges the demand/payback thesis."
+        : category === "rate-hike-risk"
+          ? "High-influence hawkish rate language challenges duration-sensitive bullish themes."
+          : "High-influence inflation-persistence language challenges clean bullish risk appetite.",
+    });
+  }
+  for (const r of Array.isArray(macroReleaseReads) ? macroReleaseReads : []) {
+    if (!String(r?.subtype || "").includes("cpi") && !String(r?.subtype || "").includes("ppi") && r?.subtype !== "core-pce-mom") continue;
+    if (r?.surprise !== "above") continue;
+    const observedAt = String(r?.date || "").slice(0, 10) || null;
+    out.push({
+      type: "macro",
+      category: "inflation-persistence",
+      severity: "conflict",
+      source: r?.source || "official macro release",
+      title: String(r?.line || r?.title || "Hot inflation release").slice(0, 180),
+      observedAt,
+      stickyUntil: isoPlusDays(observedAt, NARRATIVE_CONFLICT_STICKY_DAYS),
+      reason: "An official hotter-than-consensus inflation print challenges clean bullish risk appetite.",
+    });
+  }
+  return out;
+}
+function linkedNarrativeSymbols(n) {
+  const out = [];
+  for (const [side, rows] of [[1, n?.longs], [-1, n?.shorts]]) {
+    for (let i = 0; i < (Array.isArray(rows) ? rows.length : 0); i++) {
+      out.push({ symbol: rows[i], expected: side, weight: i < 2 ? 2 : 1, keystone: i === 0 });
+    }
+  }
+  const both = new Set(out.filter((x, i) => out.some((y, j) => j !== i && y.symbol === x.symbol && y.expected !== x.expected)).map((x) => x.symbol));
+  return out.filter((x) => !both.has(x.symbol));
+}
+function latestConfirmedSrDirection(row) {
+  const hits = Array.isArray(row?.bucketHits) ? row.bucketHits : [];
+  for (let i = hits.length - 1; i >= 0; i--) {
+    const sr = hits[i]?.srBreak;
+    if (sr && sr.conviction && sr.conviction !== "None") return sr.type === "lower" ? -1 : sr.type === "upper" ? 1 : 0;
+  }
+  return 0;
+}
+function positioningConflictsForNarrative(n, ctx) {
+  const unusualBy = new Map((ctx?.unusual?.tickers || []).map((r) => [r.symbol, r]));
+  const volumeBy = new Map((ctx?.volumeFlags?.tickers || []).map((r) => [r.symbol, r]));
+  const oiBy = new Map((ctx?.oiTracker?.tickers || []).map((r) => [r.symbol, r]));
+  const evidence = [];
+  let score = 0;
+  for (const link of linkedNarrativeSymbols(n)) {
+    const u = unusualBy.get(link.symbol);
+    if (u) {
+      let directional = 0;
+      let premium = 0;
+      for (const c of Array.isArray(u.contracts) ? u.contracts : []) {
+        if (!c?.flagged || !["ask", "abv"].includes(c.tape)) continue;
+        const d = c.side === "call" ? 1 : c.side === "put" ? -1 : 0;
+        directional += d * Math.max(1, Number(c.deltaPremium || c.premium || 0));
+        premium += Number(c.deltaPremium || c.premium || 0);
+      }
+      if (directional && Math.sign(directional) !== link.expected) {
+        const severity = premium >= 1_000_000 ? 2 : 1;
+        score += severity * link.weight;
+        evidence.push({ type: "positioning", category: "unusual-flow", symbol: link.symbol, severity: severity === 2 ? "high" : "watch", observedAt: ctx.unusual.scannedAt, reason: `${link.symbol} aggressive ${directional < 0 ? "put" : "call"} flow conflicts with its narrative role.` });
+      }
+    }
+    const chain = ctx?.chains?.[link.symbol];
+    const gexSpot = Number(u?.spot ?? chain?.spot);
+    const gex = u?.gex || (gexSpot > 0 && chain?.chains ? computeGexSummary(chain.chains, gexSpot, { now: ctx?.nowMs }) : null);
+    if (link.expected > 0 && Number(gex?.net) < 0 && gexSpot > 0 && Number(gex?.flip) >= gexSpot) {
+      score += 2 * link.weight;
+      evidence.push({ type: "positioning", category: "negative-gamma", symbol: link.symbol, severity: "high", observedAt: ctx?.unusual?.scannedAt || new Date(ctx.nowMs).toISOString(), reason: `${link.symbol} is below its gamma flip in negative dealer gamma, so hedging can amplify downside.` });
+    }
+    const v = volumeBy.get(link.symbol);
+    const srDir = latestConfirmedSrDirection(v);
+    if (srDir && srDir !== link.expected) {
+      score += 2 * link.weight;
+      evidence.push({ type: "positioning", category: "volume-break", symbol: link.symbol, severity: "high", observedAt: ctx.volumeFlags.scannedAt, reason: `${link.symbol} confirmed a heavy-volume ${srDir < 0 ? "support break" : "resistance break"} against the narrative role.` });
+    }
+    const oi = oiBy.get(link.symbol);
+    const cp = Number(oi?.cpRatio);
+    const oiConflict = link.expected > 0 ? Number.isFinite(cp) && cp < 0.75 : (Number(oi?.score) >= 3 || (Number.isFinite(cp) && cp > 1.5));
+    if (oiConflict) {
+      const severity = Number(oi?.score) >= 4 ? 2 : 1;
+      score += severity * link.weight;
+      evidence.push({ type: "positioning", category: "oi-crowding", symbol: link.symbol, severity: severity === 2 ? "high" : "watch", observedAt: ctx.oiTracker.scannedAt, reason: `${link.symbol} current front-expiry OI/crowding conflicts with the narrative role.` });
+    }
+    const si = ctx?.chains?.[link.symbol]?.fundamentals?.shortInterest;
+    if (shortInterestIsCurrent(si?.settlementDate, ctx?.nowMs) && Number.isFinite(Number(si?.changePct))) {
+      const change = Number(si.changePct);
+      const conflict = link.expected > 0 ? change >= 10 : change <= -10;
+      if (conflict) {
+        score += link.weight;
+        evidence.push({ type: "positioning", category: "short-interest-change", symbol: link.symbol, severity: "watch", observedAt: si.settlementDate, reason: `${link.symbol} short interest ${change > 0 ? "rose" : "fell"} ${Math.abs(change).toFixed(1)}%, conflicting with the narrative role.` });
+      }
+    }
+  }
+  const hasCoreHigh = evidence.some((e) => e.severity === "high" && linkedNarrativeSymbols(n).some((l) => l.symbol === e.symbol && l.weight === 2));
+  return { evidence, score, state: score >= 5 || hasCoreHigh ? "risk-rising" : score >= 2 ? "watch" : "none" };
+}
+function earningsCheckpointForNarrative(n, chains, nowMs) {
+  const nowDay = etDateKey(new Date(nowMs));
+  const links = linkedNarrativeSymbols(n);
+  const totalWeight = links.reduce((s, x) => s + x.weight, 0) || 1;
+  const rows = [];
+  let imminentWeight = 0, observedWeight = 0, confirmWeight = 0, mildRiskWeight = 0, hardFailWeight = 0;
+  let keystoneImminent = false, keystoneFail = false;
+  for (const link of links) {
+    const hx = chains?.[link.symbol]?.earningsHx;
+    if (hx?.next && Number(hx.next.daysUntil) >= 0 && Number(hx.next.daysUntil) <= NARRATIVE_EARNINGS_PRE_DAYS) {
+      imminentWeight += link.weight;
+      if (link.keystone) keystoneImminent = true;
+      rows.push({ symbol: link.symbol, importance: link.weight, phase: "pre", date: hx.next.date, outcome: "watch", reason: `Material print in ${hx.next.daysUntil}d.` });
+    }
+    const events = Array.isArray(hx?.events) ? hx.events : [];
+    const ev = events.length ? events[events.length - 1] : null;
+    const dateMs = Date.parse(String(ev?.date || "").slice(0, 10) + "T00:00:00Z");
+    const ageDays = Number.isFinite(dateMs) ? Math.floor((Date.parse(nowDay + "T00:00:00Z") - dateMs) / 86400000) : null;
+    if (!ev || ageDays == null || ageDays < 0 || ageDays > NARRATIVE_EARNINGS_POST_DAYS) continue;
+    const surprise = Number(ev.surprisePct);
+    const epsKnown = Number.isFinite(surprise);
+    const guidance = ev.guidanceSrc === "call" && ["raised", "inline", "lowered"].includes(ev.guidance) ? ev.guidance : null;
+    if (!epsKnown && !guidance) continue;
+    observedWeight += link.weight;
+    let outcome = "neutral";
+    if (epsKnown && surprise >= NARRATIVE_BEAT_PCT && (guidance === "raised" || guidance === "inline")) outcome = "confirm";
+    else if (epsKnown && surprise <= NARRATIVE_HARD_MISS_PCT && guidance === "lowered") outcome = "hard-fail";
+    else if ((epsKnown && surprise <= NARRATIVE_SOFT_MISS_PCT) || guidance === "lowered") outcome = "mild-risk";
+    if (outcome === "confirm") confirmWeight += link.weight;
+    if (outcome === "mild-risk") mildRiskWeight += link.weight;
+    if (outcome === "hard-fail") {
+      hardFailWeight += link.weight;
+      if (link.keystone) keystoneFail = true;
+    }
+    rows.push({ symbol: link.symbol, importance: link.weight, phase: "post", date: ev.date, outcome, epsSurprisePct: epsKnown ? surprise : null, guidance, guidanceSource: guidance ? "official-call" : null, reason: outcome === "confirm" ? "Beat with stable/raised official guidance." : outcome === "hard-fail" ? "Hard miss with an official guidance cut." : outcome === "mild-risk" ? "Soft miss or official guidance caution." : "No decisive confirmation or invalidation." });
+  }
+  const observedDenom = observedWeight || 1;
+  let state = "none";
+  // Critical mass is measured against the whole linked beneficiary set, not
+  // only the names that happened to report. That prevents one peripheral
+  // print from killing a broad story. A keystone failure still accelerates
+  // risk immediately, while collapse needs >=60% of linked importance.
+  if (hardFailWeight / totalWeight >= 0.6) state = "invalidated";
+  else if (keystoneFail || hardFailWeight / totalWeight >= 0.35) state = "risk-rising";
+  else if (mildRiskWeight / totalWeight >= 0.35) state = "watch";
+  else if (confirmWeight / observedDenom >= 0.6 && confirmWeight / totalWeight >= 0.35) state = "confirmed";
+  if ((keystoneImminent || imminentWeight / totalWeight >= 0.35) && riskRank(state) < riskRank("watch")) state = "watch";
+  return { state, rows, totalWeight, imminentWeight, observedWeight, confirmWeight, mildRiskWeight, hardFailWeight };
+}
+function reversalConflictForNarrative(n, chains, headlines, nowMs) {
+  const links = linkedNarrativeSymbols(n);
+  if (!links.length) return null;
+  const relevant = [];
+  for (const link of links) {
+    // Match the same two per-ticker headlines that buildNarrativeUserMessage
+    // actually places in the SOURCE POOL. The overlay never reaches around
+    // the model's supplied evidence boundary.
+    const hs = (chains?.[link.symbol]?.news?.headlines || []).slice(0, 2);
+    for (const h of hs) if (REVERSAL_HEADLINE_RE.test(String(h?.title || ""))) relevant.push({ ...h, symbol: link.symbol });
+  }
+  for (const h of (Array.isArray(headlines) ? headlines : []).slice(0, MACRO_TOTAL_CAP)) if (REVERSAL_HEADLINE_RE.test(String(h?.title || "")) && AI_THEME_RE.test(narrativeRiskText(n))) relevant.push(h);
+  if (!relevant.length) return null;
+  const sideMoves = (expected) => links.filter((l) => l.expected === expected).map((l) => Number(chains?.[l.symbol]?.technicals?.volume?.priceMove1dPct)).filter(Number.isFinite);
+  const longs = sideMoves(1), shorts = sideMoves(-1);
+  const avg = (xs) => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+  const longAvg = avg(longs), shortAvg = avg(shorts);
+  const spread = longAvg != null && shortAvg != null ? longAvg - shortAvg : longAvg;
+  if (!(spread <= -4) && !relevant.some((h) => /forced liquidation|forced sale|margin call/i.test(String(h?.title || "")))) return null;
+  const h = relevant[0];
+  const observedAt = String(h?.publishedAt || new Date(nowMs).toISOString()).slice(0, 10);
+  return { type: "reversal", category: "validated-unwind", severity: "high", source: h?.publisher || "validated headline", title: String(h?.title || "Theme unwind").slice(0, 180), observedAt, stickyUntil: isoPlusDays(observedAt, NARRATIVE_REVERSAL_STICKY_DAYS), reason: `Validated unwind/liquidation evidence${Number.isFinite(spread) ? ` with a ${spread.toFixed(1)}pt long/short spread reversal` : ""} makes the conflict persistent.` };
+}
+function priorRiskSnapshot(previousHistory, name) {
+  const key = String(name || "").toLowerCase();
+  for (const snap of Array.isArray(previousHistory) ? previousHistory : []) {
+    const hit = (snap?.narratives || []).find((x) => String(x?.name || "").toLowerCase() === key);
+    if (hit) return hit;
+  }
+  return null;
+}
+function consecutiveRiskDays(previousHistory, name, state) {
+  if (riskRank(state) < riskRank("watch")) return 0;
+  const key = String(name || "").toLowerCase();
+  let days = 1;
+  for (const snap of Array.isArray(previousHistory) ? previousHistory : []) {
+    const hit = (snap?.narratives || []).find((x) => String(x?.name || "").toLowerCase() === key);
+    if (!hit || riskRank(hit.riskState) < riskRank("watch")) break;
+    days++;
+  }
+  return days;
+}
+
+export function applyNarrativeRiskOverlays(narratives, sectorOverviews = {}, ctx = {}) {
+  const nowMs = Number.isFinite(Number(ctx.nowMs)) ? Number(ctx.nowMs) : Date.now();
+  const today = etDateKey(new Date(nowMs));
+  const macroEvidence = highInfluenceMacroEvidence(ctx.macroHeadlines, ctx.macroReleaseReads);
+  const adjusted = [];
+  for (const input of Array.isArray(narratives) ? narratives : []) {
+    const n = baseNarrativeForRisk(input);
+    if (n.autogenerated) { adjusted.push(n); continue; }
+    const baseStatus = n.status;
+    const baseLifecycleStage = normalizeLifecycleStage(n.lifecycleStage, n.status);
+    const baseHypeScore = Number.isFinite(Number(n?.hype?.score)) ? Number(n.hype.score) : null;
+    let riskState = "none";
+    const flags = [];
+    const dominantBull = n.sentiment === "bullish" && n.status === "active" && Number(n.strength) >= 60;
+    if (dominantBull) {
+      for (const ev of macroEvidence) {
+        if (ev.category === "ai-capex-friction" && !AI_THEME_RE.test(narrativeRiskText(n))) continue;
+        flags.push(ev);
+        riskState = maxRiskState(riskState, ev.category === "ai-capex-friction" ? "risk-rising" : "watch");
+      }
+    }
+    const positioning = positioningConflictsForNarrative(n, { ...ctx, nowMs });
+    if (positioning.evidence.length) {
+      flags.push(...positioning.evidence);
+      riskState = maxRiskState(riskState, positioning.state);
+    }
+    const earningsCheckpoint = earningsCheckpointForNarrative(n, ctx.chains || {}, nowMs);
+    if (earningsCheckpoint.state === "watch") riskState = maxRiskState(riskState, "watch");
+    if (earningsCheckpoint.state === "risk-rising") riskState = maxRiskState(riskState, "risk-rising");
+    if (earningsCheckpoint.state === "invalidated") riskState = maxRiskState(riskState, "invalidated");
+    for (const row of earningsCheckpoint.rows.filter((x) => ["hard-fail", "mild-risk"].includes(x.outcome))) {
+      flags.push({ type: "earnings", category: row.outcome, symbol: row.symbol, severity: row.outcome === "hard-fail" ? "high" : "watch", observedAt: row.date, stickyUntil: isoPlusDays(row.date, NARRATIVE_EARNINGS_POST_DAYS), reason: row.reason });
+    }
+    const reversal = reversalConflictForNarrative(n, ctx.chains || {}, ctx.macroHeadlines, nowMs);
+    if (reversal) {
+      flags.push(reversal);
+      riskState = maxRiskState(riskState, "fading");
+    }
+    const prior = priorRiskSnapshot(ctx.previousHistory, n.name);
+    let carriedStickyConflict = false;
+    for (const flag of Array.isArray(prior?.conflictFlags) ? prior.conflictFlags : []) {
+      if (flag?.stickyUntil && flag.stickyUntil >= today && !flags.some((x) => x.category === flag.category && x.symbol === flag.symbol && x.title === flag.title)) {
+        flags.push(flag);
+        carriedStickyConflict = true;
+        if (flag.category === "validated-unwind") riskState = maxRiskState(riskState, "fading");
+        else if (flag.category === "hard-fail" && riskRank(prior?.riskState) >= riskRank("risk-rising")) riskState = maxRiskState(riskState, "risk-rising");
+      }
+    }
+    if (carriedStickyConflict && riskRank(riskState) < riskRank("watch")) riskState = "watch";
+
+    let lifecycleStage = baseLifecycleStage;
+    let status = baseStatus;
+    if (riskState === "risk-rising" || riskState === "fading") {
+      if (NARRATIVE_LIFECYCLE_STAGES.indexOf(lifecycleStage) < NARRATIVE_LIFECYCLE_STAGES.indexOf("challenges")) lifecycleStage = "challenges";
+      if (riskState === "fading") status = "fading";
+    } else if (riskState === "invalidated") {
+      lifecycleStage = "collapse";
+      status = "fading";
+    } else if (earningsCheckpoint.state === "confirmed" && ["catalysts", "amplification"].includes(lifecycleStage)) {
+      lifecycleStage = "validation";
+      status = "active";
+    }
+    let hype = n.hype ? { ...n.hype } : null;
+    if (hype) {
+      let delta = 0;
+      if (earningsCheckpoint.state === "confirmed") delta -= 8;
+      if (earningsCheckpoint.state === "risk-rising") delta += 10;
+      if (earningsCheckpoint.state === "invalidated") delta += 18;
+      if (reversal) delta += 20;
+      if (positioning.state === "risk-rising") delta += 8;
+      if (macroEvidence.length && flags.some((x) => x.type === "macro")) delta += 6;
+      hype.score = Math.max(0, Math.min(100, Math.round(Number(hype.score) + delta)));
+      hype.label = hypeLabelFromScore(hype.score);
+      if (delta > 0) hype.rationale = "Current conflict evidence weakens fundamental confirmation and raises unwind risk.";
+      else if (delta < 0) hype.rationale = "Recent linked earnings confirm more of the narrative with reported results and official guidance.";
+    }
+    adjusted.push({
+      ...n,
+      status,
+      lifecycleStage,
+      riskOverlayVersion: NARRATIVE_RISK_OVERLAY_VERSION,
+      baseStatus,
+      baseLifecycleStage,
+      baseHypeScore,
+      riskState,
+      riskDays: consecutiveRiskDays(ctx.previousHistory, n.name, riskState),
+      conflictFlags: flags.slice(0, 12),
+      earningsCheckpoint,
+      hype,
+    });
+  }
+  const outOverviews = {};
+  for (const [sector, overview] of Object.entries(sectorOverviews || {})) {
+    const children = adjusted.filter((n) => (n.sector || SECTOR_OF_INDUSTRY[n.industry]) === sector && !n.autogenerated);
+    let sectorRisk = "none";
+    for (const n of children) sectorRisk = maxRiskState(sectorRisk, n.riskState);
+    const sectorFlags = children.flatMap((n) => n.conflictFlags || []).slice(0, 8);
+    const baseScore = Number.isFinite(Number(overview?.baseHypeScore)) ? Number(overview.baseHypeScore) : Number(overview?.hype?.score);
+    const baseLifecycleStage = overview?.riskOverlayVersion === NARRATIVE_RISK_OVERLAY_VERSION
+      ? (overview.baseLifecycleStage || overview.lifecycleStage || null)
+      : (overview?.lifecycleStage || null);
+    let hype = overview?.hype ? { ...overview.hype } : null;
+    if (hype && Number.isFinite(baseScore)) {
+      const childScores = children.map((n) => Number(n?.hype?.score)).filter(Number.isFinite);
+      hype.score = childScores.length ? Math.max(0, Math.min(100, Math.round(childScores.reduce((a, b) => a + b, 0) / childScores.length))) : baseScore;
+      hype.label = hypeLabelFromScore(hype.score);
+    }
+    let lifecycleStage = baseLifecycleStage;
+    if (["risk-rising", "fading"].includes(sectorRisk) && NARRATIVE_LIFECYCLE_STAGES.indexOf(lifecycleStage) < NARRATIVE_LIFECYCLE_STAGES.indexOf("challenges")) lifecycleStage = "challenges";
+    if (sectorRisk === "invalidated") lifecycleStage = "collapse";
+    outOverviews[sector] = { ...overview, riskOverlayVersion: NARRATIVE_RISK_OVERLAY_VERSION, baseHypeScore: Number.isFinite(baseScore) ? baseScore : null, baseLifecycleStage, riskState: sectorRisk, conflictFlags: sectorFlags, lifecycleStage, hype };
+  }
+  return { narratives: adjusted, sectorOverviews: outOverviews };
 }
 
 // Two-level rollup (per spec): a sector's grade is the AVERAGE of its
@@ -6733,6 +7105,12 @@ export function attachEarningsHx(chains, store, nowMs = Date.now()) {
         week1Pct: ev.week1Pct ?? null,
         pre10Pct: ev.pre10Pct ?? null,
         pre15Pct: ev.pre15Pct ?? null,
+        // Official-call guidance is the only guidance source the narrative
+        // earnings checkpoint is allowed to score. News-derived guidance is
+        // retained for the Earnings Tracker but cannot confirm/invalidate a
+        // market narrative deterministically.
+        guidance: ev.guidance ?? null,
+        guidanceSrc: ev.guidanceSrc ?? null,
       })),
       next,
     };
@@ -32416,7 +32794,14 @@ const NARRATIVE_SYSTEM_PROMPT =
   "Reserve, BLS, Treasury, SEC) and major business press (Reuters, Bloomberg, WSJ, MarketWatch, " +
   "CNBC) covering the last ~2 weeks. Use the macro digest to decide whether a narrative's required " +
   "trigger has fired (e.g. a hot CPI print activates the inflation/short-duration trade) or is " +
-  "still pending (no trigger yet). " +
+  "still pending (no trigger yet). Treat explicit rate-hike, inflation-persistence, or AI-capex " +
+  "friction language from a named high-influence source in the supplied pool (Citadel Securities, " +
+  "a major-bank strategy desk, a key Fed speaker, or an official inflation release) as adversarial " +
+  "evidence against a dominant bullish theme. It does not prove the bear case or change the " +
+  "downstream deterministic sector grade, but the bullish thesis may not remain conflict-free. " +
+  "Current positioning, flow, crowding, and linked earnings checkpoints are supplied separately " +
+  "when available: weigh them heavily when they oppose a thesis, ignore stale/quarantined samples, " +
+  "and do not let one peripheral earnings print kill a broad narrative. " +
   "OUTPUT STRUCTURE — you produce TWO layers of analysis, organized by sector. For each sector in " +
   "the SECTOR/INDUSTRY WHITELIST provided in the user message, return ONE \"sector overview\" object " +
   "plus an array of sub-industry narratives that live inside that sector. " +
@@ -32593,7 +32978,44 @@ function formatPoolLine(scope, publisher, title, publishedAt) {
   return `- ${scope} [${date}] (${pub}) "${clipHeadlineTitle(title)}"`;
 }
 
-function buildNarrativeUserMessage(chains, previousNames, macroHeadlines) {
+function buildNarrativeRiskDigest(chains, riskInputs = {}) {
+  const lines = [];
+  for (const [sym, data] of Object.entries(chains || {})) {
+    const next = data?.earningsHx?.next;
+    if (next && Number(next.daysUntil) >= 0 && Number(next.daysUntil) <= NARRATIVE_EARNINGS_PRE_DAYS) {
+      lines.push(`- EARNINGS ${sym}: reports ${next.date} (${next.daysUntil}d); linked narratives must stay Watch into the print.`);
+    }
+    const evs = Array.isArray(data?.earningsHx?.events) ? data.earningsHx.events : [];
+    const ev = evs.length ? evs[evs.length - 1] : null;
+    if (ev?.date) {
+      const age = Math.floor((Date.now() - Date.parse(`${ev.date}T00:00:00Z`)) / 86400000);
+      if (age >= 0 && age <= NARRATIVE_EARNINGS_POST_DAYS && (Number.isFinite(Number(ev.surprisePct)) || ev.guidanceSrc === "call")) {
+        lines.push(`- EARNINGS ${sym}: ${ev.date} EPS surprise ${Number.isFinite(Number(ev.surprisePct)) ? Number(ev.surprisePct).toFixed(1) + "%" : "n/a"}; official-call guidance ${ev.guidanceSrc === "call" ? ev.guidance : "unavailable"}.`);
+      }
+    }
+    const si = data?.fundamentals?.shortInterest;
+    if (shortInterestIsCurrent(si?.settlementDate) && Math.abs(Number(si?.changePct)) >= 10) {
+      lines.push(`- POSITIONING ${sym}: FINRA short interest ${Number(si.changePct) > 0 ? "+" : ""}${Number(si.changePct).toFixed(1)}% vs prior settlement (${si.settlementDate}).`);
+    }
+  }
+  for (const row of riskInputs?.unusual?.tickers || []) {
+    const directional = (row.contracts || []).filter((c) => c?.flagged && ["ask", "abv"].includes(c.tape));
+    if (!directional.length) continue;
+    const calls = directional.filter((c) => c.side === "call").length;
+    const puts = directional.filter((c) => c.side === "put").length;
+    lines.push(`- FLOW ${row.symbol}: ${calls} aggressive call / ${puts} aggressive put flags; current scan ${riskInputs.unusual.scannedAt}.`);
+  }
+  for (const row of riskInputs?.volumeFlags?.tickers || []) {
+    const dir = latestConfirmedSrDirection(row);
+    if (dir) lines.push(`- VOLUME ${row.symbol}: confirmed heavy-volume ${dir > 0 ? "resistance" : "support"} break; current scan ${riskInputs.volumeFlags.scannedAt}.`);
+  }
+  for (const row of riskInputs?.oiTracker?.tickers || []) {
+    if (Number(row?.score) >= 3) lines.push(`- OI ${row.symbol}: squeeze/crowding score ${row.score}/5, C/P ${row.cpRatio ?? "n/a"}; current scan ${riskInputs.oiTracker.scannedAt}.`);
+  }
+  return lines.slice(0, 80).join("\n") || "(no current non-quarantined positioning or material linked-earnings checkpoints)";
+}
+
+function buildNarrativeUserMessage(chains, previousNames, macroHeadlines, riskInputs = {}) {
   const lines = Object.entries(chains).map(([sym, data]) => {
     const news = data.news;
     const sentiment = news?.sentiment || "unknown";
@@ -32661,6 +33083,7 @@ function buildNarrativeUserMessage(chains, previousNames, macroHeadlines) {
     `INDUSTRY WHITELIST — the "industry" field on every narrative must match one of these exact strings:\n${industryWhitelist}\n\n` +
     `${previousBlock}\n\n` +
     `Macro headlines digest (official + major business press, newest first — use these to judge whether each narrative's trigger has fired):\n${macroLines}\n\n` +
+    `CURRENT DECISION CHECKPOINTS — deterministic, current-only positioning/flow and linked earnings. Treat conflicts as lifecycle risk; do not change sector-grade direction from this block:\n${buildNarrativeRiskDigest(chains, riskInputs)}\n\n` +
     `SOURCE POOL — the ONLY headlines you may cite in any narrative's "sources" array. Copy publisher + title verbatim. Each line is one cite-able headline; macro entries start with "MACRO", ticker-specific entries start with the ticker symbol.\n${sourcePoolBlock}\n\n` +
     `Recent per-ticker news takes:\n${lines.join("\n")}`
   );
@@ -33051,6 +33474,21 @@ function updateTrendHistory(history, narratives, todayIso) {
       strength: n.strength,
       status: n.status,
       lifecycleStage: n.lifecycleStage,
+      // Keep the deterministic risk trail alongside strength/status so a
+      // same-theme conflict can persist across days instead of disappearing
+      // as soon as one headline leaves the current prompt window.
+      riskState: n.riskState || "none",
+      riskDays: Number(n.riskDays) || 0,
+      hype: n.hype ? { score: n.hype.score, label: n.hype.label } : null,
+      conflictFlags: Array.isArray(n.conflictFlags) ? n.conflictFlags.slice(0, 8) : [],
+      earningsCheckpoint: n.earningsCheckpoint ? {
+        state: n.earningsCheckpoint.state,
+        imminentWeight: n.earningsCheckpoint.imminentWeight,
+        observedWeight: n.earningsCheckpoint.observedWeight,
+        confirmWeight: n.earningsCheckpoint.confirmWeight,
+        mildRiskWeight: n.earningsCheckpoint.mildRiskWeight,
+        hardFailWeight: n.earningsCheckpoint.hardFailWeight,
+      } : null,
       longs: n.longs,
       shorts: n.shorts,
       // Carry the coverage-filler discriminator so computeRecentlyEnded can
@@ -33112,7 +33550,7 @@ function computeRecentlyEnded(history, activeNarrativeNames, todayIso) {
     .slice(0, 8);
 }
 
-async function attachMarketNarratives(chains, previousHistory, macroReleaseReads = []) {
+async function attachMarketNarratives(chains, previousHistory, macroReleaseReads = [], riskInputs = {}) {
   if (!process.env.GEMINI_API_KEY) {
     console.log("No GEMINI_API_KEY set — skipping market narrative extraction.");
     // The headline slate is pure RSS (no key needed) and feeds the macro
@@ -33153,7 +33591,7 @@ async function attachMarketNarratives(chains, previousHistory, macroReleaseReads
   }));
   if (releaseItems.length) console.log(`  · ${releaseItems.length} same-day macro print(s) added to the digest`);
   const headlinesForPrompt = releaseItems.concat(macroHeadlines);
-  const narrativeUserMessage = buildNarrativeUserMessage(chains, previousNames, headlinesForPrompt);
+  const narrativeUserMessage = buildNarrativeUserMessage(chains, previousNames, headlinesForPrompt, riskInputs);
   const aiInputSig = narrativeInputSignature(narrativeUserMessage);
   const lastGood = await loadLastGoodTrends();
   console.log(`Extracting market narratives across ${Object.keys(chains).length} tickers…`);
@@ -33166,10 +33604,18 @@ async function attachMarketNarratives(chains, previousHistory, macroReleaseReads
       console.log(`  [ai-cache] narratives exact-input reuse from ${lastGood.aiGeneratedAtIso || lastGood.builtAtIso}`);
     }
     const builtAtIso = new Date().toISOString();
-    const narratives = annotateNarrativesWithLifespan(raw.narratives, previousHistory, builtAtIso);
+    const riskAdjusted = applyNarrativeRiskOverlays(raw.narratives, raw.sectorOverviews || {}, {
+      ...riskInputs,
+      chains,
+      macroHeadlines: headlinesForPrompt,
+      macroReleaseReads,
+      previousHistory,
+      nowMs: Date.parse(builtAtIso),
+    });
+    const narratives = annotateNarrativesWithLifespan(riskAdjusted.narratives, previousHistory, builtAtIso);
     const history = updateTrendHistory(previousHistory, narratives, builtAtIso);
     const recentlyEnded = computeRecentlyEnded(history, narratives.map((n) => n.name), builtAtIso);
-    const sectorOverviews = raw.sectorOverviews || {};
+    const sectorOverviews = riskAdjusted.sectorOverviews;
     console.log(`  ✓ ${narratives.length} narratives extracted across ${Object.keys(sectorOverviews).length} sectors (ordered strongest → weakest)`);
     for (const sec of SECTOR_ORDER) {
       const ov = sectorOverviews[sec];
@@ -33675,7 +34121,20 @@ async function main() {
   const macroReleaseReads = buildMacroReleaseReads(reportEventsAll, todayIsoEarly);
   console.log(`  · ${reportEvents.length} report rows (${macroReleaseReads.length} already printed in the last ${MACRO_RELEASE_LOOKBACK_DAYS}d)`);
   for (const r of macroReleaseReads) console.log(`    · ${r.line}`);
-  const trends = await attachMarketNarratives(chains, previousHistory, macroReleaseReads);
+  // Quarantine scanner payloads BEFORE narrative extraction. The prompt and
+  // deterministic risk overlay see current samples only; stale rows remain
+  // neutral exactly as they are for grades/picks.
+  const scoringUnusual = scannerPayloadIsFresh(unusual, 90 * 60000) ? unusual : null;
+  const scoringVolumeFlags = scannerPayloadIsFresh(volumeFlags, 90 * 60000) ? volumeFlags : null;
+  const scoringOiTracker = scannerPayloadIsFresh(oiTracker, 12 * 3600000) ? oiTracker : null;
+  if (unusual && !scoringUnusual) console.warn("[freshness] excluded out-of-cadence unusual flow from scoring");
+  if (volumeFlags && !scoringVolumeFlags) console.warn("[freshness] excluded out-of-cadence volume flags from scoring");
+  if (oiTracker && !scoringOiTracker) console.warn("[freshness] excluded out-of-cadence OI tracker from scoring");
+  const trends = await attachMarketNarratives(chains, previousHistory, macroReleaseReads, {
+    unusual: scoringUnusual,
+    volumeFlags: scoringVolumeFlags,
+    oiTracker: scoringOiTracker,
+  });
   const scoringNarratives = decisionNarratives(trends.narratives);
   if (scoringNarratives.length !== trends.narratives.length) {
     console.warn(
@@ -33686,12 +34145,6 @@ async function main() {
   if (fearGreed?.stale === true) {
     console.warn("[freshness] excluded stale Fear & Greed context from regime and AI brief inputs");
   }
-  const scoringUnusual = scannerPayloadIsFresh(unusual, 90 * 60000) ? unusual : null;
-  const scoringVolumeFlags = scannerPayloadIsFresh(volumeFlags, 90 * 60000) ? volumeFlags : null;
-  const scoringOiTracker = scannerPayloadIsFresh(oiTracker, 12 * 3600000) ? oiTracker : null;
-  if (unusual && !scoringUnusual) console.warn("[freshness] excluded out-of-cadence unusual flow from scoring");
-  if (volumeFlags && !scoringVolumeFlags) console.warn("[freshness] excluded out-of-cadence volume flags from scoring");
-  if (oiTracker && !scoringOiTracker) console.warn("[freshness] excluded out-of-cadence OI tracker from scoring");
   const symbols = Object.keys(chains).sort();
   const spots = Object.fromEntries(symbols.map((s) => [s, chains[s].spot]));
   // Market backdrop — compact per-index snapshot for the Execute now? card so

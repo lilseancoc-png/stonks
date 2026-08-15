@@ -2241,6 +2241,20 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
 .narr-tag.status.active   { color: var(--pos); border-color: color-mix(in srgb, var(--pos) 35%, transparent); background: var(--pos-soft); }
 .narr-tag.status.building { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); background: var(--warn-soft); }
 .narr-tag.status.fading   { color: var(--muted); border-color: var(--border); background: var(--surface-2); }
+.narr-tag.risk {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+  background: var(--warn-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.narr-tag.risk-risk-rising,
+.narr-tag.risk-fading,
+.narr-tag.risk-invalidated {
+  color: var(--neg);
+  border-color: color-mix(in srgb, var(--neg) 42%, transparent);
+  background: var(--neg-soft);
+}
 .narr-tag.stale {
   color: var(--warn);
   border-color: color-mix(in srgb, var(--warn) 40%, transparent);
@@ -2375,6 +2389,32 @@ button.narr-chip:focus-visible { outline: 2px solid var(--accent); outline-offse
   border: 1px solid color-mix(in srgb, var(--neg) 35%, transparent);
   border-radius: var(--r-pill);
 }
+.narr-risk-evidence {
+  display: grid;
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+  padding: var(--s-2);
+  border: 1px solid color-mix(in srgb, var(--neg) 28%, var(--border));
+  border-left-width: 3px;
+  border-radius: var(--r-2);
+  background: color-mix(in srgb, var(--neg-soft) 42%, transparent);
+}
+.narr-risk-evidence-label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--neg);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.narr-risk-evidence ul { margin: 0; padding-left: 18px; }
+.narr-risk-evidence li { color: var(--text); font-size: 12px; line-height: 1.4; }
+.narr-risk-evidence li + li { margin-top: 5px; }
+.narr-risk-evidence li b,
+.narr-risk-evidence li span,
+.narr-risk-evidence li small { display: block; }
+.narr-risk-evidence li small { margin-top: 1px; color: var(--muted); font-family: var(--font-mono); }
 
 /* Narrative lifecycle stepper — the 6-stage boom→bust arc (catalysts →
    amplification → validation → peak → challenges → collapse). Past stages read
