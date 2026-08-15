@@ -26,6 +26,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - **Narratives now fail adversarially against current macro, positioning, earnings, and unwind evidence.** Explicit rate-hike, persistent-inflation, and AI-capex friction from a short high-influence source list forces conflict/Watch treatment on dominant bullish themes; current unusual flow, volume breaks, OI/gamma crowding, and short-interest changes accelerate challenged stories while stale scans remain neutral. Linked earnings become importance-weighted pre/post checkpoints using validated EPS numbers and official-call guidance only, so majority confirmation strengthens fundamentals, keystone or critical-mass failures accelerate the six-stage arc, and one peripheral miss cannot kill a broad story. Validated spread reversals and forced liquidations raise hype/unwind risk with sticky conflict history, while narrative sentiment, strength, and deterministic sector grades remain unchanged. `scripts/{build,narrative-risk-smoke}.mjs`, `scripts/render/{app-js,styles-css}.mjs`.
 
+### Removed
+
+- **Top Picks keeps market analysis decision-only.** Regime and scenario inputs still shape grade adjustments, ranking, sizing, and recommendation gates, but their callouts no longer repeat on compact cards, Recommendation details, or the Grade audit view; the dedicated Market Analysis tab remains the place to inspect that evidence. (#606) `scripts/render/{app-js,styles-css}.mjs`, `scripts/render-smoke.mjs`.
+
 ## 2026-08-13
 
 ### Fixed

@@ -34185,115 +34185,6 @@
     '</div>';
   }
 
-  function regimeOverlayStateLabel(state){
-    var labels = {
-      'severe-risk-off': 'Severe risk-off',
-      'risk-off': 'Risk-off',
-      'risk-on': 'Risk-on',
-      neutral: 'Neutral',
-    };
-    return labels[state] || String(state || 'neutral').replace(/-/g, ' ');
-  }
-
-  function regimeOverlayAlignmentLabel(alignment){
-    return alignment === 'with-primary' ? 'with-primary'
-      : alignment === 'against-primary' ? 'against-primary'
-        : 'neutral';
-  }
-
-  function regimeOverlayTone(overlay){
-    var before = Number(overlay && overlay.preRegimeTotal);
-    var after = Number(overlay && overlay.adjustedTotal);
-    var convictionDelta = isFinite(before) && isFinite(after) ? Math.abs(after) - Math.abs(before) : 0;
-    return convictionDelta > 0.05 ? 'supportive' : convictionDelta < -0.05 ? 'adverse' : 'mixed';
-  }
-
-  function regimeOverlayPrimaryText(overlay){
-    var primary = overlay && overlay.primaryScenario;
-    if (!primary) return '';
-    var name = primary.name || primary.key || 'Primary scenario';
-    return name + (primary.impactMidPct != null && isFinite(primary.impactMidPct)
-      ? ' (' + scenarioSigned(primary.impactMidPct, '%') + ' trade impact)'
-      : '');
-  }
-
-  function regimeOverlayTapeText(overlay, limit){
-    var rows = overlay && Array.isArray(overlay.tapeSignals) ? overlay.tapeSignals : [];
-    return rows.slice(0, limit || 3).map(function(row){
-      return String(row.label || row.key || 'Tape') + ' ' + scenarioSigned(row.score, '');
-    }).join(' · ');
-  }
-
-  function pickRegimeGradeNote(p){
-    var o = p && p.regimeOverlay;
-    if (!o) return '';
-    var tone = regimeOverlayTone(o);
-    var cls = tone === 'supportive' ? 'pp-regime-on' : tone === 'adverse' ? 'pp-regime-off' : '';
-    var ico = tone === 'supportive' ? '↑' : tone === 'adverse' ? '⚠' : '→';
-    var before = scenarioSigned(o.preRegimeTotal, '');
-    var after = scenarioSigned(o.adjustedTotal, '');
-    var parts = [
-      regimeOverlayStateLabel(o.state) + ' continuous overlay',
-      'market bias ' + scenarioSigned(o.bias, ''),
-      'pick-side bias ' + scenarioSigned(o.tradeBias, ''),
-      'grade adjustment ' + scenarioSigned(o.adjustment, '') + ' (' + before + ' → ' + after + ')',
-      regimeOverlayAlignmentLabel(o.alignment),
-    ];
-    var primary = regimeOverlayPrimaryText(o);
-    if (primary) parts.push(primary);
-    parts.push('Applied after the four pillars + IV Cost; Entry Timing is separate; no side flip, below-bar recruitment, or tier promotion.');
-    return '<div class="pick-pillars-regime ' + cls + '" title="Continuous side-aware post-pillar and IV overlay; Entry Timing remains separate.">' +
-      '<span class="ppr-ico" aria-hidden="true">' + ico + '</span>' +
-      '<span class="ppr-txt">' + escapeHtml(parts.join(' · ')) + '</span>' +
-    '</div>';
-  }
-
-  function pickRegimeOverlayHtml(p){
-    var o = p && p.regimeOverlay;
-    if (!o) return '';
-    var tone = regimeOverlayTone(o);
-    var metrics = [];
-    if (o.riskScore != null && isFinite(o.riskScore)) metrics.push('market score ' + Math.round(Number(o.riskScore)) + '/100');
-    metrics.push('market bias ' + scenarioSigned(o.bias, ''));
-    metrics.push('pick-side bias ' + scenarioSigned(o.tradeBias, ''));
-    metrics.push('grade adjustment ' + scenarioSigned(o.adjustment, ''));
-    var alignment = regimeOverlayAlignmentLabel(o.alignment);
-    var primary = regimeOverlayPrimaryText(o);
-    var audit = [];
-    var tape = regimeOverlayTapeText(o, 3);
-    if (tape) audit.push('Relevant tape: ' + tape);
-    if (o.warningCount != null && isFinite(o.warningCount)) audit.push(Math.round(Number(o.warningCount)) + ' transition warning' + (Math.round(Number(o.warningCount)) === 1 ? '' : 's'));
-    if (o.grossMultiplier != null && isFinite(o.grossMultiplier)) audit.push(Math.round(Number(o.grossMultiplier) * 100) + '% combined gross cap');
-    audit.push('Post-pillar + IV only; Entry Timing stays separate; no side flip, below-bar recruitment, or tier promotion.');
-    return '<div class="pick-scenario-overlay is-' + tone + '">' +
-      '<span><b>Regime overlay: ' + escapeHtml(regimeOverlayStateLabel(o.state)) + '</b><small>' +
-        escapeHtml(metrics.join(' · ')) +
-      '</small></span>' +
-      '<em>' + escapeHtml(alignment + (primary ? ' · ' + primary : '')) + '</em>' +
-      '<p>' + escapeHtml(audit.join(' · ')) + '</p>' +
-    '</div>';
-  }
-
-  function pickRegimeCompactHtml(p){
-    var o = p && p.regimeOverlay;
-    if (!o) return '';
-    var bits = [
-      regimeOverlayStateLabel(o.state),
-      'bias ' + scenarioSigned(o.bias, ''),
-      'adjustment ' + scenarioSigned(o.adjustment, ''),
-      regimeOverlayAlignmentLabel(o.alignment),
-    ];
-    var primary = regimeOverlayPrimaryText(o);
-    var tape = regimeOverlayTapeText(o, 3);
-    if (primary) bits.push(primary);
-    if (tape) bits.push('tape ' + tape);
-    var rule = 'Continuous side-aware overlay after pillars + IV Cost; Entry Timing is separate; no side flip, below-bar recruitment, or tier promotion.';
-    return '<span class="ptc-regime is-' + regimeOverlayTone(o) + '" title="' +
-      escapeHtml(bits.join(' · ') + '. ' + rule) + '">Regime ' +
-      escapeHtml(bits.join(' · ')) +
-    '</span>';
-  }
-
   function pickPillarPanel(p){
     var pillars = p && p.pillars;
     if (!pillars) return '';
@@ -34477,7 +34368,6 @@
         '<span class="pick-pillars-total ' + (total>=0?'sig-pos':'sig-neg') + '">' + ((total>=0?'+':'') + Number(total).toFixed(1)) + '</span>' +
       '</div>' +
       leadHtml +
-      pickRegimeGradeNote(p) +
       viz +
       body +
     '</aside>';
@@ -35328,15 +35218,6 @@
     var peersHtml = pickPeerList(p);
     var analysisHtml = pickAnalysisBlock(p);
     var thesisHtml = pickThesisBlock(p);
-    var regimeHtml = pickRegimeOverlayHtml(p);
-    var scenarioHtml = p.scenarioOverlay
-      ? '<div class="pick-scenario-overlay is-' + escapeHtml(p.scenarioOverlay.bias || 'mixed') + '">' +
-          '<span><b>Scenario filter: ' + escapeHtml(p.scenarioOverlay.bias || 'mixed') + '</b><small>' +
-            escapeHtml(scenarioSigned(p.scenarioOverlay.weightedImpactPct, '%') + ' weighted · worst ' + scenarioSigned(p.scenarioOverlay.worstCasePct, '%')) +
-          '</small></span><em>' + escapeHtml(Number(p.scenarioOverlay.sizeMultiplier || 1).toFixed(2).replace(/0+$/, '').replace(/\.$/, '') + '× max size · ' + (p.scenarioOverlay.vehicle || 'best-fit vehicle')) + '</em>' +
-          '<p>' + escapeHtml(p.scenarioOverlay.note || '') + '</p>' +
-        '</div>'
-      : '';
     var rankCls = idx < 3 ? ' pick-rank-top' + (idx + 1) : '';
     var tierCls = p.recommendation && p.recommendation.tier ? ' pick-card-' + p.recommendation.tier : '';
     // The card body is split into two switchable views: "Recommendation"
@@ -35344,7 +35225,7 @@
     // (the full 4-pillar score breakdown — so you can judge how the score was
     // arrived at, right next to the call). A legacy pick with no pillar data
     // renders the recommendation directly with no tabs.
-    var recBody = tierHtml + regimeHtml + scenarioHtml + analysisHtml + thesisHtml + contractHtml + entryHtml + exitHtml + peersHtml;
+    var recBody = tierHtml + analysisHtml + thesisHtml + contractHtml + entryHtml + exitHtml + peersHtml;
     var bodyHtml;
     if (pillarsHtml){
       // Honor the tab the user last picked for this symbol so re-opening the
@@ -35501,12 +35382,6 @@
     // the legacy prose gloss; absent entirely on keyless / pre-upgrade payloads.
     var aiSum = (p.thesisCard && p.thesisCard.ai && p.thesisCard.ai.summary) ? p.thesisCard.ai.summary : (p.thesisCard && p.thesisCard.prose ? p.thesisCard.prose : '');
     var thesisLine = aiSum ? '<span class="ptc-thesis" title="' + escapeHtml(aiSum) + '">' + escapeHtml(aiSum) + '</span>' : '';
-    var scenarioLine = p.scenarioOverlay
-      ? '<span class="ptc-scenario is-' + escapeHtml(p.scenarioOverlay.bias || 'mixed') + '" title="' + escapeHtml(p.scenarioOverlay.note || 'Conditional scenario overlay') + '">' +
-          'Scenario ' + escapeHtml(p.scenarioOverlay.bias || 'mixed') + ' · ' + escapeHtml(Number(p.scenarioOverlay.sizeMultiplier || 1).toFixed(2).replace(/0+$/, '').replace(/\.$/, '') + '× max size') +
-        '</span>'
-      : '';
-    var regimeLine = pickRegimeCompactHtml(p);
     return '<button type="button" class="pick-tab-card ' + sideCls + (noRec ? ' ptc-norec-card' : '') + '" data-pick-open="' + escapeHtml(p.symbol) + '">' +
       '<span class="ptc-rank">' + (idx + 1) + '</span>' +
       '<span class="ptc-head"><span class="ptc-sym">' + escapeHtml(p.symbol) + '</span>' +
@@ -35518,8 +35393,6 @@
       '</span>' +
       (tierLabel ? '<span class="ptc-tier">' + tierLabel + '</span>' : '') +
       thesisLine +
-      regimeLine +
-      scenarioLine +
       entryLine +
       econ +
       (metaBits.length ? '<span class="ptc-meta">' + metaBits.join(' · ') + '</span>' : '') +

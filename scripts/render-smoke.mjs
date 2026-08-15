@@ -67,13 +67,12 @@ try {
 
   const stylesCss = renderStylesCss();
   assert.match(stylesCss, /@media \(max-width: 1023px\)\s*\{[\s\S]*?\.side-nav\s*\{[\s\S]*?top: 0;[\s\S]*?z-index: 65;[\s\S]*?\.side-nav-backdrop\s*\{[\s\S]*?inset: 0;/);
-  assert.match(stylesCss, /\.pick-tab-card\s*\{[\s\S]*?"rank regime regime"[\s\S]*?"rank scenario scenario"/);
-  assert.match(stylesCss, /\.ptc-regime\s*\{\s*grid-area: regime;\s*\}/);
-  assert.match(stylesCss, /\.ptc-scenario\s*\{\s*grid-area: scenario;\s*\}/);
+  assert.doesNotMatch(stylesCss, /"rank (?:regime|scenario) (?:regime|scenario)"/);
+  assert.doesNotMatch(stylesCss, /\.(?:ptc-regime|ptc-scenario|pick-pillars-regime|pick-scenario-overlay)\b/);
 
   const appJs = renderAppJs({});
-  assert.match(appJs, /class="ptc-regime is-/);
-  assert.match(appJs, /class="ptc-scenario is-/);
+  assert.doesNotMatch(appJs, /class="(?:ptc-regime|ptc-scenario|pick-pillars-regime|pick-scenario-overlay)\b/);
+  assert.doesNotMatch(appJs, /function pickRegime(?:GradeNote|OverlayHtml|CompactHtml)\(/);
   assert.match(appJs, /function loadMaTracker\(\)[\s\S]*?ma-tracker\.json/);
   assert.match(appJs, /function maTrackerScore\([\s\S]*?proximity[\s\S]*?approach[\s\S]*?momentum/);
   assert.match(appJs, /name === 'ma-tracker'[\s\S]*?startMaTrackerLive/);
