@@ -6841,6 +6841,26 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       n.conflictsWith.map(function(c){ return '<span class="narr-conflict-chip">' + escapeHtml(c) + '</span>'; }).join('') +
     '</div>';
   }
+  function narrativeRiskEvidenceHtml(n){
+    var flags = Array.isArray(n && n.conflictFlags) ? n.conflictFlags : [];
+    var checkpoint = n && n.earningsCheckpoint;
+    if (!flags.length && (!checkpoint || !Array.isArray(checkpoint.rows) || !checkpoint.rows.length)) return '';
+    var flagRows = flags.slice(0, 6).map(function(f){
+      var meta = [f.source || f.category || f.type, f.symbol, f.observedAt ? fmtSrcDate(String(f.observedAt).slice(0,10)) : ''].filter(Boolean).join(' · ');
+      return '<li><b>' + escapeHtml(f.reason || 'Current evidence conflicts with the thesis.') + '</b>' +
+        (f.title ? '<span>' + escapeHtml(f.title) + '</span>' : '') +
+        (meta ? '<small>' + escapeHtml(meta) + '</small>' : '') + '</li>';
+    }).join('');
+    var earningsRows = checkpoint && Array.isArray(checkpoint.rows) ? checkpoint.rows.slice(0, 8).map(function(r){
+      var outcome = ({ confirm:'Confirmed', 'hard-fail':'Hard fail', 'mild-risk':'Mild risk', watch:'Pre-print watch', neutral:'Neutral' })[r.outcome] || r.outcome;
+      return '<li><b>' + escapeHtml(r.symbol + ' · ' + outcome) + '</b><span>' + escapeHtml(r.reason || '') + '</span>' +
+        (r.date ? '<small>' + escapeHtml(fmtSrcDate(String(r.date).slice(0,10))) + '</small>' : '') + '</li>';
+    }).join('') : '';
+    return '<div class="narr-risk-evidence">' +
+      (flagRows ? '<div><span class="narr-risk-evidence-label">Conflict flags</span><ul>' + flagRows + '</ul></div>' : '') +
+      (earningsRows ? '<div><span class="narr-risk-evidence-label">Earnings checkpoints</span><ul>' + earningsRows + '</ul></div>' : '') +
+    '</div>';
+  }
   // "Sources" — every headline the AI cited as backing this narrative,
   // copied verbatim from the SOURCE POOL it was given. Each entry is the
   // shape {publisher, title, date}. Build-time validation guarantees these
@@ -6987,6 +7007,15 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (n.stale) {
       tone = 'watch'; title = 'Stale read — verify before using it';
       copy = 'The current build carried this narrative forward. Confirm the catalyst and price response before acting.';
+    } else if (n.riskState === 'invalidated') {
+      tone = 'pass'; title = 'Invalidated — avoid new exposure';
+      copy = 'A critical-mass earnings failure or persistent reversal conflict has invalidated the current version of the story.';
+    } else if (n.riskState === 'fading' || n.riskState === 'risk-rising') {
+      tone = 'caution'; title = 'Risk rising — conflict flag active';
+      copy = 'Current macro, flow, earnings, or unwind evidence conflicts with the thesis. Tighten risk and require repair before adding.';
+    } else if (n.riskState === 'watch') {
+      tone = 'watch'; title = 'Watch — confirmation checkpoint active';
+      copy = 'A high-influence macro conflict, imminent linked earnings, or current positioning disagreement prevents a clean bullish read.';
     } else if (stage === 'collapse') {
       tone = 'pass'; title = 'Broken — avoid new exposure';
       copy = 'The narrative has reached collapse. A fresh catalyst and repaired price structure are required before reconsidering it.';
@@ -7021,11 +7050,13 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return '<span class="narr-hype-badge is-' + tier + '" title="Fundamentals-to-hype score ' + score + ' / 100">' + label + ' · ' + score + '</span>';
   }
   function narrativeResearchHtml(n){
-    var body = lifecycleOutlookHtml(n.lifecycleOutlook, narrStage(n)) + hypeGaugeHtml(n.hype) + scenariosHtml(n) + watchForHtml(n) + conflictsHtml(n) + narrativeSourcesHtml(n);
+    var body = lifecycleOutlookHtml(n.lifecycleOutlook, narrStage(n)) + hypeGaugeHtml(n.hype) + scenariosHtml(n) + watchForHtml(n) + conflictsHtml(n) + narrativeRiskEvidenceHtml(n) + narrativeSourcesHtml(n);
     if (!body) return '';
     var evidence = [];
     if (n.sources && n.sources.length) evidence.push(n.sources.length + ' sources');
     if (n.watchFor && n.watchFor.length) evidence.push(n.watchFor.length + ' invalidation checks');
+    if (n.conflictFlags && n.conflictFlags.length) evidence.push(n.conflictFlags.length + ' conflict flags');
+    if (n.earningsCheckpoint && n.earningsCheckpoint.rows && n.earningsCheckpoint.rows.length) evidence.push(n.earningsCheckpoint.rows.length + ' earnings checks');
     return '<details class="narr-research"><summary><span><b>Decision evidence</b><small>' + escapeHtml(evidence.join(' · ') || 'Lifecycle, scenarios and risk checks') + '</small></span><em aria-hidden="true"></em></summary><div class="narr-research-body">' + body + '</div></details>';
   }
   // Industry-group grade breakdown for a sector — makes the two-level rollup
@@ -7077,6 +7108,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // otherwise blend in with the established list.
     var isFresh = !n.stale && (n.daysRunning | 0) <= 1;
     var freshTag = isFresh ? '<span class="narr-tag fresh" title="First detected in today\\'s build">Fresh</span>' : '';
+    var riskTag = n.riskState && n.riskState !== 'none'
+      ? '<span class="narr-tag risk risk-' + escapeHtml(n.riskState) + '" title="Deterministic macro, positioning, earnings, and reversal overlay">' +
+          escapeHtml(n.riskState === 'risk-rising' ? 'Risk rising' : n.riskState === 'invalidated' ? 'Invalidated' : n.riskState === 'fading' ? 'Fading' : 'Watch') +
+          (n.riskDays > 1 ? ' · day ' + (n.riskDays | 0) : '') + '</span>'
+      : '';
     // Editorial card order — read like a news story, not a dashboard: the
     // HEADLINE (name + the one market signal that matters, bull/bear) first,
     // then a muted metadata strip, then the THESIS as the lead paragraph, then
@@ -7094,6 +7130,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="narr-tag tf" title="Typical playout window">' + narrTimeframeLabel(tf) + '</span>' +
         confidenceDotsHtml(n.confidence) +
         freshTag +
+        riskTag +
         staleTag +
         '<span class="narr-life"><span class="narr-life-dot"></span>' + escapeHtml(narrLifeLabel(n)) + '</span>' +
       '</div>' +
@@ -7248,9 +7285,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       sentiment:stance, status:overview.status || 'active', strength:overview.strength,
       lifecycleStage:overview.lifecycleStage, lifecycleOutlook:overview.lifecycleOutlook,
       hype:overview.hype, watchFor:overview.watchFor || [], stale:overview.stale,
+      riskState:overview.riskState || 'none', conflictFlags:overview.conflictFlags || [],
     };
     var sectorEvidence = lifecycleStepperHtml(overview.lifecycleStage) + lifecycleOutlookHtml(overview.lifecycleOutlook, overview.lifecycleStage) +
-      hypeGaugeHtml(overview.hype) + scenariosHtml(overview) + industryGradesHtml(overview.industryGrades) + watchForHtml({ watchFor:overview.watchFor || [] });
+      hypeGaugeHtml(overview.hype) + scenariosHtml(overview) + industryGradesHtml(overview.industryGrades) + watchForHtml({ watchFor:overview.watchFor || [] }) + narrativeRiskEvidenceHtml(postureInput);
     var detail = sectorEvidence ? '<details class="narr-sector-detail"><summary><span><b>Sector evidence &amp; scenarios</b>' +
       '<small>Lifecycle, hype, industry grades and invalidation checks</small></span><em aria-hidden="true"></em></summary>' +
       '<div class="narr-sector-detail-body">' + sectorEvidence + '</div></details>' : '';
