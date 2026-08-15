@@ -21374,9 +21374,11 @@ export async function writeStockPicksFile(payload) {
 // ============================================================================
 export const SECTOR_ROTATION_FILE = "sector-rotation.json";
 export const SECTOR_ROTATION_LOG_FILE = "sector-rotation-log.json";
-const SECTOR_ROTATION_MODEL_VERSION = 2;
+const SECTOR_ROTATION_MODEL_VERSION = 3;
+const SECTOR_ROTATION_MIGRATABLE_MODEL_VERSION = 2;
 const SECTOR_ROTATION_RECORD_VERSION = 1;
 const SECTOR_ROTATION_RESET_EPOCH = `rotation-v${SECTOR_ROTATION_MODEL_VERSION}-record-v${SECTOR_ROTATION_RECORD_VERSION}`;
+const SECTOR_ROTATION_MIGRATABLE_RESET_EPOCH = `rotation-v${SECTOR_ROTATION_MIGRATABLE_MODEL_VERSION}-record-v${SECTOR_ROTATION_RECORD_VERSION}`;
 const SECTOR_ROTATION_MAX_HOLD_SESSIONS = 20;
 const SECTOR_ROTATION_ENTRY_QUOTE_MAX_AGE_MS = 10 * 60 * 1000;
 const SECTOR_ROTATION_LOG_CLOSED_MAX = 250;
@@ -21811,8 +21813,311 @@ function sectorRotationScale(value, lo, hi, points) {
   return clamp((value - lo) / (hi - lo), 0, 1) * points;
 }
 
+// Deterministic company-quality boundary for the rotation screen. This is
+// deliberately separate from the statistical washout score: missing evidence
+// can remain visible for research, but cannot become a qualified recovery.
+export function buildSectorRotationRecoveryProfile(data, grade, builtAtIso, opts = {}) {
+  const f = data?.fundamentals || {};
+  const add = (rows, key, detail) => {
+    if (!rows.some((row) => row.key === key)) rows.push({ key, detail });
+  };
+  const blockers = [], warnings = [];
+  const margin = pnumN(f.profitMargin);
+  const freeCashFlow = pnumN(f.freeCashFlow);
+  const fcfHistory = (Array.isArray(f.fcfHistory) ? f.fcfHistory : [])
+    .filter((row) => pnumN(row?.value) != null);
+  const recentFcf = fcfHistory.slice(-4);
+  const fcfPositiveQuarters = fcfHistory.filter((row) => Number(row.value) > 0).length;
+  const recentFcfPositiveQuarters = recentFcf.filter((row) => Number(row.value) > 0).length;
+  const cash = pnumN(f.totalCash), debt = pnumN(f.totalDebt), debtToEquityPct = pnumN(f.debtToEquity);
+  const netCash = cash != null && debt != null ? cash >= debt : null;
+  const financialSector = typeof opts.financialSector === "boolean" ? opts.financialSector
+    : /financial|bank|capital market|insurance/i.test(String(f.sector || ""));
+
+  let revenueGrowth = null;
+  const revenueHistory = (Array.isArray(f.revenueHistory) ? f.revenueHistory : [])
+    .filter((row) => pnumN(row?.value) != null);
+  if (revenueHistory.length >= 8) {
+    const sum = (rows) => rows.reduce((total, row) => total + Number(row.value), 0);
+    const current = sum(revenueHistory.slice(-4)), prior = sum(revenueHistory.slice(-8, -4));
+    if (prior > 0) revenueGrowth = (current / prior - 1) * 100;
+  }
+  if (revenueGrowth == null) revenueGrowth = pnumN(f.revenueGrowthYoy);
+
+  const marginHistory = (Array.isArray(f.netMarginHistory) ? f.netMarginHistory : [])
+    .filter((row) => pnumN(row?.value) != null);
+  const latestMargin = marginHistory.length ? Number(marginHistory[marginHistory.length - 1].value) : null;
+  const priorMargin = marginHistory.length >= 5
+    ? Number(marginHistory[marginHistory.length - 5].value)
+    : marginHistory.length >= 2 ? Number(marginHistory[marginHistory.length - 2].value) : null;
+  const marginChange = latestMargin != null && priorMargin != null ? latestMargin - priorMargin : null;
+
+  let balanceSheetStatus = "unverified";
+  // Cash below debt is not itself proof of excessive leverage. Without a
+  // usable D/E ratio that case stays incomplete instead of becoming a false
+  // failure; net cash is sufficient evidence on its own.
+  const balanceAvailable = !financialSector && (netCash === true || debtToEquityPct != null);
+  let balancePass = false;
+  const negativeEquity = debtToEquityPct != null && debtToEquityPct < 0;
+  if (negativeEquity) balanceSheetStatus = "negative-equity";
+  else if (financialSector) balanceSheetStatus = "financial-sector-limited";
+  else if (netCash === true) { balanceSheetStatus = "net-cash"; balancePass = true; }
+  else if (debtToEquityPct != null && debtToEquityPct <= 200) { balanceSheetStatus = "manageable"; balancePass = true; }
+  else if (balanceAvailable) balanceSheetStatus = "leveraged";
+  else if (cash != null && debt != null && debt > cash) balanceSheetStatus = "net-debt-unrated";
+
+  const core = [
+    {
+      key: "profitability",
+      available: margin != null,
+      pass: margin != null && margin > 0,
+      failure: margin != null && margin <= 0,
+    },
+    {
+      key: "cash generation",
+      available: freeCashFlow != null && fcfHistory.length >= 4,
+      pass: freeCashFlow != null && freeCashFlow > 0 && fcfHistory.length >= 4 && recentFcfPositiveQuarters >= 3,
+      failure: (freeCashFlow != null && freeCashFlow <= 0)
+        || (fcfHistory.length >= 4 && recentFcfPositiveQuarters < 3),
+    },
+    {
+      key: "balance sheet",
+      available: balanceAvailable,
+      pass: balanceAvailable && balancePass,
+      failure: negativeEquity || (balanceAvailable && !balancePass),
+    },
+    {
+      key: "revenue and margins",
+      available: revenueGrowth != null && latestMargin != null && marginChange != null,
+      pass: revenueGrowth != null && revenueGrowth > -2 && latestMargin != null && latestMargin > 0
+        && marginChange != null && marginChange > -3,
+      failure: (revenueGrowth != null && revenueGrowth <= -2)
+        || (latestMargin != null && latestMargin <= 0)
+        || (marginChange != null && marginChange <= -3),
+    },
+  ];
+  const missing = core.filter((row) => !row.available).map((row) => row.key);
+  const failed = core.filter((row) => row.failure).map((row) => row.key);
+  for (const key of failed) add(blockers, `quality-${key.replace(/\s+/g, "-")}`, `${key} fails the recovery quality bar`);
+  if (financialSector) add(warnings, "financial-sector-limits", "bank and insurer balance sheets need sector-specific capital and credit checks");
+  for (const key of missing) add(warnings, `missing-${key.replace(/\s+/g, "-")}`, `${key} evidence is incomplete`);
+
+  const trajectorySource = grade?.pillars?.fundamentals?.trajectory || computeFundamentalsTrajectory(data);
+  const trajectory = {
+    dir: ["improving", "steady", "declining"].includes(trajectorySource?.dir) ? trajectorySource.dir : "steady",
+    confidence: ["low", "medium", "high"].includes(trajectorySource?.confidence) ? trajectorySource.confidence : "low",
+    reason: trajectorySource?.reason || "Not enough forward signal",
+    inputs: pnumN(trajectorySource?.inputs) ?? 0,
+  };
+  if (trajectory.dir === "declining" && trajectory.confidence !== "low") {
+    add(blockers, "declining-trajectory", `${trajectory.confidence}-confidence decline — ${trajectory.reason}`);
+  } else if (trajectory.confidence === "low") {
+    add(warnings, "low-confidence-trajectory", `forward trajectory is not verified — ${trajectory.reason}`);
+  }
+
+  const positiveEvidence = [], risks = [];
+  const positive = (key, detail) => add(positiveEvidence, key, detail);
+  const risk = (key, detail) => add(risks, key, detail);
+  const guidance = data?.aiSignals?.guidance?.direction || null;
+  const contract = data?.aiSignals?.majorContract?.status || null;
+  const raiseKind = data?.capitalRaise?.kind || null;
+  const analystNet = pnumN(f.analystRevisions?.net);
+  const fundamentalsJudgment = f.judgment?.verdict || null;
+  if (fundamentalsJudgment === "weak") {
+    risk("weak-fundamentals-judgment", "The current fundamentals judgment is weak");
+    add(blockers, "weak-fundamentals-judgment", "current fundamentals judgment is weak");
+  }
+  if (guidance === "raised") positive("raised-guidance", "Management raised forward guidance");
+  else if (guidance === "soft" || guidance === "lowered") {
+    risk("negative-guidance", `Management guidance is ${guidance}`);
+    add(blockers, "negative-guidance", `structured guidance signal is ${guidance}`);
+  }
+  if (contract === "won") positive("contract-win", "A major contract win is on file");
+  else if (contract === "lost") {
+    risk("contract-loss", "A major contract loss is on file");
+    add(blockers, "contract-loss", "structured major-contract signal is lost");
+  }
+  if (analystNet != null && analystNet > 0) positive("positive-revisions", `${analystNet} net positive analyst revision${analystNet === 1 ? "" : "s"}`);
+  else if (analystNet != null && analystNet < 0) {
+    risk("negative-revisions", `${Math.abs(analystNet)} net negative analyst revision${analystNet === -1 ? "" : "s"}`);
+    if (analystNet <= -2) add(blockers, "negative-revision-wave", `${Math.abs(analystNet)} net analyst downgrades are on file`);
+  }
+  const forwardEpsGrowth = pnumN(f.growthEstimateCurY);
+  if (forwardEpsGrowth != null && forwardEpsGrowth >= 5) positive("forward-eps-growth", `${r1(forwardEpsGrowth)}% current-year EPS growth estimate`);
+  else if (forwardEpsGrowth != null && forwardEpsGrowth < 0) risk("forward-eps-contraction", `${r1(forwardEpsGrowth)}% current-year EPS growth estimate`);
+  const forwardRevenue = pnumN(f.revenueEstimateCurY), ttmRevenue = pnumN(f.revenue);
+  const forwardRevenueGrowth = forwardRevenue != null && ttmRevenue > 0 ? (forwardRevenue / ttmRevenue - 1) * 100 : null;
+  if (forwardRevenueGrowth != null && forwardRevenueGrowth >= 3) positive("forward-revenue-growth", `${r1(forwardRevenueGrowth)}% implied current-year revenue growth`);
+  else if (forwardRevenueGrowth != null && forwardRevenueGrowth < 0) risk("forward-revenue-contraction", `${r1(forwardRevenueGrowth)}% implied current-year revenue growth`);
+  if (trajectory.dir === "improving" && trajectory.confidence !== "low") positive("improving-trajectory", trajectory.reason);
+  const asOfMs = Date.parse(builtAtIso || "");
+  if (raiseKind === "equity" || raiseKind === "convertible") {
+    risk("dilutive-financing", `${raiseKind} financing headline is on file`);
+    add(blockers, "dilutive-financing", `structured ${raiseKind} financing signal is on file`);
+  }
+
+  const news = data?.news || null;
+  const newsBuiltAtIso = news?.builtAt || null;
+  const newsBuiltMs = Date.parse(newsBuiltAtIso || "");
+  const newsAgeHours = Number.isFinite(asOfMs) && Number.isFinite(newsBuiltMs) ? (asOfMs - newsBuiltMs) / 3600000 : null;
+  const headlineRisk = sectorRotationHeadlineRisk(news, builtAtIso);
+  let newsStatus = "fresh";
+  if (!news || news.fallback || !["bullish", "neutral", "bearish"].includes(news.sentiment)
+    || !Number.isFinite(newsAgeHours)) newsStatus = "unverified";
+  else if (newsAgeHours < -1 || newsAgeHours > 48) newsStatus = "stale";
+  if (newsStatus !== "fresh") add(warnings, `news-${newsStatus}`, `company news is ${newsStatus}`);
+  if (headlineRisk?.status === "block") {
+    risk(`headline-${headlineRisk.kind}`, headlineRisk.title);
+    add(blockers, `headline-${headlineRisk.kind}`, `recent structured damage headline — ${headlineRisk.title}`);
+  } else if (headlineRisk?.status === "warn") {
+    risk(`headline-${headlineRisk.kind}`, headlineRisk.title);
+    add(warnings, `headline-${headlineRisk.kind}`, `recent risk headline — ${headlineRisk.title}`);
+  }
+  if (newsStatus === "fresh" && news?.sentiment === "bearish") {
+    risk("bearish-news", "Fresh company-news tone is bearish");
+    add(blockers, "bearish-news", "fresh company-news tone is bearish");
+  }
+  if (!positiveEvidence.length) add(warnings, "no-positive-forward-driver", "no positive forward recovery driver is verified");
+
+  const spot = pnumN(data?.spot), high52w = pnumN(f.fiftyTwoWeekHigh);
+  const drawdown52wPct = spot > 0 && high52w > 0 ? (1 - spot / high52w) * 100 : null;
+  const drawdownQualifies = drawdown52wPct != null ? drawdown52wPct >= 15 : null;
+  if (drawdownQualifies === false) add(blockers, "insufficient-52w-drawdown", `only ${r1(drawdown52wPct)}% below the 52-week high; requires at least 15%`);
+  else if (drawdownQualifies == null) add(warnings, "missing-52w-dislocation", "52-week drawdown cannot be verified");
+
+  const forwardPE = pnumN(f.forwardPE), peerForwardPE = pnumN(opts.peerForwardPE);
+  const discountPct = forwardPE > 0 && peerForwardPE > 0 ? (1 - forwardPE / peerForwardPE) * 100 : null;
+  const peg = pnumN(f.pegRatio), marketCap = pnumN(f.marketCap);
+  const fcfYield = freeCashFlow != null && marketCap > 0 ? (freeCashFlow / marketCap) * 100 : null;
+  let valuationStatus = "unavailable";
+  if (discountPct != null) valuationStatus = discountPct >= 10 ? "discount" : discountPct <= -10 ? "premium" : "near-peers";
+  else if (peg > 0) valuationStatus = peg <= 1.5 ? "reasonable" : "expensive";
+  const valuationLabel = discountPct != null
+    ? `${r1(Math.abs(discountPct))}% ${discountPct >= 0 ? "below" : "above"} curated peers`
+    : valuationStatus === "unavailable" ? "Valuation not verified" : valuationStatus;
+
+  const coverage = {
+    available: core.filter((row) => row.available).length,
+    required: core.length,
+    passed: core.filter((row) => row.pass).length,
+    complete: core.every((row) => row.available),
+    missing,
+  };
+  const hasHardFailure = blockers.length > 0;
+  const canQualify = !hasHardFailure && coverage.complete && coverage.passed === coverage.required
+    && trajectory.confidence !== "low" && trajectory.dir !== "declining"
+    && newsStatus === "fresh" && positiveEvidence.length > 0 && drawdownQualifies === true;
+  const status = hasHardFailure ? "reject"
+    : canQualify && trajectory.dir === "improving" ? "qualified-improving"
+      : canQualify ? "qualified-durable" : "verify-first";
+  const label = status === "qualified-improving" ? "Qualified - improving"
+    : status === "qualified-durable" ? "Qualified - durable"
+      : status === "verify-first" ? "Verify first" : "Reject";
+
+  return {
+    status,
+    label,
+    coverage,
+    quality: {
+      pass: coverage.complete && coverage.passed === coverage.required && fundamentalsJudgment !== "weak",
+      profitMargin: r1(margin),
+      profitMarginPct: r1(margin),
+      freeCashFlow,
+      ttmFreeCashFlow: freeCashFlow,
+      fcfPositiveQuarters,
+      positiveFcfQuarters: fcfPositiveQuarters,
+      fcfHistoryCount: fcfHistory.length,
+      recentPositiveFcfQuarters: recentFcfPositiveQuarters,
+      recentFcfQuarterCount: recentFcf.length,
+      balanceSheetStatus,
+      netCash,
+      debtToEquity: debtToEquityPct != null ? r2(debtToEquityPct / 100) : null,
+      debtToEquityPct: r1(debtToEquityPct),
+      revenueGrowthYoy: r1(revenueGrowth),
+      revenueGrowthPct: r1(revenueGrowth),
+      latestNetMargin: r1(latestMargin),
+      latestMarginPct: r1(latestMargin),
+      marginChangePp: r1(marginChange),
+      marginChangePct: r1(marginChange),
+    },
+    trajectory,
+    forward: { positiveEvidence, risks },
+    valuation: {
+      forwardPE: r2(forwardPE),
+      peerForwardPE: r2(peerForwardPE),
+      peerCount: Math.max(0, Math.trunc(pnumN(opts.peerForwardPEN) ?? 0)),
+      peerForwardPEN: Math.max(0, Math.trunc(pnumN(opts.peerForwardPEN) ?? 0)),
+      discountPct: r1(discountPct),
+      peg: r2(peg),
+      fcfYield: r1(fcfYield),
+      fcfYieldPct: r1(fcfYield),
+      status: valuationStatus,
+      label: valuationLabel,
+    },
+    dislocation: { drawdown52wPct: r1(drawdown52wPct), threshold: 15, thresholdPct: 15, qualifies: drawdownQualifies },
+    freshness: {
+      status: newsStatus,
+      newsStatus,
+      newsAgeHours: r1(newsAgeHours),
+      newsBuiltAtIso,
+      newsSentiment: news?.sentiment || null,
+      fundamentalsAsOf: f.totalDebtAsOf || f.judgment?.builtAt || null,
+      evidenceAsOf: newsBuiltAtIso || f.totalDebtAsOf || f.judgment?.builtAt || null,
+    },
+    blockers,
+    warnings,
+  };
+}
+
+// Keep the caller's priority order, but give every represented group its best
+// row before any group receives a second slot.
+export function selectBalancedSectorRotationCandidates(rows, maxRows = SECTOR_ROTATION_MAX_CANDIDATES, opts = {}) {
+  const ordered = Array.isArray(rows) ? rows : [];
+  const limit = Math.max(0, Math.trunc(Number(maxRows) || 0));
+  const maxPerGroup = Number.isFinite(Number(opts.maxPerGroup))
+    ? Math.max(1, Math.trunc(Number(opts.maxPerGroup))) : Infinity;
+  if (!limit) return [];
+  const selected = [], used = new Set(), counts = new Map(), groups = new Set();
+  const groupKey = (row, index) => String(row?.group?.key || row?.group || `ungrouped-${index}`);
+  for (let i = 0; i < ordered.length && selected.length < limit; i++) {
+    const group = groupKey(ordered[i], i);
+    if (groups.has(group)) continue;
+    groups.add(group); used.add(i); selected.push(ordered[i]); counts.set(group, 1);
+  }
+  for (let i = 0; i < ordered.length && selected.length < limit; i++) {
+    if (used.has(i)) continue;
+    const group = groupKey(ordered[i], i);
+    if ((counts.get(group) || 0) >= maxPerGroup) continue;
+    used.add(i); selected.push(ordered[i]); counts.set(group, (counts.get(group) || 0) + 1);
+  }
+  return selected;
+}
+
+// Lexicographic decision priority: business recovery proof first, then the
+// actual execution state, then chart phase, with score only breaking ties.
+// The balanced selector consumes rows in this order so a group's unusable pass
+// row cannot become its representative while a ready/wait row is available.
+export function compareSectorRotationCandidates(a, b) {
+  const recoveryRank = { "qualified-improving": 3, "qualified-durable": 2, "verify-first": 1, reject: 0 };
+  const planRank = {
+    ready: 7,
+    "wait-pullback": 6,
+    "wait-reclaim": 5,
+    "wait-payoff": 4,
+    "wait-turn": 3,
+    research: 2,
+    pass: 1,
+    blocked: 0,
+  };
+  const phaseRank = { confirmed: 4, "first-thrust": 3, "washed-out": 2, late: 1 };
+  return (recoveryRank[b?.recoveryProfile?.status] || 0) - (recoveryRank[a?.recoveryProfile?.status] || 0)
+    || (planRank[b?.plan?.state] || 0) - (planRank[a?.plan?.state] || 0)
+    || (phaseRank[b?.phase] || 0) - (phaseRank[a?.phase] || 0)
+    || (pnumN(b?.score) ?? -Infinity) - (pnumN(a?.score) ?? -Infinity);
+}
+
 function sectorRotationPlan(row) {
-  const { data, phase, spot, atrPct, episode, blockedBy, meanReversion } = row;
+  const { data, phase, spot, atrPct, episode, blockedBy, meanReversion, recoveryProfile } = row;
   const t = data?.technicals || {};
   const atr = spot > 0 && atrPct > 0 ? spot * atrPct / 100 : spot * 0.025;
   const rows = row.rows || [];
@@ -21846,7 +22151,9 @@ function sectorRotationPlan(row) {
   const livePayoffTooThin = !(target > spot) || liveTargetEdgePct < edgeFloorPct
     || liveRewardRisk == null || liveRewardRisk < SECTOR_ROTATION_RR_PASS_BELOW;
   let state = "wait-turn", headline = "Wait for the group and stock to turn";
-  if (blockedBy.length) { state = "blocked"; headline = "Pass — a required guard failed"; }
+  if (recoveryProfile?.status === "reject") { state = "blocked"; headline = "Pass — the company recovery profile is rejected"; }
+  else if (recoveryProfile?.status === "verify-first") { state = "research"; headline = "Verify first — company fundamentals or forward evidence are incomplete"; }
+  else if (blockedBy.length) { state = "blocked"; headline = "Pass — a required guard failed"; }
   else if (phase === "late") { state = "pass"; headline = "Pass — most of the mean-reversion runway is spent"; }
   else if (phase === "first-thrust" && entryPayoffTooThin) {
     state = "pass"; headline = "Pass — mean target or payoff is too thin";
@@ -22004,6 +22311,10 @@ export function buildSectorRotationRebounds(chains, gradesIndex, builtAtIso, opt
       if (!episode || episode.drawdownPct > SECTOR_ROTATION_STOCK_DD || episode.troughAge > SECTOR_ROTATION_MAX_TROUGH_AGE) continue;
 
       const peers = group.members.filter((x) => x !== sym);
+      const peerForwardPEValues = peers
+        .map((peer) => pnumN(chains?.[peer]?.fundamentals?.forwardPE))
+        .filter((value) => value > 0);
+      const peerForwardPE = sectorRotationMedian(peerForwardPEValues);
       const peerBasket = sectorRotationBasket(peers, rowsBySym);
       const fit = sectorRotationCorrBeta(rows, peerBasket);
       const betaForResidual = fit.beta == null ? 1 : clamp(fit.beta, 0.25, 3);
@@ -22043,6 +22354,12 @@ export function buildSectorRotationRebounds(chains, gradesIndex, builtAtIso, opt
       const gate = stockQualityGate(data);
       const f = data.fundamentals || {};
       const trajectory = fundTrajectory(data, grade);
+      const recoveryProfile = buildSectorRotationRecoveryProfile(data, grade, builtAtIso, {
+        peerForwardPE,
+        peerForwardPEN: peerForwardPEValues.length,
+        groupKey: group.def.key,
+        financialSector: group.def.key === "financials",
+      });
       const news = data.news || null;
       const newsAgeHours = news?.builtAt && Number.isFinite(Date.parse(news.builtAt)) && Number.isFinite(Date.parse(builtAtIso))
         ? (Date.parse(builtAtIso) - Date.parse(news.builtAt)) / 3600000 : null;
@@ -22268,6 +22585,7 @@ export function buildSectorRotationRebounds(chains, gradesIndex, builtAtIso, opt
         },
         meanReversion,
         quality: gate.checks,
+        recoveryProfile,
         guards,
         blockedBy,
         reasons,
@@ -22278,6 +22596,7 @@ export function buildSectorRotationRebounds(chains, gradesIndex, builtAtIso, opt
       candidate.signalKey = sectorRotationSignalKey(candidate);
       candidate.plan = sectorRotationPlan(candidate);
       candidate.highConfidence = score >= SECTOR_ROTATION_HIGH_SCORE && !blockedBy.length
+        && (recoveryProfile.status === "qualified-improving" || recoveryProfile.status === "qualified-durable")
         && candidate.plan.state !== "pass" && candidate.plan.state !== "blocked"
         && (phase === "first-thrust" || phase === "confirmed")
         && currentZ < SECTOR_ROTATION_CURRENT_Z_LATE
@@ -22287,16 +22606,32 @@ export function buildSectorRotationRebounds(chains, gradesIndex, builtAtIso, opt
       candidate.meanReversion = meanReversionPayload;
       delete candidate.rows; delete candidate.data; delete candidate.atrPct; delete candidate.edgeFloorPct;
 
-      if (!blockedBy.length && score >= SECTOR_ROTATION_MIN_SCORE) clean.push(candidate);
+      const admissionBlockedBy = recoveryProfile.status === "verify-first"
+        ? blockedBy.filter((key) => key !== "quality")
+        : blockedBy;
+      if (recoveryProfile.status === "reject") near.push(candidate);
+      else if (!admissionBlockedBy.length && score >= SECTOR_ROTATION_MIN_SCORE) clean.push(candidate);
       else if (score >= SECTOR_ROTATION_MIN_SCORE - 10) near.push(candidate);
     }
   }
 
-  const phaseRank = { confirmed: 4, "first-thrust": 3, "washed-out": 2, late: 1 };
-  const sortRows = (a, b) => (phaseRank[b.phase] || 0) - (phaseRank[a.phase] || 0) || b.score - a.score;
-  clean.sort(sortRows); near.sort((a, b) => b.score - a.score);
-  const candidates = clean.slice(0, SECTOR_ROTATION_MAX_CANDIDATES);
+  clean.sort(compareSectorRotationCandidates); near.sort((a, b) => b.score - a.score);
+  const candidates = selectBalancedSectorRotationCandidates(clean, SECTOR_ROTATION_MAX_CANDIDATES)
+    .sort(compareSectorRotationCandidates);
   const nearMisses = near.slice(0, SECTOR_ROTATION_MAX_NEAR_MISSES);
+  const shortlistSymbols = selectBalancedSectorRotationCandidates(candidates, 8, { maxPerGroup: 2 })
+    .sort(compareSectorRotationCandidates)
+    .map((candidate) => candidate.symbol);
+  const recoveryStatusCounts = {
+    "qualified-improving": 0,
+    "qualified-durable": 0,
+    "verify-first": 0,
+    reject: 0,
+  };
+  for (const candidate of [...candidates, ...nearMisses]) {
+    const status = candidate?.recoveryProfile?.status;
+    if (Object.hasOwn(recoveryStatusCounts, status)) recoveryStatusCounts[status]++;
+  }
   const leadersByGroup = {};
   for (const c of candidates) (leadersByGroup[c.group.key] ||= []).push(c.symbol);
   const groups = groupStates.map((g) => ({
@@ -22335,10 +22670,12 @@ export function buildSectorRotationRebounds(chains, gradesIndex, builtAtIso, opt
       washedOut: candidates.filter((c) => c.phase === "washed-out").length,
       late: candidates.filter((c) => c.phase === "late").length,
       nearMisses: nearMisses.length,
+      recoveryStatusCounts,
     },
     groups,
     candidates,
     nearMisses,
+    shortlistSymbols,
     thresholds: {
       groupDrawdownPct: SECTOR_ROTATION_GROUP_DD,
       groupRelSpyPct: SECTOR_ROTATION_REL_SPY,
@@ -22535,9 +22872,13 @@ function sectorRotationEntryLesson(scored) {
 // already-premium screen payload.
 export function sectorRotationRecordFromLog(log) {
   const compatible = log?.resetEpoch === SECTOR_ROTATION_RESET_EPOCH;
-  const pending = compatible && Array.isArray(log?.pending) ? log.pending : [];
-  const openRaw = compatible && Array.isArray(log?.open) ? log.open : [];
-  const closedRaw = compatible && Array.isArray(log?.closed) ? log.closed : [];
+  const currentModelRow = (entry) => pnumN(entry?.modelVersion) === SECTOR_ROTATION_MODEL_VERSION;
+  // The raw v3 log may retain v2 rows so an already-open trade can finish and
+  // its audit trail is not erased. The browser-facing record is intentionally
+  // current-model-only so performance eras are never blended.
+  const pending = compatible && Array.isArray(log?.pending) ? log.pending.filter(currentModelRow) : [];
+  const openRaw = compatible && Array.isArray(log?.open) ? log.open.filter(currentModelRow) : [];
+  const closedRaw = compatible && Array.isArray(log?.closed) ? log.closed.filter(currentModelRow) : [];
   const closed = closedRaw.map((entry) => ({ ...entry, ...sectorRotationOutcomeRow(entry) }));
   const scored = closed.filter((entry) => Number.isFinite(entry.rMultiple));
   const targets = scored.filter((entry) => entry.outcome === "target").length;
@@ -22596,6 +22937,7 @@ export function sectorRotationRecordFromLog(log) {
   return {
     resetEpoch: SECTOR_ROTATION_RESET_EPOCH,
     recordVersion: SECTOR_ROTATION_RECORD_VERSION,
+    modelVersion: SECTOR_ROTATION_MODEL_VERSION,
     watching: activePending.map((entry) => ({
       signalKey: entry.signalKey,
       symbol: entry.symbol,
@@ -22768,10 +23110,31 @@ function sectorRotationSessionsBetween(rows, fromDate, throughDate = null) {
 // timestamped sweep supplied by main(). Frozen levels, not list membership,
 // decide exits, so rank caps and quote misses can never manufacture a close.
 export function reconcileSectorRotationLog(payload, priorLog, chains, builtAtIso, trackingQuotes = {}) {
-  const compatible = priorLog?.resetEpoch === SECTOR_ROTATION_RESET_EPOCH;
-  const previousPending = compatible && Array.isArray(priorLog?.pending) ? priorLog.pending : [];
-  const previousOpen = compatible && Array.isArray(priorLog?.open) ? priorLog.open : [];
-  const closed = compatible && Array.isArray(priorLog?.closed) ? priorLog.closed.slice() : [];
+  const currentCompatible = priorLog?.resetEpoch === SECTOR_ROTATION_RESET_EPOCH;
+  const legacyArraysValid = ["pending", "open", "closed"]
+    .every((key) => priorLog?.[key] == null || Array.isArray(priorLog[key]));
+  const legacyV2Compatible = priorLog?.resetEpoch === SECTOR_ROTATION_MIGRATABLE_RESET_EPOCH
+    && pnumN(priorLog?.recordVersion) === SECTOR_ROTATION_RECORD_VERSION
+    && pnumN(priorLog?.modelVersion) === SECTOR_ROTATION_MIGRATABLE_MODEL_VERSION
+    && legacyArraysValid;
+  const migrateV2Rows = (rows) => (Array.isArray(rows) ? rows : [])
+    .filter((entry) => (pnumN(entry?.modelVersion) ?? SECTOR_ROTATION_MIGRATABLE_MODEL_VERSION) === SECTOR_ROTATION_MIGRATABLE_MODEL_VERSION
+      && (pnumN(entry?.recordVersion) ?? SECTOR_ROTATION_RECORD_VERSION) === SECTOR_ROTATION_RECORD_VERSION)
+    .map((entry) => ({
+      ...entry,
+      modelVersion: SECTOR_ROTATION_MIGRATABLE_MODEL_VERSION,
+      recordVersion: SECTOR_ROTATION_RECORD_VERSION,
+    }));
+  // Pending rows describe unenrolled setups, so an old strategy's observations
+  // are dropped. Frozen open/closed rows are retained: opens keep tracking to a
+  // real exit, while closed rows remain raw audit history outside v3 metrics.
+  const previousPending = currentCompatible && Array.isArray(priorLog?.pending) ? priorLog.pending : [];
+  const previousOpen = currentCompatible && Array.isArray(priorLog?.open) ? priorLog.open
+    : legacyV2Compatible ? migrateV2Rows(priorLog?.open) : [];
+  const closed = currentCompatible && Array.isArray(priorLog?.closed) ? priorLog.closed.slice()
+    : legacyV2Compatible ? migrateV2Rows(priorLog?.closed) : [];
+  const priorOpenSymbols = new Set(previousOpen
+    .map((entry) => String(entry?.symbol || "").toUpperCase()).filter(Boolean));
   const builtMs = Date.parse(builtAtIso);
   const today = etDateKey(Number.isFinite(builtMs) ? new Date(builtMs) : new Date());
   const observationDate = sectorRotationDateKey(payload?.dataAsOfDate) || today;
@@ -22788,6 +23151,7 @@ export function reconcileSectorRotationLog(payload, priorLog, chains, builtAtIso
   }
   for (const candidate of freshObservation ? candidates : []) {
     const candidateSymbol = String(candidate?.symbol || "").toUpperCase();
+    if (priorOpenSymbols.has(candidateSymbol)) continue;
     const candidateState = sectorRotationTrackingState(chains, candidateSymbol, builtAtIso, trackingQuotes?.[candidateSymbol]);
     // The payload date is modal across the universe. A lagging ticker must not
     // acquire a new "first seen today" observation merely because its peers are
@@ -23010,7 +23374,8 @@ export function reconcileSectorRotationLog(payload, priorLog, chains, builtAtIso
     if (candidate?.plan?.state !== "ready") continue;
     const key = candidate.signalKey || sectorRotationSignalKey(candidate, payload?.modelVersion);
     const symbol = String(candidate.symbol || "").toUpperCase();
-    if (!key || !symbol || openKeys.has(key) || closedKeys.has(key) || openSymbols.has(symbol)) continue;
+    if (!key || !symbol || openKeys.has(key) || closedKeys.has(key) || openSymbols.has(symbol)
+      || priorOpenSymbols.has(symbol)) continue;
     const symbolState = sectorRotationTrackingState(chains, symbol, builtAtIso, trackingQuotes?.[symbol]);
     // New entries require the late, timestamped quote sweep. If it flakes, the
     // setup remains pending for the next bake rather than backdating a fill at a
@@ -23072,6 +23437,14 @@ export function reconcileSectorRotationLog(payload, priorLog, chains, builtAtIso
       highConfidence: !!candidate.highConfidence,
       phase: candidate.phase || null,
       components: candidate.components || null,
+      recoveryProfile: candidate.recoveryProfile ? {
+        status: candidate.recoveryProfile.status || null,
+        label: candidate.recoveryProfile.label || null,
+        coverage: candidate.recoveryProfile.coverage || null,
+        quality: candidate.recoveryProfile.quality || null,
+        trajectory: candidate.recoveryProfile.trajectory || null,
+        valuation: candidate.recoveryProfile.valuation || null,
+      } : null,
       context: {
         currentZ: pnumN(candidate.meanReversion?.currentZ),
         troughZ: pnumN(candidate.meanReversion?.troughZ),

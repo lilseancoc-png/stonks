@@ -9,6 +9,7 @@ import {
   FALLBACK_RISK_FREE_RATE,
   FOMC_MEETINGS_BASELINE,
   RFR_CACHE_MAX_DAYS,
+  TICKERS,
   buildHeatmapPayload,
   buildMovingAverageTracker,
   ensureTickerCoverage,
@@ -61,7 +62,7 @@ const files = await readdir(DATA_DIR);
 // aren't silently dropped. The named data files (unusual.json, 13f.json,
 // oi-tracker.json, …) are lowercase / digit-leading / hyphenated, so none
 // match this uppercase pattern.
-const symbols = files
+let symbols = files
   .filter((f) => /^[A-Z][A-Z0-9.]{0,5}\.json$/.test(f))
   .map((f) => f.replace(/\.json$/, ""))
   .sort();
@@ -120,6 +121,15 @@ try {
   const manifestMatch = existingHtml.match(/window\.STONKS_MANIFEST=(\{.*\});<\/script>/);
   if (manifestMatch) existingShellManifest = JSON.parse(manifestMatch[1]);
 } catch {}
+// Renderer-only regeneration may run against a partial private-data hydrate.
+// Preserve the source universe and any symbols already shipped in the
+// committed shell so a missing local ticker file cannot silently delete a live
+// directory card or manifest entry. Intentional source-universe removals still
+// flow through the full build, which owns coherent data regeneration.
+const existingSymbols = Array.isArray(existingShellManifest?.symbols)
+  ? existingShellManifest.symbols.filter((symbol) => /^[A-Z][A-Z0-9.]{0,5}$/.test(String(symbol)))
+  : [];
+symbols = [...new Set([...TICKERS, ...symbols, ...existingSymbols])].sort();
 const builtAtCandidates = [
   trends.builtAtIso,
   existingBuiltAtIso,

@@ -11,6 +11,7 @@
     "test:day-trading": "node scripts/day-trading-smoke.mjs",
     "test:ai-capex": "node scripts/ai-capex-smoke.mjs",
     "test:ma-tracker": "node scripts/ma-tracker-smoke.mjs",
+    "test:sector-rotation": "node scripts/sector-rotation-smoke.mjs",
     "test:capital-raises": "node scripts/capital-raises-smoke.mjs",
     "test:central-bank-gold": "node scripts/central-bank-gold-smoke.mjs",
     "test:narrative-risk": "node scripts/narrative-risk-smoke.mjs",
