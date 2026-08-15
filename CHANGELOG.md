@@ -20,6 +20,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-08-15
+
+### Changed
+
+- **Sector Rotation becomes a fundamentals-first recovery shortlist.** The desk now separates verified improving and durable businesses from verify-first and rejected setups before price-action ranking, requires a known drawdown of at least 15% from the 52-week high, prevents missing core coverage, stale company evidence, declining trajectories, and negative free cash flow from masquerading as verified quality, and balances the shortlist across qualifying peer groups before filling remaining slots. Candidate cards lead with why the stock is down, why the business can recover, what confirms the turn, and whether the live plan still pays, while frozen-mean statistics remain supporting evidence rather than a promise of recovery. This material eligibility change advances the model to v3: pending v2 observations are dropped, existing v2 open and closed rows remain in the raw private ledger, open v2 trades continue to their real exits, and the browser scorecard filters strictly to v3 so outcomes are not blended. Renderer-only regeneration also preserves existing shell symbols when the local private-data hydrate is incomplete, preventing unrelated ticker deletions. This change does not run the standalone history-wipe tool. `scripts/{build,regen-static,sector-rotation-smoke,render-smoke}.mjs`, `scripts/render/{app-js,html,styles-css}.mjs`, `docs/site-logic.md`.
+
 ## 2026-08-14
 
 ### Changed

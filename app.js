@@ -22492,7 +22492,7 @@
   var rotationState = {
     data: null, loading: false, error: false, quotes: null, quotesFor: '',
     quotesFetchedAt: 0, quotesSourceAt: '', quotesLoading: false,
-    phase: 'all', action: 'all', group: 'all', sort: 'priority',
+    phase: 'all', action: 'all', recovery: 'all', group: 'all', sort: 'priority',
     account: 25000, riskPct: 0.5, evidenceOpen: {}
   };
   var ROTATION_QUOTE_TTL_MS = 60000;
@@ -22502,6 +22502,7 @@
     if (rotationPrefs && isFinite(rotationPrefs.riskPct) && rotationPrefs.riskPct >= 0.05 && rotationPrefs.riskPct <= 5) rotationState.riskPct = Number(rotationPrefs.riskPct);
     if (rotationPrefs && rotationPrefs.phase) rotationState.phase = String(rotationPrefs.phase);
     if (rotationPrefs && rotationPrefs.action) rotationState.action = String(rotationPrefs.action);
+    if (rotationPrefs && ['all','qualified','verify-first'].indexOf(String(rotationPrefs.recovery)) >= 0) rotationState.recovery = String(rotationPrefs.recovery);
     if (rotationPrefs && rotationPrefs.group) rotationState.group = String(rotationPrefs.group);
     if (rotationPrefs && rotationPrefs.sort) rotationState.sort = String(rotationPrefs.sort);
   } catch(e){}
@@ -22554,6 +22555,158 @@
     var p = rotPlan(c);
     return rotNum(rotValue(p, ['riskReward','riskRewardRatio','rewardRisk','rr']));
   }
+  function rotRecoveryItemText(value){
+    if (value == null) return '';
+    if (typeof value === 'string' || typeof value === 'number') return String(value);
+    if (typeof value === 'object') return rotText(value, ['text','detail','label','reason','title','name']);
+    return '';
+  }
+  function rotRecoveryItems(value){
+    var rows = Array.isArray(value) ? value : value == null ? [] : [value];
+    return rows.map(rotRecoveryItemText).filter(Boolean);
+  }
+  function rotGuardState(c, key){
+    var guard = c && c.guards && c.guards[key];
+    return rotKey(guard && typeof guard === 'object' ? rotText(guard, ['status','state']) : guard);
+  }
+  function rotGuardDetail(c, key){
+    var guard = c && c.guards && c.guards[key];
+    return guard && typeof guard === 'object' ? rotText(guard, ['detail','text','reason','label']) : '';
+  }
+  function rotRecoveryEvidenceMissing(value){
+    return /missing|stale|unverified|unavailable|unknown|uncertain|insufficient|no(?:\s+[\w-]+){0,4}\s+(?:data|evidence)(?:\s+on\s+file)?|not (?:on file|supplied|available)|needs? (?:review|verification)/i.test(String(value || ''));
+  }
+  function rotRecoveryExplicitCoreFailure(row){
+    if (!row) return false;
+    var key = rotKey(row.key);
+    var detail = rotText(row, ['detail','text','reason','label']);
+    if (key === 'profit'){
+      if (/(?:free cash flow|fcf)[^.;·]{0,40}negative|negative[^.;·]{0,24}(?:free cash flow|fcf)/i.test(detail)) return true;
+      if (/(?:non[- ]?positive|negative|zero)\s+net margin|net margin[^.;·]{0,24}(?:non[- ]?positive|negative|zero)/i.test(detail)) return true;
+      var marginMatch = detail.match(/([+\-\u2212]?\d+(?:\.\d+)?)\s*%\s*net margin/i)
+        || detail.match(/net margin\s*(?:is|of|:)?\s*([+\-\u2212]?\d+(?:\.\d+)?)\s*%/i);
+      return !!marginMatch && Number(marginMatch[1].replace(/−/g, '-')) <= 0;
+    }
+    if (key === 'debt'){
+      if (/negative\s+(?:debt\/equity|d\/e|equity)|(?:debt\/equity|d\/e|equity)\s+(?:is\s+)?negative/i.test(detail)) return true;
+      var debtMatch = detail.match(/(?:debt\/equity|debt(?:\s+|-)+to(?:\s+|-)+equity|d\/e)(?:\s+ratio)?\s*(?:is|of|:)?\s*([+\-\u2212]?\d+(?:\.\d+)?)\s*x?/i);
+      return !!debtMatch && Number(debtMatch[1].replace(/−/g, '-')) < 0;
+    }
+    return false;
+  }
+  function rotRecoveryProfile(c){
+    var source = c && c.recoveryProfile && typeof c.recoveryProfile === 'object' ? c.recoveryProfile : null;
+    var qualityRows = Array.isArray(c && c.quality) ? c.quality : [];
+    var coverageRaw = source && source.coverage && typeof source.coverage === 'object' ? source.coverage : {};
+    var knownQualityKeys = ['profit','debt','margins','revenue'];
+    var legacyAvailableRows = source ? qualityRows : qualityRows.filter(function(x){
+      return x && knownQualityKeys.indexOf(rotKey(x.key)) >= 0
+        && !rotRecoveryEvidenceMissing(rotText(x, ['detail','text','reason','label']));
+    });
+    var available = rotNum(coverageRaw.available);
+    if (available == null) available = legacyAvailableRows.length;
+    var required = rotNum(coverageRaw.required);
+    if (!(required > 0)) required = knownQualityKeys.length;
+    var passed = rotNum(coverageRaw.passed);
+    if (passed == null) passed = legacyAvailableRows.filter(function(x){ return x && x.ok === true && !rotRecoveryExplicitCoreFailure(x); }).length;
+    var missing = rotRecoveryItems(coverageRaw.missing);
+    if (!source && !missing.length){
+      missing = knownQualityKeys.filter(function(key){ return !legacyAvailableRows.some(function(x){ return x && rotKey(x.key) === key; }); }).map(rotHuman);
+    }
+    var complete = coverageRaw.complete === true || (coverageRaw.complete == null && available >= required && !missing.length);
+    var quality = source && source.quality && typeof source.quality === 'object' ? source.quality : {};
+    var trajectoryRaw = source && source.trajectory;
+    var trajectory = trajectoryRaw && typeof trajectoryRaw === 'object' ? trajectoryRaw : {};
+    var trajectoryDir = rotKey(rotText(trajectory, ['dir','direction','state']) || (typeof trajectoryRaw === 'string' ? trajectoryRaw : ''));
+    if (!trajectoryDir){
+      var fundDetail = rotText(c && c.guards && c.guards.fundamentals, ['detail','text','label']);
+      trajectoryDir = /declin|deteriorat/i.test(fundDetail) ? 'declining' : /improv/i.test(fundDetail) ? 'improving' : /steady|stable/i.test(fundDetail) ? 'steady' : 'unknown';
+      if (!trajectory.reason && fundDetail) trajectory.reason = fundDetail;
+    }
+    var forward = source && source.forward && typeof source.forward === 'object' ? source.forward : {};
+    var valuationRaw = source && source.valuation;
+    var valuation = valuationRaw && typeof valuationRaw === 'object' ? valuationRaw : {};
+    if (typeof valuationRaw === 'string' && !valuation.label) valuation.label = valuationRaw;
+    var dislocation = source && source.dislocation && typeof source.dislocation === 'object' ? source.dislocation : {};
+    var freshness = source && source.freshness && typeof source.freshness === 'object' ? source.freshness : {};
+    var blockers = rotRecoveryItems(source && source.blockers);
+    var warnings = rotRecoveryItems(source && source.warnings);
+    var rawStatus = rotKey(source && rotText(source, ['status','state','kind']));
+    var status = '';
+    if (/reject|blocked|fail|disqual/.test(rawStatus)) status = 'reject';
+    else if (/verify|incomplete|research|review/.test(rawStatus)) status = 'verify-first';
+    else if (/qualif|verified|ready|pass/.test(rawStatus)) status = 'qualified';
+    if (!status){
+      // A rolling deploy can pair this renderer with the legacy payload, which
+      // had one blockedBy list for both business damage and technical setup
+      // failures. Only known company-evidence guards may reject the recovery
+      // profile; trend, idiosyncratic, mean-reversion and chase remain execution
+      // issues. Missing or stale evidence is research work, not a failed business.
+      var companyGuardKeys = ['quality','fundamentals','news','guidance','analysts','earnings','valuation','profit','profitability','debt','balance-sheet','margins','margin','revenue','revenue-growth','company-news','headline-risk','capital-raise','contract'];
+      var blockedKeys = rotList(c && c.blockedBy).map(rotKey);
+      var companyBlock = companyGuardKeys.some(function(key){
+        var state = rotGuardState(c, key), detail = rotGuardDetail(c, key);
+        return (state === 'block' || blockedKeys.indexOf(key) >= 0) && !rotRecoveryEvidenceMissing(detail);
+      });
+      var companyNeedsVerification = companyGuardKeys.some(function(key){
+        var state = rotGuardState(c, key), detail = rotGuardDetail(c, key);
+        return state === 'warn' || ((state === 'block' || blockedKeys.indexOf(key) >= 0) && rotRecoveryEvidenceMissing(detail));
+      });
+      var qualityFailed = qualityRows.some(function(x){
+        return x && knownQualityKeys.indexOf(rotKey(x.key)) >= 0
+          && (rotRecoveryExplicitCoreFailure(x) || (x.ok === false
+            && !rotRecoveryEvidenceMissing(rotText(x, ['detail','text','reason','label']))));
+      });
+      var hardBlock = blockers.length || companyBlock;
+      var needsVerification = !complete || passed < required || trajectoryDir === 'declining'
+        || companyNeedsVerification;
+      // Legacy payloads do not carry the v3 recovery evidence needed to prove
+      // qualification. Preserve explicit core/company failures as Reject, but
+      // otherwise cap the compatibility fallback at Verify first.
+      status = hardBlock || qualityFailed ? 'reject' : !source ? 'verify-first' : needsVerification ? 'verify-first' : 'qualified';
+    }
+    var defaultLabel = status === 'qualified' ? 'Qualified recovery' : status === 'verify-first' ? 'Verify first' : 'Rejected';
+    return {
+      source:source,
+      status:status,
+      label:source && rotText(source, ['label','headline','title']) || defaultLabel,
+      coverage:{ available:available, required:required, passed:passed, complete:complete, missing:missing },
+      quality:quality,
+      trajectory:{ dir:trajectoryDir || 'unknown', confidence:rotText(trajectory, ['confidence']), reason:rotText(trajectory, ['reason','detail','text']) },
+      forward:{ positiveEvidence:rotRecoveryItems(forward.positiveEvidence), risks:rotRecoveryItems(forward.risks) },
+      valuation:valuation,
+      dislocation:dislocation,
+      freshness:freshness,
+      blockers:blockers,
+      warnings:warnings
+    };
+  }
+  function rotRecoveryStatus(c){ return rotRecoveryProfile(c).status; }
+  function rotRecoveryDrawdown(c){
+    var profile = rotRecoveryProfile(c);
+    var value = rotNum(rotValue(profile.dislocation, ['drawdown52wPct','fiftyTwoWeekDrawdownPct','drawdownPct']));
+    if (value != null) return { value:value > 0 ? -value : value, label:'52W drawdown', exact:true };
+    value = rotNum(rotValue((c && c.episode) || {}, ['drawdownPct','peakToTroughPct','dislocationPct']));
+    return { value:value == null ? null : value > 0 ? -value : value, label:'Episode drawdown', exact:false };
+  }
+  function rotRecoveryRank(c){
+    var profile = rotRecoveryProfile(c);
+    var status = profile.status === 'qualified' ? 3 : profile.status === 'verify-first' ? 2 : 0;
+    var coverage = profile.coverage.required > 0 ? Math.max(0, Math.min(1, profile.coverage.passed / profile.coverage.required)) : 0;
+    var trajectory = profile.trajectory.dir === 'improving' ? 3 : profile.trajectory.dir === 'steady' ? 2 : profile.trajectory.dir === 'declining' ? 0 : 1;
+    var forward = Math.min(3, profile.forward.positiveEvidence.length);
+    var valuationStatus = rotKey(rotText(profile.valuation, ['status','label']));
+    var valuation = /cheap|discount|attractive|underval/.test(valuationStatus) ? 2 : /expensive|premium|rich/.test(valuationStatus) ? 0 : 1;
+    return status * 100 + coverage * 25 + trajectory * 6 + forward * 3 + valuation * 2;
+  }
+  function rotRecoveryCohortRank(c){
+    var profile = rotRecoveryProfile(c);
+    var rawStatus = rotKey(profile.source && rotText(profile.source, ['status','state','kind']));
+    if (rawStatus === 'qualified-improving') return 4;
+    if (rawStatus === 'qualified-durable' || profile.status === 'qualified') return 3;
+    if (profile.status === 'verify-first') return 2;
+    return 1;
+  }
   function rotPlanPoint(c, kind){
     var p = rotPlan(c);
     var aliases = kind === 'stop' ? ['stop','invalidation','stopPx','stopPrice','invalidationPx']
@@ -22603,6 +22756,17 @@
     var rrForFloor = plan.currentInEntryZone === true && liveRr != null ? liveRr : rr;
     var rawLabel = rotActionLabel(c);
     var raw = rotKey(rotActionRaw(c));
+    var recovery = rotRecoveryProfile(c);
+    if (recovery.status === 'reject'){
+      var rejectWhy = recovery.blockers[0] || recovery.forward.risks[0] || 'A required business, news, valuation, or recovery-evidence gate failed.';
+      return { kind:'pass', label:'Pass - recovery profile rejected', note:rejectWhy };
+    }
+    if (recovery.status === 'verify-first'){
+      var verifyWhy = recovery.coverage.missing.length
+        ? 'Verify missing fundamentals: ' + recovery.coverage.missing.slice(0, 3).join(', ') + '.'
+        : recovery.warnings[0] || recovery.trajectory.reason || 'Verify the business and forward recovery evidence before considering an entry.';
+      return { kind:'wait', label:'Verify first', note:verifyWhy };
+    }
     if (/pass|avoid|no-trade|reject|blocked/.test(raw)) return { kind:'pass', label:rawLabel || 'Pass', note:'' };
     var rules = rotRewardRiskRules(thresholds);
     if (rrForFloor != null && rrForFloor < rules.passBelow) return { kind:'pass', label:'Pass - payoff too thin', note:'Estimated ' + fmt(rrForFloor, 1) + ':1 R:R is below the ' + fmt(rules.passBelow, 1) + ':1 screen floor.' };
@@ -22640,6 +22804,16 @@
     if (liveRr < rules.ready) return { kind:'wait', label:'Wait - quote payoff below ready bar', note:'Latest-quote R:R is below the ' + fmt(rules.ready, 1) + ':1 actionable threshold.' };
     return baked;
   }
+  function rotRecoveryPriorityCompare(a, b, thresholds){
+    var cohortDelta = rotRecoveryCohortRank(b) - rotRecoveryCohortRank(a);
+    if (cohortDelta) return cohortDelta;
+    var actionRank = { act:3, wait:2, pass:1 };
+    var actionDelta = (actionRank[rotEffectiveDecision(b, thresholds).kind] || 0) - (actionRank[rotEffectiveDecision(a, thresholds).kind] || 0);
+    if (actionDelta) return actionDelta;
+    var recoveryDelta = rotRecoveryRank(b) - rotRecoveryRank(a);
+    if (recoveryDelta) return recoveryDelta;
+    return (rotCandidateScore(b) == null ? -999 : rotCandidateScore(b)) - (rotCandidateScore(a) == null ? -999 : rotCandidateScore(a));
+  }
   function rotList(v){
     if (Array.isArray(v)) return v.filter(function(x){ return x != null && x !== ''; });
     if (typeof v === 'string' && v) return [v];
@@ -22676,7 +22850,7 @@
     try {
       localStorage.setItem('sectorRotationPrefs', JSON.stringify({
         account:rotationState.account, riskPct:rotationState.riskPct,
-        phase:rotationState.phase, action:rotationState.action,
+        phase:rotationState.phase, action:rotationState.action, recovery:rotationState.recovery,
         group:rotationState.group, sort:rotationState.sort
       }));
     } catch(e){}
@@ -22950,6 +23124,99 @@
     var n = rotNum(v);
     return n == null ? String(v == null ? '' : v) : fmt(n, 1);
   }
+  function rotTrajectoryLabel(dir){
+    dir = rotKey(dir);
+    return dir === 'improving' ? 'Improving' : dir === 'steady' || dir === 'stable' ? 'Steady' : dir === 'declining' ? 'Declining' : 'Not verified';
+  }
+  function rotRecoveryCoverageText(profile){
+    var c = profile.coverage;
+    var base = fmt(c.passed || 0, 0) + '/' + fmt(c.required || 0, 0) + ' core checks verified';
+    if (c.complete) return base + ' - complete';
+    return base + (c.missing.length ? ' - missing ' + c.missing.slice(0, 3).join(', ') : ' - incomplete');
+  }
+  function rotRecoveryBusinessProof(c, profile){
+    var q = profile.quality || {};
+    var bits = [];
+    var margin = rotNum(q.profitMargin);
+    if (margin != null) bits.push(fmt(margin, 1) + '% net margin');
+    var fcf = rotNum(q.freeCashFlow);
+    var fcfQuarters = rotNum(q.fcfPositiveQuarters);
+    var fcfHistory = rotNum(q.fcfHistoryCount);
+    if (fcfQuarters != null && fcfHistory > 0) bits.push(fmt(fcfQuarters, 0) + '/' + fmt(fcfHistory, 0) + ' FCF-positive quarters');
+    else if (fcf != null) bits.push('free cash flow ' + (fcf > 0 ? 'positive' : 'negative'));
+    var balance = rotText(q, ['balanceSheetStatus']);
+    if (balance) bits.push(rotHuman(balance));
+    else if (q.netCash === true) bits.push('net-cash balance sheet');
+    else if (rotNum(q.debtToEquity) != null) bits.push('debt/equity ' + fmt(q.debtToEquity, 2) + 'x');
+    var revenue = rotNum(q.revenueGrowthYoy);
+    if (revenue != null) bits.push('revenue ' + rotPct(revenue) + ' YoY');
+    var marginChange = rotNum(q.marginChangePp);
+    if (marginChange != null) bits.push('margin ' + (marginChange >= 0 ? '+' : '') + fmt(marginChange, 1) + 'pp');
+    if (!bits.length){
+      (Array.isArray(c && c.quality) ? c.quality : []).forEach(function(row){
+        if (bits.length >= 3 || !row) return;
+        var detail = rotText(row, ['detail','text','label']);
+        if (detail) bits.push(detail);
+      });
+    }
+    return bits.slice(0, 4).join(' · ') || 'Business proof is not available in this payload.';
+  }
+  function rotRecoveryCaseText(profile){
+    if (profile.forward.positiveEvidence.length) return profile.forward.positiveEvidence.slice(0, 2).join(' · ');
+    if (profile.trajectory.dir === 'improving' && profile.trajectory.reason) return profile.trajectory.reason;
+    return 'No positive forward driver is verified; treat this as statistical mean reversion only.';
+  }
+  function rotRecoveryValuation(profile){
+    var v = profile.valuation || {};
+    var label = rotText(v, ['label']);
+    var status = rotText(v, ['status']);
+    var discount = rotNum(v.discountPct);
+    var forwardPe = rotNum(v.forwardPE);
+    var peerPe = rotNum(v.peerForwardPE);
+    var peg = rotNum(v.peg);
+    var fcfYield = rotNum(v.fcfYield);
+    if (!label){
+      if (discount != null) label = Math.abs(discount) < 1 ? 'Near peer valuation' : discount > 0 ? fmt(discount, 0) + '% below peers' : fmt(Math.abs(discount), 0) + '% above peers';
+      else if (status) label = rotHuman(status);
+      else label = 'Valuation not verified';
+    }
+    var details = [];
+    if (forwardPe != null) details.push(fmt(forwardPe, 1) + 'x forward P/E');
+    if (peerPe != null) details.push(fmt(peerPe, 1) + 'x peers');
+    if (peg != null) details.push(fmt(peg, 2) + ' PEG');
+    if (fcfYield != null) details.push(fmt(fcfYield, 1) + '% FCF yield');
+    return { label:label, detail:details.join(' · ') || 'Confirm the multiple and cash-flow yield before entry.' };
+  }
+  function rotRecoveryRiskText(c, profile){
+    var risks = profile.forward.risks.concat(profile.blockers, profile.warnings);
+    var newsStatus = rotText(profile.freshness, ['newsStatus','status']);
+    if (/stale|unverified|missing|unknown/i.test(newsStatus)) risks.push('Company-news evidence is ' + newsStatus);
+    rotList(c && c.warnings).forEach(function(value){
+      var text = rotRecoveryItemText(value);
+      if (text) risks.push(text);
+    });
+    var unique = [];
+    risks.forEach(function(value){
+      var key = rotKey(value);
+      if (key && !unique.some(function(x){ return rotKey(x) === key; })) unique.push(value);
+    });
+    return unique.slice(0, 3).join(' · ') || 'No specific risk is supplied; recheck fresh news, estimates, and earnings timing.';
+  }
+  function rotFundamentalsFirstHtml(c){
+    var profile = rotRecoveryProfile(c);
+    var valuation = rotRecoveryValuation(profile);
+    var sym = String((c && c.symbol) || 'Stock').toUpperCase();
+    var businessTitle = profile.status === 'qualified' ? 'Business intact' : profile.status === 'verify-first' ? 'Business needs verification' : 'Recovery profile rejected';
+    var evidenceAsOf = rotText(profile.freshness, ['evidenceAsOf','asOf','builtAtIso']);
+    return '<section class="rot-recovery-card rot-recovery-' + profile.status + '" aria-label="' + escapeHtml(sym) + ' fundamentals-first recovery profile">' +
+      '<header><span><small>Fundamentals first</small><b>' + escapeHtml(businessTitle) + '</b><em>' + escapeHtml(rotRecoveryCoverageText(profile)) + '</em></span><strong>' + escapeHtml(profile.label) + '</strong></header>' +
+      '<div class="rot-recovery-grid">' +
+        '<div><small>Business proof</small><b>' + escapeHtml(rotRecoveryBusinessProof(c, profile)) + '</b></div>' +
+        '<div><small>Recovery case</small><b>' + escapeHtml(rotRecoveryCaseText(profile)) + '</b>' + (evidenceAsOf ? '<span>Evidence through ' + escapeHtml(evidenceAsOf) + '</span>' : '') + '</div>' +
+        '<div><small>Valuation context</small><b>' + escapeHtml(valuation.label) + '</b><span>' + escapeHtml(valuation.detail) + '</span></div>' +
+        '<div><small>Key thesis risks</small><b>' + escapeHtml(rotRecoveryRiskText(c, profile)) + '</b></div>' +
+      '</div></section>';
+  }
   function rotComponentHtml(c){
     var raw = c && c.components;
     var rows = [];
@@ -23158,6 +23425,9 @@
     var entry = rotPlanPoint(c, 'entry'), stop = rotPlanPoint(c, 'stop'), target = rotPlanPoint(c, 'target');
     var sizingEntry = rotNum(rotValue(p, ['trigger','entryPx','entryPrice','entryCeiling']));
     if (sizingEntry == null) sizingEntry = entry.price != null ? entry.price : entry.high != null ? entry.high : entry.low;
+    var recovery = rotRecoveryProfile(c);
+    if (recovery.status === 'reject') return '<div class="rot-size"><b>No size:</b> the recovery profile is rejected.</div>';
+    if (recovery.status === 'verify-first') return '<div class="rot-size"><b>No size:</b> verify the business and forward recovery evidence first.</div>';
     return '<div class="rot-size" data-rot-size="' + escapeHtml(String(c.symbol || '').toUpperCase()) + '" data-rot-baked="' + (rotNum(c.spot) == null ? '' : rotNum(c.spot)) + '" data-rot-entry="' + (sizingEntry == null ? '' : sizingEntry) + '" data-rot-entry-low="' + (entry.low == null ? '' : entry.low) + '" data-rot-entry-high="' + (entry.high == null ? '' : entry.high) + '" data-rot-stop="' + (stop.price == null ? '' : stop.price) + '" data-rot-target="' + (target.price == null ? '' : target.price) + '" data-rot-decision="' + decision.kind + '">Share cap is calculated from price, invalidation and your risk budget.</div>';
   }
   function rotReasonHtml(c){
@@ -23197,11 +23467,12 @@
     var phase = rotPhase(c), decision = rotEffectiveDecision(c, thresholds), score = rotCandidateScore(c);
     return '<article id="rot-card-' + escapeHtml(sym.replace(/[^A-Z0-9_-]/g, '-')) + '" class="rot-card rot-phase-' + escapeHtml(phase) + ' rot-decision-' + decision.kind + '" aria-labelledby="' + escapeHtml(cardTitleId) + '">' +
       '<header class="rot-card-head"><div class="rot-id"><a id="' + escapeHtml(cardTitleId) + '" class="rot-sym" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '">' + escapeHtml(sym || '?') + '</a>' +
-        '<span class="rot-name">' + escapeHtml(c.name || '') + '</span><span class="rot-group">' + escapeHtml(rotCandidateGroup(c)) + '</span></div>' +
-        '<span class="rot-score"><small>Setup score</small><b>' + (score == null ? '-' : fmt(score, 1) + '<em>/100</em>') + '</b></span></header>' +
+        '<span class="rot-name">' + escapeHtml(c.name || '') + '</span><span class="rot-group">' + escapeHtml(rotCandidateGroup(c)) + '</span>' +
+        '<a class="rot-fund-link" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '">Full fundamentals <span aria-hidden="true">&rarr;</span></a></div>' +
+        '<span class="rot-score rot-score-secondary"><small>Setup score</small><b>' + (score == null ? '-' : fmt(score, 1) + '<em>/100</em>') + '</b></span></header>' +
       '<div class="rot-card-status"><span class="rot-phase-chip">' + escapeHtml(rotPhaseLabel(phase)) + '</span><span class="rot-action rot-action-' + decision.kind + '">' + escapeHtml(decision.label) + '</span>' + (c.highConfidence ? '<span class="rot-confidence">Strong screen fit</span>' : '') + '</div>' +
       '<div class="rot-price">' + rotLiveHtml(c) + '</div>' +
-      rotTrackingHtml(c) + rotPlanHtml(c, decision) + rotReasonHtml(c) + rotEvidenceHtml(c, thresholds) +
+      rotTrackingHtml(c) + rotFundamentalsFirstHtml(c) + rotPlanHtml(c, decision) + rotReasonHtml(c) + rotEvidenceHtml(c, thresholds) +
     '</article>';
   }
   function rotRecordCount(value){
@@ -23324,13 +23595,13 @@
     var method = rec.methodology || {};
     var maxHoldSessions = rotNum(method.maxHoldSessions);
     maxHoldSessions = maxHoldSessions > 0 ? Math.round(maxHoldSessions) : 20;
-    return '<section class="rot-record" id="rot-accountability"><div class="rot-record-head"><div><span class="rot-kicker">Accountability</span><h3>Sector-rotation model record</h3><p>Frozen model entries answer whether the call was right and whether the entry helped or hurt. This is not your personal fill history.</p></div><span class="rot-record-badge">Plan-scored</span></div>' +
+    return '<section class="rot-record" id="rot-accountability" tabindex="-1"><div class="rot-record-head"><div><span class="rot-kicker">Accountability</span><h3>Sector-rotation model record</h3><p>Frozen model entries answer whether the call was right and whether the entry helped or hurt. This is not your personal fill history.</p></div><span class="rot-record-badge">Plan-scored</span></div>' +
       '<div class="rot-record-stats">' + stats.join('') + '</div>' + rotEntryLabHtml(rec) + ledger +
       '<p class="rot-record-method">First baked <b>ready</b> signal plus a recent in-zone regular-session quote enrolls &middot; post-close setups wait for the next live session &middot; later entry-day 30-minute bars are tracked &middot; target before stop = right &middot; stop before target = wrong &middot; unresolved after ' + maxHoldSessions + ' sessions = timeout &middot; same-bar ties score stop-first &middot; SPY alpha uses its outcome-date close.</p></section>';
   }
   function rotGroupTape(groups){
-    if (!groups.length) return '<section class="rot-tape"><div class="rot-section-head"><h3>Group tape</h3><span>No group roll-up in this build</span></div></section>';
-    return '<section class="rot-tape"><div class="rot-section-head"><h3>Group tape</h3><span>Click a group to filter the candidates</span></div><div class="rot-tape-grid">' + groups.map(function(g){
+    if (!groups.length) return '<details class="rot-tape"><summary><span><b>Group tape</b><small>No group roll-up in this build</small></span></summary></details>';
+    return '<details class="rot-tape"><summary><span><b>Group tape</b><small>Peer washout and rebound breadth</small></span><em>Open group context</em></summary><div class="rot-tape-body"><p>Click a group to filter the detailed candidate board.</p><div class="rot-tape-grid">' + groups.map(function(g){
       var id = rotGroupId(g);
       var label = rotText(g, ['label','name','group']) || id;
       var episode = g && g.episode && typeof g.episode === 'object' ? g.episode : {};
@@ -23353,7 +23624,7 @@
         '<span class="rot-tape-top"><b>' + escapeHtml(label) + '</b>' + (move == null ? '' : '<strong class="rot-' + (move >= 0 ? 'up' : 'down') + '">' + rotPct(move) + ' off low</strong>') + '</span>' +
         '<span class="rot-tape-meta"><em>' + escapeHtml(qualifies ? rotPhaseLabel(phase) : 'No fresh rotation') + '</em>' + (breadth == null ? '' : '<span>' + fmt(breadth, 0) + '% ' + escapeHtml(breadthLabel) + '</span>') + (members == null ? '' : '<span>' + fmt(members, 0) + ' names</span>') + '</span>' +
         (summary ? '<small>' + escapeHtml(summary) + '</small>' : '') + '</button>';
-    }).join('') + '</div></section>';
+    }).join('') + '</div></div></details>';
   }
   function rotSummaryHtml(d, candidates){
     var s = d && d.summary;
@@ -23379,9 +23650,63 @@
     if (explicitFirst != null) first = explicitFirst;
     if (explicitConfirmed != null) confirmed = explicitConfirmed;
     if (explicitWaits != null && !rotQuotesFresh()) waits = explicitWaits;
-    return '<section class="rot-summary"><div><span class="rot-kicker">Peer washout &rarr; stock rebound</span><h3>' + escapeHtml(headline || 'Quality intact. Price dislocated. Confirmation still matters.') + '</h3>' +
+    return '<section class="rot-summary"><div><span class="rot-kicker">Peer washout &rarr; stock rebound</span><h3>' + escapeHtml(headline || 'Prove quality. Find dislocation. Wait for confirmation.') + '</h3>' +
       '<p>' + escapeHtml(body || 'Ranks strong businesses caught in group-level selling, measures the flush in standard deviations from a frozen pre-drop trend mean, and refuses entries after the reversion runway is spent.') + '</p></div>' +
       '<div class="rot-summary-stats"><span><b>' + actionable + '</b><small>actionable</small></span><span><b>' + first + '</b><small>first thrust</small></span><span><b>' + confirmed + '</b><small>confirmed / retest</small></span><span><b>' + waits + '</b><small>wait or pass</small></span></div></section>';
+  }
+  function rotShortlistCandidates(d, candidates, thresholds){
+    var bySymbol = {};
+    candidates.forEach(function(c){
+      var sym = String((c && c.symbol) || '').toUpperCase();
+      if (sym && rotRecoveryStatus(c) !== 'reject') bySymbol[sym] = c;
+    });
+    var requested = Array.isArray(d && d.shortlistSymbols) ? d.shortlistSymbols : [];
+    var explicit = [];
+    requested.forEach(function(item){
+      var sym = String(item && typeof item === 'object' ? rotValue(item, ['symbol','ticker','sym']) || '' : item || '').toUpperCase();
+      if (bySymbol[sym] && explicit.indexOf(bySymbol[sym]) < 0) explicit.push(bySymbol[sym]);
+    });
+    if (explicit.length) return explicit.slice(0, 8);
+    var ranked = candidates.filter(function(c){ return rotRecoveryStatus(c) !== 'reject'; }).slice().sort(function(a, b){
+      return rotRecoveryPriorityCompare(a, b, thresholds);
+    });
+    var buckets = {}, order = [];
+    ranked.forEach(function(c){
+      var group = rotCandidateGroupKey(c) || 'Other';
+      var key = rotKey(group);
+      if (!buckets[key]){ buckets[key] = []; order.push(key); }
+      buckets[key].push(c);
+    });
+    var balanced = [], groupCounts = {};
+    while (balanced.length < Math.min(8, ranked.length)){
+      var added = false;
+      for (var i = 0; i < order.length && balanced.length < 8; i++){
+        var key = order[i];
+        if (!buckets[key].length || (groupCounts[key] || 0) >= 2) continue;
+        balanced.push(buckets[key].shift());
+        groupCounts[key] = (groupCounts[key] || 0) + 1;
+        added = true;
+      }
+      if (!added) break;
+    }
+    return balanced;
+  }
+  function rotShortlistHtml(d, candidates, thresholds){
+    var rows = rotShortlistCandidates(d, candidates, thresholds);
+    if (!rows.length) return '';
+    return '<section class="rot-shortlist" aria-labelledby="rot-shortlist-title"><div class="rot-section-head"><div><span class="rot-kicker">Fundamentals first</span><h3 id="rot-shortlist-title">Quality Recovery Shortlist</h3></div><span>Curated first; fallback balances qualifying groups. Open a row for the full setup.</span></div><div class="rot-shortlist-grid">' + rows.map(function(c){
+      var sym = String(c.symbol || '').toUpperCase();
+      var profile = rotRecoveryProfile(c);
+      var drawdown = rotRecoveryDrawdown(c);
+      var valuation = rotRecoveryValuation(profile);
+      var decision = rotEffectiveDecision(c, thresholds);
+      return '<button type="button" class="rot-short-row rot-short-' + profile.status + '" data-rot-jump-card="' + escapeHtml(sym) + '" aria-label="Review ' + escapeHtml(sym) + ' detailed recovery plan">' +
+        '<span class="rot-short-id"><b>' + escapeHtml(sym || '?') + '</b><em>' + escapeHtml(rotCandidateGroup(c)) + '</em><strong>' + escapeHtml(profile.label) + '</strong></span>' +
+        '<span class="rot-short-proof"><small>Business proof</small><b>' + escapeHtml(rotRecoveryBusinessProof(c, profile)) + '</b></span>' +
+        '<span class="rot-short-metrics"><span><small>' + escapeHtml(drawdown.label) + '</small><b class="rot-down">' + (drawdown.value == null ? '-' : escapeHtml(rotPct(drawdown.value))) + '</b></span><span><small>Trajectory</small><b>' + escapeHtml(rotTrajectoryLabel(profile.trajectory.dir)) + '</b></span><span><small>Valuation</small><b>' + escapeHtml(valuation.label) + '</b></span></span>' +
+        '<span class="rot-short-action rot-action-' + decision.kind + '">' + escapeHtml(decision.label) + '<em aria-hidden="true">&darr;</em></span>' +
+      '</button>';
+    }).join('') + '</div></section>';
   }
   function rotProcessHtml(){
     return '<ol class="rot-process" aria-label="How the Sector Rotation rebound screen works">' +
@@ -23393,27 +23718,31 @@
   }
   function rotDeskBriefHtml(d, candidates, thresholds){
     var ranked = candidates.map(function(c){ return { candidate:c, decision:rotEffectiveDecision(c, thresholds) }; });
-    var actionRank = { act:3, wait:2, pass:1 };
     ranked.sort(function(a, b){
-      var delta = (actionRank[b.decision.kind] || 0) - (actionRank[a.decision.kind] || 0);
-      return delta || ((rotCandidateScore(b.candidate) || 0) - (rotCandidateScore(a.candidate) || 0));
+      return rotRecoveryPriorityCompare(a.candidate, b.candidate, thresholds);
     });
     var actionable = ranked.filter(function(x){ return x.decision.kind === 'act'; });
     var waiting = ranked.filter(function(x){ return x.decision.kind === 'wait'; });
     var passed = ranked.filter(function(x){ return x.decision.kind === 'pass'; });
-    var primary = actionable[0] || waiting[0] || ranked[0] || null;
+    var verifyWaiting = waiting.filter(function(x){ return rotRecoveryStatus(x.candidate) === 'verify-first'; });
+    var verificationOnly = !actionable.length && waiting.length && verifyWaiting.length === waiting.length;
+    var primary = actionable[0] || waiting[0] || passed[0] || null;
     var primaryCandidate = primary && primary.candidate;
     var primaryDecision = primary && primary.decision;
     var confirmed = candidates.filter(function(c){ var p = rotPhase(c); return p === 'confirmed' || p === 'retest'; }).length;
-    var stance = actionable.length ? 'Act only inside the plan' : waiting.length ? 'No entry yet' : 'Stand aside';
+    var stance = actionable.length ? 'Act only inside the plan' : verificationOnly ? 'Verify the business first' : waiting.length ? 'No entry yet' : 'Stand aside';
     var tone = actionable.length ? 'act' : waiting.length ? 'wait' : 'pass';
     var headline = actionable.length
       ? actionable.length + ' setup' + (actionable.length === 1 ? '' : 's') + ' currently clear the entry bar.'
+      : verificationOnly
+        ? 'The price setup cannot outrun incomplete or uncertain recovery evidence.'
       : waiting.length
         ? 'The washout is real, but the turn is not ready to trade.'
         : 'Nothing on this desk offers a qualified entry.';
     var detail = actionable.length
       ? 'Use the frozen zone, structural invalidation and first target below. A live quote outside the zone or below the payoff bar downgrades the setup automatically.'
+      : verificationOnly
+        ? 'Resolve the missing fundamentals, forward evidence, valuation, or freshness warning named on each card. Verify-first profiles are never actionable.'
       : confirmed
         ? 'Structure has confirmed in ' + confirmed + ' name' + (confirmed === 1 ? '' : 's') + ', but the current quote or payoff still fails the execution bar.'
         : waiting.length
@@ -23427,7 +23756,7 @@
       var target = rotPlanPoint(primaryCandidate, 'target');
       var rr = rotPlanRr(primaryCandidate);
       var next = primaryDecision.note || rotText(rotPlan(primaryCandidate), ['headline','basis']) || primaryDecision.label;
-      primaryHtml = '<div class="rot-brief-focus"><div class="rot-brief-focus-head"><span><small>' + (actionable.length ? 'Top executable setup' : waiting.length ? 'Primary watch' : 'Highest-ranked pass') + '</small><b>' + escapeHtml(sym || '?') + ' <em>' + escapeHtml(rotCandidateGroup(primaryCandidate)) + '</em></b></span><strong class="rot-action-' + primaryDecision.kind + '">' + escapeHtml(primaryDecision.label) + '</strong></div>' +
+      primaryHtml = '<div class="rot-brief-focus"><div class="rot-brief-focus-head"><span><small>' + (primaryDecision.kind === 'act' ? 'Top executable setup' : primaryDecision.kind === 'wait' ? 'Primary watch' : 'Highest-ranked pass') + '</small><b>' + escapeHtml(sym || '?') + ' <em>' + escapeHtml(rotCandidateGroup(primaryCandidate)) + '</em></b></span><strong class="rot-action-' + primaryDecision.kind + '">' + escapeHtml(primaryDecision.label) + '</strong></div>' +
         '<p>' + escapeHtml(next) + '</p><div class="rot-brief-levels">' +
           '<span><small>Trigger / zone</small><b>' + escapeHtml(rotPointText(entry, 'Not ready')) + '</b></span>' +
           '<span><small>Invalidation</small><b class="rot-down">' + escapeHtml(rotPointText(stop, 'Not supplied')) + '</b></span>' +
@@ -23443,6 +23772,9 @@
   }
   function rotVisibleCandidates(candidates, thresholds){
     var rows = candidates.filter(function(c){
+      var recovery = rotRecoveryStatus(c);
+      if (recovery === 'reject') return false;
+      if (rotationState.recovery !== 'all' && recovery !== rotationState.recovery) return false;
       if (rotationState.phase !== 'all' && rotPhase(c) !== rotationState.phase) return false;
       if (rotationState.action !== 'all' && rotEffectiveDecision(c, thresholds).kind !== rotationState.action) return false;
       if (!rotGroupMatches(c, rotationState.group)) return false;
@@ -23450,11 +23782,15 @@
     });
     rows.sort(function(a, b){
       if (rotationState.sort === 'priority'){
-        var actionRank = { act:3, wait:2, pass:1 };
-        var actionDelta = (actionRank[rotEffectiveDecision(b, thresholds).kind] || 0) - (actionRank[rotEffectiveDecision(a, thresholds).kind] || 0);
-        if (actionDelta) return actionDelta;
+        return rotRecoveryPriorityCompare(a, b, thresholds);
       }
       if (rotationState.sort === 'rr') return (rotPlanRr(b) == null ? -999 : rotPlanRr(b)) - (rotPlanRr(a) == null ? -999 : rotPlanRr(a));
+      if (rotationState.sort === 'fundamental') return rotRecoveryRank(b) - rotRecoveryRank(a)
+        || (rotCandidateScore(b) == null ? -999 : rotCandidateScore(b)) - (rotCandidateScore(a) == null ? -999 : rotCandidateScore(a));
+      if (rotationState.sort === 'drawdown52'){
+        var a52 = rotRecoveryDrawdown(a).value, b52 = rotRecoveryDrawdown(b).value;
+        return (b52 == null ? -999 : Math.abs(b52)) - (a52 == null ? -999 : Math.abs(a52));
+      }
       if (rotationState.sort === 'drawdown'){
         var ad = Math.abs(rotNum(rotValue(a.episode || {}, ['drawdownPct','peakToTroughPct','dislocationPct'])) || 0);
         var bd = Math.abs(rotNum(rotValue(b.episode || {}, ['drawdownPct','peakToTroughPct','dislocationPct'])) || 0);
@@ -23486,6 +23822,11 @@
       var count = key === 'all' ? candidates.length : candidates.filter(function(c){ return rotEffectiveDecision(c, thresholds).kind === key; }).length;
       return '<button type="button" class="rot-filter-btn' + (active ? ' active' : '') + '" data-rot-action="' + key + '" aria-pressed="' + (active ? 'true' : 'false') + '">' + label + ' <b>' + count + '</b></button>';
     }
+    function recoveryBtn(key, label){
+      var active = rotationState.recovery === key;
+      var count = key === 'all' ? candidates.filter(function(c){ return rotRecoveryStatus(c) !== 'reject'; }).length : candidates.filter(function(c){ return rotRecoveryStatus(c) === key; }).length;
+      return '<button type="button" class="rot-filter-btn' + (active ? ' active' : '') + '" data-rot-recovery="' + key + '" aria-pressed="' + (active ? 'true' : 'false') + '">' + label + ' <b>' + count + '</b></button>';
+    }
     var groupOpts = [];
     groups.forEach(function(g){
       var value = rotGroupId(g), label = rotText(g, ['label','name','group']) || value;
@@ -23496,19 +23837,21 @@
       if (!groupOpts.some(function(x){ return rotKey(x.value) === rotKey(value); })) groupOpts.push({ value:value, label:label });
     });
     var opts = '<option value="all">All groups</option>' + groupOpts.map(function(g){ return '<option value="' + escapeHtml(g.value) + '"' + (rotKey(rotationState.group) === rotKey(g.value) ? ' selected' : '') + '>' + escapeHtml(g.label) + '</option>'; }).join('');
-    return '<section class="rot-controls"><div class="rot-filter-scroll" aria-label="Rebound state">' + phases.map(phaseBtn).join('') + '</div>' +
+    return '<section class="rot-controls"><div class="rot-recovery-filter"><span>Recovery profile</span><div class="rot-action-filter" role="group" aria-label="Fundamental recovery profile">' + recoveryBtn('all','All') + recoveryBtn('qualified','Qualified') + recoveryBtn('verify-first','Verify first') + '</div></div>' +
+      '<div class="rot-filter-scroll" aria-label="Rebound state">' + phases.map(phaseBtn).join('') + '</div>' +
       '<div class="rot-toolbar"><div class="rot-action-filter">' + actionBtn('all','All') + actionBtn('act','Actionable') + actionBtn('wait','Wait') + actionBtn('pass','Pass') + '</div>' +
         '<label>Group <select data-rot-group>' + opts + '</select></label>' +
-        '<label>Sort <select data-rot-sort><option value="priority"' + (rotationState.sort === 'priority' ? ' selected' : '') + '>Desk priority</option><option value="score"' + (rotationState.sort === 'score' ? ' selected' : '') + '>Setup score</option><option value="rr"' + (rotationState.sort === 'rr' ? ' selected' : '') + '>Best R:R</option><option value="drawdown"' + (rotationState.sort === 'drawdown' ? ' selected' : '') + '>Deepest dislocation</option><option value="bounce"' + (rotationState.sort === 'bounce' ? ' selected' : '') + '>Strongest rebound</option><option value="live"' + (rotationState.sort === 'live' ? ' selected' : '') + '>Live day move</option></select></label>' +
+        '<label>Sort <select data-rot-sort><option value="priority"' + (rotationState.sort === 'priority' ? ' selected' : '') + '>Desk priority</option><option value="fundamental"' + (rotationState.sort === 'fundamental' ? ' selected' : '') + '>Fundamental recovery</option><option value="drawdown52"' + (rotationState.sort === 'drawdown52' ? ' selected' : '') + '>52-week drawdown</option><option value="score"' + (rotationState.sort === 'score' ? ' selected' : '') + '>Setup score</option><option value="rr"' + (rotationState.sort === 'rr' ? ' selected' : '') + '>Best R:R</option><option value="drawdown"' + (rotationState.sort === 'drawdown' ? ' selected' : '') + '>Deepest dislocation</option><option value="bounce"' + (rotationState.sort === 'bounce' ? ' selected' : '') + '>Strongest rebound</option><option value="live"' + (rotationState.sort === 'live' ? ' selected' : '') + '>Live day move</option></select></label>' +
         '<span class="rot-showing" role="status" aria-live="polite" aria-atomic="true">Showing ' + visible.length + ' of ' + candidates.length + '</span></div>' +
       '</section>';
   }
   function rotNearMissHtml(rows, thresholds){
     if (!rows.length) return '';
-    var list = rows.slice().sort(function(a,b){ return (rotCandidateScore(b) || 0) - (rotCandidateScore(a) || 0); }).slice(0, 10);
-    return '<section class="rot-near"><div class="rot-section-head"><h3>Near misses</h3><span>Strong context, but one or more gates still fail</span></div><div class="rot-near-list">' + list.map(function(c){
-      var sym = String(c.symbol || '').toUpperCase(), score = rotCandidateScore(c), d = rotEffectiveDecision(c, thresholds);
+    function reasonFor(c){
+      var profile = rotRecoveryProfile(c);
+      var d = rotEffectiveDecision(c, thresholds);
       var why = rotText(c, ['missReason','reason','note']);
+      if (!why) why = profile.blockers[0] || profile.forward.risks[0] || profile.warnings[0] || '';
       if (!why){
         var blocked = rotList(c.blockedBy);
         if (blocked.length){
@@ -23518,9 +23861,21 @@
         }
       }
       if (!why){ var ws = rotList(c.warnings); why = ws.length ? String(ws[0] && typeof ws[0] === 'object' ? rotText(ws[0], ['detail','text','label','warning','key']) : ws[0]) : d.label; }
+      return why || 'Below the screen threshold.';
+    }
+    function rowsHtml(list, rejected){
+      return list.slice().sort(function(a,b){ return (rotCandidateScore(b) || 0) - (rotCandidateScore(a) || 0); }).slice(0, 10).map(function(c){
+      var sym = String(c.symbol || '').toUpperCase(), score = rotCandidateScore(c), profile = rotRecoveryProfile(c);
       return '<div class="rot-near-row"><a class="rot-sym" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '">' + escapeHtml(sym || '?') + '</a><span>' + escapeHtml(c.name || rotCandidateGroup(c)) + '</span>' +
-        '<em>' + escapeHtml(rotPhaseLabel(rotPhase(c))) + '</em><b>' + (score == null ? '-' : fmt(score,1) + '/100') + '</b><small>' + escapeHtml(why || 'Below the screen threshold.') + '</small></div>';
-    }).join('') + '</div></section>';
+        '<em class="' + (rejected ? 'rot-near-reject' : '') + '">' + escapeHtml(rejected ? (/reject/i.test(profile.label) ? profile.label : 'Reject - ' + profile.label) : rotPhaseLabel(rotPhase(c))) + '</em><b>' + (score == null ? '-' : fmt(score,1) + '/100') + '</b><small>' + escapeHtml(reasonFor(c)) + '</small></div>';
+      }).join('');
+    }
+    var rejected = rows.filter(function(c){ return rotRecoveryStatus(c) === 'reject'; });
+    var watches = rows.filter(function(c){ return rotRecoveryStatus(c) !== 'reject'; });
+    var html = '';
+    if (rejected.length) html += '<section class="rot-near rot-near-rejected"><div class="rot-section-head"><h3>Rejected recovery profiles</h3><span>Business, news, valuation, or required recovery evidence failed</span></div><div class="rot-near-list">' + rowsHtml(rejected, true) + '</div></section>';
+    if (watches.length) html += '<section class="rot-near"><div class="rot-section-head"><h3>Other near misses</h3><span>Not rejected on recovery quality, but still below a setup gate</span></div><div class="rot-near-list">' + rowsHtml(watches, false) + '</div></section>';
+    return html;
   }
   function rotThresholdHtml(thresholds, modelVersion){
     var rows = [];
@@ -23549,6 +23904,8 @@
     for (var i = 0; i < phases.length; i++) phases[i].addEventListener('click', function(){ var value = this.getAttribute('data-rot-phase') || 'all'; rotationState.phase = value; rotSavePrefs(); rerenderAndFocus('data-rot-phase', value); });
     var actions = root.querySelectorAll('[data-rot-action]');
     for (var j = 0; j < actions.length; j++) actions[j].addEventListener('click', function(){ var value = this.getAttribute('data-rot-action') || 'all'; rotationState.action = value; rotSavePrefs(); rerenderAndFocus('data-rot-action', value); });
+    var recovery = root.querySelectorAll('[data-rot-recovery]');
+    for (var ri = 0; ri < recovery.length; ri++) recovery[ri].addEventListener('click', function(){ var value = this.getAttribute('data-rot-recovery') || 'all'; rotationState.recovery = value; rotSavePrefs(); rerenderAndFocus('data-rot-recovery', value); });
     var tape = root.querySelectorAll('[data-rot-group-card]');
     for (var k = 0; k < tape.length; k++) tape[k].addEventListener('click', function(){
       var id = this.getAttribute('data-rot-group-card') || 'all';
@@ -23568,12 +23925,28 @@
     for (var ji = 0; ji < jumpCards.length; ji++) jumpCards[ji].addEventListener('click', function(){
       var sym = this.getAttribute('data-rot-jump-card');
       var target = sym ? document.getElementById('rot-card-' + sym.replace(/[^A-Z0-9_-]/g, '-')) : null;
-      if (target) target.scrollIntoView({ behavior:'smooth', block:'start' });
+      if (!target && sym){
+        rotationState.recovery = 'all';
+        rotationState.phase = 'all';
+        rotationState.action = 'all';
+        rotationState.group = 'all';
+        rotSavePrefs();
+        renderSectorRotation();
+        target = document.getElementById('rot-card-' + sym.replace(/[^A-Z0-9_-]/g, '-'));
+      }
+      if (target){
+        target.scrollIntoView({ behavior:'smooth', block:'start' });
+        var focus = target.querySelector('.rot-sym');
+        if (focus) try { focus.focus({ preventScroll:true }); } catch (_) { focus.focus(); }
+      }
     });
     var jumpRecord = root.querySelector('[data-rot-jump-record]');
     if (jumpRecord) jumpRecord.addEventListener('click', function(){
       var target = document.getElementById('rot-accountability');
-      if (target) target.scrollIntoView({ behavior:'smooth', block:'start' });
+      if (target){
+        target.scrollIntoView({ behavior:'smooth', block:'start' });
+        try { target.focus({ preventScroll:true }); } catch (_) { target.focus(); }
+      }
     });
     function saveRisk(normalize){
       var account = root.querySelector('[data-rot-account]'), risk = root.querySelector('[data-rot-risk]');
@@ -23598,10 +23971,12 @@
     if (!root) return;
     var priorLedger = root.querySelector('.rot-record-ledger');
     var priorLedgerOpen = priorLedger ? priorLedger.open : null;
+    var priorTape = root.querySelector('.rot-tape');
+    var priorTapeOpen = priorTape ? priorTape.open : null;
     var priorFocus = null;
     var active = document.activeElement;
     if (active && root.contains(active)){
-      var focusAttrs = ['data-rot-ledger-summary','data-rot-evidence-summary','data-rot-jump-card','data-rot-jump-record','data-rot-phase','data-rot-action','data-rot-group-card','data-rot-group','data-rot-sort','data-rot-account','data-rot-risk','data-sym'];
+      var focusAttrs = ['data-rot-ledger-summary','data-rot-evidence-summary','data-rot-jump-card','data-rot-jump-record','data-rot-phase','data-rot-action','data-rot-recovery','data-rot-group-card','data-rot-group','data-rot-sort','data-rot-account','data-rot-risk','data-sym'];
       for (var fi = 0; fi < focusAttrs.length; fi++){
         var focusAttr = focusAttrs[fi];
         if (!active.hasAttribute(focusAttr)) continue;
@@ -23619,8 +23994,17 @@
       return;
     }
     var d = rotationState.data || {};
-    var candidates = Array.isArray(d.candidates) ? d.candidates : [];
-    var near = Array.isArray(d.nearMisses) ? d.nearMisses : [];
+    var rawCandidates = Array.isArray(d.candidates) ? d.candidates : [];
+    var candidates = rawCandidates.filter(function(c){ return rotRecoveryStatus(c) !== 'reject'; });
+    var rejectedCandidates = rawCandidates.filter(function(c){ return rotRecoveryStatus(c) === 'reject'; });
+    var near = (Array.isArray(d.nearMisses) ? d.nearMisses.slice() : []).concat(rejectedCandidates);
+    var nearSeen = {};
+    near = near.filter(function(c){
+      var key = String((c && c.signalKey) || ((c && c.symbol) || '') + '|' + rotCandidateGroupKey(c));
+      if (!key || nearSeen[key]) return false;
+      nearSeen[key] = true;
+      return true;
+    });
     var groups = rotGroups(d.groups);
     var thresholds = d.thresholds && typeof d.thresholds === 'object' ? d.thresholds : {};
     var validGroup = rotationState.group === 'all' || candidates.concat(near).some(function(c){ return rotGroupMatches(c, rotationState.group); }) || groups.some(function(g){ return rotKey(rotGroupId(g)) === rotKey(rotationState.group) || rotKey(rotText(g, ['label','name'])) === rotKey(rotationState.group); });
@@ -23633,14 +24017,16 @@
     }
     var stale = rotationState.error ? '<p class="rot-stale">Live refresh failed; the last successfully loaded build remains visible.</p>' : '';
     var grid = visible.length ? '<div class="rot-grid">' + visible.map(function(c){ return rotCandidateCard(c, thresholds); }).join('') + '</div>'
-      : candidates.length ? '<div class="rot-empty"><b>No candidates match these desk filters.</b><span>Reset state, action, or group filters; the screen is not manufacturing a trade.</span></div>'
+      : candidates.length ? '<div class="rot-empty"><b>No candidates match these desk filters.</b><span>Reset recovery profile, state, action, or group filters; the screen is not manufacturing a trade.</span></div>'
       : '<div class="rot-empty"><b>No quality rotation-rebound candidate clears the bar.</b><span>That is a valid signal. Wait for a clean dislocation and confirmation instead of forcing a bounce trade.</span></div>';
     var filteredNear = rotationState.group === 'all' ? near : near.filter(function(c){ return rotGroupMatches(c, rotationState.group); });
-    root.innerHTML = stale + rotSummaryHtml(d, candidates) + rotDeskBriefHtml(d, candidates, thresholds) + rotProcessHtml() + rotGroupTape(groups) + rotToolbarHtml(candidates, visible, groups, thresholds) + grid +
+    root.innerHTML = stale + rotSummaryHtml(d, candidates) + rotDeskBriefHtml(d, candidates, thresholds) + rotShortlistHtml(d, candidates, thresholds) + rotToolbarHtml(candidates, visible, groups, thresholds) + grid + rotProcessHtml() + rotGroupTape(groups) +
       rotRecordHtml(d) + rotNearMissHtml(filteredNear, thresholds) + rotThresholdHtml(d.thresholds, d.modelVersion) +
-      '<p class="rot-foot">The frozen mean and σ describe a pre-drop trend regime; they do not prove price must revert or estimate a probability. First thrust is an initial reflex move, never confirmation. Latest quotes can update price and sizing; z-scores and the displayed at-build R:R remain frozen to the named build. Recheck fresh news and earnings timing before acting. Educational screen, not financial advice.</p>';
+      '<p class="rot-foot">A qualified recovery profile means the required business evidence is present and passes this screen; it is not a promise of recovery. Verify-first names cannot become actionable until the missing or uncertain evidence clears, and rejected profiles remain in the near-miss research section rather than the candidate board. The frozen mean and σ describe a pre-drop trend regime; they do not prove price must revert or estimate a probability. First thrust is an initial reflex move, never confirmation. Latest quotes can update price and sizing; z-scores and the displayed at-build R:R remain frozen to the named build. Recheck fresh news and earnings timing before acting. Educational screen, not financial advice.</p>';
     var nextLedger = root.querySelector('.rot-record-ledger');
     if (nextLedger && priorLedgerOpen != null) nextLedger.open = priorLedgerOpen;
+    var nextTape = root.querySelector('.rot-tape');
+    if (nextTape && priorTapeOpen != null) nextTape.open = priorTapeOpen;
     bindRotationDesk(root);
     applyRotationLive();
     renderOwnerRotationSizing();
@@ -23657,7 +24043,7 @@
     if (rotationState.loading && !rotationState.data){ root.innerHTML = '<p class="owner-tool-loading">Loading Sector Rotation sizing&hellip;</p>'; return; }
     if (rotationState.error && !rotationState.data){ root.innerHTML = '<p class="owner-tool-loading">Sector Rotation sizing is unavailable right now.</p>'; return; }
     var d = rotationState.data || {};
-    var candidates = Array.isArray(d.candidates) ? d.candidates : [];
+    var candidates = (Array.isArray(d.candidates) ? d.candidates : []).filter(function(c){ return rotRecoveryStatus(c) !== 'reject'; });
     var thresholds = d.thresholds && typeof d.thresholds === 'object' ? d.thresholds : {};
     var rows = candidates.map(function(c){
       var sym = String(c.symbol || '').toUpperCase();
@@ -24668,7 +25054,7 @@
   // Stock Picks card + DCA symbols, Trending-IV symbols/chips/table rows).
   function bindBriefChips(rootEl){
     if (!rootEl) return;
-    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .news-feed-sym[data-sym], .stk-sym[data-sym], .stk-dca-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym], .cmd-watch[data-sym], .cr-tkr[data-sym], .f13-sym[data-sym], .ers-sym[data-sym], .ecl-sym[data-sym], .spill-sym[data-sym], .quant-sym[data-sym], .rot-sym[data-sym], .lev-sym[data-sym]');
+    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .news-feed-sym[data-sym], .stk-sym[data-sym], .stk-dca-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym], .cmd-watch[data-sym], .cr-tkr[data-sym], .f13-sym[data-sym], .ers-sym[data-sym], .ecl-sym[data-sym], .spill-sym[data-sym], .quant-sym[data-sym], .rot-sym[data-sym], .rot-fund-link[data-sym], .lev-sym[data-sym]');
     for (var i = 0; i < chips.length; i++){
       chips[i].addEventListener('click', function(ev){
         // Modified clicks fall through to the browser so the ?s= href opens

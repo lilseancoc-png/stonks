@@ -580,7 +580,7 @@ The 4× tier additionally requires price below SMA200 and at least 15% below the
 
 ## 9. Sector Rotation
 
-Sector Rotation is not the Heatmap's sector-streak feature and it is not a sector-ETF allocator. It is a **long-only peer-washout rebound model**: find a genuine group selloff, prove that an individual quality company participated for group reasons rather than company damage, then wait for a controlled recovery entry.
+Sector Rotation is not the Heatmap's sector-streak feature and it is not a sector-ETF allocator. It is a **long-only, fundamentals-first peer-washout rebound model**: verify that the business is still capable of recovery, find a genuine group selloff, prove that the stock participated for group reasons rather than company damage, then wait for a controlled recovery entry. Price dislocation and confirmation cannot compensate for missing or deteriorating business evidence.
 
 ### Universe and episode
 
@@ -595,6 +595,30 @@ Core parameters:
 - at least 60% of members down;
 - group underperforms SPY by at least two points or trails the best group by at least four points;
 - the trough must be no more than seven sessions old.
+
+The individual stock must also be genuinely beaten down. When a valid 52-week high is on file, a drawdown smaller than 15% is rejected rather than promoted as a recovery candidate. A missing 52-week-high input is explicit incomplete evidence and routes the name to **Verify first**; the model never interprets missing history as a large drawdown.
+
+### Recovery profile and fundamentals-first boundary
+
+Every stock receives a deterministic recovery profile before setup scoring or live execution state is considered. It reuses the existing company fundamentals and Grade evidence; it does not make another AI call or turn the profile into a probability.
+
+The profile checks four core areas:
+
+- verified profitability and free-cash-flow quality;
+- balance-sheet coverage and manageable debt;
+- durable revenue and margin evidence;
+- forward trajectory from guidance, estimates, analyst revisions, margins, and earnings-surprise momentum.
+
+The recovery profile carries company-news freshness, lowered or soft guidance, lost contracts, dilutive financing, weak fundamentals judgments, and analyst-cut waves. The wider desk retains its separate negative-earnings-break and beta-adjusted peer-residual guards, so a fundamentally qualified profile can still fail attribution or event-risk checks.
+
+The browser-facing statuses are:
+
+- **Qualified - improving:** core coverage is complete, no business-damage guard fails, and medium/high-confidence forward evidence is improving.
+- **Qualified - durable:** core coverage is complete and the business remains durable with a credible non-declining forward read, but the improvement evidence is less strong.
+- **Verify first:** a core field or fresh company-news check is missing, forward evidence is low-confidence, or another warning prevents the page from honestly calling the fundamentals verified.
+- **Reject:** the stock is not at least 15% below a known 52-week high, a core business check fails, medium/high-confidence trajectory is declining, or a company-damage guard breaks the recovery thesis.
+
+Negative free cash flow can be shown as risk evidence, but it cannot be silently skipped or presented as verified quality. The action boundary is lexicographic: recovery status first, execution state second, then statistical setup score. A high z-score, broad peer selloff, or attractive nominal reward/risk cannot promote **Verify first** or **Reject** into an actionable trade.
 
 ### Group phases
 
@@ -650,7 +674,7 @@ Block or downgrade for:
 - insufficient z-score dislocation;
 - late/chased recovery.
 
-Stale or ambiguous evidence warns rather than pretending to be current. A warning can demote Confirmed back to First thrust.
+Stale or ambiguous evidence never pretends to be verified. It places the recovery profile in **Verify first** and can demote Confirmed back to First thrust. A known failure routes the profile to **Reject**. These recovery-profile states are separate from the later price-action states, so a technically confirmed chart can still be research-only when the business evidence is incomplete.
 
 ### Candidate score
 
@@ -663,6 +687,8 @@ Maximum 100:
 - mean-reversion evidence: 20.
 
 Minimum candidate score is 55; high confidence starts at 70. The main board holds up to 18 candidates plus 14 near misses.
+
+The score describes the statistical recovery setup, not business quality or a calibrated chance of success. The main shortlist therefore groups candidates by recovery-profile status and execution state before comparing scores. It takes the highest-priority eligible name from each qualifying peer group before filling the remaining slots from the global ordering. This group-balanced pass prevents one large washout basket from crowding every other qualified group off the decision surface; it does not weaken any fundamental, confirmation, or payoff gate and does not make an inferior setup actionable.
 
 ### Stock phases and execution
 
@@ -700,6 +726,18 @@ The plan is expressed on the underlying:
 
 Below `1.25` is a payoff-thin Pass. Above the zone is Wait for pullback; below it is Wait for reclaim. This is why a visually strong rebound can still be an honest wait.
 
+The trader-facing action is the combination of the recovery profile and the existing plan state:
+
+- **Ready now:** fundamentals qualified, Confirmed, fresh price in zone, and live reward/risk at least `1.5`;
+- **Wait for reclaim:** fundamentals qualified, but price remains below the declared zone;
+- **Wait for pullback:** fundamentals qualified, but the first thrust is unconfirmed or price is already above the zone;
+- **Wait for payoff:** fundamentals qualified and structure confirmed, but live payoff is below the ready bar;
+- **No turn yet:** fundamentals qualified, but stock and peer confirmation have not arrived;
+- **Verify first:** no official model entry while required business or company-news evidence remains incomplete;
+- **Pass:** a business guard failed, the drawdown is too shallow, the reversion is late/spent, or payoff is below the screen floor.
+
+Each shortlist card leads with four separate answers: why the stock is down, why the business can recover, what confirms the turn, and whether the current entry/invalidation/target still pays. The setup score and frozen-mean statistics remain expandable audit evidence. Verified facts are the sourced company metrics, their availability/freshness, the 52-week-high test, and structured damage flags. Peer beta/correlation, robust z-scores, frozen-mean runway, setup score, and estimated reward/risk are statistical model outputs; they are evidence and planning aids, not verified outcomes or recovery probabilities.
+
 ### Accountability ledger
 
 A displayed candidate is only an observation. An official model entry requires:
@@ -710,7 +748,9 @@ A displayed candidate is only an observation. An official model entry requires:
 - price inside the frozen entry zone;
 - reward/risk at least `1.5`.
 
-The ledger freezes entry, stop, target, group, model version, and signal key. It closes on target, stop, or 20-session timeout and tracks MFE, MAE, R-multiple, and SPY alpha. If target and stop both occur in the same daily bar, ordering is treated as ambiguous rather than cherry-picked.
+The ledger freezes entry, stop, target, group, model version, signal key, and the entry-time recovery-profile status, coverage, quality, trajectory, and valuation context. Those frozen fields make later recovery-profile cohort analysis auditable, but the current Entry Lab does not yet publish those cohorts. The ledger closes on target, stop, or 20-session timeout and tracks MFE, MAE, R-multiple, and SPY alpha. If target and stop both occur in the same daily bar, ordering is treated as ambiguous rather than cherry-picked.
+
+The fundamentals-first eligibility contract is model v3. Its reset epoch takes effect on the next coherent build, starting a clean official v3 accountability cohort. Pending v2 observations are discarded, while already-open and closed v2 rows remain in the raw private ledger and any open v2 trade continues to its real exit. Browser-facing performance filters strictly to v3, so those retained rows are never blended into the new scorecard, and an open v2 symbol cannot be enrolled again under v3 at the same time. This is a model-version boundary, not an external history-wipe operation.
 
 After at least 12 resolved trades, the Entry Lab compares lower-, middle-, and upper-zone entries and early adverse/favorable excursion. Until then, entry rules remain frozen.
 

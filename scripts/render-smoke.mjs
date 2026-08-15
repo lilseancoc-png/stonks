@@ -80,6 +80,123 @@ try {
   assert.match(appJs, /stkDcaBlock\(d, false\)/);
   assert.equal((appJs.match(/data-rot-account><\/label>/g) || []).length, 1);
   assert.equal((appJs.match(/data-lev-account><\/label>/g) || []).length, 1);
+  assert.match(appJs, /function rotRecoveryProfile\(c\)[\s\S]*?qualified[\s\S]*?verify-first[\s\S]*?reject/);
+  assert.match(appJs, /Quality Recovery Shortlist/);
+  assert.match(appJs, /class="rot-recovery-filter"[\s\S]*?role="group" aria-label="Fundamental recovery profile"[\s\S]*?recoveryBtn\('qualified','Qualified'\)[\s\S]*?recoveryBtn\('verify-first','Verify first'\)/);
+  assert.match(appJs, /function rotEffectiveDecision\(c, thresholds\)[\s\S]*?recovery\.status === 'reject'[\s\S]*?recovery\.status === 'verify-first'/);
+  assert.match(appJs, /function rotGroupTape\(groups\)[\s\S]*?<details class="rot-tape"/);
+  const recoveryProfileHelpers = appJs.match(/function rotRecoveryItemText\(value\)\{[\s\S]*?(?=\n  function rotRecoveryStatus\(c\))/)?.[0] || "";
+  assert.ok(recoveryProfileHelpers, "Sector Rotation recovery-profile helpers must exist");
+  const testRotNum = (value) => {
+    const number = Number(value);
+    return value !== "" && value != null && Number.isFinite(number) ? number : null;
+  };
+  const testRotValue = (obj, keys) => {
+    if (!obj || typeof obj !== "object") return null;
+    for (const key of keys) if (obj[key] != null && obj[key] !== "") return obj[key];
+    return null;
+  };
+  const testRotText = (obj, keys) => {
+    const value = testRotValue(obj, keys);
+    return value == null || typeof value === "object" ? "" : String(value);
+  };
+  const testRotHuman = (value) => String(value || "").replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
+  const testRotKey = (value) => String(value || "").toLowerCase().replace(/[_\s]+/g, "-");
+  const testRotList = (value) => Array.isArray(value) ? value.filter((item) => item != null && item !== "") : typeof value === "string" && value ? [value] : [];
+  const testRecoveryProfile = new Function("rotNum", "rotValue", "rotText", "rotHuman", "rotKey", "rotList", `${recoveryProfileHelpers}\nreturn rotRecoveryProfile;`)(
+    testRotNum, testRotValue, testRotText, testRotHuman, testRotKey, testRotList,
+  );
+  const legacyMissingProfit = testRecoveryProfile({
+    quality: [
+      { key: "profit", ok: false, detail: "no profitability data on file" },
+      { key: "debt", ok: true, detail: "debt manageable" },
+      { key: "margins", ok: true, detail: "margins holding" },
+      { key: "revenue", ok: true, detail: "revenue growing" },
+    ],
+    guards: {
+      quality: { status: "block", detail: "Consistently profitable failed - no profitability data on file" },
+      trend: { status: "block", detail: "pre-drop trend model is unavailable" },
+    },
+    blockedBy: ["quality", "trend"],
+  });
+  assert.equal(legacyMissingProfit.status, "verify-first", "missing legacy profitability evidence must require verification, not reject");
+  assert.equal(legacyMissingProfit.coverage.available, 3);
+  assert.equal(legacyMissingProfit.coverage.passed, 3);
+  assert.deepEqual(legacyMissingProfit.coverage.missing, ["Profit"]);
+  const legacyNegativeFcf = testRecoveryProfile({
+    quality: [
+      { key: "profit", ok: true, detail: "7.1% net margin · free cash flow negative" },
+      { key: "debt", ok: true, detail: "debt manageable" },
+      { key: "margins", ok: true, detail: "margins holding" },
+      { key: "revenue", ok: true, detail: "revenue growing" },
+    ],
+  });
+  assert.equal(legacyNegativeFcf.status, "reject", "explicitly negative legacy free cash flow is a known core failure");
+  assert.equal(legacyNegativeFcf.coverage.available, 4);
+  assert.equal(legacyNegativeFcf.coverage.passed, 3);
+  for (const [key, detail, label] of [
+    ["profit", "-2.4% net margin · free cash flow positive", "negative net margin"],
+    ["profit", "0% net margin · free cash flow positive", "nonpositive net margin"],
+    ["debt", "debt/equity -0.4x", "negative debt/equity"],
+    ["debt", "negative equity", "negative equity"],
+  ]) {
+    const rows = [
+      { key: "profit", ok: true, detail: "7.1% net margin · free cash flow positive" },
+      { key: "debt", ok: true, detail: "debt manageable" },
+      { key: "margins", ok: true, detail: "margins holding" },
+      { key: "revenue", ok: true, detail: "revenue growing" },
+    ];
+    rows.find((row) => row.key === key).detail = detail;
+    const profile = testRecoveryProfile({ quality: rows });
+    assert.equal(profile.status, "reject", `explicit legacy ${label} is a known core failure`);
+    assert.equal(profile.coverage.passed, 3);
+  }
+  const legacyCompleteLooking = testRecoveryProfile({
+    quality: [
+      { key: "profit", ok: true, detail: "7.1% net margin · free cash flow positive" },
+      { key: "debt", ok: true, detail: "debt manageable" },
+      { key: "margins", ok: true, detail: "margins holding" },
+      { key: "revenue", ok: true, detail: "revenue growing" },
+    ],
+  });
+  assert.equal(legacyCompleteLooking.status, "verify-first", "legacy payloads without recoveryProfile must never synthesize Qualified");
+  assert.equal(legacyCompleteLooking.coverage.available, 4);
+  assert.equal(legacyCompleteLooking.coverage.passed, 4);
+  const recoveryCohortSource = appJs.match(/function rotRecoveryCohortRank\(c\)\{[\s\S]*?(?=\n  function rotPlanPoint\()/)?.[0] || "";
+  assert.ok(recoveryCohortSource, "Sector Rotation recovery-cohort ranker must exist");
+  const testRecoveryCohortRank = new Function("rotRecoveryProfile", "rotKey", "rotText", `${recoveryCohortSource}\nreturn rotRecoveryCohortRank;`)(
+    testRecoveryProfile, testRotKey, testRotText,
+  );
+  assert.deepEqual([
+    "qualified-improving", "qualified-durable", "verify-first", "reject",
+  ].map((status) => testRecoveryCohortRank({ recoveryProfile: { status } })), [4, 3, 2, 1]);
+  const recoveryComparatorSource = appJs.match(/function rotRecoveryPriorityCompare\(a, b, thresholds\)\{[\s\S]*?(?=\n  function rotList\()/)?.[0] || "";
+  assert.ok(recoveryComparatorSource, "Sector Rotation recovery-priority comparator must exist");
+  const testRecoveryComparator = new Function("rotRecoveryCohortRank", "rotEffectiveDecision", "rotRecoveryRank", "rotCandidateScore", `${recoveryComparatorSource}\nreturn rotRecoveryPriorityCompare;`)(
+    testRecoveryCohortRank,
+    (candidate) => ({ kind: candidate.testAction }),
+    (candidate) => candidate.testRecoveryRank,
+    (candidate) => candidate.testScore,
+  );
+  const richerPass = { id: "pass", recoveryProfile: { status: "qualified-durable" }, testAction: "pass", testRecoveryRank: 355, testScore: 95 };
+  const leanerActionable = { id: "actionable", recoveryProfile: { status: "qualified-durable" }, testAction: "act", testRecoveryRank: 320, testScore: 70 };
+  assert.deepEqual([richerPass, leanerActionable].sort((a, b) => testRecoveryComparator(a, b, {})).map((row) => row.id), ["actionable", "pass"], "effective action must outrank richer evidence within one recovery cohort");
+  const improvingPass = { id: "improving", recoveryProfile: { status: "qualified-improving" }, testAction: "pass", testRecoveryRank: 310, testScore: 60 };
+  assert.deepEqual([leanerActionable, improvingPass].sort((a, b) => testRecoveryComparator(a, b, {})).map((row) => row.id), ["improving", "actionable"], "discrete recovery cohort must outrank action");
+  const rotationDeskSource = appJs.match(/function rotDeskBriefHtml\(d, candidates, thresholds\)\{[\s\S]*?(?=\n  function rotVisibleCandidates\()/)?.[0] || "";
+  assert.match(rotationDeskSource, /ranked\.sort\([\s\S]*?rotRecoveryPriorityCompare\(a\.candidate, b\.candidate, thresholds\)[\s\S]*?var primary = actionable\[0\] \|\| waiting\[0\] \|\| passed\[0\] \|\| null;/, "Today's Decision focus must use the highest recovery-ranked member of the best available action cohort");
+  assert.match(appJs, /id="rot-accountability" tabindex="-1"/);
+  const rotationBindSource = appJs.match(/function bindRotationDesk\(root\)\{[\s\S]*?(?=\n  function renderSectorRotation\()/)?.[0] || "";
+  assert.match(rotationBindSource, /data-rot-jump-record[\s\S]*?target\.scrollIntoView\(\{ behavior:'smooth', block:'start' \}\);[\s\S]*?target\.focus\(\{ preventScroll:true \}\)[\s\S]*?target\.focus\(\)/, "record jump must scroll and move keyboard focus to the accountability section");
+  const rotationRenderSource = appJs.match(/function renderSectorRotation\(\)\{[\s\S]*?\n  \}\n  function renderOwnerRotationSizing/)?.[0] || "";
+  assert.ok(rotationRenderSource, "Sector Rotation renderer must exist");
+  assert.ok(rotationRenderSource.indexOf("rotShortlistHtml(d, candidates, thresholds)") < rotationRenderSource.indexOf("rotToolbarHtml(candidates, visible, groups, thresholds)"), "recovery shortlist must lead the detailed controls");
+  assert.ok(rotationRenderSource.indexOf("+ grid + rotProcessHtml() + rotGroupTape(groups)") > rotationRenderSource.indexOf("rotToolbarHtml(candidates, visible, groups, thresholds)"), "process and group tape must follow the candidate board");
+  assert.match(stylesCss, /\.rot-short-row\s*\{[\s\S]*?grid-template-columns/);
+  assert.match(stylesCss, /@media \(max-width: 480px\)\s*\{[\s\S]*?\.rot-short-row\s*\{[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/);
+  assert.match(html, /How to use this fundamentals-first rebound desk[\s\S]*?Quality Recovery Shortlist/);
+  const regenStaticSource = await readFile(resolve(process.cwd(), "scripts", "regen-static.mjs"), "utf8");
+  assert.match(regenStaticSource, /existingShellManifest\?\.symbols[\s\S]*?new Set\(\[\.\.\.TICKERS, \.\.\.symbols, \.\.\.existingSymbols\]\)/, "renderer-only regeneration must preserve source and shell symbols missing from a partial hydrate");
   assert.match(appJs, /var OWNER_TABS = \{ market:1, picks:1, stocks:1, rotation:1, levetf:1, track:1, daytrade:1, daytrack:1, quant:1 \}/);
   assert.match(appJs, /HAS_TRACK_RECORD = HAS_OWNER_ACCESS/);
   assert.match(appJs, /HAS_TOP_PICKS = HAS_OWNER_ACCESS/);
