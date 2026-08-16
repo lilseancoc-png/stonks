@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { normalizeBuyoutRumors, parsePendingBuyoutTable } from "./build.mjs";
+import { classifyPendingBuyoutStage, normalizeBuyoutRumors, parsePendingBuyoutTable } from "./build.mjs";
 
 const confirmedHtml = `
   <table><tbody><tr>
@@ -59,5 +59,10 @@ assert.equal(rumors[0].considerationPerShare, null);
 assert.equal(rumors[0].estimatedEquityValue, null);
 assert.equal(rumors[0].expectedCloseAt, null);
 assert.equal(rumors[0].verifiedTerms, false);
+assert.equal(classifyPendingBuyoutStage(rumors[0]), "active_talks");
+assert.equal(classifyPendingBuyoutStage({ ...rumors[0], acquirer: "Undisclosed / reported interest", headline: "Acme jumps on buyout rumors" }), "rumor");
+assert.equal(classifyPendingBuyoutStage({ status: "pending", daysLeft: 70 }, "shareholder vote scheduled ahead of the merger"), "regulatory_vote");
+assert.equal(classifyPendingBuyoutStage({ status: "pending", daysLeft: 20 }, "definitive agreement announced"), "expected_close");
+assert.equal(classifyPendingBuyoutStage({ status: "pending", daysLeft: 90 }, "definitive agreement announced"), "announced");
 
 console.log("pending-buyouts smoke: ok");

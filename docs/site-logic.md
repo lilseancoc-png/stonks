@@ -870,11 +870,23 @@ while stock and mixed consideration is a current implied value that can move.
 
 The rumor lane is sourced separately from recent Yahoo Finance news-search
 headlines. A conservative title/ticker match must identify the public target.
-Rumors never receive invented offer prices, spreads, buyers, or close dates;
-unknown fields remain undisclosed. Confirmed and rumor sources carry last-good
-rows independently, and the payload records which lane is stale. The browser
-lazy-loads the file on tab entry and supports status/type filters, search, and
-sorting by expected close, spread, equity value, latest rumor, or target.
+Rumors never receive invented offer prices, premiums, spreads, buyers, or close
+dates; unknown fields remain undisclosed. Current price plus the quote's 1-day
+move replaces deal economics until terms exist.
+
+Each row is enriched with recent target-specific coverage and, where available,
+the cited deal page's public metadata. Distinct linked publishers form the
+corroboration count; they do not form a deal probability. An explicitly stated
+unaffected-price premium is retained, but one is never reverse-engineered when
+the source does not provide it. The evidence-only stage ladder is Rumor,
+Reported talks, Definitive agreement, Regulatory / vote pending, and Expected
+close. Keyword evidence can advance a signed deal into an approval stage, while
+the final close stage also requires a guided close within 30 days or reported
+approval clearance. Every card names the next expected catalyst and last public
+update. Confirmed and rumor sources carry last-good rows independently, and the
+payload records which lane is stale. The browser lazy-loads the file on tab
+entry and supports stage/type filters, search, and sorting by expected close,
+spread, equity value, latest public update, or target.
 
 ### Earnings Tracker
 

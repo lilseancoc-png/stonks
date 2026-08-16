@@ -19978,13 +19978,26 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (!isFinite(ms)) return 'No signed timeline';
     return new Date(ms).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric', timeZone:'UTC' });
   }
+  var PB_STAGE_ORDER = ['rumor','active_talks','announced','regulatory_vote','expected_close'];
+  var PB_STAGE_LABELS = { rumor:'Rumor', active_talks:'Reported talks', announced:'Definitive agreement', regulatory_vote:'Regulatory / vote pending', expected_close:'Expected close' };
+  function pbStage(d){ return d.stage || (d.status === 'rumored' ? 'rumor' : 'announced'); }
+  function pbStageTrack(stage){
+    var current = PB_STAGE_ORDER.indexOf(stage); if (current < 0) current = 0;
+    var short = ['Rumor','Talks','Definitive','Reg / vote','Close'];
+    var bits = PB_STAGE_ORDER.map(function(key, i){
+      var cls = i < current ? ' is-done' : i === current ? ' is-current' : '';
+      return '<span class="pb-stage-step' + cls + '"><i aria-hidden="true"></i><b>' + short[i] + '</b></span>';
+    }).join('');
+    return '<div class="pb-stage-track" role="img" aria-label="Deal stage: ' + escapeHtml(PB_STAGE_LABELS[stage] || stage) + '">' + bits + '</div>';
+  }
   function pbMetric(label, value, note, cls){
     return '<div class="pb-metric' + (cls ? ' ' + cls : '') + '"><span>' + escapeHtml(label) + '</span><b>' + value + '</b>' + (note ? '<small>' + escapeHtml(note) + '</small>' : '') + '</div>';
   }
   function pbCard(d){
     var rumor = d.status === 'rumored';
+    var stage = pbStage(d);
     var sym = String(d.targetTicker || '').toUpperCase();
-    var source = d.sourceUrl && /^https?:\/\//i.test(d.sourceUrl)
+    var source = d.sourceUrl && /^https?:\\/\\//i.test(d.sourceUrl)
       ? '<a class="pb-source" href="' + escapeHtml(d.sourceUrl) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(d.sourceName || 'Source') + ' ↗</a>'
       : '<span class="pb-source">Source unavailable</span>';
     var value = d.estimatedEquityValue;
@@ -19994,22 +20007,37 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       ? (rumor ? 'headline figure; verify terms' : 'share-count estimate; not EV')
       : (rumor && d.targetMarketCap != null ? 'reference only; no bid value reported' : 'terms unavailable');
     var close = rumor ? 'No signed timeline' : pbDate(d.expectedCloseAt || d.expectedCloseLabel);
-    var closeNote = rumor ? 'rumor only' : (d.daysLeft != null && isFinite(d.daysLeft) ? Math.max(0, Math.round(d.daysLeft)) + ' days at last build' : 'company guidance');
+    var closeDays = d.daysLeft != null && isFinite(d.daysLeft) ? Math.max(0, Math.round(d.daysLeft)) : null;
+    var closeNote = rumor ? 'reported talks are not signed' : (closeDays != null ? closeDays + ' day' + (closeDays === 1 ? '' : 's') + ' at last build' : 'company guidance');
     var spread = d.grossSpreadPct != null && isFinite(d.grossSpreadPct) ? Number(d.grossSpreadPct).toFixed(2) + '%' : 'Not available';
+    var premium = d.reportedPremiumPct != null && isFinite(d.reportedPremiumPct) ? Number(d.reportedPremiumPct).toFixed(1) + '% premium to unaffected' : (rumor ? 'price not disclosed' : 'unaffected premium not captured');
+    var currentMove = d.recentMovePct != null && isFinite(d.recentMovePct) ? '1-day ' + (Number(d.recentMovePct) >= 0 ? '+' : '') + Number(d.recentMovePct).toFixed(2) + '%' : 'recent move unavailable';
+    var currentVsDeal = rumor ? pbFmtShare(d.targetPrice, d.currency) : pbFmtShare(d.targetPrice, d.currency) + ' vs ' + pbFmtShare(d.considerationPerShare, d.currency);
+    var currentVsNote = rumor ? currentMove : spread + ' spread to reported terms';
     var headline = rumor && d.headline ? '<p class="pb-headline">' + escapeHtml(d.headline) + '</p>' : '';
     var stale = d.stale ? '<span class="pb-stale">last-good</span>' : '';
+    var catalyst = d.nextCatalyst || {};
+    var catalystDate = catalyst.expectedAt ? ' · ' + pbDate(catalyst.expectedAt) : '';
+    var updateText = d.lastUpdateAtIso ? 'last public update ' + pbDate(d.lastUpdateAtIso) : 'source date not captured · checked ' + pbDate(d.lastCheckedAtIso);
+    var coverageCount = Number(d.coverageCount || 0);
+    var coverageLinks = (Array.isArray(d.coverageSources) ? d.coverageSources : []).slice(0,3).map(function(item){
+      if (!item || !item.url || !/^https?:\\/\\//i.test(item.url)) return '';
+      return '<a href="' + escapeHtml(item.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(item.publisher || 'Source') + '</a>';
+    }).filter(Boolean).join('<span aria-hidden="true">·</span>');
     return '<article class="pb-card pb-card-' + (rumor ? 'rumored' : 'pending') + '">' +
       '<header class="pb-card-head"><div class="pb-identity"><a class="pb-sym" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '">' + escapeHtml(sym || '?') + '</a><div><h3>' + escapeHtml(d.target || sym || 'Target') + '</h3><p><b>' + escapeHtml(d.acquirer || 'Buyer undisclosed') + '</b> <span aria-hidden="true">→</span> ' + escapeHtml(d.target || sym || 'target') + '</p></div></div>' +
-      '<div class="pb-badges"><span class="pb-status pb-status-' + (rumor ? 'rumored' : 'pending') + '">' + (rumor ? 'Rumored' : 'Pending') + '</span><span class="pb-type">' + escapeHtml(rumor ? 'terms unconfirmed' : (d.dealType || 'deal')) + '</span>' + stale + '</div></header>' +
+      '<div class="pb-badges"><span class="pb-status pb-status-' + escapeHtml(stage) + '">' + escapeHtml(d.statusLabel || PB_STAGE_LABELS[stage] || stage) + '</span><span class="pb-type">' + escapeHtml(rumor ? 'terms unconfirmed' : (d.dealType || 'deal')) + '</span>' + stale + '</div></header>' +
+      pbStageTrack(stage) +
       headline +
       '<div class="pb-metrics">' +
-        pbMetric(rumor ? 'Offer / share' : 'Consideration / share', pbFmtShare(d.considerationPerShare, d.currency), rumor ? 'not published' : (d.considerationKind || 'latest terms')) +
+        pbMetric('Reported terms', pbFmtShare(d.considerationPerShare, d.currency), premium) +
+        pbMetric(rumor ? 'Current / recent move' : 'Current vs deal', currentVsDeal, currentVsNote, !rumor && d.grossSpreadPct >= 10 ? 'pb-metric-wide' : '') +
         pbMetric(valueLabel, pbFmtValue(valueShown, d.valueCurrency || d.currency), valueNote, value != null ? 'pb-metric-value' : '') +
         pbMetric('Expected close', escapeHtml(close), closeNote) +
-        pbMetric('Target price', pbFmtShare(d.targetPrice, d.currency), 'latest build quote') +
-        pbMetric('Gross spread', escapeHtml(spread), rumor ? 'cannot compute without terms' : 'offer value vs target price', d.grossSpreadPct >= 10 ? 'pb-metric-wide' : '') +
       '</div>' +
-      '<footer class="pb-card-foot"><span>' + escapeHtml(rumor ? ('Reported ' + pbDate(d.reportedAtIso)) : (d.verifiedTerms ? 'Terms source linked' : 'Verify full terms')) + '</span>' + source + '</footer>' +
+      '<div class="pb-evidence"><div><span>Next catalyst</span><b>' + escapeHtml(catalyst.label || (rumor ? 'Confirmation or denial' : 'Next public deal milestone')) + escapeHtml(catalystDate) + '</b><small>' + escapeHtml(catalyst.detail || 'Verify the next filing or announcement.') + '</small></div>' +
+      '<div><span>Confidence / last update</span><b>' + escapeHtml(d.confidenceLabel || (rumor ? 'Single-source report' : 'Announced deal sourced')) + '</b><small>' + coverageCount + ' linked site' + (coverageCount === 1 ? '' : 's') + ' · ' + escapeHtml(updateText) + '</small>' + (coverageLinks ? '<nav class="pb-coverage" aria-label="Recent deal coverage">' + coverageLinks + '</nav>' : '') + '</div></div>' +
+      '<footer class="pb-card-foot"><span>' + escapeHtml(rumor ? 'Reported talks — terms unconfirmed' : (d.verifiedTerms ? 'Definitive terms source linked' : 'Verify full terms')) + '</span>' + source + '</footer>' +
     '</article>';
   }
   function pbBindControls(){
@@ -20050,16 +20078,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       return;
     }
     var all = Array.isArray(data.deals) ? data.deals.slice() : [];
-    var s = data.summary || {}, flags = data.sourceStatus || {};
-    if (eye) eye.textContent = (data.stale ? 'last-good · ' : '') + (s.pending || 0) + ' pending · ' + (s.rumored || 0) + ' rumored';
+    var s = data.summary || {}, flags = data.sourceStatus || {}, stages = s.stages || {};
+    if (eye) eye.textContent = (data.stale ? 'last-good · ' : '') + (s.pending || 0) + ' definitive-track · ' + (s.rumored || 0) + ' reported';
     if (summary) summary.innerHTML =
-      '<div><span>Pending deals</span><b>' + Number(s.pending || 0).toLocaleString() + '</b><small>' + (flags.confirmedStale ? 'last-good source' : 'active terms feed') + '</small></div>' +
-      '<div><span>Rumor watch</span><b>' + Number(s.rumored || 0).toLocaleString() + '</b><small>' + (flags.rumorsStale ? 'last-good headlines' : 'separate from signed deals') + '</small></div>' +
-      '<div><span>Closing ≤90d</span><b>' + Number(s.close90 || 0).toLocaleString() + '</b><small>company-guided dates</small></div>' +
-      '<div><span>Median gross spread</span><b>' + (s.medianSpreadPct == null ? '—' : Number(s.medianSpreadPct).toFixed(2) + '%') + '</b><small>not a close probability</small></div>';
+      '<div><span>Rumor</span><b>' + Number(stages.rumor || 0).toLocaleString() + '</b><small>' + (flags.rumorsStale ? 'last-good headlines' : 'unconfirmed interest') + '</small></div>' +
+      '<div><span>Reported talks</span><b>' + Number(stages.activeTalks || 0).toLocaleString() + '</b><small>named talks; not signed</small></div>' +
+      '<div><span>Definitive</span><b>' + Number(stages.announced || 0).toLocaleString() + '</b><small>' + (flags.confirmedStale ? 'last-good terms' : 'agreement announced') + '</small></div>' +
+      '<div><span>Reg / vote</span><b>' + Number(stages.regulatoryVote || 0).toLocaleString() + '</b><small>public approval evidence</small></div>' +
+      '<div><span>Expected close</span><b>' + Number(stages.expectedClose || 0).toLocaleString() + '</b><small>guided close stage</small></div>';
     var q = pendingBuyoutsState.search;
     all = all.filter(function(d){
-      if (pendingBuyoutsState.status !== 'all' && d.status !== pendingBuyoutsState.status) return false;
+      if (pendingBuyoutsState.status !== 'all' && pbStage(d) !== pendingBuyoutsState.status) return false;
       if (pendingBuyoutsState.type !== 'all' && String(d.dealType || '') !== pendingBuyoutsState.type) return false;
       if (!q) return true;
       return [d.targetTicker,d.target,d.acquirer,d.headline,d.dealType].join(' ').toLowerCase().indexOf(q) >= 0;
@@ -20067,7 +20096,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     all.sort(function(a,b){
       if (pendingBuyoutsState.sort === 'spread') return Number(b.grossSpreadPct == null ? -Infinity : b.grossSpreadPct) - Number(a.grossSpreadPct == null ? -Infinity : a.grossSpreadPct);
       if (pendingBuyoutsState.sort === 'value') return Number(b.estimatedEquityValue || 0) - Number(a.estimatedEquityValue || 0);
-      if (pendingBuyoutsState.sort === 'latest') return String(b.reportedAtIso || '').localeCompare(String(a.reportedAtIso || '')) || String(a.expectedCloseAt || '9999').localeCompare(String(b.expectedCloseAt || '9999'));
+      if (pendingBuyoutsState.sort === 'latest') return String(b.lastUpdateAtIso || b.reportedAtIso || '').localeCompare(String(a.lastUpdateAtIso || a.reportedAtIso || '')) || String(a.expectedCloseAt || '9999').localeCompare(String(b.expectedCloseAt || '9999'));
       if (pendingBuyoutsState.sort === 'alpha') return String(a.target || a.targetTicker || '').localeCompare(String(b.target || b.targetTicker || ''));
       return String(a.expectedCloseAt || '9999').localeCompare(String(b.expectedCloseAt || '9999')) || Number(b.grossSpreadPct || 0) - Number(a.grossSpreadPct || 0);
     });
