@@ -42,7 +42,7 @@ Most important design rule: a strong observation is not automatically a trade. T
 | Owner | Stock Picks | Shares-only quality-company dip screen plus the VOO/QQQ DCA dial. |
 | Owner | Sector Rotation | Long-only peer-washout rebound desk with frozen-mean recovery logic. |
 | Owner | Leveraged ETFs | The common grade mapped to verified listed leveraged products, with daily-reset risk. |
-| Events | Calendar | Earnings, macro releases, FOMC/FedWatch, catalysts, and event history. |
+| Events | Calendar | Earnings, macro releases, dated FOMC meetings, catalysts, and event history. |
 | Events | Earnings Tracker | Session-aware earnings reactions, implied-versus-realized moves, and season summaries. |
 | Events | Earnings Calls | Source-linked transcript briefs with outlook changes, risks, and Q&A pressure. |
 | Owner | Event Spillover | Statistical read-through from an earnings reporter to same-industry followers. |
@@ -56,7 +56,7 @@ Most important design rule: a strong observation is not automatically a trade. T
 | Owner | Streaks | Noise-aware multi-day directional runs with reversal handling. |
 | Macro | Overnight Markets | Global-market changes, cross-asset relationships, and beta-implied US moves. |
 | Macro | Fear & Greed | CNN's seven-component 0–100 sentiment composite and history. |
-| Macro | Bonds & USD | Treasury curve, dollar, inflation, labor, credit, and live cross-asset overlays. |
+| Macro | Bonds & USD | Treasury curve, dollar, Fed policy/rate path, inflation, labor, credit, and live cross-asset overlays. |
 | Alt Data | AI CapEx | Major AI buyers' reported CapEx, run rate, management guidance, revenue burden, and supplier read-through. |
 | Alt Data | RAM Prices | Wholesale DRAM plus retail DDR5 pricing and breadth. |
 | Alt Data | GPU Cloud Prices | Public accelerator rental and spot rates normalized to USD per GPU-hour, with provider/model history. |
@@ -170,7 +170,7 @@ Polymarket comments are attached only when an active event safely matches the
 ticker's company. They are displayed as context, linked back to the event, and
 never mixed into the bullish/bearish bar: interpreting a comment's direction
 would require knowing the exact market question and the poster's side. Kalshi
-probabilities remain in Calendar/FedWatch; the tracker does not ingest Kalshi
+probabilities remain in the Bonds & USD Fed-path desk; the tracker does not ingest Kalshi
 comments because no documented public comments endpoint is available to this
 pipeline.
 
@@ -851,12 +851,10 @@ The unified calendar covers the rest of the year with at least a 30-day useful h
 - ticker-specific catalysts;
 - CPI, PPI, payrolls, unemployment, JOLTS, and other macro releases;
 - FOMC schedule;
-- EFFR and Fed Funds futures probabilities;
-- prediction-market context from Kalshi/Polymarket when available;
 - actual, consensus, previous, and forecast fields;
 - report history.
 
-BLS is primary for major labor/inflation series, with FRED fallback. The FOMC schedule has a hardcoded rolling baseline merged with a live Fed scrape. FedWatch-style probabilities are inferred from ZQ Fed Funds futures and accumulated meeting by meeting in the UI. Source failures carry the last good section and mark it stale.
+BLS is primary for major labor/inflation series, with FRED fallback. The FOMC schedule has a hardcoded rolling baseline merged with a live Fed scrape. Source failures carry the last good section and mark it stale. The shared calendar payload also supplies the Fed policy desk in Bonds & USD, but Calendar presents only the dated meetings.
 
 ### Earnings Tracker
 
@@ -1057,12 +1055,14 @@ The desk combines:
 - 2Y, 10Y, and 30Y Treasury yields;
 - 2s10s curve;
 - DXY;
+- Effective Fed Funds rate, FedWatch-style futures probabilities, and prediction-market context when available;
+- the official meeting vote map and the full upcoming rate path;
 - VIX/MOVE and credit where available;
 - CPI trend;
 - unemployment and Sahm context;
 - live request-time macro overlays.
 
-The interpretations are deterministic: rates, curve, dollar, and labor/inflation are mapped to equity, international, duration, and credit implications with notable-move bands.
+FedWatch-style probabilities are inferred from ZQ Fed Funds futures and accumulated meeting by meeting in the UI. The interpretations are deterministic: policy rates, rate expectations, curve, dollar, and labor/inflation are mapped to equity, international, duration, and credit implications with notable-move bands.
 
 ### Alt Data
 
