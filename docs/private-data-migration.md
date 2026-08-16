@@ -205,7 +205,7 @@ output. A blob store has no merge, so we replicate that ownership explicitly.
 |---|---|---|
 | `<SYM>.json` (per-ticker, dynamic) | bake | upload + **delete-stale** within prefix |
 | `iv-history/<SYM>.json` (dynamic) | bake | upload + **delete-stale** within prefix |
-| picks\*, grades\*, calendar, macro\*, correlations, trends\*, streaks, 13f, fear-greed\*, fedwatch-history, rfr-history, earnings-history, chart-pattern-cache, ticker-judgment-cache, prediction-history | bake | upsert |
+| picks\*, grades\*, calendar, pending-buyouts, macro\*, correlations, trends\*, streaks, 13f, fear-greed\*, fedwatch-history, rfr-history, earnings-history, chart-pattern-cache, ticker-judgment-cache, prediction-history | bake | upsert |
 | unusual\*, volume-flags, volume-history, flow-explanations | unusual-flow scan | upsert (no delete); explanations are rebuilt deterministically from current scan metrics and spend no AI |
 | oi-tracker, oi-history | oi-tracker scan | upsert (no delete) |
 | search-interest | weekly theme search-interest refresh | upsert (no delete) |

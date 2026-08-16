@@ -6419,6 +6419,103 @@ a.cr-tkr:hover .stk-sym-go, a.cr-tkr:focus-visible .stk-sym-go { color: var(--ac
   .cr-amt { margin-left: 0; }
 }
 
+/* === Pending buyouts (Events tab) === */
+.pb-summary {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px;
+}
+.pb-summary > div {
+  min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: var(--r-2);
+  background: color-mix(in srgb, var(--surface) 90%, var(--accent) 10%);
+}
+.pb-summary span, .pb-summary small { display: block; color: var(--muted); }
+.pb-summary span { font: 650 var(--fs-2xs)/1.2 var(--font-sans); text-transform: uppercase; letter-spacing: .05em; }
+.pb-summary b { display: block; margin: 4px 0 2px; color: var(--text-strong); font: 800 1.12rem/1.15 var(--font-mono); }
+.pb-summary small { font: 500 var(--fs-2xs)/1.25 var(--font-sans); overflow-wrap: anywhere; }
+.pb-controls {
+  display: flex; align-items: end; flex-wrap: wrap; gap: 8px; margin: 14px 0 12px;
+}
+.pb-search { flex: 1 1 250px; min-width: 0; }
+.pb-search input, .pb-field select {
+  width: 100%; min-height: 38px; border: 1px solid var(--border); border-radius: var(--r-2);
+  background: var(--surface); color: var(--text); font: 600 var(--fs-xs)/1 var(--font-sans);
+}
+.pb-search input { padding: 0 12px; }
+.pb-field { display: grid; gap: 4px; flex: 0 1 170px; min-width: 125px; }
+.pb-field > span { color: var(--muted); font: 650 var(--fs-2xs)/1 var(--font-sans); text-transform: uppercase; letter-spacing: .04em; }
+.pb-field select { padding: 0 28px 0 10px; }
+.pb-status-filter { display: inline-flex; gap: 4px; padding: 3px; border: 1px solid var(--border); border-radius: var(--r-2); background: var(--surface-soft); }
+.pb-pill {
+  min-height: 32px; padding: 0 10px; border: 0; border-radius: calc(var(--r-2) - 3px); background: transparent;
+  color: var(--muted); font: 700 var(--fs-2xs)/1 var(--font-sans); cursor: pointer;
+}
+.pb-pill:hover { color: var(--text); }
+.pb-pill.is-on { background: var(--accent-soft); color: var(--accent-strong); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent); }
+.pb-root { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.pb-card {
+  min-width: 0; padding: 14px; border: 1px solid var(--border); border-radius: var(--r-3); background: var(--surface);
+  box-shadow: var(--shadow-xs); overflow: hidden;
+}
+.pb-card-pending { border-left: 3px solid var(--accent); }
+.pb-card-rumored { border-left: 3px solid var(--warn); background: color-mix(in srgb, var(--surface) 96%, var(--warn) 4%); }
+.pb-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; min-width: 0; }
+.pb-identity { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.pb-identity > div { min-width: 0; }
+.pb-sym {
+  flex: 0 0 auto; padding: 5px 7px; border-radius: var(--r-1); background: var(--accent-soft); color: var(--accent-strong);
+  font: 800 var(--fs-xs)/1 var(--font-mono); text-decoration: none;
+}
+.pb-sym:hover { text-decoration: underline; }
+.pb-identity h3 { margin: 0; color: var(--text-strong); font: 750 var(--fs-sm)/1.25 var(--font-sans); overflow-wrap: anywhere; }
+.pb-identity p { margin: 4px 0 0; color: var(--muted); font: 500 var(--fs-xs)/1.35 var(--font-sans); overflow-wrap: anywhere; }
+.pb-identity p b { color: var(--text); }
+.pb-badges { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 4px; flex: 0 0 auto; }
+.pb-status, .pb-type, .pb-stale {
+  padding: 4px 6px; border-radius: 999px; font: 750 var(--fs-2xs)/1 var(--font-sans); white-space: nowrap;
+}
+.pb-status-pending { background: var(--accent-soft); color: var(--accent-strong); }
+.pb-status-rumored { background: var(--warn-soft); color: var(--warn); }
+.pb-type { background: var(--surface-soft); color: var(--muted); border: 1px solid var(--border); text-transform: capitalize; }
+.pb-stale { background: var(--neg-soft); color: var(--neg); }
+.pb-headline { margin: 11px 0 0; padding: 9px 10px; border-radius: var(--r-2); background: var(--warn-soft); color: var(--text); font: 600 var(--fs-xs)/1.4 var(--font-sans); }
+.pb-metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin-top: 12px; }
+.pb-metric { min-width: 0; padding: 9px; border-radius: var(--r-2); background: var(--surface-soft); }
+.pb-metric span, .pb-metric small { display: block; color: var(--muted); overflow-wrap: anywhere; }
+.pb-metric span { font: 650 var(--fs-2xs)/1.2 var(--font-sans); }
+.pb-metric b { display: block; margin: 4px 0 3px; color: var(--text-strong); font: 750 var(--fs-xs)/1.2 var(--font-mono); overflow-wrap: anywhere; }
+.pb-metric small { font: 500 0.61rem/1.25 var(--font-sans); }
+.pb-metric-value b { color: var(--accent-strong); }
+.pb-metric-wide b { color: var(--warn); }
+.pb-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 11px; color: var(--muted); font: 550 var(--fs-2xs)/1.25 var(--font-sans); }
+.pb-source { color: var(--accent); font-weight: 700; text-decoration: none; text-align: right; }
+a.pb-source:hover { text-decoration: underline; }
+.pb-empty, .pb-load-error { color: var(--muted); font: 550 var(--fs-sm)/1.45 var(--font-sans); }
+.pb-load-error { display: grid; gap: 4px; padding: 16px; border: 1px solid var(--neg); border-radius: var(--r-2); background: var(--neg-soft); }
+.pb-load-error b { color: var(--text-strong); }
+@media (max-width: 1120px) {
+  .pb-root { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  .pb-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pb-controls { align-items: stretch; }
+  .pb-search { flex-basis: 100%; }
+  .pb-status-filter { flex: 1 1 100%; }
+  .pb-pill { flex: 1 1 0; }
+  .pb-field { flex: 1 1 calc(50% - 4px); }
+  .pb-card-head { display: grid; }
+  .pb-badges { justify-content: flex-start; }
+  .pb-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pb-card-foot { align-items: flex-start; }
+}
+@media (max-width: 420px) {
+  .pb-summary { grid-template-columns: minmax(0, 1fr); }
+  .pb-field { flex-basis: 100%; }
+  .pb-card { padding: 12px; }
+  .pb-identity { gap: 8px; }
+  .pb-metrics { grid-template-columns: minmax(0, 1fr); }
+  .pb-card-foot { display: grid; }
+  .pb-source { text-align: left; }
+}
+
 /* === IPOs & Credit (Macro tab) === */
 .ipo-credit-root { display: flex; flex-direction: column; gap: 14px; }
 .ic-decision {

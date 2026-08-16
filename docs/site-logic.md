@@ -43,6 +43,7 @@ Most important design rule: a strong observation is not automatically a trade. T
 | Owner | Sector Rotation | Long-only peer-washout rebound desk with frozen-mean recovery logic. |
 | Owner | Leveraged ETFs | The common grade mapped to verified listed leveraged products, with daily-reset risk. |
 | Events | Calendar | Earnings, macro releases, dated FOMC meetings, catalysts, and event history. |
+| Events | Pending Buyouts | Active public-company acquisitions plus a separately labeled headline-rumor watch, with consideration, estimated equity value, spread, and closing guidance. |
 | Events | Earnings Tracker | Session-aware earnings reactions, implied-versus-realized moves, and season summaries. |
 | Events | Earnings Calls | Source-linked transcript briefs with outlook changes, risks, and Q&A pressure. |
 | Owner | Event Spillover | Statistical read-through from an earnings reporter to same-industry followers. |
@@ -855,6 +856,25 @@ The unified calendar covers the rest of the year with at least a 30-day useful h
 - report history.
 
 BLS is primary for major labor/inflation series, with FRED fallback. The FOMC schedule has a hardcoded rolling baseline merged with a live Fed scrape. Source failures carry the last good section and mark it stale. The shared calendar payload also supplies the Fed policy desk in Bonds & USD, but Calendar presents only the dated meetings.
+
+### Pending Buyouts
+
+`data/pending-buyouts.json` is rebuilt by the full bake and is public. Confirmed
+rows come from ditat.io's active merger-arbitrage table; each row retains the
+feed's cited source link, which can be a filing, issuer announcement, or deal
+report. Yahoo quotes provide the current target price, currency, and market cap.
+The displayed estimated equity purchase value is consideration per share
+multiplied by current implied shares outstanding; it is labeled as an estimate
+and is not enterprise value. Cash consideration is fixed to the announced term,
+while stock and mixed consideration is a current implied value that can move.
+
+The rumor lane is sourced separately from recent Yahoo Finance news-search
+headlines. A conservative title/ticker match must identify the public target.
+Rumors never receive invented offer prices, spreads, buyers, or close dates;
+unknown fields remain undisclosed. Confirmed and rumor sources carry last-good
+rows independently, and the payload records which lane is stale. The browser
+lazy-loads the file on tab entry and supports status/type filters, search, and
+sorting by expected close, spread, equity value, latest rumor, or target.
 
 ### Earnings Tracker
 
