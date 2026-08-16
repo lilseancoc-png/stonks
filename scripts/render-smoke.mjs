@@ -334,6 +334,9 @@ try {
   assert.match(buildSource, /accessPolicyVersion: BRIEF_ACCESS_POLICY_VERSION/);
   const briefSources = buildSource.match(/const BRIEF_TOOL_SOURCES = \[[\s\S]*?\n\];/)?.[0] || "";
   assert.ok(briefSources, "Brief source allowlist must exist");
+  for (const file of ["ma-tracker.json", "pending-buyouts.json"]) {
+    assert.match(briefSources, new RegExp(file.replace(".", "\\.")), `${file} must feed the public Brief`);
+  }
   for (const file of ["stock-picks.json", "sector-rotation.json", "leveraged-etfs.json"]) {
     assert.doesNotMatch(briefSources, new RegExp(file.replace(".", "\\.")), `${file} must not feed the public Brief`);
   }
