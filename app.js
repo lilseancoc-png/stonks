@@ -3680,7 +3680,7 @@
       if (name !== 'ma-tracker' && typeof stopMaTrackerLive === 'function') stopMaTrackerLive();
       if (name === 'brief' && typeof loadBrief === 'function') loadBrief();
         if (name === 'news' && typeof loadNewsFeed === 'function') loadNewsFeed();
-        if (name === 'calendar' && typeof loadCalendar === 'function') loadCalendar();
+        if ((name === 'calendar' || name === 'bonds-usd') && typeof loadCalendar === 'function') loadCalendar();
         if (name === 'index-cal' && typeof loadIndexCal === 'function') loadIndexCal();
         if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
         if (name === 'stocks' && typeof loadStocks === 'function') loadStocks();
@@ -25907,11 +25907,23 @@
     });
   }
 
-  // --- Calendar tab -------------------------------------------------------
+  // --- Calendar + shared Fed-policy data ---------------------------------
   var calendarState = { data: null, loading: false, type: 'all' };
+  function renderCalendarConsumers(){
+    var data = calendarState.data || { events: [] };
+    renderCalendar();
+    renderFomcWidget(data.fomc || null);
+    renderFomcDayHistory();
+    renderBondsContext();
+    refreshFomcLive(data.fomc || null);
+    // Hydration can reveal that today is an FOMC decision day; re-arm the
+    // visible Bonds & USD poller so it immediately adopts the five-minute watch.
+    startBondsLivePolling();
+  }
   function loadCalendar(){
     if ((calendarState.data && !tabDataStale(calendarState)) || calendarState.loading) {
-      renderCalendar();
+      if (calendarState.loading) renderCalendar();
+      else renderCalendarConsumers();
       return;
     }
     calendarState.loading = true;
@@ -25921,12 +25933,12 @@
         calendarState.data = (json && Array.isArray(json.events)) ? json : { events: [] };
         calendarState.loading = false;
         calendarState.fetchedAt = Date.now();
-        renderCalendar();
+        renderCalendarConsumers();
       })
       .catch(function(){
         calendarState.data = { events: [], loadError: true };
         calendarState.loading = false;
-        renderCalendar();
+        renderCalendarConsumers();
       });
   }
   function calendarTypeLabel(type){
@@ -26233,6 +26245,7 @@
         kind: 'fomc', iconType: 'fomc', label: 'Next FOMC',
         value: nextMeetingDays === 0 ? 'Today' : calRelativeLabel(nextMeetingDays),
         sub: nextMeeting.label + (outcome ? ' · ' + outcome : ''),
+        go: 'bonds-usd',
         scrollTo: 'fomc-widget'
       });
     }
@@ -26315,10 +26328,11 @@
     if (!cards.length){ host.hidden = true; host.innerHTML = ''; return; }
     host.hidden = false;
     host.innerHTML = cards.map(function(c){
-      var clickable = !!(c.scrollTo || c.sym || c.filter);
+      var clickable = !!(c.go || c.scrollTo || c.sym || c.filter);
       var tag = clickable ? 'button' : 'div';
       var attrs = (clickable ? ' type="button"' : '') + ' class="cal-ov-card cal-ov-' + c.kind + '"';
       if (c.scrollTo) attrs += ' data-cal-scroll="' + escapeHtml(c.scrollTo) + '"';
+      if (c.go) attrs += ' data-cal-go="' + escapeHtml(c.go) + '"';
       if (c.filter) attrs += ' data-cal-filter="' + escapeHtml(c.filter) + '" title="Show ' + escapeHtml(c.filter) + ' on the calendar"';
       else if (c.sym) attrs += ' data-cal-sym="' + escapeHtml(c.sym) + '"';
       if (c.date) attrs += ' data-cal-date="' + escapeHtml(c.date) + '"';
@@ -27144,14 +27158,11 @@
     var todayYmd = calEtTodayYmd();
     var todayYm = todayYmd.slice(0, 7);
     if (empty) empty.hidden = true;
-    // The "up next" overview strip and the FOMC widget are month-independent —
-    // they always read the FULL event set, so they stay put as the user walks
-    // months or toggles type filters.
+    // The "up next" overview strip is month-independent and always reads the
+    // FULL event set, so it stays put as the user walks months or toggles type
+    // filters. Fed policy itself now renders in Bonds & USD.
     renderCalendarBriefing(data);
     renderCalendarOverview(data);
-    renderFomcWidget(data.fomc || null);
-    renderFomcDayHistory();
-    refreshFomcLive(data.fomc || null); // async: refetch live ZQ futures + re-render
     // Navigable month window. calendar.json only ever carries today→horizon
     // events, so the earliest navigable month is the current one (no empty
     // past months to wander into); the latest is the furthest event's month.
@@ -27434,13 +27445,29 @@
         if (rcChip){ ev.preventDefault(); openReportModal(findReportEvent(rcChip.getAttribute('data-report-subtype'), rcChip.getAttribute('data-report-date'))); }
       });
     }
-    // Overview "up next" cards: scroll to the FOMC widget, or open a ticker.
+    // Overview "up next" cards: open the Bonds & USD policy desk, filter the
+    // calendar, or open a ticker.
     var calOv = document.getElementById('calendar-overview');
     if (calOv){
       calOv.addEventListener('click', function(ev){
         var card = ev.target.closest && ev.target.closest('.cal-ov-card');
         if (!card) return;
         var scrollId = card.getAttribute('data-cal-scroll');
+        var goTab = card.getAttribute('data-cal-go');
+        if (goTab){
+          var tab = document.querySelector('[data-page-tab="' + goTab + '"]');
+          if (tab) tab.click();
+          if (scrollId){
+            setTimeout(function(){
+              var destination = document.getElementById(scrollId);
+              if (destination && typeof destination.scrollIntoView === 'function'){
+                try { destination.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+                catch (_) { destination.scrollIntoView(); }
+              }
+            }, 0);
+          }
+          return;
+        }
         if (scrollId){
           var target = document.getElementById(scrollId);
           if (target && typeof target.scrollIntoView === 'function'){
@@ -37658,7 +37685,6 @@
   // FOMC proximity, and a risk-off VIX spike — then names the likely driver.
   // Reads data/calendar.json (lazy, shared with the Calendar tab via
   // calendarState); degrades to "no standout catalyst" when nothing lines up.
-  var bondsCtx = { loading: false };
   function bondsIsoDay(d){ try { return new Date(d).toISOString().slice(0, 10); } catch (_) { return null; } }
   function bondsDaysFrom(aIso, bIso){
     var a = Date.parse(aIso + 'T00:00:00Z'), b = Date.parse(bIso + 'T00:00:00Z');
@@ -37721,23 +37747,9 @@
     if (contextEyebrow) contextEyebrow.textContent = freshness.label + ' · confirmation · equity lens';
     var cal = calendarState.data;
     if (!cal){
-      // Lazy-load the calendar once for the Fed-odds correlation (shared cache).
-      if (!bondsCtx.loading){
-        bondsCtx.loading = true;
-        fetch(dataUrl('calendar.json'), { cache: 'no-cache' })
-          .then(function(r){ return r.ok ? r.json() : null; })
-          .then(function(j){ calendarState.data = (j && Array.isArray(j.events)) ? j : { events: [], loadError: true }; })
-          .catch(function(){ calendarState.data = { events: [], loadError: true }; })
-          .finally(function(){
-            bondsCtx.loading = false;
-            // Calendar hydration can reveal that today is an FOMC decision day.
-            // Re-arm the visible-tab poller so its interval switches immediately
-            // from the normal cadence to the required five-minute watch.
-            startBondsLivePolling();
-            renderBondsContext();
-            renderFomcDayHistory();
-          });
-      }
+      // Share one calendar hydration path across Calendar and Bonds & USD so
+      // the policy widget, decision-day history, and cadence all stay aligned.
+      if (!calendarState.loading) loadCalendar();
       host.innerHTML = '<p class="bonds-ctx-quiet">Reading the calendar for Fed-rate context…</p>';
       return;
     }

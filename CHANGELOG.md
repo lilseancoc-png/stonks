@@ -26,6 +26,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - **Commodities adds Gold and Silver.** The free desk now tracks COMEX gold and silver futures as a dedicated Precious metals sleeve, with daily 1-day/7-day/30-day moves, 3-month/6-month/1-year comparisons, sparklines, source disclosure, metals-specific trade-posture guidance, and linked ETF/miner handoffs. (#608) `scripts/{build,commodities-smoke}.mjs`, `scripts/render/{app-js,html}.mjs`, `app.js`, `index.html`.
 
+### Changed
+
+- **Fed policy moves from Calendar to Bonds & USD.** Effective Fed Funds, live FedWatch-style meeting odds, the official FOMC vote map, prediction-market cross-checks, and the full upcoming rate path now sit together with the Treasury and dollar monitor; Calendar keeps dated FOMC events and its Next FOMC card links directly to the relocated policy desk. (#609) `scripts/render/{app-js,html}.mjs`, `app.js`, `index.html`, `docs/site-logic.md`.
+
 ## 2026-08-15
 
 ### Changed

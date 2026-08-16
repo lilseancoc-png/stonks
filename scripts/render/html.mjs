@@ -409,10 +409,9 @@ function calendarSection() {
       <button type="button" class="card-jump" id="calendar-idxcal-link" data-go="index-cal" title="Open the Owner index calendar">Index calendar &rarr;</button>
       <span class="card-eyebrow" id="calendar-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote("What's on this calendar?", `<p>A month-at-a-time view of every dated market event, opening on the <b>current month</b> — use <b>&lsaquo;</b> / <b>&rsaquo;</b> to step between months (or <b>Today</b> to jump back), and tap any day to see its full details below the grid. It tracks: confirmed earnings dates (with AM/PM session tagging) for every curated ticker, ticker-specific catalysts (FDA dates, contract decisions, product launches, court rulings, investor days — extracted from recent news), structured economic-report releases (NFP, Unemployment, JOLTS, CPI, PPI) with Actual / Previous / Consensus values, upcoming FOMC meetings, the current effective Fed Funds rate plus CME FedWatch hike/hold/cut probabilities at four lookbacks, and an official meeting-by-meeting rate-vote map showing hawks, aligned voters, doves, and member stance changes. Ticker chips are clickable.</p>`)}
+    ${infoNote("What's on this calendar?", `<p>A month-at-a-time view of every dated market event, opening on the <b>current month</b> — use <b>&lsaquo;</b> / <b>&rsaquo;</b> to step between months (or <b>Today</b> to jump back), and tap any day to see its full details below the grid. It tracks: confirmed earnings dates (with AM/PM session tagging) for every curated ticker, ticker-specific catalysts (FDA dates, contract decisions, product launches, court rulings, investor days — extracted from recent news), structured economic-report releases (NFP, Unemployment, JOLTS, CPI, PPI) with Actual / Previous / Consensus values, and upcoming FOMC meetings. Effective Fed Funds, FedWatch probabilities, the official vote map, and the full rate path now live together in <b>Bonds &amp; USD</b>. Ticker chips are clickable.</p>`)}
     <div id="calendar-briefing" class="cal-briefing" hidden aria-live="polite"></div>
     <div id="calendar-overview" class="cal-overview" hidden></div>
-    <div id="fomc-widget" class="fomc-widget" hidden></div>
     <div class="calendar-controls" role="toolbar" aria-label="Filter calendar">
       <div class="calendar-type-filter" role="radiogroup" aria-label="Filter by event type">
         <button type="button" class="calendar-pill is-on" data-cal-type="all" role="radio" aria-checked="true">All<span class="calendar-pill-count" aria-hidden="true"></span></button>
@@ -1955,7 +1954,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           </header>
           <div class="landing-card-stat" id="land-stat-calendar">30d</div>
           <div class="landing-card-sub" id="land-sub-calendar">earnings + macro</div>
-          <p class="landing-card-desc">Earnings AM/PM sessions, macro releases (CPI, NFP, JOLTS), FOMC dates, FedWatch probabilities.</p>
+          <p class="landing-card-desc">Earnings AM/PM sessions, macro releases (CPI, NFP, JOLTS), ticker catalysts, and dated FOMC meetings.</p>
         </button>
       </div>
     </section>
@@ -2017,7 +2016,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           </header>
           <div class="landing-card-stat" id="land-stat-bonds">10Y / DXY</div>
           <div class="landing-card-sub" id="land-sub-bonds">yields + dollar</div>
-          <p class="landing-card-desc">How Treasury yields and the dollar shape equity behavior — risk-on / risk-off, exporters, commodities.</p>
+          <p class="landing-card-desc">Treasury yields, the dollar, Effective Fed Funds, meeting odds, official votes, and the full Fed rate path.</p>
         </button>
       </div>
     </section>
@@ -2264,6 +2263,14 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           <p class="hint"><strong>CPI and unemployment</strong> are monthly BLS prints, not live quotes. The unemployment tile&rsquo;s Sahm read compares the 3-month average with its prior-year low; ≥0.5pp is the classic recession-onset threshold.</p>
         </div>
       </details>
+    </section>
+
+    <section class="card" id="bonds-fed-policy-card">
+      <header class="card-header">
+        <h2 class="card-title">Fed policy &amp; rate path</h2>
+        <span class="card-eyebrow">Effective rate &middot; meeting odds &middot; official votes</span>
+      </header>
+      <div id="fomc-widget" class="fomc-widget" hidden></div>
     </section>
 
     <section class="card fomc-day-card" id="fomc-day-card">
