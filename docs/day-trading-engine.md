@@ -24,7 +24,7 @@ components:
 6. RSI/MACD/SMA technical confirmation;
 7. the existing Grade as a cross-check.
 
-The normal entry bar is 72/100. A neutral tape raises it to 82; high/crisis
+The normal entry bar is 70/100. A neutral tape raises it to 82; high/crisis
 volatility, scheduled-event risk and a portfolio soft-loss warning raise it
 again. Missing opening-range bars score zero for that component but do not
 silently extend the time gate beyond 10:00 ET. Scheduled high-impact windows

@@ -28,6 +28,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Changed
 
+- **Day Trading executes more qualifying setups.** The normal directional-tape score bar drops from 72 to 70 so the stock-only paper engine can take more good-but-imperfect trades; the stricter neutral-tape bar, volatility and event penalties, portfolio-loss controls, and all hard execution gates remain unchanged. (#610) `lib/day-trading-engine.mjs`, `scripts/day-trading-smoke.mjs`, `docs/day-trading-engine.md`.
+
 - **Fed policy moves from Calendar to Bonds & USD.** Effective Fed Funds, live FedWatch-style meeting odds, the official FOMC vote map, prediction-market cross-checks, and the full upcoming rate path now sit together with the Treasury and dollar monitor; Calendar keeps dated FOMC events and its Next FOMC card links directly to the relocated policy desk. (#609) `scripts/render/{app-js,html}.mjs`, `app.js`, `index.html`, `docs/site-logic.md`.
 
 ## 2026-08-15
