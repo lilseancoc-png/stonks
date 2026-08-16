@@ -796,16 +796,17 @@ The record opens ideas with a real ETF quote and always records a long position 
 
 ### Brief
 
-One current brief is minted at most once per ET hour:
+One current brief is minted in four decision windows:
 
 - morning at the dedicated 08:30 ET Brief-only dispatch, using the last
   verified bake plus fresh overnight markets, headlines, Fear & Greed, and
   released macro data;
-- intraday during the session;
-- afternoon/closing near the close.
+- intraday at 11:00 and 13:30 ET;
+- closing at 16:10 ET, after completed-session data is available.
 
 The pre-market route does not fetch the full ticker universe or publish any
-other bake-owned payload. The 09:30 ET dispatch remains the first full build.
+other bake-owned payload. The 10:00 ET dispatch is the first full build, after
+the opening auction has had time to settle.
 
 The deterministic packet supplied to the AI includes:
 
@@ -1430,9 +1431,13 @@ Only confirmed patterns whose exact analyzed bar window still matches can score 
 
 ### Refresh cadence
 
-- Full build: 9:30 ET and hourly 10:00–16:00 ET on weekdays.
+- Full build: 10:00, 11:00, 13:30, 15:30, and 16:10 ET on weekdays.
+- Top Picks, chart vision, Stock Picks, Sector Rotation, and Leveraged ETFs:
+  11:00 and 15:30 ET; other full builds carry the exact prior decisions.
+- Brief: 08:30, 11:00, 13:30, and 16:10 ET.
 - Unusual flow and heatmap: hourly 9:00–16:00 ET.
-- OI tracker: about 08:30 ET and 19:00 ET on weekdays.
+- OI tracker: about 08:30 ET for settled T+1 OI/ΔOI and 17:00 ET for
+  completed-session volume/Vol-OI positioning.
 
 The workflows share one concurrency group so data-generating jobs queue instead of racing.
 

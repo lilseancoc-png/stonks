@@ -61,6 +61,11 @@ const BAKE_STAMPED_FILES = [
   "pending-buyouts.json",
   "13f.json",
 ];
+const SWING_DESK_STAMPED_FILES = new Set([
+  "stock-picks.json",
+  "sector-rotation.json",
+  "leveraged-etfs.json",
+]);
 
 // Every static object the full bake is expected to leave behind. Some are
 // current decision payloads, some are context/history, and some are caches;
@@ -349,9 +354,13 @@ async function warnCadence(report, dataDir, key, paths, maxAgeMs, now) {
 
 async function auditBake({ report, dataDir, runStartedAt, now, expectedSymbols }) {
   const refreshTopPicks = !/^(?:0|false)$/i.test(process.env.REFRESH_TOP_PICKS || "1");
+  const refreshSwingDesks = !/^(?:0|false)$/i.test(process.env.REFRESH_SWING_DESKS || "1");
+  const baseStampedFiles = refreshSwingDesks
+    ? BAKE_STAMPED_FILES
+    : BAKE_STAMPED_FILES.filter((key) => !SWING_DESK_STAMPED_FILES.has(key));
   const stampedFiles = refreshTopPicks
-    ? [...BAKE_STAMPED_FILES, "picks.json", "picks-open.json"]
-    : BAKE_STAMPED_FILES;
+    ? [...baseStampedFiles, "picks.json", "picks-open.json"]
+    : baseStampedFiles;
   const grades = await requireJson(report, dataDir, "grades.json");
   const canonicalValue = stampOf(grades);
   const canonicalMs = requireRunStamp(report, "grades.json", canonicalValue, runStartedAt, now);
@@ -452,6 +461,18 @@ async function auditBake({ report, dataDir, runStartedAt, now, expectedSymbols }
       await requireRewrittenJson(report, dataDir, key, runStartedAt);
     }
     pass(report, "Top Picks cadence is carry-forward for this bake");
+  }
+  if (!refreshSwingDesks) {
+    for (const key of [
+      "stock-picks.json",
+      "sector-rotation.json",
+      "sector-rotation-log.json",
+      "leveraged-etfs.json",
+      "leveraged-etfs-log.json",
+    ]) {
+      await requireRewrittenJson(report, dataDir, key, runStartedAt);
+    }
+    pass(report, "Swing-desk cadence is carry-forward for this bake");
   }
 
   // Prove that every static object the bake owns was recreated after the
@@ -955,9 +976,14 @@ async function selfTest() {
     if (report.errors.length) throw new Error(renderReport(report));
 
     const priorRefreshTopPicks = process.env.REFRESH_TOP_PICKS;
+    const priorRefreshSwingDesks = process.env.REFRESH_SWING_DESKS;
     process.env.REFRESH_TOP_PICKS = "0";
+    process.env.REFRESH_SWING_DESKS = "0";
     await write("picks.json", { builtAtIso: "2026-07-29T15:30:00.000Z" });
     await write("picks-open.json", { builtAtIso: "2026-07-29T15:30:00.000Z", open: [] });
+    await write("stock-picks.json", { builtAtIso: "2026-07-29T15:30:00.000Z" });
+    await write("sector-rotation.json", { builtAtIso: "2026-07-29T15:30:00.000Z" });
+    await write("leveraged-etfs.json", { builtAtIso: "2026-07-29T15:30:00.000Z" });
     const carryReport = await auditFreshness({
       owner: "bake",
       dataDir: dir,
@@ -967,9 +993,14 @@ async function selfTest() {
     });
     if (priorRefreshTopPicks == null) delete process.env.REFRESH_TOP_PICKS;
     else process.env.REFRESH_TOP_PICKS = priorRefreshTopPicks;
+    if (priorRefreshSwingDesks == null) delete process.env.REFRESH_SWING_DESKS;
+    else process.env.REFRESH_SWING_DESKS = priorRefreshSwingDesks;
     if (carryReport.errors.length) throw new Error(renderReport(carryReport));
     await write("picks.json", { builtAtIso: stamp });
     await write("picks-open.json", { builtAtIso: stamp, open: [] });
+    await write("stock-picks.json", { builtAtIso: stamp });
+    await write("sector-rotation.json", { builtAtIso: stamp });
+    await write("leveraged-etfs.json", { builtAtIso: stamp });
 
     await write("grades.json", {
       builtAtIso: stamp,

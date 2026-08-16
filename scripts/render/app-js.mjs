@@ -10710,7 +10710,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   //     an imminent IV crush;
   //   • already "Buy now" — left alone.
   // Purely an overlay: the baked chip markup is stashed on first flip and
-  // restored the moment the price backs off, and the next hourly build
+  // restored the moment the price backs off, and the next scheduled full build
   // re-bakes ground truth either way.
   function liveEntryOverlay(p, spot){
     var e = p && p.entry;
@@ -13327,14 +13327,16 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var gap = marketSessionGap(iso);
     var scanType = String((OI && OI.scanType) || '').toLowerCase();
     var baseline = !!(OI && OI.summary && OI.summary.hadBaseline);
-    var typeLabel = scanType === 'premarket' ? 'Pre-market' : scanType === 'eod' ? 'EOD' : 'Manual';
+    var typeLabel = scanType === 'premarket' ? 'Pre-market' : scanType === 'eod' ? 'EOD volume/positioning' : 'Manual';
     if (gap === 0){
       return {
         current: true,
         baseline: baseline,
         tone: baseline ? 'current' : 'incomplete',
         label: typeLabel + ' positioning snapshot',
-        detail: baseline ? 'Current session map with ΔOI baseline.' : 'Current map, but no prior-day ΔOI baseline.',
+        detail: scanType === 'eod'
+          ? (baseline ? 'Completed-session volume is fresh; OI and ΔOI remain the morning settled observation.' : 'Completed-session volume is fresh, but no prior-day ΔOI baseline is available.')
+          : (baseline ? 'Latest settled OI with a prior-day ΔOI baseline.' : 'Latest settled OI, but no prior-day ΔOI baseline.'),
         gap: gap,
       };
     }
@@ -13347,7 +13349,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         baseline: baseline,
         tone: baseline ? 'carry' : 'incomplete',
         label: 'Current prior-session positioning',
-        detail: baseline ? 'Latest EOD map carried into this session.' : 'Latest EOD map, but no prior-day ΔOI baseline.',
+        detail: baseline ? 'Latest completed-session volume map; settled OI refreshes at the pre-market scan.' : 'Latest completed-session map, but no prior-day ΔOI baseline.',
         gap: gap,
       };
     }
@@ -13509,7 +13511,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       ? 'Price rejects ' + callWallText + ', loses ' + putWallText + ', ask-side call flow disappears, or the next score falls below 4.'
       : 'Call OI disperses, price moves away from the wall, puts dominate the short-dated chain, or the next scan removes the concentration.';
     if (!freshness.current){
-      confirm = 'A fresh pre-market or EOD scan rebuilds the same concentration, then price confirms at the current wall.';
+      confirm = 'The pre-market scan refreshes settled OI; the EOD pass refreshes completed-session volume. Price still confirms at the current wall.';
       invalidate = 'Fresh data moves the wall, removes the score, or shows the apparent OI increase was only stale carry-forward.';
     } else if (!freshness.baseline){
       confirm = 'The next comparable scan establishes a baseline and shows call OI genuinely increasing at the same wall.';
@@ -13755,7 +13757,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         var parts = [];
         if (OI.summary.tickerCount) parts.push(OI.summary.tickerCount + ' ticker' + (OI.summary.tickerCount === 1 ? '' : 's'));
         if (OI.summary.flaggedCount) parts.push(OI.summary.flaggedCount + ' flagged');
-        var scanLabel = OI.scanType === 'premarket' ? 'pre-market' : (OI.scanType === 'eod' ? 'EOD' : 'manual');
+        var scanLabel = OI.scanType === 'premarket' ? 'pre-market settled OI' : (OI.scanType === 'eod' ? 'EOD volume/positioning' : 'manual');
         var when = fmtScannedAt(OI.scannedAt);
         if (when) parts.push(scanLabel + ' scan · ' + when);
         if (!OI.summary.hadBaseline) parts.push('no ΔOI baseline yet');
@@ -17903,7 +17905,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (!det){
         root.innerHTML = '<button type="button" class="ecl-back" data-ecl-back="1">&larr; All earnings calls</button><p class="ecl-dim ecl-note">Loading ' + escapeHtml(callsState.sym) + ' call brief…</p>';
       } else if (det.loadError){
-        root.innerHTML = '<button type="button" class="ecl-back" data-ecl-back="1">&larr; All earnings calls</button><p class="ecl-dim ecl-note">Could not load the ' + escapeHtml(callsState.sym) + ' call brief. It may still be baking — try again after the next hourly build.</p>';
+        root.innerHTML = '<button type="button" class="ecl-back" data-ecl-back="1">&larr; All earnings calls</button><p class="ecl-dim ecl-note">Could not load the ' + escapeHtml(callsState.sym) + ' call brief. It may still be baking — try again after the next scheduled full build.</p>';
       } else {
         root.innerHTML = renderEarningsCallDetail(det);
       }
@@ -17981,7 +17983,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (callsState.sym){
       var det = callsState.details[callsState.sym];
       if (!det) root.innerHTML = '<button type="button" class="ecl-back" data-ecl-back="1">&larr; Call decision queue</button><p class="ecl-dim ecl-note">Loading ' + escapeHtml(callsState.sym) + ' call brief…</p>';
-      else if (det.loadError) root.innerHTML = '<button type="button" class="ecl-back" data-ecl-back="1">&larr; Call decision queue</button><p class="ecl-dim ecl-note">Could not load the ' + escapeHtml(callsState.sym) + ' call brief. It may still be baking — try again after the next hourly build.</p>';
+      else if (det.loadError) root.innerHTML = '<button type="button" class="ecl-back" data-ecl-back="1">&larr; Call decision queue</button><p class="ecl-dim ecl-note">Could not load the ' + escapeHtml(callsState.sym) + ' call brief. It may still be baking — try again after the next scheduled full build.</p>';
       else root.innerHTML = renderEarningsCallDetail(det);
     } else {
       var annotated = entries.map(function(e){ return { entry:e, signal:eclSignal(e), stamp:String(e.callDate || e.published || '') }; });
@@ -22186,9 +22188,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Foreign lead-lag signals from data/correlations.json: per-region tiles of
   // overnight foreign moves, a derived risk tone, and the broad backdrop.
   // Shared with the Grade tab's per-ticker "overnight peer read" widget.
-  // ── Market brief (pre-market + rolling hourly digest) ──────────────────
+  // ── Market brief (pre-market + scheduled decision digest) ─────────────
   // Renders data/briefs.json ({ current } — minted at 08:30 ET by the
-  // Brief-only route, then re-minted hourly by the bake: morning pre-open,
+  // Brief-only route, then re-minted at 11:00, 13:30 and 16:10 by the bake:
   // intraday reads through the session, closing
   // read on the 16:00 build). The headline/summary/highlights are AI prose;
   // the stat strip + ticker chips are deterministic facts baked alongside.
@@ -22603,7 +22605,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '<p class="stk-dca-hint">' + (personalized
         ? 'Applies the published multiplier to your private dollar baseline. '
         : 'Publishes one standardized baseline multiplier inside the Owner workspace; dollar sizing is isolated in Owner Lab. ') +
-        'Five deterministic price reads per index (trend, drawdown off the 52-week high, RSI, 20-day stretch, red day) earn points; fixed point bars map to 1× / 1.5× / 2× / 3× / 4× the baseline. Every read and its points are on the card — no AI, no black box. Refreshed with each hourly build' + (when ? ' · updated ' + escapeHtml(when) : '') + '. Not financial advice.</p>' +
+        'Five deterministic price reads per index (trend, drawdown off the 52-week high, RSI, 20-day stretch, red day) earn points; fixed point bars map to 1× / 1.5× / 2× / 3× / 4× the baseline. Every read and its points are on the card — no AI, no black box. Recomputed at 11:00 and 15:30 ET' + (when ? ' · updated ' + escapeHtml(when) : '') + '. Not financial advice.</p>' +
       '<div class="stk-dca-grid">' + dca.indexes.map(function(ix){ return stkDcaCard(ix, base, personalized); }).join('') + '</div>' +
     '</section>';
   }
@@ -25253,7 +25255,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (briefState.loading && !briefState.data){ root.innerHTML = '<p class="brief-empty">Loading brief…</p>'; return; }
     if (briefState.error && !briefState.data){ root.innerHTML = '<p class="brief-empty">Brief unavailable right now — try again shortly.</p>'; return; }
     var data = briefState.data || {};
-    // One rolling card, refreshed hourly by the bake. Fall back to the legacy
+    // One rolling card, refreshed at the scheduled Brief windows. Fall back to the legacy
     // { morning, afternoon } shape (latest wins) so a pre-cutover briefs.json
     // still renders across the deploy.
     var cards = [];
@@ -25265,7 +25267,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       cards = cards.slice(0, 1);
     }
     if (!cards.length){
-      root.innerHTML = '<p class="brief-empty">No brief yet today — the first read posts around 8:30&nbsp;am&nbsp;ET, then updates hourly with each regular-session build.</p>';
+      root.innerHTML = '<p class="brief-empty">No brief yet today — reads are scheduled around 8:30&nbsp;am, 11:00&nbsp;am, 1:30&nbsp;pm, and 4:10&nbsp;pm&nbsp;ET.</p>';
       if (eyebrow) eyebrow.textContent = '';
       return;
     }
@@ -35696,7 +35698,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var savedT = p.entryTiming && p.entryTiming.state;
     if (liveT && liveT.state) tape.push('entry timing now ' + String(liveT.state).toUpperCase() + (savedT && savedT !== liveT.state ? ' (was ' + String(savedT).toUpperCase() + ')' : ''));
     if (tape.length) html += '<div class="pwl-delta-tape">' + escapeHtml(tape.join(' · ')) + '</div>';
-    html += '<div class="pwl-delta-note">Baseline frozen when the idea was saved; compared against this build\\'s grade — refreshes with every hourly build' + (h.spot != null ? ' and the 30s live quote' : '') + '.</div>';
+    html += '<div class="pwl-delta-note">Baseline frozen when the idea was saved; compared against this build\\'s grade — refreshes with every scheduled full build' + (h.spot != null ? ' and the 30s live quote' : '') + '.</div>';
     return html;
   }
   // Open/close one card's what-changed panel (content rebuilt fresh each open).

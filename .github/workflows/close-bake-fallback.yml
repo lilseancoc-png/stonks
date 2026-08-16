@@ -1,15 +1,15 @@
 name: Close-bake fallback
 
 # cron-job.org remains the primary ET-aware dispatcher for daily.yml. This
-# watchdog closes one dangerous gap: if no external 16:00 ET dispatch appears,
-# it creates one at 16:05 ET. GitHub cron is UTC, so both possible UTC slots
-# are scheduled; a 16:00-17:30 ET delay-tolerant guard plus the GitHub API
+# watchdog closes one dangerous gap: if no external 16:10 ET dispatch appears,
+# it creates one after 16:20 ET. GitHub cron is UTC, so both possible UTC slots
+# are scheduled; a 16:15-17:30 ET delay-tolerant guard plus the GitHub API
 # duplicate check lets exactly one continue across DST. A healthy external
 # schedule costs no Gemini calls and creates no second bake.
 on:
   schedule:
-    - cron: "5 20 * * 1-5"
-    - cron: "5 21 * * 1-5"
+    - cron: "20 20 * * 1-5"
+    - cron: "20 21 * * 1-5"
   workflow_dispatch:
 
 permissions:
@@ -20,7 +20,7 @@ jobs:
   ensure-close-bake:
     runs-on: ubuntu-latest
     steps:
-      - name: Dispatch missing 16:00 ET bake
+      - name: Dispatch missing 16:10 ET bake
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -29,8 +29,8 @@ jobs:
           ET_HOUR=$(TZ=America/New_York date +%H)
           ET_MINUTE=$(TZ=America/New_York date +%M)
           ET_MIN=$((10#$ET_HOUR * 60 + 10#$ET_MINUTE))
-          if [ "$ET_DAY" -gt 5 ] || [ "$ET_MIN" -lt 960 ] || [ "$ET_MIN" -gt 1050 ]; then
-            echo "Not the delay-tolerant 16:00-17:30 ET watchdog window; no-op."
+          if [ "$ET_DAY" -gt 5 ] || [ "$ET_MIN" -lt 975 ] || [ "$ET_MIN" -gt 1050 ]; then
+            echo "Not the delay-tolerant 16:15-17:30 ET watchdog window; no-op."
             exit 0
           fi
 
@@ -38,7 +38,7 @@ jobs:
           TODAY_ET=$(TZ=America/New_York date +%F)
           # Ignore a stray 15:30 run: only a dispatch at/around the documented
           # close slot should suppress the fallback.
-          CUTOFF=$(TZ=America/New_York date -d "$TODAY_ET 15:55:00" +%s)
+          CUTOFF=$(TZ=America/New_York date -d "$TODAY_ET 16:05:00" +%s)
           if RUNS=$(curl --fail --silent --show-error \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
@@ -59,7 +59,7 @@ jobs:
           # The trusted watchdog may arrive after daily.yml's normal dispatch
           # window because GitHub cron is best-effort; force only bypasses that
           # time guard and does not widen any data/publish permissions.
-          PAYLOAD=$(jq -cn --arg ref "$REF" '{ref:$ref,inputs:{force:"true",refresh_top_picks:"false"}}')
+          PAYLOAD=$(jq -cn --arg ref "$REF" '{ref:$ref,inputs:{force:"true",refresh_top_picks:"false",refresh_swing_desks:"false",refresh_brief:"true"}}')
           curl --fail --silent --show-error \
             -X POST \
             -H "Authorization: Bearer ${GH_TOKEN}" \
@@ -67,4 +67,4 @@ jobs:
             -H "X-GitHub-Api-Version: 2022-11-28" \
             -d "$PAYLOAD" \
             "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/workflows/daily.yml/dispatches"
-          echo "No 16:00 ET dispatch was found; close bake dispatched on $REF."
+          echo "No 16:10 ET dispatch was found; close bake dispatched on $REF."

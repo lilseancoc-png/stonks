@@ -212,7 +212,7 @@ output. A blob store has no merge, so we replicate that ownership explicitly.
 | day-trading, day-trading-history | 15-minute owner paper engine | upsert (no delete) |
 | **heatmap.json** | bake (seed/rebuild) **+** unusual (refresh) | upsert by whichever ran; serialized |
 | **market-analysis.json** (Owner-only) | bake (macro regime) **+** unusual (premarket cohort + hourly marks) | read-modify-write; serialized |
-| **briefs.json** | 08:30 ET Brief-only route + bake (`buildMarketBriefs`, re-minted hourly in-session) | read-modify-write; serialized; once-per-ET-hour gating already in code |
+| **briefs.json** | 08:30 ET Brief-only route + 11:00, 13:30, and 16:10 bake windows (`buildMarketBriefs`) | read-modify-write; serialized; off-cadence bakes restore the exact prior payload |
 | **ai-usage.json** | Brief-only route + bake + unusual-flow (shared daily accounting; each carries other producers' totals) | read-modify-write; serialized so increments don't race |
 | **picks-watchlist.json** | **request time** (`api/watchlist.js` — the shared Top Picks watchlist, written on user clicks) | **no workflow may push or delete it** (`REQUEST_TIME_EXCLUSIVE` in `sync-data.mjs`): the copy `pull` hydrates locally is stale the moment a user toggles mid-run, so re-uploading it would silently revert their change |
 
