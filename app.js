@@ -7575,9 +7575,9 @@
     var firstInvalidation = freshness.current && bestReady && (watchForItems(bestReady.n)[0] || (bestReady.n.lifecycleOutlook && bestReady.n.lifecycleOutlook.trigger));
     var primaryAction = freshness.current && bestReady
       ? '<button type="button" class="flow-decision-action is-primary" data-pulse-sector="' + escapeHtml(bestReady.sector) + '" data-pulse-name="' + escapeHtml(bestReady.n.name || '') + '">Review ' + escapeHtml(bestReady.n.name) + '</button>'
-      : '<button type="button" class="flow-decision-action is-primary" data-narr-tab="market">Open Market analysis</button>';
-    var marketAction = freshness.current && bestReady
-      ? '<button type="button" class="flow-decision-action" data-narr-tab="market">Open Market analysis</button>'
+      : '<button type="button" class="flow-decision-action is-primary" data-narr-tab="heatmap">Open Heatmap</button>';
+    var heatmapAction = freshness.current && bestReady
+      ? '<button type="button" class="flow-decision-action" data-narr-tab="heatmap">Open Heatmap</button>'
       : '';
     var riskRuleCopy = !freshness.current
       ? 'Refresh the story map before using prior invalidations or posture as an execution input.'
@@ -7592,8 +7592,7 @@
         '<div><span>Entry rule</span><b>Validated = research priority, not permission to chase. Open a ticker and confirm timing.</b></div>' +
         '<div><span>Risk rule</span><b>' + escapeHtml(riskRuleCopy) + '</b></div>' +
       '</div>' +
-      '<div class="narr-decision-actions">' + primaryAction + marketAction +
-        '<button type="button" class="flow-decision-action" data-narr-tab="heatmap">Open Heatmap</button></div>' +
+      '<div class="narr-decision-actions">' + primaryAction + heatmapAction + '</div>' +
     '</section>';
     var tilt = '<div class="narr-pulse-tilt">' +
       '<div class="narr-pulse-head">' +
@@ -7671,8 +7670,7 @@
       if (empty) {
         empty.innerHTML = '<section class="narr-empty-decision"><span class="narr-decision-kicker">Narrative feed unavailable</span>' +
           '<h3>No active story map loaded</h3><p>Do not treat a missing narrative feed as an all-clear. Use the market tape and sector breadth while the story layer recovers.</p>' +
-          '<div class="narr-decision-actions"><button type="button" class="flow-decision-action is-primary" data-narr-tab="market">Open Market analysis</button>' +
-          '<button type="button" class="flow-decision-action" data-narr-tab="heatmap">Open Heatmap</button>' +
+          '<div class="narr-decision-actions"><button type="button" class="flow-decision-action is-primary" data-narr-tab="heatmap">Open Heatmap</button>' +
           '<button type="button" class="flow-decision-action" data-narr-tab="news">Open News</button></div></section>';
         empty.hidden = false;
         bindNarrativeDecisionActions(empty);

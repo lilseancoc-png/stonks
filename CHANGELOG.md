@@ -32,6 +32,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - **Fed policy moves from Calendar to Bonds & USD.** Effective Fed Funds, live FedWatch-style meeting odds, the official FOMC vote map, prediction-market cross-checks, and the full upcoming rate path now sit together with the Treasury and dollar monitor; Calendar keeps dated FOMC events and its Next FOMC card links directly to the relocated policy desk. (#609) `scripts/render/{app-js,html}.mjs`, `app.js`, `index.html`, `docs/site-logic.md`.
 
+### Fixed
+
+- **Narratives no longer exposes an owner-only destination.** Current, stale, and unavailable narrative states omit the Market Analysis action; Heatmap remains the public fallback when no current story is actionable. (#611) `scripts/render/app-js.mjs`, `scripts/render-smoke.mjs`, `app.js`.
+
 ## 2026-08-15
 
 ### Changed
