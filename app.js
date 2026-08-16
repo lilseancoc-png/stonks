@@ -91,7 +91,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fallback","asOf":"2026-08-15","ageDays":null};
+  var RFR_META = {"source":"fallback","asOf":"2026-08-16","ageDays":null};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null, chainRequestSeq: 0 };
   var ownerAutoPicks = { data: null, pending: null };
@@ -19252,20 +19252,24 @@
   }
 
   // --- Commodities (Macro tab) ----------------------------------------------
-  // data/commodities.json — eleven equity-relevant input-cost / demand signals:
-  // softs (cocoa, cotton, coffee, sugar, palm oil), industrial inputs (lumber,
-  // potash, lithium), freight (container rates, Baltic Dry) and used-vehicle
-  // values. Futures/ETF items carry daily bars; FRED items are monthly. Three
-  // cards can carry a scraped native-benchmark overlay (Drewry WCI / true BDI /
-  // Manheim). Baked by writeCommoditiesFile in scripts/build.mjs.
+  // data/commodities.json — thirteen equity-relevant commodity, input-cost and
+  // demand signals: precious metals (gold, silver), softs (cocoa, cotton,
+  // coffee, sugar, palm oil), industrial inputs (lumber, potash, lithium),
+  // freight (container rates, Baltic Dry) and used-vehicle values. Futures/ETF
+  // items carry daily bars; FRED items are monthly. Three cards can carry a
+  // scraped native-benchmark overlay (Drewry WCI / true BDI / Manheim). Baked
+  // by writeCommoditiesFile in scripts/build.mjs.
   var commoditiesState = { data: null, loading: false };
   var CMD_GROUPS = [
+    ['precious', 'Precious metals'],
     ['softs', 'Softs & agriculture'],
     ['industrial', 'Industrial inputs'],
     ['freight', 'Freight & shipping'],
     ['consumer', 'Consumer'],
   ];
   var CMD_IMPACTS = {
+    gold: ['Gold/miner tailwind / hedge bid', 'Gold/miner pressure / real-yield headwind'],
+    silver: ['Silver/miner tailwind / industrial bid', 'Silver weakness / demand caution'],
     cocoa: ['Buyer margin pressure', 'Input-cost relief'],
     cotton: ['Apparel cost pressure', 'Apparel cost relief'],
     coffee: ['Coffee-chain margin pressure', 'Coffee input relief'],
@@ -19546,6 +19550,20 @@
         ? 'The softs median falls below +3%, or companies absorb the increase without margin damage.'
         : 'The softs median turns positive again, or buyers fail to convert relief into better margins.';
       postureTone = up ? 'risk' : 'positive';
+    }
+    if (leadStat && leadStat.key === 'precious'){
+      headline = up ? 'Precious metals are leading the commodity tape' : 'Precious metals are weakening';
+      actionTitle = up ? 'Confirm the metals bid before chasing miners' : 'Check the macro driver before buying the dip';
+      actionCopy = leadStat.rising + ' of ' + leadStat.total + ' current precious-metals signals are rising; the median move is ' +
+        (up ? '+' : '') + leadStat.median.toFixed(1) + '%. ' +
+        (up ? 'Separate a durable real-yield/dollar or demand tailwind from a short-lived fear bid.' : 'Separate real-yield or dollar pressure from a deterioration in industrial demand.');
+      actionConfirm = up
+        ? 'Gold or silver holds the move while linked ETFs and miners confirm with relative strength, volume, and healthy economics.'
+        : 'Real yields or the dollar remain a headwind, or industrial evidence weakens while linked metals equities underperform.';
+      actionInvalidate = up
+        ? 'The precious-metals median reverses through flat, or linked miners fail to confirm the futures move.'
+        : 'The median recovers through flat and linked metals equities regain relative strength.';
+      postureTone = 'watch';
     }
     if (!freshness.current){
       headline = 'This commodity impact map is reference only';

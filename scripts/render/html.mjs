@@ -681,15 +681,16 @@ function searchInterestSection() {
 function commoditiesSection() {
   // Card chrome only — content renders client-side from data/commodities.json,
   // lazy-fetched on first tab activation by loadCommodities() in app.js.
-  // Eleven equity-relevant input-cost / demand signals: softs (cocoa, cotton,
-  // coffee, sugar, palm oil), industrial inputs (lumber, potash, lithium),
-  // freight (container rates, Baltic Dry) and used-vehicle values.
+  // Thirteen equity-relevant commodity, input-cost and demand signals:
+  // precious metals (gold, silver), softs (cocoa, cotton, coffee, sugar, palm
+  // oil), industrial inputs (lumber, potash, lithium), freight (container
+  // rates, Baltic Dry) and used-vehicle values.
   return `<section class="card" id="commodities-section">
     <header class="card-header">
-      <h2 class="card-title">Commodity inputs &amp; demand</h2>
+      <h2 class="card-title">Commodities &amp; equity impact</h2>
       <span class="card-eyebrow" id="commodities-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote('How to use commodity signals', `<p>Start with the <b>trade posture</b>, then separate input-cost pressure from demand. Rising cocoa or coffee can hurt exposed buyers; rising Baltic Dry can instead signal firmer industrial demand. The desk compares market series over 30 days and monthly series month over month so a noisy one-day move does not outrank a persistent trend. Aged observations are excluded from the decision desk but remain visible in detail. Use the impact label and linked tickers to check whether the move is transmitting through relative strength, volume, pricing actions, and margin guidance before acting. Items marked <b>proxy</b> track an ETF rather than the native spot benchmark.</p>`)}
+    ${infoNote('How to use commodity signals', `<p>Start with the <b>trade posture</b>, then separate input-cost pressure from demand. Gold and silver can reflect the dollar, real yields, safe-haven demand and, for silver, industrial demand; rising cocoa or coffee can hurt exposed buyers, while rising Baltic Dry can signal firmer industrial demand. The desk compares market series over 30 days and monthly series month over month so a noisy one-day move does not outrank a persistent trend. Aged observations are excluded from the decision desk but remain visible in detail. Use the impact label and linked tickers to confirm whether the move is transmitting through relative strength, volume, pricing actions, miner economics, and margin guidance before acting. Items marked <b>proxy</b> track an ETF rather than the native spot benchmark.</p>`)}
     <div id="commodities-root" class="commodities-root">Loading commodities&hellip;</div>
     <div id="commodities-empty" class="commodities-empty" hidden>Commodity data will appear after the next daily build refresh.</div>
     <p class="hint">Futures are front-month continuous contracts (daily settles); FRED series are monthly and publish on a lag. Proxy ETFs track direction, not the spot level. Scraped overlays are best-effort and can go stale. Not financial advice.</p>

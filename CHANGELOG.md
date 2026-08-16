@@ -20,6 +20,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-08-16
+
+### Added
+
+- **Commodities adds Gold and Silver.** The free desk now tracks COMEX gold and silver futures as a dedicated Precious metals sleeve, with daily 1-day/7-day/30-day moves, 3-month/6-month/1-year comparisons, sparklines, source disclosure, metals-specific trade-posture guidance, and linked ETF/miner handoffs. `scripts/{build,commodities-smoke}.mjs`, `scripts/render/{app-js,html}.mjs`, `app.js`, `index.html`.
+
 ## 2026-08-15
 
 ### Changed
