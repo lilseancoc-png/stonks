@@ -28,7 +28,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Changed
 
-- **Fed policy moves from Calendar to Bonds & USD.** Effective Fed Funds, live FedWatch-style meeting odds, the official FOMC vote map, prediction-market cross-checks, and the full upcoming rate path now sit together with the Treasury and dollar monitor; Calendar keeps dated FOMC events and its Next FOMC card links directly to the relocated policy desk. `scripts/render/{app-js,html}.mjs`, `app.js`, `index.html`, `docs/site-logic.md`.
+- **Fed policy moves from Calendar to Bonds & USD.** Effective Fed Funds, live FedWatch-style meeting odds, the official FOMC vote map, prediction-market cross-checks, and the full upcoming rate path now sit together with the Treasury and dollar monitor; Calendar keeps dated FOMC events and its Next FOMC card links directly to the relocated policy desk. (#609) `scripts/render/{app-js,html}.mjs`, `app.js`, `index.html`, `docs/site-logic.md`.
 
 ## 2026-08-15
 
