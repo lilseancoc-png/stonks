@@ -13,6 +13,7 @@ import {
 assert.equal(DAY_TRADING_RULES.entryStartEtMin, 10 * 60);
 assert.equal(DAY_TRADING_RULES.forceFlatEtMin, 16 * 60);
 assert.equal(DAY_TRADING_RULES.maxHoldMinutes, 120);
+assert.equal(DAY_TRADING_RULES.baseScore, 70);
 assert.equal(DAY_TRADING_RULES.options, undefined);
 
 // Version-1 payloads self-heal by dropping the retired options ledger and its
@@ -53,6 +54,22 @@ const candidate = {
 const score = scoreDayTradeCandidate(candidate, market);
 assert.equal(score.pass, true);
 assert.ok(score.total >= score.threshold);
+
+// A directional-tape candidate that lands exactly on the more permissive
+// 70-point execution bar is eligible, while the neutral-tape safeguard stays
+// stricter.
+const thresholdCandidate = structuredClone(candidate);
+thresholdCandidate.volumeRatio = 1;
+thresholdCandidate.srBreak = null;
+thresholdCandidate.gex = { net: 1_000_000 };
+thresholdCandidate.grade = 10;
+const thresholdScore = scoreDayTradeCandidate(thresholdCandidate, market);
+assert.equal(thresholdScore.total, 70);
+assert.equal(thresholdScore.threshold, 70);
+assert.equal(thresholdScore.pass, true);
+const neutralThresholdScore = scoreDayTradeCandidate(thresholdCandidate, { ...market, bias: "neutral" });
+assert.equal(neutralThresholdScore.threshold, 82);
+assert.equal(neutralThresholdScore.pass, false);
 
 let result = runDayTradingEngine({ history: emptyDayTradingHistory(), candidates: [candidate], market: structuredClone(market), now });
 assert.deepEqual(Object.keys(result.snapshot.open), ["stock"]);
