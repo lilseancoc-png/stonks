@@ -12489,7 +12489,9 @@ async function writeIpoCreditFile(builtAtIso, prior = null, priorCapitalRaises =
 const PENDING_BUYOUTS_FILE = "pending-buyouts.json";
 const PENDING_BUYOUTS_URL = "https://www.ditat.io/merger-arb";
 const BUYOUT_RUMOR_LOOKBACK_DAYS = 60;
+const BUYOUT_COVERAGE_LOOKBACK_DAYS = 120;
 const BUYOUT_QUOTE_BATCH = 40;
+const BUYOUT_COVERAGE_CONCURRENCY = 8;
 
 function buyoutCleanCell(html) {
   return decodeHtmlEntities(String(html || "").replace(/<[^>]+>/g, " "))
@@ -12559,7 +12561,7 @@ async function fetchBuyoutQuotes(symbols) {
     const batch = syms.slice(i, i + BUYOUT_QUOTE_BATCH);
     try {
       const got = await yahooFinance.quote(batch, {
-        fields: ["symbol", "quoteType", "shortName", "longName", "regularMarketPrice", "marketCap", "currency", "exchange"],
+        fields: ["symbol", "quoteType", "shortName", "longName", "regularMarketPrice", "regularMarketChangePercent", "marketCap", "currency", "exchange"],
       }, { validateResult: false });
       const list = Array.isArray(got) ? got : got ? [got] : [];
       for (const q of list) {
@@ -12570,6 +12572,7 @@ async function fetchBuyoutQuotes(symbols) {
           quoteType: q.quoteType || null,
           name: q.longName || q.shortName || symbol,
           price: pnumN(q.regularMarketPrice),
+          recentMovePct: pnumN(q.regularMarketChangePercent),
           marketCap: pnumN(q.marketCap),
           currency: q.currency || "USD",
           exchange: q.exchange || null,
@@ -12701,6 +12704,7 @@ export function normalizeBuyoutRumors(news, quotes, builtAtIso) {
       acquirer: buyer || "Undisclosed / reported interest",
       dealType: "rumor",
       targetPrice: pnumN(q.price),
+      recentMovePct: pnumN(q.recentMovePct),
       targetMarketCap: pnumN(q.marketCap),
       currency: q.currency || "USD",
       valueCurrency: q.currency === "GBp" ? "GBP" : (q.currency || "USD"),
@@ -12725,6 +12729,181 @@ export function normalizeBuyoutRumors(news, quotes, builtAtIso) {
     if (!prev || Date.parse(prev.reportedAtIso) < publishedMs) byTarget.set(targetTicker, row);
   }
   return [...byTarget.values()].sort((a, b) => String(b.reportedAtIso).localeCompare(String(a.reportedAtIso)));
+}
+
+function buyoutMetaContent(html, key) {
+  const safe = String(key || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const patterns = [
+    new RegExp(`<meta[^>]+(?:property|name)=["']${safe}["'][^>]+content=["']([^"']+)["']`, "i"),
+    new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${safe}["']`, "i"),
+  ];
+  for (const pattern of patterns) {
+    const match = String(html || "").match(pattern);
+    if (match?.[1]) return decodeHtmlEntities(match[1]).replace(/\s+/g, " ").trim();
+  }
+  return null;
+}
+
+function buyoutExplicitPremium(text) {
+  const raw = String(text || "").replace(/\s+/g, " ");
+  const patterns = [
+    /premium\s+(?:of\s+)?(?:approximately\s+|about\s+)?([0-9]+(?:\.[0-9]+)?)\s*%[^.]{0,100}unaffected/i,
+    /([0-9]+(?:\.[0-9]+)?)\s*%\s+premium[^.]{0,100}unaffected/i,
+    /unaffected[^.]{0,100}premium\s+(?:of\s+)?(?:approximately\s+|about\s+)?([0-9]+(?:\.[0-9]+)?)\s*%/i,
+  ];
+  for (const pattern of patterns) {
+    const match = raw.match(pattern);
+    const value = pnumN(match?.[1]);
+    if (value != null && value >= 0 && value <= 300) return value;
+  }
+  return null;
+}
+
+function buyoutIsoDate(value) {
+  const ms = Date.parse(String(value || ""));
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+}
+
+async function fetchBuyoutSourceMeta(url) {
+  if (!/^https?:\/\//i.test(String(url || ""))) return null;
+  try {
+    const res = await fetch(url, {
+      headers: { "user-agent": IC_BROWSER_UA, accept: "text/html,*/*" },
+      redirect: "follow",
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const html = (await res.text()).slice(0, 400000);
+    const headline = buyoutMetaContent(html, "og:title") || buyoutMetaContent(html, "twitter:title") || buyoutCleanCell((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1]);
+    const description = buyoutMetaContent(html, "og:description") || buyoutMetaContent(html, "description");
+    const dateRaw = buyoutMetaContent(html, "article:published_time")
+      || (html.match(/["']datePublished["']\s*:\s*["']([^"']+)["']/i) || [])[1]
+      || (html.match(/<time[^>]+datetime=["']([^"']+)["']/i) || [])[1];
+    return {
+      headline: headline || null,
+      description: description || null,
+      publishedAtIso: buyoutIsoDate(dateRaw),
+      reportedPremiumPct: buyoutExplicitPremium(`${headline || ""} ${description || ""}`),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function buyoutCoverageMatches(row, item) {
+  const title = String(item?.title || "");
+  if (!/(acqui|buyout|takeover|take-private|merger|deal|bid|regulator|antitrust|shareholder|vote|approv|close)/i.test(title)) return false;
+  const sym = String(row?.targetTicker || "").toUpperCase();
+  const related = Array.isArray(item?.relatedTickers) ? item.relatedTickers.map((s) => String(s || "").toUpperCase()) : [];
+  if (sym && related.includes(sym)) return true;
+  if (sym && new RegExp(`(^|[^A-Z0-9])${sym.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^A-Z0-9]|$)`).test(title.toUpperCase())) return true;
+  const targetWords = buyoutWords(row?.target).split(" ").filter((word) => word.length >= 4);
+  const titleWords = buyoutWords(title);
+  return targetWords.some((word) => titleWords.split(" ").includes(word));
+}
+
+function buyoutCoverageKey(item) {
+  try {
+    const host = new URL(item?.link || "").hostname.toLowerCase().replace(/^www\./, "").replace(/^finance\.yahoo\.com$/, "");
+    if (host) return host;
+  } catch {}
+  return buyoutWords(item?.publisher) || null;
+}
+
+function buyoutApprovalSignal(text) {
+  const raw = String(text || "");
+  if (/(shareholder|stockholder).{0,45}(approve[sd]|vote passes|backs? deal)|regulator.{0,45}(approve[sd]|clears?)|antitrust.{0,35}(approve[sd]|clears?)|wins? .{0,25} approval|deal cleared/i.test(raw)) return "cleared";
+  if (/(shareholder|stockholder).{0,45}(vote|meeting)|regulatory (review|approval|conditions?)|regulator.{0,45}(review|probe|deadline)|antitrust (review|probe)|final (regulatory )?hurdle|state (attorneys general|AGs?)|FTC|DOJ|FCC|CFIUS|competition (review|authority)|approval pending/i.test(raw)) return "pending";
+  return null;
+}
+
+export function classifyPendingBuyoutStage(row, evidenceText = "") {
+  if (row?.status === "rumored") {
+    const hasTalks = /(talks?|take-private plans?|bid|offer|explor(?:es|ing) (?:a )?sale|weighs? (?:a )?(?:sale|takeover))/i.test(`${row?.headline || ""} ${evidenceText}`);
+    return hasTalks && row?.acquirer && !/undisclosed/i.test(row.acquirer) ? "active_talks" : "rumor";
+  }
+  const approval = buyoutApprovalSignal(evidenceText);
+  if ((Number.isFinite(row?.daysLeft) && row.daysLeft >= 0 && row.daysLeft <= 30) || approval === "cleared") return "expected_close";
+  if (approval === "pending") return "regulatory_vote";
+  return "announced";
+}
+
+function buyoutCatalyst(row, stage, evidence) {
+  const expected = row?.expectedCloseAt || null;
+  if (stage === "rumor") return { label: "Confirmation or denial", expectedAt: null, detail: "No signed timeline; watch for named-buyer confirmation.", sourceUrl: evidence?.coverageSources?.[0]?.url || row?.sourceUrl || null };
+  if (stage === "active_talks") return { label: "Formal bid or definitive agreement", expectedAt: null, detail: "Reported talks are not a signed transaction.", sourceUrl: evidence?.coverageSources?.[0]?.url || row?.sourceUrl || null };
+  if (stage === "regulatory_vote") return { label: "Regulatory review or shareholder vote", expectedAt: null, detail: expected ? `Pending milestone before guided close ${expected}.` : "Next public approval milestone.", sourceUrl: evidence?.signalSourceUrl || row?.sourceUrl || null };
+  if (stage === "expected_close") return { label: "Expected close", expectedAt: expected, detail: expected ? "Guided closing date; verify remaining conditions." : "Approvals reported cleared; closing date not captured.", sourceUrl: row?.sourceUrl || null };
+  return { label: "Approvals / shareholder vote", expectedAt: null, detail: expected ? `Next expected deal milestone; guided close ${expected}.` : "Next expected deal milestone; no closing date captured.", sourceUrl: row?.sourceUrl || null };
+}
+
+async function enrichPendingBuyoutEvidence(deals, builtAtIso, prior = null) {
+  const priorById = new Map((Array.isArray(prior?.deals) ? prior.deals : []).map((row) => [row?.id, row]));
+  const enriched = new Array(deals.length);
+  const cutoff = (Date.parse(builtAtIso) || Date.now()) - BUYOUT_COVERAGE_LOOKBACK_DAYS * 86400000;
+  await runPooled(deals, BUYOUT_COVERAGE_CONCURRENCY, async (row, index) => {
+    let news = [], coverageStale = false;
+    try {
+      const query = `${row.targetTicker || ""} ${row.status === "pending" ? "merger" : "buyout"}`;
+      const result = await yahooFinance.search(query, { quotesCount: 0, newsCount: 12, enableFuzzyQuery: false });
+      news = (Array.isArray(result?.news) ? result.news : []).filter((item) => {
+        const published = Date.parse(item?.providerPublishTime || "");
+        return Number.isFinite(published) && published >= cutoff && buyoutCoverageMatches(row, item);
+      });
+    } catch {
+      coverageStale = true;
+    }
+    const sourceMeta = row.status === "pending" ? await fetchBuyoutSourceMeta(row.sourceUrl) : null;
+    const sourceMap = new Map();
+    if (row.sourceUrl) sourceMap.set(buyoutCoverageKey({ link: row.sourceUrl, publisher: row.sourceName }) || row.sourceUrl, {
+      publisher: row.sourceName || "Cited deal source",
+      url: row.sourceUrl,
+      publishedAtIso: sourceMeta?.publishedAtIso || null,
+      title: sourceMeta?.headline || null,
+    });
+    for (const item of news.sort((a, b) => Date.parse(b.providerPublishTime || "") - Date.parse(a.providerPublishTime || ""))) {
+      const key = buyoutCoverageKey(item);
+      if (!key || sourceMap.has(key)) continue;
+      sourceMap.set(key, {
+        publisher: item.publisher || key,
+        url: item.link || null,
+        publishedAtIso: buyoutIsoDate(item.providerPublishTime),
+        title: item.title || null,
+      });
+    }
+    const priorRow = priorById.get(row.id);
+    if (coverageStale && Array.isArray(priorRow?.coverageSources)) {
+      for (const item of priorRow.coverageSources) {
+        const key = buyoutCoverageKey({ link: item?.url, publisher: item?.publisher });
+        if (key && !sourceMap.has(key)) sourceMap.set(key, item);
+      }
+    }
+    const coverageSources = [...sourceMap.values()].filter((item) => item.url).slice(0, 5);
+    const evidenceText = [sourceMeta?.headline, sourceMeta?.description, ...news.map((item) => item.title)].filter(Boolean).join(" | ");
+    const stage = classifyPendingBuyoutStage(row, evidenceText);
+    const signalArticle = news.find((item) => buyoutApprovalSignal(item.title));
+    const dates = [row.reportedAtIso, sourceMeta?.publishedAtIso, ...coverageSources.map((item) => item.publishedAtIso)].map((v) => Date.parse(v || "")).filter(Number.isFinite);
+    const lastUpdateAtIso = dates.length ? new Date(Math.max(...dates)).toISOString() : buyoutIsoDate(priorRow?.lastUpdateAtIso);
+    const coverageCount = coverageSources.length || (coverageStale ? pnumN(priorRow?.coverageCount) : 0) || 0;
+    const confidenceLabel = row.status === "pending"
+      ? (row.verifiedTerms ? "Definitive terms sourced" : "Announced deal sourced")
+      : coverageCount >= 2 ? "Multiple reports" : "Single-source report";
+    const evidence = { coverageSources, signalSourceUrl: signalArticle?.link || null };
+    enriched[index] = {
+      ...row,
+      stage,
+      statusLabel: stage === "rumor" ? "Rumor" : stage === "active_talks" ? "Reported talks" : stage === "announced" ? "Definitive agreement" : stage === "regulatory_vote" ? "Regulatory / vote pending" : "Expected close",
+      reportedPremiumPct: sourceMeta?.reportedPremiumPct ?? pnumN(priorRow?.reportedPremiumPct),
+      coverageCount,
+      coverageSources,
+      coverageStale,
+      confidenceLabel,
+      lastUpdateAtIso,
+      lastCheckedAtIso: builtAtIso,
+      nextCatalyst: buyoutCatalyst(row, stage, evidence),
+    };
+  });
+  return enriched;
 }
 
 async function fetchConfirmedPendingBuyouts() {
@@ -12782,20 +12961,29 @@ export async function buildPendingBuyoutsPayload(builtAtIso, prior = null) {
   const confirmedTickers = new Set(confirmed.map((d) => d.targetTicker));
   rumors = rumors.filter((d) => !confirmedTickers.has(d.targetTicker));
   confirmed.sort((a, b) => (a.expectedCloseAt || "9999").localeCompare(b.expectedCloseAt || "9999") || (b.grossSpreadPct || 0) - (a.grossSpreadPct || 0));
-  const deals = [...confirmed, ...rumors];
+  const deals = await enrichPendingBuyoutEvidence([...confirmed, ...rumors], builtAtIso, prior);
   const close90 = confirmed.filter((d) => Number.isFinite(d.daysLeft) && d.daysLeft >= 0 && d.daysLeft <= 90).length;
   const spreadRows = confirmed.map((d) => pnumN(d.grossSpreadPct)).filter((n) => n != null).sort((a, b) => a - b);
   const mid = spreadRows.length ? Math.floor(spreadRows.length / 2) : -1;
   const medianSpreadPct = mid < 0 ? null : spreadRows.length % 2 ? spreadRows[mid] : (spreadRows[mid - 1] + spreadRows[mid]) / 2;
+  const stages = {
+    rumor: deals.filter((d) => d.stage === "rumor").length,
+    activeTalks: deals.filter((d) => d.stage === "active_talks").length,
+    announced: deals.filter((d) => d.stage === "announced").length,
+    regulatoryVote: deals.filter((d) => d.stage === "regulatory_vote").length,
+    expectedClose: deals.filter((d) => d.stage === "expected_close").length,
+  };
   return {
     builtAtIso,
     stale: confirmedStale && !confirmed.length,
     sourceStatus: { confirmedStale, rumorsStale },
-    summary: { pending: confirmed.length, rumored: rumors.length, close90, medianSpreadPct },
+    summary: { pending: confirmed.length, rumored: rumors.length, close90, medianSpreadPct, stages },
     deals,
     methodology: {
       equityValue: "Estimated equity purchase value = consideration per share × current implied shares outstanding; not enterprise value.",
       rumors: "Headline-sourced rumors are shown separately. Missing terms and close dates stay undisclosed; no values are invented.",
+      stagePolicy: "Stages are evidence labels, not completion probabilities: rumor, reported active talks, definitive agreement, regulatory/vote pending, and expected close.",
+      coverage: "Coverage count is the number of distinct linked publishers found in the recent coverage window, including the cited deal source. It is not a probability.",
       confirmedSource: PENDING_BUYOUTS_URL,
       rumorSource: "Yahoo Finance news search",
     },
