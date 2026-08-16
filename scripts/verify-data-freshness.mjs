@@ -58,6 +58,7 @@ const BAKE_STAMPED_FILES = [
   "iv-trending.json",
   "quant.json",
   "news-feed.json",
+  "pending-buyouts.json",
   "13f.json",
 ];
 
@@ -101,6 +102,7 @@ const BAKE_REQUIRED_REWRITTEN_FILES = [
   "market-analysis.json",
   "market-structure.json",
   "news-feed.json",
+  "pending-buyouts.json",
   "pick-thesis-cache.json",
   "picks-accuracy.json",
   "picks-changes.json",
@@ -135,6 +137,7 @@ const CONTEXT_CAN_BE_EXPLICITLY_STALE = [
   "accelerator-prices.json",
   "commodities.json",
   "ipo-credit.json",
+  "pending-buyouts.json",
   "spillover-pairs.json",
 ];
 

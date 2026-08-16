@@ -24,6 +24,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Added
 
+- **Events adds a Pending Buyouts tracker.** The public desk separates signed/announced transactions from headline rumors, shows buyer and target, consideration per share, current target price, gross spread, expected close, and a clearly labeled estimated equity purchase value, with source links, independent last-good lanes, search/filter/sort controls, and no invented terms for rumors. `scripts/{build,pending-buyouts-smoke,verify-data-freshness}.mjs`, `scripts/render/{app-js,html,styles-css}.mjs`, `app.js`, `index.html`, `styles.css`, `docs/site-logic.md`.
+
 - **Commodities adds Gold and Silver.** The free desk now tracks COMEX gold and silver futures as a dedicated Precious metals sleeve, with daily 1-day/7-day/30-day moves, 3-month/6-month/1-year comparisons, sparklines, source disclosure, metals-specific trade-posture guidance, and linked ETF/miner handoffs. (#608) `scripts/{build,commodities-smoke}.mjs`, `scripts/render/{app-js,html}.mjs`, `app.js`, `index.html`.
 
 ### Changed

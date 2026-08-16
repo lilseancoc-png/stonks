@@ -12472,6 +12472,353 @@ async function writeIpoCreditFile(builtAtIso, prior = null, priorCapitalRaises =
   };
 }
 
+// === Pending buyouts tracker (data/pending-buyouts.json) ===================
+//
+// Confirmed transactions come from ditat.io's active merger-arb table. Its
+// cited source URL is retained per deal so the UI never asks a trader to trust
+// an unlabeled row; sources can be filings, issuer releases, or deal reporting. Yahoo
+// quotes add a current target price, currency and an ESTIMATED equity purchase
+// value: current market cap × consideration/share ÷ current share price. That
+// is explicitly an equity-value estimate, not enterprise value.
+//
+// Rumors are intentionally a separate, lower-confidence lane. Yahoo Finance's
+// news search supplies timestamped headlines + related tickers; conservative
+// title parsing keeps only rows where the public target can be identified.
+// Rumors never manufacture offer terms or a closing date. Both lanes carry
+// last-good data independently across a source outage.
+const PENDING_BUYOUTS_FILE = "pending-buyouts.json";
+const PENDING_BUYOUTS_URL = "https://www.ditat.io/merger-arb";
+const BUYOUT_RUMOR_LOOKBACK_DAYS = 60;
+const BUYOUT_QUOTE_BATCH = 40;
+
+function buyoutCleanCell(html) {
+  return decodeHtmlEntities(String(html || "").replace(/<[^>]+>/g, " "))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buyoutNumber(value) {
+  const clean = String(value || "").replace(/[^0-9.+-]/g, "");
+  const n = Number(clean);
+  return Number.isFinite(n) ? n : null;
+}
+
+function buyoutCloseIso(label) {
+  const raw = String(label || "").trim();
+  if (!raw || raw === "—") return null;
+  const ms = Date.parse(raw + (/[TzZ]|\d{2}:\d{2}/.test(raw) ? "" : " 12:00:00 UTC"));
+  return Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 10) : null;
+}
+
+export function parsePendingBuyoutTable(html) {
+  const body = (String(html || "").match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i) || [])[1] || "";
+  const rows = [];
+  for (const rowM of body.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
+    const cells = [...rowM[1].matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map((m) => m[1]);
+    if (cells.length < 10) continue;
+    const ticker = buyoutCleanCell(cells[0]).replace(/[✓›]/g, "").trim().toUpperCase();
+    if (!/^[A-Z0-9][A-Z0-9.-]{0,11}$/.test(ticker)) continue;
+    const href = (cells[0].match(/href=["']([^"']+)["']/i) || [])[1] || null;
+    const target = buyoutCleanCell(cells[1]);
+    const acquirer = buyoutCleanCell(cells[2]);
+    const dealType = buyoutCleanCell(cells[3]).toLowerCase();
+    const targetPrice = buyoutNumber(buyoutCleanCell(cells[4]));
+    const considerationPerShare = buyoutNumber(buyoutCleanCell(cells[5]));
+    const grossSpreadPct = buyoutNumber(buyoutCleanCell(cells[6]));
+    const annualizedSpreadPct = buyoutNumber(buyoutCleanCell(cells[7]));
+    const daysLeft = buyoutNumber(buyoutCleanCell(cells[8]));
+    const expectedCloseLabel = buyoutCleanCell(cells[9]);
+    if (!target || !acquirer || !(considerationPerShare > 0)) continue;
+    rows.push({
+      id: `confirmed:${ticker}`,
+      status: "pending",
+      target,
+      targetTicker: ticker,
+      acquirer,
+      dealType: ["cash", "stock", "mixed", "special"].includes(dealType) ? dealType : "other",
+      targetPrice,
+      considerationPerShare,
+      considerationKind: dealType === "cash" ? "fixed cash offer" : "current implied consideration",
+      grossSpreadPct,
+      annualizedSpreadPct,
+      daysLeft,
+      expectedCloseAt: buyoutCloseIso(expectedCloseLabel),
+      expectedCloseLabel: expectedCloseLabel && expectedCloseLabel !== "—" ? expectedCloseLabel : null,
+      verifiedTerms: /verified/i.test(cells[0]) || /✓/.test(buyoutCleanCell(cells[0])),
+      sourceUrl: href,
+      sourceName: href && /sec\.gov/i.test(href) ? "SEC filing" : "Referenced deal source",
+    });
+  }
+  return rows;
+}
+
+async function fetchBuyoutQuotes(symbols) {
+  const syms = [...new Set((symbols || []).map((s) => String(s || "").trim().toUpperCase()).filter((s) => /^[A-Z0-9][A-Z0-9.^=-]{0,14}$/.test(s)))];
+  const out = {};
+  for (let i = 0; i < syms.length; i += BUYOUT_QUOTE_BATCH) {
+    const batch = syms.slice(i, i + BUYOUT_QUOTE_BATCH);
+    try {
+      const got = await yahooFinance.quote(batch, {
+        fields: ["symbol", "quoteType", "shortName", "longName", "regularMarketPrice", "marketCap", "currency", "exchange"],
+      }, { validateResult: false });
+      const list = Array.isArray(got) ? got : got ? [got] : [];
+      for (const q of list) {
+        const symbol = String(q?.symbol || "").toUpperCase();
+        if (!symbol) continue;
+        out[symbol] = {
+          symbol,
+          quoteType: q.quoteType || null,
+          name: q.longName || q.shortName || symbol,
+          price: pnumN(q.regularMarketPrice),
+          marketCap: pnumN(q.marketCap),
+          currency: q.currency || "USD",
+          exchange: q.exchange || null,
+        };
+      }
+    } catch (err) {
+      console.warn(`    ⚠ pending-buyouts: Yahoo quote batch failed (${err.message})`);
+    }
+  }
+  return out;
+}
+
+function enrichConfirmedBuyouts(rows, quotes) {
+  return rows.map((row) => {
+    const quote = quotes?.[row.targetTicker] || null;
+    const currentPrice = pnumN(quote?.price) ?? row.targetPrice ?? null;
+    const marketCap = pnumN(quote?.marketCap);
+    const consideration = pnumN(row.considerationPerShare);
+    const estimatedEquityValue = marketCap > 0 && currentPrice > 0 && consideration > 0
+      ? Math.round(marketCap * (consideration / currentPrice))
+      : null;
+    return {
+      ...row,
+      targetPrice: currentPrice,
+      targetMarketCap: marketCap,
+      currency: quote?.currency || "USD",
+      valueCurrency: quote?.currency === "GBp" ? "GBP" : (quote?.currency || "USD"),
+      estimatedEquityValue,
+      equityValueKind: estimatedEquityValue != null ? "estimated" : null,
+      equityValueMethod: estimatedEquityValue != null
+        ? "consideration per share × current implied shares outstanding"
+        : null,
+    };
+  });
+}
+
+function buyoutWords(text) {
+  return String(text || "").toLowerCase()
+    .replace(/[^a-z0-9 ]/g, " ")
+    .replace(/\b(inc|incorporated|corp|corporation|company|co|plc|ltd|limited|holdings|group|class|the)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buyoutTargetHint(title) {
+  const raw = String(title || "").trim();
+  let m = raw.match(/^Is\s+(.+?)\s+\(([A-Z][A-Z0-9.-]{0,9})\)/);
+  if (m) return { text: m[1], ticker: m[2] };
+  m = raw.match(/\b(?:plans?\s+for|for)\s+([A-Z][A-Z0-9.-]{1,9})\b/i);
+  if (m) return { text: m[1], ticker: m[1] };
+  m = raw.match(/^(.+?)\s+stock\s+(?:surges|jumps|rallies|gains|slides|falls)\b/i);
+  if (m) return { text: m[1], ticker: null };
+  m = raw.match(/^(.+?)\s+(?:surges|jumps|rallies|gains)\b.*\b(?:buyout rumou?rs|takeover talks)/i);
+  if (m) return { text: m[1], ticker: null };
+  m = raw.match(/^(.+?)\s+lands\b.*\bbuyout offer\b/i);
+  if (m) return { text: m[1], ticker: null };
+  m = raw.match(/\btake over\s+(.+?)(?:\s+[—–:-]|[—–:-]|$)/i);
+  if (m) return { text: m[1], ticker: null };
+  m = raw.match(/^(.+?)\s+takeover talks\b/i);
+  if (m) return { text: m[1], ticker: null };
+  return null;
+}
+
+function buyoutBuyerHint(title) {
+  const raw = String(title || "").trim();
+  const patterns = [
+    /^(.+?)[’']s\s+take-private plans?\s+for\b/i,
+    /\b(?:rumou?red|reported)\s+(.+?)\s+takeover talks\b/i,
+    /\bbuyout offer\s+from\s+(.+?)(?:\s+[—–:-]|[—–:-]|$)/i,
+    /^(.+?)\s+makes\b.*\bbid to take over\b/i,
+  ];
+  for (const p of patterns) {
+    const m = raw.match(p);
+    if (m && m[1]) return m[1].trim();
+  }
+  return null;
+}
+
+function matchRumorTarget(hint, relatedTickers, quotes) {
+  const related = (relatedTickers || []).map((s) => String(s || "").toUpperCase()).filter((s) => quotes?.[s]);
+  if (!hint || !related.length) return null;
+  if (hint.ticker) {
+    const exact = related.find((s) => s === String(hint.ticker).toUpperCase());
+    if (exact) return exact;
+  }
+  const want = buyoutWords(hint.text);
+  if (!want) return related.length === 1 ? related[0] : null;
+  let best = null;
+  for (const symbol of related) {
+    const got = buyoutWords(quotes[symbol]?.name || symbol);
+    if (!got) continue;
+    const score = got === want ? 100 : got.includes(want) || want.includes(got) ? 80
+      : got.split(" ").filter((w) => w.length >= 3 && want.split(" ").includes(w)).length * 10;
+    if (!best || score > best.score) best = { symbol, score };
+  }
+  return best && best.score >= 10 ? best.symbol : null;
+}
+
+function buyoutHeadlineValue(title) {
+  const m = String(title || "").match(/\$\s*([0-9]+(?:\.[0-9]+)?)\s*(trillion|billion|million|[TBM])\b/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  const unit = m[2].toLowerCase();
+  const mult = unit === "trillion" || unit === "t" ? 1e12 : unit === "billion" || unit === "b" ? 1e9 : 1e6;
+  return Number.isFinite(n) ? Math.round(n * mult) : null;
+}
+
+export function normalizeBuyoutRumors(news, quotes, builtAtIso) {
+  const nowMs = Date.parse(builtAtIso) || Date.now();
+  const cutoff = nowMs - BUYOUT_RUMOR_LOOKBACK_DAYS * 86400000;
+  const byTarget = new Map();
+  for (const item of news || []) {
+    const title = String(item?.title || "").replace(/\s+/g, " ").trim();
+    const publishedMs = Date.parse(item?.providerPublishTime || "");
+    if (!title || !Number.isFinite(publishedMs) || publishedMs < cutoff || publishedMs > nowMs + 86400000) continue;
+    if (!/(rumou?r|takeover talks|take-private plans?|buyout offer|bid to take over|potential .{0,40} deal|weighs .{0,30} takeover|explor(?:es|ing) .{0,30} sale)/i.test(title)) continue;
+    const hint = buyoutTargetHint(title);
+    const targetTicker = matchRumorTarget(hint, item.relatedTickers, quotes);
+    if (!targetTicker) continue;
+    const q = quotes[targetTicker] || {};
+    if (q.quoteType && !["EQUITY", "ETF"].includes(String(q.quoteType).toUpperCase())) continue;
+    const buyer = buyoutBuyerHint(title);
+    const headlineValue = buyoutHeadlineValue(title);
+    const row = {
+      id: `rumor:${targetTicker}`,
+      status: "rumored",
+      target: q.name || hint?.text || targetTicker,
+      targetTicker,
+      acquirer: buyer || "Undisclosed / reported interest",
+      dealType: "rumor",
+      targetPrice: pnumN(q.price),
+      targetMarketCap: pnumN(q.marketCap),
+      currency: q.currency || "USD",
+      valueCurrency: q.currency === "GBp" ? "GBP" : (q.currency || "USD"),
+      considerationPerShare: null,
+      considerationKind: null,
+      estimatedEquityValue: headlineValue,
+      equityValueKind: headlineValue != null ? "reported in headline" : null,
+      equityValueMethod: null,
+      grossSpreadPct: null,
+      annualizedSpreadPct: null,
+      daysLeft: null,
+      expectedCloseAt: null,
+      expectedCloseLabel: null,
+      reportedAtIso: new Date(publishedMs).toISOString(),
+      headline: title,
+      publisher: item.publisher || "Yahoo Finance news source",
+      sourceUrl: item.link || null,
+      sourceName: item.publisher || "Yahoo Finance news source",
+      verifiedTerms: false,
+    };
+    const prev = byTarget.get(targetTicker);
+    if (!prev || Date.parse(prev.reportedAtIso) < publishedMs) byTarget.set(targetTicker, row);
+  }
+  return [...byTarget.values()].sort((a, b) => String(b.reportedAtIso).localeCompare(String(a.reportedAtIso)));
+}
+
+async function fetchConfirmedPendingBuyouts() {
+  const res = await fetch(PENDING_BUYOUTS_URL, {
+    headers: { "user-agent": IC_BROWSER_UA, accept: "text/html,*/*" },
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const rows = parsePendingBuyoutTable(await res.text());
+  if (rows.length < 5) throw new Error(`only ${rows.length} active deal rows parsed`);
+  const quotes = await fetchBuyoutQuotes(rows.map((r) => r.targetTicker));
+  return enrichConfirmedBuyouts(rows, quotes);
+}
+
+async function fetchPendingBuyoutRumors(builtAtIso) {
+  const searches = await Promise.all([
+    "takeover talks",
+    "buyout rumor",
+    "take-private plans",
+  ].map(async (query) => {
+    try {
+      const result = await yahooFinance.search(query, { quotesCount: 0, newsCount: 30, enableFuzzyQuery: false });
+      return Array.isArray(result?.news) ? result.news : [];
+    } catch (err) {
+      console.warn(`    ⚠ pending-buyouts: Yahoo news search '${query}' failed (${err.message})`);
+      return [];
+    }
+  }));
+  const all = searches.flat();
+  if (!all.length) throw new Error("no Yahoo rumor-search results");
+  const related = all.flatMap((n) => Array.isArray(n?.relatedTickers) ? n.relatedTickers : []);
+  const quotes = await fetchBuyoutQuotes(related);
+  return normalizeBuyoutRumors(all, quotes, builtAtIso);
+}
+
+export async function buildPendingBuyoutsPayload(builtAtIso, prior = null) {
+  const priorDeals = Array.isArray(prior?.deals) ? prior.deals : [];
+  let confirmed = [], rumors = [], confirmedStale = false, rumorsStale = false;
+  try {
+    confirmed = await fetchConfirmedPendingBuyouts();
+  } catch (err) {
+    confirmed = priorDeals.filter((d) => d?.status === "pending").map((d) => ({ ...d, stale: true }));
+    confirmedStale = true;
+    console.warn(`    ⚠ pending-buyouts: confirmed feed failed (${err.message})${confirmed.length ? " — carrying last-good" : ""}`);
+  }
+  try {
+    rumors = await fetchPendingBuyoutRumors(builtAtIso);
+  } catch (err) {
+    const cutoff = (Date.parse(builtAtIso) || Date.now()) - BUYOUT_RUMOR_LOOKBACK_DAYS * 86400000;
+    rumors = priorDeals.filter((d) => d?.status === "rumored" && Date.parse(d.reportedAtIso || "") >= cutoff)
+      .map((d) => ({ ...d, stale: true }));
+    rumorsStale = true;
+    console.warn(`    ⚠ pending-buyouts: rumor feed failed (${err.message})${rumors.length ? " — carrying last-good" : ""}`);
+  }
+  const confirmedTickers = new Set(confirmed.map((d) => d.targetTicker));
+  rumors = rumors.filter((d) => !confirmedTickers.has(d.targetTicker));
+  confirmed.sort((a, b) => (a.expectedCloseAt || "9999").localeCompare(b.expectedCloseAt || "9999") || (b.grossSpreadPct || 0) - (a.grossSpreadPct || 0));
+  const deals = [...confirmed, ...rumors];
+  const close90 = confirmed.filter((d) => Number.isFinite(d.daysLeft) && d.daysLeft >= 0 && d.daysLeft <= 90).length;
+  const spreadRows = confirmed.map((d) => pnumN(d.grossSpreadPct)).filter((n) => n != null).sort((a, b) => a - b);
+  const mid = spreadRows.length ? Math.floor(spreadRows.length / 2) : -1;
+  const medianSpreadPct = mid < 0 ? null : spreadRows.length % 2 ? spreadRows[mid] : (spreadRows[mid - 1] + spreadRows[mid]) / 2;
+  return {
+    builtAtIso,
+    stale: confirmedStale && !confirmed.length,
+    sourceStatus: { confirmedStale, rumorsStale },
+    summary: { pending: confirmed.length, rumored: rumors.length, close90, medianSpreadPct },
+    deals,
+    methodology: {
+      equityValue: "Estimated equity purchase value = consideration per share × current implied shares outstanding; not enterprise value.",
+      rumors: "Headline-sourced rumors are shown separately. Missing terms and close dates stay undisclosed; no values are invented.",
+      confirmedSource: PENDING_BUYOUTS_URL,
+      rumorSource: "Yahoo Finance news search",
+    },
+  };
+}
+
+async function readPriorPendingBuyouts() {
+  try { return JSON.parse(await readFile(resolve(DATA_DIR, PENDING_BUYOUTS_FILE), "utf8")); } catch { return null; }
+}
+
+async function writePendingBuyoutsFile(builtAtIso, prior = null) {
+  const payload = await buildPendingBuyoutsPayload(builtAtIso, prior);
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, PENDING_BUYOUTS_FILE), json, "utf8");
+  return {
+    bytes: json.length,
+    pending: payload.summary.pending,
+    rumored: payload.summary.rumored,
+    close90: payload.summary.close90,
+    stale: payload.stale,
+  };
+}
+
 // === FOMC meeting schedule (multi-year baseline) =====================
 // Published once a year by the Federal Reserve at
 // federalreserve.gov/monetarypolicy/fomccalendars.htm. We hardcode a
@@ -34299,6 +34646,9 @@ async function main() {
   // the quarterly NY Fed household-credit parse, so it must be pre-read
   // before the wipe like the other cross-build histories.
   const priorIpoCredit = await readPriorIpoCredit();
+  // Pending-buyout terms and rumor rows have independent last-good lanes, so
+  // snapshot the prior payload before writeChainFiles replaces data/.
+  const priorPendingBuyouts = await readPriorPendingBuyouts();
   // Prior earnings-tracker snapshot — the season scoreboard is rebuilt from the
   // earnings-history store every bake, while its AI read is reused only when
   // the complete evidence/model/prompt signature is unchanged.
@@ -34708,6 +35058,14 @@ async function main() {
     console.log(`wrote data/ipo-credit.json — ${icInfo.ipoCount ?? "?"} IPOs this quarter, ${icInfo.secQuarters} EDGAR quarters, ${icInfo.bondMonths} bond months, ${icInfo.universeEvents} universe events, NY Fed ${icInfo.nyfedQuarter ?? "n/a"}, ${icInfo.bytes} bytes${icInfo.staleSections.length ? ` [stale: ${icInfo.staleSections.join(",")}]` : ""}`);
   } catch (err) {
     console.log(`  ⚠ IPOs & Credit step failed (non-fatal): ${err.message}`);
+  }
+  // Public pending-buyout calendar: active filed/announced deals plus a
+  // separately labeled headline-rumor lane. Missing rumor terms stay blank.
+  try {
+    const buyoutInfo = await writePendingBuyoutsFile(builtAtIso, priorPendingBuyouts);
+    console.log(`wrote data/${PENDING_BUYOUTS_FILE} — ${buyoutInfo.pending} pending, ${buyoutInfo.rumored} rumored, ${buyoutInfo.close90} closing within 90d, ${buyoutInfo.bytes} bytes${buyoutInfo.stale ? " [stale — kept last-good]" : ""}`);
+  } catch (err) {
+    console.log(`  ⚠ Pending buyouts step failed (non-fatal): ${err.message}`);
   }
   await writeTrendFiles({
     narratives: trends.narratives,

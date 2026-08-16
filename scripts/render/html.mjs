@@ -714,6 +714,30 @@ function ipoCreditSection() {
   </section>`;
 }
 
+function pendingBuyoutsSection() {
+  return `<section class="card" id="pending-buyouts-section">
+    <header class="card-header">
+      <h2 class="card-title">Pending buyouts</h2>
+      <span class="card-eyebrow" id="pending-buyouts-eyebrow" aria-live="polite"></span>
+    </header>
+    ${infoNote('How to use the buyout tracker', `<p><b>Pending</b> means a transaction has announced or filed terms; <b>rumored</b> means a news report points to talks or interest but no signed agreement is confirmed. For cash deals, consideration per share is the stated offer. For stock and mixed deals it is the latest implied value and can move with the buyer&rsquo;s shares. <b>Estimated equity value</b> multiplies consideration per share by the target&rsquo;s current implied shares outstanding; it is an estimate of the purchase equity value, not enterprise value. Missing rumor terms and close dates remain undisclosed. A wide spread can signal return potential, deal risk, changing stock consideration, or stale terms&mdash;never assume it is free money.</p>`)}
+    <div class="pb-summary" id="pending-buyouts-summary" aria-live="polite"></div>
+    <div class="pb-controls" role="toolbar" aria-label="Filter pending buyouts">
+      <label class="pb-search"><span class="sr-only">Search buyouts</span><input id="pending-buyouts-search" type="search" placeholder="Target, ticker, or buyer&hellip;" autocomplete="off" spellcheck="false" /></label>
+      <div class="pb-status-filter" role="radiogroup" aria-label="Filter by deal status">
+        <button type="button" class="pb-pill is-on" data-pb-status="all" role="radio" aria-checked="true">All</button>
+        <button type="button" class="pb-pill" data-pb-status="pending" role="radio" aria-checked="false">Pending</button>
+        <button type="button" class="pb-pill" data-pb-status="rumored" role="radio" aria-checked="false">Rumored</button>
+      </div>
+      <label class="pb-field"><span>Type</span><select id="pending-buyouts-type" aria-label="Filter buyouts by consideration type"><option value="all">All types</option><option value="cash">Cash</option><option value="stock">Stock</option><option value="mixed">Mixed</option><option value="special">Special</option><option value="rumor">Rumor</option></select></label>
+      <label class="pb-field"><span>Sort</span><select id="pending-buyouts-sort" aria-label="Sort pending buyouts"><option value="close">Expected close</option><option value="spread">Largest spread</option><option value="value">Largest equity value</option><option value="latest">Latest rumor</option><option value="alpha">Target A&ndash;Z</option></select></label>
+    </div>
+    <div id="pending-buyouts-root" class="pb-root">Loading pending buyouts&hellip;</div>
+    <div id="pending-buyouts-empty" class="pb-empty" hidden>No deals match these filters.</div>
+    <p class="hint">Confirmed terms come from an active merger-arbitrage feed with a cited source per deal; verify the linked filing, announcement, or report before trading. Rumors are headline-sourced and can be denied, expire, or change without notice. Refreshed by the scheduled full build. Not financial advice.</p>
+  </section>`;
+}
+
 function spilloverSection() {
   // Card chrome only — content renders client-side from data/spillover-pairs.json,
   // lazy-fetched on first tab activation by loadSpillover() in app.js. The Event
@@ -1785,6 +1809,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <summary class="side-nav-group-label">Events</summary>
     <div class="side-nav-group-items">
       ${sideNavItem('calendar', 'Calendar')}
+      ${sideNavItem('pending-buyouts', 'Pending buyouts')}
       ${sideNavItem('earnings', 'Earnings tracker')}
       ${sideNavItem('calls', 'Earnings calls')}
     </div>
@@ -2123,6 +2148,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-calendar" role="tabpanel" aria-labelledby="page-tab-calendar" hidden>
   ${calendarSection()}
+  </div>
+  <div class="page-pane" id="page-pane-pending-buyouts" role="tabpanel" aria-labelledby="page-tab-pending-buyouts" hidden>
+  ${pendingBuyoutsSection()}
   </div>
   <div class="page-pane" id="page-pane-earnings" role="tabpanel" aria-labelledby="page-tab-earnings" hidden>
   ${earningsTrackerSection()}

@@ -3378,7 +3378,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','rotation','picks','stocks','heatmap','calendar','earnings','calls','spillover','quant','daytrade','daytrack','levetf','index-cal','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','rotation','picks','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','daytrade','daytrack','levetf','index-cal','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3409,6 +3409,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     gex: 'oi', gamma: 'oi', 'gamma-exposure': 'oi',
     'earnings-tracker': 'earnings', 'earnings-season': 'earnings', season: 'earnings', eps: 'earnings',
     'earnings-calls': 'calls', 'earnings-call': 'calls', transcripts: 'calls', transcript: 'calls', call: 'calls',
+    'pending-buyouts': 'pending-buyouts', buyouts: 'pending-buyouts', buyout: 'pending-buyouts', mergers: 'pending-buyouts', acquisitions: 'pending-buyouts', 'merger-arb': 'pending-buyouts',
     iv: 'iv-trend', 'trending-iv': 'iv-trend', 'iv-trending': 'iv-trend', ivtrend: 'iv-trend', 'implied-vol': 'iv-trend', 'implied-volatility': 'iv-trend',
     'event-spillover': 'spillover', 'read-through': 'spillover', readthrough: 'spillover', 'spill-over': 'spillover', spill: 'spillover',
     'quant-lab': 'quant', quantlab: 'quant', pairs: 'quant', 'pair-trading': 'quant', sigma: 'quant', vrp: 'quant', dispersion: 'quant',
@@ -3753,6 +3754,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (name === 'search-interest' && typeof loadSearchInterest === 'function') loadSearchInterest();
         if (name === 'commodities' && typeof loadCommodities === 'function') loadCommodities();
         if (name === 'capital-raises' && typeof loadCapitalRaises === 'function') loadCapitalRaises();
+        if (name === 'pending-buyouts' && typeof loadPendingBuyouts === 'function') loadPendingBuyouts();
         if (name === 'ipo-credit' && typeof loadIpoCredit === 'function') loadIpoCredit();
         if (name === 'iv-trend' && typeof loadIvTrend === 'function') loadIvTrend();
         if (name === 'spillover' && typeof loadSpillover === 'function') loadSpillover();
@@ -19958,6 +19960,122 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     bindCapitalRaiseActions(root);
   }
 
+  // --- Pending buyouts (Events tab) -----------------------------------------
+  // Confirmed rows are active announced / filed deals with cited sources;
+  // headline rumors remain a separate uncertainty lane with blank terms.
+  var pendingBuyoutsState = { data:null, loading:false, status:'all', type:'all', sort:'close', search:'', bound:false };
+  function pbFmtShare(value, code){
+    if (value == null || !isFinite(value)) return 'Not disclosed';
+    var n = Number(value);
+    if (!code || code === 'USD') return '$' + n.toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 });
+    return escapeHtml(code) + ' ' + n.toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 });
+  }
+  function pbFmtValue(value, code){
+    return value == null || !isFinite(value) ? 'Not disclosed' : escapeHtml(fmtBigCurrency(Number(value), code || 'USD') || 'Not disclosed');
+  }
+  function pbDate(value){
+    var ms = Date.parse(String(value || '') + (/^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) ? 'T12:00:00Z' : ''));
+    if (!isFinite(ms)) return 'No signed timeline';
+    return new Date(ms).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric', timeZone:'UTC' });
+  }
+  function pbMetric(label, value, note, cls){
+    return '<div class="pb-metric' + (cls ? ' ' + cls : '') + '"><span>' + escapeHtml(label) + '</span><b>' + value + '</b>' + (note ? '<small>' + escapeHtml(note) + '</small>' : '') + '</div>';
+  }
+  function pbCard(d){
+    var rumor = d.status === 'rumored';
+    var sym = String(d.targetTicker || '').toUpperCase();
+    var source = d.sourceUrl && /^https?:\/\//i.test(d.sourceUrl)
+      ? '<a class="pb-source" href="' + escapeHtml(d.sourceUrl) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(d.sourceName || 'Source') + ' ↗</a>'
+      : '<span class="pb-source">Source unavailable</span>';
+    var value = d.estimatedEquityValue;
+    var valueLabel = rumor ? (value != null ? 'Reported deal value' : 'Current mkt cap ref') : 'Est. equity value';
+    var valueShown = value != null ? value : (rumor ? d.targetMarketCap : null);
+    var valueNote = value != null
+      ? (rumor ? 'headline figure; verify terms' : 'share-count estimate; not EV')
+      : (rumor && d.targetMarketCap != null ? 'reference only; no bid value reported' : 'terms unavailable');
+    var close = rumor ? 'No signed timeline' : pbDate(d.expectedCloseAt || d.expectedCloseLabel);
+    var closeNote = rumor ? 'rumor only' : (d.daysLeft != null && isFinite(d.daysLeft) ? Math.max(0, Math.round(d.daysLeft)) + ' days at last build' : 'company guidance');
+    var spread = d.grossSpreadPct != null && isFinite(d.grossSpreadPct) ? Number(d.grossSpreadPct).toFixed(2) + '%' : 'Not available';
+    var headline = rumor && d.headline ? '<p class="pb-headline">' + escapeHtml(d.headline) + '</p>' : '';
+    var stale = d.stale ? '<span class="pb-stale">last-good</span>' : '';
+    return '<article class="pb-card pb-card-' + (rumor ? 'rumored' : 'pending') + '">' +
+      '<header class="pb-card-head"><div class="pb-identity"><a class="pb-sym" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '">' + escapeHtml(sym || '?') + '</a><div><h3>' + escapeHtml(d.target || sym || 'Target') + '</h3><p><b>' + escapeHtml(d.acquirer || 'Buyer undisclosed') + '</b> <span aria-hidden="true">→</span> ' + escapeHtml(d.target || sym || 'target') + '</p></div></div>' +
+      '<div class="pb-badges"><span class="pb-status pb-status-' + (rumor ? 'rumored' : 'pending') + '">' + (rumor ? 'Rumored' : 'Pending') + '</span><span class="pb-type">' + escapeHtml(rumor ? 'terms unconfirmed' : (d.dealType || 'deal')) + '</span>' + stale + '</div></header>' +
+      headline +
+      '<div class="pb-metrics">' +
+        pbMetric(rumor ? 'Offer / share' : 'Consideration / share', pbFmtShare(d.considerationPerShare, d.currency), rumor ? 'not published' : (d.considerationKind || 'latest terms')) +
+        pbMetric(valueLabel, pbFmtValue(valueShown, d.valueCurrency || d.currency), valueNote, value != null ? 'pb-metric-value' : '') +
+        pbMetric('Expected close', escapeHtml(close), closeNote) +
+        pbMetric('Target price', pbFmtShare(d.targetPrice, d.currency), 'latest build quote') +
+        pbMetric('Gross spread', escapeHtml(spread), rumor ? 'cannot compute without terms' : 'offer value vs target price', d.grossSpreadPct >= 10 ? 'pb-metric-wide' : '') +
+      '</div>' +
+      '<footer class="pb-card-foot"><span>' + escapeHtml(rumor ? ('Reported ' + pbDate(d.reportedAtIso)) : (d.verifiedTerms ? 'Terms source linked' : 'Verify full terms')) + '</span>' + source + '</footer>' +
+    '</article>';
+  }
+  function pbBindControls(){
+    if (pendingBuyoutsState.bound) return;
+    pendingBuyoutsState.bound = true;
+    var search = $('pending-buyouts-search'), type = $('pending-buyouts-type'), sort = $('pending-buyouts-sort');
+    if (search) search.addEventListener('input', debounce(function(){ pendingBuyoutsState.search = String(search.value || '').trim().toLowerCase(); renderPendingBuyouts(); }, 120));
+    if (type) type.addEventListener('change', function(){ pendingBuyoutsState.type = type.value || 'all'; renderPendingBuyouts(); });
+    if (sort) sort.addEventListener('change', function(){ pendingBuyoutsState.sort = sort.value || 'close'; renderPendingBuyouts(); });
+    var pills = document.querySelectorAll('[data-pb-status]');
+    Array.prototype.forEach.call(pills, function(btn){
+      btn.addEventListener('click', function(){
+        pendingBuyoutsState.status = btn.getAttribute('data-pb-status') || 'all';
+        Array.prototype.forEach.call(pills, function(p){ var on = p === btn; p.classList.toggle('is-on', on); p.setAttribute('aria-checked', on ? 'true' : 'false'); });
+        renderPendingBuyouts();
+      });
+    });
+  }
+  function loadPendingBuyouts(){
+    if ((pendingBuyoutsState.data && !pendingBuyoutsState.data.loadError) || pendingBuyoutsState.loading){ renderPendingBuyouts(); return; }
+    pendingBuyoutsState.loading = true;
+    fetch(dataUrl('pending-buyouts.json'), { cache:'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){ pendingBuyoutsState.data = j && typeof j === 'object' ? j : {}; pendingBuyoutsState.loading = false; renderPendingBuyouts(); })
+      .catch(function(){ pendingBuyoutsState.data = { loadError:true, deals:[] }; pendingBuyoutsState.loading = false; renderPendingBuyouts(); });
+  }
+  function renderPendingBuyouts(){
+    var root = $('pending-buyouts-root'), empty = $('pending-buyouts-empty'), eye = $('pending-buyouts-eyebrow'), summary = $('pending-buyouts-summary');
+    if (!root) return;
+    pbBindControls();
+    var data = pendingBuyoutsState.data;
+    if (!data){ root.textContent = pendingBuyoutsState.loading ? 'Loading pending buyouts…' : 'Open the tab to load pending buyouts.'; return; }
+    if (data.loadError){
+      if (eye) eye.textContent = 'load unavailable';
+      if (summary) summary.innerHTML = '';
+      if (empty) empty.hidden = true;
+      root.innerHTML = '<div class="pb-load-error"><b>Buyout data could not load.</b><span>Do not infer that there are no pending deals. Verify current terms through company filings while the feed recovers.</span></div>';
+      return;
+    }
+    var all = Array.isArray(data.deals) ? data.deals.slice() : [];
+    var s = data.summary || {}, flags = data.sourceStatus || {};
+    if (eye) eye.textContent = (data.stale ? 'last-good · ' : '') + (s.pending || 0) + ' pending · ' + (s.rumored || 0) + ' rumored';
+    if (summary) summary.innerHTML =
+      '<div><span>Pending deals</span><b>' + Number(s.pending || 0).toLocaleString() + '</b><small>' + (flags.confirmedStale ? 'last-good source' : 'active terms feed') + '</small></div>' +
+      '<div><span>Rumor watch</span><b>' + Number(s.rumored || 0).toLocaleString() + '</b><small>' + (flags.rumorsStale ? 'last-good headlines' : 'separate from signed deals') + '</small></div>' +
+      '<div><span>Closing ≤90d</span><b>' + Number(s.close90 || 0).toLocaleString() + '</b><small>company-guided dates</small></div>' +
+      '<div><span>Median gross spread</span><b>' + (s.medianSpreadPct == null ? '—' : Number(s.medianSpreadPct).toFixed(2) + '%') + '</b><small>not a close probability</small></div>';
+    var q = pendingBuyoutsState.search;
+    all = all.filter(function(d){
+      if (pendingBuyoutsState.status !== 'all' && d.status !== pendingBuyoutsState.status) return false;
+      if (pendingBuyoutsState.type !== 'all' && String(d.dealType || '') !== pendingBuyoutsState.type) return false;
+      if (!q) return true;
+      return [d.targetTicker,d.target,d.acquirer,d.headline,d.dealType].join(' ').toLowerCase().indexOf(q) >= 0;
+    });
+    all.sort(function(a,b){
+      if (pendingBuyoutsState.sort === 'spread') return Number(b.grossSpreadPct == null ? -Infinity : b.grossSpreadPct) - Number(a.grossSpreadPct == null ? -Infinity : a.grossSpreadPct);
+      if (pendingBuyoutsState.sort === 'value') return Number(b.estimatedEquityValue || 0) - Number(a.estimatedEquityValue || 0);
+      if (pendingBuyoutsState.sort === 'latest') return String(b.reportedAtIso || '').localeCompare(String(a.reportedAtIso || '')) || String(a.expectedCloseAt || '9999').localeCompare(String(b.expectedCloseAt || '9999'));
+      if (pendingBuyoutsState.sort === 'alpha') return String(a.target || a.targetTicker || '').localeCompare(String(b.target || b.targetTicker || ''));
+      return String(a.expectedCloseAt || '9999').localeCompare(String(b.expectedCloseAt || '9999')) || Number(b.grossSpreadPct || 0) - Number(a.grossSpreadPct || 0);
+    });
+    root.innerHTML = all.map(pbCard).join('');
+    if (empty) empty.hidden = all.length > 0;
+    bindBriefChips(root);
+  }
+
   // --- IPOs & Credit (Macro tab) --------------------------------------------
   // data/ipo-credit.json — quarterly IPO counts (stockanalysis.com calendar),
   // market-wide SEC EDGAR raise-filing counts (424B4/424B5) + the tracked-
@@ -25088,7 +25206,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // Stock Picks card + DCA symbols, Trending-IV symbols/chips/table rows).
   function bindBriefChips(rootEl){
     if (!rootEl) return;
-    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .news-feed-sym[data-sym], .stk-sym[data-sym], .stk-dca-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym], .cmd-watch[data-sym], .cr-tkr[data-sym], .f13-sym[data-sym], .ers-sym[data-sym], .ecl-sym[data-sym], .spill-sym[data-sym], .quant-sym[data-sym], .rot-sym[data-sym], .rot-fund-link[data-sym], .lev-sym[data-sym]');
+    var chips = rootEl.querySelectorAll('.brief-chip[data-sym], .news-feed-sym[data-sym], .stk-sym[data-sym], .stk-dca-sym[data-sym], .ivt-sym[data-sym], .ivt-sum-chip[data-sym], .ivt-trow-symbtn[data-sym], .cmd-watch[data-sym], .cr-tkr[data-sym], .pb-sym[data-sym], .f13-sym[data-sym], .ers-sym[data-sym], .ecl-sym[data-sym], .spill-sym[data-sym], .quant-sym[data-sym], .rot-sym[data-sym], .rot-fund-link[data-sym], .lev-sym[data-sym]');
     for (var i = 0; i < chips.length; i++){
       chips[i].addEventListener('click', function(ev){
         // Modified clicks fall through to the browser so the ?s= href opens
