@@ -81,13 +81,15 @@ per-ticker AI news takes, persisted to `data/trends.json`, with a rolling
 ## How it updates
 
 `.github/workflows/daily.yml` runs `node scripts/build.mjs` on a schedule.
-Timing is driven by cron-job.org (two jobs that POST the `workflow_dispatch`
+Timing is driven by cron-job.org (ET-aware jobs that POST the `workflow_dispatch`
 endpoint), which runs in ET so daylight saving is handled for us:
 
-- **9:30 ET weekdays** — at the market open.
-- **Hourly 10:00–14:00, then 15:30 and 16:00 ET weekdays** — through the trading day to the close. Top Picks runs only at 11:00 and 15:30 ET.
+- **08:30 ET weekdays** — lightweight pre-market Brief only.
+- **10:00, 11:00, 13:30, 15:30, and 16:10 ET weekdays** — decision-grade full builds after the opening auction, through the verified close.
+- **11:00 and 15:30 ET weekdays** — Top Picks, chart vision, Stock Picks, Sector Rotation, and Leveraged ETFs recompute; the other full builds carry those coherent decisions forward.
+- **11:00, 13:30, and 16:10 ET weekdays** — in-session/closing Brief refreshes.
 
-That's eight runs per trading day.
+That's five full builds plus the lightweight pre-market Brief per trading day.
 
 The weekly Alt Data workflow runs once Friday at 11:30 ET and refreshes Search
 Interest, RAM prices, and GPU-cloud prices together.

@@ -38,6 +38,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - **Narratives no longer exposes an owner-only destination.** Current, stale, and unavailable narrative states omit the Market Analysis action; Heatmap remains the public fallback when no current story is actionable. (#611) `scripts/render/app-js.mjs`, `scripts/render-smoke.mjs`, `app.js`.
 
+### Perf
+
+- **The production cadence now aligns expensive decisions with useful evidence windows.** Full builds move from eight session runs to 10:00, 11:00, 13:30, 15:30, and 16:10 ET, eliminating the unreliable opening-auction bake and capturing the completed close. Top Picks, chart vision, Stock Picks, Sector Rotation, and Leveraged ETFs recompute together at 11:00 and 15:30 while other builds restore their exact prior payloads and ledgers; Briefs refresh at 08:30, 11:00, 13:30, and 16:10. The OI desk now labels its 08:30 pass as settled T+1 OI/ΔOI and its 17:00 pass as completed-session volume/positioning rather than implying new same-day OI. `.github/workflows/{daily,close-bake-fallback,oi-tracker}.yml`, `scripts/{build,scan-oi,ai-cost-smoke,verify-data-freshness,render-smoke}.mjs`, `scripts/render/{app-js,html}.mjs`, `README.md`, `docs/{site-logic,private-data-migration}.md`.
+
 ## 2026-08-15
 
 ### Changed

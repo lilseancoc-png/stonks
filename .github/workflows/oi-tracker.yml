@@ -11,7 +11,9 @@ name: Near-term OI tracker
 # Scheduling is handled externally by cron-job.org, which POSTs to the
 # workflow_dispatch endpoint twice on weekdays:
 #   • Pre-market scan ~08:30 America/New_York (1h before the bell)
-#   • EOD scan      ~19:00 America/New_York (3h after the close)
+#   • EOD positioning scan ~17:00 America/New_York (1h after the close).
+#     This refreshes completed-session volume/Vol-OI context; OI and ΔOI remain
+#     the settled T+1 observation from the morning until the next pre-market run.
 # cron-job.org runs in ET, so it — not this workflow — is the single authority
 # on the ET slots and DST. (A previous in-workflow ET-hour re-check was dead
 # code under a workflow_dispatch-only trigger.)

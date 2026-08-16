@@ -19,7 +19,7 @@
 //     this is when the overnight OI update lands — ΔOI vs the prior
 //     trading-day snapshot reflects the just-closed session's net OI change.
 //     Session volume is 0, so rule 3 of the gamma score can't fire pre-market.
-//   • EOD scan ~19:00 ET (3h after the close). Re-runs mainly to light up the
+//   • EOD scan ~17:00 ET (1h after the close). Re-runs mainly to light up the
 //     volume-based signals (rule 3 needs session volume). Today's trades won't
 //     post to OI until tomorrow's T+1 update, so this scan's ΔOI equals the
 //     morning scan's — it reflects the prior session, NOT today's OI move.
@@ -346,7 +346,7 @@ async function fetchTickerChain(symbol) {
   // settlement OI/volume drive the walls / cpRatio / gamma score. Treat an
   // expiration as live until 16:00 America/New_York (20:00Z under daylight
   // time, 21:00Z under standard time) — the pre-market scan keeps today's
-  // chain, the EOD scan (~19:00 ET, hours later) correctly drops it.
+  // chain, the EOD scan (~17:00 ET, after the close) correctly drops it.
   const nowSec = Math.floor(Date.now() / 1000);
   const isLiveExpiration = (d) => {
     const ymd = d.toISOString().slice(0, 10);
@@ -593,6 +593,11 @@ async function main() {
   const scannedAt = scannedAtDate.toISOString();
   const todayKey = etDateKey(scannedAt);
   const scanType = classifyScan(scannedAtDate);
+  const scanPurpose = scanType === "premarket"
+    ? "settled-oi"
+    : scanType === "eod"
+      ? "eod-volume-positioning"
+      : "manual";
 
   const history = await loadOiHistory();
   const prevSnap = findPreviousDaySnapshot(history, todayKey);
@@ -760,6 +765,11 @@ async function main() {
   const payload = {
     scannedAt,
     scanType,
+    scanPurpose,
+    // Providers publish open interest as a settled T+1 field. The evening
+    // pass refreshes session volume/Vol-OI context, not today's net new OI.
+    deltaOiFresh: scanType === "premarket",
+    sessionVolumeFresh: scanType === "eod",
     etDate: todayKey,
     baselineEtDate,
     marketState: firstMarketState,
@@ -784,6 +794,7 @@ async function main() {
     scannedAt,
     etDate: todayKey,
     scanType,
+    scanPurpose,
     contracts: historyContracts,
   });
   history.snapshots = history.snapshots.slice(-HISTORY_MAX_SNAPSHOTS);

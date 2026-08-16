@@ -345,7 +345,7 @@ The repo's storage model is `data/*.json` in the private store (R2), pushed/pull
 - **`data/spillover-pairs.json`** (the matrix substrate): per
   `(driver, follower, sector, asof_date, engine)` row — `beta, beta_shrunk, r2, t_stat_nw,
   n, hit_rate, avg_realized_move, priced_move, edge, lag, is_residual`, plus the pooled
-  sector beta + shrinkage weight. Recomputed **once per ET day** inside the 8×/day bake
+  sector beta + shrinkage weight. Recomputed **once per ET day** inside the scheduled bake
   (the `grades-daily.json` upsert pattern), rolling window = "current regime".
 - **`data/spillover-log.json`** (event + forward-validation log, accumulating): events
   `(driver, event_date, session, isolation_status, isolation_reason)` and per-event

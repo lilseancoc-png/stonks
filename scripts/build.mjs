@@ -8338,7 +8338,7 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
   // Per-name summarize-FAILURE cooldown (the AI-side sibling of the probe
   // cooldown): a name whose summary failed on CONTENT (MAX_TOKENS runaway,
   // truncated/malformed JSON) is stamped with the ET day and skipped from
-  // discovery for the rest of it — one retry per day, not one per bake (8×/day
+  // discovery for the rest of it — one retry per day, not one per bake
   // on the priciest model, plus a wasted TRANSCRIPTS_PER_BUILD slot each time).
   // Only today's stamps are carried, so the map self-prunes on the date roll.
   const fails = {};
@@ -28459,7 +28459,7 @@ const AI_SIGNALS_COMBINED = process.env.AI_SIGNALS_COMBINED === "1";
 // `explanation` string until it fills maxOutputTokens, truncating the JSON
 // mid-reply (Unterminated-string parse failures whose position scaled with the
 // token cap — 2048→~6.5k chars, 4096→~13.7k). The per-ticker chart-pattern cache
-// fires this ~once/ticker/trading day, so Flash here is cheap. Override with
+// fires only in the two swing-decision windows, so Flash here is bounded. Override with
 // AI_CHART_MODEL (but Flash-Lite is known-broken for it). 3.6 keeps the same
 // full-Flash input price as 3.5, lowers output/thinking price by 16.7%, and is
 // explicitly stronger at chart interpretation. The 2.5 generation was shut
@@ -29118,16 +29118,16 @@ function classifyAiError(err, attempt, model = null) {
 // ───────────────────────────────────────────────────────────────────────────
 // Market brief — ONE rolling digest that summarizes / points out the
 // interesting things happening in the tape. A lightweight 08:30 ET route mints
-// the pre-market morning read; the bake re-mints it hourly from the 9:30 ET
-// open through the 16:00 close.
+// the pre-market morning read; the bake re-mints it at 11:00, 13:30 and 16:10
+// ET.
 // Modeled on the heatmap EOD recap (one Flash-Lite call, JSON schema, minted
-// at most once per ET hour and carried forward on a same-hour re-run), but
+// at most once per configured decision window and carried forward otherwise), but
 // holistic: the brief fuses overnight & foreign moves, the session's breadth +
 // biggest movers, unusual options flow, macro levels (10Y / dollar / VIX),
 // CNN Fear & Greed, and the calendar into a headline +
 // summary + a few highlight bullets. The framing follows the clock: the open
 // build writes a "morning" setup read (overnight/futures context), mid-session
-// builds an "intraday" where-the-tape-stands read, and the 16:00+ build the
+// builds an "intraday" where-the-tape-stands read, and the 16:10 build the
 // "afternoon" closing read. Written to data/briefs.json ({ current }),
 // rendered on the Brief tab. Self-skips without GEMINI_API_KEY; a keyless
 // build still carries forward a same-policy brief a prior keyed build produced
@@ -33433,22 +33433,17 @@ async function generateChartPattern(ai, symbol, spot, bars, opts = {}) {
 // { [sym]: { key, barsSig, pattern } }.
 const CHART_PATTERN_CACHE_FILE = "chart-pattern-cache.json";
 
-// Re-rate the 1-month INTRADAY pattern once per trading day, beginning at noon
-// ET, and reuse the cached read otherwise. Intraday bars change every 30 min, so
-// keying on the bar signature would re-call the model on every build (8×/day).
-// The noon gate avoids paying for a thin 09:30 chart and cuts the former AM/PM
-// cadence in half. Later changed-bar builds retain the prior read as explicitly
-// stale display context only. Exact frozen bars remain decision-eligible.
+// Re-rate the 1-month INTRADAY pattern in the two Top Picks decision windows
+// (11:00 AM bucket and 15:30 PM bucket) and reuse the cached read otherwise.
+// Intraday bars change every 30 min, so keying on the bar signature would call
+// the model on every build. Changed-bar off-cadence builds retain the prior read
+// as explicitly stale display context only. Exact frozen bars remain eligible.
 // The same key string is used for every ticker in a given build, so a hit just
-// means "this ticker was already read today". `img7` adds the noon-only cadence
-// while retaining automatic model/prompt/schema identity and stale-decision
-// quarantine; older verdicts cold-start once.
-const CHART_PATTERN_CACHE_VERSION = "img7";
-const chartPatternRefreshHourRaw = Number(process.env.AI_CHART_REFRESH_HOUR_ET ?? 12);
-const CHART_PATTERN_REFRESH_HOUR_ET = Math.min(
-  23,
-  Math.max(0, Number.isFinite(chartPatternRefreshHourRaw) ? Math.trunc(chartPatternRefreshHourRaw) : 12),
-);
+// means "this ticker was already read in this decision bucket". `img8` aligns
+// the pass with the two Top Picks runs while retaining automatic
+// model/prompt/schema identity and stale-decision quarantine; older verdicts
+// cold-start once.
+const CHART_PATTERN_CACHE_VERSION = "img8";
 
 export function chartPatternInstructionSignature() {
   return createHash("sha256")
@@ -33465,15 +33460,26 @@ export function chartPatternInstructionSignature() {
     .slice(0, 16);
 }
 
-export function chartPatternRefreshState(now = new Date()) {
+export function chartPatternRefreshState(now = new Date(), opts = {}) {
   const etDate = now.toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // YYYY-MM-DD
-  const etHour = Number(now.toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }));
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(now).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  const etHour = Number(parts.hour) % 24;
+  const etMinute = Number(parts.minute);
+  const decisionRun = opts.decisionRun ?? !/^(?:0|false)$/i.test(process.env.REFRESH_TOP_PICKS || "1");
+  const slot = (etHour * 60 + etMinute) >= (15 * 60) ? "pm" : "am";
   return {
-    bucketKey: `${CHART_PATTERN_CACHE_VERSION}|${chartPatternInstructionSignature()}|${etDate}`,
+    bucketKey: `${CHART_PATTERN_CACHE_VERSION}|${chartPatternInstructionSignature()}|${etDate}|${slot}`,
     etDate,
     etHour,
-    refreshHourEt: CHART_PATTERN_REFRESH_HOUR_ET,
-    freshAllowed: etHour >= CHART_PATTERN_REFRESH_HOUR_ET,
+    etMinute,
+    slot,
+    decisionRun: Boolean(decisionRun),
+    freshAllowed: Boolean(decisionRun),
   };
 }
 
@@ -33544,8 +33550,8 @@ async function attachChartPatterns(chains, priorCache = {}) {
   const entries = Object.entries(chains).filter(
     ([, data]) => Array.isArray(data._intraday) && data._intraday.length >= CHART_PATTERN_MIN_BARS,
   );
-  // Cross-build cache keyed on the ET day: the first build at/after the configured
-  // refresh hour re-reads, while earlier builds defer (≈1 read/ticker/day). A
+  // Cross-build cache keyed on the ET date + AM/PM decision bucket. Only a Top
+  // Picks run can re-read; off-cadence builds defer. A
   // second reuse path
   // fires when the bar series itself is unchanged since the cached read
   // (chartPatternBarsSig) — a new bucket over FROZEN bars (weekend / evening /
@@ -33586,7 +33592,7 @@ async function attachChartPatterns(chains, priorCache = {}) {
           ...priorEntry.pattern,
           stale: true,
           staleReason: !refresh.freshAllowed
-            ? `Daily chart refresh waits until ${String(refresh.refreshHourEt).padStart(2, "0")}:00 ET`
+            ? "Chart vision refreshes only with the 11:00 and 15:30 ET Top Picks decision runs"
             : "New intraday bars arrived after the cached chart read",
         },
       };
@@ -33595,8 +33601,8 @@ async function attachChartPatterns(chains, priorCache = {}) {
       reusedStaleContext += 1;
       if (!refresh.freshAllowed) deferred += 1;
     } else if (!refresh.freshAllowed) {
-      // Cold-cache names intentionally remain neutral until the scheduled daily
-      // refresh. Never spend a full-universe vision pass on the thin opening bar.
+      // Cold-cache names intentionally remain neutral until a scheduled Top
+      // Picks decision run. Never spend a full-universe pass off cadence.
       deferred += 1;
     } else {
       toCall.push([sym, data, barsSig]);
@@ -33604,7 +33610,7 @@ async function attachChartPatterns(chains, priorCache = {}) {
   }
   const frozenTag = reusedFrozen ? ` — ${reusedFrozen} of them via unchanged bars` : "";
   const staleTag = reusedStaleContext ? ` — ${reusedStaleContext} display-only after new bars` : "";
-  const deferredTag = deferred ? ` — ${deferred} deferred until ${String(refresh.refreshHourEt).padStart(2, "0")}:00 ET` : "";
+  const deferredTag = deferred ? ` — ${deferred} deferred until the next Top Picks decision run` : "";
   console.log(`Detecting chart patterns (1-month intraday) for ${entries.length} tickers… (${reused} reused${frozenTag}${staleTag}${deferredTag}, ${toCall.length} fresh)`);
   if (toCall.length) {
     const hb = startHeartbeat("chart patterns", toCall.length);
@@ -34903,6 +34909,22 @@ async function main() {
       await readFile(resolve(DATA_DIR, file), "utf8").catch(() => null),
     ]),
   ));
+  // The slower swing desks are decision products, not live tape widgets.
+  // Recompute them only in the same 11:00 / 15:30 ET windows as Top Picks;
+  // every other full build restores the exact prior payload + ledger bytes.
+  const swingDeskCarryFiles = [
+    STOCK_PICKS_FILE,
+    SECTOR_ROTATION_FILE,
+    SECTOR_ROTATION_LOG_FILE,
+    LEVERAGED_ETFS_FILE,
+    LEVERAGED_ETFS_LOG_FILE,
+  ];
+  const swingDeskCarry = Object.fromEntries(await Promise.all(
+    swingDeskCarryFiles.map(async (file) => [
+      file,
+      await readFile(resolve(DATA_DIR, file), "utf8").catch(() => null),
+    ]),
+  ));
   // Same pre-read-before-wipe rule for the grade-change log: data/grades-history.json
   // lives in data/, so snapshot it now and thread it into diffGradesHistory after
   // the wipe, or the change log resets every build.
@@ -34941,10 +34963,11 @@ async function main() {
   // wipes data/ — so without this pre-read the salvage silently never fires and
   // a FRED/BLS outage ships a blank macro calendar. Threaded in via extras.priorCalendar.
   const priorCalendar = await readPriorCalendar();
-  // Prior market brief (rolling hourly digest) — read BEFORE writeChainFiles
-  // wipes data/, so the brief is minted once per ET hour and carried forward
-  // by a same-hour re-run. Threaded into buildMarketBriefs near the end of main().
+  // Prior market brief — read BEFORE writeChainFiles wipes data/. The AI digest
+  // is minted at 08:30, 11:00, 13:30 and 16:10 ET; other full builds restore
+  // the exact prior payload rather than silently restamping old prose.
   const briefsPrev = await readPriorBriefs();
+  const briefsCarry = await readFile(resolve(DATA_DIR, BRIEFS_FILE), "utf8").catch(() => null);
   // Prior free news feed — recent rows carry through a transient RSS outage or
   // keyless build instead of blanking the desk. Fresh raw headlines collected
   // above win during dedup; stories hard-expire inside buildNewsFeedPayload.
@@ -35696,9 +35719,11 @@ async function main() {
   const gradesIndex = buildGradesIndex(chains, scoringNarratives, streaksInfo.map, scoringUnusual, macroBackdrop, scoringVolumeFlags, { builtAtIso, priorGrades: gradesHistoryPrev?.latest ?? null, priorClosed: picksAccuracyPrev?.closed ?? null, ...scannerExtras });
   const gradesInfo = await writeGradesFile(chains, scoringNarratives, builtAtIso, scoringUnusual, macroBackdrop, scoringVolumeFlags, gradesIndex);
   console.log(`wrote data/grades.json — ${gradesInfo.count} tickers, ${gradesInfo.bytes} bytes`);
+  const refreshSwingDesks = !/^(?:0|false)$/i.test(process.env.REFRESH_SWING_DESKS || "1");
+  if (refreshSwingDesks) {
   // Shares-only Stock Picks (premium tab): the deterministic quality-dip
   // screen over the same universe, reusing the grade index just built.
-  // Rebuilt fresh every bake — no cross-build accumulation, no pre-wipe read.
+  // Rebuilt at the two swing-decision windows; other bakes carry exact bytes.
   try {
     const spPayload = buildStockPicks(chains, gradesIndex, builtAtIso);
     // Daily DCA dial (VOO/QQQ) — QQQ bars from the tracked chains, one direct
@@ -35743,7 +35768,7 @@ async function main() {
   }
   // Leveraged ETFs (premium tab): the daily-reset leverage screen — the same
   // grade index mapped onto listed single-stock 2× / sector-index 3× products.
-  // The IDEAS payload rebuilds fresh every bake; the track-record LOG
+  // The IDEAS payload rebuilds in the two swing-decision windows; the track-record LOG
   // accumulates (levLogPrev, pre-wipe read above): one batched Yahoo quote
   // stamps real ETF prices on entries, the reconcile opens/marks/closes them
   // against this bake's ideas, and the payload ships the derived scoreboard.
@@ -35766,6 +35791,15 @@ async function main() {
     console.log(`wrote data/${LEVERAGED_ETFS_FILE} — ${levInfo.ideas} idea(s), ${levInfo.watch} watch row(s), ${levInfo.bytes} bytes; log ${logInfo.open} open / ${logInfo.closed} closed`);
   } catch (err) {
     console.warn(`[levetf] leveraged-etfs skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
+  } else {
+    const missing = swingDeskCarryFiles.filter((file) => !swingDeskCarry[file]);
+    if (missing.length) {
+      throw new Error(`Swing-desk carry-forward is missing prior artifact(s): ${missing.join(", ")}`);
+    }
+    await Promise.all(swingDeskCarryFiles.map((file) =>
+      writeFile(resolve(DATA_DIR, file), swingDeskCarry[file], "utf8")));
+    console.log("carried Stock Picks, Sector Rotation, Leveraged ETFs, and their ledgers forward without a swing decision run");
   }
   // Daily grade snapshot (universe-IC substrate): upsert today's ET row with every
   // name's total, so scripts/diagnose-grade-ic.mjs can measure the grade's forward
@@ -35914,13 +35948,15 @@ async function main() {
   } else {
     console.log(`[picks] carried data/${PICKS_ACCURACY_FILE} and data/picks-open.json forward until the next scheduled Top Picks run`);
   }
-  // Market brief (rolling hourly digest) — after the separate 08:30 ET morning
-  // mint, every hourly bake ships a fresh read and a same-hour re-run carries
-  // the existing one forward. Built from the data already in memory: overnight
+  // Market brief — after the separate 08:30 ET morning mint, the 11:00, 13:30,
+  // and 16:10 full builds ship fresh reads. Other builds restore the exact
+  // prior payload. Built from the data already in memory: overnight
   // correlations, the session's breadth + movers, unusual flow, macro levels,
   // Fear & Greed, and the calendar. Owner-only idea desks are deliberately
   // omitted so their facts never get copied into the public brief payload.
   // Runs BEFORE writeAiUsageState so the brief's token usage is persisted.
+  const refreshBrief = !/^(?:0|false)$/i.test(process.env.REFRESH_BRIEF || "1");
+  if (refreshBrief) {
   try {
     const briefTodayIso = etDateKey();
     // Pure rebuild of the correlations payload (no fetch — reuses the already-
@@ -35962,6 +35998,11 @@ async function main() {
     console.log(`wrote data/${BRIEFS_FILE} — ${briefRes.current ? `${briefRes.kind} brief${briefRes.generated ? " (freshly generated)" : " (carried forward)"}` : "no brief yet"}`);
   } catch (err) {
     console.warn(`[briefs] skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
+  } else {
+    if (!briefsCarry) throw new Error("Brief carry-forward is missing data/briefs.json");
+    await writeFile(resolve(DATA_DIR, BRIEFS_FILE), briefsCarry, "utf8");
+    console.log(`carried data/${BRIEFS_FILE} forward without a Brief decision run`);
   }
   // Straight-news desk — compact, FREE and lazy-loaded. It aggregates the
   // current raw per-ticker RSS/Google results (captured before judgment-cache
