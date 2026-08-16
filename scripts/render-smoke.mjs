@@ -73,6 +73,7 @@ try {
   const appJs = renderAppJs({});
   assert.doesNotMatch(appJs, /class="(?:ptc-regime|ptc-scenario|pick-pillars-regime|pick-scenario-overlay)\b/);
   assert.doesNotMatch(appJs, /function pickRegime(?:GradeNote|OverlayHtml|CompactHtml)\(/);
+  assert.doesNotMatch(appJs, /data-narr-tab="market"/, "Narratives must not link to the owner-only Market Analysis tab");
   assert.match(appJs, /function loadMaTracker\(\)[\s\S]*?ma-tracker\.json/);
   assert.match(appJs, /function maTrackerScore\([\s\S]*?proximity[\s\S]*?approach[\s\S]*?momentum/);
   assert.match(appJs, /name === 'ma-tracker'[\s\S]*?startMaTrackerLive/);
