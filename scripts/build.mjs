@@ -29222,6 +29222,8 @@ const BRIEF_WATCH_EXCLUDE = new Set(["SPY", "QQQ", "IWM", "DIA"]);
 // copying their facts into briefs.json would bypass that access boundary.
 const BRIEF_TOOL_STANDOUT_MAX = 10;
 const BRIEF_TOOL_SOURCES = [
+  { key: "ma-tracker", file: "ma-tracker.json", label: "MA tracker", tab: "ma-tracker", maxAgeHours: 30 },
+  { key: "buyouts", file: "pending-buyouts.json", label: "Pending buyouts", tab: "pending-buyouts", maxAgeHours: 30 },
   { key: "earnings", file: "earnings-tracker.json", label: "Earnings tracker", tab: "earnings", maxAgeHours: 30 },
   { key: "calls", file: "earnings-calls.json", label: "Earnings calls", tab: "calls", maxAgeHours: 30 },
   { key: "spillover", file: "spillover-pairs.json", label: "Event spillover", tab: "spillover", maxAgeHours: 30 },
@@ -29675,7 +29677,49 @@ function briefToolFacts(source, p, kind) {
     facts.push({ source: source.label, tab: source.tab, text: clean, importance, tone, symbols: symbols.filter(Boolean).slice(0, 4) });
   };
 
-  if (source.key === "market") {
+  if (source.key === "ma-tracker") {
+    const statusRank = { likely: 2, building: 1, watch: 0 };
+    const candidates = [
+      ...(p.summary?.topAbove || []),
+      ...(p.summary?.topBelow || []),
+    ].filter((row) => row?.symbol && Number.isFinite(Number(row.score)))
+      .sort((a, b) => (statusRank[b.status] || 0) - (statusRank[a.status] || 0) || Number(b.score) - Number(a.score));
+    const lead = candidates.find((row) => row.status === "likely" || row.status === "building");
+    if (lead) {
+      const cross = lead.direction === "below" ? "below" : "above";
+      const side = cross === "above" ? "below" : "above";
+      add(`${lead.symbol} has the strongest moving-average watch: ${Number(lead.absDistancePct).toFixed(2)}% ${side} its ${lead.period}-day average, ${lead.status} cross ${cross}, priority ${Math.round(Number(lead.score))}/100${lead.projectedSessions ? ` (~${lead.projectedSessions} sessions at the recent approach rate)` : ""}.`,
+        lead.status === "likely" ? 79 : 70, cross === "above" ? "positive" : "risk", [lead.symbol]);
+    }
+  } else if (source.key === "buyouts") {
+    const stageRank = { expected_close: 5, regulatory_vote: 4, active_talks: 3, rumor: 2, announced: 1 };
+    const rows = (p.deals || []).filter((row) => row && !row.stale).map((row) => {
+      const spread = row.grossSpreadPct == null || row.grossSpreadPct === "" ? null : Number(row.grossSpreadPct);
+      const days = row.daysLeft == null || row.daysLeft === "" ? null : Number(row.daysLeft);
+      const updatedMs = Date.parse(row.lastUpdateAtIso || row.reportedAtIso || "");
+      const recent = Number.isFinite(updatedMs) && Date.now() - updatedMs <= 7 * 86400000;
+      let importance = 0;
+      if (row.stage === "expected_close" && Number.isFinite(days) && days >= 0 && days <= 30) importance = 88;
+      else if (row.stage === "regulatory_vote") importance = 84;
+      else if (["active_talks", "rumor"].includes(row.stage) && recent) importance = row.stage === "active_talks" ? 82 : 77;
+      else if (Number.isFinite(spread) && spread >= 5) importance = 78;
+      return { row, spread, days, importance };
+    }).filter((item) => item.importance > 0)
+      .sort((a, b) => b.importance - a.importance || (stageRank[b.row.stage] || 0) - (stageRank[a.row.stage] || 0) || (b.spread || 0) - (a.spread || 0));
+    const lead = rows[0];
+    if (lead) {
+      const row = lead.row;
+      const stage = row.statusLabel || (row.stage === "active_talks" ? "Reported talks" : row.stage === "regulatory_vote" ? "Regulatory / vote pending" : row.stage === "expected_close" ? "Expected close" : row.stage === "announced" ? "Definitive agreement" : "Rumor");
+      const economics = [
+        Number.isFinite(lead.days) && lead.days >= 0 ? `${Math.round(lead.days)}d to the guided close` : null,
+        Number.isFinite(lead.spread) ? `${lead.spread.toFixed(1)}% current-vs-deal spread` : null,
+        row.coverageCount > 1 ? `${row.coverageCount} linked publishers` : null,
+      ].filter(Boolean).join(", ");
+      const catalyst = briefToolClean(row.nextCatalyst?.label || row.nextCatalyst?.detail || "", 90);
+      add(`${row.targetTicker || row.target}: ${stage}${row.acquirer ? ` with ${row.acquirer}` : ""}${economics ? ` — ${economics}` : ""}${catalyst ? `; next: ${catalyst}` : ""}.`,
+        lead.importance, row.stage === "rumor" || row.stage === "active_talks" ? "watch" : lead.spread >= 5 ? "risk" : "watch", [row.targetTicker]);
+    }
+  } else if (source.key === "market") {
     const r = p.macroRegime;
     if (r && r.state && r.state !== "neutral") {
       add(r.summary || `${r.state} tape${Array.isArray(r.drivers) && r.drivers.length ? ` — ${r.drivers.join(", ")}` : ""}`,

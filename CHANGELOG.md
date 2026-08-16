@@ -36,6 +36,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
+- **The public Brief now checks every material public evidence desk.** Pending Buyouts and the MA Tracker join the cross-tool scan, with evidence-only deal-stage/catalyst context and deterministic moving-average crossover watches; the Refresh Schedule also names both full-build outputs explicitly. Owner-only decision desks remain excluded from the public payload. `scripts/{build,brief-smoke,render-smoke}.mjs`, `scripts/render/html.mjs`, `package.json`, `index.html`.
+
 - **Narratives no longer exposes an owner-only destination.** Current, stale, and unavailable narrative states omit the Market Analysis action; Heatmap remains the public fallback when no current story is actionable. (#611) `scripts/render/app-js.mjs`, `scripts/render-smoke.mjs`, `app.js`.
 
 ### Perf
