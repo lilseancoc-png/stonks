@@ -34,7 +34,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
-- **Narratives no longer exposes an owner-only destination.** Current, stale, and unavailable narrative states omit the Market Analysis action; Heatmap remains the public fallback when no current story is actionable. `scripts/render/app-js.mjs`, `scripts/render-smoke.mjs`, `app.js`.
+- **Narratives no longer exposes an owner-only destination.** Current, stale, and unavailable narrative states omit the Market Analysis action; Heatmap remains the public fallback when no current story is actionable. (#611) `scripts/render/app-js.mjs`, `scripts/render-smoke.mjs`, `app.js`.
 
 ## 2026-08-15
 
