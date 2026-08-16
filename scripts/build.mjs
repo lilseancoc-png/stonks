@@ -10746,10 +10746,11 @@ export async function writeCentralBankGoldFile(builtAtIso, prior = null) {
 }
 
 // === Commodity price tracker (data/commodities.json) ================
-// Eleven input-cost / demand signals with a direct read on tracked equities:
-// softs (cocoa, cotton, coffee, sugar, palm oil), industrial inputs (lumber,
-// potash, lithium), freight (container rates, Baltic Dry) and used-vehicle
-// values (Manheim proxy). Every tracker has a RELIABLE base series through
+// Thirteen commodity, input-cost and demand signals with a direct read on
+// tracked equities: precious metals (gold, silver), softs (cocoa, cotton,
+// coffee, sugar, palm oil), industrial inputs (lumber, potash, lithium),
+// freight (container rates, Baltic Dry) and used-vehicle values (Manheim
+// proxy). Every tracker has a RELIABLE base series through
 // already-proven fetch mechanics — Yahoo futures/ETF daily bars (the same
 // chart() path the GLOBAL_MARKETS sweep uses) or FRED monthly series
 // (fetchFredSeries) — because the "native" sources for three of them (Drewry
@@ -10770,6 +10771,20 @@ const COMMODITY_FETCH_CONCURRENCY = 3;
 // watch = related tickers (chips link into the Grade tab, which live-fetches
 // any symbol, so they need not be in TICKERS).
 export const COMMODITY_TRACKERS = [
+  {
+    key: "gold", label: "Gold", group: "precious", kind: "futures", cadence: "daily",
+    symbol: "GC=F", unit: "USD/troy oz", fmt: "usd2",
+    sourceName: "COMEX gold futures (Yahoo)", sourceUrl: "https://finance.yahoo.com/quote/GC%3DF/",
+    note: "Safe-haven, real-rate and dollar signal — and a direct revenue lever for gold miners. A rally can reflect lower real yields, dollar weakness, geopolitical stress or central-bank demand, so confirm the driver and each miner's costs and valuation.",
+    watch: ["GLD", "NEM", "AEM"],
+  },
+  {
+    key: "silver", label: "Silver", group: "precious", kind: "futures", cadence: "daily",
+    symbol: "SI=F", unit: "USD/troy oz", fmt: "usd2",
+    sourceName: "COMEX silver futures (Yahoo)", sourceUrl: "https://finance.yahoo.com/quote/SI%3DF/",
+    note: "Hybrid monetary and industrial metal — sensitive to real yields and the dollar, but also to solar, electronics and manufacturing demand. It is typically more volatile than gold, so confirm whether the move is defensive or cyclical.",
+    watch: ["SLV", "PAAS", "AG"],
+  },
   {
     key: "cocoa", label: "Cocoa", group: "softs", kind: "futures", cadence: "daily",
     symbol: "CC=F", unit: "USD/tonne", fmt: "usd0",
@@ -10853,6 +10868,7 @@ export const COMMODITY_TRACKERS = [
 
 // Human labels for the tab's group sections, in display order.
 export const COMMODITY_GROUPS = [
+  { key: "precious", label: "Precious metals" },
   { key: "softs", label: "Softs & agriculture" },
   { key: "industrial", label: "Industrial inputs" },
   { key: "freight", label: "Freight & shipping" },
