@@ -18229,7 +18229,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (eye) eye.textContent = 'Unavailable · no posture';
       root.innerHTML = '<section class="cx-empty-desk"><span class="cx-desk-kicker">AI buildout desk</span><h3>' + (d.loadError ? 'The CapEx snapshot could not be loaded' : 'No CapEx snapshot is available yet') + '</h3>' +
         '<p>' + (d.loadError ? 'Do not infer an AI spending cycle from missing data. Use the live market and company earnings evidence until the SEC filing snapshot returns.' : 'The next successful daily build will restore the aggregate spending, revenue-burden and supplier read-through checks.') + '</p>' +
-        '<div class="cx-actions"><button type="button" class="cx-action cx-action-primary" data-cx-tab="market">Open Market analysis</button><button type="button" class="cx-action" data-cx-tab="calls">Open Earnings calls</button></div></section>';
+        '<div class="cx-actions"><button type="button" class="cx-action cx-action-primary" data-cx-tab="heatmap">Open Heatmap</button><button type="button" class="cx-action" data-cx-tab="calls">Open Earnings calls</button></div></section>';
       bindAiCapexActions(root);
       return;
     }
@@ -18351,7 +18351,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       var rules = '<div class="cx-rules"><div class="cx-rule cx-rule-confirm"><span>Confirmation</span><p>' + escapeHtml(postureConfirm) + '</p></div>' +
         '<div class="cx-rule cx-rule-invalidate"><span>Invalidation</span><p>' + escapeHtml(postureInvalidate) + '</p></div></div>';
       var actions = !freshness.current
-        ? '<div class="cx-actions"><button type="button" class="cx-action cx-action-primary" data-cx-tab="market">Open Market analysis</button><button type="button" class="cx-action" data-cx-tab="calls">Open Earnings calls</button><button type="button" class="cx-action" data-cx-tab="heatmap">Open Heatmap</button></div>'
+        ? '<div class="cx-actions"><button type="button" class="cx-action cx-action-primary" data-cx-tab="heatmap">Open Heatmap</button><button type="button" class="cx-action" data-cx-tab="calls">Open Earnings calls</button></div>'
         : (cycleTone === 'cool'
           ? '<div class="cx-actions"><button type="button" class="cx-action cx-action-primary" data-cx-tab="heatmap">Open Heatmap</button><button type="button" class="cx-action" data-cx-tab="calls">Open Earnings calls</button><button type="button" class="cx-action" data-cx-grade="NVDA">Grade NVDA</button></div>'
           : '<div class="cx-actions"><button type="button" class="cx-action cx-action-primary" data-cx-grade="NVDA">Grade NVDA</button><button type="button" class="cx-action" data-cx-tab="heatmap">Open Heatmap</button><button type="button" class="cx-action" data-cx-tab="calls">Open Earnings calls</button></div>');
@@ -18488,7 +18488,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (eye) eye.textContent = 'Unavailable · no posture';
       root.innerHTML = '<section class="rp-empty-desk"><span class="rp-desk-kicker">Memory-cycle desk</span><h3>' + (d.loadError ? 'The RAM price snapshot could not be loaded' : 'No RAM price snapshot is available yet') + '</h3>' +
         '<p>' + (d.loadError ? 'Do not infer a tightening or easing cycle from missing data. Use current earnings and market evidence until both price layers return.' : 'The next successful Friday 11:30 ET scan will restore wholesale, retail and category-breadth checks.') + '</p>' +
-        '<div class="rp-actions"><button type="button" class="rp-action rp-action-primary" data-rp-tab="market">Open Market analysis</button><button type="button" class="rp-action" data-rp-tab="calls">Open Earnings calls</button></div></section>';
+        '<div class="rp-actions"><button type="button" class="rp-action rp-action-primary" data-rp-tab="calls">Open Earnings calls</button></div></section>';
       bindRamPriceActions(root);
       return;
     }
@@ -18591,7 +18591,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       ? '<div class="rp-equity-lens"><div><div class="rp-lens-copy"><b>Buyer relief — prove margin capture</b><small>Gross margin, demand and relative strength must convert cheaper memory into earnings.</small></div><div class="rp-lens-links">' + buyerLinks + '</div></div><div><div class="rp-lens-copy"><b>Supplier pressure — watch guide cuts</b><small>Pricing, inventory and guidance must confirm that spot weakness is reaching results.</small></div><div class="rp-lens-links">' + supplierLinks + '</div></div></div>'
       : '<div class="rp-equity-lens"><div><div class="rp-lens-copy"><b>Supplier upside — prove pricing power</b><small>Guidance, gross margin and relative strength must confirm that tighter spot becomes revenue.</small></div><div class="rp-lens-links">' + supplierLinks + '</div></div><div><div class="rp-lens-copy"><b>Buyer risk — prove pass-through</b><small>Demand, pricing and margins must absorb higher memory costs without estimate cuts.</small></div><div class="rp-lens-links">' + buyerLinks + '</div></div></div>';
     var actions = cycleState === 'reference'
-      ? '<div class="rp-actions"><button type="button" class="rp-action rp-action-primary" data-rp-tab="market">Open Market analysis</button><button type="button" class="rp-action" data-rp-tab="calls">Open Earnings calls</button><button type="button" class="rp-action" data-rp-tab="compare">Compare companies</button></div>'
+      ? '<div class="rp-actions"><button type="button" class="rp-action rp-action-primary" data-rp-tab="calls">Open Earnings calls</button><button type="button" class="rp-action" data-rp-tab="compare">Compare companies</button></div>'
       : cycleState === 'confirmed-down'
         ? '<div class="rp-actions"><button type="button" class="rp-action rp-action-primary" data-rp-grade="DELL">Grade DELL</button><button type="button" class="rp-action" data-rp-tab="compare">Compare companies</button><button type="button" class="rp-action" data-rp-tab="calls">Open Earnings calls</button></div>'
         : (cycleState === 'confirmed-up' || cycleState === 'upstream-lead')
@@ -19600,7 +19600,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var leadWatches = leadMover && Array.isArray(leadMover.watch) ? leadMover.watch : [];
     var leadSym = leadWatches.length ? String(leadWatches[0]) : '';
     var actions = !freshness.current
-      ? '<div class="cmd-actions"><button type="button" class="cmd-action cmd-action-primary" data-cmd-tab="market">Open Market analysis</button><button type="button" class="cmd-action" data-cmd-tab="calls">Open Earnings calls</button><button type="button" class="cmd-action" data-cmd-tab="compare">Compare companies</button></div>'
+      ? '<div class="cmd-actions"><button type="button" class="cmd-action cmd-action-primary" data-cmd-tab="calls">Open Earnings calls</button><button type="button" class="cmd-action" data-cmd-tab="compare">Compare companies</button></div>'
       : leadSym
         ? '<div class="cmd-actions"><button type="button" class="cmd-action cmd-action-primary" data-cmd-grade="' + escapeHtml(leadSym) + '">Grade ' + escapeHtml(leadSym) + '</button><button type="button" class="cmd-action" data-cmd-tab="compare">Compare companies</button><button type="button" class="cmd-action" data-cmd-tab="calls">Open Earnings calls</button></div>'
         : '<div class="cmd-actions"><button type="button" class="cmd-action cmd-action-primary" data-cmd-tab="compare">Compare companies</button><button type="button" class="cmd-action" data-cmd-tab="calls">Open Earnings calls</button></div>';
@@ -19639,7 +19639,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (eye) eye.textContent = 'Unavailable · no posture';
       root.innerHTML = '<section class="cmd-empty-desk"><span class="cmd-desk-kicker">Equity impact desk</span><h3>' + (d.loadError ? 'The commodity snapshot could not be loaded' : 'No commodity snapshot is available yet') + '</h3>' +
         '<p>' + (d.loadError ? 'Do not infer input-cost pressure or demand from missing data. Use the live market and company earnings evidence until the commodity map returns.' : 'The next successful daily build will restore the ranked sleeves and equity-impact checks.') + '</p>' +
-        '<div class="cmd-actions"><button type="button" class="cmd-action cmd-action-primary" data-cmd-tab="market">Open Market analysis</button><button type="button" class="cmd-action" data-cmd-tab="calls">Open Earnings calls</button></div></section>';
+        '<div class="cmd-actions"><button type="button" class="cmd-action cmd-action-primary" data-cmd-tab="calls">Open Earnings calls</button></div></section>';
       bindCommodityActions(root);
       return;
     }
@@ -19831,7 +19831,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<h3>' + (d.loadError ? 'Capital-event data could not load' : 'No financing headline needs action') + '</h3>' +
         '<p>' + (d.loadError ? 'Do not infer a clean capital structure from a failed read. Use the broader market and earnings workflows while this feed recovers.' : 'No recent issuer-confirmed raise, debt, convertible or buyback headline was flagged. Keep the scan in context with current earnings and market risk.') + '</p>' +
         '<div class="cr-desk-source"><span><b>' + escapeHtml(freshness.label) + '</b> · ' + escapeHtml(freshness.detail) + '</span><small>Headline scan + latest SEC context</small></div>' +
-        '<div class="cr-actions"><button type="button" class="cr-action cr-action-primary" data-cr-tab="market">Open Market analysis</button><button type="button" class="cr-action" data-cr-tab="calls">Open Earnings calls</button></div>' +
+        '<div class="cr-actions"><button type="button" class="cr-action cr-action-primary" data-cr-tab="calls">Open Earnings calls</button></div>' +
       '</section>';
       bindCapitalRaiseActions(root);
       return;
@@ -19889,7 +19889,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           : 'The issuer association stays ambiguous, or the headline is commentary, an insider sale, or secondary context.';
     var leadTracked = !!(lead && lead.ticker && SYMBOLS.indexOf(lead.ticker) !== -1);
     var actionsHtml = !freshness.current
-      ? '<div class="cr-actions"><button type="button" class="cr-action cr-action-primary" data-cr-tab="market">Open Market analysis</button><button type="button" class="cr-action" data-cr-tab="calls">Open Earnings calls</button><button type="button" class="cr-action" data-cr-tab="compare">Compare companies</button></div>'
+      ? '<div class="cr-actions"><button type="button" class="cr-action cr-action-primary" data-cr-tab="calls">Open Earnings calls</button><button type="button" class="cr-action" data-cr-tab="compare">Compare companies</button></div>'
       : '<div class="cr-actions">' +
           (lead && lead.link ? '<a class="cr-action cr-action-primary" href="' + escapeHtml(lead.link) + '" target="_blank" rel="noopener noreferrer">' + (leadConfidence.verified ? 'Open source terms' : 'Verify event source') + '</a>' : '') +
           (leadTracked ? '<button type="button" class="cr-action" data-cr-grade="' + escapeHtml(lead.ticker) + '">Grade ' + escapeHtml(lead.ticker) + '</button>' : '') +
@@ -20321,7 +20321,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           : 'Equity-dependent, SPAC-heavy, and near-term funding stories';
     var actions = freshness.current
       ? '<div class="ic-actions"><button type="button" class="ic-action ic-action-primary" data-ic-tab="capital-raises">Open Capital raises</button><button type="button" class="ic-action" data-ic-tab="bonds-usd">Open Bonds &amp; USD</button><button type="button" class="ic-action" data-ic-tab="compare">Compare companies</button></div>'
-      : '<div class="ic-actions"><button type="button" class="ic-action ic-action-primary" data-ic-tab="market">Open Market analysis</button><button type="button" class="ic-action" data-ic-tab="bonds-usd">Open Bonds &amp; USD</button><button type="button" class="ic-action" data-ic-tab="capital-raises">Open Capital raises</button></div>';
+      : '<div class="ic-actions"><button type="button" class="ic-action ic-action-primary" data-ic-tab="bonds-usd">Open Bonds &amp; USD</button><button type="button" class="ic-action" data-ic-tab="capital-raises">Open Capital raises</button></div>';
     return '<section class="ic-decision ic-decision-' + tone + '"><div class="ic-decision-head"><div><span class="ic-decision-kicker">Capital availability desk</span><h3>' + escapeHtml(headline) + '</h3>' +
       '<p>' + escapeHtml(why.length ? why.join('; ') + '.' : 'Open a research sleeve to inspect the latest capital and credit data.') + '</p></div><span class="ic-decision-badge">' + escapeHtml(tone === 'open' ? 'Open' : tone === 'tight' ? 'Tightening' : tone === 'reference' ? 'Reference' : 'Mixed') + '</span></div>' +
       '<div class="ic-decision-source"><span><b>' + escapeHtml(freshness.label) + '</b> · ' + escapeHtml(freshness.detail) + '</span><small>IPO calendar + SIFMA + FRED</small></div>' +
@@ -20351,7 +20351,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       root.innerHTML = '<section class="ic-empty-desk"><span class="ic-decision-kicker">' + (d.loadError ? 'Data unavailable' : 'Awaiting coverage') + '</span>' +
         '<h3>' + (d.loadError ? 'Funding-regime data could not load' : 'No capital-availability composite yet') + '</h3>' +
         '<p>' + (d.loadError ? 'Do not infer an open or closed funding window from a failed read. Use the broader market, rates, and issuer-level event workflows while this feed recovers.' : 'The IPO, bond, and bank-funding channels need to populate before this desk can classify the capital window.') + '</p>' +
-        '<div class="ic-actions"><button type="button" class="ic-action ic-action-primary" data-ic-tab="market">Open Market analysis</button><button type="button" class="ic-action" data-ic-tab="bonds-usd">Open Bonds &amp; USD</button><button type="button" class="ic-action" data-ic-tab="capital-raises">Open Capital raises</button></div></section>';
+        '<div class="ic-actions"><button type="button" class="ic-action ic-action-primary" data-ic-tab="bonds-usd">Open Bonds &amp; USD</button><button type="button" class="ic-action" data-ic-tab="capital-raises">Open Capital raises</button></div></section>';
       bindIpoCreditActions(root);
       return;
     }
@@ -25837,7 +25837,6 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<div class="flow-decision-actions">' + primary +
           (freshness.current && watch ? '<button type="button" class="flow-decision-action" data-ovn-tab="heatmap">Open Heatmap</button>' : '') +
           '<button type="button" class="flow-decision-action" data-ovn-tab="volume">Open Volume</button>' +
-          (!freshness.current ? '<button type="button" class="flow-decision-action" data-ovn-tab="market">Open Market analysis</button>' : '') +
         '</div>' +
       '</aside>' +
     '</section>';
@@ -28278,7 +28277,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<div class="idx-cal-day-selected"><small>' + IDX_CAL_LABELS[idxKey] + '</small><b class="' + (selectedRow[idxKey] && selectedRow[idxKey].chPct != null ? idxCalPctCls(Number(selectedRow[idxKey].chPct) * idxInv) : '') + '">' + (selectedRow[idxKey] && selectedRow[idxKey].chPct != null ? idxCalFmtPct(Number(selectedRow[idxKey].chPct)) : '—') + '</b></div></div>' +
         '<div class="idx-cal-day-grid">' + dayTiles + '</div>' +
         '<div class="idx-cal-day-rule"><div><span>Confirmation</span><b>SPY, IWM and SMH agree while VIX moves in the opposite risk direction.</b></div><div><span>Guardrail</span><b>One session is context; require follow-through before changing exposure.</b></div></div>' +
-        '<div class="idx-cal-day-actions"><button type="button" data-idx-go="market">Open Market Analysis</button><button type="button" data-idx-go="calendar">Check event calendar</button></div>' +
+        '<div class="idx-cal-day-actions"><button type="button" data-idx-go="calendar">Check event calendar</button></div>' +
       '</section>';
     }
 
@@ -28517,7 +28516,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (eyebrow) eyebrow.textContent = 'load unavailable';
       root.innerHTML = '<section class="f13-empty-desk"><span class="f13-kicker">Data unavailable</span><h3>Institutional filing data could not load</h3>' +
         '<p>Do not infer that managers made no changes from a failed read. Use current market, narrative, and company-level evidence while the filing feed recovers.</p>' +
-        '<div class="f13-actions"><button type="button" class="f13-action f13-action-primary" data-f13-tab="market">Open Market analysis</button><button type="button" class="f13-action" data-f13-tab="narratives">Open Narratives</button><button type="button" class="f13-action" data-f13-tab="compare">Compare companies</button></div></section>';
+        '<div class="f13-actions"><button type="button" class="f13-action f13-action-primary" data-f13-tab="narratives">Open Narratives</button><button type="button" class="f13-action" data-f13-tab="compare">Compare companies</button></div></section>';
       bindF13Actions(root);
       return;
     }
@@ -28643,7 +28642,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
             (buyTracked ? '<button type="button" class="f13-action f13-action-primary" data-f13-grade="' + escapeHtml(buyTk) + '">Grade ' + escapeHtml(buyTk) + '</button>' : '') +
             (sellTracked ? '<button type="button" class="f13-action' + (buyTracked ? '' : ' f13-action-primary') + '" data-f13-grade="' + escapeHtml(sellTk) + '">Grade ' + escapeHtml(sellTk) + '</button>' : '') +
             '<button type="button" class="f13-action' + (buyTracked || sellTracked ? '' : ' f13-action-primary') + '" data-f13-tab="compare">Compare companies</button><button type="button" class="f13-action" data-f13-tab="narratives">Open Narratives</button></div>'
-        : '<div class="f13-actions"><button type="button" class="f13-action f13-action-primary" data-f13-tab="market">Open Market analysis</button><button type="button" class="f13-action" data-f13-tab="compare">Compare companies</button><button type="button" class="f13-action" data-f13-tab="narratives">Open Narratives</button></div>';
+        : '<div class="f13-actions"><button type="button" class="f13-action f13-action-primary" data-f13-tab="compare">Compare companies</button><button type="button" class="f13-action" data-f13-tab="narratives">Open Narratives</button></div>';
       var lagAge = '';
       if (d.periodEnd){
         var periodEndMs = Date.parse(d.periodEnd);
@@ -29395,7 +29394,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var strongBand = strongest ? fngBandFromScore(strongest.score) : 'neutral';
     var primaryAction = freshness.current && weakest
       ? '<button type="button" class="flow-decision-action is-primary" data-fng-component="' + escapeHtml(weakest.spec.key) + '">Review ' + escapeHtml(weakest.spec.title) + '</button>'
-      : '<button type="button" class="flow-decision-action is-primary" data-fng-tab="market">Open Market analysis</button>';
+      : '<button type="button" class="flow-decision-action is-primary" data-fng-tab="heatmap">Open Heatmap</button>';
     root.innerHTML =
       '<section class="fng-decision fng-band-' + band + (!freshness.current ? ' is-reference' : '') + '">' +
         '<div class="fng-decision-lead">' +
@@ -30022,9 +30021,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<div><small>Participation</small><b>' + Math.round(stats.upPct) + '% up</b><span>' + stats.up + ' advancing / ' + stats.down + ' declining</span></div>' +
         '<div><small>Cap-weighted</small><b class="' + eodDirClass(stats.avg) + '">' + escapeHtml(heatmapFmtPct(stats.avg)) + '</b><span>' + (stats.avg >= 0 ? 'largest names add' : 'largest names subtract') + '</span></div>' +
         groupMetric('Leading group', leader, 'pos') + groupMetric('Lagging group', laggard, 'neg') +
-      '</div><div class="heatmap-decision-actions">' +
-        (leader ? '<button type="button" data-heatmap-focus-group="' + escapeHtml(leader.name) + '">Focus ' + escapeHtml(leader.name) + '</button>' : '') +
-        '<button type="button" data-heatmap-open-market>Open Market analysis</button></div></div>';
+      '</div>' + (leader ? '<div class="heatmap-decision-actions"><button type="button" data-heatmap-focus-group="' + escapeHtml(leader.name) + '">Focus ' + escapeHtml(leader.name) + '</button></div>' : '') + '</div>';
 
     var focus = host.querySelector('[data-heatmap-focus-group]');
     if (focus) focus.addEventListener('click', function(){
@@ -30039,11 +30036,6 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (sector) heatmapCenterOnTile(sector, 2);
       var root = $('heatmap-root');
       if (root) root.scrollIntoView({ behavior:'smooth', block:'center' });
-    });
-    var market = host.querySelector('[data-heatmap-open-market]');
-    if (market) market.addEventListener('click', function(){
-      var tab = document.querySelector('[data-page-tab="market"]');
-      if (tab) tab.click();
     });
   }
 
@@ -38017,8 +38009,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span>Rates decision unavailable</span><b>No verified Treasury or dollar snapshot is available.</b>' +
         '<p>Do not infer a macro posture from an empty monitor. Recheck the broader regime or the event calendar.</p>' +
         '<div class="bonds-ctx-actions">' +
-          '<button type="button" class="flow-decision-action is-primary" data-bonds-tab="market">Open Market analysis</button>' +
-          '<button type="button" class="flow-decision-action" data-bonds-tab="calendar">Open Calendar</button>' +
+          '<button type="button" class="flow-decision-action is-primary" data-bonds-tab="calendar">Open Calendar</button>' +
         '</div></section>';
       bindBondsDecisionActions(host);
       return;
@@ -38260,9 +38251,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       : null;
     var primaryAction = freshness.current && reviewKey
       ? '<button type="button" class="flow-decision-action is-primary" data-bonds-review="' + escapeHtml(reviewKey) + '">Review ' + escapeHtml(lead.label) + '</button>'
-      : '<button type="button" class="flow-decision-action is-primary" data-bonds-tab="market">Open Market analysis</button>';
+      : '<button type="button" class="flow-decision-action is-primary" data-bonds-tab="heatmap">Open Heatmap</button>';
     out += '<div class="bonds-ctx-actions">' + primaryAction +
-      '<button type="button" class="flow-decision-action" data-bonds-tab="heatmap">Open Heatmap</button>' +
+      (freshness.current && reviewKey ? '<button type="button" class="flow-decision-action" data-bonds-tab="heatmap">Open Heatmap</button>' : '') +
       '<button type="button" class="flow-decision-action" data-bonds-tab="calendar">Open Calendar</button>' +
     '</div>';
     host.innerHTML = out;
@@ -38457,9 +38448,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         : 'Reference-only ranking · refresh before execution';
       var primary = freshness.current && leader
         ? '<a class="flow-decision-action is-primary" href="?s=' + encodeURIComponent(leader.symbol) + '&t=' + leader.side + '">Review ' + escapeHtml(leader.symbol) + ' ' + leader.side.toUpperCase() + '</a>'
-        : '<button type="button" class="flow-decision-action is-primary" data-tickers-tab="market">Open Market analysis</button>';
-      var marketAction = freshness.current && leader
-        ? '<button type="button" class="flow-decision-action" data-tickers-tab="market">Open Market analysis</button>'
+        : '<button type="button" class="flow-decision-action is-primary" data-tickers-tab="heatmap">Open Heatmap</button>';
+      var heatmapAction = freshness.current && leader
+        ? '<button type="button" class="flow-decision-action" data-tickers-tab="heatmap">Open Heatmap</button>'
         : '';
       decision.className = 'tickers-decision ' + (freshness.current ? 'is-current' : 'is-reference');
       decision.innerHTML =
@@ -38474,8 +38465,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           '<div><span>Risk rule</span><b>Wait / Avoid vetoes entry; set invalidation in Grade before sizing.</b></div>' +
         '</div>' +
         '<div class="tickers-decision-actions">' + primary +
-          marketAction +
-          '<button type="button" class="flow-decision-action" data-tickers-tab="heatmap">Open Heatmap</button>' +
+          heatmapAction +
         '</div>';
       decision.hidden = false;
       bindTickerDecisionActions();
