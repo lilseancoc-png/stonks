@@ -24156,11 +24156,11 @@ input[type="checkbox"], input[type="radio"], summary {
 .ovn-horizons button{appearance:none;border:0;border-radius:6px;background:transparent;padding:.35rem .58rem;font:700 .68rem/1 var(--font-mono);color:var(--muted-strong);cursor:pointer;}
 .ovn-horizons button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent,#fff);box-shadow:var(--shadow-1);}
 .ovn-horizons button:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
-.ovn-carry-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.48rem;}
-.ovn-carry-card{appearance:none;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"label move" "value move" "note note";gap:.18rem .45rem;align-items:center;padding:.6rem .65rem;border:1px solid var(--border);border-radius:9px;background:var(--surface-2);text-align:left;color:var(--text);}
+.ovn-carry-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:.48rem;}
+.ovn-carry-card{appearance:none;min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"label label" "value move" "note note";gap:.18rem .45rem;align-items:baseline;padding:.6rem .65rem;border:1px solid var(--border);border-radius:9px;background:var(--surface-2);text-align:left;color:var(--text);}
 button.ovn-carry-card{cursor:pointer;}
 button.ovn-carry-card:hover,button.ovn-carry-card:focus-visible{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 5%,var(--surface-2));outline:none;}
-.ovn-carry-card>span{grid-area:label;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:700 .61rem/1.1 var(--font-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--muted);}
+.ovn-carry-card>span{grid-area:label;min-width:0;white-space:normal;font:700 .61rem/1.2 var(--font-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--muted);}
 .ovn-carry-card>b{grid-area:value;font:750 .98rem/1.2 var(--font-mono);font-variant-numeric:tabular-nums;color:var(--text-strong);}
 .ovn-carry-card>strong{grid-area:move;text-align:right;font:700 .7rem/1.1 var(--font-mono);font-variant-numeric:tabular-nums;color:var(--muted-strong);}
 .ovn-carry-card>strong.ovn-up{color:var(--pos);}.ovn-carry-card>strong.ovn-dn{color:var(--neg);}

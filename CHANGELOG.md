@@ -20,6 +20,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-08-17
+
+### Fixed
+
+- **Overnight Markets keeps every Japan-carry card readable.** Carry labels now wrap instead of truncating, the value and move/descriptor occupy a dedicated row without colliding, and wider desktop card minimums prevent the effective-rate policy tile from overlapping its value. `scripts/{overnight-smoke}.mjs`, `scripts/render/styles-css.mjs`, `styles.css`.
+
 ## 2026-08-16
 
 ### Added
