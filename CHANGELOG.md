@@ -24,7 +24,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Changed
 
-- **Public desks stop linking into owner-only Market Analysis.** “Open Market Analysis” actions are removed across AI CapEx, RAM prices, commodities, capital raises, IPO and credit, Overnight Markets, Index Calendar, 13F, Fear & Greed, Heatmap, Bonds & USD, and Tickers; each desk keeps a relevant public research action instead. `scripts/render/app-js.mjs`, `scripts/render-smoke.mjs`, `app.js`.
+- **Public desks stop linking into owner-only Market Analysis.** “Open Market Analysis” actions are removed across AI CapEx, RAM prices, commodities, capital raises, IPO and credit, Overnight Markets, Index Calendar, 13F, Fear & Greed, Heatmap, Bonds & USD, and Tickers; each desk keeps a relevant public research action instead. (#621) `scripts/render/app-js.mjs`, `scripts/render-smoke.mjs`, `app.js`.
 
 - **The product title is simply stonks.** The visible masthead, browser title, and social-sharing titles no longer append “Option Rater.” (#620) `scripts/render/{app-js,html}.mjs`, `scripts/render-smoke.mjs`, `app.js`, `index.html`.
 
