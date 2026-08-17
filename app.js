@@ -862,9 +862,9 @@
   function syncDocTitleToContract(){
     // Reflect the currently-selected contract in <title> so browser tabs,
     // bookmarks, and shared links read meaningfully ("AAPL $310 CALL ·
-    // stonks" beats "stonks · Option Contract Rater" 119× over).
+    // stonks" beats the generic "stonks" title 119× over).
     try {
-      var base = 'stonks · Option Contract Rater';
+      var base = 'stonks';
       if (!state.symbol) { document.title = base; return; }
       var bits = [state.symbol];
       var c = findContract();
@@ -3652,7 +3652,7 @@
       // is the point, not the menu.
       closeSideNavDrawer();
       syncTabToUrl(name, !!(nav && nav.replace));
-      if (name !== 'grade') document.title = 'stonks · Option Contract Rater';
+      if (name !== 'grade') document.title = 'stonks';
       trackPageTab(name);
       // A tab hop lands at the top of the destination pane — the scroll depth
       // of a long previous tab (e.g. a Brief ticker chip clicked from way down

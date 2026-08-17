@@ -206,7 +206,9 @@ try {
   assert.match(appJs, /if \(OWNER_TABS\[name\] && !HAS_OWNER_ACCESS\)/);
   assert.match(appJs, /if \(!HAS_OWNER_ACCESS\) return;[\s\S]*?fetch\(dataUrl\('auto-picks\.json'\)/);
   assert.match(appJs, /var lastAnalyticsTabPath = null;[\s\S]*?function trackPageTab\(name\)\{[\s\S]*?var path = '\/tabs\/' \+ name;[\s\S]*?if \(path === lastAnalyticsTabPath \|\| typeof window\.va !== 'function'\) return;[\s\S]*?window\.va\('pageview', \{ path: path \}\);[\s\S]*?lastAnalyticsTabPath = path;/);
-  assert.match(appJs, /syncTabToUrl\(name, !!\(nav && nav\.replace\)\);\s*if \(name !== 'grade'\) document\.title = 'stonks · Option Contract Rater';\s*trackPageTab\(name\);/);
+  assert.match(appJs, /syncTabToUrl\(name, !!\(nav && nav\.replace\)\);\s*if \(name !== 'grade'\) document\.title = 'stonks';\s*trackPageTab\(name\);/);
+  assert.match(html, /<title>stonks<\/title>/);
+  assert.doesNotMatch(html, /<span class="brand-tag">Option Rater<\/span>/);
 
   // Client regression coverage: URL cleanup, DST-aware option expiry, stale
   // requests, retryable tab loads, market-session filtering, and POST logout.
