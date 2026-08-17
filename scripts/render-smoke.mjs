@@ -67,6 +67,7 @@ try {
 
   const stylesCss = renderStylesCss();
   assert.match(stylesCss, /@media \(max-width: 1023px\)\s*\{[\s\S]*?\.side-nav\s*\{[\s\S]*?top: 0;[\s\S]*?z-index: 65;[\s\S]*?\.side-nav-backdrop\s*\{[\s\S]*?inset: 0;/);
+  assert.match(stylesCss, /\.bonds-context \{ --flow-decision-tone: var\(--accent\);/, "Bonds & USD primary actions must have a visible tone");
   assert.doesNotMatch(stylesCss, /"rank (?:regime|scenario) (?:regime|scenario)"/);
   assert.doesNotMatch(stylesCss, /\.(?:ptc-regime|ptc-scenario|pick-pillars-regime|pick-scenario-overlay)\b/);
 

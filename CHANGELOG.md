@@ -24,6 +24,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
+- **Bonds & USD labels its primary decision action.** The Rates decision desk now defines the shared primary-button accent, keeping the live “Review [lead rate]” control visibly labeled instead of rendering as an empty dark box beside Heatmap. `scripts/render/{styles-css}.mjs`, `scripts/render-smoke.mjs`, `styles.css`.
+
 - **Overnight Markets keeps every Japan-carry card readable.** Carry labels now wrap instead of truncating, the value and move/descriptor occupy a dedicated row without colliding, and wider desktop card minimums prevent the effective-rate policy tile from overlapping its value. `scripts/{overnight-smoke}.mjs`, `scripts/render/styles-css.mjs`, `styles.css`.
 
 ## 2026-08-16

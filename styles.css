@@ -19164,7 +19164,7 @@ body.tape-axm-open { overflow: hidden; }
 .bonds-primer-summary-hint { color: var(--muted); font-size: 13px; }
 .bonds-primer-body { display: flex; flex-direction: column; margin-top: var(--s-4); }
 /* "What's moving — and why it matters" context panel. */
-.bonds-context { display: flex; flex-direction: column; gap: var(--s-2); margin: var(--s-2) 0; }
+.bonds-context { --flow-decision-tone: var(--accent); display: flex; flex-direction: column; gap: var(--s-2); margin: var(--s-2) 0; }
 .bonds-ctx-source {
   display: flex;
   align-items: baseline;
