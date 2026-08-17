@@ -24,6 +24,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Changed
 
+- **Readers can choose one consistent display time zone.** A compact, persisted header control defaults to the browser&rsquo;s local zone and offers ET, CT, MT, PT, and UTC; actual build, scan, live-refresh, model, and headline timestamps now share the selected zone and show its abbreviation, while market-session rules and the refresh schedule remain explicitly anchored to ET. `scripts/render/{app-js,html,styles-css}.mjs`, `scripts/render-smoke.mjs`, `app.js`, `index.html`, `styles.css`.
+
 - **Public desks stop linking into owner-only Market Analysis.** “Open Market Analysis” actions are removed across AI CapEx, RAM prices, commodities, capital raises, IPO and credit, Overnight Markets, Index Calendar, 13F, Fear & Greed, Heatmap, Bonds & USD, and Tickers; each desk keeps a relevant public research action instead. (#621) `scripts/render/app-js.mjs`, `scripts/render-smoke.mjs`, `app.js`.
 
 - **The product title is simply stonks.** The visible masthead, browser title, and social-sharing titles no longer append “Option Rater.” (#620) `scripts/render/{app-js,html}.mjs`, `scripts/render-smoke.mjs`, `app.js`, `index.html`.
