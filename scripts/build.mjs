@@ -199,8 +199,15 @@ export const GLOBAL_MARKETS = {
   "^HSI":      { name: "Hang Seng",           region: "China",       type: "index",  lead: "China / HK tech" },
   // Europe (closes ~11:30 ET — concurrent with the US morning, not overnight)
   "^GDAXI":    { name: "DAX",                 region: "Europe",      type: "index",  lead: "Germany / EU broad" },
-  // FX & rates — yen carry, the dollar, the US curve (2Y/10Y/30Y) + JGB 10Y
+  // FX & rates — yen carry, cross-yen confirmation, the dollar, the US curve
+  // (2Y/10Y/30Y) + Japan's 2Y/10Y curve. The USD crosses marked hidden feed
+  // the relative-currency-strength context but do not clutter the tile grid.
   "JPY=X":     { name: "USD/JPY",             region: "FX & rates",  type: "fx",     lead: "Yen carry (down = unwind = risk-off)" },
+  "AUDJPY=X":  { name: "AUD/JPY",             region: "FX & rates",  type: "fx",     lead: "Growth/carry appetite vs the yen" },
+  "EURJPY=X":  { name: "EUR/JPY",             region: "FX & rates",  type: "fx",     lead: "European carry appetite vs the yen" },
+  "EURUSD=X":  { name: "EUR/USD",             region: "FX & rates",  type: "fx",     lead: "Euro vs USD", hidden: true },
+  "AUDUSD=X":  { name: "AUD/USD",             region: "FX & rates",  type: "fx",     lead: "Australian dollar vs USD", hidden: true },
+  "GBPUSD=X":  { name: "GBP/USD",             region: "FX & rates",  type: "fx",     lead: "Sterling vs USD", hidden: true },
   "DX-Y.NYB":  { name: "Dollar index (DXY)",  region: "FX & rates",  type: "fx",     lead: "Broad USD" },
   "US2Y":      { name: "US 2Y yield",         region: "FX & rates",  type: "rate",   lead: "Short rates / Fed path" },
   "^TNX":      { name: "US 10Y yield",        region: "FX & rates",  type: "rate",   lead: "Long rates / valuations" },
@@ -218,9 +225,9 @@ export const GLOBAL_MARKETS = {
   "NG=F":      { name: "Natural gas",        region: "Commodities", type: "commodity", lead: "Power / heating" },
   // Long-end rate (banks NIM / curve, plus duration-sensitive homebuilders & TLT)
   "^TYX":      { name: "US 30Y yield",       region: "FX & rates",  type: "rate",   lead: "Long-end / curve" },
-  // Japan 10Y JGB — no Yahoo symbol, so it's sourced from the MOF daily CSV
-  // (see fetchJgb10y / fetchAllGlobalMarkets). A genuine overnight read (Tokyo
-  // closes before the US open) and the anchor of the yen-carry trade.
+  // Japan JGBs — no Yahoo symbols, so both are sourced from the same official
+  // MOF daily curve CSV. Genuine overnight reads because Tokyo settles first.
+  "JGB2Y":     { name: "Japan 2Y JGB",       region: "FX & rates",  type: "rate",   lead: "Near-term BOJ path / front-end carry" },
   "JGB10Y":    { name: "Japan 10Y JGB",      region: "FX & rates",  type: "rate",   lead: "JGB yield — yen-carry / global duration anchor" },
   // Crypto — risk-appetite proxy for crypto-levered brokers/names
   "BTC-USD":   { name: "Bitcoin",            region: "Crypto",      type: "crypto", lead: "Crypto risk appetite" },
@@ -312,10 +319,10 @@ export const GLOBAL_QUOTE_TYPES = new Set(["future", "vol", "rate", "fx", "commo
 export function globalSessionClass(sym) {
   const m = GLOBAL_MARKETS[sym] || {};
   const t = m.type, r = m.region;
-  // JGB 10Y: a foreign cash rate that settles during the Tokyo session, before
+  // JGB curve: foreign cash rates that settle during the Tokyo session, before
   // the US open — a genuine overnight LEAD (unlike the US cash-yield indices,
   // which sit at yesterday's close pre-open and co-move).
-  if (sym === "JGB10Y") return "leading";
+  if (sym === "JGB2Y" || sym === "JGB10Y") return "leading";
   if (t === "future" || t === "fx" || t === "commodity" || t === "crypto") return "24h";
   if (t === "vol" || t === "rate") return "concurrent";
   if (r === "Europe") return "concurrent";
@@ -3823,15 +3830,24 @@ async function fetchTreasuryParYear(year) {
     }
     const xml = await res.text();
     const out = [];
-    // OData/Atom: one <entry> per business day; we only need NEW_DATE + BC_2YEAR.
+    // OData/Atom: one <entry> per business day. Keep 2Y for the existing
+    // front-end tile plus 10Y/30Y history to repair Yahoo's occasional thin
+    // yield-index chart response used by Overnight's 20-session view.
     for (const chunk of xml.split(/<entry[\s>]/).slice(1)) {
       const dm = chunk.match(/<d:NEW_DATE[^>]*>([^<]+)<\/d:NEW_DATE>/);
       const vm = chunk.match(/<d:BC_2YEAR[^>]*>([^<]*)<\/d:BC_2YEAR>/);
+      const ten = chunk.match(/<d:BC_10YEAR[^>]*>([^<]*)<\/d:BC_10YEAR>/);
+      const thirty = chunk.match(/<d:BC_30YEAR[^>]*>([^<]*)<\/d:BC_30YEAR>/);
       if (!dm || !vm) continue;
       const date = dm[1].slice(0, 10);
       const value = Number(vm[1]);
       if (!date || !Number.isFinite(value)) continue;
-      out.push({ date, value });
+      out.push({
+        date,
+        value,
+        value10y: ten?.[1] !== "" && Number.isFinite(Number(ten?.[1])) ? Number(ten[1]) : null,
+        value30y: thirty?.[1] !== "" && Number.isFinite(Number(thirty?.[1])) ? Number(thirty[1]) : null,
+      });
     }
     return out;
   } catch (err) {
@@ -27189,8 +27205,17 @@ const CORR_SPARK_BARS = 31;       // trailing closes baked per market for the ra
 async function fetchGlobalMarketBars(symbol) {
   const period2 = new Date();
   const period1 = new Date(period2.getTime() - GLOBAL_HISTORY_DAYS * 24 * 3600 * 1000);
-  const result = await yahooFinance.chart(symbol, { period1, period2, interval: "1d" });
-  const quotes = Array.isArray(result?.quotes) ? result.quotes : [];
+  let result = await yahooFinance.chart(symbol, { period1, period2, interval: "1d" });
+  let quotes = Array.isArray(result?.quotes) ? result.quotes : [];
+  // Yahoo occasionally returns a successful but truncated ~15-session slice
+  // for a 1-year request. That is enough for the old 24H tile but silently
+  // blanks the new 20-session context. Retry once and keep the longer result.
+  if (quotes.length > 1 && quotes.length < CORR_SPARK_BARS) {
+    await new Promise((r) => setTimeout(r, 180));
+    const retry = await yahooFinance.chart(symbol, { period1, period2, interval: "1d" });
+    const retryQuotes = Array.isArray(retry?.quotes) ? retry.quotes : [];
+    if (retryQuotes.length > quotes.length) { result = retry; quotes = retryQuotes; }
+  }
   const bars = quotes
     .filter((q) => q && q.close != null)
     .map((q) => ({ c: q.close, t: q.date ? new Date(q.date).toISOString().slice(0, 10) : null }))
@@ -27246,43 +27271,128 @@ async function fetchGlobalMarketBars(symbol) {
   };
 }
 
-// Japan 10Y JGB yield — Yahoo has no JGB symbol, so pull the Ministry of
-// Finance's official daily CSV (current month; fresh, ~20 trading days, no
-// auth/anti-bot). Returns the same shape as fetchGlobalMarketBars. The 10Y is
-// column index 10 (Date,1Y,2Y,…,10Y,…); rows use CRLF + "-" for missing values.
-const JGB10Y_CSV_URL =
-  "https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate/jgbcme.csv";
-async function fetchJgb10y() {
-  const res = await fetch(JGB10Y_CSV_URL, {
-    headers: {
-      "user-agent":
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-      accept: "text/csv,*/*",
-    },
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!res.ok) throw new Error(`JGB CSV HTTP ${res.status}`);
-  const text = await res.text();
-  const bars = [];
-  for (const rawLine of text.split(/\r?\n/)) {
+// Japan JGB curve — Yahoo has no reliable JGB symbols, so pull the Ministry of
+// Finance's official historical + current-month daily CSVs (no auth/anti-bot).
+// Combining both keeps the latest session while retaining enough depth for an
+// honest 20-session comparison early in a month. One joined request returns
+// both the 2Y and 10Y in the same shape as
+// fetchGlobalMarketBars. Columns are Date,1Y,2Y,…,10Y,…; rows use CRLF + "-".
+const JGB_CSV_URLS = [
+  "https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate/historical/jgbcme_all.csv",
+  "https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate/jgbcme.csv",
+];
+async function fetchJgbCurve() {
+  const texts = await Promise.all(JGB_CSV_URLS.map(async (url) => {
+    const res = await fetch(url, {
+      headers: {
+        "user-agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        accept: "text/csv,*/*",
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) throw new Error(`JGB CSV HTTP ${res.status}`);
+    return res.text();
+  }));
+  const byDate = { JGB2Y: new Map(), JGB10Y: new Map() };
+  for (const rawLine of texts.join("\n").split(/\r?\n/)) {
     const cells = rawLine.split(",");
     const dm = (cells[0] || "").trim().match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
     if (!dm) continue;
-    const v = Number((cells[10] || "").trim()); // 10Y column; "-" / "" → NaN
-    if (!Number.isFinite(v)) continue;
-    bars.push({ c: v, t: `${dm[1]}-${dm[2].padStart(2, "0")}-${dm[3].padStart(2, "0")}` });
+    const t = `${dm[1]}-${dm[2].padStart(2, "0")}-${dm[3].padStart(2, "0")}`;
+    const twoY = Number((cells[2] || "").trim());
+    const tenY = Number((cells[10] || "").trim());
+    if (Number.isFinite(twoY)) byDate.JGB2Y.set(t, twoY);
+    if (Number.isFinite(tenY)) byDate.JGB10Y.set(t, tenY);
   }
-  if (bars.length < 2) throw new Error("JGB CSV: fewer than 2 usable rows");
-  const last = bars[bars.length - 1], prev = bars[bars.length - 2];
-  const chPct = prev.c ? ((last.c - prev.c) / prev.c) * 100 : null;
+  const out = {};
+  for (const [sym, dated] of Object.entries(byDate)) {
+    const bars = [...dated.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([t, c]) => ({ t, c }));
+    if (bars.length < 2) continue;
+    const last = bars[bars.length - 1], prev = bars[bars.length - 2];
+    const chPct = prev.c ? ((last.c - prev.c) / prev.c) * 100 : null;
+    out[sym] = {
+      bars,
+      last: last.c,
+      prevClose: prev.c,
+      chPct: chPct == null ? null : Math.round(chPct * 100) / 100,
+      asOf: last.t,
+      currency: "%",
+      yName: sym === "JGB2Y" ? "Japan 2Y JGB" : "Japan 10Y JGB",
+    };
+  }
+  if (!out.JGB2Y && !out.JGB10Y) throw new Error("JGB CSV: fewer than 2 usable rows");
+  return out;
+}
+
+// BOJ's official daily uncollateralized overnight call-rate API. This is the
+// realized policy/funding rate comparable to EFFR (not the basic loan rate), so
+// the US-Japan differential remains an observable apples-to-apples carry proxy.
+async function fetchBojOvernightCallRate() {
+  const year = new Date().getUTCFullYear();
+  const url = `https://www.stat-search.boj.or.jp/api/v1/getDataCode?format=json&lang=en&db=FM01&code=STRDCLUCON&startDate=${year}01`;
+  const res = await fetch(url, {
+    headers: { accept: "application/json", "user-agent": "stonks-market-research/1.0" },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw new Error(`BOJ call-rate API HTTP ${res.status}`);
+  const json = await res.json();
+  const values = json?.RESULTSET?.[0]?.VALUES;
+  const dates = Array.isArray(values?.SURVEY_DATES) ? values.SURVEY_DATES : [];
+  const rates = Array.isArray(values?.VALUES) ? values.VALUES : [];
+  for (let i = Math.min(dates.length, rates.length) - 1; i >= 0; i--) {
+    const rate = Number(rates[i]);
+    const rawDate = String(dates[i] || "");
+    if (!Number.isFinite(rate) || !/^\d{8}$/.test(rawDate)) continue;
+    return {
+      rate,
+      asOf: `${rawDate.slice(0, 4)}-${rawDate.slice(4, 6)}-${rawDate.slice(6, 8)}`,
+      source: "BOJ:FM01/STRDCLUCON",
+    };
+  }
+  throw new Error("BOJ call-rate API returned no usable observation");
+}
+
+// Free one-month USD/JPY implied-volatility proxy. Institutional OTC/CME CVOL
+// redistribution needs a licensed feed, so use the nearest-to-30-day at-the-
+// money FXY option straddle (FXY tracks JPY/USD; percentage volatility is
+// direction-invariant). This is explicitly labeled a proxy in the payload/UI.
+async function fetchUsdJpyOneMonthIvProxy() {
+  const first = await yahooFinance.options("FXY");
+  const expiries = Array.isArray(first?.expirationDates) ? first.expirationDates : [];
+  const nowMs = Date.now();
+  const expiry = expiries
+    .map((d) => ({ date: new Date(d), days: (new Date(d).getTime() - nowMs) / 86400000 }))
+    .filter((x) => Number.isFinite(x.days) && x.days >= 14 && x.days <= 60)
+    .sort((a, b) => Math.abs(a.days - 30) - Math.abs(b.days - 30))[0];
+  if (!expiry) throw new Error("FXY has no 14-60 day option expiration");
+  const chain = await yahooFinance.options("FXY", { date: expiry.date });
+  const spot = Number(chain?.quote?.regularMarketPrice);
+  const optionSet = chain?.options?.[0];
+  if (!Number.isFinite(spot) || !optionSet) throw new Error("FXY option chain missing spot/options");
+  const calls = new Map((optionSet.calls || []).map((o) => [Number(o.strike), o]));
+  const puts = new Map((optionSet.puts || []).map((o) => [Number(o.strike), o]));
+  const candidates = [...calls.keys()]
+    .filter((strike) => Number.isFinite(strike) && puts.has(strike))
+    .map((strike) => ({ strike, call: calls.get(strike), put: puts.get(strike) }))
+    .filter(({ call, put }) => Number(call?.bid) > 0 && Number(call?.ask) > 0 && Number(put?.bid) > 0 && Number(put?.ask) > 0)
+    .sort((a, b) => Math.abs(a.strike - spot) - Math.abs(b.strike - spot));
+  const atm = candidates[0];
+  if (!atm) throw new Error("FXY option chain has no quoted ATM straddle");
+  const callMid = (Number(atm.call.bid) + Number(atm.call.ask)) / 2;
+  const putMid = (Number(atm.put.bid) + Number(atm.put.ask)) / 2;
+  const days = Math.max(1, Math.round(expiry.days));
+  const ivPct = ((callMid + putMid) / spot) * Math.sqrt(Math.PI / 2) * Math.sqrt(365 / days) * 100;
+  if (!Number.isFinite(ivPct) || ivPct <= 0 || ivPct > 100) throw new Error("FXY straddle produced an invalid IV proxy");
   return {
-    bars,
-    last: last.c,
-    prevClose: prev.c,
-    chPct: chPct == null ? null : Math.round(chPct * 100) / 100,
-    asOf: last.t,
-    currency: "%",
-    yName: "Japan 10Y JGB",
+    valuePct: Math.round(ivPct * 10) / 10,
+    tenorDays: days,
+    expiry: expiry.date.toISOString().slice(0, 10),
+    strike: atm.strike,
+    spot: Math.round(spot * 100) / 100,
+    asOf: new Date().toISOString(),
+    source: "Yahoo:FXY option chain",
+    proxy: true,
   };
 }
 
@@ -27307,6 +27417,10 @@ async function fetchUs2yTreasury() {
   if (bars.length < 2) throw new Error("US 2Y: no usable rows");
   const last = bars[bars.length - 1], prev = bars[bars.length - 2];
   const chPct = prev.c ? ((last.c - prev.c) / prev.c) * 100 : null;
+  const curveBars = {
+    "^TNX": obs.filter((o) => o?.date && Number.isFinite(o.value10y)).map((o) => ({ t: o.date, c: o.value10y })),
+    "^TYX": obs.filter((o) => o?.date && Number.isFinite(o.value30y)).map((o) => ({ t: o.date, c: o.value30y })),
+  };
   return {
     bars,
     last: last.c,
@@ -27315,6 +27429,7 @@ async function fetchUs2yTreasury() {
     asOf: last.t,
     currency: "%",
     yName: "US 2Y yield",
+    curveBars,
   };
 }
 
@@ -27323,9 +27438,9 @@ async function fetchUs2yTreasury() {
 // stale).
 export async function fetchAllGlobalMarkets() {
   const out = {};
-  // US2Y (Treasury par-yield) and JGB10Y (MOF CSV) are sourced below, not Yahoo
+  // US2Y (Treasury par-yield) and JGB2Y/JGB10Y (MOF CSV) are sourced below, not Yahoo
   // — keep them out of the Yahoo chart() sweep (which would 404 on the keys).
-  const syms = Object.keys(GLOBAL_MARKETS).filter((s) => s !== "JGB10Y" && s !== "US2Y");
+  const syms = Object.keys(GLOBAL_MARKETS).filter((s) => !["JGB2Y", "JGB10Y", "US2Y"].includes(s));
   await runPooled(syms, GLOBAL_FETCH_CONCURRENCY, async (sym) => {
     try {
       out[sym] = await fetchGlobalMarketBars(sym);
@@ -27335,16 +27450,34 @@ export async function fetchAllGlobalMarkets() {
       console.log(`    ⚠ global market ${sym} fetch failed: ${err.message}`);
     }
   });
-  try {
-    out["US2Y"] = await fetchUs2yTreasury();
-  } catch (err) {
-    console.log(`    ⚠ US 2Y (Treasury) fetch failed: ${err.message}`);
+  const [us2y, jgb, fed, boj, usdJpyIv] = await Promise.allSettled([
+    fetchUs2yTreasury(),
+    fetchJgbCurve(),
+    fetchEffectiveFedFundsRate(),
+    fetchBojOvernightCallRate(),
+    fetchUsdJpyOneMonthIvProxy(),
+  ]);
+  if (us2y.status === "fulfilled") {
+    out.US2Y = us2y.value;
+    for (const sym of ["^TNX", "^TYX"]) {
+      const officialBars = us2y.value?.curveBars?.[sym];
+      if (out[sym] && Array.isArray(officialBars) && officialBars.length > (out[sym].bars?.length || 0)) {
+        out[sym].bars = officialBars;
+      }
+    }
   }
-  try {
-    out["JGB10Y"] = await fetchJgb10y();
-  } catch (err) {
-    console.log(`    ⚠ JGB 10Y (MOF) fetch failed: ${err.message}`);
-  }
+  else console.log(`    ⚠ US 2Y (Treasury) fetch failed: ${us2y.reason?.message || us2y.reason}`);
+  if (jgb.status === "fulfilled") Object.assign(out, jgb.value);
+  else console.log(`    ⚠ JGB curve (MOF) fetch failed: ${jgb.reason?.message || jgb.reason}`);
+  const contextInputs = {
+    usPolicy: fed.status === "fulfilled" ? fed.value : null,
+    japanPolicy: boj.status === "fulfilled" ? boj.value : null,
+    usdJpyIv: usdJpyIv.status === "fulfilled" ? usdJpyIv.value : null,
+  };
+  if (fed.status === "rejected") console.log(`    ⚠ US policy-rate input failed: ${fed.reason?.message || fed.reason}`);
+  if (boj.status === "rejected") console.log(`    ⚠ BOJ overnight call-rate input failed: ${boj.reason?.message || boj.reason}`);
+  if (usdJpyIv.status === "rejected") console.log(`    ⚠ USD/JPY IV proxy failed: ${usdJpyIv.reason?.message || usdJpyIv.reason}`);
+  Object.defineProperty(out, "_contextInputs", { value: contextInputs, enumerable: false });
   return out;
 }
 
@@ -27534,6 +27667,119 @@ export function deriveGlobalTapeAxis(markets) {
   return { score, label, driver, components };
 }
 
+function globalMoveForPeriod(g, type, sessions) {
+  if (!g) return { pct: null, bp: null, pt: null };
+  let last = null, base = null;
+  if (sessions === 1) {
+    last = g.last == null ? null : Number(g.last);
+    base = g.prevClose == null ? null : Number(g.prevClose);
+  } else {
+    const bars = Array.isArray(g.bars) ? g.bars.filter((b) => b && Number.isFinite(Number(b.c))) : [];
+    if (bars.length > sessions) {
+      last = Number(bars[bars.length - 1].c);
+      base = Number(bars[bars.length - 1 - sessions].c);
+    }
+  }
+  if (!Number.isFinite(last) || !Number.isFinite(base) || base === 0) return { pct: null, bp: null, pt: null };
+  const pct = ((last - base) / base) * 100;
+  return {
+    pct: Math.round(pct * 100) / 100,
+    bp: type === "rate" ? Math.round((last - base) * 100 * 10) / 10 : null,
+    pt: type === "vol" ? Math.round((last - base) * 100) / 100 : null,
+  };
+}
+
+function alignedRateSpread(a, b, sessions) {
+  if (!a || !b) return { valueBp: null, changeBp: null, asOf: null };
+  const valueBp = a.last != null && b.last != null && Number.isFinite(Number(a.last)) && Number.isFinite(Number(b.last))
+    ? Math.round((Number(a.last) - Number(b.last)) * 100 * 10) / 10
+    : null;
+  const aByDate = new Map((a.bars || []).filter((x) => x?.t && Number.isFinite(Number(x.c))).map((x) => [x.t, Number(x.c)]));
+  const bByDate = new Map((b.bars || []).filter((x) => x?.t && Number.isFinite(Number(x.c))).map((x) => [x.t, Number(x.c)]));
+  const common = [...aByDate.keys()].filter((t) => bByDate.has(t)).sort();
+  let changeBp = null;
+  if (common.length > sessions) {
+    const end = common[common.length - 1], start = common[common.length - 1 - sessions];
+    const endSpread = aByDate.get(end) - bByDate.get(end);
+    const startSpread = aByDate.get(start) - bByDate.get(start);
+    changeBp = Math.round((endSpread - startSpread) * 100 * 10) / 10;
+  }
+  return { valueBp, changeBp, asOf: common.length ? common[common.length - 1] : null };
+}
+
+function inversePct(pct) {
+  if (pct == null || !Number.isFinite(Number(pct))) return null;
+  const r = Number(pct) / 100;
+  return Number.isFinite(r) && r > -1 ? ((1 / (1 + r)) - 1) * 100 : null;
+}
+
+function buildOvernightContext(globalMarkets, markets, priorContext = null) {
+  const horizons = [1, 5, 20];
+  const spreadMoves = {};
+  for (const h of horizons) spreadMoves[`${h}d`] = alignedRateSpread(globalMarkets["^TNX"], globalMarkets.JGB10Y, h).changeBp;
+  const spread = alignedRateSpread(globalMarkets["^TNX"], globalMarkets.JGB10Y, 1);
+
+  const currencyStrength = {};
+  for (const h of horizons) {
+    const key = `${h}d`;
+    const raw = {
+      USD: 0,
+      JPY: inversePct(markets["JPY=X"]?.moves?.[key]?.pct),
+      EUR: markets["EURUSD=X"]?.moves?.[key]?.pct ?? null,
+      AUD: markets["AUDUSD=X"]?.moves?.[key]?.pct ?? null,
+      GBP: markets["GBPUSD=X"]?.moves?.[key]?.pct ?? null,
+    };
+    const present = Object.values(raw).filter((v) => v != null && Number.isFinite(Number(v))).map(Number);
+    const mean = present.length ? present.reduce((a, b) => a + b, 0) / present.length : 0;
+    const scores = {};
+    for (const [ccy, value] of Object.entries(raw)) {
+      scores[ccy] = value != null && Number.isFinite(Number(value)) ? Math.round((Number(value) - mean) * 100) / 100 : null;
+    }
+    currencyStrength[key] = scores;
+  }
+
+  const inputs = globalMarkets._contextInputs || {};
+  const usPolicy = inputs.usPolicy || null;
+  const japanPolicy = inputs.japanPolicy || null;
+  let policyDiff = null;
+  if (usPolicy?.rate != null && japanPolicy?.rate != null && Number.isFinite(Number(usPolicy.rate)) && Number.isFinite(Number(japanPolicy.rate))) {
+    policyDiff = {
+      valueBp: Math.round((Number(usPolicy.rate) - Number(japanPolicy.rate)) * 100 * 10) / 10,
+      usRate: Number(usPolicy.rate),
+      japanRate: Number(japanPolicy.rate),
+      asOf: [usPolicy.asOf, japanPolicy.asOf].filter(Boolean).sort()[0] || null,
+      usAsOf: usPolicy.asOf || null,
+      japanAsOf: japanPolicy.asOf || null,
+      sources: [usPolicy.source, japanPolicy.source].filter(Boolean),
+      method: "Effective Fed Funds minus BOJ uncollateralized overnight call rate",
+    };
+  } else if (priorContext?.carry?.policyDiff) {
+    policyDiff = { ...priorContext.carry.policyDiff, stale: true };
+  }
+  const usdJpyIv = inputs.usdJpyIv
+    ? inputs.usdJpyIv
+    : (priorContext?.carry?.usdJpyIv ? { ...priorContext.carry.usdJpyIv, stale: true } : null);
+
+  return {
+    horizons: ["1d", "5d", "20d"],
+    carry: {
+      yieldSpread10y: {
+        valueBp: spread.valueBp,
+        changes: spreadMoves,
+        asOf: spread.asOf,
+        method: "US 10Y yield minus Japan 10Y JGB yield",
+        sources: ["Yahoo:^TNX", "Japan MOF JGB curve"],
+      },
+      policyDiff,
+      usdJpyIv,
+    },
+    currencyStrength: {
+      method: "Each currency's move versus USD, demeaned across USD, JPY, EUR, AUD and GBP; positive means stronger than the equal-weight basket.",
+      horizons: currencyStrength,
+    },
+  };
+}
+
 export function buildCorrelationsPayload(chains, globalMarkets, builtAtIso, prior = null) {
   globalMarkets = globalMarkets || {};
   const haveSyms = Object.keys(globalMarkets);
@@ -27564,12 +27810,20 @@ export function buildCorrelationsPayload(chains, globalMarkets, builtAtIso, prio
     // fetch — it re-derives each session's risk score from consecutive closes
     // using the same mapping the live marker uses. Omitted when too short;
     // graceful (old snapshots without it just show no spark / live-only).
-    const closes = Array.isArray(g.bars)
+    const usableBars = Array.isArray(g.bars)
       ? g.bars
-          .map((b) => (b && b.c != null && isFinite(b.c)) ? Math.round(b.c * 100) / 100 : null)
-          .filter((v) => v != null)
+          .filter((b) => b?.t && b.c != null && isFinite(b.c))
           .slice(-CORR_SPARK_BARS)
       : [];
+    const closes = usableBars
+          .map((b) => Math.round(b.c * 100) / 100)
+          .slice(-CORR_SPARK_BARS);
+    const seriesDates = usableBars.map((b) => b.t);
+    const moves = {
+      "1d": globalMoveForPeriod(g, type, 1),
+      "5d": globalMoveForPeriod(g, type, 5),
+      "20d": globalMoveForPeriod(g, type, 20),
+    };
     markets[sym] = {
       sym,
       name: meta.name || g.yName || sym,
@@ -27583,7 +27837,9 @@ export function buildCorrelationsPayload(chains, globalMarkets, builtAtIso, prio
       chgPt,
       cur: g.currency || null,
       asOf: g.asOf || null,
-      ...(closes.length >= 4 ? { series: closes } : {}),
+      source: sym === "US2Y" ? "US Treasury" : (sym === "JGB2Y" || sym === "JGB10Y" ? "Japan MOF" : "Yahoo Finance"),
+      moves,
+      ...(closes.length >= 4 ? { series: closes, seriesDates } : {}),
     };
   }
   // Region grouping for the tab (in GLOBAL_MARKETS declaration order).
@@ -27591,6 +27847,7 @@ export function buildCorrelationsPayload(chains, globalMarkets, builtAtIso, prio
   const regionBy = {};
   for (const sym of Object.keys(GLOBAL_MARKETS)) {
     if (!markets[sym]) continue;
+    if (GLOBAL_MARKETS[sym]?.hidden) continue;
     const r = markets[sym].region;
     if (!regionBy[r]) { regionBy[r] = []; regionOrder.push(r); }
     regionBy[r].push(sym);
@@ -27629,6 +27886,7 @@ export function buildCorrelationsPayload(chains, globalMarkets, builtAtIso, prio
     broad: GLOBAL_BROAD_SIGNALS.filter((s) => markets[s]),
     map,
     tone: deriveGlobalTone(markets),
+    context: buildOvernightContext(globalMarkets, markets, prior?.context || null),
   };
 }
 

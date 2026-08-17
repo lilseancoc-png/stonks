@@ -91,7 +91,7 @@
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fallback","asOf":"2026-08-16","ageDays":null};
+  var RFR_META = {"source":"fallback","asOf":"2026-08-17","ageDays":null};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null, chainRequestSeq: 0 };
   var ownerAutoPicks = { data: null, pending: null };
@@ -25572,7 +25572,7 @@
     }
   }
 
-  var overnightState = { data: null, loading: false };
+  var overnightState = { data: null, loading: false, horizon: '1d', selectedMarket: null };
   // Freshest session date across the loaded markets — set in renderOvernight,
   // read by overnightTile for its "as of" lag badge (#2).
   var ovnMaxAsOf = null;
@@ -25604,11 +25604,23 @@
   // Move string in the convention that fits the instrument: basis points for
   // yields, vol-points for VIX, otherwise a percent. Accepts any object with
   // {type, chPct, chgBp, chgPt} — markets AND peers both carry these (#6).
-  function ovnMoveStr(m){
+  function ovnPeriodMove(m, horizon){
+    var h = horizon || '1d';
+    if (m && m.moves && m.moves[h]) return m.moves[h];
+    return h === '1d' && m ? { pct: m.chPct, bp: m.chgBp, pt: m.chgPt } : { pct: null, bp: null, pt: null };
+  }
+  function ovnMoveValue(m, horizon){
+    var p = ovnPeriodMove(m, horizon);
+    if (m && m.type === 'rate') return p.bp;
+    if (m && m.type === 'vol') return p.pt;
+    return p.pct;
+  }
+  function ovnMoveStr(m, horizon){
     if (!m) return '—';
-    if (m.type === 'rate' && m.chgBp != null && isFinite(m.chgBp)) return (m.chgBp > 0 ? '+' : '') + Math.round(m.chgBp) + 'bp';
-    if (m.type === 'vol' && m.chgPt != null && isFinite(m.chgPt)) return (m.chgPt > 0 ? '+' : '') + m.chgPt.toFixed(2) + ' pt';
-    return ovnSignPct(m.chPct);
+    var p = ovnPeriodMove(m, horizon);
+    if (m.type === 'rate' && p.bp != null && isFinite(p.bp)) return (p.bp > 0 ? '+' : '') + (Math.abs(p.bp) >= 10 ? Math.round(p.bp) : Number(p.bp).toFixed(1)) + 'bp';
+    if (m.type === 'vol' && p.pt != null && isFinite(p.pt)) return (p.pt > 0 ? '+' : '') + Number(p.pt).toFixed(2) + ' pt';
+    return ovnSignPct(p.pct);
   }
   // Current level, formatted per type (yields in %, USD instruments with $,
   // foreign cash with its currency code). '' when no level is available (#7).
@@ -25829,8 +25841,83 @@
       });
     });
   }
+  function ovnHorizonLabel(h){ return h === '5d' ? '5D' : (h === '20d' ? '20D' : '24H'); }
+  function ovnSignedBp(v){
+    if (v == null || !isFinite(v)) return '—';
+    return (v > 0 ? '+' : '') + (Math.abs(v) >= 100 ? Math.round(v) : Number(v).toFixed(1)) + 'bp';
+  }
+  function ovnMiniSpark(m){
+    var values = m && Array.isArray(m.series) ? m.series.map(Number).filter(isFinite) : [];
+    if (values.length < 3) return '';
+    var min = Math.min.apply(null, values), max = Math.max.apply(null, values), span = max - min || 1;
+    var pts = values.map(function(v, i){
+      var x = values.length === 1 ? 0 : (i / (values.length - 1)) * 100;
+      var y = 30 - ((v - min) / span) * 26;
+      return x.toFixed(1) + ',' + y.toFixed(1);
+    }).join(' ');
+    return '<svg class="ovn-detail-spark" viewBox="0 0 100 32" preserveAspectRatio="none" role="img" aria-label="Trailing ' + values.length + '-session price path"><polyline points="' + pts + '" fill="none" vector-effect="non-scaling-stroke"></polyline></svg>';
+  }
+  function overnightDetailHtml(d){
+    var sym = overnightState.selectedMarket;
+    var m = sym && d && d.markets ? d.markets[sym] : null;
+    if (!m) return '';
+    var flags = overnightFlagsFor(sym).filter(function(f){ return ovnSignif(f.corr, f.n); }).slice(0, 6);
+    var related = flags.length
+      ? '<div class="ovn-detail-related"><span>Historically linked US names</span>' + flags.map(function(f){
+          return '<button type="button" data-go-ticker="' + ovnEsc(f.sym) + '">' + ovnEsc(f.sym) + ' <small>r ' + ovnEsc((f.corr > 0 ? '+' : '') + Number(f.corr).toFixed(2)) + '</small></button>';
+        }).join('') + '</div>'
+      : '';
+    var sessionCopy = m.sessionClass === 'leading'
+      ? 'Completed before the US open, so this can be a genuine lead for today’s cash session.'
+      : (m.sessionClass === '24h'
+          ? 'Trades around the clock. Treat it as live cross-asset confirmation, not a clean lead.'
+          : 'Overlaps US hours. This is concurrent confirmation rather than an overnight lead.');
+    return '<section class="ovn-detail" id="overnight-market-detail" aria-live="polite">' +
+      '<div class="ovn-detail-head"><div><span>' + ovnEsc(sym) + '</span><h3>' + ovnEsc(m.name) + '</h3></div><button type="button" data-ovn-close aria-label="Close market detail">×</button></div>' +
+      '<div class="ovn-detail-body"><div class="ovn-detail-chart">' + ovnMiniSpark(m) + '<small>' + ovnEsc(m.series && m.series.length ? m.series.length + ' sessions' : 'history unavailable') + '</small></div>' +
+      '<div class="ovn-detail-stats"><div><span>Level</span><b>' + ovnEsc(ovnLevelStr(m) || '—') + '</b></div>' +
+      ['1d','5d','20d'].map(function(h){ return '<div><span>' + ovnHorizonLabel(h) + '</span><b class="' + ovnMoveCls(ovnMoveValue(m, h)) + '">' + ovnEsc(ovnMoveStr(m, h)) + '</b></div>'; }).join('') + '</div></div>' +
+      '<p><b>Why it matters:</b> ' + ovnEsc(m.lead || 'Cross-market context') + '. ' + ovnEsc(sessionCopy) + '</p>' +
+      '<div class="ovn-detail-meta"><span>Source: ' + ovnEsc(m.source || 'market data') + '</span><span>As of ' + ovnEsc(m.asOf || 'unavailable') + '</span></div>' + related + '</section>';
+  }
+  function overnightContextHtml(d){
+    var h = overnightState.horizon || '1d';
+    var ctx = d && d.context ? d.context : {};
+    var carry = ctx.carry || {};
+    var spread = carry.yieldSpread10y || {};
+    var policy = carry.policyDiff || null;
+    var iv = carry.usdJpyIv || null;
+    var strength = ctx.currencyStrength && ctx.currencyStrength.horizons ? ctx.currencyStrength.horizons[h] : null;
+    function marketCard(sym, label, note){
+      var m = d.markets && d.markets[sym];
+      if (!m) return '';
+      return '<button type="button" class="ovn-carry-card" data-ovn-market="' + ovnEsc(sym) + '"><span>' + ovnEsc(label || m.name) + '</span><b>' + ovnEsc(ovnLevelStr(m) || '—') + '</b><strong class="' + ovnMoveCls(ovnMoveValue(m, h)) + '">' + ovnEsc(ovnMoveStr(m, h)) + '</strong><small>' + ovnEsc(note || m.lead || '') + '</small></button>';
+    }
+    var spreadChange = spread.changes ? spread.changes[h] : null;
+    var carryCards = '';
+    if (spread.valueBp != null) carryCards += '<article class="ovn-carry-card is-derived"><span>US 10Y − JP 10Y</span><b>' + ovnEsc(ovnSignedBp(spread.valueBp)) + '</b><strong class="' + ovnMoveCls(spreadChange) + '">' + ovnEsc(ovnSignedBp(spreadChange)) + '</strong><small>Wider supports USD carry; fast narrowing can favor JPY</small></article>';
+    carryCards += marketCard('JGB10Y', 'Japan 10Y yield', 'Long-end Japan / global duration anchor');
+    carryCards += marketCard('JGB2Y', 'Japan 2Y yield', 'Front-end BOJ path');
+    carryCards += marketCard('AUDJPY=X', 'AUD/JPY', 'Growth-sensitive carry cross');
+    carryCards += marketCard('EURJPY=X', 'EUR/JPY', 'European carry cross');
+    if (policy) carryCards += '<article class="ovn-carry-card is-derived"><span>US − Japan policy</span><b>' + ovnEsc(ovnSignedBp(policy.valueBp)) + '</b><strong>effective rates</strong><small>' + ovnEsc(Number(policy.usRate).toFixed(3) + '% EFFR − ' + Number(policy.japanRate).toFixed(3) + '% BOJ call' + (policy.stale ? ' · carried' : '')) + '</small></article>';
+    if (iv) carryCards += '<article class="ovn-carry-card is-derived"><span>USD/JPY 1M IV</span><b>' + ovnEsc(Number(iv.valuePct).toFixed(1) + '%') + '</b><strong>' + ovnEsc((iv.tenorDays || 30) + 'D proxy') + '</strong><small>FXY ATM straddle' + (iv.stale ? ' · carried' : '') + '; higher means larger priced yen swings</small></article>';
+    var strengthHtml = '';
+    if (strength){
+      var rows = Object.keys(strength).filter(function(ccy){ return strength[ccy] != null && isFinite(strength[ccy]); }).sort(function(a,b){ return strength[b] - strength[a]; });
+      var maxAbs = rows.reduce(function(mx, ccy){ return Math.max(mx, Math.abs(strength[ccy])); }, 0) || 1;
+      strengthHtml = '<div class="ovn-strength" aria-label="Relative currency strength"><div class="ovn-strength-head"><div><span>Relative currency strength</span><small>Positive = stronger than the equal-weight basket</small></div><em>' + ovnHorizonLabel(h) + '</em></div>' + rows.map(function(ccy){
+        var v = Number(strength[ccy]), width = Math.max(4, Math.round(Math.abs(v) / maxAbs * 50));
+        return '<div class="ovn-strength-row"><b>' + ovnEsc(ccy) + '</b><div class="ovn-strength-track"><i class="' + (v >= 0 ? 'is-pos' : 'is-neg') + '" style="width:' + width + '%"></i></div><strong class="' + ovnMoveCls(v) + '">' + ovnEsc(ovnSignPct(v, 2)) + '</strong></div>';
+      }).join('') + '<p>' + ovnEsc(ctx.currencyStrength.method || '') + '</p></div>';
+    }
+    return '<section class="ovn-context" aria-label="Interactive overnight context"><div class="ovn-context-head"><div><span class="ovn-desk-kicker">Japan carry &amp; FX context</span><h3>Change the horizon, then open any market for the full path</h3></div><div class="ovn-horizons" role="group" aria-label="Market move period">' +
+      ['1d','5d','20d'].map(function(key){ return '<button type="button" data-ovn-horizon="' + key + '" aria-pressed="' + (h === key ? 'true' : 'false') + '">' + ovnHorizonLabel(key) + '</button>'; }).join('') + '</div></div>' +
+      (carryCards ? '<div class="ovn-carry-grid">' + carryCards + '</div>' : '') + strengthHtml + '</section>';
+  }
   function overnightTile(fsym){
     var d = overnightState.data; var m = d.markets[fsym]; if (!m) return '';
+    var horizon = overnightState.horizon || '1d';
     var flags = overnightFlagsFor(fsym).slice(0, 6);
     var flagHtml = flags.length
       ? '<div class="ovn-tile-flags"><span class="ovn-tile-flags-lbl">leads</span> ' + flags.map(function(f){
@@ -25849,9 +25936,9 @@
     var asof = (m.asOf && ovnMaxAsOf && m.asOf !== ovnMaxAsOf)
       ? '<div class="ovn-tile-asof" title="This market’s last session lags the freshest tile">as of ' + ovnEsc(ovnShortDate(m.asOf)) + '</div>'
       : '';
-    return '<div class="ovn-tile ' + ovnMoveCls(m.chPct) + '">' +
+    return '<div class="ovn-tile ' + ovnMoveCls(ovnMoveValue(m, horizon)) + (overnightState.selectedMarket === fsym ? ' is-selected' : '') + '" data-ovn-market="' + ovnEsc(fsym) + '" role="button" tabindex="0" aria-label="Open ' + ovnEsc(m.name) + ' context">' +
       '<div class="ovn-tile-top"><span class="ovn-tile-name">' + ovnEsc(m.name) + (tag ? ' ' + tag : '') + '</span>' +
-      '<span class="ovn-tile-ch">' + ovnMoveStr(m) + '</span></div>' +
+      '<span class="ovn-tile-ch">' + ovnMoveStr(m, horizon) + '</span></div>' +
       (lvl ? '<div class="ovn-tile-sub"><span class="ovn-tile-level">' + ovnEsc(lvl) + '</span></div>' : '') +
       lead + flagHtml + asof +
       '</div>';
@@ -25860,7 +25947,8 @@
     if (!rootEl) return;
     var btns = rootEl.querySelectorAll('[data-go-ticker]');
     btns.forEach(function(b){
-      b.addEventListener('click', function(){
+      b.addEventListener('click', function(e){
+        if (e && e.stopPropagation) e.stopPropagation();
         var s = b.getAttribute('data-go-ticker');
         if (!s) return;
         try {
@@ -25871,6 +25959,33 @@
       });
     });
   }
+  function bindOvernightInteractions(rootEl){
+    if (!rootEl) return;
+    rootEl.querySelectorAll('[data-ovn-horizon]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        overnightState.horizon = btn.getAttribute('data-ovn-horizon') || '1d';
+        renderOvernight();
+      });
+    });
+    function openMarket(node){
+      var sym = node && node.getAttribute ? node.getAttribute('data-ovn-market') : null;
+      if (!sym) return;
+      overnightState.selectedMarket = overnightState.selectedMarket === sym ? null : sym;
+      renderOvernight();
+      if (overnightState.selectedMarket){
+        var detail = document.getElementById('overnight-market-detail');
+        if (detail && detail.scrollIntoView) detail.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }
+    rootEl.querySelectorAll('[data-ovn-market]').forEach(function(node){
+      node.addEventListener('click', function(e){ if (!e.target.closest('[data-go-ticker]')) openMarket(node); });
+      node.addEventListener('keydown', function(e){
+        if ((e.key === 'Enter' || e.key === ' ') && !e.target.closest('[data-go-ticker]')) { e.preventDefault(); openMarket(node); }
+      });
+    });
+    var close = rootEl.querySelector('[data-ovn-close]');
+    if (close) close.addEventListener('click', function(){ overnightState.selectedMarket = null; renderOvernight(); });
+  }
   function renderOvernight(){
     var root = document.getElementById('overnight-root');
     var decisionEl = document.getElementById('overnight-decision');
@@ -25878,6 +25993,7 @@
     var eyebrow = document.getElementById('overnight-eyebrow');
     if (!root) return;
     var d = overnightState.data;
+    var horizon = overnightState.horizon || '1d';
     if (overnightState.loading && !d){ root.textContent = 'Loading overnight markets…'; return; }
     if (!d || !d.markets || !Object.keys(d.markets).length){
       root.innerHTML = '<p class="overnight-empty">' + (d && d.loadError ? 'Couldn’t load overnight market data.' : 'Overnight market data will populate on the next market build.') + '</p>';
@@ -25904,10 +26020,10 @@
       var chipsHtml = bsyms.map(function(s){
         var m = d.markets[s]; if (!m) return '';
         var lvl = ovnLevelStr(m);
-        return '<span class="ovn-chip ' + ovnMoveCls(m.chPct) + '" title="' + ovnEsc(m.name) + (lvl ? ' · ' + ovnEsc(lvl) : '') + '">' +
+        return '<span class="ovn-chip ' + ovnMoveCls(ovnMoveValue(m, horizon)) + '" title="' + ovnEsc(m.name) + (lvl ? ' · ' + ovnEsc(lvl) : '') + '">' +
           '<span class="ovn-chip-name">' + ovnEsc(m.name) + '</span>' +
           (lvl ? '<span class="ovn-chip-lvl">' + ovnEsc(lvl) + '</span>' : '') +
-          '<span class="ovn-chip-ch">' + ovnMoveStr(m) + '</span></span>';
+          '<span class="ovn-chip-ch">' + ovnMoveStr(m, horizon) + '</span></span>';
       }).join('');
       broadEl.innerHTML = chipsHtml ? ('<span class="ovn-keylvl-lbl">Key levels</span>' + chipsHtml) : '';
     }
@@ -25915,7 +26031,7 @@
     function ovnSortByMove(syms){
       return (syms || []).filter(function(s){ return d.markets[s]; }).sort(function(a, b){
         var ma = d.markets[a], mb = d.markets[b];
-        return Math.abs((mb && mb.chPct) || 0) - Math.abs((ma && ma.chPct) || 0);
+        return Math.abs(ovnMoveValue(mb, horizon) || 0) - Math.abs(ovnMoveValue(ma, horizon) || 0);
       });
     }
     var regions = d.regions || [];
@@ -25935,9 +26051,9 @@
     var driverSpecs = regionSpecs.map(function(spec){
       return { region: spec.region, sym: spec.syms[0] };
     }).filter(function(x){
-      var m = d.markets[x.sym]; return m && m.chPct != null && isFinite(m.chPct);
+      var m = d.markets[x.sym]; return m && ovnMoveValue(m, horizon) != null && isFinite(ovnMoveValue(m, horizon));
     }).sort(function(a, b){
-      return Math.abs(d.markets[b.sym].chPct) - Math.abs(d.markets[a.sym].chPct);
+      return Math.abs(ovnMoveValue(d.markets[b.sym], horizon)) - Math.abs(ovnMoveValue(d.markets[a.sym], horizon));
     }).slice(0, 5);
     function ovnDriverCard(spec){
       var m = d.markets[spec.sym];
@@ -25949,24 +26065,24 @@
         : '<div class="ovn-driver-watch ovn-driver-context"><span>Cross-market context</span></div>';
       var lvl = ovnLevelStr(m);
       var typeClass = (m.type === 'rate' || m.type === 'vol') ? ' ovn-driver-type-' + m.type : '';
-      return '<article class="ovn-driver ' + ovnMoveCls(m.chPct) + typeClass + '">' +
+      return '<article class="ovn-driver ' + ovnMoveCls(ovnMoveValue(m, horizon)) + typeClass + '" data-ovn-market="' + ovnEsc(spec.sym) + '" role="button" tabindex="0">' +
         '<div class="ovn-driver-top"><span>' + ovnEsc(spec.region) + '</span>' + ovnClassTag(m.sessionClass) + '</div>' +
-        '<div class="ovn-driver-main"><b>' + ovnEsc(m.name) + '</b><strong>' + ovnMoveStr(m) + '</strong></div>' +
+        '<div class="ovn-driver-main"><b>' + ovnEsc(m.name) + '</b><strong>' + ovnMoveStr(m, horizon) + '</strong></div>' +
         '<div class="ovn-driver-meta">' + (lvl ? '<span>' + ovnEsc(lvl) + '</span>' : '') + (m.lead ? '<span>' + ovnEsc(m.lead) + '</span>' : '') + '</div>' +
         watch +
       '</article>';
     }
     var desk = driverSpecs.length
-      ? '<section class="ovn-desk" aria-label="Into the open"><div class="ovn-desk-head"><div><span class="ovn-desk-kicker">Into the open</span><h3>Largest cross-market drivers</h3></div><small>One leader per region · ranked by move</small></div><div class="ovn-desk-grid">' + driverSpecs.map(ovnDriverCard).join('') + '</div></section>'
+      ? '<section class="ovn-desk" aria-label="Largest cross-market drivers"><div class="ovn-desk-head"><div><span class="ovn-desk-kicker">' + (horizon === '1d' ? 'Into the open' : ovnHorizonLabel(horizon) + ' context') + '</span><h3>Largest cross-market drivers</h3></div><small>One leader per region · ranked by ' + ovnHorizonLabel(horizon) + ' move</small></div><div class="ovn-desk-grid">' + driverSpecs.map(ovnDriverCard).join('') + '</div></section>'
       : '';
     var regionHtml = regionSpecs.map(function(spec){
       var leader = d.markets[spec.syms[0]];
       var tiles = spec.syms.map(overnightTile).join('');
       return '<details class="ovn-region"><summary><span><b>' + ovnEsc(spec.region) + '</b><small>' + spec.syms.length + ' market' + (spec.syms.length === 1 ? '' : 's') + '</small></span>' +
-        '<span class="ovn-region-lead"><em>' + ovnEsc(leader.name) + '</em><strong class="' + ovnMoveCls(leader.chPct) + '">' + ovnMoveStr(leader) + '</strong></span></summary>' +
+        '<span class="ovn-region-lead"><em>' + ovnEsc(leader.name) + '</em><strong class="' + ovnMoveCls(ovnMoveValue(leader, horizon)) + '">' + ovnMoveStr(leader, horizon) + '</strong></span></summary>' +
         '<div class="ovn-region-body"><div class="ovn-region-grid">' + tiles + '</div></div></details>';
     }).join('');
-    root.innerHTML = desk + (regionHtml ? '<div class="ovn-region-list">' + regionHtml + '</div>' : '<p class="overnight-empty">No overnight markets available.</p>');
+    root.innerHTML = overnightContextHtml(d) + overnightDetailHtml(d) + desk + (regionHtml ? '<div class="ovn-region-list">' + regionHtml + '</div>' : '<p class="overnight-empty">No overnight markets available.</p>');
     if (eyebrow){
       var rangeTxt = ovnMaxAsOf
         ? (minAsOf && minAsOf !== ovnMaxAsOf ? ('sessions ' + ovnShortDate(minAsOf) + ' – ' + ovnShortDate(ovnMaxAsOf)) : ('sessions through ' + ovnShortDate(ovnMaxAsOf)))
@@ -25974,6 +26090,7 @@
       eyebrow.textContent = (d.stale ? 'last-good · ' : '') + rangeTxt;
     }
     bindOvernightFlagJumps(root);
+    bindOvernightInteractions(root);
   }
   // --- Per-ticker overnight peer read (Grade tab) -------------------------
   function overnightImplied(peer){
