@@ -24,7 +24,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Changed
 
-- **The product title is simply stonks.** The visible masthead, browser title, and social-sharing titles no longer append “Option Rater.” `scripts/render/{app-js,html}.mjs`, `scripts/render-smoke.mjs`, `app.js`, `index.html`.
+- **The product title is simply stonks.** The visible masthead, browser title, and social-sharing titles no longer append “Option Rater.” (#620) `scripts/render/{app-js,html}.mjs`, `scripts/render-smoke.mjs`, `app.js`, `index.html`.
 
 ### Fixed
 
