@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { buildCorrelationsPayload } from "./build.mjs";
 
 function bars(start, dailyStep, count = 31) {
@@ -60,5 +61,10 @@ for (const h of ["1d", "5d", "20d"]) {
   assert.ok(Object.values(row).every(Number.isFinite));
   assert.ok(Math.abs(Object.values(row).reduce((a, b) => a + b, 0)) < 0.05, `${h} strength should be basket-relative`);
 }
+
+const overnightCss = readFileSync(new URL("./render/styles-css.mjs", import.meta.url), "utf8");
+assert.match(overnightCss, /grid-template-areas:"label label" "value move" "note note"/);
+assert.match(overnightCss, /minmax\(min\(100%,190px\),1fr\)/);
+assert.doesNotMatch(overnightCss, /\.ovn-carry-card>span\{[^}]*text-overflow:ellipsis/);
 
 console.log("overnight smoke: ok");
