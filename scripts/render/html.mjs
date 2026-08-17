@@ -1707,15 +1707,15 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <meta name="color-scheme" content="light dark" />
-<title>stonks · Option Contract Rater</title>
+<title>stonks</title>
 <meta name="description" content="Grade any stock ticker: a 4-pillar conviction score, technicals, fundamentals, implied vol, news, and an options contract grader. Track the market narratives currently driving capital." />
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="apple-touch-icon" href="favicon.svg">
 <meta property="og:type" content="website">
-<meta property="og:title" content="stonks · Option Contract Rater">
+<meta property="og:title" content="stonks">
 <meta property="og:description" content="Grade any stock ticker: a 4-pillar conviction score, technicals, fundamentals, implied vol, news, and an options contract grader. Track the market narratives currently driving capital.">
 <meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="stonks · Option Contract Rater">
+<meta name="twitter:title" content="stonks">
 <meta name="twitter:description" content="Grade any stock ticker: a 4-pillar conviction score, technicals, fundamentals, implied vol, news, and an options contract grader. Track the market narratives currently driving capital.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1735,7 +1735,6 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         <circle cx="11" cy="11" r="9" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="1.4 2.6" opacity="0.55"/>
       </svg>
       <span class="brand-word">stonks</span>
-      <span class="brand-tag">Option Rater</span>
     </a>
     </div>
     <nav class="site-nav">

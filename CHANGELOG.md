@@ -22,6 +22,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-08-17
 
+### Changed
+
+- **The product title is simply stonks.** The visible masthead, browser title, and social-sharing titles no longer append “Option Rater.” `scripts/render/{app-js,html}.mjs`, `scripts/render-smoke.mjs`, `app.js`, `index.html`.
+
 ### Fixed
 
 - **Bonds & USD labels its primary decision action.** The Rates decision desk now defines the shared primary-button accent, keeping the live “Review [lead rate]” control visibly labeled instead of rendering as an empty dark box beside Heatmap. `scripts/render/{styles-css}.mjs`, `scripts/render-smoke.mjs`, `styles.css`.
