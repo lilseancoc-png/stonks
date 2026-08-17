@@ -56,6 +56,10 @@ try {
   assert.match(html, /data-page-tab="timeline"[\s\S]*?id="page-pane-timeline"/);
   assert.match(html, /08:30 ET[\s\S]*?Premarket Brief[\s\S]*?10:00, 11:00, 13:30, 15:30 &amp; 16:10 ET/);
   assert.match(html, /11:00 &amp; 15:30 ET[\s\S]*?Swing decision desks[\s\S]*?Friday 11:30 ET[\s\S]*?Weekly Alt Data/);
+  assert.match(html, /id="time-zone-select" aria-label="Display time zone"[\s\S]*?<option value="local">Local<\/option>[\s\S]*?<option value="et">ET<\/option>[\s\S]*?<option value="ct">CT<\/option>[\s\S]*?<option value="mt">MT<\/option>[\s\S]*?<option value="pt">PT<\/option>[\s\S]*?<option value="utc">UTC<\/option>/);
+  assert.match(html, /Market schedule · ET \(America\/New_York\)[\s\S]*?header&rsquo;s time-zone setting converts actual build, scan and headline timestamps/);
+  assert.match(html, /id="footer-built-time" class="muted" data-built-at="2026-08-02T00:00:00\.000Z">checking&hellip;<\/span>/);
+  assert.doesNotMatch(html, /\(NY\)/);
   assert.match(html, /href="https:\/\/ko-fi\.com\/mingstreetapp"/);
   assert.ok(html.includes(`class="discord-btn" href="${DISCORD_INVITE_URL}"`));
   assert.ok(html.includes(`class="foot-discord" href="${DISCORD_INVITE_URL}"`));
@@ -68,10 +72,19 @@ try {
   const stylesCss = renderStylesCss();
   assert.match(stylesCss, /@media \(max-width: 1023px\)\s*\{[\s\S]*?\.side-nav\s*\{[\s\S]*?top: 0;[\s\S]*?z-index: 65;[\s\S]*?\.side-nav-backdrop\s*\{[\s\S]*?inset: 0;/);
   assert.match(stylesCss, /\.bonds-context \{ --flow-decision-tone: var\(--accent\);/, "Bonds & USD primary actions must have a visible tone");
+  assert.match(stylesCss, /\.time-zone-control\s*\{[\s\S]*?\.time-zone-control select\s*\{/);
+  assert.match(stylesCss, /@media \(max-width: 560px\) \{[\s\S]*?\.brand-mark \{ display: none; \}[\s\S]*?\.site-nav \.donate-btn \{ display: none; \}[\s\S]*?\.time-zone-control \{ width: 42px;/, "mobile header must leave room for the timezone control and full wordmark");
   assert.doesNotMatch(stylesCss, /"rank (?:regime|scenario) (?:regime|scenario)"/);
   assert.doesNotMatch(stylesCss, /\.(?:ptc-regime|ptc-scenario|pick-pillars-regime|pick-scenario-overlay)\b/);
 
   const appJs = renderAppJs({});
+  assert.match(appJs, /var DISPLAY_TIME_ZONE_KEY = 'stonks-display-time-zone';/);
+  assert.match(appJs, /local: \{ label: 'Local', timeZone: null \}[\s\S]*?et: \{ label: 'ET', timeZone: 'America\/New_York' \}[\s\S]*?pt: \{ label: 'PT', timeZone: 'America\/Los_Angeles' \}[\s\S]*?utc: \{ label: 'UTC', timeZone: 'UTC' \}/);
+  assert.match(appJs, /function formatDisplayInstant\(value, options\)[\s\S]*?opts\.timeZoneName = 'short'/);
+  assert.match(appJs, /function bindTimeZoneSelect\(\)[\s\S]*?localStorage\.setItem\(DISPLAY_TIME_ZONE_KEY, next\)[\s\S]*?window\.location\.reload\(\)/);
+  assert.match(appJs, /function renderFooterBuiltTime\(\)[\s\S]*?formatDisplayInstant\(iso,[\s\S]*?el\.textContent = label/);
+  assert.ok((appJs.match(/formatDisplayInstant\(/g) || []).length >= 20, "timestamped desks must use the shared display-timezone formatter");
+  assert.doesNotMatch(appJs, /function fmtTapeTime\(iso\)\{[\s\S]{0,220}?America\/New_York/, "tape timestamps must use the user display zone");
   assert.doesNotMatch(appJs, /class="(?:ptc-regime|ptc-scenario|pick-pillars-regime|pick-scenario-overlay)\b/);
   assert.doesNotMatch(appJs, /function pickRegime(?:GradeNote|OverlayHtml|CompactHtml)\(/);
   assert.doesNotMatch(appJs, /data-narr-tab="market"/, "Narratives must not link to the owner-only Market Analysis tab");

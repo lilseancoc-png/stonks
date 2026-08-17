@@ -568,6 +568,44 @@ h1, h2, .landing-hero-title, .landing-section-title { text-wrap: balance; }
 }
 .auth-chip .auth-logout:hover { color: var(--text); text-decoration: underline; }
 @media (max-width: 560px) { .auth-chip .auth-name { display: none; } }
+.time-zone-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 6px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.time-zone-control:hover,
+.time-zone-control:focus-within {
+  color: var(--text-strong);
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+.time-zone-control svg { flex: 0 0 auto; }
+.time-zone-control select {
+  width: 50px;
+  min-width: 0;
+  padding: 0 14px 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: 700 12px/1 var(--font-sans);
+  cursor: pointer;
+}
+.time-zone-control select:focus { outline: none; }
+.time-zone-control option { color: var(--text); background: var(--surface); }
+@media (max-width: 560px) {
+  .brand-mark { display: none; }
+  .site-nav .donate-btn { display: none; }
+  .time-zone-control { width: 42px; padding: 0; justify-content: center; }
+  .time-zone-control svg { display: none; }
+  .time-zone-control select { width: 40px; padding: 0 9px 0 4px; font-size: 11px; }
+}
 /* Owner destinations must not flash while /me is unresolved or for visitors. */
 body:not(.is-owner) [data-go="picks"],
 body:not(.is-owner) [data-go="market"],

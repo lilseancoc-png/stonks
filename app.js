@@ -86,12 +86,12 @@
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.03703;
+  var RFR = 0.04500;
   // Provenance for the risk-free rate baked above. source is
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-08-17","ageDays":null};
+  var RFR_META = {"source":"fallback","asOf":"2026-08-17","ageDays":null};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null, chainRequestSeq: 0 };
   var ownerAutoPicks = { data: null, pending: null };
@@ -99,6 +99,73 @@
   var stickyIO = null;
 
   function $(id){ return document.getElementById(id); }
+  // User-facing timestamps share one persisted display-timezone preference.
+  // Market-session calculations and published schedules intentionally remain
+  // pinned to America/New_York; this setting only changes how real instants
+  // (builds, scans, live refreshes and headlines) are shown to the reader.
+  var DISPLAY_TIME_ZONE_KEY = 'stonks-display-time-zone';
+  var DISPLAY_TIME_ZONES = {
+    local: { label: 'Local', timeZone: null },
+    et: { label: 'ET', timeZone: 'America/New_York' },
+    ct: { label: 'CT', timeZone: 'America/Chicago' },
+    mt: { label: 'MT', timeZone: 'America/Denver' },
+    pt: { label: 'PT', timeZone: 'America/Los_Angeles' },
+    utc: { label: 'UTC', timeZone: 'UTC' },
+  };
+  var DISPLAY_TIME_ZONE = 'local';
+  try {
+    var savedDisplayTimeZone = localStorage.getItem(DISPLAY_TIME_ZONE_KEY);
+    if (savedDisplayTimeZone && DISPLAY_TIME_ZONES[savedDisplayTimeZone]) DISPLAY_TIME_ZONE = savedDisplayTimeZone;
+  } catch (_) {}
+  function displayTimeZoneConfig(){
+    return DISPLAY_TIME_ZONES[DISPLAY_TIME_ZONE] || DISPLAY_TIME_ZONES.local;
+  }
+  function formatDisplayInstant(value, options){
+    var d = value instanceof Date ? value : new Date(value);
+    if (!d || isNaN(d.getTime())) return '';
+    var opts = Object.assign({}, options || {});
+    var cfg = displayTimeZoneConfig();
+    if (cfg.timeZone) opts.timeZone = cfg.timeZone;
+    if (!Object.prototype.hasOwnProperty.call(opts, 'timeZoneName')) opts.timeZoneName = 'short';
+    try { return new Intl.DateTimeFormat('en-US', opts).format(d); }
+    catch (_) { return d.toISOString().slice(0, 16).replace('T', ' ') + ' UTC'; }
+  }
+  function formatDisplayDate(value, options){
+    var d = value instanceof Date ? value : new Date(value);
+    if (!d || isNaN(d.getTime())) return '';
+    var opts = Object.assign({}, options || {});
+    var cfg = displayTimeZoneConfig();
+    if (cfg.timeZone) opts.timeZone = cfg.timeZone;
+    try { return new Intl.DateTimeFormat('en-US', opts).format(d); }
+    catch (_) { return d.toISOString().slice(0, 10); }
+  }
+  function displayDateKey(value){
+    var d = value instanceof Date ? value : new Date(value);
+    if (!d || isNaN(d.getTime())) return '';
+    var opts = { year:'numeric', month:'2-digit', day:'2-digit' };
+    var cfg = displayTimeZoneConfig();
+    if (cfg.timeZone) opts.timeZone = cfg.timeZone;
+    try {
+      var parts = new Intl.DateTimeFormat('en-US', opts).formatToParts(d);
+      var out = {};
+      for (var i=0; i<parts.length; i++) out[parts[i].type] = parts[i].value;
+      return out.year + '-' + out.month + '-' + out.day;
+    } catch (_) { return d.toISOString().slice(0, 10); }
+  }
+  function bindTimeZoneSelect(){
+    var select = $('time-zone-select');
+    if (!select) return;
+    select.value = DISPLAY_TIME_ZONE;
+    select.addEventListener('change', function(){
+      var next = DISPLAY_TIME_ZONES[select.value] ? select.value : 'local';
+      if (next === DISPLAY_TIME_ZONE) return;
+      DISPLAY_TIME_ZONE = next;
+      try { localStorage.setItem(DISPLAY_TIME_ZONE_KEY, next); } catch (_) {}
+      // Reload once so timestamps in every lazily rendered and already-rendered
+      // desk update together without leaving mixed zones on screen.
+      window.location.reload();
+    });
+  }
   function setStatus(elemId, msg, kind){
     var el = $(elemId); if (!el) return;
     el.textContent = msg || '';
@@ -495,7 +562,7 @@
     var when = iso ? new Date(iso) : null;
     if (!when || isNaN(when.getTime())) return;
     var ageH = (Date.now() - when.getTime()) / 3600000;
-    var dateLabel = when.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric', timeZone:'America/New_York' });
+    var dateLabel = formatDisplayDate(when, { weekday:'short', month:'short', day:'numeric' });
     banner.classList.remove('warn','bad');
     if (override) {
       // Per-tab override — show the source label, never escalate to the
@@ -513,6 +580,13 @@
     } else {
       bannerText.innerHTML = 'Refreshed ' + freshnessRelLabel(ageH) + ' <span class="freshness-detail">· end-of-session quotes from Yahoo</span>';
     }
+  }
+  function renderFooterBuiltTime(){
+    var el = $('footer-built-time');
+    if (!el) return;
+    var iso = el.getAttribute('data-built-at');
+    var label = formatDisplayInstant(iso, { month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit' });
+    if (label) el.textContent = label;
   }
 
   // --- Live market-status badge ------------------------------------------
@@ -2956,7 +3030,7 @@
     // means we're already polling intraday — no stale warning needed.
     var nowMs = Date.now();
     var gradedAtMs = nowMs;
-    var gradedAtStr = (new Date(gradedAtMs)).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
+    var gradedAtStr = formatDisplayInstant(gradedAtMs, { hour: 'numeric', minute: '2-digit' });
     var dataAgeMs = null, dataAgeLabel = null;
     try {
       var iso = (window.STONKS_MANIFEST && window.STONKS_MANIFEST.builtAtIso) || '';
@@ -6566,7 +6640,7 @@
       var net = Math.max(-100, Math.min(100, Number(p.netPct)));
       var y = PY + ((100 - net) / 200) * (H - PY * 2);
       var d = new Date(p.at);
-      var stamp = isNaN(d.getTime()) ? String(p.at) : d.toLocaleString('en-US', {
+      var stamp = isNaN(d.getTime()) ? String(p.at) : formatDisplayInstant(d, {
         month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
       });
       return {
@@ -6606,7 +6680,7 @@
       if (e.user) meta.push('@' + String(e.user).replace(/^@/, ''));
       if (e.createdAt) {
         var d = new Date(e.createdAt);
-        if (!isNaN(d.getTime())) meta.push(d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }));
+        if (!isNaN(d.getTime())) meta.push(formatDisplayInstant(d, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }));
       }
       if (e.reactions) meta.push(e.reactions + ' reaction' + (Number(e.reactions) === 1 ? '' : 's'));
       var copy = escapeHtml(socialMessageText(e.body || e.title || ''));
@@ -7854,14 +7928,7 @@
     if (!iso) return '';
     try {
       var d = new Date(iso);
-      // "10:00 AM ET" — we trust the cron lined up to top of hour.
-      var s = new Intl.DateTimeFormat('en-US', {
-        timeZone: 'America/New_York',
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
-      }).format(d);
-      return s + ' ET';
+      return formatDisplayInstant(d, { hour: 'numeric', minute: '2-digit', hour12: true });
     } catch (_) { return ''; }
   }
   function flowContractHtml(c, symbol){
@@ -7908,7 +7975,7 @@
     }
     var flaggedLbl = fmtFlaggedTime(c.firstSeen);
     var flaggedTag = flaggedLbl
-      ? '<span class="flow-flagged" title="' + escapeHtml('First flagged unusual at ' + flaggedLbl + ' ET') + '">⚑ ' + escapeHtml(flaggedLbl) + '</span>'
+      ? '<span class="flow-flagged" title="' + escapeHtml('First flagged unusual at ' + flaggedLbl) + '">⚑ ' + escapeHtml(flaggedLbl) + '</span>'
       : '';
     var tipPrev = c.prevVol != null ? ' · was ' + fmtVolume(c.prevVol) + ' last hr' : '';
     var tipVoi = (voiRatio != null && isFinite(voiRatio)) ? ' · vol ' + voiStr + ' OI' : '';
@@ -7916,7 +7983,7 @@
     var tipDayPrem = dayPrem != null ? ' · ' + fmtBigDollars(dayPrem) + ' on the day' : '';
     var tipTape = tapeLbl ? ' · ' + tapeTitle(c.tape) : '';
     var tipRepeat = repeatCount >= 2 ? ' · flagged ' + repeatCount + 'x in last 5 trading days' : '';
-    var tipFlagged = flaggedLbl ? ' · flagged ' + flaggedLbl + ' ET' : '';
+    var tipFlagged = flaggedLbl ? ' · flagged ' + flaggedLbl : '';
     var title = 'Vol ' + fmtVolume(c.vol) + ' vs OI ' + fmtVolume(c.oi) + tipVoi +
       (c.deltaVol != null ? ' · ' + deltaStr + ' this hour' : '') +
       tipPrev +
@@ -7986,11 +8053,7 @@
     if (!iso) return '';
     try {
       var d = new Date(iso);
-      return new Intl.DateTimeFormat('en-US', {
-        timeZone: 'America/New_York',
-        month: 'short',
-        day: 'numeric',
-      }).format(d);
+      return formatDisplayDate(d, { month: 'short', day: 'numeric' });
     } catch (_) { return ''; }
   }
   // Trading days a pick has continuously held its top-picks spot, derived from
@@ -8034,27 +8097,11 @@
     if (!iso) return '';
     try {
       var d = new Date(iso);
-      var nowParts = new Intl.DateTimeFormat('en-US', {
-        timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
-      }).formatToParts(new Date());
-      var thenParts = new Intl.DateTimeFormat('en-US', {
-        timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
-      }).formatToParts(d);
-      function ymd(parts){
-        var o = {};
-        for (var i=0;i<parts.length;i++){ o[parts[i].type] = parts[i].value; }
-        return o.year + '-' + o.month + '-' + o.day;
-      }
-      var sameDay = ymd(nowParts) === ymd(thenParts);
+      var sameDay = displayDateKey(new Date()) === displayDateKey(d);
       if (sameDay){
-        return new Intl.DateTimeFormat('en-US', {
-          timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', hour12: true,
-        }).format(d);
+        return formatDisplayInstant(d, { hour: 'numeric', minute: '2-digit', hour12: true });
       }
-      return new Intl.DateTimeFormat('en-US', {
-        timeZone: 'America/New_York', month: 'short', day: 'numeric',
-        hour: 'numeric', minute: '2-digit', hour12: true,
-      }).format(d);
+      return formatDisplayInstant(d, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
     } catch (_) { return ''; }
   }
   var flowState = {
@@ -10569,7 +10616,7 @@
     if (!el) return;
     if (ok && marketState === 'REGULAR'){
       el.className = 'tab-live-state is-live';
-      el.textContent = 'Live · ' + new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+      el.textContent = 'Live · ' + formatDisplayInstant(new Date(), { hour: 'numeric', minute: '2-digit' });
     } else if (ok) {
       el.className = 'tab-live-state';
       el.textContent = pausedMarketLabel(marketState);
@@ -11458,7 +11505,7 @@
     return { lbl: 'Neutral', cls: '', tone: 'neutral' };
   }
   function fmtTapeTime(iso){
-    try { return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }) + ' ET'; }
+    try { return formatDisplayInstant(iso, { hour: 'numeric', minute: '2-digit' }); }
     catch (_) { return ''; }
   }
   function macroTapeTooltip(regime, opts){
@@ -12387,7 +12434,7 @@
         '<header class="scenario-head"><div><span class="scenario-kicker">Forward scenario engine · 5–10 sessions</span>' +
           '<h3>' + escapeHtml(frag.label || 'Conditional risk overlay') + '</h3>' +
           '<p>' + escapeHtml(engine.framing || 'Conditional risk and filtering overlay - not a point forecast.') + '</p></div>' +
-          '<em>v' + escapeHtml(String(engine.version || 1)) + ' · ' + escapeHtml((engine.builtAtIso || '').slice(0, 16).replace('T', ' ')) + '</em></header>' +
+          '<em>v' + escapeHtml(String(engine.version || 1)) + ' · ' + escapeHtml(formatDisplayInstant(engine.builtAtIso, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) || 'time unavailable') + '</em></header>' +
         '<div class="scenario-transition">' +
           '<span><small>Neutral / current → risk-off</small><b class="' + (Number(probs.riskOffShiftPct) >= 55 ? 'neg' : 'zero') + '">' + escapeHtml(String(probs.riskOffShiftPct ?? '—')) + '%</b><em>next 5–10 sessions</em></span>' +
           '<span><small>Risk-on continuation</small><b class="pos">' + escapeHtml(String(probs.riskOnContinuationPct ?? '—')) + '%</b><em>conditional estimate</em></span>' +
@@ -13951,7 +13998,7 @@
     if (!iso) return '';
     try {
       var d = new Date(iso);
-      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + fmtScannedAt(iso);
+      return formatDisplayInstant(d, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
     } catch (_) { return ''; }
   }
 
@@ -16939,7 +16986,7 @@
       return;
     }
     if (empty) empty.hidden = true;
-    if (eye && d.builtAtIso) eye.textContent = 'as of ' + String(d.builtAtIso).slice(0,10);
+    if (eye && d.builtAtIso) eye.textContent = 'as of ' + formatDisplayDate(d.builtAtIso, { month:'short', day:'numeric', year:'numeric' });
     var season = null;
     for (var i = 0; i < seasons.length; i++){ if (seasons[i].key === earningsState.seasonKey) season = seasons[i]; }
     if (!season) season = seasons[0];
@@ -18217,7 +18264,7 @@
     }
     if (empty) empty.hidden = true;
     var freshness = cxFreshness(d, cos);
-    if (eye) eye.textContent = freshness.label + (d.builtAtIso ? ' · ' + String(d.builtAtIso).slice(0,10) : '');
+    if (eye) eye.textContent = freshness.label + (d.builtAtIso ? ' · ' + formatDisplayDate(d.builtAtIso, { month:'short', day:'numeric', year:'numeric' }) : '');
     var t = d.totals || null;
     var head = '', desk = '', top2Share = null;
     if (t){
@@ -18478,7 +18525,7 @@
     var html = '';
     var comp = retail && Array.isArray(retail.composite) ? retail.composite : [];
     var freshness = rpFreshness(d, spot, retail, comp);
-    if (eye) eye.textContent = freshness.label + (d.builtAtIso ? ' · ' + String(d.builtAtIso).slice(0,10) : '');
+    if (eye) eye.textContent = freshness.label + (d.builtAtIso ? ' · ' + formatDisplayDate(d.builtAtIso, { month:'short', day:'numeric', year:'numeric' }) : '');
     var last = comp.length ? comp[comp.length - 1] : null;
     var ch = retail ? (retail.change || {}) : {};
     var spot30 = spot ? rpMedian(spot.items.map(function(it){ return it.m1Pct; })) : null;
@@ -18924,7 +18971,7 @@
         '<div><span>' + escapeHtml(focus.model || 'Focus accelerator') + ' on-demand</span><b>' + apPrice(focus.onDemandMedian) + '</b><small>' + (discount != null && isFinite(discount) ? 'spot is ' + discount.toFixed(1) + '% cheaper' : 'median / low ' + apPrice(focus.onDemandLow)) + '</small></div>' +
         '<div><span>30-day price change</span><b>' + (hasTrend ? (trend > 0 ? '+' : '') + trend.toFixed(1) + '%' : 'Building') + '</b><small>' + (hasTrend ? (trend > 0 ? 'compute got more expensive' : trend < 0 ? 'compute got cheaper' : 'compute cost was flat') : (selectedHistory.length + ' daily snapshot' + (selectedHistory.length === 1 ? '' : 's'))) + '</small></div>' +
         '<div><span>Selected coverage</span><b>' + Object.keys(selectedProviders).length + ' providers</b><small>' + Number((selected.quotes || []).length) + ' normalized ' + escapeHtml(focus.model || 'accelerator') + ' quotes</small></div>' +
-      '</div><div class="ap-source-state"><span>' + escapeHtml(sourceText) + '</span><small>Built ' + escapeHtml(data.builtAtIso ? String(data.builtAtIso).replace('T',' ').slice(0,16) + 'Z' : 'time unavailable') + '</small></div>' +
+      '</div><div class="ap-source-state"><span>' + escapeHtml(sourceText) + '</span><small>Built ' + escapeHtml(data.builtAtIso ? formatDisplayInstant(data.builtAtIso, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : 'time unavailable') + '</small></div>' +
       '<div class="ap-actions"><button type="button" data-ap-grade="CRWV">Grade CRWV</button><button type="button" data-ap-grade="NVDA">Grade NVDA</button><button type="button" data-ap-grade="AMD">Grade AMD</button></div>' +
       '<p class="ap-desk-note">Rental pricing is a conditional capacity and utilization overlay, not proof of chip demand or provider revenue. Confirm against guidance, backlog, availability and stock price action.</p></section>';
     var options = benchmarks.map(function(row){
@@ -19168,7 +19215,7 @@
     var staleBuild = !isFinite(ageMs) || ageMs > (weeklyCadence ? 9 * 24 : 48) * 3600000;
     var cadenceLabel = weeklyCadence ? 'Weekly refresh' : 'Daily refresh';
     if (eye) eye.textContent = (staleBuild ? 'Reference only' : (status.state === 'partial' ? 'Partial refresh' : cadenceLabel)) +
-      ' | ' + rows.length + ' signals' + (d.builtAtIso ? ' | ' + String(d.builtAtIso).slice(0,10) : '');
+      ' | ' + rows.length + ' signals' + (d.builtAtIso ? ' | ' + formatDisplayDate(d.builtAtIso, { month:'short', day:'numeric', year:'numeric' }) : '');
 
     var risingThemes = rows.filter(function(row){ return Number(row.change7d) >= 15; }).length;
     var fallingThemes = rows.filter(function(row){ return Number(row.change7d) <= -15; }).length;
@@ -19628,7 +19675,7 @@
     if (empty) empty.hidden = true;
     for (var ai=0; ai<items.length; ai++) items[ai]._uiAged = !cmdItemCurrent(items[ai], d.builtAtIso) && !items[ai].missing && !items[ai].stale;
     var freshness = cmdFreshness(d, items);
-    if (eye) eye.textContent = freshness.label + (d.builtAtIso ? ' · ' + String(d.builtAtIso).slice(0,10) : '');
+    if (eye) eye.textContent = freshness.label + (d.builtAtIso ? ' · ' + formatDisplayDate(d.builtAtIso, { month:'short', day:'numeric', year:'numeric' }) : '');
     var html = cmdDesk(items, freshness);
     for (var g=0; g<CMD_GROUPS.length; g++){
       var gk = CMD_GROUPS[g][0];
@@ -19690,7 +19737,7 @@
   function crDateShort(iso){
     if (!iso) return '';
     var ms = Date.parse(iso); if (!isFinite(ms)) return String(iso).slice(0,10);
-    try { return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); }
+    try { return formatDisplayDate(ms, { month: 'short', day: 'numeric', year: 'numeric' }); }
     catch (e){ return String(iso).slice(0,10); }
   }
   function crEventRead(kind){
@@ -21356,7 +21403,7 @@
     }
     root.hidden = false; if (empty) empty.hidden = true;
     var updated = Date.parse(d.updatedAt || '');
-    if (stamp) stamp.textContent = (d.status || 'paper') + (isFinite(updated) ? ' · ' + new Date(updated).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : '');
+    if (stamp) stamp.textContent = (d.status || 'paper') + (isFinite(updated) ? ' · ' + formatDisplayInstant(updated, {hour:'numeric', minute:'2-digit'}) : '');
     var market = d.market || {}; var first = market.firstHour || {}; var vol = market.volatility || {}; var event = market.event || {};
     var maxHoldMinutes = Number(d.rules && d.rules.maxHoldMinutes);
     if (!(maxHoldMinutes > 0)) maxHoldMinutes = 120;
@@ -21411,7 +21458,7 @@
     }
     root.hidden = false; if (empty) empty.hidden = true;
     var updated = Date.parse(h.updatedAt || d.updatedAt || '');
-    if (stamp) stamp.textContent = isFinite(updated) ? 'Updated ' + new Date(updated).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}) : 'Paper ledger';
+    if (stamp) stamp.textContent = isFinite(updated) ? 'Updated ' + formatDisplayInstant(updated, {hour:'numeric', minute:'2-digit'}) : 'Paper ledger';
     var summaries = d.portfolios || {}; var books = h.portfolios || {}; var sessions = Array.isArray(h.sessions) ? h.sessions : [];
     var html = '<div class="dt-books">';
     [['stock','Stock long / short']].forEach(function(pair){
@@ -21432,7 +21479,7 @@
       html += '<div class="quant-scroll"><table class="quant-tbl dt-table"><thead><tr><th>Closed</th><th>Book</th><th>Name</th><th>Side</th><th>Entry</th><th>Exit reason</th><th>P&amp;L</th><th>Hold</th></tr></thead><tbody>';
       closed.slice(0, 100).forEach(function(row){
         var closedAt = Date.parse(row.closedAt || '');
-        html += '<tr><td>' + (isFinite(closedAt) ? new Date(closedAt).toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}) : '—') + '</td><td>' + escapeHtml(row.book || '') + '</td><td>' + quantSymLink(row.symbol) + '</td><td class="' + (row.direction === 'long' ? 'quant-pos' : 'quant-neg') + '">' + escapeHtml(row.direction || '') + '</td><td>' + dtMoney(row.initialCash) + '</td><td>' + escapeHtml(row.outcome || '') + '</td><td class="' + dtPnlClass(row.pnl) + '"><b>' + dtMoney(row.pnl) + '</b></td><td>' + Number(row.holdMinutes || 0) + 'm</td></tr>';
+        html += '<tr><td>' + (isFinite(closedAt) ? formatDisplayInstant(closedAt, {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}) : '—') + '</td><td>' + escapeHtml(row.book || '') + '</td><td>' + quantSymLink(row.symbol) + '</td><td class="' + (row.direction === 'long' ? 'quant-pos' : 'quant-neg') + '">' + escapeHtml(row.direction || '') + '</td><td>' + dtMoney(row.initialCash) + '</td><td>' + escapeHtml(row.outcome || '') + '</td><td class="' + dtPnlClass(row.pnl) + '"><b>' + dtMoney(row.pnl) + '</b></td><td>' + Number(row.holdMinutes || 0) + 'm</td></tr>';
       });
       html += '</tbody></table></div>';
     }
@@ -22576,7 +22623,7 @@
     var dca = d && d.dca;
     if (!dca || !Array.isArray(dca.indexes) || !dca.indexes.length) return '';
     var base = stkDcaBase(dca);
-    var when = dca.updatedAtIso ? new Date(dca.updatedAtIso).toLocaleString() : '';
+    var when = dca.updatedAtIso ? formatDisplayInstant(dca.updatedAtIso, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : '';
     return '<section class="stk-dca" aria-label="Daily index DCA dial">' +
       '<header class="stk-dca-top">' +
         '<h3 class="stk-dca-title">Daily DCA dial — VOO &amp; QQQ</h3>' +
@@ -22631,7 +22678,7 @@
       return a ? a.key === 'starter' : !!(r && r.clean);
     }).length;
     if (eye){
-      var when = d.builtAtIso ? new Date(d.builtAtIso).toLocaleString() : '';
+      var when = d.builtAtIso ? formatDisplayInstant(d.builtAtIso, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : '';
       eye.textContent = rows.length + ' candidate' + (rows.length === 1 ? '' : 's') +
         (starter ? ' · ' + starter + ' ready for a starter' : '') + (when ? ' · updated ' + when : '');
     }
@@ -24176,7 +24223,7 @@
     if (!validGroup) rotationState.group = 'all';
     var visible = rotVisibleCandidates(candidates, thresholds);
     if (eye){
-      var when = d.builtAtIso ? new Date(d.builtAtIso).toLocaleString() : '';
+      var when = d.builtAtIso ? formatDisplayInstant(d.builtAtIso, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : '';
       var dataAsOf = d.dataAsOfDate || d.marketDataAsOf || '';
       eye.textContent = candidates.length + ' candidate' + (candidates.length === 1 ? '' : 's') + (near.length ? ' · ' + near.length + ' near miss' + (near.length === 1 ? '' : 'es') : '') + (dataAsOf ? ' · data through ' + dataAsOf : '') + (when ? ' · built ' + when : '');
     }
@@ -24739,7 +24786,7 @@
     var watch = Array.isArray(d.watch) ? d.watch : [];
     var visible = levVisibleIdeas(ideas);
     if (eye){
-      var when = d.builtAtIso ? new Date(d.builtAtIso).toLocaleString() : '';
+      var when = d.builtAtIso ? formatDisplayInstant(d.builtAtIso, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : '';
       eye.textContent = ideas.length + ' idea' + (ideas.length === 1 ? '' : 's') +
         (watch.length ? ' · ' + watch.length + ' on watch' : '') + (when ? ' · updated ' + when : '');
     }
@@ -25008,7 +25055,7 @@
   function renderBriefCard(b){
     if (!b) return '';
     var when = '';
-    if (b.generatedAtIso){ var dt = new Date(b.generatedAtIso); if (!isNaN(dt.getTime())) when = dt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
+    if (b.generatedAtIso){ var dt = new Date(b.generatedAtIso); if (!isNaN(dt.getTime())) when = formatDisplayInstant(dt, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
     var kindLabel = (b.kind === 'morning') ? 'Morning' : (b.kind === 'intraday') ? 'Intraday' : 'Post-close';
     var head = '<header class="brief-card-head">' +
       '<div class="brief-card-titles">' +
@@ -25073,7 +25120,7 @@
     if (Array.isArray(b.headlines) && b.headlines.length){
       var hls = b.headlines.map(function(h){
         var t = '';
-        if (h.at){ var hd = new Date(h.at); if (!isNaN(hd.getTime())) t = hd.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
+        if (h.at){ var hd = new Date(h.at); if (!isNaN(hd.getTime())) t = formatDisplayInstant(hd, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
         var meta = [h.source, t].filter(Boolean).join(' · ');
         // Link to the source article when the feed gave us a permalink (new tab);
         // degrade to plain text otherwise.
@@ -25259,7 +25306,7 @@
     if (eyebrow){
       var latest = cards[0];
       var w = '';
-      if (latest && latest.generatedAtIso){ var d = new Date(latest.generatedAtIso); if (!isNaN(d.getTime())) w = d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
+      if (latest && latest.generatedAtIso){ var d = new Date(latest.generatedAtIso); if (!isNaN(d.getTime())) w = formatDisplayInstant(d, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
       eyebrow.textContent = w ? ('Updated ' + w) : '';
     }
   }
@@ -25304,7 +25351,7 @@
   function newsFeedTimeAgo(item){
     if (item && item.dateOnly && item.publishedAt){
       var day = new Date(item.publishedAt);
-      return isNaN(day.getTime()) ? 'date unavailable' : day.toLocaleDateString(undefined, { month:'short', day:'numeric' });
+      return isNaN(day.getTime()) ? 'date unavailable' : formatDisplayDate(day, { month:'short', day:'numeric' });
     }
     var h = newsFeedAgeHours(item);
     if (h == null) return 'time unavailable';
@@ -25461,7 +25508,7 @@
     var stamp = '';
     if (item.publishedAt){
       var td = new Date(item.publishedAt);
-      stamp = isNaN(td.getTime()) ? '' : td.toLocaleString(undefined, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+      stamp = isNaN(td.getTime()) ? '' : formatDisplayInstant(td, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
     }
     var reaction = '';
     if (item.reaction && item.reaction.active && impact !== 'context'){
@@ -25562,7 +25609,7 @@
     if (eyebrow){
       var built = newsFeedState.data && (newsFeedState.data.generatedAtIso || newsFeedState.data.builtAtIso);
       var when = built ? new Date(built) : null;
-      eyebrow.textContent = all.length + ' stor' + (all.length === 1 ? 'y' : 'ies') + (when && !isNaN(when.getTime()) ? ' · updated ' + when.toLocaleString(undefined, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : '');
+      eyebrow.textContent = all.length + ' stor' + (all.length === 1 ? 'y' : 'ies') + (when && !isNaN(when.getTime()) ? ' · updated ' + formatDisplayInstant(when, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : '');
     }
     var landStat = $('land-stat-news'), landSub = $('land-sub-news');
     if (landStat) landStat.textContent = all.length ? String(all.length) : 'Ranked';
@@ -27062,7 +27109,7 @@
     if (fomc._liveAsOf){
       var liveT = Date.parse(fomc._liveAsOf);
       if (isFinite(liveT)){
-        var liveHhmm = new Date(liveT).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        var liveHhmm = formatDisplayInstant(liveT, { hour: 'numeric', minute: '2-digit' });
         liveTag = '<span class="fomc-live" title="Odds recomputed in your browser from live ZQ Fed Funds futures — tracks CME between hourly builds">● Live · ' + escapeHtml(liveHhmm) + '</span>';
       }
     }
@@ -29163,7 +29210,7 @@
     var d = new Date(iso);
     if (isNaN(d.getTime())) return '';
     try {
-      return new Intl.DateTimeFormat('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit', timeZone:'America/New_York' }).format(d) + ' ET';
+      return formatDisplayInstant(d, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
     } catch (_){
       return d.toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
     }
@@ -30380,7 +30427,7 @@
     if (eod.generatedAtIso){
       var when = new Date(eod.generatedAtIso);
       if (!isNaN(when.getTime())){
-        generated = when.toLocaleString(undefined, {
+        generated = formatDisplayInstant(when, {
           month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
         });
       }
@@ -30695,7 +30742,7 @@
         renderHeatmapDecision();
         if (stateEl){
           stateEl.className = 'heatmap-live-state is-live';
-          stateEl.textContent = 'Live · ' + (marketState || 'updated') + ' · ' + new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+          stateEl.textContent = 'Live · ' + (marketState || 'updated') + ' · ' + formatDisplayInstant(new Date(), { hour: 'numeric', minute: '2-digit' });
         }
       })
       .catch(function(){
@@ -37220,9 +37267,7 @@
   }
   function bondsClockEt(ms){
     try {
-      return new Date(ms).toLocaleTimeString('en-US', {
-        hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York'
-      }) + ' ET';
+      return formatDisplayInstant(ms, { hour: 'numeric', minute: '2-digit' });
     } catch (_) {
       return '';
     }
@@ -37396,11 +37441,11 @@
         if (live && bondsLive.fetchedAt) {
           var ld = new Date(bondsLive.fetchedAt);
           eyebrow.textContent = (headerFreshness.current ? 'live' : 'partial live · reference') + ' · ' +
-            ld.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }) + ' ET';
+            formatDisplayInstant(ld, { hour: 'numeric', minute: '2-digit' });
         } else if (macro.asOf) {
           var d = new Date(macro.asOf);
           eyebrow.textContent = (headerFreshness.current ? 'as of ' : 'reference · as of ') +
-            d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' });
+            formatDisplayDate(d, { month: 'short', day: 'numeric' });
         }
       } catch (_) {}
     }
@@ -38520,7 +38565,7 @@
       }, freshness, leader);
       if (modelNote){
         var stamp = '';
-        if (data.builtAtIso){ var d = new Date(data.builtAtIso); if (!isNaN(d.getTime())) stamp = ' · model ' + d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
+        if (data.builtAtIso){ var d = new Date(data.builtAtIso); if (!isNaN(d.getTime())) stamp = ' · model ' + formatDisplayInstant(d, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
         modelNote.textContent = 'Conviction ranks the thesis; Ready / Wait / Avoid grades the entry separately. Directional cards open Grade on the same side' + stamp + '.';
       }
       applyView();
@@ -38572,7 +38617,9 @@
   // --- Bind ---------------------------------------------------------------
   function bind(){
     renderFreshness();
+    renderFooterBuiltTime();
     try { renderMarketStatus(); } catch (_) {}
+    bindTimeZoneSelect();
     bindThemeToggle();
     bindBackToTop();
     bindPageTabs();

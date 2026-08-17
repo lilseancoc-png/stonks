@@ -849,10 +849,10 @@ function dayTradingTrackSection() {
 function buildTimelineSection() {
   return `<section class="card refresh-schedule" id="refresh-schedule-section">
     <header class="card-header">
-      <div><span class="card-eyebrow">All times America/New_York</span><h2 class="card-title">Build &amp; refresh timeline</h2></div>
+      <div><span class="card-eyebrow">Market schedule · ET (America/New_York)</span><h2 class="card-title">Build &amp; refresh timeline</h2></div>
       <span class="card-eyebrow">Weekdays unless noted</span>
     </header>
-    <p class="hint">A scheduled start is not a guaranteed publish minute: GitHub runner queues, source latency and validation time vary. A service is live only when its own tab shows the new timestamp. Failed or incomplete runs publish nothing, so the prior coherent snapshot remains visible.</p>
+    <p class="hint">A scheduled start is not a guaranteed publish minute: GitHub runner queues, source latency and validation time vary. A service is live only when its own tab shows the new timestamp. Failed or incomplete runs publish nothing, so the prior coherent snapshot remains visible. The header&rsquo;s time-zone setting converts actual build, scan and headline timestamps; market-session rules stay labeled in ET.</p>
     <div class="refresh-schedule-grid">
       <article class="refresh-schedule-card is-lead"><span>08:30 ET</span><h3>Premarket Brief</h3><p>The lightweight Brief run starts one hour before the bell and refreshes overnight markets, Fear &amp; Greed, macro releases and headlines, then checks every current public evidence desk for material standouts. It becomes live immediately after freshness verification and the private-store push; confirm the timestamp in Brief.</p><em>Brief only &middot; no full chain build</em></article>
       <article class="refresh-schedule-card"><span>10:00, 11:00, 13:30, 15:30 &amp; 16:10 ET</span><h3>Full market build</h3><p>Refreshes ticker chains and daily/intraday bars, grades, technicals, narratives, calendars, Pending Buyouts, MA Tracker, earnings, Market Analysis and Quant Lab. The 16:10 run captures the completed close.</p><em>Five evidence windows &middot; no unreliable 09:30 auction build</em></article>
@@ -1751,6 +1751,18 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h14v7a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5Z"/><path d="M17 10h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M7.5 11.5c1-1.4 3-1.4 4 0 1-1.4 3-1.4 4 0 0 2.2-2 3.5-4 4.7-2-1.2-4-2.5-4-4.7Z"/></svg>
         <span>Support</span>
       </a>
+      <label class="time-zone-control" title="Display timestamped data in your local zone or a selected U.S. market zone. Trading schedules stay in ET.">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        <span class="sr-only">Display time zone</span>
+        <select id="time-zone-select" aria-label="Display time zone">
+          <option value="local">Local</option>
+          <option value="et">ET</option>
+          <option value="ct">CT</option>
+          <option value="mt">MT</option>
+          <option value="pt">PT</option>
+          <option value="utc">UTC</option>
+        </select>
+      </label>
       <button id="theme-toggle" class="icon-btn" aria-label="Toggle theme" type="button">
         <svg class="i-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
         <svg class="i-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -1763,7 +1775,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <p class="page-sub">General market news, events, breadth, macro data, and source-backed company research. Refreshed throughout the trading day.</p>
 <div id="freshness-banner" class="freshness" data-built-at="${builtAtIso}" role="status" aria-live="polite">
   <span class="freshness-dot" aria-hidden="true"></span>
-  <span id="freshness-text">Refreshed ${builtAt} (NY)</span>
+  <span id="freshness-text">Checking data freshness&hellip;</span>
   <span id="market-status" class="market-status" aria-live="off" hidden></span>
 </div>
 <!-- Collapsible sidebar navigation. Destinations are grouped by the decision
@@ -2515,7 +2527,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   ${docPanesHtml()}
 </main>
 <footer class="site-footer">
-  <div>Built <span class="muted">${builtAt} (NY)</span></div>
+  <div>Built <span id="footer-built-time" class="muted" data-built-at="${builtAtIso}">checking&hellip;</span></div>
   <div class="muted">All analytical and editorial content is AI-generated or algorithmically produced and may be wrong. Verify independently. Data: third-party sources. For information only — not investment advice.</div>
   <div><a class="foot-discord" href="${DISCORD_INVITE_URL}" target="_blank" rel="noopener">Discuss the research in our Discord</a></div>
   <div><a class="foot-support" href="${KO_FI_URL}" target="_blank" rel="noopener">Support stonks on Ko-fi</a></div>
