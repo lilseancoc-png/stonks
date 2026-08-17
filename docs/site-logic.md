@@ -1069,7 +1069,11 @@ when one exists, and requires close/volume confirmation before use.
 
 ### Overnight Markets
 
-The overnight board joins futures, Asia/Europe, rates, FX, commodities, and risk assets. It computes up to 150 overlapping daily-return observations for correlation and beta. A rough US implication is:
+The overnight board joins futures, Asia/Europe, rates, FX, commodities, and risk assets. Its interactive horizon selector switches every ranking, key-level chip, and market tile between the live 24-hour move and 5-/20-session context; opening a market reveals its trailing path, session convention, source, and linked US names.
+
+The Japan-carry context combines the official Japan 2Y/10Y curve, US-minus-Japan 10Y spread, AUD/JPY and EUR/JPY, the effective overnight policy-rate differential (EFFR minus the BOJ uncollateralized overnight call rate), and a near-30-day FXY ATM-straddle volatility proxy. The proxy is labeled explicitly because the institutional OTC/CME USD/JPY volatility benchmark requires licensed redistribution. Currency strength is a simple USD-cross return, demeaned across an equal-weight USD/JPY/EUR/AUD/GBP basket for 1, 5, and 20 sessions; it is relative ranking context, not a standalone trade signal.
+
+The board computes up to 150 overlapping daily-return observations for correlation and beta. A rough US implication is:
 
 ```text
 peer move × historical beta
