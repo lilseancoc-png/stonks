@@ -20,6 +20,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-08-18
+
+### Added
+
+- **Calendar covers the complete official US economic and Federal Reserve event schedules.** Every dated BLS and BEA release now comes from the agencies&rsquo; live calendars; Federal Reserve Board speeches, testimony, minutes, conferences, and statistical releases come from each official monthly calendar; and the Kansas City Fed&rsquo;s Jackson Hole page adds the Aug. 27&ndash;29, 2026 symposium with its official source link and verified fallback. Confirmed earnings for the tracked universe gain a rolling 21-day Nasdaq sweep that recovers near-term dates missing from Yahoo, while existing detailed Actual / Previous / Consensus rows and FOMC decisions deduplicate richer overlaps. The calendar&rsquo;s Fed filter now includes both FOMC decisions and every other Fed event. `scripts/{build,regen-calendar,calendar-smoke}.mjs`, `scripts/render/{app-js,html,styles-css}.mjs`, `package.json`, `app.js`, `index.html`, `styles.css`, `docs/site-logic.md`.
+
 ## 2026-08-17
 
 ### Changed

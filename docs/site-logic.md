@@ -851,12 +851,13 @@ The unified calendar covers the rest of the year with at least a 30-day useful h
 
 - earnings dates and AM/PM/TBD sessions;
 - ticker-specific catalysts;
-- CPI, PPI, payrolls, unemployment, JOLTS, and other macro releases;
-- FOMC schedule;
+- every dated BLS and BEA release from the agencies' official calendars;
+- Federal Reserve Board speeches, testimony, minutes, conferences, statistical releases, and the FOMC schedule;
+- the Kansas City Fed's Jackson Hole symposium;
 - actual, consensus, previous, and forecast fields;
 - report history.
 
-BLS is primary for major labor/inflation series, with FRED fallback. The FOMC schedule has a hardcoded rolling baseline merged with a live Fed scrape. Source failures carry the last good section and mark it stale. The shared calendar payload also supplies the Fed policy desk in Bonds & USD, but Calendar presents only the dated meetings.
+BLS is primary for major labor/inflation series, with FRED fallback. Those detailed rows deduplicate their broader official-calendar umbrella releases, so CPI can retain MoM/YoY actual/consensus/history without also shipping a redundant generic CPI chip. Confirmed tracked-universe earnings come from Yahoo and a rolling 21-day Nasdaq date sweep; the sweep can replace a missing or estimated near-term Yahoo date and also supplies AM/PM sessions. The FOMC schedule has a hardcoded rolling baseline merged with a live Fed scrape, while Jackson Hole has a live Kansas City Fed parser plus a verified 2026 fallback. Each official source carries independently through a transient failure. Routine low-importance Fed statistical rows remain visible in the selected-day calendar but do not manufacture the briefing's binary-risk warning or displace a material release from “First scheduled risk.” The shared calendar payload also supplies the Fed policy desk in Bonds & USD; Calendar's Fed filter combines dated FOMC decisions with every other Fed event.
 
 ### Pending Buyouts
 
