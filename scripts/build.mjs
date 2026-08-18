@@ -8627,6 +8627,54 @@ function classifyMacroEvent(publisher, title) {
   return "macro";
 }
 
+function calendarReportGroup(ev) {
+  const subtype = String(ev?.subtype || "").toLowerCase();
+  const title = String(ev?.title || "").toLowerCase();
+  if (/^(?:core-)?cpi-|consumer price index|\bcpi\b/.test(subtype + " " + title)) return "cpi";
+  if (/^ppi-|producer price index|\bppi\b/.test(subtype + " " + title)) return "ppi";
+  if (/^(?:nfp|unrate)$|employment situation|non-farm|nonfarm|unemployment rate/.test(subtype + " " + title)) return "employment";
+  if (/^jolts$|job openings and labor turnover/.test(subtype + " " + title)) return "jolts";
+  if (/^core-pce-|personal income and outlays/.test(subtype + " " + title)) return "pce";
+  if (/^durable-goods-|durable goods orders/.test(subtype + " " + title)) return "durables";
+  if (/^gdp-|gross domestic product|\bgdp\b/.test(subtype + " " + title)) return "gdp";
+  return null;
+}
+
+function calendarEventIdentity(ev) {
+  const title = String(ev?.title || "")
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  return `${ev?.type || "macro"}|${ev?.date || ""}|${title}`;
+}
+
+// Broader official calendars overlap a handful of the detailed rows we build
+// ourselves (for example the BLS "Consumer Price Index" umbrella release vs
+// our CPI/Core-CPI MoM/YoY rows). Keep the richer rows and suppress only the
+// redundant official umbrella; all other official releases remain visible.
+export function dedupeCalendarEvents(input) {
+  const events = Array.isArray(input) ? input : [];
+  const detailedGroups = new Set();
+  for (const ev of events) {
+    if (ev?.official) continue;
+    const group = ev?.type === "report" ? calendarReportGroup(ev) : null;
+    if (group && ev?.date) detailedGroups.add(`${group}|${ev.date}`);
+  }
+  const seen = new Set();
+  const out = [];
+  for (const ev of events) {
+    if (!ev?.date || !ev?.title) continue;
+    const group = ev?.type === "report" ? calendarReportGroup(ev) : null;
+    if (ev.official && group && detailedGroups.has(`${group}|${ev.date}`)) continue;
+    const key = calendarEventIdentity(ev);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(ev);
+  }
+  return out;
+}
+
 // The upcoming-earnings list ({symbol, name, date}) within `daysAhead`,
 // derived from each ticker's confirmed nextEarningsDate. Shared by main() /
 // regen-calendar for two purposes: (1) the per-name Polymarket "beat" reading,
@@ -8681,8 +8729,27 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
   // confirmed earnings, defaulting to TBD).
   const sessionMap = extras?.sessionMap || null;
 
+  // Nasdaq's near-term calendar sweep is the confirmation source when Yahoo
+  // has no date (or still carries an estimated one). The map also contains the
+  // explicit far-dated Yahoo dates fetched for AM/PM session enrichment.
+  const nasdaqBySymbol = new Map();
+  if (sessionMap) {
+    for (const [key, session] of sessionMap.entries()) {
+      const cut = key.lastIndexOf("|");
+      if (cut <= 0) continue;
+      const symbol = key.slice(0, cut);
+      const date = key.slice(cut + 1);
+      if (!Object.prototype.hasOwnProperty.call(chains, symbol) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+      const eventMs = Date.parse(date + "T00:00:00Z");
+      if (!Number.isFinite(eventMs) || eventMs < startMs || eventMs > cutoffMs) continue;
+      const prior = nasdaqBySymbol.get(symbol);
+      if (!prior || date < prior.date) nasdaqBySymbol.set(symbol, { date, session: session || "TBD" });
+    }
+  }
+
   for (const [sym, data] of Object.entries(chains)) {
-    const dateStr = data?.fundamentals?.nextEarningsDate;
+    const nasdaq = nasdaqBySymbol.get(sym) || null;
+    const dateStr = nasdaq?.date || data?.fundamentals?.nextEarningsDate;
     if (!dateStr || typeof dateStr !== "string") continue;
     const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateStr);
     if (!m) continue;
@@ -8690,7 +8757,7 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
     if (eventMs < startMs || eventMs > cutoffMs) continue;
     const date = `${m[1]}-${m[2]}-${m[3]}`;
     // Prefer Nasdaq-supplied session over the Yahoo-timestamp heuristic.
-    let session = data?.fundamentals?.nextEarningsSession || "TBD";
+    let session = nasdaq?.session || data?.fundamentals?.nextEarningsSession || "TBD";
     if (sessionMap) {
       const fresh = sessionMap.get(sym + "|" + date);
       if (fresh) session = fresh;
@@ -8707,7 +8774,7 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
       symbol: sym,
       title: `${sym} earnings`,
       session,
-      source: "Yahoo Finance",
+      source: nasdaq ? "Nasdaq" : "Yahoo Finance",
       ...(implied ? { impliedMovePct: implied.pct } : {}),
       ...(earnPred ? { predictions: [earnPred] } : {}),
     });
@@ -8793,6 +8860,27 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
     });
   }
 
+  // Complete official event calendars: every scheduled BLS and BEA release,
+  // Federal Reserve Board calendar event (speeches, testimony, minutes,
+  // conferences and statistical releases), plus the Kansas City Fed's Jackson
+  // Hole symposium. Each source is fetched independently. If one source flakes,
+  // carry only that source's still-upcoming prior rows and label them stale.
+  const officialCalendar = extras?.officialCalendar || { events: [], status: {} };
+  for (const ev of (officialCalendar.events || [])) {
+    if (!ev?.date) continue;
+    const ms = Date.parse(ev.date + "T00:00:00Z");
+    if (!Number.isFinite(ms) || ms < startMs || ms > cutoffMs) continue;
+    events.push(ev);
+  }
+  const officialStatus = officialCalendar.status || {};
+  const priorOfficial = extras?.priorCalendar?.events || [];
+  for (const ev of priorOfficial) {
+    if (!ev?.official || !ev?.sourceKey || officialStatus[ev.sourceKey] !== false || !ev?.date) continue;
+    const ms = Date.parse(ev.date + "T00:00:00Z");
+    if (!Number.isFinite(ms) || ms < startMs || ms > cutoffMs) continue;
+    events.push({ ...ev, stale: true });
+  }
+
   // Macro events from the RSS digest. RSS items carry pubDate (when
   // published) — for the calendar we only keep items whose pubDate is
   // in the forward window, which catches Fed pre-announcements, BLS
@@ -8821,7 +8909,8 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
     });
   }
 
-  events.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.symbol || "").localeCompare(b.symbol || "")));
+  const dedupedEvents = dedupeCalendarEvents(events);
+  dedupedEvents.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.symbol || a.title || "").localeCompare(b.symbol || b.title || "")));
   // Attach per-meeting consensus divergence (futures vs Kalshi vs Polymarket) to
   // the prediction-market block so the widget can flag where the sources disagree.
   const pmFomc = (predictionMarkets && predictionMarkets.fomc) || {};
@@ -8841,7 +8930,13 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
     // so windowDays is no longer a fixed constant.
     windowDays: Math.round((cutoffMs - startMs) / 86400000),
     windowEnd: new Date(cutoffMs).toISOString().slice(0, 10),
-    events,
+    events: dedupedEvents,
+    coverage: {
+      earningsUniverse: Object.keys(chains || {}).length,
+      earningsScheduled: new Set(dedupedEvents.filter((ev) => ev.type === "earnings").map((ev) => ev.symbol)).size,
+      nasdaqSweepDays: NASDAQ_EARNINGS_SWEEP_DAYS,
+      officialSources: officialStatus,
+    },
     // Per-subtype recent metric history ({ "<subtype>": { unit, points:[{m,v}] } })
     // for the click-through bar chart on report chips.
     reportHistory,
@@ -8891,7 +8986,10 @@ export async function writeCalendarFile(chains, macroHeadlines, builtAtIso, extr
   // macro tab. Mirrors the lastKnownFedRate pattern in
   // fedwatch-history.json. Carried rows are tagged `stale:true` so the
   // UI can flag them if it ever wants to.
-  const hasFreshReports = payload.events.some((ev) => ev?.type === "report");
+  // Official BLS/BEA/Fed schedule rows prove the broad calendar loaded, but
+  // they do not replace the detailed Actual/Previous/Consensus series. Only a
+  // fresh non-official report row may suppress that layer's last-good salvage.
+  const hasFreshReports = payload.events.some((ev) => ev?.type === "report" && !ev?.official);
   if (!hasFreshReports) {
     try {
       // In the build path data/calendar.json is already wiped by the time this
@@ -13134,6 +13232,311 @@ export function mergeFomcMeetings(live, baseline) {
   return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
+// === Complete official economic + Fed event calendars ==================
+// The detailed report pipeline above intentionally models a compact set of
+// market-moving series. Calendar completeness is a separate concern: ingest
+// the publishers' own schedules so less-famous releases, Fed speeches,
+// testimony, minutes and conferences do not disappear just because they are
+// absent from ECON_REPORTS or from this week's third-party consensus feed.
+const BLS_CALENDAR_ICS = "https://www.bls.gov/schedule/news_release/bls.ics";
+const BEA_CALENDAR_ICS = "https://www.bea.gov/news/schedule/ics/online-calendar-subscription.ics";
+const KC_FED_JACKSON_HOLE_URL = "https://www.kansascityfed.org/research/jackson-hole-economic-symposium/about-jackson-hole-economic-symposium/";
+const JACKSON_HOLE_BASELINE = [
+  {
+    date: "2026-08-27",
+    endDate: "2026-08-29",
+    title: "Jackson Hole Economic Policy Symposium · Aug 27–29, 2026 · Financial Innovation: Implications for Payments and Policy",
+  },
+];
+
+function calendarSlug(value) {
+  return String(value || "event")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "event";
+}
+
+function officialReleaseImportance(title, sourceKey) {
+  const t = String(title || "").toLowerCase();
+  if (/consumer price|producer price|employment situation|job openings|jolts|gross domestic product|\bgdp\b|personal income and outlays|international trade|productivity and costs|employment cost|import and export price/.test(t)) return "high";
+  if (sourceKey === "bls" || sourceKey === "bea") return "medium";
+  return "low";
+}
+
+function icsUnescape(value) {
+  return String(value || "")
+    .replace(/\\n/gi, " ")
+    .replace(/\\,/g, ",")
+    .replace(/\\;/g, ";")
+    .replace(/\\\\/g, "\\")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function utcInstantToEtParts(raw) {
+  const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(raw);
+  if (!m) return null;
+  const dt = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]));
+  if (isNaN(dt.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(dt);
+  const get = (type) => parts.find((p) => p.type === type)?.value;
+  const hour = String(Number(get("hour")) % 24).padStart(2, "0");
+  return { date: `${get("year")}-${get("month")}-${get("day")}`, time: `${hour}:${get("minute")} ET` };
+}
+
+function parseIcsStart(line) {
+  const cut = line.indexOf(":");
+  if (cut < 0) return null;
+  const meta = line.slice(0, cut).toUpperCase();
+  const raw = line.slice(cut + 1).trim();
+  if (/^\d{8}$/.test(raw)) {
+    return { date: `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`, time: null };
+  }
+  if (raw.endsWith("Z")) return utcInstantToEtParts(raw);
+  const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})?$/.exec(raw);
+  if (!m) return null;
+  // Both official feeds use US-Eastern/America-New_York for local timestamps.
+  // If another TZID ever appears, retain the wall-clock label but make the
+  // source visible rather than silently shifting the event to a wrong day.
+  const time = `${m[4]}:${m[5]} ET`;
+  return { date: `${m[1]}-${m[2]}-${m[3]}`, time, tzid: /TZID=([^;:]+)/.exec(meta)?.[1] || null };
+}
+
+export function parseOfficialIcsCalendar(ics, { sourceKey, source, sourceUrl } = {}) {
+  const unfolded = String(ics || "").replace(/\r?\n[ \t]/g, "");
+  const blocks = unfolded.match(/BEGIN:VEVENT[\s\S]*?END:VEVENT/g) || [];
+  const events = [];
+  for (const block of blocks) {
+    const lines = block.split(/\r?\n/);
+    const summaryLine = lines.find((line) => line.startsWith("SUMMARY"));
+    const startLine = lines.find((line) => line.startsWith("DTSTART"));
+    if (!summaryLine || !startLine) continue;
+    const title = icsUnescape(summaryLine.slice(summaryLine.indexOf(":") + 1));
+    const start = parseIcsStart(startLine);
+    if (!title || !start?.date) continue;
+    events.push({
+      type: "report",
+      subtype: `official-${sourceKey}-${calendarSlug(title)}`,
+      date: start.date,
+      ...(start.time ? { time: start.time } : {}),
+      title,
+      source,
+      sourceUrl,
+      sourceKey,
+      official: true,
+      importance: officialReleaseImportance(title, sourceKey),
+    });
+  }
+  return events;
+}
+
+function normalizeFedCalendarTime(raw) {
+  const text = fedHtmlToText(raw);
+  const m = /^(\d{1,2}):(\d{2})\s*([ap])\.?m\.?$/i.exec(text);
+  if (!m) return text ? `${text} ET` : null;
+  let hour = Number(m[1]) % 12;
+  if (m[3].toLowerCase() === "p") hour += 12;
+  return `${String(hour).padStart(2, "0")}:${m[2]} ET`;
+}
+
+function monthDaysFromFedDateCell(raw, daysInMonth) {
+  const text = fedHtmlToText(raw);
+  const days = [];
+  for (const match of text.matchAll(/\b(\d{1,2})\b/g)) {
+    const day = Number(match[1]);
+    if (day >= 1 && day <= daysInMonth && !days.includes(day)) days.push(day);
+  }
+  return days;
+}
+
+export function parseFederalReserveCalendarHtml(html, year, monthIdx) {
+  const input = String(html || "");
+  const headings = [...input.matchAll(/<div[^>]*class="[^"]*cal-nojs__rowTitle[^"]*"[^>]*>\s*<h4[^>]*>([\s\S]*?)<\/h4>\s*<\/div>/gi)];
+  const events = [];
+  const sourceKey = `fed-board-${year}-${String(monthIdx + 1).padStart(2, "0")}`;
+  const sourceUrl = `https://www.federalreserve.gov/newsevents/${year}-${[
+    "january","february","march","april","may","june",
+    "july","august","september","october","november","december",
+  ][monthIdx]}.htm`;
+  const daysInMonth = new Date(Date.UTC(year, monthIdx + 1, 0)).getUTCDate();
+  for (let i = 0; i < headings.length; i++) {
+    const category = fedHtmlToText(headings[i][1]);
+    const sectionStart = headings[i].index + headings[i][0].length;
+    const sectionEnd = i + 1 < headings.length ? headings[i + 1].index : input.length;
+    const section = input.slice(sectionStart, sectionEnd);
+    const rowRe = /<div[^>]*class="col-xs-2"[^>]*>\s*<p>([\s\S]*?)<\/p>\s*<\/div>\s*<div[^>]*class="col-xs-7"[^>]*>([\s\S]*?)<\/div>\s*<div[^>]*class="col-xs-3"[^>]*>\s*<p>([\s\S]*?)<\/p>/gi;
+    for (const row of section.matchAll(rowRe)) {
+      const firstP = /<p[^>]*>([\s\S]*?)<\/p>/i.exec(row[2]);
+      const titleBase = fedHtmlToText(firstP?.[1] || row[2]);
+      const emphasis = /class=['"]calendar__title['"][^>]*>\s*<em>([\s\S]*?)<\/em>/i.exec(row[2]);
+      const context = fedHtmlToText(emphasis?.[1] || "");
+      const title = context && !titleBase.toLowerCase().includes(context.toLowerCase())
+        ? `${titleBase} · ${context}` : titleBase;
+      if (!title) continue;
+      // FOMC decisions are already represented by the official live schedule
+      // plus the audited multi-year fallback. Keep minutes, but do not duplicate
+      // the same meeting as a second generic "FOMC Meeting" chip.
+      if (/^FOMC Meetings?$/i.test(title)) continue;
+      const days = monthDaysFromFedDateCell(row[3], daysInMonth);
+      const time = normalizeFedCalendarTime(row[1]);
+      const isReport = /statistical releases?/i.test(category);
+      const importance = isReport
+        ? (/^(?:CP\s+-|H\.15\s+-|H\.10\s+-|H\.8\s+-|H\.4\.1\s+-|G\.5\s+-)/i.test(title) ? "low" : "medium")
+        : (/fomc|minutes|chair|monetary policy/i.test(title + " " + category) ? "high" : "medium");
+      for (const day of days) {
+        const date = `${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+        events.push({
+          type: isReport ? "report" : "fed",
+          ...(isReport ? { subtype: `official-${sourceKey}-${calendarSlug(title)}` } : {}),
+          date,
+          ...(time ? { time } : {}),
+          title,
+          category,
+          source: "Federal Reserve Board",
+          sourceUrl,
+          sourceKey,
+          official: true,
+          importance,
+        });
+      }
+    }
+  }
+  return events;
+}
+
+export function parseJacksonHoleSymposium(html) {
+  const text = fedHtmlToText(html);
+  const months = {
+    jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3,
+    apr: 4, april: 4, may: 5, jun: 6, june: 6, jul: 7, july: 7,
+    aug: 8, august: 8, sep: 9, sept: 9, september: 9, oct: 10, october: 10,
+    nov: 11, november: 11, dec: 12, december: 12,
+  };
+  const m = /(?:The\s+)?(\d{4})\s+Jackson Hole Economic Policy Symposium will take place\s+([A-Za-z]+)\.?\s+(\d{1,2})\s*[-–—]\s*(\d{1,2})/i.exec(text)
+    || /Jackson Hole Economic Policy Symposium,?\s+([A-Za-z]+)\s+(\d{1,2})\s*[-–—]\s*(\d{1,2}),?\s+(\d{4})/i.exec(text);
+  if (!m) return null;
+  const alternate = !/^\d{4}$/.test(m[1]);
+  const year = Number(alternate ? m[4] : m[1]);
+  const month = months[String(alternate ? m[1] : m[2]).toLowerCase()];
+  const startDay = Number(alternate ? m[2] : m[3]);
+  const endDay = Number(alternate ? m[3] : m[4]);
+  if (!year || !month || !startDay || !endDay) return null;
+  const themeMatch = /This year(?:'|’)s (?:topic|theme) is ["“]([^"”]+)["”]/i.exec(text);
+  const theme = themeMatch?.[1]?.trim().replace(/\.$/, "") || null;
+  const monthShort = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][month - 1];
+  return {
+    type: "fed",
+    date: `${year}-${String(month).padStart(2, "0")}-${String(startDay).padStart(2, "0")}`,
+    endDate: `${year}-${String(month).padStart(2, "0")}-${String(endDay).padStart(2, "0")}`,
+    title: `Jackson Hole Economic Policy Symposium · ${monthShort} ${startDay}–${endDay}, ${year}${theme ? ` · ${theme}` : ""}`,
+    source: "Kansas City Fed",
+    sourceUrl: KC_FED_JACKSON_HOLE_URL,
+    sourceKey: "kc-fed-jackson-hole",
+    official: true,
+    importance: "high",
+  };
+}
+
+async function fetchTextCalendar(url) {
+  const res = await fetch(url, {
+    headers: {
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      accept: "text/html,text/calendar,text/plain,*/*",
+    },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.text();
+}
+
+function calendarMonthsInWindow(startMs, cutoffMs) {
+  const out = [];
+  let year = new Date(startMs).getUTCFullYear();
+  let month = new Date(startMs).getUTCMonth();
+  const endYear = new Date(cutoffMs).getUTCFullYear();
+  const endMonth = new Date(cutoffMs).getUTCMonth();
+  while (year < endYear || (year === endYear && month <= endMonth)) {
+    out.push({ year, month });
+    month++;
+    if (month === 12) { month = 0; year++; }
+  }
+  return out;
+}
+
+export async function fetchOfficialCalendarEvents(startMs, cutoffMs) {
+  const status = {};
+  const events = [];
+  const addInWindow = (rows) => {
+    for (const ev of rows || []) {
+      const ms = Date.parse(String(ev?.date || "") + "T00:00:00Z");
+      if (Number.isFinite(ms) && ms >= startMs && ms <= cutoffMs) events.push(ev);
+    }
+  };
+  await Promise.all([
+    (async () => {
+      try {
+        const text = await fetchTextCalendar(BLS_CALENDAR_ICS);
+        addInWindow(parseOfficialIcsCalendar(text, { sourceKey: "bls", source: "BLS", sourceUrl: BLS_CALENDAR_ICS }));
+        status.bls = true;
+      } catch (err) {
+        status.bls = false;
+        console.log(`    ⚠ official BLS calendar failed: ${err.message}`);
+      }
+    })(),
+    (async () => {
+      try {
+        const text = await fetchTextCalendar(BEA_CALENDAR_ICS);
+        addInWindow(parseOfficialIcsCalendar(text, { sourceKey: "bea", source: "BEA", sourceUrl: BEA_CALENDAR_ICS }));
+        status.bea = true;
+      } catch (err) {
+        status.bea = false;
+        console.log(`    ⚠ official BEA calendar failed: ${err.message}`);
+      }
+    })(),
+    ...calendarMonthsInWindow(startMs, cutoffMs).map(async ({ year, month }) => {
+      const monthName = ["january","february","march","april","may","june","july","august","september","october","november","december"][month];
+      const key = `fed-board-${year}-${String(month + 1).padStart(2, "0")}`;
+      const url = `https://www.federalreserve.gov/newsevents/${year}-${monthName}.htm`;
+      try {
+        addInWindow(parseFederalReserveCalendarHtml(await fetchTextCalendar(url), year, month));
+        status[key] = true;
+      } catch (err) {
+        status[key] = false;
+        console.log(`    ⚠ official Fed calendar ${year}-${String(month + 1).padStart(2, "0")} failed: ${err.message}`);
+      }
+    }),
+    (async () => {
+      const key = "kc-fed-jackson-hole";
+      try {
+        const parsed = parseJacksonHoleSymposium(await fetchTextCalendar(KC_FED_JACKSON_HOLE_URL));
+        if (!parsed) throw new Error("date not found in official page");
+        addInWindow([parsed]);
+        status[key] = true;
+      } catch (err) {
+        status[key] = false;
+        addInWindow(JACKSON_HOLE_BASELINE.map((ev) => ({
+          ...ev,
+          type: "fed",
+          source: "Kansas City Fed",
+          sourceUrl: KC_FED_JACKSON_HOLE_URL,
+          sourceKey: key,
+          official: true,
+          importance: "high",
+          baseline: true,
+        })));
+        console.log(`    ⚠ official Jackson Hole page failed: ${err.message} — using verified baseline`);
+      }
+    })(),
+  ]);
+  return { events: dedupeCalendarEvents(events), status };
+}
+
 // === Official FOMC vote map ==========================================
 // "Hawkish" and "dovish" are often subjective labels. This feed avoids that
 // problem by comparing each named member's official RATE CHOICE with the action
@@ -14498,9 +14901,11 @@ export async function fetchEffectiveFedFundsRate() {
 // { symbol, time: "time-pre-market" | "time-after-hours" | "time-not-supplied", ... }.
 // Preferred call form passes `explicitDates` — only the days curated tickers
 // actually report on — so a rest-of-year window fetches a few dozen days, not
-// ~150 weekdays. Falls back to a weekday walk of [startMs, startMs+windowDays)
-// when no list is given. Either way the dates are fetched with bounded
-// concurrency, building a Map<"SYM|YYYY-MM-DD", "AM"|"PM"|"TBD">.
+// ~150 weekdays. We also sweep the next three weeks on every run so a tracked
+// ticker missing a Yahoo date can still be recovered directly from Nasdaq.
+// The dates are fetched with bounded concurrency, building a
+// Map<"SYM|YYYY-MM-DD", "AM"|"PM"|"TBD">.
+export const NASDAQ_EARNINGS_SWEEP_DAYS = 21;
 export async function fetchNasdaqEarningsSessions(startMs, windowDays, explicitDates) {
   const headers = {
     "user-agent":
@@ -14511,32 +14916,21 @@ export async function fetchNasdaqEarningsSessions(startMs, windowDays, explicitD
     origin: "https://www.nasdaq.com",
   };
   const out = new Map();
-  // Preferred path: the caller hands us the exact dates curated tickers report
-  // on (derived from each name's nextEarningsDate). The session map is ONLY
-  // ever consumed for those dates, so over a rest-of-year window this fetches a
-  // few dozen days instead of walking ~150 weekdays — far cheaper and kinder to
-  // Nasdaq. Falls back to the legacy weekday walk when no list is supplied.
-  let dates;
-  if (Array.isArray(explicitDates) && explicitDates.length) {
-    const seen = new Set();
-    dates = [];
-    for (const ds of explicitDates) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(ds)) continue;
-      const wd = new Date(ds + "T00:00:00Z").getUTCDay();
-      if (wd === 0 || wd === 6) continue; // earnings only print on weekdays
-      if (seen.has(ds)) continue;
-      seen.add(ds);
-      dates.push(ds);
-    }
-  } else {
-    dates = [];
-    for (let i = 0; i < windowDays; i++) {
-      const d = new Date(startMs + i * 86400000);
-      const wd = d.getUTCDay();
-      if (wd === 0 || wd === 6) continue; // earnings only print on weekdays
-      dates.push(d.toISOString().slice(0, 10));
-    }
-  }
+  // Union the exact Yahoo-derived dates with a bounded near-term weekday walk.
+  // The walk is what closes the missing-date gap; keeping it at 21 calendar
+  // days avoids the ~100-request rest-of-year burst the old fallback could make.
+  const seen = new Set();
+  const dates = [];
+  const addDate = (ds) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ds) || seen.has(ds)) return;
+    const wd = new Date(ds + "T00:00:00Z").getUTCDay();
+    if (wd === 0 || wd === 6) return;
+    seen.add(ds);
+    dates.push(ds);
+  };
+  for (const ds of (Array.isArray(explicitDates) ? explicitDates : [])) addDate(ds);
+  const sweepDays = Math.min(Math.max(0, Number(windowDays) || 0), NASDAQ_EARNINGS_SWEEP_DAYS);
+  for (let i = 0; i < sweepDays; i++) addDate(new Date(startMs + i * 86400000).toISOString().slice(0, 10));
   // Bounded concurrency: a months-long date list would otherwise burst dozens
   // of simultaneous requests at Nasdaq, which rate-limits / WAF-blocks bursts.
   await runPooled(dates, 8, async (date) => {
@@ -35702,7 +36096,8 @@ async function main() {
     upcomingEarningsList(chains, new Date(todayMs).toISOString().slice(0, 10), calDays).map((e) => e.date),
   ));
   // These calendar sources hit DIFFERENT hosts — NY Fed EFFR (Fed Funds
-  // rate), the Fed's FOMC calendar page, and Nasdaq (earnings sessions) —
+  // rate), the Fed's FOMC calendar page, Nasdaq (earnings sessions), and the
+  // official BLS/BEA/Fed/Kansas City Fed event calendars —
   // with no data dependency on one another, so fetch them concurrently. This
   // overlaps the independent round trips without raising the request rate to
   // ANY single host (one call each), and each already degrades gracefully on
@@ -35717,11 +36112,12 @@ async function main() {
   // the counter semantics are identical to the original macro → rate order.
   // The FedWatch/CME ZQ source depends on fedRate + the FOMC schedule, so it
   // stays sequential after this batch resolves.
-  console.log("Fetching calendar sources (NY Fed EFFR · FOMC schedule · Nasdaq earnings) in parallel…");
-  const [fedRate, liveFomc, sessionMap] = await Promise.all([
+  console.log("Fetching calendar sources (NY Fed EFFR · FOMC schedule · Nasdaq earnings · official event calendars) in parallel…");
+  const [fedRate, liveFomc, sessionMap, officialCalendar] = await Promise.all([
     fetchEffectiveFedFundsRate(),
     fetchFomcSchedule(),
     fetchNasdaqEarningsSessions(todayMs, calDays, earnSessionDates),
+    fetchOfficialCalendarEvents(todayMs, cutoffMs),
   ]);
   if (fedRate) console.log(`  · Fed Funds ${fedRate.rate}% as of ${fedRate.asOf}`);
   // FedWatch history was read BEFORE writeChainFiles wiped data/. Start
@@ -35811,7 +36207,8 @@ async function main() {
   // (Yahoo returns 00:00 UTC for many confirmed earnings, which falls
   // back to TBD). Builds a SYM|YYYY-MM-DD → AM/PM/TBD map.
   // sessionMap (Nasdaq earnings AM/PM) was fetched in the parallel batch above.
-  console.log(`  · ${sessionMap.size} earnings session entries`);
+  console.log(`  · ${sessionMap.size} Nasdaq earnings rows (${NASDAQ_EARNINGS_SWEEP_DAYS}d completeness sweep + explicit dates)`);
+  console.log(`  · ${officialCalendar.events.length} official BLS/BEA/Fed event rows`);
   // Prediction-market overlay (Kalshi + Polymarket) — a market-based cross-check
   // on the ZQ-futures FedWatch numbers above + a best-effort odds reading beside
   // macro releases. Free public reads, no key; degrades to nothing if a host flakes.
@@ -35938,6 +36335,7 @@ async function main() {
     fomcVoteHistory,
     macroHistory: macroHistoryNext,
     sessionMap,
+    officialCalendar,
     priorCalendar,
   });
   console.log(`wrote data/calendar.json — ${calendarInfo.count} events (through ${new Date(cutoffMs).toISOString().slice(0, 10)}), ${calendarInfo.bytes} bytes`);

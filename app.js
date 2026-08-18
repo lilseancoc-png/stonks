@@ -26254,18 +26254,25 @@
   function calendarTypeLabel(type){
     if (type === 'earnings') return 'Earnings';
     if (type === 'report') return 'Report';
-    if (type === 'fomc') return 'FOMC';
+    if (type === 'fomc') return 'Fed';
     if (type === 'fed') return 'Fed';
     if (type === 'cpi') return 'CPI / Jobs';
     if (type === 'sec') return 'SEC';
     if (type === 'catalyst') return 'Catalyst';
     return 'Macro';
   }
+  function calendarSourceMarkup(e){
+    if (!e || !e.source) return '';
+    if (e.sourceUrl) {
+      return '<a class="cal-chip-source" href="' + escapeHtml(e.sourceUrl) + '" target="_blank" rel="noopener noreferrer" title="Open the official source">' + escapeHtml(e.source) + '</a>';
+    }
+    return '<span class="cal-chip-source">' + escapeHtml(e.source) + '</span>';
+  }
   // Human label for a filter-pill value (the data-cal-type enum) — used in the
   // empty-month note ("No “Earnings” events in June 2026.").
   function calendarPillLabel(type){
     if (type === 'reports') return 'Reports';
-    if (type === 'fomc') return 'FOMC';
+    if (type === 'fomc') return 'Fed';
     if (type === 'earnings') return 'Earnings';
     if (type === 'catalysts') return 'Catalysts';
     if (type === 'macro') return 'Macro';
@@ -26289,9 +26296,9 @@
     if (filter === 'all') return true;
     if (filter === 'earnings') return eventType === 'earnings';
     if (filter === 'reports') return eventType === 'report';
-    if (filter === 'fomc') return eventType === 'fomc';
+    if (filter === 'fomc') return eventType === 'fomc' || eventType === 'fed';
     if (filter === 'catalysts') return eventType === 'catalyst';
-    if (filter === 'macro') return eventType !== 'earnings' && eventType !== 'report' && eventType !== 'fomc' && eventType !== 'catalyst';
+    if (filter === 'macro') return eventType !== 'earnings' && eventType !== 'report' && eventType !== 'fomc' && eventType !== 'fed' && eventType !== 'catalyst';
     return true;
   }
   function calendarSessionPill(session){
@@ -26362,7 +26369,7 @@
       catalyst: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
       macro: '<path d="M4 19V5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M8 8h6M8 12h8M8 16h5"/>'
     };
-    var key = (type === 'earnings' || type === 'report' || type === 'fomc' || type === 'catalyst') ? type : 'macro';
+    var key = type === 'fed' ? 'fomc' : ((type === 'earnings' || type === 'report' || type === 'fomc' || type === 'catalyst') ? type : 'macro');
     return '<svg class="cal-chip-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (paths[key] || paths.macro) + '</svg>';
   }
   // Compact short label for a month-grid day-cell marker.
@@ -26383,7 +26390,7 @@
   // type via .cal-mini-<type>; the text collapses to a dot on narrow screens
   // (the title attribute carries the full description either way).
   function calMiniChip(e){
-    var t = (e.type === 'earnings' || e.type === 'report' || e.type === 'fomc' || e.type === 'catalyst') ? e.type : 'macro';
+    var t = e.type === 'fed' ? 'fomc' : ((e.type === 'earnings' || e.type === 'report' || e.type === 'fomc' || e.type === 'catalyst') ? e.type : 'macro');
     return '<span class="cal-mini cal-mini-' + t + '" title="' + escapeHtml(calMiniTitle(e)) + '">' +
         '<span class="cal-mini-dot" aria-hidden="true"></span>' +
         '<span class="cal-mini-txt">' + escapeHtml(calMiniLabel(e)) + '</span>' +
@@ -26412,7 +26419,7 @@
     if (e.type === 'earnings') return 'earnings';
     if (e.type === 'catalyst') return 'catalysts';
     if (e.type === 'report') return 'reports';
-    if (e.type === 'fomc') return 'fomc';
+    if (e.type === 'fomc' || e.type === 'fed') return 'fomc';
     return 'macro';
   }
   // Translate the date list into an entry-risk posture. This deliberately uses
@@ -26424,9 +26431,14 @@
       return { event: e, days: calDaysFromToday(e.date, todayMs) };
     }).filter(function(x){ return x.days != null && x.days >= 0; })
       .sort(function(a, b){ return a.days - b.days; });
-    var today = future.filter(function(x){ return x.days === 0; }).map(function(x){ return x.event; });
-    var tomorrow = future.filter(function(x){ return x.days === 1; }).map(function(x){ return x.event; });
-    var first = future.length ? future[0].event : null;
+    // Complete official calendars contain routine daily statistical plumbing
+    // (CP, H.15, H.10, etc.). Keep it visible in the month/day detail, but do
+    // not let a low-importance row manufacture a binary-risk warning or crowd
+    // a genuinely market-moving release out of "First scheduled risk".
+    var riskFuture = future.filter(function(x){ return x.event.importance !== 'low'; });
+    var today = riskFuture.filter(function(x){ return x.days === 0; }).map(function(x){ return x.event; });
+    var tomorrow = riskFuture.filter(function(x){ return x.days === 1; }).map(function(x){ return x.event; });
+    var first = riskFuture.length ? riskFuture[0].event : null;
     var active = today.length ? today : tomorrow;
     var macroActive = active.filter(function(e){ return e.type === 'report' || e.type === 'fomc' || (e.type !== 'earnings' && e.type !== 'catalyst'); });
     var earningsActive = active.filter(function(e){ return e.type === 'earnings'; });
@@ -26563,7 +26575,7 @@
     var nextReport = null, nextReportDays = null;
     for (var j = 0; j < events.length; j++){
       var e = events[j];
-      if (e.type !== 'report') continue;
+      if (e.type !== 'report' || e.importance === 'low') continue;
       var rd = calDaysFromToday(e.date, todayMs);
       if (rd == null || rd < 0) continue;
       if (nextReport == null || rd < nextReportDays){ nextReport = e; nextReportDays = rd; }
@@ -26694,7 +26706,7 @@
     // a related market resolves near this release. Rendered as a small pill below
     // the figures; omitted entirely when no market was matched.
     var pmLine = renderCalPmLine(e.predictions);
-    var src = e.source ? '<span class="cal-chip-source">' + escapeHtml(e.source) + '</span>' : '';
+    var src = calendarSourceMarkup(e);
     // Stale tag: writeCalendarFile carries forward in-window report rows
     // from the prior calendar.json when BLS + FRED both come back empty
     // (each carried row gets ev.stale=true). Surface it so traders know
@@ -26708,6 +26720,7 @@
       '<div class="cal-report-head">' +
         '<span class="cal-chip-ico">' + calEventIcon('report') + '</span>' +
         '<span class="cal-chip-tag">Report</span> ' +
+        (e.time ? '<span class="cal-chip-time">' + escapeHtml(e.time) + '</span> ' : '') +
         '<span class="cal-chip-text">' + escapeHtml(e.title) + '</span>' +
         '<span class="cal-report-expand" aria-hidden="true">📊</span>' +
         staleTag +
@@ -27495,7 +27508,7 @@
       if (e.type === 'earnings') counts.earnings++;
       else if (e.type === 'catalyst') counts.catalysts++;
       else if (e.type === 'report') counts.reports++;
-      else if (e.type === 'fomc') counts.fomc++;
+      else if (e.type === 'fomc' || e.type === 'fed') counts.fomc++;
       else counts.macro++;
     });
     var filterEl = document.querySelector('.calendar-type-filter');
@@ -27576,7 +27589,7 @@
             (e.time ? '<span class="cal-chip-time">' + escapeHtml(e.time) + '</span> ' : '') +
             '<span class="cal-chip-text">' + escapeHtml(e.title) + '</span>';
         }
-        var src = e.source ? '<span class="cal-chip-source">' + escapeHtml(e.source) + '</span>' : '';
+        var src = calendarSourceMarkup(e);
         var icon = '<span class="cal-chip-ico">' + calEventIcon(e.type) + '</span>';
         // Earnings chips can carry a Polymarket "beat" reading (predictions[]).
         // When present, stack it on its own row beneath the head (the base chip

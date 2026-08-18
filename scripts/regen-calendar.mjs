@@ -133,7 +133,7 @@ async function main() {
     }
   }
 
-  console.log("Fetching earnings AM/PM sessions (Nasdaq)…");
+  console.log("Fetching earnings AM/PM sessions + near-term completeness sweep (Nasdaq)…");
   // Only fetch the dates curated tickers actually report on across the window
   // (mirrors build.mjs main()) rather than walking every weekday for months.
   const earnSessionDates = Array.from(new Set(
@@ -141,6 +141,10 @@ async function main() {
   ));
   const sessionMap = await build.fetchNasdaqEarningsSessions(todayMs, calDays, earnSessionDates);
   console.log(`  · ${sessionMap.size} session entries`);
+
+  console.log("Fetching complete official BLS / BEA / Federal Reserve calendars…");
+  const officialCalendar = await build.fetchOfficialCalendarEvents(todayMs, cutoffMs);
+  console.log(`  · ${officialCalendar.events.length} official event rows`);
 
   console.log("Fetching prediction markets (Kalshi + Polymarket)…");
   let predictionMarkets = { fomc: {}, reports: {}, earnings: {} };
@@ -180,6 +184,7 @@ async function main() {
     fomcVoteHistory,
     macroHistory,
     sessionMap,
+    officialCalendar,
     predictionMarkets,
     priorCalendar,
   });

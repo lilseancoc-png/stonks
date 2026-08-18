@@ -11040,6 +11040,8 @@ button.idx-cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring)
   color: var(--muted);
   font-style: italic;
 }
+a.cal-chip-source { text-decoration: underline; text-underline-offset: 2px; }
+a.cal-chip-source:hover { color: var(--accent); }
 .cal-chip-stale {
   display: inline-block;
   padding: 1px 6px;
@@ -17920,8 +17922,9 @@ body.tape-axm-open { overflow: hidden; }
   .card-header { flex-wrap: wrap; gap: var(--s-2); }
   .page-sub { font-size: 13px; }
 
-  /* Calendar: single-column chips, no source byline (saves horizontal
-     space, the date already implies the feed cluster). */
+  /* Calendar: single-column chips. Grid markers stay compact, while the
+     selected-day detail wraps the complete title and retains its auditable
+     official-source link. */
   .cal-day {
     grid-template-columns: minmax(0, 1fr);
     padding: var(--s-2) 0;
@@ -17930,6 +17933,18 @@ body.tape-axm-open { overflow: hidden; }
   .cal-date { font-size: 12px; padding-top: 0; }
   .cal-chip { padding: 8px 10px; font-size: 13px; }
   .cal-chip-source { display: none; }
+  .cal-detail .cal-chip, .cal-detail .cal-report-head { flex-wrap: wrap; }
+  .cal-detail .cal-chip-text {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    line-height: 1.35;
+  }
+  .cal-detail .cal-chip-source {
+    display: inline-flex;
+    flex: 0 0 calc(100% - 29px);
+    margin: 4px 0 0 29px;
+  }
   .cal-briefing { grid-template-columns: minmax(0, 1fr); gap: var(--s-3); padding: 14px; }
   .cal-brief-facts { grid-template-columns: minmax(0, 1fr); }
   .cal-brief-fact { border-left: 0; border-top: 1px solid var(--border); }
