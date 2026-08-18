@@ -108,20 +108,30 @@ async function fetchTreasuryTwoYear() {
 // These caret-/=/-prefixed symbols (^GDAXI, ES=F, JPY=X, BTC-USD, …) all fail
 // /api/quotes' SYMBOL_RE on purpose, so — like the macro legs above — they can
 // only be reached through this fixed, no-symbol-input server set. The Asia/EU
-// CASH indices (^GDAXI/^N225/^KS11) are closed during US hours, so the
-// browser only overlays a leg whose marketState is REGULAR and leaves the rest
-// on their baked overnight read.
+// cash set also includes the semiconductor bellwethers rendered by Overnight
+// Markets. Yahoo commonly reports PREPRE after an Asian close; regularMarketTime
+// identifies that completed session, so the Overnight client can safely replace
+// an older baked row even when marketState is not REGULAR.
 const CROSS_ASSET_LEGS = [
   { symbol: "ES=F" },
   { symbol: "NQ=F" },
   { symbol: "^GDAXI" },
   { symbol: "^N225" },
   { symbol: "^KS11" },
+  { symbol: "^TWII" },
+  { symbol: "^HSI" },
+  { symbol: "005930.KS" },
+  { symbol: "000660.KS" },
+  { symbol: "2330.TW" },
+  { symbol: "8035.T" },
+  { symbol: "6857.T" },
+  { symbol: "9984.T" },
   { symbol: "^VIX" },
   { symbol: "^TNX", isYield: true },
   { symbol: "^TYX", isYield: true },
   { symbol: "JPY=X" },
   { symbol: "DX-Y.NYB" },
+  { symbol: "HG=F" },
   { symbol: "CL=F" },
   { symbol: "GC=F" },
   { symbol: "BTC-USD" },
@@ -196,7 +206,7 @@ export default async function handler(req, res) {
     const [quoteR, fngR, twoYR] = await Promise.allSettled([
       withYahooTimeout(
         yahooFinance.quote(quoteSymbols, {
-          fields: ["regularMarketPrice", "regularMarketPreviousClose", "marketState"],
+          fields: ["regularMarketPrice", "regularMarketPreviousClose", "regularMarketTime", "marketState"],
         // yahoo-finance2's current runtime schema rejects otherwise-valid
         // futures rows when Yahoo returns `contractSymbol: false` (2YY/CL/GC).
         // This is a fixed server-owned symbol set and every field consumed below
@@ -262,12 +272,14 @@ export default async function handler(req, res) {
         const prevClose = typeof prevRaw === "number" && isFinite(prevRaw) ? prevRaw : null;
         const pctChange1d = prevClose != null && prevClose !== 0 ? ((value - prevClose) / prevClose) * 100 : null;
         const bpsChange1d = isYield && prevClose != null ? (value - prevClose) * 100 : null;
+        const quoteTime = q?.regularMarketTime ? new Date(q.regularMarketTime) : null;
         crossAsset[symbol] = {
           value,
           prevClose,
           pctChange1d,
           bpsChange1d,
           marketState: q?.marketState || null,
+          asOf: quoteTime && !Number.isNaN(quoteTime.getTime()) ? quoteTime.toISOString() : null,
         };
       }
     }

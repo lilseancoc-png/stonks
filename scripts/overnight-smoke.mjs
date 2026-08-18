@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { buildCorrelationsPayload } from "./build.mjs";
+import { buildCorrelationsPayload, GLOBAL_QUOTE_TYPES } from "./build.mjs";
 
 function bars(start, dailyStep, count = 31) {
   const out = [];
@@ -63,8 +63,14 @@ for (const h of ["1d", "5d", "20d"]) {
 }
 
 const overnightCss = readFileSync(new URL("./render/styles-css.mjs", import.meta.url), "utf8");
+const overnightApp = readFileSync(new URL("./render/app-js.mjs", import.meta.url), "utf8");
 assert.match(overnightCss, /grid-template-areas:"label label" "value move" "note note"/);
 assert.match(overnightCss, /minmax\(min\(100%,190px\),1fr\)/);
 assert.doesNotMatch(overnightCss, /\.ovn-carry-card>span\{[^}]*text-overflow:ellipsis/);
+assert.ok(GLOBAL_QUOTE_TYPES.has("index"), "foreign cash indices must use latest-session quotes");
+assert.ok(GLOBAL_QUOTE_TYPES.has("equity"), "foreign bellwethers must use latest-session quotes");
+assert.match(overnightApp, /fetch\('api\/macro-live\?tape=1'/);
+assert.match(overnightApp, /d\.tone = deriveOvernightTone\(d\.markets\)/);
+assert.match(overnightApp, /latest-session overlays/);
 
 console.log("overnight smoke: ok");

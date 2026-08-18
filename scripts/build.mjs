@@ -298,16 +298,15 @@ export const GLOBAL_PEER_OF_TICKER = {
 // header strip): US futures, the yen carry, the dollar, vol and long rates.
 export const GLOBAL_BROAD_SIGNALS = ["ES=F", "NQ=F", "JPY=X", "^VIX", "DX-Y.NYB", "^TNX"];
 
-// Types whose latest *daily* bar is a stale / mis-aligned overnight read at the
-// pre-open build, so fetchGlobalMarketBars sources the move from the LIVE quote
-// (regularMarketPrice vs regularMarketPreviousClose) instead — the actual gap a
-// trader expects from an overnight panel. Cash vol (^VIX) and the cash yield
-// indices (^TNX/^TYX) don't trade overnight at all (their daily bar is yesterday's
-// close pre-open); futures/FX/commodities/crypto are 24h, so their daily-bar
-// boundary isn't the US 4pm cash close. The Asian cash equities/indices KEEP the
-// daily-bar path — they've genuinely closed by the 9:30 ET build, so it's correct
-// and leading there.
-export const GLOBAL_QUOTE_TYPES = new Set(["future", "vol", "rate", "fx", "commodity", "crypto"]);
+// Types whose latest *daily* bar can be a stale or session-misaligned overnight
+// read. Cash vol/yields do not trade overnight, futures/FX/commodities/crypto use
+// a non-US-cash boundary, and foreign cash chart bars can lag a completed session.
+// Daily chart bars can lag the latest completed foreign cash session by a day
+// (Yahoo was still ending KOSPI on Aug. 14 and Nikkei on Aug. 17 after both Aug.
+// 18 sessions had closed). Quote every tracked market type so the headline 1d
+// move and as-of date use regularMarketPrice / regularMarketPreviousClose;
+// longer-horizon history and correlation still come from the daily bars.
+export const GLOBAL_QUOTE_TYPES = new Set(["future", "vol", "rate", "fx", "commodity", "crypto", "index", "equity"]);
 
 // Session class for the overnight panel's lead-vs-co-move framing:
 //  - "leading"    : a foreign CASH market that closes BEFORE the US open, so its
@@ -27611,11 +27610,10 @@ async function fetchGlobalMarketBars(symbol) {
   let asOf = last.t;
   let currency = meta.currency || null;
   let yName = meta.shortName || meta.longName || null;
-  // 24h / non-overnight-trading instruments: the daily-bar delta isn't the
-  // overnight gap a trader expects (cash VIX/yields sit at yesterday's close
-  // pre-open; futures/FX/commodities/crypto roll on a non-US-cash boundary).
-  // Use the live quote — that's the actual gap vs the prior settle. Degrades
-  // gracefully to the daily-bar values if the quote call fails.
+  // Use the quote for the latest 1d move and session timestamp. This is the
+  // actual move versus the prior settle for 24h instruments and repairs foreign
+  // cash charts that have not published their just-completed daily bar yet.
+  // Degrades gracefully to the daily-bar values if the quote call fails.
   const type = (GLOBAL_MARKETS[symbol] || {}).type;
   if (GLOBAL_QUOTE_TYPES.has(type)) {
     try {
