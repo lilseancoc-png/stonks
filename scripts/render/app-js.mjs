@@ -3769,6 +3769,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (name !== 'tickers' && typeof stopTickersLive === 'function') stopTickersLive();
       if (name !== 'picks' && typeof stopPicksLive === 'function') stopPicksLive();
       if (name !== 'market' && typeof stopMacroTapeLive === 'function') stopMacroTapeLive();
+      if (name !== 'overnight' && typeof stopOvernightLive === 'function') stopOvernightLive();
       if (name !== 'oi' && typeof stopOiLive === 'function') stopOiLive();
       if (name !== 'ma-tracker' && typeof stopMaTrackerLive === 'function') stopMaTrackerLive();
       if (name === 'brief' && typeof loadBrief === 'function') loadBrief();
@@ -3792,6 +3793,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         // Live macro overlay (yields/DXY/VIX) — poll only while the pane is visible.
         if (name === 'bonds-usd' && typeof startBondsLivePolling === 'function') startBondsLivePolling();
         if (name === 'overnight' && typeof loadOvernight === 'function') loadOvernight();
+        if (name === 'overnight' && typeof startOvernightLive === 'function') startOvernightLive();
         if (name === 'volume' && typeof renderVolumeFlags === 'function') renderVolumeFlags();
         if (name === 'volume' && typeof loadVolumePicks === 'function') loadVolumePicks();
         if (name === 'volume' && typeof loadVolumeCalendar === 'function') loadVolumeCalendar();
@@ -25637,7 +25639,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
   }
 
-  var overnightState = { data: null, loading: false, horizon: '1d', selectedMarket: null };
+  var OVERNIGHT_LIVE_POLL_MS = 60 * 1000;
+  var overnightState = { data: null, loading: false, horizon: '1d', selectedMarket: null, liveTimer: null, liveInFlight: false };
   // Freshest session date across the loaded markets — set in renderOvernight,
   // read by overnightTile for its "as of" lag badge (#2).
   var ovnMaxAsOf = null;
@@ -25652,6 +25655,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         overnightState.fetchedAt = Date.now();
         renderOvernight();
         refreshOvernightWidgets();
+        pollOvernightLiveOnce();
       })
       .catch(function(){
         overnightState.data = { markets: {}, map: {}, regions: [], broad: [], tone: null, loadError: true };
@@ -25740,15 +25744,171 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (m < 1440) return (m < 120 ? (m / 60).toFixed(1) : Math.round(m / 60)) + 'h old';
     return Math.round(m / 1440) + 'd old';
   }
+  // Faithful browser-side re-port of deriveGlobalTone in build.mjs. The live
+  // quote overlay must update the handoff and Asia-breadth evidence together
+  // with the cards; otherwise a red Nikkei/KOSPI close can render under a stale
+  // "Asia firm" headline.
+  function deriveOvernightTone(markets){
+    markets = markets || {};
+    var reasons = [], score = 0;
+    function chOf(sym){
+      var m = markets[sym];
+      return m && m.chPct != null && isFinite(m.chPct) ? Number(m.chPct) : null;
+    }
+    var fut = [chOf('ES=F'), chOf('NQ=F')].filter(function(v){ return v != null; });
+    if (fut.length){
+      var fa = fut.reduce(function(sum, v){ return sum + v; }, 0) / fut.length;
+      if (fa <= -0.4){ score--; reasons.push('US futures soft (' + fa.toFixed(2) + '%)'); }
+      else if (fa >= 0.4){ score++; reasons.push('US futures firm (+' + fa.toFixed(2) + '%)'); }
+    }
+    var vix = chOf('^VIX');
+    if (vix != null){
+      if (vix >= 5){ score--; reasons.push('VIX +' + vix.toFixed(1) + '%'); }
+      else if (vix <= -5){ score++; reasons.push('VIX ' + vix.toFixed(1) + '%'); }
+    }
+    var jpy = chOf('JPY=X');
+    if (jpy != null){
+      if (jpy <= -0.6){ score--; reasons.push('yen bid (USD/JPY ' + jpy.toFixed(2) + '%) — carry unwind'); }
+      else if (jpy >= 0.6){ score++; reasons.push('yen soft (USD/JPY +' + jpy.toFixed(2) + '%)'); }
+    }
+    var asia = ['^KS11','005930.KS','000660.KS','^TWII','2330.TW','^N225','8035.T','6857.T','9984.T','^HSI']
+      .map(chOf).filter(function(v){ return v != null; });
+    if (asia.length >= 3){
+      var aa = asia.reduce(function(sum, v){ return sum + v; }, 0) / asia.length;
+      if (aa <= -0.6){ score--; reasons.push('Asia weak (' + aa.toFixed(2) + '% avg)'); }
+      else if (aa >= 0.6){ score++; reasons.push('Asia firm (+' + aa.toFixed(2) + '% avg)'); }
+    }
+    var tnx = markets['^TNX'];
+    if (tnx && tnx.chgBp != null && isFinite(tnx.chgBp)){
+      if (tnx.chgBp >= 8){ score--; reasons.push('10Y +' + Math.round(tnx.chgBp) + 'bp'); }
+      else if (tnx.chgBp <= -8){ score++; reasons.push('10Y ' + Math.round(tnx.chgBp) + 'bp'); }
+    }
+    var copper = chOf('HG=F');
+    if (copper != null){
+      if (copper <= -1){ score--; reasons.push('copper ' + copper.toFixed(1) + '% — growth scare'); }
+      else if (copper >= 1){ score++; reasons.push('copper +' + copper.toFixed(1) + '% — growth bid'); }
+    }
+    var dxy = chOf('DX-Y.NYB');
+    if (dxy != null){
+      if (dxy >= 0.5){ score--; reasons.push('USD firm (+' + dxy.toFixed(2) + '%)'); }
+      else if (dxy <= -0.5){ score++; reasons.push('USD soft (' + dxy.toFixed(2) + '%)'); }
+    }
+    var label = score >= 3 ? 'risk-on' : score <= -3 ? 'risk-off' : score >= 1 ? 'leaning risk-on' : score <= -1 ? 'leaning risk-off' : 'mixed';
+    return { label: label, score: score, reasons: reasons };
+  }
+  function overlayOvernightMarket(baked, live){
+    if (!baked || !live || live.value == null || !isFinite(live.value)) return null;
+    var quoteMs = Date.parse(live.asOf || '');
+    var quoteDate = isFinite(quoteMs) ? new Date(quoteMs).toISOString().slice(0, 10) : null;
+    if (!quoteDate || (baked.asOf && quoteDate < baked.asOf)) return null;
+    var value = Number(live.value);
+    var prev = live.prevClose != null && isFinite(live.prevClose) ? Number(live.prevClose) : null;
+    var pct = live.pctChange1d != null && isFinite(live.pctChange1d)
+      ? Number(live.pctChange1d)
+      : (prev != null && prev !== 0 ? ((value - prev) / prev) * 100 : null);
+    var out = Object.assign({}, baked, {
+      last: value,
+      prevClose: prev,
+      chPct: pct,
+      asOf: quoteDate,
+      source: 'Yahoo Finance · latest session quote',
+      _live: true,
+      _liveState: live.marketState || null,
+    });
+    var dates = Array.isArray(baked.seriesDates) ? baked.seriesDates.slice() : [];
+    var series = Array.isArray(baked.series) ? baked.series.slice() : [];
+    if (dates.length === series.length){
+      var at = dates.indexOf(quoteDate);
+      if (at >= 0) series[at] = value;
+      else if (!dates.length || quoteDate > dates[dates.length - 1]){ dates.push(quoteDate); series.push(value); }
+      if (series.length > 31){ series = series.slice(-31); dates = dates.slice(-31); }
+      out.series = series; out.seriesDates = dates;
+    }
+    var moves = Object.assign({}, baked.moves || {});
+    moves['1d'] = { pct: pct, bp: baked.type === 'rate' && prev != null ? (value - prev) * 100 : null, pt: baked.type === 'vol' && prev != null ? value - prev : null };
+    [5,20].forEach(function(n){
+      if (series.length > n){
+        var base = Number(series[series.length - 1 - n]);
+        var hp = isFinite(base) && base !== 0 ? ((value - base) / base) * 100 : null;
+        moves[n + 'd'] = { pct: hp, bp: baked.type === 'rate' && isFinite(base) ? (value - base) * 100 : null, pt: baked.type === 'vol' && isFinite(base) ? value - base : null };
+      }
+    });
+    out.moves = moves;
+    return out;
+  }
+  function applyOvernightLive(crossAsset, fetchedAt){
+    var d = overnightState.data;
+    if (!d || !d.markets || !crossAsset) return 0;
+    var count = 0;
+    Object.keys(crossAsset).forEach(function(sym){
+      if (!d.markets[sym]) return;
+      var updated = overlayOvernightMarket(d.markets[sym], crossAsset[sym]);
+      if (!updated) return;
+      d.markets[sym] = updated;
+      count++;
+    });
+    if (!count) return 0;
+    // Per-ticker peer rows carry a baked copy of the foreign move. Keep those
+    // widgets consistent with the updated market cards and decision desk.
+    if (d.map){
+      Object.keys(d.map).forEach(function(ticker){
+        var peers = d.map[ticker] && d.map[ticker].peers;
+        if (!Array.isArray(peers)) return;
+        peers.forEach(function(peer){
+          var market = peer && d.markets[peer.sym];
+          if (!market || !market._live) return;
+          peer.chPct = market.chPct; peer.last = market.last; peer.asOf = market.asOf;
+          peer.moves = market.moves;
+        });
+      });
+    }
+    d.tone = deriveOvernightTone(d.markets);
+    d.liveFetchedAt = fetchedAt || new Date().toISOString();
+    d.liveCount = count;
+    return count;
+  }
+  function pollOvernightLiveOnce(){
+    if (overnightState.liveInFlight || !overnightState.data || !overnightState.data.markets) return;
+    overnightState.liveInFlight = true;
+    fetch('api/macro-live?tape=1', { cache: 'no-store' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(json){
+        if (json && json.crossAsset && applyOvernightLive(json.crossAsset, json.fetchedAt)){
+          renderOvernight();
+          refreshOvernightWidgets();
+        }
+      })
+      .catch(function(){ /* current baked snapshot remains visible */ })
+      .finally(function(){ overnightState.liveInFlight = false; });
+  }
+  function startOvernightLive(){
+    var pane = document.getElementById('page-pane-overnight');
+    if (!pane || pane.hidden) return;
+    pollOvernightLiveOnce();
+    if (!overnightState.liveTimer) overnightState.liveTimer = setInterval(pollOvernightLiveOnce, OVERNIGHT_LIVE_POLL_MS);
+  }
+  function stopOvernightLive(){
+    if (overnightState.liveTimer){ clearInterval(overnightState.liveTimer); overnightState.liveTimer = null; }
+  }
+  document.addEventListener('visibilitychange', function(){
+    var pane = document.getElementById('page-pane-overnight');
+    if (document.hidden) stopOvernightLive();
+    else if (pane && !pane.hidden) startOvernightLive();
+  });
   function overnightFreshness(d){
     var builtMs = Date.parse(d && d.builtAtIso ? d.builtAtIso : '');
     var ageMin = isFinite(builtMs) ? (Date.now() - builtMs) / 60000 : null;
-    var current = !!(d && !d.stale && ageMin != null && ageMin >= -15 && ageMin <= 360);
+    var liveMs = Date.parse(d && d.liveFetchedAt ? d.liveFetchedAt : '');
+    var liveAgeMin = isFinite(liveMs) ? (Date.now() - liveMs) / 60000 : null;
+    var liveCurrent = !!(d && d.liveCount && liveAgeMin != null && liveAgeMin >= -5 && liveAgeMin <= 5);
+    var current = liveCurrent || !!(d && !d.stale && ageMin != null && ageMin >= -15 && ageMin <= 360);
     return {
       current: current,
       ageMin: ageMin,
-      label: current ? 'Current overnight snapshot' : 'Reference only - stale sweep',
-      detail: d && d.stale
+      label: liveCurrent ? 'Current live/latest-session overlay' : (current ? 'Current overnight snapshot' : 'Reference only - stale sweep'),
+      detail: liveCurrent
+        ? d.liveCount + ' market legs refreshed - ' + ovnAgeText(liveAgeMin)
+        : d && d.stale
         ? 'Last-good carry-forward - ' + ovnAgeText(ageMin)
         : (ageMin == null ? 'Build time could not be verified.' : 'Updated ' + ovnAgeText(ageMin).replace(' old', ' ago') + '.'),
     };
@@ -25997,7 +26157,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var lead = m.lead ? '<div class="ovn-tile-lead">' + ovnEsc(m.lead) + '</div>' : '';
     var lvl = ovnLevelStr(m);
     var tag = ovnClassTag(m.sessionClass);
-    var asof = (m.asOf && ovnMaxAsOf && m.asOf !== ovnMaxAsOf)
+    var asof = m._live
+      ? '<div class="ovn-tile-asof" title="Latest Yahoo regular-session quote; PREPRE/POST states still carry the completed cash close">latest session · as of ' + ovnEsc(ovnShortDate(m.asOf)) + '</div>'
+      : (m.asOf && ovnMaxAsOf && m.asOf !== ovnMaxAsOf)
       ? '<div class="ovn-tile-asof" title="This market’s last session lags the freshest tile">as of ' + ovnEsc(ovnShortDate(m.asOf)) + '</div>'
       : '';
     return '<div class="ovn-tile ' + ovnMoveCls(ovnMoveValue(m, horizon)) + (overnightState.selectedMarket === fsym ? ' is-selected' : '') + '" data-ovn-market="' + ovnEsc(fsym) + '" role="button" tabindex="0" aria-label="Open ' + ovnEsc(m.name) + ' context">' +
@@ -26152,6 +26314,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         ? (minAsOf && minAsOf !== ovnMaxAsOf ? ('sessions ' + ovnShortDate(minAsOf) + ' – ' + ovnShortDate(ovnMaxAsOf)) : ('sessions through ' + ovnShortDate(ovnMaxAsOf)))
         : '';
       eyebrow.textContent = (d.stale ? 'last-good · ' : '') + rangeTxt;
+      if (d.liveCount) eyebrow.textContent += ' · ' + d.liveCount + ' latest-session overlays';
     }
     bindOvernightFlagJumps(root);
     bindOvernightInteractions(root);

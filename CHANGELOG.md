@@ -28,6 +28,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
+- **Overnight Markets no longer reports a stale green Asian session after the latest close is red.** Foreign cash indices and bellwethers now take their latest 1-day move and session date from Yahoo&rsquo;s regular-session quote when the daily chart bar lags; the open Overnight tab overlays those completed-session quotes every minute, updates linked peer rows, and recomputes the global tone so Nikkei/KOSPI cards and the Asia breadth headline cannot disagree. Longer histories and correlations remain bake-owned. `api/macro-live.js`, `scripts/{build,api-smoke,overnight-smoke}.mjs`, `scripts/render/{app-js,html}.mjs`, `app.js`, `index.html`.
+
 - **The 2-year Treasury tile uses the cash Treasury yield instead of a futures quote.** Both the build and `/api/macro-live` now read the official U.S. Treasury 2-year constant-maturity rate, with FRED retained as the build&rsquo;s last-resort mirror; the `2YY=F` yield future can no longer overwrite the cash benchmark, corrupt the 2s10s spread, or feed a false front-end move into the market tape. The tile identifies the official observation date and the monitor explains its daily-close cadence. `scripts/build.mjs`, `api/macro-live.js`, `scripts/api-smoke.mjs`, `scripts/render/{app-js,html}.mjs`, `app.js`, `index.html`.
 
 ## 2026-08-17

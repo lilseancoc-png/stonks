@@ -84,17 +84,22 @@ try {
   yahooFinance.quote = async (symbols) => {
     macroSymbols = symbols;
     return [
-      { symbol: "^TNX", regularMarketPrice: 4.7, regularMarketPreviousClose: 4.72, marketState: "REGULAR" },
+      { symbol: "^TNX", regularMarketPrice: 4.7, regularMarketPreviousClose: 4.72, regularMarketTime: new Date("2026-08-18T20:00:00Z"), marketState: "REGULAR" },
       { symbol: "DX-Y.NYB", regularMarketPrice: 99.6, regularMarketPreviousClose: 99.5, marketState: "REGULAR" },
+      { symbol: "^N225", regularMarketPrice: 67460.73, regularMarketPreviousClose: 69220.25, regularMarketTime: new Date("2026-08-18T06:45:00Z"), marketState: "PREPRE" },
     ];
   };
   const macroRes = mockResponse();
-  await macroLiveHandler({ method: "GET", query: {} }, macroRes);
+  await macroLiveHandler({ method: "GET", query: { tape: "1" } }, macroRes);
   assert.equal(macroRes.statusCode, 200);
   assert.equal(macroRes.body.legs.twoY.value, 4.19);
   assert.equal(macroRes.body.legs.twoY.asOf, "2026-08-18");
   assert.ok(!macroSymbols.includes("2YY=F"));
   assert.ok(!macroSymbols.includes("^UST2YR"));
+  for (const symbol of ["^N225", "^KS11", "005930.KS", "000660.KS", "HG=F"]) assert.ok(macroSymbols.includes(symbol));
+  assert.ok(macroRes.body.crossAsset["^N225"].pctChange1d < -2.5);
+  assert.equal(macroRes.body.crossAsset["^N225"].asOf, "2026-08-18T06:45:00.000Z");
+  assert.equal(macroRes.body.crossAsset["^N225"].marketState, "PREPRE");
 } finally {
   yahooFinance.quote = originalQuote;
   globalThis.fetch = originalFetch;
