@@ -26,6 +26,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - **Calendar covers the complete official US economic and Federal Reserve event schedules.** Every dated BLS and BEA release now comes from the agencies&rsquo; live calendars; Federal Reserve Board speeches, testimony, minutes, conferences, and statistical releases come from each official monthly calendar; and the Kansas City Fed&rsquo;s Jackson Hole page adds the Aug. 27&ndash;29, 2026 symposium with its official source link and verified fallback. Confirmed earnings for the tracked universe gain a rolling 21-day Nasdaq sweep that recovers near-term dates missing from Yahoo, while existing detailed Actual / Previous / Consensus rows and FOMC decisions deduplicate richer overlaps. The calendar&rsquo;s Fed filter now includes both FOMC decisions and every other Fed event. `scripts/{build,regen-calendar,calendar-smoke}.mjs`, `scripts/render/{app-js,html,styles-css}.mjs`, `package.json`, `app.js`, `index.html`, `styles.css`, `docs/site-logic.md`.
 
+### Fixed
+
+- **The 2-year Treasury tile uses the cash Treasury yield instead of a futures quote.** Both the build and `/api/macro-live` now read the official U.S. Treasury 2-year constant-maturity rate, with FRED retained as the build&rsquo;s last-resort mirror; the `2YY=F` yield future can no longer overwrite the cash benchmark, corrupt the 2s10s spread, or feed a false front-end move into the market tape. The tile identifies the official observation date and the monitor explains its daily-close cadence. `scripts/build.mjs`, `api/macro-live.js`, `scripts/api-smoke.mjs`, `scripts/render/{app-js,html}.mjs`, `app.js`, `index.html`.
+
 ## 2026-08-17
 
 ### Changed
