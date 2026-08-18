@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import authHandler from "../api/auth/[action].js";
+import macroLiveHandler, { parseTreasuryTwoYearXml } from "../api/macro-live.js";
 import watchlistHandler from "../api/watchlist.js";
 import {
   fetchChain,
@@ -60,6 +61,43 @@ try {
   assert.ok(Math.abs(quote.changePct - 15.7894736842) < 1e-6);
 } finally {
   yahooFinance.quote = originalQuote;
+}
+
+// The cash 2Y must come from Treasury's official CMT feed. 2YY=F is a yield
+// future and can diverge materially; it must never be requested or substituted.
+const treasuryXml = `<?xml version="1.0"?><feed>
+  <entry><content><m:properties><d:NEW_DATE>2026-08-18T00:00:00</d:NEW_DATE><d:BC_2YEAR>4.19</d:BC_2YEAR></m:properties></content></entry>
+  <entry><content><m:properties><d:NEW_DATE>2026-08-14T00:00:00</d:NEW_DATE><d:BC_2YEAR>4.17</d:BC_2YEAR></m:properties></content></entry>
+  <entry><content><m:properties><d:NEW_DATE>2026-08-17T00:00:00</d:NEW_DATE><d:BC_2YEAR>4.19</d:BC_2YEAR></m:properties></content></entry>
+</feed>`;
+const parsedTreasury2y = parseTreasuryTwoYearXml(treasuryXml);
+assert.equal(parsedTreasury2y.value, 4.19);
+assert.equal(parsedTreasury2y.prevClose, 4.19);
+assert.equal(parsedTreasury2y.pctChange1d, 0);
+assert.equal(parsedTreasury2y.bpsChange1d, 0);
+assert.equal(parsedTreasury2y.asOf, "2026-08-18");
+assert.equal(parsedTreasury2y.source, "U.S. Treasury Daily Par Yield Curve");
+const originalFetch = globalThis.fetch;
+let macroSymbols = [];
+try {
+  globalThis.fetch = async () => new Response(treasuryXml, { status: 200 });
+  yahooFinance.quote = async (symbols) => {
+    macroSymbols = symbols;
+    return [
+      { symbol: "^TNX", regularMarketPrice: 4.7, regularMarketPreviousClose: 4.72, marketState: "REGULAR" },
+      { symbol: "DX-Y.NYB", regularMarketPrice: 99.6, regularMarketPreviousClose: 99.5, marketState: "REGULAR" },
+    ];
+  };
+  const macroRes = mockResponse();
+  await macroLiveHandler({ method: "GET", query: {} }, macroRes);
+  assert.equal(macroRes.statusCode, 200);
+  assert.equal(macroRes.body.legs.twoY.value, 4.19);
+  assert.equal(macroRes.body.legs.twoY.asOf, "2026-08-18");
+  assert.ok(!macroSymbols.includes("2YY=F"));
+  assert.ok(!macroSymbols.includes("^UST2YR"));
+} finally {
+  yahooFinance.quote = originalQuote;
+  globalThis.fetch = originalFetch;
 }
 
 const originalOptions = yahooFinance.options;
@@ -129,6 +167,10 @@ const vercelIgnore = await readFile(new URL("../.vercelignore", import.meta.url)
 for (const pattern of ["/data/", "/r2.env", "*.env", ".env*", "/ai-health.json", "/.codex/"]) {
   assert.ok(vercelIgnore.split(/\r?\n/).includes(pattern), `.vercelignore missing ${pattern}`);
 }
+
+const buildSource = await readFile(new URL("./build.mjs", import.meta.url), "utf8");
+assert.ok(buildSource.includes("fetchTwoYearFromTreasury(),"), "build must source the primary 2Y leg from Treasury");
+assert.ok(!buildSource.includes('fetchLeg("2YY=F"'), "build must not substitute a 2Y yield future for the cash CMT");
 
 // Sequential upstream deadlines must fit inside the configured function cap.
 const fedSource = await readFile(new URL("../api/fed-rate.js", import.meta.url), "utf8");

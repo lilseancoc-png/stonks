@@ -37247,6 +37247,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         leg.value = Number(current.value);
         if (current.pctChange1d != null && isFinite(current.pctChange1d)) leg.pctChange1d = Number(current.pctChange1d);
         if (current.bpsChange1d != null && isFinite(current.bpsChange1d)) leg.bpsChange1d = Number(current.bpsChange1d);
+        if (current.source) leg.liveSource = String(current.source);
+        if (current.asOf) leg.liveAsOf = String(current.asOf);
         // Keep the exact previous-session baseline used by the live endpoint so
         // the displayed move, prior close and decision desk all tell the same story.
         if (current.prevClose != null && isFinite(current.prevClose)) leg.livePrevClose = Number(current.prevClose);
@@ -37522,7 +37524,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         ? '<span class="bonds-live-alert" title="Alert threshold reached">!</span>'
         : '';
       var prevLine = '';
-      if (leg.livePrevClose != null) {
+      if (leg.liveSource) {
+        var sourceShort = leg.liveSource === 'U.S. Treasury Daily Par Yield Curve' ? 'Treasury close' : leg.liveSource;
+        prevLine = '<span class="bonds-live-prev" title="' + escapeHtml(leg.liveSource) + ' — latest official observation, not a futures proxy">' +
+          escapeHtml(sourceShort + (leg.liveAsOf ? ' ' + leg.liveAsOf : '')) +
+          (leg.livePrevClose != null ? ' · Prev: ' + escapeHtml(valFmt(leg.livePrevClose)) : '') + '</span>';
+      } else if (leg.livePrevClose != null) {
         prevLine = '<span class="bonds-live-prev" title="Previous session close (live quote)">Prev close: ' +
           escapeHtml(valFmt(leg.livePrevClose)) + '</span>';
       } else if (prev && prev[key] != null && prev.date) {

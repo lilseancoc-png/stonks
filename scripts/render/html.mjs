@@ -2301,7 +2301,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           <div class="bonds-curve" id="bonds-curve" hidden>
             <!-- Treasury yield-curve chart injected client-side from the 2Y/10Y/30Y legs -->
           </div>
-          <p class="hint">Yields and DXY come from the latest build, with a best-effort live overlay. On an FOMC decision day the open tab refreshes the rates monitor every five minutes so the meeting-day move stays current. Tiles show the 1-day move (basis points for yields, % for DXY), movement band, and 5-day trend. A <span class="bonds-live-alert" aria-hidden="true">!</span> chip marks DXY ±0.6% or the 10Y ±10 bps on a daily close.</p>
+          <p class="hint">The 10Y, 30Y and DXY come from the latest build with a best-effort live quote overlay. The 2Y uses the latest official U.S. Treasury daily par-yield close because there is no reliable free cash-2Y intraday index; a 2Y yield future is not substituted. On an FOMC decision day the open tab refreshes the rates monitor every five minutes so available meeting-day moves stay current. Tiles show the 1-day move (basis points for yields, % for DXY), movement band, and 5-day trend. A <span class="bonds-live-alert" aria-hidden="true">!</span> chip marks DXY ±0.6% or the 10Y ±10 bps on a daily close.</p>
           <p class="hint"><strong>CPI and unemployment</strong> are monthly BLS prints, not live quotes. The unemployment tile&rsquo;s Sahm read compares the 3-month average with its prior-year low; ≥0.5pp is the classic recession-onset threshold.</p>
         </div>
       </details>

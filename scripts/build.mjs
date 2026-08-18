@@ -3722,7 +3722,8 @@ async function fetchRiskFreeRate(cachedRfr = null) {
   return { rate: FALLBACK_RISK_FREE_RATE, asOf: todayIso, source: "fallback" };
 }
 
-// Macro backdrop — pulls 2Y (^UST2YR → 2YY=F → FRED DGS2), 10Y (^TNX), 30Y (^TYX)
+// Macro backdrop — pulls the official Treasury 2Y CMT (FRED DGS2 backstop),
+// 10Y (^TNX), 30Y (^TYX)
 // Treasury yields, the US Dollar Index (DX-Y.NYB), and the CBOE Volatility
 // Index (^VIX), plus 1- and ~5-trading-day
 // history so the Bonds & USD tab can frame today's move against typical
@@ -3963,12 +3964,11 @@ async function fetchMacroBackdrop() {
       return null;
     }
   }
-  // Yahoo has no reliable 2Y yield source: its CBOE interest-rate index family
-  // only carries ^IRX/^FVX/^TNX/^TYX (no 2-year — ^UST2YR returns nothing), and
-  // the 2YY=F micro-future is too thin to quote dependably. So we cascade below:
-  // ^UST2YR → 2YY=F → FRED DGS2 (the authoritative 2-Year constant-maturity
-  // rate). Only if ALL THREE are unavailable does twoY stay null and the Bonds &
-  // USD grid omit the 2Y tile (and the 2s10s spread tile).
+  // Yahoo has no cash 2Y yield index: ^UST2YR returns nothing and 2YY=F is a
+  // forward-settled yield future, not the current Treasury constant-maturity
+  // rate. Use the U.S. Treasury curve as the primary source and FRED DGS2 (its
+  // lagged mirror) only as a backstop. This keeps the tile, curve and regime on
+  // the cash 2Y benchmark rather than a different instrument.
   // ^VIX is an index, not an equity — quote-only (no option chain) and the
   // leading caret deliberately fails the public SYMBOL_RE allowlist, so it can
   // never flow through the api/* proxies. That's fine: the build fetches it
@@ -3982,7 +3982,7 @@ async function fetchMacroBackdrop() {
   // axis (computeMacroRegime). They're also swept by the correlations engine, but
   // that's a separate batch — the regime needs them on macroBackdrop directly.
   let [twoY, tenY, thirtyY, dxy, vix, vix9d, vix3m, crude, gold] = await Promise.all([
-    fetchLeg("^UST2YR", "2Y yield", { isYield: true }),
+    fetchTwoYearFromTreasury(),
     fetchLeg("^TNX", "10Y yield", { isYield: true }),
     fetchLeg("^TYX", "30Y yield", { isYield: true }),
     fetchLeg("DX-Y.NYB", "DXY"),
@@ -3992,22 +3992,9 @@ async function fetchMacroBackdrop() {
     fetchLeg("CL=F", "WTI crude"),
     fetchLeg("GC=F", "Gold"),
   ]);
-  // ^UST2YR almost never resolves on Yahoo — fall back to 2YY=F (CBOT Micro
-  // 2-Year Yield futures), which quotes in the same percent-yield units as the
-  // ^TNX/^TYX legs. The api/macro-live live endpoint mirrors this Yahoo step.
-  if (!twoY) {
-    twoY = await fetchLeg("2YY=F", "2Y yield (2YY futures fallback)", { isYield: true });
-  }
-  // Primary non-Yahoo source: the U.S. Treasury Daily Par Yield Curve (BC_2YEAR).
-  // Same-day, key-less, and NOT behind FRED's Cloudflare WAF — so it populates the
-  // 2Y tile + 2s10s spread reliably from CI even when both Yahoo symbols and the
-  // FRED CSV path fail (the bug where the 2Y kept disappearing from the Bonds tab).
-  if (!twoY) {
-    twoY = await fetchTwoYearFromTreasury();
-    if (twoY) {
-      const day = twoY.bpsChange1d != null ? ` · 1d ${twoY.bpsChange1d >= 0 ? "+" : ""}${twoY.bpsChange1d.toFixed(1)} bps` : "";
-      console.log(`Macro 2Y yield (Treasury par-curve): ${twoY.value.toFixed(2)}${day}`);
-    }
+  if (twoY) {
+    const day = twoY.bpsChange1d != null ? ` · 1d ${twoY.bpsChange1d >= 0 ? "+" : ""}${twoY.bpsChange1d.toFixed(1)} bps` : "";
+    console.log(`Macro 2Y yield (Treasury par-curve): ${twoY.value.toFixed(2)}${day}`);
   }
   // Last resort: FRED's DGS2 (the lagged mirror of the Treasury curve above).
   // Only reached if Treasury is unreachable too; DGS2 is a business-day late and

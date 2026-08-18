@@ -30,19 +30,13 @@
 
 import { yahooFinance, withYahooTimeout } from "../lib/yahoo.mjs";
 
-// Mirrors the tile set in fetchMacroBackdrop (scripts/build.mjs). The 2Y has no
-// reliable Yahoo source — a missing leg comes back null and the browser keeps
-// that tile on its baked value (which the bake sources authoritatively from the
-// U.S. Treasury par-yield curve, FRED DGS2 as the backstop). CL=F (crude) + GC=F
-// (gold) feed the picks market-tape commodity axis only.
+// Mirrors the tile set in fetchMacroBackdrop (scripts/build.mjs). The 2Y is
+// deliberately NOT in this Yahoo set: Yahoo has no cash 2Y yield index, and
+// 2YY=F is a forward-settled yield future rather than the current Treasury CMT.
+// The handler fetches the official U.S. Treasury par-yield observation in
+// parallel below. CL=F (crude) + GC=F (gold) feed the picks market-tape
+// commodity axis only.
 const LEGS = [
-  // Yahoo has no 2-year in its CBOE interest-rate index family (only ^IRX/^FVX/
-  // ^TNX/^TYX), so ^UST2YR effectively never resolves — fall back to 2YY=F (CBOT
-  // Micro 2-Year Yield futures), which quotes in the same percent-yield units, so
-  // the 2Y tile can go live when that thin contract is quoting. When neither
-  // resolves the browser keeps the bake's FRED-DGS2 value. Mirrors the
-  // fetchMacroBackdrop Yahoo cascade in scripts/build.mjs.
-  { key: "twoY", symbol: "^UST2YR", fallback: "2YY=F", isYield: true },
   { key: "tenY", symbol: "^TNX", isYield: true },
   { key: "thirtyY", symbol: "^TYX", isYield: true },
   { key: "dxy", symbol: "DX-Y.NYB", isYield: false },
@@ -60,6 +54,51 @@ const LEGS = [
   { key: "hyg", symbol: "HYG", isYield: false },
   { key: "lqd", symbol: "LQD", isYield: false },
 ];
+
+const TREASURY_YIELD_XML =
+  "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml?data=daily_treasury_yield_curve&field_tdr_date_value=";
+
+// Exported for the offline API smoke test. Treasury's Atom feed is ordered by
+// date today, but sort defensively so a source-order change cannot turn an old
+// observation into the headline value. The official series is an end-of-day
+// constant-maturity yield, not an intraday proxy.
+export function parseTreasuryTwoYearXml(xml) {
+  const byDate = new Map();
+  for (const chunk of String(xml || "").split(/<entry[\s>]/).slice(1)) {
+    const dm = chunk.match(/<d:NEW_DATE[^>]*>([^<]+)<\/d:NEW_DATE>/);
+    const vm = chunk.match(/<d:BC_2YEAR[^>]*>([^<]*)<\/d:BC_2YEAR>/);
+    const date = dm?.[1]?.slice(0, 10) || "";
+    const value = Number(vm?.[1]);
+    if (date && Number.isFinite(value)) byDate.set(date, value);
+  }
+  const rows = [...byDate.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  if (!rows.length) return null;
+  const [asOf, value] = rows[rows.length - 1];
+  const prevClose = rows.length >= 2 ? rows[rows.length - 2][1] : null;
+  return {
+    value,
+    prevClose,
+    pctChange1d: prevClose != null && prevClose !== 0 ? ((value - prevClose) / prevClose) * 100 : null,
+    bpsChange1d: prevClose != null ? (value - prevClose) * 100 : null,
+    asOf,
+    source: "U.S. Treasury Daily Par Yield Curve",
+  };
+}
+
+async function fetchTreasuryTwoYear() {
+  const year = new Date().getUTCFullYear();
+  const response = await fetch(`${TREASURY_YIELD_XML}${year}`, {
+    headers: {
+      "user-agent": "stonks-market-research/1.0",
+      accept: "application/atom+xml,application/xml,text/xml,*/*;q=0.5",
+    },
+    signal: AbortSignal.timeout(7000),
+  });
+  if (!response.ok) throw new Error(`Treasury 2Y HTTP ${response.status}`);
+  const leg = parseTreasuryTwoYearXml(await response.text());
+  if (!leg) throw new Error("Treasury 2Y feed returned no usable observation");
+  return leg;
+}
 
 // Cross-asset barometer legs for the Top Picks "Cross-asset signals → market
 // tape" rail (renderRiskBarometer in app.js). Only fetched when the caller
@@ -148,15 +187,13 @@ export default async function handler(req, res) {
 
   // One batched upstream call covers both sets — union the symbols so a leg in
   // both (e.g. ^VIX, ^TNX, the dollar) is quoted once.
-  // Include any per-leg fallback symbols in the batch (e.g. 2YY=F for the 2Y) so
-  // a restricted primary can be backfilled from the same single upstream call.
-  const legSymbols = LEGS.flatMap((l) => (l.fallback ? [l.symbol, l.fallback] : [l.symbol]));
+  const legSymbols = LEGS.map((l) => l.symbol);
   const quoteSymbols = wantTape
     ? Array.from(new Set([...legSymbols, ...CROSS_ASSET_LEGS.map((l) => l.symbol)]))
     : Array.from(new Set(legSymbols));
 
   try {
-    const [quoteR, fngR] = await Promise.allSettled([
+    const [quoteR, fngR, twoYR] = await Promise.allSettled([
       withYahooTimeout(
         yahooFinance.quote(quoteSymbols, {
           fields: ["regularMarketPrice", "regularMarketPreviousClose", "marketState"],
@@ -168,6 +205,7 @@ export default async function handler(req, res) {
         "macro-live",
       ),
       wantFng ? fetchFearGreedLive() : Promise.resolve(null),
+      fetchTreasuryTwoYear(),
     ]);
     if (quoteR.status !== "fulfilled") throw quoteR.reason || new Error("quote failed");
     const r = quoteR.value;
@@ -194,6 +232,12 @@ export default async function handler(req, res) {
       const bpsChange1d = isYield && prevClose != null ? (value - prevClose) * 100 : null;
       legs[key] = { value, prevClose, pctChange1d, bpsChange1d };
     }
+    // Do not substitute 2YY=F here. Its 3.961 quote on 2026-08-18 was a futures
+    // contract level while the official same-day 2Y CMT was 4.19%; treating the
+    // former as cash yield corrupted the tile, 2s10s spread and market-tape axis.
+    // If Treasury is temporarily unavailable, return null and let the browser
+    // keep the bake's authoritative Treasury/FRED value.
+    legs.twoY = twoYR.status === "fulfilled" ? twoYR.value : null;
 
     // All-null on the CORE macro legs means the upstream batch effectively
     // failed — surface it so the browser keeps the baked tiles rather than
