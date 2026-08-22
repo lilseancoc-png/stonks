@@ -22,6 +22,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-08-22
 
+### Added
+
+- **Ticker coverage now includes Moderna and Merck.** `MRNA` and `MRK` join the option-chain, grading, screening, and calendar universe under the Pharma filter, with Biotechnology and Drug Manufacturers peer classifications respectively. `scripts/build.mjs`, `index.html`.
+
 ### Fixed
 
 - **Sector Rotation no longer goes structurally empty one week after a peer washout.** The research-funnel horizon expands from 7 to 25 trading sessions so multi-week swing recoveries can remain observable while their reclaim and pullback entry develops. This does not relax the fundamentals-first recovery profile, company-damage guards, frozen-mean dislocation, late/spent rejection, confirmation, entry-zone, or 1.5:1 live reward/risk requirements. A regression fixture now proves that an economically active 15-session-old washout remains eligible for research instead of disappearing before stock-level analysis. `scripts/{build,sector-rotation-smoke}.mjs`, `docs/site-logic.md`.
