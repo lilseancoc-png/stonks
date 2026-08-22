@@ -957,10 +957,11 @@ The index calendar accumulates up to roughly 800 sessions for SPY, QQQ, IWM, SMH
 ### Heatmap
 
 - tile size is market capitalization;
-- color is current change or time-adjusted relative volume;
+- color can use 1D, 1W, 1M, 3M, YTD, or 1Y return, with a horizon-adjusted saturation scale, or time-adjusted relative volume whose hue follows the selected return;
+- longer returns use the last market close on or before the calendar-period boundary (YTD uses the prior year-end close), and the live overlay re-marks the baked baseline with the current regular-session spot;
 - breadth summarizes advancing/declining participation;
 - sector streak requires at least 70% of members moving in one direction for at least two days;
-- hourly refresh replaces price/change and market cap from a batched quote call;
+- hourly refresh replaces price/change and market cap from a batched quote call and re-marks every longer horizon from its preserved baseline;
 - after the close, one AI sector recap may be generated once per ET day.
 
 Heatmap sector streak is a breadth visualization. It is not the Sector Rotation model.

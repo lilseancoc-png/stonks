@@ -86,12 +86,12 @@
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.03710;
+  var RFR = 0.04500;
   // Provenance for the risk-free rate baked above. source is
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-08-21","ageDays":null};
+  var RFR_META = {"source":"fallback","asOf":"2026-08-22","ageDays":null};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null, chainRequestSeq: 0 };
   var ownerAutoPicks = { data: null, pending: null };
@@ -29694,6 +29694,7 @@
     loading: false,
     groupBy: 'sector',
     colorBy: 'perf',   // 'perf' (% change) | 'rvol' (relative volume)
+    period: '1d',      // '1d' | '1w' | '1m' | '3m' | 'ytd' | '1y'
     search: '',        // uppercased ticker filter for highlight
     live: false,
     livePollTimer: null,
@@ -29717,11 +29718,11 @@
   var HEATMAP_MAX_ZOOM = 8;
   // Multiplicative step per +/- button click and per wheel notch.
   var HEATMAP_ZOOM_STEP = 1.3;
-  // Saturation maxes out at ±3% — anything beyond that pegs to the deepest
-  // red or green. Mirrors how Finviz handles outliers (they don't keep
-  // brightening forever, otherwise a single -8% blowup makes every other
-  // negative tile look gray by comparison).
-  var HEATMAP_PCT_SAT = 3;
+  // Each performance horizon gets its own saturation ceiling. A fixed ±3%
+  // scale makes nearly every quarterly/yearly return look equally extreme.
+  var HEATMAP_PCT_SAT = { '1d':3, '1w':6, '1m':12, '3m':20, 'ytd':35, '1y':40 };
+  var HEATMAP_PERIOD_LABEL = { '1d':'1D', '1w':'1W', '1m':'1M', '3m':'3M', 'ytd':'YTD', '1y':'1Y' };
+  var HEATMAP_DECISION_MOVE = { '1d':0.25, '1w':0.5, '1m':1, '3m':2, 'ytd':3, '1y':4 };
   // Relative-volume color mode: 1× (average volume) reads neutral/quiet and
   // saturation maxes out at this multiple. 3× = a clearly heavy session.
   var HEATMAP_RVOL_SAT = 3;
@@ -29784,6 +29785,14 @@
       colorSel.value = heatmapState.colorBy;
       colorSel.addEventListener('change', function(){
         heatmapState.colorBy = colorSel.value === 'rvol' ? 'rvol' : 'perf';
+        renderHeatmap();
+      });
+    }
+    var periodSel = $('heatmap-period-select');
+    if (periodSel){
+      periodSel.value = heatmapState.period;
+      periodSel.addEventListener('change', function(){
+        heatmapState.period = HEATMAP_PERIOD_LABEL[periodSel.value] ? periodSel.value : '1d';
         renderHeatmap();
       });
     }
@@ -30027,11 +30036,14 @@
     return out;
   }
 
-  function heatmapColorParts(pct){
+  function heatmapPeriodLabel(period){
+    return HEATMAP_PERIOD_LABEL[period || heatmapState.period] || '1D';
+  }
+  function heatmapColorParts(pct, period){
     if (pct == null || !isFinite(pct)){
       return { dir: 'zero', intensity: 0 };
     }
-    var sat = HEATMAP_PCT_SAT;
+    var sat = HEATMAP_PCT_SAT[period || heatmapState.period] || HEATMAP_PCT_SAT['1d'];
     var clipped = Math.max(-sat, Math.min(sat, pct));
     if (clipped > 0) return { dir: 'pos', intensity: clipped / sat };
     if (clipped < 0) return { dir: 'neg', intensity: -clipped / sat };
@@ -30067,20 +30079,38 @@
   // gainer is deep green, a heavy loser deep red) while saturation tracks how
   // far above average the volume ran — quiet names fade to gray regardless of
   // their move, which is exactly the "where's the action" read.
-  function heatmapPaintParts(ch, rv, colorBy){
+  function heatmapPaintParts(ch, rv, colorBy, period){
     if (colorBy === 'rvol'){
-      var base = heatmapColorParts(ch);
+      var base = heatmapColorParts(ch, period);
       return { dir: base.dir, intensity: heatmapRvolIntensity(rv) };
     }
-    return heatmapColorParts(ch);
+    return heatmapColorParts(ch, period);
   }
-  // Live overlay value if present (and finite), else the baked value — the
-  // single source of truth for breadth + recoloring whether or not live mode
-  // is on.
+  function heatmapBakedReturn(t, period){
+    if (!t) return null;
+    if (period === '1d') return (t.ch != null && isFinite(t.ch)) ? Number(t.ch) : null;
+    var value = t.perf && t.perf[period];
+    return value != null && isFinite(value) ? Number(value) : null;
+  }
+  // Live session change is direct from /api/quotes. Longer returns reuse the
+  // baked period baseline implied by {spot, return}, then mark that baseline
+  // with the live regular-session spot. This keeps every selected horizon live
+  // without fetching a full price history in the browser.
   function heatmapEffectiveCh(t){
+    if (!t) return null;
+    var period = heatmapState.period || '1d';
+    var baked = heatmapBakedReturn(t, period);
     var o = heatmapState.liveOverlay && heatmapState.liveOverlay[t.t];
-    if (o && o.ch != null && isFinite(o.ch)) return o.ch;
-    return (t.ch != null && isFinite(t.ch)) ? t.ch : null;
+    if (!o) return baked;
+    if (period === '1d' && o.ch != null && isFinite(o.ch)) return Number(o.ch);
+    var bakedSpot = Number(t.sp);
+    var liveSpot = Number(o.sp);
+    var factor = baked == null ? null : 1 + baked / 100;
+    if (bakedSpot > 0 && liveSpot > 0 && factor > 0){
+      var baseline = bakedSpot / factor;
+      return Math.round(((liveSpot / baseline) - 1) * 10000) / 100;
+    }
+    return baked;
   }
   function heatmapEffectiveRvol(t){
     var o = heatmapState.liveOverlay && heatmapState.liveOverlay[t.t];
@@ -30164,11 +30194,20 @@
       return;
     }
     var stats = heatmapDecisionStats(tickers);
+    if (!stats.total){
+      var missingPeriod = heatmapPeriodLabel();
+      host.className = 'heatmap-decision heatmap-decision-empty';
+      host.innerHTML = '<b>' + missingPeriod + ' performance unavailable</b><span>The next full market-data build will populate this horizon; no breadth or leadership call is being inferred from missing returns.</span>';
+      return;
+    }
     var liveFresh = heatmapState.live && heatmapState.liveUpdatedAt > 0 &&
       Date.now() - heatmapState.liveUpdatedAt >= 0 && Date.now() - heatmapState.liveUpdatedAt < 90000;
     var sourceIso = data.refreshedAtIso || data.builtAtIso || '';
     var sessionGap = liveFresh ? 0 : heatmapSessionGap(sourceIso);
     var stale = !liveFresh && (sessionGap == null || sessionGap > 1);
+    var period = heatmapState.period || '1d';
+    var periodLabel = heatmapPeriodLabel(period);
+    var moveThreshold = HEATMAP_DECISION_MOVE[period] || HEATMAP_DECISION_MOVE['1d'];
     var tone = 'mixed';
     var state = 'Mixed tape';
     var headline = 'Participation and cap-weighted direction do not fully agree.';
@@ -30184,28 +30223,28 @@
       action = 'Refresh the data or enable a successful Live overlay before using breadth or leadership as an entry filter.';
       confirms = 'A fresh regular-session update must re-establish the same breadth and group leadership.';
       breaks = 'Until then, every apparent leader and laggard is historical context only.';
-    } else if (stats.upPct >= 60 && stats.avg >= 0.25){
+    } else if (stats.upPct >= 60 && stats.avg >= moveThreshold){
       tone = 'risk-on';
       state = 'Broad risk-on';
       headline = 'Participation and cap-weighted direction agree on a constructive tape.';
       action = 'Favor pullbacks in the leading group and demand extra proof before fading broad strength.';
       confirms = 'The read holds while at least 60% advance and the cap-weighted tape stays positive.';
       breaks = 'A drop below 50% advancers or a nonpositive cap-weighted return breaks confirmation.';
-    } else if (stats.upPct <= 40 && stats.avg <= -0.25){
+    } else if (stats.upPct <= 40 && stats.avg <= -moveThreshold){
       tone = 'risk-off';
       state = 'Broad risk-off';
       headline = 'Participation and cap-weighted direction agree on defensive pressure.';
       action = 'Reduce long-beta assumptions; require relative strength and a group reversal before buying weakness.';
       confirms = 'The risk-off read holds while fewer than 40% advance and the cap-weighted tape stays negative.';
       breaks = 'Breadth reclaiming 50% with a positive cap-weighted turn neutralizes the warning.';
-    } else if (stats.avg >= 0.25 && stats.upPct < 50){
+    } else if (stats.avg >= moveThreshold && stats.upPct < 50){
       tone = 'narrow';
       state = 'Narrow index bid';
       headline = 'Large caps are lifting the tape while most tracked names fail to confirm.';
       action = 'Do not treat an index-green session as broad confirmation; concentrate only in groups with real participation.';
       confirms = 'The divergence persists while cap-weighted return stays positive but fewer than half the names advance.';
       breaks = 'Breadth reclaiming 55% broadens the move; a negative cap-weighted turn removes the index support.';
-    } else if (stats.avg <= -0.25 && stats.upPct >= 50){
+    } else if (stats.avg <= -moveThreshold && stats.upPct >= 50){
       tone = 'narrow';
       state = 'Heavyweight drag';
       headline = 'Breadth is holding up, but the largest names are pulling the cap-weighted tape lower.';
@@ -30213,9 +30252,9 @@
       confirms = 'The split persists while at least half the names advance and cap-weighted return remains negative.';
       breaks = 'A positive cap-weighted turn confirms the broader resilience; breadth below 45% turns the tape risk-off.';
     }
-    var sourceLabel = liveFresh
+    var sourceLabel = periodLabel + ' · ' + (liveFresh
       ? 'Live overlay · ' + escapeHtml(heatmapState.liveMarketState || 'updated')
-      : (sessionGap === 0 ? 'Current session snapshot' : sessionGap === 1 ? 'Latest completed session' : 'Stale close snapshot');
+      : (sessionGap === 0 ? 'Current snapshot' : sessionGap === 1 ? 'Latest completed session' : 'Stale close snapshot'));
     var leader = stats.leader;
     var laggard = stats.laggard;
     function groupMetric(label, group, toneClass){
@@ -30225,7 +30264,7 @@
     }
     host.className = 'heatmap-decision heatmap-decision-' + tone;
     host.innerHTML =
-      '<div class="heatmap-decision-read"><div class="heatmap-decision-head"><span><small>Current tape decision</small><b>' + escapeHtml(state) + '</b></span><em>' + sourceLabel + '</em></div>' +
+      '<div class="heatmap-decision-read"><div class="heatmap-decision-head"><span><small>' + periodLabel + ' market decision</small><b>' + escapeHtml(state) + '</b></span><em>' + sourceLabel + '</em></div>' +
         '<h3>' + escapeHtml(headline) + '</h3><p>' + escapeHtml(action) + '</p>' +
         '<div class="heatmap-decision-rules"><span><small>Confirms while</small><b>' + escapeHtml(confirms) + '</b></span><span><small>Invalidates when</small><b>' + escapeHtml(breaks) + '</b></span></div></div>' +
       '<div class="heatmap-decision-side"><div class="heatmap-decision-metrics">' +
@@ -30304,11 +30343,12 @@
         '<span class="heatmap-legend-label">up · heavy</span>' +
         '<span class="heatmap-legend-note">gray = quiet (≤1× avg) · saturation = relative volume</span>';
     } else {
+      var sat = HEATMAP_PCT_SAT[heatmapState.period] || HEATMAP_PCT_SAT['1d'];
       host.innerHTML =
-        '<span class="heatmap-legend-label">−3%</span>' +
+        '<span class="heatmap-legend-label">−' + sat + '%</span>' +
         '<span class="heatmap-legend-bar"></span>' +
-        '<span class="heatmap-legend-label">+3%</span>' +
-        '<span class="heatmap-legend-note">● = heavy volume (≥' + HEATMAP_HOT_RVOL + '× avg)</span>';
+        '<span class="heatmap-legend-label">+' + sat + '%</span>' +
+        '<span class="heatmap-legend-note">' + heatmapPeriodLabel() + ' return · ● = heavy volume (≥' + HEATMAP_HOT_RVOL + '× avg)</span>';
     }
   }
 
@@ -30439,9 +30479,11 @@
         var isMicro = pxH < HEATMAP_MICRO_H || pxW < HEATMAP_MICRO_W;
         var tinyCls = isMicro ? ' is-tiny is-micro' :
                        (pxH < HEATMAP_TINY_PX || pxW < 36) ? ' is-tiny' : '';
-        var ch = rect.ch;
+        var ch = heatmapEffectiveCh(rect);
+        var period = heatmapState.period || '1d';
+        var periodStart = period === '1d' ? '' : (rect.perfStart && rect.perfStart[period] || '');
         var rv = (rect.rv != null && isFinite(rect.rv)) ? rect.rv : null;
-        var color = heatmapPaintParts(ch, rv, heatmapState.colorBy);
+        var color = heatmapPaintParts(ch, rv, heatmapState.colorBy, period);
         var isHot = rv != null && rv >= HEATMAP_HOT_RVOL;
         var isStale = !!rect.stale;
         // The value line shows the % move in performance mode and the relative
@@ -30458,6 +30500,7 @@
             'data-name="' + escapeHtml(rect.n || rect.t) + '" ' +
             'data-mc="' + rect.mc + '" ' +
             'data-ch="' + ch + '" ' +
+            'data-period-start="' + escapeHtml(periodStart) + '" ' +
             'data-rv="' + (rv != null ? rv : '') + '" ' +
             'data-sp="' + (rect.sp != null ? rect.sp : '') + '" ' +
             'data-sec="' + escapeHtml(rect.s || '') + '" ' +
@@ -30473,7 +30516,7 @@
               '--hm-sym-size:' + symSize + 'px;' +
               '--hm-pct-size:' + pctSize + 'px;' +
             '" ' +
-            'aria-label="' + escapeHtml(rect.t + ', ' + heatmapFmtPct(ch) +
+            'aria-label="' + escapeHtml(rect.t + ', ' + heatmapPeriodLabel(period) + ' return ' + heatmapFmtPct(ch) +
               (rv != null ? ', ' + heatmapFmtRvol(rv) + ' relative volume' : '')) + '">' +
             '<span class="heatmap-tile-sym">' + escapeHtml(rect.t) + '</span>' +
             '<span class="heatmap-tile-pct">' + escapeHtml(valText) + '</span>' +
@@ -30774,6 +30817,7 @@
       var ch = Number(btn.getAttribute('data-ch'));
       var sp = Number(btn.getAttribute('data-sp'));
       var rvAttr = Number(btn.getAttribute('data-rv'));
+      var periodStart = btn.getAttribute('data-period-start') || '';
       var sec = btn.getAttribute('data-sec') || '';
       var ind = btn.getAttribute('data-ind') || '';
       var stale = btn.getAttribute('data-stale') === '1';
@@ -30781,7 +30825,8 @@
       var rv = (live && live.rv != null && isFinite(live.rv)) ? live.rv : (isFinite(rvAttr) && rvAttr > 0 ? rvAttr : null);
       var pctCls = ch > 0 ? 'heatmap-tooltip-pct-pos' : (ch < 0 ? 'heatmap-tooltip-pct-neg' : '');
       var rows = '';
-      rows += '<div class="heatmap-tooltip-row"><span>Change</span><span class="' + pctCls + '">' + escapeHtml(heatmapFmtPct(ch)) + '</span></div>';
+      rows += '<div class="heatmap-tooltip-row"><span>' + heatmapPeriodLabel() + ' return</span><span class="' + pctCls + '">' + escapeHtml(heatmapFmtPct(ch)) + '</span></div>';
+      if (periodStart) rows += '<div class="heatmap-tooltip-row"><span>Baseline date</span><span>' + escapeHtml(periodStart) + '</span></div>';
       if (rv != null){
         var rvCls = rv >= HEATMAP_HOT_RVOL ? ' heatmap-tooltip-rv-hot' : '';
         rows += '<div class="heatmap-tooltip-row"><span>Rel. volume</span><span class="' + rvCls + '">' + escapeHtml(heatmapFmtRvol(rv)) + ' avg</span></div>';
@@ -30942,6 +30987,10 @@
     var root = $('heatmap-root');
     if (!root) return;
     var colorBy = heatmapState.colorBy;
+    var period = heatmapState.period || '1d';
+    var rowBySymbol = {};
+    var rows = heatmapState.data && Array.isArray(heatmapState.data.tickers) ? heatmapState.data.tickers : [];
+    for (var r = 0; r < rows.length; r++) if (rows[r] && rows[r].t) rowBySymbol[rows[r].t] = rows[r];
     var tiles = root.querySelectorAll('.heatmap-tile');
     for (var i = 0; i < tiles.length; i++){
       var tile = tiles[i];
@@ -30951,7 +31000,7 @@
       tile.classList.remove('is-live-up');
       tile.classList.remove('is-live-down');
       if (!live) continue;
-      var ch = live.ch;
+      var ch = heatmapEffectiveCh(rowBySymbol[sym]);
       // Live data supersedes the baked row — drop the stale dim if it had one.
       tile.classList.remove('is-stale');
       tile.removeAttribute('data-stale');
@@ -30959,7 +31008,7 @@
       var rv = (live.rv != null && isFinite(live.rv))
         ? live.rv
         : (function(){ var b = Number(tile.getAttribute('data-rv')); return isFinite(b) && b > 0 ? b : null; })();
-      var color = heatmapPaintParts(ch, rv, colorBy);
+      var color = heatmapPaintParts(ch, rv, colorBy, period);
       tile.setAttribute('data-dir', color.dir);
       tile.style.setProperty('--hm-intensity', color.intensity.toFixed(3));
       tile.setAttribute('data-ch', ch);
@@ -30970,6 +31019,8 @@
       if (live.sp != null) tile.setAttribute('data-sp', live.sp);
       var pctEl = tile.querySelector('.heatmap-tile-pct');
       if (pctEl) pctEl.textContent = colorBy === 'rvol' ? heatmapFmtRvol(rv) : heatmapFmtPct(ch);
+      tile.setAttribute('aria-label', sym + ', ' + heatmapPeriodLabel(period) + ' return ' + heatmapFmtPct(ch) +
+        (rv != null ? ', ' + heatmapFmtRvol(rv) + ' relative volume' : ''));
       // Flash a subtle outline when the spot ticked since the last poll
       // so the user can see motion even on small tiles. Cleared on the
       // next poll cycle.

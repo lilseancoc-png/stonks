@@ -24,6 +24,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Added
 
+- **Heatmap adds multi-horizon performance.** The market-cap map can now switch among 1D, 1W, 1M, 3M, YTD, and 1Y returns; each horizon uses confirmed historical closes, an appropriately wider color scale, matching breadth and decision context, baseline dates in tooltips, and live regular-session re-marking without mixing a 1D percentage into longer-period views. `scripts/{build,heatmap-smoke,refresh-heatmap}.mjs`, `scripts/render/{app-js,html,styles-css}.mjs`, `docs/site-logic.md`, `app.js`, `index.html`, `styles.css`.
+
 - **Ticker coverage now includes Moderna and Merck.** `MRNA` and `MRK` join the option-chain, grading, screening, and calendar universe under the Pharma filter, with Biotechnology and Drug Manufacturers peer classifications respectively. `scripts/build.mjs`, `index.html`.
 
 ### Fixed
