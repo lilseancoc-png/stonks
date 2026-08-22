@@ -314,9 +314,12 @@ assert.equal(capped.some((row) => row.symbol === "A3"), false);
     .filter((date) => ![0, 6].includes(date.getUTCDay()))
     .slice(0, 100)
     .map((date) => date.toISOString().slice(0, 10));
-  const washedOutCloses = () => dates.map((_, index) => index < 92 ? 80 + index * 0.22
-    : index === 92 ? 100 : index === 93 ? 94 : index === 94 ? 88
-      : index === 95 ? 79 : index === 96 ? 70 : 72 + (index - 97) * 1.5);
+  // The trough is 15 sessions old: beyond the broken one-week expiry but
+  // still inside the one-trading-month recovery window. The group remains
+  // dislocated and has begun a controlled recovery rather than completing it.
+  const washedOutCloses = () => dates.map((_, index) => index < 80 ? 80 + index * 0.22
+    : index === 80 ? 100 : index === 81 ? 94 : index === 82 ? 88
+      : index === 83 ? 79 : index === 84 ? 70 : 70 + (index - 84) * 0.35);
   const tickerData = (symbol, closes) => ({
     spot: closes[closes.length - 1],
     quoteAsOf: dates[dates.length - 1],
@@ -357,7 +360,10 @@ assert.equal(capped.some((row) => row.symbol === "A3"), false);
   }]));
   const payload = buildSectorRotationRebounds(chains, grades, NOW, { appendAsOfRow: false });
   const aapl = payload.candidates.find((row) => row.symbol === "AAPL");
-  assert.ok(aapl, "a high-scoring incomplete-quality name should remain on the research board");
+  assert.equal(payload.thresholds.maxTroughAge, 25, "the swing-recovery funnel should observe a setup for one trading month");
+  assert.ok(aapl, "a high-scoring incomplete-quality name should remain on the research board after the first week");
+  assert.ok(aapl.episode.troughAge > 7 && aapl.episode.troughAge <= payload.thresholds.maxTroughAge,
+    "an economically active recovery must not disappear solely because its trough is more than one week old");
   assert.equal(aapl.recoveryProfile.status, "verify-first");
   assert.equal(aapl.plan.state, "research");
   assert.ok(aapl.blockedBy.includes("quality"), "the legacy quality failure remains visible for audit");

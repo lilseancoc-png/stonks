@@ -595,7 +595,10 @@ Core parameters:
 - group drawdown at most `-4%`;
 - at least 60% of members down;
 - group underperforms SPY by at least two points or trails the best group by at least four points;
-- the trough must be no more than seven sessions old.
+- the trough must be no more than 25 sessions old. This keeps a peer washout in
+  the research funnel for roughly one trading month while the recovery forms;
+  frozen-mean progress, late/spent classification, company guards, entry-zone
+  confirmation, and reward/risk still prevent an old setup from becoming a trade.
 
 The individual stock must also be genuinely beaten down. When a valid 52-week high is on file, a drawdown smaller than 15% is rejected rather than promoted as a recovery candidate. A missing 52-week-high input is explicit incomplete evidence and routes the name to **Verify first**; the model never interprets missing history as a large drawdown.
 

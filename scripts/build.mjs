@@ -22340,7 +22340,12 @@ const SECTOR_ROTATION_REL_SPY = -2;
 const SECTOR_ROTATION_BREADTH_DOWN = 60;
 const SECTOR_ROTATION_SPREAD = 4;
 const SECTOR_ROTATION_STOCK_DD = -8;
-const SECTOR_ROTATION_MAX_TROUGH_AGE = 7;
+// A one-week expiry made the desk structurally empty between fresh group
+// selloffs: genuine sector recoveries often need several weeks to form a
+// reclaim/pullback entry. Keep the episode in the research funnel for one
+// trading month; the frozen-mean progress, late/spent state, company guards,
+// entry zone, and payoff tests still decide whether it can become a trade.
+const SECTOR_ROTATION_MAX_TROUGH_AGE = 25;
 const SECTOR_ROTATION_FIRST_THRUST = 3;
 const SECTOR_ROTATION_BREADTH_UP = 70;
 const SECTOR_ROTATION_CONFIRM_AGE = 3;
