@@ -75,7 +75,7 @@ export const TICKERS = [
   "AAPL", "MSFT", "AMZN", "META", "GOOGL", "TSLA", "NVDA",
   "TSM", "AVGO", "ORCL", "NFLX",
   // Financials / payments / pharma / retail
-  "JPM", "V", "MA", "LLY", "WMT", "COST",
+  "JPM", "V", "MA", "LLY", "MRNA", "MRK", "WMT", "COST",
   // Software / financials / consumer / semis / infra
   "CRWD", "ADBE", "SHOP", "BAC", "UBS", "SCHW", "LULU", "BABA", "MS",
   "COF", "GS", "HOOD", "AXP", "AMD", "C", "UNH", "APO", "BX",
@@ -145,7 +145,7 @@ export const SECTORS = {
   GD: "Defense", LMT: "Defense", RTX: "Defense", NOC: "Defense",
   FDX: "Logistics", UPS: "Logistics",
   // Healthcare / pharma / payors / med-tech
-  NVO: "Pharma", LLY: "Pharma", UNH: "Insurance", JNJ: "Pharma", PFE: "Pharma",
+  NVO: "Pharma", LLY: "Pharma", MRNA: "Pharma", MRK: "Pharma", UNH: "Insurance", JNJ: "Pharma", PFE: "Pharma",
   TMO: "Medical", CI: "Insurance", ELV: "Insurance", MOH: "Insurance",
   CVS: "Pharmacy", BSX: "Medical", HIMS: "Telehealth",
   // Media / telecom
@@ -384,6 +384,7 @@ export const INDUSTRIES_BY_SECTOR = {
     "Specialty Industrial Machinery",
   ],
   "Healthcare": [
+    "Biotechnology",
     "Drug Manufacturers - General",
     "Healthcare Plans",
     "Medical Devices",
@@ -525,8 +526,10 @@ export const INDUSTRY_OF_TICKER = {
   CAT: "Farm & Heavy Construction Machinery",
   DE: "Farm & Heavy Construction Machinery",
   // --- Healthcare ---
+  MRNA: "Biotechnology",
   NVO: "Drug Manufacturers - General",
   LLY: "Drug Manufacturers - General",
+  MRK: "Drug Manufacturers - General",
   UNH: "Healthcare Plans",
   CI: "Healthcare Plans",
   BSX: "Medical Devices",
