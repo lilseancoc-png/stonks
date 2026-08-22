@@ -14,6 +14,7 @@ assert.equal(DAY_TRADING_RULES.entryStartEtMin, 10 * 60);
 assert.equal(DAY_TRADING_RULES.forceFlatEtMin, 16 * 60);
 assert.equal(DAY_TRADING_RULES.maxHoldMinutes, 120);
 assert.equal(DAY_TRADING_RULES.baseScore, 70);
+assert.equal(DAY_TRADING_RULES.neutralScore, 65);
 assert.equal(DAY_TRADING_RULES.options, undefined);
 
 // Version-1 payloads self-heal by dropping the retired options ledger and its
@@ -55,9 +56,10 @@ const score = scoreDayTradeCandidate(candidate, market);
 assert.equal(score.pass, true);
 assert.ok(score.total >= score.threshold);
 
-// A directional-tape candidate that lands exactly on the more permissive
-// 70-point execution bar is eligible, while the neutral-tape safeguard stays
-// stricter.
+// A directional-tape candidate that lands exactly on the 70-point execution
+// bar is eligible. Neutral tape already removes 12 market-bias points and uses
+// a 65-point bar, so ordinary evidence still waits while exceptional evidence
+// can execute (the old 82/83 bar made that effectively impossible).
 const thresholdCandidate = structuredClone(candidate);
 thresholdCandidate.volumeRatio = 1;
 thresholdCandidate.srBreak = null;
@@ -68,8 +70,14 @@ assert.equal(thresholdScore.total, 70);
 assert.equal(thresholdScore.threshold, 70);
 assert.equal(thresholdScore.pass, true);
 const neutralThresholdScore = scoreDayTradeCandidate(thresholdCandidate, { ...market, bias: "neutral" });
-assert.equal(neutralThresholdScore.threshold, 82);
+assert.equal(neutralThresholdScore.threshold, 65);
 assert.equal(neutralThresholdScore.pass, false);
+const strongNeutralScore = scoreDayTradeCandidate(candidate, { ...market, bias: "neutral" });
+assert.equal(strongNeutralScore.threshold, 65);
+assert.equal(strongNeutralScore.pass, true);
+const eventNeutralScore = scoreDayTradeCandidate(candidate, { ...market, bias: "neutral", thresholdAdd: 5 });
+assert.equal(eventNeutralScore.threshold, 70);
+assert.equal(eventNeutralScore.pass, true);
 
 let result = runDayTradingEngine({ history: emptyDayTradingHistory(), candidates: [candidate], market: structuredClone(market), now });
 assert.deepEqual(Object.keys(result.snapshot.open), ["stock"]);
@@ -141,6 +149,45 @@ forced = runDayTradingEngine({
 assert.equal(forced.snapshot.open.stock.length, 0);
 assert.equal(forced.history.portfolios.stock.closed.at(-1).outcome, "session-close");
 assert.equal(forced.history.portfolios.stock.closed.at(-1).exits.at(-1).markFallback, "entry-spot");
+
+// A completely missed close window cannot reprice an intraday position from
+// the next session. Recovery uses the last observed mark, labels the cadence
+// failure explicitly, and excludes the row from validated performance.
+let missed = runDayTradingEngine({
+  history: emptyDayTradingHistory(), candidates: [candidate], market: structuredClone(market), now,
+});
+const missedTrade = missed.snapshot.open.stock[0];
+missedTrade.lastMark = 101;
+const nextSession = structuredClone(market);
+nextSession.clock = { date: "2026-07-31", weekday: "Fri", minute: 570 };
+missed = runDayTradingEngine({
+  history: missed.history, candidates: [], market: nextSession,
+  marks: new Map([[missedTrade.id, { spot: 150 }]]),
+  now: new Date("2026-07-31T13:30:00.000Z"),
+});
+const missedClosed = missed.history.portfolios.stock.closed.at(-1);
+assert.equal(missedClosed.outcome, "missed-session-close");
+assert.equal(missedClosed.exits.at(-1).markFallback, "last-mark");
+assert.equal(missedClosed.trackRecordEligible, false);
+assert.equal(missed.snapshot.portfolios.stock.closedCount, 0);
+assert.equal(missed.snapshot.portfolios.stock.excludedClosedCount, 1);
+
+// Existing cross-session rows remain in the audit ledger but only same-session
+// closes contribute to the validated scorecard and equity.
+const recordHistory = emptyDayTradingHistory();
+recordHistory.portfolios.stock.closed = [
+  { id: "valid", session: "2026-07-29", closedAt: "2026-07-29T18:00:00.000Z", pnl: 10, maePct: -0.5 },
+  { id: "overnight", session: "2026-07-29", closedAt: "2026-07-30T14:00:00.000Z", pnl: 100, maePct: -2 },
+];
+const validated = runDayTradingEngine({
+  history: recordHistory, candidates: [], market: structuredClone(market), now,
+});
+assert.equal(validated.history.portfolios.stock.closed.length, 2);
+assert.equal(validated.snapshot.portfolios.stock.closedCount, 1);
+assert.equal(validated.snapshot.portfolios.stock.rawClosedCount, 2);
+assert.equal(validated.snapshot.portfolios.stock.excludedClosedCount, 1);
+assert.equal(validated.snapshot.portfolios.stock.validatedEquity, 10_010);
+assert.equal(validated.snapshot.portfolios.stock.winRate, 100);
 
 // Recovery time includes an active drawdown, not only a recovered drawdown.
 const recoveryHistory = emptyDayTradingHistory();

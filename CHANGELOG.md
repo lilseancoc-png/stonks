@@ -20,6 +20,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-08-22
+
+### Fixed
+
+- **Day Trading can execute exceptional neutral-tape setups and its Track Record no longer claims scheduler-corrupted exits.** The neutral score bar moves from a practically impossible 82/83 to 65/83 while remaining proportionally stricter than an aligned directional setup; volatility, event, portfolio-loss, session, correlation, and sizing gates remain binding. Workflow minutes are staggered away from the exact quarter-hour boundaries that were arriving late in production, delayed runs may enforce the 16:00 flatten through 18:05 ET, and a next-session recovery uses the last observed mark instead of an overnight quote. Cross-session closes remain visible in the durable ledger but are excluded from validated equity, win rate, payoff, profit factor, drawdown, and daily P&amp;L statistics. `.github/workflows/day-trading.yml`, `lib/day-trading-engine.mjs`, `scripts/day-trading-smoke.mjs`, `scripts/render/{app-js,html,styles-css}.mjs`, `docs/day-trading-engine.md`, `app.js`, `index.html`, `styles.css`.
+
 ## 2026-08-18
 
 ### Added

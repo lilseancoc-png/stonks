@@ -21361,9 +21361,13 @@
   function dtAnalytics(kind, book, summary, sessions){
     book = book || {};
     summary = summary || {};
-    var closed = Array.isArray(book.closed) ? book.closed : [];
-    var pnlKey = 'stockPnl';
-    var days = sessions.map(function(row){ return Number(row[pnlKey]); }).filter(isFinite);
+    var closed = (Array.isArray(book.closed) ? book.closed : []).filter(function(row){ return row.trackRecordEligible !== false; });
+    var dayPnl = {};
+    closed.forEach(function(row){
+      var day = row.session || 'unknown';
+      dayPnl[day] = (dayPnl[day] || 0) + (Number(row.pnl) || 0);
+    });
+    var days = Object.keys(dayPnl).map(function(day){ return dayPnl[day]; });
     var sorted = closed.slice().sort(function(a, b){ return Date.parse(a.closedAt || 0) - Date.parse(b.closedAt || 0); });
     var half = Math.floor(sorted.length / 2);
     var early = half ? sorted.slice(0, half) : [];
@@ -21383,7 +21387,7 @@
       '<span><small>Loss-limit hits</small><b>' + Number(book.dailyStopHits || 0) + '</b><em>hard flatten + session stop</em></span>' +
       '<span><small>Win / payoff</small><b>' + (summary.winRate == null ? '—' : Number(summary.winRate).toFixed(1) + '%') + '</b><em>' + dtMoney(summary.avgWin) + ' / ' + dtMoney(summary.avgLoss) + ' · PF ' + (summary.profitFactor == null ? '—' : summary.profitFactor) + '</em></span>' +
       '<span><small>Adverse excursion</small><b>' + dtPct(summary.averageMaePct) + '</b><em>average closed-trade MAE</em></span>' +
-      '<span><small>True max drawdown</small><b>' + dtPct(summary.trueMaxDrawdownPct) + '</b><em>never-reset curve · recovery ' + (summary.longestRecoveryHours == null ? '—' : summary.longestRecoveryHours + 'h') + '</em></span>' +
+      '<span><small>Validated max drawdown</small><b>' + dtPct(summary.validatedMaxDrawdownPct) + '</b><em>same-session closes only</em></span>' +
       '<span><small>Resets</small><b>' + Number(summary.resets || 0) + '</b><em>reset curve only; true curve preserved</em></span>' +
       dtBucket(closed, 'First-hour follow-through', function(row){ return row.entryWindow === 'first-hour-follow-through'; }) +
       dtBucket(closed, 'Mid-day', function(row){ return row.entryWindow === 'mid-day'; }) +
@@ -21465,8 +21469,9 @@
     var html = '<div class="dt-books">';
     [['stock','Stock long / short']].forEach(function(pair){
       var key = pair[0]; var s = summaries[key] || {}; var b = books[key] || {};
-      html += '<section class="dt-book"><div class="dt-book-head"><div><small>' + pair[1] + '</small><h4>' + Number(s.closedCount || 0) + ' closed</h4></div><span>' + (s.winRate == null ? '— win rate' : s.winRate + '% wins') + '</span></div>' +
-        '<div class="dt-book-grid"><span><small>Reset equity</small><b>' + dtMoney(s.resetEquity) + '</b></span><span><small>Never-reset</small><b>' + dtMoney(s.trueEquity) + '</b></span><span><small>Profit factor</small><b>' + (s.profitFactor == null ? '—' : s.profitFactor) + '</b></span><span><small>Avg win / loss</small><b>' + dtMoney(s.avgWin) + ' / ' + dtMoney(s.avgLoss) + '</b></span></div>' +
+      var excluded = Number(s.excludedClosedCount || 0);
+      html += '<section class="dt-book"><div class="dt-book-head"><div><small>' + pair[1] + '</small><h4>' + Number(s.closedCount || 0) + ' validated' + (excluded ? ' · ' + excluded + ' excluded' : '') + '</h4></div><span>' + (s.winRate == null ? '— win rate' : s.winRate + '% wins') + '</span></div>' +
+        '<div class="dt-book-grid"><span><small>Validated equity</small><b>' + dtMoney(s.validatedEquity) + '</b></span><span><small>Raw simulator equity</small><b>' + dtMoney(s.trueEquity) + '</b></span><span><small>Profit factor</small><b>' + (s.profitFactor == null ? '—' : s.profitFactor) + '</b></span><span><small>Avg win / loss</small><b>' + dtMoney(s.avgWin) + ' / ' + dtMoney(s.avgLoss) + '</b></span></div>' +
         dtAnalytics(key, b, s, sessions) + '</section>';
     });
     html += '</div>';
@@ -21478,14 +21483,15 @@
     html += '<div class="quant-sub">Recent closed paper trades</div>';
     if (!closed.length) html += '<p class="quant-none">No trades have closed yet. The record begins only after a simulated position exits.</p>';
     else {
-      html += '<div class="quant-scroll"><table class="quant-tbl dt-table"><thead><tr><th>Closed</th><th>Book</th><th>Name</th><th>Side</th><th>Entry</th><th>Exit reason</th><th>P&amp;L</th><th>Hold</th></tr></thead><tbody>';
+      html += '<div class="quant-scroll"><table class="quant-tbl dt-table"><thead><tr><th>Closed</th><th>Book</th><th>Name</th><th>Side</th><th>Entry</th><th>Exit reason</th><th>Record</th><th>P&amp;L</th><th>Hold</th></tr></thead><tbody>';
       closed.slice(0, 100).forEach(function(row){
         var closedAt = Date.parse(row.closedAt || '');
-        html += '<tr><td>' + (isFinite(closedAt) ? formatDisplayInstant(closedAt, {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}) : '—') + '</td><td>' + escapeHtml(row.book || '') + '</td><td>' + quantSymLink(row.symbol) + '</td><td class="' + (row.direction === 'long' ? 'quant-pos' : 'quant-neg') + '">' + escapeHtml(row.direction || '') + '</td><td>' + dtMoney(row.initialCash) + '</td><td>' + escapeHtml(row.outcome || '') + '</td><td class="' + dtPnlClass(row.pnl) + '"><b>' + dtMoney(row.pnl) + '</b></td><td>' + Number(row.holdMinutes || 0) + 'm</td></tr>';
+        var eligible = row.trackRecordEligible !== false;
+        html += '<tr' + (eligible ? '' : ' class="is-excluded"') + '><td>' + (isFinite(closedAt) ? formatDisplayInstant(closedAt, {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}) : '—') + '</td><td>' + escapeHtml(row.book || '') + '</td><td>' + quantSymLink(row.symbol) + '</td><td class="' + (row.direction === 'long' ? 'quant-pos' : 'quant-neg') + '">' + escapeHtml(row.direction || '') + '</td><td>' + dtMoney(row.initialCash) + '</td><td>' + escapeHtml(row.outcome || '') + '</td><td>' + (eligible ? 'Included' : 'Excluded · missed close') + '</td><td class="' + dtPnlClass(row.pnl) + '"><b>' + dtMoney(row.pnl) + '</b></td><td>' + Number(row.holdMinutes || 0) + 'm</td></tr>';
       });
       html += '</tbody></table></div>';
     }
-    html += '<p class="quant-none">Paper results include modeled slippage and commissions. Historical entries keep the rules that were frozen when they opened; this record is not a live brokerage statement.</p>';
+    html += '<p class="quant-none">Validated statistics include only trades closed on their entry session. Cross-session rows caused by a missed scheduler close remain visible for audit but are excluded from performance. Paper results include modeled slippage and commissions; this is not a live brokerage statement.</p>';
     root.innerHTML = html;
   }
   function renderQuant(){

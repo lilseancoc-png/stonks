@@ -5218,6 +5218,8 @@ a.cx-tkr { border-bottom: 1px solid transparent; }
 .dt-analytics b { color: var(--text-strong); font: 700 10.5px/1.25 var(--font-mono); }
 .dt-analytics em { color: var(--muted); font: 500 8.5px/1.3 var(--font-sans); font-style: normal; overflow-wrap: anywhere; }
 .dt-table .dt-wrap { min-width: 190px; white-space: normal; color: var(--muted-strong); font-family: var(--font-sans); }
+.dt-table tr.is-excluded td { color: var(--muted); background: color-mix(in srgb, var(--surface-2) 78%, transparent); }
+.dt-table tr.is-excluded td:nth-last-child(3) { color: var(--warn); font-weight: 700; }
 .quant-warn { color: var(--warn) !important; }
 @media (max-width: 900px) { .dt-market { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dt-market > span { border-bottom: 1px solid var(--border); } .dt-books { grid-template-columns: 1fr; } }
 @media (max-width: 520px) { .dt-lab { padding: 11px; } .dt-lab-head { flex-direction: column; } .dt-market, .dt-book-grid, .dt-analytics { grid-template-columns: 1fr; } .dt-market > span { border-right: 0; } }

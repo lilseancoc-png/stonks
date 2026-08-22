@@ -5,9 +5,10 @@ ledger: `data/day-trading-history.json`. Both are private, no-store, and require
 the Owner claims. Current state and the durable record render in separate Day
 Trading tabs. The scanner is `scripts/scan-day-trading.mjs`, the pure
 decision/risk/accounting core is `lib/day-trading-engine.mjs`, and
-`.github/workflows/day-trading.yml` runs the pass every 15 minutes during the
-regular ET session. It is a stock-only simulator: no code path submits an
-order, and the retired 1DTE options book is not generated or retained.
+`.github/workflows/day-trading.yml` requests a pass every 15 minutes on a
+staggered schedule and accepts delayed close-recovery runs through 18:05 ET.
+It is a stock-only simulator: no code path submits an order, and the retired
+1DTE options book is not generated or retained.
 
 ## Decision stack
 
@@ -24,12 +25,14 @@ components:
 6. RSI/MACD/SMA technical confirmation;
 7. the existing Grade as a cross-check.
 
-The normal entry bar is 70/100. A neutral tape raises it to 82; high/crisis
-volatility, scheduled-event risk and a portfolio soft-loss warning raise it
-again. Missing opening-range bars score zero for that component but do not
-silently extend the time gate beyond 10:00 ET. Scheduled high-impact windows
-block entries; a high-impact day outside the immediate release window halves
-size.
+The normal directional-tape entry bar is 70/100. A neutral tape awards only
+8/20 market-bias points and uses a 65-point bar: that still requires a larger
+share of the remaining evidence than an aligned setup without recreating the
+old mathematically-near-impossible 82/83 requirement. High/crisis volatility,
+scheduled-event risk and a portfolio soft-loss warning raise the bar again.
+Missing opening-range bars score zero for that component but do not silently
+extend the time gate beyond 10:00 ET. Scheduled high-impact windows block
+entries; a high-impact day outside the immediate release window halves size.
 
 ## Time and risk authority
 
@@ -48,6 +51,10 @@ size.
   lookup is missing: it uses the last observed raw mark, or the entry reference
   when no mark was recorded, applies normal exit costs, and records
   `markFallback` for auditability.
+- Workflow runs delivered after 16:00 remain allowed to publish through 18:05
+  ET so they can flatten any open position. If every close pass is missed, the
+  next run settles the stale position from its last observed mark with the
+  explicit `missed-session-close` outcome rather than using an overnight quote.
 - Daily hard stop: −5%; soft warning: −3%; profit lock: +3.5%; weekly reduction
   or pause: −13.5%. A 10% high-water drawdown temporarily halves size.
 
@@ -59,8 +66,11 @@ $2,000. The reset event is logged; the never-reset curve remains untouched for
 honest drawdown measurement.
 
 Every trade freezes its score components, size mode, entry window, invalidation,
-cost-aware fill, stop/target, time exit, MFE and MAE. The tracker derives daily
-P&L distribution, hard-stop frequency, win/payoff/profit factor, MAE,
+cost-aware fill, stop/target, time exit, MFE and MAE. The tracker keeps every
+row for audit but excludes a close on a later ET session from performance
+statistics because it proves the scheduler missed the mandated flatten. It
+derives validated equity, daily P&L distribution, hard-stop frequency,
+win/payoff/profit factor, MAE,
 opening-follow-through versus mid-day/last-hour contribution, rally versus
 sell-off conditioning, full-size versus half-size results, resets, true maximum
 drawdown, recovery time and first-half versus later-half stability.
