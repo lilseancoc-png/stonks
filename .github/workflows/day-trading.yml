@@ -2,11 +2,14 @@ name: Owner Day Trading Engine
 
 # GitHub's scheduler is UTC and does not follow US daylight saving time, so the
 # broad UTC window is narrowed by an America/New_York clock check below. The
-# engine itself also enforces no entry before 10:00 ET and a 16:00 flatten;
-# otherwise it may enter throughout the rest of the regular session.
+# minutes are staggered away from the exact quarter-hour boundaries that were
+# arriving late in production.
+# Delayed runs remain eligible through 18:05 ET so at least one post-close pass
+# can enforce the 16:00 flatten even when the scheduler delivers it late. The
+# engine itself never opens a new position at or after 16:00 ET.
 on:
   schedule:
-    - cron: "*/15 13-21 * * 1-5"
+    - cron: "7,22,37,52 13-21 * * 1-5"
   workflow_dispatch:
 
 permissions:
@@ -36,11 +39,11 @@ jobs:
         run: |
           NOW=$(TZ=America/New_York date +%H%M)
           DOW=$(TZ=America/New_York date +%u)
-          if [ "$DOW" -le 5 ] && [ "$NOW" -ge 0925 ] && [ "$NOW" -le 1605 ]; then
+          if [ "$DOW" -le 5 ] && [ "$NOW" -ge 0925 ] && [ "$NOW" -le 1805 ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "Outside the regular ET session ($NOW); no engine write."
+            echo "Outside the 09:25-18:05 ET scan/close-recovery window ($NOW); no engine write."
           fi
 
       - name: Install dependencies
