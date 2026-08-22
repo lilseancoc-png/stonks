@@ -2114,8 +2114,8 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         <h2 class="card-title">Market heatmap</h2>
         <span class="card-eyebrow" id="heatmap-eyebrow" aria-live="polite"></span>
       </header>
-      <p class="hint">Read the tape at a glance: tile size shows market cap and color shows the session move. Find a ticker, switch to relative volume, or tap any tile to open its Grade.</p>
-      ${infoNote('How to read this map', `<p>Deeper green and red mark larger session moves. In <b>Relative volume</b> mode, saturation shows current cumulative volume versus the fraction of a normal 20-day session expected by that clock time, using the same U-shaped intraday pace curve as the Volume desk. That keeps the morning comparable with the close instead of labeling every incomplete session quiet. Pre-market keeps the last completed-session read rather than treating prior-session volume as live. Hue still shows direction. Group by sector or industry, press Enter after searching to center the first match, and use the zoom controls or wheel/pinch to inspect the small-cap tail.</p><p>The <b>Sector breadth streak</b> flags a group only after at least 70% of its tracked names have closed in the same direction for two or more consecutive sessions. That proves participation is broad and persistent; it does <em>not</em> measure ETF inflows/outflows, relative strength versus SPY, or the Owner Sector Rotation desk&rsquo;s quality-washout rebound setup. Use a green streak as a leadership candidate and a red streak as a group-risk flag, then confirm with relative performance and volume. Not financial advice.</p>`)}
+      <p class="hint">Read the tape at a glance: tile size shows market cap and color shows the selected 1D, 1W, 1M, 3M, YTD, or 1Y return. Find a ticker, switch to relative volume, or tap any tile to open its Grade.</p>
+      ${infoNote('How to read this map', `<p>Choose a <b>Period</b> to compare session, weekly, monthly, quarterly, year-to-date, or one-year performance. Deeper green and red mark larger moves on a scale adjusted to that horizon. In <b>Relative volume</b> mode, saturation shows current cumulative volume versus the fraction of a normal 20-day session expected by that clock time, using the same U-shaped intraday pace curve as the Volume desk; hue still shows the selected period&rsquo;s direction. That keeps the morning comparable with the close instead of labeling every incomplete session quiet. Pre-market keeps the last completed-session read rather than treating prior-session volume as live. Group by sector or industry, press Enter after searching to center the first match, and use the zoom controls or wheel/pinch to inspect the small-cap tail.</p><p>The <b>Sector breadth streak</b> flags a group only after at least 70% of its tracked names have closed in the same direction for two or more consecutive sessions. That proves participation is broad and persistent; it does <em>not</em> measure ETF inflows/outflows, relative strength versus SPY, or the Owner Sector Rotation desk&rsquo;s quality-washout rebound setup. Use a green streak as a leadership candidate and a red streak as a group-risk flag, then confirm with relative performance and volume. Not financial advice.</p>`)}
       <div id="heatmap-decision" class="heatmap-decision" aria-live="polite"></div>
       <div class="heatmap-controls" role="toolbar" aria-label="Heatmap controls">
         <label class="heatmap-control heatmap-group-control">
@@ -2130,6 +2130,17 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           <select id="heatmap-color-select" aria-label="Color heatmap by">
             <option value="perf">Performance</option>
             <option value="rvol">Rel. volume</option>
+          </select>
+        </label>
+        <label class="heatmap-control heatmap-period-control">
+          <span class="heatmap-control-label">Period</span>
+          <select id="heatmap-period-select" aria-label="Heatmap performance period">
+            <option value="1d">1D</option>
+            <option value="1w">1W</option>
+            <option value="1m">1M</option>
+            <option value="3m">3M</option>
+            <option value="ytd">YTD</option>
+            <option value="1y">1Y</option>
           </select>
         </label>
         <div class="heatmap-control heatmap-search-control">

@@ -5,7 +5,8 @@
 // % move goes stale within a single trading session, so this script runs
 // hourly during US market hours, pulls live quotes for every ticker in
 // one batched yahoo-finance2 call, and rewrites data/heatmap.json with
-// fresh `ch` (regularMarketChangePercent) and `sp` (regularMarketPrice).
+// fresh `ch` (regularMarketChangePercent), `sp` (regularMarketPrice), and
+// longer-period returns re-marked from their existing historical baselines.
 //
 // Everything else — sector, industry, market cap, name — is preserved
 // from the prior file. Market cap could be refreshed from the quote too
@@ -344,6 +345,18 @@ async function main() {
 
   let refreshed = 0;
   let stale = 0;
+  const updateLongHorizonReturns = (perf, priorSpot, nextSpot) => {
+    if (!perf || typeof perf !== "object" || !(priorSpot > 0) || !(nextSpot > 0)) return perf;
+    const next = { ...perf };
+    for (const period of ["1w", "1m", "3m", "ytd", "1y"]) {
+      const priorReturn = Number(perf[period]);
+      const factor = 1 + priorReturn / 100;
+      if (!Number.isFinite(priorReturn) || !(factor > 0)) continue;
+      const baseline = priorSpot / factor;
+      next[period] = Math.round(((nextSpot / baseline) - 1) * 10000) / 100;
+    }
+    return next;
+  };
   const scanNow = new Date();
   const nextTickers = priorTickers.map((row) => {
     const q = quotes[row.t];
@@ -389,12 +402,14 @@ async function main() {
     const rv = canRefreshRv
       ? Math.round((dayVolume / (avg20 * expectedFrac)) * 100) / 100
       : row.rv;
+    const nextSpot = isFinite(sp) && sp > 0 ? sp : row.sp;
     return {
       ...row,
       ch: Math.round(ch * 100) / 100,
-      sp: isFinite(sp) && sp > 0 ? sp : row.sp,
+      sp: nextSpot,
       mc: isFinite(mc) && mc > 0 ? mc : row.mc,
       rv,
+      perf: updateLongHorizonReturns(row.perf, Number(row.sp), Number(nextSpot)),
       // Clear any stale flag a prior run set — JSON.stringify drops undefined.
       stale: undefined,
     };

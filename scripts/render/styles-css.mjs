@@ -22235,7 +22235,7 @@ button.vol-cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring)
 }
 .heatmap-controls {
   display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-columns: repeat(14, minmax(0, 1fr));
   gap: 8px;
   align-items: end;
   margin: 0 0 12px;
@@ -22251,6 +22251,7 @@ button.vol-cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring)
 }
 .heatmap-group-control { grid-column: span 2; }
 .heatmap-color-control { grid-column: span 2; }
+.heatmap-period-control { grid-column: span 2; }
 .heatmap-search-control { grid-column: span 3; }
 .heatmap-live-toggle { grid-column: span 2; }
 .heatmap-zoom { grid-column: span 3; }
@@ -23374,7 +23375,8 @@ a.news-feed-headline:focus-visible,
 @media (max-width: 640px) {
   .heatmap-controls { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
   .heatmap-group-control,
-  .heatmap-color-control { grid-column: span 3; }
+  .heatmap-color-control,
+  .heatmap-period-control { grid-column: span 2; }
   .heatmap-search-control { grid-column: 1 / -1; }
   .heatmap-live-toggle { grid-column: span 2; min-height: 44px; }
   .heatmap-zoom { grid-column: span 4; min-height: 44px; }

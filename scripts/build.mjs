@@ -27358,13 +27358,78 @@ async function writeMovingAverageTrackerFile(chains, builtAtIso) {
 }
 
 // Finviz-style market-map data. One row per non-ETF curated ticker, with
-// the four fields the treemap needs: sector grouping (from the SECTORS map,
+// the fields the treemap needs: sector grouping (from the SECTORS map,
 // which is curated so "Mega-cap tech" / "Semis" / "Software" stay
 // readable rather than collapsing into Yahoo's coarse "Technology"),
 // industry (for the optional sub-grouping), market cap (tile size), and
-// 1-day % move (tile color). ETFs are deliberately excluded — they have
+// selectable 1D / 1W / 1M / 3M / YTD / 1Y returns (tile color). ETFs are deliberately excluded — they have
 // no marketCap from Yahoo and we surface them separately on the Bonds &
 // USD tab and the market backdrop card.
+function heatmapDateKey(value) {
+  const key = String(value || "").slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(key) ? key : null;
+}
+
+function heatmapShiftDate(dateKey, { days = 0, months = 0, years = 0 } = {}) {
+  const parts = String(dateKey || "").split("-").map(Number);
+  if (parts.length !== 3 || parts.some((value) => !Number.isFinite(value))) return null;
+  if (days) {
+    const date = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2] + days));
+    return date.toISOString().slice(0, 10);
+  }
+  const monthIndex = parts[0] * 12 + (parts[1] - 1) + months + years * 12;
+  const year = Math.floor(monthIndex / 12);
+  const month = ((monthIndex % 12) + 12) % 12;
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(year, month, Math.min(parts[2], lastDay))).toISOString().slice(0, 10);
+}
+
+export function buildHeatmapPerformance(data, builtAtIso) {
+  const rows = indexCalendarBars(data)
+    .map((bar) => ({ date: heatmapDateKey(bar?.t), close: Number(bar?.c) }))
+    .filter((bar) => bar.date && Number.isFinite(bar.close) && bar.close > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (!rows.length) return { perf: {}, perfStart: {} };
+  const endpoint = Number(data?.spot) > 0 ? Number(data.spot) : rows.at(-1).close;
+  const asOf = heatmapDateKey(builtAtIso) || rows.at(-1).date;
+  const targetByPeriod = {
+    "1w": heatmapShiftDate(asOf, { days: -7 }),
+    "1m": heatmapShiftDate(asOf, { months: -1 }),
+    "3m": heatmapShiftDate(asOf, { months: -3 }),
+    "1y": heatmapShiftDate(asOf, { years: -1 }),
+  };
+  const perf = {};
+  const perfStart = {};
+  const setReturn = (period, baseline) => {
+    if (!baseline || !(baseline.close > 0)) return;
+    perf[period] = Math.round(((endpoint / baseline.close) - 1) * 10000) / 100;
+    perfStart[period] = baseline.date;
+  };
+  for (const [period, target] of Object.entries(targetByPeriod)) {
+    let baseline = null;
+    for (const row of rows) {
+      if (row.date <= target) baseline = row;
+      else break;
+    }
+    // Yahoo's one-year chart window can begin on the first session just after
+    // the exact anniversary. Accept that nearest session only when it is no
+    // more than a week late; otherwise missing history stays explicitly null.
+    if (!baseline && rows[0].date > target) {
+      const gapDays = Math.round((Date.parse(rows[0].date + "T00:00:00Z") - Date.parse(target + "T00:00:00Z")) / 86400000);
+      if (gapDays >= 0 && gapDays <= 7) baseline = rows[0];
+    }
+    setReturn(period, baseline);
+  }
+  const yearStart = `${asOf.slice(0, 4)}-01-01`;
+  let ytdBaseline = null;
+  for (const row of rows) {
+    if (row.date < yearStart) ytdBaseline = row;
+    else break;
+  }
+  setReturn("ytd", ytdBaseline);
+  return { perf, perfStart };
+}
+
 export function buildHeatmapPayload(chains, builtAtIso) {
   const tickers = [];
   for (const [sym, data] of Object.entries(chains)) {
@@ -27383,6 +27448,7 @@ export function buildHeatmapPayload(chains, builtAtIso) {
     // read so the client falls back to a quiet/gray tile. The client live
     // overlay recomputes an intraday rvol from /api/quotes when live mode is on.
     const rvol = Number(vol.rvol);
+    const { perf, perfStart } = buildHeatmapPerformance(data, builtAtIso);
     tickers.push({
       t: sym,
       n: f.name || sym,
@@ -27393,6 +27459,8 @@ export function buildHeatmapPayload(chains, builtAtIso) {
       sp: data.spot ?? null,
       rv: isFinite(rvol) && rvol > 0 ? Math.round(rvol * 100) / 100 : null,
       av20: isFinite(avg20) && avg20 > 0 ? Math.round(avg20) : null,
+      perf,
+      perfStart,
     });
   }
   // Largest market caps first — treemap layout depends on a descending sort.
