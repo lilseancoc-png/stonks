@@ -26592,6 +26592,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (e.type === 'earnings') return e.symbol || 'Earnings';
     if (e.type === 'catalyst') return e.symbol || catalystCategoryLabel(e.category);
     if (e.type === 'fomc') return 'FOMC';
+    if (e.type === 'fed' && /jackson hole/i.test(String(e.title || ''))) return 'Jackson Hole';
     if (e.type === 'report') return e.title || 'Report';
     return calendarTypeLabel(e.type);
   }
@@ -26610,6 +26611,52 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<span class="cal-mini-dot" aria-hidden="true"></span>' +
         '<span class="cal-mini-txt">' + escapeHtml(calMiniLabel(e)) + '</span>' +
       '</span>';
+  }
+  // Expand a dated event across every covered calendar day. The source stays
+  // one auditable event (counts do not inflate), while a symposium/conference
+  // with an endDate remains visible on each day a trader needs to see it.
+  // Cap malformed ranges at 31 days so one bad upstream date cannot flood the
+  // month grid.
+  function calEventDateKeys(e){
+    var startKey = String(e && e.date || '');
+    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(startKey)) return [];
+    var startMs = Date.parse(startKey + 'T00:00:00Z');
+    if (!isFinite(startMs)) return [];
+    var endKey = String(e && e.endDate || startKey);
+    var endMs = /^\\d{4}-\\d{2}-\\d{2}$/.test(endKey) ? Date.parse(endKey + 'T00:00:00Z') : startMs;
+    if (!isFinite(endMs) || endMs < startMs) endMs = startMs;
+    var out = [];
+    for (var ms = startMs; ms <= endMs && out.length < 31; ms += 86400000){
+      out.push(new Date(ms).toISOString().slice(0, 10));
+    }
+    return out;
+  }
+  // Decision-grade events must win the three visible month-cell slots. The
+  // complete day detail still retains every routine print; this only prevents
+  // low-importance CP/H.15/H.4.1 rows from hiding Jackson Hole or an FOMC event
+  // behind a "+N" overflow marker.
+  function calEventImportanceRank(e){
+    var importance = String(e && e.importance || '').toLowerCase();
+    if (importance === 'high' || (!importance && e && e.type === 'fomc')) return 0;
+    if (importance === 'medium') return 1;
+    if (importance === 'low') return 3;
+    return 2;
+  }
+  function calEventTypeRank(e){
+    var type = String(e && e.type || '');
+    if (type === 'fomc') return 0;
+    if (type === 'fed') return 1;
+    if (type === 'catalyst') return 2;
+    if (type === 'earnings') return 3;
+    if (type === 'report') return 4;
+    return 5;
+  }
+  function calEventPriorityCompare(a, b){
+    var importance = calEventImportanceRank(a) - calEventImportanceRank(b);
+    if (importance) return importance;
+    var type = calEventTypeRank(a) - calEventTypeRank(b);
+    if (type) return type;
+    return String(a && (a.symbol || a.title) || '').localeCompare(String(b && (b.symbol || b.title) || ''));
   }
   // Navigate to the Grade tab and load a ticker (reuses the combobox). Shared
   // by the clickable earnings/catalyst symbols and the overview cards.
@@ -27704,7 +27751,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // Navigable month window. calendar.json only ever carries today→horizon
     // events, so the earliest navigable month is the current one (no empty
     // past months to wander into); the latest is the furthest event's month.
-    var allYms = data.events.map(function(e){ return String(e.date || '').slice(0, 7); }).filter(Boolean);
+    var allYms = [];
+    data.events.forEach(function(e){
+      calEventDateKeys(e).forEach(function(date){ allYms.push(date.slice(0, 7)); });
+    });
     var minEventYm = allYms.length ? allYms.reduce(function(a, b){ return a < b ? a : b; }) : todayYm;
     var maxEventYm = allYms.length ? allYms.reduce(function(a, b){ return a > b ? a : b; }) : todayYm;
     var minYm = minEventYm < todayYm ? minEventYm : todayYm;
@@ -27718,7 +27768,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     // grid the user is looking at.
     var counts = { all: 0, earnings: 0, catalysts: 0, reports: 0, fomc: 0, macro: 0 };
     data.events.forEach(function(e){
-      if (String(e.date || '').slice(0, 7) !== viewYm) return;
+      if (!calEventDateKeys(e).some(function(date){ return date.slice(0, 7) === viewYm; })) return;
       counts.all++;
       if (e.type === 'earnings') counts.earnings++;
       else if (e.type === 'catalyst') counts.catalysts++;
@@ -27743,16 +27793,23 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       eyebrow.textContent = totalAll + ' event' + (totalAll === 1 ? '' : 's') +
         (data.windowEnd ? ' · through ' + fmtCalendarDateShort(data.windowEnd) : '');
     }
-    // Filter by type, then group the VIEWED MONTH's events by date.
+    // Filter by type, then group the VIEWED MONTH's events by every covered
+    // date. A multi-day event remains one month-count item but paints on each
+    // day from date through endDate.
     var filtered = data.events.filter(function(e){
-      return String(e.date || '').slice(0, 7) === viewYm && calendarTypeMatches(e.type, calendarState.type);
+      return calendarTypeMatches(e.type, calendarState.type) &&
+        calEventDateKeys(e).some(function(date){ return date.slice(0, 7) === viewYm; });
     });
     var groups = {};
     var dateOrder = [];
     filtered.forEach(function(e){
-      if (!groups[e.date]){ groups[e.date] = []; dateOrder.push(e.date); }
-      groups[e.date].push(e);
+      calEventDateKeys(e).forEach(function(date){
+        if (date.slice(0, 7) !== viewYm) return;
+        if (!groups[date]){ groups[date] = []; dateOrder.push(date); }
+        groups[date].push(e);
+      });
     });
+    Object.keys(groups).forEach(function(date){ groups[date].sort(calEventPriorityCompare); });
     dateOrder.sort();
     var monthCount = filtered.length;
     // Resolve the selected day BEFORE building the grid so the chosen cell gets
@@ -27912,7 +27969,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         var selDay = calendarState.selectedDate;
         if (selDay){
           var typeEvs = (calendarState.data && calendarState.data.events) || [];
-          var selStillMatches = typeEvs.some(function(e){ return e.date === selDay && calendarTypeMatches(e.type, type); });
+          var selStillMatches = typeEvs.some(function(e){
+            return calendarTypeMatches(e.type, type) && calEventDateKeys(e).indexOf(selDay) >= 0;
+          });
           if (!selStillMatches) calendarState.selectedDate = null;
         }
         typeFilter.querySelectorAll('.calendar-pill').forEach(function(p){
