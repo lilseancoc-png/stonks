@@ -24,6 +24,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
+- **Multi-day policy events stay visible instead of being buried by routine prints.** Calendar month cells and selected-day detail rank high-importance events ahead of low-importance statistical releases, name Jackson Hole directly, and display an event on every date from `date` through `endDate`, so the Aug. 27&ndash;29 symposium appears across all three days without inflating the unique event count. `scripts/{calendar-smoke}.mjs`, `scripts/render/{app-js}.mjs`, `app.js`.
+
 - **Changing the display timezone preserves the open ticker and theme.** The header control snapshots the active SPA route, selected Grade contract, and painted color theme before its consistency reload, then waits for the native select interaction to finish so a mobile tap cannot ghost-activate Home or the theme toggle on the new document. `scripts/render/{app-js}.mjs`, `scripts/render-smoke.mjs`, `app.js`.
 
 ## 2026-08-22

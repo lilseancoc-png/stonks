@@ -4,6 +4,7 @@ import {
   parseJacksonHoleSymposium,
   parseOfficialIcsCalendar,
 } from "./build.mjs";
+import { renderAppJs } from "./render/app-js.mjs";
 
 let failures = 0;
 function ok(label, condition) {
@@ -57,6 +58,27 @@ const jackson = parseJacksonHoleSymposium(`
 ok("Jackson Hole begins Aug. 27", jackson?.date === "2026-08-27");
 ok("Jackson Hole retains the Aug. 29 end date", jackson?.endDate === "2026-08-29");
 ok("Jackson Hole is a Federal-policy event with official provenance", jackson?.type === "fed" && jackson?.source === "Kansas City Fed");
+
+const appJs = renderAppJs({});
+const calendarDisplayHelpers = appJs.match(/function calEventDateKeys\(e\)\{[\s\S]*?(?=\n  \/\/ Navigate to the Grade tab)/)?.[0] || "";
+ok("Calendar display helpers are emitted", !!calendarDisplayHelpers);
+const display = new Function(`${calendarDisplayHelpers}\nreturn { calEventDateKeys, calEventPriorityCompare };`)();
+ok("multi-day events paint every covered date", JSON.stringify(display.calEventDateKeys(jackson)) === JSON.stringify([
+  "2026-08-27", "2026-08-28", "2026-08-29",
+]));
+const routinePrints = [
+  { type: "report", date: "2026-08-27", title: "CP - Commercial Paper", importance: "low" },
+  { type: "report", date: "2026-08-27", title: "H.15 - Selected Interest Rates", importance: "low" },
+  { type: "report", date: "2026-08-27", title: "H.4.1 - Factors Affecting Reserve Balances", importance: "low" },
+];
+const prioritized = [...routinePrints, jackson].sort(display.calEventPriorityCompare);
+ok("Jackson Hole outranks routine Fed prints", prioritized[0] === jackson);
+ok("multi-day filter matching uses every covered date", /calEventDateKeys\(e\)\.indexOf\(selDay\) >= 0/.test(appJs));
+const miniLabelSource = appJs.match(/function calMiniLabel\(e\)\{[\s\S]*?(?=\n  \/\/ Full hover)/)?.[0] || "";
+const miniLabel = new Function("catalystCategoryLabel", "calendarTypeLabel", `${miniLabelSource}\nreturn calMiniLabel;`)(
+  () => "Event", (type) => type === "fed" ? "Fed" : "Macro",
+);
+ok("Jackson Hole is named in the month cell", miniLabel(jackson) === "Jackson Hole");
 
 const deduped = dedupeCalendarEvents([
   { type: "report", subtype: "cpi-mom", date: "2026-09-11", title: "Inflation Rate MoM" },
