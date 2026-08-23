@@ -81,7 +81,8 @@ try {
   assert.match(appJs, /var DISPLAY_TIME_ZONE_KEY = 'stonks-display-time-zone';/);
   assert.match(appJs, /local: \{ label: 'Local', timeZone: null \}[\s\S]*?et: \{ label: 'ET', timeZone: 'America\/New_York' \}[\s\S]*?pt: \{ label: 'PT', timeZone: 'America\/Los_Angeles' \}[\s\S]*?utc: \{ label: 'UTC', timeZone: 'UTC' \}/);
   assert.match(appJs, /function formatDisplayInstant\(value, options\)[\s\S]*?opts\.timeZoneName = 'short'/);
-  assert.match(appJs, /function bindTimeZoneSelect\(\)[\s\S]*?localStorage\.setItem\(DISPLAY_TIME_ZONE_KEY, next\)[\s\S]*?window\.location\.reload\(\)/);
+  assert.match(appJs, /function bindTimeZoneSelect\(\)[\s\S]*?localStorage\.setItem\(DISPLAY_TIME_ZONE_KEY, next\)[\s\S]*?activePane = document\.querySelector\('\.page-pane:not\(\[hidden\]\)\[id\^="page-pane-"\]'\)[\s\S]*?url\.searchParams\.set\('tab', activeTab\)/);
+  assert.match(appJs, /activeTab === 'grade' && state\.symbol[\s\S]*?buildShareUrl\(\)[\s\S]*?localStorage\.setItem\('stonks-theme', currentTheme\)[\s\S]*?select\.blur\(\)[\s\S]*?window\.setTimeout\(function\(\)\{ window\.location\.reload\(\); \}, 150\)/);
   assert.match(appJs, /function renderFooterBuiltTime\(\)[\s\S]*?formatDisplayInstant\(iso,[\s\S]*?el\.textContent = label/);
   assert.ok((appJs.match(/formatDisplayInstant\(/g) || []).length >= 20, "timestamped desks must use the shared display-timezone formatter");
   assert.doesNotMatch(appJs, /function fmtTapeTime\(iso\)\{[\s\S]{0,220}?America\/New_York/, "tape timestamps must use the user display zone");

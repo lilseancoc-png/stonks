@@ -20,6 +20,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-08-23
+
+### Fixed
+
+- **Changing the display timezone preserves the open ticker and theme.** The header control snapshots the active SPA route, selected Grade contract, and painted color theme before its consistency reload, then waits for the native select interaction to finish so a mobile tap cannot ghost-activate Home or the theme toggle on the new document. `scripts/render/{app-js}.mjs`, `scripts/render-smoke.mjs`, `app.js`.
+
 ## 2026-08-22
 
 ### Added
