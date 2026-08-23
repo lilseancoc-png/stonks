@@ -179,9 +179,37 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (next === DISPLAY_TIME_ZONE) return;
       DISPLAY_TIME_ZONE = next;
       try { localStorage.setItem(DISPLAY_TIME_ZONE_KEY, next); } catch (_) {}
-      // Reload once so timestamps in every lazily rendered and already-rendered
-      // desk update together without leaving mixed zones on screen.
-      window.location.reload();
+      // A full reload is still the only reliable way to update timestamps in
+      // every already-rendered and lazy desk together. Preserve the exact view
+      // first: a ticker can be committed before its async chain fetch has had a
+      // chance to write ?s=/contract state, and the bare URL would otherwise
+      // reopen Home. Persist the currently painted theme as well so a system
+      // color-scheme change cannot alter it during this preference reload.
+      try {
+        var activePane = document.querySelector('.page-pane:not([hidden])[id^="page-pane-"]');
+        var activeTab = activePane ? activePane.id.replace(/^page-pane-/, '') : '';
+        var url = new URL(window.location.href);
+        if (activeTab && activeTab !== 'home') url.searchParams.set('tab', activeTab);
+        else if (activeTab === 'home') url.searchParams.delete('tab');
+        if (activeTab === 'grade' && state.symbol) {
+          var contractUrl = new URL(buildShareUrl());
+          ['s', 'exp', 'k', 't'].forEach(function(key){
+            var value = contractUrl.searchParams.get(key);
+            if (value != null) url.searchParams.set(key, value);
+          });
+        }
+        window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+      } catch (_) {}
+      try {
+        var currentTheme = document.documentElement.getAttribute('data-theme');
+        if (currentTheme === 'dark' || currentTheme === 'light') localStorage.setItem('stonks-theme', currentTheme);
+      } catch (_) {}
+      // Let the native select finish its pointer/click sequence before replacing
+      // the document. Reloading inside the change event can leave the finishing mobile
+      // tap over the newly painted Home/theme controls (a ghost activation).
+      try { select.blur(); } catch (_) {}
+      select.disabled = true;
+      window.setTimeout(function(){ window.location.reload(); }, 150);
     });
   }
   function setStatus(elemId, msg, kind){
