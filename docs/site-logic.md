@@ -855,7 +855,7 @@ The unified calendar covers the rest of the year with at least a 30-day useful h
 - earnings dates and AM/PM/TBD sessions;
 - ticker-specific catalysts;
 - every dated BLS and BEA release from the agencies' official calendars;
-- Federal Reserve Board speeches, testimony, minutes, conferences, statistical releases, and the FOMC schedule;
+- Federal Reserve Board speeches, testimony, minutes, conferences, decision-relevant statistical releases, and the FOMC schedule. High-frequency CP, H.4.1, H.6, H.8, H.10, G.5, G.19, and G.20 table publications are excluded to prevent repetitive calendar spam;
 - the Kansas City Fed's Jackson Hole symposium;
 - actual, consensus, previous, and forecast fields;
 - report history.

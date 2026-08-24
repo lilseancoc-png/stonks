@@ -8851,12 +8851,14 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
 
   // Complete official event calendars: every scheduled BLS and BEA release,
   // Federal Reserve Board calendar event (speeches, testimony, minutes,
-  // conferences and statistical releases), plus the Kansas City Fed's Jackson
-  // Hole symposium. Each source is fetched independently. If one source flakes,
-  // carry only that source's still-upcoming prior rows and label them stale.
+  // conferences and decision-relevant statistical releases), plus the Kansas
+  // City Fed's Jackson Hole symposium. Each source is fetched independently.
+  // If one source flakes, carry only that source's still-upcoming prior rows
+  // and label them stale.
   const officialCalendar = extras?.officialCalendar || { events: [], status: {} };
   for (const ev of (officialCalendar.events || [])) {
     if (!ev?.date) continue;
+    if (ev?.source === "Federal Reserve Board" && ev?.type === "report" && isExcludedFedCalendarReport(ev.title)) continue;
     const ms = Date.parse(ev.date + "T00:00:00Z");
     if (!Number.isFinite(ms) || ms < startMs || ms > cutoffMs) continue;
     events.push(ev);
@@ -8865,6 +8867,7 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
   const priorOfficial = extras?.priorCalendar?.events || [];
   for (const ev of priorOfficial) {
     if (!ev?.official || !ev?.sourceKey || officialStatus[ev.sourceKey] !== false || !ev?.date) continue;
+    if (ev?.source === "Federal Reserve Board" && ev?.type === "report" && isExcludedFedCalendarReport(ev.title)) continue;
     const ms = Date.parse(ev.date + "T00:00:00Z");
     if (!Number.isFinite(ms) || ms < startMs || ms > cutoffMs) continue;
     events.push({ ...ev, stale: true });
@@ -13230,6 +13233,9 @@ export function mergeFomcMeetings(live, baseline) {
 const BLS_CALENDAR_ICS = "https://www.bls.gov/schedule/news_release/bls.ics";
 const BEA_CALENDAR_ICS = "https://www.bea.gov/news/schedule/ics/online-calendar-subscription.ics";
 const KC_FED_JACKSON_HOLE_URL = "https://www.kansascityfed.org/research/jackson-hole-economic-symposium/about-jackson-hole-economic-symposium/";
+const EXCLUDED_FED_CALENDAR_REPORTS = new Set([
+  "CP", "H.4.1", "H.6", "H.8", "H.10", "G.5", "G.19", "G.20",
+]);
 const JACKSON_HOLE_BASELINE = [
   {
     date: "2026-08-27",
@@ -13252,6 +13258,15 @@ function officialReleaseImportance(title, sourceKey) {
   if (/consumer price|producer price|employment situation|job openings|jolts|gross domestic product|\bgdp\b|personal income and outlays|international trade|productivity and costs|employment cost|import and export price/.test(t)) return "high";
   if (sourceKey === "bls" || sourceKey === "bea") return "medium";
   return "low";
+}
+
+export function isExcludedFedCalendarReport(title) {
+  const text = String(title || "").trim();
+  if (/^CP\b/i.test(text)) return true;
+  const code = /^([GH])\s*\.?\s*(\d+)(?:\s*\.\s*(\d+))?\b/i.exec(text);
+  if (!code) return false;
+  const normalized = `${code[1].toUpperCase()}.${Number(code[2])}${code[3] ? `.${Number(code[3])}` : ""}`;
+  return EXCLUDED_FED_CALENDAR_REPORTS.has(normalized);
 }
 
 function icsUnescape(value) {
@@ -13372,9 +13387,12 @@ export function parseFederalReserveCalendarHtml(html, year, monthIdx) {
       // plus the audited multi-year fallback. Keep minutes, but do not duplicate
       // the same meeting as a second generic "FOMC Meeting" chip.
       if (/^FOMC Meetings?$/i.test(title)) continue;
+      const isReport = /statistical releases?/i.test(category);
+      // These high-frequency Fed data-table publications overwhelm the
+      // trader-facing calendar without adding a distinct decision event.
+      if (isReport && isExcludedFedCalendarReport(title)) continue;
       const days = monthDaysFromFedDateCell(row[3], daysInMonth);
       const time = normalizeFedCalendarTime(row[1]);
-      const isReport = /statistical releases?/i.test(category);
       const importance = isReport
         ? (/^(?:CP\s+-|H\.15\s+-|H\.10\s+-|H\.8\s+-|H\.4\.1\s+-|G\.5\s+-)/i.test(title) ? "low" : "medium")
         : (/fomc|minutes|chair|monetary policy/i.test(title + " " + category) ? "high" : "medium");
