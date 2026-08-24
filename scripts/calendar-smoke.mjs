@@ -1,5 +1,6 @@
 import {
   dedupeCalendarEvents,
+  isExcludedFedCalendarReport,
   parseFederalReserveCalendarHtml,
   parseJacksonHoleSymposium,
   parseOfficialIcsCalendar,
@@ -46,11 +47,30 @@ const fedHtml = `
 <div class="col-xs-2"><p>9:15 a.m.</p></div>
 <div class="col-xs-7"><p>G.17 - Industrial Production and Capacity Utilization</p></div>
 <div class="col-xs-3"><p>18</p></div>
+</div></div></div></div>
+<div class="row"><div class="panel"><div class="panel-body"><div class="row">
+<div class="col-xs-2"><p>1:00 p.m.</p></div>
+<div class="col-xs-7"><p>CP - Commercial Paper</p></div>
+<div class="col-xs-3"><p>18, 19, 20, 21</p></div>
 </div></div></div></div>`;
 const fedEvents = parseFederalReserveCalendarHtml(fedHtml, 2026, 7);
-ok("Fed parser keeps minutes and statistical releases", fedEvents.length === 2);
+ok("Fed parser keeps minutes and decision-relevant statistical releases", fedEvents.length === 2);
 ok("Fed minutes are classified as Fed", fedEvents[0]?.type === "fed" && fedEvents[0]?.date === "2026-08-19");
 ok("Fed statistical releases are report rows", fedEvents[1]?.type === "report" && fedEvents[1]?.time === "09:15 ET");
+ok("repetitive Fed report families are excluded", [
+  "H6 - Money Stock Measures",
+  "CP - Commercial Paper",
+  "H8 - Assets and Liabilities",
+  "H.10 - Foreign Exchange Rates",
+  "G20 - Finance Companies",
+  "H.4.1 - Factors Affecting Reserve Balances",
+  "G5 - Foreign Exchange Rates",
+  "G.19 - Consumer Credit",
+].every(isExcludedFedCalendarReport));
+ok("unlisted Fed reports remain eligible", [
+  "G.17 - Industrial Production and Capacity Utilization",
+  "H.15 - Selected Interest Rates",
+].every((title) => !isExcludedFedCalendarReport(title)));
 
 const jackson = parseJacksonHoleSymposium(`
   <p>The 2026 Jackson Hole Economic Policy Symposium will take place Aug. 27-29.
@@ -67,9 +87,9 @@ ok("multi-day events paint every covered date", JSON.stringify(display.calEventD
   "2026-08-27", "2026-08-28", "2026-08-29",
 ]));
 const routinePrints = [
-  { type: "report", date: "2026-08-27", title: "CP - Commercial Paper", importance: "low" },
   { type: "report", date: "2026-08-27", title: "H.15 - Selected Interest Rates", importance: "low" },
-  { type: "report", date: "2026-08-27", title: "H.4.1 - Factors Affecting Reserve Balances", importance: "low" },
+  { type: "report", date: "2026-08-27", title: "G.17 - Industrial Production and Capacity Utilization", importance: "medium" },
+  { type: "report", date: "2026-08-27", title: "Z.1 - Financial Accounts of the United States", importance: "medium" },
 ];
 const prioritized = [...routinePrints, jackson].sort(display.calEventPriorityCompare);
 ok("Jackson Hole outranks routine Fed prints", prioritized[0] === jackson);

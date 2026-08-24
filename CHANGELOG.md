@@ -20,6 +20,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-08-24
+
+### Removed
+
+- **Calendar drops repetitive Federal Reserve table publications.** Daily or recurring CP, H.4.1, H.6, H.8, H.10, G.5, G.19, and G.20 statistical-release rows are filtered at ingestion and during stale carry-forward, eliminating calendar spam without removing other economic releases, FOMC events, minutes, speeches, or conferences. `scripts/{build,calendar-smoke}.mjs`, `docs/site-logic.md`.
+
 ## 2026-08-23
 
 ### Fixed
