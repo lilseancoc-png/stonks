@@ -100,6 +100,16 @@ const miniLabel = new Function("catalystCategoryLabel", "calendarTypeLabel", `${
 );
 ok("Jackson Hole is named in the month cell", miniLabel(jackson) === "Jackson Hole");
 
+const dayOffsetHelpers = appJs.match(/function calDaysFromToday\(dateStr, todayMs\)\{[\s\S]*?function calDaysFromEvent\(e, todayMs\)\{[\s\S]*?\n  \}/)?.[0] || "";
+ok("span-aware calendar day offsets are emitted", !!dayOffsetHelpers);
+const daysFrom = new Function(`${dayOffsetHelpers}\nreturn calDaysFromEvent;`)();
+ok("Jackson Hole is current on day 2 of the symposium", daysFrom(jackson, Date.UTC(2026, 7, 28)) === 0);
+ok("Jackson Hole is current on the last day", daysFrom(jackson, Date.UTC(2026, 7, 29)) === 0);
+ok("Jackson Hole is one day out before it starts", daysFrom(jackson, Date.UTC(2026, 7, 26)) === 1);
+ok("Jackson Hole is past after it ends", daysFrom(jackson, Date.UTC(2026, 7, 30)) === -1);
+ok("briefing uses span-aware day offsets", /days: calDaysFromEvent\(e, todayMs\)/.test(appJs));
+ok("briefing does not send readers to Market Analysis", !/data-cal-brief-go="market"/.test(appJs));
+
 const deduped = dedupeCalendarEvents([
   { type: "report", subtype: "cpi-mom", date: "2026-09-11", title: "Inflation Rate MoM" },
   { type: "report", subtype: "official-bls-consumer-price-index", date: "2026-09-11", title: "Consumer Price Index", official: true },

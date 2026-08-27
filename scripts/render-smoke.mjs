@@ -90,6 +90,11 @@ try {
   assert.doesNotMatch(appJs, /function pickRegime(?:GradeNote|OverlayHtml|CompactHtml)\(/);
   assert.doesNotMatch(appJs, /data-narr-tab="market"/, "Narratives must not link to the owner-only Market Analysis tab");
   assert.doesNotMatch(appJs, /Open Market analysis/i, "Public desks must not link to the owner-only Market Analysis tab");
+  assert.doesNotMatch(appJs, /data-brief-go="market"/, "Brief playbook must not send public readers to Market Analysis");
+  assert.doesNotMatch(appJs, /data-cal-brief-go="market"/, "Calendar briefing must not send public readers to Market Analysis");
+  assert.doesNotMatch(html, /Open VIX in Market analysis/i, "VIX gauge must not advertise Market Analysis");
+  assert.match(appJs, /this\.input = \$\('symbol-input'\);[\s\S]*?else if \(q && this\.items\[0\] === q\)/, "Grade combobox Enter must commit an exact ticker match");
+  assert.match(appJs, /var freshnessActiveTab = null;[\s\S]*?if \(activeTab\) freshnessActiveTab = activeTab;\s*else activeTab = freshnessActiveTab;/, "Freshness heartbeat must keep the active-tab override");
   assert.match(appJs, /function loadMaTracker\(\)[\s\S]*?ma-tracker\.json/);
   assert.match(appJs, /function maTrackerScore\([\s\S]*?proximity[\s\S]*?approach[\s\S]*?momentum/);
   assert.match(appJs, /name === 'ma-tracker'[\s\S]*?startMaTrackerLive/);
