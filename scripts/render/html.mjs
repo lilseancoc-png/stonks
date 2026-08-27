@@ -133,7 +133,7 @@ function tickersSection({ symbols, sectors, industries }) {
   // VIX is a tracked market gauge, not an option-chain symbol. Keep it out of
   // the grader manifest/build loop, but give it a first-class directory card
   // whose live value comes from the fixed-symbol /api/macro-live endpoint.
-  const trackerCards = `<button type="button" class="ticker-card ticker-card-tracker" data-ticker="^VIX" data-sector="Market gauge" data-industry="Volatility" data-tracker-only="vix" aria-label="Open VIX in Market analysis">
+  const trackerCards = `<div class="ticker-card ticker-card-tracker" data-ticker="^VIX" data-sector="Market gauge" data-industry="Volatility" data-tracker-only="vix" aria-label="VIX market gauge">
       <span class="ticker-card-head">
         <span class="ticker-sym">VIX</span>
         <span class="ticker-tracker-badge">market gauge</span>
@@ -143,7 +143,7 @@ function tickersSection({ symbols, sectors, industries }) {
         <span class="ticker-chg" data-chg-for="^VIX" hidden></span>
       </span>
       <span class="ticker-sector">Market gauge · Volatility</span>
-    </button>`;
+    </div>`;
   const cards = trackerCards + optionCards;
   const totalSymbols = sorted.length + 1;
   // Unique sectors for the filter chips. Sort by occurrence count so the

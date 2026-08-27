@@ -555,7 +555,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   //      (Unusual flow + Volume run hourly, etc.), show that source's
   //      timestamp instead so the banner isn't lying about how recent the
   //      data on screen is.
-  // selectTab() calls renderFreshness(tabId) on each switch.
+  // selectTab() calls renderFreshness(tabId) on each switch. Heartbeat /
+  // visibility calls omit the tab, so remember the last one.
+  var freshnessActiveTab = null;
   function freshnessRelLabel(h){
     if (h < 1) { var m = Math.max(1, Math.round(h*60)); return m + ' minute' + (m===1?'':'s') + ' ago'; }
     if (h < 36) { var hh = Math.round(h); return hh + ' hour' + (hh===1?'':'s') + ' ago'; }
@@ -600,6 +602,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     return null;
   }
   function renderFreshness(activeTab){
+    if (activeTab) freshnessActiveTab = activeTab;
+    else activeTab = freshnessActiveTab;
     var banner = $('freshness-banner');
     var bannerText = $('freshness-text');
     if (!banner || !bannerText) return;
@@ -921,7 +925,9 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (e.key === 'ArrowDown'){ e.preventDefault(); if (!this.open) this.filter(); else this.move(1); }
       else if (e.key === 'ArrowUp'){ e.preventDefault(); this.move(-1); }
       else if (e.key === 'Enter'){
+        var q = (this.input.value || '').trim().toUpperCase();
         if (this.activeIdx >= 0){ e.preventDefault(); this.commit(this.items[this.activeIdx]); }
+        else if (q && this.items[0] === q){ e.preventDefault(); this.commit(this.items[0]); }
         else if (this.items.length === 1){ e.preventDefault(); this.commit(this.items[0]); }
       }
       else if (e.key === 'Escape'){ this.close(); }
@@ -25059,7 +25065,6 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '</div>' +
       '<div class="brief-decision-actions">' +
         (focusSym ? '<button type="button" data-brief-sym="' + briefEsc(focusSym) + '">Grade ' + briefEsc(focusSym) + '</button>' : '') +
-        '<button type="button" data-brief-go="market">Open market posture</button>' +
         '<button type="button" data-brief-go="calendar">Check calendar</button>' +
       '</div>' +
     '</section>';
@@ -25813,9 +25818,12 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       else if (aa >= 0.6){ score++; reasons.push('Asia firm (+' + aa.toFixed(2) + '% avg)'); }
     }
     var tnx = markets['^TNX'];
-    if (tnx && tnx.chgBp != null && isFinite(tnx.chgBp)){
-      if (tnx.chgBp >= 8){ score--; reasons.push('10Y +' + Math.round(tnx.chgBp) + 'bp'); }
-      else if (tnx.chgBp <= -8){ score++; reasons.push('10Y ' + Math.round(tnx.chgBp) + 'bp'); }
+    var tnxBp = tnx && tnx.chgBp != null && isFinite(tnx.chgBp)
+      ? Number(tnx.chgBp)
+      : (tnx && tnx.moves && tnx.moves['1d'] && tnx.moves['1d'].bp);
+    if (tnxBp != null && isFinite(tnxBp)){
+      if (tnxBp >= 8){ score--; reasons.push('10Y +' + Math.round(tnxBp) + 'bp'); }
+      else if (tnxBp <= -8){ score++; reasons.push('10Y ' + Math.round(tnxBp) + 'bp'); }
     }
     var copper = chOf('HG=F');
     if (copper != null){
@@ -25849,6 +25857,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       _live: true,
       _liveState: live.marketState || null,
     });
+    if (baked.type === 'rate' && prev != null) out.chgBp = (value - prev) * 100;
+    if (baked.type === 'vol' && prev != null) out.chgPt = value - prev;
     var dates = Array.isArray(baked.seriesDates) ? baked.seriesDates.slice() : [];
     var series = Array.isArray(baked.series) ? baked.series.slice() : [];
     if (dates.length === series.length){
@@ -26548,6 +26558,19 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (isNaN(ms)) return null;
     return Math.round((ms - todayMs) / 86400000);
   }
+  // Whole days from ET-today to a dated event. Multi-day rows stay current
+  // (0) while today falls inside [date, endDate]; otherwise the nearest
+  // remaining day, or the last covered day once the span is entirely past.
+  function calDaysFromEvent(e, todayMs){
+    var start = calDaysFromToday(e && e.date, todayMs);
+    if (start == null) return null;
+    var end = calDaysFromToday((e && e.endDate) || (e && e.date), todayMs);
+    if (end == null) end = start;
+    if (end < start) end = start;
+    if (start <= 0 && end >= 0) return 0;
+    if (start > 0) return start;
+    return end;
+  }
   // Short proximity label for a day-offset. Empty beyond ~4 weeks (the month
   // header already carries the longer horizon there).
   function calRelativeLabel(days){
@@ -26690,7 +26713,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   function buildCalendarBriefing(data, todayMs){
     var events = (data && Array.isArray(data.events)) ? data.events : [];
     var future = events.map(function(e){
-      return { event: e, days: calDaysFromToday(e.date, todayMs) };
+      return { event: e, days: calDaysFromEvent(e, todayMs) };
     }).filter(function(x){ return x.days != null && x.days >= 0; })
       .sort(function(a, b){ return a.days - b.days; });
     // Complete official calendars contain routine daily statistical plumbing
@@ -26744,7 +26767,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       if (!isFinite(move)) return;
       if (!topEarn || move > Number(topEarn.impliedMovePct)) topEarn = x.event;
     });
-    var firstDays = first ? calDaysFromToday(first.date, todayMs) : null;
+    var firstDays = first ? calDaysFromEvent(first, todayMs) : null;
     var firstLabel = first
       ? ((first.symbol ? first.symbol + ' · ' : '') + (first.title || calendarTypeLabel(first.type)))
       : 'No event in the current window';
@@ -26774,6 +26797,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var showLabel = focus
       ? (focus.type === 'earnings' ? 'Show earnings risk' : focus.type === 'catalyst' ? 'Show catalyst risk' : 'Show event risk')
       : '';
+    var focusDate = '';
+    if (focus){
+      var focusDays = calDaysFromEvent(focus, calEtTodayMs());
+      focusDate = focusDays === 0 ? calEtTodayYmd() : (focus.date || '');
+    }
     host.hidden = false;
     host.className = 'cal-briefing is-' + b.tone;
     host.innerHTML = '<div class="cal-brief-main">' +
@@ -26781,9 +26809,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         '<h3>' + escapeHtml(b.title) + '</h3>' +
         '<p>' + escapeHtml(b.guidance) + '</p>' +
         '<div class="cal-brief-actions">' +
-          (focus ? '<button type="button" class="cal-brief-primary" data-cal-brief-filter="' + escapeHtml(calFilterForEvent(focus)) + '" data-cal-brief-date="' + escapeHtml(focus.date || '') + '">' + escapeHtml(showLabel) + '</button>' : '') +
+          (focus ? '<button type="button" class="cal-brief-primary" data-cal-brief-filter="' + escapeHtml(calFilterForEvent(focus)) + '" data-cal-brief-date="' + escapeHtml(focusDate) + '">' + escapeHtml(showLabel) + '</button>' : '') +
           (b.topEarn && b.topEarn.symbol ? '<button type="button" class="cal-brief-secondary" data-cal-brief-sym="' + escapeHtml(b.topEarn.symbol) + '">Grade ' + escapeHtml(b.topEarn.symbol) + '</button>' : '') +
-          '<button type="button" class="cal-brief-secondary" data-cal-brief-go="market">Check market regime</button>' +
         '</div>' +
       '</div>' +
       '<div class="cal-brief-facts" aria-label="Event risk summary">' +
@@ -26838,7 +26865,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     for (var j = 0; j < events.length; j++){
       var e = events[j];
       if (e.type !== 'report' || e.importance === 'low') continue;
-      var rd = calDaysFromToday(e.date, todayMs);
+      var rd = calDaysFromEvent(e, todayMs);
       if (rd == null || rd < 0) continue;
       if (nextReport == null || rd < nextReportDays){ nextReport = e; nextReportDays = rd; }
     }
@@ -26854,7 +26881,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     for (var k = 0; k < events.length; k++){
       var ev = events[k];
       if (ev.type !== 'earnings') continue;
-      var ed = calDaysFromToday(ev.date, todayMs);
+      var ed = calDaysFromEvent(ev, todayMs);
       if (ed == null || ed < 0 || ed > 6) continue;
       earn.push(ev);
     }
@@ -26879,7 +26906,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     for (var m = 0; m < events.length; m++){
       var c2 = events[m];
       if (c2.type !== 'catalyst') continue;
-      var cd = calDaysFromToday(c2.date, todayMs);
+      var cd = calDaysFromEvent(c2, todayMs);
       if (cd == null || cd < 0) continue;
       if (nextCat == null || cd < nextCatDays){ nextCat = c2; nextCatDays = cd; }
     }
@@ -28099,8 +28126,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (sym) calGoToTicker(sym);
       });
     }
-    // Briefing actions: jump the grid directly to the exposed event, inspect
-    // the largest priced earnings name, or carry the decision into Market Analysis.
+    // Briefing actions: jump the grid directly to the exposed event, or inspect
+    // the largest priced earnings name.
     var calBrief = document.getElementById('calendar-briefing');
     if (calBrief && !calBrief.dataset.bound){
       calBrief.dataset.bound = '1';
@@ -28120,10 +28147,6 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         }
         var symBtn = ev.target.closest('[data-cal-brief-sym]');
         if (symBtn){ calGoToTicker(symBtn.getAttribute('data-cal-brief-sym')); return; }
-        if (ev.target.closest('[data-cal-brief-go="market"]')){
-          var marketTab = document.querySelector('[data-page-tab="market"]');
-          if (marketTab) marketTab.click();
-        }
       });
     }
     // Header "Index calendar →" link: hop to the Index calendar tab (the daily
@@ -38950,11 +38973,6 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     });
     var emptyReset = document.getElementById('tickers-empty-reset');
     if (emptyReset) emptyReset.addEventListener('click', resetFilters);
-    var vixCard = grid.querySelector('[data-tracker-only="vix"]');
-    if (vixCard) vixCard.addEventListener('click', function(){
-      var marketTab = document.querySelector('[data-page-tab="market"]');
-      if (marketTab) marketTab.click();
-    });
     applyView();
     if (pane && !pane.hidden) ensureTickerDirectoryGrades();
   }

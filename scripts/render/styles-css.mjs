@@ -17550,7 +17550,7 @@ body.tape-axm-open { overflow: hidden; }
   width: 100%;
   font: inherit;
   text-align: left;
-  cursor: pointer;
+  cursor: default;
   border-color: color-mix(in srgb, var(--info) 30%, var(--border));
 }
 .ticker-tracker-badge {
@@ -17578,15 +17578,15 @@ body.tape-axm-open { overflow: hidden; }
   opacity: 0.85;
   transition: transform var(--dur-2) var(--ease-out);
 }
-.ticker-card:hover {
+.ticker-card:hover:not(.ticker-card-tracker) {
   border-color: color-mix(in srgb, var(--accent) 38%, var(--border-strong));
   background: color-mix(in srgb, var(--accent) 4%, var(--surface));
   text-decoration: none;
   transform: translateY(-2px);
   box-shadow: var(--elev-2), var(--elev-glow);
 }
-.ticker-card:hover::before { transform: scaleY(1); }
-.ticker-card:hover .ticker-sym { color: var(--text-strong); }
+.ticker-card:hover:not(.ticker-card-tracker)::before { transform: scaleY(1); }
+.ticker-card:hover:not(.ticker-card-tracker) .ticker-sym { color: var(--text-strong); }
 .ticker-card:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);

@@ -20,6 +20,20 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-08-26
+
+### Fixed
+
+- **Public desks no longer offer dead Market Analysis buttons.** Brief playbook, Calendar briefing, and the Tickers VIX gauge stop pointing at the owner-only Market Analysis tab, so public clicks no longer no-op. Owner nav and landing cards remain. `scripts/render/{app-js,html,styles-css}.mjs`, `scripts/{render-smoke,calendar-smoke}.mjs`.
+
+- **Grade search Enter accepts an exact ticker even when other symbols match.** Typing `V` then Enter now loads Visa instead of doing nothing because `VEEV` also matched. `scripts/render/app-js.mjs`, `scripts/render-smoke.mjs`.
+
+- **The freshness banner keeps the active tab's scan timestamp.** Visibility and the 5-minute heartbeat now reuse the last selected tab, so Flow / Volume / OI / Fear & Greed / Bonds no longer snap back to the daily-build line while you stay on the desk. `scripts/render/app-js.mjs`, `scripts/render-smoke.mjs`.
+
+- **Multi-day calendar events stay in today's briefing until they end.** Jackson Hole and other `endDate` rows count as current on every covered day, so they no longer drop out of the briefing and overview after day one. `scripts/render/app-js.mjs`, `scripts/calendar-smoke.mjs`.
+
+- **Overnight live overlays keep the 10Y tone in sync with the yield tile.** A live Treasury quote now updates `chgBp` / `chgPt` alongside the 1-day move, so a rising 10Y cannot paint as a selloff on the card and stay silent in the risk-on/off sentence. `scripts/render/app-js.mjs`, `scripts/overnight-smoke.mjs`.
+
 ## 2026-08-24
 
 ### Removed
