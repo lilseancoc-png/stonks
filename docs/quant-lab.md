@@ -12,10 +12,10 @@ held-option checker, personalized VOO/QQQ DCA dollars, Sector Rotation share
 caps, and Leveraged ETF share caps. Their standardized research remains in the
 broader Owner workspace; account-specific application remains isolated here.
 
-The same owner-only tab also contains a separate actionable **paper** Day
-Trading Engine. It has its own 15-minute producer and durable two-portfolio
-ledger; it does not change the analytical-only contract of `quant.json` or any
-screen documented below. See [`day-trading-engine.md`](day-trading-engine.md).
+The same owner-only workspace also keeps a parked **paper** Day Trading Engine
+in-tree (`docs/day-trading-engine.md`). It is retired from the live Owner UI
+and its 15-minute schedule is disabled; it does not change the analytical-only
+contract of `quant.json` or any screen documented below.
 
 ## 1. Owner directive — analytical screens, never trade signals
 

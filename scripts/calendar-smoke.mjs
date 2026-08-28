@@ -62,6 +62,7 @@ ok("repetitive Fed report families are excluded", [
   "CP - Commercial Paper",
   "H8 - Assets and Liabilities",
   "H.10 - Foreign Exchange Rates",
+  "H.15 - Selected Interest Rates",
   "G20 - Finance Companies",
   "H.4.1 - Factors Affecting Reserve Balances",
   "G5 - Foreign Exchange Rates",
@@ -69,7 +70,7 @@ ok("repetitive Fed report families are excluded", [
 ].every(isExcludedFedCalendarReport));
 ok("unlisted Fed reports remain eligible", [
   "G.17 - Industrial Production and Capacity Utilization",
-  "H.15 - Selected Interest Rates",
+  "Z.1 - Financial Accounts of the United States",
 ].every((title) => !isExcludedFedCalendarReport(title)));
 
 const jackson = parseJacksonHoleSymposium(`
@@ -87,7 +88,6 @@ ok("multi-day events paint every covered date", JSON.stringify(display.calEventD
   "2026-08-27", "2026-08-28", "2026-08-29",
 ]));
 const routinePrints = [
-  { type: "report", date: "2026-08-27", title: "H.15 - Selected Interest Rates", importance: "low" },
   { type: "report", date: "2026-08-27", title: "G.17 - Industrial Production and Capacity Utilization", importance: "medium" },
   { type: "report", date: "2026-08-27", title: "Z.1 - Financial Accounts of the United States", importance: "medium" },
 ];
@@ -109,6 +109,11 @@ ok("Jackson Hole is one day out before it starts", daysFrom(jackson, Date.UTC(20
 ok("Jackson Hole is past after it ends", daysFrom(jackson, Date.UTC(2026, 7, 30)) === -1);
 ok("briefing uses span-aware day offsets", /days: calDaysFromEvent\(e, todayMs\)/.test(appJs));
 ok("briefing does not send readers to Market Analysis", !/data-cal-brief-go="market"/.test(appJs));
+const excludedFedHelper = appJs.match(/function calIsExcludedFedReport\(title\)\{[\s\S]*?\n  \}/)?.[0] || "";
+ok("Calendar load drops excluded Fed statistical prints", !!excludedFedHelper && /calIsExcludedFedReport\(e\.title\)/.test(appJs));
+const isExcludedLive = new Function(`${excludedFedHelper}\nreturn calIsExcludedFedReport;`)();
+ok("live H.15 filter matches ingest", isExcludedLive("H.15 - Selected Interest Rates") && isExcludedLive("CP - Commercial Paper"));
+ok("live G.17 stays eligible", !isExcludedLive("G.17 - Industrial Production and Capacity Utilization"));
 
 const deduped = dedupeCalendarEvents([
   { type: "report", subtype: "cpi-mom", date: "2026-09-11", title: "Inflation Rate MoM" },

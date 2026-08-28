@@ -1,14 +1,17 @@
 # Day Trading Engine — owner-only stock paper portfolio
 
-**Status: live implementation.** Current feed: `data/day-trading.json`; durable
-ledger: `data/day-trading-history.json`. Both are private, no-store, and require
-the Owner claims. Current state and the durable record render in separate Day
-Trading tabs. The scanner is `scripts/scan-day-trading.mjs`, the pure
-decision/risk/accounting core is `lib/day-trading-engine.mjs`, and
-`.github/workflows/day-trading.yml` requests a pass every 15 minutes on a
-staggered schedule and accepts delayed close-recovery runs through 18:05 ET.
-It is a stock-only simulator: no code path submits an order, and the retired
-1DTE options book is not generated or retained.
+**Status: retired from the live Owner UI; engine parked in-tree.** The Day
+Trading and Day Trading Track Record tabs are hidden so they cannot be reached.
+The 15-minute GitHub schedule in `.github/workflows/day-trading.yml` is disabled
+on purpose; `workflow_dispatch` still runs the scanner. Current feed:
+`data/day-trading.json`; durable ledger: `data/day-trading-history.json`. Both
+remain private, no-store, Owner-gated, and are **not** wiped. The scanner is
+`scripts/scan-day-trading.mjs`, the pure decision/risk/accounting core is
+`lib/day-trading-engine.mjs`, and `npm run test:day-trading` still exercises the
+engine. Re-enable later by restoring the Owner tabs + CSS/renderer and
+uncommenting the workflow `schedule:` cron. It is a stock-only simulator: no
+code path submits an order, and the retired 1DTE options book is not generated
+or retained.
 
 ## Decision stack
 
@@ -86,5 +89,6 @@ npm run verify:freshness
 node scripts/regen-static.mjs
 ```
 
-The workflow verifies both files were written inside the current run before
-uploading only the `daytrading` ownership set to the private store.
+The parked workflow still verifies both files were written inside the current
+run before uploading only the `daytrading` ownership set to the private store.
+The GitHub `schedule:` cron is disabled; `workflow_dispatch` remains.

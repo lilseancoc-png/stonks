@@ -20,6 +20,18 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-08-27
+
+### Fixed
+
+- **Calendar hides already-baked H.15 rows and no longer calls Index calendar an Owner desk.** The browser now drops the same Fed statistical-release families the bake excludes, so a stale `calendar.json` cannot keep painting H.15 until the next regen. The Calendar jump and Cmd+K corpus also treat Index calendar / Owner Lab / Leveraged ETFs as the live destinations they actually are. `scripts/render/{app-js,html}.mjs`, `scripts/{calendar-smoke,render-smoke}.mjs`.
+
+### Removed
+
+- **Calendar drops the Fed H.15 Selected Interest Rates print.** The daily statistical-release family joins the existing CP / H.4.1 / H.6 / H.8 / H.10 / G.5 / G.19 / G.20 ingest filter, so it no longer appears on live or carried-forward calendars. `scripts/{build,calendar-smoke}.mjs`.
+
+- **Owner Day Trading and Day Trading Track Record retire from the live Owner UI.** Nav, panes, renderer, CSS, and the Tools refresh-schedule card are gone so the desks cannot be reached; a `daytrade` / `daytrack` deep link falls through to home. The 15-minute GitHub schedule is parked (`workflow_dispatch` kept). The engine, scanner, smoke, docs, `test:day-trading`, store ownership, and premium denylist stay in-tree so the desks can be re-enabled later; store objects are not wiped. `scripts/render/{html,app-js,styles-css}.mjs`, `.github/workflows/day-trading.yml`, `docs/{day-trading-engine,site-logic,private-data-migration,quant-lab}.md`.
+
 ## 2026-08-26
 
 ### Fixed

@@ -59,8 +59,6 @@ const SIDE_NAV_ICONS = {
   'ma-tracker': '<path d="M3.5 19.5h17"/><path d="M3.5 4.5v15"/><path d="m6 15 4-4 3 2 5-6"/><path d="M6 9.5h12"/>',
   spillover: '<circle cx="12" cy="12" r="2.5"/><path d="M12 5.5a6.5 6.5 0 0 1 6.5 6.5"/><path d="M12 2a10 10 0 0 1 10 10"/>',
   quant: '<path d="M18 6.5V4H6l6.5 8L6 20h12v-2.5"/>',
-  daytrade: '<path d="M3 12h4l2.2-5 4.2 10 2.1-5H21"/><circle cx="12" cy="12" r="9.5"/>',
-  daytrack: '<path d="M4 19.5V10m5 9.5V5m5 14.5v-7m5 7V3"/><path d="M3 21h18"/>',
   levetf: '<path d="M3.5 20.5v-17"/><path d="M3.5 20.5h17"/><path d="m6 16.5 3.5-4 2.5 2 4-5.5"/><path d="m11.5 6.5 3-3 3 3"/><path d="M14.5 3.5v7"/>',
   overnight: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
   'fear-greed': '<path d="m12 14.5 3.5-3.5"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
@@ -406,7 +404,7 @@ function calendarSection() {
   return `<section class="card" id="calendar-section">
     <header class="card-header">
       <h2 class="card-title">Calendar</h2>
-      <button type="button" class="card-jump" id="calendar-idxcal-link" data-go="index-cal" title="Open the Owner index calendar">Index calendar &rarr;</button>
+      <button type="button" class="card-jump" id="calendar-idxcal-link" data-go="index-cal" title="Open the Index calendar">Index calendar &rarr;</button>
       <span class="card-eyebrow" id="calendar-eyebrow" aria-live="polite"></span>
     </header>
     ${infoNote("What's on this calendar?", `<p>A month-at-a-time view of every dated market event, opening on the <b>current month</b> — use <b>&lsaquo;</b> / <b>&rsaquo;</b> to step between months (or <b>Today</b> to jump back), and tap any day to see its full details below the grid. It tracks: confirmed earnings dates (with AM/PM session tagging) for every curated ticker, cross-checked against a rolling 21-day Nasdaq sweep; ticker-specific catalysts (FDA dates, contract decisions, product launches, court rulings, investor days — extracted from recent news); the complete official <b>BLS</b> and <b>BEA</b> release schedules; the Federal Reserve Board calendar (speeches, testimony, minutes, conferences, and statistical releases); the Kansas City Fed&rsquo;s Jackson Hole symposium; detailed market-moving reports with Actual / Previous / Consensus values; and upcoming FOMC decisions. Official source labels open the publisher&rsquo;s calendar. Effective Fed Funds, FedWatch probabilities, the official vote map, and the full rate path live together in <b>Bonds &amp; USD</b>. Ticker chips are clickable.</p>`)}
@@ -432,7 +430,7 @@ function indexCalSection() {
   // Card chrome only — the monthly index-close grid (SPY/QQQ/IWM/SMH/DIA/VXUS/
   // TLT/GLD/VIX red/green + %change), the index toggle, the month nav, and the
   // per-month summary render
-  // client-side from data/index-calendar.json (Owner; lazy-fetched on first
+  // client-side from data/index-calendar.json (public; lazy-fetched on first
   // tab activation by loadIndexCal() in app.js).
   return `<section class="card" id="index-cal-section">
     <header class="card-header">
@@ -822,30 +820,6 @@ function quantSection() {
   </section>`;
 }
 
-function dayTradingSection() {
-  return `<section class="card dt-lab" id="day-trading-section" aria-labelledby="dt-lab-title">
-    <div class="dt-lab-head">
-      <div><span>Owner paper engine</span><h2 id="dt-lab-title" class="card-title">Day Trading</h2></div>
-      <span id="dt-engine-stamp" class="dt-stamp" aria-live="polite">Loading&hellip;</span>
-    </div>
-    ${infoNote('How the Day Trading Engine works', `<p>A deterministic <b>stock-only paper-trading</b> engine requested every 15 minutes on a staggered schedule. Market bias, the SPY/QQQ 9:30&ndash;10:00 opening range, dealer gamma, recent index closes, volatility regime, scheduled events, volume and technical structure determine whether a long or short setup clears the score. <b>No entry is allowed before 10:00&nbsp;ET; after 10:00 it may enter through the rest of the regular session until the mandatory 16:00 close flatten.</b> Delayed workflow runs remain eligible through 18:05&nbsp;ET only to guarantee marking and close recovery; they cannot open a post-close trade. Risk authority remains in force: at most eight trades per session, no position above 25% of equity, correlated-exposure caps, fixed invalidation and 120-minute time stops. This is a simulation, not an order router or financial advice.</p>`)}
-    <div id="day-trading-root" class="dt-root">Loading owner Day Trading Engine&hellip;</div>
-    <div id="day-trading-empty" class="quant-empty" hidden>The engine has not published its first intraday snapshot yet.</div>
-  </section>`;
-}
-
-function dayTradingTrackSection() {
-  return `<section class="card dt-lab" id="day-trading-track-section" aria-labelledby="dt-track-title">
-    <div class="dt-lab-head">
-      <div><span>Durable paper ledger</span><h2 id="dt-track-title" class="card-title">Day Trading Track Record</h2></div>
-      <span id="dt-track-stamp" class="dt-stamp" aria-live="polite">Loading&hellip;</span>
-    </div>
-    ${infoNote('What this record includes', `<p>The stock long/short simulation starts with a $10,000 paper book. This tab reports every closed stock trade after modeled costs, win rate, profit factor, average win/loss, daily distribution, MAE, true maximum drawdown, reset events and performance by entry period. The reset curve jumps back to $10,000 below $2,000; the never-reset curve does not, so losses cannot be hidden by a reset. Retired 1DTE option results are no longer carried in this tracker.</p>`)}
-    <div id="day-trading-track-root" class="dt-root">Loading Day Trading Track Record&hellip;</div>
-    <div id="day-trading-track-empty" class="quant-empty" hidden>No paper trades have closed yet.</div>
-  </section>`;
-}
-
 function buildTimelineSection() {
   return `<section class="card refresh-schedule" id="refresh-schedule-section">
     <header class="card-header">
@@ -858,7 +832,6 @@ function buildTimelineSection() {
       <article class="refresh-schedule-card"><span>10:00, 11:00, 13:30, 15:30 &amp; 16:10 ET</span><h3>Full market build</h3><p>Refreshes ticker chains and daily/intraday bars, grades, technicals, narratives, calendars, Pending Buyouts, MA Tracker, earnings, Market Analysis and Quant Lab. The 16:10 run captures the completed close.</p><em>Five evidence windows &middot; no unreliable 09:30 auction build</em></article>
       <article class="refresh-schedule-card"><span>11:00 &amp; 15:30 ET</span><h3>Swing decision desks</h3><p>Runs Top Picks, chart vision, Stock Picks, Sector Rotation and Leveraged ETFs. Other full builds carry the last coherent decisions and ledgers unchanged.</p><em>Twice per market day &middot; aligned evidence</em></article>
       <article class="refresh-schedule-card"><span>Hourly 09:00&ndash;16:00 ET</span><h3>Flow, Volume &amp; Heatmap</h3><p>Re-scans unusual options flow and intraday volume/S&amp;R breaks, then refreshes heatmap price/change fields. The post-close pass may also publish the sector EOD recap.</p><em>One serialized scan &middot; no partial publish</em></article>
-      <article class="refresh-schedule-card"><span>Every 15 minutes requested, 09:25&ndash;18:05 recovery guard</span><h3>Owner Day Trading</h3><p>Marks open stock paper positions and evaluates new long/short setups. Entries run from 10:00 until 16:00; delayed post-close passes enforce the mandatory flatten.</p><em>Private snapshot + durable ledger</em></article>
       <article class="refresh-schedule-card"><span>~08:30 and ~17:00 ET</span><h3>Near-term OI</h3><p>The morning pass publishes settled T+1 OI and day-over-day changes. The evening pass adds completed-session volume and Vol/OI positioning; today&rsquo;s net OI does not publish until the next morning.</p><em>Two different evidence windows</em></article>
       <article class="refresh-schedule-card"><span>Checked on each full build</span><h3>Central-bank gold</h3><p>Checks the World Gold Council for a new quarterly global-demand estimate and refreshed official country holdings. Source reporting normally lags the current date.</p><em>Quarterly source cadence &middot; last-good carry-forward</em></article>
       <article class="refresh-schedule-card"><span>Friday 11:30 ET</span><h3>Weekly Alt Data</h3><p>Refreshes Search Interest theme timelines, wholesale and retail RAM prices, and public GPU-cloud rental prices in one DST-safe weekly job.</p><em>One scan each &middot; Search Interest capped at 40 requests</em></article>
@@ -1860,8 +1833,6 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       ${sideNavItem('rotation', 'Sector rotation')}
       ${sideNavItem('levetf', 'Leveraged ETFs')}
       ${sideNavItem('track', 'Top Picks track record')}
-      ${sideNavItem('daytrade', 'Day Trading')}
-      ${sideNavItem('daytrack', 'Day Trading track record')}
       ${sideNavItem('quant', 'Owner Lab')}
     </div>
   </details>
@@ -2188,12 +2159,6 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-quant" role="tabpanel" aria-labelledby="page-tab-quant" hidden>
   ${quantSection()}
-  </div>
-  <div class="page-pane" id="page-pane-daytrade" role="tabpanel" aria-labelledby="page-tab-daytrade" hidden>
-  ${dayTradingSection()}
-  </div>
-  <div class="page-pane" id="page-pane-daytrack" role="tabpanel" aria-labelledby="page-tab-daytrack" hidden>
-  ${dayTradingTrackSection()}
   </div>
   <div class="page-pane" id="page-pane-index-cal" role="tabpanel" aria-labelledby="page-tab-index-cal" hidden>
   ${indexCalSection()}

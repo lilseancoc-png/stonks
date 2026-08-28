@@ -65,7 +65,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // the Owner analysis/idea/record desks and Owner Lab; this UI boundary keeps
   // destinations hidden until the owner session's compatibility claims resolve.
   // Discord mints both only after verifying the existing Top Picks owner role.
-  var OWNER_TABS = { market:1, picks:1, stocks:1, rotation:1, levetf:1, track:1, daytrade:1, daytrack:1, quant:1 };
+  var OWNER_TABS = { market:1, picks:1, stocks:1, rotation:1, levetf:1, track:1, quant:1 };
   var GATE_ON = false;
   var HAS_TRACK_RECORD = false;
   var HAS_TOP_PICKS = false;
@@ -3486,7 +3486,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','rotation','picks','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','daytrade','daytrack','levetf','index-cal','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','rotation','picks','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3521,8 +3521,6 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     iv: 'iv-trend', 'trending-iv': 'iv-trend', 'iv-trending': 'iv-trend', ivtrend: 'iv-trend', 'implied-vol': 'iv-trend', 'implied-volatility': 'iv-trend',
     'event-spillover': 'spillover', 'read-through': 'spillover', readthrough: 'spillover', 'spill-over': 'spillover', spill: 'spillover',
     'quant-lab': 'quant', quantlab: 'quant', pairs: 'quant', 'pair-trading': 'quant', sigma: 'quant', vrp: 'quant', dispersion: 'quant',
-    'day-trading': 'daytrade', daytrading: 'daytrade', 'day-trade': 'daytrade',
-    'day-trading-track-record': 'daytrack', 'day-trading-record': 'daytrack', daytrack: 'daytrack',
     'leveraged-etfs': 'levetf', 'leveraged-etf': 'levetf', leveraged: 'levetf', letf: 'levetf', 'lev-etf': 'levetf', tqqq: 'levetf', soxl: 'levetf',
     // Reference / legal / info pages (now in-app tabs).
     'buyers-manual': 'cheatsheet', 'buyer-manual': 'cheatsheet', cheat: 'cheatsheet', 'cheat-sheet': 'cheatsheet', manual: 'cheatsheet',
@@ -3869,7 +3867,6 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         if (name === 'iv-trend' && typeof loadIvTrend === 'function') loadIvTrend();
         if (name === 'spillover' && typeof loadSpillover === 'function') loadSpillover();
         if (name === 'quant' && typeof loadQuant === 'function') loadQuant();
-        if ((name === 'daytrade' || name === 'daytrack') && typeof loadDayTrading === 'function') loadDayTrading();
       if (name === 'levetf' && typeof loadLevEtf === 'function') loadLevEtf();
       // The sidebar scrolls vertically when the tab list outgrows the
       // viewport. Programmatic selection (e.g. a ?tab= deep-link) can leave
@@ -21205,9 +21202,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // dispersion / post-earnings-drift screens. ANALYTICAL ONLY: z-scores and
   // ranks, never trade signals (the playbook table in the shell is educational).
   // data/quant.json is the daily analytical research payload. The owner-only
-  // intraday paper engine is a separate producer and separate pair of tabs.
+  // Day Trading paper engine is parked (UI retired; engine kept in-tree).
   var quantState = { data: null, loading: false };
-  var dayTradingState = { data: null, history: null, loading: false };
   function quantFetchJson(url){
     return fetch(url, { cache: 'no-store', credentials: 'same-origin' })
       .then(function(r){
@@ -21265,27 +21261,6 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         quantState.loading = false;
         renderQuant();
       });
-  }
-  function loadDayTrading(){
-    if ((dayTradingState.data && !tabDataStale(dayTradingState)) || dayTradingState.loading){
-      renderDayTrading(); renderDayTradingTrack(); return;
-    }
-    dayTradingState.loading = true;
-    return Promise.all([
-      quantFetchJson(dataUrl('day-trading.json')).catch(function(){ return null; }),
-      quantFetchJson(dataUrl('day-trading-history.json')).catch(function(){ return null; })
-    ]).then(function(rows){
-      dayTradingState.data = rows[0];
-      dayTradingState.history = rows[1];
-      dayTradingState.loading = false;
-      dayTradingState.fetchedAt = Date.now();
-      renderDayTrading();
-      renderDayTradingTrack();
-    }, function(){
-      dayTradingState.loading = false;
-      renderDayTrading();
-      renderDayTradingTrack();
-    });
   }
   function quantSymLink(sym){
     var s = String(sym || '').toUpperCase();
@@ -21392,159 +21367,6 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       '</div>' +
       '<p class="quant-desk-rule"><b>Workflow:</b> the screen finds statistical distance; the validation gates decide whether the relationship is credible; Grade checks each leg before any execution decision.</p>' +
       '</section>';
-  }
-  function dtMoney(v){
-    if (v == null || !isFinite(v)) return '—';
-    return (v < 0 ? '−' : '') + '$' + Math.abs(Number(v)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }
-  function dtPct(v){
-    if (v == null || !isFinite(v)) return '—';
-    return (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%';
-  }
-  function dtPnlClass(v){ return Number(v) > 0 ? 'quant-pos' : Number(v) < 0 ? 'quant-neg' : 'quant-dim'; }
-  function dtAverage(rows, key){
-    var vals = rows.map(function(row){ return Number(typeof key === 'function' ? key(row) : row[key]); }).filter(isFinite);
-    return vals.length ? vals.reduce(function(a, b){ return a + b; }, 0) / vals.length : null;
-  }
-  function dtBucket(closed, label, predicate){
-    var rows = closed.filter(predicate);
-    return '<span><small>' + label + '</small><b>' + rows.length + ' trades</b><em>' + dtMoney(dtAverage(rows, 'pnl')) + ' avg</em></span>';
-  }
-  function dtAnalytics(kind, book, summary, sessions){
-    book = book || {};
-    summary = summary || {};
-    var closed = (Array.isArray(book.closed) ? book.closed : []).filter(function(row){ return row.trackRecordEligible !== false; });
-    var dayPnl = {};
-    closed.forEach(function(row){
-      var day = row.session || 'unknown';
-      dayPnl[day] = (dayPnl[day] || 0) + (Number(row.pnl) || 0);
-    });
-    var days = Object.keys(dayPnl).map(function(day){ return dayPnl[day]; });
-    var sorted = closed.slice().sort(function(a, b){ return Date.parse(a.closedAt || 0) - Date.parse(b.closedAt || 0); });
-    var half = Math.floor(sorted.length / 2);
-    var early = half ? sorted.slice(0, half) : [];
-    var late = half ? sorted.slice(half) : sorted;
-    var firstRally = new Set(sessions.filter(function(row){
-      var f = row.firstHour || {}; var vals = [Number(f.spyRetPct), Number(f.qqqRetPct)].filter(isFinite);
-      return vals.length && vals.reduce(function(a,b){return a+b;},0) / vals.length > 0.15;
-    }).map(function(row){ return row.date; }));
-    var firstSell = new Set(sessions.filter(function(row){
-      var f = row.firstHour || {}; var vals = [Number(f.spyRetPct), Number(f.qqqRetPct)].filter(isFinite);
-      return vals.length && vals.reduce(function(a,b){return a+b;},0) / vals.length < -0.15;
-    }).map(function(row){ return row.date; }));
-    var best = days.length ? Math.max.apply(null, days) : null;
-    var worst = days.length ? Math.min.apply(null, days) : null;
-    return '<div class="dt-analytics">' +
-      '<span><small>Daily P&amp;L distribution</small><b>' + dtMoney(dtAverage(days, function(x){ return x; })) + ' avg</b><em>' + dtMoney(worst) + ' worst · ' + dtMoney(best) + ' best</em></span>' +
-      '<span><small>Loss-limit hits</small><b>' + Number(book.dailyStopHits || 0) + '</b><em>hard flatten + session stop</em></span>' +
-      '<span><small>Win / payoff</small><b>' + (summary.winRate == null ? '—' : Number(summary.winRate).toFixed(1) + '%') + '</b><em>' + dtMoney(summary.avgWin) + ' / ' + dtMoney(summary.avgLoss) + ' · PF ' + (summary.profitFactor == null ? '—' : summary.profitFactor) + '</em></span>' +
-      '<span><small>Adverse excursion</small><b>' + dtPct(summary.averageMaePct) + '</b><em>average closed-trade MAE</em></span>' +
-      '<span><small>Validated max drawdown</small><b>' + dtPct(summary.validatedMaxDrawdownPct) + '</b><em>same-session closes only</em></span>' +
-      '<span><small>Resets</small><b>' + Number(summary.resets || 0) + '</b><em>reset curve only; true curve preserved</em></span>' +
-      dtBucket(closed, 'First-hour follow-through', function(row){ return row.entryWindow === 'first-hour-follow-through'; }) +
-      dtBucket(closed, 'Mid-day', function(row){ return row.entryWindow === 'mid-day'; }) +
-      dtBucket(closed, 'Last hour', function(row){ return row.entryWindow === 'last-hour'; }) +
-      dtBucket(closed, 'After first-hour rally', function(row){ return firstRally.has(row.session); }) +
-      dtBucket(closed, 'After first-hour sell-off', function(row){ return firstSell.has(row.session); }) +
-      dtBucket(closed, 'Full-size periods', function(row){ return row.sizeMode !== 'half'; }) +
-      dtBucket(closed, 'Half-size periods', function(row){ return row.sizeMode === 'half'; }) +
-      '<span><small>Edge stability</small><b>' + dtMoney(dtAverage(late, 'pnl')) + ' later</b><em>' + dtMoney(dtAverage(early, 'pnl')) + ' earlier · split sample</em></span>' +
-      '</div>';
-  }
-  function renderDayTrading(){
-    var root = $('day-trading-root'); var empty = $('day-trading-empty'); var stamp = $('dt-engine-stamp');
-    if (!root) return;
-    var d = dayTradingState.data;
-    if (!d){
-      root.hidden = true; if (empty) empty.hidden = false; if (stamp) stamp.textContent = 'Awaiting first scan';
-      return;
-    }
-    root.hidden = false; if (empty) empty.hidden = true;
-    var updated = Date.parse(d.updatedAt || '');
-    if (stamp) stamp.textContent = (d.status || 'paper') + (isFinite(updated) ? ' · ' + formatDisplayInstant(updated, {hour:'numeric', minute:'2-digit'}) : '');
-    var market = d.market || {}; var first = market.firstHour || {}; var vol = market.volatility || {}; var event = market.event || {};
-    var maxHoldMinutes = Number(d.rules && d.rules.maxHoldMinutes);
-    if (!(maxHoldMinutes > 0)) maxHoldMinutes = 120;
-    var html = '<div class="dt-market">' +
-      '<span><small>Directional bias</small><b class="' + (market.bias === 'long' ? 'quant-pos' : market.bias === 'short' ? 'quant-neg' : 'quant-dim') + '">' + escapeHtml(market.bias || 'unknown') + '</b><em>score ' + (market.biasScore == null ? '—' : market.biasScore) + ' · analysis ' + escapeHtml(market.analysisState || 'neutral') + '</em></span>' +
-      '<span><small>Opening 30m</small><b>' + (first.complete ? 'Complete' : 'Unavailable') + '</b><em>SPY ' + dtPct(first.spyRetPct) + ' · QQQ ' + dtPct(first.qqqRetPct) + '</em></span>' +
-      '<span><small>Volatility regime</small><b>' + escapeHtml(vol.state || 'unknown') + '</b><em>VIX ' + (vol.vix == null ? '—' : vol.vix) + (vol.term ? ' · ' + escapeHtml(vol.term) : '') + '</em></span>' +
-      '<span><small>Event authority</small><b class="' + (event.block ? 'quant-neg' : event.reduce ? 'quant-warn' : 'quant-pos') + '">' + (event.block ? 'Blocked' : event.reduce ? 'Reduced' : 'Clear') + '</b><em>' + escapeHtml(event.reason || 'no high-impact window') + '</em></span>' +
-      '<span><small>Execution window</small><b>10:00–16:00 ET</b><em>entries until the close · forced flat 16:00 · ' + maxHoldMinutes + 'm max hold' + (market.lastHour && market.lastHour.active ? ' · last hour SPY ' + dtPct(market.lastHour.spyRetPct) + ' / QQQ ' + dtPct(market.lastHour.qqqRetPct) : '') + '</em></span>' +
-      '</div>';
-    var summaries = d.portfolios || {};
-    html += '<div class="dt-books">';
-    [['stock','Stock long / short']].forEach(function(pair){
-      var key = pair[0]; var s = summaries[key] || {}; var p = s.policy || {};
-      var gate = p.hardStopped ? 'hard stopped' : p.weeklyCut ? 'weekly cut' : p.profitLocked ? 'profit lock' : p.softWarning ? 'soft warning' : 'normal risk';
-      html += '<section class="dt-book"><div class="dt-book-head"><div><small>' + pair[1] + '</small><h4>' + dtMoney(s.resetEquity) + '</h4></div><span>' + escapeHtml(gate) + '</span></div>' +
-        '<div class="dt-book-grid"><span><small>Never-reset</small><b>' + dtMoney(s.trueEquity) + '</b></span><span><small>Today</small><b class="' + dtPnlClass(s.dayRealized) + '">' + dtMoney(s.dayRealized) + ' (' + dtPct(s.dayPct) + ')</b></span><span><small>Open / trades</small><b>' + Number(s.openCount || 0) + ' / ' + Number(s.tradesToday || 0) + '</b></span><span><small>Universe</small><b>Tracked stocks</b></span></div></section>';
-    });
-    html += '</div>';
-    var open = d.open?.stock || [];
-    html += '<div class="quant-sub">Open paper trades</div>';
-    if (!open.length) html += '<p class="quant-none">No open trades. Cash is the default until a setup clears every score and risk gate.</p>';
-    else {
-      html += '<div class="quant-scroll"><table class="quant-tbl dt-table"><thead><tr><th>Book</th><th>Name</th><th>Side</th><th>Entry</th><th>Position</th><th>Stop / target</th><th>Confidence</th><th>Invalidation</th><th>Time exit</th></tr></thead><tbody>';
-      open.forEach(function(row){
-        var contract = row.quantity + ' shares';
-        var levels = '$' + row.stop + ' / $' + row.target;
-        html += '<tr><td>' + escapeHtml(row.book) + '</td><td>' + quantSymLink(row.symbol) + '</td><td class="' + (row.direction === 'long' ? 'quant-pos' : 'quant-neg') + '">' + escapeHtml(row.direction) + '</td><td>$' + Number(row.entryFill).toFixed(2) + '</td><td>' + escapeHtml(contract) + '</td><td>' + escapeHtml(levels) + '</td><td>' + row.confidence + ' / ' + row.threshold + '</td><td class="dt-wrap">' + escapeHtml(row.invalidation || '') + '</td><td class="dt-wrap">' + escapeHtml(row.timeExit || '') + '</td></tr>';
-      });
-      html += '</tbody></table></div>';
-    }
-    var decisions = Array.isArray(d.decisions) ? d.decisions : [];
-    html += '<div class="quant-sub">Latest decision queue</div>';
-    if (!decisions.length) html += '<p class="quant-none">No volume-qualified candidates in the latest pass.</p>';
-    else {
-      html += '<div class="quant-scroll"><table class="quant-tbl dt-table"><thead><tr><th>Name</th><th>Lean</th><th>Score</th><th>Decision</th><th>Books</th><th>Risk-gate reason</th></tr></thead><tbody>';
-      decisions.forEach(function(row){
-        html += '<tr><td>' + quantSymLink(row.symbol) + '</td><td class="' + (row.direction === 'long' ? 'quant-pos' : 'quant-neg') + '">' + escapeHtml(row.direction) + '</td><td><b>' + row.score + '</b> / ' + row.threshold + '</td><td>' + escapeHtml(row.status) + '</td><td>' + escapeHtml((row.opened || []).join(' + ') || '—') + '</td><td class="dt-wrap">' + escapeHtml((row.reasons || []).join(' · ') || 'cleared') + '</td></tr>';
-      });
-      html += '</tbody></table></div>';
-    }
-    html += '<p class="quant-none">Simulation only. Stock fills use 5 bp slippage plus $0.005/share. No order is ever sent.</p>';
-    root.innerHTML = html;
-  }
-  function renderDayTradingTrack(){
-    var root = $('day-trading-track-root'); var empty = $('day-trading-track-empty'); var stamp = $('dt-track-stamp');
-    if (!root) return;
-    var d = dayTradingState.data; var h = dayTradingState.history || {};
-    if (!d || !h.portfolios){
-      root.hidden = true; if (empty) empty.hidden = false; if (stamp) stamp.textContent = 'Awaiting ledger';
-      return;
-    }
-    root.hidden = false; if (empty) empty.hidden = true;
-    var updated = Date.parse(h.updatedAt || d.updatedAt || '');
-    if (stamp) stamp.textContent = isFinite(updated) ? 'Updated ' + formatDisplayInstant(updated, {hour:'numeric', minute:'2-digit'}) : 'Paper ledger';
-    var summaries = d.portfolios || {}; var books = h.portfolios || {}; var sessions = Array.isArray(h.sessions) ? h.sessions : [];
-    var html = '<div class="dt-books">';
-    [['stock','Stock long / short']].forEach(function(pair){
-      var key = pair[0]; var s = summaries[key] || {}; var b = books[key] || {};
-      var excluded = Number(s.excludedClosedCount || 0);
-      html += '<section class="dt-book"><div class="dt-book-head"><div><small>' + pair[1] + '</small><h4>' + Number(s.closedCount || 0) + ' validated' + (excluded ? ' · ' + excluded + ' excluded' : '') + '</h4></div><span>' + (s.winRate == null ? '— win rate' : s.winRate + '% wins') + '</span></div>' +
-        '<div class="dt-book-grid"><span><small>Validated equity</small><b>' + dtMoney(s.validatedEquity) + '</b></span><span><small>Raw simulator equity</small><b>' + dtMoney(s.trueEquity) + '</b></span><span><small>Profit factor</small><b>' + (s.profitFactor == null ? '—' : s.profitFactor) + '</b></span><span><small>Avg win / loss</small><b>' + dtMoney(s.avgWin) + ' / ' + dtMoney(s.avgLoss) + '</b></span></div>' +
-        dtAnalytics(key, b, s, sessions) + '</section>';
-    });
-    html += '</div>';
-    var closed = [];
-    ['stock'].forEach(function(kind){
-      (Array.isArray(books[kind]?.closed) ? books[kind].closed : []).forEach(function(row){ closed.push(row); });
-    });
-    closed.sort(function(a, b){ return Date.parse(b.closedAt || 0) - Date.parse(a.closedAt || 0); });
-    html += '<div class="quant-sub">Recent closed paper trades</div>';
-    if (!closed.length) html += '<p class="quant-none">No trades have closed yet. The record begins only after a simulated position exits.</p>';
-    else {
-      html += '<div class="quant-scroll"><table class="quant-tbl dt-table"><thead><tr><th>Closed</th><th>Book</th><th>Name</th><th>Side</th><th>Entry</th><th>Exit reason</th><th>Record</th><th>P&amp;L</th><th>Hold</th></tr></thead><tbody>';
-      closed.slice(0, 100).forEach(function(row){
-        var closedAt = Date.parse(row.closedAt || '');
-        var eligible = row.trackRecordEligible !== false;
-        html += '<tr' + (eligible ? '' : ' class="is-excluded"') + '><td>' + (isFinite(closedAt) ? formatDisplayInstant(closedAt, {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}) : '—') + '</td><td>' + escapeHtml(row.book || '') + '</td><td>' + quantSymLink(row.symbol) + '</td><td class="' + (row.direction === 'long' ? 'quant-pos' : 'quant-neg') + '">' + escapeHtml(row.direction || '') + '</td><td>' + dtMoney(row.initialCash) + '</td><td>' + escapeHtml(row.outcome || '') + '</td><td>' + (eligible ? 'Included' : 'Excluded · missed close') + '</td><td class="' + dtPnlClass(row.pnl) + '"><b>' + dtMoney(row.pnl) + '</b></td><td>' + Number(row.holdMinutes || 0) + 'm</td></tr>';
-      });
-      html += '</tbody></table></div>';
-    }
-    html += '<p class="quant-none">Validated statistics include only trades closed on their entry session. Cross-session rows caused by a missed scheduler close remain visible for audit but are excluded from performance. Paper results include modeled slippage and commissions; this is not a live brokerage statement.</p>';
-    root.innerHTML = html;
   }
   function renderQuant(){
     var root = $('quant-root'); var empty = $('quant-empty'); var eye = $('quant-eyebrow');
@@ -26466,6 +26288,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         calendarState.data = (json && Array.isArray(json.events)) ? json : { events: [] };
+        if (Array.isArray(calendarState.data.events)) {
+          calendarState.data.events = calendarState.data.events.filter(function(e){
+            return !(e && e.source === 'Federal Reserve Board' && e.type === 'report' && calIsExcludedFedReport(e.title));
+          });
+        }
         calendarState.loading = false;
         calendarState.fetchedAt = Date.now();
         renderCalendarConsumers();
@@ -26475,6 +26302,17 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         calendarState.loading = false;
         renderCalendarConsumers();
       });
+  }
+  // Mirror scripts/build.mjs::isExcludedFedCalendarReport so a still-baked
+  // calendar.json cannot keep painting the high-frequency Fed table prints
+  // (H.15, CP, H.10, …) after ingest already dropped them.
+  function calIsExcludedFedReport(title){
+    var text = String(title || '').trim();
+    if (/^CP\\b/i.test(text)) return true;
+    var code = /^([GH])\\s*\\.?\\s*(\\d+)(?:\\s*\\.\\s*(\\d+))?\\b/i.exec(text);
+    if (!code) return false;
+    var normalized = code[1].toUpperCase() + '.' + Number(code[2]) + (code[3] ? '.' + Number(code[3]) : '');
+    return /^(?:H\\.4\\.1|H\\.6|H\\.8|H\\.10|H\\.15|G\\.5|G\\.19|G\\.20)$/.test(normalized);
   }
   function calendarTypeLabel(type){
     if (type === 'earnings') return 'Earnings';
@@ -26656,7 +26494,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   }
   // Decision-grade events must win the three visible month-cell slots. The
   // complete day detail still retains every routine print; this only prevents
-  // low-importance CP/H.15/H.4.1 rows from hiding Jackson Hole or an FOMC event
+  // low-importance routine Fed prints from hiding Jackson Hole or an FOMC event
   // behind a "+N" overflow marker.
   function calEventImportanceRank(e){
     var importance = String(e && e.importance || '').toLowerCase();
@@ -26716,10 +26554,11 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       return { event: e, days: calDaysFromEvent(e, todayMs) };
     }).filter(function(x){ return x.days != null && x.days >= 0; })
       .sort(function(a, b){ return a.days - b.days; });
-    // Complete official calendars contain routine daily statistical plumbing
-    // (CP, H.15, H.10, etc.). Keep it visible in the month/day detail, but do
-    // not let a low-importance row manufacture a binary-risk warning or crowd
-    // a genuinely market-moving release out of "First scheduled risk".
+    // Complete official calendars used to contain routine daily statistical
+    // plumbing (CP, H.15, H.10, …). Those families are now dropped at ingest
+    // and again on load. Remaining low-importance rows must not manufacture a
+    // binary-risk warning or crowd a market-moving release out of "First
+    // scheduled risk".
     var riskFuture = future.filter(function(x){ return x.event.importance !== 'low'; });
     var today = riskFuture.filter(function(x){ return x.days === 0; }).map(function(x){ return x.event; });
     var tomorrow = riskFuture.filter(function(x){ return x.days === 1; }).map(function(x){ return x.event; });
@@ -28166,7 +28005,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
   // by the selected instrument's close-to-close %change for that session. An
   // index toggle (SPY/QQQ/IWM/SMH/DIA/VXUS/TLT/GLD/VIX) switches which one colors the
   // grid; a per-month summary tallies green vs red days and the month's
-  // compounded return. Renders the premium, bake-accumulated
+  // compounded return. Renders the bake-accumulated public
   // data/index-calendar.json ({ days:[{ date, spy:{c,chPct}, qqq, iwm, ... }] }),
   // lazy-fetched on first open and re-fetched when stale (mirrors loadBrief).
   var indexCalState = {
@@ -37341,28 +37180,50 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     if (!modal || !input || !results) return;
 
     var TABS = [
-      ['tickers', 'Tickers'],
-      ['narratives', 'Narratives'],
       ['brief', 'Brief'],
       ['news', 'News desk'],
-      ['market', 'Market analysis'],
-      ['rotation', 'Sector rotation'],
-      ['picks', 'Top picks'],
-      ['stocks', 'Stock picks'],
       ['heatmap', 'Heatmap'],
-      ['calendar', 'Calendar'],
-      ['index-cal', 'Index calendar'],
-      ['overnight', 'Overnight markets'],
+      ['narratives', 'Narratives'],
+      ['tickers', 'Tickers'],
+      ['grade', 'Grade a ticker'],
+      ['compare', 'Compare companies'],
+      ['strategies', 'Strategies'],
+      ['ma-tracker', 'MA tracker'],
       ['flow', 'Unusual flow'],
       ['volume', 'Volume'],
       ['oi', 'Gamma exposure (GEX)'],
-      ['grade', 'Grade a ticker'],
-      ['strategies', 'Strategies'],
+      ['iv-trend', 'Trending IV'],
       ['streaks', 'Streaks'],
+      ['spillover', 'Event spillover'],
+      ['index-cal', 'Index calendar'],
+      ['calendar', 'Calendar'],
+      ['pending-buyouts', 'Pending buyouts'],
+      ['earnings', 'Earnings tracker'],
+      ['calls', 'Earnings calls'],
+      ['overnight', 'Overnight markets'],
       ['fear-greed', 'Fear & Greed'],
-      ['f13', '13F filings'],
       ['bonds-usd', 'Bonds & USD'],
-      ['track', 'Track record'],
+      ['commodities', 'Commodities'],
+      ['capital-raises', 'Capital raises'],
+      ['ipo-credit', 'IPOs & credit'],
+      ['ai-capex', 'AI CapEx'],
+      ['ram-prices', 'RAM prices'],
+      ['accelerator-prices', 'GPU cloud prices'],
+      ['central-bank-gold', 'Central-bank gold'],
+      ['search-interest', 'Search interest'],
+      ['f13', '13F filings'],
+      ['market', 'Market analysis'],
+      ['picks', 'Top picks'],
+      ['stocks', 'Stock picks'],
+      ['rotation', 'Sector rotation'],
+      ['levetf', 'Leveraged ETFs'],
+      ['track', 'Top Picks track record'],
+      ['quant', 'Owner Lab'],
+      ['cheatsheet', "Buyer's manual"],
+      ['chart-patterns', 'Chart patterns'],
+      ['timeline', 'Refresh schedule'],
+      ['privacy', 'Privacy Policy'],
+      ['terms', 'Terms of Use'],
     ];
 
     function buildCorpus(){

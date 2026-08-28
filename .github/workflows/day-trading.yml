@@ -7,9 +7,14 @@ name: Owner Day Trading Engine
 # Delayed runs remain eligible through 18:05 ET so at least one post-close pass
 # can enforce the 16:00 flatten even when the scheduler delivers it late. The
 # engine itself never opens a new position at or after 16:00 ET.
+#
+# Owner Day Trading desks are retired from the live Owner UI. The 15-minute
+# schedule is parked on purpose so the engine can be re-enabled later without
+# restoring deleted files. Keep workflow_dispatch. To resume, uncomment the
+# schedule block below.
 on:
-  schedule:
-    - cron: "7,22,37,52 13-21 * * 1-5"
+  # schedule:
+  #   - cron: "7,22,37,52 13-21 * * 1-5"
   workflow_dispatch:
 
 permissions:
