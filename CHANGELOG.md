@@ -20,6 +20,14 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-08-29
+
+### Removed
+
+- **Day Trading and its Day Trading Track Record are retired.** The owner tabs, browser loader and renderer, dedicated 15-minute workflow, stock paper engine, freshness route, generated styling, tests, and current documentation are removed. Retired private payload names hard-404 before storage access and remain denylisted and excluded from bake ownership, so stale ledgers cannot be republished or exposed. `.github/workflows/day-trading.yml`, `lib/{data-ownership,data-response,day-trading-engine,premium-keys}.mjs`, `scripts/{day-trading-smoke,private-store-smoke,scan-day-trading,sync-data,verify-data-freshness}.mjs`, `scripts/render/{app-js,html,styles-css}.mjs`, `docs/{day-trading-engine,private-data-migration,quant-lab,site-logic}.md`, `package.json`, `app.js`, `index.html`, `styles.css`.
+
+- **Calendar removes H.15 Selected Interest Rates.** The Federal Reserve H.15 publication is filtered during official-calendar ingestion and stale carry-forward alongside the existing repetitive report exclusions, so regeneration cannot restore it. `scripts/{build,calendar-smoke}.mjs`, `data/calendar.json`.
+
 ## 2026-08-26
 
 ### Fixed

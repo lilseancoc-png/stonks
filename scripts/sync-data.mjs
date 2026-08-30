@@ -12,7 +12,6 @@
 //   node scripts/sync-data.mjs push --owner=oi
 //   node scripts/sync-data.mjs push --owner=brief
 //   node scripts/sync-data.mjs push --owner=search-interest
-//   node scripts/sync-data.mjs push --owner=daytrading
 //   node scripts/sync-data.mjs seed                 # one-time: upload ALL local data/
 //   node scripts/sync-data.mjs flatten              # active snapshot -> legacy roots
 //   ...any command + --dry-run to print actions without touching the store.
@@ -276,8 +275,8 @@ async function publish(owner, keys, { dryRun, deletes = [], label }) {
 
 async function pushBake({ dryRun }) {
   const local = await localKeys();
-  // Everything local except the scanner-exclusive set (which a concurrent scan
-  // owns) and the request-time set (which the live site owns).
+  // Everything local except producer-exclusive or retired-private keys and the
+  // request-time set (which the live site owns).
   const owned = local.filter(isBakeOwnedKey);
   // Delete-stale from the NEXT logical manifest: physical old-generation
   // objects remain unreachable and age out through conservative GC.

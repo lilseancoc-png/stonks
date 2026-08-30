@@ -12,11 +12,6 @@ held-option checker, personalized VOO/QQQ DCA dollars, Sector Rotation share
 caps, and Leveraged ETF share caps. Their standardized research remains in the
 broader Owner workspace; account-specific application remains isolated here.
 
-The same owner-only tab also contains a separate actionable **paper** Day
-Trading Engine. It has its own 15-minute producer and durable two-portfolio
-ledger; it does not change the analytical-only contract of `quant.json` or any
-screen documented below. See [`day-trading-engine.md`](day-trading-engine.md).
-
 ## 1. Owner directive — analytical screens, never trade signals
 
 Same rule as the Event Spillover Matrix (`docs/event-spillover.md`): every

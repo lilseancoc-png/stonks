@@ -66,10 +66,10 @@ ok("repetitive Fed report families are excluded", [
   "H.4.1 - Factors Affecting Reserve Balances",
   "G5 - Foreign Exchange Rates",
   "G.19 - Consumer Credit",
+  "H.15 - Selected Interest Rates",
 ].every(isExcludedFedCalendarReport));
 ok("unlisted Fed reports remain eligible", [
   "G.17 - Industrial Production and Capacity Utilization",
-  "H.15 - Selected Interest Rates",
 ].every((title) => !isExcludedFedCalendarReport(title)));
 
 const jackson = parseJacksonHoleSymposium(`
@@ -87,7 +87,7 @@ ok("multi-day events paint every covered date", JSON.stringify(display.calEventD
   "2026-08-27", "2026-08-28", "2026-08-29",
 ]));
 const routinePrints = [
-  { type: "report", date: "2026-08-27", title: "H.15 - Selected Interest Rates", importance: "low" },
+  { type: "report", date: "2026-08-27", title: "G.5A - Foreign Exchange Rates", importance: "low" },
   { type: "report", date: "2026-08-27", title: "G.17 - Industrial Production and Capacity Utilization", importance: "medium" },
   { type: "report", date: "2026-08-27", title: "Z.1 - Financial Accounts of the United States", importance: "medium" },
 ];
