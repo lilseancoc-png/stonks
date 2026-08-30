@@ -8,7 +8,6 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test:day-trading": "node scripts/day-trading-smoke.mjs",
     "test:ai-capex": "node scripts/ai-capex-smoke.mjs",
     "test:ma-tracker": "node scripts/ma-tracker-smoke.mjs",
     "test:heatmap": "node scripts/heatmap-smoke.mjs",

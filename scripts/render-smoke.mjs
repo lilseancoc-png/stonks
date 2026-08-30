@@ -44,7 +44,8 @@ try {
   assert.equal(contentAssetVersion("same\r\nlines\r\n"), contentAssetVersion("same\nlines\n"));
   assert.equal((html.match(/id="picks-position"/g) || []).length, 1);
   assert.ok(html.indexOf('id="picks-position"') > html.indexOf('id="quant-section"'));
-  assert.match(html, /data-nav-group="owner"[\s\S]*?side-nav-group-label">Owner[\s\S]*?data-page-tab="market"[\s\S]*?data-page-tab="picks"[\s\S]*?data-page-tab="stocks"[\s\S]*?data-page-tab="rotation"[\s\S]*?data-page-tab="levetf"[\s\S]*?data-page-tab="track"[\s\S]*?data-page-tab="daytrade"[\s\S]*?data-page-tab="daytrack"[\s\S]*?data-page-tab="quant"/);
+  assert.match(html, /data-nav-group="owner"[\s\S]*?side-nav-group-label">Owner[\s\S]*?data-page-tab="market"[\s\S]*?data-page-tab="picks"[\s\S]*?data-page-tab="stocks"[\s\S]*?data-page-tab="rotation"[\s\S]*?data-page-tab="levetf"[\s\S]*?data-page-tab="track"[\s\S]*?data-page-tab="quant"/);
+  assert.doesNotMatch(html, /data-page-tab="daytrade"|data-page-tab="daytrack"|Day Trading Track Record/);
   const navGroups = html.match(/<details class="side-nav-group"[^>]*>/g) || [];
   assert.equal(navGroups.length, 9, "All sidebar navigation groups must render");
   assert.ok(navGroups.every((tag) => /\sopen(?:\s|>)/.test(tag)), "All sidebar navigation groups must start expanded");
@@ -219,7 +220,8 @@ try {
   assert.match(html, /How to use this fundamentals-first rebound desk[\s\S]*?Quality Recovery Shortlist/);
   const regenStaticSource = await readFile(resolve(process.cwd(), "scripts", "regen-static.mjs"), "utf8");
   assert.match(regenStaticSource, /existingShellManifest\?\.symbols[\s\S]*?new Set\(\[\.\.\.TICKERS, \.\.\.symbols, \.\.\.existingSymbols\]\)/, "renderer-only regeneration must preserve source and shell symbols missing from a partial hydrate");
-  assert.match(appJs, /var OWNER_TABS = \{ market:1, picks:1, stocks:1, rotation:1, levetf:1, track:1, daytrade:1, daytrack:1, quant:1 \}/);
+  assert.match(appJs, /var OWNER_TABS = \{ market:1, picks:1, stocks:1, rotation:1, levetf:1, track:1, quant:1 \}/);
+  assert.doesNotMatch(appJs, /day-trading\.json|day-trading-history\.json|loadDayTrading/);
   assert.match(appJs, /HAS_TRACK_RECORD = HAS_OWNER_ACCESS/);
   assert.match(appJs, /HAS_TOP_PICKS = HAS_OWNER_ACCESS/);
   assert.match(appJs, /HAS_OWNER_ACCESS = !!\(GATE_ON && me && me\.trackRecord && me\.topPicks\)/);

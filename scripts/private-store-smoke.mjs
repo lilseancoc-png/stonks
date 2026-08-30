@@ -389,6 +389,12 @@ try {
   assert.equal(corruptRes.statusCode, 502);
   assert.equal(corruptRes.headers["cache-control"], "no-store");
   const readsBeforeOwner = storeReads;
+  for (const retiredKey of ["day-trading.json", "day-trading-history.json"]) {
+    const retiredRes = mockResponse();
+    await serveDataKey({ headers: {} }, retiredRes, retiredKey);
+    assert.equal(retiredRes.statusCode, 404);
+    assert.equal(storeReads, readsBeforeOwner, "retired keys must stop before storage");
+  }
   const ownerRes = mockResponse();
   await serveDataKey({ headers: {} }, ownerRes, "picks.json");
   assert.equal(ownerRes.statusCode, 401);

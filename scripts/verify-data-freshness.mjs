@@ -7,7 +7,6 @@
 //   node scripts/verify-data-freshness.mjs --owner=unusual
 //   node scripts/verify-data-freshness.mjs --owner=oi
 //   node scripts/verify-data-freshness.mjs --owner=search-interest
-//   node scripts/verify-data-freshness.mjs --owner=daytrading
 //   node scripts/verify-data-freshness.mjs --self-test
 
 import { appendFile, mkdtemp, mkdir, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
@@ -800,17 +799,6 @@ async function auditBrief({ report, dataDir, runStartedAt, now }) {
   await requireRewrittenJson(report, dataDir, "ai-usage.json", runStartedAt);
 }
 
-async function auditDayTrading({ report, dataDir, runStartedAt, now }) {
-  const snapshot = await requireStampedFile(report, dataDir, "day-trading.json", null, runStartedAt, now, ["updatedAt"]);
-  const history = await requireStampedFile(report, dataDir, "day-trading-history.json", null, runStartedAt, now, ["updatedAt"]);
-  if (!snapshot?.portfolios?.stock || snapshot?.portfolios?.options) {
-    fail(report, "day-trading.json: expected the stock-only portfolio summary");
-  }
-  if (!history?.portfolios?.stock || history?.portfolios?.options) {
-    fail(report, "day-trading-history.json: expected the stock-only ledger");
-  }
-}
-
 export async function auditFreshness({
   owner,
   dataDir = DEFAULT_DATA_DIR,
@@ -818,8 +806,8 @@ export async function auditFreshness({
   now = new Date(),
   expectedSymbols = TICKERS,
 } = {}) {
-  if (!["bake", "unusual", "oi", "brief", "search-interest", "daytrading"].includes(owner)) {
-    throw new Error("owner must be bake|unusual|oi|brief|search-interest|daytrading");
+  if (!["bake", "unusual", "oi", "brief", "search-interest"].includes(owner)) {
+    throw new Error("owner must be bake|unusual|oi|brief|search-interest");
   }
   const startMs = validMs(runStartedAt);
   if (startMs == null) {
@@ -831,7 +819,6 @@ export async function auditFreshness({
   else if (owner === "unusual") await auditUnusual({ report, dataDir, runStartedAt: start, now });
   else if (owner === "oi") await auditOi({ report, dataDir, runStartedAt: start, now });
   else if (owner === "brief") await auditBrief({ report, dataDir, runStartedAt: start, now });
-  else if (owner === "daytrading") await auditDayTrading({ report, dataDir, runStartedAt: start, now });
   else await auditSearchInterest({ report, dataDir, runStartedAt: start, now });
   return report;
 }
@@ -963,8 +950,6 @@ async function selfTest() {
     await write("volume-history.json", { snapshots: [{ scannedAt: stamp }] });
     await write("oi-history.json", validOiHistory);
     await write("flow-explanations.json", { updatedAt: stamp, mode: "deterministic-v1", entries: {} });
-    await write("day-trading.json", { updatedAt: stamp, portfolios: { stock: {} } });
-    await write("day-trading-history.json", { updatedAt: stamp, portfolios: { stock: {} } });
 
     const report = await auditFreshness({
       owner: "bake",
@@ -1036,7 +1021,7 @@ async function selfTest() {
         },
       },
     });
-    for (const owner of ["unusual", "oi", "search-interest", "daytrading"]) {
+    for (const owner of ["unusual", "oi", "search-interest"]) {
       const ownerReport = await auditFreshness({
         owner,
         dataDir: dir,

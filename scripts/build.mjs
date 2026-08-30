@@ -13234,7 +13234,7 @@ const BLS_CALENDAR_ICS = "https://www.bls.gov/schedule/news_release/bls.ics";
 const BEA_CALENDAR_ICS = "https://www.bea.gov/news/schedule/ics/online-calendar-subscription.ics";
 const KC_FED_JACKSON_HOLE_URL = "https://www.kansascityfed.org/research/jackson-hole-economic-symposium/about-jackson-hole-economic-symposium/";
 const EXCLUDED_FED_CALENDAR_REPORTS = new Set([
-  "CP", "H.4.1", "H.6", "H.8", "H.10", "G.5", "G.19", "G.20",
+  "CP", "H.4.1", "H.6", "H.8", "H.10", "H.15", "G.5", "G.19", "G.20",
 ]);
 const JACKSON_HOLE_BASELINE = [
   {
