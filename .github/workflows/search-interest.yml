@@ -37,12 +37,22 @@ jobs:
             exit 0
           fi
           UTC_HOUR=$(awk '{print $2}' <<<"$TRIGGER_SCHEDULE")
-          UTC_DATE=$(date -u +%F)
-          ET_DAY=$(TZ=America/New_York date -d "$UTC_DATE ${UTC_HOUR}:30 UTC" +%u)
-          ET_TIME=$(TZ=America/New_York date -d "$UTC_DATE ${UTC_HOUR}:30 UTC" +%H:%M)
-          if [ "$ET_DAY" = "5" ] && [ "$ET_TIME" = "11:30" ]; then
+          # Route from the immutable cron expression, not the runner's wall
+          # clock. GitHub schedules are best-effort and can start hours late or
+          # after midnight UTC; reconstructing the slot with today's date made
+          # both Aug. 28 events no-op after they finally started on Aug. 29.
+          ET_OFFSET=$(TZ=America/New_York date +%z)
+          case "$ET_OFFSET" in
+            -0400) EXPECTED_UTC_HOUR=15 ;;
+            -0500) EXPECTED_UTC_HOUR=16 ;;
+            *)
+              echo "::error::Unexpected America/New_York UTC offset: $ET_OFFSET"
+              exit 1
+              ;;
+          esac
+          if [ "$UTC_HOUR" = "$EXPECTED_UTC_HOUR" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
-            echo "Scheduled Friday 11:30 ET weekly Alt Data refresh."
+            echo "Scheduled Friday 11:30 ET weekly Alt Data refresh (runner delay does not change the routed slot)."
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
             echo "Companion UTC slot is outside Friday 11:30 ET; no-op."
@@ -64,6 +74,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
+
+      - name: Verify workflow schedule guards
+        run: npm run test:workflow-schedules
 
       - name: Hydrate data from private store
         if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
