@@ -20,6 +20,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-09-02
+
+### Fixed
+
+- **Transient Yahoo chart errors no longer discard an otherwise complete build without retrying.** Required daily history and optional intraday chart requests now retry transport-shaped failures three times with bounded backoff, recognize Yahoo's legacy HTML `HTTP 400` response as transient, and keep failure logs concise; deterministic schema errors still fail immediately and the pre-AI freshness gate remains fail-closed after retries are exhausted. The close-bake watchdog now distinguishes successful, active, and failed Daily runs, dispatches one recovery bake after a failed close attempt, adds a later cross-DST verification slot, and tolerates GitHub cron delays through 20:30 ET. `lib/yahoo-retry.mjs`, `scripts/{build,yahoo-retry-smoke}.mjs`, `.github/workflows/{daily,close-bake-fallback}.yml`, `package.json`.
+
 ## 2026-08-29
 
 ### Removed

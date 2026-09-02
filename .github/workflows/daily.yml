@@ -207,7 +207,6 @@ jobs:
       REFRESH_SWING_DESKS: ${{ needs.route.outputs.refresh_swing_desks }}
       REFRESH_BRIEF: ${{ needs.route.outputs.refresh_brief }}
     steps:
-
       - uses: actions/checkout@v5
         with:
           # Resolve the freshest tip of the dispatched ref at checkout
@@ -256,6 +255,9 @@ jobs:
 
       - name: Verify AI cost controls
         run: npm run verify:ai-cost
+
+      - name: Verify Yahoo retry policy
+        run: npm run test:yahoo-retry
 
       - name: Build site
         env:

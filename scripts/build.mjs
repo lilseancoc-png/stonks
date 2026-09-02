@@ -29,6 +29,7 @@ import { isPremiumKey } from "../lib/premium-keys.mjs";
 import { BRIEF_ACCESS_POLICY_VERSION } from "../lib/public-data-policy.mjs";
 import { contentAssetVersion } from "../lib/asset-version.mjs";
 import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
+import { summarizeYahooError, withYahooRetry } from "../lib/yahoo-retry.mjs";
 import {
   buildAcceleratorPricesPayload,
   fetchAcceleratorMarketplaces,
@@ -1221,31 +1222,12 @@ const FETCH_RETRIES = 3;
 const FETCH_BACKOFF_MS = [1000, 3000, 8000];
 const MIN_SUCCESS_RATE = 0.75;
 
-function isTransientYahooError(err) {
-  const msg = String(err?.message || err || "");
-  if (/allowlist|401|403|429|5\d\d|ENOTFOUND|ECONNRESET|ETIMEDOUT|fetch failed|network/i.test(msg)) return true;
-  // yahoo-finance2 schema validation errors are not transient — don't retry.
-  if (/validation|schema|FailedYahooValidationError/i.test(msg)) return false;
-  // Default: retry. Most non-validation throws here are network-shaped.
-  return true;
-}
-
 async function fetchTickerChainWithRetry(symbol) {
-  let lastErr;
-  for (let attempt = 1; attempt <= FETCH_RETRIES; attempt++) {
-    try {
-      const result = await fetchTickerChain(symbol);
-      if (attempt > 1) console.log(`    ↻ ${symbol} succeeded on attempt ${attempt}`);
-      return result;
-    } catch (err) {
-      lastErr = err;
-      if (attempt === FETCH_RETRIES || !isTransientYahooError(err)) break;
-      const wait = FETCH_BACKOFF_MS[attempt - 1] ?? 8000;
-      console.log(`    ↻ ${symbol} attempt ${attempt} failed (${err.message}) — retrying in ${wait}ms`);
-      await new Promise((r) => setTimeout(r, wait));
-    }
-  }
-  throw lastErr;
+  return withYahooRetry(() => fetchTickerChain(symbol), {
+    attempts: FETCH_RETRIES,
+    backoffMs: FETCH_BACKOFF_MS,
+    label: symbol,
+  });
 }
 
 async function fetchYahooOptions(symbol, expDate) {
@@ -1280,8 +1262,9 @@ function compressContract(c) {
 // to run a 14-period RSI, a 12/26/9 MACD, and rolling 20-/50-day swing
 // support/resistance off the same series. Cost is one extra Yahoo call per
 // ticker (chart endpoint), added to the per-expiration calls already running
-// inside fetchTickerChain — kept non-fatal so the grader still works when
-// Yahoo hiccups on the chart side.
+// inside fetchTickerChain. Transient chart failures retry in place; an
+// exhausted daily-history miss remains null so the pre-AI gate can fail closed
+// before paid work or publication.
 // 365 calendar days ≈ 252 trading days — enough to fill the 200-day SMA and
 // the 200-day support/resistance windows with margin for weekends + market
 // holidays. (Was 220 ≈ ~150 trading days, which left every 200d window
@@ -1293,26 +1276,37 @@ const HISTORY_LOOKBACK_DAYS = 365;
 async function fetchHistoricalBars(symbol) {
   const period2 = new Date();
   const period1 = new Date(period2.getTime() - HISTORY_LOOKBACK_DAYS * 24 * 3600 * 1000);
-  const result = await yahooFinance.chart(symbol, {
-    period1,
-    period2,
-    interval: "1d",
-  });
-  const quotes = Array.isArray(result?.quotes) ? result.quotes : [];
-  return quotes
-    .filter((q) => q && q.close != null && q.high != null && q.low != null)
-    .map((q) => ({
-      // Open kept for the earnings-history reaction math (post-print gap).
-      o: q.open ?? null,
-      c: q.close,
-      h: q.high,
-      l: q.low,
-      v: q.volume ?? null,
-      // Date kept for the streak tracker (data/streaks.json). yahoo-finance2
-      // returns Date instances; serialize to YYYY-MM-DD so the runtime
-      // doesn't need to know about timezones.
-      t: q.date ? new Date(q.date).toISOString().slice(0, 10) : null,
-    }));
+  return withYahooRetry(
+    async () => {
+      const result = await yahooFinance.chart(symbol, {
+        period1,
+        period2,
+        interval: "1d",
+      });
+      const quotes = Array.isArray(result?.quotes) ? result.quotes : [];
+      const bars = quotes
+        .filter((q) => q && q.close != null && q.high != null && q.low != null)
+        .map((q) => ({
+          // Open kept for the earnings-history reaction math (post-print gap).
+          o: q.open ?? null,
+          c: q.close,
+          h: q.high,
+          l: q.low,
+          v: q.volume ?? null,
+          // Date kept for the streak tracker (data/streaks.json). yahoo-finance2
+          // returns Date instances; serialize to YYYY-MM-DD so the runtime
+          // doesn't need to know about timezones.
+          t: q.date ? new Date(q.date).toISOString().slice(0, 10) : null,
+        }));
+      if (bars.length < 20) throw new Error(`Yahoo daily chart returned only ${bars.length} valid bars`);
+      return bars;
+    },
+    {
+      attempts: FETCH_RETRIES,
+      backoffMs: FETCH_BACKOFF_MS,
+      label: `${symbol} daily history`,
+    },
+  );
 }
 
 // Intraday bars (30-minute, ~1 month, REGULAR SESSION ONLY) — added for the
@@ -1336,33 +1330,44 @@ const ET_PARTS_FMT = new Intl.DateTimeFormat("en-US", {
 async function fetchIntradayBars(symbol) {
   const period2 = new Date();
   const period1 = new Date(period2.getTime() - INTRADAY_LOOKBACK_DAYS * 24 * 3600 * 1000);
-  const result = await yahooFinance.chart(symbol, { period1, period2, interval: INTRADAY_INTERVAL });
-  const quotes = Array.isArray(result?.quotes) ? result.quotes : [];
-  return quotes
-    .filter((q) => q && q.close != null && q.date)
-    .map((q) => {
-      const p = {};
-      for (const part of ET_PARTS_FMT.formatToParts(new Date(q.date))) p[part.type] = part.value;
-      let hh = parseInt(p.hour, 10); if (hh === 24) hh = 0; // some impls emit 24 at midnight
-      return { q, p, hh, mins: hh * 60 + parseInt(p.minute, 10) };
-    })
-    // 09:30 (570) .. 15:30 (930): 30m bars are stamped at their open, so the
-    // 15:30 bar covers the last regular half-hour; pre/post-market is dropped.
-    .filter((x) => x.mins >= 570 && x.mins <= 930)
-    .map((x) => ({
-      // Open/high/low stay transient in-memory (the browser's compact line-chart
-      // series still persists close + volume only). The Index Calendar's
-      // first/last-hour logger consumes the full OHLC bar before the raw series
-      // is stripped by writeChainFiles().
-      o: x.q.open ?? x.q.close,
-      c: x.q.close,
-      h: x.q.high ?? x.q.close,
-      l: x.q.low ?? x.q.close,
-      v: x.q.volume ?? null,
-      // ET wall-clock "YYYY-MM-DD HH:MM" so the browser labels the axis without
-      // needing timezone logic.
-      t: `${x.p.year}-${x.p.month}-${x.p.day} ${String(x.hh).padStart(2, "0")}:${x.p.minute}`,
-    }));
+  return withYahooRetry(
+    async () => {
+      const result = await yahooFinance.chart(symbol, { period1, period2, interval: INTRADAY_INTERVAL });
+      const quotes = Array.isArray(result?.quotes) ? result.quotes : [];
+      const bars = quotes
+        .filter((q) => q && q.close != null && q.date)
+        .map((q) => {
+          const p = {};
+          for (const part of ET_PARTS_FMT.formatToParts(new Date(q.date))) p[part.type] = part.value;
+          let hh = parseInt(p.hour, 10); if (hh === 24) hh = 0; // some impls emit 24 at midnight
+          return { q, p, hh, mins: hh * 60 + parseInt(p.minute, 10) };
+        })
+        // 09:30 (570) .. 15:30 (930): 30m bars are stamped at their open, so the
+        // 15:30 bar covers the last regular half-hour; pre/post-market is dropped.
+        .filter((x) => x.mins >= 570 && x.mins <= 930)
+        .map((x) => ({
+          // Open/high/low stay transient in-memory (the browser's compact line-chart
+          // series still persists close + volume only). The Index Calendar's
+          // first/last-hour logger consumes the full OHLC bar before the raw series
+          // is stripped by writeChainFiles().
+          o: x.q.open ?? x.q.close,
+          c: x.q.close,
+          h: x.q.high ?? x.q.close,
+          l: x.q.low ?? x.q.close,
+          v: x.q.volume ?? null,
+          // ET wall-clock "YYYY-MM-DD HH:MM" so the browser labels the axis without
+          // needing timezone logic.
+          t: `${x.p.year}-${x.p.month}-${x.p.day} ${String(x.hh).padStart(2, "0")}:${x.p.minute}`,
+        }));
+      if (!bars.length) throw new Error("Yahoo intraday chart returned no regular-session bars");
+      return bars;
+    },
+    {
+      attempts: FETCH_RETRIES,
+      backoffMs: FETCH_BACKOFF_MS,
+      label: `${symbol} intraday history`,
+    },
+  );
 }
 
 // A counter day moves opposite the streak. The daily noise floor, one-day
@@ -3481,14 +3486,14 @@ async function fetchTickerChain(symbol) {
     bars = await fetchHistoricalBars(symbol);
     technicals = computeTechnicals(bars);
   } catch (err) {
-    console.log(`    ⚠ ${symbol} historical/technicals failed: ${err.message}`);
+    console.log(`    ⚠ ${symbol} historical/technicals failed: ${summarizeYahooError(err)}`);
   }
   // Intraday (30m) for the 1W/1M chart + the chart-pattern detector. Independent
   // of the daily fetch above and non-fatal — a failure just hides intraday.
   try {
     intraday = await fetchIntradayBars(symbol);
   } catch (err) {
-    console.log(`    ⚠ ${symbol} intraday fetch failed: ${err.message}`);
+    console.log(`    ⚠ ${symbol} intraday fetch failed: ${summarizeYahooError(err)}`);
   }
   // ETFs return mostly empty modules, so the renderer hides the card when
   // there's nothing useful to show. fetchFundamentals already logs its own
