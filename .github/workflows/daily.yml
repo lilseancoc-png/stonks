@@ -259,6 +259,9 @@ jobs:
       - name: Verify Yahoo retry policy
         run: npm run test:yahoo-retry
 
+      - name: Verify workflow schedule guards
+        run: npm run test:workflow-schedules
+
       - name: Build site
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

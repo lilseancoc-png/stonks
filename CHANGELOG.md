@@ -24,6 +24,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
+- **Delayed Friday jobs no longer silently skip the weekly Alt Data refresh.** The DST-safe route now chooses the valid 11:30 ET cron expression from New York's UTC offset instead of combining the scheduled hour with the runner's eventual execution date, so a GitHub delay past midnight UTC cannot turn both Search Interest / RAM / GPU-price jobs into green no-ops. A workflow-schedule smoke guard covers the weekly route, Daily dispatch-time routing, and close-bake watchdog; the Overnight regression smoke test also accepts both LF and CRLF renderer sources, restoring reliable Windows verification without changing shipped UI behavior. `.github/workflows/{search-interest,daily}.yml`, `scripts/{workflow-schedule,overnight}-smoke.mjs`, `package.json`.
+
 - **Transient Yahoo chart errors no longer discard an otherwise complete build without retrying.** Required daily history and optional intraday chart requests now retry transport-shaped failures three times with bounded backoff, recognize Yahoo's legacy HTML `HTTP 400` response as transient, and keep failure logs concise; deterministic schema errors still fail immediately and the pre-AI freshness gate remains fail-closed after retries are exhausted. The close-bake watchdog now distinguishes successful, active, and failed Daily runs, dispatches one recovery bake after a failed close attempt, adds a later cross-DST verification slot, and tolerates GitHub cron delays through 20:30 ET. `lib/yahoo-retry.mjs`, `scripts/{build,yahoo-retry-smoke}.mjs`, `.github/workflows/{daily,close-bake-fallback}.yml`, `package.json`.
 
 ## 2026-08-29

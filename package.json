@@ -17,6 +17,7 @@
     "test:central-bank-gold": "node scripts/central-bank-gold-smoke.mjs",
     "test:commodities": "node scripts/commodities-smoke.mjs",
     "test:overnight": "node scripts/overnight-smoke.mjs",
+    "test:workflow-schedules": "node scripts/workflow-schedule-smoke.mjs",
     "test:yahoo-retry": "node scripts/yahoo-retry-smoke.mjs",
     "test:calendar": "node scripts/calendar-smoke.mjs",
     "test:narrative-risk": "node scripts/narrative-risk-smoke.mjs",
