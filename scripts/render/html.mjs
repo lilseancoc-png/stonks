@@ -1759,7 +1759,16 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
      open, collapse persisted. Mobile: overlay drawer, closes on navigation. -->
 <div class="side-nav-backdrop" id="side-nav-backdrop" hidden></div>
 <aside class="side-nav" id="side-nav">
-<nav class="page-tabs" role="tablist" aria-orientation="vertical" aria-label="Page sections">
+  <div class="nav-tools">
+    <div class="nav-tools-heading"><span>Workspace</span><button type="button" class="icon-btn nav-drawer-close" id="nav-drawer-close" aria-label="Close navigation">&times;</button></div>
+    <div class="nav-filter-box">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>
+      <input id="nav-filter" type="search" placeholder="Find a workspace…" aria-label="Filter navigation" aria-controls="workspace-tabs" autocomplete="off" spellcheck="false">
+      <button type="button" id="nav-filter-clear" aria-label="Clear navigation filter" hidden>&times;</button>
+    </div>
+    <p id="nav-filter-status" class="nav-filter-status" role="status" aria-live="polite" hidden></p>
+  </div>
+<nav class="page-tabs" id="workspace-tabs" role="tablist" aria-orientation="vertical" aria-label="Page sections">
   <details class="side-nav-group" data-nav-group="desk" open>
     <summary class="side-nav-group-label">Desk</summary>
     <div class="side-nav-group-items">

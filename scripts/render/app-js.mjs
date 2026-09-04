@@ -3621,6 +3621,57 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     } catch (_) {}
     if (sideNavToggle) sideNavToggle.addEventListener('click', toggleSideNav);
     if (sideNavBackdrop) sideNavBackdrop.addEventListener('click', closeSideNavDrawer);
+    var drawerClose = document.getElementById('nav-drawer-close');
+    if (drawerClose) drawerClose.addEventListener('click', function(){
+      closeSideNavDrawer();
+      if (sideNavToggle) sideNavToggle.focus();
+    });
+    // Filter destinations without altering entitlement-owned hidden flags.
+    // Temporarily open matching groups; clearing restores disclosure choices.
+    var navFilter = document.getElementById('nav-filter');
+    var navFilterClear = document.getElementById('nav-filter-clear');
+    var navFilterStatus = document.getElementById('nav-filter-status');
+    var navGroups = Array.from(document.querySelectorAll('.side-nav-group'));
+    var navGroupState = null;
+    var navMatches = [];
+    function updateNavFilter(){
+      var query = navFilter ? navFilter.value.trim().toLowerCase() : '';
+      if (query && !navGroupState) navGroupState = navGroups.map(function(group){ return group.open; });
+      navMatches = [];
+      navGroups.forEach(function(group, index){
+        var count = 0;
+        var label = group.querySelector('summary');
+        var groupName = label ? label.textContent.toLowerCase() : '';
+        group.querySelectorAll('[data-page-tab]').forEach(function(btn){
+          var allowed = valid.indexOf(btn.getAttribute('data-page-tab')) !== -1 && !group.hidden && !btn.hidden && !btn.hasAttribute('data-nav-hidden');
+          var match = allowed && (!query || (btn.textContent.toLowerCase() + ' ' + groupName).indexOf(query) !== -1);
+          btn.classList.toggle('nav-filter-hidden', !!query && !match);
+          if (match) { count++; navMatches.push(btn); }
+        });
+        group.classList.toggle('nav-filter-hidden', !!query && !count);
+        if (query && count) group.open = true;
+        else if (!query && navGroupState) group.open = navGroupState[index];
+      });
+      if (!query) navGroupState = null;
+      if (navFilterClear) navFilterClear.hidden = !query;
+      if (navFilterStatus) {
+        navFilterStatus.hidden = !query;
+        navFilterStatus.textContent = navMatches.length ? navMatches.length + ' workspace' + (navMatches.length === 1 ? '' : 's') + ' found' : 'No matches. Try a topic like earnings or macro.';
+      }
+    }
+    function resetNavFilter(){
+      if (!navFilter || !navFilter.value) return;
+      navFilter.value = '';
+      updateNavFilter();
+    }
+    if (navFilter) {
+      navFilter.addEventListener('input', updateNavFilter);
+      navFilter.addEventListener('keydown', function(ev){
+        if (ev.key === 'Escape' && navFilter.value) { ev.preventDefault(); ev.stopPropagation(); resetNavFilter(); }
+        if (ev.key === 'Enter' && navMatches.length === 1) { ev.preventDefault(); navMatches[0].click(); }
+      });
+    }
+    if (navFilterClear) navFilterClear.addEventListener('click', function(){ resetNavFilter(); navFilter.focus(); });
     document.addEventListener('keydown', function(ev){
       if (ev.key !== 'Escape') return;
       if (!isDesktopNav() && document.body.classList.contains('sidenav-open')) closeSideNavDrawer();
@@ -3753,6 +3804,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
       // Bounce stale/deep-linked Owner destinations before persisting or
       // starting any loader. The server independently enforces stored data.
       if (OWNER_TABS[name] && !HAS_OWNER_ACCESS) { return selectTab('home', nav); }
+      resetNavFilter();
       try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
       var activeBtn = null;
       tabs.forEach(function(btn){

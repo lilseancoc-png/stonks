@@ -22,6 +22,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-09-04
 
+### Changed
+
+- **The research workspace is easier to scan.** Home uses compact cards, clearer index metrics, readable shortcuts, and restrained header actions; shared card headings, secondary text, and focus states work across light and dark themes. The sidebar adds topic filtering with keyboard selection, empty-result guidance, and a mobile close control while preserving Owner access restrictions and disclosure choices.
+
 ### Fixed
 
 - **Close-bake recovery verifies publication (#638).** A successful router-only run no longer suppresses the watchdog; recovery stops only after the latest build attempt completes and publishes private-store or legacy data.
