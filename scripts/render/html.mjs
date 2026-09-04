@@ -408,8 +408,11 @@ function calendarSection() {
       <span class="card-eyebrow" id="calendar-eyebrow" aria-live="polite"></span>
     </header>
     ${infoNote("What's on this calendar?", `<p>A month-at-a-time view of every dated market event, opening on the <b>current month</b> — use <b>&lsaquo;</b> / <b>&rsaquo;</b> to step between months (or <b>Today</b> to jump back), and tap any day to see its full details below the grid. It tracks: confirmed earnings dates (with AM/PM session tagging) for every curated ticker, cross-checked against a rolling 21-day Nasdaq sweep; ticker-specific catalysts (FDA dates, contract decisions, product launches, court rulings, investor days — extracted from recent news); the complete official <b>BLS</b> and <b>BEA</b> release schedules; the Federal Reserve Board calendar (speeches, testimony, minutes, conferences, and statistical releases); the Kansas City Fed&rsquo;s Jackson Hole symposium; detailed market-moving reports with Actual / Previous / Consensus values; and upcoming FOMC decisions. Official source labels open the publisher&rsquo;s calendar. Effective Fed Funds, FedWatch probabilities, the official vote map, and the full rate path live together in <b>Bonds &amp; USD</b>. Ticker chips are clickable.</p>`)}
+    <details id="calendar-context" class="calendar-context">
+      <summary>Event risk &amp; overview <span id="calendar-context-summary"></span></summary>
     <div id="calendar-briefing" class="cal-briefing" hidden aria-live="polite"></div>
     <div id="calendar-overview" class="cal-overview" hidden></div>
+    </details>
     <div class="calendar-controls" role="toolbar" aria-label="Filter calendar">
       <div class="calendar-type-filter" role="radiogroup" aria-label="Filter by event type">
         <button type="button" class="calendar-pill is-on" data-cal-type="all" role="radio" aria-checked="true">All<span class="calendar-pill-count" aria-hidden="true"></span></button>
@@ -1696,6 +1699,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <link rel="stylesheet" href="styles.css?v=${cacheBustFor("styles")}">
 </head>
 <body>
+<a class="skip-content" href="#main-content">Skip to content</a>
 <header class="site-header">
   <div class="site-header-inner">
     <div class="site-header-lead">
@@ -1724,6 +1728,11 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h14v7a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5Z"/><path d="M17 10h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M7.5 11.5c1-1.4 3-1.4 4 0 1-1.4 3-1.4 4 0 0 2.2-2 3.5-4 4.7-2-1.2-4-2.5-4-4.7Z"/></svg>
         <span>Support</span>
       </a>
+      <div class="workspace-settings" id="workspace-settings">
+      <button type="button" class="icon-btn" id="workspace-settings-toggle" aria-label="Open settings" aria-expanded="false" aria-controls="workspace-settings-panel">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="var(--surface)"/><circle cx="15" cy="17" r="3" fill="var(--surface)"/></svg>
+      </button>
+      <div id="workspace-settings-panel" class="workspace-settings-panel" role="group" aria-label="Display and account settings">
       <label class="time-zone-control" title="Display timestamped data in your local zone or a selected U.S. market zone. Trading schedules stay in ET.">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
         <span class="sr-only">Display time zone</span>
@@ -1742,6 +1751,8 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       </button>
       <!-- Owner session chip. Public visitors never see a login CTA. -->
       <div id="auth-chip" class="auth-chip" hidden></div>
+      </div>
+      </div>
     </nav>
   </div>
 </header>
@@ -1766,7 +1777,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       <input id="nav-filter" type="search" placeholder="Find a workspace…" aria-label="Filter navigation" aria-controls="workspace-tabs" autocomplete="off" spellcheck="false">
       <button type="button" id="nav-filter-clear" aria-label="Clear navigation filter" hidden>&times;</button>
     </div>
+    <button type="button" id="workspace-pin" class="workspace-pin-toggle" aria-pressed="false">Pin this workspace</button>
     <p id="nav-filter-status" class="nav-filter-status" role="status" aria-live="polite" hidden></p>
+    <section id="workspace-pinned" class="workspace-pinned" aria-label="Pinned workspaces" hidden><h2>Pinned</h2><div id="workspace-pinned-list"></div></section>
   </div>
 <nav class="page-tabs" id="workspace-tabs" role="tablist" aria-orientation="vertical" aria-label="Page sections">
   <details class="side-nav-group" data-nav-group="desk" open>
@@ -1862,7 +1875,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </details>
 </nav>
 </aside>
-<main>
+<main id="main-content" tabindex="-1">
   <div class="page-pane" id="page-pane-home" role="tabpanel" aria-labelledby="page-tab-home">
     <section class="landing-hero">
       <div class="landing-hero-main">
