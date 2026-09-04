@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 
 function workflow(name) {
   return readFileSync(new URL(`../.github/workflows/${name}`, import.meta.url), "utf8");
@@ -30,5 +31,31 @@ for (const hour of [20, 21, 22]) {
 assert.match(closeFallback, /ET_MIN.*-lt 975.*ET_MIN.*-gt 1230/);
 assert.match(closeFallback, /LATEST_STATUS/);
 assert.match(closeFallback, /LATEST_CONCLUSION/);
+
+// Execute the actual publication predicate embedded in the watchdog, rather
+// than mirroring its logic in a test that could drift from the workflow.
+const publicationCheck = closeFallback.match(/node -e '([\s\S]*?)' <<<"\$JOBS"/)?.[1];
+assert.ok(publicationCheck, "watchdog must verify the latest attempt's jobs");
+assert.match(closeFallback, /filter=latest&per_page=100/);
+function publicationStatus(jobs) {
+  const result = spawnSync(process.execPath, ["-e", publicationCheck], {
+    input: JSON.stringify({ jobs }), encoding: "utf8",
+  });
+  assert.equal(result.stderr, "");
+  return result.status;
+}
+const publishStep = { name: "Flush verified data to private store", conclusion: "success" };
+assert.equal(publicationStatus([
+  { name: "route", conclusion: "success" },
+  { name: "build", conclusion: "skipped", steps: [] },
+]), 1, "a green 16:11 router-only run must not suppress recovery");
+assert.equal(publicationStatus([{ name: "build", conclusion: "success", steps: [publishStep] }]), 0);
+assert.equal(publicationStatus([{ name: "build", conclusion: "success", steps: [
+  { name: "Commit refreshed site (legacy public data)", conclusion: "success" },
+] }]), 0, "legacy publication also counts");
+assert.equal(publicationStatus([{ name: "build", conclusion: "success", steps: [] }]), 1);
+assert.equal(publicationStatus([{ name: "build", conclusion: "failure", steps: [publishStep] }]), 1);
+assert.equal(publicationStatus([{ name: "build", conclusion: "success", steps: [{ ...publishStep, conclusion: "skipped" }] }]), 1);
+assert.equal(publicationStatus([]), 1);
 
 console.log("workflow schedule smoke: ok");

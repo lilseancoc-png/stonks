@@ -4717,8 +4717,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     }
     // Once we know the market is open, start polling the chain endpoint
     // every 30s so bid/ask/IV/volume stay fresh while the user is on the
-    // page. Polling stops automatically on ticker change, market close,
-    // tab hide, or page unload. Install/reset the timer BEFORE the immediate
+    // page. Chain polling pauses at market close while session checks continue;
+    // all polling stops on tab hide. Install/reset the timer BEFORE the immediate
     // refresh below: startLivePolling intentionally aborts any old request.
     startLivePolling();
     // Fire one immediate regular-session chain refresh on ticker selection so
@@ -4814,7 +4814,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
           renderLiveQuote(symbol, closedPillQ);
           evaluate();
           renderLiveRefreshIndicator(r.marketState);
-          stopLivePolling();
+          startLivePolling();
           return;
         }
         // Preserve the strike the user is currently looking at — picking
@@ -4894,16 +4894,19 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
     var gradePane = document.getElementById('page-pane-grade');
     if (gradePane && gradePane.hidden) return;
     if (!state.symbol || !state.currentExp) return;
-    if (currentMarketState() !== 'REGULAR') {
-      renderLiveRefreshIndicator(currentMarketState());
-      return;
-    }
-    renderLiveRefreshIndicator('REGULAR');
+    renderLiveRefreshIndicator(currentMarketState());
     livePollTimer = setInterval(function(){
       if (document.hidden) return;
       if (!state.symbol || !state.currentExp){ stopLivePolling(); return; }
-      refreshLiveChain(state.symbol, state.currentExp);
+      // Keep checking the session while options are closed, so a pre-market
+      // visit can discover the opening bell without a ticker change/reload.
+      if (currentMarketState() === 'REGULAR') refreshLiveChain(state.symbol, state.currentExp);
+      else refreshLiveQuote(state.symbol);
     }, CHAIN_POLL_MS);
+    // Returning to Grade or the browser may cross a session boundary. Recheck
+    // an expired quote instead of trusting yesterday's cached market state.
+    var cached = LIVE_CACHE[state.symbol];
+    if (!cached || Date.now() - cached.at >= LIVE_TTL_MS) refreshLiveQuote(state.symbol);
   }
   function stopLivePolling(){
     if (livePollTimer){ clearInterval(livePollTimer); livePollTimer = null; }
@@ -30922,8 +30925,10 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
         }
       })
       .catch(function(){
+        heatmapState.liveOverlay = {};
         heatmapState.liveUpdatedAt = 0;
         heatmapState.liveMarketState = '';
+        renderHeatmap();
         renderHeatmapDecision();
         if (stateEl){
           stateEl.className = 'heatmap-live-state is-error';
