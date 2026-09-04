@@ -14,6 +14,7 @@ import { DISCORD_INVITE_URL } from "../lib/links.mjs";
 import { contentAssetVersion } from "../lib/asset-version.mjs";
 import { verifyLiveRefresh } from "./live-refresh-smoke.mjs";
 import { verifyNavFilter } from "./nav-filter-smoke.mjs";
+import { verifyWorkspace } from "./workspace-smoke.mjs";
 
 const temp = await mkdtemp(resolve(tmpdir(), "stonks-render-"));
 try {
@@ -83,6 +84,7 @@ try {
   const appJs = renderAppJs({});
   await verifyLiveRefresh(appJs);
   verifyNavFilter(appJs);
+  verifyWorkspace(appJs, html);
   assert.match(appJs, /var DISPLAY_TIME_ZONE_KEY = 'stonks-display-time-zone';/);
   assert.match(appJs, /local: \{ label: 'Local', timeZone: null \}[\s\S]*?et: \{ label: 'ET', timeZone: 'America\/New_York' \}[\s\S]*?pt: \{ label: 'PT', timeZone: 'America\/Los_Angeles' \}[\s\S]*?utc: \{ label: 'UTC', timeZone: 'UTC' \}/);
   assert.match(appJs, /function formatDisplayInstant\(value, options\)[\s\S]*?opts\.timeZoneName = 'short'/);

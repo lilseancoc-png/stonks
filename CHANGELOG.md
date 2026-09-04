@@ -22,7 +22,13 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-09-04
 
+### Added
+
+- **Pinned workspaces and direct retries (#640).** Save up to eight accessible workspaces in this browser; retry failed Volume, Gamma Exposure, and Sector Rotation requests directly without resetting filters.
+
 ### Changed
+
+- **Mobile research is easier to reach (#640).** Display and account controls move into a compact settings menu; Calendar puts month navigation before the selected day's events and keeps the full risk overview expandable. Navigation adds a skip link, drawer focus containment, and focus restoration.
 
 - **The research workspace is easier to scan.** Home uses compact cards, clearer index metrics, readable shortcuts, and restrained header actions; shared card headings, secondary text, and focus states work across light and dark themes. The sidebar adds topic filtering with keyboard selection, empty-result guidance, and a mobile close control while preserving Owner access restrictions and disclosure choices.
 
