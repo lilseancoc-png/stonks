@@ -24,9 +24,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
-- **Close-bake recovery verifies publication.** A successful router-only run no longer suppresses the watchdog; recovery stops only after the latest build attempt completes and publishes private-store or legacy data.
-- **Grade resumes live pricing across market sessions.** Paused polling rechecks the session, retries quote failures, and refreshes expired session state when returning to Grade or the browser.
-- **Heatmap failures restore baked values.** A failed live poll clears the old overlay and repaints returns and breadth before labeling the display as the baked close.
+- **Close-bake recovery verifies publication (#638).** A successful router-only run no longer suppresses the watchdog; recovery stops only after the latest build attempt completes and publishes private-store or legacy data.
+- **Grade resumes live pricing across market sessions (#638).** Paused polling rechecks the session, retries quote failures, and refreshes expired session state when returning to Grade or the browser.
+- **Heatmap failures restore baked values (#638).** A failed live poll clears the old overlay and repaints returns and breadth before labeling the display as the baked close.
 
 ## 2026-09-02
 
