@@ -1256,7 +1256,7 @@ export const DOC_PAGES = {
   </main>
 
   <footer class="pgfoot">
-    <span>&copy; 2026 Ming Street &middot; Option Contract Rater</span>
+    <span>&copy; 2026 Ming Street &middot; Stock Market Research</span>
     <span><a href="/terms.html">Terms of Use</a> &middot; <a href="/">Home</a></span>
   </footer>
 </div>`,
@@ -1570,7 +1570,7 @@ export const DOC_PAGES = {
   </main>
 
   <footer class="pgfoot">
-    <span>&copy; 2026 Ming Street &middot; Option Contract Rater</span>
+    <span>&copy; 2026 Ming Street &middot; Stock Market Research</span>
     <span><a href="/privacy.html">Privacy Policy</a> &middot; <a href="/">Home</a></span>
   </footer>
 </div>`,
