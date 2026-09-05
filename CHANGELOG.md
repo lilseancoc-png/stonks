@@ -28,7 +28,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Changed
 
-- **Owner research puts the plan first.** Show entry, thesis, defense, target and a pre-expiration review checkpoint together; simplify empty Sector Rotation pages and Owner Lab methodology; label track-record results as modeled with their sample size.
+- **Owner research puts the plan first (#643).** Show entry, thesis, defense, target and a pre-expiration review checkpoint together; simplify empty Sector Rotation pages and Owner Lab methodology; label track-record results as modeled with their sample size.
 
 - **Top Picks is easier to scan (#642).** Give setup cards more room, clarify the page and section hierarchy, simplify supporting controls, and improve empty states, keyboard focus, and mobile spacing.
 
@@ -38,7 +38,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
-- **Owner decision consistency.** Final entry gates govern displayed sizing and plans; separate ready setups from watch ideas and hypothetical allocations, calculate share payoff from the planned entry, and distinguish market retrieval timestamps and elapsed calendar events from fresh data and upcoming catalysts.
+- **Owner decision consistency (#643).** Final entry gates govern displayed sizing and plans; separate ready setups from watch ideas and hypothetical allocations, calculate share payoff from the planned entry, and distinguish market retrieval timestamps and elapsed calendar events from fresh data and upcoming catalysts.
 
 - **Calendar contract matching and source attribution (#641).** Match Calendar prediction chips to the exact macro measure and reference month; omit ambiguous or unrelated contracts. Retry transient official-calendar fetch failures, validate BLS calendar responses, and credit the data provider actually used.
 - **Navigation and legal footer corrections (#641).** Restore the Pending buyouts navigation icon and update Privacy/Terms footers to Stock Market Research.
