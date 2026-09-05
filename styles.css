@@ -24605,6 +24605,28 @@ main input:focus-visible, main select:focus-visible, main textarea:focus-visible
 }
 
 /* Top Picks: spacious, scoped research cards and a quiet supporting frame. */
+.research-details { margin: 14px 0; border: 1px solid var(--border); border-radius: 10px; padding: 0 14px; background: var(--surface); }
+.research-details > summary { cursor: pointer; padding: 13px 0; min-height: 44px; color: var(--text-strong); font: 600 13px/1.5 var(--font-sans); }
+.research-details > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.research-details[open] { padding-bottom: 14px; }
+.research-details p { font-size: 13px; line-height: 1.7; }
+.research-plan-warning { padding: 10px 12px; border-left: 3px solid var(--warn); color: var(--warn); background: color-mix(in srgb, var(--warn) 7%, var(--surface)); font-size: 12px; line-height: 1.6; }
+.pick-plan-summary { margin: 10px 0 20px; padding: 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.pick-plan-summary > header { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.pick-plan-summary h3 { margin: 0; font-size: 16px; }
+.pick-plan-summary > header strong { color: var(--warn); font-size: 13px; }
+.pick-plan-summary > header strong.sig-pos { color: var(--pos); }
+.pick-plan-thesis { font: 400 13px/1.7 var(--font-sans); max-width: 95ch; }
+.pick-plan-thesis > b { display: block; margin-bottom: 5px; }
+.pick-plan-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.pick-plan-grid > div { display: flex; flex-direction: column; gap: 7px; padding: 12px; background: var(--surface-2); border-radius: 8px; min-width: 0; }
+.pick-plan-grid small { color: var(--muted); font: 600 10px/1.5 var(--font-mono); text-transform: uppercase; }
+.pick-plan-grid b { font-size: 15px; color: var(--text-strong); }
+.pick-plan-grid span, .pick-entry-held p { font: 400 12px/1.7 var(--font-sans); color: var(--text); overflow-wrap: anywhere; }
+.picks-summary-chip > small { font: 400 10px/1.5 var(--font-sans); color: var(--muted); }
+.market-source-dates ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; list-style: none; padding: 0; font-size: 12px; }
+.rot-brief-no-focus .rot-brief-counts { display: none; }
+@media (max-width: 640px) { .pick-plan-grid { grid-template-columns: minmax(0, 1fr); } .pick-plan-summary { padding: 12px; } }
 #picks-section > .card-header { align-items: center; gap: 12px 18px; flex-wrap: wrap; padding-bottom: 20px; }
 #picks-section .picks-heading { flex: 1 1 320px; min-width: 0; }
 .picks-kicker { display: block; margin-bottom: 8px; color: var(--accent); font: 700 10px/1.3 var(--font-mono); letter-spacing: .12em; text-transform: uppercase; }

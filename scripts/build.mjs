@@ -12,6 +12,7 @@
 // The daily GitHub Actions workflow refreshes everything each market-day
 // morning and evening.
 import { writeFile, readFile, mkdir, rm, readdir, appendFile } from "node:fs/promises";
+import { shareEntryPayoff } from "../lib/research-display.mjs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
@@ -22259,9 +22260,8 @@ function buildStockExecution(data, traps) {
   // is already below spot, fall back to the next visible 20-day ceiling.
   const target = sma50 > spot ? sma50 : resistance20 > spot ? resistance20 : null;
   const targetBasis = target == null ? null : (sma50 === target ? "50-day mean" : "20-day resistance");
-  const upsidePct = target != null ? (target / spot - 1) * 100 : null;
-  const reviewPct = review != null ? (review / spot - 1) * 100 : null;
-  const rr = upsidePct != null && reviewPct != null && reviewPct < 0 ? upsidePct / Math.abs(reviewPct) : null;
+  const payoff = shareEntryPayoff({ action, entry: { price: action.key === "starter" ? spot : trigger }, target: { price: target }, review: { price: review } });
+  const { upsidePct, reviewPct, rr } = payoff;
 
   return {
     action,
@@ -22274,6 +22274,9 @@ function buildStockExecution(data, traps) {
     review: review != null ? { price: r2(review), basis: reviewBasis } : null,
     target: target != null ? { price: r2(target), basis: targetBasis } : null,
     payoff: {
+      basis: "planned-entry",
+      basisPrice: payoff.basisPrice,
+      warning: payoff.warning,
       upsidePct: upsidePct != null ? r1(upsidePct) : null,
       reviewPct: reviewPct != null ? r1(reviewPct) : null,
       rr: rr != null ? r2(rr) : null,

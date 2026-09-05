@@ -18,6 +18,63 @@
     host.appendChild(button);
   }
 
+function pickDisplayDecision(p) {
+  const entry = p?.entry || {};
+  const timing = p?.entryTiming || {};
+  const unavailable = !p?.contract || p?.strategy?.type === 'none';
+  const blocked = timing.hardWait || timing.hardVeto || timing.state === 'avoid' || entry.ai?.blocked === true;
+  const ready = !unavailable && !blocked && p?.group === 'actionable' && entry.now === true;
+  return {
+    ready,
+    label: unavailable ? 'Research only' : blocked ? 'Do not enter' : ready ? 'Entry confirmed' : 'Wait for confirmation',
+    reason: blocked ? (timing.headline || entry.headline || 'An entry veto is active.')
+      : unavailable ? 'No trade strategy is currently qualified.'
+      : entry.headline || (ready ? 'The published entry gate is confirmed.' : 'Wait for a fresh build to confirm the entry.'),
+    trigger: entry.trigger != null && Number(entry.trigger) > 0 ? Number(entry.trigger) : null,
+  };
+}
+function shareEntryPayoff(execution) {
+  const p = execution || {};
+  const price = p.entry?.price == null ? null : Number(p.entry.price);
+  const target = p.target?.price == null ? null : Number(p.target.price);
+  const review = p.review?.price == null ? null : Number(p.review.price);
+  const known = Number.isFinite(price) && price > 0;
+  const research = p.action?.key === 'research';
+  const upsidePct = known && Number.isFinite(target) ? (target / price - 1) * 100 : null;
+  const reviewPct = known && Number.isFinite(review) ? (review / price - 1) * 100 : null;
+  const valid = !research && upsidePct > 0 && reviewPct < 0;
+  return { basisPrice: known ? price : null, upsidePct: research ? null : upsidePct,
+    reviewPct: research ? null : reviewPct, rr: valid ? upsidePct / -reviewPct : null,
+    warning: research ? 'No entry is qualified; payoff is not available.'
+      : !known ? 'Entry price is unavailable; payoff is not available.'
+      : upsidePct != null && upsidePct <= 0 ? 'The first target is at or below the entry trigger. Reassess the plan before entry.'
+      : reviewPct != null && reviewPct >= 0 ? 'The review level must be below entry to define downside.' : '' };
+}
+function pickReviewCheckpoint(p, now = Date.now()) {
+  const c = p?.contract || {};
+  let expiry = Number(c.expiry);
+  if (expiry > 0 && expiry < 1e12) expiry *= 1000;
+  if (!Number.isFinite(expiry) || expiry <= 0) return null;
+  // A review reminder, not an automatic exit or a change to the model ledger.
+  // Friday checkpoint if the 14-calendar-day reminder falls on a weekend.
+  const d = new Date(expiry - 14 * 86400000);
+  if (d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() - 1);
+  if (d.getUTCDay() === 0) d.setUTCDate(d.getUTCDate() - 2);
+  const date = d.toISOString().slice(0, 10);
+  return { date, due: now >= d.getTime(), expired: now >= expiry };
+}
+function scenarioEventPhase(ev, now = Date.now()) {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(now));
+  const p = Object.fromEntries(parts.map(x => [x.type, x.value]));
+  const date = p.year + '-' + p.month + '-' + p.day;
+  if (!ev?.date) return 'unscheduled';
+  if (ev.date < date) return 'past';
+  if (ev.date > date) return 'upcoming';
+  const time = String(ev.window || '').match(/^(\d{1,2}):(\d{2})(?:\s*(ET|EST|EDT))?$/i);
+  if (!time) return 'today'; // Never invent a completion time for AM/PM/all-day events.
+  const elapsed = Number(p.hour) * 60 + Number(p.minute) >= Number(time[1]) * 60 + Number(time[2]);
+  return elapsed ? 'past' : 'upcoming';
+}
   // Theme bootstrap. Runs synchronously before the rest of the IIFE binds
   // so we never flash the wrong theme. Defaults to dark — the terminal look
   // is built around the dark palette and is the canonical view — but a
@@ -710,7 +767,7 @@
                 : s.state === 'after' ? 'The U.S. options market is closed for the day.'
                 : 'U.S. markets are closed right now.';
         note.hidden = false;
-        note.innerHTML = '<strong>' + why + '</strong> Top Picks select a live option contract, so the list is built from the most recent session’s quotes and refreshes during market hours (9:30 AM–4:00 PM ET). A short list outside the session is expected — not an error.';
+        note.innerHTML = '<strong>' + why + '</strong> Quotes are from the latest available session. Picks rebuild at 11:00 and 15:30 ET.';
       } else {
         note.hidden = true;
       }
@@ -4137,8 +4194,9 @@
         .then(function(r){ return r.ok ? r.json() : null; })
         .then(function(j){
           if (!j || !Array.isArray(j.picks)) return;
-          setText('land-stat-picks', j.picks.length);
-          setText('land-sub-picks', j.picks.length === 1 ? 'pick today' : 'picks today');
+          var readyCount = j.picks.filter(function(p){ return pickDisplayDecision(p).ready; }).length;
+          setText('land-stat-picks', readyCount + ' ready');
+          setText('land-sub-picks', (j.picks.length - readyCount) + ' watching');
         })
         .catch(function(){});
 
@@ -11013,9 +11071,9 @@
         short: '⚡ Hit ' + fmtT + ' — confirmation still required',
         long: 'Price reached the planned zone live (' + fmtS + '), but the last confirmed daily build did not clear every entry prerequisite. Hold for a confirmed bar and the next build; an intraday quote cannot waive direction, structure, payoff, event, crowded-trade, or counter-trend proof.' };
     }
-    return { kind: 'go',
-      short: '✅ Buy zone now ' + fmtS,
-      long: 'In the buy zone live — ' + fmtS + ' has reached the plan\'s ' + (e.basis || 'entry') + ' trigger at ' + fmtT + '. This is the price the pick said to wait for; opening here follows the plan. (Live intraday read, refreshed ~30s while this tab is open — the next 11:00 or 15:30 ET Top Picks run re-confirms it.)' };
+    return { kind: 'arm',
+      short: '⚡ Price zone reached ' + fmtS + ' — await final confirmation',
+      long: 'The live price has reached the planned zone. The published entry verdict remains WAIT until the next Top Picks build confirms the full setup.' };
   }
   // Patch every rendered entry chip (grid tiles, watchlist cards, the open
   // detail card — all tagged data-live-entry="SYM|side") from the latest quote
@@ -11777,7 +11835,7 @@
       : null;
     var liveDot = opts.live ? '<span class="picks-tape-dot" title="Recomputed live while this tab is open">●</span> ' : '';
     var warnMark = (meta.tone === 'off' || meta.tone === 'fragile') ? '⚠ ' : '';
-    var sub = 'market tape' + (opts.live ? ' · live' : '') + (heldRaw ? ' · recovering (read ' + heldRaw + ')' : '') + (drv ? ' · ' + drv : '');
+    var sub = 'market tape' + (opts.live ? ' · periodically checked' : '') + (heldRaw ? ' · recovering (read ' + heldRaw + ')' : '') + (drv ? ' · ' + drv : '');
     return '<div class="picks-summary-chip ' + meta.cls + '" title="' + macroTapeTooltip(regime, opts) + '"><span class="picks-summary-num">' + liveDot + warnMark + meta.lbl + '</span><span class="picks-summary-lbl">' + sub + '</span></div>';
   }
   // Regime-drift reconciliation (bake-timing honesty). The list is baked at most
@@ -11898,14 +11956,17 @@
       bias = 'Neutral · reduced'; entry = 'Wait for internals'; posture = 'Do less until breadth repairs';
     }
     var source = opts.live
-      ? 'Live' + (opts.fetchedAt ? ' · ' + fmtTapeTime(opts.fetchedAt) : '')
+      ? 'Checked' + (opts.fetchedAt ? ' · ' + fmtTapeTime(opts.fetchedAt) : '')
       : 'Baked · last build';
     var drivers = nar.drivers || 'No coordinated cross-asset driver';
+    var bakedAt = marketState.data && marketState.data.builtAtIso;
+    var sourceDates = Object.keys(macroTape.legs || {}).filter(function(k){ return k !== 'crossAsset'; }).map(function(k){ var leg = macroTape.legs[k]; return leg ? '<li><b>' + escapeHtml(k) + '</b> · ' + escapeHtml(leg.asOf ? (String(leg.asOf).length === 10 ? leg.asOf : formatDisplayInstant(leg.asOf, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })) : 'source time unavailable') + '</li>' : ''; }).join('');
+    var freshness = '<details class="research-details market-source-dates"><summary>Data as of · source timestamps</summary><p>Checked is the retrieval time, not the time every market traded. Closed-market quotes retain their last trade time. Slow inputs carry from the build' + (bakedAt ? ' at ' + escapeHtml(formatDisplayInstant(bakedAt, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })) : ' (build time unavailable)') + '.</p><ul>' + sourceDates + '</ul></details>';
     return '<section class="market-action-card market-action-' + nar.tone + '">' +
       '<div class="market-action-head">' +
-        '<div><span class="market-action-kicker">Today\'s posture</span><h3>' + escapeHtml(nar.head) + '</h3><p>' + nar.body + '</p></div>' +
+        '<div><span class="market-action-kicker">Today\'s posture</span><h3>' + escapeHtml(nar.head) + '</h3><details class="research-details"><summary>How this posture affects the screen</summary><p>' + nar.body + '</p></details></div>' +
         '<span class="market-action-source ' + (opts.live ? 'is-live' : '') + '">' + escapeHtml(source) + '</span>' +
-      '</div>' +
+      '</div>' + freshness +
       '<div class="market-action-grid">' +
         '<span><small>Regime</small><b class="' + meta.cls + '">' + escapeHtml(meta.lbl) + '</b></span>' +
         '<span><small>Book posture</small><b>' + escapeHtml(posture) + '</b></span>' +
@@ -12283,7 +12344,7 @@
       ? '<p class="picks-tape-note is-warn">⚠ ' + escapeHtml(regime.internalsLabel) + ' — size trimmed and the long side capped, without flipping to puts.</p>'
       : '';
     var liveLabel = opts.live
-      ? '<span class="picks-tape-live is-live"><span class="picks-tape-dot">●</span> live' + (opts.fetchedAt ? ' · ' + escapeHtml(fmtTapeTime(opts.fetchedAt)) : '') + '</span>'
+      ? '<span class="picks-tape-live is-live"><span class="picks-tape-dot">●</span> checked' + (opts.fetchedAt ? ' · ' + escapeHtml(fmtTapeTime(opts.fetchedAt)) : '') + '</span>'
       : '<span class="picks-tape-live is-baked">baked · last build</span>';
     var open = !!macroTape.open;
     var warnMark = (meta.tone === 'off' || meta.tone === 'fragile') ? '⚠ ' : '';
@@ -12605,7 +12666,8 @@
       return '<span class="is-' + escapeHtml(v.direction || 'stable') + '"><small>' + escapeHtml(axisNames[key]) + '</small>' +
         '<b>' + escapeHtml(scenarioSigned(v.score, '')) + '</b><em>1d ' + escapeHtml(scenarioSigned(v.d1, '')) + ' · 5d ' + escapeHtml(scenarioSigned(v.d5, '')) + '</em></span>';
     }).join('');
-    var catalystHtml = (engine.catalysts || []).slice(0, 10).map(function(ev){
+    var catalystRows = engine.catalysts || [];
+    function catalystCards(events){ return events.slice(0, 10).map(function(ev){
       var eventTitle = String(ev.title || 'Upcoming event');
       if (ev.symbol && eventTitle.toUpperCase().startsWith(String(ev.symbol).toUpperCase() + ' ')) {
         eventTitle = eventTitle.slice(String(ev.symbol).length).trim();
@@ -12618,7 +12680,10 @@
         '<p>' + escapeHtml((ev.window || '') + (ev.channels && ev.channels.length ? ' · ' + ev.channels.join(' / ') : '')) + '</p>' +
         (ev.analog ? '<small><b>Analog:</b> ' + escapeHtml(ev.analog) + '</small>' : '') +
       '</article>';
-    }).join('');
+    }).join(''); }
+    var catalystHtml = catalystCards(catalystRows.filter(function(ev){ return scenarioEventPhase(ev) === 'upcoming'; }));
+    var todayHtml = catalystCards(catalystRows.filter(function(ev){ return scenarioEventPhase(ev) === 'today'; }));
+    var pastHtml = catalystCards(catalystRows.filter(function(ev){ return scenarioEventPhase(ev) === 'past'; }));
     var tabsHtml = scenarios.map(function(s){
       return '<button type="button" class="scenario-tab' + (s.key === selected.key ? ' active' : '') + '" data-scn-select="' + escapeHtml(s.key) + '">' +
         '<span>' + escapeHtml(s.name) + '</span><b>' + escapeHtml(String(s.probability.low) + '–' + String(s.probability.high) + '%') + '</b>' +
@@ -12682,9 +12747,11 @@
         '<div class="scenario-warnings"><header><b>Early warnings</b><span>' + warningFlags.length + '/' + (transition.flags || []).length + ' firing</span></header>' +
           ((transition.flags || []).map(function(flag){ return '<span class="is-' + escapeHtml(flag.state || 'stable') + '"><i></i>' + escapeHtml(flag.label || '') + '</span>'; }).join('') || '<p>No leading checks available.</p>') +
         '</div>' +
-        '<div class="scenario-axis-velocity"><header><b>16-axis velocity</b><span>score now · 1d change · 5d change</span></header>' + velocityHtml + '</div>' +
+        '<details class="research-details"><summary>16-axis changes and methodology</summary><div class="scenario-axis-velocity"><header><b>16-axis velocity</b><span>score now · 1d change · 5d change</span></header>' + velocityHtml + '</div></details>' +
         '<section class="scenario-section"><header><div><small>Event map</small><h4>Upcoming catalysts and transmission channels</h4></div><span>Ranked from the existing calendar</span></header>' +
           '<div class="scenario-catalysts">' + (catalystHtml || '<p class="scenario-empty">No calendar events available in the next 30 days.</p>') + '</div></section>' +
+        (todayHtml ? '<section class="scenario-section"><h4>Today · timing or completion unconfirmed</h4><div class="scenario-catalysts">' + todayHtml + '</div></section>' : '') +
+        (pastHtml ? '<details class="research-details"><summary>Earlier calendar events · recap</summary><p>The scheduled time has passed; this does not verify publication or an actual result.</p><div class="scenario-catalysts">' + pastHtml + '</div></details>' : '') +
         '<section class="scenario-section"><header><div><small>Layered tree</small><h4>Primary driver → path → market reaction</h4></div><span>Ranges replace point targets</span></header>' +
           '<div class="scenario-tabs" role="tablist" aria-label="Scenario drivers">' + tabsHtml + '</div>' +
           '<article class="scenario-driver"><header><div><small>Primary macro driver</small><h4>' + escapeHtml(selected.driver) + '</h4><p>' + escapeHtml((selected.channels || []).join(' → ')) + '</p></div>' +
@@ -12794,7 +12861,9 @@
     var actionSlot = document.getElementById('market-action');
     if (actionSlot) {
       var actionHtml = regime ? buildMarketAction(regime, { live:isLive, fetchedAt:macroTape.fetchedAt, roster:roster }) : '';
+      var openActionDetails = Array.from(actionSlot.querySelectorAll('details[open]')).map(function(d){ return d.querySelector('summary')?.textContent; });
       actionSlot.innerHTML = actionHtml;
+      actionSlot.querySelectorAll('details').forEach(function(d){ if (openActionDetails.indexOf(d.querySelector('summary')?.textContent) >= 0) d.open = true; });
       actionSlot.hidden = !actionHtml;
       if (actionHtml) wireMarketAction();
     }
@@ -22457,7 +22526,7 @@
     var detail = a.detail || (row.clean
       ? 'Quality passed and no trap flag is active. Treat this as a starter position, not proof that the low is in.'
       : 'Resolve the yellow flags before averaging into the decline.');
-    var entry = p.entry || null, review = p.review || null, target = p.target || null, payoff = p.payoff || {};
+    var entry = p.entry || null, review = p.review || null, target = p.target || null, payoff = shareEntryPayoff(p);
     var entryValue = key === 'research'
       ? 'No entry yet'
       : entry && entry.price != null
@@ -22471,11 +22540,13 @@
     var payoffHtml = '';
     if (payoff.upsidePct != null || payoff.reviewPct != null) {
       payoffHtml = '<p class="stk-plan-payoff">' +
-        (payoff.upsidePct != null ? '<span>To first mean <b>+' + escapeHtml(String(payoff.upsidePct)) + '%</b></span>' : '') +
-        (payoff.reviewPct != null ? '<span>To review <b>' + escapeHtml(String(payoff.reviewPct)) + '%</b></span>' : '') +
-        (payoff.rr != null ? '<span>Reference payoff <b>' + escapeHtml(String(payoff.rr)) + ':1</b></span>' : '') +
+        '<span>From planned entry <b>' + fmtMoney(payoff.basisPrice) + '</b></span>' +
+        (payoff.upsidePct != null ? '<span>To first mean <b>' + (payoff.upsidePct > 0 ? '+' : '') + payoff.upsidePct.toFixed(1) + '%</b></span>' : '') +
+        (payoff.reviewPct != null ? '<span>To review <b>' + payoff.reviewPct.toFixed(1) + '%</b></span>' : '') +
+        (payoff.rr != null ? '<span>Entry-to-review payoff <b>' + payoff.rr.toFixed(2) + ':1</b></span>' : '') +
       '</p>';
     }
+    if (payoff.warning) payoffHtml += '<p class="research-plan-warning">' + escapeHtml(payoff.warning) + '</p>';
     var evidence = p.evidence || {};
     var proof = '';
     if (evidence.priceTurn != null || evidence.momentumTurn != null) {
@@ -22645,7 +22716,7 @@
         (s.detail ? '<span class="stk-dca-read-det">' + escapeHtml(s.detail) + '</span>' : '') +
       '</li>';
     });
-    return out ? '<ul class="stk-dca-reads" aria-label="Dip reads">' + out + '</ul>' : '';
+    return out ? '<details class="research-details"><summary>Why this multiplier · five price reads</summary><ul class="stk-dca-reads" aria-label="Dip reads">' + out + '</ul></details>' : '';
   }
   // Last ~10 trading days of dial calls for one symbol, oldest → newest.
   function stkDcaHistStrip(hist, sym){
@@ -22702,7 +22773,7 @@
       '<p class="stk-dca-hint">' + (personalized
         ? 'Applies the published multiplier to your private dollar baseline. '
         : 'Publishes one standardized baseline multiplier inside the Owner workspace; dollar sizing is isolated in Owner Lab. ') +
-        'Five deterministic price reads per index (trend, drawdown off the 52-week high, RSI, 20-day stretch, red day) earn points; fixed point bars map to 1× / 1.5× / 2× / 3× / 4× the baseline. Every read and its points are on the card — no AI, no black box. Recomputed at 11:00 and 15:30 ET' + (when ? ' · updated ' + escapeHtml(when) : '') + '. Not financial advice.</p>' +
+        'Each index shows its allocation and multiplier. Expand the price reads to inspect the points. Recomputed at 11:00 and 15:30 ET' + (when ? ' · updated ' + escapeHtml(when) : '') + '. Not financial advice.</p>' +
       '<div class="stk-dca-grid">' + dca.indexes.map(function(ix){ return stkDcaCard(ix, base, personalized); }).join('') + '</div>' +
     '</section>';
   }
@@ -24153,8 +24224,8 @@
     var rejected = rows.filter(function(c){ return rotRecoveryStatus(c) === 'reject'; });
     var watches = rows.filter(function(c){ return rotRecoveryStatus(c) !== 'reject'; });
     var html = '';
-    if (rejected.length) html += '<section class="rot-near rot-near-rejected"><div class="rot-section-head"><h3>Rejected recovery profiles</h3><span>Business, news, valuation, or required recovery evidence failed</span></div><div class="rot-near-list">' + rowsHtml(rejected, true) + '</div></section>';
     if (watches.length) html += '<section class="rot-near"><div class="rot-section-head"><h3>Other near misses</h3><span>Not rejected on recovery quality, but still below a setup gate</span></div><div class="rot-near-list">' + rowsHtml(watches, false) + '</div></section>';
+    if (rejected.length) html += '<details class="research-details"><summary>Rejected recovery profiles · ' + rejected.length + '</summary><section class="rot-near rot-near-rejected"><div class="rot-section-head"><h3>Rejected recovery profiles</h3><span>Business, news, valuation, or required recovery evidence failed</span></div><div class="rot-near-list">' + rowsHtml(rejected, true) + '</div></section></details>';
     return html;
   }
   function rotThresholdHtml(thresholds, modelVersion){
@@ -24215,6 +24286,8 @@
         target = document.getElementById('rot-card-' + sym.replace(/[^A-Z0-9_-]/g, '-'));
       }
       if (target){
+        var ancestor = target.parentElement;
+        while (ancestor && ancestor !== root){ if (ancestor.tagName === 'DETAILS') ancestor.open = true; ancestor = ancestor.parentElement; }
         target.scrollIntoView({ behavior:'smooth', block:'start' });
         var focus = target.querySelector('.rot-sym');
         if (focus) try { focus.focus({ preventScroll:true }); } catch (_) { focus.focus(); }
@@ -24224,6 +24297,8 @@
     if (jumpRecord) jumpRecord.addEventListener('click', function(){
       var target = document.getElementById('rot-accountability');
       if (target){
+        var ancestor = target.parentElement;
+        while (ancestor && ancestor !== root){ if (ancestor.tagName === 'DETAILS') ancestor.open = true; ancestor = ancestor.parentElement; }
         target.scrollIntoView({ behavior:'smooth', block:'start' });
         try { target.focus({ preventScroll:true }); } catch (_) { target.focus(); }
       }
@@ -24249,6 +24324,8 @@
     var root = $('rotation-root') || $('sector-rotation-root');
     var eye = $('rotation-eyebrow') || $('sector-rotation-eyebrow');
     if (!root) return;
+    var priorResearch = {};
+    root.querySelectorAll('details.research-details').forEach(function(el){ var summary = el.querySelector('summary'); if (summary) priorResearch[summary.textContent] = el.open; });
     var priorLedger = root.querySelector('.rot-record-ledger');
     var priorLedgerOpen = priorLedger ? priorLedger.open : null;
     var priorTape = root.querySelector('.rot-tape');
@@ -24301,9 +24378,14 @@
       : candidates.length ? '<div class="rot-empty"><b>No candidates match these desk filters.</b><span>Reset recovery profile, state, action, or group filters; the screen is not manufacturing a trade.</span></div>'
       : '<div class="rot-empty"><b>No quality rotation-rebound candidate clears the bar.</b><span>That is a valid signal. Wait for a clean dislocation and confirmation instead of forcing a bounce trade.</span></div>';
     var filteredNear = rotationState.group === 'all' ? near : near.filter(function(c){ return rotGroupMatches(c, rotationState.group); });
-    root.innerHTML = stale + rotSummaryHtml(d, candidates) + rotDeskBriefHtml(d, candidates, thresholds) + rotShortlistHtml(d, candidates, thresholds) + rotToolbarHtml(candidates, visible, groups, thresholds) + grid + rotProcessHtml() + rotGroupTape(groups) +
-      rotRecordHtml(d) + rotNearMissHtml(filteredNear, thresholds) + rotThresholdHtml(d.thresholds, d.modelVersion) +
+    var researchContext = '<details class="research-details"><summary>Screen methodology and group context</summary>' + rotProcessHtml() + rotGroupTape(groups) + rotThresholdHtml(d.thresholds, d.modelVersion) + '</details>';
+    var modelRecord = '<details class="research-details"' + (candidates.length ? ' open' : '') + '><summary>Sector Rotation model record</summary>' + rotRecordHtml(d) + '</details>';
+    var candidateBoard = candidates.length
+      ? rotSummaryHtml(d, candidates) + rotDeskBriefHtml(d, candidates, thresholds) + rotShortlistHtml(d, candidates, thresholds) + rotToolbarHtml(candidates, visible, groups, thresholds) + grid + rotNearMissHtml(filteredNear, thresholds)
+      : rotDeskBriefHtml(d, candidates, thresholds) + rotNearMissHtml(near, thresholds) + '<details class="research-details"><summary>Candidate filters · no qualified candidates</summary>' + rotToolbarHtml(candidates, visible, groups, thresholds) + '</details>';
+    root.innerHTML = stale + candidateBoard + modelRecord + researchContext +
       '<p class="rot-foot">A qualified recovery profile means the required business evidence is present and passes this screen; it is not a promise of recovery. Verify-first names cannot become actionable until the missing or uncertain evidence clears, and rejected profiles remain in the near-miss research section rather than the candidate board. The frozen mean and σ describe a pre-drop trend regime; they do not prove price must revert or estimate a probability. First thrust is an initial reflex move, never confirmation. Latest quotes can update price and sizing; z-scores and the displayed at-build R:R remain frozen to the named build. Recheck fresh news and earnings timing before acting. Educational screen, not financial advice.</p>';
+    root.querySelectorAll('details.research-details').forEach(function(el){ var summary = el.querySelector('summary'); if (summary && Object.prototype.hasOwnProperty.call(priorResearch, summary.textContent)) el.open = priorResearch[summary.textContent]; });
     var nextLedger = root.querySelector('.rot-record-ledger');
     if (nextLedger && priorLedgerOpen != null) nextLedger.open = priorLedgerOpen;
     var nextTape = root.querySelector('.rot-tape');
@@ -32724,14 +32806,14 @@
     // "At a glance" strip — the headline numbers the report below expands on.
     var glGreens = 0, glMarks = [];
     open.forEach(function(o){ var p = Number(o.optionPnlPct); if (isFinite(p)){ glMarks.push(p); if (p >= 0) glGreens++; } });
-    var glTake = rep.n < 6
-      ? 'Early sample — the verdicts firm up as more picks resolve.'
+    var glTake = rep.n < 30
+      ? 'Small modeled sample; descriptive results do not establish a validated edge. Returns are not actual fills.'
       : (rep.diags.length
         ? rep.diags.length + ' diagnostic' + (rep.diags.length === 1 ? '' : 's') + ' firing — see “What to fix next” below.'
         : 'No structural red flags firing — the standing diagnostics are all inside tolerance.');
     accPaneSummary('acc-sum-summary', [
-      { val: escapeHtml(rep.health.label), lbl: 'engine health', cls: rep.health.key === 'healthy' ? 'sig-pos' : (rep.health.key === 'struggling' ? 'sig-neg' : '') },
-      { val: accPctRate(m.winRate), lbl: 'win rate · ' + rep.n + ' resolved', cls: (m.winRate != null && m.winRate >= 0.5) ? 'sig-pos' : 'sig-neg' },
+      { val: rep.n < 30 ? 'Early results' : 'Modeled results', lbl: rep.n + ' resolved model trades', cls: '' },
+      { val: accPctRate(m.winRate), lbl: 'modeled win rate · n=' + rep.n, cls: (m.winRate != null && m.winRate >= 0.5) ? 'sig-pos' : 'sig-neg' },
       { val: accPF(m.profitFactor), lbl: 'profit factor', cls: (m.profitFactor != null && (m.profitFactor === Infinity || m.profitFactor >= 1)) ? 'sig-pos' : 'sig-neg', tip: 'Gross winning $ ÷ gross losing $ (per contract, modeled).' },
       { val: accNum(m.expectancyR, 2) + 'R', lbl: 'avg outcome / unit risk', cls: accSignClass(m.expectancyR), tip: 'Average return on risk per resolved trade.' },
       open.length ? { val: String(open.length), lbl: 'open now' + (glMarks.length ? ' · ' + glGreens + ' green' : ''), tip: glMarks.length ? 'Open book marked ' + accPct(accMean(glMarks)) + ' on average (modeled, unrealized).' : '' } : null,
@@ -32753,7 +32835,7 @@
       open.forEach(function(o){ var p = Number(o.optionPnlPct); if (isFinite(p)){ marks.push(p); if (p >= 0) greens++; } });
       story += ' The open book: ' + open.length + ' position' + (open.length === 1 ? '' : 's') + (marks.length ? ', ' + greens + ' green, marked ' + accPct(accMean(marks)) + ' on average' : '') + '.';
     }
-    var banner = '<div class="acc-sum-verdict acc-sum-' + rep.health.key + '"><span class="acc-sum-badge">' + escapeHtml(rep.health.label) + '</span><p class="acc-sum-story">' + story + '</p></div>';
+    var banner = '<div class="acc-sum-verdict acc-sum-' + (rep.n < 30 ? 'early' : rep.health.key) + '"><span class="acc-sum-badge">' + (rep.n < 30 ? 'Early modeled results' : 'Modeled results') + '</span><p class="acc-sum-story">' + story + '</p></div>';
     var accountabilityBlock = accThesisExecutionHtml(closed);
     // Loss anatomy — the diagnose-pick-losses read, live on the tab.
     var lossBlock = '';
@@ -34437,10 +34519,10 @@
     // in computeEntrySignal off confirmed bars; older payloads lack it.)
     var entryHtml = '';
     if (p.entry && p.entry.headline){
-      var eNow = !!p.entry.now;
+      var eNow = pickDisplayDecision(p).ready;
       var eTip = eNow
         ? 'Entry — the timing gate reads a clean, confirmed entry, so the current price is a reasonable place to open the position.'
-        : 'Entry — the grade has conviction, but the move has not confirmed on the daily chart yet. Wait for this price/level before opening so you are not paying theta on a short-dated option while it bases. Based on confirmed daily bars (yesterday’s close) — while the Top Picks tab is open this chip also re-checks the trigger against the live price every ~30s and flips the moment it hits.';
+        : 'Entry — the grade has conviction, but the move has not confirmed on the daily chart yet. Wait for this price/level before opening so you are not paying theta on a short-dated option while it bases. Based on confirmed daily bars (yesterday’s close) — while the Top Picks tab is open this chip also re-checks the trigger against the live price every ~30s and marks a price-zone touch. Final entry confirmation still requires a fresh build.';
       var eKeyD = String(p.symbol).toUpperCase() + '|' + (p.side === 'put' ? 'put' : 'call');
       entryHtml = '<div class="pick-contract-rr pick-rr-' + (eNow ? 'good' : 'fair') + '" data-live-entry="' + escapeHtml(eKeyD) + '" title="' + escapeHtml(eTip) + '">' +
         (eNow ? '✅ ' : '⏳ ') + escapeHtml(p.entry.headline) +
@@ -34473,6 +34555,8 @@
   // SMA alert + sizing rule + a tranche ladder (each rung: size, price, %move,
   // trigger, and a per-pillar "why →" disclosure reusing the exit-plan classes).
   function pickEntryPlanHtml(p){
+    var decision = pickDisplayDecision(p);
+    if (!decision.ready) return '<section class="pick-entry pick-entry-held"><div class="pick-entry-head">Entry plan · ' + escapeHtml(decision.label) + '</div><p>' + escapeHtml(decision.reason) + '</p>' + (decision.trigger ? '<p>Watch level: <b>$' + decision.trigger.toFixed(2) + '</b>. A price touch alone does not confirm entry.</p>' : '') + '<p>No allocation is actionable until the final entry gate clears. Rebuild the sizing and tranche plan after confirmation.</p></section>';
     var x = p && p.entryPlan;
     if (!x || !Array.isArray(x.tranches) || !x.tranches.length) return '';
     var pillarName = { technical:'Technical', fundamental:'Fundamental', mechanical:'Mechanical', narrative:'Narrative' };
@@ -34624,7 +34708,11 @@
       var trigL = '';
       if (Array.isArray(x.triggers) && x.triggers.length){
         var itemsL = '';
-        for (var tl=0; tl<x.triggers.length; tl++) itemsL += '<li>' + escapeHtml(String(x.triggers[tl])) + '</li>';
+        for (var tl=0; tl<x.triggers.length; tl++) {
+          var triggerText = String(x.triggers[tl]);
+          if (/^No time stop:/i.test(triggerText)) continue;
+          itemsL += '<li>' + escapeHtml(triggerText) + '</li>';
+        }
         trigL = '<div class="pick-exit-triggers">' +
           '<div class="pick-exit-triggers-head">Also exit if</div>' +
           '<ul class="pick-exit-trigger-list">' + itemsL + '</ul>' +
@@ -34699,7 +34787,7 @@
     if (Array.isArray(x.triggers) && x.triggers.length){
       var items = '';
       for (var i=0; i<x.triggers.length; i++){
-        items += '<li>' + escapeHtml(String(x.triggers[i])) + '</li>';
+        if (!/^No time stop:/i.test(String(x.triggers[i]))) items += '<li>' + escapeHtml(String(x.triggers[i])) + '</li>';
       }
       trig = '<div class="pick-exit-triggers">' +
         '<div class="pick-exit-triggers-head">Also exit if</div>' +
@@ -35147,8 +35235,8 @@
       '</div>' +
       (conv || size
         ? '<div class="pick-tier-sub">' +
-          (conv ? '<span class="pick-tier-conv">' + escapeHtml(conv) + ' conviction</span>' : '') +
-          (size ? '<span class="pick-tier-size"' + (sizeTitle ? ' title="' + escapeHtml(sizeTitle) + '"' : '') + '>' + escapeHtml(size) + '</span>' : '') +
+          (conv ? '<span class="pick-tier-conv">Directional grade: ' + escapeHtml(conv) + '</span>' : '') +
+          (size ? '<span class="pick-tier-size"' + (sizeTitle ? ' title="' + escapeHtml(sizeTitle) + '"' : '') + '>' + (pickDisplayDecision(p).ready ? 'Model sizing: ' : 'Hypothetical after confirmation: ') + escapeHtml(size) + '</span>' : '') +
           '</div>'
         : '') +
     '</div>';
@@ -35531,7 +35619,7 @@
     switch (cls){
       case 'actionable': return { label: 'Actionable', cls: 'pick-class-actionable', tip: 'Strong grade + strong thesis + a confirmed buy-now entry — buy the shown contract now and hold while the thesis stays intact.' };
       case 'waitEntry': return { label: 'Wait for entry', cls: 'pick-class-wait', tip: 'Strong grade + strong thesis, but the final grader judged this isn’t the moment to enter (extended, waiting on a pullback/reclaim, an imminent event, or its own read of the setup). Not a buy right now — it promotes itself to Actionable the hour the entry confirms.' };
-      case 'moderate': return { label: 'Moderate conviction', cls: 'pick-class-moderate', tip: 'A real but not airtight case, or a moderate grade — a lower-conviction idea. Strategy shown; size down.' };
+      case 'moderate': return { label: 'Idea quality: moderate', cls: 'pick-class-moderate', tip: 'Combined grade and thesis quality is moderate. This is distinct from directional grade strength; the final entry gate still applies.' };
       case 'highGradeWeakThesis': return { label: 'High grade · weak thesis', cls: 'pick-class-weak', tip: 'The grade is high but the supporting case is thin / single-pillar — we show the grade but recommend no strategy.' };
       default: return { label: 'Watch idea', cls: 'pick-class-idea', tip: 'A grade-only watch idea — no strategy is recommended yet. Wait for a confirming signal or a clean entry.' };
     }
@@ -35602,7 +35690,7 @@
     }
 
     var aiConf = (ai && ai.confidence) ? ' <span class="thesis-ai-conf thesis-ai-conf-' + escapeHtml(ai.confidence) + '" title="The AI thesis layer\'s own honest read of how strong the case is — distinct from the deterministic grade.">AI: ' + escapeHtml(ai.confidence) + ' confidence</span>' : '';
-    var convHtml = tc.conviction ? '<div class="thesis-conviction"><span class="thesis-conv-lbl">Conviction</span> ' + escapeHtml(tc.conviction) + aiConf + '</div>' : (aiConf ? '<div class="thesis-conviction">' + aiConf + '</div>' : '');
+    var convHtml = '<div class="thesis-conviction"><span class="thesis-conv-lbl">Thesis quality</span> ' + escapeHtml(tier) + aiConf + '</div>';
     // Honest disclosure (overconfidence guard) when the thesis isn't strong.
     var discHtml = (tier !== 'strong' && tc.disclosure)
       ? '<div class="thesis-disclosure" title="The grade may have cleared the bar, but the thesis is not airtight. Trade it smaller or wait for confirmation.">⚠ ' + escapeHtml(tc.disclosure) + '</div>'
@@ -36272,6 +36360,24 @@
   // Build the full judgment card for one pick — the tier banner, analysis,
   // contract, exit ladder, peers, and the Recommendation ⇄ Grade toggle. Used
   // by the detail "page"; the landing view shows only the compact tab cards.
+  function pickPlanSummaryHtml(p){
+    var decision = pickDisplayDecision(p);
+    var tc = p.thesisCard || {};
+    var drivers = (tc.companyDrivers || tc.works || []).filter(function(d){ return d && (d.pillar === 'Fundamentals' || d.pillar === 'Narrative'); });
+    var thesis = tc.ai && tc.ai.summary || tc.prose || (drivers.length ? drivers.map(function(d){ return d.label || d.name || d.text; }).filter(Boolean).join(' · ') : '') || (tc.edge && tc.edge.text) || 'Business recovery evidence is not summarized here. Review the fundamentals and thesis before entry.';
+    var levels = p.exitPlan && p.exitPlan.levels || [];
+    var cut = levels.find(function(l){ return l.role === 'cut'; });
+    var target = levels.find(function(l){ return l.role !== 'cut' && l.role !== 'spot' && l.role !== 'reduce' && l.price != null; });
+    var review = pickReviewCheckpoint(p);
+    var checkpoint = review ? (review.expired ? 'Contract expired — reassess the setup' : review.due ? 'Review due · ' + review.date : 'Review by ' + review.date) : 'Expiry unavailable — set a review date before entry';
+    return '<section class="pick-plan-summary" aria-label="Trade plan at a glance"><header><h3>Trade plan</h3><strong class="' + (decision.ready ? 'sig-pos' : 'sig-warn') + '">' + escapeHtml(decision.label) + '</strong></header>' +
+      '<p class="pick-plan-thesis"><b>Why this setup</b> ' + escapeHtml(thesis) + '</p><div class="pick-plan-grid">' +
+      '<div><small>Entry confirmation</small><b>' + (decision.trigger ? '$' + decision.trigger.toFixed(2) : escapeHtml(decision.label)) + '</b><span>' + escapeHtml(decision.reason) + '</span></div>' +
+      '<div><small>Invalidation / defense</small><b>' + (cut && cut.price != null ? '$' + Number(cut.price).toFixed(2) : 'Review thesis deterioration') + '</b><span>Reassess if the supporting business drivers fail; the model defense level is not a guaranteed fill.</span></div>' +
+      '<div><small>First exit target</small><b>' + (target && target.price != null ? '$' + Number(target.price).toFixed(2) : 'No target supplied') + '</b><span>' + escapeHtml(target && (target.prose || target.label || target.action) || 'Inspect the exit ladder and current contract quote.') + '</span></div>' +
+      '<div><small>Pre-expiration review</small><b>' + escapeHtml(checkpoint) + '</b><span>Review 14 calendar days before expiry, or sooner if the thesis changes. Choose an exit date; this reminder does not auto-close the model record.</span></div></div></section>';
+  }
+
   function buildPickCardHtml(p, idx){
     var sideCls = pickSideClass(p.side);
     var sideLabel = p.side === 'put' ? 'PUT' : 'CALL';
@@ -36333,7 +36439,7 @@
     // (the full 4-pillar score breakdown — so you can judge how the score was
     // arrived at, right next to the call). A legacy pick with no pillar data
     // renders the recommendation directly with no tabs.
-    var recBody = tierHtml + analysisHtml + thesisHtml + contractHtml + entryHtml + exitHtml + peersHtml;
+    var recBody = tierHtml + '<details class="research-details"><summary>Thesis and supporting evidence</summary>' + analysisHtml + thesisHtml + '</details>' + entryHtml + exitHtml + '<details class="research-details"><summary>Contract economics, Greeks and grading</summary>' + contractHtml + '</details>' + peersHtml;
     var bodyHtml;
     if (pillarsHtml){
       // Honor the tab the user last picked for this symbol so re-opening the
@@ -36365,7 +36471,7 @@
           fiftyHtml +
           watchBtnHtml +
         '</div>' +
-        bodyHtml +
+        pickPlanSummaryHtml(p) + bodyHtml +
       '</div>' +
     '</article>';
   }
@@ -36387,7 +36493,7 @@
     var scoreStr = (total != null && isFinite(total)) ? ((total >= 0 ? '+' : '') + Number(total).toFixed(1)) : '—';
     var rec = p.recommendation || {};
     var tierLabel = rec.label ? escapeHtml(rec.label) : '';
-    if (tierLabel && rec.conviction && rec.conviction !== '—') tierLabel += ' · ' + escapeHtml(rec.conviction);
+    if (tierLabel) tierLabel = 'Directional grade: ' + tierLabel;
     var spot = p.spot != null ? '$' + Number(p.spot).toFixed(2) : '';
     var metaBits = [];
     if (p.sector) metaBits.push(escapeHtml(p.sector));
@@ -36418,7 +36524,7 @@
     // it covers buy-now, wait-for-reclaim/pullback/dip, and the event defer.
     var entryLine = '';
     if (!noRec && p.entry && p.entry.headline){
-      var eNow = !!p.entry.now;
+      var eNow = pickDisplayDecision(p).ready;
       var eTrg = (!eNow && p.entry.trigger != null && isFinite(p.entry.trigger)) ? ' $' + Number(p.entry.trigger).toFixed(2) : '';
       // data-live-entry tags the chip for the 30s live re-check
       // (applyLiveEntryChips): a wait chip flips in place the moment the live
@@ -36906,7 +37012,8 @@
     var picks = sortPicks(picksRaw, picksState.sort);
     picksState.sorted = picks;
     if (eyebrow){
-      eyebrow.textContent = picks.length + ' pick' + (picks.length === 1 ? '' : 's') + ' · refreshed 11:00 & 15:30 ET';
+      var readyCount = picks.filter(function(p){ return pickDisplayDecision(p).ready; }).length;
+      eyebrow.textContent = readyCount + ' ready · ' + (picks.length - readyCount) + ' watching · refreshed 11:00 & 15:30 ET';
     }
     // Always (re)enter on the landing grid — leaving and returning to the tab
     // should show the menu, not a stale detail page.
@@ -36928,7 +37035,7 @@
             ? 'No current Top Picks roster — the last carried snapshot is stale and has been withheld. Cash is a position; wait for a fresh build.'
           : (rmE && (rmE.eliteOnly || rmE.safetyFilter))
             ? ('No top picks today — nothing cleared the safety bar' + (nHeld ? ' (' + nHeld + ' name' + (nHeld === 1 ? '' : 's') + ' graded high but the data didn’t show a strong enough chance of profit, so held back)' : '') + '. A top pick only lists when the odds of making money are clearly in your favour — most days that is nothing, and cash is a position.')
-            : 'No high-conviction picks in this build — every ticker scored below the minimum.';
+            : 'No setup cleared every required grade, thesis and entry gate in this build.';
       }
       return;
     }
@@ -36970,7 +37077,8 @@
     // summary keeps only the roster-shape chips.
     if (summaryEl){
       summaryEl.innerHTML =
-        '<div class="picks-summary-chip"><span class="picks-summary-num">' + picks.length + '</span><span class="picks-summary-lbl">total picks</span></div>' +
+        '<div class="picks-summary-chip picks-summary-call"><span class="picks-summary-num">' + picks.filter(function(p){ return pickDisplayDecision(p).ready; }).length + '</span><span class="picks-summary-lbl">ready</span></div>' +
+        '<div class="picks-summary-chip"><span class="picks-summary-num">' + picks.filter(function(p){ return !pickDisplayDecision(p).ready; }).length + '</span><span class="picks-summary-lbl">watching</span></div>' +
         '<div class="picks-summary-chip picks-summary-call"><span class="picks-summary-num">' + callCount + '</span><span class="picks-summary-lbl">CALL</span></div>' +
         '<div class="picks-summary-chip picks-summary-put"><span class="picks-summary-num">' + putCount + '</span><span class="picks-summary-lbl">PUT</span></div>' +
         (strongCount > 0
@@ -36981,7 +37089,7 @@
           ? '<div class="picks-summary-chip" title="Average move the underlying must make from today to reach breakeven at expiry, across the list — a one-glance read of how far this book needs the tape to travel for the premiums to pay."><span class="picks-summary-num">±' + avgBe + '%</span><span class="picks-summary-lbl">avg to BE</span></div>'
           : '') +
         (book && book.premiumAtRiskPct != null && isFinite(book.premiumAtRiskPct)
-          ? '<div class="picks-summary-chip" title="Book-level risk on a $' + (book.account ? Math.round(book.account/1000) : 25) + 'k display account, at the suggested contract counts. PREMIUM AT RISK is the total long-premium deployed (most you can lose) as % of the account. Because every pick is a long option, the book is net-LONG-vega and net-SHORT-theta: net Δ ' + (book.netDeltaPct >= 0 ? '+' : '') + book.netDeltaPct + '% of account (delta-adjusted notional, signed), net vega $' + book.netVega + '/vol-pt, theta ' + book.netThetaDay + '/day (' + book.netThetaDayPct + '% of account/day of decay)."><span class="picks-summary-num">' + book.premiumAtRiskPct + '%</span><span class="picks-summary-lbl">prem at risk</span></div>'
+          ? '<div class="picks-summary-chip" title="Hypothetical allocation across the full roster, including waiting ideas, on the model display account. This is not deployed capital or actionable exposure. Waiting ideas must clear entry before any sizing applies."><span class="picks-summary-num">' + book.premiumAtRiskPct + '%</span><span class="picks-summary-lbl">hypothetical premium</span><small>Includes watch ideas · not deployed</small></div>'
           : '') +
         (earningsCount > 0
           ? '<div class="picks-summary-chip picks-summary-warn" title="Contracts whose expiry crosses an upcoming earnings report — the IV crush after earnings can wipe out a long premium even on a good directional call."><span class="picks-summary-num">' + earningsCount + '</span><span class="picks-summary-lbl">earnings risk</span></div>'
@@ -36992,7 +37100,7 @@
     // the bar, and the sector cap limits correlated names). Reads rosterMeta.
     var rm = data.rosterMeta || null;
     var noteBits = [];
-    if (picks.length < 10) noteBits.push('Only <b>' + picks.length + '</b> clean setup' + (picks.length === 1 ? '' : 's') + ' cleared the bar today');
+    if (picks.length < 10) noteBits.push('Only <b>' + picks.length + '</b> clean setup' + (picks.length === 1 ? '' : 's') + ' on the research roster');
     if (rm && rm.sectorCapped && rm.sectorCapped.length) noteBits.push('<b>' + rm.sectorCapped.length + '</b> skipped to cap sector concentration');
     if (rm && rm.factorCapped && rm.factorCapped.length) noteBits.push('<b>' + rm.factorCapped.length + '</b> skipped to cap factor concentration');
     if (rm && rm.factorTrendGated && rm.factorTrendGated.length) noteBits.push('<b>' + rm.factorTrendGated.length + '</b> long' + (rm.factorTrendGated.length === 1 ? '' : 's') + ' stood down — their sector is rolling over (no chasing a falling factor)');
@@ -37024,8 +37132,8 @@
       : '';
     // Two roster GROUPS (the grade × thesis matrix): Actionable top picks (strong
     // grade + strong thesis, full strategy) vs. lower-conviction Ideas / Watch.
-    var actionableList = picks.filter(function(p){ return p.group === 'actionable'; });
-    var watchList = picks.filter(function(p){ return p.group !== 'actionable'; });
+    var actionableList = picks.filter(function(p){ return pickDisplayDecision(p).ready; });
+    var watchList = picks.filter(function(p){ return !pickDisplayDecision(p).ready; });
     var groupHead = function(title, count, sub, cls){
       return '<div class="picks-group-head ' + cls + '">' +
         '<span class="picks-group-title">' + title + '</span>' +
@@ -37033,10 +37141,10 @@
         (sub ? '<span class="picks-group-sub">' + sub + '</span>' : '') + '</div>';
     };
     var sectionHtml = '';
-    sectionHtml += groupHead('Actionable top picks', actionableList.length, 'Strong grade, strong thesis <b>and</b> a confirmed entry — buy the shown contract now and hold', 'picks-group-actionable');
+    sectionHtml += groupHead('Actionable top picks', actionableList.length, 'Strong grade, strong thesis <b>and</b> a confirmed published entry. Recheck the quote and plan before trading.', 'picks-group-actionable');
     sectionHtml += actionableList.length
       ? actionableList.map(function(p, i){ return pickTabCardHtml(p, i); }).join('')
-      : '<div class="picks-group-empty">Nothing is a buy <i>right now</i> — no name cleared all three bars (a strong grade, a strong thesis <i>and</i> a confirmed entry). Cash is a position. Strong picks still waiting on their entry sit below with a trigger price, and they promote themselves here the hour the entry confirms.</div>';
+      : '<div class="picks-group-empty">Nothing is a buy <i>right now</i> — no name cleared all three bars (a strong grade, a strong thesis <i>and</i> a confirmed entry). Cash is a position. Strong picks still waiting on their entry sit below with a trigger price, and move here when a scheduled Top Picks build confirms the full entry.</div>';
     if (watchList.length){
       sectionHtml += groupHead('Ideas · watch', watchList.length, 'Not a buy right now — strong picks waiting for entry, moderate grades, or thinner theses; a strategy is shown only where it’s earned', 'picks-group-watch');
       sectionHtml += watchList.map(function(p, i){ return pickTabCardHtml(p, i); }).join('');

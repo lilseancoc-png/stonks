@@ -227,7 +227,7 @@ function marketAnalysisSection() {
       <h2 class="card-title">Market analysis</h2>
       <span class="card-eyebrow" id="market-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">The cross-asset risk read that sets the engine&rsquo;s posture &mdash; the live market tape, a conditional 5&ndash;10-session scenario and sensitivity layer, a frozen premarket leader/laggard follow-through check, the risk-on / risk-off barometer, and daily regime history &mdash; plus a grade lookup for any tracked ticker. Position-specific guidance lives in Owner Lab.</p>
+    <p class="hint">Start with the market posture, its drivers and what would change the stance. Expand the scenario and source details as needed. Check held positions in Owner Lab.</p>
     <div id="market-regime-strip" class="picks-summary"><span id="picks-regime-chip" class="picks-regime-slot"></span></div>
     <div id="market-action" class="market-action" hidden aria-live="polite"></div>
     <div id="market-scenario-engine" class="market-scenario-engine" hidden aria-live="polite"></div>
@@ -338,7 +338,7 @@ function trackRecordSection() {
       <h2 class="card-title">Pick track record</h2>
       <span class="card-eyebrow" id="accuracy-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">Every Top Pick shipped each refresh is logged and marked to market against each pick&rsquo;s own take-profit / cut levels. Use the tabs below to switch between the plain-English engine summary, the scorecard, the live Top&nbsp;10 roster, the activity logs, and the open / resolved picks. Each view opens with an <b>At a glance</b> strip — its key numbers and a one-line takeaway — with the full detail below.</p>
+    <p class="hint">Modeled outcomes from the published picks, not actual fills. Start with the sample size and results below; use the other views to inspect the ledger, cohorts and simulations.</p>
     <details class="accuracy-how">
       <summary>How this works</summary>
       <p>A pick <b>resolves</b> when the underlying reaches its take-profit (<span class="acc-ok">win</span>), hits its cut (<span class="acc-bad">loss</span>), <b>breaks its thesis</b> (the live grade flips to the opposite side, the stop level is breached, or every supporting driver goes quiet), or expires (graded vs. breakeven). There is no time stop, no pre-earnings exit, and no weekly force-close &mdash; a position is held, through earnings prints included, for as long as its original thesis stays intact and the contract has time left. The <b>Summary</b> tab is the rules-based engine report: an overall health verdict, why the losers lost (direction miss vs. theta bleed), why the winners won, which segments are working vs. lagging, and a specific "what to fix next" list — all computed from the resolved record, no AI. The <b>win rate by tier</b> asks whether higher-conviction scores actually win more. <b>Top&nbsp;10 — picks in &amp; out</b> shows the current 10-name roster, what changed in the 4 pillars since the last refresh, what dropped out and what replaced it, and a rules-based upgrade/downgrade read on each name (click a row for the full rubric); <b>Recent crossings</b> is the chronological log of names crossing the conviction bar on or off the actionable set; <b>Grade changes</b> logs every ticker whose grade moves up or down (and why); each pick&rsquo;s <b>Day&nbsp;0 / 2wk / 1mo</b> checkpoints show whether the price moved the way the score predicted. The <b>Equity</b>, <b>Breakdowns</b>, <b>Simulator</b>, and <b>Monte&nbsp;Carlo</b> tabs add a modeled-dollar profitability lens — an equity curve + drawdown, per-DTE / PoP / thesis / conviction tables and cross-tabs, a hypothetical $100k risk-managed book, and a bootstrap of the outcome distribution. The <b>Market-sized</b> lens and <b>Market environment</b> simulator mode use the daily Market Analysis history: defensive sizing is $5k instead of $10k, full size returns after 3 consecutive risk-on sessions, and 2 consecutive risk-off sessions cut it back in half; neutral stays defensive. Top Picks and its record refresh twice each market day, at 11:00 and 15:30 ET, not intraday.</p>
@@ -780,7 +780,7 @@ function quantSection() {
     <section class="owner-suite" aria-labelledby="owner-tools-title">
       <header class="owner-suite-head">
         <div><span>Private workspace</span><h3 id="owner-tools-title">Owner tools</h3></div>
-        <p>Personalized controls are isolated here because they use an actual holding, account value, or dollar-risk budget. Access requires both the Top Picks and Track Record roles.</p>
+        <p>Review a held contract, check the daily index allocation, or size a qualified setup against your risk budget.</p>
       </header>
       <details class="picks-position owner-position" id="picks-position">
         <summary>Check a position you already hold &rarr;</summary>
@@ -800,8 +800,8 @@ function quantSection() {
         </div>
       </details>
       <div id="owner-dca-root" class="owner-tool-root">Loading personalized DCA sizing&hellip;</div>
-      <div id="owner-rotation-root" class="owner-tool-root">Loading Sector Rotation sizing&hellip;</div>
-      <div id="owner-lev-root" class="owner-tool-root">Loading leveraged-ETF sizing&hellip;</div>
+      <details class="research-details"><summary>Size a Sector Rotation setup</summary><div id="owner-rotation-root" class="owner-tool-root">Loading Sector Rotation sizing&hellip;</div></details>
+      <details class="research-details"><summary>Size a leveraged ETF setup</summary><div id="owner-lev-root" class="owner-tool-root">Loading leveraged-ETF sizing&hellip;</div></details>
     </section>
     <div id="quant-root" class="quant-root">Loading Quant Lab&hellip;</div>
     <div id="quant-empty" class="quant-empty" hidden>Quant Lab data will appear after the next daily build refresh.</div>
