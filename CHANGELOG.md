@@ -28,6 +28,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Changed
 
+- **Top Picks is easier to scan (#642).** Give setup cards more room, clarify the page and section hierarchy, simplify supporting controls, and improve empty states, keyboard focus, and mobile spacing.
+
 - **Mobile research is easier to reach (#640).** Display and account controls move into a compact settings menu; Calendar puts month navigation before the selected day's events and keeps the full risk overview expandable. Navigation adds a skip link, drawer focus containment, and focus restoration.
 
 - **The research workspace is easier to scan.** Home uses compact cards, clearer index metrics, readable shortcuts, and restrained header actions; shared card headings, secondary text, and focus states work across light and dark themes. The sidebar adds topic filtering with keyboard selection, empty-result guidance, and a mobile close control while preserving Owner access restrictions and disclosure choices.

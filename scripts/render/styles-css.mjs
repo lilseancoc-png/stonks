@@ -24411,5 +24411,66 @@ svg[data-ch]{ cursor: crosshair; touch-action: pan-y; }
   .ch-range-row { grid-template-columns: minmax(48px, auto) minmax(0, 1fr) auto; gap: 6px; }
 }
 ${renderWorkspaceCss()}
+
+/* Top Picks: spacious, scoped research cards and a quiet supporting frame. */
+#picks-section > .card-header { align-items: center; gap: 12px 18px; flex-wrap: wrap; padding-bottom: 20px; }
+#picks-section .picks-heading { flex: 1 1 320px; min-width: 0; }
+.picks-kicker { display: block; margin-bottom: 8px; color: var(--accent); font: 700 10px/1.3 var(--font-mono); letter-spacing: .12em; text-transform: uppercase; }
+#picks-section .picks-heading .card-title { margin: 0; font-size: clamp(22px, 2.3vw, 30px); letter-spacing: -.035em; }
+.picks-intro { margin: 8px 0 0; color: var(--muted); font: 400 13px/1.6 var(--font-sans); }
+#picks-section .card-eyebrow { max-width: 260px; white-space: normal; line-height: 1.6; }
+#picks-section .picks-howto { margin: 0 0 22px; box-shadow: none; background: transparent; }
+#picks-section .picks-howto > summary { display: flex; justify-content: space-between; gap: 12px; padding: 13px 16px; font-size: 12px; }
+.picks-howto-cue { font: 500 18px/1 var(--font-mono); color: var(--muted); }
+.picks-howto[open] .picks-howto-cue { transform: rotate(45deg); }
+#picks-section .picks-controls { justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.picks-controls-title { color: var(--text-strong); font: 650 14px/1.4 var(--font-sans); }
+#picks-section .picks-sort { gap: 10px; min-width: 0; }
+#picks-section .picks-sort select { min-height: 40px; max-width: 100%; padding: 8px 12px; }
+#picks-section .picks-summary { gap: 8px; margin-bottom: 20px; }
+#picks-section .picks-summary-chip { flex: 1 1 105px; padding: 13px 14px; gap: 8px; flex-direction: column; border-radius: 10px; box-shadow: none; }
+#picks-section .picks-summary-num { font-size: 22px; }
+#picks-section .picks-summary-lbl { font-size: 10px; line-height: 1.4; letter-spacing: .04em; }
+#picks-section .picks-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 310px), 1fr)); gap: 16px; align-items: stretch; }
+#picks-section .picks-grid:empty { margin-top: 0; }
+#picks-section .picks-live-board:empty { display: none; }
+#picks-section .picks-group-head { margin: 12px 0 0; padding-bottom: 12px; gap: 8px 10px; align-items: center; }
+#picks-section .picks-group-title { font: 700 15px/1.4 var(--font-sans); text-transform: none; letter-spacing: -.01em; }
+#picks-section .picks-group-count { padding: 4px 8px; }
+#picks-section .picks-group-sub { font-size: 12px; line-height: 1.65; color: var(--muted); max-width: 85ch; }
+#picks-section .pick-tab-card { min-width: 0; padding: 20px; column-gap: 10px; row-gap: 10px; border-left-width: 3px; background-image: none; box-shadow: none; border-radius: 12px; grid-template-areas: "rank head score" "tier tier tier" "thesis thesis thesis" "entry entry entry" "con con con" "meta meta meta" "cta cta cta"; align-content: start; }
+#picks-section .pick-tab-card:hover { box-shadow: var(--elev-1); }
+#picks-section .pick-tab-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+#picks-section .ptc-rank { font-size: 12px; line-height: 22px; color: var(--muted); }
+#picks-section .ptc-sym { font-size: 20px; line-height: 1.2; }
+#picks-section .ptc-score { font-size: 22px; line-height: 1.1; text-align: right; }
+#picks-section .ptc-cost { display: block; margin-top: 5px; font-size: 10px; white-space: normal; }
+#picks-section .ptc-tier { font-size: 10px; letter-spacing: .04em; line-height: 1.5; }
+#picks-section .ptc-thesis { font-size: 13px; line-height: 1.7; -webkit-line-clamp: 3; }
+#picks-section .ptc-entry { padding: 7px 9px; line-height: 1.4; white-space: normal; }
+#picks-section .ptc-contract { padding: 10px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); line-height: 1.7; }
+#picks-section .ptc-meta { font-size: 11px; line-height: 1.6; }
+#picks-section .ptc-cta { margin-top: 4px; padding-top: 6px; font: 600 12px/1.5 var(--font-sans); text-transform: none; letter-spacing: 0; }
+#picks-section .picks-roster-note { grid-column: 1 / -1; margin: 0; padding: 12px 15px; line-height: 1.7; box-shadow: none; }
+#picks-section .picks-empty { padding: 28px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); color: var(--muted); font: 400 13px/1.8 var(--font-sans); }
+#picks-section .picks-empty::before { content: "No setups to review"; display: block; margin-bottom: 8px; color: var(--text-strong); font: 650 18px/1.4 var(--font-sans); }
+#picks-section .picks-empty[data-state="error"]::before { content: "Picks unavailable"; }
+#picks-section .picks-empty[data-state="stale"]::before { content: "Waiting for fresh picks"; }
+#picks-section .picks-group-empty { padding: 18px; line-height: 1.8; background: var(--surface-2); }
+#picks-section .picks-foot { max-width: 95ch; margin-top: 22px; font-size: 11px; line-height: 1.8; }
+#picks-section .picks-back { min-height: 40px; }
+#picks-section .pick-card { box-shadow: none; }
+#picks-section .pick-head { gap: 10px; padding-bottom: 12px; }
+#picks-section .pick-tab { min-height: 42px; }
+@media (max-width: 640px) {
+  #picks-section > .card-header { gap: 10px; }
+  #picks-section .picks-heading { flex-basis: 100%; }
+  #picks-section .card-eyebrow { flex: 1 1 170px; font-size: 10px; }
+  #picks-section .picks-sort { width: 100%; }
+  #picks-section .picks-sort select { flex: 1; min-width: 0; width: 100%; }
+  #picks-section .picks-summary-chip { flex-basis: 90px; }
+  #picks-section .pick-tab-card { padding: 16px; }
+  #picks-section .picks-empty { padding: 20px; }
+}
 `;
 }
