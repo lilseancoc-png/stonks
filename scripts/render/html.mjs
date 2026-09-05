@@ -263,7 +263,7 @@ function topPicksSection() {
   // The market-tape / barometer / regime widgets moved to marketAnalysisSection().
   return `<section class="card" id="picks-section">
     <header class="card-header">
-      <h2 class="card-title">Top options picks</h2>
+      <div class="picks-heading"><span class="picks-kicker">Options research</span><h2 class="card-title">Top options picks</h2><p class="picks-intro">Review the thesis, check the entry, then inspect the contract.</p></div>
       <span class="card-eyebrow" id="picks-eyebrow" aria-live="polite"></span>
       <span class="tab-live-state" id="picks-live-state" aria-live="polite"></span>
       <button type="button" id="picks-export-csv" class="csv-export-btn" title="Download picks as CSV">Export CSV</button>
@@ -272,7 +272,7 @@ function topPicksSection() {
     <div id="picks-live-board" class="picks-live-board" hidden></div>
     <div id="picks-listview" class="picks-listview">
     <details class="picks-howto">
-      <summary>How the grade works &mdash; and how the market tape moves it &rarr;</summary>
+      <summary>How to read these picks <span class="picks-howto-cue" aria-hidden="true">+</span></summary>
       <div class="picks-howto-body">
         <p>A <b>fixed, auditable</b> grading system. Every tracked name receives a directional asset read from four pillars (<b>Fundamentals</b>, <b>Technicals</b>, <b>Mechanicals</b>, <b>Narrative</b>), followed by a bounded IV-cost adjustment and a continuous, direction-aware market-regime overlay. <b>Entry timing is a separate execution decision, not part of conviction</b>: a strong thesis can stay strong while the correct action is Wait or Avoid. Normal candidates must clear the conviction floor both before and after the regime overlay, plus the thesis-quality review and every execution gate, to become actionable; the existing risk-off tactical-put path remains a reduced-size, watch-only defensive exception. The list is deliberately allowed to be <b>short, or empty</b>, on a poor day &mdash; the engine would rather hold cash than pad it. Each card has a <b>Recommendation&nbsp;&#8644;&nbsp;Grade</b> toggle &mdash; flip to Grade to audit every signal behind the score &mdash; plus a named entry strategy, a layered exit ladder, and a same-sector peer comparison. The <b>Track record</b> tab marks past picks to market (modeled option P&amp;L).</p>
         <p><b>The grade and execution read.</b> The four asset pillars are each clamped to &plusmn;5. IV Cost is bounded to &minus;2&hellip;+1 and changes conviction symmetrically for calls and puts without changing the side. The regime overlay is applied after pillars + IV and before ranking; Entry Timing stays separate at &minus;8&hellip;+2 and decides whether to Go, Wait for a named trigger, or Avoid. Grade tiers retain fixed absolute bars even though the IV-cost input is deliberately standardized across the current eligible universe.</p>
@@ -291,6 +291,7 @@ function topPicksSection() {
       </div>
     </details>
     <div class="picks-controls" role="toolbar" aria-label="Sort top picks">
+      <span class="picks-controls-title">Setup overview</span>
       <label class="picks-sort">
         <span class="picks-sort-label">Sort</span>
         <select id="picks-sort-select" aria-label="Sort top picks">

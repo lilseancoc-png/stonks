@@ -36820,6 +36820,7 @@ ${renderWorkspaceBindings()}
       if (empty){
         empty.hidden = false;
         var rmE = data.rosterMeta || null;
+        empty.dataset.state = data.loadError ? 'error' : staleBuild ? 'stale' : 'empty';
         var nHeld = ((rmE && rmE.eliteGated && rmE.eliteGated.length) || 0) + ((rmE && rmE.safetyGated && rmE.safetyGated.length) || 0);
         empty.textContent = data.loadError
           ? 'Couldn’t load picks — re-open this tab to try again.'
