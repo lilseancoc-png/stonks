@@ -20,6 +20,16 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-09-05
+
+### Changed
+
+- **Research context stays explicit (#644).** Earnings calls lead with recent research and call-age labels; company comparisons emphasize forward valuation, operating margin, cash flow and distance below the 52-week high; Track Record describes cohort results as preliminary observations.
+
+### Fixed
+
+- **Flow and leveraged ETF consistency (#644).** Match focus-ticker Flow counts and qualified-premium scope, separate ETF waiting and pass states, calculate leveraged payoff from planned entry, convert earnings-move fractions to percentages, and show timestamped reference quotes outside the session without enabling live sizing.
+
 ## 2026-09-04
 
 ### Added
