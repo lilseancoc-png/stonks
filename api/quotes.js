@@ -50,6 +50,7 @@ export default async function handler(req, res) {
       yahooFinance.quote(symbols, {
         fields: [
           "regularMarketPrice",
+          "regularMarketTime",
           "regularMarketPreviousClose",
           "regularMarketChange",
           "regularMarketChangePercent",
@@ -91,6 +92,8 @@ export default async function handler(req, res) {
         return {
           symbol: q?.symbol,
           spot,
+          regularSpot: q?.regularMarketPrice ?? null,
+          regularAsOf: q?.regularMarketTime && Number.isFinite(new Date(q.regularMarketTime).getTime()) ? new Date(q.regularMarketTime).toISOString() : null,
           prevClose,
           change,
           changePct,

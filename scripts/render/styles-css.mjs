@@ -24413,6 +24413,7 @@ svg[data-ch]{ cursor: crosshair; touch-action: pan-y; }
 ${renderWorkspaceCss()}
 
 /* Top Picks: spacious, scoped research cards and a quiet supporting frame. */
+.ecl-age{font-size:.78rem;line-height:1.5;color:var(--muted);margin:.5rem 0}.lev-live small{display:block;font-size:.72rem;line-height:1.5;font-weight:400}.lev-desk-summary{flex-wrap:wrap}
 .research-details { margin: 14px 0; border: 1px solid var(--border); border-radius: 10px; padding: 0 14px; background: var(--surface); }
 .research-details > summary { cursor: pointer; padding: 13px 0; min-height: 44px; color: var(--text-strong); font: 600 13px/1.5 var(--font-sans); }
 .research-details > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }

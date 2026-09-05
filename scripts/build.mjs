@@ -12,7 +12,7 @@
 // The daily GitHub Actions workflow refreshes everything each market-day
 // morning and evening.
 import { writeFile, readFile, mkdir, rm, readdir, appendFile } from "node:fs/promises";
-import { shareEntryPayoff } from "../lib/research-display.mjs";
+import { leveragedEntryPlan, shareEntryPayoff } from "../lib/research-display.mjs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
@@ -24990,9 +24990,10 @@ function levTradePlan(direction, total, data, timing, lev) {
   const targetUnderPct = Math.abs(pnum(exit?.takeProfit?.movePct) || 0);
   const etfStopPct = r1(stopUnderPct * Math.abs(lev));
   const etfTargetPct = r1(targetUnderPct * Math.abs(lev));
-  return {
+  return leveragedEntryPlan({ direction, leverage: lev, under: {spot}, plan: {
     entry: entry ? {
       now: !!entry.now,
+      price: entry.now ? spot : pnum(entry.trigger),
       trigger: pnum(entry.trigger),
       zone: Array.isArray(entry.zone) ? entry.zone.map(pnum) : null,
       basis: entry.basis || null,
@@ -25011,7 +25012,7 @@ function levTradePlan(direction, total, data, timing, lev) {
       reason: exit.takeProfit.reason || null,
     } : null,
     riskReward: etfStopPct > 0 && etfTargetPct > 0 ? r2(etfTargetPct / etfStopPct) : null,
-  };
+  } });
 }
 
 export function buildLeveragedEtfPicks(chains, gradesIndex, builtAtIso, macroRegime = null, opts = {}) {
