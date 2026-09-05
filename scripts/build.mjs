@@ -13455,16 +13455,27 @@ export function parseJacksonHoleSymposium(html) {
   };
 }
 
-async function fetchTextCalendar(url) {
-  const res = await fetch(url, {
-    headers: {
-      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-      accept: "text/html,text/calendar,text/plain,*/*",
-    },
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.text();
+export async function fetchTextCalendar(url, fetchImpl = fetch) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetchImpl(url, {
+        headers: {
+          "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          accept: "text/html,text/calendar,text/plain,*/*",
+        },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!res.ok) {
+        const err = new Error(`HTTP ${res.status}`);
+        err.retryable = [403, 408, 429].includes(res.status) || res.status >= 500;
+        throw err;
+      }
+      return await res.text();
+    } catch (err) {
+      if (attempt === 2 || err.retryable === false) throw err;
+      await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+    }
+  }
 }
 
 function calendarMonthsInWindow(startMs, cutoffMs) {
@@ -13494,7 +13505,9 @@ export async function fetchOfficialCalendarEvents(startMs, cutoffMs) {
     (async () => {
       try {
         const text = await fetchTextCalendar(BLS_CALENDAR_ICS);
-        addInWindow(parseOfficialIcsCalendar(text, { sourceKey: "bls", source: "BLS", sourceUrl: BLS_CALENDAR_ICS }));
+        const parsed = parseOfficialIcsCalendar(text, { sourceKey: "bls", source: "BLS", sourceUrl: BLS_CALENDAR_ICS });
+        if (!parsed.length) throw new Error("no events in official calendar response");
+        addInWindow(parsed);
         status.bls = true;
       } catch (err) {
         status.bls = false;
@@ -14639,6 +14652,13 @@ function buildEconHistory(format, series, n = 24) {
 // past, populate actual from the latest observation. Consensus / Forecast
 // are reserved fields — populated later when a consensus data source is
 // wired (TradingEconomics / Investing.com).
+export function macroReleaseSourceLabel(seriesSource, hasSeriesData, hasForexFactoryData, noSeries = false) {
+  const sources = [];
+  if (seriesSource && hasSeriesData) sources.push(seriesSource.replace(":", " · "));
+  if (hasForexFactoryData) sources.push("ForexFactory");
+  return sources.join(" · ") || (noSeries ? "ISM" : "Schedule only");
+}
+
 export async function fetchMacroReleases(startMs, cutoffMs) {
   const uniqueSeries = Array.from(new Set(ECON_REPORTS.map((r) => r.series).filter(Boolean)));
   // Map FRED series id → BLS series id for the per-id fallback. Only one
@@ -14754,9 +14774,10 @@ export async function fetchMacroReleases(startMs, cutoffMs) {
         // from consensus; treat ff.forecast as both for now, since FF
         // doesn't expose a separate "forecast" feed.
         forecast: consensus,
-        source: ff
-          ? (report.noSeries ? "ForexFactory" : (report.bls ? "BLS" : "FRED") + " · ForexFactory")
-          : (report.noSeries ? "ISM" : (seriesSource[report.series] || "BLS · " + report.series).replace(":", " · ")),
+        source: macroReleaseSourceLabel(
+          seriesSource[report.series], Boolean(fredActual || fredPrevious || history.length),
+          Boolean(consensus || ffActual || ffPrevious), report.noSeries,
+        ),
         history,
         histUnit,
         histSigned,
@@ -15829,9 +15850,9 @@ async function fetchPolymarketFomc(meetingDate) {
 }
 
 // Map calendar report subtypes → Polymarket title-keyword matchers for a
-// best-effort "market view". Distributional macro markets don't reduce to one
-// clean number, so we surface the single highest-volume related market as the
-// headline reading. No match → nothing attached (the row renders as before).
+// market view. Distributional macro markets do not reduce to one clean number;
+// select the highest-volume outcome only after checking contract identity.
+// No exact match means no chip.
 const MACRO_PREDICTION_MATCHERS = {
   "cpi-yoy": /(\bcpi\b|inflation)/,
   "cpi-mom": /(\bcpi\b|inflation)/,
@@ -15848,6 +15869,36 @@ const MACRO_PREDICTION_MATCHERS = {
 // the wrong country. Polymarket titles its US macro markets without naming
 // the country, so a foreign-country blocklist is the reliable gate.
 const PM_FOREIGN_TITLE_RE = /\b(argentina|brazil|mexico|venezuela|colombia|chile|peru|turkey|t[üu]rkiye|india|china|chinese|japan|japanese|eurozone|euro (?:zone|area)|europe|european|germany|german|france|french|italy|italian|spain|spanish|uk|u\.k\.|britain|british|england|canada|canadian|australia|australian|korea|korean|russia|russian|nigeria|egypt|south africa|indonesia|poland|hungary|czech|sweden|swedish|norway|norwegian|switzerland|swiss)\b/;
+// Monthly macro contracts must identify the measure AND reference month.
+// A release in September reports August; proximity alone is not identity.
+export function matchesMacroPrediction(ev, pe, mk = {}) {
+  const matcher = MACRO_PREDICTION_MATCHERS[ev.subtype];
+  const text = [pe.title, pe.slug, mk.question, mk.slug].filter(Boolean).join(" ").toLowerCase().replace(/-/g, " ");
+  if (!matcher || !matcher.test(text) || PM_FOREIGN_TITLE_RE.test(text)) return false;
+  if (!/cpi|ppi/.test(ev.subtype)) return true; // retain other macro matching behavior
+  if (pe.closed === true || mk.closed === true || pe.active === false || mk.active === false) return false;
+  const release = new Date(ev.date + "T00:00:00Z");
+  if (!Number.isFinite(release.getTime())) return false;
+  const reference = new Date(Date.UTC(release.getUTCFullYear(), release.getUTCMonth() - 1, 1));
+  const month = PM_MONTH_NAMES[reference.getUTCMonth()];
+  if (!new RegExp(`\\b${month}\\b`).test(text)) return false;
+  const years = text.match(/\b20\d{2}\b/g) || [];
+  const end = new Date(pe.endDate || pe.end_date || "");
+  if (years.length ? years.some(y => Number(y) !== reference.getUTCFullYear())
+    : !Number.isFinite(end.getTime()) || end.getUTCFullYear() !== release.getUTCFullYear()) return false;
+  if (Number.isFinite(end.getTime()) && Math.abs(end - release) > 14 * 86400000) return false;
+  if (/how high|highest|at any (?:time|point)|by (?:the )?end|during (?:the )?year/.test(text)) return false;
+  if (/cpi|ppi/.test(ev.subtype)) {
+    const ppi = /\bppi\b|producer price/.test(text);
+    if (ppi !== ev.subtype.includes('ppi')) return false;
+    if (/\bcore\b/.test(text) !== ev.subtype.startsWith('core-')) return false;
+    const mom = /\bmom\b|month over month|month on month|monthly/.test(text);
+    const yoy = /\byoy\b|year over year|year on year|annual/.test(text);
+    if (ev.subtype.endsWith('-mom') ? !mom || yoy : !yoy || mom) return false;
+  }
+  return true;
+}
+
 async function fetchMacroPrediction(ev) {
   const matcher = MACRO_PREDICTION_MATCHERS[ev.subtype];
   if (!matcher) return null;
@@ -15862,6 +15913,7 @@ async function fetchMacroPrediction(ev) {
     const endMs = Date.parse(pe.endDate || pe.end_date || "");
     if (Number.isFinite(endMs) && Math.abs(endMs - evMs) > 40 * 86400000) continue; // resolves near this release
     for (const mk of (Array.isArray(pe.markets) ? pe.markets : [])) {
+      if (!matchesMacroPrediction(ev, pe, mk)) continue;
       const yes = polymarketYesPrice(mk);
       if (yes == null) continue;
       const vol = PM_MARKET_VOL(mk);

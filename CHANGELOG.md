@@ -34,6 +34,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
+- **Calendar contract matching and source attribution (#641).** Match Calendar prediction chips to the exact macro measure and reference month; omit ambiguous or unrelated contracts. Retry transient official-calendar fetch failures, validate BLS calendar responses, and credit the data provider actually used.
+- **Navigation and legal footer corrections (#641).** Restore the Pending buyouts navigation icon and update Privacy/Terms footers to Stock Market Research.
+
+
 - **Close-bake recovery verifies publication (#638).** A successful router-only run no longer suppresses the watchdog; recovery stops only after the latest build attempt completes and publishes private-store or legacy data.
 - **Grade resumes live pricing across market sessions (#638).** Paused polling rechecks the session, retries quote failures, and refreshes expired session state when returning to Grade or the browser.
 - **Heatmap failures restore baked values (#638).** A failed live poll clears the old overlay and repaints returns and breadth before labeling the display as the baked close.
