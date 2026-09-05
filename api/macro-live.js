@@ -240,7 +240,10 @@ export default async function handler(req, res) {
       const prevClose = typeof prevRaw === "number" && isFinite(prevRaw) ? prevRaw : null;
       const pctChange1d = prevClose != null && prevClose !== 0 ? ((value - prevClose) / prevClose) * 100 : null;
       const bpsChange1d = isYield && prevClose != null ? (value - prevClose) * 100 : null;
-      legs[key] = { value, prevClose, pctChange1d, bpsChange1d };
+      const quoteTime = q?.regularMarketTime ? new Date(q.regularMarketTime) : null;
+      legs[key] = { value, prevClose, pctChange1d, bpsChange1d,
+        asOf: quoteTime && !Number.isNaN(quoteTime.getTime()) ? quoteTime.toISOString() : null,
+        marketState: q?.marketState || null };
     }
     // Do not substitute 2YY=F here. Its 3.961 quote on 2026-08-18 was a futures
     // contract level while the official same-day 2Y CMT was 4.19%; treating the

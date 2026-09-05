@@ -8,7 +8,6 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test:day-trading": "node scripts/day-trading-smoke.mjs",
     "test:ai-capex": "node scripts/ai-capex-smoke.mjs",
     "test:ma-tracker": "node scripts/ma-tracker-smoke.mjs",
     "test:heatmap": "node scripts/heatmap-smoke.mjs",
@@ -18,6 +17,8 @@
     "test:central-bank-gold": "node scripts/central-bank-gold-smoke.mjs",
     "test:commodities": "node scripts/commodities-smoke.mjs",
     "test:overnight": "node scripts/overnight-smoke.mjs",
+    "test:workflow-schedules": "node scripts/workflow-schedule-smoke.mjs",
+    "test:yahoo-retry": "node scripts/yahoo-retry-smoke.mjs",
     "test:calendar": "node scripts/calendar-smoke.mjs",
     "test:narrative-risk": "node scripts/narrative-risk-smoke.mjs",
     "test:api": "node scripts/api-smoke.mjs",

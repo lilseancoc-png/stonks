@@ -1320,7 +1320,7 @@ Share-direction breadth is more informative than dollar change because value cha
 
 ## 16. Owner Lab
 
-The Owner section contains Market Analysis, Top Picks, Stock Picks, Sector Rotation, Leveraged ETFs, Top Picks Track Record, and Owner Lab. Owner Lab contains the analytical Quant Lab screens plus the held-position checker and personal dollar/account-risk controls. The Day Trading paper engine remains in-tree but is retired from the live UI (schedule parked; store keys still Owner-gated). The section's signed session is minted only for holders of the pre-existing Top Picks owner role; all other research surfaces are public.
+The Owner section contains Market Analysis, Top Picks, Stock Picks, Sector Rotation, Leveraged ETFs, Top Picks Track Record, and Owner Lab. Owner Lab contains the analytical Quant Lab screens plus the held-position checker and personal dollar/account-risk controls. The section's signed session is minted only for holders of the pre-existing Top Picks owner role; all other research surfaces are public.
 
 ### Regimes
 
@@ -1468,7 +1468,7 @@ When `PRIVATE_DATA_ENABLED` is off, the deployment behaves as legacy public data
 
 **Public:** every user-facing tab except the Owner destinations, including ticker chains, grades, briefs, narratives, flow, gamma/OI, IV, earnings, macro/alternative-data desks, live market-data proxies, and reference/legal pages.
 
-**Owner:** Market Analysis, Top Picks, Stock Picks, Sector Rotation, Leveraged ETFs, Top Picks Track Record, Owner Lab, every payload/raw log backing those tabs (including the private exact-contract `auto-picks.json` sidecar), parked Day Trading store keys, the shared owner watchlist, and internal cache/accounting payloads. OAuth verifies the existing `DISCORD_TOPPICKS_ROLE_ID(S)` owner role and then mints both signed compatibility claims (`tp` + `tr`) expected by the private APIs. Missing Top Picks role configuration fails closed; `DISCORD_TRACKRECORD_ROLE_ID(S)` is no longer read. Public Brief generation excludes facts from the Owner-only desks, and the response boundary strips legacy Top-Picks contract/lean fields from otherwise-public store objects.
+**Owner:** Market Analysis, Top Picks, Stock Picks, Sector Rotation, Leveraged ETFs, Top Picks Track Record, Owner Lab, every payload/raw log backing those tabs (including the private exact-contract `auto-picks.json` sidecar), the shared owner watchlist, and internal cache/accounting payloads. OAuth verifies the existing `DISCORD_TOPPICKS_ROLE_ID(S)` owner role and then mints both signed compatibility claims (`tp` + `tr`) expected by the private APIs. Missing Top Picks role configuration fails closed; `DISCORD_TRACKRECORD_ROLE_ID(S)` is no longer read. Public Brief generation excludes facts from the Owner-only desks, and the response boundary strips legacy Top-Picks contract/lean fields from otherwise-public store objects. Retired `day-trading*.json` objects hard-404 before storage access and remain denylisted as private until they are purged from old store generations.
 
 Unauthorized Owner features are hidden rather than upsold. Owner data uses `private, no-store`; public data uses a short public edge cache.
 
@@ -1521,7 +1521,7 @@ Model resilience includes per-call model defaults, retry ladders, dead-model det
 
 ## 20. Audit findings and interpretation cautions
 
-1. **Current code and older repository guidance can differ on tiering.** The current `OWNER_TABS` and `lib/premium-keys.mjs` are the authority. Market Analysis, Top Picks, Stock Picks, Sector Rotation, Leveraged ETFs, Top Picks Track Record, and Owner Lab require the signed session minted from the existing Top Picks owner role; all other tabs are public. Day Trading remains Owner-gated in the store but is retired from the live UI.
+1. **Current code and older repository guidance can differ on tiering.** The current `OWNER_TABS` and `lib/premium-keys.mjs` are the authority. Market Analysis, Top Picks, Stock Picks, Sector Rotation, Leveraged ETFs, Top Picks Track Record, and Owner Lab require the signed session minted from the existing Top Picks owner role; all other tabs are public.
 2. **One UI help string overstates the IV-cost range.** The executable grade code and canonical Top Picks document use `-2…+1`; a tooltip in the generated app source still describes a broader `-3…+1.5` idea. This is copy drift, not scoring behavior.
 3. **“Sector rotation” names two different concepts.** Heatmap sector streaks measure breadth persistence. The Sector Rotation tab is the robust peer-washout rebound model.
 4. **Live price does not make every derived field live.** Entry zone and quote state may update, while a baked z-score, frozen mean, or historical volatility statistic remains anchored to its named build.
@@ -1537,7 +1537,6 @@ Model resilience includes per-call model defaults, retry ladders, dead-model det
 | Shared build, grades, Top Picks, Stock Picks, Sector Rotation, Leveraged ETFs, calendars, research payloads | `scripts/build.mjs` |
 | Canonical Top Picks explanation | `docs/top-picks.md` |
 | Owner Lab / Quant screens | `docs/quant-lab.md` |
-| Day Trading engine (parked; UI retired) | `docs/day-trading-engine.md`, `lib/day-trading-engine.mjs` |
 | Event Spillover | `docs/event-spillover.md` |
 | Navigation and per-tab explanatory copy | `scripts/render/html.mjs` |
 | Client decisions, live overlays, contract grader, Strategies, render logic | `scripts/render/app-js.mjs` |

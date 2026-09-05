@@ -12,6 +12,7 @@
 // The daily GitHub Actions workflow refreshes everything each market-day
 // morning and evening.
 import { writeFile, readFile, mkdir, rm, readdir, appendFile } from "node:fs/promises";
+import { leveragedEntryPlan, shareEntryPayoff } from "../lib/research-display.mjs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
@@ -29,6 +30,7 @@ import { isPremiumKey } from "../lib/premium-keys.mjs";
 import { BRIEF_ACCESS_POLICY_VERSION } from "../lib/public-data-policy.mjs";
 import { contentAssetVersion } from "../lib/asset-version.mjs";
 import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
+import { summarizeYahooError, withYahooRetry } from "../lib/yahoo-retry.mjs";
 import {
   buildAcceleratorPricesPayload,
   fetchAcceleratorMarketplaces,
@@ -1221,31 +1223,12 @@ const FETCH_RETRIES = 3;
 const FETCH_BACKOFF_MS = [1000, 3000, 8000];
 const MIN_SUCCESS_RATE = 0.75;
 
-function isTransientYahooError(err) {
-  const msg = String(err?.message || err || "");
-  if (/allowlist|401|403|429|5\d\d|ENOTFOUND|ECONNRESET|ETIMEDOUT|fetch failed|network/i.test(msg)) return true;
-  // yahoo-finance2 schema validation errors are not transient — don't retry.
-  if (/validation|schema|FailedYahooValidationError/i.test(msg)) return false;
-  // Default: retry. Most non-validation throws here are network-shaped.
-  return true;
-}
-
 async function fetchTickerChainWithRetry(symbol) {
-  let lastErr;
-  for (let attempt = 1; attempt <= FETCH_RETRIES; attempt++) {
-    try {
-      const result = await fetchTickerChain(symbol);
-      if (attempt > 1) console.log(`    ↻ ${symbol} succeeded on attempt ${attempt}`);
-      return result;
-    } catch (err) {
-      lastErr = err;
-      if (attempt === FETCH_RETRIES || !isTransientYahooError(err)) break;
-      const wait = FETCH_BACKOFF_MS[attempt - 1] ?? 8000;
-      console.log(`    ↻ ${symbol} attempt ${attempt} failed (${err.message}) — retrying in ${wait}ms`);
-      await new Promise((r) => setTimeout(r, wait));
-    }
-  }
-  throw lastErr;
+  return withYahooRetry(() => fetchTickerChain(symbol), {
+    attempts: FETCH_RETRIES,
+    backoffMs: FETCH_BACKOFF_MS,
+    label: symbol,
+  });
 }
 
 async function fetchYahooOptions(symbol, expDate) {
@@ -1280,8 +1263,9 @@ function compressContract(c) {
 // to run a 14-period RSI, a 12/26/9 MACD, and rolling 20-/50-day swing
 // support/resistance off the same series. Cost is one extra Yahoo call per
 // ticker (chart endpoint), added to the per-expiration calls already running
-// inside fetchTickerChain — kept non-fatal so the grader still works when
-// Yahoo hiccups on the chart side.
+// inside fetchTickerChain. Transient chart failures retry in place; an
+// exhausted daily-history miss remains null so the pre-AI gate can fail closed
+// before paid work or publication.
 // 365 calendar days ≈ 252 trading days — enough to fill the 200-day SMA and
 // the 200-day support/resistance windows with margin for weekends + market
 // holidays. (Was 220 ≈ ~150 trading days, which left every 200d window
@@ -1293,26 +1277,37 @@ const HISTORY_LOOKBACK_DAYS = 365;
 async function fetchHistoricalBars(symbol) {
   const period2 = new Date();
   const period1 = new Date(period2.getTime() - HISTORY_LOOKBACK_DAYS * 24 * 3600 * 1000);
-  const result = await yahooFinance.chart(symbol, {
-    period1,
-    period2,
-    interval: "1d",
-  });
-  const quotes = Array.isArray(result?.quotes) ? result.quotes : [];
-  return quotes
-    .filter((q) => q && q.close != null && q.high != null && q.low != null)
-    .map((q) => ({
-      // Open kept for the earnings-history reaction math (post-print gap).
-      o: q.open ?? null,
-      c: q.close,
-      h: q.high,
-      l: q.low,
-      v: q.volume ?? null,
-      // Date kept for the streak tracker (data/streaks.json). yahoo-finance2
-      // returns Date instances; serialize to YYYY-MM-DD so the runtime
-      // doesn't need to know about timezones.
-      t: q.date ? new Date(q.date).toISOString().slice(0, 10) : null,
-    }));
+  return withYahooRetry(
+    async () => {
+      const result = await yahooFinance.chart(symbol, {
+        period1,
+        period2,
+        interval: "1d",
+      });
+      const quotes = Array.isArray(result?.quotes) ? result.quotes : [];
+      const bars = quotes
+        .filter((q) => q && q.close != null && q.high != null && q.low != null)
+        .map((q) => ({
+          // Open kept for the earnings-history reaction math (post-print gap).
+          o: q.open ?? null,
+          c: q.close,
+          h: q.high,
+          l: q.low,
+          v: q.volume ?? null,
+          // Date kept for the streak tracker (data/streaks.json). yahoo-finance2
+          // returns Date instances; serialize to YYYY-MM-DD so the runtime
+          // doesn't need to know about timezones.
+          t: q.date ? new Date(q.date).toISOString().slice(0, 10) : null,
+        }));
+      if (bars.length < 20) throw new Error(`Yahoo daily chart returned only ${bars.length} valid bars`);
+      return bars;
+    },
+    {
+      attempts: FETCH_RETRIES,
+      backoffMs: FETCH_BACKOFF_MS,
+      label: `${symbol} daily history`,
+    },
+  );
 }
 
 // Intraday bars (30-minute, ~1 month, REGULAR SESSION ONLY) — added for the
@@ -1336,33 +1331,44 @@ const ET_PARTS_FMT = new Intl.DateTimeFormat("en-US", {
 async function fetchIntradayBars(symbol) {
   const period2 = new Date();
   const period1 = new Date(period2.getTime() - INTRADAY_LOOKBACK_DAYS * 24 * 3600 * 1000);
-  const result = await yahooFinance.chart(symbol, { period1, period2, interval: INTRADAY_INTERVAL });
-  const quotes = Array.isArray(result?.quotes) ? result.quotes : [];
-  return quotes
-    .filter((q) => q && q.close != null && q.date)
-    .map((q) => {
-      const p = {};
-      for (const part of ET_PARTS_FMT.formatToParts(new Date(q.date))) p[part.type] = part.value;
-      let hh = parseInt(p.hour, 10); if (hh === 24) hh = 0; // some impls emit 24 at midnight
-      return { q, p, hh, mins: hh * 60 + parseInt(p.minute, 10) };
-    })
-    // 09:30 (570) .. 15:30 (930): 30m bars are stamped at their open, so the
-    // 15:30 bar covers the last regular half-hour; pre/post-market is dropped.
-    .filter((x) => x.mins >= 570 && x.mins <= 930)
-    .map((x) => ({
-      // Open/high/low stay transient in-memory (the browser's compact line-chart
-      // series still persists close + volume only). The Index Calendar's
-      // first/last-hour logger consumes the full OHLC bar before the raw series
-      // is stripped by writeChainFiles().
-      o: x.q.open ?? x.q.close,
-      c: x.q.close,
-      h: x.q.high ?? x.q.close,
-      l: x.q.low ?? x.q.close,
-      v: x.q.volume ?? null,
-      // ET wall-clock "YYYY-MM-DD HH:MM" so the browser labels the axis without
-      // needing timezone logic.
-      t: `${x.p.year}-${x.p.month}-${x.p.day} ${String(x.hh).padStart(2, "0")}:${x.p.minute}`,
-    }));
+  return withYahooRetry(
+    async () => {
+      const result = await yahooFinance.chart(symbol, { period1, period2, interval: INTRADAY_INTERVAL });
+      const quotes = Array.isArray(result?.quotes) ? result.quotes : [];
+      const bars = quotes
+        .filter((q) => q && q.close != null && q.date)
+        .map((q) => {
+          const p = {};
+          for (const part of ET_PARTS_FMT.formatToParts(new Date(q.date))) p[part.type] = part.value;
+          let hh = parseInt(p.hour, 10); if (hh === 24) hh = 0; // some impls emit 24 at midnight
+          return { q, p, hh, mins: hh * 60 + parseInt(p.minute, 10) };
+        })
+        // 09:30 (570) .. 15:30 (930): 30m bars are stamped at their open, so the
+        // 15:30 bar covers the last regular half-hour; pre/post-market is dropped.
+        .filter((x) => x.mins >= 570 && x.mins <= 930)
+        .map((x) => ({
+          // Open/high/low stay transient in-memory (the browser's compact line-chart
+          // series still persists close + volume only). The Index Calendar's
+          // first/last-hour logger consumes the full OHLC bar before the raw series
+          // is stripped by writeChainFiles().
+          o: x.q.open ?? x.q.close,
+          c: x.q.close,
+          h: x.q.high ?? x.q.close,
+          l: x.q.low ?? x.q.close,
+          v: x.q.volume ?? null,
+          // ET wall-clock "YYYY-MM-DD HH:MM" so the browser labels the axis without
+          // needing timezone logic.
+          t: `${x.p.year}-${x.p.month}-${x.p.day} ${String(x.hh).padStart(2, "0")}:${x.p.minute}`,
+        }));
+      if (!bars.length) throw new Error("Yahoo intraday chart returned no regular-session bars");
+      return bars;
+    },
+    {
+      attempts: FETCH_RETRIES,
+      backoffMs: FETCH_BACKOFF_MS,
+      label: `${symbol} intraday history`,
+    },
+  );
 }
 
 // A counter day moves opposite the streak. The daily noise floor, one-day
@@ -3481,14 +3487,14 @@ async function fetchTickerChain(symbol) {
     bars = await fetchHistoricalBars(symbol);
     technicals = computeTechnicals(bars);
   } catch (err) {
-    console.log(`    ⚠ ${symbol} historical/technicals failed: ${err.message}`);
+    console.log(`    ⚠ ${symbol} historical/technicals failed: ${summarizeYahooError(err)}`);
   }
   // Intraday (30m) for the 1W/1M chart + the chart-pattern detector. Independent
   // of the daily fetch above and non-fatal — a failure just hides intraday.
   try {
     intraday = await fetchIntradayBars(symbol);
   } catch (err) {
-    console.log(`    ⚠ ${symbol} intraday fetch failed: ${err.message}`);
+    console.log(`    ⚠ ${symbol} intraday fetch failed: ${summarizeYahooError(err)}`);
   }
   // ETFs return mostly empty modules, so the renderer hides the card when
   // there's nothing useful to show. fetchFundamentals already logs its own
@@ -13450,16 +13456,27 @@ export function parseJacksonHoleSymposium(html) {
   };
 }
 
-async function fetchTextCalendar(url) {
-  const res = await fetch(url, {
-    headers: {
-      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-      accept: "text/html,text/calendar,text/plain,*/*",
-    },
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.text();
+export async function fetchTextCalendar(url, fetchImpl = fetch) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetchImpl(url, {
+        headers: {
+          "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          accept: "text/html,text/calendar,text/plain,*/*",
+        },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!res.ok) {
+        const err = new Error(`HTTP ${res.status}`);
+        err.retryable = [403, 408, 429].includes(res.status) || res.status >= 500;
+        throw err;
+      }
+      return await res.text();
+    } catch (err) {
+      if (attempt === 2 || err.retryable === false) throw err;
+      await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+    }
+  }
 }
 
 function calendarMonthsInWindow(startMs, cutoffMs) {
@@ -13489,7 +13506,9 @@ export async function fetchOfficialCalendarEvents(startMs, cutoffMs) {
     (async () => {
       try {
         const text = await fetchTextCalendar(BLS_CALENDAR_ICS);
-        addInWindow(parseOfficialIcsCalendar(text, { sourceKey: "bls", source: "BLS", sourceUrl: BLS_CALENDAR_ICS }));
+        const parsed = parseOfficialIcsCalendar(text, { sourceKey: "bls", source: "BLS", sourceUrl: BLS_CALENDAR_ICS });
+        if (!parsed.length) throw new Error("no events in official calendar response");
+        addInWindow(parsed);
         status.bls = true;
       } catch (err) {
         status.bls = false;
@@ -14634,6 +14653,13 @@ function buildEconHistory(format, series, n = 24) {
 // past, populate actual from the latest observation. Consensus / Forecast
 // are reserved fields — populated later when a consensus data source is
 // wired (TradingEconomics / Investing.com).
+export function macroReleaseSourceLabel(seriesSource, hasSeriesData, hasForexFactoryData, noSeries = false) {
+  const sources = [];
+  if (seriesSource && hasSeriesData) sources.push(seriesSource.replace(":", " · "));
+  if (hasForexFactoryData) sources.push("ForexFactory");
+  return sources.join(" · ") || (noSeries ? "ISM" : "Schedule only");
+}
+
 export async function fetchMacroReleases(startMs, cutoffMs) {
   const uniqueSeries = Array.from(new Set(ECON_REPORTS.map((r) => r.series).filter(Boolean)));
   // Map FRED series id → BLS series id for the per-id fallback. Only one
@@ -14749,9 +14775,10 @@ export async function fetchMacroReleases(startMs, cutoffMs) {
         // from consensus; treat ff.forecast as both for now, since FF
         // doesn't expose a separate "forecast" feed.
         forecast: consensus,
-        source: ff
-          ? (report.noSeries ? "ForexFactory" : (report.bls ? "BLS" : "FRED") + " · ForexFactory")
-          : (report.noSeries ? "ISM" : (seriesSource[report.series] || "BLS · " + report.series).replace(":", " · ")),
+        source: macroReleaseSourceLabel(
+          seriesSource[report.series], Boolean(fredActual || fredPrevious || history.length),
+          Boolean(consensus || ffActual || ffPrevious), report.noSeries,
+        ),
         history,
         histUnit,
         histSigned,
@@ -15824,9 +15851,9 @@ async function fetchPolymarketFomc(meetingDate) {
 }
 
 // Map calendar report subtypes → Polymarket title-keyword matchers for a
-// best-effort "market view". Distributional macro markets don't reduce to one
-// clean number, so we surface the single highest-volume related market as the
-// headline reading. No match → nothing attached (the row renders as before).
+// market view. Distributional macro markets do not reduce to one clean number;
+// select the highest-volume outcome only after checking contract identity.
+// No exact match means no chip.
 const MACRO_PREDICTION_MATCHERS = {
   "cpi-yoy": /(\bcpi\b|inflation)/,
   "cpi-mom": /(\bcpi\b|inflation)/,
@@ -15843,6 +15870,36 @@ const MACRO_PREDICTION_MATCHERS = {
 // the wrong country. Polymarket titles its US macro markets without naming
 // the country, so a foreign-country blocklist is the reliable gate.
 const PM_FOREIGN_TITLE_RE = /\b(argentina|brazil|mexico|venezuela|colombia|chile|peru|turkey|t[üu]rkiye|india|china|chinese|japan|japanese|eurozone|euro (?:zone|area)|europe|european|germany|german|france|french|italy|italian|spain|spanish|uk|u\.k\.|britain|british|england|canada|canadian|australia|australian|korea|korean|russia|russian|nigeria|egypt|south africa|indonesia|poland|hungary|czech|sweden|swedish|norway|norwegian|switzerland|swiss)\b/;
+// Monthly macro contracts must identify the measure AND reference month.
+// A release in September reports August; proximity alone is not identity.
+export function matchesMacroPrediction(ev, pe, mk = {}) {
+  const matcher = MACRO_PREDICTION_MATCHERS[ev.subtype];
+  const text = [pe.title, pe.slug, mk.question, mk.slug].filter(Boolean).join(" ").toLowerCase().replace(/-/g, " ");
+  if (!matcher || !matcher.test(text) || PM_FOREIGN_TITLE_RE.test(text)) return false;
+  if (!/cpi|ppi/.test(ev.subtype)) return true; // retain other macro matching behavior
+  if (pe.closed === true || mk.closed === true || pe.active === false || mk.active === false) return false;
+  const release = new Date(ev.date + "T00:00:00Z");
+  if (!Number.isFinite(release.getTime())) return false;
+  const reference = new Date(Date.UTC(release.getUTCFullYear(), release.getUTCMonth() - 1, 1));
+  const month = PM_MONTH_NAMES[reference.getUTCMonth()];
+  if (!new RegExp(`\\b${month}\\b`).test(text)) return false;
+  const years = text.match(/\b20\d{2}\b/g) || [];
+  const end = new Date(pe.endDate || pe.end_date || "");
+  if (years.length ? years.some(y => Number(y) !== reference.getUTCFullYear())
+    : !Number.isFinite(end.getTime()) || end.getUTCFullYear() !== release.getUTCFullYear()) return false;
+  if (Number.isFinite(end.getTime()) && Math.abs(end - release) > 14 * 86400000) return false;
+  if (/how high|highest|at any (?:time|point)|by (?:the )?end|during (?:the )?year/.test(text)) return false;
+  if (/cpi|ppi/.test(ev.subtype)) {
+    const ppi = /\bppi\b|producer price/.test(text);
+    if (ppi !== ev.subtype.includes('ppi')) return false;
+    if (/\bcore\b/.test(text) !== ev.subtype.startsWith('core-')) return false;
+    const mom = /\bmom\b|month over month|month on month|monthly/.test(text);
+    const yoy = /\byoy\b|year over year|year on year|annual/.test(text);
+    if (ev.subtype.endsWith('-mom') ? !mom || yoy : !yoy || mom) return false;
+  }
+  return true;
+}
+
 async function fetchMacroPrediction(ev) {
   const matcher = MACRO_PREDICTION_MATCHERS[ev.subtype];
   if (!matcher) return null;
@@ -15857,6 +15914,7 @@ async function fetchMacroPrediction(ev) {
     const endMs = Date.parse(pe.endDate || pe.end_date || "");
     if (Number.isFinite(endMs) && Math.abs(endMs - evMs) > 40 * 86400000) continue; // resolves near this release
     for (const mk of (Array.isArray(pe.markets) ? pe.markets : [])) {
+      if (!matchesMacroPrediction(ev, pe, mk)) continue;
       const yes = polymarketYesPrice(mk);
       if (yes == null) continue;
       const vol = PM_MARKET_VOL(mk);
@@ -22202,9 +22260,8 @@ function buildStockExecution(data, traps) {
   // is already below spot, fall back to the next visible 20-day ceiling.
   const target = sma50 > spot ? sma50 : resistance20 > spot ? resistance20 : null;
   const targetBasis = target == null ? null : (sma50 === target ? "50-day mean" : "20-day resistance");
-  const upsidePct = target != null ? (target / spot - 1) * 100 : null;
-  const reviewPct = review != null ? (review / spot - 1) * 100 : null;
-  const rr = upsidePct != null && reviewPct != null && reviewPct < 0 ? upsidePct / Math.abs(reviewPct) : null;
+  const payoff = shareEntryPayoff({ action, entry: { price: action.key === "starter" ? spot : trigger }, target: { price: target }, review: { price: review } });
+  const { upsidePct, reviewPct, rr } = payoff;
 
   return {
     action,
@@ -22217,6 +22274,9 @@ function buildStockExecution(data, traps) {
     review: review != null ? { price: r2(review), basis: reviewBasis } : null,
     target: target != null ? { price: r2(target), basis: targetBasis } : null,
     payoff: {
+      basis: "planned-entry",
+      basisPrice: payoff.basisPrice,
+      warning: payoff.warning,
       upsidePct: upsidePct != null ? r1(upsidePct) : null,
       reviewPct: reviewPct != null ? r1(reviewPct) : null,
       rr: rr != null ? r2(rr) : null,
@@ -24930,9 +24990,10 @@ function levTradePlan(direction, total, data, timing, lev) {
   const targetUnderPct = Math.abs(pnum(exit?.takeProfit?.movePct) || 0);
   const etfStopPct = r1(stopUnderPct * Math.abs(lev));
   const etfTargetPct = r1(targetUnderPct * Math.abs(lev));
-  return {
+  return leveragedEntryPlan({ direction, leverage: lev, under: {spot}, plan: {
     entry: entry ? {
       now: !!entry.now,
+      price: entry.now ? spot : pnum(entry.trigger),
       trigger: pnum(entry.trigger),
       zone: Array.isArray(entry.zone) ? entry.zone.map(pnum) : null,
       basis: entry.basis || null,
@@ -24951,7 +25012,7 @@ function levTradePlan(direction, total, data, timing, lev) {
       reason: exit.takeProfit.reason || null,
     } : null,
     riskReward: etfStopPct > 0 && etfTargetPct > 0 ? r2(etfTargetPct / etfStopPct) : null,
-  };
+  } });
 }
 
 export function buildLeveragedEtfPicks(chains, gradesIndex, builtAtIso, macroRegime = null, opts = {}) {

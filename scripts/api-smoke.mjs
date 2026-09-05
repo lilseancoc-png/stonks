@@ -2,6 +2,7 @@
 
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import quotesHandler from "../api/quotes.js";
 import authHandler from "../api/auth/[action].js";
 import macroLiveHandler, { parseTreasuryTwoYearXml } from "../api/macro-live.js";
 import watchlistHandler from "../api/watchlist.js";
@@ -48,6 +49,8 @@ assert.equal(
 const originalQuote = yahooFinance.quote;
 try {
   yahooFinance.quote = async () => ({
+    symbol: "TEST",
+    regularMarketTime: new Date("2026-09-04T20:00:00Z"),
     marketState: "POST",
     regularMarketPrice: 100,
     regularMarketPreviousClose: 95,
@@ -56,6 +59,11 @@ try {
     postMarketPrice: 110,
   });
   const quote = await fetchQuote("TEST");
+  const batch = mockResponse();
+  await quotesHandler({method:"GET",query:{symbols:"TEST"}}, batch);
+  assert.equal(batch.body.quotes[0].regularSpot,100);
+  assert.equal(batch.body.quotes[0].regularAsOf,"2026-09-04T20:00:00.000Z");
+  assert.equal(batch.body.quotes[0].spot,110);
   assert.equal(quote.spot, 110);
   assert.equal(quote.change, 15);
   assert.ok(Math.abs(quote.changePct - 15.7894736842) < 1e-6);
@@ -94,6 +102,8 @@ try {
   assert.equal(macroRes.statusCode, 200);
   assert.equal(macroRes.body.legs.twoY.value, 4.19);
   assert.equal(macroRes.body.legs.twoY.asOf, "2026-08-18");
+  assert.equal(macroRes.body.legs.tenY.asOf, "2026-08-18T20:00:00.000Z");
+  assert.equal(macroRes.body.legs.tenY.marketState, "REGULAR");
   assert.ok(!macroSymbols.includes("2YY=F"));
   assert.ok(!macroSymbols.includes("^UST2YR"));
   for (const symbol of ["^N225", "^KS11", "005930.KS", "000660.KS", "HG=F"]) assert.ok(macroSymbols.includes(symbol));

@@ -7,11 +7,15 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { renderHtml } from "./render/html.mjs";
 import { renderAppJs } from "./render/app-js.mjs";
+import { verifyResearchDisplay } from "./research-display-smoke.mjs";
 import { renderStylesCss } from "./render/styles-css.mjs";
 import { isPremiumKey, roleClaimForKey } from "../lib/premium-keys.mjs";
 import { BRIEF_ACCESS_POLICY_VERSION, sanitizePublicJsonText } from "../lib/public-data-policy.mjs";
 import { DISCORD_INVITE_URL } from "../lib/links.mjs";
 import { contentAssetVersion } from "../lib/asset-version.mjs";
+import { verifyLiveRefresh } from "./live-refresh-smoke.mjs";
+import { verifyNavFilter } from "./nav-filter-smoke.mjs";
+import { verifyWorkspace } from "./workspace-smoke.mjs";
 
 const temp = await mkdtemp(resolve(tmpdir(), "stonks-render-"));
 try {
@@ -45,8 +49,7 @@ try {
   assert.equal((html.match(/id="picks-position"/g) || []).length, 1);
   assert.ok(html.indexOf('id="picks-position"') > html.indexOf('id="quant-section"'));
   assert.match(html, /data-nav-group="owner"[\s\S]*?side-nav-group-label">Owner[\s\S]*?data-page-tab="market"[\s\S]*?data-page-tab="picks"[\s\S]*?data-page-tab="stocks"[\s\S]*?data-page-tab="rotation"[\s\S]*?data-page-tab="levetf"[\s\S]*?data-page-tab="track"[\s\S]*?data-page-tab="quant"/);
-  assert.doesNotMatch(html, /data-page-tab="(?:daytrade|daytrack)"/);
-  assert.doesNotMatch(html, /Owner Day Trading/);
+  assert.doesNotMatch(html, /data-page-tab="daytrade"|data-page-tab="daytrack"|Day Trading Track Record/);
   const navGroups = html.match(/<details class="side-nav-group"[^>]*>/g) || [];
   assert.equal(navGroups.length, 9, "All sidebar navigation groups must render");
   assert.ok(navGroups.every((tag) => /\sopen(?:\s|>)/.test(tag)), "All sidebar navigation groups must start expanded");
@@ -81,6 +84,10 @@ try {
   assert.doesNotMatch(stylesCss, /\.(?:ptc-regime|ptc-scenario|pick-pillars-regime|pick-scenario-overlay)\b/);
 
   const appJs = renderAppJs({});
+  verifyResearchDisplay(appJs);
+  await verifyLiveRefresh(appJs);
+  verifyNavFilter(appJs);
+  verifyWorkspace(appJs, html);
   assert.match(appJs, /var DISPLAY_TIME_ZONE_KEY = 'stonks-display-time-zone';/);
   assert.match(appJs, /local: \{ label: 'Local', timeZone: null \}[\s\S]*?et: \{ label: 'ET', timeZone: 'America\/New_York' \}[\s\S]*?pt: \{ label: 'PT', timeZone: 'America\/Los_Angeles' \}[\s\S]*?utc: \{ label: 'UTC', timeZone: 'UTC' \}/);
   assert.match(appJs, /function formatDisplayInstant\(value, options\)[\s\S]*?opts\.timeZoneName = 'short'/);
@@ -216,19 +223,14 @@ try {
   const rotationRenderSource = appJs.match(/function renderSectorRotation\(\)\{[\s\S]*?\n  \}\n  function renderOwnerRotationSizing/)?.[0] || "";
   assert.ok(rotationRenderSource, "Sector Rotation renderer must exist");
   assert.ok(rotationRenderSource.indexOf("rotShortlistHtml(d, candidates, thresholds)") < rotationRenderSource.indexOf("rotToolbarHtml(candidates, visible, groups, thresholds)"), "recovery shortlist must lead the detailed controls");
-  assert.ok(rotationRenderSource.indexOf("+ grid + rotProcessHtml() + rotGroupTape(groups)") > rotationRenderSource.indexOf("rotToolbarHtml(candidates, visible, groups, thresholds)"), "process and group tape must follow the candidate board");
+  assert.match(rotationRenderSource, /candidateBoard \+ modelRecord \+ researchContext/, "model record and expandable methodology must follow the candidate board and near misses");
   assert.match(stylesCss, /\.rot-short-row\s*\{[\s\S]*?grid-template-columns/);
   assert.match(stylesCss, /@media \(max-width: 480px\)\s*\{[\s\S]*?\.rot-short-row\s*\{[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/);
   assert.match(html, /How to use this fundamentals-first rebound desk[\s\S]*?Quality Recovery Shortlist/);
   const regenStaticSource = await readFile(resolve(process.cwd(), "scripts", "regen-static.mjs"), "utf8");
   assert.match(regenStaticSource, /existingShellManifest\?\.symbols[\s\S]*?new Set\(\[\.\.\.TICKERS, \.\.\.symbols, \.\.\.existingSymbols\]\)/, "renderer-only regeneration must preserve source and shell symbols missing from a partial hydrate");
   assert.match(appJs, /var OWNER_TABS = \{ market:1, picks:1, stocks:1, rotation:1, levetf:1, track:1, quant:1 \}/);
-  assert.doesNotMatch(appJs, /daytrade|daytrack|loadDayTrading/);
-  assert.match(appJs, /\['quant', 'Owner Lab'\],/);
-  assert.match(appJs, /\['levetf', 'Leveraged ETFs'\],/);
-  assert.match(appJs, /\['earnings', 'Earnings tracker'\],/);
-  assert.match(html, /title="Open the Index calendar"/);
-  assert.doesNotMatch(html, /Owner index calendar/);
+  assert.doesNotMatch(appJs, /day-trading\.json|day-trading-history\.json|loadDayTrading/);
   assert.match(appJs, /HAS_TRACK_RECORD = HAS_OWNER_ACCESS/);
   assert.match(appJs, /HAS_TOP_PICKS = HAS_OWNER_ACCESS/);
   assert.match(appJs, /HAS_OWNER_ACCESS = !!\(GATE_ON && me && me\.trackRecord && me\.topPicks\)/);
@@ -314,7 +316,7 @@ try {
     entry: { now: false, signal: "buy-dip", trigger: 100, basis: "nearby structure", headline: "Wait", readiness: fullReadiness },
     entryTiming: { state: "wait", score: 2, hardVeto: null, deferKind: null, structure: { clear: true } },
   };
-  assert.equal(liveEntryOverlay(liveBase, 99)?.kind, "go", "complete baked readiness may activate its live price trigger");
+  assert.equal(liveEntryOverlay(liveBase, 99)?.kind, "arm", "a live price touch must retain the published wait verdict until the final build confirms entry");
   assert.equal(liveEntryOverlay({ ...liveBase, entry: { ...liveBase.entry, readiness: { ...fullReadiness, independentFamilies: 1, directionConfirmed: false } } }, 99)?.kind, "arm", "price cannot promote incomplete readiness");
   assert.equal(liveEntryOverlay({ ...liveBase, entry: { ...liveBase.entry, signal: "wait-reversal" } }, 99), null, "price cannot promote a reversal wait");
   assert.equal(liveEntryOverlay({ ...liveBase, entry: { ...liveBase.entry, basis: "top-guard" } }, 99)?.kind, "arm", "price cannot waive a hard exhaustion guard");

@@ -2,14 +2,16 @@ name: Close-bake fallback
 
 # cron-job.org remains the primary ET-aware dispatcher for daily.yml. This
 # watchdog closes one dangerous gap: if no external 16:10 ET dispatch appears,
-# it creates one after 16:20 ET. GitHub cron is UTC, so both possible UTC slots
-# are scheduled; a 16:15-17:30 ET delay-tolerant guard plus the GitHub API
-# duplicate check lets exactly one continue across DST. A healthy external
-# schedule costs no Gemini calls and creates no second bake.
+# it creates one after 16:20 ET. GitHub cron is UTC, so both possible close
+# slots plus one later verification slot are scheduled; a 16:15-20:30 ET
+# delay-tolerant guard plus the GitHub API state check lets exactly one continue
+# across DST and retries a completed failed close bake. A healthy or active
+# external schedule costs no Gemini calls and creates no second bake.
 on:
   schedule:
     - cron: "20 20 * * 1-5"
     - cron: "20 21 * * 1-5"
+    - cron: "20 22 * * 1-5"
   workflow_dispatch:
 
 permissions:
@@ -29,8 +31,8 @@ jobs:
           ET_HOUR=$(TZ=America/New_York date +%H)
           ET_MINUTE=$(TZ=America/New_York date +%M)
           ET_MIN=$((10#$ET_HOUR * 60 + 10#$ET_MINUTE))
-          if [ "$ET_DAY" -gt 5 ] || [ "$ET_MIN" -lt 975 ] || [ "$ET_MIN" -gt 1050 ]; then
-            echo "Not the delay-tolerant 16:15-17:30 ET watchdog window; no-op."
+          if [ "$ET_DAY" -gt 5 ] || [ "$ET_MIN" -lt 975 ] || [ "$ET_MIN" -gt 1230 ]; then
+            echo "Not the delay-tolerant 16:15-20:30 ET watchdog window; no-op."
             exit 0
           fi
 
@@ -44,12 +46,45 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "$API"); then
-            RECENT=$(jq --argjson cutoff "$CUTOFF" \
-              '[.workflow_runs[] | select((.created_at | fromdateiso8601) >= $cutoff)] | length' \
+            LATEST=$(jq -c --argjson cutoff "$CUTOFF" \
+              '[.workflow_runs[] | select((.created_at | fromdateiso8601) >= $cutoff)] | sort_by(.created_at) | last // empty' \
               <<<"$RUNS")
-            if [ "$RECENT" -gt 0 ]; then
-              echo "A recent external daily.yml dispatch already exists; no fallback needed."
-              exit 0
+            if [ -n "$LATEST" ]; then
+              LATEST_STATUS=$(jq -r '.status' <<<"$LATEST")
+              LATEST_CONCLUSION=$(jq -r '.conclusion // "pending"' <<<"$LATEST")
+              LATEST_URL=$(jq -r '.html_url' <<<"$LATEST")
+              if [ "$LATEST_STATUS" != "completed" ]; then
+                echo "A close-slot daily.yml dispatch is still $LATEST_STATUS; no duplicate needed ($LATEST_URL)."
+                exit 0
+              fi
+              if [ "$LATEST_CONCLUSION" = "success" ]; then
+                # A green router-only run can skip the build (for example a
+                # dispatch received at 16:11 ET). Verify publication in the
+                # latest attempt's build job before treating it as recovery.
+                JOBS_URL=$(jq -r '.jobs_url' <<<"$LATEST")
+                if JOBS=$(curl --fail --silent --show-error \
+                  -H "Authorization: Bearer ${GH_TOKEN}" \
+                  -H "Accept: application/vnd.github+json" \
+                  -H "X-GitHub-Api-Version: 2022-11-28" \
+                  "${JOBS_URL}?filter=latest&per_page=100") && \
+                  node -e '
+                    const jobs = JSON.parse(require("node:fs").readFileSync(0, "utf8")).jobs;
+                    const published = Array.isArray(jobs) && jobs.some(job =>
+                      job.name === "build" && job.conclusion === "success" &&
+                      Array.isArray(job.steps) && job.steps.some(step =>
+                        step.conclusion === "success" && [
+                          "Flush verified data to private store",
+                          "Commit refreshed site (legacy public data)"
+                        ].includes(step.name)));
+                    process.exit(published ? 0 : 1);
+                  ' <<<"$JOBS"; then
+                  echo "A close-slot build successfully published data; no fallback needed ($LATEST_URL)."
+                  exit 0
+                fi
+                echo "::warning::Green close-slot run has no confirmed publication; dispatching recovery ($LATEST_URL)."
+              else
+                echo "::warning::Latest close-slot daily.yml dispatch completed with $LATEST_CONCLUSION; dispatching one recovery bake ($LATEST_URL)."
+              fi
             fi
           else
             echo "::warning::Could not inspect recent runs; dispatching fail-open so the close bake is not missed."
@@ -67,4 +102,4 @@ jobs:
             -H "X-GitHub-Api-Version: 2022-11-28" \
             -d "$PAYLOAD" \
             "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/workflows/daily.yml/dispatches"
-          echo "No 16:10 ET dispatch was found; close bake dispatched on $REF."
+          echo "No successful or active close-slot dispatch was found; close bake dispatched on $REF."

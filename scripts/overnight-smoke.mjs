@@ -74,9 +74,9 @@ assert.match(overnightApp, /d\.tone = deriveOvernightTone\(d\.markets\)/);
 assert.match(overnightApp, /latest-session overlays/);
 assert.match(overnightApp, /if \(baked\.type === 'rate' && prev != null\) out\.chgBp/);
 
-const overlaySrc = overnightApp.match(/function overlayOvernightMarket\(baked, live\)\{[\s\S]*?\n  \}\n  function applyOvernightLive/)?.[0] || "";
+const overlaySrc = overnightApp.match(/function overlayOvernightMarket\(baked, live\)\{[\s\S]*?\r?\n  \}\r?\n  function applyOvernightLive/)?.[0] || "";
 assert.ok(overlaySrc.includes("function overlayOvernightMarket"), "live overlay helper must exist");
-const overlayOvernightMarket = new Function(`${overlaySrc.replace(/\n  function applyOvernightLive[\s\S]*$/, "")}\nreturn overlayOvernightMarket;`)();
+const overlayOvernightMarket = new Function(`${overlaySrc.replace(/\r?\n  function applyOvernightLive[\s\S]*$/, "")}\nreturn overlayOvernightMarket;`)();
 const liveTenYear = overlayOvernightMarket(
   { type: "rate", last: 4.00, chgBp: 2, asOf: "2026-08-25", moves: { "1d": { pct: 0.05, bp: 2 } } },
   { value: 4.25, prevClose: 4.00, asOf: "2026-08-26T20:00:00.000Z" },
@@ -84,9 +84,9 @@ const liveTenYear = overlayOvernightMarket(
 assert.equal(liveTenYear.chgBp, 25);
 assert.equal(liveTenYear.moves["1d"].bp, 25);
 
-const deriveSrc = overnightApp.match(/function deriveOvernightTone\(markets\)\{[\s\S]*?\n  \}\n  function overlayOvernightMarket/)?.[0] || "";
+const deriveSrc = overnightApp.match(/function deriveOvernightTone\(markets\)\{[\s\S]*?\r?\n  \}\r?\n  function overlayOvernightMarket/)?.[0] || "";
 assert.ok(deriveSrc.includes("function deriveOvernightTone"), "tone helper must exist");
-const deriveOvernightTone = new Function(`${deriveSrc.replace(/\n  function overlayOvernightMarket[\s\S]*$/, "")}\nreturn deriveOvernightTone;`)();
+const deriveOvernightTone = new Function(`${deriveSrc.replace(/\r?\n  function overlayOvernightMarket[\s\S]*$/, "")}\nreturn deriveOvernightTone;`)();
 assert.ok(deriveOvernightTone({ "^TNX": { chgBp: 12 } }).reasons.some((r) => r.startsWith("10Y +12bp")));
 assert.ok(deriveOvernightTone({ "^TNX": { moves: { "1d": { bp: -10 } } } }).reasons.some((r) => r.startsWith("10Y -10bp")));
 

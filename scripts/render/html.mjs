@@ -36,6 +36,7 @@ function docPanesHtml() {
 // stylesheet owns all tinting). Stored as bare path data; sideNavItem()
 // wraps each in the shared <svg class="pt-ico"> shell.
 const SIDE_NAV_ICONS = {
+  'pending-buyouts': '<rect x="2" y="5" width="8" height="14" rx="2"/><rect x="14" y="5" width="8" height="14" rx="2"/><path d="M7 12h10m-3-3 3 3-3 3"/>',
   home: '<path d="m3 9.8 9-7.3 9 7.3V20a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 20Z"/><path d="M9.5 21.5V14h5v7.5"/>',
   brief: '<path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-4 0V6"/><path d="M18 14h-8M15 18h-5"/><path d="M10 6h8v4h-8V6Z"/>',
   news: '<path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/>',
@@ -226,7 +227,7 @@ function marketAnalysisSection() {
       <h2 class="card-title">Market analysis</h2>
       <span class="card-eyebrow" id="market-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">The cross-asset risk read that sets the engine&rsquo;s posture &mdash; the live market tape, a conditional 5&ndash;10-session scenario and sensitivity layer, a frozen premarket leader/laggard follow-through check, the risk-on / risk-off barometer, and daily regime history &mdash; plus a grade lookup for any tracked ticker. Position-specific guidance lives in Owner Lab.</p>
+    <p class="hint">Start with the market posture, its drivers and what would change the stance. Expand the scenario and source details as needed. Check held positions in Owner Lab.</p>
     <div id="market-regime-strip" class="picks-summary"><span id="picks-regime-chip" class="picks-regime-slot"></span></div>
     <div id="market-action" class="market-action" hidden aria-live="polite"></div>
     <div id="market-scenario-engine" class="market-scenario-engine" hidden aria-live="polite"></div>
@@ -262,7 +263,7 @@ function topPicksSection() {
   // The market-tape / barometer / regime widgets moved to marketAnalysisSection().
   return `<section class="card" id="picks-section">
     <header class="card-header">
-      <h2 class="card-title">Top options picks</h2>
+      <div class="picks-heading"><span class="picks-kicker">Options research</span><h2 class="card-title">Top options picks</h2><p class="picks-intro">Review the thesis, check the entry, then inspect the contract.</p></div>
       <span class="card-eyebrow" id="picks-eyebrow" aria-live="polite"></span>
       <span class="tab-live-state" id="picks-live-state" aria-live="polite"></span>
       <button type="button" id="picks-export-csv" class="csv-export-btn" title="Download picks as CSV">Export CSV</button>
@@ -271,7 +272,7 @@ function topPicksSection() {
     <div id="picks-live-board" class="picks-live-board" hidden></div>
     <div id="picks-listview" class="picks-listview">
     <details class="picks-howto">
-      <summary>How the grade works &mdash; and how the market tape moves it &rarr;</summary>
+      <summary>How to read these picks <span class="picks-howto-cue" aria-hidden="true">+</span></summary>
       <div class="picks-howto-body">
         <p>A <b>fixed, auditable</b> grading system. Every tracked name receives a directional asset read from four pillars (<b>Fundamentals</b>, <b>Technicals</b>, <b>Mechanicals</b>, <b>Narrative</b>), followed by a bounded IV-cost adjustment and a continuous, direction-aware market-regime overlay. <b>Entry timing is a separate execution decision, not part of conviction</b>: a strong thesis can stay strong while the correct action is Wait or Avoid. Normal candidates must clear the conviction floor both before and after the regime overlay, plus the thesis-quality review and every execution gate, to become actionable; the existing risk-off tactical-put path remains a reduced-size, watch-only defensive exception. The list is deliberately allowed to be <b>short, or empty</b>, on a poor day &mdash; the engine would rather hold cash than pad it. Each card has a <b>Recommendation&nbsp;&#8644;&nbsp;Grade</b> toggle &mdash; flip to Grade to audit every signal behind the score &mdash; plus a named entry strategy, a layered exit ladder, and a same-sector peer comparison. The <b>Track record</b> tab marks past picks to market (modeled option P&amp;L).</p>
         <p><b>The grade and execution read.</b> The four asset pillars are each clamped to &plusmn;5. IV Cost is bounded to &minus;2&hellip;+1 and changes conviction symmetrically for calls and puts without changing the side. The regime overlay is applied after pillars + IV and before ranking; Entry Timing stays separate at &minus;8&hellip;+2 and decides whether to Go, Wait for a named trigger, or Avoid. Grade tiers retain fixed absolute bars even though the IV-cost input is deliberately standardized across the current eligible universe.</p>
@@ -290,6 +291,7 @@ function topPicksSection() {
       </div>
     </details>
     <div class="picks-controls" role="toolbar" aria-label="Sort top picks">
+      <span class="picks-controls-title">Setup overview</span>
       <label class="picks-sort">
         <span class="picks-sort-label">Sort</span>
         <select id="picks-sort-select" aria-label="Sort top picks">
@@ -336,7 +338,7 @@ function trackRecordSection() {
       <h2 class="card-title">Pick track record</h2>
       <span class="card-eyebrow" id="accuracy-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">Every Top Pick shipped each refresh is logged and marked to market against each pick&rsquo;s own take-profit / cut levels. Use the tabs below to switch between the plain-English engine summary, the scorecard, the live Top&nbsp;10 roster, the activity logs, and the open / resolved picks. Each view opens with an <b>At a glance</b> strip — its key numbers and a one-line takeaway — with the full detail below.</p>
+    <p class="hint">Modeled outcomes from the published picks, not actual fills. Start with the sample size and results below; use the other views to inspect the ledger, cohorts and simulations.</p>
     <details class="accuracy-how">
       <summary>How this works</summary>
       <p>A pick <b>resolves</b> when the underlying reaches its take-profit (<span class="acc-ok">win</span>), hits its cut (<span class="acc-bad">loss</span>), <b>breaks its thesis</b> (the live grade flips to the opposite side, the stop level is breached, or every supporting driver goes quiet), or expires (graded vs. breakeven). There is no time stop, no pre-earnings exit, and no weekly force-close &mdash; a position is held, through earnings prints included, for as long as its original thesis stays intact and the contract has time left. The <b>Summary</b> tab is the rules-based engine report: an overall health verdict, why the losers lost (direction miss vs. theta bleed), why the winners won, which segments are working vs. lagging, and a specific "what to fix next" list — all computed from the resolved record, no AI. The <b>win rate by tier</b> asks whether higher-conviction scores actually win more. <b>Top&nbsp;10 — picks in &amp; out</b> shows the current 10-name roster, what changed in the 4 pillars since the last refresh, what dropped out and what replaced it, and a rules-based upgrade/downgrade read on each name (click a row for the full rubric); <b>Recent crossings</b> is the chronological log of names crossing the conviction bar on or off the actionable set; <b>Grade changes</b> logs every ticker whose grade moves up or down (and why); each pick&rsquo;s <b>Day&nbsp;0 / 2wk / 1mo</b> checkpoints show whether the price moved the way the score predicted. The <b>Equity</b>, <b>Breakdowns</b>, <b>Simulator</b>, and <b>Monte&nbsp;Carlo</b> tabs add a modeled-dollar profitability lens — an equity curve + drawdown, per-DTE / PoP / thesis / conviction tables and cross-tabs, a hypothetical $100k risk-managed book, and a bootstrap of the outcome distribution. The <b>Market-sized</b> lens and <b>Market environment</b> simulator mode use the daily Market Analysis history: defensive sizing is $5k instead of $10k, full size returns after 3 consecutive risk-on sessions, and 2 consecutive risk-off sessions cut it back in half; neutral stays defensive. Top Picks and its record refresh twice each market day, at 11:00 and 15:30 ET, not intraday.</p>
@@ -408,8 +410,11 @@ function calendarSection() {
       <span class="card-eyebrow" id="calendar-eyebrow" aria-live="polite"></span>
     </header>
     ${infoNote("What's on this calendar?", `<p>A month-at-a-time view of every dated market event, opening on the <b>current month</b> — use <b>&lsaquo;</b> / <b>&rsaquo;</b> to step between months (or <b>Today</b> to jump back), and tap any day to see its full details below the grid. It tracks: confirmed earnings dates (with AM/PM session tagging) for every curated ticker, cross-checked against a rolling 21-day Nasdaq sweep; ticker-specific catalysts (FDA dates, contract decisions, product launches, court rulings, investor days — extracted from recent news); the complete official <b>BLS</b> and <b>BEA</b> release schedules; the Federal Reserve Board calendar (speeches, testimony, minutes, conferences, and statistical releases); the Kansas City Fed&rsquo;s Jackson Hole symposium; detailed market-moving reports with Actual / Previous / Consensus values; and upcoming FOMC decisions. Official source labels open the publisher&rsquo;s calendar. Effective Fed Funds, FedWatch probabilities, the official vote map, and the full rate path live together in <b>Bonds &amp; USD</b>. Ticker chips are clickable.</p>`)}
+    <details id="calendar-context" class="calendar-context">
+      <summary>Event risk &amp; overview <span id="calendar-context-summary"></span></summary>
     <div id="calendar-briefing" class="cal-briefing" hidden aria-live="polite"></div>
     <div id="calendar-overview" class="cal-overview" hidden></div>
+    </details>
     <div class="calendar-controls" role="toolbar" aria-label="Filter calendar">
       <div class="calendar-type-filter" role="radiogroup" aria-label="Filter by event type">
         <button type="button" class="calendar-pill is-on" data-cal-type="all" role="radio" aria-checked="true">All<span class="calendar-pill-count" aria-hidden="true"></span></button>
@@ -775,7 +780,7 @@ function quantSection() {
     <section class="owner-suite" aria-labelledby="owner-tools-title">
       <header class="owner-suite-head">
         <div><span>Private workspace</span><h3 id="owner-tools-title">Owner tools</h3></div>
-        <p>Personalized controls are isolated here because they use an actual holding, account value, or dollar-risk budget. Access requires both the Top Picks and Track Record roles.</p>
+        <p>Review a held contract, check the daily index allocation, or size a qualified setup against your risk budget.</p>
       </header>
       <details class="picks-position owner-position" id="picks-position">
         <summary>Check a position you already hold &rarr;</summary>
@@ -795,8 +800,8 @@ function quantSection() {
         </div>
       </details>
       <div id="owner-dca-root" class="owner-tool-root">Loading personalized DCA sizing&hellip;</div>
-      <div id="owner-rotation-root" class="owner-tool-root">Loading Sector Rotation sizing&hellip;</div>
-      <div id="owner-lev-root" class="owner-tool-root">Loading leveraged-ETF sizing&hellip;</div>
+      <details class="research-details"><summary>Size a Sector Rotation setup</summary><div id="owner-rotation-root" class="owner-tool-root">Loading Sector Rotation sizing&hellip;</div></details>
+      <details class="research-details"><summary>Size a leveraged ETF setup</summary><div id="owner-lev-root" class="owner-tool-root">Loading leveraged-ETF sizing&hellip;</div></details>
     </section>
     <div id="quant-root" class="quant-root">Loading Quant Lab&hellip;</div>
     <div id="quant-empty" class="quant-empty" hidden>Quant Lab data will appear after the next daily build refresh.</div>
@@ -1696,6 +1701,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <link rel="stylesheet" href="styles.css?v=${cacheBustFor("styles")}">
 </head>
 <body>
+<a class="skip-content" href="#main-content">Skip to content</a>
 <header class="site-header">
   <div class="site-header-inner">
     <div class="site-header-lead">
@@ -1724,6 +1730,11 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h14v7a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5Z"/><path d="M17 10h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M7.5 11.5c1-1.4 3-1.4 4 0 1-1.4 3-1.4 4 0 0 2.2-2 3.5-4 4.7-2-1.2-4-2.5-4-4.7Z"/></svg>
         <span>Support</span>
       </a>
+      <div class="workspace-settings" id="workspace-settings">
+      <button type="button" class="icon-btn" id="workspace-settings-toggle" aria-label="Open settings" aria-expanded="false" aria-controls="workspace-settings-panel">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="var(--surface)"/><circle cx="15" cy="17" r="3" fill="var(--surface)"/></svg>
+      </button>
+      <div id="workspace-settings-panel" class="workspace-settings-panel" role="group" aria-label="Display and account settings">
       <label class="time-zone-control" title="Display timestamped data in your local zone or a selected U.S. market zone. Trading schedules stay in ET.">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
         <span class="sr-only">Display time zone</span>
@@ -1742,6 +1753,8 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       </button>
       <!-- Owner session chip. Public visitors never see a login CTA. -->
       <div id="auth-chip" class="auth-chip" hidden></div>
+      </div>
+      </div>
     </nav>
   </div>
 </header>
@@ -1759,7 +1772,18 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
      open, collapse persisted. Mobile: overlay drawer, closes on navigation. -->
 <div class="side-nav-backdrop" id="side-nav-backdrop" hidden></div>
 <aside class="side-nav" id="side-nav">
-<nav class="page-tabs" role="tablist" aria-orientation="vertical" aria-label="Page sections">
+  <div class="nav-tools">
+    <div class="nav-tools-heading"><span>Workspace</span><button type="button" class="icon-btn nav-drawer-close" id="nav-drawer-close" aria-label="Close navigation">&times;</button></div>
+    <div class="nav-filter-box">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>
+      <input id="nav-filter" type="search" placeholder="Find a workspace…" aria-label="Filter navigation" aria-controls="workspace-tabs" autocomplete="off" spellcheck="false">
+      <button type="button" id="nav-filter-clear" aria-label="Clear navigation filter" hidden>&times;</button>
+    </div>
+    <button type="button" id="workspace-pin" class="workspace-pin-toggle" aria-pressed="false">Pin this workspace</button>
+    <p id="nav-filter-status" class="nav-filter-status" role="status" aria-live="polite" hidden></p>
+    <section id="workspace-pinned" class="workspace-pinned" aria-label="Pinned workspaces" hidden><h2>Pinned</h2><div id="workspace-pinned-list"></div></section>
+  </div>
+<nav class="page-tabs" id="workspace-tabs" role="tablist" aria-orientation="vertical" aria-label="Page sections">
   <details class="side-nav-group" data-nav-group="desk" open>
     <summary class="side-nav-group-label">Desk</summary>
     <div class="side-nav-group-items">
@@ -1853,7 +1877,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </details>
 </nav>
 </aside>
-<main>
+<main id="main-content" tabindex="-1">
   <div class="page-pane" id="page-pane-home" role="tabpanel" aria-labelledby="page-tab-home">
     <section class="landing-hero">
       <div class="landing-hero-main">
