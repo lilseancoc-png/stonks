@@ -34,8 +34,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
-- Match Calendar prediction chips to the exact macro measure and reference month; omit ambiguous or unrelated contracts. Retry transient official-calendar fetch failures, validate BLS calendar responses, and credit the data provider actually used.
-- Restore the Pending buyouts navigation icon and update Privacy/Terms footers to Stock Market Research.
+- **Calendar contract matching and source attribution (#641).** Match Calendar prediction chips to the exact macro measure and reference month; omit ambiguous or unrelated contracts. Retry transient official-calendar fetch failures, validate BLS calendar responses, and credit the data provider actually used.
+- **Navigation and legal footer corrections (#641).** Restore the Pending buyouts navigation icon and update Privacy/Terms footers to Stock Market Research.
 
 
 - **Close-bake recovery verifies publication (#638).** A successful router-only run no longer suppresses the watchdog; recovery stops only after the latest build attempt completes and publishes private-store or legacy data.
