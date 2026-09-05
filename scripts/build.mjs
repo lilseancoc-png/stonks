@@ -8829,7 +8829,7 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
     // found for this exact release.
     const predKey = row.subtype && row.date ? row.subtype + "|" + row.date : null;
     const pred = predKey && predictionMarkets?.reports ? predictionMarkets.reports[predKey] : null;
-    events.push(pred ? { ...row, predictions: [pred] } : row);
+    events.push(pred && predictionChipMatchesReport(row, pred) ? { ...row, predictions: [pred] } : row);
   }
 
   // FOMC meeting decision days. The meeting itself is a calendar event in
@@ -8906,6 +8906,8 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
       source: h.publisher || h.source || "Macro feed",
     });
   }
+
+  applyEmploymentPrintsToReports(events, macroHeadlines);
 
   const dedupedEvents = dedupeCalendarEvents(events);
   dedupedEvents.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.symbol || a.title || "").localeCompare(b.symbol || b.title || "")));
@@ -13237,6 +13239,11 @@ export function mergeFomcMeetings(live, baseline) {
 // testimony, minutes and conferences do not disappear just because they are
 // absent from ECON_REPORTS or from this week's third-party consensus feed.
 const BLS_CALENDAR_ICS = "https://www.bls.gov/schedule/news_release/bls.ics";
+const BLS_CALENDAR_ICS_MIRROR = "https://blsmon1.bls.gov/schedule/news_release/bls.ics";
+const BLS_SCHEDULE_HOSTS = [
+  "https://blsmon1.bls.gov",
+  "https://www.bls.gov",
+];
 const BEA_CALENDAR_ICS = "https://www.bea.gov/news/schedule/ics/online-calendar-subscription.ics";
 const KC_FED_JACKSON_HOLE_URL = "https://www.kansascityfed.org/research/jackson-hole-economic-symposium/about-jackson-hole-economic-symposium/";
 const EXCLUDED_FED_CALENDAR_REPORTS = new Set([
@@ -13344,6 +13351,145 @@ export function parseOfficialIcsCalendar(ics, { sourceKey, source, sourceUrl } =
     });
   }
   return events;
+}
+
+const BLS_SCHEDULE_MONTHS = {
+  jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3,
+  apr: 4, april: 4, may: 5, jun: 6, june: 6, jul: 7, july: 7,
+  aug: 8, august: 8, sep: 9, sept: 9, september: 9, oct: 10, october: 10,
+  nov: 11, november: 11, dec: 12, december: 12,
+};
+
+function isBlsScheduleHoliday(title) {
+  return /holiday|new year|birthday of|juneteenth|independence day|thanksgiving|christmas|columbus|veterans|memorial day|martin luther|washington|labor day|inauguration/i.test(String(title || ""));
+}
+
+function parseBlsScheduleDate(raw) {
+  const text = fedHtmlToText(raw);
+  const m = /([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})/.exec(text);
+  if (!m) return null;
+  const month = BLS_SCHEDULE_MONTHS[m[1].toLowerCase()];
+  const day = Number(m[2]);
+  const year = Number(m[3]);
+  if (!month || !day || !year) return null;
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function normalizeBlsScheduleTime(raw) {
+  const text = fedHtmlToText(raw);
+  const m = /(\d{1,2}):(\d{2})\s*([AP])M/i.exec(text);
+  if (!m) return null;
+  let hour = Number(m[1]) % 12;
+  if (m[3].toUpperCase() === "P") hour += 12;
+  return `${String(hour).padStart(2, "0")}:${m[2]} ET`;
+}
+
+function blsOfficialScheduleEvent(title, date, time, sourceUrl) {
+  const name = String(title || "").replace(/\s+for\s+[A-Za-z]+\s+\d{4}$/i, "").trim();
+  if (!name || !date || isBlsScheduleHoliday(name)) return null;
+  return {
+    type: "report",
+    subtype: `official-bls-${calendarSlug(name)}`,
+    date,
+    ...(time ? { time } : {}),
+    title: name,
+    source: "BLS",
+    sourceUrl,
+    sourceKey: "bls",
+    official: true,
+    importance: officialReleaseImportance(name, "bls"),
+  };
+}
+
+// Annual / list-view tables (`home.htm`, `MM_sched_list.htm`): Date / Time / Release.
+export function parseBlsScheduleListHtml(html, { sourceUrl } = {}) {
+  const events = [];
+  const rowRe = /<td\b[^>]*class="[^"]*date-cell[^"]*"[^>]*>\s*<p>([\s\S]*?)<\/p>\s*<\/td>\s*<td\b[^>]*class="[^"]*time-cell[^"]*"[^>]*>\s*<p>([\s\S]*?)<\/p>\s*<\/td>\s*<td\b[^>]*class="[^"]*desc-cell[^"]*"[^>]*>\s*<p>([\s\S]*?)<\/p>/gi;
+  for (const row of String(html || "").matchAll(rowRe)) {
+    const date = parseBlsScheduleDate(row[1]);
+    const time = normalizeBlsScheduleTime(row[2]);
+    if (!date || !time) continue;
+    const strong = /<strong>([\s\S]*?)<\/strong>/i.exec(row[3]);
+    const ev = blsOfficialScheduleEvent(fedHtmlToText(strong?.[1] || row[3]), date, time, sourceUrl);
+    if (ev) events.push(ev);
+  }
+  return events;
+}
+
+// Month-grid view (`MM_sched.htm`): cells tagged id="dMMDD".
+export function parseBlsScheduleCalendarHtml(html, year, { sourceUrl } = {}) {
+  const heading = /<h1[^>]*>\s*([A-Za-z]+)\s+(\d{4})\s*<\/h1>/i.exec(String(html || ""));
+  const pageYear = Number(heading?.[2] || year);
+  if (!Number.isFinite(pageYear) || pageYear < 1990) return [];
+  const events = [];
+  const cellRe = /<td\b([^>]*)>([\s\S]*?)<\/td>/gi;
+  for (const cell of String(html || "").matchAll(cellRe)) {
+    const attrs = cell[1] || "";
+    if (/\bother-month\b/i.test(attrs)) continue;
+    const idm = /id="d(\d{2})(\d{2})"/i.exec(attrs);
+    if (!idm) continue;
+    const date = `${pageYear}-${idm[1]}-${idm[2]}`;
+    const blocks = String(cell[2] || "").match(/<p>([\s\S]*?)<\/p>/gi) || [];
+    for (const block of blocks) {
+      if (/class="day"/i.test(block) || !/<strong>/i.test(block)) continue;
+      const strong = /<strong>([\s\S]*?)<\/strong>/i.exec(block);
+      const time = normalizeBlsScheduleTime(block);
+      const ev = blsOfficialScheduleEvent(fedHtmlToText(strong?.[1] || block), date, time, sourceUrl);
+      if (ev) events.push(ev);
+    }
+  }
+  return events;
+}
+
+async function fetchBlsHtmlSchedule(startMs, cutoffMs) {
+  const years = [...new Set(calendarMonthsInWindow(startMs, cutoffMs).map((m) => m.year))];
+  const events = [];
+  for (const year of years) {
+    let parsed = [];
+    let sourceUrl = `https://www.bls.gov/schedule/${year}/home.htm`;
+    for (const host of BLS_SCHEDULE_HOSTS) {
+      const url = `${host}/schedule/${year}/home.htm`;
+      try {
+        parsed = parseBlsScheduleListHtml(await fetchTextCalendar(url), { sourceUrl });
+        if (parsed.length) break;
+      } catch (_) { /* try the next host / monthly grid */ }
+    }
+    if (!parsed.length) {
+      for (const { month } of calendarMonthsInWindow(startMs, cutoffMs).filter((m) => m.year === year)) {
+        const mm = String(month + 1).padStart(2, "0");
+        sourceUrl = `https://www.bls.gov/schedule/${year}/${mm}_sched.htm`;
+        for (const host of BLS_SCHEDULE_HOSTS) {
+          try {
+            const html = await fetchTextCalendar(`${host}/schedule/${year}/${mm}_sched.htm`);
+            const rows = parseBlsScheduleCalendarHtml(html, year, { sourceUrl });
+            if (rows.length) { parsed = parsed.concat(rows); break; }
+          } catch (_) { /* next host */ }
+        }
+      }
+    }
+    events.push(...parsed);
+  }
+  if (!events.length) throw new Error("no events in BLS HTML schedule");
+  return events;
+}
+
+async function fetchBlsOfficialCalendar(startMs, cutoffMs) {
+  let lastErr = null;
+  for (const url of [BLS_CALENDAR_ICS, BLS_CALENDAR_ICS_MIRROR]) {
+    try {
+      const text = await fetchTextCalendar(url);
+      const parsed = parseOfficialIcsCalendar(text, { sourceKey: "bls", source: "BLS", sourceUrl: url });
+      if (!parsed.length) throw new Error("no events in official calendar response");
+      return parsed;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  try {
+    return await fetchBlsHtmlSchedule(startMs, cutoffMs);
+  } catch (err) {
+    throw lastErr || err;
+  }
 }
 
 function normalizeFedCalendarTime(raw) {
@@ -13456,6 +13602,14 @@ export function parseJacksonHoleSymposium(html) {
   };
 }
 
+export function jacksonHoleIsPast(startMs, baseline = JACKSON_HOLE_BASELINE) {
+  const end = (Array.isArray(baseline) ? baseline : []).reduce((max, ev) => {
+    const t = Date.parse(String(ev?.endDate || ev?.date || "") + "T00:00:00Z");
+    return Number.isFinite(t) && t > max ? t : max;
+  }, 0);
+  return end > 0 && Number(startMs) > end;
+}
+
 export async function fetchTextCalendar(url, fetchImpl = fetch) {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -13468,7 +13622,9 @@ export async function fetchTextCalendar(url, fetchImpl = fetch) {
       });
       if (!res.ok) {
         const err = new Error(`HTTP ${res.status}`);
-        err.retryable = [403, 408, 429].includes(res.status) || res.status >= 500;
+        // BLS bot-walls with a stable 403; retrying it only burns the
+        // HTML fallback budget. Keep retries for throttling and outages.
+        err.retryable = [408, 429].includes(res.status) || res.status >= 500;
         throw err;
       }
       return await res.text();
@@ -13505,10 +13661,7 @@ export async function fetchOfficialCalendarEvents(startMs, cutoffMs) {
   await Promise.all([
     (async () => {
       try {
-        const text = await fetchTextCalendar(BLS_CALENDAR_ICS);
-        const parsed = parseOfficialIcsCalendar(text, { sourceKey: "bls", source: "BLS", sourceUrl: BLS_CALENDAR_ICS });
-        if (!parsed.length) throw new Error("no events in official calendar response");
-        addInWindow(parsed);
+        addInWindow(await fetchBlsOfficialCalendar(startMs, cutoffMs));
         status.bls = true;
       } catch (err) {
         status.bls = false;
@@ -13539,13 +13692,21 @@ export async function fetchOfficialCalendarEvents(startMs, cutoffMs) {
     }),
     (async () => {
       const key = "kc-fed-jackson-hole";
+      if (jacksonHoleIsPast(startMs)) {
+        status[key] = true;
+        return;
+      }
       try {
         const parsed = parseJacksonHoleSymposium(await fetchTextCalendar(KC_FED_JACKSON_HOLE_URL));
         if (!parsed) throw new Error("date not found in official page");
         addInWindow([parsed]);
         status[key] = true;
       } catch (err) {
-        status[key] = false;
+        const inWindow = JACKSON_HOLE_BASELINE.some((ev) => {
+          const start = Date.parse(String(ev.date || "") + "T00:00:00Z");
+          const end = Date.parse(String(ev.endDate || ev.date || "") + "T00:00:00Z");
+          return Number.isFinite(start) && start <= cutoffMs && (Number.isFinite(end) ? end : start) >= startMs;
+        });
         addInWindow(JACKSON_HOLE_BASELINE.map((ev) => ({
           ...ev,
           type: "fed",
@@ -13556,6 +13717,7 @@ export async function fetchOfficialCalendarEvents(startMs, cutoffMs) {
           importance: "high",
           baseline: true,
         })));
+        status[key] = inWindow;
         console.log(`    ⚠ official Jackson Hole page failed: ${err.message} — using verified baseline`);
       }
     })(),
@@ -14556,6 +14718,22 @@ function monthsAgoIdx(series, idx, n) {
   return -1;
 }
 
+// Index of the observation for the report's reference month (the calendar
+// month before the release date). Past NFP/CPI rows must not treat "latest
+// available" as today's print when the new month has not landed yet — and
+// must not skip today's print when the lookback window starts before today.
+export function seriesIdxForReferenceMonth(series, releaseDateStr) {
+  if (!Array.isArray(series) || !/^\d{4}-\d{2}-\d{2}$/.test(String(releaseDateStr || ""))) return -1;
+  const release = new Date(`${releaseDateStr}T00:00:00Z`);
+  if (!Number.isFinite(release.getTime())) return -1;
+  const ref = new Date(Date.UTC(release.getUTCFullYear(), release.getUTCMonth() - 1, 1));
+  const key = `${ref.getUTCFullYear()}-${String(ref.getUTCMonth() + 1).padStart(2, "0")}`;
+  for (let i = series.length - 1; i >= 0; i--) {
+    if (String(series[i]?.date || "").startsWith(key)) return i;
+  }
+  return -1;
+}
+
 // Format a release value for display, given the format key from the
 // ECON_REPORTS table and a reference into the time series (newest-last).
 // Returns null when we don't have enough history to compute the metric.
@@ -14660,7 +14838,7 @@ export function macroReleaseSourceLabel(seriesSource, hasSeriesData, hasForexFac
   return sources.join(" · ") || (noSeries ? "ISM" : "Schedule only");
 }
 
-export async function fetchMacroReleases(startMs, cutoffMs) {
+export async function fetchMacroReleases(startMs, cutoffMs, asOfMs = Date.now()) {
   const uniqueSeries = Array.from(new Set(ECON_REPORTS.map((r) => r.series).filter(Boolean)));
   // Map FRED series id → BLS series id for the per-id fallback. Only one
   // BLS id per FRED id (CPIAUCSL/CPILFESL each appear twice in
@@ -14703,8 +14881,9 @@ export async function fetchMacroReleases(startMs, cutoffMs) {
     })),
     fetchForexFactoryCalendar(),
   ]);
-  const todayIso = new Date(startMs).toISOString().slice(0, 10);
-  const schedule = buildReleaseSchedule(new Date(startMs));
+  const asOf = Number.isFinite(Number(asOfMs)) ? new Date(asOfMs) : new Date();
+  const todayIso = new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), asOf.getUTCDate())).toISOString().slice(0, 10);
+  const schedule = buildReleaseSchedule(new Date(Number.isFinite(Number(asOfMs)) ? asOfMs : Date.now()));
 
   // Index ForexFactory events by subtype + date so we can attach
   // Consensus / Forecast / fast-Actual to each scheduled release row.
@@ -14741,10 +14920,13 @@ export async function fetchMacroReleases(startMs, cutoffMs) {
       if (ms < startMs || ms > cutoffMs) continue;
       const latestIdx = series.length ? series.length - 1 : -1;
       const isPast = dateStr <= todayIso;
-      const fredActual = (isPast && latestIdx >= 0) ? formatEconValue(report.format, series, latestIdx) : null;
-      const previousIdx = isPast
-        ? (latestIdx > 0 ? latestIdx - 1 : -1)
-        : latestIdx;
+      const actualIdx = isPast ? seriesIdxForReferenceMonth(series, dateStr) : -1;
+      const fredActual = actualIdx >= 0 ? formatEconValue(report.format, series, actualIdx) : null;
+      let previousIdx = latestIdx;
+      if (actualIdx >= 0) {
+        const prevObs = prevMonthObs(series, actualIdx);
+        previousIdx = prevObs ? series.indexOf(prevObs) : -1;
+      }
       const fredPrevious = previousIdx >= 0 ? formatEconValue(report.format, series, previousIdx) : null;
       // Pull whatever ForexFactory has for this exact (subtype, date).
       // Date matching is exact — FF's dates align with the BLS/BEA release
@@ -14784,6 +14966,60 @@ export async function fetchMacroReleases(startMs, cutoffMs) {
         histSigned,
       });
     }
+  }
+  return events;
+}
+
+// Stamp NFP / Unemployment Actual from the BLS Employment Situation headline
+// when ForexFactory and the monthly series still lag the 8:30 ET print.
+export function parseEmploymentSituationHeadline(title) {
+  const t = String(title || "").replace(/−/g, "-");
+  const out = { nfp: null, unrate: null };
+  const jobs = /payroll(?:\s+employment)?\s+(increases?|decreases?|rises?|falls?|is unchanged|unchanged)(?:\s+by\s+([\d,]+))?/i.exec(t);
+  if (jobs) {
+    const verb = jobs[1].toLowerCase();
+    if (/unchanged/.test(verb)) out.nfp = "0K";
+    else {
+      const n = Number(String(jobs[2] || "").replace(/,/g, ""));
+      if (Number.isFinite(n)) {
+        const jobsK = n >= 1000 ? Math.round(n / 1000) : n;
+        const signed = /decreas|fall/.test(verb) ? -jobsK : jobsK;
+        out.nfp = `${signed >= 0 ? "+" : ""}${Math.round(signed).toLocaleString("en-US")}K`;
+      }
+    }
+  }
+  const rate = /unemployment rate[\s\S]{0,48}?(\d+(?:\.\d+)?)\s*%/i.exec(t);
+  if (rate) out.unrate = `${rate[1]}%`;
+  return out;
+}
+
+export function applyEmploymentPrintsToReports(events, headlines = []) {
+  const byDate = new Map();
+  const consider = (title, date) => {
+    if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(String(date || ""))) return;
+    if (!/payroll|employment situation|unemployment rate/i.test(title)) return;
+    const parsed = parseEmploymentSituationHeadline(title);
+    if (!parsed.nfp && !parsed.unrate) return;
+    const cur = byDate.get(date) || { nfp: null, unrate: null };
+    if (parsed.nfp && !cur.nfp) cur.nfp = parsed.nfp;
+    if (parsed.unrate && !cur.unrate) cur.unrate = parsed.unrate;
+    byDate.set(date, cur);
+  };
+  for (const ev of Array.isArray(events) ? events : []) consider(ev?.title, ev?.date);
+  for (const h of Array.isArray(headlines) ? headlines : []) {
+    if (!h?.publishedAt) continue;
+    const ms = Date.parse(h.publishedAt);
+    if (!Number.isFinite(ms)) continue;
+    const date = new Date(ms).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    consider(h.title, date);
+  }
+  for (const ev of Array.isArray(events) ? events : []) {
+    if (ev?.type !== "report") continue;
+    const print = byDate.get(ev.date);
+    if (!print) continue;
+    const empty = ev.actual == null || ev.actual === "";
+    if (ev.subtype === "nfp" && print.nfp && empty) ev.actual = print.nfp;
+    if (ev.subtype === "unrate" && print.unrate && empty) ev.actual = print.unrate;
   }
   return events;
 }
@@ -15885,8 +16121,11 @@ export function matchesMacroPrediction(ev, pe, mk = {}) {
   if (!new RegExp(`\\b${month}\\b`).test(text)) return false;
   const years = text.match(/\b20\d{2}\b/g) || [];
   const end = new Date(pe.endDate || pe.end_date || "");
-  if (years.length ? years.some(y => Number(y) !== reference.getUTCFullYear())
-    : !Number.isFinite(end.getTime()) || end.getUTCFullYear() !== release.getUTCFullYear()) return false;
+  if (years.length) {
+    if (years.some(y => Number(y) !== reference.getUTCFullYear())) return false;
+  } else if (Number.isFinite(end.getTime())) {
+    if (end.getUTCFullYear() !== release.getUTCFullYear()) return false;
+  }
   if (Number.isFinite(end.getTime()) && Math.abs(end - release) > 14 * 86400000) return false;
   if (/how high|highest|at any (?:time|point)|by (?:the )?end|during (?:the )?year/.test(text)) return false;
   if (/cpi|ppi/.test(ev.subtype)) {
@@ -15898,6 +16137,23 @@ export function matchesMacroPrediction(ev, pe, mk = {}) {
     if (ev.subtype.endsWith('-mom') ? !mom || yoy : !yoy || mom) return false;
   }
   return true;
+}
+
+// Same identity check for a chip already attached to a calendar row
+// ({label, url}). Used when republishing and when the browser drops a
+// stale calendar.json match before the next bake.
+export function predictionChipMatchesReport(report, pred) {
+  if (!report || !pred) return false;
+  if (!/cpi|ppi/.test(String(report.subtype || ""))) return true;
+  const url = String(pred.url || pred.slug || "");
+  const slug = url.replace(/^https?:\/\/(?:www\.)?polymarket\.com\/(?:event\/)?/i, "");
+  return matchesMacroPrediction(report, {
+    title: pred.label || pred.title || "",
+    slug,
+    closed: pred.closed,
+    active: pred.active,
+    endDate: pred.endDate || pred.end_date,
+  });
 }
 
 async function fetchMacroPrediction(ev) {

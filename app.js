@@ -26608,6 +26608,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
           calendarState.data.events = calendarState.data.events.filter(function(e){
             return !(e && e.source === 'Federal Reserve Board' && e.type === 'report' && calIsExcludedFedReport(e.title));
           });
+          calendarState.data.events.forEach(function(e){
+            if (!e || !Array.isArray(e.predictions) || !e.predictions.length) return;
+            if (!/cpi|ppi/.test(String(e.subtype || ''))) return;
+            var kept = e.predictions.filter(function(p){ return calPredictionChipMatchesReport(e, p); });
+            if (kept.length) e.predictions = kept;
+            else delete e.predictions;
+          });
+          calApplyEmploymentPrints(calendarState.data.events);
         }
         calendarState.loading = false;
         calendarState.fetchedAt = Date.now();
@@ -26629,6 +26637,74 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (!code) return false;
     var normalized = code[1].toUpperCase() + '.' + Number(code[2]) + (code[3] ? '.' + Number(code[3]) : '');
     return /^(?:H\.4\.1|H\.6|H\.8|H\.10|H\.15|G\.5|G\.19|G\.20)$/.test(normalized);
+  }
+  // Mirror scripts/build.mjs::predictionChipMatchesReport so a still-baked
+  // calendar.json cannot keep painting a YoY contract on a MoM row (or the
+  // shared annual CPI contract on Core / MoM) until the next bake republishes.
+  function calPredictionChipMatchesReport(report, pred){
+    var subtype = String(report && report.subtype || '');
+    if (!/cpi|ppi/.test(subtype)) return true;
+    if (!pred) return false;
+    var url = String(pred.url || pred.slug || '');
+    var slug = url.replace(/^https?:\/\/(?:www\.)?polymarket\.com\/(?:event\/)?/i, '');
+    var text = [pred.label, pred.title, slug].filter(Boolean).join(' ').toLowerCase().replace(/-/g, ' ');
+    if (/\b(argentina|brazil|mexico|venezuela|colombia|chile|peru|turkey|t[üu]rkiye|india|china|chinese|japan|japanese|eurozone|euro (?:zone|area)|europe|european|germany|german|france|french|italy|italian|spain|spanish|uk|u\.k\.|britain|british|england|canada|canadian|australia|australian|korea|korean|russia|russian|nigeria|egypt|south africa|indonesia|poland|hungary|czech|sweden|swedish|norway|norwegian|switzerland|swiss)\b/.test(text)) return false;
+    var release = new Date(String(report.date || '') + 'T00:00:00Z');
+    if (!isFinite(release.getTime())) return false;
+    var ref = new Date(Date.UTC(release.getUTCFullYear(), release.getUTCMonth() - 1, 1));
+    var months = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+    var month = months[ref.getUTCMonth()];
+    if (!new RegExp('\\b' + month + '\\b').test(text)) return false;
+    var years = text.match(/\b20\d{2}\b/g) || [];
+    if (years.length && years.some(function(y){ return Number(y) !== ref.getUTCFullYear(); })) return false;
+    if (/how high|highest|at any (?:time|point)|by (?:the )?end|during (?:the )?year/.test(text)) return false;
+    var ppi = /\bppi\b|producer price/.test(text);
+    if (ppi !== subtype.indexOf('ppi') >= 0) return false;
+    if (/\bcore\b/.test(text) !== /^core-/.test(subtype)) return false;
+    var mom = /\bmom\b|month over month|month on month|monthly/.test(text);
+    var yoy = /\byoy\b|year over year|year on year|annual/.test(text);
+    if (/-mom$/.test(subtype) ? !mom || yoy : !yoy || mom) return false;
+    return true;
+  }
+  function calParseEmploymentHeadline(title){
+    var t = String(title || '').replace(/−/g, '-');
+    var out = { nfp: null, unrate: null };
+    var jobs = /payroll(?:\s+employment)?\s+(increases?|decreases?|rises?|falls?|is unchanged|unchanged)(?:\s+by\s+([\d,]+))?/i.exec(t);
+    if (jobs) {
+      var verb = jobs[1].toLowerCase();
+      if (/unchanged/.test(verb)) out.nfp = '0K';
+      else {
+        var n = Number(String(jobs[2] || '').replace(/,/g, ''));
+        if (isFinite(n)) {
+          var jobsK = n >= 1000 ? Math.round(n / 1000) : n;
+          var signed = /decreas|fall/.test(verb) ? -jobsK : jobsK;
+          out.nfp = (signed >= 0 ? '+' : '') + Math.round(signed).toLocaleString('en-US') + 'K';
+        }
+      }
+    }
+    var rate = /unemployment rate[\s\S]{0,48}?(\d+(?:\.\d+)?)\s*%/i.exec(t);
+    if (rate) out.unrate = rate[1] + '%';
+    return out;
+  }
+  function calApplyEmploymentPrints(events){
+    var byDate = {};
+    (events || []).forEach(function(ev){
+      if (!ev || !ev.title || !ev.date) return;
+      if (!/payroll|employment situation|unemployment rate/i.test(ev.title)) return;
+      var parsed = calParseEmploymentHeadline(ev.title);
+      if (!parsed.nfp && !parsed.unrate) return;
+      var cur = byDate[ev.date] || { nfp: null, unrate: null };
+      if (parsed.nfp && !cur.nfp) cur.nfp = parsed.nfp;
+      if (parsed.unrate && !cur.unrate) cur.unrate = parsed.unrate;
+      byDate[ev.date] = cur;
+    });
+    (events || []).forEach(function(ev){
+      if (!ev || ev.type !== 'report' || !byDate[ev.date]) return;
+      var print = byDate[ev.date];
+      var empty = ev.actual == null || ev.actual === '';
+      if (ev.subtype === 'nfp' && print.nfp && empty) ev.actual = print.nfp;
+      if (ev.subtype === 'unrate' && print.unrate && empty) ev.actual = print.unrate;
+    });
   }
   function calendarTypeLabel(type){
     if (type === 'earnings') return 'Earnings';

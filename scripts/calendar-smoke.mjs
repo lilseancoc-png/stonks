@@ -1,12 +1,19 @@
 import {
   dedupeCalendarEvents,
   matchesMacroPrediction,
+  predictionChipMatchesReport,
   macroReleaseSourceLabel,
   fetchTextCalendar,
   isExcludedFedCalendarReport,
   parseFederalReserveCalendarHtml,
   parseJacksonHoleSymposium,
   parseOfficialIcsCalendar,
+  parseBlsScheduleListHtml,
+  parseBlsScheduleCalendarHtml,
+  parseEmploymentSituationHeadline,
+  applyEmploymentPrintsToReports,
+  jacksonHoleIsPast,
+  seriesIdxForReferenceMonth,
 } from "./build.mjs";
 import { renderAppJs } from "./render/app-js.mjs";
 
@@ -146,6 +153,74 @@ ok("FRED fallback credited with consensus provider", macroReleaseSourceLabel("FR
 ok("BLS actual provider retained", macroReleaseSourceLabel("BLS:CUUR0000SA0", true, false) === "BLS · CUUR0000SA0");
 ok("empty ForexFactory row not credited", macroReleaseSourceLabel("BLS:CUUR0000SA0", true, false).includes("ForexFactory") === false);
 ok("FF-only values do not claim BLS", macroReleaseSourceLabel(null, false, true) === "ForexFactory");
+
+const livePpiChip = { label: "5.1%+", url: "https://polymarket.com/event/ppi-yoy-august-2026" };
+const liveCpiChip = { label: "3.4%", url: "https://polymarket.com/event/august-inflation-us-annual-1786474662954" };
+ok("live PPI YoY chip is dropped from PPI MoM", !predictionChipMatchesReport({ subtype: "ppi-mom", date: "2026-09-10" }, livePpiChip));
+ok("live annual CPI chip stays on Inflation YoY", predictionChipMatchesReport({ subtype: "cpi-yoy", date: "2026-09-11" }, liveCpiChip));
+ok("live annual CPI chip is dropped from Inflation MoM", !predictionChipMatchesReport({ subtype: "cpi-mom", date: "2026-09-11" }, liveCpiChip));
+ok("live annual CPI chip is dropped from Core MoM", !predictionChipMatchesReport({ subtype: "core-cpi-mom", date: "2026-09-11" }, liveCpiChip));
+ok("live annual CPI chip is dropped from Core YoY", !predictionChipMatchesReport({ subtype: "core-cpi-yoy", date: "2026-09-11" }, liveCpiChip));
+ok("October CPI does not keep the August annual chip", !predictionChipMatchesReport({ subtype: "cpi-yoy", date: "2026-10-14" }, liveCpiChip));
+
+const jobsHeadline = "Payroll employment increases by 162,000 in August; unemployment rate unchanged at 4.1%";
+const parsedJobs = parseEmploymentSituationHeadline(jobsHeadline);
+ok("Employment Situation headline parses NFP", parsedJobs.nfp === "+162K");
+ok("Employment Situation headline parses unemployment", parsedJobs.unrate === "4.1%");
+ok("payroll decrease headline is signed", parseEmploymentSituationHeadline("Payroll employment decreases by 23,000 in July").nfp === "-23K");
+const stamped = applyEmploymentPrintsToReports([
+  { type: "report", subtype: "nfp", date: "2026-09-04", title: "Non-Farm Payroll", actual: null },
+  { type: "report", subtype: "unrate", date: "2026-09-04", title: "Unemployment Rate", actual: "" },
+  { type: "cpi", date: "2026-09-04", title: jobsHeadline, source: "BLS Employment Situation" },
+]);
+ok("headline stamps NFP Actual on print day", stamped[0].actual === "+162K");
+ok("headline stamps Unemployment Actual on print day", stamped[1].actual === "4.1%");
+ok("headline does not overwrite an existing Actual", applyEmploymentPrintsToReports([
+  { type: "report", subtype: "nfp", date: "2026-09-04", title: "Non-Farm Payroll", actual: "+150K" },
+  { type: "cpi", date: "2026-09-04", title: jobsHeadline },
+])[0].actual === "+150K");
+
+const payems = [
+  { date: "2026-06-01", value: 159800 },
+  { date: "2026-07-01", value: 159777 },
+  { date: "2026-08-01", value: 159939 },
+];
+ok("reference month for a September jobs print is August", seriesIdxForReferenceMonth(payems, "2026-09-04") === 2);
+ok("a past print without the new month does not pick July as Actual", seriesIdxForReferenceMonth(payems.slice(0, 2), "2026-09-04") === -1);
+
+ok("Jackson Hole is past after the symposium ends", jacksonHoleIsPast(Date.UTC(2026, 8, 4)) === true);
+ok("Jackson Hole is not past on the symposium's first day", jacksonHoleIsPast(Date.UTC(2026, 7, 27)) === false);
+
+const blsList = `
+<table class="release-list">
+<tbody>
+<tr class="release-list-even-row">
+<td class="date-cell"><p>Friday, September 11, 2026</p></td>
+<td class="time-cell"><p>08:30 AM</p></td>
+<td class="desc-cell"><p><strong>Real Earnings</strong> for August 2026</p></td></tr>
+<tr class="release-list-odd-row">
+<td class="date-cell"><p>Monday, September 7, 2026</p></td>
+<td class="time-cell"><p>&nbsp;</p></td>
+<td class="desc-cell"><p><strong>Labor Day</strong></p></td></tr>
+<tr class="release-list-even-row">
+<td class="date-cell"><p>Wednesday, September 16, 2026</p></td>
+<td class="time-cell"><p>08:30 AM</p></td>
+<td class="desc-cell"><p><strong>U.S. Import and Export Price Indexes</strong> for August 2026</p></td></tr>
+</tbody>
+</table>`;
+const blsListEvents = parseBlsScheduleListHtml(blsList, { sourceUrl: "https://www.bls.gov/schedule/2026/home.htm" });
+ok("BLS list HTML keeps Real Earnings", blsListEvents.some((e) => e.title === "Real Earnings" && e.date === "2026-09-11" && e.time === "08:30 ET"));
+ok("BLS list HTML keeps import/export prices", blsListEvents.some((e) => /Import and Export Price/.test(e.title) && e.date === "2026-09-16"));
+ok("BLS list HTML skips holidays", !blsListEvents.some((e) => /Labor Day/.test(e.title)));
+
+const blsGrid = `<h1>September 2026</h1>
+<table class="release-calendar"><tr>
+<td class="other-month" id="d0831"><p class="day">31</p><p>&nbsp;</p></td>
+<td id="d0911"><p class="day">11</p><p><strong>Consumer Price Index<br></strong>August 2026<br>08:30 AM</p><p><strong>Real Earnings<br></strong>August 2026<br>08:30 AM</p></td>
+</tr></table>`;
+const blsGridEvents = parseBlsScheduleCalendarHtml(blsGrid, 2026);
+ok("BLS month grid keeps same-day extras", blsGridEvents.some((e) => e.title === "Real Earnings" && e.date === "2026-09-11"));
+ok("BLS month grid skips other-month cells", !blsGridEvents.some((e) => e.date === "2026-08-31"));
 let calls = 0;
 const recovered = await fetchTextCalendar("https://example.com/calendar", async () => {
   calls++;
@@ -155,6 +230,20 @@ ok("official source retries transient failures", recovered === "calendar" && cal
 calls = 0;
 try { await fetchTextCalendar("https://example.com/calendar", async () => { calls++; return { ok: false, status: 404 }; }); } catch {}
 ok("official source does not retry permanent missing URLs", calls === 1);
+calls = 0;
+try { await fetchTextCalendar("https://example.com/calendar", async () => { calls++; return { ok: false, status: 403 }; }); } catch {}
+ok("official source does not retry bot-wall 403", calls === 1);
+
+const liveChipHelper = appJs.match(/function calPredictionChipMatchesReport\(report, pred\)\{[\s\S]*?\n  \}/)?.[0] || "";
+ok("Calendar load drops mismatched CPI/PPI chips", !!liveChipHelper && /calPredictionChipMatchesReport\(e, p\)/.test(appJs));
+const liveChipMatch = new Function(`${liveChipHelper}\nreturn calPredictionChipMatchesReport;`)();
+ok("live helper drops PPI YoY from PPI MoM", !liveChipMatch({ subtype: "ppi-mom", date: "2026-09-10" }, livePpiChip));
+ok("live helper keeps annual CPI on YoY", liveChipMatch({ subtype: "cpi-yoy", date: "2026-09-11" }, liveCpiChip));
+ok("live helper drops annual CPI from MoM", !liveChipMatch({ subtype: "cpi-mom", date: "2026-09-11" }, liveCpiChip));
+const liveJobsHelper = appJs.match(/function calParseEmploymentHeadline\(title\)\{[\s\S]*?\n  \}/)?.[0] || "";
+ok("Calendar load stamps Employment Situation Actuals", !!liveJobsHelper && /calApplyEmploymentPrints\(calendarState\.data\.events\)/.test(appJs));
+const liveJobsParse = new Function(`${liveJobsHelper}\nreturn calParseEmploymentHeadline;`)();
+ok("live helper parses the BLS jobs headline", liveJobsParse(jobsHeadline).nfp === "+162K" && liveJobsParse(jobsHeadline).unrate === "4.1%");
 
 if (failures) {
   console.error(`\n${failures} calendar smoke assertion${failures === 1 ? "" : "s"} failed.`);

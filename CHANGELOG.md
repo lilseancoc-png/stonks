@@ -28,7 +28,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
-- **Flow and leveraged ETF consistency (#644).** Match focus-ticker Flow counts and qualified-premium scope, separate ETF waiting and pass states, calculate leveraged payoff from planned entry, convert earnings-move fractions to percentages, and show timestamped reference quotes outside the session without enabling live sizing.
+- **Calendar print-day Actuals, prediction chips, and official BLS coverage.** Fill NFP/Unemployment Actual from the BLS Employment Situation headline when the monthly series still lags; stop treating the lookback window start as “today” so a same-day jobs print can use the new observation. Drop mismatched CPI/PPI prediction chips in the browser until the next bake. Read the official BLS calendar from the ICS mirror / HTML schedule after a www.bls.gov 403, and treat a past Jackson Hole symposium as covered instead of a failed scrape.
 
 ## 2026-09-04
 
