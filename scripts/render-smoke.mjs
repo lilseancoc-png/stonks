@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { renderHtml } from "./render/html.mjs";
 import { renderAppJs } from "./render/app-js.mjs";
+import { verifyResearchDisplay } from "./research-display-smoke.mjs";
 import { renderStylesCss } from "./render/styles-css.mjs";
 import { isPremiumKey, roleClaimForKey } from "../lib/premium-keys.mjs";
 import { BRIEF_ACCESS_POLICY_VERSION, sanitizePublicJsonText } from "../lib/public-data-policy.mjs";
@@ -82,6 +83,7 @@ try {
   assert.doesNotMatch(stylesCss, /\.(?:ptc-regime|ptc-scenario|pick-pillars-regime|pick-scenario-overlay)\b/);
 
   const appJs = renderAppJs({});
+  verifyResearchDisplay(appJs);
   await verifyLiveRefresh(appJs);
   verifyNavFilter(appJs);
   verifyWorkspace(appJs, html);
@@ -220,7 +222,7 @@ try {
   const rotationRenderSource = appJs.match(/function renderSectorRotation\(\)\{[\s\S]*?\n  \}\n  function renderOwnerRotationSizing/)?.[0] || "";
   assert.ok(rotationRenderSource, "Sector Rotation renderer must exist");
   assert.ok(rotationRenderSource.indexOf("rotShortlistHtml(d, candidates, thresholds)") < rotationRenderSource.indexOf("rotToolbarHtml(candidates, visible, groups, thresholds)"), "recovery shortlist must lead the detailed controls");
-  assert.ok(rotationRenderSource.indexOf("+ grid + rotProcessHtml() + rotGroupTape(groups)") > rotationRenderSource.indexOf("rotToolbarHtml(candidates, visible, groups, thresholds)"), "process and group tape must follow the candidate board");
+  assert.match(rotationRenderSource, /candidateBoard \+ modelRecord \+ researchContext/, "model record and expandable methodology must follow the candidate board and near misses");
   assert.match(stylesCss, /\.rot-short-row\s*\{[\s\S]*?grid-template-columns/);
   assert.match(stylesCss, /@media \(max-width: 480px\)\s*\{[\s\S]*?\.rot-short-row\s*\{[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/);
   assert.match(html, /How to use this fundamentals-first rebound desk[\s\S]*?Quality Recovery Shortlist/);
@@ -313,7 +315,7 @@ try {
     entry: { now: false, signal: "buy-dip", trigger: 100, basis: "nearby structure", headline: "Wait", readiness: fullReadiness },
     entryTiming: { state: "wait", score: 2, hardVeto: null, deferKind: null, structure: { clear: true } },
   };
-  assert.equal(liveEntryOverlay(liveBase, 99)?.kind, "go", "complete baked readiness may activate its live price trigger");
+  assert.equal(liveEntryOverlay(liveBase, 99)?.kind, "arm", "a live price touch must retain the published wait verdict until the final build confirms entry");
   assert.equal(liveEntryOverlay({ ...liveBase, entry: { ...liveBase.entry, readiness: { ...fullReadiness, independentFamilies: 1, directionConfirmed: false } } }, 99)?.kind, "arm", "price cannot promote incomplete readiness");
   assert.equal(liveEntryOverlay({ ...liveBase, entry: { ...liveBase.entry, signal: "wait-reversal" } }, 99), null, "price cannot promote a reversal wait");
   assert.equal(liveEntryOverlay({ ...liveBase, entry: { ...liveBase.entry, basis: "top-guard" } }, 99)?.kind, "arm", "price cannot waive a hard exhaustion guard");

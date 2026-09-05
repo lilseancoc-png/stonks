@@ -94,6 +94,8 @@ try {
   assert.equal(macroRes.statusCode, 200);
   assert.equal(macroRes.body.legs.twoY.value, 4.19);
   assert.equal(macroRes.body.legs.twoY.asOf, "2026-08-18");
+  assert.equal(macroRes.body.legs.tenY.asOf, "2026-08-18T20:00:00.000Z");
+  assert.equal(macroRes.body.legs.tenY.marketState, "REGULAR");
   assert.ok(!macroSymbols.includes("2YY=F"));
   assert.ok(!macroSymbols.includes("^UST2YR"));
   for (const symbol of ["^N225", "^KS11", "005930.KS", "000660.KS", "HG=F"]) assert.ok(macroSymbols.includes(symbol));

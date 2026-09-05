@@ -28,6 +28,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Changed
 
+- **Owner research puts the plan first (#643).** Show entry, thesis, defense, target and a pre-expiration review checkpoint together; simplify empty Sector Rotation pages and Owner Lab methodology; label track-record results as modeled with their sample size.
+
 - **Top Picks is easier to scan (#642).** Give setup cards more room, clarify the page and section hierarchy, simplify supporting controls, and improve empty states, keyboard focus, and mobile spacing.
 
 - **Mobile research is easier to reach (#640).** Display and account controls move into a compact settings menu; Calendar puts month navigation before the selected day's events and keeps the full risk overview expandable. Navigation adds a skip link, drawer focus containment, and focus restoration.
@@ -35,6 +37,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - **The research workspace is easier to scan.** Home uses compact cards, clearer index metrics, readable shortcuts, and restrained header actions; shared card headings, secondary text, and focus states work across light and dark themes. The sidebar adds topic filtering with keyboard selection, empty-result guidance, and a mobile close control while preserving Owner access restrictions and disclosure choices.
 
 ### Fixed
+
+- **Owner decision consistency (#643).** Final entry gates govern displayed sizing and plans; separate ready setups from watch ideas and hypothetical allocations, calculate share payoff from the planned entry, and distinguish market retrieval timestamps and elapsed calendar events from fresh data and upcoming catalysts.
 
 - **Calendar contract matching and source attribution (#641).** Match Calendar prediction chips to the exact macro measure and reference month; omit ambiguous or unrelated contracts. Retry transient official-calendar fetch failures, validate BLS calendar responses, and credit the data provider actually used.
 - **Navigation and legal footer corrections (#641).** Restore the Pending buyouts navigation icon and update Privacy/Terms footers to Stock Market Research.
