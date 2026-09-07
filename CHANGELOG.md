@@ -24,13 +24,13 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Added
 
-- **Post-earnings recovery research.** Add an Earnings workspace for report-day selloffs with maintained or raised guidance, date/drop/company filters, source-aware business checks, explicit missing evidence, a 15% drawdown requirement, and reference stabilization, invalidation and recovery-room checkpoints. Keep research separate from trade qualification and label unavailable lifetime-high history honestly.
+- **Post-earnings recovery research (#645).** Add an Earnings workspace for report-day selloffs with maintained or raised guidance, date/drop/company filters, source-aware business checks, explicit missing evidence, a 15% drawdown requirement, and reference stabilization, invalidation and recovery-room checkpoints. Keep research separate from trade qualification and label unavailable lifetime-high history honestly.
 
 ### Fixed
 
-- **Contract and event consistency.** Refresh expiration-specific Max Pain on every contract switch, tie conviction labels to the actual verdict, calculate earnings and scenario countdowns from the current ET date, and separate holiday schedules from market-moving releases.
-- **Scenario sensitivity coverage.** Read both in-memory build bars and persisted price histories so the daily build produces ticker sensitivities; show an unavailable state and disable basket calculations when coverage is missing.
-- **Fundamental and recovery evidence.** Distinguish snapshot metrics from historical-window changes and quarter ends from earnings dates, flag mismatched segment totals, expose shared recovery concerns in Stock Picks, and move targets at/below planned entry into Plan needs revision.
+- **Contract and event consistency (#645).** Refresh expiration-specific Max Pain on every contract switch, tie conviction labels to the actual verdict, calculate earnings and scenario countdowns from the current ET date, and separate holiday schedules from market-moving releases.
+- **Scenario sensitivity coverage (#645).** Read both in-memory build bars and persisted price histories so the daily build produces ticker sensitivities; show an unavailable state and disable basket calculations when coverage is missing.
+- **Fundamental and recovery evidence (#645).** Distinguish snapshot metrics from historical-window changes and quarter ends from earnings dates, flag mismatched segment totals, expose shared recovery concerns in Stock Picks, and move targets at/below planned entry into Plan needs revision.
 
 ## 2026-09-05
 
