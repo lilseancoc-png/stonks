@@ -26486,6 +26486,19 @@ ${renderWorkspaceBindings()}
           return /holiday/i.test(String(e.category || '') + ' ' + String(e.title || '')) && (e.type === 'fed' || e.type === 'holiday')
             ? Object.assign({}, e, { type: 'holiday', importance: 'low' }) : e;
         });
+        if (Array.isArray(calendarState.data.events)) {
+          calendarState.data.events = calendarState.data.events.filter(function(e){
+            return !(e && e.source === 'Federal Reserve Board' && e.type === 'report' && calIsExcludedFedReport(e.title));
+          });
+          calendarState.data.events.forEach(function(e){
+            if (!e || !Array.isArray(e.predictions) || !e.predictions.length) return;
+            if (!/cpi|ppi/.test(String(e.subtype || ''))) return;
+            var kept = e.predictions.filter(function(p){ return calPredictionChipMatchesReport(e, p); });
+            if (kept.length) e.predictions = kept;
+            else delete e.predictions;
+          });
+          calApplyEmploymentPrints(calendarState.data.events);
+        }
         calendarState.loading = false;
         calendarState.fetchedAt = Date.now();
         renderCalendarConsumers();
@@ -26495,6 +26508,85 @@ ${renderWorkspaceBindings()}
         calendarState.loading = false;
         renderCalendarConsumers();
       });
+  }
+  // Mirror scripts/build.mjs::isExcludedFedCalendarReport so a still-baked
+  // calendar.json cannot keep painting the high-frequency Fed table prints
+  // (H.15, CP, H.10, …) after ingest already dropped them.
+  function calIsExcludedFedReport(title){
+    var text = String(title || '').trim();
+    if (/^CP\\b/i.test(text)) return true;
+    var code = /^([GH])\\s*\\.?\\s*(\\d+)(?:\\s*\\.\\s*(\\d+))?\\b/i.exec(text);
+    if (!code) return false;
+    var normalized = code[1].toUpperCase() + '.' + Number(code[2]) + (code[3] ? '.' + Number(code[3]) : '');
+    return /^(?:H\\.4\\.1|H\\.6|H\\.8|H\\.10|H\\.15|G\\.5|G\\.19|G\\.20)$/.test(normalized);
+  }
+  // Mirror scripts/build.mjs::predictionChipMatchesReport so a still-baked
+  // calendar.json cannot keep painting a YoY contract on a MoM row (or the
+  // shared annual CPI contract on Core / MoM) until the next bake republishes.
+  function calPredictionChipMatchesReport(report, pred){
+    var subtype = String(report && report.subtype || '');
+    if (!/cpi|ppi/.test(subtype)) return true;
+    if (!pred) return false;
+    var url = String(pred.url || pred.slug || '');
+    var slug = url.replace(/^https?:\\/\\/(?:www\\.)?polymarket\\.com\\/(?:event\\/)?/i, '');
+    var text = [pred.label, pred.title, slug].filter(Boolean).join(' ').toLowerCase().replace(/-/g, ' ');
+    if (/\\b(argentina|brazil|mexico|venezuela|colombia|chile|peru|turkey|t[üu]rkiye|india|china|chinese|japan|japanese|eurozone|euro (?:zone|area)|europe|european|germany|german|france|french|italy|italian|spain|spanish|uk|u\\.k\\.|britain|british|england|canada|canadian|australia|australian|korea|korean|russia|russian|nigeria|egypt|south africa|indonesia|poland|hungary|czech|sweden|swedish|norway|norwegian|switzerland|swiss)\\b/.test(text)) return false;
+    var release = new Date(String(report.date || '') + 'T00:00:00Z');
+    if (!isFinite(release.getTime())) return false;
+    var ref = new Date(Date.UTC(release.getUTCFullYear(), release.getUTCMonth() - 1, 1));
+    var months = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+    var month = months[ref.getUTCMonth()];
+    if (!new RegExp('\\\\b' + month + '\\\\b').test(text)) return false;
+    var years = text.match(/\\b20\\d{2}\\b/g) || [];
+    if (years.length && years.some(function(y){ return Number(y) !== ref.getUTCFullYear(); })) return false;
+    if (/how high|highest|at any (?:time|point)|by (?:the )?end|during (?:the )?year/.test(text)) return false;
+    var ppi = /\\bppi\\b|producer price/.test(text);
+    if (ppi !== subtype.indexOf('ppi') >= 0) return false;
+    if (/\\bcore\\b/.test(text) !== /^core-/.test(subtype)) return false;
+    var mom = /\\bmom\\b|month over month|month on month|monthly/.test(text);
+    var yoy = /\\byoy\\b|year over year|year on year|annual/.test(text);
+    if (/-mom$/.test(subtype) ? !mom || yoy : !yoy || mom) return false;
+    return true;
+  }
+  function calParseEmploymentHeadline(title){
+    var t = String(title || '').replace(/\u2212/g, '-');
+    var out = { nfp: null, unrate: null };
+    var jobs = /payroll(?:\\s+employment)?\\s+(increases?|decreases?|rises?|falls?|is unchanged|unchanged)(?:\\s+by\\s+([\\d,]+))?/i.exec(t);
+    if (jobs) {
+      var verb = jobs[1].toLowerCase();
+      if (/unchanged/.test(verb)) out.nfp = '0K';
+      else {
+        var n = Number(String(jobs[2] || '').replace(/,/g, ''));
+        if (isFinite(n)) {
+          var jobsK = n >= 1000 ? Math.round(n / 1000) : n;
+          var signed = /decreas|fall/.test(verb) ? -jobsK : jobsK;
+          out.nfp = (signed >= 0 ? '+' : '') + Math.round(signed).toLocaleString('en-US') + 'K';
+        }
+      }
+    }
+    var rate = /unemployment rate[\\s\\S]{0,48}?(\\d+(?:\\.\\d+)?)\\s*%/i.exec(t);
+    if (rate) out.unrate = rate[1] + '%';
+    return out;
+  }
+  function calApplyEmploymentPrints(events){
+    var byDate = {};
+    (events || []).forEach(function(ev){
+      if (!ev || !ev.title || !ev.date) return;
+      if (!/payroll|employment situation|unemployment rate/i.test(ev.title)) return;
+      var parsed = calParseEmploymentHeadline(ev.title);
+      if (!parsed.nfp && !parsed.unrate) return;
+      var cur = byDate[ev.date] || { nfp: null, unrate: null };
+      if (parsed.nfp && !cur.nfp) cur.nfp = parsed.nfp;
+      if (parsed.unrate && !cur.unrate) cur.unrate = parsed.unrate;
+      byDate[ev.date] = cur;
+    });
+    (events || []).forEach(function(ev){
+      if (!ev || ev.type !== 'report' || !byDate[ev.date]) return;
+      var print = byDate[ev.date];
+      var empty = ev.actual == null || ev.actual === '';
+      if (ev.subtype === 'nfp' && print.nfp && empty) ev.actual = print.nfp;
+      if (ev.subtype === 'unrate' && print.unrate && empty) ev.actual = print.unrate;
+    });
   }
   function calendarTypeLabel(type){
     if (type === 'holiday') return 'Holiday';
@@ -28194,7 +28286,7 @@ ${renderWorkspaceBindings()}
   // by the selected instrument's close-to-close %change for that session. An
   // index toggle (SPY/QQQ/IWM/SMH/DIA/VXUS/TLT/GLD/VIX) switches which one colors the
   // grid; a per-month summary tallies green vs red days and the month's
-  // compounded return. Renders the premium, bake-accumulated
+  // compounded return. Renders the bake-accumulated public
   // data/index-calendar.json ({ days:[{ date, spy:{c,chPct}, qqq, iwm, ... }] }),
   // lazy-fetched on first open and re-fetched when stale (mirrors loadBrief).
   var indexCalState = {
@@ -37398,28 +37490,50 @@ ${renderWorkspaceBindings()}
     if (!modal || !input || !results) return;
 
     var TABS = [
-      ['tickers', 'Tickers'],
-      ['narratives', 'Narratives'],
       ['brief', 'Brief'],
       ['news', 'News desk'],
-      ['market', 'Market analysis'],
-      ['rotation', 'Sector rotation'],
-      ['picks', 'Top picks'],
-      ['stocks', 'Stock picks'],
       ['heatmap', 'Heatmap'],
-      ['calendar', 'Calendar'],
-      ['index-cal', 'Index calendar'],
-      ['overnight', 'Overnight markets'],
+      ['narratives', 'Narratives'],
+      ['tickers', 'Tickers'],
+      ['grade', 'Grade a ticker'],
+      ['compare', 'Compare companies'],
+      ['strategies', 'Strategies'],
+      ['ma-tracker', 'MA tracker'],
       ['flow', 'Unusual flow'],
       ['volume', 'Volume'],
       ['oi', 'Gamma exposure (GEX)'],
-      ['grade', 'Grade a ticker'],
-      ['strategies', 'Strategies'],
+      ['iv-trend', 'Trending IV'],
       ['streaks', 'Streaks'],
+      ['spillover', 'Event spillover'],
+      ['index-cal', 'Index calendar'],
+      ['calendar', 'Calendar'],
+      ['pending-buyouts', 'Pending buyouts'],
+      ['earnings', 'Earnings tracker'],
+      ['calls', 'Earnings calls'],
+      ['overnight', 'Overnight markets'],
       ['fear-greed', 'Fear & Greed'],
-      ['f13', '13F filings'],
       ['bonds-usd', 'Bonds & USD'],
-      ['track', 'Track record'],
+      ['commodities', 'Commodities'],
+      ['capital-raises', 'Capital raises'],
+      ['ipo-credit', 'IPOs & credit'],
+      ['ai-capex', 'AI CapEx'],
+      ['ram-prices', 'RAM prices'],
+      ['accelerator-prices', 'GPU cloud prices'],
+      ['central-bank-gold', 'Central-bank gold'],
+      ['search-interest', 'Search interest'],
+      ['f13', '13F filings'],
+      ['market', 'Market analysis'],
+      ['picks', 'Top picks'],
+      ['stocks', 'Stock picks'],
+      ['rotation', 'Sector rotation'],
+      ['levetf', 'Leveraged ETFs'],
+      ['track', 'Top Picks track record'],
+      ['quant', 'Owner Lab'],
+      ['cheatsheet', "Buyer's manual"],
+      ['chart-patterns', 'Chart patterns'],
+      ['timeline', 'Refresh schedule'],
+      ['privacy', 'Privacy Policy'],
+      ['terms', 'Terms of Use'],
     ];
 
     function buildCorpus(){

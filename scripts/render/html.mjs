@@ -406,7 +406,7 @@ function calendarSection() {
   return `<section class="card" id="calendar-section">
     <header class="card-header">
       <h2 class="card-title">Calendar</h2>
-      <button type="button" class="card-jump" id="calendar-idxcal-link" data-go="index-cal" title="Open the Owner index calendar">Index calendar &rarr;</button>
+      <button type="button" class="card-jump" id="calendar-idxcal-link" data-go="index-cal" title="Open the Index calendar">Index calendar &rarr;</button>
       <span class="card-eyebrow" id="calendar-eyebrow" aria-live="polite"></span>
     </header>
     ${infoNote("What's on this calendar?", `<p>A month-at-a-time view of every dated market event, opening on the <b>current month</b> — use <b>&lsaquo;</b> / <b>&rsaquo;</b> to step between months (or <b>Today</b> to jump back), and tap any day to see its full details below the grid. It tracks: confirmed earnings dates (with AM/PM session tagging) for every curated ticker, cross-checked against a rolling 21-day Nasdaq sweep; ticker-specific catalysts (FDA dates, contract decisions, product launches, court rulings, investor days — extracted from recent news); the complete official <b>BLS</b> and <b>BEA</b> release schedules; the Federal Reserve Board calendar (speeches, testimony, minutes, conferences, and statistical releases); the Kansas City Fed&rsquo;s Jackson Hole symposium; detailed market-moving reports with Actual / Previous / Consensus values; and upcoming FOMC decisions. Official source labels open the publisher&rsquo;s calendar. Effective Fed Funds, FedWatch probabilities, the official vote map, and the full rate path live together in <b>Bonds &amp; USD</b>. Ticker chips are clickable.</p>`)}
@@ -435,7 +435,7 @@ function indexCalSection() {
   // Card chrome only — the monthly index-close grid (SPY/QQQ/IWM/SMH/DIA/VXUS/
   // TLT/GLD/VIX red/green + %change), the index toggle, the month nav, and the
   // per-month summary render
-  // client-side from data/index-calendar.json (Owner; lazy-fetched on first
+  // client-side from data/index-calendar.json (public; lazy-fetched on first
   // tab activation by loadIndexCal() in app.js).
   return `<section class="card" id="index-cal-section">
     <header class="card-header">

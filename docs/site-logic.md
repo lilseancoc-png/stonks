@@ -47,7 +47,7 @@ Most important design rule: a strong observation is not automatically a trade. T
 | Events | Earnings Tracker | Session-aware earnings reactions, implied-versus-realized moves, and season summaries. |
 | Events | Earnings Calls | Source-linked transcript briefs with outlook changes, risks, and Q&A pressure. |
 | Owner | Event Spillover | Statistical read-through from an earnings reporter to same-industry followers. |
-| Owner | Index Calendar | Long-history calendar returns and conditional timing statistics. |
+| Research | Index Calendar | Long-history calendar returns and conditional timing statistics. |
 | Desk | Heatmap | Market-cap-sized equity map, breadth, relative volume, and sector streaks. |
 | Owner | Unusual Flow | Front-expiry volume-versus-open-interest scanner with tape-location context. |
 | Owner | Volume | Time-of-day-adjusted stock-volume and support/resistance-break scanner. |
@@ -853,7 +853,7 @@ The unified calendar covers the rest of the year with at least a 30-day useful h
 - earnings dates and AM/PM/TBD sessions;
 - ticker-specific catalysts;
 - every dated BLS and BEA release from the agencies' official calendars;
-- Federal Reserve Board speeches, testimony, minutes, conferences, decision-relevant statistical releases, and the FOMC schedule. High-frequency CP, H.4.1, H.6, H.8, H.10, G.5, G.19, and G.20 table publications are excluded to prevent repetitive calendar spam;
+- Federal Reserve Board speeches, testimony, minutes, conferences, decision-relevant statistical releases, and the FOMC schedule. High-frequency CP, H.4.1, H.6, H.8, H.10, H.15, G.5, G.19, and G.20 table publications are excluded to prevent repetitive calendar spam;
 - the Kansas City Fed's Jackson Hole symposium;
 - actual, consensus, previous, and forecast fields;
 - report history.
