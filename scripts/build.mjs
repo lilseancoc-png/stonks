@@ -7393,6 +7393,7 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
         revenueCurrency: data?.fundamentals?.financialCurrency || null,
         eps: earningsEpsVerdict(ev),                    // beat | miss | inline | null
         guidance: earningsGuidanceBucket(ev.guidance),  // up | inline | down | null
+        guidanceSrc: ev.guidanceSrc || null, // recovery research distinguishes call evidence from news interpretation
         movePct: hasMove ? ev.movePct : null,           // fractions, like earningsHx
         gapPct: typeof ev.gapPct === "number" && isFinite(ev.gapPct) ? ev.gapPct : null,
         week1Pct: typeof ev.week1Pct === "number" && isFinite(ev.week1Pct) ? ev.week1Pct : null,
@@ -13394,6 +13395,7 @@ export function parseFederalReserveCalendarHtml(html, year, monthIdx) {
       // the same meeting as a second generic "FOMC Meeting" chip.
       if (/^FOMC Meetings?$/i.test(title)) continue;
       const isReport = /statistical releases?/i.test(category);
+      const isHoliday = /holiday/i.test(category + " " + title);
       // These high-frequency Fed data-table publications overwhelm the
       // trader-facing calendar without adding a distinct decision event.
       if (isReport && isExcludedFedCalendarReport(title)) continue;
@@ -13405,7 +13407,7 @@ export function parseFederalReserveCalendarHtml(html, year, monthIdx) {
       for (const day of days) {
         const date = `${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
         events.push({
-          type: isReport ? "report" : "fed",
+          type: isHoliday ? "holiday" : isReport ? "report" : "fed",
           ...(isReport ? { subtype: `official-${sourceKey}-${calendarSlug(title)}` } : {}),
           date,
           ...(time ? { time } : {}),
@@ -13415,7 +13417,7 @@ export function parseFederalReserveCalendarHtml(html, year, monthIdx) {
           sourceUrl,
           sourceKey,
           official: true,
-          importance,
+          importance: isHoliday ? "low" : importance,
         });
       }
     }
@@ -22340,6 +22342,9 @@ export function buildStockPicks(chains, gradesIndex, builtAtIso) {
     const f = r.data.fundamentals || {};
     const traps = stockTrapFlags(r.data, r.grade);
     const execution = buildStockExecution(r.data, traps);
+    // Shared evidence is explanatory only: keep the share screen's grades,
+    // membership and execution rules independent of the rotation strategy.
+    const recoveryProfile = buildSectorRotationRecoveryProfile(r.data, r.grade, builtAtIso);
     return {
       symbol: r.sym,
       name: f.name || null,
@@ -22358,6 +22363,12 @@ export function buildStockPicks(chains, gradesIndex, builtAtIso) {
       traps,
       clean: traps.length === 0,
       execution,
+      recoveryEvidence: {
+        trajectory: recoveryProfile.trajectory,
+        blockers: recoveryProfile.blockers,
+        warnings: recoveryProfile.warnings,
+        evidenceAsOf: recoveryProfile.freshness.evidenceAsOf,
+      },
       checklist: buildStockChecklist(r.sym, r.data, r.grade, sectorPE[f.sector], traps, stockTrackedPeers(chains, r.sym)),
     };
   });

@@ -18,6 +18,192 @@
     host.appendChild(button);
   }
 
+function recoveryCandidates(payload, options = {}, now = Date.now()) {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(now));
+  const end = Date.parse(today + 'T00:00:00Z');
+  const days = [14, 30, 60].includes(Number(options.days)) ? Number(options.days) : 30;
+  const minDrop = [3, 5, 10].includes(Number(options.minDrop)) ? Number(options.minDrop) : 5;
+  const latest = new Map();
+  for (const season of payload?.seasons || []) {
+    for (const row of season?.rows || []) {
+      if (!row?.sym || !/^\d{4}-\d{2}-\d{2}$/.test(row.date || '')) continue;
+      const stamp = Date.parse(row.date + 'T00:00:00Z');
+      if (!Number.isFinite(stamp) || new Date(stamp).toISOString().slice(0,10) !== row.date || stamp > end) continue;
+      if (!latest.has(row.sym) || row.date > latest.get(row.sym).date) latest.set(row.sym, row);
+    }
+  }
+  return [...latest.values()].filter(row => {
+    const age = Math.round((end - Date.parse(row.date + 'T00:00:00Z')) / 86400000);
+    return age >= 0 && age <= days && typeof row.movePct === 'number' && Number.isFinite(row.movePct)
+      && row.movePct <= -minDrop / 100
+      && (options.guidance === 'all' || row.guidance === 'up' || row.guidance === 'inline')
+      && (!options.search || (row.sym + ' ' + (row.name || '')).toUpperCase().includes(String(options.search).trim().toUpperCase()));
+  }).sort((a, b) => b.date.localeCompare(a.date) || a.movePct - b.movePct || a.sym.localeCompare(b.sym));
+}
+function recoveryEvidence(row, data, now = Date.now()) {
+  const num = v => typeof v === 'number' && Number.isFinite(v) ? v : null;
+  const dayMs = v => {
+    if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+    const ms = Date.parse(v + 'T00:00:00Z');
+    return Number.isFinite(ms) && new Date(ms).toISOString().slice(0,10) === v ? ms : null;
+  };
+  const history = input => {
+    const byDate = new Map();
+    for (const q of Array.isArray(input) ? input : []) {
+      const stamp = dayMs(q?.date);
+      if (stamp != null && stamp <= now && num(q?.value) != null) byDate.set(q.date, q);
+    }
+    return [...byDate.values()].sort((a,b) => a.date.localeCompare(b.date));
+  };
+  const f = data?.fundamentals || {};
+  const checks = [];
+  const check = (key, label, state, detail) => checks.push({ key, label, state, detail });
+  const pct = v => (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
+  const events = (Array.isArray(data?.earningsHx?.events) ? data.earningsHx.events : []).filter(e => dayMs(e?.date) != null && dayMs(e.date) <= now);
+  const event = events.find(e => e.date === row.date);
+  const normalizeGuidance = g => g === 'raised' || g === 'up' ? 'up' : g === 'inline' ? 'inline' : ['soft', 'lowered', 'down'].includes(g) ? 'down' : null;
+  const guidance = normalizeGuidance(event?.guidance) || normalizeGuidance(row.guidance);
+  const guidanceConflict = normalizeGuidance(event?.guidance) && normalizeGuidance(row.guidance) && normalizeGuidance(event.guidance) !== normalizeGuidance(row.guidance);
+  // A source tag only verifies the guidance value from the same record.
+  const guidanceSource = normalizeGuidance(event?.guidance) ? event.guidanceSrc || null : row.guidanceSrc || null;
+  check('guidance', 'Forward guidance', guidanceConflict || guidance === 'down' ? 'fail' : guidanceSource === 'call' && ['up', 'inline'].includes(guidance) ? 'pass' : 'missing',
+    guidanceConflict ? 'Report and ticker guidance disagree; reconcile the same earnings event.' : guidance === 'down' ? 'Guidance was cut; a price drop does not establish recovery.' :
+      guidanceSource === 'call' && guidance ? 'Call-derived guidance ' + (guidance === 'up' ? 'raised' : 'maintained') + ' for ' + row.date + '; inspect the call evidence.' : 'Stable/raised guidance is not yet verified against this report’s call.');
+
+  const price = num(data?.spot);
+  const high = num(f.fiftyTwoWeekHigh);
+  const drawdown = price > 0 && high > 0 ? num((1 - price / high) * 100) : null;
+  check('drawdown', 'Room below prior highs', drawdown == null ? 'missing' : drawdown >= 15 ? 'pass' : 'fail',
+    drawdown == null ? 'Prior high or price unavailable; no discount claim.' : drawdown >= 15 ? drawdown.toFixed(1) + '% below the 52-week high. This proves it is below a recorded high; exact lifetime ATH distance is unavailable.' : 'Only ' + drawdown.toFixed(1) + '% below the 52-week high; this recovery screen requires at least 15%.');
+
+  const margin = num(f.operatingMargin);
+  check('operations', 'Operating profitability', margin == null ? 'missing' : margin > 0 ? 'pass' : 'fail',
+    margin == null ? 'Operating margin unavailable.' : 'Provider operating margin ' + pct(margin) + '; inspect the financial period in Fundamentals.');
+  const quarters = history(f.fcfHistory).slice(-4);
+  const consecutive = quarters.length === 4 && quarters.every((q,i) => !i || (Date.parse(q.date) - Date.parse(quarters[i-1].date)) / 86400000 >= 60 && (Date.parse(q.date) - Date.parse(quarters[i-1].date)) / 86400000 <= 120);
+  const recentFcf = consecutive && now - dayMs(quarters[3].date) <= 180 * 86400000;
+  const fcfSum = recentFcf ? quarters.reduce((sum,q) => sum + q.value, 0) : null;
+  const fcf = num(fcfSum);
+  const positiveQuarters = quarters.filter(q => q.value > 0).length;
+  check('cashflow', 'Cash generation', fcf == null ? 'missing' : fcf > 0 && positiveQuarters >= 3 ? 'pass' : 'fail',
+    fcf == null ? 'Four recent consecutive FCF quarters unavailable; no TTM cash-flow claim.' : positiveQuarters + '/4 quarters generated positive FCF; four-quarter sum through ' + quarters[3].date + '.');
+  const cash = num(f.totalCash) >= 0 ? num(f.totalCash) : null, debt = num(f.totalDebt) >= 0 ? num(f.totalDebt) : null, de = num(f.debtToEquity);
+  const financial = /financial|bank|insurance/i.test((f.sector || '') + ' ' + (f.industry || ''));
+  const balance = financial ? null : de != null && de < 0 ? false : cash != null && debt != null && cash >= debt ? true : de != null ? de <= 200 : null;
+  check('balance', 'Balance sheet', balance == null ? 'missing' : balance ? 'pass' : 'fail', financial ? 'Banks and insurers need sector-specific capital evidence.' : balance == null ? 'Cash, debt or usable debt/equity evidence missing.' : de != null && de < 0 ? 'Negative equity needs review; a low-looking ratio is not a pass.' : cash != null && debt != null && cash >= debt ? 'Reported cash covers debt.' : 'Provider debt/equity ' + de.toFixed(1) + '%; screen ceiling 200%.');
+  const rev = history(f.revenueHistory).filter(q => q.value > 0);
+  const lastRev = rev[rev.length-1];
+  const priorRev = lastRev && rev.find(q => { const days = (Date.parse(lastRev.date)-Date.parse(q.date))/86400000; return days >= 330 && days <= 400; });
+  const revenueGrowth = priorRev ? num((lastRev.value / priorRev.value - 1) * 100) : null;
+  check('revenue', 'Revenue durability', revenueGrowth == null ? 'missing' : revenueGrowth >= 0 ? 'pass' : 'fail', revenueGrowth == null ? 'Comparable year-ago revenue quarter unavailable.' : pct(revenueGrowth) + ' for quarter ending ' + lastRev.date + ' versus ' + priorRev.date + '.');
+  const forwardPE = num(f.forwardPE), peg = num(f.pegRatio), cap = num(f.marketCap);
+  const financialCurrency = typeof f.financialCurrency === 'string' && /^[A-Z]{3}$/.test(f.financialCurrency) ? f.financialCurrency : null;
+  // US-listed quote/market-cap currency is USD. Do not divide an issuer's
+  // local-currency cash flows by it without a verified conversion.
+  const fcfYield = financialCurrency === 'USD' && fcf != null && cap > 0 ? num(fcf / cap * 100) : null;
+  check('valuation', 'Valuation context', forwardPE > 0 ? 'context' : 'missing', forwardPE > 0 ? 'Forward P/E ' + forwardPE.toFixed(1) + '×' + (peg > 0 ? ' · PEG ' + peg.toFixed(2) : '') + '. Estimates are not a recovery price target; compare peers.' : 'Forward valuation unavailable; do not infer cheapness from the selloff.');
+
+  const series = data?.priceSeries || {};
+  const byDate = new Map();
+  (Array.isArray(series.t) ? series.t : []).forEach((date,i) => {
+    const stamp = dayMs(date), close = num(series.c?.[i]), low = num(series.l?.[i]);
+    if (stamp != null && stamp <= now && close > 0) byDate.set(date, { date, close, low: low > 0 && low <= close ? low : null });
+  });
+  const bars = [...byDate.values()].sort((a,b) => a.date.localeCompare(b.date));
+  const last = bars[bars.length-1];
+  const prior = bars[bars.length-2];
+  const sma20 = bars.length >= 20 ? num(bars.slice(-20).reduce((sum,b) => sum+b.close,0)/20) : null;
+  const prevSma20 = bars.length >= 21 ? num(bars.slice(-21,-1).reduce((sum,b) => sum+b.close,0)/20) : null;
+  const postBars = bars.filter(b => (row.session === 'AM' ? b.date >= row.date : b.date > row.date));
+  const confirmed = sma20 != null && prevSma20 != null && last && prior && postBars.length >= 2 && last.close > sma20 && prior.close > prevSma20;
+  check('confirmation', 'Price stabilization', !last || sma20 == null ? 'missing' : confirmed ? 'pass' : 'wait', confirmed ? 'Two post-report closes above their own 20-session averages. Reference confirmation only.' : 'Wait for two post-report closes above their 20-session averages.');
+  const referenceEntry = last && sma20 != null ? Math.max(last.close, sma20) : null;
+  const lows = postBars.map(b => b.low).filter(v => v > 0);
+  const defense = lows.length === postBars.length && lows.length ? Math.min(...lows) : null;
+  const target = num(event?.closeBefore) > 0 ? num(event.closeBefore) : null;
+  const rr = target > referenceEntry && referenceEntry > defense && defense > 0 ? num((target-referenceEntry)/(referenceEntry-defense)) : null;
+  check('payoff', 'Recovery room', !referenceEntry || !defense || !target ? 'missing' : rr != null && rr >= 1.5 ? 'pass' : 'fail',
+    !referenceEntry || !defense || !target ? 'Entry reference, post-report low or pre-report close unavailable.' : target <= referenceEntry ? 'The pre-report close is already at/below the entry reference. This recovery path is spent.' : rr == null || rr < 1.5 ? 'Less than 1.5:1 room to the pre-report close against the post-report low.' : rr.toFixed(2) + ':1 reference room to the pre-report close. This is an anchor, not a forecast.');
+  const quoteStamp = data?.quoteAsOf;
+  const numericStamp = typeof quoteStamp === 'string' && /^\d+(?:\.\d+)?$/.test(quoteStamp) ? Number(quoteStamp) : quoteStamp;
+  const quoteMs = typeof numericStamp === 'number' ? (numericStamp < 1e12 ? numericStamp * 1000 : numericStamp) : typeof quoteStamp === 'string' ? Date.parse(quoteStamp) : NaN;
+  const quoteDate = new Date(quoteMs);
+  const quoteDay = Number.isFinite(quoteDate.getTime()) ? quoteDate.toISOString().slice(0,10) : null;
+  const latestFinancialDay = lastRev?.date;
+  const ageDays = latestFinancialDay ? (now - Date.parse(latestFinancialDay))/86400000 : null;
+  const newerReport = events.some(e => e.date > row.date);
+  const reportQuarter = dayMs(event?.qEnd);
+  const latestFcfDay = quarters[quarters.length - 1]?.date;
+  // Recent financials can still predate the specific earnings event being
+  // researched. Require both histories to cover its reported fiscal quarter.
+  const coversReport = reportQuarter == null || reportQuarter <= now && dayMs(latestFinancialDay) != null && dayMs(latestFinancialDay) >= reportQuarter && dayMs(latestFcfDay) != null && dayMs(latestFcfDay) >= reportQuarter;
+  const currentData = coversReport && !newerReport && dayMs(row.date) != null && last && quoteDay && quoteDay >= row.date && postBars.length && now >= Date.parse(last.date) && now - Date.parse(last.date) <= 7*86400000 && now >= quoteMs && now-quoteMs <= 7*86400000 && ageDays != null && ageDays >= 0 && ageDays <= 180;
+  check('freshness', 'Evidence dates', currentData ? 'pass' : 'missing', 'Price history ' + (last?.date || 'unavailable') + ' · quote ' + (quoteDay || 'unavailable') + ' · revenue quarter ' + (latestFinancialDay || 'unavailable') + ' · FCF quarter ' + (latestFcfDay || 'unavailable') + '. ' + (newerReport ? 'A newer earnings report exists; refresh the report queue before assessing recovery.' : !coversReport ? 'Financial evidence does not yet cover the report quarter ending ' + event.qEnd + '; refresh revenue and FCF history before assessing recovery.' : currentData ? 'Reference snapshot; verify quotes before any order.' : 'Evidence is missing, predates the report or is too old for current recovery research.'));
+  const failed = checks.filter(c => c.state === 'fail');
+  const missing = checks.filter(c => c.state === 'missing');
+  const state = failed.length ? 'blocked' : missing.length ? 'incomplete' : confirmed ? 'supported' : 'waiting';
+  return { state, checks, guidance, guidanceSource, price, drawdown, forwardPE, financialCurrency, fcf, fcfYield, revenueGrowth, sma20, referenceEntry, defense, target, rr, priceDate: last?.date || null };
+}
+
+  var recoveryState = { days: 30, minDrop: 5, guidance: 'stable', search: '', limit: 6, cache: {}, loading: {}, open: {} };
+  function ersViewTabs(){
+    return '<div class="ers-view-tabs" role="group" aria-label="Earnings workspace"><button type="button" data-ers-view="season" aria-pressed="' + (earningsState.view !== 'recovery') + '">Season overview</button><button type="button" data-ers-view="recovery" aria-pressed="' + (earningsState.view === 'recovery') + '">Post-earnings recovery</button></div>';
+  }
+  function bindEarningsView(root){
+    root.querySelectorAll('[data-ers-view]').forEach(function(button){ button.addEventListener('click', function(){
+      earningsState.view = button.getAttribute('data-ers-view');
+      try { var url = new URL(location.href); if (earningsState.view === 'recovery') url.searchParams.set('view', 'recovery'); else url.searchParams.delete('view'); history.replaceState(null, '', url); } catch(_){}
+      renderEarningsTracker();
+      var active = root.querySelector('[data-ers-view="' + earningsState.view + '"]'); if (active) active.focus();
+    }); });
+  }
+  function recoveryMoney(v){ return typeof v === 'number' && isFinite(v) ? '$' + v.toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 }) : 'Unavailable'; }
+  function recoveryBig(v, currency){ return typeof v === 'number' && isFinite(v) ? (currency === 'USD' ? '$' : (currency || 'Currency unverified') + ' ') + (Math.abs(v) >= 1e9 ? (v / 1e9).toFixed(2) + 'B' : (v / 1e6).toFixed(1) + 'M') : 'Unavailable'; }
+  function recoveryStateLabel(v){ return v === 'supported' ? 'Evidence supports research' : v === 'waiting' ? 'Wait for stabilization' : v === 'blocked' ? 'Recovery checks failed' : 'Evidence incomplete'; }
+  function recoveryDetail(row, evidence){
+    var checks = evidence.checks.map(function(c){ return '<li><span class="recovery-check-state recovery-' + c.state + '">' + (c.state === 'pass' ? 'Met' : c.state === 'fail' ? 'Failed' : c.state === 'missing' ? 'Missing' : c.state === 'wait' ? 'Wait' : 'Context') + '</span><div><b>' + escapeHtml(c.label) + '</b><p>' + escapeHtml(c.detail) + '</p></div></li>'; }).join('');
+    return '<div class="recovery-metrics"><div><span>Reference price</span><b>' + recoveryMoney(evidence.price) + '</b></div><div><span>Forward P/E</span><b>' + (evidence.forwardPE > 0 ? evidence.forwardPE.toFixed(1) + '×' : 'Unavailable') + '</b></div><div><span>FCF · 4 quarters</span><b>' + recoveryBig(evidence.fcf, evidence.financialCurrency) + '</b></div><div><span>FCF / market cap · USD basis</span><b>' + (evidence.fcfYield != null ? evidence.fcfYield.toFixed(1) + '%' : 'Unavailable') + '</b></div></div>' +
+      '<div class="recovery-plan"><h4>Recovery checkpoints</h4><p>Reference levels from ' + escapeHtml(evidence.priceDate || 'unavailable history') + '. Check current quotes and entry conditions before acting.</p><dl><div><dt>20-session reclaim level</dt><dd>' + recoveryMoney(evidence.sma20) + '</dd></div><div><dt>Entry reference for room calculation</dt><dd>' + recoveryMoney(evidence.referenceEntry) + '</dd></div><div><dt>Post-report low · price invalidation</dt><dd>' + recoveryMoney(evidence.defense) + '</dd></div><div><dt>Pre-report close · recovery anchor</dt><dd>' + recoveryMoney(evidence.target) + '</dd></div><div><dt>Reference reward / risk</dt><dd>' + (evidence.rr != null ? evidence.rr.toFixed(2) + ':1' : 'No viable calculation') + '</dd></div></dl><p>A guidance cut, worsening operating results or a break below the post-report low requires a fresh thesis review. The pre-report close is not a price forecast.</p></div>' +
+      '<ul class="recovery-checks">' + checks + '</ul><div class="recovery-links"><a href="?tab=grade&amp;s=' + encodeURIComponent(row.sym) + '">Inspect ' + escapeHtml(row.sym) + ' fundamentals &amp; report</a><a href="?tab=calls">Review earnings calls</a><a href="?tab=compare">Compare companies</a></div>';
+  }
+  function recoveryCard(row){
+    var record = recoveryState.cache[row.sym];
+    var evidence = record && !record.error ? recoveryEvidence(row, record) : null;
+    var label = evidence ? recoveryStateLabel(evidence.state) : record && record.error ? 'Could not load evidence' : 'Checking business evidence…';
+    var guidance = row.guidance === 'up' ? 'raised guidance' : row.guidance === 'inline' ? 'maintained guidance' : row.guidance === 'down' ? 'guidance cut' : 'guidance unknown';
+    var detail = evidence ? recoveryDetail(row, evidence) : record && record.error ? '<p>Business evidence could not be loaded. Missing data is not a quality pass.</p><button type="button" data-recovery-retry="' + escapeHtml(row.sym) + '">Retry evidence</button>' : '<p role="status">Loading the company snapshot…</p>';
+    var reason = evidence && evidence.checks.find(function(c){ return c.state === 'fail'; });
+    if (!reason && evidence) reason = evidence.checks.find(function(c){ return c.state === 'missing' || c.state === 'wait'; });
+    return '<article class="recovery-card"><header><div><a class="recovery-symbol" href="?tab=grade&amp;s=' + encodeURIComponent(row.sym) + '">' + escapeHtml(row.sym) + '</a><span>' + escapeHtml(row.name || '') + '</span></div><strong class="ers-neg">' + (row.movePct * 100).toFixed(1) + '%<small>report-day reaction</small></strong></header><p class="recovery-event">Reported ' + escapeHtml(row.date) + ' · EPS ' + escapeHtml(row.eps || 'unknown') + ' · ' + guidance + '</p><div class="recovery-status recovery-' + (evidence ? evidence.state : 'incomplete') + '">' + label + '</div>' + (reason ? '<p class="recovery-reason">' + escapeHtml(reason.detail) + '</p>' : '') + '<details data-recovery-detail="' + escapeHtml(row.sym) + '"' + (recoveryState.open[row.sym] ? ' open' : '') + '><summary>Business evidence &amp; recovery checkpoints</summary>' + detail + '</details></article>';
+  }
+  function renderRecoveryScreen(root, payload){
+    function selectOption(value, label, selected){ return '<option value="' + value + '"' + (String(selected) === String(value) ? ' selected' : '') + '>' + label + '</option>'; }
+    root.innerHTML = '<section class="recovery-screen" aria-labelledby="recovery-title"><header class="recovery-head"><span class="recovery-kicker">Recovery research</span><h3 id="recovery-title">Sold off after earnings. Is the business holding up?</h3><p>Start with a report-day selloff and maintained or raised guidance. Then check durability, valuation and price stabilization. A beat alone is not enough.</p></header><div class="recovery-filters"><label>Reports in last<select id="recovery-days">' + [14,30,60].map(function(n){ return selectOption(n, n + ' days', recoveryState.days); }).join('') + '</select></label><label>Report-day selloff<select id="recovery-drop">' + [3,5,10].map(function(n){ return selectOption(n, 'At least ' + n + '%', recoveryState.minDrop); }).join('') + '</select></label><label>Guidance<select id="recovery-guidance">' + selectOption('stable','Maintained or raised',recoveryState.guidance) + selectOption('all','All · include cuts / unknown',recoveryState.guidance) + '</select></label><label>Find company<input id="recovery-search" type="search" placeholder="Ticker or company" value="' + escapeHtml(recoveryState.search) + '"></label><button type="button" data-recovery-reset>Reset filters</button></div><p class="recovery-policy">Business checks require positive operating margin, durable cash generation, revenue stability and balance-sheet evidence. At least 15% below the 52-week high is required; exact lifetime ATH distance is unavailable. This is a research queue, not a buy list.</p><div id="recovery-results" aria-live="polite"></div></section>';
+    function refresh(){ renderRecoveryResults(root, payload); }
+    [['recovery-days','days'],['recovery-drop','minDrop'],['recovery-guidance','guidance']].forEach(function(pair){ root.querySelector('#' + pair[0]).addEventListener('change', function(ev){ recoveryState[pair[1]] = ev.target.value; recoveryState.limit = 6; refresh(); }); });
+    root.querySelector('#recovery-search').addEventListener('input', function(ev){ recoveryState.search = ev.target.value; recoveryState.limit = 6; refresh(); });
+    root.querySelector('[data-recovery-reset]').addEventListener('click', function(){ recoveryState.days = 30; recoveryState.minDrop = 5; recoveryState.guidance = 'stable'; recoveryState.search = ''; recoveryState.limit = 6; renderRecoveryScreen(root,payload); root.querySelector('#recovery-days').focus(); });
+    refresh();
+  }
+  function renderRecoveryResults(root, payload){
+    var output = root.querySelector('#recovery-results'); if (!output) return;
+    var rows = recoveryCandidates(payload, recoveryState);
+    var shown = rows.slice(0, recoveryState.limit);
+    var updated = payload.builtAtIso ? formatDisplayInstant(payload.builtAtIso, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : 'unavailable';
+    output.innerHTML = '<p class="recovery-count">' + rows.length + ' matching report' + (rows.length === 1 ? '' : 's') + ' · newest first · event snapshot ' + escapeHtml(updated) + '</p>' + (shown.length ? '<div class="recovery-cards">' + shown.map(recoveryCard).join('') + '</div>' : '<div class="recovery-empty"><h4>No reports match these filters</h4><p>There may be no suitable recovery research today. Widen the date window or inspect all guidance outcomes; quality requirements remain unchanged.</p></div>') + (rows.length > shown.length ? '<button type="button" class="recovery-more" data-recovery-more>Show 6 more · ' + (rows.length-shown.length) + ' remaining</button>' : '');
+    output.querySelectorAll('[data-recovery-detail]').forEach(function(detail){ detail.addEventListener('toggle', function(){ recoveryState.open[detail.getAttribute('data-recovery-detail')] = detail.open; }); });
+    output.querySelectorAll('[data-recovery-retry]').forEach(function(button){ button.addEventListener('click', function(){ var sym = button.getAttribute('data-recovery-retry'); delete recoveryState.cache[sym]; renderRecoveryResults(root,payload); }); });
+    var more = output.querySelector('[data-recovery-more]'); if (more) more.addEventListener('click', function(){ recoveryState.limit += 6; renderRecoveryResults(root,payload); });
+    // Fetch at most three public company snapshots at a time, only for visible
+    // event candidates. Cache successes and give failures a deliberate retry.
+    var active = Object.keys(recoveryState.loading).filter(function(sym){ return recoveryState.loading[sym]; }).length;
+    shown.forEach(function(row){
+      if (active >= 3 || recoveryState.cache[row.sym] || recoveryState.loading[row.sym]) return;
+      active++; recoveryState.loading[row.sym] = true;
+      fetch(dataUrl(row.sym + '.json'), { cache: 'no-cache' }).then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }).then(function(j){ if (!j || !j.fundamentals) throw new Error('No fundamentals'); recoveryState.cache[row.sym] = j; }).catch(function(){ recoveryState.cache[row.sym] = { error: true }; }).finally(function(){ recoveryState.loading[row.sym] = false; if (root.isConnected && earningsState.view === 'recovery') renderRecoveryResults(root,payload); });
+    });
+  }
+
 function leveragedEntryPlan(idea) {
   const p = idea?.plan;
   if (!p) return null;
@@ -195,12 +381,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.03757;
+  var RFR = 0.03730;
   // Provenance for the risk-free rate baked above. source is
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-09-04","ageDays":null};
+  var RFR_META = {"source":"cached","asOf":"2026-08-28","ageDays":9};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null, chainRequestSeq: 0 };
   var ownerAutoPicks = { data: null, pending: null };
@@ -1172,6 +1358,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
     });
   }
   function populateStrikes(){
+    // Every contract navigation path rebuilds this list, including suggested
+    // alternatives and Top Picks. Refresh expiry context before early returns
+    // too, so a missing chain cannot leave the prior expiry's analytics up.
+    renderMaxPain();
     var type = getOptType();
     var chain = state.chains[state.currentExp];
     var sel = $('opt-strike');
@@ -3036,7 +3226,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // Title-case a confidence string for chip display.
   function confidenceLabel(c){
     if (!c) return '';
-    return c.charAt(0).toUpperCase() + c.slice(1) + ' conviction';
+    return c.charAt(0).toUpperCase() + c.slice(1) + ' confidence in verdict';
   }
   // Render the rich reasoning panel: badge + headline + structured lists
   // (hard fails, what's working, what's against you, soft warnings) +
@@ -3215,8 +3405,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '<div class="opt-buy-explainer-title">In plain English</div>' +
       '<p>This card grades the <b>big picture</b> behind the trade. A ' + dirContract +
       ' profits when the stock ' + dirVerb + ' before expiry. ' +
-      'Each signal below either pulls toward this trade (<span class="opt-buy-explainer-pos">bullish</span>) ' +
-      'or against it (<span class="opt-buy-explainer-neg">bearish</span>). ' +
+      'Each signal below either pulls toward this trade (' + (buy.direction === 'call' ? 'bullish' : 'bearish') + ') ' +
+      'or against it (' + (buy.direction === 'call' ? 'bearish' : 'bullish') + '). ' +
       'The <b>aligned score</b> sums them — positive backs the bet, zero or negative means the signals don\'t agree enough yet.</p>' +
       '<p class="opt-buy-explainer-sub">Hover the <b>?</b> next to any signal name (or chip) for a beginner-friendly definition.</p>' +
     '</div>';
@@ -3226,7 +3416,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         '<span class="opt-buy-badge">' + badgeText + '</span>' +
         '<div class="opt-buy-headline">' +
           '<div class="opt-buy-headline-main">' + escapeHtml(headlineMain) + '</div>' +
-          (headlineSub ? '<div class="opt-buy-headline-sub">' + escapeHtml(headlineSub) + ' · for ' + dirLabel + '</div>' : '') +
+          (headlineSub ? '<div class="opt-buy-headline-sub">' + escapeHtml(headlineSub) + ' · ' + badgeText + ' on ' + dirLabel + '</div>' : '') +
         '</div>' +
       '</div>' +
       explainerHtml +
@@ -6018,9 +6208,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
     metrics += fundMetric('Forward P/E', f.forwardPE != null ? f.forwardPE.toFixed(1) : null);
     metrics += fundMetric('PEG', f.pegRatio != null ? f.pegRatio.toFixed(2) : null);
     metrics += fundMetric('Price / Sales', f.priceToSales != null ? f.priceToSales.toFixed(2) : null);
-    metrics += fundMetric('Rev. growth YoY', f.revenueGrowthYoy != null ? f.revenueGrowthYoy.toFixed(1) + '%' : null,
+    metrics += fundMetric('Revenue growth YoY · Yahoo snapshot', f.revenueGrowthYoy != null ? f.revenueGrowthYoy.toFixed(1) + '%' : null,
       f.revenueGrowthYoy != null ? (f.revenueGrowthYoy > 0 ? 'pos' : 'neg') : null);
-    metrics += fundMetric('EPS growth YoY', f.earningsGrowthYoy != null ? f.earningsGrowthYoy.toFixed(1) + '%' : null,
+    metrics += fundMetric('EPS growth YoY · Yahoo snapshot', f.earningsGrowthYoy != null ? f.earningsGrowthYoy.toFixed(1) + '%' : null,
       f.earningsGrowthYoy != null ? (f.earningsGrowthYoy > 0 ? 'pos' : 'neg') : null);
     metrics += fundMetric('Profit margin', f.profitMargin != null ? f.profitMargin.toFixed(1) + '%' : null,
       f.profitMargin != null ? (f.profitMargin > 10 ? 'pos' : f.profitMargin < 0 ? 'neg' : null) : null);
@@ -6049,7 +6239,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         : null;
       metrics += fundMetric('Credit rating', escapeHtml(cr.rating) + crSub, crTone);
     }
-    metrics += fundMetric('Free cash flow', fmtBigDollars(f.freeCashFlow),
+    metrics += fundMetric('Free cash flow · Yahoo snapshot (period unverified)', fmtBigDollars(f.freeCashFlow),
       f.freeCashFlow != null ? (f.freeCashFlow > 0 ? 'pos' : 'neg') : null);
     metrics += fundMetric('Dividend yield', f.dividendYield != null && f.dividendYield > 0 ? f.dividendYield.toFixed(2) + '%' : null);
     if (f.lastQuarter){
@@ -6059,7 +6249,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var lqVal = 'EPS ' + (lq.epsActual != null ? lq.epsActual.toFixed(2) : '—');
       if (lq.epsEstimate != null) lqVal += ' <span class="opt-fund-metric-sub">est ' + lq.epsEstimate.toFixed(2) + '</span>';
       if (surprise) lqVal += ' <span class="opt-fund-metric-sub">(' + surprise + ')</span>';
-      var lqLabel = 'Last earnings' + (lq.period ? ' (' + lq.period + ')' : '') + (lq.date ? ' · ' + lq.date : '');
+      var lqLabel = 'Reported quarter EPS' + (lq.date ? ' · quarter ended ' + lq.date : ' · period unavailable');
       metrics += fundMetric(lqLabel, lqVal, beatTone);
     }
     if (f.nextEarningsDate){
@@ -6357,7 +6547,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         '<div class="opt-fund-eh-title">' + escapeHtml(opts.title) + '</div>' +
         '<div class="opt-fund-eh-value">' +
           '<span class="opt-fund-eh-now">' + escapeHtml(fmt(lastV)) + '</span>' +
-          '<span class="opt-fund-eh-chg ' + trendDir + '">' + escapeHtml(chgStr) + '</span>' +
+          '<span class="opt-fund-eh-chg ' + trendDir + '">' + escapeHtml(chgStr) + ' over shown history</span>' +
         '</div>' +
       '</div>';
 
@@ -6375,7 +6565,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       defs + area + line + fwdPath + crosshair + secMarkup + endDots + fwdDots + xLabels + fwdLabels + hovers +
       '</svg>';
 
-    box.innerHTML = head + readout + svg;
+    box.innerHTML = head + '<p class="opt-fund-seg-sub">Latest period end: ' + escapeHtml(history[history.length - 1].date || lblFor(history[history.length - 1])) + ' · change from ' + escapeHtml(history[0].date || lblFor(history[0])) + ' to latest; not a YoY growth rate.</p>' + readout + svg;
     box.hidden = false;
 
     // Wire crosshair interaction.
@@ -6898,7 +7088,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (!periodMeta) return null;
       var c = periodMeta.currentPeriod && periodMeta.currentPeriod.label;
       var p = periodMeta.previousPeriod && periodMeta.previousPeriod.label;
-      if (c && p) return c + ' vs ' + p;
+      var dates = periodMeta.currentPeriod;
+      var basis = dates && dates.endDate ? ' · period ended ' + dates.endDate : ' · period dates unavailable';
+      if (c && p) return c + ' vs ' + p + basis + ' · SEC segment disclosure';
       if (c) return c;
       return null;
     }
@@ -6919,7 +7111,22 @@ function scenarioEventPhase(ev, now = Date.now()) {
       formatValue: fmtVal,
       previousTotal: seg.geographicPeriod && seg.geographicPeriod.previousTotal,
     });
+    var oldWarning = container.querySelector('.segment-reconciliation-note');
+    if (oldWarning) oldWarning.remove();
+    var segmentCheck = segmentRevenueReconciliation(seg);
+    if (segmentCheck) container.insertAdjacentHTML('beforeend', '<p class="research-plan-warning segment-reconciliation-note">' + escapeHtml(segmentCheck) + '</p>');
     container.hidden = !(seg.product || seg.geographic);
+  }
+
+  function segmentRevenueReconciliation(seg){
+    if (!seg || !Array.isArray(seg.product) || !Array.isArray(seg.geographic)) return '';
+    var p = seg.productPeriod && seg.productPeriod.currentPeriod;
+    var g = seg.geographicPeriod && seg.geographicPeriod.currentPeriod;
+    if (!p || !g || !p.endDate || p.endDate !== g.endDate || seg.productPeriod.periodType !== seg.geographicPeriod.periodType) return '';
+    var sum = function(rows){ return rows.reduce(function(total, row){ return total + (Number(row.value) || 0); }, 0); };
+    var a = sum(seg.product), b = sum(seg.geographic);
+    if (!(a > 0 && b > 0) || Math.abs(a - b) / Math.max(a,b) <= 0.01) return '';
+    return 'Revenue totals do not reconcile for the same reported period: segment ' + fmtBigCurrency(a, seg.currency || 'USD') + ', region ' + fmtBigCurrency(b, seg.currency || 'USD') + '. Coverage or source extraction may differ; verify the filing before comparing these totals or using them as recovery evidence.';
   }
 
   function sentimentDot(sent, neutralLabel){
@@ -12647,6 +12854,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return parts.slice(0, 3).join(' · ') || 'broad-market profile';
   }
   function scenarioBasketResult(engine, scenario){
+    if (!engine.sensitivities || !engine.sensitivities.length) return '<p class="scenario-empty">Ticker sensitivity data is unavailable for this snapshot. Basket stress estimates resume when coverage is restored.</p>';
     var raw = String(scenarioState.basket || '').toUpperCase();
     var syms = raw.split(/[\s,]+/).map(function(s){ return s.trim(); }).filter(Boolean);
     syms = syms.filter(function(s, i){ return syms.indexOf(s) === i; }).slice(0, 20);
@@ -12711,7 +12919,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         '<span>Importance ' + escapeHtml(String(ev.importance || 1)) + '/5</span></header>' +
         '<h4>' + (ev.symbol ? '<button type="button" data-scn-grade="' + escapeHtml(ev.symbol) + '">' + escapeHtml(ev.symbol) + '</button> ' : '') +
         escapeHtml(eventTitle) + '</h4>' +
-        '<p>' + escapeHtml((ev.window || '') + (ev.channels && ev.channels.length ? ' · ' + ev.channels.join(' / ') : '')) + '</p>' +
+        '<p>' + escapeHtml((/^(?:\d+d|today|next session)$/i.test(ev.window || '') ? calRelativeLabel(calDaysFromToday(ev.date, calEtTodayMs())) : (ev.window || '')) + (ev.channels && ev.channels.length ? ' · ' + ev.channels.join(' / ') : '')) + '</p>' +
         (ev.analog ? '<small><b>Analog:</b> ' + escapeHtml(ev.analog) + '</small>' : '') +
       '</article>';
     }).join(''); }
@@ -12800,10 +13008,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
           '<label><span>Sector</span><select id="scenario-sens-sector"><option value="all">All sectors</option>' + sectors.map(function(s){ return '<option value="' + escapeHtml(s) + '"' + (s === scenarioState.sector ? ' selected' : '') + '>' + escapeHtml(s) + '</option>'; }).join('') + '</select></label>' +
           '<label class="scenario-search"><span>Find ticker</span><input id="scenario-sens-query" value="' + escapeHtml(scenarioState.query) + '" placeholder="NVDA or Semis"></label></div>' +
           '<div class="scenario-sens-cols" aria-hidden="true"><span>Ticker</span><span>Conditional impact</span><span>Key sensitivities</span><span>Selected-scenario overlay</span></div>' +
-          '<div class="scenario-sens-list">' + (sensitivityRows || '<p class="scenario-empty">No matching sensitivities.</p>') + '</div>' +
+          '<div class="scenario-sens-list">' + (sensitivityRows || '<p class="scenario-empty">' + ((engine.sensitivities || []).length ? 'No matching sensitivities.' : 'Ticker sensitivity data is unavailable for this snapshot.') + '</p>') + '</div>' +
           (rows.length > 18 ? '<button type="button" class="scenario-show-all" data-scn-show-all="1">' + (scenarioState.showAll ? 'Show top 18' : 'Show all ' + rows.length) + '</button>' : '') +
           '<div class="scenario-basket"><header><div><small>Manual exposure check</small><h4>Equal-weight basket stress test</h4></div><span>No portfolio data leaves this browser</span></header>' +
-            '<div><input id="scenario-basket-input" value="' + escapeHtml(scenarioState.basket) + '" placeholder="NVDA, MSFT, VST, JPM"><button type="button" data-scn-basket="1">Run basket</button></div>' +
+            '<div><input id="scenario-basket-input"' + (!(engine.sensitivities || []).length ? ' disabled' : '') + ' value="' + escapeHtml(scenarioState.basket) + '" placeholder="NVDA, MSFT, VST, JPM"><button type="button" data-scn-basket="1"' + (!(engine.sensitivities || []).length ? ' disabled' : '') + '>Run basket</button></div>' +
             '<div id="scenario-basket-result">' + scenarioBasketResult(engine, selected) + '</div>' +
           '</div>' +
         '</section>' +
@@ -17149,6 +17357,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // issuer's financialCurrency when Yahoo supplies that currency.
   var earningsState = {
     data: null, loading: false, seasonKey: null,
+    view: new URLSearchParams(window.location.search).get('view') === 'recovery' ? 'recovery' : 'season',
     upSort: 'date', upWindow: 7, upLimit: 0,
     recentWindow: 7, recentLimit: 0,
     aiOpen: false, tableOpen: false, search: '', tableSearch: '',
@@ -17264,7 +17473,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
       matches.push({ kind: kind, row: row, season: seasonLabel || '', rank: rank, order: order });
     }
     var upcoming = Array.isArray(d.upcoming) ? d.upcoming : [];
-    for (var u = 0; u < upcoming.length; u++) addMatch('upcoming', upcoming[u], '', u);
+    for (var u = 0; u < upcoming.length; u++) {
+      var currentDays = calDaysFromToday(upcoming[u].date, calEtTodayMs());
+      if (currentDays != null && currentDays >= 0) addMatch('upcoming', Object.assign({}, upcoming[u], {daysUntil: currentDays}), '', u);
+    }
     var seasons = Array.isArray(d.seasons) ? d.seasons : [];
     var order = upcoming.length;
     for (var s = 0; s < seasons.length; s++){
@@ -17337,7 +17549,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (!season) season = seasons[0];
     var c = season.counts || {};
     var s = season.stats || {};
-    var html = '';
+    var html = ersViewTabs();
+    if (earningsState.view === 'recovery'){
+      root.innerHTML = html + '<div id="earnings-recovery-root"></div>';
+      bindEarningsView(root);
+      renderRecoveryScreen(root.querySelector('#earnings-recovery-root'), d);
+      return;
+    }
     // Season selector pills — newest first, fiscal-quarter labels.
     var pills = '';
     for (var p = 0; p < seasons.length; p++){
@@ -17357,8 +17575,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
     '</div>' +
     '<div id="ers-search-output" class="ers-search-output" aria-live="polite">' + ersSearchResults(d, searchValue) + '</div>';
     var isCurrentSeason = season === seasons[0];
-    var upcomingAll = isCurrentSeason && Array.isArray(d.upcoming) ? d.upcoming.filter(function(u){
-      return u && u.sym && ersNum(Number(u.daysUntil)) && Number(u.daysUntil) >= 0;
+    var upcomingAll = isCurrentSeason && Array.isArray(d.upcoming) ? d.upcoming.map(function(u){
+      return Object.assign({}, u, { daysUntil: calDaysFromToday(u.date, calEtTodayMs()) });
+    }).filter(function(u){
+      return u && u.sym && u.daysUntil != null && ersNum(Number(u.daysUntil)) && Number(u.daysUntil) >= 0;
     }) : [];
     var recentSource = Array.isArray(d.recentlyReported) ? d.recentlyReported : [];
     // Backward compatibility for a newly deployed shell reading the prior
@@ -17380,8 +17600,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
         recentSource.sort(function(a, b){ return String(a.date) < String(b.date) ? 1 : String(a.date) > String(b.date) ? -1 : String(a.sym).localeCompare(String(b.sym)); });
       }
     }
-    var recentAll = isCurrentSeason ? recentSource.filter(function(r){
-      return r && r.sym && ersNum(Number(r.daysSince)) && Number(r.daysSince) >= 0;
+    var recentAll = isCurrentSeason ? recentSource.map(function(r){
+      var offset = calDaysFromToday(r.date, calEtTodayMs());
+      return Object.assign({}, r, { daysSince: offset == null ? null : -offset });
+    }).filter(function(r){
+      return r && r.sym && r.daysSince != null && ersNum(Number(r.daysSince)) && Number(r.daysSince) >= 0 && Number(r.daysSince) <= 21;
     }) : [];
     if (!earningsState.upLimit) ersResetUpcomingLimit();
     if (!earningsState.recentLimit) ersResetRecentLimit();
@@ -17704,6 +17927,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         '</tr></thead><tbody id="ers-season-table-body">' + trows + '</tbody></table></div></details>';
     }
     root.innerHTML = html;
+    bindEarningsView(root);
     // Season pill clicks re-render in place.
     var pillEls = root.querySelectorAll('[data-ers-season]');
     for (var pe = 0; pe < pillEls.length; pe++){
@@ -22498,8 +22722,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // the buy-zone line.
   function stkTrapRows(row){
     var traps = Array.isArray(row.traps) ? row.traps : [];
+    var shared = stkRecoveryEvidence(row);
     if (!traps.length){
-      return '<div class="stk-clean">Buy zone — quality passed, beaten down, and nothing looks broken. The final call is still yours.</div>';
+      return '<div class="stk-clean">Share-screen quality checks passed; no share-screen trap flag is active. Review the independent recovery evidence and entry payoff below.</div>' + shared;
     }
     var out = '';
     traps.forEach(function(t){
@@ -22507,7 +22732,23 @@ function scenarioEventPhase(ev, now = Date.now()) {
       out += '<li class="stk-flag"><b>' + escapeHtml(t.label) + '</b>' +
         (t.detail ? ' <span>' + escapeHtml(t.detail) + '</span>' : '') + '</li>';
     });
-    return '<ul class="stk-flags" aria-label="Warning flags">' + out + '</ul>';
+    return '<ul class="stk-flags" aria-label="Warning flags">' + out + '</ul>' + shared;
+  }
+  function stkRecoveryEvidence(row){
+    var evidence = row.recoveryEvidence;
+    if (!evidence) return '<p class="research-plan-warning">Shared recovery evidence is unavailable in this build. Review Sector Rotation before treating the business thesis as confirmed.</p>';
+    var risks = (evidence.blockers || []).concat(evidence.warnings || []);
+    var body = risks.map(function(r){ return '<li>' + escapeHtml(r.detail || r.key || '') + '</li>'; }).join('');
+    var trajectory = evidence.trajectory || {};
+    var conflict = trajectory.dir === 'declining' && trajectory.confidence !== 'low'
+      ? '<p class="research-plan-warning">Recovery conflict: ' + escapeHtml(trajectory.confidence + '-confidence decline — ' + trajectory.reason) + '. Share-screen quality checks do not clear this forward-business concern.</p>' : '';
+    return conflict + '<details class="stk-thesis"><summary>Shared recovery evidence' + (risks.length ? ' · ' + risks.length + ' checks need review' : '') + '</summary><p>' + escapeHtml((trajectory.confidence || 'Unverified') + ' confidence · ' + (trajectory.reason || 'Trajectory unavailable')) + '</p>' + (body ? '<ul>' + body + '</ul>' : '') + '<p>Uses the same company evidence as Sector Rotation. Strategy thresholds differ; this context does not change the share-screen grade or entry rules.' + (evidence.evidenceAsOf ? ' Evidence as of ' + escapeHtml(evidence.evidenceAsOf) + '.' : ' Evidence date unavailable.') + '</p></details>';
+  }
+  function stkPlanNeedsReview(row){
+    var p = row && row.execution;
+    var entry = p && p.entry && p.entry.price;
+    var target = p && p.target && p.target.price;
+    return entry != null && target != null && Number(entry) > 0 && Number(target) <= Number(entry);
   }
   // The expandable Investment Thesis Checklist (baked per candidate by
   // buildStockChecklist). Every item ships with an explicit status: answered
@@ -22662,11 +22903,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
       { key:'research', label:'Research first' },
     ];
     var zoneDefs = [
-      { key:'buy', label:'Buy zone', detail:'Quality passed, the dip screen fired, and no active trap flag is visible.' },
+      { key:'buy', label:'Buy zone', detail:'Share-screen quality passed, no active trap flag is visible, and the target exceeds planned entry where both are available.' },
+      { key:'review', label:'Plan needs revision', detail:'The first target is at or below planned entry. Reassess the plan before entering; the underlying screen and grade are unchanged.' },
       { key:'watch', label:'Watchlist', detail:'Quality passed and the dip is statistically notable, but at least one thesis-risk flag needs review.' },
     ];
     return zoneDefs.map(function(z){
       var zoneRows = (rows || []).filter(function(r){
+        if (stkPlanNeedsReview(r)) return z.key === 'review';
+        if (z.key === 'review') return false;
         var clean = r && r.clean != null ? !!r.clean : !(r && Array.isArray(r.traps) && r.traps.length);
         return z.key === 'buy' ? clean : !clean;
       });
@@ -26604,6 +26848,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         calendarState.data = (json && Array.isArray(json.events)) ? json : { events: [] };
+        // Compatibility with snapshots produced before holidays had their own type.
+        calendarState.data.events = calendarState.data.events.map(function(e){
+          return /holiday/i.test(String(e.category || '') + ' ' + String(e.title || '')) && (e.type === 'fed' || e.type === 'holiday')
+            ? Object.assign({}, e, { type: 'holiday', importance: 'low' }) : e;
+        });
         calendarState.loading = false;
         calendarState.fetchedAt = Date.now();
         renderCalendarConsumers();
@@ -26615,6 +26864,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       });
   }
   function calendarTypeLabel(type){
+    if (type === 'holiday') return 'Holiday';
     if (type === 'earnings') return 'Earnings';
     if (type === 'report') return 'Report';
     if (type === 'fomc') return 'Fed';
@@ -26858,7 +27108,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // that survive ingestion filters. Keep them visible in month/day detail, but do
     // not let a low-importance row manufacture a binary-risk warning or crowd
     // a genuinely market-moving release out of "First scheduled risk".
-    var riskFuture = future.filter(function(x){ return x.event.importance !== 'low'; });
+    var riskFuture = future.filter(function(x){ return x.event.importance !== 'low' && x.event.type !== 'holiday'; });
     var today = riskFuture.filter(function(x){ return x.days === 0; }).map(function(x){ return x.event; });
     var tomorrow = riskFuture.filter(function(x){ return x.days === 1; }).map(function(x){ return x.event; });
     var first = riskFuture.length ? riskFuture[0].event : null;
@@ -26882,6 +27132,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
     } else {
       title = 'No scheduled binary risk today';
       guidance = 'Use normal technical confirmation and planned stops; the calendar is clear, but unscheduled headline risk still applies.';
+      var holiday = future.find(function(x){ return x.days <= 1 && x.event.type === 'holiday'; });
+      if (holiday) {
+        title = holiday.days === 0 ? 'Holiday schedule today' : 'Holiday schedule tomorrow';
+        guidance = 'Check exchange trading hours and plan for reopening gaps and thinner liquidity around the holiday.';
+      }
     }
     function countSummary(list){
       var reports = list.filter(function(e){ return e.type !== 'earnings' && e.type !== 'catalyst'; }).length;

@@ -16,6 +16,10 @@ import { contentAssetVersion } from "../lib/asset-version.mjs";
 import { verifyLiveRefresh } from "./live-refresh-smoke.mjs";
 import { verifyNavFilter } from "./nav-filter-smoke.mjs";
 import { verifyWorkspace } from "./workspace-smoke.mjs";
+import './grade-contract-smoke.mjs';
+import './context-audit-smoke.mjs';
+import './recovery-evidence-smoke.mjs';
+import './earnings-recovery-smoke.mjs';
 
 const temp = await mkdtemp(resolve(tmpdir(), "stonks-render-"));
 try {
