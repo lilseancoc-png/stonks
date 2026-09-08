@@ -23,7 +23,7 @@ import {
   attachIvRanks, computeAtmIvForDte,
   computeImpliedMoveForDate,
   narrativeInputSignature, canReuseNarrativeExtraction,
-  decisionNarratives, scannerPayloadIsFresh,
+  decisionNarratives, scannerPayloadIsFresh, quarantineScoringInputs, dropStaleMacroLiveLegs,
   socialSentimentIsCurrent,
   shortInterestIsCurrent,
   earningsSummaryInputSignature,
@@ -523,6 +523,30 @@ ok("freshness quarantine: current FINRA settlement remains eligible",
   shortInterestIsCurrent("2026-07-15", Date.parse("2026-07-31T15:00:00.000Z")));
 ok("freshness quarantine: old FINRA settlement cannot vote",
   !shortInterestIsCurrent("2026-05-01", Date.parse("2026-07-31T15:00:00.000Z")));
+const scoringNow = Date.parse("2026-07-31T20:00:00.000Z");
+const scoringSameDay = quarantineScoringInputs({
+  unusual: { scannedAt: "2026-07-31T14:15:00.000Z" },
+  volumeFlags: { scannedAt: "2026-07-31T14:15:00.000Z" },
+  oiTracker: { scannedAt: "2026-07-31T12:30:00.000Z" },
+  flowLog: { entries: [{ symbol: "NVDA" }] },
+  narratives: [{ name: "fresh" }, { name: "old", stale: true }],
+  nowMs: scoringNow,
+});
+ok("scoring quarantine: same-ET-day scans several hours old still score",
+  scoringSameDay.unusual && scoringSameDay.volumeFlags && scoringSameDay.oiTracker && scoringSameDay.flowLog);
+ok("scoring quarantine: stale narratives are stripped", scoringSameDay.staleNarratives === 1 && scoringSameDay.narratives.length === 1);
+const scoringPriorDay = quarantineScoringInputs({
+  unusual: { scannedAt: "2026-07-30T20:00:00.000Z" },
+  flowLog: { entries: [{ symbol: "NVDA" }] },
+  nowMs: scoringNow,
+});
+ok("scoring quarantine: prior-day unusual drops flowLog too",
+  !scoringPriorDay.unusual && scoringPriorDay.dropped.includes("unusual") && scoringPriorDay.dropped.includes("flowLog") && !scoringPriorDay.flowLog);
+ok("macro live legs: prior-day asOf is dropped",
+  dropStaleMacroLiveLegs({ asOf: "2026-07-30T20:00:00.000Z", vix: { last: 18 } }, scoringNow).dropped === true
+  && dropStaleMacroLiveLegs({ asOf: "2026-07-30T20:00:00.000Z", vix: { last: 18 } }, scoringNow).macro.vix == null);
+ok("macro live legs: missing asOf is left in place",
+  dropStaleMacroLiveLegs({ vix: { last: 18 } }, scoringNow).dropped === false);
 
 // --- 1. grades index ------------------------------------------------------
 const grades = buildGradesIndex(chains, [], null, null, null, null, {});
@@ -2031,7 +2055,9 @@ const qualityPass = stockQualityGate(mkTicker({
     revenueGrowthYoy: 8, netMarginHistory: [{ value: 10 }, { value: 11 }],
   },
 }));
-ok("stock quality: complete books pass", qualityPass.pass === true);
+ok("stock quality: complete books pass", qualityPass.pass === true && qualityPass.coverage.complete === true);
+ok("stock quality: complete books ship coverage on every check",
+  qualityPass.checks.every((c) => c.covered === true) && qualityPass.coverage.missing.length === 0);
 const qualityOr = stockQualityGate(mkTicker({
   fundamentals: {
     profitMargin: -2, freeCashFlow: 1e9, totalCash: 5e9, totalDebt: 1e9, debtToEquity: 40,
@@ -2047,7 +2073,8 @@ const qualityDebtMissing = stockQualityGate(mkTicker({
   },
 }));
 ok("stock quality: missing debt/cash/D/E fails closed", qualityDebtMissing.pass === false
-  && qualityDebtMissing.checks.some((c) => c.key === "debt" && c.ok === false));
+  && qualityDebtMissing.checks.some((c) => c.key === "debt" && c.ok === false && c.covered === false)
+  && qualityDebtMissing.coverage.missing.includes("debt"));
 const qualityNegEquity = stockQualityGate(mkTicker({
   fundamentals: {
     profitMargin: 12, freeCashFlow: 1e9, totalCash: 5e9, totalDebt: 1e9, debtToEquity: -50,
@@ -2063,7 +2090,8 @@ const qualityNoRev = stockQualityGate(mkTicker({
   },
 }));
 ok("stock quality: missing revenue history fails closed", qualityNoRev.pass === false
-  && qualityNoRev.checks.some((c) => c.key === "revenue" && c.ok === false));
+  && qualityNoRev.checks.some((c) => c.key === "revenue" && c.ok === false && c.covered === false)
+  && qualityNoRev.coverage.complete === false && qualityNoRev.coverage.missing.includes("revenue"));
 
 const liveStreakBars = [
   { t: "2026-01-02", c: 100, v: 1e6 },

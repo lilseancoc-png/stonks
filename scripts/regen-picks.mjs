@@ -4,7 +4,7 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, PICKS_ACCURACY_RESET_EPOCH, PICKS_ENTRY_TIMING_VERSION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks, buildSectorRotationRebounds, writeSectorRotationFile, SECTOR_ROTATION_FILE, readPriorSectorRotationLog, sectorRotationRecordFromLog, buildLeveragedEtfPicks, writeLeveragedEtfsFile, LEVERAGED_ETFS_FILE, readPriorLevEtfLog, levRecordFromLog, SECTORS, macroKindOf, MACRO_PROFILES, pickContractForPick, writeAutoPicksFile, scannerPayloadIsFresh, decisionNarratives, etDateKey } from "./build.mjs";
+import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, PICKS_ACCURACY_RESET_EPOCH, PICKS_ENTRY_TIMING_VERSION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks, buildSectorRotationRebounds, writeSectorRotationFile, SECTOR_ROTATION_FILE, readPriorSectorRotationLog, sectorRotationRecordFromLog, buildLeveragedEtfPicks, writeLeveragedEtfsFile, LEVERAGED_ETFS_FILE, readPriorLevEtfLog, levRecordFromLog, SECTORS, macroKindOf, MACRO_PROFILES, pickContractForPick, writeAutoPicksFile, quarantineScoringInputs, dropStaleMacroLiveLegs } from "./build.mjs";
 import { appendScenarioHistory, buildScenarioEngine } from "../lib/scenario-engine.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -13,15 +13,6 @@ const DATA_DIR = resolve(ROOT, "data");
 
 const trendsRaw = await readFile(resolve(DATA_DIR, "trends.json"), "utf8");
 const trends = JSON.parse(trendsRaw);
-let narratives = decisionNarratives(trends.narratives || []);
-if (narratives.length !== (trends.narratives || []).length) {
-  console.warn(`[freshness] regen: excluded ${(trends.narratives || []).length - narratives.length} stale narrative(s) from grades, regime and picks`);
-}
-
-// Same-ET-day scanner payloads may be hours old by an evening regen. 18h
-// covers a 15:30 scan used after the close; a prior-day file still fails
-// the etDateKey check inside scannerPayloadIsFresh.
-const REGEN_SCANNER_MAX_AGE_MS = 18 * 3600 * 1000;
 
 const streaksRaw = await readFile(resolve(DATA_DIR, "streaks.json"), "utf8");
 const streaksFile = JSON.parse(streaksRaw);
@@ -38,10 +29,53 @@ try {
   const raw = await readFile(resolve(DATA_DIR, "unusual.json"), "utf8");
   unusualPayload = JSON.parse(raw);
 } catch {}
-if (unusualPayload && !scannerPayloadIsFresh(unusualPayload, REGEN_SCANNER_MAX_AGE_MS)) {
-  console.warn("[freshness] regen: unusual.json is not from today's ET session — scoring without flow");
-  unusualPayload = null;
+
+// The hourly scanner writes data/volume-flags.json (underlying hourly volume vs
+// 20D-average hourly volume). Picks use it for the "unusual volume" signal —
+// optional, so a missing read falls back to daily relative volume.
+let volumeFlags = null;
+try {
+  const raw = await readFile(resolve(DATA_DIR, "volume-flags.json"), "utf8");
+  volumeFlags = JSON.parse(raw);
+} catch {}
+
+// Scanner-data extras (same set the full build threads): the OI tracker
+// (oiDeltaNet/gammaSqueeze signals + the wall-proximity timing read), the
+// rolling flow log (flowPersist), and the committed overnight correlations
+// (the overnight peer timing read). Each is optional and staleness-gated
+// inside the engine, so a missing/old file just reads "no data".
+const scannerExtras = {};
+try {
+  scannerExtras.oiTracker = JSON.parse(await readFile(resolve(DATA_DIR, "oi-tracker.json"), "utf8"));
+} catch {}
+try {
+  scannerExtras.flowLog = JSON.parse(await readFile(resolve(DATA_DIR, "unusual-log.json"), "utf8"));
+} catch {}
+try {
+  scannerExtras.correlations = JSON.parse(await readFile(resolve(DATA_DIR, "correlations.json"), "utf8"));
+} catch {}
+
+const scoringScan = quarantineScoringInputs({
+  unusual: unusualPayload,
+  volumeFlags,
+  oiTracker: scannerExtras.oiTracker,
+  flowLog: scannerExtras.flowLog,
+  narratives: trends.narratives || [],
+});
+unusualPayload = scoringScan.unusual;
+volumeFlags = scoringScan.volumeFlags;
+if (scoringScan.oiTracker) scannerExtras.oiTracker = scoringScan.oiTracker;
+else delete scannerExtras.oiTracker;
+if (scoringScan.flowLog) scannerExtras.flowLog = scoringScan.flowLog;
+else delete scannerExtras.flowLog;
+const narratives = scoringScan.narratives;
+if (scoringScan.staleNarratives) {
+  console.warn(`[freshness] regen: excluded ${scoringScan.staleNarratives} stale narrative(s) from grades, regime and picks`);
 }
+if (scoringScan.dropped.includes("unusual")) console.warn("[freshness] regen: unusual.json is not from today's ET session — scoring without flow");
+if (scoringScan.dropped.includes("volumeFlags")) console.warn("[freshness] regen: volume-flags.json is not from today's ET session — scoring without hourly volume");
+if (scoringScan.dropped.includes("oiTracker")) console.warn("[freshness] regen: oi-tracker.json is not from today's ET session — scoring without OI");
+if (scoringScan.dropped.includes("flowLog")) console.warn("[freshness] regen: dropping flow-log persistence because unusual flow is stale");
 
 // The full build fetches the macro backdrop (VIX / DXY / 10Y) and threads it
 // into picks for the VIX-spot, VIX-tracking, DXY-1d and 10y-1d signals. On a
@@ -84,43 +118,6 @@ let ghPrev = { latest: {}, changes: [] };
 try { ghPrev = await readGradesHistory(); } catch {}
 const priorGrades = ghPrev.latest || {};
 
-// The hourly scanner writes data/volume-flags.json (underlying hourly volume vs
-// 20D-average hourly volume). Picks use it for the "unusual volume" signal —
-// optional, so a missing read falls back to daily relative volume.
-let volumeFlags = null;
-try {
-  const raw = await readFile(resolve(DATA_DIR, "volume-flags.json"), "utf8");
-  volumeFlags = JSON.parse(raw);
-} catch {}
-if (volumeFlags && !scannerPayloadIsFresh(volumeFlags, REGEN_SCANNER_MAX_AGE_MS)) {
-  console.warn("[freshness] regen: volume-flags.json is not from today's ET session — scoring without hourly volume");
-  volumeFlags = null;
-}
-
-// Scanner-data extras (same set the full build threads): the OI tracker
-// (oiDeltaNet/gammaSqueeze signals + the wall-proximity timing read), the
-// rolling flow log (flowPersist), and the committed overnight correlations
-// (the overnight peer timing read). Each is optional and staleness-gated
-// inside the engine, so a missing/old file just reads "no data".
-const scannerExtras = {};
-try {
-  scannerExtras.oiTracker = JSON.parse(await readFile(resolve(DATA_DIR, "oi-tracker.json"), "utf8"));
-} catch {}
-if (scannerExtras.oiTracker && !scannerPayloadIsFresh(scannerExtras.oiTracker, 12 * 3600000)) {
-  console.warn("[freshness] regen: oi-tracker.json is not from today's ET session — scoring without OI");
-  delete scannerExtras.oiTracker;
-}
-try {
-  scannerExtras.flowLog = JSON.parse(await readFile(resolve(DATA_DIR, "unusual-log.json"), "utf8"));
-} catch {}
-if (!unusualPayload) {
-  if (scannerExtras.flowLog) console.warn("[freshness] regen: dropping flow-log persistence because unusual flow is stale");
-  delete scannerExtras.flowLog;
-}
-try {
-  scannerExtras.correlations = JSON.parse(await readFile(resolve(DATA_DIR, "correlations.json"), "utf8"));
-} catch {}
-
 const files = await readdir(DATA_DIR);
 // Match the ticker allowlist shape (lib/yahoo.mjs SYMBOL_RE: leading letter,
 // then letters/digits/dot, ≤6 chars) so dotted/numeric tickers like BRK.B
@@ -145,12 +142,10 @@ for (const sym of symbols) {
 // committed snapshots: SPY/QQQ off the loaded chains, plus fedwatch / Fear &
 // Greed / correlations from disk (each missing → that axis reads "no data").
 if (macroBackdrop) {
-  const macroAsOfEt = macroBackdrop.asOf ? etDateKey(new Date(macroBackdrop.asOf)) : null;
-  if (macroAsOfEt && macroAsOfEt !== etDateKey()) {
+  const macroFresh = dropStaleMacroLiveLegs(macroBackdrop);
+  macroBackdrop = macroFresh.macro;
+  if (macroFresh.dropped) {
     console.warn("[freshness] regen: macro.json is not from today — dropping live-tape legs (VIX/DXY/yields/2Y/crude/gold/MOVE/credit)");
-    for (const k of ["vix", "vixTerm", "dxy", "tenY", "thirtyY", "twoY", "crude", "gold", "move", "credit"]) {
-      delete macroBackdrop[k];
-    }
   }
   let fedwatchHistory = null;
   try {

@@ -12624,11 +12624,11 @@ ${renderWorkspaceBindings()}
       '<article class="scenario-shell">' +
         '<header class="scenario-head"><div><span class="scenario-kicker">Forward scenario engine \u00b7 5\u201310 sessions</span>' +
           '<h3>' + escapeHtml(frag.label || 'Conditional risk overlay') + '</h3>' +
-          '<p>' + escapeHtml(engine.framing || 'Conditional risk and filtering overlay - not a point forecast.') + '</p></div>' +
+          '<p>' + escapeHtml(engine.framing || 'Unvalidated deterministic scenario score \u2014 a relative risk weight, not a calibrated probability or a point forecast.') + '</p></div>' +
           '<em>v' + escapeHtml(String(engine.version || 1)) + ' \u00b7 ' + escapeHtml(formatDisplayInstant(engine.builtAtIso, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) || 'time unavailable') + '</em></header>' +
         '<div class="scenario-transition">' +
-          '<span><small>Neutral / current \u2192 risk-off</small><b class="' + (Number(probs.riskOffShiftPct) >= 55 ? 'neg' : 'zero') + '">' + escapeHtml(String(probs.riskOffShiftPct ?? '\u2014')) + '%</b><em>next 5\u201310 sessions</em></span>' +
-          '<span><small>Risk-on continuation</small><b class="pos">' + escapeHtml(String(probs.riskOnContinuationPct ?? '\u2014')) + '%</b><em>conditional estimate</em></span>' +
+          '<span><small>Neutral / current \u2192 risk-off</small><b class="' + (Number(probs.riskOffShiftPct) >= 55 ? 'neg' : 'zero') + '">' + escapeHtml(String(probs.riskOffShiftPct ?? '\u2014')) + '%</b><em>risk score, next 5\u201310 sessions</em></span>' +
+          '<span><small>Risk-on continuation</small><b class="pos">' + escapeHtml(String(probs.riskOnContinuationPct ?? '\u2014')) + '%</b><em>unvalidated weight</em></span>' +
           '<span><small>Risk-on exhaustion</small><b class="' + (Number(probs.riskOnExhaustionPct) >= 55 ? 'neg' : 'zero') + '">' + escapeHtml(String(probs.riskOnExhaustionPct ?? '\u2014')) + '%</b><em>positioning + breadth</em></span>' +
           '<span><small>Scenario gross cap</small><b>' + escapeHtml(String(Math.round(Number(engine.decision?.grossMultiplier || 1) * 100))) + '%</b><em>of regime / edge budget</em></span>' +
         '</div>' +
@@ -21142,13 +21142,15 @@ ${renderWorkspaceBindings()}
     var leader = aMae < bMae ? 'Engine A' : 'Engine B';
     return { tone:'leader', label:leader + ' has the lower size error', note:'This is model calibration, not a direction call; continue showing both estimates until the lead persists.' };
   }
-  function spillEngineCard(label, subtitle, s){
+  function spillEngineCard(label, subtitle, s, minN){
     s = s || {};
     var n = Number(s.n) || 0;
+    var floor = Number(minN) > 0 ? Number(minN) : 6;
+    var enough = n >= floor;
     return '<div class="spill-engine"><span>' + escapeHtml(label) + '</span><small>' + escapeHtml(subtitle) + '</small>' +
-      '<div><b>' + (n ? Math.round((Number(s.hit) || 0) * 100) + '%' : '—') + '</b><em>direction hit</em></div>' +
+      '<div><b>' + (enough ? Math.round((Number(s.hit) || 0) * 100) + '%' : '—') + '</b><em>direction hit' + (enough ? '' : ' (n&lt;' + floor + ')') + '</em></div>' +
       '<div><b>' + (n && s.mae != null ? spillNum(s.mae) + 'pt' : '—') + '</b><em>size MAE</em></div>' +
-      '<p>' + n + ' resolved prediction' + (n === 1 ? '' : 's') + '</p></div>';
+      '<p>' + (enough ? n + ' resolved prediction' + (n === 1 ? '' : 's') : 'Hit rate hidden until ' + floor + ' resolved events (n=' + n + ')') + '</p></div>';
   }
   function renderSpillover(){
     var root = document.getElementById('spillover-root');
@@ -21267,8 +21269,8 @@ ${renderWorkspaceBindings()}
     }
     // Engine A vs Engine B forward accuracy (from the resolved prediction log).
     html += '<section class="spill-validation"><div class="spill-validation-head"><span>Forward validation</span><h3>How credible are the expected-move columns?</h3>' +
-      '<p>' + (fw.resolvedEvents || 0) + ' resolved driver event' + ((fw.resolvedEvents || 0) === 1 ? '' : 's') + '. Direction hit measures sign; size MAE measures the miss in percentage points.</p></div>' +
-      '<div class="spill-engines">' + spillEngineCard('Engine A', 'sector-routed', fw.engineA) + spillEngineCard('Engine B', 'direct pair beta', fw.engineB) + '</div>' +
+      '<p>' + (fw.resolvedEvents || 0) + ' resolved driver event' + ((fw.resolvedEvents || 0) === 1 ? '' : 's') + '. Direction hit stays hidden until an engine has at least ' + minN + ' resolved events; size MAE still reports in percentage points.</p></div>' +
+      '<div class="spill-engines">' + spillEngineCard('Engine A', 'sector-routed', fw.engineA, minN) + spillEngineCard('Engine B', 'direct pair beta', fw.engineB, minN) + '</div>' +
       '<div class="spill-validation-verdict spill-model-read-' + modelRead.tone + '"><span>Current read</span><b>' + escapeHtml(modelRead.label) + '</b><p>' + escapeHtml(modelRead.note) + '</p></div></section>';
     // The pair matrix: one row builder shared by the qualified roll-up and
     // the per-sector detail tables.
@@ -22347,8 +22349,9 @@ ${renderWorkspaceBindings()}
     var out = '';
     (checks || []).forEach(function(c){
       if (!c || !c.label) return;
-      out += '<span class="stk-q' + (c.ok ? '' : ' stk-q-fail') + '"' + (c.detail ? ' title="' + escapeHtml(c.detail) + '"' : '') + '>' +
-        (c.ok ? '✓ ' : '✗ ') + escapeHtml(c.label) + '</span>';
+      out += '<span class="stk-q' + (c.ok ? '' : ' stk-q-fail') + (c.covered === false ? ' stk-q-miss' : '') + '"' +
+        (c.detail ? ' title="' + escapeHtml(c.detail) + '"' : '') + '>' +
+        (c.covered === false ? '○ ' : (c.ok ? '✓ ' : '✗ ')) + escapeHtml(c.label) + '</span>';
     });
     return out ? '<div class="stk-quality" aria-label="Quality gate">' + out + '</div>' : '';
   }

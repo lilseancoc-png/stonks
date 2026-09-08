@@ -18205,6 +18205,62 @@ export function scannerPayloadIsFresh(payload, maxAgeMs, nowMs = Date.now()) {
   return etDateKey(new Date(scanMs)) === etDateKey(new Date(nowMs));
 }
 
+// Shared scoring quarantine for the bake AND regen-picks. Same-ET-day is the
+// hard floor; the age caps cover an evening regen of a 15:30 scan (18h) and
+// the twice-daily OI tracker (12h). A prior-day file still fails etDateKey.
+export const SCORING_SCANNER_MAX_AGE_MS = 18 * 3600 * 1000;
+export const SCORING_OI_MAX_AGE_MS = 12 * 3600 * 1000;
+export const SCORING_MACRO_LIVE_LEGS = [
+  "vix", "vixTerm", "dxy", "tenY", "thirtyY", "twoY", "crude", "gold", "move", "credit",
+];
+
+export function macroBackdropIsFresh(macro, nowMs = Date.now()) {
+  const asOf = Date.parse(macro?.asOf || "");
+  if (!Number.isFinite(asOf)) return false;
+  return etDateKey(new Date(asOf)) === etDateKey(new Date(nowMs));
+}
+
+export function dropStaleMacroLiveLegs(macro, nowMs = Date.now()) {
+  if (!macro || typeof macro !== "object") return { macro: macro || null, dropped: false };
+  const asOf = Date.parse(macro.asOf || "");
+  // Unknown asOf: leave the legs (legacy files). Only drop when we can
+  // prove the snapshot is from a prior ET day.
+  if (!Number.isFinite(asOf)) return { macro, dropped: false };
+  if (etDateKey(new Date(asOf)) === etDateKey(new Date(nowMs))) return { macro, dropped: false };
+  const next = { ...macro };
+  for (const k of SCORING_MACRO_LIVE_LEGS) delete next[k];
+  return { macro: next, dropped: true };
+}
+
+export function quarantineScoringInputs({
+  unusual = null,
+  volumeFlags = null,
+  oiTracker = null,
+  flowLog = null,
+  narratives = null,
+  nowMs = Date.now(),
+} = {}) {
+  const scoringUnusual = scannerPayloadIsFresh(unusual, SCORING_SCANNER_MAX_AGE_MS, nowMs) ? unusual : null;
+  const scoringVolumeFlags = scannerPayloadIsFresh(volumeFlags, SCORING_SCANNER_MAX_AGE_MS, nowMs) ? volumeFlags : null;
+  const scoringOiTracker = scannerPayloadIsFresh(oiTracker, SCORING_OI_MAX_AGE_MS, nowMs) ? oiTracker : null;
+  const scoringNarratives = decisionNarratives(narratives);
+  const scoringFlowLog = scoringUnusual ? flowLog : null;
+  const dropped = [];
+  if (unusual && !scoringUnusual) dropped.push("unusual");
+  if (volumeFlags && !scoringVolumeFlags) dropped.push("volumeFlags");
+  if (oiTracker && !scoringOiTracker) dropped.push("oiTracker");
+  if (flowLog && !scoringFlowLog) dropped.push("flowLog");
+  return {
+    unusual: scoringUnusual,
+    volumeFlags: scoringVolumeFlags,
+    oiTracker: scoringOiTracker,
+    flowLog: scoringFlowLog,
+    narratives: scoringNarratives,
+    dropped,
+    staleNarratives: Array.isArray(narratives) ? narratives.length - scoringNarratives.length : 0,
+  };
+}
+
 function timingConfirmedSeries(data) {
   const b = timingBarsFrom(data);
   if (!b || !Array.isArray(b.c)) return null;
@@ -21937,6 +21993,8 @@ function stockRet10(spot, hist) {
 // MODULE 1 — the quality gate. A yes/no filter over the business, not the
 // price: every check is required. Missing profitability, debt, margin history,
 // or revenue fails closed — a name we cannot verify is not a quality dip.
+export const STOCK_QUALITY_REQUIRED = ["profit", "debt", "margins", "revenue"];
+
 export function stockQualityGate(data) {
   const f = data?.fundamentals || {};
   const checks = [];
@@ -21945,13 +22003,13 @@ export function stockQualityGate(data) {
   // Margin AND FCF both have to pass when both exist; missing both fails.
   const margin = pnumN(f.profitMargin), fcf = pnumN(f.freeCashFlow);
   if (margin == null && fcf == null) {
-    checks.push({ key: "profit", label: "Consistently profitable", ok: false, detail: "no profitability data on file" });
+    checks.push({ key: "profit", label: "Consistently profitable", ok: false, covered: false, detail: "no profitability data on file" });
   } else {
     const profitOk = (margin == null || margin >= 0) && (fcf == null || fcf >= 0);
     const profBits = [];
     if (margin != null) profBits.push(`${r1(margin)}% net margin`);
     if (fcf != null) profBits.push(`free cash flow ${fcf >= 0 ? "positive" : "negative"}`);
-    checks.push({ key: "profit", label: "Consistently profitable", ok: profitOk, detail: profBits.join(" · ") });
+    checks.push({ key: "profit", label: "Consistently profitable", ok: profitOk, covered: true, detail: profBits.join(" · ") });
   }
 
   // Debt manageable — more cash than debt, or debt/equity ≤ 2x (Yahoo reports
@@ -21960,18 +22018,18 @@ export function stockQualityGate(data) {
   const de = pnumN(f.debtToEquity), cash = pnumN(f.totalCash), debt = pnumN(f.totalDebt);
   if (cash == null || debt == null || de == null) {
     checks.push({
-      key: "debt", label: "Debt manageable", ok: false,
+      key: "debt", label: "Debt manageable", ok: false, covered: false,
       detail: "cash, debt, or debt/equity missing — cannot verify the balance sheet",
     });
   } else if (de < 0) {
     checks.push({
-      key: "debt", label: "Debt manageable", ok: false,
+      key: "debt", label: "Debt manageable", ok: false, covered: true,
       detail: "negative equity (debt/equity < 0)",
     });
   } else {
     const cashRich = cash >= debt;
     checks.push({
-      key: "debt", label: "Debt manageable", ok: cashRich || de <= 200,
+      key: "debt", label: "Debt manageable", ok: cashRich || de <= 200, covered: true,
       detail: cashRich ? "more cash than debt on the balance sheet" : `debt/equity ${r2(de / 100)}x`,
     });
   }
@@ -21981,12 +22039,14 @@ export function stockQualityGate(data) {
   // than 3 pct points = fail: a durable business defends its margins.
   const nm = Array.isArray(f.netMarginHistory) ? f.netMarginHistory.filter((x) => pnum(x?.value) != null) : [];
   if (nm.length < 2) {
-    checks.push({ key: "margins", label: "Margins holding", ok: false, detail: "not enough margin history on file" });
+    checks.push({ key: "margins", label: "Margins holding", ok: false, covered: false, detail: "not enough margin history on file" });
   } else {
     const cur = Number(nm[nm.length - 1].value);
     const prior = nm.length >= 5 ? Number(nm[nm.length - 5].value) : Number(nm[nm.length - 2].value);
     checks.push({
-      key: "margins", label: "Margins holding", ok: Number.isFinite(cur) && Number.isFinite(prior) && cur - prior > -3,
+      key: "margins", label: "Margins holding",
+      ok: Number.isFinite(cur) && Number.isFinite(prior) && cur - prior > -3,
+      covered: true,
       detail: `net margin ${r1(cur)}% vs ${r1(prior)}% ${nm.length >= 5 ? "a year ago" : "last quarter"}`,
     });
   }
@@ -22003,15 +22063,22 @@ export function stockQualityGate(data) {
   }
   if (revYoy == null) { revYoy = pnumN(f.revenueGrowthYoy); revBasis = "latest quarter"; }
   if (revYoy == null) {
-    checks.push({ key: "revenue", label: "Revenue growing", ok: false, detail: "no revenue history on file" });
+    checks.push({ key: "revenue", label: "Revenue growing", ok: false, covered: false, detail: "no revenue history on file" });
   } else {
     checks.push({
-      key: "revenue", label: "Revenue growing", ok: revYoy > -2,
+      key: "revenue", label: "Revenue growing", ok: revYoy > -2, covered: true,
       detail: `${revYoy >= 0 ? "+" : ""}${r1(revYoy)}% YoY (${revBasis})`,
     });
   }
 
-  return { pass: checks.every((c) => c.ok), checks };
+  const coverage = {
+    required: STOCK_QUALITY_REQUIRED.length,
+    available: checks.filter((c) => c.covered).length,
+    passed: checks.filter((c) => c.ok).length,
+    missing: checks.filter((c) => !c.covered).map((c) => c.key),
+    complete: STOCK_QUALITY_REQUIRED.every((key) => checks.some((c) => c.key === key && c.covered)),
+  };
+  return { pass: checks.every((c) => c.ok) && coverage.complete, checks, coverage };
 }
 
 // MODULE 2 — the five raw dip reads for one name. Returns null when the name
@@ -22627,7 +22694,7 @@ export function buildStockPicks(chains, gradesIndex, builtAtIso) {
     if (!data || SECTORS[sym] === "ETF") continue;
     universe++;
     const gate = stockQualityGate(data);
-    if (!gate.pass) continue;
+    if (!gate.pass || !gate.coverage?.complete) continue;
     qualityPassed++;
     const dip = stockDipReads(data, mktRet10);
     if (!dip) continue;
@@ -22681,6 +22748,7 @@ export function buildStockPicks(chains, gradesIndex, builtAtIso) {
       dipScore: r.dipScore,
       fired: r.fired,
       quality: r.gate.checks,
+      coverage: r.gate.coverage,
       signals: r.dip.signals,
       traps,
       clean: traps.length === 0,
@@ -36240,15 +36308,16 @@ async function main() {
   const macroReleaseReads = buildMacroReleaseReads(reportEventsAll, todayIsoEarly);
   console.log(`  · ${reportEvents.length} report rows (${macroReleaseReads.length} already printed in the last ${MACRO_RELEASE_LOOKBACK_DAYS}d)`);
   for (const r of macroReleaseReads) console.log(`    · ${r.line}`);
-  // Quarantine scanner payloads BEFORE narrative extraction. The prompt and
-  // deterministic risk overlay see current samples only; stale rows remain
-  // neutral exactly as they are for grades/picks.
-  const scoringUnusual = scannerPayloadIsFresh(unusual, 90 * 60000) ? unusual : null;
-  const scoringVolumeFlags = scannerPayloadIsFresh(volumeFlags, 90 * 60000) ? volumeFlags : null;
-  const scoringOiTracker = scannerPayloadIsFresh(oiTracker, 12 * 3600000) ? oiTracker : null;
-  if (unusual && !scoringUnusual) console.warn("[freshness] excluded out-of-cadence unusual flow from scoring");
-  if (volumeFlags && !scoringVolumeFlags) console.warn("[freshness] excluded out-of-cadence volume flags from scoring");
-  if (oiTracker && !scoringOiTracker) console.warn("[freshness] excluded out-of-cadence OI tracker from scoring");
+  // Quarantine scanner payloads BEFORE narrative extraction. Bake and regen
+  // share one helper: same-ET-day + 18h (flow/volume) / 12h (OI). Stale rows
+  // stay visible on their tabs but score as no-data.
+  const scoringScan = quarantineScoringInputs({ unusual, volumeFlags, oiTracker });
+  const scoringUnusual = scoringScan.unusual;
+  const scoringVolumeFlags = scoringScan.volumeFlags;
+  const scoringOiTracker = scoringScan.oiTracker;
+  if (scoringScan.dropped.includes("unusual")) console.warn("[freshness] excluded out-of-cadence unusual flow from scoring");
+  if (scoringScan.dropped.includes("volumeFlags")) console.warn("[freshness] excluded out-of-cadence volume flags from scoring");
+  if (scoringScan.dropped.includes("oiTracker")) console.warn("[freshness] excluded out-of-cadence OI tracker from scoring");
   const trends = await attachMarketNarratives(chains, previousHistory, macroReleaseReads, {
     unusual: scoringUnusual,
     volumeFlags: scoringVolumeFlags,
