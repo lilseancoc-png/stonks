@@ -13,7 +13,7 @@ import {
   resolvePickOutcome, gradeTradeCut, buildPicksChanges, buildPicksRoster,
   diffGradesHistory, appendGradesDaily, appendRegimeHistory, applyPickFirstSeen,
   PICKS_MIN_CONVICTION, PICKS_TIER_STRONG, PICKS_TIMING_THRESHOLDS, PICKS_TACTICAL_SIZE_MULT, computeEdgeScale,
-  computeFactorTrendHealth, edgeGatedConviction,
+  computeFactorTrendHealth, edgeGatedConviction, realizedOptionEdge,
   assessThesisQuality, selectStrategy, classifyPick, generateAiTheses, applyAiThesisGrade,
   buildMarketRead, macroKindOf, thesisCacheSig, thesisDecisionGuardSig, canReuseThesisCache, thesisInstructionSignature,
   thesisResearchInputSignature, PICKS_MAX_AI_THESES, buildThesisUserMessage,
@@ -1364,6 +1364,10 @@ ok("edge gate: positive edge keeps base bar", edgeGatedConviction(mkClosed(20, 1
 ok("edge gate: realistic 33% WR (edge≈−13%) raises the bar",
   edgeGatedConviction([...mkClosed(8, 20), ...mkClosed(16, -30)]).bar > PICKS_MIN_CONVICTION);
 ok("edge gate: deeply negative edge stands down to Strong", edgeGatedConviction(mkClosed(20, -20)).bar === PICKS_TIER_STRONG);
+const debitR = { outcome: "loss", optionPnlPct: -50, contract: { structure: "long", mid: 2, maxLoss: 2 } };
+const creditR = { outcome: "loss", optionPnlPct: -50, contract: { structure: "credit_vertical", mid: 1, netCredit: 1, maxLoss: 4 } };
+ok("edge: credit P&L is scored vs maxLoss, not vs the credit",
+  Math.abs(realizedOptionEdge([debitR, creditR]) - ((-50 + -12.5) / 2)) < 1e-6);
 // The gate flows through buildTopPicks via opts.priorClosed and is surfaced in meta.
 const gatedPicks = buildTopPicks(chains, [], null, null, null, null, 0.045, { priorClosed: mkClosed(20, -20) });
 ok("edge gate: buildTopPicks raises rosterMeta.tradeCut on a losing book",
@@ -1932,9 +1936,9 @@ ok("route: a naked-long pick is always strong-tier", [routeRich, routeElevated, 
 // NOT the small credit it collects (which would suggest far too many contracts).
 if (routeRich && routeRich.strategy.type === "credit" && routeRich.sizing) {
   const ACCT = 25000; // PICKS_DISPLAY_ACCOUNT default (tests don't override the env)
-  const byLoss = Math.max(1, Math.round((routeRich.sizing.weight * ACCT) / (routeRich.contract.maxLoss * 100)));
-  const byCredit = Math.max(1, Math.round((routeRich.sizing.weight * ACCT) / (routeRich.contract.mid * 100)));
-  ok("sizing: credit spread sized by maxLoss, not the credit", routeRich.sizing.suggestedContracts === byLoss && byLoss <= byCredit);
+  const byLoss = Math.floor((routeRich.sizing.weight * ACCT) / (routeRich.contract.maxLoss * 100));
+  const byCredit = Math.floor((routeRich.sizing.weight * ACCT) / (routeRich.contract.mid * 100));
+  ok("sizing: credit spread sized by maxLoss, not the credit", routeRich.sizing.suggestedContracts === byLoss && (byLoss === 0 || byLoss <= byCredit));
 }
 
 // --- 14. structure-aware mark-to-market (P/L sign: + always = making money) ---

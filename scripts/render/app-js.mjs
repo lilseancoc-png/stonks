@@ -24426,14 +24426,16 @@ ${renderWorkspaceBindings()}
         nodes[i].textContent = 'Share cap appears with the live ETF quote.';
         continue;
       }
-      var perShareRisk = q.spot * stopPct / 100;
-      var shares = perShareRisk > 0 ? Math.floor(budget / perShareRisk) : 0;
+      var byRisk = perShareRisk > 0 ? Math.floor(budget / perShareRisk) : 0;
+      var byCash = q.spot > 0 ? Math.floor(levState.account / q.spot) : 0;
+      var shares = Math.min(byRisk, byCash);
       if (shares < 1){
         nodes[i].innerHTML = 'Risk cap <b>' + fmtMoney(budget) + '</b> is smaller than one share at this stop width.';
         continue;
       }
+      var capped = byCash < byRisk ? ' (cash-capped)' : '';
       nodes[i].innerHTML = 'Risk cap <b>' + fmtMoney(budget) + '</b> &rarr; <b>' + shares + ' share' + (shares === 1 ? '' : 's') +
-        '</b> &middot; about ' + fmtMoney(shares * q.spot) + ' notional';
+        '</b> &middot; about ' + fmtMoney(shares * q.spot) + ' notional' + capped;
     }
   }
   function loadLevEtf(){
@@ -31570,7 +31572,7 @@ ${renderWorkspaceBindings()}
   // greeks/odds at entry, breakeven, and the modeled contract value now (open)
   // / at exit (closed). Legacy entries missing a field just drop that row;
   // entries with no contract at all (watch-only) render nothing.
-  var ACC_MODEL_TIP = 'Modeled with Black-Scholes from the entry snapshot — no options-price feed, so this is a model, not a realized fill.';
+  var ACC_MODEL_TIP = 'Modeled Black-Scholes mark at constant entry IV — not a live chain fill, and not a realized trade.';
   function accStrategyBlock(e, isClosed){
     var c = e && e.contract; if (!c) return '';
     var isCall = e.side !== 'put';
@@ -33826,7 +33828,7 @@ ${renderWorkspaceBindings()}
     // total option loss). Both option chips are tooltipped as Black-Scholes-modeled
     // (entry at ask, exit at bid; no options-price feed) so they're never read as
     // realized fills.
-    var optTip = 'Modeled with Black-Scholes — entry at the ask, exit at the bid, entry IV decayed toward realized HV, earnings crush applied. We have no options-price feed, so this is a model, not a realized fill.';
+    var optTip = 'Modeled Black-Scholes mark at constant entry IV from the enrollment snapshot. Not a live chain fill and not a realized trade.';
     if (st.optionWinRate != null) {
       chips += '<div class="accuracy-chip' + (st.optionWinRate >= 0.5 ? ' accuracy-chip-good' : ' accuracy-chip-bad') + '" title="' + optTip + '">' +
         '<span class="accuracy-chip-num">' + Math.round(st.optionWinRate * 100) + '%</span>' +
@@ -35236,7 +35238,7 @@ ${renderWorkspaceBindings()}
       var n = sz.suggestedContracts;
       var c = (p && p.contract) || {};
       var px = (c.mid != null ? c.mid : c.last);
-      var contractsStr = (n >= 1) ? ('~' + n + (n === 1 ? ' contract' : ' contracts')) : '<1 contract';
+      var contractsStr = (n >= 1) ? ('~' + n + (n === 1 ? ' contract' : ' contracts')) : 'cannot buy 1 contract';
       var priceStr = (px != null && isFinite(px)) ? (' at $' + Number(px).toFixed(2)) : '';
       return 'size ~' + pct + '% of book · ' + contractsStr + priceStr;
     }
@@ -35246,8 +35248,10 @@ ${renderWorkspaceBindings()}
   function pickSizingTitle(p){
     var sz = p && p.sizing;
     if (sz && sz.riskToStopPct != null) {
-      return 'Inverse-vol weight · ~' + (sz.riskToStopPct * 100).toFixed(0) + '% of premium at the stop ('
-        + (sz.riskDenom === 'option' ? 'Δ/premium-aware' : 'ATR fallback') + '). Suggested size on a $25k display book — not a live balance.';
+      var c = (p && p.contract) || {};
+      return 'Risk-budget weight · stop at −' + Number(sz.riskToStopPct).toFixed(0) + '% of '
+        + (c.structure === 'credit_vertical' ? 'the credit (dollar risk is still max loss)' : 'premium')
+        + '. Suggested size on a $25k display book — not a live balance. Zero contracts means the risk budget cannot buy one.';
     }
     return '';
   }

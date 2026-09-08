@@ -20622,22 +20622,17 @@ export function applyPickSizing(picks, regimeGross = 1) {
   const tacticalSizeMult = clamp(Number.isFinite(PICKS_TACTICAL_SIZE_MULT) ? PICKS_TACTICAL_SIZE_MULT : 0.50, 0.25, 0.75);
   for (const p of picks) {
     const c = p.contract;
-    const stopFrac = PICKS_OPT_STOP_PCT;                          // option risk to stop
-    const risk = Math.max(0.05, stopFrac);
-    // Conviction tilt × an entry-quality haircut: a pick whose entry call is
-    // still a wait/dip trigger sizes down (PICKS_ENTRY_WAIT_SIZE_MULT) — entry
-    // quality no longer gates enrollment, so it's priced into size instead.
+    // Conviction tilt × wait haircut. Dollar risk is already in maxLoss, so
+    // the 1/stop-fraction term is a constant and is not used as a weight.
     const waitMult = (p.entry && p.entry.now === false) ? PICKS_ENTRY_WAIT_SIZE_MULT : 1;
     const tilt = clamp(Math.abs(p.total) / PICKS_TIER_STRONG, PICKS_SIZE_TILT_MIN, PICKS_SIZE_TILT_MAX) * waitMult;
-    // Scenario and tactical reductions are genuine caps, applied only AFTER the
-    // base book has been normalized. The released allocation stays cash instead
-    // of being redistributed back into this or another name.
+    // Scenario sizeMultiplier is a deterministic risk-score haircut (0.5–1),
+    // not a probability-weighted Kelly input. Tactical reductions are the same
+    // kind of post-normalization cap. Released allocation stays cash.
     const scenarioMult = clamp(pnumN(p.scenarioOverlay?.sizeMultiplier) ?? 1, 0.5, 1);
     const tacticalMult = p.tactical ? tacticalSizeMult : 1;
     postNormalizationCaps.push(scenarioMult * tacticalMult);
-    // No-contract WATCH ideas (weak-thesis "no recommendation") carry no position,
-    // so they consume no gross — give them zero raw weight.
-    raw.push(c ? (1 / risk) * tilt : 0);
+    raw.push(c ? tilt : 0);
   }
   const sum = raw.reduce((a, b) => a + b, 0) || 1;
   picks.forEach((p, i) => {
@@ -20649,22 +20644,51 @@ export function applyPickSizing(picks, regimeGross = 1) {
     // (maxLoss === mid), but width − credit for a credit spread (NOT the small
     // credit, which would suggest far too many contracts).
     const dollarsPerContract = (c?.maxLoss != null ? c.maxLoss : (c?.mid || 0)) * 100;
-    const suggestedContracts = dollarsPerContract > 0 ? Math.max(1, Math.round((weight * PICKS_DISPLAY_ACCOUNT) / dollarsPerContract)) : 0;
-    p.sizing = { weight: r4(weight), riskToStopPct: Math.round(PICKS_OPT_STOP_PCT * 100), riskDenom: "option", suggestedContracts };
+    // Floor, never round up: if the risk budget cannot buy one contract, say 0.
+    const suggestedContracts = dollarsPerContract > 0 ? Math.floor((weight * PICKS_DISPLAY_ACCOUNT) / dollarsPerContract) : 0;
+    const isCredit = c.structure === "credit_vertical";
+    const stopFrac = isCredit ? PICKS_CREDIT_STOP_PCT : PICKS_OPT_STOP_PCT;
+    p.sizing = {
+      weight: r4(weight),
+      riskToStopPct: Math.round(stopFrac * 100),
+      riskDenom: "maxLoss",
+      suggestedContracts,
+    };
   });
+}
+
+// Realized option edge in R-units: P&L dollars ÷ maxLoss dollars, expressed
+// as a percent of capital at risk. Mixing debit % of debit with credit % of
+// credit made the governor treat a −50% credit-stop as the same event as a
+// −50% long-premium stop. Credits without a stored maxLoss are skipped.
+function optionRMultiplePct(c) {
+  const pnlPct = pnum(c?.optionPnlPct);
+  if (pnlPct == null) return null;
+  const contract = c.contract || {};
+  const isCredit = (contract.structure || "long") === "credit_vertical";
+  const basis = isCredit
+    ? (pnum(contract.netCredit) ?? pnum(contract.mid))
+    : (pnum(contract.netDebit) ?? pnum(contract.mid));
+  const risk = pnum(contract.maxLoss) ?? (isCredit ? null : basis);
+  if (!(risk > 0)) return isCredit ? null : pnlPct;
+  if (basis == null) return isCredit ? null : pnlPct;
+  return ((pnlPct / 100) * basis / risk) * 100;
 }
 
 export function realizedOptionEdge(closed) {
   if (!Array.isArray(closed) || !closed.length) return null;
-  const decided = closed.filter((c) => c && (c.outcome === "win" || c.outcome === "loss") && c.optionPnlPct != null && pnum(c.optionPnlPct) != null); // explicit != null: pnum(null) is 0, not null
+  const decided = closed
+    .filter((c) => c && (c.outcome === "win" || c.outcome === "loss"))
+    .map(optionRMultiplePct)
+    .filter((x) => x != null);
   if (!decided.length) return null;
-  return decided.reduce((a, c) => a + Number(c.optionPnlPct), 0) / decided.length;
+  return decided.reduce((a, x) => a + x, 0) / decided.length;
 }
 export function computeEdgeScale(closed) {
   const edge = realizedOptionEdge(closed);
   if (edge == null) return 1;                 // no data — full size
   if (edge >= 0) return 1;
-  return clamp(1 + edge / 40, 0.4, 1);        // -40% expectancy -> floor
+  return clamp(1 + edge / 40, 0.4, 1);        // −40% of maxLoss expectancy → floor
 }
 
 // The selection-side governor: how high to set the actionable conviction bar
@@ -20676,14 +20700,16 @@ export function computeEdgeScale(closed) {
 export function edgeGatedConviction(closed) {
   const base = PICKS_MIN_CONVICTION;
   if (!PICKS_EDGE_GATE || !Array.isArray(closed)) return { bar: base, edge: null, n: 0 };
-  const decided = closed.filter((c) => c && (c.outcome === "win" || c.outcome === "loss") && c.optionPnlPct != null && pnum(c.optionPnlPct) != null); // explicit != null: pnum(null) is 0, not null
-  if (decided.length < PICKS_EDGE_GATE_MIN_N) return { bar: base, edge: null, n: decided.length };
-  const edge = realizedOptionEdge(closed);
-  if (edge == null || edge >= 0) return { bar: base, edge, n: decided.length };
+  const rs = Array.isArray(closed)
+    ? closed.filter((c) => c && (c.outcome === "win" || c.outcome === "loss")).map(optionRMultiplePct).filter((x) => x != null)
+    : [];
+  if (rs.length < PICKS_EDGE_GATE_MIN_N) return { bar: base, edge: null, n: rs.length };
+  const edge = rs.reduce((a, x) => a + x, 0) / rs.length;
+  if (edge == null || edge >= 0) return { bar: base, edge, n: rs.length };
   let bar = base;
   if (edge <= PICKS_EDGE_GATE_HARD) bar = PICKS_TIER_STRONG;
   else if (edge <= PICKS_EDGE_GATE_SOFT) bar = Math.min(PICKS_TIER_STRONG, base + 2);
-  return { bar, edge, n: decided.length };
+  return { bar, edge, n: rs.length };
 }
 
 // ============================================================================
