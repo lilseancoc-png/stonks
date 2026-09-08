@@ -20,6 +20,22 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-09-07
+
+### Fixed
+
+- **Scoring defects in grades, entries, and records.** The held-position checker ranks `{score, label}` drivers, applies timing only when the grade matches the held side, and thesis-flips at `|total| ≥ 4`. Earnings surprises stay in percentage points. Event Wait cannot become Avoid. Spillover hits compare prediction to realized. Unusual-flow narrative conflict keeps `flagged`. Browser backtests skip look-ahead ladder adds. Stock Picks quality fails closed on missing profitability, debt, margin, or revenue. Live regime hysteresis recomputes drivers. Bake and regen-picks drop stale scanner inputs. Streaks use confirmed bars.
+
+### Changed
+
+- **Desks size in R-units and drop the forced one-lot.** The edge governor averages P&L / maxLoss. Suggested contracts can be 0 when the risk budget cannot buy one. Leveraged ETFs cash-cap like Sector Rotation. Track Record copy names constant-IV marks, not live fills.
+- **Freshness, coverage, and correlated evidence.** One quarantine helper serves the bake and regen-picks. Incomplete Stock Picks books never enter the dip rank. Spillover hides hit rate until `n ≥ 6`. Flow, OI, and volume share a ±2 family cap; IV z excludes today's print; overlapping DCA short-trend reads cap at 4; CapEx YoY uses only names present in both years.
+- **Scenario scores and GEX stay honest.** Market Analysis 0–100 figures are risk scores / weights, not calibrated probabilities. Unusual-flow direction scores only ask/above-ask tape or persistence. GEX is an open-interest proxy, not observed dealer inventory. Track-record bars and the accuracy epoch are unchanged (`data/` was not hydrated for diagnose scripts).
+
+### Docs
+
+- **Scenario overlay language.** Site logic and Terms distinguish scenario risk scores from calibrated probabilities.
+
 ## 2026-09-06
 
 ### Added

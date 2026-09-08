@@ -381,12 +381,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.03757;
+  var RFR = 0.04500;
   // Provenance for the risk-free rate baked above. source is
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-09-07","ageDays":null};
+  var RFR_META = {"source":"fallback","asOf":"2026-09-08","ageDays":null};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null, chainRequestSeq: 0 };
   var ownerAutoPicks = { data: null, pending: null };
@@ -12023,6 +12023,20 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (prevEff && (prevEff in RANK) && (rawLive in RANK)){
       if (RANK[rawLive] > RANK[prevEff] && RANK[prevEff] < RANK['neutral']){ state = prevEff; held = true; }
     }
+    // Recompute drivers / fragile / gross from the FINAL state so a held
+    // risk-off chip does not show risk-on drivers and 100% gross.
+    driverList = (state === 'risk-on')
+      ? ORDER.filter(function(k){ return axes[k] && axes[k].score >= 1; }).map(function(k){ return String(axes[k].label).split(' — ')[0]; })
+      : ORDER.filter(function(k){ return axes[k] && axes[k].score <= -1; }).map(function(k){ return String(axes[k].label).split(' — ')[0].split(' (')[0]; });
+    fragile = state === 'neutral' && internalsStress;
+    if (state === 'severe-risk-off') grossMult = T.grossSevere;
+    else if (state === 'risk-off'){
+      grossMult = (T.grossRamp === false)
+        ? T.grossRiskoff
+        : 1 - (1 - T.grossRiskoff) * Math.min(1, Math.max(0, -(Number(stress) || 0)) / (T.tiltFullStress || 4));
+    }
+    else if (fragile) grossMult = T.grossFragile;
+    else grossMult = 1;
     return {
       state: state, rawState: rawLive, persisted: held,
       stress: stress, riskOffAxes: riskOffAxes, riskOnAxes: riskOnAxes,
@@ -12788,8 +12802,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   function scenarioProbabilityHtml(prob){
     if (!prob) return '—';
-    return escapeHtml(String(prob.low) + '–' + String(prob.high) + '%') +
-      '<small>mid ' + escapeHtml(String(prob.mid)) + '%</small>';
+    return escapeHtml(String(prob.low) + '–' + String(prob.high)) + '/100' +
+      '<small>risk score · mid ' + escapeHtml(String(prob.mid)) + '</small>';
   }
   function scenarioHistoryHtml(engine){
     var stored = marketState.data && marketState.data.scenarioHistory;
@@ -12826,12 +12840,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
         : '—';
       var primary = row.primaryScenario || {};
       var primaryLabel = primary.name || '—';
-      if (primary.low != null && primary.high != null) primaryLabel += ' ' + primary.low + '–' + primary.high + '%';
+      if (primary.low != null && primary.high != null) primaryLabel += ' ' + primary.low + '–' + primary.high + '/100';
       return '<tr><td><time datetime="' + escapeHtml(row.date || '') + '">' + escapeHtml(row.date || '—') + '</time></td>' +
         '<td><b class="scenario-history-state is-' + escapeHtml(row.fragilityState || 'stable') + '">' + escapeHtml((row.currentRegime || 'unknown') + ' · ' + (row.fragilityState || 'stable')) + '</b></td>' +
-        '<td class="scenario-history-bars"><span><i class="is-risk" style="width:' + riskOff + '%"></i><b>' + riskOff + '%</b></span>' +
-          '<span><i class="is-cont" style="width:' + continuation + '%"></i><b>' + continuation + '%</b></span>' +
-          '<span><i class="is-exhaust" style="width:' + exhaustion + '%"></i><b>' + exhaustion + '%</b></span></td>' +
+        '<td class="scenario-history-bars"><span><i class="is-risk" style="width:' + riskOff + '%"></i><b>' + riskOff + '/100</b></span>' +
+          '<span><i class="is-cont" style="width:' + continuation + '%"></i><b>' + continuation + '/100</b></span>' +
+          '<span><i class="is-exhaust" style="width:' + exhaustion + '%"></i><b>' + exhaustion + '/100</b></span></td>' +
         '<td>' + escapeHtml(gross) + '</td><td>' + escapeHtml(warnings) + '</td><td class="scenario-history-primary">' + escapeHtml(primaryLabel) + '</td></tr>';
     }).join('');
     return '<details class="scenario-history"' + (scenarioState.historyOpen ? ' open' : '') + '>' +
@@ -12928,7 +12942,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var pastHtml = catalystCards(catalystRows.filter(function(ev){ return scenarioEventPhase(ev) === 'past'; }));
     var tabsHtml = scenarios.map(function(s){
       return '<button type="button" class="scenario-tab' + (s.key === selected.key ? ' active' : '') + '" data-scn-select="' + escapeHtml(s.key) + '">' +
-        '<span>' + escapeHtml(s.name) + '</span><b>' + escapeHtml(String(s.probability.low) + '–' + String(s.probability.high) + '%') + '</b>' +
+        '<span>' + escapeHtml(s.name) + '</span><b>' + escapeHtml(String(s.probability.low) + '–' + String(s.probability.high) + '/100') + '</b>' +
       '</button>';
     }).join('');
     var pathsHtml = selected.paths.map(function(path, idx){
@@ -12977,12 +12991,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '<article class="scenario-shell">' +
         '<header class="scenario-head"><div><span class="scenario-kicker">Forward scenario engine · 5–10 sessions</span>' +
           '<h3>' + escapeHtml(frag.label || 'Conditional risk overlay') + '</h3>' +
-          '<p>' + escapeHtml(engine.framing || 'Conditional risk and filtering overlay - not a point forecast.') + '</p></div>' +
+          '<p>' + escapeHtml(engine.framing || 'Unvalidated deterministic scenario score — a relative risk weight, not a calibrated probability or a point forecast.') + '</p></div>' +
           '<em>v' + escapeHtml(String(engine.version || 1)) + ' · ' + escapeHtml(formatDisplayInstant(engine.builtAtIso, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) || 'time unavailable') + '</em></header>' +
         '<div class="scenario-transition">' +
-          '<span><small>Neutral / current → risk-off</small><b class="' + (Number(probs.riskOffShiftPct) >= 55 ? 'neg' : 'zero') + '">' + escapeHtml(String(probs.riskOffShiftPct ?? '—')) + '%</b><em>next 5–10 sessions</em></span>' +
-          '<span><small>Risk-on continuation</small><b class="pos">' + escapeHtml(String(probs.riskOnContinuationPct ?? '—')) + '%</b><em>conditional estimate</em></span>' +
-          '<span><small>Risk-on exhaustion</small><b class="' + (Number(probs.riskOnExhaustionPct) >= 55 ? 'neg' : 'zero') + '">' + escapeHtml(String(probs.riskOnExhaustionPct ?? '—')) + '%</b><em>positioning + breadth</em></span>' +
+          '<span><small>Neutral / current → risk-off</small><b class="' + (Number(probs.riskOffShiftPct) >= 55 ? 'neg' : 'zero') + '">' + escapeHtml(probs.riskOffShiftPct != null ? String(probs.riskOffShiftPct) + '/100' : '—') + '</b><em>risk score, next 5–10 sessions</em></span>' +
+          '<span><small>Risk-on continuation</small><b class="pos">' + escapeHtml(probs.riskOnContinuationPct != null ? String(probs.riskOnContinuationPct) + '/100' : '—') + '</b><em>unvalidated weight</em></span>' +
+          '<span><small>Risk-on exhaustion</small><b class="' + (Number(probs.riskOnExhaustionPct) >= 55 ? 'neg' : 'zero') + '">' + escapeHtml(probs.riskOnExhaustionPct != null ? String(probs.riskOnExhaustionPct) + '/100' : '—') + '</b><em>positioning + breadth</em></span>' +
           '<span><small>Scenario gross cap</small><b>' + escapeHtml(String(Math.round(Number(engine.decision?.grossMultiplier || 1) * 100))) + '%</b><em>of regime / edge budget</em></span>' +
         '</div>' +
         scenarioHistoryHtml(engine) +
@@ -14500,13 +14514,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
 
   // --- Gamma exposure (GEX) heatmap --------------------------------------
-  // Dealer gamma-exposure heatmap, computed entirely in the browser from the
+  // Open-interest GEX-proxy heatmap, computed entirely in the browser from the
   // baked per-ticker chain (data/<SYM>.json, lazy-loaded via the shared
   // fetchChain() — same source the Grade/Strategies tabs use). For each
   // contract:
   //   GEX = Γ(BS) × OI × 100 × spot² × 0.01   (dollar-gamma for a 1% move)
-  // Calls add +GEX (dealers assumed long gamma → buy dips / sell rips,
-  // stabilizing); puts add −GEX (dealers short gamma → amplify). Net at a
+  // Calls add +GEX (conventional: long-gamma / dampen scenario); puts add
+  // −GEX (short-gamma / amplify scenario). Net at a
   // cell = call GEX − put GEX. Black-Scholes gamma is reused from greeks()
   // at the top of this file (gamma is type-independent, so we always pass
   // 'call'); RFR is the build-time risk-free rate. Open interest is
@@ -14551,7 +14565,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     } catch (_) { return ''; }
   }
 
-  // Total dealer gamma$ across the chain at a hypothetical spot S. Used for
+  // Total conventional-sign gamma$ across the chain at a hypothetical spot S. Used for
   // the gamma-flip sweep (we vary S and find where this crosses zero).
   function gexProfileAt(contracts, S){
     if (!(S > 0)) return 0;
@@ -14564,7 +14578,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     return total;
   }
-  // Gamma flip = the spot level where net dealer gamma crosses zero. Sweep a
+  // Gamma flip = the spot level where net conventional-sign GEX crosses zero. Sweep a
   // band around spot, find sign changes, return the crossing nearest spot
   // (interpolated). null when the profile never crosses in range.
   function computeGexFlip(contracts, spot){
@@ -14875,7 +14889,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     '</div>';
   }
   // The summary system: distills the computed GEX matrix into one glanceable
-  // read — where dealer hedging pulls price (LEAN), whether vol gets dampened
+  // read — where the OI-gamma proxy leans (LEAN), whether vol gets dampened
   // or amplified + a magnitude (VOL REGIME), and where the options crowd is
   // POSITIONED (call- vs put-gamma skew). Pure given the computed data; drives
   // the verdict badges, the new metric tiles, and the plain-English paragraph.
@@ -21495,13 +21509,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var leader = aMae < bMae ? 'Engine A' : 'Engine B';
     return { tone:'leader', label:leader + ' has the lower size error', note:'This is model calibration, not a direction call; continue showing both estimates until the lead persists.' };
   }
-  function spillEngineCard(label, subtitle, s){
+  function spillEngineCard(label, subtitle, s, minN){
     s = s || {};
     var n = Number(s.n) || 0;
+    var floor = Number(minN) > 0 ? Number(minN) : 6;
+    var enough = n >= floor;
     return '<div class="spill-engine"><span>' + escapeHtml(label) + '</span><small>' + escapeHtml(subtitle) + '</small>' +
-      '<div><b>' + (n ? Math.round((Number(s.hit) || 0) * 100) + '%' : '—') + '</b><em>direction hit</em></div>' +
+      '<div><b>' + (enough ? Math.round((Number(s.hit) || 0) * 100) + '%' : '—') + '</b><em>direction hit' + (enough ? '' : ' (n&lt;' + floor + ')') + '</em></div>' +
       '<div><b>' + (n && s.mae != null ? spillNum(s.mae) + 'pt' : '—') + '</b><em>size MAE</em></div>' +
-      '<p>' + n + ' resolved prediction' + (n === 1 ? '' : 's') + '</p></div>';
+      '<p>' + (enough ? n + ' resolved prediction' + (n === 1 ? '' : 's') : 'Hit rate hidden until ' + floor + ' resolved events (n=' + n + ')') + '</p></div>';
   }
   function renderSpillover(){
     var root = document.getElementById('spillover-root');
@@ -21620,8 +21636,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     // Engine A vs Engine B forward accuracy (from the resolved prediction log).
     html += '<section class="spill-validation"><div class="spill-validation-head"><span>Forward validation</span><h3>How credible are the expected-move columns?</h3>' +
-      '<p>' + (fw.resolvedEvents || 0) + ' resolved driver event' + ((fw.resolvedEvents || 0) === 1 ? '' : 's') + '. Direction hit measures sign; size MAE measures the miss in percentage points.</p></div>' +
-      '<div class="spill-engines">' + spillEngineCard('Engine A', 'sector-routed', fw.engineA) + spillEngineCard('Engine B', 'direct pair beta', fw.engineB) + '</div>' +
+      '<p>' + (fw.resolvedEvents || 0) + ' resolved driver event' + ((fw.resolvedEvents || 0) === 1 ? '' : 's') + '. Direction hit stays hidden until an engine has at least ' + minN + ' resolved events; size MAE still reports in percentage points.</p></div>' +
+      '<div class="spill-engines">' + spillEngineCard('Engine A', 'sector-routed', fw.engineA, minN) + spillEngineCard('Engine B', 'direct pair beta', fw.engineB, minN) + '</div>' +
       '<div class="spill-validation-verdict spill-model-read-' + modelRead.tone + '"><span>Current read</span><b>' + escapeHtml(modelRead.label) + '</b><p>' + escapeHtml(modelRead.note) + '</p></div></section>';
     // The pair matrix: one row builder shared by the qualified roll-up and
     // the per-sector detail tables.
@@ -22700,8 +22716,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var out = '';
     (checks || []).forEach(function(c){
       if (!c || !c.label) return;
-      out += '<span class="stk-q' + (c.ok ? '' : ' stk-q-fail') + '"' + (c.detail ? ' title="' + escapeHtml(c.detail) + '"' : '') + '>' +
-        (c.ok ? '✓ ' : '✗ ') + escapeHtml(c.label) + '</span>';
+      out += '<span class="stk-q' + (c.ok ? '' : ' stk-q-fail') + (c.covered === false ? ' stk-q-miss' : '') + '"' +
+        (c.detail ? ' title="' + escapeHtml(c.detail) + '"' : '') + '>' +
+        (c.covered === false ? '○ ' : (c.ok ? '✓ ' : '✗ ')) + escapeHtml(c.label) + '</span>';
     });
     return out ? '<div class="stk-quality" aria-label="Quality gate">' + out + '</div>' : '';
   }
@@ -23029,7 +23046,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var chHtml = isFinite(ch) ? ' <span class="' + (ch > 0 ? 'pos' : ch < 0 ? 'neg' : '') + '">' + (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%</span>' : '';
     var tier = ix.tier || {};
     var tierCls = 'stk-dca-tier-' + escapeHtml(tier.key || 'base');
-    var pts = '<span class="stk-dca-pts" title="Dip points — five deterministic reads, each worth documented points; the sum picks the multiplier tier">' +
+    var pts = '<span class="stk-dca-pts" title="Dip points — overlapping 20D/50D/RSI/z reads of the same close are capped at 4; 200-day, 52-week drawdown and the session still add independently">' +
       (ix.points != null ? ix.points : '—') + (ix.maxPoints ? ' / ' + ix.maxPoints : '') + ' pts</span>';
     var stale = ix.stale ? '<span class="stk-dca-stale" title="Bars fetch missed this build — showing the last good read">stale</span>' : '';
     return '<article class="stk-dca-card ' + tierCls + '">' +
@@ -24779,14 +24796,16 @@ function scenarioEventPhase(ev, now = Date.now()) {
         nodes[i].textContent = 'Share cap appears with the live ETF quote.';
         continue;
       }
-      var perShareRisk = q.spot * stopPct / 100;
-      var shares = perShareRisk > 0 ? Math.floor(budget / perShareRisk) : 0;
+      var byRisk = perShareRisk > 0 ? Math.floor(budget / perShareRisk) : 0;
+      var byCash = q.spot > 0 ? Math.floor(levState.account / q.spot) : 0;
+      var shares = Math.min(byRisk, byCash);
       if (shares < 1){
         nodes[i].innerHTML = 'Risk cap <b>' + fmtMoney(budget) + '</b> is smaller than one share at this stop width.';
         continue;
       }
+      var capped = byCash < byRisk ? ' (cash-capped)' : '';
       nodes[i].innerHTML = 'Risk cap <b>' + fmtMoney(budget) + '</b> &rarr; <b>' + shares + ' share' + (shares === 1 ? '' : 's') +
-        '</b> &middot; about ' + fmtMoney(shares * q.spot) + ' notional';
+        '</b> &middot; about ' + fmtMoney(shares * q.spot) + ' notional' + capped;
     }
   }
   function loadLevEtf(){
@@ -25674,9 +25693,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
       }).join('');
       blocks.push(briefBlock('IV standouts', '<div class="brief-chips">' + ivt + '</div>'));
     }
-    // Dealer gamma (GEX) — SPY/QQQ net-gamma regime + flip (both briefs).
+    // GEX proxy — SPY/QQQ conventional-sign OI gamma + flip (both briefs).
     if (Array.isArray(b.gex) && b.gex.length){
-      blocks.push(briefBlock('Dealer gamma (GEX)', briefGexChips(b.gex)));
+      blocks.push(briefBlock('GEX proxy', briefGexChips(b.gex)));
     }
     // Calendar.
     if (Array.isArray(b.events) && b.events.length){
@@ -31923,7 +31942,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // greeks/odds at entry, breakeven, and the modeled contract value now (open)
   // / at exit (closed). Legacy entries missing a field just drop that row;
   // entries with no contract at all (watch-only) render nothing.
-  var ACC_MODEL_TIP = 'Modeled with Black-Scholes from the entry snapshot — no options-price feed, so this is a model, not a realized fill.';
+  var ACC_MODEL_TIP = 'Modeled Black-Scholes mark at constant entry IV — not a live chain fill, and not a realized trade.';
   function accStrategyBlock(e, isClosed){
     var c = e && e.contract; if (!c) return '';
     var isCall = e.side !== 'put';
@@ -32382,8 +32401,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     trades.forEach(function(t, idx){
       events.push({ t:t.entryMs, kind:2, id:idx, tr:t });
       events.push({ t:t.exitMs, kind:0, id:idx, tr:t });
-      var addMs = t.entryMs + (t.exitMs - t.entryMs) / 2;
-      if (addMs > t.entryMs && addMs < t.exitMs) events.push({ t:addMs, kind:1, id:idx, tr:t });
+      // Full-life optHi is look-ahead. Without a timestamped path we do not
+      // schedule mid-hold ladder adds or rotate using the recorded peak.
     });
     events.sort(function(a,b){
       if (a.t !== b.t) return a.t - b.t;
@@ -32496,22 +32515,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
         if (contracts < 1){ skip.tiny++; continue; }
         var riskAmt = contracts * mlpc;
         if (committed + riskAmt > BT_HEAT_CAP * equity){
-          // Heat-blocked: only proceed by rotating out ONE qualifying winner
-          // (held >5d, has been up ≥+20%) that frees enough heat; else skip.
-          var needed = committed + riskAmt - BT_HEAT_CAP * equity;
-          var cand = null;
-          for (var rid in openMap){
-            var rp = openMap[rid];
-            if (E.t - rp.entryMs <= BT_ROT_MIN_DAYS * 86400000) continue;
-            if (rp.t.optHi == null || rp.t.optHi < BT_ROT_MIN_PNL) continue;
-            if (rp.riskUsed < needed) continue;                  // wouldn't free enough — don't waste the winner
-            if (!cand || rp.riskUsed < cand.pos.riskUsed) cand = { id:rid, pos:rp };  // smallest sufficient
-          }
-          if (!cand){ skip.heat++; continue; }
-          delete openMap[cand.id];
-          realizeClose(cand.pos, BT_ROT_MIN_PNL, E.t);
-          rotations++;
-          if (committed + riskAmt > BT_HEAT_CAP * equity){ skip.heat++; continue; }  // equity shifted the cap — bail
+          // Heat-blocked: without a timestamped path we cannot tell whether
+          // an open winner was already up +20% at this instant (optHi is
+          // full-life). Skip rather than rotate on look-ahead.
+          skip.heat++; continue;
         }
         committed += riskAmt;
         openMap[E.id] = { tranches:[{ n:contracts, offset:0, mlpc:mlpc }], riskUsed:riskAmt, t:t, entryMs:E.t, ladder:ladder };
@@ -33471,7 +33478,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // --- Portfolio backtest sub-tab (#an-sim) ---------------------------------
   // One flexible engine (runPortfolioBacktest), five selectable run modes.
   var ACC_BT_MODES = [
-    { value:'fixed',    label:'Fixed sizing',      desc:'Baseline: Very High conviction = full 2% risk in one tranche; High conviction ladders in — 1% now, +1% added only after the option confirms by trading ≥ +' + BT_LADDER_CONFIRM + '% (the add fills at the confirmed price).' },
+    { value:'fixed',    label:'Fixed sizing',      desc:'Baseline: Very High conviction = full 2% risk in one tranche; High conviction stays 1% in a single tranche. Ladder adds are skipped because the stored record has no timestamped path (full-life peak would be look-ahead).' },
     { value:'environment', label:'Market environment', desc:'Market Analysis overlay: conviction-based risk stays half-size until the tape prints ' + ACC_ENV_FULL_DAYS + ' consecutive risk-on sessions. Full size returns on day ' + ACC_ENV_FULL_DAYS + '; ' + ACC_ENV_HALF_DAYS + ' consecutive risk-off/severe-risk-off sessions cut it in half, and neutral is always half-size. Each trade keeps its entry-date size.' },
     { value:'vol',      label:'Volatility target', desc:'Conviction base risk (2% Very High / 1.5% High) scaled by average entry IV ÷ this trade\'s entry IV — a high-volatility name sizes smaller, a quiet one larger, clamped to ' + (BT_RISK_MIN * 100) + '–' + (BT_RISK_MAX * 100) + '%.' },
     { value:'kelly',    label:'½ Kelly',           desc:'Conviction base risk × the Half-Kelly multiplier computed walk-forward from that conviction bucket\'s resolved per-contract record (win rate, avg win, avg loss). Buckets with fewer than ' + BT_KELLY_MIN_N + ' resolved trades fall back to the conviction base; the result is clamped to ' + (BT_RISK_MIN * 100) + '–' + (BT_RISK_MAX * 100) + '%.' },
@@ -33500,7 +33507,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '<li>Start $' + ACC_SIM_START.toLocaleString() + '. Every position is sized from its <em>max loss</em> (for credit spreads: spread width − credit), never the credit received: contracts = floor(risk budget ÷ max loss per contract) — rounded down, so the risk limit is never exceeded. Per-trade risk is hard-capped at ' + (BT_RISK_MAX * 100) + '% of current equity.</li>' +
       '<li>Portfolio heat (total open risk) capped at ' + (BT_HEAT_CAP * 100) + '% of equity; max ' + BT_MAX_POS + ' open positions; max ' + BT_SECTOR_CAP + ' per sector (a 5th is not permitted).</li>' +
       '<li>Correlation awareness: once heat is elevated (≥' + Math.round(BT_CORR_HEAT * 100) + '% of the cap), a third open same-sector, same-direction trade is skipped.</li>' +
-      '<li>Heat-blocked new picks may rotate: close one existing winner held &gt;' + BT_ROT_MIN_DAYS + ' days that has been up ≥ +' + BT_ROT_MIN_PNL + '% on premium (banked at +' + BT_ROT_MIN_PNL + '% — the record stores entry/exit marks, not the daily path, so its recorded peak is the "currently profitable" proxy). No qualifying winner → the pick is skipped.</li>' +
+      '<li>Heat-blocked new picks are skipped. The record stores entry/exit marks and a full-life peak, not a daily path, so rotating a winner using that peak would peek at the future.</li>' +
       '<li>Winners otherwise run to the engine\'s own exits — trades open/close on their real entry/exit dates, so concurrent risk is tracked exactly; losers resolve at the engine\'s original cut levels.</li>' +
       '<li><b>' + escapeHtml(accBtModeLabel(mode)) + ':</b> ' + modeDesc + '</li>' +
     '</ul></details>';
@@ -34191,7 +34198,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // total option loss). Both option chips are tooltipped as Black-Scholes-modeled
     // (entry at ask, exit at bid; no options-price feed) so they're never read as
     // realized fills.
-    var optTip = 'Modeled with Black-Scholes — entry at the ask, exit at the bid, entry IV decayed toward realized HV, earnings crush applied. We have no options-price feed, so this is a model, not a realized fill.';
+    var optTip = 'Modeled Black-Scholes mark at constant entry IV from the enrollment snapshot. Not a live chain fill and not a realized trade.';
     if (st.optionWinRate != null) {
       chips += '<div class="accuracy-chip' + (st.optionWinRate >= 0.5 ? ' accuracy-chip-good' : ' accuracy-chip-bad') + '" title="' + optTip + '">' +
         '<span class="accuracy-chip-num">' + Math.round(st.optionWinRate * 100) + '%</span>' +
@@ -35412,23 +35419,27 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if(grade && Array.isArray(grade.drivers) && grade.drivers.length){
       var forD=[], against=[];
       for(var i=0;i<grade.drivers.length;i++){
-        var dr=grade.drivers[i], w=Number(dr&&dr.weight)||0; if(!w||!dr.text) continue;
-        (w*sign>0?forD:against).push({ s:Math.abs(w), text:String(dr.text) });
+        var dr=grade.drivers[i], w=Number(dr&&dr.score)||0; if(!w||!dr.label) continue;
+        (w*sign>0?forD:against).push({ s:Math.abs(w), text:String(dr.label) });
       }
       forD.sort(function(a,b){return b.s-a.s;}); against.sort(function(a,b){return b.s-a.s;});
       if(forD.length) add('good','Supports', forD.slice(0,2).map(function(d){return d.text;}).join(' · '));
       if(against.length) add('bad','Against', against.slice(0,2).map(function(d){return d.text;}).join(' · '));
     }
 
-    // Entry-timing detail (the multi-day knife / chase reads behind the state).
+    // Entry-timing detail — only score it when the grade's side matches the
+    // held side. A timing GO on the opposite model side is informational.
     var tm=grade && grade.pillars && grade.pillars.timing;
+    var gradeSide=grade && (grade.side || (isFinite(grade.total)?(grade.total>=0?'call':'put'):null));
     if(tm && (tm.headline || (tm.reasons && tm.reasons.length))){
       var tmTxt=String(tm.headline||'');
       if(tm.reasons && tm.reasons.length){
         var tmReasons=tm.reasons.map(function(r){return String(r).replace(/^[-\s]+/,'').trim();}).filter(Boolean).join('; ');
         if(tmReasons) tmTxt += (tmTxt?' ':'')+tmReasons+'.';
       }
-      add(tm.state==='go'?'good':tm.state==='avoid'?'bad':'info', 'Entry timing', tmTxt);
+      var timingMatchesHeld=gradeSide===side;
+      add(timingMatchesHeld?(tm.state==='go'?'good':tm.state==='avoid'?'bad':'info'):'info',
+        'Entry timing', timingMatchesHeld?tmTxt:(tmTxt+' Shown as context because the grade is on the other side of this position.'));
     }
 
     // Crowd / social chatter — informational, only when there's a real skew.
@@ -35475,10 +35486,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
     } else if(isFinite(pnlPct) && pnlPct<=-POS_STOP){
       action='SELL / CUT'; tone='bad'; headline='Down '+Math.abs(pnlPct).toFixed(0)+'% — past the −'+POS_STOP+'% premium stop.';
       reasons.push('You’ve hit the plan’s stop (−'+POS_STOP+'% of premium). The discipline is to cut here, not hope it back — a symmetric move on the stock is a far bigger move on the option.');
-    } else if(grade && !aligned && gMag>=8){
+    } else if(grade && !aligned && gMag>=4){
       action='SELL / THESIS TURNED'; tone='bad'; headline='The grade has flipped against your '+sideWord+'.';
       reasons.push('The current grade is '+gRound+' ('+(gTotal>=0?'bullish':'bearish')+') — it no longer supports a '+sideWord+'. Exit rather than hold a contract the model is now leaning against.');
-    } else if(grade && timing==='avoid' && isFinite(pnlPct) && pnlPct<0){
+    } else if(grade && timing==='avoid' && isFinite(pnlPct) && pnlPct<0 && aligned){
       action='SELL / EXIT'; tone='bad'; headline='Timing reads the move as exhausted or breaking.';
       reasons.push('Entry-timing is AVOID and you’re underwater — the setup that justified the trade is gone.');
     } else if(grade && aligned && timing!=='avoid'){
@@ -35506,7 +35517,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       }
     }
 
-    if(earnBeforeExp && earnDays!=null) reasons.push('⚠ Earnings ~'+earnDays+' day'+(earnDays===1?'':'s')+' out, before your expiry — an IV crush can gut a long even on a correct call. Consider closing into the print.');
+    if(earnBeforeExp && earnDays!=null) reasons.push('Earnings ~'+earnDays+' day'+(earnDays===1?'':'s')+' out, before your expiry — the plan holds through the print. An IV crush can still reprice a long even on a correct call; this is informational, not a close signal.');
     if(dte<=7) reasons.push('⚠ Only '+dte+' day'+(dte===1?'':'s')+' to expiry — gamma & theta are steep; small underlying moves swing the premium hard.');
     else if(thetaPctDay!=null && thetaPctDay>=2.5) reasons.push('⚠ Time decay ≈'+thetaPctDay.toFixed(1)+'%/day of the current premium — a flat price still bleeds you.');
 
@@ -35597,7 +35608,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var n = sz.suggestedContracts;
       var c = (p && p.contract) || {};
       var px = (c.mid != null ? c.mid : c.last);
-      var contractsStr = (n >= 1) ? ('~' + n + (n === 1 ? ' contract' : ' contracts')) : '<1 contract';
+      var contractsStr = (n >= 1) ? ('~' + n + (n === 1 ? ' contract' : ' contracts')) : 'cannot buy 1 contract';
       var priceStr = (px != null && isFinite(px)) ? (' at $' + Number(px).toFixed(2)) : '';
       return 'size ~' + pct + '% of book · ' + contractsStr + priceStr;
     }
@@ -35607,8 +35618,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function pickSizingTitle(p){
     var sz = p && p.sizing;
     if (sz && sz.riskToStopPct != null) {
-      return 'Inverse-vol weight · ~' + (sz.riskToStopPct * 100).toFixed(0) + '% of premium at the stop ('
-        + (sz.riskDenom === 'option' ? 'Δ/premium-aware' : 'ATR fallback') + '). Suggested size on a $25k display book — not a live balance.';
+      var c = (p && p.contract) || {};
+      return 'Risk-budget weight · stop at −' + Number(sz.riskToStopPct).toFixed(0) + '% of '
+        + (c.structure === 'credit_vertical' ? 'the credit (dollar risk is still max loss)' : 'premium')
+        + '. Suggested size on a $25k display book — not a live balance. Zero contracts means the risk budget cannot buy one.';
     }
     return '';
   }
