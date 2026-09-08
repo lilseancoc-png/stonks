@@ -4498,7 +4498,8 @@ export async function attachIvRanks(chains, historyMap = null) {
     // ties in full sent a flat/quantized history to pctile 100 with std 0 —
     // and since z is null exactly when std is 0, selectStrategy's percentile
     // fallback then sold credit on premium that wasn't statistically rich.
-    // A dead-flat history now reads ~50 (neutral).
+    // A dead-flat history now reads ~50 (neutral). Percentile still ranks
+    // current IV inside the full window; the z-score baseline excludes it.
     const below = ivs.filter((x) => x < cur).length;
     const ties = ivs.filter((x) => x === cur).length;
     const pctile = Math.round(((below + ties / 2) / ivs.length) * 100);
@@ -4506,14 +4507,17 @@ export async function attachIvRanks(chains, historyMap = null) {
     const rank = hi > lo ? Math.round(((cur - lo) / (hi - lo)) * 100) : 50;
     chains[sym].ivRank = { pctile, rank, n: ivs.length, iv: Number(cur.toFixed(4)), asOf: latestDate };
     // Standard-deviation read of the CURRENT IV vs the name's own historical
-    // mean — the substrate for the credit-vs-debit strategy split. A current ATM
-    // IV that sits >= PICKS_IV_CREDIT_Z std-devs above its ~18-month mean is the
+    // mean — the substrate for the credit-vs-debit strategy split. Exclude
+    // today's print from the baseline so a rich (or cheap) session cannot
+    // pull the mean toward itself. A current ATM IV that sits
+    // >= PICKS_IV_CREDIT_Z std-devs above its ~18-month prior mean is the
     // statistical "premium is unusually rich, sell it" zone (selectStrategy ->
     // credit vertical); a z near/below zero means premium isn't inflated (debit
-    // vertical / naked long). Sample std (n-1) over the same series as pctile.
-    if (ivs.length >= PICKS_IVRANK_STD_MIN_N) {
-      const mean = ivs.reduce((a, b) => a + b, 0) / ivs.length;
-      const variance = ivs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / (ivs.length - 1);
+    // vertical / naked long). Sample std (n-1) over the prior window.
+    const priorIvs = ivs.slice(0, -1);
+    if (priorIvs.length >= PICKS_IVRANK_STD_MIN_N) {
+      const mean = priorIvs.reduce((a, b) => a + b, 0) / priorIvs.length;
+      const variance = priorIvs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / (priorIvs.length - 1);
       const std = Math.sqrt(variance);
       chains[sym].ivRank.mean = Number(mean.toFixed(4));
       chains[sym].ivRank.std = Number(std.toFixed(4));
@@ -4889,12 +4893,16 @@ export function buildIvTrendingPayload(ivHistory, chains, builtAtIso = new Date(
     const below = ivs.filter((x) => x < cur).length;
     const ties = ivs.filter((x) => x === cur).length;
     const pctile = Math.round(((below + ties / 2) / ivs.length) * 100);
-    const mean = ivs.reduce((a, b) => a + b, 0) / ivs.length;
-    const variance = ivs.reduce((a, b) => a + (b - mean) * (b - mean), 0) / (ivs.length - 1);
+    // z-score baseline excludes the current print so today's spike cannot
+    // pull its own mean. Percentile still ranks inside the full window.
+    const priorIvs = ivs.slice(0, -1);
+    const baseline = priorIvs.length >= 2 ? priorIvs : ivs;
+    const mean = baseline.reduce((a, b) => a + b, 0) / baseline.length;
+    const variance = baseline.reduce((a, b) => a + (b - mean) * (b - mean), 0) / Math.max(1, baseline.length - 1);
     const std = Math.sqrt(variance);
     const zClassical = std > 0 ? (cur - mean) / std : null;
-    const med = median(ivs);
-    const madRaw = med == null ? null : median(ivs.map((x) => Math.abs(x - med)));
+    const med = median(baseline);
+    const madRaw = med == null ? null : median(baseline.map((x) => Math.abs(x - med)));
     const robustStd = madRaw > 0 ? madRaw * 1.4826 : null;
     const zRobust = robustStd > 0 ? (cur - med) / robustStd : null;
     // Require classical and robust histories to agree on direction, then use
@@ -10417,6 +10425,25 @@ const capexFyLabel = (endIso) => {
   return "FY" + new Date(end - 31 * 86400000).getUTCFullYear();
 };
 
+// Headline CapEx (and similar) YoY must compare the SAME companies in both
+// years. Mixing a new reporter into the latest sum against a smaller prior
+// cohort invents growth.
+export function capexCohortYoy(companies) {
+  const both = (companies || []).filter((c) => Number(c?.fyLatest?.val) > 0 && Number(c?.fyPrior?.val) > 0);
+  let latest = 0, prior = 0;
+  for (const c of both) {
+    latest += Number(c.fyLatest.val);
+    prior += Number(c.fyPrior.val);
+  }
+  return {
+    n: both.length,
+    latest,
+    prior,
+    yoyPct: both.length && prior > 0 ? r1((latest / prior - 1) * 100) : null,
+    deltaAbs: both.length ? latest - prior : null,
+  };
+}
+
 // Build data/ai-capex.json. `chains` supplies each name's display name + TTM
 // revenue (for the CapEx-intensity read); `prior` is the last-good payload so a
 // transient SEC outage carries forward instead of blanking the tab.
@@ -10507,22 +10534,23 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
   // Aggregate on the common latest-FY label (the year most names report). Pick the
   // modal latest FY year so a single laggard doesn't drag the group total into a
   // mismatched year; each company contributes its own latest/prior around it.
-  let fyLatestSum = 0, fyPriorSum = 0, ttmSum = 0, ttmCount = 0, latestLabel = null, priorLabel = null;
+  let fyLatestSum = 0, ttmSum = 0, ttmCount = 0, latestLabel = null, priorLabel = null;
   for (const c of companies) {
     fyLatestSum += c.fyLatest.val;
-    if (c.fyPrior) fyPriorSum += c.fyPrior.val;
     if (c.ttm) { ttmSum += c.ttm.val; ttmCount++; }
     if (!latestLabel) latestLabel = c.fyLatest.label;
     if (!priorLabel && c.fyPrior) priorLabel = c.fyPrior.label;
   }
-  const haveBothFy = companies.filter((c) => c.fyPrior).length;
+  const capexYoy = capexCohortYoy(companies);
   // Combined-revenue aggregate for the capex-vs-revenue read. Sums are
   // restricted to names that reported BOTH capex and revenue for the window,
   // and the intensity ratios divide capex by revenue over that same subset —
-  // apples-to-apples even if one name's revenue fetch missed.
+  // apples-to-apples even if one name's revenue fetch missed. YoY uses the
+  // matched both-year cohort only.
   let revFySum = 0, revFyPriorSum = 0, revTtmSum = 0;
   let capexFySumRev = 0, capexFyPriorSumRev = 0, capexTtmSumRev = 0;
   let revCount = 0, revBothFy = 0, revTtmCount = 0;
+  let revYoyLatest = 0, capexYoyLatestRev = 0;
   for (const c of companies) {
     if (!c.rev || !c.rev.fyLatest) continue;
     revCount++;
@@ -10532,15 +10560,16 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
       revBothFy++;
       revFyPriorSum += c.rev.fyPrior.val;
       capexFyPriorSumRev += c.fyPrior.val;
+      revYoyLatest += c.rev.fyLatest.val;
+      capexYoyLatestRev += c.fyLatest.val;
     }
     if (c.rev.ttm && c.ttm) { revTtmCount++; revTtmSum += c.rev.ttm.val; capexTtmSumRev += c.ttm.val; }
   }
   const revenueTotals = revCount ? {
     fySum: revFySum,
     fyPriorSum: revBothFy ? revFyPriorSum : null,
-    yoyPct: revBothFy && revFyPriorSum > 0 ? r1((revFySum / revFyPriorSum - 1) * 100) : null,
-    // capex-YoY over the SAME subset, so the growth-vs-growth chip compares like for like
-    capexYoyPct: revBothFy && capexFyPriorSumRev > 0 ? r1((capexFySumRev / capexFyPriorSumRev - 1) * 100) : null,
+    yoyPct: revBothFy && revFyPriorSum > 0 ? r1((revYoyLatest / revFyPriorSum - 1) * 100) : null,
+    capexYoyPct: revBothFy && capexFyPriorSumRev > 0 ? r1((capexYoyLatestRev / capexFyPriorSumRev - 1) * 100) : null,
     ttmSum: revTtmCount ? revTtmSum : null,
     capexToRevenueFyPct: revFySum > 0 ? r1((capexFySumRev / revFySum) * 100) : null,
     capexToRevenueFyPriorPct: revBothFy && revFyPriorSum > 0 ? r1((capexFyPriorSumRev / revFyPriorSum) * 100) : null,
@@ -10548,10 +10577,11 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
     count: revCount,
   } : null;
   const totals = {
-    fyLatestSum, fyPriorSum: haveBothFy ? fyPriorSum : null,
+    fyLatestSum, fyPriorSum: capexYoy.n ? capexYoy.prior : null,
     fyLatestLabel: latestLabel, fyPriorLabel: priorLabel,
-    yoyPct: haveBothFy && fyPriorSum > 0 ? r1((fyLatestSum / fyPriorSum - 1) * 100) : null,
-    deltaAbs: haveBothFy ? fyLatestSum - fyPriorSum : null,
+    yoyPct: capexYoy.yoyPct,
+    deltaAbs: capexYoy.deltaAbs,
+    yoyCohort: capexYoy.n,
     ttmSum: ttmCount ? ttmSum : null, ttmCount, count: companies.length,
     revenue: revenueTotals,
     guidance: guidanceTotals,
@@ -18127,8 +18157,16 @@ function scoreMechanicals(sym, data, unusualPayload) {
   }
   out.push(sig("unusualVolume", "Unusual volume", uv, uvVal, uvNote, uvOk));
 
-  const score = out.reduce((a, s) => a + s.score, 0);
-  return { score, signals: out };
+  // Unusual flow, OI skew and unusual volume are one positioning family —
+  // the same tape expressed three ways. Keep each signal on the card, but
+  // cap the family's net contribution at ±2 (same pattern as timing's
+  // momentum confirmation cap) so one print cannot triple-count.
+  const POSITIONING_KEYS = new Set(["unusualFlow", "oiSkew", "unusualVolume"]);
+  const POSITIONING_FAMILY_CAP = 2;
+  const positioningRaw = out.filter((s) => POSITIONING_KEYS.has(s.key)).reduce((a, s) => a + s.score, 0);
+  const positioning = clamp(positioningRaw, -POSITIONING_FAMILY_CAP, POSITIONING_FAMILY_CAP);
+  const rest = out.filter((s) => !POSITIONING_KEYS.has(s.key)).reduce((a, s) => a + s.score, 0);
+  return { score: rest + positioning, signals: out, positioning: { raw: positioningRaw, capped: positioning, cap: POSITIONING_FAMILY_CAP } };
 }
 
 function scoreNarrative(sym, data, narratives) {
@@ -22086,6 +22124,8 @@ export function stockQualityGate(data) {
 // card rows (each with its absolute `fired` flag) and raw carries the
 // orientation-corrected values (higher = more beaten down) that the
 // cross-sectional composite in buildStockPicks z-scores across the universe.
+// RSI/SMA live only here — the quality gate above is fundamentals-only so
+// the same close is not scored a second time on the quality side.
 function stockDipReads(data, mktRet10) {
   const t = data?.technicals || {};
   const f = data?.fundamentals || {};
@@ -24945,7 +24985,8 @@ export const DCA_INDEXES = [
 ];
 export const DCA_BASE_USD = 10; // default daily baseline; the client can override its own
 const DCA_HISTORY_MAX_DAYS = 120;
-const DCA_MAX_POINTS = 14; // trend 4 + drawdown 5 + RSI 2 + 20D stretch 2 + red day 1
+const DCA_SHORT_TREND_CAP = 4; // 20D + 50D + RSI + 20D-z: one close, one family
+const DCA_MAX_POINTS = 12; // short-trend family 4 + 200D 2 + drawdown 5 + red day 1
 // Multiplier ladder — points → how hard the extra dollars lean in. Ordered
 // deepest-first; the first tier whose bar the score clears wins. Calibration
 // intuition on the 14-point scale: a routine ~5% pullback in an uptrend scores
@@ -25037,6 +25078,15 @@ function dcaReadsFor(closes, spotIn) {
     detail: ch1d == null ? "no prior close" : `${ch1d >= 0 ? "+" : ""}${r2(ch1d)}% today — points at −1.5% or worse`,
   });
 
+  // 20D/50D/RSI/z20 are four transforms of the same close. Cap that family
+  // so one dump cannot also harvest the 200D + drawdown + red-day stack into
+  // a 4× from the same print. 200D, 52-week drawdown and the session remain
+  // independent.
+  const shortRaw = (d20 != null && d20 < 0 ? 1 : 0) + (d50 != null && d50 < 0 ? 1 : 0) + rsiPts + zPts;
+  const shortCapped = Math.min(DCA_SHORT_TREND_CAP, shortRaw);
+  const d200Pts = d200 != null && d200 < 0 ? 2 : 0;
+  const points = shortCapped + d200Pts + ddPts + redPts;
+
   // ~6-month close sparkline (settled closes + the live spot), downsampled.
   const sparkSrc = hist.slice(-126).concat([px]);
   let series = sparkSrc.map((v) => r2(v));
@@ -25050,7 +25100,8 @@ function dcaReadsFor(closes, spotIn) {
     rsi: rsi != null ? r1(rsi) : null, z20: z20 != null ? r2(z20) : null,
     drawdownPct: dd != null ? r1(dd) : null, hi252: r2(hi252),
     sma: { d20: d20 != null ? r1(d20) : null, d50: d50 != null ? r1(d50) : null, d200: d200 != null ? r1(d200) : null },
-    series, reads,
+    series, reads, points,
+    overlap: { shortRaw, shortCapped, cap: DCA_SHORT_TREND_CAP },
   };
 }
 
@@ -25068,7 +25119,7 @@ export function buildDcaPlan(inputs, priorDca, builtAtIso, baseUsd = DCA_BASE_US
       if (prior) indexes.push({ ...prior, stale: true });
       continue;
     }
-    const points = reads.reads.reduce((a, s) => a + s.pts, 0);
+    const points = Number.isFinite(reads.points) ? reads.points : reads.reads.reduce((a, s) => a + s.pts, 0);
     let tier = DCA_TIERS.find((t) => points >= t.min) || DCA_TIERS[DCA_TIERS.length - 1];
     // The 4× tier is bear-market pricing BY DEFINITION, not just by points:
     // its card note asserts the long-term trend is broken with a deep

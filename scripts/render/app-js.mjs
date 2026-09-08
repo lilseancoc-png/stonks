@@ -22679,7 +22679,7 @@ ${renderWorkspaceBindings()}
     var chHtml = isFinite(ch) ? ' <span class="' + (ch > 0 ? 'pos' : ch < 0 ? 'neg' : '') + '">' + (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%</span>' : '';
     var tier = ix.tier || {};
     var tierCls = 'stk-dca-tier-' + escapeHtml(tier.key || 'base');
-    var pts = '<span class="stk-dca-pts" title="Dip points — five deterministic reads, each worth documented points; the sum picks the multiplier tier">' +
+    var pts = '<span class="stk-dca-pts" title="Dip points — overlapping 20D/50D/RSI/z reads of the same close are capped at 4; 200-day, 52-week drawdown and the session still add independently">' +
       (ix.points != null ? ix.points : '—') + (ix.maxPoints ? ' / ' + ix.maxPoints : '') + ' pts</span>';
     var stale = ix.stale ? '<span class="stk-dca-stale" title="Bars fetch missed this build — showing the last good read">stale</span>' : '';
     return '<article class="stk-dca-card ' + tierCls + '">' +

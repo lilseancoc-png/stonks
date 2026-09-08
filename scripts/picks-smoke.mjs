@@ -35,6 +35,7 @@ import {
   chartPatternInstructionSignature, applyPickSizing, buildTopPicksPayload,
   canDiff13FFirmSnapshot, findLatestTwo13Fs, mergeForm4TransactionRows,
   asPctPoints, stockQualityGate, computeStreakForTicker, confirmedDailyBars,
+  capexCohortYoy,
 } from "./build.mjs";
 import { buildFlowExplanation } from "../lib/flow-explanation.mjs";
 import { computeGexSummary } from "../lib/gex.mjs";
@@ -343,6 +344,16 @@ ok("IV surface: existing Quant term/skew observations are threaded into Top Pick
     && surfaceIvChains.SURF.ivSurface?.skew25 === 0.14
     && surfaceIvChains.SURF.ivSurface.termZ < -1.5
     && surfaceIvChains.SURF.ivSurface.skewZ > 1.5);
+const zIvChains = { ZIV: {} };
+await attachIvRanks(zIvChains, new Map([["ZIV", {
+  _sampledThisRun: true,
+  entries: [
+    ...Array.from({ length: 24 }, (_, index) => ({ date: inEtDays(index - 24), iv: 0.30 })),
+    { date: inEtDays(0), iv: 0.60 },
+  ],
+}]]));
+ok("IV z: current print is excluded from the baseline mean",
+  Math.abs((zIvChains.ZIV.ivRank?.mean ?? 0) - 0.3) < 1e-6 && zIvChains.ZIV.ivRank.z > 2);
 const ivReferenceDate = "2026-07-31";
 const ivUniverseFixture = Object.fromEntries(Array.from({ length: 12 }, (_, index) => [
   `IV${index}`,
@@ -726,6 +737,14 @@ const bfp = ufSig(gradesFP.BEAR);
 ok("flow: 7-day put-heavy flow-log persistence scores -1 via data.flowPersist", bfp && bfp.available && bfp.score === -1 && /^persist -1/.test(bfp.value || ""));
 const gradesFPthin = buildGradesIndex(chains, [], null, null, null, null, { flowLog: { entries: flowLog.entries.slice(0, 4) } });
 ok("flow: thin log (<5 flags in the window) stays unavailable", ufSig(gradesFPthin.BEAR) && !ufSig(gradesFPthin.BEAR).available && ufSig(gradesFPthin.BEAR).score === 0);
+const gradesPosFam = buildGradesIndex(chains, [], null, unusualNow, null, vflags, {
+  oiTracker: { scannedAt: new Date().toISOString(), tickers: [{ symbol: "BULLA", callOiTotal: 9000, putOiTotal: 1000 }] },
+});
+const mechPos = gradesPosFam.BULLA.pillars.mechanicals;
+const posRaw = ["unusualFlow", "oiSkew", "unusualVolume"]
+  .reduce((a, k) => a + (mechPos.signals.find((s) => s.key === k)?.score || 0), 0);
+ok("mechanicals: flow + OI + volume are one family capped at ±2",
+  posRaw > 2 && mechPos.positioning?.capped === 2 && mechPos.positioning.raw === posRaw);
 
 // --- 1d. exact-input AI signal cache ---------------------------------------
 const signalHeadlines = [
@@ -2027,7 +2046,10 @@ const dcaPlanSpike = buildDcaPlan(
   null, "2026-07-16T15:00:00.000Z",
 );
 ok("dca: deep slide still above the 200D → capped at the 3× tier (max-tier gate)",
-  dcaPlanSpike.indexes.every((x) => x.points >= 12 && x.sma.d200 > 0 && x.multiplier === 3 && x.tier.key === "heavy"));
+  dcaPlanSpike.indexes.every((x) => x.sma.d200 > 0 && x.multiplier === 3 && x.tier.key === "heavy"));
+ok("dca: overlapping 20D/50D/RSI/z reads of one close are capped",
+  dcaPlanDown.indexes.every((x) => x.overlap && x.overlap.shortCapped <= 4
+    && (x.overlap.shortRaw <= 4 || x.points < x.reads.reduce((a, s) => a + s.pts, 0))));
 ok("dca: every read ships label + pts on the card", dcaPlanDown.indexes[0].reads.length === 5 && dcaPlanDown.indexes[0].reads.every((r) => r.label && Number.isFinite(r.pts)));
 // A missing symbol carries its prior entry forward stale; today's history row
 // keeps the earlier build's fresh call (merge, not replace).
@@ -2107,6 +2129,11 @@ const closedStreak = computeStreakForTicker("TEST", confirmedDailyBars(liveStrea
 ok("streaks: unfinished red candle does not snap a green run",
   liveStreak && liveStreak.current && liveStreak.current.color === "green"
   && closedStreak && closedStreak.current && closedStreak.current.color === "red");
+ok("capex YoY: mixed cohort uses only names in both years",
+  capexCohortYoy([
+    { fyLatest: { val: 10 }, fyPrior: { val: 8 } },
+    { fyLatest: { val: 100 } },
+  ]).yoyPct === 25);
 
 console.log(`\n${pass}/${pass + fail} checks passed.`);
 process.exit(fail ? 1 : 0);
