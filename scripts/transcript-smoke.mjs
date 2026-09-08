@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import {
   orderTranscriptProbeSymbols,
+  shouldRefreshTranscripts,
   TRANSCRIPTS_PER_BUILD,
   transcriptSummaryGenerateConfig,
 } from "./build.mjs";
@@ -13,6 +14,9 @@ assert.equal(config.responseMimeType, "application/json");
 assert.ok(config.responseSchema, "transcript config must use the OpenAPI responseSchema path");
 assert.ok(!Object.hasOwn(config, "responseJsonSchema"), "the backend rejects this deeply nested JSON Schema");
 assert.equal(TRANSCRIPTS_PER_BUILD, 12, "default transcript capacity must cover 12 new calls per build");
+assert.equal(shouldRefreshTranscripts({}), true, "local/full builds summarize unless REFRESH_TRANSCRIPTS is off");
+assert.equal(shouldRefreshTranscripts({ REFRESH_TRANSCRIPTS: "false" }), false, "daily.yml build job must skip Gemini summaries");
+assert.equal(shouldRefreshTranscripts({ REFRESH_TRANSCRIPTS: "0" }), false);
 
 let arraySchemas = 0;
 const visit = (node, path = "$") => {

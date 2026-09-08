@@ -38,16 +38,18 @@ jobs:
 
           API="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/workflows/daily.yml/runs?event=workflow_dispatch&per_page=20"
           TODAY_ET=$(TZ=America/New_York date +%F)
-          # Ignore a stray 15:30 run: only a dispatch at/around the documented
-          # close slot should suppress the fallback.
+          # Ignore a stray 15:30 run and the 19:00 transcript job: only a
+          # dispatch at/around the documented close slot should suppress the
+          # fallback.
           CUTOFF=$(TZ=America/New_York date -d "$TODAY_ET 16:05:00" +%s)
+          CLOSE_END=$(TZ=America/New_York date -d "$TODAY_ET 16:45:00" +%s)
           if RUNS=$(curl --fail --silent --show-error \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "$API"); then
-            LATEST=$(jq -c --argjson cutoff "$CUTOFF" \
-              '[.workflow_runs[] | select((.created_at | fromdateiso8601) >= $cutoff)] | sort_by(.created_at) | last // empty' \
+            LATEST=$(jq -c --argjson cutoff "$CUTOFF" --argjson close_end "$CLOSE_END" \
+              '[.workflow_runs[] | select((.created_at | fromdateiso8601) >= $cutoff and (.created_at | fromdateiso8601) <= $close_end)] | sort_by(.created_at) | last // empty' \
               <<<"$RUNS")
             if [ -n "$LATEST" ]; then
               LATEST_STATUS=$(jq -r '.status' <<<"$LATEST")

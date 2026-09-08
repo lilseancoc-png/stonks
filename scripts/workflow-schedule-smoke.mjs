@@ -24,11 +24,18 @@ assert.match(daily, /actions\/runs\/\$\{GITHUB_RUN_ID\}/);
 assert.match(daily, /CREATED_AT=\$\(curl/);
 assert.match(daily, /date -d "\$CREATED_AT" \+%u/);
 
+assert.match(daily, /mode=transcripts/);
+assert.match(daily, /ET_MIN.*-eq 540.*ET_MIN.*-eq 1140|ET_MIN.*-eq 1140.*ET_MIN.*-eq 540/);
+assert.match(daily, /regen-transcripts\.mjs/);
+assert.match(daily, /REFRESH_TRANSCRIPTS: "false"/);
+
 const closeFallback = workflow("close-bake-fallback.yml");
 for (const hour of [20, 21, 22]) {
   assert.match(closeFallback, new RegExp(`cron: ["']20 ${hour} \\* \\* 1-5["']`));
 }
 assert.match(closeFallback, /ET_MIN.*-lt 975.*ET_MIN.*-gt 1230/);
+assert.match(closeFallback, /16:45:00/);
+assert.match(closeFallback, /close_end/);
 assert.match(closeFallback, /LATEST_STATUS/);
 assert.match(closeFallback, /LATEST_CONCLUSION/);
 

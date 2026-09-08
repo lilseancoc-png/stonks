@@ -806,6 +806,9 @@ ok("ticker-judgment cache: a changed slow fundamental invalidates the key",
     judgmentHeadlines,
     { ...judgmentFundamentals, recommendationKey: "hold" },
   ).sig);
+ok("ticker-judgment cache: ET date is not a cache-key component",
+  !judgmentSig.sig.split("|").some((part) => /^\d{4}-\d{2}-\d{2}$/.test(part))
+  && !judgmentSig.metaSig.split("|").some((part) => /^\d{4}-\d{2}-\d{2}$/.test(part)));
 
 // --- 2. entry timing ------------------------------------------------------
 const knifeTiming = computeEntryTiming("call", chains.KNIFE, chains.KNIFE.spot, {});

@@ -11,6 +11,7 @@
 //   node scripts/sync-data.mjs push --owner=unusual
 //   node scripts/sync-data.mjs push --owner=oi
 //   node scripts/sync-data.mjs push --owner=brief
+//   node scripts/sync-data.mjs push --owner=transcripts
 //   node scripts/sync-data.mjs push --owner=search-interest
 //   node scripts/sync-data.mjs seed                 # one-time: upload ALL local data/
 //   node scripts/sync-data.mjs flatten              # active snapshot -> legacy roots
@@ -29,7 +30,7 @@
 //
 // Requires a complete R2 credential set or BLOB_READ_WRITE_TOKEN.
 
-import { readdir, readFile, writeFile, mkdir, mkdtemp, rename, rm } from "node:fs/promises";
+import { readdir, readFile, writeFile, mkdir, mkdtemp, rename, rm, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,6 +41,7 @@ import {
   SCANNER_OWNERS,
   isBakeOwnedKey,
   isDynamicBakeKey as sharedIsDynamicBakeKey,
+  isRetainedRemoteBakeKey,
   keysForScannerOwner,
 } from "../lib/data-ownership.mjs";
 
@@ -60,8 +62,9 @@ const DATA_DIR = resolve(ROOT, "data");
 // narratives from the pulled trends.json + the scanner's fresh unusual
 // snapshot), so all producers push them — last-writer-wins is consistent.
 // briefs.json + ai-usage.json are co-owned by the bake and the 08:30 ET
-// Brief-only route. Shared workflow concurrency serializes their pull/update/
-// push cycle, so the morning read cannot race an intraday bake.
+// Brief-only route. earnings-calls.json + ai-usage.json are co-owned by the
+// bake (carry-forward rewrite) and the 09:00 / 19:00 ET transcript jobs.
+// Shared workflow concurrency serializes their pull/update/push cycle.
 
 // REQUEST-TIME-owned keys: written by the live api/* functions from user
 // actions (api/watchlist.js), never by a workflow. NO producer may push or
@@ -294,8 +297,28 @@ async function pushBake({ dryRun }) {
   await publish("bake", owned, { dryRun, deletes: stale, label: "push(bake)" });
 }
 
+async function transcriptOverlayKeys() {
+  const keys = [...keysForScannerOwner("transcripts")];
+  const local = await localKeys();
+  const runStartedMs = Date.parse(process.env.FRESHNESS_RUN_STARTED_AT || "");
+  const slopMs = 60_000;
+  for (const key of local.filter(isRetainedRemoteBakeKey)) {
+    if (!Number.isFinite(runStartedMs)) {
+      keys.push(key);
+      continue;
+    }
+    try {
+      const st = await stat(resolve(DATA_DIR, key));
+      if (st.mtimeMs >= runStartedMs - slopMs) keys.push(key);
+    } catch { /* pulled then deleted; skip */ }
+  }
+  return [...new Set(keys)];
+}
+
 async function pushScanner(owner, { dryRun }) {
-  const keys = keysForScannerOwner(owner);
+  const keys = owner === "transcripts"
+    ? await transcriptOverlayKeys()
+    : keysForScannerOwner(owner);
   await publish(owner, keys, { dryRun, label: `push(${owner})` }); // overlay-only, no delete
 }
 

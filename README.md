@@ -85,11 +85,12 @@ Timing is driven by cron-job.org (ET-aware jobs that POST the `workflow_dispatch
 endpoint), which runs in ET so daylight saving is handled for us:
 
 - **08:30 ET weekdays** — lightweight pre-market Brief only.
+- **09:00 and 19:00 ET weekdays** — earnings-call transcript summaries only (30 minutes before the open, three hours after the close).
 - **10:00, 11:00, 13:30, 15:30, and 16:10 ET weekdays** — decision-grade full builds after the opening auction, through the verified close.
-- **11:00 and 15:30 ET weekdays** — Top Picks, chart vision, Stock Picks, Sector Rotation, and Leveraged ETFs recompute; the other full builds carry those coherent decisions forward.
+- **11:00 and 15:30 ET weekdays** — Top Picks, Stock Picks, Sector Rotation, and Leveraged ETFs recompute; chart vision runs at 11:00 only. The other full builds carry those coherent decisions forward.
 - **11:00, 13:30, and 16:10 ET weekdays** — in-session/closing Brief refreshes.
 
-That's five full builds plus the lightweight pre-market Brief per trading day.
+That's five full builds, two transcript passes, plus the lightweight pre-market Brief per trading day.
 
 The weekly Alt Data workflow runs once Friday at 11:30 ET and refreshes Search
 Interest, RAM prices, and GPU-cloud prices together.

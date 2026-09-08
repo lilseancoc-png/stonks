@@ -7636,16 +7636,16 @@ export async function writeEarningsTrackerFile(store, chains, builtAtIso, prior 
 // Per-ticker AI briefs of each name's most recent earnings CALL, built from the
 // full transcript. Source: The Motley Fool's free transcript library (server-
 // rendered, no bot wall — verified 2026-07-14). Discovery is two-pronged:
-//   1. every bake polls the transcript LISTING page (one fetch, the ~20 newest
-//      publications) and matches slugs against the tracked universe — with the
-//      hourly bake cadence this catches essentially every new call; and
+//   1. the 09:00 and 19:00 ET transcript jobs poll the listing page (one fetch,
+//      the ~20 newest publications) and match slugs against the tracked
+//      universe — full bakes carry the index forward and do not spend Gemini; and
 //   2. names with no summary yet (or whose earnings-history shows a NEW print
 //      after the covered call — probed same-day for AM prints, next-day for
 //      PM/TBD) are BACKFILLED via their fool.com quote page (server-rendered
 //      per-ticker transcript history; nasdaq→nyse URL guess), throttled to
 //      TRANSCRIPT_PROBES_PER_BUILD probes per build with a per-name
 //      TRANSCRIPT_PROBE_COOLDOWN_DAYS re-probe cooldown so names Fool
-//      doesn't cover don't burn fetches every hour. When Fool yields nothing
+//      doesn't cover don't burn fetches every slot. When Fool yields nothing
 //      newer — or its newest transcript predates the name's latest print —
 //      the probe falls through to MarketBeat's per-ticker earnings hub.
 // A second, AI-side cooldown (the `fails` map in the index) throttles names
@@ -7663,8 +7663,8 @@ export async function writeEarningsTrackerFile(store, chains, builtAtIso, prior 
 // pipeline/legal) when the call covered them. Summaries are cached by the store
 // itself: a name is re-summarized only when a NEWER transcript appears (or
 // TRANSCRIPT_SUMMARY_VERSION is bumped), so repeat bakes cost zero AI tokens.
-// Capped at TRANSCRIPTS_PER_BUILD new summaries per bake — the launch backfill
-// of the whole universe spreads over a few trading days.
+// Capped at TRANSCRIPTS_PER_BUILD new summaries per transcript slot — the
+// launch backfill of the whole universe spreads over a few trading days.
 // PREMIUM keys, both of them (lib/premium-keys.mjs gates the index by name and
 // the per-ticker details by the "transcript-" prefix). The index carries every
 // covered name's headline + tone chips; the browser lazy-loads the per-ticker
@@ -7690,6 +7690,13 @@ const AI_TRANSCRIPT_THINK = Number(process.env.AI_TRANSCRIPT_THINK ?? 512);
 // quickly without increasing simultaneous full-model pressure; concurrency
 // remains independently capped below.
 export const TRANSCRIPTS_PER_BUILD = Math.max(0, Number(process.env.TRANSCRIPTS_PER_BUILD ?? 12));
+// Full bakes carry the earnings-calls index without Gemini. Dedicated 09:00 /
+// 19:00 ET jobs (and local `node scripts/regen-transcripts.mjs`) leave this
+// unset so the summarize pass still runs. REFRESH_TRANSCRIPTS=0 on daily.yml's
+// build job is the production gate.
+export function shouldRefreshTranscripts(env = process.env) {
+  return !/^(?:0|false)$/i.test(String(env.REFRESH_TRANSCRIPTS ?? "1"));
+}
 const TRANSCRIPT_PROBES_PER_BUILD = Math.max(0, Number(process.env.TRANSCRIPT_PROBES_PER_BUILD ?? 20));
 // Fetch+summarize workers running at once (step 3). Serial, a single sick AI
 // call retrying through the model ladder stalled the whole bake for 4+ minutes
@@ -8366,7 +8373,7 @@ export function orderTranscriptProbeSymbols(symbols, lastPrintBySymbol = {}) {
 
 // The discovery + summarize pass. Pure orchestration over the fetch/parse/AI
 // helpers above; exported so regen-transcripts.mjs can run it standalone.
-export async function updateEarningsCallsData({ prior = null, earningsHxStore = null, builtAtIso = null } = {}) {
+export async function updateEarningsCallsData({ prior = null, earningsHxStore = null, builtAtIso = null, skipSummarize = false } = {}) {
   const todayIso = etDateKey();
   const nowIso = new Date().toISOString();
   const universe = TICKERS.filter((s) => SECTORS[s] !== "ETF");
@@ -8402,9 +8409,10 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
     fails,
   });
 
-  // Keyless build: no point discovering transcripts we can't summarize — carry
-  // forward untouched (and don't burn probe cooldowns).
-  if (!process.env.GEMINI_API_KEY || TRANSCRIPTS_PER_BUILD === 0) {
+  // Keyless / off-cadence: no point discovering transcripts we can't summarize —
+  // carry the index forward untouched (and don't burn probe cooldowns). The
+  // 09:00 / 19:00 ET jobs are the only production summarize slots.
+  if (!process.env.GEMINI_API_KEY || TRANSCRIPTS_PER_BUILD === 0 || skipSummarize) {
     return { index: finishIndex(), details: [], keyless: true };
   }
 
@@ -8456,8 +8464,8 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
     // the same morning (MarketBeat posts within hours — probe same-day), a
     // PM/TBD print's call lands after the close — probe from the next day.
     // Probing before the transcript is up is cheap: the queued item fails
-    // parse, the cleanup below clears the probe stamp, and the next hourly
-    // build retries.
+    // parse, the cleanup below clears the probe stamp, and the next transcript
+    // slot retries.
     const minAgeDays = lastEv?.session === "AM" ? 0 : 1;
     if (
       lastEv && cur.callDate && lastEv.date > cur.callDate &&
@@ -8612,8 +8620,8 @@ export async function updateEarningsCallsData({ prior = null, earningsHxStore = 
 // Write the index + any newly-minted per-ticker details. Details are
 // upsert-only flat keys (data/transcript-<SYM>.json) — past details live in
 // the private store and are never re-written (or deleted) here.
-export async function writeEarningsCallsFiles({ prior = null, earningsHxStore = null, builtAtIso = null } = {}) {
-  const { index, details, keyless } = await updateEarningsCallsData({ prior, earningsHxStore, builtAtIso });
+export async function writeEarningsCallsFiles({ prior = null, earningsHxStore = null, builtAtIso = null, skipSummarize = false } = {}) {
+  const { index, details, keyless } = await updateEarningsCallsData({ prior, earningsHxStore, builtAtIso, skipSummarize });
   for (const d of details) {
     await writeFile(resolve(DATA_DIR, transcriptKeyForSym(d.sym)), JSON.stringify(d), "utf8");
   }
@@ -29717,7 +29725,7 @@ const AI_SIGNALS_COMBINED = process.env.AI_SIGNALS_COMBINED === "1";
 // `explanation` string until it fills maxOutputTokens, truncating the JSON
 // mid-reply (Unterminated-string parse failures whose position scaled with the
 // token cap — 2048→~6.5k chars, 4096→~13.7k). The per-ticker chart-pattern cache
-// fires only in the two swing-decision windows, so Flash here is bounded. Override with
+// fires only in the 11:00 Top Picks window, so Flash here is bounded. Override with
 // AI_CHART_MODEL (but Flash-Lite is known-broken for it). 3.6 keeps the same
 // full-Flash input price as 3.5, lowers output/thinking price by 16.7%, and is
 // explicitly stronger at chart interpretation. The 2.5 generation was shut
@@ -34077,32 +34085,36 @@ async function attachAiNewsTakes(chains, macroBackdrop) {
 // ── Cross-build ticker-judgment cache ────────────────────────────────────────
 // The combined news+fundamentals judgment (attachTickerJudgments) is the most
 // expensive AI pass in the build: one call per ticker per bake, each carrying
-// up to 10 headlines WITH article bodies (thousands of input tokens), 8 bakes
-// a day — yet intraday most names' news simply hasn't changed since the
-// previous hourly build. Cache each ticker's result keyed on what the model
-// actually reasons over: the RAW headline set + the slow-moving fundamentals
-// facts (last reported quarter, next earnings date, analyst consensus) + the
-// ET date (takes say "today", so they never carry across days) + the models +
-// the AI_SIGNALS_COMBINED shape. Price-derived prompt drift (spot / market
-// cap / P/E move with every tick) is deliberately NOT in the signature — that
-// would bust the cache every build for zero informational change. Instead a
-// reused entry is re-read once spot has drifted >TICKER_JUDGMENT_SPOT_DRIFT
-// from the price the take was generated at (the entry keeps its ORIGINAL spot
-// on reuse, so drift accumulates rather than creeping past the bar 1% at a
-// time). A hit also skips enrichHeadlinesWithBodies' article fetches (the
-// signature is over the raw headlines), so hits save wall-clock, not just
-// tokens. Same read-before-wipe / write-after-wipe rule as the chart-pattern
-// cache. Shape: { [sym]: { sig, spot, news, judgment, catalysts, aiSignals,
-// signals? } } — `aiSignals` is the AI_SIGNALS_COMBINED fold-in; `signals` is
-// the split attachAiContractGuidance pass's result, stored on the same entry
-// so THAT per-ticker call is skipped on unchanged headlines too (key present
-// = the pass ran; null = ran and found nothing). AI_TICKER_CACHE=0 disables
+// up to 10 headlines WITH article bodies (thousands of input tokens), 5 bakes
+// a day — yet most names' news simply hasn't changed since the previous bake
+// (including overnight / weekend). Cache each ticker's result keyed on what
+// the model actually reasons over: the RAW headline set + the slow-moving
+// fundamentals facts (last reported quarter, next earnings date, analyst
+// consensus) + the models + the AI_SIGNALS_COMBINED shape. The ET calendar
+// day is deliberately NOT in the key — scoring uses sentiment / verdict /
+// catalysts / signals, not the prompt's "Today's date", and a date-only
+// bust forced a full-universe morning re-read (~142 Flash-Lite calls) for
+// quiet names. Linked Yahoo headlines are still fetched every bake; only the
+// Gemini take reuses. Price-derived prompt drift (spot / market cap / P/E
+// move with every tick) is also excluded from the signature — that would bust
+// the cache every build for zero informational change. Instead a reused entry is
+// re-read once spot has drifted >TICKER_JUDGMENT_SPOT_DRIFT from the price the
+// take was generated at (the entry keeps its ORIGINAL spot on reuse, so drift
+// accumulates rather than creeping past the bar 1% at a time). A hit also
+// skips enrichHeadlinesWithBodies' article fetches (the signature is over the
+// raw headlines), so hits save wall-clock, not just tokens. Same
+// read-before-wipe / write-after-wipe rule as the chart-pattern cache. Shape:
+// { [sym]: { sig, spot, news, judgment, catalysts, aiSignals, signals? } } —
+// `aiSignals` is the AI_SIGNALS_COMBINED fold-in; `signals` is the split
+// attachAiContractGuidance pass's result, stored on the same entry so THAT
+// per-ticker call is skipped on unchanged headlines too (key present = the
+// pass ran; null = ran and found nothing). AI_TICKER_CACHE=0 disables
 // (every build re-reads — the pre-cache behavior).
 const TICKER_JUDGMENT_CACHE_FILE = "ticker-judgment-cache.json";
 // Shape version for non-prompt cache semantics. The live instruction/schema
 // hash below invalidates prompt edits automatically; bump this only when reuse
 // rules change without altering those inputs.
-const TICKER_JUDGMENT_CACHE_VERSION = "tj2";
+const TICKER_JUDGMENT_CACHE_VERSION = "tj3";
 const AI_TICKER_CACHE = process.env.AI_TICKER_CACHE !== "0";
 const TICKER_JUDGMENT_SPOT_DRIFT = Number(process.env.AI_TICKER_CACHE_DRIFT ?? 0.02);
 // Headline-churn tolerance. Yahoo's top-10 news list churns intraday — one new
@@ -34111,7 +34123,7 @@ const TICKER_JUDGMENT_SPOT_DRIFT = Number(process.env.AI_TICKER_CACHE_DRIFT ?? 0
 // ~110 fresh Flash-Lite calls + article-body fetch waves per hourly bake for
 // takes whose substance hadn't moved. When the ONLY change vs the cached read
 // is at most this many genuinely-NEW headline titles (fundamentals facts,
-// models, ET date all unchanged, spot within the drift band), reuse the prior
+// models, instruction hash all unchanged, spot within the drift band), reuse the prior
 // judgment instead of re-reading. Two guards keep this honest: price-moving
 // news still forces a re-read via the spot-drift check, and new-title counts
 // accumulate against the ORIGINAL cached title set (a reuse carries the entry
@@ -34152,9 +34164,10 @@ export function headlineCanContainAiSignals(title) {
 
 // Returns { sig, metaSig, titles }: `sig` is the exact-match key; `metaSig` is
 // `sig` minus the headline hash, so a relaxed opt-in tolerance can never paper
-// over a fundamentals/model/date/instruction change. `titles` is the normalized
-// set used only by that default-off tolerance path. tj2 intentionally cold-
-// starts once because older entries did not prove prompt/schema identity.
+// over a fundamentals/model/instruction change. `titles` is the normalized
+// set used only by that default-off tolerance path. tj3 drops the ET date
+// from the key (quiet names reuse across the overnight/weekend roll); bump
+// cold-starts once so dated tj2 entries cannot match the new shape.
 export function tickerJudgmentInstructionSignature() {
   const systemInstruction = AI_SIGNALS_COMBINED
     ? COMBINED_SYSTEM_PROMPT + SIGNALS_PROMPT_SECTION
@@ -34175,7 +34188,6 @@ export function tickerJudgmentInstructionSignature() {
 }
 
 export function tickerJudgmentSignature(rawHeadlines, fundamentals) {
-  const etDate = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // YYYY-MM-DD
   const heads = rawHeadlines
     .map((h) => `${h.title}|${h.publisher || ""}|${h.publishedAt || ""}`)
     .join("\n");
@@ -34197,7 +34209,6 @@ export function tickerJudgmentSignature(rawHeadlines, fundamentals) {
   ].join("|");
   const metaParts = [
     TICKER_JUDGMENT_CACHE_VERSION,
-    etDate,
     AI_SIGNALS_COMBINED ? 1 : 0,
     AI_TICKER_MODEL,
     process.env.AI_SIGNALS_MODEL || AI_NEWS_MODEL, // the split guidance pass's model
@@ -34735,14 +34746,14 @@ async function generateChartPattern(ai, symbol, spot, bars, opts = {}) {
 // { [sym]: { key, barsSig, pattern } }.
 const CHART_PATTERN_CACHE_FILE = "chart-pattern-cache.json";
 
-// Re-rate the 1-month INTRADAY pattern in the two Top Picks decision windows
-// (11:00 AM bucket and 15:30 PM bucket) and reuse the cached read otherwise.
-// Intraday bars change every 30 min, so keying on the bar signature would call
-// the model on every build. Changed-bar off-cadence builds retain the prior read
-// as explicitly stale display context only. Exact frozen bars remain eligible.
-// The same key string is used for every ticker in a given build, so a hit just
-// means "this ticker was already read in this decision bucket". `img8` aligns
-// the pass with the two Top Picks runs while retaining automatic
+// Re-rate the 1-month INTRADAY pattern once per ET day at the 11:00 Top Picks
+// run and reuse the cached read otherwise. The 15:30 Top Picks rebuild does not
+// spend another universe vision pass. Intraday bars change every 30 min, so
+// keying on the bar signature would call the model on every build. Changed-bar
+// off-cadence (and 15:30) builds retain the prior read as explicitly stale
+// display context only. Exact frozen bars remain eligible. The same key string
+// is used for every ticker in a given build, so a hit just means "this ticker
+// was already read in this decision bucket". `img8` keeps automatic
 // model/prompt/schema identity and stale-decision quarantine; older verdicts
 // cold-start once.
 const CHART_PATTERN_CACHE_VERSION = "img8";
@@ -34781,7 +34792,10 @@ export function chartPatternRefreshState(now = new Date(), opts = {}) {
     etMinute,
     slot,
     decisionRun: Boolean(decisionRun),
-    freshAllowed: Boolean(decisionRun),
+    // One universe vision pass per day, at the 11:00 Top Picks run. The 15:30
+    // rebuild still scores; a new 30m bar already quarantines the morning read,
+    // so a second pass only restored a ±1 technicals vote.
+    freshAllowed: Boolean(decisionRun) && slot === "am",
   };
 }
 
@@ -34852,14 +34866,14 @@ async function attachChartPatterns(chains, priorCache = {}) {
   const entries = Object.entries(chains).filter(
     ([, data]) => Array.isArray(data._intraday) && data._intraday.length >= CHART_PATTERN_MIN_BARS,
   );
-  // Cross-build cache keyed on the ET date + AM/PM decision bucket. Only a Top
-  // Picks run can re-read; off-cadence builds defer. A
-  // second reuse path
-  // fires when the bar series itself is unchanged since the cached read
-  // (chartPatternBarsSig) — a new bucket over FROZEN bars (weekend / evening /
-  // holiday runs) reuses instead of re-rating an identical chart. nextCache is
-  // returned for main() to persist after the data/ wipe; only successfully-read
-  // names are cached, so a failure is retried on the next build.
+  // Cross-build cache keyed on the ET date + AM/PM decision bucket. Only the
+  // 11:00 Top Picks run can re-read; 15:30 and off-cadence builds defer. A
+  // second reuse path fires when the bar series itself is unchanged since the
+  // cached read (chartPatternBarsSig) — a new bucket over FROZEN bars
+  // (weekend / evening / holiday runs) reuses instead of re-rating an identical
+  // chart. nextCache is returned for main() to persist after the data/ wipe;
+  // only successfully-read names are cached, so a failure is retried on the
+  // next build.
   const refresh = chartPatternRefreshState();
   const bucketKey = refresh.bucketKey;
   const nextCache = {};
@@ -34894,7 +34908,7 @@ async function attachChartPatterns(chains, priorCache = {}) {
           ...priorEntry.pattern,
           stale: true,
           staleReason: !refresh.freshAllowed
-            ? "Chart vision refreshes only with the 11:00 and 15:30 ET Top Picks decision runs"
+            ? "Chart vision refreshes only with the 11:00 ET Top Picks decision run"
             : "New intraday bars arrived after the cached chart read",
         },
       };
@@ -36668,6 +36682,7 @@ async function main() {
       prior: priorEarningsCalls,
       earningsHxStore,
       builtAtIso,
+      skipSummarize: !shouldRefreshTranscripts(),
     });
     console.log(
       `wrote data/${EARNINGS_CALLS_FILE} — ${callsInfo.covered}/${callsInfo.universe} names covered, ` +

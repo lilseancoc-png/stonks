@@ -911,7 +911,7 @@ The tab and `data/earnings-tracker.json` are public and require no session.
 
 ### Earnings Calls
 
-Motley Fool is the primary transcript source and MarketBeat the fallback. The system discovers new transcripts, generates a structured full-transcript brief, and writes both an index and per-ticker detail files.
+Motley Fool is the primary transcript source and MarketBeat the fallback. Discovery and Gemini summaries run at 09:00 ET (30 minutes before the open) and 19:00 ET (three hours after the close). Full builds carry the last index. The system writes both an index and per-ticker detail files.
 
 The decision queue prioritizes:
 
@@ -1432,16 +1432,19 @@ The build renders roughly one month of intraday price action and asks a vision-c
 - target;
 - explanation and signal.
 
-Only confirmed patterns whose exact analyzed bar window still matches can score or enter a decision path. Forming patterns can change Strategies timing guidance while current. To hold the full-quality vision pass to roughly two reads per ticker per trading day, results are cached by AM/PM bucket plus bar-series signature. If a new bar arrives inside the same bucket, the old read is labeled `Stale context` and becomes display-only: it cannot alter the grade, Top Picks prompt, entry veto, strategy direction, or position advice. Frozen charts reuse across buckets, model/prompt/schema changes invalidate automatically, and the system retries text-only if the image call fails.
+Only confirmed patterns whose exact analyzed bar window still matches can score or enter a decision path. Forming patterns can change Strategies timing guidance while current. The full-quality vision pass runs once per ticker per trading day at the 11:00 Top Picks run. Results are cached by ET-date bucket plus bar-series signature. If a new bar arrives after that read, the old read is labeled `Stale context` and becomes display-only: it cannot alter the grade, Top Picks prompt, entry veto, strategy direction, or position advice. Frozen charts reuse across buckets, model/prompt/schema changes invalidate automatically, and the system retries text-only if the image call fails.
 
 ## 18. Data freshness, live behavior, and access control
 
 ### Refresh cadence
 
 - Full build: 10:00, 11:00, 13:30, 15:30, and 16:10 ET on weekdays.
-- Top Picks, chart vision, Stock Picks, Sector Rotation, and Leveraged ETFs:
-  11:00 and 15:30 ET; other full builds carry the exact prior decisions.
+- Top Picks, Stock Picks, Sector Rotation, and Leveraged ETFs: 11:00 and
+  15:30 ET; other full builds carry the exact prior decisions. Chart vision
+  runs at 11:00 only.
 - Brief: 08:30, 11:00, 13:30, and 16:10 ET.
+- Earnings-call transcripts: 09:00 ET (30 minutes before the open) and
+  19:00 ET (three hours after the close). Full builds carry the last index.
 - Unusual flow and heatmap: hourly 9:00–16:00 ET.
 - OI tracker: about 08:30 ET for settled T+1 OI/ΔOI and 17:00 ET for
   completed-session volume/Vol-OI positioning.

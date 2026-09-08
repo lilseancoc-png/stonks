@@ -20,6 +20,14 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-09-08
+
+### Perf
+
+- **Earnings-call transcripts mint at 09:00 and 19:00 ET only.** Full bakes carry the index and skip Gemini. 09:00 is 30 minutes before the open; 19:00 is three hours after the close. `scripts/{build,regen-transcripts,verify-data-freshness}.mjs`, `.github/workflows/{daily,close-bake-fallback}.yml`.
+- **Ticker news+fundamentals Gemini reuses across the ET date roll.** Quiet names no longer get a full-universe 10:00 re-read just because the calendar flipped; a name re-reads on material (or more than one) new headlines, a >2% spot move, or a slow fundamentals change. Cache version `tj3`. `scripts/{build,picks-smoke}.mjs`.
+- **Chart vision runs once per day at 11:00 ET.** The 15:30 Top Picks rebuild still scores the afternoon roster; it keeps the morning pattern as labeled stale context instead of spending a second full-universe Flash vision pass. `scripts/{build,ai-cost-smoke}.mjs`, `.github/workflows/daily.yml`, `scripts/render/html.mjs`.
+
 ## 2026-09-07
 
 ### Fixed
