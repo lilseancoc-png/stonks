@@ -1374,6 +1374,7 @@ function stripCandidate(c) {
     premium: c.premium,
     deltaPremium: c.deltaPremium,
     tape: c.tape,
+    flagged: c.flagged !== false,
     scannedAt: c.scannedAt,
   };
 }

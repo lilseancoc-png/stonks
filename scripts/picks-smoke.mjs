@@ -34,6 +34,7 @@ import {
   chartPatternDecisionEligible,
   chartPatternInstructionSignature, applyPickSizing, buildTopPicksPayload,
   canDiff13FFirmSnapshot, findLatestTwo13Fs, mergeForm4TransactionRows,
+  asPctPoints, stockQualityGate, computeStreakForTicker, confirmedDailyBars,
 } from "./build.mjs";
 import { buildFlowExplanation } from "../lib/flow-explanation.mjs";
 import { computeGexSummary } from "../lib/gex.mjs";
@@ -771,6 +772,23 @@ const earnSoon = mkTicker({ spot: 100, fundamentals: { nextEarningsDate: inEtSes
 const earnSoonTiming = computeEntryTiming("call", earnSoon, 100, {});
 ok("timing: earnings inside the next two trading sessions is an absolute wait",
   earnSoonTiming.state === "wait" && earnSoonTiming.hardWait === "earnings" && earnSoonTiming.deferKind === "earnings");
+const earnHardWaitScore = computeEntryTiming("call", mkTicker({
+  spot: 100,
+  fundamentals: { nextEarningsDate: inEtSessions(2) },
+  _bars: mkSoftExtensionBars(100),
+}), 100, {});
+ok("timing: hard earnings wait stays wait even when the score is <= -5",
+  earnHardWaitScore.hardWait === "earnings"
+  && earnHardWaitScore.hardVeto == null
+  && earnHardWaitScore.score <= -5
+  && earnHardWaitScore.state === "wait");
+const earnKnifeWait = computeEntryTiming("call", mkTicker({
+  spot: 50,
+  fundamentals: { nextEarningsDate: inEtSessions(2) },
+  _bars: mkBars(50, 40, 0.003, -8),
+}), 50, {});
+ok("timing: falling-knife veto still beats a calendar wait",
+  earnKnifeWait.hardVeto === "knife" && earnKnifeWait.state === "avoid");
 const macroWeekendTiming = computeEntryTiming("call", mkTicker({ spot: 100 }), 100, {
   eventRisk: { active: true, label: "FOMC decision", daysOut: 4, sessionsOut: 2 },
 });
@@ -1996,6 +2014,67 @@ ok("dca: history merge keeps the earlier fresh call for the missed symbol", dcaL
 // No inputs at all → everything carried stale, history untouched.
 const dcaPlanNone = buildDcaPlan({}, dcaPlanDown, "2026-07-16T17:00:00.000Z");
 ok("dca: no inputs → all entries stale, history unchanged", dcaPlanNone.indexes.every((x) => x.stale) && JSON.stringify(dcaPlanNone.history) === JSON.stringify(dcaPlanDown.history));
+
+ok("asPctPoints: a known −0.04 fraction becomes −4", asPctPoints(-0.04) === -4);
+ok("asPctPoints: a value already in points is left alone", asPctPoints(-4) === -4 && asPctPoints(12.5) === 12.5);
+ok("asPctPoints: |x| > 2 is never multiplied again", asPctPoints(3) === 3 && asPctPoints(-25) === -25);
+ok("asPctPoints: explicit fraction hint always ×100", asPctPoints(0.04, "fraction") === 4);
+ok("asPctPoints: explicit points hint never ×100", asPctPoints(0.8, "points") === 0.8);
+
+const qualityPass = stockQualityGate(mkTicker({
+  fundamentals: {
+    profitMargin: 12, freeCashFlow: 1e9, totalCash: 5e9, totalDebt: 1e9, debtToEquity: 40,
+    revenueGrowthYoy: 8, netMarginHistory: [{ value: 10 }, { value: 11 }],
+  },
+}));
+ok("stock quality: complete books pass", qualityPass.pass === true);
+const qualityOr = stockQualityGate(mkTicker({
+  fundamentals: {
+    profitMargin: -2, freeCashFlow: 1e9, totalCash: 5e9, totalDebt: 1e9, debtToEquity: 40,
+    revenueGrowthYoy: 8, netMarginHistory: [{ value: 10 }, { value: 11 }],
+  },
+}));
+ok("stock quality: margin AND FCF must both be non-negative when both exist", qualityOr.pass === false
+  && qualityOr.checks.some((c) => c.key === "profit" && c.ok === false));
+const qualityDebtMissing = stockQualityGate(mkTicker({
+  fundamentals: {
+    profitMargin: 12, freeCashFlow: 1e9, revenueGrowthYoy: 8,
+    netMarginHistory: [{ value: 10 }, { value: 11 }],
+  },
+}));
+ok("stock quality: missing debt/cash/D/E fails closed", qualityDebtMissing.pass === false
+  && qualityDebtMissing.checks.some((c) => c.key === "debt" && c.ok === false));
+const qualityNegEquity = stockQualityGate(mkTicker({
+  fundamentals: {
+    profitMargin: 12, freeCashFlow: 1e9, totalCash: 5e9, totalDebt: 1e9, debtToEquity: -50,
+    revenueGrowthYoy: 8, netMarginHistory: [{ value: 10 }, { value: 11 }],
+  },
+}));
+ok("stock quality: negative equity fails", qualityNegEquity.pass === false
+  && qualityNegEquity.checks.some((c) => c.key === "debt" && c.ok === false));
+const qualityNoRev = stockQualityGate(mkTicker({
+  fundamentals: {
+    profitMargin: 12, freeCashFlow: 1e9, totalCash: 5e9, totalDebt: 1e9, debtToEquity: 40,
+    revenueGrowthYoy: null, netMarginHistory: [{ value: 10 }, { value: 11 }],
+  },
+}));
+ok("stock quality: missing revenue history fails closed", qualityNoRev.pass === false
+  && qualityNoRev.checks.some((c) => c.key === "revenue" && c.ok === false));
+
+const liveStreakBars = [
+  { t: "2026-01-02", c: 100, v: 1e6 },
+  { t: "2026-01-03", c: 101, v: 1e6 },
+  { t: "2026-01-04", c: 102, v: 1e6 },
+  { t: "2026-01-05", c: 90, v: 5e6 },
+];
+ok("streaks: drop the live candle unless the session is closed",
+  confirmedDailyBars(liveStreakBars, "REGULAR").length === 3
+  && confirmedDailyBars(liveStreakBars, "CLOSED").length === 4);
+const liveStreak = computeStreakForTicker("TEST", confirmedDailyBars(liveStreakBars, "REGULAR"));
+const closedStreak = computeStreakForTicker("TEST", confirmedDailyBars(liveStreakBars, "CLOSED"));
+ok("streaks: unfinished red candle does not snap a green run",
+  liveStreak && liveStreak.current && liveStreak.current.color === "green"
+  && closedStreak && closedStreak.current && closedStreak.current.color === "red");
 
 console.log(`\n${pass}/${pass + fail} checks passed.`);
 process.exit(fail ? 1 : 0);

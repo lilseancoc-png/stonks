@@ -813,7 +813,7 @@ function positioningConflictsForNarrative(n, ctx) {
       let directional = 0;
       let premium = 0;
       for (const c of Array.isArray(u.contracts) ? u.contracts : []) {
-        if (!c?.flagged || !["ask", "abv"].includes(c.tape)) continue;
+        if (c?.flagged === false || !["ask", "abv"].includes(c.tape)) continue;
         const d = c.side === "call" ? 1 : c.side === "put" ? -1 : 0;
         directional += d * Math.max(1, Number(c.deltaPremium || c.premium || 0));
         premium += Number(c.deltaPremium || c.premium || 0);
@@ -877,7 +877,7 @@ function earningsCheckpointForNarrative(n, chains, nowMs) {
     const dateMs = Date.parse(String(ev?.date || "").slice(0, 10) + "T00:00:00Z");
     const ageDays = Number.isFinite(dateMs) ? Math.floor((Date.parse(nowDay + "T00:00:00Z") - dateMs) / 86400000) : null;
     if (!ev || ageDays == null || ageDays < 0 || ageDays > NARRATIVE_EARNINGS_POST_DAYS) continue;
-    const surprise = Number(ev.surprisePct);
+    const surprise = asPctPoints(ev.surprisePct);
     const epsKnown = Number.isFinite(surprise);
     const guidance = ev.guidanceSrc === "call" && ["raised", "inline", "lowered"].includes(ev.guidance) ? ev.guidance : null;
     if (!epsKnown && !guidance) continue;
@@ -1384,6 +1384,17 @@ const STREAK_CONSECUTIVE_COUNTER_BREAK = 4;
 // "just snapped" mean-reversion candidate (0 = snapped on the latest session).
 const STREAK_SNAPPED_RECENT_SESSIONS = 2;
 
+// Confirmed daily bars for streaks (and any other live-candle consumer).
+// Drop the last bar unless the session is already closed or post-close —
+// the in-progress regular-session print is unfinished. Volume stays on
+// the same cutoff because computeStreakForTicker reads each bar's `.v`.
+export function confirmedDailyBars(bars, marketState) {
+  if (!Array.isArray(bars) || !bars.length) return [];
+  const st = String(marketState || "").toUpperCase();
+  if (st === "CLOSED" || st === "POST") return bars;
+  return bars.slice(0, -1);
+}
+
 // Walks daily closes oldest-first, building each day's % change, and
 // simulates the current streak forward. Returns null for tickers without
 // enough bars to derive even one day-over-day move.
@@ -1400,7 +1411,7 @@ export function computeStreakForTicker(symbol, bars) {
     const changePct = ((curr.c - prev.c) / prev.c) * 100;
     // idx -> position in `tail` (for volume baseline lookup); volume -> the
     // session's share volume (used for the streak's volume-trend read).
-    rawMoves.push({ idx: i, date: curr.t || null, close: curr.c, volume: curr.v ?? null, changePct });
+    rawMoves.push({ idx: i, date: curr.t || curr.date || null, close: curr.c, volume: curr.v ?? null, changePct });
   }
   if (!rawMoves.length) return null;
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -1980,7 +1991,7 @@ async function fetchFundamentals(symbol) {
       period: h.period || null,
       epsActual: actual,
       epsEstimate: estimate,
-      surprisePct: surprisePct != null ? surprisePct * 100 : null,
+      surprisePct: asPctPoints(surprisePct),
     };
     break;
   }
@@ -2004,7 +2015,7 @@ async function fetchFundamentals(symbol) {
       period: h.period || null,
       epsActual: actual,
       epsEstimate: estimate,
-      surprisePct: surprisePct != null ? surprisePct * 100 : null,
+      surprisePct: asPctPoints(surprisePct),
     });
   }
 
@@ -3550,7 +3561,7 @@ const RFR_HISTORY_FILE = "rfr-history.json";
 const MACRO_HISTORY_FILE = "macro-history.json";
 const MACRO_HISTORY_MAX_ENTRIES = 90;
 
-function etDateKey(d = new Date()) {
+export function etDateKey(d = new Date()) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
     // 2-digit day so single-digit days zero-pad (2026-05-03, not 2026-05-3) and
@@ -6419,6 +6430,19 @@ const ehxRound = (n, places = 4) => {
   return n != null && isFinite(n) ? Math.round(n * f) / f : null;
 };
 
+// Canonical surprise / display unit is percentage points (−4 means −4%).
+// Decimal fractions such as Yahoo's -0.04 become -4. Values already in
+// points (|n| > 1) are never multiplied again. Pass sourceHint when the
+// producer is known: "fraction" always ×100, "points" never ×100.
+export function asPctPoints(value, sourceHint = "auto") {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  if (sourceHint === "points") return n;
+  if (sourceHint === "fraction") return n * 100;
+  if (Math.abs(n) <= 1) return n * 100;
+  return n;
+}
+
 export async function readEarningsEventsHistory() {
   try {
     const raw = await readFile(resolve(DATA_DIR, EARNINGS_HISTORY_FILE), "utf8");
@@ -6496,7 +6520,7 @@ async function fetchYahooEarningsDates(symbol, size = 20) {
       session,
       epsActual: num(row[iAct]),
       epsEstimate: num(row[iEst]),
-      surprisePct: ehxRound(num(row[iSur]), 2),
+      surprisePct: ehxRound(asPctPoints(num(row[iSur])), 2),
     };
     // Yahoo lists duplicate event records per date — keep the richest.
     const prev = byDate.get(date);
@@ -6550,7 +6574,7 @@ async function fetchNasdaqEarningsSurprise(symbol) {
       session,
       epsActual: parseNum(r?.eps),
       epsEstimate: parseNum(r?.consensusForecast),
-      surprisePct: ehxRound(parseNum(r?.percentageSurprise), 2),
+      surprisePct: ehxRound(asPctPoints(parseNum(r?.percentageSurprise)), 2),
     });
   }
   return out.sort((a, b) => (a.date < b.date ? -1 : 1));
@@ -7196,7 +7220,7 @@ export function earningsSeasonLabels(key) {
 export function earningsEpsVerdict(ev) {
   const act = typeof ev?.epsActual === "number" && isFinite(ev.epsActual) ? ev.epsActual : null;
   const est = typeof ev?.epsEstimate === "number" && isFinite(ev.epsEstimate) ? ev.epsEstimate : null;
-  let sur = typeof ev?.surprisePct === "number" && isFinite(ev.surprisePct) ? ev.surprisePct : null;
+  let sur = asPctPoints(ev?.surprisePct);
   if (sur == null && act != null && est != null) {
     sur = Math.abs(est) > 1e-9 ? ((act - est) / Math.abs(est)) * 100 : (act === est ? 0 : act > est ? 100 : -100);
   }
@@ -17730,10 +17754,10 @@ function computeFundamentalsTrajectory(data) {
   }
 
   // 6) Earnings-surprise momentum — beating by MORE (or LESS) than before.
-  const eh = Array.isArray(f.earningsHistory) ? f.earningsHistory.filter((x) => pnum(x?.surprisePct) != null) : [];
+  const eh = Array.isArray(f.earningsHistory) ? f.earningsHistory.filter((x) => asPctPoints(x?.surprisePct) != null) : [];
   if (eh.length >= 2) {
-    const cur = Number(eh[eh.length - 1].surprisePct), prev = Number(eh[eh.length - 2].surprisePct);
-    if (Number.isFinite(cur) && Number.isFinite(prev)) {
+    const cur = asPctPoints(eh[eh.length - 1].surprisePct), prev = asPctPoints(eh[eh.length - 2].surprisePct);
+    if (cur != null && prev != null) {
       if (cur - prev >= 3 && cur >= 0) add(0.5, "widening earnings beats");
       else if (cur - prev <= -3) add(-0.5, "shrinking earnings beats");
     }
@@ -17776,10 +17800,10 @@ function scoreFundamentals(data, sectorMedianPE, sectorCapex = null, isEtf = fal
   const eh = Array.isArray(f.earningsHistory) ? f.earningsHistory : [];
   const last = eh.length ? eh[eh.length - 1] : null;
   let surp = 0, surpVal = null;
-  if (last && pnum(last.surprisePct) != null) {
+  if (last && asPctPoints(last.surprisePct) != null) {
     const ageDays = last.date ? (Date.now() - Date.parse(last.date)) / 86400000 : 0;
     if (ageDays <= 180) {
-      const p = Number(last.surprisePct);
+      const p = asPctPoints(last.surprisePct);
       surpVal = (p >= 0 ? "+" : "") + r1(p) + "%";
       surp = p > 25 ? 2 : p > 10 ? 1 : p < -25 ? -2 : p < -10 ? -1 : 0;
     }
@@ -18588,7 +18612,9 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
     && directionConfirmed && independentFamilies >= 2 && structure.clear && payoffOk && crowdedProof && countertrendProof;
 
   let state = "wait";
-  if (hardVeto || score <= -5) state = "avoid";
+  if (hardVeto) state = "avoid";
+  else if (hardWait) state = "wait";
+  else if (score <= -5) state = "avoid";
   else if (goReady) state = "go";
   const headline = state === "avoid"
     ? `Avoid — ${hardVeto === "exhaustion" ? "exhaustion/chase risk" : "falling-knife or broken setup"}`
@@ -21883,53 +21909,65 @@ function stockRet10(spot, hist) {
 }
 
 // MODULE 1 — the quality gate. A yes/no filter over the business, not the
-// price: every check that HAS data must pass; a check with no data is skipped
-// (graceful degradation) rather than failing the name — except profitability,
-// which is required (a name we can't verify as profitable can't clear a
-// quality bar). checks[] ship on the card so the reader sees what was tested.
-function stockQualityGate(data) {
+// price: every check is required. Missing profitability, debt, margin history,
+// or revenue fails closed — a name we cannot verify is not a quality dip.
+export function stockQualityGate(data) {
   const f = data?.fundamentals || {};
   const checks = [];
 
-  // Consistently profitable — positive net margin or positive free cash flow.
+  // Consistently profitable — every available field must be non-negative.
+  // Margin AND FCF both have to pass when both exist; missing both fails.
   const margin = pnumN(f.profitMargin), fcf = pnumN(f.freeCashFlow);
   if (margin == null && fcf == null) {
     checks.push({ key: "profit", label: "Consistently profitable", ok: false, detail: "no profitability data on file" });
-    return { pass: false, checks };
+  } else {
+    const profitOk = (margin == null || margin >= 0) && (fcf == null || fcf >= 0);
+    const profBits = [];
+    if (margin != null) profBits.push(`${r1(margin)}% net margin`);
+    if (fcf != null) profBits.push(`free cash flow ${fcf >= 0 ? "positive" : "negative"}`);
+    checks.push({ key: "profit", label: "Consistently profitable", ok: profitOk, detail: profBits.join(" · ") });
   }
-  const profitable = (margin != null && margin > 0) || (fcf != null && fcf > 0);
-  const profBits = [];
-  if (margin != null) profBits.push(`${r1(margin)}% net margin`);
-  if (fcf != null) profBits.push(`free cash flow ${fcf > 0 ? "positive" : "negative"}`);
-  checks.push({ key: "profit", label: "Consistently profitable", ok: profitable, detail: profBits.join(" · ") });
 
   // Debt manageable — more cash than debt, or debt/equity ≤ 2x (Yahoo reports
-  // D/E in percent, so 200 = 2x).
+  // D/E in percent, so 200 = 2x). Missing cash/debt/D/E fails closed.
+  // Negative equity (D/E < 0) also fails.
   const de = pnumN(f.debtToEquity), cash = pnumN(f.totalCash), debt = pnumN(f.totalDebt);
-  const cashRich = cash != null && debt != null && cash >= debt;
-  if (de != null || cashRich) {
+  if (cash == null || debt == null || de == null) {
     checks.push({
-      key: "debt", label: "Debt manageable", ok: cashRich || (de != null && de <= 200),
+      key: "debt", label: "Debt manageable", ok: false,
+      detail: "cash, debt, or debt/equity missing — cannot verify the balance sheet",
+    });
+  } else if (de < 0) {
+    checks.push({
+      key: "debt", label: "Debt manageable", ok: false,
+      detail: "negative equity (debt/equity < 0)",
+    });
+  } else {
+    const cashRich = cash >= debt;
+    checks.push({
+      key: "debt", label: "Debt manageable", ok: cashRich || de <= 200,
       detail: cashRich ? "more cash than debt on the balance sheet" : `debt/equity ${r2(de / 100)}x`,
     });
   }
 
   // Margins holding — latest quarterly net margin vs ~a year ago (previous
-  // quarter on thin history). Eroding by more than 3 pct points = fail: a
-  // durable business defends its margins.
+  // quarter on thin history). Missing history fails closed. Eroding by more
+  // than 3 pct points = fail: a durable business defends its margins.
   const nm = Array.isArray(f.netMarginHistory) ? f.netMarginHistory.filter((x) => pnum(x?.value) != null) : [];
-  if (nm.length >= 2) {
+  if (nm.length < 2) {
+    checks.push({ key: "margins", label: "Margins holding", ok: false, detail: "not enough margin history on file" });
+  } else {
     const cur = Number(nm[nm.length - 1].value);
     const prior = nm.length >= 5 ? Number(nm[nm.length - 5].value) : Number(nm[nm.length - 2].value);
     checks.push({
-      key: "margins", label: "Margins holding", ok: cur - prior > -3,
+      key: "margins", label: "Margins holding", ok: Number.isFinite(cur) && Number.isFinite(prior) && cur - prior > -3,
       detail: `net margin ${r1(cur)}% vs ${r1(prior)}% ${nm.length >= 5 ? "a year ago" : "last quarter"}`,
     });
   }
 
   // Revenue growing — trailing-twelve-months vs the prior four quarters when
   // eight are on file (the multi-year read), else Yahoo's latest-quarter YoY.
-  // Flat-ish (> −2%) passes; real shrinkage fails.
+  // Missing history fails closed. Flat-ish (> −2%) passes; real shrinkage fails.
   let revYoy = null, revBasis = null;
   const rh = Array.isArray(f.revenueHistory) ? f.revenueHistory.filter((x) => pnum(x?.value) != null) : [];
   if (rh.length >= 8) {
@@ -21937,8 +21975,10 @@ function stockQualityGate(data) {
     const cur = sum(rh.slice(-4)), prior = sum(rh.slice(-8, -4));
     if (prior > 0) { revYoy = (cur / prior - 1) * 100; revBasis = "trailing twelve months"; }
   }
-  if (revYoy == null) { revYoy = pnum(f.revenueGrowthYoy); revBasis = "latest quarter"; }
-  if (revYoy != null) {
+  if (revYoy == null) { revYoy = pnumN(f.revenueGrowthYoy); revBasis = "latest quarter"; }
+  if (revYoy == null) {
+    checks.push({ key: "revenue", label: "Revenue growing", ok: false, detail: "no revenue history on file" });
+  } else {
     checks.push({
       key: "revenue", label: "Revenue growing", ok: revYoy > -2,
       detail: `${revYoy >= 0 ? "+" : ""}${r1(revYoy)}% YoY (${revBasis})`,
@@ -22048,7 +22088,7 @@ function stockTrapFlags(data, grade) {
   if (lastPrint?.date) {
     const n = etDaysUntil(lastPrint.date);
     if (n != null && n <= 0 && n >= -7) {
-      const mv = pnum(lastPrint.movePct);
+      const mv = asPctPoints(lastPrint.movePct);
       flags.push({
         key: "recentEarnings", label: "Just reported earnings",
         detail: `${n === 0 ? "today" : `${-n} day${n === -1 ? "" : "s"} ago`}${mv != null ? `, moved ${mv >= 0 ? "+" : ""}${r1(mv)}% on the print` : ""} — check whether the story changed before treating this as a routine dip`,
@@ -22471,7 +22511,7 @@ function buildStockExecution(data, traps) {
   const spot = pnum(data?.spot);
   if (!(spot > 0)) return null;
   const closes = stockCloseHistory(data);
-  const prev = closes.length >= 2 ? pnum(closes[closes.length - 2]) : null;
+  const prev = closes.length >= 1 ? pnum(closes[closes.length - 1]) : null;
   const rsi = pnum(t.rsi), rsi5d = pnum(t.rsi5d);
   const priceTurn = prev != null && spot > prev;
   const momentumTurn = rsi != null && rsi5d != null && rsi > rsi5d;
@@ -23672,7 +23712,7 @@ export function buildSectorRotationRebounds(chains, gradesIndex, builtAtIso, opt
       const events = Array.isArray(data.earningsHx?.events) ? data.earningsHx.events : [];
       const recentPrint = events.length ? events[events.length - 1] : null;
       const printDays = recentPrint?.date ? sectorRotationDaysFrom(recentPrint.date, builtAtIso) : null;
-      const printMove = pnumN(recentPrint?.movePct);
+      const printMove = asPctPoints(recentPrint?.movePct);
       const nextEarnDays = f.nextEarningsDate ? sectorRotationDaysFrom(f.nextEarningsDate, builtAtIso) : null;
 
       const guards = {};
@@ -26060,7 +26100,7 @@ export function buildThesisUserMessage(r, side, macroRegime, extras = {}) {
   const hx = d.earningsHx;
   if (hx && Array.isArray(hx.events) && hx.events.length) {
     const evs = hx.events.slice(-4).map((e) =>
-      `${String(e.date).slice(0, 10)}: ${e.surprisePct != null ? `EPS surprise ${pct(e.surprisePct)}` : "surprise n/a"}${e.movePct != null ? `, stock ${pct(e.movePct)} next session` : ""}`);
+      `${String(e.date).slice(0, 10)}: ${e.surprisePct != null ? `EPS surprise ${pct(asPctPoints(e.surprisePct))}` : "surprise n/a"}${e.movePct != null ? `, stock ${pct(asPctPoints(e.movePct))} next session` : ""}`);
     L.push(`EARNINGS TRACK RECORD: ${evs.join(" | ")}.`);
   }
   if (hx && hx.next && hx.next.date) {
@@ -27533,7 +27573,7 @@ async function writeStreaksFile(chains, builtAtIso) {
   const tickers = [];
   const map = {};
   for (const [sym, data] of Object.entries(chains)) {
-    const row = computeStreakForTicker(sym, data._bars);
+    const row = computeStreakForTicker(sym, confirmedDailyBars(data._bars, data.marketState));
     if (row) { tickers.push(row); map[sym] = row; }
   }
   const payload = { builtAtIso, tickers };
@@ -29286,10 +29326,10 @@ function spillUpcoming(chains, matrix, todayEt) {
     const start = ev.session === "AM" ? spillIsoShift(ev.date, -1) : ev.date;
     const end = ev.session === "AM" ? ev.date : spillIsoShift(ev.date, 1);
     const iso = spillIsolate(start, end, macro, upcomingByGroup.get(ev.group) || new Map(), ev.driver);
-    let implied = ev.impliedMovePct;
+    let implied = asPctPoints(ev.impliedMovePct);
     if (implied == null) {
       const im = computeImpliedMoveForDate(chains[ev.driver], ev.date, ev.session);
-      implied = im ? Math.round(im.pct * 1e4) / 100 : null;
+      implied = im ? asPctPoints(im.pct, "fraction") : null;
     }
     const dChannel = matrix?.etfOnDriver?.[ev.driver] ?? null;
     let followers = (g ? g.members : []).filter((f) => f !== ev.driver).map((f) => {
@@ -29378,25 +29418,25 @@ function updateSpilloverLog(priorLog, { chains, upcoming, todayEt, builtAtIso })
   events.sort((a, b) => (a.date < b.date ? -1 : 1));
   while (events.length > SPILLOVER_LOG_MAX_EVENTS) events.shift();
   // Running per-engine forward accuracy over resolved predictions.
-  // Predictions are magnitudes in the driver's direction; realized carries its
-  // own sign. Score direction as sign(realized) vs the driver's sign, and
-  // magnitude as |pred| vs |realized| (MAE in percentage points).
+  // Direction: sign(predicted) vs sign(realized). Magnitude MAE stays in
+  // percentage points (| |pred| − |realized| |). Zero-sign rows skip the
+  // hit rate but still contribute to MAE.
   const score = (key) => {
     let hit = 0, scored = 0, mae = 0, n = 0;
     for (const row of events) {
-      if (!row.resolvedAt || row.driverRealizedPct == null) continue;
-      const dSign = Math.sign(row.driverRealizedPct);
-      if (!dSign) continue;
+      if (!row.resolvedAt) continue;
       for (const p of row.predictions || []) {
         const pred = p[key], real = p.realizedPct;
         if (pred == null || real == null) continue;
         n += 1;
         mae += Math.abs(Math.abs(pred) - Math.abs(real));
+        const pSign = Math.sign(pred), rSign = Math.sign(real);
+        if (!pSign || !rSign) continue;
         scored += 1;
-        if (Math.sign(real) === dSign) hit += 1;
+        if (pSign === rSign) hit += 1;
       }
     }
-    return n ? { n, hit: Math.round((hit / scored) * 1e4) / 1e4, mae: Math.round((mae / n) * 100) / 100 } : null;
+    return n ? { n, hit: scored ? Math.round((hit / scored) * 1e4) / 1e4 : null, mae: Math.round((mae / n) * 100) / 100 } : null;
   };
   return {
     updatedAt: builtAtIso,

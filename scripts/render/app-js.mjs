@@ -11656,6 +11656,20 @@ ${renderWorkspaceBindings()}
     if (prevEff && (prevEff in RANK) && (rawLive in RANK)){
       if (RANK[rawLive] > RANK[prevEff] && RANK[prevEff] < RANK['neutral']){ state = prevEff; held = true; }
     }
+    // Recompute drivers / fragile / gross from the FINAL state so a held
+    // risk-off chip does not show risk-on drivers and 100% gross.
+    driverList = (state === 'risk-on')
+      ? ORDER.filter(function(k){ return axes[k] && axes[k].score >= 1; }).map(function(k){ return String(axes[k].label).split(' — ')[0]; })
+      : ORDER.filter(function(k){ return axes[k] && axes[k].score <= -1; }).map(function(k){ return String(axes[k].label).split(' — ')[0].split(' (')[0]; });
+    fragile = state === 'neutral' && internalsStress;
+    if (state === 'severe-risk-off') grossMult = T.grossSevere;
+    else if (state === 'risk-off'){
+      grossMult = (T.grossRamp === false)
+        ? T.grossRiskoff
+        : 1 - (1 - T.grossRiskoff) * Math.min(1, Math.max(0, -(Number(stress) || 0)) / (T.tiltFullStress || 4));
+    }
+    else if (fragile) grossMult = T.grossFragile;
+    else grossMult = 1;
     return {
       state: state, rawState: rawLive, persisted: held,
       stress: stress, riskOffAxes: riskOffAxes, riskOnAxes: riskOnAxes,
@@ -32015,8 +32029,8 @@ ${renderWorkspaceBindings()}
     trades.forEach(function(t, idx){
       events.push({ t:t.entryMs, kind:2, id:idx, tr:t });
       events.push({ t:t.exitMs, kind:0, id:idx, tr:t });
-      var addMs = t.entryMs + (t.exitMs - t.entryMs) / 2;
-      if (addMs > t.entryMs && addMs < t.exitMs) events.push({ t:addMs, kind:1, id:idx, tr:t });
+      // Full-life optHi is look-ahead. Without a timestamped path we do not
+      // schedule mid-hold ladder adds or rotate using the recorded peak.
     });
     events.sort(function(a,b){
       if (a.t !== b.t) return a.t - b.t;
@@ -32129,22 +32143,10 @@ ${renderWorkspaceBindings()}
         if (contracts < 1){ skip.tiny++; continue; }
         var riskAmt = contracts * mlpc;
         if (committed + riskAmt > BT_HEAT_CAP * equity){
-          // Heat-blocked: only proceed by rotating out ONE qualifying winner
-          // (held >5d, has been up ≥+20%) that frees enough heat; else skip.
-          var needed = committed + riskAmt - BT_HEAT_CAP * equity;
-          var cand = null;
-          for (var rid in openMap){
-            var rp = openMap[rid];
-            if (E.t - rp.entryMs <= BT_ROT_MIN_DAYS * 86400000) continue;
-            if (rp.t.optHi == null || rp.t.optHi < BT_ROT_MIN_PNL) continue;
-            if (rp.riskUsed < needed) continue;                  // wouldn't free enough — don't waste the winner
-            if (!cand || rp.riskUsed < cand.pos.riskUsed) cand = { id:rid, pos:rp };  // smallest sufficient
-          }
-          if (!cand){ skip.heat++; continue; }
-          delete openMap[cand.id];
-          realizeClose(cand.pos, BT_ROT_MIN_PNL, E.t);
-          rotations++;
-          if (committed + riskAmt > BT_HEAT_CAP * equity){ skip.heat++; continue; }  // equity shifted the cap — bail
+          // Heat-blocked: without a timestamped path we cannot tell whether
+          // an open winner was already up +20% at this instant (optHi is
+          // full-life). Skip rather than rotate on look-ahead.
+          skip.heat++; continue;
         }
         committed += riskAmt;
         openMap[E.id] = { tranches:[{ n:contracts, offset:0, mlpc:mlpc }], riskUsed:riskAmt, t:t, entryMs:E.t, ladder:ladder };
@@ -33104,7 +33106,7 @@ ${renderWorkspaceBindings()}
   // --- Portfolio backtest sub-tab (#an-sim) ---------------------------------
   // One flexible engine (runPortfolioBacktest), five selectable run modes.
   var ACC_BT_MODES = [
-    { value:'fixed',    label:'Fixed sizing',      desc:'Baseline: Very High conviction = full 2% risk in one tranche; High conviction ladders in — 1% now, +1% added only after the option confirms by trading ≥ +' + BT_LADDER_CONFIRM + '% (the add fills at the confirmed price).' },
+    { value:'fixed',    label:'Fixed sizing',      desc:'Baseline: Very High conviction = full 2% risk in one tranche; High conviction stays 1% in a single tranche. Ladder adds are skipped because the stored record has no timestamped path (full-life peak would be look-ahead).' },
     { value:'environment', label:'Market environment', desc:'Market Analysis overlay: conviction-based risk stays half-size until the tape prints ' + ACC_ENV_FULL_DAYS + ' consecutive risk-on sessions. Full size returns on day ' + ACC_ENV_FULL_DAYS + '; ' + ACC_ENV_HALF_DAYS + ' consecutive risk-off/severe-risk-off sessions cut it in half, and neutral is always half-size. Each trade keeps its entry-date size.' },
     { value:'vol',      label:'Volatility target', desc:'Conviction base risk (2% Very High / 1.5% High) scaled by average entry IV ÷ this trade\\'s entry IV — a high-volatility name sizes smaller, a quiet one larger, clamped to ' + (BT_RISK_MIN * 100) + '–' + (BT_RISK_MAX * 100) + '%.' },
     { value:'kelly',    label:'½ Kelly',           desc:'Conviction base risk × the Half-Kelly multiplier computed walk-forward from that conviction bucket\\'s resolved per-contract record (win rate, avg win, avg loss). Buckets with fewer than ' + BT_KELLY_MIN_N + ' resolved trades fall back to the conviction base; the result is clamped to ' + (BT_RISK_MIN * 100) + '–' + (BT_RISK_MAX * 100) + '%.' },
@@ -33133,7 +33135,7 @@ ${renderWorkspaceBindings()}
       '<li>Start $' + ACC_SIM_START.toLocaleString() + '. Every position is sized from its <em>max loss</em> (for credit spreads: spread width − credit), never the credit received: contracts = floor(risk budget ÷ max loss per contract) — rounded down, so the risk limit is never exceeded. Per-trade risk is hard-capped at ' + (BT_RISK_MAX * 100) + '% of current equity.</li>' +
       '<li>Portfolio heat (total open risk) capped at ' + (BT_HEAT_CAP * 100) + '% of equity; max ' + BT_MAX_POS + ' open positions; max ' + BT_SECTOR_CAP + ' per sector (a 5th is not permitted).</li>' +
       '<li>Correlation awareness: once heat is elevated (≥' + Math.round(BT_CORR_HEAT * 100) + '% of the cap), a third open same-sector, same-direction trade is skipped.</li>' +
-      '<li>Heat-blocked new picks may rotate: close one existing winner held &gt;' + BT_ROT_MIN_DAYS + ' days that has been up ≥ +' + BT_ROT_MIN_PNL + '% on premium (banked at +' + BT_ROT_MIN_PNL + '% — the record stores entry/exit marks, not the daily path, so its recorded peak is the "currently profitable" proxy). No qualifying winner → the pick is skipped.</li>' +
+      '<li>Heat-blocked new picks are skipped. The record stores entry/exit marks and a full-life peak, not a daily path, so rotating a winner using that peak would peek at the future.</li>' +
       '<li>Winners otherwise run to the engine\\'s own exits — trades open/close on their real entry/exit dates, so concurrent risk is tracked exactly; losers resolve at the engine\\'s original cut levels.</li>' +
       '<li><b>' + escapeHtml(accBtModeLabel(mode)) + ':</b> ' + modeDesc + '</li>' +
     '</ul></details>';
@@ -35045,23 +35047,27 @@ ${renderWorkspaceBindings()}
     if(grade && Array.isArray(grade.drivers) && grade.drivers.length){
       var forD=[], against=[];
       for(var i=0;i<grade.drivers.length;i++){
-        var dr=grade.drivers[i], w=Number(dr&&dr.weight)||0; if(!w||!dr.text) continue;
-        (w*sign>0?forD:against).push({ s:Math.abs(w), text:String(dr.text) });
+        var dr=grade.drivers[i], w=Number(dr&&dr.score)||0; if(!w||!dr.label) continue;
+        (w*sign>0?forD:against).push({ s:Math.abs(w), text:String(dr.label) });
       }
       forD.sort(function(a,b){return b.s-a.s;}); against.sort(function(a,b){return b.s-a.s;});
       if(forD.length) add('good','Supports', forD.slice(0,2).map(function(d){return d.text;}).join(' · '));
       if(against.length) add('bad','Against', against.slice(0,2).map(function(d){return d.text;}).join(' · '));
     }
 
-    // Entry-timing detail (the multi-day knife / chase reads behind the state).
+    // Entry-timing detail — only score it when the grade's side matches the
+    // held side. A timing GO on the opposite model side is informational.
     var tm=grade && grade.pillars && grade.pillars.timing;
+    var gradeSide=grade && (grade.side || (isFinite(grade.total)?(grade.total>=0?'call':'put'):null));
     if(tm && (tm.headline || (tm.reasons && tm.reasons.length))){
       var tmTxt=String(tm.headline||'');
       if(tm.reasons && tm.reasons.length){
         var tmReasons=tm.reasons.map(function(r){return String(r).replace(/^[-\\s]+/,'').trim();}).filter(Boolean).join('; ');
         if(tmReasons) tmTxt += (tmTxt?' ':'')+tmReasons+'.';
       }
-      add(tm.state==='go'?'good':tm.state==='avoid'?'bad':'info', 'Entry timing', tmTxt);
+      var timingMatchesHeld=gradeSide===side;
+      add(timingMatchesHeld?(tm.state==='go'?'good':tm.state==='avoid'?'bad':'info'):'info',
+        'Entry timing', timingMatchesHeld?tmTxt:(tmTxt+' Shown as context because the grade is on the other side of this position.'));
     }
 
     // Crowd / social chatter — informational, only when there's a real skew.
@@ -35108,10 +35114,10 @@ ${renderWorkspaceBindings()}
     } else if(isFinite(pnlPct) && pnlPct<=-POS_STOP){
       action='SELL / CUT'; tone='bad'; headline='Down '+Math.abs(pnlPct).toFixed(0)+'% — past the −'+POS_STOP+'% premium stop.';
       reasons.push('You’ve hit the plan’s stop (−'+POS_STOP+'% of premium). The discipline is to cut here, not hope it back — a symmetric move on the stock is a far bigger move on the option.');
-    } else if(grade && !aligned && gMag>=8){
+    } else if(grade && !aligned && gMag>=4){
       action='SELL / THESIS TURNED'; tone='bad'; headline='The grade has flipped against your '+sideWord+'.';
       reasons.push('The current grade is '+gRound+' ('+(gTotal>=0?'bullish':'bearish')+') — it no longer supports a '+sideWord+'. Exit rather than hold a contract the model is now leaning against.');
-    } else if(grade && timing==='avoid' && isFinite(pnlPct) && pnlPct<0){
+    } else if(grade && timing==='avoid' && isFinite(pnlPct) && pnlPct<0 && aligned){
       action='SELL / EXIT'; tone='bad'; headline='Timing reads the move as exhausted or breaking.';
       reasons.push('Entry-timing is AVOID and you’re underwater — the setup that justified the trade is gone.');
     } else if(grade && aligned && timing!=='avoid'){
@@ -35139,7 +35145,7 @@ ${renderWorkspaceBindings()}
       }
     }
 
-    if(earnBeforeExp && earnDays!=null) reasons.push('⚠ Earnings ~'+earnDays+' day'+(earnDays===1?'':'s')+' out, before your expiry — an IV crush can gut a long even on a correct call. Consider closing into the print.');
+    if(earnBeforeExp && earnDays!=null) reasons.push('Earnings ~'+earnDays+' day'+(earnDays===1?'':'s')+' out, before your expiry — the plan holds through the print. An IV crush can still reprice a long even on a correct call; this is informational, not a close signal.');
     if(dte<=7) reasons.push('⚠ Only '+dte+' day'+(dte===1?'':'s')+' to expiry — gamma & theta are steep; small underlying moves swing the premium hard.');
     else if(thetaPctDay!=null && thetaPctDay>=2.5) reasons.push('⚠ Time decay ≈'+thetaPctDay.toFixed(1)+'%/day of the current premium — a flat price still bleeds you.');
 
