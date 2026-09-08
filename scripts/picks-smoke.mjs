@@ -35,7 +35,7 @@ import {
   chartPatternInstructionSignature, applyPickSizing, buildTopPicksPayload,
   canDiff13FFirmSnapshot, findLatestTwo13Fs, mergeForm4TransactionRows,
   asPctPoints, stockQualityGate, computeStreakForTicker, confirmedDailyBars,
-  capexCohortYoy,
+  capexCohortYoy, earningsEpsVerdict,
 } from "./build.mjs";
 import { buildFlowExplanation } from "../lib/flow-explanation.mjs";
 import { computeGexSummary } from "../lib/gex.mjs";
@@ -2077,6 +2077,12 @@ ok("asPctPoints: a value already in points is left alone", asPctPoints(-4) === -
 ok("asPctPoints: |x| > 2 is never multiplied again", asPctPoints(3) === 3 && asPctPoints(-25) === -25);
 ok("asPctPoints: explicit fraction hint always ×100", asPctPoints(0.04, "fraction") === 4);
 ok("asPctPoints: explicit points hint never ×100", asPctPoints(0.8, "points") === 0.8);
+ok("earnings verdict: a 0.8 point surprise stays in line, not an 80% beat",
+  earningsEpsVerdict({ surprisePct: 0.8 }) === "inline");
+ok("earnings verdict: a −4 point miss is a miss",
+  earningsEpsVerdict({ surprisePct: -4 }) === "miss");
+ok("earnings verdict: a stored −0.04 fraction is not auto-scaled at the surprise reader",
+  earningsEpsVerdict({ surprisePct: -0.04 }) === "inline");
 
 const qualityPass = stockQualityGate(mkTicker({
   fundamentals: {

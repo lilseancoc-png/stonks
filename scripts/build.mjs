@@ -877,7 +877,7 @@ function earningsCheckpointForNarrative(n, chains, nowMs) {
     const dateMs = Date.parse(String(ev?.date || "").slice(0, 10) + "T00:00:00Z");
     const ageDays = Number.isFinite(dateMs) ? Math.floor((Date.parse(nowDay + "T00:00:00Z") - dateMs) / 86400000) : null;
     if (!ev || ageDays == null || ageDays < 0 || ageDays > NARRATIVE_EARNINGS_POST_DAYS) continue;
-    const surprise = asPctPoints(ev.surprisePct);
+    const surprise = asPctPoints(ev.surprisePct, "points");
     const epsKnown = Number.isFinite(surprise);
     const guidance = ev.guidanceSrc === "call" && ["raised", "inline", "lowered"].includes(ev.guidance) ? ev.guidance : null;
     if (!epsKnown && !guidance) continue;
@@ -1991,7 +1991,7 @@ async function fetchFundamentals(symbol) {
       period: h.period || null,
       epsActual: actual,
       epsEstimate: estimate,
-      surprisePct: asPctPoints(surprisePct),
+      surprisePct: asPctPoints(surprisePct, "points"),
     };
     break;
   }
@@ -2015,7 +2015,7 @@ async function fetchFundamentals(symbol) {
       period: h.period || null,
       epsActual: actual,
       epsEstimate: estimate,
-      surprisePct: asPctPoints(surprisePct),
+      surprisePct: asPctPoints(surprisePct, "points"),
     });
   }
 
@@ -6439,9 +6439,11 @@ const ehxRound = (n, places = 4) => {
 };
 
 // Canonical surprise / display unit is percentage points (−4 means −4%).
-// Decimal fractions such as Yahoo's -0.04 become -4. Values already in
+// Decimal fractions such as a stored -0.04 move become -4. Values already in
 // points (|n| > 1) are never multiplied again. Pass sourceHint when the
 // producer is known: "fraction" always ×100, "points" never ×100.
+// Yahoo/Nasdaq EPS surprise fields and stored surprisePct are already points
+// (a 0.8% beat is 0.8) — auto would turn that into 80.
 export function asPctPoints(value, sourceHint = "auto") {
   const n = Number(value);
   if (!Number.isFinite(n)) return null;
@@ -6528,7 +6530,7 @@ async function fetchYahooEarningsDates(symbol, size = 20) {
       session,
       epsActual: num(row[iAct]),
       epsEstimate: num(row[iEst]),
-      surprisePct: ehxRound(asPctPoints(num(row[iSur])), 2),
+      surprisePct: ehxRound(asPctPoints(num(row[iSur]), "points"), 2),
     };
     // Yahoo lists duplicate event records per date — keep the richest.
     const prev = byDate.get(date);
@@ -6582,7 +6584,7 @@ async function fetchNasdaqEarningsSurprise(symbol) {
       session,
       epsActual: parseNum(r?.eps),
       epsEstimate: parseNum(r?.consensusForecast),
-      surprisePct: ehxRound(asPctPoints(parseNum(r?.percentageSurprise)), 2),
+      surprisePct: ehxRound(asPctPoints(parseNum(r?.percentageSurprise), "points"), 2),
     });
   }
   return out.sort((a, b) => (a.date < b.date ? -1 : 1));
@@ -7228,7 +7230,7 @@ export function earningsSeasonLabels(key) {
 export function earningsEpsVerdict(ev) {
   const act = typeof ev?.epsActual === "number" && isFinite(ev.epsActual) ? ev.epsActual : null;
   const est = typeof ev?.epsEstimate === "number" && isFinite(ev.epsEstimate) ? ev.epsEstimate : null;
-  let sur = asPctPoints(ev?.surprisePct);
+  let sur = asPctPoints(ev?.surprisePct, "points");
   if (sur == null && act != null && est != null) {
     sur = Math.abs(est) > 1e-9 ? ((act - est) / Math.abs(est)) * 100 : (act === est ? 0 : act > est ? 100 : -100);
   }
@@ -17784,9 +17786,9 @@ function computeFundamentalsTrajectory(data) {
   }
 
   // 6) Earnings-surprise momentum — beating by MORE (or LESS) than before.
-  const eh = Array.isArray(f.earningsHistory) ? f.earningsHistory.filter((x) => asPctPoints(x?.surprisePct) != null) : [];
+  const eh = Array.isArray(f.earningsHistory) ? f.earningsHistory.filter((x) => asPctPoints(x?.surprisePct, "points") != null) : [];
   if (eh.length >= 2) {
-    const cur = asPctPoints(eh[eh.length - 1].surprisePct), prev = asPctPoints(eh[eh.length - 2].surprisePct);
+    const cur = asPctPoints(eh[eh.length - 1].surprisePct, "points"), prev = asPctPoints(eh[eh.length - 2].surprisePct, "points");
     if (cur != null && prev != null) {
       if (cur - prev >= 3 && cur >= 0) add(0.5, "widening earnings beats");
       else if (cur - prev <= -3) add(-0.5, "shrinking earnings beats");
@@ -17830,10 +17832,10 @@ function scoreFundamentals(data, sectorMedianPE, sectorCapex = null, isEtf = fal
   const eh = Array.isArray(f.earningsHistory) ? f.earningsHistory : [];
   const last = eh.length ? eh[eh.length - 1] : null;
   let surp = 0, surpVal = null;
-  if (last && asPctPoints(last.surprisePct) != null) {
+  if (last && asPctPoints(last.surprisePct, "points") != null) {
     const ageDays = last.date ? (Date.now() - Date.parse(last.date)) / 86400000 : 0;
     if (ageDays <= 180) {
-      const p = asPctPoints(last.surprisePct);
+      const p = asPctPoints(last.surprisePct, "points");
       surpVal = (p >= 0 ? "+" : "") + r1(p) + "%";
       surp = p > 25 ? 2 : p > 10 ? 1 : p < -25 ? -2 : p < -10 ? -1 : 0;
     }
@@ -26257,7 +26259,7 @@ export function buildThesisUserMessage(r, side, macroRegime, extras = {}) {
   const hx = d.earningsHx;
   if (hx && Array.isArray(hx.events) && hx.events.length) {
     const evs = hx.events.slice(-4).map((e) =>
-      `${String(e.date).slice(0, 10)}: ${e.surprisePct != null ? `EPS surprise ${pct(asPctPoints(e.surprisePct))}` : "surprise n/a"}${e.movePct != null ? `, stock ${pct(asPctPoints(e.movePct))} next session` : ""}`);
+      `${String(e.date).slice(0, 10)}: ${e.surprisePct != null ? `EPS surprise ${pct(asPctPoints(e.surprisePct, "points"))}` : "surprise n/a"}${e.movePct != null ? `, stock ${pct(asPctPoints(e.movePct))} next session` : ""}`);
     L.push(`EARNINGS TRACK RECORD: ${evs.join(" | ")}.`);
   }
   if (hx && hx.next && hx.next.date) {

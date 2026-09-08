@@ -25,6 +25,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Fixed
 
 - **Scoring defects in grades, entries, and records.** The held-position checker ranks `{score, label}` drivers, applies timing only when the grade matches the held side, and thesis-flips at `|total| ≥ 4`. Earnings surprises stay in percentage points. Event Wait cannot become Avoid. Spillover hits compare prediction to realized. Unusual-flow narrative conflict keeps `flagged`. Browser backtests skip look-ahead ladder adds. Stock Picks quality fails closed on missing profitability, debt, margin, or revenue. Live regime hysteresis recomputes drivers. Bake and regen-picks drop stale scanner inputs. Streaks use confirmed bars.
+- **Leveraged ETF share caps and surprise units.** Live Lev ETF sizing declares per-share risk before the cash cap so a regular-session quote cannot throw. Yahoo/Nasdaq EPS surprises stay in percentage points, including sub-1% beats. A held risk-off tape keeps the bake's drivers and de-gross instead of painting a 100% recovery gross.
 
 ### Changed
 

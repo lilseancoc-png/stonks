@@ -12037,6 +12037,17 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     else if (fragile) grossMult = T.grossFragile;
     else grossMult = 1;
+    // A held defensive chip must keep the bake's drivers and de-gross. Live
+    // recovery stress is often ≥ 0, which would otherwise paint risk-on
+    // drivers and 100% gross under a still-risk-off label.
+    if (held) {
+      if (Array.isArray(baked.drivers)) driverList = baked.drivers.slice();
+      fragile = !!baked.fragile;
+      var bakedGross = n(baked.grossMult);
+      if (bakedGross != null) grossMult = bakedGross;
+      else if (state === 'severe-risk-off') grossMult = T.grossSevere;
+      else if (state === 'risk-off') grossMult = T.grossRiskoff != null ? T.grossRiskoff : grossMult;
+    }
     return {
       state: state, rawState: rawLive, persisted: held,
       stress: stress, riskOffAxes: riskOffAxes, riskOnAxes: riskOnAxes,
@@ -12068,7 +12079,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     else if (severe) body = 'Acute tightening feeds a continuous bearish Regime Bias after pillars and IV Cost, opposing calls and supporting already-qualified puts while gross is cut.';
     else if (st === 'risk-off') body = 'A tightening tape feeds a continuous bearish Regime Bias after pillars and IV Cost, opposing calls and supporting already-qualified puts while gross is reduced as stress rises.';
     else if (regime.fragile) body = 'Fragile neutral tape — price and vol read neutral but breadth and credit internals are deteriorating (' + (regime.internalsLabel || 'breadth + credit weak') + '). Warnings attenuate the continuous bias and trim gross.';
-    else body = 'A neutral descriptive state leaves ticker evidence in control, although forward scenario probabilities can still create a modest continuous bias.';
+    else body = 'A neutral descriptive state leaves ticker evidence in control, although forward scenario risk scores can still create a modest continuous bias.';
     body += ' The overlay is side-aware and cannot flip a side, recruit a below-bar name, or promote a tier. Entry Timing remains a separate execution gate.';
     var liveNote = opts && opts.live ? ' Recomputed LIVE from the fast price axes (SPY / QQQ, the VIX, the dollar, long yields, the 2Y, MOVE, crude, gold, Fear and Greed, and the global cross-asset tape — futures / yen / BTC); the slow axes (Fed path, geopolitical news, inflation, breadth, put/call, HY credit and rotation) stay from the last build. The HY-credit rail can still show live 1-day HYG/LQD context without changing its baked 5-day regime score.' : '';
     var heldNote = (regime.persisted && regime.rawState && regime.rawState !== regime.state) ? ' RECOVERING: the live read is ' + regime.rawState + ' but the chip holds the more defensive state until a build confirms.' : '';
@@ -12182,7 +12193,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     } else {
       tone = 'neutral';
       head = 'Balanced tape — no coordinated stress.';
-      body = 'No cross-asset axis is coordinated strongly enough to set a directional state. Ticker evidence leads, while the forward scenario probabilities can still produce a modest continuous bias; tape gross is <b>~' + gp + '%</b> before any additional Scenario Engine cap' + (rosterTxt ? '. Today: <b>' + rosterTxt + '</b>' : '') + '.' + overlayRule;
+      body = 'No cross-asset axis is coordinated strongly enough to set a directional state. Ticker evidence leads, while the forward scenario risk scores can still produce a modest continuous bias; tape gross is <b>~' + gp + '%</b> before any additional Scenario Engine cap' + (rosterTxt ? '. Today: <b>' + rosterTxt + '</b>' : '') + '.' + overlayRule;
       change = 'A VIX spike, a dollar / long-yield surge, an oil shock, or escalation headlines would tip it risk-off; a clean vol-crush with a dovish Fed and de-escalation would tip it risk-on.';
     }
     return { head: head, body: body, change: change, tone: tone, drivers: drv };
@@ -24796,6 +24807,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         nodes[i].textContent = 'Share cap appears with the live ETF quote.';
         continue;
       }
+      var perShareRisk = q.spot * stopPct / 100;
       var byRisk = perShareRisk > 0 ? Math.floor(budget / perShareRisk) : 0;
       var byCash = q.spot > 0 ? Math.floor(levState.account / q.spot) : 0;
       var shares = Math.min(byRisk, byCash);
