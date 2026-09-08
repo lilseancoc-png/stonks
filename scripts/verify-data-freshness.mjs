@@ -6,6 +6,8 @@
 //   node scripts/verify-data-freshness.mjs --owner=bake
 //   node scripts/verify-data-freshness.mjs --owner=unusual
 //   node scripts/verify-data-freshness.mjs --owner=oi
+//   node scripts/verify-data-freshness.mjs --owner=brief
+//   node scripts/verify-data-freshness.mjs --owner=transcripts
 //   node scripts/verify-data-freshness.mjs --owner=search-interest
 //   node scripts/verify-data-freshness.mjs --self-test
 
@@ -433,7 +435,7 @@ async function auditBake({ report, dataDir, runStartedAt, now, expectedSymbols }
   if (gradeCount !== symbols.length) fail(report, `grades.json covers ${gradeCount} names but ${symbols.length} ticker files were rebuilt`);
   else pass(report, `grades.json coverage matches ticker files (${gradeCount})`);
 
-  // Cost-control may retain an AM/PM chart read after a newer 30-minute bar
+  // Cost-control may retain an 11:00 chart read after a newer 30-minute bar
   // arrives, but that payload must be display-only everywhere. Prove the
   // published grade did not accidentally score a stale cached pattern.
   let staleChartRows = 0;
@@ -799,6 +801,23 @@ async function auditBrief({ report, dataDir, runStartedAt, now }) {
   await requireRewrittenJson(report, dataDir, "ai-usage.json", runStartedAt);
 }
 
+async function auditTranscripts({ report, dataDir, runStartedAt, now }) {
+  const payload = await requireStampedFile(
+    report,
+    dataDir,
+    "earnings-calls.json",
+    null,
+    runStartedAt,
+    now,
+    ["builtAtIso"],
+  );
+  if (payload && typeof payload === "object") {
+    const covered = payload.covered ?? Object.keys(payload.calls || {}).length;
+    pass(report, `earnings-calls.json rewritten this run (${covered} covered)`);
+  }
+  await requireRewrittenJson(report, dataDir, "ai-usage.json", runStartedAt);
+}
+
 export async function auditFreshness({
   owner,
   dataDir = DEFAULT_DATA_DIR,
@@ -806,8 +825,8 @@ export async function auditFreshness({
   now = new Date(),
   expectedSymbols = TICKERS,
 } = {}) {
-  if (!["bake", "unusual", "oi", "brief", "search-interest"].includes(owner)) {
-    throw new Error("owner must be bake|unusual|oi|brief|search-interest");
+  if (!["bake", "unusual", "oi", "brief", "search-interest", "transcripts"].includes(owner)) {
+    throw new Error("owner must be bake|unusual|oi|brief|search-interest|transcripts");
   }
   const startMs = validMs(runStartedAt);
   if (startMs == null) {
@@ -819,6 +838,7 @@ export async function auditFreshness({
   else if (owner === "unusual") await auditUnusual({ report, dataDir, runStartedAt: start, now });
   else if (owner === "oi") await auditOi({ report, dataDir, runStartedAt: start, now });
   else if (owner === "brief") await auditBrief({ report, dataDir, runStartedAt: start, now });
+  else if (owner === "transcripts") await auditTranscripts({ report, dataDir, runStartedAt: start, now });
   else await auditSearchInterest({ report, dataDir, runStartedAt: start, now });
   return report;
 }
@@ -1090,6 +1110,21 @@ async function selfTest() {
       expectedSymbols: ["TEST"],
     });
     if (briefReport.errors.length) throw new Error(renderReport(briefReport));
+    await write("earnings-calls.json", {
+      builtAtIso: briefStamp,
+      updatedAt: briefStamp,
+      universe: 1,
+      covered: 0,
+      calls: {},
+    });
+    const transcriptsReport = await auditFreshness({
+      owner: "transcripts",
+      dataDir: dir,
+      runStartedAt: briefStart.toISOString(),
+      now: new Date("2026-07-30T12:35:00.000Z"),
+      expectedSymbols: ["TEST"],
+    });
+    if (transcriptsReport.errors.length) throw new Error(renderReport(transcriptsReport));
     await write("briefs.json", { builtAtIso: stamp });
     await write("ai-usage.json", {});
 

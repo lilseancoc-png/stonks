@@ -2,8 +2,10 @@
 // Standalone earnings-call transcript pass — discover new Motley Fool
 // transcripts for the tracked universe and mint the AI briefs into
 // data/earnings-calls.json + data/transcript-<SYM>.json WITHOUT running the
-// full bake (no Yahoo, no other AI passes). Respects the same knobs as the
-// bake: TRANSCRIPTS_PER_BUILD, TRANSCRIPT_PROBES_PER_BUILD,
+// full bake (no Yahoo, no other AI passes). Production runs at 09:00 ET
+// (30 minutes before the open) and 19:00 ET (three hours after the close)
+// via daily.yml; the full bake carries the index and skips Gemini. Respects
+// the same knobs as the bake: TRANSCRIPTS_PER_BUILD, TRANSCRIPT_PROBES_PER_BUILD,
 // AI_TRANSCRIPT_MODEL / AI_TRANSCRIPT_THINK / AI_TRANSCRIPT_CHARS.
 //
 // Needs a hydrated local data/ (node scripts/sync-data.mjs pull) so the prior

@@ -14,10 +14,12 @@ import {
 import { resolveStoreKeyPath } from "../lib/store-path.mjs";
 import { serveDataKey } from "../lib/data-response.mjs";
 import { installHydratedSnapshot } from "./sync-data.mjs";
-import { BRIEF_SHARED_KEYS, SCANNER_OWNERS, keysForScannerOwner } from "../lib/data-ownership.mjs";
+import { BRIEF_SHARED_KEYS, SCANNER_OWNERS, TRANSCRIPT_SHARED_KEYS, keysForScannerOwner } from "../lib/data-ownership.mjs";
 
 assert.ok(SCANNER_OWNERS.includes("brief"), "Brief-only output must be accepted by the sync CLI");
 assert.deepEqual(keysForScannerOwner("brief"), [...BRIEF_SHARED_KEYS]);
+assert.ok(SCANNER_OWNERS.includes("transcripts"), "transcript jobs must be accepted by the sync CLI");
+assert.deepEqual(keysForScannerOwner("transcripts"), [...TRANSCRIPT_SHARED_KEYS]);
 
 const base = resolve("/tmp/stonks-private-store-smoke/data");
 assert.equal(resolveStoreKeyPath(base, "AAPL.json"), resolve(base, "AAPL.json"));

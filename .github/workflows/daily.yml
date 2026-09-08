@@ -1,16 +1,21 @@
 name: Daily build
 
 # Routes the 08:30 ET dispatch to a lightweight pre-market Brief-only refresh,
-# then runs five decision-grade full builds at 10:00, 11:00, 13:30, 15:30,
-# and 16:10 ET. Full-bake commits trigger Vercel's GitHub integration.
+# the 09:00 and 19:00 ET dispatches to an earnings-call transcript pass, then
+# runs five decision-grade full builds at 10:00, 11:00, 13:30, 15:30, and
+# 16:10 ET. Full-bake commits trigger Vercel's GitHub integration.
 #
 # Primary scheduling is handled externally by cron-job.org, which POSTs to the
-# workflow_dispatch endpoint at 08:30 (brief only), then the five full-build
-# slots above on weekdays. Three cron lines cover them:
-# `30 8,13,15 * * 1-5`, `0 10,11 * * 1-5`, and `10 16 * * 1-5`.
-# The 11:00 and 15:30 builds refresh Top Picks, chart vision, and the slower
-# swing desks. Briefs refresh at 11:00, 13:30, and 16:10 in addition to the
-# 08:30 setup; other builds carry the last coherent payload. cron-job.org runs
+# workflow_dispatch endpoint at 08:30 (brief only), 09:00 and 19:00
+# (transcripts), then the five full-build slots above on weekdays. Three cron
+# lines cover them:
+# `30 8,13,15 * * 1-5`, `0 9,10,11,19 * * 1-5`, and `10 16 * * 1-5`.
+# The 11:00 and 15:30 builds refresh Top Picks and the slower swing desks.
+# Chart vision runs only at 11:00; the 15:30 rebuild keeps the morning read
+# (stale/display-only after new 30-minute bars). Briefs refresh at 11:00,
+# 13:30, and 16:10 in addition to the 08:30 setup; other builds carry the last
+# coherent payload. Transcript summaries mint only at 09:00 (30 minutes
+# before the open) and 19:00 (three hours after the close). cron-job.org runs
 # in ET, so it — not
 # this workflow — owns DST. A separate close-bake-fallback.yml watchdog
 # dispatches only when the 16:10 bake is absent.
@@ -34,6 +39,11 @@ on:
         type: boolean
       refresh_brief:
         description: "Refresh the market Brief during a forced manual build"
+        required: false
+        default: false
+        type: boolean
+      transcripts_only:
+        description: "Run the earnings-call transcript pass only (skip the full bake)"
         required: false
         default: false
         type: boolean
@@ -69,6 +79,7 @@ jobs:
           MANUAL_TOP_PICKS: ${{ inputs.refresh_top_picks }}
           MANUAL_SWING_DESKS: ${{ inputs.refresh_swing_desks }}
           MANUAL_BRIEF: ${{ inputs.refresh_brief }}
+          TRANSCRIPTS_ONLY: ${{ inputs.transcripts_only }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -78,6 +89,14 @@ jobs:
             echo "refresh_swing_desks=${MANUAL_SWING_DESKS:-false}" >> "$GITHUB_OUTPUT"
             echo "refresh_brief=${MANUAL_BRIEF:-false}" >> "$GITHUB_OUTPUT"
             echo "Forced manual full build; bypassing the ET dispatch router (Top Picks=${MANUAL_TOP_PICKS:-false}, swing desks=${MANUAL_SWING_DESKS:-false}, Brief=${MANUAL_BRIEF:-false})."
+            exit 0
+          fi
+          if [ "${TRANSCRIPTS_ONLY:-false}" = "true" ]; then
+            echo "mode=transcripts" >> "$GITHUB_OUTPUT"
+            echo "refresh_top_picks=false" >> "$GITHUB_OUTPUT"
+            echo "refresh_swing_desks=false" >> "$GITHUB_OUTPUT"
+            echo "refresh_brief=false" >> "$GITHUB_OUTPUT"
+            echo "Manual earnings-call transcript pass; bypassing the ET dispatch router."
             exit 0
           fi
           # Route by the time GitHub RECEIVED the dispatch, not when a queued
@@ -113,6 +132,9 @@ jobs:
           if [ "$ET_DAY" -le 5 ] && [ "$ET_MIN" -ge 495 ] && [ "$ET_MIN" -le 525 ]; then
             echo "mode=brief" >> "$GITHUB_OUTPUT"
             echo "Dispatch at $LABEL routes to the pre-market Brief-only refresh."
+          elif [ "$ET_DAY" -le 5 ] && { [ "$ET_MIN" -eq 540 ] || [ "$ET_MIN" -eq 1140 ]; }; then
+            echo "mode=transcripts" >> "$GITHUB_OUTPUT"
+            echo "Dispatch at $LABEL routes to the earnings-call transcript pass."
           elif [ "$ET_DAY" -le 5 ] && { [ "$ET_MIN" -eq 600 ] || [ "$ET_MIN" -eq 660 ] || [ "$ET_MIN" -eq 810 ] || [ "$ET_MIN" -eq 930 ] || [ "$ET_MIN" -eq 970 ]; }; then
             echo "mode=build" >> "$GITHUB_OUTPUT"
             echo "Dispatch at $LABEL routes to the full market-data build (Top Picks=$REFRESH_TOP_PICKS, swing desks=$REFRESH_SWING_DESKS, Brief=$REFRESH_BRIEF)."
@@ -198,6 +220,86 @@ jobs:
           git commit -m "chore: pre-market brief $(date -u +%Y-%m-%dT%H:%MZ)"
           git push origin "HEAD:$BRANCH"
 
+  transcripts:
+    needs: route
+    if: ${{ needs.route.outputs.mode == 'transcripts' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref_name }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Hydrate data from private store
+        if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: node scripts/sync-data.mjs pull
+
+      - name: Mark freshness window
+        run: echo "FRESHNESS_RUN_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" >> "$GITHUB_ENV"
+
+      - name: Verify earnings-call schema
+        run: npm run verify:transcripts
+
+      - name: Summarize new earnings-call transcripts
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          AI_TRANSCRIPT_MODEL: ${{ vars.AI_TRANSCRIPT_MODEL }}
+          AI_DAILY_TOKEN_CAP: ${{ vars.AI_DAILY_TOKEN_CAP }}
+          AI_DAILY_CALL_CAP: ${{ vars.AI_DAILY_CALL_CAP }}
+        run: node scripts/regen-transcripts.mjs
+
+      - name: Ensure source revision is still current
+        run: |
+          set -euo pipefail
+          BRANCH="${GITHUB_REF_NAME:-main}"
+          git fetch origin "$BRANCH"
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse "origin/$BRANCH")" ]; then
+            echo "::error::Source branch moved while transcripts were generating. Refusing to publish output from stale code."
+            exit 1
+          fi
+
+      - name: Verify fresh transcript payload
+        run: node scripts/verify-data-freshness.mjs --owner=transcripts
+
+      - name: Flush verified transcripts to private store
+        if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: node scripts/sync-data.mjs push --owner=transcripts
+
+      - name: Commit verified transcripts (legacy public data)
+        if: ${{ vars.PRIVATE_DATA_ENABLED != '1' }}
+        run: |
+          set -euo pipefail
+          git config user.name "stonks-bot"
+          git config user.email "stonks-bot@users.noreply.github.com"
+          BRANCH="${GITHUB_REF_NAME:-main}"
+          git add -f data/earnings-calls.json data/ai-usage.json
+          shopt -s nullglob
+          extras=(data/transcript-*.json)
+          if [ ${#extras[@]} -gt 0 ]; then git add -f "${extras[@]}"; fi
+          if git diff --cached --quiet; then
+            echo "No transcript changes to commit."
+            exit 0
+          fi
+          git commit -m "chore: earnings-call transcripts $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push origin "HEAD:$BRANCH"
+
   build:
     needs: route
     if: ${{ needs.route.outputs.mode == 'build' }}
@@ -206,6 +308,9 @@ jobs:
       REFRESH_TOP_PICKS: ${{ needs.route.outputs.refresh_top_picks }}
       REFRESH_SWING_DESKS: ${{ needs.route.outputs.refresh_swing_desks }}
       REFRESH_BRIEF: ${{ needs.route.outputs.refresh_brief }}
+      # Dedicated 09:00 / 19:00 jobs own Gemini transcript summaries. The bake
+      # still rewrites earnings-calls.json after the data/ wipe.
+      REFRESH_TRANSCRIPTS: "false"
     steps:
       - uses: actions/checkout@v5
         with:
@@ -284,10 +389,11 @@ jobs:
           AI_DAILY_TOKEN_CAP: ${{ vars.AI_DAILY_TOKEN_CAP }}
           AI_DAILY_CALL_CAP: ${{ vars.AI_DAILY_CALL_CAP }}
           # The chart-pattern pass is the build's largest AI wall-clock block on
-          # its twice-daily cache-rollover builds (~139 fresh vision+thinking
-          # calls at ~30-60s each). 12-wide instead of the code default 6 halves
-          # that pass; call VOLUME is unchanged (~20 RPM against the 600 pacer),
-          # so this only raises in-flight parallelism, not the request rate.
+          # the 11:00 cache-rollover (~139 fresh vision+thinking calls). 12-wide
+          # instead of the code default 6 halves that pass; call VOLUME is
+          # unchanged (~20 RPM against the 600 pacer), so this only raises
+          # in-flight parallelism, not the request rate. The 15:30 Top Picks
+          # rebuild does not re-run vision.
           AI_CHART_CONCURRENCY: "12"
           # Model selection is plumbed through Actions Variables so we can
           # swap models (Gemma free tier → Gemini 2.5 Flash-Lite on paid

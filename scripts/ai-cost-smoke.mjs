@@ -23,7 +23,7 @@ assert.equal(tenAm.freshAllowed, false, "the 10:00 build must defer chart vision
 assert.equal(elevenAm.freshAllowed, true, "the 11:00 Top Picks run must allow the AM chart pass");
 assert.equal(elevenAm.bucketKey, oneThirty.bucketKey, "off-cadence midday builds remain in the AM bucket");
 assert.notEqual(elevenAm.bucketKey, threeThirty.bucketKey, "the 15:30 Top Picks run must get a PM bucket");
-assert.equal(threeThirty.freshAllowed, true, "the 15:30 Top Picks run must allow the PM chart pass");
+assert.equal(threeThirty.freshAllowed, false, "the 15:30 Top Picks run must defer the PM chart pass");
 assert.notEqual(elevenAm.bucketKey, nextEtMorning.bucketKey, "the next ET day must get a new bucket");
 assert.equal(nextEtMorning.freshAllowed, false, "the next 10:00 build must wait for its Top Picks run");
 
