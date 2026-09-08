@@ -726,18 +726,25 @@ ok("volume: hourly volume-flags read is attached + scored", bvf && bvf.available
 // --- 1d. unusual flow is factored in ---------------------------------------
 const ufSig = (g) => g.pillars.mechanicals.signals.find((s) => s.key === "unusualFlow");
 ok("flow: unavailable without scanner data", ufSig(grades.BULLA) && !ufSig(grades.BULLA).available && ufSig(grades.BULLA).score === 0);
-const mkFlag = (symbol, side, hoursAgo = 4) => ({ scannedAt: new Date(Date.now() - hoursAgo * 3600000).toISOString(), symbol, side, strike: 100, expSec: exp30, deltaVol: 800, vol: 1200, premium: 150000 });
+const mkFlag = (symbol, side, hoursAgo = 4, extra = {}) => ({ scannedAt: new Date(Date.now() - hoursAgo * 3600000).toISOString(), symbol, side, strike: 100, expSec: exp30, deltaVol: 800, vol: 1200, premium: 150000, ...extra });
 const unusualNow = { scannedAt: new Date().toISOString(), tickers: [{ symbol: "BULLA", spot: 120, topDelta: 800, contracts: [mkFlag("BULLA", "call"), mkFlag("BULLA", "call"), mkFlag("BULLA", "call"), mkFlag("BULLA", "call"), mkFlag("BULLA", "call"), mkFlag("BULLA", "put")] }] };
 const gradesUF = buildGradesIndex(chains, [], null, unusualNow, null, null, {});
 const buf = ufSig(gradesUF.BULLA);
-ok("flow: today's >=5-print call-heavy tape scores +1 from unusual.json rows", buf && buf.available && buf.score === 1 && buf.value === "5B/1S");
+ok("flow: unsigned call/put counts without ask/abv tape do not score", buf && !buf.available && buf.score === 0);
+const unusualTape = { scannedAt: new Date().toISOString(), tickers: [{ symbol: "BULLA", spot: 120, topDelta: 800, contracts: [mkFlag("BULLA", "call", 4, { tape: "ask" }), mkFlag("BULLA", "call", 4, { tape: "abv" }), mkFlag("BULLA", "call", 4, { tape: "ask" }), mkFlag("BULLA", "call", 4, { tape: "ask" }), mkFlag("BULLA", "call", 4, { tape: "ask" }), mkFlag("BULLA", "put", 4, { tape: "ask" })] }] };
+const gradesTape = buildGradesIndex(chains, [], null, unusualTape, null, null, {});
+const bTape = ufSig(gradesTape.BULLA);
+ok("flow: ask/abv tape ≥5-print call-heavy scores +1", bTape && bTape.available && bTape.score === 1 && bTape.value === "5B/1S ask");
+const unusualMid = { scannedAt: new Date().toISOString(), tickers: [{ symbol: "BULLA", spot: 120, topDelta: 800, contracts: Array.from({ length: 6 }, () => mkFlag("BULLA", "call", 4, { tape: "mid" })) }] };
+const gradesMid = buildGradesIndex(chains, [], null, unusualMid, null, null, {});
+ok("flow: midpoint tape does not set direction from unsigned counts", ufSig(gradesMid.BULLA) && !ufSig(gradesMid.BULLA).available && ufSig(gradesMid.BULLA).score === 0);
 const flowLog = { updatedAt: new Date().toISOString(), entries: [2, 8, 26, 32, 50, 74].map((h) => mkFlag("BEAR", "put", h)) };
 const gradesFP = buildGradesIndex(chains, [], null, null, null, null, { flowLog });
 const bfp = ufSig(gradesFP.BEAR);
 ok("flow: 7-day put-heavy flow-log persistence scores -1 via data.flowPersist", bfp && bfp.available && bfp.score === -1 && /^persist -1/.test(bfp.value || ""));
 const gradesFPthin = buildGradesIndex(chains, [], null, null, null, null, { flowLog: { entries: flowLog.entries.slice(0, 4) } });
 ok("flow: thin log (<5 flags in the window) stays unavailable", ufSig(gradesFPthin.BEAR) && !ufSig(gradesFPthin.BEAR).available && ufSig(gradesFPthin.BEAR).score === 0);
-const gradesPosFam = buildGradesIndex(chains, [], null, unusualNow, null, vflags, {
+const gradesPosFam = buildGradesIndex(chains, [], null, unusualTape, null, vflags, {
   oiTracker: { scannedAt: new Date().toISOString(), tickers: [{ symbol: "BULLA", callOiTotal: 9000, putOiTotal: 1000 }] },
 });
 const mechPos = gradesPosFam.BULLA.pillars.mechanicals;

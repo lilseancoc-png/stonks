@@ -12435,8 +12435,8 @@ ${renderWorkspaceBindings()}
   }
   function scenarioProbabilityHtml(prob){
     if (!prob) return '\u2014';
-    return escapeHtml(String(prob.low) + '\u2013' + String(prob.high) + '%') +
-      '<small>mid ' + escapeHtml(String(prob.mid)) + '%</small>';
+    return escapeHtml(String(prob.low) + '\u2013' + String(prob.high)) + '/100' +
+      '<small>risk score \u00b7 mid ' + escapeHtml(String(prob.mid)) + '</small>';
   }
   function scenarioHistoryHtml(engine){
     var stored = marketState.data && marketState.data.scenarioHistory;
@@ -12473,12 +12473,12 @@ ${renderWorkspaceBindings()}
         : '\u2014';
       var primary = row.primaryScenario || {};
       var primaryLabel = primary.name || '\u2014';
-      if (primary.low != null && primary.high != null) primaryLabel += ' ' + primary.low + '\u2013' + primary.high + '%';
+      if (primary.low != null && primary.high != null) primaryLabel += ' ' + primary.low + '\u2013' + primary.high + '/100';
       return '<tr><td><time datetime="' + escapeHtml(row.date || '') + '">' + escapeHtml(row.date || '\u2014') + '</time></td>' +
         '<td><b class="scenario-history-state is-' + escapeHtml(row.fragilityState || 'stable') + '">' + escapeHtml((row.currentRegime || 'unknown') + ' \u00b7 ' + (row.fragilityState || 'stable')) + '</b></td>' +
-        '<td class="scenario-history-bars"><span><i class="is-risk" style="width:' + riskOff + '%"></i><b>' + riskOff + '%</b></span>' +
-          '<span><i class="is-cont" style="width:' + continuation + '%"></i><b>' + continuation + '%</b></span>' +
-          '<span><i class="is-exhaust" style="width:' + exhaustion + '%"></i><b>' + exhaustion + '%</b></span></td>' +
+        '<td class="scenario-history-bars"><span><i class="is-risk" style="width:' + riskOff + '%"></i><b>' + riskOff + '/100</b></span>' +
+          '<span><i class="is-cont" style="width:' + continuation + '%"></i><b>' + continuation + '/100</b></span>' +
+          '<span><i class="is-exhaust" style="width:' + exhaustion + '%"></i><b>' + exhaustion + '/100</b></span></td>' +
         '<td>' + escapeHtml(gross) + '</td><td>' + escapeHtml(warnings) + '</td><td class="scenario-history-primary">' + escapeHtml(primaryLabel) + '</td></tr>';
     }).join('');
     return '<details class="scenario-history"' + (scenarioState.historyOpen ? ' open' : '') + '>' +
@@ -12575,7 +12575,7 @@ ${renderWorkspaceBindings()}
     var pastHtml = catalystCards(catalystRows.filter(function(ev){ return scenarioEventPhase(ev) === 'past'; }));
     var tabsHtml = scenarios.map(function(s){
       return '<button type="button" class="scenario-tab' + (s.key === selected.key ? ' active' : '') + '" data-scn-select="' + escapeHtml(s.key) + '">' +
-        '<span>' + escapeHtml(s.name) + '</span><b>' + escapeHtml(String(s.probability.low) + '\u2013' + String(s.probability.high) + '%') + '</b>' +
+        '<span>' + escapeHtml(s.name) + '</span><b>' + escapeHtml(String(s.probability.low) + '\u2013' + String(s.probability.high) + '/100') + '</b>' +
       '</button>';
     }).join('');
     var pathsHtml = selected.paths.map(function(path, idx){
@@ -12627,9 +12627,9 @@ ${renderWorkspaceBindings()}
           '<p>' + escapeHtml(engine.framing || 'Unvalidated deterministic scenario score \u2014 a relative risk weight, not a calibrated probability or a point forecast.') + '</p></div>' +
           '<em>v' + escapeHtml(String(engine.version || 1)) + ' \u00b7 ' + escapeHtml(formatDisplayInstant(engine.builtAtIso, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) || 'time unavailable') + '</em></header>' +
         '<div class="scenario-transition">' +
-          '<span><small>Neutral / current \u2192 risk-off</small><b class="' + (Number(probs.riskOffShiftPct) >= 55 ? 'neg' : 'zero') + '">' + escapeHtml(String(probs.riskOffShiftPct ?? '\u2014')) + '%</b><em>risk score, next 5\u201310 sessions</em></span>' +
-          '<span><small>Risk-on continuation</small><b class="pos">' + escapeHtml(String(probs.riskOnContinuationPct ?? '\u2014')) + '%</b><em>unvalidated weight</em></span>' +
-          '<span><small>Risk-on exhaustion</small><b class="' + (Number(probs.riskOnExhaustionPct) >= 55 ? 'neg' : 'zero') + '">' + escapeHtml(String(probs.riskOnExhaustionPct ?? '\u2014')) + '%</b><em>positioning + breadth</em></span>' +
+          '<span><small>Neutral / current \u2192 risk-off</small><b class="' + (Number(probs.riskOffShiftPct) >= 55 ? 'neg' : 'zero') + '">' + escapeHtml(probs.riskOffShiftPct != null ? String(probs.riskOffShiftPct) + '/100' : '\u2014') + '</b><em>risk score, next 5\u201310 sessions</em></span>' +
+          '<span><small>Risk-on continuation</small><b class="pos">' + escapeHtml(probs.riskOnContinuationPct != null ? String(probs.riskOnContinuationPct) + '/100' : '\u2014') + '</b><em>unvalidated weight</em></span>' +
+          '<span><small>Risk-on exhaustion</small><b class="' + (Number(probs.riskOnExhaustionPct) >= 55 ? 'neg' : 'zero') + '">' + escapeHtml(probs.riskOnExhaustionPct != null ? String(probs.riskOnExhaustionPct) + '/100' : '\u2014') + '</b><em>positioning + breadth</em></span>' +
           '<span><small>Scenario gross cap</small><b>' + escapeHtml(String(Math.round(Number(engine.decision?.grossMultiplier || 1) * 100))) + '%</b><em>of regime / edge budget</em></span>' +
         '</div>' +
         scenarioHistoryHtml(engine) +
@@ -14147,13 +14147,13 @@ ${renderWorkspaceBindings()}
   }
 
   // --- Gamma exposure (GEX) heatmap --------------------------------------
-  // Dealer gamma-exposure heatmap, computed entirely in the browser from the
+  // Open-interest GEX-proxy heatmap, computed entirely in the browser from the
   // baked per-ticker chain (data/<SYM>.json, lazy-loaded via the shared
   // fetchChain() — same source the Grade/Strategies tabs use). For each
   // contract:
   //   GEX = Γ(BS) × OI × 100 × spot² × 0.01   (dollar-gamma for a 1% move)
-  // Calls add +GEX (dealers assumed long gamma → buy dips / sell rips,
-  // stabilizing); puts add −GEX (dealers short gamma → amplify). Net at a
+  // Calls add +GEX (conventional: long-gamma / dampen scenario); puts add
+  // −GEX (short-gamma / amplify scenario). Net at a
   // cell = call GEX − put GEX. Black-Scholes gamma is reused from greeks()
   // at the top of this file (gamma is type-independent, so we always pass
   // 'call'); RFR is the build-time risk-free rate. Open interest is
@@ -14198,7 +14198,7 @@ ${renderWorkspaceBindings()}
     } catch (_) { return ''; }
   }
 
-  // Total dealer gamma$ across the chain at a hypothetical spot S. Used for
+  // Total conventional-sign gamma$ across the chain at a hypothetical spot S. Used for
   // the gamma-flip sweep (we vary S and find where this crosses zero).
   function gexProfileAt(contracts, S){
     if (!(S > 0)) return 0;
@@ -14211,7 +14211,7 @@ ${renderWorkspaceBindings()}
     }
     return total;
   }
-  // Gamma flip = the spot level where net dealer gamma crosses zero. Sweep a
+  // Gamma flip = the spot level where net conventional-sign GEX crosses zero. Sweep a
   // band around spot, find sign changes, return the crossing nearest spot
   // (interpolated). null when the profile never crosses in range.
   function computeGexFlip(contracts, spot){
@@ -14522,7 +14522,7 @@ ${renderWorkspaceBindings()}
     '</div>';
   }
   // The summary system: distills the computed GEX matrix into one glanceable
-  // read — where dealer hedging pulls price (LEAN), whether vol gets dampened
+  // read — where the OI-gamma proxy leans (LEAN), whether vol gets dampened
   // or amplified + a magnitude (VOL REGIME), and where the options crowd is
   // POSITIONED (call- vs put-gamma skew). Pure given the computed data; drives
   // the verdict badges, the new metric tiles, and the plain-English paragraph.
@@ -25326,9 +25326,9 @@ ${renderWorkspaceBindings()}
       }).join('');
       blocks.push(briefBlock('IV standouts', '<div class="brief-chips">' + ivt + '</div>'));
     }
-    // Dealer gamma (GEX) — SPY/QQQ net-gamma regime + flip (both briefs).
+    // GEX proxy — SPY/QQQ conventional-sign OI gamma + flip (both briefs).
     if (Array.isArray(b.gex) && b.gex.length){
-      blocks.push(briefBlock('Dealer gamma (GEX)', briefGexChips(b.gex)));
+      blocks.push(briefBlock('GEX proxy', briefGexChips(b.gex)));
     }
     // Calendar.
     if (Array.isArray(b.events) && b.events.length){

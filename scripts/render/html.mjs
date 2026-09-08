@@ -968,7 +968,7 @@ function movingAverageTrackerSection() {
 function gexSection() {
   // Card shell only — the per-ticker gamma-exposure heatmap renders
   // client-side in scripts/render/app-js.mjs (computeGex/renderGex). It
-  // computes dealer GEX (Γ × OI × 100 × spot² × 1%) for every strike and
+  // computes an OI-based GEX proxy (Γ × OI × 100 × spot² × 1%) for every strike and
   // expiration from the baked per-ticker chain (data/<SYM>.json, lazy-loaded
   // via the shared fetchChain()), so it works for any tracked name with no
   // bake-time data file of its own. The <select> is populated from

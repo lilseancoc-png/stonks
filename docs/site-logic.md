@@ -266,13 +266,13 @@ The engine has four linked layers:
    history to measure all 16 regime axes plus six leading checks: curve speed,
    VIX term structure, credit, breadth/index divergence, combined dollar and
    commodity pressure, and sentiment/positioning extremes. The output is a
-   five-to-ten-session risk-off shift probability, risk-on continuation versus
+   five-to-ten-session risk-off shift score, risk-on continuation versus
    exhaustion, a fragility warning, and a gross-exposure cap.
 3. **Layered scenarios.** The weekly set rotates among orderly disinflation,
    sticky inflation, growth scare, geopolitical shock, AI CapEx
    acceleration/slowdown, and a liquidity melt-up. The five most relevant
-   drivers are normalized to 100% total probability. Every driver has stress,
-   base, and optimistic paths with probability ranges, explicit trigger
+   drivers are normalized to 100 total risk-score weight. Every driver has stress,
+   base, and optimistic paths with score ranges, explicit trigger
    conditions, two possible market reactions, factor-shock ranges, transmission
    channels, and a historical reference pattern. These ranges deliberately
    avoid single-point return forecasts.
@@ -291,10 +291,10 @@ regime/edge budget. The Market Analysis UI also provides an equal-weight manual
 basket stress test. It does not revive or read the dormant portfolio stack, so
 the product does not claim to know a member's actual portfolio.
 
-This layer is a filter, not a forecast. Its probabilities are transparent
-model-assisted weights, historical analogs are reference patterns rather than
-promises of repetition, and every stock impact remains conditional on the
-displayed path and trigger.
+This layer is a filter, not a forecast. Its 0–100 figures are transparent
+model-assisted risk scores / relative weights (not calibrated probabilities),
+historical analogs are reference patterns rather than promises of repetition,
+and every stock impact remains conditional on the displayed path and trigger.
 
 ### Premarket leader/laggard conviction check
 

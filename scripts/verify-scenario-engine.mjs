@@ -93,7 +93,7 @@ const out = buildScenarioEngine({
 });
 
 assert.equal(out.scenarios.length, 5, "rotating scenario set");
-assert.equal(out.scenarios.reduce((sum, row) => sum + row.probability.mid, 0), 100, "scenario probability midpoints sum to 100");
+assert.equal(out.scenarios.reduce((sum, row) => sum + row.probability.mid, 0), 100, "scenario risk-score midpoints sum to 100");
 assert.ok(out.scenarios.every((row) => row.paths.length === 3), "every driver has stress/base/alternate paths");
 assert.equal(Object.keys(out.transition.axisVelocity).length, 16, "all 16 axes carry velocity");
 assert.equal(out.transition.fragility.state, "fragile", "synthetic warning cluster is fragile");

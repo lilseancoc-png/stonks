@@ -829,7 +829,7 @@ function positioningConflictsForNarrative(n, ctx) {
     const gex = u?.gex || (gexSpot > 0 && chain?.chains ? computeGexSummary(chain.chains, gexSpot, { now: ctx?.nowMs }) : null);
     if (link.expected > 0 && Number(gex?.net) < 0 && gexSpot > 0 && Number(gex?.flip) >= gexSpot) {
       score += 2 * link.weight;
-      evidence.push({ type: "positioning", category: "negative-gamma", symbol: link.symbol, severity: "high", observedAt: ctx?.unusual?.scannedAt || new Date(ctx.nowMs).toISOString(), reason: `${link.symbol} is below its gamma flip in negative dealer gamma, so hedging can amplify downside.` });
+      evidence.push({ type: "positioning", category: "negative-gamma", symbol: link.symbol, severity: "high", observedAt: ctx?.unusual?.scannedAt || new Date(ctx.nowMs).toISOString(), reason: `${link.symbol} is below its gamma flip on a negative OI-gamma proxy (conventional sign, not observed dealer inventory), so the hedging scenario can amplify downside.` });
     }
     const v = volumeBy.get(link.symbol);
     const srDir = latestConfirmedSrDirection(v);
@@ -18091,18 +18091,30 @@ function scoreTechnicals(data, streakRow, regime = "neutral") {
 function scoreMechanicals(sym, data, unusualPayload) {
   const out = [];
 
-  // Unusual options flow (aggressive bull vs bear prints). Primary: today's
-  // flagged contracts from the hourly scanner's unusual.json (shape
-  // { tickers: [{ symbol, contracts: [{ side, … }] }] }), call flags read
-  // bullish / put flags bearish. Fallback: the rolling 7-day flow-log
-  // persistence read attached as data.flowPersist in scoreAllTickers.
+  // Unusual options flow. Direction comes only from aggressive tape
+  // (last print at/above the ask) or the 7-day persistence fallback —
+  // never from unsigned call/put counts. Published unusual.json rows
+  // already keep `flagged`; missing flagged is treated as true so old
+  // store objects still work. Mid/bid/below-ask prints stay evidence
+  // on the Flow tab but do not vote here.
   let flow = 0, flowVal = null, flowOk = false;
   const uRow = Array.isArray(unusualPayload?.tickers) ? unusualPayload.tickers.find((t) => t?.symbol === sym) : null;
   const uContracts = Array.isArray(uRow?.contracts) ? uRow.contracts : null;
-  const bull = uContracts ? uContracts.filter((c) => c?.side === "call").length : null;
-  const bear = uContracts ? uContracts.filter((c) => c?.side === "put").length : null;
-  if (bull != null && bear != null && bull + bear >= 5) { flowOk = true; const ratio = (bull + 1) / (bear + 1); flowVal = bull + "B/" + bear + "S"; flow = ratio >= 1.5 ? 1 : ratio <= 0.67 ? -1 : 0; }
-  else if (data?.flowPersist && pnum(data.flowPersist.balance) != null && Math.abs(data.flowPersist.balance) >= 0.3) { flowOk = true; flow = data.flowPersist.balance > 0 ? 1 : -1; flowVal = "persist " + r2(data.flowPersist.balance); }
+  const tapeContracts = uContracts
+    ? uContracts.filter((c) => c && c.flagged !== false && ["ask", "abv"].includes(c.tape))
+    : null;
+  const bull = tapeContracts ? tapeContracts.filter((c) => c?.side === "call").length : null;
+  const bear = tapeContracts ? tapeContracts.filter((c) => c?.side === "put").length : null;
+  if (bull != null && bear != null && bull + bear >= 5) {
+    flowOk = true;
+    const ratio = (bull + 1) / (bear + 1);
+    flowVal = bull + "B/" + bear + "S ask";
+    flow = ratio >= 1.5 ? 1 : ratio <= 0.67 ? -1 : 0;
+  } else if (data?.flowPersist && pnum(data.flowPersist.balance) != null && Math.abs(data.flowPersist.balance) >= 0.3) {
+    flowOk = true;
+    flow = data.flowPersist.balance > 0 ? 1 : -1;
+    flowVal = "persist " + r2(data.flowPersist.balance);
+  }
   out.push(sig("unusualFlow", "Unusual flow", flow, flowVal, "Aggressive call vs put prints", flowOk));
 
   // Open-interest call/put skew (from OI tracker).
@@ -21125,7 +21137,7 @@ const THESIS_INVALIDATION = {
   netMargin: "margins reverse",
   trajectory: "the fundamentals trajectory flips",
   unusualFlow: "the options flow reverses",
-  oiSkew: "dealer positioning flips against the trade",
+  oiSkew: "open-interest call/put skew flips against the trade",
   shortInterest: "the short-squeeze fuel is spent",
   unusualVolume: "the volume surge fades",
   hourlyVolume: "the volume surge fades",
@@ -30529,7 +30541,7 @@ function briefClause(text, max = 110) {
   return head.length > max ? head.slice(0, max - 1).trim() + "…" : head;
 }
 
-// Human B/M/K for a signed dealer-gamma dollar figure (fact-sheet + render share).
+// Human B/M/K for a signed OI-gamma-proxy dollar figure (fact-sheet + render share).
 function briefGexFmt(n) {
   if (!Number.isFinite(n)) return "";
   const a = Math.abs(n), s = n < 0 ? "-" : "+";
@@ -30539,7 +30551,7 @@ function briefGexFmt(n) {
   return s + Math.round(a);
 }
 
-// Compact net-dealer-gamma read for the brief, mirroring computeGex() in app-js.
+// Compact OI-gamma-proxy read for the brief, mirroring computeGex() in app-js.
 // Black-Scholes gamma needs only the standard-normal PDF (no erf/ncdf), so the
 // server side stays dependency-free. Per contract GEX = Γ × OI × 100 × spot² × 1%;
 // calls add +, puts −. Net at spot gives the regime; the gamma flip is the spot
@@ -31246,7 +31258,7 @@ export function gatherBriefSignals(kind, ctx) {
     }));
   }
 
-  // Dealer gamma (GEX) for the headline index ETFs — net regime + gamma flip.
+  // GEX proxy for the headline index ETFs — conventional-sign OI gamma + flip.
   // OI is end-of-session either way, so this positioning read is valid for both
   // the pre-market and the closing brief.
   const gexArr = [];
@@ -31521,9 +31533,9 @@ function briefSystemPrompt(kind) {
       "52-week highs/lows, the heaviest-volume names vs their own 20-day average, notable unusual options flow, " +
       "the IV tracker's actionable flags (names whose implied vol is elevated vs their own history and climbing), " +
       "macro levels (the 2Y / 10Y / 30Y Treasury curve and the 2s10s spread, the dollar, VIX), foreign sovereign " +
-      "bonds including Japan's 10Y JGB, the CNN Fear & Greed reading, dealer gamma (GEX) positioning on SPY/QQQ " +
-      "(net long vs short gamma and where spot sits vs the gamma flip — short gamma below the flip means dealers " +
-      "amplify moves), the economic data that printed today or in recent days (actual vs consensus vs prior — " +
+      "bonds including Japan's 10Y JGB, the CNN Fear & Greed reading, an open-interest GEX proxy on SPY/QQQ " +
+      "(conventional call-minus-put OI gamma, not observed dealer inventory, and where spot sits vs the gamma flip — " +
+      "a negative proxy below the flip is an amplifying-hedge scenario, not a fact about dealers), the economic data that printed today or in recent days (actual vs consensus vs prior — " +
       "weigh how the tape is trading against it), today's market-wide press/wire headlines (Fed, policy, " +
       "geopolitics, trade), and what's still on today's calendar. Frame it as where the tape stands right now " +
       "and what to watch into the close — everything is a live session read, so say 'so far' rather than " +
@@ -31537,8 +31549,8 @@ function briefSystemPrompt(kind) {
       "yesterday, US index futures (S&P / Nasdaq), how overnight foreign markets traded, the risk tone, key " +
       "macro levels (the 2Y / 10Y / 30Y Treasury curve and the 2s10s spread, the dollar, VIX), foreign " +
       "sovereign bonds including Japan's 10Y JGB, the CNN Fear & Greed reading, the 20-day support/resistance " +
-      "levels to watch on SPY and QQQ, dealer gamma (GEX) positioning on SPY/QQQ (net long vs short gamma and " +
-      "where spot sits vs the gamma flip — short gamma below the flip means dealers amplify moves), notable " +
+      "levels to watch on SPY and QQQ, an open-interest GEX proxy on SPY/QQQ (conventional call-minus-put OI gamma, " +
+      "not observed dealer inventory; a negative proxy below the flip is an amplifying-hedge scenario), notable " +
       "options flow from the prior session, the IV tracker's actionable flags (names whose implied vol is " +
       "elevated vs their own history and climbing), " +
       "today's earnings + economic calendar, any economic data that already PRINTED (actual vs consensus vs prior " +
@@ -31555,8 +31567,8 @@ function briefSystemPrompt(kind) {
     "average, notable unusual options flow, the IV tracker's actionable flags (names whose implied vol is " +
     "elevated vs their own history and climbing), where macro levels (the 2Y / 10Y / 30Y Treasury curve and the 2s10s " +
     "spread, the dollar, VIX) and foreign sovereign bonds (incl. Japan's 10Y JGB) and the CNN Fear & " +
-    "Greed reading closed, dealer gamma (GEX) positioning on SPY/QQQ (net long vs short gamma and where spot sits " +
-    "vs the gamma flip), the economic data that printed today or in recent days (actual vs consensus vs prior — weigh " +
+    "Greed reading closed, an open-interest GEX proxy on SPY/QQQ (conventional call-minus-put OI gamma, not observed " +
+    "dealer inventory, and where spot sits vs the gamma flip), the economic data that printed today or in recent days (actual vs consensus vs prior — weigh " +
     "how the tape traded against it), the day's market-wide press/wire headlines (Fed, policy, geopolitics, " +
     "trade), and what's on the calendar next. Frame it as what happened today and what " +
     "to watch next." + common
@@ -31671,9 +31683,9 @@ export function briefUserMessage(kind, dateKey, signals) {
     }
   }
   if (signals.gex && signals.gex.length) {
-    lines.push("Dealer gamma (GEX) — net positioning at spot:");
+    lines.push("GEX proxy (OI gamma, conventional call+/put− sign — not observed dealer inventory) at spot:");
     for (const g of signals.gex) {
-      lines.push(`- ${g.sym}: net ${g.regime === "positive" ? "positive (long gamma — dealers dampen moves)" : "negative (short gamma — dealers amplify moves)"} ${briefGexFmt(g.net)}` +
+      lines.push(`- ${g.sym}: net ${g.regime === "positive" ? "positive proxy (stabilizing-hedge scenario)" : "negative proxy (amplifying-hedge scenario)"} ${briefGexFmt(g.net)}` +
         `${g.flip != null ? `, spot ${g.flipSide} the ${g.flip} gamma flip` : ""}.`);
     }
   }
