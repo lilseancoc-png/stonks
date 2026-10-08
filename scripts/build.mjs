@@ -32338,9 +32338,10 @@ const ARTICLE_MIN_BODY_CHARS = 400;
 // Per-article body cap fed to the ticker-judgment prompt. Bodies are the bulk
 // of that pass's input tokens (~750 tokens per full body × up to 10 articles),
 // so this is the direct input-cost lever for the most expensive AI pass.
-// Env-overridable (AI_ARTICLE_BODY_CHARS) so spend can be tuned without a
-// deploy; default unchanged at 3000 chars.
-const ARTICLE_MAX_BODY_CHARS = Number(process.env.AI_ARTICLE_BODY_CHARS) || 3000;
+// Env-overridable (AI_ARTICLE_BODY_CHARS, wired into daily.yml as an Actions
+// variable) so spend can be tuned without a deploy. Default 1500 matches
+// RSS_DESC_MAX_CHARS, so fetched bodies and RSS descriptions share one cap.
+const ARTICLE_MAX_BODY_CHARS = Number(process.env.AI_ARTICLE_BODY_CHARS) || 1500;
 const ARTICLE_PARA_MIN_CHARS = 40;
 const PAYWALL_PHRASES = [
   "subscribe to continue",

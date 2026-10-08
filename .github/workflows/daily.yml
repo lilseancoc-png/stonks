@@ -412,6 +412,9 @@ jobs:
           # parity check passes (scripts/ab-signals-merge.mjs). Unset = today's
           # dedicated attachAiContractGuidance pass.
           AI_SIGNALS_COMBINED: ${{ vars.AI_SIGNALS_COMBINED }}
+          # Per-article body cap (chars) for the ticker-judgment prompt. Unset =
+          # the build.mjs default (1500, same as the RSS description cap).
+          AI_ARTICLE_BODY_CHARS: ${{ vars.AI_ARTICLE_BODY_CHARS }}
           # Optional: registered BLS Public Data API access. BLS is the
           # PRIMARY source for the macro calendar (CPI/PPI/payrolls/
           # unemployment/JOLTS — FRED only mirrors these); a key lifts the
