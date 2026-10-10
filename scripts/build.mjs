@@ -17199,6 +17199,11 @@ const PICKS_ACCURACY_MAX_CLOSED = 250;
 // event-defer, reclaim/reversal, structure, and >=1.5:1 payoff gates now bind
 // the final buy-now call. The new enrolled population gets a fresh record.
 export const PICKS_ACCURACY_RESET_EPOCH = "2026-08-08.top-picks-v3";
+// Non-destructive grade-formula tag. Unlike the reset epoch above, bumping it
+// wipes nothing: it is stamped on picks.json rosterMeta, grades.json and each
+// NEW track-record enrollment so the scorecard can split results by the grade
+// formula that selected the trade. Bump it whenever scoreTicker's weights change.
+export const GRADE_MODEL_VERSION = "2026-10-pillar-review";
 // Hard cap on the concurrently-tracked open book. Each build ships <=10
 // actionable picks, but re-entry suppression means every build surfaces NEW
 // names while the previously-enrolled ones stay open until an exit rule fires —
@@ -20897,7 +20902,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const edgeGate = opts.priorClosed ? edgeGatedConviction(opts.priorClosed) : { bar: PICKS_MIN_CONVICTION, edge: null, n: 0 };
   const minConv = edgeGate.bar;
 
-  const meta = { modelEpoch: PICKS_ACCURACY_RESET_EPOCH, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, tradeCut: minConv, strongCut: PICKS_TIER_STRONG, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], primaryScenarioGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], confluenceDemoted: [], aiUngraded: [], entryDemoted: [], aiEntryPromoted: [], aiEntryHeldBack: [], reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
+  const meta = { modelEpoch: PICKS_ACCURACY_RESET_EPOCH, gradeModelVersion: GRADE_MODEL_VERSION, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, tradeCut: minConv, strongCut: PICKS_TIER_STRONG, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], primaryScenarioGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], confluenceDemoted: [], aiUngraded: [], entryDemoted: [], aiEntryPromoted: [], aiEntryHeldBack: [], reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
 
   // Candidate set: actionable grade, OR a tactical put in a confirmed risk-off tape.
   const candidates = [];
@@ -22005,6 +22010,7 @@ export async function writeGradesFile(chains, narratives, builtAtIso, unusualPay
   const payload = {
     builtAtIso, minConviction, regimeBand: grades.regimeBand || "neutral",
     modelEpoch: grades.modelEpoch || PICKS_ACCURACY_RESET_EPOCH,
+    gradeModelVersion: GRADE_MODEL_VERSION,
     entryTimingVersion: grades.entryTimingVersion || PICKS_ENTRY_TIMING_VERSION,
     grades,
   };
@@ -27677,6 +27683,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     const thesisCat = classifyThesisCategory(p);
     open.push({
       modelEpoch: PICKS_ACCURACY_RESET_EPOCH,
+      gradeModelVersion: GRADE_MODEL_VERSION,
       symbol: p.symbol, side: p.side, tier: p.recommendation?.tier || null, label: p.recommendation?.label || null,
       score: p.total, entryDate: builtAtIso, entrySpot: r2(p.spot), lastSpot: r2(p.spot),
       // Entry-quality cohort, frozen at enrollment: "go" = the entry signal was

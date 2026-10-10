@@ -36,7 +36,7 @@ import {
   canDiff13FFirmSnapshot, findLatestTwo13Fs, mergeForm4TransactionRows,
   asPctPoints, stockQualityGate, computeStreakForTicker, confirmedDailyBars,
   capexCohortYoy, earningsEpsVerdict,
-  freshMajorContractStatus, fiveSessionReturnPct, aiReserveBlocks, ensureTickerCoverage,
+  freshMajorContractStatus, fiveSessionReturnPct, aiReserveBlocks, ensureTickerCoverage, GRADE_MODEL_VERSION,
 } from "./build.mjs";
 import { buildFlowExplanation } from "../lib/flow-explanation.mjs";
 import { computeGexSummary } from "../lib/gex.mjs";
@@ -934,6 +934,7 @@ ok("contract: pop computed", ctr && ctr.pop != null && ctr.pop >= 0 && ctr.pop <
 const picks = buildTopPicks(chains, [], null, null, null, null, 0.045, {});
 ok("picks: returns an array", Array.isArray(picks));
 ok("picks: rosterMeta attached", picks.rosterMeta && picks.rosterMeta.tradeCut === PICKS_MIN_CONVICTION);
+ok("picks: rosterMeta carries the non-destructive grade-model version", picks.rosterMeta.gradeModelVersion === GRADE_MODEL_VERSION);
 ok("model epoch: roster metadata stamps the same decision era",
   picks.rosterMeta.modelEpoch === grades.modelEpoch && picks.rosterMeta.entryTimingVersion === grades.entryTimingVersion);
 ok("picks: KNIFE timing-gated (not shipped)", !picks.some((p) => p.symbol === "KNIFE") );
