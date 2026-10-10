@@ -71,11 +71,13 @@ to **±5** so no single family dominates a thin thesis. Every signal renders as 
 chip on the card (`{key,label,score,value,note}`).
 
 **Technicals** (trend & momentum — the core read for a ~2-week option):
-RSI movement (±1), RSI extreme reading (contrarian, ±3, reversal-confirmed),
+RSI movement (±1), RSI extreme reading (contrarian, reversal-confirmed, asymmetric:
+oversold-and-turning +2, overbought-and-turning −1),
 MACD (±1), moving-average trend (±1), streak (±1), support/resistance break
 (±2), 52-week position (contrarian, ±1), a capped **standardized-move** family,
 and a confirmed chart pattern (±1 only while the exact analyzed 30-minute bars
-still match; forming or changed-bar cached reads score 0).
+still match; forming or changed-bar cached reads score 0; a falling wedge reads
++1 and a rising wedge −1).
 
 The standardized-move family computes trailing return z-scores at 5, 10 and 20
 sessions plus a volume z-score, with ATR-normalized distance or Bollinger `%B`
@@ -93,24 +95,32 @@ for signed Mechanicals and Entry Timing confirmation, not an automatic bullish
 grade point.
 
 **Mechanicals** (order flow leads price short-term):
-unusual options flow (±1), open-interest call/put skew (±1), short interest
-(squeeze setup / covering, ±1), unusual intraday volume + direction (±1).
+unusual options flow (+1 at an aggressive call/put ratio ≥1.5, −1 only at ≤0.5,
+because put buying is often a hedge), open-interest call/put skew (+1 above 1.5,
+−1 only below 0.5), short interest (+1 only when ≥15% of float is short AND shorts
+are covering ≥5% AND the 5-session return is positive; −1 when shares short rise
+≥5%), unusual intraday volume + direction (±1).
 
 **Fundamentals** (slower, but the *event* signals still move fast):
-earnings surprise (±2), EPS growth (±1/−2), revenue growth (±1/−2), analyst
-price target (±1), analyst rating *changes* (±2), P/E vs sector (±1), guidance
-(raised +3 / inline +2 / lowered −3, with a dividend-headline guard), major
-contract won/lost (+2/−3), **capital raise / dilution** (a fresh
+earnings surprise (±2; not scored when the EPS estimate is under $0.10), EPS
+growth (+1 at ≥10%, +2 at ≥30%, −2 below −25%), revenue growth (+1 at ≥8%, +2 at
+≥20%, −2 below −20%), analyst price target (+1 only at ≥20% upside, −1 at ≥10%
+downside), analyst rating *changes* (±2), P/E vs sector (±1), guidance
+(raised +3 / inline +1 / soft −1 / lowered −3, with a dividend-headline guard;
+with no guidance read the FY estimate gives +1 at ≥10% growth and −3 at ≤−10%),
+major contract won/lost (+2/−3, only while a contract/deal headline from the
+last 30 days is in the name's news — `freshMajorContractStatus`),
+**capital raise / dilution** (a fresh
 headline-flagged financing: equity/convertible issuance −2/−3, debt/notes
 −1/−2/−3, buyback +2/+3 — magnitude-scaled so a multi-billion bond raise or
 dilutive deal is a *dominant* driver, not a footnote; `data.capitalRaise`),
-free cash flow (±1), net-margin trend (±1), plus a forward **trajectory** nudge
-(±2, `computeFundamentalsTrajectory`) that votes from guidance, growth
-acceleration vs the trailing rate, analyst revisions, margin slope and
-earnings-surprise momentum — the "is the business improving or declining?" read,
-blended into the snapshot score and surfaced as a ↗/↘ arrow
-(`pillars.fundamentals.trajectory = { dir, score, confidence, reason }`), and a
-bounded **CapEx quality** signal (−2..+1).
+free cash flow (±1), and a bounded **CapEx quality** signal (−2..+0.5). The
+forward **trajectory** (`computeFundamentalsTrajectory` — guidance, growth
+acceleration, revisions, margin slope, surprise momentum) is still computed and
+shipped as `pillars.fundamentals.trajectory = { dir, score, confidence, reason }`
+for the ↗/↘ badge, Stock Picks, Sector Rotation and the AI grader prompt, but it
+is **not scored** (2026-10-10): it re-counted inputs the pillar already scores.
+Net-margin trend was removed from the score for the same reason.
 
 CapEx quality measures the sequential and year-over-year change in CapEx/Sales
 (CapEx/Operating Cash Flow is the fallback only when OCF is positive), compares

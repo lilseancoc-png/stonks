@@ -71,6 +71,7 @@ jobs:
       refresh_top_picks: ${{ steps.route.outputs.refresh_top_picks }}
       refresh_swing_desks: ${{ steps.route.outputs.refresh_swing_desks }}
       refresh_brief: ${{ steps.route.outputs.refresh_brief }}
+      refresh_narratives: ${{ steps.route.outputs.refresh_narratives }}
     steps:
       - name: Route ET dispatch window
         id: route
@@ -119,6 +120,7 @@ jobs:
           REFRESH_TOP_PICKS=false
           REFRESH_SWING_DESKS=false
           REFRESH_BRIEF=false
+          REFRESH_NARRATIVES=true
           if [ "$ET_DAY" -le 5 ] && { [ "$ET_MIN" -eq 660 ] || [ "$ET_MIN" -eq 930 ]; }; then
             REFRESH_TOP_PICKS=true
             REFRESH_SWING_DESKS=true
@@ -128,7 +130,13 @@ jobs:
           fi
           echo "refresh_top_picks=$REFRESH_TOP_PICKS" >> "$GITHUB_OUTPUT"
           echo "refresh_swing_desks=$REFRESH_SWING_DESKS" >> "$GITHUB_OUTPUT"
+          # The post-close 16:10 bake carries the 15:30 narrative read forward
+          # (no AI call): nothing trades on it and the story hasn't moved.
+          if [ "$ET_MIN" -eq 970 ]; then
+            REFRESH_NARRATIVES=false
+          fi
           echo "refresh_brief=$REFRESH_BRIEF" >> "$GITHUB_OUTPUT"
+          echo "refresh_narratives=$REFRESH_NARRATIVES" >> "$GITHUB_OUTPUT"
           if [ "$ET_DAY" -le 5 ] && [ "$ET_MIN" -ge 495 ] && [ "$ET_MIN" -le 525 ]; then
             echo "mode=brief" >> "$GITHUB_OUTPUT"
             echo "Dispatch at $LABEL routes to the pre-market Brief-only refresh."
@@ -308,6 +316,7 @@ jobs:
       REFRESH_TOP_PICKS: ${{ needs.route.outputs.refresh_top_picks }}
       REFRESH_SWING_DESKS: ${{ needs.route.outputs.refresh_swing_desks }}
       REFRESH_BRIEF: ${{ needs.route.outputs.refresh_brief }}
+      REFRESH_NARRATIVES: ${{ needs.route.outputs.refresh_narratives }}
       # Dedicated 09:00 / 19:00 jobs own Gemini transcript summaries. The bake
       # still rewrites earnings-calls.json after the data/ wipe.
       REFRESH_TRANSCRIPTS: "false"

@@ -8406,10 +8406,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (!hits.length){ box.hidden = true; box.innerHTML = ''; return; }
     box.hidden = false;
     box.innerHTML = '<span class="opt-narr-chips-label">Narratives</span>' + hits.map(function(h){
-      var sentLabel = h.n.sentiment === 'bearish' ? 'Bearish' : 'Bullish';
-      return '<span class="opt-narr-chip ' + h.side + '" title="' + escapeHtml(h.n.thesis || '') + '">' +
+      // Watchlist filler is coverage, not a call: show it as a neutral watch.
+      var isWatch = isNarrativeWatchlist(h.n);
+      var side = isWatch ? 'watch' : h.side;
+      var sentLabel = isWatch ? 'Neutral' : h.n.sentiment === 'bearish' ? 'Bearish' : 'Bullish';
+      return '<span class="opt-narr-chip ' + side + '" title="' + escapeHtml(h.n.thesis || '') + '">' +
         escapeHtml(h.n.name) +
-        '<span class="opt-narr-chip-side">' + h.side.toUpperCase() + ' · ' + sentLabel + '</span>' +
+        '<span class="opt-narr-chip-side">' + side.toUpperCase() + ' · ' + sentLabel + '</span>' +
       '</span>';
     }).join('');
   }
@@ -31898,6 +31901,31 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var s = String(iso).slice(0, 10);
     return s;
   }
+  // Grade-formula cutover markers. Trades carry the gradeModelVersion that
+  // selected them (absent on trades from before the first stamp). The record
+  // is never wiped on a formula change; instead each list splits into
+  // per-version segments, newest formula first, with a dated bar between.
+  function accGradeSegments(list){
+    var byVer = {}, order = [];
+    list.forEach(function(e){
+      var v = (e && typeof e.gradeModelVersion === 'string' && e.gradeModelVersion) || '';
+      if (!byVer[v]){ byVer[v] = { version: v, since: null, items: [] }; order.push(v); }
+      byVer[v].items.push(e);
+      var t = Date.parse(e && e.entryDate);
+      if (isFinite(t) && (byVer[v].since == null || t < byVer[v].since)) byVer[v].since = t;
+    });
+    return order.map(function(v){ return byVer[v]; }).sort(function(a, b){
+      if (!a.version !== !b.version) return a.version ? -1 : 1;   // unstamped (oldest) last
+      return (b.since || 0) - (a.since || 0);
+    });
+  }
+  function accGradeDivider(newer){
+    var when = newer && newer.since != null ? accDateShort(new Date(newer.since).toISOString()) : '—';
+    return '<div class="acc-grade-divider" role="separator" title="The grade formula changed. The track record was kept, not reset; trades are split by the formula that picked them.">' +
+      '<span class="acc-grade-divider-label">Updated grade formula from ' + escapeHtml(when) + '</span>' +
+      '<span class="acc-grade-divider-note">Above: picked by the new formula · Below: earlier trades</span>' +
+    '</div>';
+  }
   function accDaysBetween(aIso, bIso){
     var a = Date.parse(aIso), b = Date.parse(bIso);
     if (!isFinite(a) || !isFinite(b)) return null;
@@ -34417,7 +34445,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         accCheckpointsBlock(e) +
       '</div>';
     }
-    if (open.length){
+    function accOpenRowsHtml(open){
       // Group by ticker. Entries sort newest-first; groups follow their most
       // recent entry. One contract → a plain row; multiple distinct contracts
       // on the same ticker → a collapsed dropdown so the list stays tight.
@@ -34452,6 +34480,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
           '<div class="acc-dd-body">' + list.map(accOpenRow).join('') + '</div>' +
         '</details>';
       });
+      return openRows;
+    }
+    if (open.length){
+      var openSegs = accGradeSegments(open);
+      var openRows = openSegs.map(function(seg, i){
+        return (i > 0 ? accGradeDivider(openSegs[i - 1]) : '') + accOpenRowsHtml(seg.items);
+      }).join('');
       html += '<div class="accuracy-group">' +
         '<div class="accuracy-group-head">Open picks <span class="accuracy-group-n">' + open.length + '</span></div>' +
         openRows +
@@ -34497,8 +34532,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '</div>';
     }
     if (closed.length){
-      var sorted = accSortClosed(closed);
       var closedRows = '';
+      var closedSegs = accGradeSegments(closed);
+      closedSegs.forEach(function(seg, segIdx){
+      if (segIdx > 0) closedRows += accGradeDivider(closedSegs[segIdx - 1]);
+      var sorted = accSortClosed(seg.items);
       var lastStatus = null;
       sorted.forEach(function(e){
         // Exit-reason sort reads as GROUPS: emit a subhead each time the
@@ -34513,6 +34551,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
           }
         }
         closedRows += accClosedRow(e);
+      });
       });
       var sortOpts = ACC_CLOSED_SORTS.map(function(o){
         return '<option value="' + o.k + '"' + (accClosedSort === o.k ? ' selected' : '') + '>' + o.lbl + '</option>';
@@ -35675,7 +35714,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // in sync with docs/top-picks.md §2 (the four asset pillars) and §3
   // (entry timing). Purely presentational.
   var PILLAR_INFO = {
-    fundamentals: 'The health and forward trajectory of the underlying business. It scores reported earnings and revenue growth, analyst targets and revisions, valuation versus sector, guidance, major contracts, capital raises, free cash flow, margin trend, and the improving/declining trajectory audit. CapEx quality is a bounded component: it compares sequential and year-over-year CapEx intensity with the company\'s own history and eligible sector peers, penalizes material acceleration that lacks forward-revenue-estimate or improving FCF-conversion support, and gives only a modest credit when both growth and cash conversion confirm the spend. It requires five aligned quarters and a latest quarter no more than 200 days old; missing, thin, stale, or misaligned inputs stay explicitly unavailable and score zero rather than being inferred from prose.',
+    fundamentals: 'The health and forward trajectory of the underlying business. It scores reported earnings and revenue growth, analyst targets and revisions, valuation versus sector, guidance, major contracts (only while a deal headline from the last 30 days backs them), capital raises, and free cash flow. The improving/declining trajectory badge is shown for context but is not scored, because it re-reads inputs already counted here. CapEx quality is a bounded component: it compares sequential and year-over-year CapEx intensity with the company\'s own history and eligible sector peers, penalizes material acceleration that lacks forward-revenue-estimate or improving FCF-conversion support, and gives only a modest credit when both growth and cash conversion confirm the spend. It requires five aligned quarters and a latest quarter no more than 200 days old; missing, thin, stale, or misaligned inputs stay explicitly unavailable and score zero rather than being inferred from prose.',
     technicals: 'The confirmed daily price chart: RSI movement and extremes, MACD, moving-average trend, streak, confirmed support/resistance, 52-week position, one standardized-move family, and a current-bar AI chart pattern. The standardized family computes 5/10/20-session return z-scores plus volume z-score, interpreted with ATR distance and Bollinger location, but emits only one capped −1…+1 contribution — the correlated horizons never stack. Conflicting extreme horizons fail neutral. Upside extremes need trend plus expanding volume on the latest confirmed up bar; unsupported upside scores exhaustion. Downside mean reversion needs support and drying volume. Unsigned raw relative volume never earns a bullish point: directional volume remains evidence in Mechanicals and Entry Timing. A changed-bar cached chart read is display-only and scores zero.',
     mechanicals: 'The name\'s OWN options and positioning plumbing: unusual directional flow, open-interest call/put skew, short-interest change or squeeze conditions, signed hourly volume, the contrarian aggregate put/call read, overnight net call-versus-put ΔOI, gamma-squeeze setup quality, and multi-session flow persistence. Market-wide SPY/VIX and cross-asset tape are not scored again here. After the four pillars and IV Cost form the side, the separate continuous Regime overlay can support or oppose that side without beta weighting, pillar reweighting, side flips, below-bar recruitment, or tier promotion.',
     narrative: 'The story driving the stock on the name\'s OWN evidence: AI-read news catalysts, sector narrative with lifecycle/hype controls, and informational social/media context where the feed is not decision-grade. Market-wide macro, DXY, yields, breadth, credit, and volatility are not duplicated inside Narrative. They enter only through the continuous side-aware Regime overlay after the four pillars and IV Cost; the overlay does not reweight Fundamentals or Narrative, consume Entry Timing, flip a side, recruit a below-bar name, or promote a tier.',
@@ -35954,7 +35993,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
           ? pickIvCostPanelBody(pil)
           : '<ul class="pick-pillar-signals">' + sigList + '</ul>' + catSection;
       // Fundamentals trajectory badge — the forward ↗/↘ read (improving vs
-      // declining) blended into the grade, surfaced on the header so a strong
+      // declining), context only since it no longer adds to the grade, surfaced on the header so a strong
       // snapshot that's deteriorating (or a weak one that's improving) is
       // legible at a glance. Steady/no-data shows nothing.
       var trajBadge = '';
@@ -35962,7 +36001,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         var tdir = pil.trajectory.dir;
         var tcls = tdir === 'improving' ? 'sig-pos' : 'sig-neg';
         trajBadge = '<span class="pillar-traj ' + tcls + '" title="' +
-          escapeHtml('Forward trajectory: ' + tdir + (pil.trajectory.reason ? ' — ' + pil.trajectory.reason : '')) + '">' +
+          escapeHtml('Forward trajectory (context, not scored): ' + tdir + (pil.trajectory.reason ? ' — ' + pil.trajectory.reason : '')) + '">' +
           (tdir === 'improving' ? '↗' : '↘') + ' ' + escapeHtml(tdir) + '</span>';
       }
       body += '<details class="pick-pillar pick-pillar-' + k + '"' + (i === 0 ? ' open' : '') + '>' +

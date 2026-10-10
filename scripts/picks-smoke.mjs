@@ -36,6 +36,7 @@ import {
   canDiff13FFirmSnapshot, findLatestTwo13Fs, mergeForm4TransactionRows,
   asPctPoints, stockQualityGate, computeStreakForTicker, confirmedDailyBars,
   capexCohortYoy, earningsEpsVerdict,
+  freshMajorContractStatus, fiveSessionReturnPct, aiReserveBlocks, ensureTickerCoverage, GRADE_MODEL_VERSION,
 } from "./build.mjs";
 import { buildFlowExplanation } from "../lib/flow-explanation.mjs";
 import { computeGexSummary } from "../lib/gex.mjs";
@@ -933,6 +934,7 @@ ok("contract: pop computed", ctr && ctr.pop != null && ctr.pop >= 0 && ctr.pop <
 const picks = buildTopPicks(chains, [], null, null, null, null, 0.045, {});
 ok("picks: returns an array", Array.isArray(picks));
 ok("picks: rosterMeta attached", picks.rosterMeta && picks.rosterMeta.tradeCut === PICKS_MIN_CONVICTION);
+ok("picks: rosterMeta carries the non-destructive grade-model version", picks.rosterMeta.gradeModelVersion === GRADE_MODEL_VERSION);
 ok("model epoch: roster metadata stamps the same decision era",
   picks.rosterMeta.modelEpoch === grades.modelEpoch && picks.rosterMeta.entryTimingVersion === grades.entryTimingVersion);
 ok("picks: KNIFE timing-gated (not shipped)", !picks.some((p) => p.symbol === "KNIFE") );
@@ -2150,6 +2152,86 @@ ok("capex YoY: mixed cohort uses only names in both years",
     { fyLatest: { val: 10 }, fyPrior: { val: 8 } },
     { fyLatest: { val: 100 } },
   ]).yoyPct === 25);
+
+// --- 2026-10-10 grade signal revision (bullish-leaning by design) ----------
+const sigOf = (g, pillar, key) => g?.pillars?.[pillar]?.signals?.find((x) => x.key === key) || null;
+const gradeOne = (data, opts = {}, unusual = null) => buildGradesIndex({ ONE: data }, [], null, unusual, null, null, opts).ONE;
+{
+  const base = gradeOne(mkTicker({ fundamentals: { earningsGrowthYoy: 35, revenueGrowthYoy: 22, targetMeanPrice: 115, growthEstimateCurY: 5 } }));
+  ok("signals v2: EPS growth >=30% scores +2", sigOf(base, "fundamentals", "epsGrowth")?.score === 2);
+  ok("signals v2: revenue growth >=20% scores +2", sigOf(base, "fundamentals", "revGrowth")?.score === 2);
+  ok("signals v2: a +15% analyst target no longer earns a point", sigOf(base, "fundamentals", "analystTarget")?.score === 0);
+  ok("signals v2: net margin and trajectory are not scored rows",
+    !sigOf(base, "fundamentals", "netMargin") && !sigOf(base, "fundamentals", "trajectory"));
+  ok("signals v2: trajectory is still returned for display/downstream", !!base.pillars.fundamentals.trajectory?.dir);
+  const inlineG = sigOf(base, "fundamentals", "guidance");
+  ok("signals v2: in-line guidance scores +1 (was +2)", inlineG?.score === 1);
+  const fyLow = mkTicker({ fundamentals: { growthEstimateCurY: 5 } }); fyLow.aiSignals = { guidance: null, majorContract: null };
+  ok("signals v2: estimate fallback 0–10% growth scores 0", sigOf(gradeOne(fyLow), "fundamentals", "guidance")?.score === 0);
+  const fyHi = mkTicker({ fundamentals: { growthEstimateCurY: 14 } }); fyHi.aiSignals = { guidance: null, majorContract: null };
+  ok("signals v2: estimate fallback >=10% growth scores +1", sigOf(gradeOne(fyHi), "fundamentals", "guidance")?.score === 1);
+  const target20 = gradeOne(mkTicker({ fundamentals: { targetMeanPrice: 125 } }));
+  ok("signals v2: a +25% analyst target scores +1", sigOf(target20, "fundamentals", "analystTarget")?.score === 1);
+  const tiny = gradeOne(mkTicker({ fundamentals: { earningsHistory: [{ date: inEtDays(-20), epsActual: 0.03, epsEstimate: 0.02, surprisePct: 50 }] } }));
+  ok("signals v2: surprise on a <$0.10 EPS estimate is not scored", sigOf(tiny, "fundamentals", "earningsSurprise")?.score === 0);
+  const real = gradeOne(mkTicker({ fundamentals: { earningsHistory: [{ date: inEtDays(-20), epsActual: 1.4, epsEstimate: 1.0, surprisePct: 40 }] } }));
+  ok("signals v2: surprise on a normal EPS base still scores", sigOf(real, "fundamentals", "earningsSurprise")?.score === 2);
+}
+{
+  const nowMs = Date.now();
+  const withNews = (status, ageDays, title = "Acme wins $2B defense contract") => ({
+    aiSignals: { majorContract: { status } },
+    news: { headlines: [{ title, publishedAt: new Date(nowMs - ageDays * 86400000).toISOString() }] },
+  });
+  ok("major contract: a deal headline inside 30 days keeps the flag", freshMajorContractStatus(withNews("won", 5), nowMs) === "won");
+  ok("major contract: a deal headline older than 30 days expires the flag", freshMajorContractStatus(withNews("won", 40), nowMs) === null);
+  ok("major contract: a fresh but unrelated headline does not keep it", freshMajorContractStatus(withNews("lost", 2, "Acme shares slip on market weakness"), nowMs) === null);
+  ok("major contract: no headlines means not scored", freshMajorContractStatus({ aiSignals: { majorContract: { status: "won" } } }, nowMs) === null);
+  const stale = mkTicker(); Object.assign(stale, withNews("won", 45)); stale.news.sentiment = "bullish";
+  ok("major contract: an expired flag scores 0 on the grade", sigOf(gradeOne(stale), "fundamentals", "majorContract")?.score === 0);
+  const fresh = mkTicker(); Object.assign(fresh, withNews("won", 3)); fresh.news.sentiment = "bullish";
+  ok("major contract: a fresh flag still scores +2", sigOf(gradeOne(fresh), "fundamentals", "majorContract")?.score === 2);
+}
+{
+  const ob = gradeOne(mkTicker({ technicals: { rsi: 80, rsi5d: 84, macd: { hist: -0.2, line: 1, signal: 1.2 } } }));
+  ok("signals v2: overbought-and-turning RSI scores -1 (was -3)", sigOf(ob, "technicals", "rsiReading")?.score === -1);
+  const os = gradeOne(mkTicker({ technicals: { rsi: 20, rsi5d: 16, macd: { hist: 0.2, line: -1, signal: -1.2 } } }));
+  ok("signals v2: oversold-and-turning RSI scores +2 (was +3)", sigOf(os, "technicals", "rsiReading")?.score === 2);
+  const fw = gradeOne(mkTicker({ technicals: { chartPattern: { pattern: "Falling Wedge", stage: "confirmed" } } }));
+  const rw = gradeOne(mkTicker({ technicals: { chartPattern: { pattern: "Rising Wedge", stage: "confirmed" } } }));
+  ok("signals v2: falling wedge maps bullish and rising wedge bearish",
+    sigOf(fw, "technicals", "chartPattern")?.score === 1 && sigOf(rw, "technicals", "chartPattern")?.score === -1);
+}
+{
+  const flowPayload = (calls, puts) => ({ tickers: [{ symbol: "ONE", contracts: [
+    ...Array.from({ length: calls }, () => ({ side: "call", tape: "ask" })),
+    ...Array.from({ length: puts }, () => ({ side: "put", tape: "ask" })),
+  ] }] });
+  ok("signals v2: a 0.6 flow ratio is no longer bearish", sigOf(gradeOne(mkTicker(), {}, flowPayload(2, 4)), "mechanicals", "unusualFlow")?.score === 0);
+  ok("signals v2: a <=0.5 flow ratio is bearish", sigOf(gradeOne(mkTicker(), {}, flowPayload(1, 5)), "mechanicals", "unusualFlow")?.score === -1);
+  ok("signals v2: bullish flow bar unchanged at 1.5", sigOf(gradeOne(mkTicker(), {}, flowPayload(5, 1)), "mechanicals", "unusualFlow")?.score === 1);
+  const oiOpts = (c, p) => ({ oiTracker: { scannedAt: new Date().toISOString(), tickers: [{ symbol: "ONE", callOiTotal: c, putOiTotal: p }] } });
+  ok("signals v2: OI C/P 0.6 is no longer bearish", sigOf(gradeOne(mkTicker(), oiOpts(60, 100)), "mechanicals", "oiSkew")?.score === 0);
+  ok("signals v2: OI C/P below 0.5 is bearish", sigOf(gradeOne(mkTicker(), oiOpts(40, 100)), "mechanicals", "oiSkew")?.score === -1);
+  ok("signals v2: OI C/P bullish bar unchanged above 1.5", sigOf(gradeOne(mkTicker(), oiOpts(200, 100)), "mechanicals", "oiSkew")?.score === 1);
+  const siT = (pf, now, prev, bars) => mkTicker({ fundamentals: { shortInterest: { settlementDate: inEtDays(-5), percentFloat: pf, sharesShort: now, priorSharesShort: prev } }, ...(bars ? { _bars: bars } : {}) });
+  const upBars = mkBars(100, 40, 0.004), downBars = mkBars(100, 40, -0.004);
+  ok("five-session return helper reads bars", fiveSessionReturnPct({ _bars: upBars }) > 0 && fiveSessionReturnPct({ _bars: downBars }) < 0);
+  ok("signals v2: high SI alone is not bullish", sigOf(gradeOne(siT(22, 100, 100, upBars)), "mechanicals", "shortInterest")?.score === 0);
+  ok("signals v2: high SI + covering + price up scores +1", sigOf(gradeOne(siT(22, 80, 100, upBars)), "mechanicals", "shortInterest")?.score === 1);
+  ok("signals v2: covering while price falls is not a squeeze", sigOf(gradeOne(siT(22, 80, 100, downBars)), "mechanicals", "shortInterest")?.score === 0);
+  ok("signals v2: covering on low SI is not a squeeze", sigOf(gradeOne(siT(6, 80, 100, upBars)), "mechanicals", "shortInterest")?.score === 0);
+  ok("signals v2: rising short interest stays -1", sigOf(gradeOne(siT(22, 120, 100, upBars)), "mechanicals", "shortInterest")?.score === -1);
+}
+{
+  ok("AI reserve: bulk calls stop at cap minus reserve", aiReserveBlocks(3_750_000, 4_000_000, 300_000, false) === true);
+  ok("AI reserve: priority calls may use the reserve", aiReserveBlocks(3_750_000, 4_000_000, 300_000, true) === false);
+  ok("AI reserve: under the line nobody is blocked", aiReserveBlocks(3_000_000, 4_000_000, 300_000, false) === false);
+  ok("AI reserve: 0 disables the reserve", aiReserveBlocks(3_999_999, 4_000_000, 0, false) === false);
+  const covered = ensureTickerCoverage([], TICKERS.slice(0, 40));
+  ok("narratives: watchlist filler is neutral, not bullish",
+    covered.length > 0 && covered.every((n) => n.autogenerated && n.sentiment === "neutral"));
+}
 
 console.log(`\n${pass}/${pass + fail} checks passed.`);
 process.exit(fail ? 1 : 0);

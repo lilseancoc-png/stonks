@@ -16439,6 +16439,21 @@ body.tape-axm-open { overflow: hidden; }
   border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
 .acc-sort-sub:first-child { margin-top: 0; }
+/* Dated bar splitting trades picked by a newer grade formula (above) from
+   earlier ones (below). The record is kept across formula changes, not reset. */
+.acc-grade-divider {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 14px 0 10px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm, 6px);
+  border-left: 3px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+.acc-grade-divider-label { font: 700 12px/1.3 var(--font-mono); text-transform: uppercase; letter-spacing: .04em; color: var(--accent); }
+.acc-grade-divider-note { font-size: 12px; color: var(--muted-strong); }
 /* "exit: take-profit" chip on each resolved row's meta line. */
 .acc-row-meta .acc-exit { color: var(--muted-strong); font-weight: 600; }
 .acc-row {

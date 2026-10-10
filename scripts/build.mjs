@@ -1174,7 +1174,9 @@ export function ensureTickerCoverage(narratives, allSymbols) {
       thesis:
         `No single narrative is driving ${industry} on the current tape — ` +
         `these names are in scope and watched for a catalyst to break out.`,
-      sentiment: "bullish",
+      // Coverage filler carries no directional call — neutral, so no
+      // consumer (13F "most bought", ticker chips) reads it as a bullish view.
+      sentiment: "neutral",
       confidence: "low",
       strength: 10,
       status: "building",
@@ -17197,6 +17199,11 @@ const PICKS_ACCURACY_MAX_CLOSED = 250;
 // event-defer, reclaim/reversal, structure, and >=1.5:1 payoff gates now bind
 // the final buy-now call. The new enrolled population gets a fresh record.
 export const PICKS_ACCURACY_RESET_EPOCH = "2026-08-08.top-picks-v3";
+// Non-destructive grade-formula tag. Unlike the reset epoch above, bumping it
+// wipes nothing: it is stamped on picks.json rosterMeta, grades.json and each
+// NEW track-record enrollment so the scorecard can split results by the grade
+// formula that selected the trade. Bump it whenever scoreTicker's weights change.
+export const GRADE_MODEL_VERSION = "2026-10-pillar-review";
 // Hard cap on the concurrently-tracked open book. Each build ships <=10
 // actionable picks, but re-entry suppression means every build surfaces NEW
 // names while the previously-enrolled ones stay open until an exit rule fires —
@@ -17821,6 +17828,24 @@ function computeFundamentalsTrajectory(data) {
 // ============================================================================
 // The four pillars.  Each returns { score, signals:[] }, score clamped later.
 // ============================================================================
+// A won/lost major contract only counts while a contract/deal-type headline
+// from the last MAJOR_CONTRACT_MAX_AGE_DAYS is still in the name's news set.
+// The AI flag itself carries no date and can be reused from the signals cache,
+// so without this one old deal kept scoring for months. Scoring-time only — no
+// re-extraction, no extra AI. No dated supporting headline → the flag is ignored.
+const MAJOR_CONTRACT_MAX_AGE_DAYS = 30;
+export function freshMajorContractStatus(data, nowMs = Date.now()) {
+  const status = data?.aiSignals?.majorContract?.status;
+  if (status !== "won" && status !== "lost") return null;
+  const heads = Array.isArray(data?.news?.headlines) ? data.news.headlines : [];
+  const cutoff = nowMs - MAJOR_CONTRACT_MAX_AGE_DAYS * 86400000;
+  const fresh = heads.some((h) => {
+    const t = Date.parse(h?.publishedAt || "");
+    return Number.isFinite(t) && t >= cutoff && t <= nowMs + 86400000 && headlineCanContainAiSignals(h?.title);
+  });
+  return fresh ? status : null;
+}
+
 function scoreFundamentals(data, sectorMedianPE, sectorCapex = null, isEtf = false, opts = {}) {
   const f = data?.fundamentals || {};
   const out = [];
@@ -17842,26 +17867,32 @@ function scoreFundamentals(data, sectorMedianPE, sectorCapex = null, isEtf = fal
   let surp = 0, surpVal = null;
   if (last && asPctPoints(last.surprisePct, "points") != null) {
     const ageDays = last.date ? (Date.now() - Date.parse(last.date)) / 86400000 : 0;
+    // A surprise % on a near-zero estimate is noise (beating $0.02 by a
+    // penny reads "+50%"), so it only scores when |estimate| >= $0.10.
+    const est = pnumN(last.epsEstimate);
+    const tinyBase = est != null && Math.abs(est) < 0.10;
     if (ageDays <= 180) {
       const p = asPctPoints(last.surprisePct, "points");
-      surpVal = (p >= 0 ? "+" : "") + r1(p) + "%";
-      surp = p > 25 ? 2 : p > 10 ? 1 : p < -25 ? -2 : p < -10 ? -1 : 0;
+      surpVal = (p >= 0 ? "+" : "") + r1(p) + "%" + (tinyBase ? " (tiny EPS base, not scored)" : "");
+      surp = tinyBase ? 0 : p > 25 ? 2 : p > 10 ? 1 : p < -25 ? -2 : p < -10 ? -1 : 0;
     }
   }
   out.push(sig("earningsSurprise", "Earnings surprise", surp, surpVal, "Latest reported beat/miss", last != null));
 
   // EPS / revenue growth YoY.
   const eps = pnum(f.earningsGrowthYoy);
-  out.push(sig("epsGrowth", "EPS growth (YoY)", eps == null ? 0 : eps >= 10 ? 1 : eps < -25 ? -2 : 0,
+  out.push(sig("epsGrowth", "EPS growth (YoY)", eps == null ? 0 : eps >= 30 ? 2 : eps >= 10 ? 1 : eps < -25 ? -2 : 0,
     eps == null ? null : r1(eps) + "%", "Trailing EPS vs year ago", eps != null));
   const rev = pnumN(f.revenueGrowthYoy);
-  out.push(sig("revGrowth", "Revenue growth (YoY)", rev == null ? 0 : rev >= 8 ? 1 : rev < -20 ? -2 : 0,
+  out.push(sig("revGrowth", "Revenue growth (YoY)", rev == null ? 0 : rev >= 20 ? 2 : rev >= 8 ? 1 : rev < -20 ? -2 : 0,
     rev == null ? null : r1(rev) + "%", "Trailing revenue vs year ago", rev != null));
 
   // Analyst price target (needs >=5 analysts).
   const tgt = pnumN(f.targetMeanPrice), spot = pnum(data?.spot), na = pnum(f.numberOfAnalystOpinions);
   let tScore = 0, tVal = null; const tOk = tgt != null && spot > 0 && na != null && na >= 5;
-  if (tOk) { const up = (tgt / spot - 1) * 100; tVal = (up >= 0 ? "+" : "") + r1(up) + "%"; tScore = up >= 10 ? 1 : up <= -10 ? -1 : 0; }
+  if (tOk) { const up = (tgt / spot - 1) * 100; tVal = (up >= 0 ? "+" : "") + r1(up) + "%"; tScore = up >= 20 ? 1 : up <= -10 ? -1 : 0; }
+  // Consensus targets typically sit ~10–15% above spot, so only a >=20% gap
+  // is information; the bearish side stays at a target 10% below spot.
   out.push(sig("analystTarget", "Analyst price target", tScore, tVal, "Consensus target vs spot", tOk));
 
   // Analyst rating CHANGES (events move stocks).
@@ -17887,17 +17918,23 @@ function scoreFundamentals(data, sectorMedianPE, sectorCapex = null, isEtf = fal
   let gScore = 0, gVal = null;
   if (g && g.direction && g.direction !== "none") {
     gVal = g.direction;
-    gScore = g.direction === "raised" ? 3 : g.direction === "inline" ? 2 : g.direction === "lowered" ? -3 : g.direction === "soft" ? -1 : 0;
+    // In-line guidance is the default outcome, so it earns only +1.
+    gScore = g.direction === "raised" ? 3 : g.direction === "inline" ? 1 : g.direction === "lowered" ? -3 : g.direction === "soft" ? -1 : 0;
   } else {
+    // Estimate fallback: only double-digit expected growth earns a point.
     const fy = pnumN(f.growthEstimateCurY);
-    if (fy != null) { gVal = "FY est " + r1(fy) + "%"; gScore = fy >= 10 ? 2 : fy >= 0 ? 1 : fy <= -10 ? -3 : 0; }
+    if (fy != null) { gVal = "FY est " + r1(fy) + "%"; gScore = fy >= 10 ? 1 : fy <= -10 ? -3 : 0; }
   }
   out.push(sig("guidance", "Guidance", gScore, gVal, "Management/estimate forward read", gScore !== 0 || gVal != null));
 
   // Major contract / deal (discrete AI-read signal).
-  const mc = data?.aiSignals?.majorContract || null;
-  out.push(sig("majorContract", "Major contract", mc?.status === "won" ? 2 : mc?.status === "lost" ? -3 : 0,
-    mc?.status || null, "Marquee deal won/lost", !!(mc && mc.status)));
+  const mcRaw = data?.aiSignals?.majorContract?.status || null;
+  const nowMs = opts.asOfIso && Number.isFinite(Date.parse(opts.asOfIso)) ? Date.parse(opts.asOfIso) : Date.now();
+  const mcStatus = freshMajorContractStatus(data, nowMs);
+  const mcExpired = (mcRaw === "won" || mcRaw === "lost") && !mcStatus;
+  out.push(sig("majorContract", "Major contract", mcStatus === "won" ? 2 : mcStatus === "lost" ? -3 : 0,
+    mcExpired ? `${mcRaw} (no deal headline in ${MAJOR_CONTRACT_MAX_AGE_DAYS}d, not scored)` : mcRaw,
+    `Marquee deal won/lost (last ${MAJOR_CONTRACT_MAX_AGE_DAYS} days)`, !!mcRaw));
 
   // Capital raise / dilution (deterministic headline-flagged issuance). A fresh
   // equity/convertible sale dilutes (bearish), a big debt/notes offering adds
@@ -17963,24 +18000,12 @@ function scoreFundamentals(data, sectorMedianPE, sectorCapex = null, isEtf = fal
     : (fcf > 0 ? "positive" : "negative") + (fcfHx.length >= 4 ? ` (${fcfPosQ}/${fcfHx.length}q positive)` : "");
   out.push(sig("fcf", "Free cash flow", fcf == null ? 0 : fcf > 0 ? 1 : -1, fcfVal, "TTM FCF sign", fcf != null));
 
-  // Net margin trend (YoY when >=5 quarters else QoQ).
-  const nm = Array.isArray(f.netMarginHistory) ? f.netMarginHistory.filter((x) => pnum(x?.value) != null) : [];
-  let nmScore = 0, nmVal = null;
-  if (nm.length >= 2) {
-    const cur = Number(nm[nm.length - 1].value);
-    const prior = nm.length >= 5 ? Number(nm[nm.length - 5].value) : Number(nm[nm.length - 2].value);
-    if (Number.isFinite(cur) && Number.isFinite(prior)) { nmVal = (cur >= prior ? "+" : "") + r1(cur - prior) + "pp"; nmScore = cur > prior ? 1 : cur < prior ? -1 : 0; }
-  }
-  out.push(sig("netMargin", "Net margin trend", nmScore, nmVal, "Margin expanding/contracting", nm.length >= 2));
-
-  // Forward TRAJECTORY — blend an improving/declining read into the pillar so
-  // the grade reflects WHERE the business is heading, not just where it stands.
-  // The bounded nudge folds into the pillar sum; `trajectory` rides on the
-  // returned object so the card can draw a ↗/↘ arrow with the one-line reason.
+  // Net margin trend and the forward trajectory are no longer scored here:
+  // both re-counted inputs this pillar already scores (guidance, revisions,
+  // surprises, growth), which helped pin strong names at the +5 clamp. The
+  // trajectory is still computed and returned — the card's ↗/↘ badge, Stock
+  // Picks, Sector Rotation and the Top Picks prompt all read it.
   const trajectory = computeFundamentalsTrajectory(data);
-  out.push(sig("trajectory", "Fundamentals trajectory", trajectory.score,
-    trajectory.dir === "improving" ? "improving ↗" : trajectory.dir === "declining" ? "declining ↘" : "steady →",
-    trajectory.reason, trajectory.inputs >= 2));
 
   const score = out.reduce((a, s) => a + s.score, 0);
   return { score, signals: out, trajectory, capexQuality: { ...capexQuality, peerMedianPct: capexPeer } };
@@ -18006,8 +18031,11 @@ function scoreTechnicals(data, streakRow, regime = "neutral") {
     // unconditionally at 75 while oversold demanded a turn — a name grinding
     // higher in a strong uptrend was penalized as a contrarian fade with no
     // evidence momentum had actually cracked.
-    if (rsi >= 75 && redBar) rsiRead = -3;                // overbought + a turn
-    else if (rsi <= 25 && greenBar) rsiRead = 3;          // oversold + a turn
+    // Asymmetric on purpose (owner rule: a bearish call needs more evidence):
+    // buying a confirmed washout earns more than calling a top, and the old
+    // ±3 fade was the pillar's single largest weight.
+    if (rsi >= 75 && redBar) rsiRead = -1;                // overbought + a turn
+    else if (rsi <= 25 && greenBar) rsiRead = 2;          // oversold + a turn
   }
   out.push(sig("rsiReading", "RSI reading", rsiRead, rsiReadVal, "Overbought/oversold extreme", rsi != null));
 
@@ -18084,7 +18112,13 @@ function scoreTechnicals(data, streakRow, regime = "neutral") {
   const cp = t.chartPattern || null;
   let cpScore = 0;
   const cpCurrent = chartPatternDecisionEligible(cp);
-  if (cpCurrent) cpScore = /bull|breakout|ascending|cup|double bottom|inverse/i.test(cp.pattern) ? 1 : /bear|breakdown|descending|double top|head/i.test(cp.pattern) ? -1 : 0;
+  // Wedges are checked first: a falling wedge is a bullish reversal and a
+  // rising wedge a bearish one, and neither name hits the keyword lists below.
+  if (cpCurrent) {
+    const pat = String(cp.pattern || "");
+    cpScore = /falling\s+wedge/i.test(pat) ? 1 : /rising\s+wedge/i.test(pat) ? -1
+      : /bull|breakout|ascending|cup|double bottom|inverse/i.test(pat) ? 1 : /bear|breakdown|descending|double top|head/i.test(pat) ? -1 : 0;
+  }
   out.push(sig(
     "chartPattern",
     "Chart pattern",
@@ -18096,6 +18130,17 @@ function scoreTechnicals(data, streakRow, regime = "neutral") {
 
   const score = out.reduce((a, s) => a + s.score, 0);
   return { score, signals: out, standardizedMove };
+}
+
+// Close-to-close return over the last 5 confirmed sessions (in-memory bars
+// during the bake, the persisted priceSeries offline). null when too thin.
+export function fiveSessionReturnPct(data) {
+  const closes = Array.isArray(data?._bars) && data._bars.length
+    ? data._bars.map((b) => pnum(b?.c)).filter((c) => c > 0)
+    : (Array.isArray(data?.priceSeries?.c) ? data.priceSeries.c.map(pnum).filter((c) => c > 0) : []);
+  if (closes.length < 6) return null;
+  const now = closes[closes.length - 1], then = closes[closes.length - 6];
+  return then > 0 ? (now / then - 1) * 100 : null;
 }
 
 function scoreMechanicals(sym, data, unusualPayload) {
@@ -18119,7 +18164,9 @@ function scoreMechanicals(sym, data, unusualPayload) {
     flowOk = true;
     const ratio = (bull + 1) / (bear + 1);
     flowVal = bull + "B/" + bear + "S ask";
-    flow = ratio >= 1.5 ? 1 : ratio <= 0.67 ? -1 : 0;
+    // Put buying is often a holder's hedge, so the bearish read needs a
+    // clearer skew (≤0.5) than the bullish one (≥1.5).
+    flow = ratio >= 1.5 ? 1 : ratio <= 0.5 ? -1 : 0;
   } else if (data?.flowPersist && pnum(data.flowPersist.balance) != null && Math.abs(data.flowPersist.balance) >= 0.3) {
     flowOk = true;
     flow = data.flowPersist.balance > 0 ? 1 : -1;
@@ -18132,7 +18179,8 @@ function scoreMechanicals(sym, data, unusualPayload) {
   let oiScore = 0, oiVal = null;
   if (oi && pnum(oi.callOiTotal) != null && pnum(oi.putOiTotal) != null && oi.putOiTotal > 0) {
     const ratio = oi.callOiTotal / oi.putOiTotal; oiVal = r2(ratio) + " C/P";
-    oiScore = ratio > 1.5 ? 1 : ratio < 0.67 ? -1 : 0;
+    // Large put OI is mostly long holders hedging, so bearish needs < 0.5.
+    oiScore = ratio > 1.5 ? 1 : ratio < 0.5 ? -1 : 0;
   }
   out.push(sig("oiSkew", "Open interest C/P", oiScore, oiVal, "Call vs put open interest", !!oi));
 
@@ -18152,13 +18200,21 @@ function scoreMechanicals(sym, data, unusualPayload) {
     const siBits = [r1(si) + "% float"];
     if (dtc != null) siBits.push(r1(dtc) + "d cover");
     if (siChange != null) siBits.push((siChange >= 0 ? "+" : "") + r1(siChange) + "% vs prior");
+    // High short interest alone is, on average, a bearish predictor — shorts
+    // tend to be right. A squeeze read needs its trigger: heavy SI (≥15% of
+    // float) AND shorts covering (≥5% fewer shares short) AND price rising
+    // (positive 5-session return). Shorts building (≥5% more) stays −1.
+    const covering = sNow != null && sPrev != null && sPrev > 0 && sNow < sPrev * 0.95;
+    const building = sNow != null && sPrev != null && sPrev > 0 && sNow > sPrev * 1.05;
+    const ret5 = fiveSessionReturnPct(data);
+    if (building) siScore = -1;
+    else if (si >= 15 && covering && ret5 != null && ret5 > 0) siScore = 1;
+    if (ret5 != null) siBits.push((ret5 >= 0 ? "+" : "") + r1(ret5) + "% 5d");
     siVal = siBits.join(" · ");
-    if (si >= 15) siScore += 1;                                    // squeeze fuel
-    if (sNow != null && sPrev != null && sPrev > 0) { if (sNow < sPrev * 0.95) siScore += 1; else if (sNow > sPrev * 1.05) siScore -= 1; }
   }
   const siNote = finraSi
-    ? `FINRA twice-monthly snapshot${finraSi.settlementDate ? ` · ${finraSi.settlementDate}` : ""}; squeeze fuel / covering context`
-    : "Squeeze setup / covering";
+    ? `FINRA twice-monthly snapshot${finraSi.settlementDate ? ` · ${finraSi.settlementDate}` : ""}; squeeze needs ≥15% short + covering + 5d up`
+    : "Squeeze needs ≥15% short + covering + 5d up";
   out.push(sig("shortInterest", "Short interest", clamp(siScore, -1, 1), siVal, siNote, siOk));
 
   // Unusual volume, direction-signed: prefer the hourly scanner read
@@ -20846,7 +20902,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const edgeGate = opts.priorClosed ? edgeGatedConviction(opts.priorClosed) : { bar: PICKS_MIN_CONVICTION, edge: null, n: 0 };
   const minConv = edgeGate.bar;
 
-  const meta = { modelEpoch: PICKS_ACCURACY_RESET_EPOCH, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, tradeCut: minConv, strongCut: PICKS_TIER_STRONG, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], primaryScenarioGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], confluenceDemoted: [], aiUngraded: [], entryDemoted: [], aiEntryPromoted: [], aiEntryHeldBack: [], reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
+  const meta = { modelEpoch: PICKS_ACCURACY_RESET_EPOCH, gradeModelVersion: GRADE_MODEL_VERSION, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, tradeCut: minConv, strongCut: PICKS_TIER_STRONG, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], primaryScenarioGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], confluenceDemoted: [], aiUngraded: [], entryDemoted: [], aiEntryPromoted: [], aiEntryHeldBack: [], reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
 
   // Candidate set: actionable grade, OR a tactical put in a confirmed risk-off tape.
   const candidates = [];
@@ -21954,6 +22010,7 @@ export async function writeGradesFile(chains, narratives, builtAtIso, unusualPay
   const payload = {
     builtAtIso, minConviction, regimeBand: grades.regimeBand || "neutral",
     modelEpoch: grades.modelEpoch || PICKS_ACCURACY_RESET_EPOCH,
+    gradeModelVersion: GRADE_MODEL_VERSION,
     entryTimingVersion: grades.entryTimingVersion || PICKS_ENTRY_TIMING_VERSION,
     grades,
   };
@@ -23415,7 +23472,7 @@ export function buildSectorRotationRecoveryProfile(data, grade, builtAtIso, opts
   const positive = (key, detail) => add(positiveEvidence, key, detail);
   const risk = (key, detail) => add(risks, key, detail);
   const guidance = data?.aiSignals?.guidance?.direction || null;
-  const contract = data?.aiSignals?.majorContract?.status || null;
+  const contract = freshMajorContractStatus(data);
   const raiseKind = data?.capitalRaise?.kind || null;
   const analystNet = pnumN(f.analystRevisions?.net);
   const fundamentalsJudgment = f.judgment?.verdict || null;
@@ -23862,7 +23919,7 @@ export function buildSectorRotationRebounds(chains, gradesIndex, builtAtIso, opt
       const headlineRisk = sectorRotationHeadlineRisk(news, builtAtIso);
       const analystNet = pnumN(f.analystRevisions?.net);
       const guidance = data.aiSignals?.guidance?.direction || null;
-      const contract = data.aiSignals?.majorContract?.status || null;
+      const contract = freshMajorContractStatus(data, Number.isFinite(Date.parse(builtAtIso)) ? Date.parse(builtAtIso) : Date.now());
       const raiseKind = data.capitalRaise?.kind || null;
       const judgment = f.judgment?.verdict || null;
       const events = Array.isArray(data.earningsHx?.events) ? data.earningsHx.events : [];
@@ -27626,6 +27683,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     const thesisCat = classifyThesisCategory(p);
     open.push({
       modelEpoch: PICKS_ACCURACY_RESET_EPOCH,
+      gradeModelVersion: GRADE_MODEL_VERSION,
       symbol: p.symbol, side: p.side, tier: p.recommendation?.tier || null, label: p.recommendation?.label || null,
       score: p.total, entryDate: builtAtIso, entrySpot: r2(p.spot), lastSpot: r2(p.spot),
       // Entry-quality cohort, frozen at enrollment: "go" = the entry signal was
@@ -29901,7 +29959,15 @@ const AI_SLOT_POLL_BUFFER_MS = 120;
 // disables either guard explicitly.
 const AI_DAILY_TOKEN_CAP = Number(process.env.AI_DAILY_TOKEN_CAP || 4_000_000);
 const AI_DAILY_CALL_CAP = Number(process.env.AI_DAILY_CALL_CAP || 750);
+// Headroom held back under both ceilings for the few calls whose output the
+// whole page leans on (market narratives + the Brief). Bulk per-ticker passes
+// stop at cap − reserve, so on a heavy day the afternoon narrative read and the
+// post-close Brief still run instead of being the ones refused. The ceilings
+// themselves are unchanged, so worst-case daily spend cannot rise. 0 disables.
+const AI_RESERVED_TOKENS = Math.max(0, Number(process.env.AI_RESERVED_TOKENS ?? 300_000) || 0);
+const AI_RESERVED_CALLS = Math.max(0, Number(process.env.AI_RESERVED_CALLS ?? 30) || 0);
 let _aiCapLogged = false;
+let _aiReserveLogged = false;
 let _aiBudgetStopped = false;
 function aiTokensToday() {
   if (!_aiUsageState || !_aiUsageState.dates) return 0;
@@ -29934,12 +30000,31 @@ const _aiSlotTimestamps = [];
 // Serialize acquisition so two callers can't read-then-write the window in
 // parallel and accidentally both grab the last slot.
 let _aiSlotChain = Promise.resolve();
-function acquireAiSlot() {
+export function aiReserveBlocks(used, cap, reserve, priority = false) {
+  return !priority && Number(cap) > 0 && Number(reserve) > 0
+    && (Number(used) || 0) >= Math.max(0, Number(cap) - Number(reserve));
+}
+function acquireAiSlot(opts = {}) {
+  const priority = opts.reserved === true;
   const prev = _aiSlotChain;
   let release;
   _aiSlotChain = new Promise((r) => { release = r; });
   return prev.then(async () => {
     try {
+      // Non-priority callers stop short of the hard ceiling so the reserved
+      // headroom stays available for the narrative + Brief calls.
+      const reserveTokens = aiReserveBlocks(aiTokensToday(), AI_DAILY_TOKEN_CAP, AI_RESERVED_TOKENS, priority);
+      const reserveCalls = aiReserveBlocks(_aiCallsAtBuildStart + _aiAttemptSlots, AI_DAILY_CALL_CAP, AI_RESERVED_CALLS, priority);
+      if (reserveTokens || reserveCalls) {
+        _aiBudgetStopped = true;
+        if (!_aiReserveLogged) {
+          _aiReserveLogged = true;
+          console.log(`  ⚠ AI daily ${reserveTokens ? "token" : "call"} budget is down to the reserve held for narratives + the Brief — refusing other AI calls today; deterministic paths continue.`);
+        }
+        // Same wording as a hard-cap stop so classifyAiError treats it as an
+        // intentional spend stop: no retries, no failover, no health alert.
+        throw new Error(`AI daily ${reserveTokens ? "token" : "call"} cap exceeded (reserve held for narratives + the Brief)`);
+      }
       if (AI_DAILY_TOKEN_CAP > 0) {
         const spent = aiTokensToday();
         if (spent >= AI_DAILY_TOKEN_CAP) {
@@ -31764,7 +31849,7 @@ async function generateBrief(ai, kind, dateKey, signals) {
   let response, lastErr;
   for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
     try {
-      await acquireAiSlot();
+      await acquireAiSlot({ reserved: true });
       response = await ai.models.generateContent({
         model: aiModelForAttempt(AI_BRIEF_MODEL, attempt),
         config: {
@@ -35385,7 +35470,7 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
   let lastErr;
   for (let attempt = 0; attempt < NARRATIVE_MAX_ATTEMPTS; attempt++) {
     try {
-      await acquireAiSlot();
+      await acquireAiSlot({ reserved: true });
       response = await ai.models.generateContent({
         model: aiModelForAttempt(NARRATIVES_MODEL, attempt),
         // System prompt goes in config.systemInstruction (NOT inlined into
@@ -35814,8 +35899,16 @@ async function attachMarketNarratives(chains, previousHistory, macroReleaseReads
   // before the stale-fallback try/catch below, so a malformed or legacy history
   // snapshot lacking a narratives array would otherwise throw and abort the
   // whole bake. Mirrors the guards in annotateNarrativesWithLifespan.
+  // Real narratives only: the autogenerated "<Industry> Watchlist" coverage
+  // filler must never reach the prompt. Listing ~37 filler names as "previous
+  // narratives, reuse verbatim" taught the model that the slate was already
+  // covered, collapsing extraction to a single real story (Sept–Oct 2026).
+  // The name test catches legacy snapshots written before the flag existed.
   const previousNames = Array.isArray(lastSnapshot?.narratives)
-    ? lastSnapshot.narratives.map((n) => n?.name).filter(Boolean)
+    ? lastSnapshot.narratives
+      .filter((n) => n && !n.autogenerated && !/\bwatchlist$/i.test(String(n.name || "").trim()))
+      .map((n) => n.name)
+      .filter(Boolean)
     : [];
   // Macro RSS fetch — independent of the AI rate limiter, runs concurrently
   // with anything the limiter still has queued. The narrative generateContent
@@ -35843,11 +35936,23 @@ async function attachMarketNarratives(chains, previousHistory, macroReleaseReads
   const lastGood = await loadLastGoodTrends();
   console.log(`Extracting market narratives across ${Object.keys(chains).length} tickers…`);
   try {
-    const reused = canReuseNarrativeExtraction(lastGood, aiInputSig);
+    // REFRESH_NARRATIVES=false (daily.yml sets it on the post-close 16:10 ET
+    // bake) carries the prior build's extraction forward instead of spending a
+    // call: nothing trades on the post-close build, and the 15:30 read is still
+    // current. It falls through to a fresh extraction when no prior exists.
+    const skipRefresh = /^(?:0|false)$/i.test(process.env.REFRESH_NARRATIVES || "1")
+      && Array.isArray(lastGood?.narratives) && lastGood.narratives.length > 0;
+    const reused = skipRefresh || canReuseNarrativeExtraction(lastGood, aiInputSig);
     const raw = reused
-      ? { narratives: lastGood.narratives, sectorOverviews: lastGood.sectorOverviews || {} }
+      ? {
+        // Older snapshots stamped the coverage filler bullish; normalize it.
+        narratives: lastGood.narratives.map((n) => (n?.autogenerated ? { ...n, sentiment: "neutral" } : n)),
+        sectorOverviews: lastGood.sectorOverviews || {},
+      }
       : await generateMarketNarratives(ai, chains, previousNames, headlinesForPrompt, narrativeUserMessage);
-    if (reused) {
+    if (skipRefresh) {
+      console.log(`  [narratives] REFRESH_NARRATIVES=false — carrying the ${lastGood.aiGeneratedAtIso || lastGood.builtAtIso} extraction forward`);
+    } else if (reused) {
       console.log(`  [ai-cache] narratives exact-input reuse from ${lastGood.aiGeneratedAtIso || lastGood.builtAtIso}`);
     }
     const builtAtIso = new Date().toISOString();
@@ -35880,7 +35985,9 @@ async function attachMarketNarratives(chains, previousHistory, macroReleaseReads
       recentlyEnded,
       history,
       macroHeadlines,
-      aiInputSig,
+      // A carried-forward extraction keeps its own input signature so the
+      // exact-input cache never matches today's prompt against yesterday's read.
+      aiInputSig: skipRefresh ? (lastGood.aiInputSig || null) : aiInputSig,
       aiGeneratedAtIso: reused
         ? (lastGood.aiGeneratedAtIso || lastGood.builtAtIso)
         : builtAtIso,
