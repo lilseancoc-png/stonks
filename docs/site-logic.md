@@ -117,36 +117,36 @@ or conviction.
 ### Technicals
 
 - RSI movement: `±1`.
-- Reversal-confirmed RSI extreme: `±3`.
+- Reversal-confirmed RSI extreme: oversold `+2`, overbought `-1` (a bearish call needs more evidence).
 - MACD: `±1`.
 - Moving-average trend: `±1`.
 - Price streak: `±1`.
 - Confirmed support/resistance break: `±2`.
 - Contrarian 52-week position: `±1`.
 - Volume confirmation: `±1`.
-- Confirmed chart pattern: `±1` only while the exact analyzed 30-minute bars still match. A forming or changed-bar cached pattern is context, not score.
+- Confirmed chart pattern: `±1` only while the exact analyzed 30-minute bars still match (falling wedge `+1`, rising wedge `-1`). A forming or changed-bar cached pattern is context, not score.
 
 ### Mechanicals
 
-- unusual option flow: `±1`;
-- open-interest call/put skew: `±1`;
-- short-interest squeeze or covering setup: `±1`;
+- unusual option flow: `+1` at an aggressive call/put ratio of 1.5 or more, `-1` only at 0.5 or less;
+- open-interest call/put skew: `+1` above 1.5, `-1` only below 0.5;
+- short interest: `+1` only when at least 15% of float is short, shorts are covering, and the 5-session return is positive; `-1` when shares short rise 5% or more;
 - unusual stock volume plus direction: `±1`.
 
 ### Fundamentals
 
-- earnings surprise: up to `±2`;
-- EPS growth: `+1 / -2`;
-- revenue growth: `+1 / -2`;
-- target upside/downside: `±1`;
+- earnings surprise: up to `±2` (not scored when the EPS estimate is under $0.10);
+- EPS growth: `+1` at 10%, `+2` at 30%, `-2` below -25%;
+- revenue growth: `+1` at 8%, `+2` at 20%, `-2` below -20%;
+- target upside/downside: `+1` at 20% upside, `-1` at 10% downside;
 - net analyst upgrades/downgrades: up to `±2`;
 - P/E versus sector: `±1`;
-- guidance: raised `+3`, in line `+2`, lowered `-3`;
-- major contract/deal: won `+2`, lost `-3`;
+- guidance: raised `+3`, in line `+1`, soft `-1`, lowered `-3`; with no read, the FY estimate gives `+1` at 10% growth or more and `-3` at -10% or worse;
+- major contract/deal: won `+2`, lost `-3`, only while a contract/deal headline from the last 30 days is in the name's news;
 - financing/buyback event: magnitude-scaled roughly `-3…+3`;
-- free cash flow: `±1`;
-- margin direction: `±1`;
-- forward business trajectory: up to `±2`.
+- free cash flow: `±1`.
+
+Margin direction and the forward business trajectory are no longer scored (2026-10-10); both re-counted inputs above. The trajectory is still computed and shown, and Stock Picks and Sector Rotation still read it.
 
 ETFs suppress the entire company-fundamentals pillar. A fund does not have corporate earnings, guidance, contracts, or operating margins.
 
