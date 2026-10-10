@@ -31534,6 +31534,31 @@ ${renderWorkspaceBindings()}
     var s = String(iso).slice(0, 10);
     return s;
   }
+  // Grade-formula cutover markers. Trades carry the gradeModelVersion that
+  // selected them (absent on trades from before the first stamp). The record
+  // is never wiped on a formula change; instead each list splits into
+  // per-version segments, newest formula first, with a dated bar between.
+  function accGradeSegments(list){
+    var byVer = {}, order = [];
+    list.forEach(function(e){
+      var v = (e && typeof e.gradeModelVersion === 'string' && e.gradeModelVersion) || '';
+      if (!byVer[v]){ byVer[v] = { version: v, since: null, items: [] }; order.push(v); }
+      byVer[v].items.push(e);
+      var t = Date.parse(e && e.entryDate);
+      if (isFinite(t) && (byVer[v].since == null || t < byVer[v].since)) byVer[v].since = t;
+    });
+    return order.map(function(v){ return byVer[v]; }).sort(function(a, b){
+      if (!a.version !== !b.version) return a.version ? -1 : 1;   // unstamped (oldest) last
+      return (b.since || 0) - (a.since || 0);
+    });
+  }
+  function accGradeDivider(newer){
+    var when = newer && newer.since != null ? accDateShort(new Date(newer.since).toISOString()) : '—';
+    return '<div class="acc-grade-divider" role="separator" title="The grade formula changed. The track record was kept, not reset; trades are split by the formula that picked them.">' +
+      '<span class="acc-grade-divider-label">Updated grade formula from ' + escapeHtml(when) + '</span>' +
+      '<span class="acc-grade-divider-note">Above: picked by the new formula · Below: earlier trades</span>' +
+    '</div>';
+  }
   function accDaysBetween(aIso, bIso){
     var a = Date.parse(aIso), b = Date.parse(bIso);
     if (!isFinite(a) || !isFinite(b)) return null;
@@ -34053,7 +34078,7 @@ ${renderWorkspaceBindings()}
         accCheckpointsBlock(e) +
       '</div>';
     }
-    if (open.length){
+    function accOpenRowsHtml(open){
       // Group by ticker. Entries sort newest-first; groups follow their most
       // recent entry. One contract → a plain row; multiple distinct contracts
       // on the same ticker → a collapsed dropdown so the list stays tight.
@@ -34088,6 +34113,13 @@ ${renderWorkspaceBindings()}
           '<div class="acc-dd-body">' + list.map(accOpenRow).join('') + '</div>' +
         '</details>';
       });
+      return openRows;
+    }
+    if (open.length){
+      var openSegs = accGradeSegments(open);
+      var openRows = openSegs.map(function(seg, i){
+        return (i > 0 ? accGradeDivider(openSegs[i - 1]) : '') + accOpenRowsHtml(seg.items);
+      }).join('');
       html += '<div class="accuracy-group">' +
         '<div class="accuracy-group-head">Open picks <span class="accuracy-group-n">' + open.length + '</span></div>' +
         openRows +
@@ -34133,8 +34165,11 @@ ${renderWorkspaceBindings()}
       '</div>';
     }
     if (closed.length){
-      var sorted = accSortClosed(closed);
       var closedRows = '';
+      var closedSegs = accGradeSegments(closed);
+      closedSegs.forEach(function(seg, segIdx){
+      if (segIdx > 0) closedRows += accGradeDivider(closedSegs[segIdx - 1]);
+      var sorted = accSortClosed(seg.items);
       var lastStatus = null;
       sorted.forEach(function(e){
         // Exit-reason sort reads as GROUPS: emit a subhead each time the
@@ -34149,6 +34184,7 @@ ${renderWorkspaceBindings()}
           }
         }
         closedRows += accClosedRow(e);
+      });
       });
       var sortOpts = ACC_CLOSED_SORTS.map(function(o){
         return '<option value="' + o.k + '"' + (accClosedSort === o.k ? ' selected' : '') + '>' + o.lbl + '</option>';

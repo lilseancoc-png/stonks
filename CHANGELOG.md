@@ -44,6 +44,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - **Top Picks: a non-destructive grade-model version (`GRADE_MODEL_VERSION = "2026-10-pillar-review"`) is stamped on `picks.json` `rosterMeta`, `grades.json`, and each new track-record enrollment.** The scorecard can now split results before and after the grade change without wiping the record. `PICKS_ACCURACY_RESET_EPOCH` is unchanged. Split point: trades enrolled from the first Top Picks run (11:00 or 15:30 ET) after this PR deploys carry the new version, and older trades have none. (#650)
 
+- **Track Record: a dated bar now separates trades picked by the updated grade formula from earlier trades** in both the Open and Resolved lists ("Updated grade formula from YYYY-MM-DD"; newer trades above, older below). It uses the `gradeModelVersion` stamp, so the record is kept rather than reset, and any future formula change adds its own bar. `scripts/render/app-js.mjs`, `scripts/render/styles-css.mjs`. (#650)
+
 ### Perf
 
 - **The post-close 16:10 ET bake carries the 15:30 narrative read forward instead of making a new AI call** (`REFRESH_NARRATIVES=false`, set by `daily.yml`). Nothing trades on that build. (#650)
