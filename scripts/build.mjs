@@ -33,7 +33,9 @@ import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
 import { summarizeYahooError, withYahooRetry } from "../lib/yahoo-retry.mjs";
 import {
   COLLAPSED_STORY_RETRY_ATTEMPTS,
+  COLLAPSED_STORY_RETRY_DAILY_CAP,
   PREVIOUS_NAME_REUSE_RULE,
+  collapsedRetryCapAllows,
   collapsedStoryRetryDecision,
   countNarrativeSourceHeadlines,
   countRealNarratives,
@@ -43,6 +45,8 @@ import {
   pickRicherNarrativeExtraction,
   previousNamesPromptBlock,
   previousNarrativeNames,
+  pruneCollapsedRetryCounters,
+  recordCollapsedRetryStart,
   refreshCarryDecision,
 } from "../lib/story-detection.mjs";
 import {
@@ -30158,6 +30162,9 @@ export async function loadAiUsageState() {
   try {
     const raw = await readFile(resolve(DATA_DIR, AI_USAGE_FILE), "utf8");
     const parsed = JSON.parse(raw);
+    // Keep every field on the ledger. `retryCounters` sits beside `dates` and
+    // is missing on files written before the collapsed-story cap; a missing
+    // field means zero starts. Rebuilding `{ dates }` here would drop it.
     _aiUsageState = parsed && typeof parsed === "object" && parsed.dates ? parsed : { dates: {} };
   } catch (_) {
     _aiUsageState = { dates: {} };
@@ -30227,6 +30234,9 @@ export async function writeAiUsageState() {
     if (date >= cutoff) pruned[date] = val;
   }
   _aiUsageState.dates = pruned;
+  // Same 14-day cutoff as dates. No-op when an older ledger has no
+  // retryCounters field, so the save does not invent one.
+  pruneCollapsedRetryCounters(_aiUsageState, cutoff);
   await writeFile(resolve(DATA_DIR, AI_USAGE_FILE), JSON.stringify(_aiUsageState), "utf8");
 }
 
@@ -36195,11 +36205,22 @@ async function attachMarketNarratives(chains, previousHistory, macroReleaseReads
         recordedInputTokens,
         retryMessage: retryMessage || "",
       });
-      const decision = collapsedStoryRetryDecision({ realCount, headlineCount, reserveAvailable });
+      // Same UTC day key as aiTokensToday / aiCallsToday. The cap is a sibling
+      // of the reserve check: either one skips the retry without failing the bake.
+      const retryDay = new Date().toISOString().slice(0, 10);
+      const retryCapAvailable = collapsedRetryCapAllows(_aiUsageState, retryDay);
+      const decision = collapsedStoryRetryDecision({ realCount, headlineCount, reserveAvailable, retryCapAvailable });
       console.log(`  [narratives] ${realCount} real stories, ${headlineCount} source headlines`);
       if (decision.reason === "reserve-exhausted") {
         console.log("  [narratives] skipping collapsed-story retry — reserve must still cover the Brief plus one narrative call");
+      } else if (decision.reason === "daily-cap") {
+        console.log(`  [narratives] skipping collapsed-story retry — daily cap of ${COLLAPSED_STORY_RETRY_DAILY_CAP} already used`);
       } else if (decision.retry) {
+        // Count the start, before the call. A thrown retry still occupies the
+        // slot. The counter is on the in-memory ledger; writeAiUsageState
+        // persists it after the data wipe, and this catch does not rethrow.
+        if (!_aiUsageState) _aiUsageState = { dates: {} };
+        recordCollapsedRetryStart(_aiUsageState, retryDay);
         console.log("  [narratives] retrying once without previous names");
         try {
           const message = retryMessage || buildNarrativeUserMessage(chains, [], headlinesForPrompt, riskInputs);
