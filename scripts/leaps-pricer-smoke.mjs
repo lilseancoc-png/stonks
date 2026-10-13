@@ -212,7 +212,11 @@ const mixedUnparsed = priceLeaps({
 });
 assert.equal(mixedUnparsed.length, 1);
 assert.equal(mixedUnparsed[0].days, LEAPS_YEAR_DAYS);
-assert.equal(priceLeaps({ ...base, spot: Number.MIN_VALUE }), null, "premium collapses to 0");
+assert.deepEqual(
+  priceLeaps({ ...base, spot: Number.MIN_VALUE }),
+  [],
+  "unsolvable spot skips that expiration",
+);
 assert.equal(priceLeaps(null), null);
 assert.equal(priceLeaps({ ...base, expirations: LEAPS_YEAR_DAYS }), null);
 assert.equal(priceLeaps({ ...base, side: "straddle" }), null);
@@ -245,6 +249,38 @@ assertNear(windowed[0].days, nine, 1e-9, "9-month edge");
 assertNear(windowed[1].days, twentyFour, 1e-9, "24-month edge");
 assert.deepEqual(priceLeaps({ ...base, expirations: [0.5 * LEAPS_YEAR_DAYS] }), []);
 assert.deepEqual(priceLeaps({ ...base, expirations: [] }), []);
+
+// rate 12 keeps 9- and 12-month calls inside the strike bracket and leaves the
+// 24-month call unsolved. That tenor is skipped; the others still quote.
+assert.equal(
+  solveLeapsStrike({ spot: 100, iv: 0.4, years: 2, side: "call", rate: 12, targetDelta: 0.25 }),
+  null,
+  "24-month call at rate 12 does not solve",
+);
+const splitBook = priceLeaps({
+  spot: 100,
+  iv: 0.4,
+  rate: 12,
+  expirations: [100, nine, LEAPS_YEAR_DAYS, twentyFour],
+});
+assert.deepEqual(
+  splitBook.map((row) => row.days),
+  [nine, LEAPS_YEAR_DAYS],
+);
+const soloNine = priceLeaps({ spot: 100, iv: 0.4, rate: 12, expirations: [nine] });
+const soloYear = priceLeaps({ spot: 100, iv: 0.4, rate: 12, expirations: [LEAPS_YEAR_DAYS] });
+assert.equal(splitBook.length, 2);
+assert.equal(splitBook[0].strike, soloNine[0].strike);
+assert.equal(splitBook[0].premium, soloNine[0].premium);
+assert.equal(splitBook[1].strike, soloYear[0].strike);
+assert.equal(splitBook[1].premium, soloYear[0].premium);
+assert.ok(splitBook.every((row) => row.premium > 0 && Number.isFinite(row.strike)));
+assertFiniteTree(splitBook, "splitBook");
+assert.deepEqual(
+  priceLeaps({ spot: 100, iv: 0.4, rate: 12, expirations: [twentyFour] }),
+  [],
+  "a lone unsolved expiration is an empty book",
+);
 
 const catalystBook = {
   spot: 100,
