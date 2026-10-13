@@ -20,6 +20,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-10-13
+
+### Fixed
+
+- **Data sync: `sync-data seed` now skips the same keys `push` excludes.** Seed (the one-time full upload of local `data/` into the private store) skips request-time keys and a new `LOCAL_ONLY_KEYS` list (empty for now) via `isSeedableKey`, and still uploads Owner-only keys so a re-seed keeps the private history. Nothing on main changes behavior today. `lib/data-ownership.mjs`, `scripts/sync-data.mjs`, plus a smoke test.
+
 ## 2026-10-10
 
 ### Changed
