@@ -9,6 +9,8 @@ import {
   collapsedStoryRetryDecision,
   countNarrativeSourceHeadlines,
   countRealNarratives,
+  estimateBriefWorstCaseTokens,
+  estimateNarrativeRetryTokens,
   narrativeReserveAvailable,
   pickRicherNarrativeExtraction,
   previousNamesPromptBlock,
@@ -150,14 +152,81 @@ function failingNarrativeGenerator({ maxAttempts }) {
 }
 
 {
+  assert.equal(estimateNarrativeRetryTokens({
+    recordedInputTokens: 11,
+    systemChars: 9_999,
+    messageChars: 9_999,
+    outputLimit: 32_768,
+  }), Math.ceil(11 * 1.1) + 32_768);
+  assert.equal(estimateNarrativeRetryTokens({
+    recordedInputTokens: 1_000,
+    outputLimit: 32_768,
+  }), Math.ceil(1_000 * 1.1) + 32_768);
+  // No recorded usage: one ceil over system + retry message, not 1.1×.
+  assert.equal(estimateNarrativeRetryTokens({
+    recordedInputTokens: 0,
+    systemChars: 10,
+    messageChars: 1,
+    outputLimit: 32_768,
+  }), Math.ceil((10 + 1) / 3) + 32_768);
+  assert.equal(estimateNarrativeRetryTokens({
+    recordedInputTokens: null,
+    systemChars: 2,
+    messageChars: 2,
+    outputLimit: 100,
+  }), Math.ceil(4 / 3) + 100);
+  assert.equal(estimateBriefWorstCaseTokens({
+    recordedInputTokens: 50,
+    promptChars: 9_999,
+    outputLimit: 3_072,
+    maxAttempts: 6,
+  }), 6 * (50 + 3_072));
+  assert.equal(estimateBriefWorstCaseTokens({
+    promptChars: 10,
+    outputLimit: 3_072,
+    maxAttempts: 6,
+  }), 6 * (Math.ceil(10 / 3) + 3_072));
+
   const budget = narrativeRetryReserveInput();
   assert.equal(budget.briefMaxAttempts, 6);
-  assert.equal(budget.briefTokenEstimate, 3072);
-  assert.equal(budget.narrativeTokenEstimate, 32768);
+  assert.equal(budget.narrativeMessageChars, 0);
+  assert.ok(budget.narrativeSystemChars > 0);
+  assert.ok(budget.briefPromptChars > 0);
+  assert.equal(budget.narrativeTokenEstimate, estimateNarrativeRetryTokens({
+    systemChars: budget.narrativeSystemChars,
+    messageChars: 0,
+    outputLimit: 32_768,
+  }));
+  assert.equal(budget.briefTokenEstimate, estimateBriefWorstCaseTokens({
+    promptChars: budget.briefPromptChars,
+    outputLimit: 3_072,
+    maxAttempts: 6,
+  }));
+  assert.ok(budget.narrativeTokenEstimate > 32_768);
+  assert.ok(budget.briefTokenEstimate > 6 * 3_072);
   assert.equal(budget.reservedCalls, 30);
   assert.equal(budget.reservedTokens, 300_000);
   assert.ok(budget.callCap > budget.briefMaxAttempts + 1);
   assert.ok(budget.reservedTokens >= budget.briefTokenEstimate + budget.narrativeTokenEstimate);
+
+  const fallback = narrativeRetryReserveInput({
+    recordedNarrativeInputTokens: null,
+    narrativeSystemChars: 10,
+    narrativeMessageChars: 5,
+    recordedBriefInputTokens: null,
+    briefPromptChars: 10,
+  });
+  assert.equal(fallback.narrativeTokenEstimate, Math.ceil((10 + 5) / 3) + 32_768);
+  assert.equal(fallback.briefTokenEstimate, 6 * (Math.ceil(10 / 3) + 3_072));
+  const scaled = narrativeRetryReserveInput({
+    recordedNarrativeInputTokens: 1_000,
+    narrativeSystemChars: 9_999,
+    narrativeMessageChars: 9_999,
+    recordedBriefInputTokens: 50,
+    briefPromptChars: 9_999,
+  });
+  assert.equal(scaled.narrativeTokenEstimate, Math.ceil(1_000 * 1.1) + 32_768);
+  assert.equal(scaled.briefTokenEstimate, 6 * (50 + 3_072));
 
   const callsNeeded = budget.briefMaxAttempts + 1;
   const tokensNeeded = budget.briefTokenEstimate + budget.narrativeTokenEstimate;
@@ -204,7 +273,8 @@ function failingNarrativeGenerator({ maxAttempts }) {
     reservedAttempts: 0,
   })), false);
 
-  // Tokens within one response of the ceiling skip the retry even when call slots remain.
+  // Tokens within one full input-inclusive bill of the ceiling skip the retry
+  // even when call slots remain.
   const tokenShort = collapsedStoryRetryDecision({
     ...thin,
     reserveAvailable: narrativeReserveAvailable(narrativeRetryReserveInput({
@@ -219,6 +289,38 @@ function failingNarrativeGenerator({ maxAttempts }) {
     recordedCalls: 10,
     reservedAttempts: 0,
   })), true);
+  // Output ceilings alone (Brief 3,072 + narrative 32,768) still clear this
+  // spend. The same spend must skip once the first extraction's input and the
+  // Brief's six attempts are included.
+  const outputOnlyNeeded = 3_072 + 32_768;
+  const outputOnlySpend = budget.tokenCap - outputOnlyNeeded;
+  assert.ok(tokensNeeded > outputOnlyNeeded);
+  assert.equal(narrativeReserveAvailable({
+    tokensToday: outputOnlySpend,
+    tokenCap: budget.tokenCap,
+    recordedCalls: 10,
+    reservedAttempts: 0,
+    callCap: budget.callCap,
+    reservedTokens: budget.reservedTokens,
+    reservedCalls: budget.reservedCalls,
+    briefMaxAttempts: budget.briefMaxAttempts,
+    briefTokenEstimate: 3_072,
+    narrativeTokenEstimate: 32_768,
+  }), true);
+  const inputAware = narrativeRetryReserveInput({
+    tokensToday: outputOnlySpend,
+    recordedCalls: 10,
+    reservedAttempts: 0,
+    recordedNarrativeInputTokens: 25_000,
+    recordedBriefInputTokens: 4_000,
+  });
+  assert.ok(inputAware.narrativeTokenEstimate > 32_768);
+  assert.ok(inputAware.briefTokenEstimate > 6 * 3_072);
+  const inputShort = collapsedStoryRetryDecision({
+    ...thin,
+    reserveAvailable: narrativeReserveAvailable(inputAware),
+  });
+  assert.deepEqual(inputShort, { retry: false, reason: "reserve-exhausted" });
   // An intact reserve that is itself smaller than the Brief plus one narrative
   // response is not "near the cap", and still skips.
   assert.equal(narrativeReserveAvailable({
@@ -289,6 +391,25 @@ function failingNarrativeGenerator({ maxAttempts }) {
   assert.equal(refreshCarryDecision({ narratives: [] }).reason, "missing");
   assert.equal(refreshCarryDecision(null).reason, "missing");
   assert.equal(refreshCarryDecision({ narratives: watchlists }).reason, "thin");
+}
+
+
+// Realistic figures from a production narrative call: 30,960 input + 2,662
+// output tokens. One retry's worst case is ~65k (30,960 x 1.1 + 32,768).
+{
+  const sd = await import("../lib/story-detection.mjs");
+  const retry = sd.estimateNarrativeRetryTokens({ recordedInputTokens: 30_960, outputLimit: 32_768 });
+  assert.equal(retry, Math.ceil(30_960 * 1.1) + 32_768); // 66,824
+  const brief = sd.estimateBriefWorstCaseTokens({ promptChars: 24_000, outputLimit: 3_072, maxAttempts: 6 });
+  assert.equal(brief, 6 * (8_000 + 3_072)); // 66,432
+  const base = { tokenCap: 3_000_000, callCap: 600, reservedTokens: 300_000, reservedCalls: 30,
+    recordedCalls: 100, reservedAttempts: 0, briefMaxAttempts: 6, briefTokenEstimate: brief, narrativeTokenEstimate: retry };
+  // 160k of reserve left covers Brief (66k) + retry (67k).
+  assert.equal(sd.narrativeReserveAvailable({ ...base, tokensToday: 3_000_000 - 160_000 }), true);
+  // 120k left: output-only math (3,072 + 32,768) would pass; full bill must skip.
+  assert.equal(sd.narrativeReserveAvailable({ ...base, tokensToday: 3_000_000 - 120_000 }), false);
+  assert.equal(sd.narrativeReserveAvailable({ ...base, tokensToday: 3_000_000 - 120_000,
+    briefTokenEstimate: 3_072, narrativeTokenEstimate: 32_768 }), true);
 }
 
 console.log("story detection smoke: all checks passed");
