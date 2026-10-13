@@ -32,7 +32,7 @@ import { contentAssetVersion } from "../lib/asset-version.mjs";
 import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
 import { summarizeYahooError, withYahooRetry } from "../lib/yahoo-retry.mjs";
 import { withYahooTimeout } from "../lib/yahoo.mjs";
-import { attachLeapsExpirations } from "../lib/leaps-expirations.mjs";
+import { attachLeapsExpirations, leapsExtraFetchEnabled } from "../lib/leaps-expirations.mjs";
 import {
   buildAcceleratorPricesPayload,
   fetchAcceleratorMarketplaces,
@@ -1214,11 +1214,15 @@ const STRIKE_BAND = 0.50;
 // fetch topped weekly-heavy names out around ~46 DTE, silently truncating the
 // new window). The far-dated tail beyond slot 14 stays off every other name's
 // baked chain (the Grade tab still live-fetches a specific expiration via
-// /api/chain). Names on the LEAPS shortlist pick up the 9–24 month tail in a
-// later capped pass (lib/leaps-expirations.mjs). (Was 15, then 10 — fetching
+// /api/chain). LEAPS_EXTRA_FETCH=1 can fetch that tail for a shortlist onto
+// in-memory `_leapsChains` (lib/leaps-expirations.mjs); it is not baked.
+// (Was 15, then 10 — fetching
 // that tail for every name cost ~18s of wall clock per 5 slots.) Less-liquid
 // names asymptote at whatever Yahoo returns (the .slice() handles it).
 const MAX_EXPIRATIONS = 14;
+// Default off. LEAPS_EXTRA_FETCH=1 fetches the capped 9–24 month tail onto
+// in-memory `_leapsChains` only (writeChainFiles strips that field).
+const LEAPS_EXTRA_FETCH_ENABLED = leapsExtraFetchEnabled();
 // Yahoo intermittently 401s GitHub Actions runners ("Host not in allowlist")
 // or rate-limits after a burst. Retry transient failures, but bail on the
 // existing site if too many tickers fail — better to serve yesterday's data
@@ -4324,6 +4328,16 @@ export async function writeAutoPicksFile(picks, builtAtIso = new Date().toISOStr
   return { count: Object.keys(picks || {}).length, bytes: json.length };
 }
 
+// Public per-ticker body. Transient series and the LEAPS tail stay in memory.
+export function publicChainFilePayload(data) {
+  const { _bars, _intraday, _signalHeadlines, _listedExpirations, _leapsChains, autoPick: _legacyAutoPick, ...rest } = data;
+  return {
+    ...rest,
+    priceSeries: buildPriceSeries(_bars),
+    intradaySeries: buildIntradaySeries(_intraday),
+  };
+}
+
 async function writeChainFiles(chains, rfr = FALLBACK_RISK_FREE_RATE, builtAtIso = new Date().toISOString()) {
   // Wipe data/ first so tickers that fell out of the curated list (or
   // failed this run) don't leave stale files behind. The directory is
@@ -4333,18 +4347,15 @@ async function writeChainFiles(chains, rfr = FALLBACK_RISK_FREE_RATE, builtAtIso
   let totalBytes = 0;
   const ownerAutoPicks = {};
   for (const [sym, data] of Object.entries(chains)) {
-    // _bars / _intraday are transient in-memory series; never write them raw to
-    // the per-ticker JSON (they'd inflate each file). Compact series below.
-    const { _bars, _intraday, _signalHeadlines, _listedExpirations, autoPick: _legacyAutoPick, ...rest } = data;
     // Exact Top-Picks contract candidates are Owner research. Keep them out of
     // the public per-ticker chain and collect them into one gated sidecar.
+    // publicChainFilePayload strips _bars / _intraday / _listedExpirations /
+    // _leapsChains / autoPick; the compact series are what the file keeps.
     ownerAutoPicks[sym] = {
       call: pickContractForPick("call", data, rfr),
       put: pickContractForPick("put", data, rfr),
     };
-    const priceSeries = buildPriceSeries(_bars);
-    const intradaySeries = buildIntradaySeries(_intraday);
-    const json = JSON.stringify({ ...rest, priceSeries, intradaySeries });
+    const json = JSON.stringify(publicChainFilePayload(data));
     await writeFile(resolve(DATA_DIR, `${sym}.json`), json, "utf8");
     totalBytes += json.length;
   }
@@ -36601,19 +36612,22 @@ async function main() {
     .sort()
     .slice(0, 2);
   const builtAtIso = new Date().toISOString();
-  // Far expirations for the LEAPS shortlist only. A missing chain is logged
-  // inside the helper; this catch is so a selector bug cannot fail the bake.
-  try {
-    const leaps = await attachLeapsExpirations(chains, {
-      fetchExpiration: (symbol, expSec) => fetchLeapsExpirationChain(symbol, expSec, chains[symbol]?.spot),
-    });
-    console.log(
-      leaps.names.length
-        ? `LEAPS expirations: ${leaps.attached} chain(s) attached for ${leaps.names.join(", ")} (${leaps.calls} Yahoo call(s))`
-        : "LEAPS expirations: no qualifying names — skipped",
-    );
-  } catch (err) {
-    console.log(`  ⚠ LEAPS expiration pass failed: ${err?.message || err}`);
+  // Far expirations for the LEAPS shortlist only, and only when the switch is
+  // on. Chains stay on `_leapsChains` (stripped at write). A missing chain is
+  // logged inside the helper; this catch is so a selector bug cannot fail the bake.
+  if (LEAPS_EXTRA_FETCH_ENABLED) {
+    try {
+      const leaps = await attachLeapsExpirations(chains, {
+        fetchExpiration: (symbol, expSec) => fetchLeapsExpirationChain(symbol, expSec, chains[symbol]?.spot),
+      });
+      console.log(
+        leaps.names.length
+          ? `LEAPS expirations: ${leaps.attached} chain(s) attached for ${leaps.names.join(", ")} (${leaps.calls} Yahoo call(s))`
+          : "LEAPS expirations: no qualifying names — skipped",
+      );
+    } catch (err) {
+      console.log(`  ⚠ LEAPS expiration pass failed: ${err?.message || err}`);
+    }
   }
   // Recreate data/ before renderHtml writes its two manifest sidecars. The old
   // order rendered first and then writeChainFiles removed data/ wholesale,
