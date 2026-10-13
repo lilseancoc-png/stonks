@@ -27,6 +27,7 @@ import { issuerCreditRatingFor } from "../lib/issuer-credit-ratings.mjs";
 import { fetchFinraMarketStructure, attachShortInterestToChains } from "../lib/market-structure.mjs";
 import { appendScenarioHistory, buildScenarioEngine, scenarioOverlayForSymbol } from "../lib/scenario-engine.mjs";
 import { isPremiumKey } from "../lib/premium-keys.mjs";
+import { createFileEvidenceStore, loadEvidenceWindow, runEvidenceRecord } from "../lib/evidence-record.mjs";
 import { BRIEF_ACCESS_POLICY_VERSION } from "../lib/public-data-policy.mjs";
 import { contentAssetVersion } from "../lib/asset-version.mjs";
 import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
@@ -36557,6 +36558,17 @@ async function main() {
     .sort()
     .slice(0, 2);
   const builtAtIso = new Date().toISOString();
+  // Evidence history is read BEFORE writeChainFiles wipes data/. Only the
+  // latest pointer and the last 60 dated keys are opened — older evidence
+  // files stay in the store and are never loaded or delete-staled.
+  const evidenceBakeDate = etDateKey(new Date(builtAtIso));
+  let evidencePriorRecords = [];
+  try {
+    const evidenceLoaded = await loadEvidenceWindow(createFileEvidenceStore(DATA_DIR), evidenceBakeDate);
+    evidencePriorRecords = evidenceLoaded.records;
+  } catch (err) {
+    console.log(`  · evidence history unavailable (${err.message})`);
+  }
   // Recreate data/ before renderHtml writes its two manifest sidecars. The old
   // order rendered first and then writeChainFiles removed data/ wholesale,
   // which meant a direct `npm run build` finished without manifest.json or
@@ -37498,6 +37510,37 @@ async function main() {
   console.log(
     `wrote ${OUT} (${(html.length / 1024).toFixed(1)} KB) + styles.css (${(css.length / 1024).toFixed(1)} KB) + app.js (${(js.length / 1024).toFixed(1)} KB) + ${symbols.length} chain files (${(totalChainBytes / 1024).toFixed(1)} KB total) + trends (${trends.narratives.length} active, ${trends.history.length}-day history)`,
   );
+  try {
+    let remote = null;
+    try {
+      remote = (await import("../lib/datastore.mjs")).store;
+    } catch (err) {
+      console.log(`  · evidence datastore unavailable (${err.message})`);
+    }
+    const evidenceInfo = await runEvidenceRecord({
+      dataDir: DATA_DIR,
+      remote,
+      bakeDate: evidenceBakeDate,
+      priorRecords: evidencePriorRecords,
+      sources: {
+        chains,
+        marketStructure,
+        unusual,
+        volumeFlags,
+        oiTracker,
+        ivTrending: ivTrendingForBrief,
+        narratives: trends?.narratives || [],
+        macro: macroBackdrop,
+        filings: perFirmResult,
+      },
+    });
+    if (evidenceInfo.remoteError) {
+      console.log(`  · evidence remote publish skipped (${evidenceInfo.remoteError})`);
+    }
+    console.log(`wrote data/${evidenceInfo.key} — ${evidenceInfo.names} names, ${evidenceInfo.pieces} pieces`);
+  } catch (err) {
+    console.log(`  ⚠ Evidence record step failed (non-fatal): ${err.message}`);
+  }
   logAiUsageSummary();
   await writeAiHealthReport();
 }
