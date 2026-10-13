@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import {
   LEAPS_EXTRA_EXPIRATIONS_CAP,
   LEAPS_EXTRA_FETCH_CAP,
+  LEAPS_IV_Z_MAX,
   LEAPS_POLITENESS_MS,
   addUtcMonths,
   attachLeapsExpirations,
@@ -28,6 +29,7 @@ function monthsOut(n) {
 
 assert.equal(LEAPS_EXTRA_FETCH_CAP, 5);
 assert.equal(LEAPS_EXTRA_EXPIRATIONS_CAP, 4);
+assert.equal(LEAPS_IV_Z_MAX, 1.5);
 assert.equal(LEAPS_POLITENESS_MS, 150);
 assert.equal(addUtcMonths(new Date(Date.UTC(2026, 0, 31)), 1).toISOString().slice(0, 10), "2026-02-28");
 assert.equal(addUtcMonths(new Date(Date.UTC(2024, 0, 31)), 1).toISOString().slice(0, 10), "2024-02-29");
@@ -82,16 +84,19 @@ assert.equal(qualifiesAsLeapsCandidate(candidate("OK", 0.2)), true);
 assert.equal(qualifiesAsLeapsCandidate(candidate("LOW", 0.2, { spot: 90 })), false);
 assert.equal(qualifiesAsLeapsCandidate(candidate("CHASE", 0.2, { technicals: { sma: { sma200: 100 }, rsi: 80 } })), false);
 assert.equal(qualifiesAsLeapsCandidate(candidate("KNIFE", 0.2, { technicals: { sma: { sma200: 100 }, rsi: 20 } })), false);
-assert.equal(qualifiesAsLeapsCandidate(candidate("HIGH_Z", 9)), true);
+assert.equal(qualifiesAsLeapsCandidate(candidate("HIGH_Z", 9)), false);
+assert.equal(qualifiesAsLeapsCandidate(candidate("Z_AT_MAX", LEAPS_IV_Z_MAX)), false);
+assert.equal(qualifiesAsLeapsCandidate(candidate("Z_UNDER", 1.49, { ivRank: { z: 1.49, pctile: 59 } })), true);
 assert.equal(qualifiesAsLeapsCandidate(candidate("Z_ONLY", 0.1, { ivRank: { z: 0.1 } })), false);
 assert.equal(qualifiesAsLeapsCandidate(candidate("RICH_PCT", 0.1, { ivRank: { z: 0.1, pctile: 60 } })), false);
 assert.equal(qualifiesAsLeapsCandidate(candidate("NO_IV", 0, { ivRank: null })), false);
 assert.equal(qualifiesAsLeapsCandidate(candidate("PCT_ONLY", 0, { ivRank: { pctile: 59 } })), true);
+assert.equal(qualifiesAsLeapsCandidate(candidate("Z_NULL_RICH", 0, { ivRank: { z: null, pctile: 60 } })), false);
 assert.equal(qualifiesAsLeapsCandidate(candidate("NO_SMA", 0.2, { technicals: { rsi: 55 } })), false);
 
 const byPercentile = selectLeapsNames([
   candidate("LOWZ", 0, { ivRank: { z: 0, pctile: 50 } }),
-  candidate("HIGHZ", 9, { ivRank: { z: 9, pctile: 10 } }),
+  candidate("HIGHZ", 1.4, { ivRank: { z: 1.4, pctile: 10 } }),
 ], { now: NOW, cap: 5 });
 assert.deepEqual(byPercentile.map((row) => row.symbol), ["HIGHZ", "LOWZ"]);
 
