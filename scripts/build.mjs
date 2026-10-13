@@ -30,6 +30,7 @@ import { isPremiumKey } from "../lib/premium-keys.mjs";
 import { BRIEF_ACCESS_POLICY_VERSION } from "../lib/public-data-policy.mjs";
 import { contentAssetVersion } from "../lib/asset-version.mjs";
 import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
+import { assembleBakeLinkMap, LINK_MAP_SKIPPED_SOURCES } from "../lib/link-map.mjs";
 import { summarizeYahooError, withYahooRetry } from "../lib/yahoo-retry.mjs";
 import {
   buildAcceleratorPricesPayload,
@@ -37494,6 +37495,44 @@ async function main() {
     console.log(`wrote data/13f.json (enriched) — ${f13Info.positions} biggest positions, ${f13Info.bytes} bytes`);
   } else {
     console.log("keeping baseline data/13f.json — EDGAR returned no usable holdings or Form 4 transactions.");
+  }
+  // Join registries that already exist in this bake. No fetch and no model call.
+  // A bad map still leaves a valid file behind so publication can continue.
+  try {
+    const linkBakeDate = etDateKey(new Date(builtAtIso));
+    const linkMap = assembleBakeLinkMap({
+      bakeDate: linkBakeDate,
+      sectors: SECTORS,
+      industries: INDUSTRY_OF_TICKER,
+      industriesBySector: INDUSTRIES_BY_SECTOR,
+      spilloverGroups: SPILLOVER_GROUPS,
+      peerOfTicker: GLOBAL_PEER_OF_TICKER,
+      peerGroups: GLOBAL_PEER_GROUPS,
+      markets: GLOBAL_MARKETS,
+      broadSignals: GLOBAL_BROAD_SIGNALS,
+      commodityTrackers: COMMODITY_TRACKERS,
+      aiCapexTickers: AI_CAPEX_TICKERS,
+      narratives: trends?.narratives || [],
+      narrativeAsOf: trends?.aiGeneratedAtIso || builtAtIso,
+    });
+    const linkJson = JSON.stringify(linkMap);
+    await writeFile(resolve(DATA_DIR, "link-map.json"), linkJson, "utf8");
+    console.log(`wrote data/link-map.json — ${Object.keys(linkMap.nodes).length} nodes, ${linkMap.edges.length} edges, ${linkJson.length} bytes`);
+  } catch (err) {
+    console.warn(`[link-map] map build failed — ${String(err?.message || err).split("\n")[0]}`);
+    try {
+      const linkBakeDate = etDateKey();
+      await writeFile(resolve(DATA_DIR, "link-map.json"), JSON.stringify({
+        asOf: linkBakeDate,
+        bakeDate: linkBakeDate,
+        nodes: {},
+        edges: [],
+        sources: [],
+        skipped: LINK_MAP_SKIPPED_SOURCES,
+      }), "utf8");
+    } catch (writeErr) {
+      console.warn(`[link-map] empty map was not written — ${String(writeErr?.message || writeErr).split("\n")[0]}`);
+    }
   }
   console.log(
     `wrote ${OUT} (${(html.length / 1024).toFixed(1)} KB) + styles.css (${(css.length / 1024).toFixed(1)} KB) + app.js (${(js.length / 1024).toFixed(1)} KB) + ${symbols.length} chain files (${(totalChainBytes / 1024).toFixed(1)} KB total) + trends (${trends.narratives.length} active, ${trends.history.length}-day history)`,
