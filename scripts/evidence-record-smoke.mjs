@@ -188,4 +188,35 @@ const BAKE = "2026-10-13";
   assert.ok(!day.names.AAA[0].asOf || day.names.AAA[0].asOf <= BAKE);
 }
 
+
+// firstSeen carries across short gaps (<= EVIDENCE_FIRSTSEEN_MAX_GAP_TRADING_DAYS
+// trading days) while the direction holds; long gaps and flips reset it.
+{
+  const m = await import("../lib/evidence-record.mjs");
+  assert.equal(m.EVIDENCE_FIRSTSEEN_MAX_GAP_TRADING_DAYS, 5);
+  const T = "2026-10-13"; // Tuesday
+  const last = (date, dir = "up", firstSeen = "2026-09-01") => ({ date, piece: { id: "ats", dir, firstSeen } });
+  assert.equal(m.tradingDaysBetween("2026-10-12", T), 0);
+  assert.equal(m.tradingDaysBetween("2026-10-09", T), 1); // Fri -> Tue skips Sat/Sun, counts Mon
+  // continuous presence keeps
+  assert.equal(m.carriedFirstSeen(last("2026-10-12"), "up", T), "2026-09-01");
+  // same-day earlier run keeps
+  assert.equal(m.carriedFirstSeen(last(T), "up", T), "2026-09-01");
+  // one-day gap keeps
+  assert.equal(m.carriedFirstSeen(last("2026-10-09"), "up", T), "2026-09-01");
+  // exactly 5 trading days missing keeps; 6 resets
+  assert.equal(m.tradingDaysBetween("2026-10-05", T), 5);
+  assert.equal(m.carriedFirstSeen(last("2026-10-05"), "up", T), "2026-09-01");
+  assert.equal(m.carriedFirstSeen(last("2026-10-02"), "up", T), T);
+  // long gap (15 trading days) resets
+  assert.equal(m.tradingDaysBetween("2026-09-21", T), 15);
+  assert.equal(m.carriedFirstSeen(last("2026-09-21"), "up", T), T);
+  // direction flip resets
+  assert.equal(m.carriedFirstSeen(last("2026-10-12", "down"), "up", T), T);
+  // no prior / future firstSeen resets
+  assert.equal(m.carriedFirstSeen(undefined, "up", T), T);
+  assert.equal(m.carriedFirstSeen(last("2026-10-12", "up", "2026-12-01"), "up", T), T);
+
+}
+
 console.log("evidence-record smoke ok");
