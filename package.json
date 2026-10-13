@@ -21,6 +21,7 @@
     "test:yahoo-retry": "node scripts/yahoo-retry-smoke.mjs",
     "test:calendar": "node scripts/calendar-smoke.mjs",
     "test:narrative-risk": "node scripts/narrative-risk-smoke.mjs",
+    "test:story-detection": "node scripts/story-detection-smoke.mjs",
     "test:api": "node scripts/api-smoke.mjs",
     "test:private-store": "node scripts/private-store-smoke.mjs",
     "test:render": "node scripts/render-smoke.mjs",

@@ -32,6 +32,17 @@ import { contentAssetVersion } from "../lib/asset-version.mjs";
 import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
 import { summarizeYahooError, withYahooRetry } from "../lib/yahoo-retry.mjs";
 import {
+  PREVIOUS_NAME_REUSE_RULE,
+  collapsedStoryRetryDecision,
+  countNarrativeSourceHeadlines,
+  countRealNarratives,
+  narrativeReserveAvailable,
+  pickRicherNarrativeExtraction,
+  previousNamesPromptBlock,
+  previousNarrativeNames,
+  refreshCarryDecision,
+} from "../lib/story-detection.mjs";
+import {
   buildAcceleratorPricesPayload,
   fetchAcceleratorMarketplaces,
 } from "../lib/accelerator-prices.mjs";
@@ -35168,7 +35179,7 @@ const NARRATIVE_SYSTEM_PROMPT =
   "Rules: only use tickers from the provided list — do not invent tickers. Each sub-industry narrative MUST have at least one long or one short. Prefer broader narratives over very narrow single-name stories. " +
   "Keep every bullCase / baseCase / bearCase to a SINGLE concise sentence and every hype.rationale to one short clause — brevity is required so the full response fits. " +
   "Sectors with thin coverage (e.g. \"Consumer Defensive\" with only Discount Stores, or \"Precious Metals\" with Gold/Silver) still get an overview AND any sub-industry narratives that legitimately apply — just shorter. For Precious Metals, treat Gold (GLD) and Silver (SLV) as standalone macro plays (real-yield trade, dollar trade, geopolitical hedge, central-bank buying); the longs/shorts arrays should reference GLD and SLV directly. " +
-  "If a list of PREVIOUS narrative names is provided, reuse a previous name verbatim when today's narrative is the same story so we can track its lifespan; otherwise pick a fresh name. " +
+  "If a list of PREVIOUS narrative names is provided, " + PREVIOUS_NAME_REUSE_RULE + ". Pick a fresh name for any story that list does not already name. " +
   "conflictsWith names MUST match other names in your own response exactly. " +
   "Respond with ONLY a JSON object of the form " +
   `{"sectors":[{"sector":"Technology","overview":{"thesis":"...","bullCase":"...","baseCase":"...","bearCase":"...","hype":{"score":0-100,"label":"fundamentals"|"balanced"|"hype","rationale":"..."},"watchFor":["...","..."]},"narratives":[{"name":"...","industry":"...","thesis":"...","sentiment":"bullish"|"bearish","longs":["..."],"shorts":["..."],"confidence":"high"|"medium"|"low","strength":0-100,"status":"active"|"building"|"fading","lifecycleStage":"catalysts"|"amplification"|"validation"|"peak"|"challenges"|"collapse","lifecycleOutlook":{"rationale":"...","nextStage":"validation","trigger":"..."},"timeframe":"immediate"|"near-term"|"medium-term"|"long-term","bullCase":"...","baseCase":"...","bearCase":"...","hype":{"score":0-100,"label":"fundamentals"|"balanced"|"hype","rationale":"..."},"watchFor":["..."],"conflictsWith":["..."],"sources":[{"publisher":"...","title":"...","date":"YYYY-MM-DD"}]}]}]} ` +
@@ -35369,9 +35380,7 @@ function buildNarrativeUserMessage(chains, previousNames, macroHeadlines, riskIn
     const pubTag = topHeadlinePub ? ` (${topHeadlinePub})` : "";
     return `- ${sym} [${sentiment}] ${summaryClip}` + (headlineClip ? ` Headline${pubTag}: "${headlineClip}"` : "");
   });
-  const previousBlock = previousNames.length
-    ? `Previous narrative names from the last build (reuse verbatim when the same story is still live):\n${previousNames.map((n) => `- ${n}`).join("\n")}`
-    : "No previous narratives recorded.";
+  const previousBlock = previousNamesPromptBlock(previousNames);
 
   // SOURCE POOL — every cite-able headline the AI is allowed to copy into a
   // narrative's `sources` array. Macro feeds first (already reputable by
@@ -35882,6 +35891,18 @@ function computeRecentlyEnded(history, activeNarrativeNames, todayIso) {
     .slice(0, 8);
 }
 
+// Read-only check against the same hard ceilings acquireAiSlot enforces for
+// a reserved narrative call. Does not change the caps or consume a slot.
+function narrativeRetryFitsReserve() {
+  return narrativeReserveAvailable({
+    tokensToday: aiTokensToday(),
+    tokenCap: AI_DAILY_TOKEN_CAP,
+    recordedCalls: _aiCallsAtBuildStart,
+    reservedAttempts: _aiAttemptSlots,
+    callCap: AI_DAILY_CALL_CAP,
+  });
+}
+
 async function attachMarketNarratives(chains, previousHistory, macroReleaseReads = [], riskInputs = {}) {
   if (!process.env.GEMINI_API_KEY) {
     console.log("No GEMINI_API_KEY set — skipping market narrative extraction.");
@@ -35894,22 +35915,10 @@ async function attachMarketNarratives(chains, previousHistory, macroReleaseReads
     return { narratives: [], sectorOverviews: {}, recentlyEnded: [], history: previousHistory, macroHeadlines: keylessHeadlines };
   }
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
-  const lastSnapshot = previousHistory[0];
-  // Guard the inner .narratives/.name access (not just lastSnapshot): this runs
-  // before the stale-fallback try/catch below, so a malformed or legacy history
-  // snapshot lacking a narratives array would otherwise throw and abort the
-  // whole bake. Mirrors the guards in annotateNarrativesWithLifespan.
-  // Real narratives only: the autogenerated "<Industry> Watchlist" coverage
-  // filler must never reach the prompt. Listing ~37 filler names as "previous
-  // narratives, reuse verbatim" taught the model that the slate was already
-  // covered, collapsing extraction to a single real story (Sept–Oct 2026).
-  // The name test catches legacy snapshots written before the flag existed.
-  const previousNames = Array.isArray(lastSnapshot?.narratives)
-    ? lastSnapshot.narratives
-      .filter((n) => n && !n.autogenerated && !/\bwatchlist$/i.test(String(n.name || "").trim()))
-      .map((n) => n.name)
-      .filter(Boolean)
-    : [];
+  // Real names only, unioned across the last few newest-first snapshots.
+  // The latest snapshot by itself is the one written during a collapse, so a
+  // one-snapshot list anchors the model on a single story. Filler stays out.
+  const previousNames = previousNarrativeNames(previousHistory);
   // Macro RSS fetch — independent of the AI rate limiter, runs concurrently
   // with anything the limiter still has queued. The narrative generateContent
   // call will block on acquireAiSlot() if the previous pass's window hasn't
@@ -35937,19 +35946,53 @@ async function attachMarketNarratives(chains, previousHistory, macroReleaseReads
   console.log(`Extracting market narratives across ${Object.keys(chains).length} tickers…`);
   try {
     // REFRESH_NARRATIVES=false (daily.yml sets it on the post-close 16:10 ET
-    // bake) carries the prior build's extraction forward instead of spending a
-    // call: nothing trades on the post-close build, and the 15:30 read is still
-    // current. It falls through to a fresh extraction when no prior exists.
-    const skipRefresh = /^(?:0|false)$/i.test(process.env.REFRESH_NARRATIVES || "1")
-      && Array.isArray(lastGood?.narratives) && lastGood.narratives.length > 0;
-    const reused = skipRefresh || canReuseNarrativeExtraction(lastGood, aiInputSig);
-    const raw = reused
+    // bake) carries the prior extraction forward when that read is still fresh
+    // and has a full real-story slate. A missing, stale, or thin slate falls
+    // through to a fresh extraction, and the exact-input cache is not allowed
+    // to hand the thin read back on that path.
+    const refreshOff = /^(?:0|false)$/i.test(process.env.REFRESH_NARRATIVES || "1");
+    const carry = refreshCarryDecision(lastGood);
+    const skipRefresh = refreshOff && carry.carry;
+    if (refreshOff && !carry.carry) {
+      const why = carry.reason === "stale"
+        ? "last good narratives are stale"
+        : carry.reason === "thin"
+          ? `last good has ${carry.realCount} real stories`
+          : "no last good narratives";
+      console.log(`  [narratives] REFRESH_NARRATIVES=false — ${why}; extracting fresh`);
+    }
+    const reused = skipRefresh || (!refreshOff && canReuseNarrativeExtraction(lastGood, aiInputSig));
+    let activeInputSig = aiInputSig;
+    let raw = reused
       ? {
         // Older snapshots stamped the coverage filler bullish; normalize it.
         narratives: lastGood.narratives.map((n) => (n?.autogenerated ? { ...n, sentiment: "neutral" } : n)),
         sectorOverviews: lastGood.sectorOverviews || {},
       }
       : await generateMarketNarratives(ai, chains, previousNames, headlinesForPrompt, narrativeUserMessage);
+    if (!reused) {
+      const realCount = countRealNarratives(raw.narratives);
+      const headlineCount = countNarrativeSourceHeadlines(chains, headlinesForPrompt, MACRO_TOTAL_CAP);
+      const reserveAvailable = narrativeRetryFitsReserve();
+      const decision = collapsedStoryRetryDecision({ realCount, headlineCount, reserveAvailable });
+      console.log(`  [narratives] ${realCount} real stories, ${headlineCount} source headlines`);
+      if (decision.reason === "reserve-exhausted") {
+        console.log("  [narratives] skipping collapsed-story retry — narrative reserve is exhausted");
+      } else if (decision.retry) {
+        console.log("  [narratives] retrying once without previous names");
+        try {
+          const retryMessage = buildNarrativeUserMessage(chains, [], headlinesForPrompt, riskInputs);
+          const retryRaw = await generateMarketNarratives(ai, chains, [], headlinesForPrompt, retryMessage);
+          const retryReal = countRealNarratives(retryRaw.narratives);
+          const picked = pickRicherNarrativeExtraction(raw, retryRaw);
+          raw = picked.chosen;
+          if (picked.source === "retry") activeInputSig = narrativeInputSignature(retryMessage);
+          console.log(`  [narratives] retry returned ${retryReal} real stories; keeping the ${picked.source} extraction`);
+        } catch (retryErr) {
+          console.log(`  [narratives] collapsed-story retry failed (${retryErr?.message || retryErr}) — keeping the first extraction`);
+        }
+      }
+    }
     if (skipRefresh) {
       console.log(`  [narratives] REFRESH_NARRATIVES=false — carrying the ${lastGood.aiGeneratedAtIso || lastGood.builtAtIso} extraction forward`);
     } else if (reused) {
@@ -35987,7 +36030,7 @@ async function attachMarketNarratives(chains, previousHistory, macroReleaseReads
       macroHeadlines,
       // A carried-forward extraction keeps its own input signature so the
       // exact-input cache never matches today's prompt against yesterday's read.
-      aiInputSig: skipRefresh ? (lastGood.aiInputSig || null) : aiInputSig,
+      aiInputSig: skipRefresh ? (lastGood.aiInputSig || null) : activeInputSig,
       aiGeneratedAtIso: reused
         ? (lastGood.aiGeneratedAtIso || lastGood.builtAtIso)
         : builtAtIso,
