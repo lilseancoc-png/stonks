@@ -42,6 +42,7 @@ import {
   isBakeOwnedKey,
   isDynamicBakeKey as sharedIsDynamicBakeKey,
   isRetainedRemoteBakeKey,
+  isSeedableKey,
   keysForScannerOwner,
 } from "../lib/data-ownership.mjs";
 
@@ -326,7 +327,8 @@ async function seed({ dryRun }) {
   // Exclude request-time-owned keys (picks-watchlist.json): a pulled-then-seeded
   // copy is stale the moment a user clicks, and re-uploading it would silently
   // revert their add/remove. No producer may push it — seed included.
-  const local = (await localKeys()).filter((k) => !REQUEST_TIME_EXCLUSIVE_KEYS.has(k));
+  // Same exclusions as push: request-time state and runner-local keys.
+  const local = (await localKeys()).filter(isSeedableKey);
   if (!dryRun && !local.length) {
     throw new Error(`seed: ${DATA_DIR} has no workflow-owned JSON files; refusing to publish an empty snapshot`);
   }
