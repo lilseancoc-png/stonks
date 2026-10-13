@@ -20,6 +20,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-10-13
+
+### Added
+
+- **AI rejection log and scoring: every name the final grader rejects or tells to wait is recorded and later scored.** The bake writes one record per name, side and day (first time seen, spot price, grade, entry reason, total and market regime) to `ai-rejections/YYYY-MM-DD.json` plus `ai-rejections-latest.json`, tagging waits that overrode a ready price read separately; names the grader passed are kept as the comparison baseline. Tactical names and builds without a grader are skipped, logging never fails the bake, and nothing is added to `picks.json`. `backtest-picks.mjs` scores rejects on the move in the pick's direction at 5, 10 and 21 trading days against that day's passed names, and waits on whether a better entry came within 5 days. All files are Owner-only and private; the scorecard stays on the backtest runner and is excluded from the bake push. No AI calls. `lib/ai-rejections.mjs`, `scripts/build.mjs`, `scripts/backtest-picks.mjs`, `lib/data-ownership.mjs`, `lib/premium-keys.mjs`.
+
 ## 2026-10-10
 
 ### Changed
