@@ -20,6 +20,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-10-13
+
+### Added
+
+- **Link map: a private, Owner-only map of how names, themes and inputs connect.** The build writes `link-map.json` from the existing sector, industry and spillover groups, overnight peers, commodities, AI capex, RAM, GPU rent and narrative longs/shorts (365 nodes and 777 edges on Oct 13 data). Every edge carries its source and an `asOf` date. It makes no AI calls. Search-interest themes (no ticker lists yet) and central-bank gold (tracks countries, not tickers) are skipped. Requests without an Owner session get a 401 (`LINK_MAP_OWNER_ONLY`). `lib/link-map.mjs`, `scripts/build.mjs`, `lib/data-ownership.mjs`, `lib/premium-keys.mjs`.
+
 ## 2026-10-10
 
 ### Changed
