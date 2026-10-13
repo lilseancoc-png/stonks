@@ -20,6 +20,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-10-13
+
+### Added
+
+- **Evidence record: a private, Owner-only daily record of the evidence behind each name.** The bake writes `evidence/YYYY-MM-DD.json` plus a small `evidence-latest.json` pointer, covering 17 evidence pieces per name (Trends, RAM, GPU rent and capex are skipped because they have no per-name daily data). Every piece carries `asOf` (when the source data was known) and `firstSeen`, neither later than the bake date, so later tests can't use future information. `firstSeen` carries over across gaps of up to 5 trading days when the direction is unchanged and resets otherwise (holidays count as missing days). Each bake loads the last 60 days for the compare-to-its-own-normal rule, using the store access the daily pull already has. No AI calls. `lib/evidence-record.mjs`, `scripts/build.mjs`, `lib/data-ownership.mjs`, `lib/premium-keys.mjs`.
+
 ## 2026-10-10
 
 ### Changed
