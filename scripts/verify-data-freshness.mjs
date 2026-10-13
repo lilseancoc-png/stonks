@@ -22,6 +22,7 @@ import {
   isRetainedRemoteBakeKey,
   isTickerDataKey,
 } from "../lib/data-ownership.mjs";
+import { isCurrentAiRejectionPublishKey } from "../lib/ai-rejections.mjs";
 import {
   MIN_IV_SUCCESS_RATE,
   MIN_TICKER_SUCCESS_RATE,
@@ -584,6 +585,12 @@ async function auditBake({ report, dataDir, runStartedAt, now, expectedSymbols }
       await requireRewrittenJson(report, dataDir, key, runStartedAt);
       continue;
     }
+    // Today's AI-rejection file, the latest pointer, and a local scorecard
+    // are bake-owned. They are not required: the grader can be off, and the
+    // scorecard is written by the backtest rather than every bake. Older
+    // dated keys are not local after the wipe; if one is still on disk it
+    // stays unclassified so this run does not republish the archive.
+    if (isCurrentAiRejectionPublishKey(key, etDateKey(now))) continue;
     unclassified.push(key);
   }
   if (unclassified.length) {
