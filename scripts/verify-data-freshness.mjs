@@ -19,6 +19,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { TICKERS } from "./build.mjs";
 import {
   isBakeOwnedKey,
+  isEvidenceRecordKey,
   isRetainedRemoteBakeKey,
   isTickerDataKey,
 } from "../lib/data-ownership.mjs";
@@ -581,6 +582,13 @@ async function auditBake({ report, dataDir, runStartedAt, now, expectedSymbols }
     if (isTickerDataKey(key) && expectedSet.has(key.slice(0, -5))) continue;
     if (/^iv-history\/[A-Z0-9.]+\.json$/.test(key) && expectedSet.has(key.slice(11, -5))) continue;
     if (isRetainedRemoteBakeKey(key)) {
+      await requireRewrittenJson(report, dataDir, key, runStartedAt);
+      continue;
+    }
+    // Today's evidence file and evidence-latest.json are bake-owned and
+    // rewritten each run. Older dated keys are not rehydrated, so they are
+    // not local here; the store keeps them because they are not dynamic.
+    if (isEvidenceRecordKey(key)) {
       await requireRewrittenJson(report, dataDir, key, runStartedAt);
       continue;
     }
