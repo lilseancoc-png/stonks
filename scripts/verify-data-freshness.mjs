@@ -18,6 +18,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { TICKERS } from "./build.mjs";
 import {
+  OPTIONAL_BAKE_KEYS,
   isBakeOwnedKey,
   isRetainedRemoteBakeKey,
   isTickerDataKey,
@@ -132,6 +133,7 @@ const BAKE_REQUIRED_REWRITTEN_FILES = [
 ];
 
 const BAKE_STATIC_KEYS = new Set(BAKE_REQUIRED_REWRITTEN_FILES);
+const OPTIONAL_BAKE_KEY_SET = new Set(OPTIONAL_BAKE_KEYS);
 
 const CONTEXT_CAN_BE_EXPLICITLY_STALE = [
   "earnings-tracker.json",
@@ -584,6 +586,10 @@ async function auditBake({ report, dataDir, runStartedAt, now, expectedSymbols }
       await requireRewrittenJson(report, dataDir, key, runStartedAt);
       continue;
     }
+    if (OPTIONAL_BAKE_KEY_SET.has(key)) {
+      await requireRewrittenJson(report, dataDir, key, runStartedAt);
+      continue;
+    }
     unclassified.push(key);
   }
   if (unclassified.length) {
@@ -979,6 +985,28 @@ async function selfTest() {
       expectedSymbols: ["TEST"],
     });
     if (report.errors.length) throw new Error(renderReport(report));
+
+    await write("leaps-picks.json", { builtAtIso: stamp, picks: [] });
+    const withLeaps = await auditFreshness({
+      owner: "bake",
+      dataDir: dir,
+      runStartedAt: start.toISOString(),
+      now: new Date("2026-07-30T14:05:00.000Z"),
+      expectedSymbols: ["TEST"],
+    });
+    if (withLeaps.errors.length) throw new Error(renderReport(withLeaps));
+    if (!withLeaps.checks.some((message) => message.includes("leaps-picks.json: rewritten"))) {
+      throw new Error("self-test expected an optional LEAPS payload to be classified when present");
+    }
+    await rm(resolve(dir, "leaps-picks.json"));
+    const withoutLeaps = await auditFreshness({
+      owner: "bake",
+      dataDir: dir,
+      runStartedAt: start.toISOString(),
+      now: new Date("2026-07-30T14:05:00.000Z"),
+      expectedSymbols: ["TEST"],
+    });
+    if (withoutLeaps.errors.length) throw new Error(renderReport(withoutLeaps));
 
     const priorRefreshTopPicks = process.env.REFRESH_TOP_PICKS;
     const priorRefreshSwingDesks = process.env.REFRESH_SWING_DESKS;

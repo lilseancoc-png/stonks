@@ -30,6 +30,13 @@ import { isPremiumKey } from "../lib/premium-keys.mjs";
 import { BRIEF_ACCESS_POLICY_VERSION } from "../lib/public-data-policy.mjs";
 import { contentAssetVersion } from "../lib/asset-version.mjs";
 import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
+import {
+  LEAPS_GRADER_SCHEMA,
+  LEAPS_PICKS_KEY,
+  countLeapsGraderCalls,
+  leapsScoreEnabled,
+  publishLeapsPicks,
+} from "../lib/leaps-score.mjs";
 import { summarizeYahooError, withYahooRetry } from "../lib/yahoo-retry.mjs";
 import {
   buildAcceleratorPricesPayload,
@@ -39,6 +46,9 @@ import {
   buildCentralBankGoldPayload,
   fetchCentralBankGoldSources,
 } from "../lib/central-bank-gold.mjs";
+
+// One-line switch. Default off (env LEAPS_SCORE=1). Off writes nothing.
+const LEAPS_SCORE_ENABLED = leapsScoreEnabled();
 
 // Library prints a survey notice on first use and validates response
 // schemas — silence both since Yahoo occasionally omits optional fields
@@ -26000,6 +26010,50 @@ export function buildTopPicksPayload(picks, builtAtIso) {
   };
 }
 
+// Own call, after generateAiTheses. Non-priority: acquireAiSlot() with no
+// reserved flag, so the narrative/Brief reserve refuses it first. The plan
+// also skips before this function when the gate is not pass or the reserve
+// is already reached, which is every bake until setups exist.
+async function invokeLeapsGrader({ symbol, prompt }) {
+  if (!LEAPS_SCORE_ENABLED || !process.env.GEMINI_API_KEY) return null;
+  const atReserve = aiReserveBlocks(aiTokensToday(), AI_DAILY_TOKEN_CAP, AI_RESERVED_TOKENS, false)
+    || aiReserveBlocks(_aiCallsAtBuildStart + _aiAttemptSlots, AI_DAILY_CALL_CAP, AI_RESERVED_CALLS, false);
+  if (atReserve) return null;
+  await acquireAiSlot();
+  const model = process.env.AI_LEAPS_GRADER_MODEL || "gemini-3.1-flash-lite";
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
+  const response = await ai.models.generateContent({
+    model,
+    config: {
+      temperature: 0,
+      maxOutputTokens: 256,
+      responseMimeType: "application/json",
+      responseSchema: LEAPS_GRADER_SCHEMA,
+      thinkingConfig: { thinkingBudget: 0 },
+    },
+    contents: `${prompt}\nSymbol: ${symbol}`,
+  });
+  recordAiUsage({ model, callType: "leaps-grader", symbol, usage: response?.usageMetadata });
+  return response?.text || null;
+}
+
+async function publishLeapsAfterShortTermGrader(preScored, builtAtIso) {
+  if (!LEAPS_SCORE_ENABLED) return;
+  const atReserve = aiReserveBlocks(aiTokensToday(), AI_DAILY_TOKEN_CAP, AI_RESERVED_TOKENS, false)
+    || aiReserveBlocks(_aiCallsAtBuildStart + _aiAttemptSlots, AI_DAILY_CALL_CAP, AI_RESERVED_CALLS, false);
+  await publishLeapsPicks(preScored, {
+    builtAtIso,
+    env: process.env,
+    atReserve,
+    callsAlreadyToday: countLeapsGraderCalls(_aiUsageState),
+    write: async (key, payload) => {
+      if (key !== LEAPS_PICKS_KEY) throw new Error(`LEAPS refused to write ${key}`);
+      await writeFile(resolve(DATA_DIR, key), JSON.stringify(payload));
+    },
+    callModel: invokeLeapsGrader,
+  });
+}
+
 async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload = null, macroBackdrop = null, priorPicks = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, priorClosed = null, priorGrades = null, scannerExtras = null, priorOpen = null, reentryCooldown = true, thesisProsePrior = null, streaksMap = null) {
   const baseOpts = { priorClosed, priorGrades, openPositions: priorOpen, builtAtIso, reentryCooldown, ...(scannerExtras || {}) };
   // Score the universe ONCE, then run the two-stage pipeline:
@@ -26012,6 +26066,14 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   //      'reject'. Self-skips keyless (deterministic grade stands as the fallback).
   const preScored = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, baseOpts);
   const aiThesis = await generateAiTheses(preScored, macroBackdrop, baseOpts, thesisProsePrior || {});
+  // LEAPS reads the full preScored universe after the short-term grader.
+  // It clones pillars, writes leaps-picks.json only, and does not change
+  // preScored, the thesis map, or picks.json. A failure here stays off that path.
+  try {
+    await publishLeapsAfterShortTermGrader(preScored, builtAtIso);
+  } catch (err) {
+    console.warn(`[leaps] score skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
   const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, rfr, { ...baseOpts, preScored, aiThesisMap: aiThesis.map });
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
 
