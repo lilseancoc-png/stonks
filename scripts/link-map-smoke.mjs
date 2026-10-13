@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { serveDataKey } from "../lib/data-response.mjs";
+import { store } from "../lib/datastore.mjs";
 import {
   BAKE_LINK_MAP_KEY,
   SCANNER_OWNERS,
@@ -9,9 +11,12 @@ import {
 } from "../lib/data-ownership.mjs";
 import {
   LINK_MAP_OWNER_ONLY,
+  OWNER_ROLE_CLAIMS,
   isPremiumKey,
+  isRoleRestrictedKey,
   roleClaimForKey,
 } from "../lib/premium-keys.mjs";
+import { SESSION_COOKIE, signSession } from "../lib/session.mjs";
 import {
   LINK_MAP_ALT_INPUTS,
   LINK_MAP_SKIPPED_SOURCES,
@@ -237,13 +242,77 @@ for (const owner of SCANNER_OWNERS) {
 }
 assert.equal(LINK_MAP_OWNER_ONLY, true);
 assert.equal(isPremiumKey("link-map.json"), true);
-assert.deepEqual(roleClaimForKey("link-map.json"), ["tr", "tp"]);
+assert.equal(isRoleRestrictedKey("link-map.json"), true);
+assert.equal(roleClaimForKey("link-map.json"), OWNER_ROLE_CLAIMS);
+assert.deepEqual(OWNER_ROLE_CLAIMS, ["tr", "tp"]);
 
 const ownership = await readFile(resolve("lib/data-ownership.mjs"), "utf8");
 const premium = await readFile(resolve("lib/premium-keys.mjs"), "utf8");
 const freshness = await readFile(resolve("scripts/verify-data-freshness.mjs"), "utf8");
 assert.match(ownership, /BAKE_LINK_MAP_KEY = "link-map\.json"/);
-assert.match(premium, /LINK_MAP_OWNER_ONLY \? \["link-map\.json"\]/);
+assert.match(premium, /export const LINK_MAP_OWNER_ONLY = true;/);
+assert.equal((premium.match(/LINK_MAP_OWNER_ONLY && isLinkMapKey\(key\)/g) || []).length, 3);
+const published = premium.replace(
+  "export const LINK_MAP_OWNER_ONLY = true;",
+  "export const LINK_MAP_OWNER_ONLY = false;",
+);
+assert.notEqual(published, premium);
+const publishedModule = await import(`data:text/javascript,${encodeURIComponent(published)}`);
+assert.equal(publishedModule.LINK_MAP_OWNER_ONLY, false);
+assert.equal(publishedModule.isPremiumKey("link-map.json"), false);
+assert.equal(publishedModule.isRoleRestrictedKey("link-map.json"), false);
+assert.equal(publishedModule.roleClaimForKey("link-map.json"), null);
+assert.equal(publishedModule.isPremiumKey("picks.json"), true);
+assert.equal(publishedModule.isRoleRestrictedKey("picks.json"), true);
+assert.equal(publishedModule.roleClaimForKey("picks.json"), publishedModule.OWNER_ROLE_CLAIMS);
+
+function mockDataResponse() {
+  return {
+    headers: {}, statusCode: 200, body: null,
+    setHeader(name, value) { this.headers[String(name).toLowerCase()] = value; },
+    status(code) { this.statusCode = code; return this; },
+    json(value) { this.body = value; return value; },
+    end(value) { this.body = value; return value; },
+  };
+}
+const priorFlag = process.env.PRIVATE_DATA_ENABLED;
+const priorSecret = process.env.SESSION_SECRET;
+const priorGet = store.get;
+let linkMapReads = 0;
+try {
+  process.env.PRIVATE_DATA_ENABLED = "1";
+  process.env.SESSION_SECRET = "offline-link-map-smoke-secret";
+  store.get = async (key) => {
+    linkMapReads += 1;
+    assert.equal(key, "link-map.json");
+    return Buffer.from(JSON.stringify({ nodes: {}, edges: [] }));
+  };
+  const anon = mockDataResponse();
+  await serveDataKey({ headers: {} }, anon, "link-map.json");
+  assert.equal(anon.statusCode, 401);
+  assert.deepEqual(anon.body, { error: "auth required" });
+  assert.equal(anon.headers["cache-control"], "private, no-store");
+  assert.equal(linkMapReads, 0, "anonymous Owner read must stop before storage");
+  const partial = await signSession({ sub: "partial", tr: true });
+  const partialRes = mockDataResponse();
+  await serveDataKey({ headers: { cookie: `${SESSION_COOKIE}=${partial}` } }, partialRes, "link-map.json");
+  assert.equal(partialRes.statusCode, 401);
+  assert.deepEqual(partialRes.body, { error: "role required" });
+  assert.equal(linkMapReads, 0, "a partial Owner session must stop before storage");
+  const owner = await signSession({ sub: "owner", tr: true, tp: true });
+  const ownerRes = mockDataResponse();
+  await serveDataKey({ headers: { cookie: `${SESSION_COOKIE}=${owner}` } }, ownerRes, "link-map.json");
+  assert.equal(ownerRes.statusCode, 200);
+  assert.equal(ownerRes.headers["cache-control"], "private, no-store");
+  assert.deepEqual(JSON.parse(String(ownerRes.body)), { nodes: {}, edges: [] });
+  assert.equal(linkMapReads, 1);
+} finally {
+  store.get = priorGet;
+  if (priorFlag == null) delete process.env.PRIVATE_DATA_ENABLED;
+  else process.env.PRIVATE_DATA_ENABLED = priorFlag;
+  if (priorSecret == null) delete process.env.SESSION_SECRET;
+  else process.env.SESSION_SECRET = priorSecret;
+}
 const stamped = freshness.match(/const BAKE_STAMPED_FILES = \[([\s\S]*?)\];/)?.[1] || "";
 const required = freshness.match(/const BAKE_REQUIRED_REWRITTEN_FILES = \[([\s\S]*?)\];/)?.[1] || "";
 assert.match(required, /"link-map\.json"/);
