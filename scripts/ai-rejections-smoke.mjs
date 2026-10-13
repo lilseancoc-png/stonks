@@ -57,7 +57,7 @@ for (const key of [
   AI_REJECTION_SCORECARD_KEY,
 ]) {
   assert.equal(isAiRejectionKey(key), true, key);
-  assert.equal(isBakeOwnedKey(key), true, key);
+  assert.equal(isBakeOwnedKey(key), key !== AI_REJECTION_SCORECARD_KEY, key);
   assert.equal(isDynamicBakeKey(key), false, `${key} must be retained, not delete-staled`);
   assert.equal(isPremiumKey(key), true, key);
   assert.equal(isRoleRestrictedKey(key), true, key);
@@ -70,7 +70,22 @@ assert.equal(roleClaimForKey("briefs.json"), null);
 assert.equal(isCurrentAiRejectionPublishKey("ai-rejections/2026-10-13.json", "2026-10-13"), true);
 assert.equal(isCurrentAiRejectionPublishKey("ai-rejections/2026-10-12.json", "2026-10-13"), false);
 assert.equal(isCurrentAiRejectionPublishKey(AI_REJECTIONS_LATEST_KEY, "2026-10-13"), true);
-assert.equal(isCurrentAiRejectionPublishKey(AI_REJECTION_SCORECARD_KEY, "2026-10-13"), true);
+assert.equal(isCurrentAiRejectionPublishKey(AI_REJECTION_SCORECARD_KEY, "2026-10-13"), false);
+
+// The scorecard is backtest-local: no sync-data.mjs pusher may upload it.
+// push --owner=bake uploads local.filter(isBakeOwnedKey); scanner owners use
+// keysForScannerOwner; the transcripts overlay adds isRetainedRemoteBakeKey.
+{
+  const dataOwnership = await import("../lib/data-ownership.mjs");
+  assert.equal(dataOwnership.isBakeOwnedKey(AI_REJECTION_SCORECARD_KEY), false);
+  assert.equal(dataOwnership.isRetainedRemoteBakeKey(AI_REJECTION_SCORECARD_KEY), false);
+  for (const owner of dataOwnership.SCANNER_OWNERS) {
+    assert.equal(dataOwnership.keysForScannerOwner(owner).includes(AI_REJECTION_SCORECARD_KEY), false, owner);
+  }
+  const bakeUpload = ["picks.json", "ai-rejections/2026-10-13.json", AI_REJECTION_SCORECARD_KEY]
+    .filter(dataOwnership.isBakeOwnedKey);
+  assert.deepEqual(bakeUpload, ["picks.json", "ai-rejections/2026-10-13.json"]);
+}
 
 const remote = ["ai-rejections/2026-01-01.json", "ai-rejections/2026-10-13.json", "AAPL.json", "iv-history/AAPL.json"];
 const local = new Set(["ai-rejections/2026-10-13.json", "AAPL.json"]);
