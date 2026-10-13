@@ -251,7 +251,9 @@ const premium = await readFile(resolve("lib/premium-keys.mjs"), "utf8");
 const freshness = await readFile(resolve("scripts/verify-data-freshness.mjs"), "utf8");
 assert.match(ownership, /BAKE_LINK_MAP_KEY = "link-map\.json"/);
 assert.match(premium, /export const LINK_MAP_OWNER_ONLY = true;/);
-assert.equal((premium.match(/LINK_MAP_OWNER_ONLY && isLinkMapKey\(key\)/g) || []).length, 3);
+// Owner role comes from the generic PREMIUM_KEYS -> ROLE_RESTRICTED_KEYS rule.
+assert.match(premium, /\.\.\.\(LINK_MAP_OWNER_ONLY \? \["link-map\.json"\] : \[\]\)/);
+assert.doesNotMatch(premium, /isLinkMapKey/);
 const published = premium.replace(
   "export const LINK_MAP_OWNER_ONLY = true;",
   "export const LINK_MAP_OWNER_ONLY = false;",
