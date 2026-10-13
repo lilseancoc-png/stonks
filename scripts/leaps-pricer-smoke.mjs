@@ -6,6 +6,7 @@ import { readFile } from "node:fs/promises";
 import { bsPrice, greeks } from "../lib/greeks.mjs";
 import {
   LEAPS_BISECTION_ITERS,
+  LEAPS_CATALYST_BUFFER_MONTHS,
   LEAPS_FORWARD_YEARS,
   LEAPS_PASS_MULTIPLE,
   LEAPS_RISK_FREE_RATE,
@@ -50,6 +51,7 @@ assert.equal(LEAPS_TARGET_DELTA, 0.25);
 assert.equal(LEAPS_TARGET_MOVE, 0.35);
 assert.equal(LEAPS_PASS_MULTIPLE, 2);
 assert.equal(LEAPS_FORWARD_YEARS, 0.5);
+assert.equal(LEAPS_CATALYST_BUFFER_MONTHS, 3);
 assert.equal(LEAPS_YEAR_DAYS, 365.25);
 assert.equal(Number.isInteger(LEAPS_BISECTION_ITERS), true);
 assert.ok(LEAPS_BISECTION_ITERS > 0);
@@ -167,18 +169,49 @@ for (const spot of [0, -0, -10, NaN, Infinity, -Infinity, null, "100"]) {
   assert.equal(priceLeaps({ ...base, spot }), null, `spot ${String(spot)}`);
 }
 assert.equal(priceLeaps({ iv: 0.4, expirations: [LEAPS_YEAR_DAYS] }), null, "spot missing");
-assert.equal(priceLeaps({ ...base, expirations: [0.5 * LEAPS_YEAR_DAYS - 1] }), null, "under 6 months");
-assert.equal(priceLeaps({ ...base, expirations: [100, LEAPS_YEAR_DAYS] }), null, "short expiry poisons the list");
-assert.equal(
+assert.deepEqual(
+  priceLeaps({ ...base, expirations: [0.5 * LEAPS_YEAR_DAYS - 1] }),
+  [],
+  "under 6 months is skipped",
+);
+const keptAfterShort = priceLeaps({ ...base, expirations: [100, LEAPS_YEAR_DAYS] });
+assert.equal(keptAfterShort.length, 1, "short expiry is skipped");
+assert.equal(keptAfterShort[0].days, LEAPS_YEAR_DAYS);
+assert.deepEqual(
   priceLeaps({ spot: 100, iv: 0.4, asOf: "2026-01-15", expirations: ["2026-04-01"] }),
-  null,
-  "dated expiry under 6 months",
+  [],
+  "dated expiry under 6 months is skipped",
 );
-assert.equal(
+assert.deepEqual(
   priceLeaps({ spot: 100, iv: 0.4, asOf: "2026-06-01", expirations: ["2026-01-01"] }),
-  null,
-  "expiry before as-of",
+  [],
+  "expiry before as-of is skipped",
 );
+const mixedDates = priceLeaps({
+  spot: 100,
+  iv: 0.4,
+  asOf: "2026-10-13",
+  expirations: ["2027-01-15", "2027-10-13", "2028-01-21"],
+});
+assert.deepEqual(
+  mixedDates.map((row) => row.expiration),
+  ["2027-10-13", "2028-01-21"],
+);
+const mixedDatesSolo = priceLeaps({
+  spot: 100,
+  iv: 0.4,
+  asOf: "2026-10-13",
+  expirations: ["2027-10-13", "2028-01-21"],
+});
+assert.equal(mixedDates[0].strike, mixedDatesSolo[0].strike);
+assert.equal(mixedDates[1].strike, mixedDatesSolo[1].strike);
+const mixedUnparsed = priceLeaps({
+  spot: 100,
+  iv: 0.4,
+  expirations: ["2027-01-15", LEAPS_YEAR_DAYS, "nope"],
+});
+assert.equal(mixedUnparsed.length, 1);
+assert.equal(mixedUnparsed[0].days, LEAPS_YEAR_DAYS);
 assert.equal(priceLeaps({ ...base, spot: Number.MIN_VALUE }), null, "premium collapses to 0");
 assert.equal(priceLeaps(null), null);
 assert.equal(priceLeaps({ ...base, expirations: LEAPS_YEAR_DAYS }), null);
@@ -189,8 +222,16 @@ assert.equal(priceLeaps({ ...base, targetDelta: 0.19 }), null);
 assert.equal(priceLeaps({ ...base, targetDelta: 0.31 }), null);
 assert.equal(priceLeaps({ ...base, targetDelta: NaN }), null);
 assert.equal(priceLeaps({ ...base, asOf: "2026-02-31", expirations: [LEAPS_YEAR_DAYS] }), null);
-assert.equal(priceLeaps({ spot: 100, iv: 0.4, expirations: ["2027-01-15"] }), null, "date without as-of");
-assert.equal(priceLeaps({ spot: 100, iv: 0.4, asOf: "2026-01-15", expirations: ["2027-02-31"] }), null);
+assert.deepEqual(
+  priceLeaps({ spot: 100, iv: 0.4, expirations: ["2027-01-15"] }),
+  [],
+  "date without as-of is skipped",
+);
+assert.deepEqual(
+  priceLeaps({ spot: 100, iv: 0.4, asOf: "2026-01-15", expirations: ["2027-02-31"] }),
+  [],
+  "unparseable expiry is skipped",
+);
 
 const nine = 0.75 * LEAPS_YEAR_DAYS;
 const twentyFour = 2 * LEAPS_YEAR_DAYS;
@@ -204,6 +245,84 @@ assertNear(windowed[0].days, nine, 1e-9, "9-month edge");
 assertNear(windowed[1].days, twentyFour, 1e-9, "24-month edge");
 assert.deepEqual(priceLeaps({ ...base, expirations: [0.5 * LEAPS_YEAR_DAYS] }), []);
 assert.deepEqual(priceLeaps({ ...base, expirations: [] }), []);
+
+const catalystBook = {
+  spot: 100,
+  iv: 0.4,
+  asOf: "2026-01-15",
+  expirations: ["2027-01-15", "2027-07-16"],
+};
+assert.deepEqual(
+  priceLeaps(catalystBook).map((row) => row.expiration),
+  ["2027-01-15", "2027-07-16"],
+);
+assert.deepEqual(
+  priceLeaps({ ...catalystBook, catalystDate: "2027-01-15" }).map((row) => row.expiration),
+  ["2027-07-16"],
+);
+assert.deepEqual(
+  priceLeaps({ ...catalystBook, catalystDate: new Date("2027-01-15T00:00:00Z") }).map((row) => row.expiration),
+  ["2027-07-16"],
+);
+for (const catalystDate of ["not-a-date", "2027-02-31", null]) {
+  assert.deepEqual(
+    priceLeaps({ ...catalystBook, catalystDate }).map((row) => row.expiration),
+    ["2027-01-15", "2027-07-16"],
+    `catalyst ${String(catalystDate)} is ignored`,
+  );
+}
+assert.deepEqual(
+  priceLeaps({
+    spot: 100,
+    iv: 0.4,
+    asOf: "2026-01-15",
+    expirations: ["2027-01-14", "2027-01-15"],
+    catalystDate: "2026-10-15",
+  }).map((row) => row.expiration),
+  ["2027-01-15"],
+  "expiration on catalyst + 3 months is kept",
+);
+assert.deepEqual(
+  priceLeaps({
+    spot: 100,
+    iv: 0.4,
+    asOf: "2026-04-30",
+    expirations: ["2027-04-29", "2027-04-30"],
+    catalystDate: "2027-01-31",
+  }).map((row) => row.expiration),
+  ["2027-04-30"],
+  "month-end catalyst clamps to the last day",
+);
+assert.deepEqual(
+  priceLeaps({
+    spot: 100,
+    iv: 0.4,
+    asOf: "2026-01-15",
+    expirations: ["2027-01-15"],
+    catalystDate: "2027-01-15",
+  }),
+  [],
+  "every expiration before the catalyst buffer",
+);
+const numericGated = priceLeaps({
+  spot: 100,
+  iv: 0.4,
+  asOf: "2026-01-15",
+  expirations: [364, 600],
+  catalystDate: "2026-10-15",
+});
+assert.equal(numericGated.length, 1);
+assert.equal(numericGated[0].days, 600);
+assert.deepEqual(
+  priceLeaps({
+    spot: 100,
+    iv: 0.4,
+    expirations: [364, 600],
+    catalystDate: "2026-10-15",
+  }).map((row) => row.days),
+  [364, 600],
+  "day counts without as-of ignore a catalyst date",
+);
 
 const lowDelta = priceLeaps({ ...base, targetDelta: 0.2 });
 const highDelta = priceLeaps({ ...base, targetDelta: 0.3 });
