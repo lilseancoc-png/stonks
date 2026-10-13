@@ -32,6 +32,7 @@ import { contentAssetVersion } from "../lib/asset-version.mjs";
 import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
 import { summarizeYahooError, withYahooRetry } from "../lib/yahoo-retry.mjs";
 import {
+  COLLAPSED_STORY_RETRY_ATTEMPTS,
   PREVIOUS_NAME_REUSE_RULE,
   collapsedStoryRetryDecision,
   countNarrativeSourceHeadlines,
@@ -31854,6 +31855,11 @@ const BRIEF_SCHEMA = {
   required: ["headline", "summary", "highlights"],
 };
 
+// Output ceiling for one successful Brief response. acquireAiSlot records
+// real usage after the call; this is the constant bound on what that response
+// is allowed to add. Failed attempts take call slots, not another full output.
+const BRIEF_MAX_OUTPUT_TOKENS = 3072;
+
 async function generateBrief(ai, kind, dateKey, signals) {
   const userMessage = briefUserMessage(kind, dateKey, signals);
   const system = briefSystemPrompt(kind);
@@ -31866,7 +31872,7 @@ async function generateBrief(ai, kind, dateKey, signals) {
         config: {
           systemInstruction: system,
           temperature: 0.4,
-          maxOutputTokens: 3072,
+          maxOutputTokens: BRIEF_MAX_OUTPUT_TOKENS,
           responseMimeType: "application/json",
           responseSchema: BRIEF_SCHEMA,
           thinkingConfig: { thinkingBudget: 0 },
@@ -35472,12 +35478,18 @@ export function canReuseNarrativeExtraction(
 // (A genuine 429 quota hint still overrides this via effectiveWait = max(...).)
 const NARRATIVE_MAX_ATTEMPTS = 7;
 const NARRATIVE_RETRY_BACKOFF_MS = [3000, 6000, 10000, 15000, 15000, 15000];
+// Output ceiling for one narrative response. Same role as BRIEF_MAX_OUTPUT_TOKENS.
+const NARRATIVE_MAX_OUTPUT_TOKENS = 32768;
 
-async function generateMarketNarratives(ai, chains, previousNames, macroHeadlines, preparedUserMessage = null) {
+async function generateMarketNarratives(ai, chains, previousNames, macroHeadlines, preparedUserMessage = null, { maxAttempts = NARRATIVE_MAX_ATTEMPTS } = {}) {
+  const attemptLimit = Math.min(
+    NARRATIVE_MAX_ATTEMPTS,
+    Math.max(1, Math.trunc(Number(maxAttempts)) || NARRATIVE_MAX_ATTEMPTS),
+  );
   const userMessage = preparedUserMessage || buildNarrativeUserMessage(chains, previousNames, macroHeadlines);
   let response;
   let lastErr;
-  for (let attempt = 0; attempt < NARRATIVE_MAX_ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < attemptLimit; attempt++) {
     try {
       await acquireAiSlot({ reserved: true });
       response = await ai.models.generateContent({
@@ -35507,7 +35519,7 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
           // trigger) — roughly 3-4× the payload. Prod NARRATIVES_MODEL
           // is Flash (handles 32k fine); a free-tier Gemma fork may still drop
           // some fields, which the parser + renderer tolerate (graceful degrade).
-          maxOutputTokens: 32768,
+          maxOutputTokens: NARRATIVE_MAX_OUTPUT_TOKENS,
           thinkingConfig: { thinkingBudget: 0 },
           // Constrained-decoder JSON mode — narratives is the call that
           // most reliably hits malformed-JSON failures because its output
@@ -35522,14 +35534,14 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
       // Classify with the standard helper but use the narrative-specific
       // backoff schedule when the error is transient.
       const wait = classifyAiError(err, attempt, aiModelForAttempt(NARRATIVES_MODEL, attempt));
-      if (wait == null || attempt === NARRATIVE_MAX_ATTEMPTS - 1) throw err;
+      if (wait == null || attempt === attemptLimit - 1) throw err;
       const narrativeWait = NARRATIVE_RETRY_BACKOFF_MS[attempt] ?? 15000;
       // Honour the rate-limit hint from classifyAiError when it's larger than
       // our schedule (e.g. a "retry in 30s" hint on attempt 0).
       const effectiveWait = Math.max(wait, narrativeWait);
       const causeMsg = err?.cause?.code || err?.cause?.message || "";
       console.log(
-        `    ↻ narrative attempt ${attempt + 1}/${NARRATIVE_MAX_ATTEMPTS} failed (${err.message}` +
+        `    ↻ narrative attempt ${attempt + 1}/${attemptLimit} failed (${err.message}` +
         (causeMsg ? ` · cause ${causeMsg}` : "") +
         `) — retrying in ${Math.round(effectiveWait / 1000)}s`,
       );
@@ -35891,16 +35903,39 @@ function computeRecentlyEnded(history, activeNarrativeNames, todayIso) {
     .slice(0, 8);
 }
 
-// Read-only check against the same hard ceilings acquireAiSlot enforces for
-// a reserved narrative call. Does not change the caps or consume a slot.
-function narrativeRetryFitsReserve() {
-  return narrativeReserveAvailable({
-    tokensToday: aiTokensToday(),
+// Numbers the collapsed-story retry must leave untouched. Call slots match
+// generateBrief's AI_MAX_ATTEMPTS loop (acquireAiSlot reserves one per
+// attempt). Token estimates are the output ceilings on that call and on one
+// narrative response — acquireAiSlot only sees tokens after recordAiUsage,
+// so the holdback uses these constants instead of changing the slot logic.
+export function narrativeRetryReserveInput({
+  tokensToday = 0,
+  recordedCalls = 0,
+  reservedAttempts = 0,
+} = {}) {
+  return {
+    tokensToday,
     tokenCap: AI_DAILY_TOKEN_CAP,
+    recordedCalls,
+    reservedAttempts,
+    callCap: AI_DAILY_CALL_CAP,
+    reservedTokens: AI_RESERVED_TOKENS,
+    reservedCalls: AI_RESERVED_CALLS,
+    briefMaxAttempts: AI_MAX_ATTEMPTS,
+    briefTokenEstimate: BRIEF_MAX_OUTPUT_TOKENS,
+    narrativeTokenEstimate: NARRATIVE_MAX_OUTPUT_TOKENS,
+  };
+}
+
+// Read-only. True when the unused narrative/Brief reserve still covers the
+// Brief's worst case plus one narrative call. Does not change the caps or
+// consume a slot.
+function narrativeRetryFitsReserve() {
+  return narrativeReserveAvailable(narrativeRetryReserveInput({
+    tokensToday: aiTokensToday(),
     recordedCalls: _aiCallsAtBuildStart,
     reservedAttempts: _aiAttemptSlots,
-    callCap: AI_DAILY_CALL_CAP,
-  });
+  }));
 }
 
 async function attachMarketNarratives(chains, previousHistory, macroReleaseReads = [], riskInputs = {}) {
@@ -35977,12 +36012,12 @@ async function attachMarketNarratives(chains, previousHistory, macroReleaseReads
       const decision = collapsedStoryRetryDecision({ realCount, headlineCount, reserveAvailable });
       console.log(`  [narratives] ${realCount} real stories, ${headlineCount} source headlines`);
       if (decision.reason === "reserve-exhausted") {
-        console.log("  [narratives] skipping collapsed-story retry — narrative reserve is exhausted");
+        console.log("  [narratives] skipping collapsed-story retry — reserve must still cover the Brief plus one narrative call");
       } else if (decision.retry) {
         console.log("  [narratives] retrying once without previous names");
         try {
           const retryMessage = buildNarrativeUserMessage(chains, [], headlinesForPrompt, riskInputs);
-          const retryRaw = await generateMarketNarratives(ai, chains, [], headlinesForPrompt, retryMessage);
+          const retryRaw = await generateMarketNarratives(ai, chains, [], headlinesForPrompt, retryMessage, { maxAttempts: COLLAPSED_STORY_RETRY_ATTEMPTS });
           const retryReal = countRealNarratives(retryRaw.narratives);
           const picked = pickRicherNarrativeExtraction(raw, retryRaw);
           raw = picked.chosen;
