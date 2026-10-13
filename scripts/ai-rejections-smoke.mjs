@@ -36,7 +36,7 @@ import { store } from "../lib/datastore.mjs";
 const RECORD_KEYS = ["sym", "side", "kind", "firstSeen", "asOf", "spot", "grade", "entryReason", "total", "regime"];
 const root = fileURLToPath(new URL("..", import.meta.url));
 
-assert.deepEqual(REJECT_HORIZONS, [5, 10, 20]);
+assert.deepEqual(REJECT_HORIZONS, [5, 10, 21]);
 assert.equal(WAIT_BETTER_ENTRY_DAYS, 5);
 assert.equal(aiRejectionDayKey("2026-10-13"), "ai-rejections/2026-10-13.json");
 assert.equal(AI_REJECTIONS_LATEST_KEY, "ai-rejections-latest.json");
@@ -241,7 +241,7 @@ try {
   assert.equal(blocked.skipped, "history-unavailable");
   assert.equal(await readFile(resolve(dir, "ai-rejections/2026-10-13.json"), "utf8"), beforeBlock);
 
-  const line = (start, step, n = 21) => {
+  const line = (start, step, n = 22) => {
     const closes = [];
     for (let i = 0; i < n; i += 1) closes.push(start + step * i);
     return { dateIndex: new Map([["2026-01-05", 0]]), closes };
@@ -290,9 +290,9 @@ try {
       HOLD: { dateIndex: new Map([["2026-02-02", 0]]), closes: [100, 101, 102, 103, 104, 105, 106] },
     },
   });
-  assert.deepEqual(card.horizons, [5, 10, 20]);
+  assert.deepEqual(card.horizons, [5, 10, 21]);
   assert.equal(card.waitBetterEntryDays, WAIT_BETTER_ENTRY_DAYS);
-  for (const horizon of [5, 10, 20]) {
+  for (const horizon of [5, 10, 21]) {
     const row = card.rejects[String(horizon)];
     assert.equal(row.reject.n, 1, `reject n @ ${horizon}`);
     assert.equal(row.passed.n, 1, `pass n @ ${horizon}`);
