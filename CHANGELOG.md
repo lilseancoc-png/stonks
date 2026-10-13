@@ -20,6 +20,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-10-13
+
+### Fixed
+
+- **Narratives: story extraction no longer collapses onto the single name in the latest history snapshot.** Previous names are the real stories from the last five snapshots, and the prompt reuses a name only when today's evidence still supports it. A fresh read with fewer than four real stories and 30 or more source headlines retries once without that list when the narrative reserve still has a call left; an exhausted reserve skips the retry and the build continues. The post-close carry (`REFRESH_NARRATIVES=false`) extracts fresh when the prior read is stale or has fewer than four real stories. `lib/story-detection.mjs`, `scripts/build.mjs`, `scripts/story-detection-smoke.mjs`.
+
 ## 2026-10-10
 
 ### Changed
