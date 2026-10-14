@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { serveDataKey } from "../lib/data-response.mjs";
 import { store } from "../lib/datastore.mjs";
@@ -259,14 +261,22 @@ const published = premium.replace(
   "export const LINK_MAP_OWNER_ONLY = false;",
 );
 assert.notEqual(published, premium);
-const publishedModule = await import(`data:text/javascript,${encodeURIComponent(published)}`);
-assert.equal(publishedModule.LINK_MAP_OWNER_ONLY, false);
-assert.equal(publishedModule.isPremiumKey("link-map.json"), false);
-assert.equal(publishedModule.isRoleRestrictedKey("link-map.json"), false);
-assert.equal(publishedModule.roleClaimForKey("link-map.json"), null);
-assert.equal(publishedModule.isPremiumKey("picks.json"), true);
-assert.equal(publishedModule.isRoleRestrictedKey("picks.json"), true);
-assert.equal(publishedModule.roleClaimForKey("picks.json"), publishedModule.OWNER_ROLE_CLAIMS);
+// Keep normal file-module resolution when other branches add policy imports.
+const policyDir = await mkdtemp(resolve(tmpdir(), "stonks-link-policy-"));
+try {
+  await writeFile(resolve(policyDir, "premium-keys.mjs"), published);
+  await writeFile(resolve(policyDir, "data-ownership.mjs"), await readFile(resolve("lib/data-ownership.mjs")));
+  const publishedModule = await import(pathToFileURL(resolve(policyDir, "premium-keys.mjs")).href);
+  assert.equal(publishedModule.LINK_MAP_OWNER_ONLY, false);
+  assert.equal(publishedModule.isPremiumKey("link-map.json"), false);
+  assert.equal(publishedModule.isRoleRestrictedKey("link-map.json"), false);
+  assert.equal(publishedModule.roleClaimForKey("link-map.json"), null);
+  assert.equal(publishedModule.isPremiumKey("picks.json"), true);
+  assert.equal(publishedModule.isRoleRestrictedKey("picks.json"), true);
+  assert.equal(publishedModule.roleClaimForKey("picks.json"), publishedModule.OWNER_ROLE_CLAIMS);
+} finally {
+  await rm(policyDir, { recursive: true, force: true });
+}
 
 function mockDataResponse() {
   return {
