@@ -37511,15 +37511,8 @@ async function main() {
     `wrote ${OUT} (${(html.length / 1024).toFixed(1)} KB) + styles.css (${(css.length / 1024).toFixed(1)} KB) + app.js (${(js.length / 1024).toFixed(1)} KB) + ${symbols.length} chain files (${(totalChainBytes / 1024).toFixed(1)} KB total) + trends (${trends.narratives.length} active, ${trends.history.length}-day history)`,
   );
   try {
-    let remote = null;
-    try {
-      remote = (await import("../lib/datastore.mjs")).store;
-    } catch (err) {
-      console.log(`  · evidence datastore unavailable (${err.message})`);
-    }
     const evidenceInfo = await runEvidenceRecord({
       dataDir: DATA_DIR,
-      remote,
       bakeDate: evidenceBakeDate,
       priorRecords: evidencePriorRecords,
       sources: {
@@ -37534,9 +37527,7 @@ async function main() {
         filings: perFirmResult,
       },
     });
-    if (evidenceInfo.remoteError) {
-      console.log(`  · evidence remote publish skipped (${evidenceInfo.remoteError})`);
-    }
+
     console.log(`wrote data/${evidenceInfo.key} — ${evidenceInfo.names} names, ${evidenceInfo.pieces} pieces`);
   } catch (err) {
     console.log(`  ⚠ Evidence record step failed (non-fatal): ${err.message}`);

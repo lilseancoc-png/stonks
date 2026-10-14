@@ -219,4 +219,44 @@ const BAKE = "2026-10-13";
 
 }
 
+// Missing source values are unknown, not zero readings or history samples.
+for (const value of [null, undefined, "", " ", false]) {
+  assert.equal(ownNormalZ(Array(20).fill(value), 1), null);
+  assert.equal(ownNormalZ(Array(20).fill(35), value), null);
+}
+{
+  const prior = Array.from({ length: 20 }, (_, i) => {
+    const date = addCalendarDays(BAKE, -i - 1);
+    return { date, names: { AAA: [
+      { id: "ats", src: "finra-ats", dir: "neutral", str: 0, asOf: date, firstSeen: date, v: 35 },
+      { id: "volume", src: "volume", dir: "neutral", str: 0, asOf: date, firstSeen: date, v: 1 },
+    ] } };
+  });
+  const sources = {
+    chains: { AAA: { spot: 100 } },
+    marketStructure: { bySymbol: { AAA: { ats: { darkPoolPct: null, publishedDate: BAKE } } } },
+    volumeFlags: { scannedAt: BAKE + "T20:30:00Z", tickers: [{ symbol: "AAA", bucketHits: [], eod: { ratio: 3, dayMovePct: -5 } }] },
+  };
+  const record = buildEvidenceRecord(sources, { bakeDate: BAKE, priorRecords: prior });
+  assert.equal(record.names.AAA.some(p => p.id === "ats"), false);
+  const volume = record.names.AAA.find(p => p.id === "volume");
+  assert.equal(volume.v, -3);
+  assert.equal(volume.dir, "down");
+  assert.equal(volume.str, 3);
+  const unknown = buildEvidenceRecord({ ...sources, volumeFlags: { ...sources.volumeFlags,
+    tickers: [{ symbol: "AAA", bucketHits: [], eod: { ratio: 3, dayMovePct: null } }],
+  } }, { bakeDate: BAKE, priorRecords: prior });
+  assert.equal((unknown.names.AAA || []).some(p => p.id === "volume"), false);
+}
+// Generation writes only its local IO; the verified sync boundary publishes.
+{
+  let liveCalls = 0;
+  const remote = { hasToken: () => true, publishGeneration: async () => { liveCalls++; }, put: async () => { liveCalls++; } };
+  const local = [];
+  await runEvidenceRecord({ bakeDate: BAKE, priorRecords: [], sources: {}, remote,
+    store: { get: async () => null, put: async key => local.push(key) } });
+  assert.equal(liveCalls, 0);
+  assert.deepEqual(local.sort(), ["evidence-latest.json", "evidence/2026-10-13.json"]);
+}
+
 console.log("evidence-record smoke ok");
