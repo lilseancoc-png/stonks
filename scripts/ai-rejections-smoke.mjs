@@ -300,7 +300,7 @@ try {
       MSFT: line(100, 1),
       PUTP: line(20, 1),
       WAIT: { dateIndex: new Map([["2026-02-02", 0]]), closes: [100, 101, 102, 103, 104, 99] },
-      PROMO: { dateIndex: new Map([["2026-02-02", 0]]), closes: [100, 101, 102, 103, 104, 105, 106] },
+      PROMO: { dateIndex: new Map([["2026-02-02", 0], ["2026-02-04", 2]]), closes: [100, 101, 102, 103, 104, 105, 106] },
       LATE: { dateIndex: new Map([["2026-02-02", 0]]), closes: [100, 101, 101, 101, 101, 101, 90] },
       HOLD: { dateIndex: new Map([["2026-02-02", 0]]), closes: [100, 101, 102, 103, 104, 105, 106] },
     },
@@ -375,6 +375,25 @@ try {
   store.get = priorGet;
   if (priorFlag == null) delete process.env.PRIVATE_DATA_ENABLED;
   else process.env.PRIVATE_DATA_ENABLED = priorFlag;
+}
+
+// A promotion must land within the same realized trading-session window.
+{
+  const first = { date: "2026-01-05", records: [{ sym: "AAA", side: "call", kind: "wait", spot: 100 }], passed: [] };
+  const promote = date => ({ date, records: [], passed: [{ sym: "AAA", side: "call", entryVerdict: "buy-now", spot: 90 }] });
+  const series = { AAA: { dateIndex: new Map([["2026-01-05", 0], ["2026-01-12", 5], ["2026-01-13", 6], ["2026-02-02", 19]]), closes: Array(25).fill(101) } };
+  series.AAA.closes[0] = 100;
+  const score = date => scoreAiRejections({ days: [first, promote(date)], series }).waits.wait;
+  assert.equal(score("2026-01-12").right, 1, "the fifth trading session qualifies across a weekend");
+  assert.equal(score("2026-01-13").right, 0, "the sixth session is outside the horizon");
+  assert.equal(score("2026-02-02").right, 0, "a buy weeks later cannot inflate five-day accuracy");
+  assert.equal(score("2026-01-10").right, 0, "a non-session or missing date cannot be guessed");
+  assert.equal(scoreAiRejections({ days: [first, promote("2026-01-12")], series: {} }).waits.wait.pending, 1);
+
+  // Session indexes, rather than weekdays, also respect an exchange holiday.
+  const holidaySeries = { AAA: { dateIndex: new Map([["2026-01-16", 0], ["2026-01-26", 5]]), closes: [100, 101, 102, 103, 104, 105] } };
+  const holidayWait = { ...first, date: "2026-01-16" };
+  assert.equal(scoreAiRejections({ days: [holidayWait, promote("2026-01-26")], series: holidaySeries }).waits.wait.right, 1);
 }
 
 console.log("ai-rejections smoke test passed");
