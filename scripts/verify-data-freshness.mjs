@@ -18,6 +18,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { TICKERS } from "./build.mjs";
 import {
+  LEAPS_PAPER_KEY,
   isBakeOwnedKey,
   isRetainedRemoteBakeKey,
   isTickerDataKey,
@@ -581,6 +582,12 @@ async function auditBake({ report, dataDir, runStartedAt, now, expectedSymbols }
     if (isTickerDataKey(key) && expectedSet.has(key.slice(0, -5))) continue;
     if (/^iv-history\/[A-Z0-9.]+\.json$/.test(key) && expectedSet.has(key.slice(11, -5))) continue;
     if (isRetainedRemoteBakeKey(key)) {
+      await requireRewrittenJson(report, dataDir, key, runStartedAt);
+      continue;
+    }
+    // Present only after a non-empty LEAPS list. Absence is the steady state
+    // and is not a missing bake output; a file that is here must be this run's.
+    if (key === LEAPS_PAPER_KEY) {
       await requireRewrittenJson(report, dataDir, key, runStartedAt);
       continue;
     }

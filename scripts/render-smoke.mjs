@@ -355,7 +355,7 @@ try {
     assert.equal(isPremiumKey(key), false, `${key} must take the public cache path`);
     assert.equal(roleClaimForKey(key), null, `${key} must not require a login`);
   }
-  for (const key of ["market-analysis.json", "picks.json", "picks-open.json", "picks-0dte.json", "picks-0dte-accuracy.json", "auto-picks.json", "stock-picks.json", "sector-rotation.json", "sector-rotation-log.json", "leveraged-etfs.json", "leveraged-etfs-log.json", "picks-accuracy.json", "picks-changes.json", "picks-roster.json", "grades-history.json", "grades-daily.json", "quant.json", "quant-history.json", "day-trading.json", "day-trading-history.json", "day-trades.json", "day-trades-history.json", "picks-watchlist.json", "ai-usage.json"]) {
+  for (const key of ["market-analysis.json", "picks.json", "picks-open.json", "picks-0dte.json", "picks-0dte-accuracy.json", "auto-picks.json", "stock-picks.json", "sector-rotation.json", "sector-rotation-log.json", "leveraged-etfs.json", "leveraged-etfs-log.json", "picks-accuracy.json", "leaps-paper.json", "picks-changes.json", "picks-roster.json", "grades-history.json", "grades-daily.json", "quant.json", "quant-history.json", "day-trading.json", "day-trading-history.json", "day-trades.json", "day-trades-history.json", "picks-watchlist.json", "ai-usage.json"]) {
     assert.equal(isPremiumKey(key), true);
     assert.deepEqual(roleClaimForKey(key), ["tr", "tp"], `${key} must require both Owner claims`);
   }
@@ -378,7 +378,7 @@ try {
   for (const file of ["ma-tracker.json", "pending-buyouts.json"]) {
     assert.match(briefSources, new RegExp(file.replace(".", "\\.")), `${file} must feed the public Brief`);
   }
-  for (const file of ["stock-picks.json", "sector-rotation.json", "leveraged-etfs.json"]) {
+  for (const file of ["stock-picks.json", "sector-rotation.json", "leveraged-etfs.json", "leaps-paper.json"]) {
     assert.doesNotMatch(briefSources, new RegExp(file.replace(".", "\\.")), `${file} must not feed the public Brief`);
   }
   const coreTools = buildSource.match(/const coreTools = \[[\s\S]*?\n      \];/)?.[0] || "";
