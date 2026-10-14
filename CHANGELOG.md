@@ -37,6 +37,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - **Branch review repair:** Wait promotions count only within the five trading-session score window. The scorecard stays local, and normal runs download only the required record history.
 - **Data sync: `sync-data seed` now skips the same keys `push` excludes.** Seed (the one-time full upload of local `data/` into the private store) skips request-time keys and the shared `LOCAL_ONLY_KEYS` list, including the backtest-only AI rejection scorecard via `isSeedableKey`, and still uploads Owner-only keys so a re-seed keeps the private history. `lib/data-ownership.mjs`, `scripts/sync-data.mjs`, plus a smoke test.
+- **Branch review repair:** Bake, seed, and hydration exclude the local AI rejection scorecard. Normal pulls bound dated record downloads; historical backtests explicitly request full archives.
+- **Data sync: `sync-data seed` now skips the same keys `push` excludes.** Seed (the one-time full upload of local `data/` into the private store) skips request-time keys and the shared `LOCAL_ONLY_KEYS` list, including the local AI rejection scorecard via `isSeedableKey`, and still uploads Owner-only keys so a re-seed keeps the private history. `lib/data-ownership.mjs`, `scripts/sync-data.mjs`, plus a smoke test.
 
 ## 2026-10-10
 
