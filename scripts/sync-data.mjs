@@ -40,14 +40,19 @@ import { store } from "../lib/datastore.mjs";
 import { resolveStoreKeyPath } from "../lib/store-path.mjs";
 import { hydrationPolicy } from "../lib/data-hydration.mjs";
 import {
+  AI_REJECTION_SCORECARD_KEY,
   REQUEST_TIME_EXCLUSIVE_KEYS,
   SCANNER_OWNERS,
+  isAiRejectionKey,
   isBakeOwnedKey,
   isDynamicBakeKey as sharedIsDynamicBakeKey,
+  isEvidenceRecordKey,
+  isLocalOnlyKey,
   isRetainedRemoteBakeKey,
   isSeedableKey,
   keysForScannerOwner,
 } from "../lib/data-ownership.mjs";
+import { isPremiumKey } from "../lib/premium-keys.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -330,12 +335,58 @@ async function pushScanner(owner, { dryRun }) {
   await publish(owner, keys, { dryRun, label: `push(${owner})` }); // overlay-only, no delete
 }
 
+// Publishable evidence and AI-rejection keys seed must keep Owner-only.
+// A sample date proves the dated matchers, not that this file is on disk.
+const SEED_PUBLISHABLE_OWNER_SAMPLES = Object.freeze([
+  "evidence-latest.json",
+  "evidence/2026-01-02.json",
+  "ai-rejections-latest.json",
+  "ai-rejections/2026-01-02.json",
+]);
+
+// Fail closed before seed uploads. A publishable evidence or AI-rejection key
+// that the matchers do not recognize is missing; one isPremiumKey would serve
+// on the public cache is a public copy. The scorecard must stay local-only
+// and Owner-only. isPremium defaults to the live policy; tests pass a stand-in.
+export function assertSeedOwnerKeys(localKeys, isPremium = isPremiumKey) {
+  if (!Array.isArray(localKeys)) throw new Error("seed: owner-key check requires the local key list");
+  const problems = [];
+  for (const key of SEED_PUBLISHABLE_OWNER_SAMPLES) {
+    const recognized = isEvidenceRecordKey(key) || isAiRejectionKey(key);
+    if (!recognized) problems.push(`missing owner classification for ${key}`);
+    else if (!isPremium(key)) problems.push(`public copy of ${key}`);
+    else if (!isSeedableKey(key) || isLocalOnlyKey(key)) problems.push(`missing seedable owner copy of ${key}`);
+  }
+  const scorecardLocalOnly = isLocalOnlyKey(AI_REJECTION_SCORECARD_KEY)
+    && !isSeedableKey(AI_REJECTION_SCORECARD_KEY)
+    && !isBakeOwnedKey(AI_REJECTION_SCORECARD_KEY);
+  if (!scorecardLocalOnly) {
+    problems.push(`missing local-only classification for ${AI_REJECTION_SCORECARD_KEY}`);
+  } else if (!isPremium(AI_REJECTION_SCORECARD_KEY)) {
+    problems.push(`public copy of ${AI_REJECTION_SCORECARD_KEY}`);
+  }
+  for (const key of localKeys) {
+    if (typeof key !== "string") continue;
+    if (isLocalOnlyKey(key)) {
+      if (isSeedableKey(key) || isBakeOwnedKey(key)) problems.push(`local-only ${key} would be published`);
+      continue;
+    }
+    if (!(isEvidenceRecordKey(key) || isAiRejectionKey(key))) continue;
+    if (!isPremium(key)) problems.push(`public copy of ${key}`);
+    else if (!isSeedableKey(key)) problems.push(`missing seedable owner copy of ${key}`);
+  }
+  if (problems.length) throw new Error(`seed: owner-key check failed: ${problems.join("; ")}`);
+}
+
 async function seed({ dryRun }) {
   // Exclude request-time-owned keys (picks-watchlist.json): a pulled-then-seeded
   // copy is stale the moment a user clicks, and re-uploading it would silently
   // revert their add/remove. No producer may push it — seed included.
   // Same exclusions as push: request-time state and runner-local keys.
-  const local = (await localKeys()).filter(isSeedableKey);
+  // Owner-key check runs on the full local list, before those exclusions.
+  const found = await localKeys();
+  assertSeedOwnerKeys(found);
+  const local = found.filter(isSeedableKey);
   if (!dryRun && !local.length) {
     throw new Error(`seed: ${DATA_DIR} has no workflow-owned JSON files; refusing to publish an empty snapshot`);
   }

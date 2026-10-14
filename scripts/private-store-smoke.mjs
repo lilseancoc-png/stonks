@@ -13,9 +13,9 @@ import {
 } from "../lib/datastore.mjs";
 import { resolveStoreKeyPath } from "../lib/store-path.mjs";
 import { serveDataKey } from "../lib/data-response.mjs";
-import { installHydratedSnapshot } from "./sync-data.mjs";
-import { BRIEF_SHARED_KEYS, LOCAL_ONLY_KEYS, REQUEST_TIME_EXCLUSIVE_KEYS, SCANNER_OWNERS, TRANSCRIPT_SHARED_KEYS, isBakeOwnedKey, isLocalOnlyKey, isSeedableKey, keysForScannerOwner } from "../lib/data-ownership.mjs";
-import { isPremiumKey } from "../lib/premium-keys.mjs";
+import { assertSeedOwnerKeys, installHydratedSnapshot } from "./sync-data.mjs";
+import { AI_REJECTION_SCORECARD_KEY, BRIEF_SHARED_KEYS, LOCAL_ONLY_KEYS, REQUEST_TIME_EXCLUSIVE_KEYS, SCANNER_OWNERS, TRANSCRIPT_SHARED_KEYS, isAiRejectionKey, isBakeOwnedKey, isEvidenceRecordKey, isLocalOnlyKey, isSeedableKey, keysForScannerOwner } from "../lib/data-ownership.mjs";
+import { PREMIUM_KEYS, isPremiumKey } from "../lib/premium-keys.mjs";
 
 assert.ok(SCANNER_OWNERS.includes("brief"), "Brief-only output must be accepted by the sync CLI");
 assert.deepEqual(keysForScannerOwner("brief"), [...BRIEF_SHARED_KEYS]);
@@ -428,16 +428,59 @@ try {
 
 
 // seed reuses push's exclusions: request-time and runner-local keys are
-// skipped; ordinary and premium/Owner-only keys still seed.
+// skipped; ordinary and premium/Owner-only keys still seed. Evidence and
+// AI-rejection history stay seedable and Owner-only. The scorecard does not.
 {
   for (const key of REQUEST_TIME_EXCLUSIVE_KEYS) assert.equal(isSeedableKey(key), false, key);
   assert.equal(isSeedableKey("briefs.json"), true);
   assert.equal(isSeedableKey("AAPL.json"), true);
   assert.equal(isPremiumKey("picks.json"), true);
   assert.equal(isSeedableKey("picks.json"), true, "Owner-only keys must still seed");
-  assert.equal(isLocalOnlyKey("ai-rejection-scorecard.json"), true);
-  assert.equal(isSeedableKey("ai-rejection-scorecard.json"), false);
-  assert.equal(isBakeOwnedKey("ai-rejection-scorecard.json"), false);
+  assert.equal(PREMIUM_KEYS.has(AI_REJECTION_SCORECARD_KEY), true);
+  assert.equal(isLocalOnlyKey(AI_REJECTION_SCORECARD_KEY), true);
+  assert.equal(isPremiumKey(AI_REJECTION_SCORECARD_KEY), true);
+  assert.equal(isSeedableKey(AI_REJECTION_SCORECARD_KEY), false);
+  assert.equal(isBakeOwnedKey(AI_REJECTION_SCORECARD_KEY), false);
+  const publishableOwnerKeys = [
+    "evidence-latest.json",
+    "evidence/2026-10-13.json",
+    "ai-rejections-latest.json",
+    "ai-rejections/2026-10-13.json",
+  ];
+  for (const key of publishableOwnerKeys) {
+    assert.equal(isEvidenceRecordKey(key) || isAiRejectionKey(key), true, key);
+    assert.equal(isLocalOnlyKey(key), false, key);
+    assert.equal(isPremiumKey(key), true, key);
+    assert.equal(isSeedableKey(key), true, key);
+    assert.equal(isBakeOwnedKey(key), true, key);
+  }
+  const seeded = [
+    "briefs.json",
+    "picks.json",
+    "picks-watchlist.json",
+    ...publishableOwnerKeys,
+    AI_REJECTION_SCORECARD_KEY,
+  ];
+  assert.deepEqual(seeded.filter(isSeedableKey), ["briefs.json", "picks.json", ...publishableOwnerKeys]);
+  assert.doesNotThrow(() => assertSeedOwnerKeys(seeded));
+  assert.throws(
+    () => assertSeedOwnerKeys(
+      ["evidence/2026-10-13.json"],
+      (key) => key === "evidence/2026-10-13.json" ? false : isPremiumKey(key),
+    ),
+    /public copy of evidence\/2026-10-13\.json/,
+  );
+  assert.throws(
+    () => assertSeedOwnerKeys(
+      ["ai-rejections/2026-10-13.json"],
+      (key) => isAiRejectionKey(key) || isEvidenceRecordKey(key) ? false : isPremiumKey(key),
+    ),
+    /public copy of ai-rejections\/2026-01-02\.json/,
+  );
+  assert.throws(
+    () => assertSeedOwnerKeys([], () => false),
+    /public copy of ai-rejection-scorecard\.json/,
+  );
   const probe = "zz-local-only-probe.json";
   LOCAL_ONLY_KEYS.add(probe);
   try {
@@ -450,8 +493,25 @@ try {
     LOCAL_ONLY_KEYS.delete(probe);
   }
   assert.equal(isSeedableKey(probe), true);
+  LOCAL_ONLY_KEYS.delete(AI_REJECTION_SCORECARD_KEY);
+  try {
+    assert.equal(isLocalOnlyKey(AI_REJECTION_SCORECARD_KEY), false);
+    assert.equal(isSeedableKey(AI_REJECTION_SCORECARD_KEY), true);
+    assert.throws(() => assertSeedOwnerKeys([]), /missing local-only classification for ai-rejection-scorecard\.json/);
+    assert.throws(
+      () => assertSeedOwnerKeys([AI_REJECTION_SCORECARD_KEY]),
+      /missing local-only classification for ai-rejection-scorecard\.json/,
+    );
+  } finally {
+    LOCAL_ONLY_KEYS.add(AI_REJECTION_SCORECARD_KEY);
+  }
+  assert.equal(isLocalOnlyKey(AI_REJECTION_SCORECARD_KEY), true);
+  assert.doesNotThrow(() => assertSeedOwnerKeys([AI_REJECTION_SCORECARD_KEY]));
   const syncSrc = await (await import("node:fs/promises")).readFile(new URL("./sync-data.mjs", import.meta.url), "utf8");
-  assert.match(syncSrc, /\(await localKeys\(\)\)\.filter\(isSeedableKey\)/);
+  assert.match(syncSrc, /assertSeedOwnerKeys\(found\)/);
+  assert.match(syncSrc, /found\.filter\(isSeedableKey\)/);
+  assert.match(syncSrc, /evidence-latest\.json/);
+  assert.match(syncSrc, /ai-rejections-latest\.json/);
 }
 
 console.log("private-store smoke test passed");

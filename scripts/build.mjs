@@ -41,9 +41,11 @@ import { assembleBakeLinkMap, LINK_MAP_SKIPPED_SOURCES } from "../lib/link-map.m
 import {
   LEAPS_GRADER_SCHEMA,
   LEAPS_PICKS_KEY,
+  LEAPS_ROSTER_CAP,
   countLeapsGraderCalls,
   leapsScoreEnabled,
   publishLeapsPicks,
+  scoreLeapsUniverse,
 } from "../lib/leaps-score.mjs";
 import {
   AI_PICK_LEVEL_RESERVE_CALLS_DEFAULT,
@@ -55,7 +57,7 @@ import {
 import { advanceLeapsPaperTrack, LEAPS_PAPER_KEY, shouldWriteLeapsPaper } from "../lib/leaps-paper-track.mjs";
 import { summarizeYahooError, withYahooRetry } from "../lib/yahoo-retry.mjs";
 import { withYahooTimeout } from "../lib/yahoo.mjs";
-import { attachLeapsExpirations, leapsExtraFetchEnabled } from "../lib/leaps-expirations.mjs";
+import { attachLeapsExpirations, leapsExtraFetchEnabled, selectLeapsExpirations } from "../lib/leaps-expirations.mjs";
 import {
   COLLAPSED_STORY_RETRY_ATTEMPTS,
   COLLAPSED_STORY_RETRY_DAILY_CAP,
@@ -26137,8 +26139,8 @@ export function buildTopPicksPayload(picks, builtAtIso) {
 
 // Own call, after generateAiTheses. Non-priority: acquireAiSlot() with no
 // reserved flag, so the narrative/Brief reserve refuses it first. The plan
-// also skips before this function when the gate is not pass or the reserve
-// is already reached, which is every bake until setups exist.
+// also skips before this function when no name cleared the buy gate or the
+// reserve is already reached.
 async function invokeLeapsGrader({ symbol, prompt }) {
   if (!LEAPS_SCORE_ENABLED || !process.env.GEMINI_API_KEY) return null;
   const atReserve = aiReserveBlocks(aiTokensToday(), AI_DAILY_TOKEN_CAP, AI_RESERVED_TOKENS, false)
@@ -26162,8 +26164,56 @@ async function invokeLeapsGrader({ symbol, prompt }) {
   return response?.text || null;
 }
 
+// Far expirations for names the LEAPS decision would actually suggest.
+// The 14-slot chain usually ends before month 9, so a buy cannot show a
+// contract until these land on `_leapsChains`. Capped at the roster.
+async function ensureDecisionLeapsChains(preScored) {
+  const ranked = scoreLeapsUniverse(preScored)
+    .filter((row) => row.gate === "pass" || row.gate === "watch")
+    .sort((a, b) => Math.abs(b.total ?? 0) - Math.abs(a.total ?? 0) || String(a.symbol).localeCompare(String(b.symbol)))
+    .slice(0, LEAPS_ROSTER_CAP);
+  const wanted = new Set(ranked.map((row) => row.symbol).filter(Boolean));
+  const scored = Array.isArray(preScored?.scored) ? preScored.scored : [];
+  let attached = 0;
+  let calls = 0;
+  for (const row of scored) {
+    const symbol = row?.sym || row?.symbol;
+    const data = row?.data;
+    if (!symbol || !wanted.has(symbol) || !data || typeof data !== "object") continue;
+    const extras = selectLeapsExpirations(data._listedExpirations || [], {
+      alreadyKept: [
+        ...Object.keys(data.chains || {}),
+        ...Object.keys(data._leapsChains || {}),
+      ],
+    });
+    for (let i = 0; i < extras.length; i++) {
+      if (i > 0) await new Promise((r) => setTimeout(r, 150));
+      calls += 1;
+      try {
+        const chain = await fetchLeapsExpirationChain(symbol, extras[i], data.spot);
+        if (!chain) continue;
+        if (!data._leapsChains || typeof data._leapsChains !== "object" || Array.isArray(data._leapsChains)) {
+          data._leapsChains = {};
+        }
+        data._leapsChains[extras[i]] = chain;
+        attached += 1;
+      } catch (err) {
+        console.log(`  ⚠ LEAPS ${symbol} contract fetch failed: ${err?.message || err}`);
+      }
+    }
+  }
+  if (wanted.size) {
+    console.log(`LEAPS contracts: ${attached} chain(s) for ${wanted.size} decision name(s) (${calls} Yahoo call(s))`);
+  }
+}
+
 async function publishLeapsAfterShortTermGrader(preScored, builtAtIso) {
   if (!LEAPS_SCORE_ENABLED) return;
+  try {
+    await ensureDecisionLeapsChains(preScored);
+  } catch (err) {
+    console.warn(`[leaps] contract fetch skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
   const atReserve = aiReserveBlocks(aiTokensToday(), AI_DAILY_TOKEN_CAP, AI_RESERVED_TOKENS, false)
     || aiReserveBlocks(_aiCallsAtBuildStart + _aiAttemptSlots, AI_DAILY_CALL_CAP, AI_RESERVED_CALLS, false);
   await publishLeapsPicks(preScored, {

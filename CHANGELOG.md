@@ -20,6 +20,18 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-10-14
+
+### Changed
+
+- **LEAPS ideas start at 5, call buys at 8, and put buys at 9.** The longer hold needs a higher bar than a short-term trade, and a put needs a stronger score than a call. `lib/leaps-score.mjs`.
+- **LEAPS fundamentals count fully, and the score leans toward calls.** Fundamentals is weighted 1.0. Every name starts one point higher because a stock is more likely to be up than down over one to two years. The forward path adds up to two more points: a call buy is held back when fundamentals are declining, and a put buy requires that decline. `lib/leaps-score.mjs`.
+- **LEAPS recommendations follow the Top Picks decision, with the LEAPS pillar weights.** A buy needs a weighted score of at least 7 on the same scale as Top Picks, at least two pillars on that side, and a confirmed go entry. An avoid is dropped. A score of at least 4 that is still waiting, single-pillar, or missing a listed contract stays a watch. The contract is a long call or long put, 9–24 months out, with delta 0.20–0.40 or 20–50% out of the money. When `LEAPS_SCORE=1`, the bake fetches those far expirations for the decision names. The old “a 35% move doubles the premium” check is not used to choose the contract. `lib/leaps-score.mjs`, `scripts/build.mjs`.
+
+### Fixed
+
+- **Buyer's manual and Chart patterns: the scope line wraps on a phone.** The gold scope strip was a flex row, so "long calls & puts only" sat in its own column beside the rest of the sentence. It is now one wrapping line. `scripts/render/docs.mjs`.
+
 ## 2026-10-13
 
 ### Added

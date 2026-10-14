@@ -138,7 +138,7 @@ export const DOC_PAGES = {
   h1 em{font-style:italic;color:var(--gold)}
   .sub{margin-top:22px;max-width:620px;color:var(--muted);font-size:16.5px}
   .scope{
-    margin-top:26px;display:inline-flex;align-items:center;gap:10px;
+    margin-top:26px;display:block;width:fit-content;max-width:100%;
     font-family:var(--mono);font-size:12px;letter-spacing:.05em;color:var(--ink);
     background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--gold);
     padding:9px 16px;border-radius:8px;
@@ -653,7 +653,7 @@ export const DOC_PAGES = {
   h1{font-family:var(--disp);font-weight:600;font-size:clamp(38px,7vw,76px);line-height:.96;letter-spacing:-.02em}
   h1 em{font-style:italic;color:var(--gold)}
   .sub{margin-top:22px;max-width:660px;color:var(--muted);font-size:16.5px}
-  .scope{margin-top:26px;display:inline-flex;align-items:center;gap:10px;font-family:var(--mono);font-size:12px;letter-spacing:.05em;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--gold);padding:9px 16px;border-radius:8px}
+  .scope{margin-top:26px;display:block;width:fit-content;max-width:100%;font-family:var(--mono);font-size:12px;letter-spacing:.05em;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--gold);padding:9px 16px;border-radius:8px}
   .scope b{color:var(--gold);font-weight:500}
   .pattern-desk{padding-top:30px;scroll-margin-top:24px}
   .pattern-decision{overflow:hidden;border:1px solid var(--gold-dim);border-radius:var(--radius);background:linear-gradient(145deg,color-mix(in srgb,var(--gold) 7%,var(--surface)),var(--bg2))}

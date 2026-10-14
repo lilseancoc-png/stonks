@@ -12,6 +12,8 @@ import {
   LEAPS_WEIGHT_TOTAL,
   buildLeapsPicksPayload,
   countLeapsGraderCalls,
+  decideLeapsStock,
+  leapsDecisionTotal,
   leapsScoreEnabled,
   leapsSetupGate,
   planLeapsGrader,
@@ -19,15 +21,16 @@ import {
   runLeapsGrader,
   scoreLeapsPillars,
   scoreLeapsUniverse,
+  selectLeapsContract,
 } from "../lib/leaps-score.mjs";
 import { isPremiumKey, isRoleRestrictedKey, roleClaimForKey } from "../lib/premium-keys.mjs";
 
-assert.equal(LEAPS_WEIGHT_TOTAL, 4.5);
+assert.equal(LEAPS_WEIGHT_TOTAL, 5);
 assert.deepEqual(LEAPS_PILLAR_WEIGHTS, {
   narrative: 1.5,
   technicals: 1.25,
   mechanicals: 1.25,
-  fundamentals: 0.5,
+  fundamentals: 1,
 });
 
 const hundred = {
@@ -46,21 +49,21 @@ assert.deepEqual(hundred, before);
 
 assert.equal(
   scoreLeapsPillars({ narrative: 100, technicals: 0, mechanicals: 0, fundamentals: 0 }),
-  (100 * 1.5) / 4.5,
+  (100 * 1.5) / 5,
 );
 assert.equal(
   scoreLeapsPillars({ narrative: 0, technicals: 100, flow: 0, fundamentals: 0 }),
-  (100 * 1.25) / 4.5,
+  (100 * 1.25) / 5,
 );
 assert.equal(
   scoreLeapsPillars({ narrative: 0, trend: 0, flow: 100, fundamentals: 0 }),
-  (100 * 1.25) / 4.5,
+  (100 * 1.25) / 5,
 );
 assert.equal(
   scoreLeapsPillars({ narrative: 0, technicals: 0, mechanicals: 0, fundamentals: 100 }),
-  (100 * 0.5) / 4.5,
+  (100 * 1) / 5,
 );
-const mixed = (100 * 1.5 + 80 * 1.25 + 40 * 1.25 + 20 * 0.5) / 4.5;
+const mixed = (100 * 1.5 + 80 * 1.25 + 40 * 1.25 + 20 * 1) / 5;
 assert.equal(
   scoreLeapsPillars({ narrative: 100, technicals: 80, mechanicals: 40, fundamentals: 20 }),
   mixed,
@@ -84,9 +87,10 @@ const snapshot = structuredClone(universe);
 const screened = scoreLeapsUniverse(universe);
 assert.equal(screened.length, 12, "LEAPS scores the full universe, not a top-10 shortlist");
 assert.deepEqual(universe, snapshot);
-assert.ok(screened.every((row) => row.gate === "unknown"));
+assert.ok(screened.every((row) => row.gate === "watch"), "a strong blend without a go entry is a watch, not a buy");
+assert.ok(screened.every((row) => row.reason === "entry-wait"));
 assert.ok(screened.every((row) => row.score === mixed));
-assert.equal(leapsSetupGate(universe.scored[0]), "unknown");
+assert.equal(leapsSetupGate(universe.scored[0]), "watch");
 assert.notEqual(leapsSetupGate({ setups: { available: true, storyIgnition: true, exhaustion: false } }), "pass");
 
 assert.equal(leapsScoreEnabled({}), false);
@@ -191,5 +195,132 @@ assert.match(
   /const aiThesis = await generateAiTheses\(preScored[\s\S]{0,900}publishLeapsAfterShortTermGrader\(preScored, builtAtIso\)/,
 );
 assert.equal(buildSrc.includes("THESIS_SYSTEM") && buildSrc.includes(LEAPS_GRADER_PROMPT), false);
+
+const buyPillars = {
+  narrative: { score: 5 },
+  technicals: { score: 4 },
+  mechanicals: { score: 3 },
+  fundamentals: { score: 1 },
+  ivCost: { context: { contribution: -1 } },
+};
+const buy = decideLeapsStock({
+  sym: "LEAP",
+  timing: { state: "go", side: "call" },
+  pillars: buyPillars,
+});
+assert.equal(buy.gate, "pass");
+assert.equal(buy.reason, "buy");
+assert.equal(buy.side, "call");
+assert.equal(buy.pillarsAligned, 4);
+assert.ok(buy.total >= 8);
+assert.equal(buy.total, leapsDecisionTotal(buyPillars), "the one-point drift and a one-point rich-IV cost cancel");
+
+const avoid = decideLeapsStock({
+  timing: { state: "avoid", side: "call" },
+  pillars: buyPillars,
+});
+assert.equal(avoid.gate, "reject");
+assert.equal(avoid.reason, "avoid");
+
+const onePillar = decideLeapsStock({
+  timing: { state: "go", side: "call" },
+  pillars: { narrative: { score: 100 }, technicals: { score: 0 }, mechanicals: { score: 0 }, fundamentals: { score: 0 } },
+});
+assert.equal(onePillar.gate, "watch");
+assert.equal(onePillar.reason, "confluence");
+assert.equal(onePillar.pillarsAligned, 1);
+
+const put = decideLeapsStock({
+  timing: { state: "go", side: "put" },
+  pillars: {
+    narrative: { score: -4 },
+    technicals: { score: -4 },
+    mechanicals: { score: -3 },
+    fundamentals: { score: -1, trajectory: { dir: "declining", score: -1.5 } },
+  },
+});
+assert.equal(put.gate, "pass");
+assert.equal(put.side, "put");
+const putWithoutDecline = decideLeapsStock({
+  timing: { state: "go", side: "put" },
+  pillars: {
+    narrative: { score: -4 },
+    technicals: { score: -4 },
+    mechanicals: { score: -3 },
+    fundamentals: { score: -1 },
+  },
+});
+assert.equal(putWithoutDecline.gate, "watch");
+assert.equal(putWithoutDecline.reason, "fundamentals-not-declining");
+const decliningCall = decideLeapsStock({
+  timing: { state: "go", side: "call" },
+  pillars: {
+    ...buyPillars,
+    fundamentals: { score: 1, trajectory: { dir: "declining", score: -2 } },
+  },
+});
+assert.equal(decliningCall.gate, "watch");
+assert.equal(decliningCall.reason, "fundamentals-declining");
+assert.equal(decliningCall.side, "call");
+
+const quiet = decideLeapsStock({
+  timing: { state: "go", side: "call" },
+  pillars: { narrative: { score: 1 }, technicals: { score: 1 }, mechanicals: { score: 0 }, fundamentals: { score: 0 } },
+});
+assert.equal(quiet.gate, "reject");
+assert.equal(quiet.reason, "below-bar");
+assert.ok(Math.abs(quiet.total) < 5);
+
+const callIdea = decideLeapsStock({
+  timing: { state: "go", side: "call" },
+  pillars: { narrative: { score: 2 }, technicals: { score: 2 }, mechanicals: { score: 1 }, fundamentals: { score: 1 } },
+});
+assert.equal(callIdea.gate, "watch");
+assert.equal(callIdea.reason, "moderate");
+assert.equal(callIdea.side, "call");
+assert.ok(callIdea.total >= 5 && callIdea.total < 8);
+
+const putIdea = decideLeapsStock({
+  timing: { state: "go", side: "put" },
+  pillars: {
+    narrative: { score: -2 },
+    technicals: { score: -2 },
+    mechanicals: { score: -1 },
+    fundamentals: { score: -1, trajectory: { dir: "declining", score: -1 } },
+  },
+});
+assert.equal(putIdea.gate, "watch");
+assert.equal(putIdea.reason, "moderate");
+assert.equal(putIdea.side, "put");
+assert.ok(Math.abs(putIdea.total) >= 5 && Math.abs(putIdea.total) < 9);
+
+const asOf = new Date("2026-01-15T00:00:00Z");
+const leapExp = Math.floor(asOf.getTime() / 1000) + 400 * 86400;
+const nearExp = Math.floor(asOf.getTime() / 1000) + 45 * 86400;
+const chain = {
+  spot: 100,
+  chains: {
+    [nearExp]: { c: [{ s: 120, b: 2, a: 2.2, iv: 0.3, oi: 100 }], p: [] },
+    [leapExp]: {
+      c: [
+        { s: 160, b: 1, a: 1.2, iv: 0.3, oi: 10 },
+        { s: 130, b: 4, a: 4.4, iv: 0.3, oi: 80 },
+      ],
+      p: [{ s: 70, b: 3, a: 3.3, iv: 0.3, oi: 40 }],
+    },
+  },
+};
+const callContract = selectLeapsContract(chain, "call", { now: asOf, rate: 0.045 });
+assert.ok(callContract, "a listed LEAPS call is recommended");
+assert.equal(callContract.side, "call");
+assert.equal(callContract.structure, "long");
+assert.equal(callContract.expiry, leapExp);
+assert.ok(callContract.qualifiedBy.includes("delta") || callContract.qualifiedBy.includes("otm"));
+assert.ok(callContract.dte >= 270 && callContract.dte <= 740);
+assert.notEqual(callContract.strike, 160);
+const putContract = selectLeapsContract(chain, "put", { now: asOf, rate: 0.045 });
+assert.equal(putContract.side, "put");
+assert.equal(putContract.strike, 70);
+assert.equal(selectLeapsContract({ spot: 100, chains: { [nearExp]: chain.chains[nearExp] } }, "call", { now: asOf }), null);
 
 console.log("leaps-score smoke checks passed");
