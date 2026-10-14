@@ -67,6 +67,15 @@ assert.deepEqual(spread, [many[0], many[5], many[9], many[14]]);
 assert.equal(expirationInLeapsWindow(spread[0], NOW), true);
 assert.equal(expirationInLeapsWindow(spread[3], NOW), true);
 
+// Unavailable Yahoo/IV fields must not spend a shortlist slot.
+for (const missing of [null, undefined, "", " ", false]) {
+  const valid = { spot: 100, technicals: { sma: { sma200: 90 }, rsi: 50 }, ivRank: { pctile: 20, z: null } };
+  assert.equal(qualifiesAsLeapsCandidate({ ...valid, technicals: { ...valid.technicals, sma: { sma200: missing } } }), false);
+  assert.equal(qualifiesAsLeapsCandidate({ ...valid, ivRank: { ...valid.ivRank, pctile: missing } }), false);
+}
+assert.equal(qualifiesAsLeapsCandidate({ spot: 100, technicals: { sma: { sma200: 90 }, rsi: null }, ivRank: { pctile: 0, z: null } }), true,
+  "a real zero percentile is cheap premium; missing RSI is not a zero-RSI knife reading");
+
 function candidate(symbol, z, extras = {}) {
   return {
     symbol,
