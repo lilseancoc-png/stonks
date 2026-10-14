@@ -20,6 +20,14 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-10-13
+
+### Fixed
+
+- **Branch review repair:** LEAPS paper rolls reject an occupied underlying before closing the original position; marks and mandatory exits continue.
+### Fixed
+
+
 ## 2026-10-10
 
 ### Changed

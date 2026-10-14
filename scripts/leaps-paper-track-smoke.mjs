@@ -505,4 +505,36 @@ assert.match(buildSource, /if \(leapsPicks\.length\) \{\n    try \{\n      const
 assert.match(buildSource, /if \(!isPremiumKey\(LEAPS_PAPER_KEY\)\)/);
 assert.doesNotMatch(buildSource, /BRIEF_TOOL_SOURCES[\s\S]*leaps-paper\.json/);
 
+// Rolls obey the same underlying slot rule as first enrollment.
+{
+  const a = idea({ id: "aaa", symbol: "AAA", target: 900 });
+  const b = idea({ id: "bbb", symbol: "BBB", target: 900 });
+  const initial = step(null, "2026-10-13", [a, b]);
+  const rollTo = { symbol: "bbb", strike: 180, expiration: "2028-06-16", ask: 7 };
+  const blocked = step(initial, "2026-10-14", [{ ...a, rollTo }, b], {
+    [keyFor(a)]: q(12, 12, "2026-10-14"),
+  });
+  assert.equal(blocked.positions.length, 2);
+  assert.equal(blocked.positions.filter(p => p.symbol === "BBB" && p.status === "open").length, 1);
+  const kept = blocked.positions.find(p => p.ideaId === "aaa");
+  assert.equal(kept.status, "open");
+  assert.equal(kept.exit, null);
+  assert.equal(kept.mark, 12);
+  assert.equal(kept.review, true);
+  assert.ok(kept.flags.includes("roll-blocked"));
+  assert.deepEqual(step(blocked, "2026-10-14", [{ ...a, rollTo }, b]), blocked);
+
+  const frozen = step(initial, "2026-10-14", [a, { ...b, corporateAction: "split" }]);
+  const intoFrozen = step(frozen, "2026-10-15", [{ ...a, rollTo }, b]);
+  assert.equal(intoFrozen.positions.length, 2);
+  assert.equal(intoFrozen.positions.find(p => p.ideaId === "aaa").status, "open");
+  assert.equal(intoFrozen.positions.find(p => p.ideaId === "bbb").status, "frozen");
+
+  // A blocked roll cannot postpone a mandatory time exit.
+  const boundary = leapsTimeExitDate(a.expiration);
+  const timed = step(initial, boundary, [{ ...a, rollTo }, b]);
+  assert.equal(timed.positions.find(p => p.ideaId === "aaa").exit.reason, "time");
+  assert.equal(timed.positions.length, 2);
+}
+
 console.log("LEAPS paper-track smoke checks passed.");
