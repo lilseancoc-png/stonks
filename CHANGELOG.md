@@ -29,6 +29,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Fixed
 
 - **Branch review repair:** The link-map privacy toggle check resolves shared policy imports from a temporary file module, so it works alongside the evidence and rejection branches.
+### Fixed
+
+- **Narratives: story extraction no longer collapses onto the single name in the latest history snapshot.** Previous names now come from the real stories in the last five snapshots, and the prompt reuses a name only when today's evidence still supports it. When a fresh read finds fewer than four real stories from 30 or more headlines, it retries once (a single attempt). The retry runs only if the daily AI reserve still covers the Brief's worst case in both calls and tokens, counting input tokens (the first read's recorded input plus 10%, or characters divided by 3 when none was recorded). It is also capped at 2 retries per UTC day (`COLLAPSED_STORY_RETRY_DAILY_CAP`, counted in the AI ledger when a retry starts, so failed retries count too). The post-close carry (`REFRESH_NARRATIVES=false`) extracts fresh instead of reusing a stale read or one with fewer than four real stories. AI caps are unchanged. `lib/story-detection.mjs`, `scripts/build.mjs`, `scripts/story-detection-smoke.mjs`.
 
 ## 2026-10-10
 

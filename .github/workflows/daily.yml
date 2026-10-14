@@ -130,8 +130,9 @@ jobs:
           fi
           echo "refresh_top_picks=$REFRESH_TOP_PICKS" >> "$GITHUB_OUTPUT"
           echo "refresh_swing_desks=$REFRESH_SWING_DESKS" >> "$GITHUB_OUTPUT"
-          # The post-close 16:10 bake carries the 15:30 narrative read forward
-          # (no AI call): nothing trades on it and the story hasn't moved.
+          # The post-close 16:10 bake carries a fresh 15:30 narrative read
+          # forward when it still has at least four real stories. A stale or
+          # thinner slate extracts again.
           if [ "$ET_MIN" -eq 970 ]; then
             REFRESH_NARRATIVES=false
           fi

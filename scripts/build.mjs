@@ -33,6 +33,24 @@ import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
 import { assembleBakeLinkMap, LINK_MAP_SKIPPED_SOURCES } from "../lib/link-map.mjs";
 import { summarizeYahooError, withYahooRetry } from "../lib/yahoo-retry.mjs";
 import {
+  COLLAPSED_STORY_RETRY_ATTEMPTS,
+  COLLAPSED_STORY_RETRY_DAILY_CAP,
+  PREVIOUS_NAME_REUSE_RULE,
+  collapsedRetryCapAllows,
+  collapsedStoryRetryDecision,
+  countNarrativeSourceHeadlines,
+  countRealNarratives,
+  estimateBriefWorstCaseTokens,
+  estimateNarrativeRetryTokens,
+  narrativeReserveAvailable,
+  pickRicherNarrativeExtraction,
+  previousNamesPromptBlock,
+  previousNarrativeNames,
+  pruneCollapsedRetryCounters,
+  recordCollapsedRetryStart,
+  refreshCarryDecision,
+} from "../lib/story-detection.mjs";
+import {
   buildAcceleratorPricesPayload,
   fetchAcceleratorMarketplaces,
 } from "../lib/accelerator-prices.mjs";
@@ -30145,6 +30163,9 @@ export async function loadAiUsageState() {
   try {
     const raw = await readFile(resolve(DATA_DIR, AI_USAGE_FILE), "utf8");
     const parsed = JSON.parse(raw);
+    // Keep every field on the ledger. `retryCounters` sits beside `dates` and
+    // is missing on files written before the collapsed-story cap; a missing
+    // field means zero starts. Rebuilding `{ dates }` here would drop it.
     _aiUsageState = parsed && typeof parsed === "object" && parsed.dates ? parsed : { dates: {} };
   } catch (_) {
     _aiUsageState = { dates: {} };
@@ -30214,6 +30235,9 @@ export async function writeAiUsageState() {
     if (date >= cutoff) pruned[date] = val;
   }
   _aiUsageState.dates = pruned;
+  // Same 14-day cutoff as dates. No-op when an older ledger has no
+  // retryCounters field, so the save does not invent one.
+  pruneCollapsedRetryCounters(_aiUsageState, cutoff);
   await writeFile(resolve(DATA_DIR, AI_USAGE_FILE), JSON.stringify(_aiUsageState), "utf8");
 }
 
@@ -31844,6 +31868,11 @@ const BRIEF_SCHEMA = {
   required: ["headline", "summary", "highlights"],
 };
 
+// Output ceiling for one successful Brief response. acquireAiSlot records
+// real usage after the call; this is the constant bound on what that response
+// is allowed to add. Failed attempts take call slots, not another full output.
+const BRIEF_MAX_OUTPUT_TOKENS = 3072;
+
 async function generateBrief(ai, kind, dateKey, signals) {
   const userMessage = briefUserMessage(kind, dateKey, signals);
   const system = briefSystemPrompt(kind);
@@ -31856,7 +31885,7 @@ async function generateBrief(ai, kind, dateKey, signals) {
         config: {
           systemInstruction: system,
           temperature: 0.4,
-          maxOutputTokens: 3072,
+          maxOutputTokens: BRIEF_MAX_OUTPUT_TOKENS,
           responseMimeType: "application/json",
           responseSchema: BRIEF_SCHEMA,
           thinkingConfig: { thinkingBudget: 0 },
@@ -35169,7 +35198,7 @@ const NARRATIVE_SYSTEM_PROMPT =
   "Rules: only use tickers from the provided list — do not invent tickers. Each sub-industry narrative MUST have at least one long or one short. Prefer broader narratives over very narrow single-name stories. " +
   "Keep every bullCase / baseCase / bearCase to a SINGLE concise sentence and every hype.rationale to one short clause — brevity is required so the full response fits. " +
   "Sectors with thin coverage (e.g. \"Consumer Defensive\" with only Discount Stores, or \"Precious Metals\" with Gold/Silver) still get an overview AND any sub-industry narratives that legitimately apply — just shorter. For Precious Metals, treat Gold (GLD) and Silver (SLV) as standalone macro plays (real-yield trade, dollar trade, geopolitical hedge, central-bank buying); the longs/shorts arrays should reference GLD and SLV directly. " +
-  "If a list of PREVIOUS narrative names is provided, reuse a previous name verbatim when today's narrative is the same story so we can track its lifespan; otherwise pick a fresh name. " +
+  "If a list of PREVIOUS narrative names is provided, " + PREVIOUS_NAME_REUSE_RULE + ". Pick a fresh name for any story that list does not already name. " +
   "conflictsWith names MUST match other names in your own response exactly. " +
   "Respond with ONLY a JSON object of the form " +
   `{"sectors":[{"sector":"Technology","overview":{"thesis":"...","bullCase":"...","baseCase":"...","bearCase":"...","hype":{"score":0-100,"label":"fundamentals"|"balanced"|"hype","rationale":"..."},"watchFor":["...","..."]},"narratives":[{"name":"...","industry":"...","thesis":"...","sentiment":"bullish"|"bearish","longs":["..."],"shorts":["..."],"confidence":"high"|"medium"|"low","strength":0-100,"status":"active"|"building"|"fading","lifecycleStage":"catalysts"|"amplification"|"validation"|"peak"|"challenges"|"collapse","lifecycleOutlook":{"rationale":"...","nextStage":"validation","trigger":"..."},"timeframe":"immediate"|"near-term"|"medium-term"|"long-term","bullCase":"...","baseCase":"...","bearCase":"...","hype":{"score":0-100,"label":"fundamentals"|"balanced"|"hype","rationale":"..."},"watchFor":["..."],"conflictsWith":["..."],"sources":[{"publisher":"...","title":"...","date":"YYYY-MM-DD"}]}]}]} ` +
@@ -35370,9 +35399,7 @@ function buildNarrativeUserMessage(chains, previousNames, macroHeadlines, riskIn
     const pubTag = topHeadlinePub ? ` (${topHeadlinePub})` : "";
     return `- ${sym} [${sentiment}] ${summaryClip}` + (headlineClip ? ` Headline${pubTag}: "${headlineClip}"` : "");
   });
-  const previousBlock = previousNames.length
-    ? `Previous narrative names from the last build (reuse verbatim when the same story is still live):\n${previousNames.map((n) => `- ${n}`).join("\n")}`
-    : "No previous narratives recorded.";
+  const previousBlock = previousNamesPromptBlock(previousNames);
 
   // SOURCE POOL — every cite-able headline the AI is allowed to copy into a
   // narrative's `sources` array. Macro feeds first (already reputable by
@@ -35464,12 +35491,22 @@ export function canReuseNarrativeExtraction(
 // (A genuine 429 quota hint still overrides this via effectiveWait = max(...).)
 const NARRATIVE_MAX_ATTEMPTS = 7;
 const NARRATIVE_RETRY_BACKOFF_MS = [3000, 6000, 10000, 15000, 15000, 15000];
+// Output ceiling for one narrative response. Same role as BRIEF_MAX_OUTPUT_TOKENS.
+const NARRATIVE_MAX_OUTPUT_TOKENS = 32768;
 
-async function generateMarketNarratives(ai, chains, previousNames, macroHeadlines, preparedUserMessage = null) {
+async function generateMarketNarratives(ai, chains, previousNames, macroHeadlines, preparedUserMessage = null, { maxAttempts = NARRATIVE_MAX_ATTEMPTS } = {}) {
+  const attemptLimit = Math.min(
+    NARRATIVE_MAX_ATTEMPTS,
+    Math.max(1, Math.trunc(Number(maxAttempts)) || NARRATIVE_MAX_ATTEMPTS),
+  );
   const userMessage = preparedUserMessage || buildNarrativeUserMessage(chains, previousNames, macroHeadlines);
   let response;
   let lastErr;
-  for (let attempt = 0; attempt < NARRATIVE_MAX_ATTEMPTS; attempt++) {
+  // promptTokenCount is the same usageMetadata field recordAiUsage adds to
+  // inputTokens. Exposed for the collapsed-story holdback only — the daily
+  // cap still moves exclusively inside recordAiUsage / acquireAiSlot.
+  let promptTokenCount = null;
+  for (let attempt = 0; attempt < attemptLimit; attempt++) {
     try {
       await acquireAiSlot({ reserved: true });
       response = await ai.models.generateContent({
@@ -35499,7 +35536,7 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
           // trigger) — roughly 3-4× the payload. Prod NARRATIVES_MODEL
           // is Flash (handles 32k fine); a free-tier Gemma fork may still drop
           // some fields, which the parser + renderer tolerate (graceful degrade).
-          maxOutputTokens: 32768,
+          maxOutputTokens: NARRATIVE_MAX_OUTPUT_TOKENS,
           thinkingConfig: { thinkingBudget: 0 },
           // Constrained-decoder JSON mode — narratives is the call that
           // most reliably hits malformed-JSON failures because its output
@@ -35507,21 +35544,24 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
           responseMimeType: "application/json",
         },
       });
-      recordAiUsage({ model: aiModelForAttempt(NARRATIVES_MODEL, attempt), callType: "narratives", usage: response?.usageMetadata });
+      const usage = response?.usageMetadata;
+      recordAiUsage({ model: aiModelForAttempt(NARRATIVES_MODEL, attempt), callType: "narratives", usage });
+      const recordedInput = Number(usage?.promptTokenCount);
+      if (Number.isFinite(recordedInput) && recordedInput > 0) promptTokenCount = recordedInput;
       break;
     } catch (err) {
       lastErr = err;
       // Classify with the standard helper but use the narrative-specific
       // backoff schedule when the error is transient.
       const wait = classifyAiError(err, attempt, aiModelForAttempt(NARRATIVES_MODEL, attempt));
-      if (wait == null || attempt === NARRATIVE_MAX_ATTEMPTS - 1) throw err;
+      if (wait == null || attempt === attemptLimit - 1) throw err;
       const narrativeWait = NARRATIVE_RETRY_BACKOFF_MS[attempt] ?? 15000;
       // Honour the rate-limit hint from classifyAiError when it's larger than
       // our schedule (e.g. a "retry in 30s" hint on attempt 0).
       const effectiveWait = Math.max(wait, narrativeWait);
       const causeMsg = err?.cause?.code || err?.cause?.message || "";
       console.log(
-        `    ↻ narrative attempt ${attempt + 1}/${NARRATIVE_MAX_ATTEMPTS} failed (${err.message}` +
+        `    ↻ narrative attempt ${attempt + 1}/${attemptLimit} failed (${err.message}` +
         (causeMsg ? ` · cause ${causeMsg}` : "") +
         `) — retrying in ${Math.round(effectiveWait / 1000)}s`,
       );
@@ -35760,7 +35800,7 @@ async function generateMarketNarratives(ai, chains, previousNames, macroHeadline
   }
 
   const covered = ensureTickerCoverage(cleaned, validSymbols);
-  return { narratives: covered, sectorOverviews };
+  return { narratives: covered, sectorOverviews, promptTokenCount };
 }
 
 // Walk back through prior snapshots to discover when each narrative first
@@ -35883,6 +35923,209 @@ function computeRecentlyEnded(history, activeNarrativeNames, todayIso) {
     .slice(0, 8);
 }
 
+// The collapsed-story retry runs inside attachMarketNarratives, before
+// buildMarketBriefs assembles a fact sheet, so there is no Brief prompt and
+// no recorded Brief usage to read. Hold back the longest system instruction,
+// the response schema (it is part of the billed prompt), and one user message
+// filled to the slice caps the Brief builder already enforces. That sheet is
+// wider than a typical one: every section present, each row at its cap
+// (watchlist 6, headlines 8, printed releases 8, flow 4, IV flags 5, tool
+// facts 24 at the 230-char cleaner, playbook 4 using the longest registry
+// blurbs). Morning earnings lines are not sliced in gatherBriefSignals, so
+// the bound is one line per tracked ticker plus 16 same-day macro chips —
+// more than the named CPI/PPI/jobs series and a busy BLS/BEA day. Chars/3
+// then turns this into tokens inside estimateBriefWorstCaseTokens.
+let _conservativeBriefPromptChars = null;
+function saturatedBriefSignals() {
+  const fill = (n) => "M".repeat(n);
+  const playbook = Object.values(HISTORICAL_PLAYBOOK)
+    .map((entry) => ({
+      name: entry.name,
+      cue: fill(160),
+      recognition: entry.recognition,
+      reaction: entry.reaction,
+    }))
+    .sort((a, b) => (b.recognition.length + b.reaction.length) - (a.recognition.length + a.reaction.length))
+    .slice(0, PLAYBOOK_MAX_CUES);
+  const toolSources = BRIEF_TOOL_SOURCES.map((source) => source.label);
+  return {
+    fearGreed: { score: 88, rating: "Extreme Greed", prevClose: 70, delta: 18 },
+    macro: ["2Y yield", "10Y yield", "30Y yield", "2s10s curve", "Dollar (DXY)", "VIX"].map((label) => ({
+      label, value: "123.45%", change: "+12.3bp",
+    })),
+    bonds: Array.from({ length: 4 }, (_, i) => ({
+      name: `Foreign 10Y ${i} government bond`,
+      region: "Asia-Pacific",
+      value: 4.875,
+      chgBp: -18.4,
+      significant: true,
+    })),
+    releases: Array.from({ length: 8 }, (_, i) => ({
+      title: `Macro print ${i} ${fill(80)}`,
+      date: "2026-10-13",
+      actual: "12.345%",
+      consensus: "10.000%",
+      previous: "9.500%",
+      read: fill(80),
+    })),
+    headlines: Array.from({ length: 8 }, () => ({
+      title: fill(160),
+      source: "Reuters wire",
+      at: "2026-10-13T13:30:00Z",
+    })),
+    indexes: [
+      { label: "S&P 500 (SPY)", chPct: -2.34 },
+      { label: "Nasdaq 100 (QQQ)", chPct: -3.45 },
+      { label: "Russell 2000 (IWM)", chPct: 1.2 },
+    ],
+    recap: [
+      { label: "S&P 500 (SPY)", chPct: -1.11 },
+      { label: "Nasdaq 100 (QQQ)", chPct: -2.22 },
+      { label: "Russell 2000 (IWM)", chPct: 0.33 },
+    ],
+    tone: { label: "risk-off", reasons: [fill(80), fill(80), fill(80)] },
+    overnight: Array.from({ length: 6 }, (_, i) => ({
+      name: `Overseas market ${i}`, region: "Europe", chPct: -1.25,
+    })),
+    levels: ["SPY", "QQQ"].map((sym) => ({ sym, support: 500.12, resistance: 540.34, spot: 520.5 })),
+    breadth: { up: 40, down: 90, flat: 8 },
+    movers: {
+      gainers: Array.from({ length: 5 }, (_, i) => ({ sym: `GN${i}`, chPct: 9.87 })),
+      losers: Array.from({ length: 5 }, (_, i) => ({ sym: `LS${i}`, chPct: -9.87 })),
+    },
+    sectors: {
+      leaders: Array.from({ length: 3 }, (_, i) => ({ name: `Leader sector ${i}`, chPct: 2.5 })),
+      laggards: Array.from({ length: 3 }, (_, i) => ({ name: `Laggard sector ${i}`, chPct: -2.5 })),
+    },
+    extremes: {
+      highs: Array.from({ length: 4 }, (_, i) => ({ sym: `HI${i}` })),
+      lows: Array.from({ length: 4 }, (_, i) => ({ sym: `LO${i}` })),
+    },
+    volume: Array.from({ length: 5 }, (_, i) => ({ sym: `VL${i}`, rvol: 4.25, chPct: 6.5 })),
+    watchlist: Array.from({ length: BRIEF_WATCH_MAX }, (_, i) => ({
+      sym: `WT${i}`,
+      ch: -8.76,
+      reasons: [fill(24), fill(24), fill(24), fill(24)],
+      take: fill(160),
+    })),
+    flow: Array.from({ length: 4 }, (_, i) => ({
+      sym: `FL${i}`, side: "call", note: fill(120),
+    })),
+    ivTrend: Array.from({ length: 5 }, (_, i) => ({
+      sym: `IV${i}`,
+      tier: "surging",
+      ivPct: 82.4,
+      meanPct: 41.2,
+      z: 2.4,
+      chg5dPct: 18.5,
+      risingStreak: 7,
+      earnings: { date: "2026-11-02", inDays: 20, impliedMovePct: 9.5 },
+    })),
+    gex: ["SPY", "QQQ"].map((sym) => ({
+      sym, regime: "negative", net: -1.2e9, flip: 512.34, flipSide: "below",
+    })),
+    events: [
+      ...TICKERS.map((sym) => ({ label: `${sym} earnings`, detail: "PM" })),
+      ...Array.from({ length: 16 }, () => ({ label: fill(60), detail: "out: 1.2% vs 0.3% est" })),
+      { label: "FOMC decision", detail: "2026-10-28 · 15d" },
+    ],
+    toolScan: {
+      checked: toolSources,
+      coreChecked: [
+        "Ticker tracker & Grade", "News desk", "Calendar", "Unusual flow",
+        "Trending IV", "Overnight markets", "Fear & Greed", "Bonds & USD",
+      ],
+      missing: [],
+      total: toolSources.length + 8,
+      facts: Array.from({ length: 24 }, (_, i) => ({
+        source: `Desk ${i}`,
+        text: fill(230),
+        symbols: ["AAAA", "BBBB", "CCCC", "DDDD"],
+      })),
+    },
+    playbook,
+  };
+}
+function conservativeBriefPromptChars() {
+  if (_conservativeBriefPromptChars != null) return _conservativeBriefPromptChars;
+  const signals = saturatedBriefSignals();
+  const systemChars = Math.max(
+    briefSystemPrompt("morning").length,
+    briefSystemPrompt("intraday").length,
+    briefSystemPrompt("afternoon").length,
+  );
+  const userChars = Math.max(
+    briefUserMessage("morning", "2026-10-13", signals).length,
+    briefUserMessage("intraday", "2026-10-13", signals).length,
+    briefUserMessage("afternoon", "2026-10-13", signals).length,
+  );
+  _conservativeBriefPromptChars = systemChars + userChars + JSON.stringify(BRIEF_SCHEMA).length;
+  return _conservativeBriefPromptChars;
+}
+
+// Numbers the collapsed-story retry must leave untouched. Call slots match
+// generateBrief's AI_MAX_ATTEMPTS loop (acquireAiSlot reserves one per
+// attempt). Token estimates include input: the first extraction's recorded
+// prompt tokens (or a chars/3 fallback) plus one narrative output ceiling,
+// and six Brief attempts of input plus the Brief output ceiling.
+// acquireAiSlot only sees tokens after recordAiUsage, so the holdback uses
+// these estimates instead of changing the slot logic or the reserve constants.
+export function narrativeRetryReserveInput({
+  tokensToday = 0,
+  recordedCalls = 0,
+  reservedAttempts = 0,
+  recordedNarrativeInputTokens,
+  narrativeSystemChars,
+  narrativeMessageChars,
+  recordedBriefInputTokens,
+  briefPromptChars,
+} = {}) {
+  const systemChars = narrativeSystemChars == null ? NARRATIVE_SYSTEM_PROMPT.length : narrativeSystemChars;
+  const messageChars = narrativeMessageChars == null ? 0 : narrativeMessageChars;
+  const promptChars = briefPromptChars == null ? conservativeBriefPromptChars() : briefPromptChars;
+  return {
+    tokensToday,
+    tokenCap: AI_DAILY_TOKEN_CAP,
+    recordedCalls,
+    reservedAttempts,
+    callCap: AI_DAILY_CALL_CAP,
+    reservedTokens: AI_RESERVED_TOKENS,
+    reservedCalls: AI_RESERVED_CALLS,
+    briefMaxAttempts: AI_MAX_ATTEMPTS,
+    briefPromptChars: promptChars,
+    narrativeSystemChars: systemChars,
+    narrativeMessageChars: messageChars,
+    briefTokenEstimate: estimateBriefWorstCaseTokens({
+      recordedInputTokens: recordedBriefInputTokens,
+      promptChars,
+      outputLimit: BRIEF_MAX_OUTPUT_TOKENS,
+      maxAttempts: AI_MAX_ATTEMPTS,
+    }),
+    narrativeTokenEstimate: estimateNarrativeRetryTokens({
+      recordedInputTokens: recordedNarrativeInputTokens,
+      systemChars,
+      messageChars,
+      outputLimit: NARRATIVE_MAX_OUTPUT_TOKENS,
+    }),
+  };
+}
+
+// Read-only. True when the unused narrative/Brief reserve still covers the
+// Brief's worst case plus one narrative call. Does not change the caps or
+// consume a slot. `retryMessage` is only needed when the first extraction
+// recorded no prompt tokens; the chars/3 fallback uses its length.
+function narrativeRetryFitsReserve({ recordedInputTokens = null, retryMessage = "" } = {}) {
+  return narrativeReserveAvailable(narrativeRetryReserveInput({
+    tokensToday: aiTokensToday(),
+    recordedCalls: _aiCallsAtBuildStart,
+    reservedAttempts: _aiAttemptSlots,
+    recordedNarrativeInputTokens: recordedInputTokens,
+    narrativeSystemChars: NARRATIVE_SYSTEM_PROMPT.length,
+    narrativeMessageChars: String(retryMessage || "").length,
+    briefPromptChars: conservativeBriefPromptChars(),
+  }));
+}
+
 async function attachMarketNarratives(chains, previousHistory, macroReleaseReads = [], riskInputs = {}) {
   if (!process.env.GEMINI_API_KEY) {
     console.log("No GEMINI_API_KEY set — skipping market narrative extraction.");
@@ -35895,22 +36138,10 @@ async function attachMarketNarratives(chains, previousHistory, macroReleaseReads
     return { narratives: [], sectorOverviews: {}, recentlyEnded: [], history: previousHistory, macroHeadlines: keylessHeadlines };
   }
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
-  const lastSnapshot = previousHistory[0];
-  // Guard the inner .narratives/.name access (not just lastSnapshot): this runs
-  // before the stale-fallback try/catch below, so a malformed or legacy history
-  // snapshot lacking a narratives array would otherwise throw and abort the
-  // whole bake. Mirrors the guards in annotateNarrativesWithLifespan.
-  // Real narratives only: the autogenerated "<Industry> Watchlist" coverage
-  // filler must never reach the prompt. Listing ~37 filler names as "previous
-  // narratives, reuse verbatim" taught the model that the slate was already
-  // covered, collapsing extraction to a single real story (Sept–Oct 2026).
-  // The name test catches legacy snapshots written before the flag existed.
-  const previousNames = Array.isArray(lastSnapshot?.narratives)
-    ? lastSnapshot.narratives
-      .filter((n) => n && !n.autogenerated && !/\bwatchlist$/i.test(String(n.name || "").trim()))
-      .map((n) => n.name)
-      .filter(Boolean)
-    : [];
+  // Real names only, unioned across the last few newest-first snapshots.
+  // The latest snapshot by itself is the one written during a collapse, so a
+  // one-snapshot list anchors the model on a single story. Filler stays out.
+  const previousNames = previousNarrativeNames(previousHistory);
   // Macro RSS fetch — independent of the AI rate limiter, runs concurrently
   // with anything the limiter still has queued. The narrative generateContent
   // call will block on acquireAiSlot() if the previous pass's window hasn't
@@ -35938,19 +36169,73 @@ async function attachMarketNarratives(chains, previousHistory, macroReleaseReads
   console.log(`Extracting market narratives across ${Object.keys(chains).length} tickers…`);
   try {
     // REFRESH_NARRATIVES=false (daily.yml sets it on the post-close 16:10 ET
-    // bake) carries the prior build's extraction forward instead of spending a
-    // call: nothing trades on the post-close build, and the 15:30 read is still
-    // current. It falls through to a fresh extraction when no prior exists.
-    const skipRefresh = /^(?:0|false)$/i.test(process.env.REFRESH_NARRATIVES || "1")
-      && Array.isArray(lastGood?.narratives) && lastGood.narratives.length > 0;
-    const reused = skipRefresh || canReuseNarrativeExtraction(lastGood, aiInputSig);
-    const raw = reused
+    // bake) carries the prior extraction forward when that read is still fresh
+    // and has a full real-story slate. A missing, stale, or thin slate falls
+    // through to a fresh extraction, and the exact-input cache is not allowed
+    // to hand the thin read back on that path.
+    const refreshOff = /^(?:0|false)$/i.test(process.env.REFRESH_NARRATIVES || "1");
+    const carry = refreshCarryDecision(lastGood);
+    const skipRefresh = refreshOff && carry.carry;
+    if (refreshOff && !carry.carry) {
+      const why = carry.reason === "stale"
+        ? "last good narratives are stale"
+        : carry.reason === "thin"
+          ? `last good has ${carry.realCount} real stories`
+          : "no last good narratives";
+      console.log(`  [narratives] REFRESH_NARRATIVES=false — ${why}; extracting fresh`);
+    }
+    const reused = skipRefresh || (!refreshOff && canReuseNarrativeExtraction(lastGood, aiInputSig));
+    let activeInputSig = aiInputSig;
+    let raw = reused
       ? {
         // Older snapshots stamped the coverage filler bullish; normalize it.
         narratives: lastGood.narratives.map((n) => (n?.autogenerated ? { ...n, sentiment: "neutral" } : n)),
         sectorOverviews: lastGood.sectorOverviews || {},
       }
       : await generateMarketNarratives(ai, chains, previousNames, headlinesForPrompt, narrativeUserMessage);
+    if (!reused) {
+      const realCount = countRealNarratives(raw.narratives);
+      const headlineCount = countNarrativeSourceHeadlines(chains, headlinesForPrompt, MACRO_TOTAL_CAP);
+      const recordedInputTokens = raw.promptTokenCount;
+      // The char fallback needs the retry prompt's length. Skip building it
+      // when the first extraction already recorded prompt tokens.
+      const retryMessage = Number(recordedInputTokens) > 0
+        ? null
+        : buildNarrativeUserMessage(chains, [], headlinesForPrompt, riskInputs);
+      const reserveAvailable = narrativeRetryFitsReserve({
+        recordedInputTokens,
+        retryMessage: retryMessage || "",
+      });
+      // Same UTC day key as aiTokensToday / aiCallsToday. The cap is a sibling
+      // of the reserve check: either one skips the retry without failing the bake.
+      const retryDay = new Date().toISOString().slice(0, 10);
+      const retryCapAvailable = collapsedRetryCapAllows(_aiUsageState, retryDay);
+      const decision = collapsedStoryRetryDecision({ realCount, headlineCount, reserveAvailable, retryCapAvailable });
+      console.log(`  [narratives] ${realCount} real stories, ${headlineCount} source headlines`);
+      if (decision.reason === "reserve-exhausted") {
+        console.log("  [narratives] skipping collapsed-story retry — reserve must still cover the Brief plus one narrative call");
+      } else if (decision.reason === "daily-cap") {
+        console.log(`  [narratives] skipping collapsed-story retry — daily cap of ${COLLAPSED_STORY_RETRY_DAILY_CAP} already used`);
+      } else if (decision.retry) {
+        // Count the start, before the call. A thrown retry still occupies the
+        // slot. The counter is on the in-memory ledger; writeAiUsageState
+        // persists it after the data wipe, and this catch does not rethrow.
+        if (!_aiUsageState) _aiUsageState = { dates: {} };
+        recordCollapsedRetryStart(_aiUsageState, retryDay);
+        console.log("  [narratives] retrying once without previous names");
+        try {
+          const message = retryMessage || buildNarrativeUserMessage(chains, [], headlinesForPrompt, riskInputs);
+          const retryRaw = await generateMarketNarratives(ai, chains, [], headlinesForPrompt, message, { maxAttempts: COLLAPSED_STORY_RETRY_ATTEMPTS });
+          const retryReal = countRealNarratives(retryRaw.narratives);
+          const picked = pickRicherNarrativeExtraction(raw, retryRaw);
+          raw = picked.chosen;
+          if (picked.source === "retry") activeInputSig = narrativeInputSignature(message);
+          console.log(`  [narratives] retry returned ${retryReal} real stories; keeping the ${picked.source} extraction`);
+        } catch (retryErr) {
+          console.log(`  [narratives] collapsed-story retry failed (${retryErr?.message || retryErr}) — keeping the first extraction`);
+        }
+      }
+    }
     if (skipRefresh) {
       console.log(`  [narratives] REFRESH_NARRATIVES=false — carrying the ${lastGood.aiGeneratedAtIso || lastGood.builtAtIso} extraction forward`);
     } else if (reused) {
@@ -35988,7 +36273,7 @@ async function attachMarketNarratives(chains, previousHistory, macroReleaseReads
       macroHeadlines,
       // A carried-forward extraction keeps its own input signature so the
       // exact-input cache never matches today's prompt against yesterday's read.
-      aiInputSig: skipRefresh ? (lastGood.aiInputSig || null) : aiInputSig,
+      aiInputSig: skipRefresh ? (lastGood.aiInputSig || null) : activeInputSig,
       aiGeneratedAtIso: reused
         ? (lastGood.aiGeneratedAtIso || lastGood.builtAtIso)
         : builtAtIso,
