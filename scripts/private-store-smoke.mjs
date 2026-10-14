@@ -14,7 +14,8 @@ import {
 import { resolveStoreKeyPath } from "../lib/store-path.mjs";
 import { serveDataKey } from "../lib/data-response.mjs";
 import { installHydratedSnapshot } from "./sync-data.mjs";
-import { BRIEF_SHARED_KEYS, SCANNER_OWNERS, TRANSCRIPT_SHARED_KEYS, keysForScannerOwner } from "../lib/data-ownership.mjs";
+import { BRIEF_SHARED_KEYS, LOCAL_ONLY_KEYS, REQUEST_TIME_EXCLUSIVE_KEYS, SCANNER_OWNERS, TRANSCRIPT_SHARED_KEYS, isBakeOwnedKey, isLocalOnlyKey, isSeedableKey, keysForScannerOwner } from "../lib/data-ownership.mjs";
+import { isPremiumKey } from "../lib/premium-keys.mjs";
 
 assert.ok(SCANNER_OWNERS.includes("brief"), "Brief-only output must be accepted by the sync CLI");
 assert.deepEqual(keysForScannerOwner("brief"), [...BRIEF_SHARED_KEYS]);
@@ -423,6 +424,34 @@ try {
   store.get = priorGet;
   if (priorFlag == null) delete process.env.PRIVATE_DATA_ENABLED;
   else process.env.PRIVATE_DATA_ENABLED = priorFlag;
+}
+
+
+// seed reuses push's exclusions: request-time and runner-local keys are
+// skipped; ordinary and premium/Owner-only keys still seed.
+{
+  for (const key of REQUEST_TIME_EXCLUSIVE_KEYS) assert.equal(isSeedableKey(key), false, key);
+  assert.equal(isSeedableKey("briefs.json"), true);
+  assert.equal(isSeedableKey("AAPL.json"), true);
+  assert.equal(isPremiumKey("picks.json"), true);
+  assert.equal(isSeedableKey("picks.json"), true, "Owner-only keys must still seed");
+  assert.equal(isLocalOnlyKey("ai-rejection-scorecard.json"), true);
+  assert.equal(isSeedableKey("ai-rejection-scorecard.json"), false);
+  assert.equal(isBakeOwnedKey("ai-rejection-scorecard.json"), false);
+  const probe = "zz-local-only-probe.json";
+  LOCAL_ONLY_KEYS.add(probe);
+  try {
+    assert.equal(isLocalOnlyKey(probe), true);
+    assert.equal(isSeedableKey(probe), false);
+    assert.equal(isBakeOwnedKey(probe), false);
+    const local = ["briefs.json", "picks.json", "picks-watchlist.json", probe];
+    assert.deepEqual(local.filter(isSeedableKey), ["briefs.json", "picks.json"]);
+  } finally {
+    LOCAL_ONLY_KEYS.delete(probe);
+  }
+  assert.equal(isSeedableKey(probe), true);
+  const syncSrc = await (await import("node:fs/promises")).readFile(new URL("./sync-data.mjs", import.meta.url), "utf8");
+  assert.match(syncSrc, /\(await localKeys\(\)\)\.filter\(isSeedableKey\)/);
 }
 
 console.log("private-store smoke test passed");

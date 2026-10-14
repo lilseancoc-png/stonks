@@ -27,6 +27,12 @@ import { issuerCreditRatingFor } from "../lib/issuer-credit-ratings.mjs";
 import { fetchFinraMarketStructure, attachShortInterestToChains } from "../lib/market-structure.mjs";
 import { appendScenarioHistory, buildScenarioEngine, scenarioOverlayForSymbol } from "../lib/scenario-engine.mjs";
 import { isPremiumKey } from "../lib/premium-keys.mjs";
+import {
+  aiRejectionNote,
+  aiRejectionPassNote,
+  loadAiRejectionContext,
+  persistAiRejections,
+} from "../lib/ai-rejections.mjs";
 import { BRIEF_ACCESS_POLICY_VERSION } from "../lib/public-data-policy.mjs";
 import { contentAssetVersion } from "../lib/asset-version.mjs";
 import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
@@ -20960,6 +20966,11 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   // actionable picks 11+ consumed sector/factor/side caps only to be sliced off
   // afterward — charging real exclusions to picks that never shipped.
   let actN = 0, watchN = 0;
+  const aiRejectionNotes = [];
+  const aiRejectionPasses = [];
+  const rejectionAsOf = typeof opts.builtAtIso === "string" ? opts.builtAtIso : null;
+  const rejectionRegime = (typeof macroBackdrop?.macroRegime?.state === "string" && macroBackdrop.macroRegime.state)
+    || (typeof regime === "string" ? regime : null);
   for (const { r, tactical } of candidates) {
     if (actN >= PICKS_COUNT && watchN >= PICKS_WATCH_COUNT) break;
     const side = r.side || (r.total >= 0 ? "call" : "put");
@@ -20977,7 +20988,16 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     const aiThesis = opts.aiThesisMap ? (opts.aiThesisMap[`${r.sym}:${side}`] || null) : null;
     // AI VETO: a 'reject' grade stands the name down even though the data score
     // cleared the bar (cash is a position — a wrong direction is what loses money).
-    if (aiThesis && aiThesis.grade === "reject") { meta.aiVetoed.push(r.sym); continue; }
+    if (aiThesis && aiThesis.grade === "reject") {
+      meta.aiVetoed.push(r.sym);
+      const note = aiRejectionNote({
+        tactical, graderActive: aiActive, aiThesis, kind: "reject",
+        sym: r.sym, side, spot: pnum(r.data?.spot), total: r.total,
+        asOf: rejectionAsOf, regime: rejectionRegime,
+      });
+      if (note) aiRejectionNotes.push(note);
+      continue;
+    }
     const marketRead = buildMarketRead(r.sym, r.data, side, macroRegime, aiThesis);
     const works = collectThesisWorks(r, side);
     // The AI grade is authoritative when present; the deterministic rubric is the
@@ -21010,6 +21030,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // entry helper would otherwise report a usable trigger.
     const entryBlocked = entryPromotionBlocked(entry, r.timing);
     const entryConfirmed = entryBlocked ? false : aiVerdict ? aiVerdict === "buy-now" : entry.now === true;
+    const heldBackBefore = meta.aiEntryHeldBack.length;
     if (aiVerdict) {
       entry.ai = { verdict: aiVerdict, reason: aiThesis.entryReason || null, blocked: entryBlocked, overrode: !entryBlocked && (aiVerdict === "buy-now") !== (entry.now === true) };
       if (entry.ai.overrode) {
@@ -21028,6 +21049,22 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
           entry.trigger = null; entry.zone = null;
           entry.headline = `Wait — ${aiThesis.entryReason || "the final grader says this isn't the moment to enter"}`;
         }
+      }
+    }
+    if (aiActive && aiThesis && aiThesis.grade !== "reject") {
+      const fields = {
+        tactical, graderActive: true, aiThesis,
+        sym: r.sym, side, spot: pnum(r.data?.spot), total: r.total,
+        asOf: rejectionAsOf, regime: rejectionRegime, entryVerdict: aiVerdict,
+      };
+      const pass = aiRejectionPassNote(fields);
+      if (pass) aiRejectionPasses.push(pass);
+      if (aiVerdict === "wait") {
+        const note = aiRejectionNote({
+          ...fields,
+          kind: meta.aiEntryHeldBack.length > heldBackBefore ? "wait-heldback" : "wait",
+        });
+        if (note) aiRejectionNotes.push(note);
       }
     }
     const { classification, group, demotion } = classifyPick(r.total, thesisQuality.tier, tactical, { pillarsAligned: thesisQuality.pillarsAligned, aiGraded: thesisQuality.aiGraded, aiActive, entryConfirmed });
@@ -21120,6 +21157,11 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   meta.deployedGross = r2(finalPicks.reduce((a, p) => a + (p.sizing?.weight || 0), 0));
 
   finalPicks.rosterMeta = meta;
+  // Not part of the picks.json payload (array extras are dropped by
+  // JSON.stringify). Null when this build had no final grader.
+  finalPicks.aiRejectionCapture = aiActive
+    ? { notes: aiRejectionNotes, passed: aiRejectionPasses }
+    : null;
   return finalPicks;
 }
 
@@ -26050,7 +26092,7 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   const payload = buildTopPicksPayload(picks, builtAtIso);
   const json = JSON.stringify(payload);
   await writeFile(picksPath, json, "utf8");
-  return { bytes: json.length, count: picks.length, lean: pickSideLean(picks), thesisProseCache };
+  return { bytes: json.length, count: picks.length, lean: pickSideLean(picks), thesisProseCache, aiRejectionCapture: picks.aiRejectionCapture || null };
 }
 
 export async function readPriorPicks() {
@@ -36843,6 +36885,16 @@ async function main() {
     .sort()
     .slice(0, 2);
   const builtAtIso = new Date().toISOString();
+  // AI rejection log: exact-get today's file plus the firstSeen window BEFORE
+  // writeChainFiles wipes data/. Missing history is not a failed bake.
+  let aiRejectionContext = { today: null, prior: [] };
+  try {
+    aiRejectionContext = await loadAiRejectionContext(DATA_DIR, etDateKey(new Date(builtAtIso)));
+  } catch (err) {
+    const message = String(err?.message || err).split("\n")[0];
+    console.warn(`[ai-rejections] history unavailable (${message})`);
+    aiRejectionContext = { today: null, prior: [], error: message };
+  }
   // Recreate data/ before renderHtml writes its two manifest sidecars. The old
   // order rendered first and then writeChainFiles removed data/ wholesale,
   // which meant a direct `npm run build` finished without manifest.json or
@@ -37418,6 +37470,18 @@ async function main() {
     // Persist the thesis-prose cache now that data/ has been recreated.
     await writePickThesisCache(picksInfo?.thesisProseCache || thesisProseCachePrev || {});
     console.log(`wrote data/picks.json — top ${picksInfo.count} picks, ${picksInfo.bytes} bytes`);
+    try {
+      const logged = await persistAiRejections({
+        dataDir: DATA_DIR,
+        bakeDate: etDateKey(new Date(builtAtIso)),
+        capture: picksInfo?.aiRejectionCapture || null,
+        context: aiRejectionContext,
+      });
+      if (logged?.error) console.warn(`[ai-rejections] log skipped — ${logged.error}`);
+      else if (!logged?.skipped) console.log(`wrote data/${logged.key} — ${logged.count} AI rejection/wait row(s)`);
+    } catch (err) {
+      console.warn(`[ai-rejections] log skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
   } else {
     const missing = topPicksCarryFiles.filter((file) => !topPicksCarry[file]);
     if (missing.length) {

@@ -50,6 +50,12 @@ import { readFile, readdir } from "node:fs/promises";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bsPrice } from "../lib/greeks.mjs";
+import {
+  AI_REJECTION_SCORECARD_KEY,
+  readLocalAiRejectionDays,
+  scoreAiRejections,
+  writeAiRejectionScorecard,
+} from "../lib/ai-rejections.mjs";
 // build.mjs is imported DYNAMICALLY (loadEngineConfig below): it pulls the heavy
 // @google/genai dep at module load, so a STATIC import would break this read-only
 // diagnostic in a thin checkout. The other pure diagnostics avoid it for the same
@@ -104,6 +110,68 @@ const median = (a) => { if (!a.length) return null; const s = [...a].sort((x, y)
 async function loadJson(name) {
   try { return JSON.parse(await readFile(resolve(DATA_DIR, name), "utf8")); }
   catch { return null; }
+}
+
+// Per-ticker priceSeries already hydrated for the portfolio backtest. The AI
+// rejection scorecard uses these closes and does not fetch anything else.
+async function loadPriceSeries() {
+  let files = [];
+  try { files = await readdir(DATA_DIR); } catch { return {}; }
+  const series = {};
+  for (const f of files) {
+    if (!/^[A-Z][A-Z0-9.]{0,5}\.json$/.test(f)) continue;
+    const sym = f.replace(/\.json$/, "");
+    const j = await loadJson(f);
+    const ps = j && j.priceSeries;
+    if (!ps || !Array.isArray(ps.t) || !Array.isArray(ps.c) || ps.t.length !== ps.c.length) continue;
+    const dateIndex = new Map();
+    for (let k = 0; k < ps.t.length; k += 1) dateIndex.set(ps.t[k], k);
+    series[sym] = { dateIndex, closes: ps.c };
+  }
+  return series;
+}
+
+function printAiRejectionScorecard(card) {
+  console.log("\n=== AI rejection scorecard (side-adjusted underlying move) ===\n");
+  console.log(`  Reject horizons : ${card.horizons.join(", ")} trading days`);
+  console.log(`  Wait window     : ${card.waitBetterEntryDays} trading days`);
+  console.log("  meanDelta = reject mean − same-day same-side pass mean. Negative means the rejected names did worse in the trade direction.\n");
+  for (const h of card.horizons) {
+    const row = card.rejects[String(h)];
+    if (!row) continue;
+    const fmt = (stats) => stats && stats.n
+      ? `n=${stats.n} mean=${pct(stats.mean)} hit=${(stats.hitRate * 100).toFixed(0)}%`
+      : "n=0";
+    const delta = row.meanDelta == null ? "  —  " : pct(row.meanDelta);
+    console.log(`  ${pad(h + "d", 5)} reject ${fmt(row.reject)}   passed ${fmt(row.passed)}   meanΔ ${delta}   pending ${row.pending}`);
+  }
+  for (const kind of ["wait", "wait-heldback"]) {
+    const row = card.waits[kind];
+    const hit = row.hitRate == null ? "  —  " : `${(row.hitRate * 100).toFixed(0)}%`;
+    console.log(`  ${pad(kind, 16)} scored ${row.scored}  right ${row.right} (${hit})  better-price ${row.pricePath}  later-promotion ${row.promotionPath}  pending ${row.pending}`);
+  }
+}
+
+// Local scorecard only. backtest-picks.yml does not push the store.
+async function reportAiRejections(series) {
+  try {
+    const days = await readLocalAiRejectionDays(DATA_DIR);
+    const priceSeries = series || await loadPriceSeries();
+    if (!days.length) {
+      console.log("\n=== AI rejection scorecard ===\n  no dated ai-rejections files under data/ yet.\n");
+      return;
+    }
+    if (!Object.keys(priceSeries).length) {
+      console.log("\n=== AI rejection scorecard ===\n  rejection log is present but priceSeries is missing; not scored.\n");
+      return;
+    }
+    const card = scoreAiRejections({ days, series: priceSeries, asOf: new Date().toISOString() });
+    printAiRejectionScorecard(card);
+    await writeAiRejectionScorecard(DATA_DIR, card);
+    console.log(`\n  wrote data/${AI_REJECTION_SCORECARD_KEY} (local artifact; this workflow does not push the store)\n`);
+  } catch (err) {
+    console.warn(`[ai-rejections] scorecard skipped — ${String(err?.message || err).split("\n")[0]}`);
+  }
 }
 
 // Annualized realized vol (close-to-close log returns) over the window ending at i.
@@ -176,24 +244,14 @@ async function main() {
   if (!days.length) {
     console.log("No data/grades-daily.json day rows (run `node scripts/sync-data.mjs pull` first; it");
     console.log("accumulates one row per ET day, so a fresh post-rework history needs a few sessions).");
+    await reportAiRejections();
     process.exit(0);
   }
 
-  // Load every per-ticker priceSeries → { dateIndex, closes }.
-  const files = await readdir(DATA_DIR);
-  const series = {};
-  for (const f of files) {
-    if (!/^[A-Z][A-Z0-9.]{0,5}\.json$/.test(f)) continue;
-    const sym = f.replace(/\.json$/, "");
-    const j = await loadJson(f);
-    const ps = j && j.priceSeries;
-    if (!ps || !Array.isArray(ps.t) || !Array.isArray(ps.c) || ps.t.length !== ps.c.length) continue;
-    const dateIndex = new Map();
-    for (let k = 0; k < ps.t.length; k += 1) dateIndex.set(ps.t[k], k);
-    series[sym] = { dateIndex, closes: ps.c };
-  }
+  const series = await loadPriceSeries();
   if (!Object.keys(series).length) {
     console.log("No per-ticker priceSeries under data/ — run from a hydrated checkout (sync-data.mjs pull).");
+    await reportAiRejections(series);
     process.exit(0);
   }
 
@@ -258,6 +316,7 @@ async function main() {
     console.log(`No picks have ${HOLD} realized forward bars yet at the primary hold — the window is too`);
     console.log("young to score. Re-run after a few more sessions (or lower BT_HOLD for a shorter read).\n");
     await summarizeForwardRecord();
+    await reportAiRejections(series);
     process.exit(0);
   }
 
@@ -324,6 +383,8 @@ async function main() {
   console.log("\n  NOTE: modeled, no options feed. Entry IV = trailing realized vol × " + IV_PREM + ", held flat to");
   console.log("  exit; ATM/" + DTE + "-DTE representative contract; close-to-close, no stop path. Treat magnitudes");
   console.log("  as indicative — the real, real-contract record is data/picks-accuracy.json.\n");
+
+  await reportAiRejections(series);
 }
 
 // The gold-standard cross-check: the actual forward, real-contract resolved record.
