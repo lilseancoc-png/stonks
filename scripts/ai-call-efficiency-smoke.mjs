@@ -24,7 +24,7 @@ const PICK_RESERVE = AI_PICK_LEVEL_RESERVE_CALLS_DEFAULT;
 const DRIFT = 0.02;
 const TOLERANCE = 1;
 
-assert.equal(PICK_RESERVE, 40, "pick reserve stays sized at ~20 thesis + ~20 extraction calls");
+assert.equal(PICK_RESERVE, 40, "pick reserve covers 20 research + grade pairs");
 assert.deepEqual(
   [...TICKER_JUDGMENT_MISS_REASONS],
   ["no-cache", "fundamentals-changed", "price-drift", "news-count", "material-headline", "other"],
@@ -199,7 +199,7 @@ const judgmentLine = CAP - NARRATIVE_RESERVE - PICK_RESERVE;
 assert.equal(aiTierReserveBlocks(judgmentLine - 1, CAP, NARRATIVE_RESERVE, PICK_RESERVE, "judgment"), false);
 assert.equal(aiTierReserveBlocks(judgmentLine, CAP, NARRATIVE_RESERVE, PICK_RESERVE, "judgment"), true);
 assert.equal(aiTierReserveBlocks(judgmentLine, CAP, NARRATIVE_RESERVE, PICK_RESERVE, "pick"), false);
-assert.equal(aiTierReserveBlocks(judgmentLine, CAP, NARRATIVE_RESERVE, PICK_RESERVE, "bulk"), false);
+assert.equal(aiTierReserveBlocks(judgmentLine, CAP, NARRATIVE_RESERVE, PICK_RESERVE, "bulk"), true);
 assert.equal(aiTierReserveBlocks(CAP - NARRATIVE_RESERVE - 1, CAP, NARRATIVE_RESERVE, PICK_RESERVE, "pick"), false);
 assert.equal(aiTierReserveBlocks(CAP - NARRATIVE_RESERVE, CAP, NARRATIVE_RESERVE, PICK_RESERVE, "pick"), true);
 assert.equal(aiTierReserveBlocks(CAP - NARRATIVE_RESERVE, CAP, NARRATIVE_RESERVE, PICK_RESERVE, "bulk"), true);
@@ -219,7 +219,7 @@ for (let used = 0; used < CAP; used++) {
 assert.equal(judgmentSlots, CAP - NARRATIVE_RESERVE - PICK_RESERVE);
 assert.equal(pickSlots, CAP - NARRATIVE_RESERVE);
 assert.equal(pickSlots - judgmentSlots, PICK_RESERVE, "pick-level calls keep the reserved block re-judgments give up");
-assert.equal(bulkSlots, pickSlots, "other bulk callers still stop only at the narrative reserve");
+assert.equal(bulkSlots, judgmentSlots, "charts and universe-wide extraction also leave the final-grading block intact");
 assert.equal(reservedSlots, CAP, "narrative and Brief calls are not blocked by either reserve");
 
 assert.equal(aiTierReserveBlocks(judgmentLine, CAP, NARRATIVE_RESERVE, 0, "judgment"), false, "a zero pick reserve disables the extra stop");
@@ -238,5 +238,20 @@ assert.equal(aiReserveBlocks(CAP - NARRATIVE_RESERVE - 1, CAP, NARRATIVE_RESERVE
 assert.equal(aiReserveBlocks(CAP - 1, CAP, NARRATIVE_RESERVE, true), false);
 assert.equal(aiDailyCallCapReached(600, 149, CAP), false, "the final reserved slot must remain available");
 assert.equal(aiDailyCallCapReached(600, 150, CAP), true, "concurrent reservations must close the daily call budget exactly at the cap");
+
+// Model the real order: charts/extraction first, final grade next, narratives last.
+let consumed = 0;
+const spend = tier => {
+  if (aiDailyCallCapReached(0, consumed, CAP) || aiTierReserveBlocks(consumed, CAP, NARRATIVE_RESERVE, PICK_RESERVE, tier)) return false;
+  consumed++;
+  return true;
+};
+for (let i = 0; i < CAP; i++) spend("bulk");
+assert.equal(consumed, judgmentLine);
+for (let i = 0; i < PICK_RESERVE; i++) assert.equal(spend("pick"), true);
+assert.equal(spend("pick"), false);
+for (let i = 0; i < NARRATIVE_RESERVE; i++) assert.equal(spend("reserved"), true);
+assert.equal(consumed, CAP);
+assert.equal(spend("reserved"), false);
 
 console.log("ai-call-efficiency smoke: ok");

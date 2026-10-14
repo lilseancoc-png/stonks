@@ -29973,12 +29973,11 @@ const AI_DAILY_CALL_CAP = Number(process.env.AI_DAILY_CALL_CAP || 750);
 // themselves are unchanged, so worst-case daily spend cannot rise. 0 disables.
 const AI_RESERVED_TOKENS = Math.max(0, Number(process.env.AI_RESERVED_TOKENS ?? 300_000) || 0);
 const AI_RESERVED_CALLS = Math.max(0, Number(process.env.AI_RESERVED_CALLS ?? 30) || 0);
-// Calls held back from per-ticker re-judgments so a heavy judgment pass cannot
-// spend the slots the Top Picks grader and contract/guidance extraction need.
-// Those pick-level calls may use this budget. They still stop at the narrative
-// / Brief reserve above, and every other bulk caller keeps that same 30-call
-// line. The daily ceilings are unchanged. 0 disables. Default is ~20 thesis
-// calls (search + grade) plus ~20 extractions on a bake that runs both.
+// Calls held back from all universe-wide passes, including charts and
+// contract/guidance extraction. Only Top Picks research and final grading
+// may spend this block; both still stop at the narrative / Brief reserve.
+// Forty attempts cover 20 research + grade pairs before retries. The daily
+// ceilings are unchanged. 0 disables.
 const AI_PICK_LEVEL_RESERVE_CALLS = Math.max(
   0,
   Number(process.env.AI_PICK_LEVEL_RESERVE_CALLS ?? AI_PICK_LEVEL_RESERVE_CALLS_DEFAULT) || 0,
@@ -30050,16 +30049,15 @@ function acquireAiSlot(opts = {}) {
         // intentional spend stop: no retries, no failover, no health alert.
         throw new Error(`AI daily ${reserveTokens ? "token" : "call"} cap exceeded (reserve held for narratives + the Brief)`);
       }
-      // Re-judgments stop one budget earlier so the pick-level reserve is still
-      // there when the grader and contract/guidance extraction run. Pick-level
-      // and other bulk callers are not refused here. Same cap-exceeded wording
-      // so a refusal fails soft: no retry, no failover, prior judgment stands.
+      // Earlier universe-wide passes stop before the final-grading block.
+      // Same cap-exceeded wording makes a refusal fail soft without retries
+      // or failover; deterministic paths and prior judgments remain available.
       const usedCalls = _aiCallsAtBuildStart + _aiAttemptSlots;
-      if (tier === "judgment" && aiTierReserveBlocks(usedCalls, AI_DAILY_CALL_CAP, AI_RESERVED_CALLS, AI_PICK_LEVEL_RESERVE_CALLS, tier)) {
+      if (aiTierReserveBlocks(usedCalls, AI_DAILY_CALL_CAP, AI_RESERVED_CALLS, AI_PICK_LEVEL_RESERVE_CALLS, tier)) {
         _aiBudgetStopped = true;
         if (!_aiPickReserveLogged) {
           _aiPickReserveLogged = true;
-          console.log(`  ⚠ AI daily call budget is down to the ${AI_PICK_LEVEL_RESERVE_CALLS.toLocaleString()} calls held for Top Picks grading — refusing ticker re-judgments; deterministic paths continue.`);
+          console.log(`  ⚠ AI daily call budget is down to the ${AI_PICK_LEVEL_RESERVE_CALLS.toLocaleString()} calls held for Top Picks grading — refusing bulk ticker work; deterministic paths continue.`);
         }
         throw new Error("AI daily call cap exceeded (reserve held for pick-level grading)");
       }
@@ -33421,7 +33419,7 @@ async function attachAiContractGuidance(chains, judgmentCache = null) {
     let lastErr;
     for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
       try {
-        await acquireAiSlot({ pickLevel: true });
+        await acquireAiSlot();
         response = await ai.models.generateContent({
           model: aiModelForAttempt(model, attempt),
           config: {
