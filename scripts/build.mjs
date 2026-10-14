@@ -52,10 +52,10 @@ import {
   formatTickerJudgmentMiss,
   summarizeTickerJudgmentMisses,
 } from "../lib/ai-call-efficiency.mjs";
-import { advanceLeapsPaperTrack, LEAPS_PAPER_KEY, shouldWriteLeapsPaper } from "../lib/leaps-paper-track.mjs";
+import { advanceLeapsPaperTrack, LEAPS_PAPER_KEY, leapsPaperMarksFromChains, openPositionFetchTargets, shouldWriteLeapsPaper } from "../lib/leaps-paper-track.mjs";
 import { summarizeYahooError, withYahooRetry } from "../lib/yahoo-retry.mjs";
 import { withYahooTimeout } from "../lib/yahoo.mjs";
-import { attachLeapsExpirations, leapsExtraFetchEnabled } from "../lib/leaps-expirations.mjs";
+import { attachLeapsExpirations, includeLeapsStrike, leapsExtraFetchEnabled } from "../lib/leaps-expirations.mjs";
 import {
   COLLAPSED_STORY_RETRY_ATTEMPTS,
   COLLAPSED_STORY_RETRY_DAILY_CAP,
@@ -1314,7 +1314,7 @@ function compressContract(c) {
 // the 14-slot loop, wrapped in the shared withYahooTimeout so a hung quote
 // cannot stall the bake. Empty or mismatched expirations return null; the
 // caller logs and continues.
-async function fetchLeapsExpirationChain(symbol, expSec, spotHint) {
+async function fetchLeapsExpirationChain(symbol, expSec, spotHint, keepStrikes) {
   const requested = Number(expSec);
   if (!Number.isFinite(requested) || requested <= 0) return null;
   const r = await withYahooTimeout(
@@ -1331,10 +1331,13 @@ async function fetchLeapsExpirationChain(symbol, expSec, spotHint) {
     r.quote?.preMarketPrice ??
     null;
   const spot = Number(spotHint) > 0 ? Number(spotHint) : quoteSpot;
-  if (!(spot > 0)) return null;
-  const minK = spot * (1 - STRIKE_BAND);
-  const maxK = spot * (1 + STRIKE_BAND);
-  const filterStrike = (c) => c.strike != null && c.strike >= minK && c.strike <= maxK;
+  const kept = Array.isArray(keepStrikes) && keepStrikes.length > 0;
+  if (!(spot > 0) && !kept) return null;
+  const filterStrike = (c) => includeLeapsStrike(c.strike, {
+    spot,
+    keepStrikes,
+    band: STRIKE_BAND,
+  });
   const calls = (entry.calls || []).filter(filterStrike).map(compressContract);
   const puts = (entry.puts || []).filter(filterStrike).map(compressContract);
   if (!calls.length && !puts.length) return null;
@@ -37117,17 +37120,28 @@ async function main() {
   } catch (err) {
     console.log(`  · evidence history unavailable (${err.message})`);
   }
-  // Far expirations for the LEAPS shortlist only, and only when the switch is
-  // on. Chains stay on `_leapsChains` (stripped at write). A missing chain is
-  // logged inside the helper; this catch is so a selector bug cannot fail the bake.
+  // Far expirations for the LEAPS shortlist, plus the exact expiration of each
+  // open paper position, and only when the switch is on. Open positions sit
+  // outside the 5-name cap. Chains stay on `_leapsChains` (stripped at write).
+  // A missing book or chain is logged; this catch is so a selector bug cannot
+  // fail the bake.
   if (LEAPS_EXTRA_FETCH_ENABLED) {
+    let leapsOpenTargets = [];
+    try {
+      if (!isPremiumKey(LEAPS_PAPER_KEY)) throw new Error(`${LEAPS_PAPER_KEY} must stay Owner-only`);
+      leapsOpenTargets = openPositionFetchTargets(await readLeapsPaperBook());
+    } catch (err) {
+      console.log(`  ⚠ LEAPS open positions unavailable: ${err?.message || err}`);
+    }
     try {
       const leaps = await attachLeapsExpirations(chains, {
-        fetchExpiration: (symbol, expSec) => fetchLeapsExpirationChain(symbol, expSec, chains[symbol]?.spot),
+        openTargets: leapsOpenTargets,
+        fetchExpiration: (symbol, expSec, row) => fetchLeapsExpirationChain(symbol, expSec, chains[symbol]?.spot, row?.strikes),
       });
+      const leapsNames = [...leaps.names, ...(leaps.openNames || [])];
       console.log(
-        leaps.names.length
-          ? `LEAPS expirations: ${leaps.attached} chain(s) attached for ${leaps.names.join(", ")} (${leaps.calls} Yahoo call(s))`
+        leapsNames.length
+          ? `LEAPS expirations: ${leaps.attached} chain(s) attached for ${leapsNames.join(", ")} (${leaps.calls} Yahoo call(s))`
           : "LEAPS expirations: no qualifying names — skipped",
       );
     } catch (err) {
@@ -37147,13 +37161,15 @@ async function main() {
     riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE,
     builtAtIso,
   );
+  const leapsPaperAsOf = etDateKey();
   if (leapsPicks.length) {
     try {
       const paper = await writeLeapsPaperTrack({
         ideas: leapsPicks,
-        asOf: etDateKey(),
+        asOf: leapsPaperAsOf,
         builtAtIso,
         prior: leapsPaperPrev,
+        ...leapsPaperMarksFromChains(chains, leapsPaperPrev, leapsPaperAsOf),
       });
       if (paper) console.log(`wrote data/${LEAPS_PAPER_KEY} — ${paper.summary.open} open, ${paper.summary.closed} closed`);
     } catch (err) {

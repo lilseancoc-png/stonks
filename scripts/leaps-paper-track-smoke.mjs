@@ -9,9 +9,18 @@ import {
   advanceLeapsPaperTrack,
   calendarDaysBetween,
   leapsContractKey,
+  leapsPaperMarksFromChains,
   leapsTimeExitDate,
+  openPositionFetchTargets,
   shouldWriteLeapsPaper,
 } from "../lib/leaps-paper-track.mjs";
+import {
+  LEAPS_EXTRA_FETCH_CAP,
+  addUtcMonths,
+  attachLeapsExpirations,
+  includeLeapsStrike,
+  selectLeapsNames,
+} from "../lib/leaps-expirations.mjs";
 import { LEAPS_PAPER_KEY as OWNERSHIP_KEY, REQUEST_TIME_EXCLUSIVE_KEYS, SCANNER_EXCLUSIVE_KEYS, isBakeOwnedKey } from "../lib/data-ownership.mjs";
 import { isPremiumKey, roleClaimForKey } from "../lib/premium-keys.mjs";
 
@@ -536,5 +545,152 @@ assert.doesNotMatch(buildSource, /BRIEF_TOOL_SOURCES[\s\S]*leaps-paper\.json/);
   assert.equal(timed.positions.find(p => p.ideaId === "aaa").exit.reason, "time");
   assert.equal(timed.positions.length, 2);
 }
+
+// Open positions off the shortlist are fetched outside the 5-name cap.
+// A shortlist expiration is not fetched a second time. No network.
+{
+  const dupTargets = openPositionFetchTargets({
+    positions: [
+      { status: "open", symbol: "hold", side: "call", strike: 150, expiration: "2027-06-18" },
+      { status: "open", symbol: "HOLD", side: "call", strike: 150, expiration: "2027-06-18" },
+      { status: "open", symbol: "HOLD", side: "call", strike: 160, expiration: "2027-06-18" },
+      { status: "closed", symbol: "ZZZ", side: "call", strike: 1, expiration: "2027-06-18" },
+      { status: "frozen", symbol: "YYY", side: "call", strike: 1, expiration: "2027-06-18" },
+    ],
+  });
+  assert.equal(dupTargets.length, 1);
+  assert.equal(dupTargets[0].symbol, "HOLD");
+  assert.equal(dupTargets[0].expiration, "2027-06-18");
+  assert.deepEqual(dupTargets[0].strikes, [150, 160]);
+  assert.equal(openPositionFetchTargets(null).length, 0);
+  assert.equal(openPositionFetchTargets({ positions: [] }).length, 0);
+  assert.equal(includeLeapsStrike(150, { spot: 80, band: 0.5 }), false);
+  assert.equal(includeLeapsStrike(150, { spot: 80, keepStrikes: [150], band: 0.5 }), true);
+  assert.equal(includeLeapsStrike(100, { spot: 120, band: 0.5 }), true);
+
+  const NOW = new Date(Date.UTC(2026, 0, 15));
+  const keptNear = Math.floor(Date.UTC(2026, 2, 20) / 1000);
+  const monthsOut = (n) => Math.floor(addUtcMonths(new Date(Date.UTC(2026, 0, 15)), n).getTime() / 1000);
+  const inside12 = monthsOut(12);
+  const inside18 = monthsOut(18);
+  const inside24 = monthsOut(24);
+  const dateOf = (sec) => new Date(sec * 1000).toISOString().slice(0, 10);
+  const leapsName = (symbol, spot = 120) => ({
+    symbol,
+    spot,
+    technicals: { sma: { sma200: 100 }, rsi: 55 },
+    ivRank: { pctile: 40, z: 0.2 },
+    expirations: [keptNear],
+    chains: { [keptNear]: { c: [{ s: 100, b: 1, a: 1.1, l: 1 }], p: [] } },
+    _listedExpirations: [keptNear, inside12, inside24],
+  });
+  const board = () => {
+    const chains = {};
+    for (let i = 0; i < 6; i++) chains[`N${i}`] = leapsName(`N${i}`);
+    chains.HOLD = {
+      symbol: "HOLD",
+      spot: 80,
+      technicals: { sma: { sma200: 100 }, rsi: 55 },
+      ivRank: { pctile: 10, z: 0.1 },
+      expirations: [keptNear],
+      chains: { [keptNear]: { c: [{ s: 90, b: 1, a: 1.1, l: 1 }], p: [] } },
+      _listedExpirations: [keptNear, inside18],
+    };
+    return chains;
+  };
+
+  const holdIdea = idea({ id: "hold-1", symbol: "HOLD", strike: 150, expiration: dateOf(inside18), ask: 10, target: 900 });
+  const listedIdea = idea({ id: "n0-1", symbol: "N0", strike: 100, expiration: dateOf(inside12), ask: 10, target: 900 });
+  const opened = step(null, "2026-01-15", [holdIdea, listedIdea]);
+  const openTargets = openPositionFetchTargets(opened);
+  assert.equal(openTargets.length, 2);
+  assert.ok(openTargets.some((row) => row.symbol === "HOLD" && row.expiration === dateOf(inside18)));
+
+  const chains = board();
+  const shortlist = selectLeapsNames(Object.entries(chains).map(([symbol, data]) => ({ ...data, symbol })), { now: NOW });
+  assert.equal(shortlist.length, LEAPS_EXTRA_FETCH_CAP);
+  assert.deepEqual(shortlist.map((row) => row.symbol), ["N0", "N1", "N2", "N3", "N4"]);
+  assert.equal(shortlist.some((row) => row.symbol === "HOLD" || row.symbol === "N5"), false);
+
+  const fetched = [];
+  const logs = [];
+  const doubledTargets = openTargets.concat(openTargets, [{ symbol: "GONE", expiration: "2027-06-18", expSec: 1, strike: 10 }]);
+  const result = await attachLeapsExpirations(chains, {
+    now: NOW,
+    enabled: true,
+    sleep: async () => {},
+    log: (message) => logs.push(message),
+    openTargets: doubledTargets,
+    fetchExpiration: async (symbol, expSec) => {
+      fetched.push(`${symbol}:${expSec}`);
+      const strike = symbol === "HOLD" ? 150 : 100;
+      return { c: [{ s: strike, b: 12, a: 12.4, l: 12.1 }], p: [] };
+    },
+  });
+  assert.deepEqual(result.names, ["N0", "N1", "N2", "N3", "N4"]);
+  assert.deepEqual(result.openNames, ["HOLD"]);
+  assert.equal(result.calls, LEAPS_EXTRA_FETCH_CAP * 2 + 1);
+  assert.equal(fetched.filter((row) => row === `HOLD:${inside18}`).length, 1);
+  assert.equal(fetched.filter((row) => row === `N0:${inside12}`).length, 1);
+  assert.equal(fetched.some((row) => row.startsWith("N5:")), false);
+  assert.equal(fetched.some((row) => row.startsWith("GONE:")), false);
+  assert.ok(logs.some((line) => line.includes("GONE") && line.includes("no chain")));
+  for (const sym of result.names) assert.equal(fetched.filter((row) => row.startsWith(`${sym}:`)).length, 2);
+
+  const marks = leapsPaperMarksFromChains(chains, opened, "2026-01-16");
+  const holdKey = leapsContractKey(opened.positions.find((position) => position.symbol === "HOLD"));
+  const listedKey = leapsContractKey(opened.positions.find((position) => position.symbol === "N0"));
+  assert.deepEqual(marks.quotes[holdKey], { bid: 12, ask: 12.4, mid: 12.2, close: 12.1, asOf: "2026-01-16" });
+  assert.equal(marks.stocks.HOLD.close, 80);
+  assert.equal(marks.quotes[listedKey].mid, 12.2);
+  assert.equal(marks.stocks.N0.close, 120);
+  const marked = step(opened, "2026-01-16", [], marks.quotes, marks.stocks);
+  const hold = marked.positions.find((position) => position.symbol === "HOLD");
+  const listed = marked.positions.find((position) => position.symbol === "N0");
+  assert.equal(hold.status, "open");
+  assert.equal(hold.mark, 12.2);
+  assert.equal(hold.lastStockClose, 80);
+  assert.equal(listed.status, "open");
+  assert.equal(listed.mark, 12.2);
+  assert.equal(listed.lastStockClose, 120);
+
+  let disabledFetches = 0;
+  const disabled = await attachLeapsExpirations(board(), {
+    now: NOW,
+    enabled: false,
+    openTargets,
+    fetchExpiration: async () => {
+      disabledFetches += 1;
+      return { c: [{ s: 1 }], p: [] };
+    },
+  });
+  assert.equal(disabledFetches, 0);
+  assert.equal(disabled.calls, 0);
+  assert.deepEqual(disabled.openNames, []);
+
+  const flaky = board();
+  const flakyFetched = [];
+  const flakyResult = await attachLeapsExpirations(flaky, {
+    now: NOW,
+    enabled: true,
+    sleep: async () => {},
+    log: () => {},
+    openTargets,
+    fetchExpiration: async (symbol, expSec) => {
+      flakyFetched.push(`${symbol}:${expSec}`);
+      if (symbol === "HOLD") throw new Error("yahoo down");
+      return { c: [{ s: 100, b: 12, a: 12.4, l: 12.1 }], p: [] };
+    },
+  });
+  assert.deepEqual(flakyResult.names, ["N0", "N1", "N2", "N3", "N4"]);
+  assert.equal(flakyFetched.filter((row) => row === `HOLD:${inside18}`).length, 1);
+  assert.equal(flaky.HOLD._leapsChains, undefined);
+  assert.ok(flaky.N0._leapsChains[inside12]);
+  assert.equal(flakyFetched.some((row) => row.startsWith("N5:")), false);
+}
+
+assert.match(buildSource, /openTargets: leapsOpenTargets/);
+assert.match(buildSource, /openPositionFetchTargets\(await readLeapsPaperBook\(\)\)/);
+assert.match(buildSource, /leapsPaperMarksFromChains\(chains, leapsPaperPrev, leapsPaperAsOf\)/);
 
 console.log("LEAPS paper-track smoke checks passed.");
