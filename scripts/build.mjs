@@ -30,6 +30,13 @@ import { isPremiumKey } from "../lib/premium-keys.mjs";
 import { BRIEF_ACCESS_POLICY_VERSION } from "../lib/public-data-policy.mjs";
 import { contentAssetVersion } from "../lib/asset-version.mjs";
 import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
+import {
+  AI_PICK_LEVEL_RESERVE_CALLS_DEFAULT,
+  aiTierReserveBlocks,
+  classifyTickerJudgmentMiss,
+  formatTickerJudgmentMiss,
+  summarizeTickerJudgmentMisses,
+} from "../lib/ai-call-efficiency.mjs";
 import { summarizeYahooError, withYahooRetry } from "../lib/yahoo-retry.mjs";
 import {
   buildAcceleratorPricesPayload,
@@ -26621,7 +26628,7 @@ async function fetchThesisWebResearch(ai, r, side) {
   let response = null;
   for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
     try {
-      await acquireAiSlot();
+      await acquireAiSlot({ pickLevel: true });
       response = await ai.models.generateContent({
         model: aiModelForAttempt(AI_THESIS_SEARCH_MODEL, attempt),
         config: { tools: [{ googleSearch: {} }], temperature: 0.2, maxOutputTokens: 1200, thinkingConfig: { thinkingBudget: AI_THESIS_SEARCH_THINK } },
@@ -26747,7 +26754,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
       let response = null;
       for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
         try {
-          await acquireAiSlot();
+          await acquireAiSlot({ pickLevel: true });
           response = await ai.models.generateContent({
             model: aiModelForAttempt(AI_THESIS_MODEL, attempt),
             // The final grader deliberates (a real thinking budget — this call
@@ -29966,8 +29973,19 @@ const AI_DAILY_CALL_CAP = Number(process.env.AI_DAILY_CALL_CAP || 750);
 // themselves are unchanged, so worst-case daily spend cannot rise. 0 disables.
 const AI_RESERVED_TOKENS = Math.max(0, Number(process.env.AI_RESERVED_TOKENS ?? 300_000) || 0);
 const AI_RESERVED_CALLS = Math.max(0, Number(process.env.AI_RESERVED_CALLS ?? 30) || 0);
+// Calls held back from per-ticker re-judgments so a heavy judgment pass cannot
+// spend the slots the Top Picks grader and contract/guidance extraction need.
+// Those pick-level calls may use this budget. They still stop at the narrative
+// / Brief reserve above, and every other bulk caller keeps that same 30-call
+// line. The daily ceilings are unchanged. 0 disables. Default is ~20 thesis
+// calls (search + grade) plus ~20 extractions on a bake that runs both.
+const AI_PICK_LEVEL_RESERVE_CALLS = Math.max(
+  0,
+  Number(process.env.AI_PICK_LEVEL_RESERVE_CALLS ?? AI_PICK_LEVEL_RESERVE_CALLS_DEFAULT) || 0,
+);
 let _aiCapLogged = false;
 let _aiReserveLogged = false;
+let _aiPickReserveLogged = false;
 let _aiBudgetStopped = false;
 function aiTokensToday() {
   if (!_aiUsageState || !_aiUsageState.dates) return 0;
@@ -30004,8 +30022,15 @@ export function aiReserveBlocks(used, cap, reserve, priority = false) {
   return !priority && Number(cap) > 0 && Number(reserve) > 0
     && (Number(used) || 0) >= Math.max(0, Number(cap) - Number(reserve));
 }
+function aiSlotTier(opts) {
+  if (opts?.reserved === true) return "reserved";
+  if (opts?.judgment === true) return "judgment";
+  if (opts?.pickLevel === true) return "pick";
+  return "bulk";
+}
 function acquireAiSlot(opts = {}) {
   const priority = opts.reserved === true;
+  const tier = aiSlotTier(opts);
   const prev = _aiSlotChain;
   let release;
   _aiSlotChain = new Promise((r) => { release = r; });
@@ -30024,6 +30049,19 @@ function acquireAiSlot(opts = {}) {
         // Same wording as a hard-cap stop so classifyAiError treats it as an
         // intentional spend stop: no retries, no failover, no health alert.
         throw new Error(`AI daily ${reserveTokens ? "token" : "call"} cap exceeded (reserve held for narratives + the Brief)`);
+      }
+      // Re-judgments stop one budget earlier so the pick-level reserve is still
+      // there when the grader and contract/guidance extraction run. Pick-level
+      // and other bulk callers are not refused here. Same cap-exceeded wording
+      // so a refusal fails soft: no retry, no failover, prior judgment stands.
+      const usedCalls = _aiCallsAtBuildStart + _aiAttemptSlots;
+      if (tier === "judgment" && aiTierReserveBlocks(usedCalls, AI_DAILY_CALL_CAP, AI_RESERVED_CALLS, AI_PICK_LEVEL_RESERVE_CALLS, tier)) {
+        _aiBudgetStopped = true;
+        if (!_aiPickReserveLogged) {
+          _aiPickReserveLogged = true;
+          console.log(`  ⚠ AI daily call budget is down to the ${AI_PICK_LEVEL_RESERVE_CALLS.toLocaleString()} calls held for Top Picks grading — refusing ticker re-judgments; deterministic paths continue.`);
+        }
+        throw new Error("AI daily call cap exceeded (reserve held for pick-level grading)");
       }
       if (AI_DAILY_TOKEN_CAP > 0) {
         const spent = aiTokensToday();
@@ -33139,7 +33177,7 @@ async function generateNewsTake(ai, symbol, spot, headlines) {
   let lastErr;
   for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
     try {
-      await acquireAiSlot();
+      await acquireAiSlot({ judgment: true });
       response = await ai.models.generateContent({
         model: aiModelForAttempt(AI_NEWS_MODEL, attempt),
         contents: `${AI_SYSTEM_PROMPT}\n\n${userMessage}`,
@@ -33383,7 +33421,7 @@ async function attachAiContractGuidance(chains, judgmentCache = null) {
     let lastErr;
     for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
       try {
-        await acquireAiSlot();
+        await acquireAiSlot({ pickLevel: true });
         response = await ai.models.generateContent({
           model: aiModelForAttempt(model, attempt),
           config: {
@@ -33603,7 +33641,7 @@ async function generateFundamentalsJudgment(ai, symbol, spot, fundamentals) {
   let lastErr;
   for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
     try {
-      await acquireAiSlot();
+      await acquireAiSlot({ judgment: true });
       response = await ai.models.generateContent({
         model: aiModelForAttempt(AI_FUNDAMENTALS_MODEL, attempt),
         contents: `${FUNDAMENTALS_SYSTEM_PROMPT}\n\n${userMessage}`,
@@ -33902,7 +33940,7 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
   let lastErr;
   for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
     try {
-      await acquireAiSlot();
+      await acquireAiSlot({ judgment: true });
       response = await ai.models.generateContent({
         model: aiModelForAttempt(AI_TICKER_MODEL, attempt),
         // CRITICAL for caching: systemInstruction is the cache key prefix.
@@ -34306,6 +34344,9 @@ export function tickerJudgmentSignature(rawHeadlines, fundamentals) {
     sig: [...metaParts, headsHash, fundHash].join("|"),
     metaSig: [...metaParts, fundHash].join("|"),
     titles: rawHeadlines.map((h) => normalizeHeadlineTitle(h.title)),
+    // Same 12-hex tail already embedded in sig and metaSig. Exposed so a miss
+    // label can tell a fundamentals change from a model or prompt change.
+    fundHash,
   };
 }
 
@@ -34353,6 +34394,7 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
   resetBodyFetchStats();
   const nextCache = {};
   let reused = 0;
+  const missBySym = new Map();
   const hb = startHeartbeat("ticker judgments", entries.length);
   const runPass = (passEntries) =>
     Promise.all(passEntries.map(([sym, data]) => hb.track(async () => {
@@ -34387,7 +34429,7 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
         // tolerance) + same slow fundamentals facts + spot within the drift
         // band ⇒ reuse the prior build's judgment and skip both the
         // body-enrichment fetches and the Gemini call.
-        const { sig, metaSig, titles } = tickerJudgmentSignature(rawHeadlines, data.fundamentals);
+        const { sig, metaSig, titles, fundHash } = tickerJudgmentSignature(rawHeadlines, data.fundamentals);
         const prior = AI_TICKER_CACHE ? priorCache[sym] : null;
         const spotOk = prior &&
           Number.isFinite(prior.spot) && prior.spot > 0 && Number.isFinite(data.spot) &&
@@ -34420,6 +34462,30 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
           reused += 1;
           console.log(`  ↺ ${sym} — reused judgment (${reuseWhy}, spot within ${(TICKER_JUDGMENT_SPOT_DRIFT * 100).toFixed(1)}%)`);
           return;
+        }
+        if (!missBySym.has(sym)) {
+          let miss = { reason: "other", driftPct: null };
+          try {
+            const materialFresh = prior && Array.isArray(prior.titles)
+              ? newMaterialAiHeadlineCount(prior.titles, titles)
+              : 0;
+            miss = classifyTickerJudgmentMiss({
+              prior,
+              spot: data.spot,
+              sig,
+              metaSig,
+              titles,
+              driftLimit: TICKER_JUDGMENT_SPOT_DRIFT,
+              newsTolerance: TICKER_JUDGMENT_NEWS_TOLERANCE,
+              materialFresh,
+              fundHash,
+            }) || miss;
+            missBySym.set(sym, miss);
+            console.log(`  · ${sym} cache miss: ${formatTickerJudgmentMiss(miss)}`);
+          } catch (err) {
+            missBySym.set(sym, miss);
+            console.warn(`[judgment] ${sym} cache-miss label failed — ${String(err?.message || err).split("\n")[0]}`);
+          }
         }
         // Body enrichment best-effort attaches article body text to each
         // headline. When the fetch fails (which is most of the time on GHA
@@ -34483,6 +34549,7 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
   console.log(summarizeBodyFetchStats());
   hb.stop();
   console.log(`Ticker-judgment cache: ${reused}/${entries.length} reused from the prior build.`);
+  console.log(`Ticker-judgment cache misses: ${summarizeTickerJudgmentMisses(missBySym)}.`);
   return nextCache;
 }
 
