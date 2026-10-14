@@ -44,6 +44,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - **Evidence records preserve missing readings and closing-volume direction, and publish only through the verified sync step.** Normal runs download only the history window the producers need; backtests retain access to full remote archives.
 - **Data sync: `sync-data seed` now skips the same keys `push` excludes.** Seed (the one-time full upload of local `data/` into the private store) skips request-time keys and the shared `LOCAL_ONLY_KEYS` list, including the backtest-only AI rejection scorecard via `isSeedableKey`, and still uploads Owner-only keys so a re-seed keeps the private history. `lib/data-ownership.mjs`, `scripts/sync-data.mjs`, plus a smoke test.
+- **LEAPS expirations, private and off by default.** For up to 5 LEAPS shortlist names, the bake can fetch up to 4 extra expirations 9 to 24 months out, in parallel, using the existing Yahoo timeout. If a fetch fails, the bake carries on without it. The extra expirations stay in a private `_leapsChains` field that's removed before files are written, so the public per-ticker files never show the LEAPS shortlist. A name makes the shortlist when it's above its 200-day average, has an RSI between 20 and 80, and its IV is cheap: under the 60th percentile, with an IV z-score under `LEAPS_IV_Z_MAX = 1.5` when there's enough IV history to compute one. The fetch stays switched off until LEAPS scoring lands. Other names still keep 14 expirations, and short-term picks are unchanged. It makes no AI calls.
+
+### Fixed
+
+- **Branch review repair:** The LEAPS shortlist rejects missing trend and IV readings instead of treating them as zero.
 
 ## 2026-10-10
 

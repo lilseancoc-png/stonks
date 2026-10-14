@@ -39,6 +39,8 @@ import { contentAssetVersion } from "../lib/asset-version.mjs";
 import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
 import { assembleBakeLinkMap, LINK_MAP_SKIPPED_SOURCES } from "../lib/link-map.mjs";
 import { summarizeYahooError, withYahooRetry } from "../lib/yahoo-retry.mjs";
+import { withYahooTimeout } from "../lib/yahoo.mjs";
+import { attachLeapsExpirations, leapsExtraFetchEnabled } from "../lib/leaps-expirations.mjs";
 import {
   COLLAPSED_STORY_RETRY_ATTEMPTS,
   COLLAPSED_STORY_RETRY_DAILY_CAP,
@@ -1236,13 +1238,17 @@ const STRIKE_BAND = 0.50;
 // longer-dated ideal 45-75 DTE window and its PICKS_MAX_DTE=90 cap (the
 // 2026-07-10 hold-longer rework: picks are 1-3 month holds now, and a 10-slot
 // fetch topped weekly-heavy names out around ~46 DTE, silently truncating the
-// new window). The far-dated tail beyond slot 14 is dropped from the baked IV
-// term-structure chart + expiration dropdown, but the Grade tab still
-// live-fetches any specific expiration via /api/chain on demand.
-// (Was 15, then 10 — the LEAPS tail beyond the picks window costs ~18s of wall
-// clock per 5 slots with nothing consuming it.) Less-liquid names asymptote at
-// whatever Yahoo returns (the .slice() handles it).
+// new window). The far-dated tail beyond slot 14 stays off every other name's
+// baked chain (the Grade tab still live-fetches a specific expiration via
+// /api/chain). LEAPS_EXTRA_FETCH=1 can fetch that tail for a shortlist onto
+// in-memory `_leapsChains` (lib/leaps-expirations.mjs); it is not baked.
+// (Was 15, then 10 — fetching
+// that tail for every name cost ~18s of wall clock per 5 slots.) Less-liquid
+// names asymptote at whatever Yahoo returns (the .slice() handles it).
 const MAX_EXPIRATIONS = 14;
+// Default off. LEAPS_EXTRA_FETCH=1 fetches the capped 9–24 month tail onto
+// in-memory `_leapsChains` only (writeChainFiles strips that field).
+const LEAPS_EXTRA_FETCH_ENABLED = leapsExtraFetchEnabled();
 // Yahoo intermittently 401s GitHub Actions runners ("Host not in allowlist")
 // or rate-limits after a burst. Retry transient failures, but bail on the
 // existing site if too many tickers fail — better to serve yesterday's data
@@ -1284,6 +1290,37 @@ function compressContract(c) {
     oi: c.openInterest ?? null,
     v: c.volume ?? null,
   };
+}
+
+// One far expiration for a LEAPS-shortlist name. Same Yahoo options call as
+// the 14-slot loop, wrapped in the shared withYahooTimeout so a hung quote
+// cannot stall the bake. Empty or mismatched expirations return null; the
+// caller logs and continues.
+async function fetchLeapsExpirationChain(symbol, expSec, spotHint) {
+  const requested = Number(expSec);
+  if (!Number.isFinite(requested) || requested <= 0) return null;
+  const r = await withYahooTimeout(
+    fetchYahooOptions(symbol, new Date(requested * 1000)),
+    `leaps(${symbol})`,
+  );
+  const entry = r?.options?.[0];
+  if (!entry) return null;
+  const got = entry.expirationDate ? toEpochSec(entry.expirationDate) : null;
+  if (got != null && Math.abs(got - requested) > 36 * 3600) return null;
+  const quoteSpot =
+    r.quote?.regularMarketPrice ??
+    r.quote?.postMarketPrice ??
+    r.quote?.preMarketPrice ??
+    null;
+  const spot = Number(spotHint) > 0 ? Number(spotHint) : quoteSpot;
+  if (!(spot > 0)) return null;
+  const minK = spot * (1 - STRIKE_BAND);
+  const maxK = spot * (1 + STRIKE_BAND);
+  const filterStrike = (c) => c.strike != null && c.strike >= minK && c.strike <= maxK;
+  const calls = (entry.calls || []).filter(filterStrike).map(compressContract);
+  const puts = (entry.puts || []).filter(filterStrike).map(compressContract);
+  if (!calls.length && !puts.length) return null;
+  return { c: calls, p: puts };
 }
 
 // --- Historical bars + technical indicators -----------------------------
@@ -3485,6 +3522,14 @@ async function fetchTickerChain(symbol) {
   if (!spot) throw new Error(`No spot for ${symbol}`);
   if (!allExp.length) throw new Error(`No expirations for ${symbol}`);
 
+  const listedExpirations = [];
+  const seenExp = new Set();
+  for (const d of allExp) {
+    const sec = toEpochSec(d);
+    if (!Number.isFinite(sec) || sec <= 0 || seenExp.has(sec)) continue;
+    seenExp.add(sec);
+    listedExpirations.push(sec);
+  }
   const expirations = allExp.slice(0, MAX_EXPIRATIONS);
   const minK = spot * (1 - STRIKE_BAND);
   const maxK = spot * (1 + STRIKE_BAND);
@@ -3568,6 +3613,9 @@ async function fetchTickerChain(symbol) {
     // Feeds the chart-pattern detector (1-month timeframe) and is compacted into
     // the persisted `intradaySeries` for the browser's 1W/1M chart tabs.
     _intraday: intraday,
+    // Full Yahoo expiration list (epoch sec). The 14-slot fetch keeps only
+    // the front of this. The LEAPS pass reads it and writeChainFiles strips it.
+    _listedExpirations: listedExpirations,
   };
 }
 
@@ -4306,6 +4354,16 @@ export async function writeAutoPicksFile(picks, builtAtIso = new Date().toISOStr
   return { count: Object.keys(picks || {}).length, bytes: json.length };
 }
 
+// Public per-ticker body. Transient series and the LEAPS tail stay in memory.
+export function publicChainFilePayload(data) {
+  const { _bars, _intraday, _signalHeadlines, _listedExpirations, _leapsChains, autoPick: _legacyAutoPick, ...rest } = data;
+  return {
+    ...rest,
+    priceSeries: buildPriceSeries(_bars),
+    intradaySeries: buildIntradaySeries(_intraday),
+  };
+}
+
 async function writeChainFiles(chains, rfr = FALLBACK_RISK_FREE_RATE, builtAtIso = new Date().toISOString()) {
   // Wipe data/ first so tickers that fell out of the curated list (or
   // failed this run) don't leave stale files behind. The directory is
@@ -4315,18 +4373,15 @@ async function writeChainFiles(chains, rfr = FALLBACK_RISK_FREE_RATE, builtAtIso
   let totalBytes = 0;
   const ownerAutoPicks = {};
   for (const [sym, data] of Object.entries(chains)) {
-    // _bars / _intraday are transient in-memory series; never write them raw to
-    // the per-ticker JSON (they'd inflate each file). Compact series below.
-    const { _bars, _intraday, _signalHeadlines, autoPick: _legacyAutoPick, ...rest } = data;
     // Exact Top-Picks contract candidates are Owner research. Keep them out of
     // the public per-ticker chain and collect them into one gated sidecar.
+    // publicChainFilePayload strips _bars / _intraday / _listedExpirations /
+    // _leapsChains / autoPick; the compact series are what the file keeps.
     ownerAutoPicks[sym] = {
       call: pickContractForPick("call", data, rfr),
       put: pickContractForPick("put", data, rfr),
     };
-    const priceSeries = buildPriceSeries(_bars);
-    const intradaySeries = buildIntradaySeries(_intraday);
-    const json = JSON.stringify({ ...rest, priceSeries, intradaySeries });
+    const json = JSON.stringify(publicChainFilePayload(data));
     await writeFile(resolve(DATA_DIR, `${sym}.json`), json, "utf8");
     totalBytes += json.length;
   }
@@ -36905,6 +36960,22 @@ async function main() {
     evidencePriorRecords = evidenceLoaded.records;
   } catch (err) {
     console.log(`  · evidence history unavailable (${err.message})`);
+  // Far expirations for the LEAPS shortlist only, and only when the switch is
+  // on. Chains stay on `_leapsChains` (stripped at write). A missing chain is
+  // logged inside the helper; this catch is so a selector bug cannot fail the bake.
+  if (LEAPS_EXTRA_FETCH_ENABLED) {
+    try {
+      const leaps = await attachLeapsExpirations(chains, {
+        fetchExpiration: (symbol, expSec) => fetchLeapsExpirationChain(symbol, expSec, chains[symbol]?.spot),
+      });
+      console.log(
+        leaps.names.length
+          ? `LEAPS expirations: ${leaps.attached} chain(s) attached for ${leaps.names.join(", ")} (${leaps.calls} Yahoo call(s))`
+          : "LEAPS expirations: no qualifying names — skipped",
+      );
+    } catch (err) {
+      console.log(`  ⚠ LEAPS expiration pass failed: ${err?.message || err}`);
+    }
   }
   // Recreate data/ before renderHtml writes its two manifest sidecars. The old
   // order rendered first and then writeChainFiles removed data/ wholesale,

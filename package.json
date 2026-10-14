@@ -33,7 +33,8 @@
     "verify:ai-cost": "node scripts/ai-cost-smoke.mjs",
     "verify:freshness": "node scripts/verify-data-freshness.mjs --self-test",
     "verify:transcripts": "node scripts/transcript-smoke.mjs",
-    "test:data-hydration": "node scripts/data-hydration-smoke.mjs"
+    "test:data-hydration": "node scripts/data-hydration-smoke.mjs",
+    "test:leaps-expirations": "node scripts/leaps-expirations-smoke.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.15.0",
