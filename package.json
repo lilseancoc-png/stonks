@@ -38,7 +38,8 @@
     "test:data-hydration": "node scripts/data-hydration-smoke.mjs",
     "test:leaps-expirations": "node scripts/leaps-expirations-smoke.mjs",
     "test:ai-call-efficiency": "node scripts/ai-call-efficiency-smoke.mjs",
-    "test:leaps-paper-track": "node scripts/leaps-paper-track-smoke.mjs"
+    "test:leaps-paper-track": "node scripts/leaps-paper-track-smoke.mjs",
+    "test:branches": "node scripts/review-branches.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.15.0",

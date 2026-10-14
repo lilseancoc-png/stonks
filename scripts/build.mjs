@@ -37105,6 +37105,7 @@ async function main() {
     const message = String(err?.message || err).split("\n")[0];
     console.warn(`[ai-rejections] history unavailable (${message})`);
     aiRejectionContext = { today: null, prior: [], error: message };
+  }
   // Evidence history is read BEFORE writeChainFiles wipes data/. Only the
   // latest pointer and the last 60 dated keys are opened — older evidence
   // files stay in the store and are never loaded or delete-staled.
@@ -37115,6 +37116,7 @@ async function main() {
     evidencePriorRecords = evidenceLoaded.records;
   } catch (err) {
     console.log(`  · evidence history unavailable (${err.message})`);
+  }
   // Far expirations for the LEAPS shortlist only, and only when the switch is
   // on. Chains stay on `_leapsChains` (stripped at write). A missing chain is
   // logged inside the helper; this catch is so a selector bug cannot fail the bake.
