@@ -18,10 +18,14 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { TICKERS } from "./build.mjs";
 import {
+  OPTIONAL_BAKE_KEYS,
+  LEAPS_PAPER_KEY,
   isBakeOwnedKey,
+  isEvidenceRecordKey,
   isRetainedRemoteBakeKey,
   isTickerDataKey,
 } from "../lib/data-ownership.mjs";
+import { isCurrentAiRejectionPublishKey } from "../lib/ai-rejections.mjs";
 import {
   MIN_IV_SUCCESS_RATE,
   MIN_TICKER_SUCCESS_RATE,
@@ -100,6 +104,7 @@ const BAKE_REQUIRED_REWRITTEN_FILES = [
   "iv-trending.json",
   "leveraged-etfs-log.json",
   "leveraged-etfs.json",
+  "link-map.json",
   "macro-history.json",
   "macro.json",
   "ma-tracker.json",
@@ -132,6 +137,7 @@ const BAKE_REQUIRED_REWRITTEN_FILES = [
 ];
 
 const BAKE_STATIC_KEYS = new Set(BAKE_REQUIRED_REWRITTEN_FILES);
+const OPTIONAL_BAKE_KEY_SET = new Set(OPTIONAL_BAKE_KEYS);
 
 const CONTEXT_CAN_BE_EXPLICITLY_STALE = [
   "earnings-tracker.json",
@@ -584,6 +590,21 @@ async function auditBake({ report, dataDir, runStartedAt, now, expectedSymbols }
       await requireRewrittenJson(report, dataDir, key, runStartedAt);
       continue;
     }
+    // Today's AI-rejection file and the latest pointer are bake-owned. They
+    // are not required: the grader can be off. The backtest-local scorecard
+    // is not bake-owned and is skipped above. Older
+    // dated keys are not local after the wipe; if one is still on disk it
+    // stays unclassified so this run does not republish the archive.
+    if (isCurrentAiRejectionPublishKey(key, etDateKey(now))) continue;
+    // Today's evidence file and evidence-latest.json are bake-owned and
+    // rewritten each run. History is consumed before the data/ wipe, so older
+    // dated keys are not local here; remote generations retain the archive.
+    if (isEvidenceRecordKey(key) || OPTIONAL_BAKE_KEY_SET.has(key) || key === LEAPS_PAPER_KEY) {
+      // Optional LEAPS outputs appear only when their producer has work.
+      // Every present optional file must have been rewritten by this run.
+      await requireRewrittenJson(report, dataDir, key, runStartedAt);
+      continue;
+    }
     unclassified.push(key);
   }
   if (unclassified.length) {
@@ -979,6 +1000,28 @@ async function selfTest() {
       expectedSymbols: ["TEST"],
     });
     if (report.errors.length) throw new Error(renderReport(report));
+
+    await write("leaps-picks.json", { builtAtIso: stamp, picks: [] });
+    const withLeaps = await auditFreshness({
+      owner: "bake",
+      dataDir: dir,
+      runStartedAt: start.toISOString(),
+      now: new Date("2026-07-30T14:05:00.000Z"),
+      expectedSymbols: ["TEST"],
+    });
+    if (withLeaps.errors.length) throw new Error(renderReport(withLeaps));
+    if (!withLeaps.checks.some((message) => message.includes("leaps-picks.json: rewritten"))) {
+      throw new Error("self-test expected an optional LEAPS payload to be classified when present");
+    }
+    await rm(resolve(dir, "leaps-picks.json"));
+    const withoutLeaps = await auditFreshness({
+      owner: "bake",
+      dataDir: dir,
+      runStartedAt: start.toISOString(),
+      now: new Date("2026-07-30T14:05:00.000Z"),
+      expectedSymbols: ["TEST"],
+    });
+    if (withoutLeaps.errors.length) throw new Error(renderReport(withoutLeaps));
 
     const priorRefreshTopPicks = process.env.REFRESH_TOP_PICKS;
     const priorRefreshSwingDesks = process.env.REFRESH_SWING_DESKS;

@@ -20,6 +20,44 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-10-13
+
+### Added
+
+- **Link map: a private, Owner-only map of how names, themes and inputs connect.** The build writes `link-map.json` from the existing sector, industry and spillover groups, overnight peers, commodities, AI capex, RAM, GPU rent and narrative longs/shorts (365 nodes and 777 edges on Oct 13 data). Every edge carries its source and an `asOf` date. It makes no AI calls. Search-interest themes (no ticker lists yet) and central-bank gold (tracks countries, not tickers) are skipped. Requests without an Owner session get a 401 (`LINK_MAP_OWNER_ONLY`). `lib/link-map.mjs`, `scripts/build.mjs`, `lib/data-ownership.mjs`, `lib/premium-keys.mjs`.
+
+### Fixed
+
+- **Branch review repair:** The link-map privacy toggle check resolves shared policy imports from a temporary file module, so it works alongside the evidence and rejection branches.
+### Fixed
+
+- **Narratives: story extraction no longer collapses onto the single name in the latest history snapshot.** Previous names now come from the real stories in the last five snapshots, and the prompt reuses a name only when today's evidence still supports it. When a fresh read finds fewer than four real stories from 30 or more headlines, it retries once (a single attempt). The retry runs only if the daily AI reserve still covers the Brief's worst case in both calls and tokens, counting input tokens (the first read's recorded input plus 10%, or characters divided by 3 when none was recorded). It is also capped at 2 retries per UTC day (`COLLAPSED_STORY_RETRY_DAILY_CAP`, counted in the AI ledger when a retry starts, so failed retries count too). The post-close carry (`REFRESH_NARRATIVES=false`) extracts fresh instead of reusing a stale read or one with fewer than four real stories. AI caps are unchanged. `lib/story-detection.mjs`, `scripts/build.mjs`, `scripts/story-detection-smoke.mjs`.
+- **AI rejection log and scoring: every name the final grader rejects or tells to wait is recorded and later scored.** The bake writes one record per name, side and day (first time seen, spot price, grade, entry reason, total and market regime) to `ai-rejections/YYYY-MM-DD.json` plus `ai-rejections-latest.json`, tagging waits that overrode a ready price read separately; names the grader passed are kept as the comparison baseline. Tactical names and builds without a grader are skipped, logging never fails the bake, and nothing is added to `picks.json`. `backtest-picks.mjs` scores rejects on the move in the pick's direction at 5, 10 and 21 trading days against that day's passed names, and waits on whether a better entry came within 5 days. All files are Owner-only and private; the scorecard stays on the backtest runner and is excluded from the bake push. No AI calls. `lib/ai-rejections.mjs`, `scripts/build.mjs`, `scripts/backtest-picks.mjs`, `lib/data-ownership.mjs`, `lib/premium-keys.mjs`.
+### Fixed
+
+- **Branch review repair:** Wait promotions count only within the five trading-session score window. The scorecard stays local, and normal runs download only the required record history.
+- **Data sync: `sync-data seed` now skips the same keys `push` excludes.** Seed (the one-time full upload of local `data/` into the private store) skips request-time keys and the shared `LOCAL_ONLY_KEYS` list, including the backtest-only AI rejection scorecard via `isSeedableKey`, and still uploads Owner-only keys so a re-seed keeps the private history. `lib/data-ownership.mjs`, `scripts/sync-data.mjs`, plus a smoke test.
+- **Branch review repair:** Bake, seed, and hydration exclude the local AI rejection scorecard. Normal pulls bound dated record downloads; historical backtests explicitly request full archives.
+- **Data sync: `sync-data seed` now skips the same keys `push` excludes.** Seed (the one-time full upload of local `data/` into the private store) skips request-time keys and the shared `LOCAL_ONLY_KEYS` list, including the local AI rejection scorecard via `isSeedableKey`, and still uploads Owner-only keys so a re-seed keeps the private history. `lib/data-ownership.mjs`, `scripts/sync-data.mjs`, plus a smoke test.
+- **Evidence record: a private, Owner-only daily record of the evidence behind each name.** The bake writes `evidence/YYYY-MM-DD.json` plus a small `evidence-latest.json` pointer, covering 17 evidence pieces per name (Trends, RAM, GPU rent and capex are skipped because they have no per-name daily data). Every piece carries `asOf` (when the source data was known) and `firstSeen`, neither later than the bake date, so later tests can't use future information. `firstSeen` carries over across gaps of up to 5 trading days when the direction is unchanged and resets otherwise (holidays count as missing days). Each bake loads the last 60 days for the compare-to-its-own-normal rule, using the store access the daily pull already has. No AI calls. `lib/evidence-record.mjs`, `scripts/build.mjs`, `lib/data-ownership.mjs`, `lib/premium-keys.mjs`.
+### Fixed
+
+- **Evidence records preserve missing readings and closing-volume direction, and publish only through the verified sync step.** Normal runs download only the history window the producers need; backtests retain access to full remote archives.
+- **LEAPS expirations, private and off by default.** For up to 5 LEAPS shortlist names, the bake can fetch up to 4 extra expirations 9 to 24 months out, in parallel, using the existing Yahoo timeout. If a fetch fails, the bake carries on without it. The extra expirations stay in a private `_leapsChains` field that's removed before files are written, so the public per-ticker files never show the LEAPS shortlist. A name makes the shortlist when it's above its 200-day average, has an RSI between 20 and 80, and its IV is cheap: under the 60th percentile, with an IV z-score under `LEAPS_IV_Z_MAX = 1.5` when there's enough IV history to compute one. The fetch stays switched off until LEAPS scoring lands. Other names still keep 14 expirations, and short-term picks are unchanged. It makes no AI calls.
+
+### Fixed
+
+- **Branch review repair:** The LEAPS shortlist rejects missing trend and IV readings instead of treating them as zero.
+- **LEAPS contract pricer (`lib/leaps-pricer.mjs`).** This is a pure function with no file or network access. For each expiration 9 to 24 months out, it finds the strike with a delta between 0.20 and 0.30, using a bounded 64-step bisection and a named 4% rate. It then prices the option 6 months out if the stock is flat, up 20%, up 35% or up 50%. A contract passes only if the target move at least doubles the premium. An optional `catalystDate` drops expirations that end less than 3 months after the catalyst. Expirations that are short, unreadable or fail to solve are skipped one at a time. The function returns null only for bad top-level inputs. It makes no AI calls.
+### Fixed
+
+- **Branch review repair:** All earlier bulk AI passes preserve 40 attempts for final Top Picks research and grading. The narrative reserve and daily ceilings remain in force.
+### Fixed
+
+- **Branch review repair:** LEAPS paper rolls reject an occupied underlying before closing the original position; marks and mandatory exits continue.
+### Fixed
+
+
 ## 2026-10-10
 
 ### Changed
