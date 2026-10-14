@@ -100,6 +100,7 @@ const BAKE_REQUIRED_REWRITTEN_FILES = [
   "iv-trending.json",
   "leveraged-etfs-log.json",
   "leveraged-etfs.json",
+  "link-map.json",
   "macro-history.json",
   "macro.json",
   "ma-tracker.json",
