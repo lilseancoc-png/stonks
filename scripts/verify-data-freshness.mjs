@@ -19,6 +19,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { TICKERS } from "./build.mjs";
 import {
   OPTIONAL_BAKE_KEYS,
+  LEAPS_PAPER_KEY,
   isBakeOwnedKey,
   isEvidenceRecordKey,
   isRetainedRemoteBakeKey,
@@ -600,6 +601,9 @@ async function auditBake({ report, dataDir, runStartedAt, now, expectedSymbols }
     // not local here; the store keeps them because they are not dynamic.
     if (isEvidenceRecordKey(key)) {
     if (OPTIONAL_BAKE_KEY_SET.has(key)) {
+    // Present only after a non-empty LEAPS list. Absence is the steady state
+    // and is not a missing bake output; a file that is here must be this run's.
+    if (key === LEAPS_PAPER_KEY) {
       await requireRewrittenJson(report, dataDir, key, runStartedAt);
       continue;
     }

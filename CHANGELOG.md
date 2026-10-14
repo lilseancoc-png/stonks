@@ -55,6 +55,9 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - **Branch review repair:** All earlier bulk AI passes preserve 40 attempts for final Top Picks research and grading. The narrative reserve and daily ceilings remain in force.
 ### Fixed
 
+- **Branch review repair:** LEAPS paper rolls reject an occupied underlying before closing the original position; marks and mandatory exits continue.
+### Fixed
+
 
 ## 2026-10-10
 

@@ -52,6 +52,7 @@ import {
   formatTickerJudgmentMiss,
   summarizeTickerJudgmentMisses,
 } from "../lib/ai-call-efficiency.mjs";
+import { advanceLeapsPaperTrack, LEAPS_PAPER_KEY, shouldWriteLeapsPaper } from "../lib/leaps-paper-track.mjs";
 import { summarizeYahooError, withYahooRetry } from "../lib/yahoo-retry.mjs";
 import { withYahooTimeout } from "../lib/yahoo.mjs";
 import { attachLeapsExpirations, leapsExtraFetchEnabled } from "../lib/leaps-expirations.mjs";
@@ -36551,6 +36552,33 @@ async function attachMarketNarratives(chains, previousHistory, macroReleaseReads
   }
 }
 
+// LEAPS paper book. This branch has no LEAPS idea desk, so the list is empty
+// and neither the pre-wipe read nor the write below runs. Top Picks scoring
+// is not consulted. The key stays Owner-only; an empty list does not create it.
+export function leapsPicksForBake() {
+  return [];
+}
+
+export async function readLeapsPaperBook() {
+  try {
+    const parsed = JSON.parse(await readFile(resolve(DATA_DIR, LEAPS_PAPER_KEY), "utf8"));
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+  } catch { /* no book yet */ }
+  return null;
+}
+
+export async function writeLeapsPaperTrack({ ideas, asOf, quotes = {}, stocks = {}, builtAtIso = null, prior = null } = {}) {
+  if (!shouldWriteLeapsPaper(ideas)) return null;
+  if (!isPremiumKey(LEAPS_PAPER_KEY)) {
+    throw new Error(`${LEAPS_PAPER_KEY} must stay Owner-only`);
+  }
+  const book = advanceLeapsPaperTrack({ book: prior, asOf, ideas, quotes, stocks });
+  const payload = { ...book, builtAtIso };
+  await mkdir(DATA_DIR, { recursive: true });
+  await writeFile(resolve(DATA_DIR, LEAPS_PAPER_KEY), JSON.stringify(payload), "utf8");
+  return payload;
+}
+
 async function main() {
   // Load running AI-usage totals BEFORE the data/ wipe further down so we
   // can merge today's calls into the existing rolling window. Lives in
@@ -37104,6 +37132,10 @@ async function main() {
       console.log(`  ⚠ LEAPS expiration pass failed: ${err?.message || err}`);
     }
   }
+  // LEAPS paper state has to be read before writeChainFiles wipes data/.
+  // leapsPicksForBake() is empty on this branch, so this is a no-op.
+  const leapsPicks = leapsPicksForBake();
+  const leapsPaperPrev = leapsPicks.length ? await readLeapsPaperBook() : null;
   // Recreate data/ before renderHtml writes its two manifest sidecars. The old
   // order rendered first and then writeChainFiles removed data/ wholesale,
   // which meant a direct `npm run build` finished without manifest.json or
@@ -37113,6 +37145,19 @@ async function main() {
     riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE,
     builtAtIso,
   );
+  if (leapsPicks.length) {
+    try {
+      const paper = await writeLeapsPaperTrack({
+        ideas: leapsPicks,
+        asOf: etDateKey(),
+        builtAtIso,
+        prior: leapsPaperPrev,
+      });
+      if (paper) console.log(`wrote data/${LEAPS_PAPER_KEY} — ${paper.summary.open} open, ${paper.summary.closed} closed`);
+    } catch (err) {
+      console.warn(`[leaps] paper track skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
+  }
   const css = renderStylesCss();
   const js = renderAppJs({ riskFreeRate });
   const streaksJs = await readFile(resolve(ROOT, "js", "streaks.js"), "utf8");
