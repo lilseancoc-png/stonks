@@ -25,6 +25,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Added
 
 - **AI rejection log and scoring: every name the final grader rejects or tells to wait is recorded and later scored.** The bake writes one record per name, side and day (first time seen, spot price, grade, entry reason, total and market regime) to `ai-rejections/YYYY-MM-DD.json` plus `ai-rejections-latest.json`, tagging waits that overrode a ready price read separately; names the grader passed are kept as the comparison baseline. Tactical names and builds without a grader are skipped, logging never fails the bake, and nothing is added to `picks.json`. `backtest-picks.mjs` scores rejects on the move in the pick's direction at 5, 10 and 21 trading days against that day's passed names, and waits on whether a better entry came within 5 days. All files are Owner-only and private; the scorecard stays on the backtest runner and is excluded from the bake push. No AI calls. `lib/ai-rejections.mjs`, `scripts/build.mjs`, `scripts/backtest-picks.mjs`, `lib/data-ownership.mjs`, `lib/premium-keys.mjs`.
+### Fixed
+
+- **Branch review repair:** Wait promotions count only within the five trading-session score window. The scorecard stays local, and normal runs download only the required record history.
+- **Data sync: `sync-data seed` now skips the same keys `push` excludes.** Seed (the one-time full upload of local `data/` into the private store) skips request-time keys and the shared `LOCAL_ONLY_KEYS` list, including the backtest-only AI rejection scorecard via `isSeedableKey`, and still uploads Owner-only keys so a re-seed keeps the private history. `lib/data-ownership.mjs`, `scripts/sync-data.mjs`, plus a smoke test.
 
 ## 2026-10-10
 
