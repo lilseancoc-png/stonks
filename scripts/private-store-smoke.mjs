@@ -435,7 +435,9 @@ try {
   assert.equal(isSeedableKey("AAPL.json"), true);
   assert.equal(isPremiumKey("picks.json"), true);
   assert.equal(isSeedableKey("picks.json"), true, "Owner-only keys must still seed");
-  assert.equal(LOCAL_ONLY_KEYS.size, 0);
+  assert.equal(isLocalOnlyKey("ai-rejection-scorecard.json"), true);
+  assert.equal(isSeedableKey("ai-rejection-scorecard.json"), false);
+  assert.equal(isBakeOwnedKey("ai-rejection-scorecard.json"), false);
   const probe = "zz-local-only-probe.json";
   LOCAL_ONLY_KEYS.add(probe);
   try {

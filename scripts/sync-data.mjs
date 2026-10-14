@@ -6,7 +6,9 @@
 // dir; this tool just fills it before and drains it after.
 //
 // Usage:
-//   node scripts/sync-data.mjs pull                 # store -> local data/   (hydrate)
+//   node scripts/sync-data.mjs pull --owner=bake    # rolling history + current data
+//   node scripts/sync-data.mjs pull --owner=unusual # current data, no dated records
+//   node scripts/sync-data.mjs pull --include-archives # full history for backtests
 //   node scripts/sync-data.mjs push --owner=bake    # local data/ -> store   (flush)
 //   node scripts/sync-data.mjs push --owner=unusual
 //   node scripts/sync-data.mjs push --owner=oi
@@ -36,6 +38,7 @@ import { resolve, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { store } from "../lib/datastore.mjs";
 import { resolveStoreKeyPath } from "../lib/store-path.mjs";
+import { hydrationPolicy } from "../lib/data-hydration.mjs";
 import {
   REQUEST_TIME_EXCLUSIVE_KEYS,
   SCANNER_OWNERS,
@@ -107,9 +110,10 @@ async function localKeys() {
 
 function parseArgs(argv) {
   const cmd = argv[0];
-  const opts = { dryRun: false, owner: null };
+  const opts = { dryRun: false, owner: null, includeArchives: false };
   for (const a of argv.slice(1)) {
     if (a === "--dry-run") opts.dryRun = true;
+    else if (a === "--include-archives") opts.includeArchives = true;
     else if (a.startsWith("--owner=")) opts.owner = a.slice("--owner=".length);
   }
   return { cmd, opts };
@@ -191,12 +195,14 @@ export async function installHydratedSnapshot(entries, {
   }
 }
 
-async function pull({ dryRun }) {
+export async function pull({ dryRun = false, owner = "bake", includeArchives = false, bakeDate,
+  dataDir = DATA_DIR, storeClient = store } = {}) {
+  const shouldHydrate = hydrationPolicy({ owner, includeArchives, bakeDate });
   // Pin one publication for the whole hydrate. Calling logical list/get in a
   // loop could otherwise cross a pointer flip after the wrapper's short cache
   // expires, producing a mixed local tree even though both generations are
   // individually coherent.
-  const publication = await store.getPublication({ fresh: true });
+  const publication = await storeClient.getPublication({ fresh: true });
   let entries;
   if (publication) {
     const generated = Object.entries(publication.manifest.objects).map(([key, record]) => ({
@@ -207,35 +213,36 @@ async function pull({ dryRun }) {
     }));
     const requestTime = [];
     for (const key of REQUEST_TIME_EXCLUSIVE_KEYS) {
-      const body = await store.rawGet(key);
+      const body = await storeClient.rawGet(key);
       if (body != null) requestTime.push({ key, size: body.length, uploadedAt: null, physicalKey: key, body });
     }
     entries = [...generated, ...requestTime];
   } else {
     // Pointer absence is the explicit pre-cutover fallback. Read the same root
     // keys we listed even if another process creates the first pointer midway.
-    entries = (await store.rawList(""))
+    entries = (await storeClient.rawList(""))
       .filter((entry) => String(entry?.key || "").endsWith(".json") &&
         !String(entry?.key || "").startsWith("_stonks/"))
       .map((entry) => ({ ...entry, physicalKey: entry.key }));
   }
-  console.log(`pull: ${entries.length} object(s) in store -> ${DATA_DIR}`);
+  console.log(`pull: ${entries.length} object(s) in store -> ${dataDir}`);
   // Validate every remote key before removing the existing local directory.
   // A single poisoned object must fail closed without leaving a partial tree.
   const planned = entries.map((entry) => ({
     ...entry,
     // Resolve only to validate here; installHydratedSnapshot resolves the same
     // logical key beneath its private staging directory for the actual write.
-    validatedPath: resolveStoreKeyPath(DATA_DIR, entry.key),
-  }));
+    validatedPath: resolveStoreKeyPath(dataDir, entry.key),
+  })).filter(entry => shouldHydrate(entry.key));
+  console.log(`pull: hydrating ${planned.length}/${entries.length} objects (${includeArchives ? "full archives" : owner || "bake"})`);
   if (dryRun) {
     for (const e of planned.slice(0, 20)) console.log(`  would write ${e.key} (${e.size}b)`);
     if (planned.length > 20) console.log(`  …and ${planned.length - 20} more`);
     return;
   }
   const { written, bytes } = await installHydratedSnapshot(planned, {
-    dataDir: DATA_DIR,
-    readPhysical: (physicalKey) => store.rawGet(physicalKey),
+    dataDir,
+    readPhysical: (physicalKey) => storeClient.rawGet(physicalKey),
   });
   console.log(`pull: wrote ${written} file(s), ${(bytes / 1e6).toFixed(1)} MB`);
 }
