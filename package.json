@@ -23,6 +23,7 @@
     "test:workflow-schedules": "node scripts/workflow-schedule-smoke.mjs",
     "test:yahoo-retry": "node scripts/yahoo-retry-smoke.mjs",
     "test:calendar": "node scripts/calendar-smoke.mjs",
+    "test:leaps-pricer": "node scripts/leaps-pricer-smoke.mjs",
     "test:narrative-risk": "node scripts/narrative-risk-smoke.mjs",
     "test:story-detection": "node scripts/story-detection-smoke.mjs",
     "test:api": "node scripts/api-smoke.mjs",

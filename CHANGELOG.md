@@ -49,6 +49,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Fixed
 
 - **Branch review repair:** The LEAPS shortlist rejects missing trend and IV readings instead of treating them as zero.
+- **LEAPS contract pricer (`lib/leaps-pricer.mjs`).** This is a pure function with no file or network access. For each expiration 9 to 24 months out, it finds the strike with a delta between 0.20 and 0.30, using a bounded 64-step bisection and a named 4% rate. It then prices the option 6 months out if the stock is flat, up 20%, up 35% or up 50%. A contract passes only if the target move at least doubles the premium. An optional `catalystDate` drops expirations that end less than 3 months after the catalyst. Expirations that are short, unreadable or fail to solve are skipped one at a time. The function returns null only for bad top-level inputs. It makes no AI calls.
 
 ## 2026-10-10
 
