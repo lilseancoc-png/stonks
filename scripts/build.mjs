@@ -39,13 +39,8 @@ import { contentAssetVersion } from "../lib/asset-version.mjs";
 import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
 import { assembleBakeLinkMap, LINK_MAP_SKIPPED_SOURCES } from "../lib/link-map.mjs";
 import {
-  LEAPS_GRADER_SCHEMA,
   LEAPS_PICKS_KEY,
-  LEAPS_ROSTER_CAP,
-  countLeapsGraderCalls,
-  leapsScoreEnabled,
-  publishLeapsPicks,
-  scoreLeapsUniverse,
+  publishLeapsScores,
 } from "../lib/leaps-score.mjs";
 import {
   AI_PICK_LEVEL_RESERVE_CALLS_DEFAULT,
@@ -57,7 +52,7 @@ import {
 import { advanceLeapsPaperTrack, LEAPS_PAPER_KEY, shouldWriteLeapsPaper } from "../lib/leaps-paper-track.mjs";
 import { summarizeYahooError, withYahooRetry } from "../lib/yahoo-retry.mjs";
 import { withYahooTimeout } from "../lib/yahoo.mjs";
-import { attachLeapsExpirations, leapsExtraFetchEnabled, selectLeapsExpirations } from "../lib/leaps-expirations.mjs";
+import { attachLeapsExpirations, leapsExtraFetchEnabled } from "../lib/leaps-expirations.mjs";
 import {
   COLLAPSED_STORY_RETRY_ATTEMPTS,
   COLLAPSED_STORY_RETRY_DAILY_CAP,
@@ -84,9 +79,6 @@ import {
   buildCentralBankGoldPayload,
   fetchCentralBankGoldSources,
 } from "../lib/central-bank-gold.mjs";
-
-// One-line switch. Default off (env LEAPS_SCORE=1). Off writes nothing.
-const LEAPS_SCORE_ENABLED = leapsScoreEnabled();
 
 // Library prints a survey notice on first use and validates response
 // schemas — silence both since Yahoo occasionally omits optional fields
@@ -26137,95 +26129,17 @@ export function buildTopPicksPayload(picks, builtAtIso) {
   };
 }
 
-// Own call, after generateAiTheses. Non-priority: acquireAiSlot() with no
-// reserved flag, so the narrative/Brief reserve refuses it first. The plan
-// also skips before this function when no name cleared the buy gate or the
-// reserve is already reached.
-async function invokeLeapsGrader({ symbol, prompt }) {
-  if (!LEAPS_SCORE_ENABLED || !process.env.GEMINI_API_KEY) return null;
-  const atReserve = aiReserveBlocks(aiTokensToday(), AI_DAILY_TOKEN_CAP, AI_RESERVED_TOKENS, false)
-    || aiReserveBlocks(_aiCallsAtBuildStart + _aiAttemptSlots, AI_DAILY_CALL_CAP, AI_RESERVED_CALLS, false);
-  if (atReserve) return null;
-  await acquireAiSlot();
-  const model = process.env.AI_LEAPS_GRADER_MODEL || "gemini-3.1-flash-lite";
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
-  const response = await ai.models.generateContent({
-    model,
-    config: {
-      temperature: 0,
-      maxOutputTokens: 256,
-      responseMimeType: "application/json",
-      responseSchema: LEAPS_GRADER_SCHEMA,
-      thinkingConfig: { thinkingBudget: 0 },
-    },
-    contents: `${prompt}\nSymbol: ${symbol}`,
-  });
-  recordAiUsage({ model, callType: "leaps-grader", symbol, usage: response?.usageMetadata });
-  return response?.text || null;
-}
-
-// Far expirations for names the LEAPS decision would actually suggest.
-// The 14-slot chain usually ends before month 9, so a buy cannot show a
-// contract until these land on `_leapsChains`. Capped at the roster.
-async function ensureDecisionLeapsChains(preScored) {
-  const ranked = scoreLeapsUniverse(preScored)
-    .filter((row) => row.gate === "pass" || row.gate === "watch")
-    .sort((a, b) => Math.abs(b.total ?? 0) - Math.abs(a.total ?? 0) || String(a.symbol).localeCompare(String(b.symbol)))
-    .slice(0, LEAPS_ROSTER_CAP);
-  const wanted = new Set(ranked.map((row) => row.symbol).filter(Boolean));
-  const scored = Array.isArray(preScored?.scored) ? preScored.scored : [];
-  let attached = 0;
-  let calls = 0;
-  for (const row of scored) {
-    const symbol = row?.sym || row?.symbol;
-    const data = row?.data;
-    if (!symbol || !wanted.has(symbol) || !data || typeof data !== "object") continue;
-    const extras = selectLeapsExpirations(data._listedExpirations || [], {
-      alreadyKept: [
-        ...Object.keys(data.chains || {}),
-        ...Object.keys(data._leapsChains || {}),
-      ],
-    });
-    for (let i = 0; i < extras.length; i++) {
-      if (i > 0) await new Promise((r) => setTimeout(r, 150));
-      calls += 1;
-      try {
-        const chain = await fetchLeapsExpirationChain(symbol, extras[i], data.spot);
-        if (!chain) continue;
-        if (!data._leapsChains || typeof data._leapsChains !== "object" || Array.isArray(data._leapsChains)) {
-          data._leapsChains = {};
-        }
-        data._leapsChains[extras[i]] = chain;
-        attached += 1;
-      } catch (err) {
-        console.log(`  ⚠ LEAPS ${symbol} contract fetch failed: ${err?.message || err}`);
-      }
-    }
-  }
-  if (wanted.size) {
-    console.log(`LEAPS contracts: ${attached} chain(s) for ${wanted.size} decision name(s) (${calls} Yahoo call(s))`);
-  }
-}
-
 async function publishLeapsAfterShortTermGrader(preScored, builtAtIso) {
-  if (!LEAPS_SCORE_ENABLED) return;
-  try {
-    await ensureDecisionLeapsChains(preScored);
-  } catch (err) {
-    console.warn(`[leaps] contract fetch skipped — ${String(err?.message || err).split("\n")[0]}`);
-  }
-  const atReserve = aiReserveBlocks(aiTokensToday(), AI_DAILY_TOKEN_CAP, AI_RESERVED_TOKENS, false)
-    || aiReserveBlocks(_aiCallsAtBuildStart + _aiAttemptSlots, AI_DAILY_CALL_CAP, AI_RESERVED_CALLS, false);
-  await publishLeapsPicks(preScored, {
+  // Score only. The stock rubric reuses the Top Picks pillars. No Gemini
+  // grader and no Yahoo chain read. LEAPS_SCORE=0 keeps the prior file.
+  if (process.env.LEAPS_SCORE === "0") return { written: false };
+  return publishLeapsScores(preScored, {
     builtAtIso,
     env: process.env,
-    atReserve,
-    callsAlreadyToday: countLeapsGraderCalls(_aiUsageState),
     write: async (key, payload) => {
       if (key !== LEAPS_PICKS_KEY) throw new Error(`LEAPS refused to write ${key}`);
       await writeFile(resolve(DATA_DIR, key), JSON.stringify(payload));
     },
-    callModel: invokeLeapsGrader,
   });
 }
 
@@ -26244,8 +26158,11 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   // LEAPS reads the full preScored universe after the short-term grader.
   // It clones pillars, writes leaps-picks.json only, and does not change
   // preScored, the thesis map, or picks.json. A failure here stays off that path.
+  let leapsWritten = false;
   try {
-    await publishLeapsAfterShortTermGrader(preScored, builtAtIso);
+    const leaps = await publishLeapsAfterShortTermGrader(preScored, builtAtIso);
+    leapsWritten = leaps?.written === true;
+    if (leapsWritten) console.log(`wrote data/${LEAPS_PICKS_KEY} — ${leaps.payload.picks.length} buy, ${leaps.payload.watch.length} watch`);
   } catch (err) {
     console.warn(`[leaps] score skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
@@ -26268,7 +26185,7 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   const payload = buildTopPicksPayload(picks, builtAtIso);
   const json = JSON.stringify(payload);
   await writeFile(picksPath, json, "utf8");
-  return { bytes: json.length, count: picks.length, lean: pickSideLean(picks), thesisProseCache, aiRejectionCapture: picks.aiRejectionCapture || null };
+  return { bytes: json.length, count: picks.length, lean: pickSideLean(picks), thesisProseCache, aiRejectionCapture: picks.aiRejectionCapture || null, leapsWritten };
 }
 
 export async function readPriorPicks() {
@@ -36922,6 +36839,9 @@ async function main() {
       await readFile(resolve(DATA_DIR, file), "utf8").catch(() => null),
     ]),
   ));
+  // LEAPS scores ride the Top Picks decision. Absent until the first decision
+  // bake, so a missing prior file is not a failed carry.
+  const leapsScoreCarry = await readFile(resolve(DATA_DIR, LEAPS_PICKS_KEY), "utf8").catch(() => null);
   // The slower swing desks are decision products, not live tape widgets.
   // Recompute them only in the same 11:00 / 15:30 ET windows as Top Picks;
   // every other full build restores the exact prior payload + ledger bytes.
@@ -37773,6 +37693,9 @@ async function main() {
   const refreshTopPicks = !/^(?:0|false)$/i.test(process.env.REFRESH_TOP_PICKS || "1");
   if (refreshTopPicks) {
     const picksInfo = await writeTopPicksFile(chains, scoringNarratives, builtAtIso, scoringUnusual, macroBackdrop, picksPrev, scoringVolumeFlags, riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE, picksAccuracyPrev?.closed ?? null, gradesHistoryPrev?.latest ?? null, scannerExtras, picksAccuracyPrev?.open ?? null, true, thesisProseCachePrev, streaksInfo.map);
+    if (!picksInfo?.leapsWritten && leapsScoreCarry) {
+      await writeFile(resolve(DATA_DIR, LEAPS_PICKS_KEY), leapsScoreCarry, "utf8");
+    }
     // Persist the thesis-prose cache now that data/ has been recreated.
     await writePickThesisCache(picksInfo?.thesisProseCache || thesisProseCachePrev || {});
     console.log(`wrote data/picks.json — top ${picksInfo.count} picks, ${picksInfo.bytes} bytes`);
@@ -37795,6 +37718,7 @@ async function main() {
     }
     await Promise.all(topPicksCarryFiles.map((file) =>
       writeFile(resolve(DATA_DIR, file), topPicksCarry[file], "utf8")));
+    if (leapsScoreCarry) await writeFile(resolve(DATA_DIR, LEAPS_PICKS_KEY), leapsScoreCarry, "utf8");
     console.log("carried Top Picks roster, track record and thesis cache forward without a decision run");
   }
   // Grade index for every tracked ticker (powers the Top Picks tab's grade-any-

@@ -20,6 +20,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-10-15
+
+### Added
+
+- **LEAPS is an Owner desk under Top Picks.** It rescores the pillars Top Picks already computed and shows that score for a one- to two-year hold. A call buy needs 8 and a put buy needs 9. The desk does not name a strike, call Gemini, or fetch a far-dated chain. It runs on the 11:00 and 15:30 ET Top Picks builds; other bakes keep the prior list. `LEAPS_SCORE=0` turns the new score off. `lib/leaps-score.mjs`, `scripts/build.mjs`.
+
 ## 2026-10-14
 
 ### Changed

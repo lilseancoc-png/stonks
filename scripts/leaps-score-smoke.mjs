@@ -11,13 +11,16 @@ import {
   LEAPS_PILLAR_WEIGHTS,
   LEAPS_WEIGHT_TOTAL,
   buildLeapsPicksPayload,
+  buildLeapsScorePayload,
   countLeapsGraderCalls,
   decideLeapsStock,
   leapsDecisionTotal,
   leapsScoreEnabled,
+  leapsScoresEnabled,
   leapsSetupGate,
   planLeapsGrader,
   publishLeapsPicks,
+  publishLeapsScores,
   runLeapsGrader,
   scoreLeapsPillars,
   scoreLeapsUniverse,
@@ -96,7 +99,11 @@ assert.notEqual(leapsSetupGate({ setups: { available: true, storyIgnition: true,
 assert.equal(leapsScoreEnabled({}), false);
 assert.equal(leapsScoreEnabled({ LEAPS_SCORE: "0" }), false);
 assert.equal(leapsScoreEnabled({ LEAPS_SCORE: "1" }), true);
+assert.equal(leapsScoresEnabled({}), true);
+assert.equal(leapsScoresEnabled({ LEAPS_SCORE: "0" }), false);
+assert.equal(leapsScoresEnabled({ LEAPS_SCORE: "1" }), true);
 assert.equal(buildLeapsPicksPayload(universe, { env: {} }), null);
+assert.equal(buildLeapsScorePayload(universe, { env: { LEAPS_SCORE: "0" } }), null);
 
 let writes = [];
 let modelCalls = 0;
@@ -189,11 +196,17 @@ assert.equal(countLeapsGraderCalls({
 }, "2026-10-13"), 2);
 
 const buildSrc = await readFile(new URL("./build.mjs", import.meta.url), "utf8");
-assert.match(buildSrc, /const LEAPS_SCORE_ENABLED = leapsScoreEnabled\(\);/);
 assert.match(
   buildSrc,
   /const aiThesis = await generateAiTheses\(preScored[\s\S]{0,900}publishLeapsAfterShortTermGrader\(preScored, builtAtIso\)/,
 );
+const leapsPublish = buildSrc.slice(
+  buildSrc.indexOf("async function publishLeapsAfterShortTermGrader"),
+  buildSrc.indexOf("async function writeTopPicksFile"),
+);
+assert.match(leapsPublish, /LEAPS_SCORE === "0"/);
+assert.match(leapsPublish, /publishLeapsScores\(/);
+assert.doesNotMatch(leapsPublish, /ensureDecisionLeapsChains|invokeLeapsGrader|callModel|fetchLeapsExpirationChain/);
 assert.equal(buildSrc.includes("THESIS_SYSTEM") && buildSrc.includes(LEAPS_GRADER_PROMPT), false);
 
 const buyPillars = {
@@ -322,5 +335,34 @@ const putContract = selectLeapsContract(chain, "put", { now: asOf, rate: 0.045 }
 assert.equal(putContract.side, "put");
 assert.equal(putContract.strike, 70);
 assert.equal(selectLeapsContract({ spot: 100, chains: { [nearExp]: chain.chains[nearExp] } }, "call", { now: asOf }), null);
+
+const scoredBuy = buildLeapsScorePayload({
+  scored: [{
+    sym: "LEAP",
+    timing: { state: "go", side: "call" },
+    pillars: buyPillars,
+    data: chain,
+  }],
+}, { env: {} });
+assert.equal(scoredBuy.mode, "score");
+assert.equal(scoredBuy.contracts, false);
+assert.equal(scoredBuy.picks.length, 1);
+assert.equal(scoredBuy.picks[0].gate, "pass");
+assert.equal(scoredBuy.picks[0].contract, undefined);
+assert.equal(JSON.stringify(scoredBuy).includes("strike"), false);
+assert.equal(scoredBuy.picks[0].pillars.narrative, 5);
+let scoreWrites = [];
+let scoreModelCalls = 0;
+const publishedScore = await publishLeapsScores({
+  scored: [{ sym: "LEAP", timing: { state: "go", side: "call" }, pillars: buyPillars }],
+}, {
+  env: {},
+  write: async (key, payload) => { scoreWrites.push({ key, payload }); },
+  callModel: async () => { scoreModelCalls += 1; return { grade: "strong" }; },
+});
+assert.equal(publishedScore.written, true);
+assert.equal(scoreWrites[0].key, LEAPS_PICKS_KEY);
+assert.equal(scoreModelCalls, 0);
+assert.equal(publishedScore.payload.grader, undefined);
 
 console.log("leaps-score smoke checks passed");

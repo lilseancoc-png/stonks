@@ -661,12 +661,56 @@ h1, h2, .landing-hero-title, .landing-section-title { text-wrap: balance; }
 }
 /* Owner destinations must not flash while /me is unresolved or for visitors. */
 body:not(.is-owner) [data-go="picks"],
+body:not(.is-owner) [data-go="leaps"],
 body:not(.is-owner) [data-go="market"],
 body:not(.is-owner) [data-go="stocks"],
 body:not(.is-owner) [data-go="rotation"],
 body:not(.is-owner) [data-go="levetf"],
 body:not(.is-owner) [data-go="track"],
 body:not(.is-owner) [data-go="quant"] { display:none !important; }
+.leaps-root { display: flex; flex-direction: column; gap: 18px; }
+.leaps-group h3 {
+  margin: 0 0 8px;
+  font-size: var(--fs-sm);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.leaps-row {
+  display: grid;
+  grid-template-columns: 92px 64px 72px minmax(0, 1fr);
+  gap: 4px 14px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-2);
+  background: var(--surface);
+}
+.leaps-row + .leaps-row { margin-top: 8px; }
+.leaps-sym {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: 700 15px/1.2 var(--font-sans);
+  cursor: pointer;
+}
+.leaps-sym:hover { color: var(--accent); }
+.leaps-score {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+.leaps-side { font-size: var(--fs-sm); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.leaps-side.is-call { color: var(--pos); }
+.leaps-side.is-put { color: var(--neg); }
+.leaps-why, .leaps-meta { color: var(--muted); font-size: var(--fs-sm); }
+.leaps-meta { grid-column: 1 / -1; }
+.leaps-empty, .leaps-note { color: var(--muted); }
+@media (max-width: 640px) {
+  .leaps-row { grid-template-columns: 1fr 1fr auto; }
+  .leaps-why { grid-column: 1 / -1; }
+}
 .icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 32px; height: 32px;

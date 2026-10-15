@@ -342,7 +342,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // the Owner analysis/idea/record desks and Owner Lab; this UI boundary keeps
   // destinations hidden until the owner session's compatibility claims resolve.
   // Discord mints both only after verifying the existing Top Picks owner role.
-  var OWNER_TABS = { market:1, picks:1, stocks:1, rotation:1, levetf:1, track:1, quant:1 };
+  var OWNER_TABS = { market:1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, track:1, quant:1 };
   var GATE_ON = false;
   var HAS_TRACK_RECORD = false;
   var HAS_TOP_PICKS = false;
@@ -381,12 +381,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.04057;
+  var RFR = 0.04500;
   // Provenance for the risk-free rate baked above. source is
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-10-13","ageDays":null};
+  var RFR_META = {"source":"fallback","asOf":"2026-10-15","ageDays":null};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null, chainRequestSeq: 0 };
   var ownerAutoPicks = { data: null, pending: null };
@@ -4272,6 +4272,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         if ((name === 'calendar' || name === 'bonds-usd') && typeof loadCalendar === 'function') loadCalendar();
         if (name === 'index-cal' && typeof loadIndexCal === 'function') loadIndexCal();
         if (name === 'picks' && typeof loadPicks === 'function') loadPicks();
+        if (name === 'leaps' && typeof loadLeaps === 'function') loadLeaps();
         if (name === 'stocks' && typeof loadStocks === 'function') loadStocks();
         // Market analysis: the tape/barometer/regime widgets + their data.
         if (name === 'market' && typeof loadMarketAnalysis === 'function') loadMarketAnalysis();
@@ -22684,6 +22685,114 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // the cross-sectional dip score), and is it down because something broke
   // (the yellow trap flags — context, never blockers). A separate product
   // from the Top Picks options roster: shares, not contracts.
+  var leapsState = { data: null, loading: false };
+  function leapsFmt(n){
+    var v = Number(n);
+    if (!isFinite(v)) return '—';
+    var rounded = Math.round(v * 10) / 10;
+    return (rounded > 0 ? '+' : '') + rounded.toFixed(1);
+  }
+  function leapsReasonText(reason){
+    if (reason === 'buy') return 'Cleared the buy bar';
+    if (reason === 'moderate') return 'Above the idea bar, short of a buy';
+    if (reason === 'confluence') return 'Buy-bar score with only one pillar on this side';
+    if (reason === 'entry-wait') return 'Buy-bar score, but the entry is not a go';
+    if (reason === 'fundamentals-declining') return 'Call held back — fundamentals are declining';
+    if (reason === 'fundamentals-not-declining') return 'Put needs declining fundamentals';
+    if (reason === 'roster-cap') return 'Cleared the buy bar after the first 10';
+    return '';
+  }
+  function leapsEntryText(entry){
+    var state = entry && entry.state;
+    if (state === 'go') return 'Entry go';
+    if (state === 'wait') return 'Entry wait';
+    if (state === 'avoid') return 'Entry avoid';
+    return 'Entry unconfirmed';
+  }
+  function leapsRowHtml(row){
+    if (!row || !row.symbol) return '';
+    var side = row.side === 'put' ? 'put' : 'call';
+    var pillars = row.pillars || {};
+    var aligned = row.pillarsAligned != null ? row.pillarsAligned + ' pillars on this side' : '';
+    var path = row.trajectory && row.trajectory.dir && row.trajectory.dir !== 'steady' && row.trajectory.score
+      ? 'Path ' + leapsFmt(row.trajectory.score) + ' ' + row.trajectory.dir
+      : '';
+    var meta = [leapsEntryText(row.entry), aligned, path].filter(Boolean).join(' · ');
+    var pillarLine = 'Top Picks pillar points · Narrative ' + leapsFmt(pillars.narrative) +
+      ' · Trend ' + leapsFmt(pillars.technicals) +
+      ' · Flow ' + leapsFmt(pillars.mechanicals) +
+      ' · Fundamentals ' + leapsFmt(pillars.fundamentals);
+    return '<article class="leaps-row">' +
+      '<button type="button" class="leaps-sym" data-leaps-symbol="' + escapeHtml(row.symbol) + '">' + escapeHtml(row.symbol) + '</button>' +
+      '<span class="leaps-side is-' + side + '">' + (side === 'put' ? 'Put' : 'Call') + '</span>' +
+      '<span class="leaps-score">' + escapeHtml(leapsFmt(row.total)) + '</span>' +
+      '<span class="leaps-why">' + escapeHtml(leapsReasonText(row.reason)) + '</span>' +
+      '<span class="leaps-meta">' + escapeHtml(pillarLine + (meta ? ' · ' + meta : '')) + '</span>' +
+    '</article>';
+  }
+  function renderLeaps(){
+    var root = $('leaps-root');
+    var eyebrow = $('leaps-eyebrow');
+    if (!root) return;
+    var data = leapsState.data;
+    if (leapsState.loading && !data){
+      root.innerHTML = '<p class="leaps-empty">Loading LEAPS scores…</p>';
+      return;
+    }
+    if (!data || data.loadError){
+      if (eyebrow) eyebrow.textContent = '';
+      root.innerHTML = '<p class="leaps-empty">LEAPS scores are unavailable. They publish with the 11:00 and 15:30 ET Top Picks runs.</p>';
+      return;
+    }
+    var picks = Array.isArray(data.picks) ? data.picks : [];
+    var watch = Array.isArray(data.watch) ? data.watch : [];
+    if (eyebrow){
+      var when = '';
+      if (data.builtAtIso){
+        var built = new Date(data.builtAtIso);
+        if (!isNaN(built.getTime())) when = ' · ' + built.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+      }
+      eyebrow.textContent = picks.length + ' buy' + (picks.length === 1 ? '' : 's') + ' · ' + watch.length + ' watch' + (watch.length === 1 ? '' : 'es') + when;
+    }
+    var html = '';
+    html += '<section class="leaps-group"><h3>Buy</h3>';
+    html += picks.length
+      ? picks.map(leapsRowHtml).join('')
+      : '<p class="leaps-empty">No name cleared the buy bar. A call needs 8 and a put needs 9, with two pillars on that side and a confirmed go entry.</p>';
+    html += '</section>';
+    html += '<section class="leaps-group"><h3>Watch</h3>';
+    html += watch.length
+      ? watch.map(leapsRowHtml).join('')
+      : '<p class="leaps-empty">No name is sitting between the idea bar of 5 and a buy.</p>';
+    html += '</section>';
+    html += '<p class="leaps-note">Pick the contract yourself. This desk does not fetch a long-dated chain or name a strike.</p>';
+    root.innerHTML = html;
+    var buttons = root.querySelectorAll('[data-leaps-symbol]');
+    for (var i = 0; i < buttons.length; i++){
+      buttons[i].addEventListener('click', function(){
+        var sym = this.getAttribute('data-leaps-symbol');
+        var gradeTab = document.querySelector('[data-page-tab="grade"]');
+        if (gradeTab) gradeTab.click();
+        setTimeout(function(){
+          if (typeof combo !== 'undefined' && combo && combo.commit) combo.commit(sym);
+        }, 0);
+      });
+    }
+  }
+  function loadLeaps(){
+    if ((leapsState.data && !tabDataStale(leapsState)) || leapsState.loading){ renderLeaps(); return; }
+    leapsState.loading = true;
+    renderLeaps();
+    fetch(dataUrl('leaps-picks.json'), { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){
+        leapsState.data = (j && typeof j === 'object') ? j : {};
+        leapsState.loading = false;
+        leapsState.fetchedAt = Date.now();
+        renderLeaps();
+      })
+      .catch(function(){ leapsState.data = { loadError: true }; leapsState.loading = false; renderLeaps(); });
+  }
   var stocksState = { data: null, loading: false };
   function loadStocks(){
     if ((stocksState.data && !tabDataStale(stocksState)) || stocksState.loading){ renderStocks(); renderOwnerDca(); return; }
@@ -37955,6 +38064,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       ['f13', '13F filings'],
       ['market', 'Market analysis'],
       ['picks', 'Top picks'],
+      ['leaps', 'LEAPS'],
       ['stocks', 'Stock picks'],
       ['rotation', 'Sector rotation'],
       ['levetf', 'Leveraged ETFs'],

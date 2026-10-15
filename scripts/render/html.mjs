@@ -44,6 +44,7 @@ const SIDE_NAV_ICONS = {
   narratives: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   market: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
   picks: '<path d="m12 2.5 2.9 5.9 6.5 1-4.7 4.5 1.1 6.4L12 17.3l-5.8 3 1.1-6.4-4.7-4.5 6.5-1z"/>',
+  leaps: '<path d="M4 16.5c3.2-.8 5.2-5.2 7.2-5.2 2.2 0 2.6 3.4 5.2 2.6"/><path d="m14.2 11.2 4.6 2.7-4.2 3.2"/>',
   stocks: '<path d="M3.5 20.5v-17"/><path d="M3.5 20.5h17"/><path d="m6.5 15.5 4-4.5 3 2.5 4.5-6"/><path d="M14.5 7.5H18V11"/>',
   rotation: '<path d="M20 7h-5V2"/><path d="M4 17h5v5"/><path d="M19 12a7 7 0 0 0-12-4.9L5 9"/><path d="M5 12a7 7 0 0 0 12 4.9L19 15"/>',
   calendar: '<rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18"/>',
@@ -315,6 +316,17 @@ function topPicksSection() {
       <button type="button" id="picks-back" class="picks-back">&larr;&nbsp;All picks</button>
       <div id="picks-detail-card" class="picks-detail-card"></div>
     </div>
+  </section>`;
+}
+
+function leapsSection() {
+  return `<section class="card" id="leaps-section">
+    <header class="card-header">
+      <div class="picks-heading"><span class="picks-kicker">Owner research</span><h2 class="card-title">LEAPS</h2><p class="picks-intro">A long-dated score from the Top Picks pillars. You choose the contract.</p></div>
+      <span class="card-eyebrow" id="leaps-eyebrow" aria-live="polite"></span>
+    </header>
+    ${infoNote("How this score is built", `<p>LEAPS uses the four pillar scores Top Picks already computed. It does not make another model call and it does not read a far-dated option chain. Narrative is weighted 1.5, Trend 1.25, Flow 1.25, and Fundamentals 1.0. That weighted average, put on the same sum scale as Top Picks, is the score.</p><p>Every name starts one point higher, because a stock is more likely to be up than down over one to two years. The forward fundamental path can add up to two more points. A rich or cheap IV reading moves the score and cannot flip the side.</p><p>A call buy needs 8. A put buy needs 9. Both need at least two pillars on that side and a confirmed go entry. An avoid is dropped. A call at the buy bar is held to a watch when fundamentals are declining, and a put buy requires that decline. A score of 5 that misses the buy bar stays a watch. Nothing here names a strike or an expiration.</p>`)}
+    <div id="leaps-root" class="leaps-root">Loading LEAPS scores&hellip;</div>
   </section>`;
 }
 
@@ -836,7 +848,7 @@ function buildTimelineSection() {
     <div class="refresh-schedule-grid">
       <article class="refresh-schedule-card is-lead"><span>08:30 ET</span><h3>Premarket Brief</h3><p>The lightweight Brief run starts one hour before the bell and refreshes overnight markets, Fear &amp; Greed, macro releases and headlines, then checks every current public evidence desk for material standouts. It becomes live immediately after freshness verification and the private-store push; confirm the timestamp in Brief.</p><em>Brief only &middot; no full chain build</em></article>
       <article class="refresh-schedule-card"><span>10:00, 11:00, 13:30, 15:30 &amp; 16:10 ET</span><h3>Full market build</h3><p>Refreshes ticker chains and daily/intraday bars, grades, technicals, narratives, calendars, Pending Buyouts, MA Tracker, earnings, Market Analysis and Quant Lab. The 16:10 run captures the completed close.</p><em>Five evidence windows &middot; no unreliable 09:30 auction build</em></article>
-      <article class="refresh-schedule-card"><span>11:00 &amp; 15:30 ET</span><h3>Swing decision desks</h3><p>Runs Top Picks, Stock Picks, Sector Rotation and Leveraged ETFs. Chart vision runs at 11:00 only. Other full builds carry the last coherent decisions and ledgers unchanged.</p><em>Twice per market day &middot; aligned evidence</em></article>
+      <article class="refresh-schedule-card"><span>11:00 &amp; 15:30 ET</span><h3>Swing decision desks</h3><p>Runs Top Picks, LEAPS scores, Stock Picks, Sector Rotation and Leveraged ETFs. Chart vision runs at 11:00 only. Other full builds carry the last coherent decisions and ledgers unchanged.</p><em>Twice per market day &middot; aligned evidence</em></article>
       <article class="refresh-schedule-card"><span>Hourly 09:00&ndash;16:00 ET</span><h3>Flow, Volume &amp; Heatmap</h3><p>Re-scans unusual options flow and intraday volume/S&amp;R breaks, then refreshes heatmap price/change fields. The post-close pass may also publish the sector EOD recap.</p><em>One serialized scan &middot; no partial publish</em></article>
       <article class="refresh-schedule-card"><span>~08:30 and ~17:00 ET</span><h3>Near-term OI</h3><p>The morning pass publishes settled T+1 OI and day-over-day changes. The evening pass adds completed-session volume and Vol/OI positioning; today&rsquo;s net OI does not publish until the next morning.</p><em>Two different evidence windows</em></article>
       <article class="refresh-schedule-card"><span>Checked on each full build</span><h3>Central-bank gold</h3><p>Checks the World Gold Council for a new quarterly global-demand estimate and refreshed official country holdings. Source reporting normally lags the current date.</p><em>Quarterly source cadence &middot; last-good carry-forward</em></article>
@@ -1854,6 +1866,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <div class="side-nav-group-items">
       ${sideNavItem('market', 'Market analysis')}
       ${sideNavItem('picks', 'Top picks')}
+      ${sideNavItem('leaps', 'LEAPS')}
       ${sideNavItem('stocks', 'Stock picks')}
       ${sideNavItem('rotation', 'Sector rotation')}
       ${sideNavItem('levetf', 'Leveraged ETFs')}
@@ -1936,6 +1949,15 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           <div class="landing-card-stat" id="land-stat-picks">Today</div>
           <div class="landing-card-sub" id="land-sub-picks">highest conviction</div>
           <p class="landing-card-desc">Standout contracts the model pulled from today's chain — what we'd buy if we had to pick.</p>
+        </button>
+        <button type="button" class="landing-card" data-go="leaps" aria-label="View LEAPS scores">
+          <header class="landing-card-head">
+            <span class="landing-card-eyebrow">LEAPS</span>
+            <span class="landing-card-arrow" aria-hidden="true">→</span>
+          </header>
+          <div class="landing-card-stat" id="land-stat-leaps">Score</div>
+          <div class="landing-card-sub" id="land-sub-leaps">long-dated names</div>
+          <p class="landing-card-desc">The same Top Picks pillars, scored for a one- to two-year hold. A name that clears the bar is yours to contract.</p>
         </button>
         <button type="button" class="landing-card" data-go="stocks" aria-label="View stock picks">
           <header class="landing-card-head">
@@ -2091,6 +2113,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-picks" role="tabpanel" aria-labelledby="page-tab-picks" hidden>
   ${topPicksSection()}
+  </div>
+  <div class="page-pane" id="page-pane-leaps" role="tabpanel" aria-labelledby="page-tab-leaps" hidden>
+  ${leapsSection()}
   </div>
   <div class="page-pane" id="page-pane-stocks" role="tabpanel" aria-labelledby="page-tab-stocks" hidden>
   ${stockPicksSection()}
