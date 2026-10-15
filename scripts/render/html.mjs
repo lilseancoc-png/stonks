@@ -210,6 +210,7 @@ function narrativesSection() {
     <div id="narratives-empty" class="narr-empty" hidden>No narratives recorded for this build.</div>
     <div id="narratives-ended" class="narr-ended"></div>
     <div id="narratives-macro" class="narr-macro"></div>
+    <section id="book-narr-board" class="book-view" hidden></section>
   </section>`;
 }
 
@@ -441,6 +442,7 @@ function calendarSection() {
     </div>
     <div id="calendar-root" class="calendar-root">Loading calendar…</div>
     <div id="calendar-empty" class="calendar-empty" hidden>No upcoming events.</div>
+    <section id="book-cal-density" class="book-view" hidden></section>
   </section>`;
 }
 
@@ -597,6 +599,7 @@ function earningsTrackerSection() {
     ${infoNote('How to use earnings season', `<p>Start with the <b>Event posture</b>, which translates the current season into exposure risk: how many tracked names report next, how many already carry a double-digit pre-print move, whether positive reaction breadth is holding, and whether realized gaps are exceeding what options priced. The <b>Event desk</b> pairs each report session with its decision deadline and the straddle-implied move when a real final-week snapshot exists; it is a gap-risk screen, not a directional call. A <b>crowded run-up</b> can raise sell-the-news risk; a <b>heavy selloff</b> can mean either washed-out positioning or expectations that are still deteriorating. Neither label is an automatic fade. Use the report session to decide whether a position carries overnight event risk, then define the maximum loss before holding through it.</p><p>Below that, each <b>season</b> groups prints announced in one calendar quarter (Jan&ndash;Mar reports cover fiscal Q4, Apr&ndash;Jun cover Q1, and so on). The scoreboard separates EPS results, guidance, pre-print drift, the first regular-session reaction, the options market&rsquo;s expected move and one-week follow-through. The implied move is the straddle-implied &plusmn;% snapshotted in the final week before a print; it estimates magnitude, not direction. Guidance and implied-move coverage accumulate going forward, so older seasons can be incomplete.</p>`)}
     <div id="earnings-root" class="earnings-root">Loading earnings tracker&hellip;</div>
     <div id="earnings-empty" class="earnings-empty" hidden>Earnings tracker data will appear after the next daily build refresh.</div>
+    <section id="book-earnings" class="book-view" hidden></section>
     <p class="hint">Coverage is the curated tracked-ticker universe, not the full market; implied-move and guidance columns accumulate from live snapshots, so older quarters can show &ldquo;&mdash;&rdquo;. Not financial advice.</p>
   </section>`;
 }
@@ -772,6 +775,7 @@ function spilloverSection() {
     ${infoNote('What is this?', `<p>When a company reports earnings, its <b>same-sector peers</b> move too &mdash; this matrix measures that <b>read-through</b> across the whole tracked universe, grouped into sector complexes (semis &amp; memory, software, banks, payments, consumer, healthcare, space, &hellip;), each with its sector ETF. For every driver&rarr;follower pair inside a group it estimates the <b>event-window beta</b> (how much of the driver's print-day move the follower echoes, Newey-West significance, shrunk toward the pooled sector beta on small samples), the <b>direction hit rate</b>, and whether the follower's <b>options already price</b> the echo (its ATM implied move vs its realized average). Pairs must clear fixed statistical gates (R&sup2;, significance after a false-discovery correction run across every sector's pairs, &ge;60% direction consistency) to count as qualified. Upcoming driver events show both engines' expected follower moves &mdash; sector-routed (via the ETF) and direct-pair &mdash; with the running forward accuracy of each. Forward direction hit rate stays hidden until an engine has at least six resolved events. <b>This is a correlation map, not a trade signal</b>: nothing here is a recommendation to buy or sell anything.</p>`)}
     <div id="spillover-root" class="spill-root">Loading event spillover&hellip;</div>
     <div id="spillover-empty" class="spill-empty" hidden>Spillover data will appear after the next daily build refresh.</div>
+    <section id="book-spill" class="book-view" hidden></section>
     <p class="hint">Event betas re-estimate once per trading day; event depth accumulates from the earnings-history store. Sector prints cluster (bank mornings especially), so many windows carry shared-print/CPI-week flags &mdash; shown, not hidden. Names with no same-sector peer tracked are listed rather than dropped. Analytical only. Not financial advice.</p>
   </section>`;
 }
@@ -816,6 +820,9 @@ function quantSection() {
       <details class="research-details"><summary>Size a Sector Rotation setup</summary><div id="owner-rotation-root" class="owner-tool-root">Loading Sector Rotation sizing&hellip;</div></details>
       <details class="research-details"><summary>Size a leveraged ETF setup</summary><div id="owner-lev-root" class="owner-tool-root">Loading leveraged-ETF sizing&hellip;</div></details>
     </section>
+    <section id="book-link" class="book-view" hidden></section>
+    <section id="book-evidence" class="book-view" hidden></section>
+    <section id="book-rejections" class="book-view" hidden></section>
     <div id="quant-root" class="quant-root">Loading Quant Lab&hellip;</div>
     <div id="quant-empty" class="quant-empty" hidden>Quant Lab data will appear after the next daily build refresh.</div>
     <div class="quant-playbook">
@@ -874,6 +881,8 @@ function ivTrendSection() {
     <div id="iv-trend-root" class="ivt-root">Loading Trending IV&hellip;</div>
     <div id="iv-trend-empty" class="ivt-empty" hidden>Trending-IV data will appear after the next daily build refresh.</div>
     <p class="hint">IV history accumulates one sample per trading day; names with under a month of samples are excluded. Elevated IV is a read on expected move size, not direction. Not financial advice.</p>
+    <section id="book-iv-hist" class="book-view" hidden></section>
+    <section id="book-iv-price" class="book-view" hidden></section>
   </section>`;
 }
 
@@ -974,6 +983,7 @@ function movingAverageTrackerSection() {
     ${infoNote('How crossover priority is ranked', `<p>The desk watches every tracked stock against its <b>20, 50, 100 and 200-day simple moving averages</b> and surfaces only levels within 5% of the latest regular-session price. The 0&ndash;100 priority score is deterministic, not a probability: proximity contributes up to 50 points, a contracting gap 25, aligned 1-day/5-day momentum 20, relative volume 5, and nearby-average confluence 5 (the total is capped at 100). &ldquo;Likely&rdquo; requires a high score, a contracting gap and aligned five-session momentum. A cross is a watch trigger, not a trade by itself; confirm the close, volume, broader trend and event risk.</p>`)}
     <div id="ma-tracker-root" class="ma-track-root">Loading moving-average tracker&hellip;</div>
     <div id="ma-tracker-empty" class="quant-empty" hidden>No tracked stock is currently within 5% of a monitored moving average.</div>
+    <section id="book-ma-dist" class="book-view" hidden></section>
   </section>`;
 }
 
@@ -1068,6 +1078,7 @@ function oiTrackerSection() {
       <div id="oi-list" class="oi-list" role="list"></div>
       <div id="oi-empty" class="oi-empty" hidden>Waiting for the first OI scan to land.</div>
       <div id="oi-no-results" class="oi-empty" hidden>No tickers match these filters.</div>
+      <section id="book-walls" class="book-view" hidden></section>
     </div>
   </section>`;
 }
@@ -2190,6 +2201,8 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         <span class="heatmap-legend-label">+3%</span>
       </div>
       <div id="heatmap-eod-summary" class="heatmap-eod-summary" hidden></div>
+      <section id="book-breadth" class="book-view" hidden></section>
+      <section id="book-grade-return" class="book-view" hidden></section>
     </section>
   </div>
   <div class="page-pane" id="page-pane-calendar" role="tabpanel" aria-labelledby="page-tab-calendar" hidden>
@@ -2283,6 +2296,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       </div>
       <div id="streaks-snapped" class="streaks-snapped" hidden></div>
       <div id="streaks-root" class="streaks-root">Loading streaks…</div>
+      <section id="book-streaks" class="book-view" hidden></section>
       <div id="streaks-footer" class="streaks-footer"></div>
     </section>
   </div>
@@ -2584,6 +2598,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <script defer data-disable-auto-track="1" src="/_vercel/insights/script.js"></script>
 <script src="app.js?v=${cacheBustFor("app")}" defer></script>
 <script type="module" src="js/streaks.js?v=${cacheBustFor("streaks")}"></script>
+<script type="module" src="js/book-views.js?v=${cacheBustFor("bookViews")}"></script>
 </body>
 </html>`;
 }

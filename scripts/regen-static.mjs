@@ -242,6 +242,7 @@ try {
 } catch { /* no readable rfr-history.json — keep the explicit 4.5% fallback */ }
 const js = renderAppJs({ riskFreeRate });
 const streaksJs = await readFile(resolve(ROOT, "js", "streaks.js"), "utf8");
+const bookViewsJs = await readFile(resolve(ROOT, "js", "book-views.js"), "utf8");
 const html = renderHtml({
   ...renderInput,
   renderedAtIso: new Date().toISOString(),
@@ -249,6 +250,7 @@ const html = renderHtml({
     styles: contentAssetVersion(css),
     app: contentAssetVersion(js),
     streaks: contentAssetVersion(streaksJs),
+    bookViews: contentAssetVersion(bookViewsJs),
   },
 });
 

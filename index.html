@@ -17,7 +17,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=sha256-15add54a9fa591e1">
+<link rel="stylesheet" href="styles.css?v=sha256-a2f04b4dcf245916">
 </head>
 <body>
 <a class="skip-content" href="#main-content">Skip to content</a>
@@ -1944,6 +1944,7 @@
     <div id="narratives-empty" class="narr-empty" hidden>No narratives recorded for this build.</div>
     <div id="narratives-ended" class="narr-ended"></div>
     <div id="narratives-macro" class="narr-macro"></div>
+    <section id="book-narr-board" class="book-view" hidden></section>
   </section>
   </div>
   <div class="page-pane" id="page-pane-market" role="tabpanel" aria-labelledby="page-tab-market" hidden>
@@ -2219,6 +2220,8 @@
         <span class="heatmap-legend-label">+3%</span>
       </div>
       <div id="heatmap-eod-summary" class="heatmap-eod-summary" hidden></div>
+      <section id="book-breadth" class="book-view" hidden></section>
+      <section id="book-grade-return" class="book-view" hidden></section>
     </section>
   </div>
   <div class="page-pane" id="page-pane-calendar" role="tabpanel" aria-labelledby="page-tab-calendar" hidden>
@@ -2250,6 +2253,7 @@
     </div>
     <div id="calendar-root" class="calendar-root">Loading calendar…</div>
     <div id="calendar-empty" class="calendar-empty" hidden>No upcoming events.</div>
+    <section id="book-cal-density" class="book-view" hidden></section>
   </section>
   </div>
   <div class="page-pane" id="page-pane-pending-buyouts" role="tabpanel" aria-labelledby="page-tab-pending-buyouts" hidden>
@@ -2293,6 +2297,7 @@
     </details>
     <div id="earnings-root" class="earnings-root">Loading earnings tracker&hellip;</div>
     <div id="earnings-empty" class="earnings-empty" hidden>Earnings tracker data will appear after the next daily build refresh.</div>
+    <section id="book-earnings" class="book-view" hidden></section>
     <p class="hint">Coverage is the curated tracked-ticker universe, not the full market; implied-move and guidance columns accumulate from live snapshots, so older quarters can show &ldquo;&mdash;&rdquo;. Not financial advice.</p>
   </section>
   </div>
@@ -2323,6 +2328,7 @@
     </details>
     <div id="spillover-root" class="spill-root">Loading event spillover&hellip;</div>
     <div id="spillover-empty" class="spill-empty" hidden>Spillover data will appear after the next daily build refresh.</div>
+    <section id="book-spill" class="book-view" hidden></section>
     <p class="hint">Event betas re-estimate once per trading day; event depth accumulates from the earnings-history store. Sector prints cluster (bank mornings especially), so many windows carry shared-print/CPI-week flags &mdash; shown, not hidden. Names with no same-sector peer tracked are listed rather than dropped. Analytical only. Not financial advice.</p>
   </section>
   </div>
@@ -2362,6 +2368,9 @@
       <details class="research-details"><summary>Size a Sector Rotation setup</summary><div id="owner-rotation-root" class="owner-tool-root">Loading Sector Rotation sizing&hellip;</div></details>
       <details class="research-details"><summary>Size a leveraged ETF setup</summary><div id="owner-lev-root" class="owner-tool-root">Loading leveraged-ETF sizing&hellip;</div></details>
     </section>
+    <section id="book-link" class="book-view" hidden></section>
+    <section id="book-evidence" class="book-view" hidden></section>
+    <section id="book-rejections" class="book-view" hidden></section>
     <div id="quant-root" class="quant-root">Loading Quant Lab&hellip;</div>
     <div id="quant-empty" class="quant-empty" hidden>Quant Lab data will appear after the next daily build refresh.</div>
     <div class="quant-playbook">
@@ -2481,6 +2490,7 @@
     </details>
     <div id="ma-tracker-root" class="ma-track-root">Loading moving-average tracker&hellip;</div>
     <div id="ma-tracker-empty" class="quant-empty" hidden>No tracked stock is currently within 5% of a monitored moving average.</div>
+    <section id="book-ma-dist" class="book-view" hidden></section>
   </section>
   </div>
   <div class="page-pane" id="page-pane-volume" role="tabpanel" aria-labelledby="page-tab-volume" hidden>
@@ -2651,6 +2661,7 @@
       <div id="oi-list" class="oi-list" role="list"></div>
       <div id="oi-empty" class="oi-empty" hidden>Waiting for the first OI scan to land.</div>
       <div id="oi-no-results" class="oi-empty" hidden>No tickers match these filters.</div>
+      <section id="book-walls" class="book-view" hidden></section>
     </div>
   </section>
   </div>
@@ -3084,6 +3095,8 @@
     <div id="iv-trend-root" class="ivt-root">Loading Trending IV&hellip;</div>
     <div id="iv-trend-empty" class="ivt-empty" hidden>Trending-IV data will appear after the next daily build refresh.</div>
     <p class="hint">IV history accumulates one sample per trading day; names with under a month of samples are excluded. Elevated IV is a read on expected move size, not direction. Not financial advice.</p>
+    <section id="book-iv-hist" class="book-view" hidden></section>
+    <section id="book-iv-price" class="book-view" hidden></section>
   </section>
   </div>
   <div class="page-pane" id="page-pane-streaks" role="tabpanel" aria-labelledby="page-tab-streaks" hidden>
@@ -3130,6 +3143,7 @@
       </div>
       <div id="streaks-snapped" class="streaks-snapped" hidden></div>
       <div id="streaks-root" class="streaks-root">Loading streaks…</div>
+      <section id="book-streaks" class="book-view" hidden></section>
       <div id="streaks-footer" class="streaks-footer"></div>
     </section>
   </div>
@@ -5169,5 +5183,7 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
 <script defer data-disable-auto-track="1" src="/_vercel/insights/script.js"></script>
 <script src="app.js?v=sha256-8cbd1799e137822f" defer></script>
 <script type="module" src="js/streaks.js?v=sha256-1e7294906ca4e6d4"></script>
+<script type="module" src="js/book-views.js?v=sha256-43fc23a511b6657e"></script>
+
 </body>
 </html>
