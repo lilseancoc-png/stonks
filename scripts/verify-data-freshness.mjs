@@ -20,10 +20,18 @@ import { TICKERS } from "./build.mjs";
 import {
   OPTIONAL_BAKE_KEYS,
   LEAPS_PAPER_KEY,
+  LOCAL_ONLY_KEYS,
+  PER_SYMBOL_HISTORY_PREFIXES,
+  DELETE_STALE_ONLY_PREFIXES,
+  REQUEST_TIME_EXCLUSIVE_KEYS,
+  SCANNER_EXCLUSIVE_KEYS,
+  bakeKeysToPublish,
   isBakeOwnedKey,
+  isDeleteStaleOnlyKey,
   isEvidenceRecordKey,
   isRetainedRemoteBakeKey,
   isTickerDataKey,
+  perSymbolHistorySymbol,
 } from "../lib/data-ownership.mjs";
 import { isCurrentAiRejectionPublishKey } from "../lib/ai-rejections.mjs";
 import {
@@ -228,6 +236,7 @@ function makeReport(owner, dataDir, runStartedAt, now) {
     checks: [],
     warnings: [],
     errors: [],
+    heldBack: [],
   };
 }
 
@@ -588,7 +597,24 @@ async function auditBake({ report, dataDir, runStartedAt, now, expectedSymbols }
     if (!isBakeOwnedKey(key)) continue;
     if (BAKE_STATIC_KEYS.has(key)) continue;
     if (isTickerDataKey(key) && expectedSet.has(key.slice(0, -5))) continue;
-    if (/^iv-history\/[A-Z0-9.]+\.json$/.test(key) && expectedSet.has(key.slice(11, -5))) continue;
+    // iv-history/ and fundamentals-history/ share one prefix list. A tracked
+    // symbol is an allowed bake output. Valuation files also have to be
+    // rewritten this run and carry a dated snapshot.
+    const historySymbol = perSymbolHistorySymbol(key);
+    if (historySymbol && expectedSet.has(historySymbol)) {
+      if (key.startsWith("fundamentals-history/")) {
+        const history = await requireRewrittenJson(report, dataDir, key, runStartedAt);
+        const entries = Array.isArray(history?.entries) ? history.entries : null;
+        if (history && (history.symbol !== historySymbol || !entries?.some((row) => typeof row?.date === "string"))) {
+          fail(report, `${key}: fundamentals history is missing a dated snapshot for ${historySymbol}`);
+        }
+      }
+      continue;
+    }
+    if (isDeleteStaleOnlyKey(key)) {
+      fail(report, `${key}: retired bake path has no publication policy`);
+      continue;
+    }
     if (isRetainedRemoteBakeKey(key)) {
       await requireRewrittenJson(report, dataDir, key, runStartedAt);
       continue;
@@ -610,8 +636,11 @@ async function auditBake({ report, dataDir, runStartedAt, now, expectedSymbols }
     }
     unclassified.push(key);
   }
+  report.heldBack = unclassified;
   if (unclassified.length) {
-    fail(report, `unclassified bake-owned key(s) would be uploaded: ${unclassified.slice(0, 12).join(", ")}${unclassified.length > 12 ? ", ..." : ""}`);
+    // Hold the unknown files out of this upload. Required payloads above
+    // still fail the run. One new folder cannot block the rest of the tape.
+    warn(report, `held back ${unclassified.length} unclassified bake-owned key(s); the rest of this run can still publish: ${unclassified.slice(0, 12).join(", ")}${unclassified.length > 12 ? ", ..." : ""}`);
   } else {
     pass(report, "every bake-owned local key has an explicit publication policy");
   }
@@ -893,7 +922,57 @@ async function writeStepSummary(report) {
   await appendFile(path, body, "utf8");
 }
 
+async function assertBakeWriterContract() {
+  const source = await readFile(resolve(ROOT, "scripts/build.mjs"), "utf8");
+  const consts = new Map();
+  for (const match of source.matchAll(/^(?:export )?const ([A-Z][A-Z0-9_]*) = "([^"]+)";/gm)) {
+    consts.set(match[1], match[2]);
+  }
+  const files = new Set();
+  const prefixes = new Set();
+  for (const match of source.matchAll(/resolve\(\s*DATA_DIR\s*,\s*"([^"]+\.json)"\s*\)/g)) files.add(match[1]);
+  for (const match of source.matchAll(/resolve\(\s*DATA_DIR\s*,\s*([A-Z][A-Z0-9_]*)\s*\)/g)) {
+    const value = consts.get(match[1]);
+    if (!value) continue;
+    if (value.endsWith(".json")) files.add(value);
+    else if (!value.includes(".")) prefixes.add(`${value}/`);
+  }
+  const allowedFiles = new Set([
+    ...BAKE_REQUIRED_REWRITTEN_FILES,
+    ...OPTIONAL_BAKE_KEYS,
+    LEAPS_PAPER_KEY,
+    ...LOCAL_ONLY_KEYS,
+    ...REQUEST_TIME_EXCLUSIVE_KEYS,
+    ...SCANNER_EXCLUSIVE_KEYS,
+  ]);
+  const allowedPrefixes = new Set([
+    ...PER_SYMBOL_HISTORY_PREFIXES,
+    ...DELETE_STALE_ONLY_PREFIXES,
+  ]);
+  const missingFiles = [...files].filter((file) => !allowedFiles.has(file)).sort();
+  const missingPrefixes = [...prefixes].filter((prefix) => !allowedPrefixes.has(prefix)).sort();
+  if (missingFiles.length || missingPrefixes.length) {
+    throw new Error(`bake writer is missing a publication policy: files=${missingFiles.join(", ") || "none"}; dirs=${missingPrefixes.join(", ") || "none"}`);
+  }
+  if (!PER_SYMBOL_HISTORY_PREFIXES.includes("iv-history/") || !PER_SYMBOL_HISTORY_PREFIXES.includes("fundamentals-history/")) {
+    throw new Error("per-symbol history policy dropped a required prefix");
+  }
+}
+
+const UPLOAD_HOLDBACK_FILE = resolve(ROOT, "upload-holdback.json");
+
+async function writeUploadHoldback(report) {
+  if (report.owner !== "bake") return;
+  const keys = Array.isArray(report.heldBack) ? report.heldBack : [];
+  if (!keys.length) {
+    await rm(UPLOAD_HOLDBACK_FILE, { force: true });
+    return;
+  }
+  await writeFile(UPLOAD_HOLDBACK_FILE, JSON.stringify({ keys }, null, 2));
+}
+
 async function selfTest() {
+  await assertBakeWriterContract();
   const dir = await mkdtemp(resolve(tmpdir(), "stonks-freshness-"));
   try {
     const start = new Date("2026-07-30T14:00:00.000Z");
@@ -937,6 +1016,10 @@ async function selfTest() {
     await write("iv-history/TEST.json", {
       symbol: "TEST",
       entries: [{ date: "2026-07-30", capturedAtIso: stamp, iv: 0.4 }],
+    });
+    await write("fundamentals-history/TEST.json", {
+      symbol: "TEST",
+      entries: [{ date: "2026-07-30", pe: 20 }],
     });
     for (const key of [...BAKE_STAMPED_FILES, "picks.json", "picks-open.json"]) {
       const payload = key === "grades.json"
@@ -1003,6 +1086,44 @@ async function selfTest() {
       expectedSymbols: ["TEST"],
     });
     if (report.errors.length) throw new Error(renderReport(report));
+    if (!report.checks.some((message) => message === "fundamentals-history/TEST.json: rewritten by this run")) {
+      throw new Error("self-test expected fundamentals history to be classified when present");
+    }
+
+    await write("fundamentals-history/ROGUE.json", {
+      symbol: "ROGUE",
+      entries: [{ date: "2026-07-30", pe: 10 }],
+    });
+    const rogueFund = await auditFreshness({
+      owner: "bake",
+      dataDir: dir,
+      runStartedAt: start.toISOString(),
+      now: new Date("2026-07-30T14:05:00.000Z"),
+      expectedSymbols: ["TEST"],
+    });
+    if (!rogueFund.heldBack.includes("fundamentals-history/ROGUE.json")) {
+      throw new Error("self-test expected an off-universe fundamentals history file to be held back");
+    }
+    if (rogueFund.errors.some((message) => message.includes("unclassified"))) {
+      throw new Error("self-test expected an off-universe history file to leave the rest of the bake publishable");
+    }
+    await rm(resolve(dir, "fundamentals-history/ROGUE.json"));
+
+    await write("fundamentals-history/TEST.json", { symbol: "TEST", entries: [] });
+    const emptyFund = await auditFreshness({
+      owner: "bake",
+      dataDir: dir,
+      runStartedAt: start.toISOString(),
+      now: new Date("2026-07-30T14:05:00.000Z"),
+      expectedSymbols: ["TEST"],
+    });
+    if (!emptyFund.errors.some((message) => message.includes("fundamentals-history/TEST.json: fundamentals history is missing a dated snapshot"))) {
+      throw new Error("self-test expected an empty fundamentals history to fail");
+    }
+    await write("fundamentals-history/TEST.json", {
+      symbol: "TEST",
+      entries: [{ date: "2026-07-30", pe: 20 }],
+    });
 
     await write("leaps-picks.json", { builtAtIso: stamp, picks: [] });
     const withLeaps = await auditFreshness({
@@ -1217,9 +1338,32 @@ async function selfTest() {
       now: new Date("2026-07-30T14:05:00.000Z"),
       expectedSymbols: ["TEST"],
     });
-    if (!unclassified.errors.some((message) => message.includes("unclassified bake-owned"))) {
-      throw new Error("self-test expected an unclassified bake-owned key to fail");
+    if (!unclassified.heldBack.includes("rogue-payload.json")) {
+      throw new Error("self-test expected an unclassified bake-owned key to be held back");
     }
+    if (unclassified.errors.some((message) => message.includes("unclassified"))) {
+      throw new Error("self-test expected an unclassified extra file to leave the rest of the bake publishable");
+    }
+    const published = bakeKeysToPublish(
+      ["grades.json", "AAPL.json", "fundamentals-history/AAPL.json", "rogue-payload.json", "transcripts/OLD.json"],
+      unclassified.heldBack,
+    );
+    if (published.includes("rogue-payload.json") || !published.includes("grades.json") || !published.includes("AAPL.json")) {
+      throw new Error("self-test expected held-back keys to stay out of the bake upload");
+    }
+    await rm(resolve(dir, "rogue-payload.json"));
+    await write("transcripts/OLD.json", { builtAtIso: stamp });
+    const retired = await auditFreshness({
+      owner: "bake",
+      dataDir: dir,
+      runStartedAt: start.toISOString(),
+      now: new Date("2026-07-30T14:05:00.000Z"),
+      expectedSymbols: ["TEST"],
+    });
+    if (!retired.errors.some((message) => message.includes("transcripts/OLD.json: retired bake path"))) {
+      throw new Error("self-test expected a retired transcripts path to fail the bake");
+    }
+    await rm(resolve(dir, "transcripts/OLD.json"));
     console.log("verify-data-freshness self-test passed");
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -1235,6 +1379,7 @@ async function main() {
     runStartedAt: args.runStartedAt,
   });
   console.log(renderReport(report));
+  await writeUploadHoldback(report);
   await writeStepSummary(report);
   if (process.env.GITHUB_ACTIONS) {
     for (const message of report.warnings) console.log(`::warning::${message}`);

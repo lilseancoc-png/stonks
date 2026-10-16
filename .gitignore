@@ -22,3 +22,7 @@ r2.env
 # Consumed by daily.yml's "AI health alert" step (auto-issue + optional Discord
 # ping); never committed — each run regenerates it.
 /ai-health.json
+
+# Freshness check writes this when it holds an unclassified file out of the
+# bake upload. The next run regenerates it. Never commit it.
+/upload-holdback.json

@@ -44,6 +44,7 @@ import {
   REQUEST_TIME_EXCLUSIVE_KEYS,
   SCANNER_OWNERS,
   isAiRejectionKey,
+  bakeKeysToPublish,
   isBakeOwnedKey,
   isDynamicBakeKey as sharedIsDynamicBakeKey,
   isEvidenceRecordKey,
@@ -289,11 +290,23 @@ async function publish(owner, keys, { dryRun, deletes = [], label }) {
   return present;
 }
 
+async function readUploadHoldback() {
+  try {
+    const parsed = JSON.parse(await readFile(resolve(ROOT, "upload-holdback.json"), "utf8"));
+    return Array.isArray(parsed?.keys) ? parsed.keys.filter((key) => typeof key === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 async function pushBake({ dryRun }) {
   const local = await localKeys();
-  // Everything local except producer-exclusive or retired-private keys and the
-  // request-time set (which the live site owns).
-  const owned = local.filter(isBakeOwnedKey);
+  // Everything local except producer-exclusive or retired-private keys, the
+  // request-time set, and files the freshness check held back. Held-back
+  // files stay in `local`, so delete-stale does not remove a prior copy.
+  const held = await readUploadHoldback();
+  const owned = bakeKeysToPublish(local, held);
+  if (held.length) console.log(`push(bake): holding back ${held.length} unclassified key(s)`);
   // Delete-stale from the NEXT logical manifest: physical old-generation
   // objects remain unreachable and age out through conservative GC.
   const localSet = new Set(local);
