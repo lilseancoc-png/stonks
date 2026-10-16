@@ -24,10 +24,13 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Added
 
+- **Briefs can mention a firing Pattern lab read and a sector breadth streak.** Both ride the existing cross-tool standout rows. A quiet Pattern lab emits nothing. A streak appears only after at least 70% of a sector has closed the same way for two or more sessions, and the line says it is participation rather than fund flow. `scripts/build.mjs`.
+- **Compare companies can limit the ticker list to one sector.** The sector menu sits next to the ticker box and the suggestions stay inside that sector, so a same-sector set is easier to build. `scripts/render/app-js.mjs`, `scripts/render/html.mjs`, `scripts/render/styles-css.mjs`.
 - **Pattern lab keeps six free reads separate.** Volatility clustering, index seasonality, cross-asset lead and correlation breaks, RSI and MACD divergences, the breadth-versus-index record, and Fear & Greed disagreements each show their own sample. None of them changes a grade, a pick, or a contract. SPY, QQQ, and IWM store a longer daily history and the bake downloads it with the existing Yahoo chart only when a symbol has less than 12 years saved. No Gemini call and no new data vendor. `lib/pattern-recognition.mjs`, `scripts/build.mjs`, `scripts/render/app-js.mjs`, `scripts/render/html.mjs`, `scripts/render/styles-css.mjs`.
 
 ### Fixed
 
+- **IV percentile and IV rank are no longer the same label.** The Grade IV panel and Strategies were calling a percentile “IV rank,” and the Grade panel counted every day at or below a nearest-expiration IV. IV percentile is now the midrank of today’s constant-maturity ~30-day ATM IV inside the name’s own daily history. IV rank is the min-to-max position of that same reading, and the Grade panel shows both. A breakeven chip that said the chain “prices” a move now says that figure is one standard deviation from the contract’s implied vol. Absolute delta is described as a rough chance of finishing in the money, not the chance of profit. `scripts/render/app-js.mjs`, `scripts/render/html.mjs`, `scripts/build.mjs`.
 - **Pattern lab labels each figure with its unit and sample, and does not call a link usable.** Seasonality states that the number is a price change without dividends, and separates a full-month figure from a one-day figure. A one-day print larger than 25% is left out of the seasonal average. A name with a one-day move larger than 40% is left out of the divergence record. Cross-asset rows say the link is large in-sample rather than ready to trade. `lib/pattern-recognition.mjs`, `scripts/render/app-js.mjs`, `scripts/render/html.mjs`, `scripts/render/styles-css.mjs`.
 
 ## 2026-10-15

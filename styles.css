@@ -3242,6 +3242,20 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 /* --- Compare companies (Tools) ---------------------------------------- */
 .cmp-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
 .cmp-controls .combo { flex: 1 1 180px; min-width: 160px; }
+.cmp-sector {
+  appearance: none;
+  flex: 0 1 220px;
+  min-width: 160px;
+  height: 34px;
+  padding: 0 28px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-1);
+  background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='none' stroke='%23888' stroke-width='1.5' d='M1 1.5 6 6.5 11 1.5'/%3E%3C/svg%3E") no-repeat right 8px center;
+  color: var(--text);
+  font: 600 13px/1 var(--font-sans);
+  cursor: pointer;
+}
+.cmp-sector:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); }
 .cmp-btn {
   appearance: none; border: 1px solid var(--border); background: var(--surface);
   color: var(--text-strong); border-radius: var(--r-1); padding: 7px 12px;
@@ -3382,8 +3396,8 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .cmp-chart-read b { color: var(--text-strong); }
 .cmp-chart-empty { display: grid; place-items: center; min-height: 190px; text-align: center; color: var(--muted); font: 500 12px/1.5 var(--font-sans); }
 @media (max-width: 640px) {
-  .cmp-controls .combo { flex-basis: 100%; min-width: 0; }
-  .cmp-btn { min-height: 40px; }
+  .cmp-controls .combo, .cmp-sector { flex-basis: 100%; min-width: 0; max-width: none; }
+  .cmp-sector, .cmp-btn { min-height: 40px; }
   .cmp-chip-name { max-width: 105px; }
   .cmp-chart-card { padding: 11px; }
   .cmp-chart-head { flex-direction: column; align-items: stretch; gap: 9px; }
@@ -8031,9 +8045,11 @@ a.pb-source:hover { text-decoration: underline; }
   color: var(--text-strong); letter-spacing: 0.01em;
 }
 .opt-iv-rank {
-  font: 600 12px/1 var(--font-mono);
+  font: 600 12px/1.35 var(--font-mono);
   color: var(--muted);
   letter-spacing: .03em;
+  text-align: right;
+  max-width: 28rem;
 }
 .opt-iv-rank-rich { color: var(--neg); }
 .opt-iv-rank-cheap { color: var(--pos); }

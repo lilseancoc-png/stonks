@@ -814,7 +814,8 @@ The deterministic packet supplied to the AI includes:
 - Fear & Greed and its change;
 - 2Y/10Y/30Y, curve slope, DXY, and VIX;
 - significant foreign sovereign-rate moves;
-- top picks and roster churn;
+- a Pattern lab standout only when one of its six reads is actually firing, kept as in-sample context;
+- a sector breadth streak from the heatmap when at least 70% of a group has closed the same way for two or more sessions;
 - today's or upcoming earnings/macro/FOMC events;
 - recent market-wide headlines;
 - released macro actual-versus-consensus reads;
@@ -1394,7 +1395,7 @@ Up to four symbols are aligned by timestamp. Each series is rebased to the first
 normalized performance = close / first shared close - 1
 ```
 
-This avoids comparing dollar price levels. Range changes rebuild the common interval. Tooltips are body-level/fixed so transformed chart containers do not break mobile positioning.
+This avoids comparing dollar price levels. A sector menu limits the add-ticker list to one sector so a like-for-like set is easier to build. Range changes rebuild the common interval. Tooltips are body-level/fixed so transformed chart containers do not break mobile positioning.
 
 ### Strategies
 
@@ -1413,7 +1414,7 @@ The guidance model reads:
 
 - tape direction from RSI, MACD, and SMA20;
 - confirmed/forming chart-pattern agreement or conflict;
-- IV percentile: rich at `>=65`, cheap at `<=35`;
+- IV percentile: rich at `>=65`, cheap at `<=35`. This is the midrank of the constant-maturity ~30-day ATM IV inside the name’s own daily history. IV rank is the separate min-to-max position of that same reading. The Grade IV panel shows both; this desk uses the percentile.
 - earnings inside ten days.
 
 It generally recommends:

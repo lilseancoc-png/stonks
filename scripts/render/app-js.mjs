@@ -1298,7 +1298,7 @@ ${scenarioEventPhase.toString()}
     if (c.expectedMovePct != null && c.breakevenMovePct != null){
       var req = Math.abs(Number(c.breakevenMovePct)), expMv = Math.abs(Number(c.expectedMovePct));
       var rrCls = (c.rrRatio == null || c.rrRatio <= 0.7) ? 'good' : (c.rrRatio <= 1.0 ? 'fair' : 'bad');
-      rr = '<div class="pick-contract-rr pick-rr-' + rrCls + '">Needs ' + (req >= 0 ? '+' : '') + req.toFixed(1) + '% · chain prices ±' + expMv.toFixed(1) + '%</div>';
+      rr = '<div class="pick-contract-rr pick-rr-' + rrCls + '">Needs ' + (req >= 0 ? '+' : '') + req.toFixed(1) + '% · 1σ ±' + expMv.toFixed(1) + '%</div>';
     }
     // Contract-quality chips — straight from the baked contractQuality, the
     // same five grades Top Picks shows.
@@ -3368,17 +3368,67 @@ ${scenarioEventPhase.toString()}
     }, { passive: true });
     svg.addEventListener('touchend', hide);
   }
-  function computeIvRank(history, today){
-    if (!history || !history.length) return null;
-    var entries = history.filter(function(e){ return e && e.iv != null && isFinite(e.iv); });
-    if (entries.length < 60) {
-      return { ready: false, count: entries.length, target: 60 };
+  // Same two statistics attachIvRanks stores. Percentile is the midrank of
+  // today's constant-maturity ~30-day ATM IV inside the daily history.
+  // Rank is the min-to-max position of that same reading. The Grade panel
+  // waits for 60 days even though scoring can attach a rank sooner.
+  function constantMaturityAtmIvFrom(expirations, chains, spot, targetDte){
+    if (!expirations || !expirations.length || spot == null) return null;
+    var nowSec = Date.now() / 1000;
+    var yearSec = 365 * 86400;
+    var targetT = Math.max(1 / 365, targetDte / 365);
+    var points = [];
+    for (var i = 0; i < expirations.length; i++){
+      var expSec = expirations[i];
+      var closeSec = chainExpiryCloseEpochSec(expSec);
+      if (!isFinite(closeSec) || closeSec <= nowSec) continue;
+      var iv = atmIvForExpiration(chains[expSec], spot);
+      if (!(iv > 0)) continue;
+      points.push({ T: Math.max(1 / 365, (closeSec - nowSec) / yearSec), iv: iv });
     }
-    var values = entries.map(function(e){ return e.iv; });
-    var lower = 0;
-    for (var i=0; i<values.length; i++){ if (values[i] <= today) lower += 1; }
-    var pct = (lower / values.length) * 100;
-    return { ready: true, percentile: pct, count: entries.length, today: today };
+    if (!points.length) return null;
+    points.sort(function(a, b){ return a.T - b.T; });
+    var lower = null, upper = null;
+    for (var j = 0; j < points.length; j++){
+      if (points[j].T <= targetT) lower = points[j];
+      if (points[j].T >= targetT){ upper = points[j]; break; }
+    }
+    if (!lower || !upper || lower === upper){
+      var nearest = points[0], best = Math.abs(points[0].T - targetT);
+      for (var k = 1; k < points.length; k++){
+        var dist = Math.abs(points[k].T - targetT);
+        if (dist < best){ nearest = points[k]; best = dist; }
+      }
+      return nearest.iv;
+    }
+    var mix = (targetT - lower.T) / (upper.T - lower.T);
+    var targetVar = (lower.iv * lower.iv * lower.T) + mix * ((upper.iv * upper.iv * upper.T) - (lower.iv * lower.iv * lower.T));
+    return targetVar > 0 ? Math.sqrt(targetVar / targetT) : null;
+  }
+  function ivHistoryStats(history, todayIv){
+    var rows = (history || []).filter(function(e){ return e && e.iv != null && isFinite(e.iv) && e.iv > 0; });
+    var todayKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+    var ivs = rows.map(function(e){ return Number(e.iv); });
+    if (todayIv > 0){
+      if (rows.length && rows[rows.length - 1].date === todayKey) ivs[ivs.length - 1] = todayIv;
+      else ivs.push(todayIv);
+    }
+    if (ivs.length < 60) return { ready: false, count: ivs.length, target: 60 };
+    var cur = ivs[ivs.length - 1];
+    var below = 0, ties = 0, lo = ivs[0], hi = ivs[0];
+    for (var i = 0; i < ivs.length; i++){
+      if (ivs[i] < cur) below += 1;
+      else if (ivs[i] === cur) ties += 1;
+      if (ivs[i] < lo) lo = ivs[i];
+      if (ivs[i] > hi) hi = ivs[i];
+    }
+    return {
+      ready: true,
+      percentile: ((below + ties / 2) / ivs.length) * 100,
+      rank: hi > lo ? ((cur - lo) / (hi - lo)) * 100 : 50,
+      count: ivs.length,
+      today: cur,
+    };
   }
   function fetchIvHistory(symbol){
     if (IV_HISTORY_CACHE[symbol] !== undefined) return Promise.resolve(IV_HISTORY_CACHE[symbol]);
@@ -3407,31 +3457,23 @@ ${scenarioEventPhase.toString()}
     var points = computeTermStructure();
     termBox.innerHTML = termStructureSvg(points);
     attachIvHover(termBox, points);
-    var todayIv = points.length ? atmIvForExpiration(
-      state.chains[points.reduce(function(best, p){
-        return Math.abs(p.dte - 30) < Math.abs(best.dte - 30) ? p : best;
-      }).expSec],
-      state.spot
-    ) : null;
-    rankBox.textContent = 'Loading IV rank…';
+    var todayIv = constantMaturityAtmIvFrom(state.expirations, state.chains, state.spot, 30);
+    rankBox.textContent = 'Loading IV percentile…';
     fetchIvHistory(symbol).then(function(entries){
       if (state.symbol !== symbol) return; // ticker switched while loading
       if (todayIv == null){
         rankBox.textContent = 'No ATM IV in chain';
         return;
       }
-      var rank = computeIvRank(entries, todayIv);
-      if (!rank){
-        rankBox.textContent = 'Building history — 0/60 days';
+      var stats = ivHistoryStats(entries, todayIv);
+      if (!stats.ready){
+        rankBox.textContent = 'Building history — ' + stats.count + '/' + stats.target + ' days';
+        rankBox.className = 'opt-iv-rank';
         return;
       }
-      if (!rank.ready){
-        rankBox.textContent = 'Building history — ' + rank.count + '/' + rank.target + ' days';
-        return;
-      }
-      var pctStr = rank.percentile.toFixed(0) + '%';
-      var label = rank.percentile >= 80 ? 'rich' : rank.percentile <= 20 ? 'cheap' : 'normal';
-      rankBox.textContent = 'IV rank ' + pctStr + ' · ' + label + ' (' + rank.count + 'd history · today ' + (rank.today * 100).toFixed(0) + '%)';
+      var pctStr = stats.percentile.toFixed(0) + '%';
+      var label = stats.percentile >= 80 ? 'rich' : stats.percentile <= 20 ? 'cheap' : 'normal';
+      rankBox.textContent = 'IV percentile ' + pctStr + ' · ' + label + ' · IV rank ' + stats.rank.toFixed(0) + ' (' + stats.count + 'd · today ' + (stats.today * 100).toFixed(0) + '%)';
       rankBox.className = 'opt-iv-rank opt-iv-rank-' + label;
     });
   }
@@ -15168,10 +15210,10 @@ ${renderWorkspaceBindings()}
   }
   function stratVolRead(){
     var iv = stratState.ivPctile;
-    if (iv == null || !isFinite(iv)) return { band:"unknown", label:"IV rank unavailable", note:"Price the structure conservatively; the historical volatility percentile is not ready." };
-    if (iv >= 65) return { band:"high", label:"IV rank " + iv.toFixed(0) + "% · rich", note:"Favor defined-risk premium selling or debit spreads over naked long volatility." };
-    if (iv <= 35) return { band:"low", label:"IV rank " + iv.toFixed(0) + "% · cheap", note:"Long optionality is cheaper; short-premium credits may not pay enough." };
-    return { band:"normal", label:"IV rank " + iv.toFixed(0) + "% · normal", note:"Direction and payoff shape matter more than a volatility extreme." };
+    if (iv == null || !isFinite(iv)) return { band:"unknown", label:"IV percentile unavailable", note:"Price the structure conservatively; the implied-vol percentile is not ready." };
+    if (iv >= 65) return { band:"high", label:"IV percentile " + iv.toFixed(0) + "% · rich", note:"Favor defined-risk premium selling or debit spreads over naked long volatility." };
+    if (iv <= 35) return { band:"low", label:"IV percentile " + iv.toFixed(0) + "% · cheap", note:"Long optionality is cheaper; short-premium credits may not pay enough." };
+    return { band:"normal", label:"IV percentile " + iv.toFixed(0) + "% · normal", note:"Direction and payoff shape matter more than a volatility extreme." };
   }
   function stratEventRead(){
     var raw = stratState.fundamentals && stratState.fundamentals.nextEarningsDate;
@@ -15581,21 +15623,21 @@ ${renderWorkspaceBindings()}
           : bias === 'bear' ? 'matches RSI/MACD tilt'
           : 'volume-conviction read' });
 
-    // 2) IV alignment — long-vega wants low IV rank, short-vega wants high.
+    // 2) IV alignment — long-vega wants a low IV percentile, short-vega wants high.
     // Directional spreads (debit) live in the middle band.
     var iv = stratState.ivPctile;
     var volScore = 15;
-    var volNote = 'IV rank unavailable';
+    var volNote = 'IV percentile unavailable';
     if (iv != null){
       if (bias === 'volLong'){
         volScore = iv <= 30 ? 30 : iv <= 50 ? 22 : iv <= 70 ? 12 : 5;
-        volNote = 'long vega — IV rank ' + iv.toFixed(0) + (iv <= 30 ? '% (cheap)' : iv >= 70 ? '% (rich, vol exposure expensive)' : '% (neutral)');
+        volNote = 'long vega — IV percentile ' + iv.toFixed(0) + (iv <= 30 ? '% (cheap)' : iv >= 70 ? '% (rich, vol exposure expensive)' : '% (neutral)');
       } else if (bias === 'volShort'){
         volScore = iv >= 70 ? 30 : iv >= 50 ? 22 : iv >= 30 ? 12 : 5;
-        volNote = 'short vega — IV rank ' + iv.toFixed(0) + (iv >= 70 ? '% (rich, premium to harvest)' : iv <= 30 ? '% (cheap, thin credit)' : '% (neutral)');
+        volNote = 'short vega — IV percentile ' + iv.toFixed(0) + (iv >= 70 ? '% (rich, premium to harvest)' : iv <= 30 ? '% (cheap, thin credit)' : '% (neutral)');
       } else {
         volScore = (iv >= 30 && iv <= 70) ? 22 : (iv < 30 ? 18 : 12);
-        volNote = 'directional — IV rank ' + iv.toFixed(0) + '%';
+        volNote = 'directional — IV percentile ' + iv.toFixed(0) + '%';
       }
     }
     parts.push({ key:'iv', label:'IV alignment', value: volScore, max: 30, note: volNote });
@@ -16000,7 +16042,7 @@ ${renderWorkspaceBindings()}
     var t = stratState.technicals;
     if (t && t.rsi != null) parts.push('<span>RSI ' + t.rsi.toFixed(1) + '</span>');
     if (t && t.macd && t.macd.hist != null) parts.push('<span>MACD ' + (t.macd.hist >= 0 ? '+' : '') + t.macd.hist.toFixed(3) + '</span>');
-    if (stratState.ivLabel) parts.push('<span>IV rank ' + stratState.ivLabel + '</span>');
+    if (stratState.ivLabel) parts.push('<span>IV percentile ' + stratState.ivLabel + '</span>');
     box.innerHTML = parts.join(' · ');
   }
 
@@ -16059,10 +16101,9 @@ ${renderWorkspaceBindings()}
     stratRenderScore(enriched, sweep);
   }
 
-  // --- IV rank for the score --------------------------------------------
-  // Pulls the per-ticker IV history file the IV tab already uses and
-  // computes today's percentile rank from the ATM IV at the nearest
-  // expiration. Quietly skips when history is too thin (<60 days).
+  // --- IV percentile for the score ---------------------------------------
+  // Same midrank as the Grade IV panel: constant-maturity ~30-day ATM IV
+  // against the stored daily history. Quietly skips under 60 days.
   function stratRefreshIvRank(symbol){
     stratState.ivPctile = null;
     stratState.ivLabel = null;
@@ -16070,20 +16111,11 @@ ${renderWorkspaceBindings()}
     return fetchIvHistory(symbol).then(function(entries){
       if (stratState.symbol !== symbol) return;
       if (!stratState.expirations.length) return;
-      // ATM IV at the near-30d expiration (matches the IV-rank methodology
-      // used by the Grade tab).
-      var pts = [];
-      for (var i=0; i<stratState.expirations.length; i++){
-        var e = stratState.expirations[i];
-        var iv = atmIvForExpiration(stratState.chains[e], stratState.spot);
-        if (iv != null) pts.push({ expSec: e, dte: stratDte(e), iv: iv });
-      }
-      if (!pts.length) return;
-      var pick = pts.reduce(function(best, p){ return Math.abs(p.dte - 30) < Math.abs(best.dte - 30) ? p : best; });
-      var rank = computeIvRank(entries, pick.iv);
-      if (rank && rank.ready){
-        stratState.ivPctile = rank.percentile;
-        stratState.ivLabel = rank.percentile.toFixed(0) + '%';
+      var todayIv = constantMaturityAtmIvFrom(stratState.expirations, stratState.chains, stratState.spot, 30);
+      var stats = ivHistoryStats(entries, todayIv);
+      if (stats.ready){
+        stratState.ivPctile = stats.percentile;
+        stratState.ivLabel = stats.percentile.toFixed(0) + '%';
       }
     }).catch(function(){ /* silently degrade — score uses the neutral fallback */ });
   }
@@ -16358,7 +16390,7 @@ ${renderWorkspaceBindings()}
   // daily closes, then renders a metric table with the per-row leader, deltas
   // vs the first (base) name, and a plain-language summary. Pure browser tool —
   // no premium gate and no live polling.
-  var compareState = { inited: false, tickers: [], cache: {}, grades: null, gradesLoading: false, range: '3m', ivHist: {}, fundHist: {}, window: null };
+  var compareState = { inited: false, tickers: [], cache: {}, grades: null, gradesLoading: false, range: '3m', sector: '', ivHist: {}, fundHist: {}, window: null };
   var CMP_MAX = 4;
   var CMP_MEGA4 = ['AAPL','MSFT','GOOGL','AMZN'];
   // Daily-session windows. The chart intersects normalized YYYY-MM-DD keys
@@ -16594,7 +16626,7 @@ ${renderWorkspaceBindings()}
     return [
       { key:'techPillar', group:'Grade reads', label:'Technicals pillar', hint:'The technicals pillar already on the 4-pillar grade.', get:function(j){ return cmpPillar(j, 'technicals'); }, fmt:'grade', better:'high', dual:true },
       { key:'iv', group:'Implied volatility', label:'ATM ~30D IV', hint:'At-the-money implied vol near 30 days, from the stored IV rank.', get:cmpIvPct, fmt:'pct', better:'low', dual:true },
-      { key:'ivPctile', group:'Implied volatility', label:'IV percentile', hint:'Where today\\'s IV sits in the name\\'s own history. 100 is the richest.', get:cmpIvField('pctile'), fmt:'pct0', better:'low', dual:true },
+      { key:'ivPctile', group:'Implied volatility', label:'IV percentile', hint:'Midrank of today\\'s IV inside the name\\'s own history. Higher means more saved days were cheaper.', get:cmpIvField('pctile'), fmt:'pct0', better:'low', dual:true },
       { key:'ivRank', group:'Implied volatility', label:'IV rank', hint:'Min-to-max position of today\\'s IV inside the name\\'s own history.', get:cmpIvField('rank'), fmt:'pct0', better:'low', dual:true },
       { key:'ivZ', group:'Implied volatility', label:'IV z-score', hint:'Today\\'s IV versus the name\\'s own prior mean, in standard deviations.', get:cmpIvField('z'), fmt:'x2', better:'low', dual:true },
       { key:'ivMean', group:'Implied volatility', label:'Own-mean IV', hint:'The name\\'s own prior-mean ATM IV, the baseline for the z-score.', get:cmpIvMeanPct, fmt:'pct', better:null, dual:true },
@@ -16889,25 +16921,33 @@ ${renderWorkspaceBindings()}
     },
     rank: function(q){
       q = (q || '').trim().toUpperCase();
-      var syms = SYMBOLS.slice().sort();
+      var sectorFilter = compareState.sector || '';
       var picked = compareState.tickers;
-      var pool = syms.filter(function(s){ return picked.indexOf(s) === -1; });
-      if (!q) return pool.slice(0, 50);
-      var prefix = [], contains = [], sector = [];
-      for (var i = 0; i < pool.length; i++){
-        var sym = pool[i];
-        var sec = (SECTORS[sym] || '').toUpperCase();
-        if (sym.indexOf(q) === 0) prefix.push(sym);
-        else if (sym.indexOf(q) >= 0) contains.push(sym);
-        else if (sec.indexOf(q) >= 0) sector.push(sym);
+      var pool = [];
+      for (var i = 0; i < SYMBOLS.length; i++){
+        var sym = SYMBOLS[i];
+        if (picked.indexOf(sym) !== -1) continue;
+        if (sectorFilter && (SECTORS[sym] || '') !== sectorFilter) continue;
+        pool.push(sym);
       }
-      return prefix.concat(contains, sector).slice(0, 50);
+      pool.sort();
+      if (!q) return pool.slice(0, 60);
+      var prefix = [], contains = [], sector = [];
+      for (var j = 0; j < pool.length; j++){
+        var name = pool[j];
+        var sec = (SECTORS[name] || '').toUpperCase();
+        if (name.indexOf(q) === 0) prefix.push(name);
+        else if (name.indexOf(q) >= 0) contains.push(name);
+        else if (!sectorFilter && sec.indexOf(q) >= 0) sector.push(name);
+      }
+      return prefix.concat(contains, sector).slice(0, 60);
     },
     filter: function(){
       var matches = this.rank(this.input.value);
       this.items = matches;
       if (!matches.length){
-        this.listbox.innerHTML = '<li class="combo-empty">No matches</li>';
+        var empty = compareState.sector ? 'No matches in ' + compareState.sector : 'No matches';
+        this.listbox.innerHTML = '<li class="combo-empty">' + escapeHtml(empty) + '</li>';
       } else {
         var html = '';
         for (var i = 0; i < matches.length; i++){
@@ -16958,10 +16998,41 @@ ${renderWorkspaceBindings()}
       this.input.focus();
     }
   };
+  function cmpFillSectorSelect(){
+    var sel = $('cmp-sector');
+    if (!sel || sel.getAttribute('data-ready') === '1') return;
+    var counts = {};
+    for (var i = 0; i < SYMBOLS.length; i++){
+      var sec = SECTORS[SYMBOLS[i]];
+      if (!sec) continue;
+      counts[sec] = (counts[sec] || 0) + 1;
+    }
+    var names = Object.keys(counts).sort(function(a, b){
+      return counts[b] - counts[a] || a.localeCompare(b);
+    });
+    var html = '<option value="">All sectors</option>';
+    for (var j = 0; j < names.length; j++){
+      html += '<option value="' + escapeHtml(names[j]) + '">' + escapeHtml(names[j]) + ' (' + counts[names[j]] + ')</option>';
+    }
+    sel.innerHTML = html;
+    sel.setAttribute('data-ready', '1');
+  }
   function initCompare(){
     if (!compareState.inited){
       compareState.inited = true;
       cmpSearch.init();
+      cmpFillSectorSelect();
+      var sectorSel = $('cmp-sector');
+      if (sectorSel) sectorSel.addEventListener('change', function(){
+        compareState.sector = sectorSel.value || '';
+        var input = $('cmp-input');
+        if (input){
+          input.placeholder = compareState.sector
+            ? 'Add a ' + compareState.sector + ' ticker…'
+            : 'Add ticker — type & press Enter…';
+        }
+        cmpSearch.filter();
+      });
       var add = $('cmp-add'); if (add) add.addEventListener('click', cmpAddFromInput);
       var mega = $('cmp-quick-mega4'); if (mega) mega.addEventListener('click', function(){ cmpSetTickers(CMP_MEGA4); });
       var clr = $('cmp-clear'); if (clr) clr.addEventListener('click', function(){ cmpSetTickers([]); });
@@ -35352,12 +35423,12 @@ ${renderWorkspaceBindings()}
       var req = Math.abs(Number(c.breakevenMovePct));
       var exp = Math.abs(Number(c.expectedMovePct));
       var verdict;
-      if (req <= exp * 0.7) verdict = 'comfortably inside that range — the chain isn’t asking you to bet on an outlier move';
-      else if (req <= exp) verdict = 'right at the edge of what the chain is pricing — needs the move to actually happen, not just a wobble';
-      else verdict = 'bigger than what the chain is pricing — you need an above-average move for this to pay';
-      bullets += '<li><b>How big a move?</b> The options market is already pricing a ±' +
-        exp.toFixed(1) + '% swing by then. You need ' +
-        (req >= 0 ? '' : '') + req.toFixed(1) + '%, ' + verdict + '.</li>';
+      if (req <= exp * 0.7) verdict = 'comfortably inside that distance';
+      else if (req <= exp) verdict = 'right at that distance';
+      else verdict = 'farther than that one-standard-deviation distance';
+      bullets += '<li><b>How big a move?</b> One standard deviation from this contract’s implied vol is ±' +
+        exp.toFixed(1) + '% by expiry. You need ' +
+        req.toFixed(1) + '%, ' + verdict + '.</li>';
     }
     // Daily time decay — applies to long options. theta is negative for
     // longs; show absolute dollars/day.
@@ -35372,8 +35443,8 @@ ${renderWorkspaceBindings()}
     // Implied odds — |delta| as the standard rough proxy for prob-ITM.
     if (c.delta != null && isFinite(c.delta)){
       var pct = Math.abs(Number(c.delta)) * 100;
-      bullets += '<li><b>Implied odds:</b> the chain prices roughly <b>' + pct.toFixed(0) +
-        '%</b> odds this finishes in profit. Treat that as a sanity check, not a guarantee.</li>';
+      bullets += '<li><b>In the money:</b> absolute delta is about <b>' + pct.toFixed(0) +
+        '%</b>, a rough chance the contract finishes in the money. That is not the chance of profit. The profit chance uses the breakeven.</li>';
     }
     if (!bullets) return '';
     return '<div class="pick-plain">' +
@@ -35546,9 +35617,9 @@ ${renderWorkspaceBindings()}
       '<div class="pick-stat-greek-row" data-live-greeks="' + escapeHtml(symU) + '">' + liveGreeksRow(p, greekSpot) + '</div>' +
     '</div>';
     stats += '</div>';
-    // Risk/reward — required breakeven move vs IV-implied 1σ expected
-    // move at expiry. <1 means the chain already prices a move that
-    // size; >1 means the bet needs more than the market is pricing.
+    // Risk/reward — required breakeven move vs the contract IV's 1σ
+    // move at expiry (σ√T). Under 1 means breakeven sits inside that
+    // distance; over 1 means it needs a larger move than 1σ.
     var rr = '';
     if (c.expectedMovePct != null && c.breakevenMovePct != null){
       var req = Math.abs(Number(c.breakevenMovePct));
@@ -35556,7 +35627,7 @@ ${renderWorkspaceBindings()}
       var rrCls = c.rrRatio == null || c.rrRatio <= 0.7 ? 'good'
                 : c.rrRatio <= 1.0 ? 'fair' : 'bad';
       rr = '<div class="pick-contract-rr pick-rr-' + rrCls + '">' +
-        'Needs ' + (req >= 0 ? '+' : '') + req.toFixed(1) + '% · chain prices ±' + exp.toFixed(1) + '%' +
+        'Needs ' + (req >= 0 ? '+' : '') + req.toFixed(1) + '% · 1σ ±' + exp.toFixed(1) + '%' +
       '</div>';
     }
     // Probability of profit at expiry (risk-neutral P(S_T past breakeven), N(±d2)) —
@@ -37670,14 +37741,14 @@ ${renderWorkspaceBindings()}
       if (c.breakevenMovePct != null && isFinite(c.breakevenMovePct)){
         var bem = Number(c.breakevenMovePct);
         // Color the breakeven move by reachability: rrRatio = required move ÷ the
-        // ±1σ move the chain already prices by expiry. ≤0.7 the bet sits inside
-        // what's priced (green), ≤1.0 right at the edge (amber), >1.0 needs more
-        // than the market expects (red). Turns "how far" into "how far vs priced".
+        // ±1σ from the contract's implied vol (σ√T) by expiry. ≤0.7 the
+        // breakeven sits inside that distance (green), ≤1.0 at the edge
+        // (amber), >1.0 beyond it (red).
         var rr = c.rrRatio;
         var rrCls = (rr == null || !isFinite(rr)) ? '' : (rr <= 0.7 ? ' ptc-con-be-good' : (rr <= 1.0 ? ' ptc-con-be-fair' : ' ptc-con-be-bad'));
         var rrTip = (rr != null && isFinite(rr) && c.expectedMovePct != null && isFinite(c.expectedMovePct))
-          ? ' The chain already prices a ±' + Math.abs(Number(c.expectedMovePct)).toFixed(1) + '% move by expiry — ' +
-            (rr <= 0.7 ? 'this sits comfortably inside it.' : rr <= 1.0 ? 'this is right at the edge of it.' : 'this needs more than the market expects.')
+          ? ' One standard deviation from this contract\\'s implied vol by expiry is ±' + Math.abs(Number(c.expectedMovePct)).toFixed(1) + '% (σ√T, not the straddle price). ' +
+            (rr <= 0.7 ? 'The breakeven sits comfortably inside that distance.' : rr <= 1.0 ? 'The breakeven is right at that distance.' : 'The breakeven needs more than that one-standard-deviation distance.')
           : '';
         beChip = '<span class="ptc-con-be' + rrCls + '" title="' + escapeHtml('Move the stock must make from today just to break even at expiry.' + rrTip) + '">' + (bem >= 0 ? '+' : '') + bem.toFixed(1) + '% BE</span>';
       }

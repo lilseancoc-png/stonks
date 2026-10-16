@@ -4586,8 +4586,10 @@ async function loadIvHistoryEntries(symbol) {
 
 // P1.6 — attach each ticker's IV percentile/rank (ATM 30d IV vs its OWN history)
 // onto chains[sym].ivRank, read from data/iv-history/<SYM>.json. The current IV is
-// the last (today's) entry; pctile = share of history at-or-below it (0-100); rank
-// = min-max position. null when the file is missing or has < PICKS_IVRANK_MIN_N
+// the last (today's) entry. pctile is the midrank percentile (days strictly
+// below, plus half the ties), not an at-or-below count and not IV rank.
+// rank is the min-max position, (current − low) / (high − low). null when the
+// file is missing or has < PICKS_IVRANK_MIN_N
 // entries. Direction-AGNOSTIC: rich premium is a headwind for ANY long debit, so
 // computeEntryTiming reads this as a side-aware soft con (not a directional score
 // signal, which would be wrong-signed for puts), and the picks card shows it as the
@@ -30991,6 +30993,7 @@ const BRIEF_TOOL_SOURCES = [
   { key: "spillover", file: "spillover-pairs.json", label: "Event spillover", tab: "spillover", maxAgeHours: 30 },
   { key: "index-calendar", file: "index-calendar.json", label: "Index calendar", tab: "index-calendar", maxAgeHours: 30 },
   { key: "heatmap", file: "heatmap.json", label: "Heatmap", tab: "heatmap", maxAgeHours: 30 },
+  { key: "pattern-lab", file: "pattern-recognition.json", label: "Pattern lab", tab: "pattern-lab", maxAgeHours: 30 },
   { key: "volume", file: "volume-flags.json", label: "Volume", tab: "volume", maxAgeHours: 3 },
   { key: "oi", file: "oi-tracker.json", label: "Gamma exposure", tab: "oi", maxAgeHours: 14 },
   { key: "streaks", file: "streaks.json", label: "Streaks", tab: "streaks", maxAgeHours: 30 },
@@ -31530,6 +31533,56 @@ function briefToolFacts(source, p, kind) {
         (!p.eodSummary.date || p.eodSummary.date === etDateKey())) {
       add(`${p.eodSummary.headline}${p.eodSummary.stats?.avgChangeWeighted != null ? ` Cap-weighted breadth ${briefToolPct(p.eodSummary.stats.avgChangeWeighted)}.` : ""}`, 79, "watch");
     }
+    const streaks = Array.isArray(p.sectorRotation?.alerts) ? p.sectorRotation.alerts.filter((a) => a && a.sector && a.days >= 2) : [];
+    if (streaks.length) {
+      const shown = streaks.slice(0, 3);
+      const text = shown.map((a) => {
+        const raw = Number(a.pct);
+        const share = Number.isFinite(raw) ? `${Math.round(raw <= 1 ? raw * 100 : raw)}%` : "most";
+        const way = a.direction === "green" ? "advancing" : "declining";
+        return `${a.sector} ${share} ${way} for ${a.days} closes`;
+      }).join("; ");
+      const greens = streaks.filter((a) => a.direction === "green").length;
+      const reds = streaks.length - greens;
+      add(`Sector breadth streak: ${text}. At least 70% of each group closed the same way. Participation only, not fund flow.`,
+        74, greens && reds ? "watch" : reds ? "risk" : "positive");
+    }
+  } else if (source.key === "pattern-lab") {
+    const pieces = p.pieces || {};
+    const bits = [];
+    const vol = pieces.volatility;
+    if (vol?.clusteringPresent && (vol.state === "expanding" || vol.state === "calm")) {
+      bits.push(`SPY short-horizon volatility is ${vol.state}${Number.isFinite(Number(vol.ratio)) ? ` at ${Number(vol.ratio).toFixed(2)}× its 20-day pace` : ""}`);
+    }
+    const season = pieces.seasonality?.SPY;
+    const active = season?.active;
+    if (active && !season.provisional) {
+      if (active.inSanta && season.santa && !season.santa.provisional && season.santa.avgPct != null) {
+        bits.push(`the Santa window is open and past windows averaged ${briefToolPct(season.santa.avgPct)}`);
+      } else if (active.inOpexWeek && season.opexWeek?.avgPct != null && season.opexWeek?.outsideAvgPct != null
+          && Math.abs(season.opexWeek.avgPct - season.opexWeek.outsideAvgPct) >= 0.15) {
+        bits.push(`SPY is in expiration week, which has averaged ${briefToolPct(season.opexWeek.avgPct)} versus ${briefToolPct(season.opexWeek.outsideAvgPct)} on other days`);
+      } else if (active.inTurnOfMonth && season.turnOfMonth?.avgPct != null && season.turnOfMonth?.outsideAvgPct != null
+          && Math.abs(season.turnOfMonth.avgPct - season.turnOfMonth.outsideAvgPct) >= 0.1) {
+        bits.push(`SPY is in the turn-of-month window, which has averaged ${briefToolPct(season.turnOfMonth.avgPct)} versus ${briefToolPct(season.turnOfMonth.outsideAvgPct)} outside it`);
+      }
+    }
+    const broken = (pieces.leadLag?.rows || []).filter((row) => row?.broken).slice(0, 2);
+    if (broken.length) {
+      bits.push(`${broken.map((row) => `${row.peer} to ${row.us}`).join(", ")} 60-day link has broken versus its 120-day link`);
+    }
+    if (pieces.breadth?.active) bits.push("the index axis is flat or up while breadth is down");
+    const sent = pieces.sentiment?.latest;
+    if (sent?.fearDisagree || sent?.greedDisagree) {
+      bits.push(`Fear & Greed is ${sent.score} while SPY is ${briefToolPct(sent.spy5dPct)} over 5 sessions`);
+    }
+    const divs = (pieces.divergences?.rows || []).filter((row) => row?.symbol && row?.direction).slice(0, 3);
+    if (divs.length >= 2) {
+      bits.push(`${divs.map((row) => `${row.symbol} ${row.indicator} ${row.direction}`).join(", ")}`);
+    }
+    if (bits.length) {
+      add(`Pattern lab: ${bits.slice(0, 3).join("; ")}. In-sample context, not a trade.`, 71, "watch");
+    }
   } else if (source.key === "volume") {
     const rows = (p.tickers || []).map((r) => {
       const sr = (r.bucketHits || []).find((h) => h?.srBreak && h.srBreak.conviction && h.srBreak.conviction !== "None");
@@ -32024,6 +32077,9 @@ function briefSystemPrompt(kind) {
     "surface it explicitly in the summary AND as a highlight, " +
     "since rates and curve shifts move equities. Any bond flagged 'SIGNIFICANT' must be called out. Don't " +
     "manufacture a rates story when the moves are small (a few bp). " +
+    "PATTERN LAB AND BREADTH STREAKS: a Pattern lab standout is in-sample context, not a trade, and a sector " +
+    "breadth streak is participation only, not fund flow. Mention one of them in a highlight only when the " +
+    "cross-tool scan includes it, and do not turn it into a buy or sell. " +
     "IV TRACKER: when the facts include an 'IV tracker' section, those are single names whose options premium is " +
     "both elevated vs the name's own history and still climbing — the options market pricing in a " +
     "bigger-than-usual move. A name flagged SURGING, especially one with NO scheduled earnings inside 45 days " +
