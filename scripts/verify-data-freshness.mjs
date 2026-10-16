@@ -98,6 +98,7 @@ const BAKE_REQUIRED_REWRITTEN_FILES = [
   "grades-daily.json",
   "grades-history.json",
   "grades.json",
+  "grade-research.json",
   "heatmap.json",
   "index-calendar.json",
   "ipo-credit.json",

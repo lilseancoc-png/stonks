@@ -352,7 +352,7 @@ function trackRecordSection() {
       <h2 class="card-title">Pick track record</h2>
       <span class="card-eyebrow" id="accuracy-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">Modeled Black-Scholes marks at constant entry IV from the enrollment snapshot — not live chain fills. Start with the sample size and results below; win rates stay blank until enough resolved trades exist, and the page never invents them. Use the other views to inspect the ledger, cohorts and simulations.</p>
+    <p class="hint">Modeled Black-Scholes marks at constant entry IV from the enrollment snapshot — not live chain fills. Start with the sample size and results below; win rates stay blank until enough resolved trades exist, and the page never invents them. Grade edge and Paper books test the stored grade on the stock, at a fixed horizon. Use the other views to inspect the ledger, cohorts and simulations.</p>
     <details class="accuracy-how">
       <summary>How this works</summary>
       <p>A pick <b>resolves</b> when the underlying reaches its take-profit (<span class="acc-ok">win</span>), hits its cut (<span class="acc-bad">loss</span>), <b>breaks its thesis</b> (the live grade flips to the opposite side, the stop level is breached, or every supporting driver goes quiet), or expires (graded vs. breakeven). There is no time stop, no pre-earnings exit, and no weekly force-close &mdash; a position is held, through earnings prints included, for as long as its original thesis stays intact and the contract has time left. The <b>Summary</b> tab is the rules-based engine report: an overall health verdict, why the losers lost (direction miss vs. theta bleed), why the winners won, which segments are working vs. lagging, and a specific "what to fix next" list — all computed from the resolved record, no AI. The <b>win rate by tier</b> asks whether higher-conviction scores actually win more. <b>Top&nbsp;10 — picks in &amp; out</b> shows the current 10-name roster, what changed in the 4 pillars since the last refresh, what dropped out and what replaced it, and a rules-based upgrade/downgrade read on each name (click a row for the full rubric); <b>Recent crossings</b> is the chronological log of names crossing the conviction bar on or off the actionable set; <b>Grade changes</b> logs every ticker whose grade moves up or down (and why); each pick&rsquo;s <b>Day&nbsp;0 / 2wk / 1mo</b> checkpoints show whether the price moved the way the score predicted. The <b>Equity</b>, <b>Breakdowns</b>, <b>Simulator</b>, and <b>Monte&nbsp;Carlo</b> tabs add a modeled-dollar profitability lens — an equity curve + drawdown, per-DTE / PoP / thesis / conviction tables and cross-tabs, a hypothetical $100k risk-managed book, and a bootstrap of the outcome distribution. The <b>Market-sized</b> lens and <b>Market environment</b> simulator mode use the daily Market Analysis history: defensive sizing is $5k instead of $10k, full size returns after 3 consecutive risk-on sessions, and 2 consecutive risk-off sessions cut it back in half; neutral stays defensive. Top Picks and its record refresh twice each market day, at 11:00 and 15:30 ET, not intraday.</p>
@@ -367,6 +367,8 @@ function trackRecordSection() {
       <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-breakdowns" id="acc-tab-breakdowns" data-acc-tab="breakdowns">Breakdowns</button>
       <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-sim" id="acc-tab-sim" data-acc-tab="sim">Simulator</button>
       <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-montecarlo" id="acc-tab-montecarlo" data-acc-tab="montecarlo">Monte&nbsp;Carlo</button>
+      <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-research" id="acc-tab-research" data-acc-tab="research">Grade edge</button>
+      <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-books" id="acc-tab-books" data-acc-tab="books">Paper books</button>
     </div>
     <div class="acc-pane" role="tabpanel" id="acc-pane-summary" aria-labelledby="acc-tab-summary">
       <div id="acc-sum-summary" class="acc-pane-sum-slot"></div>
@@ -409,7 +411,15 @@ function trackRecordSection() {
       <div id="acc-sum-montecarlo" class="acc-pane-sum-slot"></div>
       <div id="an-mc" class="acc-analytics"></div>
     </div>
-    <p class="picks-foot">Track record is informational, not a performance claim: option P&amp;L is a constant-IV Black-Scholes mark from the enrollment snapshot, not a live chain fill. The <b>$ profitability, equity curve, Simulator, and Monte&nbsp;Carlo</b> views are <b>modeled and hypothetical</b>. Not financial advice.</p>
+    <div class="acc-pane" role="tabpanel" id="acc-pane-research" aria-labelledby="acc-tab-research" hidden>
+      <div id="acc-sum-research" class="acc-pane-sum-slot"></div>
+      <div id="an-research" class="acc-analytics"></div>
+    </div>
+    <div class="acc-pane" role="tabpanel" id="acc-pane-books" aria-labelledby="acc-tab-books" hidden>
+      <div id="acc-sum-books" class="acc-pane-sum-slot"></div>
+      <div id="an-books" class="acc-analytics"></div>
+    </div>
+    <p class="picks-foot">Track record is informational, not a performance claim: option P&amp;L is a constant-IV Black-Scholes mark from the enrollment snapshot, not a live chain fill. The <b>$ profitability, equity curve, Simulator, and Monte&nbsp;Carlo</b> views are <b>modeled and hypothetical</b>. Grade edge and the paper books use stored grades and daily closes, with no new market-data or model call. Annualized CAGR is withheld until a curve covers 365 calendar days. Not financial advice.</p>
   </section>`;
 }
 

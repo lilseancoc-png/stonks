@@ -13,6 +13,7 @@
 // morning and evening.
 import { writeFile, readFile, mkdir, rm, readdir, appendFile } from "node:fs/promises";
 import { leveragedEntryPlan, shareEntryPayoff } from "../lib/research-display.mjs";
+import { buildGradeResearch, emptyGradeResearch, seriesFromChains, writeGradeResearchFile } from "../lib/grade-research.mjs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
@@ -38075,6 +38076,28 @@ async function main() {
     }
   } else {
     console.log(`[picks] carried data/${PICKS_ACCURACY_FILE} and data/picks-open.json forward until the next scheduled Top Picks run`);
+  }
+  // Grade-edge report and paper books. Stored grades and daily closes only.
+  // No Gemini call. Written on every bake, including carry-forward runs, so the
+  // Track Record can show the latest snapshot days.
+  try {
+    let dailySnap = { days: [] };
+    let picksSnap = null;
+    try { dailySnap = JSON.parse(await readFile(resolve(DATA_DIR, "grades-daily.json"), "utf8")); } catch { /* first run */ }
+    try { picksSnap = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_ACCURACY_FILE), "utf8")); } catch { /* no enrolled book yet */ }
+    const research = buildGradeResearch({
+      days: dailySnap.days || [],
+      series: seriesFromChains(chains),
+      sectors: SECTORS,
+      picks: picksSnap,
+      builtAtIso,
+    });
+    const info = await writeGradeResearchFile(DATA_DIR, research);
+    console.log(`wrote data/grade-research.json — ${info.days} snapshot day(s), ${info.bytes} bytes${info.established ? ", edge claim established" : ""}`);
+  } catch (err) {
+    const message = String(err?.message || err).split("\n")[0];
+    console.warn(`[research] grade-research failed — ${message}`);
+    try { await writeGradeResearchFile(DATA_DIR, emptyGradeResearch(builtAtIso, message)); } catch { /* freshness still prefers a file; the warn above is the signal */ }
   }
   // Market brief — after the separate 08:30 ET morning mint, the 11:00, 13:30,
   // and 16:10 full builds ship fresh reads. Other builds restore the exact

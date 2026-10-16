@@ -6,6 +6,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, PICKS_ACCURACY_RESET_EPOCH, PICKS_ENTRY_TIMING_VERSION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks, buildSectorRotationRebounds, writeSectorRotationFile, SECTOR_ROTATION_FILE, readPriorSectorRotationLog, sectorRotationRecordFromLog, buildLeveragedEtfPicks, writeLeveragedEtfsFile, LEVERAGED_ETFS_FILE, readPriorLevEtfLog, levRecordFromLog, SECTORS, macroKindOf, MACRO_PROFILES, pickContractForPick, writeAutoPicksFile, quarantineScoringInputs, dropStaleMacroLiveLegs } from "./build.mjs";
 import { appendScenarioHistory, buildScenarioEngine } from "../lib/scenario-engine.mjs";
+import { buildGradeResearch, seriesFromChains, writeGradeResearchFile } from "../lib/grade-research.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -472,6 +473,24 @@ try {
   console.log(`Updated picks-accuracy.json — ${acc.open} open, ${acc.closed} closed${acc.winRate != null ? `, ${(acc.winRate * 100).toFixed(0)}% win rate` : ""}.`);
 } catch (err) {
   console.warn(`picks-accuracy.json skipped — ${String(err?.message || err).split("\n")[0]}`);
+}
+
+try {
+  let dailySnap = { days: [] };
+  let picksSnap = null;
+  try { dailySnap = JSON.parse(await readFile(resolve(DATA_DIR, "grades-daily.json"), "utf8")); } catch {}
+  try { picksSnap = JSON.parse(await readFile(resolve(DATA_DIR, "picks-accuracy.json"), "utf8")); } catch {}
+  const research = buildGradeResearch({
+    days: dailySnap.days || [],
+    series: seriesFromChains(chains),
+    sectors: SECTORS,
+    picks: picksSnap,
+    builtAtIso,
+  });
+  const info = await writeGradeResearchFile(DATA_DIR, research);
+  console.log(`Updated grade-research.json — ${info.days} snapshot day(s).`);
+} catch (err) {
+  console.warn(`grade-research.json skipped — ${String(err?.message || err).split("\n")[0]}`);
 }
 
 console.log(`Regenerated picks.json — ${picks.length} pick${picks.length === 1 ? "" : "s"}.`);

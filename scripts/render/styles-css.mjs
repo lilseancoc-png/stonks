@@ -16051,6 +16051,11 @@ body.tape-axm-open { overflow: hidden; }
   margin: var(--s-4) 0 0;
   border-bottom: 1px solid var(--border);
 }
+.acc-qtable { width: 100%; border-collapse: collapse; font: 400 13px/1.4 var(--font-sans); margin: 8px 0 14px; }
+.acc-qtable th, .acc-qtable td { text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--border); }
+.acc-qtable th:first-child, .acc-qtable td:first-child { text-align: left; }
+.acc-qtable th { color: var(--muted-strong); font-weight: 600; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
+.acc-research-note { margin: 0 0 12px; }
 .acc-tab {
   position: relative;
   appearance: none; background: transparent;
@@ -16191,7 +16196,7 @@ body.tape-axm-open { overflow: hidden; }
 .acc-controls { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; margin: 4px 0 12px; }
 .acc-ctl { display: flex; align-items: center; gap: 8px; }
 .acc-ctl-lbl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
-.acc-seg label { padding: 5px 12px; font-size: 12px; }
+.acc-seg label { padding: 8px 12px; font-size: 13px; line-height: 1.3; }
 .acc-check { display: inline-flex; align-items: center; gap: 7px; font-size: var(--fs-sm); color: var(--text-strong); cursor: pointer; }
 .acc-check input { accent-color: var(--accent); width: 15px; height: 15px; }
 .acc-hypo {
@@ -18254,6 +18259,13 @@ body.tape-axm-open { overflow: hidden; }
   .acc-tabs::-webkit-scrollbar { display: none; }
   .opt-tab { flex: 0 0 auto; white-space: nowrap; }
   .acc-tab { flex: 0 0 auto; white-space: nowrap; }
+  /* Eleven track-record tabs do not fit one phone row. Wrap them so Grade
+     edge and Paper books stay on screen. The selected tab carries its own
+     underline, so a second row does not hide which view is open. */
+  .acc-tabs {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
 
   /* Grade tab technicals grid: minmax(170px,1fr) tried to fit two
      columns at ~360px viewport and overflowed. Force single column. */

@@ -3480,7 +3480,7 @@ ${scenarioEventPhase.toString()}
   function bindAccuracyTabs(){
     var tabs = document.querySelectorAll('.acc-tab');
     if (!tabs.length) return;
-    var KEYS = ['summary','scorecard','top10','activity','picks','equity','breakdowns','sim','montecarlo'];
+    var KEYS = ['summary','scorecard','top10','activity','picks','equity','breakdowns','sim','montecarlo','research','books'];
     function selectAccTab(name){
       try { localStorage.setItem('stonks-acc-tab', name); } catch (_) {}
       tabs.forEach(function(btn){
@@ -32071,7 +32071,7 @@ ${renderWorkspaceBindings()}
     }
     var sign = lp >= 0 ? 'sig-pos' : 'sig-neg';
     var num = (lp >= 0 ? '+' : '') + lp.toFixed(compact ? 0 : 1) + '%';
-    var tip = 'Modeled contract P&L since this pick first appeared ' + heldD + ' day' + (heldD === 1 ? '' : 's') + ' ago — Black-Scholes, enter at ask / exit at bid, IV decayed toward HV, earnings crush. No options-price feed, so a model not a realized fill.';
+    var tip = 'Modeled contract P&L since this pick first appeared ' + heldD + ' day' + (heldD === 1 ? '' : 's') + ' ago. ' + ACC_MODEL_TIP;
     var html = '<span class="ptc-live ' + sign + '" title="' + tip + '">' + (compact ? '' : 'contract ') + num + ' · ' + heldD + 'd</span>';
     return { pnl: lp, days: heldD, html: html };
   }
@@ -32188,13 +32188,17 @@ ${renderWorkspaceBindings()}
     var pReg = fetch(dataUrl('regime-history.json'), { cache: 'no-cache' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .catch(function(){ return null; });
-    Promise.all([pAcc, pGch, pPch, pRos, pReg]).then(function(res){
-      var j = res[0], gh = res[1], pc = res[2], ros = res[3], reg = res[4];
+    var pResearch = fetch(dataUrl('grade-research.json'), { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .catch(function(){ return null; });
+    Promise.all([pAcc, pGch, pPch, pRos, pReg, pResearch]).then(function(res){
+      var j = res[0], gh = res[1], pc = res[2], ros = res[3], reg = res[4], research = res[5];
       accuracyState.data = (j && typeof j === 'object') ? j : { open: [], closed: [], stats: {} };
       accuracyState.gradeChanges = (gh && Array.isArray(gh.changes)) ? gh.changes : [];
       accuracyState.picksChanges = (pc && Array.isArray(pc.changes)) ? pc.changes : [];
       accuracyState.roster = (ros && Array.isArray(ros.roster)) ? ros : null;
       accuracyState.regimeHistory = (reg && Array.isArray(reg.days)) ? reg.days : [];
+      accuracyState.research = (research && research.horizons) ? research : null;
       accuracyState.loading = false;
       renderAccuracy();
     }).catch(function(){
@@ -32203,6 +32207,7 @@ ${renderWorkspaceBindings()}
       accuracyState.picksChanges = accuracyState.picksChanges || [];
       accuracyState.roster = accuracyState.roster || null;
       accuracyState.regimeHistory = accuracyState.regimeHistory || [];
+      accuracyState.research = accuracyState.research || null;
       accuracyState.loading = false;
       renderAccuracy();
     });
@@ -32254,6 +32259,15 @@ ${renderWorkspaceBindings()}
     if (n == null || !isFinite(n)) return '—';
     return (n >= 0 ? '+' : '') + Number(n).toFixed(1) + '%';
   }
+  function accScoreText(score){
+    var n = Number(score);
+    if (score == null || !isFinite(n)) return '—';
+    var r = Math.round(n * 10) / 10;
+    return (r > 0 ? '+' : '') + r;
+  }
+  // The track-record mark is the entry mid, repriced with that same IV.
+  // It does not cross the spread and it does not model an earnings crush.
+  var ACC_MODEL_TIP = 'Modeled with Black-Scholes from the entry mid. Entry IV is held constant. Not a live chain fill.';
   // Short "$50 · Jul 16 '26" descriptor so two different contracts on the same
   // ticker are distinguishable within a dropdown.
   function accContractDesc(e){
@@ -32621,13 +32635,11 @@ ${renderWorkspaceBindings()}
     // Equity curve / drawdown / CAGR for the chosen basis (same pnl rule).
     var ec = buildEquityCurve(rows.map(function(r){ return r.e; }), { basis:basis, notional:notional });
     m.base = ec.base; m.peak = ec.peak; m.maxDD = ec.maxDD; m.maxDDpct = ec.maxDDpct;
-    m.curDD = ec.curDD; m.curDDpct = ec.curDDpct; m.recovery = ec.recovery; m.cagr = ec.cagr; m.spanDays = ec.spanDays;
-    // Only annualize once the sample is genuinely meaningful. Annualizing a
-    // per-trade Sharpe by trade frequency wildly overstates on a handful of
-    // trades clustered in a sub-monthly window (the sparse early record) — so
-    // keep the honest per-trade value (labeled "per-trade") until ≥20 trades
-    // over ≥45 days, and cap the implied trades/year so it can't explode.
-    if (ec.spanDays >= 45 && n >= 20){
+    m.curDD = ec.curDD; m.curDDpct = ec.curDDpct; m.recovery = ec.recovery; m.cagr = ec.cagr; m.spanDays = ec.spanDays; m.windowReturn = ec.windowReturn;
+    // Annualize only after a full year from the first entry to the last close.
+    // A shorter window keeps the per-trade Sharpe. The old 45-day gate turned
+    // two months of stacked premium into a nonsense annualized number.
+    if (ec.spanDays >= 365 && n >= 20){
       var tpy = Math.min(252, n / (ec.spanDays / 365.25));
       if (m.sharpe != null){ m.sharpe = m.sharpe * Math.sqrt(tpy); m.annualized = true; }
       if (m.sortino != null) m.sortino = m.sortino * Math.sqrt(tpy);
@@ -32673,14 +32685,20 @@ ${renderWorkspaceBindings()}
     }
     var recovery = null;
     if (troughIdx >= 0){ for (var j=troughIdx+1;j<pts.length;j++){ if (pts[j].value >= peakAtTrough){ recovery = j - troughIdx; break; } } }
-    var firstMs = seq.length ? (Date.parse(seq[0].exitDate||seq[0].entryDate)||0) : 0;
-    var lastMs = seq.length ? (Date.parse(seq[seq.length-1].exitDate||seq[seq.length-1].entryDate)||0) : 0;
-    var spanDays = (lastMs > firstMs) ? (lastMs - firstMs) / 86400000 : 0;
-    // CAGR only once there's enough history to annualize without blowing up
-    // (consistent with the Sharpe/Sortino gate) — else null (shown as "—").
-    var cagr = (base > 0 && eq > 0 && spanDays >= 45 && seq.length >= 20) ? (Math.pow(eq / base, 365.25 / spanDays) - 1) : null;
+    var entryMs = 0, exitMs = 0;
+    for (var s = 0; s < seq.length; s++){
+      var en = Date.parse(seq[s].entryDate) || 0;
+      var ex = Date.parse(seq[s].exitDate || seq[s].entryDate) || 0;
+      if (en && (!entryMs || en < entryMs)) entryMs = en;
+      if (ex > exitMs) exitMs = ex;
+    }
+    var spanDays = (entryMs > 0 && exitMs > entryMs) ? (exitMs - entryMs) / 86400000 : 0;
+    // CAGR stays blank until the first entry and the last close are a year
+    // apart. The window return is the number to read before that.
+    var cagr = (base > 0 && eq > 0 && spanDays >= 365 && seq.length >= 20) ? (Math.pow(eq / base, 365.25 / spanDays) - 1) : null;
+    var windowReturn = base > 0 ? (eq / base - 1) : null;
     return { points: pts, base: base, finalEquity: eq, peak: peak, maxDD: maxDD, maxDDpct: maxDDpct,
-             curDD: peak - eq, curDDpct: peak > 0 ? (peak - eq) / peak : 0, recovery: recovery, cagr: cagr, spanDays: spanDays };
+             curDD: peak - eq, curDDpct: peak > 0 ? (peak - eq) / peak : 0, recovery: recovery, cagr: cagr, windowReturn: windowReturn, spanDays: spanDays };
   }
 
   // --- $100k portfolio backtest — ONE engine, four sizing run modes --------
@@ -33041,9 +33059,9 @@ ${renderWorkspaceBindings()}
   // (dataset = resolved-only vs incl. open marks; basis = $10k notional vs
   // per-contract) and re-renders on any toggle via accRerenderAnalytics().
   // ========================================================================
-  var accView = { dataset:'closed', basis:'notional', xtabA:'thesis', xtabB:'conviction', simMode:'fixed', simOpens:false, simHighConv:false, mcIters:'5000', mcSeed:1337 };
-  (function(){ try { var sv = JSON.parse(localStorage.getItem('stonks-acc-view') || '{}'); ['dataset','basis','xtabA','xtabB','simMode','mcIters'].forEach(function(k){ if (sv[k] != null) accView[k] = sv[k]; }); ['simOpens','simHighConv'].forEach(function(k){ if (typeof sv[k] === 'boolean') accView[k] = sv[k]; }); if (['fixed','environment','vol','kelly','combined'].indexOf(accView.simMode) < 0) accView.simMode = 'fixed'; if (['notional','environment','contract'].indexOf(accView.basis) < 0) accView.basis = 'notional'; } catch (e){} })();
-  function accSaveView(){ try { localStorage.setItem('stonks-acc-view', JSON.stringify({ dataset:accView.dataset, basis:accView.basis, xtabA:accView.xtabA, xtabB:accView.xtabB, simMode:accView.simMode, simOpens:accView.simOpens, simHighConv:accView.simHighConv, mcIters:accView.mcIters })); } catch (e){} }
+  var accView = { dataset:'closed', basis:'notional', xtabA:'thesis', xtabB:'conviction', simMode:'fixed', simOpens:false, simHighConv:false, mcIters:'5000', mcSeed:1337, researchHorizon:'10', paperBook:'scale' };
+  (function(){ try { var sv = JSON.parse(localStorage.getItem('stonks-acc-view') || '{}'); ['dataset','basis','xtabA','xtabB','simMode','mcIters','researchHorizon','paperBook'].forEach(function(k){ if (sv[k] != null) accView[k] = sv[k]; }); ['simOpens','simHighConv'].forEach(function(k){ if (typeof sv[k] === 'boolean') accView[k] = sv[k]; }); if (['fixed','environment','vol','kelly','combined'].indexOf(accView.simMode) < 0) accView.simMode = 'fixed'; if (['notional','environment','contract'].indexOf(accView.basis) < 0) accView.basis = 'notional'; if (['5','10','14'].indexOf(String(accView.researchHorizon)) < 0) accView.researchHorizon = '10'; if (['scale','list','risk','cost'].indexOf(accView.paperBook) < 0) accView.paperBook = 'scale'; } catch (e){} })();
+  function accSaveView(){ try { localStorage.setItem('stonks-acc-view', JSON.stringify({ dataset:accView.dataset, basis:accView.basis, xtabA:accView.xtabA, xtabB:accView.xtabB, simMode:accView.simMode, simOpens:accView.simOpens, simHighConv:accView.simHighConv, mcIters:accView.mcIters, researchHorizon:accView.researchHorizon, paperBook:accView.paperBook })); } catch (e){} }
   // The active trade set. 'closed' = resolved only; 'all' = also include the
   // open book, each open position "resolved" at its CURRENT modeled mark
   // (win if green now). Clearly labelled as modeled wherever it's shown.
@@ -33726,8 +33744,8 @@ ${renderWorkspaceBindings()}
     var risk = '<div class="acc-an-subhead">Risk-adjusted &amp; drawdown <span class="acc-an-tag">return-on-risk basis</span></div><div class="accuracy-chips">' +
       chip(accNum(m.sharpe, 2), 'Sharpe' + (m.annualized ? ' (ann.)' : ' (per-trade)'), m.sharpe != null && m.sharpe > 0 ? 'accuracy-chip-good' : '', 'Mean ÷ std of per-trade return-on-risk' + (m.annualized ? ', annualized by trade frequency.' : ' (too few days to annualize).')) +
       chip(accNum(m.sortino, 2), 'Sortino', m.sortino != null && m.sortino > 0 ? 'accuracy-chip-good' : '', 'Like Sharpe but penalizes only downside volatility.') +
-      chip(accNum(m.calmar, 2), 'Calmar', m.calmar != null && m.calmar > 0 ? 'accuracy-chip-good' : '', 'Annualized return ÷ max drawdown %, on a ' + accMoney(m.base, false) + ' bankroll. Needs ≥20 trades over ≥45 days to annualize.') +
-      chip(m.maxDDpct != null ? '-' + Math.round(m.maxDDpct * 100) + '%' : '—', 'max drawdown', 'accuracy-chip-bad', 'Largest peak-to-trough drop in the equity curve (' + accMoney(m.maxDD, false) + ').') +
+      chip(accNum(m.calmar, 2), 'Calmar', m.calmar != null && m.calmar > 0 ? 'accuracy-chip-good' : '', 'Annualized return ÷ max drawdown %. Needs 20 trades and 365 calendar days from the first entry.') +
+      chip(m.maxDDpct > 0 ? '-' + Math.round(m.maxDDpct * 100) + '%' : 'none', 'max drawdown', m.maxDDpct > 0 ? 'accuracy-chip-bad' : '', 'Largest peak-to-trough drop in the equity curve (' + accMoney(m.maxDD, false) + ').') +
       chip(m.recovery != null ? m.recovery + ' trades' : (m.maxDD > 0 ? 'not yet' : '—'), 'recovery', '', 'Trades from the max-drawdown trough back above the prior peak.') +
       chip(m.pctMaxProfit != null ? Math.round(m.pctMaxProfit * 100) + '%' : '—', 'max-profit captured', '', 'Average share of a defined-risk winner\\'s max profit actually captured (' + m.pctMaxProfitN + ' trades; naked longs excluded — unbounded).') +
     '</div>';
@@ -33770,19 +33788,21 @@ ${renderWorkspaceBindings()}
     accPaneSummary('acc-sum-equity', [
       { val: accMoney(eqPnl, true), lbl: 'cumulative P&amp;L (modeled)', cls: accSignClass(eqPnl) },
       { val: accMoney(ec.finalEquity, false), lbl: 'final equity', tip: 'Running balance at ' + basisLbl + '.' + accDatasetTip() },
-      { val: '-' + Math.round(ec.maxDDpct * 100) + '%', lbl: 'max drawdown', cls: 'sig-neg', tip: 'Largest peak-to-trough drop in the curve (' + accMoney(ec.maxDD, false) + ').' },
+      { val: ec.maxDDpct > 0 ? '-' + Math.round(ec.maxDDpct * 100) + '%' : 'none', lbl: 'max drawdown', cls: ec.maxDDpct > 0 ? 'sig-neg' : '', tip: 'Largest peak-to-trough drop in the curve (' + accMoney(ec.maxDD, false) + ').' },
       { val: ec.curDD > 0 ? '-' + Math.round(ec.curDDpct * 100) + '%' : 'at highs', lbl: 'current drawdown', cls: ec.curDD > 0 ? 'sig-neg' : 'sig-pos' },
-      m.cagr != null ? { val: (m.cagr >= 0 ? '+' : '') + Math.round(m.cagr * 100) + '%', lbl: 'CAGR (ann.)', cls: m.cagr >= 0 ? 'sig-pos' : 'sig-neg' } : null,
+      ec.windowReturn != null ? { val: (ec.windowReturn >= 0 ? '+' : '') + Math.round(ec.windowReturn * 100) + '%', lbl: 'window return', cls: ec.windowReturn >= 0 ? 'sig-pos' : 'sig-neg', tip: 'Change from the starting bankroll to the last close. This curve adds each trade onto one balance. It is not a funded account.' } : null,
+      { val: m.cagr != null ? (m.cagr >= 0 ? '+' : '') + Math.round(m.cagr * 100) + '%' : '—', lbl: 'CAGR (ann.)', cls: m.cagr != null && m.cagr >= 0 ? 'sig-pos' : '', tip: m.cagr != null ? 'Annualized only after 365 calendar days from the first entry to the last close.' : 'Withheld until the first entry and the last close are 365 calendar days apart.' },
     ], eqTake);
-    function chip(num, lbl, cls){ return '<div class="accuracy-chip' + (cls ? ' ' + cls : '') + '"><span class="accuracy-chip-num">' + num + '</span><span class="accuracy-chip-lbl">' + lbl + '</span></div>'; }
+    function chip(num, lbl, cls, tip){ return '<div class="accuracy-chip' + (cls ? ' ' + cls : '') + '"' + (tip ? ' title="' + escapeHtml(tip) + '"' : '') + '><span class="accuracy-chip-num">' + num + '</span><span class="accuracy-chip-lbl">' + lbl + '</span></div>'; }
     var tiles = '<div class="accuracy-chips">' +
       chip(accMoney(ec.finalEquity, false), 'final equity', '') +
       chip(accMoney(ec.finalEquity - ec.base, true), 'cumulative P&L', accSignClass(ec.finalEquity - ec.base) === 'sig-pos' ? 'accuracy-chip-good' : 'accuracy-chip-bad') +
       chip(accMoney(ec.peak, false), 'peak equity', '') +
-      chip('-' + accMoney(ec.maxDD, false) + ' / ' + Math.round(ec.maxDDpct * 100) + '%', 'max drawdown', 'accuracy-chip-bad') +
+      chip(ec.maxDD > 0 ? '-' + accMoney(ec.maxDD, false) + ' / ' + Math.round(ec.maxDDpct * 100) + '%' : 'none', 'max drawdown', ec.maxDD > 0 ? 'accuracy-chip-bad' : '') +
       chip(ec.curDD > 0 ? '-' + accMoney(ec.curDD, false) + ' / ' + Math.round(ec.curDDpct * 100) + '%' : 'at highs', 'current drawdown', ec.curDD > 0 ? 'accuracy-chip-bad' : 'accuracy-chip-good') +
-      chip(ec.recovery != null ? ec.recovery + ' trades' : (ec.maxDD > 0 ? 'not yet' : '—'), 'recovery periods', '') +
-      chip(m.cagr != null ? (m.cagr >= 0 ? '+' : '') + Math.round(m.cagr * 100) + '%' : '—', 'CAGR (ann.)', m.cagr != null && m.cagr >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad') +
+      chip(ec.recovery != null ? ec.recovery + ' trades' : (ec.maxDD > 0 ? 'not yet' : '—'), 'trades to recover', 'Length of the single worst drawdown, in trades, until equity reclaimed that peak.') +
+      chip(ec.windowReturn != null ? (ec.windowReturn >= 0 ? '+' : '') + Math.round(ec.windowReturn * 100) + '%' : '—', 'window return', ec.windowReturn >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad', 'Change from the starting bankroll to the last close.') +
+      chip(m.cagr != null ? (m.cagr >= 0 ? '+' : '') + Math.round(m.cagr * 100) + '%' : '—', 'CAGR (ann.)', m.cagr != null && m.cagr >= 0 ? 'accuracy-chip-good' : '', m.cagr != null ? 'Annualized from the first entry to the last close.' : 'Withheld until that span is 365 calendar days. Read the window return.') +
     '</div>';
     box.innerHTML = toggles +
       '<p class="hint acc-an-lead">Running cumulative P&L, ordered by resolution date · ' + escapeHtml(basisLbl) + '.' + accDatasetTip() + '</p>' +
@@ -33878,14 +33898,14 @@ ${renderWorkspaceBindings()}
     accPaneSummary('acc-sum-sim', [
       { val: (ret >= 0 ? '+' : '') + ret.toFixed(1) + '%', lbl: 'total return', cls: ret >= 0 ? 'sig-pos' : 'sig-neg' },
       { val: accMoney(sim.finalEquity, false), lbl: 'final equity', tip: 'Started at $' + ACC_SIM_START.toLocaleString() + ' under the ' + accBtModeLabel(mode) + ' run mode.' },
-      { val: '-' + Math.round(sim.maxDDpct * 100) + '%', lbl: 'max drawdown', cls: 'sig-neg' },
+      { val: sim.maxDDpct > 0 ? '-' + Math.round(sim.maxDDpct * 100) + '%' : 'none', lbl: 'max drawdown', cls: sim.maxDDpct > 0 ? 'sig-neg' : '' },
       { val: accPctRate(sim.winRate), lbl: 'win rate', cls: sim.winRate != null && sim.winRate >= 0.5 ? 'sig-pos' : '' },
       { val: String(sim.nTaken), lbl: 'trades taken' + (sim.nSkipped ? ' · ' + sim.nSkipped + ' skipped' : '') },
     ], simTake);
     var tiles = '<div class="accuracy-chips">' +
       chip(accMoney(sim.finalEquity, false), 'final equity', ret >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad') +
       chip((ret >= 0 ? '+' : '') + ret.toFixed(1) + '%', 'total return', ret >= 0 ? 'accuracy-chip-good' : 'accuracy-chip-bad') +
-      chip('-' + accMoney(sim.maxDD, false) + ' / ' + Math.round(sim.maxDDpct * 100) + '%', 'max drawdown', 'accuracy-chip-bad') +
+      chip(sim.maxDD > 0 ? '-' + accMoney(sim.maxDD, false) + ' / ' + Math.round(sim.maxDDpct * 100) + '%' : 'none', 'max drawdown', sim.maxDD > 0 ? 'accuracy-chip-bad' : '') +
       chip(sim.curDD > 0 ? '-' + Math.round(sim.curDDpct * 100) + '%' : 'at highs', 'current drawdown', sim.curDD > 0 ? '' : 'accuracy-chip-good') +
       chip(accPctRate(sim.winRate), 'win rate', sim.winRate != null && sim.winRate >= 0.5 ? 'accuracy-chip-good' : '') +
       chip(accPF(sim.profitFactor), 'profit factor', sim.profitFactor != null && (sim.profitFactor === Infinity || sim.profitFactor >= 1.5) ? 'accuracy-chip-good' : '') +
@@ -34064,6 +34084,131 @@ ${renderWorkspaceBindings()}
     box.innerHTML = banner + controls + lead + '<p class="hint acc-an-note">' + res.iters.toLocaleString() + ' simulations · horizon ' + res.horizon + ' trades · pool ' + res.poolN + '.</p>' + cards + hist + fan + ptab + anomHtml;
   }
 
+  // Grade edge and paper books. The numbers are computed in lib/grade-research.mjs
+  // at bake time from stored grades and daily closes. This view only renders them.
+  function accResearchPct(n, digits){
+    if (n == null || !isFinite(Number(n))) return '—';
+    var v = Number(n);
+    var d = digits == null ? 1 : digits;
+    return (v > 0 ? '+' : '') + v.toFixed(d) + '%';
+  }
+  function accResearchIc(n){
+    if (n == null || !isFinite(Number(n))) return '—';
+    var v = Number(n);
+    return (v > 0 ? '+' : '') + v.toFixed(3);
+  }
+  function renderGradeEdge(){
+    var box = $('an-research'); if (!box) return;
+    var report = accuracyState.research;
+    var horizon = String(accView.researchHorizon || '10');
+    var toggles = '<div class="acc-controls"><div class="acc-ctl"><span class="acc-ctl-lbl">Horizon</span>' +
+      accSeg('researchHorizon', 'acc-hz', horizon, [{ value:'5', label:'5 days' }, { value:'10', label:'10 days' }, { value:'14', label:'14 days' }]) +
+      '</div></div>';
+    if (!report || !report.horizons){
+      accPaneSummary('acc-sum-research', []);
+      box.innerHTML = toggles + '<p class="muted acc-an-note">The grade-edge report appears after the next bake. It is computed from stored daily grades and stored daily closes. It does not call a model.</p>';
+      return;
+    }
+    var h = report.horizons[horizon] || {};
+    var kill = report.killLine || {};
+    var q = h.quintiles || [];
+    var residual = h.residual || {};
+    var delay = h.delay || {};
+    var placebo = h.placebo || {};
+    var overlap = h.overlapping || {};
+    var apart = h.nonOverlapping || {};
+    accPaneSummary('acc-sum-research', [
+      { val: kill.established ? 'Established' : 'Not established', lbl: 'edge claim', cls: kill.established ? 'sig-pos' : '' },
+      { val: String(apart.days == null ? '—' : apart.days), lbl: horizon + '-day windows' },
+      { val: accResearchPct(residual.nonOverlappingSpreadPct, 2), lbl: 'residual spread', cls: residual.nonOverlappingSpreadPct == null ? '' : (residual.nonOverlappingSpreadPct > 0 ? 'sig-pos' : 'sig-neg') },
+      { val: placebo.above95 ? 'Above shuffle' : 'Inside shuffle', lbl: 'placebo', cls: placebo.above95 ? 'sig-pos' : '' },
+    ], escapeHtml(kill.reason || ''));
+    var qRows = '';
+    for (var i = 0; i < q.length; i++){
+      var bin = q[i];
+      qRows += '<tr><td>' + escapeHtml(bin.label) + '</td><td>' + (bin.n || 0) + '</td><td class="' + (bin.meanFwdPct > 0 ? 'sig-pos' : 'sig-neg') + '">' + accResearchPct(bin.meanFwdPct, 2) + '</td><td>' + (bin.hitRate == null ? '—' : Math.round(bin.hitRate * 100) + '%') + '</td></tr>';
+    }
+    var ladder = q.length
+      ? '<div class="acc-an-subhead">Quintile ladder</div><p class="hint acc-research-note">Each day the universe is split into five grade bins. The figure is the average of those daily mean forward stock returns. A scale that ranks direction rises from Q1 to Q5. Ordered on this sample: ' + (h.quintileOrdered ? 'yes' : 'no') + '.</p><div class="acc-tscroll"><table class="acc-qtable"><thead><tr><th>Bin</th><th>Name-days</th><th>Mean forward return</th><th>Closes higher</th></tr></thead><tbody>' + qRows + '</tbody></table></div>'
+      : '<p class="muted acc-an-note">Not enough names with a realized forward close for this horizon.</p>';
+    box.innerHTML = toggles +
+      '<p class="hint acc-research-note">The grade is judged on the stock, ' + horizon + ' trading days later, across the whole stored universe. Option exits are not used. ' + (report.sample ? (report.sample.snapshotDays + ' snapshot days, ' + report.sample.names + ' priced names' + (report.sample.first ? ', ' + report.sample.first + ' to ' + report.sample.last : '') + '. ') : '') + escapeHtml((report.method && report.method.note) || '') + '</p>' +
+      ladder +
+      '<div class="acc-an-subhead">Residual return</div><p class="hint acc-research-note">Forward return minus trailing beta times the SPY forward return, then demeaned inside the sector. Beta uses only closes up to the snapshot. The spread is the top grade decile minus the bottom grade decile.</p>' +
+      '<div class="accuracy-chips">' +
+        '<div class="accuracy-chip"><span class="accuracy-chip-num">' + accResearchIc(residual.nonOverlappingIc) + '</span><span class="accuracy-chip-lbl">residual IC, non-overlapping</span></div>' +
+        '<div class="accuracy-chip"><span class="accuracy-chip-num">' + accResearchPct(residual.nonOverlappingSpreadPct, 2) + '</span><span class="accuracy-chip-lbl">residual spread, non-overlapping</span></div>' +
+        '<div class="accuracy-chip"><span class="accuracy-chip-num">' + accResearchPct(residual.meanSpreadPct, 2) + '</span><span class="accuracy-chip-lbl">residual spread, every day</span></div>' +
+      '</div>' +
+      '<div class="acc-an-subhead">Non-overlapping windows</div><p class="hint acc-research-note">A ' + horizon + '-day return measured every session is one bet repeated. The headline count steps forward ' + horizon + ' trading days on SPY. The every-day figure is shown beside it and is not the sample size.</p>' +
+      '<div class="accuracy-chips">' +
+        '<div class="accuracy-chip"><span class="accuracy-chip-num">' + accResearchIc(apart.meanIc) + '</span><span class="accuracy-chip-lbl">IC, ' + (apart.days || 0) + ' windows</span></div>' +
+        '<div class="accuracy-chip"><span class="accuracy-chip-num">' + (apart.tStat == null ? '—' : Number(apart.tStat).toFixed(2)) + '</span><span class="accuracy-chip-lbl">t-stat, non-overlapping</span></div>' +
+        '<div class="accuracy-chip"><span class="accuracy-chip-num">' + accResearchIc(overlap.meanIc) + '</span><span class="accuracy-chip-lbl">IC, every day (' + (overlap.days || 0) + ')</span></div>' +
+      '</div>' +
+      '<div class="acc-an-subhead">One-day delay</div><p class="hint acc-research-note">The same test, entered at the next close. A signal that only exists if you are filled at the snapshot close does not survive this.</p>' +
+      '<div class="accuracy-chips">' +
+        '<div class="accuracy-chip"><span class="accuracy-chip-num">' + accResearchIc(delay.nonOverlappingIc) + '</span><span class="accuracy-chip-lbl">delayed IC, non-overlapping</span></div>' +
+        '<div class="accuracy-chip"><span class="accuracy-chip-num">' + accResearchPct(delay.nonOverlappingSpreadPct, 2) + '</span><span class="accuracy-chip-lbl">delayed decile spread</span></div>' +
+        '<div class="accuracy-chip"><span class="accuracy-chip-num">' + accResearchIc(overlap.meanIc) + '</span><span class="accuracy-chip-lbl">same-close IC, every day</span></div>' +
+      '</div>' +
+      '<div class="acc-an-subhead">Placebo</div><p class="hint acc-research-note">Grades are shuffled inside each day and the non-overlapping mean IC is recomputed. The live number has to sit above 95% of those shuffles. Seeded, so the band does not move between reloads.</p>' +
+      '<div class="accuracy-chips">' +
+        '<div class="accuracy-chip"><span class="accuracy-chip-num">' + accResearchIc(placebo.liveMeanIc) + '</span><span class="accuracy-chip-lbl">live mean IC</span></div>' +
+        '<div class="accuracy-chip"><span class="accuracy-chip-num">' + accResearchIc(placebo.p05) + '</span><span class="accuracy-chip-lbl">shuffle 5th percentile</span></div>' +
+        '<div class="accuracy-chip"><span class="accuracy-chip-num">' + accResearchIc(placebo.p95) + '</span><span class="accuracy-chip-lbl">shuffle 95th percentile</span></div>' +
+      '</div>';
+  }
+  function renderPaperBooks(){
+    var box = $('an-books'); if (!box) return;
+    var report = accuracyState.research;
+    var id = accView.paperBook || 'scale';
+    var toggles = '<div class="acc-controls"><div class="acc-ctl"><span class="acc-ctl-lbl">Book</span>' +
+      accSeg('paperBook', 'acc-bk', id, [
+        { value:'scale', label:'Grade scale' },
+        { value:'list', label:'Actionable list' },
+        { value:'risk', label:'Risk budget' },
+        { value:'cost', label:'Cost and delay' },
+      ]) + '</div></div>';
+    if (!report || !Array.isArray(report.books)){
+      accPaneSummary('acc-sum-books', []);
+      box.innerHTML = toggles + '<p class="muted acc-an-note">Paper books appear after the next bake, from the same stored grades and closes. Nothing here places an order or calls a model.</p>';
+      return;
+    }
+    var book = null;
+    for (var i = 0; i < report.books.length; i++) if (report.books[i].id === id) book = report.books[i];
+    if (!book) book = report.books[0];
+    var skipped = book.skipped || {};
+    var skipBits = [];
+    if (skipped.pending) skipBits.push(skipped.pending + ' still inside the hold');
+    if (skipped.stop) skipBits.push(skipped.stop + ' had no stock stop');
+    if (skipped.slot) skipBits.push(skipped.slot + ' skipped for the position cap');
+    if (skipped.sector) skipBits.push(skipped.sector + ' skipped for the sector cap');
+    if (skipped.gross) skipBits.push(skipped.gross + ' skipped for the gross cap');
+    if (skipped.flat) skipBits.push(skipped.flat + ' skipped after a 20% drawdown');
+    if (skipped.data) skipBits.push(skipped.data + ' had no price');
+    accPaneSummary('acc-sum-books', [
+      { val: accResearchPct(book.returnPct, 1), lbl: 'return since start', cls: book.returnPct > 0 ? 'sig-pos' : (book.returnPct < 0 ? 'sig-neg' : '') },
+      { val: book.maxDrawdownPct > 0 ? '-' + book.maxDrawdownPct + '%' : 'none', lbl: 'max drawdown', cls: book.maxDrawdownPct > 0 ? 'sig-neg' : '' },
+      { val: String(book.trades || 0), lbl: book.id === 'scale' ? 'cohorts' : 'positions' },
+      { val: book.cagr == null ? '—' : accResearchPct(book.cagr * 100, 0), lbl: 'CAGR (ann.)', tip: 'Blank until this curve covers 365 calendar days.' },
+    ], 'Paper $' + (book.start || 100000).toLocaleString() + '. ' + (book.spanDays ? book.spanDays + ' calendar days in the curve.' : ''));
+    var stress = '';
+    if (book.optionStress){
+      var os = book.optionStress;
+      stress = '<div class="acc-an-subhead">Option stress on the taken names</div><p class="hint acc-research-note">' + escapeHtml(os.note || '') + '</p><div class="accuracy-chips">' +
+        '<div class="accuracy-chip"><span class="accuracy-chip-num">' + accResearchPct(os.unchangedPct, 1) + '</span><span class="accuracy-chip-lbl">IV unchanged · n=' + (os.n || 0) + '</span></div>' +
+        '<div class="accuracy-chip"><span class="accuracy-chip-num">' + accResearchPct(os.ivDown20Pct, 1) + '</span><span class="accuracy-chip-lbl">exit IV down 20%</span></div>' +
+        '<div class="accuracy-chip"><span class="accuracy-chip-num">' + accResearchPct(os.spreadCapPct, 1) + '</span><span class="accuracy-chip-lbl">12% spread-cap bound</span></div>' +
+      '</div>';
+    }
+    box.innerHTML = toggles +
+      '<p class="hint acc-research-note">' + escapeHtml(book.rule || '') + '</p>' +
+      (skipBits.length ? '<p class="hint acc-research-note">' + escapeHtml(skipBits.join(' · ')) + '.</p>' : '') +
+      accEquitySvg((book.curve || []).map(function(p){ return { value: p.value, date: p.date }; }), { formatValue: function(v){ return accMoney(v, false); } }) +
+      stress;
+  }
+
   // re-render the toggle-driven analytics views (not Monte Carlo — button-run)
   function accRerenderAnalytics(){
     if (!accuracyState.data) return;
@@ -34071,7 +34216,7 @@ ${renderWorkspaceBindings()}
     // button-run, so it is intentionally NOT re-rendered here — a toggle on
     // another sub-tab must not wipe a completed MC run. renderAccuracy seeds its
     // intro on first load.
-    renderProfitBlock(); renderEquityView(); renderBreakdowns(); renderSimulation();
+    renderProfitBlock(); renderEquityView(); renderBreakdowns(); renderSimulation(); renderGradeEdge(); renderPaperBooks();
   }
   // one delegated listener for every analytics control (segmented/checkbox/select/button)
   function bindAccuracyControls(){
@@ -34305,7 +34450,7 @@ ${renderWorkspaceBindings()}
   // news. Independent of tracked picks, so it renders regardless of open/closed.
   function renderPicksChangeLog(){
     var el = $('accuracy-picks-changes'); if (!el) return;
-    var changes = accuracyState.picksChanges;
+    var changes = accSortByDate(accuracyState.picksChanges);
     if (!Array.isArray(changes) || !changes.length){ el.innerHTML = ''; return; }
     var MAX_ROWS = 40;
     var rows = '';
@@ -34343,9 +34488,14 @@ ${renderWorkspaceBindings()}
   // appears when its tier flips OR its score moves >= the build-side threshold.
   // Independent of tracked picks, so it renders in its own container regardless
   // of whether any picks are open/closed.
+  function accSortByDate(list){
+    return (list || []).slice().sort(function(a, b){
+      return (Date.parse(b && b.date) || 0) - (Date.parse(a && a.date) || 0);
+    });
+  }
   function renderGradeChangeLog(){
     var el = $('accuracy-grade-log'); if (!el) return;
-    var changes = accuracyState.gradeChanges;
+    var changes = accSortByDate(accuracyState.gradeChanges);
     if (!Array.isArray(changes) || !changes.length){ el.innerHTML = ''; return; }
     var MAX_ROWS = 40;
     var rows = '';
@@ -34381,11 +34531,11 @@ ${renderWorkspaceBindings()}
   // One strip over both Activity logs: the grade-move balance, the
   // conviction-bar churn, and the most recent event across the two.
   function renderActivitySummary(){
-    var gch = Array.isArray(accuracyState.gradeChanges) ? accuracyState.gradeChanges : [];
-    var pch = Array.isArray(accuracyState.picksChanges) ? accuracyState.picksChanges : [];
+    var gch = accSortByDate(accuracyState.gradeChanges);
+    var pch = accSortByDate(accuracyState.picksChanges);
     if (!gch.length && !pch.length){ accPaneSummary('acc-sum-activity', []); return; }
     var up = 0, down = 0;
-    gch.forEach(function(c){ if (c.direction === 'up') up++; else down++; });
+    gch.forEach(function(c){ if (c.direction === 'up') up++; else if (c.direction === 'down') down++; });
     var inn = 0, out = 0;
     pch.forEach(function(c){ if (c.event === 'entered') inn++; else out++; });
     // Most recent event across both logs (each is newest-first).
@@ -34498,6 +34648,8 @@ ${renderWorkspaceBindings()}
     renderBreakdowns();
     renderSimulation();
     renderMonteCarlo(accView.mcRan === true);  // re-render a completed run (deterministic) instead of wiping it
+    renderGradeEdge();
+    renderPaperBooks();
     if (d.loadError){
       // Surface the error on the default (Scorecard) pane — accuracy-root now
       // lives in the hidden Picks pane, so an error written only there would be
@@ -34566,7 +34718,7 @@ ${renderWorkspaceBindings()}
     }
     if (st.optionExpectancyPct != null) {
       chips += '<div class="accuracy-chip' + (st.optionExpectancyPct >= 0 ? ' accuracy-chip-good' : ' accuracy-chip-bad') +
-        '" title="' + optTip + ' The gap vs the stock-move expectancy is the theta / IV-crush / spread tax.">' +
+        '" title="' + optTip + '">' +
         '<span class="accuracy-chip-num">' + accPct(st.optionExpectancyPct) + '</span>' +
         '<span class="accuracy-chip-lbl">expectancy · option (modeled)</span>' +
       '</div>';
@@ -34642,7 +34794,7 @@ ${renderWorkspaceBindings()}
       var ratioCls = (ratio != null && ratio >= 1) ? 'sig-pos' : '';
       var payoffTip = 'Average winning trade vs average losing trade, ' + (useOptPayoff ? 'on the modeled contract P&L.' : 'on the side-adjusted underlying move.') + ' The wider the green side relative to the red, the more each winner outweighs each loser.';
       payoffBlock = '<div class="accuracy-payoff">' +
-        '<div class="accuracy-tiers-head">Win / loss size <span class="payoff-tag" title="' + (useOptPayoff ? 'Modeled contract P&L (Black-Scholes, enter at ask / exit at bid).' : 'Side-adjusted underlying move — no contract snapshot on these picks.') + '">' + payoffTag + '</span></div>' +
+        '<div class="accuracy-tiers-head">Win / loss size <span class="payoff-tag" title="' + (useOptPayoff ? ACC_MODEL_TIP : 'Side-adjusted underlying move. These picks have no contract snapshot.') + '">' + payoffTag + '</span></div>' +
         '<div class="payoff-bar" title="' + payoffTip + '">' +
           '<div class="payoff-bar-side payoff-bar-loss"><i style="width:' + lossW + '%"></i></div>' +
           '<div class="payoff-bar-side payoff-bar-win"><i style="width:' + winW + '%"></i></div>' +
@@ -34726,8 +34878,9 @@ ${renderWorkspaceBindings()}
       var favorableStock = isCall ? chg >= 0 : chg <= 0;
       var optPnl = Number(e.optionPnlPct);
       var haveOpt = isFinite(optPnl);                                // modeled live contract mark
-      var expMs = Number(e.contract && e.contract.expiry) * 1000;
-      var dleft = isFinite(expMs) ? Math.round((expMs - nowMs) / 86400000) : (e.contract && e.contract.dte);
+      var expSec = Number(e.contract && e.contract.expiry);
+      var closeSec = isFinite(expSec) && expSec > 0 ? chainExpiryCloseEpochSec(expSec) : NaN;
+      var dleft = isFinite(closeSec) ? Math.round((closeSec * 1000 - nowMs) / 86400000) : (e.contract && e.contract.dte);
       // Number(null) is 0 — a null level (a credit spread with no computable
       // stock-level TP) must drop the chip, not render "TP $0.00".
       var tp = e.takeProfit != null ? Number(e.takeProfit) : NaN, ct = e.cut != null ? Number(e.cut) : NaN;
@@ -34738,7 +34891,7 @@ ${renderWorkspaceBindings()}
       // Lead with the modeled CONTRACT P&L — the engine trades the option, so that
       // is the honest mark; the underlying move rides as context on the meta line.
       var headPnl = haveOpt
-        ? '<span class="acc-since ' + (optPnl >= 0 ? 'sig-pos' : 'sig-neg') + '" title="Modeled contract P&L since entry (Black-Scholes, enter at ask / exit at bid, IV decayed toward HV, earnings crush). No options-price feed — a model, not a realized fill.">' + accPct(optPnl) + ' <span class="acc-since-tag">contract</span></span>'
+        ? '<span class="acc-since ' + (optPnl >= 0 ? 'sig-pos' : 'sig-neg') + '" title="' + ACC_MODEL_TIP + '">' + accPct(optPnl) + ' <span class="acc-since-tag">contract</span></span>'
         : '<span class="acc-since ' + (favorableStock ? 'sig-pos' : 'sig-neg') + '">' + accPct(chg) + ' <span class="acc-since-tag">stock</span></span>';
       // Contract peak/dip when we have the modeled marks, else the underlying excursion.
       var peakDip = (isFinite(e.optHiPct) || isFinite(e.optLoPct))
@@ -34750,7 +34903,7 @@ ${renderWorkspaceBindings()}
           '<span class="acc-sym">' + escapeHtml(e.symbol || '—') + '</span>' +
           (desc ? '<span class="acc-contract">' + escapeHtml(desc) + '</span>' : '') +
           accTierTag(e.tier, e.label) +
-          '<span class="acc-score">' + ((e.score >= 0 ? '+' : '') + (e.score != null ? (Math.round(Number(e.score) * 10) / 10) : '—')) + '</span>' +
+          '<span class="acc-score">' + accScoreText(e.score) + '</span>' +
           headPnl +
         '</div>' +
         '<div class="acc-row-meta">' +
@@ -34824,7 +34977,7 @@ ${renderWorkspaceBindings()}
       // Lead the resolved row with the modeled CONTRACT result (what the trade
       // actually returned), underlying entry→exit demoted to context.
       var rHeadPnl = rHaveOpt
-        ? '<span class="acc-since ' + (rOptPnl >= 0 ? 'sig-pos' : 'sig-neg') + '" title="Modeled contract P&L at exit (Black-Scholes, enter at ask / exit at bid). The realized result for this trade.">' + accPct(rOptPnl) + ' <span class="acc-since-tag">contract</span></span>'
+        ? '<span class="acc-since ' + (rOptPnl >= 0 ? 'sig-pos' : 'sig-neg') + '" title="' + ACC_MODEL_TIP + '">' + accPct(rOptPnl) + ' <span class="acc-since-tag">contract</span></span>'
         : '';
       var exitLbl = ACC_STATUS_LABEL[e.status] || e.status || null;
       return '<div class="acc-row acc-row-closed acc-outcome-' + oc + '">' +
@@ -34833,7 +34986,7 @@ ${renderWorkspaceBindings()}
           accSidePill(e.side) +
           '<span class="acc-sym">' + escapeHtml(e.symbol || '—') + '</span>' +
           accTierTag(e.tier, e.label) +
-          '<span class="acc-score">' + ((e.score >= 0 ? '+' : '') + (e.score != null ? (Math.round(Number(e.score) * 10) / 10) : '—')) + '</span>' +
+          '<span class="acc-score">' + accScoreText(e.score) + '</span>' +
           '<span class="acc-grade">' + escapeHtml(e.grade || '') + '</span>' +
           rHeadPnl +
         '</div>' +

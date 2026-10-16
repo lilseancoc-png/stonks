@@ -359,6 +359,8 @@ try {
     assert.equal(isPremiumKey(key), true);
     assert.deepEqual(roleClaimForKey(key), ["tr", "tp"], `${key} must require both Owner claims`);
   }
+  assert.equal(isPremiumKey("grade-research.json"), true);
+  assert.deepEqual(roleClaimForKey("grade-research.json"), ["tr", "tp"]);
   const watchlistSource = await readFile(resolve("api/watchlist.js"), "utf8");
   assert.match(watchlistSource, /session\.tr !== true \|\| session\.tp !== true/);
   assert.doesNotMatch(watchlistSource, /session\.tp === false/);
