@@ -16356,7 +16356,7 @@ ${renderWorkspaceBindings()}
   // daily closes, then renders a metric table with the per-row leader, deltas
   // vs the first (base) name, and a plain-language summary. Pure browser tool —
   // no premium gate and no live polling.
-  var compareState = { inited: false, tickers: [], cache: {}, grades: null, gradesLoading: false, range: '3m' };
+  var compareState = { inited: false, tickers: [], cache: {}, grades: null, gradesLoading: false, range: '3m', ivHist: {}, fundHist: {}, window: null };
   var CMP_MAX = 4;
   var CMP_MEGA4 = ['AAPL','MSFT','GOOGL','AMZN'];
   // Daily-session windows. The chart intersects normalized YYYY-MM-DD keys
@@ -16364,47 +16364,320 @@ ${renderWorkspaceBindings()}
   // exact same baseline and every point is a true like-for-like session.
   var CMP_RANGE_BARS = { '1m': 21, '3m': 63, '6m': 126, '1y': 252 };
   var CMP_RANGE_LABELS = { '1m': '1 month', '3m': '3 months', '6m': '6 months', '1y': '1 year' };
-  // Metric rows. get(j) reads from the per-ticker json (j.fundamentals, j.spot,
-  // j._grade = the grades.json entry). better = which direction wins the row
-  // (for the leader highlight); deltaKind controls how the vs-base diff reads.
+  // Metric rows. get(j) reads the per-ticker json (j.fundamentals, j.spot,
+  // j._grade = the grades.json entry). better = which direction wins the row.
+  // dual rows show the number gap and the percent gap versus the reference.
+  function cmpNumField(read){
+    return function(j){ var v = read(j); return cmpIsNum(v) ? Number(v) : null; };
+  }
   function cmpMetricRows(){
     function F(j){ return (j && j.fundamentals) || {}; }
     function upside(j){ var f = F(j); return (f.targetMeanPrice != null && j.spot > 0) ? (f.targetMeanPrice / j.spot - 1) * 100 : null; }
+    function daysTo(dateStr){
+      if (!dateStr || String(dateStr).length < 10) return null;
+      var today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+      var a = Date.parse(String(dateStr).slice(0, 10) + 'T00:00:00Z');
+      var b = Date.parse(today + 'T00:00:00Z');
+      if (!isFinite(a) || !isFinite(b)) return null;
+      return Math.round((a - b) / 86400000);
+    }
+    var windowGroup = 'Chart window · ' + (CMP_RANGE_LABELS[compareState.range] || '3 months');
     return [
-      { key:'grade', label:'Our grade (4-pillar)', get:function(j){ return j._grade ? j._grade.total : null; }, fmt:'grade', better:'high', deltaKind:'pts' },
-      { key:'spot', label:'Share price', get:function(j){ return j.spot; }, fmt:'usd2', better:null, deltaKind:'none' },
-      { key:'drawdown52', label:'Below 52-week high', get:function(j){ var hi=F(j).fiftyTwoWeekHigh; return hi > 0 && j.spot > 0 ? (1-j.spot/hi)*100 : null; }, fmt:'pct', better:null, deltaKind:'pp' },
-      { key:'freeCashFlow', label:'Free cash flow', get:function(j){ return F(j).freeCashFlow; }, fmt:'big', better:null, deltaKind:'none' },
-      { key:'fcfYield', label:'FCF / market cap', get:function(j){ var f=F(j); return f.freeCashFlow != null && f.marketCap > 0 ? f.freeCashFlow/f.marketCap*100 : null; }, fmt:'pct', better:'high', deltaKind:'pp' },
-      { key:'marketCap', label:'Market cap', get:function(j){ return F(j).marketCap; }, fmt:'big', better:'high', deltaKind:'pct' },
-      { key:'trailingPE', label:'P/E (trailing)', get:function(j){ return F(j).trailingPE; }, fmt:'x', better:'low', deltaKind:'pct' },
-      { key:'forwardPE', label:'P/E (forward)', get:function(j){ return F(j).forwardPE; }, fmt:'x', better:'low', deltaKind:'pct' },
-      { key:'pegRatio', label:'PEG ratio', get:function(j){ return F(j).pegRatio; }, fmt:'x2', better:'low', deltaKind:'pct' },
-      { key:'priceToSales', label:'Price / sales', get:function(j){ return F(j).priceToSales; }, fmt:'x', better:'low', deltaKind:'pct' },
-      { key:'revenue', label:'Revenue (TTM)', get:function(j){ return F(j).revenue; }, fmt:'big', better:'high', deltaKind:'pct' },
-      { key:'revenueGrowthYoy', label:'Revenue growth (YoY)', get:function(j){ return F(j).revenueGrowthYoy; }, fmt:'pct', better:'high', deltaKind:'pp' },
-      { key:'earningsGrowthYoy', label:'EPS growth (YoY)', get:function(j){ return F(j).earningsGrowthYoy; }, fmt:'pct', better:'high', deltaKind:'pp' },
-      { key:'grossMargin', label:'Gross margin', get:function(j){ return F(j).grossMargin; }, fmt:'pct', better:'high', deltaKind:'pp' },
-      { key:'operatingMargin', label:'Operating margin', get:function(j){ return F(j).operatingMargin; }, fmt:'pct', better:'high', deltaKind:'pp' },
-      { key:'profitMargin', label:'Net margin', get:function(j){ return F(j).profitMargin; }, fmt:'pct', better:'high', deltaKind:'pp' },
-      { key:'returnOnEquity', label:'Return on equity', get:function(j){ return F(j).returnOnEquity; }, fmt:'pct', better:'high', deltaKind:'pp' },
-      { key:'dividendYield', label:'Dividend yield', get:function(j){ return F(j).dividendYield; }, fmt:'pct', better:'high', deltaKind:'pp' },
-      { key:'debtToEquity', label:'Debt / equity (%)', get:function(j){ return F(j).debtToEquity; }, fmt:'pct', better:'low', deltaKind:'pp' },
-      { key:'beta', label:'Beta', get:function(j){ return F(j).beta; }, fmt:'x2', better:null, deltaKind:'none' },
-      { key:'analystUpside', label:'Analyst upside', get:function(j){ return upside(j); }, fmt:'pct', better:'high', deltaKind:'pp' },
+      { key:'winRet', group:windowGroup, label:'Price return', hint:'Close-to-close return over the same shared sessions the chart is drawing. This row follows the 1M, 3M, 6M, and 1Y buttons.', get:function(j){ return cmpWin(j, 'ret'); }, fmt:'pct', better:null, dual:true },
+      { key:'winRv', group:windowGroup, label:'Realized volatility', hint:'Annualized realized volatility from the daily closes inside this chart window.', get:function(j){ return cmpWin(j, 'rv'); }, fmt:'pct', better:'low', dual:true },
+      { key:'winAvgVol', group:windowGroup, label:'Average daily volume', hint:'Average daily share volume across the sessions in this chart window.', get:function(j){ return cmpWin(j, 'avgVol'); }, fmt:'vol', better:null, dual:true },
+      { key:'winTurn', group:windowGroup, label:'Window volume / shares out', hint:'That window\\'s average daily volume divided by current shares outstanding.', get:function(j){ return cmpWin(j, 'turnover'); }, fmt:'pct2', better:null, dual:true },
+      { key:'winRange', group:windowGroup, label:'Position in window range', hint:'Where the last close sits between this window\\'s low and high. 100% is the high.', get:function(j){ return cmpWin(j, 'rangePos'); }, fmt:'pct0', better:null, dual:true },
+      { key:'winIv', group:windowGroup, label:'Implied vol change', hint:'Change in stored at-the-money IV, in percentage points, from the saved sample at the start of this window to the latest sample inside it. Hidden until that history covers the window.', get:function(j){ return cmpSeriesChange(j, compareState.ivHist, 'iv', true); }, fmt:'pp', better:null, dual:true },
+      { key:'winPe', group:windowGroup, label:'Trailing P/E change', hint:'Change in trailing P/E, in points, from the saved snapshot at the start of this window to the latest saved snapshot. Hidden until that history covers the window.', get:function(j){ return cmpSeriesChange(j, compareState.fundHist, 'pe', false); }, fmt:'num1', better:null, dual:true },
+      { key:'winFpe', group:windowGroup, label:'Forward P/E change', hint:'Change in forward P/E, in points, across the saved snapshots inside this window.', get:function(j){ return cmpSeriesChange(j, compareState.fundHist, 'fpe', false); }, fmt:'num1', better:null, dual:true },
+      { key:'winPeg', group:windowGroup, label:'PEG change', hint:'Change in PEG across the saved snapshots inside this window.', get:function(j){ return cmpSeriesChange(j, compareState.fundHist, 'peg', false); }, fmt:'x2', better:null, dual:true },
+      { key:'winMcap', group:windowGroup, label:'Market cap change', hint:'Change in market cap across the saved snapshots inside this window. Market cap stays in quote dollars, so a different reporting currency does not hide this gap.', get:function(j){ return cmpSeriesChange(j, compareState.fundHist, 'mcap', false); }, fmt:'big', better:null, dual:true },
+      { key:'winPs', group:windowGroup, label:'Price / sales change', hint:'Change in price-to-sales, in points, across the saved snapshots inside this window.', get:function(j){ return cmpSeriesChange(j, compareState.fundHist, 'ps', false); }, fmt:'num1', better:null, dual:true },
+      { key:'grade', group:'Grade', label:'Our grade (4-pillar)', hint:'The signed 4-pillar total already on the grade. This is the current snapshot, not the chart window.', get:function(j){ return j._grade && cmpIsNum(j._grade.total) ? Number(j._grade.total) : null; }, fmt:'grade', better:'high', dual:true },
+      { key:'fundPillar', group:'Grade', label:'Fundamentals pillar', get:function(j){ return cmpPillar(j, 'fundamentals'); }, fmt:'grade', better:'high', dual:true },
+      { key:'narrPillar', group:'Grade', label:'Narrative pillar', get:function(j){ return cmpPillar(j, 'narrative'); }, fmt:'grade', better:'high', dual:true },
+      { key:'timingPillar', group:'Grade', label:'Entry timing', hint:'The stock entry-timing score already on the grade. Not a contract grade.', get:function(j){ return cmpPillar(j, 'timing'); }, fmt:'grade', better:'high', dual:true },
+      { key:'spot', group:'Price & size', label:'Share price', get:function(j){ return cmpIsNum(j.spot) ? Number(j.spot) : null; }, fmt:'usd2', better:null, dual:true },
+      { key:'marketCap', group:'Price & size', label:'Market cap', get:cmpNumField(function(j){ return F(j).marketCap; }), fmt:'big', better:null, dual:true },
+      { key:'sharesOut', group:'Price & size', label:'Shares outstanding', get:cmpNumField(function(j){ return F(j).sharesOutstanding; }), fmt:'vol', better:null, dual:true },
+      { key:'float', group:'Price & size', label:'Float', get:cmpNumField(function(j){ return F(j).floatShares; }), fmt:'vol', better:null, dual:true },
+      { key:'beta', group:'Price & size', label:'Beta', get:cmpNumField(function(j){ return F(j).beta; }), fmt:'x2', better:null, dual:true },
+      { key:'hi52', group:'Price & size', label:'52-week high', get:cmpNumField(function(j){ return F(j).fiftyTwoWeekHigh; }), fmt:'usd2', better:null, dual:true },
+      { key:'lo52', group:'Price & size', label:'52-week low', get:cmpNumField(function(j){ return F(j).fiftyTwoWeekLow; }), fmt:'usd2', better:null, dual:true },
+      { key:'drawdown52', group:'Price & size', label:'Below 52-week high', get:function(j){ var hi=F(j).fiftyTwoWeekHigh; return hi > 0 && j.spot > 0 ? (1 - j.spot / hi) * 100 : null; }, fmt:'pct', better:null, dual:true },
+      { key:'rangePos', group:'Price & size', label:'52-week range position', hint:'0% is the 52-week low and 100% is the 52-week high.', get:cmpRangePos, fmt:'pct0', better:null, dual:true },
+      { key:'trailingPE', group:'Valuation', label:'P/E (trailing)', get:cmpNumField(function(j){ return F(j).trailingPE; }), fmt:'x', better:'low', dual:true },
+      { key:'forwardPE', group:'Valuation', label:'P/E (forward)', get:cmpNumField(function(j){ return F(j).forwardPE; }), fmt:'x', better:'low', dual:true },
+      { key:'pegRatio', group:'Valuation', label:'PEG ratio', get:cmpNumField(function(j){ return F(j).pegRatio; }), fmt:'x2', better:'low', dual:true },
+      { key:'priceToSales', group:'Valuation', label:'Price / sales', get:cmpNumField(function(j){ return F(j).priceToSales; }), fmt:'x', better:'low', dual:true },
+      { key:'priceToBook', group:'Valuation', label:'Price / book', get:cmpNumField(function(j){ return F(j).priceToBook; }), fmt:'x2', better:'low', dual:true },
+      { key:'fcfYield', group:'Valuation', label:'FCF / market cap', get:function(j){ var f=F(j); return f.freeCashFlow != null && f.marketCap > 0 ? f.freeCashFlow / f.marketCap * 100 : null; }, fmt:'pct', better:'high', dual:true },
+      { key:'revenue', group:'Growth', label:'Revenue (TTM)', hint:'Reported in the company\\'s financial currency. A gap is skipped when the two currencies differ.', get:cmpNumField(function(j){ return F(j).revenue; }), fmt:'big', better:null, dual:true, money:true },
+      { key:'revenueGrowthYoy', group:'Growth', label:'Revenue growth (YoY)', get:cmpNumField(function(j){ return F(j).revenueGrowthYoy; }), fmt:'pct', better:'high', dual:true },
+      { key:'earningsGrowthYoy', group:'Growth', label:'EPS growth (YoY)', get:cmpNumField(function(j){ return F(j).earningsGrowthYoy; }), fmt:'pct', better:'high', dual:true },
+      { key:'earningsQGrowth', group:'Growth', label:'EPS growth (quarterly YoY)', get:cmpNumField(function(j){ return F(j).earningsQuarterlyGrowthYoy; }), fmt:'pct', better:'high', dual:true },
+      { key:'growthYear', group:'Growth', label:'This-year growth estimate', get:cmpNumField(function(j){ return F(j).growthEstimateCurY; }), fmt:'pct', better:'high', dual:true },
+      { key:'revEstYear', group:'Growth', label:'This-year revenue estimate', get:cmpNumField(function(j){ return F(j).revenueEstimateCurY; }), fmt:'big', better:null, dual:true, money:true },
+      { key:'surprise', group:'Growth', label:'Last EPS surprise', get:function(j){ var q=F(j).lastQuarter; return q && cmpIsNum(q.surprisePct) ? Number(q.surprisePct) : null; }, fmt:'pct', better:'high', dual:true },
+      { key:'daysEarn', group:'Growth', label:'Days to next earnings', get:function(j){ return daysTo(F(j).nextEarningsDate); }, fmt:'days', better:null, dual:true, note:function(j){ return F(j).nextEarningsDate || null; } },
+      { key:'grossMargin', group:'Profitability', label:'Gross margin', get:cmpNumField(function(j){ return F(j).grossMargin; }), fmt:'pct', better:'high', dual:true },
+      { key:'operatingMargin', group:'Profitability', label:'Operating margin', get:cmpNumField(function(j){ return F(j).operatingMargin; }), fmt:'pct', better:'high', dual:true },
+      { key:'profitMargin', group:'Profitability', label:'Net margin', get:cmpNumField(function(j){ return F(j).profitMargin; }), fmt:'pct', better:'high', dual:true },
+      { key:'returnOnEquity', group:'Profitability', label:'Return on equity', get:cmpNumField(function(j){ return F(j).returnOnEquity; }), fmt:'pct', better:'high', dual:true },
+      { key:'returnOnAssets', group:'Profitability', label:'Return on assets', get:cmpNumField(function(j){ return F(j).returnOnAssets; }), fmt:'pct', better:'high', dual:true },
+      { key:'freeCashFlow', group:'Profitability', label:'Free cash flow', get:cmpNumField(function(j){ return F(j).freeCashFlow; }), fmt:'big', better:null, dual:true, money:true },
+      { key:'operatingCashFlow', group:'Profitability', label:'Operating cash flow', get:cmpNumField(function(j){ return F(j).operatingCashFlow; }), fmt:'big', better:null, dual:true, money:true },
+      { key:'totalCash', group:'Balance sheet', label:'Cash', get:cmpNumField(function(j){ return F(j).totalCash; }), fmt:'big', better:null, dual:true, money:true },
+      { key:'totalDebt', group:'Balance sheet', label:'Total debt', get:cmpNumField(function(j){ return F(j).totalDebt; }), fmt:'big', better:null, dual:true, money:true },
+      { key:'debtToEquity', group:'Balance sheet', label:'Debt / equity', hint:'Yahoo\\'s debt-to-equity figure, the same number the Grade tab shows. It is already on a percent-style scale.', get:cmpNumField(function(j){ return F(j).debtToEquity; }), fmt:'num1', better:'low', dual:true },
+      { key:'currentRatio', group:'Balance sheet', label:'Current ratio', get:cmpNumField(function(j){ return F(j).currentRatio; }), fmt:'x2', better:'high', dual:true },
+      { key:'quickRatio', group:'Balance sheet', label:'Quick ratio', get:cmpNumField(function(j){ return F(j).quickRatio; }), fmt:'x2', better:'high', dual:true },
+      { key:'dividendYield', group:'Capital return', label:'Dividend yield', get:cmpNumField(function(j){ return F(j).dividendYield; }), fmt:'pct2', better:'high', dual:true },
+      { key:'payoutRatio', group:'Capital return', label:'Payout ratio', get:cmpNumField(function(j){ return F(j).payoutRatio; }), fmt:'pct', better:null, dual:true },
+      { key:'shortFloat', group:'Short interest', label:'Short % of float', get:cmpNumField(function(j){ return F(j).shortPercentOfFloat; }), fmt:'pct2', better:null, dual:true },
+      { key:'shortOut', group:'Short interest', label:'Short % of shares out', get:cmpNumField(function(j){ return F(j).shortPercentOfSharesOut; }), fmt:'pct2', better:null, dual:true },
+      { key:'shortRatio', group:'Short interest', label:'Short ratio (days)', get:cmpNumField(function(j){ return F(j).shortRatio; }), fmt:'x2', better:null, dual:true },
+      { key:'sharesShort', group:'Short interest', label:'Shares short', get:cmpNumField(function(j){ return F(j).sharesShort; }), fmt:'vol', better:null, dual:true },
+      { key:'target', group:'Analysts & news', label:'Analyst target', get:cmpNumField(function(j){ return F(j).targetMeanPrice; }), fmt:'usd2', better:null, dual:true },
+      { key:'analystUpside', group:'Analysts & news', label:'Analyst upside', get:upside, fmt:'pct', better:'high', dual:true },
+      { key:'targetHigh', group:'Analysts & news', label:'Analyst high target', get:cmpNumField(function(j){ return F(j).targetHighPrice; }), fmt:'usd2', better:null, dual:true },
+      { key:'targetLow', group:'Analysts & news', label:'Analyst low target', get:cmpNumField(function(j){ return F(j).targetLowPrice; }), fmt:'usd2', better:null, dual:true },
+      { key:'analystN', group:'Analysts & news', label:'Analyst count', get:cmpNumField(function(j){ return F(j).numberOfAnalystOpinions; }), fmt:'num0', better:null, dual:true },
+      { key:'revNet', group:'Analysts & news', label:'Analyst revisions (net)', hint:'Upgrades minus downgrades over the trailing revision window.', get:function(j){ var r=F(j).analystRevisions; return r && cmpIsNum(r.net) ? Number(r.net) : null; }, fmt:'num0', better:'high', dual:true, note:function(j){ var r=F(j).analystRevisions; return r ? (r.upgrades + ' up · ' + r.downgrades + ' down') : null; } },
+      { key:'consensus', group:'Analysts & news', label:'Consensus', get:function(j){ var k=F(j).recommendationKey; return k ? String(k).replace(/_/g, ' ') : null; }, fmt:'text' },
+      { key:'verdict', group:'Analysts & news', label:'Fundamentals verdict', get:function(j){ var v=F(j).judgment && F(j).judgment.verdict; return v || null; }, fmt:'text' },
+      { key:'newsSent', group:'Analysts & news', label:'News tone', get:function(j){ var s=j && j.news && j.news.sentiment; return s ? String(s) : null; }, fmt:'text' },
+      { key:'credit', group:'Analysts & news', label:'Credit rating', get:function(j){ var c=F(j).creditRating; return c && c.rating ? String(c.rating) : null; }, fmt:'text' },
+      { key:'socialNet', group:'Analysts & news', label:'Social tone (bull − bear)', hint:'Message-board bullish percent minus bearish percent, when a current read is stored.', get:function(j){ var s=j && j.social; if (!s || !cmpIsNum(s.bullishPct) || !cmpIsNum(s.bearishPct)) return null; return Number(s.bullishPct) - Number(s.bearishPct); }, fmt:'pct', better:null, dual:true },
+    ];
+  }
+  function cmpTech(j){ return (j && j.technicals) || {}; }
+  function cmpF(j){ return (j && j.fundamentals) || {}; }
+  function cmpAboveSma(j, level){
+    var spot = j && Number(j.spot);
+    level = Number(level);
+    if (!(spot > 0) || !(level > 0)) return null;
+    return (spot / level - 1) * 100;
+  }
+  function cmpLevelVsSpot(j, level){
+    var spot = j && Number(j.spot);
+    level = Number(level);
+    if (!(spot > 0) || !isFinite(level)) return null;
+    return (level - spot) / spot * 100;
+  }
+  function cmpSma(key){
+    return function(j){
+      var sma = cmpTech(j).sma;
+      return sma && cmpIsNum(sma[key]) ? Number(sma[key]) : null;
+    };
+  }
+  function cmpSr(key){
+    return function(j){
+      var sr = cmpTech(j).sr;
+      return sr && cmpIsNum(sr[key]) ? Number(sr[key]) : null;
+    };
+  }
+  function cmpMacdPart(part){
+    return function(j){
+      var m = cmpTech(j).macd;
+      return m && cmpIsNum(m[part]) ? Number(m[part]) : null;
+    };
+  }
+  function cmpVolPart(part){
+    return function(j){
+      var v = cmpTech(j).volume;
+      return v && cmpIsNum(v[part]) ? Number(v[part]) : null;
+    };
+  }
+  function cmpIvField(key){
+    return function(j){
+      var iv = j && j.ivRank;
+      return iv && cmpIsNum(iv[key]) ? Number(iv[key]) : null;
+    };
+  }
+  function cmpIvPct(j){
+    var iv = j && j.ivRank && j.ivRank.iv;
+    return cmpIsNum(iv) ? Number(iv) * 100 : null;
+  }
+  function cmpIvMeanPct(j){
+    var mean = j && j.ivRank && j.ivRank.mean;
+    return cmpIsNum(mean) ? Number(mean) * 100 : null;
+  }
+  function cmpRvPct(j){
+    var rv = cmpTech(j).volRegime && cmpTech(j).volRegime.rv30;
+    return cmpIsNum(rv) ? Number(rv) * 100 : null;
+  }
+  function cmpRvPctile(j){
+    var vr = cmpTech(j).volRegime;
+    return vr && cmpIsNum(vr.rv30Pctile) ? Number(vr.rv30Pctile) : null;
+  }
+  function cmpTurnover(j){
+    var avg = cmpTech(j).volume && cmpTech(j).volume.avg20;
+    var shares = cmpF(j).sharesOutstanding;
+    if (!(avg > 0) || !(shares > 0)) return null;
+    return avg / shares * 100;
+  }
+  function cmpPillar(j, key){
+    var g = j && j._grade;
+    var p = g && g.pillars && g.pillars[key];
+    return p && cmpIsNum(p.score) ? Number(p.score) : null;
+  }
+  function cmpRangePos(j){
+    var f = cmpF(j);
+    var spot = j && Number(j.spot);
+    var hi = Number(f.fiftyTwoWeekHigh), lo = Number(f.fiftyTwoWeekLow);
+    if (!(spot > 0) || !(hi > lo) || !(lo > 0)) return null;
+    return (spot - lo) / (hi - lo) * 100;
+  }
+  function cmpRsiNote(j){
+    var st = rsiState(cmpTech(j).rsi);
+    return st && st.label && st.label !== '—' ? st.label : null;
+  }
+  function cmpMacdNote(j){
+    var st = macdState(cmpTech(j).macd);
+    return st && st.label && st.label !== '—' ? st.label : null;
+  }
+  function cmpConvictionNote(j){
+    var c = cmpTech(j).volume && cmpTech(j).volume.conviction;
+    if (c === 'strong') return 'Strong conviction';
+    if (c === 'weak') return 'Weak conviction';
+    if (c === 'indecision') return 'Indecision';
+    if (c === 'none') return 'No conviction';
+    if (c === 'mixed') return 'Mixed';
+    return null;
+  }
+  function cmpStreak(j){ return (j && j._grade && j._grade.streak) || null; }
+  function cmpStreakDays(j){
+    var s = cmpStreak(j);
+    return s && cmpIsNum(s.days) ? Number(s.days) : null;
+  }
+  function cmpStreakMove(j){
+    var s = cmpStreak(j);
+    return s && cmpIsNum(s.cumulativePct) ? Number(s.cumulativePct) : null;
+  }
+  function cmpStreakNote(j){
+    var s = cmpStreak(j);
+    if (!s || !s.color) return null;
+    if (s.color === 'green') return 'Up streak';
+    if (s.color === 'red') return 'Down streak';
+    return null;
+  }
+  function cmpPatternText(j){
+    var cp = cmpTech(j).chartPattern;
+    if (!cp || !cp.pattern) return null;
+    if (cp.pattern === 'None') return 'No clear pattern';
+    var bits = [cp.pattern];
+    if (cp.direction) bits.push(cp.direction);
+    if (cp.stale === true) bits.push('stale');
+    else if (cp.stage) bits.push(cp.stage);
+    if (cp.confidence) bits.push(cp.confidence + ' confidence');
+    return bits.join(' · ');
+  }
+  function cmpLevelRow(key, label, group, kind){
+    var get = kind === 'sma' ? cmpSma(key) : cmpSr(key);
+    return {
+      key: key, label: label, group: group, get: get, fmt: 'usd2', dual: true,
+      vs: kind === 'sma' ? 'sma' : 'level', better: null,
+      rank: kind === 'sma' ? function(j){ return cmpAboveSma(j, get(j)); } : null,
+      rankBetter: kind === 'sma' ? 'high' : null,
+      distBetter: kind === 'sma' ? 'high' : null,
+      hint: kind === 'sma' ? TIPS.sma : (key.charAt(0) === 's' ? TIPS.support : TIPS.resistance),
+    };
+  }
+  // Expansion rows. Every numeric reading already lives on the ticker JSON
+  // the Grade tab renders. dual rows show the raw gap and the percent gap
+  // versus the base company.
+  function cmpTechRows(){
+    return [
+      { key:'techPillar', group:'Grade reads', label:'Technicals pillar', hint:'The technicals pillar already on the 4-pillar grade.', get:function(j){ return cmpPillar(j, 'technicals'); }, fmt:'grade', better:'high', dual:true },
+      { key:'iv', group:'Implied volatility', label:'ATM ~30D IV', hint:'At-the-money implied vol near 30 days, from the stored IV rank.', get:cmpIvPct, fmt:'pct', better:'low', dual:true },
+      { key:'ivPctile', group:'Implied volatility', label:'IV percentile', hint:'Where today\\'s IV sits in the name\\'s own history. 100 is the richest.', get:cmpIvField('pctile'), fmt:'pct0', better:'low', dual:true },
+      { key:'ivRank', group:'Implied volatility', label:'IV rank', hint:'Min-to-max position of today\\'s IV inside the name\\'s own history.', get:cmpIvField('rank'), fmt:'pct0', better:'low', dual:true },
+      { key:'ivZ', group:'Implied volatility', label:'IV z-score', hint:'Today\\'s IV versus the name\\'s own prior mean, in standard deviations.', get:cmpIvField('z'), fmt:'x2', better:'low', dual:true },
+      { key:'ivMean', group:'Implied volatility', label:'Own-mean IV', hint:'The name\\'s own prior-mean ATM IV, the baseline for the z-score.', get:cmpIvMeanPct, fmt:'pct', better:null, dual:true },
+      { key:'rv30', group:'Implied volatility', label:'30D realized vol', hint:'Annualized 30-day realized volatility from daily closes.', get:cmpRvPct, fmt:'pct', better:'low', dual:true },
+      { key:'rvPctile', group:'Implied volatility', label:'Realized-vol percentile', hint:'Where today\\'s 30-day realized vol sits in the name\\'s own history.', get:cmpRvPctile, fmt:'pct0', better:'low', dual:true },
+      { key:'turnover', group:'Volume', label:'Avg volume / shares out', hint:'20-day average daily volume divided by shares outstanding.', get:cmpTurnover, fmt:'pct2', better:null, dual:true },
+      { key:'avg20', group:'Volume', label:'20D average volume', hint:'Trailing 20-session average daily volume.', get:cmpVolPart('avg20'), fmt:'vol', better:null, dual:true },
+      { key:'volToday', group:'Volume', label:'Today\\'s volume', hint:'Latest completed session volume.', get:cmpVolPart('today'), fmt:'vol', better:null, dual:true },
+      { key:'rvol', group:'Volume', label:'Volume vs 20D avg', hint:'Today\\'s volume divided by the 20-day average.', get:cmpVolPart('rvol'), fmt:'x2', better:null, dual:true, note:cmpConvictionNote },
+      { key:'move1d', group:'Volume', label:'1-day move', hint:'Close-to-close move on the latest completed session.', get:cmpVolPart('priceMove1dPct'), fmt:'pct2', better:null, dual:true },
+      { key:'rsi', group:'Momentum', label:'RSI (14)', hint:TIPS.rsi, get:function(j){ return cmpIsNum(cmpTech(j).rsi) ? Number(cmpTech(j).rsi) : null; }, fmt:'num1', better:null, dual:true, note:cmpRsiNote },
+      { key:'rsi5d', group:'Momentum', label:'RSI, 5 sessions ago', hint:'The 14-day RSI measured five sessions earlier. The grade uses it for RSI movement.', get:function(j){ return cmpIsNum(cmpTech(j).rsi5d) ? Number(cmpTech(j).rsi5d) : null; }, fmt:'num1', better:null, dual:true },
+      { key:'rsiChg', group:'Momentum', label:'RSI change, 5 sessions', hint:'Current RSI minus the RSI from five sessions ago.', get:function(j){ var rsi = cmpTech(j).rsi, prev = cmpTech(j).rsi5d; return cmpIsNum(rsi) && cmpIsNum(prev) ? Number(rsi) - Number(prev) : null; }, fmt:'num1', better:null, dual:true },
+      { key:'streakDays', group:'Momentum', label:'Streak', hint:'Consecutive daily closes in the same direction, already on the grade.', get:cmpStreakDays, fmt:'num0', better:null, dual:true, note:cmpStreakNote },
+      { key:'streakMove', group:'Momentum', label:'Streak move', hint:'Cumulative close-to-close move over the current streak.', get:cmpStreakMove, fmt:'pct', better:null, dual:true },
+      { key:'macdHist', group:'Momentum', label:'MACD histogram', hint:TIPS.macd, get:cmpMacdPart('hist'), fmt:'num3', better:null, dual:true, note:cmpMacdNote },
+      { key:'macdLine', group:'Momentum', label:'MACD line', hint:TIPS.macd, get:cmpMacdPart('line'), fmt:'num3', better:null, dual:true },
+      { key:'macdSignal', group:'Momentum', label:'MACD signal', hint:TIPS.macd, get:cmpMacdPart('signal'), fmt:'num3', better:null, dual:true },
+      cmpLevelRow('sma20', '20D SMA', 'Moving averages', 'sma'),
+      cmpLevelRow('sma50', '50D SMA', 'Moving averages', 'sma'),
+      cmpLevelRow('sma100', '100D SMA', 'Moving averages', 'sma'),
+      cmpLevelRow('sma200', '200D SMA', 'Moving averages', 'sma'),
+      cmpLevelRow('s20', 'Support 20D', 'Support & resistance', 'sr'),
+      cmpLevelRow('s50', 'Support 50D', 'Support & resistance', 'sr'),
+      cmpLevelRow('s100', 'Support 100D', 'Support & resistance', 'sr'),
+      cmpLevelRow('s200', 'Support 200D', 'Support & resistance', 'sr'),
+      cmpLevelRow('r20', 'Resistance 20D', 'Support & resistance', 'sr'),
+      cmpLevelRow('r50', 'Resistance 50D', 'Support & resistance', 'sr'),
+      cmpLevelRow('r100', 'Resistance 100D', 'Support & resistance', 'sr'),
+      cmpLevelRow('r200', 'Resistance 200D', 'Support & resistance', 'sr'),
+      { key:'pattern', group:'Chart', label:'Chart pattern', hint:TIPS.chartPattern, get:cmpPatternText, fmt:'text', always:true },
     ];
   }
   function cmpIsNum(v){ return v != null && isFinite(Number(v)); }
+  function cmpFmtVol(n){
+    if (n == null || !isFinite(n)) return '—';
+    var sign = n < 0 ? '-' : '';
+    var a = Math.abs(n);
+    if (a >= 1e9) return sign + (a / 1e9).toFixed(2) + 'B';
+    if (a >= 1e6) return sign + (a / 1e6).toFixed(2) + 'M';
+    if (a >= 1e3) return sign + (a / 1e3).toFixed(1) + 'K';
+    return sign + String(Math.round(a));
+  }
   function cmpFmtVal(fmt, v){
+    if (fmt === 'text') return v ? String(v) : '—';
     if (!cmpIsNum(v)) return '—';
     v = Number(v);
     if (fmt === 'usd2') return '$' + v.toFixed(2);
     if (fmt === 'big') return fmtBigDollars(v) || ('$' + Math.round(v).toLocaleString());
-    if (fmt === 'pct') return (v >= 0 ? '' : '') + v.toFixed(1) + '%';
+    if (fmt === 'pct' || fmt === 'pct0' || fmt === 'pct2') return v.toFixed(fmt === 'pct2' ? 2 : (fmt === 'pct0' ? 0 : 1)) + '%';
     if (fmt === 'x') return v.toFixed(1) + '×';
     if (fmt === 'x2') return v.toFixed(2);
+    if (fmt === 'num0') return v.toFixed(0);
+    if (fmt === 'num1') return v.toFixed(1);
+    if (fmt === 'num3') return (v > 0 ? '+' : '') + v.toFixed(3);
+    if (fmt === 'vol') return cmpFmtVol(v);
+    if (fmt === 'days') return (v > 0 ? '+' : '') + v.toFixed(0) + 'd';
     if (fmt === 'grade') return (v >= 0 ? '+' : '') + v.toFixed(1);
+    if (fmt === 'pp') return (v > 0 ? '+' : '') + v.toFixed(1) + ' pp';
     return String(v);
+  }
+  function cmpSigned(n, digits, suffix){
+    var sign = n > 0 ? '+' : (n < 0 ? '-' : '');
+    return sign + Math.abs(n).toFixed(digits) + (suffix || '');
+  }
+  function cmpFmtAbs(fmt, d){
+    if (fmt === 'usd2') {
+      var sign = d > 0 ? '+' : (d < 0 ? '-' : '');
+      return sign + '$' + Math.abs(d).toFixed(2);
+    }
+    if (fmt === 'big') {
+      var txt = fmtBigDollars(Math.abs(d)) || ('$' + Math.round(Math.abs(d)).toLocaleString());
+      return (d > 0 ? '+' : (d < 0 ? '-' : '')) + txt;
+    }
+    if (fmt === 'vol') return (d > 0 ? '+' : (d < 0 ? '-' : '')) + cmpFmtVol(Math.abs(d));
+    var digits = 1, suffix = '';
+    if (fmt === 'pct' || fmt === 'pct0' || fmt === 'pct2' || fmt === 'pp') {
+      digits = fmt === 'pct2' ? 2 : (fmt === 'pct0' ? 0 : 1);
+      suffix = ' pp';
+    } else if (fmt === 'x') { digits = 1; suffix = '×'; }
+    else if (fmt === 'x2') digits = 2;
+    else if (fmt === 'num3') digits = 3;
+    else if (fmt === 'num0' || fmt === 'days') { digits = 0; if (fmt === 'days') suffix = 'd'; }
+    else if (fmt === 'grade' || fmt === 'num1') digits = 1;
+    return cmpSigned(d, digits, suffix);
   }
   // Diff vs the first (base) column. pct = relative %, pp = percentage points,
   // pts = absolute points (grade), none = suppressed.
@@ -16416,6 +16689,164 @@ ${renderWorkspaceBindings()}
     else if (kind === 'pp'){ d = v - base; txt = (d >= 0 ? '+' : '') + d.toFixed(1) + 'pp'; }
     else { d = v - base; txt = (d >= 0 ? '+' : '') + d.toFixed(1); }
     return { d: d, txt: txt };
+  }
+  function cmpFmtDual(fmt, v, base){
+    if (!cmpIsNum(v) || !cmpIsNum(base)) return null;
+    v = Number(v); base = Number(base);
+    var d = v - base;
+    // A percent gap is readable when both readings are positive. A negative
+    // base (MACD, z-score, a down day) makes "(value / base - 1)" point the
+    // wrong way, so those rows keep the number gap only.
+    var pctTxt = null;
+    // Percent gap is (value / reference - 1). It is exact only when the
+    // reference reading is positive; a negative reference flips the meaning.
+    if (base > 0) {
+      var pct = (v / base - 1) * 100;
+      if (isFinite(pct)) pctTxt = cmpSigned(pct, 1, '%');
+    }
+    return { d: d, absTxt: cmpFmtAbs(fmt, d), pctTxt: pctTxt };
+  }
+  function cmpDeltaClass(better, d){
+    if (!cmpIsNum(d) || d === 0) return 'cmp-d-flat';
+    if (better === 'high') return d > 0 ? 'cmp-d-good' : 'cmp-d-bad';
+    if (better === 'low') return d < 0 ? 'cmp-d-good' : 'cmp-d-bad';
+    return 'cmp-d-neutral';
+  }
+  function cmpDualHtml(row, val, baseVal, refSym, refIdx){
+    var dual = cmpFmtDual(row.fmt, val, baseVal);
+    if (!dual) return '';
+    var cls = cmpDeltaClass(row.better, dual.d);
+    var who = 'vs ' + (refSym || 'reference');
+    var html = '<span class="cmp-vs cmp-series-' + refIdx + '">' + escapeHtml(who) + '</span><span class="cmp-deltas">' +
+      '<span class="cmp-delta ' + cls + '" title="Number difference ' + escapeHtml(who) + '"><span class="cmp-dk">Δ</span> ' + escapeHtml(dual.absTxt) + '</span>';
+    if (dual.pctTxt) html += '<span class="cmp-delta ' + cls + '" title="Percent difference ' + escapeHtml(who) + '"><span class="cmp-dk">%</span> ' + escapeHtml(dual.pctTxt) + '</span>';
+    return html + '</span>';
+  }
+  function cmpDistDeltaHtml(row, j, baseJ, val, baseVal){
+    if (row.vs !== 'sma' && row.vs !== 'level') return '';
+    var dist = row.vs === 'sma' ? cmpAboveSma(j, val) : cmpLevelVsSpot(j, val);
+    var baseDist = row.vs === 'sma' ? cmpAboveSma(baseJ, baseVal) : cmpLevelVsSpot(baseJ, baseVal);
+    if (!cmpIsNum(dist) || !cmpIsNum(baseDist)) return '';
+    var dd = dist - baseDist;
+    var cls = cmpDeltaClass(row.distBetter, dd);
+    var label = row.vs === 'sma' ? ' pp above avg' : ' pp vs spot';
+    var txt = (dd > 0 ? '+' : '') + dd.toFixed(1) + label;
+    return '<span class="cmp-delta cmp-delta-dist ' + cls + '" title="Percentage-point gap in distance from the share price">' + escapeHtml(txt) + '</span>';
+  }
+  function cmpContextHtml(row, j, val){
+    if (row.vs === 'sma' || row.vs === 'level') {
+      var dist = row.vs === 'sma' ? cmpAboveSma(j, val) : cmpLevelVsSpot(j, val);
+      if (!cmpIsNum(dist)) return '';
+      var cls = dist > 0.05 ? 'cmp-above' : (dist < -0.05 ? 'cmp-below' : '');
+      var text = row.vs === 'sma'
+        ? Math.abs(dist).toFixed(1) + '% ' + (dist >= 0 ? 'above' : 'below')
+        : (dist > 0 ? '+' : '') + dist.toFixed(1) + '% vs spot';
+      return '<span class="cmp-sub ' + cls + '">' + escapeHtml(text) + '</span>';
+    }
+    if (typeof row.note === 'function') {
+      var note = row.note(j, val);
+      if (note) return '<span class="cmp-sub">' + escapeHtml(note) + '</span>';
+    }
+    return '';
+  }
+  function cmpRowVisible(row, cols){
+    if (row.always) return true;
+    for (var i = 0; i < cols.length; i++) {
+      if (!cols[i].j) continue;
+      var v = row.get(cols[i].j);
+      if (row.fmt === 'text') { if (v) return true; }
+      else if (cmpIsNum(v)) return true;
+    }
+    return false;
+  }
+  function cmpCurrency(j){
+    var code = j && j.fundamentals && j.fundamentals.financialCurrency;
+    return code ? String(code).toUpperCase() : 'USD';
+  }
+  function cmpResolveRef(cols){
+    var want = compareState.refSym;
+    var i;
+    for (i = 0; i < cols.length; i++) if (cols[i].j && cols[i].sym === want) return cols[i];
+    for (i = 0; i < cols.length; i++) if (cols[i].j) return cols[i];
+    return cols[0] || null;
+  }
+  function cmpHeadHtml(cols, metricLabel, refSym){
+    var head = '<th scope="col" class="cmp-th-metric">' + (metricLabel ? escapeHtml(metricLabel) : '') + '</th>';
+    for (var c = 0; c < cols.length; c++) {
+      var col = cols[c];
+      var gentry = col.grade;
+      var side = gentry && gentry.side ? gentry.side : null;
+      var sbadge = side ? '<span class="cmp-side cmp-side-' + escapeHtml(side) + '">' + (side === 'put' ? 'PUT' : 'CALL') + '</span>' : '';
+      var sector = gentry && gentry.sector ? gentry.sector : (col.j && col.j.fundamentals && col.j.fundamentals.sector) || '';
+      var isRef = col.sym === refSym;
+      head += '<th scope="col" class="cmp-th-co cmp-series-' + (col.idx == null ? c : col.idx) + (isRef ? ' cmp-th-ref' : '') + (col.error ? ' cmp-th-err' : '') + '">' +
+        '<span class="cmp-th-sym"><span class="cmp-chip-swatch" aria-hidden="true"></span>' + escapeHtml(col.sym) + '</span> ' + sbadge +
+        (isRef ? '<span class="cmp-th-ref-tag">reference</span>' : '') +
+        (sector ? '<span class="cmp-th-sector">' + escapeHtml(sector) + '</span>' : '') +
+        (col.error ? '<span class="cmp-th-sector">not found</span>' : '') +
+      '</th>';
+    }
+    return head;
+  }
+  function cmpTableHtml(cols, rows, refCol){
+    var body = '';
+    var group = '';
+    var refSym = refCol ? refCol.sym : '';
+    var refIdx = refCol && refCol.idx != null ? refCol.idx : 0;
+    var refJ = refCol && refCol.j;
+    for (var r = 0; r < rows.length; r++) {
+      var row = rows[r];
+      if (!cmpRowVisible(row, cols)) continue;
+      if (row.group && row.group !== group) {
+        group = row.group;
+        body += '<tr class="cmp-group"><th scope="colgroup" colspan="' + (cols.length + 1) + '">' + escapeHtml(group) + '</th></tr>';
+      }
+      var vals = cols.map(function(col){ return col.j ? row.get(col.j) : null; });
+      var rankVals = cols.map(function(col, idx){
+        if (!col.j) return null;
+        return row.rank ? row.rank(col.j) : vals[idx];
+      });
+      var leaderBetter = row.rankBetter || row.better;
+      var leaderAt = {};
+      if (leaderBetter) {
+        var bestV = null;
+        for (var v = 0; v < rankVals.length; v++) {
+          if (!cmpIsNum(rankVals[v])) continue;
+          var nv = Number(rankVals[v]);
+          if (bestV === null || (leaderBetter === 'high' ? nv > bestV + 1e-9 : nv < bestV - 1e-9)) { bestV = nv; leaderAt = {}; leaderAt[v] = 1; }
+          else if (Math.abs(nv - bestV) <= 1e-9) leaderAt[v] = 1;
+        }
+      }
+      var baseVal = refJ ? row.get(refJ) : null;
+      var cells = '<th scope="row" class="cmp-td-metric"' + (row.hint ? ' title="' + escapeHtml(row.hint) + '"' : '') + '>' + escapeHtml(row.label) + '</th>';
+      for (var cc = 0; cc < cols.length; cc++) {
+        var cj = cols[cc];
+        var series = ' cmp-series-' + (cj.idx == null ? cc : cj.idx);
+        if (!cj.j) { cells += '<td class="cmp-td' + series + '">' + (cj.error ? '—' : '…') + '</td>'; continue; }
+        var val = vals[cc];
+        if (row.fmt === 'text') {
+          cells += '<td class="cmp-td cmp-td-text' + series + '">' + escapeHtml(cmpFmtVal('text', val)) + '</td>';
+          continue;
+        }
+        var deltaHtml = '';
+        var isRef = cj.sym === refSym;
+        if (!isRef && refJ) {
+          if (row.money && cmpCurrency(cj.j) !== cmpCurrency(refJ)) {
+            deltaHtml = '<span class="cmp-vs cmp-series-' + refIdx + '">vs ' + escapeHtml(refSym) + '</span><span class="cmp-delta cmp-d-flat">' + escapeHtml(cmpCurrency(cj.j) + ' vs ' + cmpCurrency(refJ)) + '</span>';
+          } else {
+            deltaHtml = cmpDualHtml(row, val, baseVal, refSym, refIdx) + cmpDistDeltaHtml(row, cj.j, refJ, val, baseVal);
+          }
+        } else if (isRef) {
+          deltaHtml = '<span class="cmp-vs cmp-series-' + refIdx + '">reference</span>';
+        }
+        cells += '<td class="cmp-td' + series + (leaderAt[cc] ? ' cmp-leader' : '') + (isRef ? ' cmp-td-ref' : '') + '">' +
+          '<span class="cmp-val">' + escapeHtml(cmpFmtVal(row.fmt, val)) + '</span>' +
+          cmpContextHtml(row, cj.j, val) + deltaHtml +
+        '</td>';
+      }
+      body += '<tr>' + cells + '</tr>';
+    }
+    return body;
   }
   function cmpGradeEntry(sym){
     var g = compareState.grades;
@@ -16537,6 +16968,15 @@ ${renderWorkspaceBindings()}
         var b = e.target.closest && e.target.closest('[data-cmp-remove]');
         if (b) cmpRemoveTicker(b.getAttribute('data-cmp-remove'));
       });
+      var refPicks = $('cmp-ref-picks');
+      if (refPicks) refPicks.addEventListener('click', function(e){
+        var btn = e.target.closest && e.target.closest('[data-cmp-ref]');
+        if (!btn) return;
+        var sym = btn.getAttribute('data-cmp-ref');
+        if (!sym || sym === compareState.refSym) return;
+        compareState.refSym = sym;
+        renderCompare();
+      });
       var ranges = $('cmp-range');
       if (ranges) ranges.addEventListener('click', function(e){
         var btn = e.target.closest && e.target.closest('[data-cmp-range]');
@@ -16546,6 +16986,13 @@ ${renderWorkspaceBindings()}
         compareState.range = next;
         renderCompare();
       });
+      var tech = $('cmp-tech');
+      if (tech) {
+        try { if (localStorage.getItem('stonks-cmp-tech') === '0') tech.open = false; } catch (_) {}
+        tech.addEventListener('toggle', function(){
+          try { localStorage.setItem('stonks-cmp-tech', tech.open ? '1' : '0'); } catch (_) {}
+        });
+      }
     }
     renderCompare();
   }
@@ -16593,23 +17040,59 @@ ${renderWorkspaceBindings()}
         .then(function(j){ compareState.cache[sym] = (j && typeof j === 'object') ? j : 'error'; })
         .catch(function(){ compareState.cache[sym] = 'error'; }));
     });
+    compareState.tickers.forEach(function(sym){
+      if (compareState.ivHist[sym] === undefined) {
+        compareState.ivHist[sym] = null;
+        jobs.push(fetch(dataUrl('iv-history/' + encodeURIComponent(sym) + '.json'), { cache: 'no-cache' })
+          .then(function(r){ return r.ok ? r.json() : null; })
+          .then(function(j){ compareState.ivHist[sym] = (j && Array.isArray(j.entries)) ? j.entries : []; })
+          .catch(function(){ compareState.ivHist[sym] = []; }));
+      }
+      if (compareState.fundHist[sym] === undefined) {
+        compareState.fundHist[sym] = null;
+        jobs.push(fetch(dataUrl('fundamentals-history/' + encodeURIComponent(sym) + '.json'), { cache: 'no-cache' })
+          .then(function(r){ return r.ok ? r.json() : null; })
+          .then(function(j){ compareState.fundHist[sym] = (j && Array.isArray(j.entries)) ? j.entries : []; })
+          .catch(function(){ compareState.fundHist[sym] = []; }));
+      }
+    });
     if (need.length) cmpStatus('Loading ' + need.join(', ') + '…');
     Promise.all(jobs).then(function(){ compareState.gradesLoading = false; cmpStatus(''); renderCompare(); });
   }
   function cmpChipsHtml(){
     var out = '';
+    var ref = compareState.refSym;
     for (var i=0; i<compareState.tickers.length; i++){
       var sym = compareState.tickers[i];
       var j = compareState.cache[sym];
       var nm = (j && j !== 'error' && j.fundamentals && j.fundamentals.name) ? j.fundamentals.name : '';
-      out += '<span class="cmp-chip cmp-series-' + i + (i === 0 ? ' cmp-chip-base' : '') + '">' +
+      var isRef = sym === ref;
+      out += '<span class="cmp-chip cmp-series-' + i + (isRef ? ' cmp-chip-base' : '') + '">' +
         '<span class="cmp-chip-swatch" aria-hidden="true"></span>' +
-        '<b>' + escapeHtml(sym) + '</b>' + (i === 0 ? '<span class="cmp-chip-base-tag">base</span>' : '') +
+        '<b>' + escapeHtml(sym) + '</b>' + (isRef ? '<span class="cmp-chip-base-tag">reference</span>' : '') +
         (nm ? '<span class="cmp-chip-name">' + escapeHtml(nm) + '</span>' : '') +
         '<button type="button" class="cmp-chip-x" data-cmp-remove="' + escapeHtml(sym) + '" aria-label="Remove ' + escapeHtml(sym) + '">&times;</button>' +
       '</span>';
     }
     return out;
+  }
+  function cmpRenderRefPicks(){
+    var host = $('cmp-ref');
+    var picks = $('cmp-ref-picks');
+    if (!host || !picks) return;
+    var syms = compareState.tickers;
+    if (syms.length < 2) { host.hidden = true; picks.innerHTML = ''; return; }
+    var ref = compareState.refSym;
+    if (syms.indexOf(ref) === -1) ref = syms[0];
+    var html = '';
+    for (var i = 0; i < syms.length; i++) {
+      var on = syms[i] === ref;
+      html += '<button type="button" class="cmp-ref-btn cmp-series-' + i + (on ? ' is-ref' : '') + '" role="radio" aria-checked="' + (on ? 'true' : 'false') + '" data-cmp-ref="' + escapeHtml(syms[i]) + '">' +
+        '<span class="cmp-chip-swatch" aria-hidden="true"></span>' + escapeHtml(syms[i]) +
+      '</button>';
+    }
+    picks.innerHTML = html;
+    host.hidden = false;
   }
   function cmpSyncRangeButtons(){
     var btns = document.querySelectorAll('#cmp-range [data-cmp-range]');
@@ -16652,6 +17135,115 @@ ${renderWorkspaceBindings()}
       map[date] = close;
     }
     return count >= 2 ? map : null;
+  }
+  function cmpOhlcvMaps(j){
+    var ps = j && j.priceSeries;
+    if (!ps || !Array.isArray(ps.t) || !Array.isArray(ps.c)) return null;
+    var n = ps.t.length;
+    var close = Object.create(null), volume = Object.create(null), high = Object.create(null), low = Object.create(null), count = 0;
+    for (var i = 0; i < n; i++) {
+      var date = cmpDateKey(ps.t[i]);
+      var px = Number(ps.c[i]);
+      if (!date || !isFinite(px) || px <= 0) continue;
+      if (!Object.prototype.hasOwnProperty.call(close, date)) count++;
+      close[date] = px;
+      var vol = ps.v && Number(ps.v[i]);
+      if (isFinite(vol) && vol >= 0) volume[date] = vol;
+      var hh = ps.h && Number(ps.h[i]);
+      var ll = ps.l && Number(ps.l[i]);
+      if (isFinite(hh)) high[date] = hh;
+      if (isFinite(ll)) low[date] = ll;
+    }
+    return count >= 2 ? { close: close, volume: volume, high: high, low: low } : null;
+  }
+  // Same shared sessions the price chart plots for the selected range.
+  function cmpWindowStats(ready){
+    var requested = CMP_RANGE_BARS[compareState.range] || CMP_RANGE_BARS['3m'];
+    var maps = [];
+    for (var i = 0; i < ready.length; i++) {
+      var packed = cmpOhlcvMaps(ready[i].j);
+      if (!packed) return null;
+      maps.push({ sym: ready[i].sym, packed: packed });
+    }
+    if (maps.length < 2) return null;
+    var shared = Object.keys(maps[0].packed.close).sort().filter(function(date){
+      for (var si = 1; si < maps.length; si++) {
+        if (!Object.prototype.hasOwnProperty.call(maps[si].packed.close, date)) return false;
+      }
+      return true;
+    });
+    if (shared.length < 2) return null;
+    var dates = shared.slice(-requested);
+    var bySym = {};
+    for (var s = 0; s < maps.length; s++) {
+      var pack = maps[s].packed;
+      var first = pack.close[dates[0]];
+      var last = pack.close[dates[dates.length - 1]];
+      var ret = first > 0 ? (last / first - 1) * 100 : null;
+      var rets = [];
+      for (var d = 1; d < dates.length; d++) {
+        var prev = pack.close[dates[d - 1]];
+        var cur = pack.close[dates[d]];
+        if (prev > 0 && cur > 0) rets.push(Math.log(cur / prev));
+      }
+      var rv = null;
+      if (rets.length >= 5) {
+        var mean = 0;
+        for (var ri = 0; ri < rets.length; ri++) mean += rets[ri];
+        mean /= rets.length;
+        var variance = 0;
+        for (var rj = 0; rj < rets.length; rj++) variance += (rets[rj] - mean) * (rets[rj] - mean);
+        variance /= (rets.length - 1);
+        rv = Math.sqrt(variance) * Math.sqrt(252) * 100;
+      }
+      var volSum = 0, volN = 0, hi = -Infinity, lo = Infinity;
+      for (var k = 0; k < dates.length; k++) {
+        var dt = dates[k];
+        if (isFinite(pack.volume[dt])) { volSum += pack.volume[dt]; volN++; }
+        var barHi = isFinite(pack.high[dt]) ? pack.high[dt] : pack.close[dt];
+        var barLo = isFinite(pack.low[dt]) ? pack.low[dt] : pack.close[dt];
+        if (barHi > hi) hi = barHi;
+        if (barLo < lo) lo = barLo;
+      }
+      var shares = ready[s].j && ready[s].j.fundamentals && Number(ready[s].j.fundamentals.sharesOutstanding);
+      var avgVol = volN ? volSum / volN : null;
+      var rangePos = hi > lo && last > 0 ? (last - lo) / (hi - lo) * 100 : null;
+      bySym[maps[s].sym] = {
+        ret: ret, rv: rv, avgVol: avgVol,
+        turnover: avgVol > 0 && shares > 0 ? avgVol / shares * 100 : null,
+        rangePos: rangePos,
+        start: dates[0], end: dates[dates.length - 1],
+      };
+    }
+    return { start: dates[0], end: dates[dates.length - 1], bySym: bySym };
+  }
+  function cmpWin(j, key){
+    var sym = j && j._cmpSym;
+    var row = compareState.window && compareState.window.bySym && compareState.window.bySym[sym];
+    return row && cmpIsNum(row[key]) ? Number(row[key]) : null;
+  }
+  // Change in a saved daily series across the chart window. ivScale converts
+  // a decimal IV (0.22) into percent points. Returns null until a saved
+  // point exists on or before the window start and a later point exists.
+  function cmpSeriesChange(j, bucket, field, ivScale){
+    var sym = j && j._cmpSym;
+    var w = compareState.window;
+    var entries = bucket && sym ? bucket[sym] : null;
+    if (!w || !entries || !entries.length) return null;
+    var prior = null, latest = null;
+    for (var i = 0; i < entries.length; i++) {
+      var e = entries[i];
+      if (!e || typeof e.date !== 'string' || e.date > w.end) continue;
+      var raw = ivScale ? e.iv : e[field];
+      if (!cmpIsNum(raw)) continue;
+      var point = { date: e.date, v: Number(raw) };
+      if (e.date <= w.start && (!prior || point.date > prior.date)) prior = point;
+      if (e.date >= w.start && (!latest || point.date > latest.date)) latest = point;
+    }
+    if (!prior || !latest || prior.date === latest.date) return null;
+    var from = prior.v, to = latest.v;
+    if (ivScale) { from *= 100; to *= 100; }
+    return to - from;
   }
   function cmpRetText(v){
     if (!isFinite(v)) return 'n/a';
@@ -16883,14 +17475,24 @@ ${renderWorkspaceBindings()}
       : '<b>' + escapeHtml(leader.sym) + '</b> leads at ' + escapeHtml(cmpRetText(leader.lastRet)) + '; <b>' + escapeHtml(laggard.sym) + '</b> trails at ' + escapeHtml(cmpRetText(laggard.lastRet)) + ' - a ' + spread.toFixed(1) + ' percentage-point spread over the shared ' + escapeHtml(model.rangeLabel) + ' window.';
     cmpBindChartInteraction(model);
   }
+  function cmpSetTechVisible(on){
+    var tech = $('cmp-tech');
+    if (!tech) return;
+    tech.hidden = !on;
+    if (!on) {
+      var body = $('cmp-tech-body');
+      if (body) body.innerHTML = '';
+    }
+  }
   function renderCompare(){
+    var syms = compareState.tickers.slice();
+    if (!compareState.refSym || syms.indexOf(compareState.refSym) === -1) compareState.refSym = syms[0] || null;
     var chipsEl = $('cmp-chips'); if (chipsEl) chipsEl.innerHTML = cmpChipsHtml();
     cmpSyncRangeButtons();
     var wrap = $('cmp-table-wrap'); var sum = $('cmp-summary');
     if (!wrap || !sum) return;
-    var syms = compareState.tickers.slice();
     if (syms.length < 2){
-      wrap.hidden = true; sum.hidden = true; cmpHideChart();
+      wrap.hidden = true; sum.hidden = true; cmpHideChart(); cmpSetTechVisible(false); cmpRenderRefPicks();
       cmpStatus(syms.length === 1 ? 'Add at least one more ticker to compare.' : '');
       return;
     }
@@ -16901,67 +17503,33 @@ ${renderWorkspaceBindings()}
       if (!j) { cols.push({ sym: sym, idx: i, loading: true }); continue; }
       if (j === 'error'){ cols.push({ sym: sym, idx: i, error: true }); continue; }
       j._grade = cmpGradeEntry(sym);
+      j._cmpSym = sym;
       cols.push({ sym: sym, idx: i, j: j, grade: j._grade });
     }
     var ready = cols.filter(function(c){ return c.j; });
-    if (ready.length < 2){ wrap.hidden = true; sum.hidden = true; cmpHideChart(); return; }
+    if (ready.length < 2){ compareState.window = null; wrap.hidden = true; sum.hidden = true; cmpHideChart(); cmpSetTechVisible(false); cmpRenderRefPicks(); return; }
+    compareState.window = cmpWindowStats(ready);
+    var refLoaded = false;
+    for (var ri = 0; ri < ready.length; ri++) if (ready[ri].sym === compareState.refSym) refLoaded = true;
+    if (!refLoaded) compareState.refSym = ready[0].sym;
+    if (chipsEl) chipsEl.innerHTML = cmpChipsHtml();
+    cmpRenderRefPicks();
     renderCompareChart(ready);
 
-    var rows = cmpMetricRows();
-    var baseJ = ready[0].j;
-    // Header
-    var head = '<th scope="col" class="cmp-th-metric"></th>';
-    for (var c=0; c<cols.length; c++){
-      var col = cols[c];
-      var gentry = col.grade;
-      var side = gentry && gentry.side ? gentry.side : null;
-      var sbadge = side ? '<span class="cmp-side cmp-side-' + escapeHtml(side) + '">' + (side === 'put' ? 'PUT' : 'CALL') + '</span>' : '';
-      var sector = gentry && gentry.sector ? gentry.sector : (col.j && col.j.fundamentals && col.j.fundamentals.sector) || '';
-      head += '<th scope="col" class="cmp-th-co' + (c === 0 ? ' cmp-th-base' : '') + (col.error ? ' cmp-th-err' : '') + '">' +
-        '<span class="cmp-th-sym">' + escapeHtml(col.sym) + '</span> ' + sbadge +
-        (sector ? '<span class="cmp-th-sector">' + escapeHtml(sector) + '</span>' : '') +
-        (col.error ? '<span class="cmp-th-sector">not found</span>' : '') +
-      '</th>';
-    }
-    // Body
-    var body = '';
-    for (var r2i=0; r2i<rows.length; r2i++){
-      var row = rows[r2i];
-      // Gather values to find the leader.
-      var vals = cols.map(function(col){ return col.j ? row.get(col.j) : null; });
-      var leaderIdx = -1;
-      if (row.better){
-        var bestV = null;
-        for (var v=0; v<vals.length; v++){
-          if (!cmpIsNum(vals[v])) continue;
-          var nv = Number(vals[v]);
-          if (bestV === null || (row.better === 'high' ? nv > bestV : nv < bestV)){ bestV = nv; leaderIdx = v; }
-        }
-      }
-      var baseVal = row.get(baseJ);
-      var cells = '<th scope="row" class="cmp-td-metric">' + escapeHtml(row.label) + '</th>';
-      for (var cc=0; cc<cols.length; cc++){
-        var cj = cols[cc];
-        if (!cj.j){ cells += '<td class="cmp-td">' + (cj.error ? '—' : '…') + '</td>'; continue; }
-        var val = vals[cc];
-        var deltaHtml = '';
-        if (cc !== 0){
-          var dlt = cmpFmtDelta(row.deltaKind, val, baseVal);
-          if (dlt){
-            // For a "lower is better" metric, a negative diff is favorable.
-            var fav = row.better === 'low' ? (dlt.d < 0) : (dlt.d > 0);
-            var dcls = dlt.d === 0 ? 'cmp-d-flat' : (fav ? 'cmp-d-good' : 'cmp-d-bad');
-            deltaHtml = '<span class="cmp-delta ' + dcls + '">' + escapeHtml(dlt.txt) + '</span>';
-          }
-        }
-        cells += '<td class="cmp-td' + (cc === leaderIdx ? ' cmp-leader' : '') + '">' +
-          '<span class="cmp-val">' + escapeHtml(cmpFmtVal(row.fmt, val)) + '</span>' + deltaHtml +
-        '</td>';
-      }
-      body += '<tr>' + cells + '</tr>';
-    }
+    var refCol = cmpResolveRef(cols);
+    var head = cmpHeadHtml(cols, '', refCol && refCol.sym);
+    var body = cmpTableHtml(cols, cmpMetricRows(), refCol);
     wrap.innerHTML = '<table class="cmp-table"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table>';
     wrap.hidden = false;
+    var techBody = $('cmp-tech-body');
+    if (techBody) {
+      var techRows = cmpTableHtml(cols, cmpTechRows(), refCol);
+      var refName = refCol ? refCol.sym : '';
+      techBody.innerHTML = '<p class="cmp-tech-cap">Gaps are <b>versus ' + escapeHtml(refName) + '</b>. Each other column names that company, then shows the number difference and the percent difference. The percent difference appears when the reference reading is positive. A price level also shows where the share price sits against it.</p>' +
+        '<div class="cmp-table-wrap"><table class="cmp-table"><thead><tr>' + cmpHeadHtml(cols, 'Metric', refName) + '</tr></thead><tbody>' + techRows + '</tbody></table></div>' +
+        '<p class="cmp-tech-foot">Implied vol, realized vol, RSI, MACD, moving averages, volume and support/resistance are the readings already stored for the Grade tab. Avg volume / shares outstanding is the 20-day average volume divided by shares outstanding. Option contracts are not compared. A lower IV is highlighted as cheaper premium. The name furthest above a moving average is highlighted as the stronger trend.</p>';
+      cmpSetTechVisible(true);
+    }
     // Summary
     sum.innerHTML = cmpSummaryHtml(ready);
     sum.hidden = false;
@@ -17000,6 +17568,15 @@ ${renderWorkspaceBindings()}
     if (nm) bits.push('<b>' + escapeHtml(nm.sym) + '</b> has the highest operating margin (' + nm.v.toFixed(1) + '%).');
     var mc = leader(function(c){ return F(c).marketCap; }, 'high');
     if (mc) bits.push('<b>' + escapeHtml(mc.sym) + '</b> is the largest by market cap (' + (fmtBigDollars(mc.v) || mc.v) + ').');
+    var ivLead = leader(function(c){ var iv = c.j.ivRank && c.j.ivRank.iv; return iv > 0 ? iv * 100 : null; }, 'low');
+    var ivRich = leader(function(c){ var iv = c.j.ivRank && c.j.ivRank.iv; return iv > 0 ? iv * 100 : null; }, 'high');
+    if (ivLead && ivRich && ivLead.sym !== ivRich.sym) bits.push('<b>' + escapeHtml(ivLead.sym) + '</b> has the lower ~30-day implied vol (' + ivLead.v.toFixed(1) + '%) and <b>' + escapeHtml(ivRich.sym) + '</b> the higher (' + ivRich.v.toFixed(1) + '%).');
+    var smaLead = leader(function(c){
+      var s = c.j.technicals && c.j.technicals.sma && c.j.technicals.sma.sma200;
+      var spot = Number(c.j.spot);
+      return (spot > 0 && s > 0) ? (spot / s - 1) * 100 : null;
+    }, 'high');
+    if (smaLead) bits.push('<b>' + escapeHtml(smaLead.sym) + '</b> is the strongest versus its 200-day average (' + (smaLead.v >= 0 ? '+' : '') + smaLead.v.toFixed(1) + '%).');
 
     bits.push('Net income can include non-operating gains, taxes and one-time items; net margin and EPS growth alone do not establish durable operating improvement. Forward P/E uses estimates. Drawdown measures distance below a 52-week high, not recovery quality.');
     var lis = bits.map(function(b){ return '<li>' + b + '</li>'; }).join('');

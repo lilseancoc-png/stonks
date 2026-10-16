@@ -3375,6 +3375,100 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .cmp-d-good { color: var(--pos); }
 .cmp-d-bad { color: var(--neg); }
 .cmp-d-flat { color: var(--muted); }
+.cmp-d-neutral { color: var(--text); }
+.cmp-ref { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 2px 0 10px; }
+.cmp-ref[hidden] { display: none; }
+.cmp-ref-label { font: 700 10px/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.cmp-ref-picks { display: flex; flex-wrap: wrap; gap: 6px; }
+.cmp-ref-btn {
+  appearance: none; display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-strong);
+  border-radius: 999px; padding: 6px 10px; font: 700 12px/1 var(--font-sans); cursor: pointer;
+}
+.cmp-ref-btn:hover { border-color: var(--cmp-series); }
+.cmp-ref-btn.is-ref { border-color: var(--cmp-series); box-shadow: inset 0 0 0 1px var(--cmp-series); }
+.cmp-ref-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.cmp-th-sym { display: inline-flex; align-items: center; gap: 6px; }
+.cmp-th-co { min-width: 136px; }
+.cmp-th-co.cmp-series-0,
+.cmp-th-co.cmp-series-1,
+.cmp-th-co.cmp-series-2,
+.cmp-th-co.cmp-series-3 { box-shadow: inset 0 3px 0 var(--cmp-series); }
+.cmp-th-ref { box-shadow: inset 0 3px 0 var(--cmp-series), inset 0 -2px 0 var(--cmp-series); }
+.cmp-th-ref-tag { display: block; margin-top: 3px; font: 700 9px/1.2 var(--font-mono); letter-spacing: .04em; text-transform: uppercase; color: var(--cmp-series); }
+.cmp-vs { display: block; margin-top: 3px; font: 700 9px/1.2 var(--font-mono); letter-spacing: .04em; text-transform: uppercase; color: var(--cmp-series); }
+.cmp-table thead th { z-index: 2; }
+.cmp-th-metric, .cmp-td-metric { z-index: 3; }
+.cmp-sub {
+  display: block; margin-top: 2px;
+  font: 600 10.5px/1.25 var(--font-mono); color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.cmp-sub.cmp-above { color: var(--pos); }
+.cmp-sub.cmp-below { color: var(--neg); }
+.cmp-deltas {
+  display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 6px; margin-top: 3px;
+}
+.cmp-deltas .cmp-delta { display: inline-flex; align-items: baseline; gap: 3px; margin-top: 0; }
+.cmp-dk { font: 700 8px/1 var(--font-mono); letter-spacing: .04em; opacity: .72; }
+.cmp-delta-dist { display: block; margin-top: 2px; }
+.cmp-td-text { white-space: normal; text-align: left; min-width: 120px; max-width: 240px; }
+.cmp-tech {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: color-mix(in srgb, var(--surface-2) 50%, var(--surface));
+}
+.cmp-tech[hidden] { display: none; }
+.cmp-tech summary {
+  list-style: none; cursor: pointer;
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px;
+}
+.cmp-tech summary::-webkit-details-marker { display: none; }
+.cmp-tech summary::after {
+  content: 'Show';
+  flex: 0 0 auto; margin-left: auto;
+  padding: 5px 9px;
+  border: 1px solid var(--border); border-radius: var(--r-pill);
+  font: 700 10px/1 var(--font-mono); letter-spacing: .04em; text-transform: uppercase;
+  color: var(--muted);
+}
+.cmp-tech[open] summary::after {
+  content: 'Hide';
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+.cmp-tech summary:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.cmp-tech-copy { min-width: 0; }
+.cmp-tech-copy b { display: block; font: 700 14px/1.2 var(--font-sans); color: var(--text-strong); }
+.cmp-tech-copy small { display: block; margin-top: 3px; font: 400 12px/1.4 var(--font-sans); color: var(--muted); }
+.cmp-tech-body { padding: 0 10px 12px; }
+.cmp-tech-cap, .cmp-tech-foot {
+  margin: 0 0 8px;
+  font: 400 12px/1.45 var(--font-sans);
+  color: var(--muted);
+}
+.cmp-tech-foot { margin: 8px 0 0; }
+.cmp-tech-cap b { color: var(--text-strong); }
+.cmp-group th {
+  text-align: left;
+  font: 700 10px/1.2 var(--font-mono);
+  letter-spacing: .07em; text-transform: uppercase;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+  padding-top: 11px; padding-bottom: 6px;
+}
+.cmp-tech .cmp-table td { white-space: normal; vertical-align: top; }
+.cmp-tech .cmp-val { display: block; }
+.cmp-tech .cmp-td-metric { white-space: normal; max-width: 220px; }
+.cmp-tech .cmp-th-metric, .cmp-tech .cmp-td-metric,
+.cmp-tech .cmp-table thead th { background: var(--surface); }
+@media (max-width: 640px) {
+  .cmp-tech summary { align-items: flex-start; padding: 11px; }
+  .cmp-tech summary::after { margin-top: 2px; }
+  .cmp-tech-body { padding: 0 6px 10px; }
+}
 
 /* --- Earnings tracker (season scoreboard) ------------------------------ */
 .ers-pills {

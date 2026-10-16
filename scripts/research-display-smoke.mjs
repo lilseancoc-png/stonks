@@ -104,10 +104,22 @@ export function verifyResearchDisplay(appJs) {
   assert.match(focusHost.innerHTML,/Focus qualified premium/);
   assert.doesNotMatch(focusHost.innerHTML,/Actionable premium|3 qualified \/ 2/);
   assert.match(appJs,/top.contracts \+ ' qualified \/ '/);
-  const cmpCtx={};vm.createContext(cmpCtx);
-  vm.runInContext(section('  function cmpMetricRows(', '  function cmpIsNum('),cmpCtx);
+  const cmpCtx={
+    compareState:{ range:'3m', window:null, ivHist:{}, fundHist:{} },
+    CMP_RANGE_LABELS:{ '1m':'1 month', '3m':'3 months', '6m':'6 months', '1y':'1 year' },
+    cmpIsNum(v){ return v != null && Number.isFinite(Number(v)); },
+  };
+  vm.createContext(cmpCtx);
+  vm.runInContext(section('  function cmpNumField(', '  function cmpIsNum('),cmpCtx);
   const rows=cmpCtx.cmpMetricRows(), row=k=>rows.find(r=>r.key===k);
-  assert.equal(row('spot').deltaKind,'none');assert.equal(row('debtToEquity').fmt,'pct');
+  assert.equal(row('spot').dual, true);
+  assert.equal(row('debtToEquity').fmt, 'num1');
+  assert.equal(row('winIv').fmt, 'pp');
+  assert.equal(row('winPe').fmt, 'num1');
+  assert.equal(row('winMcap').money, undefined);
+  assert.match(row('winRet').group, /3 months/);
+  cmpCtx.compareState.range = '1y';
+  assert.match(cmpCtx.cmpMetricRows().find(r => r.key === 'winRet').group, /1 year/);
   assert.ok(Math.abs(row('drawdown52').get({spot:80,fundamentals:{fiftyTwoWeekHigh:100}})-20)<1e-9);
   assert.equal(row('fcfYield').get({fundamentals:{freeCashFlow:5,marketCap:100}}),5);
   assert.equal(row('drawdown52').get({spot:80,fundamentals:{}}),null);
