@@ -121,15 +121,11 @@ try {
   const manifestMatch = existingHtml.match(/window\.STONKS_MANIFEST=(\{.*\});<\/script>/);
   if (manifestMatch) existingShellManifest = JSON.parse(manifestMatch[1]);
 } catch {}
-// Renderer-only regeneration may run against a partial private-data hydrate.
-// Preserve the source universe and any symbols already shipped in the
-// committed shell so a missing local ticker file cannot silently delete a live
-// directory card or manifest entry. Intentional source-universe removals still
-// flow through the full build, which owns coherent data regeneration.
-const existingSymbols = Array.isArray(existingShellManifest?.symbols)
-  ? existingShellManifest.symbols.filter((symbol) => /^[A-Z][A-Z0-9.]{0,5}$/.test(String(symbol)))
-  : [];
-symbols = [...new Set([...TICKERS, ...symbols, ...existingSymbols])].sort();
+// The shipped directory is the source universe in TICKERS. A partial local
+// hydrate, or names left in the previous shell, must not put a removed ticker
+// back on the page. Missing local files also must not drop a name that is
+// still in TICKERS; the card renders and the chain loads on the next bake.
+symbols = [...TICKERS].sort();
 const builtAtCandidates = [
   trends.builtAtIso,
   existingBuiltAtIso,

@@ -233,7 +233,7 @@ try {
   assert.match(stylesCss, /@media \(max-width: 480px\)\s*\{[\s\S]*?\.rot-short-row\s*\{[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/);
   assert.match(html, /How to use this fundamentals-first rebound desk[\s\S]*?Quality Recovery Shortlist/);
   const regenStaticSource = await readFile(resolve(process.cwd(), "scripts", "regen-static.mjs"), "utf8");
-  assert.match(regenStaticSource, /existingShellManifest\?\.symbols[\s\S]*?new Set\(\[\.\.\.TICKERS, \.\.\.symbols, \.\.\.existingSymbols\]\)/, "renderer-only regeneration must preserve source and shell symbols missing from a partial hydrate");
+  assert.match(regenStaticSource, /symbols = \[\.\.\.TICKERS\]\.sort\(\)/, "renderer-only regeneration must ship TICKERS and must not restore a name removed from the source universe");
   assert.match(appJs, /var OWNER_TABS = \{ market:1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, track:1, quant:1 \}/);
   assert.doesNotMatch(appJs, /day-trading\.json|day-trading-history\.json|loadDayTrading/);
   assert.match(appJs, /HAS_TRACK_RECORD = HAS_OWNER_ACCESS/);

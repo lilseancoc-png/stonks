@@ -28,10 +28,22 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - **Compare companies can limit the ticker list to one sector.** The sector menu sits next to the ticker box and the suggestions stay inside that sector, so a same-sector set is easier to build. `scripts/render/app-js.mjs`, `scripts/render/html.mjs`, `scripts/render/styles-css.mjs`.
 - **Pattern lab keeps six free reads separate.** Volatility clustering, index seasonality, cross-asset lead and correlation breaks, RSI and MACD divergences, the breadth-versus-index record, and Fear & Greed disagreements each show their own sample. None of them changes a grade, a pick, or a contract. SPY, QQQ, and IWM store a longer daily history and the bake downloads it with the existing Yahoo chart only when a symbol has less than 12 years saved. No Gemini call and no new data vendor. `lib/pattern-recognition.mjs`, `scripts/build.mjs`, `scripts/render/app-js.mjs`, `scripts/render/html.mjs`, `scripts/render/styles-css.mjs`.
 
+### Changed
+
+- **Top Picks ships at most 6 actionable names, and the final grader reviews those 6.** `PICKS_COUNT` now defaults to 6, and the AI thesis cap follows it. The watch list stays at 6. Both the 11:00 and 15:30 ET runs still refresh the book. `scripts/build.mjs`, `scripts/render/app-js.mjs`, `scripts/render/html.mjs`, `docs/top-picks.md`.
+
 ### Fixed
 
 - **IV percentile and IV rank are no longer the same label.** The Grade IV panel and Strategies were calling a percentile “IV rank,” and the Grade panel counted every day at or below a nearest-expiration IV. IV percentile is now the midrank of today’s constant-maturity ~30-day ATM IV inside the name’s own daily history. IV rank is the min-to-max position of that same reading, and the Grade panel shows both. A breakeven chip that said the chain “prices” a move now says that figure is one standard deviation from the contract’s implied vol. Absolute delta is described as a rough chance of finishing in the money, not the chance of profit. `scripts/render/app-js.mjs`, `scripts/render/html.mjs`, `scripts/build.mjs`.
 - **Pattern lab labels each figure with its unit and sample, and does not call a link usable.** Seasonality states that the number is a price change without dividends, and separates a full-month figure from a one-day figure. A one-day print larger than 25% is left out of the seasonal average. A name with a one-day move larger than 40% is left out of the divergence record. Cross-asset rows say the link is large in-sample rather than ready to trade. `lib/pattern-recognition.mjs`, `scripts/render/app-js.mjs`, `scripts/render/html.mjs`, `scripts/render/styles-css.mjs`.
+- **Narratives no longer keeps an empty Basic Materials tab.** MP was the only covered name in that sector, so the sector and its industry leave the taxonomy with it. `scripts/build.mjs`.
+
+### Removed
+
+- **Coverage drops KULR, BKSY, PLAB, LUNR, RDW, FLY, PL, OKLO, and MP.** They leave the ticker list, the sector and industry maps, the overnight peer map, the OKLO leveraged-ETF pair, and the scenario exposure map. A renderer-only regen follows that list, so a previous page shell cannot put a removed name back. `scripts/build.mjs`, `scripts/regen-static.mjs`, `lib/scenario-engine.mjs`.
+- **Coverage also drops HUBS, ETSY, AMKR, AAOI, and FIG.** They leave the ticker list, the sector and industry maps, and the overnight peer map. `scripts/build.mjs`, `js/book-views.js`.
+- **Coverage also drops SPOT, EL, and RBLX.** They leave the ticker list and the sector and industry maps. Electronic Gaming and Household & Personal Products leave with them, because each was the only name in that industry. `scripts/build.mjs`.
+- **Coverage also drops HIMS.** It leaves the ticker list and the sector and industry maps. Consumer Health Products leaves with it, because HIMS was the only name in that industry. `scripts/build.mjs`.
 
 ## 2026-10-15
 

@@ -3779,7 +3779,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     try { saved = localStorage.getItem('stonks-tab'); } catch (_) {}
     selectTab(saved && ['tech','contract','fund','iv','news'].indexOf(saved) >= 0 ? saved : 'tech');
   }
-  // Track-record sub-tabs (Summary / Scorecard / Top 10 / Activity / Picks +
+  // Track-record sub-tabs (Summary / Scorecard / Top 6 / Activity / Picks +
   // the analytics views). The strip lives in static HTML so this binds once at
   // startup; renderAccuracy() fills the panes lazily when the Track record
   // page-tab is first opened. Last view is persisted (localStorage only — no
@@ -34865,7 +34865,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
 
   // --- Top-10 roster (picks in & out) -------------------------------------
-  // data/picks-roster.json: the current 10-name Top Picks list with each pick's
+  // data/picks-roster.json: the current 6-name Top Picks list with each pick's
   // in/held/new status, the prior→current per-pillar deltas, the names that
   // dropped OUT (paired to the entrant that took their slot), and a per-pick
   // upgrade/downgrade forecast. Clicking a row expands the full 4-pillar rubric
@@ -34878,7 +34878,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function roster1(n){ return (n != null && isFinite(n)) ? (Math.round(Number(n) * 10) / 10) : n; }
   function rosterSignedNum(n){ if (n == null) return '—'; var r = roster1(n); return (r > 0 ? '+' : '') + r; }
   function rosterStatusBadge(status, sideFlipped){
-    var map = { entered:['sig-pos','▲ IN','Newly in the Top 10 this refresh'], held:['','• HELD','Held its Top 10 spot'], 'new':['sig-pos','★ NEW','Newly tracked this refresh'] };
+    var map = { entered:['sig-pos','▲ IN','Newly in the Top 6 this refresh'], held:['','• HELD','Held its Top 6 spot'], 'new':['sig-pos','★ NEW','Newly tracked this refresh'] };
     var m = map[status] || map.held;
     var flip = sideFlipped ? '<span class="roster-flip" title="Thesis side flipped (call⇄put)">⇄ flipped</span>' : '';
     // Wrap in ONE cell — the optional flip badge would otherwise be a second grid
@@ -34981,10 +34981,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
       ? '<span class="roster-score">' + roster1(e.prevTotal) + '→' + roster1(e.curTotal) + ' <small class="' + dc + '">(' + rosterSignedNum(e.deltaScore) + ')</small></span>'
       : '<span class="roster-score">' + roster1(e.prevTotal) + '→<small class="muted">untracked</small></span>';
     var tag = e.stillActionable
-      ? '<span class="roster-out-tag" title="Still clears the conviction bar — just out-ranked off the Top 10">out-ranked</span>'
+      ? '<span class="roster-out-tag" title="Still clears the conviction bar — just out-ranked off the Top 6">out-ranked</span>'
       : '<span class="roster-out-tag sig-neg" title="Dropped below the conviction bar">below bar</span>';
     var summary = '<summary class="roster-row-head">' +
-      '<span class="roster-status sig-neg" title="Dropped off the Top 10">▼ OUT</span>' +
+      '<span class="roster-status sig-neg" title="Dropped off the Top 6">▼ OUT</span>' +
       '<span class="acc-sym">' + escapeHtml(e.symbol) + '</span>' +
       accSidePill(e.side) +
       scoreHtml + tag +
@@ -34995,7 +34995,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // the overall grade move for a dropped name), so show that instead of the
     // pillar chips — which would otherwise misread as "Newly tracked".
     var moveNote = e.deltaScore != null
-      ? '<div class="roster-deltas roster-deltas-none">Overall grade ' + rosterSignedNum(e.deltaScore) + ' since it was last in the Top 10' + (e.sideFlipped ? ' · side flipped' : '') + '.</div>'
+      ? '<div class="roster-deltas roster-deltas-none">Overall grade ' + rosterSignedNum(e.deltaScore) + ' since it was last in the Top 6' + (e.sideFlipped ? ' · side flipped' : '') + '.</div>'
       : '<div class="roster-deltas roster-deltas-none">No prior grade to compare.</div>';
     var body = '<div class="roster-row-body">' +
       '<div class="roster-section-lbl">Where the score moved</div>' +
@@ -35061,12 +35061,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (Array.isArray(R.exited) && R.exited.length){
       var exRows = '';
       for (var k=0;k<R.exited.length;k++) exRows += rosterExitedRow(R.exited[k]);
-      exited = '<div class="roster-exited"><div class="roster-section-lbl">Dropped out of the Top 10 <span class="accuracy-group-n">' + R.exited.length + '</span></div>' + exRows + '</div>';
+      exited = '<div class="roster-exited"><div class="roster-section-lbl">Dropped out of the Top 6 <span class="accuracy-group-n">' + R.exited.length + '</span></div>' + exRows + '</div>';
     }
     el.innerHTML = '<div class="accuracy-group">' +
       '<details class="roster-wrap" open>' +
-        '<summary class="accuracy-group-head">Top 10 — picks in &amp; out <span class="accuracy-group-n">' + R.roster.length + '</span></summary>' +
-        '<p class="roster-intro">The current Top 10, what changed in the 4 pillars since the last refresh, what dropped out and what took its place, plus a rules-based read on each name’s next move. Click any row for the full rubric.</p>' +
+        '<summary class="accuracy-group-head">Top 6 — picks in &amp; out <span class="accuracy-group-n">' + R.roster.length + '</span></summary>' +
+        '<p class="roster-intro">The current Top 6, what changed in the 4 pillars since the last refresh, what dropped out and what took its place, plus a rules-based read on each name’s next move. Click any row for the full rubric.</p>' +
         stale + swaps +
         '<div class="roster-list">' + rosterRows + '</div>' +
         exited +
