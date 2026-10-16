@@ -707,8 +707,9 @@ function gradeScatterHtml(opts) {
     hover.push([Math.round(x * 10) / 10, Math.round(y * 10) / 10, point.label]);
   }
   const labeled = [];
-  const candidates = ordered.filter((point) => !query || (point.symbol && point.symbol.startsWith(query)));
-  const named = query ? candidates : extremeNames(candidates);
+  // Labels appear only for a ticker the reader searched or clicked. Every
+  // other name stays on the point until hover.
+  const named = query ? ordered.filter((point) => point.symbol && point.symbol.startsWith(query)) : [];
   let labels = "";
   for (const point of named) {
     const x = xAt(point.x);
@@ -731,17 +732,6 @@ function gradeScatterHtml(opts) {
   }
   const svg = `<svg class="book-svg is-fit" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opts.aria)}" data-ch="${esc(JSON.stringify(hover.length ? hover : [[0, 0, ""]]))}">${guides}${marks}${labels}${tickText}</svg>`;
   return `<div class="book-grade-chart"><div class="book-grade-ylab">${esc(opts.yName)}</div><div class="book-plot-main">${svg}<div class="book-axis-caption"><span>${esc(opts.xName)}</span></div></div></div>`;
-}
-
-function extremeNames(points) {
-  if (!points.length) return [];
-  let hi = points[0];
-  let lo = points[0];
-  for (const point of points) {
-    if (point.x > hi.x) hi = point;
-    if (point.x < lo.x) lo = point;
-  }
-  return hi.symbol === lo.symbol ? [hi] : [hi, lo];
 }
 
 function linearWait(value, min, max) {

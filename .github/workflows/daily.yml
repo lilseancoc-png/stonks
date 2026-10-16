@@ -377,6 +377,12 @@ jobs:
       - name: Verify workflow schedule guards
         run: npm run test:workflow-schedules
 
+      - name: Verify data publication contract
+        # Fails in seconds when a bake writer has no publication policy.
+        # Runs before the Yahoo and Gemini build so a contract gap does not
+        # spend a full bake and then block the upload.
+        run: npm run verify:freshness
+
       - name: Build site
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
