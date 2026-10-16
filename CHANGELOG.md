@@ -20,6 +20,16 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-10-16
+
+### Added
+
+- **Pattern lab keeps six free reads separate.** Volatility clustering, index seasonality, cross-asset lead and correlation breaks, RSI and MACD divergences, the breadth-versus-index record, and Fear & Greed disagreements each show their own sample. None of them changes a grade, a pick, or a contract. SPY, QQQ, and IWM store a longer daily history and the bake downloads it with the existing Yahoo chart only when a symbol has less than 12 years saved. No Gemini call and no new data vendor. `lib/pattern-recognition.mjs`, `scripts/build.mjs`, `scripts/render/app-js.mjs`, `scripts/render/html.mjs`, `scripts/render/styles-css.mjs`.
+
+### Fixed
+
+- **Pattern lab labels each figure with its unit and sample, and does not call a link usable.** Seasonality states that the number is a price change without dividends, and separates a full-month figure from a one-day figure. A one-day print larger than 25% is left out of the seasonal average. A name with a one-day move larger than 40% is left out of the divergence record. Cross-asset rows say the link is large in-sample rather than ready to trade. `lib/pattern-recognition.mjs`, `scripts/render/app-js.mjs`, `scripts/render/html.mjs`, `scripts/render/styles-css.mjs`.
+
 ## 2026-10-15
 
 ### Added

@@ -52,6 +52,13 @@ import {
 } from "../lib/ai-call-efficiency.mjs";
 import { advanceLeapsPaperTrack, LEAPS_PAPER_KEY, shouldWriteLeapsPaper } from "../lib/leaps-paper-track.mjs";
 import { summarizeYahooError, withYahooRetry } from "../lib/yahoo-retry.mjs";
+import {
+  PATTERN_INDEX_SYMBOLS,
+  buildPatternRecognition,
+  capDailyBars,
+  mergeDailyCloses,
+  needsLongIndexFetch,
+} from "../lib/pattern-recognition.mjs";
 import { withYahooTimeout } from "../lib/yahoo.mjs";
 import { attachLeapsExpirations, leapsExtraFetchEnabled } from "../lib/leaps-expirations.mjs";
 import {
@@ -1351,6 +1358,22 @@ async function fetchLeapsExpirationChain(symbol, expSec, spotHint) {
 // before write) and the streak tracker slices its own 60-day tail, so the
 // extra history only feeds the trailing-window technicals.
 const HISTORY_LOOKBACK_DAYS = 365;
+
+async function fetchLongIndexDailyBars(symbol) {
+  const period2 = new Date();
+  const period1 = new Date(period2.getTime() - 25 * 365.25 * 24 * 3600 * 1000);
+  return withYahooRetry(async () => {
+    const result = await yahooFinance.chart(symbol, { period1, period2, interval: "1d" });
+    const quotes = Array.isArray(result?.quotes) ? result.quotes : [];
+    return quotes
+      .filter((q) => q && q.close != null)
+      .map((q) => ({
+        t: q.date ? new Date(q.date).toISOString().slice(0, 10) : null,
+        c: q.close,
+      }))
+      .filter((bar) => bar.t && bar.c > 0);
+  });
+}
 
 async function fetchHistoricalBars(symbol) {
   const period2 = new Date();
@@ -28236,6 +28259,91 @@ async function writeMovingAverageTrackerFile(chains, builtAtIso) {
   return { bytes: json.length, tickers: payload.tickers.length, inBand: payload.summary.inBand };
 }
 
+function patternCloseSeries(chain) {
+  const rows = [];
+  if (Array.isArray(chain?._bars) && chain._bars.length) {
+    for (const bar of chain._bars) rows.push({ t: bar?.t, c: bar?.c });
+  } else if (chain?.priceSeries?.t && chain?.priceSeries?.c) {
+    for (let i = 0; i < chain.priceSeries.t.length; i++) rows.push({ t: chain.priceSeries.t[i], c: chain.priceSeries.c[i] });
+  }
+  return mergeDailyCloses(rows);
+}
+
+async function readIndexLongHistory() {
+  try {
+    const parsed = JSON.parse(await readFile(resolve(DATA_DIR, "index-long-history.json"), "utf8"));
+    const symbols = {};
+    for (const symbol of PATTERN_INDEX_SYMBOLS) symbols[symbol] = mergeDailyCloses(parsed?.symbols?.[symbol]);
+    return { symbols };
+  } catch {
+    return { symbols: {} };
+  }
+}
+
+async function writePatternRecognitionFiles({
+  chains, globalMarkets, fearGreed, regimeHistoryPrev, indexLongPrev, macroRegime, builtAtIso,
+}) {
+  const symbols = { ...(indexLongPrev?.symbols || {}) };
+  let extraYahooCharts = 0;
+  for (const symbol of PATTERN_INDEX_SYMBOLS) {
+    let bars = mergeDailyCloses(symbols[symbol]);
+    if (needsLongIndexFetch(bars)) {
+      extraYahooCharts += 1;
+      try {
+        const fetched = await fetchLongIndexDailyBars(symbol);
+        bars = mergeDailyCloses(bars, fetched);
+        console.log(`  · ${symbol} long history: ${bars.length} sessions from Yahoo daily chart`);
+      } catch (err) {
+        console.log(`  · ${symbol} long history fetch failed (${err?.message || err}); using bars already in memory`);
+      }
+    }
+    symbols[symbol] = capDailyBars(mergeDailyCloses(bars, patternCloseSeries(chains?.[symbol])));
+  }
+  const peers = [];
+  for (const [us, group] of Object.entries(GLOBAL_PEER_OF_TICKER)) {
+    for (const peer of GLOBAL_PEER_GROUPS[group] || []) {
+      const peerBars = globalMarkets?.[peer]?.bars;
+      if (!peerBars?.length || !chains?.[us]) continue;
+      peers.push({
+        us,
+        peer,
+        sessionClass: globalSessionClass(peer),
+        usBars: patternCloseSeries(chains[us]),
+        peerBars,
+      });
+    }
+  }
+  const divergences = [];
+  for (const [symbol, chain] of Object.entries(chains || {})) {
+    const series = patternCloseSeries(chain);
+    if (series.length < 80) continue;
+    divergences.push({ symbol, dates: series.map((row) => row.t), closes: series.map((row) => row.c) });
+  }
+  const regimeDays = appendRegimeHistory(regimeHistoryPrev, macroRegime || null, null, builtAtIso).days;
+  const payload = buildPatternRecognition({
+    asOf: etDateKey(new Date(builtAtIso)),
+    builtAtIso,
+    indexBars: symbols,
+    spyBars: patternCloseSeries(chains?.SPY),
+    peers,
+    divergences,
+    regimeDays,
+    fearGreed: Array.isArray(fearGreed?.history) ? fearGreed.history : [],
+    extraYahooCharts,
+  });
+  const patternJson = JSON.stringify(payload);
+  const historyJson = JSON.stringify({ builtAtIso, symbols });
+  await writeFile(resolve(DATA_DIR, "pattern-recognition.json"), patternJson, "utf8");
+  await writeFile(resolve(DATA_DIR, "index-long-history.json"), historyJson, "utf8");
+  return {
+    bytes: patternJson.length,
+    historyBytes: historyJson.length,
+    extraYahooCharts,
+    divergences: payload.pieces.divergences.rows.length,
+    leads: payload.pieces.leadLag.usable,
+  };
+}
+
 // Finviz-style market-map data. One row per non-ETF curated ticker, with
 // the fields the treemap needs: sector grouping (from the SECTORS map,
 // which is curated so "Mega-cap tech" / "Semis" / "Software" stay
@@ -36990,6 +37098,10 @@ async function main() {
   // it before the wipe or the calendar resets every build. (The bars it reads from
   // chains[]._bars survive the wipe, so the append + write happen after it below.)
   const indexCalendarPrev = await readIndexCalendar();
+  // Long SPY/QQQ/IWM closes live in data/ and the wipe would drop them.
+  // Read first so a later bake appends the tail instead of downloading
+  // twenty years again.
+  const indexLongPrev = await readIndexLongHistory();
   // Same rule for the picks churn log (data/picks-changes.json) — read it now so
   // this build's entered/exited events append to the rolling log instead of
   // resetting it after the wipe.
@@ -37327,6 +37439,29 @@ async function main() {
   console.log(`wrote data/heatmap.json — ${heatmapInfo.count} tickers, ${heatmapInfo.bytes} bytes${heatmapInfo.eodPreserved ? ` (carried over EOD recap from ${priorHeatmapEod.date})` : ""}${heatmapInfo.rotationAlerts ? ` (${heatmapInfo.rotationAlerts} sector-rotation alert${heatmapInfo.rotationAlerts === 1 ? "" : "s"})` : ""}`);
   const maTrackerInfo = await writeMovingAverageTrackerFile(chains, builtAtIso);
   console.log(`wrote data/ma-tracker.json — ${maTrackerInfo.tickers} stocks, ${maTrackerInfo.inBand} in-band moving-average levels, ${maTrackerInfo.bytes} bytes`);
+  try {
+    const patternInfo = await writePatternRecognitionFiles({
+      chains,
+      globalMarkets,
+      fearGreed,
+      regimeHistoryPrev,
+      indexLongPrev,
+      macroRegime: macroBackdrop?.macroRegime || null,
+      builtAtIso,
+    });
+    console.log(`wrote data/pattern-recognition.json — ${patternInfo.divergences} current divergences, ${patternInfo.leads} usable leads, ${patternInfo.extraYahooCharts} extra Yahoo chart(s), ${patternInfo.bytes} bytes`);
+  } catch (err) {
+    console.log(`  ⚠ pattern recognition failed (non-fatal): ${err?.message || err}`);
+    await writeFile(resolve(DATA_DIR, "pattern-recognition.json"), JSON.stringify({
+      version: 1,
+      builtAtIso,
+      separate: true,
+      error: String(err?.message || err),
+      cost: { gemini: false, serpApi: false, newVendor: false, extraYahooCharts: 0 },
+      pieces: {},
+    }), "utf8");
+    await writeFile(resolve(DATA_DIR, "index-long-history.json"), JSON.stringify({ builtAtIso, symbols: indexLongPrev?.symbols || {} }), "utf8");
+  }
   const correlationsInfo = await writeCorrelationsFile(chains, globalMarkets, builtAtIso, priorCorrelations);
   console.log(`wrote data/correlations.json — ${correlationsInfo.symbols} markets, ${correlationsInfo.mapped} mapped tickers, ${correlationsInfo.bytes} bytes${correlationsInfo.stale ? " [stale — kept last-good]" : ""}`);
   // AI CapEx (Mag 7 aggregate, from SEC XBRL) + capital-raises feed (rolling

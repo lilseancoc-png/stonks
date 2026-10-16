@@ -110,6 +110,7 @@ try {
   assert.match(appJs, /this\.input = \$\('symbol-input'\);[\s\S]*?else if \(q && this\.items\[0\] === q\)/, "Grade combobox Enter must commit an exact ticker match");
   assert.match(appJs, /var freshnessActiveTab = null;[\s\S]*?if \(activeTab\) freshnessActiveTab = activeTab;\s*else activeTab = freshnessActiveTab;/, "Freshness heartbeat must keep the active-tab override");
   assert.match(appJs, /function loadMaTracker\(\)[\s\S]*?ma-tracker\.json/);
+  assert.match(appJs, /function loadPatternLab\(\)[\s\S]*?pattern-recognition\.json/);
   assert.match(appJs, /function maTrackerScore\([\s\S]*?proximity[\s\S]*?approach[\s\S]*?momentum/);
   assert.match(appJs, /name === 'ma-tracker'[\s\S]*?startMaTrackerLive/);
   assert.match(appJs, /function loadOwnerTools\(\)[\s\S]*?loadStocks\(\);[\s\S]*?loadSectorRotation\(\);[\s\S]*?loadLevEtf\(\);/);
