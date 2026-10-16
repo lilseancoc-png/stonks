@@ -1186,7 +1186,7 @@ function compareCompaniesSection() {
     <header class="card-header">
       <h2 class="card-title">Compare companies</h2>
     </header>
-    <p class="hint">Put 2–4 companies side by side. The price overlay rebases every name to 0% on the first shared close, making relative strength easy to compare across 1 month to 1 year; the table then lines up valuation (P/E, PEG, P/S), growth, margins, the analyst read and our 4-pillar grade. Reads the same free data as the Grade tab.</p>
+    <p class="hint">Put 2–4 companies side by side. Each column keeps that company’s color from the price chart. Choose which company the gaps are measured against; every other cell is labeled versus that ticker and shows the number gap, then the percent gap when the reference reading is positive. The first group follows the chart’s 1M, 3M, 6M, or 1Y window. Valuation and the other accounting rows are the current snapshot. A daily record of those ratios is saved at each bake so a later window can show how they changed. Anything older than one year is dropped. Option contracts are left out.</p>
     <div class="cmp-controls">
       <div class="combo" id="cmp-combo">
         <input type="text" id="cmp-input" role="combobox"
@@ -1202,6 +1202,10 @@ function compareCompaniesSection() {
       <button type="button" class="cmp-btn cmp-btn-ghost" id="cmp-clear">Clear</button>
     </div>
     <div id="cmp-chips" class="cmp-chips" aria-label="Selected companies"></div>
+    <div id="cmp-ref" class="cmp-ref" hidden>
+      <span id="cmp-ref-label" class="cmp-ref-label">Gaps versus</span>
+      <div id="cmp-ref-picks" class="cmp-ref-picks" role="radiogroup" aria-labelledby="cmp-ref-label"></div>
+    </div>
     <div id="cmp-status" class="opt-status" role="status"></div>
     <div id="cmp-chart-card" class="cmp-chart-card" hidden>
       <div class="cmp-chart-head">
@@ -1223,6 +1227,15 @@ function compareCompaniesSection() {
     </div>
     <div id="cmp-summary" class="cmp-summary" hidden aria-live="polite"></div>
     <div id="cmp-table-wrap" class="cmp-table-wrap" hidden></div>
+    <details id="cmp-tech" class="cmp-tech" open hidden>
+      <summary>
+        <span class="cmp-tech-copy">
+          <b>Market &amp; technicals</b>
+          <small>Implied vol, turnover, moving averages, momentum, support and resistance. Same readings as the Grade tab.</small>
+        </span>
+      </summary>
+      <div id="cmp-tech-body"></div>
+    </details>
   </section>`;
 }
 

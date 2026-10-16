@@ -4724,6 +4724,117 @@ async function collectIvHistory(chains) {
   return out;
 }
 
+// Daily fundamental snapshot per ticker. The compare tab's chart window can
+// already recompute price, volume, and realized vol from priceSeries. P/E,
+// PEG, market cap, and the other accounting ratios are only a current
+// snapshot, so this file starts a once-per-ET-day record of those readings.
+// No extra Yahoo call and no Gemini call: the bake already fetched them.
+// Retention is one rolling year: the same calendar date last year stays, and
+// the next bake drops anything older. Each point is a handful of numbers, so
+// the whole folder stays a few megabytes. Public, like the per-ticker fundamentals.
+const FUND_HISTORY_DIR = "fundamentals-history";
+// One rolling year. Inclusive of today and the same calendar date last year,
+// so a 1Y comparison can still see its start point. The next bake drops
+// anything older. The folder never accumulates a second year.
+function fundHistoryFloor(todayKey) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(todayKey || ""));
+  if (!m) return todayKey;
+  const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  dt.setUTCFullYear(dt.getUTCFullYear() - 1);
+  return dt.toISOString().slice(0, 10);
+}
+function trimFundHistory(entries, todayKey) {
+  const floor = fundHistoryFloor(todayKey);
+  return (entries || [])
+    .filter((e) => e && typeof e.date === "string" && e.date >= floor && e.date <= todayKey)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+function fundHistoryPoint(data) {
+  const f = data?.fundamentals || {};
+  const num = (v, digits) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return null;
+    const m = 10 ** digits;
+    return Math.round(n * m) / m;
+  };
+  const point = {
+    pe: num(f.trailingPE, 2),
+    fpe: num(f.forwardPE, 2),
+    peg: num(f.pegRatio, 2),
+    ps: num(f.priceToSales, 2),
+    pb: num(f.priceToBook, 2),
+    mcap: num(f.marketCap, 0),
+    spot: num(data?.spot, 2),
+    rev: num(f.revenue, 0),
+    revG: num(f.revenueGrowthYoy, 2),
+    epsG: num(f.earningsGrowthYoy, 2),
+    gm: num(f.grossMargin, 2),
+    om: num(f.operatingMargin, 2),
+    nm: num(f.profitMargin, 2),
+    roe: num(f.returnOnEquity, 2),
+    roa: num(f.returnOnAssets, 2),
+    fcf: num(f.freeCashFlow, 0),
+    debt: num(f.totalDebt, 0),
+    cash: num(f.totalCash, 0),
+    de: num(f.debtToEquity, 2),
+    dy: num(f.dividendYield, 2),
+    beta: num(f.beta, 2),
+    target: num(f.targetMeanPrice, 2),
+  };
+  const out = {};
+  for (const [k, v] of Object.entries(point)) if (v != null) out[k] = v;
+  return Object.keys(out).length ? out : null;
+}
+async function loadFundHistoryEntries(symbol) {
+  try {
+    const raw = await readFile(resolve(DATA_DIR, FUND_HISTORY_DIR, `${symbol}.json`), "utf8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed?.entries) ? parsed.entries : [];
+  } catch (_) {
+    return [];
+  }
+}
+// Read every tracked name's prior file BEFORE writeChainFiles wipes data/.
+// A flaked ticker keeps its old series. Today's point replaces any earlier
+// point with the same ET date, so the five daily bakes do not stack copies.
+// Points older than one year are dropped on every write.
+async function collectFundamentalsHistory(chains) {
+  const today = etDateKey();
+  const out = new Map();
+  const tracked = new Set(TICKERS);
+  let priorSyms = [];
+  try {
+    priorSyms = (await readdir(resolve(DATA_DIR, FUND_HISTORY_DIR)))
+      .filter((f) => f.endsWith(".json"))
+      .map((f) => f.slice(0, -5))
+      .filter((sym) => tracked.has(sym));
+  } catch (_) { /* first build */ }
+  for (const sym of priorSyms) {
+    const prior = trimFundHistory(await loadFundHistoryEntries(sym), today);
+    if (prior.length) out.set(sym, prior);
+  }
+  for (const sym of TICKERS) {
+    const point = fundHistoryPoint(chains?.[sym]);
+    if (!point) continue;
+    const prior = (out.get(sym) || []).filter((e) => e.date !== today);
+    prior.push({ date: today, ...point });
+    out.set(sym, trimFundHistory(prior, today));
+  }
+  return out;
+}
+async function writeFundamentalsHistory(historyMap) {
+  if (!historyMap || !historyMap.size) return 0;
+  const dir = resolve(DATA_DIR, FUND_HISTORY_DIR);
+  await mkdir(dir, { recursive: true });
+  let bytes = 0;
+  for (const [sym, entries] of historyMap.entries()) {
+    const json = JSON.stringify({ symbol: sym, entries: entries || [] });
+    await writeFile(resolve(dir, `${sym}.json`), json, "utf8");
+    bytes += json.length;
+  }
+  return bytes;
+}
+
 async function writeIvHistory(historyMap) {
   if (!historyMap || !historyMap.size) return 0;
   const dir = resolve(DATA_DIR, IV_HISTORY_DIR);
@@ -36735,6 +36846,7 @@ async function main() {
   // data/iv-history/ before writeChainFiles wipes the directory, then
   // returns an in-memory map to flush back after the wipe.
   const ivHistory = await collectIvHistory(chains);
+  const fundHistory = await collectFundamentalsHistory(chains);
   // Attach IV percentiles from the just-updated map so scoring and strategy
   // selection use this run's ATM IV, not yesterday's persisted last sample.
   await attachIvRanks(chains, ivHistory);
@@ -37303,6 +37415,10 @@ async function main() {
   const ivHistoryBytes = await writeIvHistory(ivHistory);
   if (ivHistory.size) {
     console.log(`wrote data/iv-history/ — ${ivHistory.size} tickers, ${ivHistoryBytes} bytes total`);
+  }
+  const fundHistoryBytes = await writeFundamentalsHistory(fundHistory);
+  if (fundHistory.size) {
+    console.log(`wrote data/fundamentals-history/ — ${fundHistory.size} tickers, ${fundHistoryBytes} bytes total`);
   }
   // Trending IV — derived screen over the just-flushed iv-history (current
   // ATM ~30d IV vs each name's own history + short-term direction). Purely
