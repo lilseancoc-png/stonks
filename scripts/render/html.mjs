@@ -1208,8 +1208,11 @@ function compareCompaniesSection() {
     <header class="card-header">
       <h2 class="card-title">Compare companies</h2>
     </header>
-    <p class="hint">Put 2–4 companies side by side. Each column keeps that company’s color from the price chart. Choose which company the gaps are measured against; every other cell is labeled versus that ticker and shows the number gap, then the percent gap when the reference reading is positive. The first group follows the chart’s 1M, 3M, 6M, or 1Y window. Valuation and the other accounting rows are the current snapshot. A daily record of those ratios is saved at each bake so a later window can show how they changed. Anything older than one year is dropped. Option contracts are left out.</p>
+    <p class="hint">Put 2–4 companies side by side. Choose a sector to limit the ticker list to that group, then add the names you want. Each column keeps that company’s color from the price chart. Choose which company the gaps are measured against; every other cell is labeled versus that ticker and shows the number gap, then the percent gap when the reference reading is positive. The first group follows the chart’s 1M, 3M, 6M, or 1Y window. Valuation and the other accounting rows are the current snapshot. A daily record of those ratios is saved at each bake so a later window can show how they changed. Anything older than one year is dropped. Option contracts are left out.</p>
     <div class="cmp-controls">
+      <select id="cmp-sector" class="cmp-sector" aria-label="Filter tickers by sector">
+        <option value="">All sectors</option>
+      </select>
       <div class="combo" id="cmp-combo">
         <input type="text" id="cmp-input" role="combobox"
                aria-expanded="false" aria-controls="cmp-listbox"
@@ -1384,7 +1387,7 @@ function optionEvalSection() {
             <span id="opt-iv-rank" class="opt-iv-rank"></span>
           </header>
           <div class="opt-iv-term" id="opt-iv-term"></div>
-          <p class="opt-iv-foot">Term structure plots ATM (call/put average) IV for every expiration in the chain — rising left-to-right is contango, falling is backwardation. IV rank is today's nearest-30d ATM IV as a percentile of the prior ~18 months of daily snapshots; needs 60+ days of history before a rank is shown.</p>
+          <p class="opt-iv-foot">Term structure plots ATM (call/put average) IV for every expiration in the chain — rising left-to-right is contango, falling is backwardation. IV percentile is the midrank of today’s constant-maturity ~30-day ATM IV inside this name’s own daily history: days strictly below, plus half of the exact ties. A higher percentile means more saved days were cheaper than today. IV rank is where that same reading sits between the lowest and highest saved day, so 100 means it equals the window high and 0 means it equals the window low. Both need 60 days before they are shown.</p>
         </section>
       </div>
       <div class="opt-tab-pane" role="tabpanel" id="opt-tab-pane-news" aria-labelledby="opt-tab-btn-news" hidden>
