@@ -24824,5 +24824,31 @@ ${renderWorkspaceCss()}
   .book-wall-read { grid-column: auto; }
   .book-plot { grid-template-columns: 46px minmax(0, 1fr); }
 }
+
+.pat-root { display: grid; gap: 16px; }
+.pat-piece { border: 1px solid var(--border); border-radius: 10px; padding: 14px 14px 12px; background: color-mix(in srgb, var(--surface) 88%, transparent); }
+.pat-piece h3 { margin: 0 0 4px; font: 650 15px/1.3 var(--font-sans); color: var(--text-strong); }
+.pat-kicker { color: var(--muted); font: 600 10px/1.2 var(--font-sans); letter-spacing: .06em; text-transform: uppercase; }
+.pat-note, .pat-piece p { margin: 6px 0 0; color: var(--muted); font: 500 13px/1.45 var(--font-sans); }
+.pat-flag { color: var(--warn); font-weight: 650; }
+.pat-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.pat-metrics div { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+.pat-metrics small { display: block; color: var(--muted); font: 600 10px/1.3 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; }
+.pat-metrics b { display: block; margin-top: 4px; font: 650 16px/1.2 var(--font-mono); font-variant-numeric: tabular-nums; }
+.pat-metrics em { display: block; margin-top: 4px; color: var(--muted); font: 500 11px/1.35 var(--font-sans); font-style: normal; }
+.pat-up { color: var(--pos); }
+.pat-down { color: var(--neg); }
+.pat-switch { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.pat-switch button { border: 1px solid var(--border); background: transparent; color: var(--text); border-radius: 999px; padding: 6px 12px; font: 650 12px/1 var(--font-mono); cursor: pointer; }
+.pat-switch button[aria-pressed="true"] { border-color: var(--accent); color: var(--text-strong); background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.pat-table-wrap { overflow-x: auto; margin-top: 10px; }
+.pat-table { width: 100%; border-collapse: collapse; font: 500 12px/1.35 var(--font-sans); }
+.pat-table th, .pat-table td { padding: 7px 8px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.pat-table th { color: var(--muted); font: 700 10px/1.2 var(--font-sans); letter-spacing: .04em; text-transform: uppercase; }
+.pat-table td { font-variant-numeric: tabular-nums; }
+.pat-sym { padding: 2px 0; border: 0; background: none; color: var(--text-strong); font: 700 12px/1.2 var(--font-mono); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+@media (max-width: 800px) {
+  .pat-metrics { grid-template-columns: 1fr 1fr; }
+}
 `;
 }

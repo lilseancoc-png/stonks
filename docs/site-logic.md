@@ -950,6 +950,12 @@ FOMC/NFP windows are excluded from estimation. A follower's own earnings event i
 
 The index calendar accumulates up to roughly 800 sessions for SPY, QQQ, IWM, SMH, DIA, VXUS, TLT, GLD, and VIX. It presents month/day return patterns and historical context. It is descriptive seasonality, not a causal forecast.
 
+### Pattern lab
+
+Pattern lab is a public page of six separate reads. None of them changes a grade, a pick, or a contract. The bake writes `pattern-recognition.json` from bars, Fear & Greed, regime history, and overnight peers it already has. SPY, QQQ, and IWM keep a longer daily close file, `index-long-history.json`. That file is filled with the same unauthenticated Yahoo daily chart only when a symbol has less than 12 years stored. Later bakes append the closes already fetched for those ETFs. There is no Gemini call and no new vendor.
+
+The six reads are volatility clustering, index seasonality, curated cross-asset lead and correlation breaks, RSI and MACD price divergences, the breadth-versus-index record, and Fear & Greed disagreements. Each one keeps its own sample size and marks a thin sample provisional.
+
 ## 13. Flow and positioning
 
 ### Heatmap

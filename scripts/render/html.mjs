@@ -49,6 +49,7 @@ const SIDE_NAV_ICONS = {
   rotation: '<path d="M20 7h-5V2"/><path d="M4 17h5v5"/><path d="M19 12a7 7 0 0 0-12-4.9L5 9"/><path d="M5 12a7 7 0 0 0 12 4.9L19 15"/>',
   calendar: '<rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18"/>',
   'index-cal': '<rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18M8 15h.01M12 15h.01M16 15h.01"/>',
+  'pattern-lab': '<path d="M4 16.5 8.5 12l3 3 5-6"/><path d="M4 19.5h16"/><circle cx="17.5" cy="6.5" r="2"/>',
   earnings: '<rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18"/><path d="m6.5 17.5 3-3.5 2.5 2 4-4.5"/><path d="M13.5 11.5H16V14"/>',
   calls: '<path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.9 8.9 0 0 1-3.9-.9L3 20l1-4.9a8.4 8.4 0 0 1-1-4A8.4 8.4 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5Z"/><path d="M8 10.5h8M8 14h5"/>',
   track: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14.5 2 2 4-4.5"/>',
@@ -984,6 +985,17 @@ function unusualFlowSection() {
   </section>`;
 }
 
+function patternLabSection() {
+  return `<section class="card" id="pattern-lab-section">
+    <header class="card-header">
+      <h2 class="card-title">Pattern lab</h2>
+      <span class="card-eyebrow" id="pattern-lab-eyebrow" aria-live="polite"></span>
+    </header>
+    ${infoNote('How to read this page', '<p>Six research reads, kept separate from the desks that already exist. Nothing here replaces a grade, a chart pattern, the index calendar, or overnight markets, and nothing here is a position. Seasonality is the close-to-close price change, without dividends. A thin sample is marked. Read the unit on each figure: a full month, a full window, or one day.</p>')}
+    <div id="pattern-lab-root" class="pat-root">Loading pattern lab&hellip;</div>
+  </section>`;
+}
+
 function movingAverageTrackerSection() {
   return `<section class="card ma-track-card" id="ma-tracker-section">
     <header class="card-header">
@@ -1861,6 +1873,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       ${sideNavItem('streaks', 'Streaks')}
       ${sideNavItem('spillover', 'Event spillover')}
       ${sideNavItem('index-cal', 'Index calendar')}
+      ${sideNavItem('pattern-lab', 'Pattern lab')}
     </div>
   </details>
   <details class="side-nav-group" data-nav-group="events" open>
@@ -2248,6 +2261,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-index-cal" role="tabpanel" aria-labelledby="page-tab-index-cal" hidden>
   ${indexCalSection()}
+  </div>
+  <div class="page-pane" id="page-pane-pattern-lab" role="tabpanel" aria-labelledby="page-tab-pattern-lab" hidden>
+  ${patternLabSection()}
   </div>
   <div class="page-pane" id="page-pane-overnight" role="tabpanel" aria-labelledby="page-tab-overnight" hidden>
   ${overnightSection()}
