@@ -17324,7 +17324,9 @@ const GRADES_HISTORY_KEEP_DAYS = 120;
 const GRADES_HISTORY_MAX_CHANGES = 500;
 const GRADE_CHANGE_MIN_DELTA = 2;               // log a drift of >=2 points
 const GRADES_DAILY_FILE = "grades-daily.json";
-const GRADES_DAILY_MAX_DAYS = 180;
+// One row per ET day. 280 covers a trading year plus a short buffer, so the
+// public grade chart can average a 1-year return. Older rows are dropped.
+const GRADES_DAILY_MAX_DAYS = 280;
 const REGIME_HISTORY_FILE = "regime-history.json";
 const REGIME_HISTORY_MAX_DAYS = 180;
 // Daily index-close calendar (SPY/QQQ/IWM red/green + close-to-close %change per

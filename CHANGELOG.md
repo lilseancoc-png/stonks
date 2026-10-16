@@ -28,6 +28,15 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - **Additional views sit under the desks that already own each number.** Heatmap gains the stored closing-breadth log and a grade-total versus return plot. Calendar counts stored events by day. Narratives group stories by the stored lifecycle stage. Trending IV adds a percentile histogram and a 5-session IV change versus 1-week price plot, with both windows labeled. Gamma exposure draws stored spot and walls. Streaks plots length against cumulative move. Spillover bars the sector model, pair model, and priced move as separate series. The MA tracker histograms distance to the stored averages against the existing ±5% band. Earnings plots surprise against the report-day move using the existing ±1% in-line band. Owner Lab adds a link-map lookup, the stored evidence record, and the stored grader log. No score, tier, or model call changes. `js/book-views.js`, `scripts/render/html.mjs`, `scripts/render/styles-css.mjs`.
 - **Additional views can be collapsed, searched, and read on hover.** Each added panel is a disclosure under its existing desk. Scatter plots dim every name except a ticker search and list that name’s stored figures. Wall ranges can be sorted by gamma score, nearest wall, or symbol. Breadth cells, calendar days, and histogram columns show the stored count on hover. `js/book-views.js`, `scripts/render/styles-css.mjs`.
 
+### Changed
+
+- **A longer return window plots the average daily grade for that same window.** The one-day view stays on today's grade. Week, month, quarter, year-to-date, and one-year views average the once-a-day total saved after that return's start. The table keeps today's grade, the current call or put, how many saved days cleared the bar, and a sparkline of the path. Clicking a dot selects that name. `grades-daily.json` is public, the same number already published in `grades.json`, and keeps 280 sessions. `js/book-views.js`, `lib/premium-keys.mjs`, `scripts/build.mjs`.
+- **The grade-versus-return plot can be filtered and read as a table.** Recommendation, sector, and score narrow the dots. Sort runs by return, grade, ticker, sector, or recommendation, from the menu or the column headers. Circles are calls, squares are puts, and diamonds have no recommendation. Spread scale keeps a very large return visible without packing the rest of the book into one blob. The caption now says the grade total is the four pillars, IV cost, and the regime overlay, and that entry timing is not in that total. `js/book-views.js`, `scripts/render/styles-css.mjs`.
+
+### Fixed
+
+- **The grade chart says what its average, call days, and sample dates are.** A longer window still averages the saved daily grades. The latest bake replaces that day's saved grade so Today and the end of the average match. The labels name the date span actually used, and they say when that span starts after the return. Call days are +4 or higher and put days are -4 or lower. `js/book-views.js`.
+
 ## 2026-10-14
 
 ### Changed
