@@ -6,12 +6,12 @@ reworks). It lives entirely in the `// TOP PICKS ENGINE` block of
 [`scripts/build.mjs`](../scripts/build.mjs); every threshold below is a named
 constant there. **If the code and this doc disagree, the code wins — fix the doc.**
 
-> **Scope.** "Top Picks" = the ≤10 *actionable* trades the engine will put on
+> **Scope.** "Top Picks" = the ≤6 *actionable* trades the engine will put on
 > today (`picks.json`). It is **not** the grade-any-ticker search (`grades.json`,
 > the full ~138-name index, a FREE feature). Both share one `scoreTicker()` pass;
 > Top Picks then adds gates (a tradeable contract, re-entry suppression, sector
 > caps) and ships only the survivors. The roster may honestly ship **fewer than
-> 10, or zero** — *cash is a position.* A zero-candidate current build publishes
+> 6, or zero** — *cash is a position.* A zero-candidate current build publishes
 > an empty roster; it never republishes yesterday's picks as current trades.
 
 The full Top Picks decision pipeline runs twice each regular market day, at
@@ -525,9 +525,9 @@ skips spreads — its single-leg model would mislead.)
 3. **Drop names with an open tracked position** (re-entry suppression).
 4. **Drop `avoid`-timed names.** (Steps 1–4 are the **DATA GATE** — they decide
    which names are *eligible*; the AI then grades only the **top
-   `PICKS_MAX_AI_THESES` (= `PICKS_COUNT`, 10)** of them, ranked by
+   `PICKS_MAX_AI_THESES` (= `PICKS_COUNT`, 6)** of them, ranked by
    deterministic conviction — the AI factor is applied ONLY to the
-   deterministic top 10 (owner directive). The rest ship a deterministic-only
+   deterministic top 6 (owner directive). The rest ship a deterministic-only
    card.)
 5. **AI veto** — the AI final grade is `reject` (the thesis doesn't hold up even
    though the data cleared): drop the name (`rosterMeta.aiVetoed`).
@@ -552,7 +552,7 @@ skips spreads — its single-leg model would mislead.)
    `rosterMeta.factorTrend` + `factorTrendGated`; off via `PICKS_FACTOR_TREND_GATE=0`.
 10. **Rank by deterministic post-overlay conviction** (`|total|`, then
    with-primary/neutral/against-primary on an exact tie, then signed total and
-   symbol — the same order that picked the grader's top 10), ship up to 10. The
+   symbol — the same order that picked the grader's top 6), ship up to 6. The
    rank order also governs which names survive the caps above. The AI's
    0–100 `score` does NOT rank (owner directive: deterministic-first) — it ships
    on the card as the grader's confidence; the AI's levers are the grade tier
@@ -633,7 +633,7 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   ideas that self-promote when their entry confirms.) Enrollment is
   dedup per `symbol:side`, **capped at
   `PICKS_MAX_OPEN_POSITIONS` (20) concurrently-open positions** — each build ships
-  ≤10 picks, but re-entry suppression surfaces NEW names every build while the
+  ≤6 picks, but re-entry suppression surfaces NEW names every build while the
   already-enrolled ones stay open until an exit rule fires, so an uncapped book
   compounded past 25 intraweek; the cap enrolls in rank order and the rest wait
   for a freed slot —
@@ -741,9 +741,9 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   semi reads long yields + the dollar; an energy name reads crude), explicitly
   cross-examining whether the FOR votes tell one coherent story and whether the
   AGAINST votes break it. It is generated
-  for the **top `PICKS_MAX_AI_THESES` (= `PICKS_COUNT`, 10) names that cleared the DATA GATE**
+  for the **top `PICKS_MAX_AI_THESES` (= `PICKS_COUNT`, 6) names that cleared the DATA GATE**
   — ranked by deterministic conviction (the bar + the cheap re-entry / avoid-timing
-  screens): the AI factor is applied ONLY to the deterministic top 10 (owner
+  screens): the AI factor is applied ONLY to the deterministic top 6 (owner
   directive) — there is deliberately no bench below the cut, so an AI reject/wait
   shrinks the roster honestly instead of backfilling from lower-conviction names;
   below-cut survivors ship deterministic-only. From there
@@ -914,8 +914,8 @@ implementation must expose the stated value and audit fields:
 | `PICKS_MIN_CONVICTION` / `PICKS_TIER_STRONG` | 4 / 7 | actionable / strong grade bars |
 | `PICKS_THESIS_STRONG_SCORE` / `_MOD_SCORE` | 5 / 3 | thesis-quality bars (strong / moderate tier) |
 | `PICKS_EDGE_GATE_SOFT` / `_HARD` / `_MIN_N` | −8 / −15 / 12 | edge-governed bar: raise the actionable cut toward Strong when the realized option edge is this negative (after this many decided closes) |
-| `PICKS_COUNT` / `PICKS_WATCH_COUNT` | 10 / 6 | max Actionable / max Ideas·Watch roster size |
-| `PICKS_MAX_AI_THESES` | = `PICKS_COUNT` (10) | only the top N data-gate survivors BY DETERMINISTIC CONVICTION get the AI thesis + final grade (the AI factor applies ONLY to the deterministic top 10 — owner directive); the rest ship deterministic-only watch cards. No bench below the cut: an AI reject/wait honestly shrinks the roster instead of backfilling |
+| `PICKS_COUNT` / `PICKS_WATCH_COUNT` | 6 / 6 | max Actionable / max Ideas·Watch roster size |
+| `PICKS_MAX_AI_THESES` | = `PICKS_COUNT` (6) | only the top N data-gate survivors BY DETERMINISTIC CONVICTION get the AI thesis + final grade (the AI factor applies ONLY to the deterministic top 6); the rest ship deterministic-only watch cards. No bench below the cut: an AI reject/wait honestly shrinks the roster instead of backfilling |
 | `PICKS_ENTRY_WAIT_SIZE_MULT` | 0.75 | size haircut on a contract-bearing pick whose entry signal is still a wait/dip trigger (`entry.now === false`). Since the 2026-07-10 entry gate an actionable pick is always entry-confirmed, so this only shapes the display sizing of watch ideas |
 | `PICKS_TACTICAL_SIZE_MULT` | 0.50 | post-normalization max-size cap for the labeled risk-off tactical-put exception; released gross stays cash |
 | `PICKS_ENTRY_EXTENDED_DIST` / `PICKS_TIMING_CHASE_RSI` | 4 / 72 | mild/soft extension evidence. A single reading creates a penalty/wait, not a hard veto, but AI cannot promote it: Actionable still requires every deterministic GO invariant |

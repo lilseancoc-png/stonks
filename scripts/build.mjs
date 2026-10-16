@@ -131,18 +131,18 @@ export const TICKERS = [
   "COF", "GS", "HOOD", "AXP", "AMD", "C", "UNH", "APO", "BX",
   "DELL", "ASML", "VST", "CAT",
   // Software / SaaS / cloud / industrials / consumer / semis / hardware
-  "NOW", "ZS", "FIG", "BSX", "MDB", "ACN", "OKTA", "HUBS", "SNOW",
+  "NOW", "ZS", "BSX", "MDB", "ACN", "OKTA", "SNOW",
   "RKLB", "CRM", "ASTS", "FTNT", "WDAY", "INTU", "DASH", "GD", "TEAM",
-  "NET", "LEN", "SPOT", "NKE", "PANW", "ETSY", "DIS", "IBM", "QCOM",
+  "NET", "LEN", "NKE", "PANW", "DIS", "IBM", "QCOM",
   "HD", "PLTR", "CSCO", "CI", "DE", "RDDT", "PYPL", "DDOG", "NXPI",
-  "TWLO", "LOW", "SBUX", "MCD", "EL", "ANET", "TXN", "INTC", "SMCI", "NVO",
+  "TWLO", "LOW", "SBUX", "MCD", "ANET", "TXN", "INTC", "SMCI", "NVO",
   "U", "FDX", "EBAY", "APP", "UPS", "LRCX", "CRWV", "ON", "CLS",
-  "MRVL", "PLAB", "AMAT", "AMKR", "MU", "BE", "OKLO", "SNDK", "GLW",
-  "STX", "WDC", "ALAB", "MP", "LITE", "AAOI", "HIMS", "TSEM", "DRAM",
-  // Space — satellite, lunar lander, in-space mfg, thermal mgmt, launch
-  "LUNR", "PL", "BKSY", "RDW", "KULR", "SPCX",
-  // Added coverage — AI silicon, RF/optics, Arm IP, broker, med-tech, DC infra, retail, gaming, travel, launch
-  "CBRS", "SWKS", "ARM", "COHR", "IBKR", "TMO", "VRT", "TGT", "RBLX", "ABNB", "FLY",
+  "MRVL", "AMAT", "MU", "BE", "SNDK", "GLW",
+  "STX", "WDC", "ALAB", "LITE", "TSEM", "DRAM",
+  // Space — launch
+  "SPCX",
+  // Added coverage — AI silicon, RF/optics, Arm IP, broker, med-tech, DC infra, retail, travel
+  "CBRS", "SWKS", "ARM", "COHR", "IBKR", "TMO", "VRT", "TGT", "ABNB",
 ];
 
 // Sector mapping — surfaced in the searchable combobox so users can filter
@@ -160,9 +160,9 @@ export const SECTORS = {
   // Semis & semi equipment
   ASML: "Semis", QCOM: "Semis", TXN: "Semis", MRVL: "Semis", AMAT: "Semis",
   LRCX: "Semis", MU: "Semis", INTC: "Semis", NXPI: "Semis", ON: "Semis",
-  SMCI: "Semis", AMKR: "Semis", PLAB: "Semis", ALAB: "Semis", TSEM: "Semis",
+  SMCI: "Semis", ALAB: "Semis", TSEM: "Semis",
   DRAM: "Semis", SWKS: "Semis", SNDK: "Storage", STX: "Storage", WDC: "Storage", GLW: "Semis",
-  MP: "Materials", LITE: "Semis", AAOI: "Semis", ARM: "Semis", CBRS: "Semis",
+  LITE: "Semis", ARM: "Semis", CBRS: "Semis",
   COHR: "Semis",
   // Hardware / networking / tech services
   DELL: "Hardware", CSCO: "Networking", ANET: "Networking", IBM: "Tech services",
@@ -171,13 +171,13 @@ export const SECTORS = {
   NOW: "Software", SNOW: "Software", NET: "Software", DDOG: "Software",
   CRWD: "Software", ZS: "Software", MDB: "Software", OKTA: "Software",
   PANW: "Software", WDAY: "Software", ZM: "Software", DOCU: "Software",
-  TEAM: "Software", FTNT: "Software", HUBS: "Software", TTD: "Software",
-  FIG: "Software", RBLX: "Software", U: "Software", APP: "Software",
+  TEAM: "Software", FTNT: "Software", TTD: "Software",
+  U: "Software", APP: "Software",
   TWLO: "Software", CRWV: "Software",
   // Power / data-center infra
   CEG: "Power", VST: "Power", TLN: "Power",
   VRT: "Data center", CLS: "Data center",
-  BE: "Clean energy", OKLO: "Nuclear",
+  BE: "Clean energy",
   // Banks / brokers / payments / fintech / asset mgmt
   JPM: "Bank", BAC: "Bank", WFC: "Bank", USB: "Bank", MS: "Bank",
   COF: "Bank", GS: "Bank", C: "Bank", HSBC: "Bank", UBS: "Bank",
@@ -186,8 +186,8 @@ export const SECTORS = {
   APO: "Asset mgmt", BX: "Asset mgmt",
   // Consumer / retail / restaurants
   WMT: "Retail", COST: "Retail", TGT: "Retail", HD: "Retail", LOW: "Retail",
-  NKE: "Apparel", LULU: "Apparel", ONON: "Apparel", EL: "Beauty", ELF: "Beauty",
-  W: "E-commerce", EBAY: "E-commerce", ETSY: "E-commerce",
+  NKE: "Apparel", LULU: "Apparel", ONON: "Apparel", ELF: "Beauty",
+  W: "E-commerce", EBAY: "E-commerce",
   MCD: "Restaurants", SBUX: "Restaurants",
   DIS: "Media", LEN: "Homebuilder",
   // Industrials / aerospace / defense / logistics
@@ -197,9 +197,9 @@ export const SECTORS = {
   // Healthcare / pharma / payors / med-tech
   NVO: "Pharma", LLY: "Pharma", MRNA: "Pharma", MRK: "Pharma", UNH: "Insurance", JNJ: "Pharma", PFE: "Pharma",
   TMO: "Medical", CI: "Insurance", ELV: "Insurance", MOH: "Insurance",
-  CVS: "Pharmacy", BSX: "Medical", HIMS: "Telehealth",
+  CVS: "Pharmacy", BSX: "Medical",
   // Media / telecom
-  VZ: "Telecom", CHTR: "Cable", SPOT: "Media",
+  VZ: "Telecom", CHTR: "Cable",
   // Energy
   XOM: "Energy", CVX: "Energy", OXY: "Energy",
   // Travel / modern consumer
@@ -211,9 +211,7 @@ export const SECTORS = {
   COIN: "Crypto", PLTR: "Software", SHOP: "Software",
   GME: "Meme", AMC: "Meme",
   RDDT: "Social", RKLB: "Space", ASTS: "Space",
-  LUNR: "Space", PL: "Space", BKSY: "Space", RDW: "Space", KULR: "Space",
   SPCX: "Space",
-  FLY: "Space",
 };
 
 // ---------------------------------------------------------------------------
@@ -316,9 +314,9 @@ export const GLOBAL_PEER_OF_TICKER = {
   // Logic / analog / RF / optical — foundry takers
   TSM: "foundry", QCOM: "foundry", NXPI: "foundry", ON: "foundry", TXN: "foundry",
   INTC: "foundry", SWKS: "foundry", GLW: "foundry", COHR: "foundry", LITE: "foundry",
-  AAOI: "foundry", CBRS: "foundry", TSEM: "foundry",
+  CBRS: "foundry", TSEM: "foundry",
   // Semicap (fab equipment / mask / test)
-  AMAT: "semicap", LRCX: "semicap", ASML: "semicap", PLAB: "semicap",
+  AMAT: "semicap", LRCX: "semicap", ASML: "semicap",
   // Arm IP
   ARM: "arm_ip",
   // China tech
@@ -330,8 +328,8 @@ export const GLOBAL_PEER_OF_TICKER = {
   USO: "energy",
   // Logistics — fuel is a top cost line, so a crude spike is a headwind (−β)
   FDX: "logistics", UPS: "logistics",
-  // Metals — precious + the dollar (GLD/SLV ~1:1, MP rare-earth materials)
-  GLD: "metals", SLV: "metals", MP: "metals",
+  // Metals — precious + the dollar (GLD/SLV ~1:1)
+  GLD: "metals", SLV: "metals",
   // Industrials — copper "Dr. Copper" + global growth
   CAT: "industrials", DE: "industrials",
   // Power — nat-gas-heavy generation
@@ -396,7 +394,6 @@ export const SECTOR_ORDER = [
   "Financials",
   "Consumer Defensive",
   "Utilities",
-  "Basic Materials",
   "Precious Metals",
 ];
 
@@ -423,7 +420,6 @@ export const INDUSTRIES_BY_SECTOR = {
   "Communication Services": [
     "Internet Content & Information",
     "Entertainment",
-    "Electronic Gaming & Multimedia",
     "Advertising Agencies",
   ],
   "Industrials": [
@@ -438,7 +434,6 @@ export const INDUSTRIES_BY_SECTOR = {
     "Drug Manufacturers - General",
     "Healthcare Plans",
     "Medical Devices",
-    "Consumer Health Products",
   ],
   "Financials": [
     "Banks - Diversified",
@@ -448,14 +443,10 @@ export const INDUSTRIES_BY_SECTOR = {
   ],
   "Consumer Defensive": [
     "Discount Stores",
-    "Household & Personal Products",
   ],
   "Utilities": [
     "Utilities - Independent Power Producers",
     "Utilities - Renewable",
-  ],
-  "Basic Materials": [
-    "Other Industrial Metals & Mining",
   ],
   "Precious Metals": [
     "Gold",
@@ -490,10 +481,8 @@ export const INDUSTRY_OF_TICKER = {
   WDAY: "Software Applications",
   TEAM: "Software Applications",
   INTU: "Software Applications",
-  HUBS: "Software Applications",
   TWLO: "Software Applications",
   SHOP: "Software Applications",
-  FIG: "Software Applications",
   APP: "Software Applications",
   U: "Software Applications",
   // --- Technology · Semiconductors ---
@@ -508,13 +497,10 @@ export const INDUSTRY_OF_TICKER = {
   TXN: "Semiconductors",
   NXPI: "Semiconductors",
   ON: "Semiconductors",
-  AMKR: "Semiconductors",
-  PLAB: "Semiconductors",
   ALAB: "Semiconductors",
   TSEM: "Semiconductors",
   SNDK: "Semiconductors",
   SMCI: "Semiconductors",
-  AAOI: "Semiconductors",
   LITE: "Semiconductors",
   STX: "Semiconductors",
   DRAM: "Semiconductors",
@@ -540,7 +526,6 @@ export const INDUSTRY_OF_TICKER = {
   AMZN: "Internet Retail",
   BABA: "Internet Retail",
   EBAY: "Internet Retail",
-  ETSY: "Internet Retail",
   HD: "Specialty Retail",
   LOW: "Specialty Retail",
   NKE: "Apparel Retail",
@@ -557,19 +542,11 @@ export const INDUSTRY_OF_TICKER = {
   RDDT: "Internet Content & Information",
   NFLX: "Entertainment",
   DIS: "Entertainment",
-  SPOT: "Entertainment",
-  RBLX: "Electronic Gaming & Multimedia",
   // --- Industrials ---
   GD: "Aerospace & Defense",
   RKLB: "Aerospace & Defense",
   ASTS: "Aerospace & Defense",
-  LUNR: "Aerospace & Defense",
-  PL: "Aerospace & Defense",
-  BKSY: "Aerospace & Defense",
-  RDW: "Aerospace & Defense",
   SPCX: "Aerospace & Defense",
-  FLY: "Aerospace & Defense",
-  KULR: "Electrical Equipment & Parts",
   VRT: "Electrical Equipment & Parts",
   FDX: "Integrated Freight & Logistics",
   UPS: "Integrated Freight & Logistics",
@@ -584,7 +561,6 @@ export const INDUSTRY_OF_TICKER = {
   CI: "Healthcare Plans",
   BSX: "Medical Devices",
   TMO: "Medical Devices",
-  HIMS: "Consumer Health Products",
   // --- Financials ---
   JPM: "Banks - Diversified",
   BAC: "Banks - Diversified",
@@ -606,13 +582,9 @@ export const INDUSTRY_OF_TICKER = {
   WMT: "Discount Stores",
   COST: "Discount Stores",
   TGT: "Discount Stores",
-  EL: "Household & Personal Products",
   // --- Utilities ---
   VST: "Utilities - Independent Power Producers",
   BE: "Utilities - Renewable",
-  OKLO: "Utilities - Renewable",
-  // --- Basic Materials ---
-  MP: "Other Industrial Metals & Mining",
   // --- Precious Metals (ETFs) ---
   GLD: "Gold",
   SLV: "Silver",
@@ -2002,7 +1974,7 @@ async function fetchFundamentals(symbol) {
   let res;
   try {
     // validateResult: false lets us keep partial data when Yahoo returns
-    // an unexpected shape (common for newer/smaller tickers like OKLO).
+    // an unexpected shape (common for newer/smaller tickers).
     // The `num()` helper below already tolerates missing fields, so a
     // best-effort response is more useful than discarding everything.
     res = await yahooFinance.quoteSummary(symbol, { modules }, { validateResult: false });
@@ -3224,8 +3196,8 @@ const SEGMENT_PARSER_VERSION = 15;
 
 // Forms we'll try to extract segment data from. 10-K + 10-Q cover
 // US-GAAP filers; 20-F + 6-K cover foreign private issuers (NVO, ASML,
-// TSM, BABA, SPOT, UBS, TSEM in this universe). 6-Ks rarely include
-// segment XBRL but they're cheap to skip when empty.
+// TSM, BABA, UBS, TSEM). 6-Ks rarely include segment XBRL but they're
+// cheap to skip when empty.
 const SEGMENT_FILING_FORMS = ["10-K", "10-Q", "20-F", "6-K"];
 
 // Merge segment maps across multiple XBRL instances. Two filings may
@@ -16957,14 +16929,14 @@ const GRADES_FILE = "grades.json";
 const PICK_THESIS_CACHE_FILE = "pick-thesis-cache.json";
 
 // ---- Roster shape ----------------------------------------------------------
-const PICKS_COUNT = Number(process.env.PICKS_COUNT ?? 10);   // max ACTIONABLE names shipped (Strong grade + Strong thesis)
+const PICKS_COUNT = Number(process.env.PICKS_COUNT ?? 6);   // max ACTIONABLE names shipped (Strong grade + Strong thesis)
 const PICKS_WATCH_COUNT = Number(process.env.PICKS_WATCH_COUNT ?? 6); // max IDEAS/WATCH names (demoted: weak thesis or moderate grade)
 // Only the TOP N data-gate survivors BY DETERMINISTIC CONVICTION are sent to
 // the AI for a thesis + final grade. = PICKS_COUNT (2026-07-10, owner
 // directive): the engine is deterministic-first — the deterministic grade
-// alone decides WHICH ten names are candidates and in what order; the AI is
-// ONLY the final should-we-act check on those ten (grade / veto / entry
-// verdict). There is deliberately NO bench beyond the top 10: an AI reject or
+// alone decides WHICH six names are candidates and in what order; the AI is
+// ONLY the final should-we-act check on those six (grade / veto / entry
+// verdict). There is deliberately NO bench beyond the top 6: an AI reject or
 // wait among them means the roster honestly ships fewer actionable picks
 // (cash is a position) — it is never backfilled from below the deterministic
 // cut. A name beyond the cut ships its deterministic card as a watch idea
@@ -25633,7 +25605,6 @@ export const LEVERAGED_ETF_SINGLES = {
   PANW:  { bull: { sym: "PALU", lev: 2, er: 0.0108 }, bear: null },
   CRWV:  { bull: { sym: "CRWU", lev: 2, er: 0.015  }, bear: null },
   RKLB:  { bull: { sym: "RKLX", lev: 2, er: 0.0129 }, bear: { sym: "RKLZ", lev: -2, er: 0.0129 } },
-  OKLO:  { bull: { sym: "OKLL", lev: 2, er: 0.0131 }, bear: { sym: "OKLS", lev: -2, er: 0.0131 } },
   ASTS:  { bull: { sym: "ASTX", lev: 2, er: 0.013  }, bear: null },
   RDDT:  { bull: { sym: "RDTL", lev: 2, er: 0.015  }, bear: null },
   NOW:   { bull: { sym: "NOWL", lev: 2, er: 0.015  }, bear: null },

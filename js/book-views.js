@@ -1413,7 +1413,7 @@ async function renderMa() {
     mount(id, shell(
       id,
       "Distance from spot to the stored average",
-      `<div class="book-controls"><label>Average <select data-book-control="ma-period" aria-label="Moving average for the distance histogram">${options}</select></label>${searchField("ma-lookup", "Ticker", state.maLookup, "AAOI")}<span class="book-count">${plotted} names · ${inside} inside ±5% · ${above} above · ${below} below${missing ? " · " + missing + " missing a level" : ""}</span></div>${lookupHtml}<div class="book-cols" role="img" aria-label="Distance to the ${period}-day average">${columns}</div><p class="book-hover-readout" aria-live="polite"></p>`,
+      `<div class="book-controls"><label>Average <select data-book-control="ma-period" aria-label="Moving average for the distance histogram">${options}</select></label>${searchField("ma-lookup", "Ticker", state.maLookup, "MU")}<span class="book-count">${plotted} names · ${inside} inside ±5% · ${above} above · ${below} below${missing ? " · " + missing + " missing a level" : ""}</span></div>${lookupHtml}<div class="book-cols" role="img" aria-label="Distance to the ${period}-day average">${columns}</div><p class="book-hover-readout" aria-live="polite"></p>`,
       "Distance is (spot − level) / level, using the spot and " + period + "-day level already stored for each name. The shaded ±5% band is the same band the crossover table uses. Names outside that band stay out of the table above. Hover a column for its count. This histogram does not change the priority score.",
     ));
   } catch (err) {
