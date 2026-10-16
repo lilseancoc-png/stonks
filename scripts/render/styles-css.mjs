@@ -24565,8 +24565,52 @@ ${renderWorkspaceCss()}
 .book-summary::before { content: "▸"; color: var(--accent); width: 12px; flex: 0 0 12px; }
 .book-details[open] > .book-summary::before { content: "▾"; }
 .book-title { font: 650 16px/1.3 var(--font-sans); color: var(--text-strong); }
-.book-svg circle.is-dim { fill-opacity: 0.16; }
-.book-svg circle.is-hit { fill-opacity: 0.9; stroke: rgba(250,245,234,0.35); stroke-width: 1; }
+.book-svg .is-dim { fill-opacity: 0.14; }
+.book-svg .is-hit, .book-svg .is-dim { cursor: pointer; }
+.book-svg .is-hit { fill-opacity: 0.92; stroke: rgba(250,245,234,0.4); stroke-width: 1.2; }
+.book-svg .is-focus { stroke: var(--text-strong); stroke-width: 2.2; }
+.book-svg.is-fit { width: 100%; height: auto; aspect-ratio: 920 / 520; max-height: 560px; }
+.book-plot.is-fit { display: block; }
+.book-grade-chart { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 4px; align-items: stretch; }
+.book-grade-ylab { writing-mode: vertical-rl; transform: rotate(180deg); align-self: center; color: var(--muted); font: 700 10px/1 var(--font-sans); letter-spacing: .16em; text-transform: uppercase; }
+.book-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0 0 10px; }
+.book-metrics div { min-width: 0; padding: 9px 11px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; }
+.book-metrics small, .book-metrics em { display: block; color: var(--muted); font: 700 10px/1.3 var(--font-sans); letter-spacing: .08em; text-transform: uppercase; font-style: normal; }
+.book-metrics b { display: block; margin: 4px 0 2px; color: var(--text-strong); font: 650 15px/1.25 var(--font-mono); font-variant-numeric: tabular-nums; }
+.book-metrics em { letter-spacing: .01em; text-transform: none; font-weight: 500; }
+.book-svg .book-plot-bg { fill: var(--bg); }
+.book-svg .book-frame { fill: color-mix(in srgb, var(--surface-2) 92%, black); stroke: var(--border-strong); }
+.book-svg .book-zero { stroke: color-mix(in srgb, var(--text) 42%, transparent); stroke-width: 1.25; }
+.book-svg .book-guide-label { fill: var(--muted-strong); font: 700 12px var(--font-sans); letter-spacing: .03em; }
+.book-svg .book-tag rect { fill: color-mix(in srgb, var(--bg) 92%, transparent); stroke: var(--border-strong); }
+.book-svg .book-tag text { fill: var(--text-strong); font: 700 13px var(--font-mono); }
+.book-spark { width: 84px; height: 22px; display: block; }
+.book-spark polyline { fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.book-spark .is-pos { stroke: var(--pos); }
+.book-spark .is-neg { stroke: var(--neg); }
+.book-size-key { margin-left: auto; color: var(--muted); }
+.book-grade .book-legend { flex-wrap: nowrap; gap: 6px; overflow-x: auto; padding-bottom: 6px; }
+.book-grade .book-legend button { flex: 0 0 auto; background: var(--surface-2); border-color: var(--border); }
+.book-grade-grid thead th { position: sticky; top: 0; z-index: 1; background: var(--surface); }
+.book-grade-grid td.book-num, .book-grade-grid th.book-num { text-align: right; font-variant-numeric: tabular-nums; }
+.book-grade-grid tbody tr:hover td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.book-svg .book-grid { stroke: var(--border); stroke-width: 1; opacity: .35; }
+.book-svg .book-tick { fill: var(--muted); font: 500 16px var(--font-mono); }
+.book-svg .book-dot-label { fill: var(--text-strong); font: 700 18px var(--font-mono); paint-order: stroke; stroke: var(--bg); stroke-width: 4px; }
+.book-side-key { display: flex; flex-wrap: wrap; gap: 10px 16px; margin: 0 0 8px; color: var(--muted-strong); font: 500 12px/1.2 var(--font-sans); }
+.book-side-key i { display: inline-block; width: 9px; height: 9px; margin-right: 6px; background: var(--muted-strong); vertical-align: -1px; }
+.book-side-key .is-call { border-radius: 50%; }
+.book-side-key .is-put { border-radius: 1px; }
+.book-side-key .is-none { width: 8px; height: 8px; transform: rotate(45deg); }
+.book-legend button { display: inline-flex; align-items: center; gap: 6px; margin: 0; padding: 4px 8px; border: 1px solid transparent; border-radius: 999px; background: transparent; color: var(--muted-strong); font: 500 11px/1.2 var(--font-sans); cursor: pointer; }
+.book-legend button.is-on, .book-legend button:focus-visible { border-color: var(--accent); color: var(--text-strong); background: var(--surface-2); }
+.book-legend button i { width: 9px; height: 9px; border-radius: 2px; display: block; }
+.book-grade-table { max-height: 440px; }
+.book-table th button, .book-table td button { background: none; border: 0; padding: 0; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+.book-table th button.is-sort { color: var(--text-strong); }
+.book-table tr.is-focus td { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.book-table .is-pos, .book-table .is-call { color: var(--pos); }
+.book-table .is-neg, .book-table .is-put { color: var(--neg); }
 .book-hits { list-style: none; margin: 8px 0 0; padding: 0; }
 .book-hits li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid var(--border); color: var(--text); font: 500 12px/1.35 var(--font-mono); font-variant-numeric: tabular-nums; }
 .book-hits span { color: var(--muted-strong); text-align: right; }
@@ -24591,8 +24635,7 @@ ${renderWorkspaceCss()}
 .book-y span { position: absolute; right: 0; transform: translateY(-50%); color: var(--muted); font: 500 10px/1 var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .book-plot-main { min-width: 0; }
 .book-svg { width: 100%; height: 220px; display: block; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; }
-.book-svg .book-zero { stroke: var(--border-strong); stroke-width: 1; }
-.book-svg .book-guide { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; opacity: .7; }
+.book-svg .book-guide { stroke: color-mix(in srgb, var(--accent) 70%, transparent); stroke-width: 1; stroke-dasharray: 4 4; }
 .book-x, .book-axis-caption { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; color: var(--muted); font: 500 10px/1.3 var(--font-mono); font-variant-numeric: tabular-nums; }
 .book-axis-caption { font-family: var(--font-sans); letter-spacing: .02em; }
 .book-axis-caption span:last-child { text-align: right; }
@@ -24666,6 +24709,9 @@ ${renderWorkspaceCss()}
 .book-table th { color: var(--muted); font: 700 10px/1.2 var(--font-sans); letter-spacing: .05em; text-transform: uppercase; }
 .book-table td { color: var(--text); font-variant-numeric: tabular-nums; }
 .book-table td:first-child { font-family: var(--font-mono); font-weight: 700; }
+@media (max-width: 800px) {
+  .book-metrics { grid-template-columns: 1fr 1fr; }
+}
 @media (max-width: 900px) {
   .book-board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .book-breadth-row, .book-wall, .book-bar-line, .book-link-list li, .book-evidence-name li { grid-template-columns: 1fr; }

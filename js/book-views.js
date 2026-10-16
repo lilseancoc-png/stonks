@@ -47,6 +47,14 @@ function etToday() {
   }).format(new Date());
 }
 
+function etDateFromIso(iso) {
+  const ms = Date.parse(iso || "");
+  if (!Number.isFinite(ms)) return null;
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date(ms));
+}
+
 function addDays(iso, delta) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
   if (!match) return null;
@@ -127,6 +135,12 @@ const state = {
   open: {},
   gradePeriod: "1m",
   gradeQuery: "",
+  gradeSide: "all",
+  gradeSector: "all",
+  gradeBand: "all",
+  gradeSort: "x",
+  gradeSortDir: "desc",
+  gradeScale: "spread",
   maPeriod: "50",
   maLookup: "",
   wallsAll: false,
@@ -155,9 +169,30 @@ const GRADE_PERIODS = [
 ];
 
 const SECTOR_COLORS = [
-  "#d9a533", "#5b9bd6", "#af8df0", "#e0a080", "#7dcea0", "#c9a27c",
-  "#8fb8c9", "#d4b483", "#b0a8d6", "#a3c4bc", "#e6c3b0", "#9bb7c9",
+  "#e0b15a", "#6cb6ff", "#c9a0ff", "#ff9b73", "#7dcea0", "#f0d08a",
+  "#8fd0e8", "#f2a3c7", "#b7d48a", "#f0c36a", "#9bb6ff", "#e89b9b",
+  "#7ec8c3", "#e6c27a", "#d4a0e0", "#a8d08d", "#f0b429", "#80c4e8",
+  "#e8a87c", "#b0e0c8", "#d9c4a0", "#a3b8f0", "#f2c1b0", "#8fd4a8",
+  "#e0d080", "#c8b4f0", "#f0a0b4", "#90d0b0", "#e8d0a0", "#a0c8e8",
+  "#d8b890", "#c0e0a0",
 ];
+const GRADE_SIDES = [
+  ["all", "All recommendations"],
+  ["call", "Calls"],
+  ["put", "Puts"],
+  ["none", "No recommendation"],
+];
+const GRADE_SORTS = [
+  ["x", "Return"],
+  ["y", "Average"],
+  ["today", "Today"],
+  ["symbol", "Ticker"],
+  ["sector", "Sector"],
+  ["side", "Recommendation"],
+  ["days", "Days"],
+  ["callDays", "Call days"],
+];
+const SIDE_RANK = { call: 0, put: 1, none: 2 };
 
 const IV_TIER_COLOR = {
   surging: "var(--violet)",
@@ -280,6 +315,119 @@ function legendHtml(items) {
     `<span><i style="background:${item.color}"></i>${esc(item.label)}</span>`).join("")}</div>`;
 }
 
+function selectControl(control, label, value, options) {
+  const choices = options.map(([optionValue, text]) =>
+    `<option value="${esc(optionValue)}"${optionValue === value ? " selected" : ""}>${esc(text)}</option>`).join("");
+  return `<label>${esc(label)} <select data-book-control="${esc(control)}" aria-label="${esc(label)}">${choices}</select></label>`;
+}
+
+function rankValues(values) {
+  const order = values.map((value, index) => ({ value, index })).sort((a, b) => a.value - b.value);
+  const ranks = Array(values.length);
+  for (let i = 0; i < order.length;) {
+    let j = i;
+    while (j < order.length && order[j].value === order[i].value) j += 1;
+    const average = (i + 1 + j) / 2;
+    for (let k = i; k < j; k += 1) ranks[order[k].index] = average;
+    i = j;
+  }
+  return ranks;
+}
+
+function rankAgreement(xs, ys) {
+  const pairs = [];
+  for (let i = 0; i < xs.length; i += 1) {
+    if (xs[i] == null || ys[i] == null) continue;
+    pairs.push([xs[i], ys[i]]);
+  }
+  if (pairs.length < 3) return null;
+  const rx = rankValues(pairs.map((pair) => pair[0]));
+  const ry = rankValues(pairs.map((pair) => pair[1]));
+  const n = pairs.length;
+  const mean = (ranks) => ranks.reduce((sum, value) => sum + value, 0) / n;
+  const mx = mean(rx);
+  const my = mean(ry);
+  let covariance = 0;
+  let dx = 0;
+  let dy = 0;
+  for (let i = 0; i < n; i += 1) {
+    const a = rx[i] - mx;
+    const b = ry[i] - my;
+    covariance += a * b;
+    dx += a * a;
+    dy += b * b;
+  }
+  if (dx === 0 || dy === 0) return null;
+  return covariance / Math.sqrt(dx * dy);
+}
+
+function windowGradeSamples(days, symbol, period, start, asOf, todayTotal, bar) {
+  const saved = [];
+  for (const day of Array.isArray(days) ? days : []) {
+    if (!day || !day.totals || typeof day.totals !== "object") continue;
+    const date = String(day.date || "").slice(0, 10);
+    const total = num(day.totals[symbol]);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || total == null) continue;
+    saved.push({ date, total });
+  }
+  saved.sort((a, b) => a.date.localeCompare(b.date));
+  const fileStart = saved.length ? saved[0].date : null;
+  const fileEnd = saved.length ? saved[saved.length - 1].date : null;
+  const history = saved.length > 0;
+  let samples;
+  if (period === "1d" || !history || !start) {
+    samples = todayTotal == null ? [] : [{ date: asOf || fileEnd || "", total: todayTotal }];
+  } else {
+    samples = saved.filter((row) => (!asOf || row.date <= asOf) && row.date > start);
+    if (asOf && todayTotal != null && asOf > start) {
+      const todayIndex = samples.findIndex((row) => row.date === asOf);
+      const todayRow = { date: asOf, total: todayTotal };
+      if (todayIndex >= 0) samples[todayIndex] = todayRow;
+      else samples = samples.concat([todayRow]);
+    }
+    if (!samples.length && todayTotal != null) samples = [{ date: asOf || "", total: todayTotal }];
+  }
+  const totals = samples.map((row) => row.total);
+  const dates = samples.map((row) => row.date).filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)).sort();
+  const average = totals.length
+    ? Math.round((totals.reduce((sum, total) => sum + total, 0) / totals.length) * 10) / 10
+    : null;
+  const savedInWindow = history && period !== "1d"
+    ? saved.filter((row) => (!asOf || row.date <= asOf) && (!start || row.date > start)).length
+    : 0;
+  return {
+    average,
+    days: period === "1d" || !history ? (todayTotal == null ? 0 : 1) : totals.length,
+    callDays: totals.filter((total) => total >= bar).length,
+    putDays: totals.filter((total) => total <= -bar).length,
+    first: dates[0] || null,
+    last: dates[dates.length - 1] || null,
+    series: totals,
+    history,
+    fileStart,
+    fileEnd,
+    partial: !!(history && period !== "1d" && start && fileStart && fileStart > start),
+    todayOnly: !history || period === "1d" || !start || savedInWindow === 0,
+  };
+}
+
+function sideName(side) {
+  if (side === "call") return "Call";
+  if (side === "put") return "Put";
+  return "No recommendation";
+}
+
+function pillarOf(grade, key) {
+  const pillar = grade && grade.pillars && grade.pillars[key];
+  return pillar ? num(pillar.score) : null;
+}
+
+function toneClass(value) {
+  const n = num(value);
+  if (n == null || n === 0) return "";
+  return n > 0 ? "is-pos" : "is-neg";
+}
+
 async function renderBreadth() {
   const id = "book-breadth";
   try {
@@ -343,81 +491,453 @@ async function renderBreadth() {
   }
 }
 
-function gradePoints(heatmap, grades, period) {
+function gradePoints(heatmap, grades, daily, period, bar) {
   const rows = heatmap && Array.isArray(heatmap.tickers) ? heatmap.tickers : [];
   const book = grades && grades.grades && typeof grades.grades === "object" ? grades.grades : {};
+  const days = daily && Array.isArray(daily.days) ? daily.days : [];
+  const asOf = etDateFromIso(heatmap && heatmap.builtAtIso) || etToday();
   const sectors = [];
   const points = [];
   let missing = 0;
+  let partial = 0;
+  let fileStart = null;
+  let fileEnd = null;
+  let sampleFirst = null;
+  let sampleLast = null;
+  let returnStart = null;
+  let sampleDays = 0;
   for (const row of rows) {
     const symbol = String(row && row.t || "").toUpperCase();
     const grade = book[symbol];
     const x = heatmapReturn(row, period);
-    const y = grade ? num(grade.total) : null;
-    if (!symbol || x == null || y == null) { missing += 1; continue; }
+    const today = grade ? num(grade.total) : null;
+    if (!symbol || x == null || today == null) { missing += 1; continue; }
     const sector = String(row.s || grade.sector || "Other");
     if (!sectors.includes(sector)) sectors.push(sector);
+    const side = grade.side === "call" || grade.side === "put" ? grade.side : "none";
+    const start = period === "1d" ? null : (row.perfStart && row.perfStart[period]) || null;
+    const sample = windowGradeSamples(days, symbol, period, start, asOf, today, bar);
+    if (sample.fileStart && (!fileStart || sample.fileStart < fileStart)) fileStart = sample.fileStart;
+    if (sample.fileEnd && (!fileEnd || sample.fileEnd > fileEnd)) fileEnd = sample.fileEnd;
+    if (start && (!returnStart || start < returnStart)) returnStart = start;
+    if (!sample.todayOnly && sample.first && (!sampleFirst || sample.first < sampleFirst)) sampleFirst = sample.first;
+    if (!sample.todayOnly && sample.last && (!sampleLast || sample.last > sampleLast)) sampleLast = sample.last;
+    if (!sample.todayOnly && sample.days > sampleDays) sampleDays = sample.days;
+    if (sample.partial) partial += 1;
+    const y = sample.average == null ? today : sample.average;
+    const drivers = Array.isArray(grade.drivers) ? grade.drivers.slice(0, 4) : [];
     points.push({
-      symbol, x, y, sector,
+      symbol, x, y, today, sector, side,
+      days: sample.days,
+      callDays: sample.callDays,
+      putDays: sample.putDays,
+      first: sample.first,
+      last: sample.last,
+      series: sample.series,
+      todayOnly: sample.todayOnly,
+      partial: sample.partial,
+      returnStart: start,
       mc: num(row.mc) || 0,
-      side: grade.side || "",
+      fund: pillarOf(grade, "fundamentals"),
+      tech: pillarOf(grade, "technicals"),
+      mech: pillarOf(grade, "mechanicals"),
+      narr: pillarOf(grade, "narrative"),
+      iv: pillarOf(grade, "ivCost"),
+      drivers: drivers.map((driver) => (driver.label || driver.key || "Signal") + " " + signed(driver.score, 1)).join(" · "),
     });
   }
+  sectors.sort((a, b) => a.localeCompare(b));
+  const colorOf = {};
+  sectors.forEach((sector, index) => { colorOf[sector] = SECTOR_COLORS[index % SECTOR_COLORS.length]; });
   const mcs = points.map((point) => point.mc).filter((value) => value > 0);
   const lo = mcs.length ? Math.min(...mcs) : 0;
   const hi = mcs.length ? Math.max(...mcs) : 1;
+  const history = days.length > 0;
   return {
     missing,
     sectors,
+    asOf,
+    history,
+    fileStart,
+    fileEnd,
+    sampleFirst,
+    sampleLast,
+    sampleDays,
+    returnStart,
+    partial,
     points: points.map((point) => {
-      const color = SECTOR_COLORS[Math.max(0, sectors.indexOf(point.sector)) % SECTOR_COLORS.length];
       const radius = hi === lo || point.mc <= 0
-        ? 4.5
-        : 3.2 + 5.2 * Math.sqrt((point.mc - lo) / (hi - lo));
-      const side = point.side === "call" ? "call" : point.side === "put" ? "put" : "no side";
+        ? 5
+        : 3.4 + 6.4 * Math.sqrt((point.mc - lo) / (hi - lo));
+      const pillars = ["Fund " + signed(point.fund, 1), "Tech " + signed(point.tech, 1), "Mech " + signed(point.mech, 1), "Story " + signed(point.narr, 1), "IV " + signed(point.iv, 1)].join(" · ");
+      const windowLine = point.todayOnly
+        ? "Window uses today's grade"
+        : "Window avg " + signed(point.y, 1) + " · " + point.days + " days · " + point.callDays + " calls · " + point.putDays + " puts";
       return {
-        symbol: point.symbol,
-        x: point.x,
-        y: point.y,
+        ...point,
         r: radius,
-        color,
-        hit: "Grade " + signed(point.y, 1) + " · " + pct(point.x, 2) + " · " + point.sector + " · " + side,
-        label: point.symbol + "\nGrade total " + signed(point.y, 1) + "\n" + pct(point.x, 2) + "\n" + point.sector + " · " + side,
+        color: colorOf[point.sector],
+        shape: point.side === "call" ? "circle" : point.side === "put" ? "square" : "diamond",
+        hit: windowLine + " · today " + signed(point.today, 1) + " · " + pct(point.x, 2),
+        label: point.symbol + "\n" + windowLine + "\nToday " + signed(point.today, 1) + " · " + sideName(point.side) + "\n" + pct(point.x, 2) + " · " + point.sector + "\n" + pillars + (point.drivers ? "\n" + point.drivers : ""),
       };
     }),
   };
 }
 
+function gradeSpark(series) {
+  if (!series || series.length < 2) return "";
+  const lo = Math.min(...series);
+  const hi = Math.max(...series);
+  const w = 84;
+  const h = 22;
+  const points = series.map((value, index) => {
+    const x = (index / (series.length - 1)) * (w - 2) + 1;
+    const y = h - 2 - ((value - lo) / (hi - lo || 1)) * (h - 4);
+    return x.toFixed(1) + "," + y.toFixed(1);
+  }).join(" ");
+  const tone = series[series.length - 1] >= series[0] ? "is-pos" : "is-neg";
+  return `<svg class="book-spark" viewBox="0 0 ${w} ${h}" aria-hidden="true"><polyline class="${tone}" points="${points}" /></svg>`;
+}
+
+function gradePasses(point, bar) {
+  if (state.gradeSide !== "all" && point.side !== state.gradeSide) return false;
+  if (state.gradeSector !== "all" && point.sector !== state.gradeSector) return false;
+  const magnitude = Math.abs(point.y);
+  if (state.gradeBand === "bar" && magnitude < bar) return false;
+  if (state.gradeBand === "strong" && magnitude < 7) return false;
+  if (state.gradeBand === "below" && magnitude >= bar) return false;
+  return true;
+}
+
+function compareGradePoints(a, b, key) {
+  if (key === "symbol" || key === "sector") return String(a[key] || "").localeCompare(String(b[key] || ""));
+  if (key === "side") return (SIDE_RANK[a.side] - SIDE_RANK[b.side]) || a.symbol.localeCompare(b.symbol);
+  const av = num(a[key]);
+  const bv = num(b[key]);
+  if (av == null && bv == null) return a.symbol.localeCompare(b.symbol);
+  if (av == null) return 1;
+  if (bv == null) return -1;
+  return av - bv || a.symbol.localeCompare(b.symbol);
+}
+
+function gradeMark(point, x, y, dim) {
+  const cls = (dim ? "is-dim" : "is-hit") + (point.focus ? " is-focus" : "");
+  const pick = ` data-book-action="grade-focus" data-symbol="${esc(point.symbol)}"`;
+  const title = `<title>${esc(point.label)}</title>`;
+  const r = point.r;
+  if (point.shape === "square") {
+    const size = r * 1.7;
+    return `<rect class="${cls}"${pick} x="${(x - size / 2).toFixed(1)}" y="${(y - size / 2).toFixed(1)}" width="${size.toFixed(1)}" height="${size.toFixed(1)}" rx="1.5" fill="${point.color}">${title}</rect>`;
+  }
+  if (point.shape === "diamond") {
+    const size = r * 1.45;
+    const points = [
+      [x, y - size],
+      [x + size, y],
+      [x, y + size],
+      [x - size, y],
+    ].map((pair) => pair[0].toFixed(1) + "," + pair[1].toFixed(1)).join(" ");
+    return `<polygon class="${cls}"${pick} points="${points}" fill="${point.color}">${title}</polygon>`;
+  }
+  return `<circle class="${cls}"${pick} cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="${point.color}">${title}</circle>`;
+}
+
+function gradeScatterHtml(opts) {
+  const points = opts.points.filter((point) => point.x != null && point.y != null);
+  if (points.length < 2) {
+    return `<p class="book-note">Fewer than two names match these filters.</p>`;
+  }
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const [x0, x1] = padRange(Math.min(...xs), Math.max(...xs));
+  const [y0, y1] = padRange(Math.min(...ys), Math.max(...ys));
+  const W = 920;
+  const H = 520;
+  const pad = { l: 58, r: 86, t: 22, b: 42 };
+  const innerW = W - pad.l - pad.r;
+  const innerH = H - pad.t - pad.b;
+  const xUnit = opts.scale === "linear"
+    ? (value) => linearWait(value, x0, x1)
+    : (value) => asinhWait(value, x0, x1);
+  const xAt = (value) => pad.l + xUnit(value) * innerW;
+  const yAt = (value) => pad.t + (1 - (value - y0) / (y1 - y0 || 1)) * innerH;
+  const query = String(opts.query || "").trim().toUpperCase();
+  const ordered = points.slice().sort((a, b) => (b.r || 0) - (a.r || 0));
+  const hover = [];
+  let guides = `<rect class="book-plot-bg" x="0" y="0" width="${W}" height="${H}" /><rect class="book-frame" x="${pad.l}" y="${pad.t}" width="${innerW}" height="${innerH}" />`;
+  if (x0 < 0 && x1 > 0) {
+    const x = xAt(0);
+    guides += `<line class="book-zero" x1="${x.toFixed(1)}" y1="${pad.t}" x2="${x.toFixed(1)}" y2="${pad.t + innerH}" />`;
+  }
+  if (y0 < 0 && y1 > 0) {
+    const y = yAt(0);
+    guides += `<line class="book-zero" x1="${pad.l}" y1="${y.toFixed(1)}" x2="${pad.l + innerW}" y2="${y.toFixed(1)}" />`;
+  }
+  let tickText = "";
+  const guideName = { 7: "Strong call", 4: "Call", "-4": "Put", "-7": "Strong put" };
+  for (const guide of [-7, -4, 4, 7]) {
+    if (guide <= y0 || guide >= y1) continue;
+    const y = yAt(guide);
+    guides += `<line class="book-guide" x1="${pad.l}" y1="${y.toFixed(1)}" x2="${pad.l + innerW}" y2="${y.toFixed(1)}" />`;
+    tickText += `<text class="book-guide-label" x="${(pad.l + innerW + 6).toFixed(1)}" y="${y.toFixed(1)}" dominant-baseline="middle">${esc(guideName[guide])}</text>`;
+  }
+  const yTicks = spacedTicks(axisTicks(y0, y1, [-7, -4, 0, 4, 7]), yAt, 22);
+  for (const tick of yTicks) {
+    const y = yAt(tick);
+    const bar = [-7, -4, 4, 7].some((guide) => Math.abs(guide - tick) < 0.05);
+    if (Math.abs(tick) > 0.05 && !bar) {
+      guides += `<line class="book-grid" x1="${pad.l}" y1="${y.toFixed(1)}" x2="${pad.l + innerW}" y2="${y.toFixed(1)}" />`;
+    }
+    tickText += `<text class="book-tick" x="${(pad.l - 8).toFixed(1)}" y="${y.toFixed(1)}" text-anchor="end" dominant-baseline="middle">${esc(opts.yFmt(tick))}</text>`;
+  }
+  const xCandidates = opts.scale === "linear"
+    ? axisTicks(x0, x1, x0 < 0 && x1 > 0 ? [0] : [])
+    : returnTicks(x0, x1);
+  const xTicks = spacedTicks(xCandidates, xAt, 52);
+  for (const tick of xTicks) {
+    tickText += `<text class="book-tick" x="${xAt(tick).toFixed(1)}" y="${(H - 12).toFixed(1)}" text-anchor="middle">${esc(opts.xFmt(tick))}</text>`;
+  }
+  let marks = "";
+  for (const point of ordered) {
+    const x = xAt(point.x);
+    const y = yAt(point.y);
+    const dim = query && !(point.symbol && point.symbol.startsWith(query));
+    marks += gradeMark(point, x, y, dim);
+    hover.push([Math.round(x * 10) / 10, Math.round(y * 10) / 10, point.label]);
+  }
+  const labeled = [];
+  const candidates = ordered.filter((point) => !query || (point.symbol && point.symbol.startsWith(query)));
+  const named = query ? candidates : extremeNames(candidates);
+  let labels = "";
+  for (const point of named) {
+    const x = xAt(point.x);
+    const y = yAt(point.y);
+    const placeLeft = x > pad.l + innerW - 72;
+    const anchorX = x + (placeLeft ? -point.r - 5 : point.r + 5);
+    let placed = null;
+    for (const shift of [0, -18, 18, -36, 36]) {
+      const ly = Math.max(pad.t + 12, Math.min(pad.t + innerH - 6, y + shift));
+      if (labeled.some((item) => Math.abs(item.x - anchorX) < 72 && Math.abs(item.y - ly) < 16)) continue;
+      placed = ly;
+      break;
+    }
+    if (placed == null) continue;
+    labeled.push({ x: anchorX, y: placed });
+    const width = Math.max(36, point.symbol.length * 8.2 + 12);
+    const tagX = placeLeft ? anchorX - width : anchorX;
+    labels += `<g class="book-tag"><rect x="${tagX.toFixed(1)}" y="${(placed - 12).toFixed(1)}" width="${width.toFixed(1)}" height="16" rx="3"></rect><text x="${(tagX + 6).toFixed(1)}" y="${(placed - 1).toFixed(1)}">${esc(point.symbol)}</text></g>`;
+    if (labeled.length >= 8) break;
+  }
+  const svg = `<svg class="book-svg is-fit" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opts.aria)}" data-ch="${esc(JSON.stringify(hover.length ? hover : [[0, 0, ""]]))}">${guides}${marks}${labels}${tickText}</svg>`;
+  return `<div class="book-grade-chart"><div class="book-grade-ylab">${esc(opts.yName)}</div><div class="book-plot-main">${svg}<div class="book-axis-caption"><span>${esc(opts.xName)}</span></div></div></div>`;
+}
+
+function extremeNames(points) {
+  if (!points.length) return [];
+  let hi = points[0];
+  let lo = points[0];
+  for (const point of points) {
+    if (point.x > hi.x) hi = point;
+    if (point.x < lo.x) lo = point;
+  }
+  return hi.symbol === lo.symbol ? [hi] : [hi, lo];
+}
+
+function linearWait(value, min, max) {
+  return (value - min) / (max - min || 1);
+}
+
+function asinhWait(value, min, max) {
+  const start = Math.asinh(min);
+  const end = Math.asinh(max);
+  return (Math.asinh(value) - start) / (end - start || 1);
+}
+
+function returnTicks(min, max) {
+  const candidates = [-400, -200, -100, -50, -25, 0, 25, 50, 100, 200, 400, 800];
+  const kept = candidates.filter((tick) => tick >= min && tick <= max);
+  if (min < 0 && max > 0 && !kept.includes(0)) kept.push(0);
+  const outer = candidates.filter((tick) => tick >= min && tick <= max);
+  if (outer.length) {
+    const high = outer[outer.length - 1];
+    const low = outer[0];
+    if (!kept.includes(high)) kept.push(high);
+    if (!kept.includes(low)) kept.push(low);
+  }
+  kept.sort((a, b) => a - b);
+  return kept;
+}
+
+function spacedTicks(candidates, at, minGap) {
+  const unique = [];
+  for (const tick of candidates) {
+    if (!unique.some((other) => Math.abs(other - tick) < 1e-6)) unique.push(tick);
+  }
+  unique.sort((a, b) => a - b);
+  if (!unique.length) return unique;
+  const preferred = [unique[0], unique[unique.length - 1]];
+  if (unique.includes(0)) preferred.push(0);
+  const kept = [];
+  for (const tick of preferred.concat(unique)) {
+    if (kept.some((other) => Math.abs(at(other) - at(tick)) < minGap)) continue;
+    kept.push(tick);
+  }
+  kept.sort((a, b) => a - b);
+  return kept;
+}
+
+function gradeTable(rows) {
+  const headers = [
+    ["symbol", "Ticker", ""],
+    ["side", "Recommendation", ""],
+    ["today", "Today", "num"],
+    ["y", "Average", "num"],
+    ["days", "Days", "num"],
+    ["callDays", "Call days", "num"],
+    ["putDays", "Put days", "num"],
+    ["x", "Return", "num"],
+    ["series", "Path", ""],
+    ["sector", "Sector", ""],
+    ["fund", "Fund", "num"],
+    ["tech", "Tech", "num"],
+    ["mech", "Mech", "num"],
+    ["narr", "Story", "num"],
+    ["iv", "IV", "num"],
+  ];
+  const headerTip = {
+    today: "Grade from the latest bake",
+    y: "Average of the daily grades in this return window",
+    days: "Saved days included in the average",
+    callDays: "Days in the window with a grade of +4 or higher",
+    putDays: "Days in the window with a grade of -4 or lower",
+    series: "Daily grade across the window, oldest to newest",
+  };
+  const head = headers.map(([key, text, kind]) => {
+    const tip = headerTip[key] ? ` title="${esc(headerTip[key])}"` : "";
+    if (key === "series") return `<th${tip}>${esc(text)}</th>`;
+    const active = state.gradeSort === key;
+    const mark = active ? (state.gradeSortDir === "asc" ? " ↑" : " ↓") : "";
+    return `<th class="${kind === "num" ? "book-num" : ""}"${tip}><button type="button" class="${active ? "is-sort" : ""}" data-book-action="grade-sort" data-grade-sort="${esc(key)}">${esc(text + mark)}</button></th>`;
+  }).join("");
+  const body = rows.map((point) => {
+    const focus = state.gradeQuery && point.symbol.startsWith(state.gradeQuery.trim().toUpperCase()) ? " is-focus" : "";
+    const cell = (value, digits, percent) => {
+      const text = percent ? pct(value, digits) : signed(value, digits);
+      return `<td class="book-num ${toneClass(value)}">${esc(text)}</td>`;
+    };
+    const count = (value) => `<td class="book-num">${esc(String(value))}</td>`;
+    return `<tr class="${focus.trim()}"><td><button type="button" data-book-action="grade-focus" data-symbol="${esc(point.symbol)}" title="${esc(point.drivers || point.label)}">${esc(point.symbol)}</button></td>` +
+      `<td class="is-${esc(point.side)}">${esc(sideName(point.side))}</td>` +
+      cell(point.today, 1, false) + cell(point.y, 1, false) +
+      count(point.days) + count(point.callDays) + count(point.putDays) +
+      cell(point.x, 1, true) +
+      `<td>${gradeSpark(point.series)}</td>` +
+      `<td>${esc(point.sector)}</td>` +
+      cell(point.fund, 1, false) + cell(point.tech, 1, false) + cell(point.mech, 1, false) + cell(point.narr, 1, false) + cell(point.iv, 1, false) +
+      `</tr>`;
+  }).join("");
+  return `<div class="book-table-wrap book-grade-table"><table class="book-table book-grade-grid"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+function sectorButtons(sectors) {
+  const items = [["all", "All sectors"]].concat(sectors.map((sector) => [sector, sector]));
+  return `<div class="book-legend" role="group" aria-label="Sectors">${items.map(([value, text]) => {
+    const on = state.gradeSector === value;
+    const color = value === "all" ? "var(--text-strong)" : SECTOR_COLORS[sectors.indexOf(value) % SECTOR_COLORS.length];
+    return `<button type="button" class="${on ? "is-on" : ""}" data-book-action="grade-sector" data-grade-sector="${esc(value)}" aria-pressed="${on ? "true" : "false"}"><i style="background:${color}"></i>${esc(text)}</button>`;
+  }).join("")}</div>`;
+}
+
+function gradeMetric(label, value, detail) {
+  return `<div><small>${esc(label)}</small><b>${esc(value)}</b>${detail ? `<em>${esc(detail)}</em>` : ""}</div>`;
+}
+
 async function renderGrade() {
   const id = "book-grade-return";
   try {
-    const [heatmap, grades] = await Promise.all([loadJson("heatmap.json"), loadJson("grades.json")]);
+    const [heatmap, grades, daily] = await Promise.all([
+      loadJson("heatmap.json"),
+      loadJson("grades.json"),
+      loadJson("grades-daily.json").catch(() => null),
+    ]);
     const period = state.gradePeriod;
     const label = (GRADE_PERIODS.find((item) => item[0] === period) || GRADE_PERIODS[2])[1];
-    const built = gradePoints(heatmap, grades, period);
-    const options = GRADE_PERIODS.map(([value, text]) =>
-      `<option value="${value}"${value === period ? " selected" : ""}>${text}</option>`).join("");
-    const plot = scatterHtml({
-      points: built.points,
-      query: state.gradeQuery,
-      xName: label + " stored on the heatmap",
-      yName: "Stored grade total",
+    const bar = num(grades && grades.minConviction) || 4;
+    const built = gradePoints(heatmap, grades, daily, period, bar);
+    if (state.gradeSector !== "all" && !built.sectors.includes(state.gradeSector)) state.gradeSector = "all";
+    const visible = built.points.filter((point) => gradePasses(point, bar));
+    const query = state.gradeQuery.trim().toUpperCase();
+    const sorted = visible.slice().sort((a, b) => {
+      const delta = compareGradePoints(a, b, state.gradeSort);
+      return state.gradeSortDir === "asc" ? delta : -delta;
+    });
+    const tableRows = query ? sorted.filter((point) => point.symbol.startsWith(query)) : sorted;
+    const agreement = rankAgreement(built.points.map((point) => point.y), built.points.map((point) => point.x));
+    const agreementRounded = agreement == null ? null : Math.round(agreement * 100) / 100;
+    const agreementText = agreementRounded == null ? "—" : (agreementRounded > 0 ? "+" : "") + agreementRounded.toFixed(2);
+    const calls = visible.filter((point) => point.side === "call").length;
+    const puts = visible.filter((point) => point.side === "put").length;
+    const none = visible.filter((point) => point.side === "none").length;
+    const plottedWord = period === "1d" ? "grade" : "average";
+    const bands = [
+      ["all", "Any " + plottedWord],
+      ["strong", "Strong either way, 7 or more"],
+      ["bar", "Actionable either way, " + bar + " or more"],
+      ["below", "Under " + bar + " either way"],
+    ];
+    const windowName = period === "1d" ? "Today's grade" : "Daily average";
+    const plot = gradeScatterHtml({
+      points: visible.map((point) => ({ ...point, focus: query && point.symbol.startsWith(query) })),
+      query,
+      scale: state.gradeScale,
+      xName: label,
+      yName: windowName,
       xFmt: (value) => pct(value, 0),
       yFmt: (value) => signed(value, 0),
-      aria: "Grade total against " + label + " for tracked names",
-      legend: legendHtml(built.sectors.map((sector, index) => ({
-        color: SECTOR_COLORS[index % SECTOR_COLORS.length],
-        label: sector,
-      }))),
+      aria: windowName + " against " + label + " for tracked names",
     });
+    const span = built.sampleFirst && built.sampleLast
+      ? dayLabel(built.sampleFirst) + " – " + dayLabel(built.sampleLast)
+      : "Today";
+    const sampleValue = period === "1d" || !built.history ? "Today" : (built.sampleDays ? built.sampleDays + " days" : "Today");
+    const sampleDetail = period === "1d" || !built.history ? (built.asOf ? dayLabel(built.asOf) : "Latest bake") : span;
+    const shortHistory = built.history && period !== "1d" && built.returnStart && built.fileStart && built.fileStart > built.returnStart;
+    const coverage = period === "1d"
+      ? "This window plots today's grade. The average column matches it."
+      : !built.history
+        ? "No daily grades are saved yet, so this window still plots today's grade."
+        : shortHistory
+          ? "Saved grades begin " + dayLabel(built.fileStart) + ", after this return starts. The average uses " + span + " only."
+          : "The average uses each saved grade from " + span + ".";
+    const metrics = `<div class="book-metrics">` +
+      gradeMetric("Vertical axis", windowName, label) +
+      gradeMetric("Grades used", sampleValue, sampleDetail) +
+      gradeMetric("Lines up with return", agreementText, "0 means no relationship") +
+      gradeMetric("Names shown", String(visible.length), calls + " calls · " + puts + " puts · " + none + " no recommendation") +
+      `</div>`;
     mount(id, shell(
       id,
-      "Grade total against the stored return",
-      `<div class="book-controls"><label>Return window <select data-book-control="grade-period" aria-label="Return window for the grade plot">${options}</select></label>${searchField("grade-query", "Ticker", state.gradeQuery, "NVDA")}<span class="book-count">${built.points.length} names${built.missing ? " · " + built.missing + " missing a grade or this return" : ""}</span></div>${plot}`,
-      "The vertical axis is the stored grade total. That total already includes the pillars, entry timing, IV cost, and the regime overlay. Dot size is heatmap market cap and color is the heatmap sector. Hover a dot for that name’s stored grade and return. The plot does not compute a residual or a new rank.",
+      "Grade against the stored return",
+      `<div class="book-grade">` +
+        `<div class="book-controls">` +
+        selectControl("grade-period", "Return window", period, GRADE_PERIODS) +
+        selectControl("grade-side", "Recommendation", state.gradeSide, GRADE_SIDES) +
+        selectControl("grade-sector", "Sector", state.gradeSector, [["all", "All sectors"]].concat(built.sectors.map((sector) => [sector, sector]))) +
+        selectControl("grade-band", "Plotted grade", state.gradeBand, bands) +
+        selectControl("grade-sort", "Sort", state.gradeSort, GRADE_SORTS) +
+        selectControl("grade-scale", "Scale", state.gradeScale, [["spread", "Spread"], ["linear", "Linear"]]) +
+        searchField("grade-query", "Ticker", state.gradeQuery, "NVDA") +
+        `</div>${metrics}<p class="book-count">${esc(coverage + (built.missing ? " " + built.missing + " names are missing a grade or this return." : ""))}</p>` +
+        `<div class="book-side-key"><span><i class="is-call"></i>Call now</span><span><i class="is-put"></i>Put now</span><span><i class="is-none"></i>No recommendation now</span><span class="book-size-key">Size is market cap</span></div>` +
+        plot +
+        sectorButtons(built.sectors) +
+        (tableRows.length ? gradeTable(tableRows) : `<p class="book-note">No name matches these filters${query ? " and " + query : ""}.</p>`) +
+        `</div>`,
+      "One day plots today's grade. A longer window plots the average of the daily grades saved after that return begins. A call day is +" + bar + " or higher, a put day is -" + bar + " or lower, and the dashed lines mark those bars plus the strong bars at +7 and -7.",
     ));
   } catch (err) {
-    fail(id, "Grade total against the stored return", "The grade plot could not be loaded (" + err.message + ").");
+    fail(id, "Grade against the stored return", "The grade plot could not be loaded (" + err.message + ").");
   }
 }
 
@@ -1202,12 +1722,40 @@ function boot() {
       state.wallsAll = !state.wallsAll;
       renderWalls();
     }
+    if (action && action.getAttribute("data-book-action") === "grade-sector") {
+      const sector = action.getAttribute("data-grade-sector") || "all";
+      state.gradeSector = state.gradeSector === sector && sector !== "all" ? "all" : sector;
+      renderGrade();
+    }
+    if (action && action.getAttribute("data-book-action") === "grade-sort") {
+      const key = action.getAttribute("data-grade-sort") || "x";
+      if (state.gradeSort === key) state.gradeSortDir = state.gradeSortDir === "asc" ? "desc" : "asc";
+      else {
+        state.gradeSort = key;
+        state.gradeSortDir = key === "symbol" || key === "sector" || key === "side" ? "asc" : "desc";
+      }
+      renderGrade();
+    }
+    if (action && action.getAttribute("data-book-action") === "grade-focus") {
+      const symbol = action.getAttribute("data-symbol") || "";
+      state.gradeQuery = state.gradeQuery === symbol ? "" : symbol;
+      renderGrade();
+    }
   });
   document.addEventListener("change", (event) => {
     const control = event.target.closest && event.target.closest("[data-book-control]");
     if (!control) return;
     const name = control.getAttribute("data-book-control");
     if (name === "grade-period") { state.gradePeriod = control.value; renderGrade(); }
+    if (name === "grade-side") { state.gradeSide = control.value; renderGrade(); }
+    if (name === "grade-sector") { state.gradeSector = control.value; renderGrade(); }
+    if (name === "grade-band") { state.gradeBand = control.value; renderGrade(); }
+    if (name === "grade-scale") { state.gradeScale = control.value; renderGrade(); }
+    if (name === "grade-sort") {
+      state.gradeSort = control.value;
+      state.gradeSortDir = control.value === "symbol" || control.value === "sector" || control.value === "side" ? "asc" : "desc";
+      renderGrade();
+    }
     if (name === "ma-period") { state.maPeriod = control.value; renderMa(); }
     if (name === "wall-sort") { state.wallSort = control.value; renderWalls(); }
     if (name === "link-node") {
@@ -1261,5 +1809,9 @@ async function refreshEvidence() {
   }
 }
 
-window.BookViews = { renderLink, renderEvidence, renderRejections, openTab };
-boot();
+if (typeof document !== "undefined") {
+  window.BookViews = { renderLink, renderEvidence, renderRejections, openTab };
+  boot();
+}
+
+export { windowGradeSamples };
