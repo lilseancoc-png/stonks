@@ -22,14 +22,25 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-10-18
 
+### Changed
+
+- **A Sector Rotation basket needs 3 names instead of 4.** `SECTOR_ROTATION_MIN_GROUP` is now 3, so Consumer cyclicals (NKE, DIS, SBUX) and Power & data center (VST, BE, VRT) still form after the coverage cut, and Space (RKLB, ASTS, SPCX) can form too. Industrials & logistics has no names left and does not form. `scripts/build.mjs`, `docs/site-logic.md`.
+
 ### Fixed
 
+- **A leveraged-ETF trade closes when its underlying or group leaves coverage.** The log read a missing grade as a one-build data gap and kept the entry open, so an entry on a removed name would never close. It now closes with the reason `left-universe`. A data gap on a name that is still covered keeps the entry open as before. `scripts/build.mjs`.
+- **The Earnings tracker and the post-earnings recovery screen show only covered names.** The earnings history is never pruned, so recent prints by removed names stayed in the season scoreboard, and the recovery screen then tried to open data files that no longer exist. `scripts/build.mjs`.
+- **A forced "dropped" close no longer moves the Top Picks edge gate.** These trades still count on the Track Record, but the gate that raises the conviction bar after losses (and the sizing that follows the same edge) now ignores them, so a batch of removals can't raise the bar. `scripts/build.mjs`.
 - **Chart tooltips keep their text inside the box.** A long line in the shared chart tooltip (for example "Analyst price target … P/E vs sector" on the Heatmap's grade scatter) now wraps inside the tooltip instead of running past its edge, and the box stays on screen on phones. Scatter plots now snap the tooltip to the dot nearest the pointer instead of the nearest column. `scripts/render/app-js.mjs`, `scripts/render/styles-css.mjs`, `js/book-views.js`.
 - **Hidden tooltips and readouts no longer leave empty boxes on screen.** Several readouts (Fear & Greed history, Grade fundamentals charts and segment donuts, the Grade contract result bar, Strategies, Owner Lab position check) set their own display style, which beat the browser's `hidden` rule; a global `[hidden]` rule now wins. Fifteen rules that read an undefined `--surface-1` color (tooltips, chips, strips) now get a real background. `scripts/render/styles-css.mjs`.
 - **The Grade price chart is readable on phones.** Axis, RSI and spot labels rendered at about 4px on a phone; a narrower phone layout now draws them at about 10px. The spot label gets a halo so the price line no longer runs through it. `scripts/render/app-js.mjs`, `scripts/render/styles-css.mjs`.
 - **Wide charts no longer blow up their text, and stretched charts keep round dots.** The RAM prices history chart draws at its card's real width, so its axis labels stay small, and its hover readout sits on the chart instead of the top of the page. Scatter dots on Earnings, Trending IV and Streaks and the GPU price end markers stay round at any width. The Heatmap grade scatter uses a phone-sized layout so its ticks and guide labels are readable. `scripts/render/app-js.mjs`, `scripts/render/styles-css.mjs`, `js/book-views.js`.
 - **Phone layouts no longer push content off the side.** Pattern lab, the Owner Lab filters, the Home pulse strip, the 13F firm summaries, the Brief headline sources, the AI CapEx guidance total, the IPO and bond bars and tables, the score-bucket columns and the sector-breadth header all fit a 390px screen. Heatmap tiles no longer stretch past their sector box, and the Compare tooltip is opaque. `scripts/render/styles-css.mjs`, `scripts/render/app-js.mjs`.
 - **Smaller chart fixes.** The Fear & Greed gauge no longer clips its score, the central-bank gold axis labels sit on their gridlines, the IV term-structure hover label has a halo, the header time-zone picker shows "Local" in full, and `?tab=leaps` deep links open LEAPS for the owner. `scripts/render/app-js.mjs`, `scripts/render/styles-css.mjs`, `scripts/render-smoke.mjs`.
+
+### Removed
+
+- **Coverage drops 39 names: SWKS, NXPI, TSEM, ON, COHR, ALAB, GLW, LRCX, LITE, STX, APP, ZS, NET, TWLO, WDAY, CLS, UBS, APO, IBKR, COF, LOW, LULU, MCD, EBAY, LEN, GD, DE, FDX, UPS, CAT, CI, TMO, BSX, CSCO, U, RDDT, BX, DASH, and ABNB.** Coverage goes from 124 names to 85. They leave the ticker list, the industry map, the overnight peer map, the before-open earnings list, the market tape's offense and defense baskets, the APPX and RDTL leveraged pairs, the scenario exposure map, and the RAM supplier lens. Asset Management, Farm & Heavy Construction Machinery, Integrated Freight & Logistics, Medical Devices, Residential Construction, and Travel Services leave the Narratives taxonomy because they have no names left. The sector map keeps their labels so old Track Record rows still show a sector. Open Top Picks trades on these names close as "dropped" after 3 builds. `scripts/build.mjs`, `lib/scenario-engine.mjs`, `lib/link-map.mjs`, `scripts/render/app-js.mjs`, `js/book-views.js`.
 
 ## 2026-10-16
 

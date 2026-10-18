@@ -1234,7 +1234,7 @@ async function renderWalls() {
     mount(id, shell(
       id,
       "Spot between the stored walls",
-      `<div class="book-controls">${searchField("wall-query", "Ticker", state.wallQuery, "EBAY")}<label>Sort <select data-book-control="wall-sort" aria-label="Sort wall ranges">${sorts.map(([value, text]) => `<option value="${value}"${state.wallSort === value ? " selected" : ""}>${text}</option>`).join("")}</select></label><span class="book-count">${visible.length} of ${ranked.length}</span></div>` +
+      `<div class="book-controls">${searchField("wall-query", "Ticker", state.wallQuery, "AMD")}<label>Sort <select data-book-control="wall-sort" aria-label="Sort wall ranges">${sorts.map(([value, text]) => `<option value="${value}"${state.wallSort === value ? " selected" : ""}>${text}</option>`).join("")}</select></label><span class="book-count">${visible.length} of ${ranked.length}</span></div>` +
         (html || `<p class="book-note">No stored wall row starts with ${esc(query)}.</p>`) + more,
       "Each row uses the stored spot, put-wall strike, and call-wall strike. Marks are placed by strike, and the text reads in that same left-to-right order. Nearest-wall sort uses the smaller absolute distance from spot to a stored wall. The ladders and gamma score above are unchanged.",
     ));

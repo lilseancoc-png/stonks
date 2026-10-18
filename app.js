@@ -20087,7 +20087,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var layerLead = layerGap == null ? 'two-layer spread unavailable' : Math.abs(layerGap) < 0.5 ? 'layers are aligned' : (layerGap > 0 ? 'wholesale leads retail' : 'retail leads wholesale');
     var breadthCount = cycleTone === 'down' ? retailDownN : retailUpN;
     var breadthCopy = cycleTone === 'down' ? 'stocked categories down ≤−1% 30d' : 'stocked categories up ≥1% 30d';
-    var supplierLinks = rpEquityLinks(['MU','SNDK','STX']);
+    var supplierLinks = rpEquityLinks(['MU','SNDK']);
     var buyerLinks = rpEquityLinks(['DELL','SMCI','ANET']);
     var equityLens = cycleTone === 'down'
       ? '<div class="rp-equity-lens"><div><div class="rp-lens-copy"><b>Buyer relief — prove margin capture</b><small>Gross margin, demand and relative strength must convert cheaper memory into earnings.</small></div><div class="rp-lens-links">' + buyerLinks + '</div></div><div><div class="rp-lens-copy"><b>Supplier pressure — watch guide cuts</b><small>Pricing, inventory and guidance must confirm that spot weakness is reaching results.</small></div><div class="rp-lens-links">' + supplierLinks + '</div></div></div>'

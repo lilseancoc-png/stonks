@@ -589,7 +589,7 @@ Core parameters:
 
 - 45-session episode lookback;
 - at least 80 bars per stock;
-- at least four members per group;
+- at least three members per group;
 - group drawdown at most `-4%`;
 - at least 60% of members down;
 - group underperforms SPY by at least two points or trails the best group by at least four points;

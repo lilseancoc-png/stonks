@@ -370,6 +370,33 @@ assert.equal(capped.some((row) => row.symbol === "A3"), false);
 }
 
 {
+  // A basket forms from three members (SECTOR_ROTATION_MIN_GROUP = 3) and not
+  // from two. The Space basket is the one that only reaches three names.
+  const start = Date.parse("2026-03-01T12:00:00Z");
+  const dates = Array.from({ length: 160 }, (_, index) => new Date(start + index * 86400000))
+    .filter((date) => ![0, 6].includes(date.getUTCDay()))
+    .slice(0, 100)
+    .map((date) => date.toISOString().slice(0, 10));
+  const tickerData = (closes) => ({
+    spot: closes[closes.length - 1],
+    quoteAsOf: dates[dates.length - 1],
+    priceSeries: { t: dates, c: closes, h: closes.map((v) => v * 1.01), l: closes.map((v) => v * 0.99), v: closes.map(() => 1_000_000) },
+    fundamentals: { name: "Space test", marketCap: 20_000_000_000 },
+  });
+  const closes = dates.map((_, index) => index < 80 ? 80 + index * 0.22
+    : index === 80 ? 100 : index === 81 ? 94 : index === 82 ? 88
+      : index === 83 ? 79 : index === 84 ? 70 : 70 + (index - 84) * 0.35);
+  const build = (symbols) => buildSectorRotationRebounds(
+    Object.fromEntries([...symbols, "SPY"].map((symbol) => [symbol, tickerData(closes)])), {}, NOW, { appendAsOfRow: false });
+  const three = build(["RKLB", "ASTS", "SPCX"]);
+  assert.equal(three.minGroupMembers, 3);
+  assert.deepEqual(three.groups.find((g) => g.key === "space")?.symbols, ["RKLB", "ASTS", "SPCX"],
+    "three tracked Space names should form the Space basket");
+  assert.equal(build(["RKLB", "ASTS"]).groups.some((g) => g.key === "space"), false,
+    "two names are below the basket minimum");
+}
+
+{
   const v2OpenKey = "2|AAPL|mega-tech|2026-08-01";
   const priorV2 = {
     resetEpoch: "rotation-v2-record-v1",
