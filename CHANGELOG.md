@@ -29,6 +29,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Fixed
 
 - **A leveraged-ETF trade closes when its underlying or group leaves coverage.** The log read a missing grade as a one-build data gap and kept the entry open, so an entry on a removed name would never close. It now closes with the reason `left-universe`. A data gap on a name that is still covered keeps the entry open as before. `scripts/build.mjs`.
+- **The Earnings tracker and the post-earnings recovery screen show only covered names.** The earnings history is never pruned, so recent prints by removed names stayed in the season scoreboard, and the recovery screen then tried to open data files that no longer exist. `scripts/build.mjs`.
+- **A forced "dropped" close no longer moves the Top Picks edge gate.** These trades still count on the Track Record, but the gate that raises the conviction bar after losses (and the sizing that follows the same edge) now ignores them, so a batch of removals can't raise the bar. `scripts/build.mjs`.
 
 ### Removed
 

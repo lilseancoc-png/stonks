@@ -473,6 +473,17 @@ const recentEarnings = await buildEarningsTrackerPayload(
 );
 ok("earnings tracker: recently reported contains today's resolved WDC print",
   recentEarnings.recentlyReported.length === 1 && recentEarnings.recentlyReported[0].sym === "WDC" && recentEarnings.recentlyReported[0].daysSince === 0);
+const prunedEarnings = await buildEarningsTrackerPayload(
+  { tickers: {
+    WDC: { events: [{ date: recentDate, epsActual: 1.6, epsEstimate: 1.5, surprisePct: 6.67, movePct: 0.04 }] },
+    ZS: { events: [{ date: recentDate, epsActual: 0.9, epsEstimate: 0.8, surprisePct: 12.5, movePct: -0.05 }] },
+  } },
+  { WDC: { fundamentals: { name: "Western Digital", financialCurrency: "USD" } } },
+  new Date().toISOString(),
+);
+ok("earnings tracker: names that left TICKERS stay out of the scoreboard",
+  !TICKERS.includes("ZS") && prunedEarnings.recentlyReported.every((r) => r.sym !== "ZS")
+  && prunedEarnings.seasons.every((season) => season.rows.every((r) => r.sym !== "ZS")));
 const cachedEarningsAi = {
   seasonKey: earningsSeason.key,
   inputSig: earningsSummaryInputSignature(
@@ -1420,6 +1431,8 @@ ok("edge gate: positive edge keeps base bar", edgeGatedConviction(mkClosed(20, 1
 ok("edge gate: realistic 33% WR (edge≈−13%) raises the bar",
   edgeGatedConviction([...mkClosed(8, 20), ...mkClosed(16, -30)]).bar > PICKS_MIN_CONVICTION);
 ok("edge gate: deeply negative edge stands down to Strong", edgeGatedConviction(mkClosed(20, -20)).bar === PICKS_TIER_STRONG);
+ok("edge gate: forced 'dropped' closes don't move the bar",
+  edgeGatedConviction([...mkClosed(20, 12), ...mkClosed(30, -40).map((c) => ({ ...c, status: "dropped" }))]).bar === PICKS_MIN_CONVICTION);
 const debitR = { outcome: "loss", optionPnlPct: -50, contract: { structure: "long", mid: 2, maxLoss: 2 } };
 const creditR = { outcome: "loss", optionPnlPct: -50, contract: { structure: "credit_vertical", mid: 1, netCredit: 1, maxLoss: 4 } };
 ok("edge: credit P&L is scored vs maxLoss, not vs the credit",

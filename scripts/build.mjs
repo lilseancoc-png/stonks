@@ -148,8 +148,9 @@ export const TICKERS = [
 // by sector ("software", "semis", "pharma"). Mirrors the comment blocks above.
 // It also labels names outside TICKERS (peers, and names dropped from
 // coverage), so a removed ticker keeps its label for its old Track Record rows
-// and macro read. Every feature that builds groups reads TICKERS or the
-// fetched chains, never this map's keys.
+// and macro read. Every feature that builds groups or picks reads TICKERS or
+// the fetched chains, never this map's keys. The one exception is the link map,
+// which draws every labeled name (tracked or not) as a node under its sector.
 export const SECTORS = {
   // Broad / sector / international / crypto / volatility ETFs
   SPY: "ETF", QQQ: "ETF", IWM: "ETF", SMH: "ETF",
@@ -7549,8 +7550,13 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
   const todayIso = etDateKey();
   const rowsBySeason = new Map();
   const universe = new Set();
+  const tracked = new Set(TICKERS);
   for (const [sym, entry] of Object.entries(store?.tickers || {})) {
     if (SECTORS[sym] === "ETF") continue; // funds don't report earnings
+    // The history store is never pruned; names that left TICKERS stay out of
+    // the scoreboard (and the recovery screen built from it), whose per-ticker
+    // files no longer exist.
+    if (!tracked.has(sym)) continue;
     const data = chains?.[sym] || null;
     for (const ev of entry?.events || []) {
       if (!ev?.date || ev.date > todayIso) continue;
@@ -21003,12 +21009,20 @@ function optionRMultiplePct(c) {
   return ((pnlPct / 100) * basis / risk) * 100;
 }
 
-export function realizedOptionEdge(closed) {
-  if (!Array.isArray(closed) || !closed.length) return null;
-  const decided = closed
-    .filter((c) => c && (c.outcome === "win" || c.outcome === "loss"))
+// The decided trades the edge governors learn from. A "dropped" close (the
+// name left the universe, or its chain was missing for several builds) is a
+// forced exit at a carried mark, not a verdict on the signal, so it is kept
+// out of the sample: a batch of universe removals must not move the bar.
+function edgeSampleRs(closed) {
+  if (!Array.isArray(closed)) return [];
+  return closed
+    .filter((c) => c && c.status !== "dropped" && (c.outcome === "win" || c.outcome === "loss"))
     .map(optionRMultiplePct)
     .filter((x) => x != null);
+}
+export function realizedOptionEdge(closed) {
+  if (!Array.isArray(closed) || !closed.length) return null;
+  const decided = edgeSampleRs(closed);
   if (!decided.length) return null;
   return decided.reduce((a, x) => a + x, 0) / decided.length;
 }
@@ -21028,9 +21042,7 @@ export function computeEdgeScale(closed) {
 export function edgeGatedConviction(closed) {
   const base = PICKS_MIN_CONVICTION;
   if (!PICKS_EDGE_GATE || !Array.isArray(closed)) return { bar: base, edge: null, n: 0 };
-  const rs = Array.isArray(closed)
-    ? closed.filter((c) => c && (c.outcome === "win" || c.outcome === "loss")).map(optionRMultiplePct).filter((x) => x != null)
-    : [];
+  const rs = edgeSampleRs(closed);
   if (rs.length < PICKS_EDGE_GATE_MIN_N) return { bar: base, edge: null, n: rs.length };
   const edge = rs.reduce((a, x) => a + x, 0) / rs.length;
   if (edge == null || edge >= 0) return { bar: base, edge, n: rs.length };
