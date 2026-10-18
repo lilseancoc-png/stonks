@@ -508,7 +508,14 @@ ${scenarioEventPhase.toString()}
     document.addEventListener('pointerup', function(e){
       if (!chRange.el || e.pointerId !== chRange.pointerId) return;
       chRange.end = chRangeIndex(chRange.el, chRange.data, e.clientX);
-      if (chRange.end === chRange.start) chRangeHide(); else { chRange.pointerId = null; chRangeRender(); }
+      if (chRange.end === chRange.start){
+        // A tap or click without a drag: drop the compare panel and show the
+        // point readout instead. pointerdown above hid it, and a touch tap
+        // sends no pointermove to bring it back, so phones showed nothing.
+        var tapSvg = chRange.el.closest ? chRange.el.closest('svg[data-ch]') : null;
+        chRangeHide();
+        if (tapSvg) chShow(tapSvg, e.clientX, e.clientY);
+      } else { chRange.pointerId = null; chRangeRender(); }
     }, { passive: true });
     document.addEventListener('pointercancel', chRangeHide, { passive: true });
     document.addEventListener('keydown', function(e){ if (e.key === 'Escape') chRangeHide(); });
