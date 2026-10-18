@@ -20,6 +20,22 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-10-18
+
+### Changed
+
+- **A Sector Rotation basket needs 3 names instead of 4.** `SECTOR_ROTATION_MIN_GROUP` is now 3, so Consumer cyclicals (NKE, DIS, SBUX) and Power & data center (VST, BE, VRT) still form after the coverage cut, and Space (RKLB, ASTS, SPCX) can form too. Industrials & logistics has no names left and does not form. `scripts/build.mjs`, `docs/site-logic.md`.
+
+### Fixed
+
+- **A leveraged-ETF trade closes when its underlying or group leaves coverage.** The log read a missing grade as a one-build data gap and kept the entry open, so an entry on a removed name would never close. It now closes with the reason `left-universe`. A data gap on a name that is still covered keeps the entry open as before. `scripts/build.mjs`.
+- **The Earnings tracker and the post-earnings recovery screen show only covered names.** The earnings history is never pruned, so recent prints by removed names stayed in the season scoreboard, and the recovery screen then tried to open data files that no longer exist. `scripts/build.mjs`.
+- **A forced "dropped" close no longer moves the Top Picks edge gate.** These trades still count on the Track Record, but the gate that raises the conviction bar after losses (and the sizing that follows the same edge) now ignores them, so a batch of removals can't raise the bar. `scripts/build.mjs`.
+
+### Removed
+
+- **Coverage drops 39 names: SWKS, NXPI, TSEM, ON, COHR, ALAB, GLW, LRCX, LITE, STX, APP, ZS, NET, TWLO, WDAY, CLS, UBS, APO, IBKR, COF, LOW, LULU, MCD, EBAY, LEN, GD, DE, FDX, UPS, CAT, CI, TMO, BSX, CSCO, U, RDDT, BX, DASH, and ABNB.** Coverage goes from 124 names to 85. They leave the ticker list, the industry map, the overnight peer map, the before-open earnings list, the market tape's offense and defense baskets, the APPX and RDTL leveraged pairs, the scenario exposure map, and the RAM supplier lens. Asset Management, Farm & Heavy Construction Machinery, Integrated Freight & Logistics, Medical Devices, Residential Construction, and Travel Services leave the Narratives taxonomy because they have no names left. The sector map keeps their labels so old Track Record rows still show a sector. Open Top Picks trades on these names close as "dropped" after 3 builds. `scripts/build.mjs`, `lib/scenario-engine.mjs`, `lib/link-map.mjs`, `scripts/render/app-js.mjs`, `js/book-views.js`.
+
 ## 2026-10-16
 
 ### Added

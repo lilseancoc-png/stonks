@@ -127,26 +127,30 @@ export const TICKERS = [
   // Financials / payments / pharma / retail
   "JPM", "V", "MA", "LLY", "MRNA", "MRK", "WMT", "COST",
   // Software / financials / consumer / semis / infra
-  "CRWD", "ADBE", "SHOP", "BAC", "UBS", "SCHW", "LULU", "BABA", "MS",
-  "COF", "GS", "HOOD", "AXP", "AMD", "C", "UNH", "APO", "BX",
-  "DELL", "ASML", "VST", "CAT",
-  // Software / SaaS / cloud / industrials / consumer / semis / hardware
-  "NOW", "ZS", "BSX", "MDB", "ACN", "OKTA", "SNOW",
-  "RKLB", "CRM", "ASTS", "FTNT", "WDAY", "INTU", "DASH", "GD", "TEAM",
-  "NET", "LEN", "NKE", "PANW", "DIS", "IBM", "QCOM",
-  "HD", "PLTR", "CSCO", "CI", "DE", "RDDT", "PYPL", "DDOG", "NXPI",
-  "TWLO", "LOW", "SBUX", "MCD", "ANET", "TXN", "INTC", "SMCI", "NVO",
-  "U", "FDX", "EBAY", "APP", "UPS", "LRCX", "CRWV", "ON", "CLS",
-  "MRVL", "AMAT", "MU", "BE", "SNDK", "GLW",
-  "STX", "WDC", "ALAB", "LITE", "TSEM", "DRAM",
+  "CRWD", "ADBE", "SHOP", "BAC", "SCHW", "BABA", "MS",
+  "GS", "HOOD", "AXP", "AMD", "C", "UNH",
+  "DELL", "ASML", "VST",
+  // Software / SaaS / cloud / space / consumer / semis / hardware
+  "NOW", "MDB", "ACN", "OKTA", "SNOW",
+  "RKLB", "CRM", "ASTS", "FTNT", "INTU", "TEAM",
+  "NKE", "PANW", "DIS", "IBM", "QCOM",
+  "HD", "PLTR", "PYPL", "DDOG",
+  "SBUX", "ANET", "TXN", "INTC", "SMCI", "NVO",
+  "CRWV", "MRVL", "AMAT", "MU", "BE", "SNDK",
+  "WDC", "DRAM",
   // Space — launch
   "SPCX",
-  // Added coverage — AI silicon, RF/optics, Arm IP, broker, med-tech, DC infra, retail, travel
-  "CBRS", "SWKS", "ARM", "COHR", "IBKR", "TMO", "VRT", "TGT", "ABNB",
+  // Added coverage — AI silicon, Arm IP, DC infra, retail
+  "CBRS", "ARM", "VRT", "TGT",
 ];
 
 // Sector mapping — surfaced in the searchable combobox so users can filter
 // by sector ("software", "semis", "pharma"). Mirrors the comment blocks above.
+// It also labels names outside TICKERS (peers, and names dropped from
+// coverage), so a removed ticker keeps its label for its old Track Record rows
+// and macro read. Every feature that builds groups or picks reads TICKERS or
+// the fetched chains, never this map's keys. The one exception is the link map,
+// which draws every labeled name (tracked or not) as a node under its sector.
 export const SECTORS = {
   // Broad / sector / international / crypto / volatility ETFs
   SPY: "ETF", QQQ: "ETF", IWM: "ETF", SMH: "ETF",
@@ -307,16 +311,15 @@ export const GLOBAL_PEER_GROUPS = {
 // every other ticker falls back to the broad overnight backdrop (futures + FX).
 export const GLOBAL_PEER_OF_TICKER = {
   // Memory / storage
-  MU: "memory", SNDK: "memory", STX: "memory", DRAM: "memory",
+  MU: "memory", SNDK: "memory", DRAM: "memory",
   // GPU / accelerator / AI silicon (HBM + foundry exposed)
   NVDA: "hbm_gpu", AMD: "hbm_gpu", AVGO: "hbm_gpu", MRVL: "hbm_gpu",
-  ALAB: "hbm_gpu", SMCI: "hbm_gpu", SMH: "hbm_gpu",
+  SMCI: "hbm_gpu", SMH: "hbm_gpu",
   // Logic / analog / RF / optical — foundry takers
-  TSM: "foundry", QCOM: "foundry", NXPI: "foundry", ON: "foundry", TXN: "foundry",
-  INTC: "foundry", SWKS: "foundry", GLW: "foundry", COHR: "foundry", LITE: "foundry",
-  CBRS: "foundry", TSEM: "foundry",
+  TSM: "foundry", QCOM: "foundry", TXN: "foundry",
+  INTC: "foundry", CBRS: "foundry",
   // Semicap (fab equipment / mask / test)
-  AMAT: "semicap", LRCX: "semicap", ASML: "semicap",
+  AMAT: "semicap", ASML: "semicap",
   // Arm IP
   ARM: "arm_ip",
   // China tech
@@ -326,18 +329,14 @@ export const GLOBAL_PEER_OF_TICKER = {
   // --- Cross-asset (commodities / rates / crypto) ---
   // Energy — oil (USO tracks crude; producers would map here too if tracked)
   USO: "energy",
-  // Logistics — fuel is a top cost line, so a crude spike is a headwind (−β)
-  FDX: "logistics", UPS: "logistics",
   // Metals — precious + the dollar (GLD/SLV ~1:1)
   GLD: "metals", SLV: "metals",
-  // Industrials — copper "Dr. Copper" + global growth
-  CAT: "industrials", DE: "industrials",
   // Power — nat-gas-heavy generation
   VST: "power",
   // Rate-sensitive — banks (steeper curve / higher NIM = +β) and the
-  // duration trade (long bond TLT, homebuilder LEN = −β to yields)
-  JPM: "rates", BAC: "rates", C: "rates", GS: "rates", COF: "rates", MS: "rates",
-  TLT: "rates", LEN: "rates",
+  // duration trade (long bond TLT = −β to yields)
+  JPM: "rates", BAC: "rates", C: "rates", GS: "rates", MS: "rates",
+  TLT: "rates",
   // Crypto-levered broker
   HOOD: "crypto",
 };
@@ -413,9 +412,7 @@ export const INDUSTRIES_BY_SECTOR = {
     "Specialty Retail",
     "Apparel Retail",
     "Restaurants",
-    "Residential Construction",
     "Auto Manufacturers",
-    "Travel Services",
   ],
   "Communication Services": [
     "Internet Content & Information",
@@ -424,8 +421,6 @@ export const INDUSTRIES_BY_SECTOR = {
   ],
   "Industrials": [
     "Aerospace & Defense",
-    "Integrated Freight & Logistics",
-    "Farm & Heavy Construction Machinery",
     "Electrical Equipment & Parts",
     "Specialty Industrial Machinery",
   ],
@@ -433,12 +428,10 @@ export const INDUSTRIES_BY_SECTOR = {
     "Biotechnology",
     "Drug Manufacturers - General",
     "Healthcare Plans",
-    "Medical Devices",
   ],
   "Financials": [
     "Banks - Diversified",
     "Credit Services",
-    "Asset Management",
     "Capital Markets",
   ],
   "Consumer Defensive": [
@@ -464,9 +457,7 @@ export const INDUSTRY_OF_TICKER = {
   MSFT: "Software Infrastructure",
   ORCL: "Software Infrastructure",
   SNOW: "Software Infrastructure",
-  NET: "Software Infrastructure",
   CRWD: "Software Infrastructure",
-  ZS: "Software Infrastructure",
   MDB: "Software Infrastructure",
   OKTA: "Software Infrastructure",
   PANW: "Software Infrastructure",
@@ -478,13 +469,9 @@ export const INDUSTRY_OF_TICKER = {
   ADBE: "Software Applications",
   NOW: "Software Applications",
   DDOG: "Software Applications",
-  WDAY: "Software Applications",
   TEAM: "Software Applications",
   INTU: "Software Applications",
-  TWLO: "Software Applications",
   SHOP: "Software Applications",
-  APP: "Software Applications",
-  U: "Software Applications",
   // --- Technology · Semiconductors ---
   NVDA: "Semiconductors",
   AMD: "Semiconductors",
@@ -495,89 +482,56 @@ export const INDUSTRY_OF_TICKER = {
   MRVL: "Semiconductors",
   QCOM: "Semiconductors",
   TXN: "Semiconductors",
-  NXPI: "Semiconductors",
-  ON: "Semiconductors",
-  ALAB: "Semiconductors",
-  TSEM: "Semiconductors",
   SNDK: "Semiconductors",
   SMCI: "Semiconductors",
-  LITE: "Semiconductors",
-  STX: "Semiconductors",
   DRAM: "Semiconductors",
-  SWKS: "Semiconductors",
   ARM: "Semiconductors",
   CBRS: "Semiconductors",
-  COHR: "Semiconductors",
   // --- Technology · Semiconductor Equipment & Materials ---
   AMAT: "Semiconductor Equipment & Materials",
-  LRCX: "Semiconductor Equipment & Materials",
   ASML: "Semiconductor Equipment & Materials",
   // --- Technology · Communication Equipment ---
   ANET: "Communication Equipment",
-  CSCO: "Communication Equipment",
-  GLW: "Communication Equipment",
   // --- Technology · Computer Hardware ---
   DELL: "Computer Hardware",
-  CLS: "Computer Hardware",
   // --- Technology · Information Technology Services ---
   ACN: "Information Technology Services",
   IBM: "Information Technology Services",
   // --- Consumer Cyclical ---
   AMZN: "Internet Retail",
   BABA: "Internet Retail",
-  EBAY: "Internet Retail",
   HD: "Specialty Retail",
-  LOW: "Specialty Retail",
   NKE: "Apparel Retail",
-  LULU: "Apparel Retail",
   SBUX: "Restaurants",
-  MCD: "Restaurants",
-  LEN: "Residential Construction",
   TSLA: "Auto Manufacturers",
-  DASH: "Travel Services",
-  ABNB: "Travel Services",
   // --- Communication Services ---
   GOOGL: "Internet Content & Information",
   META: "Internet Content & Information",
-  RDDT: "Internet Content & Information",
   NFLX: "Entertainment",
   DIS: "Entertainment",
   // --- Industrials ---
-  GD: "Aerospace & Defense",
   RKLB: "Aerospace & Defense",
   ASTS: "Aerospace & Defense",
   SPCX: "Aerospace & Defense",
   VRT: "Electrical Equipment & Parts",
-  FDX: "Integrated Freight & Logistics",
-  UPS: "Integrated Freight & Logistics",
-  CAT: "Farm & Heavy Construction Machinery",
-  DE: "Farm & Heavy Construction Machinery",
   // --- Healthcare ---
   MRNA: "Biotechnology",
   NVO: "Drug Manufacturers - General",
   LLY: "Drug Manufacturers - General",
   MRK: "Drug Manufacturers - General",
   UNH: "Healthcare Plans",
-  CI: "Healthcare Plans",
-  BSX: "Medical Devices",
-  TMO: "Medical Devices",
   // --- Financials ---
   JPM: "Banks - Diversified",
   BAC: "Banks - Diversified",
   C: "Banks - Diversified",
-  COF: "Banks - Diversified",
-  UBS: "Banks - Diversified",
   V: "Credit Services",
   MA: "Credit Services",
   AXP: "Credit Services",
   PYPL: "Credit Services",
-  APO: "Asset Management",
-  BX: "Asset Management",
   GS: "Capital Markets",
   MS: "Capital Markets",
   SCHW: "Capital Markets",
   HOOD: "Capital Markets",
-  IBKR: "Capital Markets",
   // --- Consumer Defensive ---
   WMT: "Discount Stores",
   COST: "Discount Stores",
@@ -6627,14 +6581,13 @@ const EARNINGS_GUIDANCE_STAMP_DAYS = 14;
 // is the announce-day open, not the next session. Reporting times are stable;
 // everything else defaults to post-close (TBD), correct for the AMC majority,
 // and Yahoo's per-print session (via the pending stamp) overrides this going
-// forward. Banks/brokers, big-box retail, heavy industrials, and large
-// healthcare/pharma all report BMO.
+// forward. Banks/brokers, big-box retail, and large healthcare/pharma all
+// report BMO.
 const EARNINGS_BMO_REPORTERS = new Set([
-  "JPM", "BAC", "C", "GS", "MS", "COF", "SCHW", "UBS",
-  "WMT", "HD", "LOW", "TGT",
-  "CAT", "DE", "GD", "UPS",
-  "UNH", "CI", "LLY", "TMO", "BSX", "NVO",
-  "MCD", "MA", "ACN",
+  "JPM", "BAC", "C", "GS", "MS", "SCHW",
+  "WMT", "HD", "TGT",
+  "UNH", "LLY", "NVO",
+  "MA", "ACN",
 ]);
 
 const ehxRound = (n, places = 4) => {
@@ -7597,8 +7550,13 @@ export async function buildEarningsTrackerPayload(store, chains, builtAtIso, pri
   const todayIso = etDateKey();
   const rowsBySeason = new Map();
   const universe = new Set();
+  const tracked = new Set(TICKERS);
   for (const [sym, entry] of Object.entries(store?.tickers || {})) {
     if (SECTORS[sym] === "ETF") continue; // funds don't report earnings
+    // The history store is never pruned; names that left TICKERS stay out of
+    // the scoreboard (and the recovery screen built from it), whose per-ticker
+    // files no longer exist.
+    if (!tracked.has(sym)) continue;
     const data = chains?.[sym] || null;
     for (const ev of entry?.events || []) {
       if (!ev?.date || ev.date > todayIso) continue;
@@ -19275,8 +19233,8 @@ export function buildPutCallAxisInput(chains) {
 // rotation often LEADS the index level. Pure + exported; attached to
 // macroBackdrop.rotation in main() + regen-picks. Baked-only (needs the whole
 // universe, so the browser can't refresh it live — it carries the baked score).
-const ROTATION_OFFENSE = ["NVDA", "AMD", "AVGO", "MRVL", "SMCI", "ARM", "MU", "PLTR", "TSLA", "META", "SHOP", "NET", "CRWD", "DDOG"];
-const ROTATION_DEFENSE = ["WMT", "COST", "MCD", "SBUX", "LLY", "UNH", "CI", "TMO", "BSX"];
+const ROTATION_OFFENSE = ["NVDA", "AMD", "AVGO", "MRVL", "SMCI", "ARM", "MU", "PLTR", "TSLA", "META", "SHOP", "CRWD", "DDOG"];
+const ROTATION_DEFENSE = ["WMT", "COST", "SBUX", "LLY", "UNH"];
 export function buildRotationAxisInput(chains) {
   if (!chains) return null;
   const legMove = (sym) => {
@@ -21051,12 +21009,20 @@ function optionRMultiplePct(c) {
   return ((pnlPct / 100) * basis / risk) * 100;
 }
 
-export function realizedOptionEdge(closed) {
-  if (!Array.isArray(closed) || !closed.length) return null;
-  const decided = closed
-    .filter((c) => c && (c.outcome === "win" || c.outcome === "loss"))
+// The decided trades the edge governors learn from. A "dropped" close (the
+// name left the universe, or its chain was missing for several builds) is a
+// forced exit at a carried mark, not a verdict on the signal, so it is kept
+// out of the sample: a batch of universe removals must not move the bar.
+function edgeSampleRs(closed) {
+  if (!Array.isArray(closed)) return [];
+  return closed
+    .filter((c) => c && c.status !== "dropped" && (c.outcome === "win" || c.outcome === "loss"))
     .map(optionRMultiplePct)
     .filter((x) => x != null);
+}
+export function realizedOptionEdge(closed) {
+  if (!Array.isArray(closed) || !closed.length) return null;
+  const decided = edgeSampleRs(closed);
   if (!decided.length) return null;
   return decided.reduce((a, x) => a + x, 0) / decided.length;
 }
@@ -21076,9 +21042,7 @@ export function computeEdgeScale(closed) {
 export function edgeGatedConviction(closed) {
   const base = PICKS_MIN_CONVICTION;
   if (!PICKS_EDGE_GATE || !Array.isArray(closed)) return { bar: base, edge: null, n: 0 };
-  const rs = Array.isArray(closed)
-    ? closed.filter((c) => c && (c.outcome === "win" || c.outcome === "loss")).map(optionRMultiplePct).filter((x) => x != null)
-    : [];
+  const rs = edgeSampleRs(closed);
   if (rs.length < PICKS_EDGE_GATE_MIN_N) return { bar: base, edge: null, n: rs.length };
   const edge = rs.reduce((a, x) => a + x, 0) / rs.length;
   if (edge == null || edge >= 0) return { bar: base, edge, n: rs.length };
@@ -23175,7 +23139,7 @@ const SECTOR_ROTATION_RECORD_RECENT = 10;
 const SECTOR_ROTATION_ENTRY_LESSON_MIN = 12;
 const SECTOR_ROTATION_LOOKBACK = 45;
 const SECTOR_ROTATION_MIN_BARS = 80;
-const SECTOR_ROTATION_MIN_GROUP = 4;
+const SECTOR_ROTATION_MIN_GROUP = 3;
 const SECTOR_ROTATION_GROUP_DD = -4;
 const SECTOR_ROTATION_REL_SPY = -2;
 const SECTOR_ROTATION_BREADTH_DOWN = 60;
@@ -25599,14 +25563,12 @@ export const LEVERAGED_ETF_SINGLES = {
   LLY:   { bull: { sym: "ELIL", lev: 2, er: 0.0107 }, bear: { sym: "ELIS", lev: -1, er: 0.0101, note: "ELIS is a thin listing (~$0.2M/day) — expect wide spreads, use limit orders" } },
   ARM:   { bull: { sym: "ARMG", lev: 2, er: 0.0078 }, bear: null },
   HOOD:  { bull: { sym: "HOOG", lev: 2, er: 0.0085 }, bear: { sym: "HOOZ", lev: -2, er: 0.0129 } },
-  APP:   { bull: { sym: "APPX", lev: 2, er: 0.013  }, bear: null },
   MRVL:  { bull: { sym: "MRVU", lev: 2, er: 0.0097 }, bear: null },
   ASML:  { bull: { sym: "ASMG", lev: 2, er: 0.0077 }, bear: null },
   PANW:  { bull: { sym: "PALU", lev: 2, er: 0.0108 }, bear: null },
   CRWV:  { bull: { sym: "CRWU", lev: 2, er: 0.015  }, bear: null },
   RKLB:  { bull: { sym: "RKLX", lev: 2, er: 0.0129 }, bear: { sym: "RKLZ", lev: -2, er: 0.0129 } },
   ASTS:  { bull: { sym: "ASTX", lev: 2, er: 0.013  }, bear: null },
-  RDDT:  { bull: { sym: "RDTL", lev: 2, er: 0.015  }, bear: null },
   NOW:   { bull: { sym: "NOWL", lev: 2, er: 0.015  }, bear: null },
 };
 
@@ -26035,7 +25997,8 @@ export async function writeLeveragedEtfsFile(payload) {
 // break either (payload.coverage — an underlying whose chain fetch flaked
 // this bake keeps its entries open, marks updated). An entry closes on
 // below-bar / avoid-timing / breadth-split / direction flip / vehicle loss /
-// disappearing while covered. Follows the same read-before-wipe rule as the other accumulating
+// disappearing while covered, and when its underlying or group has left the
+// universe (levEtfEntryInUniverse), which would otherwise read as no data forever. Follows the same read-before-wipe rule as the other accumulating
 // files (readPriorLevEtfLog in main() BEFORE writeChainFiles). regen-picks
 // (offline) never reconciles — it re-attaches the prior log's scoreboard
 // unchanged, so an algo-regen can't pollute the record with unpriced churn.
@@ -26043,6 +26006,19 @@ export async function writeLeveragedEtfsFile(payload) {
 export const LEVERAGED_ETFS_LOG_FILE = "leveraged-etfs-log.json";
 const LEVETF_LOG_CLOSED_MAX = 200;   // full closed history kept in the log file
 const LEVETF_RECORD_RECENT = 12;     // closed rows shipped in the tab payload
+
+// Whether a log entry's underlying (single) or group can still be graded at
+// all. A name removed from TICKERS, or a group left with no tracked member or
+// proxy, is never covered again, so "no data" there is permanent, not a flake.
+export function levEtfEntryInUniverse(e) {
+  if (e?.group) {
+    const def = LEVERAGED_ETF_GROUPS[e.group];
+    if (!def) return false;
+    if (def.proxy && TICKERS.includes(def.proxy)) return true;
+    return TICKERS.some((sym) => LEVETF_SECTOR_GROUP[SECTORS[sym]] === e.group);
+  }
+  return Boolean(e?.under && LEVERAGED_ETF_SINGLES[e.under] && TICKERS.includes(e.under));
+}
 
 export async function readPriorLevEtfLog() {
   try { return JSON.parse(await readFile(resolve(DATA_DIR, LEVERAGED_ETFS_LOG_FILE), "utf8")); } catch { return null; }
@@ -26134,7 +26110,8 @@ export function reconcileLevEtfLog(payload, priorLog, quotes, builtAtIso) {
     if (!e || !e.etf) continue;
     const idea = ideaBy.get(e.etf);
     const px = pxOf(e.etf);
-    const noData = covSingles != null && (e.group ? !covGroups.has(e.group) : !covSingles.has(e.under));
+    const retired = !levEtfEntryInUniverse(e);
+    const noData = !retired && covSingles != null && (e.group ? !covGroups.has(e.group) : !covSingles.has(e.under));
     if (idea || rankedOut.has(e.etf) || noData) {
       const next = { ...e };
       if (px != null) {
@@ -26168,7 +26145,7 @@ export function reconcileLevEtfLog(payload, priorLog, quotes, builtAtIso) {
       exitPx,
       exitPxIso: exitStale ? (e.lastIso || null) : (exitPx != null ? builtAtIso : null),
       ...(exitStale ? { exitStale: true } : {}),
-      exitReason: flipped ? "flipped" : (w?.missReason || "dropped"),
+      exitReason: flipped ? "flipped" : (w?.missReason || (retired ? "left-universe" : "dropped")),
       retPct: Number.isFinite(e.entryPx) && e.entryPx > 0 && Number.isFinite(exitPx)
         ? r2(((exitPx - e.entryPx) / e.entryPx) * 100) : null,
     });
