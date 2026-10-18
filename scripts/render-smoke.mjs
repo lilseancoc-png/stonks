@@ -82,7 +82,7 @@ try {
   assert.match(stylesCss, /@media \(max-width: 1023px\)\s*\{[\s\S]*?\.side-nav\s*\{[\s\S]*?top: 0;[\s\S]*?z-index: 65;[\s\S]*?\.side-nav-backdrop\s*\{[\s\S]*?inset: 0;/);
   assert.match(stylesCss, /\.bonds-context \{ --flow-decision-tone: var\(--accent\);/, "Bonds & USD primary actions must have a visible tone");
   assert.match(stylesCss, /\.time-zone-control\s*\{[\s\S]*?\.time-zone-control select\s*\{/);
-  assert.match(stylesCss, /@media \(max-width: 560px\) \{[\s\S]*?\.brand-mark \{ display: none; \}[\s\S]*?\.site-nav \.donate-btn \{ display: none; \}[\s\S]*?\.time-zone-control \{ width: 42px;/, "mobile header must leave room for the timezone control and full wordmark");
+  assert.match(stylesCss, /@media \(max-width: 560px\) \{[\s\S]*?\.brand-mark \{ display: none; \}[\s\S]*?\.site-nav \.donate-btn \{ display: none; \}[\s\S]*?\.time-zone-control \{ width: 56px;/, "mobile header must leave room for the timezone control and full wordmark");
   assert.doesNotMatch(stylesCss, /\.dt-(?:lab|market|book|analytics)\b/);
   assert.doesNotMatch(stylesCss, /"rank (?:regime|scenario) (?:regime|scenario)"/);
   assert.doesNotMatch(stylesCss, /\.(?:ptc-regime|ptc-scenario|pick-pillars-regime|pick-scenario-overlay)\b/);
