@@ -270,7 +270,13 @@ function scatterHtml(opts) {
     const y = yAt(point.y);
     const r = Math.max(4.5, point.r || 4.5);
     const dim = query && !(point.symbol && point.symbol.startsWith(query));
-    marks += `<circle class="${dim ? "is-dim" : "is-hit"}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="${point.color}"><title>${esc(point.label)}</title></circle>`;
+    // This svg stretches to its box (preserveAspectRatio="none"), which turned
+    // circles into ovals. A zero-length round-capped line with a non-scaling
+    // stroke stays a true circle of radius r at any box size.
+    const cx = x.toFixed(1), cy = y.toFixed(1);
+    marks += `<g class="book-dot ${dim ? "is-dim" : "is-hit"}" style="--dot:${(2 * r).toFixed(1)}px"><title>${esc(point.label)}</title>` +
+      (dim ? "" : `<line class="book-dot-ring" x1="${cx}" y1="${cy}" x2="${cx}" y2="${cy}" />`) +
+      `<line class="book-dot-fill" x1="${cx}" y1="${cy}" x2="${cx}" y2="${cy}" stroke="${point.color}" /></g>`;
     hover.push([Math.round(x * 10) / 10, Math.round(y * 10) / 10, point.label]);
   }
   let guides = "";
@@ -299,7 +305,7 @@ function scatterHtml(opts) {
   }).join("");
   const xLabels = axisTicks(x0, x1, x0 < 0 && x1 > 0 ? [0] : []).slice().reverse();
   const hoverHits = query ? hover.filter((row) => String(row[2] || "").toUpperCase().startsWith(query)) : hover;
-  const svg = `<svg class="book-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${esc(opts.aria)}" data-ch="${esc(JSON.stringify(hoverHits.length ? hoverHits : hover))}">${guides}${marks}</svg>`;
+  const svg = `<svg class="book-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${esc(opts.aria)}" data-ch-xy="1" data-ch="${esc(JSON.stringify(hoverHits.length ? hoverHits : hover))}">${guides}${marks}</svg>`;
   const hits = query ? points.filter((point) => point.symbol && point.symbol.startsWith(query)) : [];
   const hitHtml = !query ? "" : hits.length
     ? `<ul class="book-hits">${hits.slice(0, 8).map((point) => `<li><b>${esc(point.symbol)}</b><span>${esc(point.hit || "")}</span></li>`).join("")}</ul>` +
@@ -652,9 +658,13 @@ function gradeScatterHtml(opts) {
   const ys = points.map((point) => point.y);
   const [x0, x1] = padRange(Math.min(...xs), Math.max(...xs));
   const [y0, y1] = padRange(Math.min(...ys), Math.max(...ys));
-  const W = 920;
-  const H = 520;
-  const pad = { l: 58, r: 86, t: 22, b: 42 };
+  // Phones get a smaller drawing: the 920-wide one shrank to ~350px there,
+  // leaving 6px ticks and 4px guide labels.
+  const narrow = typeof window !== "undefined" && (window.innerWidth || 1000) <= 600;
+  const W = narrow ? 460 : 920;
+  const H = narrow ? 400 : 520;
+  const pad = narrow ? { l: 46, r: 80, t: 16, b: 34 } : { l: 58, r: 86, t: 22, b: 42 };
+  const rScale = narrow ? 0.7 : 1;
   const innerW = W - pad.l - pad.r;
   const innerH = H - pad.t - pad.b;
   const xUnit = opts.scale === "linear"
@@ -703,7 +713,7 @@ function gradeScatterHtml(opts) {
     const x = xAt(point.x);
     const y = yAt(point.y);
     const dim = query && !(point.symbol && point.symbol.startsWith(query));
-    marks += gradeMark(point, x, y, dim);
+    marks += gradeMark(rScale === 1 ? point : { ...point, r: point.r * rScale }, x, y, dim);
     hover.push([Math.round(x * 10) / 10, Math.round(y * 10) / 10, point.label]);
   }
   const labeled = [];
@@ -730,7 +740,7 @@ function gradeScatterHtml(opts) {
     labels += `<g class="book-tag"><rect x="${tagX.toFixed(1)}" y="${(placed - 12).toFixed(1)}" width="${width.toFixed(1)}" height="16" rx="3"></rect><text x="${(tagX + 6).toFixed(1)}" y="${(placed - 1).toFixed(1)}">${esc(point.symbol)}</text></g>`;
     if (labeled.length >= 8) break;
   }
-  const svg = `<svg class="book-svg is-fit" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opts.aria)}" data-ch="${esc(JSON.stringify(hover.length ? hover : [[0, 0, ""]]))}">${guides}${marks}${labels}${tickText}</svg>`;
+  const svg = `<svg class="book-svg is-fit${narrow ? " is-narrow" : ""}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opts.aria)}" data-ch-xy="1" data-ch="${esc(JSON.stringify(hover.length ? hover : [[0, 0, ""]]))}">${guides}${marks}${labels}${tickText}</svg>`;
   return `<div class="book-grade-chart"><div class="book-grade-ylab">${esc(opts.yName)}</div><div class="book-plot-main">${svg}<div class="book-axis-caption"><span>${esc(opts.xName)}</span></div></div></div>`;
 }
 

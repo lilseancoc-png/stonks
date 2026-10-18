@@ -351,9 +351,19 @@ ${scenarioEventPhase.toString()}
     var q = svg.createSVGPoint(); q.x = clientX; q.y = clientY;
     var v = q.matrixTransform(inv);
     // Snap to the nearest point by viewBox x — charts are x-ordered series.
-    var best = pts[0], bd = Math.abs(pts[0][0] - v.x);
+    // A scatter (data-ch-xy) snaps to the nearest point in both directions,
+    // measured in screen pixels, so a dot far above the cursor never wins.
+    var xy = svg.hasAttribute('data-ch-xy');
+    var sx = Math.abs(ctm.a) || 1, sy = Math.abs(ctm.d) || 1;
+    var dist = function(p){
+      var dx = (p[0] - v.x) * sx;
+      if (!xy) return Math.abs(dx);
+      var dy = (p[1] - v.y) * sy;
+      return dx * dx + dy * dy;
+    };
+    var best = pts[0], bd = dist(pts[0]);
     for (var i=1; i<pts.length; i++){
-      var d = Math.abs(pts[i][0] - v.x);
+      var d = dist(pts[i]);
       if (d < bd){ bd = d; best = pts[i]; }
     }
     var s = svg.createSVGPoint(); s.x = best[0]; s.y = best[1];
@@ -3544,7 +3554,7 @@ ${scenarioEventPhase.toString()}
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','rotation','picks','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -5169,7 +5179,11 @@ ${renderWorkspaceBindings()}
   // Shared geometry for the price chart — one source of truth so the static
   // render (priceChartRender) and the hover handler (attachPriceChartHover)
   // map between data and SVG coords identically.
-  var PC_LAYOUT = { W: 1000, H: 470, padL: 48, padR: 14, padT: 12, priceBot: 300, volTop: 322, volBot: 374, rsiTop: 398, rsiBot: 452 };
+  var PC_LAYOUT = { W: 1000, H: 470, padL: 48, padR: 14, padT: 12, priceBot: 300, volTop: 322, volBot: 374, rsiTop: 398, rsiBot: 452, k: 1 };
+  // Phones: the 1000-wide drawing shrank to ~370px, leaving 4px axis text. A
+  // narrower canvas with ~1.45x label units (k) draws labels at ~10px there.
+  var PC_LAYOUT_NARROW = { W: 560, H: 470, padL: 74, padR: 8, padT: 14, priceBot: 300, volTop: 320, volBot: 366, rsiTop: 388, rsiBot: 444, k: 1.45 };
+  function pcLayout(){ return (window.innerWidth || 1000) <= 600 ? PC_LAYOUT_NARROW : PC_LAYOUT; }
   // Render ONE price chart for a display window [startIdx..end] of the full
   // series. SMAs are computed over the FULL closes (so a zoomed window still
   // gets a correct moving average using the lookback behind it), then plotted
@@ -5206,12 +5220,12 @@ ${renderWorkspaceBindings()}
     if (fc){ lo = Math.min(lo, fc.low); hi = Math.max(hi, fc.high); }
     if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return { svg: '', legend: '' };
     var padv = (hi - lo) * 0.05; lo -= padv; hi += padv;
-    var L = PC_LAYOUT;
+    var L = pcLayout(), k = L.k || 1;
     var W = L.W, H = L.H, padL = L.padL, padR = L.padR, padT = L.padT, priceBot = L.priceBot, volTop = L.volTop, volBot = L.volBot, rsiTop = L.rsiTop, rsiBot = L.rsiBot;
     var plotW = W - padL - padR;
     // When a forecast cone is present the historical series occupies only the
     // left portion; the cone gets ~26% and the price pills a fixed gutter.
-    var fcLabelW = fc ? 98 : 0;
+    var fcLabelW = fc ? Math.round(98 * k) : 0;
     var fcConeW = fc ? Math.round(plotW * 0.26) : 0;
     var histW = plotW - fcConeW - fcLabelW;
     function xAt(i){ return padL + (dN === 1 ? histW / 2 : ((i - s0) / (dN - 1)) * histW); }
@@ -5243,7 +5257,7 @@ ${renderWorkspaceBindings()}
       var gy = (padT + (i / 4) * (priceBot - padT));
       var gval = hi - (i / 4) * (hi - lo);
       grid += '<line class="opt-pc-grid" x1="' + padL + '" y1="' + gy.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + gy.toFixed(1) + '" />';
-      grid += '<text class="opt-pc-ylabel" x="' + (padL - 6) + '" y="' + (gy + 3).toFixed(1) + '">$' + fmt(gval) + '</text>';
+      grid += '<text class="opt-pc-ylabel" x="' + (padL - 6) + '" y="' + (gy + 3 * k).toFixed(1) + '">$' + fmt(gval) + '</text>';
     }
     // Candlesticks and visible-range Fibonacci retracements. Direction follows
     // the chronological swing: low→high draws pullback levels down from the high;
@@ -5314,7 +5328,7 @@ ${renderWorkspaceBindings()}
       for (i = 0; i < rsiLevels.length; i++){
         var lv = rsiLevels[i], ly = yRsi(lv).toFixed(1), mid = lv === 50;
         rsiGrid += '<line class="opt-pc-rsi-grid' + (mid ? ' is-mid' : '') + '" x1="' + padL + '" y1="' + ly + '" x2="' + (W - padR) + '" y2="' + ly + '" />';
-        rsiGrid += '<text class="opt-pc-rsi-ylabel" x="' + (padL - 6) + '" y="' + (yRsi(lv) + 3).toFixed(1) + '">' + lv + '</text>';
+        rsiGrid += '<text class="opt-pc-rsi-ylabel" x="' + (padL - 6) + '" y="' + (yRsi(lv) + 3 * k).toFixed(1) + '">' + lv + '</text>';
       }
       // Shade the overbought (>70) and oversold (<30) zones faintly.
       var rsiZones =
@@ -5322,7 +5336,7 @@ ${renderWorkspaceBindings()}
         '<rect class="opt-pc-rsi-zone is-os" x="' + padL + '" y="' + yRsi(30).toFixed(1) + '" width="' + (W - padR - padL).toFixed(1) + '" height="' + (yRsi(0) - yRsi(30)).toFixed(1) + '" />';
       rsiEl =
         rsiZones + rsiGrid +
-        '<text class="opt-pc-rsi-tag" x="' + (padL + 3) + '" y="' + (rsiTop + 11).toFixed(1) + '">RSI 14</text>' +
+        '<text class="opt-pc-rsi-tag" x="' + (padL + 3) + '" y="' + (rsiTop + 11 * k).toFixed(1) + '">RSI 14</text>' +
         '<polyline class="opt-pc-rsi" fill="none" points="' + rsiPts + '" />';
     }
     // spot line + label — when a forecast cone is drawn the line stops at the
@@ -5333,8 +5347,8 @@ ${renderWorkspaceBindings()}
       var spotX2 = fc ? (padL + histW) : (W - padR);
       spotEl = '<line class="opt-pc-spot" x1="' + padL + '" y1="' + sy + '" x2="' + spotX2 + '" y2="' + sy + '" />' +
         (fc
-          ? '<text class="opt-pc-fan-cur" text-anchor="end" x="' + (padL + histW - 4).toFixed(1) + '" y="' + (yAt(spot) - 4).toFixed(1) + '">$' + fmt(spot) + '</text>'
-          : '<text class="opt-pc-spotlabel" x="' + (W - padR) + '" y="' + (yAt(spot) - 4).toFixed(1) + '">spot $' + fmt(spot) + '</text>');
+          ? '<text class="opt-pc-fan-cur" text-anchor="end" x="' + (padL + histW - 4).toFixed(1) + '" y="' + (yAt(spot) - 4 * k).toFixed(1) + '">$' + fmt(spot) + '</text>'
+          : '<text class="opt-pc-spotlabel" x="' + (W - padR) + '" y="' + (yAt(spot) - 4 * k).toFixed(1) + '">spot $' + fmt(spot) + '</text>');
     }
     // x labels (first / mid / last of the window)
     var xlabels = '';
@@ -5342,7 +5356,7 @@ ${renderWorkspaceBindings()}
       var idxs = [s0, s0 + Math.floor((dN - 1) / 2), n - 1];
       var anch = ['start', 'middle', 'end'];
       for (i = 0; i < idxs.length; i++){
-        xlabels += '<text class="opt-pc-xlabel" text-anchor="' + anch[i] + '" x="' + xAt(idxs[i]).toFixed(1) + '" y="' + (rsiBot + 14) + '">' + escapeHtml(priceChartFmtDate(dates[idxs[i]], intraday)) + '</text>';
+        xlabels += '<text class="opt-pc-xlabel" text-anchor="' + anch[i] + '" x="' + xAt(idxs[i]).toFixed(1) + '" y="' + (rsiBot + 14 * k).toFixed(1) + '">' + escapeHtml(priceChartFmtDate(dates[idxs[i]], intraday)) + '</text>';
       }
     }
     var legend = hasOhlc
@@ -5386,17 +5400,17 @@ ${renderWorkspaceBindings()}
         '<circle class="opt-pc-fan-origin" cx="' + X(xb) + '" cy="' + Y(ySpot) + '" r="3"/>';
       var pctOf = function(p){ var u = (p - spot) / spot * 100; return (u >= 0 ? '+' : '') + u.toFixed(1) + '%'; };
       var pill = function(yv, cls, tag, price){
-        var yy = Math.max(padT + 9, Math.min(priceBot - 9, yv));
+        var yy = Math.max(padT + 9 * k, Math.min(priceBot - 9 * k, yv));
         return '<g class="opt-pc-fan-pill ' + cls + '" transform="translate(' + X(xr + 4) + ',' + Y(yy) + ')">' +
-          '<rect x="0" y="-9.5" width="' + (fcLabelW - 6) + '" height="19" rx="4"/>' +
-          '<text class="opt-pc-fan-pill-t" x="5" y="-1.5">' + tag + '</text>' +
-          '<text class="opt-pc-fan-pill-p" x="5" y="7">$' + fmt(price) + '</text>' +
+          '<rect x="0" y="' + (-9.5 * k).toFixed(1) + '" width="' + (fcLabelW - 6) + '" height="' + (19 * k).toFixed(1) + '" rx="4"/>' +
+          '<text class="opt-pc-fan-pill-t" x="' + (5 * k).toFixed(1) + '" y="' + (-1.5 * k).toFixed(1) + '">' + tag + '</text>' +
+          '<text class="opt-pc-fan-pill-p" x="' + (5 * k).toFixed(1) + '" y="' + (7 * k).toFixed(1) + '">$' + fmt(price) + '</text>' +
         '</g>';
       };
       fanLabels = pill(yHigh, 'up', 'Max ' + pctOf(fc.high), fc.high) +
                   pill(yLow, 'dn', 'Min ' + pctOf(fc.low), fc.low) +
                   pill(yAvg, 'avg', 'Avg ' + pctOf(avgC), avgC);
-      fcXlabel = '<text class="opt-pc-xlabel" text-anchor="middle" x="' + X((xb + xr) / 2) + '" y="' + (rsiBot + 14) + '">1Y forecast' + (fc.n ? ' · ' + fc.n + ' analysts' : '') + '</text>';
+      fcXlabel = '<text class="opt-pc-xlabel" text-anchor="middle" x="' + X((xb + xr) / 2) + '" y="' + (rsiBot + 14 * k).toFixed(1) + '">1Y forecast' + (fc.n ? ' · ' + fc.n + ' analysts' : '') + '</text>';
     }
     var aria = intraday ? '30-minute intraday bars, ' + dN + ' points' : 'daily, ' + dN + ' sessions';
     // Hover points — one [x, y, dateRaw, close, vol, open, high, low] per bar
@@ -5427,7 +5441,7 @@ ${renderWorkspaceBindings()}
       hoverPts.map(function(p){ return priceChartFmtDate(p[2], intraday); }),
       [{ name: 'Close', values: hoverPts.map(function(p){ return p[3]; }) }]
     );
-    var svg = '<svg class="opt-pc-svg"' + rangeAttr + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Price chart, ' + aria + ', with directional volume, Fibonacci retracements and RSI(14)">' +
+    var svg = '<svg class="opt-pc-svg' + (k > 1 ? ' is-narrow' : '') + '"' + rangeAttr + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Price chart, ' + aria + ', with directional volume, Fibonacci retracements and RSI(14)">' +
       fanDefs + grid + fibEl + hitEl + band + vol + rsiEl + smaBEl + smaAEl + candleEl +
       (hasOhlc ? '' : '<polyline class="opt-pc-close" fill="none" points="' + pts(c) + '" />') +
       fanEl + spotEl + xlabels + fcXlabel + fanLabels + hoverEl +
@@ -5526,7 +5540,9 @@ ${renderWorkspaceBindings()}
       var dot = chart.querySelector('.opt-pc-cross-dot');
       var tip = chart.querySelector('.opt-pc-tip');
       if (!svg || !hover || !crossX || !crossY || !dot || !tip) return;
-      var L = PC_LAYOUT, lastP = null;
+      // The layout (wide or phone) is whatever this svg was drawn with.
+      var vb = svg.viewBox && svg.viewBox.baseVal;
+      var L = { W: (vb && vb.width) || PC_LAYOUT.W, H: (vb && vb.height) || PC_LAYOUT.H }, lastP = null;
       function nearest(vx){
         var best = pts[0], bestD = Math.abs(pts[0][0] - vx);
         for (var i = 1; i < pts.length; i++){
@@ -6075,7 +6091,16 @@ ${renderWorkspaceBindings()}
       }
     }
 
-    var W = 320, H = 150, padL = 14, padR = 14, padT = 26, padB = 28;
+    // Draw at the box's own width when it's measurable, so a wide chart (the
+    // full-width RAM prices card) keeps 10px axis text and normal-size dots
+    // instead of scaling the 320-wide drawing up three times. A box that isn't
+    // laid out yet (hidden tab) keeps the 320-wide default.
+    var W = 320;
+    box.hidden = false;
+    var boxCs = window.getComputedStyle ? getComputedStyle(box) : null;
+    var boxInner = box.clientWidth - (boxCs ? (parseFloat(boxCs.paddingLeft) || 0) + (parseFloat(boxCs.paddingRight) || 0) : 0);
+    if (boxInner > 0) W = Math.max(240, Math.round(boxInner));
+    var H = Math.round(Math.min(320, Math.max(150, W * 0.32))), padL = 14, padR = 14, padT = 26, padB = 28;
     var plotW = W - padL - padR;
     var plotH = H - padT - padB;
 
@@ -19910,7 +19935,9 @@ ${renderWorkspaceBindings()}
       var points = (benchmark.history[quote.key] || []).filter(function(point){ return point && point.d && point.p > 0; });
       var coords = points.map(function(point){ return xFor(point.d).toFixed(1) + ',' + yFor(Number(point.p)).toFixed(1); }).join(' ');
       if (points.length === 1){
-        lines += '<circle cx="' + xFor(points[0].d).toFixed(1) + '" cy="' + yFor(Number(points[0].p)).toFixed(1) + '" r="3.2" fill="' + color + '"/>';
+        // Round-capped zero-length line: stays a circle in this stretched svg.
+        var apX = xFor(points[0].d).toFixed(1), apY = yFor(Number(points[0].p)).toFixed(1);
+        lines += '<line class="ap-dot" x1="' + apX + '" y1="' + apY + '" x2="' + apX + '" y2="' + apY + '" stroke="' + color + '"/>';
       } else {
         lines += '<polyline class="ap-provider-line" points="' + coords + '" fill="none" stroke="' + color + '" stroke-width="1.7" vector-effect="non-scaling-stroke"/>';
       }
@@ -19920,7 +19947,9 @@ ${renderWorkspaceBindings()}
     if (composite.length > 1){
       lines += '<polyline class="ap-composite-line" points="' + compositeCoords + '" fill="none" stroke="var(--text-strong)" stroke-width="3" vector-effect="non-scaling-stroke"/>';
       var lastComposite = composite[composite.length - 1];
-      lines += '<circle class="ap-composite-dot" cx="' + xFor(lastComposite.d).toFixed(1) + '" cy="' + yFor(Number(lastComposite.p)).toFixed(1) + '" r="3.2"/>';
+      var apCx = xFor(lastComposite.d).toFixed(1), apCy = yFor(Number(lastComposite.p)).toFixed(1);
+      lines += '<line class="ap-composite-ring" x1="' + apCx + '" y1="' + apCy + '" x2="' + apCx + '" y2="' + apCy + '"/>' +
+        '<line class="ap-composite-dot" x1="' + apCx + '" y1="' + apCy + '" x2="' + apCx + '" y2="' + apCy + '"/>';
       legend = '<span class="ap-legend-median"><i></i>Cross-provider median</span>' + legend;
     }
     var tipPoints = dates.map(function(date){
@@ -21618,7 +21647,7 @@ ${renderWorkspaceBindings()}
             '<div class="ic-stat ic-stat-prev"><span class="ic-stat-val">' + icFmtBn(bl.cvB) + '</span><span class="ic-stat-sub">convertible</span></div>' +
           '</div>' +
           '<div class="ic-chips">' + rpChip(bl.momPct, 'm/m') + rpChip(bl.yoyPct, 'y/y') + '</div>' +
-          (bbars ? '<div class="ic-bars">' + bbars + '</div>' : '') +
+          (bbars ? '<div class="ic-bars ic-bars-dense">' + bbars + '</div>' : '') +
           (bqrows ? '<div class="ic-table-wrap"><table class="ic-table"><thead><tr><th>Quarter</th><th class="ic-num">Investment grade</th><th class="ic-num">High yield</th><th class="ic-num">Convertible</th><th class="ic-num">Total</th></tr></thead><tbody>' + bqrows + '</tbody></table></div>' : '') +
           '<p class="ic-note"><b>How to read this:</b> the dollars companies actually raised selling bonds each month, across the whole US market — the debt-side twin of the IPO strip above. <b>Investment grade</b> = bonds from solid-balance-sheet companies; <b>high yield</b> = riskier ("junk") issuers paying up to borrow; <b>convertible</b> = bonds that can turn into stock. Heavy issuance = an open debt window — companies can fund cheaply and underwriting desks are busy; a slammed-shut window (issuance drying up, high yield first) is an early credit-stress tell. Source: <a href="' + escapeHtml(bd.sourceUrl || '#') + '" target="_blank" rel="noopener noreferrer">SIFMA Research</a>.</p></div></details>';
       }
@@ -30472,7 +30501,7 @@ ${renderWorkspaceBindings()}
     var band = fngBandFromScore(s);
     // Numeric readout sits in the well below the hub so the needle never
     // bisects it. viewBox is sized just tall enough to hold it.
-    return '<svg class="fng-gauge fng-band-' + band + '" viewBox="0 0 220 132" role="img" aria-label="Fear and Greed score ' + Math.round(s) + ' of 100">' +
+    return '<svg class="fng-gauge fng-band-' + band + '" viewBox="0 0 220 138" role="img" aria-label="Fear and Greed score ' + Math.round(s) + ' of 100">' +
       '<title>Fear &amp; Greed ' + Math.round(s) + ' of 100 — ' + escapeHtml(String(band).replace(/-/g, ' ')) + '. 0–24 extreme fear · 25–44 fear · 45–54 neutral · 55–74 greed · 75–100 extreme greed.</title>' +
       arcs + ticks + ends + needle +
       '<text class="fng-gauge-num" x="' + cx + '" y="128" text-anchor="middle">' + Math.round(s) + '</text>' +
@@ -31724,6 +31753,9 @@ ${renderWorkspaceBindings()}
         // legible without making tiny ones blow out their box.
         var symSize = Math.min(28 * zoom, Math.max(9, Math.round(Math.min(pxH * 0.42, pxW * 0.22))));
         var pctSize = Math.max(9, Math.round(symSize * 0.72));
+        // Too short for the symbol plus the % line: drop to the one-line tiny
+        // tile instead of letting the symbol run off the tile's bottom.
+        if (!tinyCls && pxH < symSize + pctSize + 14) tinyCls = ' is-tiny';
         html +=
           '<button type="button" class="heatmap-tile' + tinyCls +
             (isHot ? ' is-hot' : '') + (isStale ? ' is-stale' : '') + '" ' +

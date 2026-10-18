@@ -20,6 +20,17 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-10-18
+
+### Fixed
+
+- **Chart tooltips keep their text inside the box.** A long line in the shared chart tooltip (for example "Analyst price target … P/E vs sector" on the Heatmap's grade scatter) now wraps inside the tooltip instead of running past its edge, and the box stays on screen on phones. Scatter plots now snap the tooltip to the dot nearest the pointer instead of the nearest column. `scripts/render/app-js.mjs`, `scripts/render/styles-css.mjs`, `js/book-views.js`.
+- **Hidden tooltips and readouts no longer leave empty boxes on screen.** Several readouts (Fear & Greed history, Grade fundamentals charts and segment donuts, the Grade contract result bar, Strategies, Owner Lab position check) set their own display style, which beat the browser's `hidden` rule; a global `[hidden]` rule now wins. Fifteen rules that read an undefined `--surface-1` color (tooltips, chips, strips) now get a real background. `scripts/render/styles-css.mjs`.
+- **The Grade price chart is readable on phones.** Axis, RSI and spot labels rendered at about 4px on a phone; a narrower phone layout now draws them at about 10px. The spot label gets a halo so the price line no longer runs through it. `scripts/render/app-js.mjs`, `scripts/render/styles-css.mjs`.
+- **Wide charts no longer blow up their text, and stretched charts keep round dots.** The RAM prices history chart draws at its card's real width, so its axis labels stay small, and its hover readout sits on the chart instead of the top of the page. Scatter dots on Earnings, Trending IV and Streaks and the GPU price end markers stay round at any width. The Heatmap grade scatter uses a phone-sized layout so its ticks and guide labels are readable. `scripts/render/app-js.mjs`, `scripts/render/styles-css.mjs`, `js/book-views.js`.
+- **Phone layouts no longer push content off the side.** Pattern lab, the Owner Lab filters, the Home pulse strip, the 13F firm summaries, the Brief headline sources, the AI CapEx guidance total, the IPO and bond bars and tables, the score-bucket columns and the sector-breadth header all fit a 390px screen. Heatmap tiles no longer stretch past their sector box, and the Compare tooltip is opaque. `scripts/render/styles-css.mjs`, `scripts/render/app-js.mjs`.
+- **Smaller chart fixes.** The Fear & Greed gauge no longer clips its score, the central-bank gold axis labels sit on their gridlines, the IV term-structure hover label has a halo, the header time-zone picker shows "Local" in full, and `?tab=leaps` deep links open LEAPS for the owner. `scripts/render/app-js.mjs`, `scripts/render/styles-css.mjs`, `scripts/render-smoke.mjs`.
+
 ## 2026-10-16
 
 ### Added
