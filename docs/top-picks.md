@@ -659,7 +659,12 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   from one build's chains — the bake tolerates up to 25% Yahoo fetch misses —
   carries its last mark forward and only resolves `dropped` after
   `PICKS_DROPPED_MIN_MISSES` consecutive misses; an unmarkable resolution is
-  `void` on EVERY exit path — never counted as a win or a loss). **There is no
+  `void` on EVERY exit path — never counted as a win or a loss). A trade on a
+  name that has **left coverage** (no longer in `TICKERS`) doesn't wait for the
+  miss counter: the next Top Picks run closes it as `left-coverage`, neither a
+  win nor a loss, so it stays visible but out of every stat and the edge
+  governors; older `dropped` closes on uncovered names are relabeled the same
+  way. **There is no
   weekly reset**: the record accumulates and open positions are never
   force-closed at a week boundary — every trade rides until one of the exit
   rules above fires (the old weekly reset, which force-closed the open book at

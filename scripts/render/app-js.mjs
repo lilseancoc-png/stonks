@@ -32351,7 +32351,7 @@ ${renderWorkspaceBindings()}
   // time stop, the pre-earnings close and the weekly reset) kept only so
   // legacy resolved rows still label + sort; new closes use 'thesis-broken'
   // for the invalidation path.
-  var ACC_EXIT_ORDER = ['hit-tp-prem','trail-stop','hit-stop-prem','hit-stop-under','thesis-broken','theta-stop','timed-out','pre-earnings','expired','dropped','reset'];
+  var ACC_EXIT_ORDER = ['hit-tp-prem','trail-stop','hit-stop-prem','hit-stop-under','thesis-broken','theta-stop','timed-out','pre-earnings','expired','dropped','left-coverage','reset'];
   // Sort a copy of the closed[] list per accClosedSort. Rows missing the sort
   // key (no modeled P&L / unparsable dates) sink to the bottom in either
   // direction; ties fall back to newest-resolved-first so the order is stable.
@@ -33537,7 +33537,7 @@ ${renderWorkspaceBindings()}
   // the persisted side-adjusted underlyingPnlPct vs optionPnlPct), winner
   // anatomy, the best/worst segments across every breakdown dimension, a fired-
   // diagnostics "what to fix next" list, and a per-pick why-it-won/lost feed.
-  var ACC_STATUS_LABEL = { 'hit-tp-prem':'take-profit', 'trail-stop':'trail stop (half banked)', 'hit-stop-prem':'premium stop', 'hit-stop-under':'stock stop', 'thesis-broken':'thesis broken', 'theta-stop':'theta stop', 'timed-out':'14-day time stop (retired)', 'expired':'expired', 'pre-earnings':'pre-earnings exit (retired)', 'dropped':'left universe', 'reset':'weekly reset close (retired)', 'open-mark':'open mark' };
+  var ACC_STATUS_LABEL = { 'hit-tp-prem':'take-profit', 'trail-stop':'trail stop (half banked)', 'hit-stop-prem':'premium stop', 'hit-stop-under':'stock stop', 'thesis-broken':'thesis broken', 'theta-stop':'theta stop', 'timed-out':'14-day time stop (retired)', 'expired':'expired', 'pre-earnings':'pre-earnings exit (retired)', 'dropped':'left universe', 'left-coverage':'name left coverage (not counted)', 'reset':'weekly reset close (retired)', 'open-mark':'open mark' };
   // Loss-attribution thresholds (mirror diagnose-pick-losses.mjs): a side-
   // adjusted stock move <= -3% against the trade is clearly direction-driven;
   // >= -1% (flat or favorable) with a red option is pure vehicle bleed.
@@ -35201,7 +35201,7 @@ ${renderWorkspaceBindings()}
     // --- Resolved positions -------------------------------------------------
     function accClosedRow(e){
       var oc = e.outcome === 'win' ? 'win' : e.outcome === 'loss' ? 'loss' : 'flat';
-      var ocLabel = oc === 'win' ? 'WIN' : oc === 'loss' ? 'LOSS' : 'FLAT';
+      var ocLabel = oc === 'win' ? 'WIN' : oc === 'loss' ? 'LOSS' : e.outcome === 'left-coverage' ? 'NOT COUNTED' : 'FLAT';
       var held = accDaysBetween(e.entryDate, e.exitDate);
       var entry = Number(e.entrySpot) || 0;
       var exit = Number(e.exitSpot);

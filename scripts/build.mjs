@@ -27960,10 +27960,25 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
   let open = (state.open || []).slice();
   let closed = (state.closed || []).slice();
 
+  // LEFT COVERAGE: a name removed from TICKERS gets no chain and no grade, so
+  // its trade can only sit on a frozen mark until the "dropped" miss counter
+  // closes it as a win/loss that says nothing about the signal. Close it now
+  // as "left-coverage" instead — neither a win nor a loss, so the scorecard,
+  // the edge governors and the client's decided-trade views all skip it. Older
+  // "dropped" closes on names no longer covered are relabeled the same way.
+  const covered = new Set(TICKERS);
+  closed = closed.map((c) => (c && c.status === "dropped" && c.symbol && !covered.has(c.symbol)
+    ? { ...c, status: "left-coverage", outcome: "left-coverage", priorOutcome: c.outcome ?? null }
+    : c));
+
   // Mark open to market + resolve.
   const stillOpen = [];
   const nowSec = Math.floor(Date.parse(builtAtIso) / 1000) || Math.floor(Date.now() / 1000);
   for (const e of open) {
+    if (e && e.symbol && !covered.has(e.symbol)) {
+      closed.unshift({ ...e, exitSpot: e.lastSpot ?? null, exitDate: builtAtIso, status: "left-coverage", outcome: "left-coverage" });
+      continue;
+    }
     const data = chains?.[e.symbol] || null;
     const spot = pnum(data?.spot);
     const isCall = e.side === "call";
