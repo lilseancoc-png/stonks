@@ -37,6 +37,8 @@ import {
   capexCohortYoy, earningsEpsVerdict,
   freshMajorContractStatus, fiveSessionReturnPct, aiReserveBlocks, ensureTickerCoverage, GRADE_MODEL_VERSION,
   reconcileLevEtfLog, levEtfEntryInUniverse,
+  scoreAllTickers, openPickPrecheck, prioritizeAiSlots,
+  appendGateLog, gateRowMoves, foldGateLog, computeGateStats, GATE_LOG_KEEP_DAYS,
 } from "./build.mjs";
 import { buildFlowExplanation } from "../lib/flow-explanation.mjs";
 import { computeGexSummary } from "../lib/gex.mjs";
@@ -2262,6 +2264,77 @@ const gradeOne = (data, opts = {}, unusual = null) => buildGradesIndex({ ONE: da
   ok("lev log: a removed underlying and an empty group close as left-universe",
     closedBy.APPX?.exitReason === "left-universe" && closedBy.DUSL?.exitReason === "left-universe");
   ok("lev log: the close takes the live quote, or the last mark when none", closedBy.APPX?.exitPx === 22 && closedBy.DUSL?.exitPx === 39 && closedBy.DUSL?.exitStale === true);
+}
+
+{
+  // Losing-streak bar: an engaged edge gate lifts the open-pick score to 8;
+  // otherwise open picks keep the normal Strong bar.
+  ok("edge gate: open-pick bar stays Strong on a healthy or thin record",
+    edgeGatedConviction(null).strongBar === PICKS_TIER_STRONG && edgeGatedConviction(mkClosed(20, 12)).strongBar === PICKS_TIER_STRONG);
+  ok("edge gate: a losing record lifts the open-pick bar to 8",
+    edgeGatedConviction(mkClosed(20, -20)).strongBar === 8 && edgeGatedConviction([...mkClosed(8, 20), ...mkClosed(16, -30)]).strongBar === 8);
+  ok("classify: a 7 under the raised bar is watch-listed as edge-bar",
+    classifyPick(7, "strong", false, { strongBar: 8 }).group === "watch" && classifyPick(7, "strong", false, { strongBar: 8 }).demotion === "edge-bar");
+  ok("classify: an 8 clears the raised bar", classifyPick(8, "strong", false, { strongBar: 8 }).group === "actionable");
+  const losing = buildTopPicks(healthyUniverse, [], null, null, null, null, 0.045, { priorClosed: mkClosed(20, -20) });
+  const healthyMaxTotal = Math.max(...healthyPicks.map((p) => Math.abs(p.total)));
+  ok("edge gate: rosterMeta reports the open-pick bar", healthyPicks.rosterMeta.actionableBar === PICKS_TIER_STRONG && losing.rosterMeta.actionableBar === 8);
+  ok("edge gate: under the raised bar every open pick scores 8+",
+    losing.filter((p) => p.group === "actionable").every((p) => Math.abs(p.total) >= 8) && healthyMaxTotal >= 8);
+
+  // AI-slot priority: names that can still become open picks are graded first.
+  const { scored } = scoreAllTickers(healthyUniverse, [], null, null, null, null, {});
+  const ready = scored.filter((r) => !openPickPrecheck(r, "call", false, { rfr: 0.045 }));
+  ok("ai slots: the healthy fixture clears the deterministic precheck", ready.length >= 2);
+  const low = { sym: "LOWX", total: 5, side: "call", drivers: [], timing: { state: "go" }, data: { spot: 50, fundamentals: {} } };
+  ok("ai slots: precheck names the blocking rule",
+    openPickPrecheck(low, "call", false, {}) === "below-bar"
+      && openPickPrecheck(low, "call", true, {}) === "tactical"
+      && openPickPrecheck({ sym: "X", total: 9 }, "call", false, {}) === "no-data"
+      && openPickPrecheck(ready[0], "call", false, { strongBar: Math.abs(ready[0].total) + 1, rfr: 0.045 }) === "below-bar");
+  const cands = [{ r: low, side: "call", tactical: false }, ...ready.map((r) => ({ r, side: "call", tactical: false }))];
+  const pr = prioritizeAiSlots(cands, { rfr: 0.045 });
+  ok("ai slots: ready names move ahead of a higher-ranked name that can't open",
+    pr.ready >= 1 && pr.ordered[0].r.sym !== "LOWX" && pr.ordered.findIndex((c) => c.r.sym === "LOWX") >= pr.ready);
+  ok("ai slots: nothing is added or lost", pr.ordered.length === cands.length && pr.ordered.find((c) => c.r.sym === "LOWX").precheck === "below-bar");
+  const semis = ready.filter((r) => SECTORS[r.sym] === SECTORS[ready[0].sym]);
+  if (semis.length > 3) ok("ai slots: the sector cap counts names ahead in the queue", prioritizeAiSlots(semis.map((r) => ({ r, side: "call" })), { rfr: 0.045 }).ready === 3);
+  ok("gate trace: every open pick is traced as picked",
+    healthyPicks.filter((p) => p.group === "actionable").every((p) => healthyPicks.rosterMeta.turnedAway.some((t) => t.sym === p.symbol && t.gate === "picked")));
+  ok("gate trace: the raised bar traces as losing-streak-bar when it bites",
+    losing.rosterMeta.edgeBarDemoted.every((s) => losing.rosterMeta.turnedAway.some((t) => t.sym === s && t.gate === "losing-streak-bar")));
+
+  // Gate log: one row per day/name/side/rule; "picked" splits into opened vs book-full.
+  const at = "2026-10-19T15:00:00.000Z";
+  const ta = [
+    { sym: "AAA", side: "call", total: 8, gate: "picked", spot: 100 },
+    { sym: "BBB", side: "put", total: -8, gate: "picked", spot: 50 },
+    { sym: "CCC", side: "call", total: 7, gate: "timing-checks", spot: 20 },
+    { sym: "DDD", side: "call", total: 6, gate: "below-strong", spot: null },
+  ];
+  const log1 = appendGateLog([], ta, new Set(["AAA:call"]), at);
+  ok("gate log: picked splits into opened / book-full and rows need a price",
+    log1.length === 3 && log1.find((x) => x.sym === "AAA").gate === "opened" && log1.find((x) => x.sym === "BBB").gate === "book-full" && log1.every((x) => x.date === "2026-10-19"));
+  ok("gate log: a second run the same day adds no duplicates", appendGateLog(log1, ta, new Set(["AAA:call"]), "2026-10-19T19:30:00.000Z").length === 3);
+  const days = Array.from({ length: 30 }, (_, i) => new Date(Date.UTC(2026, 9, 19 + i)).toISOString().slice(0, 10));
+  const bars = { t: days, c: days.map((_, i) => 100 + i) };
+  const mvCall = gateRowMoves({ date: "2026-10-19", side: "call", spot: 100 }, bars);
+  const mvPut = gateRowMoves({ date: "2026-10-19", side: "put", spot: 100 }, bars);
+  ok("gate log: moves are measured N bars on, in the trade's direction",
+    mvCall.d5 === 5 && mvCall.d10 === 10 && mvCall.d20 === 20 && mvPut.d5 === -5);
+  ok("gate log: an open window stays null", gateRowMoves({ date: days[15], side: "call", spot: 115 }, bars).d20 === null);
+  const fakeChains = { AAA: { priceSeries: { t: days, c: days.map((_, i) => 100 + i) } }, CCC: { priceSeries: { t: days, c: days.map(() => 20) } } };
+  fakeChains.AAA.priceSeries.o = fakeChains.AAA.priceSeries.h = fakeChains.AAA.priceSeries.l = fakeChains.AAA.priceSeries.c;
+  const later = new Date(Date.UTC(2026, 10, 18)).toISOString();
+  const folded = foldGateLog(log1, {}, fakeChains, later);
+  ok("gate log: matured rows fold into totals, unmatured rows stay",
+    folded.totals.opened?.n === 1 && folded.totals.opened.d20.n === 1 && folded.log.some((x) => x.sym === "BBB") && !folded.log.some((x) => x.sym === "AAA"));
+  const aged = foldGateLog(folded.log, folded.totals, fakeChains, new Date(Date.UTC(2026, 9, 19) + (GATE_LOG_KEEP_DAYS + 2) * dayMs).toISOString());
+  ok("gate log: rows past the keep window fold even without a move", aged.log.length === 0 && aged.totals["book-full"]?.n === 1);
+  const stats = computeGateStats(folded.log, fakeChains, folded.totals);
+  const opened = stats.find((g) => g.gate === "opened");
+  ok("gate stats: totals and pending rows combine per rule",
+    opened && opened.d20.avgPct === 20 && opened.d20.rightPct === 100 && stats.some((g) => g.gate === "book-full" && g.n === 1));
 }
 
 console.log(`\n${pass}/${pass + fail} checks passed.`);

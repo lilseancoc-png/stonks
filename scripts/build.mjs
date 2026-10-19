@@ -17067,6 +17067,10 @@ const PICKS_EDGE_GATE = process.env.PICKS_EDGE_GATE !== "0";       // on by defa
 const PICKS_EDGE_GATE_SOFT = Number(process.env.PICKS_EDGE_GATE_SOFT ?? -8);   // edge ≤ −8% → bar +2
 const PICKS_EDGE_GATE_HARD = Number(process.env.PICKS_EDGE_GATE_HARD ?? -15);  // edge ≤ −15% → bar = Strong
 const PICKS_EDGE_GATE_MIN_N = Number(process.env.PICKS_EDGE_GATE_MIN_N ?? 12); // need this many decided closes to trust the edge
+// While the edge gate is engaged (a losing record), an OPEN PICK needs this
+// score instead of PICKS_TIER_STRONG (owner decision 2026-10-19). The candidate
+// bar above alone could never bite on open picks: they already need Strong.
+const PICKS_EDGE_GATE_STRONG_BAR = Number(process.env.PICKS_EDGE_GATE_STRONG_BAR ?? 8);
 const PICKS_PILLAR_CLAMP = 5;                 // no single pillar dominates
 const PICKS_TRAJECTORY_CLAMP = 2;             // forward-trajectory nudge into the fundamentals pillar (blend, don't dominate)
 
@@ -20290,7 +20294,7 @@ function flowPersistBySymbol(flowLog, nowMs = Date.now()) {
 }
 
 // Score the whole universe once. Shared by buildTopPicks & buildGradesIndex.
-function scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, opts = {}) {
+export function scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, opts = {}) {
   const asOfIso = opts.builtAtIso || null;
   const sectorMedianPE = sectorMedianPEs(chains);
   const sectorCapex = sectorCapexBenchmarks(chains, asOfIso);
@@ -21165,15 +21169,75 @@ export function computeEdgeScale(closed) {
 // Returns { bar, edge, n } so the roster meta can show WHY it stood down.
 export function edgeGatedConviction(closed) {
   const base = PICKS_MIN_CONVICTION;
-  if (!PICKS_EDGE_GATE || !Array.isArray(closed)) return { bar: base, edge: null, n: 0 };
+  const strong = PICKS_TIER_STRONG;
+  if (!PICKS_EDGE_GATE || !Array.isArray(closed)) return { bar: base, strongBar: strong, edge: null, n: 0 };
   const rs = edgeSampleRs(closed);
-  if (rs.length < PICKS_EDGE_GATE_MIN_N) return { bar: base, edge: null, n: rs.length };
+  if (rs.length < PICKS_EDGE_GATE_MIN_N) return { bar: base, strongBar: strong, edge: null, n: rs.length };
   const edge = rs.reduce((a, x) => a + x, 0) / rs.length;
-  if (edge == null || edge >= 0) return { bar: base, edge, n: rs.length };
+  if (edge == null || edge >= 0) return { bar: base, strongBar: strong, edge, n: rs.length };
   let bar = base;
   if (edge <= PICKS_EDGE_GATE_HARD) bar = PICKS_TIER_STRONG;
   else if (edge <= PICKS_EDGE_GATE_SOFT) bar = Math.min(PICKS_TIER_STRONG, base + 2);
-  return { bar, edge, n: rs.length };
+  // Engaged → open picks need the raised score too, not just the candidates.
+  const strongBar = bar > base ? Math.max(strong, PICKS_EDGE_GATE_STRONG_BAR) : strong;
+  return { bar, strongBar, edge, n: rs.length };
+}
+
+// AI-SLOT PRIORITY (2026-10-19, owner decision). The final grader only sees
+// PICKS_MAX_AI_THESES names, and an open pick needs its grade. The AI can
+// tighten but never loosen the deterministic gates, so a name that already
+// fails one of them can only ever land on the watch list. Hand the AI slots
+// first to names that clear every gate that doesn't need the AI — the open-pick
+// score, 2+ aligned pillars, the full GO timing package, the factor-trend gate,
+// a buildable contract for a strong thesis, and the sector / factor / side caps
+// — then fill any leftover slots in plain rank order. Same number of AI calls;
+// the roster order and every gate in buildTopPicks are unchanged.
+// Returns the reason a candidate can't become an open pick, or null.
+export function openPickPrecheck(r, side, tactical, ctx = {}) {
+  if (tactical) return "tactical";
+  if (!r || !r.data) return "no-data";
+  if (Math.abs(pnum(r.total) ?? 0) < (ctx.strongBar ?? PICKS_TIER_STRONG)) return "below-bar";
+  if (pillarsAlignedFor(r, side) < 2) return "confluence";
+  const entry = computeEntrySignal(side, pnum(r.data.spot), r.data, r.timing, { total: r.total });
+  if (entryPromotionBlocked(entry, r.timing)) return "timing";
+  const sec = SECTORS[r.sym] || r.data?.fundamentals?.sector || null;
+  const fac = sec && sec !== "ETF" ? (FACTOR_OF_SECTOR[sec] || null) : null;
+  if (side === "call" && fac && ctx.factorHealth?.[fac]?.weak
+    && !(r.timing?.state === "go" && Math.abs(r.total) >= PICKS_TIER_STRONG)) return "factor-trend";
+  const earnDays = etDaysUntil(r.data?.fundamentals?.nextEarningsDate);
+  const earningsInWindow = earnDays != null && earnDays >= 0 && earnDays <= PICKS_STRATEGY_EARNINGS_DAYS;
+  const strategy = selectStrategy(r, side, { eventRisk: ctx.eventRisk || null, earningsInWindow, thesisTier: "strong", tactical: false, ivAsOfDate: r.ivAsOfDate });
+  if (strategy.type !== "none") {
+    const built = buildPickContract(side, r.data, ctx.rfr ?? FALLBACK_RISK_FREE_RATE, strategy);
+    if (!built || !built.contract) return "no-contract";
+  }
+  return null;
+}
+
+// Order rank-sorted { r, side, tactical } candidates for the AI slots: names
+// that pass openPickPrecheck (and still fit the sector / factor / side caps
+// counted over the names ahead of them) first, the rest after, each group in
+// its original rank order.
+export function prioritizeAiSlots(cands, ctx = {}) {
+  const ready = [], rest = [];
+  const sectorCount = {}, factorCount = {};
+  let callN = 0, putN = 0;
+  for (const c of cands) {
+    let block = openPickPrecheck(c.r, c.side, !!c.tactical, ctx);
+    if (!block) {
+      const sec = SECTORS[c.r.sym] || c.r.data?.fundamentals?.sector || null;
+      const fac = sec && sec !== "ETF" ? (FACTOR_OF_SECTOR[sec] || null) : null;
+      if (sec && sec !== "ETF" && (sectorCount[sec] || 0) >= PICKS_MAX_PER_SECTOR) block = "sector-cap";
+      else if (fac && (factorCount[fac] || 0) >= PICKS_MAX_PER_FACTOR) block = "factor-cap";
+      else if (c.side === "call" ? callN >= PICKS_MAX_PER_SIDE : putN >= PICKS_MAX_PER_SIDE) block = "side-cap";
+      if (!block) {
+        if (sec && sec !== "ETF") { sectorCount[sec] = (sectorCount[sec] || 0) + 1; if (fac) factorCount[fac] = (factorCount[fac] || 0) + 1; }
+        if (c.side === "call") callN++; else putN++;
+      }
+    }
+    (block ? rest : ready).push({ ...c, precheck: block });
+  }
+  return { ordered: ready.concat(rest), ready: ready.length };
 }
 
 // ============================================================================
@@ -21191,10 +21255,20 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   // Edge governor (selection side): raise the actionable bar when the trailing
   // realized option edge is materially negative, so a losing book stands down to
   // only its strongest reads instead of trading the same breadth smaller.
-  const edgeGate = opts.priorClosed ? edgeGatedConviction(opts.priorClosed) : { bar: PICKS_MIN_CONVICTION, edge: null, n: 0 };
+  const edgeGate = opts.priorClosed ? edgeGatedConviction(opts.priorClosed) : { bar: PICKS_MIN_CONVICTION, strongBar: PICKS_TIER_STRONG, edge: null, n: 0 };
   const minConv = edgeGate.bar;
+  const strongBar = edgeGate.strongBar ?? PICKS_TIER_STRONG;
 
-  const meta = { modelEpoch: PICKS_ACCURACY_RESET_EPOCH, gradeModelVersion: GRADE_MODEL_VERSION, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, tradeCut: minConv, strongCut: PICKS_TIER_STRONG, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], primaryScenarioGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], confluenceDemoted: [], aiUngraded: [], entryDemoted: [], aiEntryPromoted: [], aiEntryHeldBack: [], reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
+  const meta = { modelEpoch: PICKS_ACCURACY_RESET_EPOCH, gradeModelVersion: GRADE_MODEL_VERSION, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, tradeCut: minConv, strongCut: PICKS_TIER_STRONG, actionableBar: strongBar, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], primaryScenarioGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], edgeBarDemoted: [], confluenceDemoted: [], aiUngraded: [], entryDemoted: [], aiEntryPromoted: [], aiEntryHeldBack: [], reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
+
+  // GATE TRACE (measurement only): the first rule that kept each candidate off
+  // the open-pick path, plus the names that made it ("picked"). The Track
+  // Record follows each one's stock move afterwards (gateLog in
+  // picks-accuracy.json), so every rule can be judged on what it turned away.
+  const turnedAway = [];
+  const traceGate = (r, side, gate) => {
+    turnedAway.push({ sym: r.sym, side, total: r2(pnum(r.total) ?? 0), gate, spot: r2(pnum(r.data?.spot)) });
+  };
 
   // Candidate set: actionable grade, OR a tactical put in a confirmed risk-off tape.
   const candidates = [];
@@ -21204,6 +21278,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     const tactical = (regime === "risk-off" || regime === "severe") && r.total <= PICKS_RISKOFF_PUT_BAR && r.timing?.state !== "avoid";
     if ((actionable || tactical) && !regimePrimaryGateClears(r, macroBackdrop)) {
       meta.primaryScenarioGated.push(r.sym);
+      if (actionable) traceGate(r, r.side, "scenario");
       continue;
     }
     if (actionable) candidates.push({ r, tactical: false });
@@ -21245,7 +21320,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // GATE: one entry per name (re-entry suppression).
     if (opts.reentryCooldown !== false && (openSet.has(`${r.sym}:${side}`) || openSym.has(r.sym))) { meta.reentrySuppressed.push(r.sym); continue; }
     // GATE: a poorly-timed name can't ship (a falling knife stays out even as a watch idea).
-    if (r.timing?.state === "avoid" && !tactical) { meta.timingGated.push(r.sym); continue; }
+    if (r.timing?.state === "avoid" && !tactical) { meta.timingGated.push(r.sym); traceGate(r, side, "avoid-timing"); continue; }
 
     // THESIS: the AI is the FINAL GRADER. It ran on every data-gated name and
     // returned a final grade; that grade — not the deterministic rubric — decides
@@ -21257,6 +21332,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     // cleared the bar (cash is a position — a wrong direction is what loses money).
     if (aiThesis && aiThesis.grade === "reject") {
       meta.aiVetoed.push(r.sym);
+      if (!tactical) traceGate(r, side, "ai-reject");
       const note = aiRejectionNote({
         tactical, graderActive: aiActive, aiThesis, kind: "reject",
         sym: r.sym, side, spot: pnum(r.data?.spot), total: r.total,
@@ -21334,13 +21410,27 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
         if (note) aiRejectionNotes.push(note);
       }
     }
-    const { classification, group, demotion } = classifyPick(r.total, thesisQuality.tier, tactical, { pillarsAligned: thesisQuality.pillarsAligned, aiGraded: thesisQuality.aiGraded, aiActive, entryConfirmed });
-    if (demotion === "confluence") meta.confluenceDemoted.push(r.sym);
+    const { classification, group, demotion } = classifyPick(r.total, thesisQuality.tier, tactical, { strongBar, pillarsAligned: thesisQuality.pillarsAligned, aiGraded: thesisQuality.aiGraded, aiActive, entryConfirmed });
+    if (demotion === "edge-bar") meta.edgeBarDemoted.push(r.sym);
+    else if (demotion === "confluence") meta.confluenceDemoted.push(r.sym);
     else if (demotion === "ai-ungraded") meta.aiUngraded.push(r.sym);
     else if (demotion === "entry-wait") meta.entryDemoted.push(r.sym);
+    if (!tactical && group !== "actionable") {
+      const gate = demotion === "edge-bar" ? "losing-streak-bar"
+        : demotion === "confluence" ? "confluence"
+        : demotion === "ai-ungraded" ? "no-ai-slot"
+        : demotion === "entry-wait" ? (!entryBlocked && aiVerdict === "wait" ? "ai-wait" : "timing-checks")
+        : Math.abs(pnum(r.total) ?? 0) < PICKS_TIER_STRONG ? "below-strong"
+        : thesisQuality.aiGraded ? "ai-not-strong" : "thesis-not-strong";
+      traceGate(r, side, gate);
+    }
     // GROUP FULL: skip before the strategy/contract stage so a surplus name
     // neither consumes exposure caps nor blocks the other group from filling.
-    if (group === "actionable" ? actN >= PICKS_COUNT : watchN >= PICKS_WATCH_COUNT) continue;
+    if (group === "actionable" ? actN >= PICKS_COUNT : watchN >= PICKS_WATCH_COUNT) {
+      if (group === "actionable") traceGate(r, side, "slots-full");
+      continue;
+    }
+    const isAct = group === "actionable";
 
     // STRATEGY: selectStrategy() picks the structure (none / credit / naked /
     // debit) from the IV regime + conviction + thesis tier. A non-"none" pick must
@@ -21353,7 +21443,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     let contract = null, stratFinal = strategy, exitPlan = null, entryPlan = null;
     if (strategy.type !== "none") {
       const built = buildPickContract(side, r.data, rfr, strategy);
-      if (!built || !built.contract) { meta.vetoed++; continue; }  // can't act on a recommended structure -> drop
+      if (!built || !built.contract) { meta.vetoed++; if (isAct) traceGate(r, side, "no-contract"); continue; }  // can't act on a recommended structure -> drop
       contract = built.contract;
       stratFinal = built.strategy;
       // GATE: sector + factor + side caps — EXPOSURE limits that apply only to real
@@ -21361,18 +21451,18 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       const sec = SECTORS[r.sym] || r.data?.fundamentals?.sector || null;
       const fac = sec && sec !== "ETF" ? (FACTOR_OF_SECTOR[sec] || null) : null;
       if (sec && sec !== "ETF") {
-        if ((sectorCount[sec] || 0) >= PICKS_MAX_PER_SECTOR) { meta.sectorCapped.push(r.sym); continue; }
-        if (fac && (factorCount[fac] || 0) >= PICKS_MAX_PER_FACTOR) { meta.factorCapped.push(r.sym); continue; }
+        if ((sectorCount[sec] || 0) >= PICKS_MAX_PER_SECTOR) { meta.sectorCapped.push(r.sym); if (isAct) traceGate(r, side, "sector-cap"); continue; }
+        if (fac && (factorCount[fac] || 0) >= PICKS_MAX_PER_FACTOR) { meta.factorCapped.push(r.sym); if (isAct) traceGate(r, side, "factor-cap"); continue; }
       }
       // GATE: factor-trend — don't keep buying CALLS into a correlated factor whose
       // OWN trend is rolling over. Puts unaffected; only a strong-tier go-timed call survives.
       if (side === "call" && fac && factorHealth[fac]?.weak) {
         const reprieve = r.timing?.state === "go" && Math.abs(r.total) >= PICKS_TIER_STRONG;
-        if (!reprieve) { meta.factorTrendGated.push(r.sym); continue; }
+        if (!reprieve) { meta.factorTrendGated.push(r.sym); if (isAct) traceGate(r, side, "factor-trend"); continue; }
       }
       // GATE: don't ship a wildly one-sided book.
-      if (side === "call" && callN >= PICKS_MAX_PER_SIDE) { meta.sideCapped.push(r.sym); continue; }
-      if (side === "put" && putN >= PICKS_MAX_PER_SIDE) { meta.sideCapped.push(r.sym); continue; }
+      if (side === "call" && callN >= PICKS_MAX_PER_SIDE) { meta.sideCapped.push(r.sym); if (isAct) traceGate(r, side, "side-cap"); continue; }
+      if (side === "put" && putN >= PICKS_MAX_PER_SIDE) { meta.sideCapped.push(r.sym); if (isAct) traceGate(r, side, "side-cap"); continue; }
       if (sec && sec !== "ETF") { sectorCount[sec] = (sectorCount[sec] || 0) + 1; if (fac) factorCount[fac] = (factorCount[fac] || 0) + 1; }
       if (side === "call") callN++; else putN++;
       const spot = pnum(r.data.spot);
@@ -21381,8 +21471,9 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     }
     const pg = peerGroupOf(r.sym, r.data);
     picks.push(buildPickObject(r, side, contract, exitPlan, entryPlan, peerIndex[pg], pg, tactical, stratFinal, macroRegime, { marketRead, works, thesisQuality, classification, group, aiThesis, entry }));
-    if (group === "actionable") actN++; else watchN++;
+    if (group === "actionable") { actN++; traceGate(r, side, "picked"); } else watchN++;
   }
+  meta.turnedAway = turnedAway;
 
   // Partition into the two roster GROUPS + cap each. Actionable (Strong grade +
   // Strong thesis) ranks first; everything else is a lower-conviction watch idea.
@@ -22091,9 +22182,11 @@ export function applyAiThesisGrade(detQuality, aiThesis) {
 //     is a "wait for entry" WATCH idea until a later (hourly) build confirms
 //     the entry. Only an explicit false demotes; legacy/keyless callers that
 //     omit the gate keep the old behavior.
+//   * |total| < strongBar → demote — while the edge gate is engaged (a losing
+//     record) an open pick needs PICKS_EDGE_GATE_STRONG_BAR (8), not 7.
 // `demotion` names which gate demoted an otherwise-actionable pick
-// (null | "confluence" | "ai-ungraded" | "entry-wait") for rosterMeta
-// instrumentation.
+// (null | "edge-bar" | "confluence" | "ai-ungraded" | "entry-wait") for
+// rosterMeta instrumentation.
 export function classifyPick(total, thesisTier, tactical, gates = null) {
   // A tactical put is a tape-driven DEFENSIVE idea (it ships below the grade bar on
   // a confirmed risk-off tape) — always a watch idea, never "no strategy".
@@ -22101,6 +22194,10 @@ export function classifyPick(total, thesisTier, tactical, gates = null) {
   const gradeStrong = Math.abs(pnum(total) ?? 0) >= PICKS_TIER_STRONG;
   if (thesisTier === "weak") return { classification: gradeStrong ? "highGradeWeakThesis" : "idea", group: "watch", demotion: null };
   if (gradeStrong && thesisTier === "strong") {
+    // Losing record: the edge gate raises the open-pick score above Strong.
+    if (gates && gates.strongBar != null && Math.abs(pnum(total) ?? 0) < gates.strongBar) {
+      return { classification: "moderate", group: "watch", demotion: "edge-bar" };
+    }
     if (gates && gates.pillarsAligned != null && gates.pillarsAligned < 2) {
       return { classification: "moderate", group: "watch", demotion: "confluence" };
     }
@@ -26397,7 +26494,7 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   //      the execution matrix (classification) and VETOES a
   //      'reject'. Self-skips keyless (deterministic grade stands as the fallback).
   const preScored = scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, baseOpts);
-  const aiThesis = await generateAiTheses(preScored, macroBackdrop, baseOpts, thesisProsePrior || {});
+  const aiThesis = await generateAiTheses(preScored, macroBackdrop, { ...baseOpts, rfr }, thesisProsePrior || {});
   // LEAPS reads the full preScored universe after the short-term grader.
   // It clones pillars, writes leaps-picks.json only, and does not change
   // preScored, the thesis map, or picks.json. A failure here stays off that path.
@@ -27075,7 +27172,9 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
   const macroCalendar = Array.isArray(macroBackdrop?.macroCalendar) && macroBackdrop.macroCalendar.length ? macroBackdrop.macroCalendar : null;
   const ivBySym = {};
   for (const row of (opts.ivTrending?.tickers || [])) if (row && row.symbol) ivBySym[row.symbol] = row;
-  const minConv = opts.priorClosed ? edgeGatedConviction(opts.priorClosed).bar : PICKS_MIN_CONVICTION;
+  const edgeGate = opts.priorClosed ? edgeGatedConviction(opts.priorClosed) : null;
+  const minConv = edgeGate ? edgeGate.bar : PICKS_MIN_CONVICTION;
+  const strongBar = edgeGate?.strongBar ?? PICKS_TIER_STRONG;
 
   // The DATA GATE — mirror buildTopPicks's candidate selection + its two cheap
   // gates (re-entry suppression + avoid-timing) so the AI grades exactly the names
@@ -27097,7 +27196,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
     // re-entry-suppressed or a falling knife can't ship, so don't grade it.
     if (reentry && (openSet.has(`${r.sym}:${side}`) || openSym.has(r.sym))) continue;
     if (r.timing?.state === "avoid" && !tactical) continue;
-    cands.push({ r, side });
+    cands.push({ r, side, tactical });
   }
   if (!cands.length) return { map, cache: next };
 
@@ -27106,9 +27205,14 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
   // roster can break near-ties without materially overriding conviction. Names
   // below the cut get no AI thesis → they ship deterministic-only.
   cands.sort((a, b) => compareRegimeCandidates(a.r, b.r, macroBackdrop));
-  const gated = cands.slice(0, PICKS_MAX_AI_THESES);
+  // Slots go first to names that can still become open picks (prioritizeAiSlots).
+  const { ordered, ready } = prioritizeAiSlots(cands, {
+    strongBar, rfr: opts.rfr, eventRisk: macroBackdrop?.eventRisk || null,
+    factorHealth: computeFactorTrendHealth(scored),
+  });
+  const gated = ordered.slice(0, PICKS_MAX_AI_THESES);
   if (cands.length > gated.length) {
-    console.log(`Thesis gate: ${gated.length}/${cands.length} data-gate survivors graded (capped at PICKS_MAX_AI_THESES=${PICKS_MAX_AI_THESES}); ${cands.length - gated.length} ship deterministic-only.`);
+    console.log(`Thesis gate: ${gated.length}/${cands.length} data-gate survivors graded (capped at PICKS_MAX_AI_THESES=${PICKS_MAX_AI_THESES}; ${ready} could still become open picks and go first); ${cands.length - gated.length} ship deterministic-only.`);
   }
 
   const keyless = !process.env.GEMINI_API_KEY || process.env.AI_THESIS === "0";
@@ -27843,8 +27947,119 @@ export async function readPicksAccuracyState() {
       console.log(`  picks-accuracy: reset epoch ${PICKS_ACCURACY_RESET_EPOCH} — discarding prior record (${(p.open || []).length} open, ${(p.closed || []).length} closed)`);
       return { open: [], closed: [], stats: null };
     }
-    return { open: Array.isArray(p.open) ? p.open : [], closed: Array.isArray(p.closed) ? p.closed : [], stats: p.stats || null };
-  } catch { return { open: [], closed: [], stats: null }; }
+    return { open: Array.isArray(p.open) ? p.open : [], closed: Array.isArray(p.closed) ? p.closed : [], stats: p.stats || null, gateLog: Array.isArray(p.gateLog) ? p.gateLog : [], gateTotals: p.gateTotals && typeof p.gateTotals === "object" ? p.gateTotals : {} };
+  } catch { return { open: [], closed: [], stats: null, gateLog: [], gateTotals: {} }; }
+}
+
+// ---- Gate log: what each open-pick rule turned away (measurement only) -----
+// Every Top Picks run, buildTopPicks traces the first rule that kept each
+// candidate off the open-pick path (rosterMeta.turnedAway), plus the names
+// that made it. The log keeps one row per symbol/side/gate per ET day and
+// follows each row's STOCK move in the trade's direction 5 / 10 / 20 trading
+// days later from the price series the bake already holds — no AI, no extra
+// fetches. Stock moves, not option P&L: most rules act before a contract is
+// chosen, so this is the one yardstick every rule shares. Compare a rule's
+// row with "opened" before tightening or loosening it.
+//
+// Once a row's 20-day move is in (or it ages out without one), it is folded
+// into the running per-rule totals (gateTotals) and dropped from the log, so
+// the file stays small while the totals keep growing.
+export const GATE_LOG_KEEP_DAYS = 60;
+export const GATE_LOG_MAX_ROWS = 3000;
+export const GATE_LOG_HORIZONS = Object.freeze([5, 10, 20]);
+
+export function appendGateLog(prevLog, turnedAway, enrolledKeys, builtAtIso) {
+  const date = etDateKey(new Date(builtAtIso));
+  const log = Array.isArray(prevLog) ? prevLog.slice() : [];
+  const seen = new Set(log.map((x) => `${x.date}:${x.sym}:${x.side}:${x.gate}`));
+  for (const t of (Array.isArray(turnedAway) ? turnedAway : [])) {
+    if (!t || !t.sym || !t.side || !t.gate) continue;
+    // A "picked" name either opened on the Track Record or found the 20-trade
+    // book full; record which, so "opened" is exactly the enrolled trades.
+    const gate = t.gate === "picked" ? (enrolledKeys?.has(`${t.sym}:${t.side}`) ? "opened" : "book-full") : t.gate;
+    const k = `${date}:${t.sym}:${t.side}:${gate}`;
+    if (seen.has(k) || !(pnum(t.spot) > 0)) continue;
+    seen.add(k);
+    log.push({ date, sym: t.sym, side: t.side, gate, total: t.total ?? null, spot: t.spot });
+  }
+  return log.slice(-GATE_LOG_MAX_ROWS);
+}
+
+function barDateKey(t) {
+  if (t == null) return null;
+  if (typeof t === "string" && /^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10);
+  const n = Number(t);
+  if (!Number.isFinite(n)) return null;
+  return etDateKey(new Date(n < 1e12 ? n * 1000 : n));
+}
+
+// Direction-adjusted % stock move N trading days after the logged day, or
+// null while the window is still open / history is missing.
+export function gateRowMoves(row, bars) {
+  const out = {};
+  for (const h of GATE_LOG_HORIZONS) out[`d${h}`] = null;
+  if (!row || !bars || !Array.isArray(bars.c) || !Array.isArray(bars.t)) return out;
+  let i0 = -1;
+  for (let i = 0; i < bars.t.length; i++) { const d = barDateKey(bars.t[i]); if (d && d >= row.date) { i0 = i; break; } }
+  if (i0 < 0) return out;
+  const base = pnum(row.spot);
+  if (!(base > 0)) return out;
+  const dir = row.side === "put" ? -1 : 1;
+  for (const h of GATE_LOG_HORIZONS) {
+    const c = pnum(bars.c[i0 + h]);
+    if (c > 0) out[`d${h}`] = r2(dir * (c / base - 1) * 100);
+  }
+  return out;
+}
+
+function addGateMoves(acc, gate, mv) {
+  const g = (acc[gate] ||= { n: 0 });
+  g.n++;
+  for (const h of GATE_LOG_HORIZONS) {
+    const v = mv[`d${h}`];
+    if (v == null) continue;
+    const a = (g[`d${h}`] ||= { n: 0, sum: 0, right: 0 });
+    a.n++; a.sum = r2(a.sum + v); if (v > 0) a.right++;
+  }
+}
+
+// Fold matured rows (20-day move known) and rows past GATE_LOG_KEEP_DAYS into
+// the running totals; return what is still pending plus the new totals.
+export function foldGateLog(log, totals, chains, builtAtIso) {
+  const out = JSON.parse(JSON.stringify(totals && typeof totals === "object" ? totals : {}));
+  const cutoff = etDateKey(new Date(Date.parse(builtAtIso) - GATE_LOG_KEEP_DAYS * 86400000));
+  const last = `d${GATE_LOG_HORIZONS[GATE_LOG_HORIZONS.length - 1]}`;
+  const barsBySym = {};
+  const pending = [];
+  for (const row of (Array.isArray(log) ? log : [])) {
+    if (!row || !row.gate) continue;
+    if (!(row.sym in barsBySym)) barsBySym[row.sym] = chains?.[row.sym] ? timingBarsFrom(chains[row.sym]) : null;
+    const mv = gateRowMoves(row, barsBySym[row.sym]);
+    if (mv[last] != null || row.date < cutoff) addGateMoves(out, row.gate, mv);
+    else pending.push(row);
+  }
+  return { log: pending, totals: out };
+}
+
+// Per-rule summary over the folded totals plus the still-pending rows: rows
+// logged, and per horizon the scored count, the average direction-adjusted
+// move and the share that moved the trade's way.
+export function computeGateStats(log, chains, totals = null) {
+  const by = JSON.parse(JSON.stringify(totals && typeof totals === "object" ? totals : {}));
+  const barsBySym = {};
+  for (const row of (Array.isArray(log) ? log : [])) {
+    if (!row || !row.gate) continue;
+    if (!(row.sym in barsBySym)) barsBySym[row.sym] = chains?.[row.sym] ? timingBarsFrom(chains[row.sym]) : null;
+    addGateMoves(by, row.gate, gateRowMoves(row, barsBySym[row.sym]));
+  }
+  return Object.entries(by).map(([gate, g]) => {
+    const out = { gate, n: g.n };
+    for (const h of GATE_LOG_HORIZONS) {
+      const a = g[`d${h}`];
+      out[`d${h}`] = a && a.n ? { n: a.n, avgPct: r2(a.sum / a.n), rightPct: r1((a.right / a.n) * 100) } : { n: 0, avgPct: null, rightPct: null };
+    }
+    return out;
+  }).sort((a, b) => b.n - a.n);
 }
 
 // Detect a stock split between two consecutive marks: the tracked lastSpot vs
@@ -28061,6 +28276,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
   open = stillOpen;
 
   // Enroll the freshly-shipped roster (dedup per symbol:side).
+  const enrolledNow = new Set();
   let picksPayload = null;
   try { picksPayload = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_FILE), "utf8")); } catch {}
   const openKeys = new Set(open.map((o) => `${o.symbol}:${o.side}`));
@@ -28090,6 +28306,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     // score) and adjudicated by the diagnostics; size already prices the
     // difference (PICKS_ENTRY_WAIT_SIZE_MULT).
     openKeys.add(key);
+    enrolledNow.add(key);
     // Deterministic thesis-style tag (valuation / momentum / event-driven / …)
     // for the Track Record by-thesis + cross-tab analytics. Frozen at entry.
     const thesisCat = classifyThesisCategory(p);
@@ -28185,7 +28402,16 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
   // resetEpoch stamps which enrollment-rules era this record belongs to —
   // readPicksAccuracyState discards a record from an older epoch (see
   // PICKS_ACCURACY_RESET_EPOCH).
-  const payload = { builtAtIso, resetEpoch: PICKS_ACCURACY_RESET_EPOCH, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, open, closed, stats };
+  // Gate log rides the same file (Owner-only, carried with the record on
+  // off-cadence bakes). Offline regen-picks (enrollNewPicks=false) only
+  // re-scores it; it never appends an AI-free roster's trace.
+  // What each open-pick rule turned away, and how those stocks moved after.
+  const appended = enrollNewPicks
+    ? appendGateLog(state.gateLog, picksPayload?.rosterMeta?.turnedAway, enrolledNow, builtAtIso)
+    : (Array.isArray(state.gateLog) ? state.gateLog : []);
+  const { log: gateLog, totals: gateTotals } = foldGateLog(appended, state.gateTotals, chains, builtAtIso);
+  const gateStats = computeGateStats(gateLog, chains, gateTotals);
+  const payload = { builtAtIso, resetEpoch: PICKS_ACCURACY_RESET_EPOCH, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, open, closed, stats, gateLog, gateTotals, gateStats };
   await writeFile(accPath, JSON.stringify(payload), "utf8");
   // Separate open-marks file for the Top Picks tab's "since it appeared" chip
   // (pickLiveChip + pickThesisStatusFor in app.js). It carries ONLY the
