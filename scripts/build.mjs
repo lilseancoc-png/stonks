@@ -27960,10 +27960,26 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
   let open = (state.open || []).slice();
   let closed = (state.closed || []).slice();
 
+  // LEFT COVERAGE: a name removed from TICKERS gets no chain and no grade, so
+  // its trade can only sit on a frozen mark until the "dropped" miss counter
+  // closes it as a win/loss that says nothing about the signal. Remove such an
+  // open trade from the record outright (owner decision, 2026-10-19). A
+  // "dropped" close that already happened on a name no longer covered stays
+  // visible but is relabeled "left-coverage" — neither a win nor a loss, so the
+  // scorecard, the edge governors and the client's decided-trade views skip it.
+  const covered = new Set(TICKERS);
+  closed = closed.map((c) => (c && c.status === "dropped" && c.symbol && !covered.has(c.symbol)
+    ? { ...c, status: "left-coverage", outcome: "left-coverage", priorOutcome: c.outcome ?? null }
+    : c));
+
   // Mark open to market + resolve.
   const stillOpen = [];
   const nowSec = Math.floor(Date.parse(builtAtIso) / 1000) || Math.floor(Date.now() / 1000);
   for (const e of open) {
+    if (e && e.symbol && !covered.has(e.symbol)) {
+      console.log(`  picks-accuracy: ${e.symbol} ${e.side} left coverage — open trade removed from the record`);
+      continue;
+    }
     const data = chains?.[e.symbol] || null;
     const spot = pnum(data?.spot);
     const isCall = e.side === "call";
