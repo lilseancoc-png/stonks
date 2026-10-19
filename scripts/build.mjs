@@ -36,6 +36,7 @@ import {
 } from "../lib/ai-rejections.mjs";
 import { createFileEvidenceStore, loadEvidenceWindow, runEvidenceRecord } from "../lib/evidence-record.mjs";
 import { BRIEF_ACCESS_POLICY_VERSION } from "../lib/public-data-policy.mjs";
+import { buildBriefExtendedHours, extendedSessionForKind } from "../lib/brief-extended-hours.mjs";
 import { contentAssetVersion } from "../lib/asset-version.mjs";
 import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
 import { assembleBakeLinkMap, LINK_MAP_SKIPPED_SOURCES } from "../lib/link-map.mjs";
@@ -24785,7 +24786,8 @@ export function sectorRotationRecordFromLog(log) {
   const openRaw = compatible && Array.isArray(log?.open) ? log.open.filter(currentModelRow) : [];
   const closedRaw = compatible && Array.isArray(log?.closed) ? log.closed.filter(currentModelRow) : [];
   const closed = closedRaw.map((entry) => ({ ...entry, ...sectorRotationOutcomeRow(entry) }));
-  const scored = closed.filter((entry) => Number.isFinite(entry.rMultiple));
+  // A close forced by a coverage change is shown but never scored.
+  const scored = closed.filter((entry) => entry.outcome !== "left-universe" && Number.isFinite(entry.rMultiple));
   const targets = scored.filter((entry) => entry.outcome === "target").length;
   const stops = scored.filter((entry) => entry.outcome === "stop").length;
   const timeouts = scored.filter((entry) => entry.outcome === "timeout").length;
@@ -25079,6 +25081,7 @@ export function reconcileSectorRotationLog(payload, priorLog, chains, builtAtIso
   }
 
   const spyState = sectorRotationTrackingState(chains, "SPY", builtAtIso, trackingQuotes?.SPY);
+  const tracked = new Set(TICKERS);
   const nextOpen = [];
   const openKeys = new Set();
   const openSymbols = new Set();
@@ -25097,6 +25100,37 @@ export function reconcileSectorRotationLog(payload, priorLog, chains, builtAtIso
       nextOpen.push(entry);
       openKeys.add(entry.signalKey);
       openSymbols.add(entry.symbol);
+      continue;
+    }
+    if (!tracked.has(String(entry.symbol).toUpperCase())) {
+      // The name left coverage. Without daily bars the 20-session time stop can
+      // never fire, so the trade would wait on target or stop forever. Close it
+      // at the freshest mark instead; the record keeps it out of the scored
+      // sample so a universe change never moves the metrics.
+      const exitPx = state.spot > 0 ? state.spot : (pnumN(entry.lastPx) ?? entryPx);
+      const exitDate = state.spot > 0 && state.date ? state.date : (sectorRotationDateKey(entry.lastDate) || today);
+      const spyMark = sectorRotationPriceOnDate(spyState, exitDate);
+      const done = {
+        ...entry,
+        status: "closed",
+        closedIso: builtAtIso,
+        closedDate: exitDate,
+        detectedAtIso: builtAtIso,
+        exitPx: r2(exitPx),
+        exitReason: "left-universe",
+        exitSource: state.spot > 0 ? "fresh-build-mark" : "last-mark",
+        outcome: "left-universe",
+        ambiguous: false,
+        lastPx: r2(exitPx),
+        lastIso: builtAtIso,
+        lastDate: exitDate,
+        spyExitPx: spyMark != null ? r2(spyMark) : null,
+        spyLastPx: spyMark != null ? r2(spyMark) : (entry.spyLastPx ?? null),
+      };
+      Object.assign(done, sectorRotationOutcomeRow(done));
+      closed.push(done);
+      closedKeys.add(done.signalKey);
+      pendingByKey.delete(done.signalKey);
       continue;
     }
     if (!state.rows.length && state.spot == null) {
@@ -31793,7 +31827,7 @@ export function gatherBriefSignals(kind, ctx) {
     chains = {}, fearGreed = null, macro = null, correlations = null,
     unusual = null, calendar = {},
     rfr = FALLBACK_RISK_FREE_RATE, headlines = [],
-    ivTrending = null, siteTools = null,
+    ivTrending = null, siteTools = null, extended = null,
   } = ctx || {};
 
   // Fear & Greed + 1-day delta (green = greedier, red = more fearful).
@@ -31867,6 +31901,11 @@ export function gatherBriefSignals(kind, ctx) {
       events.push({ label: briefClause(r.title, 60), detail });
     }
   } else {
+    // Tonight's reporters lead the closing calendar: their prints land after
+    // the bell, so they are still ahead of the reader.
+    for (const e of (cal.todayEarnings || [])) {
+      if (e?.sym && e.session !== "AM") events.push({ label: `${e.sym} earnings`, detail: e.session === "PM" ? "tonight, after the close" : "today, time not confirmed" });
+    }
     for (const e of (cal.upcomingEarn || []).slice(0, 5)) events.push({ label: `${e.sym} earnings`, detail: e.date + (e.session && e.session !== "TBD" ? ` ${e.session}` : "") });
     for (const r of (cal.upcomingReports || []).slice(0, 4)) events.push({ label: briefClause(r.title, 60), detail: String(r.date || "") });
   }
@@ -31876,6 +31915,11 @@ export function gatherBriefSignals(kind, ctx) {
 
   const signals = { kind, fearGreed: fng, macro: macroArr, events };
   if (siteTools && Array.isArray(siteTools.checked)) signals.toolScan = siteTools;
+  // Pre-market (morning) / after-hours (closing) quotes and the earnings
+  // prints around the bell — built by buildMarketBriefs from one batched
+  // quote sweep (lib/brief-extended-hours.mjs).
+  if (extended && (extended.indexes?.length || extended.movers?.gainers?.length ||
+    extended.movers?.losers?.length || extended.earnings?.length)) signals.extended = extended;
   if (bonds.length) signals.bonds = bonds;
 
   // Tickers to watch this build — the deterministic single-name event/news
@@ -32118,6 +32162,7 @@ function briefRenderFields(s) {
   if (s.ivTrend && s.ivTrend.length) out.ivTrend = s.ivTrend;
   if (s.gex && s.gex.length) out.gex = s.gex;
   if (s.events && s.events.length) out.events = s.events;
+  if (s.extended) out.extended = s.extended;
   if (s.toolScan) {
     out.toolScan = {
       checked: s.toolScan.checked || [],
@@ -32213,7 +32258,13 @@ function briefSystemPrompt(kind) {
       "elevated vs their own history and climbing), " +
       "today's earnings + economic calendar, any economic data that already PRINTED (actual vs consensus vs prior " +
       "— an 8:30 ET release like CPI may already be out; if so, lead with it and how it sets up the session), " +
-      "the overnight market-wide press/wire headlines (Fed, policy, geopolitics, trade). Frame it as the setup " +
+      "the overnight market-wide press/wire headlines (Fed, policy, geopolitics, trade), live pre-market quotes " +
+      "for SPY/QQQ/IWM and the biggest single-stock pre-market gaps, and the earnings prints since the last close " +
+      "(after yesterday's bell and before today's open) with each name's pre-market reaction. A large pre-market " +
+      "gap or earnings reaction is often the most important thing a trader needs before the open: when one is " +
+      "material, name the ticker, the print and the move in the summary and give it a highlight. Pre-market " +
+      "trading is thin, so call these indications rather than settled moves, and never guess why a name is moving " +
+      "when the facts give no earnings print or headline for it. Frame it as the setup " +
       "for today's session: what happened overnight, and what to watch as trading gets underway." + common
     );
   }
@@ -32228,8 +32279,13 @@ function briefSystemPrompt(kind) {
     "Greed reading closed, an open-interest GEX proxy on SPY/QQQ (conventional call-minus-put OI gamma, not observed " +
     "dealer inventory, and where spot sits vs the gamma flip), the economic data that printed today or in recent days (actual vs consensus vs prior — weigh " +
     "how the tape traded against it), the day's market-wide press/wire headlines (Fed, policy, geopolitics, " +
-    "trade), and what's on the calendar next. Frame it as what happened today and what " +
-    "to watch next." + common
+    "trade), live after-hours quotes for SPY/QQQ/IWM and the biggest single-stock after-hours moves, the names " +
+    "reporting earnings after today's close (with their after-hours reaction when the print is already out), and " +
+    "what's on the calendar next. When a tracked name has already reported and is moving after hours, call it out " +
+    "with the print and the move; when tonight's prints are still pending, list the notable ones as what to watch " +
+    "overnight. After-hours trading is thin, so call these indications, not settled moves, and never guess why a " +
+    "name is moving when the facts give no print or headline for it. Frame it as what happened today, what is " +
+    "happening after the bell, and what to watch next." + common
   );
 }
 
@@ -32276,6 +32332,36 @@ export function briefUserMessage(kind, dateKey, signals) {
   if (signals.indexes && signals.indexes.length) {
     lines.push((kind === "morning" ? "US index futures: " : kind === "intraday" ? "Indexes now (session so far): " : "Index close: ") +
       signals.indexes.map((m) => `${m.label} ${briefPctStr(m.chPct)}`).join(", ") + ".");
+  }
+  if (signals.extended) {
+    const x = signals.extended;
+    const pre = x.session === "premarket";
+    let stamp = "";
+    if (x.asOfIso) {
+      const d = new Date(x.asOfIso);
+      if (!isNaN(d.getTime())) stamp = ` as of ${d.toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })} ET`;
+    }
+    lines.push(pre
+      ? `Pre-market trading${stamp} (last pre-market trade vs the prior regular close; thin volume, so treat small moves as noise):`
+      : `After-hours trading${stamp} (last after-hours trade vs today's close; thin volume, so treat small moves as noise):`);
+    if (x.indexes && x.indexes.length) lines.push("- Index ETFs: " + x.indexes.map((m) => `${m.label} ${briefPctStr(m.chPct)}`).join(", ") + ".");
+    if (x.movers?.gainers?.length) lines.push("- Biggest gainers: " + x.movers.gainers.map((m) => `${m.sym} ${briefPctStr(m.chPct)}`).join(", ") + ".");
+    if (x.movers?.losers?.length) lines.push("- Biggest decliners: " + x.movers.losers.map((m) => `${m.sym} ${briefPctStr(m.chPct)}`).join(", ") + ".");
+    if (!x.indexes?.length && !x.movers?.gainers?.length && !x.movers?.losers?.length) {
+      lines.push(x.priced ? `- No tracked name has moved ${pre ? "pre-market" : "after hours"} by 2% or more.` : "- No extended-hours quotes were available.");
+    }
+    if (x.earnings && x.earnings.length) {
+      lines.push(pre ? "Earnings since the last close (the main source of overnight single-stock gaps):" : "Earnings after today's close:");
+      for (const e of x.earnings) {
+        const eps = Number.isFinite(e.epsActual)
+          ? `, EPS ${e.epsActual}${Number.isFinite(e.epsEstimate) ? ` vs ${e.epsEstimate} est` : ""}${Number.isFinite(e.surprisePct) ? ` (${briefPctStr(e.surprisePct, 1)} surprise)` : ""}`
+          : "";
+        const move = e.chPct != null
+          ? `, ${briefPctStr(e.chPct)} ${pre ? "pre-market" : "after hours"}`
+          : (pre ? ", no pre-market trade yet" : ", results not out or not yet traded");
+        lines.push(`- ${e.sym}: reported ${e.when}${eps}${move}`);
+      }
+    }
   }
   if (kind === "morning") {
     if (signals.recap && signals.recap.length) {
@@ -32490,8 +32576,33 @@ export function briefKindForHour(hourEt) {
 // always safe. A new same-day macro print needs no special re-mint trigger
 // anymore: the next hourly mint picks it up by construction. Never throws —
 // a failure leaves the tab on its last-good content.
+// One batched quote sweep for the Brief's extended-hours block. Chunked like
+// the hourly heatmap refresh so one bad symbol only drops its own chunk.
+const BRIEF_EXT_QUOTE_CHUNK = 50;
+const BRIEF_EXT_QUOTE_FIELDS = [
+  "symbol", "marketState", "regularMarketPrice", "regularMarketTime",
+  "preMarketPrice", "preMarketChangePercent", "preMarketTime",
+  "postMarketPrice", "postMarketChangePercent", "postMarketTime",
+];
+export async function fetchBriefExtendedQuotes(symbols) {
+  const syms = [...new Set((symbols || []).map((s) => String(s || "").toUpperCase()).filter((s) => /^[A-Z][A-Z0-9.]{0,5}$/.test(s)))];
+  const out = {};
+  for (let i = 0; i < syms.length; i += BRIEF_EXT_QUOTE_CHUNK) {
+    const chunk = syms.slice(i, i + BRIEF_EXT_QUOTE_CHUNK);
+    try {
+      const got = await yahooFinance.quote(chunk, { fields: BRIEF_EXT_QUOTE_FIELDS }, { validateResult: false });
+      for (const q of (Array.isArray(got) ? got : got ? [got] : [])) {
+        if (q?.symbol) out[String(q.symbol).toUpperCase()] = q;
+      }
+    } catch (err) {
+      console.warn(`    ⚠ brief extended-hours quotes: chunk ${chunk[0]}… failed (${String(err?.message || err).split("\n")[0]})`);
+    }
+  }
+  return out;
+}
+
 export async function buildMarketBriefs(opts) {
-  const { briefsPrev, builtAtIso, chains, fearGreed, macro, correlations, unusual, calendar, rfr, headlines, ivTrending, narratives, siteToolPayloads } = opts;
+  const { briefsPrev, builtAtIso, chains, fearGreed, macro, correlations, unusual, calendar, rfr, headlines, ivTrending, narratives, siteToolPayloads, extendedQuotes } = opts;
   // Public function boundary: Owner roster/churn fields are not accepted.
   const now = new Date();
   const todayEt = etDateKey(now);
@@ -32535,7 +32646,21 @@ export async function buildMarketBriefs(opts) {
       siteTools.coreChecked = coreTools.filter(([, present]) => present).map(([label]) => label);
       siteTools.missing.push(...coreTools.filter(([, present]) => !present).map(([label]) => label));
       siteTools.total += coreTools.length;
-      const signals = gatherBriefSignals(kind, { chains, fearGreed, macro, correlations, unusual, calendar, rfr, headlines, ivTrending, siteTools });
+      // Pre-market (morning) / after-hours (closing) read. Only fetched when a
+      // brief is actually being minted; a failed sweep just omits the block.
+      let extended = null;
+      if (extendedSessionForKind(kind)) {
+        try {
+          const quotes = extendedQuotes || await fetchBriefExtendedQuotes(Object.keys(chains || {}));
+          extended = buildBriefExtendedHours({ kind, quotes, chains, todayEt, asOfIso: new Date().toISOString() });
+          if (extended) {
+            console.log(`[briefs] ${extended.session}: ${extended.priced} priced, ${extended.movers.gainers.length + extended.movers.losers.length} movers, ${extended.earnings.length} earnings print(s)`);
+          }
+        } catch (err) {
+          console.warn(`[briefs] extended-hours read skipped: ${String(err?.message || err).split("\n")[0]}`);
+        }
+      }
+      const signals = gatherBriefSignals(kind, { chains, fearGreed, macro, correlations, unusual, calendar, rfr, headlines, ivTrending, siteTools, extended });
       const gen = await generateBrief(ai, kind, todayEt, signals);
       // On failure the catch keeps the prior brief (carry-forward).
       current = {

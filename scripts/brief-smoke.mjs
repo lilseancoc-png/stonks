@@ -40,7 +40,7 @@ const scan = await collectBriefSiteTools({
 
 assert.ok(scan.checked.includes("MA tracker"));
 assert.ok(scan.checked.includes("Pending buyouts"));
-assert.equal(scan.total, 20, "19 public evidence payloads plus Narratives should be audited");
+assert.equal(scan.total, 21, "20 public evidence payloads plus Narratives should be audited");
 assert.match(scan.facts.find((row) => row.source === "MA tracker")?.text || "", /ACME.*50-day average.*cross above/i);
 const buyoutFact = scan.facts.find((row) => row.source === "Pending buyouts")?.text || "";
 assert.match(buyoutFact, /EXM: Reported talks.*3 linked publishers/i);
