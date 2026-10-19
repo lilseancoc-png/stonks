@@ -15443,8 +15443,19 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     var t = stratEntryTiming(bias);
     if (!t) {
+      var grades = picksGradesState.data;
+      // No file yet, a fetch still in flight, or a failed fetch: the cap stays
+      // shut. A loaded file with no row for this ticker is a real "no read".
+      if (!grades || picksGradesState.loading || grades.loadError) {
+        return {
+          state: 'wait', pending: true, label: 'Wait',
+          note: grades && grades.loadError
+            ? 'The entry-timing read failed to load. Contract capacity stays at zero until it can be checked.'
+            : 'Loading the entry-timing read. Contract capacity stays at zero until it arrives.'
+        };
+      }
       return { state:'ready', label:'No entry-timing read',
-        note: picksGradesState.loading ? 'Loading the entry-timing read.' : 'This ticker has no entry-timing read. Use the tape, volatility and payoff checks below.' };
+        note: 'This ticker has no entry-timing read. Use the tape, volatility and payoff checks below.' };
     }
     var sideWord = bias === 'bull' ? 'calls' : 'puts';
     // Headlines read "Go — …" / "Wait — …" / "Avoid — …"; the chip already
@@ -15541,6 +15552,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
       title = 'Avoid — entry timing is against this directional tape';
       copy = timing.note + ' The structures below remain available for payoff modeling, not as an entry signal.';
       avoid = 'Do not size or enter the suggested direction until entry timing improves and the tape is rechecked. ' + avoid;
+    } else if (timing.pending) {
+      title = 'Wait — entry timing is still loading';
+      copy = timing.note + ' The structures below remain available for payoff modeling, not as an entry signal.';
+      avoid = 'Do not size or enter until the entry-timing read arrives and the tape is rechecked. ' + avoid;
     } else if (timing.state === 'wait') {
       title = 'Wait — the entry is not confirmed yet';
       copy = timing.note + ' Model the candidate structure now, but keep contract capacity at zero until the entry confirms.';
@@ -16233,6 +16248,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (!unbounded && avgOi >= 10 && timing.state === 'avoid') {
       tone = 'pass';
       title = 'Avoid — entry timing is against this structure';
+      copy = timing.note;
+    } else if (!unbounded && avgOi >= 10 && timing.pending) {
+      tone = 'wait';
+      title = 'Wait — entry timing is still loading';
       copy = timing.note;
     } else if (!unbounded && avgOi >= 10 && timing.state === 'wait') {
       tone = 'wait';

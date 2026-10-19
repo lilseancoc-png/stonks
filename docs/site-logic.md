@@ -1415,7 +1415,7 @@ Templates:
 The guidance model reads:
 
 - tape direction from RSI, MACD, and SMA20;
-- the engine's entry-timing call (go / wait / avoid) for the side the tape points to, from `grades.json` ("Setup timing"; wait or avoid sets the contract cap to zero);
+- the engine's entry-timing call (go / wait / avoid) for the side the tape points to, from `grades.json` ("Setup timing"; wait or avoid sets the contract cap to zero, and the cap stays at zero while that read is loading or if the load fails);
 - IV percentile: rich at `>=65`, cheap at `<=35`. This is the midrank of the constant-maturity ~30-day ATM IV inside the name’s own daily history. IV rank is the separate min-to-max position of that same reading. The Grade IV panel shows both; this desk uses the percentile.
 - earnings inside ten days.
 
