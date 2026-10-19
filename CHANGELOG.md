@@ -22,6 +22,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-10-19
 
+### Added
+
+- The morning Brief now reads live pre-market prices: index ETF moves, the biggest single-stock gaps, and every name that reported earnings after the last close or before the open, with the EPS result and the pre-market reaction. The closing Brief does the same for after-hours trading and tonight's reporters, and its calendar now lists names reporting after today's close instead of skipping them. One batched Yahoo quote call per Brief, no extra AI calls (#661).
+
 ### Changed
 
 - **AI CapEx guidance keeps itself current.** Each bake reads the latest earnings-call brief for the ten tracked names and replaces a hand-entered full-year CapEx guide when a newer call states one. It flags a guide that predates the company's latest report so the tab never shows an old figure as current. This adds no AI calls, because the call briefs are already minted once per quarter. Guidance is also refreshed now: MSFT about $175B (after the lease reclassification), AMZN about $220B, META $130–145B, and TSMC $60–64B added. `scripts/build.mjs`, `lib/ai-capex.mjs`, `scripts/render/app-js.mjs`.
