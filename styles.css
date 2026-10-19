@@ -16755,6 +16755,19 @@ body.tape-axm-open { overflow: hidden; }
   .acc-tier-row { grid-template-columns: 92px 1fr 40px 40px; gap: 6px; }
   .acc-since, .acc-grade { margin-left: 0; }
 }
+/* Picks list (open + resolved trade cards): one notch larger text than the
+   compact base sizes above, which the grade/crossing logs still use. */
+.acc-row .acc-sym { font-size: 16px; }
+.acc-row .acc-side { font-size: 11px; }
+.acc-row .acc-tier { font-size: 11.5px; }
+.acc-row .acc-score, .acc-row .acc-since { font-size: 15px; }
+.acc-row .acc-since-tag { font-size: 10px; }
+.acc-row .acc-grade { font-size: 13px; }
+.acc-row .acc-outcome { font-size: 11.5px; }
+.acc-row .acc-contract, .acc-row .acc-target { font-size: 12.5px; }
+.acc-row .acc-row-meta { font-size: 13.5px; }
+.acc-row .acc-when { color: var(--text); font-variant-numeric: tabular-nums; }
+.acc-row .acc-strat-summary { font-size: 12px; }
 
 /* ===== Grade-change log (whole-universe upgrades / downgrades) ======== */
 .accuracy-grade-log { margin: 0 0 16px; }
