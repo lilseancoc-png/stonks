@@ -24785,7 +24785,8 @@ export function sectorRotationRecordFromLog(log) {
   const openRaw = compatible && Array.isArray(log?.open) ? log.open.filter(currentModelRow) : [];
   const closedRaw = compatible && Array.isArray(log?.closed) ? log.closed.filter(currentModelRow) : [];
   const closed = closedRaw.map((entry) => ({ ...entry, ...sectorRotationOutcomeRow(entry) }));
-  const scored = closed.filter((entry) => Number.isFinite(entry.rMultiple));
+  // A close forced by a coverage change is shown but never scored.
+  const scored = closed.filter((entry) => entry.outcome !== "left-universe" && Number.isFinite(entry.rMultiple));
   const targets = scored.filter((entry) => entry.outcome === "target").length;
   const stops = scored.filter((entry) => entry.outcome === "stop").length;
   const timeouts = scored.filter((entry) => entry.outcome === "timeout").length;
@@ -25079,6 +25080,7 @@ export function reconcileSectorRotationLog(payload, priorLog, chains, builtAtIso
   }
 
   const spyState = sectorRotationTrackingState(chains, "SPY", builtAtIso, trackingQuotes?.SPY);
+  const tracked = new Set(TICKERS);
   const nextOpen = [];
   const openKeys = new Set();
   const openSymbols = new Set();
@@ -25097,6 +25099,37 @@ export function reconcileSectorRotationLog(payload, priorLog, chains, builtAtIso
       nextOpen.push(entry);
       openKeys.add(entry.signalKey);
       openSymbols.add(entry.symbol);
+      continue;
+    }
+    if (!tracked.has(String(entry.symbol).toUpperCase())) {
+      // The name left coverage. Without daily bars the 20-session time stop can
+      // never fire, so the trade would wait on target or stop forever. Close it
+      // at the freshest mark instead; the record keeps it out of the scored
+      // sample so a universe change never moves the metrics.
+      const exitPx = state.spot > 0 ? state.spot : (pnumN(entry.lastPx) ?? entryPx);
+      const exitDate = state.spot > 0 && state.date ? state.date : (sectorRotationDateKey(entry.lastDate) || today);
+      const spyMark = sectorRotationPriceOnDate(spyState, exitDate);
+      const done = {
+        ...entry,
+        status: "closed",
+        closedIso: builtAtIso,
+        closedDate: exitDate,
+        detectedAtIso: builtAtIso,
+        exitPx: r2(exitPx),
+        exitReason: "left-universe",
+        exitSource: state.spot > 0 ? "fresh-build-mark" : "last-mark",
+        outcome: "left-universe",
+        ambiguous: false,
+        lastPx: r2(exitPx),
+        lastIso: builtAtIso,
+        lastDate: exitDate,
+        spyExitPx: spyMark != null ? r2(spyMark) : null,
+        spyLastPx: spyMark != null ? r2(spyMark) : (entry.spyLastPx ?? null),
+      };
+      Object.assign(done, sectorRotationOutcomeRow(done));
+      closed.push(done);
+      closedKeys.add(done.signalKey);
+      pendingByKey.delete(done.signalKey);
       continue;
     }
     if (!state.rows.length && state.spot == null) {

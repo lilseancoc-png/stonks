@@ -26,7 +26,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import YahooFinance from "yahoo-finance2";
 import { GoogleGenAI } from "@google/genai";
-import { recordAiUsage, loadAiUsageState, writeAiUsageState, computeSectorRotation, aiModelForAttempt } from "./build.mjs";
+import { TICKERS, recordAiUsage, loadAiUsageState, writeAiUsageState, computeSectorRotation, aiModelForAttempt } from "./build.mjs";
 import { cumFracExpected, etMinutesSinceOpen } from "../lib/volume-flags.mjs";
 import { updatePremarketMovers } from "../lib/premarket-movers.mjs";
 
@@ -331,7 +331,11 @@ async function main() {
   } catch (_) {
     priorMarketAnalysis = null;
   }
-  const priorTickers = Array.isArray(prior?.tickers) ? prior.tickers : [];
+  // Rows come from the last full bake. A name dropped from coverage since then
+  // leaves here, so the map never shows it while waiting for the next bake.
+  const tracked = new Set(TICKERS);
+  const priorTickers = (Array.isArray(prior?.tickers) ? prior.tickers : [])
+    .filter((row) => tracked.has(row?.t));
   if (!priorTickers.length) {
     console.error(`[heatmap] prior ${HEATMAP_FILE} has no tickers — nothing to refresh.`);
     process.exit(1);

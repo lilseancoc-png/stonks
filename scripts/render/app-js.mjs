@@ -24795,6 +24795,7 @@ ${renderWorkspaceBindings()}
     if (isOpen) return { label:'OPEN', cls:'open' };
     if (e && e.outcome === 'target') return { label:'RIGHT - TARGET', cls:'win' };
     if (e && e.outcome === 'stop') return { label:'WRONG - STOP', cls:'loss' };
+    if (e && e.outcome === 'left-universe') return { label:'CLOSED - LEFT COVERAGE', cls:'timeout' };
     return { label:'TIMEOUT', cls:'timeout' };
   }
   function rotRecordRow(e, isOpen){

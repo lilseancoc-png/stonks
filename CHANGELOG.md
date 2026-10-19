@@ -30,6 +30,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - **TSMC on AI CapEx is no longer stuck on 2024.** SEC's XBRL feed has no TSMC data after FY2024, so when a filer's SEC series is more than about 14 months old, the tab rolls it forward from the quarterly cash-flow rows the bake already pulls from Yahoo. The rows are converted from NT$ at each quarter's average exchange rate, and a unit check rejects anything more than 3x off the last SEC year. `scripts/build.mjs`, `lib/ai-capex.mjs`.
 - **The AI CapEx headline no longer calls a mix of years "FY2026".** The total adds each company's own latest fiscal year, so it is now labeled with the range of years and says which companies are in each. The TTM run-rate shows the dates it runs through. `scripts/build.mjs`, `scripts/render/app-js.mjs`.
+- A Sector Rotation trade on a name that left coverage now closes as "left coverage" at its latest price. Before, it had no daily bars, so its 20-session time limit never fired and it could stay open for months. These closes show in the ledger but stay out of the scored record.
+- The hourly Heatmap refresh drops names that are no longer covered, so a removed name no longer shows between a coverage change and the next full build.
 
 ## 2026-10-18
 

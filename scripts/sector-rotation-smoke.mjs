@@ -474,4 +474,46 @@ assert.equal(capped.some((row) => row.symbol === "A3"), false);
   assert.deepEqual(record.closedRecent, []);
 }
 
+{
+  // A trade on a name that left coverage has no daily bars, so the 20-session
+  // time stop could never fire. It closes as left-universe at the live mark and
+  // stays out of the scored record.
+  const { log: empty } = reconcileSectorRotationLog({ candidates: [], dataAsOfDate: "2026-08-15" }, null, {}, NOW);
+  const versions = { modelVersion: empty.modelVersion, recordVersion: empty.recordVersion };
+  const spyBars = { spot: 101, quoteAsOf: "2026-08-15", _bars: [{ t: "2026-08-15", o: 100, c: 101, h: 102, l: 99, v: 1_000_000 }] };
+  const prior = {
+    ...empty,
+    pending: [],
+    closed: [],
+    open: [{
+      ...versions,
+      signalKey: "3|CAT|industrials|2026-07-01",
+      symbol: "CAT",
+      status: "open",
+      entryPx: 100,
+      invalidation: 90,
+      target1: 120,
+      openedDate: "2026-07-01",
+      openedIso: "2026-07-01T15:00:00.000Z",
+      lastDate: "2026-07-20",
+      lastPx: 104,
+      sessionsHeld: 13,
+      spyEntryPx: 95,
+    }],
+  };
+  const { log, record } = reconcileSectorRotationLog({ candidates: [], dataAsOfDate: "2026-08-15" }, prior, { SPY: spyBars }, NOW, {
+    CAT: { price: 108, asOfIso: NOW, marketState: "REGULAR" },
+    SPY: { price: 101, asOfIso: NOW, marketState: "REGULAR" },
+  });
+  assert.equal(log.open.length, 0, "a removed name must not stay open waiting for target or stop");
+  const done = log.closed.find((row) => row.symbol === "CAT");
+  assert.equal(done?.outcome, "left-universe");
+  assert.equal(done?.exitPx, 108, "the close uses the live quote when there is one");
+  assert.equal(record.summary.scoredCount, 0, "a coverage close must stay out of the scored sample");
+  assert.equal(record.closedRecent[0]?.outcome, "left-universe", "the close still shows in the ledger");
+
+  const { log: noQuote } = reconcileSectorRotationLog({ candidates: [], dataAsOfDate: "2026-08-15" }, clone(prior), { SPY: spyBars }, NOW, {});
+  assert.equal(noQuote.closed.find((row) => row.symbol === "CAT")?.exitPx, 104, "without a quote the close uses the last mark");
+}
+
 console.log("sector rotation recovery-profile smoke test passed");
