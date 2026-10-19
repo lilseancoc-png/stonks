@@ -20,6 +20,17 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-10-19
+
+### Changed
+
+- **AI CapEx guidance keeps itself current.** Each bake reads the latest earnings-call brief for the ten tracked names and replaces a hand-entered full-year CapEx guide when a newer call states one. It flags a guide that predates the company's latest report so the tab never shows an old figure as current. This adds no AI calls, because the call briefs are already minted once per quarter. Guidance is also refreshed now: MSFT about $175B (after the lease reclassification), AMZN about $220B, META $130–145B, and TSMC $60–64B added. `scripts/build.mjs`, `lib/ai-capex.mjs`, `scripts/render/app-js.mjs`.
+
+### Fixed
+
+- **TSMC on AI CapEx is no longer stuck on 2024.** SEC's XBRL feed has no TSMC data after FY2024, so when a filer's SEC series is more than about 14 months old, the tab rolls it forward from the quarterly cash-flow rows the bake already pulls from Yahoo. The rows are converted from NT$ at each quarter's average exchange rate, and a unit check rejects anything more than 3x off the last SEC year. `scripts/build.mjs`, `lib/ai-capex.mjs`.
+- **The AI CapEx headline no longer calls a mix of years "FY2026".** The total adds each company's own latest fiscal year, so it is now labeled with the range of years and says which companies are in each. The TTM run-rate shows the dates it runs through. `scripts/build.mjs`, `scripts/render/app-js.mjs`.
+
 ## 2026-10-18
 
 ### Changed

@@ -4179,6 +4179,10 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .cx-guide small { color: var(--muted-strong); font: 500 10.5px/1.35 var(--font-sans); }
 .cx-guide p { grid-column: 1 / -1; margin: 1px 0 0; color: var(--muted); font: 500 10px/1.35 var(--font-sans); }
 .cx-guide a, .cx-guide-link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.cx-guide p.cx-guide-review { color: var(--warn); }
+.cx-guide-asof { color: var(--muted); }
+.cx-guide-flag { color: var(--warn); background: var(--warn-soft); border-radius: 4px; padding: 0 4px; white-space: nowrap; }
+.cx-row-src { font: 400 10.5px/1.3 var(--font-sans); color: var(--muted); margin-top: 2px; font-style: italic; }
 .cx-desk-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .cx-desk-stat { min-width: 0; display: flex; flex-direction: column; gap: 3px; padding: 10px; border: 1px solid var(--border); border-radius: var(--r-2); background: var(--surface-2); }
 .cx-desk-stat > span { color: var(--muted); font: 700 9px/1 var(--font-mono); letter-spacing: .07em; text-transform: uppercase; }

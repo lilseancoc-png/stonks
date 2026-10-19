@@ -19755,22 +19755,25 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var guideValue = guide ? cxGuidanceDollars({ low: guide.lowSum, high: guide.highSum, qualifier: guide.hasFloor ? 'floor' : 'range' }) + (guide.hasFloor ? '+' : '') : '&mdash;';
       var dir = t.yoyPct == null ? '' : (t.yoyPct >= 0 ? 'cx-up' : 'cx-down');
       var deltaTxt = (t.deltaAbs != null) ? (' (' + (t.deltaAbs >= 0 ? '+' : '−') + cxDollars(Math.abs(t.deltaAbs)) + ')') : '';
-      var fyLbl = t.fyLatestLabel ? escapeHtml(t.fyLatestLabel) : 'latest FY';
+      var fyLbl = t.fyMixed && t.fyRangeLabel ? escapeHtml(t.fyRangeLabel) : (t.fyLatestLabel ? escapeHtml(t.fyLatestLabel) : 'latest FY');
+      var fyMixNote = t.fyMixed && t.fyByLabel ? Object.keys(t.fyByLabel).sort().reverse().map(function(l){ return escapeHtml(l) + ': ' + escapeHtml((t.fyByLabel[l] || []).join(', ')); }).join(' · ') : '';
       var runRatePct = (t.ttmSum != null && t.fyLatestSum > 0) ? (t.ttmSum / t.fyLatestSum - 1) * 100 : null;
       var runRateDir = runRatePct == null ? '' : (runRatePct >= 0 ? 'cx-up' : 'cx-down');
       head = '<div class="cx-hero">' +
         '<div class="cx-hero-main">' +
-          '<div class="cx-hero-label">Tracked AI CapEx · ' + fyLbl + ' (latest reported)</div>' +
+          '<div class="cx-hero-label">Tracked AI CapEx · ' + (t.fyMixed ? 'each company\'s latest fiscal year (' + fyLbl + ')' : fyLbl + ' (latest reported)') + '</div>' +
           '<div class="cx-hero-val">' + cxDollars(t.fyLatestSum) + '</div>' +
           (t.fyPriorSum != null ?
             '<div class="cx-hero-sub ' + dir + '">' +
               (t.yoyPct != null ? (t.yoyPct >= 0 ? '▲ up ' : '▼ down ') + Math.abs(t.yoyPct).toFixed(1) + '%' : '') +
               deltaTxt + ' vs the prior year (' + cxDollars(t.fyPriorSum) + ')' +
             '</div>' : '') +
+          (fyMixNote ? '<div class="cx-hero-note">Fiscal years differ by company — ' + fyMixNote + '. The TTM run-rate is the like-for-like current read.</div>' : '') +
         '</div>' +
         (t.ttmSum != null ?
           '<div class="cx-hero-ttm"><div class="cx-hero-label">Current TTM run-rate</div><div class="cx-hero-ttm-val">' + cxDollars(t.ttmSum) + '</div>' +
-          (runRatePct != null ? '<div class="cx-hero-sub ' + runRateDir + '">' + (runRatePct >= 0 ? '▲ up ' : '▼ down ') + Math.abs(runRatePct).toFixed(1) + '% vs ' + fyLbl + '</div>' : '') +
+          (runRatePct != null ? '<div class="cx-hero-sub ' + runRateDir + '">' + (runRatePct >= 0 ? '▲ up ' : '▼ down ') + Math.abs(runRatePct).toFixed(1) + '% vs ' + (t.fyMixed ? 'latest fiscal years' : fyLbl) + '</div>' : '') +
+          (t.ttmAsOfRange ? '<div class="cx-hero-note">through ' + escapeHtml(t.ttmAsOfRange[0] === t.ttmAsOfRange[1] ? t.ttmAsOfRange[1] : t.ttmAsOfRange[0] + ' to ' + t.ttmAsOfRange[1]) + '</div>' : '') +
           (t.ttmCount < t.count ? '<div class="cx-hero-note">' + t.ttmCount + ' of ' + t.count + ' names</div>' : '') + '</div>' : '') +
       '</div>';
       // Revenue check — the same group's combined revenue on the same fiscal
@@ -19864,17 +19867,20 @@ function scenarioEventPhase(ev, now = Date.now()) {
         : (cycleTone === 'cool'
           ? '<div class="cx-actions"><button type="button" class="cx-action cx-action-primary" data-cx-tab="heatmap">Open Heatmap</button><button type="button" class="cx-action" data-cx-tab="calls">Open Earnings calls</button><button type="button" class="cx-action" data-cx-grade="NVDA">Grade NVDA</button></div>'
           : '<div class="cx-actions"><button type="button" class="cx-action cx-action-primary" data-cx-grade="NVDA">Grade NVDA</button><button type="button" class="cx-action" data-cx-tab="heatmap">Open Heatmap</button><button type="button" class="cx-action" data-cx-tab="calls">Open Earnings calls</button></div>');
-      var guideStrip = guide ? '<div class="cx-guide"><div class="cx-guide-total"><span>Management ' + escapeHtml(guide.period || '2026') + ' outlook</span><b>' + guideValue + '</b><small>' + guide.count + ' companies with a comparable full-year guide; unreported guides are excluded</small></div>' +
+      var guideReview = guide && Array.isArray(guide.needsReview) ? guide.needsReview : [];
+      var guideReviewTxt = guideReview.length ? '<p class="cx-guide-review">Not yet updated after the latest report: ' + guideReview.map(function(r){ return escapeHtml(r.ticker) + (r.reportDate ? ' (reported ' + escapeHtml(r.reportDate) + ')' : r.reason === 'past-period' ? ' (period ended)' : ''); }).join(', ') + '. Those figures will refresh when the earnings-call brief lands.</p>' : '';
+      var guideOther = guide && Array.isArray(guide.otherPeriods) && guide.otherPeriods.length ? ' &middot; ' + guide.otherPeriods.map(function(o){ return escapeHtml(o.ticker + ' ' + o.period); }).join(', ') + ' listed separately' : '';
+      var guideStrip = guide ? '<div class="cx-guide"><div class="cx-guide-total"><span>Management ' + escapeHtml(guide.period || '2026') + ' outlook</span><b>' + guideValue + '</b><small>' + guide.count + ' companies with a comparable full-year guide; unreported guides are excluded' + guideOther + '</small></div>' +
         '<div class="cx-guide-latest"><span>Latest earnings revision</span>' +
-          (latestGuide ? '<b>' + escapeHtml(latestGuide.ticker) + ' ' + cxGuidanceDollars(latestGuide) + '</b><small>' + escapeHtml(latestGuide.event || latestGuide.asOf || '') + (latestGuide.change ? ' &middot; ' + escapeHtml(latestGuide.change) : '') + ' &middot; <a href="' + escapeHtml(latestGuide.sourceUrl || '#') + '" target="_blank" rel="noopener">primary source</a></small>' : '<b>No current guide</b>') +
-        '</div><p>' + escapeHtml(guide.comparabilityNote || '') + '</p></div>' : '';
+          (latestGuide ? '<b>' + escapeHtml(latestGuide.ticker) + ' ' + cxGuidanceDollars(latestGuide) + '</b><small>' + escapeHtml(latestGuide.event || latestGuide.asOf || '') + (latestGuide.asOf ? ' (' + escapeHtml(latestGuide.asOf) + ')' : '') + (latestGuide.change ? ' &middot; ' + escapeHtml(latestGuide.change) : '') + ' &middot; <a href="' + escapeHtml(latestGuide.sourceUrl || '#') + '" target="_blank" rel="noopener">' + (latestGuide.auto ? 'call transcript' : 'primary source') + '</a></small>' : '<b>No current guide</b>') +
+        '</div><p>' + escapeHtml(guide.comparabilityNote || '') + ' Figures update automatically from each company\'s latest earnings-call brief.</p>' + guideReviewTxt + '</div>' : '';
       desk = '<section class="cx-desk cx-desk-' + cycleTone + '"><div class="cx-desk-head"><div><span class="cx-desk-kicker">AI buildout desk</span><h3>' + escapeHtml(cycleHeadline) + '</h3>' +
         '<p>' + (growthGap == null ? 'Track whether infrastructure spending is accelerating, concentrating, or beginning to cool.' : 'CapEx growth is ' + Math.abs(growthGap).toFixed(1) + ' points ' + (growthGap >= 0 ? 'faster than' : 'slower than') + ' combined revenue growth.') + '</p></div>' +
         '<span class="cx-desk-badge">' + (cycleTone === 'hot' ? 'Accelerating' : cycleTone === 'cool' ? 'Cooling' : cycleTone === 'reference' ? 'Refresh required' : 'Elevated') + '</span></div>' +
         '<div class="cx-desk-source"><span>' + escapeHtml(freshness.label) + '</span><p>' + escapeHtml(freshness.detail) + '</p></div>' +
         guideStrip +
         '<div class="cx-desk-grid">' +
-          '<div class="cx-desk-stat"><span>Management 2026 outlook</span><b>' + guideValue + '</b><small>' + (guide ? guide.count + ' companies reporting' : 'guidance unavailable') + '</small></div>' +
+          '<div class="cx-desk-stat"><span>Management ' + escapeHtml(guide && guide.period ? guide.period.replace(/^CY/, '') : '') + ' outlook</span><b>' + guideValue + '</b><small>' + (guide ? guide.count + ' companies reporting' + (guideReview.length ? ' · ' + guideReview.length + ' awaiting update' : '') : 'guidance unavailable') + '</small></div>' +
           '<div class="cx-desk-stat"><span>Current TTM run-rate</span><b>' + cxDollars(t.ttmSum) + '</b><small>' + (runRatePct == null ? 'run-rate unavailable' : (runRatePct >= 0 ? '+' : '') + runRatePct.toFixed(1) + '% vs latest FY') + '</small></div>' +
           '<div class="cx-desk-stat"><span>Revenue burden</span><b>' + (share == null ? '—' : share.toFixed(1) + '%') + '</b><small>CapEx as share of combined revenue</small></div>' +
           '<div class="cx-desk-stat"><span>Top-two concentration</span><b>' + (top2Share == null ? '—' : top2Share.toFixed(0) + '%') + '</b><small>' + escapeHtml(top2.map(function(co){ return co.ticker; }).join(' + ') || 'spend leaders unavailable') + '</small></div>' +
@@ -19894,7 +19900,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var v = co.fyLatest ? co.fyLatest.val : 0;
       var w = maxV > 0 ? (v / maxV * 100) : 0;
       var ttmTxt = co.ttm ? cxDollars(co.ttm.val) + (co.ttm.basis === 'ttm' ? ' TTM' : ' FY') : '—';
-      var guideTxt = co.guidance ? ' &middot; ' + escapeHtml(co.guidance.period || '2026') + ' guide <a class="cx-guide-link" href="' + escapeHtml(co.guidance.sourceUrl || '#') + '" target="_blank" rel="noopener">' + cxGuidanceDollars(co.guidance) + '</a>' : '';
+      var guideTxt = co.guidance ? ' &middot; ' + escapeHtml(co.guidance.period || '2026') + ' guide <a class="cx-guide-link" href="' + escapeHtml(co.guidance.sourceUrl || '#') + '" target="_blank" rel="noopener" title="' + escapeHtml((co.guidance.event || '') + (co.guidance.asOf ? ' · ' + co.guidance.asOf : '') + (co.guidance.basis ? ' · ' + co.guidance.basis : '')) + '">' + cxGuidanceDollars(co.guidance) + '</a>' +
+        (co.guidance.asOf ? ' <span class="cx-guide-asof">as of ' + escapeHtml(co.guidance.asOf) + '</span>' : '') +
+        (co.guidance.review && co.guidance.review.reportDate ? ' <span class="cx-guide-flag" title="The company reported after this guide; it refreshes when the call brief lands">reported ' + escapeHtml(co.guidance.review.reportDate) + ', update pending</span>' : '') : '';
+      var srcTxt = co.sourceNote ? '<div class="cx-row-src">' + escapeHtml(co.sourceNote) + '</div>' : '';
       rows += '<div class="cx-row">' +
         '<div class="cx-row-head"><a class="cx-tkr" data-sym="' + escapeHtml(co.ticker) + '" href="' + symGradeHref(co.ticker) + '">' + escapeHtml(co.ticker) + '</a> <span class="cx-name">' + escapeHtml(co.name || '') + '</span></div>' +
         '<div class="cx-bar-wrap" title="' + escapeHtml(co.ticker + ' capex ' + cxDollars(v) + (co.yoyPct != null ? ' · ' + (co.yoyPct >= 0 ? '+' : '') + co.yoyPct.toFixed(1) + '% YoY' : '')) + '"><div class="cx-bar-track"><div class="cx-bar" style="width:' + w.toFixed(1) + '%"></div></div>' +
@@ -19905,7 +19914,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
           (co.capexToRevenuePct != null ? ' · ' + co.capexToRevenuePct.toFixed(1) + '% of revenue' : '') +
           (co.rev && co.rev.yoyPct != null ? ' · revenue ' + (co.rev.yoyPct >= 0 ? '+' : '') + co.rev.yoyPct.toFixed(1) + '% YoY' + (co.rev.fyLatest ? ' (' + cxDollars(co.rev.fyLatest.val) + ')' : '') : '') +
           guideTxt +
-        '</div>' +
+        '</div>' + srcTxt +
       '</div>';
     }
     var missing = (Array.isArray(d.missing) && d.missing.length) ? '<p class="cx-missing">No SEC CapEx data for: ' + escapeHtml(d.missing.join(', ')) + '.</p>' : '';

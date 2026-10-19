@@ -87,6 +87,12 @@ import {
   buildCentralBankGoldPayload,
   fetchCentralBankGoldSources,
 } from "../lib/central-bank-gold.mjs";
+import {
+  buildGuidanceTotals,
+  quarterlyToUsd,
+  resolveAiCapexGuidance,
+  secSeriesIsStale,
+} from "../lib/ai-capex.mjs";
 
 // Library prints a survey notice on first use and validates response
 // schemas — silence both since Yahoo occasionally omits optional fields
@@ -10442,14 +10448,21 @@ const AI_CAPEX_CONCEPTS_BY_TICKER = {
 // other guides are company-defined CapEx. Do not blend these values into the
 // audited FY/TTM history or the CapEx-to-revenue ratios.
 //
-// Review after each reporting company's earnings. `high: null` means the
-// company gave a floor rather than a bounded range.
+// This is the hand-checked BASELINE, not the only source: every bake also
+// reads each name's latest earnings-call brief (data/transcript-<SYM>.json)
+// and a full-year CapEx row from a NEWER call replaces the entry below
+// automatically (resolveAiCapexGuidance in lib/ai-capex.mjs). An entry that
+// predates the company's latest earnings report with no newer figure found is
+// flagged `review` on the tab. Editing here is only needed to correct a
+// figure the call brief got wrong. `high: null` means the company gave a
+// floor rather than a bounded range.
 export const AI_CAPEX_GUIDANCE = {
   MSFT: {
-    period: "CY2026", low: 190e9, high: 190e9, qualifier: "roughly",
-    asOf: "2026-04-29", event: "FY26 Q3 earnings",
+    period: "CY2026", low: 175e9, high: 175e9, qualifier: "about",
+    asOf: "2026-07-29", event: "FY26 Q4 earnings",
+    change: "from ~$190B; leases reclassified to operating",
     basis: "includes finance leases",
-    sourceUrl: "https://www.microsoft.com/en-us/investor/events/fy-2026/earnings-fy-2026-q3",
+    sourceUrl: "https://www.microsoft.com/en-us/investor/events/fy-2026/earnings-fy-2026-q4",
   },
   GOOGL: {
     period: "CY2026", low: 195e9, high: 205e9, qualifier: "range",
@@ -10459,16 +10472,25 @@ export const AI_CAPEX_GUIDANCE = {
     sourceUrl: "https://abc.xyz/investor/events/event-details/2026/2026-Q2-Earnings-Call-2026-GgTAq7Is0z/default.aspx",
   },
   AMZN: {
-    period: "CY2026", low: 200e9, high: 200e9, qualifier: "about",
-    asOf: "2026-02-05", event: "Q4 2025 earnings",
-    basis: "company-defined CapEx",
-    sourceUrl: "https://ir.aboutamazon.com/news-release/news-release-details/2026/Amazon-com-Announces-Fourth-Quarter-Results/default.aspx",
+    period: "CY2026", low: 220e9, high: 220e9, qualifier: "about",
+    asOf: "2026-07-30", event: "Q2 2026 earnings",
+    change: "raised from ~$200B",
+    basis: "cash CapEx",
+    sourceUrl: "https://www.fool.com/earnings/call-transcripts/2026/08/07/amazon-amzn-q2-2026-earnings-call-transcript/",
   },
   META: {
-    period: "CY2026", low: 125e9, high: 145e9, qualifier: "range",
-    asOf: "2026-04-29", event: "Q1 2026 earnings",
+    period: "CY2026", low: 130e9, high: 145e9, qualifier: "range",
+    asOf: "2026-07-29", event: "Q2 2026 earnings",
+    change: "narrowed from $125–145B",
     basis: "includes finance-lease principal payments",
-    sourceUrl: "https://investor.atmeta.com/investor-news/press-release-details/2026/Meta-Reports-First-Quarter-2026-Results/default.aspx",
+    sourceUrl: "https://investor.atmeta.com/investor-news/press-release-details/2026/Meta-Reports-Second-Quarter-2026-Results/default.aspx",
+  },
+  TSM: {
+    period: "CY2026", low: 60e9, high: 64e9, qualifier: "range",
+    asOf: "2026-10-15", event: "Q3 2026 earnings",
+    change: "reiterated",
+    basis: "capital budget, US$",
+    sourceUrl: "https://investor.tsmc.com/english/quarterly-results/2026/q3",
   },
   TSLA: {
     period: "CY2026", low: 25e9, high: null, qualifier: "more than",
@@ -10477,18 +10499,14 @@ export const AI_CAPEX_GUIDANCE = {
     sourceUrl: "https://www.sec.gov/Archives/edgar/data/1318605/000162828026049270/tsla-20260630.htm",
   },
 };
-export function buildAiCapexGuidanceTotals() {
-  const companies = Object.entries(AI_CAPEX_GUIDANCE).map(([ticker, g]) => ({ ticker, ...g }));
-  return {
-    period: "CY2026",
-    lowSum: companies.reduce((sum, g) => sum + g.low, 0),
-    highSum: companies.reduce((sum, g) => sum + (g.high == null ? g.low : g.high), 0),
-    hasFloor: companies.some((g) => g.high == null),
-    count: companies.length,
-    latestAsOf: companies.map((g) => g.asOf).sort().pop() || null,
-    companies,
-    comparabilityNote: "Company definitions differ; guidance is directional and is not added to SEC-reported cash CapEx.",
-  };
+// Names whose fiscal year is the calendar year, so a call's "FY2026" or
+// "2026" CapEx guide is a CY2026 guide. Everyone else must say "calendar".
+export const AI_CAPEX_CALENDAR_FISCAL = new Set(["GOOGL", "AMZN", "META", "TSM", "TSLA"]);
+export function buildAiCapexGuidanceTotals(resolved = null) {
+  const byTicker = resolved || Object.fromEntries(
+    Object.entries(AI_CAPEX_GUIDANCE).map(([ticker, g]) => [ticker, { ticker, ...g }]),
+  );
+  return buildGuidanceTotals(byTicker);
 }
 // Total-revenue concepts, probed the same most-recent-FY-wins way as capex so
 // the CapEx spend can be compared against the group's combined revenue (total
@@ -10619,10 +10637,31 @@ export function capexCohortYoy(companies) {
 // Build data/ai-capex.json. `chains` supplies each name's display name + TTM
 // revenue (for the CapEx-intensity read); `prior` is the last-good payload so a
 // transient SEC outage carries forward instead of blanking the tab.
-export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = null) {
+//
+// `briefs` (ticker → earnings-call brief), `lastPrints` (ticker → latest
+// reported print date) and `fetchFxBars` (currency → Yahoo "<CUR>=X" daily
+// bars) keep guidance and stale-SEC names current; all three are optional and
+// free (no AI, no paid source).
+export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = null, { briefs = {}, lastPrints = {}, fetchFxBars = null } = {}) {
   const companies = [];
   const missing = [];
-  const guidanceTotals = buildAiCapexGuidanceTotals();
+  const fxCache = new Map();
+  const fxBarsFor = async (cur) => {
+    if (!fetchFxBars) return null;
+    if (!fxCache.has(cur)) fxCache.set(cur, await fetchFxBars(cur).catch(() => null));
+    return fxCache.get(cur);
+  };
+  const priorGuidance = Object.fromEntries((prior?.companies || []).map((c) => [c.ticker, c.guidance || null]));
+  const resolveGuidance = (references) => resolveAiCapexGuidance({
+    tickers: AI_CAPEX_TICKERS,
+    manual: AI_CAPEX_GUIDANCE,
+    briefs,
+    prior: priorGuidance,
+    lastPrints,
+    references,
+    calendarFiscal: AI_CAPEX_CALENDAR_FISCAL,
+    todayIso: String(builtAtIso || new Date().toISOString()).slice(0, 10),
+  });
   for (const ticker of AI_CAPEX_TICKERS) {
     const cik = cikMap ? cikMap.get(ticker) : null;
     if (!cik) { missing.push(ticker); continue; }
@@ -10641,6 +10680,34 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
       const end = r.annual[r.annual.length - 1].end;
       if (end > reducedEnd) { reduced = r; reducedEnd = end; }
     }
+    // SEC's XBRL feed sometimes stops carrying a filer (TSMC's 20-F stops at
+    // FY2024). When it is more than ~14 months stale, roll it forward from the
+    // quarterly cash-flow rows the bake already fetched from Yahoo.
+    const fund = chains?.[ticker]?.fundamentals || {};
+    const secEndIso = reduced.annual.length ? reduced.annual[reduced.annual.length - 1].endIso : null;
+    let source = "sec";
+    let fallback = null;
+    if (secSeriesIsStale(secEndIso, builtAtIso) && Array.isArray(fund.capexHistory) && fund.capexHistory.length >= 4) {
+      const currency = String(fund.financialCurrency || "USD").toUpperCase();
+      const fxBars = currency === "USD" ? null : await fxBarsFor(currency);
+      const opts = { currency, fxBars, fiscalYearEndMonth: fund.fiscalYearEndMonth || 12 };
+      const capexQ = quarterlyToUsd(fund.capexHistory, opts);
+      // Unit guard: a currency mix-up would be off by ~30x, so the converted
+      // run-rate must sit within 3x of the last SEC year.
+      const secLastVal = reduced.annual.length ? reduced.annual[reduced.annual.length - 1].val : null;
+      const plausible = capexQ && (!(secLastVal > 0) || (capexQ.ttm.val / secLastVal > 1 / 3 && capexQ.ttm.val / secLastVal < 3));
+      if (capexQ && !plausible) console.log(`  ⚠ AI CapEx ${ticker}: Yahoo roll-forward rejected (TTM $${(capexQ.ttm.val / 1e9).toFixed(1)}B vs SEC $${(secLastVal / 1e9).toFixed(1)}B)`);
+      if (plausible && (!secEndIso || capexQ.ttm.asOf > secEndIso)) {
+        fallback = { capex: capexQ, revenue: quarterlyToUsd(fund.revenueHistory, opts) };
+        const secYears = new Set(reduced.annual.map((a) => capexFyLabel(a.endIso)));
+        const added = capexQ.annual.filter((a) => (!secEndIso || a.endIso > secEndIso) && !secYears.has(capexFyLabel(a.endIso)));
+        reduced = {
+          annual: [...reduced.annual, ...added.map((a) => ({ endIso: a.endIso, end: Date.parse(a.endIso), val: a.val }))],
+          ttm: { ...capexQ.ttm, source: "yahoo" },
+        };
+        source = added.length ? "sec+yahoo" : "sec+yahoo-ttm";
+      }
+    }
     if (!reduced.annual.length) { missing.push(ticker); continue; }
     // Same most-recent-FY-wins probe for total revenue — puts the revenue
     // comparison on the exact same fiscal calendar as the capex numbers.
@@ -10654,6 +10721,16 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
       if (!r.annual.length) continue;
       const end = r.annual[r.annual.length - 1].end;
       if (end > revEnd) { revReduced = r; revEnd = end; }
+    }
+    if (fallback?.revenue && (!revReduced || fallback.revenue.ttm.asOf > (revReduced.annual[revReduced.annual.length - 1]?.endIso || ""))) {
+      const revBase = revReduced || { annual: [] };
+      const revEndIso = revBase.annual.length ? revBase.annual[revBase.annual.length - 1].endIso : null;
+      const revYears = new Set(revBase.annual.map((a) => capexFyLabel(a.endIso)));
+      const added = fallback.revenue.annual.filter((a) => (!revEndIso || a.endIso > revEndIso) && !revYears.has(capexFyLabel(a.endIso)));
+      revReduced = {
+        annual: [...revBase.annual, ...added.map((a) => ({ endIso: a.endIso, end: Date.parse(a.endIso), val: a.val }))],
+        ttm: { ...fallback.revenue.ttm, source: "yahoo" },
+      };
     }
     let rev = null;
     if (revReduced) {
@@ -10685,7 +10762,9 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
       rev,
       revenue: revenue ?? null,
       capexToRevenuePct: revenue > 0 && reduced.ttm ? r1((reduced.ttm.val / revenue) * 100) : null,
-      guidance: AI_CAPEX_GUIDANCE[ticker] || null,
+      guidance: null,
+      source,
+      ...(fallback ? { sourceNote: `SEC XBRL ends ${secEndIso || "n/a"}; later quarters from Yahoo cash-flow statements${fallback.capex.currency !== "USD" ? `, converted from ${fallback.capex.currency} at each quarter's average rate` : ""}` } : {}),
       history: a.slice(-5).map((x) => ({ label: capexFyLabel(x.endIso), end: x.endIso, val: x.val })),
     });
     console.log(`  · AI CapEx ${ticker}: ${capexFyLabel(fyLatest.endIso)} $${(fyLatest.val / 1e9).toFixed(1)}B${yoyPct != null ? ` (${yoyPct >= 0 ? "+" : ""}${yoyPct}% YoY)` : ""}${reduced.ttm ? ` · TTM $${(reduced.ttm.val / 1e9).toFixed(1)}B` : ""}`);
@@ -10693,26 +10772,38 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
   if (!companies.length) {
     // Total SEC failure — carry forward last-good rather than blank the tab.
     if (prior && Array.isArray(prior.companies) && prior.companies.length) {
+      const guidance = resolveGuidance(Object.fromEntries(prior.companies.map((c) => [c.ticker, c.ttm?.val || null])));
       return {
         ...prior,
         builtAtIso,
         stale: true,
-        companies: prior.companies.map((c) => ({ ...c, guidance: AI_CAPEX_GUIDANCE[c.ticker] || null })),
-        totals: { ...(prior.totals || {}), guidance: guidanceTotals },
+        companies: prior.companies.map((c) => ({ ...c, guidance: guidance[c.ticker] || null })),
+        totals: { ...(prior.totals || {}), guidance: buildAiCapexGuidanceTotals(guidance) },
       };
     }
     return { builtAtIso, companies: [], totals: null, missing, stale: false };
   }
-  // Aggregate on the common latest-FY label (the year most names report). Pick the
-  // modal latest FY year so a single laggard doesn't drag the group total into a
-  // mismatched year; each company contributes its own latest/prior around it.
-  let fyLatestSum = 0, ttmSum = 0, ttmCount = 0, latestLabel = null, priorLabel = null;
+  const guidance = resolveGuidance(Object.fromEntries(companies.map((c) => [c.ticker, c.ttm?.val || null])));
+  for (const c of companies) c.guidance = guidance[c.ticker] || null;
+  const guidanceTotals = buildAiCapexGuidanceTotals(guidance);
+  // Each company contributes its OWN latest fiscal year, and fiscal calendars
+  // differ (MSFT ends June, ORCL May, MU September), so the latest-FY sum is
+  // usually a mix of years. Label it with the modal year and say when it is
+  // mixed; the TTM run-rate is the like-for-like current read.
+  let fyLatestSum = 0, ttmSum = 0, ttmCount = 0;
+  const labelCounts = new Map();
+  const priorLabelCounts = new Map();
   for (const c of companies) {
     fyLatestSum += c.fyLatest.val;
     if (c.ttm) { ttmSum += c.ttm.val; ttmCount++; }
-    if (!latestLabel) latestLabel = c.fyLatest.label;
-    if (!priorLabel && c.fyPrior) priorLabel = c.fyPrior.label;
+    labelCounts.set(c.fyLatest.label, (labelCounts.get(c.fyLatest.label) || 0) + 1);
+    if (c.fyPrior) priorLabelCounts.set(c.fyPrior.label, (priorLabelCounts.get(c.fyPrior.label) || 0) + 1);
   }
+  const modal = (m) => [...m.entries()].sort((x, y) => y[1] - x[1] || String(y[0]).localeCompare(String(x[0])))[0]?.[0] || null;
+  const latestLabel = modal(labelCounts);
+  const priorLabel = modal(priorLabelCounts);
+  const fyLabels = [...labelCounts.keys()].sort();
+  const fyMixed = fyLabels.length > 1;
   const capexYoy = capexCohortYoy(companies);
   // Combined-revenue aggregate for the capex-vs-revenue read. Sums are
   // restricted to names that reported BOTH capex and revenue for the window,
@@ -10751,6 +10842,13 @@ export async function buildAiCapexPayload(cikMap, chains, builtAtIso, prior = nu
   const totals = {
     fyLatestSum, fyPriorSum: capexYoy.n ? capexYoy.prior : null,
     fyLatestLabel: latestLabel, fyPriorLabel: priorLabel,
+    fyMixed,
+    fyRangeLabel: fyMixed ? `${fyLabels[0]}–${fyLabels[fyLabels.length - 1].replace(/^FY/, "")}` : latestLabel,
+    fyByLabel: Object.fromEntries(fyLabels.map((l) => [l, companies.filter((c) => c.fyLatest.label === l).map((c) => c.ticker)])),
+    ttmAsOfRange: (() => {
+      const d = companies.map((c) => c.ttm?.asOf).filter(Boolean).sort();
+      return d.length ? [d[0], d[d.length - 1]] : null;
+    })(),
     yoyPct: capexYoy.yoyPct,
     deltaAbs: capexYoy.deltaAbs,
     yoyCohort: capexYoy.n,
@@ -10767,11 +10865,61 @@ async function readPriorAiCapex() {
   try { return JSON.parse(await readFile(resolve(DATA_DIR, "ai-capex.json"), "utf8")); } catch { return null; }
 }
 
-async function writeAiCapexFile(cikMap, chains, builtAtIso, prior = null) {
-  const payload = await buildAiCapexPayload(cikMap, chains, builtAtIso, prior);
+// Earnings-call briefs for the AI CapEx names, read BEFORE the data/ wipe
+// (the per-ticker transcript details are upsert-only store keys that the bake
+// never re-writes). Only the fields the guidance resolver needs are kept.
+async function readAiCapexCallBriefs() {
+  const out = {};
+  for (const ticker of AI_CAPEX_TICKERS) {
+    try {
+      const d = JSON.parse(await readFile(resolve(DATA_DIR, transcriptKeyForSym(ticker)), "utf8"));
+      if (d?.callDate && Array.isArray(d?.summary?.guidance)) {
+        out[ticker] = { callDate: d.callDate, quarter: d.quarter || null, sourceUrl: d.sourceUrl || null, source: d.source || null, summary: { guidance: d.summary.guidance } };
+      }
+    } catch { /* no brief on disk */ }
+  }
+  return out;
+}
+
+// Latest REPORTED earnings date per AI CapEx name, from the accumulated
+// earnings-history store (a print counts once its EPS actual is in, or its
+// date is past).
+function aiCapexLastPrints(earningsHxStore, todayIso) {
+  const out = {};
+  for (const ticker of AI_CAPEX_TICKERS) {
+    const events = earningsHxStore?.tickers?.[ticker]?.events || [];
+    const past = events
+      .filter((ev) => ev?.date && (ev.date < todayIso || (ev.date === todayIso && ev.epsActual != null)))
+      .map((ev) => ev.date)
+      .sort();
+    if (past.length) out[ticker] = past[past.length - 1];
+  }
+  return out;
+}
+
+async function fetchAiCapexFxBars(currency) {
+  const { bars } = await fetchGlobalMarketBars(`${currency}=X`);
+  return bars;
+}
+
+async function writeAiCapexFile(cikMap, chains, builtAtIso, prior = null, { briefs = {}, earningsHxStore = null } = {}) {
+  const payload = await buildAiCapexPayload(cikMap, chains, builtAtIso, prior, {
+    briefs,
+    lastPrints: aiCapexLastPrints(earningsHxStore, etDateKey()),
+    fetchFxBars: fetchAiCapexFxBars,
+  });
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, "ai-capex.json"), json, "utf8");
-  return { bytes: json.length, count: payload.companies.length, stale: !!payload.stale, missing: payload.missing || [] };
+  const g = payload.totals?.guidance || null;
+  return {
+    bytes: json.length,
+    count: payload.companies.length,
+    stale: !!payload.stale,
+    missing: payload.missing || [],
+    autoGuides: (g?.companies || []).filter((x) => x.auto).map((x) => x.ticker),
+    reviewGuides: (g?.needsReview || []).map((x) => x.ticker),
+    fallback: payload.companies.filter((c) => c.source && c.source !== "sec").map((c) => c.ticker),
+  };
 }
 
 // === RAM price tracker (data/ram-prices.json) =======================
@@ -36991,6 +37139,7 @@ async function main() {
   // is a rolling 21-day ledger, so its prior rows must be merged with this
   // build's volatile RSS slate. Read both before the wipe.
   const priorAiCapex = await readPriorAiCapex();
+  const aiCapexBriefs = await readAiCapexCallBriefs();
   const priorCapitalRaises = await readPriorCapitalRaises();
   // Prior IPOs & Credit snapshot — accumulates the universe issuance events
   // across builds and caches the immutable completed-quarter EDGAR counts +
@@ -37473,8 +37622,8 @@ async function main() {
   // cikMap is the build's cached SEC ticker→CIK map (already loaded above).
   try {
     const cikMap = await fetchCikMap();
-    const aiCapexInfo = await writeAiCapexFile(cikMap, chains, builtAtIso, priorAiCapex);
-    console.log(`wrote data/ai-capex.json — ${aiCapexInfo.count} companies, ${aiCapexInfo.bytes} bytes${aiCapexInfo.stale ? " [stale — kept last-good]" : ""}${aiCapexInfo.missing.length ? ` (no data: ${aiCapexInfo.missing.join(",")})` : ""}`);
+    const aiCapexInfo = await writeAiCapexFile(cikMap, chains, builtAtIso, priorAiCapex, { briefs: aiCapexBriefs, earningsHxStore });
+    console.log(`wrote data/ai-capex.json — ${aiCapexInfo.count} companies, ${aiCapexInfo.bytes} bytes${aiCapexInfo.stale ? " [stale — kept last-good]" : ""}${aiCapexInfo.missing.length ? ` (no data: ${aiCapexInfo.missing.join(",")})` : ""}${aiCapexInfo.autoGuides.length ? ` · call-brief guides: ${aiCapexInfo.autoGuides.join(",")}` : ""}${aiCapexInfo.reviewGuides.length ? ` · guides to review: ${aiCapexInfo.reviewGuides.join(",")}` : ""}${aiCapexInfo.fallback.length ? ` · Yahoo roll-forward: ${aiCapexInfo.fallback.join(",")}` : ""}`);
     const capRaisesInfo = await writeCapitalRaisesFile(
       cikMap,
       chains,

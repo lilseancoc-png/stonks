@@ -1134,7 +1134,11 @@ TTM is either a true reported trailing window or:
 prior FY + current YTD - prior-year comparable YTD
 ```
 
-Management's current full-year guidance is a separate manually maintained primary-source layer because company definitions differ. Guidance is never added to audited reported CapEx.
+Management's current full-year guidance is a separate layer because company definitions differ. Guidance is never added to audited reported CapEx. `AI_CAPEX_GUIDANCE` is a hand-checked baseline. Each bake also reads the name's latest earnings-call brief (the same transcript brief the Earnings calls tab shows, so this costs no extra AI call), and a full-year dollar CapEx row from a newer call replaces the baseline. A row is used only when it is a whole calendar year (fiscal-year rows count only for calendar-fiscal names) and its midpoint is within 0.4x to 3x of the prior guide. A guide that predates the company's latest reported print is flagged "update pending" until the new figure arrives. The guide total sums only the period most companies guide.
+
+When a filer's SEC series is more than about 14 months old (TSMC's 20-F data stops at FY2024 in SEC's XBRL feed), the latest four quarters and any complete fiscal year come from the bake's Yahoo cash-flow and revenue quarters, converted to USD at each quarter's average Yahoo FX rate. A unit check rejects a run-rate more than 3x off the last SEC year. The company row notes the source.
+
+Fiscal years differ by company (MSFT ends June, ORCL May, MU September), so the latest-FY total is labeled with its range of years. The TTM run-rate is the like-for-like current figure.
 
 Decision posture:
 
