@@ -28,7 +28,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Changed
 
-- Top Picks trades on names that left coverage close as "NOT COUNTED" on the next Top Picks run instead of waiting three runs to close as a win or loss at a frozen mark; they no longer count toward the win rate, averages or the edge gate, and earlier "dropped" closes on uncovered names are relabeled.
+- Open Top Picks trades on names that left coverage are removed from the Track Record on the next Top Picks run instead of sitting on a frozen mark and closing three runs later as a win or loss. Earlier "dropped" closes on names no longer covered stay visible as "NOT COUNTED" and no longer count toward the win rate, averages or the edge gate (#665).
 - Track Record Picks cards now show the exact date and time each trade was opened and closed (in the site's display time zone) instead of the date only, and the card text is a notch larger (#664).
 - **AI CapEx guidance keeps itself current.** Each bake reads the latest earnings-call brief for the ten tracked names and replaces a hand-entered full-year CapEx guide when a newer call states one. It flags a guide that predates the company's latest report so the tab never shows an old figure as current. This adds no AI calls, because the call briefs are already minted once per quarter. Guidance is also refreshed now: MSFT about $175B (after the lease reclassification), AMZN about $220B, META $130–145B, and TSMC $60–64B added. `scripts/build.mjs`, `lib/ai-capex.mjs`, `scripts/render/app-js.mjs`.
 
