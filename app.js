@@ -2108,44 +2108,6 @@ function scenarioEventPhase(ev, now = Date.now()) {
     );
 
     var pros = [], cons = [];
-    // The AI pattern is baked context, but it belongs in the same decision
-    // synthesis as the deterministic tape read. A forming pattern never earns
-    // an entry by itself; an opposing forming reversal forces a WAIT, while an
-    // opposing confirmed pattern blocks the selected side. This prevents a
-    // broad-market tailwind from printing EXECUTE above a bearish chart warning
-    // (or the inverse for puts).
-    var chartPattern = tech.chartPattern && typeof tech.chartPattern === 'object' ? tech.chartPattern : null;
-    var chartPatternName = chartPattern && chartPattern.pattern && chartPattern.pattern !== 'None' ? String(chartPattern.pattern) : '';
-    var chartPatternDir = chartPattern ? String(chartPattern.direction || '').toLowerCase() : '';
-    var chartPatternStage = chartPattern ? String(chartPattern.stage || '').toLowerCase() : '';
-    var chartPatternConfirm = chartPattern && chartPattern.confirm ? String(chartPattern.confirm) : '';
-    var chartPatternInvalidate = chartPattern && chartPattern.invalidate ? String(chartPattern.invalidate) : '';
-    var chartPatternCurrent = !!(chartPattern && chartPattern.stale !== true);
-    var chartPatternSign = chartPatternCurrent ? (chartPatternDir === 'bullish' ? 1 : chartPatternDir === 'bearish' ? -1 : 0) : 0;
-    var patternAligned = !!(chartPatternName && chartPatternSign === dir);
-    var patternAgainst = !!(chartPatternName && chartPatternSign === -dir);
-    var patternAgainstConfirmed = patternAgainst && chartPatternStage === 'confirmed';
-    var patternAgainstForming = patternAgainst && chartPatternStage === 'forming';
-    if (patternAligned && chartPatternStage === 'confirmed') {
-      pros.push({ tag: 'Chart pattern confirmed', strong: true, text:
-        chartPatternName + ' is confirmed ' + chartPatternDir + ' on the baked chart read — aligned with ' + dirLabel + '. Recheck the named trigger against the current tape.'
-      });
-    } else if (patternAligned && chartPatternStage === 'forming') {
-      pros.push({ tag: 'Chart pattern forming', strong: false, text:
-        chartPatternName + ' is forming ' + chartPatternDir + ', but it has not cleared its confirmation level. Treat it as context, not permission to enter.'
-      });
-    } else if (patternAgainstConfirmed) {
-      cons.push({ tag: 'Chart pattern conflicts', strong: true, text:
-        'A confirmed ' + chartPatternName + ' points ' + chartPatternDir + ', opposite ' + dirLabel + '. The selected side is fighting a confirmed reversal structure.'
-      });
-    } else if (patternAgainstForming) {
-      cons.push({ tag: 'Opposing pattern forming', strong: false, text:
-        'A ' + chartPatternName + ' is forming ' + chartPatternDir + ', opposite ' + dirLabel + '. It is not confirmed, but entering before that warning resolves is premature.' +
-        (chartPatternConfirm ? ' Confirms on ' + chartPatternConfirm + '.' : '') +
-        (chartPatternInvalidate ? ' Invalidated by ' + chartPatternInvalidate + '.' : '')
-      });
-    }
-
     // -- Buy-flow / Sell-flow PROS --
     if (breakoutAligned && volSurge && alignedMove != null && alignedMove > 0.3) {
       pros.push({ tag: 'Breakout + volume', strong: true, text:
@@ -2513,25 +2475,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
       vHeadline = sessionName + ' — wait for the option market to reopen';
       vBody = 'The extended-hours stock quote is context only. Option spreads, IV, and executable size are frozen, so reassess this setup during the regular session before entering.';
     } else if (catalystImminent) {
-      // Scheduled events override every chart pattern. AVOID would imply
+      // Scheduled events override every chart signal. AVOID would imply
       // "fight the tape now"; the right framing is "defer, then re-read".
       verdict = 'WAIT'; vCls = 'fair';
       vHeadline = (daysToEarnings != null && daysToEarnings <= 1)
         ? 'Earnings ' + (daysToEarnings === 0 ? 'today' : 'tomorrow') + ' — defer entry'
         : 'FOMC ' + (daysToFomc === 0 ? 'today' : 'tomorrow') + ' — defer entry';
-      vBody = 'A scheduled event lands inside the next session. The chart pattern means little compared to the pending news — and the IV crush around the print can lose money even when direction is right. Wait for the catalyst to clear, then re-read structure.';
-    } else if (patternAgainstConfirmed) {
-      verdict = 'AVOID'; vCls = 'warn';
-      vHeadline = 'Confirmed chart pattern conflicts with ' + dirLabel;
-      vBody = 'The broader tape may still help, but the baked chart model has confirmed a ' + chartPatternDir + ' ' + chartPatternName + '. Do not buy ' + dirLabel +
-        (chartPatternInvalidate ? ' until ' + chartPatternInvalidate + '.' : ' until that pattern is invalidated or price rebuilds the selected-side structure.');
-    } else if (patternAgainstForming) {
-      verdict = 'WAIT'; vCls = 'fair';
-      vHeadline = 'Opposing reversal is forming — wait for resolution';
-      vBody = 'The tape has support, but the baked chart read is forming a ' + chartPatternDir + ' ' + chartPatternName + ' against ' + dirLabel + '.' +
-        (chartPatternConfirm ? ' It confirms on ' + chartPatternConfirm + '.' : '') +
-        (chartPatternInvalidate ? ' It is invalidated by ' + chartPatternInvalidate + '.' : '') +
-        ' Wait for one of those conditions before paying option premium.';
+      vBody = 'A scheduled event lands inside the next session. The chart read means little compared to the pending news — and the IV crush around the print can lose money even when direction is right. Wait for the catalyst to clear, then re-read structure.';
     } else if (sideways) {
       verdict = 'WAIT'; vCls = 'fair';
       vHeadline = 'Sideways range — watch, do not chase';
@@ -2648,7 +2598,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
 
     // Plain-English primer for the Execute-now card. Beginners coming
     // straight from the verdict above need to know this isn't a re-grade
-    // of the contract — it's a read of the live chart pattern. Spells out
+    // of the contract — it's a read of the live chart structure. Spells out
     // EXECUTE / WAIT / AVOID and what each pattern means in everyday words.
     var STRUCTURE_TIP = 'The pattern playing out on the live chart right now — where price is relative to its recent ceiling and floor, and how today\'s move + volume confirm or reject that pattern.';
     var SECTION_TIP_PRO = dir > 0
@@ -3199,7 +3149,6 @@ function scenarioEventPhase(ev, now = Date.now()) {
     support:    'Recent price floor — the lowest low over the lookback window. Stocks tend to find buyers around old lows. A break below is a meaningful technical event.',
     resistance: 'Recent price ceiling — the highest high over the lookback window. Stocks tend to stall at old highs. A clean break above is a meaningful technical event.',
     sma:        'Simple Moving Average — the average closing price over the last N trading days (sum of the closes ÷ N). Spot above the SMA = the average is acting as support (uptrend); below = resistance (downtrend). The longer windows (100d / 200d) define the bigger-picture trend.',
-    chartPattern: 'A classic chart formation identified by AI from the 1-month intraday (30-minute) chart — the timeframe where short-horizon reversals show up — one of 8 (Cup and Handle, Head and Shoulders, Inverse Head and Shoulders, Bull Flag, Ascending Triangle, Descending Triangle, Double Bottom, Double Top), or none. Flagged at two stages: FORMING (the shape is building but the decisive break has not happened — an early warning, with the neckline + what confirms/invalidates it, scores 0) and CONFIRMED (the break has happened, scores ±1 only while the analyzed bars still match). Re-rated about twice a day. If newer bars arrive first, the old read is labeled STALE CONTEXT and cannot affect grades or trade decisions. Confirm on your own chart before trading.'
   };
   function tipChip(text){
     if (!text) return '';
@@ -3761,7 +3710,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
 
   // Set by bindTabs(); loadChain() uses it to land every fresh ticker on the
-  // Technicals tab (chart pattern first) — a contract handoff still opens the
+  // Technicals tab — a contract handoff still opens the
   // Contract grade tab.
   var selectAnalysisTab = null;
   function bindTabs(){
@@ -5085,8 +5034,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
       $('opt-chain-row').hidden = false;
       renderTickerNarrativeChips(symbol);
       renderAnalysisShell();
-      // Land on Technicals — the chart-pattern read is the first thing a user
-      // should see on a fresh ticker. Contract handoffs still open the grader,
+      // Land on Technicals — the chart and indicator cards are the first thing
+      // a user should see on a fresh ticker. Contract handoffs still open the grader,
       // and live-fallback entries (no baked technicals) skip straight to it.
       if (selectAnalysisTab) selectAnalysisTab(wantContract || entry.live ? 'contract' : 'tech');
       renderTechnicals(symbol);
@@ -5495,8 +5444,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   // Daily price chart for the Technicals tab, drawn from the compact priceSeries
   // baked into each ticker JSON (build.mjs buildPriceSeries). Lets a human eyeball
-  // formations the AI chart-pattern detector may miss — OHLC candles, range-
-  // adaptive SMA overlays, directional volume, Fibonacci levels and spot line.
+  // chart formations — OHLC candles, range-adaptive SMA overlays, directional volume, Fibonacci levels and spot line.
   function priceChartSma(arr, p){
     // Queue of the actual contributed (non-null) values so a null gap can't
     // desync the rolling sum from the window — evict the value that truly left,
@@ -5982,69 +5930,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var macdSt = macdState(t.macd);
     var html = '';
 
-    // AI-identified chart pattern FIRST — the lead read on a fresh ticker (the
-    // Technicals tab is now the landing view), a full-width banner above the
-    // price chart + indicator cards. Renders only when a full build has
-    // attached technicals.chartPattern; shows the label + type badge +
-    // confidence, an explanation, and what it could signal. "None" gets a
-    // muted note so the absence is explicit.
-    var cp = t.chartPattern;
-    if (cp && cp.pattern){
-      var stalePattern = cp.stale === true;
-      if (cp.pattern === 'None'){
-        html += '<div class="opt-tech-pattern none">' +
-          '<div class="opt-tech-pattern-head">' +
-            '<span class="opt-tech-pattern-label">Chart pattern' + tipChip(TIPS.chartPattern) + '</span>' +
-            (stalePattern ? '<span class="opt-tech-pattern-stage stale">Stale context</span>' : '') +
-            '<span class="opt-tech-pattern-name">No clear pattern</span>' +
-          '</div>' +
-          '<div class="opt-tech-pattern-body">' +
-            (cp.explanation ? escapeHtml(cp.explanation)
-              : 'No textbook chart pattern is clearly present on the recent daily chart.') +
-          '</div>' +
-        '</div>';
-      } else {
-        var dirCls = cp.direction === 'bullish' ? 'pos' : (cp.direction === 'bearish' ? 'neg' : 'fair');
-        var forming = cp.stage === 'forming';
-        var stageBadge = stalePattern
-          ? '<span class="opt-tech-pattern-stage stale">Stale context</span>'
-          : cp.stage
-          ? '<span class="opt-tech-pattern-stage ' + (forming ? 'forming' : 'confirmed') + '">' +
-              (forming ? '&#9888; Forming' : '&#10003; Confirmed') + '</span>'
-          : '';
-        // Early-warning levels: neckline + what confirms / invalidates it + the
-        // measured target. Each rendered only when the model supplied it.
-        var lvls = '';
-        function lvlRow(k, v){ return '<div class="opt-tech-pattern-lvl"><span class="opt-tech-pattern-lvl-k">' + k + '</span><span class="opt-tech-pattern-lvl-v">' + v + '</span></div>'; }
-        if (cp.neckline != null && isFinite(cp.neckline)) lvls += lvlRow('Neckline', '$' + fmt(cp.neckline));
-        if (cp.confirm) lvls += lvlRow('Confirms on', escapeHtml(cp.confirm));
-        if (cp.invalidate) lvls += lvlRow('Invalidated if', escapeHtml(cp.invalidate));
-        if (cp.target) lvls += lvlRow('Measured target', escapeHtml(cp.target));
-        var lvlsHtml = lvls ? '<div class="opt-tech-pattern-lvls">' + lvls + '</div>' : '';
-        var foot = stalePattern
-          ? 'New intraday bars arrived after this cached chart read. Display-only context: it scores 0 and cannot alter entries, vetoes, grades, strategy direction, or position advice.'
-          : forming
-          ? 'Flagged EARLY — the pattern is still forming and is not confirmed until the level above breaks (it scores 0 on the grade until then). Context, not a trade signal.'
-          : 'AI-identified from the current 30-minute chart bars. Context, not a trade signal.';
-        html += '<div class="opt-tech-pattern ' + dirCls + (forming ? ' forming' : '') + (stalePattern ? ' stale' : '') + '">' +
-          '<div class="opt-tech-pattern-head">' +
-            '<span class="opt-tech-pattern-label">Chart pattern' + tipChip(TIPS.chartPattern) + '</span>' +
-            stageBadge +
-            '<span class="opt-tech-pattern-name">' + escapeHtml(cp.pattern) + '</span>' +
-            (cp.type ? '<span class="opt-tech-pattern-type ' + dirCls + '">' + escapeHtml(cp.type) + '</span>' : '') +
-            (cp.confidence ? '<span class="opt-tech-pattern-conf">' + escapeHtml(cp.confidence) + ' confidence</span>' : '') +
-          '</div>' +
-          (cp.explanation ? '<div class="opt-tech-pattern-body">' + escapeHtml(cp.explanation) + '</div>' : '') +
-          lvlsHtml +
-          (cp.signal ? '<div class="opt-tech-pattern-signal">' +
-            '<span class="opt-tech-pattern-signal-label">Could signal</span>' + escapeHtml(cp.signal) + '</div>' : '') +
-          '<div class="opt-tech-pattern-foot">' + foot + '</div>' +
-        '</div>';
-      }
-    }
+    // The AI chart-pattern read was retired (2026-10-19: its confirmed calls
+    // were right about half the time). A small link keeps the reference page
+    // with the drawn shapes one tap away.
+    html += '<div class="opt-tech-pattern-ref">' +
+      '<a href="/?tab=chart-patterns" data-tech-pattern-ref>What chart patterns look like</a>' +
+      '<span class="opt-tech-pattern-ref-note">Reference drawings, confirmation rules and targets</span>' +
+    '</div>';
 
-    // Price chart next — the actual picture, so the chart-pattern read above
-    // can be checked against it by eye. Drawn from the baked priceSeries; older
+    // Price chart next — the actual picture. Drawn from the baked priceSeries; older
     // ticker JSON (pre-priceSeries) simply omits it. The 1Y range also carries an
     // analyst price-target cone when consensus targets are on file (≥3 analysts).
     var fund = state.fundamentals || {};
@@ -6186,6 +6080,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
 
     grid.innerHTML = html;
     attachPriceChartHover(grid);
+    var patternRef = grid.querySelector('[data-tech-pattern-ref]');
+    if (patternRef) patternRef.addEventListener('click', function(ev){
+      var tab = document.querySelector('[data-page-tab="chart-patterns"]');
+      if (!tab) return;
+      ev.preventDefault();
+      tab.click();
+    });
     box.hidden = false;
   }
 
@@ -15526,58 +15427,33 @@ function scenarioEventPhase(ev, now = Date.now()) {
       read.textContent = 'Choose a view, then search any ticker above.';
     }
   }
-  function stratPatternRead(){
-    var t = stratState.technicals || {};
-    var cp = t.chartPattern && typeof t.chartPattern === 'object' ? t.chartPattern : null;
-    var stale = !!(cp && cp.stale === true);
-    var name = cp && cp.pattern && cp.pattern !== 'None' ? String(cp.pattern) : '';
-    var rawDirection = cp ? String(cp.direction || '').toLowerCase() : '';
-    var direction = rawDirection === 'bullish' ? 'bull' : rawDirection === 'bearish' ? 'bear' : null;
-    var stage = cp ? String(cp.stage || '').toLowerCase() : '';
-    return {
-      active: !!(name && direction && !stale),
-      stale: stale,
-      name: name,
-      direction: direction,
-      directionLabel: direction === 'bull' ? 'bullish' : direction === 'bear' ? 'bearish' : '',
-      stage: stage,
-      confirm: cp && cp.confirm ? String(cp.confirm) : '',
-      invalidate: cp && cp.invalidate ? String(cp.invalidate) : '',
-    };
+  // Setup timing is the engine's own entry-timing read (go / wait / avoid) for
+  // the side this tape points to, from data/grades.json. It replaced the AI
+  // chart-pattern read, retired 2026-10-19.
+  function stratEntryTiming(bias){
+    var side = bias === 'bull' ? 'call' : bias === 'bear' ? 'put' : null;
+    var data = picksGradesState.data;
+    var g = side && data && data.grades && stratState.symbol ? data.grades[stratState.symbol] : null;
+    var t = g && g.timing ? g.timing[side] : null;
+    return t && t.state ? t : null;
   }
   function stratTimingRead(bias){
-    var p = stratPatternRead();
-    if ((bias !== 'bull' && bias !== 'bear') || !p.active) {
-      return { state:'ready', label:'No chart-pattern block', note:'Use the tape, volatility and payoff checks below.', pattern:p };
+    if (bias !== 'bull' && bias !== 'bear') {
+      return { state:'ready', label:'No directional entry', note:'The tape is mixed, so there is no call or put entry to time. Use the volatility and payoff checks below.' };
     }
-    if (p.direction !== bias && p.stage === 'confirmed') {
-      return {
-        state:'avoid', label:'Avoid', pattern:p,
-        note:'Confirmed ' + p.directionLabel + ' ' + p.name + ' opposes this ' + (bias === 'bull' ? 'bullish' : 'bearish') + ' structure.' +
-          (p.invalidate ? ' Reconsider only after ' + p.invalidate + '.' : ' Reconsider only after the pattern is invalidated.'),
-      };
+    var t = stratEntryTiming(bias);
+    if (!t) {
+      return { state:'ready', label:'No entry-timing read',
+        note: picksGradesState.loading ? 'Loading the entry-timing read.' : 'This ticker has no entry-timing read. Use the tape, volatility and payoff checks below.' };
     }
-    if (p.direction !== bias && p.stage === 'forming') {
-      return {
-        state:'wait', label:'Wait', pattern:p,
-        note:'A ' + p.directionLabel + ' ' + p.name + ' is forming against this structure.' +
-          (p.confirm ? ' It confirms on ' + p.confirm + '.' : '') +
-          (p.invalidate ? ' The warning clears on ' + p.invalidate + '.' : ''),
-      };
-    }
-    if (p.direction === bias && p.stage === 'forming') {
-      return {
-        state:'watch', label:'Trigger not confirmed', pattern:p,
-        note:'The aligned ' + p.name + ' is still forming.' +
-          (p.confirm ? ' It confirms on ' + p.confirm + '.' : ' Wait for its named confirmation level before treating it as support.'),
-      };
-    }
-    return {
-      state:'ready', label:p.direction === bias && p.stage === 'confirmed' ? 'Pattern aligned' : 'No chart-pattern block', pattern:p,
-      note:p.direction === bias && p.stage === 'confirmed'
-        ? 'Confirmed ' + p.directionLabel + ' ' + p.name + ' supports the structure; recheck the trigger on the current chart.'
-        : 'Use the tape, volatility and payoff checks below.',
-    };
+    var sideWord = bias === 'bull' ? 'calls' : 'puts';
+    // Headlines read "Go — …" / "Wait — …" / "Avoid — …"; the chip already
+    // shows the state, so the note carries only the reason.
+    var why = String(t.headline || '').replace(/^(go|wait|avoid)\s*[—-]\s*/i, '');
+    if (why) why = why.charAt(0).toUpperCase() + why.slice(1) + '.';
+    if (t.state === 'avoid') return { state:'avoid', label:'Avoid', note: why || ('Entry timing says avoid ' + sideWord + ' here.') };
+    if (t.state === 'wait') return { state:'wait', label:'Wait', note: why || ('Entry timing for ' + sideWord + ' is not confirmed yet.') };
+    return { state:'ready', label:'Go', note: why || ('Entry timing for ' + sideWord + ' is confirmed.') };
   }
   function stratTapeRead(){
     var t = stratState.technicals || {};
@@ -15597,15 +15473,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       else { votes--; evidence.push("price is below the 20-day average"); }
     }
     var direction = votes >= 2 ? "bull" : votes <= -2 ? "bear" : "mixed";
-    var pattern = stratPatternRead();
-    if (pattern.active) {
-      evidence.push(pattern.name + ' is ' + (pattern.stage || 'flagged') + ' ' + pattern.directionLabel);
-      // A confirmed pattern may supply direction when the simpler tape is
-      // genuinely mixed. It never silently reverses a coherent RSI/MACD/SMA
-      // read; that conflict is exposed as a timing gate instead.
-      if (direction === 'mixed' && pattern.stage === 'confirmed') direction = pattern.direction;
-    }
-    return { direction:direction, votes:votes, evidence:evidence, pattern:pattern };
+    return { direction:direction, votes:votes, evidence:evidence };
   }
   function stratVolRead(){
     var iv = stratState.ivPctile;
@@ -15670,16 +15538,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     var timing = stratTimingRead(tape.direction);
     if (timing.state === 'avoid') {
-      title = 'Avoid — the chart pattern opposes this directional tape';
+      title = 'Avoid — entry timing is against this directional tape';
       copy = timing.note + ' The structures below remain available for payoff modeling, not as an entry signal.';
-      avoid = 'Do not size or enter the suggested direction until the named invalidation occurs and the tape is rechecked. ' + avoid;
+      avoid = 'Do not size or enter the suggested direction until entry timing improves and the tape is rechecked. ' + avoid;
     } else if (timing.state === 'wait') {
-      title = 'Wait — an opposing reversal pattern is still forming';
-      copy = timing.note + ' Model the candidate structure now, but keep contract capacity at zero until the warning clears.';
-      avoid = 'Do not confuse a good payoff shape with permission to enter before the chart conflict resolves. ' + avoid;
-    } else if (timing.state === 'watch') {
-      title = 'Watch the trigger — the aligned pattern is not confirmed';
-      copy = timing.note + ' The structure can fit, but the pattern itself is context rather than entry permission.';
+      title = 'Wait — the entry is not confirmed yet';
+      copy = timing.note + ' Model the candidate structure now, but keep contract capacity at zero until the entry confirms.';
+      avoid = 'Do not confuse a good payoff shape with permission to enter before timing confirms. ' + avoid;
     }
     if (event.soon) {
       var preferred = stratPreferredExpiration();
@@ -16362,24 +16227,24 @@ function scenarioEventPhase(ev, now = Date.now()) {
       copy = 'The selected legs do not fit the current inputs well enough. Change the thesis, expiration or risk shape rather than forcing the trade.';
     }
     // Setup timing outranks the structural score. A well-shaped spread is not
-    // executable when the baked chart model is actively warning against its
-    // direction, so the risk engine must show zero capacity until that gate
-    // clears instead of letting an A/B score read like a buy signal.
+    // executable while entry timing says wait or avoid, so the risk engine
+    // shows zero capacity until that gate clears instead of letting an A/B
+    // score read like a buy signal.
     if (!unbounded && avgOi >= 10 && timing.state === 'avoid') {
       tone = 'pass';
-      title = 'Avoid — structure fights a confirmed pattern';
+      title = 'Avoid — entry timing is against this structure';
       copy = timing.note;
     } else if (!unbounded && avgOi >= 10 && timing.state === 'wait') {
       tone = 'wait';
       title = 'Wait — payoff fits, setup timing does not';
-      copy = timing.note + ' Keep this as a modeled candidate until the warning clears.';
+      copy = timing.note + ' Keep this as a modeled candidate until the entry confirms.';
     }
     if (!unbounded && weakest && weakest.note) copy += ' Weakest input: ' + weakest.label.toLowerCase() + ' — ' + weakest.note + '.';
     var riskBudget = Math.max(0, stratState.account * stratState.riskPct / 100);
     var cap = maxLoss > 0 ? Math.floor(riskBudget / maxLoss) : null;
     var executionBlocked = timing.state === 'wait' || timing.state === 'avoid';
     var capText = unbounded ? '0 until defined' : executionBlocked ? '0 until clear' : cap == null ? '—' : cap + ' contract' + (cap === 1 ? '' : 's');
-    var timingLabel = timing.state === 'avoid' ? 'Avoid' : timing.state === 'wait' ? 'Wait' : timing.state === 'watch' ? 'Watch trigger' : 'Ready';
+    var timingLabel = timing.label;
     var event = stratEventRead();
     box.innerHTML = '<section class="strat-verdict-card strat-verdict-' + tone + '">' +
       '<div class="strat-verdict-head"><span>Trade verdict</span><h4>' + escapeHtml(title) + '</h4><p>' + escapeHtml(copy) + '</p></div>' +
@@ -16549,6 +16414,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
       stratRefreshIvRank(symbol).then(function(){
         if (requestSeq !== stratState.requestSeq || stratState.symbol !== symbol) return;
         stratRenderTickerMeta();
+        if (stratState.legs.length) stratRenderAll();
+        else stratRenderGuidance();
+      });
+      // Setup timing reads the entry-timing call from grades.json (shared,
+      // lazy, cached for the session); re-render once it lands.
+      loadGradesIndex(function(){
+        if (requestSeq !== stratState.requestSeq || stratState.symbol !== symbol) return;
         if (stratState.legs.length) stratRenderAll();
         else stratRenderGuidance();
       });
@@ -16996,17 +16868,6 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (s.color === 'red') return 'Down streak';
     return null;
   }
-  function cmpPatternText(j){
-    var cp = cmpTech(j).chartPattern;
-    if (!cp || !cp.pattern) return null;
-    if (cp.pattern === 'None') return 'No clear pattern';
-    var bits = [cp.pattern];
-    if (cp.direction) bits.push(cp.direction);
-    if (cp.stale === true) bits.push('stale');
-    else if (cp.stage) bits.push(cp.stage);
-    if (cp.confidence) bits.push(cp.confidence + ' confidence');
-    return bits.join(' · ');
-  }
   function cmpLevelRow(key, label, group, kind){
     var get = kind === 'sma' ? cmpSma(key) : cmpSr(key);
     return {
@@ -17056,7 +16917,6 @@ function scenarioEventPhase(ev, now = Date.now()) {
       cmpLevelRow('r50', 'Resistance 50D', 'Support & resistance', 'sr'),
       cmpLevelRow('r100', 'Resistance 100D', 'Support & resistance', 'sr'),
       cmpLevelRow('r200', 'Resistance 200D', 'Support & resistance', 'sr'),
-      { key:'pattern', group:'Chart', label:'Chart pattern', hint:TIPS.chartPattern, get:cmpPatternText, fmt:'text', always:true },
     ];
   }
   function cmpIsNum(v){ return v != null && isFinite(Number(v)); }
@@ -19637,7 +19497,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var pieces = data.pieces || {};
     if (eye) eye.textContent = data.asOf ? ('Session ' + data.asOf) : '';
     root.innerHTML =
-      '<p class="pat-note">These reads sit beside the desks that already exist. They do not replace a grade, a chart pattern, the index calendar, or overnight markets, and they do not change a position.</p>' +
+      '<p class="pat-note">These reads sit beside the desks that already exist. They do not replace a grade, the index calendar, or overnight markets, and they do not change a position.</p>' +
       renderPatternVolatility(pieces.volatility) +
       renderPatternSeasonality(pieces.seasonality) +
       renderPatternLead(pieces.leadLag) +
@@ -32921,10 +32781,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
       return (b.since || 0) - (a.since || 0);
     });
   }
+  // What changed in each formula version, shown on its divider (optional).
+  var ACC_GRADE_VERSION_NOTES = {
+    '2026-10-no-chart-pattern': 'Chart-pattern vote removed',
+  };
   function accGradeDivider(newer){
     var when = newer && newer.since != null ? accDateShort(new Date(newer.since).toISOString()) : '—';
+    var what = newer && ACC_GRADE_VERSION_NOTES[newer.version];
     return '<div class="acc-grade-divider" role="separator" title="The grade formula changed. The track record was kept, not reset; trades are split by the formula that picked them.">' +
-      '<span class="acc-grade-divider-label">Updated grade formula from ' + escapeHtml(when) + '</span>' +
+      '<span class="acc-grade-divider-label">Updated grade formula from ' + escapeHtml(when) + (what ? ' · ' + escapeHtml(what) : '') + '</span>' +
       '<span class="acc-grade-divider-note">Above: picked by the new formula · Below: earlier trades</span>' +
     '</div>';
   }
@@ -36478,7 +36343,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // --- "Check a position you hold" tool -----------------------------------
   // A held-contract evaluator: price the user's option live (/api/contract,
   // which handles ANY strike/expiry incl. off-band) and turn the engine's
-  // current grade + entry-timing + premium exit plan into a hold / trim / sell /
+  // current grade + entry-timing + premium exit plan into a hold / sell /
   // wait read. Reuses the same +20% take-profit / −50% premium-stop targets the
   // track record resolves on (PICKS_OPT_TP_PCT / PICKS_OPT_STOP_PCT). Tracked
   // tickers only — expirations/strikes come from the baked per-ticker chain. Not advice.
@@ -36570,17 +36435,17 @@ function scenarioEventPhase(ev, now = Date.now()) {
 
   // Pull the rest of the ticker's picture into the read. Everything here is
   // already loaded: posState.chain is the full per-ticker JSON (the AI news
-  // take, technicals.chartPattern, crowd social) and the grade carries the
-  // ranked cross-sectional drivers + entry-timing detail. We tag each strand
-  // as supporting / fighting the held side and sum a net "tilt" (+ favors the
-  // position, − fights it) from the two signals that are NOT already their own
-  // hard-rule branch — the AI news tone and the chart pattern — so a tape
-  // turning against a not-yet-stopped position can still surface a trim.
+  // take, crowd social) and the grade carries the ranked cross-sectional
+  // drivers + entry-timing detail. We tag each strand as supporting / fighting
+  // the held side. These strands are context only: the hold / sell call comes
+  // from the premium target and stop, the grade and entry timing. (The old
+  // news + chart-pattern "trim" tilt left with the AI chart read, 2026-10-19;
+  // news alone was never enough to trigger it.)
   // side: call→bullish, put→bearish.
   function posContext(o, grade){
     var side=o.side, sideWord=side==='put'?'put':'call', sign=side==='put'?-1:1;
     var chain=posState.chain||{};
-    var factors=[], tilt=0;
+    var factors=[];
     function add(tone,label,text){ if(text) factors.push({ tone:tone, label:label, text:text }); }
 
     // AI news take (per-ticker) — sentiment tilts; paragraph + headlines inform.
@@ -36588,7 +36453,6 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if(news && (news.sentiment||news.paragraph)){
       var ns=news.sentiment||'neutral';
       var nsSign=ns==='bullish'?1:ns==='bearish'?-1:0;
-      if(nsSign!==0) tilt += (nsSign===sign?1:-1);
       var nsTxt='News tone '+(nsSign===0?'neutral':(nsSign===sign?'supports your '+sideWord:'works against your '+sideWord))+'.';
       if(news.paragraph) nsTxt += ' '+String(news.paragraph);
       if(news.headlines && news.headlines.length){
@@ -36596,21 +36460,6 @@ function scenarioEventPhase(ev, now = Date.now()) {
         if(hls.length) nsTxt += ' Latest: “'+hls.join('” · “')+'”.';
       }
       add(nsSign===0?'info':(nsSign===sign?'good':'bad'), 'News', nsTxt);
-    }
-
-    // AI-read chart pattern — confirmed counts double, a forming pattern half.
-    // A cached read whose exact bars no longer match is display-only context.
-    var cp=chain.technicals && chain.technicals.chartPattern;
-    if(cp && cp.direction && cp.direction!=='neutral' && cp.stale!==true){
-      var cpSign=cp.direction==='bullish'?1:-1, cpAligned=cpSign===sign;
-      var cpConfirmed=cp.stage && cp.stage!=='forming';
-      tilt += (cpConfirmed?2:1)*(cpAligned?1:-1);
-      var cpTxt=(cp.pattern||'Chart pattern')+' — '+cp.direction+', '+(cpConfirmed?'confirmed':'still forming')+(cp.confidence?', '+cp.confidence+' confidence':'')+'. '+(cpAligned?'Aligns with':'Cuts against')+' your '+sideWord+'.';
-      if(cp.confirm) cpTxt += ' Confirms on '+cp.confirm+'.';
-      if(cp.target) cpTxt += ' Target '+cp.target+'.';
-      add(cpAligned?'good':'bad', 'Chart pattern', cpTxt);
-    } else if(cp && cp.pattern && cp.pattern!=='None' && cp.stale===true){
-      add('info', 'Chart pattern', (cp.pattern||'Chart pattern')+' is a stale cached read because newer intraday bars arrived. It is shown only as context and does not affect this position decision.');
     }
 
     // The grade's ranked drivers (news, fundamentals, mechanicals, technicals,
@@ -36650,7 +36499,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if(Math.abs(net)>=15) add('info','Crowd',(net>0?'+':'')+net+'% net '+(net>0?'bullish':'bearish')+' social chatter over the last 24h ('+soc.msgCount24h+' messages) — informational, not scored.');
     }
 
-    return { factors:factors, tilt:tilt };
+    return { factors:factors };
   }
 
   function posDecision(o){
@@ -36700,23 +36549,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
       reasons.push('Not at the +'+POS_TP+'% target or the −'+POS_STOP+'% stop. '+(grade?('Grade '+gRound+(aligned?' still leans your way':' has weakened against your side')+'.'):(o.sym+' isn’t in the tracked grade set — premium plan only, no grade read.')));
     }
 
-    // Fold in the rest of the ticker's picture — AI news take, chart pattern,
-    // the grade's ranked drivers, entry-timing detail and crowd chatter — and
-    // let it nudge the soft states. When the position isn't already at a hard
-    // sell rule, a tape clearly fighting the held side (news + chart pattern,
-    // tilt ≤ −2) argues for trimming before the premium stop even hits; a
-    // clearly supportive one reinforces the hold.
+    // Gather the rest of the ticker's picture — AI news take, the grade's
+    // ranked drivers, entry-timing detail and crowd chatter — as context
+    // listed below the verdict.
     var ctx = posContext(o, grade);
-    var hardSell = (tone==='good' || tone==='bad');
-    if(!hardSell){
-      if(ctx.tilt <= -2){
-        action='TRIM / DE-RISK'; tone='warn';
-        headline='Grade hasn’t flipped, but the news & chart have turned against your '+sideWord+'.';
-        reasons.unshift('The wider picture — the AI news take and the chart pattern — is leaning against your '+sideWord+', even though you’re not at the −'+POS_STOP+'% stop. Trimming to lock in / cut risk and re-assessing beats adding here.');
-      } else if(ctx.tilt >= 2){
-        reasons.push('The news take and the chart pattern both back your '+sideWord+' — the wider picture supports staying in.');
-      }
-    }
 
     if(earnBeforeExp && earnDays!=null) reasons.push('Earnings ~'+earnDays+' day'+(earnDays===1?'':'s')+' out, before your expiry — the plan holds through the print. An IV crush can still reprice a long even on a correct call; this is informational, not a close signal.');
     if(dte<=7) reasons.push('⚠ Only '+dte+' day'+(dte===1?'':'s')+' to expiry — gamma & theta are steep; small underlying moves swing the premium hard.');
@@ -36729,7 +36565,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       tpPrice:tpPrice, cutPrice:cutPrice, action:action, tone:tone, headline:headline, reasons:reasons, context:ctx };
   }
 
-  // Render the gathered context strands (news / chart pattern / drivers /
+  // Render the gathered context strands (news / drivers /
   // timing / crowd) as a tone-tagged list below the verdict reasons.
   function posFactorsHtml(ctx){
     if(!ctx || !ctx.factors || !ctx.factors.length) return '';
@@ -36865,7 +36701,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // (entry timing). Purely presentational.
   var PILLAR_INFO = {
     fundamentals: 'The health and forward trajectory of the underlying business. It scores reported earnings and revenue growth, analyst targets and revisions, valuation versus sector, guidance, major contracts (only while a deal headline from the last 30 days backs them), capital raises, and free cash flow. The improving/declining trajectory badge is shown for context but is not scored, because it re-reads inputs already counted here. CapEx quality is a bounded component: it compares sequential and year-over-year CapEx intensity with the company\'s own history and eligible sector peers, penalizes material acceleration that lacks forward-revenue-estimate or improving FCF-conversion support, and gives only a modest credit when both growth and cash conversion confirm the spend. It requires five aligned quarters and a latest quarter no more than 200 days old; missing, thin, stale, or misaligned inputs stay explicitly unavailable and score zero rather than being inferred from prose.',
-    technicals: 'The confirmed daily price chart: RSI movement and extremes, MACD, moving-average trend, streak, confirmed support/resistance, 52-week position, one standardized-move family, and a current-bar AI chart pattern. The standardized family computes 5/10/20-session return z-scores plus volume z-score, interpreted with ATR distance and Bollinger location, but emits only one capped −1…+1 contribution — the correlated horizons never stack. Conflicting extreme horizons fail neutral. Upside extremes need trend plus expanding volume on the latest confirmed up bar; unsupported upside scores exhaustion. Downside mean reversion needs support and drying volume. Unsigned raw relative volume never earns a bullish point: directional volume remains evidence in Mechanicals and Entry Timing. A changed-bar cached chart read is display-only and scores zero.',
+    technicals: 'The confirmed daily price chart: RSI movement and extremes, MACD, moving-average trend, streak, confirmed support/resistance, 52-week position, and one standardized-move family. The standardized family computes 5/10/20-session return z-scores plus volume z-score, interpreted with ATR distance and Bollinger location, but emits only one capped −1…+1 contribution — the correlated horizons never stack. Conflicting extreme horizons fail neutral. Upside extremes need trend plus expanding volume on the latest confirmed up bar; unsupported upside scores exhaustion. Downside mean reversion needs support and drying volume. Unsigned raw relative volume never earns a bullish point: directional volume remains evidence in Mechanicals and Entry Timing.',
     mechanicals: 'The name\'s OWN options and positioning plumbing: unusual directional flow, open-interest call/put skew, short-interest change or squeeze conditions, signed hourly volume, the contrarian aggregate put/call read, overnight net call-versus-put ΔOI, gamma-squeeze setup quality, and multi-session flow persistence. Market-wide SPY/VIX and cross-asset tape are not scored again here. After the four pillars and IV Cost form the side, the separate continuous Regime overlay can support or oppose that side without beta weighting, pillar reweighting, side flips, below-bar recruitment, or tier promotion.',
     narrative: 'The story driving the stock on the name\'s OWN evidence: AI-read news catalysts, sector narrative with lifecycle/hype controls, and informational social/media context where the feed is not decision-grade. Market-wide macro, DXY, yields, breadth, credit, and volatility are not duplicated inside Narrative. They enter only through the continuous side-aware Regime overlay after the four pillars and IV Cost; the overlay does not reweight Fundamentals or Narrative, consume Entry Timing, flip a side, recruit a below-bar name, or promote a tier.',
     ivCost: 'The direction-agnostic cost of buying option premium. The point contribution (bounded −2…+1) is standardized against today\'s fresh, eligible investable universe; the ticker\'s own-history IV value, percentile, z-score, rank date, and surface date remain visible interpretation/provenance, not the direct point map. A thin universe cohort fails closed to neutral. A materially inverted front term structure may add only a small −0.5 penalty when earnings or a scheduled macro event does not already explain it; explained inversion is context only, never double-counted. IV Cost is mirrored to reduce or increase conviction on calls and puts symmetrically and cannot cross zero or manufacture the opposite side.',
@@ -40542,23 +40378,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var timing = side && g && g.timing ? g.timing[side] : null;
       var stateName = timing && timing.state ? timing.state : 'wait';
       var headline = timing && timing.headline ? timing.headline : 'Entry confirmation is incomplete';
-      var signals = g && g.pillars && g.pillars.technicals && Array.isArray(g.pillars.technicals.signals)
-        ? g.pillars.technicals.signals : [];
-      var pattern = null;
-      for (var si = 0; si < signals.length; si++){
-        if (signals[si] && signals[si].key === 'chartPattern'){ pattern = signals[si]; break; }
-      }
-      var name = pattern && pattern.value ? String(pattern.value) : '';
-      if (!name || name === 'None' || !side) return { state:stateName, headline:headline };
-      var bullishPatterns = ['Cup and Handle','Inverse Head and Shoulders','Bull Flag','Ascending Triangle','Double Bottom'];
-      var bearishPatterns = ['Head and Shoulders','Descending Triangle','Double Top'];
-      var patternSide = bullishPatterns.indexOf(name) >= 0 ? 'call' : bearishPatterns.indexOf(name) >= 0 ? 'put' : '';
-      if (!patternSide || patternSide === side) return { state:stateName, headline:headline };
-      var confirmed = pattern.available === true;
-      return {
-        state: confirmed ? 'avoid' : 'wait',
-        headline: (confirmed ? 'Avoid — confirmed ' : 'Wait — forming ') + name + ' conflicts with ' + side + 's'
-      };
+      return { state:stateName, headline:headline };
     }
     function directoryFreshness(data, covered){
       var builtMs = data && data.builtAtIso ? Date.parse(data.builtAtIso) : NaN;

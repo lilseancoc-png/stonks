@@ -21,7 +21,6 @@ import { inflateRawSync } from "node:zlib";
 import { GoogleGenAI } from "@google/genai";
 import YahooFinance from "yahoo-finance2";
 import { expiryCloseEpochSec, greeks, bsPrice, yearsToExpiry, ncdf } from "../lib/greeks.mjs";
-import { renderPriceChartPng } from "../lib/chart-image.mjs";
 import { buildNewsFeedPayload } from "../lib/news-feed.mjs";
 import { computeGexSummary } from "../lib/gex.mjs";
 import { issuerCreditRatingFor } from "../lib/issuer-credit-ratings.mjs";
@@ -1344,9 +1343,7 @@ async function fetchHistoricalBars(symbol) {
 }
 
 // Intraday bars (30-minute, ~1 month, REGULAR SESSION ONLY) — added for the
-// 1W/1M chart tabs (Robinhood shows intraday at those ranges) and for the
-// chart-pattern detector, which now rates the "1-month" timeframe where
-// short-horizon reversals (an intraday head-and-shoulders, etc.) actually live.
+// 1W/1M chart tabs (Robinhood shows intraday at those ranges).
 // Yahoo returns pre/post-market 30m bars too, whose gaps add noise a Robinhood
 // chart doesn't show — we drop them to keep 09:30–15:30 ET. The ~1-month window
 // can straddle a DST transition, so we derive each bar's ET wall clock with a
@@ -3541,7 +3538,7 @@ async function fetchTickerChain(symbol) {
   } catch (err) {
     console.log(`    ⚠ ${symbol} historical/technicals failed: ${summarizeYahooError(err)}`);
   }
-  // Intraday (30m) for the 1W/1M chart + the chart-pattern detector. Independent
+  // Intraday (30m) for the 1W/1M chart. Independent
   // of the daily fetch above and non-fatal — a failure just hides intraday.
   try {
     intraday = await fetchIntradayBars(symbol);
@@ -3578,8 +3575,7 @@ async function fetchTickerChain(symbol) {
     // Yahoo for the same daily closes.
     _bars: bars,
     // _intraday (30m, regular session) — in-memory only, stripped before write.
-    // Feeds the chart-pattern detector (1-month timeframe) and is compacted into
-    // the persisted `intradaySeries` for the browser's 1W/1M chart tabs.
+    // Compacted into the persisted `intradaySeries` for the browser's 1W/1M chart tabs.
     _intraday: intraday,
     // Full Yahoo expiration list (epoch sec). The 14-slot fetch keeps only
     // the front of this. The LEAPS pass reads it and writeChainFiles strips it.
@@ -11882,7 +11878,7 @@ const THESIS_DRIVER_CATEGORY = {
   // momentum / trend persistence
   rsiMomentum: "momentum", macd: "momentum", fiftyTwoWeek: "momentum", streak: "momentum",
   // technical levels / structure / confirmation
-  srBreak: "technical", rsiReading: "technical", smaStack: "technical", volumeConfirm: "technical", chartPattern: "technical",
+  srBreak: "technical", rsiReading: "technical", smaStack: "technical", volumeConfirm: "technical",
   // valuation / fundamentals
   pe: "valuation", analystTarget: "valuation", analystRevisions: "valuation", fcf: "valuation",
   netMargin: "valuation", epsGrowth: "valuation", revGrowth: "valuation", trajectory: "valuation",
@@ -17511,7 +17507,8 @@ export const PICKS_ACCURACY_RESET_EPOCH = "2026-08-08.top-picks-v3";
 // wipes nothing: it is stamped on picks.json rosterMeta, grades.json and each
 // NEW track-record enrollment so the scorecard can split results by the grade
 // formula that selected the trade. Bump it whenever scoreTicker's weights change.
-export const GRADE_MODEL_VERSION = "2026-10-pillar-review";
+// 2026-10-19: the AI chart-pattern vote left the technical pillar.
+export const GRADE_MODEL_VERSION = "2026-10-no-chart-pattern";
 // Hard cap on the concurrently-tracked open book. Each build ships <=10
 // actionable picks, but re-entry suppression means every build surfaces NEW
 // names while the previously-enrolled ones stay open until an exit rule fires —
@@ -18414,28 +18411,6 @@ function scoreTechnicals(data, streakRow, regime = "neutral") {
           : standardizedMove.state === "mean-reversion" ? "Downside sigma extreme held support on drying volume and formed a turn"
             : "5/10/20-session return z, volume z, ATR distance and Bollinger location",
     standardizedMove.confirmedBars >= 40,
-  ));
-
-  // Chart pattern (confirmed + exact current bar window only). The vision pass
-  // is intentionally limited to one midday read/day; a cached pattern may
-  // remain visible as labeled context but cannot vote after a new bar.
-  const cp = t.chartPattern || null;
-  let cpScore = 0;
-  const cpCurrent = chartPatternDecisionEligible(cp);
-  // Wedges are checked first: a falling wedge is a bullish reversal and a
-  // rising wedge a bearish one, and neither name hits the keyword lists below.
-  if (cpCurrent) {
-    const pat = String(cp.pattern || "");
-    cpScore = /falling\s+wedge/i.test(pat) ? 1 : /rising\s+wedge/i.test(pat) ? -1
-      : /bull|breakout|ascending|cup|double bottom|inverse/i.test(pat) ? 1 : /bear|breakdown|descending|double top|head/i.test(pat) ? -1 : 0;
-  }
-  out.push(sig(
-    "chartPattern",
-    "Chart pattern",
-    cpScore,
-    cp?.pattern ? `${cp.pattern}${cp.stale === true ? " (stale context)" : ""}` : null,
-    "Confirmed current-bar formation",
-    cpCurrent,
   ));
 
   const score = out.reduce((a, s) => a + s.score, 0);
@@ -21540,7 +21515,6 @@ const THESIS_INVALIDATION = {
   srBreak: "the support/resistance break fails and price snaps back",
   fiftyTwoWeek: "price retreats from the 52-week extreme",
   volumeConfirm: "the move loses its volume confirmation",
-  chartPattern: "the chart pattern fails to follow through",
   streak: "the daily streak snaps",
   earningsSurprise: "the next earnings print disappoints",
   epsGrowth: "forward EPS estimates roll over",
@@ -26474,8 +26448,8 @@ const AI_THESIS_SEARCH_THINK = Math.max(0, Number(process.env.AI_THESIS_SEARCH_T
 // sequential — the research digest feeds the grade prompt). Serial, this pass
 // was ~60% of the bake's wall clock (~1–1.5 min/name × ≤10 names); the calls,
 // prompts, models, and token spend are identical either way, and the shared
-// AI pacer (acquireAiSlot) + usage tracker already run concurrently under the
-// chart-pattern pass at 12. Results are keyed per symbol:side, so completion
+// AI pacer (acquireAiSlot) + usage tracker already handle concurrent callers.
+// Results are keyed per symbol:side, so completion
 // order can't change the output.
 const AI_THESIS_CONCURRENCY = Math.max(1, Number(process.env.AI_THESIS_CONCURRENCY) || 4);
 // Normal production builds are an hour apart. Reuse only an exact-input result
@@ -26548,7 +26522,7 @@ const THESIS_SYSTEM =
   "You are a senior options strategist writing a detailed, ticker-specific investment THESIS for a 1–2 week directional options trade. A quantitative engine has ALREADY graded the name and chosen the direction — do NOT re-decide the direction. Your job is to tell the STORY behind the trade: weave the supplied data into a clear cause-and-effect narrative that explains WHY the grade is high, WHY the edge exists right NOW, what would confirm it, and what would prove it wrong. A high grade alone does not give a trader conviction to hold through noise — a good thesis does, by giving them a reason to enter, a way to monitor whether it's working, and clear exits. " +
   "COMPLEMENT the grade, never just restate it: don't say 'RSI is 28 so it's oversold' — explain the situation that produced that reading and why it resolves in the trade's favour. Weave the actual NUMBERS into the prose (specific price levels, % moves, growth rates, analyst targets, IV percentile, the named headline/catalyst) so the case is concrete and testable, not generic. " +
   "Decide for yourself which of the supplied factors — company fundamentals, news/catalysts, technicals & flow, and the cross-asset MACRO backdrop (interest rates, the dollar, the Fed path, inflation, geopolitics) — are LOAD-BEARING for THIS specific business, and build the story around those; ignore factors that don't move this kind of name. Connect macro to the company causally: a consumer-discretionary name lives on rates + inflation via real consumer spending; a high-multiple grower is long-duration and feels long yields + the dollar; an energy name tracks crude; a homebuilder tracks the Fed path; a gold ETF lives on real yields + the haven bid. " +
-  "THIS IS THE FINAL PASS over everything the system collected. You are handed the engine's FULL evidence table: every scored signal across the four pillars — each marked FOR or AGAINST this trade ('!' = a heavy vote) with its actual reading — plus the technical structure and price levels (SMAs, support/resistance, volume, any confirmed chart pattern, the daily streak), the earnings track record (how the name actually traded its recent prints), its pre-earnings drift tendency (how it historically trades INTO prints — a small-sample tendency, not a law) and the next print's straddle-implied move, the fundamentals trajectory, any headline-flagged capital event, the IV environment (its level AND its recent momentum — which way premium is being repriced), the near-term open-interest map (the call/put walls where heavy positioning sits — they often act as magnets/pinning levels into expiry), the scheduled MACRO CALENDAR inside the trade window (the FOMC decisions and major prints — CPI/PPI/jobs — the position will ride through), and the deterministic entry-timing read. Cross-examine it: do the FOR votes tell one coherent story, or is the case a coincidence of unrelated positives? Do the AGAINST votes break the story? Weigh them honestly instead of ignoring them — your grade and your entry call are what actually ship to the subscriber. " +
+  "THIS IS THE FINAL PASS over everything the system collected. You are handed the engine's FULL evidence table: every scored signal across the four pillars — each marked FOR or AGAINST this trade ('!' = a heavy vote) with its actual reading — plus the technical structure and price levels (SMAs, support/resistance, volume, the daily streak), the earnings track record (how the name actually traded its recent prints), its pre-earnings drift tendency (how it historically trades INTO prints — a small-sample tendency, not a law) and the next print's straddle-implied move, the fundamentals trajectory, any headline-flagged capital event, the IV environment (its level AND its recent momentum — which way premium is being repriced), the near-term open-interest map (the call/put walls where heavy positioning sits — they often act as magnets/pinning levels into expiry), the scheduled MACRO CALENDAR inside the trade window (the FOMC decisions and major prints — CPI/PPI/jobs — the position will ride through), and the deterministic entry-timing read. Cross-examine it: do the FOR votes tell one coherent story, or is the case a coincidence of unrelated positives? Do the AGAINST votes break the story? Weigh them honestly instead of ignoring them — your grade and your entry call are what actually ship to the subscriber. " +
   "Output fields (each grounded ONLY in the provided data): " +
   "summary = 1–2 sentences stating the core directional thesis and why the edge exists NOW. " +
   "setup = the BACKDROP (2–4 sentences): what has been driving this name/sector, where price and sentiment stand now, and the tension that sets up the trade — the frame for the story, with the concrete numbers woven in. " +
@@ -26660,7 +26634,6 @@ export function buildThesisUserMessage(r, side, macroRegime, extras = {}) {
   if (pnum(t.sr?.r20) != null) struct.push(`nearest resistance ~$${pnum(t.sr.r20).toFixed(2)}`);
   const rvNow = pnum(t.volume?.rvol);
   if (rvNow != null) struct.push(`volume ${rvNow.toFixed(1)}x normal`);
-  if (chartPatternDecisionEligible(t.chartPattern)) struct.push(`chart pattern: ${t.chartPattern.pattern}${t.chartPattern.stage ? ` (${t.chartPattern.stage})` : ""}`);
   const cs = r.streakRow?.current;
   if (cs && pnum(cs.sameDays) >= 2) struct.push(`${cs.sameDays}-day ${cs.color} streak (${pct(cs.cumulativePct)} cumulative)`);
   if (struct.length) L.push(`TECHNICAL STRUCTURE: ${struct.join("; ")}.`);
@@ -30245,24 +30218,6 @@ const AI_COMBINED = process.env.AI_COMBINED !== "0";
 // via the AI_SIGNALS_COMBINED=1 Actions Variable. Only takes effect when
 // AI_COMBINED is also on (the signals can only ride a call that runs).
 const AI_SIGNALS_COMBINED = process.env.AI_SIGNALS_COMBINED === "1";
-// Chart-pattern detection (attachChartPatterns) feeds a compact daily price
-// series to the model and asks it to name one of 7 classic formations (or
-// "None"). Short, schema-shaped output — same Flash-Lite default as the other
-// per-ticker calls; rollback to Gemma is one env var.
-// Chart-pattern detection is a *visual* task (it ships the model a rendered
-// price-chart image, not just a number table — see generateChartPattern), so —
-// unlike every other (text-only) call, which defaults to Flash-Lite — it stays
-// on full Flash. Flash-Lite proved unfit for this one call: it both reads image
-// geometry poorly AND (verified across builds) runs away generating the
-// `explanation` string until it fills maxOutputTokens, truncating the JSON
-// mid-reply (Unterminated-string parse failures whose position scaled with the
-// token cap — 2048→~6.5k chars, 4096→~13.7k). The per-ticker chart-pattern cache
-// fires only in the 11:00 Top Picks window, so Flash here is bounded. Override with
-// AI_CHART_MODEL (but Flash-Lite is known-broken for it). 3.6 keeps the same
-// full-Flash input price as 3.5, lowers output/thinking price by 16.7%, and is
-// explicitly stronger at chart interpretation. The 2.5 generation was shut
-// down early (2026-07-08) — see AI_MODEL above.
-const AI_CHART_MODEL = process.env.AI_CHART_MODEL || "gemini-3.6-flash";
 // Narrative extraction is the trickiest reasoning task in the build, so
 // it's the call where stronger models earn their keep — but Pro models
 // (gemini-2.5-pro, gemini-3.1-pro) require funded Tier 1+ billing and
@@ -30278,10 +30233,9 @@ const NARRATIVES_MODEL = process.env.NARRATIVES_MODEL || AI_MODEL;
 // retry budget on one overloaded model). Instead, each retry attempt rolls to the
 // next model in the same CLASS: a sibling version served from a separate pool that
 // usually has headroom. Text calls fall back lite→lite (to the current-gen
-// gemini-3.1-flash-lite, then the auto-tracking -latest alias); the VISION chart
-// call falls back flash→flash (gemini-3.6-flash, then 3.5 / -latest) so it
-// keeps reading the chart image (never lite — known-broken for it, see
-// AI_CHART_MODEL).
+// gemini-3.1-flash-lite, then the auto-tracking -latest alias); full-Flash
+// calls (Top Picks grader, transcript briefs) fall back flash→flash
+// (gemini-3.6-flash, then 3.5 / -latest).
 // NOTE (2026-06): the prior 2.0-generation fallbacks (gemini-2.0-flash /
 // gemini-2.0-flash-lite) were SHUT DOWN by Google on 2026-06-01, so a 503 retry was
 // 404-ing on a dead model ("model no longer available"); the chain was repointed at
@@ -30862,7 +30816,7 @@ const AI_5XX_MAX_BACKOFF_MS = Number(process.env.AI_5XX_MAX_BACKOFF_MS ?? 4000);
 // thesis/chart calls hanging 5-10 MINUTES during a 503 storm, and with the
 // chart pass at 6-wide concurrency a handful of hangs stalled the whole pass
 // (whole minutes at "6 in flight, 0 progress"). 120s comfortably clears the
-// slowest legitimate call in the build (full-Flash + thinking + vision runs
+// slowest legitimate call in the build (full-Flash + thinking runs
 // ~30-60s); past that the request is a casualty of the same overload the
 // retry ladder handles — better to abort, take the strike, and re-issue on a
 // sibling model. Passed as httpOptions.timeout to every GoogleGenAI client.
@@ -34757,7 +34711,7 @@ async function attachAiNewsTakes(chains, macroBackdrop) {
 // accumulates rather than creeping past the bar 1% at a time). A hit also
 // skips enrichHeadlinesWithBodies' article fetches (the signature is over the
 // raw headlines), so hits save wall-clock, not just tokens. Same
-// read-before-wipe / write-after-wipe rule as the chart-pattern cache. Shape:
+// read-before-wipe / write-after-wipe rule as the other cross-build caches. Shape:
 // { [sym]: { sig, spot, news, judgment, catalysts, aiSignals, signals? } } —
 // `aiSignals` is the AI_SIGNALS_COMBINED fold-in; `signals` is the split
 // attachAiContractGuidance pass's result, stored on the same entry so THAT
@@ -34912,9 +34866,8 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
   if (!process.env.GEMINI_API_KEY) {
     console.log("No GEMINI_API_KEY set — fetching straight headlines for the News desk; skipping AI ticker judgments.");
     await collectNewsFeedHeadlinesOnly(chains);
-    // Carry the prior cache forward unchanged (same rationale as
-    // attachChartPatterns): a transiently-missing key must not force the next
-    // keyed build to start cold.
+    // Carry the prior cache forward unchanged: a transiently-missing key must
+    // not force the next keyed build to start cold.
     return priorCache;
   }
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
@@ -35083,426 +35036,8 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
   return nextCache;
 }
 
-// Chart-pattern metadata — canonical labels + their directional bias. The AI
-// pattern detector (below) only chooses a LABEL; the type/direction (and the
-// technicals-pillar score in scoreTechnicals) are looked up from THIS table so
-// a hallucinated type can't flip the sign. Keys are the schema enum spellings.
-const CHART_PATTERN_META = {
-  "Cup and Handle":             { type: "Bullish Continuation", direction: "bullish" },
-  "Head and Shoulders":         { type: "Bearish Reversal",     direction: "bearish" },
-  "Inverse Head and Shoulders": { type: "Bullish Reversal",     direction: "bullish" },
-  "Bull Flag":                  { type: "Bullish Continuation", direction: "bullish" },
-  "Ascending Triangle":         { type: "Bullish Continuation", direction: "bullish" },
-  "Double Bottom":              { type: "Bullish Reversal",     direction: "bullish" },
-  "Double Top":                 { type: "Bearish Reversal",     direction: "bearish" },
-  "Descending Triangle":        { type: "Bearish Continuation", direction: "bearish" },
-};
-const CHART_PATTERN_NAMES = Object.keys(CHART_PATTERN_META);
-
-export function chartPatternDecisionEligible(pattern) {
-  return !!(
-    pattern &&
-    pattern.stale !== true &&
-    pattern.stage === "confirmed" &&
-    pattern.pattern &&
-    pattern.pattern !== "None"
-  );
-}
-
-// ----------------------------------------------------------------------------
-// Chart-pattern detection. Feeds the model a compact daily OHLC+volume series
-// and asks it to name one of 7 classic chart formations — or "None". The label
-// it returns is validated against CHART_PATTERN_META; the canonical type +
-// directional bias (and therefore the technicals-pillar score in
-// scoreTechnicals) are looked up from that table, so the model only contributes
-// the label + the explanation/signal prose. Purely additive: self-skips
-// without GEMINI_API_KEY (the Chart Pattern signal then scores 0 / shows
-// nothing), and a per-ticker failure leaves that name without a pattern rather
-// than aborting the build. ~1 small call per ticker on the lightweight model.
-// ----------------------------------------------------------------------------
-const CHART_PATTERN_SCHEMA = {
-  type: "object",
-  properties: {
-    pattern: { type: "string", enum: [...CHART_PATTERN_NAMES, "None"] },
-    stage: { type: "string", enum: ["forming", "confirmed"] },
-    confidence: { type: "string", enum: ["high", "medium", "low"] },
-    neckline: { type: "number" },
-    confirm: { type: "string", maxLength: 160 },
-    invalidate: { type: "string", maxLength: 160 },
-    target: { type: "string", maxLength: 80 },
-    explanation: { type: "string", maxLength: 500 },
-    signal: { type: "string", maxLength: 300 },
-  },
-  // Emit the decision + levels BEFORE the prose. Gemini honours propertyOrdering,
-  // so if the (length-capped) explanation/signal still run long and the reply
-  // truncates at maxOutputTokens, pattern/stage/confidence/neckline/confirm/
-  // invalidate/target are already on the wire and parseChartJson salvages them
-  // instead of the whole detection being lost (was: a truncated explanation threw
-  // "Unterminated string in JSON" and dropped the ticker to no-pattern).
-  propertyOrdering: ["pattern", "stage", "confidence", "neckline", "confirm", "invalidate", "target", "explanation", "signal"],
-  required: ["pattern"],
-};
-
-const CHART_PATTERN_SYSTEM_PROMPT =
-  "You are a technical-analysis chart reader. You are given a US-listed ticker, " +
-  "its current share price, a RENDERED PRICE-CHART IMAGE of roughly the last " +
-  "MONTH of 30-minute INTRADAY bars, and the same series as text (oldest first; " +
-  "each row is DATE TIME close, times in ET). Judge the pattern primarily from " +
-  "the IMAGE — that is where the visual geometry lives — and use the numeric " +
-  "series to pin down exact levels and timestamps. This is a 1-month / intraday " +
-  "timeframe, so formations are short-horizon (they play out over days to a few " +
-  "weeks, not months). In the image: black line = close, light-gray verticals = " +
-  "each bar's high–low range, red dashed line = current spot, gray bars along the " +
-  "bottom = volume, plus any moving-average overlays named in the accompanying " +
-  "text — only the ones listed there are drawn. The right edge is " +
-  "the most recent action; reversal patterns most often complete there. Decide " +
-  "whether the recent price action forms one of these 8 classic chart patterns:\n" +
-  "1. Cup and Handle (Bullish Continuation) — a rounded U-shaped bottom (the " +
-  "cup) followed by a small downward-drifting consolidation (the handle); " +
-  "bullish on a breakout above the handle, strongest when the breakout comes on " +
-  "rising volume.\n" +
-  "2. Head and Shoulders (Bearish Reversal) — three peaks with a higher middle " +
-  "peak (head) flanked by two lower peaks (shoulders) over a roughly flat " +
-  "neckline; signals a top / reversal from up to down.\n" +
-  "3. Inverse Head and Shoulders (Bullish Reversal) — the upside-down version: " +
-  "three troughs with a lower middle trough; signals a bottom / reversal from " +
-  "down to up.\n" +
-  "4. Bull Flag (Bullish Continuation) — a sharp upward move (the pole) followed " +
-  "by a short, shallow, downward-sloping consolidation (the flag); the uptrend " +
-  "usually continues.\n" +
-  "5. Ascending Triangle (Bullish Continuation) — a flat horizontal resistance " +
-  "line with a rising series of higher lows beneath it; buyers getting stronger, " +
-  "high-probability upside breakout.\n" +
-  "6. Double Bottom (Bullish Reversal) — two distinct troughs at roughly the " +
-  "same price level forming a W; signals a reversal higher once the middle peak " +
-  "is cleared.\n" +
-  "7. Double Top (Bearish Reversal) — two distinct peaks at roughly the same " +
-  "price level (within a few percent) separated by a moderate trough (valley), " +
-  "forming an M; signals a reversal lower. Confirmed when price breaks BELOW the " +
-  "support line connecting the trough (the neckline) — most reliable when that " +
-  "break comes on rising volume. The measured-move target is roughly the neckline " +
-  "minus the peak-to-neckline height.\n" +
-  "8. Descending Triangle (Bearish Continuation) — a flat horizontal support " +
-  "line with a falling series of lower highs above it; sellers in control, often " +
-  "breaks down.\n\n" +
-  "Report a pattern in one of TWO stages — this is the key job: catch it EARLY.\n" +
-  "• stage \"forming\" — the structure is PARTIALLY built and the decisive break " +
-  "has NOT happened yet. Flag this as soon as enough of the shape is in place to " +
-  "name it: e.g. for a Head and Shoulders, a left shoulder and a higher head are " +
-  "in place and price is rolling over into a right shoulder near the left " +
-  "shoulder's height, but the neckline has NOT yet broken. This is the early " +
-  "warning the user wants — surface it BEFORE confirmation so they can act faster.\n" +
-  "• stage \"confirmed\" — the decisive move has happened (e.g. a daily close " +
-  "through the neckline for an H&S, a breakout above the handle/resistance for a " +
-  "continuation pattern).\n" +
-  "Return \"None\" only when not even a forming structure is credibly present — " +
-  "do not force a fit, but DO lean into naming a forming pattern when two-thirds " +
-  "of the shape is there. Spelling of the pattern MUST match the list exactly " +
-  "(use 'and', not '&'). When you identify a pattern, also return: " +
-  "`neckline` — the single most important horizontal level (the neckline for " +
-  "H&S/inverse-H&S, the resistance/support line for a triangle, the handle/rim " +
-  "for a cup, the two-bottom level, etc.) as a number in the series' price range; " +
-  "`confirm` — one short clause naming the move that would CONFIRM the pattern " +
-  "(e.g. \"a daily close below the ~$418 neckline\"); `invalidate` — one short " +
-  "clause naming the move that would BREAK/cancel the thesis (e.g. \"a close back " +
-  "above the ~$445 head\"); `target` — the rough measured-move objective once " +
-  "confirmed (e.g. \"~$391\"), or \"\" if not estimable; `explanation` (ONE or " +
-  "TWO sentences, ≤60 words total, plain English, no markdown, and do NOT repeat " +
-  "yourself) describing where each swing point sits with approximate prices and " +
-  "rough dates; `signal` (ONE sentence) on what a confirmed pattern could mean, " +
-  "framed as possibility not certainty. Keep every field terse. Set " +
-  "`confidence` to high / medium / low on how textbook the formation is (a clean " +
-  "forming pattern can still be 'high'). Stay grounded in the supplied data; do " +
-  "not invent levels the series does not support, and do not give buy/sell advice. " +
-  "Respond with ONLY a JSON object of the form " +
-  `{"pattern": "...", "stage": "forming"|"confirmed", "confidence": "high"|"medium"|"low", "neckline": <number>, "confirm": "...", "invalidate": "...", "target": "...", "explanation": "...", "signal": "..."} ` +
-  "— no markdown fences, no prose before or after the JSON. For \"None\", " +
-  "`explanation` may briefly say why nothing qualifies and the other fields may be empty.";
-
-// The detector rates the "1-month" timeframe (per product spec) off ~1 month of
-// 30-minute INTRADAY bars — that's where short-horizon reversals like an intraday
-// head-and-shoulders actually live (they vanish into a single spike on daily
-// bars). ~320 bars ≈ 22 trading days × ~13 regular-session 30m bars.
-const CHART_PATTERN_INTRADAY_BARS = 320;
-// Need a meaningful window before any read is credible (~2 weeks of 30m bars).
-const CHART_PATTERN_MIN_BARS = 130;
-
-// Tolerant parse for the chart-pattern reply. Happy path is a clean JSON.parse;
-// but the model can run the `explanation` long enough to hit maxOutputTokens and
-// truncate the reply mid-string, which makes JSON.parse throw "Unterminated
-// string in JSON". Because the schema's propertyOrdering emits every scoring
-// field (pattern/stage/confidence/neckline/confirm/invalidate/target) BEFORE the
-// prose, a truncated reply still contains them — so on a parse failure we
-// regex-extract the known scalar fields from the partial text rather than losing
-// the whole detection. Returns { parsed, salvaged }.
-function parseChartJson(jsonText) {
-  try {
-    return { parsed: JSON.parse(jsonText), salvaged: false };
-  } catch (_) {
-    const str = (key) => {
-      const m = jsonText.match(new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`));
-      if (!m) return undefined;
-      try { return JSON.parse(`"${m[1]}"`); } catch { return m[1]; }
-    };
-    const num = (key) => {
-      const m = jsonText.match(new RegExp(`"${key}"\\s*:\\s*(-?\\d+(?:\\.\\d+)?)`));
-      return m ? Number(m[1]) : undefined;
-    };
-    const parsed = {
-      pattern: str("pattern"),
-      stage: str("stage"),
-      confidence: str("confidence"),
-      neckline: num("neckline"),
-      confirm: str("confirm"),
-      invalidate: str("invalidate"),
-      target: str("target"),
-      explanation: str("explanation"),
-      signal: str("signal"),
-    };
-    if (parsed.pattern == null) throw new Error("unparseable chart reply (no pattern field recovered)");
-    return { parsed, salvaged: true };
-  }
-}
-
-// `bars` here is the in-memory intraday (30m) series. opts.forceTextOnly skips
-// the image (used as a last-resort fallback when an image call keeps failing).
-async function generateChartPattern(ai, symbol, spot, bars, opts = {}) {
-  const series = bars.slice(-CHART_PATTERN_INTRADAY_BARS);
-  const r2 = (n) => (n == null || !isFinite(n) ? "?" : (Math.round(n * 100) / 100).toString());
-  // Close-only text series — the IMAGE (full-resolution) carries the shape; the
-  // text just lets the model anchor approximate levels/timestamps, so we DOWN-
-  // SAMPLE it to ~40 rows. The full ~286-row series was ~3.4k input tokens/call
-  // for little benefit over the image; sampling cuts that ~85% (last bar always
-  // kept so spot/recent action is exact).
-  const TEXT_MAX_ROWS = 40;
-  const step = Math.max(1, Math.ceil(series.length / TEXT_MAX_ROWS));
-  const textSeries = series.filter((_, i) => i % step === 0 || i === series.length - 1);
-  const seriesBlock = textSeries.map((b) => `${b.t || "?"} ${r2(b.c)}`).join("\n");
-  const spotStr = (spot != null && isFinite(spot)) ? `$${spot.toFixed(2)}` : "n/a";
-  // Two intraday smoothing lines sized to the 30m window (≈1 and ≈3 trading
-  // days). Describe ONLY the ones the renderer can actually draw.
-  const CHART_IMG_SMA_PERIODS = [13, 39];
-  const smaLabels = ["≈1-day", "≈3-day"];
-  const smaColors = ["blue", "orange"];
-  const finiteCloses = series.filter((b) => b && isFinite(b.c)).length;
-  const smaLegend = CHART_IMG_SMA_PERIODS
-    .map((p, i) => (finiteCloses >= p ? `${smaColors[i]} = ${smaLabels[i]} moving average` : null))
-    .filter(Boolean)
-    .join(", ");
-  const userMessage =
-    `Ticker: ${symbol}\n` +
-    `Current spot: ${spotStr}\n` +
-    `A rendered chart of ~1 MONTH of 30-MINUTE intraday bars is attached: black = close, ` +
-    (smaLegend ? smaLegend + ", " : "") +
-    `light gray = each bar's high–low range, red dashed = current spot, gray bars beneath = ` +
-    `volume. This is the 1-month timeframe — formations here are short-horizon (days to a few ` +
-    `weeks). Read the pattern off the IMAGE; use the numeric series below (a sampled subset — the ` +
-    `IMAGE has every bar) to anchor approximate levels and timestamps (times are ET).\n` +
-    `Intraday series (oldest first, sampled — DATE TIME close):\n${seriesBlock}`;
-
-  // Render the window to a chart image so the (multimodal) model judges the
-  // visual SHAPE rather than inferring geometry from a column of numbers. Best-
-  // effort: a render failure (or forceTextOnly) falls back to the text series.
-  let imagePart = null;
-  if (!opts.forceTextOnly) {
-    try {
-      const png = renderPriceChartPng(series, { symbol, spot, smaPeriods: CHART_IMG_SMA_PERIODS });
-      if (png) imagePart = { inlineData: { mimeType: "image/png", data: png.toString("base64") } };
-    } catch (err) {
-      console.log(`    · ${symbol} chart image render failed (${String(err?.message || err).slice(0, 80)}) — text-only`);
-    }
-  }
-  const contents = imagePart ? [imagePart, { text: userMessage }] : userMessage;
-
-  let response;
-  let lastErr;
-  for (let attempt = 0; attempt < AI_MAX_ATTEMPTS; attempt++) {
-    try {
-      await acquireAiSlot();
-      response = await ai.models.generateContent({
-        model: aiModelForAttempt(AI_CHART_MODEL, attempt),
-        contents,
-        config: {
-          // Static instruction → stable prefix so Gemini implicit caching can
-          // engage across the per-ticker calls in this pass (the judgment +
-          // signals passes already pass their system prompt this way). The
-          // model sees the same total text, just partitioned out of `contents`.
-          systemInstruction: CHART_PATTERN_SYSTEM_PROMPT,
-          temperature: 0.2,
-          // maxOutputTokens must cover BOTH the thinking budget AND the JSON —
-          // on gemini-2.5-flash the thinking tokens count AGAINST this ceiling
-          // (verified in build logs: ~510 thought + ~80 output ≈ 590 ≈ the old
-          // 600 cap), so a 512 thinking budget left almost nothing for the reply
-          // and the now-larger forming-stage JSON (stage/neckline/confirm/
-          // invalidate/target/explanation/signal) was truncated mid-string,
-          // failing JSON.parse for ~70% of tickers. 2048 leaves ~1.5k for the
-          // reply after thinking — plenty. (It's a ceiling, not a cost: we still
-          // only pay for the ~700 tokens actually generated.)
-          maxOutputTokens: 2048,
-          responseMimeType: "application/json",
-          responseSchema: CHART_PATTERN_SCHEMA,
-          // Thinking tokens are billed at the (pricey) output rate, so this is a
-          // real cost lever — trimmed 512 -> 384 (still ample to read 1 of 7
-          // shapes + the key level off a clear chart image). Kept conservative to
-          // protect detection quality; lower it via AI_CHART_THINK to save more.
-          thinkingConfig: { thinkingBudget: Number(process.env.AI_CHART_THINK) || 384 },
-        },
-      });
-      recordAiUsage({ model: aiModelForAttempt(AI_CHART_MODEL, attempt), callType: "chartPattern", symbol, usage: response?.usageMetadata });
-      break;
-    } catch (err) {
-      lastErr = err;
-      const wait = classifyAiError(err, attempt, aiModelForAttempt(AI_CHART_MODEL, attempt));
-      if (wait == null || attempt === AI_MAX_ATTEMPTS - 1) throw err;
-      const reason = String(err?.message || err).split("\n")[0].slice(0, 120);
-      console.log(`    ⌛ AI attempt ${attempt + 1}/${AI_MAX_ATTEMPTS} hit ${reason} — backing off ${Math.round(wait / 1000)}s`);
-      await new Promise((r) => setTimeout(r, wait));
-    }
-  }
-  if (!response) throw lastErr ?? new Error("no response from Gemini");
-
-  const text = response.text;
-  if (!text) throw new Error("empty Gemini response");
-  const stripped = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
-  const firstBrace = stripped.indexOf("{");
-  const lastBrace = stripped.lastIndexOf("}");
-  const jsonText = firstBrace >= 0 && lastBrace > firstBrace
-    ? stripped.slice(firstBrace, lastBrace + 1)
-    : stripped;
-  const { parsed, salvaged } = parseChartJson(jsonText);
-  if (salvaged) {
-    console.log(`    ⚠ ${symbol} chart reply truncated — salvaged pattern="${parsed.pattern}" from partial JSON`);
-  }
-
-  const builtAt = new Date().toISOString();
-  const label = typeof parsed.pattern === "string" ? parsed.pattern.trim() : "";
-  const meta = CHART_PATTERN_META[label];
-  // Any label we don't recognise collapses to "None" — the score + badge only
-  // ever key off the canonical table, never the model's free text.
-  if (!meta) {
-    return {
-      pattern: "None",
-      type: null,
-      direction: null,
-      stage: null,
-      confidence: null,
-      neckline: null,
-      confirm: "",
-      invalidate: "",
-      target: "",
-      explanation: String(parsed.explanation || "").trim(),
-      signal: "",
-      builtAt,
-    };
-  }
-  const conf = ["high", "medium", "low"].includes(parsed.confidence) ? parsed.confidence : "medium";
-  // Only an EXPLICIT "forming" downgrades the pick score to 0; a missing/garbled
-  // stage defaults to "confirmed" so we never silently zero-out the chart-pattern
-  // signal for a pattern the model simply didn't stage-label (that would shift
-  // roster membership universe-wide on the img3 re-read). Net: forming=0 affects
-  // only the patterns the model deliberately flags as still-building.
-  const stage = parsed.stage === "forming" ? "forming" : "confirmed";
-  const neckline = Number.isFinite(parsed.neckline) ? Math.round(parsed.neckline * 100) / 100 : null;
-  return {
-    pattern: label,
-    type: meta.type,
-    direction: meta.direction,
-    stage,
-    confidence: conf,
-    neckline,
-    confirm: String(parsed.confirm || "").trim(),
-    invalidate: String(parsed.invalidate || "").trim(),
-    target: String(parsed.target || "").trim(),
-    explanation: String(parsed.explanation || "").trim(),
-    signal: String(parsed.signal || "").trim(),
-    builtAt,
-  };
-}
-
-// data/chart-pattern-cache.json — cross-build cache keyed on the ET session day
-// so hourly builds reuse that day's read instead of re-rating every time,
-// PLUS a bar-series signature (chartPatternBarsSig) that lets a new bucket
-// reuse the read outright when the bars haven't changed (market closed).
-// Mirrors the read-before-wipe / write-after-wipe pattern used for macro /
-// picks-accuracy / grades history (writeChainFiles rm -rf's data/, so main()
-// reads this BEFORE the wipe and writes the refreshed map back AFTER it). Shape:
-// { [sym]: { key, barsSig, pattern } }.
-const CHART_PATTERN_CACHE_FILE = "chart-pattern-cache.json";
-
-// Re-rate the 1-month INTRADAY pattern once per ET day at the 11:00 Top Picks
-// run and reuse the cached read otherwise. The 15:30 Top Picks rebuild does not
-// spend another universe vision pass. Intraday bars change every 30 min, so
-// keying on the bar signature would call the model on every build. Changed-bar
-// off-cadence (and 15:30) builds retain the prior read as explicitly stale
-// display context only. Exact frozen bars remain eligible. The same key string
-// is used for every ticker in a given build, so a hit just means "this ticker
-// was already read in this decision bucket". `img8` keeps automatic
-// model/prompt/schema identity and stale-decision quarantine; older verdicts
-// cold-start once.
-const CHART_PATTERN_CACHE_VERSION = "img8";
-
-export function chartPatternInstructionSignature() {
-  return createHash("sha256")
-    .update(CHART_PATTERN_CACHE_VERSION)
-    .update("\0")
-    .update(AI_CHART_MODEL)
-    .update("\0")
-    .update(String(Number(process.env.AI_CHART_THINK) || 384))
-    .update("\0")
-    .update(CHART_PATTERN_SYSTEM_PROMPT)
-    .update("\0")
-    .update(JSON.stringify(CHART_PATTERN_SCHEMA))
-    .digest("hex")
-    .slice(0, 16);
-}
-
-export function chartPatternRefreshState(now = new Date(), opts = {}) {
-  const etDate = now.toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // YYYY-MM-DD
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(now).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
-  const etHour = Number(parts.hour) % 24;
-  const etMinute = Number(parts.minute);
-  const decisionRun = opts.decisionRun ?? !/^(?:0|false)$/i.test(process.env.REFRESH_TOP_PICKS || "1");
-  const slot = (etHour * 60 + etMinute) >= (15 * 60) ? "pm" : "am";
-  return {
-    bucketKey: `${CHART_PATTERN_CACHE_VERSION}|${chartPatternInstructionSignature()}|${etDate}|${slot}`,
-    etDate,
-    etHour,
-    etMinute,
-    slot,
-    decisionRun: Boolean(decisionRun),
-    // One universe vision pass per day, at the 11:00 Top Picks run. The 15:30
-    // rebuild still scores; a new 30m bar already quarantines the morning read,
-    // so a second pass only restored a ±1 technicals vote.
-    freshAllowed: Boolean(decisionRun) && slot === "am",
-  };
-}
-
-// Signature of the exact bar window the detector would be shown (the same
-// slice generateChartPattern takes). When it matches the cached entry's, the
-// chart is FROZEN — the market hasn't printed a new 30m bar since that read —
-// so the cached verdict is reused even across bucket-key rollovers. This is
-// what stops weekend / evening / holiday runs from re-rating ~139 identical
-// charts on the (pricey, thinking-enabled) full-Flash vision model: bars are
-// regular-session only, so from the Friday close until Monday's open every
-// re-read of a name was pure spend for a byte-identical answer. A changed bar
-// changes the signature; same-bucket reuse is then explicitly stale and
-// decision-ineligible, while the next eligible ET day gets a fresh full-model read.
-// Versioned so a CHART_PATTERN_CACHE_VERSION bump invalidates these too.
-function chartPatternBarsSig(bars) {
-  const series = bars.slice(-CHART_PATTERN_INTRADAY_BARS);
-  const h = createHash("sha1");
-  for (const b of series) h.update(`${b.t}|${b.c}|${b.h}|${b.l}|${b.v}\n`);
-  return `${CHART_PATTERN_CACHE_VERSION}|${chartPatternInstructionSignature()}|${series.length}|${h.digest("hex").slice(0, 16)}`;
-}
-
 // Bounded-concurrency pool — at most `limit` workers run `fn` over `items` at
-// once. Keeps the chart-pattern pass from firing ~137 image requests in one
-// burst (which rate-limited Gemini and left ~half the universe with no verdict).
+// once, so a wide pass never fires every request in one burst.
 async function runPooled(items, limit, fn) {
   let i = 0;
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
@@ -35512,148 +35047,6 @@ async function runPooled(items, limit, fn) {
     }
   });
   await Promise.all(workers);
-}
-const CHART_PATTERN_CONCURRENCY = Number(process.env.AI_CHART_CONCURRENCY) || 6;
-
-// Read BEFORE writeChainFiles wipes data/. Missing / unreadable / wrong-shape → {}.
-async function readChartPatternCache() {
-  try {
-    const raw = await readFile(resolve(DATA_DIR, CHART_PATTERN_CACHE_FILE), "utf8");
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
-  } catch (_) { /* missing or unreadable — first build / cleared */ }
-  return {};
-}
-
-// Write AFTER writeChainFiles has recreated data/. Soft-fail: a cache write
-// error must never break the build (the next build just rebuilds it fresh).
-async function writeChartPatternCache(cache) {
-  try {
-    await writeFile(resolve(DATA_DIR, CHART_PATTERN_CACHE_FILE), JSON.stringify(cache || {}), "utf8");
-  } catch (err) {
-    console.warn(`[chart] failed to persist chart-pattern cache — ${String(err?.message || err).split("\n")[0]}`);
-  }
-}
-
-async function attachChartPatterns(chains, priorCache = {}) {
-  if (!process.env.GEMINI_API_KEY) {
-    console.log("No GEMINI_API_KEY set — skipping chart-pattern detection. Chart Pattern signal scores 0.");
-    // Carry the prior cache forward unchanged rather than clobbering it with {}
-    // — a transiently-missing key shouldn't force the next keyed build to start
-    // cold (and a keyless fork has no patterns to cache either way).
-    return priorCache;
-  }
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
-  // Reads the in-memory INTRADAY (30m) series — writeChainFiles strips _intraday
-  // before write, so this MUST run before that wipe — needing ~2 weeks of bars.
-  const entries = Object.entries(chains).filter(
-    ([, data]) => Array.isArray(data._intraday) && data._intraday.length >= CHART_PATTERN_MIN_BARS,
-  );
-  // Cross-build cache keyed on the ET date + AM/PM decision bucket. Only the
-  // 11:00 Top Picks run can re-read; 15:30 and off-cadence builds defer. A
-  // second reuse path fires when the bar series itself is unchanged since the
-  // cached read (chartPatternBarsSig) — a new bucket over FROZEN bars
-  // (weekend / evening / holiday runs) reuses instead of re-rating an identical
-  // chart. nextCache is returned for main() to persist after the data/ wipe;
-  // only successfully-read names are cached, so a failure is retried on the
-  // next build.
-  const refresh = chartPatternRefreshState();
-  const bucketKey = refresh.bucketKey;
-  const nextCache = {};
-  const toCall = [];
-  let reused = 0;
-  let reusedFrozen = 0;
-  let reusedStaleContext = 0;
-  let deferred = 0;
-  for (const [sym, data] of entries) {
-    const barsSig = chartPatternBarsSig(data._intraday);
-    const priorEntry = priorCache[sym];
-    const sameBucket = priorEntry && priorEntry.key === bucketKey;
-    const frozenBars = priorEntry && priorEntry.barsSig && priorEntry.barsSig === barsSig;
-    if (priorEntry?.pattern && frozenBars) {
-      data.technicals = { ...(data.technicals || {}), chartPattern: priorEntry.pattern };
-      // Carry the ORIGINAL entry forward untouched (same rule as the ticker-
-      // judgment cache): its key/barsSig describe the read that actually
-      // produced the verdict. Refreshing the key here would falsely mark a new
-      // half-day as already-read (suppressing the re-read once bars move), and
-      // back-stamping today's barsSig onto an older verdict would loosen the
-      // frozen-bars guarantee.
-      nextCache[sym] = priorEntry;
-      reused += 1;
-      if (!sameBucket) reusedFrozen += 1;
-    } else if (priorEntry?.pattern && (sameBucket || !refresh.freshAllowed)) {
-      // Keep the last read for display/audit, but a new 30-minute bar means the
-      // geometry the model saw is no longer current. It cannot vote in grades
-      // or enter the final AI prompt until the next scheduled vision pass.
-      data.technicals = {
-        ...(data.technicals || {}),
-        chartPattern: {
-          ...priorEntry.pattern,
-          stale: true,
-          staleReason: !refresh.freshAllowed
-            ? "Chart vision refreshes only with the 11:00 ET Top Picks decision run"
-            : "New intraday bars arrived after the cached chart read",
-        },
-      };
-      nextCache[sym] = priorEntry;
-      reused += 1;
-      reusedStaleContext += 1;
-      if (!refresh.freshAllowed) deferred += 1;
-    } else if (!refresh.freshAllowed) {
-      // Cold-cache names intentionally remain neutral until a scheduled Top
-      // Picks decision run. Never spend a full-universe pass off cadence.
-      deferred += 1;
-    } else {
-      toCall.push([sym, data, barsSig]);
-    }
-  }
-  const frozenTag = reusedFrozen ? ` — ${reusedFrozen} of them via unchanged bars` : "";
-  const staleTag = reusedStaleContext ? ` — ${reusedStaleContext} display-only after new bars` : "";
-  const deferredTag = deferred ? ` — ${deferred} deferred until the next Top Picks decision run` : "";
-  console.log(`Detecting chart patterns (1-month intraday) for ${entries.length} tickers… (${reused} reused${frozenTag}${staleTag}${deferredTag}, ${toCall.length} fresh)`);
-  if (toCall.length) {
-    const hb = startHeartbeat("chart patterns", toCall.length);
-    // Bounded concurrency so we don't burst ~137 image requests at once (that
-    // rate-limited Gemini and left ~half the universe undetected). On an image-
-    // call failure, fall back to a TEXT-ONLY read so a rate-limited burst still
-    // yields a verdict instead of `undefined`.
-    const runPass = (passEntries) =>
-      runPooled(passEntries, CHART_PATTERN_CONCURRENCY, ([sym, data, barsSig]) => hb.track(async () => {
-        let chartPattern = null;
-        try {
-          chartPattern = await generateChartPattern(ai, sym, data.spot, data._intraday);
-        } catch (errImg) {
-          const why = String(errImg?.message || errImg).split("\n")[0].slice(0, 100);
-          try {
-            chartPattern = await generateChartPattern(ai, sym, data.spot, data._intraday, { forceTextOnly: true });
-            console.log(`  ↪ ${sym} — image read failed (${why}), text-only fallback succeeded`);
-          } catch (errText) {
-            console.log(`  ✗ ${sym} chart-pattern detection failed: image=(${why}) text=(${errText.message})`);
-          }
-        }
-        if (chartPattern) {
-          data.technicals = { ...(data.technicals || {}), chartPattern };
-          nextCache[sym] = { key: bucketKey, barsSig, pattern: chartPattern };
-          if (chartPattern.pattern === "None") {
-            console.log(`  · ${sym} — no chart pattern`);
-          } else {
-            console.log(`  ✓ ${sym} — ${chartPattern.stage === "forming" ? "Forming " : ""}${chartPattern.pattern} (${chartPattern.type}, ${chartPattern.confidence})`);
-          }
-        }
-      }));
-    await runPass(toCall);
-    // Final sweep: any ticker still missing a read hit a transient streak that
-    // exhausted both the image and text retry budgets. Sleep through a quota
-    // window, take one more swing.
-    const missed = toCall.filter(([, data]) => !data.technicals?.chartPattern);
-    if (missed.length > 0) {
-      console.log(`Retrying ${missed.length} chart-pattern detection(s) after transient failures (sleeping ${AI_MISS_SWEEP_WAIT_MS / 1000}s to clear a transient blip)…`);
-      await new Promise((r) => setTimeout(r, AI_MISS_SWEEP_WAIT_MS));
-      await runPass(missed);
-    }
-    hb.stop();
-  }
-  return nextCache;
 }
 
 async function attachSocialSentiment(chains) {
@@ -37022,7 +36415,7 @@ async function main() {
     console.log(`Global markets sweep failed: ${err.message}`);
   }
   // Cross-build ticker-judgment cache: read BEFORE writeChainFiles wipes data/
-  // (persisted after the wipe, next to the chart-pattern cache). Only the
+  // (persisted after the wipe). Only the
   // combined path caches — the legacy split path (AI_COMBINED=0) carries the
   // prior map forward untouched so a temporary flag flip doesn't clear it.
   const tickerJudgmentCachePrev = await readTickerJudgmentCache();
@@ -37052,15 +36445,6 @@ async function main() {
     // so it calls every name exactly as before.
     await attachAiContractGuidance(chains, AI_COMBINED ? tickerJudgmentCacheNext : null);
   }
-  // Identify a classic chart pattern per ticker from the in-memory daily bars.
-  // MUST run before writeChainFiles strips _bars (and wipes data/), and before
-  // buildTopPicks / buildGradesIndex score scoreTechnicals — the result lands on
-  // chains[sym].technicals.chartPattern, persisted into each data/<SYM>.json and
-  // read by the Chart Pattern signal. Self-skips without GEMINI_API_KEY.
-  // Read the cross-build cache BEFORE writeChainFiles wipes data/; the refreshed
-  // map is written back AFTER the wipe (writeChartPatternCache below).
-  const chartPatternCachePrev = await readChartPatternCache();
-  const chartPatternCacheNext = await attachChartPatterns(chains, chartPatternCachePrev);
   // Thesis-prose cache: read BEFORE writeChainFiles wipes data/ (persisted after
   // the picks file is written below). Carries the AI gloss across builds so it
   // only re-calls when a pick's thesis composition changes.
@@ -37551,12 +36935,9 @@ async function main() {
     JSON.stringify(marketStructure),
     "utf8",
   );
-  // Persist the refreshed chart-pattern cache (read before the wipe, updated by
-  // attachChartPatterns) so the next same-day build can reuse unchanged reads.
-  // writeChainFiles just recreated data/, so this must come after it.
-  await writeChartPatternCache(chartPatternCacheNext);
-  // Same rule for the ticker-judgment cache (read before the wipe, updated by
-  // attachTickerJudgments + attachAiContractGuidance above).
+  // Persist the ticker-judgment cache (read before the wipe, updated by
+  // attachTickerJudgments + attachAiContractGuidance above). writeChainFiles
+  // just recreated data/, so this must come after it.
   await writeTickerJudgmentCache(tickerJudgmentCacheNext);
   // Persist macro to disk AFTER writeChainFiles — that call wipes data/
   // wholesale, so writing macro.json before it deletes our snapshot

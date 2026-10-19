@@ -1,5 +1,4 @@
-// Offline checks for the free pattern pieces and the existing chart-pattern
-// and playbook gates. No network and no Gemini.
+// Offline checks for the free pattern pieces and the playbook gates. No network and no Gemini.
 import assert from "node:assert/strict";
 import {
   buildBreadthRecord,
@@ -12,7 +11,7 @@ import {
   mergeDailyCloses,
   needsLongIndexFetch,
 } from "../lib/pattern-recognition.mjs";
-import { chartPatternDecisionEligible, detectPlaybookCues } from "./build.mjs";
+import { detectPlaybookCues } from "./build.mjs";
 
 function addDays(date, days) {
   return new Date(Date.parse(`${date}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
@@ -170,17 +169,6 @@ assert.equal(payload.cost.serpApi, false);
 assert.equal(payload.cost.newVendor, false);
 assert.equal(payload.separate, true);
 assert.equal(payload.pieces.sentiment.state, "aligned");
-
-const chartNames = [
-  "Cup and Handle", "Head and Shoulders", "Inverse Head and Shoulders", "Bull Flag",
-  "Ascending Triangle", "Double Bottom", "Double Top", "Descending Triangle",
-];
-for (const name of chartNames) {
-  assert.equal(chartPatternDecisionEligible({ pattern: name, stage: "confirmed" }), true, name);
-  assert.equal(chartPatternDecisionEligible({ pattern: name, stage: "forming" }), false, name);
-  assert.equal(chartPatternDecisionEligible({ pattern: name, stage: "confirmed", stale: true }), false, name);
-}
-assert.equal(chartPatternDecisionEligible({ pattern: "None", stage: "confirmed" }), false);
 
 function cueIds(iso) {
   return detectPlaybookCues({ chains: {}, calendar: { releases: [] } }, new Date(iso)).map((cue) => cue.id);

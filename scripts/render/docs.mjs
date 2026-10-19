@@ -735,14 +735,14 @@ export const DOC_PAGES = {
     <a class="backlink reveal" href="/">← Back to stonks</a>
     <div class="kicker reveal">Technical Analysis · Reference Card</div>
     <h1 class="reveal">Chart <em>Patterns</em></h1>
-    <p class="sub reveal">The eight classic formations stonks flags on the intraday chart — drawn the way they actually look, with the tell, the trigger, and the trap for each. Built to eyeball, not to memorize.</p>
-    <div class="scope reveal">SCOPE&nbsp;→&nbsp;<b>the 8 patterns the detector grades</b>&nbsp;· 1-month / 30-min intraday timeframe</div>
+    <p class="sub reveal">The eight classic chart formations — drawn the way they actually look, with the tell, the trigger, and the trap for each. Built to eyeball, not to memorize.</p>
+    <div class="scope reveal">SCOPE&nbsp;→&nbsp;<b>the 8 classic shapes</b>&nbsp;· reference only</div>
   </header>
 
   <section class="pattern-desk" id="pattern-decision">
     <div class="pattern-decision">
       <div class="pattern-decision-head">
-        <div><small>Shape is context; the break is evidence</small><h2>Trade the confirmation—not the drawing</h2><p>The detector has two states. Forming means a recognizable shape is developing; confirmed means price has closed through the named level. Always compare that direction with the side you want to trade.</p></div>
+        <div><small>Shape is context; the break is evidence</small><h2>Trade the confirmation—not the drawing</h2><p>A pattern has two stages. Forming means a recognizable shape is developing; confirmed means price has closed through the named level. Always compare that direction with the side you want to trade.</p></div>
         <a href="/?tab=grade">Check a live ticker →</a>
       </div>
       <div class="pattern-states">
@@ -969,10 +969,10 @@ export const DOC_PAGES = {
   </section>
 
   <section id="pattern-usage">
-    <div class="shead"><span class="snum">i</span><h2>How stonks uses these</h2><p>where you'll see them</p></div>
+    <div class="shead"><span class="snum">i</span><h2>How to use this page</h2><p>reference only</p></div>
     <div class="note">
-      <p>The <b>Grade</b> tab runs an AI <b>chart-pattern detector</b> over each ticker's last ~month of 30-minute bars and labels any of these eight as <code>forming</code> or <code>confirmed</code>. Forming patterns score zero: they are an early warning with explicit confirmation and invalidation levels. A confirmed pattern can support an aligned thesis, while an opposing confirmed reversal blocks that selected side; an opposing forming reversal forces a wait. <b>Strategies uses the same gate</b>, so a high payoff score cannot turn a chart conflict into an entry. Use this guide to sanity-check the named shape and its levels on the current chart.</p>
-      <p><a href="/?tab=grade">Open Grade to inspect a live pattern →</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="/?tab=strategies">Model the payoff only after timing clears →</a></p>
+      <p>This page is a <b>reference only</b>. stonks no longer reads chart patterns automatically: the AI pattern read was retired in October 2026 after its confirmed calls proved right only about half the time. Patterns do not affect grades, Top Picks, entry timing or Strategies. Use this guide when you read a chart yourself, and pair any shape you spot with its named confirmation and invalidation levels.</p>
+      <p><a href="/?tab=grade">Open a ticker's price chart in Grade →</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="/?tab=strategies">Model the payoff only after timing clears →</a></p>
     </div>
   </section>
 

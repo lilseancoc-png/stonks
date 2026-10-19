@@ -94,7 +94,6 @@ const BAKE_REQUIRED_REWRITTEN_FILES = [
   "calendar.json",
   "capital-raises.json",
   "central-bank-gold.json",
-  "chart-pattern-cache.json",
   "commodities.json",
   "correlations.json",
   "earnings-calls.json",
@@ -453,21 +452,16 @@ async function auditBake({ report, dataDir, runStartedAt, now, expectedSymbols }
   if (gradeCount !== symbols.length) fail(report, `grades.json covers ${gradeCount} names but ${symbols.length} ticker files were rebuilt`);
   else pass(report, `grades.json coverage matches ticker files (${gradeCount})`);
 
-  // Cost-control may retain an 11:00 chart read after a newer 30-minute bar
-  // arrives, but that payload must be display-only everywhere. Prove the
-  // published grade did not accidentally score a stale cached pattern.
-  let staleChartRows = 0;
-  for (const [symbol, payload] of tickerPayloads) {
-    if (payload?.technicals?.chartPattern?.stale !== true) continue;
-    staleChartRows += 1;
-    const signals = grades?.grades?.[symbol]?.pillars?.technicals?.signals;
-    const signal = Array.isArray(signals) ? signals.find((row) => row?.key === "chartPattern") : null;
-    if (!signal || signal.score !== 0 || signal.available !== false) {
-      fail(report, `${symbol}: stale chart pattern is not quarantined in grades.json`);
-    }
-  }
-  if (staleChartRows > 0 && !report.errors.some((message) => message.includes("stale chart pattern is not quarantined"))) {
-    pass(report, `${staleChartRows} changed-bar chart pattern(s) are display-only in grades.json`);
+  // The AI chart-pattern vote was retired 2026-10-19. A published grade that
+  // still carries it means an old scorer shipped.
+  const chartPatternGrades = Object.entries(grades?.grades || {}).filter(([, row]) => {
+    const signals = row?.pillars?.technicals?.signals;
+    return Array.isArray(signals) && signals.some((signal) => signal?.key === "chartPattern");
+  }).map(([symbol]) => symbol);
+  if (chartPatternGrades.length) {
+    fail(report, `retired chart-pattern signal still scored in grades.json: ${chartPatternGrades.slice(0, 5).join(", ")}`);
+  } else if (gradeCount > 0) {
+    pass(report, "grades.json carries no retired chart-pattern signal");
   }
 
   for (const key of stampedFiles) {
@@ -997,7 +991,6 @@ async function selfTest() {
       marketState: "REGULAR",
       technicals: {
         rsi: 50,
-        chartPattern: { pattern: "Bull Flag", stage: "confirmed", stale: true },
       },
       ivRank: { asOf: "2026-07-30", iv: 0.4, n: 20, pctile: 50, rank: 50 },
       chains: {},
@@ -1029,7 +1022,7 @@ async function selfTest() {
               TEST: {
                 pillars: {
                   technicals: {
-                    signals: [{ key: "chartPattern", score: 0, available: false, value: "Bull Flag (stale context)" }],
+                    signals: [{ key: "rsiMomentum", score: 0, available: true, value: "50" }],
                   },
                 },
               },
@@ -1193,8 +1186,8 @@ async function selfTest() {
       now: new Date("2026-07-30T14:05:00.000Z"),
       expectedSymbols: ["TEST"],
     });
-    if (!unsafeChart.errors.some((message) => message.includes("stale chart pattern is not quarantined"))) {
-      throw new Error("self-test expected a stale chart pattern grade contribution to fail");
+    if (!unsafeChart.errors.some((message) => message.includes("retired chart-pattern signal"))) {
+      throw new Error("self-test expected a retired chart-pattern grade signal to fail");
     }
     await write("grades.json", {
       builtAtIso: stamp,
@@ -1202,7 +1195,7 @@ async function selfTest() {
         TEST: {
           pillars: {
             technicals: {
-              signals: [{ key: "chartPattern", score: 0, available: false, value: "Bull Flag (stale context)" }],
+              signals: [{ key: "rsiMomentum", score: 0, available: true, value: "50" }],
             },
           },
         },
