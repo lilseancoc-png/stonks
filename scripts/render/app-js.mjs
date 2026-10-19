@@ -32444,6 +32444,15 @@ ${renderWorkspaceBindings()}
     var s = String(iso).slice(0, 10);
     return s;
   }
+  // Exact open / close time of a trade, e.g. "Oct 9, 2026, 11:04 AM EDT", in
+  // the reader's display time zone. Entry and exit stamps are the pick run's
+  // full ISO instant; a bare YYYY-MM-DD (no time stored) shows the date only.
+  function accDateTime(iso){
+    if (!iso) return '—';
+    var s = String(iso);
+    if (!/T\\d{2}:\\d{2}/.test(s)) return s.slice(0, 10);
+    return formatDisplayInstant(s, { year:'numeric', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) || s.slice(0, 10);
+  }
   // Grade-formula cutover markers. Trades carry the gradeModelVersion that
   // selected them (absent on trades from before the first stamp). The record
   // is never wiped on a formula change; instead each list splits into
@@ -35131,7 +35140,7 @@ ${renderWorkspaceBindings()}
           headPnl +
         '</div>' +
         '<div class="acc-row-meta">' +
-          '<span>Entered ' + accDateShort(e.entryDate) + ' @ $' + entry.toFixed(2) + '</span>' +
+          '<span class="acc-when">Opened ' + accDateTime(e.entryDate) + ' @ $' + entry.toFixed(2) + '</span>' +
           '<span>Now $' + last.toFixed(2) + (entry > 0 ? ' · stock ' + accPct(chg) : '') + '</span>' +
           (dleft != null && isFinite(dleft) ? '<span>' + (dleft >= 0 ? dleft + 'd left' : 'expired') + '</span>' : '') +
           peakDip +
@@ -35215,13 +35224,13 @@ ${renderWorkspaceBindings()}
           rHeadPnl +
         '</div>' +
         '<div class="acc-row-meta">' +
-          '<span>$' + entry.toFixed(2) + (isFinite(exit) ? ' → $' + exit.toFixed(2) : '') + '</span>' +
+          '<span class="acc-when">Opened ' + accDateTime(e.entryDate) + ' @ $' + entry.toFixed(2) + '</span>' +
+          '<span class="acc-when">Closed ' + accDateTime(e.exitDate) + (isFinite(exit) ? ' @ $' + exit.toFixed(2) : '') + '</span>' +
           (held != null ? '<span>' + held + 'd held</span>' : '') +
           ((isFinite(e.optHiPct) || isFinite(e.optLoPct))
             ? '<span class="acc-peak" title="Peak / trough of the modeled contract P&L over the hold.">contract peak ' + accPct(e.optHiPct) + ' · dip ' + accPct(e.optLoPct) + '</span>'
             : '<span class="acc-peak">peak ' + accPct(e.mfePct) + ' · dip -' + Math.abs(Number(e.maePct) || 0).toFixed(1) + '%</span>') +
           (exitLbl ? '<span class="acc-exit" title="Why the engine closed this position.">exit: ' + escapeHtml(exitLbl) + '</span>' : '') +
-          '<span>resolved ' + accDateShort(e.exitDate) + '</span>' +
         '</div>' +
         accStrategyBlock(e, true) +
         accCheckpointsBlock(e) +
