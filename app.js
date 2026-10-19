@@ -25041,6 +25041,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (isOpen) return { label:'OPEN', cls:'open' };
     if (e && e.outcome === 'target') return { label:'RIGHT - TARGET', cls:'win' };
     if (e && e.outcome === 'stop') return { label:'WRONG - STOP', cls:'loss' };
+    if (e && e.outcome === 'left-universe') return { label:'CLOSED - LEFT COVERAGE', cls:'timeout' };
     return { label:'TIMEOUT', cls:'timeout' };
   }
   function rotRecordRow(e, isOpen){
@@ -26484,6 +26485,34 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // Index scorecard — futures (morning) / index-ETF close (closing).
     if (Array.isArray(b.indexes) && b.indexes.length){
       blocks.push(briefBlock('Index scorecard', briefIndexChips(b.indexes)));
+    }
+    // Pre-market (morning) / after-hours (closing) — live extended-hours
+    // quotes at mint time plus the earnings prints around the bell. Earnings
+    // lines carry the print and the reaction; a pending print says so.
+    if (b.extended){
+      var xt = b.extended;
+      var xPre = xt.session === 'premarket';
+      var xInner = '';
+      if (Array.isArray(xt.indexes) && xt.indexes.length) xInner += briefIndexChips(xt.indexes);
+      var xMov = xt.movers || {};
+      if ((xMov.gainers && xMov.gainers.length) || (xMov.losers && xMov.losers.length)){
+        xInner += '<div class="brief-chips">' + briefMoverChips(xMov.gainers, 'pos') + briefMoverChips(xMov.losers, 'neg') + '</div>';
+      }
+      if (Array.isArray(xt.earnings) && xt.earnings.length){
+        xInner += '<ul class="brief-hlines">' + xt.earnings.map(function(e){
+          var bits = ['Reported ' + (e.when || '')];
+          if (e.epsActual != null && isFinite(e.epsActual)){
+            bits.push('EPS ' + e.epsActual + (e.epsEstimate != null && isFinite(e.epsEstimate) ? ' vs ' + e.epsEstimate + ' est' : ''));
+          }
+          if (e.chPct == null) bits.push(xPre ? 'no pre-market trade yet' : 'not traded yet');
+          return '<li class="brief-hline">' +
+            '<button type="button" class="brief-chip ' + briefPctCls(e.chPct) + '" data-sym="' + briefEsc(e.sym) + '">' +
+              briefEsc(e.sym) + (e.chPct != null ? ' <span>' + briefEsc(briefFmtPct(e.chPct)) + '</span>' : '') + '</button>' +
+            '<span class="brief-hline-title">' + briefEsc(bits.join(' · ')) + '</span>' +
+          '</li>';
+        }).join('') + '</ul>';
+      }
+      if (xInner) blocks.push(briefBlock(xPre ? 'Pre-market' : 'After hours', xInner));
     }
     // Yesterday's confirmed index close (morning) — the anchor the overnight
     // futures read trades against.
