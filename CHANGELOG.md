@@ -30,12 +30,19 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - **AI CapEx guidance keeps itself current.** Each bake reads the latest earnings-call brief for the ten tracked names and replaces a hand-entered full-year CapEx guide when a newer call states one. It flags a guide that predates the company's latest report so the tab never shows an old figure as current. This adds no AI calls, because the call briefs are already minted once per quarter. Guidance is also refreshed now: MSFT about $175B (after the lease reclassification), AMZN about $220B, META $130–145B, and TSMC $60–64B added. `scripts/build.mjs`, `lib/ai-capex.mjs`, `scripts/render/app-js.mjs`.
 
+- **Strategies' "Setup timing" now uses the engine's entry-timing call (go / wait / avoid) from `grades.json`** for the side the tape points to, instead of the AI chart pattern. Wait or avoid holds the contract cap at zero. The cap also stays at zero while that read is still loading or if it fails to load. A mixed tape, or a ticker outside the graded set, shows no timing block.
+- **The grade formula version moves to `2026-10-no-chart-pattern`.** The Track Record keeps every past trade and shows a dated divider labeled "Chart-pattern vote removed" between trades picked by the new formula and older ones. Closed trades keep their recorded exit reasons.
+
 ### Fixed
 
 - **TSMC on AI CapEx is no longer stuck on 2024.** SEC's XBRL feed has no TSMC data after FY2024, so when a filer's SEC series is more than about 14 months old, the tab rolls it forward from the quarterly cash-flow rows the bake already pulls from Yahoo. The rows are converted from NT$ at each quarter's average exchange rate, and a unit check rejects anything more than 3x off the last SEC year. `scripts/build.mjs`, `lib/ai-capex.mjs`.
 - **The AI CapEx headline no longer calls a mix of years "FY2026".** The total adds each company's own latest fiscal year, so it is now labeled with the range of years and says which companies are in each. The TTM run-rate shows the dates it runs through. `scripts/build.mjs`, `scripts/render/app-js.mjs`.
 - A Sector Rotation trade on a name that left coverage now closes as "left coverage" at its latest price. Before, it had no daily bars, so its 20-session time limit never fired and it could stay open for months. These closes show in the ledger but stay out of the scored record.
 - The hourly Heatmap refresh drops names that are no longer covered, so a removed name no longer shows between a coverage change and the next full build.
+
+### Removed
+
+- **The AI chart-pattern read is gone.** The daily 11:00 ET chart-image call to Gemini 3.6 Flash (one per ticker, about $0.81 per trading day at 85 names), its cache (`chart-pattern-cache.json`) and `lib/chart-image.mjs` are removed. Over 37 trading days its confirmed calls beat the cross-section only 46–52% of the time. Everything that read it is updated: the ±1 chart-pattern vote leaves the Technicals pillar, the Top Picks grader prompt no longer cites a pattern, the "chart pattern fails to follow through" exit reason is dropped for new trades, the Grade tab's chart verdict no longer blocks or waits on a pattern, the Setup card's pattern banner becomes a link to the Chart patterns reference page, the Compare table loses its pattern row, the ticker directory's timing chip no longer overrides on a pattern, and the position checker's news-plus-chart "trim" nudge is removed (news alone never triggered it). The Chart patterns reference page keeps all eight drawings and now says it is reference only.
 
 ## 2026-10-18
 

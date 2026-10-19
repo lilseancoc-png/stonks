@@ -76,7 +76,7 @@ Most important design rule: a strong observation is not automatically a trade. T
 | Owner | Compare Companies | Normalized multi-symbol performance comparison. |
 | Owner | Strategies | Live multi-leg option payoff builder and structure guidance. |
 | Tools | Buyer's Manual | Educational options reference. |
-| Tools | Chart Patterns | Educational pattern reference used alongside the AI pattern detector. |
+| Tools | Chart Patterns | Educational pattern reference (drawings, triggers, targets). The AI pattern read was retired on 2026-10-19. |
 | Tools | Refresh Schedule | ET publication timeline for builds, scanners, Brief, OI, and live overlays. |
 | Legal | Privacy Policy / Terms of Use | Session, privacy, membership, risk, and legal disclosures. |
 
@@ -90,7 +90,6 @@ Every major ticker workflow begins with the same baked per-symbol object. Depend
 - fundamentals, earnings, analyst data, margins, cash flow, valuation, and next earnings date;
 - recent news plus an AI ticker-specific news take;
 - guidance, major-contract/deal, and capital-raise signals;
-- chart-pattern classification;
 - sector, industry, peer, and macro context.
 
 Confirmed daily bars are used for decisions that must not peek at an unfinished session. Live prices may decorate the UI or recalculate an execution state, but a live quote does not silently rewrite a baked historical feature such as a z-score.
@@ -124,7 +123,6 @@ or conviction.
 - Confirmed support/resistance break: `±2`.
 - Contrarian 52-week position: `±1`.
 - Volume confirmation: `±1`.
-- Confirmed chart pattern: `±1` only while the exact analyzed 30-minute bars still match (falling wedge `+1`, rising wedge `-1`). A forming or changed-bar cached pattern is context, not score.
 
 ### Mechanicals
 
@@ -1417,7 +1415,7 @@ Templates:
 The guidance model reads:
 
 - tape direction from RSI, MACD, and SMA20;
-- confirmed/forming chart-pattern agreement or conflict;
+- the engine's entry-timing call (go / wait / avoid) for the side the tape points to, from `grades.json` ("Setup timing"; wait or avoid sets the contract cap to zero, and the cap stays at zero while that read is loading or if the load fails);
 - IV percentile: rich at `>=65`, cheap at `<=35`. This is the midrank of the constant-maturity ~30-day ATM IV inside the name’s own daily history. IV rank is the separate min-to-max position of that same reading. The Grade IV panel shows both; this desk uses the percentile.
 - earnings inside ten days.
 
@@ -1431,19 +1429,9 @@ It generally recommends:
 
 The tool builds legs from the live chain, lets the user replace chain mids with actual fills, and computes combined Greeks, entry debit/credit, payoff across an underlying-price sweep, breakeven crossings, max profit/loss, unlimited-risk flags, payoff chart, and risk-budget contract cap. A template is a payoff model, not an entry signal.
 
-### Chart-pattern detector
+### Chart patterns (retired)
 
-The build renders roughly one month of intraday price action and asks a vision-capable full Flash model to classify one of eight named classic patterns or None. It must return:
-
-- forming or confirmed;
-- confidence;
-- neckline;
-- confirmation;
-- invalidation;
-- target;
-- explanation and signal.
-
-Only confirmed patterns whose exact analyzed bar window still matches can score or enter a decision path. Forming patterns can change Strategies timing guidance while current. The full-quality vision pass runs once per ticker per trading day at the 11:00 Top Picks run. Results are cached by ET-date bucket plus bar-series signature. If a new bar arrives after that read, the old read is labeled `Stale context` and becomes display-only: it cannot alter the grade, Top Picks prompt, entry veto, strategy direction, or position advice. Frozen charts reuse across buckets, model/prompt/schema changes invalidate automatically, and the system retries text-only if the image call fails.
+The AI chart-pattern read (a daily full-Flash vision call per ticker) was removed on 2026-10-19. Over 37 trading days its confirmed calls beat the cross-section only 46–52% of the time, labels changed day to day, and it cost about $0.81 per trading day. Patterns no longer score, enter the Top Picks prompt, gate Strategies or the Grade verdict, or feed position advice. The Chart Patterns reference page keeps the drawings.
 
 ## 18. Data freshness, live behavior, and access control
 
@@ -1451,8 +1439,7 @@ Only confirmed patterns whose exact analyzed bar window still matches can score 
 
 - Full build: 10:00, 11:00, 13:30, 15:30, and 16:10 ET on weekdays.
 - Top Picks, Stock Picks, Sector Rotation, and Leveraged ETFs: 11:00 and
-  15:30 ET; other full builds carry the exact prior decisions. Chart vision
-  runs at 11:00 only.
+  15:30 ET; other full builds carry the exact prior decisions.
 - Brief: 08:30, 11:00, 13:30, and 16:10 ET.
 - Earnings-call transcripts: 09:00 ET (30 minutes before the open) and
   19:00 ET (three hours after the close). Full builds carry the last index.
@@ -1509,7 +1496,6 @@ AI is used for:
 - ticker news synthesis;
 - structured guidance/contract/capital-event extraction;
 - narratives;
-- chart-pattern vision;
 - Top Picks web research and final thesis/entry judgment;
 - Brief;
 - earnings-season and transcript summaries;
@@ -1531,7 +1517,7 @@ Deterministic code controls:
 - all historical record calculations;
 - server access control.
 
-Model resilience includes per-call model defaults, retry ladders, dead-model detection on 404, overload cooldown after repeated 5xx/network failures, HTTP timeouts, token budgeting, and an AI-health report. Most text work uses Flash-Lite; chart vision, transcripts, and Top Picks final judgment use full Flash. If AI fails, the site carries last-good prose or falls back to deterministic behavior rather than failing the build.
+Model resilience includes per-call model defaults, retry ladders, dead-model detection on 404, overload cooldown after repeated 5xx/network failures, HTTP timeouts, token budgeting, and an AI-health report. Most text work uses Flash-Lite; transcripts and Top Picks final judgment use full Flash. If AI fails, the site carries last-good prose or falls back to deterministic behavior rather than failing the build.
 
 ## 20. Audit findings and interpretation cautions
 

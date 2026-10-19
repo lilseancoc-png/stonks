@@ -11,8 +11,7 @@ name: Daily build
 # lines cover them:
 # `30 8,13,15 * * 1-5`, `0 9,10,11,19 * * 1-5`, and `10 16 * * 1-5`.
 # The 11:00 and 15:30 builds refresh Top Picks and the slower swing desks.
-# Chart vision runs only at 11:00; the 15:30 rebuild keeps the morning read
-# (stale/display-only after new 30-minute bars). Briefs refresh at 11:00,
+# Briefs refresh at 11:00,
 # 13:30, and 16:10 in addition to the 08:30 setup; other builds carry the last
 # coherent payload. Transcript summaries mint only at 09:00 (30 minutes
 # before the open) and 19:00 (three hours after the close). cron-job.org runs
@@ -404,13 +403,6 @@ jobs:
           # variables let the owner tighten them immediately without a deploy.
           AI_DAILY_TOKEN_CAP: ${{ vars.AI_DAILY_TOKEN_CAP }}
           AI_DAILY_CALL_CAP: ${{ vars.AI_DAILY_CALL_CAP }}
-          # The chart-pattern pass is the build's largest AI wall-clock block on
-          # the 11:00 cache-rollover (~139 fresh vision+thinking calls). 12-wide
-          # instead of the code default 6 halves that pass; call VOLUME is
-          # unchanged (~20 RPM against the 600 pacer), so this only raises
-          # in-flight parallelism, not the request rate. The 15:30 Top Picks
-          # rebuild does not re-run vision.
-          AI_CHART_CONCURRENCY: "12"
           # Model selection is plumbed through Actions Variables so we can
           # swap models (Gemma free tier → Gemini 2.5 Flash-Lite on paid
           # Tier 1, etc.) without touching code. Unset = build.mjs falls

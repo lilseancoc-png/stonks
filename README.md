@@ -1,15 +1,15 @@
 # stonks
 
 Single-page **Option Contract Rater**: search a curated ticker to jump straight
-into its chart — the AI chart-pattern read plus the full technicals, with
+into its chart and full technicals, with
 fundamentals, implied vol, news, and a built-in contract grader a tab away —
 then drill into the exact call or put you're eyeing (or paste numbers from your
 broker) for a plain-English read on whether it's worth trading.
 
 ## What it does
 
-Searching a ticker lands on the **Technicals** tab, led by the AI-identified
-chart pattern and the daily price chart. Grading a specific contract is one
+Searching a ticker lands on the **Technicals** tab, led by the daily price
+chart. Grading a specific contract is one
 section/tab on that page, alongside Fundamentals, Implied vol, and News. Two
 ways to grade a contract:
 
@@ -87,7 +87,7 @@ endpoint), which runs in ET so daylight saving is handled for us:
 - **08:30 ET weekdays** — lightweight pre-market Brief only.
 - **09:00 and 19:00 ET weekdays** — earnings-call transcript summaries only (30 minutes before the open, three hours after the close).
 - **10:00, 11:00, 13:30, 15:30, and 16:10 ET weekdays** — decision-grade full builds after the opening auction, through the verified close.
-- **11:00 and 15:30 ET weekdays** — Top Picks, Stock Picks, Sector Rotation, and Leveraged ETFs recompute; chart vision runs at 11:00 only. The other full builds carry those coherent decisions forward.
+- **11:00 and 15:30 ET weekdays** — Top Picks, Stock Picks, Sector Rotation, and Leveraged ETFs recompute. The other full builds carry those coherent decisions forward.
 - **11:00, 13:30, and 16:10 ET weekdays** — in-session/closing Brief refreshes.
 
 That's five full builds, two transcript passes, plus the lightweight pre-market Brief per trading day.

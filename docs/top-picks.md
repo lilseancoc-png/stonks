@@ -74,10 +74,9 @@ chip on the card (`{key,label,score,value,note}`).
 RSI movement (±1), RSI extreme reading (contrarian, reversal-confirmed, asymmetric:
 oversold-and-turning +2, overbought-and-turning −1),
 MACD (±1), moving-average trend (±1), streak (±1), support/resistance break
-(±2), 52-week position (contrarian, ±1), a capped **standardized-move** family,
-and a confirmed chart pattern (±1 only while the exact analyzed 30-minute bars
-still match; forming or changed-bar cached reads score 0; a falling wedge reads
-+1 and a rising wedge −1).
+(±2), 52-week position (contrarian, ±1), and a capped **standardized-move**
+family. (The AI chart-pattern vote was removed on 2026-10-19:
+`GRADE_MODEL_VERSION = "2026-10-no-chart-pattern"`.)
 
 The standardized-move family computes trailing return z-scores at 5, 10 and 20
 sessions plus a volume z-score, with ATR-normalized distance or Bollinger `%B`
@@ -714,8 +713,7 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   WHOLE picture per name — since 2026-07-10 the **full evidence table**: every
   scored signal across the four pillars, each with its display value and marked
   FOR/AGAINST the trade ("!" = a heavy vote), the technical structure & levels
-  (SMAs, nearest support/resistance, rvol, any confirmed current-bar chart pattern, the
-  daily streak), the **earnings track record** (recent prints' EPS surprise vs
+  (SMAs, nearest support/resistance, rvol, the daily streak), the **earnings track record** (recent prints' EPS surprise vs
   the next-session move + the upcoming print's straddle-implied move from
   `earningsHx`), the **pre-earnings drift** (2026-07-16: when the upcoming print
   is inside `PICKS_THESIS_DRIFT_DAYS` (25) the prompt adds how many recent prints

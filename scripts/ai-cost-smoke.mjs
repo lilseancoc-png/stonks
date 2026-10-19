@@ -4,28 +4,12 @@
 import assert from "node:assert/strict";
 import {
   aiDailyCallCapReached,
-  chartPatternRefreshState,
   estimateAiBucketCost,
   headlineCanContainAiSignals,
   isMaterialAiHeadline,
   newMaterialAiHeadlineCount,
 } from "./build.mjs";
 import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
-
-const tenAm = chartPatternRefreshState(new Date("2026-08-03T14:00:00Z"), { decisionRun: false });
-const elevenAm = chartPatternRefreshState(new Date("2026-08-03T15:00:00Z"), { decisionRun: true });
-const oneThirty = chartPatternRefreshState(new Date("2026-08-03T17:30:00Z"), { decisionRun: false });
-const threeThirty = chartPatternRefreshState(new Date("2026-08-03T19:30:00Z"), { decisionRun: true });
-const nextEtMorning = chartPatternRefreshState(new Date("2026-08-04T14:00:00Z"), { decisionRun: false });
-
-assert.equal(tenAm.etDate, "2026-08-03");
-assert.equal(tenAm.freshAllowed, false, "the 10:00 build must defer chart vision");
-assert.equal(elevenAm.freshAllowed, true, "the 11:00 Top Picks run must allow the AM chart pass");
-assert.equal(elevenAm.bucketKey, oneThirty.bucketKey, "off-cadence midday builds remain in the AM bucket");
-assert.notEqual(elevenAm.bucketKey, threeThirty.bucketKey, "the 15:30 Top Picks run must get a PM bucket");
-assert.equal(threeThirty.freshAllowed, false, "the 15:30 Top Picks run must defer the PM chart pass");
-assert.notEqual(elevenAm.bucketKey, nextEtMorning.bucketKey, "the next ET day must get a new bucket");
-assert.equal(nextEtMorning.freshAllowed, false, "the next 10:00 build must wait for its Top Picks run");
 
 const oneMillion = { inputTokens: 1_000_000, outputTokens: 0, cachedTokens: 0, thoughtTokens: 0 };
 assert.equal(estimateAiBucketCost("gemini-2.5-flash", oneMillion), 0.30);

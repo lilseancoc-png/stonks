@@ -31,8 +31,7 @@ import {
   buildEarningsTrackerPayload,
   tickerJudgmentInstructionSignature,
   tickerJudgmentSignature,
-  chartPatternDecisionEligible,
-  chartPatternInstructionSignature, applyPickSizing, buildTopPicksPayload,
+  applyPickSizing, buildTopPicksPayload,
   canDiff13FFirmSnapshot, findLatestTwo13Fs, mergeForm4TransactionRows,
   asPctPoints, stockQualityGate, computeStreakForTicker, confirmedDailyBars,
   capexCohortYoy, earningsEpsVerdict,
@@ -647,25 +646,21 @@ const zeroTtmCapex = computeCapexQualityMetrics({
 ok("CapEx quality: a valid zero TTM CapEx remains zero but cannot bypass the history gate",
   zeroTtmCapex.sales.ttmPct === 0 && zeroTtmCapex.snapshotAvailable === true
     && zeroTtmCapex.available === false);
-ok("chart pattern: current confirmed read is decision-eligible",
-  chartPatternDecisionEligible({ pattern: "Bull Flag", stage: "confirmed" }) === true);
-ok("chart pattern: changed-bar cached read is display-only",
-  chartPatternDecisionEligible({ pattern: "Bull Flag", stage: "confirmed", stale: true }) === false);
-ok("chart pattern: forming read remains decision-ineligible",
-  chartPatternDecisionEligible({ pattern: "Bull Flag", stage: "forming" }) === false);
-ok("chart pattern cache: model, prompt and schema have an instruction signature",
-  /^[a-f0-9]{16}$/.test(chartPatternInstructionSignature()));
-const staleChartChains = {
-  STALECHART: mkTicker({
+// The AI chart-pattern vote was retired (2026-10-19): a leftover cached read
+// on old ticker JSON must not create a technicals signal or move the grade.
+const leftoverChartChains = {
+  LEFTOVER: mkTicker({
     technicals: {
-      chartPattern: { pattern: "Bull Flag", direction: "bullish", stage: "confirmed", stale: true },
+      chartPattern: { pattern: "Bull Flag", direction: "bullish", stage: "confirmed" },
     },
   }),
+  NOPATTERN: mkTicker({ technicals: { chartPattern: null } }),
 };
-const staleChartGrade = buildGradesIndex(staleChartChains, [], null, null, null, null, {}).STALECHART;
-const staleChartSignal = staleChartGrade.pillars.technicals.signals.find((signal) => signal.key === "chartPattern");
-ok("chart pattern: stale read contributes zero to the grade",
-  staleChartSignal?.score === 0 && staleChartSignal?.available === false && /stale context/i.test(staleChartSignal?.value || ""));
+const leftoverGrades = buildGradesIndex(leftoverChartChains, [], null, null, null, null, {});
+ok("chart pattern: no technicals signal exists for it any more",
+  !leftoverGrades.LEFTOVER.pillars.technicals.signals.some((signal) => signal.key === "chartPattern"));
+ok("chart pattern: a leftover cached read does not move the grade",
+  leftoverGrades.LEFTOVER.total === leftoverGrades.NOPATTERN.total);
 ok("grades: recommendation tier/label", !!grades.BULLA.recommendation.tier && !!grades.BULLA.recommendation.label);
 ok("grades: tierCutoffs stashed", grades.tierCutoffs && grades.tierCutoffs.tradeCut === PICKS_MIN_CONVICTION);
 ok("grades: regimeBand stashed", grades.regimeBand === "neutral");
@@ -1668,8 +1663,8 @@ ok("classify: moderate grade + weak thesis → idea / watch", classifyPick(5, "w
   ok("prompt: every pillar's signals ride with FOR/AGAINST votes",
     /PILLAR — Technicals/.test(msg) && /PILLAR — Options flow/.test(msg) && /PILLAR — Fundamentals/.test(msg) && /PILLAR — Narrative/.test(msg) &&
     /MACD \(hist 0\.4\) FOR/.test(msg) && /News catalyst \(bearish\) AGAINST!/.test(msg));
-  ok("prompt: technical structure + streak + chart pattern cited",
-    /TECHNICAL STRUCTURE:/.test(msg) && /20D SMA \$99\.00/.test(msg) && /Bull Flag/.test(msg) && /3-day green streak/.test(msg));
+  ok("prompt: technical structure + streak cited, no chart pattern",
+    /TECHNICAL STRUCTURE:/.test(msg) && /20D SMA \$99\.00/.test(msg) && !/Bull Flag/.test(msg) && !/chart pattern/i.test(msg) && /3-day green streak/.test(msg));
   ok("prompt: earnings track record + straddle-implied move ride",
     /EARNINGS TRACK RECORD: 2026-04-30: EPS surprise \+6\.2%, stock \+4\.1% next session/.test(msg) && /NEXT EARNINGS: 2026-08-05 \(PM\), 26d out — the straddle already implies a ±7\.5% move/.test(msg));
   ok("prompt: trajectory + capital event + deterministic entry + entry-call ask ride",
@@ -2211,10 +2206,6 @@ const gradeOne = (data, opts = {}, unusual = null) => buildGradesIndex({ ONE: da
   ok("signals v2: overbought-and-turning RSI scores -1 (was -3)", sigOf(ob, "technicals", "rsiReading")?.score === -1);
   const os = gradeOne(mkTicker({ technicals: { rsi: 20, rsi5d: 16, macd: { hist: 0.2, line: -1, signal: -1.2 } } }));
   ok("signals v2: oversold-and-turning RSI scores +2 (was +3)", sigOf(os, "technicals", "rsiReading")?.score === 2);
-  const fw = gradeOne(mkTicker({ technicals: { chartPattern: { pattern: "Falling Wedge", stage: "confirmed" } } }));
-  const rw = gradeOne(mkTicker({ technicals: { chartPattern: { pattern: "Rising Wedge", stage: "confirmed" } } }));
-  ok("signals v2: falling wedge maps bullish and rising wedge bearish",
-    sigOf(fw, "technicals", "chartPattern")?.score === 1 && sigOf(rw, "technicals", "chartPattern")?.score === -1);
 }
 {
   const flowPayload = (calls, puts) => ({ tickers: [{ symbol: "ONE", contracts: [
