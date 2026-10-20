@@ -37,6 +37,7 @@ import { createFileEvidenceStore, loadEvidenceWindow, runEvidenceRecord } from "
 import { BRIEF_ACCESS_POLICY_VERSION } from "../lib/public-data-policy.mjs";
 import { buildBriefExtendedHours, extendedSessionForKind } from "../lib/brief-extended-hours.mjs";
 import { contentAssetVersion } from "../lib/asset-version.mjs";
+import { scoreSectorGrowth } from "../lib/sector-growth.mjs";
 import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
 import { assembleBakeLinkMap, LINK_MAP_SKIPPED_SOURCES } from "../lib/link-map.mjs";
 import {
@@ -2177,7 +2178,7 @@ async function fetchFundamentals(symbol) {
   const operatingCostsHistory = incomeQuarters
     .filter((q) => q.operatingCosts != null)
     .map((q) => ({ date: q.date, value: q.operatingCosts }));
-  const netIncomeHistory = incomeQuarters
+  const netIncomeHistoryFresh = incomeQuarters
     .filter((q) => q.netIncome != null)
     .map((q) => ({ date: q.date, value: q.netIncome }));
   const netMarginHistory = incomeQuarters
@@ -2241,6 +2242,10 @@ async function fetchFundamentals(symbol) {
     return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)).slice(-cap);
   };
   const revenueHistory = mergeQuarterValues(priorFund?.revenueHistory, revenueHistoryFresh);
+  // Net income accumulates the same way: the Fundamentals pillar's EPS growth
+  // check compares this quarter's year-over-year rate with the one before
+  // (lib/sector-growth.mjs), which needs six quarters.
+  const netIncomeHistory = mergeQuarterValues(priorFund?.netIncomeHistory, netIncomeHistoryFresh);
   const capexHistory = mergeQuarterValues(priorFund?.capexHistory, capexHistoryFresh);
   const operatingCashFlowHistory = mergeQuarterValues(
     priorFund?.operatingCashFlowHistory,
@@ -17513,7 +17518,8 @@ export const PICKS_ACCURACY_RESET_EPOCH = "2026-08-08.top-picks-v3";
 // NEW track-record enrollment so the scorecard can split results by the grade
 // formula that selected the trade. Bump it whenever scoreTicker's weights change.
 // 2026-10-19: the AI chart-pattern vote left the technical pillar.
-export const GRADE_MODEL_VERSION = "2026-10-no-chart-pattern";
+// 2026-10-20: revenue and EPS growth are judged against sector norms.
+export const GRADE_MODEL_VERSION = "2026-10-sector-growth";
 // Hard cap on the concurrently-tracked open book. Each build ships <=10
 // actionable picks, but re-entry suppression means every build surfaces NEW
 // names while the previously-enrolled ones stay open until an exit rule fires —
@@ -18191,13 +18197,28 @@ function scoreFundamentals(data, sectorMedianPE, sectorCapex = null, isEtf = fal
   }
   out.push(sig("earningsSurprise", "Earnings surprise", surp, surpVal, "Latest reported beat/miss", last != null));
 
-  // EPS / revenue growth YoY.
-  const eps = pnum(f.earningsGrowthYoy);
-  out.push(sig("epsGrowth", "EPS growth (YoY)", eps == null ? 0 : eps >= 30 ? 2 : eps >= 10 ? 1 : eps < -25 ? -2 : 0,
-    eps == null ? null : r1(eps) + "%", "Trailing EPS vs year ago", eps != null));
+  // EPS / revenue growth YoY, judged against the name's sector norm
+  // (lib/sector-growth.mjs: in-line band, -1 below it, -2 well below, with a
+  // recovery guard and an EPS one-off guard). Names without a growth profile
+  // keep the legacy one-size bars.
+  const eps = pnumN(f.earningsGrowthYoy);
   const rev = pnumN(f.revenueGrowthYoy);
-  out.push(sig("revGrowth", "Revenue growth (YoY)", rev == null ? 0 : rev >= 20 ? 2 : rev >= 8 ? 1 : rev < -20 ? -2 : 0,
-    rev == null ? null : r1(rev) + "%", "Trailing revenue vs year ago", rev != null));
+  const nowMsGrowth = opts.asOfIso && Number.isFinite(Date.parse(opts.asOfIso)) ? Date.parse(opts.asOfIso) : Date.now();
+  const growth = scoreSectorGrowth({
+    sym: opts.sym, sectorLabel: opts.sym ? SECTORS[opts.sym] : null,
+    revYoy: rev, epsYoy: eps, fundamentals: f, asOfMs: nowMsGrowth,
+  });
+  if (growth) {
+    out.push({ ...sig("epsGrowth", "EPS growth (YoY)", growth.eps.score, growth.eps.value, growth.eps.note, growth.eps.available),
+      growthProfile: growth.profileKey, growthVerdict: growth.eps.verdict });
+    out.push({ ...sig("revGrowth", "Revenue growth (YoY)", growth.rev.score, growth.rev.value, growth.rev.note, growth.rev.available),
+      growthProfile: growth.profileKey, growthVerdict: growth.rev.verdict });
+  } else {
+    out.push(sig("epsGrowth", "EPS growth (YoY)", eps == null ? 0 : eps >= 30 ? 2 : eps >= 10 ? 1 : eps < -25 ? -2 : 0,
+      eps == null ? null : r1(eps) + "%", "Trailing EPS vs year ago", eps != null));
+    out.push(sig("revGrowth", "Revenue growth (YoY)", rev == null ? 0 : rev >= 20 ? 2 : rev >= 8 ? 1 : rev < -20 ? -2 : 0,
+      rev == null ? null : r1(rev) + "%", "Trailing revenue vs year ago", rev != null));
+  }
 
   // Analyst price target (needs >=5 analysts).
   const tgt = pnumN(f.targetMeanPrice), spot = pnum(data?.spot), na = pnum(f.numberOfAnalystOpinions);
@@ -20184,7 +20205,7 @@ function scoreTicker(sym, data, ctx) {
   const spot = pnum(data?.spot);
 
   const sector = data?.fundamentals?.sector;
-  const fund = scoreFundamentals(data, sectorMedianPE[sector], sectorCapex[sector], SECTORS[sym] === "ETF", { asOfIso });
+  const fund = scoreFundamentals(data, sectorMedianPE[sector], sectorCapex[sector], SECTORS[sym] === "ETF", { asOfIso, sym });
   const tech = scoreTechnicals(data, streakRow, regime);
   const mech = scoreMechanicals(sym, data, unusualPayload);
   const narr = scoreNarrative(sym, data, narratives);

@@ -2188,6 +2188,40 @@ const gradeOne = (data, opts = {}, unusual = null) => buildGradesIndex({ ONE: da
   const real = gradeOne(mkTicker({ fundamentals: { earningsHistory: [{ date: inEtDays(-20), epsActual: 1.4, epsEstimate: 1.0, surprisePct: 40 }] } }));
   ok("signals v2: surprise on a normal EPS base still scores", sigOf(real, "fundamentals", "earningsSurprise")?.score === 2);
 }
+// --- 2026-10-20 sector growth norms (lib/sector-growth.mjs) ------------------
+{
+  const AS_OF_ISO = "2026-10-20T15:00:00Z";
+  const gradeAs = (sym, data) => buildGradesIndex({ [sym]: data }, [], null, null, null, null, { builtAtIso: AS_OF_ISO })[sym];
+  const qRows = (vals) => vals.map((value, i) => ({ date: ["2025-06-30", "2025-09-30", "2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"][i + 6 - vals.length], value }));
+  const cost = gradeAs("COST", mkTicker({ sector: "Consumer Defensive", fundamentals: { revenueGrowthYoy: 7.5, earningsGrowthYoy: 11 } }));
+  const costRev = sigOf(cost, "fundamentals", "revGrowth");
+  ok("sector growth: COST 7.5% revenue scores +1 on the retail norm (the old bar gave 0)",
+    costRev?.score === 1 && costRev.growthProfile === "retail" && costRev.value === "7.5% · above norm", JSON.stringify(costRev));
+  ok("sector growth: COST row note names the retail norm", /^Retail norm 2–7%/.test(costRev?.note || ""), costRev?.note);
+  const crwd = gradeAs("CRWD", mkTicker({ fundamentals: { revenueGrowthYoy: 22, earningsGrowthYoy: null } }));
+  ok("sector growth: CRWD 22% revenue scores +1 on the software norm (the old bar gave +2)", sigOf(crwd, "fundamentals", "revGrowth")?.score === 1);
+  const crwdEps = sigOf(crwd, "fundamentals", "epsGrowth");
+  ok("sector growth: missing EPS growth is no data, not 0%", crwdEps?.available === false && crwdEps.value === null && crwdEps.score === 0, JSON.stringify(crwdEps));
+  const intu = gradeAs("INTU", mkTicker({ fundamentals: { revenueGrowthYoy: 10.4, earningsGrowthYoy: 10.7 } }));
+  ok("sector growth: INTU 10.4% revenue / 10.7% EPS are both below the software norm (-1/-1)",
+    sigOf(intu, "fundamentals", "revGrowth")?.score === -1 && sigOf(intu, "fundamentals", "epsGrowth")?.score === -1);
+  const recovering = gradeAs("CRM", mkTicker({ fundamentals: {
+    revenueGrowthYoy: -10, earningsGrowthYoy: 20,
+    revenueHistory: qRows([100, 100, 100, 100, 60, 90]), lastQuarter: { date: "2026-09-30" },
+  } }));
+  const recRev = sigOf(recovering, "fundamentals", "revGrowth");
+  ok("sector growth: -40% -> -10% revenue is not scored as shrinking", recRev?.score === 0 && recRev.growthVerdict === "recovering", JSON.stringify(recRev));
+  const oneOff = gradeAs("MRVL", mkTicker({ fundamentals: { revenueGrowthYoy: 27.6, earningsGrowthYoy: -80.4 } }));
+  ok("sector growth: a one-quarter EPS drop on healthy revenue is not scored",
+    sigOf(oneOff, "fundamentals", "epsGrowth")?.score === 0 && /one quarter/.test(sigOf(oneOff, "fundamentals", "epsGrowth")?.value || ""));
+  const fundSum = (g) => g.pillars.fundamentals.signals.reduce((a, x) => a + (Number(x.contribution) || 0), 0);
+  ok("sector growth: the pillar score is still the clamped sum of its rows",
+    [cost, crwd, intu, recovering, oneOff].every((g) => g.pillars.fundamentals.score === Math.max(-5, Math.min(5, fundSum(g)))));
+  ok("sector growth: names without a profile keep the legacy bars",
+    sigOf(gradeOne(mkTicker({ fundamentals: { revenueGrowthYoy: 8 } })), "fundamentals", "revGrowth")?.score === 1
+    && sigOf(gradeOne(mkTicker({ fundamentals: { revenueGrowthYoy: 8 } })), "fundamentals", "revGrowth")?.growthProfile === undefined);
+  ok("sector growth: grade version is 2026-10-sector-growth", GRADE_MODEL_VERSION === "2026-10-sector-growth");
+}
 {
   const nowMs = Date.now();
   const withNews = (status, ageDays, title = "Acme wins $2B defense contract") => ({
