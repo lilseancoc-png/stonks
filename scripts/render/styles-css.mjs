@@ -16117,6 +16117,50 @@ body.tape-axm-open { overflow: hidden; }
 .acc-pane-sum-slot:empty { display: none; }
 /* Open picks tab: space the glance strip off the hint above and the list below. */
 #open-picks-sum { margin: 14px 0 16px; }
+/* Open picks tab: copy-and-paste trade lines (tradeLinesHtml in app.js). */
+.tl-block {
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface);
+  padding: 10px 12px;
+  margin: 16px 0 0;
+}
+.tl-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font: 600 13px/1.4 var(--font-sans);
+}
+.tl-head::-webkit-details-marker { display: none; }
+.tl-head::before {
+  content: "▸";
+  display: inline-block;
+  color: var(--muted);
+  transition: transform .15s ease;
+}
+.tl-block[open] > .tl-head::before { transform: rotate(90deg); }
+.tl-copy {
+  margin-left: auto;
+  font: 600 12px/1 var(--font-sans);
+  padding: 6px 10px;
+  border-radius: var(--r-2);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  color: var(--text);
+  cursor: pointer;
+}
+.tl-hint { margin: 8px 0 6px; }
+.tl-sub { margin: 10px 0 4px; font: 600 12px/1.4 var(--font-sans); color: var(--muted); }
+.tl-list { list-style: none; margin: 0; padding: 0; }
+.tl-line {
+  font: 400 12.5px/1.5 var(--font-mono, ui-monospace, monospace);
+  padding: 6px 0;
+  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.tl-list .tl-line:first-child { border-top: 0; }
 .acc-glance {
   border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
   border-left: 3px solid var(--accent);
