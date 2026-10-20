@@ -342,7 +342,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // the Owner analysis/idea/record desks and Owner Lab; this UI boundary keeps
   // destinations hidden until the owner session's compatibility claims resolve.
   // Discord mints both only after verifying the existing Top Picks owner role.
-  var OWNER_TABS = { market:1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, track:1, quant:1 };
+  var OWNER_TABS = { market:1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, 'open-picks':1, track:1, quant:1 };
   var GATE_ON = false;
   var HAS_TRACK_RECORD = false;
   var HAS_TOP_PICKS = false;
@@ -3775,7 +3775,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','ipo-credit','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','ipo-credit','open-picks','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3796,6 +3796,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     'capital-raises': 'capital-raises', raises: 'capital-raises', issuance: 'capital-raises', debt: 'capital-raises', bonds2: 'capital-raises',
     'ipo-credit': 'ipo-credit', ipos: 'ipo-credit', ipo: 'ipo-credit', credit: 'ipo-credit', 'credit-card': 'ipo-credit', 'credit-cards': 'ipo-credit', deposits: 'ipo-credit', revolsl: 'ipo-credit', 'household-debt': 'ipo-credit',
     pick: 'picks', 'top-picks': 'picks', toppicks: 'picks',
+    open: 'open-picks', 'open-pick': 'open-picks', openpicks: 'open-picks', 'open-trades': 'open-picks', positions: 'open-picks',
     'stock-picks': 'stocks', stockpicks: 'stocks', stock: 'stocks', shares: 'stocks',
     'market-analysis': 'market', analysis: 'market', tape: 'market', regime: 'market',
     'sector-rotation': 'rotation', rotation: 'rotation', rotate: 'rotation', rebound: 'rotation', 'rotation-radar': 'rotation',
@@ -4290,6 +4291,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         if (name === 'market' && typeof loadOvernight === 'function') loadOvernight();
         if (name === 'market' && typeof startMacroTapeLive === 'function') startMacroTapeLive();
         if (name === 'track' && HAS_TRACK_RECORD && typeof loadAccuracy === 'function') loadAccuracy();
+        if (name === 'open-picks' && HAS_TRACK_RECORD && typeof loadOpenPicks === 'function') loadOpenPicks();
         if (name === 'heatmap' && typeof loadHeatmap === 'function') loadHeatmap();
         if (name === 'f13' && typeof loadF13 === 'function') loadF13();
         if (name === 'streaks' && typeof window.stonksLoadStreaks === 'function') window.stonksLoadStreaks();
@@ -35227,6 +35229,154 @@ function scenarioEventPhase(ev, now = Date.now()) {
       accCheckpointVerdict(e) +
     '</details>';
   }
+  // Open-position card (one trade) and the ticker-grouped list built from it.
+  // Shared by the Track Record's Picks pane and the Open picks tab.
+  function accOpenRow(e){
+    var nowMs = Date.now();
+    var isCall = e.side !== 'put';
+    var entry = Number(e.entrySpot) || 0;
+    var last = Number(e.lastSpot) || entry;
+    var chg = entry > 0 ? (last - entry) / entry * 100 : 0;       // underlying move (context)
+    var favorableStock = isCall ? chg >= 0 : chg <= 0;
+    var optPnl = Number(e.optionPnlPct);
+    var haveOpt = isFinite(optPnl);                                // modeled live contract mark
+    var expSec = Number(e.contract && e.contract.expiry);
+    var closeSec = isFinite(expSec) && expSec > 0 ? chainExpiryCloseEpochSec(expSec) : NaN;
+    var dleft = isFinite(closeSec) ? Math.round((closeSec * 1000 - nowMs) / 86400000) : (e.contract && e.contract.dte);
+    // Number(null) is 0 — a null level (a credit spread with no computable
+    // stock-level TP) must drop the chip, not render "TP $0.00".
+    var tp = e.takeProfit != null ? Number(e.takeProfit) : NaN, ct = e.cut != null ? Number(e.cut) : NaN;
+    var desc = accContractDesc(e);
+    var targets = '';
+    if (isFinite(tp)) targets += '<span class="acc-target acc-target-tp">TP $' + tp.toFixed(2) + '</span>';
+    if (isFinite(ct)) targets += '<span class="acc-target acc-target-cut">Cut $' + ct.toFixed(2) + '</span>';
+    // Lead with the modeled CONTRACT P&L — the engine trades the option, so that
+    // is the honest mark; the underlying move rides as context on the meta line.
+    var headPnl = haveOpt
+      ? '<span class="acc-since ' + (optPnl >= 0 ? 'sig-pos' : 'sig-neg') + '" title="' + ACC_MODEL_TIP + '">' + accPct(optPnl) + ' <span class="acc-since-tag">contract</span></span>'
+      : '<span class="acc-since ' + (favorableStock ? 'sig-pos' : 'sig-neg') + '">' + accPct(chg) + ' <span class="acc-since-tag">stock</span></span>';
+    // Contract peak/dip when we have the modeled marks, else the underlying excursion.
+    var peakDip = (isFinite(e.optHiPct) || isFinite(e.optLoPct))
+      ? '<span class="acc-peak" title="Peak / trough of the modeled contract P&L over the hold.">contract peak ' + accPct(e.optHiPct) + ' · dip ' + accPct(e.optLoPct) + '</span>'
+      : '<span class="acc-peak">peak ' + accPct(e.mfePct) + ' · dip -' + Math.abs(Number(e.maePct) || 0).toFixed(1) + '%</span>';
+    return '<div class="acc-row acc-row-open">' +
+      '<div class="acc-row-head">' +
+        accSidePill(e.side) +
+        '<span class="acc-sym">' + escapeHtml(e.symbol || '—') + '</span>' +
+        (desc ? '<span class="acc-contract">' + escapeHtml(desc) + '</span>' : '') +
+        accTierTag(e.tier, e.label) +
+        '<span class="acc-score">' + accScoreText(e.score) + '</span>' +
+        headPnl +
+      '</div>' +
+      '<div class="acc-row-meta">' +
+        '<span class="acc-when">Opened ' + accDateTime(e.entryDate) + ' @ $' + entry.toFixed(2) + '</span>' +
+        '<span>Now $' + last.toFixed(2) + (entry > 0 ? ' · stock ' + accPct(chg) : '') + '</span>' +
+        (dleft != null && isFinite(dleft) ? '<span>' + (dleft >= 0 ? dleft + 'd left' : 'expired') + '</span>' : '') +
+        peakDip +
+      '</div>' +
+      (targets ? '<div class="acc-targets">' + targets + '</div>' : '') +
+      accStrategyBlock(e, false) +
+      accCheckpointsBlock(e) +
+    '</div>';
+  }
+  function accOpenRowsHtml(open){
+    // Group by ticker. Entries sort newest-first; groups follow their most
+    // recent entry. One contract → a plain row; multiple distinct contracts
+    // on the same ticker → a collapsed dropdown so the list stays tight.
+    var bySym = {}, symOrder = [];
+    open.slice().sort(function(a, b){ return (Date.parse(b.entryDate)||0) - (Date.parse(a.entryDate)||0); }).forEach(function(e){
+      var s = e.symbol || '—';
+      if (!bySym[s]){ bySym[s] = []; symOrder.push(s); }
+      bySym[s].push(e);
+    });
+    var openRows = '';
+    symOrder.forEach(function(s){
+      var list = bySym[s];
+      if (list.length === 1){ openRows += accOpenRow(list[0]); return; }
+      // Prefer the modeled CONTRACT P&L for the group average (consistent with
+      // the per-row lead); fall back to the underlying move on legacy entries.
+      var avg = 0, n = 0, optAvg = 0, optN = 0, sides = {};
+      list.forEach(function(e){
+        var entry = Number(e.entrySpot) || 0, last = Number(e.lastSpot) || entry;
+        if (entry > 0){ avg += (last - entry) / entry * 100; n++; }
+        var op = Number(e.optionPnlPct); if (isFinite(op)){ optAvg += op; optN++; }
+        sides[e.side === 'put' ? 'put' : 'call'] = 1;
+      });
+      var useOpt = optN > 0;
+      avg = useOpt ? (optAvg / optN) : (n ? avg / n : 0);
+      var sideStr = Object.keys(sides).map(function(k){ return k === 'put' ? 'PUT' : 'CALL'; }).join('/');
+      var summary = '<span class="acc-dd-sym">' + escapeHtml(s) + '</span>' +
+        '<span class="acc-dd-count">' + list.length + ' contracts</span>' +
+        '<span class="acc-dd-side">' + sideStr + '</span>' +
+        '<span class="acc-dd-avg ' + (avg >= 0 ? 'sig-pos' : 'sig-neg') + '" title="' + (useOpt ? 'Average modeled contract P&L across this ticker\'s open positions.' : 'Average underlying move across this ticker\'s open positions.') + '">avg ' + accPct(avg) + (useOpt ? ' contract' : '') + '</span>';
+      openRows += '<details class="acc-dd">' +
+        '<summary class="acc-dd-summary">' + summary + '</summary>' +
+        '<div class="acc-dd-body">' + list.map(accOpenRow).join('') + '</div>' +
+      '</details>';
+    });
+    return openRows;
+  }
+  // The "Open picks" group: newest formula first, a dated divider between
+  // formula versions, then the ticker-grouped cards.
+  function accOpenGroupHtml(open){
+    var openSegs = accGradeSegments(open);
+    var openRows = openSegs.map(function(seg, i){
+      return (i > 0 ? accGradeDivider(openSegs[i - 1]) : '') + accOpenRowsHtml(seg.items);
+    }).join('');
+    return '<div class="accuracy-group">' +
+      '<div class="accuracy-group-head">Open picks <span class="accuracy-group-n">' + open.length + '</span></div>' +
+      openRows +
+    '</div>';
+  }
+  // --- Open picks tab -------------------------------------------------------
+  // Only the trades open right now, with the same cards the Track Record's
+  // Picks pane uses. Reads picks-accuracy.json (Owner-only), reusing the Track
+  // Record's copy when that tab already loaded it. No new data file.
+  var openPicksState = { data: null, loading: false };
+  function loadOpenPicks(){
+    var shared = accuracyState.data && !accuracyState.data.loadError ? accuracyState.data : null;
+    if (shared){ openPicksState.data = shared; renderOpenPicks(); return; }
+    if ((openPicksState.data && !openPicksState.data.loadError) || openPicksState.loading){ renderOpenPicks(); return; }
+    openPicksState.loading = true;
+    fetch(dataUrl('picks-accuracy.json'), { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){
+        openPicksState.data = (j && typeof j === 'object') ? j : { open: [] };
+      })
+      .catch(function(){ openPicksState.data = { open: [], loadError: true }; })
+      .then(function(){ openPicksState.loading = false; renderOpenPicks(); });
+  }
+  function renderOpenPicks(){
+    var root = $('open-picks-root'); if (!root) return;
+    var eyebrow = $('open-picks-eyebrow');
+    var d = openPicksState.data || {};
+    var open = Array.isArray(d.open) ? d.open : [];
+    if (d.loadError){
+      root.innerHTML = '<p class="muted">Couldn’t load the open picks. Re-open this tab to try again.</p>';
+      if (eyebrow) eyebrow.textContent = '';
+      accPaneSummary('open-picks-sum', []);
+      return;
+    }
+    if (eyebrow) eyebrow.textContent = d.builtAtIso ? 'marked ' + accDateTime(d.builtAtIso) : '';
+    if (!open.length){
+      root.innerHTML = '<p class="acc-pane-empty">No Top Picks trades are open right now. New ones open at the 11:00 and 15:30 ET Top Picks runs.</p>';
+      accPaneSummary('open-picks-sum', [{ val: '0', lbl: 'open positions' }]);
+      return;
+    }
+    var marks = [], greens = 0, calls = 0;
+    open.forEach(function(o){
+      if (o.side !== 'put') calls++;
+      var p = Number(o.optionPnlPct);
+      if (!isFinite(p)) return;
+      marks.push(p); if (p >= 0) greens++;
+    });
+    accPaneSummary('open-picks-sum', [
+      { val: String(open.length), lbl: 'open positions' },
+      { val: calls + ' · ' + (open.length - calls), lbl: 'calls · puts' },
+      marks.length ? { val: accPct(accMean(marks)), lbl: 'avg open mark · ' + greens + '/' + marks.length + ' green', cls: accMean(marks) >= 0 ? 'sig-pos' : 'sig-neg', tip: 'Average modeled contract P&L across the open book (unrealized).' } : null,
+    ]);
+    root.innerHTML = accOpenGroupHtml(open);
+  }
   function renderAccuracy(){
     var root = $('accuracy-root'); if (!root) return;
     var statsEl = $('accuracy-stats');
@@ -35496,102 +35646,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     renderProfitBlock();
 
     // --- Open positions (grouped by ticker; multiple contracts collapse) ----
-    var nowMs = Date.now();
     var html = '';
-    function accOpenRow(e){
-      var isCall = e.side !== 'put';
-      var entry = Number(e.entrySpot) || 0;
-      var last = Number(e.lastSpot) || entry;
-      var chg = entry > 0 ? (last - entry) / entry * 100 : 0;       // underlying move (context)
-      var favorableStock = isCall ? chg >= 0 : chg <= 0;
-      var optPnl = Number(e.optionPnlPct);
-      var haveOpt = isFinite(optPnl);                                // modeled live contract mark
-      var expSec = Number(e.contract && e.contract.expiry);
-      var closeSec = isFinite(expSec) && expSec > 0 ? chainExpiryCloseEpochSec(expSec) : NaN;
-      var dleft = isFinite(closeSec) ? Math.round((closeSec * 1000 - nowMs) / 86400000) : (e.contract && e.contract.dte);
-      // Number(null) is 0 — a null level (a credit spread with no computable
-      // stock-level TP) must drop the chip, not render "TP $0.00".
-      var tp = e.takeProfit != null ? Number(e.takeProfit) : NaN, ct = e.cut != null ? Number(e.cut) : NaN;
-      var desc = accContractDesc(e);
-      var targets = '';
-      if (isFinite(tp)) targets += '<span class="acc-target acc-target-tp">TP $' + tp.toFixed(2) + '</span>';
-      if (isFinite(ct)) targets += '<span class="acc-target acc-target-cut">Cut $' + ct.toFixed(2) + '</span>';
-      // Lead with the modeled CONTRACT P&L — the engine trades the option, so that
-      // is the honest mark; the underlying move rides as context on the meta line.
-      var headPnl = haveOpt
-        ? '<span class="acc-since ' + (optPnl >= 0 ? 'sig-pos' : 'sig-neg') + '" title="' + ACC_MODEL_TIP + '">' + accPct(optPnl) + ' <span class="acc-since-tag">contract</span></span>'
-        : '<span class="acc-since ' + (favorableStock ? 'sig-pos' : 'sig-neg') + '">' + accPct(chg) + ' <span class="acc-since-tag">stock</span></span>';
-      // Contract peak/dip when we have the modeled marks, else the underlying excursion.
-      var peakDip = (isFinite(e.optHiPct) || isFinite(e.optLoPct))
-        ? '<span class="acc-peak" title="Peak / trough of the modeled contract P&L over the hold.">contract peak ' + accPct(e.optHiPct) + ' · dip ' + accPct(e.optLoPct) + '</span>'
-        : '<span class="acc-peak">peak ' + accPct(e.mfePct) + ' · dip -' + Math.abs(Number(e.maePct) || 0).toFixed(1) + '%</span>';
-      return '<div class="acc-row acc-row-open">' +
-        '<div class="acc-row-head">' +
-          accSidePill(e.side) +
-          '<span class="acc-sym">' + escapeHtml(e.symbol || '—') + '</span>' +
-          (desc ? '<span class="acc-contract">' + escapeHtml(desc) + '</span>' : '') +
-          accTierTag(e.tier, e.label) +
-          '<span class="acc-score">' + accScoreText(e.score) + '</span>' +
-          headPnl +
-        '</div>' +
-        '<div class="acc-row-meta">' +
-          '<span class="acc-when">Opened ' + accDateTime(e.entryDate) + ' @ $' + entry.toFixed(2) + '</span>' +
-          '<span>Now $' + last.toFixed(2) + (entry > 0 ? ' · stock ' + accPct(chg) : '') + '</span>' +
-          (dleft != null && isFinite(dleft) ? '<span>' + (dleft >= 0 ? dleft + 'd left' : 'expired') + '</span>' : '') +
-          peakDip +
-        '</div>' +
-        (targets ? '<div class="acc-targets">' + targets + '</div>' : '') +
-        accStrategyBlock(e, false) +
-        accCheckpointsBlock(e) +
-      '</div>';
-    }
-    function accOpenRowsHtml(open){
-      // Group by ticker. Entries sort newest-first; groups follow their most
-      // recent entry. One contract → a plain row; multiple distinct contracts
-      // on the same ticker → a collapsed dropdown so the list stays tight.
-      var bySym = {}, symOrder = [];
-      open.slice().sort(function(a, b){ return (Date.parse(b.entryDate)||0) - (Date.parse(a.entryDate)||0); }).forEach(function(e){
-        var s = e.symbol || '—';
-        if (!bySym[s]){ bySym[s] = []; symOrder.push(s); }
-        bySym[s].push(e);
-      });
-      var openRows = '';
-      symOrder.forEach(function(s){
-        var list = bySym[s];
-        if (list.length === 1){ openRows += accOpenRow(list[0]); return; }
-        // Prefer the modeled CONTRACT P&L for the group average (consistent with
-        // the per-row lead); fall back to the underlying move on legacy entries.
-        var avg = 0, n = 0, optAvg = 0, optN = 0, sides = {};
-        list.forEach(function(e){
-          var entry = Number(e.entrySpot) || 0, last = Number(e.lastSpot) || entry;
-          if (entry > 0){ avg += (last - entry) / entry * 100; n++; }
-          var op = Number(e.optionPnlPct); if (isFinite(op)){ optAvg += op; optN++; }
-          sides[e.side === 'put' ? 'put' : 'call'] = 1;
-        });
-        var useOpt = optN > 0;
-        avg = useOpt ? (optAvg / optN) : (n ? avg / n : 0);
-        var sideStr = Object.keys(sides).map(function(k){ return k === 'put' ? 'PUT' : 'CALL'; }).join('/');
-        var summary = '<span class="acc-dd-sym">' + escapeHtml(s) + '</span>' +
-          '<span class="acc-dd-count">' + list.length + ' contracts</span>' +
-          '<span class="acc-dd-side">' + sideStr + '</span>' +
-          '<span class="acc-dd-avg ' + (avg >= 0 ? 'sig-pos' : 'sig-neg') + '" title="' + (useOpt ? 'Average modeled contract P&L across this ticker\'s open positions.' : 'Average underlying move across this ticker\'s open positions.') + '">avg ' + accPct(avg) + (useOpt ? ' contract' : '') + '</span>';
-        openRows += '<details class="acc-dd">' +
-          '<summary class="acc-dd-summary">' + summary + '</summary>' +
-          '<div class="acc-dd-body">' + list.map(accOpenRow).join('') + '</div>' +
-        '</details>';
-      });
-      return openRows;
-    }
-    if (open.length){
-      var openSegs = accGradeSegments(open);
-      var openRows = openSegs.map(function(seg, i){
-        return (i > 0 ? accGradeDivider(openSegs[i - 1]) : '') + accOpenRowsHtml(seg.items);
-      }).join('');
-      html += '<div class="accuracy-group">' +
-        '<div class="accuracy-group-head">Open picks <span class="accuracy-group-n">' + open.length + '</span></div>' +
-        openRows +
-      '</div>';
-    }
+    if (open.length) html += accOpenGroupHtml(open);
 
     // --- Resolved positions -------------------------------------------------
     function accClosedRow(e){
@@ -39032,6 +39088,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       ['stocks', 'Stock picks'],
       ['rotation', 'Sector rotation'],
       ['levetf', 'Leveraged ETFs'],
+      ['open-picks', 'Open picks'],
       ['track', 'Top Picks track record'],
       ['quant', 'Owner Lab'],
       ['cheatsheet', "Buyer's manual"],

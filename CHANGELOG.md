@@ -20,6 +20,12 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-10-20
+
+### Added
+
+- **New Owner tab: Open picks.** It sits right above Top Picks track record and lists only the Top Picks trades that are open now, using the same cards as the Track Record's Picks view (contract, modeled P&L, open time, days left, targets), with a short summary of how many are open, the call/put split and the average open mark. It reads the existing track record file, so it adds no new data or AI cost. Reach it at `?tab=open-picks`.
+
 ## 2026-10-19
 
 ### Added

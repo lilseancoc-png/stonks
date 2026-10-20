@@ -16115,6 +16115,8 @@ body.tape-axm-open { overflow: hidden; }
    Track Record sub-tab, filled by accPaneSummary() in app.js: a few key
    numbers + a one-line takeaway before the pane's detail. */
 .acc-pane-sum-slot:empty { display: none; }
+/* Open picks tab: space the glance strip off the hint above and the list below. */
+#open-picks-sum { margin: 14px 0 16px; }
 .acc-glance {
   border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
   border-left: 3px solid var(--accent);
