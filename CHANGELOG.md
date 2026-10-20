@@ -30,6 +30,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Changed
 
+- **Trade IDs in the picks feed and Open picks copy block read as dates.** IDs are now `TICKER-C/P-MM/DD/YY-HH:MM` (e.g. `SPOT-C-10/09/26-15:32`, ET, 24-hour) instead of `SPOT-C-261009-1532`, and the header carries a legend for the format plus how older IDs map to it, so a CLOSE can still be matched to a position copied under the old format.
 - **The private picks feed and the Open picks copy block are easier to read.** Each trade is now its own labeled block (Action, Contract, Entry or Price, Latest, Opened or Closed, Order, plus Expiry and Note when they apply) with a blank line between trades and ruled section headers, instead of one long line per trade. The Open picks tab's copy block uses the same layout: each trade shows as a small labeled card, and Copy all copies exactly the text the feed link serves. Same ids, prices and dates as before. #671
 
 - **A Top Picks trade on a stock that leaves coverage now closes instead of disappearing.** At the next Top Picks run it closes at its last mark as "name left coverage", which is not counted in the win rate or averages (same as before), but it now produces a CLOSE line so anyone mirroring the book knows to exit.
