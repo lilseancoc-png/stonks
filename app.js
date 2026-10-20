@@ -35336,6 +35336,18 @@ function scenarioEventPhase(ev, now = Date.now()) {
   var TL_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var TL_CLOSE_REASON = { 'hit-tp-prem':'take-profit hit', 'trail-stop':'trail stop', 'hit-stop-prem':'premium stop hit', 'hit-stop-under':'stock stop hit', 'thesis-broken':'thesis broken', 'theta-stop':'theta stop', 'expired':'contract expired', 'dropped':'name left the universe', 'left-coverage':'name left coverage (not counted in the record)' };
   var TL_MULTI_LEG = " This is a 2-leg spread: Robinhood agents can't place multi-leg orders, so place it by hand or skip it.";
+  var TL_MULTI_LEG_CLOSE = " This is a 2-leg spread: Robinhood agents can't place multi-leg orders, so close it by hand.";
+  var tlFmt = null;
+  function tlFormatters(){
+    if (tlFmt !== null) return tlFmt;
+    try {
+      tlFmt = {
+        parts: new Intl.DateTimeFormat('en-US', { timeZone:'America/New_York', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hourCycle:'h23' }),
+        time: new Intl.DateTimeFormat('en-US', { timeZone:'America/New_York', month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit' })
+      };
+    } catch (_){ tlFmt = false; }
+    return tlFmt;
+  }
   function tlNum(v){ if (v == null || v === '') return null; var n = Number(v); return isFinite(n) ? n : null; }
   function tlMoney(v){ var n = tlNum(v); return n == null ? '?' : '$' + n.toFixed(2); }
   function tlStrike(v){
@@ -35350,25 +35362,27 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var d = new Date(n * 1000);
     return TL_MONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate() + ' ' + d.getUTCFullYear();
   }
-  function tlEtParts(iso){
-    var d = new Date(iso); if (isNaN(d.getTime())) return null;
+  function tlEtParts(ms){
+    var f = tlFormatters(); if (!f) return null;
+    var d = new Date(ms); if (isNaN(d.getTime())) return null;
     var out = {};
-    try {
-      new Intl.DateTimeFormat('en-US', { timeZone:'America/New_York', year:'2-digit', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hourCycle:'h23' })
-        .formatToParts(d).forEach(function(p){ out[p.type] = p.value; });
-    } catch (_){ return null; }
+    f.parts.formatToParts(d).forEach(function(p){ out[p.type] = p.value; });
     return out;
   }
+  function tlDaysToExpiry(sec, nowMs){
+    var exp = tlNum(sec), p = tlEtParts(nowMs);
+    if (exp == null || !p) return null;
+    return Math.round((exp * 1000 - Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day))) / 86400000);
+  }
   function tlTradeId(e){
-    var p = tlEtParts(e && e.entryDate);
-    var stamp = p ? (p.year + p.month + p.day + '-' + p.hour + p.minute) : '000000-0000';
+    var p = tlEtParts(Date.parse(e && e.entryDate));
+    var stamp = p ? (p.year.slice(-2) + p.month + p.day + '-' + p.hour + p.minute) : '000000-0000';
     return ((e && e.symbol) || '?') + '-' + (e && e.side === 'put' ? 'P' : 'C') + '-' + stamp;
   }
   function tlEtTime(iso){
-    var d = new Date(iso); if (isNaN(d.getTime())) return '?';
-    try {
-      return new Intl.DateTimeFormat('en-US', { timeZone:'America/New_York', month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit' }).format(d) + ' ET';
-    } catch (_){ return String(iso); }
+    var f = tlFormatters(), d = new Date(iso);
+    if (isNaN(d.getTime())) return '?';
+    return f ? f.time.format(d) + ' ET' : String(iso);
   }
   function tlContract(e){
     var c = (e && e.contract) || {};
@@ -35393,27 +35407,43 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return Math.max(0, px);
   }
   function tlPerContract(px){ return px == null ? '' : ' ($' + Math.round(px * 100).toLocaleString('en-US') + ' per contract)'; }
-  function pickOpenLine(e){
+  function tlPnl(pnl){ return pnl == null ? '' : ' (' + (pnl >= 0 ? '+' : '') + pnl.toFixed(1) + '%)'; }
+  function tlExpiryNote(e, nowMs){
+    var d = tlDaysToExpiry(e && e.contract && e.contract.expiry, nowMs);
+    if (d == null || d > 5) return '';
+    var date = tlExpiry(e.contract.expiry);
+    if (d < 0) return ' It expired on ' + date + '; Mingstreet closes it at the next Top Picks run.';
+    var when = d === 0 ? 'today' : d === 1 ? 'tomorrow' : 'in ' + d + ' days';
+    return ' Expires ' + when + ' (' + date + "): Mingstreet doesn't close it before expiry, so sell before the 4:00 PM ET close on " + date + " if you don't want it exercised or to expire.";
+  }
+  function pickOpenLine(e, nowMs){
     var c = (e && e.contract) || {};
-    var px = tlEntryPrice(e);
+    var px = tlEntryPrice(e), mark = tlMarkPrice(e);
     var credit = c.structure === 'credit_vertical';
     var spread = c.structure === 'debit_vertical' || credit;
     var verb = credit ? 'sell to open' : 'buy to open';
     var priceWord = credit ? 'a net credit of about' : spread ? 'a net debit of about' : 'about';
+    var markText = mark == null ? '' : ' Latest model price ' + tlMoney(mark) + tlPnl(tlNum(e.optionPnlPct)) + '.';
     return 'OPEN ' + tlTradeId(e) + ': ' + verb + ' ' + tlContract(e) + ' at ' + priceWord + ' ' + tlMoney(px) + ' per share' + tlPerContract(px) + '. ' +
-      'Opened ' + tlEtTime(e.entryDate) + ". Mingstreet's price is a model mid, not a fill, so use a limit order near it." +
+      'Opened ' + tlEtTime(e.entryDate) + '.' + markText + " Mingstreet's prices are model mids, not fills, so use a limit order near the current mid." +
+      tlExpiryNote(e, nowMs) +
       (spread ? TL_MULTI_LEG : '');
   }
   function pickCloseLine(e){
     var c = (e && e.contract) || {};
     var credit = c.structure === 'credit_vertical';
+    var spread = c.structure === 'debit_vertical' || credit;
     var px = tlMarkPrice(e);
-    var pnl = tlNum(e && e.optionPnlPct);
+    var pnl = tlPnl(tlNum(e && e.optionPnlPct));
     var reason = TL_CLOSE_REASON[e && e.status] || (e && e.status) || 'closed';
+    if (e && e.status === 'expired'){
+      return 'CLOSE ' + tlTradeId(e) + ': ' + tlContract(e) + ' expired on ' + tlExpiry(c.expiry) + pnl + '. ' +
+        'Booked ' + tlEtTime(e.exitDate) + ', after the contract was gone. There is nothing left to sell: if you still held it at expiry, Robinhood closed, exercised or expired it, so check your account.';
+    }
     var verb = credit ? 'buy to close' : 'sell to close';
-    var pnlText = pnl == null ? '' : ' (' + (pnl >= 0 ? '+' : '') + pnl.toFixed(1) + '%)';
-    return 'CLOSE ' + tlTradeId(e) + ': ' + verb + ' ' + tlContract(e) + '. Reason: ' + reason + pnlText + '. ' +
-      "Mingstreet's model price " + tlMoney(px) + ' per share' + tlPerContract(px) + '. Closed ' + tlEtTime(e.exitDate) + '. Use a limit order near the current mid.';
+    return 'CLOSE ' + tlTradeId(e) + ': ' + verb + ' ' + tlContract(e) + '. Reason: ' + reason + pnl + '. ' +
+      "Mingstreet's model price " + tlMoney(px) + ' per share' + tlPerContract(px) + '. Closed ' + tlEtTime(e.exitDate) + '. Use a limit order near the current mid.' +
+      (spread ? TL_MULTI_LEG_CLOSE : '');
   }
   // The Open picks tab's copy block, below the cards and collapsed by default:
   // open trades (newest first) + the last 7 days of closes (newest first), one
@@ -35421,7 +35451,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function tradeLinesHtml(open, closed){
     var byDesc = function(k){ return function(a, b){ return (Date.parse(b && b[k]) || 0) - (Date.parse(a && a[k]) || 0); }; };
     var cutoff = Date.now() - 7 * 86400000;
-    var opens = open.filter(function(e){ return e && e.contract; }).slice().sort(byDesc('entryDate')).map(pickOpenLine);
+    var now = Date.now();
+    var opens = open.filter(function(e){ return e && e.contract; }).sort(byDesc('entryDate')).map(function(e){ return pickOpenLine(e, now); });
     var closes = (closed || []).filter(function(e){ return e && e.contract && (Date.parse(e.exitDate) || 0) >= cutoff; }).sort(byDesc('exitDate')).map(pickCloseLine);
     var all = opens.concat(closes);
     if (!all.length) return '';
