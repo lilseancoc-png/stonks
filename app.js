@@ -35376,7 +35376,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   function tlTradeId(e){
     var p = tlEtParts(Date.parse(e && e.entryDate));
-    var stamp = p ? (p.year.slice(-2) + p.month + p.day + '-' + p.hour + p.minute) : '000000-0000';
+    var stamp = p ? (p.month + '/' + p.day + '/' + p.year.slice(-2) + '-' + p.hour + ':' + p.minute) : '00/00/00-00:00';
     return ((e && e.symbol) || '?') + '-' + (e && e.side === 'put' ? 'P' : 'C') + '-' + stamp;
   }
   function tlEtTime(iso){
@@ -35481,6 +35481,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '  ' + tlPad('Runs:') + '11:00 and 15:30 ET on trading days',
       '  ' + tlPad('Prices:') + 'Per share. 1 contract = 100 shares.',
       '  ' + tlPad('Rule:') + 'Open each trade once. Close it only when its CLOSE entry appears.',
+      '  ' + tlPad('ID:') + 'TICKER-C/P-MM/DD/YY-HH:MM. C = call, P = put. The date and time are when Mingstreet opened the trade (ET, 24-hour). A CLOSE uses the same ID as its OPEN.',
+      '  ' + tlPad('Old IDs:') + 'Copies from before Oct 21, 2026 wrote the same ID as TICKER-C/P-YYMMDD-HHMM, so SPOT-C-261009-1532 is SPOT-C-10/09/26-15:32.',
       ''
     ].concat(tlSection('OPEN TRADES (' + opens.length + ')', opens, 'None open right now.'), [''],
       tlSection('CLOSED IN THE LAST 7 DAYS (' + closes.length + ')', closes, 'None.')).join('\n') + '\n';
@@ -35505,7 +35507,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return '<details class="tl-block">' +
       '<summary class="tl-head">Trade lines for copy and paste <span class="accuracy-group-n">' + n + '</span>' +
         '<button type="button" class="tl-copy" data-tl-copy="1">Copy all</button></summary>' +
-      '<p class="hint tl-hint">Every open trade, plus every close from the last 7 days. Each trade keeps the same id from OPEN to CLOSE. Copy all copies the same text as your private feed link. Prices are per share (1 contract = 100 shares).</p>' +
+      '<p class="hint tl-hint">Every open trade, plus every close from the last 7 days. Each ID is the ticker, C (call) or P (put), then the open date and time in ET (MM/DD/YY-HH:MM), and a CLOSE keeps the same ID as its OPEN. Copy all copies the same text as your private feed link. Prices are per share (1 contract = 100 shares).</p>' +
       (opens.length ? '<div class="tl-sub">Open trades</div><ul class="tl-list">' + opens.map(tlBlockHtml).join('') + '</ul>' : '') +
       (closes.length ? '<div class="tl-sub">Closed in the last 7 days</div><ul class="tl-list">' + closes.map(tlBlockHtml).join('') + '</ul>' : '') +
       '<textarea class="tl-src" hidden readonly>' + escapeHtml(tlFeedText(builtAtIso, opens, closes)) + '</textarea>' +
