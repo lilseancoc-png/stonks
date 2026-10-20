@@ -16201,15 +16201,21 @@ body.tape-axm-open { overflow: hidden; }
 }
 .tl-hint { margin: 8px 0 6px; }
 .tl-sub { margin: 10px 0 4px; font: 600 12px/1.4 var(--font-sans); color: var(--muted); }
-.tl-list { list-style: none; margin: 0; padding: 0; }
-.tl-line {
-  font: 400 12.5px/1.5 var(--font-mono, ui-monospace, monospace);
-  padding: 6px 0;
-  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
-  overflow-wrap: anywhere;
-  user-select: all;
+.tl-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.tl-card {
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: var(--r-2);
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--text) 2%, var(--surface));
 }
-.tl-list .tl-line:first-child { border-top: 0; }
+.tl-card-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; font: 600 12.5px/1.4 var(--font-mono, ui-monospace, monospace); }
+.tl-kind { font: 700 11px/1 var(--font-sans); letter-spacing: .05em; padding: 3px 6px; border-radius: 4px; }
+.tl-kind-open { color: var(--pos, #16a34a); background: color-mix(in srgb, var(--pos, #16a34a) 14%, transparent); }
+.tl-kind-close { color: var(--neg, #dc2626); background: color-mix(in srgb, var(--neg, #dc2626) 14%, transparent); }
+.tl-id { overflow-wrap: anywhere; }
+.tl-rows { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; margin: 0; font: 400 12.5px/1.45 var(--font-sans); }
+.tl-rows dt { color: var(--muted); }
+.tl-rows dd { margin: 0; overflow-wrap: anywhere; }
 .acc-glance {
   border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
   border-left: 3px solid var(--accent);

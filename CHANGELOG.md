@@ -30,7 +30,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Changed
 
-- **The private picks feed is easier to read.** Each trade is now its own labeled block (Action, Contract, Entry or Price, Latest, Opened or Closed, Order, plus Expiry and Note when they apply) with a blank line between trades and ruled section headers, instead of one long line per trade. Same ids, prices and dates as the Open picks copy block.
+- **The private picks feed and the Open picks copy block are easier to read.** Each trade is now its own labeled block (Action, Contract, Entry or Price, Latest, Opened or Closed, Order, plus Expiry and Note when they apply) with a blank line between trades and ruled section headers, instead of one long line per trade. The Open picks tab's copy block uses the same layout: each trade shows as a small labeled card, and Copy all copies exactly the text the feed link serves. Same ids, prices and dates as before. #671
 
 - **A Top Picks trade on a stock that leaves coverage now closes instead of disappearing.** At the next Top Picks run it closes at its last mark as "name left coverage", which is not counted in the win rate or averages (same as before), but it now produces a CLOSE line so anyone mirroring the book knows to exit.
 

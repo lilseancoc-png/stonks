@@ -381,12 +381,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.04080;
+  var RFR = 0.04075;
   // Provenance for the risk-free rate baked above. source is
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-10-20","ageDays":null};
+  var RFR_META = {"source":"fresh","asOf":"2026-10-19","ageDays":null};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null, chainRequestSeq: 0 };
   var ownerAutoPicks = { data: null, pending: null };
@@ -35330,13 +35330,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
     '</div>';
   }
   // --- Trade lines (copy/paste for an outside agent) -------------------------
-  // Re-port of pickOpenLine / pickCloseLine in lib/pick-trade-text.mjs (the
-  // private picks feed serves the same lines). Change one, change the other.
-  // Ids and times are always ET so a line here matches the feed exactly.
+  // Re-port of lib/pick-trade-text.mjs (the private picks feed serves the same
+  // text, and "Copy all" copies exactly what the feed link shows). Change one,
+  // change the other. Ids and times are always ET so the tab matches the feed.
   var TL_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var TL_CLOSE_REASON = { 'hit-tp-prem':'take-profit hit', 'trail-stop':'trail stop', 'hit-stop-prem':'premium stop hit', 'hit-stop-under':'stock stop hit', 'thesis-broken':'thesis broken', 'theta-stop':'theta stop', 'expired':'contract expired', 'dropped':'name left the universe', 'left-coverage':'name left coverage (not counted in the record)' };
-  var TL_MULTI_LEG = " This is a 2-leg spread: Robinhood agents can't place multi-leg orders, so place it by hand or skip it.";
-  var TL_MULTI_LEG_CLOSE = " This is a 2-leg spread: Robinhood agents can't place multi-leg orders, so close it by hand.";
+  var TL_RULE = '============================================================';
+  var TL_LABEL_W = 10;
   var tlFmt = null;
   function tlFormatters(){
     if (tlFmt !== null) return tlFmt;
@@ -35408,62 +35408,107 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   function tlPerContract(px){ return px == null ? '' : ' ($' + Math.round(px * 100).toLocaleString('en-US') + ' per contract)'; }
   function tlPnl(pnl){ return pnl == null ? '' : ' (' + (pnl >= 0 ? '+' : '') + pnl.toFixed(1) + '%)'; }
-  function tlExpiryNote(e, nowMs){
+  function tlExpiryField(e, nowMs){
     var d = tlDaysToExpiry(e && e.contract && e.contract.expiry, nowMs);
-    if (d == null || d > 5) return '';
+    if (d == null || d > 5) return null;
     var date = tlExpiry(e.contract.expiry);
-    if (d < 0) return ' It expired on ' + date + '; Mingstreet closes it at the next Top Picks run.';
+    if (d < 0) return 'Expired on ' + date + '. Mingstreet closes it at the next Top Picks run.';
     var when = d === 0 ? 'today' : d === 1 ? 'tomorrow' : 'in ' + d + ' days';
-    return ' Expires ' + when + ' (' + date + "): Mingstreet doesn't close it before expiry, so sell before the 4:00 PM ET close on " + date + " if you don't want it exercised or to expire.";
+    return 'Expires ' + when + ' (' + date + "). Mingstreet doesn't close it before expiry, so sell before the 4:00 PM ET close on " + date + " if you don't want it exercised or to expire.";
   }
-  function pickOpenLine(e, nowMs){
+  // A trade block: { kind: 'OPEN'|'CLOSE', id, rows: [[label, value], ...] }.
+  function tlBlock(kind, e, fields){
+    return { kind: kind, id: tlTradeId(e), rows: fields.filter(function(f){ return f[1]; }) };
+  }
+  function tlOpenBlock(e, nowMs){
     var c = (e && e.contract) || {};
     var px = tlEntryPrice(e), mark = tlMarkPrice(e);
     var credit = c.structure === 'credit_vertical';
     var spread = c.structure === 'debit_vertical' || credit;
-    var verb = credit ? 'sell to open' : 'buy to open';
-    var priceWord = credit ? 'a net credit of about' : spread ? 'a net debit of about' : 'about';
-    var markText = mark == null ? '' : ' Latest model price ' + tlMoney(mark) + tlPnl(tlNum(e.optionPnlPct)) + '.';
-    return 'OPEN ' + tlTradeId(e) + ': ' + verb + ' ' + tlContract(e) + ' at ' + priceWord + ' ' + tlMoney(px) + ' per share' + tlPerContract(px) + '. ' +
-      'Opened ' + tlEtTime(e.entryDate) + '.' + markText + " Mingstreet's prices are model mids, not fills, so use a limit order near the current mid." +
-      tlExpiryNote(e, nowMs) +
-      (spread ? TL_MULTI_LEG : '');
+    var priceWord = credit ? 'Net credit of about ' : spread ? 'Net debit of about ' : 'About ';
+    return tlBlock('OPEN', e, [
+      ['Action', credit ? 'Sell to open' : 'Buy to open'],
+      ['Contract', tlContract(e)],
+      ['Entry', priceWord + tlMoney(px) + ' per share' + tlPerContract(px)],
+      ['Latest', mark == null ? null : tlMoney(mark) + tlPnl(tlNum(e.optionPnlPct)) + ', Mingstreet model'],
+      ['Opened', tlEtTime(e.entryDate)],
+      ['Order', "Use a limit order near the current mid. Mingstreet's prices are model mids, not fills."],
+      ['Expiry', tlExpiryField(e, nowMs)],
+      ['Note', spread ? "2-leg spread. Robinhood agents can't place multi-leg orders, so place it by hand or skip it." : null]
+    ]);
   }
-  function pickCloseLine(e){
+  function tlCloseBlock(e){
     var c = (e && e.contract) || {};
     var credit = c.structure === 'credit_vertical';
     var spread = c.structure === 'debit_vertical' || credit;
     var px = tlMarkPrice(e);
-    var pnl = tlPnl(tlNum(e && e.optionPnlPct));
-    var reason = TL_CLOSE_REASON[e && e.status] || (e && e.status) || 'closed';
+    var pnl = tlNum(e && e.optionPnlPct);
+    var pnlPart = pnl == null ? '' : ', ' + (pnl >= 0 ? '+' : '') + pnl.toFixed(1) + '%';
     if (e && e.status === 'expired'){
-      return 'CLOSE ' + tlTradeId(e) + ': ' + tlContract(e) + ' expired on ' + tlExpiry(c.expiry) + pnl + '. ' +
-        'Booked ' + tlEtTime(e.exitDate) + ', after the contract was gone. There is nothing left to sell: if you still held it at expiry, Robinhood closed, exercised or expired it, so check your account.';
+      return tlBlock('CLOSE', e, [
+        ['Action', 'Nothing to sell'],
+        ['Contract', tlContract(e)],
+        ['Reason', 'Expired on ' + tlExpiry(c.expiry) + pnlPart],
+        ['Booked', tlEtTime(e.exitDate) + ', after the contract was gone'],
+        ['Note', 'If you still held it at expiry, Robinhood closed, exercised or expired it. Check your account.']
+      ]);
     }
-    var verb = credit ? 'buy to close' : 'sell to close';
-    return 'CLOSE ' + tlTradeId(e) + ': ' + verb + ' ' + tlContract(e) + '. Reason: ' + reason + pnl + '. ' +
-      "Mingstreet's model price " + tlMoney(px) + ' per share' + tlPerContract(px) + '. Closed ' + tlEtTime(e.exitDate) + '. Use a limit order near the current mid.' +
-      (spread ? TL_MULTI_LEG_CLOSE : '');
+    var reason = TL_CLOSE_REASON[e && e.status] || (e && e.status) || 'closed';
+    reason = reason.charAt(0).toUpperCase() + reason.slice(1);
+    return tlBlock('CLOSE', e, [
+      ['Action', credit ? 'Buy to close' : 'Sell to close'],
+      ['Contract', tlContract(e)],
+      ['Reason', reason + pnlPart],
+      ['Price', tlMoney(px) + ' per share' + tlPerContract(px) + ', Mingstreet model'],
+      ['Closed', tlEtTime(e.exitDate)],
+      ['Order', 'Use a limit order near the current mid.'],
+      ['Note', spread ? "2-leg spread. Robinhood agents can't place multi-leg orders, so close it by hand." : null]
+    ]);
+  }
+  function tlPad(s){ while (s.length < TL_LABEL_W) s += ' '; return s; }
+  function tlBlockText(b){
+    return [b.kind + '  ' + b.id].concat(b.rows.map(function(r){ return '  ' + tlPad(r[0] + ':') + r[1]; })).join('\n');
+  }
+  function tlSection(title, blocks, empty){
+    return [TL_RULE, title, TL_RULE, '', blocks.length ? blocks.map(tlBlockText).join('\n\n') : empty];
+  }
+  // The same text the private feed link serves.
+  function tlFeedText(builtAtIso, opens, closes){
+    return [
+      'MINGSTREET TOP PICKS: TRADE LINES',
+      '',
+      '  ' + tlPad('Updated:') + (builtAtIso ? tlEtTime(builtAtIso) : 'unknown'),
+      '  ' + tlPad('Runs:') + '11:00 and 15:30 ET on trading days',
+      '  ' + tlPad('Prices:') + 'Per share. 1 contract = 100 shares.',
+      '  ' + tlPad('Rule:') + 'Open each trade once. Close it only when its CLOSE entry appears.',
+      ''
+    ].concat(tlSection('OPEN TRADES (' + opens.length + ')', opens, 'None open right now.'), [''],
+      tlSection('CLOSED IN THE LAST 7 DAYS (' + closes.length + ')', closes, 'None.')).join('\n') + '\n';
+  }
+  function tlBlockHtml(b){
+    return '<li class="tl-card">' +
+      '<div class="tl-card-head"><span class="tl-kind tl-kind-' + b.kind.toLowerCase() + '">' + b.kind + '</span> <span class="tl-id">' + escapeHtml(b.id) + '</span></div>' +
+      '<dl class="tl-rows">' + b.rows.map(function(r){ return '<dt>' + escapeHtml(r[0]) + '</dt><dd>' + escapeHtml(r[1]) + '</dd>'; }).join('') + '</dl>' +
+    '</li>';
   }
   // The Open picks tab's copy block, below the cards and collapsed by default:
   // open trades (newest first) + the last 7 days of closes (newest first), one
-  // line each, with a Copy all button that works while collapsed.
-  function tradeLinesHtml(open, closed){
+  // labeled block each, with a Copy all button that works while collapsed.
+  function tradeLinesHtml(open, closed, builtAtIso){
     var byDesc = function(k){ return function(a, b){ return (Date.parse(b && b[k]) || 0) - (Date.parse(a && a[k]) || 0); }; };
     var cutoff = Date.now() - 7 * 86400000;
     var now = Date.now();
-    var opens = open.filter(function(e){ return e && e.contract; }).sort(byDesc('entryDate')).map(function(e){ return pickOpenLine(e, now); });
-    var closes = (closed || []).filter(function(e){ return e && e.contract && (Date.parse(e.exitDate) || 0) >= cutoff; }).sort(byDesc('exitDate')).map(pickCloseLine);
-    var all = opens.concat(closes);
-    if (!all.length) return '';
-    var row = function(t){ return '<li class="tl-line">' + escapeHtml(t) + '</li>'; };
+    var opens = open.filter(function(e){ return e && e.contract; }).sort(byDesc('entryDate')).map(function(e){ return tlOpenBlock(e, now); });
+    var closes = (closed || []).filter(function(e){ return e && e.contract && (Date.parse(e.exitDate) || 0) >= cutoff; }).sort(byDesc('exitDate')).map(tlCloseBlock);
+    var n = opens.length + closes.length;
+    if (!n) return '';
     return '<details class="tl-block">' +
-      '<summary class="tl-head">Trade lines for copy and paste <span class="accuracy-group-n">' + all.length + '</span>' +
+      '<summary class="tl-head">Trade lines for copy and paste <span class="accuracy-group-n">' + n + '</span>' +
         '<button type="button" class="tl-copy" data-tl-copy="1">Copy all</button></summary>' +
-      '<p class="hint tl-hint">One line per open trade, plus every close from the last 7 days. Each trade keeps the same id from OPEN to CLOSE. Prices are per share (1 contract = 100 shares).</p>' +
-      (opens.length ? '<ul class="tl-list">' + opens.map(row).join('') + '</ul>' : '') +
-      (closes.length ? '<div class="tl-sub">Closed in the last 7 days</div><ul class="tl-list">' + closes.map(row).join('') + '</ul>' : '') +
-      '<textarea class="tl-src" hidden readonly>' + escapeHtml(all.join('\n')) + '</textarea>' +
+      '<p class="hint tl-hint">Every open trade, plus every close from the last 7 days. Each trade keeps the same id from OPEN to CLOSE. Copy all copies the same text as your private feed link. Prices are per share (1 contract = 100 shares).</p>' +
+      (opens.length ? '<div class="tl-sub">Open trades</div><ul class="tl-list">' + opens.map(tlBlockHtml).join('') + '</ul>' : '') +
+      (closes.length ? '<div class="tl-sub">Closed in the last 7 days</div><ul class="tl-list">' + closes.map(tlBlockHtml).join('') + '</ul>' : '') +
+      '<textarea class="tl-src" hidden readonly>' + escapeHtml(tlFeedText(builtAtIso, opens, closes)) + '</textarea>' +
     '</details>';
   }
   document.addEventListener('click', function(ev){
@@ -35515,7 +35560,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     if (eyebrow) eyebrow.textContent = d.builtAtIso ? 'marked ' + accDateTime(d.builtAtIso) : '';
     if (!open.length){
-      root.innerHTML = '<p class="acc-pane-empty">No Top Picks trades are open right now. New ones open at the 11:00 and 15:30 ET Top Picks runs.</p>' + tradeLinesHtml([], Array.isArray(d.closed) ? d.closed : []);
+      root.innerHTML = '<p class="acc-pane-empty">No Top Picks trades are open right now. New ones open at the 11:00 and 15:30 ET Top Picks runs.</p>' + tradeLinesHtml([], Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
       accPaneSummary('open-picks-sum', [{ val: '0', lbl: 'open positions' }]);
       return;
     }
@@ -35531,7 +35576,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       { val: calls + ' · ' + (open.length - calls), lbl: 'calls · puts' },
       marks.length ? { val: accPct(accMean(marks)), lbl: 'avg open mark · ' + greens + '/' + marks.length + ' green', cls: accMean(marks) >= 0 ? 'sig-pos' : 'sig-neg', tip: 'Average modeled contract P&L across the open book (unrealized).' } : null,
     ]);
-    root.innerHTML = accOpenGroupHtml(open) + tradeLinesHtml(open, Array.isArray(d.closed) ? d.closed : []);
+    root.innerHTML = accOpenGroupHtml(open) + tradeLinesHtml(open, Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
   }
   function renderAccuracy(){
     var root = $('accuracy-root'); if (!root) return;
