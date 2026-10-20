@@ -35048,8 +35048,9 @@ ${renderWorkspaceBindings()}
     return 'CLOSE ' + tlTradeId(e) + ': ' + verb + ' ' + tlContract(e) + '. Reason: ' + reason + pnlText + '. ' +
       "Mingstreet's model price " + tlMoney(px) + ' per share' + tlPerContract(px) + '. Closed ' + tlEtTime(e.exitDate) + '. Use a limit order near the current mid.';
   }
-  // The Open picks tab's copy block: open trades (newest first) + the last 7
-  // days of closes (newest first), one line each, with a Copy all button.
+  // The Open picks tab's copy block, below the cards and collapsed by default:
+  // open trades (newest first) + the last 7 days of closes (newest first), one
+  // line each, with a Copy all button that works while collapsed.
   function tradeLinesHtml(open, closed){
     var byDesc = function(k){ return function(a, b){ return (Date.parse(b && b[k]) || 0) - (Date.parse(a && a[k]) || 0); }; };
     var cutoff = Date.now() - 7 * 86400000;
@@ -35058,7 +35059,7 @@ ${renderWorkspaceBindings()}
     var all = opens.concat(closes);
     if (!all.length) return '';
     var row = function(t){ return '<li class="tl-line">' + escapeHtml(t) + '</li>'; };
-    return '<details class="tl-block" open>' +
+    return '<details class="tl-block">' +
       '<summary class="tl-head">Trade lines for copy and paste <span class="accuracy-group-n">' + all.length + '</span>' +
         '<button type="button" class="tl-copy" data-tl-copy="1">Copy all</button></summary>' +
       '<p class="hint tl-hint">One line per open trade, plus every close from the last 7 days. Each trade keeps the same id from OPEN to CLOSE. Prices are per share (1 contract = 100 shares).</p>' +
@@ -35116,7 +35117,7 @@ ${renderWorkspaceBindings()}
     }
     if (eyebrow) eyebrow.textContent = d.builtAtIso ? 'marked ' + accDateTime(d.builtAtIso) : '';
     if (!open.length){
-      root.innerHTML = tradeLinesHtml([], Array.isArray(d.closed) ? d.closed : []) + '<p class="acc-pane-empty">No Top Picks trades are open right now. New ones open at the 11:00 and 15:30 ET Top Picks runs.</p>';
+      root.innerHTML = '<p class="acc-pane-empty">No Top Picks trades are open right now. New ones open at the 11:00 and 15:30 ET Top Picks runs.</p>' + tradeLinesHtml([], Array.isArray(d.closed) ? d.closed : []);
       accPaneSummary('open-picks-sum', [{ val: '0', lbl: 'open positions' }]);
       return;
     }
@@ -35132,7 +35133,7 @@ ${renderWorkspaceBindings()}
       { val: calls + ' · ' + (open.length - calls), lbl: 'calls · puts' },
       marks.length ? { val: accPct(accMean(marks)), lbl: 'avg open mark · ' + greens + '/' + marks.length + ' green', cls: accMean(marks) >= 0 ? 'sig-pos' : 'sig-neg', tip: 'Average modeled contract P&L across the open book (unrealized).' } : null,
     ]);
-    root.innerHTML = tradeLinesHtml(open, Array.isArray(d.closed) ? d.closed : []) + accOpenGroupHtml(open);
+    root.innerHTML = accOpenGroupHtml(open) + tradeLinesHtml(open, Array.isArray(d.closed) ? d.closed : []);
   }
   function renderAccuracy(){
     var root = $('accuracy-root'); if (!root) return;

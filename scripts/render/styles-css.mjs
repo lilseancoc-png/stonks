@@ -16123,7 +16123,7 @@ body.tape-axm-open { overflow: hidden; }
   border-radius: var(--r-2);
   background: var(--surface);
   padding: 10px 12px;
-  margin: 0 0 16px;
+  margin: 16px 0 0;
 }
 .tl-head {
   display: flex;
@@ -16132,6 +16132,14 @@ body.tape-axm-open { overflow: hidden; }
   cursor: pointer;
   font: 600 13px/1.4 var(--font-sans);
 }
+.tl-head::-webkit-details-marker { display: none; }
+.tl-head::before {
+  content: "▸";
+  display: inline-block;
+  color: var(--muted);
+  transition: transform .15s ease;
+}
+.tl-block[open] > .tl-head::before { transform: rotate(90deg); }
 .tl-copy {
   margin-left: auto;
   font: 600 12px/1 var(--font-sans);
