@@ -32488,6 +32488,33 @@ ${renderWorkspaceBindings()}
     if (!isFinite(a) || !isFinite(b)) return null;
     return Math.max(0, Math.round((b - a) / 86400000));
   }
+  // What each open-pick rule turned away (picks-accuracy.json gateStats): the
+  // stock move in the trade's direction 5 / 10 / 20 trading days after a rule
+  // kept a name off the open-pick path, next to the names that opened.
+  var ACC_GATE_LABEL = {
+    'opened':'Opened on the Track Record', 'book-full':'Picked, but the 20-trade book was full',
+    'losing-streak-bar':'Losing-streak bar (needs 8+)', 'below-strong':'Score below 7',
+    'confluence':'Fewer than 2 pillars agree', 'no-ai-slot':'No AI review slot',
+    'ai-reject':'AI rejected', 'ai-not-strong':'AI grade not strong', 'thesis-not-strong':'Thesis not strong (no AI grade)',
+    'ai-wait':'AI said wait', 'timing-checks':'Entry timing checks', 'avoid-timing':'Avoid timing (knife or chase)',
+    'scenario':'Market scenario gate', 'slots-full':'Top Picks slots full', 'no-contract':'No tradeable contract',
+    'sector-cap':'Sector cap', 'factor-cap':'Factor cap', 'factor-trend':'Weak factor trend', 'side-cap':'Call / put cap'
+  };
+  function accGateStatsHtml(stats){
+    if (!Array.isArray(stats) || !stats.length) return '';
+    function cell(a){
+      if (!a || !a.n) return '<td>—</td>';
+      return '<td><span class="' + (a.avgPct >= 0 ? 'sig-pos' : 'sig-neg') + '">' + accPct(a.avgPct) + '</span> · ' + Math.round(a.rightPct) + '% right <small>(' + a.n + ')</small></td>';
+    }
+    var rows = stats.slice().sort(function(a, b){ return (b.gate === 'opened') - (a.gate === 'opened') || b.n - a.n; }).map(function(g){
+      var lbl = escapeHtml(ACC_GATE_LABEL[g.gate] || g.gate);
+      return '<tr' + (g.gate === 'opened' ? ' class="acc-gate-opened"' : '') + '><td>' + (g.gate === 'opened' ? '<b>' + lbl + '</b>' : lbl) + '</td><td>' + g.n + '</td>' + cell(g.d5) + cell(g.d10) + cell(g.d20) + '</tr>';
+    }).join('');
+    return '<details class="accuracy-advanced acc-gates"><summary class="accuracy-advanced-summary">What each open-pick rule turned away</summary><div class="accuracy-advanced-body">' +
+      '<p class="hint acc-research-note">Each Top Picks run logs the first rule that kept a candidate from opening, then follows the stock in the trade direction. These are stock moves, not option P&amp;L. A rule earns its place when the names it turned away did worse than the ones that opened. Moves fill in as 5, 10 and 20 trading days pass.</p>' +
+      '<div class="acc-tscroll"><table class="acc-qtable"><thead><tr><th>Rule</th><th>Names</th><th>5 days</th><th>10 days</th><th>20 days</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+    '</div></details>';
+  }
   function accPct(n){
     if (n == null || !isFinite(n)) return '—';
     return (n >= 0 ? '+' : '') + Number(n).toFixed(1) + '%';
@@ -35095,9 +35122,10 @@ ${renderWorkspaceBindings()}
     var advancedBlock = advancedInner
       ? '<details class="accuracy-advanced"><summary class="accuracy-advanced-summary">Advanced &amp; research stats</summary><div class="accuracy-advanced-body">' + advancedInner + '</div></details>'
       : '';
+    var gateBlock = accGateStatsHtml(d.gateStats);
     if (statsEl) statsEl.innerHTML = '<div id="accuracy-profit" class="accuracy-profit"></div>' +
       '<div class="acc-an-subhead acc-pctlens-head">Modeled % lens <span class="acc-an-tag">option return, resolved</span></div>' +
-      '<div class="accuracy-chips">' + chips + '</div>' + payoffBlock + tierBlock + advancedBlock;
+      '<div class="accuracy-chips">' + chips + '</div>' + payoffBlock + tierBlock + advancedBlock + gateBlock;
     renderProfitBlock();
 
     // --- Open positions (grouped by ticker; multiple contracts collapse) ----
@@ -38255,6 +38283,7 @@ ${renderWorkspaceBindings()}
       noteBits.push(evL + (evD != null ? ' in ' + evD + 'd' : '') + ' — defined-risk spreads only');
     }
     if (rm && rm.timingGated && rm.timingGated.length) noteBits.push('<b>' + rm.timingGated.length + '</b> deferred for a clean entry (no ‘go’ yet)');
+    if (rm && rm.edgeBarDemoted && rm.edgeBarDemoted.length) noteBits.push('<b>' + rm.edgeBarDemoted.length + '</b> strong pick' + (rm.edgeBarDemoted.length === 1 ? '' : 's') + ' held to watch — the record is losing, so opening a pick needs a score of ' + (rm.actionableBar || 8) + '+');
     if (rm && rm.entryDemoted && rm.entryDemoted.length) noteBits.push('<b>' + rm.entryDemoted.length + '</b> strong pick' + (rm.entryDemoted.length === 1 ? '' : 's') + ' waiting for entry — in Ideas · Watch with the trigger price (not a buy right now)');
     if (rm && rm.safetyGated && rm.safetyGated.length){
       var negEdgeHeld = rm.safetyGated.some(function(x){ return x && x.reasons && x.reasons.indexOf('negative-edge') !== -1; });

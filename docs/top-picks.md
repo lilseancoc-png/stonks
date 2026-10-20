@@ -514,7 +514,14 @@ skips spreads — its single-leg model would mislead.)
    down, lesson #1/#6) instead of trading the same breadth smaller. It needs
    `PICKS_EDGE_GATE_MIN_N` (12) decided closes to engage and relaxes automatically
    as the trailing record recovers. Off via `PICKS_EDGE_GATE=0`; the raised bar
-   ships in `rosterMeta.edgeGate`/`tradeCut`. The existing, explicitly labeled
+   ships in `rosterMeta.edgeGate`/`tradeCut`. Open picks already need Strong
+   (7), so raising the candidate bar alone never slowed enrollments. While the
+   gate is engaged (soft or hard), **an open pick needs |total| ≥
+   `PICKS_EDGE_GATE_STRONG_BAR` (8)** (owner decision, 2026-10-19):
+   `edgeGatedConviction` returns it as `strongBar`, `classifyPick` demotes a
+   Strong name under it to watch (`demotion: "edge-bar"`,
+   `rosterMeta.edgeBarDemoted`), and `rosterMeta.actionableBar` shows the bar
+   in force. The existing, explicitly labeled
    **risk-off tactical-put** path remains a separate defensive exception at
    `PICKS_RISKOFF_PUT_BAR`; it is watch-only, capped at `0.5×` normal size after
    portfolio normalization, and never a regime promotion into Actionable.
@@ -527,7 +534,15 @@ skips spreads — its single-leg model would mislead.)
    `PICKS_MAX_AI_THESES` (= `PICKS_COUNT`, 6)** of them, ranked by
    deterministic conviction — the AI factor is applied ONLY to the
    deterministic top 6 (owner directive). The rest ship a deterministic-only
-   card.)
+   card.) **AI-slot priority (2026-10-19):** before choosing the 6,
+   `prioritizeAiSlots` runs every open-pick test that doesn't need the AI
+   (`openPickPrecheck`: the open-pick score bar, 2+ aligned pillars, the full
+   GO timing package via `entryPromotionBlocked`, the factor-trend gate, a
+   buildable contract for a strong thesis) and the sector / factor / side caps
+   counted over the names ahead in the queue. Names that pass are graded first,
+   in rank order; leftover slots go to the rest in rank order. The AI can only
+   tighten those gates, so this spends the same 6 calls on names that can still
+   open. The roster order is unchanged.
 5. **AI veto** — the AI final grade is `reject` (the thesis doesn't hold up even
    though the data cleared): drop the name (`rosterMeta.aiVetoed`).
 6. Apply the **side-correct Scenario context**. Primary-scenario alignment was
@@ -664,7 +679,23 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   the miss counter: the next Top Picks run removes it from the record outright
   (owner decision, 2026-10-19). A `dropped` close that already happened on an
   uncovered name stays visible but is relabeled `left-coverage`, neither a win
-  nor a loss, so it is out of every stat and the edge governors. **There is no
+  nor a loss, so it is out of every stat and the edge governors. **Rule log
+  (2026-10-19):** every Top Picks run, `buildTopPicks` records the first rule
+  that kept each candidate from opening (`rosterMeta.turnedAway`, gates such as
+  `below-strong`, `losing-streak-bar`, `confluence`, `no-ai-slot`, `ai-wait`,
+  `timing-checks`, `ai-not-strong`, `no-contract`, the caps) plus the names
+  picked. `updatePicksAccuracyFile` appends them to `gateLog` in
+  `picks-accuracy.json` (a picked name is split into `opened` or `book-full`;
+  a name the same rule keeps blocking is logged again only after
+  `GATE_LOG_REPEAT_DAYS` (7), so samples don't overlap at the 5-day horizon,
+  while every opened trade is logged) and follows each row's stock move in the
+  trade direction 5, 10 and 20 completed trading sessions later (today's
+  unfinished bar never counts). A row whose 20-day
+  move is in, or that is older than `GATE_LOG_KEEP_DAYS` (60), is folded into
+  `gateTotals` and dropped, and `gateStats` combines both for the Track
+  Record's "What each open-pick rule turned away" table. These are stock moves,
+  not option P&L, because most rules act before a contract exists. No AI calls
+  and no extra fetches. **There is no
   weekly reset**: the record accumulates and open positions are never
   force-closed at a week boundary — every trade rides until one of the exit
   rules above fires (the old weekly reset, which force-closed the open book at
@@ -917,6 +948,7 @@ implementation must expose the stated value and audit fields:
 | `PICKS_MIN_CONVICTION` / `PICKS_TIER_STRONG` | 4 / 7 | actionable / strong grade bars |
 | `PICKS_THESIS_STRONG_SCORE` / `_MOD_SCORE` | 5 / 3 | thesis-quality bars (strong / moderate tier) |
 | `PICKS_EDGE_GATE_SOFT` / `_HARD` / `_MIN_N` | −8 / −15 / 12 | edge-governed bar: raise the actionable cut toward Strong when the realized option edge is this negative (after this many decided closes) |
+| `PICKS_EDGE_GATE_STRONG_BAR` | 8 | open-pick score bar while the edge gate is engaged |
 | `PICKS_COUNT` / `PICKS_WATCH_COUNT` | 6 / 6 | max Actionable / max Ideas·Watch roster size |
 | `PICKS_MAX_AI_THESES` | = `PICKS_COUNT` (6) | only the top N data-gate survivors BY DETERMINISTIC CONVICTION get the AI thesis + final grade (the AI factor applies ONLY to the deterministic top 6); the rest ship deterministic-only watch cards. No bench below the cut: an AI reject/wait honestly shrinks the roster instead of backfilling |
 | `PICKS_ENTRY_WAIT_SIZE_MULT` | 0.75 | size haircut on a contract-bearing pick whose entry signal is still a wait/dip trigger (`entry.now === false`). Since the 2026-07-10 entry gate an actionable pick is always entry-confirmed, so this only shapes the display sizing of watch ideas |
