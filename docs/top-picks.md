@@ -685,9 +685,12 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   `below-strong`, `losing-streak-bar`, `confluence`, `no-ai-slot`, `ai-wait`,
   `timing-checks`, `ai-not-strong`, `no-contract`, the caps) plus the names
   picked. `updatePicksAccuracyFile` appends them to `gateLog` in
-  `picks-accuracy.json` (one row per ET day / symbol / side / rule; a picked
-  name is split into `opened` or `book-full`) and follows each row's stock move
-  in the trade direction 5, 10 and 20 trading days later. A row whose 20-day
+  `picks-accuracy.json` (a picked name is split into `opened` or `book-full`;
+  a name the same rule keeps blocking is logged again only after
+  `GATE_LOG_REPEAT_DAYS` (7), so samples don't overlap at the 5-day horizon,
+  while every opened trade is logged) and follows each row's stock move in the
+  trade direction 5, 10 and 20 completed trading sessions later (today's
+  unfinished bar never counts). A row whose 20-day
   move is in, or that is older than `GATE_LOG_KEEP_DAYS` (60), is folded into
   `gateTotals` and dropped, and `gateStats` combines both for the Track
   Record's "What each open-pick rule turned away" table. These are stock moves,

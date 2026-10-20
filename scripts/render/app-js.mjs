@@ -38283,6 +38283,7 @@ ${renderWorkspaceBindings()}
       noteBits.push(evL + (evD != null ? ' in ' + evD + 'd' : '') + ' — defined-risk spreads only');
     }
     if (rm && rm.timingGated && rm.timingGated.length) noteBits.push('<b>' + rm.timingGated.length + '</b> deferred for a clean entry (no ‘go’ yet)');
+    if (rm && rm.edgeBarDemoted && rm.edgeBarDemoted.length) noteBits.push('<b>' + rm.edgeBarDemoted.length + '</b> strong pick' + (rm.edgeBarDemoted.length === 1 ? '' : 's') + ' held to watch — the record is losing, so opening a pick needs a score of ' + (rm.actionableBar || 8) + '+');
     if (rm && rm.entryDemoted && rm.entryDemoted.length) noteBits.push('<b>' + rm.entryDemoted.length + '</b> strong pick' + (rm.entryDemoted.length === 1 ? '' : 's') + ' waiting for entry — in Ideas · Watch with the trigger price (not a buy right now)');
     if (rm && rm.safetyGated && rm.safetyGated.length){
       var negEdgeHeld = rm.safetyGated.some(function(x){ return x && x.reasons && x.reasons.indexOf('negative-edge') !== -1; });

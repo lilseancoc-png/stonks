@@ -38,7 +38,7 @@ import {
   freshMajorContractStatus, fiveSessionReturnPct, aiReserveBlocks, ensureTickerCoverage, GRADE_MODEL_VERSION,
   reconcileLevEtfLog, levEtfEntryInUniverse,
   scoreAllTickers, openPickPrecheck, prioritizeAiSlots,
-  appendGateLog, gateRowMoves, foldGateLog, computeGateStats, GATE_LOG_KEEP_DAYS,
+  appendGateLog, gateRowMoves, foldGateLog, computeGateStats, GATE_LOG_KEEP_DAYS, GATE_LOG_REPEAT_DAYS,
 } from "./build.mjs";
 import { buildFlowExplanation } from "../lib/flow-explanation.mjs";
 import { computeGexSummary } from "../lib/gex.mjs";
@@ -2322,6 +2322,14 @@ const gradeOne = (data, opts = {}, unusual = null) => buildGradesIndex({ ONE: da
   const mvPut = gateRowMoves({ date: "2026-10-19", side: "put", spot: 100 }, bars);
   ok("gate log: moves are measured N bars on, in the trade's direction",
     mvCall.d5 === 5 && mvCall.d10 === 10 && mvCall.d20 === 20 && mvPut.d5 === -5);
+  const nextDay = appendGateLog(log1, ta, new Set(["AAA:call"]), "2026-10-20T15:00:00.000Z");
+  const afterGap = appendGateLog(log1, ta, new Set(), new Date(Date.UTC(2026, 9, 19 + GATE_LOG_REPEAT_DAYS + 1, 15)).toISOString());
+  ok("gate log: a name the same rule keeps blocking is not re-logged for a week",
+    nextDay.length === 3 + 1 && nextDay.filter((x) => x.sym === "CCC").length === 1 && afterGap.filter((x) => x.sym === "CCC").length === 2);
+  ok("gate log: a new opened trade is always logged", nextDay.filter((x) => x.gate === "opened").length === 2);
+  ok("gate log: today's unfinished bar never counts",
+    gateRowMoves({ date: "2026-10-19", side: "call", spot: 100 }, bars, days[5]).d5 === null
+      && gateRowMoves({ date: "2026-10-19", side: "call", spot: 100 }, bars, days[6]).d5 === 5);
   ok("gate log: an open window stays null", gateRowMoves({ date: days[15], side: "call", spot: 115 }, bars).d20 === null);
   const fakeChains = { AAA: { priceSeries: { t: days, c: days.map((_, i) => 100 + i) } }, CCC: { priceSeries: { t: days, c: days.map(() => 20) } } };
   fakeChains.AAA.priceSeries.o = fakeChains.AAA.priceSeries.h = fakeChains.AAA.priceSeries.l = fakeChains.AAA.priceSeries.c;

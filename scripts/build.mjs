@@ -27965,21 +27965,33 @@ export async function readPicksAccuracyState() {
 // into the running per-rule totals (gateTotals) and dropped from the log, so
 // the file stays small while the totals keep growing.
 export const GATE_LOG_KEEP_DAYS = 60;
+// A name a rule keeps blocking is logged again only after this many calendar
+// days, so its samples don't overlap at the 5-day horizon and a name stuck
+// behind one rule for weeks doesn't outweigh the one-off trades that opened.
+export const GATE_LOG_REPEAT_DAYS = 7;
 export const GATE_LOG_MAX_ROWS = 3000;
 export const GATE_LOG_HORIZONS = Object.freeze([5, 10, 20]);
 
 export function appendGateLog(prevLog, turnedAway, enrolledKeys, builtAtIso) {
   const date = etDateKey(new Date(builtAtIso));
+  const repeatAfter = etDateKey(new Date(Date.parse(builtAtIso) - GATE_LOG_REPEAT_DAYS * 86400000));
   const log = Array.isArray(prevLog) ? prevLog.slice() : [];
-  const seen = new Set(log.map((x) => `${x.date}:${x.sym}:${x.side}:${x.gate}`));
+  const lastSeen = new Map();
+  for (const x of log) {
+    const k = `${x.sym}:${x.side}:${x.gate}`;
+    if (!lastSeen.has(k) || x.date > lastSeen.get(k)) lastSeen.set(k, x.date);
+  }
   for (const t of (Array.isArray(turnedAway) ? turnedAway : [])) {
     if (!t || !t.sym || !t.side || !t.gate) continue;
     // A "picked" name either opened on the Track Record or found the 20-trade
     // book full; record which, so "opened" is exactly the enrolled trades.
     const gate = t.gate === "picked" ? (enrolledKeys?.has(`${t.sym}:${t.side}`) ? "opened" : "book-full") : t.gate;
-    const k = `${date}:${t.sym}:${t.side}:${gate}`;
-    if (seen.has(k) || !(pnum(t.spot) > 0)) continue;
-    seen.add(k);
+    const k = `${t.sym}:${t.side}:${gate}`;
+    const prev = lastSeen.get(k);
+    // Every opened trade counts; a repeat block waits GATE_LOG_REPEAT_DAYS.
+    if (prev && (prev === date || (gate !== "opened" && prev > repeatAfter))) continue;
+    if (!(pnum(t.spot) > 0)) continue;
+    lastSeen.set(k, date);
     log.push({ date, sym: t.sym, side: t.side, gate, total: t.total ?? null, spot: t.spot });
   }
   return log.slice(-GATE_LOG_MAX_ROWS);
@@ -27994,18 +28006,26 @@ function barDateKey(t) {
 }
 
 // Direction-adjusted % stock move N trading days after the logged day, or
-// null while the window is still open / history is missing.
-export function gateRowMoves(row, bars) {
+// null while the window is still open / history is missing. Only sessions
+// dated before `beforeDate` (the build's ET date) count, so a bake during
+// market hours never scores, or folds in, today's unfinished bar.
+export function gateRowMoves(row, bars, beforeDate = null) {
   const out = {};
   for (const h of GATE_LOG_HORIZONS) out[`d${h}`] = null;
   if (!row || !bars || !Array.isArray(bars.c) || !Array.isArray(bars.t)) return out;
-  let i0 = -1;
-  for (let i = 0; i < bars.t.length; i++) { const d = barDateKey(bars.t[i]); if (d && d >= row.date) { i0 = i; break; } }
+  let i0 = -1, iEnd = bars.t.length;
+  for (let i = 0; i < bars.t.length; i++) {
+    const d = barDateKey(bars.t[i]);
+    if (!d) continue;
+    if (beforeDate && d >= beforeDate) { iEnd = i; break; }
+    if (i0 < 0 && d >= row.date) i0 = i;
+  }
   if (i0 < 0) return out;
   const base = pnum(row.spot);
   if (!(base > 0)) return out;
   const dir = row.side === "put" ? -1 : 1;
   for (const h of GATE_LOG_HORIZONS) {
+    if (i0 + h >= iEnd) continue;
     const c = pnum(bars.c[i0 + h]);
     if (c > 0) out[`d${h}`] = r2(dir * (c / base - 1) * 100);
   }
@@ -28027,6 +28047,7 @@ function addGateMoves(acc, gate, mv) {
 // the running totals; return what is still pending plus the new totals.
 export function foldGateLog(log, totals, chains, builtAtIso) {
   const out = JSON.parse(JSON.stringify(totals && typeof totals === "object" ? totals : {}));
+  const today = etDateKey(new Date(builtAtIso));
   const cutoff = etDateKey(new Date(Date.parse(builtAtIso) - GATE_LOG_KEEP_DAYS * 86400000));
   const last = `d${GATE_LOG_HORIZONS[GATE_LOG_HORIZONS.length - 1]}`;
   const barsBySym = {};
@@ -28034,7 +28055,7 @@ export function foldGateLog(log, totals, chains, builtAtIso) {
   for (const row of (Array.isArray(log) ? log : [])) {
     if (!row || !row.gate) continue;
     if (!(row.sym in barsBySym)) barsBySym[row.sym] = chains?.[row.sym] ? timingBarsFrom(chains[row.sym]) : null;
-    const mv = gateRowMoves(row, barsBySym[row.sym]);
+    const mv = gateRowMoves(row, barsBySym[row.sym], today);
     if (mv[last] != null || row.date < cutoff) addGateMoves(out, row.gate, mv);
     else pending.push(row);
   }
@@ -28044,13 +28065,14 @@ export function foldGateLog(log, totals, chains, builtAtIso) {
 // Per-rule summary over the folded totals plus the still-pending rows: rows
 // logged, and per horizon the scored count, the average direction-adjusted
 // move and the share that moved the trade's way.
-export function computeGateStats(log, chains, totals = null) {
+export function computeGateStats(log, chains, totals = null, builtAtIso = null) {
   const by = JSON.parse(JSON.stringify(totals && typeof totals === "object" ? totals : {}));
+  const today = builtAtIso ? etDateKey(new Date(builtAtIso)) : null;
   const barsBySym = {};
   for (const row of (Array.isArray(log) ? log : [])) {
     if (!row || !row.gate) continue;
     if (!(row.sym in barsBySym)) barsBySym[row.sym] = chains?.[row.sym] ? timingBarsFrom(chains[row.sym]) : null;
-    addGateMoves(by, row.gate, gateRowMoves(row, barsBySym[row.sym]));
+    addGateMoves(by, row.gate, gateRowMoves(row, barsBySym[row.sym], today));
   }
   return Object.entries(by).map(([gate, g]) => {
     const out = { gate, n: g.n };
@@ -28410,7 +28432,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     ? appendGateLog(state.gateLog, picksPayload?.rosterMeta?.turnedAway, enrolledNow, builtAtIso)
     : (Array.isArray(state.gateLog) ? state.gateLog : []);
   const { log: gateLog, totals: gateTotals } = foldGateLog(appended, state.gateTotals, chains, builtAtIso);
-  const gateStats = computeGateStats(gateLog, chains, gateTotals);
+  const gateStats = computeGateStats(gateLog, chains, gateTotals, builtAtIso);
   const payload = { builtAtIso, resetEpoch: PICKS_ACCURACY_RESET_EPOCH, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, open, closed, stats, gateLog, gateTotals, gateStats };
   await writeFile(accPath, JSON.stringify(payload), "utf8");
   // Separate open-marks file for the Top Picks tab's "since it appeared" chip
