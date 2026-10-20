@@ -26,6 +26,14 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - **New Owner tab: Open picks.** It sits right above Top Picks track record and lists only the Top Picks trades that are open now, using the same cards as the Track Record's Picks view (contract, modeled P&L, open time, days left, targets), with a short summary of how many are open, the call/put split and the average open mark. It reads the existing track record file, so it adds no new data or AI cost. Reach it at `?tab=open-picks`.
 
+### Changed
+
+- **Top Picks grades judge revenue and EPS growth against the company's sector norm.** A retailer growing revenue 7% now scores like a software company growing 20%: each sector has an in-line band from long-run industry history (for example retail 2–7%, software 12–20%, memory 10–25%), +1 above it, +2 well above it, −1 below it and −2 well below it. A below-norm penalty is waived when growth jumped at least 10 points on the quarter before (20 for memory and early-stage names), so a company climbing from −40% to −10% is not scored as shrinking, and a single weak EPS quarter only counts when revenue is weak too or the quarter before was also weak. The Grade tab shows each name's norm and verdict. Quarterly net income now accumulates across builds for that check. The grade formula version is now `2026-10-sector-growth`, so the Track Record gets a dated divider and nothing is reset. No new AI or data calls.
+
+### Fixed
+
+- **Missing EPS growth no longer reads as "0%".** When Yahoo sends no EPS growth figure, the Fundamentals pillar shows it as no data instead of a 0% reading.
+
 ## 2026-10-19
 
 ### Added

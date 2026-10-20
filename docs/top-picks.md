@@ -102,8 +102,8 @@ are covering ≥5% AND the 5-session return is positive; −1 when shares short 
 
 **Fundamentals** (slower, but the *event* signals still move fast):
 earnings surprise (±2; not scored when the EPS estimate is under $0.10), EPS
-growth (+1 at ≥10%, +2 at ≥30%, −2 below −25%), revenue growth (+1 at ≥8%, +2 at
-≥20%, −2 below −20%), analyst price target (+1 only at ≥20% upside, −1 at ≥10%
+growth and revenue growth (each −2..+2 against the name's **sector norm**, see
+below), analyst price target (+1 only at ≥20% upside, −1 at ≥10%
 downside), analyst rating *changes* (±2), P/E vs sector (±1), guidance
 (raised +3 / inline +1 / soft −1 / lowered −3, with a dividend-headline guard;
 with no guidance read the FY estimate gives +1 at ≥10% growth and −3 at ≤−10%),
@@ -120,6 +120,57 @@ shipped as `pillars.fundamentals.trajectory = { dir, score, confidence, reason }
 for the ↗/↘ badge, Stock Picks, Sector Rotation and the AI grader prompt, but it
 is **not scored** (2026-10-10): it re-counted inputs the pillar already scores.
 Net-margin trend was removed from the score for the same reason.
+
+**Sector growth norms** (2026-10-20, `lib/sector-growth.mjs`,
+`GRADE_MODEL_VERSION = "2026-10-sector-growth"`). Revenue and EPS growth (latest
+quarter vs the same quarter a year earlier) are judged against the growth that is
+normal for the name's kind of business, anchored to long-run industry history
+(Damodaran's Jan 2026 industry dataset) and the S&P 500's 10-year averages
+(FactSet: revenue 5.7%/yr, earnings 9.5%/yr). Each profile has an in-line band:
+at or above its top +1, at or above the "+2" bar +2, inside the band 0, below
+the band −1, below the "shrink" bar −2.
+
+| Profile | Revenue in line | +2 at | −2 below | EPS in line | +2 at | −2 below |
+|---|---|---|---|---|---|---|
+| Software | 12–20% | 30% | 0% | 15–25% | 40% | −20% |
+| Semis (NVDA included) | 10–20% | 35% | −15% | 10–25% | 50% | −30% |
+| Semi equipment (ASML, AMAT, LRCX) | 8–15% | 25% | −15% | 10–18% | 35% | −25% |
+| Memory & storage (MU, SNDK, WDC, STX, DRAM) | 10–25% | 50% | −25% | 10–40% | 100% | −50% |
+| Mega-cap platforms | 8–15% | 25% | −5% | 10–18% | 30% | −15% |
+| Hardware & networking (SMCI included) | 5–15% | 30% | −15% | 10–20% | 35% | −20% |
+| IT services | 3–8% | 15% | −5% | 5–10% | 18% | −10% |
+| Banks | 3–9% | 15% | −10% | 5–12% | 25% | −20% |
+| Payments | 7–12% | 18% | −5% | 10–15% | 25% | −15% |
+| Brokers | 5–15% | 30% | −15% | 5–15% | 35% | −25% |
+| Pharma | 3–10% | 20% | −10% | 4–12% | 25% | −20% |
+| Managed care | 6–12% | 18% | −5% | 8–14% | 20% | −10% |
+| Retail | 2–7% | 11% | −5% | 5–10% | 18% | −15% |
+| Apparel | 2–8% | 15% | −8% | 3–10% | 20% | −20% |
+| Restaurants | 3–8% | 14% | −5% | 5–10% | 18% | −15% |
+| Media | 3–8% | 15% | −8% | 3–12% | 25% | −20% |
+| China internet | 5–12% | 25% | −10% | 5–15% | 30% | −20% |
+| Power | 2–10% | 20% | −15% | 3–12% | 25% | −25% |
+| Electrical / data center | 10–20% | 35% | −10% | 12–20% | 35% | −15% |
+| Early-stage (Space, CBRS) | +1 at 30% | 60% | −10% | not scored | | |
+
+Two guards keep one bad print from reading as a decline:
+- **Recovery.** A below-norm penalty is waived when the year-over-year rate rose
+  at least 10 points on the quarter before (20 for memory and early-stage),
+  e.g. −40% → −10%. The verdict reads "recovering" while the rate is negative
+  and "improving" once it is positive. Revenue reads the accumulated quarterly
+  revenue history; EPS reads quarterly GAAP net income (the same basis as
+  Yahoo's EPS growth figure, and unaffected by stock splits). The history must
+  end at the latest reported quarter. Comparing two year-over-year rates keeps
+  seasonal quarters (a holiday quarter, a 16-week fiscal Q4) from tripping it.
+  Without two quarters of revenue history, the consensus revenue estimate for
+  the next quarter stands in. EPS has no consensus stand-in because the
+  estimate is adjusted EPS while the scored figure is GAAP.
+- **EPS one-off.** An EPS penalty needs confirmation: revenue below its norm
+  too, or net income growth below the EPS norm the quarter before as well. A
+  single weak EPS quarter on healthy revenue is shown but not scored.
+
+Names outside these profiles (ETFs) keep the old one-size bars: EPS +1 at ≥10%,
++2 at ≥30%, −2 below −25%; revenue +1 at ≥8%, +2 at ≥20%, −2 below −20%.
 
 CapEx quality measures the sequential and year-over-year change in CapEx/Sales
 (CapEx/Operating Cash Flow is the fallback only when OCF is positive), compares
