@@ -11288,7 +11288,7 @@ export const COMMODITY_TRACKERS = [
     symbol: "CT=F", unit: "US¢/lb", fmt: "cents",
     sourceName: "ICE cotton futures (Yahoo)", sourceUrl: "https://finance.yahoo.com/quote/CT%3DF/",
     note: "Fabric cost for apparel & textile makers — a spike hints at margin squeeze or inventory pain for clothing retailers and fast fashion; a slump is a tailwind.",
-    watch: ["NKE", "LULU", "GPS"],
+    watch: ["NKE", "TGT", "GPS"],
   },
   {
     key: "coffee", label: "Coffee (arabica)", group: "softs", kind: "futures", cadence: "daily",
@@ -11323,7 +11323,7 @@ export const COMMODITY_TRACKERS = [
     series: "PCU212391212391P", unit: "US PPI index (monthly)", fmt: "index",
     sourceName: "BLS PPI (potash mining) via FRED", sourceUrl: "https://fred.stlouisfed.org/series/PCU212391212391P",
     note: "Key fertilizer input — a cost signal for agriculture, farm-equipment demand (Deere) and, downstream, food-production costs. Series is the US producer price index for potash mining; there is no free global potash spot feed.",
-    watch: ["DE", "NTR", "MOS"],
+    watch: ["NTR", "MOS"],
   },
   {
     key: "lithium", label: "Lithium (proxy)", group: "industrial", kind: "proxy", cadence: "daily",
@@ -11338,7 +11338,7 @@ export const COMMODITY_TRACKERS = [
     series: "PCU483111483111", unit: "US PPI index (monthly)", fmt: "index",
     sourceName: "BLS PPI (deep-sea freight) via FRED", sourceUrl: "https://fred.stlouisfed.org/series/PCU483111483111",
     note: "Ocean-freight cost inflation & shipping capacity tightness — a margin watch for importers/retailers and a demand read for logistics. Base series: US PPI for deep-sea freight; the weekly Drewry WCI composite overlays when reachable.",
-    watch: ["FDX", "UPS", "AMZN"],
+    watch: ["AMZN", "WMT", "TGT"],
   },
   {
     key: "baltic-dry", label: "Baltic Dry (proxy)", group: "freight", kind: "proxy", cadence: "daily",
@@ -11346,7 +11346,7 @@ export const COMMODITY_TRACKERS = [
     proxyNote: "Proxy: Breakwave Dry Bulk Shipping ETF (near-dated dry-bulk freight futures) — the BDI itself publishes no free feed; the true index overlays when reachable.",
     sourceName: "BDRY ETF (Yahoo)", sourceUrl: "https://finance.yahoo.com/quote/BDRY/",
     note: "Dry-bulk shipping cost (iron ore, coal, grain) — a leading indicator of global industrial demand and trade volume that often moves before broader economic data. Rising = stronger commodity/industrial activity.",
-    watch: ["CAT", "SBLK", "GNK"],
+    watch: ["SBLK", "GNK"],
   },
   {
     key: "used-vehicles", label: "Used vehicles", group: "consumer", kind: "fred", cadence: "monthly",

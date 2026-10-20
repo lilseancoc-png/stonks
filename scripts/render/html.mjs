@@ -513,7 +513,7 @@ function openPicksSection() {
       <h2 class="card-title">Open picks</h2>
       <span class="card-eyebrow" id="open-picks-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">Every Top Picks trade that is open right now, newest first. Marks are modeled Black-Scholes at constant entry IV, not live chain fills, and refresh at the 11:00 and 15:30 ET Top Picks runs. Closed trades and the full record are on the Top Picks track record tab.</p>
+    <p class="hint">Every Top Picks trade that is open right now, newest first. Marks are modeled Black-Scholes at constant entry IV, not live chain fills, and refresh at the 11:00 and 15:30 ET Top Picks runs. The trade lines below the cards also list every close from the last 7 days; the full record is on the Top Picks track record tab.</p>
     <div id="open-picks-sum" class="acc-pane-sum-slot"></div>
     <div id="open-picks-root" class="accuracy-root">Loading open picks&hellip;</div>
   </section>`;
