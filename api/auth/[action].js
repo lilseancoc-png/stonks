@@ -7,12 +7,13 @@
 //   discord-callback -> validate, role-check, mint session  (registered redirect URI)
 //   logout           -> clear session (same-origin POST only)
 //   me               -> report session for the "signed in as …" chip
+//   picks-feed       -> private plain-text open/closed trade lines (secret link)
 //
 // Discord auth is intentionally an INTERNAL Owner Lab mechanism. Public site
 // access never requires a login; only principals holding the existing Top Picks
 // owner role can mint a session.
 
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   serializeCookie,
   parseCookies,
@@ -72,6 +73,8 @@ export default async function handler(req, res) {
       return logout(req, res);
     case "me":
       return me(req, res);
+    case "picks-feed":
+      return picksFeed(req, res);
     default:
       return res.status(404).json({ error: "not found" });
   }
@@ -245,4 +248,49 @@ async function me(req, res) {
     trackRecord: session.tr === true,
     topPicks: session.tp === true,
   });
+}
+
+// --- private picks feed ------------------------------------------------------
+// /api/auth/picks-feed?key=<PICKS_FEED_KEY> returns the open Top Picks trades
+// and the last week's closes as plain-text lines (lib/pick-trade-text.mjs), so
+// an outside agent can read them without a Discord session. The link itself is
+// the credential and it exposes only these lines, not the rest of the Owner
+// data. Reset it by changing PICKS_FEED_KEY in Vercel; unset = feed off.
+const PICKS_FEED_MIN_KEY = 24;
+
+function keyMatches(given, expected) {
+  // Hash both sides so the comparison is constant-time and length-independent.
+  const a = createHash("sha256").update(String(given)).digest();
+  const b = createHash("sha256").update(String(expected)).digest();
+  return timingSafeEqual(a, b);
+}
+
+async function picksFeed(req, res) {
+  res.setHeader("Cache-Control", "private, no-store");
+  res.setHeader("X-Robots-Tag", "noindex, nofollow");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  const expected = process.env.PICKS_FEED_KEY || "";
+  const given = req.query?.key;
+  if (
+    process.env.PRIVATE_DATA_ENABLED !== "1" ||
+    expected.length < PICKS_FEED_MIN_KEY ||
+    typeof given !== "string" ||
+    !keyMatches(given, expected)
+  ) {
+    return res.status(404).json({ error: "not found" });
+  }
+  try {
+    const [{ store }, { buildPicksFeedText }] = await Promise.all([
+      import("../../lib/datastore.mjs"),
+      import("../../lib/pick-trade-text.mjs"),
+    ]);
+    const buf = await store.get("picks-accuracy.json");
+    const acc = buf == null ? {} : JSON.parse(buf.toString("utf8"));
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.statusCode = 200;
+    return res.end(buildPicksFeedText(acc));
+  } catch (err) {
+    console.error("picks feed failed", { message: String(err?.message || err) });
+    return res.status(502).json({ error: "feed unavailable" });
+  }
 }

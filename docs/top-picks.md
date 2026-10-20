@@ -727,8 +727,9 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   `PICKS_DROPPED_MIN_MISSES` consecutive misses; an unmarkable resolution is
   `void` on EVERY exit path — never counted as a win or a loss). An open trade
   on a name that has **left coverage** (no longer in `TICKERS`) doesn't wait for
-  the miss counter: the next Top Picks run removes it from the record outright
-  (owner decision, 2026-10-19). A `dropped` close that already happened on an
+  the miss counter: the next Top Picks run closes it at its last mark as
+  `left-coverage` (not counted; closed rather than deleted since 2026-10-20 so
+  the picks feed emits a CLOSE line for anyone mirroring the book). A `dropped` close that already happened on an
   uncovered name stays visible but is relabeled `left-coverage`, neither a win
   nor a loss, so it is out of every stat and the edge governors. **Rule log
   (2026-10-19):** every Top Picks run, `buildTopPicks` records the first rule

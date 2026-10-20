@@ -28220,8 +28220,9 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
 
   // LEFT COVERAGE: a name removed from TICKERS gets no chain and no grade, so
   // its trade can only sit on a frozen mark until the "dropped" miss counter
-  // closes it as a win/loss that says nothing about the signal. Remove such an
-  // open trade from the record outright (owner decision, 2026-10-19). A
+  // closes it as a win/loss that says nothing about the signal. Such an open
+  // trade is closed right away as "left-coverage" (not counted; 2026-10-19
+  // owner decision, closed instead of deleted since 2026-10-20). A
   // "dropped" close that already happened on a name no longer covered stays
   // visible but is relabeled "left-coverage" — neither a win nor a loss, so the
   // scorecard, the edge governors and the client's decided-trade views skip it.
@@ -28234,8 +28235,13 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
   const stillOpen = [];
   const nowSec = Math.floor(Date.parse(builtAtIso) / 1000) || Math.floor(Date.now() / 1000);
   for (const e of open) {
+    // Close it as "left-coverage" at its last mark instead of deleting it, so
+    // anyone mirroring the book gets a CLOSE line for the position (the picks
+    // feed, lib/pick-trade-text.mjs). The outcome is neither win nor loss, so
+    // the record still doesn't count it.
     if (e && e.symbol && !covered.has(e.symbol)) {
-      console.log(`  picks-accuracy: ${e.symbol} ${e.side} left coverage — open trade removed from the record`);
+      console.log(`  picks-accuracy: ${e.symbol} ${e.side} left coverage — closed at its last mark (not counted)`);
+      closed.unshift({ ...e, exitSpot: e.lastSpot ?? null, exitDate: builtAtIso, status: "left-coverage", outcome: "left-coverage", priorOutcome: null });
       continue;
     }
     const data = chains?.[e.symbol] || null;

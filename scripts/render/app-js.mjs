@@ -34962,6 +34962,129 @@ ${renderWorkspaceBindings()}
       openRows +
     '</div>';
   }
+  // --- Trade lines (copy/paste for an outside agent) -------------------------
+  // Re-port of pickOpenLine / pickCloseLine in lib/pick-trade-text.mjs (the
+  // private picks feed serves the same lines). Change one, change the other.
+  // Ids and times are always ET so a line here matches the feed exactly.
+  var TL_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var TL_CLOSE_REASON = { 'hit-tp-prem':'take-profit hit', 'trail-stop':'trail stop', 'hit-stop-prem':'premium stop hit', 'hit-stop-under':'stock stop hit', 'thesis-broken':'thesis broken', 'theta-stop':'theta stop', 'expired':'contract expired', 'dropped':'name left the universe', 'left-coverage':'name left coverage (not counted in the record)' };
+  var TL_MULTI_LEG = " This is a 2-leg spread: Robinhood agents can't place multi-leg orders, so place it by hand or skip it.";
+  function tlNum(v){ if (v == null || v === '') return null; var n = Number(v); return isFinite(n) ? n : null; }
+  function tlMoney(v){ var n = tlNum(v); return n == null ? '?' : '$' + n.toFixed(2); }
+  function tlStrike(v){
+    var n = tlNum(v); if (n == null) return '$?';
+    if (Math.round(n) === n) return '$' + n;
+    var s = n.toFixed(2); while (s.charAt(s.length - 1) === '0') s = s.slice(0, -1);
+    if (s.charAt(s.length - 1) === '.') s = s.slice(0, -1);
+    return '$' + s;
+  }
+  function tlExpiry(sec){
+    var n = tlNum(sec); if (n == null) return '?';
+    var d = new Date(n * 1000);
+    return TL_MONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate() + ' ' + d.getUTCFullYear();
+  }
+  function tlEtParts(iso){
+    var d = new Date(iso); if (isNaN(d.getTime())) return null;
+    var out = {};
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone:'America/New_York', year:'2-digit', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hourCycle:'h23' })
+        .formatToParts(d).forEach(function(p){ out[p.type] = p.value; });
+    } catch (_){ return null; }
+    return out;
+  }
+  function tlTradeId(e){
+    var p = tlEtParts(e && e.entryDate);
+    var stamp = p ? (p.year + p.month + p.day + '-' + p.hour + p.minute) : '000000-0000';
+    return ((e && e.symbol) || '?') + '-' + (e && e.side === 'put' ? 'P' : 'C') + '-' + stamp;
+  }
+  function tlEtTime(iso){
+    var d = new Date(iso); if (isNaN(d.getTime())) return '?';
+    try {
+      return new Intl.DateTimeFormat('en-US', { timeZone:'America/New_York', month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit' }).format(d) + ' ET';
+    } catch (_){ return String(iso); }
+  }
+  function tlContract(e){
+    var c = (e && e.contract) || {};
+    var type = (c.optionType || e.side) === 'put' ? 'put' : 'call';
+    var exp = tlExpiry(c.expiry);
+    if (c.structure === 'debit_vertical' || c.structure === 'credit_vertical'){
+      var kind = c.structure === 'credit_vertical' ? 'credit' : 'debit';
+      return e.symbol + ' ' + exp + ' ' + tlStrike(c.longStrike) + '/' + tlStrike(c.shortStrike) + ' ' + type + ' ' + kind + ' spread (long ' + tlStrike(c.longStrike) + ', short ' + tlStrike(c.shortStrike) + ')';
+    }
+    return e.symbol + ' ' + exp + ' ' + tlStrike(c.strike) + ' ' + type;
+  }
+  function tlEntryPrice(e){
+    var c = (e && e.contract) || {};
+    if (c.structure === 'debit_vertical') return tlNum(c.netDebit) != null ? tlNum(c.netDebit) : tlNum(c.mid);
+    if (c.structure === 'credit_vertical') return tlNum(c.netCredit) != null ? tlNum(c.netCredit) : tlNum(c.mid);
+    return tlNum(c.mid);
+  }
+  function tlMarkPrice(e){
+    var entry = tlEntryPrice(e), pnl = tlNum(e && e.optionPnlPct);
+    if (entry == null || pnl == null) return null;
+    var px = (e.contract && e.contract.structure === 'credit_vertical') ? entry * (1 - pnl / 100) : entry * (1 + pnl / 100);
+    return Math.max(0, px);
+  }
+  function tlPerContract(px){ return px == null ? '' : ' ($' + Math.round(px * 100).toLocaleString('en-US') + ' per contract)'; }
+  function pickOpenLine(e){
+    var c = (e && e.contract) || {};
+    var px = tlEntryPrice(e);
+    var credit = c.structure === 'credit_vertical';
+    var spread = c.structure === 'debit_vertical' || credit;
+    var verb = credit ? 'sell to open' : 'buy to open';
+    var priceWord = credit ? 'a net credit of about' : spread ? 'a net debit of about' : 'about';
+    return 'OPEN ' + tlTradeId(e) + ': ' + verb + ' ' + tlContract(e) + ' at ' + priceWord + ' ' + tlMoney(px) + ' per share' + tlPerContract(px) + '. ' +
+      'Opened ' + tlEtTime(e.entryDate) + ". Mingstreet's price is a model mid, not a fill, so use a limit order near it." +
+      (spread ? TL_MULTI_LEG : '');
+  }
+  function pickCloseLine(e){
+    var c = (e && e.contract) || {};
+    var credit = c.structure === 'credit_vertical';
+    var px = tlMarkPrice(e);
+    var pnl = tlNum(e && e.optionPnlPct);
+    var reason = TL_CLOSE_REASON[e && e.status] || (e && e.status) || 'closed';
+    var verb = credit ? 'buy to close' : 'sell to close';
+    var pnlText = pnl == null ? '' : ' (' + (pnl >= 0 ? '+' : '') + pnl.toFixed(1) + '%)';
+    return 'CLOSE ' + tlTradeId(e) + ': ' + verb + ' ' + tlContract(e) + '. Reason: ' + reason + pnlText + '. ' +
+      "Mingstreet's model price " + tlMoney(px) + ' per share' + tlPerContract(px) + '. Closed ' + tlEtTime(e.exitDate) + '. Use a limit order near the current mid.';
+  }
+  // The Open picks tab's copy block: open trades (newest first) + the last 7
+  // days of closes (newest first), one line each, with a Copy all button.
+  function tradeLinesHtml(open, closed){
+    var byDesc = function(k){ return function(a, b){ return (Date.parse(b && b[k]) || 0) - (Date.parse(a && a[k]) || 0); }; };
+    var cutoff = Date.now() - 7 * 86400000;
+    var opens = open.filter(function(e){ return e && e.contract; }).slice().sort(byDesc('entryDate')).map(pickOpenLine);
+    var closes = (closed || []).filter(function(e){ return e && e.contract && (Date.parse(e.exitDate) || 0) >= cutoff; }).sort(byDesc('exitDate')).map(pickCloseLine);
+    var all = opens.concat(closes);
+    if (!all.length) return '';
+    var row = function(t){ return '<li class="tl-line">' + escapeHtml(t) + '</li>'; };
+    return '<details class="tl-block" open>' +
+      '<summary class="tl-head">Trade lines for copy and paste <span class="accuracy-group-n">' + all.length + '</span>' +
+        '<button type="button" class="tl-copy" data-tl-copy="1">Copy all</button></summary>' +
+      '<p class="hint tl-hint">One line per open trade, plus every close from the last 7 days. Each trade keeps the same id from OPEN to CLOSE. Prices are per share (1 contract = 100 shares).</p>' +
+      (opens.length ? '<ul class="tl-list">' + opens.map(row).join('') + '</ul>' : '') +
+      (closes.length ? '<div class="tl-sub">Closed in the last 7 days</div><ul class="tl-list">' + closes.map(row).join('') + '</ul>' : '') +
+      '<textarea class="tl-src" hidden readonly>' + escapeHtml(all.join('\\n')) + '</textarea>' +
+    '</details>';
+  }
+  document.addEventListener('click', function(ev){
+    var btn = ev.target && ev.target.closest ? ev.target.closest('[data-tl-copy]') : null;
+    if (!btn) return;
+    ev.preventDefault();
+    var block = btn.closest('.tl-block');
+    var src = block ? block.querySelector('.tl-src') : null;
+    if (!src) return;
+    var text = src.value;
+    var done = function(ok){
+      btn.textContent = ok ? 'Copied' : 'Press Ctrl+C';
+      setTimeout(function(){ btn.textContent = 'Copy all'; }, 1800);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(function(){ done(true); }, function(){ done(false); });
+    } else {
+      try { window.prompt('Copy these lines', text); done(true); } catch (_){ done(false); }
+    }
+  });
   // --- Open picks tab -------------------------------------------------------
   // Only the trades open right now, with the same cards the Track Record's
   // Picks pane uses. Reads picks-accuracy.json (Owner-only), reusing the Track
@@ -34993,7 +35116,7 @@ ${renderWorkspaceBindings()}
     }
     if (eyebrow) eyebrow.textContent = d.builtAtIso ? 'marked ' + accDateTime(d.builtAtIso) : '';
     if (!open.length){
-      root.innerHTML = '<p class="acc-pane-empty">No Top Picks trades are open right now. New ones open at the 11:00 and 15:30 ET Top Picks runs.</p>';
+      root.innerHTML = tradeLinesHtml([], Array.isArray(d.closed) ? d.closed : []) + '<p class="acc-pane-empty">No Top Picks trades are open right now. New ones open at the 11:00 and 15:30 ET Top Picks runs.</p>';
       accPaneSummary('open-picks-sum', [{ val: '0', lbl: 'open positions' }]);
       return;
     }
@@ -35009,7 +35132,7 @@ ${renderWorkspaceBindings()}
       { val: calls + ' · ' + (open.length - calls), lbl: 'calls · puts' },
       marks.length ? { val: accPct(accMean(marks)), lbl: 'avg open mark · ' + greens + '/' + marks.length + ' green', cls: accMean(marks) >= 0 ? 'sig-pos' : 'sig-neg', tip: 'Average modeled contract P&L across the open book (unrealized).' } : null,
     ]);
-    root.innerHTML = accOpenGroupHtml(open);
+    root.innerHTML = tradeLinesHtml(open, Array.isArray(d.closed) ? d.closed : []) + accOpenGroupHtml(open);
   }
   function renderAccuracy(){
     var root = $('accuracy-root'); if (!root) return;
