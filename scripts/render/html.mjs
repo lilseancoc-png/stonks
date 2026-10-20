@@ -52,6 +52,7 @@ const SIDE_NAV_ICONS = {
   'pattern-lab': '<path d="M4 16.5 8.5 12l3 3 5-6"/><path d="M4 19.5h16"/><circle cx="17.5" cy="6.5" r="2"/>',
   earnings: '<rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18"/><path d="m6.5 17.5 3-3.5 2.5 2 4-4.5"/><path d="M13.5 11.5H16V14"/>',
   calls: '<path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.9 8.9 0 0 1-3.9-.9L3 20l1-4.9a8.4 8.4 0 0 1-1-4A8.4 8.4 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5Z"/><path d="M8 10.5h8M8 14h5"/>',
+  'open-picks': '<circle cx="12" cy="12" r="9.5"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
   track: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14.5 2 2 4-4.5"/>',
   heatmap: '<rect x="3" y="3" width="7.5" height="7.5" rx="1"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1"/>',
   flow: '<path d="M13 2 3 14h9l-1 8 10-12h-9z"/>',
@@ -500,6 +501,21 @@ function sectorRotationSection() {
     </header>
     ${infoNote('How to use this fundamentals-first rebound desk', `<p><b>This tab is a long-only quality-recovery screen for peer washouts</b> &mdash; not a sector-ETF allocation model, the Market Tape offense/defense gauge, or the Heatmap breadth alert. Start with the <b>Quality Recovery Shortlist</b>, then use the detailed board to answer five questions in order: is the business intact, why was it beaten down, what evidence supports recovery, is valuation reasonable, and has price confirmed an entry with acceptable payoff? <b>Qualified recovery</b> means the profile&rsquo;s required evidence clears; <b>Verify first</b> remains non-actionable until incomplete or uncertain business and forward evidence is resolved; and <b>Rejected</b> profiles stay in the near-miss research section rather than the candidate board. Each card shows the underlying profitability, balance-sheet, revenue, margin and coverage evidence when supplied, separates a sourced positive recovery driver from a statistical mean-reversion case, labels missing valuation rather than assuming a lower price is cheap, and keeps thesis risks visible before the trade plan. The rotation model then tests whether a strong company fell with a broadly damaged peer group instead of because its own business broke. For each survivor it freezes the pre-drop trend mean and robust standard deviation at the episode peak, requires the trough close to reach at least <b>&minus;1.5&sigma;</b>, and measures how much of that dislocation has reverted without allowing the mean to drift down toward price. <b>Washed out</b> is extreme but unproven, <b>first thrust</b> waits for a controlled pullback, <b>confirmed</b> requires group and stock follow-through with runway left, and <b>late</b> means the edge is mostly spent. The plan uses the earlier of the frozen mean and structural resistance as its first target and invalidates below the actual trough; no score, z-score, or live quote can upgrade a Verify-first or Rejected recovery profile into an actionable trade. The accountability ledger enrolls only the first baked <b>ready</b> signal confirmed by a recent in-zone regular-session quote, then freezes entry, stop and target. Live quotes can update price, payoff and sizing between bakes, but not the baked business evidence or statistical classification. &sigma; is context, not a probability or a promise that price must revert. Not financial advice.</p>`)}
     <div id="rotation-root" class="rot-root">Loading sector rotation screen&hellip;</div>
+  </section>`;
+}
+
+function openPicksSection() {
+  // Card chrome only — renderOpenPicks() in app.js fills it from the open
+  // trades in data/picks-accuracy.json (Owner; lazy-fetched on first tab
+  // activation, shared with the Track Record tab when that already loaded it).
+  return `<section class="card" id="open-picks-section">
+    <header class="card-header">
+      <h2 class="card-title">Open picks</h2>
+      <span class="card-eyebrow" id="open-picks-eyebrow" aria-live="polite"></span>
+    </header>
+    <p class="hint">Every Top Picks trade that is open right now, newest first. Marks are modeled Black-Scholes at constant entry IV, not live chain fills, and refresh at the 11:00 and 15:30 ET Top Picks runs. Closed trades and the full record are on the Top Picks track record tab.</p>
+    <div id="open-picks-sum" class="acc-pane-sum-slot"></div>
+    <div id="open-picks-root" class="accuracy-root">Loading open picks&hellip;</div>
   </section>`;
 }
 
@@ -1920,6 +1936,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       ${sideNavItem('stocks', 'Stock picks')}
       ${sideNavItem('rotation', 'Sector rotation')}
       ${sideNavItem('levetf', 'Leveraged ETFs')}
+      ${sideNavItem('open-picks', 'Open picks')}
       ${sideNavItem('track', 'Top Picks track record')}
       ${sideNavItem('quant', 'Owner Lab')}
     </div>
@@ -2175,6 +2192,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-levetf" role="tabpanel" aria-labelledby="page-tab-levetf" hidden>
   ${leveragedEtfsSection()}
+  </div>
+  <div class="page-pane" id="page-pane-open-picks" role="tabpanel" aria-labelledby="page-tab-open-picks" hidden>
+  ${openPicksSection()}
   </div>
   <div class="page-pane" id="page-pane-track" role="tabpanel" aria-labelledby="page-tab-track" hidden>
   ${trackRecordSection()}
