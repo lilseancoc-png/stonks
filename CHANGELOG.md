@@ -36,7 +36,13 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
+- The Open picks intro now says the trade lines below the cards list the last 7 days of closes, instead of saying closed trades are only on the Track Record. Commodities "watch" chips no longer link names that left coverage (LULU, DE, FDX, UPS, CAT); cotton and ocean freight point at covered retailers instead.
+
 - **Missing EPS growth no longer reads as "0%".** When Yahoo sends no EPS growth figure, the Fundamentals pillar shows it as no data instead of a 0% reading.
+
+### Docs
+
+- CLAUDE.md lists all nine Owner tabs (LEAPS and Open picks were missing), the 85-name `TICKERS` list and how removed names are handled, the smoke-test scripts, and the current size of `build.mjs`.
 
 ## 2026-10-19
 
