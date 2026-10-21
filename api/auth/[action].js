@@ -398,6 +398,7 @@ async function webullMirror(req, res) {
         lastRunIso: ledger.lastRunIso,
         runs: (ledger.runs || []).slice(0, 10),
         rows,
+        trades: mirror.ledgerToTestTrades(ledger),
       });
     } catch (err) {
       console.error("webull mirror read failed", { message: String(err?.message || err) });
