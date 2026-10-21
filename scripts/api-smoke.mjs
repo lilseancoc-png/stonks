@@ -170,6 +170,31 @@ try {
     body: { action: "remove", symbol: "AAPL", side: "garbage" },
   }, res);
   assert.equal(res.statusCode, 400);
+
+  // The Owner trade-log upload: signed-out and claim-less sessions are denied,
+  // and a cross-origin POST is refused before anything is parsed or stored.
+  res = mockResponse();
+  await authHandler({ query: { action: "picks-fills" }, method: "GET", headers: { host: "example.test" } }, res);
+  assert.equal(res.statusCode, 401);
+  const partial = await signSession({ sub: "owner", tr: true });
+  res = mockResponse();
+  await authHandler({ query: { action: "picks-fills" }, method: "GET", headers: { host: "example.test", cookie: `${SESSION_COOKIE}=${partial}` } }, res);
+  assert.equal(res.statusCode, 401);
+  res = mockResponse();
+  await authHandler({
+    query: { action: "picks-fills" }, method: "POST",
+    headers: { host: "example.test", "x-forwarded-proto": "https", origin: "https://evil.test", cookie: `${SESSION_COOKIE}=${token}` },
+    body: { csv: "trade_id\nX-1" },
+  }, res);
+  assert.equal(res.statusCode, 403);
+  res = mockResponse();
+  await authHandler({
+    query: { action: "picks-fills" }, method: "POST",
+    headers: { host: "example.test", "x-forwarded-proto": "https", origin: "https://example.test", cookie: `${SESSION_COOKIE}=${token}` },
+    body: { csv: "" },
+  }, res);
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.headers["cache-control"], "private, no-store");
 } finally {
   if (priorFlag == null) delete process.env.PRIVATE_DATA_ENABLED;
   else process.env.PRIVATE_DATA_ENABLED = priorFlag;

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { hydrationDate, hydrationPolicy } from "../lib/data-hydration.mjs";
 import { pull } from "./sync-data.mjs";
+import { REQUEST_TIME_EXCLUSIVE_KEYS } from "../lib/data-ownership.mjs";
 
 const today = "2026-10-13";
 const ago = days => new Date(Date.parse(today + "T00:00:00Z") - days * 86400000).toISOString().slice(0, 10);
@@ -60,7 +61,7 @@ try {
   for (const publication of [false, true]) {
     pinned = publication; reads.length = 0;
     await assert.rejects(pull({ storeClient: client, dataDir, owner: "unusual", bakeDate: today }), /unsafe|escapes/);
-    assert.equal(reads.filter(key => key !== "picks-watchlist.json").length, 0, "poisoned snapshot must stop before generated downloads");
+    assert.equal(reads.filter(key => !REQUEST_TIME_EXCLUSIVE_KEYS.has(key)).length, 0, "poisoned snapshot must stop before generated downloads");
     assert.equal(await readFile(resolve(dataDir, "last-good.json"), "utf8"), '{}');
   }
 } finally { await rm(root, { recursive: true, force: true }); }
