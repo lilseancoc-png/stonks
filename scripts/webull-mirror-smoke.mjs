@@ -7,7 +7,7 @@
 // Run: node scripts/webull-mirror-smoke.mjs
 import { signRequest, createWebullClient, quoteAll } from "../lib/webull-client.mjs";
 import {
-  runWebullMirror, buildOrder, mirrorLegs, roundTick, clientOrderId, isRegularSession, isMarketClosedError, parseOrderDetail,
+  runWebullMirror, buildOrder, mirrorLegs, roundTick, clientOrderId, isRegularSession, isMarketClosedError, parseOrderDetail, parsePreviewFee, ledgerToTestTrades,
   ledgerToFillRows, fillRowsToCsv, mirrorTriggerToken, makeQuoteFn, emptyLedger, LEDGER_KEY,
 } from "../lib/webull-mirror.mjs";
 import { pickTradeId } from "../lib/pick-trade-text.mjs";
@@ -364,6 +364,27 @@ ok("tick: nickel after a rejection", Math.abs(roundTick(1.23, { nickel: true }) 
   let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger: null, nowMs: T0, quoteFn });
   const row = ledgerToFillRows(ledger)[0];
   ok("rows: bid/ask/spot at order recorded", row.bid_at_order === 4.9 && row.ask_at_order === 5.2 && row.stock_price_at_order === 101.5, JSON.stringify([row.bid_at_order, row.ask_at_order, row.stock_price_at_order]));
+}
+
+{
+  // Fee estimate from Webull's preview, carried to the rows and the test view.
+  const wb = fakeWebull();
+  wb.previewOrder = async () => ({ estimated_cost: "500", estimated_transaction_fee: "0.06", currency: "USD" });
+  const e = longCall();
+  const id = pickTradeId(e);
+  let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger: null, nowMs: T0, quoteFn: async () => ({ bid: 4.9, ask: 5.1, spot: 100 }) });
+  wb.fill(wb.placed[0].client_order_id, 5);
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + H }));
+  const closedE = { ...e, status: "hit-tp-prem", exitDate: "2026-10-22T15:00:00.000Z", optionPnlPct: 20 };
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closedE]), ledger, nowMs: T0 + 24 * H, quoteFn: async () => ({ bid: 5.9, ask: 6.1, spot: 104 }) }));
+  wb.fill(wb.placed[1].client_order_id, 6);
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closedE]), ledger, nowMs: T0 + 26 * H }));
+  ok("fees: entry + exit preview fees summed", ledger.trades[id].fees === 0.12, String(ledger.trades[id].fees));
+  ok("fees: preview response parsed", parsePreviewFee({ estimated_transaction_fee: "0.13" }) === 0.13 && parsePreviewFee({ data: { estimated_transaction_fee: "0.05" } }) === 0.05 && parsePreviewFee({}) == null);
+  const row = ledgerToFillRows(ledger)[0];
+  ok("fees: rows carry the fee total", row.fees === 0.12 && row.your_pnl_pct === 20, `${row.fees} ${row.your_pnl_pct}`);
+  const tt = ledgerToTestTrades(ledger)[0];
+  ok("test view: one compact trade", tt.tradeId === id && tt.entryHow === "first" && tt.entryBid === 4.9 && tt.exitBid === 5.9 && tt.paperPnlPct === 20 && tt.enginePnlPct === 20 && tt.fees === 0.12, JSON.stringify(tt));
 }
 
 // --- 6. Endpoint auth -------------------------------------------------------------
