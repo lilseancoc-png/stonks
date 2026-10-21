@@ -393,7 +393,7 @@ async function webullMirror(req, res) {
         return res.end(mirror.fillRowsToCsv(rows));
       }
       return res.status(200).json({
-        enabled: process.env.WEBULL_MIRROR === "on",
+        enabled: String(process.env.WEBULL_MIRROR || "").trim().toLowerCase() === "on",
         goLiveIso: ledger.goLiveIso,
         lastRunIso: ledger.lastRunIso,
         runs: (ledger.runs || []).slice(0, 10),
@@ -416,8 +416,12 @@ async function webullMirror(req, res) {
   if (!secret || !given || !keyMatches(given, mirror.mirrorTriggerToken(secret))) {
     return res.status(404).json({ error: "not found" });
   }
-  if (process.env.WEBULL_MIRROR !== "on") return res.status(200).json({ ran: false, reason: "mirror off" });
-  const { WEBULL_APP_KEY, WEBULL_APP_SECRET, WEBULL_PAPER_ACCOUNT_ID, WEBULL_ACCESS_TOKEN } = process.env;
+  if (String(process.env.WEBULL_MIRROR || "").trim().toLowerCase() !== "on") return res.status(200).json({ ran: false, reason: "mirror off" });
+  // Trimmed: a value pasted into Vercel with a trailing newline or space
+  // would otherwise break the request signature.
+  const env = (k) => String(process.env[k] || "").trim();
+  const WEBULL_APP_KEY = env("WEBULL_APP_KEY"), WEBULL_APP_SECRET = env("WEBULL_APP_SECRET");
+  const WEBULL_PAPER_ACCOUNT_ID = env("WEBULL_PAPER_ACCOUNT_ID"), WEBULL_ACCESS_TOKEN = env("WEBULL_ACCESS_TOKEN");
   if (!WEBULL_APP_KEY || !WEBULL_APP_SECRET || !WEBULL_PAPER_ACCOUNT_ID) {
     return res.status(200).json({ ran: false, reason: "webull paper keys not configured" });
   }
@@ -438,6 +442,17 @@ async function webullMirror(req, res) {
     return res.status(200).json({ ran: !summary.skipped, summary });
   } catch (err) {
     console.error("webull mirror failed", { message: String(err?.message || err), code: err?.code || null });
-    return res.status(502).json({ error: "mirror failed", code: err?.code || null });
+    // Only the bake's trigger sees this (bearer-gated) and prints it to a
+    // public log, so it carries the error class, never Webull's text (which
+    // can echo order details). A code bug's own message is safe and is what
+    // makes it fixable.
+    const webull = err?.name === "WebullError";
+    return res.status(502).json({
+      error: "mirror failed",
+      code: err?.code || null,
+      status: webull ? err?.status ?? null : null,
+      kind: err?.name || null,
+      detail: webull || err?.code === "ACCOUNT_NOT_FOUND" ? null : String(err?.message || "").slice(0, 120),
+    });
   }
 }

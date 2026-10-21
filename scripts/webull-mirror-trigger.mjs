@@ -22,6 +22,7 @@ try {
   // closed) and an error count; never the order or account details.
   const body = await res.json().catch(() => null);
   const why = body?.ran === false ? `, not run (${String(body.reason || body.summary?.skipped || "unknown").slice(0, 60)})`
+    : body?.error ? `, failed (${["code", "status", "kind"].filter((k) => body[k] != null).map((k) => `${k} ${String(body[k]).slice(0, 40)}`).join(", ") || "no code"}${body.detail ? `: ${String(body.detail).slice(0, 120)}` : ""})`
     : body?.ran === true ? `, ran${body.summary?.note ? ` (${String(body.summary.note).slice(0, 60)})` : ""}${body.summary?.errors ? `, ${Number(body.summary.errors) || 0} errors` : ""}` : "";
   console.log(`Webull mirror: HTTP ${res.status}${why}`);
 } catch (err) {
