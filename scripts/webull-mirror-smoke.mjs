@@ -7,7 +7,7 @@
 // Run: node scripts/webull-mirror-smoke.mjs
 import { signRequest, createWebullClient, quoteAll } from "../lib/webull-client.mjs";
 import {
-  runWebullMirror, buildOrder, mirrorLegs, roundTick, clientOrderId, isRegularSession, isMarketClosedError,
+  runWebullMirror, buildOrder, mirrorLegs, roundTick, clientOrderId, isRegularSession, isMarketClosedError, parseOrderDetail,
   ledgerToFillRows, fillRowsToCsv, mirrorTriggerToken, makeQuoteFn, emptyLedger, LEDGER_KEY,
 } from "../lib/webull-mirror.mjs";
 import { pickTradeId } from "../lib/pick-trade-text.mjs";
@@ -266,11 +266,58 @@ ok("account: unknown paper account throws", await throwsAsync(() => runWebullMir
   let { ledger, summary } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger: null, nowMs: T0 });
   const t = ledger.trades[id];
   ok("closed market: no try counted, trade still waiting", t.state === "entering" && t.entryAttempts.length === 0 && summary.errors === 0, JSON.stringify(t.entryAttempts));
-  ok("closed market: run says why", /market is closed/.test(summary.skipped || ""));
+  ok("closed market: run says why, ledger still saved", /market is closed/.test(summary.note || "") && !summary.skipped);
   ok("closed market: error is recognized", isMarketClosedError({ code: "OPENAPI_OPTION_ONLY_SUPPORT_MARKET_IN_CORE_TIME" }) && !isMarketClosedError({ code: "OPENAPI_PARAM_ERR" }));
   shut = false;
   ({ ledger, summary } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 24 * H }));
   ok("closed market: next session places at the engine price", summary.placed === 1 && wb.placed[0].limit_price === "5.00" && ledger.trades[id].entryAttempts.length === 1);
+}
+
+// --- 5c. Safety guards -----------------------------------------------------------
+{
+  // No readable record: never treat the book as closed.
+  const wb = fakeWebull();
+  const e = longCall();
+  let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger: null, nowMs: T0 });
+  wb.fill(wb.placed[0].client_order_id, 5);
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + H }));
+  const r = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: {}, ledger, nowMs: T0 + 2 * H });
+  ok("guard: missing record -> skipped, nothing sold", r.summary.skipped === "track record unavailable" && wb.placed.length === 1 && r.ledger.trades[pickTradeId(e)].state === "open");
+}
+{
+  // A cancel Webull won't confirm: no second order (could double the position).
+  const wb = fakeWebull();
+  wb.cancelOrder = async () => { throw new Error("cancel refused"); };
+  const e = longCall();
+  const id = pickTradeId(e);
+  let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger: null, nowMs: T0 });
+  for (let i = 1; i <= 3; i++) ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + i * H }));
+  ok("guard: unconfirmed cancel blocks a re-price", wb.placed.length === 1, String(wb.placed.length));
+  ok("guard: stuck order flagged for a hand check", ledger.trades[id].state === "error" && /by hand/.test(ledger.trades[id].note), ledger.trades[id].state);
+}
+{
+  // Webull has no record of the order: re-send without counting a try.
+  const wb = fakeWebull();
+  const e = longCall();
+  const id = pickTradeId(e);
+  let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger: null, nowMs: T0 });
+  wb.orders.clear();
+  wb.orderDetail = async () => { throw new Error("Webull /trading/orders/get: Parameter error, Order not present."); };
+  wb.cancelOrder = async () => { throw new Error("Webull /trading/orders/cancel: Parameter error, Order not present."); };
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + H }));
+  const t = ledger.trades[id];
+  ok("guard: order not present -> re-sent at the engine price", wb.placed.length === 2 && wb.placed[1].limit_price === "5.00" && t.entryAttempts[0].status === "REJECTED", JSON.stringify(t.entryAttempts.map((a) => a.status)));
+}
+{
+  // A stale record doesn't drag old opens into the mirror.
+  const wb = fakeWebull();
+  const { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [], "2026-10-19T15:02:00Z"), ledger: null, nowMs: T0 });
+  ok("go-live: at most 3h back", T0 - Date.parse(ledger.goLiveIso) <= 3 * H);
+}
+{
+  // Order detail wrapped in data / order.
+  ok("parse: data.orders[]", parseOrderDetail({ data: { orders: [{ status: "FILLED", filled_price: "1.5", filled_quantity: "1" }] } })?.filledPrice === 1.5);
+  ok("parse: bare order", parseOrderDetail({ order: { status: "CANCELLED" } })?.status === "CANCELLED");
 }
 
 // --- 6. Endpoint auth -------------------------------------------------------------

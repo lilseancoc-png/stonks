@@ -427,7 +427,8 @@ async function webullMirror(req, res) {
       import("../../lib/yahoo.mjs"),
     ]);
     const [accBuf, ledgerBuf] = await Promise.all([store.get("picks-accuracy.json"), store.get(mirror.LEDGER_KEY)]);
-    const acc = accBuf == null ? {} : JSON.parse(accBuf.toString("utf8"));
+    if (accBuf == null) return res.status(200).json({ ran: false, reason: "track record unavailable" });
+    const acc = JSON.parse(accBuf.toString("utf8"));
     const ledger = ledgerBuf == null ? mirror.emptyLedger() : JSON.parse(ledgerBuf.toString("utf8"));
     const client = createWebullClient({ appKey: WEBULL_APP_KEY, appSecret: WEBULL_APP_SECRET, accessToken: WEBULL_ACCESS_TOKEN || null });
     const quoteFn = mirror.makeQuoteFn(fetchContract);
