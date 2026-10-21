@@ -90,7 +90,16 @@ function bindStreaksControls() {
   const sel = $("streaks-sort-select");
   if (!sel) return;
   streaksState.sortBound = true;
+  const views = V();
   sel.value = streaksState.sort;
+  if (views) {
+    streaksState.sort = views.remember(sel, "streaks.sort") || "streak";
+    if (STREAK_SORTS.indexOf(streaksState.sort) === -1) streaksState.sort = "streak";
+    views.attachFlip(sel, "streaks", rerender);
+    const bar = sel.closest(".streaks-controls");
+    if (bar && !bar.querySelector(".view-toggle")) bar.insertAdjacentHTML("beforeend", views.viewToggleHtml("streaks"));
+    views.onView("streaks", rerender);
+  }
   sel.addEventListener("change", () => {
     streaksState.sort = sel.value || "streak";
     rerender();
@@ -99,6 +108,7 @@ function bindStreaksControls() {
   const minSel = $("streaks-min-select");
   if (minSel) {
     minSel.value = String(streaksState.minStreak);
+    if (views) streaksState.minStreak = Number(views.remember(minSel, "streaks.min")) || 2;
     minSel.addEventListener("change", () => {
       streaksState.minStreak = Number(minSel.value) || 2;
       rerender();
@@ -139,6 +149,8 @@ function populateSectorFilter(tickers, sectors) {
       `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`));
   sel.innerHTML = opts.join("");
   sel.value = streaksState.sector;
+  const views = V();
+  if (views) streaksState.sector = views.remember(sel, "streaks.sector") || "";
   sel.dataset.filled = "1";
 }
 
@@ -157,9 +169,36 @@ function streakWindowDays(t) {
   return Number(t?.current?.windowDays ?? t?.current?.days ?? streakSignalDays(t));
 }
 
+// Shared sort / view helpers from app.js (absent if app.js failed to load).
+const V = () => window.STONKS_VIEWS || null;
+const STREAK_SORTS = ["streak", "cum", "vol", "last", "tol", "up", "down", "grade", "sector", "alpha"];
+const signedCum = (t) => Number(t?.current?.cumulativePct) || 0;
+function streakGrade(t) {
+  const v = V();
+  return v && v.gradeTotal ? v.gradeTotal(String(t.symbol || "").toUpperCase(), rerender) : null;
+}
+
 function makeSorter(mode) {
   // Each column is filtered to one direction first, so secondary tiebreakers
   // can stay direction-agnostic (we just compare magnitudes).
+  if (mode === "up") {
+    return (a, b) => signedCum(b) - signedCum(a) || streakSignalDays(b) - streakSignalDays(a);
+  }
+  if (mode === "down") {
+    return (a, b) => signedCum(a) - signedCum(b) || streakSignalDays(b) - streakSignalDays(a);
+  }
+  if (mode === "grade") {
+    return (a, b) => {
+      const ga = streakGrade(a), gb = streakGrade(b);
+      if (ga == null || gb == null) return ga == null ? (gb == null ? 0 : 1) : -1;
+      return gb - ga || streakSignalDays(b) - streakSignalDays(a);
+    };
+  }
+  if (mode === "sector") {
+    const sectors = (window.STONKS_MANIFEST && window.STONKS_MANIFEST.sectors) || {};
+    const sec = (t) => sectors[String(t.symbol || "").toUpperCase()] || "~";
+    return (a, b) => sec(a).localeCompare(sec(b)) || streakSignalDays(b) - streakSignalDays(a);
+  }
   if (mode === "alpha") {
     return (a, b) => String(a.symbol || "").localeCompare(String(b.symbol || ""));
   }
@@ -465,8 +504,11 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
   const filterActive = !!q || minRun > 2 || !!sectorPick;
 
   const sorter = makeSorter(streaksState.sort);
-  const greens = allGreens.filter(passes).sort(sorter);
-  const reds = allReds.filter(passes).sort(sorter);
+  const views = V();
+  const flip = (arr) => (views && views.reversed("streaks") ? arr.reverse() : arr);
+  const greens = flip(allGreens.filter(passes).sort(sorter));
+  const reds = flip(allReds.filter(passes).sort(sorter));
+  const asTable = !!(views && views.viewMode("streaks") === "table");
   const decisionUniverse = tickers.filter((t) =>
     streakSignalDays(t) >= 2
     || (t?.lastEnded && Number(t.lastEnded.days || 0) >= 2 && Number(t.lastEnded.sessionsAgo || 0) <= 2));
@@ -552,7 +594,7 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
   root.innerHTML = `
     ${decision}
     ${summary}
-    <div class="streaks-cols">
+    ${asTable ? streakTableHtml(flip(greens.concat(reds).sort(sorter)), sectors, views) : `<div class="streaks-cols">
       <div class="streaks-col">
         <h3 class="streaks-col-title streaks-col-bull">
           Bullish streaks <span class="streaks-col-count">${countLabel(greens.length, allGreens.length)}</span>
@@ -569,7 +611,7 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
           ? reds.map((t) => entry(t, sectors)).join("")
           : emptyCol("red")}
       </div>
-    </div>`;
+    </div>`}`;
 
   if (footer && builtAtIso) {
     const d = new Date(builtAtIso);
@@ -720,6 +762,27 @@ function distribution(flagged) {
       <span class="streaks-dist-bar">${segs}</span>
       <span class="streaks-dist-legend">${legend}</span>
     </div>`;
+}
+
+// Table layout: bullish and bearish runs in one list, every column sortable.
+function streakTableHtml(list, sectors, views) {
+  const pct = (v) => {
+    const n = Number(v);
+    if (!isFinite(n)) return "";
+    return `<span class="${n >= 0 ? "pos" : "neg"}">${n >= 0 ? "+" : "−"}${Math.abs(n).toFixed(2)}%</span>`;
+  };
+  const cols = [
+    { label: "Ticker", cell: (t) => `<button type="button" class="vt-link" data-grade="${escapeHtml(String(t.symbol || "").toUpperCase())}">${escapeHtml(String(t.symbol || "").toUpperCase())}</button>`, sort: (t) => String(t.symbol || "") || null },
+    { label: "Direction", cell: (t) => t.current.color === "green" ? '<span class="vt-tag call">Up</span>' : '<span class="vt-tag put">Down</span>', sort: (t) => t.current.color === "green" ? "up" : "down" },
+    { label: "Days", num: true, cell: (t) => String(streakSignalDays(t)), sort: (t) => streakSignalDays(t) },
+    { label: "Cumulative", num: true, cell: (t) => pct(t.current.cumulativePct), sort: (t) => { const n = Number(t.current.cumulativePct); return isFinite(n) ? n : null; } },
+    { label: "Last close", num: true, cell: (t) => isFinite(Number(t.lastClose)) ? fmtMoney(Number(t.lastClose)) : "", sort: (t) => { const n = Number(t.lastClose); return isFinite(n) ? n : null; } },
+    { label: "Volume trend", num: true, title: "Volume during the run vs normal", cell: (t) => isFinite(Number(t.current.volumeRatio)) && Number(t.current.volumeRatio) > 0 ? Number(t.current.volumeRatio).toFixed(2) + "×" : "", sort: (t) => { const n = Number(t.current.volumeRatio); return isFinite(n) && n > 0 ? n : null; } },
+    { label: "Break risk", num: true, title: "Share of the counter-move tolerance already used", cell: (t) => { const tb = Number(t.current.toleranceBreakPct || 1.5); const n = tb > 0 ? Number(t.current.tolerancePct || 0) / tb * 100 : null; return n == null ? "" : Math.round(n) + "%"; }, sort: (t) => { const tb = Number(t.current.toleranceBreakPct || 1.5); return tb > 0 ? Number(t.current.tolerancePct || 0) / tb : null; } },
+    { label: "Sector", cell: (t) => escapeHtml(sectors[String(t.symbol || "").toUpperCase()] || ""), sort: (t) => sectors[String(t.symbol || "").toUpperCase()] || null },
+    { label: "Grade", num: true, cell: (t) => { const g = streakGrade(t); return g == null ? "" : (g > 0 ? "+" : g < 0 ? "−" : "") + Math.abs(g).toFixed(1); }, sort: streakGrade },
+  ];
+  return views.tableHtml(cols, list, { key: "streaks-table", empty: "No streaks match this filter." });
 }
 
 function entry(t, sectors) {

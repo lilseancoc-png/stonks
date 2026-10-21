@@ -204,6 +204,413 @@ function recoveryEvidence(row, data, now = Date.now()) {
     });
   }
 
+  // Shared sort / view helpers (source: scripts/render/views-client.mjs).
+  var VIEWS = (function viewsFactory(win, doc) {
+  var STORE = 'stonks-views-v1';
+
+  function readAll() {
+    try {
+      var raw = win.localStorage.getItem(STORE);
+      var v = raw ? JSON.parse(raw) : {};
+      return v && typeof v === 'object' ? v : {};
+    } catch (_) { return {}; }
+  }
+  function get(key, fallback) {
+    var all = readAll();
+    return Object.prototype.hasOwnProperty.call(all, key) ? all[key] : fallback;
+  }
+  function set(key, val) {
+    try {
+      var all = readAll();
+      if (val == null) delete all[key]; else all[key] = val;
+      win.localStorage.setItem(STORE, JSON.stringify(all));
+    } catch (_) {}
+  }
+  function clearAll() { try { win.localStorage.removeItem(STORE); } catch (_) {} }
+  // A saved value is only honored while it is still one of the allowed
+  // options, so renaming or removing a sort key can never strand a tab.
+  function choose(key, fallback, allowed) {
+    var v = get(key, fallback);
+    if (allowed && allowed.indexOf(v) === -1) return fallback;
+    return v;
+  }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  // ---- Flip order ---------------------------------------------------------
+  var flipHandlers = {};
+  function reversed(key) { return get('rev:' + key, false) === true; }
+  // Reverse a sorted list when the flip is on. Items the sort could not
+  // place (missing values) stay at the end either way.
+  function applyDir(arr, key, isMissing) {
+    if (!reversed(key)) return arr;
+    if (!isMissing) return arr.reverse();
+    // Reorders arr in place (and returns it) so callers may ignore the result.
+    var have = [], miss = [];
+    for (var i = 0; i < arr.length; i++) (isMissing(arr[i]) ? miss : have).push(arr[i]);
+    var out = have.reverse().concat(miss);
+    for (var j = 0; j < out.length; j++) arr[j] = out[j];
+    return arr;
+  }
+  function flipHtml(key) {
+    var on = reversed(key);
+    return '<button type="button" class="sort-flip' + (on ? ' is-on' : '') + '" data-sort-flip="' + esc(key) + '" aria-pressed="' + (on ? 'true' : 'false') + '" title="Flip the sort order" aria-label="Flip sort order">' +
+      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v16M3 8l4-4 4 4M17 20V4M13 16l4 4 4-4"/></svg></button>';
+  }
+  // Wrap a select's markup with its flip button (dynamically rendered menus).
+  function withFlip(selectHtml, key) {
+    return '<span class="sort-with-flip">' + selectHtml + flipHtml(key) + '</span>';
+  }
+  // Static selects (baked into index.html) get wrapped and given a button here.
+  function attachFlip(select, key, onFlipFn) {
+    if (!select || !select.parentNode) return;
+    if (onFlipFn) flipHandlers[key] = onFlipFn;
+    if (select.parentNode.classList && select.parentNode.classList.contains('sort-with-flip')) return;
+    var wrap = doc.createElement('span');
+    wrap.className = 'sort-with-flip';
+    select.parentNode.insertBefore(wrap, select);
+    wrap.appendChild(select);
+    var tmp = doc.createElement('span');
+    tmp.innerHTML = flipHtml(key);
+    wrap.appendChild(tmp.firstChild);
+  }
+  function onFlip(key, fn) { flipHandlers[key] = fn; }
+
+  // Sort a copy of rows by one value. Numbers sort high to low unless asc;
+  // text sorts A to Z. Missing values (null / NaN / '') always go last, ties
+  // keep the incoming order, and the flip button for flipKey reverses it.
+  function sortBy(rows, getValue, asc, flipKey) {
+    var arr = (rows || []).map(function (r, i) { return { r: r, i: i, v: getValue(r) }; });
+    function miss(v) { return v == null || v === '' || (typeof v === 'number' && !isFinite(v)); }
+    arr.sort(function (a, b) {
+      var ma = miss(a.v), mb = miss(b.v);
+      if (ma || mb) return ma && mb ? a.i - b.i : (ma ? 1 : -1);
+      var c;
+      if (typeof a.v === 'number' && typeof b.v === 'number') c = asc ? a.v - b.v : b.v - a.v;
+      else c = String(a.v).localeCompare(String(b.v));
+      return c || a.i - b.i;
+    });
+    if (flipKey) arr = applyDir(arr, flipKey, function (x) { return miss(x.v); });
+    return arr.map(function (x) { return x.r; });
+  }
+  // Markup for a labelled Sort menu with its flip button.
+  // opts: [[value, label], ...]
+  function sortMenuHtml(attr, opts, current, flipKey, ariaLabel) {
+    var h = '<select ' + attr + ' aria-label="' + esc(ariaLabel || 'Sort') + '">';
+    for (var i = 0; i < opts.length; i++) h += '<option value="' + esc(opts[i][0]) + '"' + (opts[i][0] === current ? ' selected' : '') + '>' + esc(opts[i][1]) + '</option>';
+    h += '</select>';
+    return '<label>Sort ' + withFlip(h, flipKey) + '</label>';
+  }
+
+  // ---- Remembered selects ---------------------------------------------------
+  // Restore a static <select>'s saved value (when still a valid option) and
+  // save every later change. Returns the value now selected.
+  function remember(select, key) {
+    if (!select) return null;
+    var saved = get('sel:' + key, null);
+    if (saved != null) {
+      for (var i = 0; i < select.options.length; i++) {
+        if (select.options[i].value === saved) { select.value = saved; break; }
+      }
+    }
+    if (!select.getAttribute('data-views-remember')) {
+      select.setAttribute('data-views-remember', key);
+      select.addEventListener('change', function () { set('sel:' + key, select.value); });
+    }
+    return select.value;
+  }
+
+  // ---- Cards / Table switch -------------------------------------------------
+  var viewHandlers = {};
+  function viewMode(key) { return get('view:' + key, 'cards') === 'table' ? 'table' : 'cards'; }
+  function onView(key, fn) { viewHandlers[key] = fn; }
+  function viewToggleHtml(key) {
+    var mode = viewMode(key);
+    function b(m, label) {
+      return '<button type="button" data-view-toggle="' + esc(key) + '" data-view-mode="' + m + '" aria-pressed="' + (mode === m ? 'true' : 'false') + '" class="' + (mode === m ? 'is-on' : '') + '">' + label + '</button>';
+    }
+    return '<span class="view-toggle" role="group" aria-label="Layout">' + b('cards', 'Cards') + b('table', 'Table') + '</span>';
+  }
+  // cols: [{ label, num, cell(row) -> html, sort(row) -> number|string|null, title }]
+  function tableHtml(cols, rows, opts) {
+    opts = opts || {};
+    var h = '<div class="vt-wrap"><table class="vt-table' + (opts.cls ? ' ' + opts.cls : '') + '"' + (opts.key ? ' data-ts-key="' + esc(opts.key) + '"' : '') + '><thead><tr>';
+    for (var c = 0; c < cols.length; c++) {
+      h += '<th' + (cols[c].num ? ' class="num"' : '') + (cols[c].title ? ' title="' + esc(cols[c].title) + '"' : '') + '>' + esc(cols[c].label) + '</th>';
+    }
+    h += '</tr></thead><tbody>';
+    for (var r = 0; r < rows.length; r++) {
+      var row = rows[r];
+      h += '<tr' + (opts.rowAttr ? ' ' + opts.rowAttr(row) : '') + '>';
+      for (var k = 0; k < cols.length; k++) {
+        var col = cols[k];
+        var sv = col.sort ? col.sort(row) : null;
+        var sAttr = sv == null || (typeof sv === 'number' && !isFinite(sv)) ? ' data-sort=""' : ' data-sort="' + esc(sv) + '"';
+        h += '<td' + (col.num ? ' class="num"' : '') + sAttr + '>' + (col.cell(row) || '<span class="vt-na">—</span>') + '</td>';
+      }
+      h += '</tr>';
+    }
+    h += '</tbody></table></div>';
+    if (!rows.length) h += '<p class="vt-empty">' + esc(opts.empty || 'Nothing to show.') + '</p>';
+    return h;
+  }
+
+  // ---- Click-a-header table sorting ----------------------------------------
+  // Matrix-style tables (rows are metrics, columns are companies or dates)
+  // keep their designed order.
+  var TS_SKIP = '.cmp-table, .spill-matrix, .fomc-prob-table, .fomc-pm-table, .fomc-ladder, [data-nosort]';
+  var MISSING_RE = /^(|—|–|-|n\/a|na|none|no read|unknown|\.\.\.|…)$/i;
+  var MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+
+  function cellText(cell) {
+    return String(cell.textContent || '').replace(/\s+/g, ' ').trim();
+  }
+  // Turn a cell into a sortable value: number, date (ms) or lower-case text.
+  function parseCell(cell) {
+    var attr = cell.getAttribute('data-sort');
+    var raw = attr != null ? attr : cellText(cell);
+    var t = String(raw).trim();
+    if (MISSING_RE.test(t)) return { kind: 'missing' };
+    var iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(t);
+    if (iso) return { kind: 'num', v: Date.UTC(+iso[1], +iso[2] - 1, +iso[3]) };
+    var md = /^([A-Za-z]{3})[a-z]*\.? (\d{1,2})(?:,? (\d{4}))?\b/.exec(t);
+    if (md && MONTHS[md[1].toLowerCase()] != null) {
+      var yr = md[3] ? +md[3] : new Date().getFullYear();
+      return { kind: 'num', v: Date.UTC(yr, MONTHS[md[1].toLowerCase()], +md[2]) };
+    }
+    var n = t.replace(/[−–]/g, '-').replace(/[$,%×x~≈±+\s]/g, '');
+    var m = /^(-?\d*\.?\d+)([kmbt])?(?:[a-z\/]*)$/i.exec(n);
+    if (m) {
+      var mult = { k: 1e3, m: 1e6, b: 1e9, t: 1e12 }[(m[2] || '').toLowerCase()] || 1;
+      return { kind: 'num', v: parseFloat(m[1]) * mult };
+    }
+    var lead = /^\(?(-?\d*\.?\d+)\)?/.exec(n);
+    if (lead && attr == null && /^[-+]?[$]?\d/.test(t.replace(/[−–]/g, '-'))) return { kind: 'num', v: parseFloat(lead[1]) };
+    return { kind: 'text', v: t.toLowerCase() };
+  }
+  function headerRow(table) {
+    var thead = table.tHead;
+    if (!thead || thead.rows.length !== 1) return null;
+    return thead.rows[0];
+  }
+  function headerUsable(th) {
+    if (th.hasAttribute('data-nosort')) return false;
+    if (th.querySelector('button, select, input, a')) return false;
+    if (th.colSpan > 1) return false;
+    return cellText(th).length > 0;
+  }
+  function tableKey(table) {
+    var explicit = table.getAttribute('data-ts-key');
+    var pane = table.closest('[id^="page-pane-"]');
+    var hr = headerRow(table);
+    var heads = [];
+    if (hr) for (var i = 0; i < hr.cells.length; i++) heads.push(cellText(hr.cells[i]).slice(0, 24));
+    return (pane ? pane.id.replace('page-pane-', '') : 'page') + '|' + (explicit || heads.join('|'));
+  }
+  // Rows travel in groups: a row with fewer cells than the header (a
+  // colspan detail / expansion row) stays glued to the row above it.
+  function rowGroups(tbody, ncols) {
+    var groups = [], cur = null, pinned = [];
+    for (var i = 0; i < tbody.rows.length; i++) {
+      var tr = tbody.rows[i];
+      if (tr.getAttribute('data-ts-orig') == null) tr.setAttribute('data-ts-orig', String(i));
+      var isTotal = /\b(total|summary)\b/i.test(tr.className) || /^(total|all trades|overall)\b/i.test(cellText(tr.cells[0] || tr));
+      if (isTotal) { pinned.push(tr); continue; }
+      if (cur && tr.cells.length < ncols) { cur.rows.push(tr); continue; }
+      cur = { rows: [tr], orig: +tr.getAttribute('data-ts-orig') };
+      groups.push(cur);
+    }
+    return { groups: groups, pinned: pinned };
+  }
+  function sortTable(table, col, dir) {
+    var hr = headerRow(table);
+    if (!hr) return;
+    var ncols = hr.cells.length;
+    for (var b = 0; b < table.tBodies.length; b++) {
+      var tbody = table.tBodies[b];
+      var rg = rowGroups(tbody, ncols);
+      var groups = rg.groups;
+      if (groups.length < 2) continue;
+      var vals = groups.map(function (g) {
+        var cell = g.rows[0].cells[col];
+        return cell ? parseCell(cell) : { kind: 'missing' };
+      });
+      var numN = 0, textN = 0;
+      vals.forEach(function (v) { if (v.kind === 'num') numN++; else if (v.kind === 'text') textN++; });
+      var numeric = numN >= textN;
+      var idx = groups.map(function (g, i) { return i; });
+      idx.sort(function (a, z) {
+        var va = vals[a], vz = vals[z];
+        var ma = va.kind === 'missing' || (numeric && va.kind !== 'num');
+        var mz = vz.kind === 'missing' || (numeric && vz.kind !== 'num');
+        if (ma || mz) return ma && mz ? groups[a].orig - groups[z].orig : (ma ? 1 : -1);
+        if (!dir) return groups[a].orig - groups[z].orig;
+        var c = numeric ? va.v - vz.v : (va.v < vz.v ? -1 : va.v > vz.v ? 1 : 0);
+        if (dir === 'desc') c = -c;
+        return c || groups[a].orig - groups[z].orig;
+      });
+      var same = true;
+      for (var i = 0; i < idx.length; i++) if (idx[i] !== i) { same = false; break; }
+      if (same) continue;
+      var frag = doc.createDocumentFragment();
+      idx.forEach(function (i) { groups[i].rows.forEach(function (tr) { frag.appendChild(tr); }); });
+      rg.pinned.forEach(function (tr) { frag.appendChild(tr); });
+      tbody.appendChild(frag);
+    }
+  }
+  function markHeaders(table, state) {
+    var hr = headerRow(table);
+    if (!hr) return;
+    for (var i = 0; i < hr.cells.length; i++) {
+      var th = hr.cells[i];
+      if (!headerUsable(th)) continue;
+      var want = state && state.col === i ? (state.dir === 'asc' ? 'ascending' : 'descending') : 'none';
+      if (!th.classList.contains('ts-th')) {
+        th.classList.add('ts-th');
+        th.setAttribute('tabindex', '0');
+        th.setAttribute('title', (th.getAttribute('title') ? th.getAttribute('title') + ' · ' : '') + 'Click to sort');
+      }
+      if (th.getAttribute('aria-sort') !== want) th.setAttribute('aria-sort', want);
+    }
+  }
+  function enhanceTable(table) {
+    if (table.matches(TS_SKIP) || !headerRow(table)) return;
+    var key = tableKey(table);
+    var state = get('tsort:' + key, null);
+    markHeaders(table, state);
+    if (state && typeof state.col === 'number') sortTable(table, state.col, state.dir);
+  }
+  var scanQueued = false;
+  function scanTables() {
+    scanQueued = false;
+    var tables = doc.querySelectorAll('main table, [id^="page-pane-"] table');
+    for (var i = 0; i < tables.length; i++) {
+      try { enhanceTable(tables[i]); } catch (_) {}
+    }
+  }
+  function queueScan() {
+    if (scanQueued) return;
+    scanQueued = true;
+    (win.requestAnimationFrame || win.setTimeout)(scanTables);
+  }
+  function headerActivate(th) {
+    var table = th.closest('table');
+    if (!table || table.matches(TS_SKIP)) return;
+    var hr = headerRow(table);
+    if (!hr || th.parentNode !== hr) return;
+    var col = Array.prototype.indexOf.call(hr.cells, th);
+    var key = tableKey(table);
+    var state = get('tsort:' + key, null);
+    // First click: biggest first for numbers, A to Z for text. Second click
+    // flips it. Third click returns the table to its original order.
+    var firstDir = 'desc';
+    var probe = table.tBodies[0] && table.tBodies[0].rows[0] && table.tBodies[0].rows[0].cells[col];
+    if (probe && parseCell(probe).kind === 'text') firstDir = 'asc';
+    var next;
+    if (!state || state.col !== col) next = { col: col, dir: firstDir };
+    else if (state.dir === firstDir) next = { col: col, dir: firstDir === 'desc' ? 'asc' : 'desc' };
+    else next = null;
+    set('tsort:' + key, next);
+    sortTable(table, next ? next.col : col, next ? next.dir : null);
+    markHeaders(table, next);
+  }
+  function initTableSort() {
+    doc.addEventListener('click', function (ev) {
+      var th = ev.target && ev.target.closest ? ev.target.closest('th.ts-th') : null;
+      if (th) headerActivate(th);
+    });
+    doc.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Enter' && ev.key !== ' ') return;
+      var th = ev.target && ev.target.classList && ev.target.classList.contains('ts-th') ? ev.target : null;
+      if (!th) return;
+      ev.preventDefault();
+      headerActivate(th);
+    });
+    if (win.MutationObserver) {
+      new win.MutationObserver(function (muts) {
+        for (var i = 0; i < muts.length; i++) {
+          if (muts[i].type === 'childList' && muts[i].addedNodes.length) { queueScan(); return; }
+        }
+      }).observe(doc.body, { childList: true, subtree: true });
+    }
+    queueScan();
+  }
+
+  // ---- Delegated clicks for flip + view switch + reset ---------------------
+  function initControls() {
+    doc.addEventListener('click', function (ev) {
+      var t = ev.target && ev.target.closest ? ev.target : null;
+      if (!t) return;
+      var flip = t.closest('[data-sort-flip]');
+      if (flip) {
+        var key = flip.getAttribute('data-sort-flip');
+        var on = !reversed(key);
+        set('rev:' + key, on ? true : null);
+        var all = doc.querySelectorAll('[data-sort-flip="' + key + '"]');
+        for (var i = 0; i < all.length; i++) {
+          all[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+          all[i].classList.toggle('is-on', on);
+        }
+        if (flipHandlers[key]) flipHandlers[key]();
+        return;
+      }
+      var vt = t.closest('[data-view-toggle]');
+      if (vt) {
+        var vkey = vt.getAttribute('data-view-toggle');
+        var mode = vt.getAttribute('data-view-mode') === 'table' ? 'table' : 'cards';
+        set('view:' + vkey, mode === 'table' ? 'table' : null);
+        var btns = doc.querySelectorAll('[data-view-toggle="' + vkey + '"]');
+        for (var j = 0; j < btns.length; j++) {
+          var isOn = btns[j].getAttribute('data-view-mode') === mode;
+          btns[j].classList.toggle('is-on', isOn);
+          btns[j].setAttribute('aria-pressed', isOn ? 'true' : 'false');
+        }
+        if (viewHandlers[vkey]) viewHandlers[vkey](mode);
+        return;
+      }
+      if (t.closest('#views-reset')) {
+        clearAll();
+        var note = doc.getElementById('views-reset');
+        if (note) note.textContent = 'Reset. Reloading…';
+        win.setTimeout(function () { win.location.reload(); }, 250);
+      }
+    });
+    // The reset sits quietly at the foot of the sidebar.
+    var nav = doc.getElementById('side-nav');
+    if (nav && !doc.getElementById('views-reset')) {
+      var btn = doc.createElement('button');
+      btn.type = 'button';
+      btn.id = 'views-reset';
+      btn.className = 'views-reset';
+      btn.textContent = 'Reset saved sorts and views';
+      btn.title = 'Forget the sort, filter and layout choices this device remembers for each tab';
+      nav.appendChild(btn);
+    }
+  }
+
+  var started = false;
+  function start() {
+    if (started || !doc.body) return;
+    started = true;
+    initControls();
+    initTableSort();
+  }
+
+  return {
+    get: get, set: set, choose: choose, clearAll: clearAll,
+    reversed: reversed, applyDir: applyDir, flipHtml: flipHtml, withFlip: withFlip, attachFlip: attachFlip, onFlip: onFlip,
+    remember: remember, sortBy: sortBy, sortMenuHtml: sortMenuHtml,
+    viewMode: viewMode, viewToggleHtml: viewToggleHtml, onView: onView, tableHtml: tableHtml,
+    parseCell: parseCell, sortTable: sortTable, rescan: queueScan,
+    start: start
+  };
+})(window, document);
+  // js/streaks.js (a separate module) reads the same helpers + grade index.
+  VIEWS.gradeTotal = function(sym, rerender){ return gradeTotalFor(sym, rerender); };
+  window.STONKS_VIEWS = VIEWS;
 function leveragedEntryPlan(idea) {
   const p = idea?.plan;
   if (!p) return null;
@@ -8669,7 +9076,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
       // cumulative premium on older scans that predate the field.
       var totalDeltaPremium = contracts.reduce(function(acc, c){ return acc + (c.deltaPremium != null ? c.deltaPremium : (c.premium || 0)); }, 0);
       var topRepeat = contracts.reduce(function(acc, c){ return Math.max(acc, c.repeatCount || 0); }, 0);
+      var callPrem = contracts.reduce(function(acc, c){ return acc + (c.side === 'call' ? (c.premium || 0) : 0); }, 0);
+      var minDte = contracts.reduce(function(acc, c){ return c.dte != null && isFinite(c.dte) ? Math.min(acc, Number(c.dte)) : acc; }, Infinity);
       out.push({
+        callShare: totalPremium > 0 ? callPrem / totalPremium : null,
+        minDte: isFinite(minDte) ? minDte : null,
         symbol: t.symbol,
         spot: t.spot,
         contracts: contracts,
@@ -8695,10 +9106,23 @@ function scenarioEventPhase(ev, now = Date.now()) {
         var diff = (b.topRepeat || 0) - (a.topRepeat || 0);
         return diff !== 0 ? diff : (b.topDelta || 0) - (a.topDelta || 0);
       });
+    } else if (flowState.sort === 'calls' || flowState.sort === 'puts'){
+      var dirCp = flowState.sort === 'calls' ? 1 : -1;
+      out.sort(function(a, b){
+        if (a.callShare == null || b.callShare == null) return a.callShare == null ? (b.callShare == null ? 0 : 1) : -1;
+        return dirCp * (b.callShare - a.callShare) || (b.totalDeltaPremium || 0) - (a.totalDeltaPremium || 0);
+      });
+    } else if (flowState.sort === 'expiry'){
+      out.sort(function(a, b){
+        if (a.minDte == null || b.minDte == null) return a.minDte == null ? (b.minDte == null ? 0 : 1) : -1;
+        return a.minDte - b.minDte || (b.topDelta || 0) - (a.topDelta || 0);
+      });
+    } else if (flowState.sort === 'sector'){
+      out.sort(function(a, b){ return String(SECTORS[a.symbol] || '~').localeCompare(String(SECTORS[b.symbol] || '~')) || (b.topDelta || 0) - (a.topDelta || 0); });
     } else if (flowState.sort === 'alpha'){
       out.sort(function(a, b){ return String(a.symbol).localeCompare(String(b.symbol)); });
     }
-    return out;
+    return VIEWS.applyDir(out, 'flow', flowState.sort === 'expiry' ? function(t){ return t.minDte == null; } : (flowState.sort === 'calls' || flowState.sort === 'puts') ? function(t){ return t.callShare == null; } : null);
   }
   // Compact OI gamma-proxy strip shown under each flagged ticker on the
   // Unusual flow + Volume tabs — call-minus-put GEX, the gamma flip
@@ -9334,10 +9758,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     var sortSelect = $('flow-sort-select');
     if (sortSelect){
+      flowState.sort = VIEWS.remember(sortSelect, 'flow.sort') || 'delta';
       sortSelect.addEventListener('change', function(){
         flowState.sort = sortSelect.value || 'delta';
         renderUnusualFlow();
       });
+      VIEWS.attachFlip(sortSelect, 'flow', renderUnusualFlow);
+      if (flowState.sort !== 'delta' || VIEWS.reversed('flow')) renderUnusualFlow();
     }
     var expandToggle = $('flow-expand-toggle');
     if (expandToggle){
@@ -10011,10 +10438,18 @@ function scenarioEventPhase(ev, now = Date.now()) {
         var diff = topSrRank(b) - topSrRank(a);
         return diff !== 0 ? diff : topRatio(b) - topRatio(a);
       });
+    } else if (volState.sort === 'grade'){
+      out.sort(function(a, b){
+        var ga = gradeTotalFor(a.symbol, renderVolumeFlags), gb = gradeTotalFor(b.symbol, renderVolumeFlags);
+        if (ga == null || gb == null) return ga == null ? (gb == null ? topRatio(b) - topRatio(a) : 1) : -1;
+        return gb - ga || topRatio(b) - topRatio(a);
+      });
+    } else if (volState.sort === 'sector'){
+      out.sort(function(a, b){ return String(SECTORS[a.symbol] || '~').localeCompare(String(SECTORS[b.symbol] || '~')) || topRatio(b) - topRatio(a); });
     } else if (volState.sort === 'alpha'){
       out.sort(function(a, b){ return String(a.symbol).localeCompare(String(b.symbol)); });
     }
-    return out;
+    return VIEWS.applyDir(out, 'volume', volState.sort === 'grade' ? function(t){ return gradeTotalFor(t.symbol) == null; } : null);
   }
   function volBucketHtml(hit){
     // Scan-missed placeholder: a bucket whose scan slot dropped (cron-job
@@ -10993,10 +11428,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var sortSel = $('vol-sort-select');
     if (sortSel){
       sortSel.value = volState.sort;
+      volState.sort = VIEWS.remember(sortSel, 'volume.sort') || 'ratio';
       sortSel.addEventListener('change', function(){
         volState.sort = sortSel.value || 'ratio';
         renderVolumeFlags();
       });
+      VIEWS.attachFlip(sortSel, 'volume', renderVolumeFlags);
+      if (volState.sort !== 'ratio' || VIEWS.reversed('volume')) renderVolumeFlags();
     }
     var groupBtn = $('vol-group-btn');
     if (groupBtn){
@@ -13892,10 +14330,27 @@ function scenarioEventPhase(ev, now = Date.now()) {
         return m === -Infinity ? -1 : m;
       }
       out.sort(function(a, b){ return topDeltaPct(b) - topDeltaPct(a); });
+    } else if (oiState.sort === 'callwall' || oiState.sort === 'putwall'){
+      var wallKey = oiState.sort === 'callwall' ? 'callWall' : 'putWall';
+      out.sort(function(a, b){
+        var da = oiWallDistPct(a, wallKey), db = oiWallDistPct(b, wallKey);
+        if (da == null || db == null) return da == null ? (db == null ? 0 : 1) : -1;
+        return da - db;
+      });
+    } else if (oiState.sort === 'sector'){
+      out.sort(function(a, b){ return String(SECTORS[a.symbol] || '~').localeCompare(String(SECTORS[b.symbol] || '~')) || (b.score || 0) - (a.score || 0); });
     } else if (oiState.sort === 'alpha'){
       out.sort(function(a, b){ return String(a.symbol).localeCompare(String(b.symbol)); });
     }
-    return out;
+    var wallSort = oiState.sort === 'callwall' ? 'callWall' : oiState.sort === 'putwall' ? 'putWall' : null;
+    return VIEWS.applyDir(out, 'oi', wallSort ? function(t){ return oiWallDistPct(t, wallSort) == null; } : null);
+  }
+  // Distance from spot to a wall strike, as an absolute % of spot.
+  function oiWallDistPct(t, key){
+    var w = t && t[key];
+    var k = w && Number(w.strike), sp = Number(t && t.spot);
+    if (!(k > 0) || !(sp > 0)) return null;
+    return Math.abs(k - sp) / sp * 100;
   }
 
   function oiFreshnessMeta(){
@@ -14469,10 +14924,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var sortSel = $('oi-sort-select');
     if (sortSel){
       sortSel.value = oiState.sort;
+      oiState.sort = VIEWS.remember(sortSel, 'oi.sort') || 'score';
       sortSel.addEventListener('change', function(){
         oiState.sort = sortSel.value || 'score';
         renderOI();
       });
+      VIEWS.attachFlip(sortSel, 'oi', renderOI);
+      if (oiState.sort !== 'score' || VIEWS.reversed('oi')) renderOI();
     }
     var expandBtn = $('oi-expand-toggle');
     if (expandBtn){
@@ -16682,14 +17140,135 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // daily closes, then renders a metric table with the per-row leader, deltas
   // vs the first (base) name, and a plain-language summary. Pure browser tool —
   // no premium gate and no live polling.
-  var compareState = { inited: false, tickers: [], cache: {}, grades: null, gradesLoading: false, range: '3m', sector: '', ivHist: {}, fundHist: {}, window: null };
-  var CMP_MAX = 4;
+  var compareState = { inited: false, tickers: [], cache: {}, grades: null, gradesLoading: false, range: VIEWS.choose('compare.range', '3m', ['1m','3m','6m','ytd','1y']), sector: '', ivHist: {}, fundHist: {}, window: null,
+    mode: VIEWS.choose('compare.mode', 'return', ['return','drawdown','vol','iv','grade']), bench: VIEWS.choose('compare.bench', '', ['','SPY','QQQ','IWM','SMH','avg','sector']), gradesDaily: null, sectorLoading: false };
+  var CMP_MAX = 6;
   var CMP_MEGA4 = ['AAPL','MSFT','GOOGL','AMZN'];
   // Daily-session windows. The chart intersects normalized YYYY-MM-DD keys
   // across every ready ticker before taking the tail, so all lines share the
   // exact same baseline and every point is a true like-for-like session.
-  var CMP_RANGE_BARS = { '1m': 21, '3m': 63, '6m': 126, '1y': 252 };
-  var CMP_RANGE_LABELS = { '1m': '1 month', '3m': '3 months', '6m': '6 months', '1y': '1 year' };
+  var CMP_RANGE_BARS = { '1m': 21, '3m': 63, '6m': 126, 'ytd': 252, '1y': 252 };
+  var CMP_RANGE_LABELS = { '1m': '1 month', '3m': '3 months', '6m': '6 months', 'ytd': 'year-to-date', '1y': '1 year' };
+  // Sessions to keep from the tail of the shared dates. YTD counts the shared
+  // sessions on or after Jan 1 of the latest session's year.
+  function cmpRequestedBars(shared){
+    if (compareState.range !== 'ytd') return CMP_RANGE_BARS[compareState.range] || CMP_RANGE_BARS['3m'];
+    var last = shared[shared.length - 1] || '';
+    var jan1 = last.slice(0, 4) + '-01-01', n = 0;
+    for (var i = shared.length - 1; i >= 0 && shared[i] >= jan1; i--) n++;
+    return Math.max(2, n + (n < shared.length ? 1 : 0));
+  }
+  // Chart modes. Each turns a ticker's daily data into one plotted value per
+  // shared session (null where there is no data yet).
+  var CMP_MODES = {
+    'return':   { label:'Return %', title:'Relative performance', eyebrow:'Price overlay', bench:true },
+    'drawdown': { label:'Drawdown from high', title:'Drawdown from the window high', eyebrow:'Price overlay', bench:true },
+    'vol':      { label:'20-day volatility', title:'20-day realized volatility (annualized)', eyebrow:'Volatility', bench:true },
+    'iv':       { label:'Implied vol', title:'30-day at-the-money implied volatility', eyebrow:'Options', bench:false },
+    'grade':    { label:'Grade score', title:'Daily grade score', eyebrow:'Grades', bench:false }
+  };
+  var CMP_BENCH_LABELS = { SPY:'SPY', QQQ:'QQQ', IWM:'IWM', SMH:'SMH (semis)', avg:'Average of selected', sector:'Sector average' };
+  function cmpFmtMode(mode, v){
+    if (v == null || !isFinite(v)) return 'n/a';
+    if (mode === 'vol' || mode === 'iv') return v.toFixed(1) + '%';
+    if (mode === 'grade') return (v > 0 ? '+' : '') + v.toFixed(1);
+    return cmpRetText(v);
+  }
+  // Forward-filled lookup over a sorted [{date, v}] list.
+  function cmpFillSeries(points, dates){
+    var out = [], k = 0, cur = null;
+    points.sort(function(a, b){ return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+    for (var i = 0; i < dates.length; i++){
+      while (k < points.length && points[k].date <= dates[i]){ cur = points[k].v; k++; }
+      out.push(cur);
+    }
+    return out;
+  }
+  function cmpRollingVol(map, shared, dates){
+    var idx = {}; shared.forEach(function(d, i){ idx[d] = i; });
+    return dates.map(function(d){
+      var end = idx[d]; if (end == null || end < 20) return null;
+      var rets = [];
+      for (var i = end - 19; i <= end; i++){ var a = map[shared[i - 1]], b = map[shared[i]]; if (a > 0 && b > 0) rets.push(Math.log(b / a)); }
+      if (rets.length < 15) return null;
+      var m = rets.reduce(function(x, y){ return x + y; }, 0) / rets.length;
+      var v = rets.reduce(function(x, y){ return x + (y - m) * (y - m); }, 0) / (rets.length - 1);
+      return Math.sqrt(v) * Math.sqrt(252) * 100;
+    });
+  }
+  function cmpModeValues(mode, sym, map, shared, dates){
+    if (mode === 'drawdown'){
+      var hi = 0;
+      return dates.map(function(d){ var px = map[d]; if (!(px > 0)) return null; if (px > hi) hi = px; return (px / hi - 1) * 100; });
+    }
+    if (mode === 'vol') return cmpRollingVol(map, shared, dates);
+    if (mode === 'iv'){
+      var ent = compareState.ivHist[sym] || [];
+      return cmpFillSeries(ent.filter(function(e){ return e && typeof e.date === 'string' && cmpIsNum(e.iv); }).map(function(e){ return { date:e.date, v:Number(e.iv) * 100 }; }), dates);
+    }
+    if (mode === 'grade'){
+      var days = compareState.gradesDaily && Array.isArray(compareState.gradesDaily.days) ? compareState.gradesDaily.days : [];
+      return cmpFillSeries(days.filter(function(dy){ return dy && dy.totals && cmpIsNum(dy.totals[sym]); }).map(function(dy){ return { date:dy.date, v:Number(dy.totals[sym]) }; }), dates);
+    }
+    var base = map[dates[0]];
+    return dates.map(function(d){ var px = map[d]; return px > 0 && base > 0 ? (px / base - 1) * 100 : null; });
+  }
+  // Benchmark price map: a fetched ETF, the equal-weight average of the
+  // selected names, or the equal-weight average of the reference's sector.
+  function cmpIndexFromMaps(maps){
+    var dates = {}; maps.forEach(function(m){ for (var d in m) dates[d] = true; });
+    var sorted = Object.keys(dates).sort(), out = Object.create(null), level = 100, prev = {};
+    sorted.forEach(function(d){
+      var sum = 0, n = 0;
+      maps.forEach(function(m, i){ var px = m[d]; if (px > 0 && prev[i] > 0){ sum += px / prev[i] - 1; n++; } if (px > 0) prev[i] = px; });
+      if (n) level *= 1 + sum / n;
+      out[d] = level;
+    });
+    return sorted.length >= 2 ? out : null;
+  }
+  function cmpSectorMembers(){
+    var sec = SECTORS[compareState.refSym];
+    if (!sec || sec === 'ETF') return [];
+    return SYMBOLS.filter(function(x){ return SECTORS[x] === sec; }).slice(0, 12);
+  }
+  function cmpBenchMap(ready){
+    var b = compareState.bench;
+    if (!b) return null;
+    if (b === 'avg') return cmpIndexFromMaps(ready.map(function(r){ return cmpHistoryMap(r.j) || {}; }));
+    if (b === 'sector'){
+      var maps = [];
+      cmpSectorMembers().forEach(function(x){ var j = compareState.cache[x]; if (j && j !== 'error'){ var m = cmpHistoryMap(j); if (m) maps.push(m); } });
+      return maps.length ? cmpIndexFromMaps(maps) : null;
+    }
+    var bj = compareState.cache[b];
+    return bj && bj !== 'error' ? cmpHistoryMap(bj) : null;
+  }
+  function cmpBenchLabel(){
+    if (compareState.bench === 'sector') return (SECTORS[compareState.refSym] || 'Sector') + ' average';
+    return CMP_BENCH_LABELS[compareState.bench] || compareState.bench;
+  }
+  // Fetch whatever the chosen mode / benchmark needs, then re-render.
+  function cmpEnsureExtras(){
+    var jobs = [];
+    if (compareState.mode === 'grade' && !compareState.gradesDaily){
+      compareState.gradesDaily = { days: [] };
+      jobs.push(fetch(dataUrl('grades-daily.json'), { cache:'no-cache' }).then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(j){ compareState.gradesDaily = j && Array.isArray(j.days) ? j : { days: [] }; }).catch(function(){}));
+    }
+    var want = [];
+    if (compareState.bench && compareState.bench !== 'avg' && compareState.bench !== 'sector') want.push(compareState.bench);
+    if (compareState.bench === 'sector') want = want.concat(cmpSectorMembers());
+    want.forEach(function(x){
+      if (compareState.cache[x]) return;
+      compareState.cache[x] = 'error';
+      jobs.push(fetch(dataUrl(encodeURIComponent(x) + '.json'), { cache:'no-cache' }).then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function(j){ compareState.cache[x] = j && typeof j === 'object' ? j : 'error'; }).catch(function(){}));
+    });
+    if (!jobs.length) return false;
+    cmpStatus('Loading chart data…');
+    Promise.all(jobs).then(function(){ cmpStatus(''); renderCompare(); });
+    return true;
+  }
   // Metric rows. get(j) reads the per-ticker json (j.fundamentals, j.spot,
   // j._grade = the grades.json entry). better = which direction wins the row.
   // dual rows show the number gap and the percent gap versus the reference.
@@ -17337,8 +17916,19 @@ function scenarioEventPhase(ev, now = Date.now()) {
         var next = btn.getAttribute('data-cmp-range');
         if (!CMP_RANGE_BARS[next] || next === compareState.range) return;
         compareState.range = next;
+        VIEWS.set('compare.range', next === '3m' ? null : next);
         renderCompare();
       });
+      var modeSel = $('cmp-mode');
+      if (modeSel){
+        modeSel.value = compareState.mode;
+        modeSel.addEventListener('change', function(){ compareState.mode = CMP_MODES[modeSel.value] ? modeSel.value : 'return'; VIEWS.set('compare.mode', compareState.mode === 'return' ? null : compareState.mode); renderCompare(); });
+      }
+      var benchSel = $('cmp-bench');
+      if (benchSel){
+        benchSel.value = compareState.bench;
+        benchSel.addEventListener('change', function(){ compareState.bench = benchSel.value || ''; VIEWS.set('compare.bench', compareState.bench || null); renderCompare(); });
+      }
       var tech = $('cmp-tech');
       if (tech) {
         try { if (localStorage.getItem('stonks-cmp-tech') === '0') tech.open = false; } catch (_) {}
@@ -17511,7 +18101,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   // Same shared sessions the price chart plots for the selected range.
   function cmpWindowStats(ready){
-    var requested = CMP_RANGE_BARS[compareState.range] || CMP_RANGE_BARS['3m'];
+    var requested;
     var maps = [];
     for (var i = 0; i < ready.length; i++) {
       var packed = cmpOhlcvMaps(ready[i].j);
@@ -17526,6 +18116,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       return true;
     });
     if (shared.length < 2) return null;
+    requested = cmpRequestedBars(shared);
     var dates = shared.slice(-requested);
     var bySym = {};
     for (var s = 0; s < maps.length; s++) {
@@ -17607,7 +18198,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return !isFinite(v) || Math.abs(v) < 0.05 ? 'cmp-ret-flat' : (v > 0 ? 'cmp-ret-pos' : 'cmp-ret-neg');
   }
   function cmpBuildChartModel(ready){
-    var requested = CMP_RANGE_BARS[compareState.range] || CMP_RANGE_BARS['3m'];
+    var requested;
     var rangeLabel = CMP_RANGE_LABELS[compareState.range] || CMP_RANGE_LABELS['3m'];
     var series = [];
     for (var i=0; i<ready.length; i++){
@@ -17630,7 +18221,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
     });
     var available = shared.length;
     if (available < 2) return { error: 'These tickers do not have at least two shared daily closes yet.' };
+    requested = cmpRequestedBars(shared);
     var dates = shared.slice(-requested);
+    var mode = CMP_MODES[compareState.mode] ? compareState.mode : 'return';
     var lo = 0, hi = 0;
     for (var s=0; s<series.length; s++){
       var base = series[s].map[dates[0]];
@@ -17647,12 +18240,42 @@ function scenarioEventPhase(ev, now = Date.now()) {
       series[s].lastPrice = prices[prices.length - 1];
       series[s].lastRet = returns[returns.length - 1];
     }
+    // Benchmark rides as an extra, dimmer series (price modes only).
+    if (compareState.bench && CMP_MODES[mode].bench){
+      var bmap = cmpBenchMap(ready);
+      if (bmap){
+        var bp = cmpFillSeries(Object.keys(bmap).map(function(d){ return { date:d, v:bmap[d] }; }), dates);
+        if (bp[0] > 0){
+          var bmapDense = Object.create(null), bShared = shared.slice();
+          var bFull = cmpFillSeries(Object.keys(bmap).map(function(d){ return { date:d, v:bmap[d] }; }), bShared);
+          bShared.forEach(function(d, i){ if (bFull[i] > 0) bmapDense[d] = bFull[i]; });
+          var bret = bp.map(function(px){ return px > 0 ? (px / bp[0] - 1) * 100 : null; });
+          series.push({ sym: cmpBenchLabel(), colorIdx: 'bench', bench: true, map: bmapDense, prices: bp, returns: bret, lastPrice: bp[bp.length - 1], lastRet: bret[bret.length - 1] });
+        }
+      }
+    }
+    if (mode !== 'return'){
+      lo = Infinity; hi = -Infinity;
+      for (var ms=0; ms<series.length; ms++){
+        series[ms].values = cmpModeValues(mode, series[ms].bench ? '' : series[ms].sym, series[ms].map, shared, dates);
+        series[ms].values.forEach(function(v){ if (v != null && isFinite(v)){ if (v < lo) lo = v; if (v > hi) hi = v; } });
+        var lv = null; for (var li = series[ms].values.length - 1; li >= 0; li--){ if (series[ms].values[li] != null){ lv = series[ms].values[li]; break; } }
+        series[ms].lastVal = lv;
+      }
+      if (!isFinite(lo)) return { error: mode === 'iv' ? 'No saved implied-volatility history for these names in this window yet.' : mode === 'grade' ? 'No saved daily grade scores for these names in this window yet.' : 'Not enough history in this window for ' + CMP_MODES[mode].label.toLowerCase() + '.' };
+      if (mode === 'drawdown') hi = Math.max(hi, 0);
+    } else {
+      for (var rs=0; rs<series.length; rs++){
+        series[rs].values = series[rs].returns; series[rs].lastVal = series[rs].lastRet;
+        series[rs].returns.forEach(function(v){ if (v != null && isFinite(v)){ if (v < lo) lo = v; if (v > hi) hi = v; } });
+      }
+    }
     var span = hi - lo;
     if (span < 1){ lo -= (1 - span) / 2; hi += (1 - span) / 2; span = hi - lo; }
     var pad = Math.max(0.45, span * 0.08);
     lo -= pad; hi += pad;
     return {
-      W: 1000, H: 320, dates: dates, series: series,
+      W: 1000, H: 320, dates: dates, series: series, mode: mode,
       yMin: lo, yMax: hi, requested: requested, rangeLabel: rangeLabel,
       shortened: available < requested, available: available,
     };
@@ -17675,11 +18298,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     function tipHtml(idx){
       var html = '<div class="cmp-tip-date">' + escapeHtml(priceChartFmtDate(model.dates[idx], false)) + '</div>';
       for (var i=0; i<model.series.length; i++){
-        var s = model.series[i], ret = s.returns[idx], px = s.prices[idx];
+        var s = model.series[i], val = s.values[idx], px = s.prices[idx];
+        var signed = model.mode === 'return' || model.mode === 'drawdown' || model.mode === 'grade';
         html += '<div class="cmp-tip-row">' +
           '<span class="cmp-legend-swatch cmp-series-' + s.colorIdx + '" aria-hidden="true"></span>' +
-          '<span class="cmp-tip-sym">' + escapeHtml(s.sym) + ' <span class="cmp-tip-price">' + escapeHtml(fmtMoney(px)) + '</span></span>' +
-          '<span class="cmp-tip-val ' + cmpRetClass(ret) + '">' + escapeHtml(cmpRetText(ret)) + '</span>' +
+          '<span class="cmp-tip-sym">' + escapeHtml(s.sym) + (s.bench || !(px > 0) ? '' : ' <span class="cmp-tip-price">' + escapeHtml(fmtMoney(px)) + '</span>') + '</span>' +
+          '<span class="cmp-tip-val ' + (signed && val != null ? cmpRetClass(val) : '') + '">' + escapeHtml(cmpFmtMode(model.mode, val)) + '</span>' +
         '</div>';
       }
       return html;
@@ -17694,8 +18318,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
       for (var i=0; i<dots.length; i++){
         var s = model.series[i];
         if (!s) continue;
+        if (s.values[idx] == null){ dots[i].style.display = 'none'; continue; }
         dots[i].style.left = (frac * 100).toFixed(3) + '%';
-        dots[i].style.top = yPct(s.returns[idx]).toFixed(3) + '%';
+        dots[i].style.top = yPct(s.values[idx]).toFixed(3) + '%';
         dots[i].style.display = 'block';
       }
       tip.innerHTML = tipHtml(idx);
@@ -17766,21 +18391,32 @@ function scenarioEventPhase(ev, now = Date.now()) {
       return;
     }
 
+    var modeDef = CMP_MODES[model.mode];
+    var titleEl = card.querySelector('.cmp-chart-title'), eyeEl = card.querySelector('.cmp-chart-eyebrow');
+    if (titleEl) titleEl.textContent = modeDef.title;
+    if (eyeEl) eyeEl.textContent = modeDef.eyebrow;
     var from = priceChartFmtDate(model.dates[0], false);
     var to = priceChartFmtDate(model.dates[model.dates.length - 1], false);
-    sub.textContent = model.shortened
+    if (model.mode !== 'return'){
+      sub.textContent = model.rangeLabel.charAt(0).toUpperCase() + model.rangeLabel.slice(1) + ' view - ' + model.dates.length + ' shared sessions, ' + from + ' to ' + to + '. ' +
+        (model.mode === 'drawdown' ? 'Each line shows how far the close sits below its highest close inside this window.'
+          : model.mode === 'vol' ? 'Each point is the annualized standard deviation of the prior 20 daily returns.'
+          : model.mode === 'iv' ? 'Saved daily at-the-money IV near 30 days; days without a saved read carry the last one.'
+          : 'The saved once-a-day grade total; days without a saved grade carry the last one.') +
+        (compareState.bench && !modeDef.bench ? ' The benchmark line only shows in price and volatility modes.' : '');
+    } else sub.textContent = model.shortened
       ? 'Only ' + model.dates.length + ' shared daily closes are available for the requested ' + model.rangeLabel + ' view (' + from + ' to ' + to + '); the range is shortened so every line keeps the same baseline.'
-      : model.rangeLabel + ' view - ' + model.dates.length + ' shared daily closes, ' + from + ' to ' + to + ', all rebased to 0% on the first session.';
+      : model.rangeLabel.charAt(0).toUpperCase() + model.rangeLabel.slice(1) + ' view - ' + model.dates.length + ' shared daily closes, ' + from + ' to ' + to + ', all rebased to 0% on the first session.';
 
-    var lineStyles = ['solid', 'long-dash', 'dot', 'dash-dot'];
+    var lineStyles = { 0:'solid', 1:'long-dash', 2:'dot', 3:'dash-dot', 4:'short-dash', 5:'long-dot', bench:'thin dashed' };
     var legendHtml = '';
     for (var s=0; s<model.series.length; s++){
       var ser = model.series[s];
       legendHtml += '<div class="cmp-legend-item cmp-series-' + ser.colorIdx + '" title="' + escapeHtml(ser.sym + ' uses the ' + lineStyles[ser.colorIdx] + ' line') + '">' +
         '<span class="cmp-legend-swatch" aria-hidden="true"></span>' +
         '<span class="cmp-legend-sym">' + escapeHtml(ser.sym) + '</span>' +
-        '<span class="cmp-legend-last"><span class="cmp-legend-return ' + cmpRetClass(ser.lastRet) + '">' + escapeHtml(cmpRetText(ser.lastRet)) + '</span>' +
-        '<span class="cmp-legend-price">' + escapeHtml(fmtMoney(ser.lastPrice)) + ' close</span></span></div>';
+        '<span class="cmp-legend-last"><span class="cmp-legend-return ' + (model.mode === 'vol' || model.mode === 'iv' ? '' : cmpRetClass(ser.lastVal)) + '">' + escapeHtml(cmpFmtMode(model.mode, ser.lastVal)) + '</span>' +
+        (ser.bench ? '<span class="cmp-legend-price">benchmark</span>' : '<span class="cmp-legend-price">' + escapeHtml(fmtMoney(ser.lastPrice)) + ' close</span>') + '</span></div>';
     }
     legend.innerHTML = legendHtml;
 
@@ -17791,27 +18427,30 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var frac = g / (gridN - 1), y = frac * model.H;
       var val = model.yMax - frac * (model.yMax - model.yMin);
       grid += '<line class="cmp-chart-grid" x1="0" y1="' + y.toFixed(1) + '" x2="' + model.W + '" y2="' + y.toFixed(1) + '" />';
-      yLabels += '<span class="cmp-y-label' + (Math.abs(val) < 0.05 ? ' is-zero' : '') + '" style="top:' + (frac * 100).toFixed(2) + '%">' + escapeHtml(cmpRetText(val)) + '</span>';
+      yLabels += '<span class="cmp-y-label' + (Math.abs(val) < 0.05 ? ' is-zero' : '') + '" style="top:' + (frac * 100).toFixed(2) + '%">' + escapeHtml(cmpFmtMode(model.mode, val)) + '</span>';
     }
-    var zeroY = yAt(0);
+    var zeroY = model.yMin <= 0 && model.yMax >= 0 ? yAt(0) : -10;
     var paths = '';
     for (var si=0; si<model.series.length; si++){
-      var pser = model.series[si], pts = '';
-      for (var pi=0; pi<pser.returns.length; pi++){
-        pts += (pi ? ' ' : '') + xAt(pi).toFixed(1) + ',' + yAt(pser.returns[pi]).toFixed(1);
+      var pser = model.series[si], d = '', pen = false;
+      for (var pi=0; pi<pser.values.length; pi++){
+        var pv = pser.values[pi];
+        if (pv == null || !isFinite(pv)){ pen = false; continue; }
+        d += (pen ? ' L' : ' M') + xAt(pi).toFixed(1) + ',' + yAt(pv).toFixed(1);
+        pen = true;
       }
-      paths += '<polyline class="cmp-chart-line cmp-series-' + pser.colorIdx + '" points="' + pts + '"><title>' +
-        escapeHtml(pser.sym + ', ' + lineStyles[pser.colorIdx] + ' line') + '</title></polyline>';
+      paths += '<path class="cmp-chart-line cmp-series-' + pser.colorIdx + '" d="' + d.trim() + '"><title>' +
+        escapeHtml(pser.sym + ', ' + lineStyles[pser.colorIdx] + ' line') + '</title></path>';
     }
     var svg = '<svg class="cmp-chart-svg" viewBox="0 0 ' + model.W + ' ' + model.H + '" preserveAspectRatio="none" aria-hidden="true" focusable="false">' +
       grid + '<line class="cmp-chart-zero" x1="0" y1="' + zeroY.toFixed(1) + '" x2="' + model.W + '" y2="' + zeroY.toFixed(1) + '" />' + paths + '</svg>';
     var dots = '';
     for (var di=0; di<model.series.length; di++) dots += '<span class="cmp-chart-dot cmp-series-' + model.series[di].colorIdx + '" aria-hidden="true"></span>';
     var mid = Math.floor((model.dates.length - 1) / 2);
-    var ranked = model.series.slice().sort(function(a,b){ return b.lastRet - a.lastRet; });
+    var ranked = model.series.filter(function(x){ return !x.bench; }).sort(function(a,b){ return b.lastRet - a.lastRet; });
     var leader = ranked[0], laggard = ranked[ranked.length - 1];
     var spread = leader.lastRet - laggard.lastRet;
-    var aria = 'Relative performance for ' + model.series.map(function(s2){ return s2.sym + ' ' + cmpRetText(s2.lastRet); }).join(', ') +
+    var aria = modeDef.title + ' for ' + model.series.map(function(s2){ return s2.sym + ' ' + cmpFmtMode(model.mode, s2.lastVal); }).join(', ') +
       '. ' + leader.sym + ' leads and ' + laggard.sym + ' trails. Use left and right arrow keys to inspect each shared daily close.';
     chart.innerHTML = '<div class="cmp-chart-stage">' +
       '<div class="cmp-y-axis" aria-hidden="true">' + yLabels + '</div>' +
@@ -17823,9 +18462,21 @@ function scenarioEventPhase(ev, now = Date.now()) {
         escapeHtml(priceChartFmtDate(model.dates[mid], false)) + '</span><span>' + escapeHtml(priceChartFmtDate(model.dates[model.dates.length - 1], false)) + '</span></div>' +
     '</div>';
 
-    read.innerHTML = spread < 0.1
+    var benchSer = null; for (var bi = 0; bi < model.series.length; bi++) if (model.series[bi].bench) benchSer = model.series[bi];
+    var benchRead = benchSer && model.mode === 'return' && benchSer.lastRet != null
+      ? ' ' + escapeHtml(benchSer.sym) + ' moved ' + escapeHtml(cmpRetText(benchSer.lastRet)) + ' over the same sessions, so ' + ranked.map(function(x){ return '<b>' + escapeHtml(x.sym) + '</b> ' + escapeHtml(cmpRetText(x.lastRet - benchSer.lastRet).replace('%', ' pts')); }).join(', ') + ' versus it.'
+      : '';
+    if (model.mode !== 'return'){
+      var byVal = model.series.filter(function(x){ return !x.bench && x.lastVal != null; }).sort(function(a, b){ return b.lastVal - a.lastVal; });
+      read.innerHTML = byVal.length >= 2
+        ? 'Latest ' + escapeHtml(modeDef.label.toLowerCase()) + ': ' + byVal.map(function(x){ return '<b>' + escapeHtml(x.sym) + '</b> ' + escapeHtml(cmpFmtMode(model.mode, x.lastVal)); }).join(' · ') + '.'
+        : '';
+      cmpBindChartInteraction(model);
+      return;
+    }
+    read.innerHTML = (spread < 0.1
       ? '<b>' + escapeHtml(leader.sym) + '</b> and <b>' + escapeHtml(laggard.sym) + '</b> finish effectively tied over the shared ' + escapeHtml(model.rangeLabel) + ' window.'
-      : '<b>' + escapeHtml(leader.sym) + '</b> leads at ' + escapeHtml(cmpRetText(leader.lastRet)) + '; <b>' + escapeHtml(laggard.sym) + '</b> trails at ' + escapeHtml(cmpRetText(laggard.lastRet)) + ' - a ' + spread.toFixed(1) + ' percentage-point spread over the shared ' + escapeHtml(model.rangeLabel) + ' window.';
+      : '<b>' + escapeHtml(leader.sym) + '</b> leads at ' + escapeHtml(cmpRetText(leader.lastRet)) + '; <b>' + escapeHtml(laggard.sym) + '</b> trails at ' + escapeHtml(cmpRetText(laggard.lastRet)) + ' - a ' + spread.toFixed(1) + ' percentage-point spread over the shared ' + escapeHtml(model.rangeLabel) + ' window.') + benchRead;
     cmpBindChartInteraction(model);
   }
   function cmpSetTechVisible(on){
@@ -17867,6 +18518,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (!refLoaded) compareState.refSym = ready[0].sym;
     if (chipsEl) chipsEl.innerHTML = cmpChipsHtml();
     cmpRenderRefPicks();
+    cmpEnsureExtras();
     renderCompareChart(ready);
 
     var refCol = cmpResolveRef(cols);
@@ -19160,6 +19812,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     bindBriefChips(root);
   }
 
+  var CALLS_SORTS = [['queue', 'Queue order'], ['newest', 'Newest call'], ['positive', 'Constructive first'], ['caution', 'Caution first'], ['priority', 'Most to read'], ['ticker', 'Ticker A–Z']];
+  var callsSortBound = false;
   function renderEarningsCalls(){
     var root = $('calls-root'); var empty = $('calls-empty'); var eye = $('calls-eyebrow');
     if (!root) return;
@@ -19208,6 +19862,24 @@ function scenarioEventPhase(ev, now = Date.now()) {
         if (mode !== 'latest' && mode !== 'all' && b.signal.priority !== a.signal.priority) return b.signal.priority - a.signal.priority;
         return b.stamp.localeCompare(a.stamp);
       });
+      var callsSort = VIEWS.choose('calls.sort', 'queue', CALLS_SORTS.map(function(o){ return o[0]; }));
+      if (callsSort === 'newest') filtered = VIEWS.sortBy(filtered, function(x){ return x.stamp || null; }, false, null).sort(function(a, b){ return b.stamp.localeCompare(a.stamp); });
+      else if (callsSort === 'positive') filtered = VIEWS.sortBy(filtered, function(x){ return x.signal.tone === 'positive' ? 0 : x.signal.tone === 'caution' ? 2 : 1; }, true, null);
+      else if (callsSort === 'caution') filtered = VIEWS.sortBy(filtered, function(x){ return x.signal.tone === 'caution' ? 0 : x.signal.tone === 'positive' ? 2 : 1; }, true, null);
+      else if (callsSort === 'priority') filtered = VIEWS.sortBy(filtered, function(x){ return Number(x.signal.priority) || 0; }, false, null);
+      else if (callsSort === 'ticker') filtered = VIEWS.sortBy(filtered, function(x){ return x.entry.sym || null; }, true, null);
+      filtered = VIEWS.applyDir(filtered, 'calls');
+      if (!callsSortBound){
+        callsSortBound = true;
+        root.addEventListener('change', function(ev){
+          var sel = ev.target && ev.target.closest ? ev.target.closest('[data-calls-sort]') : null;
+          if (!sel) return;
+          VIEWS.set('calls.sort', sel.value === 'queue' ? null : sel.value);
+          callsState.showAll = false;
+          renderEarningsCalls();
+        });
+        VIEWS.onFlip('calls', renderEarningsCalls);
+      }
       var totalMatched = filtered.length;
       var visible = callsState.showAll ? filtered : filtered.slice(0, 12);
       var cards = '';
@@ -19233,6 +19905,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         modeButton('pressure','Q&A pressure') + modeButton('positive','Constructive') + modeButton('caution','Caution') + modeButton('latest','Latest') + modeButton('all','All calls') + '</div>';
       var more = totalMatched > visible.length ? '<button type="button" class="ecl-more" data-ecl-more="1">Show all ' + totalMatched + ' matching calls</button>' : '';
       root.innerHTML = desk + '<div class="ecl-toolbar"><input type="search" id="ecl-search" class="ecl-search" placeholder="Filter by ticker, company or call headline&hellip;" value="' + escapeHtml(callsState.filter || '') + '" aria-label="Filter earnings calls">' +
+        VIEWS.sortMenuHtml('data-calls-sort', CALLS_SORTS, callsSort, 'calls', 'Sort earnings calls') +
         '<span class="ecl-dim">Showing ' + visible.length + ' of ' + totalMatched + '</span></div>' + filters +
         (cards ? '<div class="ecl-cards">' + cards + '</div>' + more : '<p class="ecl-dim ecl-note">No calls match this queue. Try Latest or All calls.</p>');
       var search = $('ecl-search');
@@ -21219,6 +21892,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
       .then(function(j){ capitalRaisesState.data = (j && typeof j === 'object') ? j : { events: [] }; capitalRaisesState.loading = false; renderCapitalRaises(); })
       .catch(function(){ capitalRaisesState.data = { events: [], loadError: true }; capitalRaisesState.loading = false; renderCapitalRaises(); });
   }
+  var CR_SORTS = [['newest', 'Newest'], ['amount', 'Largest stated amount'], ['ticker', 'Ticker A–Z']];
+  var crSortBound = false, crLedgerOpen = false;
+  function crSortRows(list, key){
+    if (key === 'amount') return VIEWS.sortBy(list, function(e){ var v = Number(e && e.headlineAmount); return isFinite(v) && v > 0 ? v : null; }, false, 'capital-raises');
+    if (key === 'ticker') return VIEWS.sortBy(list, function(e){ return e && e.ticker || null; }, true, 'capital-raises');
+    return VIEWS.sortBy(list, function(e){ var t = Date.parse(e && e.publishedAt); return isFinite(t) ? t : null; }, false, 'capital-raises');
+  }
   function renderCapitalRaises(){
     var root = $('capital-raises-root'); var empty = $('capital-raises-empty'); var eye = $('capital-raises-eyebrow');
     if (!root) return;
@@ -21304,8 +21984,20 @@ function scenarioEventPhase(ev, now = Date.now()) {
       { key:'buyback', label:'Buybacks' },
       { key:'review', label:'Needs issuer verification', review:true },
     ];
+    var crSort = VIEWS.choose('capital-raises.sort', 'newest', CR_SORTS.map(function(o){ return o[0]; }));
+    if (!crSortBound){
+      crSortBound = true;
+      root.addEventListener('change', function(ev){
+        var sel = ev.target && ev.target.closest ? ev.target.closest('[data-cr-sort]') : null;
+        if (!sel) return;
+        VIEWS.set('capital-raises.sort', sel.value === 'newest' ? null : sel.value);
+        crLedgerOpen = true;
+        renderCapitalRaises();
+      });
+      VIEWS.onFlip('capital-raises', function(){ crLedgerOpen = true; renderCapitalRaises(); });
+    }
     var groupHtml = groupDefs.map(function(def){
-      var list = byKind[def.key];
+      var list = crSortRows(byKind[def.key], crSort);
       if (!list.length) return '';
       var known = crKnownAmount(list);
       var rows = list.map(function(e){
@@ -21336,7 +22028,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
           '</div>' +
         '</article>';
       }).join('');
-      return '<details class="cr-kind-group">' +
+      return '<details class="cr-kind-group"' + (crLedgerOpen ? ' open' : '') + '>' +
         '<summary><span><b>' + escapeHtml(def.label) + '</b><small>' + list.length + ' flag' + (list.length === 1 ? '' : 's') + '</small></span>' +
           '<em>' + (def.review ? 'excluded from risk totals' : known == null ? 'amounts not fully stated' : escapeHtml(cxDollars(known)) + ' stated') + '</em><i class="cr-chevron" aria-hidden="true"></i></summary>' +
         '<div class="cr-kind-body"><div class="cr-rows">' + rows + '</div></div>' +
@@ -21357,9 +22049,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
         '<div class="cr-rules"><div><span>Confirms the read</span><b>' + escapeHtml(confirmRule) + '</b></div><div><span>Invalidates the read</span><b>' + escapeHtml(invalidateRule) + '</b></div></div>' +
         actionsHtml +
       '</section>' +
-      '<details class="cr-ledger">' +
+      '<details class="cr-ledger"' + (crLedgerOpen ? ' open' : '') + '>' +
         '<summary><span><b>Event ledger</b><small>News flags with SEC context</small></span><em>' + verifiedEv.length + ' verified · ' + reviewEv.length + ' review</em><i class="cr-chevron" aria-hidden="true"></i></summary>' +
-        '<div class="cr-ledger-body">' + groupHtml + '<p class="cr-scope">Only headlines that explicitly name the issuer and describe company-level financing enter the risk totals. Ambiguous ticker associations and possible insider-sale wording stay in review. Amounts are included only when stated in the headline; the latest SEC figure is context, not necessarily the same transaction.</p></div>' +
+        '<div class="cr-ledger-body"><div class="view-bar">' + VIEWS.sortMenuHtml('data-cr-sort', CR_SORTS, crSort, 'capital-raises', 'Sort capital-raise events') + '</div>' + groupHtml + '<p class="cr-scope">Only headlines that explicitly name the issuer and describe company-level financing enter the risk totals. Ambiguous ticker associations and possible insider-sale wording stay in review. Amounts are included only when stated in the headline; the latest SEC figure is context, not necessarily the same transaction.</p></div>' +
       '</details>';
     bindBriefChips(root);
     bindCapitalRaiseActions(root);
@@ -21451,7 +22143,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var search = $('pending-buyouts-search'), type = $('pending-buyouts-type'), sort = $('pending-buyouts-sort');
     if (search) search.addEventListener('input', debounce(function(){ pendingBuyoutsState.search = String(search.value || '').trim().toLowerCase(); renderPendingBuyouts(); }, 120));
     if (type) type.addEventListener('change', function(){ pendingBuyoutsState.type = type.value || 'all'; renderPendingBuyouts(); });
-    if (sort) sort.addEventListener('change', function(){ pendingBuyoutsState.sort = sort.value || 'close'; renderPendingBuyouts(); });
+    if (sort){
+      pendingBuyoutsState.sort = VIEWS.remember(sort, 'pending-buyouts.sort') || 'close';
+      VIEWS.attachFlip(sort, 'pending-buyouts', renderPendingBuyouts);
+      sort.addEventListener('change', function(){ pendingBuyoutsState.sort = sort.value || 'close'; renderPendingBuyouts(); });
+    }
     var pills = document.querySelectorAll('[data-pb-status]');
     Array.prototype.forEach.call(pills, function(btn){
       btn.addEventListener('click', function(){
@@ -21505,6 +22201,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (pendingBuyoutsState.sort === 'alpha') return String(a.target || a.targetTicker || '').localeCompare(String(b.target || b.targetTicker || ''));
       return String(a.expectedCloseAt || '9999').localeCompare(String(b.expectedCloseAt || '9999')) || Number(b.grossSpreadPct || 0) - Number(a.grossSpreadPct || 0);
     });
+    all = VIEWS.applyDir(all, 'pending-buyouts');
     root.innerHTML = all.map(pbCard).join('');
     if (empty) empty.hidden = all.length > 0;
     bindBriefChips(root);
@@ -23496,6 +24193,40 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '<span class="leaps-meta">' + escapeHtml(pillarLine + (meta ? ' · ' + meta : '')) + '</span>' +
     '</article>';
   }
+  function leapsNum(v){ v = Number(v); return isFinite(v) ? v : null; }
+  function leapsPillar(k){ return function(r){ return leapsNum(r && r.pillars && r.pillars[k]); }; }
+  var LEAPS_SORTS = [
+    ['engine', 'Engine order', null, false],
+    ['score', 'Score (strongest first)', function(r){ var v = leapsNum(r.total); return v == null ? null : Math.abs(v); }, false],
+    ['narrative', 'Narrative points', leapsPillar('narrative'), false],
+    ['trend', 'Trend points', leapsPillar('technicals'), false],
+    ['flow', 'Flow points', leapsPillar('mechanicals'), false],
+    ['fundamentals', 'Fundamentals points', leapsPillar('fundamentals'), false],
+    ['side', 'Calls first', function(r){ return r.side === 'put' ? 1 : 0; }, true],
+    ['ticker', 'Ticker A–Z', function(r){ return r.symbol || null; }, true]
+  ];
+  function leapsSorted(rows, key){
+    var def = null;
+    for (var i = 0; i < LEAPS_SORTS.length; i++) if (LEAPS_SORTS[i][0] === key) def = LEAPS_SORTS[i];
+    if (!def || !def[2]) return VIEWS.applyDir(rows.slice(), 'leaps');
+    return VIEWS.sortBy(rows, def[2], def[3], 'leaps');
+  }
+  function leapsTableHtml(rows){
+    var cols = [
+      { label:'Ticker', cell:function(r){ return '<button type="button" class="leaps-sym" data-leaps-symbol="' + escapeHtml(r.symbol) + '">' + escapeHtml(r.symbol) + '</button>'; }, sort:function(r){ return r.symbol || null; } },
+      { label:'Group', cell:function(r){ return r._group; }, sort:function(r){ return r._group; } },
+      { label:'Side', cell:function(r){ var sd = r.side === 'put' ? 'put' : 'call'; return '<span class="vt-tag ' + sd + '">' + sd.toUpperCase() + '</span>'; }, sort:function(r){ return r.side || null; } },
+      { label:'Score', num:true, cell:function(r){ return escapeHtml(leapsFmt(r.total)); }, sort:function(r){ return leapsNum(r.total); } },
+      { label:'Narrative', num:true, cell:function(r){ return escapeHtml(leapsFmt(r.pillars && r.pillars.narrative)); }, sort:leapsPillar('narrative') },
+      { label:'Trend', num:true, cell:function(r){ return escapeHtml(leapsFmt(r.pillars && r.pillars.technicals)); }, sort:leapsPillar('technicals') },
+      { label:'Flow', num:true, cell:function(r){ return escapeHtml(leapsFmt(r.pillars && r.pillars.mechanicals)); }, sort:leapsPillar('mechanicals') },
+      { label:'Fundamentals', num:true, cell:function(r){ return escapeHtml(leapsFmt(r.pillars && r.pillars.fundamentals)); }, sort:leapsPillar('fundamentals') },
+      { label:'Entry', cell:function(r){ return escapeHtml(leapsEntryText(r.entry)); }, sort:function(r){ return leapsEntryText(r.entry); } },
+      { label:'Why', cell:function(r){ return escapeHtml(leapsReasonText(r.reason)); }, sort:function(r){ return leapsReasonText(r.reason) || null; } }
+    ];
+    return VIEWS.tableHtml(cols, rows, { key:'leaps-table', empty:'No LEAPS ideas today.' });
+  }
+  var leapsControlsBound = false;
   function renderLeaps(){
     var root = $('leaps-root');
     var eyebrow = $('leaps-eyebrow');
@@ -23520,7 +24251,26 @@ function scenarioEventPhase(ev, now = Date.now()) {
       }
       eyebrow.textContent = picks.length + ' buy' + (picks.length === 1 ? '' : 's') + ' · ' + watch.length + ' watch' + (watch.length === 1 ? '' : 'es') + when;
     }
-    var html = '';
+    if (!leapsControlsBound){
+      leapsControlsBound = true;
+      root.addEventListener('change', function(ev){
+        var sel = ev.target && ev.target.closest ? ev.target.closest('[data-leaps-sort]') : null;
+        if (!sel) return;
+        VIEWS.set('leaps.sort', sel.value === 'engine' ? null : sel.value);
+        renderLeaps();
+      });
+      VIEWS.onFlip('leaps', renderLeaps);
+      VIEWS.onView('leaps', renderLeaps);
+    }
+    var leapsSortKey = VIEWS.choose('leaps.sort', 'engine', LEAPS_SORTS.map(function(o){ return o[0]; }));
+    picks = leapsSorted(picks, leapsSortKey);
+    watch = leapsSorted(watch, leapsSortKey);
+    var html = '<div class="view-bar">' + VIEWS.sortMenuHtml('data-leaps-sort', LEAPS_SORTS.map(function(o){ return [o[0], o[1]]; }), leapsSortKey, 'leaps', 'Sort LEAPS') + VIEWS.viewToggleHtml('leaps') + '</div>';
+    if (VIEWS.viewMode('leaps') === 'table'){
+      var all = picks.map(function(r){ return Object.assign({}, r, { _group:'Buy' }); })
+        .concat(watch.map(function(r){ return Object.assign({}, r, { _group:'Watch' }); }));
+      html += leapsTableHtml(all);
+    } else {
     html += '<section class="leaps-group"><h3>Buy</h3>';
     html += picks.length
       ? picks.map(leapsRowHtml).join('')
@@ -23531,6 +24281,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       ? watch.map(leapsRowHtml).join('')
       : '<p class="leaps-empty">No name is sitting between the idea bar of 5 and a buy.</p>';
     html += '</section>';
+    }
     html += '<p class="leaps-note">Pick the contract yourself. This desk does not fetch a long-dated chain or name a strike.</p>';
     root.innerHTML = html;
     var buttons = root.querySelectorAll('[data-leaps-symbol]');
@@ -23802,7 +24553,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // second is the independent execution posture. Sigma only ranks peers inside
   // the same zone + posture bucket, so a statistically deep but flagged selloff
   // can never jump ahead of a clean actionable setup.
-  function stkGroupRows(rows){
+  function stkGroupRows(rows, cmp){
+    cmp = cmp || stkSigmaSort;
     var actionDefs = [
       { key:'starter', label:'Start small' },
       { key:'wait', label:'Wait for turn' },
@@ -23829,21 +24581,96 @@ function scenarioEventPhase(ev, now = Date.now()) {
           return {
             key: a.key,
             label: a.label,
-            rows: zoneRows.filter(function(r){ return stkActionKey(r) === a.key; }).sort(stkSigmaSort),
+            rows: zoneRows.filter(function(r){ return stkActionKey(r) === a.key; }).sort(cmp),
           };
         }),
       };
     });
   }
   // END stkGroupRows
-  function stkGroupedCards(rows){
-    return '<div class="stk-tiers">' + stkGroupRows(rows).map(function(zone){
+  // Sort + view controls (shared VIEWS helpers). The two-tier grouping stays
+  // in card view; the chosen sort only reorders peers inside each bucket. The
+  // table view drops the grouping and lists every candidate in sort order.
+  function stkNum(v){ v = Number(v); return isFinite(v) ? v : null; }
+  function stkOffHigh(r){
+    var hi = stkNum(r && r.fiftyTwoWeek && r.fiftyTwoWeek.hi), spot = stkNum(r && r.spot);
+    return hi > 0 && spot != null ? (spot / hi - 1) * 100 : null;
+  }
+  function stkZoneLabel(r){
+    if (stkPlanNeedsReview(r)) return 'Plan needs revision';
+    var clean = r && r.clean != null ? !!r.clean : !(r && Array.isArray(r.traps) && r.traps.length);
+    return clean ? 'Buy zone' : 'Watchlist';
+  }
+  function stkActionLabel(r){
+    var a = r && r.execution && r.execution.action;
+    return a && a.label ? a.label : ({ starter:'Start small', wait:'Wait for turn', research:'Research first' })[stkActionKey(r)];
+  }
+  var STK_SORTS = [
+    ['dip', 'Strongest σ first', function(r){ return stkNum(r.dipScore); }, false, 'strongest σ first'],
+    ['reads', 'Most dip reads fired', function(r){ return stkNum(r.fired); }, false, 'most dip reads first'],
+    ['offhigh', 'Furthest below 52-week high', stkOffHigh, true, 'furthest below high first'],
+    ['grade', 'Grade score', function(r){ return r.grade ? stkNum(r.grade.total) : null; }, false, 'highest grade first'],
+    ['flags', 'Fewest yellow flags', function(r){ return Array.isArray(r.traps) ? r.traps.length : 0; }, true, 'fewest flags first'],
+    ['sector', 'Sector', function(r){ return r.sector || null; }, true, 'by sector'],
+    ['ticker', 'Ticker A–Z', function(r){ return r.symbol || null; }, true, 'A–Z']
+  ];
+  function stkSortDef(){
+    var key = VIEWS.choose('stocks.sort', 'dip', STK_SORTS.map(function(o){ return o[0]; }));
+    for (var i = 0; i < STK_SORTS.length; i++) if (STK_SORTS[i][0] === key) return { key:key, get:STK_SORTS[i][2], asc:STK_SORTS[i][3], label:STK_SORTS[i][4] };
+    return { key:'dip', get:STK_SORTS[0][2], asc:false, label:STK_SORTS[0][4] };
+  }
+  function stkControlsHtml(def){
+    return '<div class="view-bar">' + VIEWS.sortMenuHtml('data-stk-sort', STK_SORTS.map(function(o){ return [o[0], o[1]]; }), def.key, 'stocks', 'Sort stock picks') +
+      VIEWS.viewToggleHtml('stocks') + '</div>';
+  }
+  function stkTableHtml(rows){
+    var cols = [
+      { label:'Ticker', cell:function(r){ return '<a class="stk-sym" data-sym="' + escapeHtml(r.symbol) + '" href="' + symGradeHref(r.symbol) + '">' + escapeHtml(r.symbol) + '</a>'; }, sort:function(r){ return r.symbol || null; } },
+      { label:'Zone', cell:function(r){ return escapeHtml(stkZoneLabel(r)); }, sort:stkZoneLabel },
+      { label:'Posture', cell:function(r){ return escapeHtml(stkActionLabel(r)); }, sort:stkActionLabel },
+      { label:'Sector', cell:function(r){ return escapeHtml(r.sector || ''); }, sort:function(r){ return r.sector || null; } },
+      { label:'Price', num:true, cell:function(r){ return r.spot != null ? fmtMoney(r.spot) : ''; }, sort:function(r){ return stkNum(r.spot); } },
+      { label:'Off 52w high', num:true, cell:function(r){ var v = stkOffHigh(r); return v == null ? '' : '<span class="neg">' + v.toFixed(1) + '%</span>'; }, sort:stkOffHigh },
+      { label:'Dip σ', num:true, title:'Dip score: average of five cross-sectional z-scores', cell:function(r){ var v = stkNum(r.dipScore); return v == null ? '' : (v >= 0 ? '+' : '') + v.toFixed(2) + 'σ'; }, sort:function(r){ return stkNum(r.dipScore); } },
+      { label:'Reads', num:true, title:'Dip reads fired', cell:function(r){ var v = stkNum(r.fired); return v == null ? '' : String(v); }, sort:function(r){ return stkNum(r.fired); } },
+      { label:'Flags', num:true, cell:function(r){ return String(Array.isArray(r.traps) ? r.traps.length : 0); }, sort:function(r){ return Array.isArray(r.traps) ? r.traps.length : 0; } },
+      { label:'Grade', num:true, cell:function(r){ var v = r.grade ? stkNum(r.grade.total) : null; return v == null ? '' : (v > 0 ? '+' : '') + v.toFixed(1); }, sort:function(r){ return r.grade ? stkNum(r.grade.total) : null; } }
+    ];
+    return VIEWS.tableHtml(cols, rows, { key:'stocks-table', empty:'No candidates today.' });
+  }
+  var stkControlsBound = false;
+  function bindStkControls(root){
+    if (stkControlsBound) return;
+    stkControlsBound = true;
+    root.addEventListener('change', function(ev){
+      var sel = ev.target && ev.target.closest ? ev.target.closest('[data-stk-sort]') : null;
+      if (!sel) return;
+      VIEWS.set('stocks.sort', sel.value === 'dip' ? null : sel.value);
+      renderStocks();
+    });
+    VIEWS.onFlip('stocks', renderStocks);
+    VIEWS.onView('stocks', renderStocks);
+  }
+  function stkGroupedCards(rows, def){
+    def = def || { get:function(r){ return stkNum(r.dipScore); }, asc:false, label:'strongest σ first' };
+    var flip = VIEWS.reversed('stocks');
+    var cmp = function(a, b){
+      var av = def.get(a), bv = def.get(b);
+      var am = av == null, bm = bv == null;
+      if (am || bm){ if (am && bm) return stkSigmaSort(a, b); return am ? 1 : -1; }
+      var c = typeof av === 'string' ? String(av).localeCompare(String(bv)) : av - bv;
+      if (!def.asc) c = -c;
+      if (flip) c = -c;
+      return c || stkSigmaSort(a, b);
+    };
+    var orderLabel = flip ? def.label + ' (flipped)' : def.label;
+    return '<div class="stk-tiers">' + stkGroupRows(rows, cmp).map(function(zone){
       var chips = zone.actions.map(function(a){
         return '<span class="stk-tier-chip stk-tier-chip-' + a.key + '"><b>' + a.rows.length + '</b> ' + escapeHtml(a.label) + '</span>';
       }).join('');
       var groups = zone.actions.filter(function(a){ return a.rows.length; }).map(function(a){
         return '<section class="stk-action-group stk-action-' + a.key + '" aria-label="' + escapeHtml(zone.label + ' — ' + a.label) + '">' +
-          '<header class="stk-action-head"><div><small>Tier 2 · execution</small><h4>' + escapeHtml(a.label) + '</h4></div><span>' + a.rows.length + ' · strongest σ first</span></header>' +
+          '<header class="stk-action-head"><div><small>Tier 2 · execution</small><h4>' + escapeHtml(a.label) + '</h4></div><span>' + a.rows.length + ' · ' + escapeHtml(orderLabel) + '</span></header>' +
           '<div class="stk-grid">' + a.rows.map(function(r){ return stkCard(r); }).join('') + '</div>' +
         '</section>';
       }).join('');
@@ -24028,8 +24855,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
         (d.screened.qualityPassed || 0) + '</b> pass the quality gate → <b>' +
         (d.screened.beatenDown || 0) + '</b> beaten down right now' + shownNote + '</p>';
     }
+    bindStkControls(root);
+    var stkDef = stkSortDef();
+    var stkBody = VIEWS.viewMode('stocks') === 'table'
+      ? stkTableHtml(VIEWS.sortBy(rows, stkDef.get, stkDef.asc, 'stocks'))
+      : stkGroupedCards(rows, stkDef);
     root.innerHTML = stkDesk(rows) + funnel + (rows.length
-      ? stkGroupedCards(rows)
+      ? stkControlsHtml(stkDef) + stkBody
         : '<p class="stk-empty">No quality name is meaningfully beaten down right now — the screen would rather show nothing than stretch the definition of a dip. Candidates appear when a business that passes the quality gate trips at least ' + (d.minSignals || 2) + ' of the five dip reads.</p>') + stkDcaBlock(d, false);
     bindBriefChips(root);
   }
@@ -25359,7 +26191,26 @@ function scenarioEventPhase(ev, now = Date.now()) {
       }
       return (rotCandidateScore(b) == null ? -999 : rotCandidateScore(b)) - (rotCandidateScore(a) == null ? -999 : rotCandidateScore(a));
     });
-    return rows;
+    return VIEWS.applyDir(rows, 'rotation');
+  }
+  function rotTableHtml(rows, thresholds){
+    var quoteMap = rotQuoteMap();
+    function pct(v){ return v == null ? '' : '<span class="' + (v >= 0 ? 'pos' : 'neg') + '">' + (v > 0 ? '+' : '') + fmt(v, 1) + '%</span>'; }
+    function epi(c, keys){ return rotNum(rotValue(c.episode || {}, keys)); }
+    function live(c){ var q = quoteMap[String(c.symbol || '').toUpperCase()]; return q ? rotNum(q.changePct) : null; }
+    var cols = [
+      { label:'Ticker', cell:function(c){ var sym = String(c.symbol || '').toUpperCase(); return '<a class="rot-sym" data-sym="' + escapeHtml(sym) + '" href="' + symGradeHref(sym) + '">' + escapeHtml(sym) + '</a>'; }, sort:function(c){ return c.symbol || null; } },
+      { label:'Group', cell:function(c){ return escapeHtml(rotCandidateGroup(c)); }, sort:rotCandidateGroup },
+      { label:'State', cell:function(c){ return escapeHtml(rotPhaseLabel(rotPhase(c))); }, sort:function(c){ return rotPhaseLabel(rotPhase(c)); } },
+      { label:'Action', cell:function(c){ var d = rotEffectiveDecision(c, thresholds); return '<span class="rot-action rot-action-' + d.kind + '">' + escapeHtml(d.label) + '</span>'; }, sort:function(c){ return rotEffectiveDecision(c, thresholds).label; } },
+      { label:'Setup score', num:true, cell:function(c){ var v = rotCandidateScore(c); return v == null ? '' : fmt(v, 1); }, sort:rotCandidateScore },
+      { label:'R:R', num:true, cell:function(c){ var v = rotPlanRr(c); return v == null ? '' : fmt(v, 1); }, sort:rotPlanRr },
+      { label:'52w drawdown', num:true, cell:function(c){ return pct(rotRecoveryDrawdown(c).value); }, sort:function(c){ return rotRecoveryDrawdown(c).value; } },
+      { label:'Dislocation', num:true, cell:function(c){ return pct(epi(c, ['drawdownPct','peakToTroughPct','dislocationPct'])); }, sort:function(c){ return epi(c, ['drawdownPct','peakToTroughPct','dislocationPct']); } },
+      { label:'Rebound', num:true, cell:function(c){ return pct(epi(c, ['bouncePct','reboundPct','offLowPct'])); }, sort:function(c){ return epi(c, ['bouncePct','reboundPct','offLowPct']); } },
+      { label:'Day', num:true, cell:function(c){ return pct(live(c)); }, sort:live }
+    ];
+    return VIEWS.tableHtml(cols, rows, { key:'rotation-table', empty:'No candidates match these filters.' });
   }
   function rotToolbarHtml(candidates, visible, groups, thresholds){
     var phases = [['all','All states'],['washed-out','Washed out'],['first-thrust','First thrust'],['confirmed','Confirmed'],['retest','Retest'],['extended','Late / spent']];
@@ -25391,7 +26242,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '<div class="rot-filter-scroll" aria-label="Rebound state">' + phases.map(phaseBtn).join('') + '</div>' +
       '<div class="rot-toolbar"><div class="rot-action-filter">' + actionBtn('all','All') + actionBtn('act','Actionable') + actionBtn('wait','Wait') + actionBtn('pass','Pass') + '</div>' +
         '<label>Group <select data-rot-group>' + opts + '</select></label>' +
-        '<label>Sort <select data-rot-sort><option value="priority"' + (rotationState.sort === 'priority' ? ' selected' : '') + '>Desk priority</option><option value="fundamental"' + (rotationState.sort === 'fundamental' ? ' selected' : '') + '>Fundamental recovery</option><option value="drawdown52"' + (rotationState.sort === 'drawdown52' ? ' selected' : '') + '>52-week drawdown</option><option value="score"' + (rotationState.sort === 'score' ? ' selected' : '') + '>Setup score</option><option value="rr"' + (rotationState.sort === 'rr' ? ' selected' : '') + '>Best R:R</option><option value="drawdown"' + (rotationState.sort === 'drawdown' ? ' selected' : '') + '>Deepest dislocation</option><option value="bounce"' + (rotationState.sort === 'bounce' ? ' selected' : '') + '>Strongest rebound</option><option value="live"' + (rotationState.sort === 'live' ? ' selected' : '') + '>Live day move</option></select></label>' +
+        '<label>Sort ' + VIEWS.withFlip('<select data-rot-sort><option value="priority"' + (rotationState.sort === 'priority' ? ' selected' : '') + '>Desk priority</option><option value="fundamental"' + (rotationState.sort === 'fundamental' ? ' selected' : '') + '>Fundamental recovery</option><option value="drawdown52"' + (rotationState.sort === 'drawdown52' ? ' selected' : '') + '>52-week drawdown</option><option value="score"' + (rotationState.sort === 'score' ? ' selected' : '') + '>Setup score</option><option value="rr"' + (rotationState.sort === 'rr' ? ' selected' : '') + '>Best R:R</option><option value="drawdown"' + (rotationState.sort === 'drawdown' ? ' selected' : '') + '>Deepest dislocation</option><option value="bounce"' + (rotationState.sort === 'bounce' ? ' selected' : '') + '>Strongest rebound</option><option value="live"' + (rotationState.sort === 'live' ? ' selected' : '') + '>Live day move</option></select>', 'rotation') + '</label>' + VIEWS.viewToggleHtml('rotation') +
         '<span class="rot-showing" role="status" aria-live="polite" aria-atomic="true">Showing ' + visible.length + ' of ' + candidates.length + '</span></div>' +
       '</section>';
   }
@@ -25573,7 +26424,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
       eye.textContent = candidates.length + ' candidate' + (candidates.length === 1 ? '' : 's') + (near.length ? ' · ' + near.length + ' near miss' + (near.length === 1 ? '' : 'es') : '') + (dataAsOf ? ' · data through ' + dataAsOf : '') + (when ? ' · built ' + when : '');
     }
     var stale = rotationState.error ? '<p class="rot-stale">Live refresh failed; the last successfully loaded build remains visible.</p>' : '';
-    var grid = visible.length ? '<div class="rot-grid">' + visible.map(function(c){ return rotCandidateCard(c, thresholds); }).join('') + '</div>'
+    if (!rotationState.viewsBound){
+      rotationState.viewsBound = true;
+      VIEWS.onFlip('rotation', renderSectorRotation);
+      VIEWS.onView('rotation', renderSectorRotation);
+    }
+    var grid = visible.length ? (VIEWS.viewMode('rotation') === 'table' ? rotTableHtml(visible, thresholds) : '<div class="rot-grid">' + visible.map(function(c){ return rotCandidateCard(c, thresholds); }).join('') + '</div>')
       : candidates.length ? '<div class="rot-empty"><b>No candidates match these desk filters.</b><span>Reset recovery profile, state, action, or group filters; the screen is not manufacturing a trade.</span></div>'
       : '<div class="rot-empty"><b>No quality rotation-rebound candidate clears the bar.</b><span>That is a valid signal. Wait for a clean dislocation and confirmation instead of forcing a bounce trade.</span></div>';
     var filteredNear = rotationState.group === 'all' ? near : near.filter(function(c){ return rotGroupMatches(c, rotationState.group); });
@@ -25640,6 +26496,23 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (levPrefs && isFinite(levPrefs.account) && levPrefs.account > 0) levState.account = Number(levPrefs.account);
     if (levPrefs && isFinite(levPrefs.riskPct) && levPrefs.riskPct > 0 && levPrefs.riskPct <= 5) levState.riskPct = Number(levPrefs.riskPct);
   } catch(e){}
+  levState.sort = VIEWS.choose('levetf.sort', 'conviction', ['conviction', 'setup', 'rr', 'drag']);
+  function levTableHtml(rows){
+    function n(v){ v = Number(v); return isFinite(v) ? v : null; }
+    var cols = [
+      { label:'ETF', cell:function(i){ return '<b class="lev-etf">' + escapeHtml(i.etf || '?') + '</b>'; }, sort:function(i){ return i.etf || null; } },
+      { label:'Side', cell:function(i){ var b = i.direction === 'bull'; return '<span class="vt-tag ' + (b ? 'call' : 'put') + '">' + (b ? 'BULL' : 'BEAR') + '</span>'; }, sort:function(i){ return i.direction || null; } },
+      { label:'Underlying', cell:function(i){ var u = i.under && i.under.symbol ? i.under.symbol : (i.proxy || i.label || ''); return escapeHtml(u); }, sort:function(i){ return (i.under && i.under.symbol) || i.proxy || i.label || null; } },
+      { label:'Lev', num:true, cell:function(i){ return i.leverage ? escapeHtml(String(i.leverage)) + '×' : ''; }, sort:function(i){ return n(i.leverage); } },
+      { label:'Setup', cell:function(i){ var d = levDecision(i); return escapeHtml(d === 'now' ? 'Enter now' : d === 'wait' ? 'Wait' : 'Pass'); }, sort:function(i){ var d = levDecision(i); return d === 'now' ? 0 : d === 'wait' ? 1 : 2; } },
+      { label:'Conviction', num:true, cell:function(i){ var v = n(i.conviction); return v == null ? '' : fmt(v, 1); }, sort:function(i){ return n(i.conviction); } },
+      { label:'Est. R:R', num:true, cell:function(i){ var p = leveragedEntryPlan(i) || {}; var v = n(p.riskReward); return v == null ? '' : fmt(v, 1); }, sort:function(i){ var p = leveragedEntryPlan(i) || {}; return n(p.riskReward); } },
+      { label:'Drag /mo', num:true, title:'Estimated daily-reset drag per month', cell:function(i){ var v = n(i.decay && i.decay.dragMoPct); return v == null ? '' : fmt(v, 1) + '%'; }, sort:function(i){ return n(i.decay && i.decay.dragMoPct); } },
+      { label:'Tape', cell:function(i){ return escapeHtml(i.tape || ''); }, sort:function(i){ return i.tape || null; } },
+      { label:'Earnings', cell:function(i){ return i.earnings ? 'In window' : ''; }, sort:function(i){ return i.earnings ? 1 : 0; } }
+    ];
+    return VIEWS.tableHtml(cols, rows, { key:'levetf-table', empty:'No ideas match these filters.' });
+  }
   function levDecision(i){
     var p = leveragedEntryPlan(i);
     if (!p || p.warning || (p.riskReward != null && p.riskReward < 1) || (i.entry && i.entry.state === 'avoid')) return 'pass';
@@ -26073,7 +26946,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       }
       return b.conviction - a.conviction;
     });
-    return rows;
+    return VIEWS.applyDir(rows, 'levetf');
   }
   function levDeskHtml(ideas, visible){
     var now = ideas.filter(levIsNow).length;
@@ -26093,7 +26966,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '<div class="lev-toolbar">' +
         '<div class="lev-filter-group" aria-label="Entry status">' + btn('setup', 'all', 'All setups') + btn('setup', 'now', 'Enter now') + btn('setup', 'wait', 'Waiting') + btn('setup', 'pass', 'Pass') + '</div>' +
         '<div class="lev-filter-group" aria-label="Direction">' + btn('direction', 'all', 'Both sides') + btn('direction', 'bull', 'Bull') + btn('direction', 'bear', 'Bear') + '</div>' +
-        '<label class="lev-sort">Sort <select data-lev-sort><option value="conviction"' + (levState.sort === 'conviction' ? ' selected' : '') + '>Conviction</option><option value="setup"' + (levState.sort === 'setup' ? ' selected' : '') + '>Cleanest setup</option><option value="rr"' + (levState.sort === 'rr' ? ' selected' : '') + '>Best est. R:R</option><option value="drag"' + (levState.sort === 'drag' ? ' selected' : '') + '>Lowest reset drag</option></select></label>' +
+        '<label class="lev-sort">Sort ' + VIEWS.withFlip('<select data-lev-sort><option value="conviction"' + (levState.sort === 'conviction' ? ' selected' : '') + '>Conviction</option><option value="setup"' + (levState.sort === 'setup' ? ' selected' : '') + '>Cleanest setup</option><option value="rr"' + (levState.sort === 'rr' ? ' selected' : '') + '>Best est. R:R</option><option value="drag"' + (levState.sort === 'drag' ? ' selected' : '') + '>Lowest reset drag</option></select>', 'levetf') + '</label>' + VIEWS.viewToggleHtml('levetf') +
         '<span class="lev-showing">Showing ' + visible.length + ' of ' + ideas.length + '</span>' +
       '</div>' +
     '</section>';
@@ -26108,7 +26981,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
       levState.direction = this.getAttribute('data-lev-direction') || 'all'; renderLevEtf();
     });
     var sort = root.querySelector('[data-lev-sort]');
-    if (sort) sort.addEventListener('change', function(){ levState.sort = this.value || 'conviction'; renderLevEtf(); });
+    if (sort) sort.addEventListener('change', function(){ levState.sort = this.value || 'conviction'; VIEWS.set('levetf.sort', levState.sort === 'conviction' ? null : levState.sort); renderLevEtf(); });
+    if (!levState.viewsBound){
+      levState.viewsBound = true;
+      VIEWS.onFlip('levetf', renderLevEtf);
+      VIEWS.onView('levetf', renderLevEtf);
+    }
     function saveRisk(){
       var account = root.querySelector('[data-lev-account]');
       var risk = root.querySelector('[data-lev-risk]');
@@ -26160,7 +27038,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     var foot = '<p class="lev-foot">Leveraged and inverse ETFs reset their leverage <b>daily</b> — over multi-day holds they compound the path, not the period move, and sideways chop bleeds value at any leverage (the per-card drag estimate). The dashed spark line simulates the fund\'s daily-reset path net of fee + financing over the same window — the gap to the underlying line is the compounding effect made visible. Carry, drag and the simulated path are estimates, not fund statements. They are short-horizon trading vehicles, not investments: days to a few weeks, sized small, never held through a thesis change. Single-stock products carry full idiosyncratic risk — one bad print is a ~2× overnight gap. Educational screen, not financial advice.</p>';
     var grid = visible.length
-      ? '<div class="lev-grid">' + visible.map(function(i){ return levCard(i); }).join('') + '</div>'
+      ? (VIEWS.viewMode('levetf') === 'table' ? levTableHtml(visible) : '<div class="lev-grid">' + visible.map(function(i){ return levCard(i); }).join('') + '</div>')
       : (ideas.length
         ? '<p class="lev-empty lev-filter-empty">No ideas match these desk filters. Try All setups or Both sides.</p>'
         : '<p class="lev-empty">No leveraged idea clears the bar right now &mdash; the screen would rather show nothing than manufacture leverage.</p>');
@@ -26796,7 +27674,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var search = $('news-feed-search');
     if (search) search.addEventListener('input', function(){ newsFeedState.filters.q = search.value || ''; resetNewsFeedLimit(); renderNewsFeed(); });
     var sort = $('news-feed-sort');
-    if (sort) sort.addEventListener('change', function(){ newsFeedState.filters.sort = sort.value || 'impact'; resetNewsFeedLimit(); renderNewsFeed(); });
+    if (sort){
+      newsFeedState.filters.sort = VIEWS.remember(sort, 'news.sort') || 'impact';
+      VIEWS.attachFlip(sort, 'news', function(){ resetNewsFeedLimit(); renderNewsFeed(); });
+      sort.addEventListener('change', function(){ newsFeedState.filters.sort = sort.value || 'impact'; resetNewsFeedLimit(); renderNewsFeed(); });
+    }
     var mappings = [
       ['news-feed-scope','scope'], ['news-feed-direction','direction'],
       ['news-feed-sector','sector'], ['news-feed-category','category'], ['news-feed-age','age']
@@ -26849,6 +27731,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (f.sort === 'latest') return (bd - ad) || ((b.impactScore || 0) - (a.impactScore || 0));
       return ((b.impactScore || 0) - (a.impactScore || 0)) || (bd - ad);
     });
+    out = VIEWS.applyDir(out, 'news');
     // A live item and its carried-forward copy can overlap in the upstream
     // slate. Collapse exact links only; fuzzy headline matching could hide
     // genuinely distinct reporting about the same event.
@@ -32668,6 +33551,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // Picks tab's "grade any ticker" search. Lazy-loaded only when the user first
   // uses that search (it's a ~900KB file), then cached for the session.
   var picksGradesState = { data: null, loading: false, waiters: [] };
+  // Signed grade total for one ticker from the shared grade index. Starts the
+  // (cached, public) index fetch on first use and re-renders the caller once.
+  function gradeTotalFor(sym, rerender){
+    var d = picksGradesState.data;
+    if (!d){ loadGradesIndex(rerender ? function(){ rerender(); } : null); return null; }
+    var g = d.grades && d.grades[sym];
+    var v = g ? Number(g.total) : NaN;
+    return isFinite(v) ? v : null;
+  }
   function loadGradesIndex(cb){
     if (picksGradesState.data){ if (cb) cb(picksGradesState.data); return; }
     // Queue every caller's callback — the file is ~900KB, so a second caller
@@ -32705,15 +33597,22 @@ function scenarioEventPhase(ev, now = Date.now()) {
   var ACC_TIER_ORDER = ['strong-call','call','put','strong-put'];
   // Resolved-list sort (Picks pane). Module-level so a re-render (sub-tab hop,
   // fresh data) keeps the user's choice for the session.
-  var accClosedSort = 'newest';
   var ACC_CLOSED_SORTS = [
     { k:'newest',    lbl:'Newest first' },
     { k:'pnl-desc',  lbl:'Biggest gain (%)' },
     { k:'pnl-asc',   lbl:'Biggest loss (%)' },
+    { k:'usd-desc',  lbl:'Biggest gain ($ per contract)' },
+    { k:'real-desc', lbl:'Best real-fill P&L' },
     { k:'held-desc', lbl:'Longest held' },
     { k:'held-asc',  lbl:'Shortest held' },
     { k:'reason',    lbl:'Exit reason' },
+    { k:'ticker',    lbl:'Ticker A–Z' },
+    { k:'sector',    lbl:'Sector' },
+    { k:'side',      lbl:'Side (calls first)' },
+    { k:'structure', lbl:'Structure' },
+    { k:'conviction',lbl:'Conviction' },
   ];
+  var accClosedSort = VIEWS.choose('track.closedSort', 'newest', ACC_CLOSED_SORTS.map(function(o){ return o.k; }));
   // Display order for the exit-reason grouping: targets first, then the stop
   // family, then the passive/forced closes. Unknown statuses sort last.
   // 'timed-out' / 'pre-earnings' / 'reset' are retired exit rules (the 14-day
@@ -32738,8 +33637,32 @@ function scenarioEventPhase(ev, now = Date.now()) {
         return (va - vb) * dir || exitMs(b) - exitMs(a);
       };
     }
+    function text(fn){
+      return function(a, b){
+        var va = fn(a), vb = fn(b);
+        if (!va && !vb) return exitMs(b) - exitMs(a);
+        if (!va) return 1;
+        if (!vb) return -1;
+        return String(va).localeCompare(String(vb)) || exitMs(b) - exitMs(a);
+      };
+    }
+    function usd(e){ var d = tradeDollars(e); return d && isFinite(d.pnl) ? d.pnl : null; }
+    function real(e){ var v = Number(e.realFillPnlPct); return e.realFillPnlPct != null && isFinite(v) ? v : null; }
+    var CONV_RANK = { 'Very High': 0, 'High': 1 };
     var s = accClosedSort;
-    if (s === 'pnl-desc') arr.sort(by(pnl, -1));
+    var missing = null;
+    if (s === 'pnl-desc' || s === 'pnl-asc') missing = pnl;
+    else if (s === 'held-desc' || s === 'held-asc') missing = held;
+    else if (s === 'usd-desc') missing = usd;
+    else if (s === 'real-desc') missing = real;
+    if (s === 'usd-desc') arr.sort(by(usd, -1));
+    else if (s === 'real-desc') arr.sort(by(real, -1));
+    else if (s === 'ticker') arr.sort(text(function(e){ return e.symbol; }));
+    else if (s === 'sector') arr.sort(text(function(e){ return e.sector; }));
+    else if (s === 'side') arr.sort(by(function(e){ return e.side === 'put' ? 1 : 0; }, 1));
+    else if (s === 'structure') arr.sort(text(function(e){ return ACC_DIMS.structure.lab(ACC_DIMS.structure.key(e)); }));
+    else if (s === 'conviction') arr.sort(by(function(e){ var r = CONV_RANK[accConvictionTier(e)]; var sc = Math.abs(Number(e.score)); return (r == null ? 2 : r) * 100 - (isFinite(sc) ? sc : 0); }, 1));
+    else if (s === 'pnl-desc') arr.sort(by(pnl, -1));
     else if (s === 'pnl-asc') arr.sort(by(pnl, 1));
     else if (s === 'held-desc') arr.sort(by(held, -1));
     else if (s === 'held-asc') arr.sort(by(held, 1));
@@ -32748,7 +33671,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       return i < 0 ? ACC_EXIT_ORDER.length : i;
     }, 1));
     else arr.sort(function(a, b){ return exitMs(b) - exitMs(a); });
-    return arr;
+    return VIEWS.applyDir(arr, 'track-closed', missing ? function(e){ return missing(e) == null; } : null);
   }
   var ACC_CP_LABEL = { 'day0':'Day 0', '2wk':'2 weeks', '1mo':'1 month' };
   function loadAccuracy(){
@@ -34243,9 +35166,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // (dataset = resolved-only vs incl. open marks; basis = $10k notional vs
   // per-contract) and re-renders on any toggle via accRerenderAnalytics().
   // ========================================================================
-  var accView = { dataset:'closed', basis:'notional', xtabA:'thesis', xtabB:'conviction', simMode:'fixed', simOpens:false, simHighConv:false, mcIters:'5000', mcSeed:1337, researchHorizon:'10', paperBook:'scale', wbSide:'all', wbStruct:'all', wbRun:'all', wbState:'all', wbRange:'all' };
-  (function(){ try { var sv = JSON.parse(localStorage.getItem('stonks-acc-view') || '{}'); ['dataset','basis','xtabA','xtabB','simMode','mcIters','researchHorizon','paperBook','wbSide','wbStruct','wbRun','wbState','wbRange'].forEach(function(k){ if (sv[k] != null) accView[k] = sv[k]; }); ['simOpens','simHighConv'].forEach(function(k){ if (typeof sv[k] === 'boolean') accView[k] = sv[k]; }); if (['fixed','environment','vol','kelly','combined'].indexOf(accView.simMode) < 0) accView.simMode = 'fixed'; if (['notional','environment','contract'].indexOf(accView.basis) < 0) accView.basis = 'notional'; if (['5','10','14'].indexOf(String(accView.researchHorizon)) < 0) accView.researchHorizon = '10'; if (['scale','list','risk','cost'].indexOf(accView.paperBook) < 0) accView.paperBook = 'scale'; if (['all','call','put'].indexOf(accView.wbSide) < 0) accView.wbSide = 'all'; if (['all','single','spread'].indexOf(accView.wbStruct) < 0) accView.wbStruct = 'all'; if (['all','11','15'].indexOf(accView.wbRun) < 0) accView.wbRun = 'all'; if (['all','open','closed'].indexOf(accView.wbState) < 0) accView.wbState = 'all'; if (['all','90','30'].indexOf(String(accView.wbRange)) < 0) accView.wbRange = 'all'; } catch (e){} })();
-  function accSaveView(){ try { localStorage.setItem('stonks-acc-view', JSON.stringify({ dataset:accView.dataset, basis:accView.basis, xtabA:accView.xtabA, xtabB:accView.xtabB, simMode:accView.simMode, simOpens:accView.simOpens, simHighConv:accView.simHighConv, mcIters:accView.mcIters, researchHorizon:accView.researchHorizon, paperBook:accView.paperBook, wbSide:accView.wbSide, wbStruct:accView.wbStruct, wbRun:accView.wbRun, wbState:accView.wbState, wbRange:accView.wbRange })); } catch (e){} }
+  var accView = { dataset:'closed', basis:'notional', xtabA:'thesis', xtabB:'conviction', simMode:'fixed', simOpens:false, simHighConv:false, mcIters:'5000', mcSeed:1337, researchHorizon:'10', paperBook:'scale', wbSide:'all', wbStruct:'all', wbRun:'all', wbState:'all', wbRange:'all', eqSplit:'side', cmpPreset:'side', cmpA:'', cmpB:'' };
+  (function(){ try { var sv = JSON.parse(localStorage.getItem('stonks-acc-view') || '{}'); ['dataset','basis','xtabA','xtabB','simMode','mcIters','researchHorizon','paperBook','wbSide','wbStruct','wbRun','wbState','wbRange','eqSplit','cmpPreset','cmpA','cmpB'].forEach(function(k){ if (sv[k] != null) accView[k] = sv[k]; }); ['simOpens','simHighConv'].forEach(function(k){ if (typeof sv[k] === 'boolean') accView[k] = sv[k]; }); if (['fixed','environment','vol','kelly','combined'].indexOf(accView.simMode) < 0) accView.simMode = 'fixed'; if (['notional','environment','contract'].indexOf(accView.basis) < 0) accView.basis = 'notional'; if (['5','10','14'].indexOf(String(accView.researchHorizon)) < 0) accView.researchHorizon = '10'; if (['scale','list','risk','cost'].indexOf(accView.paperBook) < 0) accView.paperBook = 'scale'; if (['all','call','put'].indexOf(accView.wbSide) < 0) accView.wbSide = 'all'; if (['all','single','spread'].indexOf(accView.wbStruct) < 0) accView.wbStruct = 'all'; if (['all','11','15'].indexOf(accView.wbRun) < 0) accView.wbRun = 'all'; if (['all','open','closed'].indexOf(accView.wbState) < 0) accView.wbState = 'all'; if (['all','90','30'].indexOf(String(accView.wbRange)) < 0) accView.wbRange = 'all'; } catch (e){} })();
+  function accSaveView(){ try { localStorage.setItem('stonks-acc-view', JSON.stringify({ dataset:accView.dataset, basis:accView.basis, xtabA:accView.xtabA, xtabB:accView.xtabB, simMode:accView.simMode, simOpens:accView.simOpens, simHighConv:accView.simHighConv, mcIters:accView.mcIters, researchHorizon:accView.researchHorizon, paperBook:accView.paperBook, wbSide:accView.wbSide, wbStruct:accView.wbStruct, wbRun:accView.wbRun, wbState:accView.wbState, wbRange:accView.wbRange, eqSplit:accView.eqSplit, cmpPreset:accView.cmpPreset, cmpA:accView.cmpA, cmpB:accView.cmpB })); } catch (e){} }
   // The active trade set. 'closed' = resolved only; 'all' = also include the
   // open book, each open position "resolved" at its CURRENT modeled mark
   // (win if green now). Clearly labelled as modeled wherever it's shown.
@@ -34372,7 +35295,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var hover = chHoverAttr(bins.map(function(b){
       var bh = (b.count / maxC) * plotH;
       return { x: xFor((b.x0 + b.x1) / 2), y: padT + plotH - bh,
-        label: (opts.fmtX ? opts.fmtX(b.x0) : Math.round(b.x0)) + ' – ' + (opts.fmtX ? opts.fmtX(b.x1) : Math.round(b.x1)) + '\n' + b.count + ' run' + (b.count === 1 ? '' : 's') };
+        label: (opts.fmtX ? opts.fmtX(b.x0) : Math.round(b.x0)) + ' – ' + (opts.fmtX ? opts.fmtX(b.x1) : Math.round(b.x1)) + '\n' + b.count + ' ' + (opts.unit || 'run') + (b.count === 1 ? '' : 's') };
     }));
     return '<svg class="acc-hist-svg"' + hover + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Distribution">' + bars + marker + labs + '</svg>';
   }
@@ -34951,6 +35874,211 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
 
   // --- Equity & drawdown sub-tab (#an-equity) ------------------------------
+  // --- Extra Track Record views (no new data): P&L histogram, daily P&L
+  // calendar, cumulative curves split by side / structure / sector, and a
+  // two-slice comparison. All P&L here is the modeled per-contract figure
+  // (tradeDollars), the same basis as the Breakdowns tables.
+  var ACC_SPLIT_DIMS = { side:'Side', structure:'Structure', sector:'Sector' };
+  var ACC_ET_DAY = null;
+  function accEtDay(iso){
+    var t = Date.parse(iso); if (!isFinite(t)) return '';
+    try {
+      if (!ACC_ET_DAY) ACC_ET_DAY = new Intl.DateTimeFormat('en-CA', { timeZone:'America/New_York', year:'numeric', month:'2-digit', day:'2-digit' });
+      return ACC_ET_DAY.format(new Date(t));
+    } catch (_) { return new Date(t).toISOString().slice(0, 10); }
+  }
+  function accPnlHistogramHtml(dec){
+    var vals = [];
+    dec.forEach(function(e){ var v = Number(e.optionPnlPct); if (isFinite(v)) vals.push(v); });
+    if (vals.length < 3) return '';
+    var lo = Math.max(-100, Math.floor(Math.min.apply(null, vals) / 10) * 10);
+    var hi = Math.min(300, Math.ceil(Math.max.apply(null, vals) / 10) * 10);
+    if (hi <= lo) hi = lo + 10;
+    var step = (hi - lo) > 200 ? 20 : 10;
+    var bins = [];
+    for (var x = lo; x < hi; x += step) bins.push({ x0:x, x1:x + step, count:0 });
+    if (bins.length < 2) bins.push({ x0:hi, x1:hi + step, count:0 });
+    vals.forEach(function(v){
+      var i = Math.floor((Math.max(lo, Math.min(v, hi - 0.001)) - lo) / step);
+      bins[Math.max(0, Math.min(bins.length - 1, i))].count++;
+    });
+    return '<div class="acc-an-subhead">How big each trade was (contract P&amp;L %)</div>' +
+      '<p class="hint">' + vals.length + ' trades in ' + step + '-point bins; red bars lost money. Values past +300% sit in the last bar.</p>' +
+      accBarsSvg(bins, { breakeven:0, unit:'trade', fmtX:function(v){ return (v > 0 ? '+' : '') + Math.round(v) + '%'; } });
+  }
+  function accPnlCalendarHtml(dec){
+    var days = {}, any = false;
+    dec.forEach(function(e){
+      var d = tradeDollars(e), k = accEtDay(e.exitDate);
+      if (!d || !k || !isFinite(d.pnl)) return;
+      var row = days[k] || (days[k] = { pnl:0, n:0, syms:[] });
+      row.pnl += d.pnl; row.n++; if (row.syms.length < 6) row.syms.push(e.symbol || '?');
+      any = true;
+    });
+    if (!any) return '';
+    var keys = Object.keys(days).sort();
+    var last = new Date(keys[keys.length - 1] + 'T12:00:00Z');
+    var first = new Date(keys[0] + 'T12:00:00Z');
+    var minStart = new Date(last.getTime() - 25 * 7 * 86400000);
+    if (first < minStart) first = minStart;
+    var start = new Date(first.getTime() - ((first.getUTCDay() + 6) % 7) * 86400000);
+    var maxAbs = 0; keys.forEach(function(k){ maxAbs = Math.max(maxAbs, Math.abs(days[k].pnl)); }); if (!maxAbs) maxAbs = 1;
+    var cols = '', week = 0, monthRow = '', lastMonth = '', lastLabelWeek = -9;
+    for (var w = new Date(start); w <= last; w = new Date(w.getTime() + 7 * 86400000)){
+      var cells = '';
+      for (var dd = 0; dd < 5; dd++){
+        var day = new Date(w.getTime() + dd * 86400000), k = day.toISOString().slice(0, 10), r = days[k];
+        var label = day.toLocaleDateString(undefined, { month:'short', day:'numeric', timeZone:'UTC' });
+        if (r){
+          var a = Math.max(0.18, Math.min(1, Math.abs(r.pnl) / maxAbs));
+          cells += '<span class="acc-cal-cell ' + (r.pnl >= 0 ? 'is-pos' : 'is-neg') + '" style="opacity:' + a.toFixed(2) + '" title="' + escapeHtml(label + ': ' + accMoney(r.pnl, true) + ' · ' + r.n + ' closed (' + r.syms.join(', ') + (r.n > r.syms.length ? '…' : '') + ')') + '"></span>';
+        } else {
+          cells += '<span class="acc-cal-cell" title="' + escapeHtml(label + ': no closes') + '"></span>';
+        }
+      }
+      var mName = w.toLocaleDateString(undefined, { month:'short', timeZone:'UTC' }), mLabel = '';
+      if (mName !== lastMonth && week - lastLabelWeek >= 3){ mLabel = mName; lastLabelWeek = week; }
+      lastMonth = mName;
+      monthRow += '<span>' + escapeHtml(mLabel) + '</span>';
+      cols += '<div class="acc-cal-week">' + cells + '</div>';
+      week++;
+    }
+    var total = keys.reduce(function(s, k){ return s + days[k].pnl; }, 0);
+    var green = keys.filter(function(k){ return days[k].pnl > 0; }).length;
+    return '<div class="acc-an-subhead">Daily realized P&amp;L calendar</div>' +
+      '<p class="hint">Each square is one weekday (ET), shaded by that day\'s summed per-contract P&amp;L on closed trades. ' + green + ' of ' + keys.length + ' close days were green · ' + accMoney(total, true) + ' total. Hover a square for the trades.</p>' +
+      '<div class="acc-cal"><div class="acc-cal-days"><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span></div>' +
+      '<div class="acc-cal-scroll"><div class="acc-cal-months">' + monthRow + '</div><div class="acc-cal-grid">' + cols + '</div></div></div>';
+  }
+  // Cumulative per-contract P&L, one line per group, on a shared time axis.
+  function accSplitCurvesSvg(groups){
+    var all = [];
+    groups.forEach(function(g){ g.pts.forEach(function(p){ all.push(p); }); });
+    if (all.length < 2) return '';
+    var W = 680, H = 250, padL = 60, padR = 16, padT = 16, padB = 26, plotW = W - padL - padR, plotH = H - padT - padB;
+    var t0 = Infinity, t1 = -Infinity, lo = 0, hi = 0;
+    all.forEach(function(p){ t0 = Math.min(t0, p.t); t1 = Math.max(t1, p.t); lo = Math.min(lo, p.v); hi = Math.max(hi, p.v); });
+    if (t1 <= t0) t1 = t0 + 86400000;
+    var range = (hi - lo) || 1, yMin = lo - range * 0.08, yMax = hi + range * 0.08;
+    function xFor(t){ return padL + plotW * ((t - t0) / (t1 - t0)); }
+    function yFor(v){ return padT + plotH - ((v - yMin) / (yMax - yMin)) * plotH; }
+    var grid = '';
+    [yMax, (yMin + yMax) / 2, yMin].forEach(function(gv){ var gy = yFor(gv); grid += '<line class="acc-eq-grid" x1="' + padL + '" y1="' + gy.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + gy.toFixed(1) + '"></line><text class="acc-eq-yl" x="' + (padL - 6) + '" y="' + (gy + 3).toFixed(1) + '">' + escapeHtml(accMoney(gv, false)) + '</text>'; });
+    var zero = '<line class="acc-eq-base" x1="' + padL + '" y1="' + yFor(0).toFixed(1) + '" x2="' + (W - padR) + '" y2="' + yFor(0).toFixed(1) + '"></line>';
+    var lines = '', hoverPts = [];
+    groups.forEach(function(g, gi){
+      var xy = [[xFor(g.pts.length ? g.pts[0].t : t0), yFor(0)]].concat(g.pts.map(function(p){ return [xFor(p.t), yFor(p.v)]; }));
+      var d = xy.map(function(q, i){ return (i ? 'L' : 'M') + q[0].toFixed(1) + ',' + q[1].toFixed(1); }).join(' ');
+      lines += '<path class="acc-split-line acc-split-' + (gi % 6) + '" d="' + d + '"></path>';
+      g.pts.forEach(function(p, i){
+        hoverPts.push({ x:xy[i + 1][0], y:xy[i + 1][1], label:g.label + ' · ' + accAnyDateShort(p.t) + '\n' + accMoney(p.v, true) + ' after ' + (i + 1) + ' trade' + (i ? 's' : '') + ' (' + escapeHtml(p.sym) + ' ' + accMoney(p.d, true) + ')' });
+      });
+    });
+    return '<svg class="acc-eq-svg"' + chHoverAttr(hoverPts) + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Cumulative P&amp;L by group">' + grid + zero + lines + '</svg>';
+  }
+  function accSplitGroups(dec, dimName, maxGroups){
+    var buckets = accBucketize(dec, dimName).filter(function(b){ return b.trades.length; });
+    buckets.sort(function(a, b){ return b.trades.length - a.trades.length; });
+    if (maxGroups && buckets.length > maxGroups){
+      var rest = buckets.slice(maxGroups - 1).reduce(function(acc, b){ return acc.concat(b.trades); }, []);
+      buckets = buckets.slice(0, maxGroups - 1).concat([{ key:'other', label:'Other', trades:rest }]);
+    }
+    return buckets.map(function(b){ return accCumPoints(b.trades, b.label); });
+  }
+  function accCumPoints(trades, label){
+    var rows = [];
+    trades.forEach(function(e){ var d = tradeDollars(e), t = Date.parse(e.exitDate); if (d && isFinite(d.pnl) && isFinite(t)) rows.push({ t:t, d:d.pnl, sym:e.symbol || '?' }); });
+    rows.sort(function(a, b){ return a.t - b.t; });
+    var run = 0;
+    return { label:label, n:rows.length, total:rows.reduce(function(s, r){ return s + r.d; }, 0), pts:rows.map(function(r){ run += r.d; return { t:r.t, v:run, d:r.d, sym:r.sym }; }) };
+  }
+  function accLegendHtml(groups){
+    return '<div class="acc-split-legend">' + groups.map(function(g, gi){
+      return '<span><i class="acc-split-key acc-split-' + (gi % 6) + '"></i>' + escapeHtml(g.label) + ' <b class="' + accSignClass(g.total) + '">' + accMoney(g.total, true) + '</b> <small>' + g.n + ' trade' + (g.n === 1 ? '' : 's') + '</small></span>';
+    }).join('') + '</div>';
+  }
+  function accSplitCurvesHtml(dec){
+    var dim = ACC_SPLIT_DIMS[accView.eqSplit] ? accView.eqSplit : 'side';
+    var groups = accSplitGroups(dec, dim, 6).filter(function(g){ return g.n; });
+    if (!groups.length) return '';
+    var opts = Object.keys(ACC_SPLIT_DIMS).map(function(k){ return { value:k, label:ACC_SPLIT_DIMS[k] }; });
+    return '<div class="acc-an-subhead">Cumulative P&amp;L split by group</div>' +
+      '<div class="acc-controls"><div class="acc-ctl"><span class="acc-ctl-lbl">Split by</span>' + accSeg('eqSplit', 'acc-eq-split', dim, opts) + '</div></div>' +
+      '<p class="hint">Per-contract running total for each group, on one time axis.</p>' + accSplitCurvesSvg(groups) + accLegendHtml(groups);
+  }
+  // Two-slice comparison: the same metrics side by side, plus both curves.
+  var ACC_CMP_PRESETS = [
+    { value:'side', label:'Calls vs puts' },
+    { value:'structure', label:'Singles vs spreads' },
+    { value:'sector', label:'Sector vs sector' },
+    { value:'version', label:'Before vs after a grade change' }
+  ];
+  var ACC_CMP_MIN = 10;
+  function accCompareSlices(dec){
+    var preset = accView.cmpPreset;
+    if (preset === 'structure') return [
+      { label:'Singles', trades:dec.filter(function(e){ return !(e.contract && /vertical/.test(e.contract.structure || '')); }) },
+      { label:'Spreads', trades:dec.filter(function(e){ return !!(e.contract && /vertical/.test(e.contract.structure || '')); }) }
+    ];
+    if (preset === 'sector'){
+      var sectors = accBucketize(dec, 'sector').sort(function(a, b){ return b.trades.length - a.trades.length; }).map(function(b){ return b.key; });
+      var a = sectors.indexOf(accView.cmpA) >= 0 ? accView.cmpA : sectors[0];
+      var b = sectors.indexOf(accView.cmpB) >= 0 && accView.cmpB !== a ? accView.cmpB : (sectors[0] === a ? sectors[1] : sectors[0]);
+      return { sectors:sectors, a:a, b:b, slices:[
+        { label:a || '—', trades:dec.filter(function(e){ return (e.sector || 'Unknown') === a; }) },
+        { label:b || '—', trades:dec.filter(function(e){ return (e.sector || 'Unknown') === b; }) }
+      ] };
+    }
+    if (preset === 'version'){
+      var segs = accGradeSegments(dec);
+      if (segs.length < 2) return [{ label:'Newest formula', trades:dec }, { label:'Earlier formulas', trades:[] }];
+      var newest = segs[0], since = newest.since != null ? accDateShort(new Date(newest.since).toISOString()) : '';
+      return [
+        { label:'After ' + (since || 'the change'), trades:newest.items },
+        { label:'Before', trades:segs.slice(1).reduce(function(acc, s){ return acc.concat(s.items); }, []) }
+      ];
+    }
+    return [
+      { label:'Calls', trades:dec.filter(function(e){ return e.side !== 'put'; }) },
+      { label:'Puts', trades:dec.filter(function(e){ return e.side === 'put'; }) }
+    ];
+  }
+  function accCompareHtml(dec){
+    var res = accCompareSlices(dec), slices = Array.isArray(res) ? res : res.slices;
+    var presetSel = '<select class="acc-xsel" data-acc-set="cmpPreset" aria-label="What to compare">' + ACC_CMP_PRESETS.map(function(o){ return '<option value="' + o.value + '"' + (o.value === accView.cmpPreset ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>'; }).join('') + '</select>';
+    var sectorSel = '';
+    if (!Array.isArray(res)){
+      var sel = function(key, cur){ return '<select class="acc-xsel" data-acc-set="' + key + '" aria-label="Sector">' + res.sectors.map(function(sx){ return '<option value="' + escapeHtml(sx) + '"' + (sx === cur ? ' selected' : '') + '>' + escapeHtml(sx) + '</option>'; }).join('') + '</select>'; };
+      sectorSel = sel('cmpA', res.a) + '<span class="acc-xtab-x">vs</span>' + sel('cmpB', res.b);
+    }
+    var ms = slices.map(function(sl){
+      var m = tradeMetrics(sl.trades, { basis:'contract' });
+      var pcts = [], real = [];
+      accDecided(sl.trades).forEach(function(e){
+        var v = Number(e.optionPnlPct); if (isFinite(v)) pcts.push(v);
+        var r = Number(e.realFillPnlPct); if (isFinite(r)) real.push(r);
+      });
+      return { label:sl.label, m:m, avgPct:pcts.length ? accMean(pcts) : null, real:real.length ? accMean(real) : null, realN:real.length };
+    });
+    function cell(v, txt){ return '<td class="num ' + accSignClass(v) + '">' + txt + '</td>'; }
+    var rows = [
+      ['Trades', function(x){ return '<td class="num">' + x.m.n + '</td>'; }],
+      ['Win rate', function(x){ return '<td class="num">' + accPctRate(x.m.winRate) + '</td>'; }],
+      ['Avg P&amp;L per trade', function(x){ return x.avgPct == null ? '<td class="num">—</td>' : cell(x.avgPct, accPct(x.avgPct)); }],
+      ['Expectancy ($ / contract)', function(x){ return x.m.expectancy == null ? '<td class="num">—</td>' : cell(x.m.expectancy, accMoney(x.m.expectancy, true)); }],
+      ['Total ($ / contract)', function(x){ return x.m.n ? cell(x.m.totalPnl, accMoney(x.m.totalPnl, true)) : '<td class="num">—</td>'; }],
+      ['Avg win / avg loss', function(x){ return '<td class="num">' + (x.m.avgWin != null ? accMoney(x.m.avgWin, false) : '—') + ' / ' + (x.m.avgLoss != null ? accMoney(x.m.avgLoss, false) : '—') + '</td>'; }],
+      ['Real-fill avg P&amp;L', function(x){ return x.real == null ? '<td class="num">—</td>' : cell(x.real, accPct(x.real) + ' <small>(' + x.realN + ')</small>'); }]
+    ];
+    var table = '<table class="acc-cmp-table" data-nosort><thead><tr><th></th><th>' + escapeHtml(ms[0].label) + '</th><th>' + escapeHtml(ms[1].label) + '</th></tr></thead><tbody>' +
+      rows.map(function(r){ return '<tr><th scope="row">' + r[0] + '</th>' + r[1](ms[0]) + r[1](ms[1]) + '</tr>'; }).join('') + '</tbody></table>';
+    var thin = ms.filter(function(x){ return x.m.n < ACC_CMP_MIN; });
+    var warn = thin.length ? '<p class="acc-cmp-warn">Too few trades to judge: ' + thin.map(function(x){ return escapeHtml(x.label) + ' has ' + x.m.n; }).join(', ') + ' (under ' + ACC_CMP_MIN + '). Treat any gap as noise for now.</p>' : '';
+    var curves = slices.map(function(sl){ return accCumPoints(sl.trades, sl.label); }).filter(function(g){ return g.n; });
+    return '<div class="acc-an-subhead">Compare two slices</div>' +
+      '<div class="acc-xtab-ctl">' + presetSel + sectorSel + '<span class="acc-xtab-hint">per contract, modeled; real-fill only for picks opened after the measurement update</span></div>' +
+      warn + table + (curves.length ? accSplitCurvesSvg(curves) + accLegendHtml(curves) : '');
+  }
   function renderEquityView(){
     var box = $('an-equity'); if (!box) return;
     var trades = accDatasetTrades();
@@ -34990,7 +36118,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     '</div>';
     box.innerHTML = toggles +
       '<p class="hint acc-an-lead">Running cumulative P&L, ordered by resolution date · ' + escapeHtml(basisLbl) + '.' + accDatasetTip() + '</p>' +
-      tiles + accEquitySvg(ec.points, { formatValue: function(v){ return accMoney(v, false); } });
+      tiles + accEquitySvg(ec.points, { formatValue: function(v){ return accMoney(v, false); } }) +
+      (function(){ var dec = accDecided(trades); return accSplitCurvesHtml(dec) + accPnlHistogramHtml(dec) + accPnlCalendarHtml(dec); })();
   }
 
   // --- Breakdowns sub-tab (#an-breakdowns) ---------------------------------
@@ -35035,7 +36164,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var xtab = '<div class="acc-an-subhead">Cross-tab — pick two dimensions</div>' +
       '<div class="acc-xtab-ctl">' + sel('xtabA', accView.xtabA) + '<span class="acc-xtab-x">×</span>' + sel('xtabB', accView.xtabB) + '<span class="acc-xtab-hint">cell = win rate · expectancy ($/contract) · n</span></div>' +
       accCrossTabHtml(a, b, dec);
-    box.innerHTML = toggles + '<p class="hint acc-an-lead">All bucket tables are per single contract.' + accDatasetTip() + '</p>' + tables + xtab;
+    box.innerHTML = toggles + '<p class="hint acc-an-lead">All bucket tables are per single contract.' + accDatasetTip() + '</p>' + accCompareHtml(dec) + tables + xtab;
   }
 
   // --- Portfolio backtest sub-tab (#an-sim) ---------------------------------
@@ -35841,12 +36970,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
       accCheckpointsBlock(e) +
     '</div>';
   }
-  function accOpenRowsHtml(open){
-    // Group by ticker. Entries sort newest-first; groups follow their most
-    // recent entry. One contract → a plain row; multiple distinct contracts
-    // on the same ticker → a collapsed dropdown so the list stays tight.
+  function accOpenRowsHtml(open, presorted){
+    // Group by ticker. Entries sort newest-first (or in the Open picks tab's
+    // chosen order); groups follow their first entry in that order. One
+    // contract → a plain row; multiple distinct contracts on the same ticker →
+    // a collapsed dropdown so the list stays tight.
     var bySym = {}, symOrder = [];
-    open.slice().sort(function(a, b){ return (Date.parse(b.entryDate)||0) - (Date.parse(a.entryDate)||0); }).forEach(function(e){
+    (presorted ? open.slice() : open.slice().sort(function(a, b){ return (Date.parse(b.entryDate)||0) - (Date.parse(a.entryDate)||0); })).forEach(function(e){
       var s = e.symbol || '—';
       if (!bySym[s]){ bySym[s] = []; symOrder.push(s); }
       bySym[s].push(e);
@@ -35880,10 +37010,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   // The "Open picks" group: newest formula first, a dated divider between
   // formula versions, then the ticker-grouped cards.
-  function accOpenGroupHtml(open){
+  function accOpenGroupHtml(open, sortKey, asTable){
     var openSegs = accGradeSegments(open);
     var openRows = openSegs.map(function(seg, i){
-      return (i > 0 ? accGradeDivider(openSegs[i - 1]) : '') + accOpenRowsHtml(seg.items);
+      var items = sortKey ? openPicksSorted(seg.items, sortKey) : seg.items;
+      return (i > 0 ? accGradeDivider(openSegs[i - 1]) : '') + (asTable ? openPicksTableHtml(items) : accOpenRowsHtml(items, !!sortKey));
     }).join('');
     return '<div class="accuracy-group">' +
       '<div class="accuracy-group-head">Open picks <span class="accuracy-group-n">' + open.length + '</span></div>' +
@@ -36110,8 +37241,79 @@ function scenarioEventPhase(ev, now = Date.now()) {
       .catch(function(){ openPicksState.data = { open: [], loadError: true }; })
       .then(function(){ openPicksState.loading = false; renderOpenPicks(); });
   }
+  // --- Open picks: sort keys, flip, Cards / Table ---------------------------
+  var OPEN_PICK_SORTS = [['newest', 'Newest first'], ['pnl', 'P&L now'], ['held', 'Days held'], ['expiry', 'Days to expiry'], ['ticker', 'Ticker A–Z'], ['side', 'Side (calls first)'], ['structure', 'Structure']];
+  function openPickDays(iso){ var t = Date.parse(iso); return isFinite(t) ? Math.max(0, (Date.now() - t) / 86400000) : null; }
+  function openPickDte(o){
+    var c = o && o.contract;
+    var exp = c && Number(c.expiry);
+    if (exp > 0) return Math.max(0, Math.ceil((exp * 1000 - Date.now()) / 86400000));
+    return c && isFinite(Number(c.dte)) ? Number(c.dte) : null;
+  }
+  function openPickStructure(o){
+    var st = o && o.contract && o.contract.structure;
+    return !st || st === 'long' ? 'Single' : String(st).replace(/-/g, ' ');
+  }
+  // [value, ascending?] per key; null values always sort last.
+  var OPEN_PICK_VALUE = {
+    newest: function(o){ var t = Date.parse(o.entryDate); return isFinite(t) ? -t : null; },
+    pnl: function(o){ var v = Number(o.optionPnlPct); return isFinite(v) ? -v : null; },
+    held: function(o){ var d = openPickDays(o.entryDate); return d == null ? null : -d; },
+    expiry: openPickDte,
+    ticker: function(o){ return o.symbol || null; },
+    side: function(o){ return o.side === 'put' ? 1 : 0; },
+    structure: function(o){ return openPickStructure(o); }
+  };
+  function openPicksSorted(list, key){
+    var get = OPEN_PICK_VALUE[key] || OPEN_PICK_VALUE.newest;
+    var arr = list.slice();
+    arr.sort(function(a, b){
+      var va = get(a), vb = get(b);
+      if (va == null || vb == null) return va == null && vb == null ? 0 : (va == null ? 1 : -1);
+      var c = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb));
+      return c || (Date.parse(b.entryDate) || 0) - (Date.parse(a.entryDate) || 0);
+    });
+    return VIEWS.applyDir(arr, 'open-picks', function(o){ return get(o) == null; });
+  }
+  function openPicksTableHtml(items){
+    function money(v){ v = Number(v); return isFinite(v) && v > 0 ? '$' + v.toFixed(2) : ''; }
+    var cols = [
+      { label: 'Ticker', cell: function(o){ return '<a href="?s=' + encodeURIComponent(o.symbol || '') + '&t=' + (o.side === 'put' ? 'put' : 'call') + '">' + escapeHtml(o.symbol || '') + '</a>'; }, sort: function(o){ return o.symbol || null; } },
+      { label: 'Side', cell: function(o){ var sd = o.side === 'put' ? 'put' : 'call'; return '<span class="vt-tag ' + sd + '">' + sd.toUpperCase() + '</span>'; }, sort: function(o){ return o.side || null; } },
+      { label: 'Structure', cell: function(o){ return escapeHtml(openPickStructure(o)); }, sort: openPickStructure },
+      { label: 'Strike', num: true, cell: function(o){ var c = o.contract || {}; return c.strike != null ? '$' + escapeHtml(String(c.strike)) : ''; }, sort: function(o){ var c = o.contract || {}; return isFinite(Number(c.strike)) ? Number(c.strike) : null; } },
+      { label: 'Expiry', cell: function(o){ var c = o.contract || {}; return escapeHtml(c.expiryLabel || ''); }, sort: function(o){ var c = o.contract || {}; return Number(c.expiry) > 0 ? Number(c.expiry) : null; } },
+      { label: 'DTE', num: true, cell: function(o){ var v = openPickDte(o); return v == null ? '' : String(v); }, sort: openPickDte },
+      { label: 'Opened', cell: function(o){ return o.entryDate ? escapeHtml(accDateTime(o.entryDate)) : ''; }, sort: function(o){ var t = Date.parse(o.entryDate); return isFinite(t) ? t : null; } },
+      { label: 'Days held', num: true, cell: function(o){ var d = openPickDays(o.entryDate); return d == null ? '' : d.toFixed(d < 10 ? 1 : 0); }, sort: function(o){ return openPickDays(o.entryDate); } },
+      { label: 'Entry', num: true, title: 'Entry premium per share', cell: function(o){ var c = o.contract || {}; return money(c.netDebit != null ? c.netDebit : c.mid); }, sort: function(o){ var c = o.contract || {}; var v = Number(c.netDebit != null ? c.netDebit : c.mid); return isFinite(v) ? v : null; } },
+      { label: 'Mark', num: true, title: 'Latest model price per share', cell: function(o){ return money(o.optionPremiumLast); }, sort: function(o){ var v = Number(o.optionPremiumLast); return isFinite(v) ? v : null; } },
+      { label: 'P&L', num: true, cell: function(o){ var v = Number(o.optionPnlPct); return isFinite(v) ? '<span class="' + (v >= 0 ? 'pos' : 'neg') + '">' + accPct(v) + '</span>' : ''; }, sort: function(o){ var v = Number(o.optionPnlPct); return isFinite(v) ? v : null; } },
+      { label: 'Sector', cell: function(o){ return escapeHtml(o.sector || ''); }, sort: function(o){ return o.sector || null; } },
+      { label: 'Conviction', cell: function(o){ return escapeHtml(o.conviction || o.label || ''); }, sort: function(o){ var v = Number(o.score); return isFinite(v) ? Math.abs(v) : null; } }
+    ];
+    return VIEWS.tableHtml(cols, items, { key: 'open-picks-table', empty: 'No open trades.' });
+  }
+  function openPicksControlsHtml(sortKey){
+    var opts = OPEN_PICK_SORTS.map(function(o){ return '<option value="' + o[0] + '"' + (o[0] === sortKey ? ' selected' : '') + '>' + escapeHtml(o[1]) + '</option>'; }).join('');
+    return '<div class="view-bar"><label>Sort ' + VIEWS.withFlip('<select data-open-picks-sort aria-label="Sort open picks">' + opts + '</select>', 'open-picks') + '</label>' + VIEWS.viewToggleHtml('open-picks') + '</div>';
+  }
+  var openPicksBound = false;
+  function bindOpenPicksControls(root){
+    if (openPicksBound) return;
+    openPicksBound = true;
+    root.addEventListener('change', function(ev){
+      var sel = ev.target && ev.target.closest ? ev.target.closest('[data-open-picks-sort]') : null;
+      if (!sel) return;
+      VIEWS.set('open-picks.sort', sel.value === 'newest' ? null : sel.value);
+      renderOpenPicks();
+    });
+    VIEWS.onFlip('open-picks', renderOpenPicks);
+    VIEWS.onView('open-picks', renderOpenPicks);
+  }
   function renderOpenPicks(){
     var root = $('open-picks-root'); if (!root) return;
+    bindOpenPicksControls(root);
     var eyebrow = $('open-picks-eyebrow');
     var d = openPicksState.data || {};
     var open = Array.isArray(d.open) ? d.open : [];
@@ -36139,7 +37341,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
       { val: calls + ' · ' + (open.length - calls), lbl: 'calls · puts' },
       marks.length ? { val: accPct(accMean(marks)), lbl: 'avg open mark · ' + greens + '/' + marks.length + ' green', cls: accMean(marks) >= 0 ? 'sig-pos' : 'sig-neg', tip: 'Average modeled contract P&L across the open book (unrealized).' } : null,
     ]);
-    root.innerHTML = accOpenGroupHtml(open) + tradeLinesHtml(open, Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
+    var opSort = VIEWS.choose('open-picks.sort', 'newest', OPEN_PICK_SORTS.map(function(o){ return o[0]; }));
+    root.innerHTML = openPicksControlsHtml(opSort) + accOpenGroupHtml(open, opSort, VIEWS.viewMode('open-picks') === 'table') + tradeLinesHtml(open, Array.isArray(d.closed) ? d.closed : [], d.builtAtIso);
   }
   function renderAccuracy(){
     var root = $('accuracy-root'); if (!root) return;
@@ -36481,7 +37684,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         return '<option value="' + o.k + '"' + (accClosedSort === o.k ? ' selected' : '') + '>' + o.lbl + '</option>';
       }).join('');
       var sortCtl = '<label class="acc-sort"><span class="acc-sort-label">Sort</span>' +
-        '<select id="acc-closed-sort" aria-label="Sort resolved picks">' + sortOpts + '</select></label>';
+        VIEWS.withFlip('<select id="acc-closed-sort" aria-label="Sort resolved picks">' + sortOpts + '</select>', 'track-closed') + '</label>';
       html += '<div class="accuracy-group">' +
         '<div class="accuracy-group-head">Resolved <span class="accuracy-group-n">' + closed.length + '</span>' + sortCtl + '</div>' +
         closedRows +
@@ -36493,8 +37696,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var sortSel = $('acc-closed-sort');
     if (sortSel) sortSel.addEventListener('change', function(){
       accClosedSort = sortSel.value;
+      VIEWS.set('track.closedSort', accClosedSort === 'newest' ? null : accClosedSort);
       renderAccuracy();
     });
+    VIEWS.onFlip('track-closed', renderAccuracy);
   }
 
   function pickDriverChip(d){
@@ -37233,20 +38438,86 @@ function scenarioEventPhase(ev, now = Date.now()) {
         return cmp || tiebreak(a, b);
       });
     }
+    var getter = PICK_SORT_VALUE[sort];
+    if (getter){
+      var asc = PICK_SORT_ASC[sort] === true;
+      arr.sort(function(a, b){
+        var va = getter(a), vb = getter(b);
+        if (va == null || vb == null) return va == null && vb == null ? tiebreak(a, b) : (va == null ? 1 : -1);
+        return (asc ? va - vb : vb - va) || tiebreak(a, b);
+      });
+    }
     arr.forEach(function(p){ delete p.__origIdx; });
     void nullsLastNeg;
+    var missing = getter || PICK_SORT_MISSING[sort] || null;
+    VIEWS.applyDir(arr, 'picks', missing ? function(p){ var v = missing(p); return v == null || (typeof v === 'number' && !isFinite(v)); } : null);
     return arr;
+  }
+  function pickNum(v){ return v != null && isFinite(Number(v)) ? Number(v) : null; }
+  function pickMaxLossUsd(p){
+    var c = p && p.contract;
+    if (!c) return null;
+    var per = pickNum(c.maxLoss);
+    if (per == null) per = pickPremium(p);
+    return per == null ? null : per * 100;
+  }
+  // Extra Top Picks sort keys. Each returns null when the field is missing,
+  // and missing values always sort last (also when the order is flipped).
+  var PICK_SORT_VALUE = {
+    pop: function(p){ return pickNum(p.contract && p.contract.pop); },
+    delta: function(p){ var d = pickNum(p.contract && p.contract.delta); return d == null ? null : Math.abs(d); },
+    iv: function(p){ return pickNum(p.contract && p.contract.iv); },
+    oi: function(p){ return pickNum(p.contract && p.contract.oi); },
+    maxloss: pickMaxLossUsd,
+    score: function(p){ return pickNum(p.total != null ? p.total : p.score); }
+  };
+  var PICK_SORT_ASC = { iv: true, maxloss: true };
+  var PICK_SORT_MISSING = {
+    dte: function(p){ return p.contract ? pickNum(p.contract.dte) : null; },
+    breakeven: function(p){ return p.contract ? pickNum(p.contract.breakevenMovePct) : null; },
+    premium: pickPremium
+  };
+  var PICK_SORTS = ['conviction', 'alpha', 'sector', 'side', 'dte', 'breakeven', 'premium', 'pop', 'delta', 'iv', 'oi', 'maxloss', 'score'];
+  // Table layout for Top Picks: one row per pick, every column sortable.
+  function picksTableHtml(picks){
+    function pct(v, d){ return v == null ? '' : (v * 100).toFixed(d == null ? 0 : d) + '%'; }
+    function money(v){ return v == null ? '' : '$' + Number(v).toFixed(2); }
+    var cols = [
+      { label: 'Pick', cell: function(p){ return '<button type="button" class="vt-link" data-pick-open="' + escapeHtml(p.symbol) + '">' + escapeHtml(p.symbol) + '</button>'; }, sort: function(p){ return p.symbol || null; } },
+      { label: 'Status', cell: function(p){ return pickDisplayDecision(p).ready ? '<span class="vt-tag call">Ready</span>' : '<span class="vt-tag">Watch</span>'; }, sort: function(p){ return pickDisplayDecision(p).ready ? 'a' : 'b'; } },
+      { label: 'Side', cell: function(p){ var sd = p.side === 'put' ? 'put' : 'call'; return '<span class="vt-tag ' + sd + '">' + sd.toUpperCase() + '</span>'; }, sort: function(p){ return p.side || null; } },
+      { label: 'Structure', cell: function(p){ var c = p.contract || {}; return escapeHtml(c.structure === 'long' || !c.structure ? 'Single' : String(c.structure).replace(/-/g, ' ')); }, sort: function(p){ return (p.contract && p.contract.structure) || null; } },
+      { label: 'Sector', cell: function(p){ return escapeHtml(p.sector || ''); }, sort: function(p){ return p.sector || null; } },
+      { label: 'Grade', num: true, cell: function(p){ var v = PICK_SORT_VALUE.score(p); return v == null ? '' : (v > 0 ? '+' : '−') + Math.abs(v).toFixed(1); }, sort: PICK_SORT_VALUE.score },
+      { label: 'Strike', num: true, cell: function(p){ var c = p.contract || {}; return c.strike != null ? '$' + escapeHtml(String(c.strike)) : ''; }, sort: function(p){ return pickNum(p.contract && p.contract.strike); } },
+      { label: 'Expiry', cell: function(p){ var c = p.contract || {}; return escapeHtml(c.expiryLabel || ''); }, sort: function(p){ return pickNum(p.contract && p.contract.expiry); } },
+      { label: 'DTE', num: true, cell: function(p){ var v = PICK_SORT_MISSING.dte(p); return v == null ? '' : String(v); }, sort: PICK_SORT_MISSING.dte },
+      { label: 'Premium', num: true, cell: function(p){ return money(pickPremium(p)); }, sort: pickPremium },
+      { label: 'Max loss', num: true, title: 'Per contract', cell: function(p){ var v = pickMaxLossUsd(p); return v == null ? '' : '$' + Math.round(v).toLocaleString(); }, sort: pickMaxLossUsd },
+      { label: 'Breakeven', num: true, title: 'Stock move needed to break even at expiry', cell: function(p){ var v = PICK_SORT_MISSING.breakeven(p); return v == null ? '' : (v > 0 ? '+' : '') + v.toFixed(1) + '%'; }, sort: function(p){ var v = PICK_SORT_MISSING.breakeven(p); return v == null ? null : Math.abs(v); } },
+      { label: 'PoP', num: true, cell: function(p){ return pct(PICK_SORT_VALUE.pop(p)); }, sort: PICK_SORT_VALUE.pop },
+      { label: 'Delta', num: true, cell: function(p){ var d = PICK_SORT_VALUE.delta(p); return d == null ? '' : d.toFixed(2); }, sort: PICK_SORT_VALUE.delta },
+      { label: 'IV', num: true, cell: function(p){ return pct(PICK_SORT_VALUE.iv(p)); }, sort: PICK_SORT_VALUE.iv },
+      { label: 'OI', num: true, cell: function(p){ var v = PICK_SORT_VALUE.oi(p); return v == null ? '' : v.toLocaleString(); }, sort: PICK_SORT_VALUE.oi }
+    ];
+    return VIEWS.tableHtml(cols, picks, { key: 'picks-table', empty: 'No picks in this build.' });
   }
   function bindPicksControls(){
     if (picksState.sortBound) return;
     var sel = $('picks-sort-select');
     if (!sel) return;
     picksState.sortBound = true;
+    picksState.sort = VIEWS.choose('picks.sort', 'conviction', PICK_SORTS);
     sel.value = picksState.sort;
     sel.addEventListener('change', function(){
       picksState.sort = sel.value || 'conviction';
+      VIEWS.set('picks.sort', picksState.sort === 'conviction' ? null : picksState.sort);
       renderPicks();
     });
+    VIEWS.attachFlip(sel, 'picks', function(){ renderPicks(); });
+    var bar = sel.closest ? sel.closest('.picks-controls') : null;
+    if (bar && !bar.querySelector('.view-toggle')) bar.insertAdjacentHTML('beforeend', VIEWS.viewToggleHtml('picks'));
+    VIEWS.onView('picks', function(){ renderPicks(); });
   }
 
   // --- "Check a position you hold" tool -----------------------------------
@@ -39499,6 +40770,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
     sectionHtml += actionableList.length
       ? actionableList.map(function(p, i){ return pickTabCardHtml(p, i); }).join('')
       : '<div class="picks-group-empty">Nothing is a buy <i>right now</i> — no name cleared all three bars (a strong grade, a strong thesis <i>and</i> a confirmed entry). Cash is a position. Strong picks still waiting on their entry sit below with a trigger price, and move here when a scheduled Top Picks build confirms the full entry.</div>';
+    if (VIEWS.viewMode('picks') === 'table'){
+      sectionHtml = groupHead('All picks', picks.length, 'Ready and watching ideas in one table. Click a column to sort; click a ticker for its full card.', 'picks-group-actionable') + picksTableHtml(picks);
+      watchList = [];
+    }
     if (watchList.length){
       sectionHtml += groupHead('Ideas · watch', watchList.length, 'Not a buy right now — strong picks waiting for entry, moderate grades, or thinner theses; a strategy is shown only where it’s earned', 'picks-group-watch');
       sectionHtml += watchList.map(function(p, i){ return pickTabCardHtml(p, i); }).join('');
@@ -41176,6 +42451,38 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var cards = Array.prototype.slice.call(grid.querySelectorAll('.ticker-card'));
     var modelCards = cards.filter(function(card){ return !card.hasAttribute('data-tracker-only'); });
     var state = { query: '', sector: '', sort: 'conviction', modelFilter: 'all' };
+    // Saved choices from this device (sort, sector, model filter, layout).
+    var TICKER_SORTS = ['conviction', 'ready', 'score', 'move1d', 'move1m', 'mcap', 'sector', 'alpha'];
+    state.sort = VIEWS.choose('tickers.sort', 'conviction', TICKER_SORTS);
+    if (sortSelect) sortSelect.value = state.sort;
+    state.sector = VIEWS.remember(sectorSelect, 'tickers.sector') || '';
+    state.modelFilter = VIEWS.choose('tickers.model', 'all', ['all', 'ready', 'call', 'put', 'neutral']);
+    var tableHost = document.getElementById('tickers-table');
+    var controls = pane ? pane.querySelector('.tickers-controls') : null;
+    if (controls && !controls.querySelector('.view-toggle')) {
+      var vtWrap = document.createElement('div');
+      vtWrap.className = 'tickers-view-toggle';
+      vtWrap.innerHTML = VIEWS.viewToggleHtml('tickers');
+      controls.appendChild(vtWrap);
+    }
+    // Day / 1-month moves and market cap come from the public heatmap file
+    // (one small fetch, no AI and no paid data).
+    var tickerMarket = null;
+    var tickerMarketRequested = false;
+    function ensureTickerMarket(){
+      if (tickerMarketRequested) return;
+      tickerMarketRequested = true;
+      fetch(dataUrl('heatmap.json'), { cache: 'no-cache' })
+        .then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(j){
+          var map = {};
+          var rows = j && Array.isArray(j.tickers) ? j.tickers : [];
+          for (var i = 0; i < rows.length; i++) if (rows[i] && rows[i].t) map[rows[i].t] = rows[i];
+          tickerMarket = map;
+          applyView();
+        })
+        .catch(function(){ tickerMarket = {}; });
+    }
     var gradesReady = false;
     var gradesRequested = false;
     var minConviction = 4;
@@ -41213,17 +42520,88 @@ function scenarioEventPhase(ev, now = Date.now()) {
     function cardAlpha(card){ return card.getAttribute('data-ticker') || ''; }
     function cardConviction(card){ return Number(card.getAttribute('data-conviction') || 0); }
     function cardReady(card){ return card.getAttribute('data-entry-ready') === '1' ? 1 : 0; }
+    function cardScore(card){
+      var v = card.getAttribute('data-score');
+      return v == null || v === '' || !isFinite(Number(v)) ? null : Number(v);
+    }
+    function cardMarket(card){ return tickerMarket ? tickerMarket[cardAlpha(card)] || null : null; }
+    function cardMove1d(card){
+      var el = card.querySelector('.ticker-chg');
+      if (el && !el.hidden && el.textContent) {
+        var p = VIEWS.parseCell(el);
+        if (p.kind === 'num' && isFinite(p.v)) return p.v;
+      }
+      var m = cardMarket(card);
+      return m && m.ch != null && isFinite(m.ch) ? Number(m.ch) : null;
+    }
+    function cardMove1m(card){
+      var m = cardMarket(card);
+      var v = m && m.perf ? m.perf['1m'] : null;
+      return v != null && isFinite(v) ? Number(v) : null;
+    }
+    function cardMcap(card){
+      var m = cardMarket(card);
+      return m && Number(m.mc) > 0 ? Number(m.mc) : null;
+    }
+    var TICKER_VALUE = { score: cardScore, move1d: cardMove1d, move1m: cardMove1m, mcap: cardMcap };
     function sortCards(){
+      var getter = TICKER_VALUE[state.sort] || null;
       cards.sort(function(a, b){
-        if (state.sort === 'alpha') return cardAlpha(a).localeCompare(cardAlpha(b));
+        var ab = cardAlpha(a).localeCompare(cardAlpha(b));
+        if (state.sort === 'alpha') return ab;
+        if (state.sort === 'sector') {
+          var sa = a.getAttribute('data-sector') || '~', sb = b.getAttribute('data-sector') || '~';
+          return sa.localeCompare(sb) || (cardConviction(b) - cardConviction(a)) || ab;
+        }
+        if (getter) {
+          var va = getter(a), vb = getter(b);
+          if (va == null || vb == null) return va == null && vb == null ? ab : (va == null ? 1 : -1);
+          return (vb - va) || ab;
+        }
         if (state.sort === 'ready') {
           var rd = cardReady(b) - cardReady(a);
           if (rd) return rd;
         }
         var cv = cardConviction(b) - cardConviction(a);
-        return cv || cardAlpha(a).localeCompare(cardAlpha(b));
+        return cv || ab;
       });
+      var missing = getter || ((state.sort === 'conviction' || state.sort === 'ready') ? cardScore : null);
+      VIEWS.applyDir(cards, 'tickers', missing ? function(c){ return missing(c) == null; } : null);
       cards.forEach(function(card){ grid.appendChild(card); });
+    }
+    function fmtTickerPct(v){
+      if (v == null || !isFinite(v)) return '';
+      return '<span class="' + (v > 0 ? 'pos' : v < 0 ? 'neg' : '') + '">' + (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(2) + '%</span>';
+    }
+    function fmtTickerCap(v){
+      if (v == null || !isFinite(v)) return '';
+      if (v >= 1e12) return '$' + (v / 1e12).toFixed(2) + 'T';
+      if (v >= 1e9) return '$' + (v / 1e9).toFixed(1) + 'B';
+      return '$' + (v / 1e6).toFixed(0) + 'M';
+    }
+    // Table layout: the same filtered + sorted list, one row per name.
+    function renderTickerTable(shownCards){
+      if (!tableHost) return;
+      var cols = [
+        { label: 'Ticker', cell: function(c){ return '<a href="' + escapeHtml(c.getAttribute('href') || ('?s=' + encodeURIComponent(cardAlpha(c)))) + '">' + escapeHtml(cardAlpha(c)) + '</a>'; }, sort: cardAlpha },
+        { label: 'Sector', cell: function(c){ return escapeHtml(c.getAttribute('data-sector') || ''); }, sort: function(c){ return c.getAttribute('data-sector') || null; } },
+        { label: 'Industry', cell: function(c){ return escapeHtml(c.getAttribute('data-industry') || ''); }, sort: function(c){ return c.getAttribute('data-industry') || null; } },
+        { label: 'Price', num: true, cell: function(c){ var el = c.querySelector('.ticker-spot'); return el ? escapeHtml(el.textContent || '') : ''; }, sort: function(c){ var el = c.querySelector('.ticker-spot'); var p = el ? VIEWS.parseCell(el) : null; return p && p.kind === 'num' ? p.v : null; } },
+        { label: 'Day', num: true, cell: function(c){ return fmtTickerPct(cardMove1d(c)); }, sort: cardMove1d },
+        { label: '1M', num: true, cell: function(c){ return fmtTickerPct(cardMove1m(c)); }, sort: cardMove1m },
+        { label: 'Mkt cap', num: true, cell: function(c){ return fmtTickerCap(cardMcap(c)); }, sort: cardMcap },
+        { label: 'Grade', num: true, title: 'Signed grade score: positive leans call, negative leans put', cell: function(c){
+            var v = cardScore(c); if (v == null) return '';
+            var side = c.getAttribute('data-model-side') || 'neutral';
+            return '<span class="vt-tag ' + (side === 'call' ? 'call' : side === 'put' ? 'put' : '') + '">' + (side === 'neutral' ? 'No trade ' : side.toUpperCase() + ' ') + (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(1) + '</span>';
+          }, sort: cardScore },
+        { label: 'Entry', cell: function(c){
+            var st = c.getAttribute('data-entry-state') || '';
+            if (!st || st === 'neutral') return '';
+            return escapeHtml(c.getAttribute('data-entry-ready') === '1' ? 'Ready' : (st === 'avoid' ? 'Avoid' : 'Wait'));
+          }, sort: function(c){ var st = c.getAttribute('data-entry-state') || ''; return st && st !== 'neutral' ? (c.getAttribute('data-entry-ready') === '1' ? 'a ready' : st === 'avoid' ? 'c avoid' : 'b wait') : null; } }
+      ];
+      tableHost.innerHTML = VIEWS.tableHtml(cols, shownCards, { key: 'tickers-table', empty: 'No tickers match the current filters.' });
     }
     function applyView(){
       sortCards();
@@ -41245,6 +42623,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
         card.hidden = !show;
         if (show) shown++;
       });
+      var asTable = VIEWS.viewMode('tickers') === 'table';
+      grid.hidden = asTable;
+      if (tableHost) {
+        tableHost.hidden = !asTable;
+        if (asTable) renderTickerTable(cards.filter(function(c){ return !c.hidden; }));
+        else tableHost.innerHTML = '';
+      }
       if (visibleCount) visibleCount.textContent = String(shown);
       if (empty) {
         empty.hidden = shown > 0;
@@ -41261,6 +42646,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     function setModelFilter(next){
       state.modelFilter = next || 'all';
+      VIEWS.set('tickers.model', state.modelFilter === 'all' ? null : state.modelFilter);
       if (readyBtn) {
         var readyActive = state.modelFilter === 'ready';
         readyBtn.setAttribute('aria-pressed', readyActive ? 'true' : 'false');
@@ -41277,6 +42663,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (sectorSelect) sectorSelect.value = '';
       if (sortSelect) sortSelect.value = 'conviction';
       if (readyBtn){ readyBtn.setAttribute('aria-pressed', 'false'); readyBtn.classList.remove('is-active'); }
+      VIEWS.set('tickers.sort', null);
+      VIEWS.set('sel:tickers.sector', null);
+      VIEWS.set('tickers.model', null);
       applyView();
     }
     function scoreText(total){
@@ -41384,6 +42773,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
           if (!leader || conviction > leader.conviction) leader = { symbol:sym, side:side, conviction:conviction };
         }
         card.setAttribute('data-conviction', String(conviction));
+        card.setAttribute('data-score', isFinite(Number(g.total)) ? String(Number(g.total)) : '');
         card.setAttribute('data-entry-ready', ready ? '1' : '0');
         card.setAttribute('data-model-side', side || 'neutral');
         card.setAttribute('data-entry-state', side ? entryState : 'neutral');
@@ -41428,6 +42818,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       gradesRequested = true;
       if (modelNote) modelNote.textContent = 'Loading model grades…';
       loadGradesIndex(decorateGrades);
+      ensureTickerMarket();
     };
 
     if (search) {
@@ -41443,9 +42834,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (sectorSelect) sectorSelect.addEventListener('change', function(){ state.sector = sectorSelect.value || ''; applyView(); });
     if (sortSelect) sortSelect.addEventListener('change', function(){
       state.sort = sortSelect.value || 'conviction';
+      VIEWS.set('tickers.sort', state.sort === 'conviction' ? null : state.sort);
       if (state.sort !== 'alpha' && !gradesReady) ensureTickerDirectoryGrades();
       applyView();
     });
+    VIEWS.attachFlip(sortSelect, 'tickers', applyView);
+    VIEWS.onView('tickers', applyView);
     if (readyBtn) readyBtn.addEventListener('click', function(){
       if (!gradesReady) return;
       setModelFilter(state.modelFilter === 'ready' ? 'all' : 'ready');
@@ -41458,7 +42852,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     });
     var emptyReset = document.getElementById('tickers-empty-reset');
     if (emptyReset) emptyReset.addEventListener('click', resetFilters);
-    applyView();
+    setModelFilter(state.modelFilter);
     if (pane && !pane.hidden) ensureTickerDirectoryGrades();
   }
 
@@ -41754,6 +43148,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         else if (ownerGroup.parentNode) ownerGroup.parentNode.removeChild(ownerGroup);
       }
       try { renderAuthChip(); } catch (_) {}
+      try { VIEWS.start(); } catch (_) {}
       bind();
     };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go);

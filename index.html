@@ -17,7 +17,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=sha256-0ad1b8255cc6c835">
+<link rel="stylesheet" href="styles.css?v=sha256-ae49bbc493631e1f">
 </head>
 <body>
 <a class="skip-content" href="#main-content">Skip to content</a>
@@ -487,6 +487,11 @@
         <select id="tickers-sort" class="tickers-select" aria-label="Sort ticker directory">
           <option value="conviction">Strongest conviction</option>
           <option value="ready">Entry-ready first</option>
+          <option value="score">Grade score (bullish first)</option>
+          <option value="move1d">Day move</option>
+          <option value="move1m">1-month move</option>
+          <option value="mcap">Market cap</option>
+          <option value="sector">Sector</option>
           <option value="alpha">Ticker A → Z</option>
         </select>
       </label>
@@ -1354,6 +1359,7 @@
       </span>
       <span class="ticker-sector">Retail · Discount Stores</span>
     </a></div>
+    <div class="tickers-table" id="tickers-table" hidden></div>
     <div class="tickers-empty" id="tickers-empty" hidden>
       <span>No tickers match the current search + sector filter.</span>
       <button type="button" class="tickers-empty-reset" id="tickers-empty-reset">Clear filters</button>
@@ -1456,6 +1462,12 @@
           <option value="dte">Soonest expiry</option>
           <option value="breakeven">Smallest move to breakeven</option>
           <option value="premium">Cheapest premium</option>
+          <option value="pop">Highest PoP</option>
+          <option value="delta">Highest delta</option>
+          <option value="iv">Lowest IV</option>
+          <option value="oi">Most open interest</option>
+          <option value="maxloss">Smallest max loss</option>
+          <option value="score">Grade score (bullish first)</option>
         </select>
       </label>
     </div>
@@ -1936,6 +1948,10 @@
             <option value="volume">Most total volume</option>
             <option value="premium">Biggest premium (this hr)</option>
             <option value="repeats">Most 🔥 repeats</option>
+            <option value="calls">Calls first (call premium share)</option>
+            <option value="puts">Puts first (put premium share)</option>
+            <option value="expiry">Soonest expiry</option>
+            <option value="sector">Sector</option>
             <option value="alpha">A → Z</option>
           </select>
         </label>
@@ -2039,6 +2055,8 @@
           <option value="dayvol">Day volume</option>
           <option value="move">Largest day move</option>
           <option value="sr">S/R break conviction</option>
+          <option value="grade">Grade score (bullish first)</option>
+          <option value="sector">Sector</option>
           <option value="alpha">A → Z</option>
         </select>
       </label>
@@ -2124,6 +2142,9 @@
             <option value="oi">Total OI</option>
             <option value="cp">Highest C/P ratio</option>
             <option value="delta">Biggest ΔOI %</option>
+            <option value="callwall">Nearest call wall</option>
+            <option value="putwall">Nearest put wall</option>
+            <option value="sector">Sector</option>
             <option value="alpha">A → Z</option>
           </select>
         </label>
@@ -2372,7 +2393,7 @@
     <header class="card-header">
       <h2 class="card-title">Compare companies</h2>
     </header>
-    <p class="hint">Put 2–4 companies side by side. Choose a sector to limit the ticker list to that group, then add the names you want. Each column keeps that company’s color from the price chart. Choose which company the gaps are measured against; every other cell is labeled versus that ticker and shows the number gap, then the percent gap when the reference reading is positive. The first group follows the chart’s 1M, 3M, 6M, or 1Y window. Valuation and the other accounting rows are the current snapshot. A daily record of those ratios is saved at each bake so a later window can show how they changed. Anything older than one year is dropped. Option contracts are left out.</p>
+    <p class="hint">Put 2–6 companies side by side. Choose a sector to limit the ticker list to that group, then add the names you want. Each column keeps that company’s color from the price chart. Choose which company the gaps are measured against; every other cell is labeled versus that ticker and shows the number gap, then the percent gap when the reference reading is positive. The first group follows the chart’s 1M, 3M, 6M, YTD, or 1Y window. Switch the chart between return, drawdown, 20-day volatility, implied volatility and grade score, and add SPY, QQQ, IWM, SMH, the average of your picks, or the reference’s sector average as a benchmark line. Valuation and the other accounting rows are the current snapshot. A daily record of those ratios is saved at each bake so a later window can show how they changed. Anything older than one year is dropped. Option contracts are left out.</p>
     <div class="cmp-controls">
       <select id="cmp-sector" class="cmp-sector" aria-label="Filter tickers by sector">
         <option value="">All sectors</option>
@@ -2407,8 +2428,13 @@
           <button type="button" class="cmp-range-btn" data-cmp-range="1m" aria-pressed="false">1M</button>
           <button type="button" class="cmp-range-btn is-active" data-cmp-range="3m" aria-pressed="true">3M</button>
           <button type="button" class="cmp-range-btn" data-cmp-range="6m" aria-pressed="false">6M</button>
+          <button type="button" class="cmp-range-btn" data-cmp-range="ytd" aria-pressed="false">YTD</button>
           <button type="button" class="cmp-range-btn" data-cmp-range="1y" aria-pressed="false">1Y</button>
         </div>
+      </div>
+      <div class="cmp-chart-ctl">
+        <label>Chart <select id="cmp-mode" aria-label="Chart type"><option value="return">Return %</option><option value="drawdown">Drawdown from high</option><option value="vol">20-day volatility</option><option value="iv">Implied vol</option><option value="grade">Grade score</option></select></label>
+        <label>Benchmark <select id="cmp-bench" aria-label="Benchmark line"><option value="">None</option><option value="SPY">SPY</option><option value="QQQ">QQQ</option><option value="IWM">IWM</option><option value="SMH">SMH (semis)</option><option value="avg">Average of selected</option><option value="sector">Sector average</option></select></label>
       </div>
       <div id="cmp-chart-legend" class="cmp-chart-legend" aria-label="Chart legend"></div>
       <div id="cmp-chart" class="cmp-chart"></div>
@@ -2624,6 +2650,10 @@
             <option value="vol">Volume trend</option>
             <option value="last">Last close</option>
             <option value="tol">Closest to breaking</option>
+            <option value="up">Biggest up move first</option>
+            <option value="down">Biggest down move first</option>
+            <option value="grade">Grade score (bullish first)</option>
+            <option value="sector">Sector</option>
             <option value="alpha">A → Z</option>
           </select>
         </label>
@@ -4668,8 +4698,8 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
 <script>window.STONKS_MANIFEST={"builtAt":"Oct 21, 2026, 4:14 PM","builtAtIso":"2026-10-21T20:14:31.853Z","symbols":["AAPL","ACN","ADBE","AMAT","AMD","AMZN","ANET","ARM","ASML","ASTS","AVGO","AXP","BABA","BAC","BE","C","CBRS","COST","CRM","CRWD","CRWV","DDOG","DELL","DIS","DRAM","EWY","FTNT","GLD","GOOGL","GS","HD","HOOD","IBM","INTC","INTU","IWM","JPM","KWEB","LLY","MA","MDB","META","MRK","MRNA","MRVL","MS","MSFT","MU","NFLX","NKE","NOW","NVDA","NVO","OKTA","ORCL","PANW","PLTR","PYPL","QCOM","QQQ","RKLB","SBUX","SCHW","SHOP","SLV","SMCI","SMH","SNDK","SNOW","SPCX","SPY","TEAM","TGT","TLT","TSLA","TSM","TXN","UNH","USO","UVXY","V","VRT","VST","WDC","WMT"],"sectors":{"SPY":"ETF","QQQ":"ETF","IWM":"ETF","SMH":"ETF","UVXY":"ETF","TLT":"ETF","USO":"ETF","GLD":"ETF","SLV":"ETF","KWEB":"ETF","EWY":"ETF","AAPL":"Mega-cap tech","MSFT":"Mega-cap tech","NVDA":"Mega-cap tech","AMZN":"Mega-cap tech","GOOGL":"Mega-cap tech","META":"Mega-cap tech","TSLA":"Mega-cap tech","AMD":"Semis","NFLX":"Mega-cap tech","AVGO":"Semis","TSM":"Semis","ORCL":"Software","ASML":"Semis","QCOM":"Semis","TXN":"Semis","MRVL":"Semis","AMAT":"Semis","LRCX":"Semis","MU":"Semis","INTC":"Semis","NXPI":"Semis","ON":"Semis","SMCI":"Semis","ALAB":"Semis","TSEM":"Semis","DRAM":"Semis","SWKS":"Semis","SNDK":"Storage","STX":"Storage","WDC":"Storage","GLW":"Semis","LITE":"Semis","ARM":"Semis","CBRS":"Semis","COHR":"Semis","DELL":"Hardware","CSCO":"Networking","ANET":"Networking","IBM":"Tech services","CRM":"Software","ADBE":"Software","ACN":"IT services","INTU":"Software","NOW":"Software","SNOW":"Software","NET":"Software","DDOG":"Software","CRWD":"Software","ZS":"Software","MDB":"Software","OKTA":"Software","PANW":"Software","WDAY":"Software","ZM":"Software","DOCU":"Software","TEAM":"Software","FTNT":"Software","TTD":"Software","U":"Software","APP":"Software","TWLO":"Software","CRWV":"Software","CEG":"Power","VST":"Power","TLN":"Power","VRT":"Data center","CLS":"Data center","BE":"Clean energy","JPM":"Bank","BAC":"Bank","WFC":"Bank","USB":"Bank","MS":"Bank","COF":"Bank","GS":"Bank","C":"Bank","HSBC":"Bank","UBS":"Bank","V":"Payments","MA":"Payments","AXP":"Payments","PYPL":"Payments","XYZ":"Payments","SCHW":"Broker","IBKR":"Broker","HOOD":"Broker","AFRM":"Fintech","APO":"Asset mgmt","BX":"Asset mgmt","WMT":"Retail","COST":"Retail","TGT":"Retail","HD":"Retail","LOW":"Retail","NKE":"Apparel","LULU":"Apparel","ONON":"Apparel","ELF":"Beauty","W":"E-commerce","EBAY":"E-commerce","MCD":"Restaurants","SBUX":"Restaurants","DIS":"Media","LEN":"Homebuilder","BA":"Industrial","CAT":"Industrial","DE":"Industrial","MMM":"Industrial","GD":"Defense","LMT":"Defense","RTX":"Defense","NOC":"Defense","FDX":"Logistics","UPS":"Logistics","NVO":"Pharma","LLY":"Pharma","MRNA":"Pharma","MRK":"Pharma","UNH":"Insurance","JNJ":"Pharma","PFE":"Pharma","TMO":"Medical","CI":"Insurance","ELV":"Insurance","MOH":"Insurance","CVS":"Pharmacy","BSX":"Medical","VZ":"Telecom","CHTR":"Cable","XOM":"Energy","CVX":"Energy","OXY":"Energy","UBER":"Consumer","ABNB":"Consumer","DASH":"Consumer","BABA":"China tech","BIDU":"China tech","JD":"China tech","PDD":"China tech","TCEHY":"China tech","BILI":"China tech","NIO":"China tech","COIN":"Crypto","PLTR":"Software","SHOP":"Software","GME":"Meme","AMC":"Meme","RDDT":"Social","RKLB":"Space","ASTS":"Space","SPCX":"Space"},"industries":{"MSFT":"Software Infrastructure","ORCL":"Software Infrastructure","SNOW":"Software Infrastructure","CRWD":"Software Infrastructure","MDB":"Software Infrastructure","OKTA":"Software Infrastructure","PANW":"Software Infrastructure","FTNT":"Software Infrastructure","PLTR":"Software Infrastructure","CRWV":"Software Infrastructure","CRM":"Software Applications","ADBE":"Software Applications","NOW":"Software Applications","DDOG":"Software Applications","TEAM":"Software Applications","INTU":"Software Applications","SHOP":"Software Applications","NVDA":"Semiconductors","AMD":"Semiconductors","AVGO":"Semiconductors","TSM":"Semiconductors","MU":"Semiconductors","INTC":"Semiconductors","MRVL":"Semiconductors","QCOM":"Semiconductors","TXN":"Semiconductors","SNDK":"Semiconductors","SMCI":"Semiconductors","DRAM":"Semiconductors","ARM":"Semiconductors","CBRS":"Semiconductors","AMAT":"Semiconductor Equipment & Materials","ASML":"Semiconductor Equipment & Materials","ANET":"Communication Equipment","DELL":"Computer Hardware","ACN":"Information Technology Services","IBM":"Information Technology Services","AMZN":"Internet Retail","BABA":"Internet Retail","HD":"Specialty Retail","NKE":"Apparel Retail","SBUX":"Restaurants","TSLA":"Auto Manufacturers","GOOGL":"Internet Content & Information","META":"Internet Content & Information","NFLX":"Entertainment","DIS":"Entertainment","RKLB":"Aerospace & Defense","ASTS":"Aerospace & Defense","SPCX":"Aerospace & Defense","VRT":"Electrical Equipment & Parts","MRNA":"Biotechnology","NVO":"Drug Manufacturers - General","LLY":"Drug Manufacturers - General","MRK":"Drug Manufacturers - General","UNH":"Healthcare Plans","JPM":"Banks - Diversified","BAC":"Banks - Diversified","C":"Banks - Diversified","V":"Credit Services","MA":"Credit Services","AXP":"Credit Services","PYPL":"Credit Services","GS":"Capital Markets","MS":"Capital Markets","SCHW":"Capital Markets","HOOD":"Capital Markets","WMT":"Discount Stores","COST":"Discount Stores","TGT":"Discount Stores","VST":"Utilities - Independent Power Producers","BE":"Utilities - Renewable","GLD":"Gold","SLV":"Silver"},"sectorOrder":["Technology","Consumer Cyclical","Communication Services","Industrials","Healthcare","Financials","Consumer Defensive","Utilities","Precious Metals"],"industriesBySector":{"Technology":["Software Infrastructure","Software Applications","Semiconductors","Semiconductor Equipment & Materials","Communication Equipment","Computer Hardware","Consumer Electronics","Information Technology Services"],"Consumer Cyclical":["Internet Retail","Specialty Retail","Apparel Retail","Restaurants","Auto Manufacturers"],"Communication Services":["Internet Content & Information","Entertainment","Advertising Agencies"],"Industrials":["Aerospace & Defense","Electrical Equipment & Parts","Specialty Industrial Machinery"],"Healthcare":["Biotechnology","Drug Manufacturers - General","Healthcare Plans"],"Financials":["Banks - Diversified","Credit Services","Capital Markets"],"Consumer Defensive":["Discount Stores"],"Utilities":["Utilities - Independent Power Producers","Utilities - Renewable"],"Precious Metals":["Gold","Silver"]},"volumeFlagsMeta":{"scannedAt":"2026-10-21T20:00:47.596Z","etDate":"2026-10-21","marketState":"POST"},"nextFomcDates":["2026-10-28","2026-12-09"],"oiMeta":{"scannedAt":"2026-10-21T21:00:37.152Z","scanType":"eod"},"deferred":true};</script>
 <script>window.va=window.va||function(){(window.vaq=window.vaq||[]).push(arguments)};</script>
 <script defer data-disable-auto-track="1" src="/_vercel/insights/script.js"></script>
-<script src="app.js?v=sha256-59266434a90efdf5" defer></script>
-<script type="module" src="js/streaks.js?v=sha256-1e7294906ca4e6d4"></script>
+<script src="app.js?v=sha256-7e57cde16f8fedfb" defer></script>
+<script type="module" src="js/streaks.js?v=sha256-b0e30f84009bf8bf"></script>
 <script type="module" src="js/book-views.js?v=sha256-86eedff1828f7fc4"></script>
 </body>
 </html>
