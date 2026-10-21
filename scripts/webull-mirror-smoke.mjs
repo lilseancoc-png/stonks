@@ -356,6 +356,16 @@ ok("tick: nickel after a rejection", Math.abs(roundTick(1.23, { nickel: true }) 
   ok("tick: re-sent in nickels after a price rejection", wb.placed.length === 1 && wb.placed[0].limit_price === "1.25", wb.placed[0]?.limit_price);
 }
 
+{
+  // Every order records the bid/ask (and stock price) it was priced against.
+  const wb = fakeWebull();
+  const e = longCall();
+  const quoteFn = async () => ({ bid: 4.9, ask: 5.2, spot: 101.5 });
+  let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger: null, nowMs: T0, quoteFn });
+  const row = ledgerToFillRows(ledger)[0];
+  ok("rows: bid/ask/spot at order recorded", row.bid_at_order === 4.9 && row.ask_at_order === 5.2 && row.stock_price_at_order === 101.5, JSON.stringify([row.bid_at_order, row.ask_at_order, row.stock_price_at_order]));
+}
+
 // --- 6. Endpoint auth -------------------------------------------------------------
 {
   process.env.PRIVATE_DATA_ENABLED = "1";
