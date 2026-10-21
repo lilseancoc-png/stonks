@@ -32955,12 +32955,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (st.realFillDecided){
       cellChip(accPct(st.realFillExpectancyPct), 'real fill · ask in, bid out (' + st.realFillDecided + ')', st.realFillExpectancyPct >= 0,
         'Average P&L per closed trade when you pay the ask to open and take the bid to close. Only trades opened since Oct 21 2026 have it.');
-      if (st.realFillModelExpectancyPct != null) cellChip(accPct(st.realFillModelExpectancyPct), 'model on the same ' + st.realFillDecided, st.realFillModelExpectancyPct >= 0,
+      if (st.realFillModelExpectancyPct != null) cellChip(accPct(st.realFillModelExpectancyPct), 'model, same trades (' + st.realFillDecided + ')', st.realFillModelExpectancyPct >= 0,
         'The record\'s modeled P&L on the same trades, so the two numbers compare like for like.');
     }
     if (st.atTriggerExpectancyPct != null && st.optionDecided){
       cellChip(accPct(st.atTriggerExpectancyPct), 'if exits filled at the trigger', st.atTriggerExpectancyPct >= 0,
-        'Average P&L if take-profits filled at exactly +20% and premium stops at exactly -50%, as a resting order would. The record books them at the 11:00 / 15:30 ET mark instead.');
+        'Average P&L if take-profits and premium stops filled exactly at their trigger (+20% / -50%; +50% / -50% on credit spreads), as a resting order would. The record books them at the 11:00 / 15:30 ET mark instead. Optimistic for stops, which can gap past the level.');
     }
     if (st.flat) cellChip(String(st.flat), 'flat closes (not counted)', null, 'Closes that rounded to 0.0%. They are neither wins nor losses.');
     if (bs && bs.paired && bs.paired.n){
@@ -32971,7 +32971,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       cellChip(String(bs.open), 'SPY baseline trades open', null, 'Each new pick opens a paired SPY option. The comparison appears once pairs close.');
     }
     if (at && at.decided){
-      cellChip((at.optionWinRate != null ? Math.round(at.optionWinRate * 100) + '%' : '—') + ' · ' + accPct(at.optionExpectancyPct), 'all time incl. archive (' + at.decided + ')', at.optionExpectancyPct >= 0,
+      cellChip((at.optionWinRate != null ? Math.round(at.optionWinRate * 100) + '%' : '—') + ' · ' + accPct(at.optionExpectancyPct), 'all time incl. archive (' + (at.optionDecided || at.decided) + ')', at.optionExpectancyPct >= 0,
         'Win rate and average P&L across the current window and every archived close.');
     }
     if (!cells) return '';
@@ -32983,7 +32983,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // The Owner's own paper / real trade log, uploaded as CSV to
   // /api/auth/picks-fills and joined to the record by trade ID (tlTradeId, the
   // same id the feed and Copy all print).
-  var accFills = { loaded: false, loading: false, rows: [], errors: [], updatedAt: null, error: null, busy: false };
+  var accFills = { loaded: false, loading: false, rows: [], errors: [], updatedAt: null, error: null, busy: false, open: null };
   var ACC_FILL_COLUMNS = 'trade_id,account,symbol,side,structure,legs,qty,mingstreet_run_time_et,mingstreet_entry_mid,order_sent_time_et,stock_price_at_order,bid_at_order,ask_at_order,order_type,limit_steps,fill_price,fill_time_et,skipped,skip_reason,close_reason_feed,feed_exit_pnl_pct,close_order_time_et,bid_at_close,ask_at_close,close_fill_price,close_fill_time_et,fees,close_trigger,notes';
   function loadAccFills(){
     if (accFills.loaded || accFills.loading) return;
@@ -33007,6 +33007,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   function uploadAccFills(file){
     if (!file || accFills.busy) return;
+    if (file.size > 512 * 1024){ accFills.error = 'That file is over 512 KB. Split it or remove old rows.'; renderAccuracy(); return; }
     accFills.busy = true; accFills.error = null;
     var reader = new FileReader();
     reader.onload = function(){
@@ -33031,14 +33032,21 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var v = c.structure === 'debit_vertical' ? (c.netDebit != null ? c.netDebit : c.mid) : c.structure === 'credit_vertical' ? (c.netCredit != null ? c.netCredit : c.mid) : c.mid;
     v = Number(v); return isFinite(v) && v > 0 ? v : null;
   }
+  // The join key for an uploaded trade ID: trimmed, upper-case, and the
+  // pre-Oct-21 form TICKER-C-YYMMDD-HHMM rewritten as TICKER-C-MM/DD/YY-HH:MM.
+  function accFillKey(id){
+    var s = String(id == null ? '' : id).trim().toUpperCase();
+    var m = /^(.+)-([CP])-(\d{2})(\d{2})(\d{2})-(\d{2})(\d{2})$/.exec(s);
+    return m ? m[1] + '-' + m[2] + '-' + m[4] + '/' + m[5] + '/' + m[3] + '-' + m[6] + ':' + m[7] : s;
+  }
   function accFillsHtml(d){
     if (accFills.error === 'off') return '';
     var byId = {};
-    [].concat(d.open || [], d.closed || [], d.archive || []).forEach(function(e){ if (e && e.symbol && e.entryDate) byId[tlTradeId(e)] = e; });
+    [].concat(d.open || [], d.closed || [], d.archive || []).forEach(function(e){ if (e && e.symbol && e.entryDate) byId[accFillKey(tlTradeId(e))] = e; });
     var rows = accFills.rows || [];
     var acct = {};
     var body = rows.map(function(r){
-      var rec = byId[r.trade_id] || null;
+      var rec = byId[accFillKey(r.trade_id)] || null;
       var credit = /credit/i.test(String(r.structure || (rec && rec.contract && rec.contract.structure) || ''));
       var mid = r.mingstreet_entry_mid != null ? Number(r.mingstreet_entry_mid) : accRecordMid(rec);
       var fill = r.fill_price != null ? Number(r.fill_price) : null;
@@ -33059,7 +33067,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         '<td>' + (skipped ? 'skipped' + (r.skip_reason ? ': ' + escapeHtml(r.skip_reason) : '') : (accUsd(mid) || '—') + ' → ' + (accUsd(fill) || '—') + (slip != null && isFinite(slip) ? ' <small>(' + accPct(slip) + ')</small>' : '')) + '</td>' +
         '<td>' + (recPnl != null ? accPct(recPnl) + (recClosed ? '' : ' <small>open</small>') : '—') + (recReal != null ? ' <small>· real fill ' + accPct(recReal) + '</small>' : '') + '</td>' +
         '<td>' + (mine != null ? '<span class="' + (mine >= 0 ? 'sig-pos' : 'sig-neg') + '">' + accPct(mine) + '</span>' : '—') + '</td>' +
-        '<td>' + (gap != null ? accPct(gap) : '—') + '</td>' +
+        '<td>' + (gap != null ? '<span class="' + (gap >= 0 ? 'sig-pos' : 'sig-neg') + '">' + accPct(gap) + '</span>' : '—') + '</td>' +
       '</tr>';
     }).join('');
     function mean(v){ if (!v.length) return null; var t = 0; for (var i = 0; i < v.length; i++) t += v[i]; return t / v.length; }
@@ -33072,16 +33080,18 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var tpl = 'data:text/csv;charset=utf-8,' + encodeURIComponent(ACC_FILL_COLUMNS + '\n');
     var status = accFills.busy ? 'Uploading…' : accFills.error ? escapeHtml(accFills.error) : accFills.updatedAt ? 'Last upload ' + accDateTime(accFills.updatedAt) + '.' : '';
     var errs = (accFills.errors || []).length ? '<ul class="hint acc-fills-errors">' + accFills.errors.map(function(x){ return '<li>' + escapeHtml(x) + '</li>'; }).join('') + '</ul>' : '';
-    return '<details class="accuracy-advanced acc-fills" id="acc-fills"' + (rows.length ? ' open' : '') + '><summary class="accuracy-advanced-summary">Your fills vs the record' + (rows.length ? ' <span class="accuracy-group-n">' + rows.length + '</span>' : '') + '</summary><div class="accuracy-advanced-body">' +
+    return '<details class="accuracy-advanced acc-fills" id="acc-fills"' + ((accFills.open != null ? accFills.open : (rows.length || accFills.busy || (accFills.error && accFills.error !== 'off'))) ? ' open' : '') + '><summary class="accuracy-advanced-summary">Your fills vs the record' + (rows.length ? ' <span class="accuracy-group-n">' + rows.length + '</span>' : '') + '</summary><div class="accuracy-advanced-body">' +
       '<p class="hint acc-research-note">Upload your paper or real trade log as CSV, one row per trade, using the trade ID from the picks feed or Copy all. Each upload replaces the last one. Your P&amp;L comes from your own fill prices, less fees. The gap is your P&amp;L minus the record’s modeled P&amp;L on the same trade.</p>' +
       '<div class="acc-fills-upload"><input type="file" id="acc-fills-file" accept=".csv,text/csv" aria-label="Trade log CSV"' + (accFills.busy ? ' disabled' : '') + '>' +
       ' <a href="' + tpl + '" download="trade-log-template.csv">Download the blank template</a>' +
-      (status ? ' <span class="hint">' + status + '</span>' : '') + '</div>' + errs +
+      (status ? ' <span class="acc-fills-status" role="status">' + status + '</span>' : '') + '</div>' + errs +
       (summary ? '<ul class="acc-fills-summary">' + summary + '</ul>' : '') +
       (body ? '<div class="acc-tscroll"><table class="acc-qtable"><thead><tr><th>Trade</th><th>Account</th><th>Entry: record → yours</th><th>Record P&amp;L</th><th>Your P&amp;L</th><th>Gap</th></tr></thead><tbody>' + body + '</tbody></table></div>' : '') +
     '</div></details>';
   }
   function bindAccFills(){
+    var box = $('acc-fills');
+    if (box) box.addEventListener('toggle', function(){ accFills.open = box.open; });
     var inp = $('acc-fills-file');
     if (inp) inp.addEventListener('change', function(){ if (inp.files && inp.files[0]) uploadAccFills(inp.files[0]); });
   }
@@ -33873,7 +33883,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (accView.dataset !== 'all') return closed.slice();
     var open = Array.isArray(d.open) ? d.open : [];
     var nowIso = new Date().toISOString();
-    var marked = open.map(function(o){ var pct = Number(o.optionPnlPct); return Object.assign({}, o, { outcome: (isFinite(pct) && pct >= 0) ? 'win' : 'loss', status: o.status || 'open-mark', exitDate: o.exitDate || nowIso }); });
+    var marked = open.map(function(o){ var pct = Number(o.optionPnlPct); var r = isFinite(pct) ? Math.round(pct * 10) / 10 : null; return Object.assign({}, o, { outcome: r == null ? 'void' : r > 0 ? 'win' : r < 0 ? 'loss' : 'flat', status: o.status || 'open-mark', exitDate: o.exitDate || nowIso }); });
     return closed.concat(marked);
   }
   function accDatasetTip(){ return accView.dataset === 'all' ? ' Includes open positions marked to their current modeled price (not yet resolved).' : ''; }

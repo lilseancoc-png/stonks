@@ -16057,6 +16057,8 @@ body.tape-axm-open { overflow: hidden; }
 .acc-fills-upload input[type="file"] { max-width: 100%; }
 .acc-fills-summary { margin: 4px 0 10px; padding-left: 18px; font: 400 13px/1.5 var(--font-sans); }
 .acc-fills-errors { margin: 0 0 8px; padding-left: 18px; }
+.acc-fills-status { color: var(--muted); font-size: 12px; }
+.acc-fills .acc-qtable th, .acc-fills .acc-qtable td { white-space: nowrap; }
 .acc-fill-unmatched td { opacity: 0.7; }
 .acc-qtable th, .acc-qtable td { text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--border); }
 .acc-qtable th:first-child, .acc-qtable td:first-child { text-align: left; }

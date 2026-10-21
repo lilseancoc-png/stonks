@@ -28599,7 +28599,8 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
   const stats = computePicksAccuracyStats(open, closed, builtAtIso, spyBars);
   // All-time view across the live window and the archive.
   const allTimeStats = archive.length ? computePicksAccuracyStats([], closed.concat(archive), builtAtIso) : null;
-  const baselineStats = computeBaselineStats(baseline, closed);
+  // Archived picks keep their pair key fields, so pairs survive the window.
+  const baselineStats = computeBaselineStats(baseline, closed.concat(archive));
   // resetEpoch stamps which enrollment-rules era this record belongs to —
   // readPicksAccuracyState discards a record from an older epoch (see
   // PICKS_ACCURACY_RESET_EPOCH).

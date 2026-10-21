@@ -106,6 +106,7 @@ const b2 = advancePicksBaseline(b1, { chains: { SPY: spyChain(601) }, nowSec: Da
 ok("baseline: closes when its paired pick closes", b2.open.length === 0 && b2.closed.length === 1 && b2.closed[0].status === "pair-closed");
 const bs = computeBaselineStats(b2, [{ symbol: "NVDA", side: "call", entryDate: builtA, outcome: "win", optionPnlPct: 30, realFillPnlPct: 26 }]);
 ok("baseline stats: paired edge = pick minus SPY", bs && bs.paired.n === 1 && near(bs.paired.edgePct, 30 - b2.closed[0].optionPnlPct, 0.06), JSON.stringify(bs?.paired));
+ok("baseline stats: an archived pick still pairs", computeBaselineStats(b2, [compactClosedForArchive({ symbol: "NVDA", side: "call", entryDate: builtA, exitDate: builtB, outcome: "win", optionPnlPct: 30 })])?.paired.n === 1);
 ok("baseline stats: none without any baseline trades", computeBaselineStats({ open: [], closed: [] }, []) == null);
 
 // --- 7. Archive -----------------------------------------------------------------
