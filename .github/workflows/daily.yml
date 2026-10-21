@@ -534,6 +534,17 @@ jobs:
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
         run: node scripts/sync-data.mjs push --owner=bake
 
+      - name: Mirror record trades to Webull paper
+        # Pings api/auth/[action].js "webull-mirror" so the Webull paper
+        # account copies this bake's Top Picks opens/closes. Off unless
+        # WEBULL_MIRROR=on in Vercel. Prints only the HTTP status (public log).
+        if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: node scripts/webull-mirror-trigger.mjs
+
       - name: Commit verified private-store build
         if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
         run: |

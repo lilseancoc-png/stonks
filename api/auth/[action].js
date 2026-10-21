@@ -9,6 +9,8 @@
 //   me               -> report session for the "signed in as …" chip
 //   picks-feed       -> private plain-text open/closed trade lines (secret link)
 //   picks-fills      -> the Owner's uploaded paper/real trade log (GET / POST)
+//   webull-mirror    -> copy the record's trades into the Webull paper account
+//                       (POST from the build workflow) / its trade log (GET)
 //
 // Discord auth is intentionally an INTERNAL Owner Lab mechanism. Public site
 // access never requires a login; only principals holding the existing Top Picks
@@ -78,6 +80,8 @@ export default async function handler(req, res) {
       return picksFeed(req, res);
     case "picks-fills":
       return picksFills(req, res);
+    case "webull-mirror":
+      return webullMirror(req, res);
     default:
       return res.status(404).json({ error: "not found" });
   }
@@ -318,6 +322,10 @@ async function picksFills(req, res) {
     if (req.method === "GET") {
       const buf = await store.get(FILLS_KEY);
       const out = buf == null ? { rows: [], updatedAt: null, errors: [] } : JSON.parse(buf.toString("utf8"));
+      // The Webull paper mirror's trades join the same view as their own
+      // account ("Webull paper"); an upload never replaces them.
+      const mirrored = await webullFillRows(store);
+      if (mirrored.length) out.rows = [...mirrored, ...(Array.isArray(out.rows) ? out.rows : [])];
       return res.status(200).json(out);
     }
     if (req.method !== "POST") {
@@ -333,9 +341,102 @@ async function picksFills(req, res) {
     if (!rows.length) return res.status(400).json({ error: "no usable rows", errors });
     const out = { rows, errors, updatedAt: new Date().toISOString() };
     await store.put(FILLS_KEY, JSON.stringify(out));
-    return res.status(200).json(out);
+    const mirrored = await webullFillRows(store);
+    return res.status(200).json(mirrored.length ? { ...out, rows: [...mirrored, ...rows] } : out);
   } catch (err) {
     console.error("picks fills failed", { message: String(err?.message || err) });
     return res.status(502).json({ error: "fills unavailable" });
+  }
+}
+
+// --- Webull paper mirror ------------------------------------------------------
+// POST /api/auth/webull-mirror  (Authorization: Bearer <trigger token>)
+//   Runs lib/webull-mirror.mjs once: copies new record opens/closes into the
+//   Webull PaperTrade account and saves webull-paper-ledger.json. The build
+//   workflow calls it after every full bake. The trigger token is derived from
+//   R2_SECRET_ACCESS_KEY (already set in Vercel and GitHub), so no new secret
+//   is shared between the two; the response carries counts only.
+// GET  /api/auth/webull-mirror[?format=csv]  (Owner session)
+//   The trade log: { ledger summary, rows } or a CSV download.
+// Off unless WEBULL_MIRROR=on and the Webull paper keys are set. The client
+// only talks to Webull's sandbox host, so it can't reach a live account.
+async function webullFillRows(store) {
+  try {
+    const buf = await store.get("webull-paper-ledger.json");
+    if (buf == null) return [];
+    const { ledgerToFillRows } = await import("../../lib/webull-mirror.mjs");
+    return ledgerToFillRows(JSON.parse(buf.toString("utf8")));
+  } catch (err) {
+    console.error("webull ledger read failed", { message: String(err?.message || err) });
+    return [];
+  }
+}
+
+async function webullMirror(req, res) {
+  res.setHeader("Cache-Control", "private, no-store");
+  if (process.env.PRIVATE_DATA_ENABLED !== "1") return res.status(404).json({ error: "not found" });
+  const mirror = await import("../../lib/webull-mirror.mjs");
+
+  if (req.method === "GET") {
+    const session = await getSession(req).catch(() => null);
+    if (!session) return res.status(401).json({ error: "auth required" });
+    if (session.tr !== true || session.tp !== true) return res.status(401).json({ error: "role required" });
+    try {
+      const { store } = await import("../../lib/datastore.mjs");
+      const buf = await store.get(mirror.LEDGER_KEY);
+      const ledger = buf == null ? mirror.emptyLedger() : JSON.parse(buf.toString("utf8"));
+      const rows = mirror.ledgerToFillRows(ledger);
+      if (req.query?.format === "csv") {
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader("Content-Disposition", 'attachment; filename="webull-paper-trades.csv"');
+        res.statusCode = 200;
+        return res.end(mirror.fillRowsToCsv(rows));
+      }
+      return res.status(200).json({
+        enabled: process.env.WEBULL_MIRROR === "on",
+        goLiveIso: ledger.goLiveIso,
+        lastRunIso: ledger.lastRunIso,
+        runs: (ledger.runs || []).slice(0, 10),
+        rows,
+      });
+    } catch (err) {
+      console.error("webull mirror read failed", { message: String(err?.message || err) });
+      return res.status(502).json({ error: "ledger unavailable" });
+    }
+  }
+
+  if (req.method !== "POST") {
+    res.setHeader("Allow", "GET, POST");
+    return res.status(405).json({ error: "method not allowed" });
+  }
+  const secret = process.env.R2_SECRET_ACCESS_KEY || "";
+  const auth = String(req.headers.authorization || "");
+  const given = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (!secret || !given || !keyMatches(given, mirror.mirrorTriggerToken(secret))) {
+    return res.status(404).json({ error: "not found" });
+  }
+  if (process.env.WEBULL_MIRROR !== "on") return res.status(200).json({ ran: false, reason: "mirror off" });
+  const { WEBULL_APP_KEY, WEBULL_APP_SECRET, WEBULL_PAPER_ACCOUNT_ID, WEBULL_ACCESS_TOKEN } = process.env;
+  if (!WEBULL_APP_KEY || !WEBULL_APP_SECRET || !WEBULL_PAPER_ACCOUNT_ID) {
+    return res.status(200).json({ ran: false, reason: "webull paper keys not configured" });
+  }
+  try {
+    const [{ store }, { createWebullClient }, { fetchContract }] = await Promise.all([
+      import("../../lib/datastore.mjs"),
+      import("../../lib/webull-client.mjs"),
+      import("../../lib/yahoo.mjs"),
+    ]);
+    const [accBuf, ledgerBuf] = await Promise.all([store.get("picks-accuracy.json"), store.get(mirror.LEDGER_KEY)]);
+    if (accBuf == null) return res.status(200).json({ ran: false, reason: "track record unavailable" });
+    const acc = JSON.parse(accBuf.toString("utf8"));
+    const ledger = ledgerBuf == null ? mirror.emptyLedger() : JSON.parse(ledgerBuf.toString("utf8"));
+    const client = createWebullClient({ appKey: WEBULL_APP_KEY, appSecret: WEBULL_APP_SECRET, accessToken: WEBULL_ACCESS_TOKEN || null });
+    const quoteFn = mirror.makeQuoteFn(fetchContract);
+    const { ledger: next, summary } = await mirror.runWebullMirror({ client, accountId: WEBULL_PAPER_ACCOUNT_ID, acc, ledger, quoteFn });
+    if (!summary.skipped) await store.put(mirror.LEDGER_KEY, JSON.stringify(next));
+    return res.status(200).json({ ran: !summary.skipped, summary });
+  } catch (err) {
+    console.error("webull mirror failed", { message: String(err?.message || err), code: err?.code || null });
+    return res.status(502).json({ error: "mirror failed", code: err?.code || null });
   }
 }
