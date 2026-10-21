@@ -438,6 +438,17 @@ async function webullMirror(req, res) {
     return res.status(200).json({ ran: !summary.skipped, summary });
   } catch (err) {
     console.error("webull mirror failed", { message: String(err?.message || err), code: err?.code || null });
-    return res.status(502).json({ error: "mirror failed", code: err?.code || null });
+    // Only the bake's trigger sees this (bearer-gated) and prints it to a
+    // public log, so it carries the error class, never Webull's text (which
+    // can echo order details). A code bug's own message is safe and is what
+    // makes it fixable.
+    const webull = err?.name === "WebullError";
+    return res.status(502).json({
+      error: "mirror failed",
+      code: err?.code || null,
+      status: webull ? err?.status ?? null : null,
+      kind: err?.name || null,
+      detail: webull || err?.code === "ACCOUNT_NOT_FOUND" ? null : String(err?.message || "").slice(0, 120),
+    });
   }
 }
