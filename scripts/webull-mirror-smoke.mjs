@@ -7,7 +7,7 @@
 // Run: node scripts/webull-mirror-smoke.mjs
 import { signRequest, createWebullClient, quoteAll } from "../lib/webull-client.mjs";
 import {
-  runWebullMirror, buildOrder, mirrorLegs, roundTick, clientOrderId, isRegularSession,
+  runWebullMirror, buildOrder, mirrorLegs, roundTick, clientOrderId, isRegularSession, isMarketClosedError,
   ledgerToFillRows, fillRowsToCsv, mirrorTriggerToken, makeQuoteFn, emptyLedger, LEDGER_KEY,
 } from "../lib/webull-mirror.mjs";
 import { pickTradeId } from "../lib/pick-trade-text.mjs";
@@ -250,6 +250,27 @@ ok("account: unknown paper account throws", await throwsAsync(() => runWebullMir
   const t = { symbol: "AAPL", structure: "credit_vertical", legs: mirrorLegs(creditPut()) };
   const q = await qf(t);
   ok("quote: credit spread net credit 1.20-1.60", q.bid === 1.2 && q.ask === 1.6, JSON.stringify(q));
+}
+
+// --- 5b. Webull says the market is closed (holiday / early close) ------------
+{
+  const wb = fakeWebull();
+  let shut = true;
+  const realPlace = wb.placeOrder;
+  wb.placeOrder = async (acct, list) => {
+    if (shut) throw Object.assign(new Error("Webull /trading/orders/place: You cannot place orders at this moment. Available trading hours are: 9:30 a.m.- 4:00 p.m. ET."), { status: 417, code: "OPENAPI_OPTION_ONLY_SUPPORT_MARKET_IN_CORE_TIME" });
+    return realPlace(acct, list);
+  };
+  const e = longCall();
+  const id = pickTradeId(e);
+  let { ledger, summary } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger: null, nowMs: T0 });
+  const t = ledger.trades[id];
+  ok("closed market: no try counted, trade still waiting", t.state === "entering" && t.entryAttempts.length === 0 && summary.errors === 0, JSON.stringify(t.entryAttempts));
+  ok("closed market: run says why", /market is closed/.test(summary.skipped || ""));
+  ok("closed market: error is recognized", isMarketClosedError({ code: "OPENAPI_OPTION_ONLY_SUPPORT_MARKET_IN_CORE_TIME" }) && !isMarketClosedError({ code: "OPENAPI_PARAM_ERR" }));
+  shut = false;
+  ({ ledger, summary } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 24 * H }));
+  ok("closed market: next session places at the engine price", summary.placed === 1 && wb.placed[0].limit_price === "5.00" && ledger.trades[id].entryAttempts.length === 1);
 }
 
 // --- 6. Endpoint auth -------------------------------------------------------------
