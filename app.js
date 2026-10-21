@@ -33062,7 +33062,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (gap != null) { a.mine.push(mine); a.rec.push(recPnl); a.gap.push(gap); }
       var skipped = /^y/i.test(String(r.skipped || ''));
       return '<tr' + (rec ? '' : ' class="acc-fill-unmatched"') + '>' +
-        '<td>' + escapeHtml(r.trade_id) + (rec ? '' : ' <small>(not in the record)</small>') + '</td>' +
+        '<td>' + escapeHtml(r.trade_id) + (rec ? '' : ' <small>(not in the record)</small>') +
+          (r.account === 'Webull paper' && r.notes ? '<br><small>' + escapeHtml(r.notes) + '</small>' : '') + '</td>' +
         '<td>' + escapeHtml(r.account || '') + '</td>' +
         '<td>' + (skipped ? 'skipped' + (r.skip_reason ? ': ' + escapeHtml(r.skip_reason) : '') : (accUsd(mid) || '—') + ' → ' + (accUsd(fill) || '—') + (slip != null && isFinite(slip) ? ' <small>(' + accPct(slip) + ')</small>' : '')) + '</td>' +
         '<td>' + (recPnl != null ? accPct(recPnl) + (recClosed ? '' : ' <small>open</small>') : '—') + (recReal != null ? ' <small>· real fill ' + accPct(recReal) + '</small>' : '') + '</td>' +
@@ -33081,9 +33082,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var status = accFills.busy ? 'Uploading…' : accFills.error ? escapeHtml(accFills.error) : accFills.updatedAt ? 'Last upload ' + accDateTime(accFills.updatedAt) + '.' : '';
     var errs = (accFills.errors || []).length ? '<ul class="hint acc-fills-errors">' + accFills.errors.map(function(x){ return '<li>' + escapeHtml(x) + '</li>'; }).join('') + '</ul>' : '';
     return '<details class="accuracy-advanced acc-fills" id="acc-fills"' + ((accFills.open != null ? accFills.open : (rows.length || accFills.busy || (accFills.error && accFills.error !== 'off'))) ? ' open' : '') + '><summary class="accuracy-advanced-summary">Your fills vs the record' + (rows.length ? ' <span class="accuracy-group-n">' + rows.length + '</span>' : '') + '</summary><div class="accuracy-advanced-body">' +
-      '<p class="hint acc-research-note">Upload your paper or real trade log as CSV, one row per trade, using the trade ID from the picks feed or Copy all. Each upload replaces the last one. Your P&amp;L comes from your own fill prices, less fees. The gap is your P&amp;L minus the record’s modeled P&amp;L on the same trade.</p>' +
+      '<p class="hint acc-research-note">Upload your paper or real trade log as CSV, one row per trade, using the trade ID from the picks feed or Copy all. Each upload replaces the last one. Rows marked Webull paper come from the automatic Webull paper mirror and are never replaced by an upload. Your P&amp;L comes from your own fill prices, less fees. The gap is your P&amp;L minus the record’s modeled P&amp;L on the same trade.</p>' +
       '<div class="acc-fills-upload"><input type="file" id="acc-fills-file" accept=".csv,text/csv" aria-label="Trade log CSV"' + (accFills.busy ? ' disabled' : '') + '>' +
       ' <a href="' + tpl + '" download="trade-log-template.csv">Download the blank template</a>' +
+      (acct['Webull paper'] ? ' · <a href="/api/auth/webull-mirror?format=csv">Download the Webull paper trades (CSV)</a>' : '') +
       (status ? ' <span class="acc-fills-status" role="status">' + status + '</span>' : '') + '</div>' + errs +
       (summary ? '<ul class="acc-fills-summary">' + summary + '</ul>' : '') +
       (body ? '<div class="acc-tscroll"><table class="acc-qtable"><thead><tr><th>Trade</th><th>Account</th><th>Entry: record → yours</th><th>Record P&amp;L</th><th>Your P&amp;L</th><th>Gap</th></tr></thead><tbody>' + body + '</tbody></table></div>' : '') +

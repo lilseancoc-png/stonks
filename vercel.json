@@ -31,6 +31,9 @@
     },
     "api/macro-live.js": {
       "maxDuration": 10
+    },
+    "api/auth/[action].js": {
+      "maxDuration": 60
     }
   },
   "headers": [
