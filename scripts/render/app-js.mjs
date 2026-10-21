@@ -325,6 +325,118 @@ ${scenarioEventPhase.toString()}
       : '';
     return ' data-ch="' + escapeHtml(JSON.stringify(out)) + '"' + range;
   }
+  // Two-colour bar per sector (a = up / calls in green, b = down / puts in
+  // red), longest total first, inside a collapsible block whose open state
+  // is remembered. rows: [{ name, a, b }].
+  function sectorSplitBarsHtml(rows, opts){
+    opts = opts || {};
+    var list = (rows || []).filter(function(r){ return r && (r.a > 0 || r.b > 0); })
+      .sort(function(x, y){ return (y.a + y.b) - (x.a + x.b) || String(x.name).localeCompare(String(y.name)); });
+    if (!list.length) return '';
+    var max = 0;
+    list.forEach(function(r){ if (r.a + r.b > max) max = r.a + r.b; });
+    var fmtV = opts.fmt || function(v){ return String(v); };
+    var open = !opts.key || VIEWS.get(opts.key, false) === true;
+    var body = list.map(function(r){
+      var wa = r.a / max * 100, wb = r.b / max * 100;
+      var tip = r.name + ': ' + fmtV(r.a) + ' ' + (opts.aLabel || 'up') + ', ' + fmtV(r.b) + ' ' + (opts.bLabel || 'down');
+      return '<li title="' + escapeHtml(tip) + '"><span class="ssb-name">' + escapeHtml(r.name) + '</span>' +
+        '<span class="ssb-bar" role="img" aria-label="' + escapeHtml(tip) + '"><i class="ssb-a" style="width:' + wa.toFixed(1) + '%"></i><i class="ssb-b" style="width:' + wb.toFixed(1) + '%"></i></span>' +
+        '<span class="ssb-val"><b class="pos">' + escapeHtml(fmtV(r.a)) + '</b> / <b class="neg">' + escapeHtml(fmtV(r.b)) + '</b></span></li>';
+    }).join('');
+    return '<details class="ssb"' + (open ? ' open' : '') + (opts.key ? ' data-ssb-key="' + escapeHtml(opts.key) + '"' : '') + '>' +
+      '<summary>' + escapeHtml(opts.title || 'By sector') + ' <small><i class="ssb-key a"></i>' + escapeHtml(opts.aLabel || 'up') + ' <i class="ssb-key b"></i>' + escapeHtml(opts.bLabel || 'down') + '</small></summary>' +
+      '<ol class="ssb-list">' + body + '</ol>' + (opts.note ? '<p class="ssb-note">' + escapeHtml(opts.note) + '</p>' : '') + '</details>';
+  }
+  document.addEventListener('toggle', function(e){
+    var d = e.target;
+    if (!d || !d.getAttribute || !d.hasAttribute('data-ssb-key')) return;
+    VIEWS.set(d.getAttribute('data-ssb-key'), d.open ? true : null);
+  }, true);
+  // Shared scatter chart. points: [{x, y, label, cls, href, r, text}] in data
+  // units; opts: { xLabel, yLabel, xFmt(v), yFmt(v), logX, zeroX, zeroY,
+  // w, h, cls, ariaLabel, diag }. A point with attr (a raw, pre-escaped
+  // attribute string) becomes a focusable group for delegated click handlers. Hover/tap uses the shared engine in
+  // two-axis mode (data-ch-xy). A point with href becomes a link.
+  function scatterSvgHtml(points, opts){
+    opts = opts || {};
+    // Phones get a narrower drawing box so axis text stays readable when the
+    // chart is scaled down to the screen.
+    var narrow = typeof window !== 'undefined' && window.innerWidth && window.innerWidth < 560;
+    var W = opts.w || (narrow ? 380 : 640), H = Math.round((opts.h || 360) * (narrow ? 0.85 : 1)), padL = 46, padR = 12, padT = 12, padB = 38;
+    var tx = opts.logX ? function(v){ return v > 0 ? Math.log(v) / Math.LN10 : null; } : function(v){ return v; };
+    var pts = [];
+    for (var i = 0; i < (points || []).length; i++){
+      var p = points[i];
+      if (!p || p.x == null || p.y == null || !isFinite(p.x) || !isFinite(p.y)) continue;
+      var xv = tx(Number(p.x));
+      if (xv == null || !isFinite(xv)) continue;
+      pts.push({ p: p, xv: xv, yv: Number(p.y) });
+    }
+    if (pts.length < 2) return '';
+    var xs = pts.map(function(q){ return q.xv; }), ys = pts.map(function(q){ return q.yv; });
+    var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs);
+    var y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys);
+    if (opts.zeroX && !opts.logX){ x0 = Math.min(x0, 0); x1 = Math.max(x1, 0); }
+    if (opts.zeroY){ y0 = Math.min(y0, 0); y1 = Math.max(y1, 0); }
+    if (opts.diag){ x0 = y0 = Math.min(x0, y0); x1 = y1 = Math.max(x1, y1); }
+    if (x1 === x0){ x0 -= 1; x1 += 1; }
+    if (y1 === y0){ y0 -= 1; y1 += 1; }
+    var xp = (x1 - x0) * 0.05, yp = (y1 - y0) * 0.07;
+    x0 -= xp; x1 += xp; y0 -= yp; y1 += yp;
+    function X(v){ return padL + (v - x0) / (x1 - x0) * (W - padL - padR); }
+    function Y(v){ return H - padB - (v - y0) / (y1 - y0) * (H - padT - padB); }
+    function ticks(a, b, n){
+      var span = b - a, step = Math.pow(10, Math.floor(Math.log(span / n) / Math.LN10));
+      var err = span / n / step;
+      if (err >= 7.5) step *= 10; else if (err >= 3.5) step *= 5; else if (err >= 1.5) step *= 2;
+      var out = [];
+      for (var t = Math.ceil(a / step) * step; t <= b + step * 1e-9; t += step) out.push(Math.abs(t) < step * 1e-9 ? 0 : t);
+      return out;
+    }
+    var xFmt = opts.xFmt || function(v){ return String(Math.round(v * 10) / 10); };
+    var yFmt = opts.yFmt || function(v){ return String(Math.round(v * 10) / 10); };
+    var g = '';
+    var yt = ticks(y0, y1, 5);
+    for (var a = 0; a < yt.length; a++){
+      g += '<line class="sc-grid" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + Y(yt[a]).toFixed(1) + '" y2="' + Y(yt[a]).toFixed(1) + '"/>' +
+        '<text class="sc-tick" x="' + (padL - 6) + '" y="' + (Y(yt[a]) + 3.5).toFixed(1) + '" text-anchor="end">' + escapeHtml(yFmt(yt[a])) + '</text>';
+    }
+    var xt = opts.logX ? (function(){
+      var out = []; for (var e = Math.floor(x0); e <= Math.ceil(x1); e++) [1, 3].forEach(function(m){ var lv = e + Math.log(m) / Math.LN10; if (lv >= x0 && lv <= x1) out.push(lv); }); return out;
+    })() : ticks(x0, x1, 6);
+    for (var b = 0; b < xt.length; b++){
+      var xv2 = opts.logX ? Math.pow(10, xt[b]) : xt[b];
+      g += '<line class="sc-grid" y1="' + padT + '" y2="' + (H - padB) + '" x1="' + X(xt[b]).toFixed(1) + '" x2="' + X(xt[b]).toFixed(1) + '"/>' +
+        '<text class="sc-tick" y="' + (H - padB + 14) + '" x="' + X(xt[b]).toFixed(1) + '" text-anchor="middle">' + escapeHtml(xFmt(xv2)) + '</text>';
+    }
+    if (y0 < 0 && y1 > 0) g += '<line class="sc-zero" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + Y(0).toFixed(1) + '" y2="' + Y(0).toFixed(1) + '"/>';
+    if (!opts.logX && x0 < 0 && x1 > 0) g += '<line class="sc-zero" y1="' + padT + '" y2="' + (H - padB) + '" x1="' + X(0).toFixed(1) + '" x2="' + X(0).toFixed(1) + '"/>';
+    if (opts.diag){
+      var d0 = Math.max(x0, y0), d1 = Math.min(x1, y1);
+      g += '<line class="sc-diag" x1="' + X(d0).toFixed(1) + '" y1="' + Y(d0).toFixed(1) + '" x2="' + X(d1).toFixed(1) + '" y2="' + Y(d1).toFixed(1) + '"/>';
+    }
+    if (opts.xLabel) g += '<text class="sc-axis" x="' + ((padL + W - padR) / 2) + '" y="' + (H - 6) + '" text-anchor="middle">' + escapeHtml(opts.xLabel) + '</text>';
+    if (opts.yLabel) g += '<text class="sc-axis" transform="translate(12 ' + ((padT + H - padB) / 2) + ') rotate(-90)" text-anchor="middle">' + escapeHtml(opts.yLabel) + '</text>';
+    var dots = '', hov = [];
+    for (var k = 0; k < pts.length; k++){
+      var q = pts[k], cx = X(q.xv), cy = Y(q.yv);
+      var c = '<circle class="sc-dot' + (q.p.cls ? ' ' + q.p.cls : '') + '" cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="' + (q.p.r || 4.5) + '"/>';
+      if (q.p.text) c += '<text class="sc-lbl" x="' + (cx + 6).toFixed(1) + '" y="' + (cy - 5).toFixed(1) + '">' + escapeHtml(q.p.text) + '</text>';
+      dots += q.p.href ? '<a href="' + escapeHtml(q.p.href) + '">' + c + '</a>'
+        : q.p.attr ? '<g class="sc-hit" role="button" tabindex="0" ' + q.p.attr + '>' + c + '</g>' : c;
+      hov.push({ x: cx, y: cy, label: q.p.label || '' });
+    }
+    return '<svg class="sc-svg' + (opts.cls ? ' ' + opts.cls : '') + '" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + escapeHtml(opts.ariaLabel || 'Scatter chart') + '" data-ch-xy' + chHoverAttr(hov) + '>' + g + dots + '</svg>';
+  }
+  // Enter / Space on a focusable scatter dot acts like a click.
+  document.addEventListener('keydown', function(e){
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    var t = e.target;
+    if (!t || !t.classList || !t.classList.contains('sc-hit')) return;
+    e.preventDefault();
+    t.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  });
   var chHover = { svg: null, pts: null, tip: null, line: null, dot: null };
   function chEnsureNodes(){
     if (chHover.tip) return;
@@ -3968,6 +4080,7 @@ ${renderWorkspaceBindings()}
         if (name === 'oi' && typeof loadGex === 'function' && !gexState.data && !gexState.loading) loadGex();
         if (name === 'strategies' && typeof initStrategies === 'function') initStrategies();
         if (name === 'compare' && typeof initCompare === 'function') initCompare();
+        else if (typeof cmpTraySync === 'function') cmpTraySync();
         if (name === 'earnings' && typeof loadEarningsTracker === 'function') loadEarningsTracker();
         if (name === 'calls' && typeof loadEarningsCalls === 'function') loadEarningsCalls();
         if (name === 'ai-capex' && typeof loadAiCapex === 'function') loadAiCapex();
@@ -8018,7 +8131,81 @@ ${renderWorkspaceBindings()}
     }
     return hits;
   }
+  // Grade score over time on Grade a ticker, from the public once-a-day
+  // whole-universe snapshot (data/grades-daily.json). One fetch per visit,
+  // shared with the Compare tab's grade mode.
+  var gradesDailyLoad = { data: null, loading: false, waiters: [] };
+  function loadGradesDaily(cb){
+    if (gradesDailyLoad.data){ cb(gradesDailyLoad.data); return; }
+    gradesDailyLoad.waiters.push(cb);
+    if (gradesDailyLoad.loading) return;
+    gradesDailyLoad.loading = true;
+    fetch(dataUrl('grades-daily.json'), { cache: 'no-cache' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .catch(function(){ return null; })
+      .then(function(j){
+        gradesDailyLoad.data = j && Array.isArray(j.days) ? j : { days: [] };
+        gradesDailyLoad.loading = false;
+        var w = gradesDailyLoad.waiters; gradesDailyLoad.waiters = [];
+        w.forEach(function(fn){ try { fn(gradesDailyLoad.data); } catch (_) {} });
+      });
+  }
+  function renderGradeHistory(sym){
+    var host = $('opt-grade-hist');
+    if (!host) return;
+    if (!sym || sym.charAt(0) === '^'){ host.hidden = true; host.innerHTML = ''; return; }
+    host.setAttribute('data-sym', sym);
+    loadGradesDaily(function(gd){
+      if (host.getAttribute('data-sym') !== sym) return;
+      var pts = (gd.days || []).filter(function(d){ return d && d.date && d.totals && d.totals[sym] != null && isFinite(Number(d.totals[sym])); })
+        .map(function(d){ return { date: String(d.date), v: Number(d.totals[sym]) }; })
+        .sort(function(a, b){ return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+      if (pts.length < 2){
+        host.hidden = false;
+        host.innerHTML = '<div class="ogh-head"><b>Grade score over time</b></div><p class="ogh-empty">' + (pts.length ? 'Only one day of saved grade scores for ' + escapeHtml(sym) + ' so far. The line starts once a second day is saved.' : 'No saved daily grade scores for ' + escapeHtml(sym) + ' yet.') + '</p>';
+        return;
+      }
+      var W = 640, H = 150, padL = 34, padR = 10, padT = 10, padB = 22;
+      var lo = Math.min(-5, Math.min.apply(null, pts.map(function(p){ return p.v; }))), hi = Math.max(5, Math.max.apply(null, pts.map(function(p){ return p.v; })));
+      lo = Math.floor(lo - 0.5); hi = Math.ceil(hi + 0.5);
+      var X = function(i){ return padL + i * (W - padL - padR) / (pts.length - 1); };
+      var Y = function(v){ return padT + (hi - v) / (hi - lo) * (H - padT - padB); };
+      var g = '';
+      // Shaded zones beyond the actionable bars (±4): call lean above, put below.
+      g += '<rect class="ogh-zone call" x="' + padL + '" y="' + Y(hi).toFixed(1) + '" width="' + (W - padL - padR) + '" height="' + Math.max(0, Y(4) - Y(hi)).toFixed(1) + '"/>';
+      g += '<rect class="ogh-zone put" x="' + padL + '" y="' + Y(-4).toFixed(1) + '" width="' + (W - padL - padR) + '" height="' + Math.max(0, Y(lo) - Y(-4)).toFixed(1) + '"/>';
+      [-4, 0, 4].forEach(function(t){
+        g += '<line class="' + (t === 0 ? 'sc-zero' : 'sc-grid') + '" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + Y(t).toFixed(1) + '" y2="' + Y(t).toFixed(1) + '"/>' +
+          '<text class="sc-tick" x="' + (padL - 5) + '" y="' + (Y(t) + 3.5).toFixed(1) + '" text-anchor="end">' + (t > 0 ? '+' : '') + t + '</text>';
+      });
+      var idx = [0, Math.floor((pts.length - 1) / 2), pts.length - 1];
+      idx.forEach(function(i, k){
+        if (k && idx[k - 1] === i) return;
+        g += '<text class="sc-tick" x="' + X(i).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="' + (k === 0 ? 'start' : k === 2 ? 'end' : 'middle') + '">' + escapeHtml(pts[i].date.slice(5)) + '</text>';
+      });
+      var poly = '', hov = [];
+      pts.forEach(function(p, i){
+        poly += (i ? ' ' : '') + X(i).toFixed(1) + ',' + Y(p.v).toFixed(1);
+        var lean = p.v >= 4 ? 'call lean' : p.v <= -4 ? 'put lean' : 'no trade';
+        hov.push({ x: X(i), y: Y(p.v), label: p.date + '\\nGrade ' + (p.v > 0 ? '+' : '') + p.v.toFixed(1) + ' (' + lean + ')', value: p.v, time: p.date });
+      });
+      var last = pts[pts.length - 1];
+      function delta(n){
+        if (pts.length <= n) return '';
+        var d = last.v - pts[pts.length - 1 - n].v;
+        return '<span class="ogh-chip ' + (d > 0 ? 'pos' : d < 0 ? 'neg' : '') + '">' + (d > 0 ? '+' : d < 0 ? '−' : '±') + Math.abs(d).toFixed(1) + ' over ' + n + ' days</span>';
+      }
+      host.hidden = false;
+      host.innerHTML = '<div class="ogh-head"><b>Grade score over time</b><span class="ogh-now ' + (last.v >= 4 ? 'pos' : last.v <= -4 ? 'neg' : '') + '">' + (last.v > 0 ? '+' : '') + last.v.toFixed(1) + ' on ' + escapeHtml(last.date) + '</span>' + delta(5) + delta(20) + '</div>' +
+        '<svg class="ogh-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + escapeHtml(sym) + ' grade score by day"' + chHoverAttr(hov) + '>' + g +
+        '<polyline class="ogh-line" points="' + poly + '" fill="none"/></svg>' +
+        '<p class="ogh-note">One saved score per trading day (' + pts.length + ' days). Above +4 the model leans call, below −4 it leans put. Drag across the chart to measure a change.</p>';
+    });
+  }
   function renderTickerNarrativeChips(sym){
+    var cmpSlot = $('opt-cmp-slot');
+    if (cmpSlot) cmpSlot.innerHTML = cmpToggleHtml(sym, 'opt-cmp');
+    renderGradeHistory(sym);
     var box = $('opt-narr-chips');
     if (!box) return;
     var hits = narrativesForTicker(sym);
@@ -8745,6 +8932,23 @@ ${renderWorkspaceBindings()}
       '</aside>';
   }
   function renderFlowSummary(tickers){
+    var secEl = $('flow-sectors');
+    if (secEl){
+      var bySec = {};
+      (tickers || []).forEach(function(t){
+        var sec = SECTORS[t.symbol] || 'Other';
+        var rec = bySec[sec] || (bySec[sec] = { name: sec, a: 0, b: 0 });
+        (t.contracts || []).forEach(function(c){
+          var dp = Number(c.deltaPremium != null ? c.deltaPremium : (c.premium || 0)) || 0;
+          if (c.side === 'put') rec.b += dp; else rec.a += dp;
+        });
+      });
+      secEl.innerHTML = sectorSplitBarsHtml(Object.keys(bySec).map(function(k){ return bySec[k]; }), {
+        key: 'flow.sectors', title: 'Flagged premium by sector', aLabel: 'calls', bLabel: 'puts',
+        fmt: function(v){ return fmtBigDollars(v) || '$0'; },
+        note: 'Hourly premium on flagged contracts, split by contract type. A call or put alone does not show whether the trader bought or sold it.' });
+      secEl.hidden = !secEl.innerHTML;
+    }
     var el = $('flow-summary');
     if (!el) return;
     var callPrem = 0, putPrem = 0, callN = 0, putN = 0, total = 0;
@@ -10388,7 +10592,10 @@ ${renderWorkspaceBindings()}
         '<span class="vol-summary-seg bull" style="width:' + bullPct + '%"></span>' +
       '</div>' +
       '<div class="vol-summary-legend">' + legend.join('') + tickerBreadth + '</div>' +
-    '</div>';
+    '</div>' +
+    sectorSplitBarsHtml(Object.keys(bySector).map(function(k){ return { name: k, a: bySector[k].bull, b: bySector[k].bear }; }), {
+      key: 'volume.sectors', title: 'Flagged names by sector', aLabel: 'leaning up', bLabel: 'leaning down',
+      fmt: function(v){ return String(v); }, note: 'Counts of flagged tickers whose heavy volume came with a move up or down. Names with no clear lean are left out.' });
   }
   // The current Top Picks tickers, in conviction order, that are present in
   // the latest scan — search-filtered only (so this pinned watchlist always
@@ -16484,8 +16691,7 @@ ${renderWorkspaceBindings()}
     var jobs = [];
     if (compareState.mode === 'grade' && !compareState.gradesDaily){
       compareState.gradesDaily = { days: [] };
-      jobs.push(fetch(dataUrl('grades-daily.json'), { cache:'no-cache' }).then(function(r){ return r.ok ? r.json() : null; })
-        .then(function(j){ compareState.gradesDaily = j && Array.isArray(j.days) ? j : { days: [] }; }).catch(function(){}));
+      jobs.push(new Promise(function(res){ loadGradesDaily(function(gd){ compareState.gradesDaily = gd; res(); }); }));
     }
     var want = [];
     if (compareState.bench && compareState.bench !== 'avg' && compareState.bench !== 'sector') want.push(compareState.bench);
@@ -17169,7 +17375,152 @@ ${renderWorkspaceBindings()}
         });
       }
     }
-    renderCompare();
+    cmpSecInit();
+    if (compareState.tickers.length) cmpLoadAndRender();
+    else renderCompare();
+  }
+  // --- Compare sectors ------------------------------------------------------
+  // Up to six sectors side by side from two small public files: heatmap.json
+  // (each name's returns, market cap and sector) and grades.json (grade and
+  // pillars), plus iv-trending.json for IV versus its own average. No price
+  // series are fetched, so the view stays light.
+  var cmpSec = { open: false, bound: false, loading: false, heat: null, iv: null,
+    picked: (VIEWS.get('compare.sectors', '') || '').split('|').filter(Boolean),
+    metric: VIEWS.choose('compare.secMetric', '1m', ['1d','1w','1m','3m','ytd','1y','grade','call','iv']), weight: VIEWS.choose('compare.secWeight', 'cap', ['cap','equal']) };
+  var CMP_SEC_MAX = 6;
+  var CMP_SEC_METRICS = { '1d': '1-day return', '1w': '1-week return', '1m': '1-month return', '3m': '3-month return', 'ytd': 'Year-to-date return', '1y': '1-year return', grade: 'Average grade score', call: 'Share leaning call', iv: 'IV vs own average' };
+  function cmpSecInit(){
+    var box = $('cmp-sectors');
+    if (!box || cmpSec.bound) return;
+    cmpSec.bound = true;
+    try { if (VIEWS.get('compare.secOpen', false) === true) box.open = true; } catch (_) {}
+    box.addEventListener('toggle', function(){ VIEWS.set('compare.secOpen', box.open ? true : null); if (box.open) cmpSecLoad(); });
+    box.addEventListener('click', function(e){
+      var b = e.target && e.target.closest ? e.target.closest('[data-cmp-sec]') : null;
+      if (!b) return;
+      var name = b.getAttribute('data-cmp-sec');
+      var i = cmpSec.picked.indexOf(name);
+      if (i >= 0) cmpSec.picked.splice(i, 1);
+      else if (cmpSec.picked.length < CMP_SEC_MAX) cmpSec.picked.push(name);
+      VIEWS.set('compare.sectors', cmpSec.picked.length ? cmpSec.picked.join('|') : null);
+      cmpSecRender();
+    });
+    box.addEventListener('change', function(e){
+      var t = e.target;
+      if (t && t.id === 'cmp-sec-metric'){ cmpSec.metric = CMP_SEC_METRICS[t.value] ? t.value : '1m'; VIEWS.set('compare.secMetric', cmpSec.metric === '1m' ? null : cmpSec.metric); cmpSecRender(); }
+      if (t && t.id === 'cmp-sec-weight'){ cmpSec.weight = t.value === 'equal' ? 'equal' : 'cap'; VIEWS.set('compare.secWeight', cmpSec.weight === 'cap' ? null : 'equal'); cmpSecRender(); }
+    });
+    if (box.open) cmpSecLoad();
+  }
+  function cmpSecLoad(){
+    if (cmpSec.heat || cmpSec.loading){ cmpSecRender(); return; }
+    cmpSec.loading = true;
+    cmpSecRender();
+    var jobs = [
+      fetch(dataUrl('heatmap.json'), { cache: 'no-cache' }).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; }),
+      fetch(dataUrl('iv-trending.json'), { cache: 'no-cache' }).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; })
+    ];
+    if (!compareState.grades && !compareState.gradesLoading){
+      compareState.gradesLoading = true;
+      jobs.push(fetch(dataUrl('grades.json'), { cache: 'no-cache' }).then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(j){ compareState.grades = j || { grades: {} }; }).catch(function(){ compareState.grades = { grades: {} }; })
+        .then(function(){ compareState.gradesLoading = false; }));
+    }
+    Promise.all(jobs).then(function(res){
+      var h = res[0], iv = res[1];
+      cmpSec.heat = h && Array.isArray(h.tickers) ? h.tickers : [];
+      var ivm = {};
+      (iv && Array.isArray(iv.tickers) ? iv.tickers : []).forEach(function(r){
+        if (r && r.symbol && r.iv > 0 && r.mean > 0) ivm[r.symbol] = r.relPct != null && isFinite(r.relPct) ? Number(r.relPct) : (r.iv / r.mean - 1) * 100;
+      });
+      cmpSec.iv = ivm;
+      cmpSec.loading = false;
+      cmpSecRender();
+    });
+  }
+  function cmpSecStats(){
+    var by = {};
+    (cmpSec.heat || []).forEach(function(t){
+      if (!t || !t.t) return;
+      var sec = t.s || SECTORS[t.t];
+      if (!sec || sec === 'ETF') return;
+      var r = by[sec] || (by[sec] = { name: sec, n: 0, rows: [] });
+      r.n++; r.rows.push(t);
+    });
+    var grades = compareState.grades && (compareState.grades.grades || compareState.grades) || {};
+    Object.keys(by).forEach(function(k){
+      var r = by[k];
+      ['1d','1w','1m','3m','ytd','1y'].forEach(function(p){
+        var sw = 0, sv = 0;
+        r.rows.forEach(function(t){
+          var v = p === '1d' ? t.ch : (t.perf ? t.perf[p] : null);
+          if (v == null || !isFinite(v)) return;
+          var w = cmpSec.weight === 'cap' && t.mc > 0 ? Number(t.mc) : 1;
+          sw += w; sv += Number(v) * w;
+        });
+        r[p] = sw ? sv / sw : null;
+      });
+      var gs = [], calls = 0, puts = 0, ivs = [];
+      r.rows.forEach(function(t){
+        var g = grades[t.t];
+        if (g && isFinite(Number(g.total))){ gs.push(Number(g.total)); if (Number(g.total) >= 4) calls++; else if (Number(g.total) <= -4) puts++; }
+        if (cmpSec.iv && cmpSec.iv[t.t] != null) ivs.push(cmpSec.iv[t.t]);
+      });
+      r.grade = gs.length ? gs.reduce(function(a, b){ return a + b; }, 0) / gs.length : null;
+      r.call = gs.length ? calls / gs.length * 100 : null;
+      r.put = gs.length ? puts / gs.length * 100 : null;
+      r.iv = ivs.length ? ivs.reduce(function(a, b){ return a + b; }, 0) / ivs.length : null;
+    });
+    return by;
+  }
+  function cmpSecFmt(v, m){
+    if (v == null || !isFinite(v)) return '—';
+    if (m === 'grade') return (v > 0 ? '+' : '') + v.toFixed(1);
+    if (m === 'call' || m === 'put') return Math.round(v) + '%';
+    return (v > 0 ? '+' : '') + v.toFixed(m === 'iv' ? 0 : 1) + '%';
+  }
+  function cmpSecRender(){
+    var body = $('cmp-sectors-body');
+    if (!body) return;
+    if (cmpSec.loading || !cmpSec.heat){ body.innerHTML = '<p class="cmp-sec-empty">Loading sector data…</p>'; return; }
+    var by = cmpSecStats();
+    var names = Object.keys(by).sort(function(a, b){ return by[b].n - by[a].n || a.localeCompare(b); });
+    if (!names.length){ body.innerHTML = '<p class="cmp-sec-empty">Sector data is not available right now.</p>'; return; }
+    cmpSec.picked = cmpSec.picked.filter(function(n){ return by[n]; });
+    if (!cmpSec.picked.length) cmpSec.picked = names.slice(0, Math.min(4, names.length));
+    var chips = '<div class="cmp-sec-chips" role="group" aria-label="Pick sectors to compare">' + names.map(function(n){
+      var on = cmpSec.picked.indexOf(n) >= 0;
+      return '<button type="button" class="cmp-sec-chip' + (on ? ' is-on' : '') + '" data-cmp-sec="' + escapeHtml(n) + '" aria-pressed="' + (on ? 'true' : 'false') + '"' + (!on && cmpSec.picked.length >= CMP_SEC_MAX ? ' disabled title="Up to ' + CMP_SEC_MAX + ' sectors"' : '') + '>' + escapeHtml(n) + ' <small>' + by[n].n + '</small></button>';
+    }).join('') + '</div>';
+    var ctl = '<div class="cmp-chart-ctl"><label>Show <select id="cmp-sec-metric">' + Object.keys(CMP_SEC_METRICS).map(function(k){ return '<option value="' + k + '"' + (k === cmpSec.metric ? ' selected' : '') + '>' + CMP_SEC_METRICS[k] + '</option>'; }).join('') + '</select></label>' +
+      '<label>Returns <select id="cmp-sec-weight"><option value="cap"' + (cmpSec.weight === 'cap' ? ' selected' : '') + '>Weighted by market cap</option><option value="equal"' + (cmpSec.weight === 'equal' ? ' selected' : '') + '>Equal weight</option></select></label></div>';
+    var picked = cmpSec.picked.map(function(n){ return by[n]; });
+    var m = cmpSec.metric;
+    var scale = 0;
+    picked.forEach(function(r){ if (r[m] != null && Math.abs(r[m]) > scale) scale = Math.abs(r[m]); });
+    var unsigned = m === 'call';
+    var bars = '<ol class="hm-rank cmp-sec-bars">' + picked.slice().sort(function(a, b){ return (b[m] == null ? -1e9 : b[m]) - (a[m] == null ? -1e9 : a[m]); }).map(function(r){
+      var v = r[m], fill = '';
+      if (v != null && scale > 0){
+        if (unsigned) fill = '<i class="hm-bar-fill hm-pos" style="left:0;width:' + Math.max(1, v / Math.max(scale, 1) * 100).toFixed(1) + '%"></i>';
+        else { var half = Math.max(0.5, Math.abs(v) / scale * 50); var good = m === 'iv' ? v < 0 : v >= 0; fill = '<i class="hm-bar-fill ' + (good ? 'hm-pos' : 'hm-neg') + '" style="left:' + (v >= 0 ? 50 : 50 - half).toFixed(1) + '%;width:' + half.toFixed(1) + '%"></i>'; }
+      }
+      return '<li title="' + escapeHtml(r.name + ' · ' + r.n + ' names') + '"><span class="hm-rank-name">' + escapeHtml(r.name) + '</span><span class="hm-bar' + (unsigned ? ' is-unsigned' : '') + '">' + fill + '</span><span class="hm-rank-val">' + escapeHtml(cmpSecFmt(v, m)) + '</span></li>';
+    }).join('') + '</ol>';
+    var cols = [
+      { label: 'Sector', cell: function(r){ return '<b>' + escapeHtml(r.name) + '</b>'; }, sort: function(r){ return r.name; } },
+      { label: 'Names', num: true, cell: function(r){ return String(r.n); }, sort: function(r){ return r.n; } }
+    ];
+    ['1d','1w','1m','3m','ytd','1y'].forEach(function(p){
+      cols.push({ label: p.toUpperCase(), num: true, cell: function(r){ var v = r[p]; return v == null ? '' : '<span class="' + (v > 0 ? 'pos' : v < 0 ? 'neg' : '') + '">' + cmpSecFmt(v, p) + '</span>'; }, sort: function(r){ return r[p]; } });
+    });
+    cols.push({ label: 'Avg grade', num: true, cell: function(r){ return cmpSecFmt(r.grade, 'grade'); }, sort: function(r){ return r.grade; } });
+    cols.push({ label: 'Call lean', num: true, title: 'Share of names with a grade of +4 or more', cell: function(r){ return cmpSecFmt(r.call, 'call'); }, sort: function(r){ return r.call; } });
+    cols.push({ label: 'Put lean', num: true, title: 'Share of names with a grade of −4 or less', cell: function(r){ return cmpSecFmt(r.put, 'put'); }, sort: function(r){ return r.put; } });
+    cols.push({ label: 'IV vs avg', num: true, title: 'Average of each name’s IV against its own average', cell: function(r){ return cmpSecFmt(r.iv, 'iv'); }, sort: function(r){ return r.iv; } });
+    body.innerHTML = chips + ctl + '<div class="cmp-sec-chart"><div class="hm-alt-head"><b>' + escapeHtml(CMP_SEC_METRICS[m]) + '</b>' + (m.length <= 3 && m !== 'iv' ? ' · ' + (cmpSec.weight === 'cap' ? 'weighted by market cap' : 'equal weight') : '') + '</div>' + bars + '</div>' +
+      VIEWS.tableHtml(cols, picked, { key: 'cmp-sectors', empty: 'Pick at least one sector.' }) +
+      '<p class="hint">Sector numbers come from the tracked names in each sector only, not the whole market. Click a header to sort the table.</p>';
   }
   function cmpAddFromInput(){
     var input = $('cmp-input'); if (!input) return;
@@ -17197,6 +17548,84 @@ ${renderWorkspaceBindings()}
     cmpLoadAndRender();
   }
   function cmpStatus(msg){ var el = $('cmp-status'); if (el) el.textContent = msg || ''; }
+  // "+ Compare" buttons on ticker cards, the ticker table and the Grade tab
+  // all feed the same Compare list. A small tray at the foot of the page
+  // shows what is queued and opens the Compare tab.
+  function cmpToggleHtml(sym, cls){
+    if (!sym || sym.charAt(0) === '^') return '';
+    var on = compareState.tickers.indexOf(sym) !== -1;
+    return '<span role="button" tabindex="0" class="cmp-toggle' + (cls ? ' ' + cls : '') + (on ? ' is-on' : '') + '" data-cmp-toggle="' + escapeHtml(sym) + '" aria-pressed="' + (on ? 'true' : 'false') + '" title="' + (on ? 'Remove ' + escapeHtml(sym) + ' from Compare' : 'Add ' + escapeHtml(sym) + ' to Compare') + '">' + (on ? '✓ Compare' : '+ Compare') + '</span>';
+  }
+  function cmpToggleTicker(sym){
+    if (!sym) return;
+    if (compareState.tickers.indexOf(sym) !== -1) compareState.tickers = compareState.tickers.filter(function(t){ return t !== sym; });
+    else if (compareState.tickers.length >= CMP_MAX){ cmpTraySync('Compare holds up to ' + CMP_MAX + ' names. Remove one first.'); return; }
+    else compareState.tickers.push(sym);
+    var pane = document.getElementById('page-pane-compare');
+    if (pane && !pane.hidden) cmpLoadAndRender();
+    else cmpTraySync();
+  }
+  function cmpTraySync(note){
+    var list = compareState.tickers;
+    var btns = document.querySelectorAll('[data-cmp-toggle]');
+    for (var i = 0; i < btns.length; i++){
+      var sym = btns[i].getAttribute('data-cmp-toggle');
+      var on = list.indexOf(sym) !== -1;
+      btns[i].classList.toggle('is-on', on);
+      btns[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+      btns[i].textContent = on ? '✓ Compare' : '+ Compare';
+      btns[i].title = (on ? 'Remove ' + sym + ' from' : 'Add ' + sym + ' to') + ' Compare';
+    }
+    var tray = document.getElementById('cmp-tray');
+    if (!tray){
+      if (!list.length) return;
+      tray = document.createElement('div');
+      tray.id = 'cmp-tray';
+      tray.className = 'cmp-tray';
+      tray.setAttribute('role', 'region');
+      tray.setAttribute('aria-label', 'Compare list');
+      document.body.appendChild(tray);
+      tray.addEventListener('click', function(e){
+        var t = e.target && e.target.closest ? e.target : null;
+        if (!t) return;
+        var rm = t.closest('[data-cmp-tray-remove]');
+        if (rm){ cmpToggleTicker(rm.getAttribute('data-cmp-tray-remove')); return; }
+        if (t.closest('[data-cmp-tray-clear]')){ compareState.tickers = []; cmpTraySync(); return; }
+        if (t.closest('[data-cmp-tray-open]')){
+          var tab = document.querySelector('[data-page-tab="compare"]');
+          if (tab) tab.click();
+        }
+      });
+    }
+    var pane = document.getElementById('page-pane-compare');
+    var onCompare = pane && !pane.hidden;
+    tray.hidden = onCompare || (!list.length && !note);
+    if (tray.hidden) return;
+    tray.innerHTML = '<span class="cmp-tray-label">Compare</span>' +
+      '<span class="cmp-tray-chips">' + list.map(function(sym){
+        return '<span class="cmp-tray-chip">' + escapeHtml(sym) + '<button type="button" data-cmp-tray-remove="' + escapeHtml(sym) + '" aria-label="Remove ' + escapeHtml(sym) + '">×</button></span>';
+      }).join('') + '</span>' +
+      (note ? '<span class="cmp-tray-note">' + escapeHtml(note) + '</span>' : '') +
+      '<span class="cmp-tray-actions">' +
+        (list.length ? '<button type="button" class="cmp-tray-clear" data-cmp-tray-clear>Clear</button>' : '') +
+        '<button type="button" class="cmp-tray-open" data-cmp-tray-open' + (list.length < 2 ? ' disabled title="Add at least two names"' : '') + '>Open Compare (' + list.length + ')</button>' +
+      '</span>';
+  }
+  (function initCompareToggles(){
+    function hit(e){
+      var t = e.target && e.target.closest ? e.target.closest('[data-cmp-toggle]') : null;
+      if (!t) return false;
+      e.preventDefault();
+      e.stopPropagation();
+      cmpToggleTicker(t.getAttribute('data-cmp-toggle'));
+      return true;
+    }
+    document.addEventListener('click', hit, true);
+    document.addEventListener('keydown', function(e){
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      hit(e);
+    }, true);
+  })();
   // Lazy-fetch any uncached tickers + the shared grades index, then render.
   function cmpLoadAndRender(){
     renderCompare(); // paint chips immediately
@@ -17721,6 +18150,7 @@ ${renderWorkspaceBindings()}
     }
   }
   function renderCompare(){
+    cmpTraySync();
     var syms = compareState.tickers.slice();
     if (!compareState.refSym || syms.indexOf(compareState.refSym) === -1) compareState.refSym = syms[0] || null;
     var chipsEl = $('cmp-chips'); if (chipsEl) chipsEl.innerHTML = cmpChipsHtml();
@@ -17728,7 +18158,7 @@ ${renderWorkspaceBindings()}
     var wrap = $('cmp-table-wrap'); var sum = $('cmp-summary');
     if (!wrap || !sum) return;
     if (syms.length < 2){
-      wrap.hidden = true; sum.hidden = true; cmpHideChart(); cmpSetTechVisible(false); cmpRenderRefPicks();
+      wrap.hidden = true; sum.hidden = true; cmpHideChart(); cmpSetTechVisible(false); cmpRenderRefPicks(); cmpRenderPillars([]);
       cmpStatus(syms.length === 1 ? 'Add at least one more ticker to compare.' : '');
       return;
     }
@@ -17743,7 +18173,7 @@ ${renderWorkspaceBindings()}
       cols.push({ sym: sym, idx: i, j: j, grade: j._grade });
     }
     var ready = cols.filter(function(c){ return c.j; });
-    if (ready.length < 2){ compareState.window = null; wrap.hidden = true; sum.hidden = true; cmpHideChart(); cmpSetTechVisible(false); cmpRenderRefPicks(); return; }
+    if (ready.length < 2){ compareState.window = null; wrap.hidden = true; sum.hidden = true; cmpHideChart(); cmpSetTechVisible(false); cmpRenderRefPicks(); cmpRenderPillars([]); return; }
     compareState.window = cmpWindowStats(ready);
     var refLoaded = false;
     for (var ri = 0; ri < ready.length; ri++) if (ready[ri].sym === compareState.refSym) refLoaded = true;
@@ -17770,6 +18200,47 @@ ${renderWorkspaceBindings()}
     // Summary
     sum.innerHTML = cmpSummaryHtml(ready);
     sum.hidden = false;
+    cmpRenderPillars(ready);
+  }
+  // Grade pillars side by side: one row per pillar, one bar per company in
+  // its series colour, centred on zero so a negative pillar points left.
+  var CMP_PILLARS = [
+    ['technicals', 'Technicals', 'Trend, momentum and price structure'],
+    ['mechanicals', 'Flow', 'Options flow, volume and positioning'],
+    ['fundamentals', 'Fundamentals', 'Growth, margins, guidance and analysts'],
+    ['narrative', 'Narrative', 'News, sector story and catalysts'],
+    ['timing', 'Entry timing', 'Whether now is a clean entry'],
+    ['ivCost', 'IV cost', 'How expensive the options are']
+  ];
+  function cmpRenderPillars(ready){
+    var host = $('cmp-pillars');
+    if (!host) return;
+    var cols = (ready || []).filter(function(c){ return c.grade && c.grade.pillars; });
+    if (cols.length < 2){ host.hidden = true; host.innerHTML = ''; return; }
+    var rows = CMP_PILLARS.map(function(pd){
+      var vals = cols.map(function(c){ return cmpPillar(c.j, pd[0]); });
+      return { def: pd, vals: vals };
+    }).filter(function(r){ return r.vals.some(function(v){ return v != null; }); });
+    var totalVals = cols.map(function(c){ return cmpIsNum(c.grade.total) ? Number(c.grade.total) : null; });
+    rows.push({ def: ['total', 'Total grade', 'All pillars added together'], vals: totalVals, total: true });
+    var html = '<div class="cmp-pl-head"><div><div class="cmp-chart-eyebrow">Grade pillars</div><h3 class="cmp-chart-title">Where each grade comes from</h3>' +
+      '<p class="cmp-chart-sub">Each pillar is scored on the same fixed scale for every name (most sit between −5 and +5). Bars to the right push toward a call, to the left toward a put.</p></div>' +
+      '<div class="cmp-pl-legend">' + cols.map(function(c){ return '<span class="cmp-series-' + c.idx + '"><i></i>' + escapeHtml(c.sym) + '</span>'; }).join('') + '</div></div>';
+    html += '<div class="cmp-pl-rows">' + rows.map(function(r){
+      var scale = r.total ? 10 : 5;
+      r.vals.forEach(function(v){ if (v != null && Math.abs(v) > scale) scale = Math.abs(v); });
+      var bars = cols.map(function(c, k){
+        var v = r.vals[k];
+        if (v == null) return '<div class="cmp-pl-bar is-na cmp-series-' + c.idx + '" title="' + escapeHtml(c.sym + ': no ' + r.def[1].toLowerCase() + ' score') + '"><span class="cmp-pl-val">—</span></div>';
+        var half = Math.min(50, Math.abs(v) / scale * 50);
+        return '<div class="cmp-pl-bar cmp-series-' + c.idx + '" title="' + escapeHtml(c.sym + ' ' + r.def[1] + ': ' + (v > 0 ? '+' : '') + v.toFixed(1)) + '">' +
+          '<span class="cmp-pl-track"><i style="left:' + (v >= 0 ? 50 : 50 - half).toFixed(1) + '%;width:' + Math.max(0.6, half).toFixed(1) + '%"></i></span>' +
+          '<span class="cmp-pl-val">' + (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(1) + '</span></div>';
+      }).join('');
+      return '<div class="cmp-pl-row' + (r.total ? ' is-total' : '') + '"><div class="cmp-pl-name"><b>' + escapeHtml(r.def[1]) + '</b><small>' + escapeHtml(r.def[2]) + '</small></div><div class="cmp-pl-bars">' + bars + '</div></div>';
+    }).join('') + '</div>';
+    host.innerHTML = html;
+    host.hidden = false;
   }
   // Plain-language "how they stack up" — leaders on the metrics that matter,
   // and a note on whether they share a sector (the Top-Picks-style framing).
@@ -22015,7 +22486,12 @@ ${renderWorkspaceBindings()}
     { key: 'rel',      label: 'Vs own avg' },
     { key: 'rise5',    label: '5d rising' },
     { key: 'fall5',    label: '5d falling' },
-    { key: 'earnings', label: 'Earnings soonest' }
+    { key: 'earnings', label: 'Earnings soonest' },
+    { key: 'z',        label: 'Most unusual' },
+    { key: 'rise20',   label: '20d rising' },
+    { key: 'low',      label: 'Cheapest vs own avg' },
+    { key: 'sector',   label: 'Sector' },
+    { key: 'alpha',    label: 'A → Z' }
   ];
   var IVT_TABLE_DEFAULT_ROWS = 25;
   function ivtIvPct(v){
@@ -22106,6 +22582,14 @@ ${renderWorkspaceBindings()}
     if (mode === 'rise5') return bySort(function(r){ return r.chg5dPct; }, -1);
     if (mode === 'fall5') return bySort(function(r){ return r.chg5dPct; }, 1);
     if (mode === 'earnings') return bySort(function(r){ return r.earnings ? r.earnings.inDays : null; }, 1);
+    if (mode === 'z') return bySort(function(r){ return r.z; }, -1);
+    if (mode === 'rise20') return bySort(function(r){ return r.chg20dPct; }, -1);
+    if (mode === 'low') return bySort(function(r){ return r.relPct; }, 1);
+    if (mode === 'alpha' || mode === 'sector') return all.slice().sort(function(a, b){
+      var sa = String(a && a.symbol || ''), sb = String(b && b.symbol || '');
+      if (mode === 'alpha') return sa.localeCompare(sb);
+      return String(SECTORS[sa] || '~').localeCompare(String(SECTORS[sb] || '~')) || ((b && b.score || 0) - (a && a.score || 0));
+    });
     return all;
   }
   // Ranked-table column headers are clickable: first click sorts by that
@@ -22121,8 +22605,56 @@ ${renderWorkspaceBindings()}
     { key: 'chg5',   label: '5d',       dir: -1 },
     { key: 'chg20',  label: '20d',      dir: -1 },
     { key: 'earn',   label: 'Earnings', dir: 1 },
-    { key: 'score',  label: 'Score',    dir: -1 }
+    { key: 'score',  label: 'Score',    dir: -1 },
+    { key: 'trend',  label: '30d IV',   nosort: true }
   ];
+  // Small 30-session IV line for each ranked row, with the name's own
+  // average as a dashed guide. Rows baked before the mini series existed fall
+  // back to the tail of the tiered-card sparkline, else show nothing.
+  function ivtMiniSpark(row){
+    var vals = Array.isArray(row.mini) ? row.mini.slice() : [];
+    if (vals.length < 2 && Array.isArray(row.spark)) vals = row.spark.slice(-30).map(function(e){ return e && e[1]; });
+    vals = vals.map(Number).filter(function(v){ return isFinite(v) && v > 0; });
+    if (vals.length < 2) return '<span class="ivt-mini-na">—</span>';
+    var W = 90, H = 24, P = 2;
+    var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+    var mean = row.mean != null && isFinite(row.mean) ? Number(row.mean) : null;
+    if (mean != null){ lo = Math.min(lo, mean); hi = Math.max(hi, mean); }
+    if (!(hi > lo)) hi = lo + 0.0001;
+    var X = function(i){ return P + i * (W - 2 * P) / (vals.length - 1); };
+    var Y = function(v){ return H - P - (v - lo) * (H - 2 * P) / (hi - lo); };
+    var poly = '', hov = [];
+    for (var i = 0; i < vals.length; i++){
+      poly += (i ? ' ' : '') + X(i).toFixed(1) + ',' + Y(vals[i]).toFixed(1);
+      var ago = vals.length - 1 - i;
+      hov.push({ x: X(i), y: Y(vals[i]), label: (ago ? ago + ' session' + (ago === 1 ? '' : 's') + ' ago' : 'Latest') + '\\nIV ' + ivtIvPct(vals[i]) + (mean != null ? '\\nOwn average ' + ivtIvPct(mean) : '') });
+    }
+    var up = vals[vals.length - 1] >= vals[0];
+    return '<svg class="ivt-mini ' + (up ? 'is-up' : 'is-down') + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="IV over the last ' + vals.length + ' sessions"' + chHoverAttr(hov) + '>' +
+      (mean != null ? '<line class="ivt-spark-mean" x1="' + P + '" x2="' + (W - P) + '" y1="' + Y(mean).toFixed(1) + '" y2="' + Y(mean).toFixed(1) + '"/>' : '') +
+      '<polyline points="' + poly + '" fill="none"/></svg>';
+  }
+  // Current IV against the name's own long-run average, one dot per ticker in
+  // the active filter. Above the diagonal = options cost more than usual.
+  function ivtVsAvgChartHtml(rows){
+    var pts = [];
+    for (var i = 0; i < rows.length; i++){
+      var r = rows[i];
+      if (!r || r.iv == null || r.mean == null || !isFinite(r.iv) || !isFinite(r.mean) || !(r.mean > 0)) continue;
+      var rel = r.relPct != null && isFinite(r.relPct) ? Number(r.relPct) : (r.iv / r.mean - 1) * 100;
+      pts.push({ x: r.mean * 100, y: r.iv * 100, cls: rel >= 8 ? 'warn' : rel <= -8 ? 'call' : 'neutral',
+        href: symGradeHref(r.symbol), text: rows.length <= 30 ? r.symbol : '',
+        label: r.symbol + (r.sector ? ' · ' + r.sector : '') + '\\nIV now ' + ivtIvPct(r.iv) + '\\nOwn average ' + ivtIvPct(r.mean) + '\\n' + (rel >= 0 ? '+' : '') + rel.toFixed(0) + '% vs average' });
+    }
+    var svg = scatterSvgHtml(pts, { xLabel: 'Own average IV %', yLabel: 'IV now %', diag: true, h: 320,
+      xFmt: function(v){ return Math.round(v) + '%'; }, yFmt: function(v){ return Math.round(v) + '%'; }, ariaLabel: 'Each ticker’s implied volatility now against its own average' });
+    if (!svg) return '';
+    var open = VIEWS.get('ivtrend.vsavg', true) !== false;
+    return '<details class="ivt-vsavg"' + (open ? ' open' : '') + ' data-ivt-vsavg><summary>IV now vs its own average <small>(' + pts.length + ' names in this view)</small></summary>' +
+      '<div class="sc-controls"><span class="sc-legend"><i class="sc-key warn"></i>8%+ above average <i class="sc-key neutral"></i>Near average <i class="sc-key call"></i>8%+ below average</span></div>' +
+      '<div class="sc-host">' + svg + '</div>' +
+      '<p class="hint sc-hint">The dashed line is “IV equals its own average”. Dots above it mean options cost more than usual for that name; below it, less. Click a dot to open the ticker.</p></details>';
+  }
   function ivtColValue(r, key){
     if (key === 'iv') return r.iv;
     if (key === 'z') return r.z;
@@ -23243,6 +23775,7 @@ ${renderWorkspaceBindings()}
     var rows = '<div class="ivt-trow ivt-thead">';
     for (var h=0; h<IVT_COLS.length; h++){
       var col = IVT_COLS[h];
+      if (col.nosort){ rows += '<span class="ivt-th-plain">' + col.label + '</span>'; continue; }
       var cs0 = ivTrendState.colSort;
       var isActive = !!(cs0 && cs0.key === col.key);
       rows += '<span><button type="button" class="ivt-th-btn' + (isActive ? ' is-active' : '') + '" data-ivt-col="' + col.key + '" title="Sort by ' + col.label + (isActive ? ' — click to reverse' : '') + '">' +
@@ -23262,8 +23795,10 @@ ${renderWorkspaceBindings()}
         '<span class="ivt-trow-num' + (w.chg20dPct == null ? '' : (w.chg20dPct >= 0 ? ' cx-up' : ' cx-down')) + '">' + (w.chg20dPct == null ? '—' : (w.chg20dPct >= 0 ? '+' : '') + w.chg20dPct.toFixed(1) + '%') + '</span>' +
         '<span class="ivt-trow-earn">' + (w.earnings && w.earnings.date ? escapeHtml(ivtDateLabel(w.earnings.date)) + (w.earnings.inDays != null ? ' · ' + w.earnings.inDays + 'd' : '') : '—') + '</span>' +
         '<span class="ivt-trow-num">' + (w.score == null ? '—' : w.score.toFixed(1)) + '</span>' +
+        '<span class="ivt-trow-mini">' + ivtMiniSpark(w) + '</span>' +
       '</div>';
     }
+    html += ivtVsAvgChartHtml(sorted);
     html += '<div class="ivt-table" role="table" aria-label="Ranked tickers in the selected sort order">' + rows + '</div>';
     if (sorted.length > IVT_TABLE_DEFAULT_ROWS){
       html += '<button type="button" class="ivt-show-all" id="ivt-show-all">' +
@@ -23314,6 +23849,8 @@ ${renderWorkspaceBindings()}
     }
     var btn = $('ivt-show-all');
     if (btn) btn.addEventListener('click', function(){ ivTrendState.showAll = !ivTrendState.showAll; renderIvTrend(); });
+    var vsAvg = root.querySelector('[data-ivt-vsavg]');
+    if (vsAvg) vsAvg.addEventListener('toggle', function(){ VIEWS.set('ivtrend.vsavg', vsAvg.open ? null : false); });
     var sortBtns = root.querySelectorAll('.ivt-sort-chip');
     for (var sb=0; sb<sortBtns.length; sb++){
       sortBtns[sb].addEventListener('click', function(){
@@ -25415,6 +25952,8 @@ ${renderWorkspaceBindings()}
         var bb = rotNum(rotValue(b.episode || {}, ['bouncePct','reboundPct','offLowPct'])) || -999;
         return bb - ab;
       }
+      if (rotationState.sort === 'alpha') return String(a.symbol || '').localeCompare(String(b.symbol || ''));
+      if (rotationState.sort === 'group') return String(rotCandidateGroup(a) || '~').localeCompare(String(rotCandidateGroup(b) || '~')) || rotRecoveryPriorityCompare(a, b, thresholds);
       if (rotationState.sort === 'live'){
         var quoteMap = rotQuoteMap();
         var aq = quoteMap[String(a.symbol || '').toUpperCase()];
@@ -25474,7 +26013,7 @@ ${renderWorkspaceBindings()}
       '<div class="rot-filter-scroll" aria-label="Rebound state">' + phases.map(phaseBtn).join('') + '</div>' +
       '<div class="rot-toolbar"><div class="rot-action-filter">' + actionBtn('all','All') + actionBtn('act','Actionable') + actionBtn('wait','Wait') + actionBtn('pass','Pass') + '</div>' +
         '<label>Group <select data-rot-group>' + opts + '</select></label>' +
-        '<label>Sort ' + VIEWS.withFlip('<select data-rot-sort><option value="priority"' + (rotationState.sort === 'priority' ? ' selected' : '') + '>Desk priority</option><option value="fundamental"' + (rotationState.sort === 'fundamental' ? ' selected' : '') + '>Fundamental recovery</option><option value="drawdown52"' + (rotationState.sort === 'drawdown52' ? ' selected' : '') + '>52-week drawdown</option><option value="score"' + (rotationState.sort === 'score' ? ' selected' : '') + '>Setup score</option><option value="rr"' + (rotationState.sort === 'rr' ? ' selected' : '') + '>Best R:R</option><option value="drawdown"' + (rotationState.sort === 'drawdown' ? ' selected' : '') + '>Deepest dislocation</option><option value="bounce"' + (rotationState.sort === 'bounce' ? ' selected' : '') + '>Strongest rebound</option><option value="live"' + (rotationState.sort === 'live' ? ' selected' : '') + '>Live day move</option></select>', 'rotation') + '</label>' + VIEWS.viewToggleHtml('rotation') +
+        '<label>Sort ' + VIEWS.withFlip('<select data-rot-sort><option value="priority"' + (rotationState.sort === 'priority' ? ' selected' : '') + '>Desk priority</option><option value="fundamental"' + (rotationState.sort === 'fundamental' ? ' selected' : '') + '>Fundamental recovery</option><option value="drawdown52"' + (rotationState.sort === 'drawdown52' ? ' selected' : '') + '>52-week drawdown</option><option value="score"' + (rotationState.sort === 'score' ? ' selected' : '') + '>Setup score</option><option value="rr"' + (rotationState.sort === 'rr' ? ' selected' : '') + '>Best R:R</option><option value="drawdown"' + (rotationState.sort === 'drawdown' ? ' selected' : '') + '>Deepest dislocation</option><option value="bounce"' + (rotationState.sort === 'bounce' ? ' selected' : '') + '>Strongest rebound</option><option value="live"' + (rotationState.sort === 'live' ? ' selected' : '') + '>Live day move</option><option value="group"' + (rotationState.sort === 'group' ? ' selected' : '') + '>Sector group</option><option value="alpha"' + (rotationState.sort === 'alpha' ? ' selected' : '') + '>Ticker A → Z</option></select>', 'rotation') + '</label>' + VIEWS.viewToggleHtml('rotation') +
         '<span class="rot-showing" role="status" aria-live="polite" aria-atomic="true">Showing ' + visible.length + ' of ' + candidates.length + '</span></div>' +
       '</section>';
   }
@@ -25728,7 +26267,7 @@ ${renderWorkspaceBindings()}
     if (levPrefs && isFinite(levPrefs.account) && levPrefs.account > 0) levState.account = Number(levPrefs.account);
     if (levPrefs && isFinite(levPrefs.riskPct) && levPrefs.riskPct > 0 && levPrefs.riskPct <= 5) levState.riskPct = Number(levPrefs.riskPct);
   } catch(e){}
-  levState.sort = VIEWS.choose('levetf.sort', 'conviction', ['conviction', 'setup', 'rr', 'drag']);
+  levState.sort = VIEWS.choose('levetf.sort', 'conviction', ['conviction', 'setup', 'rr', 'drag', 'lev', 'under', 'alpha']);
   function levTableHtml(rows){
     function n(v){ v = Number(v); return isFinite(v) ? v : null; }
     var cols = [
@@ -26169,6 +26708,9 @@ ${renderWorkspaceBindings()}
       return true;
     });
     rows.sort(function(a, b){
+      if (levState.sort === 'alpha') return String(a.etf || '').localeCompare(String(b.etf || ''));
+      if (levState.sort === 'under') return String((a.under && a.under.symbol) || a.proxy || a.label || '~').localeCompare(String((b.under && b.under.symbol) || b.proxy || b.label || '~')) || b.conviction - a.conviction;
+      if (levState.sort === 'lev') return (Number(b.leverage) || 0) - (Number(a.leverage) || 0) || b.conviction - a.conviction;
       if (levState.sort === 'drag') return ((a.decay && a.decay.dragMoPct) || 999) - ((b.decay && b.decay.dragMoPct) || 999);
       if (levState.sort === 'rr') return ((leveragedEntryPlan(b) || {}).riskReward || -1) - ((leveragedEntryPlan(a) || {}).riskReward || -1);
       if (levState.sort === 'setup'){
@@ -26198,7 +26740,7 @@ ${renderWorkspaceBindings()}
       '<div class="lev-toolbar">' +
         '<div class="lev-filter-group" aria-label="Entry status">' + btn('setup', 'all', 'All setups') + btn('setup', 'now', 'Enter now') + btn('setup', 'wait', 'Waiting') + btn('setup', 'pass', 'Pass') + '</div>' +
         '<div class="lev-filter-group" aria-label="Direction">' + btn('direction', 'all', 'Both sides') + btn('direction', 'bull', 'Bull') + btn('direction', 'bear', 'Bear') + '</div>' +
-        '<label class="lev-sort">Sort ' + VIEWS.withFlip('<select data-lev-sort><option value="conviction"' + (levState.sort === 'conviction' ? ' selected' : '') + '>Conviction</option><option value="setup"' + (levState.sort === 'setup' ? ' selected' : '') + '>Cleanest setup</option><option value="rr"' + (levState.sort === 'rr' ? ' selected' : '') + '>Best est. R:R</option><option value="drag"' + (levState.sort === 'drag' ? ' selected' : '') + '>Lowest reset drag</option></select>', 'levetf') + '</label>' + VIEWS.viewToggleHtml('levetf') +
+        '<label class="lev-sort">Sort ' + VIEWS.withFlip('<select data-lev-sort><option value="conviction"' + (levState.sort === 'conviction' ? ' selected' : '') + '>Conviction</option><option value="setup"' + (levState.sort === 'setup' ? ' selected' : '') + '>Cleanest setup</option><option value="rr"' + (levState.sort === 'rr' ? ' selected' : '') + '>Best est. R:R</option><option value="drag"' + (levState.sort === 'drag' ? ' selected' : '') + '>Lowest reset drag</option><option value="lev"' + (levState.sort === 'lev' ? ' selected' : '') + '>Most leverage</option><option value="under"' + (levState.sort === 'under' ? ' selected' : '') + '>Underlying A → Z</option><option value="alpha"' + (levState.sort === 'alpha' ? ' selected' : '') + '>ETF ticker A → Z</option></select>', 'levetf') + '</label>' + VIEWS.viewToggleHtml('levetf') +
         '<span class="lev-showing">Showing ' + visible.length + ' of ' + ideas.length + '</span>' +
       '</div>' +
     '</section>';
@@ -26961,6 +27503,18 @@ ${renderWorkspaceBindings()}
     out.sort(function(a,b){
       var ad = Date.parse(a.publishedAt || '') || 0, bd = Date.parse(b.publishedAt || '') || 0;
       if (f.sort === 'latest') return (bd - ad) || ((b.impactScore || 0) - (a.impactScore || 0));
+      if (f.sort === 'oldest') return (ad - bd) || ((b.impactScore || 0) - (a.impactScore || 0));
+      if (f.sort === 'ticker' || f.sort === 'sector' || f.sort === 'source'){
+        var ka = f.sort === 'ticker' ? (a.symbols || [])[0] : f.sort === 'sector' ? (a.sectors || [])[0] : (a.publisher || (a.sources || [])[0]);
+        var kb = f.sort === 'ticker' ? (b.symbols || [])[0] : f.sort === 'sector' ? (b.sectors || [])[0] : (b.publisher || (b.sources || [])[0]);
+        if (!ka !== !kb) return ka ? -1 : 1;
+        return String(ka || '').localeCompare(String(kb || '')) || (bd - ad);
+      }
+      if (f.sort === 'move'){
+        var ma = a.reaction && isFinite(Number(a.reaction.movePct)) ? Math.abs(Number(a.reaction.movePct)) : -1;
+        var mb = b.reaction && isFinite(Number(b.reaction.movePct)) ? Math.abs(Number(b.reaction.movePct)) : -1;
+        return (mb - ma) || ((b.impactScore || 0) - (a.impactScore || 0)) || (bd - ad);
+      }
       return ((b.impactScore || 0) - (a.impactScore || 0)) || (bd - ad);
     });
     out = VIEWS.applyDir(out, 'news');
@@ -31361,7 +31915,10 @@ ${renderWorkspaceBindings()}
     data: null,
     loading: false,
     groupBy: 'sector',
-    colorBy: 'perf',   // 'perf' (% change) | 'rvol' (relative volume)
+    colorBy: VIEWS.choose('heatmap.color', 'perf', ['perf', 'rvol', 'grade', 'iv']),   // 'perf' | 'rvol' | 'grade' (grade score) | 'iv' (IV vs own average)
+    layout: VIEWS.choose('heatmap.layout', 'map', ['map', 'bars', 'periods']),
+    periodB: VIEWS.choose('heatmap.periodB', '1m', ['1d', '1w', '1m', '3m', 'ytd', '1y']),
+    gradeMap: null, gradeLoading: false, ivMap: null, ivLoading: false,
     period: '1d',      // '1d' | '1w' | '1m' | '3m' | 'ytd' | '1y'
     search: '',        // uppercased ticker filter for highlight
     live: false,
@@ -31452,7 +32009,29 @@ ${renderWorkspaceBindings()}
     if (colorSel){
       colorSel.value = heatmapState.colorBy;
       colorSel.addEventListener('change', function(){
-        heatmapState.colorBy = colorSel.value === 'rvol' ? 'rvol' : 'perf';
+        var v = colorSel.value;
+        heatmapState.colorBy = (v === 'rvol' || v === 'grade' || v === 'iv') ? v : 'perf';
+        VIEWS.set('heatmap.color', heatmapState.colorBy === 'perf' ? null : heatmapState.colorBy);
+        heatmapEnsureColorData();
+        renderHeatmap();
+      });
+      heatmapEnsureColorData();
+    }
+    var layoutSel = $('heatmap-layout-select');
+    if (layoutSel){
+      layoutSel.value = heatmapState.layout;
+      layoutSel.addEventListener('change', function(){
+        heatmapState.layout = (layoutSel.value === 'bars' || layoutSel.value === 'periods') ? layoutSel.value : 'map';
+        VIEWS.set('heatmap.layout', heatmapState.layout === 'map' ? null : heatmapState.layout);
+        renderHeatmap();
+      });
+    }
+    var periodBSel = $('heatmap-periodb-select');
+    if (periodBSel){
+      periodBSel.value = heatmapState.periodB;
+      periodBSel.addEventListener('change', function(){
+        heatmapState.periodB = HEATMAP_PERIOD_LABEL[periodBSel.value] ? periodBSel.value : '1m';
+        VIEWS.set('heatmap.periodB', heatmapState.periodB === '1m' ? null : heatmapState.periodB);
         renderHeatmap();
       });
     }
@@ -31747,7 +32326,63 @@ ${renderWorkspaceBindings()}
   // gainer is deep green, a heavy loser deep red) while saturation tracks how
   // far above average the volume ran — quiet names fade to gray regardless of
   // their move, which is exactly the "where's the action" read.
-  function heatmapPaintParts(ch, rv, colorBy, period){
+  // Grade and IV colour modes read two public files, fetched only when the
+  // mode is picked: grades.json (signed grade score) and iv-trending.json
+  // (current IV versus the name's own average).
+  var HEATMAP_GRADE_SAT = 8;
+  var HEATMAP_IV_SAT = 40;
+  function heatmapEnsureColorData(){
+    var mode = heatmapState.colorBy;
+    if (mode === 'grade' && !heatmapState.gradeMap && !heatmapState.gradeLoading){
+      heatmapState.gradeLoading = true;
+      fetch(dataUrl('grades.json'), { cache: 'no-cache' })
+        .then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(j){
+          var m = {}, g = j && j.grades ? j.grades : {};
+          Object.keys(g).forEach(function(k){ var v = g[k] && Number(g[k].total); if (isFinite(v)) m[k] = v; });
+          heatmapState.gradeMap = m;
+        })
+        .catch(function(){ heatmapState.gradeMap = {}; })
+        .then(function(){ heatmapState.gradeLoading = false; renderHeatmap(); });
+    }
+    if (mode === 'iv' && !heatmapState.ivMap && !heatmapState.ivLoading){
+      heatmapState.ivLoading = true;
+      fetch(dataUrl('iv-trending.json'), { cache: 'no-cache' })
+        .then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(j){
+          var m = {}, rows = j && Array.isArray(j.rows) ? j.rows : (j && Array.isArray(j.tickers) ? j.tickers : []);
+          rows.forEach(function(r){
+            if (!r || !r.symbol) return;
+            var rel = r.relPct != null && isFinite(r.relPct) ? Number(r.relPct) : (r.iv > 0 && r.mean > 0 ? (r.iv / r.mean - 1) * 100 : null);
+            if (rel != null) m[r.symbol] = { rel: rel, iv: Number(r.iv) };
+          });
+          heatmapState.ivMap = m;
+        })
+        .catch(function(){ heatmapState.ivMap = {}; })
+        .then(function(){ heatmapState.ivLoading = false; renderHeatmap(); });
+    }
+  }
+  function heatmapModeValue(sym, colorBy){
+    if (colorBy === 'grade'){ var g = heatmapState.gradeMap && heatmapState.gradeMap[sym]; return g == null ? null : g; }
+    if (colorBy === 'iv'){ var iv = heatmapState.ivMap && heatmapState.ivMap[sym]; return iv ? iv.rel : null; }
+    return null;
+  }
+  function heatmapValueText(sym, ch, rv, colorBy){
+    if (colorBy === 'rvol') return heatmapFmtRvol(rv);
+    if (colorBy === 'grade'){ var g = heatmapModeValue(sym, 'grade'); return g == null ? '—' : (g > 0 ? '+' : '') + g.toFixed(1); }
+    if (colorBy === 'iv'){ var v = heatmapModeValue(sym, 'iv'); return v == null ? '—' : (v > 0 ? '+' : '') + Math.round(v) + '% IV'; }
+    return heatmapFmtPct(ch);
+  }
+  function heatmapPaintParts(ch, rv, colorBy, period, sym){
+    if (colorBy === 'grade' || colorBy === 'iv'){
+      var mv = heatmapModeValue(sym, colorBy);
+      if (mv == null) return { dir: 'zero', intensity: 0 };
+      var sat = colorBy === 'grade' ? HEATMAP_GRADE_SAT : HEATMAP_IV_SAT;
+      // IV above its own average paints red (options cost more than usual).
+      var signed = colorBy === 'iv' ? -mv : mv;
+      var c = Math.max(-sat, Math.min(sat, signed));
+      return c > 0 ? { dir: 'pos', intensity: c / sat } : c < 0 ? { dir: 'neg', intensity: -c / sat } : { dir: 'zero', intensity: 0 };
+    }
     if (colorBy === 'rvol'){
       var base = heatmapColorParts(ch, period);
       return { dir: base.dir, intensity: heatmapRvolIntensity(rv) };
@@ -31764,9 +32399,9 @@ ${renderWorkspaceBindings()}
   // baked period baseline implied by {spot, return}, then mark that baseline
   // with the live regular-session spot. This keeps every selected horizon live
   // without fetching a full price history in the browser.
-  function heatmapEffectiveCh(t){
+  function heatmapEffectiveCh(t, periodOverride){
     if (!t) return null;
-    var period = heatmapState.period || '1d';
+    var period = periodOverride || heatmapState.period || '1d';
     var baked = heatmapBakedReturn(t, period);
     var o = heatmapState.liveOverlay && heatmapState.liveOverlay[t.t];
     if (!o) return baked;
@@ -32004,6 +32639,16 @@ ${renderWorkspaceBindings()}
   function renderHeatmapLegend(){
     var host = $('heatmap-legend');
     if (!host) return;
+    if (heatmapState.colorBy === 'grade' || heatmapState.colorBy === 'iv'){
+      var isIv = heatmapState.colorBy === 'iv';
+      var loadingNote = (isIv ? (!heatmapState.ivMap) : (!heatmapState.gradeMap)) ? ' · loading…' : '';
+      host.innerHTML = isIv
+        ? '<span class="heatmap-legend-label">IV +' + HEATMAP_IV_SAT + '% vs avg</span><span class="heatmap-legend-bar"></span><span class="heatmap-legend-label">IV −' + HEATMAP_IV_SAT + '% vs avg</span>' +
+          '<span class="heatmap-legend-note">red = options cost more than usual for that name · green = cheaper than usual' + loadingNote + '</span>'
+        : '<span class="heatmap-legend-label">put −' + HEATMAP_GRADE_SAT + '</span><span class="heatmap-legend-bar"></span><span class="heatmap-legend-label">call +' + HEATMAP_GRADE_SAT + '</span>' +
+          '<span class="heatmap-legend-note">grade score · green leans call, red leans put, gray = no read' + loadingNote + '</span>';
+      return;
+    }
     if (heatmapState.colorBy === 'rvol'){
       host.innerHTML =
         '<span class="heatmap-legend-label">down · heavy</span>' +
@@ -32024,6 +32669,7 @@ ${renderWorkspaceBindings()}
   // Pure class toggling on the existing tiles — no re-render — so typing is
   // cheap. Empty query clears the highlight.
   function applyHeatmapSearch(){
+    if (heatmapState.layout !== 'map'){ heatmapSyncLayout(); return; }
     var root = $('heatmap-root');
     if (!root) return;
     var q = heatmapState.search || '';
@@ -32055,6 +32701,130 @@ ${renderWorkspaceBindings()}
     renderHeatmap();
   }
 
+  // Ranked bars and the two-period view are alternatives to the treemap.
+  // They reuse the same rows, colour mode, period, group and search box.
+  // Returns true when an alternative layout was drawn (map hidden).
+  function heatmapSyncLayout(){
+    var root = $('heatmap-root'), alt = $('heatmap-alt');
+    var useAlt = heatmapState.layout !== 'map';
+    var zoomCtl = document.querySelector('#heatmap-section .heatmap-zoom');
+    var pbCtl = document.querySelector('#heatmap-section .heatmap-periodb-control');
+    if (zoomCtl) zoomCtl.hidden = useAlt;
+    if (pbCtl) pbCtl.hidden = heatmapState.layout !== 'periods';
+    if (!alt || !root) return false;
+    root.hidden = useAlt;
+    alt.hidden = !useAlt;
+    if (!useAlt){ alt.innerHTML = ''; return false; }
+    var rows = heatmapState.data && Array.isArray(heatmapState.data.tickers) ? heatmapState.data.tickers : [];
+    alt.innerHTML = heatmapState.layout === 'periods' ? heatmapPeriodsHtml(rows) : heatmapBarsHtml(rows);
+    return true;
+  }
+  function heatmapMetric(t, colorBy, period){
+    if (colorBy === 'rvol') return heatmapEffectiveRvol(t);
+    if (colorBy === 'grade' || colorBy === 'iv') return heatmapModeValue(t.t, colorBy);
+    return heatmapEffectiveCh(t, period);
+  }
+  function heatmapMetricText(v, colorBy){
+    if (v == null || !isFinite(v)) return '—';
+    if (colorBy === 'rvol') return heatmapFmtRvol(v);
+    if (colorBy === 'grade') return (v > 0 ? '+' : '') + v.toFixed(1);
+    if (colorBy === 'iv') return (v > 0 ? '+' : '') + Math.round(v) + '% vs avg';
+    return heatmapFmtPct(v);
+  }
+  function heatmapMetricLabel(colorBy, period){
+    if (colorBy === 'rvol') return 'Relative volume';
+    if (colorBy === 'grade') return 'Grade score';
+    if (colorBy === 'iv') return 'IV vs own average';
+    return heatmapPeriodLabel(period) + ' return';
+  }
+  function heatmapVisibleRows(rows){
+    var q = heatmapState.search || '';
+    return rows.filter(function(t){ return t && t.t && (!q || String(t.t).indexOf(q) === 0); });
+  }
+  // Signed bar centred on zero (relative volume grows from the left edge).
+  function heatmapBarHtml(v, scale, colorBy){
+    if (v == null || !isFinite(v) || !(scale > 0)) return '<span class="hm-bar"></span>';
+    if (colorBy === 'rvol'){
+      var w = Math.max(1, Math.min(100, v / scale * 100));
+      return '<span class="hm-bar is-unsigned"><i class="hm-bar-fill' + (v >= HEATMAP_HOT_RVOL ? ' is-hot' : '') + '" style="left:0;width:' + w.toFixed(1) + '%"></i></span>';
+    }
+    var half = Math.max(0.5, Math.min(50, Math.abs(v) / scale * 50));
+    // IV above its own average paints red, matching the map colours.
+    var good = colorBy === 'iv' ? v < 0 : v >= 0;
+    return '<span class="hm-bar"><i class="hm-bar-fill ' + (good ? 'hm-pos' : 'hm-neg') + '" style="left:' + (v >= 0 ? 50 : 50 - half).toFixed(1) + '%;width:' + half.toFixed(1) + '%"></i></span>';
+  }
+  function heatmapScale(vals){
+    var m = 0;
+    for (var i = 0; i < vals.length; i++) if (vals[i] != null && isFinite(vals[i]) && Math.abs(vals[i]) > m) m = Math.abs(vals[i]);
+    return m;
+  }
+  function heatmapGroupStats(rows, colorBy, period){
+    var groupKey = heatmapState.groupBy === 'industry' ? 'i' : 's';
+    var map = {};
+    rows.forEach(function(t){
+      var v = heatmapMetric(t, colorBy, period);
+      if (v == null || !isFinite(v)) return;
+      var k = t[groupKey] || t.s || 'Other';
+      if (!map[k]) map[k] = { name: k, sumW: 0, sum: 0, n: 0 };
+      // Returns are cap-weighted like the breadth ribbon; the other modes
+      // use a plain average so one giant name does not set the colour.
+      var w = colorBy === 'perf' && t.mc > 0 ? Number(t.mc) : 1;
+      map[k].sumW += w; map[k].sum += v * w; map[k].n++;
+    });
+    return Object.keys(map).map(function(k){ var g = map[k]; return { name: g.name, value: g.sum / g.sumW, n: g.n }; });
+  }
+  function heatmapBarsHtml(all){
+    var colorBy = heatmapState.colorBy, period = heatmapState.period || '1d';
+    var rows = heatmapVisibleRows(all);
+    var label = heatmapMetricLabel(colorBy, period);
+    var pending = (colorBy === 'grade' && !heatmapState.gradeMap) || (colorBy === 'iv' && !heatmapState.ivMap);
+    if (pending) return '<p class="hm-alt-empty">Loading ' + escapeHtml(label.toLowerCase()) + '…</p>';
+    var items = rows.map(function(t){ return { t: t, v: heatmapMetric(t, colorBy, period) }; })
+      .filter(function(x){ return x.v != null && isFinite(x.v); })
+      .sort(function(a, b){ return b.v - a.v || String(a.t.t).localeCompare(String(b.t.t)); });
+    if (!items.length) return '<p class="hm-alt-empty">No tickers have a ' + escapeHtml(label.toLowerCase()) + ' to rank' + (heatmapState.search ? ' for that search' : '') + '.</p>';
+    var groups = heatmapGroupStats(rows, colorBy, period).sort(function(a, b){ return b.value - a.value; });
+    var gScale = heatmapScale(groups.map(function(g){ return g.value; }));
+    var scale = heatmapScale(items.map(function(x){ return x.v; }));
+    var groupName = heatmapState.groupBy === 'industry' ? 'Industry' : 'Sector';
+    var h = '<div class="hm-alt-head"><b>' + escapeHtml(label) + '</b>, ranked high to low</div>';
+    h += '<div class="hm-alt-grid"><section class="hm-alt-col"><h4>By ' + groupName.toLowerCase() + ' <small>' + (colorBy === 'perf' ? 'cap-weighted' : 'average') + '</small></h4><ol class="hm-rank">' + groups.map(function(g){
+      return '<li><span class="hm-rank-name" title="' + escapeHtml(g.name + ' · ' + g.n + ' names') + '">' + escapeHtml(g.name) + '</span>' + heatmapBarHtml(g.value, gScale, colorBy) + '<span class="hm-rank-val">' + escapeHtml(heatmapMetricText(g.value, colorBy)) + '</span></li>';
+    }).join('') + '</ol></section>';
+    h += '<section class="hm-alt-col"><h4>By ticker <small>' + items.length + ' names</small></h4><ol class="hm-rank hm-rank-tickers">' + items.map(function(x){
+      var sub = heatmapState.groupBy === 'industry' ? (x.t.i || x.t.s || '') : (x.t.s || '');
+      return '<li><a class="hm-rank-name" href="' + symGradeHref(x.t.t) + '" title="' + escapeHtml((x.t.n || x.t.t) + (sub ? ' · ' + sub : '')) + '"><b>' + escapeHtml(x.t.t) + '</b></a>' + heatmapBarHtml(x.v, scale, colorBy) + '<span class="hm-rank-val">' + escapeHtml(heatmapMetricText(x.v, colorBy)) + '</span></li>';
+    }).join('') + '</ol></section></div>';
+    return h;
+  }
+  function heatmapPeriodsHtml(all){
+    var pa = heatmapState.period || '1d', pb = heatmapState.periodB || '1m';
+    var rows = heatmapVisibleRows(all);
+    var la = heatmapPeriodLabel(pa), lb = heatmapPeriodLabel(pb);
+    var ga = heatmapGroupStats(rows, 'perf', pa), gb = heatmapGroupStats(rows, 'perf', pb);
+    var gbMap = {}; gb.forEach(function(g){ gbMap[g.name] = g.value; });
+    var groups = ga.map(function(g){ return { name: g.name, a: g.value, b: gbMap[g.name] }; }).sort(function(x, y){ return y.a - x.a; });
+    var sa = heatmapScale(groups.map(function(g){ return g.a; })), sb = heatmapScale(groups.map(function(g){ return g.b; }));
+    var groupName = heatmapState.groupBy === 'industry' ? 'Industry' : 'Sector';
+    var h = '<div class="hm-alt-head"><b>' + la + '</b> next to <b>' + lb + '</b> returns' + (pa === pb ? ' <small>(pick a different second period above)</small>' : '') + '</div>';
+    h += '<div class="hm-pair-head"><span>' + groupName + '</span><span>' + la + '</span><span>' + lb + '</span></div><ol class="hm-rank hm-pair">' + groups.map(function(g){
+      return '<li><span class="hm-rank-name" title="' + escapeHtml(g.name) + '">' + escapeHtml(g.name) + '</span>' +
+        '<span class="hm-pair-cell">' + heatmapBarHtml(g.a, sa, 'perf') + '<span class="hm-rank-val">' + heatmapFmtPct(g.a) + '</span></span>' +
+        '<span class="hm-pair-cell">' + heatmapBarHtml(g.b, sb, 'perf') + '<span class="hm-rank-val">' + heatmapFmtPct(g.b) + '</span></span></li>';
+    }).join('') + '</ol>';
+    function pctCell(v){ return v == null || !isFinite(v) ? '' : '<span class="' + (v > 0 ? 'pos' : v < 0 ? 'neg' : '') + '">' + heatmapFmtPct(v) + '</span>'; }
+    var cols = [
+      { label: 'Ticker', cell: function(t){ return '<a href="' + symGradeHref(t.t) + '">' + escapeHtml(t.t) + '</a>'; }, sort: function(t){ return t.t; } },
+      { label: groupName, cell: function(t){ return escapeHtml((heatmapState.groupBy === 'industry' ? t.i : t.s) || ''); }, sort: function(t){ return (heatmapState.groupBy === 'industry' ? t.i : t.s) || null; } },
+      { label: la, num: true, cell: function(t){ return pctCell(heatmapEffectiveCh(t, pa)); }, sort: function(t){ return heatmapEffectiveCh(t, pa); } },
+      { label: lb, num: true, cell: function(t){ return pctCell(heatmapEffectiveCh(t, pb)); }, sort: function(t){ return heatmapEffectiveCh(t, pb); } },
+      { label: 'Same way?', cell: function(t){ var a = heatmapEffectiveCh(t, pa), b = heatmapEffectiveCh(t, pb); if (a == null || b == null) return ''; return (a >= 0) === (b >= 0) ? 'Yes' : '<b>Turned</b>'; }, sort: function(t){ var a = heatmapEffectiveCh(t, pa), b = heatmapEffectiveCh(t, pb); return a == null || b == null ? null : ((a >= 0) === (b >= 0) ? 1 : 0); } }
+    ];
+    var sorted = rows.slice().sort(function(x, y){ return (heatmapEffectiveCh(y, pa) || -1e9) - (heatmapEffectiveCh(x, pa) || -1e9); });
+    h += VIEWS.tableHtml(cols, sorted, { key: 'heatmap-periods', empty: 'No tickers match the search.' });
+    h += '<p class="hint">“Turned” marks a name whose ' + la + ' move points the other way from its ' + lb + ' move. Click a column header to sort.</p>';
+    return h;
+  }
   function renderHeatmap(){
     var root = $('heatmap-root');
     if (!root) return;
@@ -32081,6 +32851,12 @@ ${renderWorkspaceBindings()}
     root.classList.remove('is-empty');
     root.classList.toggle('hm-mode-rvol', heatmapState.colorBy === 'rvol');
     renderHeatmapLegend();
+    if (heatmapSyncLayout()){
+      if (eyebrow) eyebrow.textContent = tickers.length + ' tickers';
+      renderHeatmapBreadth();
+      renderHeatmapEodSummary();
+      return;
+    }
 
     // Group by selected key. Within each group, sort descending by market
     // cap so the squarified layout produces predictable, biggest-first
@@ -32151,12 +32927,12 @@ ${renderWorkspaceBindings()}
         var period = heatmapState.period || '1d';
         var periodStart = period === '1d' ? '' : (rect.perfStart && rect.perfStart[period] || '');
         var rv = (rect.rv != null && isFinite(rect.rv)) ? rect.rv : null;
-        var color = heatmapPaintParts(ch, rv, heatmapState.colorBy, period);
+        var color = heatmapPaintParts(ch, rv, heatmapState.colorBy, period, rect.t);
         var isHot = rv != null && rv >= HEATMAP_HOT_RVOL;
         var isStale = !!rect.stale;
         // The value line shows the % move in performance mode and the relative
         // volume multiple in rvol mode, so the number always matches the color.
-        var valText = heatmapState.colorBy === 'rvol' ? heatmapFmtRvol(rv) : heatmapFmtPct(ch);
+        var valText = heatmapValueText(rect.t, ch, rv, heatmapState.colorBy);
         // Font sizing scales with tile dimensions so big sectors stay
         // legible without making tiny ones blow out their box.
         var symSize = Math.min(28 * zoom, Math.max(9, Math.round(Math.min(pxH * 0.42, pxW * 0.22))));
@@ -32656,6 +33432,7 @@ ${renderWorkspaceBindings()}
       });
   }
   function applyHeatmapLiveOverlay(){
+    if (heatmapState.layout !== 'map'){ heatmapSyncLayout(); return; }
     var overlay = heatmapState.liveOverlay || {};
     var root = $('heatmap-root');
     if (!root) return;
@@ -32681,7 +33458,7 @@ ${renderWorkspaceBindings()}
       var rv = (live.rv != null && isFinite(live.rv))
         ? live.rv
         : (function(){ var b = Number(tile.getAttribute('data-rv')); return isFinite(b) && b > 0 ? b : null; })();
-      var color = heatmapPaintParts(ch, rv, colorBy, period);
+      var color = heatmapPaintParts(ch, rv, colorBy, period, sym);
       tile.setAttribute('data-dir', color.dir);
       tile.style.setProperty('--hm-intensity', color.intensity.toFixed(3));
       tile.setAttribute('data-ch', ch);
@@ -32691,7 +33468,7 @@ ${renderWorkspaceBindings()}
       }
       if (live.sp != null) tile.setAttribute('data-sp', live.sp);
       var pctEl = tile.querySelector('.heatmap-tile-pct');
-      if (pctEl) pctEl.textContent = colorBy === 'rvol' ? heatmapFmtRvol(rv) : heatmapFmtPct(ch);
+      if (pctEl) pctEl.textContent = heatmapValueText(sym, ch, rv, colorBy);
       tile.setAttribute('aria-label', sym + ', ' + heatmapPeriodLabel(period) + ' return ' + heatmapFmtPct(ch) +
         (rv != null ? ', ' + heatmapFmtRvol(rv) + ' relative volume' : ''));
       // Flash a subtle outline when the spot ticked since the last poll
@@ -37710,6 +38487,39 @@ ${renderWorkspaceBindings()}
     premium: pickPremium
   };
   var PICK_SORTS = ['conviction', 'alpha', 'sector', 'side', 'dte', 'breakeven', 'premium', 'pop', 'delta', 'iv', 'oi', 'maxloss', 'score'];
+  var PICKS_VIEW_EXTRAS = [['chart', 'Risk map']];
+  // Risk map: max loss per contract (across) against chance of profit (up).
+  // Picks without a chance-of-profit read fall back to the stock move needed
+  // to break even, on its own chart so the two scales never mix.
+  function picksRiskMapHtml(picks){
+    var withPop = [], withBe = [];
+    picks.forEach(function(p){
+      var loss = pickMaxLossUsd(p), pop = PICK_SORT_VALUE.pop(p), be = PICK_SORT_MISSING.breakeven(p);
+      var c = p.contract || {};
+      var side = p.side === 'put' ? 'put' : 'call';
+      var ready = pickDisplayDecision(p).ready;
+      var lines = p.symbol + ' ' + side.toUpperCase() + (ready ? ' · ready' : ' · watching') +
+        '\\nMax loss $' + (loss == null ? '—' : Math.round(loss).toLocaleString()) + ' per contract' +
+        (pop != null ? '\\nChance of profit ' + Math.round(pop * 100) + '%' : '') +
+        (be != null ? '\\nBreakeven move ' + (be > 0 ? '+' : '') + be.toFixed(1) + '%' : '') +
+        (c.dte != null ? '\\n' + c.dte + ' days to expiry' : '') +
+        (c.earningsInWindow ? '\\nEarnings before expiry' : '');
+      var pt = { x: loss, cls: side + (ready ? ' is-ready' : ''), text: p.symbol, label: lines, r: ready ? 6 : 4.5, attr: 'data-pick-open="' + escapeHtml(p.symbol) + '" aria-label="Open ' + escapeHtml(p.symbol) + '"' };
+      if (loss == null) return;
+      if (pop != null){ pt.y = pop * 100; withPop.push(pt); }
+      else if (be != null){ pt.y = Math.abs(be); withBe.push(pt); }
+    });
+    var money = function(v){ return '$' + (v >= 1000 ? (Math.round(v / 100) / 10) + 'k' : Math.round(v)); };
+    var out = '<div class="picks-riskmap"><div class="sc-controls"><span class="sc-legend"><i class="sc-key call"></i>Call <i class="sc-key put"></i>Put <span class="pr-ready-key"></span>Bigger dot = ready to buy</span></div>';
+    var a = scatterSvgHtml(withPop, { xLabel: 'Max loss per contract', yLabel: 'Chance of profit %', xFmt: money, yFmt: function(v){ return Math.round(v) + '%'; }, h: 340, ariaLabel: 'Top Picks risk map' });
+    var b = scatterSvgHtml(withBe, { xLabel: 'Max loss per contract', yLabel: 'Stock move needed to break even %', xFmt: money, yFmt: function(v){ return v.toFixed(1) + '%'; }, h: 300, ariaLabel: 'Top Picks by breakeven move' });
+    if (a) out += '<div class="sc-host">' + a + '</div>';
+    if (b) out += (a ? '<p class="hint">These picks have no chance-of-profit read, so they are shown by the stock move needed to break even (lower is easier).</p>' : '') + '<div class="sc-host">' + b + '</div>';
+    if (!a && !b) out += '<p class="sc-empty">Not enough picks with a max loss and a chance-of-profit read to draw the map. ' + (withPop.length + withBe.length === 1 ? 'Only one pick has both numbers.' : '') + '</p>';
+    var skipped = picks.length - withPop.length - withBe.length;
+    if ((a || b) && skipped > 0) out += '<p class="sc-note">' + skipped + ' pick' + (skipped === 1 ? '' : 's') + ' left out for missing contract numbers.</p>';
+    return out + '</div>';
+  }
   // Table layout for Top Picks: one row per pick, every column sortable.
   function picksTableHtml(picks){
     function pct(v, d){ return v == null ? '' : (v * 100).toFixed(d == null ? 0 : d) + '%'; }
@@ -37748,7 +38558,7 @@ ${renderWorkspaceBindings()}
     });
     VIEWS.attachFlip(sel, 'picks', function(){ renderPicks(); });
     var bar = sel.closest ? sel.closest('.picks-controls') : null;
-    if (bar && !bar.querySelector('.view-toggle')) bar.insertAdjacentHTML('beforeend', VIEWS.viewToggleHtml('picks'));
+    if (bar && !bar.querySelector('.view-toggle')) bar.insertAdjacentHTML('beforeend', VIEWS.viewToggleHtml('picks', PICKS_VIEW_EXTRAS));
     VIEWS.onView('picks', function(){ renderPicks(); });
   }
 
@@ -40002,7 +40812,12 @@ ${renderWorkspaceBindings()}
     sectionHtml += actionableList.length
       ? actionableList.map(function(p, i){ return pickTabCardHtml(p, i); }).join('')
       : '<div class="picks-group-empty">Nothing is a buy <i>right now</i> — no name cleared all three bars (a strong grade, a strong thesis <i>and</i> a confirmed entry). Cash is a position. Strong picks still waiting on their entry sit below with a trigger price, and move here when a scheduled Top Picks build confirms the full entry.</div>';
-    if (VIEWS.viewMode('picks') === 'table'){
+    var picksView = VIEWS.viewMode('picks', PICKS_VIEW_EXTRAS);
+    if (picksView === 'chart'){
+      sectionHtml = groupHead('Risk map', picks.length, 'Each pick plotted by what one contract can lose against its chance of finishing in profit. Up and to the left is the better trade-off. Click a dot for the full card.', 'picks-group-actionable') + picksRiskMapHtml(picks);
+      watchList = [];
+    }
+    if (picksView === 'table'){
       sectionHtml = groupHead('All picks', picks.length, 'Ready and watching ideas in one table. Click a column to sort; click a ticker for its full card.', 'picks-group-actionable') + picksTableHtml(picks);
       watchList = [];
     }
@@ -41690,11 +42505,17 @@ ${renderWorkspaceBindings()}
     state.sector = VIEWS.remember(sectorSelect, 'tickers.sector') || '';
     state.modelFilter = VIEWS.choose('tickers.model', 'all', ['all', 'ready', 'call', 'put', 'neutral']);
     var tableHost = document.getElementById('tickers-table');
+    var scatterHost = document.getElementById('tickers-scatter');
+    var TICKER_VIEW_EXTRAS = [['chart', 'Scatter']];
+    var TICKER_SC_AXES = ['score', 'move1d', 'move1m', 'mcap'];
+    var scX = document.getElementById('tickers-sc-x'), scY = document.getElementById('tickers-sc-y');
+    if (scX){ scX.value = VIEWS.choose('tickers.scx', 'score', TICKER_SC_AXES); scX.addEventListener('change', function(){ VIEWS.set('tickers.scx', scX.value === 'score' ? null : scX.value); applyView(); }); }
+    if (scY){ scY.value = VIEWS.choose('tickers.scy', 'move1m', TICKER_SC_AXES); scY.addEventListener('change', function(){ VIEWS.set('tickers.scy', scY.value === 'move1m' ? null : scY.value); applyView(); }); }
     var controls = pane ? pane.querySelector('.tickers-controls') : null;
     if (controls && !controls.querySelector('.view-toggle')) {
       var vtWrap = document.createElement('div');
       vtWrap.className = 'tickers-view-toggle';
-      vtWrap.innerHTML = VIEWS.viewToggleHtml('tickers');
+      vtWrap.innerHTML = VIEWS.viewToggleHtml('tickers', TICKER_VIEW_EXTRAS);
       controls.appendChild(vtWrap);
     }
     // Day / 1-month moves and market cap come from the public heatmap file
@@ -41743,6 +42564,7 @@ ${renderWorkspaceBindings()}
       }
       card.setAttribute('data-conviction', '0');
       card.setAttribute('data-entry-ready', '0');
+      if (!card.hasAttribute('data-tracker-only') && !card.querySelector('[data-cmp-toggle]')) card.insertAdjacentHTML('beforeend', cmpToggleHtml(sym, 'ticker-cmp'));
       if (typeof spot === 'number' && isFinite(spot) && spot > 0) {
         var slot = card.querySelector('[data-spot-for="' + sym + '"]');
         if (slot) slot.textContent = sym === '^VIX' ? spot.toFixed(2) : '$' + spot.toFixed(spot >= 100 ? 0 : 2);
@@ -41831,9 +42653,38 @@ ${renderWorkspaceBindings()}
             var st = c.getAttribute('data-entry-state') || '';
             if (!st || st === 'neutral') return '';
             return escapeHtml(c.getAttribute('data-entry-ready') === '1' ? 'Ready' : (st === 'avoid' ? 'Avoid' : 'Wait'));
-          }, sort: function(c){ var st = c.getAttribute('data-entry-state') || ''; return st && st !== 'neutral' ? (c.getAttribute('data-entry-ready') === '1' ? 'a ready' : st === 'avoid' ? 'c avoid' : 'b wait') : null; } }
+          }, sort: function(c){ var st = c.getAttribute('data-entry-state') || ''; return st && st !== 'neutral' ? (c.getAttribute('data-entry-ready') === '1' ? 'a ready' : st === 'avoid' ? 'c avoid' : 'b wait') : null; } },
+        { label: 'Compare', cell: function(c){ return cmpToggleHtml(cardAlpha(c)); } }
       ];
       tableHost.innerHTML = VIEWS.tableHtml(cols, shownCards, { key: 'tickers-table', empty: 'No tickers match the current filters.' });
+    }
+    var TICKER_SC_DEF = {
+      score: { label: 'Grade score (+ call, − put)', get: cardScore, fmt: function(v){ return (v > 0 ? '+' : '') + (Math.round(v * 10) / 10); } },
+      move1d: { label: 'Day move %', get: cardMove1d, fmt: function(v){ return (v > 0 ? '+' : '') + (Math.round(v * 10) / 10) + '%'; } },
+      move1m: { label: '1-month move %', get: cardMove1m, fmt: function(v){ return (v > 0 ? '+' : '') + Math.round(v) + '%'; } },
+      mcap: { label: 'Market cap (log scale)', get: cardMcap, fmt: function(v){ return fmtTickerCap(v).replace(/\\.0([TBM])$/, '$1'); }, log: true }
+    };
+    function renderTickerScatter(shownCards){
+      var host = document.getElementById('tickers-sc-chart');
+      if (!host) return;
+      var xk = scX && TICKER_SC_DEF[scX.value] ? scX.value : 'score';
+      var yk = scY && TICKER_SC_DEF[scY.value] ? scY.value : 'move1m';
+      if (xk === 'move1d' || xk === 'move1m' || xk === 'mcap' || yk === 'move1d' || yk === 'move1m' || yk === 'mcap') ensureTickerMarket();
+      if ((xk === 'score' || yk === 'score') && !gradesReady && ensureTickerDirectoryGrades) ensureTickerDirectoryGrades();
+      var dx = TICKER_SC_DEF[xk], dy = TICKER_SC_DEF[yk];
+      var pts = [], missing = 0;
+      shownCards.forEach(function(c){
+        var x = dx.get(c), y = dy.get(c);
+        if (x == null || y == null || (dx.log && !(x > 0)) || (dy.log && !(y > 0))) { missing++; return; }
+        var sym = cardAlpha(c), side = c.getAttribute('data-model-side') || 'neutral';
+        pts.push({ x: x, y: dy.log ? Math.log(y) / Math.LN10 : y, cls: side === 'call' ? 'call' : side === 'put' ? 'put' : 'neutral',
+          href: c.getAttribute('href') || ('?s=' + encodeURIComponent(sym)), text: shownCards.length <= 40 ? sym : '',
+          label: sym + (c.getAttribute('data-sector') ? ' · ' + c.getAttribute('data-sector') : '') + '\\n' + dx.label.replace(/ \\(.*\\)$/, '') + ': ' + dx.fmt(x) + '\\n' + dy.label.replace(/ \\(.*\\)$/, '') + ': ' + dy.fmt(y) });
+      });
+      var svg = scatterSvgHtml(pts, { xLabel: dx.label, yLabel: dy.label, logX: !!dx.log, xFmt: dx.fmt,
+        yFmt: dy.log ? function(v){ return dy.fmt(Math.pow(10, v)); } : dy.fmt, zeroX: !dx.log, zeroY: !dy.log, ariaLabel: 'Tickers plotted by ' + dx.label + ' and ' + dy.label });
+      host.innerHTML = svg || '<p class="sc-empty">' + (((xk !== 'score' || yk !== 'score') && !tickerMarket) || ((xk === 'score' || yk === 'score') && !gradesReady) ? 'Loading…' : 'Not enough tickers have both a ' + escapeHtml(dx.label.replace(/ \\(.*\\)$/, '').toLowerCase()) + ' and a ' + escapeHtml(dy.label.replace(/ \\(.*\\)$/, '').toLowerCase()) + ' yet. Try other axes.') + '</p>';
+      if (svg && missing) host.insertAdjacentHTML('beforeend', '<p class="sc-note">' + missing + ' ticker' + (missing === 1 ? '' : 's') + ' left out for missing data.</p>');
     }
     function applyView(){
       sortCards();
@@ -41855,12 +42706,17 @@ ${renderWorkspaceBindings()}
         card.hidden = !show;
         if (show) shown++;
       });
-      var asTable = VIEWS.viewMode('tickers') === 'table';
-      grid.hidden = asTable;
+      var tView = VIEWS.viewMode('tickers', TICKER_VIEW_EXTRAS);
+      var asTable = tView === 'table', asChart = tView === 'chart';
+      grid.hidden = asTable || asChart;
       if (tableHost) {
         tableHost.hidden = !asTable;
         if (asTable) renderTickerTable(cards.filter(function(c){ return !c.hidden; }));
         else tableHost.innerHTML = '';
+      }
+      if (scatterHost) {
+        scatterHost.hidden = !asChart;
+        if (asChart) renderTickerScatter(cards.filter(function(c){ return !c.hidden && !c.hasAttribute('data-tracker-only'); }));
       }
       if (visibleCount) visibleCount.textContent = String(shown);
       if (empty) {

@@ -195,6 +195,19 @@ function tickersSection({ symbols, sectors, industries }) {
     <p class="tickers-model-note" id="tickers-model-note">Loading model grades…</p>
     <div class="tickers-grid" id="tickers-grid">${cards}</div>
     <div class="tickers-table" id="tickers-table" hidden></div>
+    <div class="tickers-scatter" id="tickers-scatter" hidden>
+      <div class="sc-controls">
+        <label>Across <select id="tickers-sc-x" aria-label="Scatter horizontal axis">
+          <option value="score">Grade score</option><option value="move1d">Day move</option><option value="move1m">1-month move</option><option value="mcap">Market cap</option>
+        </select></label>
+        <label>Up <select id="tickers-sc-y" aria-label="Scatter vertical axis">
+          <option value="move1m">1-month move</option><option value="move1d">Day move</option><option value="score">Grade score</option><option value="mcap">Market cap</option>
+        </select></label>
+        <span class="sc-legend"><i class="sc-key call"></i>Call lean <i class="sc-key put"></i>Put lean <i class="sc-key neutral"></i>No trade</span>
+      </div>
+      <div id="tickers-sc-chart" class="sc-host"></div>
+      <p class="hint sc-hint">Each dot is one ticker that matches the filters above. Hover or tap for its numbers; click a dot to open it in Grade a ticker.</p>
+    </div>
     <div class="tickers-empty" id="tickers-empty" hidden>
       <span>No tickers match the current search + sector filter.</span>
       <button type="button" class="tickers-empty-reset" id="tickers-empty-reset">Clear filters</button>
@@ -594,6 +607,11 @@ function newsFeedSection() {
         <select id="news-feed-sort" aria-label="Sort news">
           <option value="impact">Impact first</option>
           <option value="latest">Latest</option>
+          <option value="oldest">Oldest</option>
+          <option value="move">Biggest price reaction</option>
+          <option value="ticker">Ticker A → Z</option>
+          <option value="sector">Sector A → Z</option>
+          <option value="source">Source A → Z</option>
         </select>
       </label>
     </div>
@@ -1015,6 +1033,7 @@ function unusualFlowSection() {
         <button type="button" id="flow-export-csv" class="flow-action-btn csv-export-btn" title="Download visible rows as CSV">Export CSV</button>
       </div>
       <div id="flow-summary" class="flow-summary" hidden></div>
+      <div id="flow-sectors" class="flow-sectors" hidden></div>
       <div id="flow-list" class="flow-list" role="list"></div>
       <div id="flow-empty" class="flow-empty" hidden>No unusual flow flagged in the latest scan.</div>
       <div id="flow-no-results" class="flow-empty" hidden>No tickers match these filters.</div>
@@ -1298,6 +1317,7 @@ function compareCompaniesSection() {
       <div id="cmp-chart-read" class="cmp-chart-read" aria-live="polite"></div>
     </div>
     <div id="cmp-summary" class="cmp-summary" hidden aria-live="polite"></div>
+    <div id="cmp-pillars" class="cmp-pillars" hidden></div>
     <div id="cmp-table-wrap" class="cmp-table-wrap" hidden></div>
     <details id="cmp-tech" class="cmp-tech" open hidden>
       <summary>
@@ -1307,6 +1327,10 @@ function compareCompaniesSection() {
         </span>
       </summary>
       <div id="cmp-tech-body"></div>
+    </details>
+    <details id="cmp-sectors" class="cmp-sectors">
+      <summary><span class="cmp-chart-eyebrow">Compare sectors</span> <b>Sectors side by side</b> <small>returns, grades and IV for up to 6 sectors</small></summary>
+      <div id="cmp-sectors-body" class="cmp-sectors-body"></div>
     </details>
   </section>`;
 }
@@ -1336,11 +1360,13 @@ function optionEvalSection() {
         <button type="button" class="combo-clear" id="symbol-clear" aria-label="Clear" tabindex="-1">&times;</button>
         <ul id="symbol-listbox" role="listbox" hidden></ul>
       </div>
+      <span id="opt-cmp-slot" class="opt-cmp-slot"></span>
     </div>
     <div id="opt-eval-status" class="opt-status" role="status"></div>
     <div id="opt-live-quote" class="opt-live" hidden aria-live="polite"></div>
     <div id="opt-live-refresh" class="opt-live-refresh" hidden aria-live="polite"></div>
     <div id="opt-narr-chips" class="opt-narr-chips" hidden aria-label="Narratives this ticker rides"></div>
+    <div id="opt-grade-hist" class="opt-grade-hist" hidden aria-live="polite"></div>
     <div id="opt-analysis" class="opt-analysis" hidden>
       <div class="opt-direction" aria-label="Directional thesis">
         <div class="opt-direction-copy"><span>Thesis side</span><small>Drives both entry timing and the contract grade.</small></div>
@@ -2252,11 +2278,32 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           <select id="heatmap-color-select" aria-label="Color heatmap by">
             <option value="perf">Performance</option>
             <option value="rvol">Rel. volume</option>
+            <option value="grade">Grade score</option>
+            <option value="iv">IV vs own average</option>
+          </select>
+        </label>
+        <label class="heatmap-control heatmap-layout-control">
+          <span class="heatmap-control-label">View</span>
+          <select id="heatmap-layout-select" aria-label="Heatmap layout">
+            <option value="map">Map</option>
+            <option value="bars">Ranked bars</option>
+            <option value="periods">Two periods</option>
           </select>
         </label>
         <label class="heatmap-control heatmap-period-control">
           <span class="heatmap-control-label">Period</span>
           <select id="heatmap-period-select" aria-label="Heatmap performance period">
+            <option value="1d">1D</option>
+            <option value="1w">1W</option>
+            <option value="1m">1M</option>
+            <option value="3m">3M</option>
+            <option value="ytd">YTD</option>
+            <option value="1y">1Y</option>
+          </select>
+        </label>
+        <label class="heatmap-control heatmap-periodb-control" hidden>
+          <span class="heatmap-control-label">Next to</span>
+          <select id="heatmap-periodb-select" aria-label="Second period to show beside the first">
             <option value="1d">1D</option>
             <option value="1w">1W</option>
             <option value="1m">1M</option>
@@ -2285,6 +2332,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       <div id="heatmap-streaks" class="heatmap-streaks" role="status" aria-live="polite" hidden></div>
       <div id="heatmap-breadth" class="heatmap-breadth" aria-live="polite"></div>
       <div id="heatmap-root" class="heatmap-root">Loading heatmap…</div>
+      <div id="heatmap-alt" class="heatmap-alt" hidden></div>
       <div class="heatmap-legend" id="heatmap-legend" aria-hidden="true">
         <span class="heatmap-legend-label">−3%</span>
         <span class="heatmap-legend-bar"></span>

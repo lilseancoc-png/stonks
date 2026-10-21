@@ -5181,7 +5181,7 @@ a.cx-tkr { border-bottom: 1px solid transparent; }
 .ivt-none { font: 400 12.5px/1.5 var(--font-sans); color: var(--muted); margin: 0 0 14px; }
 .ivt-table { border-top: 1px solid var(--border); }
 .ivt-trow {
-  display: grid; grid-template-columns: minmax(96px, 1.4fr) .7fr .7fr .5fr .7fr .7fr 1fr .6fr;
+  display: grid; grid-template-columns: minmax(96px, 1.4fr) .7fr .7fr .5fr .7fr .7fr 1fr .6fr minmax(70px, .9fr);
   gap: 4px 8px; align-items: baseline;
   padding: 6px 2px; border-bottom: 1px dashed color-mix(in srgb, var(--border) 60%, transparent);
 }
@@ -5201,6 +5201,17 @@ a.cx-tkr { border-bottom: 1px solid transparent; }
 .ivt-trow.ivt-tier-building .ivt-trow-tier { color: var(--accent); }
 .ivt-trow-num { font: 500 12px/1.2 var(--font-mono); font-variant-numeric: tabular-nums; }
 .ivt-trow-earn { font: 400 11px/1.2 var(--font-sans); color: var(--muted); white-space: nowrap; }
+.ivt-th-plain { white-space: nowrap; }
+.ivt-trow-mini { align-self: center; min-width: 0; }
+.ivt-mini { display: block; width: 100%; height: 22px; }
+.ivt-mini polyline { stroke: var(--muted-strong); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.ivt-mini.is-up polyline { stroke: var(--warn); }
+.ivt-mini.is-down polyline { stroke: var(--info, var(--accent)); }
+.ivt-mini .ivt-spark-mean { vector-effect: non-scaling-stroke; }
+.ivt-mini-na { color: var(--muted); }
+.ivt-vsavg { margin: 12px 0; }
+.ivt-vsavg > summary { cursor: pointer; font: 700 13px/1.3 var(--font-sans); color: var(--text-strong); padding: 6px 0; }
+.ivt-vsavg > summary small { color: var(--muted); font-weight: 500; }
 .ivt-show-all {
   margin-top: 10px; padding: 7px 14px; font: 600 12px/1 var(--font-sans);
   color: var(--text-strong); background: var(--surface); border: 1px solid var(--border);
@@ -5209,7 +5220,7 @@ a.cx-tkr { border-bottom: 1px solid transparent; }
 .ivt-show-all:hover { border-color: var(--muted); }
 @media (max-width: 640px) {
   .ivt-trow { grid-template-columns: minmax(80px, 1.2fr) .8fr .8fr .8fr .8fr; }
-  .ivt-trow > :nth-child(4), .ivt-trow > :nth-child(7), .ivt-trow > :nth-child(8) { display: none; }
+  .ivt-trow > :nth-child(4), .ivt-trow > :nth-child(7), .ivt-trow > :nth-child(8), .ivt-trow > :nth-child(9) { display: none; }
 }
 
 /* --- Event Spillover Matrix (premium, docs/event-spillover.md) ---------- */

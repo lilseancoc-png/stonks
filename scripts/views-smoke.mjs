@@ -42,6 +42,10 @@ assert.equal(V.reversed("t"), false);
 assert.equal(V.viewMode("x"), "cards");
 V.set("view:x", "table");
 assert.equal(V.viewMode("x"), "table");
+V.set("view:x", "chart");
+assert.equal(V.viewMode("x"), "cards");
+assert.equal(V.viewMode("x", [["chart", "Chart"]]), "chart");
+assert.match(V.viewToggleHtml("x", [["chart", "Chart"]]), /data-view-mode="chart" aria-pressed="true"/);
 
 // Cell parsing: money, percents, suffixes, dates, missing.
 const cell = (text, attr) => ({ getAttribute: (k) => (k === "data-sort" ? (attr ?? null) : null), textContent: text, innerText: text });
