@@ -38,6 +38,7 @@ import { BRIEF_ACCESS_POLICY_VERSION } from "../lib/public-data-policy.mjs";
 import { buildBriefExtendedHours, extendedSessionForKind } from "../lib/brief-extended-hours.mjs";
 import { contentAssetVersion } from "../lib/asset-version.mjs";
 import { scoreSectorGrowth } from "../lib/sector-growth.mjs";
+import { outcomeFromPnl, realFillMark, exitDetailFor, mergeArchive } from "../lib/track-record-fills.mjs";
 import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
 import { assembleBakeLinkMap, LINK_MAP_SKIPPED_SOURCES } from "../lib/link-map.mjs";
 import {
@@ -17482,6 +17483,10 @@ const PICKS_MACRO_ROTATION_PP = Number(process.env.PICKS_MACRO_ROTATION_PP ?? 0.
 const PICKS_ACCURACY_FILE = "picks-accuracy.json";
 const PICKS_ACCURACY_KEEP_DAYS = 120;
 const PICKS_ACCURACY_MAX_CLOSED = 250;
+// Slim archive of closed trades past the window above (never deleted).
+const PICKS_ACCURACY_MAX_ARCHIVE = 5000;
+const PICKS_BASELINE_SYMBOL = "SPY";
+const PICKS_BASELINE_MAX_CLOSED = 1000;
 // Track-record reset epoch. Bump this date to wipe the accumulated record
 // (open book + closed history + stats) on the next bake — the creds-free
 // equivalent of `wipe-history.mjs` for when an enrollment/strategy change
@@ -27872,7 +27877,9 @@ export function resolvePickOutcome(opts) {
   // client's accDecided both filter on win|loss). The old two-way ternary
   // classified null as "loss" everywhere except the dropped branch, booking
   // phantom losses for positions that merely couldn't be marked.
-  const byPnl = effPnl == null ? "void" : (effPnl >= 0 ? "win" : "loss");
+  // A close that rounds to 0.0% is "flat" (since 2026-10-21): neither a win nor
+  // a loss, so it no longer flatters the win rate.
+  const byPnl = outcomeFromPnl(effPnl);
   if (o.inUniverse === false) return { status: "dropped", outcome: byPnl };
   // Runner trail (armed trades): stop at breakeven on the remaining half,
   // ratcheting up to (peak − giveback) as the runner extends — a winner that
@@ -27929,7 +27936,13 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
   // Explicit != null before pnum(): pnum(null) is 0 (Number(null) === 0), so a
   // bare pnum() filter let null-P&L rows through as break-even 0% "wins".
   const optDecided = decided.filter((c) => c.optionPnlPct != null && pnum(c.optionPnlPct) != null);
-  const optWins = optDecided.filter((c) => Number(c.optionPnlPct) >= 0).length;
+  const optWins = optDecided.filter((c) => Number(c.optionPnlPct) > 0).length;
+  // Real-fill lens (entries since 2026-10-21 carry entry bid/ask): ask in, bid
+  // out, from the chain each Top Picks run already fetches.
+  const realDecided = decided.filter((c) => c.realFillPnlPct != null && pnum(c.realFillPnlPct) != null);
+  // "At trigger": a resting order exactly at the +TP / -stop level instead of
+  // the twice-daily mark the close was booked at.
+  const atTrigger = (c) => (c.exitDetail && c.exitDetail.atTriggerPct != null ? c.exitDetail.atTriggerPct : c.optionPnlPct);
   const expect = (arr, f) => arr.length ? arr.reduce((a, c) => a + (Number(f(c)) || 0), 0) / arr.length : null;
   const byKey = (keyFn) => {
     const m = {};
@@ -27942,6 +27955,13 @@ export function computePicksAccuracyStats(open, closed, builtAtIso, spyBars = nu
     decided: decided.length, wins, losses, winRate: decided.length ? wins / decided.length : null,
     optionDecided: optDecided.length, optionWinRate: optDecided.length ? optWins / optDecided.length : null,
     optionExpectancyPct: r1(expect(optDecided, (c) => c.optionPnlPct)),
+    atTriggerExpectancyPct: r1(expect(optDecided, atTrigger)),
+    realFillDecided: realDecided.length,
+    realFillWinRate: realDecided.length ? realDecided.filter((c) => Number(c.realFillPnlPct) > 0).length / realDecided.length : null,
+    realFillExpectancyPct: r1(expect(realDecided, (c) => c.realFillPnlPct)),
+    // The model P&L on the same trades, so the two can be compared like for like.
+    realFillModelExpectancyPct: r1(expect(realDecided.filter((c) => c.optionPnlPct != null && pnum(c.optionPnlPct) != null), (c) => c.optionPnlPct)),
+    flat: (closed || []).filter((c) => c && c.outcome === "flat").length,
     expectancyPct: r1(expect(decided, (c) => c.underlyingPnlPct)),
     avgMfePct: r1(expect(decided, (c) => c.mfePct)), avgMaePct: r1(expect(decided, (c) => c.maePct)),
     // Option (contract) peak/dip — the modeled high/low option P&L over each hold.
@@ -27968,8 +27988,15 @@ export async function readPicksAccuracyState() {
       console.log(`  picks-accuracy: reset epoch ${PICKS_ACCURACY_RESET_EPOCH} — discarding prior record (${(p.open || []).length} open, ${(p.closed || []).length} closed)`);
       return { open: [], closed: [], stats: null };
     }
-    return { open: Array.isArray(p.open) ? p.open : [], closed: Array.isArray(p.closed) ? p.closed : [], stats: p.stats || null, gateLog: Array.isArray(p.gateLog) ? p.gateLog : [], gateTotals: p.gateTotals && typeof p.gateTotals === "object" ? p.gateTotals : {} };
-  } catch { return { open: [], closed: [], stats: null, gateLog: [], gateTotals: {} }; }
+    return {
+      open: Array.isArray(p.open) ? p.open : [], closed: Array.isArray(p.closed) ? p.closed : [], stats: p.stats || null,
+      gateLog: Array.isArray(p.gateLog) ? p.gateLog : [], gateTotals: p.gateTotals && typeof p.gateTotals === "object" ? p.gateTotals : {},
+      archive: Array.isArray(p.archive) ? p.archive : [],
+      baseline: p.baseline && typeof p.baseline === "object"
+        ? { open: Array.isArray(p.baseline.open) ? p.baseline.open : [], closed: Array.isArray(p.baseline.closed) ? p.baseline.closed : [] }
+        : { open: [], closed: [] },
+    };
+  } catch { return { open: [], closed: [], stats: null, gateLog: [], gateTotals: {}, archive: [], baseline: { open: [], closed: [] } }; }
 }
 
 // ---- Gate log: what each open-pick rule turned away (measurement only) -----
@@ -28204,6 +28231,95 @@ export function markOptionToMarket(entry, data) {
   return c.mid > 0 ? (price / c.mid - 1) * 100 : null;
 }
 
+// ---- No-skill baseline (SPY) ------------------------------------------------
+// Each newly enrolled pick opens a paired single-leg SPY option on the same
+// side, chosen by the same contract picker (30-90 DTE, ~0.55 delta). It is
+// marked like the record (model + real fill) and closes by the same premium
+// stop / take-profit / theta / expiry rules, or when its paired pick closes
+// ("pair-closed"). Kept apart from the record: it never feeds the win rate,
+// the edge governor or the picks feed.
+export function advancePicksBaseline(prev, { chains, nowSec, builtAtIso, enrolled = [], openPairKeys = new Set() } = {}) {
+  const data = chains?.[PICKS_BASELINE_SYMBOL] || null;
+  const spot = pnum(data?.spot) || null;
+  const closed = Array.isArray(prev?.closed) ? prev.closed.slice() : [];
+  const open = [];
+  for (const b of (Array.isArray(prev?.open) ? prev.open : [])) {
+    if (!b || !b.contract) continue;
+    const model = data ? markOptionToMarket(b, data) : null;
+    const optionPnlPct = model ?? (b.optionPnlPct == null ? null : pnum(b.optionPnlPct));
+    const rf = data ? realFillMark(b, data, { nowSec }) : null;
+    const optHiPct = Math.max(pnum(b.optHiPct) ?? -Infinity, optionPnlPct ?? -Infinity);
+    const optLoPct = Math.min(pnum(b.optLoPct) ?? Infinity, optionPnlPct ?? Infinity);
+    const marked = {
+      ...b,
+      lastSpot: spot ? r2(spot) : (b.lastSpot ?? null),
+      optionPnlPct: r1(optionPnlPct),
+      realFillPnlPct: rf ? rf.pnlPct : (b.realFillPnlPct ?? null),
+      realFillBasis: rf ? rf.basis : (b.realFillBasis ?? null),
+      optHiPct: Number.isFinite(optHiPct) ? r1(optHiPct) : null,
+      optLoPct: Number.isFinite(optLoPct) ? r1(optLoPct) : null,
+    };
+    const res = resolvePickOutcome({
+      isCall: b.side === "call", cur: spot, ref: b.entrySpot, expSec: b.contract.expiry,
+      entrySec: Math.floor(Date.parse(b.entryDate) / 1000), nowSec, inUniverse: true,
+      modeledOptPnlPct: optionPnlPct, structure: "long", stopUnder: null,
+      thetaPctDay: b.contract.thetaDay && b.contract.mid ? Math.abs(b.contract.thetaDay) / b.contract.mid : null,
+    }) || (!openPairKeys.has(b.pairKey) ? { status: "pair-closed", outcome: outcomeFromPnl(optionPnlPct) } : null);
+    if (res) {
+      closed.unshift({ ...marked, exitDate: builtAtIso, exitSpot: marked.lastSpot, status: res.status, outcome: res.outcome,
+        exitDetail: exitDetailFor(res.status, marked.optionPnlPct, { tpPct: PICKS_OPT_TP_PCT * 100, stopPct: PICKS_OPT_STOP_PCT * 100 }) });
+    } else open.push(marked);
+  }
+  if (data && spot) {
+    for (const e of enrolled) {
+      const c = pickContractForPick(e.side, data);
+      if (!c) continue;
+      const b = {
+        pairKey: `${e.symbol}:${e.side}:${e.entryDate}`, pairSymbol: e.symbol,
+        symbol: PICKS_BASELINE_SYMBOL, side: e.side, entryDate: builtAtIso, entrySpot: r2(spot), lastSpot: r2(spot),
+        contract: { structure: "long", strike: c.strike, expiry: c.expiry, dte: c.dte, mid: c.mid, bid: c.bid, ask: c.ask, spreadPct: c.spreadPct, iv: c.iv, delta: c.delta, thetaDay: c.thetaDay },
+        optionPnlPct: 0, optHiPct: 0, optLoPct: 0,
+      };
+      const rf = realFillMark(b, data, { nowSec });
+      b.realFillPnlPct = rf ? rf.pnlPct : null;
+      b.realFillBasis = rf ? rf.basis : null;
+      open.push(b);
+    }
+  }
+  return { symbol: PICKS_BASELINE_SYMBOL, open, closed: closed.slice(0, PICKS_BASELINE_MAX_CLOSED) };
+}
+
+// Baseline scorecard plus the paired read: on the picks that closed with a
+// matching SPY trade, how much better (or worse) the pick did than SPY.
+export function computeBaselineStats(baseline, pickClosed) {
+  const bOpen = Array.isArray(baseline?.open) ? baseline.open : [];
+  const bClosed = Array.isArray(baseline?.closed) ? baseline.closed : [];
+  if (!bOpen.length && !bClosed.length) return null;
+  const st = computePicksAccuracyStats(bOpen, bClosed, null);
+  const byPair = new Map(bClosed.map((b) => [b.pairKey, b]));
+  const mean = (arr) => (arr.length ? arr.reduce((a, v) => a + v, 0) / arr.length : null);
+  const pick = [], spy = [], pickReal = [], spyReal = [];
+  for (const c of (pickClosed || [])) {
+    if (!c || (c.outcome !== "win" && c.outcome !== "loss")) continue;
+    const b = byPair.get(`${c.symbol}:${c.side}:${c.entryDate}`);
+    if (!b || b.optionPnlPct == null || c.optionPnlPct == null) continue;
+    pick.push(Number(c.optionPnlPct)); spy.push(Number(b.optionPnlPct));
+    if (c.realFillPnlPct != null && b.realFillPnlPct != null) { pickReal.push(Number(c.realFillPnlPct)); spyReal.push(Number(b.realFillPnlPct)); }
+  }
+  const pickAvg = mean(pick), spyAvg = mean(spy), pickRealAvg = mean(pickReal), spyRealAvg = mean(spyReal);
+  return {
+    symbol: baseline?.symbol || PICKS_BASELINE_SYMBOL,
+    open: bOpen.length, decided: st.decided, wins: st.wins, losses: st.losses, winRate: st.winRate,
+    optionExpectancyPct: st.optionExpectancyPct, realFillDecided: st.realFillDecided, realFillExpectancyPct: st.realFillExpectancyPct,
+    paired: {
+      n: pick.length, pickAvgPct: r1(pickAvg), spyAvgPct: r1(spyAvg),
+      edgePct: pickAvg != null && spyAvg != null ? r1(pickAvg - spyAvg) : null,
+      realN: pickReal.length, pickRealAvgPct: r1(pickRealAvg), spyRealAvgPct: r1(spyRealAvg),
+      realEdgePct: pickRealAvg != null && spyRealAvg != null ? r1(pickRealAvg - spyRealAvg) : null,
+    },
+  };
+}
+
 export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = null, gradesIndex = null, opts = {}) {
   // opts.enrollNewPicks=false marks + resolves the existing open book WITHOUT
   // enrolling the just-written roster. regen-picks uses it: its offline roster
@@ -28280,7 +28396,13 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       && pnum(optionPnlPct) != null && optionPnlPct >= PICKS_OPT_TP_PCT * 100) {
       scaleOut = { pnlPct: r1(optionPnlPct), date: builtAtIso };
     }
-    const marked = { ...e, lastSpot: r2(lastSpot), optionPnlPct: r1(optionPnlPct), underlyingPnlPct: r1(underlyingPnlPct), mfePct: Number.isFinite(mfePct) ? r1(mfePct) : e.mfePct, maePct: Number.isFinite(maePct) ? r1(maePct) : e.maePct, optHiPct: Number.isFinite(optHiPct) ? r1(optHiPct) : null, optLoPct: Number.isFinite(optLoPct) ? r1(optLoPct) : null, ...(scaleOut ? { scaleOut } : {}) };
+    // Real-fill mark next to the model (null for trades enrolled without an
+    // entry bid/ask); carried forward like the model mark when this build has
+    // no data for the name.
+    const realFill = data ? realFillMark(e, data, { nowSec }) : null;
+    const realFillPnlPct = realFill ? realFill.pnlPct : (e.realFillPnlPct ?? null);
+    const realFillBasis = realFill ? realFill.basis : (e.realFillBasis ?? null);
+    const marked = { ...e, realFillPnlPct, realFillBasis, lastSpot: r2(lastSpot), optionPnlPct: r1(optionPnlPct), underlyingPnlPct: r1(underlyingPnlPct), mfePct: Number.isFinite(mfePct) ? r1(mfePct) : e.mfePct, maePct: Number.isFinite(maePct) ? r1(maePct) : e.maePct, optHiPct: Number.isFinite(optHiPct) ? r1(optHiPct) : null, optLoPct: Number.isFinite(optLoPct) ? r1(optLoPct) : null, ...(scaleOut ? { scaleOut } : {}) };
     // Re-score the thesis against today's grade — is it playing out? Price
     // progress is the direction-adjusted underlying move; driver confirmation is
     // how many of the entry's supporting drivers are still firing in the live
@@ -28319,7 +28441,10 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     // exitSpot = the underlying at close time — diagnose-pick-losses.mjs
     // reprices each closed trade from it (it previously read a field nothing
     // wrote and could never model a single pick).
-    if (res) closed.unshift({ ...marked, optionPnlPct: closedPnl, exitSpot: marked.lastSpot ?? null, exitDate: builtAtIso, status: res.status, outcome: res.outcome });
+    // exitDetail: the trigger level next to the mark the close was booked at.
+    const isCreditEntry = (e.contract?.structure || "long") === "credit_vertical";
+    if (res) closed.unshift({ ...marked, optionPnlPct: closedPnl, exitSpot: marked.lastSpot ?? null, exitDate: builtAtIso, status: res.status, outcome: res.outcome,
+      exitDetail: exitDetailFor(res.status, closedPnl, { tpPct: (isCreditEntry ? PICKS_CREDIT_TP_PCT : PICKS_OPT_TP_PCT) * 100, stopPct: (isCreditEntry ? PICKS_CREDIT_STOP_PCT : PICKS_OPT_STOP_PCT) * 100 }) });
     else stillOpen.push(marked);
   }
   open = stillOpen;
@@ -28383,6 +28508,9 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       thesisCategory: thesisCat.primary, thesisCategorySecondary: thesisCat.secondary,
       contract: p.contract ? {
         strike: p.contract.strike, expiry: p.contract.expiry, dte: p.contract.dte, mid: p.contract.mid, iv: p.contract.iv, delta: p.contract.delta, thetaDay: p.contract.thetaDay,
+        // Entry bid/ask (since 2026-10-21): what crossing the spread cost at
+        // the pick's quote. Feeds the real-fill P&L (lib/track-record-fills.mjs).
+        bid: p.contract.bid ?? null, ask: p.contract.ask ?? null, spreadPct: p.contract.spreadPct ?? null,
         // Display-only extras for the Track Record's per-pick "Strategy &
         // entry" disclosure: the human expiry label and the breakeven at
         // expiry (both already computed by the contract builders).
@@ -28397,7 +28525,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
         // reprice both wings and net the P/L (structure-aware). shortMid/longMid
         // are display-only (per-leg entry price in the strategy disclosure).
         ...(p.contract.structure && p.contract.structure !== "long" ? {
-          legs: (p.contract.legs || []).map((l) => ({ qty: l.qty, type: l.type, strike: l.strike, iv: l.iv, expiry: l.expiry })),
+          legs: (p.contract.legs || []).map((l) => ({ qty: l.qty, type: l.type, strike: l.strike, iv: l.iv, expiry: l.expiry, bid: l.bid ?? null, ask: l.ask ?? null })),
           shortStrike: p.contract.shortStrike, longStrike: p.contract.longStrike,
           netDebit: p.contract.netDebit, netCredit: p.contract.netCredit,
           shortMid: p.contract.shortMid ?? null, longMid: p.contract.longMid ?? null,
@@ -28439,15 +28567,40 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
         aiConfidence: p.thesisCard.ai?.confidence || null,
       } : null,
       optionPnlPct: 0, mfePct: 0, maePct: 0, optHiPct: 0, optLoPct: 0,
+      // The quote time of the chain the pick was priced from.
+      quoteAsOf: chains?.[p.symbol]?.quoteAsOf ?? null,
     });
+    // Real-fill P&L at entry = the cost of crossing the spread right away.
+    const justEnrolled = open[open.length - 1];
+    const entryFill = realFillMark(justEnrolled, chains?.[p.symbol] || null, { nowSec });
+    justEnrolled.realFillPnlPct = entryFill ? entryFill.pnlPct : null;
+    justEnrolled.realFillBasis = entryFill ? entryFill.basis : null;
   }
+
+  // No-skill baseline: the same side on SPY, opened at the same time as each
+  // new pick and closed by the same premium/theta/expiry rules or when its
+  // paired pick closes. Answers "would a plain index option have done as well?"
+  const baseline = advancePicksBaseline(state.baseline, {
+    chains, nowSec, builtAtIso,
+    enrolled: open.filter((o) => enrolledNow.has(`${o.symbol}:${o.side}`) && o.entryDate === builtAtIso),
+    openPairKeys: new Set(open.map((o) => `${o.symbol}:${o.side}:${o.entryDate}`)),
+  });
 
   // Prune closed.
   const cutoffMs = Date.now() - PICKS_ACCURACY_KEEP_DAYS * 86400000;
-  closed = closed.filter((c) => Date.parse(c.exitDate || c.entryDate) >= cutoffMs).slice(0, PICKS_ACCURACY_MAX_CLOSED);
+  // Trades that fall out of the 120-day / 250-trade window move to the slim
+  // archive (since 2026-10-21) instead of being dropped.
+  const keptClosed = closed.filter((c) => Date.parse(c.exitDate || c.entryDate) >= cutoffMs).slice(0, PICKS_ACCURACY_MAX_CLOSED);
+  const keptSet = new Set(keptClosed);
+  const archive = mergeArchive(state.archive, closed.filter((c) => !keptSet.has(c)), PICKS_ACCURACY_MAX_ARCHIVE);
+  closed = keptClosed;
 
   const spyBars = chains?.SPY ? timingBarsFrom(chains.SPY) : null;
   const stats = computePicksAccuracyStats(open, closed, builtAtIso, spyBars);
+  // All-time view across the live window and the archive.
+  const allTimeStats = archive.length ? computePicksAccuracyStats([], closed.concat(archive), builtAtIso) : null;
+  // Archived picks keep their pair key fields, so pairs survive the window.
+  const baselineStats = computeBaselineStats(baseline, closed.concat(archive));
   // resetEpoch stamps which enrollment-rules era this record belongs to —
   // readPicksAccuracyState discards a record from an older epoch (see
   // PICKS_ACCURACY_RESET_EPOCH).
@@ -28460,7 +28613,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     : (Array.isArray(state.gateLog) ? state.gateLog : []);
   const { log: gateLog, totals: gateTotals } = foldGateLog(appended, state.gateTotals, chains, builtAtIso);
   const gateStats = computeGateStats(gateLog, chains, gateTotals, builtAtIso);
-  const payload = { builtAtIso, resetEpoch: PICKS_ACCURACY_RESET_EPOCH, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, open, closed, stats, gateLog, gateTotals, gateStats };
+  const payload = { builtAtIso, resetEpoch: PICKS_ACCURACY_RESET_EPOCH, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, open, closed, stats, allTimeStats, gateLog, gateTotals, gateStats, baseline, baselineStats, archive };
   await writeFile(accPath, JSON.stringify(payload), "utf8");
   // Separate open-marks file for the Top Picks tab's "since it appeared" chip
   // (pickLiveChip + pickThesisStatusFor in app.js). It carries ONLY the

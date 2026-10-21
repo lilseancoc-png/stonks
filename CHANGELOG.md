@@ -20,6 +20,18 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-10-21
+
+### Added
+
+- **Track Record compared with real trading.** New Top Picks trades store their entry bid/ask (each leg on spreads), and every run also records a real-fill P&L (pay the ask to open, take the bid to close) next to the modeled mark. Each close records its exit trigger next to the mark it was booked at. A paired SPY option opens with every new pick (same side, ~0.55 delta) as a no-skill baseline. The Scorecard shows these in a new "Compared with real trading" row. The model mark and the exit rules are unchanged, and there is no new data or AI cost.
+- **Your fills vs the record.** The Scorecard takes an upload of your own paper or real trade log (CSV, one row per trade ID) and shows your entry price against the record's mid and your P&L against the record's, per account. Old-style trade IDs (TICKER-C-YYMMDD-HHMM) and any letter case still match. Stored privately (`/api/auth/picks-fills`, Owner only).
+
+### Changed
+
+- **A 0.0% close is now "flat", not a win,** so it no longer lifts the win rate.
+- **Old closed trades are archived instead of dropped.** Trades past the 120-day / 250-trade window move to a slim archive in the same file, and the Scorecard shows an all-time figure once it has any.
+
 ## 2026-10-20
 
 ### Added

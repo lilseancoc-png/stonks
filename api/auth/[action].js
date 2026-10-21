@@ -8,6 +8,7 @@
 //   logout           -> clear session (same-origin POST only)
 //   me               -> report session for the "signed in as …" chip
 //   picks-feed       -> private plain-text open/closed trade lines (secret link)
+//   picks-fills      -> the Owner's uploaded paper/real trade log (GET / POST)
 //
 // Discord auth is intentionally an INTERNAL Owner Lab mechanism. Public site
 // access never requires a login; only principals holding the existing Top Picks
@@ -75,6 +76,8 @@ export default async function handler(req, res) {
       return me(req, res);
     case "picks-feed":
       return picksFeed(req, res);
+    case "picks-fills":
+      return picksFills(req, res);
     default:
       return res.status(404).json({ error: "not found" });
   }
@@ -292,5 +295,47 @@ async function picksFeed(req, res) {
   } catch (err) {
     console.error("picks feed failed", { message: String(err?.message || err) });
     return res.status(502).json({ error: "feed unavailable" });
+  }
+}
+
+// --- Owner trade log (paper / real fills) -----------------------------------
+// GET  /api/auth/picks-fills         -> { rows, updatedAt, errors }
+// POST /api/auth/picks-fills { csv } -> replaces the stored log, same shape
+// The Track Record joins these rows to the record by trade ID (Scorecard,
+// "Your fills vs the record"). Owner session with both claims required; POST
+// must be same-origin. Stored under the request-time key picks-fills.json,
+// which no workflow pushes or deletes.
+const FILLS_KEY = "picks-fills.json";
+
+async function picksFills(req, res) {
+  res.setHeader("Cache-Control", "private, no-store");
+  if (process.env.PRIVATE_DATA_ENABLED !== "1") return res.status(404).json({ error: "not found" });
+  const session = await getSession(req).catch(() => null);
+  if (!session) return res.status(401).json({ error: "auth required" });
+  if (session.tr !== true || session.tp !== true) return res.status(401).json({ error: "role required" });
+  try {
+    const { store } = await import("../../lib/datastore.mjs");
+    if (req.method === "GET") {
+      const buf = await store.get(FILLS_KEY);
+      const out = buf == null ? { rows: [], updatedAt: null, errors: [] } : JSON.parse(buf.toString("utf8"));
+      return res.status(200).json(out);
+    }
+    if (req.method !== "POST") {
+      res.setHeader("Allow", "GET, POST");
+      return res.status(405).json({ error: "method not allowed" });
+    }
+    if (!isSameOriginRequest(req)) return res.status(403).json({ error: "forbidden" });
+    const { parseFillsCsv, FILLS_MAX_BYTES } = await import("../../lib/track-record-fills.mjs");
+    const csv = req.body && typeof req.body === "object" ? req.body.csv : null;
+    if (typeof csv !== "string" || !csv.trim()) return res.status(400).json({ error: "no csv" });
+    if (csv.length > FILLS_MAX_BYTES) return res.status(413).json({ error: "file too large" });
+    const { rows, errors } = parseFillsCsv(csv);
+    if (!rows.length) return res.status(400).json({ error: "no usable rows", errors });
+    const out = { rows, errors, updatedAt: new Date().toISOString() };
+    await store.put(FILLS_KEY, JSON.stringify(out));
+    return res.status(200).json(out);
+  } catch (err) {
+    console.error("picks fills failed", { message: String(err?.message || err) });
+    return res.status(502).json({ error: "fills unavailable" });
   }
 }

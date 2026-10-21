@@ -39,6 +39,7 @@
     "test:leaps-expirations": "node scripts/leaps-expirations-smoke.mjs",
     "test:ai-call-efficiency": "node scripts/ai-call-efficiency-smoke.mjs",
     "test:leaps-paper-track": "node scripts/leaps-paper-track-smoke.mjs",
+    "test:track-record-fills": "node scripts/track-record-fills-smoke.mjs",
     "test:branches": "node scripts/review-branches.mjs"
   },
   "dependencies": {

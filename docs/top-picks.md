@@ -775,6 +775,28 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   scorecard** — the win/loss already resolves on the modeled option P&L, and the
   stock-move chips (stock expectancy, vs-SPY, stock peak/dip) were dropped; the
   generic stock win-rate chip remains only as a fallback for legacy pre-snapshot data.
+- **Real-fill measurement (since 2026-10-21, `lib/track-record-fills.mjs`):** none of
+  this changes the model mark or any exit rule. It adds the numbers a person trading
+  the picks would see:
+  - every new enrollment stores the entry **bid/ask** (per leg on spreads) and the
+    chain's `quoteAsOf`;
+  - each Top Picks run also writes a **real-fill P&L** (`realFillPnlPct`): pay the ask
+    to open, take the bid to close (shorts the other way), from the chain the run
+    already fetched. A leg with no usable quote falls back to the model less half
+    its entry spread (`realFillBasis: "model"`). Trades enrolled before this have none;
+  - each close carries an **`exitDetail`** (trigger level, booked mark, overshoot,
+    and `atTriggerPct`: what a resting order at the trigger would have booked);
+  - a close that rounds to **0.0% is "flat"**, not a win, so it stays out of the
+    win rate;
+  - a **SPY baseline** (`baseline` / `baselineStats`): each new pick opens a paired
+    ~0.55-delta SPY option on the same side, closed by the same premium/theta/expiry
+    rules or when the pick closes (`pair-closed`). It never feeds the record, the
+    edge governor or the feed;
+  - closed trades past the 120-day / 250-trade window move to a slim **`archive`**
+    (cap 5,000) instead of being dropped; `allTimeStats` covers window + archive;
+  - the Owner's own paper/real **trade log** (CSV) uploads to `/api/auth/picks-fills`
+    (request-time key `picks-fills.json`, Owner session, same-origin POST) and the
+    Scorecard's "Your fills vs the record" joins it to the record by trade ID.
 - **Thesis tracking:** each pick ships a structured `thesisCard` (`buildThesisCard`).
   Its core is the **everything-aware AI thesis** (`thesisCard.ai`, from
   `generateAiTheses`), written as a data-woven **narrative arc** (the gold-thesis

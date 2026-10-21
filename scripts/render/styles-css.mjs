@@ -16052,6 +16052,14 @@ body.tape-axm-open { overflow: hidden; }
   border-bottom: 1px solid var(--border);
 }
 .acc-qtable { width: 100%; border-collapse: collapse; font: 400 13px/1.4 var(--font-sans); margin: 8px 0 14px; }
+/* Your fills vs the record (Track Record Scorecard) */
+.acc-fills-upload { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 6px 0 10px; font: 400 13px/1.4 var(--font-sans); }
+.acc-fills-upload input[type="file"] { max-width: 100%; }
+.acc-fills-summary { margin: 4px 0 10px; padding-left: 18px; font: 400 13px/1.5 var(--font-sans); }
+.acc-fills-errors { margin: 0 0 8px; padding-left: 18px; }
+.acc-fills-status { color: var(--muted); font-size: 12px; }
+.acc-fills .acc-qtable th, .acc-fills .acc-qtable td { white-space: nowrap; }
+.acc-fill-unmatched td { opacity: 0.7; }
 .acc-qtable th, .acc-qtable td { text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--border); }
 .acc-qtable th:first-child, .acc-qtable td:first-child { text-align: left; }
 .acc-qtable th { color: var(--muted-strong); font-weight: 600; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
@@ -16656,6 +16664,8 @@ body.tape-axm-open { overflow: hidden; }
   align-items: baseline;
   gap: 4px;
 }
+/* The real-fill P&L sits right after the modeled mark. */
+.acc-since.acc-since-real { margin-left: 10px; }
 /* Small muted "contract" / "stock" label inside the lead P&L chip, so it's clear
    whether the headline number is the modeled option mark or the underlying move. */
 .acc-since-tag {
