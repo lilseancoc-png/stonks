@@ -320,6 +320,42 @@ ok("account: unknown paper account throws", await throwsAsync(() => runWebullMir
   ok("parse: bare order", parseOrderDetail({ order: { status: "CANCELLED" } })?.status === "CANCELLED");
 }
 
+{
+  // Cancel accepted, but the order filled first: record the fill, no second order.
+  const wb = fakeWebull();
+  const e = longCall();
+  const id = pickTradeId(e);
+  let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger: null, nowMs: T0, sleep: async () => {} });
+  const first = wb.placed[0].client_order_id;
+  let looks = 0;
+  const realDetail = wb.orderDetail;
+  wb.orderDetail = async (acct, cid) => { looks++; if (looks === 2) wb.fill(first, 5.05); return realDetail(acct, cid); };
+  wb.cancelOrder = async () => ({});
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + H, sleep: async () => {} }));
+  ok("guard: fill during a pending cancel is kept, no second order", wb.placed.length === 1 && ledger.trades[id].state === "open" && ledger.trades[id].fillPrice === 5.05, `${wb.placed.length} ${ledger.trades[id].state}`);
+}
+{
+  // Cancel accepted but never confirmed: wait, don't re-price this run.
+  const wb = fakeWebull();
+  const e = longCall();
+  let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger: null, nowMs: T0, sleep: async () => {} });
+  wb.cancelOrder = async () => ({});
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + H, sleep: async () => {} }));
+  ok("guard: unconfirmed cancel -> no new order", wb.placed.length === 1 && ledger.trades[pickTradeId(e)].entryAttempts[0].status === "CANCEL_FAILED");
+}
+ok("status: 'PARTIAL FILLED' normalized", parseOrderDetail({ orders: [{ status: "PARTIAL FILLED" }] })?.status === "PARTIAL_FILLED");
+ok("tick: nickel after a rejection", Math.abs(roundTick(1.23, { nickel: true }) - 1.25) < 1e-9);
+{
+  const wb = fakeWebull();
+  let rejectOnce = true;
+  const realPlace = wb.placeOrder;
+  wb.placeOrder = async (acct, list) => { if (rejectOnce) { rejectOnce = false; throw new Error("invalid price increment"); } return realPlace(acct, list); };
+  const e = { ...longCall(), contract: { ...longCall().contract, mid: 1.23 } };
+  let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger: null, nowMs: T0 });
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + H }));
+  ok("tick: re-sent in nickels after a price rejection", wb.placed.length === 1 && wb.placed[0].limit_price === "1.25", wb.placed[0]?.limit_price);
+}
+
 // --- 6. Endpoint auth -------------------------------------------------------------
 {
   process.env.PRIVATE_DATA_ENABLED = "1";
