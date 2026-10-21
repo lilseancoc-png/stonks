@@ -33264,6 +33264,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
       return;
     }
     var rows = wbRows();
+    if (!rows.length){
+      accPaneSummary('acc-sum-webull', []);
+      box.innerHTML = status + filters + '<p class="muted acc-an-note">No mirrored trades match these filters (' + all.length + ' in all).</p>';
+      return;
+    }
     var T = rows.map(function(x){ return x.t; });
     var filled = T.filter(function(t){ return t.fillPrice != null; });
     var missed = T.filter(function(t){ return t.state === 'missed'; });
@@ -33298,8 +33303,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
       wbChip(accPct(wbMean(exitCosts)), 'exit vs engine', wbMean(exitCosts) == null ? '' : (wbMean(exitCosts) <= 0 ? 'sig-pos' : 'sig-neg'), '+ means paper sold for less (or paid more to buy back) than the engine.') +
       wbChip(pWin == null ? '—' : Math.round(pWin) + '%', 'paper win rate', '') +
       wbChip(eWin == null ? '—' : Math.round(eWin) + '%', 'engine win rate, same trades', '') +
-      wbChip(accMoney(paperUsd, true), 'paper $ (1 contract each)', wbSignCls(paperUsd)) +
-      wbChip(accMoney(engUsd, true), 'engine $ (1 contract each)', wbSignCls(engUsd)) +
+      wbChip(closed.length ? accMoney(paperUsd, true) : '—', 'paper $ (1 contract each)', closed.length ? wbSignCls(paperUsd) : '') +
+      wbChip(closed.length ? accMoney(engUsd, true) : '—', 'engine $ (1 contract each)', closed.length ? wbSignCls(engUsd) : '') +
     '</div>';
 
     // 1. Fills ---------------------------------------------------------------
@@ -33311,7 +33316,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     ];
     var attempted = filled.length + missed.length;
     var bucketRows = buckets.map(function(b){ return { label: b.label, n: entryCosts.filter(b.test).length, of: attempted, cls: b.cls }; });
-    bucketRows.push({ label: 'Missed (over 10%)', n: missed.length, of: attempted, cls: 'sig-neg' });
+    bucketRows.push({ label: 'Missed (not filled)', n: missed.length, of: attempted, cls: 'sig-neg' });
     var first = filled.filter(function(t){ return t.entryHow === 'first'; }).length;
     var repriced = filled.filter(function(t){ return t.entryHow === 'reprice'; }).length;
     var spreadPos = [], hours = [], exitTries = [];

@@ -18,7 +18,12 @@ try {
     headers: { Authorization: `Bearer ${mirrorTriggerToken(secret)}` },
     signal: AbortSignal.timeout(90000),
   });
-  console.log(`Webull mirror: HTTP ${res.status}`);
+  // ran / not-ran plus the fixed off reason (mirror off, keys missing, market
+  // closed) and an error count; never the order or account details.
+  const body = await res.json().catch(() => null);
+  const why = body?.ran === false ? `, not run (${String(body.reason || body.summary?.skipped || "unknown").slice(0, 60)})`
+    : body?.ran === true ? `, ran${body.summary?.note ? ` (${String(body.summary.note).slice(0, 60)})` : ""}${body.summary?.errors ? `, ${Number(body.summary.errors) || 0} errors` : ""}` : "";
+  console.log(`Webull mirror: HTTP ${res.status}${why}`);
 } catch (err) {
   console.log(`Webull mirror: request failed (${err?.name || "error"})`);
 }
