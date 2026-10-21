@@ -31,7 +31,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Changed
 
-- **Webull mirror failures name their cause in the bake log.** When the mirror errors, the bake's "Webull mirror:" line now prints the error code, HTTP status and error type (and, for a code bug, its message) instead of a bare "HTTP 502". Webull's own error text, orders and account details stay out of the public log.
+- **Webull mirror failures name their cause in the bake log.** When the mirror errors, the bake's "Webull mirror:" line now prints the error code, HTTP status and error type (and, for a code bug, its message) instead of a bare "HTTP 502". Webull's own error text, orders and account details stay out of the public log. The mirror also trims its Vercel env values, so a key pasted with a trailing newline or space still works.
 
 - **A 0.0% close is now "flat", not a win,** so it no longer lifts the win rate.
 - **Old closed trades are archived instead of dropped.** Trades past the 120-day / 250-trade window move to a slim archive in the same file, and the Scorecard shows an all-time figure once it has any.

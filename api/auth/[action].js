@@ -393,7 +393,7 @@ async function webullMirror(req, res) {
         return res.end(mirror.fillRowsToCsv(rows));
       }
       return res.status(200).json({
-        enabled: process.env.WEBULL_MIRROR === "on",
+        enabled: String(process.env.WEBULL_MIRROR || "").trim().toLowerCase() === "on",
         goLiveIso: ledger.goLiveIso,
         lastRunIso: ledger.lastRunIso,
         runs: (ledger.runs || []).slice(0, 10),
@@ -416,8 +416,12 @@ async function webullMirror(req, res) {
   if (!secret || !given || !keyMatches(given, mirror.mirrorTriggerToken(secret))) {
     return res.status(404).json({ error: "not found" });
   }
-  if (process.env.WEBULL_MIRROR !== "on") return res.status(200).json({ ran: false, reason: "mirror off" });
-  const { WEBULL_APP_KEY, WEBULL_APP_SECRET, WEBULL_PAPER_ACCOUNT_ID, WEBULL_ACCESS_TOKEN } = process.env;
+  if (String(process.env.WEBULL_MIRROR || "").trim().toLowerCase() !== "on") return res.status(200).json({ ran: false, reason: "mirror off" });
+  // Trimmed: a value pasted into Vercel with a trailing newline or space
+  // would otherwise break the request signature.
+  const env = (k) => String(process.env[k] || "").trim();
+  const WEBULL_APP_KEY = env("WEBULL_APP_KEY"), WEBULL_APP_SECRET = env("WEBULL_APP_SECRET");
+  const WEBULL_PAPER_ACCOUNT_ID = env("WEBULL_PAPER_ACCOUNT_ID"), WEBULL_ACCESS_TOKEN = env("WEBULL_ACCESS_TOKEN");
   if (!WEBULL_APP_KEY || !WEBULL_APP_SECRET || !WEBULL_PAPER_ACCOUNT_ID) {
     return res.status(200).json({ ran: false, reason: "webull paper keys not configured" });
   }
