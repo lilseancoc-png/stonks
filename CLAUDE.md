@@ -144,7 +144,7 @@ python3 -m http.server 8000   # static only — /api/* endpoints will 404
 npx vercel dev                # full stack including api/quote, api/chain, etc.
 ```
 
-There is **no linter and no type checker**, and no single test runner. Checks are standalone smoke scripts in `scripts/*-smoke.mjs` (plus `grade-research-selftest.mjs`), each run with `node scripts/<name>.mjs`; `package.json` exposes a few of them as `test:*` / `verify:*` scripts. Run the ones that cover what you changed (for Top Picks: `picks-smoke.mjs`, `sector-growth-smoke.mjs` and `track-record-fills-smoke.mjs`; for the render layer: `render-smoke.mjs`), then re-run the relevant generator and diff the committed artifacts, or load the page locally.
+There is **no linter and no type checker**, and no single test runner. Checks are standalone smoke scripts in `scripts/*-smoke.mjs` (plus `grade-research-selftest.mjs`), each run with `node scripts/<name>.mjs`; `package.json` exposes a few of them as `test:*` / `verify:*` scripts. Run the ones that cover what you changed (for Top Picks: `picks-smoke.mjs`, `sector-growth-smoke.mjs` and `track-record-fills-smoke.mjs`; for the render layer: `render-smoke.mjs`, plus `views-smoke.mjs` for the shared sort/view helpers), then re-run the relevant generator and diff the committed artifacts, or load the page locally.
 
 ### Required / optional environment variables
 
@@ -257,6 +257,10 @@ search + the final decision; only an exact duplicate/retry dispatch can reuse.
 ### Charts are interactive via one delegated hover engine
 
 Every inline-SVG series chart gets a hover/tap readout from ONE shared engine in `app-js.mjs` (`chHoverAttr` + the `initChartHover` IIFE, in the top-of-file utilities): a chart opts in by emitting a `data-ch='[[x,y,"label"],…]'` attribute (viewBox coords + preformatted label, built with `chHoverAttr(points)`; `\n` in a label = a tooltip line break), and a single delegated `pointermove`/`pointerdown` document listener drives a shared fixed-position crosshair + snap-dot + tooltip (`.ch-line`/`.ch-dot`/`.ch-tip` in `styles-css.mjs`). Coordinate mapping goes through `getScreenCTM()`, so it's exact for any `viewBox`/`preserveAspectRatio` combination (several charts stretch with `preserveAspectRatio="none"`, where in-SVG overlay text would distort) — and because the listener is delegated, charts rebuilt via `innerHTML` stay interactive with zero re-wiring. When adding a NEW SVG chart, emit `data-ch` instead of writing a bespoke handler. The charts with richer bespoke overlays (Grade price chart, IV term structure, fundamentals/earnings history, F&G history spark, heatmap treemap, regime calendar) keep their own handlers — don't double-wire them with `data-ch`. DOM-bar charts (not SVG — OI ladder, AI-CapEx bars, breadth/social/flow split bars, streaks sparks) use plain `title`/`data-tip` attributes instead.
+
+### Shared sort / view helpers
+
+Sorting, the flip-order button, the Cards/Table switch, per-device memory of each tab's sort/filter/view, and click-a-header sorting for every `<table>` come from ONE module, [`scripts/render/views-client.mjs`](scripts/render/views-client.mjs) (`viewsFactory`, pasted into `app.js` as `VIEWS` via `Function.toString()`, so it must stay ES5 and self-contained; `js/streaks.js` reaches it as `window.STONKS_VIEWS`). Its CSS is `scripts/render/views-css.mjs`. When a tab gets a new Sort menu or table, use `VIEWS.sortMenuHtml` / `VIEWS.withFlip` / `VIEWS.viewToggleHtml` / `VIEWS.tableHtml` / `VIEWS.sortBy` instead of hand-rolling them; add `data-nosort` to a table whose header must not be clickable. Saved choices live under one localStorage key (`stonks-views-v1`) and the sidebar's "Reset saved sorts and views" clears them.
 
 ### Browser runtime layers
 

@@ -182,6 +182,11 @@ function tickersSection({ symbols, sectors, industries }) {
         <select id="tickers-sort" class="tickers-select" aria-label="Sort ticker directory">
           <option value="conviction">Strongest conviction</option>
           <option value="ready">Entry-ready first</option>
+          <option value="score">Grade score (bullish first)</option>
+          <option value="move1d">Day move</option>
+          <option value="move1m">1-month move</option>
+          <option value="mcap">Market cap</option>
+          <option value="sector">Sector</option>
           <option value="alpha">Ticker A → Z</option>
         </select>
       </label>
@@ -189,6 +194,7 @@ function tickersSection({ symbols, sectors, industries }) {
     </div>
     <p class="tickers-model-note" id="tickers-model-note">Loading model grades…</p>
     <div class="tickers-grid" id="tickers-grid">${cards}</div>
+    <div class="tickers-table" id="tickers-table" hidden></div>
     <div class="tickers-empty" id="tickers-empty" hidden>
       <span>No tickers match the current search + sector filter.</span>
       <button type="button" class="tickers-empty-reset" id="tickers-empty-reset">Clear filters</button>
@@ -307,6 +313,12 @@ function topPicksSection() {
           <option value="dte">Soonest expiry</option>
           <option value="breakeven">Smallest move to breakeven</option>
           <option value="premium">Cheapest premium</option>
+          <option value="pop">Highest PoP</option>
+          <option value="delta">Highest delta</option>
+          <option value="iv">Lowest IV</option>
+          <option value="oi">Most open interest</option>
+          <option value="maxloss">Smallest max loss</option>
+          <option value="score">Grade score (bullish first)</option>
         </select>
       </label>
     </div>
@@ -992,6 +1004,10 @@ function unusualFlowSection() {
             <option value="volume">Most total volume</option>
             <option value="premium">Biggest premium (this hr)</option>
             <option value="repeats">Most 🔥 repeats</option>
+            <option value="calls">Calls first (call premium share)</option>
+            <option value="puts">Puts first (put premium share)</option>
+            <option value="expiry">Soonest expiry</option>
+            <option value="sector">Sector</option>
             <option value="alpha">A → Z</option>
           </select>
         </label>
@@ -1113,6 +1129,9 @@ function oiTrackerSection() {
             <option value="oi">Total OI</option>
             <option value="cp">Highest C/P ratio</option>
             <option value="delta">Biggest ΔOI %</option>
+            <option value="callwall">Nearest call wall</option>
+            <option value="putwall">Nearest put wall</option>
+            <option value="sector">Sector</option>
             <option value="alpha">A → Z</option>
           </select>
         </label>
@@ -1171,6 +1190,8 @@ function volumeFlagsSection() {
           <option value="dayvol">Day volume</option>
           <option value="move">Largest day move</option>
           <option value="sr">S/R break conviction</option>
+          <option value="grade">Grade score (bullish first)</option>
+          <option value="sector">Sector</option>
           <option value="alpha">A → Z</option>
         </select>
       </label>
@@ -1229,7 +1250,7 @@ function compareCompaniesSection() {
     <header class="card-header">
       <h2 class="card-title">Compare companies</h2>
     </header>
-    <p class="hint">Put 2–4 companies side by side. Choose a sector to limit the ticker list to that group, then add the names you want. Each column keeps that company’s color from the price chart. Choose which company the gaps are measured against; every other cell is labeled versus that ticker and shows the number gap, then the percent gap when the reference reading is positive. The first group follows the chart’s 1M, 3M, 6M, or 1Y window. Valuation and the other accounting rows are the current snapshot. A daily record of those ratios is saved at each bake so a later window can show how they changed. Anything older than one year is dropped. Option contracts are left out.</p>
+    <p class="hint">Put 2–6 companies side by side. Choose a sector to limit the ticker list to that group, then add the names you want. Each column keeps that company’s color from the price chart. Choose which company the gaps are measured against; every other cell is labeled versus that ticker and shows the number gap, then the percent gap when the reference reading is positive. The first group follows the chart’s 1M, 3M, 6M, YTD, or 1Y window. Switch the chart between return, drawdown, 20-day volatility, implied volatility and grade score, and add SPY, QQQ, IWM, SMH, the average of your picks, or the reference’s sector average as a benchmark line. Valuation and the other accounting rows are the current snapshot. A daily record of those ratios is saved at each bake so a later window can show how they changed. Anything older than one year is dropped. Option contracts are left out.</p>
     <div class="cmp-controls">
       <select id="cmp-sector" class="cmp-sector" aria-label="Filter tickers by sector">
         <option value="">All sectors</option>
@@ -1264,8 +1285,13 @@ function compareCompaniesSection() {
           <button type="button" class="cmp-range-btn" data-cmp-range="1m" aria-pressed="false">1M</button>
           <button type="button" class="cmp-range-btn is-active" data-cmp-range="3m" aria-pressed="true">3M</button>
           <button type="button" class="cmp-range-btn" data-cmp-range="6m" aria-pressed="false">6M</button>
+          <button type="button" class="cmp-range-btn" data-cmp-range="ytd" aria-pressed="false">YTD</button>
           <button type="button" class="cmp-range-btn" data-cmp-range="1y" aria-pressed="false">1Y</button>
         </div>
+      </div>
+      <div class="cmp-chart-ctl">
+        <label>Chart <select id="cmp-mode" aria-label="Chart type"><option value="return">Return %</option><option value="drawdown">Drawdown from high</option><option value="vol">20-day volatility</option><option value="iv">Implied vol</option><option value="grade">Grade score</option></select></label>
+        <label>Benchmark <select id="cmp-bench" aria-label="Benchmark line"><option value="">None</option><option value="SPY">SPY</option><option value="QQQ">QQQ</option><option value="IWM">IWM</option><option value="SMH">SMH (semis)</option><option value="avg">Average of selected</option><option value="sector">Sector average</option></select></label>
       </div>
       <div id="cmp-chart-legend" class="cmp-chart-legend" aria-label="Chart legend"></div>
       <div id="cmp-chart" class="cmp-chart"></div>
@@ -2357,6 +2383,10 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
             <option value="vol">Volume trend</option>
             <option value="last">Last close</option>
             <option value="tol">Closest to breaking</option>
+            <option value="up">Biggest up move first</option>
+            <option value="down">Biggest down move first</option>
+            <option value="grade">Grade score (bullish first)</option>
+            <option value="sector">Sector</option>
             <option value="alpha">A → Z</option>
           </select>
         </label>

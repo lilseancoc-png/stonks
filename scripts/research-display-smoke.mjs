@@ -62,7 +62,7 @@ export function verifyResearchDisplay(appJs) {
   assert.match(appJs,/Includes watch ideas · not deployed/);
   assert.match(appJs,/modeled win rate · n=/);
   assert.match(appJs,/candidateBoard \+ modelRecord \+ researchContext/);
-  const levCtx = {leveragedEntryPlan, escapeHtml:x=>String(x), fmt:(v,n)=>v==null?'—':Number(v).toFixed(n), fmtMoney:v=>'$'+Number(v).toFixed(2),formatDisplayInstant:s=>s,
+  const levCtx = {VIEWS:{applyDir:a=>a}, leveragedEntryPlan, escapeHtml:x=>String(x), fmt:(v,n)=>v==null?'—':Number(v).toFixed(n), fmtMoney:v=>'$'+Number(v).toFixed(2),formatDisplayInstant:s=>s,
     levState:{quotes:{},displayQuotes:{ORCU:{regularSpot:8.85,regularAsOf:'2026-09-04T20:00:00Z',marketState:'POST'}},data:{record:{open:[]}}}};
   vm.createContext(levCtx);
   vm.runInContext(section('  function levDecision(', '  function applyLevRiskSizing('),levCtx);

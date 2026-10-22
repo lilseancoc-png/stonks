@@ -1,4 +1,5 @@
 import { renderWorkspaceCss } from './workspace-css.mjs';
+import { renderViewsCss } from './views-css.mjs';
 import { renderRecoveryCss } from './recovery-css.mjs';
 
 export function renderStylesCss() {
@@ -3238,6 +3239,9 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .cmp-series-1 { --cmp-series: #57b9d9; }
 .cmp-series-2 { --cmp-series: #a78bfa; }
 .cmp-series-3 { --cmp-series: #f07f67; }
+.cmp-series-4 { --cmp-series: #34d399; }
+.cmp-series-5 { --cmp-series: #f472b6; }
+.cmp-series-bench { --cmp-series: var(--muted-strong); }
 .cmp-chip-swatch {
   flex: 0 0 auto; width: 8px; height: 8px; border-radius: 999px;
   background: var(--cmp-series);
@@ -3318,6 +3322,15 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .cmp-chart-line.cmp-series-1 { stroke-dasharray: 9 3; }
 .cmp-chart-line.cmp-series-2 { stroke-dasharray: 2 3; }
 .cmp-chart-line.cmp-series-3 { stroke-dasharray: 11 3 2 3; }
+.cmp-chart-line.cmp-series-4 { stroke-dasharray: 5 3; }
+.cmp-chart-line.cmp-series-5 { stroke-dasharray: 14 4 2 4 2 4; }
+.cmp-chart-line.cmp-series-bench { stroke-dasharray: 4 4; stroke-width: 1.5; opacity: .85; }
+.cmp-legend-item.cmp-series-4 .cmp-legend-swatch { background: repeating-linear-gradient(90deg, var(--cmp-series) 0 5px, transparent 5px 8px); }
+.cmp-legend-item.cmp-series-5 .cmp-legend-swatch { background: repeating-linear-gradient(90deg, var(--cmp-series) 0 10px, transparent 10px 13px, var(--cmp-series) 13px 15px, transparent 15px 18px); }
+.cmp-legend-item.cmp-series-bench .cmp-legend-swatch { background: repeating-linear-gradient(90deg, var(--cmp-series) 0 4px, transparent 4px 8px); }
+.cmp-chart-ctl { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 0 0 10px; font: 600 11px/1 var(--font-mono); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.cmp-chart-ctl label { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.cmp-chart-ctl select { min-height: 34px; max-width: 100%; text-transform: none; letter-spacing: 0; }
 .cmp-x-axis {
   grid-column: 2; grid-row: 2; display: flex; align-items: flex-end;
   justify-content: space-between; min-width: 0;
@@ -3415,6 +3428,8 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .cmp-th-co.cmp-series-0,
 .cmp-th-co.cmp-series-1,
 .cmp-th-co.cmp-series-2,
+.cmp-th-co.cmp-series-4,
+.cmp-th-co.cmp-series-5,
 .cmp-th-co.cmp-series-3 { box-shadow: inset 0 3px 0 var(--cmp-series); }
 .cmp-th-ref { box-shadow: inset 0 3px 0 var(--cmp-series), inset 0 -2px 0 var(--cmp-series); }
 .cmp-th-ref-tag { display: block; margin-top: 3px; font: 700 9px/1.2 var(--font-mono); letter-spacing: .04em; text-transform: uppercase; color: var(--cmp-series); }
@@ -24676,6 +24691,7 @@ svg[data-ch]{ cursor: crosshair; touch-action: pan-y; }
   .ch-range-row { grid-template-columns: minmax(48px, auto) minmax(0, 1fr) auto; gap: 6px; }
 }
 ${renderWorkspaceCss()}
+${renderViewsCss()}
 
 /* Top Picks: spacious, scoped research cards and a quiet supporting frame. */
 .ecl-age{font-size:.78rem;line-height:1.5;color:var(--muted);margin:.5rem 0}.lev-live small{display:block;font-size:.72rem;line-height:1.5;font-weight:400}.lev-desk-summary{flex-wrap:wrap}

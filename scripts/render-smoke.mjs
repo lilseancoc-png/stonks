@@ -237,7 +237,7 @@ try {
   assert.match(regenStaticSource, /symbols = \[\.\.\.TICKERS\]\.sort\(\)/, "renderer-only regeneration must ship TICKERS and must not restore a name removed from the source universe");
   assert.match(appJs, /var OWNER_TABS = \{ market:1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, 'open-picks':1, track:1, quant:1 \}/);
   assert.match(appJs, /name === 'open-picks' && HAS_TRACK_RECORD && typeof loadOpenPicks === 'function'/);
-  assert.match(appJs, /root\.innerHTML = accOpenGroupHtml\(open\)/);
+  assert.match(appJs, /root\.innerHTML = openPicksControlsHtml\(opSort\) \+ accOpenGroupHtml\(open, opSort, /);
   assert.doesNotMatch(appJs, /day-trading\.json|day-trading-history\.json|loadDayTrading/);
   assert.match(appJs, /HAS_TRACK_RECORD = HAS_OWNER_ACCESS/);
   assert.match(appJs, /HAS_TOP_PICKS = HAS_OWNER_ACCESS/);
