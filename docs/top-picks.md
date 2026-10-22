@@ -57,7 +57,7 @@ a ~5–11% win rate). Everything else is deliberately plain:
    adverse move is a −70% wipeout.
 4. **One entry per name** until it resolves — 58% of past entries were restacks
    of the same losing thesis. → **re-entry suppression**.
-5. **Fast option exits** (+20% take-profit / −50% stop; the bank-half-and-trail
+5. **Fast option exits** (+25% take-profit / −50% stop; the bank-half-and-trail
    scale-out is opt-in — see §8).
 6. **Willing to go short and to hold cash** — long-only into a risk-off tape was
    fatal; fewer/zero picks is allowed.
@@ -498,6 +498,11 @@ skew, term structure, or the debit-versus-credit decision. Each observation has
 chain cannot produce a usable ATM IV, the rank is omitted from live scoring
 instead of reusing yesterday's premium regime.
 
+Missing or stale IV history is labeled `unknown`, not `reasonable`. Without a
+current z-score or percentile, the automatic strategy router recommends a debit
+spread and does not permit a single long. This limits premium outlay; it does
+not establish that the spread is cheap or has positive expected return.
+
 Skew is a one-way safety router. When the intended long option is materially
 rich relative to the opposite wing, row 2 demotes to row 3 so the short leg helps
 finance that skew. Skew never awards points, changes side, upgrades debit to
@@ -534,11 +539,11 @@ is never enrolled in the track record (nothing to mark).
 The payload carries `structure` (`long` / `debit_vertical` / `credit_vertical`),
 `legs[]` (`{qty,type,strike,iv,delta,thetaDay,vega,mid,…}`), `shortStrike` /
 `longStrike`, `mid` (net debit/credit), `maxLoss` / `maxProfit` / `width`,
-breakeven, net greeks, PoP, and `contractQuality`. `buildPickContract` falls back
-down the defined-risk → naked ladder if the preferred structure has no liquid
-wing (and stamps `strategy.fallback`), **except when adverse skew explicitly
-blocked a naked long**; then a missing debit wing fails closed and drops the
-trade. Off via `PICKS_STRATEGY_AUTO=0` (always
+breakeven, net greeks, PoP, and `contractQuality`. `buildPickContract` permits
+long → debit and credit → debit fallbacks and stamps `strategy.fallback`.
+A debit or credit recommendation never falls back to a single long. If no
+permitted spread can be built, the trade drops instead of bypassing the IV,
+event, skew, or thesis restriction. Off via `PICKS_STRATEGY_AUTO=0` (always
 naked long, legacy). Each pick ships `strategy = {type,label,reason,ivZ,…}`.
 
 **Track-record marking is structure-aware** (`markOptionToMarket` /
@@ -634,12 +639,12 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
 
 ## 8. Exits (`buildExitPlan` / `resolvePickOutcome`)
 
-- **Option-space (primary):** flat **+20% take-profit / −50% stop** on premium
+- **Option-space (primary):** flat **+25% take-profit / −50% stop** on premium
   (2026-07-15, owner directive: with the book capped at
   `PICKS_MAX_OPEN_POSITIONS` 20, the prior bank-half-and-trail runners held
   slots open for days and froze enrollment — the record filled to 20 open /
   0 closed in three sessions; fast flat gates turn positions over so new picks
-  keep enrolling). `PICKS_OPT_SCALE_OUT=1` restores the scale-out: at +20% the
+  keep enrolling). `PICKS_OPT_SCALE_OUT=1` restores the scale-out: at +25% the
   position **banks HALF at the marked price and arms a trailing stop on the
   runner** — floored at breakeven, ratcheting up to (peak −
   `PICKS_OPT_TRAIL_GIVEBACK_PCT` 25pts) as the runner extends (`trail-stop`),
@@ -1033,7 +1038,7 @@ implementation must expose the stated value and audit fields:
 | `PICKS_MAX_PER_SECTOR` | 3 | correlation cap |
 | `PICKS_MAX_PER_FACTOR` | 5 | tech/AI-complex correlation cap |
 | `PICKS_FACTOR_WEAK_SHARE` / `PICKS_FACTOR_WEAK_RET5` | 0.6 / −3 | factor-trend gate: suppress new calls in a rolling-over factor |
-| `PICKS_OPT_TP_PCT` / `PICKS_OPT_STOP_PCT` | 0.20 / 0.50 | +20% take-profit / −50% stop (not env-tunable — code constants) |
+| `PICKS_OPT_TP_PCT` / `PICKS_OPT_STOP_PCT` | 0.25 / 0.50 | +25% take-profit / −50% stop (not env-tunable — code constants) |
 | `PICKS_OPT_SCALE_OUT` | off | 1 = bank half + trail the runner at the TP instead of the flat take-profit |
 | `PICKS_OPT_TRAIL_GIVEBACK_PCT` | 0.25 | runner trail: stop = max(breakeven, peak − 25pts) |
 | `PICKS_UNDERLYING_STOP` | on | enforce the exit ladder's stock stop in the track record (`hit-stop-under`) |
@@ -1105,3 +1110,12 @@ reset/stamps. To regenerate from a hydrated `data/`, first run
 - Browser render: `loadPicks`/`renderPicks` + the grade-search + Track-record
   views in `scripts/render/app-js.mjs` (read `picks.json` / `grades.json` /
   `picks-accuracy.json` / `picks-roster.json` / `picks-changes.json`).
+
+## Webull paper execution controls (October 22, 2026)
+
+The broker lifecycle and its deployment requirements are documented in
+[webull-paper-controls.md](webull-paper-controls.md). The non-credit profit
+target is now +25%, with the -50% premium stop unchanged. Existing unversioned
+open trades adopt this policy when next evaluated; closed historical results
+are retained. Each newly evaluated open trade and new enrollment stores its
+`exitPolicy` version and thresholds; credit targets remain +50%/-50% of credit.

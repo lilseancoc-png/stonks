@@ -34700,7 +34700,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     if (st.atTriggerExpectancyPct != null && st.optionDecided){
       cellChip(accPct(st.atTriggerExpectancyPct), 'if exits filled at the trigger', st.atTriggerExpectancyPct >= 0,
-        'Average P&L if take-profits and premium stops filled exactly at their trigger (+20% / -50%; +50% / -50% on credit spreads), as a resting order would. The record books them at the 11:00 / 15:30 ET mark instead. Optimistic for stops, which can gap past the level.');
+        'Average P&L if take-profits and premium stops filled exactly at their trigger (each recorded trigger; current default +25% / -50%, or +50% / -50% on credit spreads), as a resting order would. The record books them at the 11:00 / 15:30 ET mark instead. Optimistic for stops, which can gap past the level.');
     }
     if (st.flat) cellChip(String(st.flat), 'flat closes (not counted)', null, 'Closes that rounded to 0.0%. They are neither wins nor losses.');
     if (bs && bs.paired && bs.paired.n){
@@ -34870,7 +34870,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // in less on entry, sold for less / paid more to buy back on exit.
   function wbEntryCost(t){ var d = wbNum(t.entryDiffPct); return d == null ? null : (wbCredit(t) ? -d : d); }
   function wbExitCost(t){ var d = wbNum(t.exitDiffPct); return d == null ? null : (wbCredit(t) ? d : -d); }
-  function wbFeePct(t){ var f = wbNum(t.fees), o = wbNum(t.fillPrice); return (f != null && o > 0) ? f / (o * 100) * 100 : 0; }
+  function wbFeePct(t){ var f = wbNum(t.fees), o = wbNum(t.fillPrice); return (f != null && o > 0) ? f / (o * 100 * (wbNum(t.filledQty) || 1)) * 100 : 0; }
   function wbNetPnl(t){ var p = wbNum(t.paperPnlPct); return p == null ? null : p - wbFeePct(t); }
   function wbDollars(open, close, credit){ open = wbNum(open); close = wbNum(close); if (open == null || close == null) return null; return (credit ? open - close : close - open) * 100; }
   function wbRun(t){ var p = tlEtParts(Date.parse(t.engineEntryIso)); return p ? (Number(p.hour) < 13 ? '11' : '15') : null; }
@@ -34888,7 +34888,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (accView.wbStruct === 'single' && t.structure !== 'long') return false;
       if (accView.wbStruct === 'spread' && t.structure === 'long') return false;
       if (accView.wbRun !== 'all' && wbRun(t) !== accView.wbRun) return false;
-      if (accView.wbState === 'open' && t.state !== 'open' && t.state !== 'exiting' && t.state !== 'entering') return false;
+      if (accView.wbState === 'open' && t.state !== 'open' && t.state !== 'exiting' && t.state !== 'entering' && t.state !== 'settlement-pending' && t.state !== 'error') return false;
       if (accView.wbState === 'closed' && t.state !== 'closed') return false;
       if (cutoff != null && !(Date.parse(t.engineEntryIso) >= cutoff)) return false;
       return true;
@@ -34995,8 +34995,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '<div class="acc-ctl"><span class="acc-ctl-lbl">Status</span>' + accSeg('wbState', 'acc-wb-state', accView.wbState, [{ value:'all', label:'All' }, { value:'open', label:'Open' }, { value:'closed', label:'Closed' }]) + '</div>' +
       '<div class="acc-ctl"><span class="acc-ctl-lbl">Opened</span>' + accSeg('wbRange', 'acc-wb-range', accView.wbRange, [{ value:'all', label:'All time' }, { value:'90', label:'90 days' }, { value:'30', label:'30 days' }]) + '</div>' +
     '</div>';
-    var status = '<p class="hint acc-research-note">Every Top Picks trade opened after the mirror went live is copied into the Webull paper account: 1 contract, spreads as one order, at the engine’s price (±10%). ' +
+    var status = '<p class="hint acc-research-note">Eligible Top Picks opened after go-live are queued for the Webull paper account: currently 1 contract, spreads as one order, within the entry price band (±10%). Unfilled or blocked trades can be missed. ' +
       (info.enabled ? 'The mirror is on' : 'The mirror is off') + (info.goLiveIso ? ', live since ' + accDateTime(info.goLiveIso) : '') + (info.lastRunIso ? ', last run ' + accDateTime(info.lastRunIso) : '') + '. Paper fills are simulated by Webull, so the real-money panel prices each trade off the bid/ask recorded at the order.</p>';
+    var rec = info.reconciliation || {};
+    var recordBuiltMs = Date.parse((accuracyState.data || {}).builtAtIso || '');
+    var checkedBuildMs = Date.parse(info.engineSnapshotIso || '');
+    var stale = !info.lastRunIso || isFinite(recordBuiltMs) && (!isFinite(checkedBuildMs) || recordBuiltMs > checkedBuildMs);
+    status += '<p class="hint acc-research-note">Holdings and order checks follow the 11:00 and 15:30 ET Top Picks builds after publication, with up to two two-minute follow-ups while orders are pending. Build delays are possible. Expiry closes start with the first mirror on the two-session cutoff date. ' + (rec.checkedAtIso ? 'Last holdings check: ' + accDateTime(rec.checkedAtIso) + '. ' : 'Holdings have not been verified yet. ') + (stale ? 'The latest Track Record build has not been checked yet, or no mirror run is recorded. ' : '') + '</p>';
+    if ((rec.alerts || []).length) status += '<p class="sig-neg">Entries paused or exposure needs review: ' + rec.alerts.map(function(a){ return escapeHtml(a); }).join(' · ') + '</p>';
     var all = (info.trades || []);
     if (!all.length){
       accPaneSummary('acc-sum-webull', []);
@@ -35021,8 +35027,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var paperUsd = 0, engUsd = 0;
     closed.forEach(function(x){
       var t = x.t, c = wbCredit(t);
-      paperUsd += (wbDollars(t.fillPrice, t.closeFillPrice, c) || 0) - (wbNum(t.fees) || 0);
-      engUsd += wbDollars(t.engineEntryPrice, t.engineExitPrice, c) || 0;
+      paperUsd += ((wbDollars(t.fillPrice, t.closeFillPrice, c) || 0) * (wbNum(t.filledQty) || 1)) - (wbNum(t.fees) || 0);
+      engUsd += (wbDollars(t.engineEntryPrice, t.engineExitPrice, c) || 0) * (wbNum(t.filledQty) || 1);
     });
     var fillRate = (filled.length + missed.length) ? filled.length / (filled.length + missed.length) * 100 : null;
     var pWin = paperNet.length ? paperNet.filter(function(v){ return v > 0; }).length / paperNet.length * 100 : null;
@@ -35031,7 +35037,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       { val: String(T.length), lbl: 'trades mirrored' },
       { val: fillRate == null ? '—' : Math.round(fillRate) + '%', lbl: 'filled (' + missed.length + ' missed)' },
       { val: accPct(wbMean(entryCosts)), lbl: 'entry vs engine', cls: wbMean(entryCosts) == null ? '' : (wbMean(entryCosts) <= 0 ? 'sig-pos' : 'sig-neg'), tip: '+ means paper paid more than the engine (or took in less on a credit).' },
-      { val: accPct(wbMean(paperNet)), lbl: 'paper avg (after fees)', cls: wbSignCls(wbMean(paperNet)) },
+      { val: accPct(wbMean(paperNet)), lbl: 'paper avg (less known fee estimates)', cls: wbSignCls(wbMean(paperNet)) },
       { val: accPct(wbMean(engine)), lbl: 'engine avg, same trades', cls: wbSignCls(wbMean(engine)) },
       { val: closed.length + '/' + WB_TARGET_CLOSED, lbl: 'closed toward a solid read' },
     ], early ? 'Early read: ' + closed.length + ' closed trade' + (closed.length === 1 ? '' : 's') + '. The numbers settle once about ' + WB_TARGET_CLOSED + ' have closed.' : '');
@@ -35043,8 +35049,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
       wbChip(accPct(wbMean(exitCosts)), 'exit vs engine', wbMean(exitCosts) == null ? '' : (wbMean(exitCosts) <= 0 ? 'sig-pos' : 'sig-neg'), '+ means paper sold for less (or paid more to buy back) than the engine.') +
       wbChip(pWin == null ? '—' : Math.round(pWin) + '%', 'paper win rate', '') +
       wbChip(eWin == null ? '—' : Math.round(eWin) + '%', 'engine win rate, same trades', '') +
-      wbChip(closed.length ? accMoney(paperUsd, true) : '—', 'paper $ (1 contract each)', closed.length ? wbSignCls(paperUsd) : '') +
-      wbChip(closed.length ? accMoney(engUsd, true) : '—', 'engine $ (1 contract each)', closed.length ? wbSignCls(engUsd) : '') +
+      wbChip(closed.length ? accMoney(paperUsd, true) : '—', 'paper $ (filled quantity)', closed.length ? wbSignCls(paperUsd) : '') +
+      wbChip(closed.length ? accMoney(engUsd, true) : '—', 'engine $ (same quantity)', closed.length ? wbSignCls(engUsd) : '') +
     '</div>';
 
     // 1. Fills ---------------------------------------------------------------
@@ -35139,7 +35145,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var reasons = {};
     closed.forEach(function(x){ var k = ACC_STATUS_LABEL[x.t.engineCloseReason] || x.t.engineCloseReason || 'unknown'; reasons[k] = (reasons[k] || 0) + 1; });
     var reasonRows = Object.keys(reasons).sort(function(a, b){ return reasons[b] - reasons[a]; }).map(function(k){ return { label: k, n: reasons[k], of: closed.length }; });
-    var accBody = '<p class="hint acc-research-note">Closed mirrored trades only, judged on the paper result after fees.</p>' +
+    var accBody = '<p class="hint acc-research-note">Closed mirrored trades only, judged on the paper result less known fee estimates.</p>' +
       '<div class="accuracy-chips">' +
         wbChip(pWin == null ? '—' : Math.round(pWin) + '%', 'paper win rate (' + paperNet.length + ')') +
         wbChip(dirN ? Math.round(dirHit / dirN * 100) + '%' : '—', 'stock moved the pick’s way by exit (' + dirN + ')', '', 'The pick was right on direction, whatever the option did.') +
@@ -35181,22 +35187,22 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var s = x.spy && x.spy.exitDate ? wbNum(x.spy.optionPnlPct) : null; if (s != null){ cs += s; spyN++; }
       sp.push(cp); se.push(ce); ss.push(cs);
     });
-    var eqBody = '<p class="hint acc-research-note">Running total of each trade’s return, the same stake on every trade. Paper is after fees. SPY is the paired index option the record opens with each pick' + (spyN < ordered.length ? ' (' + spyN + ' of ' + ordered.length + ' trades have a closed SPY pair; the rest count as 0)' : '') + '. Paper $ at 1 contract each: ' + accMoney(paperUsd, true) + ' vs the engine’s ' + accMoney(engUsd, true) + '.</p>' +
+    var eqBody = '<p class="hint acc-research-note">Running total of each trade’s return, the same stake on every trade. Paper is less known fee estimates. SPY is the paired index option the record opens with each pick' + (spyN < ordered.length ? ' (' + spyN + ' of ' + ordered.length + ' trades have a closed SPY pair; the rest count as 0)' : '') + '. Paper $ at filled quantities: ' + accMoney(paperUsd, true) + ' vs the engine’s ' + accMoney(engUsd, true) + '.</p>' +
       wbLinesSvg([{ name: 'Webull paper', cls: 'paper', values: sp }, { name: 'Engine', cls: 'engine', values: se }, { name: 'SPY option', cls: 'spy', values: ss }], ordered.length);
 
     // 6. Trade log ----------------------------------------------------------------------
-    var STATE = { entering: 'entry order working', open: 'open', exiting: 'exit order working', closed: 'closed', missed: 'missed', expired: 'expired', skipped: 'skipped', error: 'needs a look' };
+    var STATE = { entering: 'entry order working', open: 'open', exiting: 'exit order working', closed: 'closed', missed: 'missed', expired: 'expiry review', 'settlement-pending': 'settlement review', settled: 'flat; settlement P&L unverified', skipped: 'skipped', error: 'needs a look' };
     var logRows = rows.map(function(x){
       var t = x.t, ec = wbEntryCost(t), xc = wbExitCost(t), np = wbNetPnl(t);
       return '<tr><td><b>' + escapeHtml(t.tradeId) + '</b><br><small>' + escapeHtml(t.legs || '') + '</small>' + ((t.labels || []).length ? '<br><small>' + escapeHtml(t.labels.join(' · ')) + '</small>' : '') + (t.note && t.state !== 'closed' && (t.labels || []).join(' ').indexOf(t.note) < 0 ? '<br><small>' + escapeHtml(t.note) + '</small>' : '') + '</td>' +
-        '<td>' + escapeHtml(STATE[t.state] || t.state || '') + '</td>' +
+        '<td>' + escapeHtml(t.state === 'entering' && !t.entryTries ? 'queued' : STATE[t.state] || t.state || '') + '<br><small>' + (t.filledQty || 0) + '/' + (t.requestedQty || 1) + ' filled · ' + (t.closedQty || 0) + ' closed' + (t.openQty != null ? ' · ' + t.openQty + ' open' : '') + '</small></td>' +
         '<td>' + (accUsd(t.engineEntryPrice) || '—') + ' → ' + (accUsd(t.fillPrice) || '—') + (ec != null ? ' <small class="' + (ec <= 0 ? 'sig-pos' : 'sig-neg') + '">(' + accPct(ec) + ')</small>' : '') + '<br><small>' + wbTime(t.engineEntryIso) + ' → ' + wbTime(t.fillIso) + '</small></td>' +
         '<td>' + (t.engineExitPrice != null || t.closeFillPrice != null ? (accUsd(t.engineExitPrice) || '—') + ' → ' + (accUsd(t.closeFillPrice) || '—') + (xc != null ? ' <small class="' + (xc <= 0 ? 'sig-pos' : 'sig-neg') + '">(' + accPct(xc) + ')</small>' : '') + '<br><small>' + wbTime(t.engineExitIso) + ' → ' + wbTime(t.closeFillIso) + '</small>' : '—') + '</td>' +
         '<td class="' + wbSignCls(wbNum(t.enginePnlPct)) + '">' + accPct(wbNum(t.enginePnlPct)) + '</td>' +
         '<td class="' + wbSignCls(np) + '">' + accPct(np) + '</td>' +
         '<td>' + (wbNum(t.fees) != null ? '$' + Number(t.fees).toFixed(2) : '—') + '</td></tr>';
     }).join('');
-    var logBody = '<p class="hint acc-research-note">Each trade from the engine’s open to the paper close. Gaps in brackets: + is worse for us than the engine. Paper P&amp;L is after fees. <a href="/api/auth/webull-mirror?format=csv">Download all Webull paper trades (CSV)</a></p>' +
+    var logBody = '<p class="hint acc-research-note">Each trade from the engine’s open to the paper close. Gaps in brackets: + is worse for us than the engine. Paper P&amp;L is less known fee estimates. <a href="/api/auth/webull-mirror?format=csv">Download all Webull paper trades (CSV)</a></p>' +
       (logRows ? '<div class="acc-tscroll wb-log"><table class="acc-qtable"><thead><tr><th>Trade</th><th>Status</th><th>Entry: engine → paper</th><th>Exit: engine → paper</th><th>Engine P&amp;L</th><th>Paper P&amp;L</th><th>Fees</th></tr></thead><tbody>' + logRows + '</tbody></table></div>' : '<p class="muted acc-an-note">No trades match these filters.</p>');
 
     box.innerHTML = status + filters + score +
@@ -39374,11 +39380,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // A held-contract evaluator: price the user's option live (/api/contract,
   // which handles ANY strike/expiry incl. off-band) and turn the engine's
   // current grade + entry-timing + premium exit plan into a hold / sell /
-  // wait read. Reuses the same +20% take-profit / −50% premium-stop targets the
+  // wait read. Reuses the same +25% take-profit / −50% premium-stop targets the
   // track record resolves on (PICKS_OPT_TP_PCT / PICKS_OPT_STOP_PCT). Tracked
   // tickers only — expirations/strikes come from the baked per-ticker chain. Not advice.
   var posState = { chain: null, symbol: null, bound: false };
-  var POS_TP = 20, POS_STOP = 50; // % of entry premium — mirrors the engine's +20% TP / −50% stop
+  var POS_TP = 25, POS_STOP = 50; // % of entry premium — mirrors the engine's +25% TP / −50% stop
 
   function posYrs(exp){ return Math.max(1e-6, (chainExpiryCloseEpochSec(exp) - Date.now()/1000) / (365.25*86400)); }
   function posRows(chain, side, exp){

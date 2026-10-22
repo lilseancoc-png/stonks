@@ -1,15 +1,12 @@
-name: Webull mirror ping
+name: Webull paper reconciliation
 
-# Runs the Webull paper mirror once by hand, without a bake: the same call
-# daily.yml makes after every full build. Use it to check the mirror after a
-# Vercel env change instead of waiting for the next bake. Outside 9:30-16:00
-# ET it places no orders (it still checks the keys and the account). The log
-# shows only the HTTP status and ran / not run / the error class.
+# Manual recovery/inspection only. Automatic execution belongs to the
+# 11:00 / 15:30 ET Top Picks publication steps in daily.yml.
 on:
   workflow_dispatch:
 
 concurrency:
-  group: stonks-data-commit
+  group: stonks-webull-mirror
   cancel-in-progress: false
 
 permissions:
@@ -19,14 +16,16 @@ jobs:
   ping:
     if: ${{ vars.PRIVATE_DATA_ENABLED == '1' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
-      - name: Ping the Webull mirror
-        timeout-minutes: 3
+      - name: Reconcile Webull paper orders and expiry exposure
+        timeout-minutes: 10
         env:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          WEBULL_MIRROR_STRICT: '1'
+          WEBULL_MIRROR_FOLLOW_UPS: '2'
         run: node scripts/webull-mirror-trigger.mjs

@@ -7,9 +7,12 @@
 // Run: node scripts/webull-mirror-smoke.mjs
 import { signRequest, createWebullClient, quoteAll } from "../lib/webull-client.mjs";
 import {
-  runWebullMirror, buildOrder, mirrorLegs, roundTick, clientOrderId, isRegularSession, isMarketClosedError, parseOrderDetail, parsePreviewFee, ledgerToTestTrades,
+  runWebullMirror, updateQuantities, buildOrder, mirrorLegs, roundTick, clientOrderId, isRegularSession, isMarketClosedError, parseOrderDetail, parsePreviewFee, ledgerToTestTrades,
   ledgerToFillRows, fillRowsToCsv, mirrorTriggerToken, makeQuoteFn, emptyLedger, LEDGER_KEY,
 } from "../lib/webull-mirror.mjs";
+import { parsePositions, reconcilePositions } from "../lib/webull-reconciliation.mjs";
+import { expiryControl, sessionForDate, previousTradingDate } from "../lib/us-equity-calendar.mjs";
+import { withObjectLease } from "../lib/object-lease.mjs";
 import { pickTradeId } from "../lib/pick-trade-text.mjs";
 
 let pass = 0, fail = 0;
@@ -85,6 +88,20 @@ function fakeWebull({ accounts = [{ account_id: "PAPER1" }] } = {}) {
   return {
     orders, placed, cancelled,
     accountList: async () => accounts,
+    positions: async () => {
+      const net = new Map();
+      for (const order of orders.values()) {
+        const qty = Number(order.filled_quantity || 0);
+        for (const l of order.body.legs) {
+          const key = [l.symbol, l.option_expire_date, l.option_type, l.strike_price].join("|");
+          const prior = net.get(key) || { instrument_type: "OPTION", symbol: l.symbol, quantity: 0, legs: [{ ...l, quantity: 0 }] };
+          prior.legs[0].quantity += (l.side === "BUY" ? qty : -qty);
+          prior.quantity = prior.legs[0].quantity; delete prior.legs[0].side;
+          net.set(key, prior);
+        }
+      }
+      return [...net.values()].filter((p) => p.quantity);
+    },
     placeOrder: async (acct, list) => {
       const o = list[0];
       if (orders.has(o.client_order_id)) throw new Error("duplicate client_order_id");
@@ -95,7 +112,7 @@ function fakeWebull({ accounts = [{ account_id: "PAPER1" }] } = {}) {
     orderDetail: async (acct, id) => {
       const o = orders.get(id);
       if (!o) throw new Error("not found");
-      return { orders: [{ client_order_id: id, status: o.status, filled_price: o.filled_price ?? null, filled_quantity: o.status === "FILLED" ? "1" : "0", filled_time_at: o.filled_time_at ?? null }] };
+      return { orders: [{ client_order_id: id, status: o.status, filled_price: o.filled_price ?? null, filled_quantity: o.filled_quantity || "0", filled_time_at: o.filled_time_at ?? null }] };
     },
     cancelOrder: async (acct, id) => {
       const o = orders.get(id);
@@ -104,7 +121,7 @@ function fakeWebull({ accounts = [{ account_id: "PAPER1" }] } = {}) {
       cancelled.push(id);
       return {};
     },
-    fill(id, price) { const o = orders.get(id); o.status = "FILLED"; o.filled_price = String(price); o.filled_time_at = "2026-10-21T16:00:00.000Z"; },
+    fill(id, price, qty = null) { const o = orders.get(id); o.filled_quantity = String(qty ?? o.body.quantity); o.status = Number(o.filled_quantity) === Number(o.body.quantity) ? "FILLED" : "PARTIAL_FILLED"; o.filled_price = String(price); o.filled_time_at = "2026-10-21T16:00:00.000Z"; },
   };
 }
 const T0 = Date.parse("2026-10-21T15:10:00Z"); // Wed 11:10 ET
@@ -240,7 +257,7 @@ ok("account: unknown paper account throws", await throwsAsync(() => runWebullMir
   let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger: null, nowMs: T0 });
   wb.fill(wb.placed[0].client_order_id, 5);
   ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [{ ...e, status: "expired", exitDate: "2026-12-19T15:00:00Z", optionPnlPct: -100 }]), ledger, nowMs: T0 + 24 * H }));
-  ok("expired: no sell order, state expired", ledger.trades[id].state === "expired" && wb.placed.length === 1);
+  ok("engine expiry does not pretend broker is flat", ledger.trades[id].state === "exiting" && wb.placed.length === 2);
 }
 
 // --- 5. Quotes for spreads ------------------------------------------------------
@@ -265,12 +282,12 @@ ok("account: unknown paper account throws", await throwsAsync(() => runWebullMir
   const id = pickTradeId(e);
   let { ledger, summary } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger: null, nowMs: T0 });
   const t = ledger.trades[id];
-  ok("closed market: no try counted, trade still waiting", t.state === "entering" && t.entryAttempts.length === 0 && summary.errors === 0, JSON.stringify(t.entryAttempts));
+  ok("closed market: no try counted, trade still waiting", t.state === "entering" && t.entryAttempts.filter((a) => !a.marketClosed).length === 0 && summary.errors === 0, JSON.stringify(t.entryAttempts));
   ok("closed market: run says why, ledger still saved", /market is closed/.test(summary.note || "") && !summary.skipped);
   ok("closed market: error is recognized", isMarketClosedError({ code: "OPENAPI_OPTION_ONLY_SUPPORT_MARKET_IN_CORE_TIME" }) && !isMarketClosedError({ code: "OPENAPI_PARAM_ERR" }));
   shut = false;
   ({ ledger, summary } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 24 * H }));
-  ok("closed market: next session places at the engine price", summary.placed === 1 && wb.placed[0].limit_price === "5.00" && ledger.trades[id].entryAttempts.length === 1);
+  ok("closed market: next session places at the engine price", summary.placed === 1 && wb.placed[0].limit_price === "5.00" && ledger.trades[id].entryAttempts.filter((a) => !a.marketClosed).length === 1);
 }
 
 // --- 5c. Safety guards -----------------------------------------------------------
@@ -293,7 +310,7 @@ ok("account: unknown paper account throws", await throwsAsync(() => runWebullMir
   let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger: null, nowMs: T0 });
   for (let i = 1; i <= 3; i++) ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + i * H }));
   ok("guard: unconfirmed cancel blocks a re-price", wb.placed.length === 1, String(wb.placed.length));
-  ok("guard: stuck order flagged for a hand check", ledger.trades[id].state === "error" && /by hand/.test(ledger.trades[id].note), ledger.trades[id].state);
+  ok("guard: stuck order flagged for a hand check", ledger.trades[id].needsReview && /by hand/.test(ledger.trades[id].note), ledger.trades[id].state);
 }
 {
   // Webull has no record of the order: re-send without counting a try.
@@ -306,7 +323,7 @@ ok("account: unknown paper account throws", await throwsAsync(() => runWebullMir
   wb.cancelOrder = async () => { throw new Error("Webull /trading/orders/cancel: Parameter error, Order not present."); };
   ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + H }));
   const t = ledger.trades[id];
-  ok("guard: order not present -> re-sent at the engine price", wb.placed.length === 2 && wb.placed[1].limit_price === "5.00" && t.entryAttempts[0].status === "REJECTED", JSON.stringify(t.entryAttempts.map((a) => a.status)));
+  ok("guard: acknowledged order disappearing blocks replacement", wb.placed.length === 1 && t.entryAttempts[0].lookupFailed, JSON.stringify(t.entryAttempts.map((a) => a.status)));
 }
 {
   // A stale record doesn't drag old opens into the mirror.
@@ -349,7 +366,7 @@ ok("tick: nickel after a rejection", Math.abs(roundTick(1.23, { nickel: true }) 
   const wb = fakeWebull();
   let rejectOnce = true;
   const realPlace = wb.placeOrder;
-  wb.placeOrder = async (acct, list) => { if (rejectOnce) { rejectOnce = false; throw new Error("invalid price increment"); } return realPlace(acct, list); };
+  wb.placeOrder = async (acct, list) => { if (rejectOnce) { rejectOnce = false; throw Object.assign(new Error("invalid price increment"), { status: 417 }); } return realPlace(acct, list); };
   const e = { ...longCall(), contract: { ...longCall().contract, mid: 1.23 } };
   let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger: null, nowMs: T0 });
   ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + H }));
@@ -407,6 +424,261 @@ ok("tick: nickel after a rejection", Math.abs(roundTick(1.23, { nickel: true }) 
   await handler({ query: { action: "webull-mirror" }, method: "GET", headers: { host: "example.test" } }, res);
   ok("api: GET needs an Owner session", res.statusCode === 401);
   ok("ledger key is private", LEDGER_KEY === "webull-paper-ledger.json");
+}
+
+// --- Quantity accounting, recovery, reconciliation and expiry -----------------
+{
+  const t = { symbol: "AAPL", structure: "credit_vertical", legs: mirrorLegs(creditPut()) };
+  const o = buildOrder(t, "exit", 0.6, "quantity", 4);
+  ok("quantity: vertical order and every leg use 4 contracts", o.quantity === "4" && o.legs.every((l) => l.quantity === "4"));
+  ok("quantity: required option-level instrument fields", o.symbol === "AAPL" && o.instrument_type === "OPTION" && o.market === "US");
+  ok("quantity: rejects fractional contracts", await throwsAsync(() => buildOrder(t, "entry", 1, "bad", 1.5)));
+  const bad = creditPut(); bad.contract.legs[0].qty = -2;
+  ok("quantity: unsupported ratio spread refused", mirrorLegs(bad) === null);
+}
+{
+  const wb = fakeWebull(), e = longCall(), id = pickTradeId(e);
+  wb.previewOrder = async () => ({ estimated_transaction_fee: "3" });
+  let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), nowMs: T0, placeOrders: false });
+  ledger.trades[id].requestedQty = 3;
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 60000 }));
+  ok("partial entry: target quantity is submitted", wb.placed[0].quantity === "3");
+  wb.fill(wb.placed[0].client_order_id, 5, 1);
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 120000, quoteFn: async () => ({ bid: 5.1, ask: 5.3 }) }));
+  let t = ledger.trades[id];
+  ok("partial entry: one fill is not a filled three-contract order", t.entryAttempts[0].status === "CANCELLED" && t.entryAttempts[0].filledQty === 1 && t.filledQty === 1 && t.openQty === 1);
+  ok("partial entry: replacement is only the remaining two", wb.placed[1].quantity === "2");
+  ok("partial entry: fees pro-rated to actual fills", t.fees === 1);
+  wb.fill(wb.placed[1].client_order_id, 5.2, 2);
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 180000 }));
+  t = ledger.trades[id];
+  ok("partial entry: weighted average across attempts", t.state === "open" && Math.abs(t.fillPrice - 15.4 / 3) < 1e-10 && t.filledQty === 3);
+  ok("partial entry: fees counted once", t.fees === 4);
+  const closed = { ...e, status: "hit-tp-prem", exitDate: "2026-10-21T15:14:00Z", optionPnlPct: 25 };
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closed]), ledger, nowMs: T0 + 240000 }));
+  ok("partial exit: closes the actual three contracts", wb.placed[2].quantity === "3");
+  wb.fill(wb.placed[2].client_order_id, 6.25, 1);
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closed]), ledger, nowMs: T0 + 300000, quoteFn: async () => ({ bid: 6.1, ask: 6.3 }) }));
+  t = ledger.trades[id];
+  ok("partial exit: position remains open until all contracts close", t.state === "exiting" && t.closedQty === 1 && t.openQty === 2 && t.paperPnlPct === null);
+  ok("partial exit: replacement cannot oversell", wb.placed[3].quantity === "2");
+  ok("partial exit: CSV has no completed trade P&L", ledgerToFillRows(ledger)[0].your_pnl_pct === null);
+  wb.fill(wb.placed[3].client_order_id, 6.2, 2);
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closed]), ledger, nowMs: T0 + 360000 }));
+  t = ledger.trades[id];
+  ok("partial exit: weighted closing price, zero remaining", t.state === "closed" && t.openQty === 0 && Math.abs(t.closeFillPrice - 18.65 / 3) < 1e-10);
+  const fees = t.fees, pnl = t.paperPnlPct;
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closed]), ledger: structuredClone(ledger), nowMs: T0 + 420000 }));
+  ok("partial exit: restart does not double-count fills/fees", ledger.trades[id].fees === fees && ledger.trades[id].paperPnlPct === pnl && wb.placed.length === 4);
+  const view = ledgerToTestTrades(ledger)[0];
+  ok("partial exit: owner view and CSV expose actual quantities", view.requestedQty === 3 && view.filledQty === 3 && view.closedQty === 3 && ledgerToFillRows(ledger)[0].qty === 3);
+}
+{
+  const wb = fakeWebull(), e = longCall(), id = pickTradeId(e);
+  let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), nowMs: T0, placeOrders: false });
+  ledger.trades[id].requestedQty = 3;
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 60000 }));
+  wb.fill(wb.placed[0].client_order_id, 5, 1);
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 120000, quoteFn: async () => ({ bid: 8, ask: 9 }) }));
+  ok("partial entry outside band retains the held contract", ledger.trades[id].state === "open" && ledger.trades[id].filledQty === 1 && wb.placed.length === 1);
+  const closed = { ...e, status: "thesis-broken", optionPnlPct: -10 };
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closed]), ledger, nowMs: T0 + 180000 }));
+  ok("partial entry closes only what actually filled", wb.placed[1].quantity === "1" && wb.placed[1].side === "SELL");
+}
+{
+  const wb = fakeWebull(), e = longCall(), id = pickTradeId(e);
+  let saved = null, journalSeen = false;
+  const checkpoint = async (l) => { saved = structuredClone(l); };
+  const original = wb.placeOrder;
+  wb.placeOrder = async (account, orders) => {
+    const a = saved.trades[id].entryAttempts.at(-1);
+    journalSeen = a.status === "PREPARED" && a.order.client_order_id === orders[0].client_order_id && a.quantity === 1;
+    await original(account, orders);
+    throw Object.assign(new Error("timeout after acceptance"), { status: 504 });
+  };
+  let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), nowMs: T0, checkpoint });
+  ok("journal: intent is saved before order submission", journalSeen);
+  ok("journal: accepted timeout is adopted without replacement", wb.placed.length === 1 && ledger.trades[id].entryAttempts[0].status === "SUBMITTED");
+  wb.fill(wb.placed[0].client_order_id, 5);
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger: saved, nowMs: T0 + 60000, checkpoint }));
+  ok("journal: recovered fill does not create another order", wb.placed.length === 1 && ledger.trades[id].state === "open");
+}
+{
+  const wb = fakeWebull(), e = longCall(), id = pickTradeId(e);
+  const original = wb.placeOrder; let networkFails = true, sentIds = [];
+  wb.placeOrder = async (a, orders) => { sentIds.push(orders[0].client_order_id); if (networkFails) throw Object.assign(new Error("timeout before acceptance"), { status: 0 }); return original(a, orders); };
+  let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), nowMs: T0 });
+  ok("unknown submission is retained rather than rejected", ledger.trades[id].entryAttempts[0].status === "UNKNOWN");
+  networkFails = false;
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger: structuredClone(ledger), nowMs: T0 + 60000 }));
+  ok("unknown submission replays identical intent and ID", ledger.trades[id].entryAttempts.length === 1 && sentIds.length === 2 && sentIds[0] === sentIds[1] && wb.placed.length === 1);
+}
+{
+  const wb = fakeWebull(), e = longCall(), id = pickTradeId(e);
+  let mutations = 0; wb.placeOrder = async () => { mutations++; };
+  ok("journal: checkpoint failure prevents the order", await throwsAsync(() => runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), nowMs: T0, checkpoint: async () => { throw new Error("store down"); } })) && mutations === 0);
+  let { ledger } = await runWebullMirror({ client: fakeWebull(), accountId: "PAPER1", acc: accWith([e]), nowMs: T0, placeOrders: false });
+  ok("account identity cannot change underneath a ledger", await throwsAsync(() => runWebullMirror({ client: wb, accountId: "OTHER", acc: accWith([e]), ledger, nowMs: T0 + 60000 })));
+  const budget = await runWebullMirror({ client: fakeWebull(), accountId: "PAPER1", acc: accWith([e]), nowMs: T0, budgetMs: 0 });
+  ok("budget exhaustion checkpoints and alerts without ordering", budget.summary.placed === 0 && budget.summary.alerts > 0 && budget.ledger.reconciliation.status === "incomplete");
+}
+{
+  const e = longCall(), id = pickTradeId(e), wb = fakeWebull();
+  let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), nowMs: T0 });
+  wb.fill(wb.placed[0].client_order_id, 5);
+  const positions = wb.positions;
+  wb.positions = async () => [...await positions(), { instrument_type: "EQUITY", symbol: "NVDA", quantity: "100" }];
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [{ ...e, status: "expired", optionPnlPct: -100 }]), ledger, nowMs: T0 + 60000 }));
+  ok("assignment: changed stock exposure pauses entries and unsafe exits", ledger.reconciliation.status === "attention" && ledger.reconciliation.alerts.some((a) => /assignment/.test(a)) && wb.placed.length === 1);
+  ok("assignment: never submits an unsolicited stock liquidation", wb.placed.every((o) => o.instrument_type === "OPTION"));
+  wb.positions = async () => { throw new Error("positions down"); };
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 120000 }));
+  ok("reconciliation: unavailable broker snapshot fails closed", ledger.reconciliation.status === "unavailable" && wb.placed.length === 1);
+  wb.positions = async () => ({});
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 180000 }));
+  ok("reconciliation: malformed positions cannot mean flat", ledger.reconciliation.status === "unavailable" && ledger.trades[id].openQty === 1);
+}
+{
+  const e = creditPut(), id = pickTradeId(e), wb = fakeWebull();
+  let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), nowMs: T0 });
+  wb.fill(wb.placed[0].client_order_id, 1.2);
+  const positions = wb.positions;
+  wb.positions = async () => (await positions()).filter((p) => Number(p.legs[0].strike_price) === 240);
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [{ ...e, status: "hit-tp-prem", optionPnlPct: 50 }]), ledger, nowMs: T0 + 60000 }));
+  ok("reconciliation: missing spread wing blocks a blind combo close", ledger.reconciliation.status === "attention" && wb.placed.length === 1 && ledger.trades[id].openQty === 1);
+}
+{
+  ok("calendar: Thanksgiving is closed", !isRegularSession(Date.parse("2026-11-26T16:00:00Z")));
+  ok("calendar: Black Friday closes at 13 ET", isRegularSession(Date.parse("2026-11-27T17:59:00Z")) && !isRegularSession(Date.parse("2026-11-27T18:00:00Z")));
+  ok("calendar: observed July 3 holiday skipped", previousTradingDate("2026-07-06") === "2026-07-02");
+  ok("calendar: unknown years and invalid dates fail closed", sessionForDate("2029-01-02") === null && sessionForDate("2026-99-99") === null);
+  const t = { legs: [{ expiry: "2026-12-18" }] };
+  ok("expiry: first mirror on Wednesday closes ahead of Friday expiry", !expiryControl(t, Date.parse("2026-12-15T20:00:00Z")).due && expiryControl(t, Date.parse("2026-12-16T15:00:00Z")).due);
+  ok("expiry: holiday shifts two-session cutoff", expiryControl({ legs: [{ expiry: "2026-11-30" }] }, Date.parse("2026-11-25T19:30:00Z")).due);
+  ok("expiry: early close cutoff is 11:30 ET", expiryControl({ legs: [{ expiry: "2026-12-01" }] }, Date.parse("2026-11-27T16:30:00Z")).due);
+  ok("expiry: verified last trading date keeps a session buffer", expiryControl({ legs: [{ expiry: "2026-12-18", lastTradingDate: "2026-12-18" }] }, Date.parse("2026-12-17T19:30:00Z")).due);
+}
+{
+  const e = longCall(), id = pickTradeId(e), wb = fakeWebull();
+  let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), nowMs: T0 });
+  wb.fill(wb.placed[0].client_order_id, 5);
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: Date.parse("2026-12-16T16:00:00Z"), quoteFn: async () => ({ bid: 1.1, ask: 1.3 }) }));
+  ok("expiry: morning build closes on cutoff date while engine stays open", wb.placed.length === 2 && wb.placed[1].side === "SELL" && wb.placed[1].limit_price === "1.10" && ledger.trades[id].mirrorCloseReason === "expiry-control");
+  // The DAY exit expires without filling; broker later reports flat. This is
+  // exposure settlement, not an execution at our hoped-for limit.
+  wb.orders.get(wb.placed[1].client_order_id).status = "EXPIRED";
+  wb.positions = async () => [];
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: Date.parse("2026-12-18T21:05:00Z") }));
+  ok("expiry: one flat snapshot waits for settlement confirmation", ledger.trades[id].state === "settlement-pending" && ledger.trades[id].paperPnlPct === null);
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: Date.parse("2026-12-18T21:10:00Z") }));
+  ok("expiry: confirmed flat has no invented closing fill or profit", ledger.trades[id].state === "settled" && ledger.trades[id].openQty === 0 && ledger.trades[id].paperPnlPct === null && ledger.trades[id].closeFillPrice === null && wb.placed.length === 2);
+}
+{
+  const e = longCall({ entryDate: "2026-12-16T19:30:00Z" }), wb = fakeWebull();
+  const result = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e], [], e.entryDate), nowMs: Date.parse(e.entryDate) });
+  ok("expiry: no entry opened at the expiry cutoff", wb.placed.length === 0 && result.ledger.trades[pickTradeId(e)].state === "missed");
+}
+{
+  const unrelated = { options: { "MSFT|2026-12-18|CALL|300": 2 }, equities: { AAPL: 5 }, unsigned: {} };
+  const ledger = emptyLedger();
+  const check = reconcilePositions(ledger, unrelated, "now");
+  ok("baseline: unrelated holdings are preserved", check.status === "matched" && ledger.positionBaseline.equities.AAPL === 5 && ledger.positionBaseline.options["MSFT|2026-12-18|CALL|300"] === 2);
+  ok("positions: OCC contract parsing", parsePositions([{ instrument_type: "OPTION", symbol: "NVDA261218C00190000", quantity: "2" }]).options["NVDA|2026-12-18|CALL|190"] === 2);
+  ok("positions: pagination refuses an incomplete snapshot", await throwsAsync(() => parsePositions({ data: [], pagination_key: "more" })));
+  ok("positions: adjusted contracts require review", await throwsAsync(() => parsePositions([{ instrument_type: "OPTION", symbol: "NVDA261218C00190000", quantity: "1", option_contract_multiplier: "10" }])));
+}
+{
+  // Conditional writes model the R2 ETag contract under racing owners.
+  let value = null, etag = null, sequence = 0, time = 0;
+  const options = { now: () => time, read: async () => value && ({ value: structuredClone(value), etag }),
+    write: async (next, match) => { if (match !== etag) return null; value = structuredClone(next); etag = String(++sequence); return etag; } };
+  let entered = 0, release;
+  const gate = new Promise((r) => { release = r; });
+  const first = withObjectLease(options, async () => { entered++; await gate; return "done"; });
+  await new Promise((r) => setImmediate(r));
+  const second = await withObjectLease(options, async () => { entered++; });
+  ok("lease: competing writer cannot enter", second.busy && entered === 1);
+  release(); await first;
+  const third = await withObjectLease(options, async () => "next");
+  ok("lease: a released lease can be acquired", !third.busy && third.result === "next");
+  await withObjectLease(options, async (guard) => { time = 110000; ok("lease: guard stops before expiry", await throwsAsync(guard)); });
+  time = 200000;
+  await withObjectLease(options, async () => {
+    time += 130000;
+    await withObjectLease(options, async () => { value = { owner: "successor", expiresAt: 999999 }; etag = String(++sequence); });
+  });
+  ok("lease: stale owner release cannot erase successor", value.owner === "successor" && value.expiresAt === 999999);
+  value = { owner: "broken" }; etag = String(++sequence);
+  ok("lease: corrupt expiry fails closed", (await withObjectLease(options, async () => { throw new Error("must not run"); })).busy);
+}
+
+
+{
+  const e = longCall(), id = pickTradeId(e), wb = fakeWebull();
+  let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), nowMs: T0 });
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], []), ledger, nowMs: T0 + 60000 }));
+  ok("orphan: missing engine row cancels queued entry without replacing it", wb.placed.length === 1 && wb.cancelled.length === 1 && ledger.trades[id].state === "missed");
+}
+{
+  const e = longCall(), id = pickTradeId(e), wb = fakeWebull();
+  let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), nowMs: T0 });
+  wb.fill(wb.placed[0].client_order_id, 5);
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 60000 }));
+  const realPositions = wb.positions; wb.positions = async () => [];
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 120000 }));
+  ok("manual close: first flat snapshot cannot create profit", ledger.trades[id].state === "settlement-pending" && ledger.trades[id].paperPnlPct === null);
+  wb.positions = realPositions;
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 180000 }));
+  ok("position lag: recovered holdings reset the flat observation", ledger.trades[id].state === "open" && !ledger.trades[id].flatSinceIso);
+  wb.positions = async () => [];
+  for (const offset of [240000, 300000]) ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + offset }));
+  ok("manual close: verified flat clears exposure without an invented price", ledger.trades[id].state === "settled" && ledger.trades[id].openQty === 0 && ledger.trades[id].closeFillPrice === null && ledger.reconciliation.status === "matched");
+}
+{
+  const e = longCall(), id = pickTradeId(e), wb = fakeWebull(); let saved = null, crash = true;
+  const checkpoint = async (l) => {
+    const a = l.trades[id]?.entryAttempts?.[0];
+    if (crash && a?.status === "SENT") { crash = false; throw new Error("process died after broker acceptance"); }
+    saved = structuredClone(l);
+  };
+  ok("crash: post-submit save failure propagates", await throwsAsync(() => runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), nowMs: T0, checkpoint })));
+  ok("crash: durable snapshot retains the prepared intent", saved.trades[id].entryAttempts[0].status === "PREPARED" && wb.placed.length === 1);
+  wb.fill(wb.placed[0].client_order_id, 5);
+  const { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger: saved, nowMs: T0 + 60000, checkpoint });
+  ok("crash: restart adopts the fill using the saved ID", ledger.trades[id].state === "open" && wb.placed.length === 1);
+}
+{
+  const ledger = { trades: { legacy: { tradeId: "legacy", state: "closed", fillPrice: 5, closeFillPrice: 6, structure: "long", entryAttempts: [], exitAttempts: [] } } };
+  ok("legacy: owner CSV retains closed fills before migration", ledgerToFillRows(ledger)[0].your_pnl_pct === 20 && ledgerToFillRows(ledger)[0].qty === 1);
+}
+
+
+{
+  const e = longCall(), id = pickTradeId(e), wb = fakeWebull();
+  let { ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), nowMs: T0 });
+  wb.fill(wb.placed[0].client_order_id, 5);
+  const closed = { ...e, status: "hit-tp-prem", optionPnlPct: 25 };
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closed]), ledger, nowMs: T0 + 60000 }));
+  const last = ledger.trades[id].exitAttempts[0];
+  ledger.trades[id].exitAttempts = [...Array.from({ length: 11 }, (_, i) => ({ ...last, n: i + 1, status: "CANCELLED", clientOrderId: "old-" + i })), { ...last, n: 12 }];
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closed]), ledger, nowMs: T0 + 120000 }));
+  ok("exit budget: last DAY order remains working, not cancelled", wb.cancelled.length === 0 && wb.placed.length === 2 && ledger.trades[id].needsReview);
+  ({ ledger } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([], [closed]), ledger, nowMs: T0 + 24 * H, quoteFn: async () => ({ bid: 6, ask: 6.2 }) }));
+  ok("exit budget: next session resumes remaining-quantity protection", wb.placed.length === 3 && wb.placed[2].quantity === "1" && wb.placed[2].side === "SELL");
+}
+
+
+{
+  const e = longCall(), wb = fakeWebull();
+  let { ledger, summary } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), nowMs: T0 });
+  ok("build window: initial submitted entry requests a follow-up", summary.followUpNeeded === true);
+  wb.fill(wb.placed[0].client_order_id, 5);
+  ({ ledger, summary } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e]), ledger, nowMs: T0 + 120000 }));
+  ok("build window: fully filled quiet book ends follow-ups", summary.followUpNeeded === false);
+  const e2 = longCall({ symbol: "MSFT", entryDate: new Date(T0 + 130000).toISOString() });
+  const newSnapshot = new Date(T0 + 140000).toISOString();
+  ({ ledger, summary } = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e, e2], [], newSnapshot), ledger, nowMs: T0 + 150000 }));
+  ok("build window: fresh publication bypasses same-snapshot minute throttle", !summary.skipped && wb.placed.some((o) => o.symbol === "MSFT") && ledger.engineSnapshotIso === newSnapshot);
 }
 
 console.log(`\n${pass}/${pass + fail} checks passed.`);

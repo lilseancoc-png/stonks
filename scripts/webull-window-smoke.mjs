@@ -1,0 +1,31 @@
+import assert from "node:assert/strict";
+import { runMirrorWindow } from "../lib/webull-mirror-window.mjs";
+const result = (followUpNeeded, extra = {}) => ({ ok: true, body: { ran: true, summary: { followUpNeeded, ...extra } } });
+async function window(responses, followUps = 2) {
+  const waits = []; let calls = 0;
+  const outcome = await runMirrorWindow({ followUps, trigger: async () => responses[Math.min(calls++, responses.length - 1)], sleep: async (ms) => waits.push(ms) });
+  return { ...outcome, calls, waits };
+}
+let w = await window([result(false)]);
+assert.equal(w.calls, 1); assert.deepEqual(w.waits, []);
+w = await window([result(true), result(false)]);
+assert.equal(w.calls, 2); assert.deepEqual(w.waits, [120000]); assert.equal(w.pending, false);
+w = await window([result(true)]);
+assert.equal(w.calls, 3); assert.deepEqual(w.waits, [120000, 120000]); assert.equal(w.pending, true);
+w = await window([{ ok: false, body: { error: "unavailable" } }]);
+assert.equal(w.calls, 1);
+w = await window([result(false, { alerts: 1 })]);
+assert.equal(w.calls, 1);
+w = await window([result(true, { errors: 1 }), result(false)]);
+assert.equal(w.calls, 2, "a pending cancellation may be confirmed in the bounded next check");
+w = await window([result(true)], 0);
+assert.equal(w.calls, 1);
+w = await window([{ ok: true, body: { ran: false, reason: "mirror off" } }]);
+assert.equal(w.calls, 1);
+w = await window([{ ok: true, body: { ran: false, reason: "mirror already running" } }, result(false)]);
+assert.equal(w.calls, 2, "a concurrent manual run must not drop a newly published build");
+w = await window([result(true, { alerts: 1 }), result(false)]);
+assert.equal(w.calls, 2, "server-approved budget continuation is bounded like a pending order");
+w = await window([{ ok: true, body: { ran: true, summary: { alerts: 1, followUpNeeded: false } } }]);
+assert.equal(w.calls, 1, "unsafe reconciliation alerts cannot request automatic continuation");
+console.log("Webull build window: quiet books skip follow-ups, pending work stops after two waits, failures pause, no polling loop.");
