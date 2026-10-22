@@ -226,7 +226,12 @@ function recoveryEvidence(row, data, now = Date.now()) {
       win.localStorage.setItem(STORE, JSON.stringify(all));
     } catch (_) {}
   }
-  function clearAll() { try { win.localStorage.removeItem(STORE); } catch (_) {} }
+  function clearAll() {
+    try {
+      win.localStorage.removeItem(STORE);
+      win.localStorage.removeItem('stonks-acc-view');
+    } catch (_) {}
+  }
   // A saved value is only honored while it is still one of the allowed
   // options, so renaming or removing a sort key can never strand a tab.
   function choose(key, fallback, allowed) {
@@ -386,13 +391,13 @@ function recoveryEvidence(row, data, now = Date.now()) {
     if (MISSING_RE.test(t)) return { kind: 'missing' };
     var iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(t);
     if (iso) return { kind: 'num', v: Date.UTC(+iso[1], +iso[2] - 1, +iso[3]) };
-    var md = /^([A-Za-z]{3})[a-z]*\.? (\d{1,2})(?:,? (\d{4}))?\b/.exec(t);
+    var md = /^([A-Za-z]{3})[a-z]*\.? (\d{1,2})(?:,? (?:(\d{4})|['’](\d{2})))?\b/.exec(t);
     if (md && MONTHS[md[1].toLowerCase()] != null) {
-      var yr = md[3] ? +md[3] : new Date().getFullYear();
+      var yr = md[3] ? +md[3] : md[4] ? 2000 + (+md[4]) : new Date().getFullYear();
       return { kind: 'num', v: Date.UTC(yr, MONTHS[md[1].toLowerCase()], +md[2]) };
     }
-    var n = t.replace(/[−–]/g, '-').replace(/[$,%×x~≈±+\s]/g, '');
-    var m = /^(-?\d*\.?\d+)([kmbt])?(?:[a-z\/]*)$/i.exec(n);
+    var n = t.replace(/[−–]/g, '-').replace(/[$,%×~≈±+]/g, '').trim();
+    var m = /^(-?\d*\.?\d+)([kmbt])?(?=$|[^a-z0-9.])/i.exec(n);
     if (m) {
       var mult = { k: 1e3, m: 1e6, b: 1e9, t: 1e12 }[(m[2] || '').toLowerCase()] || 1;
       return { kind: 'num', v: parseFloat(m[1]) * mult };
@@ -550,12 +555,27 @@ function recoveryEvidence(row, data, now = Date.now()) {
   }
 
   // ---- Delegated clicks for flip + view switch + reset ---------------------
+  function clearHeaderSort(control) {
+    var pane = control.closest('[id^="page-pane-"]');
+    if (!pane) return;
+    var prefix = 'tsort:' + pane.id.replace('page-pane-', '') + '|';
+    var all = readAll();
+    Object.keys(all).forEach(function(key) { if (key.indexOf(prefix) === 0) delete all[key]; });
+    try { win.localStorage.setItem(STORE, JSON.stringify(all)); } catch (_) {}
+    queueScan();
+  }
   function initControls() {
+    // Capture runs before each menu's renderer replaces its table.
+    doc.addEventListener('change', function(ev) {
+      var t = ev.target;
+      if (t && t.matches('select') && t.closest('.sort-with-flip')) clearHeaderSort(t);
+    }, true);
     doc.addEventListener('click', function (ev) {
       var t = ev.target && ev.target.closest ? ev.target : null;
       if (!t) return;
       var flip = t.closest('[data-sort-flip]');
       if (flip) {
+        clearHeaderSort(flip);
         var key = flip.getAttribute('data-sort-flip');
         var on = !reversed(key);
         set('rev:' + key, on ? true : null);
@@ -799,12 +819,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return m;
   })();
   var ACTIVE_SECTOR = SECTOR_ORDER[0] || 'Technology';
-  var RFR = 0.04063;
+  var RFR = 0.04500;
   // Provenance for the risk-free rate baked above. source is
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fresh","asOf":"2026-10-21","ageDays":null};
+  var RFR_META = {"source":"fallback","asOf":"2026-10-22","ageDays":null};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null, chainRequestSeq: 0 };
   var ownerAutoPicks = { data: null, pending: null };
@@ -1104,7 +1124,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         : q.p.attr ? '<g class="sc-hit" role="button" tabindex="0" ' + q.p.attr + '>' + c + '</g>' : c;
       hov.push({ x: cx, y: cy, label: q.p.label || '' });
     }
-    return '<svg class="sc-svg' + (opts.cls ? ' ' + opts.cls : '') + '" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + escapeHtml(opts.ariaLabel || 'Scatter chart') + '" data-ch-xy' + chHoverAttr(hov) + '>' + g + dots + '</svg>';
+    return '<svg class="sc-svg' + (opts.cls ? ' ' + opts.cls : '') + '" style="max-width:' + W + 'px" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + escapeHtml(opts.ariaLabel || 'Scatter chart') + '" data-ch-xy' + chHoverAttr(hov) + '>' + g + dots + '</svg>';
   }
   // Enter / Space on a focusable scatter dot acts like a click.
   document.addEventListener('keydown', function(e){
@@ -8944,7 +8964,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         host.innerHTML = '<div class="ogh-head"><b>Grade score over time</b></div><p class="ogh-empty">' + (pts.length ? 'Only one day of saved grade scores for ' + escapeHtml(sym) + ' so far. The line starts once a second day is saved.' : 'No saved daily grade scores for ' + escapeHtml(sym) + ' yet.') + '</p>';
         return;
       }
-      var W = 640, H = 150, padL = 34, padR = 10, padT = 10, padB = 22;
+      var W = window.innerWidth < 560 ? 380 : 640, H = 150, padL = 34, padR = 10, padT = 10, padB = 22;
       var lo = Math.min(-5, Math.min.apply(null, pts.map(function(p){ return p.v; }))), hi = Math.max(5, Math.max.apply(null, pts.map(function(p){ return p.v; })));
       lo = Math.floor(lo - 0.5); hi = Math.ceil(hi + 0.5);
       var X = function(i){ return padL + i * (W - padL - padR) / (pts.length - 1); };
@@ -8976,7 +8996,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       }
       host.hidden = false;
       host.innerHTML = '<div class="ogh-head"><b>Grade score over time</b><span class="ogh-now ' + (last.v >= 4 ? 'pos' : last.v <= -4 ? 'neg' : '') + '">' + (last.v > 0 ? '+' : '') + last.v.toFixed(1) + ' on ' + escapeHtml(last.date) + '</span>' + delta(5) + delta(20) + '</div>' +
-        '<svg class="ogh-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + escapeHtml(sym) + ' grade score by day"' + chHoverAttr(hov) + '>' + g +
+        '<svg class="ogh-svg" style="max-width:' + W + 'px" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + escapeHtml(sym) + ' grade score by day"' + chHoverAttr(hov) + '>' + g +
         '<polyline class="ogh-line" points="' + poly + '" fill="none"/></svg>' +
         '<p class="ogh-note">One saved score per trading day (' + pts.length + ' days). Above +4 the model leans call, below −4 it leans put. Drag across the chart to measure a change.</p>';
     });
@@ -9724,7 +9744,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       });
       secEl.innerHTML = sectorSplitBarsHtml(Object.keys(bySec).map(function(k){ return bySec[k]; }), {
         key: 'flow.sectors', title: 'Flagged premium by sector', aLabel: 'calls', bLabel: 'puts',
-        fmt: function(v){ return fmtBigDollars(v) || '$0'; },
+        fmt: function(v){ var m = v / 1e6; return '$' + m.toFixed(Math.abs(m) >= 1 ? 1 : 2) + 'M'; },
         note: 'Hourly premium on flagged contracts, split by contract type. A call or put alone does not show whether the trader bought or sold it.' });
       secEl.hidden = !secEl.innerHTML;
     }
@@ -18179,7 +18199,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (!b) return;
       var name = b.getAttribute('data-cmp-sec');
       var i = cmpSec.picked.indexOf(name);
-      if (i >= 0) cmpSec.picked.splice(i, 1);
+      if (i >= 0){ if (cmpSec.picked.length === 1) return; cmpSec.picked.splice(i, 1); }
       else if (cmpSec.picked.length < CMP_SEC_MAX) cmpSec.picked.push(name);
       VIEWS.set('compare.sectors', cmpSec.picked.length ? cmpSec.picked.join('|') : null);
       cmpSecRender();
@@ -18269,7 +18289,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (!cmpSec.picked.length) cmpSec.picked = names.slice(0, Math.min(4, names.length));
     var chips = '<div class="cmp-sec-chips" role="group" aria-label="Pick sectors to compare">' + names.map(function(n){
       var on = cmpSec.picked.indexOf(n) >= 0;
-      return '<button type="button" class="cmp-sec-chip' + (on ? ' is-on' : '') + '" data-cmp-sec="' + escapeHtml(n) + '" aria-pressed="' + (on ? 'true' : 'false') + '"' + (!on && cmpSec.picked.length >= CMP_SEC_MAX ? ' disabled title="Up to ' + CMP_SEC_MAX + ' sectors"' : '') + '>' + escapeHtml(n) + ' <small>' + by[n].n + '</small></button>';
+      return '<button type="button" class="cmp-sec-chip' + (on ? ' is-on' : '') + '" data-cmp-sec="' + escapeHtml(n) + '" aria-pressed="' + (on ? 'true' : 'false') + '"' + (on && cmpSec.picked.length === 1 ? ' aria-disabled="true" title="Keep at least one sector selected"' : '') + (!on && cmpSec.picked.length >= CMP_SEC_MAX ? ' disabled title="Up to ' + CMP_SEC_MAX + ' sectors"' : '') + '>' + escapeHtml(n) + ' <small>' + by[n].n + '</small></button>';
     }).join('') + '</div>';
     var ctl = '<div class="cmp-chart-ctl"><label>Show <select id="cmp-sec-metric">' + Object.keys(CMP_SEC_METRICS).map(function(k){ return '<option value="' + k + '"' + (k === cmpSec.metric ? ' selected' : '') + '>' + CMP_SEC_METRICS[k] + '</option>'; }).join('') + '</select></label>' +
       '<label>Returns <select id="cmp-sec-weight"><option value="cap"' + (cmpSec.weight === 'cap' ? ' selected' : '') + '>Weighted by market cap</option><option value="equal"' + (cmpSec.weight === 'equal' ? ' selected' : '') + '>Equal weight</option></select></label></div>';
@@ -18344,6 +18364,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (pane && !pane.hidden) cmpLoadAndRender();
     else cmpTraySync();
   }
+  function cmpTraySpace(){
+    var tray = $('cmp-tray');
+    var space = tray && !tray.hidden ? Math.ceil(window.innerHeight - tray.getBoundingClientRect().top + 16) : 0;
+    document.body.style.setProperty('--cmp-tray-space', space + 'px');
+  }
+  window.addEventListener('resize', cmpTraySpace);
   function cmpTraySync(note){
     var list = compareState.tickers;
     var btns = document.querySelectorAll('[data-cmp-toggle]');
@@ -18364,6 +18390,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       tray.setAttribute('role', 'region');
       tray.setAttribute('aria-label', 'Compare list');
       document.body.appendChild(tray);
+      if (window.ResizeObserver) new window.ResizeObserver(cmpTraySpace).observe(tray);
       tray.addEventListener('click', function(e){
         var t = e.target && e.target.closest ? e.target : null;
         if (!t) return;
@@ -18379,7 +18406,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var pane = document.getElementById('page-pane-compare');
     var onCompare = pane && !pane.hidden;
     tray.hidden = onCompare || (!list.length && !note);
-    if (tray.hidden) return;
+    if (tray.hidden){ cmpTraySpace(); return; }
     tray.innerHTML = '<span class="cmp-tray-label">Compare</span>' +
       '<span class="cmp-tray-chips">' + list.map(function(sym){
         return '<span class="cmp-tray-chip">' + escapeHtml(sym) + '<button type="button" data-cmp-tray-remove="' + escapeHtml(sym) + '" aria-label="Remove ' + escapeHtml(sym) + '">×</button></span>';
@@ -18389,6 +18416,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         (list.length ? '<button type="button" class="cmp-tray-clear" data-cmp-tray-clear>Clear</button>' : '') +
         '<button type="button" class="cmp-tray-open" data-cmp-tray-open' + (list.length < 2 ? ' disabled title="Add at least two names"' : '') + '>Open Compare (' + list.length + ')</button>' +
       '</span>';
+    cmpTraySpace();
   }
   (function initCompareToggles(){
     function hit(e){
@@ -19010,9 +19038,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
       r.vals.forEach(function(v){ if (v != null && Math.abs(v) > scale) scale = Math.abs(v); });
       var bars = cols.map(function(c, k){
         var v = r.vals[k];
-        if (v == null) return '<div class="cmp-pl-bar is-na cmp-series-' + c.idx + '" title="' + escapeHtml(c.sym + ': no ' + r.def[1].toLowerCase() + ' score') + '"><span class="cmp-pl-val">—</span></div>';
+        if (v == null) return '<div class="cmp-pl-bar is-na cmp-series-' + c.idx + '" title="' + escapeHtml(c.sym + ': no ' + r.def[1].toLowerCase() + ' score') + '"><span class="cmp-pl-ticker">' + escapeHtml(c.sym) + '</span><span class="cmp-pl-val">—</span></div>';
         var half = Math.min(50, Math.abs(v) / scale * 50);
         return '<div class="cmp-pl-bar cmp-series-' + c.idx + '" title="' + escapeHtml(c.sym + ' ' + r.def[1] + ': ' + (v > 0 ? '+' : '') + v.toFixed(1)) + '">' +
+          '<span class="cmp-pl-ticker">' + escapeHtml(c.sym) + '</span>' +
           '<span class="cmp-pl-track"><i style="left:' + (v >= 0 ? 50 : 50 - half).toFixed(1) + '%;width:' + Math.max(0.6, half).toFixed(1) + '%"></i></span>' +
           '<span class="cmp-pl-val">' + (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(1) + '</span></div>';
       }).join('');
@@ -20260,7 +20289,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         '</button>';
       }
       root.innerHTML =
-        '<div class="ecl-toolbar"><input type="search" id="ecl-search" class="ecl-search" placeholder="Filter by ticker or company&hellip;" value="' + escapeHtml(callsState.filter || '') + '" aria-label="Filter earnings calls">' +
+        '<div class="ecl-toolbar view-bar"><input type="search" id="ecl-search" class="ecl-search" placeholder="Filter by ticker or company&hellip;" value="' + escapeHtml(callsState.filter || '') + '" aria-label="Filter earnings calls">' +
           '<span class="ecl-dim">' + shown + ' call' + (shown === 1 ? '' : 's') + '</span></div>' +
         (cards ? '<div class="ecl-cards">' + cards + '</div>' : '<p class="ecl-dim ecl-note">No calls match that filter.</p>');
       var search = $('ecl-search');
@@ -20386,7 +20415,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var filters = '<div class="ecl-filters" aria-label="Filter the earnings call queue">' + modeButton('decision','Decision queue') + modeButton('outlook','Outlook changed') +
         modeButton('pressure','Q&A pressure') + modeButton('positive','Constructive') + modeButton('caution','Caution') + modeButton('latest','Latest') + modeButton('all','All calls') + '</div>';
       var more = totalMatched > visible.length ? '<button type="button" class="ecl-more" data-ecl-more="1">Show all ' + totalMatched + ' matching calls</button>' : '';
-      root.innerHTML = desk + '<div class="ecl-toolbar"><input type="search" id="ecl-search" class="ecl-search" placeholder="Filter by ticker, company or call headline&hellip;" value="' + escapeHtml(callsState.filter || '') + '" aria-label="Filter earnings calls">' +
+      root.innerHTML = desk + '<div class="ecl-toolbar view-bar"><input type="search" id="ecl-search" class="ecl-search" placeholder="Filter by ticker, company or call headline&hellip;" value="' + escapeHtml(callsState.filter || '') + '" aria-label="Filter earnings calls">' +
         VIEWS.sortMenuHtml('data-calls-sort', CALLS_SORTS, callsSort, 'calls', 'Sort earnings calls') +
         '<span class="ecl-dim">Showing ' + visible.length + ' of ' + totalMatched + '</span></div>' + filters +
         (cards ? '<div class="ecl-cards">' + cards + '</div>' + more : '<p class="ecl-dim ecl-note">No calls match this queue. Try Latest or All calls.</p>');
@@ -33599,7 +33628,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       { label: lb, num: true, cell: function(t){ return pctCell(heatmapEffectiveCh(t, pb)); }, sort: function(t){ return heatmapEffectiveCh(t, pb); } },
       { label: 'Same way?', cell: function(t){ var a = heatmapEffectiveCh(t, pa), b = heatmapEffectiveCh(t, pb); if (a == null || b == null) return ''; return (a >= 0) === (b >= 0) ? 'Yes' : '<b>Turned</b>'; }, sort: function(t){ var a = heatmapEffectiveCh(t, pa), b = heatmapEffectiveCh(t, pb); return a == null || b == null ? null : ((a >= 0) === (b >= 0) ? 1 : 0); } }
     ];
-    var sorted = rows.slice().sort(function(x, y){ return (heatmapEffectiveCh(y, pa) || -1e9) - (heatmapEffectiveCh(x, pa) || -1e9); });
+    var sorted = VIEWS.sortBy(rows, function(t){ return heatmapEffectiveCh(t, pa); }, false);
     h += VIEWS.tableHtml(cols, sorted, { key: 'heatmap-periods', empty: 'No tickers match the search.' });
     h += '<p class="hint">“Turned” marks a name whose ' + la + ' move points the other way from its ' + lb + ' move. Click a column header to sort.</p>';
     return h;
@@ -38040,7 +38069,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   function openPickStructure(o){
     var st = o && o.contract && o.contract.structure;
-    return !st || st === 'long' ? 'Single' : String(st).replace(/-/g, ' ');
+    return ({ long: 'Single', debit_vertical: 'Debit spread', credit_vertical: 'Credit spread' })[st || 'long'] || String(st).replace(/[-_]/g, ' ');
   }
   // [value, ascending?] per key; null values always sort last.
   var OPEN_PICK_VALUE = {
@@ -39307,7 +39336,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       { label: 'Pick', cell: function(p){ return '<button type="button" class="vt-link" data-pick-open="' + escapeHtml(p.symbol) + '">' + escapeHtml(p.symbol) + '</button>'; }, sort: function(p){ return p.symbol || null; } },
       { label: 'Status', cell: function(p){ return pickDisplayDecision(p).ready ? '<span class="vt-tag call">Ready</span>' : '<span class="vt-tag">Watch</span>'; }, sort: function(p){ return pickDisplayDecision(p).ready ? 'a' : 'b'; } },
       { label: 'Side', cell: function(p){ var sd = p.side === 'put' ? 'put' : 'call'; return '<span class="vt-tag ' + sd + '">' + sd.toUpperCase() + '</span>'; }, sort: function(p){ return p.side || null; } },
-      { label: 'Structure', cell: function(p){ var c = p.contract || {}; return escapeHtml(c.structure === 'long' || !c.structure ? 'Single' : String(c.structure).replace(/-/g, ' ')); }, sort: function(p){ return (p.contract && p.contract.structure) || null; } },
+      { label: 'Structure', cell: function(p){ return escapeHtml(openPickStructure(p)); }, sort: function(p){ return (p.contract && p.contract.structure) || null; } },
       { label: 'Sector', cell: function(p){ return escapeHtml(p.sector || ''); }, sort: function(p){ return p.sector || null; } },
       { label: 'Grade', num: true, cell: function(p){ var v = PICK_SORT_VALUE.score(p); return v == null ? '' : (v > 0 ? '+' : '−') + Math.abs(v).toFixed(1); }, sort: PICK_SORT_VALUE.score },
       { label: 'Strike', num: true, cell: function(p){ var c = p.contract || {}; return c.strike != null ? '$' + escapeHtml(String(c.strike)) : ''; }, sort: function(p){ return pickNum(p.contract && p.contract.strike); } },

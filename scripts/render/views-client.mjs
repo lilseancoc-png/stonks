@@ -35,7 +35,12 @@ export function viewsFactory(win, doc) {
       win.localStorage.setItem(STORE, JSON.stringify(all));
     } catch (_) {}
   }
-  function clearAll() { try { win.localStorage.removeItem(STORE); } catch (_) {} }
+  function clearAll() {
+    try {
+      win.localStorage.removeItem(STORE);
+      win.localStorage.removeItem('stonks-acc-view');
+    } catch (_) {}
+  }
   // A saved value is only honored while it is still one of the allowed
   // options, so renaming or removing a sort key can never strand a tab.
   function choose(key, fallback, allowed) {
@@ -195,13 +200,13 @@ export function viewsFactory(win, doc) {
     if (MISSING_RE.test(t)) return { kind: 'missing' };
     var iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(t);
     if (iso) return { kind: 'num', v: Date.UTC(+iso[1], +iso[2] - 1, +iso[3]) };
-    var md = /^([A-Za-z]{3})[a-z]*\.? (\d{1,2})(?:,? (\d{4}))?\b/.exec(t);
+    var md = /^([A-Za-z]{3})[a-z]*\.? (\d{1,2})(?:,? (?:(\d{4})|['’](\d{2})))?\b/.exec(t);
     if (md && MONTHS[md[1].toLowerCase()] != null) {
-      var yr = md[3] ? +md[3] : new Date().getFullYear();
+      var yr = md[3] ? +md[3] : md[4] ? 2000 + (+md[4]) : new Date().getFullYear();
       return { kind: 'num', v: Date.UTC(yr, MONTHS[md[1].toLowerCase()], +md[2]) };
     }
-    var n = t.replace(/[−–]/g, '-').replace(/[$,%×x~≈±+\s]/g, '');
-    var m = /^(-?\d*\.?\d+)([kmbt])?(?:[a-z\/]*)$/i.exec(n);
+    var n = t.replace(/[−–]/g, '-').replace(/[$,%×~≈±+]/g, '').trim();
+    var m = /^(-?\d*\.?\d+)([kmbt])?(?=$|[^a-z0-9.])/i.exec(n);
     if (m) {
       var mult = { k: 1e3, m: 1e6, b: 1e9, t: 1e12 }[(m[2] || '').toLowerCase()] || 1;
       return { kind: 'num', v: parseFloat(m[1]) * mult };
@@ -359,12 +364,27 @@ export function viewsFactory(win, doc) {
   }
 
   // ---- Delegated clicks for flip + view switch + reset ---------------------
+  function clearHeaderSort(control) {
+    var pane = control.closest('[id^="page-pane-"]');
+    if (!pane) return;
+    var prefix = 'tsort:' + pane.id.replace('page-pane-', '') + '|';
+    var all = readAll();
+    Object.keys(all).forEach(function(key) { if (key.indexOf(prefix) === 0) delete all[key]; });
+    try { win.localStorage.setItem(STORE, JSON.stringify(all)); } catch (_) {}
+    queueScan();
+  }
   function initControls() {
+    // Capture runs before each menu's renderer replaces its table.
+    doc.addEventListener('change', function(ev) {
+      var t = ev.target;
+      if (t && t.matches('select') && t.closest('.sort-with-flip')) clearHeaderSort(t);
+    }, true);
     doc.addEventListener('click', function (ev) {
       var t = ev.target && ev.target.closest ? ev.target : null;
       if (!t) return;
       var flip = t.closest('[data-sort-flip]');
       if (flip) {
+        clearHeaderSort(flip);
         var key = flip.getAttribute('data-sort-flip');
         var on = !reversed(key);
         set('rev:' + key, on ? true : null);

@@ -3330,7 +3330,7 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 .cmp-legend-item.cmp-series-bench .cmp-legend-swatch { background: repeating-linear-gradient(90deg, var(--cmp-series) 0 4px, transparent 4px 8px); }
 .cmp-chart-ctl { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 0 0 10px; font: 600 11px/1 var(--font-mono); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
 .cmp-chart-ctl label { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
-.cmp-chart-ctl select { min-height: 34px; max-width: 100%; text-transform: none; letter-spacing: 0; }
+.cmp-chart-ctl select { min-height: 34px; max-width: 100%; padding: 0 8px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-2, 8px); font: 500 13px/1.2 var(--font-sans); text-transform: none; letter-spacing: 0; }
 .cmp-x-axis {
   grid-column: 2; grid-row: 2; display: flex; align-items: flex-end;
   justify-content: space-between; min-width: 0;
@@ -4136,7 +4136,7 @@ a.narr-macro-title:hover .narr-macro-ext { color: var(--accent-strong); }
 @media (max-width: 720px) {
   .ecl-queue { grid-template-columns: 1fr; min-width: 0; gap: 12px; padding: 13px; }
   .ecl-queue-grid, .ecl-decision-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .ecl-toolbar { align-items: stretch; flex-direction: column; }
+  .ecl-toolbar { align-items: center; }
   .ecl-search { flex-basis: auto; width: 100%; box-sizing: border-box; }
   .ecl-filters { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
   .ecl-filter { flex: 0 0 auto; }
@@ -18102,10 +18102,12 @@ body.tape-axm-open { overflow: hidden; }
 .tickers-empty-reset:hover { border-color: var(--accent); color: var(--text-strong); }
 .ticker-card[hidden] { display: none; }
 
-@media (max-width: 720px) {
+@media (max-width: 1100px) {
   .tickers-controls { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .tickers-search-wrap { grid-column: 1 / -1; }
   .tickers-ready { grid-column: 1 / -1; align-self: end; }
+}
+@media (max-width: 720px) {
   .ticker-card-head { align-items: flex-start; flex-wrap: wrap; }
   .tickers-decision-head { display: block; }
   .tickers-decision-status { display: inline-flex; margin-top: 9px; white-space: normal; }
