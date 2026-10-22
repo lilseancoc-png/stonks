@@ -608,7 +608,7 @@ function newsFeedSection() {
           <option value="impact">Impact first</option>
           <option value="latest">Latest</option>
           <option value="oldest">Oldest</option>
-          <option value="move">Biggest price reaction</option>
+          <option value="move">Biggest move today</option>
           <option value="ticker">Ticker A → Z</option>
           <option value="sector">Sector A → Z</option>
           <option value="source">Source A → Z</option>
