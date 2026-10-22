@@ -16343,6 +16343,59 @@ body.tape-axm-open { overflow: hidden; }
 .wb-log .acc-qtable { min-width: 760px; }
 .wb-log .acc-qtable td { white-space: normal; vertical-align: top; }
 .wb-log .acc-qtable td:first-child { min-width: 220px; }
+.wb-review-nav { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 20px 0 16px; }
+.wb-review-nav .acc-seg { flex-wrap: wrap; }
+.wb-refresh { border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); padding: 8px 12px; font: inherit; font-size: 12px; cursor: pointer; }
+.wb-refresh:hover { border-color: var(--accent); }
+.wb-sample-note { margin: 18px 0 12px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.wb-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 20px; }
+.wb-metric { background: var(--surface); padding: 18px; display: flex; flex-direction: column; gap: 8px; }
+.wb-metric-label { color: var(--muted); font-size: 12px; }
+.wb-metric strong { font-size: clamp(20px, 2.4vw, 30px); line-height: 1.2; font-variant-numeric: tabular-nums; font-weight: 550; }
+.wb-metric-note { color: var(--muted); font-size: 11px; line-height: 1.5; }
+.wb-chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.wb-chart-card { min-width: 0; padding: 20px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.wb-chart-card.wb-wide { grid-column: 1 / -1; }
+.wb-chart-card h3 { margin: 0 0 6px; font-size: 16px; font-weight: 550; }
+.wb-chart-note { margin: 0 0 14px; font-size: 12px; line-height: 1.6; color: var(--muted); }
+.wb-chart-empty { padding: 36px 16px; border: 1px dashed var(--border); border-radius: 6px; color: var(--muted); font-size: 13px; text-align: center; line-height: 1.6; }
+.wb-chart-data { margin-top: 12px; font-size: 12px; }
+.wb-chart-data > summary { color: var(--muted); cursor: pointer; padding: 6px 0; }
+.wb-chart-data .acc-qtable { margin-top: 10px; font-size: 12px; }
+.wb-chart-data td:first-child { min-width: 160px; white-space: normal; }
+.wb-review-dot.paper { fill: var(--accent); }
+.wb-review-dot.engine { fill: var(--muted); }
+.wb-review-dot.spy { fill: var(--pos); }
+.wb-review-dot.loss { fill: var(--neg); }
+.wb-line.loss { stroke: var(--neg); }
+.wb-key.loss::before { background: var(--neg); }
+.wb-axis-label { fill: var(--muted); font-size: 11px; }
+.wb-axis-end { text-anchor: end; }
+.wb-review-svg .acc-eq-yl { font-size: 12px; }
+.wb-review-svg { overflow: visible; }
+.wb-bars { display: grid; gap: 16px; margin: 20px 0 4px; }
+.wb-bar-label { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; margin-bottom: 6px; overflow-wrap: anywhere; }
+.wb-bar-label small { color: var(--muted); white-space: nowrap; }
+.wb-bar-row { display: flex; align-items: center; gap: 10px; min-height: 22px; }
+.wb-bar-track { display: block; flex: 1; height: 8px; background: var(--bg); border-radius: 3px; overflow: hidden; }
+.wb-bar-track i { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
+.wb-bar-track i.engine { background: var(--muted); }
+.wb-bar-track i.negative { background: var(--neg); }
+.wb-bar-track i.positive { background: var(--pos); }
+.wb-bar-value { min-width: 88px; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
+.wb-group-control { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--muted); }
+.wb-group-control select { padding: 7px 10px; border: 1px solid var(--border); border-radius: 5px; color: var(--text); background: var(--bg); font: inherit; }
+@media (max-width: 1000px) {
+  .wb-chart-grid { grid-template-columns: minmax(0, 1fr); }
+  .wb-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .wb-chart-card { padding: 14px; }
+  .wb-metric { padding: 14px; }
+  .wb-review-svg .acc-eq-yl, .wb-review-svg .wb-axis-label { font-size: 22px; }
+  .wb-review-nav .acc-seg { max-width: 100%; }
+  .wb-review-nav .acc-seg label { padding: 8px 10px; }
+}
 .acc-eq-area.up { fill: color-mix(in srgb, var(--pos) 14%, transparent); }
 .acc-eq-area.down { fill: color-mix(in srgb, var(--neg) 14%, transparent); }
 .acc-eq-line { fill: none; stroke-width: 2; }
@@ -18383,7 +18436,7 @@ body.tape-axm-open { overflow: hidden; }
   .opt-tab { flex: 0 0 auto; white-space: nowrap; }
   .acc-tab { flex: 0 0 auto; white-space: nowrap; }
   /* Eleven track-record tabs do not fit one phone row. Wrap them so Grade
-     edge and Paper books stay on screen. The selected tab carries its own
+     edge stay on screen. The selected tab carries its own
      underline, so a second row does not hide which view is open. */
   .acc-tabs {
     flex-wrap: wrap;

@@ -40,6 +40,8 @@
     "test:ai-call-efficiency": "node scripts/ai-call-efficiency-smoke.mjs",
     "test:leaps-paper-track": "node scripts/leaps-paper-track-smoke.mjs",
     "test:track-record-fills": "node scripts/track-record-fills-smoke.mjs",
+    "test:webull-analytics": "node scripts/webull-analytics-smoke.mjs",
+    "preview:webull": "node scripts/webull-review-preview.mjs",
     "test:webull-mirror": "node scripts/webull-mirror-smoke.mjs",
     "test:branches": "node scripts/review-branches.mjs"
   },

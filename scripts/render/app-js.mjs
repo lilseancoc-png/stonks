@@ -1,3 +1,5 @@
+import { webullAnalyticsFactory } from '../../lib/webull-analytics.mjs';
+import { webullReviewFactory } from './webull-review-client.mjs';
 import { renderWorkspaceBindings, renderWorkspaceHelpers } from './workspace-js.mjs';
 import { renderRecoveryHelpers } from './recovery-js.mjs';
 import { viewsFactory } from './views-client.mjs';
@@ -3606,7 +3608,7 @@ ${scenarioEventPhase.toString()}
   function bindAccuracyTabs(){
     var tabs = document.querySelectorAll('.acc-tab');
     if (!tabs.length) return;
-    var KEYS = ['summary','scorecard','webull','top10','activity','picks','equity','breakdowns','sim','montecarlo','research','books'];
+    var KEYS = ['summary','scorecard','webull','top10','activity','picks','equity','breakdowns','sim','montecarlo','research'];
     function selectAccTab(name){
       try { localStorage.setItem('stonks-acc-tab', name); } catch (_) {}
       tabs.forEach(function(btn){
@@ -34042,11 +34044,13 @@ ${renderWorkspaceBindings()}
   // --- Webull x Top Picks test ----------------------------------------------
   // The Track Record's "Webull test" view: every trade the Webull paper mirror
   // copied (lib/webull-mirror.mjs, /api/auth/webull-mirror GET trades),
-  // joined to the record by trade ID. Six panels answer three questions:
+  // joined to the record by trade ID. Four review views answer three questions:
   // do our orders fill where the engine assumes, what would real money have
   // made, and how accurate are the picks and the model. All computed here from
   // the ledger + picks-accuracy.json; no AI, no extra market data.
   var wbTest = { loaded: false, loading: false, data: null, error: null };
+  var WB_ANALYTICS = (${webullAnalyticsFactory.toString()})();
+  var WB_REVIEW = (${webullReviewFactory.toString()})({ html: escapeHtml, pct: accPct, money: accMoney, hover: chHoverAttr });
   var WB_TARGET_CLOSED = 150;
   function loadWebullTest(){
     if (wbTest.loaded || wbTest.loading) return;
@@ -34071,9 +34075,8 @@ ${renderWorkspaceBindings()}
   // in less on entry, sold for less / paid more to buy back on exit.
   function wbEntryCost(t){ var d = wbNum(t.entryDiffPct); return d == null ? null : (wbCredit(t) ? -d : d); }
   function wbExitCost(t){ var d = wbNum(t.exitDiffPct); return d == null ? null : (wbCredit(t) ? d : -d); }
-  function wbFeePct(t){ var f = wbNum(t.fees), o = wbNum(t.fillPrice); return (f != null && o > 0) ? f / (o * 100) * 100 : 0; }
-  function wbNetPnl(t){ var p = wbNum(t.paperPnlPct); return p == null ? null : p - wbFeePct(t); }
-  function wbDollars(open, close, credit){ open = wbNum(open); close = wbNum(close); if (open == null || close == null) return null; return (credit ? open - close : close - open) * 100; }
+  function wbFeePct(t){ var f = wbNum(t.fees), o = wbNum(t.fillPrice); return (f != null && o > 0) ? f / (o * WB_ANALYTICS.quantity(t)) : 0; }
+  function wbNetPnl(t){ return WB_ANALYTICS.net(t); }
   function wbRun(t){ var p = tlEtParts(Date.parse(t.engineEntryIso)); return p ? (Number(p.hour) < 13 ? '11' : '15') : null; }
   function wbRows(){
     var trades = (wbTest.data && Array.isArray(wbTest.data.trades)) ? wbTest.data.trades : [];
@@ -34089,7 +34092,7 @@ ${renderWorkspaceBindings()}
       if (accView.wbStruct === 'single' && t.structure !== 'long') return false;
       if (accView.wbStruct === 'spread' && t.structure === 'long') return false;
       if (accView.wbRun !== 'all' && wbRun(t) !== accView.wbRun) return false;
-      if (accView.wbState === 'open' && t.state !== 'open' && t.state !== 'exiting' && t.state !== 'entering') return false;
+      if (accView.wbState === 'open' && ['open','exiting','entering','settlement-pending'].indexOf(t.state) < 0) return false;
       if (accView.wbState === 'closed' && t.state !== 'closed') return false;
       if (cutoff != null && !(Date.parse(t.engineEntryIso) >= cutoff)) return false;
       return true;
@@ -34136,7 +34139,7 @@ ${renderWorkspaceBindings()}
     var W = 680, H = 300, padL = 52, padR = 16, padT = 14, padB = 34, pw = W - padL - padR, ph = H - padT - padB;
     var all = []; pts.forEach(function(p){ all.push(p.x, p.y); });
     var lo = Math.min(-60, Math.min.apply(null, all)), hi = Math.max(40, Math.max.apply(null, all));
-    lo = Math.max(lo, -110); hi = Math.min(hi, 250);
+    // Keep every observed return in range, including outliers.
     function sx(v){ v = Math.max(lo, Math.min(hi, v)); return padL + (v - lo) / (hi - lo) * pw; }
     function sy(v){ v = Math.max(lo, Math.min(hi, v)); return padT + ph - (v - lo) / (hi - lo) * ph; }
     var g = '';
@@ -34153,55 +34156,31 @@ ${renderWorkspaceBindings()}
     return '<svg class="acc-eq-svg"' + hover + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Engine P&amp;L vs paper P&amp;L per trade">' + g + dots +
       '<text class="acc-eq-yl wb-xl" x="' + (padL + pw / 2).toFixed(1) + '" y="' + (H - 2) + '">engine (model) P&amp;L →</text></svg>';
   }
-  function wbLinesSvg(series, n){
-    // series: [{ name, cls, values[] }] sharing one x (trade #, oldest first).
-    if (n < 2) return '<p class="muted acc-an-note">The curve appears once 2 mirrored trades have closed.</p>';
-    var W = 680, H = 260, padL = 60, padR = 16, padT = 14, padB = 22, pw = W - padL - padR, ph = H - padT - padB;
-    var all = [0]; series.forEach(function(s){ s.values.forEach(function(v){ if (v != null) all.push(v); }); });
-    var lo = Math.min.apply(null, all), hi = Math.max.apply(null, all), rg = (hi - lo) || 1;
-    lo -= rg * 0.08; hi += rg * 0.08;
-    function sx(i){ return padL + (n > 1 ? pw * i / (n - 1) : pw / 2); }
-    function sy(v){ return padT + ph - (v - lo) / (hi - lo) * ph; }
-    var g = '';
-    var ticks = [hi, lo]; if (lo < -rg * 0.04 && hi > rg * 0.04) ticks.splice(1, 0, 0); else ticks.splice(1, 0, (lo + hi) / 2);
-    ticks.forEach(function(v){ g += '<line class="acc-eq-grid" x1="' + padL + '" y1="' + sy(v).toFixed(1) + '" x2="' + (W - padR) + '" y2="' + sy(v).toFixed(1) + '"></line><text class="acc-eq-yl" x="' + (padL - 6) + '" y="' + (sy(v) + 3).toFixed(1) + '">' + accPct(v) + '</text>'; });
-    g += '<line class="acc-eq-base" x1="' + padL + '" y1="' + sy(0).toFixed(1) + '" x2="' + (W - padR) + '" y2="' + sy(0).toFixed(1) + '"></line>';
-    var lines = '';
-    series.forEach(function(s){
-      var dpath = '';
-      s.values.forEach(function(v, i){ if (v == null) return; dpath += (dpath ? ' L' : 'M') + sx(i).toFixed(1) + ',' + sy(v).toFixed(1); });
-      if (dpath) lines += '<path class="wb-line ' + s.cls + '" d="' + dpath + '"></path>';
-    });
-    var hover = chHoverAttr(series[0].values.map(function(v, i){
-      var parts = series.map(function(s){ return s.name + ' ' + accPct(s.values[i]); });
-      return { x: sx(i), y: sy(v == null ? 0 : v), label: 'after trade ' + (i + 1) + '\\n' + parts.join(' · ') };
-    }));
-    var legend = '<div class="wb-legend">' + series.map(function(s){ return '<span class="wb-key ' + s.cls + '">' + escapeHtml(s.name) + '</span>'; }).join('') + '</div>';
-    return legend + '<svg class="acc-eq-svg"' + hover + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Running return: paper, engine and SPY">' + g + lines + '</svg>';
-  }
   function wbTime(iso){ return iso ? accDateTime(iso) : '—'; }
   function renderWebullTest(){
     var box = $('an-webull'); if (!box) return;
     if (!wbTest.loaded){ loadWebullTest(); box.innerHTML = '<p class="muted acc-an-note">Loading the Webull trade log…</p>'; return; }
     if (wbTest.error){
       accPaneSummary('acc-sum-webull', []);
-      box.innerHTML = '<p class="muted acc-an-note">' + (wbTest.error === 'off' ? 'The Webull paper mirror isn’t available on this deployment.' : escapeHtml(wbTest.error)) + '</p>';
+      box.innerHTML = '<button type="button" class="wb-refresh" data-acc-action="refresh-webull">Retry loading trades</button><p class="muted acc-an-note">' + (wbTest.error === 'off' ? 'The Webull paper mirror isn’t available on this deployment.' : escapeHtml(wbTest.error)) + '</p>';
       return;
     }
     var info = wbTest.data || {};
-    var filters = '<div class="acc-controls">' +
+    var lens = accView.wbLens || 'performance';
+    var navigation = '<div class="wb-review-nav" role="group" aria-label="Webull review view">' + accSeg('wbLens', 'acc-wb-lens', lens, [{ value:'performance', label:'Performance' }, { value:'accuracy', label:'Accuracy' }, { value:'engine', label:'Engine' }, { value:'trades', label:'Trade log' }]) + '<button type="button" class="wb-refresh" data-acc-action="refresh-webull">Refresh trades</button></div>';
+    var filters = navigation + '<div class="acc-controls">' +
       '<div class="acc-ctl"><span class="acc-ctl-lbl">Side</span>' + accSeg('wbSide', 'acc-wb-side', accView.wbSide, [{ value:'all', label:'All' }, { value:'call', label:'Calls' }, { value:'put', label:'Puts' }]) + '</div>' +
       '<div class="acc-ctl"><span class="acc-ctl-lbl">Structure</span>' + accSeg('wbStruct', 'acc-wb-struct', accView.wbStruct, [{ value:'all', label:'All' }, { value:'single', label:'Single' }, { value:'spread', label:'Spreads' }]) + '</div>' +
       '<div class="acc-ctl"><span class="acc-ctl-lbl">Run</span>' + accSeg('wbRun', 'acc-wb-run', accView.wbRun, [{ value:'all', label:'Both' }, { value:'11', label:'11:00' }, { value:'15', label:'3:30' }]) + '</div>' +
       '<div class="acc-ctl"><span class="acc-ctl-lbl">Status</span>' + accSeg('wbState', 'acc-wb-state', accView.wbState, [{ value:'all', label:'All' }, { value:'open', label:'Open' }, { value:'closed', label:'Closed' }]) + '</div>' +
       '<div class="acc-ctl"><span class="acc-ctl-lbl">Opened</span>' + accSeg('wbRange', 'acc-wb-range', accView.wbRange, [{ value:'all', label:'All time' }, { value:'90', label:'90 days' }, { value:'30', label:'30 days' }]) + '</div>' +
     '</div>';
-    var status = '<p class="hint acc-research-note">Every Top Picks trade opened after the mirror went live is copied into the Webull paper account: 1 contract, spreads as one order, at the engine’s price (±10%). ' +
-      (info.enabled ? 'The mirror is on' : 'The mirror is off') + (info.goLiveIso ? ', live since ' + accDateTime(info.goLiveIso) : '') + (info.lastRunIso ? ', last run ' + accDateTime(info.lastRunIso) : '') + '. Paper fills are simulated by Webull, so the real-money panel prices each trade off the bid/ask recorded at the order.</p>';
+    var status = '<p class="hint acc-research-note">Review the engine against its mirrored Webull paper trades. Paper fills are simulated. Eligible trades can remain unfilled or be skipped. ' +
+      (info.enabled ? 'The mirror is on' : 'The mirror is off') + (info.goLiveIso ? ', live since ' + accDateTime(info.goLiveIso) : '') + (info.lastRunIso ? ', last run ' + accDateTime(info.lastRunIso) : '') + '. All views share the filters below. Returns include known fee estimates; bid/ask scenarios are hypothetical.</p>';
     var all = (info.trades || []);
     if (!all.length){
       accPaneSummary('acc-sum-webull', []);
-      box.innerHTML = status + '<p class="muted acc-an-note">No mirrored trades yet. The first one appears after the next Top Picks run (11:00 or 3:30 ET) that opens a trade once the mirror is on.</p>';
+      box.innerHTML = status + filters + '<p class="muted acc-an-note">No mirrored trades yet. The first one appears after the next Top Picks run (11:00 or 3:30 ET) that opens a trade once the mirror is on.</p>';
       return;
     }
     var rows = wbRows();
@@ -34213,47 +34192,30 @@ ${renderWorkspaceBindings()}
     var T = rows.map(function(x){ return x.t; });
     var filled = T.filter(function(t){ return t.fillPrice != null; });
     var missed = T.filter(function(t){ return t.state === 'missed'; });
-    var closed = rows.filter(function(x){ return x.t.state === 'closed' && x.t.paperPnlPct != null; });
+    var closed = rows.filter(function(x){ return x.t.state === 'closed' && wbNetPnl(x.t) != null && !(wbNum(x.t.openQty) > 0); });
     var early = closed.length < 30;
     var entryCosts = filled.map(wbEntryCost).filter(function(v){ return v != null; });
     var exitCosts = closed.map(function(x){ return wbExitCost(x.t); }).filter(function(v){ return v != null; });
     var paperNet = closed.map(function(x){ return wbNetPnl(x.t); }).filter(function(v){ return v != null; });
     var engine = closed.map(function(x){ return wbNum(x.t.enginePnlPct); }).filter(function(v){ return v != null; });
-    var paperUsd = 0, engUsd = 0;
-    closed.forEach(function(x){
-      var t = x.t, c = wbCredit(t);
-      paperUsd += (wbDollars(t.fillPrice, t.closeFillPrice, c) || 0) - (wbNum(t.fees) || 0);
-      engUsd += wbDollars(t.engineEntryPrice, t.engineExitPrice, c) || 0;
-    });
+    var review = WB_ANALYTICS.analyze(rows, accView.wbGroup || 'structure');
     var fillRate = (filled.length + missed.length) ? filled.length / (filled.length + missed.length) * 100 : null;
     var pWin = paperNet.length ? paperNet.filter(function(v){ return v > 0; }).length / paperNet.length * 100 : null;
-    var eWin = engine.length ? engine.filter(function(v){ return v > 0; }).length / engine.length * 100 : null;
     accPaneSummary('acc-sum-webull', [
       { val: String(T.length), lbl: 'trades mirrored' },
       { val: fillRate == null ? '—' : Math.round(fillRate) + '%', lbl: 'filled (' + missed.length + ' missed)' },
       { val: accPct(wbMean(entryCosts)), lbl: 'entry vs engine', cls: wbMean(entryCosts) == null ? '' : (wbMean(entryCosts) <= 0 ? 'sig-pos' : 'sig-neg'), tip: '+ means paper paid more than the engine (or took in less on a credit).' },
       { val: accPct(wbMean(paperNet)), lbl: 'paper avg (after fees)', cls: wbSignCls(wbMean(paperNet)) },
-      { val: accPct(wbMean(engine)), lbl: 'engine avg, same trades', cls: wbSignCls(wbMean(engine)) },
+      { val: accPct(wbMean(engine)), lbl: 'engine avg (' + engine.length + ' matched)', cls: wbSignCls(wbMean(engine)) },
       { val: closed.length + '/' + WB_TARGET_CLOSED, lbl: 'closed toward a solid read' },
-    ], early ? 'Early read: ' + closed.length + ' closed trade' + (closed.length === 1 ? '' : 's') + '. The numbers settle once about ' + WB_TARGET_CLOSED + ' have closed.' : '');
-
-    var score = '<div class="acc-an-subhead">Scorecard</div><div class="accuracy-chips">' +
-      wbChip(String(T.length), 'mirrored', '', 'Trades the engine opened since go-live that the mirror copied, with the current filters.') +
-      wbChip(String(filled.length), 'filled on paper', '') +
-      wbChip(String(missed.length), 'missed', missed.length ? 'sig-neg' : '', 'Not filled within 10% of the engine’s price, or the engine closed it first.') +
-      wbChip(accPct(wbMean(exitCosts)), 'exit vs engine', wbMean(exitCosts) == null ? '' : (wbMean(exitCosts) <= 0 ? 'sig-pos' : 'sig-neg'), '+ means paper sold for less (or paid more to buy back) than the engine.') +
-      wbChip(pWin == null ? '—' : Math.round(pWin) + '%', 'paper win rate', '') +
-      wbChip(eWin == null ? '—' : Math.round(eWin) + '%', 'engine win rate, same trades', '') +
-      wbChip(closed.length ? accMoney(paperUsd, true) : '—', 'paper $ (1 contract each)', closed.length ? wbSignCls(paperUsd) : '') +
-      wbChip(closed.length ? accMoney(engUsd, true) : '—', 'engine $ (1 contract each)', closed.length ? wbSignCls(engUsd) : '') +
-    '</div>';
+    ], early ? 'Early read: ' + closed.length + ' closed trade' + (closed.length === 1 ? '' : 's') + '. Treat this as preliminary evidence.' : '');
 
     // 1. Fills ---------------------------------------------------------------
     var buckets = [
       { label: 'Better than engine', test: function(v){ return v < 0; }, cls: 'sig-pos' },
       { label: '0 to 2% worse', test: function(v){ return v >= 0 && v < 2; }, cls: 'sig-zero' },
       { label: '2 to 5% worse', test: function(v){ return v >= 2 && v < 5; }, cls: 'sig-zero' },
-      { label: '5 to 10% worse', test: function(v){ return v >= 5; }, cls: 'sig-neg' },
+      { label: '5% or more worse', test: function(v){ return v >= 5; }, cls: 'sig-neg' },
     ];
     var attempted = filled.length + missed.length;
     var bucketRows = buckets.map(function(b){ return { label: b.label, n: entryCosts.filter(b.test).length, of: attempted, cls: b.cls }; });
@@ -34304,8 +34266,8 @@ ${renderWorkspaceBindings()}
     });
     var rh = (accFills.rows || []).filter(function(r){ return r.account && r.account !== 'Webull paper' && r.your_pnl_pct != null; });
     var rhAvg = wbMean(rh.map(function(r){ return Number(r.your_pnl_pct); }).filter(function(v){ return isFinite(v); }));
-    var realBody = '<p class="hint acc-research-note">Each closed trade is re-priced from the bid/ask recorded when its orders went out, less Webull’s fee estimate. Best case fills at the mid both ways. Worst case pays the ask to open and sells at the bid to close (the reverse on a credit spread). Real fills usually land in between.</p>' +
-      (best.length ? '<p class="wb-headline">On ' + best.length + ' closed trade' + (best.length === 1 ? '' : 's') + ', real money likely made <b class="' + wbSignCls(wbMean(worst)) + '">' + accPct(wbMean(worst)) + '</b> to <b class="' + wbSignCls(wbMean(best)) + '">' + accPct(wbMean(best)) + '</b> per trade, vs paper ' + accPct(wbMean(paperN)) + ' and the engine’s ' + accPct(wbMean(engN)) + '.</p>' +
+    var realBody = '<p class="hint acc-research-note">Each closed trade is re-priced from the bid/ask recorded when its orders went out, less Webull’s fee estimate. Best case fills at the mid both ways. Worst case pays the ask to open and sells at the bid to close (the reverse on a credit spread). These scenarios do not predict live fills.</p>' +
+      (best.length ? '<p class="wb-headline">On ' + best.length + ' closed trade' + (best.length === 1 ? '' : 's') + ', the recorded-quote scenarios average <b class="' + wbSignCls(wbMean(worst)) + '">' + accPct(wbMean(worst)) + '</b> to <b class="' + wbSignCls(wbMean(best)) + '">' + accPct(wbMean(best)) + '</b> per trade, vs paper ' + accPct(wbMean(paperN)) + ' and the engine’s ' + accPct(wbMean(engN)) + '.</p>' +
         '<div class="accuracy-chips">' +
           wbChip(accPct(wbMean(worst)), 'worst case (cross the spread)', wbSignCls(wbMean(worst))) +
           wbChip(accPct(wbMean(best)), 'best case (mid fills)', wbSignCls(wbMean(best))) +
@@ -34320,8 +34282,8 @@ ${renderWorkspaceBindings()}
     var withRec = closed.filter(function(x){ return x.rec; });
     var dirHit = 0, dirN = 0, spyP = [], spyPaper = [];
     withRec.forEach(function(x){
-      var r = x.rec, en = Number(r.entrySpot), ex = Number(r.exitSpot);
-      if (isFinite(en) && isFinite(ex) && en > 0){ dirN++; if (r.side === 'put' ? ex < en : ex > en) dirHit++; }
+      var r = x.rec, en = wbNum(r.entrySpot), ex = wbNum(r.exitSpot);
+      if (en > 0 && ex > 0){ dirN++; if (r.side === 'put' ? ex < en : ex > en) dirHit++; }
       var sp = x.spy && x.spy.exitDate ? wbNum(x.spy.optionPnlPct) : null;
       if (sp != null){ spyP.push(sp); spyPaper.push(wbNetPnl(x.t)); }
     });
@@ -34374,17 +34336,6 @@ ${renderWorkspaceBindings()}
         wbChip(accPct(wbMean(tpGap)), 'take-profits: paper minus engine (' + tpGap.length + ')', wbSignCls(wbMean(tpGap)), 'The record books a take-profit at the check-time mark; paper has to actually sell.') +
       '</div>' + wbScatterSvg(pts);
 
-    // 5. Equity curve ----------------------------------------------------------------
-    var ordered = closed.slice().sort(function(a, b){ return String(a.t.closeFillIso || a.t.engineExitIso || '').localeCompare(String(b.t.closeFillIso || b.t.engineExitIso || '')); });
-    var cp = 0, ce = 0, cs = 0, sp = [], se = [], ss = [], spyN = 0;
-    ordered.forEach(function(x){
-      cp += wbNetPnl(x.t) || 0; ce += wbNum(x.t.enginePnlPct) || 0;
-      var s = x.spy && x.spy.exitDate ? wbNum(x.spy.optionPnlPct) : null; if (s != null){ cs += s; spyN++; }
-      sp.push(cp); se.push(ce); ss.push(cs);
-    });
-    var eqBody = '<p class="hint acc-research-note">Running total of each trade’s return, the same stake on every trade. Paper is after fees. SPY is the paired index option the record opens with each pick' + (spyN < ordered.length ? ' (' + spyN + ' of ' + ordered.length + ' trades have a closed SPY pair; the rest count as 0)' : '') + '. Paper $ at 1 contract each: ' + accMoney(paperUsd, true) + ' vs the engine’s ' + accMoney(engUsd, true) + '.</p>' +
-      wbLinesSvg([{ name: 'Webull paper', cls: 'paper', values: sp }, { name: 'Engine', cls: 'engine', values: se }, { name: 'SPY option', cls: 'spy', values: ss }], ordered.length);
-
     // 6. Trade log ----------------------------------------------------------------------
     var STATE = { entering: 'entry order working', open: 'open', exiting: 'exit order working', closed: 'closed', missed: 'missed', expired: 'expired', skipped: 'skipped', error: 'needs a look' };
     var logRows = rows.map(function(x){
@@ -34400,13 +34351,13 @@ ${renderWorkspaceBindings()}
     var logBody = '<p class="hint acc-research-note">Each trade from the engine’s open to the paper close. Gaps in brackets: + is worse for us than the engine. Paper P&amp;L is after fees. <a href="/api/auth/webull-mirror?format=csv">Download all Webull paper trades (CSV)</a></p>' +
       (logRows ? '<div class="acc-tscroll wb-log"><table class="acc-qtable"><thead><tr><th>Trade</th><th>Status</th><th>Entry: engine → paper</th><th>Exit: engine → paper</th><th>Engine P&amp;L</th><th>Paper P&amp;L</th><th>Fees</th></tr></thead><tbody>' + logRows + '</tbody></table></div>' : '<p class="muted acc-an-note">No trades match these filters.</p>');
 
-    box.innerHTML = status + filters + score +
-      wbPanel('1. Fills', 'do orders fill at the engine’s prices?', fillsBody, true) +
-      wbPanel('2. Real-money estimate', 'what real money would have made', realBody, false) +
-      wbPanel('3. Pick accuracy', 'are the picks right?', accBody, false) +
-      wbPanel('4. Model check', 'can we trust the record’s numbers?', modelBody, false) +
-      wbPanel('5. Equity curve', 'paper vs engine vs SPY', eqBody, false) +
-      wbPanel('6. Trade log', rows.length + ' trade' + (rows.length === 1 ? '' : 's'), logBody, false);
+    var dashboard = WB_REVIEW.render(review, lens, accView.wbGroup || 'structure');
+    var detail = lens === 'performance' ? wbPanel('Bid/ask scenarios', 'hypothetical execution range', realBody, false)
+      : lens === 'accuracy' ? wbPanel('Accuracy breakdowns', 'cohorts and exit reasons', accBody, false)
+      : lens === 'engine' ? wbPanel('Model versus paper returns', 'one dot per paired closed trade', modelBody, true) + wbPanel('Fill diagnostics', 'order prices and timing', fillsBody, false)
+      : wbPanel('Trade log', rows.length + ' trades', logBody, true);
+    box.innerHTML = status + filters + dashboard + detail;
+
   }
 
   // --- Per-pick "Strategy & entry details" disclosure ----------------------
@@ -35184,9 +35135,9 @@ ${renderWorkspaceBindings()}
   // (dataset = resolved-only vs incl. open marks; basis = $10k notional vs
   // per-contract) and re-renders on any toggle via accRerenderAnalytics().
   // ========================================================================
-  var accView = { dataset:'closed', basis:'notional', xtabA:'thesis', xtabB:'conviction', simMode:'fixed', simOpens:false, simHighConv:false, mcIters:'5000', mcSeed:1337, researchHorizon:'10', paperBook:'scale', wbSide:'all', wbStruct:'all', wbRun:'all', wbState:'all', wbRange:'all', eqSplit:'side', cmpPreset:'side', cmpA:'', cmpB:'' };
-  (function(){ try { var sv = JSON.parse(localStorage.getItem('stonks-acc-view') || '{}'); ['dataset','basis','xtabA','xtabB','simMode','mcIters','researchHorizon','paperBook','wbSide','wbStruct','wbRun','wbState','wbRange','eqSplit','cmpPreset','cmpA','cmpB'].forEach(function(k){ if (sv[k] != null) accView[k] = sv[k]; }); ['simOpens','simHighConv'].forEach(function(k){ if (typeof sv[k] === 'boolean') accView[k] = sv[k]; }); if (['fixed','environment','vol','kelly','combined'].indexOf(accView.simMode) < 0) accView.simMode = 'fixed'; if (['notional','environment','contract'].indexOf(accView.basis) < 0) accView.basis = 'notional'; if (['5','10','14'].indexOf(String(accView.researchHorizon)) < 0) accView.researchHorizon = '10'; if (['scale','list','risk','cost'].indexOf(accView.paperBook) < 0) accView.paperBook = 'scale'; if (['all','call','put'].indexOf(accView.wbSide) < 0) accView.wbSide = 'all'; if (['all','single','spread'].indexOf(accView.wbStruct) < 0) accView.wbStruct = 'all'; if (['all','11','15'].indexOf(accView.wbRun) < 0) accView.wbRun = 'all'; if (['all','open','closed'].indexOf(accView.wbState) < 0) accView.wbState = 'all'; if (['all','90','30'].indexOf(String(accView.wbRange)) < 0) accView.wbRange = 'all'; } catch (e){} })();
-  function accSaveView(){ try { localStorage.setItem('stonks-acc-view', JSON.stringify({ dataset:accView.dataset, basis:accView.basis, xtabA:accView.xtabA, xtabB:accView.xtabB, simMode:accView.simMode, simOpens:accView.simOpens, simHighConv:accView.simHighConv, mcIters:accView.mcIters, researchHorizon:accView.researchHorizon, paperBook:accView.paperBook, wbSide:accView.wbSide, wbStruct:accView.wbStruct, wbRun:accView.wbRun, wbState:accView.wbState, wbRange:accView.wbRange, eqSplit:accView.eqSplit, cmpPreset:accView.cmpPreset, cmpA:accView.cmpA, cmpB:accView.cmpB })); } catch (e){} }
+  var accView = { dataset:'closed', basis:'notional', xtabA:'thesis', xtabB:'conviction', simMode:'fixed', simOpens:false, simHighConv:false, mcIters:'5000', mcSeed:1337, researchHorizon:'10', wbLens:'performance', wbGroup:'structure', wbSide:'all', wbStruct:'all', wbRun:'all', wbState:'all', wbRange:'all', eqSplit:'side', cmpPreset:'side', cmpA:'', cmpB:'' };
+  (function(){ try { var sv = JSON.parse(localStorage.getItem('stonks-acc-view') || '{}'); ['dataset','basis','xtabA','xtabB','simMode','mcIters','researchHorizon','wbLens','wbGroup','wbSide','wbStruct','wbRun','wbState','wbRange','eqSplit','cmpPreset','cmpA','cmpB'].forEach(function(k){ if (sv[k] != null) accView[k] = sv[k]; }); ['simOpens','simHighConv'].forEach(function(k){ if (typeof sv[k] === 'boolean') accView[k] = sv[k]; }); if (['fixed','environment','vol','kelly','combined'].indexOf(accView.simMode) < 0) accView.simMode = 'fixed'; if (['notional','environment','contract'].indexOf(accView.basis) < 0) accView.basis = 'notional'; if (['5','10','14'].indexOf(String(accView.researchHorizon)) < 0) accView.researchHorizon = '10'; if (['performance','accuracy','engine','trades'].indexOf(accView.wbLens) < 0) accView.wbLens = 'performance'; if (['structure','side','grade','tier','sector','regime','run'].indexOf(accView.wbGroup) < 0) accView.wbGroup = 'structure'; if (['all','call','put'].indexOf(accView.wbSide) < 0) accView.wbSide = 'all'; if (['all','single','spread'].indexOf(accView.wbStruct) < 0) accView.wbStruct = 'all'; if (['all','11','15'].indexOf(accView.wbRun) < 0) accView.wbRun = 'all'; if (['all','open','closed'].indexOf(accView.wbState) < 0) accView.wbState = 'all'; if (['all','90','30'].indexOf(String(accView.wbRange)) < 0) accView.wbRange = 'all'; } catch (e){} })();
+  function accSaveView(){ try { localStorage.setItem('stonks-acc-view', JSON.stringify({ dataset:accView.dataset, basis:accView.basis, xtabA:accView.xtabA, xtabB:accView.xtabB, simMode:accView.simMode, simOpens:accView.simOpens, simHighConv:accView.simHighConv, mcIters:accView.mcIters, researchHorizon:accView.researchHorizon, wbLens:accView.wbLens, wbGroup:accView.wbGroup, wbSide:accView.wbSide, wbStruct:accView.wbStruct, wbRun:accView.wbRun, wbState:accView.wbState, wbRange:accView.wbRange, eqSplit:accView.eqSplit, cmpPreset:accView.cmpPreset, cmpA:accView.cmpA, cmpB:accView.cmpB })); } catch (e){} }
   // The active trade set. 'closed' = resolved only; 'all' = also include the
   // open book, each open position "resolved" at its CURRENT modeled mark
   // (win if green now). Clearly labelled as modeled wherever it's shown.
@@ -36415,7 +36366,7 @@ ${renderWorkspaceBindings()}
     box.innerHTML = banner + controls + lead + '<p class="hint acc-an-note">' + res.iters.toLocaleString() + ' simulations · horizon ' + res.horizon + ' trades · pool ' + res.poolN + '.</p>' + cards + hist + fan + ptab + anomHtml;
   }
 
-  // Grade edge and paper books. The numbers are computed in lib/grade-research.mjs
+  // Grade edge. The numbers are computed in lib/grade-research.mjs
   // at bake time from stored grades and daily closes. This view only renders them.
   function accResearchPct(n, digits){
     if (n == null || !isFinite(Number(n))) return '—';
@@ -36490,56 +36441,6 @@ ${renderWorkspaceBindings()}
         '<div class="accuracy-chip"><span class="accuracy-chip-num">' + accResearchIc(placebo.p95) + '</span><span class="accuracy-chip-lbl">shuffle 95th percentile</span></div>' +
       '</div>';
   }
-  function renderPaperBooks(){
-    var box = $('an-books'); if (!box) return;
-    var report = accuracyState.research;
-    var id = accView.paperBook || 'scale';
-    var toggles = '<div class="acc-controls"><div class="acc-ctl"><span class="acc-ctl-lbl">Book</span>' +
-      accSeg('paperBook', 'acc-bk', id, [
-        { value:'scale', label:'Grade scale' },
-        { value:'list', label:'Actionable list' },
-        { value:'risk', label:'Risk budget' },
-        { value:'cost', label:'Cost and delay' },
-      ]) + '</div></div>';
-    if (!report || !Array.isArray(report.books)){
-      accPaneSummary('acc-sum-books', []);
-      box.innerHTML = toggles + '<p class="muted acc-an-note">Paper books appear after the next bake, from the same stored grades and closes. Nothing here places an order or calls a model.</p>';
-      return;
-    }
-    var book = null;
-    for (var i = 0; i < report.books.length; i++) if (report.books[i].id === id) book = report.books[i];
-    if (!book) book = report.books[0];
-    var skipped = book.skipped || {};
-    var skipBits = [];
-    if (skipped.pending) skipBits.push(skipped.pending + ' still inside the hold');
-    if (skipped.stop) skipBits.push(skipped.stop + ' had no stock stop');
-    if (skipped.slot) skipBits.push(skipped.slot + ' skipped for the position cap');
-    if (skipped.sector) skipBits.push(skipped.sector + ' skipped for the sector cap');
-    if (skipped.gross) skipBits.push(skipped.gross + ' skipped for the gross cap');
-    if (skipped.flat) skipBits.push(skipped.flat + ' skipped after a 20% drawdown');
-    if (skipped.data) skipBits.push(skipped.data + ' had no price');
-    accPaneSummary('acc-sum-books', [
-      { val: accResearchPct(book.returnPct, 1), lbl: 'return since start', cls: book.returnPct > 0 ? 'sig-pos' : (book.returnPct < 0 ? 'sig-neg' : '') },
-      { val: book.maxDrawdownPct > 0 ? '-' + book.maxDrawdownPct + '%' : 'none', lbl: 'max drawdown', cls: book.maxDrawdownPct > 0 ? 'sig-neg' : '' },
-      { val: String(book.trades || 0), lbl: book.id === 'scale' ? 'cohorts' : 'positions' },
-      { val: book.cagr == null ? '—' : accResearchPct(book.cagr * 100, 0), lbl: 'CAGR (ann.)', tip: 'Blank until this curve covers 365 calendar days.' },
-    ], 'Paper $' + (book.start || 100000).toLocaleString() + '. ' + (book.spanDays ? book.spanDays + ' calendar days in the curve.' : ''));
-    var stress = '';
-    if (book.optionStress){
-      var os = book.optionStress;
-      stress = '<div class="acc-an-subhead">Option stress on the taken names</div><p class="hint acc-research-note">' + escapeHtml(os.note || '') + '</p><div class="accuracy-chips">' +
-        '<div class="accuracy-chip"><span class="accuracy-chip-num">' + accResearchPct(os.unchangedPct, 1) + '</span><span class="accuracy-chip-lbl">IV unchanged · n=' + (os.n || 0) + '</span></div>' +
-        '<div class="accuracy-chip"><span class="accuracy-chip-num">' + accResearchPct(os.ivDown20Pct, 1) + '</span><span class="accuracy-chip-lbl">exit IV down 20%</span></div>' +
-        '<div class="accuracy-chip"><span class="accuracy-chip-num">' + accResearchPct(os.spreadCapPct, 1) + '</span><span class="accuracy-chip-lbl">12% spread-cap bound</span></div>' +
-      '</div>';
-    }
-    box.innerHTML = toggles +
-      '<p class="hint acc-research-note">' + escapeHtml(book.rule || '') + '</p>' +
-      (skipBits.length ? '<p class="hint acc-research-note">' + escapeHtml(skipBits.join(' · ')) + '.</p>' : '') +
-      accEquitySvg((book.curve || []).map(function(p){ return { value: p.value, date: p.date }; }), { formatValue: function(v){ return accMoney(v, false); } }) +
-      stress;
-  }
-
   // re-render the toggle-driven analytics views (not Monte Carlo — button-run)
   function accRerenderAnalytics(){
     if (!accuracyState.data) return;
@@ -36547,7 +36448,7 @@ ${renderWorkspaceBindings()}
     // button-run, so it is intentionally NOT re-rendered here — a toggle on
     // another sub-tab must not wipe a completed MC run. renderAccuracy seeds its
     // intro on first load.
-    renderProfitBlock(); renderEquityView(); renderBreakdowns(); renderSimulation(); renderGradeEdge(); renderPaperBooks(); renderWebullTest();
+    renderProfitBlock(); renderEquityView(); renderBreakdowns(); renderSimulation(); renderGradeEdge(); renderWebullTest();
   }
   // one delegated listener for every analytics control (segmented/checkbox/select/button)
   function bindAccuracyControls(){
@@ -36561,6 +36462,7 @@ ${renderWorkspaceBindings()}
     });
     pane.addEventListener('click', function(ev){
       var btn = ev.target && ev.target.closest ? ev.target.closest('[data-acc-action]') : null; if (!btn) return;
+      if (btn.getAttribute('data-acc-action') === 'refresh-webull'){ wbTest.loaded = false; wbTest.error = null; renderWebullTest(); return; }
       if (btn.getAttribute('data-acc-action') === 'run-mc'){ accView.mcSeed = (accView.mcSeed || 1337) + 1; renderMonteCarlo(true); }
     });
   }
@@ -37411,7 +37313,7 @@ ${renderWorkspaceBindings()}
     renderSimulation();
     renderMonteCarlo(accView.mcRan === true);  // re-render a completed run (deterministic) instead of wiping it
     renderGradeEdge();
-    renderPaperBooks();
+
     renderWebullTest();
     if (d.loadError){
       // Surface the error on the default (Scorecard) pane — accuracy-root now

@@ -20,6 +20,16 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-10-22
+
+### Added
+
+- Expand Webull Test with Performance, Accuracy, Engine and Trade log views: realized P&L and drawdown curves, matched model comparisons, return distributions, rolling win and direction rates, cohort and entry-probability comparisons, execution states and price gaps. Share and save filters across views, show sample coverage and missing-data states, and provide chart data tables plus a local synthetic preview. Uses the existing Owner-only ledger and pick records without additional broker, market-data or AI calls.
+
+### Removed
+
+- Remove Paper books from Track Record navigation, rendering and saved controls; retain the underlying research history.
+
 ## 2026-10-21
 
 ### Added
