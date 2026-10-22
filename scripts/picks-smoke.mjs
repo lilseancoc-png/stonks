@@ -14,7 +14,7 @@ import {
   diffGradesHistory, appendGradesDaily, appendRegimeHistory, applyPickFirstSeen,
   PICKS_MIN_CONVICTION, PICKS_TIER_STRONG, PICKS_TIMING_THRESHOLDS, PICKS_TACTICAL_SIZE_MULT, computeEdgeScale,
   computeFactorTrendHealth, edgeGatedConviction, realizedOptionEdge,
-  assessThesisQuality, selectStrategy, classifyPick, generateAiTheses, applyAiThesisGrade,
+  assessThesisQuality, selectStrategy, buildPickContract, classifyPick, generateAiTheses, applyAiThesisGrade,
   buildMarketRead, macroKindOf, thesisCacheSig, thesisDecisionGuardSig, canReuseThesisCache, thesisInstructionSignature,
   thesisResearchInputSignature, PICKS_MAX_AI_THESES, buildThesisUserMessage,
   buildMacroCalendarAhead, transcriptGuidanceDirection, impliedMoveFromIvCrush,
@@ -1289,6 +1289,13 @@ ok("regime: tactical puts carry a real contract (never 'none'), in the watch gro
 const persisted = applyMacroRegimePersistence(computeMacroRegime({ vix: { value: 13, trend: "flat" } }, null, []), { state: "severe-risk-off" });
 ok("regime: persistence holds a recovering state one build", persisted.persisted === true);
 
+// The approved +25% target applies to longs/debits, credit remains +50%.
+for (const structure of ["long", "debit_vertical"]) {
+  for (const pnl of [20, 24.99]) ok(`exit: ${structure} +${pnl}% stays open under TP25`, resolvePickOutcome({ structure, modeledOptPnlPct: pnl }) === null);
+  ok(`exit: ${structure} +25% closes at TP25`, resolvePickOutcome({ structure, modeledOptPnlPct: 25 })?.status === "hit-tp-prem");
+}
+ok("exit: frozen policy remains auditable", resolvePickOutcome({ modeledOptPnlPct: 22, exitPolicy: { takeProfitPct: 20, stopPct: 50 } })?.status === "hit-tp-prem");
+
 // --- 6. resolvePickOutcome ------------------------------------------------
 
 const summerExpiry = Date.UTC(2026, 6, 17) / 1000;
@@ -1339,7 +1346,7 @@ const retainedForm4 = { accessionNumber: "old-accession", symbol: "TEST", ownerN
 const expiredForm4 = { ...retainedForm4, accessionNumber: "expired", transactionDate: "2026-01-01" };
 ok("Form 4: transient zero-fresh outage retains in-window cached rows", mergeForm4TransactionRows([retainedForm4], [], "2026-06-01").length === 1);
 ok("Form 4: retention still drops rows outside the lookback", mergeForm4TransactionRows([retainedForm4, expiredForm4], [], "2026-06-01").length === 1);
-// 2026-07-15 exit flip: flat +20% TP / -50% stop, scale-out opt-in (off by default).
+// Current exit policy: flat +25% TP / -50% stop, scale-out opt-in (off by default).
 ok("exit: -55% option -> hit-stop loss", resolvePickOutcome({ modeledOptPnlPct: -55, entrySec: nowSec - dayMs / 1000, nowSec })?.outcome === "loss");
 ok("exit: -35% option -> stays open (stop now -50%)", resolvePickOutcome({ modeledOptPnlPct: -35, entrySec: nowSec - dayMs / 1000, nowSec }) === null);
 ok("exit: +25% option -> hard take-profit win (scale-out off by default)", resolvePickOutcome({ modeledOptPnlPct: 25, entrySec: nowSec - dayMs / 1000, nowSec })?.status === "hit-tp-prem");
@@ -1362,7 +1369,7 @@ ok("exit: thesis broken while green -> thesis-broken win", resolvePickOutcome({ 
   ok("exit: armed runner fades to the trail -> trail-stop win", !!r && r.status === "trail-stop" && r.outcome === "win");
 }
 // With the flat TP live (scale-out off by default), an armed runner at/above the
-// +20% gate resolves as a hard TP; between the trail floor and the gate it stays open.
+// +25% gate resolves as a hard TP; between the trail floor and the gate it stays open.
 ok("exit: armed runner between trail floor and TP -> stays open", resolvePickOutcome({ modeledOptPnlPct: 18, scaledOutPnlPct: 22, peakPnlPct: 40, entrySec: nowSec - 2 * 86400, nowSec }) === null);
 ok("exit: armed runner at +30 -> flat TP closes it (scale-out off)", resolvePickOutcome({ modeledOptPnlPct: 30, scaledOutPnlPct: 22, peakPnlPct: 40, entrySec: nowSec - 2 * 86400, nowSec })?.status === "hit-tp-prem");
 // An armed trade can't round-trip to a net loss: peak 22, gap to -2 -> the
@@ -1732,7 +1739,8 @@ function mkBsChain(spot, iv = 0.6) {
   for (let k = 0.6; k <= 1.4; k += 0.025) { const K = Math.round(spot * k); for (const [arr, type] of [[c, "call"], [p, "put"]]) { const mid = Math.max(0.05, bsPx(type, spot, K, T, iv, 0.045)); arr.push({ s: K, b: +(mid * 0.98).toFixed(2), a: +(mid * 1.02).toFixed(2), l: +mid.toFixed(2), iv, oi: 800, v: 200 }); } }
   return { [String(exp30)]: { c, p } };
 }
-const bsData = { spot: 100, chains: mkBsChain(100, 0.6), fundamentals: {} };
+// Use 40% IV to keep both the call and put debit fixtures clear of the 1:1 payoff floor.
+const bsData = { spot: 100, chains: mkBsChain(100, 0.4), fundamentals: {} };
 const dbt = pickVerticalForPick("call", bsData, 0.045, { type: "debit" });
 ok("vertical: debit spread builds", !!dbt && dbt.structure === "debit_vertical");
 ok("vertical: debit has 2 legs (+1 long / -1 short)", dbt && Array.isArray(dbt.legs) && dbt.legs.length === 2 && dbt.legs.some((l) => l.qty === 1) && dbt.legs.some((l) => l.qty === -1));
@@ -1748,6 +1756,57 @@ ok("vertical: credit fraction near the 1/3 target (>=floor)", crd && crd.creditF
 ok("vertical: credit net delta positive (bullish)", crd && crd.delta > 0);
 const crdBear = pickVerticalForPick("put", bsData, 0.045, { type: "credit" });
 ok("vertical: bearish credit builds as bear-call (calls)", !!crdBear && crdBear.optionType === "call" && crdBear.delta < 0);
+
+// Structure restrictions survive contract selection, including missing wings.
+for (const side of ["call", "put"]) {
+  const row = (iv, surface = null) => mkR(side === "call" ? 8 : -8, { iv, surface });
+  const unknown = selectStrategy(row(null), side, { thesisTier: "strong" });
+  const stale = selectStrategy(row({ z: 0, pctile: 30, asOf: "2026-10-20" }), side, { thesisTier: "strong", ivAsOfDate: "2026-10-22" });
+  ok(`strategy safety ${side}: missing or stale IV stays unknown and selects debit`,
+    unknown.type === "debit" && unknown.ivTier === "unknown" && stale.type === "debit" && stale.ivTier === "unknown");
+  for (const iv of [{ z: 0 }, { pctile: 30 }]) {
+    ok(`strategy safety ${side}: one available reasonable IV measure permits long`,
+      selectStrategy(row(iv), side, { thesisTier: "strong" }).type === "long");
+  }
+  const long = pickContractForPick(side, bsData, 0.045, { requireClean: true });
+  const oneLegData = { ...bsData, chains: Object.fromEntries(Object.entries(bsData.chains).map(([exp, chain]) => [exp, {
+    c: side === "call" ? chain.c.filter((c) => c.s === long?.strike) : [],
+    p: side === "put" ? chain.p.filter((p) => p.s === long?.strike) : [],
+  }])) };
+  ok(`strategy safety ${side}: fixture has a clean single long but no debit spread`,
+    !!pickContractForPick(side, oneLegData, 0.045, { requireClean: true }) && !pickVerticalForPick(side, oneLegData, 0.045, { type: "debit" }));
+  const restrictions = [
+    unknown,
+    stale,
+    selectStrategy(row({ z: 0, pctile: 30 }), side, { thesisTier: "strong", earningsInWindow: true }),
+    selectStrategy(row({ z: 0, pctile: 30 }), side, { thesisTier: "strong", eventRisk: { active: true } }),
+    selectStrategy(row({ z: 0, pctile: 30 }), side, { thesisTier: "moderate" }),
+    selectStrategy(row({ z: 0, pctile: 30 }, { skewZ: side === "call" ? -2 : 2 }), side, { thesisTier: "strong" }),
+    selectStrategy(row({ z: 2, pctile: 85 }), side, { thesisTier: "strong" }),
+  ];
+  ok(`strategy safety ${side}: IV, events, skew and thesis restrictions never fall back to long`,
+    restrictions.every((s) => ["debit", "credit"].includes(s.type) && buildPickContract(side, oneLegData, 0.045, s) === null));
+  const earnings = restrictions[2];
+  ok(`strategy safety ${side}: eligible earnings debit still builds when both legs exist`,
+    buildPickContract(side, bsData, 0.045, earnings)?.contract.structure === "debit_vertical");
+  const plainLong = selectStrategy(row({ z: 0, pctile: 30 }), side, { thesisTier: "strong" });
+  ok(`strategy safety ${side}: permitted single long still builds`,
+    buildPickContract(side, oneLegData, 0.045, plainLong)?.contract.structure === "long");
+  ok(`strategy safety ${side}: no recommendation or missing strategy cannot build a trade`,
+    buildPickContract(side, bsData, 0.045, { type: "none" }) === null && buildPickContract(side, bsData, 0.045, null) === null);
+  const thinOiData = { ...bsData, chains: Object.fromEntries(Object.entries(bsData.chains).map(([exp, chain]) => [exp, {
+    c: chain.c.map((c) => ({ ...c, oi: 75 })), p: chain.p.map((p) => ({ ...p, oi: 75 })),
+  }])) };
+  const longFallback = buildPickContract(side, thinOiData, 0.045, plainLong);
+  ok(`strategy safety ${side}: unavailable long may still fall back to a permitted debit`,
+    longFallback?.contract.structure === "debit_vertical" && longFallback.strategy.fallback && longFallback.strategy.requested === "long");
+  const sameSideData = { ...bsData, chains: Object.fromEntries(Object.entries(bsData.chains).map(([exp, chain]) => [exp, {
+    c: side === "call" ? chain.c : [], p: side === "put" ? chain.p : [],
+  }])) };
+  const creditFallback = buildPickContract(side, sameSideData, 0.045, restrictions[6]);
+  ok(`strategy safety ${side}: unavailable credit may still fall back to a permitted debit`,
+    creditFallback?.contract.structure === "debit_vertical" && creditFallback.strategy.fallback && creditFallback.strategy.requested === "credit");
+}
 
 // Structure-aware exit resolution (credit spreads decay → different gates).
 ok("exit: credit +55% -> win (hard TP at 50%, no scale-out on credit)", resolvePickOutcome({ modeledOptPnlPct: 55, structure: "credit_vertical", entrySec: nowSec - 2 * 86400, nowSec }).status === "hit-tp-prem");

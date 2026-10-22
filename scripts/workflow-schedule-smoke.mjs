@@ -65,4 +65,17 @@ assert.equal(publicationStatus([{ name: "build", conclusion: "failure", steps: [
 assert.equal(publicationStatus([{ name: "build", conclusion: "success", steps: [{ ...publishStep, conclusion: "skipped" }] }]), 1);
 assert.equal(publicationStatus([]), 1);
 
+// Webull execution follows the actual Top Picks publication, not a wall clock
+// that can run before a delayed build finishes. No independent polling cron.
+const mirror = workflow("webull-mirror.yml");
+assert.doesNotMatch(mirror, /schedule:|cron:/);
+assert.match(mirror, /workflow_dispatch:/);
+const mirrorStep = daily.match(/- name: Mirror published Top Picks to Webull paper[\s\S]*?(?=\n      - name:)/)?.[0];
+assert.ok(mirrorStep);
+assert.match(mirrorStep, /needs\.route\.outputs\.refresh_top_picks == 'true'/);
+assert.match(mirrorStep, /WEBULL_MIRROR_FOLLOW_UPS: '2'/);
+assert.match(mirrorStep, /WEBULL_MIRROR_STRICT: '1'/);
+assert.ok(daily.indexOf("run: node scripts/sync-data.mjs push --owner=bake") < daily.indexOf("- name: Mirror published Top Picks"));
+assert.match(daily, /ET_MIN.*-eq 660.*ET_MIN.*-eq 930/);
+
 console.log("workflow schedule smoke: ok");
