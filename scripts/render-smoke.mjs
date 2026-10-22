@@ -285,7 +285,7 @@ try {
   assert.match(appJs, /if \(heatmapState\.data && !heatmapState\.data\.loadError\)/);
   assert.match(html, /id="heatmap-period-select"[\s\S]*?<option value="1w">1W<\/option>[\s\S]*?<option value="1m">1M<\/option>[\s\S]*?<option value="3m">3M<\/option>[\s\S]*?<option value="ytd">YTD<\/option>[\s\S]*?<option value="1y">1Y<\/option>/);
   assert.match(appJs, /var HEATMAP_PCT_SAT = \{ '1d':3, '1w':6, '1m':12, '3m':20, 'ytd':35, '1y':40 \}/);
-  assert.match(appJs, /function heatmapEffectiveCh\(t\)[\s\S]*?var baseline = bakedSpot \/ factor;[\s\S]*?liveSpot \/ baseline/);
+  assert.match(appJs, /function heatmapEffectiveCh\(t(?:, periodOverride)?\)[\s\S]*?var baseline = bakedSpot \/ factor;[\s\S]*?liveSpot \/ baseline/);
   assert.match(appJs, /if \(\(picksState\.data && !picksState\.data\.loadError\) \|\| picksState\.loading\)/);
   assert.match(appJs, /if \(\(accuracyState\.data && !accuracyState\.data\.loadError\) \|\| accuracyState\.loading\)/);
   assert.match(appJs, /id="ers-season-table-search"[\s\S]*?data-ers-table-search-submit[\s\S]*?id="ers-season-table-body"/);

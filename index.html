@@ -17,7 +17,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=sha256-ae49bbc493631e1f">
+<link rel="stylesheet" href="styles.css?v=sha256-620ad6c91288ce8a">
 </head>
 <body>
 <a class="skip-content" href="#main-content">Skip to content</a>
@@ -442,6 +442,11 @@
         <select id="news-feed-sort" aria-label="Sort news">
           <option value="impact">Impact first</option>
           <option value="latest">Latest</option>
+          <option value="oldest">Oldest</option>
+          <option value="move">Biggest price reaction</option>
+          <option value="ticker">Ticker A → Z</option>
+          <option value="sector">Sector A → Z</option>
+          <option value="source">Source A → Z</option>
         </select>
       </label>
     </div>
@@ -1360,6 +1365,19 @@
       <span class="ticker-sector">Retail · Discount Stores</span>
     </a></div>
     <div class="tickers-table" id="tickers-table" hidden></div>
+    <div class="tickers-scatter" id="tickers-scatter" hidden>
+      <div class="sc-controls">
+        <label>Across <select id="tickers-sc-x" aria-label="Scatter horizontal axis">
+          <option value="score">Grade score</option><option value="move1d">Day move</option><option value="move1m">1-month move</option><option value="mcap">Market cap</option>
+        </select></label>
+        <label>Up <select id="tickers-sc-y" aria-label="Scatter vertical axis">
+          <option value="move1m">1-month move</option><option value="move1d">Day move</option><option value="score">Grade score</option><option value="mcap">Market cap</option>
+        </select></label>
+        <span class="sc-legend"><i class="sc-key call"></i>Call lean <i class="sc-key put"></i>Put lean <i class="sc-key neutral"></i>No trade</span>
+      </div>
+      <div id="tickers-sc-chart" class="sc-host"></div>
+      <p class="hint sc-hint">Each dot is one ticker that matches the filters above. Hover or tap for its numbers; click a dot to open it in Grade a ticker.</p>
+    </div>
     <div class="tickers-empty" id="tickers-empty" hidden>
       <span>No tickers match the current search + sector filter.</span>
       <button type="button" class="tickers-empty-reset" id="tickers-empty-reset">Clear filters</button>
@@ -1651,11 +1669,32 @@
           <select id="heatmap-color-select" aria-label="Color heatmap by">
             <option value="perf">Performance</option>
             <option value="rvol">Rel. volume</option>
+            <option value="grade">Grade score</option>
+            <option value="iv">IV vs own average</option>
+          </select>
+        </label>
+        <label class="heatmap-control heatmap-layout-control">
+          <span class="heatmap-control-label">View</span>
+          <select id="heatmap-layout-select" aria-label="Heatmap layout">
+            <option value="map">Map</option>
+            <option value="bars">Ranked bars</option>
+            <option value="periods">Two periods</option>
           </select>
         </label>
         <label class="heatmap-control heatmap-period-control">
           <span class="heatmap-control-label">Period</span>
           <select id="heatmap-period-select" aria-label="Heatmap performance period">
+            <option value="1d">1D</option>
+            <option value="1w">1W</option>
+            <option value="1m">1M</option>
+            <option value="3m">3M</option>
+            <option value="ytd">YTD</option>
+            <option value="1y">1Y</option>
+          </select>
+        </label>
+        <label class="heatmap-control heatmap-periodb-control" hidden>
+          <span class="heatmap-control-label">Next to</span>
+          <select id="heatmap-periodb-select" aria-label="Second period to show beside the first">
             <option value="1d">1D</option>
             <option value="1w">1W</option>
             <option value="1m">1M</option>
@@ -1684,6 +1723,7 @@
       <div id="heatmap-streaks" class="heatmap-streaks" role="status" aria-live="polite" hidden></div>
       <div id="heatmap-breadth" class="heatmap-breadth" aria-live="polite"></div>
       <div id="heatmap-root" class="heatmap-root">Loading heatmap…</div>
+      <div id="heatmap-alt" class="heatmap-alt" hidden></div>
       <div class="heatmap-legend" id="heatmap-legend" aria-hidden="true">
         <span class="heatmap-legend-label">−3%</span>
         <span class="heatmap-legend-bar"></span>
@@ -1959,6 +1999,7 @@
         <button type="button" id="flow-export-csv" class="flow-action-btn csv-export-btn" title="Download visible rows as CSV">Export CSV</button>
       </div>
       <div id="flow-summary" class="flow-summary" hidden></div>
+      <div id="flow-sectors" class="flow-sectors" hidden></div>
       <div id="flow-list" class="flow-list" role="list"></div>
       <div id="flow-empty" class="flow-empty" hidden>No unusual flow flagged in the latest scan.</div>
       <div id="flow-no-results" class="flow-empty" hidden>No tickers match these filters.</div>
@@ -2179,11 +2220,13 @@
         <button type="button" class="combo-clear" id="symbol-clear" aria-label="Clear" tabindex="-1">&times;</button>
         <ul id="symbol-listbox" role="listbox" hidden></ul>
       </div>
+      <span id="opt-cmp-slot" class="opt-cmp-slot"></span>
     </div>
     <div id="opt-eval-status" class="opt-status" role="status"></div>
     <div id="opt-live-quote" class="opt-live" hidden aria-live="polite"></div>
     <div id="opt-live-refresh" class="opt-live-refresh" hidden aria-live="polite"></div>
     <div id="opt-narr-chips" class="opt-narr-chips" hidden aria-label="Narratives this ticker rides"></div>
+    <div id="opt-grade-hist" class="opt-grade-hist" hidden aria-live="polite"></div>
     <div id="opt-analysis" class="opt-analysis" hidden>
       <div class="opt-direction" aria-label="Directional thesis">
         <div class="opt-direction-copy"><span>Thesis side</span><small>Drives both entry timing and the contract grade.</small></div>
@@ -2441,6 +2484,7 @@
       <div id="cmp-chart-read" class="cmp-chart-read" aria-live="polite"></div>
     </div>
     <div id="cmp-summary" class="cmp-summary" hidden aria-live="polite"></div>
+    <div id="cmp-pillars" class="cmp-pillars" hidden></div>
     <div id="cmp-table-wrap" class="cmp-table-wrap" hidden></div>
     <details id="cmp-tech" class="cmp-tech" open hidden>
       <summary>
@@ -2450,6 +2494,10 @@
         </span>
       </summary>
       <div id="cmp-tech-body"></div>
+    </details>
+    <details id="cmp-sectors" class="cmp-sectors">
+      <summary><span class="cmp-chart-eyebrow">Compare sectors</span> <b>Sectors side by side</b> <small>returns, grades and IV for up to 6 sectors</small></summary>
+      <div id="cmp-sectors-body" class="cmp-sectors-body"></div>
     </details>
   </section>
   </div>
@@ -4698,7 +4746,7 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
 <script>window.STONKS_MANIFEST={"builtAt":"Oct 21, 2026, 4:14 PM","builtAtIso":"2026-10-21T20:14:31.853Z","symbols":["AAPL","ACN","ADBE","AMAT","AMD","AMZN","ANET","ARM","ASML","ASTS","AVGO","AXP","BABA","BAC","BE","C","CBRS","COST","CRM","CRWD","CRWV","DDOG","DELL","DIS","DRAM","EWY","FTNT","GLD","GOOGL","GS","HD","HOOD","IBM","INTC","INTU","IWM","JPM","KWEB","LLY","MA","MDB","META","MRK","MRNA","MRVL","MS","MSFT","MU","NFLX","NKE","NOW","NVDA","NVO","OKTA","ORCL","PANW","PLTR","PYPL","QCOM","QQQ","RKLB","SBUX","SCHW","SHOP","SLV","SMCI","SMH","SNDK","SNOW","SPCX","SPY","TEAM","TGT","TLT","TSLA","TSM","TXN","UNH","USO","UVXY","V","VRT","VST","WDC","WMT"],"sectors":{"SPY":"ETF","QQQ":"ETF","IWM":"ETF","SMH":"ETF","UVXY":"ETF","TLT":"ETF","USO":"ETF","GLD":"ETF","SLV":"ETF","KWEB":"ETF","EWY":"ETF","AAPL":"Mega-cap tech","MSFT":"Mega-cap tech","NVDA":"Mega-cap tech","AMZN":"Mega-cap tech","GOOGL":"Mega-cap tech","META":"Mega-cap tech","TSLA":"Mega-cap tech","AMD":"Semis","NFLX":"Mega-cap tech","AVGO":"Semis","TSM":"Semis","ORCL":"Software","ASML":"Semis","QCOM":"Semis","TXN":"Semis","MRVL":"Semis","AMAT":"Semis","LRCX":"Semis","MU":"Semis","INTC":"Semis","NXPI":"Semis","ON":"Semis","SMCI":"Semis","ALAB":"Semis","TSEM":"Semis","DRAM":"Semis","SWKS":"Semis","SNDK":"Storage","STX":"Storage","WDC":"Storage","GLW":"Semis","LITE":"Semis","ARM":"Semis","CBRS":"Semis","COHR":"Semis","DELL":"Hardware","CSCO":"Networking","ANET":"Networking","IBM":"Tech services","CRM":"Software","ADBE":"Software","ACN":"IT services","INTU":"Software","NOW":"Software","SNOW":"Software","NET":"Software","DDOG":"Software","CRWD":"Software","ZS":"Software","MDB":"Software","OKTA":"Software","PANW":"Software","WDAY":"Software","ZM":"Software","DOCU":"Software","TEAM":"Software","FTNT":"Software","TTD":"Software","U":"Software","APP":"Software","TWLO":"Software","CRWV":"Software","CEG":"Power","VST":"Power","TLN":"Power","VRT":"Data center","CLS":"Data center","BE":"Clean energy","JPM":"Bank","BAC":"Bank","WFC":"Bank","USB":"Bank","MS":"Bank","COF":"Bank","GS":"Bank","C":"Bank","HSBC":"Bank","UBS":"Bank","V":"Payments","MA":"Payments","AXP":"Payments","PYPL":"Payments","XYZ":"Payments","SCHW":"Broker","IBKR":"Broker","HOOD":"Broker","AFRM":"Fintech","APO":"Asset mgmt","BX":"Asset mgmt","WMT":"Retail","COST":"Retail","TGT":"Retail","HD":"Retail","LOW":"Retail","NKE":"Apparel","LULU":"Apparel","ONON":"Apparel","ELF":"Beauty","W":"E-commerce","EBAY":"E-commerce","MCD":"Restaurants","SBUX":"Restaurants","DIS":"Media","LEN":"Homebuilder","BA":"Industrial","CAT":"Industrial","DE":"Industrial","MMM":"Industrial","GD":"Defense","LMT":"Defense","RTX":"Defense","NOC":"Defense","FDX":"Logistics","UPS":"Logistics","NVO":"Pharma","LLY":"Pharma","MRNA":"Pharma","MRK":"Pharma","UNH":"Insurance","JNJ":"Pharma","PFE":"Pharma","TMO":"Medical","CI":"Insurance","ELV":"Insurance","MOH":"Insurance","CVS":"Pharmacy","BSX":"Medical","VZ":"Telecom","CHTR":"Cable","XOM":"Energy","CVX":"Energy","OXY":"Energy","UBER":"Consumer","ABNB":"Consumer","DASH":"Consumer","BABA":"China tech","BIDU":"China tech","JD":"China tech","PDD":"China tech","TCEHY":"China tech","BILI":"China tech","NIO":"China tech","COIN":"Crypto","PLTR":"Software","SHOP":"Software","GME":"Meme","AMC":"Meme","RDDT":"Social","RKLB":"Space","ASTS":"Space","SPCX":"Space"},"industries":{"MSFT":"Software Infrastructure","ORCL":"Software Infrastructure","SNOW":"Software Infrastructure","CRWD":"Software Infrastructure","MDB":"Software Infrastructure","OKTA":"Software Infrastructure","PANW":"Software Infrastructure","FTNT":"Software Infrastructure","PLTR":"Software Infrastructure","CRWV":"Software Infrastructure","CRM":"Software Applications","ADBE":"Software Applications","NOW":"Software Applications","DDOG":"Software Applications","TEAM":"Software Applications","INTU":"Software Applications","SHOP":"Software Applications","NVDA":"Semiconductors","AMD":"Semiconductors","AVGO":"Semiconductors","TSM":"Semiconductors","MU":"Semiconductors","INTC":"Semiconductors","MRVL":"Semiconductors","QCOM":"Semiconductors","TXN":"Semiconductors","SNDK":"Semiconductors","SMCI":"Semiconductors","DRAM":"Semiconductors","ARM":"Semiconductors","CBRS":"Semiconductors","AMAT":"Semiconductor Equipment & Materials","ASML":"Semiconductor Equipment & Materials","ANET":"Communication Equipment","DELL":"Computer Hardware","ACN":"Information Technology Services","IBM":"Information Technology Services","AMZN":"Internet Retail","BABA":"Internet Retail","HD":"Specialty Retail","NKE":"Apparel Retail","SBUX":"Restaurants","TSLA":"Auto Manufacturers","GOOGL":"Internet Content & Information","META":"Internet Content & Information","NFLX":"Entertainment","DIS":"Entertainment","RKLB":"Aerospace & Defense","ASTS":"Aerospace & Defense","SPCX":"Aerospace & Defense","VRT":"Electrical Equipment & Parts","MRNA":"Biotechnology","NVO":"Drug Manufacturers - General","LLY":"Drug Manufacturers - General","MRK":"Drug Manufacturers - General","UNH":"Healthcare Plans","JPM":"Banks - Diversified","BAC":"Banks - Diversified","C":"Banks - Diversified","V":"Credit Services","MA":"Credit Services","AXP":"Credit Services","PYPL":"Credit Services","GS":"Capital Markets","MS":"Capital Markets","SCHW":"Capital Markets","HOOD":"Capital Markets","WMT":"Discount Stores","COST":"Discount Stores","TGT":"Discount Stores","VST":"Utilities - Independent Power Producers","BE":"Utilities - Renewable","GLD":"Gold","SLV":"Silver"},"sectorOrder":["Technology","Consumer Cyclical","Communication Services","Industrials","Healthcare","Financials","Consumer Defensive","Utilities","Precious Metals"],"industriesBySector":{"Technology":["Software Infrastructure","Software Applications","Semiconductors","Semiconductor Equipment & Materials","Communication Equipment","Computer Hardware","Consumer Electronics","Information Technology Services"],"Consumer Cyclical":["Internet Retail","Specialty Retail","Apparel Retail","Restaurants","Auto Manufacturers"],"Communication Services":["Internet Content & Information","Entertainment","Advertising Agencies"],"Industrials":["Aerospace & Defense","Electrical Equipment & Parts","Specialty Industrial Machinery"],"Healthcare":["Biotechnology","Drug Manufacturers - General","Healthcare Plans"],"Financials":["Banks - Diversified","Credit Services","Capital Markets"],"Consumer Defensive":["Discount Stores"],"Utilities":["Utilities - Independent Power Producers","Utilities - Renewable"],"Precious Metals":["Gold","Silver"]},"volumeFlagsMeta":{"scannedAt":"2026-10-21T20:00:47.596Z","etDate":"2026-10-21","marketState":"POST"},"nextFomcDates":["2026-10-28","2026-12-09"],"oiMeta":{"scannedAt":"2026-10-21T21:00:37.152Z","scanType":"eod"},"deferred":true};</script>
 <script>window.va=window.va||function(){(window.vaq=window.vaq||[]).push(arguments)};</script>
 <script defer data-disable-auto-track="1" src="/_vercel/insights/script.js"></script>
-<script src="app.js?v=sha256-7e57cde16f8fedfb" defer></script>
+<script src="app.js?v=sha256-435b34d5f7173031" defer></script>
 <script type="module" src="js/streaks.js?v=sha256-b0e30f84009bf8bf"></script>
 <script type="module" src="js/book-views.js?v=sha256-86eedff1828f7fc4"></script>
 </body>

@@ -4829,6 +4829,7 @@ const IV_TRENDING_FILE = "iv-trending.json";
 const IV_TRENDING_MIN_N = 20;
 // Sparkline series shipped only for tiered (flagged) names — payload diet.
 const IV_TRENDING_SPARK_ENTRIES = 90;
+const IV_TRENDING_MINI_ENTRIES = 30;
 // Earnings context attached when the next print is inside this window.
 const IV_TRENDING_EARNINGS_WINDOW_DAYS = 45;
 // Summary standout bars (buildIvTrendSummary) — fixed + documented like the
@@ -5149,6 +5150,9 @@ export function buildIvTrendingPayload(ivHistory, chains, builtAtIso = new Date(
         row.earnings = earnings;
       }
     }
+    // Every row also carries a short IV series for the ranked table's
+    // inline sparkline (~30 numbers, a few KB across the universe).
+    row.mini = ivs.slice(-IV_TRENDING_MINI_ENTRIES).map((v) => Number(v.toFixed(4)));
     if (tier) {
       row.spark = entries
         .slice(-IV_TRENDING_SPARK_ENTRIES)

@@ -134,14 +134,24 @@ export function viewsFactory(win, doc) {
 
   // ---- Cards / Table switch -------------------------------------------------
   var viewHandlers = {};
-  function viewMode(key) { return get('view:' + key, 'cards') === 'table' ? 'table' : 'cards'; }
+  // A tab may offer extra layouts beyond Cards / Table (for example a chart):
+  // pass them as [[mode, label], ...] to both viewMode and viewToggleHtml.
+  var VIEW_MODE_RE = /^[a-z][a-z0-9-]{0,15}$/;
+  function viewMode(key, extras) {
+    var m = get('view:' + key, 'cards');
+    if (m === 'table') return 'table';
+    if (extras) for (var i = 0; i < extras.length; i++) if (extras[i][0] === m) return m;
+    return 'cards';
+  }
   function onView(key, fn) { viewHandlers[key] = fn; }
-  function viewToggleHtml(key) {
-    var mode = viewMode(key);
+  function viewToggleHtml(key, extras) {
+    var mode = viewMode(key, extras);
     function b(m, label) {
-      return '<button type="button" data-view-toggle="' + esc(key) + '" data-view-mode="' + m + '" aria-pressed="' + (mode === m ? 'true' : 'false') + '" class="' + (mode === m ? 'is-on' : '') + '">' + label + '</button>';
+      return '<button type="button" data-view-toggle="' + esc(key) + '" data-view-mode="' + esc(m) + '" aria-pressed="' + (mode === m ? 'true' : 'false') + '" class="' + (mode === m ? 'is-on' : '') + '">' + esc(label) + '</button>';
     }
-    return '<span class="view-toggle" role="group" aria-label="Layout">' + b('cards', 'Cards') + b('table', 'Table') + '</span>';
+    var h = b('cards', 'Cards') + b('table', 'Table');
+    if (extras) for (var i = 0; i < extras.length; i++) h += b(extras[i][0], extras[i][1]);
+    return '<span class="view-toggle" role="group" aria-label="Layout">' + h + '</span>';
   }
   // cols: [{ label, num, cell(row) -> html, sort(row) -> number|string|null, title }]
   function tableHtml(cols, rows, opts) {
@@ -369,8 +379,9 @@ export function viewsFactory(win, doc) {
       var vt = t.closest('[data-view-toggle]');
       if (vt) {
         var vkey = vt.getAttribute('data-view-toggle');
-        var mode = vt.getAttribute('data-view-mode') === 'table' ? 'table' : 'cards';
-        set('view:' + vkey, mode === 'table' ? 'table' : null);
+        var mode = vt.getAttribute('data-view-mode') || 'cards';
+        if (!VIEW_MODE_RE.test(mode)) mode = 'cards';
+        set('view:' + vkey, mode === 'cards' ? null : mode);
         var btns = doc.querySelectorAll('[data-view-toggle="' + vkey + '"]');
         for (var j = 0; j < btns.length; j++) {
           var isOn = btns[j].getAttribute('data-view-mode') === mode;
