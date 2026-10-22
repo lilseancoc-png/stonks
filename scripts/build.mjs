@@ -5695,7 +5695,8 @@ function buildQuantVrp(ivHistory, chains) {
     const closes = bars.map((b) => b.c);
     const idxByDate = new Map(bars.map((b, i) => [b.t, i]));
     const series = [];
-    for (const e of hist?.entries || []) {
+    let latest = null;
+    for (const e of (hist?.entries || []).slice().sort((a, b) => String(a?.date || '').localeCompare(String(b?.date || '')))) {
       const iv = Number(e?.iv);
       if (!(iv > 0) || typeof e?.date !== "string") continue;
       const idx = idxByDate.get(e.date);
@@ -5703,23 +5704,23 @@ function buildQuantVrp(ivHistory, chains) {
       const rv = annualizedRealizedVol(closes.slice(0, idx + 1), 30);
       if (rv == null || !isFinite(rv)) continue;
       series.push(iv - rv);
+      latest = { iv, rv, asOf: e.date };
     }
     if (series.length < QUANT_VRP_MIN_N) continue;
     const cur = series[series.length - 1];
     const ms = quantMeanStd(series);
     const z = ms && ms.std > 0 ? (cur - ms.mean) / ms.std : null;
-    const rvCur = annualizedRealizedVol(closes, 30);
-    const ivCur = data.ivRank?.iv ?? computeAtm30dIv(data);
     rows.push({
       t: sym,
       sector: SECTORS[sym] || null,
-      iv30: quantVolPts(ivCur),
-      rv30: quantVolPts(rvCur),
+      iv30: quantVolPts(latest.iv),
+      rv30: quantVolPts(latest.rv),
+      asOf: latest.asOf,
       vrp: quantVolPts(cur),
       z: quantRound(z),
       pctile: quantPctileLast(series),
       n: series.length,
-      ivPctile: data.ivRank?.pctile ?? null,
+      ivPctile: data.ivRank?.asOf === latest.asOf ? data.ivRank.pctile ?? null : null,
     });
     vrpNowAll.push(cur);
   }
@@ -6191,6 +6192,8 @@ function buildQuantPed(earningsHxStore, chains, todayIso) {
     const driftSoFar =
       last.closeAfter > 0 ? quantRound(((lastClose - last.closeAfter) / last.closeAfter) * 100) : null;
     const prior = events.slice(0, -1).filter((e) => e.week1Pct != null);
+    const beats = prior.filter((e) => (e.surprisePct ?? 0) > 1);
+    const misses = prior.filter((e) => (e.surprisePct ?? 0) < -1);
     const avgPct = (arr) =>
       arr.length ? quantRound((arr.reduce((s, e) => s + e.week1Pct, 0) / arr.length) * 100) : null;
     rows.push({
@@ -6200,8 +6203,10 @@ function buildQuantPed(earningsHxStore, chains, todayIso) {
       surprisePct: last.surprisePct != null ? quantRound(last.surprisePct, 1) : null,
       movePct: quantRound(last.movePct * 100),
       driftSoFar,
-      beatAvgWk1: avgPct(prior.filter((e) => (e.surprisePct ?? 0) > 1)),
-      missAvgWk1: avgPct(prior.filter((e) => (e.surprisePct ?? 0) < -1)),
+      beatAvgWk1: avgPct(beats),
+      missAvgWk1: avgPct(misses),
+      beatN: beats.length,
+      missN: misses.length,
       histQuarters: prior.length,
       daysSince,
     });

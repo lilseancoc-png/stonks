@@ -18,6 +18,7 @@
     "test:capital-raises": "node scripts/capital-raises-smoke.mjs",
     "test:central-bank-gold": "node scripts/central-bank-gold-smoke.mjs",
     "test:commodities": "node scripts/commodities-smoke.mjs",
+    "test:owner-lab": "node scripts/owner-lab-smoke.mjs",
     "test:evidence-record": "node scripts/evidence-record-smoke.mjs",
     "test:overnight": "node scripts/overnight-smoke.mjs",
     "test:workflow-schedules": "node scripts/workflow-schedule-smoke.mjs",
