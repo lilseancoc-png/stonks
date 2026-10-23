@@ -97,7 +97,7 @@ const BAKE = "2026-10-13";
     names: {
       AAA: [
         { id: "ats", src: "finra-ats", dir: "up", str: 1, asOf: "2026-10-10", firstSeen: "2026-10-08", v: 12 },
-        { id: "structure", src: "technicals", dir: "neutral", str: 0, asOf: "2026-10-12", firstSeen: "2026-12-01", v: 50 },
+        { id: "sr-pos", src: "technicals", dir: "neutral", str: 0, asOf: "2026-10-12", firstSeen: "2026-12-01", v: 50 },
       ],
       BBB: [
         { id: "attention", src: "stocktwits", dir: "up", str: 2, asOf: "2026-10-12", firstSeen: "2026-10-03", v: 40 },
@@ -134,17 +134,17 @@ const BAKE = "2026-10-13";
   assert.equal(ats.asOf, "2026-10-11");
   assert.equal(ats.firstSeen, "2026-10-08", "firstSeen carries while the direction holds");
   assert.equal(record.names.AAA.some((piece) => piece.id === "flow"), false, "a scan dated after the bake is ignored");
-  const structure = record.names.AAA.find((piece) => piece.id === "structure");
-  assert.equal(structure.dir, "neutral");
+  const structure = record.names.AAA.find((piece) => piece.id === "sr-pos");
+  assert.equal(structure.dir, "pending");
   assert.equal(structure.firstSeen, BAKE, "a future firstSeen cannot be carried");
-  assert.ok(record.names.AAA.findIndex((piece) => piece.id === "ats") < record.names.AAA.findIndex((piece) => piece.id === "structure"));
+  assert.ok(record.names.AAA.findIndex((piece) => piece.id === "ats") < record.names.AAA.findIndex((piece) => piece.id === "sr-pos"));
 
   const attention = record.names.BBB.find((piece) => piece.id === "attention");
-  const price = record.names.BBB.find((piece) => piece.id === "structure");
+  const price = record.names.BBB.find((piece) => piece.id === "sr-pos");
   assert.equal(attention.dir, "up");
   assert.equal(attention.firstSeen, "2026-10-03");
-  assert.equal(price.dir, "neutral");
-  assert.ok(record.names.BBB.findIndex((piece) => piece.id === "attention") < record.names.BBB.findIndex((piece) => piece.id === "structure"));
+  assert.equal(price.dir, "pending");
+  assert.ok(record.names.BBB.findIndex((piece) => piece.id === "attention") < record.names.BBB.findIndex((piece) => piece.id === "sr-pos"));
   const bbbAts = record.names.BBB.find((piece) => piece.id === "ats");
   assert.ok(ats.rk > bbbAts.rk, "the richer dark-pool share ranks higher in the universe");
 
@@ -155,7 +155,7 @@ const BAKE = "2026-10-13";
       assert.ok(piece.asOf <= BAKE, `${piece.id} asOf ${piece.asOf} is after the bake`);
       assert.ok(piece.firstSeen <= BAKE, `${piece.id} firstSeen ${piece.firstSeen} is after the bake`);
       assert.ok(piece.str >= 0 && piece.str <= 3);
-      assert.ok(["up", "down", "neutral"].includes(piece.dir));
+      assert.ok(["up", "down", "neutral", "pending"].includes(piece.dir));
     }
   }
 }

@@ -87,11 +87,11 @@ function mount(id, html) {
 }
 
 function fail(id, title, detail) {
-  mount(id, shell(id, title, `<p class="book-note">${esc(detail)}</p>`));
+  mount(id, shell(id, title, `<p class="book-note">${esc(detail)}</p>${["book-evidence","book-link","book-rejections"].includes(id) ? `<button type="button" class="book-more" data-owner-record-retry="${esc(id)}">Retry this record</button>` : ""}`));
 }
 
 function shell(id, title, body, note) {
-  const open = state.open[id] !== false;
+  const open = id.startsWith('book-') && ['book-link','book-evidence','book-rejections'].includes(id) ? state.open[id] === true : state.open[id] !== false;
   return `<details class="book-details" data-book-panel="${esc(id)}"${open ? " open" : ""}>` +
     `<summary class="book-summary"><span class="book-kicker">Additional view</span><span class="book-title">${esc(title)}</span></summary>` +
     `<div class="book-body">${note ? `<p class="book-note">${note}</p>` : ""}${body}</div></details>`;
@@ -1505,139 +1505,201 @@ async function renderEarnings() {
   }
 }
 
-function linkControls(map) {
-  const nodes = map && map.nodes && typeof map.nodes === "object" ? map.nodes : {};
-  const groups = Object.keys(nodes)
-    .filter((id) => nodes[id] && nodes[id].type !== "ticker")
-    .sort((a, b) => String(nodes[a].type).localeCompare(String(nodes[b].type)) || String(nodes[a].label || a).localeCompare(String(nodes[b].label || b)));
-  if (!state.linkNode || !groups.includes(state.linkNode)) state.linkNode = groups[0] || "";
-  const options = groups.map((id) => {
-    const node = nodes[id];
-    return `<option value="${esc(id)}"${id === state.linkNode ? " selected" : ""}>${esc((node.type || "group") + " · " + (node.label || id))}</option>`;
-  }).join("");
-  return `<div class="book-controls"><label>Stored input <select data-book-control="link-node" aria-label="Link map input">${options}</select></label><label>Ticker <input data-book-control="link-query" type="search" value="${esc(state.linkQuery)}" placeholder="Symbol" aria-label="Filter link map by ticker" autocomplete="off" spellcheck="false"></label></div>`;
+const EVIDENCE_LABELS = {
+  'sr-pos': ['Position within support and resistance', '% of range', 'grade', '0 is support; 100 is resistance. Values outside that range have broken the range.'],
+  'sma-gap': ['Distance from the 20-day average', '%', 'grade', 'Positive means above the average; negative means below.'],
+  'earn-pre': ['Price move before upcoming earnings', '%', 'earnings', 'The stored ten-session move before the next report.'],
+  'earn-eps': ['Reported earnings surprise', '%', 'earnings', 'Reported EPS relative to the analyst estimate.'],
+  'earn-run': ['Price run-up before a past report', '%', 'earnings', 'The stored fifteen-session price move before the report.'],
+  'earn-tone': ['Management tone', 'tone', 'calls', '1 means optimistic/confident, 0 neutral or unclassified, and -1 cautious/defensive.'],
+  'iv-z': ['Implied-volatility level', 'standard deviations', 'iv-trend', 'Current option volatility versus this company’s usual level. Direction also considers its recent change.'],
+  'iv-5d': ['Five-session implied-volatility change', '%', 'iv-trend', 'How much option volatility changed over five sessions.'],
+  flow: ['Flagged options buying balance', '$ net call minus put premium', 'flow', 'Positive means more flagged call-buying premium; negative means more put-buying premium.'],
+  volume: ['Trading volume with price direction', '× usual volume', 'volume', 'The volume multiple takes the sign of the price move.'],
+  gamma: ['Call/put open-interest ratio', '×', 'oi', 'This is an open-interest ratio, not gamma exposure.'],
+  short: ['Change in reported short interest', '%', 'f13', 'A rise in short interest is not automatically a bullish reading.'],
+  ats: ['Off-exchange share of trading', '%', 'f13', 'Share of trading reported through the alternative-trading-system source.'],
+  insider: ['Open-market insider buying minus selling', '$', 'f13', 'Net value of qualifying transactions filed on the record date.'],
+  inst: ['Reported institutional position change', '$', 'f13', 'Stored filing-based position-value change, which can be older than the daily record.'],
+  attention: ['Social sentiment balance', 'percentage points', 'grade', 'Bullish minus bearish share of classified Stocktwits posts.'],
+  news: ['News sentiment', 'tone', 'grade', '1 means bullish, 0 neutral, and -1 bearish in the stored news summary.'],
+  narrative: ['Narrative membership balance', 'weighted score', 'narratives', 'Stored long membership minus short membership, weighted by narrative strength.'],
+  rotation: ['Sector Rotation phase', 'phase code', 'rotation', '2 confirmed, 1 first thrust, 0 other phase, -1 late.'],
+  peers: ['Overnight peer read-through', '%', 'overnight', 'Average beta-weighted peer move from the existing overnight model.'],
+  inputs: ['Largest linked commodity move', '%', 'commodities', 'The strongest available daily or monthly move among linked commodity inputs.'],
+  macro: ['Market stress', 'stress score', 'market', 'A rise means more market stress, not a bullish company signal.'],
+  structure: ['Legacy price-structure reading', 'legacy units', 'grade', 'Older records mixed range position and distance from an average. Compare with care.'],
+  earnings: ['Legacy earnings reading', 'legacy units', 'earnings', 'Older records mixed price moves, EPS surprise and management tone. They are excluded from the new metric histories.'],
+  iv: ['Legacy volatility reading', 'legacy units', 'iv-trend', 'Older records mixed volatility z-scores and five-session percentage changes.'],
+};
+
+function sourceLink(tab, label, symbol) {
+  const href = tab === 'grade' && symbol ? '?s=' + encodeURIComponent(symbol) : '?tab=' + encodeURIComponent(tab);
+  return `<a class="book-source-link" href="${href}">${esc(label || 'Open source research')}</a>`;
 }
 
-function linkResults(map, heatmap) {
-  const nodes = map && map.nodes && typeof map.nodes === "object" ? map.nodes : {};
+function recordStamp(date) {
+  if (!date) return 'Snapshot date unavailable';
+  const day = String(date).slice(0, 10), today = etToday();
+  return `Snapshot ${esc(date)}${day < today ? ' · earlier date' : day > today ? ' · future date' : ''}`;
+}
+
+function relationshipLabel(value) {
+  const known = { hbm_gpu: 'HBM memory and GPUs', arm_ip: 'Arm architecture', gpu_rent: 'GPU rent' };
+  return known[value] || String(value || '').replace(/[_-]+/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
+function linkControls(map) {
+  const nodes = map && map.nodes || {};
+  const groups = Object.keys(nodes).filter((id) => nodes[id] && nodes[id].type !== 'ticker')
+    .sort((a, b) => String(nodes[a].label || a).localeCompare(String(nodes[b].label || b)));
+  if (state.linkNode && !groups.includes(state.linkNode)) state.linkNode = '';
+  return `<div class="book-controls"><label>Company <input data-book-control="link-query" type="search" value="${esc(state.linkQuery)}" placeholder="e.g. NVDA" aria-label="Find company relationships" autocomplete="off" spellcheck="false"></label><label>Or explore a group <select data-book-control="link-node" aria-label="Relationship group"><option value="">Choose a group</option>${groups.map((id) => `<option value="${esc(id)}"${id === state.linkNode ? ' selected' : ''}>${esc(relationshipLabel(nodes[id].label || id))}</option>`).join('')}</select></label></div>`;
+}
+
+function linkResults(map, heatmap, selection = { query: state.linkQuery, node: state.linkNode }) {
+  const nodes = map && map.nodes || {};
   const edges = map && Array.isArray(map.edges) ? map.edges : [];
-  const returns = new Map();
-  for (const row of (heatmap && heatmap.tickers) || []) {
-    const symbol = String(row && row.t || "").toUpperCase();
-    if (symbol) returns.set(symbol, { d1: heatmapReturn(row, "1d"), w1: heatmapReturn(row, "1w") });
-  }
-  const query = state.linkQuery.trim().toUpperCase();
-  const nodeId = state.linkNode;
-  const wanted = new Set();
-  if (query) {
-    for (const [id, node] of Object.entries(nodes)) {
-      if (node && node.type === "ticker" && String(node.symbol || "").toUpperCase().startsWith(query)) wanted.add(id);
-    }
-  } else if (nodeId) wanted.add(nodeId);
+  const query = String(selection.query || '').trim().toUpperCase();
+  if (!query && !selection.node) return '<p class="book-note">Choose a company or group to see its stored relationships.</p>';
+  const wanted = new Set(query ? Object.keys(nodes).filter((id) => nodes[id].type === 'ticker' && String(nodes[id].symbol || '').toUpperCase().startsWith(query)) : [selection.node]);
+  const returns = new Map(((heatmap && heatmap.tickers) || []).map((row) => [row.t, row]));
+  const descriptions = {
+    sector: ['Sector membership', 'tickers'], industry: ['Industry membership', 'tickers'], 'industry-sector': ['Industry group', 'tickers'],
+    'spillover-group': ['Earnings read-through group', 'spillover'], 'spillover-etf': ['Sector reference ETF', 'spillover'],
+    'overnight-member': ['Overnight peer group', 'overnight'], 'overnight-peer': ['Overnight market peer', 'overnight'], 'overnight-lead': ['Overnight reference market', 'overnight'],
+    'narrative-long': ['Long membership in a narrative', 'narratives'], 'narrative-short': ['Short membership in a narrative', 'narratives'],
+  };
   const hits = edges.filter((edge) => wanted.has(edge.from) || wanted.has(edge.to));
   const lines = hits.slice(0, 80).map((edge) => {
-    const from = nodes[edge.from] || {};
-    const to = nodes[edge.to] || {};
-    const ticker = from.type === "ticker" ? from : to.type === "ticker" ? to : null;
-    const other = ticker && ticker === from ? to : from;
-    const symbol = ticker && ticker.symbol ? ticker.symbol : "";
-    const ret = returns.get(symbol) || {};
-    const move = symbol
-      ? "1D " + pct(ret.d1, 2) + " · 1W " + pct(ret.w1, 2)
-      : "";
-    return `<li><b>${esc(symbol || other.label || edge.to)}</b><span>${esc(other.label || other.type || "")}</span><small>${esc([edge.src, edge.kind, edge.asOf].filter(Boolean).join(" · "))}</small><em>${esc(move)}</em></li>`;
-  }).join("");
-  const hidden = hits.length > 80 ? `<p class="book-note">${hits.length - 80} more stored edges match. Narrow the ticker.</p>` : "";
-  const empty = lines ? "" : `<p class="book-note">No stored edge matches this lookup.</p>`;
-  return `<ul class="book-link-list">${lines}</ul>${empty}${hidden}`;
+    const from = nodes[edge.from] || {}, to = nodes[edge.to] || {};
+    const ticker = query ? (wanted.has(edge.from) ? from : to) : from.type === 'ticker' ? from : to.type === 'ticker' ? to : null;
+    const subject = ticker || (wanted.has(edge.from) ? from : to);
+    const other = subject === from ? to : from;
+    const symbol = ticker ? ticker.symbol || ticker.label || '' : '';
+    const title = symbol || relationshipLabel(subject.label || subject.type);
+    const inputTab = { 'ai-capex':'ai-capex', 'ram-prices':'ram-prices', 'accelerator-prices':'accelerator-prices', commodities:'commodities' }[edge.src];
+    const description = descriptions[edge.kind] || [edge.kind === 'input' ? 'Linked research input' : 'Stored membership', inputTab || 'tickers'];
+    const row = returns.get(symbol);
+    const d1 = row && row.ch != null ? pct(row.ch, 2) : '—';
+    const w1 = row && row.perf && row.perf['1w'] != null ? pct(row.perf['1w'], 2) : '—';
+    const returnsHtml = ticker ? `<em>Company return<br>1D ${esc(d1)} · 1W ${esc(w1)}</em>` : '';
+    return `<li><b>${esc(title)}</b><span>${esc(relationshipLabel(other.label || other.symbol || other.type))}<small>${esc(description[0])}</small></span><small>As of ${esc(edge.asOf || 'unknown')} · ${sourceLink(inputTab || description[1], 'Explore research')}<details><summary>Source details</summary>${esc(edge.src || '')} · ${esc(edge.kind || '')}</details></small>${returnsHtml}</li>`;
+  }).join('');
+  return `<ul class="book-link-list">${lines}</ul>${!lines ? '<p class="book-note">No stored relationship matches this lookup.</p>' : ''}${hits.length > 80 ? `<p class="book-note">${hits.length - 80} more relationships match. Narrow the company search.</p>` : ''}`;
 }
 
 async function renderLink() {
-  const id = "book-link";
-  if (!$(id)) return;
+  const id = 'book-link';
   try {
-    const [map, heatmap] = await Promise.all([loadJson("link-map.json"), loadJson("heatmap.json").catch(() => null)]);
-    mount(id, shell(
-      id,
-      "Link map lookup",
-      `${linkControls(map)}<div id="book-link-body">${linkResults(map, heatmap)}</div>`,
-      "Edges are the stored joins, with the source and as-of date already stamped on each edge. Returns, when shown, are the heatmap’s stored 1D and 1W figures. The map is not a beta and is not an input to a grade.",
-    ));
-  } catch (err) {
-    fail(id, "Link map lookup", "The link map is not available in this session (" + err.message + ").");
-  }
+    const [map, heatmap] = await Promise.all([loadJson('link-map.json'), loadJson('heatmap.json').catch(() => null)]);
+    mount(id, shell(id, 'Company relationships', `<p class="book-count">${recordStamp(map.bakeDate || map.asOf)}</p>${linkControls(map)}<div id="book-link-body">${linkResults(map, heatmap)}</div>`, 'Explore the sectors, peers, narratives and research inputs connected to a company. Membership alone does not measure impact or cause a price move. Company returns come from the stored heatmap; they are not relationship strength.'));
+  } catch (err) { fail(id, 'Company relationships', 'Relationships could not be loaded (' + err.message + ').'); }
 }
 
-function evidenceBody(record) {
-  const names = record && record.names && typeof record.names === "object" ? record.names : {};
-  const query = state.evidenceQuery.trim().toUpperCase();
-  const symbols = Object.keys(names).filter((symbol) => !query || symbol.startsWith(query)).sort();
-  const shown = symbols.slice(0, 12);
-  const cards = shown.map((symbol) => {
-    const pieces = Array.isArray(names[symbol]) ? names[symbol] : [];
-    const rows = pieces.map((piece) => {
-      const bits = [piece.dir || "neutral", "strength " + (num(piece.str) == null ? "—" : Math.round(piece.str))];
-      if (num(piece.v) != null) bits.push("value " + signed(piece.v, 2).replace("+", ""));
-      if (num(piece.rk) != null) bits.push("rank " + Math.round(piece.rk));
-      if (piece.asOf) bits.push("as of " + piece.asOf);
-      if (piece.firstSeen) bits.push("first seen " + piece.firstSeen);
-      return `<li><b>${esc(piece.id || "piece")}</b><small>${esc(piece.src || "")}</small><span>${esc(bits.join(" · "))}</span></li>`;
-    }).join("");
-    return `<section class="book-evidence-name"><h4>${esc(symbol)}</h4><ul>${rows || "<li>No pieces stored</li>"}</ul></section>`;
-  }).join("");
-  const more = symbols.length > shown.length ? `<p class="book-note">${symbols.length - shown.length} more names match. Keep typing.</p>` : "";
-  return `${cards || `<p class="book-note">No stored name matches.</p>`}${more}`;
+function evidenceBody(record, queryValue = state.evidenceQuery) {
+  const names = record && record.names || {};
+  const query = String(queryValue || '').trim().toUpperCase();
+  if (!query) return '<p class="book-note">Choose one company to inspect its evidence. The full archive is not expanded by default.</p>';
+  const symbols = Object.keys(names).filter((symbol) => symbol.startsWith(query)).sort();
+  const symbol = symbols.includes(query) ? query : symbols[0];
+  if (!symbol) return '<p class="book-note">No stored company matches. Try a tracked symbol.</p>';
+  const pieces = Array.isArray(names[symbol]) ? names[symbol] : [];
+  const earlier = pieces.filter((piece) => piece.asOf && piece.asOf < record.date).length;
+  const rows = pieces.map((piece) => {
+    const definition = EVIDENCE_LABELS[piece.id] || [relationshipLabel(piece.id), 'stored units', 'grade', 'The source has not supplied a more detailed definition.'];
+    const legacy = ['structure','earnings','iv'].includes(piece.id);
+    const pending = piece.dir === 'pending';
+    const baselineKnown = Number(record.version) >= 2;
+    const direct = piece.id === 'earn-tone' || piece.id === 'iv-z' || piece.id === 'iv-5d';
+    const read = pending ? 'Collecting history' : legacy ? 'Legacy metric' : !baselineKnown && piece.dir === 'neutral' ? 'Baseline status unavailable' : direct ? (piece.dir === 'up' ? 'Positive or rising reading' : piece.dir === 'down' ? 'Cautious or falling reading' : 'Neutral, mixed or unclassified') : piece.dir === 'up' ? 'Measure above its usual level' : piece.dir === 'down' ? 'Measure below its usual level' : 'No unusual deviation recorded';
+    let value = piece.v == null ? 'Unavailable' : `${signed(piece.v, 2)} ${definition[1]}`;
+    if (piece.v != null && piece.id === 'news') value = Number(piece.v) > 0 ? 'Bullish news tone' : Number(piece.v) < 0 ? 'Bearish news tone' : 'Neutral news tone';
+    if (piece.v != null && piece.id === 'earn-tone') value = Number(piece.v) > 0 ? 'Confident or optimistic' : Number(piece.v) < 0 ? 'Cautious or defensive' : 'Neutral or unclassified';
+    if (piece.v != null && piece.id === 'rotation') value = ({2:'Confirmed',1:'First thrust',0:'Other phase','-1':'Late'})[piece.v] || 'Unclassified phase';
+    const explanation = pending ? 'Needs at least 20 prior observations of this same metric in the existing 60-day window.' : !baselineKnown && piece.dir === 'neutral' ? 'This older record did not distinguish missing history from a measured neutral result.' : definition[3];
+    return `<article class="owner-evidence-piece"><div><h5>${esc(definition[0])}</h5><b>${esc(value)}</b><p>${esc(definition[3])}</p></div><div><strong>${esc(read)}</strong><p>${esc(explanation)}</p><small>Source date ${esc(piece.asOf || 'unavailable')}${piece.asOf && piece.asOf < record.date ? ' · older source' : ''}</small><br>${sourceLink(definition[2], null, symbol)}</div><details><summary>Stored fields</summary><p>${esc(piece.id)} · ${esc(piece.src)} · direction ${esc(piece.dir)} · strength ${esc(piece.str)} / 3${piece.rk != null ? ' · cross-company percentile '+esc(piece.rk) : ''} · first recorded ${esc(piece.firstSeen || 'unknown')}</p></details></article>`;
+  }).join('');
+  return `<section class="book-evidence-name"><h4>${esc(symbol)}</h4><p class="book-note">${pieces.length} recorded measurements${earlier ? ' · '+earlier+(earlier === 1 ? ' uses' : ' use')+' an older source date' : ''}. Direction describes the measurement, not necessarily the stock price. First recorded is the archive date, not necessarily the event date.</p>${rows || '<p class="book-note">No measurements were stored for this company.</p>'}</section>`;
 }
 
 async function renderEvidence() {
-  const id = "book-evidence";
-  if (!$(id)) return;
+  const id = 'book-evidence';
   try {
-    const latest = await loadJson("evidence-latest.json");
-    const key = latest && typeof latest.key === "string" ? latest.key : "";
-    if (!key) {
-      fail(id, "Evidence record", "The evidence pointer does not name a day file.");
-      return;
-    }
-    const record = await loadJson(key);
-    const names = record && record.names && typeof record.names === "object" ? Object.keys(record.names).length : 0;
-    mount(id, shell(
-      id,
-      "Evidence record",
-      `<div class="book-controls"><label>Ticker <input data-book-control="evidence-query" type="search" value="${esc(state.evidenceQuery)}" placeholder="Symbol" aria-label="Find a name in the evidence record" autocomplete="off" spellcheck="false"></label><span class="book-count">${names} names · record ${esc(record.date || "")}</span></div><div id="book-evidence-body">${evidenceBody(record)}</div>`,
-      "Each line is a stored evidence piece: direction, strength, value, rank, as-of, and first seen. Nothing here is rescored, and nothing is sent back into a grade.",
-    ));
-  } catch (err) {
-    fail(id, "Evidence record", "The evidence record is not available in this session (" + err.message + ").");
-  }
+    const latest = await loadJson('evidence-latest.json');
+    if (!latest || typeof latest.key !== 'string') throw new Error('The record pointer is missing');
+    const record = await loadJson(latest.key);
+    const symbols = Object.keys(record.names || {}).sort();
+    mount(id, shell(id, 'Evidence record', `<p class="book-count">${recordStamp(record.date)} · ${symbols.length} companies</p><div class="book-controls"><label>Company <input data-book-control="evidence-query" type="search" list="owner-evidence-symbols" value="${esc(state.evidenceQuery)}" placeholder="Choose a symbol" aria-label="Find a name in the evidence record" autocomplete="off" spellcheck="false"><datalist id="owner-evidence-symbols">${symbols.map((symbol) => `<option value="${esc(symbol)}"></option>`).join('')}</datalist></label></div><div id="book-evidence-body">${evidenceBody(record)}</div>`, 'Inspect what was measured, its source date and whether the history supports a comparison. No new analysis or model call runs when you open this record.'));
+  } catch (err) { fail(id, 'Evidence record', 'The evidence record could not be loaded (' + err.message + ').'); }
 }
 
 async function renderRejections() {
-  const id = "book-rejections";
-  if (!$(id)) return;
+  const id = 'book-rejections';
   try {
-    const latest = await loadJson("ai-rejections-latest.json");
-    const key = latest && typeof latest.key === "string" ? latest.key : "";
-    if (!key) {
-      fail(id, "AI grader log", "The grader-log pointer does not name a day file.");
-      return;
+    const latest = await loadJson('ai-rejections-latest.json');
+    if (!latest || typeof latest.key !== 'string') throw new Error('The grader-log pointer is missing');
+    const day = await loadJson(latest.key);
+    const query = state.rejectQuery.trim().toUpperCase();
+    const entries = new Map();
+    // Each bucket keeps its first observation of the day. Only a matching
+    // timestamp proves that a pass and timing record describe the same run.
+    const keyFor = (item, bucket) => [item.sym, item.side, item.asOf || 'undated-' + bucket].join(':');
+    for (const item of Array.isArray(day.passed) ? day.passed : []) entries.set(keyFor(item, 'pass'), { ...item, thesisPassed: true });
+    for (const item of Array.isArray(day.records) ? day.records : []) {
+      const key = keyFor(item, 'decision');
+      entries.set(key, { ...(entries.get(key) || {}), ...item });
     }
-    const day = await loadJson(key);
-    const q = state.rejectQuery.trim().toUpperCase();
-    const records = (Array.isArray(day.records) ? day.records : []).filter((item) => !q || String(item.sym || "").toUpperCase().startsWith(q));
-    const passed = (Array.isArray(day.passed) ? day.passed : []).filter((item) => !q || String(item.sym || "").toUpperCase().startsWith(q));
-    const row = (item, kind) => `<tr><td>${esc(item.sym || "")}</td><td>${esc(item.side || "")}</td><td>${esc(kind || item.kind || "")}</td><td>${esc(item.grade || "—")}</td><td>${esc(signed(item.total, 1))}</td><td>${esc(money(item.spot))}</td><td>${esc(item.entryReason || item.entryVerdict || "—")}</td></tr>`;
-    const table = (title, list, kind) => `<h4>${esc(title)} <span>${list.length}</span></h4>` +
-      (list.length ? `<div class="book-table-wrap"><table class="book-table"><thead><tr><th>Name</th><th>Side</th><th>Record</th><th>Grade</th><th>Total</th><th>Spot</th><th>Stored note</th></tr></thead><tbody>${list.map((item) => row(item, kind || item.kind)).join("")}</tbody></table></div>` : `<p class="book-note">None stored for this day.</p>`);
-    mount(id, shell(
-      id,
-      "AI grader log",
-      `<div class="book-controls">${searchField("reject-query", "Ticker", state.rejectQuery, "NVDA")}<span class="book-count">Record ${esc(day.date || latest.date || "")}</span></div>${table("Rejected or told to wait", records)}${table("Passed the grader the same day", passed, "passed")}`,
-      "This is the stored day log. Grade, total, spot, and the note are the values written that day. The log is not folded back into the live grade.",
-    ));
-  } catch (err) {
-    fail(id, "AI grader log", "The grader log is not available in this session (" + err.message + ").");
+    const records = [...entries.values()].filter((item) => !query || String(item.sym || '').toUpperCase().startsWith(query)).sort((a, b) => String(a.sym).localeCompare(String(b.sym)) || String(a.side).localeCompare(String(b.side)) || String(a.asOf || '').localeCompare(String(b.asOf || '')));
+    const rows = records.map((item) => {
+      const thesis = item.kind === 'reject' ? 'Rejected' : item.thesisPassed || ['strong','moderate','weak'].includes(item.grade) ? 'Passed' : 'Not recorded';
+      const entry = item.kind === 'reject' ? 'Blocked' : item.kind === 'wait-heldback' ? 'Wait · held back' : item.kind === 'wait' || item.entryVerdict === 'wait' ? 'Wait for entry' : item.entryVerdict === 'buy-now' ? 'Entry cleared' : 'Not recorded';
+      const stamp = new Date(item.asOf || '');
+      const recordedAt = Number.isFinite(stamp.getTime()) ? stamp.toLocaleString('en-US', {month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:'America/New_York',timeZoneName:'short'}) : 'Time not recorded';
+      return `<tr><td>${esc(item.sym)}</td><td>${esc(item.side)}</td><td>${esc(recordedAt)}</td><td>${esc(thesis)}</td><td>${esc(item.grade || '—')}</td><td>${esc(entry)}</td><td>${item.total == null ? '—' : esc(signed(item.total, 1))}</td><td>${item.spot == null ? '—' : esc(money(item.spot))}</td><td>${esc(item.entryReason || 'No explanatory note stored.')}</td></tr>`;
+    }).join('');
+    const table = rows ? `<div class="book-table-wrap"><table class="book-table"><thead><tr><th>Company</th><th>Side</th><th>Recorded at</th><th>Thesis result</th><th>Thesis quality</th><th>Entry timing</th><th>Total</th><th>Recorded spot</th><th>Explanation</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="book-note">No grader decisions match this view.</p>';
+    mount(id, shell(id, 'AI grader log', `<p class="book-count">${recordStamp(day.date || latest.date)} · ${records.length} recorded observation${records.length === 1 ? '' : 's'}</p><div class="book-controls">${searchField('reject-query', 'Ticker', state.rejectQuery, 'NVDA')}</div>${table}<details><summary>Original daily log</summary><pre class="owner-raw-record">${esc(JSON.stringify(day, null, 2))}</pre></details>`, 'Thesis quality and entry timing are separate decisions. A thesis can pass while entry timing still says wait. Different recorded times stay separate, including a rejection followed by a later pass. These are historical decisions, not a new live assessment.'));
+  } catch (err) { fail(id, 'AI grader log', 'The grader log could not be loaded (' + err.message + ').'); }
+}
+
+const ownerRecords = {
+  'book-evidence': { title: 'Evidence record', run: renderEvidence, owns: key => key === 'evidence-latest.json' || key.startsWith('evidence/') },
+  'book-link': { title: 'Company relationships', run: renderLink, owns: key => key === 'link-map.json' || key === 'heatmap.json' },
+  'book-rejections': { title: 'AI grader log', run: renderRejections, owns: key => key === 'ai-rejections-latest.json' || key.startsWith('ai-rejections/') },
+};
+const ownerLoaded = new Set();
+const ownerPending = new Set();
+let ownerRefreshing = false;
+function updateOwnerRefreshButton() {
+  const button = document.querySelector('[data-owner-diagnostics-refresh]');
+  if (button) button.disabled = ownerRefreshing || ownerPending.size > 0;
+}
+async function loadOwnerRecord(id) {
+  if (ownerPending.has(id)) return;
+  ownerPending.add(id);
+  updateOwnerRefreshButton();
+  try { await ownerRecords[id].run(); }
+  finally { ownerPending.delete(id); updateOwnerRefreshButton(); }
+}
+function prepareOwnerRecords() {
+  for (const [id, record] of Object.entries(ownerRecords)) {
+    if ($(id) && !$(id).querySelector('[data-book-panel]')) mount(id, shell(id, record.title, '<p class="book-note">Open to load this stored record.</p>'));
   }
+}
+async function refreshOwnerRecords(onlyId) {
+  if (ownerRefreshing || ownerPending.size) return;
+  const ids = Object.keys(ownerRecords).filter((id) => onlyId ? id === onlyId : $(id) && $(id).querySelector('[data-book-panel]')?.open);
+  const status = $('owner-diagnostics-status');
+  if (!ids.length) { if (status) status.textContent = 'Open a record first. Closed records are not fetched.'; return; }
+  ownerRefreshing = true;
+  updateOwnerRefreshButton();
+  if (status) status.textContent = 'Refreshing the opened records…';
+  for (const key of cache.keys()) if (ids.some(id => ownerRecords[id].owns(key))) cache.delete(key);
+  try {
+    await Promise.all(ids.map((id) => { ownerLoaded.add(id); return loadOwnerRecord(id); }));
+    if (status) status.textContent = 'Refresh finished. Check the snapshot dates and any load errors below. Records stay on this snapshot until you refresh again.';
+  } finally { ownerRefreshing = false; updateOwnerRefreshButton(); }
 }
 
 const runners = {
@@ -1650,34 +1712,21 @@ const runners = {
   spillover: renderSpill,
   "ma-tracker": renderMa,
   earnings: renderEarnings,
-  quant: () => Promise.all([renderLink(), renderEvidence(), renderRejections()]),
+  quant: prepareOwnerRecords,
 };
 
 const started = new Set();
 
-function whenOwnerSettled() {
-  return new Promise((resolve) => {
-    const start = Date.now();
-    const tick = () => {
-      const group = document.querySelector("[data-role-group='owner']");
-      if (!group || group.hidden === false || Date.now() - start > 6000) resolve();
-      else setTimeout(tick, 40);
-    };
-    tick();
-  });
-}
-
 function openTab(id) {
   const run = runners[id];
-  if (!run || started.has(id)) return;
-  if (id === "quant") {
-    started.add(id);
-    whenOwnerSettled().then(() => {
-      if (!$("page-pane-quant")) return;
-      return run();
-    }).catch(() => started.delete(id));
+  if (!run) return;
+  if (id === 'quant') {
+    const panel = $('owner-panel-diagnostics');
+    if (!panel || panel.hidden) return;
+    prepareOwnerRecords();
     return;
   }
+  if (started.has(id)) return;
   const pane = $("page-pane-" + id);
   if (!pane || pane.hidden) return;
   started.add(id);
@@ -1696,6 +1745,9 @@ function boot() {
   document.addEventListener("toggle", (event) => {
     const panel = event.target && event.target.getAttribute && event.target.getAttribute("data-book-panel");
     if (panel) state.open[panel] = event.target.open;
+    if (panel && ownerRecords[panel] && event.target.open && !ownerLoaded.has(panel)) {
+      ownerLoaded.add(panel); loadOwnerRecord(panel);
+    }
   }, true);
   document.addEventListener("pointerover", (event) => {
     const tip = event.target.closest && event.target.closest("[data-book-tip]");
@@ -1706,6 +1758,9 @@ function boot() {
     readout.textContent = tip ? (tip.getAttribute("data-book-tip") || "") : "";
   });
   document.addEventListener("click", (event) => {
+    if (event.target.closest('[data-owner-diagnostics-refresh]')) { refreshOwnerRecords(); return; }
+    const retry = event.target.closest('[data-owner-record-retry]');
+    if (retry) { refreshOwnerRecords(retry.getAttribute('data-owner-record-retry')); return; }
     const tab = event.target.closest && event.target.closest("[data-page-tab]");
     if (tab) {
       const id = tab.getAttribute("data-page-tab");
@@ -1814,4 +1869,4 @@ if (typeof document !== "undefined") {
   boot();
 }
 
-export { windowGradeSamples };
+export { windowGradeSamples, evidenceBody, linkResults, EVIDENCE_LABELS };
