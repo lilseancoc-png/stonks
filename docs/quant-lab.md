@@ -1,5 +1,9 @@
 # Owner Lab — private controls and deterministic quant screens
 
+The current three-view layout, record meanings, pricing guards, and request
+limits are documented in [Owner Lab](owner-lab.md). Personal tools opens first;
+research and diagnostic records load only when their view or panel opens.
+
 **Status: live.** Feed: `data/quant.json` (rebuilt fresh every bake) +
 `data/quant-history.json` (per-ET-day accumulator, read-before-wipe). Both
 PREMIUM keys (`lib/premium-keys.mjs`). Engine: the `QUANT LAB` block in

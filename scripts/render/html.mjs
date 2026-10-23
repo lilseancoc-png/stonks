@@ -838,19 +838,15 @@ function spilloverSection() {
 }
 
 function quantSection() {
-  // Card chrome only — content renders client-side from data/quant.json plus
-  // lazy-fetched on first tab activation by loadQuant() in app.js. The Quant
-  // Lab (docs/quant-lab.md): deterministic sigma-deviation, vol-risk-premium,
-  // pair relative-value, vol-surface, dispersion and post-earnings-drift
-  // screens. ANALYTICAL ONLY — screens and z-scores, never trade signals; the
-  // playbook table below is educational. The playbook + coverage blocks are
-  // static (they never change per build), so they live here in the shell.
   return `<section class="card" id="quant-section">
-    <header class="card-header">
-      <h2 class="card-title">Owner Lab</h2>
-      <span class="card-eyebrow" id="quant-eyebrow" aria-live="polite"></span>
-    </header>
-    ${infoNote('What is this?', `<p>Statistical screens quants actually run, over the same data the rest of the site already collects. <b>Regime conditioning</b> &mdash; every build first classifies the tape on four axes (volatility: VIX + term structure + SPY realized vol; trend vs range: SPY efficiency ratio + higher-highs/lower-lows; risk-on/off: the Market Analysis tape; earnings-heavy vs quiet: share of the universe reporting inside ~2 weeks). The single-name sigma screen keeps a fixed 3&sigma; bar in every regime; VRP &ldquo;rich&rdquo; needs a bigger z when high vol makes fat premium normal, pair-spread &ldquo;stretched&rdquo; widens in high vol and tightens in calm tape, and term-structure inversions are down-weighted through earnings-heavy stretches. Rows are never hidden by regime &mdash; only badged and re-ordered &mdash; and the strip at the top shows the bars in force. <b>Aggregate ideas</b> &mdash; a confluence table cross-referencing four <em>independent</em> flow screens the site already runs (the session&rsquo;s largest unusual-options prints, the top intraday volume / S&ndash;R-break flags, fresh &le;3-session price streaks, and 5-day rising / surging IV): a name showing on two-plus screens ships as a candidate, three-plus is badged <b>qualified</b>, and a lean is reported only when the directional screens agree. <b>Sigma deviations</b> &mdash; names at or past their 3&sigma; Bollinger band (20-day price z-score) or printing a 3&sigma; daily move vs their own trailing volatility, with the option market&rsquo;s <b>expected move</b> (1&sigma;/2&sigma; = S &times; IV &times; &radic;(days/365)) beside the realized one. <b>Vol risk premium</b> &mdash; each name&rsquo;s ATM ~30-day implied vol minus its 30-day realized vol, z-scored against the name&rsquo;s own derived history: persistently positive is the premium option sellers harvest; an extreme z flags premium unusually rich (or cheap) vs that name&rsquo;s norm. <b>Pairs</b> &mdash; within-industry pairs whose daily returns correlate &ge;0.60, watched on two spreads: the <em>hedged</em> price spread lnA &minus; &beta;&middot;lnB, with &beta; from a <b>one-year Engle-Granger regression</b> whose residual ADF test (vs the MacKinnon 5% bar) supplies a <b>cointegrated</b> badge &mdash; read on both a 60-day and a ~1-year horizon (some pairs only mean-revert on one), with a rolling hedge-ratio drift check, a corr-stability-across-lookbacks badge, and a factor match grade (SPY-beta / size / momentum gaps + a liquidity floor) &mdash; and the implied-vol spread vs its 120-day norm (relative options mispricing between peers). <b>Vol surface</b> &mdash; term-structure slope (~90d vs ~30d ATM; inverted = near-term stress, badged when the name&rsquo;s own print is inside ~5 weeks &mdash; event vol loading the front is expected) and 25&Delta; put&minus;call skew per name; their z-scores activate automatically once enough surface history accumulates. <b>Dispersion</b> &mdash; an implied-correlation proxy from SPY&rsquo;s IV vs the cap-weighted basket of tracked large-caps: high = index options rich relative to single names. <b>Post-earnings drift</b> &mdash; names inside two weeks of a print, their reaction and drift so far, against their own historical beat/miss drift tendency. Everything is deterministic &mdash; fixed formulas, documented windows and threshold tables, no AI and no cross-sectional curve-fitting.</p>`)}
+    <header class="card-header"><h2 class="card-title">Owner Lab</h2><span class="card-eyebrow" id="quant-eyebrow" aria-live="polite"></span></header>
+    <p class="hint">Apply your own risk budget, explore unusual market readings, or inspect the records behind the research.</p>
+    <div class="owner-lab-tabs" role="tablist" aria-label="Owner Lab views">
+      <button type="button" role="tab" id="owner-tab-personal" data-owner-view="personal" aria-controls="owner-panel-personal" aria-selected="true">Personal tools</button>
+      <button type="button" role="tab" id="owner-tab-research" data-owner-view="research" aria-controls="owner-panel-research" aria-selected="false" tabindex="-1">Research screens</button>
+      <button type="button" role="tab" id="owner-tab-diagnostics" data-owner-view="diagnostics" aria-controls="owner-panel-diagnostics" aria-selected="false" tabindex="-1">Diagnostics</button>
+    </div>
+    <section id="owner-panel-personal" class="owner-lab-panel" data-owner-panel="personal" role="tabpanel" aria-labelledby="owner-tab-personal">
     <section class="owner-suite" aria-labelledby="owner-tools-title">
       <header class="owner-suite-head">
         <div><span>Private workspace</span><h3 id="owner-tools-title">Owner tools</h3></div>
@@ -859,7 +855,7 @@ function quantSection() {
       <details class="picks-position owner-position" id="picks-position">
         <summary>Check a position you already hold &rarr;</summary>
         <div class="picks-position-body">
-          <p class="hint">Already own a call or put? Enter it below and get a <b>hold / sell / wait</b> read &mdash; priced live and judged against the <b>full picture</b>: the engine&rsquo;s current grade, the AI news take, sector narrative, entry-timing, and the same premium take-profit / stop the track record uses. Tracked tickers only. Not financial advice.</p>
+          <p class="hint">Review a single long call or put against its price, P&amp;L, grade and premium plan. A hold/sell read requires a recent regular-session bid and ask. Last-trade and older prices are reference only. Tracked tickers only. Not financial advice.</p>
           <div class="pos-form">
             <label class="pos-field"><span>Ticker</span><input type="text" id="pos-symbol" autocomplete="off" spellcheck="false" placeholder="e.g. NVDA" maxlength="6"></label>
             <label class="pos-field pos-field-sm"><span>Side</span><select id="pos-side"><option value="call">Call</option><option value="put">Put</option></select></label>
@@ -874,14 +870,16 @@ function quantSection() {
         </div>
       </details>
       <div id="owner-dca-root" class="owner-tool-root">Loading personalized DCA sizing&hellip;</div>
-      <details class="research-details"><summary>Size a Sector Rotation setup</summary><div id="owner-rotation-root" class="owner-tool-root">Loading Sector Rotation sizing&hellip;</div></details>
-      <details class="research-details"><summary>Size a leveraged ETF setup</summary><div id="owner-lev-root" class="owner-tool-root">Loading leveraged-ETF sizing&hellip;</div></details>
+      <details class="research-details" id="owner-rotation-panel"><summary>Size a Sector Rotation setup</summary><div id="owner-rotation-root" class="owner-tool-root">Loading Sector Rotation sizing&hellip;</div></details>
+      <details class="research-details" id="owner-lev-panel"><summary>Size a leveraged ETF setup</summary><div id="owner-lev-root" class="owner-tool-root">Loading leveraged-ETF sizing&hellip;</div></details>
     </section>
-    <section id="book-link" class="book-view" hidden></section>
-    <section id="book-evidence" class="book-view" hidden></section>
-    <section id="book-rejections" class="book-view" hidden></section>
-    <div id="quant-root" class="quant-root">Loading Quant Lab&hellip;</div>
-    <div id="quant-empty" class="quant-empty" hidden>Quant Lab data will appear after the next daily build refresh.</div>
+    </section>
+    <section id="owner-panel-research" class="owner-lab-panel" data-owner-panel="research" role="tabpanel" aria-labelledby="owner-tab-research" hidden>
+      <div class="owner-lab-intro"><div><h3>What stands out?</h3><p>Research candidates from the latest stored build. An unusual reading alone does not establish a trade.</p></div><button type="button" class="book-more" data-owner-research-refresh>Refresh research</button></div>
+      <div id="quant-root" class="quant-root">Open this view to load the research snapshot.</div>
+      <div id="quant-empty" class="quant-empty" hidden>No research snapshot is available yet.</div>
+      <details class="research-details owner-lab-help"><summary>Screen definitions and educational playbook</summary>
+    ${infoNote('What is this?', `<p>Statistical screens quants actually run, over the same data the rest of the site already collects. <b>Regime conditioning</b> &mdash; every build first classifies the tape on four axes (volatility: VIX + term structure + SPY realized vol; trend vs range: SPY efficiency ratio + higher-highs/lower-lows; risk-on/off: the Market Analysis tape; earnings-heavy vs quiet: share of the universe reporting inside ~2 weeks). The single-name sigma screen keeps a fixed 3&sigma; bar in every regime; VRP &ldquo;rich&rdquo; needs a bigger z when high vol makes fat premium normal, pair-spread &ldquo;stretched&rdquo; widens in high vol and tightens in calm tape, and term-structure inversions are down-weighted through earnings-heavy stretches. Rows are never hidden by regime &mdash; only badged and re-ordered &mdash; and the strip at the top shows the bars in force. <b>Aggregate ideas</b> &mdash; a confluence table cross-referencing four <em>independent</em> flow screens the site already runs (the session&rsquo;s largest unusual-options prints, the top intraday volume / S&ndash;R-break flags, fresh &le;3-session price streaks, and 5-day rising / surging IV): a name showing on two-plus screens ships as a candidate, three-plus is badged <b>qualified</b>, and a lean is reported only when the directional screens agree. <b>Sigma deviations</b> &mdash; names at or past their 3&sigma; Bollinger band (20-day price z-score) or printing a 3&sigma; daily move vs their own trailing volatility, with the option market&rsquo;s <b>expected move</b> (1&sigma;/2&sigma; = S &times; IV &times; &radic;(days/365)) beside the realized one. <b>Vol risk premium</b> &mdash; each name&rsquo;s ATM ~30-day implied vol minus its 30-day realized vol, z-scored against the name&rsquo;s own derived history: persistently positive is the premium option sellers harvest; an extreme z flags premium unusually rich (or cheap) vs that name&rsquo;s norm. <b>Pairs</b> &mdash; within-industry pairs whose daily returns correlate &ge;0.60, watched on two spreads: the <em>hedged</em> price spread lnA &minus; &beta;&middot;lnB, with &beta; from a <b>one-year Engle-Granger regression</b> whose residual ADF test (vs the MacKinnon 5% bar) supplies a <b>cointegrated</b> badge &mdash; read on both a 60-day and a ~1-year horizon (some pairs only mean-revert on one), with a rolling hedge-ratio drift check, a corr-stability-across-lookbacks badge, and a factor match grade (SPY-beta / size / momentum gaps + a liquidity floor) &mdash; and the implied-vol spread vs its 120-day norm (relative options mispricing between peers). <b>Vol surface</b> &mdash; term-structure slope (~90d vs ~30d ATM; inverted = near-term stress, badged when the name&rsquo;s own print is inside ~5 weeks &mdash; event vol loading the front is expected) and 25&Delta; put&minus;call skew per name; their z-scores activate automatically once enough surface history accumulates. <b>Dispersion</b> &mdash; an implied-correlation proxy from SPY&rsquo;s IV vs the cap-weighted basket of tracked large-caps: high = index options rich relative to single names. <b>Post-earnings drift</b> &mdash; names inside two weeks of a print, their reaction and drift so far, against their own historical beat/miss drift tendency. Everything is deterministic &mdash; fixed formulas, documented windows and threshold tables, no AI and no cross-sectional curve-fitting.</p>`)}
     <div class="quant-playbook">
       <div class="quant-sub">The classical playbook (educational &mdash; not signals, not advice)</div>
       <div class="quant-tbl-wrap"><table class="quant-tbl quant-play-tbl">
@@ -897,8 +895,16 @@ function quantSection() {
         </tbody>
       </table></div>
     </div>
-    ${infoNote('What this tab deliberately does NOT do', `<p><b>Not feasible with current data</b> (listed honestly rather than faked): M&amp;A / spin-off screens (no deal data source), index add/delete prediction (no committee or flow data), gamma-scalping simulation (needs intraday delta-hedging data), Johansen / multi-year cointegration (the price history carries ~1 year of bars, so the Engle-Granger test runs on a single 1-year window and is labeled as such; Johansen adds nothing for 2-asset pairs), stock-borrow availability / borrow-fee screens (no borrow data source), and alt-data earnings nowcasts (no satellite / card-spend / web-traffic feeds). Screens that lack enough history show an <b>insufficient sample</b> empty state rather than inventing a win rate. <b>Already covered elsewhere</b>: earnings read-through pair betas live in <b>Event spillover</b>, season-wide earnings stats in <b>Earnings tracker</b>, IV momentum in <b>Trending IV</b>, and the quality-dip shares screen in <b>Stock Picks</b> &mdash; this tab links to them instead of duplicating them.</p>`)}
-    <p class="hint">All screens are deterministic and rebuilt every bake; z-scores use each name's own history, never a cross-sectional curve. Surface z-scores and the dispersion percentile activate automatically once ~60 sessions of history accumulate. Analytical screens only &mdash; nothing here is a recommendation to buy or sell anything. Not financial advice.</p>
+      <p class="hint">A z-score measures distance from the usual reading in standard deviations. Percentiles compare a company with its own history. These statistical screens are analytical, not validated trading strategies.</p>
+      </details>
+    </section>
+    <section id="owner-panel-diagnostics" class="owner-lab-panel" data-owner-panel="diagnostics" role="tabpanel" aria-labelledby="owner-tab-diagnostics" hidden>
+      <div class="owner-lab-intro"><div><h3>Inspect the research records</h3><p>Open only the record you need. These records do not feed back into the live grade.</p></div><button type="button" class="book-more" data-owner-diagnostics-refresh>Refresh opened records</button></div>
+      <p class="hint" id="owner-diagnostics-status" role="status" aria-live="polite">Records load on first open and stay on that snapshot until you request a refresh.</p>
+      <section id="book-evidence" class="book-view" hidden></section>
+      <section id="book-link" class="book-view" hidden></section>
+      <section id="book-rejections" class="book-view" hidden></section>
+    </section>
   </section>`;
 }
 

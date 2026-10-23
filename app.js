@@ -23797,6 +23797,49 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // ranks, never trade signals (the playbook table in the shell is educational).
   // data/quant.json is the daily analytical research payload.
   var quantState = { data: null, loading: false };
+  var ownerLabView = 'personal';
+  var ownerLabBound = false;
+  var quantPairsAll = false;
+  function selectOwnerLabView(view){
+    if (['personal','research','diagnostics'].indexOf(view) < 0) return;
+    ownerLabView = view;
+    var section = $('quant-section');
+    if (!section) return;
+    section.querySelectorAll('[data-owner-view]').forEach(function(button){
+      var selected = button.getAttribute('data-owner-view') === view;
+      button.setAttribute('aria-selected', selected ? 'true' : 'false');
+      button.tabIndex = selected ? 0 : -1;
+    });
+    section.querySelectorAll('[data-owner-panel]').forEach(function(panel){ panel.hidden = panel.getAttribute('data-owner-panel') !== view; });
+    var eye = $('quant-eyebrow');
+    if (eye && view !== 'research') eye.textContent = view === 'personal' ? 'Private tools' : 'Stored research records';
+    if (view === 'personal') loadOwnerTools();
+    if (view === 'research') loadQuantResearch();
+    if (view === 'diagnostics' && window.BookViews) window.BookViews.openTab('quant');
+  }
+  function bindOwnerLab(){
+    var section = $('quant-section');
+    if (!section || ownerLabBound) return;
+    ownerLabBound = true;
+    section.addEventListener('click', function(event){
+      var view = event.target.closest('[data-owner-view]');
+      if (view) selectOwnerLabView(view.getAttribute('data-owner-view'));
+      if (event.target.closest('[data-owner-research-refresh]')) loadQuantResearch(true);
+    });
+    section.addEventListener('keydown', function(event){
+      var button = event.target.closest('[data-owner-view]');
+      if (!button || ['ArrowLeft','ArrowRight','Home','End'].indexOf(event.key) < 0) return;
+      event.preventDefault();
+      var buttons = Array.prototype.slice.call(section.querySelectorAll('[data-owner-view]'));
+      var index = buttons.indexOf(button);
+      index = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length-1 : (index + (event.key === 'ArrowRight' ? 1 : buttons.length-1)) % buttons.length;
+      buttons[index].focus(); selectOwnerLabView(buttons[index].getAttribute('data-owner-view'));
+    });
+    ['owner-rotation-panel','owner-lev-panel'].forEach(function(id){
+      var panel = $(id);
+      if (panel) panel.addEventListener('toggle', function(){ if (panel.open && ownerLabView === 'personal') loadOwnerTools(); });
+    });
+  }
   function quantFetchJson(url){
     return fetch(url, { cache: 'no-store', credentials: 'same-origin' })
       .then(function(r){
@@ -23823,18 +23866,23 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function loadOwnerTools(){
     bindPositionTool();
     loadStocks();
-    loadSectorRotation();
-    loadLevEtf();
+    if ($('owner-rotation-panel') && $('owner-rotation-panel').open) loadSectorRotation();
+    if ($('owner-lev-panel') && $('owner-lev-panel').open) loadLevEtf();
   }
   function loadQuant(){
-    loadOwnerTools();
-    if ((quantState.data && !tabDataStale(quantState)) || quantState.loading){ renderQuant(); return; }
+    bindOwnerLab();
+    selectOwnerLabView(ownerLabView);
+  }
+  function loadQuantResearch(force){
+    if ((!force && quantState.data && !tabDataStale(quantState)) || quantState.loading){ renderQuant(); return; }
     quantState.loading = true;
+    var refresh = document.querySelector('[data-owner-research-refresh]'); if (refresh) refresh.disabled = true;
     var primaryUrl = dataUrl('quant.json');
     return quantFetchJson(primaryUrl)
       .then(function(row){
         quantState.data = (row && typeof row === 'object') ? row : {};
         quantState.loading = false;
+        if (refresh) refresh.disabled = false;
         quantState.fetchedAt = Date.now();
         try {
           renderQuant();
@@ -23852,6 +23900,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         });
         quantState.data = { loadError: true, loadErrorDetail: detail };
         quantState.loading = false;
+        if (refresh) refresh.disabled = false;
         renderQuant();
       });
   }
@@ -23918,7 +23967,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var body;
     var focus;
     var actions;
-    if (primary){
+    if (!d.pairs){
+      headline = 'Pair research is unavailable in this snapshot';
+      body = 'Review the available price, volatility and earnings readings below. Missing pair data does not establish that no relationship qualifies.';
+      focus = '';
+      actions = '<button type="button" class="flow-decision-action" data-quant-jump="quant-ped">Review earnings drift</button>';
+    } else if (primary){
       var p = primary.row;
       var s = primary.state;
       var horizon = s.halfLife != null ? '~' + s.halfLife + ' sessions' : 'reversion window varies';
@@ -23947,16 +24001,16 @@ function scenarioEventPhase(ev, now = Date.now()) {
       return '<button type="button" class="quant-desk-metric" data-quant-jump="' + id + '"><small>' + label + '</small><b>' + value + '</b><span>' + detail + '</span></button>';
     };
     return '<section class="quant-desk' + (current ? '' : ' is-reference') + '" aria-labelledby="quant-desk-title">' +
-      '<div class="quant-desk-head"><div><span class="quant-desk-kicker">Quant decision desk</span><h3 id="quant-desk-title">' + escapeHtml(headline) + '</h3></div>' +
+      '<div class="quant-desk-head"><div><span class="quant-desk-kicker">Research overview</span><h3 id="quant-desk-title">' + escapeHtml(headline) + '</h3></div>' +
         '<span class="quant-desk-freshness">' + freshness + ' · ' + escapeHtml(age) + '</span></div>' +
       '<p class="quant-desk-read">' + body + '</p>' +
       focus +
       '<div class="quant-desk-actions">' + actions + '</div>' +
       '<div class="quant-desk-metrics" aria-label="Quant research queues">' +
-        metric('quant-pairs', 'Pairs qualified', readyPairs.length, stretchedPairs.length + ' stretched') +
-        metric('quant-confluence', 'Tape confluence', qualified.length, 'qualified on 3+ screens') +
-        metric('quant-sigma', 'Sigma extremes', sigmaExtreme.length, sigmaRows.length + ' context rows') +
-        metric('quant-vrp', 'Vol extremes', richVol.length + ' / ' + cheapVol.length, 'rich / cheap') +
+        metric('quant-pairs', 'Qualified pairs', d.pairs ? readyPairs.length : '—', stretchedPairs.length + ' stretched') +
+        metric('quant-confluence', 'Multi-screen overlap', d.confluence ? qualified.length : '—', 'appears on 3+ screens') +
+        metric('quant-sigma', 'Unusual price moves', d.sigma ? sigmaExtreme.length : '—', 'price or daily-return extremes') +
+        metric('quant-vrp', 'Volatility extremes', d.vrp ? richVol.length + ' / ' + cheapVol.length : '—', 'rich / cheap versus own history') +
       '</div>' +
       '<p class="quant-desk-rule"><b>Workflow:</b> the screen finds statistical distance; the validation gates decide whether the relationship is credible; Grade checks each leg before any execution decision.</p>' +
       '</section>';
@@ -23964,11 +24018,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function renderQuant(){
     var root = $('quant-root'); var empty = $('quant-empty'); var eye = $('quant-eyebrow');
     if (!root) return;
+    var advancedPanel = root.querySelector('#quant-advanced');
+    var advancedOpen = advancedPanel && advancedPanel.open;
     var d = quantState.data;
-    if (!d){ root.textContent = 'Loading Quant Lab…'; return; }
-    var hasAny = (d.sigma && d.sigma.rows && d.sigma.rows.length) || (d.vrp && d.vrp.rows && d.vrp.rows.length) ||
-      (d.pairs && d.pairs.rows && d.pairs.rows.length) || (d.surface && d.surface.rows && d.surface.rows.length) ||
-      (d.confluence && d.confluence.rows && d.confluence.rows.length);
+    if (!d){ root.textContent = 'Loading research…'; return; }
+    var hasAny = ['sigma','vrp','pairs','surface','confluence','ped','dispersion','regime'].some(function(key){ return d[key] && typeof d[key] === 'object'; });
     if (d.loadError || !hasAny){
       root.innerHTML = ''; root.hidden = true;
       // Distinguish a failed fetch from genuinely-not-baked-yet — the shared
@@ -23977,8 +24031,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (empty){
         empty.hidden = false;
         empty.textContent = d.loadError
-          ? 'Could not load Quant Lab data' + (d.loadErrorDetail ? ' (' + d.loadErrorDetail + ')' : '') + '. Reopen the tab or refresh the page to retry.'
-          : 'Quant Lab data will appear after the next daily build refresh.';
+          ? 'Could not load Quant Lab data' + (d.loadErrorDetail ? ' (' + d.loadErrorDetail + ')' : '') + '. Use Refresh research to retry.'
+          : 'No research snapshot is available yet. Personal tools and Diagnostics can still be used.';
       }
       if (eye) eye.textContent = '';
       return;
@@ -24019,25 +24073,25 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (th.vrp) thBits.push('VRP rich |z| ≥ ' + th.vrp.richZ + (th.vrp.raised ? ' — raised' : ''));
       if (th.pairs) thBits.push('pair stretched ≥' + th.pairs.showZ + 'σ' + (th.pairs.widened ? ' — widened' : th.pairs.tightened ? ' — tightened' : ''));
       if (th.surface && th.surface.downweightInversions) thBits.push('term inversions down-weighted');
-      html += '<div class="quant-regime">' +
+      html += '<details class="quant-regime-details"><summary>Market backdrop and screening thresholds</summary><div class="quant-regime">' +
         '<span class="quant-reg-title" title="Fixed per-regime threshold tables — see the What-is-this note. Rows are never hidden by regime, only badged.">Regime conditioning</span>' +
         regChip('Vol', rv.level, volCls, volTip) +
         regChip('Tape', trendState, '', trendTip) +
         regChip('Risk', rr.state, riskCls, riskTip) +
         regChip('Earnings', re.state, re.state === 'heavy' ? 'is-warn' : '', earnTip) +
         (thBits.length ? '<span class="quant-reg-bars">Bars this build: ' + thBits.join(' · ') + '</span>' : '') +
-        '</div>';
+        '</div></details>';
     }
     // --- Aggregate ideas (confluence) ------------------------------------
-    // Cross-reference of four independent flow screens (top unusual prints ·
+    // Cross-reference of four existing screens (top unusual prints ·
     // top volume flags · fresh ≤3d streaks · 5d rising/surging IV) baked by
     // buildQuantConfluence in build.mjs. Older payloads without the block
     // skip the section entirely.
     var conf = d.confluence;
     if (conf){
       var confMin = conf.minSignals || 2;
-      html += '<div class="quant-sub" id="quant-confluence">Aggregate ideas — names on ' + confMin + '+ of four independent flow screens</div>';
-      html += '<div class="quant-note quant-conf-note">Screens: <b>top prints</b> (the ' + (conf.topPrints || 10) + ' largest unusual-options prints this session) · <b>volume</b> (top ' + (conf.topVolume || 10) + ' flagged names by relative volume / S-R break) · <b>fresh streak</b> (a ' + (conf.streakMaxDays || 3) + '-sessions-or-younger green/red run) · <b>rising IV</b> (surging tier, a ' + (conf.ivRamp5d || 20) + '%+ 5-session IV ramp, or ' + (conf.ivStreakDays || 5) + '+ rising sessions). Independent screens agreeing is an observation about the tape, not a recommendation.</div>';
+      html += '<div class="quant-sub" id="quant-confluence">Companies appearing on several screens — ' + confMin + '+ of four existing screens</div>';
+      html += '<div class="quant-note quant-conf-note">Screens: <b>top prints</b> (the ' + (conf.topPrints || 10) + ' largest unusual-options prints this session) · <b>volume</b> (top ' + (conf.topVolume || 10) + ' flagged names by relative volume / S-R break) · <b>fresh streak</b> (a ' + (conf.streakMaxDays || 3) + '-sessions-or-younger green/red run) · <b>rising IV</b> (surging tier, a ' + (conf.ivRamp5d || 20) + '%+ 5-session IV ramp, or ' + (conf.ivStreakDays || 5) + '+ rising sessions). Different screens agreeing is an observation about the tape, not a recommendation.</div>';
       var confRows = conf.rows || [];
       if (!confRows.length){
         html += '<p class="quant-none">No name sits on ' + confMin + '+ screens right now — confluence is rare by construction. The next hourly scan or bake can change that.</p>';
@@ -24098,13 +24152,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
       html += '<p class="quant-none quant-conf-src">Sources: ' + srcBits.join(' · ') + '.</p>';
     }
     // --- Sigma deviations -----------------------------------------------
-    html += '<div class="quant-sub" id="quant-sigma">Sigma deviations — names at a statistical extreme</div>';
+    html += '<div class="quant-sub" id="quant-sigma">Unusual price moves</div><p class="quant-none">Companies moving at least three standard deviations from their usual price or daily return.</p>';
     var priZ20 = (d.sigma && d.sigma.priZ20) || null;
     if (priZ20 != null){
       html += '<div class="quant-note">The <b>extreme</b> badge marks names at a fixed ±' + priZ20 + 'σ Bollinger deviation or ±' + (d.sigma.priRetZ || 3) + 'σ daily return. The bar stays strict in every market regime.</div>';
     }
     if (!sigmaRows.length){
-      html += '<p class="quant-none">Nothing at ±' + ((d.sigma && d.sigma.showZ) || 3) + 'σ right now — the tape is inside its bands.</p>';
+      html += !d.sigma ? '<p class="quant-none">Price-deviation readings are unavailable in this snapshot.</p>' : '<p class="quant-none">Nothing at ±' + ((d.sigma && d.sigma.showZ) || 3) + 'σ right now — the tape is inside its bands.</p>';
     } else {
       var situationLabel = { overbought: '≥3σ overbought', oversold: '≤−3σ oversold', 'sigma-move-up': '3σ up move', 'sigma-move-down': '3σ down move', 'stretched-up': 'stretched high', 'stretched-down': 'stretched low' };
       html += '<div class="quant-scroll"><table class="quant-tbl"><thead><tr><th>Name</th><th>Situation</th><th>Px</th><th>20d z</th><th>3σ band</th><th>1d move</th><th>HV20</th><th>RV30</th><th>RSI</th><th>IV %ile</th><th>Expected move (1σ)</th></tr></thead><tbody>';
@@ -24129,9 +24183,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
       html += '</tbody></table></div>';
     }
     // --- Vol risk premium ------------------------------------------------
-    html += '<div class="quant-sub" id="quant-vrp">Vol risk premium — IV30 vs RV30, z-scored vs each name’s own history</div>';
+    html += '<div class="quant-sub" id="quant-vrp">Option volatility versus realized volatility</div><p class="quant-none">Premium = implied volatility minus realized volatility, in percentage points. Each row uses one matched observation date.</p>';
     if (!vrpRows.length){
-      html += '<p class="quant-none">Not enough joined IV + price history yet (needs ' + ((d.vrp && d.vrp.minN) || 60) + ' sessions per name).</p>';
+      html += !d.vrp ? '<p class="quant-none">Volatility-premium readings are unavailable in this snapshot.</p>' : '<p class="quant-none">Not enough joined IV + price history yet (needs ' + ((d.vrp && d.vrp.minN) || 60) + ' sessions per name).</p>';
     } else {
       if (d.vrp.mktVrp != null) html += '<div class="quant-line">Median premium across ' + vrpRows.length + ' names: <b>' + quantSigned(d.vrp.mktVrp, 1) + ' vol pts</b> (IV over realized — the carry option sellers harvest).</div>';
       var richZ = d.vrp.richZ || null;
@@ -24139,8 +24193,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
         html += '<div class="quant-note">The <b>rich</b>/<b>cheap</b> badges use |z| ≥ ' + richZ + ' this build' + (reg && reg.thresholds && reg.thresholds.vrp && reg.thresholds.vrp.raised ? ' — raised: in a high-vol regime the normal premium is fatter, so it takes a bigger z to be genuinely extreme' : '') + '.</div>';
       }
       var vrpTable = function(title, rows, side){
+        if (!rows.length) return '<div class="quant-mini"><div class="quant-mini-title">' + title + '</div><p class="quant-none">No company clears the ' + richZ + 'σ ' + (side === 'rich' ? 'rich' : 'cheap') + ' threshold.</p></div>';
         var h = '<div class="quant-mini"><div class="quant-mini-title">' + title + '</div>' +
-          '<div class="quant-scroll"><table class="quant-tbl"><thead><tr><th>Name</th><th>IV30</th><th>RV30</th><th>VRP</th><th>z</th><th>%ile</th><th>IV %ile</th></tr></thead><tbody>';
+          '<div class="quant-scroll"><table class="quant-tbl"><thead><tr><th>Name</th><th>IV30</th><th>RV30</th><th>VRP</th><th>z</th><th>%ile</th><th>IV %ile</th><th>Observed</th></tr></thead><tbody>';
         rows.forEach(function(r){
           var badge = '';
           if (richZ != null && r.z != null){
@@ -24149,26 +24204,30 @@ function scenarioEventPhase(ev, now = Date.now()) {
           }
           h += '<tr><td>' + quantSymLink(r.t) + badge + '</td><td>' + quantNum(r.iv30, 1) + '</td><td>' + quantNum(r.rv30, 1) + '</td>' +
             '<td>' + quantSigned(r.vrp, 1) + '</td>' + quantZCell(r.z) + '<td>' + (r.pctile != null ? r.pctile : '—') + '</td>' +
-            '<td>' + (r.ivPctile != null ? r.ivPctile : '—') + '</td></tr>';
+            '<td>' + (r.ivPctile != null ? r.ivPctile : '—') + '</td><td>' + escapeHtml(r.asOf || 'date unavailable') + '</td></tr>';
         });
         return h + '</tbody></table></div></div>';
       };
       html += '<div class="quant-cols">' +
-        vrpTable('Richest premium (IV furthest over its norm)', vrpRows.slice(0, 8), 'rich') +
-        vrpTable('Cheapest premium (IV furthest under its norm)', vrpRows.slice(-8).reverse(), 'cheap') +
+        vrpTable('Unusually rich option premium', vrpRows.filter(function(r){ return r.z != null && r.z >= (richZ || 1.5); }).slice(0, 8), 'rich') +
+        vrpTable('Unusually cheap option premium', vrpRows.filter(function(r){ return r.z != null && r.z <= -(richZ || 1.5); }).slice(-8).reverse(), 'cheap') +
         '</div>';
     }
+    html += '<details id="quant-advanced" class="research-details"' + (advancedOpen ? ' open' : '') + '><summary>Advanced research: peer relationships, option pricing and earnings drift</summary>';
     // --- Pairs -----------------------------------------------------------
     html += '<div class="quant-sub" id="quant-pairs">Pair relative value — within-industry, return correlation ≥ ' + ((d.pairs && d.pairs.corrMin) || 0.6) + '</div>';
     var hasEgCols = pairRows.some(function(p){ return p.hedged != null; });
     if (hasEgCols){
       html += '<div class="quant-note">Spread = lnA − β·lnB with β from a <b>1-year Engle-Granger</b> regression (τ vs the MacKinnon 5% bar ' + ((d.pairs && d.pairs.egCrit) || -3.34) + ' = the <b>cointegrated</b> badge; under ~' + ((d.pairs && d.pairs.egMinN) || 200) + ' joined sessions the raw log ratio is the labeled fallback). Two horizons ship — 60d and ~1y — because some pairs only mean-revert on one. <b>Stability</b> = correlation held ≥ ' + ((d.pairs && d.pairs.stableCorr) || 0.5) + ' across the 60d and 1y windows too; <b>match</b> grades how alike the legs are on SPY-beta / size / momentum + a liquidity floor. Stretched wording bar this build: ' + ((d.pairs && d.pairs.showZ) || 2) + 'σ (regime-adjusted).</div>';
     }
-    if (!pairRows.length){
-      html += '<p class="quant-none">No correlated pair is stretched ≥1σ right now (' + ((d.pairs && d.pairs.tested) || 0) + ' candidate pairs tested).</p>';
+    var pairBar = (d.pairs && d.pairs.showZ) || 2;
+    var visiblePairs = quantPairsAll ? pairRows : pairRows.filter(function(p){ return quantPairResearchState(p, pairBar).ready; });
+    html += '<div class="owner-pair-filters" role="group" aria-label="Pair research results"><button type="button" data-quant-pair-filter="qualified" aria-pressed="' + (!quantPairsAll) + '">Qualified relationships</button><button type="button" data-quant-pair-filter="all" aria-pressed="' + quantPairsAll + '">All watched pairs (' + pairRows.length + ')</button></div>';
+    if (!visiblePairs.length){
+      html += !d.pairs ? '<p class="quant-none">Pair research is unavailable in this snapshot.</p>' : pairRows.length ? '<p class="quant-none">No pair clears every relationship-quality check. Open All watched pairs to inspect the failed checks.</p>' : '<p class="quant-none">No correlated pair is stretched ≥1σ right now (' + ((d.pairs && d.pairs.tested) || 0) + ' candidate pairs tested).</p>';
     } else {
       html += '<div class="quant-scroll"><table class="quant-tbl"><thead><tr><th>Pair</th><th>Research state</th><th>Industry</th><th>Corr</th><th>Hedge β</th><th>Cointegration</th><th>Spread z</th><th>Mean-rev</th><th>IV z (120d)</th><th>Match</th><th>Read</th></tr></thead><tbody>';
-      pairRows.slice().sort(function(a, b){
+      visiblePairs.slice().sort(function(a, b){
         return (quantPairResearchState(b, (d.pairs && d.pairs.showZ) || 2).ready ? 1 : 0) -
           (quantPairResearchState(a, (d.pairs && d.pairs.showZ) || 2).ready ? 1 : 0) ||
           Math.abs(b.pxZ || 0) - Math.abs(a.pxZ || 0);
@@ -24213,12 +24272,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
           '<td class="quant-read">' + escapeHtml(p.read || '—') + '</td></tr>';
       });
       html += '</tbody></table></div>';
-      if (pairRows.length > 30) html += '<p class="quant-none">Showing 30 of ' + pairRows.length + ' stretched pairs (' + ((d.pairs && d.pairs.tested) || 0) + ' tested).</p>';
+      if (visiblePairs.length > 30) html += '<p class="quant-none">Showing 30 of ' + visiblePairs.length + ' watched pairs (' + ((d.pairs && d.pairs.tested) || 0) + ' tested).</p>';
     }
     // --- Vol surface -----------------------------------------------------
     html += '<div class="quant-sub" id="quant-surface">Vol surface — term slope (~90d − ~30d) and 25Δ skew</div>';
     if (!surfRows.length){
-      html += '<p class="quant-none">No surface reads this build.</p>';
+      html += '<p class="quant-none">' + (d.surface ? 'No surface readings were stored for this build.' : 'Option-surface data is unavailable in this snapshot.') + '</p>';
     } else {
       var histReady = surfRows.some(function(r){ return r.slopeZ != null || r.skewZ != null; });
       var maxHist = 0;
@@ -24264,7 +24323,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // --- Post-earnings drift --------------------------------------------
     html += '<div class="quant-sub" id="quant-ped">Post-earnings drift — names inside ' + ((d.ped && d.ped.windowSessions) || 10) + ' sessions of a print</div>';
     if (!pedRows.length){
-      html += '<p class="quant-none">No tracked name printed inside the window.</p>';
+      html += '<p class="quant-none">' + (d.ped ? 'No tracked company has a stored report inside the window.' : 'Post-earnings data is unavailable in this snapshot.') + '</p>';
     } else {
       html += '<div class="quant-scroll"><table class="quant-tbl"><thead><tr><th>Name</th><th>Print</th><th>Surprise</th><th>Reaction</th><th>Drift since</th><th>Hist wk1 after beat</th><th>after miss</th><th>Sessions ago</th></tr></thead><tbody>';
       pedRows.slice(0, 25).forEach(function(r){
@@ -24272,18 +24331,20 @@ function scenarioEventPhase(ev, now = Date.now()) {
           '<td>' + (r.surprisePct != null ? quantSigned(r.surprisePct, 1) + '%' : '—') + '</td>' +
           '<td class="' + ((r.movePct || 0) >= 0 ? 'quant-pos' : 'quant-neg') + '">' + quantSigned(r.movePct, 1) + '%</td>' +
           '<td class="' + ((r.driftSoFar || 0) >= 0 ? 'quant-pos' : 'quant-neg') + '">' + quantSigned(r.driftSoFar, 1) + '%</td>' +
-          '<td>' + (r.beatAvgWk1 != null ? quantSigned(r.beatAvgWk1, 1) + '% (' + r.histQuarters + 'q)' : '—') + '</td>' +
-          '<td>' + (r.missAvgWk1 != null ? quantSigned(r.missAvgWk1, 1) + '%' : '—') + '</td>' +
+          '<td>' + (r.beatAvgWk1 != null ? quantSigned(r.beatAvgWk1, 1) + '%' + (r.beatN != null ? ' (' + r.beatN + ' beats)' : ' (sample unavailable)') : '—') + '</td>' +
+          '<td>' + (r.missAvgWk1 != null ? quantSigned(r.missAvgWk1, 1) + '%' + (r.missN != null ? ' (' + r.missN + ' misses)' : ' (sample unavailable)') : '—') + '</td>' +
           '<td>' + r.daysSince + '</td></tr>';
       });
       html += '</tbody></table></div>';
     }
+    html += '</details>';
     root.innerHTML = html;
+    root.querySelectorAll('[data-quant-pair-filter]').forEach(function(button){ button.addEventListener('click', function(){ var selected = button.getAttribute('data-quant-pair-filter'); quantPairsAll = selected === 'all'; renderQuant(); var active = root.querySelector('[data-quant-pair-filter="' + selected + '"]'); if (active) active.focus({preventScroll:true}); }); });
     bindBriefChips(root);
     var jumps = root.querySelectorAll('[data-quant-jump]');
     for (var qi = 0; qi < jumps.length; qi++) jumps[qi].addEventListener('click', function(){
       var target = document.getElementById(this.getAttribute('data-quant-jump'));
-      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (target) { var parent = target.parentElement; while (parent && parent !== root) { if (parent.tagName === 'DETAILS') parent.open = true; parent = parent.parentElement; } target.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
     });
   }
   function ivtFreshnessMeta(d){
@@ -27132,6 +27193,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var budget = levState.account * levState.riskPct / 100;
     var nodes = document.querySelectorAll('[data-lev-size]');
     for (var i = 0; i < nodes.length; i++){
+      var decision = nodes[i].getAttribute('data-lev-decision');
+      if (decision === 'pass') { nodes[i].innerHTML = '<b>No size:</b> this setup is a pass at the current payoff.'; continue; }
       var q = map[nodes[i].getAttribute('data-lev-size')];
       var stopPct = parseFloat(nodes[i].getAttribute('data-lev-stop-pct'));
       if (!q || q.spot == null || !(stopPct > 0)){
@@ -27147,7 +27210,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         continue;
       }
       var capped = byCash < byRisk ? ' (cash-capped)' : '';
-      nodes[i].innerHTML = 'Risk cap <b>' + fmtMoney(budget) + '</b> &rarr; <b>' + shares + ' share' + (shares === 1 ? '' : 's') +
+      nodes[i].innerHTML = (decision === 'wait' ? '<b>Hypothetical after confirmation:</b> ' : '') + 'Risk cap <b>' + fmtMoney(budget) + '</b> &rarr; <b>' + shares + ' share' + (shares === 1 ? '' : 's') +
         '</b> &middot; about ' + fmtMoney(shares * q.spot) + ' notional' + capped;
     }
   }
@@ -27476,8 +27539,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   function levSizeHtml(i){
     var p = leveragedEntryPlan(i);
+    if (levDecision(i) === 'pass') return '<div class="lev-size"><b>No size:</b> this setup is a pass at the current payoff.</div>';
     if (!p || !p.invalidation) return '<div class="lev-size">Share cap needs a published invalidation level.</div>';
-    return '<div class="lev-size" data-lev-size="' + escapeHtml(i.etf || '') + '" data-lev-stop-pct="' + (p.invalidation.etfMovePct || '') + '">Share cap appears with the live ETF quote.</div>';
+    return '<div class="lev-size" data-lev-size="' + escapeHtml(i.etf || '') + '" data-lev-decision="' + levDecision(i) + '" data-lev-stop-pct="' + (p.invalidation.etfMovePct || '') + '">Share cap appears with the live ETF quote.</div>';
   }
   function levCard(i){
     var tierTxt = i.tier === 'strong' ? 'Strong' : 'Moderate';
@@ -27638,7 +27702,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (d.loadError && !Array.isArray(d.ideas)){ root.innerHTML = '<p class="owner-tool-loading">Leveraged-ETF sizing is unavailable right now.</p>'; return; }
     var ideas = Array.isArray(d.ideas) ? d.ideas : [];
     var rows = ideas.map(function(i){
-      return '<article class="owner-size-row"><header><b class="lev-etf">' + escapeHtml(i.etf || '?') + '</b>' + levDirChip(i) + levLiveLine(i) + '</header>' + levSizeHtml(i) + '</article>';
+      var decision = levDecision(i);
+      return '<article class="owner-size-row"><header><b class="lev-etf">' + escapeHtml(i.etf || '?') + '</b>' + levDirChip(i) + '<span>' + (decision === 'pass' ? 'Pass' : decision === 'wait' ? 'Waiting setup' : 'Qualified setup') + '</span>' + levLiveLine(i) + '</header>' + levSizeHtml(i) + '</article>';
     }).join('');
     root.innerHTML = '<section class="owner-risk-card" aria-label="Owner leveraged ETF sizing"><header><div><small>Private sizing</small><h3>Leveraged ETF risk caps</h3><p>Converts each standardized stop width into a share cap using your account and max-loss budget.</p></div></header>' +
       '<div class="lev-risk-box"><div><b>Risk budget</b><span>Caps shares from the live ETF price and each setup&rsquo;s estimated stop width.</span></div>' +
@@ -39525,10 +39590,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function posFetchMark(sym, side, exp, strike){
     return fetch('/api/contract?symbol='+encodeURIComponent(sym)+'&side='+encodeURIComponent(side)+'&exp='+encodeURIComponent(exp)+'&strike='+encodeURIComponent(strike), { cache:'no-store' })
       .then(function(r){ if(!r.ok) throw new Error('http'); return r.json(); })
-      .then(function(c){ return { bid:Number(c.b), ask:Number(c.a), last:Number(c.l), iv:Number(c.iv), spot:Number(c.spot), marketState:c.marketState||null, src:'live' }; })
+      .then(function(c){ return { bid:Number(c.b), ask:Number(c.a), last:Number(c.l), iv:Number(c.iv), spot:Number(c.spot), marketState:c.marketState||null, fetchedAt:c.fetchedAt||null, src:'live' }; })
       .catch(function(){
         var row=posChainRow(posState.chain, side, exp, strike);
-        if(row) return { bid:Number(row.b), ask:Number(row.a), last:Number(row.l), iv:Number(row.iv), spot:Number(posState.chain&&posState.chain.spot), marketState:'CLOSED', src:'build' };
+        if(row) return { bid:Number(row.b), ask:Number(row.a), last:Number(row.l), iv:Number(row.iv), spot:Number(posState.chain&&posState.chain.spot), marketState:'CLOSED', fetchedAt:posState.chain&&(posState.chain.builtAtIso||posState.chain.quoteAsOf)||null, src:'build' };
         return null;
       });
   }
@@ -39621,9 +39686,20 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return { factors:factors };
   }
 
+  function posMarkInfo(m){
+    var midpoint = m.bid > 0 && m.ask >= m.bid && isFinite(m.bid) && isFinite(m.ask);
+    var price = midpoint ? (m.bid + m.ask) / 2 : m.last > 0 && isFinite(m.last) ? m.last : NaN;
+    var basis = midpoint ? 'bid/ask midpoint' : isFinite(price) ? 'last trade' : 'unavailable';
+    var fetchedMs = Date.parse(m.fetchedAt || '');
+    var age = Date.now() - fetchedMs;
+    var recentResponse = isFinite(fetchedMs) && age >= -5000 && age <= 5 * 60 * 1000;
+    var current = isFinite(price) && midpoint && recentResponse && m.src === 'live' && m.marketState === 'REGULAR';
+    return { price:price, basis:basis, current:current };
+  }
   function posDecision(o){
     var side=o.side, sideWord=side==='put'?'put':'call', entry=o.entry, m=o.mark;
-    var mark = (m.bid>0 && m.ask>0) ? (m.bid+m.ask)/2 : (m.last>0?m.last:NaN);
+    var priceInfo = posMarkInfo(m);
+    var mark = priceInfo.price;
     var pnlPct = isFinite(mark) ? ((mark-entry)/entry)*100 : NaN;
     var dollarPnl = isFinite(mark) ? (mark-entry)*100*o.qty : NaN;
     // Relative bid/ask spread of the live mark. On a beaten-down option the
@@ -39631,7 +39707,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // why "down 60%" (mid) can look worse than the "down 40%" a stale last trade
     // implied. The mid is the fairer liquidation value (your real exit is nearer
     // the bid), but surface the spread + last so the gap is never a mystery.
-    var spreadPct = (m.bid>0 && m.ask>0 && mark>0) ? ((m.ask-m.bid)/mark)*100 : NaN;
+    var spreadPct = (priceInfo.basis==='bid/ask midpoint' && mark>0) ? ((m.ask-m.bid)/mark)*100 : NaN;
     var dte = Math.max(0, Math.round((chainExpiryCloseEpochSec(o.exp) - Date.now()/1000)/86400));
     var g = (m.iv>0 && m.spot>0) ? greeks(side, m.spot, o.strike, posYrs(o.exp), m.iv, RFR) : null;
     var thetaPctDay = (g && isFinite(g.thetaDay) && mark>0) ? (Math.abs(g.thetaDay)/mark)*100 : null;
@@ -39649,7 +39725,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var pnlTxt = isFinite(pnlPct)?((pnlPct>=0?'+':'')+pnlPct.toFixed(0)+'%'):'—';
 
     var reasons=[], action='WAIT / MONITOR', tone='wait', headline='No action yet — monitor.';
-    if(isFinite(pnlPct) && pnlPct>=POS_TP){
+    if(!isFinite(mark)){
+      action='PRICE UNAVAILABLE'; headline='A usable option price is missing.';
+      reasons.push('Hold or sell cannot be evaluated without a usable price. Check the contract details and request another quote.');
+    } else if(!priceInfo.current){
+      action='REFERENCE ONLY'; headline='Confirm a current bid and ask before deciding.';
+      reasons.push('The displayed P&L uses a '+(m.src==='build'?'stored build price':priceInfo.basis)+'. A recent regular-session bid/ask response is required for a hold or sell verdict. Last-trade time is not supplied by this quote source.');
+    } else if(isFinite(pnlPct) && pnlPct>=POS_TP){
       action='SELL / TAKE PROFIT'; tone='good'; headline='Up '+pnlTxt+' — at the +'+POS_TP+'% premium target.';
       reasons.push('You’ve hit the plan’s take-profit (+'+POS_TP+'% of premium). Lock it in — or trim most and trail the rest only if the grade is still strong and timing is GO.');
     } else if(isFinite(pnlPct) && pnlPct<=-POS_STOP){
@@ -39679,6 +39761,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
 
     return { sym:o.sym, side:side, strike:o.strike, exp:o.exp, entry:entry, qty:o.qty, mark:mark,
       bid:(m.bid>0?m.bid:NaN), ask:(m.ask>0?m.ask:NaN), last:(m.last>0?m.last:NaN), spreadPct:spreadPct,
+      priceBasis:priceInfo.basis, currentPrice:priceInfo.current, fetchedAt:m.fetchedAt||null,
       pnlPct:pnlPct, dollarPnl:dollarPnl, dte:dte, src:m.src, marketState:m.marketState,
       gRound:gRound, tier:(grade&&grade.recommendation&&grade.recommendation.label)||null, timing:timing, aligned:aligned, hasGrade:!!grade,
       tpPrice:tpPrice, cutPrice:cutPrice, action:action, tone:tone, headline:headline, reasons:reasons, context:ctx };
@@ -39703,12 +39786,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var pnlTxt = isFinite(d.pnlPct)?((d.pnlPct>=0?'+':'')+d.pnlPct.toFixed(0)+'%'):'—';
     var dollarTxt = isFinite(d.dollarPnl)?((d.dollarPnl>=0?'+$':'−$')+Math.abs(d.dollarPnl).toFixed(0)):'';
     var markTxt = isFinite(d.mark)?('$'+d.mark.toFixed(2)):'—';
-    var srcNote = d.src==='build'?' · last build' : (d.marketState && d.marketState!=='REGULAR' ? ' · last close' : '');
+    var srcNote = d.src==='build'?' · stored build' : ' · '+d.priceBasis;
     function stat(lbl,val,cls){ return '<div class="pos-stat"><span class="pos-stat-num'+(cls?' '+cls:'')+'">'+val+'</span><span class="pos-stat-lbl">'+lbl+'</span></div>'; }
     // Mark transparency: bid × ask, last trade, and the relative spread, so the
     // "now" mid is never a mystery (a wide spread makes the mid read below last).
     var markDetail = '';
     var mdBits = [];
+    if(d.fetchedAt) mdBits.push((d.src==='build'?'Build dated ':'Quote fetched ')+formatDisplayInstant(d.fetchedAt,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}));
     if(isFinite(d.bid) && isFinite(d.ask)) mdBits.push('bid $'+d.bid.toFixed(2)+' × ask $'+d.ask.toFixed(2));
     if(isFinite(d.last)) mdBits.push('last $'+d.last.toFixed(2));
     if(isFinite(d.spreadPct)) mdBits.push('spread '+d.spreadPct.toFixed(0)+'%');
@@ -39730,7 +39814,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '<div class="pos-contract">'+escapeHtml(d.sym)+' $'+d.strike+' '+(d.side==='put'?'Put':'Call')+' · '+escapeHtml(fmtExpiryLabel(d.exp))+' · '+d.dte+'d</div>'+
       '<div class="pos-stats">'+
         stat('you paid','$'+d.entry.toFixed(2))+
-        stat('now'+srcNote, markTxt)+
+        stat((d.currentPrice?'current':'reference')+srcNote, markTxt)+
         stat('P&amp;L'+(dollarTxt?(' · '+dollarTxt):''), pnlTxt, pnlCls)+
         (d.hasGrade?stat('grade'+(d.tier?(' · '+escapeHtml(d.tier)):''), d.gRound, d.aligned?'pos-up':'pos-down'):'')+
         (d.timing?stat('timing', String(d.timing).toUpperCase()):'')+
@@ -39738,7 +39822,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       markDetail+
       reasons+
       posFactorsHtml(d.context)+
-      '<p class="pos-foot">Plan levels: take-profit ~$'+d.tpPrice.toFixed(2)+' (+'+POS_TP+'%) · stop ~$'+d.cutPrice.toFixed(2)+' (−'+POS_STOP+'%). Mark is the live mid, greeks modeled. The grade is relative &amp; research/unproven — not financial advice.</p>';
+      '<p class="pos-foot">Plan levels: take-profit ~$'+d.tpPrice.toFixed(2)+' (+'+POS_TP+'%) · stop ~$'+d.cutPrice.toFixed(2)+' (−'+POS_STOP+'%). Price basis: '+escapeHtml(d.priceBasis)+(d.src==='build'?' from the stored build':'')+'. Greeks are modeled. The grade is research/unproven. Not financial advice.</p>';
   }
 
   function bindPositionTool(){
