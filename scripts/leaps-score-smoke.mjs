@@ -90,10 +90,10 @@ const snapshot = structuredClone(universe);
 const screened = scoreLeapsUniverse(universe);
 assert.equal(screened.length, 12, "LEAPS scores the full universe, not a top-10 shortlist");
 assert.deepEqual(universe, snapshot);
-assert.ok(screened.every((row) => row.gate === "watch"), "a strong blend without a go entry is a watch, not a buy");
-assert.ok(screened.every((row) => row.reason === "entry-wait"));
+assert.ok(screened.every((row) => row.gate === "pass"), "research qualification does not require a go entry");
+assert.ok(screened.every((row) => row.reason === "qualified"));
 assert.ok(screened.every((row) => row.score === mixed));
-assert.equal(leapsSetupGate(universe.scored[0]), "watch");
+assert.equal(leapsSetupGate(universe.scored[0]), "pass");
 assert.notEqual(leapsSetupGate({ setups: { available: true, storyIgnition: true, exhaustion: false } }), "pass");
 
 assert.equal(leapsScoreEnabled({}), false);
@@ -222,7 +222,7 @@ const buy = decideLeapsStock({
   pillars: buyPillars,
 });
 assert.equal(buy.gate, "pass");
-assert.equal(buy.reason, "buy");
+assert.equal(buy.reason, "qualified");
 assert.equal(buy.side, "call");
 assert.equal(buy.pillarsAligned, 4);
 assert.ok(buy.total >= 8);
@@ -232,8 +232,8 @@ const avoid = decideLeapsStock({
   timing: { state: "avoid", side: "call" },
   pillars: buyPillars,
 });
-assert.equal(avoid.gate, "reject");
-assert.equal(avoid.reason, "avoid");
+assert.equal(avoid.gate, "pass");
+assert.equal(avoid.reason, "qualified");
 
 const onePillar = decideLeapsStock({
   timing: { state: "go", side: "call" },
@@ -344,7 +344,7 @@ const scoredBuy = buildLeapsScorePayload({
     data: chain,
   }],
 }, { env: {} });
-assert.equal(scoredBuy.mode, "score");
+assert.equal(scoredBuy.mode, "research");
 assert.equal(scoredBuy.contracts, false);
 assert.equal(scoredBuy.picks.length, 1);
 assert.equal(scoredBuy.picks[0].gate, "pass");

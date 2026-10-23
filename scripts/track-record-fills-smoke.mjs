@@ -11,6 +11,8 @@ import {
   resolvePickOutcome, computePicksAccuracyStats, advancePicksBaseline, computeBaselineStats,
 } from "./build.mjs";
 
+import { bsPrice, yearsToExpiry } from "../lib/greeks.mjs";
+
 let pass = 0, fail = 0;
 function ok(name, cond, detail = "") {
   if (cond) { pass++; }
@@ -90,9 +92,15 @@ ok("stats: at-trigger expectancy ((20-50+10)/3)", near(st.atTriggerExpectancyPct
 ok("stats: option win rate counts only > 0", near(st.optionWinRate, 2 / 3, 1e-9));
 
 // --- 6. SPY baseline ------------------------------------------------------------
-const spyRows = [];
-for (let k = 560; k <= 640; k += 5) spyRows.push({ s: k, b: Math.max(0.5, 600 - k + 18) - 0.1, a: Math.max(0.5, 600 - k + 18) + 0.1, iv: 0.16, oi: 5000, v: 100 });
-const spyChain = (spot) => ({ spot, chains: { [String(Date.UTC(2026, 11, 18) / 1000)]: { c: spyRows, p: spyRows.map((r) => ({ ...r, b: Math.max(0.5, r.s - 600 + 18) - 0.1, a: Math.max(0.5, r.s - 600 + 18) + 0.1 })) } } });
+const spyExpiry = Date.UTC(2026, 11, 18) / 1000;
+const spyChain = spot => {
+  const chain = { c: [], p: [] };
+  for (let k = 560; k <= 640; k += 5) for (const [side, key] of [["call", "c"], ["put", "p"]]) {
+    const mid = bsPrice(side, spot, k, yearsToExpiry(spyExpiry), .16, .045);
+    chain[key].push({ s: k, b: mid * .99, a: mid * 1.01, iv: .16, oi: 5000, v: 100 });
+  }
+  return { spot, chains: { [spyExpiry]: chain } };
+};
 const builtA = "2026-10-21T15:00:00.000Z";
 const pickA = { symbol: "NVDA", side: "call", entryDate: builtA };
 const b1 = advancePicksBaseline({ open: [], closed: [] }, {
@@ -112,6 +120,9 @@ ok("baseline stats: none without any baseline trades", computeBaselineStats({ op
 // --- 7. Archive -----------------------------------------------------------------
 const full = { symbol: "AAPL", side: "put", entryDate: "2026-06-01T15:00:00Z", exitDate: "2026-06-05T15:00:00Z", outcome: "loss", optionPnlPct: -51, thesis: { aiGrade: "strong", summary: "long text" }, strategy: { reason: "x" }, contract: { structure: "long", strike: 200, mid: 4, bid: 3.9, ask: 4.1 } };
 const slim = compactClosedForArchive(full);
+const entryAudit = { entryPolicyVersion: '2026-10-23-plan-economics-v1', entryEconomics: { eligible: true, horizonDays: 14 }, entryInvalidation: 195, entryTarget: 180, vehicleCut: 197 };
+const auditedSlim = compactClosedForArchive({ ...full, ...entryAudit });
+ok("archive: entry policy, economics and frozen levels survive compaction", Object.entries(entryAudit).every(([key,value]) => JSON.stringify(auditedSlim[key]) === JSON.stringify(value)));
 ok("archive: slim copy keeps the numbers and drops the narrative", slim.optionPnlPct === -51 && slim.aiGrade === "strong" && slim.thesis === undefined && slim.strategy === undefined && slim.archived === true);
 const merged = mergeArchive([slim], [full, { ...full, entryDate: "2026-06-10T15:00:00Z", exitDate: "2026-06-12T15:00:00Z" }]);
 ok("archive: dedupes by symbol:side:entryDate and sorts newest first", merged.length === 2 && merged[0].entryDate === "2026-06-10T15:00:00Z");

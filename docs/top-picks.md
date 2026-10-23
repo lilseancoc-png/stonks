@@ -53,8 +53,8 @@ a ~5–11% win rate). Everything else is deliberately plain:
    not theta. So the side call matters most, and the engine will **stand down**.
 2. **Don't buy the top / catch a knife** — losers had max-favorable-excursion
    ≈ 0% (they fell the instant they were bought). → the **entry-timing** penalty.
-3. **Near-the-money contracts** (~0.55Δ), never fragile deep-OTM where an 8%
-   adverse move is a −70% wipeout.
+3. **Controlled single-option exposure**, 0.30–0.50 absolute delta with 0.40
+   preferred and a 15% OTM ceiling. Debit-spread anchors retain ~0.55Δ.
 4. **One entry per name** until it resolves — 58% of past entries were restacks
    of the same losing thesis. → **re-entry suppression**.
 5. **Fast option exits** (+25% take-profit / −50% stop; the bank-half-and-trail
@@ -226,17 +226,22 @@ The five capped component groups are:
 
 | Group | Core behavior |
 |---|---|
-| **Extension / exhaustion** | 4–8% past SMA20 is a mild `−1`; an 8%/RSI-72/fast-impulse stretch is `−2…−3`. A hard `−6…−8` top guard requires multiple extreme readings **plus** a momentum rollover or ≥1.8× volume climax, unless one reading is catastrophic. Extension alone is not exhaustion. |
+| **Extension / exhaustion** | Prior-ATR distance and five-session impulse, with percentage floors, set mild `−1` and soft `−2…−3` bands. RSI heat remains supporting evidence. A hard `−6…−8` top guard requires multiple extreme readings **plus** a momentum rollover or ≥1.8× volume climax, unless one reading is catastrophic. Extension alone is not exhaustion. |
 | **Pullback / setup** | Detects a real prior impulse over 20 sessions, requiring at least 4% or 2 ATR. An orderly 25–50% impulse retracement (or 0.75–1.75 ATR) that holds structure earns `+1`; drying pullback volume ≤0.90× adds another `+1`. Deep/stale pullbacks lose points. |
 | **Momentum confirmation** | MACD histogram turning with the trade on the correct side of SMA20, RSI recovery from the opposite extreme, and a directional ≥1.3× turn day are correlated evidence and therefore cap at `+2`. Strongly adverse momentum is `−2`; mixed RSI/MACD is `−1`. |
 | **Events** | A scheduled earnings release or major macro event inside the **next two trading sessions** is a hard Wait. Session distance, not calendar-day distance, controls the veto so a Monday event is treated correctly on Friday. The next near-term tier is a moderate penalty; distant events are neutral/context only. A hard event cannot be averaged away or cleared by the AI. |
 | **Structure / payoff** | A nearby support/resistance level defining invalidation within 2 ATR earns `+1`; level confluence adds `+1`; unclear structure is `−1`. A call invalidation must be below entry and a put invalidation above entry before risk or R:R is computed. Go additionally requires estimated reward/risk ≥1.5:1. |
 
-Falling-knife logic is an override, not just another negative row. The ordinary
-−6%/−8% adverse move becomes Avoid when confirmed by breakdown traits such as
-expanding volume, still-adverse momentum, broken structure, acceleration, and
-no higher low/lower high. A severe −8% session / −12% three-session move remains
-an unconditional safety veto.
+Falling-knife logic is an override, not just another negative row. With prior
+volatility available, the candidate adverse-move thresholds are max(3%, 2 ATR)
+for one session and max(4%, 1.5 × √3 ATR) over three sessions. A candidate needs
+at least two breakdown traits for the ordinary veto. Severe thresholds are
+max(5%, 2.75 ATR) and max(7%, 2.3 × √3 ATR). Each ATR reference ends before the
+entire tested return window. Countertrend trades multiply the ATR terms by
+0.75 without lowering the percentage floors. Emergency adverse moves of 20%
+in one session or 30% over three still veto regardless of ATR. Missing prior
+ATR retains the legacy percentage fallback. Exact extension/impulse bands and
+limitations are documented in [risk policy](risk-analysis-policy.md).
 
 Final mapping:
 
@@ -452,8 +457,7 @@ quality score picks the best survivor:
   contract turns a thesis trade into a theta race. `MAX_EXPIRATIONS` in
   `build.mjs` was raised 10 → 14 so weekly-heavy chains actually reach the
   window (10 slots topped the most liquid names out around ~46 DTE).
-- **|Δ|** 0.45–0.65 (target 0.55) — near-the-money, so an 8% adverse move isn't a
-  −70% wipeout. Vertical legs hold a ±0.15 band around their own targets.
+- **|Δ|** 0.30–0.50 (target 0.40) — single options may be up to 15% OTM; percentage loss can still be large. Vertical legs hold a ±0.15 band around their own targets.
 - **Spread** ≤ 12% (roster ≤ 10%), **OI** ≥ 100 (lenient/autoPick mode: 50),
   **IV** ≤ 200%. Crossed quotes (bid > ask) are rejected outright.
 - **Premium** ≤ max($35/share, 12% of spot) — price-aware.
@@ -512,7 +516,7 @@ second time. The own-history skew z-score is preferred once mature; while that
 history is collecting, a raw intended-side premium of at least five volatility
 points is the documented fail-closed fallback that still blocks a naked long.
 
-A binary **earnings date within `PICKS_STRATEGY_EARNINGS_DAYS` (21d)** or an
+A binary **earnings date within `PICKS_STRATEGY_EARNINGS_DAYS` (14d)** or an
 active scheduled macro-event window forces row 3 — defined-risk only, no naked
 long into the IV crush, no credit spread
 into the gap. This broader structure window is distinct from §3's hard GO veto
@@ -663,14 +667,7 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   entry (shortK ∓ credit) and is not a profit target; it ships as an "Also exit
   if" context line instead. The real TP trigger is the SPREAD's buy-back price
   (theta gets there with no move at all).
-- **Underlying (enforced):** stop at the deeper of structural support and a
-  ~2.5×ATR floor (clamped 5–12%) so routine noise doesn't shake out a good
-  entry — and this stock stop is **enforced in the track record**
-  (`hit-stop-under`): the enrolled entry freezes `cut` (the short strike for a
-  credit spread) and a spot close through it resolves the trade even when the
-  modeled premium hasn't printed −30% at a mark. `PICKS_UNDERLYING_STOP=0`
-  reverts it to display-only. The structural **take-profit** level stays
-  advisory (enforcing it would truncate winners).
+- **Underlying (enforced):** admission, display and the frozen stock stop use the same confirmed-bar structure plan. Invalidation is the price-derived anchor plus a 0.25-ATR buffer; target is prior directional support/resistance or the labeled 2.5-ATR projection. Risk/reward uses the published entry spot. Credit spreads retain a separate short-strike defense, also enforced. Existing recorded trades retain their stored plans. Stock targets remain advisory; premium exits remain binding.
 - **Thesis-based holding (no time stop, no pre-earnings exit):** a position is
   held — through earnings prints, past two weeks — for as long as its **original
   thesis stays intact and the contract hasn't expired**. The invalidation exit
@@ -794,7 +791,7 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   - a close that rounds to **0.0% is "flat"**, not a win, so it stays out of the
     win rate;
   - a **SPY baseline** (`baseline` / `baselineStats`): each new pick opens a paired
-    ~0.55-delta SPY option on the same side, closed by the same premium/theta/expiry
+    ~0.40-delta SPY option on the same side, closed by the same premium/theta/expiry
     rules or when the pick closes (`pair-closed`). It never feeds the record, the
     edge governor or the feed;
   - closed trades past the 120-day / 250-trade window move to a slim **`archive`**
@@ -1033,7 +1030,7 @@ implementation must expose the stated value and audit fields:
 | `PICKS_ENTRY_WAIT_SIZE_MULT` | 0.75 | size haircut on a contract-bearing pick whose entry signal is still a wait/dip trigger (`entry.now === false`). Since the 2026-07-10 entry gate an actionable pick is always entry-confirmed, so this only shapes the display sizing of watch ideas |
 | `PICKS_TACTICAL_SIZE_MULT` | 0.50 | post-normalization max-size cap for the labeled risk-off tactical-put exception; released gross stays cash |
 | `PICKS_ENTRY_EXTENDED_DIST` / `PICKS_TIMING_CHASE_RSI` | 4 / 72 | mild/soft extension evidence. A single reading creates a penalty/wait, not a hard veto, but AI cannot promote it: Actionable still requires every deterministic GO invariant |
-| `PICKS_ENTRY_EXTENDED_HARD` / `PICKS_ENTRY_CHASE_RSI_HARD` | 15 / 80 | extreme inputs to exhaustion confluence. Hard top-guard requires multiple extremes plus rollover/volume climax, or one catastrophic reading |
+| `ENTRY_VOLATILITY_POLICY` / `PICKS_ENTRY_CHASE_RSI_HARD` | prior-ATR bands / 80 | volatility-aware exhaustion confluence; legacy percentage bands apply only when prior ATR is unavailable |
 | `PICKS_ENTRY_PULLBACK_ATR_MULT` | 1.5 | wait-pullback trigger = a ~1.5×ATR dip (clamped 2–5%), floored at the 20D when nearer — reachable, never the raw 20D far below spot |
 | `PICKS_MAX_PER_SECTOR` | 3 | correlation cap |
 | `PICKS_MAX_PER_FACTOR` | 5 | tech/AI-complex correlation cap |
@@ -1045,7 +1042,7 @@ implementation must expose the stated value and audit fields:
 | `PICKS_MAX_OPEN_POSITIONS` | 20 | hard cap on the concurrently-tracked open book (enrollment walks the roster in rank order; excess picks wait for a slot) |
 | `PICKS_SPLIT_RATIOS` / `PICKS_SPLIT_TOL` | 1.5…20 / 0.04 | corporate-action guard: a mark-to-mark spot gap matching a standard split ratio (confirmed against the back-adjusted bars) rescales the frozen entry basis instead of marking a phantom ±100% (`detectSplitFactor`/`applySplitToEntry`; the entry records `corpActions`) |
 | `PICKS_DROPPED_MIN_MISSES` | 3 | consecutive builds a ticker must be missing from the chains before an open position resolves `dropped` (a single Yahoo flake carries the last mark forward instead); a drop with no mark at all resolves `void` — excluded from win/loss stats |
-| `PICKS_DELTA_MIN/MAX/IDEAL` | 0.45 / 0.65 / 0.55 | contract moneyness |
+| `PICKS_DELTA_MIN/MAX/IDEAL` | 0.30 / 0.50 / 0.55; single ideal 0.40 | independent single/spread delta targets |
 | `PICKS_MIN_DTE` / `PICKS_MAX_DTE` | 30 / 90 | contract clock (ideal 45–75 — the 2026-07-10 hold-longer window) |
 | `PICKS_STRATEGY_AUTO` | on | structure auto-select (off = always naked long) |
 | IV Cost cohort controls | disclose cohort N / location / scale; thin = neutral | IV Cost **points** come only from the fresh eligible universe's standardized result; a ticker's own-history percentile/z remains shipped interpretation and structure context and never maps directly to points through the legacy thresholds |
@@ -1119,3 +1116,13 @@ target is now +25%, with the -50% premium stop unchanged. Existing unversioned
 open trades adopt this policy when next evaluated; closed historical results
 are retained. Each newly evaluated open trade and new enrollment stores its
 `exitPolicy` version and thresholds; credit targets remain +50%/-50% of credit.
+
+## Entry policy update, October 23, 2026
+
+The strategy earnings window is 14 calendar days; the two-session hard calendar Wait is unchanged. Single options allow absolute delta 0.30–0.50, prefer 0.40, and have a 15% OTM ceiling. Spread delta targets and the 30–90-day expiration window are unchanged.
+
+Before Buy, the selected contract must pass the option-entry feasibility check at the shared underlying target after 14 calendar days. Flat-IV target return must support the existing managed profit exit after current quote-crossing costs. IV stresses are 20% lower and higher and have no probabilities. Fees default to unestimated. Failures remain watch ideas with their audit, never AI-promoted buys. New enrollments freeze the policy version and audit; no historical reset occurs. See [policy design and limits](risk-analysis-policy.md).
+
+### Permitted contract comparison and volatility policy, October 23
+
+Before returning Wait for option economics, search qualifying single options across already-fetched 30–90 DTE expirations and up to four spread anchors × four wings per anchor per expiration. Try the original strategy first; only its already-permitted debit fallback is available. Stop at the first feasible candidate in quality order, keeping the preferred contract when it clears. This is a bounded feasible-contract search, not a claim of a globally optimal structure. The full comparison summary is frozen with entry economics. Timing version 4 adds prior-window ATR knife and exhaustion bands, with no account-sizing or fresh-reclaim change.
