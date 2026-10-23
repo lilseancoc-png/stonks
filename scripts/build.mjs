@@ -12,7 +12,7 @@
 // The daily GitHub Actions workflow refreshes everything each market-day
 // morning and evening.
 import { writeFile, readFile, mkdir, rm, readdir, appendFile } from "node:fs/promises";
-import { leveragedEntryPlan, shareEntryPayoff } from "../lib/research-display.mjs";
+import { leveragedEntryPlan, shareEntryPayoff, pickDisplayDecision } from "../lib/research-display.mjs";
 import { buildGradeResearch, emptyGradeResearch, seriesFromChains, writeGradeResearchFile } from "../lib/grade-research.mjs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -21,6 +21,8 @@ import { inflateRawSync } from "node:zlib";
 import { GoogleGenAI } from "@google/genai";
 import YahooFinance from "yahoo-finance2";
 import { expiryCloseEpochSec, greeks, bsPrice, yearsToExpiry, ncdf } from "../lib/greeks.mjs";
+import { assessOptionEntryEconomics, OPTION_ENTRY_POLICY_VERSION } from "../lib/option-entry-economics.mjs";
+import { entryVolatilityRisk, ENTRY_VOLATILITY_POLICY } from "../lib/entry-volatility-risk.mjs";
 import { buildNewsFeedPayload } from "../lib/news-feed.mjs";
 import { computeGexSummary } from "../lib/gex.mjs";
 import { issuerCreditRatingFor } from "../lib/issuer-credit-ratings.mjs";
@@ -17099,9 +17101,10 @@ const PICKS_MIN_DTE = 30;
 const PICKS_MAX_DTE = 90;
 const PICKS_IDEAL_DTE_LO = 45;
 const PICKS_IDEAL_DTE_HI = 75;
-const PICKS_DELTA_MIN = 0.45;
-const PICKS_DELTA_MAX = 0.65;
-const PICKS_DELTA_IDEAL = 0.55;
+const PICKS_DELTA_MIN = 0.30;
+const PICKS_DELTA_MAX = 0.50;
+const PICKS_SINGLE_DELTA_IDEAL = 0.40;
+const PICKS_DELTA_IDEAL = 0.55; // debit-spread anchor; independent of single options
 const PICKS_MAX_SPREAD_PCT = 0.12;            // bid/ask spread cap
 const PICKS_MIN_OI = 100;                      // need a real two-sided quote
 const PICKS_MAX_IV = 2.0;                       // 200% IV ceiling
@@ -17155,7 +17158,7 @@ const PICKS_IVRANK_STD_MIN_N = Number(process.env.PICKS_IVRANK_STD_MIN_N ?? 20);
 // A binary event THIS close forces a defined-risk debit (no naked long into the
 // IV crush; no credit spread into the gap). Kept near the hold/contract window —
 // NOT the full PICKS_MAX_DTE, or every quarterly print would block naked/credit.
-const PICKS_STRATEGY_EARNINGS_DAYS = Number(process.env.PICKS_STRATEGY_EARNINGS_DAYS ?? 21);
+const PICKS_STRATEGY_EARNINGS_DAYS = Number(process.env.PICKS_STRATEGY_EARNINGS_DAYS ?? 14);
 // DEFAULT-OFF stub. A market-wide scheduled macro print (NFP/CPI/FOMC) sets the
 // book's eventRisk.active, which currently defers EVERY elevated-IV name from a
 // credit spread down to a long-premium debit (selectStrategy step 1 is gated on
@@ -17193,14 +17196,12 @@ const PICKS_OPT_STOP_PCT = 0.50;               // cut loss at -50% of premium
 // bank-half-and-trail behavior.
 const PICKS_OPT_SCALE_OUT = process.env.PICKS_OPT_SCALE_OUT === "1";           // 1 = bank half + trail the runner at the TP
 const PICKS_OPT_TRAIL_GIVEBACK_PCT = Number(process.env.PICKS_OPT_TRAIL_GIVEBACK_PCT ?? 0.25); // runner stop = max(breakeven, peak − 25pts)
-// The exit ladder's stock stop (structural / ~2.5x ATR, buildExitPlan's `cut`)
+// The exit ladder's confirmed-bar structural stock stop (buildExitPlan's `cut`)
 // is ENFORCED in the track record: a name that closes through it resolves
 // (status hit-stop-under) even if the modeled premium hasn't printed -50% at a
 // mark yet — the premium stop alone only fires at build-time marks, so gaps
 // sailed straight through it. 0 = display-only (legacy).
 const PICKS_UNDERLYING_STOP = process.env.PICKS_UNDERLYING_STOP !== "0";
-const PICKS_ATR_STOP_MULT = 2.5;               // underlying stop = 2.5x ATR ...
-const PICKS_STOP_MIN = 0.05, PICKS_STOP_MAX = 0.12; // ... clamped 5-12%
 // There is deliberately NO time stop and NO pre-earnings exit: a position is
 // held — through earnings prints, past two weeks — for as long as its thesis
 // stays intact and the contract hasn't expired (resolvePickOutcome's
@@ -17255,9 +17256,9 @@ const PICKS_RISKOFF_PUT_BAR = -3;              // tactical-put bar in risk-off (
 // Entry timing is an EXECUTION overlay, not part of directional conviction.
 // Every price/volume indicator below is recomputed from one confirmed-bar cutoff.
 const PICKS_TIMING_MIN_BARS = 30;
-const PICKS_TIMING_KNIFE_RET1D = -6;           // candidate knife: adverse 1-session move
-const PICKS_TIMING_KNIFE_RET3D = -8;           // candidate knife: adverse 3-session move
-const PICKS_TIMING_KNIFE_SEVERE_1D = -8;       // unconditional crash/spike veto
+const PICKS_TIMING_KNIFE_RET1D = -6;           // legacy fallback when prior ATR is unavailable
+const PICKS_TIMING_KNIFE_RET3D = -8;
+const PICKS_TIMING_KNIFE_SEVERE_1D = -8;
 const PICKS_TIMING_KNIFE_SEVERE_3D = -12;
 const PICKS_TIMING_CHASE_RSI = 72;             // soft heat band in the trade direction
 const PICKS_TIMING_CHASE_DIST_SMA20 = 8;       // soft extension band
@@ -17288,8 +17289,9 @@ const PICKS_TIMING_MIN_RR = 1.5;
 const PICKS_TIMING_EARNINGS_HARD_DAYS = 2;
 const PICKS_TIMING_EARNINGS_DEFER_DAYS = 7;
 const PICKS_TIMING_EVENT_HARD_DAYS = 2;
-export const PICKS_ENTRY_TIMING_VERSION = 3;
+export const PICKS_ENTRY_TIMING_VERSION = 4;
 export const PICKS_TIMING_THRESHOLDS = Object.freeze({
+  volatility: ENTRY_VOLATILITY_POLICY,
   knifeRet1d: PICKS_TIMING_KNIFE_RET1D,
   knifeRet3d: PICKS_TIMING_KNIFE_RET3D,
   chaseRsi: PICKS_TIMING_CHASE_RSI,
@@ -18765,10 +18767,11 @@ function timingRoundStep(price) {
   return 10;
 }
 
-function timingStructure(series, side, sma20, sma50, atrPct) {
+function timingStructure(series, side, sma20, sma50, atrPct, entrySpot = null) {
   const { c, h, l } = series;
-  const last = c[c.length - 1];
-  const atr = Math.max(last * (atrPct || 0.015), last * 0.005);
+  const confirmedClose = c[c.length - 1];
+  const last = pnumN(entrySpot) > 0 ? Number(entrySpot) : confirmedClose;
+  const atr = Math.max(confirmedClose * (atrPct || 0.015), confirmedClose * 0.005);
   const priorLows = l.slice(Math.max(0, l.length - 21), -1).filter(Number.isFinite);
   const priorHighs = h.slice(Math.max(0, h.length - 21), -1).filter(Number.isFinite);
   const recentLows = l.slice(Math.max(0, l.length - 6), -1).filter(Number.isFinite);
@@ -18812,21 +18815,32 @@ function timingStructure(series, side, sma20, sma50, atrPct) {
   // A breakout with no nearby historical level still gets a conservative
   // volatility projection; it is labelled as such rather than invented as
   // resistance/support.
-  const target = priorTarget ?? (last + (isCall ? 1 : -1) * atr * 2.5);
-  const reward = Math.abs(target - last);
-  const rr = risk != null && risk > 0 ? reward / risk : null;
+  const rawTarget = priorTarget ?? (last + (isCall ? 1 : -1) * atr * 2.5);
+  const target = rawTarget > 0 && (rawTarget - last) * (isCall ? 1 : -1) > 0 ? rawTarget : null;
+  const reward = target != null ? Math.abs(target - last) : null;
+  const rr = reward != null && risk != null && risk > 0 ? reward / risk : null;
   const clear = !!anchor && invalidation != null && riskAtr != null && riskAtr <= PICKS_TIMING_STRUCTURE_MAX_ATR;
   return {
     anchor: anchor ? r2(anchor.value) : null,
     anchorKind: anchor?.kind || null,
     confluence,
     invalidation,
-    target: r2(target),
+    target: target != null ? r2(target) : null,
     targetKind: priorTarget != null ? (isCall ? "prior resistance" : "prior support") : "2.5 ATR projection",
     riskAtr: riskAtr != null ? r2(riskAtr) : null,
     rr: rr != null ? r2(rr) : null,
     clear,
   };
+}
+
+// The same confirmed-bar structure owns admission, displayed exits and the
+// frozen stock stop. No separate percentage-stop plan is manufactured later.
+export function buildUnderlyingTradePlan(side, data, entrySpot = data?.spot) {
+  const series = timingConfirmedSeries(data);
+  if (!series) return null;
+  const c = series.c;
+  return timingStructure(series, side, timingMean(c.slice(-20)),
+    c.length >= 50 ? timingMean(c.slice(-50)) : null, atrPctFrom(series.h, series.l, c), entrySpot);
 }
 
 export function computeEntryTiming(side, data, spot, opts = {}) {
@@ -18881,9 +18895,10 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
     : (n >= 2 && h[n - 1] < h[n - 2]);
   const fightsTape = (isCall && (regime === "risk-off" || regime === "severe")) || (!isCall && regime === "risk-on");
   const crowdedAligned = (isCall && regime === "risk-on") || (!isCall && (regime === "risk-off" || regime === "severe"));
-  const structure = timingStructure(series, side, sma20, sma50, atrPct);
+  const structure = timingStructure(series, side, sma20, sma50, atrPct, spot);
   const impulse = timingImpulse(c, side, atrPct);
   const standardizedMove = computeStandardizedMove(data, regime);
+  const volatilityRisk = entryVolatilityRisk(series, side, { fightsTape });
   const components = {};
   const reasons = [];
   let hardVeto = null, hardWait = null, deferKind = null;
@@ -18921,19 +18936,24 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
   const directionalSigmaZ = sigmaZs.length ? Math.max(...sigmaZs.map((z) => z * dir)) : null;
   const sigmaExhaustion = isCall ? standardizedMove.exhaustionUp : standardizedMove.exhaustionDown;
   const extremeFlags = [
-    dirDist != null && dirDist >= PICKS_ENTRY_EXTENDED_HARD,
+    volatilityRisk.available ? volatilityRisk.extension.extreme : dirDist != null && dirDist >= PICKS_ENTRY_EXTENDED_HARD,
     heat != null && heat >= PICKS_ENTRY_CHASE_RSI_HARD,
-    dirRet5 != null && dirRet5 >= PICKS_TIMING_CHASE_RET5D,
+    volatilityRisk.available ? volatilityRisk.run5.extreme : dirRet5 != null && dirRet5 >= PICKS_TIMING_CHASE_RET5D,
     sigmaExhaustion,
   ].filter(Boolean).length;
   const exhaustionRollover = (dirRet1 != null && dirRet1 < 0)
     || (macdHist != null && macdHistPrev != null && macdHist * dir < macdHistPrev * dir);
   const volumeClimax = rvol != null && rvol >= PICKS_TIMING_VOL_CLIMAX && dirRet1 != null && dirRet1 > 0;
-  const catastrophic = (dirDist != null && dirDist >= PICKS_ENTRY_EXTREME_DIST)
-    || (heat != null && heat >= PICKS_ENTRY_EXTREME_RSI)
-    || (dirRet5 != null && dirRet5 >= PICKS_ENTRY_EXTREME_RET5D)
+  const catastrophic = volatilityRisk.emergencyRun
+    || (volatilityRisk.available
+      ? volatilityRisk.extension.catastrophic || volatilityRisk.run5.catastrophic
+        || (heat != null && heat >= PICKS_ENTRY_EXTREME_RSI && volatilityRisk.extension.extreme && volatilityRisk.run5.extreme)
+      : (dirDist != null && dirDist >= PICKS_ENTRY_EXTREME_DIST)
+        || (heat != null && heat >= PICKS_ENTRY_EXTREME_RSI)
+        || (dirRet5 != null && dirRet5 >= PICKS_ENTRY_EXTREME_RET5D))
     || (directionalSigmaZ != null && directionalSigmaZ >= 4
-      && Math.abs(standardizedMove.atrDistance ?? 0) >= 4 && standardizedMove.volumeConfirmed);
+      && (volatilityRisk.available ? volatilityRisk.distanceAtr >= 4 : Math.abs(standardizedMove.atrDistance ?? 0) >= 4)
+      && standardizedMove.volumeConfirmed);
   let extensionScore = 0, extensionTier = "normal";
   if (catastrophic || (extremeFlags >= 2 && (exhaustionRollover || volumeClimax))) {
     extensionTier = "hard";
@@ -18948,9 +18968,9 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
     ].filter(Boolean).join(", ")}`);
   } else {
     const softFlags = [
-      dirDist != null && dirDist >= PICKS_TIMING_CHASE_DIST_SMA20,
+      volatilityRisk.available ? volatilityRisk.extension.soft : dirDist != null && dirDist >= PICKS_TIMING_CHASE_DIST_SMA20,
       heat != null && heat >= PICKS_TIMING_CHASE_RSI,
-      dirRet5 != null && dirRet5 >= 8,
+      volatilityRisk.available ? volatilityRisk.run5.soft : dirRet5 != null && dirRet5 >= 8,
     ].filter(Boolean).length;
     if (softFlags) {
       extensionTier = "soft";
@@ -18960,7 +18980,7 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
         rsi != null ? `RSI ${r1(rsi)}` : null,
         dirRet5 != null ? `${r1(dirRet5)}%/5d` : null,
       ].filter(Boolean).join(", ")})`);
-    } else if (dirDist != null && dirDist >= PICKS_ENTRY_EXTENDED_DIST) {
+    } else if (volatilityRisk.available ? volatilityRisk.extension.mild : dirDist != null && dirDist >= PICKS_ENTRY_EXTENDED_DIST) {
       extensionTier = "mild";
       extensionScore = -1;
       reasons.push(`- mild stretch: ${r1(dirDist)}% past the 20D`);
@@ -18968,6 +18988,7 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
   }
   components.extension = {
     score: extensionScore, tier: extensionTier, extremeFlags, exhaustionRollover, volumeClimax,
+    volatilityAware: volatilityRisk.available, catastrophic,
     sigmaExhaustion, directionalSigmaZ: directionalSigmaZ != null ? r2(directionalSigmaZ) : null,
   };
 
@@ -18981,9 +19002,9 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
     ? (isCall ? lastC < structure.anchor - atr * 0.25 : lastC > structure.anchor + atr * 0.25)
     : (dirDist != null && dirDist < 0);
   const knifeTighten = fightsTape ? 0.75 : 1;
-  const knifeCandidate = (dirRet1 != null && dirRet1 <= PICKS_TIMING_KNIFE_RET1D * knifeTighten)
+  const knifeCandidate = volatilityRisk.available ? volatilityRisk.candidateKnife : (dirRet1 != null && dirRet1 <= PICKS_TIMING_KNIFE_RET1D * knifeTighten)
     || (dirRet3 != null && dirRet3 <= PICKS_TIMING_KNIFE_RET3D * knifeTighten);
-  const severeKnife = (dirRet1 != null && dirRet1 <= PICKS_TIMING_KNIFE_SEVERE_1D * knifeTighten)
+  const severeKnife = volatilityRisk.available ? volatilityRisk.severeKnife : (dirRet1 != null && dirRet1 <= PICKS_TIMING_KNIFE_SEVERE_1D * knifeTighten)
     || (dirRet3 != null && dirRet3 <= PICKS_TIMING_KNIFE_SEVERE_3D * knifeTighten);
   const knifeTraits = [
     rvol != null && rvol >= PICKS_TIMING_VOL_CONFIRM,
@@ -18993,7 +19014,7 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
     impulse?.duration != null && impulse.duration <= 2,
   ].filter(Boolean).length;
   const acceleratingKnife = dirRet1 != null && prevDirRet1 != null
-    && dirRet1 <= -4 && dirRet1 < prevDirRet1
+    && (volatilityRisk.available ? volatilityRisk.acceleration : dirRet1 <= -4) && dirRet1 < prevDirRet1
     && rvol != null && rvol >= PICKS_TIMING_VOL_CONFIRM && supportBroken && !higherLow;
   let setupScore = 0, setupKind = "unformed";
   if (severeKnife || (knifeCandidate && knifeTraits >= 2) || acceleratingKnife) {
@@ -19046,6 +19067,7 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
     depthPct: impulse?.depthPct != null ? r1(impulse.depthPct) : null,
     duration: impulse?.duration ?? null,
     dryRatio: dryRatio != null ? r2(dryRatio) : null,
+    knifeCandidate, severeKnife, emergencyKnife: volatilityRisk.emergencyKnife,
     higherLow,
   };
 
@@ -19142,7 +19164,7 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
       ret1: r1(ret1), ret3: r1(ret3), ret5: r1(ret5),
       directionalRet1: r1(dirRet1), directionalRet3: r1(dirRet3), directionalRet5: r1(dirRet5),
       rvol: rvol != null ? r2(rvol) : null, dryRatio: dryRatio != null ? r2(dryRatio) : null,
-      standardizedMove,
+      standardizedMove, volatilityRisk,
     },
   };
 }
@@ -20257,6 +20279,7 @@ function scoreTicker(sym, data, ctx) {
     state: timing.state, side: timing.side, headline: timing.headline,
     reasons: timing.reasons || [], deferKind: timing.deferKind || null,
     hardVeto: timing.hardVeto || null, components: timing.components || {},
+    volatilityRisk: timing.metrics?.volatilityRisk || null,
     structure: timing.structure || null, readiness: timing.readiness || null,
     kind: timing.state === "avoid"
       ? (timing.hardVeto === "knife" ? "knife" : timing.hardVeto === "exhaustion" ? "chase" : "structure")
@@ -20386,17 +20409,21 @@ export function scoreAllTickers(chains, narratives, streaksMap, unusualPayload, 
 function qualityCls(metric, val) {
   if (metric === "spread") return val == null ? "fair" : val <= 0.06 ? "good" : val <= 0.10 ? "fair" : "bad";
   if (metric === "oi") return val == null ? "fair" : val >= 500 ? "good" : val >= 100 ? "fair" : "bad";
-  if (metric === "delta") return val == null ? "fair" : (val >= 0.45 && val <= 0.65) ? "good" : (val >= 0.35 && val <= 0.75) ? "fair" : "bad";
+  if (metric === "delta") return val == null ? "fair" : (val >= PICKS_DELTA_MIN && val <= PICKS_DELTA_MAX) ? "good" : "fair";
   if (metric === "theta") return val == null ? "fair" : val <= 0.015 ? "good" : val <= 0.025 ? "fair" : "bad";
   if (metric === "iv") return val == null ? "fair" : val <= 0.6 ? "good" : val <= 1.0 ? "fair" : "bad";
   return "fair";
 }
 
 export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, opts = {}) {
+  return rankSinglePickContracts(side, data, rfr, { ...opts, limit: 1 })[0] || null;
+}
+
+export function rankSinglePickContracts(side, data, rfr = FALLBACK_RISK_FREE_RATE, opts = {}) {
   const isCall = side === "call";
   const spot = pnum(data?.spot);
   const chains = data?.chains;
-  if (!spot || spot <= 0 || !chains) return null;
+  if (!spot || spot <= 0 || !chains) return [];
   const requireClean = !!opts.requireClean;
   // One DTE floor for both modes now that the base window starts at 30 (the old
   // roster-only 21-day floor existed because the lenient/autoPick minimum was 14).
@@ -20408,7 +20435,7 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
   const earnMs = data?.fundamentals?.nextEarningsDate ? Date.parse(data.fundamentals.nextEarningsDate) : null;
   const earnDaysAhead = etDaysUntil(data?.fundamentals?.nextEarningsDate);
 
-  let best = null;
+  const candidates = [];
   for (const [expKey, chain] of Object.entries(chains)) {
     const expSec = Number(expKey);
     if (!Number.isFinite(expSec)) continue;
@@ -20432,14 +20459,14 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
       const delta = Math.abs(g.delta);
       if (delta < PICKS_DELTA_MIN || delta > PICKS_DELTA_MAX) continue;
       const otmPct = isCall ? (strike / spot - 1) * 100 : (1 - strike / spot) * 100;
-      if (otmPct > 12 || otmPct < -20) continue;
+      if (otmPct > 15 || otmPct < -20) continue;
       const thetaDay = Math.abs(g.thetaDay);
       const thetaPctDay = mid > 0 ? thetaDay / mid : 1;
       if (requireClean && (thetaPctDay > 0.025 || dte <= 3)) continue;
 
       // Composite quality (1 = perfect). Delta fit weighted hardest, then spread.
       const dteFit = dte >= PICKS_IDEAL_DTE_LO && dte <= PICKS_IDEAL_DTE_HI ? 0 : Math.min(1, Math.abs(dte - clamp(dte, PICKS_IDEAL_DTE_LO, PICKS_IDEAL_DTE_HI)) / 30);
-      const deltaFit = Math.min(1, Math.abs(delta - PICKS_DELTA_IDEAL) / 0.2);
+      const deltaFit = Math.min(1, Math.abs(delta - PICKS_SINGLE_DELTA_IDEAL) / 0.2);
       const spreadPen = Math.min(1, spreadPct / 0.10);
       const oiPen = oi >= 500 ? 0 : oi >= 100 ? 0.4 : 1;
       const thetaPen = Math.min(1, thetaPctDay / 0.03);
@@ -20447,46 +20474,47 @@ export function pickContractForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
       const qualityScore = clamp(1 - penalty, 0, 1);
 
       const cand = { strike, expSec, dte, bid, ask, mid, last: pnum(row.l), iv, oi, volume: pnum(row.v) || 0, delta: g.delta, thetaDay: g.thetaDay, vega: g.vega, spreadPct, otmPct, thetaPctDay, T, qualityScore };
-      if (!best || cand.qualityScore > best.qualityScore) best = cand;
+      if (!requireClean || cand.qualityScore >= PICKS_MIN_QUALITY) candidates.push(cand);
     }
   }
-  if (!best) return null;
-  if (requireClean && best.qualityScore < PICKS_MIN_QUALITY) return null;
+  candidates.sort((a, b) => b.qualityScore - a.qualityScore);
+  return candidates.slice(0, opts.limit ?? candidates.length).map(best => {
 
-  const intrinsic = isCall ? Math.max(0, spot - best.strike) : Math.max(0, best.strike - spot);
-  const breakeven = isCall ? best.strike + best.mid : best.strike - best.mid;
-  const breakevenMovePct = spot > 0 ? (breakeven / spot - 1) * 100 : null;
-  const expectedMovePct = best.iv > 0 ? best.iv * Math.sqrt(best.T) * 100 : null;
-  const rrRatio = (expectedMovePct && breakevenMovePct != null) ? Math.abs(breakevenMovePct) / expectedMovePct : null;
-  // P(profit) at expiry ~ N(d2) for a long call, N(-d2) for a long put.
-  let pop = null;
-  if (best.iv > 0 && best.T > 0) {
-    const d2 = (Math.log(spot / breakeven) + (rfr - best.iv * best.iv / 2) * best.T) / (best.iv * Math.sqrt(best.T));
-    pop = isCall ? ncdf(d2) : ncdf(-d2);
-  }
-  // Lower bound by ET day-diff (0 = print day still ahead); upper bound keeps
-  // the raw parse, which matches the expiry epoch's own midnight-UTC convention.
-  const earningsInWindow = earnDaysAhead != null && earnDaysAhead >= 0 && earnMs != null && earnMs <= best.expSec * 1000;
-  const expiryLabel = new Date(best.expSec * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit", timeZone: "UTC" }).replace(/(\d+)$/, "'$1");
-  const cq = {
-    spread: { cls: qualityCls("spread", best.spreadPct) },
-    oi: { cls: qualityCls("oi", best.oi) },
-    delta: { cls: qualityCls("delta", Math.abs(best.delta)) },
-    theta: { cls: qualityCls("theta", best.thetaPctDay) },
-    iv: { cls: qualityCls("iv", best.iv) },
-  };
-  const order = { good: 0, fair: 1, bad: 2 };
-  cq.overall = ["good", "fair", "bad"][Math.max(...Object.values(cq).map((x) => order[x.cls]))];
+    const intrinsic = isCall ? Math.max(0, spot - best.strike) : Math.max(0, best.strike - spot);
+    const breakeven = isCall ? best.strike + best.mid : best.strike - best.mid;
+    const breakevenMovePct = spot > 0 ? (breakeven / spot - 1) * 100 : null;
+    const expectedMovePct = best.iv > 0 ? best.iv * Math.sqrt(best.T) * 100 : null;
+    const rrRatio = (expectedMovePct && breakevenMovePct != null) ? Math.abs(breakevenMovePct) / expectedMovePct : null;
+    // P(profit) at expiry ~ N(d2) for a long call, N(-d2) for a long put.
+    let pop = null;
+    if (best.iv > 0 && best.T > 0) {
+      const d2 = (Math.log(spot / breakeven) + (rfr - best.iv * best.iv / 2) * best.T) / (best.iv * Math.sqrt(best.T));
+      pop = isCall ? ncdf(d2) : ncdf(-d2);
+    }
+    // Lower bound by ET day-diff (0 = print day still ahead); upper bound keeps
+    // the raw parse, which matches the expiry epoch's own midnight-UTC convention.
+    const earningsInWindow = earnDaysAhead != null && earnDaysAhead >= 0 && earnMs != null && earnMs <= best.expSec * 1000;
+    const expiryLabel = new Date(best.expSec * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit", timeZone: "UTC" }).replace(/(\d+)$/, "'$1");
+    const cq = {
+      spread: { cls: qualityCls("spread", best.spreadPct) },
+      oi: { cls: qualityCls("oi", best.oi) },
+      delta: { cls: qualityCls("delta", Math.abs(best.delta)) },
+      theta: { cls: qualityCls("theta", best.thetaPctDay) },
+      iv: { cls: qualityCls("iv", best.iv) },
+    };
+    const order = { good: 0, fair: 1, bad: 2 };
+    cq.overall = ["good", "fair", "bad"][Math.max(...Object.values(cq).map((x) => order[x.cls]))];
 
-  return {
-    strike: r2(best.strike), expiry: best.expSec, expiryLabel, dte: best.dte,
-    bid: r2(best.bid), ask: r2(best.ask), mid: r2(best.mid), last: r2(best.last), iv: r4(best.iv),
-    oi: best.oi, volume: best.volume, delta: r3(best.delta), thetaDay: r4(best.thetaDay), vega: r4(best.vega),
-    spreadPct: r4(best.spreadPct), breakeven: r2(breakeven), breakevenMovePct: r2(breakevenMovePct),
-    expectedMovePct: r2(expectedMovePct), rrRatio: r2(rrRatio), extrinsicRatio: r2(best.mid > 0 ? (best.mid - intrinsic) / best.mid : null),
-    earningsInWindow, otmPct: r2(best.otmPct), pop: r3(pop), structure: "long",
-    contractQuality: cq, qualityScore: r3(best.qualityScore),
-  };
+    return {
+      strike: r2(best.strike), expiry: best.expSec, expiryLabel, dte: best.dte,
+      bid: r2(best.bid), ask: r2(best.ask), mid: r2(best.mid), last: r2(best.last), iv: r4(best.iv),
+      oi: best.oi, volume: best.volume, delta: r3(best.delta), thetaDay: r4(best.thetaDay), vega: r4(best.vega),
+      spreadPct: r4(best.spreadPct), breakeven: r2(breakeven), breakevenMovePct: r2(breakevenMovePct),
+      expectedMovePct: r2(expectedMovePct), rrRatio: r2(rrRatio), extrinsicRatio: r2(best.mid > 0 ? (best.mid - intrinsic) / best.mid : null),
+      earningsInWindow, otmPct: r2(best.otmPct), pop: r3(pop), structure: "long",
+      contractQuality: cq, qualityScore: r3(best.qualityScore),
+    };
+  });
 }
 
 // ============================================================================
@@ -20609,64 +20637,21 @@ function vertLegFields(leg, expSec) {
 
 // Find the chain row whose |delta| is closest to a target, passing the wing
 // liquidity filters. optionType drives the greeks. Returns a leg record or null.
-function pickVertLeg(rows, optionType, spot, T, rfr, targetDelta, opts = {}) {
-  if (!Array.isArray(rows)) return null;
-  const minOi = opts.minOi ?? PICKS_VERT_MIN_OI;
-  const maxSpread = opts.maxSpread ?? PICKS_VERT_MAX_SPREAD_PCT;
-  let best = null, bestErr = Infinity;
-  for (const row of rows) {
+function rankVertLegs(rows, optionType, spot, T, rfr) {
+  const legs = [];
+  for (const row of (Array.isArray(rows) ? rows : [])) {
     const strike = pnum(row.s), bid = pnum(row.b), ask = pnum(row.a), iv = pnum(row.iv);
-    if (strike == null || bid == null || ask == null || iv == null) continue;
-    if (bid <= 0 || ask <= 0 || bid > ask || iv <= 0 || iv > PICKS_MAX_IV) continue; // bid > ask = crossed/stale quote — a negative spread otherwise passes every spread test and even IMPROVES the liquidity score
-    if (opts.strikeMin != null && strike < opts.strikeMin) continue;
-    if (opts.strikeMax != null && strike > opts.strikeMax) continue;
-    const mid = (bid + ask) / 2;
-    if (mid <= 0) continue;
-    const spreadPct = (ask - bid) / mid;
-    if (spreadPct > maxSpread) continue;
-    const oi = pnum(row.oi) || 0;
-    if (oi < minOi) continue;
+    if (!(strike > 0) || !(bid > 0) || !(ask >= bid) || !(iv > 0) || iv > PICKS_MAX_IV) continue;
+    const mid = (bid + ask) / 2, spreadPct = (ask - bid) / mid, oi = pnum(row.oi) || 0;
+    if (spreadPct > PICKS_VERT_MAX_SPREAD_PCT || oi < PICKS_VERT_MIN_OI) continue;
     const g = greeks(optionType, spot, strike, T, iv, rfr);
-    if (!g) continue;
-    const delta = Math.abs(g.delta);
-    const err = Math.abs(delta - targetDelta);
-    if (err > (opts.deltaBand ?? PICKS_VERT_DELTA_BAND)) continue;
-    if (err < bestErr) { bestErr = err; best = { strike, bid, ask, mid, iv, oi, delta: g.delta, thetaDay: g.thetaDay, vega: g.vega, spreadPct }; }
+    if (g) legs.push({ strike, bid, ask, mid, iv, oi, delta: g.delta, thetaDay: g.thetaDay, vega: g.vega, spreadPct });
   }
-  return best;
+  return legs;
 }
 
-// Credit-spread long (protective) wing: pick the further-OTM strike whose NET
-// CREDIT lands closest to PICKS_CREDIT_WIDTH_FRAC of the width (the spec's
-// "collect ~1/3 of the spread width") — adapting to the chain's skew instead of a
-// fixed delta (a fixed-delta wing collects far less than 1/3 on the low-skew side,
-// e.g. bear-call spreads). Rejects any wing below the PICKS_CREDIT_WIDTH_FRAC_MIN
-// floor so we never sell a spread with terrible reward:risk.
-function pickCreditWing(rows, optionType, spot, T, rfr, anchor, opts = {}) {
-  if (!Array.isArray(rows)) return null;
-  let best = null, bestErr = Infinity;
-  for (const row of rows) {
-    const strike = pnum(row.s), bid = pnum(row.b), ask = pnum(row.a), iv = pnum(row.iv);
-    if (strike == null || bid == null || ask == null || iv == null) continue;
-    if (bid <= 0 || ask <= 0 || bid > ask || iv <= 0 || iv > PICKS_MAX_IV) continue; // bid > ask = crossed/stale quote — a negative spread otherwise passes every spread test and even IMPROVES the liquidity score
-    if (opts.strikeMin != null && strike < opts.strikeMin) continue;
-    if (opts.strikeMax != null && strike > opts.strikeMax) continue;
-    const mid = (bid + ask) / 2;
-    if (mid <= 0) continue;
-    const spreadPct = (ask - bid) / mid;
-    if (spreadPct > PICKS_VERT_MAX_SPREAD_PCT) continue;
-    const oi = pnum(row.oi) || 0;
-    if (oi < PICKS_VERT_MIN_OI) continue;
-    const width = Math.abs(strike - anchor.strike);
-    const credit = anchor.mid - mid;
-    if (!(credit > 0) || !(width > 0)) continue;
-    const frac = credit / width;
-    if (frac < PICKS_CREDIT_WIDTH_FRAC_MIN) continue;
-    const err = Math.abs(frac - PICKS_CREDIT_WIDTH_FRAC);
-    if (err < bestErr) { const g = greeks(optionType, spot, strike, T, iv, rfr); if (!g) continue; bestErr = err; best = { strike, bid, ask, mid, iv, oi, delta: g.delta, thetaDay: g.thetaDay, vega: g.vega, spreadPct }; }
-  }
-  return best;
-}
+// Bounded alternative search: up to four anchors and four wings per expiry.
+export const PICKS_COMPARISON_LEG_LIMIT = 4;
 
 // Build a defined-risk vertical for a graded pick.
 //   type "debit"  -> directional, SAME option type as the side (bull-call /
@@ -20677,11 +20662,15 @@ function pickCreditWing(rows, optionType, spot, T, rfr, anchor, opts = {}) {
 //                    ~PICKS_CREDIT_WIDTH_FRAC of the strike width.
 // Returns a contract payload matching the renderer's leg shape, or null.
 export function pickVerticalForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, opts = {}) {
+  return rankVerticalPickContracts(side, data, rfr, { ...opts, expand: false })[0] || null;
+}
+
+export function rankVerticalPickContracts(side, data, rfr = FALLBACK_RISK_FREE_RATE, opts = {}) {
   const type = opts.type === "credit" ? "credit" : "debit";
   const minDte = pnum(opts.minDte) ?? PICKS_MIN_DTE;
   const spot = pnum(data?.spot);
   const chains = data?.chains;
-  if (!spot || spot <= 0 || !chains) return null;
+  if (!spot || spot <= 0 || !chains) return [];
   const optionType = type === "credit" ? (side === "call" ? "put" : "call") : side;
   const isCallLeg = optionType === "call";
   const bull = side === "call";
@@ -20690,7 +20679,8 @@ export function pickVerticalForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
   const earnDaysAhead = etDaysUntil(data?.fundamentals?.nextEarningsDate);
   const minWidth = spot * PICKS_VERT_MIN_WIDTH_PCT;
 
-  let best = null;
+  const candidates = [];
+  const legLimit = opts.expand ? PICKS_COMPARISON_LEG_LIMIT : 1;
   for (const [expKey, chain] of Object.entries(chains)) {
     const expSec = Number(expKey);
     if (!Number.isFinite(expSec)) continue;
@@ -20701,147 +20691,179 @@ export function pickVerticalForPick(side, data, rfr = FALLBACK_RISK_FREE_RATE, o
     const T = yearsToExpiry(expSec);
     if (!(T > 0)) continue;
 
-    // Anchor (near-money) leg + the further-OTM wing. The wing is always further
-    // OTM than the anchor; for calls that's a HIGHER strike, for puts a LOWER one.
-    const anchor = pickVertLeg(rows, optionType, spot, T, rfr, type === "credit" ? PICKS_CREDIT_SHORT_DELTA : PICKS_DELTA_IDEAL);
-    if (!anchor) continue;
-    const wingStrikeMin = isCallLeg ? anchor.strike + minWidth : null;
-    const wingStrikeMax = isCallLeg ? null : anchor.strike - minWidth;
-    // Debit: short an OTM financing wing at a fixed delta. Credit: pick the wing
-    // that collects ~PICKS_CREDIT_WIDTH_FRAC of the width (skew-adaptive).
-    const wing = type === "credit"
-      ? pickCreditWing(rows, optionType, spot, T, rfr, anchor, { strikeMin: wingStrikeMin, strikeMax: wingStrikeMax })
-      : pickVertLeg(rows, optionType, spot, T, rfr, PICKS_DEBIT_SHORT_DELTA, { strikeMin: wingStrikeMin, strikeMax: wingStrikeMax });
-    if (!wing) continue;
+    const qualified = rankVertLegs(rows, optionType, spot, T, rfr);
+    const anchorDelta = type === "credit" ? PICKS_CREDIT_SHORT_DELTA : PICKS_DELTA_IDEAL;
+    const anchors = qualified.filter(leg => Math.abs(Math.abs(leg.delta) - anchorDelta) <= PICKS_VERT_DELTA_BAND)
+      .sort((a,b) => Math.abs(Math.abs(a.delta)-anchorDelta)-Math.abs(Math.abs(b.delta)-anchorDelta)).slice(0, legLimit);
+    for (const [anchorIndex, anchor] of anchors.entries()) {
+      const wings = qualified.filter(leg => (isCallLeg ? leg.strike >= anchor.strike + minWidth : leg.strike <= anchor.strike - minWidth)
+        && (type === "credit"
+          ? (anchor.mid - leg.mid) / Math.abs(leg.strike-anchor.strike) >= PICKS_CREDIT_WIDTH_FRAC_MIN
+          : Math.abs(Math.abs(leg.delta) - PICKS_DEBIT_SHORT_DELTA) <= PICKS_VERT_DELTA_BAND))
+        .sort((a,b) => type === "credit"
+          ? Math.abs((anchor.mid-a.mid)/Math.abs(a.strike-anchor.strike)-PICKS_CREDIT_WIDTH_FRAC)-Math.abs((anchor.mid-b.mid)/Math.abs(b.strike-anchor.strike)-PICKS_CREDIT_WIDTH_FRAC)
+          : Math.abs(Math.abs(a.delta)-PICKS_DEBIT_SHORT_DELTA)-Math.abs(Math.abs(b.delta)-PICKS_DEBIT_SHORT_DELTA)).slice(0, legLimit);
+      for (const [wingIndex, wing] of wings.entries()) {
+        let net, netDebit, netCredit, longStrike, shortStrike, longMid, shortMid, legs;
+        if (type === "debit") {
+          longStrike = anchor.strike; shortStrike = wing.strike;
+          longMid = anchor.mid; shortMid = wing.mid;
+          netDebit = longMid - shortMid;
+          if (!(netDebit > 0)) continue;
+          net = netDebit;
+          legs = [{ qty: 1, type: optionType, ...vertLegFields(anchor, expSec) }, { qty: -1, type: optionType, ...vertLegFields(wing, expSec) }];
+        } else {
+          shortStrike = anchor.strike; longStrike = wing.strike;
+          shortMid = anchor.mid; longMid = wing.mid;
+          netCredit = shortMid - longMid;
+          if (!(netCredit > 0)) continue;
+          net = netCredit;
+          legs = [{ qty: -1, type: optionType, ...vertLegFields(anchor, expSec) }, { qty: 1, type: optionType, ...vertLegFields(wing, expSec) }];
+        }
+        const width = Math.abs(shortStrike - longStrike);
+        if (!(width >= minWidth)) continue;
+        const creditFrac = type === "credit" ? net / width : null;
+        if (type === "credit" && !(creditFrac >= PICKS_CREDIT_WIDTH_FRAC_MIN)) continue; // too little reward for the risk
+        const maxLoss = type === "debit" ? netDebit : width - netCredit;
+        const maxProfit = type === "debit" ? width - netDebit : netCredit;
+        if (!(maxLoss > 0) || !(maxProfit > 0)) continue;
+        const rewardRisk = maxProfit / maxLoss;
+        if (type === "debit" && !(rewardRisk >= PICKS_DEBIT_MIN_RR)) continue; // never recommend a debit spread paying < 1x the risk (debit must be <= half the width)
 
-    let longLeg, shortLeg, net, netDebit, netCredit, longStrike, shortStrike, longMid, shortMid, legs;
-    if (type === "debit") {
-      longLeg = anchor; shortLeg = wing;
-      longStrike = anchor.strike; shortStrike = wing.strike;
-      longMid = anchor.mid; shortMid = wing.mid;
-      netDebit = longMid - shortMid;
-      if (!(netDebit > 0)) continue;
-      net = netDebit;
-      legs = [{ qty: 1, type: optionType, ...vertLegFields(anchor, expSec) }, { qty: -1, type: optionType, ...vertLegFields(wing, expSec) }];
-    } else {
-      shortLeg = anchor; longLeg = wing;
-      shortStrike = anchor.strike; longStrike = wing.strike;
-      shortMid = anchor.mid; longMid = wing.mid;
-      netCredit = shortMid - longMid;
-      if (!(netCredit > 0)) continue;
-      net = netCredit;
-      legs = [{ qty: -1, type: optionType, ...vertLegFields(anchor, expSec) }, { qty: 1, type: optionType, ...vertLegFields(wing, expSec) }];
+        // Net greeks (long qty +1, short qty −1).
+        const netDelta = legs.reduce((a, l) => a + (l.delta || 0) * l.qty, 0);
+        const netTheta = legs.reduce((a, l) => a + (l.thetaDay || 0) * l.qty, 0);
+        const netVega = legs.reduce((a, l) => a + (l.vega || 0) * l.qty, 0);
+
+        // Breakeven + PoP in the trade direction. For both structures profit lies on
+        // the bias side of the breakeven price.
+        const breakeven = type === "debit"
+          ? longStrike + (isCallLeg ? net : -net)
+          : shortStrike + (isCallLeg ? net : -net);
+        const breakevenMovePct = spot > 0 ? (breakeven / spot - 1) * 100 : null;
+        const sigma = anchor.iv;
+        const expectedMovePct = sigma > 0 ? sigma * Math.sqrt(T) * 100 : null;
+        let pop = null;
+        if (sigma > 0 && T > 0 && breakeven > 0) {
+          const d2 = (Math.log(spot / breakeven) + (rfr - sigma * sigma / 2) * T) / (sigma * Math.sqrt(T));
+          pop = bull ? ncdf(d2) : ncdf(-d2);
+        }
+        const rrRatio = (expectedMovePct && breakevenMovePct != null) ? Math.abs(breakevenMovePct) / expectedMovePct : null;
+
+        // Composite quality for cross-expiration ranking: liquidity (both legs),
+        // reward:risk (debit) / credit richness (credit), DTE fit, wing tightness.
+        const dteFit = dte >= PICKS_IDEAL_DTE_LO && dte <= PICKS_IDEAL_DTE_HI ? 0 : Math.min(1, Math.abs(dte - clamp(dte, PICKS_IDEAL_DTE_LO, PICKS_IDEAL_DTE_HI)) / 30);
+        const liqPen = Math.min(1, ((anchor.spreadPct + wing.spreadPct) / 2) / 0.12) * 0.5 + (Math.min(anchor.oi, wing.oi) >= 250 ? 0 : Math.min(anchor.oi, wing.oi) >= 100 ? 0.25 : 0.5);
+        const econPen = type === "credit"
+          ? Math.min(1, Math.abs(creditFrac - PICKS_CREDIT_WIDTH_FRAC) / 0.25)
+          : clamp(1 - rewardRisk / 2, 0, 1); // a debit reward:risk of 2 is ideal
+        const penalty = 0.34 * econPen + 0.40 * liqPen + 0.16 * dteFit + 0.10 * Math.min(1, sigma / 2);
+        const qualityScore = clamp(1 - penalty, 0, 1);
+
+        const cand = {
+          primaryPair: anchorIndex === 0 && wingIndex === 0,
+          type, optionType, expSec, dte, width, net, netDebit, netCredit, maxLoss, maxProfit, rewardRisk,
+          longStrike, shortStrike, longMid, shortMid, legs, netDelta, netTheta, netVega,
+          breakeven, breakevenMovePct, expectedMovePct, pop, rrRatio, sigma, creditFrac,
+          anchorOi: anchor.oi, wingOi: wing.oi, anchorSpread: anchor.spreadPct, qualityScore,
+        };
+        candidates.push(cand);
+      }
     }
-    const width = Math.abs(shortStrike - longStrike);
-    if (!(width >= minWidth)) continue;
-    const creditFrac = type === "credit" ? net / width : null;
-    if (type === "credit" && !(creditFrac >= PICKS_CREDIT_WIDTH_FRAC_MIN)) continue; // too little reward for the risk
-    const maxLoss = type === "debit" ? netDebit : width - netCredit;
-    const maxProfit = type === "debit" ? width - netDebit : netCredit;
-    if (!(maxLoss > 0) || !(maxProfit > 0)) continue;
-    const rewardRisk = maxProfit / maxLoss;
-    if (type === "debit" && !(rewardRisk >= PICKS_DEBIT_MIN_RR)) continue; // never recommend a debit spread paying < 1x the risk (debit must be <= half the width)
-
-    // Net greeks (long qty +1, short qty −1).
-    const netDelta = legs.reduce((a, l) => a + (l.delta || 0) * l.qty, 0);
-    const netTheta = legs.reduce((a, l) => a + (l.thetaDay || 0) * l.qty, 0);
-    const netVega = legs.reduce((a, l) => a + (l.vega || 0) * l.qty, 0);
-
-    // Breakeven + PoP in the trade direction. For both structures profit lies on
-    // the bias side of the breakeven price.
-    const breakeven = type === "debit"
-      ? longStrike + (isCallLeg ? net : -net)
-      : shortStrike + (isCallLeg ? net : -net);
-    const breakevenMovePct = spot > 0 ? (breakeven / spot - 1) * 100 : null;
-    const sigma = anchor.iv;
-    const expectedMovePct = sigma > 0 ? sigma * Math.sqrt(T) * 100 : null;
-    let pop = null;
-    if (sigma > 0 && T > 0 && breakeven > 0) {
-      const d2 = (Math.log(spot / breakeven) + (rfr - sigma * sigma / 2) * T) / (sigma * Math.sqrt(T));
-      pop = bull ? ncdf(d2) : ncdf(-d2);
-    }
-    const rrRatio = (expectedMovePct && breakevenMovePct != null) ? Math.abs(breakevenMovePct) / expectedMovePct : null;
-
-    // Composite quality for cross-expiration ranking: liquidity (both legs),
-    // reward:risk (debit) / credit richness (credit), DTE fit, wing tightness.
-    const dteFit = dte >= PICKS_IDEAL_DTE_LO && dte <= PICKS_IDEAL_DTE_HI ? 0 : Math.min(1, Math.abs(dte - clamp(dte, PICKS_IDEAL_DTE_LO, PICKS_IDEAL_DTE_HI)) / 30);
-    const liqPen = Math.min(1, ((anchor.spreadPct + wing.spreadPct) / 2) / 0.12) * 0.5 + (Math.min(anchor.oi, wing.oi) >= 250 ? 0 : Math.min(anchor.oi, wing.oi) >= 100 ? 0.25 : 0.5);
-    const econPen = type === "credit"
-      ? Math.min(1, Math.abs(creditFrac - PICKS_CREDIT_WIDTH_FRAC) / 0.25)
-      : clamp(1 - rewardRisk / 2, 0, 1); // a debit reward:risk of 2 is ideal
-    const penalty = 0.34 * econPen + 0.40 * liqPen + 0.16 * dteFit + 0.10 * Math.min(1, sigma / 2);
-    const qualityScore = clamp(1 - penalty, 0, 1);
-
-    const cand = {
-      type, optionType, expSec, dte, width, net, netDebit, netCredit, maxLoss, maxProfit, rewardRisk,
-      longStrike, shortStrike, longMid, shortMid, legs, netDelta, netTheta, netVega,
-      breakeven, breakevenMovePct, expectedMovePct, pop, rrRatio, sigma, creditFrac,
-      anchorOi: anchor.oi, wingOi: wing.oi, anchorSpread: anchor.spreadPct, qualityScore,
-    };
-    if (!best || cand.qualityScore > best.qualityScore) best = cand;
   }
-  if (!best) return null;
+  candidates.sort((a,b) => Number(b.primaryPair)-Number(a.primaryPair) || b.qualityScore-a.qualityScore);
+  return candidates.map(best => {
 
-  // Lower bound by ET day-diff (0 = print day still ahead); upper bound keeps
-  // the raw parse, which matches the expiry epoch's own midnight-UTC convention.
-  const earningsInWindow = earnDaysAhead != null && earnDaysAhead >= 0 && earnMs != null && earnMs <= best.expSec * 1000;
-  const expiryLabel = new Date(best.expSec * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit", timeZone: "UTC" }).replace(/(\d+)$/, "'$1");
-  const cq = {
-    spread: { cls: qualityCls("spread", best.anchorSpread) },
-    oi: { cls: qualityCls("oi", Math.min(best.anchorOi, best.wingOi)) },
-    delta: { cls: "good" },
-    theta: { cls: best.netTheta >= 0 ? "good" : qualityCls("theta", best.maxLoss > 0 ? Math.abs(best.netTheta) / best.maxLoss : 1) },
-    iv: { cls: qualityCls("iv", best.sigma) },
-  };
-  const order = { good: 0, fair: 1, bad: 2 };
-  cq.overall = ["good", "fair", "bad"][Math.max(...Object.values(cq).map((x) => order[x.cls]))];
+    // Lower bound by ET day-diff (0 = print day still ahead); upper bound keeps
+    // the raw parse, which matches the expiry epoch's own midnight-UTC convention.
+    const earningsInWindow = earnDaysAhead != null && earnDaysAhead >= 0 && earnMs != null && earnMs <= best.expSec * 1000;
+    const expiryLabel = new Date(best.expSec * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit", timeZone: "UTC" }).replace(/(\d+)$/, "'$1");
+    const cq = {
+      spread: { cls: qualityCls("spread", best.anchorSpread) },
+      oi: { cls: qualityCls("oi", Math.min(best.anchorOi, best.wingOi)) },
+      delta: { cls: "good" },
+      theta: { cls: best.netTheta >= 0 ? "good" : qualityCls("theta", best.maxLoss > 0 ? Math.abs(best.netTheta) / best.maxLoss : 1) },
+      iv: { cls: qualityCls("iv", best.sigma) },
+    };
+    const order = { good: 0, fair: 1, bad: 2 };
+    cq.overall = ["good", "fair", "bad"][Math.max(...Object.values(cq).map((x) => order[x.cls]))];
 
-  return {
-    structure: best.type === "credit" ? "credit_vertical" : "debit_vertical",
-    optionType: best.optionType,
-    strike: r2(best.type === "credit" ? best.shortStrike : best.longStrike), // primary display strike
-    longStrike: r2(best.longStrike), shortStrike: r2(best.shortStrike),
-    expiry: best.expSec, expiryLabel, dte: best.dte,
-    legs: best.legs,
-    mid: r2(best.net), // net debit (debit) / net credit (credit) — both positive
-    netDebit: best.type === "debit" ? r2(best.netDebit) : null,
-    netCredit: best.type === "credit" ? r2(best.netCredit) : null,
-    shortMid: r2(best.shortMid), longMid: r2(best.longMid),
-    width: r2(best.width), maxLoss: r2(best.maxLoss), maxProfit: r2(best.maxProfit), rewardRisk: r2(best.rewardRisk),
-    creditFrac: best.creditFrac != null ? r2(best.creditFrac) : null,
-    iv: r4(best.sigma), delta: r3(best.netDelta), thetaDay: r4(best.netTheta), vega: r4(best.netVega),
-    oi: Math.min(best.anchorOi, best.wingOi), volume: 0,
-    breakeven: r2(best.breakeven), breakevenMovePct: r2(best.breakevenMovePct),
-    expectedMovePct: r2(best.expectedMovePct), rrRatio: best.rrRatio != null ? r2(best.rrRatio) : null,
-    pop: best.pop != null ? r3(best.pop) : null, extrinsicRatio: null,
-    earningsInWindow, otmPct: null,
-    contractQuality: cq, qualityScore: r3(best.qualityScore),
-  };
+    return {
+      structure: best.type === "credit" ? "credit_vertical" : "debit_vertical",
+      optionType: best.optionType,
+      strike: r2(best.type === "credit" ? best.shortStrike : best.longStrike), // primary display strike
+      longStrike: r2(best.longStrike), shortStrike: r2(best.shortStrike),
+      expiry: best.expSec, expiryLabel, dte: best.dte,
+      legs: best.legs,
+      mid: r2(best.net), // net debit (debit) / net credit (credit) — both positive
+      netDebit: best.type === "debit" ? r2(best.netDebit) : null,
+      netCredit: best.type === "credit" ? r2(best.netCredit) : null,
+      shortMid: r2(best.shortMid), longMid: r2(best.longMid),
+      width: r2(best.width), maxLoss: r2(best.maxLoss), maxProfit: r2(best.maxProfit), rewardRisk: r2(best.rewardRisk),
+      creditFrac: best.creditFrac != null ? r2(best.creditFrac) : null,
+      iv: r4(best.sigma), delta: r3(best.netDelta), thetaDay: r4(best.netTheta), vega: r4(best.netVega),
+      oi: Math.min(best.anchorOi, best.wingOi), volume: 0,
+      breakeven: r2(best.breakeven), breakevenMovePct: r2(best.breakevenMovePct),
+      expectedMovePct: r2(best.expectedMovePct), rrRatio: best.rrRatio != null ? r2(best.rrRatio) : null,
+      pop: best.pop != null ? r3(best.pop) : null, extrinsicRatio: null,
+      earningsInWindow, otmPct: null,
+      contractQuality: cq, qualityScore: r3(best.qualityScore),
+    };
+  });
 }
 
 // Build only structures the strategy decision permits. A single long can use
 // a debit spread instead, and a credit spread can use a debit spread instead.
 // A spread recommendation never falls back to a single long: doing so would
 // undo the IV, event, skew, or conviction rule that selected the spread.
-export function buildPickContract(side, data, rfr, strategy) {
+export function buildPickContract(side, data, rfr, strategy, opts = {}) {
   const want = strategy?.type;
   if (!["long", "debit", "credit"].includes(want)) return null;
-  const tryLong = () => pickContractForPick(side, data, rfr, { requireClean: true });
-  // Roster verticals hold the same DTE floor as the requireClean naked long —
-  // otherwise the long→debit fallback RELAXED the bar (a name whose long failed
-  // the clean screen shipped instead as a shorter-dated spread).
-  const tryDebit = () => pickVerticalForPick(side, data, rfr, { type: "debit", minDte: PICKS_MIN_DTE });
-  const tryCredit = () => pickVerticalForPick(side, data, rfr, { type: "credit", minDte: PICKS_MIN_DTE });
-  let contract = null, used = want;
-  if (want === "credit") { contract = tryCredit(); if (!contract) { contract = tryDebit(); used = "debit"; } }
-  else if (want === "debit") contract = tryDebit();
-  else { contract = tryLong(); if (!contract) { contract = tryDebit(); used = "debit"; } }
-  if (!contract) return null;
-  const labelFor = (t) => t === "credit" ? "credit spread" : t === "debit" ? "debit spread" : "naked long";
-  const stratOut = used === want ? strategy
-    : { ...strategy, type: used, fallback: true, requested: want,
-        reason: (strategy?.reason || "") + ` (no clean ${labelFor(want)} available — shipped a ${labelFor(used)} instead).` };
-  return { contract, strategy: stratOut };
+  const permitted = want === "debit" ? ["debit"] : [want, "debit"];
+  const rankers = {
+    long: () => rankSinglePickContracts(side, data, rfr, { requireClean: true, ...(opts.evaluateEconomics ? {} : { limit: 1 }) }),
+    debit: () => rankVerticalPickContracts(side, data, rfr, { type: "debit", minDte: PICKS_MIN_DTE, expand: !!opts.evaluateEconomics }),
+    credit: () => rankVerticalPickContracts(side, data, rfr, { type: "credit", minDte: PICKS_MIN_DTE, expand: !!opts.evaluateEconomics }),
+  };
+  const key = c => [c.structure, c.expiry, c.strike, c.shortStrike ?? "", c.longStrike ?? ""].join(":");
+  let first = null, preferred = null, selected = null, evaluated = 0;
+  const checkedTypes = [];
+  for (const type of permitted) {
+    const candidates = rankers[type]();
+    const checked = { type, available: candidates.length, evaluated: 0 };
+    checkedTypes.push(checked);
+    for (const contract of candidates) {
+      const economics = opts.evaluateEconomics ? assessOptionEntryEconomics({ side, spot: data.spot, contract,
+        plan: opts.stockPlan, rate: rfr,
+        takeProfitPct: (type === "credit" ? PICKS_CREDIT_TP_PCT : PICKS_OPT_TP_PCT) * 100,
+        stopPct: (type === "credit" ? PICKS_CREDIT_STOP_PCT : PICKS_OPT_STOP_PCT) * 100,
+        minDebitRewardRisk: PICKS_DEBIT_MIN_RR, minCreditFraction: PICKS_CREDIT_WIDTH_FRAC_MIN }) : null;
+      checked.evaluated++; evaluated++;
+      const candidate = { contract, type, economics };
+      first ||= candidate;
+      if (type === want) preferred ||= candidate;
+      if (!economics || economics.eligible) { selected = candidate; break; }
+    }
+    if (selected) break;
+  }
+  selected ||= first; // retain the failed economic audit as a watch idea
+  if (!selected) return null;
+  const { contract, type: used, economics } = selected;
+  const changed = key(first.contract) !== key(contract);
+  const fallback = used !== want;
+  const labelFor = type => type === "credit" ? "credit spread" : type === "debit" ? "debit spread" : "single option";
+  const fallbackWhy = preferred?.economics && !preferred.economics.eligible ? "no economically feasible preferred contract" : "no clean preferred contract";
+  const stratOut = fallback ? { ...strategy, type: used, label: (side === "call" ? "Bull" : "Bear") + " debit spread", fallback: true, requested: want,
+    reason: (strategy.reason || "") + ` (${fallbackWhy}; used an already-permitted ${labelFor(used)}).` } : strategy;
+  if (economics) economics.comparison = {
+    requested: want, permitted, checkedTypes, evaluated,
+    changed: changed || fallback,
+    primary: { key: preferred ? key(preferred.contract) : null, eligible: !!preferred?.economics?.eligible, reason: preferred?.economics?.reason || "no-qualified-contract" },
+    selected: key(contract),
+    reason: economics.eligible ? changed || fallback ? "permitted-alternative-clears" : "preferred-contract-clears" : "no-permitted-contract-clears",
+    search: { singleOptions: "all-qualified", spreadAnchorsPerExpiry: PICKS_COMPARISON_LEG_LIMIT, spreadWingsPerAnchor: PICKS_COMPARISON_LEG_LIMIT },
+  };
+  return { contract, strategy: stratOut, economics };
 }
 
 // ============================================================================
@@ -20906,21 +20928,37 @@ function buildCreditExitPlan(side, spot, data, contract) {
   return { takeProfit, cut, levels, triggers, structure: "credit_vertical", optionStop: optStopPrice != null ? { price: optStopPrice, pct: stopPctN, entryPrem: r2(credit), basis: "credit", buyBack: true } : null, optionTp: optTpPrice != null ? { price: optTpPrice, pct: tpPctN, entryPrem: r2(credit), basis: "credit", buyBack: true } : null };
 }
 
-export function buildExitPlan(side, spot, data, contract) {
-  if (contract && contract.structure === "credit_vertical") return buildCreditExitPlan(side, spot, data, contract);
+export function buildExitPlan(side, spot, data, contract, opts = {}) {
+  const stockPlan = opts.stockPlan ?? buildUnderlyingTradePlan(side, data, spot);
+  if (contract && contract.structure === "credit_vertical") {
+    const plan = buildCreditExitPlan(side, spot, data, contract);
+    plan.stockPlan = stockPlan;
+    plan.premiumBasis = "published-midpoint-reference";
+    plan.vehicleDefense = plan.cut;
+    plan.takeProfit = { ...plan.takeProfit, price: stockPlan?.target ?? null,
+      movePct: stockPlan?.target != null && spot > 0 ? r2((stockPlan.target / spot - 1) * 100) : null,
+      reason: stockPlan?.targetKind || "underlying target unavailable" };
+    plan.cut = { ...plan.cut, price: stockPlan?.invalidation ?? null,
+      movePct: stockPlan?.invalidation != null && spot > 0 ? r2((stockPlan.invalidation / spot - 1) * 100) : null,
+      reason: stockPlan?.anchorKind || "underlying invalidation unavailable" };
+    // Short-strike breach remains an additional earlier exit, frozen separately.
+    plan.levels = plan.levels.filter(level => level.role !== "cut");
+    plan.levels = plan.levels.map(level => level.role === "tp" ? { ...level,
+      price: plan.takeProfit.price, movePct: plan.takeProfit.movePct,
+      prose: `Underlying reference target: $${plan.takeProfit.price ?? "unavailable"}. The profit exit is buying the spread back at $${plan.optionTp?.price}; a stock-price touch does not guarantee that fill.` } : level);
+    plan.levels.push({ role: "cut", price: plan.cut.price, movePct: plan.cut.movePct,
+      action: "Underlying invalidation", anchor: plan.cut.reason, reasons: {}, watchFor: null,
+      prose: plan.cut.price != null ? `Exit if the underlying invalidates at $${plan.cut.price}.` : "Underlying invalidation is unavailable; do not enter." });
+    plan.levels.push({ role: "cut", price: plan.vehicleDefense.price, movePct: plan.vehicleDefense.movePct,
+      action: "Credit-spread defense", anchor: "short strike breach", reasons: {}, watchFor: null,
+      prose: `Also exit on a breach of the short strike $${plan.vehicleDefense.price}; the option buy-back stop remains binding.` });
+    return plan;
+  }
   const isCall = side === "call";
-  const bars = timingBarsFrom(data);
-  const atrPct = bars ? atrPctFrom(bars.h, bars.l, bars.c) : null;
-  let cutPct = atrPct != null ? clamp(atrPct * PICKS_ATR_STOP_MULT, PICKS_STOP_MIN, PICKS_STOP_MAX) : 0.08;
-  // Prefer a structural level if it sits outside the noise band.
-  const sr = data?.technicals?.sr || {};
-  const struct = isCall ? pnum(sr.s20) : pnum(sr.r20);
-  if (struct != null && spot > 0) { const sp = Math.abs(struct / spot - 1); if (sp >= cutPct && sp <= PICKS_STOP_MAX) cutPct = sp; }
-  const cutPrice = isCall ? spot * (1 - cutPct) : spot * (1 + cutPct);
-  const tpStruct = isCall ? pnum(sr.r20) : pnum(sr.s20);
-  let tpPct = Math.max(cutPct * 1.5, (contract?.expectedMovePct || 8) / 100 * 0.6);
-  if (tpStruct != null && spot > 0) { const tp = Math.abs(tpStruct / spot - 1); if (tp > 0.02) tpPct = tp; }
-  const tpPrice = isCall ? spot * (1 + tpPct) : spot * (1 - tpPct);
+  const cutPrice = stockPlan?.invalidation ?? null;
+  const tpPrice = stockPlan?.target ?? null;
+  const cutPct = cutPrice != null && spot > 0 ? Math.abs(cutPrice / spot - 1) : null;
+  const tpPct = tpPrice != null && spot > 0 ? Math.abs(tpPrice / spot - 1) : null;
   // Translate the % premium take-profit / stop into an actual CONTRACT price off
   // the entry mid (debit verticals use the net debit, both carried in contract.mid).
   // This is the concrete "set your stop at $X.XX on the option" number.
@@ -20929,16 +20967,16 @@ export function buildExitPlan(side, spot, data, contract) {
   const optTpPrice = entryPrem != null ? r2(entryPrem * (1 + PICKS_OPT_TP_PCT)) : null;
   const isDebitStruct = contract && contract.structure === "debit_vertical";
   const premNoun = isDebitStruct ? "net debit" : "premium";
-  const takeProfit = { price: r2(tpPrice), movePct: r2((isCall ? 1 : -1) * tpPct * 100), reason: tpStruct != null ? "nearest resistance/support" : "expected-move target", optionPrice: optTpPrice, optionPct: Math.round(PICKS_OPT_TP_PCT * 100), entryPrem: entryPrem != null ? r2(entryPrem) : null };
-  const cut = { price: r2(cutPrice), movePct: r2((isCall ? -1 : 1) * cutPct * 100), reason: atrPct != null ? `~${PICKS_ATR_STOP_MULT}x ATR stop` : "fixed stop", optionPrice: optStopPrice, optionPct: Math.round(PICKS_OPT_STOP_PCT * 100), entryPrem: entryPrem != null ? r2(entryPrem) : null };
+  const takeProfit = { price: tpPrice, movePct: tpPct != null ? r2((isCall ? 1 : -1) * tpPct * 100) : null, reason: stockPlan?.targetKind || "target unavailable", optionPrice: optTpPrice, optionPct: Math.round(PICKS_OPT_TP_PCT * 100), entryPrem: entryPrem != null ? r2(entryPrem) : null };
+  const cut = { price: cutPrice, movePct: cutPct != null ? r2((isCall ? -1 : 1) * cutPct * 100) : null, reason: stockPlan?.anchorKind || "invalidation unavailable", optionPrice: optStopPrice, optionPct: Math.round(PICKS_OPT_STOP_PCT * 100), entryPrem: entryPrem != null ? r2(entryPrem) : null };
   const tpOptTxt = optTpPrice != null ? `$${optTpPrice} on the option (+${Math.round(PICKS_OPT_TP_PCT * 100)}%)` : `+${Math.round(PICKS_OPT_TP_PCT * 100)}% on the option`;
   const stopOptTxt = optStopPrice != null ? `$${optStopPrice} on the option (−${Math.round(PICKS_OPT_STOP_PCT * 100)}% of the ${premNoun})` : `−${Math.round(PICKS_OPT_STOP_PCT * 100)}% on the ${premNoun}`;
-  const tpProse = PICKS_OPT_SCALE_OUT
+  const tpProse = takeProfit.price == null ? "Underlying target is unavailable; do not enter." : PICKS_OPT_SCALE_OUT
     ? `Bank HALF near $${takeProfit.price} on the stock (or at ${tpOptTxt}); let the rest run with a breakeven trailing stop.`
-    : `Bank it near $${takeProfit.price} on the stock (or ${tpOptTxt}).`;
+    : `Underlying reference target: $${takeProfit.price}. Bank profit at ${tpOptTxt}; a stock-price touch does not guarantee that fill.`;
   const levels = [
     { role: "tp", price: takeProfit.price, movePct: takeProfit.movePct, action: PICKS_OPT_SCALE_OUT ? "Bank half + trail" : "Take profit", anchor: takeProfit.reason, reasons: {}, watchFor: null, prose: tpProse },
-    { role: "cut", price: cut.price, movePct: cut.movePct, action: "Cut the loss", anchor: cut.reason, reasons: {}, watchFor: null, prose: `Stop out at $${cut.price} on the stock, or set a hard stop at ${stopOptTxt}.` },
+    { role: "cut", price: cut.price, movePct: cut.movePct, action: "Cut the loss", anchor: cut.reason, reasons: {}, watchFor: null, prose: cut.price == null ? "Underlying invalidation is unavailable; do not enter." : `Stop out at $${cut.price} on the stock, or set a hard stop at ${stopOptTxt}.` },
   ];
   const isDebitSpread = contract && contract.structure === "debit_vertical";
   const tpRuleTxt = PICKS_OPT_SCALE_OUT
@@ -20955,7 +20993,7 @@ export function buildExitPlan(side, spot, data, contract) {
     `No time stop: the trade is held while the thesis stays intact and the contract has time left.`,
   ].filter(Boolean);
   if (contract?.earningsInWindow) triggers.push("Earnings before expiry — IV crush risk at the print; the position is held through it as long as the thesis stays intact.");
-  return { takeProfit, cut, levels, triggers, structure: contract?.structure || "long", optionStop: optStopPrice != null ? { price: optStopPrice, pct: Math.round(PICKS_OPT_STOP_PCT * 100), entryPrem: r2(entryPrem), basis: premNoun } : null, optionTp: optTpPrice != null ? { price: optTpPrice, pct: Math.round(PICKS_OPT_TP_PCT * 100), entryPrem: r2(entryPrem), basis: premNoun } : null };
+  return { stockPlan, premiumBasis: "published-midpoint-reference", takeProfit, cut, levels, triggers, structure: contract?.structure || "long", optionStop: optStopPrice != null ? { price: optStopPrice, pct: Math.round(PICKS_OPT_STOP_PCT * 100), entryPrem: r2(entryPrem), basis: premNoun } : null, optionTp: optTpPrice != null ? { price: optTpPrice, pct: Math.round(PICKS_OPT_TP_PCT * 100), entryPrem: r2(entryPrem), basis: premNoun } : null };
 }
 
 function buildEntryPlan(side, spot, data, contract, total) {
@@ -21246,8 +21284,10 @@ export function openPickPrecheck(r, side, tactical, ctx = {}) {
   const earningsInWindow = earnDays != null && earnDays >= 0 && earnDays <= PICKS_STRATEGY_EARNINGS_DAYS;
   const strategy = selectStrategy(r, side, { eventRisk: ctx.eventRisk || null, earningsInWindow, thesisTier: "strong", tactical: false, ivAsOfDate: r.ivAsOfDate });
   if (strategy.type !== "none") {
-    const built = buildPickContract(side, r.data, ctx.rfr ?? FALLBACK_RISK_FREE_RATE, strategy);
+    const built = buildPickContract(side, r.data, ctx.rfr ?? FALLBACK_RISK_FREE_RATE, strategy, { evaluateEconomics: true, stockPlan: r.timing?.structure });
     if (!built || !built.contract) return "no-contract";
+    const economics = built.economics;
+    if (!economics.eligible) return "option-economics";
   }
   return null;
 }
@@ -21297,7 +21337,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const minConv = edgeGate.bar;
   const strongBar = edgeGate.strongBar ?? PICKS_TIER_STRONG;
 
-  const meta = { modelEpoch: PICKS_ACCURACY_RESET_EPOCH, gradeModelVersion: GRADE_MODEL_VERSION, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, tradeCut: minConv, strongCut: PICKS_TIER_STRONG, actionableBar: strongBar, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], primaryScenarioGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], edgeBarDemoted: [], confluenceDemoted: [], aiUngraded: [], entryDemoted: [], aiEntryPromoted: [], aiEntryHeldBack: [], reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
+  const meta = { modelEpoch: PICKS_ACCURACY_RESET_EPOCH, entryPolicyVersion: OPTION_ENTRY_POLICY_VERSION, gradeModelVersion: GRADE_MODEL_VERSION, entryTimingVersion: PICKS_ENTRY_TIMING_VERSION, tradeCut: minConv, strongCut: PICKS_TIER_STRONG, actionableBar: strongBar, minConviction: minConv, baseTradeCut: PICKS_MIN_CONVICTION, edgeGate: edgeGate.bar > PICKS_MIN_CONVICTION ? edgeGate : null, regimeBand: regime, macroRegime: macroBackdrop?.macroRegime || null, sectorCapped: [], factorCapped: [], factorTrendGated: [], factorTrend: factorHealth, sideCapped: [], timingGated: [], primaryScenarioGated: [], earningsRiskCapped: [], eventDeferred: [], confluenceSkipped: [], edgeBarDemoted: [], confluenceDemoted: [], aiUngraded: [], entryDemoted: [], aiEntryPromoted: [], aiEntryHeldBack: [], reentrySuppressed: [], aiVetoed: [], vetoed: 0, sectorCounts: {}, eventRisk: macroBackdrop?.eventRisk || null };
 
   // GATE TRACE (measurement only): the first rule that kept each candidate off
   // the open-pick path, plus the names that made it ("picked"). The Track
@@ -21338,8 +21378,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   candidates.sort((a, b) => compareRegimeCandidates(a.r, b.r, macroBackdrop));
 
   const picks = [];
-  const sectorCount = {}, factorCount = {};
-  let callN = 0, putN = 0;
+  const sectorCount = {}, factorCount = {}, watchSectorCount = {}, watchFactorCount = {};
+  const sideCounts = { actionable: { call: 0, put: 0 }, watch: { call: 0, put: 0 } };
   // Per-GROUP fill counters, not a combined 16-push break: with a combined cap
   // a watch-heavy top of the ranking could exhaust the walk while actionable
   // candidates ranked below were never evaluated (empty actionable slots), and
@@ -21394,8 +21434,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     //     exhaustion (multiple extremes plus rollover/volume climax, or a
     //     catastrophic stretch), event defer, falling knife, wrong-side
     //     reclaim/reversal, unclear invalidation, or sub-1.5:1 payoff. A lone
-    //     >15%/RSI-80 reading stays a soft wait so strong momentum is not
-    //     automatically rejected.
+    //     hot reading stays soft unless normalized catastrophic or emergency
+    //     criteria fire, so ordinary strong momentum is not rejected alone.
     //   * No verdict (keyless/offline build, legacy cached thesis, a name past
     //     the grader cap) falls back to the deterministic read — never a
     //     fabricated buy.
@@ -21448,7 +21488,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
         if (note) aiRejectionNotes.push(note);
       }
     }
-    const { classification, group, demotion } = classifyPick(r.total, thesisQuality.tier, tactical, { strongBar, pillarsAligned: thesisQuality.pillarsAligned, aiGraded: thesisQuality.aiGraded, aiActive, entryConfirmed });
+    let { classification, group, demotion } = classifyPick(r.total, thesisQuality.tier, tactical, { strongBar, pillarsAligned: thesisQuality.pillarsAligned, aiGraded: thesisQuality.aiGraded, aiActive, entryConfirmed });
     if (demotion === "edge-bar") meta.edgeBarDemoted.push(r.sym);
     else if (demotion === "confluence") meta.confluenceDemoted.push(r.sym);
     else if (demotion === "ai-ungraded") meta.aiUngraded.push(r.sym);
@@ -21468,7 +21508,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       if (group === "actionable") traceGate(r, side, "slots-full");
       continue;
     }
-    const isAct = group === "actionable";
+    let isAct = group === "actionable";
 
     // STRATEGY: selectStrategy() picks the structure (none / credit / naked /
     // debit) from the IV regime + conviction + thesis tier. A non-"none" pick must
@@ -21480,17 +21520,37 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
 
     let contract = null, stratFinal = strategy, exitPlan = null, entryPlan = null;
     if (strategy.type !== "none") {
-      const built = buildPickContract(side, r.data, rfr, strategy);
+      const built = buildPickContract(side, r.data, rfr, strategy, { evaluateEconomics: true, stockPlan: r.timing?.structure });
       if (!built || !built.contract) { meta.vetoed++; if (isAct) traceGate(r, side, "no-contract"); continue; }  // can't act on a recommended structure -> drop
       contract = built.contract;
       stratFinal = built.strategy;
+      exitPlan = buildExitPlan(side, pnum(r.data.spot), r.data, contract, { stockPlan: r.timing?.structure });
+      entry.economics = built.economics;
+      if (!entry.economics.eligible && entry.now) {
+        entry.now = false;
+        entry.signal = "wait-economics";
+        entry.basis = "option-economics";
+        entry.trigger = null;
+        entry.zone = null;
+        entry.headline = `Wait — option economics: ${entry.economics.reason.replaceAll("-", " ")}. The two-week target scenario must support the managed profit exit after quote costs.`;
+      }
+      if (isAct && !entry.economics.eligible) {
+        classification = "waitEntry";
+        group = "watch";
+        isAct = false;
+        traceGate(r, side, "option-economics");
+        if (watchN >= PICKS_WATCH_COUNT) continue;
+      }
       // GATE: sector + factor + side caps — EXPOSURE limits that apply only to real
-      // (contract-bearing) trades. A no-contract watch idea consumes no exposure.
+      // (contract-bearing) ideas within each roster. Wait ideas cannot consume Buy slots.
+      const sectors = isAct ? sectorCount : watchSectorCount;
+      const factors = isAct ? factorCount : watchFactorCount;
+      const sides = sideCounts[isAct ? "actionable" : "watch"];
       const sec = SECTORS[r.sym] || r.data?.fundamentals?.sector || null;
       const fac = sec && sec !== "ETF" ? (FACTOR_OF_SECTOR[sec] || null) : null;
       if (sec && sec !== "ETF") {
-        if ((sectorCount[sec] || 0) >= PICKS_MAX_PER_SECTOR) { meta.sectorCapped.push(r.sym); if (isAct) traceGate(r, side, "sector-cap"); continue; }
-        if (fac && (factorCount[fac] || 0) >= PICKS_MAX_PER_FACTOR) { meta.factorCapped.push(r.sym); if (isAct) traceGate(r, side, "factor-cap"); continue; }
+        if ((sectors[sec] || 0) >= PICKS_MAX_PER_SECTOR) { meta.sectorCapped.push(r.sym); if (isAct) traceGate(r, side, "sector-cap"); continue; }
+        if (fac && (factors[fac] || 0) >= PICKS_MAX_PER_FACTOR) { meta.factorCapped.push(r.sym); if (isAct) traceGate(r, side, "factor-cap"); continue; }
       }
       // GATE: factor-trend — don't keep buying CALLS into a correlated factor whose
       // OWN trend is rolling over. Puts unaffected; only a strong-tier go-timed call survives.
@@ -21499,12 +21559,11 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
         if (!reprieve) { meta.factorTrendGated.push(r.sym); if (isAct) traceGate(r, side, "factor-trend"); continue; }
       }
       // GATE: don't ship a wildly one-sided book.
-      if (side === "call" && callN >= PICKS_MAX_PER_SIDE) { meta.sideCapped.push(r.sym); if (isAct) traceGate(r, side, "side-cap"); continue; }
-      if (side === "put" && putN >= PICKS_MAX_PER_SIDE) { meta.sideCapped.push(r.sym); if (isAct) traceGate(r, side, "side-cap"); continue; }
-      if (sec && sec !== "ETF") { sectorCount[sec] = (sectorCount[sec] || 0) + 1; if (fac) factorCount[fac] = (factorCount[fac] || 0) + 1; }
-      if (side === "call") callN++; else putN++;
+      if (side === "call" && sides.call >= PICKS_MAX_PER_SIDE) { meta.sideCapped.push(r.sym); if (isAct) traceGate(r, side, "side-cap"); continue; }
+      if (side === "put" && sides.put >= PICKS_MAX_PER_SIDE) { meta.sideCapped.push(r.sym); if (isAct) traceGate(r, side, "side-cap"); continue; }
+      if (sec && sec !== "ETF") { sectors[sec] = (sectors[sec] || 0) + 1; if (fac) factors[fac] = (factors[fac] || 0) + 1; }
+      sides[side]++;
       const spot = pnum(r.data.spot);
-      exitPlan = buildExitPlan(side, spot, r.data, contract);
       entryPlan = buildEntryPlan(side, spot, r.data, contract, r.total);
     }
     const pg = peerGroupOf(r.sym, r.data);
@@ -21602,10 +21661,13 @@ function buildPickObject(r, side, contract, exitPlan, entryPlan, peers, peerGrou
       fallback: !!strategy.fallback, requested: strategy.requested || null,
     } : null,
     contract, entry,
+    entryPolicyVersion: OPTION_ENTRY_POLICY_VERSION,
+    optionEconomics: entry.economics || null,
     entryTiming: {
       state: r.timing.state, score: r.timing.score,
       headline: r.timing.headline, deferKind: r.timing.deferKind || null,
       hardVeto: r.timing.hardVeto || null,
+      hardWait: r.timing.hardWait || null,
       structure: r.timing.structure || null,
     },
     tactical: !!tactical, firstSeen: null,
@@ -22267,9 +22329,9 @@ export function buildEdgeStatement(r, side, strategy, thesisQuality, contract) {
   if (strategy.type === "credit") {
     text = `Premium is ${strategy.ivTier === "highly-elevated" ? "richly bid" : "elevated"} (${ivTxt}) and the read is ${dir} (${driverTxt}) → SELL a ${strategy.label.toLowerCase()} to harvest decay + a vol-contraction tailwind while ${r.sym} holds ${bull ? "above" : "below"} the short strike.`;
   } else if (strategy.type === "long") {
-    text = `Exceptional, multi-signal ${dir} conviction (${gradeTxt}, strong thesis) with ${ivTxt} not elevated → a naked ${bull ? "call" : "put"} for maximum delta/gamma on the move.`;
+    text = `Exceptional, multi-signal ${dir} conviction (${gradeTxt}, strong thesis) with ${ivTxt} not elevated → a purchased ${bull ? "call" : "put"} with uncapped directional profit potential and the premium at risk.`;
   } else {
-    text = `A ${dir} read (${driverTxt}) with ${ivTxt} → a defined-risk ${strategy.label.toLowerCase()} delivers the direction at lower cost + slower theta than a naked long.`;
+    text = `A ${dir} read (${driverTxt}) with ${ivTxt} → a defined-risk ${strategy.label.toLowerCase()} limits premium outlay and caps the payout. Review its net theta and vega; a spread does not guarantee lower sensitivity in every scenario.`;
   }
   return { hasEdge: true, text };
 }
@@ -26497,7 +26559,7 @@ export function buildTopPicksPayload(picks, builtAtIso) {
   const roster = Array.isArray(picks) ? picks : [];
   return {
     builtAtIso,
-    modelEpoch: PICKS_ACCURACY_RESET_EPOCH,
+    modelEpoch: PICKS_ACCURACY_RESET_EPOCH, entryPolicyVersion: OPTION_ENTRY_POLICY_VERSION,
     entryTimingVersion: PICKS_ENTRY_TIMING_VERSION,
     minConviction: roster.rosterMeta?.tradeCut ?? PICKS_MIN_CONVICTION,
     rosterMeta: roster.rosterMeta || null,
@@ -26724,6 +26786,7 @@ const THESIS_FINAL_THINK = Number(process.env.AI_THESIS_THINK) || 1024;
 export function thesisInstructionSignature() {
   return createHash("sha256")
     .update(THESIS_PROMPT_VERSION)
+    .update(OPTION_ENTRY_POLICY_VERSION)
     .update("\0")
     .update(AI_THESIS_MODEL)
     .update("\0")
@@ -27913,14 +27976,16 @@ export function resolvePickOutcome(opts) {
   // spreads keep the hard buy-back take-profit, as does PICKS_OPT_SCALE_OUT=0.
   if (pnl != null && pnl >= tpGate && (credit || !PICKS_OPT_SCALE_OUT)) return { status: "hit-tp-prem", outcome: "win" };
   // The exit ladder's stock stop, enforced: buildExitPlan's `cut` level
-  // (structural support / ~2.5x ATR; the short strike for a credit spread) is
+  // (confirmed-bar structure, plus the credit spread's short-strike defense) is
   // frozen on the enrolled entry — a spot close through it resolves the trade
   // even when the modeled premium hasn't printed -stopGate at a mark.
   // cur must be a real positive spot: pnum(null) is 0, and a null spot (data
   // missing this build) read as $0 fired the call-side stock stop on any
   // transient Yahoo flake.
-  if (PICKS_UNDERLYING_STOP && pnum(o.stopUnder) != null && o.stopUnder > 0 && o.cur != null && pnum(o.cur) > 0) {
-    if (o.isCall ? o.cur <= o.stopUnder : o.cur >= o.stopUnder) return { status: "hit-stop-under", outcome: byPnl };
+  for (const stop of [o.stopUnder, o.vehicleStopUnder]) {
+    if (PICKS_UNDERLYING_STOP && stop != null && Number.isFinite(Number(stop)) && Number(stop) > 0 && o.cur != null && pnum(o.cur) > 0) {
+      if (o.isCall ? o.cur <= stop : o.cur >= stop) return { status: "hit-stop-under", outcome: byPnl };
+    }
   }
   const expiryCloseSec = o.expSec != null ? expiryCloseEpochSec(pnum(o.expSec)) : NaN;
   if (o.nowSec != null && Number.isFinite(expiryCloseSec) && o.nowSec >= expiryCloseSec) {
@@ -28185,6 +28250,7 @@ export function applySplitToEntry(e, k, builtAtIso) {
   const s4 = (v) => (v == null ? v : r4((pnum(v) ?? 0) / k));
   e.entrySpot = s2(e.entrySpot); e.lastSpot = s2(e.lastSpot);
   e.takeProfit = s2(e.takeProfit); e.cut = s2(e.cut);
+  e.vehicleCut = s2(e.vehicleCut);
   if (e.thesis && e.thesis.stopSpot != null) e.thesis.stopSpot = s2(e.thesis.stopSpot);
   const c = e.contract;
   if (c) {
@@ -28249,7 +28315,7 @@ export function markOptionToMarket(entry, data) {
 
 // ---- No-skill baseline (SPY) ------------------------------------------------
 // Each newly enrolled pick opens a paired single-leg SPY option on the same
-// side, chosen by the same contract picker (30-90 DTE, ~0.55 delta). It is
+// side, chosen by the same contract picker (30-90 DTE, ~0.40 delta). It is
 // marked like the record (model + real fill) and closes by the same premium
 // stop / take-profit / theta / expiry rules, or when its paired pick closes
 // ("pair-closed"). Kept apart from the record: it never feeds the win rate,
@@ -28453,7 +28519,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
       };
     }
     marked.exitPolicy = e.exitPolicy || pickExitPolicy(e.contract?.structure);
-    const res = resolvePickOutcome({ exitPolicy: marked.exitPolicy, isCall, cur: spot, ref: e.entrySpot, expSec: e.contract?.expiry, entrySec: Math.floor(Date.parse(e.entryDate) / 1000), nowSec, inUniverse: !!data || (e.missingBuilds || 0) < PICKS_DROPPED_MIN_MISSES, modeledOptPnlPct: optionPnlPct, thetaPctDay: e.contract?.thetaDay && e.contract?.mid ? Math.abs(e.contract.thetaDay) / e.contract.mid : null, structure: e.contract?.structure || "long", scaledOutPnlPct: scaleOut ? scaleOut.pnlPct : null, peakPnlPct: Number.isFinite(optHiPct) ? optHiPct : null, stopUnder: pnum(e.cut), thesisBroken: marked.thesisStatus ? marked.thesisStatus.verdict === "broken" : false });
+    const res = resolvePickOutcome({ exitPolicy: marked.exitPolicy, isCall, cur: spot, ref: e.entrySpot, expSec: e.contract?.expiry, entrySec: Math.floor(Date.parse(e.entryDate) / 1000), nowSec, inUniverse: !!data || (e.missingBuilds || 0) < PICKS_DROPPED_MIN_MISSES, modeledOptPnlPct: optionPnlPct, thetaPctDay: e.contract?.thetaDay && e.contract?.mid ? Math.abs(e.contract.thetaDay) / e.contract.mid : null, structure: e.contract?.structure || "long", scaledOutPnlPct: scaleOut ? scaleOut.pnlPct : null, peakPnlPct: Number.isFinite(optHiPct) ? optHiPct : null, stopUnder: pnum(e.cut), vehicleStopUnder: pnumN(e.vehicleCut), thesisBroken: marked.thesisStatus ? marked.thesisStatus.verdict === "broken" : false });
     // A scaled-out entry closes at the BLEND of the banked half and the runner's
     // exit — that blend is the position's true P/L and what the stats consume.
     const closedPnl = (scaleOut && pnum(optionPnlPct) != null) ? r1(scaleOut.pnlPct / 2 + optionPnlPct / 2) : marked.optionPnlPct;
@@ -28488,23 +28554,24 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     // Watch-only ideas (weak thesis -> "no recommendation", no contract) are NOT
     // tracked trades — there's nothing to mark to market, and enrolling them would
     // leak an unresolvable "open" entry that also blocks legitimate re-entry.
-    if (!p.contract) continue;
-    // EVERY actionable pick enrolls — entry quality is a recorded COHORT, not a
-    // gate. The 2026-07-07 buy-now hard gate scored only the picks whose entry
-    // signal read clean, but it starved the record (7 enrollments in 3 days,
-    // zero closes — nothing to learn from) and it enforced an UNTESTED belief:
-    // the go-vs-wait A/B in diagnose-pick-losses.mjs needs both arms enrolled
-    // to measure whether buy-now endorsement earns its keep on RESOLVED trades.
-    // So the entry signal is stamped below (cohort go/wait + the readiness
-    // score) and adjudicated by the diagnostics; size already prices the
-    // difference (PICKS_ENTRY_WAIT_SIZE_MULT).
+    if (!p.contract || p.strategy?.type === "none") continue;
+    const admissionEconomics = p.optionEconomics || p.entry?.economics;
+    // Guard persisted roster input as well as construction. Legacy payloads
+    // without an audit remain legacy; never stamp them as reviewed entries.
+    if (p.entry?.now === false || p.entryTiming?.hardWait || p.entryTiming?.hardVeto
+      || p.entryTiming?.state === "avoid" || p.entry?.ai?.blocked === true
+      || p.optionEconomics?.eligible === false || p.entry?.economics?.eligible === false
+      || (p.entryPolicyVersion && !pickDisplayDecision(p).ready)) continue;
+    // Roster construction already requires a confirmed entry and executable
+    // option economics for actionable membership. Freeze that decision below;
+    // older cohorts retain their original admission evidence and exit levels.
     openKeys.add(key);
     enrolledNow.add(key);
     // Deterministic thesis-style tag (valuation / momentum / event-driven / …)
     // for the Track Record by-thesis + cross-tab analytics. Frozen at entry.
     const thesisCat = classifyThesisCategory(p);
     open.push({
-      modelEpoch: PICKS_ACCURACY_RESET_EPOCH,
+      modelEpoch: PICKS_ACCURACY_RESET_EPOCH, entryPolicyVersion: admissionEconomics?.version ?? null,
       gradeModelVersion: GRADE_MODEL_VERSION,
       exitPolicy: pickExitPolicy(p.contract?.structure),
       symbol: p.symbol, side: p.side, tier: p.recommendation?.tier || null, label: p.recommendation?.label || null,
@@ -28524,6 +28591,8 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
         : null,
       entryInvalidation: p.entry?.invalidation ?? p.entryTiming?.structure?.invalidation ?? null,
       entryTarget: p.entry?.target ?? p.entryTiming?.structure?.target ?? null,
+      entryEconomics: admissionEconomics ?? null,
+      entryVolatilityRisk: p.pillars?.timing?.volatilityRisk ?? null,
       entryRewardRisk: p.entry?.rr ?? p.entryTiming?.structure?.rr ?? null,
       thesisCategory: thesisCat.primary, thesisCategorySecondary: thesisCat.secondary,
       contract: p.contract ? {
@@ -28566,6 +28635,7 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
         fallback: !!p.strategy.fallback, requested: p.strategy.requested || null,
       } : null,
       takeProfit: p.exitPlan?.takeProfit?.price ?? null, cut: p.exitPlan?.cut?.price ?? null,
+      vehicleCut: p.exitPlan?.vehicleDefense?.price ?? null,
       sector: SECTORS[p.symbol] || p.sector || null, entryRegime: picksPayload?.rosterMeta?.regimeBand || null,
       // Thesis snapshot at entry — the supporting drivers + invalidation triggers
       // + the ATR stop level, frozen so later builds can score whether the thesis

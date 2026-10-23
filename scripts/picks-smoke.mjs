@@ -583,7 +583,7 @@ ok("grades: timing pillar has state", !!grades.BULLA.pillars.timing.state);
 ok("grades: timing is execution-only (not folded into conviction)", grades.BULLA.pillars.timing.executionOnly === true);
 ok("grades: ivCost pillar present", grades.BULLA.pillars.ivCost && grades.BULLA.pillars.ivCost.signals.length === 1);
 ok("model epoch: grades metadata stamps the new decision era",
-  grades.modelEpoch === "2026-08-08.top-picks-v3" && grades.entryTimingVersion === 3);
+  grades.modelEpoch === "2026-08-08.top-picks-v3" && grades.entryTimingVersion === 4);
 const capexAsOfIso = "2026-08-08T16:00:00.000Z";
 const capexDates = ["2025-03-31", "2025-06-30", "2025-09-30", "2025-12-31", "2026-03-31", "2026-06-30"];
 const capexRows = (values, dates = capexDates) => dates.map((date, index) => ({ date, value: values[index] }));
@@ -934,7 +934,7 @@ ok("entry-v2: a confirmed below-to-above 20D cross counts as literal reclaim pro
 // --- 3. contract selection ------------------------------------------------
 const ctr = pickContractForPick("call", chains.BULLA, 0.045, { requireClean: true });
 ok("contract: found a clean call", !!ctr);
-ok("contract: near-the-money delta 0.45-0.65", ctr && Math.abs(ctr.delta) >= 0.45 && Math.abs(ctr.delta) <= 0.65);
+ok("contract: single-option delta 0.30-0.50", ctr && Math.abs(ctr.delta) >= 0.30 && Math.abs(ctr.delta) <= 0.50);
 ok("contract: DTE within band (30-90, the 2026-07-10 hold-longer window)", ctr && ctr.dte >= 30 && ctr.dte <= 90);
 ok("contract: shape fields present", ctr && ctr.strike != null && ctr.expiryLabel && ctr.mid != null && ctr.breakeven != null && ctr.contractQuality && ctr.contractQuality.overall);
 ok("contract: pop computed", ctr && ctr.pop != null && ctr.pop >= 0 && ctr.pop <= 1);

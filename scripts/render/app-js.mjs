@@ -1494,13 +1494,13 @@ ${scenarioEventPhase.toString()}
       }
     } catch (_){}
     var head = '<div class="opt-toppick-head">' +
-        '<span class="opt-toppick-title">★ Top-Picks grade</span>' +
+        '<span class="opt-toppick-title">★ Contract candidate</span>' +
         (asOf ? '<span class="opt-toppick-asof">' + escapeHtml(asOf) + '</span>' : '') +
       '</div>';
     var body;
     if (!pick){
-      body = '<div class="opt-toppick-empty">No ' + escapeHtml(sym) + ' ' + sideWord + ' clear the Top-Picks bar in this build. ' +
-        '<span class="opt-toppick-crit">Needs ≥14d standard monthly · near-the-money |Δ| 0.45–0.65 · OI ≥ 50 · spread ≤ 18% · IV ≤ 200% · premium ≤ max($35, 12% of spot).</span></div>';
+      body = '<div class="opt-toppick-empty">No ' + escapeHtml(sym) + ' ' + sideWord + ' clear the contract candidate screen in this build. ' +
+        '<span class="opt-toppick-crit">Needs 30–90 days · |Δ| 0.30–0.50 (prefer 0.40) · at most 15% OTM · OI ≥ 50 · spread ≤ 12% · IV ≤ 200% · premium ≤ max($35, 12% of spot). A contract candidate is not an entry confirmation; Top Picks also checks strategy, timing and option feasibility.</span></div>';
     } else {
       body = topPickCardHtml(pick, side, sym);
     }
@@ -11095,7 +11095,7 @@ ${renderWorkspaceBindings()}
   // the live board + the live poll restrict to group === 'actionable'.
   function trackedPicks(){
     var picks = (picksState.data && Array.isArray(picksState.data.picks)) ? picksState.data.picks : [];
-    return picks.filter(function(p){ return p && p.group === 'actionable'; });
+    return picks.filter(function(p){ return pickDisplayDecision(p).ready; });
   }
   function picksLiveSymbols(){
     var picks = trackedPicks();
@@ -12980,7 +12980,7 @@ ${renderWorkspaceBindings()}
     // Count ACTIONABLE picks only (the sized/opened book the drift banner
     // describes) — including watch/wait-tier rows overstated it and could flip
     // the callHeavy warning on un-enrolled ideas. Matches trackedPicks().
-    var rosterPicks = picks.filter(function(p){ return p && p.group === 'actionable'; });
+    var rosterPicks = picks.filter(function(p){ return pickDisplayDecision(p).ready; });
     var roster = { calls: 0, puts: 0, total: rosterPicks.length };
     for (var ri = 0; ri < rosterPicks.length; ri++){ if (rosterPicks[ri].side === 'put') roster.puts++; else roster.calls++; }
     var chipSlot = document.getElementById('picks-regime-chip');
@@ -23995,13 +23995,14 @@ ${renderWorkspaceBindings()}
     return (rounded > 0 ? '+' : '') + rounded.toFixed(1);
   }
   function leapsReasonText(reason){
-    if (reason === 'buy') return 'Cleared the buy bar';
-    if (reason === 'moderate') return 'Above the idea bar, short of a buy';
-    if (reason === 'confluence') return 'Buy-bar score with only one pillar on this side';
-    if (reason === 'entry-wait') return 'Buy-bar score, but the entry is not a go';
+    if (reason === 'qualified') return 'Qualified for further research';
+    if (reason === 'buy') return 'Qualified for further research';
+    if (reason === 'moderate') return 'Developing idea, below the research qualification bar';
+    if (reason === 'confluence') return 'Research score needs another aligned pillar';
+    if (reason === 'entry-wait') return 'Research score clears; entry timing says wait';
     if (reason === 'fundamentals-declining') return 'Call held back — fundamentals are declining';
     if (reason === 'fundamentals-not-declining') return 'Put needs declining fundamentals';
-    if (reason === 'roster-cap') return 'Cleared the buy bar after the first 10';
+    if (reason === 'roster-cap') return 'Qualified after the first 10 research ideas';
     return '';
   }
   function leapsEntryText(entry){
@@ -24016,7 +24017,7 @@ ${renderWorkspaceBindings()}
     var side = row.side === 'put' ? 'put' : 'call';
     var pillars = row.pillars || {};
     var aligned = row.pillarsAligned != null ? row.pillarsAligned + ' pillars on this side' : '';
-    var path = row.trajectory && row.trajectory.dir && row.trajectory.dir !== 'steady' && row.trajectory.score
+    var path = row.trajectory && row.trajectory.available === false ? 'Forward path unverified' : row.trajectory && row.trajectory.dir && row.trajectory.dir !== 'steady' && row.trajectory.score
       ? 'Path ' + leapsFmt(row.trajectory.score) + ' ' + row.trajectory.dir
       : '';
     var meta = [leapsEntryText(row.entry), aligned, path].filter(Boolean).join(' · ');
@@ -24032,7 +24033,7 @@ ${renderWorkspaceBindings()}
       '<span class="leaps-meta">' + escapeHtml(pillarLine + (meta ? ' · ' + meta : '')) + '</span>' +
     '</article>';
   }
-  function leapsNum(v){ v = Number(v); return isFinite(v) ? v : null; }
+  function leapsNum(v){ if (v == null || v === '') return null; v = Number(v); return isFinite(v) ? v : null; }
   function leapsPillar(k){ return function(r){ return leapsNum(r && r.pillars && r.pillars[k]); }; }
   var LEAPS_SORTS = [
     ['engine', 'Engine order', null, false],
@@ -24088,7 +24089,7 @@ ${renderWorkspaceBindings()}
         var built = new Date(data.builtAtIso);
         if (!isNaN(built.getTime())) when = ' · ' + built.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
       }
-      eyebrow.textContent = picks.length + ' buy' + (picks.length === 1 ? '' : 's') + ' · ' + watch.length + ' watch' + (watch.length === 1 ? '' : 'es') + when;
+      eyebrow.textContent = picks.length + ' research-qualified · ' + watch.length + ' developing ideas' + when;
     }
     if (!leapsControlsBound){
       leapsControlsBound = true;
@@ -24106,22 +24107,22 @@ ${renderWorkspaceBindings()}
     watch = leapsSorted(watch, leapsSortKey);
     var html = '<div class="view-bar">' + VIEWS.sortMenuHtml('data-leaps-sort', LEAPS_SORTS.map(function(o){ return [o[0], o[1]]; }), leapsSortKey, 'leaps', 'Sort LEAPS') + VIEWS.viewToggleHtml('leaps') + '</div>';
     if (VIEWS.viewMode('leaps') === 'table'){
-      var all = picks.map(function(r){ return Object.assign({}, r, { _group:'Buy' }); })
-        .concat(watch.map(function(r){ return Object.assign({}, r, { _group:'Watch' }); }));
+      var all = picks.map(function(r){ return Object.assign({}, r, { _group:'Research-qualified' }); })
+        .concat(watch.map(function(r){ return Object.assign({}, r, { _group:'Developing' }); }));
       html += leapsTableHtml(all);
     } else {
-    html += '<section class="leaps-group"><h3>Buy</h3>';
+    html += '<section class="leaps-group"><h3>Research-qualified</h3>';
     html += picks.length
       ? picks.map(leapsRowHtml).join('')
-      : '<p class="leaps-empty">No name cleared the buy bar. A call needs 8 and a put needs 9, with two pillars on that side and a confirmed go entry.</p>';
+      : '<p class="leaps-empty">No name cleared the research hurdle: call score 8 or put magnitude 9, two aligned pillars, and the fundamental-path checks. Entry readiness is shown separately.</p>';
     html += '</section>';
-    html += '<section class="leaps-group"><h3>Watch</h3>';
+    html += '<section class="leaps-group"><h3>Developing ideas</h3>';
     html += watch.length
       ? watch.map(leapsRowHtml).join('')
-      : '<p class="leaps-empty">No name is sitting between the idea bar of 5 and a buy.</p>';
+      : '<p class="leaps-empty">No developing ideas above the idea bar of 5.</p>';
     html += '</section>';
     }
-    html += '<p class="leaps-note">Pick the contract yourself. This desk does not fetch a long-dated chain or name a strike.</p>';
+    html += '<p class="leaps-note">Research qualification is not permission to buy a LEAPS contract. The existing score weights are unchanged pending a separate review. Entry timing is a separate warning; this desk does not choose a strike, expiration or strategy.</p>';
     root.innerHTML = html;
     var buttons = root.querySelectorAll('[data-leaps-symbol]');
     for (var i = 0; i < buttons.length; i++){
@@ -33874,6 +33875,7 @@ ${renderWorkspaceBindings()}
     'ai-reject':'AI rejected', 'ai-not-strong':'AI grade not strong', 'thesis-not-strong':'Thesis not strong (no AI grade)',
     'ai-wait':'AI said wait', 'timing-checks':'Entry timing checks', 'avoid-timing':'Avoid timing (knife or chase)',
     'scenario':'Market scenario gate', 'slots-full':'Top Picks slots full', 'no-contract':'No tradeable contract',
+    'option-economics':'Option target does not support the profit exit after quote costs',
     'sector-cap':'Sector cap', 'factor-cap':'Factor cap', 'factor-trend':'Weak factor trend', 'side-cap':'Call / put cap'
   };
   function accGateStatsHtml(stats){
@@ -34756,7 +34758,7 @@ ${renderWorkspaceBindings()}
     regime:     { label: 'Market regime', key: function(e){ return e.entryRegime || 'Unknown'; }, lab: function(k){ return ACC_REGIME_LABEL[k] || k; }, order: ACC_REGIME_ORDER },
     sector:     { label: 'Sector', key: function(e){ return e.sector || 'Unknown'; }, lab: function(k){ return k; }, order: null },
     side:       { label: 'Side', key: function(e){ return e.side === 'put' ? 'put' : 'call'; }, lab: function(k){ return k === 'put' ? 'Put' : 'Call'; }, order: ['call','put'] },
-    structure:  { label: 'Structure', key: function(e){ return (e.contract && e.contract.structure) || 'long'; }, lab: function(k){ return ({ long:'Naked long', debit_vertical:'Debit vertical', credit_vertical:'Credit vertical' })[k] || k; }, order: ['long','debit_vertical','credit_vertical'] },
+    structure:  { label: 'Structure', key: function(e){ return (e.contract && e.contract.structure) || 'long'; }, lab: function(k){ return ({ long:'Purchased option', debit_vertical:'Debit vertical', credit_vertical:'Credit vertical' })[k] || k; }, order: ['long','debit_vertical','credit_vertical'] },
   };
   // Order a set of bucket keys by a dim's declared order (unknowns/extras last).
   function accOrderKeys(dim, keys){
@@ -35943,7 +35945,7 @@ ${renderWorkspaceBindings()}
       chip(accNum(m.calmar, 2), 'Calmar', m.calmar != null && m.calmar > 0 ? 'accuracy-chip-good' : '', 'Annualized return ÷ max drawdown %. Needs 20 trades and 365 calendar days from the first entry.') +
       chip(m.maxDDpct > 0 ? '-' + Math.round(m.maxDDpct * 100) + '%' : 'none', 'max drawdown', m.maxDDpct > 0 ? 'accuracy-chip-bad' : '', 'Largest peak-to-trough drop in the equity curve (' + accMoney(m.maxDD, false) + ').') +
       chip(m.recovery != null ? m.recovery + ' trades' : (m.maxDD > 0 ? 'not yet' : '—'), 'recovery', '', 'Trades from the max-drawdown trough back above the prior peak.') +
-      chip(m.pctMaxProfit != null ? Math.round(m.pctMaxProfit * 100) + '%' : '—', 'max-profit captured', '', 'Average share of a defined-risk winner\\'s max profit actually captured (' + m.pctMaxProfitN + ' trades; naked longs excluded — unbounded).') +
+      chip(m.pctMaxProfit != null ? Math.round(m.pctMaxProfit * 100) + '%' : '—', 'max-profit captured', '', 'Average share of a defined-risk winner\\'s max profit actually captured (' + m.pctMaxProfitN + ' trades; purchased options excluded — unbounded).') +
     '</div>';
     // exits + best/worst
     var exits = '<div class="acc-an-subhead">Exits &amp; extremes</div><div class="accuracy-chips">' +
@@ -37991,7 +37993,7 @@ ${renderWorkspaceBindings()}
   // debit vertical (rich-IV — finance the long by selling an OTM wing), show the two
   // legs and the CAPPED max-loss / max-profit so the user reads it as the defined-risk
   // trade it is: max loss = the net debit paid, max profit = strike width − debit. The
-  // capped upside is the price of the slashed theta / IV-crush + smaller premium at risk.
+  // capped upside is the price of the potentially reduced theta / IV exposure + smaller premium at risk.
   function pickVerticalStructureHtml(p, c){
     if (!c || (c.structure !== 'debit_vertical' && c.structure !== 'credit_vertical') || c.shortStrike == null) return '';
     var isCredit = c.structure === 'credit_vertical';
@@ -38023,10 +38025,10 @@ ${renderWorkspaceBindings()}
       (rr != null ? '<div class="pick-vert-stat"><div class="pick-vert-stat-label">Reward / risk</div><div class="pick-vert-stat-val">' + rr.toFixed(2) + '×</div></div>' : '');
     var tip = isCredit
       ? 'Credit vertical (defined-risk): you SELL the near-money leg and BUY a further-OTM wing on the same expiry, collecting a net credit. Best when implied vol is richly bid (>=2σ) — you sell expensive premium and profit from time decay + a vol contraction as long as price stays on your side of the short strike. Max profit = the credit; max loss = the strike width minus the credit.'
-      : 'Debit vertical (defined-risk): the long is financed by selling an OTM wing on the same expiry. Caps the max loss to the net debit and slashes theta + IV-crush vs a naked long — at the cost of a capped max profit (the strike width minus the debit).';
+      : 'Debit vertical (defined-risk): the long is financed by selling an OTM wing on the same expiry. Caps the max loss to the net debit and can reduce net theta and vega versus a purchased option. Sensitivities vary by strike and price; max profit is capped (the strike width minus the debit).';
     var head = isCredit
       ? '⛓ Credit spread <span class="pick-vert-tag">sell rich premium · capped risk</span>'
-      : '⛓ Defined-risk spread <span class="pick-vert-tag">caps loss · cuts theta/vega</span>';
+      : '⛓ Defined-risk spread <span class="pick-vert-tag">caps loss and upside</span>';
     return '<div class="pick-vert' + (isCredit ? ' pick-vert-credit' : '') + '" title="' + escapeHtml(tip) + '">' +
       '<div class="pick-vert-head">' + head + '</div>' +
       '<div class="pick-vert-legs">' + rows + '</div>' +
@@ -38302,6 +38304,40 @@ ${renderWorkspaceBindings()}
     '</div>';
   }
 
+  function optionEconomicsReason(reason){
+    var reasons = {
+      'target-supports-profit-exit': 'The stock target supports the managed option profit exit in the flat-IV scenario',
+      'target-unprofitable': 'The stock target does not cover option entry and closing costs in the flat-IV scenario',
+      'target-below-profit-exit': 'The stock target produces a gain below the managed option profit threshold',
+      'inconsistent-spread-model': 'Leg IVs imply an impossible spread value; verifiable pricing is required',
+      'invalid-stock-plan': 'A valid directional stock target and invalidation are unavailable',
+      'credit-defense-already-breached': 'The stock is already beyond the credit spread short-strike defense',
+      'debit-payoff-below-minimum-after-costs': 'The executable debit leaves less reward than the existing reward-to-risk minimum',
+      'credit-too-small-after-costs': 'The executable credit falls below the existing share-of-width minimum',
+      'missing-quotes': 'Complete two-sided quotes, IV or expiry are unavailable',
+      'insufficient-runway': 'The contract expires before the planning horizon ends'
+    };
+    return reasons[reason] || String(reason || 'Option pricing is unavailable').replace(/-/g, ' ');
+  }
+  function pickEconomicsHtml(p){
+    var economicHtml = '';
+    var economic = p.optionEconomics || (p.entry && p.entry.economics);
+    if (economic){
+      economicHtml = '<details class="research-details"><summary>Option entry feasibility · ' + (economic.eligible ? 'clears' : 'wait') + '</summary><p>' + escapeHtml(optionEconomicsReason(economic.reason)) + '. Target scenario after ' + escapeHtml(String(economic.horizonDays)) + ' calendar days; required gain ' + escapeHtml(String(economic.takeProfitPct)) + '%.</p>';
+      var comparison = economic.comparison;
+      if (comparison){
+        var permittedLabels = (comparison.permitted || []).map(function(type){ return type === 'long' ? 'single options' : type === 'credit' ? 'credit spreads' : 'debit spreads'; });
+        economicHtml += '<p>Checked ' + escapeHtml(String(comparison.evaluated)) + ' qualified contract' + (comparison.evaluated === 1 ? '' : 's') + ' using existing chain quotes. ' + (economic.eligible ? comparison.changed ? 'Selected a permitted alternative after the preferred contract was unavailable or failed economics.' : 'The preferred contract clears.' : 'No tested permitted contract clears.') + ' Permitted structures: ' + escapeHtml(permittedLabels.join(', ')) + '.</p>';
+      }
+      (economic.scenarios || []).forEach(function(sc){
+        var scenarioLabel = sc.label === 'iv-down' ? 'IV 20% lower' : sc.label === 'iv-up' ? 'IV 20% higher' : 'IV unchanged';
+        economicHtml += '<p>' + scenarioLabel + ': ' + (!sc.atTarget || !sc.atInvalidation ? 'Unavailable — leg pricing does not produce a valid spread value.' : 'option return at stock target ' + escapeHtml(fmt(sc.atTarget.returnPct, 1)) + '%, at stock invalidation ' + escapeHtml(fmt(sc.atInvalidation.returnPct, 1)) + '%.') + '</p>';
+      });
+      if (economic.quoteBasedExits) economicHtml += '<p>Using the quote-cost entry estimate of $' + escapeHtml(fmt(economic.entryPrice, 2)) + ' per share, the modeled ' + escapeHtml(economic.quoteBasedExits.action) + ' profit exit is $' + escapeHtml(fmt(economic.quoteBasedExits.takeProfitClosePrice, 2)) + ' and stop is $' + escapeHtml(fmt(economic.quoteBasedExits.stopClosePrice, 2)) + '. These differ from the midpoint reference ladder. Recalculate from your actual fill.</p>';
+      economicHtml += '<p>Modeled scenarios, not expected returns or guaranteed fills. Entry crosses current quotes; future close uses current half-spreads. IV stresses are 20% lower or higher. ' + (economic.feesEstimated ? 'Configured fees included.' : 'Fees are not estimated.') + ' The planning horizon is not an automatic time exit.</p></details>';
+    }
+    return economicHtml;
+  }
   function pickExitPlanHtml(p){
     var x = p && p.exitPlan;
     if (!x) return '';
@@ -38400,6 +38436,7 @@ ${renderWorkspaceBindings()}
       return '<div class="pick-exit">' +
         '<div class="pick-exit-head">Exit ladder</div>' +
         overview +
+        (x.premiumBasis ? '<p>Option exit prices use the published midpoint as a reference. Recalculate them from your actual fill. Stock targets are reference levels; reaching one does not guarantee the option profit exit.</p>' : '') +
         '<div class="pick-exit-cols">' + cols + '</div>' +
         trigL +
       '</div>';
@@ -39094,6 +39131,12 @@ ${renderWorkspaceBindings()}
       if (structure && structure.target != null) audit.push('target $' + structure.target);
       if (structure && structure.rr != null) audit.push(structure.rr + ':1 payoff');
       if (audit.length) out += '<p class="pick-timing-hint">' + escapeHtml(audit.join(' · ')) + '</p>';
+    }
+    var volRisk = pil && pil.volatilityRisk;
+    if (volRisk){
+      out += '<p class="pick-timing-hint">' + (volRisk.available
+        ? 'Volatility-aware review: prior daily ATR ' + escapeHtml(fmt(volRisk.priorAtrPct.d1, 1)) + '%. Severe adverse-move thresholds: ' + escapeHtml(fmt(volRisk.thresholdsPct.severe1, 1)) + '% in one session or ' + escapeHtml(fmt(volRisk.thresholdsPct.severe3, 1)) + '% over three. The tested move is excluded from its ATR reference. Large-gap safeguards still apply.'
+        : 'Prior volatility is unavailable. Conservative percentage thresholds apply.') + '</p>';
     }
     out += '<p class="pick-timing-research">⚗︎ Research / forward-validation — deterministic thresholds are frozen and logged; judge their marginal value with trigger fills, MAE/MFE and resolved option expectancy.</p>';
     return out;
@@ -40204,7 +40247,8 @@ ${renderWorkspaceBindings()}
     // (the full 4-pillar score breakdown — so you can judge how the score was
     // arrived at, right next to the call). A legacy pick with no pillar data
     // renders the recommendation directly with no tabs.
-    var recBody = tierHtml + '<details class="research-details"><summary>Thesis and supporting evidence</summary>' + analysisHtml + thesisHtml + '</details>' + entryHtml + exitHtml + '<details class="research-details"><summary>Contract economics, Greeks and grading</summary>' + contractHtml + '</details>' + peersHtml;
+    var economicHtml = pickEconomicsHtml(p);
+    var recBody = tierHtml + '<details class="research-details"><summary>Thesis and supporting evidence</summary>' + analysisHtml + thesisHtml + '</details>' + entryHtml + economicHtml + exitHtml + '<details class="research-details"><summary>Contract economics, Greeks and grading</summary>' + contractHtml + '</details>' + peersHtml;
     var bodyHtml;
     if (pillarsHtml){
       // Honor the tab the user last picked for this symbol so re-opening the
@@ -40865,7 +40909,7 @@ ${renderWorkspaceBindings()}
     // the bar, and the sector cap limits correlated names). Reads rosterMeta.
     var rm = data.rosterMeta || null;
     var noteBits = [];
-    if (picks.length < 10) noteBits.push('Only <b>' + picks.length + '</b> clean setup' + (picks.length === 1 ? '' : 's') + ' on the research roster');
+    if (picks.length < 10) noteBits.push('Only <b>' + picks.length + '</b> research idea' + (picks.length === 1 ? '' : 's') + ' on the roster');
     if (rm && rm.sectorCapped && rm.sectorCapped.length) noteBits.push('<b>' + rm.sectorCapped.length + '</b> skipped to cap sector concentration');
     if (rm && rm.factorCapped && rm.factorCapped.length) noteBits.push('<b>' + rm.factorCapped.length + '</b> skipped to cap factor concentration');
     if (rm && rm.factorTrendGated && rm.factorTrendGated.length) noteBits.push('<b>' + rm.factorTrendGated.length + '</b> long' + (rm.factorTrendGated.length === 1 ? '' : 's') + ' stood down — their sector is rolling over (no chasing a falling factor)');
