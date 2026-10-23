@@ -1,6 +1,6 @@
 # Risk-Analysis correctness review
 
-Reviewed October 23, 2026 against main at `0bd3188b620f811178e8fdacdc3f6f6d4bec8bbb`. Changes remain local on `Risk-Analysis`.
+Reviewed October 23, 2026 against main at `0bd3188b620f811178e8fdacdc3f6f6d4bec8bbb`. The review was developed on `Risk-Analysis`.
 
 This review covers the changed entry engine, option selection, exits, published explanations, LEAPS research labels and downstream tracking. It separates reproducible bugs from thresholds that still need investment-performance evidence. The approved policy and exact thresholds are in [risk-analysis-policy.md](risk-analysis-policy.md).
 
@@ -45,3 +45,5 @@ A second pass reproduced two additional persisted-data cases. A reviewed pick wi
 The economics screen also compared a rounded return with the 25% threshold. A 24.99999% scenario could round up and qualify. Thresholds now use full precision, with rounding reserved for serialized display values. The same correction applies to the debit reward/risk comparison.
 
 The follow-up test sweeps 324 combinations across calls/puts, single/debit/credit structures, 30/60/90-day expirations, IV, stock targets and fees. It checks contractual payoff bounds, complete scenarios and that adding fees cannot improve or rescue the same contract. Actual isolated enrollment and live-roster rendering tests cover the new consistency cases.
+
+The release integrates main through `578c8c2b134c36b3b33efe048308a9d6edc0ba7c`, including the Webull analytics release. The cost check pins that pre-release revision so future commits cannot make its default baseline equal the changed engine itself.

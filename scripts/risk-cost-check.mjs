@@ -1,5 +1,5 @@
 // Offline, repeatable incremental-cost check against a Git revision.
-// Usage: node scripts/risk-cost-check.mjs [baseline-ref, default HEAD]
+// Usage: node scripts/risk-cost-check.mjs [baseline-ref, default pre-release main]
 // No provider credentials, billing access or production writes are used.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -14,7 +14,9 @@ import { bsPrice, yearsToExpiry } from '../lib/greeks.mjs';
 import { entryVolatilityRisk } from '../lib/entry-volatility-risk.mjs';
 
 const root=fileURLToPath(new URL('..',import.meta.url));
-const ref=process.argv[2]||'HEAD';
+// Pin the release baseline so committing/merging cannot turn the check into
+// a comparison of the engine with itself. Callers may supply another ref.
+const ref=process.argv[2]||'578c8c2b134c36b3b33efe048308a9d6edc0ba7c';
 const git=(...args)=>execFileSync('git',args,{cwd:root,encoding:'utf8',maxBuffer:32*1024*1024}).trim();
 const original=git('show',ref+':scripts/build.mjs');
 const working=await readFile(resolve(root,'scripts/build.mjs'),'utf8');

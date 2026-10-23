@@ -8,13 +8,13 @@ assert.ok(start > 0 && end > start);
 const box = { innerHTML: "" }, summaries = [];
 const escapeHtml = (v) => String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const fixture = { enabled: true, lastRunIso: new Date().toISOString(), reconciliation: { status: "attention", checkedAtIso: new Date().toISOString(), alerts: ['NVDA: review <unsafe> holdings'] }, trades: [
-  { tradeId: "closed", symbol: "NVDA", side: "call", structure: "long", state: "closed", requestedQty: 3, filledQty: 3, closedQty: 3, openQty: 0, fillPrice: 5, closeFillPrice: 6.25, paperPnlPct: 25, fees: 3, engineEntryPrice: 5, engineExitPrice: 6.25, enginePnlPct: 25, engineCloseReason: "hit-tp-prem" },
+  { tradeId: "closed", symbol: "NVDA", side: "call", structure: "long", state: "closed", requestedQty: 3, filledQty: 3, closedQty: 3, openQty: 0, fillPrice: 5, closeFillPrice: 6.25, paperPnlPct: 25, fees: 3, closeFillIso: "2026-10-22T19:30:00Z", engineEntryPrice: 5, engineExitPrice: 6.25, enginePnlPct: 25, engineCloseReason: "hit-tp-prem" },
   { tradeId: "queued", symbol: "NVDA", side: "call", structure: "long", state: "entering", entryTries: 0, requestedQty: 1, filledQty: 0, closedQty: 0, openQty: 0 },
   { tradeId: "partial", symbol: "AAPL", side: "put", structure: "debit_vertical", state: "exiting", requestedQty: 3, filledQty: 2, closedQty: 1, openQty: 1 },
   { tradeId: "expiry", symbol: "AAPL", side: "put", structure: "long", state: "settled", requestedQty: 1, filledQty: 1, closedQty: 0, openQty: 0, paperPnlPct: null },
 ] };
 const context = vm.createContext({ console, Date, isFinite, $, escapeHtml,
-  accuracyState: { data: {} }, accFills: { rows: [] }, accView: { wbSide: "all", wbStruct: "all", wbRun: "all", wbState: "all", wbRange: "all" },
+  accuracyState: { data: {} }, accFills: { rows: [] }, accView: { wbSide: "all", wbStruct: "all", wbRun: "all", wbState: "all", wbRange: "all", wbLens: "trades", wbGroup: "structure" },
   accFillKey: (s) => s, tlTradeId: (e) => e.tradeId, tlEtParts: () => ({ hour: "11" }),
   accSeg: () => "", accPaneSummary: (...args) => summaries.push(args),
   accDateTime: (v) => v || "—", accPct: (v) => v == null ? "—" : `${v.toFixed(1)}%`,
@@ -31,6 +31,8 @@ assert.match(box.innerHTML, /queued<\/td>|queued<br>/);
 assert.match(box.innerHTML, /flat; settlement P&amp;L unverified/);
 assert.match(box.innerHTML, /review &lt;unsafe&gt; holdings/);
 assert.doesNotMatch(box.innerHTML, /review <unsafe>/);
+context.accView.wbLens = "performance";
+vm.runInContext("renderWebullTest()", context);
 assert.match(box.innerHTML, /\$372\.00/, "paper dollars use 3 contracts less $3 fees");
 assert.match(box.innerHTML, /\$375\.00/, "engine comparison uses the same 3 contracts");
 assert.equal(vm.runInContext("wbFeePct(wbTest.data.trades[0])", context), 0.2);

@@ -55,7 +55,7 @@ Fresh reclaim, expiry expansion, account sizing and LEAPS score weights remain u
 
 ## Incremental operating cost check
 
-Run `npm run verify:risk-cost`. The offline check compares the working engine with HEAD, blocks network requests during evaluation, verifies unchanged network/model/write call-site counts, provider model/cap settings, workflow/API/dependency/storage files, and AI prompt construction. It benchmarks ordinary selection, a stressed 14-expiration search and timing, and measures the added audit bytes.
+Run `npm run verify:risk-cost`. The offline check compares the working engine with the pinned pre-release main revision, blocks network requests during evaluation, verifies unchanged network/model/write call-site counts, provider model/cap settings, workflow/API/dependency/storage files, and AI prompt construction. It benchmarks ordinary selection, a stressed 14-expiration search and timing, and measures the added audit bytes.
 
 Local measurements on October 23 ranged from approximately 0.3–2.4 ms for ordinary selection and 4–48 ms for a 14-expiration search testing 124 contracts. Timing ranged from approximately 0.08–1.2 ms. Timings varied between runs; these are observed ranges rather than service-level guarantees. The compact comparison was about 451 bytes per serialized copy, and the volatility audit about 508 bytes. Existing payloads carry these fields; there are no new storage operations, providers, scheduled jobs, market-data fetches or model calls per alternative. Runtime measurements vary and are not a billing measurement.
 

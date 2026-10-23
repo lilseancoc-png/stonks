@@ -22,6 +22,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ## 2026-10-22
 
+### Added
+
+- Expand Webull Test with Performance, Accuracy, Engine and Trade log views: realized P&L and drawdown curves, matched model comparisons, return distributions, rolling win and direction rates, cohort and entry-probability comparisons, execution states and price gaps. Share and save filters across views, show sample coverage and missing-data states, and provide chart data tables plus a local synthetic preview. Uses the existing Owner-only ledger and pick records without additional broker, market-data or AI calls.
+
 ### Changed
 
 - Top Picks takes profit at +25% on single longs and debit spreads, retaining the -50% premium stop and the credit-spread +50%/-50% rules. Newly evaluated open trades store versioned exit thresholds; completed historical results stay intact.
@@ -29,10 +33,17 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
+- Keep unverified fills and inconsistent quantities out of Webull outcomes, withhold drawdown when paper close dates are missing, preserve archived AI grades, and display broker reconciliation warnings. Preserve keyboard focus during filtering, show all comparison values in chart tooltips, calculate quote-scenario fees against each scenario entry price, and keep compact chart labels readable.
+
 - Owner Lab keeps grader decisions from different runs separate with their recorded times, and omits company returns from relationship edges that contain no company.
 - Webull paper execution reconciles confirmed order fills with broker holdings, tracks requested/filled/closed quantities and weighted prices, and replaces only the remaining contracts. Durable order intents and an R2 conditional lease protect retries and overlapping runs. Expiry controls start closes before expiration using exchange holidays and early closes; unresolved expiry or stock changes appear for Owner review without invented fills or automatic stock liquidation. Automatic reconciliation follows publication of the 11:00 / 15:30 ET Top Picks builds, with up to two two-minute follow-ups only for pending work; no all-day polling or AI calls. See `docs/webull-paper-controls.md` for activation and verification limits.
 - Automatic options routing treats absent/stale relative IV as unknown and preserves spread restrictions when a leg is unavailable.
 - **Owner Lab validates prices and sizing before showing a decision.** Missing prices withhold position verdicts, old or last-trade prices are reference only, and Pass setups receive no leveraged ETF size. Evidence distinguishes collecting history from neutral and separates incompatible metric histories. Volatility-premium rows share one observation date, partial research remains visible, and earnings averages show separate sample counts.
+
+### Removed
+
+- Remove Paper books from Track Record navigation, rendering and saved controls; retain the underlying research history.
+
 
 ## 2026-10-21
 
