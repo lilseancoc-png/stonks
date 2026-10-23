@@ -1,5 +1,5 @@
 // Synthetic data for repeatable UI checks. Never used by the production app.
-export function webullReviewFixture(now = Date.now()) {
+export function webullReviewFixture(now = Date.now(), mode = 'standard') {
   const trades = [], records = [], baseline = [];
   for (let i = 0; i < 36; i++) {
     const symbol = ['NVDA', 'AAPL', 'MSFT', 'AMD', 'META', 'TSLA'][i % 6];
@@ -20,5 +20,19 @@ export function webullReviewFixture(now = Date.now()) {
     if (i % 3) baseline.push({ pairKey: symbol + ':' + side + ':' + engineEntryIso, exitDate: closeFillIso, optionPnlPct: 8 });
   }
   ['open', 'entering', 'exiting', 'missed', 'skipped', 'settlement-pending'].forEach((state, i) => trades.push({ tradeId: 'pending-' + i, symbol: 'NVDA', side: i % 2 ? 'put' : 'call', structure: 'long', state, engineEntryIso: new Date(now - 86400000).toISOString(), engineEntryPrice: 3, fillPrice: state === 'open' || state === 'exiting' ? 3 : null }));
-  return { mirror: { enabled: true, lastRunIso: new Date(now).toISOString(), goLiveIso: new Date(now - 90 * 86400000).toISOString(), trades }, accuracy: { builtAtIso: new Date(now).toISOString(), open: [], closed: records, baseline: { closed: baseline, open: [] } } };
+  const result = { mirror: { enabled: true, lastRunIso: new Date(now).toISOString(), engineSnapshotIso: new Date(now).toISOString(), reconciliation: { status: 'ok', checkedAtIso: new Date(now).toISOString(), alerts: [] }, goLiveIso: new Date(now - 90 * 86400000).toISOString(), trades }, accuracy: { builtAtIso: new Date(now).toISOString(), open: [], closed: records, baseline: { closed: baseline, open: [] } } };
+  if (mode === 'edge') {
+    trades[0].closeFillIso = null;
+    Object.assign(trades[1], { requestedQty: 3, filledQty: 3, closedQty: 3, openQty: 0, fees: 3 });
+    Object.assign(trades[2], { needsReview: true, note: 'Review <unsafe> broker response', requestedQty: 1, filledQty: 0, closedQty: 0, openQty: 0 });
+    const archived = records.splice(3, 1)[0];
+    archived.aiGrade = 'Archived A'; archived.thesis = null; archived.sector = 'constructor'; archived.archived = true;
+    result.accuracy.archive = [archived];
+    trades.push({ tradeId: 'partial-exit-review', symbol: 'NVDA', side: 'put', structure: 'long', state: 'error', requestedQty: 3, filledQty: 2, closedQty: 1, openQty: 1, needsReview: true, engineEntryIso: new Date(now - 86400000).toISOString(), fillPrice: 3, closeFillPrice: 4, paperPnlPct: 33 });
+    result.mirror.engineSnapshotIso = new Date(now - 86400000).toISOString();
+    result.mirror.reconciliation = { status: 'attention', checkedAtIso: new Date(now).toISOString(), alerts: ['NVDA: review <unsafe> holdings', 'Entry orders paused until broker quantities reconcile.'] };
+  }
+  if (mode === 'empty') { result.mirror.trades = []; result.accuracy.closed = []; }
+  if (mode === 'open') { result.mirror.trades = trades.filter(t => t.state !== 'closed'); result.accuracy.closed = []; }
+  return result;
 }

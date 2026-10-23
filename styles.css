@@ -16396,13 +16396,16 @@ body.tape-axm-open { overflow: hidden; }
 .wb-refresh { border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); padding: 8px 12px; font: inherit; font-size: 12px; cursor: pointer; }
 .wb-refresh:hover { border-color: var(--accent); }
 .wb-sample-note { margin: 18px 0 12px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.wb-review-warning { padding: 12px 14px; border: 1px solid var(--accent); border-left-width: 3px; border-radius: 6px; margin: 12px 0; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.wb-review-warning p { margin: 5px 0; }
+.wb-review-warning ul { padding-left: 20px; margin: 6px 0 0; }
 .wb-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 20px; }
 .wb-metric { background: var(--surface); padding: 18px; display: flex; flex-direction: column; gap: 8px; }
 .wb-metric-label { color: var(--muted); font-size: 12px; }
 .wb-metric strong { font-size: clamp(20px, 2.4vw, 30px); line-height: 1.2; font-variant-numeric: tabular-nums; font-weight: 550; }
 .wb-metric-note { color: var(--muted); font-size: 11px; line-height: 1.5; }
 .wb-chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.wb-chart-card { min-width: 0; padding: 20px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.wb-chart-card { container: wb-chart / inline-size; min-width: 0; padding: 20px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
 .wb-chart-card.wb-wide { grid-column: 1 / -1; }
 .wb-chart-card h3 { margin: 0 0 6px; font-size: 16px; font-weight: 550; }
 .wb-chart-note { margin: 0 0 14px; font-size: 12px; line-height: 1.6; color: var(--muted); }
@@ -16443,6 +16446,12 @@ body.tape-axm-open { overflow: hidden; }
   .wb-review-svg .acc-eq-yl, .wb-review-svg .wb-axis-label { font-size: 22px; }
   .wb-review-nav .acc-seg { max-width: 100%; }
   .wb-review-nav .acc-seg label { padding: 8px 10px; }
+}
+@container wb-chart (max-width: 520px) {
+  .wb-review-svg .acc-eq-yl, .wb-review-svg .wb-axis-label { font-size: 20px; }
+}
+@container wb-chart (max-width: 380px) {
+  .wb-review-svg .acc-eq-yl, .wb-review-svg .wb-axis-label { font-size: 24px; }
 }
 .acc-eq-area.up { fill: color-mix(in srgb, var(--pos) 14%, transparent); }
 .acc-eq-area.down { fill: color-mix(in srgb, var(--neg) 14%, transparent); }

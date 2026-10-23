@@ -824,7 +824,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fallback","asOf":"2026-10-22","ageDays":null};
+  var RFR_META = {"source":"fallback","asOf":"2026-10-23","ageDays":null};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null, chainRequestSeq: 0 };
   var ownerAutoPicks = { data: null, pending: null };
@@ -34781,7 +34781,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   function accFillsHtml(d){
     if (accFills.error === 'off') return '';
-    var byId = {};
+    var byId = Object.create(null);
     [].concat(d.open || [], d.closed || [], d.archive || []).forEach(function(e){ if (e && e.symbol && e.entryDate) byId[accFillKey(tlTradeId(e))] = e; });
     var rows = accFills.rows || [];
     var acct = {};
@@ -34849,11 +34849,34 @@ function scenarioEventPhase(ev, now = Date.now()) {
   var WB_ANALYTICS = (function webullAnalyticsFactory() {
   function num(v) { if (v == null || v === '' || typeof v === 'boolean') return null; const n = Number(v); return Number.isFinite(n) ? n : null; }
   function mean(v) { return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; }
-  function quantity(t) { const q = num(t.filledQty); return q > 0 ? q : 1; }
-  function net(t) { const p = num(t.paperPnlPct), price = num(t.fillPrice); return p == null ? null : p - (price > 0 ? (num(t.fees) || 0) / (price * quantity(t)) : 0); }
+  function quantity(t) {
+    if (t.filledQty == null) return 1; // Original one-contract ledger.
+    const q = num(t.filledQty);
+    return Number.isInteger(q) && q > 0 ? q : null;
+  }
+  function hasFill(t) { return num(t.fillPrice) > 0 && quantity(t) != null; }
+  function net(t) {
+    const p = num(t.paperPnlPct), price = num(t.fillPrice), q = quantity(t);
+    return p == null || !(price > 0) || q == null ? null : p - (num(t.fees) || 0) / (price * q);
+  }
+  function isClosed(t) {
+    const close = num(t.closeFillPrice);
+    if (t.state !== 'closed' || t.needsReview || !hasFill(t) || net(t) == null || close == null || close < 0 || t.openQty != null && num(t.openQty) !== 0) return false;
+    if (t.filledQty != null || t.closedQty != null) return num(t.filledQty) === quantity(t) && num(t.closedQty) === quantity(t);
+    return true;
+  }
+  function isActive(t) { return ['open', 'entering', 'exiting', 'error', 'settlement-pending'].includes(t.state) || num(t.openQty) > 0 || !!t.needsReview; }
+  function scenarios(t) {
+    const eb = num(t.entryBid), ea = num(t.entryAsk), xb = num(t.exitBid), xa = num(t.exitAsk), q = quantity(t);
+    if (eb == null || ea == null || xb == null || xa == null || eb < 0 || xb < 0 || ea < eb || xa < xb || q == null) return null;
+    const credit = /credit/i.test(t.structure || '');
+    function result(open, close) { return open > 0 ? (credit ? open - close : close - open) / open * 100 - (num(t.fees) || 0) / (open * q) : null; }
+    const mid = result((eb + ea) / 2, (xb + xa) / 2), cross = result(credit ? eb : ea, credit ? xa : xb);
+    return mid == null || cross == null ? null : { mid, cross };
+  }
   function dollars(t, model) {
     const open = num(model ? t.engineEntryPrice : t.fillPrice), close = num(model ? t.engineExitPrice : t.closeFillPrice);
-    if (!(open > 0) || close == null || close < 0) return null;
+    if (!(open > 0) || close == null || close < 0 || quantity(t) == null) return null;
     return (close - open) * (/credit/i.test(t.structure || '') ? -1 : 1) * 100 * quantity(t) - (model ? 0 : num(t.fees) || 0);
   }
   function direction(r) {
@@ -34861,24 +34884,25 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return a > 0 && b > 0 && (r.side === 'call' || r.side === 'put') ? (r.side === 'put' ? b < a : b > a) : null;
   }
   function analyze(rows, groupBy) {
-    const closed = rows.filter(x => x.t.state === 'closed' && net(x.t) != null && !(num(x.t.openQty) > 0))
-      .map(x => ({ ...x, pnl: net(x.t), usd: dollars(x.t, false), modelUsd: dollars(x.t, true), model: num(x.t.enginePnlPct), direction: direction(x.rec), date: x.t.closeFillIso || x.t.engineExitIso || null }))
-      .sort((a, b) => (Date.parse(a.date) || 0) - (Date.parse(b.date) || 0) || String(a.t.tradeId).localeCompare(String(b.t.tradeId)));
+    const closed = rows.filter(x => isClosed(x.t))
+      .map(x => ({ ...x, pnl: net(x.t), usd: dollars(x.t, false), modelUsd: dollars(x.t, true), model: num(x.t.enginePnlPct), direction: direction(x.rec), date: Number.isFinite(Date.parse(x.t.closeFillIso)) ? x.t.closeFillIso : null }))
+      .sort((a, b) => (a.date ? Date.parse(a.date) : Infinity) - (b.date ? Date.parse(b.date) : Infinity) || String(a.t.tradeId).localeCompare(String(b.t.tradeId)));
     const money = closed.filter(x => x.usd != null), paired = money.filter(x => x.modelUsd != null);
+    const dated = closed.filter(x => x.date), datedMoney = money.filter(x => x.date), datedPairs = paired.filter(x => x.date);
     let cumulative = 0, peak = 0, worstDrawdown = 0, modelTotal = 0, matchedTotal = 0;
     const curve = [{ label: 'Start', paper: 0, drawdown: 0 }];
-    money.forEach(x => { cumulative += x.usd; peak = Math.max(peak, cumulative); const drawdown = cumulative - peak; worstDrawdown = Math.min(worstDrawdown, drawdown); curve.push({ label: x.t.symbol + ' · ' + (x.date || 'date unavailable'), paper: cumulative, drawdown }); });
+    datedMoney.forEach(x => { cumulative += x.usd; peak = Math.max(peak, cumulative); const drawdown = cumulative - peak; worstDrawdown = Math.min(worstDrawdown, drawdown); curve.push({ label: x.t.symbol + ' · ' + x.date, paper: cumulative, drawdown }); });
     const comparison = [{ label: 'Start', paper: 0, engine: 0 }];
-    paired.forEach(x => { matchedTotal += x.usd; modelTotal += x.modelUsd; comparison.push({ label: x.t.symbol + ' · ' + (x.date || 'date unavailable'), paper: matchedTotal, engine: modelTotal }); });
+    datedPairs.forEach(x => { matchedTotal += x.usd; modelTotal += x.modelUsd; comparison.push({ label: x.t.symbol + ' · ' + x.date, paper: matchedTotal, engine: modelTotal }); });
     let paperReturn = 0, spyReturn = 0;
-    const benchmarkPairs = closed.filter(x => x.spy && x.spy.exitDate && num(x.spy.optionPnlPct) != null);
+    const benchmarkPairs = dated.filter(x => x.spy && x.spy.exitDate && num(x.spy.optionPnlPct) != null);
     const benchmark = [{ label: 'Start', paper: 0, spy: 0 }];
     benchmarkPairs.forEach(x => { paperReturn += x.pnl; spyReturn += num(x.spy.optionPnlPct); benchmark.push({ label: x.t.symbol + ' · ' + (x.date || 'date unavailable'), paper: paperReturn, spy: spyReturn }); });
     const returns = closed.map(x => x.pnl), wins = returns.filter(v => v > 0).length;
     const gains = money.filter(x => x.usd > 0).reduce((s, x) => s + x.usd, 0), losses = -money.filter(x => x.usd < 0).reduce((s, x) => s + x.usd, 0);
     const directional = closed.filter(x => x.direction != null);
-    const trend = closed.map((x, i) => {
-      const window = closed.slice(Math.max(0, i - 19), i + 1), d = window.filter(v => v.direction != null);
+    const trend = dated.map((x, i) => {
+      const window = dated.slice(Math.max(0, i - 19), i + 1), d = window.filter(v => v.direction != null);
       return { label: x.t.symbol + ' · ' + (x.date || 'date unavailable') + ' · ' + window.length + ' trades', win: window.filter(v => v.pnl > 0).length / window.length * 100, direction: d.length ? d.filter(v => v.direction).length / d.length * 100 : null };
     });
     const hist = [
@@ -34886,10 +34910,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
       { label: '−20 to 0%', lo: -20, hi: 0 }, { label: '0 to 20%', lo: 0, hi: 20 },
       { label: '20 to 50%', lo: 20, hi: 50 }, { label: '50% and up', lo: 50, hi: Infinity },
     ].map(b => ({ label: b.label, value: returns.filter(v => v >= b.lo && v < b.hi).length, cls: b.hi <= 0 ? 'negative' : 'positive' }));
-    const group = {};
+    const group = Object.create(null);
     closed.forEach(x => {
       const r = x.rec || {}, t = x.t;
-      const k = groupBy === 'grade' ? r.thesis && r.thesis.aiGrade || 'No AI grade' : groupBy === 'sector' ? r.sector || 'Unknown sector' : groupBy === 'regime' ? r.entryRegime || 'Unknown regime' : groupBy === 'tier' ? r.label || r.tier || 'Unknown tier' : groupBy === 'side' ? t.side === 'put' ? 'Puts' : 'Calls' : groupBy === 'run' ? (!Number.isFinite(Date.parse(t.engineEntryIso)) ? 'Unknown run' : new Date(t.engineEntryIso).toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false }) < 13 ? '11:00 ET' : '15:30 ET') : t.structure === 'long' ? 'Single option' : /credit/.test(t.structure || '') ? 'Credit spread' : 'Debit spread';
+      const k = groupBy === 'grade' ? r.thesis && r.thesis.aiGrade || r.aiGrade || 'No AI grade' : groupBy === 'sector' ? r.sector || 'Unknown sector' : groupBy === 'regime' ? r.entryRegime || 'Unknown regime' : groupBy === 'tier' ? r.label || r.tier || 'Unknown tier' : groupBy === 'side' ? t.side === 'put' ? 'Puts' : 'Calls' : groupBy === 'run' ? (!Number.isFinite(Date.parse(t.engineEntryIso)) ? 'Unknown run' : new Date(t.engineEntryIso).toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false }) < 13 ? '11:00 ET' : '15:30 ET') : t.structure === 'long' ? 'Single option' : /credit/.test(t.structure || '') ? 'Credit spread' : 'Debit spread';
       (group[k] || (group[k] = [])).push(x);
     });
     const groups = Object.keys(group).map(label => { const xs = group[label], models = xs.filter(x => x.model != null); return { label, n: xs.length, value: xs.filter(x => x.pnl > 0).length / xs.length * 100, avg: mean(xs.map(x => x.pnl)), model: mean(models.map(x => x.model)), modelN: models.length }; }).sort((a, b) => b.n - a.n || a.label.localeCompare(b.label));
@@ -34897,26 +34921,33 @@ function scenarioEventPhase(ev, now = Date.now()) {
       const xs = closed.map(x => { let p = num(x.rec && x.rec.contract && x.rec.contract.pop); if (p != null && p <= 1) p *= 100; return { p, win: x.pnl > 0 }; }).filter(x => x.p != null && x.p >= b.lo && x.p < b.hi && x.p <= 100);
       return { label: b.label, n: xs.length, predicted: mean(xs.map(x => x.p)), actual: xs.length ? xs.filter(x => x.win).length / xs.length * 100 : null };
     });
-    const states = [ ['Waiting for entry', ['entering']], ['Open / closing', ['open', 'exiting']], ['Closed', ['closed']], ['Missed / skipped', ['missed', 'skipped']], ['Settlement / review', ['settled', 'settlement-pending', 'error']] ];
+    const states = [ ['Waiting for entry', ['entering']], ['Open / closing', ['open', 'exiting']], ['Closed', ['closed']], ['Missed / skipped', ['missed', 'skipped']], ['Settlement / review', ['settled', 'settlement-pending', 'expired', 'error']] ];
     const knownStates = states.flatMap(s => s[1]);
     const execution = states.map(s => ({ label: s[0], value: rows.filter(x => s[1].includes(x.t.state)).length }));
     execution.push({ label: 'Other state', value: rows.filter(x => !knownStates.includes(x.t.state)).length });
-    const slippage = rows.filter(x => num(x.t.entryDiffPct) != null || num(x.t.exitDiffPct) != null).slice().sort((a, b) => (Date.parse(a.t.engineEntryIso) || 0) - (Date.parse(b.t.engineEntryIso) || 0)).map(x => { const credit = /credit/i.test(x.t.structure || ''), a = num(x.t.entryDiffPct), b = num(x.t.exitDiffPct); return { label: x.t.symbol + ' · ' + (x.t.engineEntryIso || 'date unavailable'), entry: a == null ? null : credit ? -a : a, exit: b == null ? null : credit ? b : -b }; });
+    const slippage = rows.filter(x => Number.isFinite(Date.parse(x.t.engineEntryIso)) && (num(x.t.entryDiffPct) != null || num(x.t.exitDiffPct) != null)).slice().sort((a, b) => Date.parse(a.t.engineEntryIso) - Date.parse(b.t.engineEntryIso)).map(x => { const credit = /credit/i.test(x.t.structure || ''), a = num(x.t.entryDiffPct), b = num(x.t.exitDiffPct); return { label: x.t.symbol + ' · ' + x.t.engineEntryIso, entry: a == null ? null : credit ? -a : a, exit: b == null ? null : credit ? b : -b }; });
     const modelPairs = closed.filter(x => x.model != null);
     const errors = modelPairs.map(x => x.pnl - x.model);
     return { closed, money, paired, curve, comparison, benchmark, trend, hist, groups, calibration, execution, slippage, stats: {
-      total: rows.length, n: closed.length, recordN: closed.filter(x => x.rec).length, moneyN: money.length, pairedN: paired.length, benchmarkN: benchmarkPairs.length, pnl: money.length ? cumulative : null,
-      drawdown: money.length ? worstDrawdown : null, expectancy: mean(money.map(x => x.usd)), winRate: returns.length ? wins / returns.length * 100 : null,
+      total: rows.length, n: closed.length, excludedClosed: rows.filter(x => x.t.state === 'closed' && !isClosed(x.t)).length,
+      undated: closed.length - dated.length, datedN: datedMoney.length, datedPairedN: datedPairs.length,
+      recordN: closed.filter(x => x.rec).length, moneyN: money.length, pairedN: paired.length, benchmarkN: benchmarkPairs.length, pnl: money.length ? money.reduce((s, x) => s + x.usd, 0) : null,
+      drawdown: money.length && datedMoney.length === money.length ? worstDrawdown : null, expectancy: mean(money.map(x => x.usd)), winRate: returns.length ? wins / returns.length * 100 : null,
       profitFactor: losses ? gains / losses : null, noLosses: money.length > 0 && losses === 0 && gains > 0,
       direction: directional.length ? directional.filter(x => x.direction).length / directional.length * 100 : null, directionN: directional.length,
       modelN: errors.length, bias: mean(errors), mae: mean(errors.map(Math.abs)), within: errors.length ? errors.filter(v => Math.abs(v) <= 5).length / errors.length * 100 : null,
       unknownFees: closed.filter(x => num(x.t.fees) == null).length,
     } };
   }
-  return { analyze, net, dollars, quantity };
+  return { analyze, net, dollars, quantity, hasFill, isClosed, isActive, scenarios };
 })();
-  var WB_REVIEW = (function webullReviewFactory({ html, pct, money, hover }) {
+  var WB_REVIEW = (function webullReviewFactory({ html, pct, money, hover, dateTime = String }) {
   function format(v, unit) { return v == null ? '—' : unit === '$' ? money(v, true) : unit === 'count' ? String(v) : unit === 'rate' ? v.toFixed(1) + '%' : pct(v); }
+  function axis(v, unit) {
+    const magnitude = Math.abs(v), scale = magnitude >= 1e6 ? 1e6 : magnitude >= 1e3 ? 1e3 : 1;
+    if (unit === '$' && scale > 1) return (v < 0 ? '-' : '+') + '$' + (magnitude / scale).toFixed(1) + (scale === 1e6 ? 'm' : 'k');
+    return format(v, unit);
+  }
   function metric(value, label, note, cls) { return '<div class="wb-metric"><span class="wb-metric-label">' + html(label) + '</span><strong class="' + (cls || '') + '">' + value + '</strong><span class="wb-metric-note">' + html(note || '') + '</span></div>'; }
   function sign(v) { return v == null || v === 0 ? '' : v > 0 ? 'sig-pos' : 'sig-neg'; }
   function card(title, subtitle, body, wide) { return '<section class="wb-chart-card' + (wide ? ' wb-wide' : '') + '"><h3>' + html(title) + '</h3><p class="wb-chart-note">' + html(subtitle) + '</p>' + body + '</section>'; }
@@ -34933,9 +34964,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (!range) { const pad = (hi - lo || 1) * .1; lo -= pad; hi += pad; }
     const sx = i => L + (points.length === 1 ? w / 2 : i / (points.length - 1) * w), sy = v => T + h - (v - lo) / (hi - lo) * h;
     let svg = '<title>' + html(title) + '</title><desc>Observations in chronological order, evenly spaced. Exact values are in View chart data.</desc>';
-    [lo, (lo + hi) / 2, hi].forEach(v => { svg += '<line class="acc-eq-grid" x1="' + L + '" x2="' + (W - R) + '" y1="' + sy(v) + '" y2="' + sy(v) + '"/><text class="acc-eq-yl" x="' + (L - 8) + '" y="' + (sy(v) + 4) + '">' + html(format(v, unit)) + '</text>'; });
+    [lo, (lo + hi) / 2, hi].forEach(v => { svg += '<line class="acc-eq-grid" x1="' + L + '" x2="' + (W - R) + '" y1="' + sy(v) + '" y2="' + sy(v) + '"/><text class="acc-eq-yl" x="' + (L - 8) + '" y="' + (sy(v) + 4) + '">' + html(axis(v, unit)) + '</text>'; });
     svg += '<line class="acc-eq-base" x1="' + L + '" x2="' + (W - R) + '" y1="' + sy(0) + '" y2="' + sy(0) + '"/>';
-    const targets = [];
+    const targets = points.flatMap((p, i) => {
+      const anchor = series.find(s => p[s.key] != null);
+      return anchor ? [{ x: sx(i), y: sy(p[anchor.key]), label: p.label + '\n' + series.map(s => s.name + ': ' + format(p[s.key], unit)).join('\n') }] : [];
+    });
     series.forEach(s => {
       let path = '', connected = false;
       points.forEach((p, i) => {
@@ -34943,12 +34977,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
         const x = sx(i), y = sy(v); path += (connected ? ' L' : ' M') + x.toFixed(2) + ',' + y.toFixed(2); connected = true;
         const label = p.label + '\n' + s.name + ': ' + format(v, unit);
         svg += '<circle class="wb-review-dot ' + s.cls + '" cx="' + x + '" cy="' + y + '" r="3"><title>' + html(label) + '</title></circle>';
-        targets.push({ x, y, label });
       });
       svg += '<path class="wb-line ' + s.cls + '" d="' + path + '"/>';
     });
     svg += '<text class="wb-axis-label" x="' + L + '" y="' + (H - 8) + '">First observation</text><text class="wb-axis-label wb-axis-end" x="' + (W - R) + '" y="' + (H - 8) + '">Latest observation</text>';
-    return '<div class="wb-legend">' + series.map(s => '<span class="wb-key ' + s.cls + '">' + html(s.name) + '</span>').join('') + '</div><svg class="acc-eq-svg wb-review-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + html(title) + '"' + hover(targets) + '>' + svg + '</svg>' + dataTable(['Trade / close', ...series.map(s => s.name)], points.map(p => [p.label, ...series.map(s => format(p[s.key], unit))]));
+    return '<div class="wb-legend">' + series.map(s => '<span class="wb-key ' + s.cls + '">' + html(s.name) + '</span>').join('') + '</div><svg class="acc-eq-svg wb-review-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + html(title) + '"' + hover(targets) + '>' + svg + '</svg>' + dataTable(['Observation', ...series.map(s => s.name)], points.map(p => [p.label, ...series.map(s => format(p[s.key], unit))]));
   }
   function bars(title, rows, series, unit, max) {
     if (!rows.length || !rows.some(r => series.some(s => r[s.key] != null))) return empty('No closed trades with the required data yet.');
@@ -34960,19 +34993,19 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   function render(report, lens, groupBy) {
     const r = report, s = r.stats, n = s.n;
-    const note = '<p class="wb-sample-note" role="status">' + n + ' closed trades in this selection · ' + s.total + ' mirrored trades. ' + s.recordN + '/' + n + ' closed trades matched to saved pick records.' + (n < 30 ? ' Early sample; patterns can change substantially as trades close.' : '') + (s.unknownFees ? ' ' + s.unknownFees + ' closed trades have no recorded fee estimate.' : '') + '</p>';
+    const note = '<p class="wb-sample-note" role="status">' + n + ' verified closed trades in this selection · ' + s.total + ' mirrored trades. ' + s.recordN + '/' + n + ' closed trades matched to saved pick records.' + (s.excludedClosed ? ' ' + s.excludedClosed + ' closed trade' + (s.excludedClosed === 1 ? '' : 's') + ' excluded because fills or quantities are unverified.' : '') + (s.undated ? ' ' + s.undated + ' closed trade' + (s.undated === 1 ? ' has' : 's have') + ' no paper close timestamp. These results remain in totals but are excluded from time charts; drawdown is withheld.' : '') + (n < 30 ? ' Early sample; patterns can change substantially as trades close.' : '') + (s.unknownFees ? ' ' + s.unknownFees + ' closed trade' + (s.unknownFees === 1 ? ' has' : 's have') + ' no recorded fee estimate.' : '') + '</p>';
     let metrics = '', charts = '';
     if (lens === 'performance') {
       metrics = metric(format(s.pnl, '$'), 'Realized paper P&L', s.moneyN + ' trades with both fill prices', sign(s.pnl)) + metric(format(s.drawdown, '$'), 'Largest closed-trade drawdown', 'From the prior realized P&L peak', s.drawdown < 0 ? 'sig-neg' : '') + metric(format(s.expectancy, '$'), 'Average P&L per trade', 'Recorded contract quantities; known fees', sign(s.expectancy)) + metric(s.noLosses ? 'No losses' : s.profitFactor == null ? '—' : s.profitFactor.toFixed(2) + '×', 'Profit factor', 'Gross winning dollars ÷ gross losing dollars');
-      charts = card('Realized P&L over time', 'Paper fills, recorded quantities, less known fees. Closed-trade results only; this is not account equity or a mark of open exposure.', s.moneyN ? line('Cumulative realized paper profit', r.curve, [{ key: 'paper', name: 'Paper P&L', cls: 'paper' }], '$') : empty('The curve starts when a trade closes with entry and exit fills.'), true) +
-        card('Paper versus engine', s.pairedN + ' matched trades with complete paper and model prices. Same contract quantities; engine excludes execution fees.', s.pairedN ? line('Matched cumulative paper and engine profit', r.comparison, [{ key: 'paper', name: 'Paper', cls: 'paper' }, { key: 'engine', name: 'Engine', cls: 'engine' }], '$') : empty('No closed trades have both paper and engine price pairs yet.')) +
-        card('Drawdown', 'Dollar decline from the highest realized P&L so far. Open-position swings are not captured.', s.moneyN ? line('Realized dollar drawdown', r.curve, [{ key: 'drawdown', name: 'Drawdown', cls: 'loss' }], '$') : empty('Drawdown appears with the first complete closed fill.')) +
+      charts = card('Realized P&L over time', s.datedN + ' of ' + s.moneyN + ' closed trades have paper close timestamps. Recorded quantities, less known fees. Realized trade results, not account equity or open exposure.', s.datedN ? line('Cumulative realized paper profit', r.curve, [{ key: 'paper', name: 'Paper P&L', cls: 'paper' }], '$') : empty('The curve needs a verified closed trade with a paper close timestamp.'), true) +
+        card('Paper versus engine', s.datedPairedN + ' dated matches of ' + s.pairedN + ' complete paper and model price pairs. Same contract quantities; engine excludes execution fees.', s.datedPairedN ? line('Matched cumulative paper and engine profit', r.comparison, [{ key: 'paper', name: 'Paper', cls: 'paper' }, { key: 'engine', name: 'Engine', cls: 'engine' }], '$') : empty('No verified closed trades have both price pairs and paper close timestamps.')) +
+        card('Drawdown', 'Dollar decline from the highest realized P&L so far. Open-position swings are not captured.', s.drawdown != null ? line('Realized dollar drawdown', r.curve, [{ key: 'drawdown', name: 'Drawdown', cls: 'loss' }], '$') : empty(s.undated ? 'Drawdown is unavailable until every included closed trade has a paper close timestamp.' : 'Drawdown appears with the first verified closed fill.')) +
         card('Paper versus SPY options', s.benchmarkN + ' matched closed pairs only. Sum of per-trade returns at equal stakes, in percentage points; not a compounded portfolio return. Missing SPY pairs are excluded from both lines.', s.benchmarkN ? line('Matched return totals for paper and SPY options', r.benchmark, [{ key: 'paper', name: 'Paper', cls: 'paper' }, { key: 'spy', name: 'SPY option model', cls: 'spy' }], '%') : empty('No closed mirrored trades have a closed SPY option pair yet.'), true) +
         card('Distribution of trade returns', 'Option returns after known fees, one observation per closed trade. Breakeven is included in the 0 to 20% bucket.', n ? bars('Closed trade return distribution', r.hist, [{ key: 'value', name: 'Trades', cls: 'paper' }], 'count') : empty('Return buckets populate as paper trades close.'), true);
     } else if (lens === 'accuracy') {
-      metrics = metric(format(s.winRate, 'rate'), 'Profitable options', n + ' closed trades; after known fees') + metric(format(s.direction, 'rate'), 'Correct stock direction', s.directionN + ' trades with entry and exit stock prices') + metric(String(r.calibration.reduce((a, b) => a + b.n, 0)), 'Trades with entry PoP', 'For the probability comparison below') + metric(String(n), 'Closed sample', 'Open, missed and unsettled trades excluded');
-      const groupControl = '<label class="wb-group-control">Compare by <select data-acc-set="wbGroup" aria-label="Accuracy comparison group">' + [['structure', 'Structure'], ['side', 'Calls / puts'], ['grade', 'AI grade'], ['tier', 'Conviction tier'], ['sector', 'Sector'], ['regime', 'Market regime'], ['run', 'Engine run']].map(o => '<option value="' + o[0] + '"' + (o[0] === groupBy ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select></label>';
-      charts = card('Accuracy over time', 'Trailing 20 closed trades, or all available when fewer than 20. Direction uses only trades with both stock prices in each window.', line('Rolling option win rate and stock direction accuracy', r.trend, [{ key: 'win', name: 'Profitable option', cls: 'paper' }, { key: 'direction', name: 'Correct direction', cls: 'spy' }], 'rate', [0, 100]), true) +
+      metrics = metric(format(s.winRate, 'rate'), 'Profitable options', n + ' closed trades; after known fees') + metric(format(s.direction, 'rate'), 'Stock direction at engine exit', s.directionN + ' trades with saved entry and exit stock marks') + metric(String(r.calibration.reduce((a, b) => a + b.n, 0)), 'Trades with entry PoP', 'For the probability comparison below') + metric(String(n), 'Closed sample', 'Open, missed and unsettled trades excluded');
+      const groupControl = '<label class="wb-group-control">Compare by <select id="acc-wb-group" data-acc-set="wbGroup" aria-label="Accuracy comparison group">' + [['structure', 'Structure'], ['side', 'Calls / puts'], ['grade', 'AI grade'], ['tier', 'Conviction tier'], ['sector', 'Sector'], ['regime', 'Market regime'], ['run', 'Engine run']].map(o => '<option value="' + o[0] + '"' + (o[0] === groupBy ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select></label>';
+      charts = card('Accuracy over time', 'Trailing 20 dated closed trades, or all available when fewer than 20. Direction uses saved stock marks at engine exit, which may precede the paper close.', line('Rolling option win rate and stock direction accuracy', r.trend, [{ key: 'win', name: 'Profitable option', cls: 'paper' }, { key: 'direction', name: 'Correct direction', cls: 'spy' }], 'rate', [0, 100]), true) +
         card('Where the engine works', 'Win rate and sample size for each selected cohort. A small group can swing on a single result.', groupControl + bars('Paper win rate by cohort', r.groups, [{ key: 'value', name: 'Win rate', cls: 'paper' }], 'rate', 100) + dataTable(['Group', 'Closed trades', 'Win rate', 'Avg paper return', 'Avg engine return', 'Engine observations'], r.groups.map(g => [g.label, g.n, format(g.value, 'rate'), format(g.avg), format(g.model), g.modelN]))) +
         card('Predicted probability versus outcome', 'Entry PoP versus profitable paper exits, after known fees. Different exit rules and holding periods make this a diagnostic, not a formal calibration test.', bars('Entry probability and realized win rate', r.calibration.filter(c => c.n), [{ key: 'predicted', name: 'Predicted', cls: 'engine' }, { key: 'actual', name: 'Actual', cls: 'paper' }], 'rate', 100));
     } else if (lens === 'engine') {
@@ -34984,8 +35017,17 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     return note + '<div class="wb-metrics">' + metrics + '</div><div class="wb-chart-grid">' + charts + '</div>';
   }
-  return { render };
-})({ html: escapeHtml, pct: accPct, money: accMoney, hover: chHoverAttr });
+  function status(info, record) {
+    const rec = info.reconciliation || {}, run = Date.parse(info.lastRunIso), current = Date.parse(record.builtAtIso), checked = Date.parse(info.engineSnapshotIso);
+    const reportsSnapshot = Object.prototype.hasOwnProperty.call(info, 'engineSnapshotIso');
+    let body = '<p class="wb-sample-note">' + (rec.checkedAtIso ? 'Last broker reconciliation: ' + html(dateTime(rec.checkedAtIso)) + '.' : 'No broker reconciliation snapshot was supplied.') + '</p>';
+    if (!Number.isFinite(run) || reportsSnapshot && Number.isFinite(current) && (!Number.isFinite(checked) || current > checked)) body += '<p class="wb-review-warning" role="status">The latest Track Record build has not been checked by the mirror yet, or no mirror run is recorded. Holdings checks follow the 11:00 and 15:30 ET Top Picks builds after publication.</p>';
+    const alerts = Array.isArray(rec.alerts) ? rec.alerts : [];
+    if (alerts.length || ['attention', 'incomplete'].includes(rec.status)) body += '<div class="wb-review-warning" role="alert"><strong>Broker reconciliation needs review</strong><p>Entries may be paused or exposure may need review.</p>' + (alerts.length ? '<ul>' + alerts.map(a => '<li>' + html(a) + '</li>').join('') + '</ul>' : '') + '</div>';
+    return body;
+  }
+  return { render, status };
+})({ html: escapeHtml, pct: accPct, money: accMoney, hover: chHoverAttr, dateTime: accDateTime });
   var WB_TARGET_CLOSED = 150;
   function loadWebullTest(){
     if (wbTest.loaded || wbTest.loading) return;
@@ -34996,7 +35038,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       .catch(function(err){ wbTest.error = (err && err.status === 404) ? 'off' : 'Couldn’t load the Webull trade log.'; })
       .then(function(){ wbTest.loaded = true; wbTest.loading = false; renderWebullTest(); });
   }
-  function wbNum(v){ if (v == null || v === '') return null; var n = Number(v); return isFinite(n) ? n : null; }
+  function wbNum(v){ if (v == null || v === '' || typeof v === 'boolean') return null; var n = Number(v); return isFinite(n) ? n : null; }
   function wbMean(v){ if (!v.length) return null; var t = 0; for (var i = 0; i < v.length; i++) t += v[i]; return t / v.length; }
   function wbMedian(v){ if (!v.length) return null; var s = v.slice().sort(function(a, b){ return a - b; }); var m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; }
   function wbCredit(t){ return /credit/i.test(String(t.structure || '')); }
@@ -35010,15 +35052,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // in less on entry, sold for less / paid more to buy back on exit.
   function wbEntryCost(t){ var d = wbNum(t.entryDiffPct); return d == null ? null : (wbCredit(t) ? -d : d); }
   function wbExitCost(t){ var d = wbNum(t.exitDiffPct); return d == null ? null : (wbCredit(t) ? d : -d); }
-  function wbFeePct(t){ var f = wbNum(t.fees), o = wbNum(t.fillPrice); return (f != null && o > 0) ? f / (o * WB_ANALYTICS.quantity(t)) : 0; }
+  function wbFeePct(t){ var f = wbNum(t.fees), o = wbNum(t.fillPrice), q = WB_ANALYTICS.quantity(t); return (f != null && o > 0 && q > 0) ? f / (o * q) : 0; }
   function wbNetPnl(t){ return WB_ANALYTICS.net(t); }
   function wbRun(t){ var p = tlEtParts(Date.parse(t.engineEntryIso)); return p ? (Number(p.hour) < 13 ? '11' : '15') : null; }
   function wbRows(){
     var trades = (wbTest.data && Array.isArray(wbTest.data.trades)) ? wbTest.data.trades : [];
     var d = accuracyState.data || {};
-    var byId = {};
+    var byId = Object.create(null);
     [].concat(d.open || [], d.closed || [], d.archive || []).forEach(function(e){ if (e && e.symbol && e.entryDate) byId[accFillKey(tlTradeId(e))] = e; });
-    var base = {};
+    var base = Object.create(null);
     var bl = d.baseline || {};
     [].concat(bl.open || [], bl.closed || []).forEach(function(b){ if (b && b.pairKey) base[b.pairKey] = b; });
     var cutoff = accView.wbRange === 'all' ? null : Date.now() - Number(accView.wbRange) * 86400000;
@@ -35027,7 +35069,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (accView.wbStruct === 'single' && t.structure !== 'long') return false;
       if (accView.wbStruct === 'spread' && t.structure === 'long') return false;
       if (accView.wbRun !== 'all' && wbRun(t) !== accView.wbRun) return false;
-      if (accView.wbState === 'open' && ['open','exiting','entering','settlement-pending'].indexOf(t.state) < 0) return false;
+      if (accView.wbState === 'open' && !WB_ANALYTICS.isActive(t)) return false;
       if (accView.wbState === 'closed' && t.state !== 'closed') return false;
       if (cutoff != null && !(Date.parse(t.engineEntryIso) >= cutoff)) return false;
       return true;
@@ -35056,7 +35098,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return h ? '<div class="accuracy-tiers">' + h + '</div>' : '';
   }
   function wbGroupTable(title, rows, keyFn){
-    var g = {}, order = [];
+    var g = Object.create(null), order = [];
     rows.forEach(function(x){
       var k = keyFn(x); if (k == null || k === '') k = 'unknown';
       if (!g[k]){ g[k] = { n: 0, w: 0, paper: [], eng: [] }; order.push(k); }
@@ -35088,7 +35130,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       dots += '<circle class="wb-dot' + (p.y - p.x >= 1 ? ' up' : p.y - p.x <= -1 ? ' down' : '') + '" cx="' + sx(p.x).toFixed(1) + '" cy="' + sy(p.y).toFixed(1) + '" r="4"></circle>';
       return { x: sx(p.x), y: sy(p.y), label: p.label + '\nengine ' + accPct(p.x) + ' · paper ' + accPct(p.y) };
     }));
-    return '<svg class="acc-eq-svg"' + hover + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Engine P&amp;L vs paper P&amp;L per trade">' + g + dots +
+    return '<svg class="acc-eq-svg" data-ch-xy' + hover + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Engine P&amp;L vs paper P&amp;L per trade">' + g + dots +
       '<text class="acc-eq-yl wb-xl" x="' + (padL + pw / 2).toFixed(1) + '" y="' + (H - 2) + '">engine (model) P&amp;L →</text></svg>';
   }
   function wbTime(iso){ return iso ? accDateTime(iso) : '—'; }
@@ -35107,11 +35149,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '<div class="acc-ctl"><span class="acc-ctl-lbl">Side</span>' + accSeg('wbSide', 'acc-wb-side', accView.wbSide, [{ value:'all', label:'All' }, { value:'call', label:'Calls' }, { value:'put', label:'Puts' }]) + '</div>' +
       '<div class="acc-ctl"><span class="acc-ctl-lbl">Structure</span>' + accSeg('wbStruct', 'acc-wb-struct', accView.wbStruct, [{ value:'all', label:'All' }, { value:'single', label:'Single' }, { value:'spread', label:'Spreads' }]) + '</div>' +
       '<div class="acc-ctl"><span class="acc-ctl-lbl">Run</span>' + accSeg('wbRun', 'acc-wb-run', accView.wbRun, [{ value:'all', label:'Both' }, { value:'11', label:'11:00' }, { value:'15', label:'3:30' }]) + '</div>' +
-      '<div class="acc-ctl"><span class="acc-ctl-lbl">Status</span>' + accSeg('wbState', 'acc-wb-state', accView.wbState, [{ value:'all', label:'All' }, { value:'open', label:'Open' }, { value:'closed', label:'Closed' }]) + '</div>' +
+      '<div class="acc-ctl"><span class="acc-ctl-lbl">Status</span>' + accSeg('wbState', 'acc-wb-state', accView.wbState, [{ value:'all', label:'All' }, { value:'open', label:'Active / review' }, { value:'closed', label:'Closed' }]) + '</div>' +
       '<div class="acc-ctl"><span class="acc-ctl-lbl">Opened</span>' + accSeg('wbRange', 'acc-wb-range', accView.wbRange, [{ value:'all', label:'All time' }, { value:'90', label:'90 days' }, { value:'30', label:'30 days' }]) + '</div>' +
     '</div>';
     var status = '<p class="hint acc-research-note">Review the engine against its mirrored Webull paper trades. Paper fills are simulated. Eligible trades can remain unfilled or be skipped. ' +
       (info.enabled ? 'The mirror is on' : 'The mirror is off') + (info.goLiveIso ? ', live since ' + accDateTime(info.goLiveIso) : '') + (info.lastRunIso ? ', last run ' + accDateTime(info.lastRunIso) : '') + '. All views share the filters below. Returns include known fee estimates; bid/ask scenarios are hypothetical.</p>';
+    status += WB_REVIEW.status(info, accuracyState.data || {});
     var all = (info.trades || []);
     if (!all.length){
       accPaneSummary('acc-sum-webull', []);
@@ -35125,15 +35168,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
       return;
     }
     var T = rows.map(function(x){ return x.t; });
-    var filled = T.filter(function(t){ return t.fillPrice != null; });
+    var filled = T.filter(WB_ANALYTICS.hasFill);
     var missed = T.filter(function(t){ return t.state === 'missed'; });
-    var closed = rows.filter(function(x){ return x.t.state === 'closed' && wbNetPnl(x.t) != null && !(wbNum(x.t.openQty) > 0); });
+    var review = WB_ANALYTICS.analyze(rows, accView.wbGroup || 'structure');
+    var closed = review.closed;
     var early = closed.length < 30;
     var entryCosts = filled.map(wbEntryCost).filter(function(v){ return v != null; });
     var exitCosts = closed.map(function(x){ return wbExitCost(x.t); }).filter(function(v){ return v != null; });
     var paperNet = closed.map(function(x){ return wbNetPnl(x.t); }).filter(function(v){ return v != null; });
     var engine = closed.map(function(x){ return wbNum(x.t.enginePnlPct); }).filter(function(v){ return v != null; });
-    var review = WB_ANALYTICS.analyze(rows, accView.wbGroup || 'structure');
     var fillRate = (filled.length + missed.length) ? filled.length / (filled.length + missed.length) * 100 : null;
     var pWin = paperNet.length ? paperNet.filter(function(v){ return v > 0; }).length / paperNet.length * 100 : null;
     accPaneSummary('acc-sum-webull', [
@@ -35142,7 +35185,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       { val: accPct(wbMean(entryCosts)), lbl: 'entry vs engine', cls: wbMean(entryCosts) == null ? '' : (wbMean(entryCosts) <= 0 ? 'sig-pos' : 'sig-neg'), tip: '+ means paper paid more than the engine (or took in less on a credit).' },
       { val: accPct(wbMean(paperNet)), lbl: 'paper avg (after fees)', cls: wbSignCls(wbMean(paperNet)) },
       { val: accPct(wbMean(engine)), lbl: 'engine avg (' + engine.length + ' matched)', cls: wbSignCls(wbMean(engine)) },
-      { val: closed.length + '/' + WB_TARGET_CLOSED, lbl: 'closed toward a solid read' },
+      { val: closed.length + '/' + WB_TARGET_CLOSED, lbl: 'verified closes / review target' },
     ], early ? 'Early read: ' + closed.length + ' closed trade' + (closed.length === 1 ? '' : 's') + '. Treat this as preliminary evidence.' : '');
 
     // 1. Fills ---------------------------------------------------------------
@@ -35154,6 +35197,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     ];
     var attempted = filled.length + missed.length;
     var bucketRows = buckets.map(function(b){ return { label: b.label, n: entryCosts.filter(b.test).length, of: attempted, cls: b.cls }; });
+    bucketRows.push({ label: 'Filled, gap unavailable', n: filled.length - entryCosts.length, of: attempted, cls: 'sig-zero' });
     bucketRows.push({ label: 'Missed (not filled)', n: missed.length, of: attempted, cls: 'sig-neg' });
     var first = filled.filter(function(t){ return t.entryHow === 'first'; }).length;
     var repriced = filled.filter(function(t){ return t.entryHow === 'reprice'; }).length;
@@ -35166,7 +35210,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     });
     closed.forEach(function(x){ if (x.t.exitTries) exitTries.push(x.t.exitTries); });
     function splitRow(label, list){
-      var f = list.filter(function(t){ return t.fillPrice != null; }), m = list.filter(function(t){ return t.state === 'missed'; });
+      var f = list.filter(WB_ANALYTICS.hasFill), m = list.filter(function(t){ return t.state === 'missed'; });
       var c = f.map(wbEntryCost).filter(function(v){ return v != null; });
       return '<tr><td>' + label + '</td><td>' + (f.length + m.length) + '</td><td>' + ((f.length + m.length) ? Math.round(f.length / (f.length + m.length) * 100) + '%' : '—') + '</td><td>' + accPct(wbMean(c)) + '</td></tr>';
     }
@@ -35190,16 +35234,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // 2. Real-money estimate -----------------------------------------------------
     var best = [], worst = [], paperN = [], engN = [];
     closed.forEach(function(x){
-      var t = x.t, c = wbCredit(t);
-      var eb = wbNum(t.entryBid), ea = wbNum(t.entryAsk), xb = wbNum(t.exitBid), xa = wbNum(t.exitAsk);
-      if (eb == null || ea == null || xb == null || xa == null) return;
-      var fee = wbFeePct(t);
-      var b = wbPnl((eb + ea) / 2, (xb + xa) / 2, c), w = c ? wbPnl(eb, xa, true) : wbPnl(ea, xb, false);
-      if (b == null || w == null) return;
-      best.push(b - fee); worst.push(w - fee);
-      paperN.push(wbNetPnl(t)); engN.push(wbNum(t.enginePnlPct));
+      var t = x.t;
+      var scenario = WB_ANALYTICS.scenarios(t);
+      if (!scenario) return;
+      best.push(scenario.mid); worst.push(scenario.cross);
+      paperN.push(wbNetPnl(t));
+      var model = wbNum(t.enginePnlPct); if (model != null) engN.push(model);
     });
-    var rh = (accFills.rows || []).filter(function(r){ return r.account && r.account !== 'Webull paper' && r.your_pnl_pct != null; });
+    var rh = (accFills.rows || []).filter(function(r){ return r.account && r.account !== 'Webull paper' && wbNum(r.your_pnl_pct) != null && closed.some(function(x){ return accFillKey(x.t.tradeId) === accFillKey(r.trade_id); }); });
     var rhAvg = wbMean(rh.map(function(r){ return Number(r.your_pnl_pct); }).filter(function(v){ return isFinite(v); }));
     var realBody = '<p class="hint acc-research-note">Each closed trade is re-priced from the bid/ask recorded when its orders went out, less Webull’s fee estimate. Best case fills at the mid both ways. Worst case pays the ask to open and sells at the bid to close (the reverse on a credit spread). These scenarios do not predict live fills.</p>' +
       (best.length ? '<p class="wb-headline">On ' + best.length + ' closed trade' + (best.length === 1 ? '' : 's') + ', the recorded-quote scenarios average <b class="' + wbSignCls(wbMean(worst)) + '">' + accPct(wbMean(worst)) + '</b> to <b class="' + wbSignCls(wbMean(best)) + '">' + accPct(wbMean(best)) + '</b> per trade, vs paper ' + accPct(wbMean(paperN)) + ' and the engine’s ' + accPct(wbMean(engN)) + '.</p>' +
@@ -35207,10 +35249,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
           wbChip(accPct(wbMean(worst)), 'worst case (cross the spread)', wbSignCls(wbMean(worst))) +
           wbChip(accPct(wbMean(best)), 'best case (mid fills)', wbSignCls(wbMean(best))) +
           wbChip(accPct(wbMean(paperN)), 'Webull paper', wbSignCls(wbMean(paperN))) +
-          wbChip(accPct(wbMean(engN)), 'engine model', wbSignCls(wbMean(engN))) +
+          wbChip(accPct(wbMean(engN)), 'engine model (' + engN.length + ' matches)', wbSignCls(wbMean(engN))) +
         '</div>'
         : '<p class="muted acc-an-note">Appears once a mirrored trade closes with quotes recorded at both ends.</p>') +
-      (rh.length ? '<p class="hint acc-research-note">Real-money check: your uploaded ' + escapeHtml(rh[0].account) + (rh.length > 1 ? ' and other' : '') + ' fills (' + rh.length + ' trade' + (rh.length === 1 ? '' : 's') + ') averaged <b class="' + wbSignCls(rhAvg) + '">' + accPct(rhAvg) + '</b>. Upload them under Scorecard, “Your fills vs the record”.</p>'
+      (rh.length ? '<p class="hint acc-research-note">Real-money check: your uploaded ' + escapeHtml(rh[0].account) + (rh.length > 1 ? ' and other' : '') + ' fills matched to this selection (' + rh.length + ' trade' + (rh.length === 1 ? '' : 's') + ') averaged <b class="' + wbSignCls(rhAvg) + '">' + accPct(rhAvg) + '</b>. Upload them under Scorecard, “Your fills vs the record”.</p>'
         : '<p class="hint acc-research-note">Upload real trades (for example Robinhood) under Scorecard, “Your fills vs the record”, and they show here as a check on the estimate.</p>');
 
     // 3. Pick accuracy -----------------------------------------------------------
@@ -35234,7 +35276,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       });
       if (n) popRows.push('<tr><td>' + b.label + '</td><td>' + n + '</td><td>' + Math.round(wbMean(pred)) + '%</td><td>' + Math.round(won / n * 100) + '%</td></tr>');
     });
-    var reasons = {};
+    var reasons = Object.create(null);
     closed.forEach(function(x){ var k = ACC_STATUS_LABEL[x.t.engineCloseReason] || x.t.engineCloseReason || 'unknown'; reasons[k] = (reasons[k] || 0) + 1; });
     var reasonRows = Object.keys(reasons).sort(function(a, b){ return reasons[b] - reasons[a]; }).map(function(k){ return { label: k, n: reasons[k], of: closed.length }; });
     var accBody = '<p class="hint acc-research-note">Closed mirrored trades only, judged on the paper result after fees.</p>' +
@@ -35243,7 +35285,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         wbChip(dirN ? Math.round(dirHit / dirN * 100) + '%' : '—', 'stock moved the pick’s way by exit (' + dirN + ')', '', 'The pick was right on direction, whatever the option did.') +
         wbChip(spyP.length ? accPct(wbMean(spyPaper) - wbMean(spyP)) : '—', 'vs a SPY option, same days (' + spyP.length + ')', spyP.length ? wbSignCls(wbMean(spyPaper) - wbMean(spyP)) : '', 'Paper P&L minus the paired ~0.55-delta SPY option the record opens with each pick.') +
       '</div>' +
-      wbGroupTable('By AI grade', withRec, function(x){ return x.rec.thesis && x.rec.thesis.aiGrade ? x.rec.thesis.aiGrade : 'no AI grade'; }) +
+      wbGroupTable('By AI grade', withRec, function(x){ return x.rec.thesis && x.rec.thesis.aiGrade || x.rec.aiGrade || 'no AI grade'; }) +
       wbGroupTable('By conviction tier', withRec, function(x){ return x.rec.label || x.rec.tier || null; }) +
       wbGroupTable('Calls vs puts', closed, function(x){ return x.t.side === 'put' ? 'Puts' : 'Calls'; }) +
       wbGroupTable('By structure', closed, function(x){ return x.t.structure === 'long' ? 'Single option' : x.t.structure === 'credit_vertical' ? 'Credit spread' : 'Debit spread'; }) +
@@ -35272,11 +35314,12 @@ function scenarioEventPhase(ev, now = Date.now()) {
       '</div>' + wbScatterSvg(pts);
 
     // 6. Trade log ----------------------------------------------------------------------
-    var STATE = { entering: 'entry order working', open: 'open', exiting: 'exit order working', closed: 'closed', missed: 'missed', expired: 'expired', skipped: 'skipped', error: 'needs a look' };
+    var STATE = { entering: 'entry order working', open: 'open', exiting: 'exit order working', closed: 'closed', missed: 'missed', expired: 'expired', skipped: 'skipped', error: 'needs a look', settled: 'flat; settlement P&L unverified', 'settlement-pending': 'settlement pending' };
     var logRows = rows.map(function(x){
-      var t = x.t, ec = wbEntryCost(t), xc = wbExitCost(t), np = wbNetPnl(t);
-      return '<tr><td><b>' + escapeHtml(t.tradeId) + '</b><br><small>' + escapeHtml(t.legs || '') + '</small>' + ((t.labels || []).length ? '<br><small>' + escapeHtml(t.labels.join(' · ')) + '</small>' : '') + (t.note && t.state !== 'closed' && (t.labels || []).join(' ').indexOf(t.note) < 0 ? '<br><small>' + escapeHtml(t.note) + '</small>' : '') + '</td>' +
-        '<td>' + escapeHtml(STATE[t.state] || t.state || '') + '</td>' +
+      var t = x.t, ec = wbEntryCost(t), xc = wbExitCost(t), np = WB_ANALYTICS.isClosed(t) ? wbNetPnl(t) : null;
+      var quantities = t.filledQty != null ? '<br><small>' + escapeHtml(t.filledQty) + '/' + escapeHtml(t.requestedQty == null ? t.filledQty : t.requestedQty) + ' filled · ' + escapeHtml(t.closedQty == null ? 'unknown' : t.closedQty) + ' closed · ' + escapeHtml(t.openQty == null ? 'unknown' : t.openQty) + ' open</small>' : '';
+      return '<tr><td><b>' + escapeHtml(t.tradeId) + '</b><br><small>' + escapeHtml(t.legs || '') + '</small>' + ((t.labels || []).length ? '<br><small>' + escapeHtml(t.labels.join(' · ')) + '</small>' : '') + (t.note && (t.state !== 'closed' || t.needsReview) && (t.labels || []).join(' ').indexOf(t.note) < 0 ? '<br><small>' + escapeHtml(t.note) + '</small>' : '') + '</td>' +
+        '<td>' + escapeHtml(STATE[t.state] || t.state || '') + (t.needsReview || t.state === 'closed' && !WB_ANALYTICS.isClosed(t) ? '<br><strong class="sig-neg">Needs broker review</strong>' : '') + quantities + '</td>' +
         '<td>' + (accUsd(t.engineEntryPrice) || '—') + ' → ' + (accUsd(t.fillPrice) || '—') + (ec != null ? ' <small class="' + (ec <= 0 ? 'sig-pos' : 'sig-neg') + '">(' + accPct(ec) + ')</small>' : '') + '<br><small>' + wbTime(t.engineEntryIso) + ' → ' + wbTime(t.fillIso) + '</small></td>' +
         '<td>' + (t.engineExitPrice != null || t.closeFillPrice != null ? (accUsd(t.engineExitPrice) || '—') + ' → ' + (accUsd(t.closeFillPrice) || '—') + (xc != null ? ' <small class="' + (xc <= 0 ? 'sig-pos' : 'sig-neg') + '">(' + accPct(xc) + ')</small>' : '') + '<br><small>' + wbTime(t.engineExitIso) + ' → ' + wbTime(t.closeFillIso) + '</small>' : '—') + '</td>' +
         '<td class="' + wbSignCls(wbNum(t.enginePnlPct)) + '">' + accPct(wbNum(t.enginePnlPct)) + '</td>' +
@@ -37393,6 +37436,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var key = t.getAttribute('data-acc-set'); if (!key) return;
       accView[key] = (t.type === 'checkbox') ? t.checked : t.value; accSaveView();
       if (key === 'mcIters') return;   // takes effect on next Run
+      if (key.indexOf('wb') === 0){
+        var focusId = t.id;
+        renderWebullTest();
+        var next = focusId ? $(focusId) : null;
+        if (next) next.focus({ preventScroll: true });
+        return;
+      }
       accRerenderAnalytics();
     });
     pane.addEventListener('click', function(ev){

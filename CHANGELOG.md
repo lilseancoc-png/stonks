@@ -26,6 +26,10 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - Expand Webull Test with Performance, Accuracy, Engine and Trade log views: realized P&L and drawdown curves, matched model comparisons, return distributions, rolling win and direction rates, cohort and entry-probability comparisons, execution states and price gaps. Share and save filters across views, show sample coverage and missing-data states, and provide chart data tables plus a local synthetic preview. Uses the existing Owner-only ledger and pick records without additional broker, market-data or AI calls.
 
+### Fixed
+
+- Keep unverified fills and inconsistent quantities out of Webull outcomes, withhold drawdown when paper close dates are missing, preserve archived AI grades, and display broker reconciliation warnings. Preserve keyboard focus during filtering, show all comparison values in chart tooltips, calculate quote-scenario fees against each scenario entry price, and keep compact chart labels readable.
+
 ### Removed
 
 - Remove Paper books from Track Record navigation, rendering and saved controls; retain the underlying research history.

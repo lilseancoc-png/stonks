@@ -21,7 +21,12 @@ open/closed status and entry-date range apply to every view.
 - **Trade log:** the existing ledger details and CSV download.
 
 The view states its closed sample, joins to saved picks and missing fee coverage.
-It excludes open, missed and unsettled trades from performance and accuracy.
+It excludes open, missed, unsettled and broker-review trades from performance
+and accuracy. New quantity-aware records must have positive filled quantities
+and matching closed quantities. Legacy records without quantity fields retain
+the original one-contract interpretation. Time charts require paper close
+timestamps, and drawdown remains unavailable if any included closed trade
+lacks that timestamp. Undated verified outcomes remain in aggregate totals.
 Unknown prices and unmatched model observations do not become zero returns.
 Fee estimates are deducted when recorded. The bid/ask scenarios remain
 hypothetical. Charts expose exact values in expandable data tables; bar labels
@@ -51,3 +56,9 @@ Open Webull Test to exercise the charts, filters and reload persistence. This
 read-only preview uses only synthetic API responses, binds to loopback, reads
 no credentials and never contacts the broker. It does not verify a deployed
 account's current ledger or change production authentication.
+
+The preview also supports `previewCase=edge`, `previewCase=empty`,
+`previewCase=open` and `previewCase=retry` in its URL. The edge case covers
+partial fills, broker alerts, missing close dates, archived grades and unusual
+cohort names. The retry case fails its first mirror request, then allows the
+Retry button to recover. These cases never change production data.
