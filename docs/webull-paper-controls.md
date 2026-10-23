@@ -109,11 +109,41 @@ changes. Existing settings remain required: `PRIVATE_DATA_ENABLED=1` in
 Vercel and the GitHub variable, `WEBULL_MIRROR=on`, Webull **sandbox**
 credentials/account ID, and complete R2 configuration. Validate a manual run
 and inspect broker holdings/ledger before relying on automatic operation.
-Nothing in local tests activates broker execution. The full build retains
-`continue-on-error` for its mirror step; a green overall build does not prove
-that trading succeeded. Review the mirror step and Owner trade log. GitHub
+Nothing in local tests activates broker execution. The research build retains
+`continue-on-error` for its mirror step so the verified research can publish.
+A separate `webull-health` job fails the overall workflow when that step fails,
+without making the close-bake watchdog repeat a successful research publication.
+Review the mirror step and Owner trade log. GitHub
 notification preferences govern notifications; this code sends no external
 messages.
+
+### Diagnosing an execution lock
+
+Owner `GET /api/auth/webull-mirror` also reads the execution lock without
+acquiring it or contacting the broker. `executionLock.state` distinguishes
+`absent`, `released`, `held`, `expired`, `invalid`, `unsupported`, and
+`unavailable`; a held lock includes its expiry and remaining time. Ownership
+tokens and ETags are never returned. The command below performs the same
+read-only store inspection and compares the saved mirror snapshot with the
+published engine, returning only timestamps, status, and counts:
+
+```
+node --env-file=r2.env scripts/diagnose-webull-mirror.mjs
+```
+
+A valid expired lock can be acquired through a conditional write. Acquisition
+re-reads after a conditional-write race, up to three attempts. Malformed locks
+fail with `LEASE_INVALID`, and repeated write conflicts with `LEASE_CONFLICT`;
+neither is silently called "already running". These errors still block broker
+mutations. Do not delete a lock based only on a stale ledger timestamp: inspect
+the lock and running executions first.
+
+If a pick was entered manually, reconcile its exact broker contracts,
+quantities, order IDs, fill prices, execution times and fees before resuming.
+The holdings comparison blocks an untracked position in the same contracts
+from being bought again. Holdings alone do not prove execution prices or
+timing, so the mirror does not adopt them as fills. Keep manual entries labeled
+separately from automated fills when measuring execution delay and slippage.
 
 Normally there are two initial automatic checks per trading day, with at most
 four conditional follow-ups across those build windows (up to six calls).

@@ -311,6 +311,8 @@ jobs:
   build:
     needs: route
     if: ${{ needs.route.outputs.mode == 'build' }}
+    outputs:
+      webull_outcome: ${{ steps.webull_mirror.outcome }}
     runs-on: ubuntu-latest
     env:
       REFRESH_TOP_PICKS: ${{ needs.route.outputs.refresh_top_picks }}
@@ -535,6 +537,7 @@ jobs:
         run: node scripts/sync-data.mjs push --owner=bake
 
       - name: Mirror published Top Picks to Webull paper
+        id: webull_mirror
         # Follow the actual Top Picks refresh, after verified private-store
         # publication. Other bakes carry the record forward and do not trade.
         # Up to two two-minute follow-ups run only while orders remain pending.
@@ -628,4 +631,16 @@ jobs:
             sleep $((attempt * 5))
           done
           echo "Push failed after 3 attempts." >&2
+          exit 1
+
+  webull-health:
+    needs: build
+    # Research publication remains a successful build for the close-bake
+    # watchdog. Execution failures independently fail the overall workflow.
+    if: ${{ always() && needs.build.outputs.webull_outcome == 'failure' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report failed Webull execution window
+        run: |
+          echo "::error::Webull mirroring failed or remains pending. Inspect the mirror step and Owner trade log before retrying."
           exit 1
