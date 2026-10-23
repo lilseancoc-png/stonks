@@ -396,7 +396,9 @@ async function webullMirror(req, res) {
         enabled: String(process.env.WEBULL_MIRROR || "").trim().toLowerCase() === "on",
         goLiveIso: ledger.goLiveIso,
         lastRunIso: ledger.lastRunIso,
+        engineSnapshotIso: ledger.engineSnapshotIso ?? null,
         runs: (ledger.runs || []).slice(0, 10),
+        reconciliation: ledger.reconciliation ? { checkedAtIso: ledger.reconciliation.checkedAtIso, status: ledger.reconciliation.status, alerts: ledger.reconciliation.alerts || [] } : null,
         rows,
         trades: mirror.ledgerToTestTrades(ledger),
       });
@@ -431,15 +433,18 @@ async function webullMirror(req, res) {
       import("../../lib/webull-client.mjs"),
       import("../../lib/yahoo.mjs"),
     ]);
-    const [accBuf, ledgerBuf] = await Promise.all([store.get("picks-accuracy.json"), store.get(mirror.LEDGER_KEY)]);
-    if (accBuf == null) return res.status(200).json({ ran: false, reason: "track record unavailable" });
-    const acc = JSON.parse(accBuf.toString("utf8"));
-    const ledger = ledgerBuf == null ? mirror.emptyLedger() : JSON.parse(ledgerBuf.toString("utf8"));
-    const client = createWebullClient({ appKey: WEBULL_APP_KEY, appSecret: WEBULL_APP_SECRET, accessToken: WEBULL_ACCESS_TOKEN || null });
-    const quoteFn = mirror.makeQuoteFn(fetchContract);
-    const { ledger: next, summary } = await mirror.runWebullMirror({ client, accountId: WEBULL_PAPER_ACCOUNT_ID, acc, ledger, quoteFn });
-    if (!summary.skipped) await store.put(mirror.LEDGER_KEY, JSON.stringify(next));
-    return res.status(200).json({ ran: !summary.skipped, summary });
+    const lease = await store.withLease("webull-paper", async (guard) => {
+      const [accBuf, ledgerBuf] = await Promise.all([store.get("picks-accuracy.json"), store.get(mirror.LEDGER_KEY)]);
+      if (accBuf == null) return { ran: false, reason: "track record unavailable" };
+      const acc = JSON.parse(accBuf.toString("utf8"));
+      const ledger = ledgerBuf == null ? mirror.emptyLedger() : JSON.parse(ledgerBuf.toString("utf8"));
+      const client = createWebullClient({ appKey: WEBULL_APP_KEY, appSecret: WEBULL_APP_SECRET, accessToken: WEBULL_ACCESS_TOKEN || null, timeoutMs: 5000 });
+      const quoteFn = mirror.makeQuoteFn(fetchContract);
+      const checkpoint = async (next) => { guard(); await store.put(mirror.LEDGER_KEY, JSON.stringify(next)); };
+      const { summary } = await mirror.runWebullMirror({ client, accountId: WEBULL_PAPER_ACCOUNT_ID, acc, ledger, quoteFn, checkpoint, guard });
+      return { ran: !summary.skipped, summary };
+    });
+    return res.status(200).json(lease.busy ? { ran: false, reason: "mirror already running" } : lease.result);
   } catch (err) {
     console.error("webull mirror failed", { message: String(err?.message || err), code: err?.code || null });
     // Only the bake's trigger sees this (bearer-gated) and prints it to a

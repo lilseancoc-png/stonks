@@ -117,6 +117,20 @@ const merged = mergeArchive([slim], [full, { ...full, entryDate: "2026-06-10T15:
 ok("archive: dedupes by symbol:side:entryDate and sorts newest first", merged.length === 2 && merged[0].entryDate === "2026-06-10T15:00:00Z");
 ok("archive: respects the cap", mergeArchive([], [full, { ...full, entryDate: "2026-06-10T15:00:00Z" }], 1).length === 1);
 
+// Versioned policy survives marking and archival without restating old closes.
+{
+  const legacyClosed = { symbol: "NVDA", side: "call", entryDate: builtA, exitDate: builtA, optionPnlPct: 20, status: "hit-tp-prem", exitDetail: { atTriggerPct: 20 } };
+  const b = { symbol: "SPY", side: "call", pairKey: "NVDA:call:" + builtA, entryDate: builtA, optionPnlPct: 22, contract: { strike: 600, expiry: EXP, mid: 10 } };
+  const params = { chains: {}, nowSec: NOW + 3600, builtAtIso: new Date((NOW + 3600) * 1000).toISOString(), openPairKeys: new Set([b.pairKey]) };
+  const original = JSON.stringify(legacyClosed);
+  const marked = advancePicksBaseline({ open: [b], closed: [legacyClosed] }, params);
+  ok("policy: unversioned open baseline adopts +25 and remains open at +22", marked.open.length === 1 && marked.open[0].exitPolicy.takeProfitPct === 25 && marked.open[0].exitPolicy.version === "2026-10-22-tp25");
+  ok("policy: completed history retains its original trigger and return", JSON.stringify(marked.closed[0]) === original);
+  const frozen = advancePicksBaseline({ open: [{ ...b, exitPolicy: { version: "legacy-20", takeProfitPct: 20, stopPct: 50 } }], closed: [] }, params);
+  ok("policy: stored policy controls subsequent outcomes and exit detail", frozen.closed[0]?.exitPolicy.version === "legacy-20" && frozen.closed[0]?.exitDetail.atTriggerPct === 20);
+  ok("policy: archive preserves the policy version", compactClosedForArchive(marked.open[0]).exitPolicy.version === "2026-10-22-tp25");
+}
+
 // --- 8. Owner trade log -----------------------------------------------------------
 const csv = [
   "trade_id,account,symbol,side,structure,legs,qty,mingstreet_entry_mid,fill_price,close_fill_price,fees,notes",

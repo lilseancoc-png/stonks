@@ -42,7 +42,8 @@
     "test:track-record-fills": "node scripts/track-record-fills-smoke.mjs",
     "test:webull-analytics": "node scripts/webull-analytics-smoke.mjs",
     "preview:webull": "node scripts/webull-review-preview.mjs",
-    "test:webull-mirror": "node scripts/webull-mirror-smoke.mjs",
+    "test:webull-mirror": "node scripts/webull-mirror-smoke.mjs && node scripts/webull-recovery-smoke.mjs && node scripts/webull-view-smoke.mjs && node scripts/webull-window-smoke.mjs",
+    "test:picks": "node scripts/picks-smoke.mjs",
     "test:branches": "node scripts/review-branches.mjs"
   },
   "dependencies": {

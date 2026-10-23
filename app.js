@@ -34700,7 +34700,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     if (st.atTriggerExpectancyPct != null && st.optionDecided){
       cellChip(accPct(st.atTriggerExpectancyPct), 'if exits filled at the trigger', st.atTriggerExpectancyPct >= 0,
-        'Average P&L if take-profits and premium stops filled exactly at their trigger (+20% / -50%; +50% / -50% on credit spreads), as a resting order would. The record books them at the 11:00 / 15:30 ET mark instead. Optimistic for stops, which can gap past the level.');
+        'Average P&L if take-profits and premium stops filled exactly at their trigger (each recorded trigger; current default +25% / -50%, or +50% / -50% on credit spreads), as a resting order would. The record books them at the 11:00 / 15:30 ET mark instead. Optimistic for stops, which can gap past the level.');
     }
     if (st.flat) cellChip(String(st.flat), 'flat closes (not counted)', null, 'Closes that rounded to 0.0%. They are neither wins nor losses.');
     if (bs && bs.paired && bs.paired.n){
@@ -35021,7 +35021,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const rec = info.reconciliation || {}, run = Date.parse(info.lastRunIso), current = Date.parse(record.builtAtIso), checked = Date.parse(info.engineSnapshotIso);
     const reportsSnapshot = Object.prototype.hasOwnProperty.call(info, 'engineSnapshotIso');
     let body = '<p class="wb-sample-note">' + (rec.checkedAtIso ? 'Last broker reconciliation: ' + html(dateTime(rec.checkedAtIso)) + '.' : 'No broker reconciliation snapshot was supplied.') + '</p>';
-    if (!Number.isFinite(run) || reportsSnapshot && Number.isFinite(current) && (!Number.isFinite(checked) || current > checked)) body += '<p class="wb-review-warning" role="status">The latest Track Record build has not been checked by the mirror yet, or no mirror run is recorded. Holdings checks follow the 11:00 and 15:30 ET Top Picks builds after publication.</p>';
+    if (!Number.isFinite(run) || reportsSnapshot && Number.isFinite(current) && (!Number.isFinite(checked) || current > checked)) body += '<p class="wb-review-warning" role="status">The latest Track Record build has not been checked by the mirror yet, or no mirror run is recorded.</p>';
+    body += '<p class="wb-sample-note">Holdings and order checks follow the 11:00 and 15:30 ET Top Picks builds after publication, with up to two two-minute follow-ups while orders are pending. Build delays are possible. Expiry closes start with the first mirror on the two-session cutoff date.</p>';
     const alerts = Array.isArray(rec.alerts) ? rec.alerts : [];
     if (alerts.length || ['attention', 'incomplete'].includes(rec.status)) body += '<div class="wb-review-warning" role="alert"><strong>Broker reconciliation needs review</strong><p>Entries may be paused or exposure may need review.</p>' + (alerts.length ? '<ul>' + alerts.map(a => '<li>' + html(a) + '</li>').join('') + '</ul>' : '') + '</div>';
     return body;
@@ -35183,7 +35184,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       { val: String(T.length), lbl: 'trades mirrored' },
       { val: fillRate == null ? '—' : Math.round(fillRate) + '%', lbl: 'filled (' + missed.length + ' missed)' },
       { val: accPct(wbMean(entryCosts)), lbl: 'entry vs engine', cls: wbMean(entryCosts) == null ? '' : (wbMean(entryCosts) <= 0 ? 'sig-pos' : 'sig-neg'), tip: '+ means paper paid more than the engine (or took in less on a credit).' },
-      { val: accPct(wbMean(paperNet)), lbl: 'paper avg (after fees)', cls: wbSignCls(wbMean(paperNet)) },
+      { val: accPct(wbMean(paperNet)), lbl: 'paper avg (less known fee estimates)', cls: wbSignCls(wbMean(paperNet)) },
       { val: accPct(wbMean(engine)), lbl: 'engine avg (' + engine.length + ' matched)', cls: wbSignCls(wbMean(engine)) },
       { val: closed.length + '/' + WB_TARGET_CLOSED, lbl: 'verified closes / review target' },
     ], early ? 'Early read: ' + closed.length + ' closed trade' + (closed.length === 1 ? '' : 's') + '. Treat this as preliminary evidence.' : '');
@@ -35279,7 +35280,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var reasons = Object.create(null);
     closed.forEach(function(x){ var k = ACC_STATUS_LABEL[x.t.engineCloseReason] || x.t.engineCloseReason || 'unknown'; reasons[k] = (reasons[k] || 0) + 1; });
     var reasonRows = Object.keys(reasons).sort(function(a, b){ return reasons[b] - reasons[a]; }).map(function(k){ return { label: k, n: reasons[k], of: closed.length }; });
-    var accBody = '<p class="hint acc-research-note">Closed mirrored trades only, judged on the paper result after fees.</p>' +
+    var accBody = '<p class="hint acc-research-note">Closed mirrored trades only, judged on the paper result less known fee estimates.</p>' +
       '<div class="accuracy-chips">' +
         wbChip(pWin == null ? '—' : Math.round(pWin) + '%', 'paper win rate (' + paperNet.length + ')') +
         wbChip(dirN ? Math.round(dirHit / dirN * 100) + '%' : '—', 'stock moved the pick’s way by exit (' + dirN + ')', '', 'The pick was right on direction, whatever the option did.') +
@@ -35319,14 +35320,14 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var t = x.t, ec = wbEntryCost(t), xc = wbExitCost(t), np = WB_ANALYTICS.isClosed(t) ? wbNetPnl(t) : null;
       var quantities = t.filledQty != null ? '<br><small>' + escapeHtml(t.filledQty) + '/' + escapeHtml(t.requestedQty == null ? t.filledQty : t.requestedQty) + ' filled · ' + escapeHtml(t.closedQty == null ? 'unknown' : t.closedQty) + ' closed · ' + escapeHtml(t.openQty == null ? 'unknown' : t.openQty) + ' open</small>' : '';
       return '<tr><td><b>' + escapeHtml(t.tradeId) + '</b><br><small>' + escapeHtml(t.legs || '') + '</small>' + ((t.labels || []).length ? '<br><small>' + escapeHtml(t.labels.join(' · ')) + '</small>' : '') + (t.note && (t.state !== 'closed' || t.needsReview) && (t.labels || []).join(' ').indexOf(t.note) < 0 ? '<br><small>' + escapeHtml(t.note) + '</small>' : '') + '</td>' +
-        '<td>' + escapeHtml(STATE[t.state] || t.state || '') + (t.needsReview || t.state === 'closed' && !WB_ANALYTICS.isClosed(t) ? '<br><strong class="sig-neg">Needs broker review</strong>' : '') + quantities + '</td>' +
+        '<td>' + escapeHtml(t.state === 'entering' && !t.entryTries ? 'queued' : STATE[t.state] || t.state || '') + (t.needsReview || t.state === 'closed' && !WB_ANALYTICS.isClosed(t) ? '<br><strong class="sig-neg">Needs broker review</strong>' : '') + quantities + '</td>' +
         '<td>' + (accUsd(t.engineEntryPrice) || '—') + ' → ' + (accUsd(t.fillPrice) || '—') + (ec != null ? ' <small class="' + (ec <= 0 ? 'sig-pos' : 'sig-neg') + '">(' + accPct(ec) + ')</small>' : '') + '<br><small>' + wbTime(t.engineEntryIso) + ' → ' + wbTime(t.fillIso) + '</small></td>' +
         '<td>' + (t.engineExitPrice != null || t.closeFillPrice != null ? (accUsd(t.engineExitPrice) || '—') + ' → ' + (accUsd(t.closeFillPrice) || '—') + (xc != null ? ' <small class="' + (xc <= 0 ? 'sig-pos' : 'sig-neg') + '">(' + accPct(xc) + ')</small>' : '') + '<br><small>' + wbTime(t.engineExitIso) + ' → ' + wbTime(t.closeFillIso) + '</small>' : '—') + '</td>' +
         '<td class="' + wbSignCls(wbNum(t.enginePnlPct)) + '">' + accPct(wbNum(t.enginePnlPct)) + '</td>' +
         '<td class="' + wbSignCls(np) + '">' + accPct(np) + '</td>' +
         '<td>' + (wbNum(t.fees) != null ? '$' + Number(t.fees).toFixed(2) : '—') + '</td></tr>';
     }).join('');
-    var logBody = '<p class="hint acc-research-note">Each trade from the engine’s open to the paper close. Gaps in brackets: + is worse for us than the engine. Paper P&amp;L is after fees. <a href="/api/auth/webull-mirror?format=csv">Download all Webull paper trades (CSV)</a></p>' +
+    var logBody = '<p class="hint acc-research-note">Each trade from the engine’s open to the paper close. Gaps in brackets: + is worse for us than the engine. Paper P&amp;L is less known fee estimates. <a href="/api/auth/webull-mirror?format=csv">Download all Webull paper trades (CSV)</a></p>' +
       (logRows ? '<div class="acc-tscroll wb-log"><table class="acc-qtable"><thead><tr><th>Trade</th><th>Status</th><th>Entry: engine → paper</th><th>Exit: engine → paper</th><th>Engine P&amp;L</th><th>Paper P&amp;L</th><th>Fees</th></tr></thead><tbody>' + logRows + '</tbody></table></div>' : '<p class="muted acc-an-note">No trades match these filters.</p>');
 
     var dashboard = WB_REVIEW.render(review, lens, accView.wbGroup || 'structure');
@@ -39462,11 +39463,11 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // A held-contract evaluator: price the user's option live (/api/contract,
   // which handles ANY strike/expiry incl. off-band) and turn the engine's
   // current grade + entry-timing + premium exit plan into a hold / sell /
-  // wait read. Reuses the same +20% take-profit / −50% premium-stop targets the
+  // wait read. Reuses the same +25% take-profit / −50% premium-stop targets the
   // track record resolves on (PICKS_OPT_TP_PCT / PICKS_OPT_STOP_PCT). Tracked
   // tickers only — expirations/strikes come from the baked per-ticker chain. Not advice.
   var posState = { chain: null, symbol: null, bound: false };
-  var POS_TP = 20, POS_STOP = 50; // % of entry premium — mirrors the engine's +20% TP / −50% stop
+  var POS_TP = 25, POS_STOP = 50; // % of entry premium — mirrors the engine's +25% TP / −50% stop
 
   function posYrs(exp){ return Math.max(1e-6, (chainExpiryCloseEpochSec(exp) - Date.now()/1000) / (365.25*86400)); }
   function posRows(chain, side, exp){
