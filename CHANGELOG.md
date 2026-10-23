@@ -29,6 +29,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
+- Owner Lab keeps grader decisions from different runs separate with their recorded times, and omits company returns from relationship edges that contain no company.
 - Webull paper execution reconciles confirmed order fills with broker holdings, tracks requested/filled/closed quantities and weighted prices, and replaces only the remaining contracts. Durable order intents and an R2 conditional lease protect retries and overlapping runs. Expiry controls start closes before expiration using exchange holidays and early closes; unresolved expiry or stock changes appear for Owner review without invented fills or automatic stock liquidation. Automatic reconciliation follows publication of the 11:00 / 15:30 ET Top Picks builds, with up to two two-minute follow-ups only for pending work; no all-day polling or AI calls. See `docs/webull-paper-controls.md` for activation and verification limits.
 - Automatic options routing treats absent/stale relative IV as unknown and preserves spread restrictions when a leg is unavailable.
 - **Owner Lab validates prices and sizing before showing a decision.** Missing prices withhold position verdicts, old or last-trade prices are reference only, and Pass setups receive no leveraged ETF size. Evidence distinguishes collecting history from neutral and separates incompatible metric histories. Volatility-premium rows share one observation date, partial research remains visible, and earnings averages show separate sample counts.

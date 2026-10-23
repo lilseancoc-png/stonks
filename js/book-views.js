@@ -1539,7 +1539,9 @@ function sourceLink(tab, label, symbol) {
 }
 
 function recordStamp(date) {
-  return date ? `Snapshot ${esc(date)}${String(date).slice(0, 10) !== etToday() ? ' · earlier date' : ''}` : 'Snapshot date unavailable';
+  if (!date) return 'Snapshot date unavailable';
+  const day = String(date).slice(0, 10), today = etToday();
+  return `Snapshot ${esc(date)}${day < today ? ' · earlier date' : day > today ? ' · future date' : ''}`;
 }
 
 function relationshipLabel(value) {
@@ -1571,15 +1573,18 @@ function linkResults(map, heatmap, selection = { query: state.linkQuery, node: s
   const hits = edges.filter((edge) => wanted.has(edge.from) || wanted.has(edge.to));
   const lines = hits.slice(0, 80).map((edge) => {
     const from = nodes[edge.from] || {}, to = nodes[edge.to] || {};
-    const ticker = query ? (wanted.has(edge.from) ? from : to) : from.type === 'ticker' ? from : to;
-    const other = ticker === from ? to : from;
-    const symbol = ticker.symbol || ticker.label || '';
+    const ticker = query ? (wanted.has(edge.from) ? from : to) : from.type === 'ticker' ? from : to.type === 'ticker' ? to : null;
+    const subject = ticker || (wanted.has(edge.from) ? from : to);
+    const other = subject === from ? to : from;
+    const symbol = ticker ? ticker.symbol || ticker.label || '' : '';
+    const title = symbol || relationshipLabel(subject.label || subject.type);
     const inputTab = { 'ai-capex':'ai-capex', 'ram-prices':'ram-prices', 'accelerator-prices':'accelerator-prices', commodities:'commodities' }[edge.src];
     const description = descriptions[edge.kind] || [edge.kind === 'input' ? 'Linked research input' : 'Stored membership', inputTab || 'tickers'];
     const row = returns.get(symbol);
     const d1 = row && row.ch != null ? pct(row.ch, 2) : '—';
     const w1 = row && row.perf && row.perf['1w'] != null ? pct(row.perf['1w'], 2) : '—';
-    return `<li><b>${esc(symbol)}</b><span>${esc(relationshipLabel(other.label || other.symbol || other.type))}<small>${esc(description[0])}</small></span><small>As of ${esc(edge.asOf || 'unknown')} · ${sourceLink(inputTab || description[1], 'Explore research')}<details><summary>Source details</summary>${esc(edge.src || '')} · ${esc(edge.kind || '')}</details></small><em>Company return<br>1D ${esc(d1)} · 1W ${esc(w1)}</em></li>`;
+    const returnsHtml = ticker ? `<em>Company return<br>1D ${esc(d1)} · 1W ${esc(w1)}</em>` : '';
+    return `<li><b>${esc(title)}</b><span>${esc(relationshipLabel(other.label || other.symbol || other.type))}<small>${esc(description[0])}</small></span><small>As of ${esc(edge.asOf || 'unknown')} · ${sourceLink(inputTab || description[1], 'Explore research')}<details><summary>Source details</summary>${esc(edge.src || '')} · ${esc(edge.kind || '')}</details></small>${returnsHtml}</li>`;
   }).join('');
   return `<ul class="book-link-list">${lines}</ul>${!lines ? '<p class="book-note">No stored relationship matches this lookup.</p>' : ''}${hits.length > 80 ? `<p class="book-note">${hits.length - 80} more relationships match. Narrow the company search.</p>` : ''}`;
 }
@@ -1615,7 +1620,7 @@ function evidenceBody(record, queryValue = state.evidenceQuery) {
     const explanation = pending ? 'Needs at least 20 prior observations of this same metric in the existing 60-day window.' : !baselineKnown && piece.dir === 'neutral' ? 'This older record did not distinguish missing history from a measured neutral result.' : definition[3];
     return `<article class="owner-evidence-piece"><div><h5>${esc(definition[0])}</h5><b>${esc(value)}</b><p>${esc(definition[3])}</p></div><div><strong>${esc(read)}</strong><p>${esc(explanation)}</p><small>Source date ${esc(piece.asOf || 'unavailable')}${piece.asOf && piece.asOf < record.date ? ' · older source' : ''}</small><br>${sourceLink(definition[2], null, symbol)}</div><details><summary>Stored fields</summary><p>${esc(piece.id)} · ${esc(piece.src)} · direction ${esc(piece.dir)} · strength ${esc(piece.str)} / 3${piece.rk != null ? ' · cross-company percentile '+esc(piece.rk) : ''} · first recorded ${esc(piece.firstSeen || 'unknown')}</p></details></article>`;
   }).join('');
-  return `<section class="book-evidence-name"><h4>${esc(symbol)}</h4><p class="book-note">${pieces.length} recorded measurements${earlier ? ' · '+earlier+' use an older source date' : ''}. Direction describes the measurement, not necessarily the stock price. First recorded is the archive date, not necessarily the event date.</p>${rows || '<p class="book-note">No measurements were stored for this company.</p>'}</section>`;
+  return `<section class="book-evidence-name"><h4>${esc(symbol)}</h4><p class="book-note">${pieces.length} recorded measurements${earlier ? ' · '+earlier+(earlier === 1 ? ' uses' : ' use')+' an older source date' : ''}. Direction describes the measurement, not necessarily the stock price. First recorded is the archive date, not necessarily the event date.</p>${rows || '<p class="book-note">No measurements were stored for this company.</p>'}</section>`;
 }
 
 async function renderEvidence() {
@@ -1637,19 +1642,24 @@ async function renderRejections() {
     const day = await loadJson(latest.key);
     const query = state.rejectQuery.trim().toUpperCase();
     const entries = new Map();
-    for (const item of Array.isArray(day.passed) ? day.passed : []) entries.set(item.sym + ':' + item.side, { ...item, thesisPassed: true });
+    // Each bucket keeps its first observation of the day. Only a matching
+    // timestamp proves that a pass and timing record describe the same run.
+    const keyFor = (item, bucket) => [item.sym, item.side, item.asOf || 'undated-' + bucket].join(':');
+    for (const item of Array.isArray(day.passed) ? day.passed : []) entries.set(keyFor(item, 'pass'), { ...item, thesisPassed: true });
     for (const item of Array.isArray(day.records) ? day.records : []) {
-      const key = item.sym + ':' + item.side;
+      const key = keyFor(item, 'decision');
       entries.set(key, { ...(entries.get(key) || {}), ...item });
     }
-    const records = [...entries.values()].filter((item) => !query || String(item.sym || '').toUpperCase().startsWith(query)).sort((a, b) => String(a.sym).localeCompare(String(b.sym)) || String(a.side).localeCompare(String(b.side)));
+    const records = [...entries.values()].filter((item) => !query || String(item.sym || '').toUpperCase().startsWith(query)).sort((a, b) => String(a.sym).localeCompare(String(b.sym)) || String(a.side).localeCompare(String(b.side)) || String(a.asOf || '').localeCompare(String(b.asOf || '')));
     const rows = records.map((item) => {
-      const thesis = item.kind === 'reject' ? 'Rejected' : item.thesisPassed ? 'Passed' : item.grade || 'Not recorded';
+      const thesis = item.kind === 'reject' ? 'Rejected' : item.thesisPassed || ['strong','moderate','weak'].includes(item.grade) ? 'Passed' : 'Not recorded';
       const entry = item.kind === 'reject' ? 'Blocked' : item.kind === 'wait-heldback' ? 'Wait · held back' : item.kind === 'wait' || item.entryVerdict === 'wait' ? 'Wait for entry' : item.entryVerdict === 'buy-now' ? 'Entry cleared' : 'Not recorded';
-      return `<tr><td>${esc(item.sym)}</td><td>${esc(item.side)}</td><td>${esc(thesis)}</td><td>${esc(item.grade || '—')}</td><td>${esc(entry)}</td><td>${item.total == null ? '—' : esc(signed(item.total, 1))}</td><td>${item.spot == null ? '—' : esc(money(item.spot))}</td><td>${esc(item.entryReason || 'No explanatory note stored.')}</td></tr>`;
+      const stamp = new Date(item.asOf || '');
+      const recordedAt = Number.isFinite(stamp.getTime()) ? stamp.toLocaleString('en-US', {month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:'America/New_York',timeZoneName:'short'}) : 'Time not recorded';
+      return `<tr><td>${esc(item.sym)}</td><td>${esc(item.side)}</td><td>${esc(recordedAt)}</td><td>${esc(thesis)}</td><td>${esc(item.grade || '—')}</td><td>${esc(entry)}</td><td>${item.total == null ? '—' : esc(signed(item.total, 1))}</td><td>${item.spot == null ? '—' : esc(money(item.spot))}</td><td>${esc(item.entryReason || 'No explanatory note stored.')}</td></tr>`;
     }).join('');
-    const table = rows ? `<div class="book-table-wrap"><table class="book-table"><thead><tr><th>Company</th><th>Side</th><th>Thesis result</th><th>Thesis quality</th><th>Entry timing</th><th>Total</th><th>Recorded spot</th><th>Explanation</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="book-note">No grader decisions match this view.</p>';
-    mount(id, shell(id, 'AI grader log', `<p class="book-count">${recordStamp(day.date || latest.date)} · ${records.length} company/side decision${records.length === 1 ? '' : 's'}</p><div class="book-controls">${searchField('reject-query', 'Ticker', state.rejectQuery, 'NVDA')}</div>${table}<details><summary>Original daily log</summary><pre class="owner-raw-record">${esc(JSON.stringify(day, null, 2))}</pre></details>`, 'Thesis quality and entry timing are separate decisions. A thesis can pass while entry timing still says wait. These are historical decisions, not a new live assessment.'));
+    const table = rows ? `<div class="book-table-wrap"><table class="book-table"><thead><tr><th>Company</th><th>Side</th><th>Recorded at</th><th>Thesis result</th><th>Thesis quality</th><th>Entry timing</th><th>Total</th><th>Recorded spot</th><th>Explanation</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="book-note">No grader decisions match this view.</p>';
+    mount(id, shell(id, 'AI grader log', `<p class="book-count">${recordStamp(day.date || latest.date)} · ${records.length} recorded observation${records.length === 1 ? '' : 's'}</p><div class="book-controls">${searchField('reject-query', 'Ticker', state.rejectQuery, 'NVDA')}</div>${table}<details><summary>Original daily log</summary><pre class="owner-raw-record">${esc(JSON.stringify(day, null, 2))}</pre></details>`, 'Thesis quality and entry timing are separate decisions. A thesis can pass while entry timing still says wait. Different recorded times stay separate, including a rejection followed by a later pass. These are historical decisions, not a new live assessment.'));
   } catch (err) { fail(id, 'AI grader log', 'The grader log could not be loaded (' + err.message + ').'); }
 }
 

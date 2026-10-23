@@ -100,6 +100,10 @@ const links=linkResults(map,{tickers:[{t:'NVDA',ch:2,perf:{'1w':3}}]},{query:'NV
 assert.match(links,/<b>NVDA<\/b>/,'the searched company remains the company even on incoming peer links');
 assert.match(links,/TSMC/);
 assert.match(links,/Overnight market peer/);
+const groupMap={nodes:{'sector:Technology':{type:'sector',label:'Technology'},'industry:Semiconductors':{type:'industry',label:'Semiconductors'}},edges:[{from:'industry:Semiconductors',to:'sector:Technology',kind:'industry-sector'}]};
+const groupLinks=linkResults(groupMap,{}, {query:'',node:'sector:Technology'});
+assert.match(groupLinks,/<b>Technology<\/b>/);
+assert.doesNotMatch(groupLinks,/Company return/,'group membership is not a company performance row');
 
 // Drive the actual diagnostic loader with fixture HTTP responses and a small
 // DOM boundary. This proves closed views do not issue storage requests.
@@ -114,7 +118,7 @@ dom['owner-panel-diagnostics'].hidden=true;
 const requests=[];
 const fixture={
   'evidence-latest.json':{key:'evidence/'+day+'.json'},['evidence/'+day+'.json']:short,
-  'ai-rejections-latest.json':{key:'ai-rejections/'+day+'.json'},['ai-rejections/'+day+'.json']:{date:day,passed:[{sym:'NVDA',side:'call',grade:'strong',entryVerdict:'wait',total:10,spot:100}],records:[{sym:'NVDA',side:'call',grade:'strong',kind:'wait',entryReason:'Wait for confirmation',total:10,spot:100}]},
+  'ai-rejections-latest.json':{key:'ai-rejections/'+day+'.json'},['ai-rejections/'+day+'.json']:{date:day,passed:[{sym:'NVDA',side:'call',asOf:day+'T15:00:00Z',grade:'strong',entryVerdict:'wait',total:10,spot:100}],records:[{sym:'NVDA',side:'call',asOf:day+'T15:00:00Z',grade:'strong',kind:'wait',entryReason:'Wait for confirmation',total:10,spot:100}]},
 };
 const listeners={};
 const browser=vm.createContext({URLSearchParams,Intl,Date,setTimeout,window:{location:{search:'?tab=quant'}},fetch:async(url)=>{const key=new URL(url,'http://fixture').searchParams.get('data')||String(url).replace(/^data\//,'');requests.push(key);return {ok:!!fixture[key],status:fixture[key]?200:404,json:async()=>fixture[key]};}});
@@ -123,6 +127,7 @@ browser.document={getElementById:id=>dom[id]||null,querySelector:()=>null,active
 browser.openTab('quant'); assert.equal(requests.length,0);
 dom['owner-panel-diagnostics'].hidden=false; browser.openTab('quant'); assert.equal(requests.length,0);
 assert.match(dom['book-evidence'].innerHTML,/Open to load/);
+assert.match(browser.recordStamp('2999-01-01'),/future date/,'a future snapshot must not be called an earlier date');
 vm.runInContext('state.open["book-evidence"]=true;',browser);
 await browser.renderEvidence(); assert.equal(requests.length,2);
 await browser.renderEvidence(); assert.equal(requests.length,2,'search and rerenders reuse the snapshot');
@@ -140,7 +145,7 @@ assert.equal(requests.length,pendingCount,'refresh cannot duplicate a pending in
 releaseLoad(); await pendingLoad; browser.fetch=normalFetch;
 vm.runInContext('state.open["book-rejections"]=true;',browser);
 await browser.renderRejections();
-assert.match(dom['book-rejections'].innerHTML,/1 company\/side decision</);
+assert.match(dom['book-rejections'].innerHTML,/1 recorded observation</);
 assert.match(dom['book-rejections'].innerHTML,/<td>Passed<\/td>/);
 assert.match(dom['book-rejections'].innerHTML,/<td>Wait for entry<\/td>/);
 assert.match(dom['book-rejections'].innerHTML,/Wait for confirmation/);
@@ -148,4 +153,17 @@ await browser.refreshOwnerRecords('book-evidence');
 const afterEvidenceRefresh=requests.length;
 await browser.renderRejections();
 assert.equal(requests.length,afterEvidenceRefresh,'refreshing evidence preserves the loaded grader snapshot and avoids extra reads');
+fixture['ai-rejections/'+day+'.json']={date:day,
+  passed:[{sym:'NVDA',side:'call',asOf:day+'T19:30:00Z',entryVerdict:'buy-now',grade:'strong',spot:120}],
+  records:[{sym:'NVDA',side:'call',asOf:day+'T15:00:00Z',kind:'reject',grade:'reject',spot:100}]};
+await browser.refreshOwnerRecords('book-rejections');
+const separate=dom['book-rejections'].innerHTML;
+assert.equal((separate.match(/<tr><td>NVDA/g)||[]).length,2,'different runs cannot be merged into a hybrid decision');
+assert.match(separate,/<td>Rejected<\/td>.*?<td>\$100\.00<\/td>/);
+assert.match(separate,/<td>Passed<\/td>.*?<td>Entry cleared<\/td>.*?<td>\$120\.00<\/td>/);
+assert.match(separate,/<th>Recorded at<\/th>/);
+fixture['ai-rejections/'+day+'.json'].passed[0].asOf=null;
+fixture['ai-rejections/'+day+'.json'].records[0].asOf=null;
+await browser.refreshOwnerRecords('book-rejections');
+assert.equal((dom['book-rejections'].innerHTML.match(/<tr><td>NVDA/g)||[]).length,2,'undated observations also stay separate');
 console.log('Owner Lab smoke passed: pricing, eligibility, metric history, aligned VRP, partial snapshots, readable records and bounded on-demand reads.');

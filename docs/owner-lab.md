@@ -61,8 +61,11 @@ and input edges into readable labels. The displayed returns belong to the
 company; they do not measure relationship strength or causation.
 
 The grader log combines a company's side-specific thesis and timing records
-into one display row. Passing thesis quality can coexist with waiting for entry.
-The untouched original daily JSON remains available in a disclosure.
+only when their recorded timestamps match. Different runs and undated records
+stay separate so an earlier rejection cannot hide a later pass or borrow its
+price. Each row shows its recorded time in Eastern Time. Passing thesis quality
+can coexist with waiting for entry. The original daily JSON remains available
+in a disclosure. Group-only relationship edges do not show company returns.
 
 ## Research integrity
 
