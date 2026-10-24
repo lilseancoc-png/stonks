@@ -250,15 +250,15 @@ function marketAnalysisSection() {
       <h2 class="card-title">Market analysis</h2>
       <span class="card-eyebrow" id="market-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote('How to read the scenario overlay', `<p>The scenario layer is an <b>unvalidated deterministic score</b>, not a calibrated forecast. The 0&ndash;100 weights rank constructed paths relative to each other; they are not probabilities. Sample size is the calendar of upcoming events and the 16-axis tape already on this page &mdash; there is no out-of-sample hit rate behind the weights. Use it as a filter, then confirm with Grade, price and volume.</p>`)}
+    ${infoNote('How to read market labels', `<p>The regime describes a weighted set of current market observations. <b>Neutral</b> means usable evidence is mixed; <b>insufficient data</b> means core evidence is missing or stale. Check coverage, observation dates and opposing contributions before using the label. Forward scenarios below are unvalidated relative risk weights, not calibrated probabilities or point forecasts.</p>`)}
     <p class="hint">Start with the market posture, its drivers and what would change the stance. Expand the scenario and source details as needed. Check held positions in Owner Lab.</p>
-    <div id="market-regime-strip" class="picks-summary"><span id="picks-regime-chip" class="picks-regime-slot"></span></div>
+    <div id="market-load-status" class="market-load-status" hidden></div>
     <div id="market-action" class="market-action" hidden aria-live="polite"></div>
-    <div id="market-scenario-engine" class="market-scenario-engine" hidden aria-live="polite"></div>
-    <div id="market-premarket-movers" class="market-movers" hidden aria-live="polite"></div>
     <div id="picks-regime-drift" class="picks-regime-drift" hidden aria-live="polite"></div>
-    <div id="picks-tape" class="picks-tape" hidden></div>
     <div id="picks-barometer" class="picks-barometer" hidden></div>
+    <div id="picks-tape" class="picks-tape" hidden></div>
+    <details class="market-secondary"><summary>Premarket follow-through</summary><div id="market-premarket-movers" class="market-movers" hidden></div></details>
+    <details class="market-secondary"><summary>Forward scenarios and sensitivity tools</summary><p class="hint">Build-time scenario context. These unvalidated weights do not refresh with each quote check.</p><div id="market-scenario-engine" class="market-scenario-engine" hidden></div></details>
     <div id="picks-regime-hist" class="picks-regime-hist" hidden></div>
     <div class="picks-search" role="search">
       <label class="picks-search-label" for="picks-search-input">Grade any ticker</label>

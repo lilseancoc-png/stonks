@@ -355,7 +355,7 @@ a modest risk-on lean). The axes:
 
 | Axis | Reads |
 |---|---|
-| **Indexes** | SPY + QQQ — the overall market (1d move, 5d, 20D trend). Its own un-clustered axis. |
+| **Indexes** | SPY + QQQ — the overall market (1d move, 5d, 20D trend). Shares an equity cluster with breadth and rotation. |
 | **VIX** | level + trend + term-structure backwardation |
 | **Yields** | 10Y / 30Y 1d bps (bonds) |
 | **Dollar** | DXY 1d/5d (USD) |
@@ -364,7 +364,7 @@ a modest risk-on lean). The axes:
 | **Geopolitics** | war / tariffs / Iran / sanction headlines + the AI narrative layer |
 | **Inflation** | CPI YoY momentum + unemployment (Sahm) |
 | **Fear & Greed** | CNN equity internals (confirming vote; also raises a `fragile` flag) |
-| **Global tape** | overnight cross-asset breadth (futures / Asia-EU / yen / copper / BTC) |
+| **Global tape** | overnight cross-asset breadth (futures / Asia-EU / yen / BTC) |
 
 The composite is **weighted** (`MACRO_AXIS_WEIGHTS` — each axis's −2..+2 vote is
 scaled by how directly that factor prices equity risk, in *both* the net-stress
@@ -392,6 +392,45 @@ reading vetoes at any weight). (The table
 above lists the original ten axes; the gauge has since grown to sixteen — 2Y
 yields, bond vol/MOVE, breadth, put/call, credit spreads and sector rotation
 vote alongside them, same −2..+2 convention.)
+
+Market-data coverage is separate from the regime. A directional label requires
+usable index and VIX observations plus another confirmation family. Missing core
+inputs produce `insufficient-data`, not `neutral`; incomplete optional inputs
+produce a partial-coverage disclosure. Missing values stay null. Insufficient
+coverage caps the regime multiplier at 0.5 and cannot create a positive Regime
+Bias or a forward scenario forecast.
+
+HY credit votes use the ICE BofA HY OAS level and five-session spread change.
+HYG/LQD relative performance is context only because the funds have different
+interest-rate durations. The spread observation date is distinct from collection
+time. Falling Treasury yields do not receive a positive easing vote when index,
+VIX, or credit signals show stress.
+
+The Owner Market Analysis evidence panel uses those same axis votes and weights.
+It shows missing inputs, opposing votes, and weighted contributions. Raw market
+moves do not create a second risk-on/off verdict. The combined model limit is
+`regime multiplier × scenario multiplier`, before edge and portfolio limits;
+it does not report observed holdings. Details merge accepted quote observations
+with retained build-time trends. Untimestamped or stale quotes are not treated
+as current observations. Source times accept Unix seconds, milliseconds, and
+ISO timestamps; closed markets and official daily series retain their dates.
+
+Automatic saved-analysis refresh reuses the deployment ID returned by the
+existing quote poll. A changed ID signals a check; returning to Market Analysis
+after 15 minutes also checks saved data. There is no new polling timer, build,
+AI call, or provider request. Automatic reads are limited to 12 per rolling
+24 hours per tab, persisted in session storage when available. Normal checks
+are at least 15 minutes apart; failures permit one retry after five minutes,
+inside the same 12-read budget. Hidden tabs and inactive Market Analysis panes
+do not check, and requests cannot overlap. A manual error retry is throttled
+to once per 30 seconds. Initial loading is separate and can use the existing
+Top Picks fallback; automatic checks read only `market-analysis.json`.
+
+Valid newer snapshots replace regime, scenarios, and follow-through together.
+Equal versions keep the current snapshot; older or malformed responses retain
+the previous snapshot and show a retry message. Build time orders core versions,
+with `refreshedAtIso` ordering follow-through updates within the same build.
+Only the deployment ID is added to the quote response, never environment secrets.
 
 The overlay is applied **after pillars + IV Cost and before roster ranking**;
 Entry Timing remains separate. Its direction is side-aware: positive Bias
