@@ -1,0 +1,479 @@
+{
+  "version": 1,
+  "evaluatedBranch": "news-label",
+  "base": "950672f6d",
+  "referenceSha256": "77c6b68f2b4c629c942e605722f3cd5508fdd0c9257aa104ac858a319d5a36a9",
+  "referenceAsOf": "2026-10-24T02:00:00Z",
+  "method": "Agent-reviewed reference labels; captured issuer feed titles from October 23, 2026 Pacific, plus authored financial-language challenges. Development evaluation, not an independent human or blind held-out benchmark. Tests event-policy agreement, not issuer factual truth or stock returns.",
+  "comparison": {
+    "issuer-event": {
+      "before": {
+        "correct": 69,
+        "total": 72,
+        "agreementPct": 95.83
+      },
+      "after": {
+        "correct": 72,
+        "total": 72,
+        "agreementPct": 100
+      }
+    },
+    "headline-direction": {
+      "before": {
+        "correct": 13,
+        "total": 32,
+        "agreementPct": 40.63
+      },
+      "after": {
+        "correct": 32,
+        "total": 32,
+        "agreementPct": 100
+      }
+    },
+    "scoring-support": {
+      "before": {
+        "correct": 6,
+        "total": 14,
+        "agreementPct": 42.86
+      },
+      "after": {
+        "correct": 14,
+        "total": 14,
+        "agreementPct": 100
+      }
+    },
+    "catalyst-date": {
+      "before": {
+        "correct": 4,
+        "total": 11,
+        "agreementPct": 36.36
+      },
+      "after": {
+        "correct": 11,
+        "total": 11,
+        "agreementPct": 100
+      }
+    },
+    "official-energy-fields": {
+      "before": null,
+      "after": {
+        "correct": 16,
+        "total": 16,
+        "agreementPct": 100
+      }
+    },
+    "historical-fda-fields": {
+      "before": null,
+      "after": {
+        "correct": 4,
+        "total": 4,
+        "agreementPct": 100
+      }
+    }
+  },
+  "issuerAdmission": {
+    "before": {
+      "truePositive": 8,
+      "falsePositive": 0,
+      "falseNegative": 2,
+      "precisionPct": 100,
+      "recallPct": 80
+    },
+    "after": {
+      "truePositive": 10,
+      "falsePositive": 0,
+      "falseNegative": 0,
+      "precisionPct": 100,
+      "recallPct": 100
+    }
+  },
+  "beforeFailures": [
+    {
+      "group": "issuer-event",
+      "id": "amd-9",
+      "expected": "agreement",
+      "actual": null
+    },
+    {
+      "group": "issuer-event",
+      "id": "lilly-1",
+      "expected": "clinical",
+      "actual": "regulatory"
+    },
+    {
+      "group": "issuer-event",
+      "id": "lilly-7",
+      "expected": "regulatory",
+      "actual": null
+    },
+    {
+      "group": "headline-direction",
+      "id": "direction-1",
+      "expected": "negative",
+      "actual": "unclear"
+    },
+    {
+      "group": "headline-direction",
+      "id": "direction-3",
+      "expected": "positive",
+      "actual": "unclear"
+    },
+    {
+      "group": "headline-direction",
+      "id": "direction-4",
+      "expected": "positive",
+      "actual": "unclear"
+    },
+    {
+      "group": "headline-direction",
+      "id": "direction-5",
+      "expected": "negative",
+      "actual": "unclear"
+    },
+    {
+      "group": "headline-direction",
+      "id": "direction-6",
+      "expected": "negative",
+      "actual": "unclear"
+    },
+    {
+      "group": "headline-direction",
+      "id": "direction-10",
+      "expected": "negative",
+      "actual": "positive"
+    },
+    {
+      "group": "headline-direction",
+      "id": "direction-13",
+      "expected": "unclear",
+      "actual": "negative"
+    },
+    {
+      "group": "headline-direction",
+      "id": "direction-14",
+      "expected": "unclear",
+      "actual": "negative"
+    },
+    {
+      "group": "headline-direction",
+      "id": "direction-15",
+      "expected": "unclear",
+      "actual": "negative"
+    },
+    {
+      "group": "headline-direction",
+      "id": "direction-17",
+      "expected": "positive",
+      "actual": "unclear"
+    },
+    {
+      "group": "headline-direction",
+      "id": "direction-20",
+      "expected": "negative",
+      "actual": "positive"
+    },
+    {
+      "group": "headline-direction",
+      "id": "direction-21",
+      "expected": "mixed",
+      "actual": "positive"
+    },
+    {
+      "group": "headline-direction",
+      "id": "direction-23",
+      "expected": "positive",
+      "actual": "unclear"
+    },
+    {
+      "group": "headline-direction",
+      "id": "direction-24",
+      "expected": "negative",
+      "actual": "unclear"
+    },
+    {
+      "group": "headline-direction",
+      "id": "direction-25",
+      "expected": "unclear",
+      "actual": "positive"
+    },
+    {
+      "group": "headline-direction",
+      "id": "direction-27",
+      "expected": "positive",
+      "actual": "unclear"
+    },
+    {
+      "group": "headline-direction",
+      "id": "direction-28",
+      "expected": "negative",
+      "actual": "unclear"
+    },
+    {
+      "group": "headline-direction",
+      "id": "direction-30",
+      "expected": "unclear",
+      "actual": "negative"
+    },
+    {
+      "group": "headline-direction",
+      "id": "direction-31",
+      "expected": "unclear",
+      "actual": "negative"
+    },
+    {
+      "group": "scoring-support",
+      "id": "signal-2",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "group": "scoring-support",
+      "id": "signal-3",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "group": "scoring-support",
+      "id": "signal-4",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "group": "scoring-support",
+      "id": "signal-8",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "group": "scoring-support",
+      "id": "signal-9",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "group": "scoring-support",
+      "id": "signal-10",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "group": "scoring-support",
+      "id": "signal-12",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "group": "scoring-support",
+      "id": "signal-13",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "group": "catalyst-date",
+      "id": "catalyst-2",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "group": "catalyst-date",
+      "id": "catalyst-3",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "group": "catalyst-date",
+      "id": "catalyst-5",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "group": "catalyst-date",
+      "id": "catalyst-6",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "group": "catalyst-date",
+      "id": "catalyst-7",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "group": "catalyst-date",
+      "id": "catalyst-9",
+      "expected": false,
+      "actual": true
+    },
+    {
+      "group": "catalyst-date",
+      "id": "catalyst-10",
+      "expected": false,
+      "actual": true
+    }
+  ],
+  "afterFailures": [],
+  "liveCheck": {
+    "checkedAt": "2026-10-24T05:41:07.081Z",
+    "sources": [
+      {
+        "id": "ir-aapl",
+        "label": "Apple",
+        "status": "ok",
+        "checkedAt": "2026-10-24T05:41:07.081Z",
+        "lastSuccessAt": "2026-10-24T05:41:07.081Z",
+        "accepted": 0,
+        "rejected": 20,
+        "partial": false,
+        "error": null
+      },
+      {
+        "id": "ir-amd",
+        "label": "AMD",
+        "status": "ok",
+        "checkedAt": "2026-10-24T05:41:07.081Z",
+        "lastSuccessAt": "2026-10-24T05:41:07.081Z",
+        "accepted": 0,
+        "rejected": 10,
+        "partial": false,
+        "error": null
+      },
+      {
+        "id": "ir-nvda",
+        "label": "NVIDIA",
+        "status": "ok",
+        "checkedAt": "2026-10-24T05:41:07.081Z",
+        "lastSuccessAt": "2026-10-24T05:41:07.081Z",
+        "accepted": 0,
+        "rejected": 20,
+        "partial": false,
+        "error": null
+      },
+      {
+        "id": "ir-intc",
+        "label": "Intel",
+        "status": "ok",
+        "checkedAt": "2026-10-24T05:41:07.081Z",
+        "lastSuccessAt": "2026-10-24T05:41:07.081Z",
+        "accepted": 0,
+        "rejected": 12,
+        "partial": false,
+        "error": null
+      },
+      {
+        "id": "ir-lly",
+        "label": "Eli Lilly",
+        "status": "ok",
+        "checkedAt": "2026-10-24T05:41:07.081Z",
+        "lastSuccessAt": "2026-10-24T05:41:07.081Z",
+        "accepted": 1,
+        "rejected": 9,
+        "partial": false,
+        "error": null
+      },
+      {
+        "id": "eia-crude",
+        "label": "EIA crude inventories",
+        "status": "ok",
+        "checkedAt": "2026-10-24T05:41:07.081Z",
+        "lastSuccessAt": "2026-10-24T05:41:07.081Z",
+        "accepted": 1,
+        "rejected": 0,
+        "partial": false,
+        "error": null
+      },
+      {
+        "id": "eia-gas",
+        "label": "EIA natural-gas storage",
+        "status": "ok",
+        "checkedAt": "2026-10-24T05:41:07.081Z",
+        "lastSuccessAt": "2026-10-24T05:41:07.081Z",
+        "accepted": 1,
+        "rejected": 0,
+        "partial": false,
+        "error": null
+      },
+      {
+        "id": "fda-lly",
+        "label": "FDA \u00b7 LLY",
+        "status": "ok",
+        "checkedAt": "2026-10-24T05:41:07.081Z",
+        "lastSuccessAt": "2026-10-24T05:41:07.081Z",
+        "accepted": 0,
+        "rejected": 0,
+        "partial": false,
+        "error": null
+      }
+    ],
+    "events": [
+      {
+        "title": "Lower 48 working natural-gas storage: 3,644 billion cubic feet; weekly change +77 billion cubic feet (week ending 2026-10-16)",
+        "symbols": [
+          "VST"
+        ],
+        "kind": "economic-release",
+        "contextOnly": true,
+        "facts": {
+          "series": "NW2_EPG0_SWO_R48_BCF",
+          "period": "2026-10-16",
+          "releaseDate": "2026-10-22",
+          "actual": 3644,
+          "previous": 3567,
+          "change": 77,
+          "units": "billion cubic feet",
+          "comparison": "previous-week",
+          "consensus": null,
+          "surprise": null
+        }
+      },
+      {
+        "title": "Commercial crude inventories excluding SPR: 412,517 thousand barrels; weekly change -3,060 thousand barrels (week ending 2026-10-16)",
+        "symbols": [
+          "USO"
+        ],
+        "kind": "economic-release",
+        "contextOnly": true,
+        "facts": {
+          "series": "WCESTUS1",
+          "period": "2026-10-16",
+          "releaseDate": "2026-10-21",
+          "actual": 412517,
+          "previous": 415577,
+          "change": -3060,
+          "units": "thousand barrels",
+          "comparison": "previous-week",
+          "consensus": null,
+          "surprise": null
+        }
+      },
+      {
+        "title": "Lilly's Omvoh (mirikizumab-mrkz) meets primary endpoint of clinical remission and is the first IL-23p19 inhibitor to report one-year Phase 3 results in pediatric ulcerative colitis",
+        "symbols": [
+          "LLY"
+        ],
+        "kind": "issuer-announcement",
+        "contextOnly": true,
+        "facts": {
+          "eventClass": "clinical"
+        }
+      }
+    ]
+  },
+  "validation": {
+    "newsRegressionChecks": 135,
+    "referenceChecks": 149,
+    "topPicksChecks": 524,
+    "browserViewports": [
+      1366,
+      390
+    ],
+    "browserThemes": [
+      "light",
+      "dark"
+    ],
+    "pinnedEntryPolicyClocks": [
+      "2026-10-24T01:25:00Z",
+      "2026-10-24T05:41:00Z"
+    ],
+    "preBuildOfflineGate": true
+  }
+}

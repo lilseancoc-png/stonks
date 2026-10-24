@@ -25,6 +25,10 @@ import { expiryCloseEpochSec, greeks, bsPrice, yearsToExpiry, ncdf } from "../li
 import { assessOptionEntryEconomics, OPTION_ENTRY_POLICY_VERSION } from "../lib/option-entry-economics.mjs";
 import { entryVolatilityRisk, ENTRY_VOLATILITY_POLICY } from "../lib/entry-volatility-risk.mjs";
 import { buildNewsFeedPayload } from "../lib/news-feed.mjs";
+import { acceptedPublisher, publisherKind, mergeTickerNewsRows, newsDateIsCurrent, matchingSignalHeadline, currentNewsSentiment, supportedCatalyst, currentCachedCatalysts, supportedNewsSignals } from "../lib/news-policy.mjs";
+import { parseNewsRss } from "../lib/news-rss.mjs";
+import { collectFreeNewsSources } from "../lib/free-news-sources.mjs";
+import { NEWS_EVIDENCE_KEY, evidenceFeedRows, evidenceSourceHealth } from "../lib/news-evidence.mjs";
 import { computeGexSummary } from "../lib/gex.mjs";
 import { issuerCreditRatingFor } from "../lib/issuer-credit-ratings.mjs";
 import { fetchFinraMarketStructure, attachShortInterestToChains } from "../lib/market-structure.mjs";
@@ -9000,8 +9004,7 @@ function buildCalendarPayload(chains, macroHeadlines, builtAtIso, extras) {
   // Ticker-specific catalysts (FDA dates, contract decisions, product launches,
   // court rulings, M&A close dates, investor days, major dev conferences like
   // WWDC/GTC/Build/I/O, …) extracted by the per-ticker Gemini news-take call.
-  // Source is either the supplied article material OR the model's background
-  // knowledge of widely-known publicly-announced corporate events — see the
+  // Source must be a dated, linked item in the supplied article material — see the
   // CATALYSTS FIELD section of COMBINED_SYSTEM_PROMPT for guardrails. Each is
   // already date-grounded and category-tagged; we only re-apply the window
   // filter here in case a stored catalyst has aged out since the last build.
@@ -18075,14 +18078,15 @@ function sig(key, label, score, value, note, available = true) {
 // the Grade / Top-Picks cards render. Product call: blend + arrow, not a
 // separate grade. Returns dir:"steady" score:0 when there isn't enough forward
 // signal (so it never invents a trajectory from one data point).
-function computeFundamentalsTrajectory(data) {
+function computeFundamentalsTrajectory(data, nowMs = Date.now()) {
   const f = data?.fundamentals || {};
   const votes = [];
   const add = (v, why) => { if (v) votes.push({ v, why }); };
   const capFirst = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
   // 1) Management guidance — the strongest forward tell.
-  const g = data?.aiSignals?.guidance || null;
+  const rawGuidance = data?.aiSignals?.guidance || null;
+  const g = !data?.news?.stale && matchingSignalHeadline(rawGuidance, data?.news?.headlines, "guidance", nowMs) ? rawGuidance : null;
   if (g && g.direction && g.direction !== "none") {
     if (g.direction === "raised") add(2, "guidance raised");
     else if (g.direction === "inline") add(0.5, "guidance in line");
@@ -18166,19 +18170,14 @@ function computeFundamentalsTrajectory(data) {
 // re-extraction, no extra AI. No dated supporting headline → the flag is ignored.
 const MAJOR_CONTRACT_MAX_AGE_DAYS = 30;
 export function freshMajorContractStatus(data, nowMs = Date.now()) {
-  const status = data?.aiSignals?.majorContract?.status;
-  if (status !== "won" && status !== "lost") return null;
-  const heads = Array.isArray(data?.news?.headlines) ? data.news.headlines : [];
-  const cutoff = nowMs - MAJOR_CONTRACT_MAX_AGE_DAYS * 86400000;
-  const fresh = heads.some((h) => {
-    const t = Date.parse(h?.publishedAt || "");
-    return Number.isFinite(t) && t >= cutoff && t <= nowMs + 86400000 && headlineCanContainAiSignals(h?.title);
-  });
-  return fresh ? status : null;
+  const signal = data?.aiSignals?.majorContract;
+  if (data?.news?.stale || !["won", "lost"].includes(signal?.status)) return null;
+  return matchingSignalHeadline(signal, data?.news?.headlines, "contract", nowMs) ? signal.status : null;
 }
 
 function scoreFundamentals(data, sectorMedianPE, sectorCapex = null, isEtf = false, opts = {}) {
   const f = data?.fundamentals || {};
+  const nowMs = opts.asOfIso && Number.isFinite(Date.parse(opts.asOfIso)) ? Date.parse(opts.asOfIso) : Date.now();
   const out = [];
 
   // ETFs / commodity & index funds have no company fundamentals — earnings,
@@ -18260,7 +18259,8 @@ function scoreFundamentals(data, sectorMedianPE, sectorCapex = null, isEtf = fal
   out.push(sig("pe", "P/E vs sector", peScore, peVal, "Cheap/expensive vs sector median", peOk));
 
   // Guidance (AI-read, with the dividend/buyback guard upstream).
-  const g = data?.aiSignals?.guidance || null;
+  const rawGuidance = data?.aiSignals?.guidance || null;
+  const g = !data?.news?.stale && matchingSignalHeadline(rawGuidance, data?.news?.headlines, "guidance", nowMs) ? rawGuidance : null;
   let gScore = 0, gVal = null;
   if (g && g.direction && g.direction !== "none") {
     gVal = g.direction;
@@ -18275,7 +18275,6 @@ function scoreFundamentals(data, sectorMedianPE, sectorCapex = null, isEtf = fal
 
   // Major contract / deal (discrete AI-read signal).
   const mcRaw = data?.aiSignals?.majorContract?.status || null;
-  const nowMs = opts.asOfIso && Number.isFinite(Date.parse(opts.asOfIso)) ? Date.parse(opts.asOfIso) : Date.now();
   const mcStatus = freshMajorContractStatus(data, nowMs);
   const mcExpired = (mcRaw === "won" || mcRaw === "lost") && !mcStatus;
   out.push(sig("majorContract", "Major contract", mcStatus === "won" ? 2 : mcStatus === "lost" ? -3 : 0,
@@ -18351,7 +18350,7 @@ function scoreFundamentals(data, sectorMedianPE, sectorCapex = null, isEtf = fal
   // surprises, growth), which helped pin strong names at the +5 clamp. The
   // trajectory is still computed and returned — the card's ↗/↘ badge, Stock
   // Picks, Sector Rotation and the Top Picks prompt all read it.
-  const trajectory = computeFundamentalsTrajectory(data);
+  const trajectory = computeFundamentalsTrajectory(data, nowMs);
 
   const score = out.reduce((a, s) => a + s.score, 0);
   return { score, signals: out, trajectory, capexQuality: { ...capexQuality, peerMedianPct: capexPeer } };
@@ -18571,11 +18570,11 @@ function scoreMechanicals(sym, data, unusualPayload) {
   return { score: rest + positioning, signals: out, positioning: { raw: positioningRaw, capped: positioning, cap: POSITIONING_FAMILY_CAP } };
 }
 
-function scoreNarrative(sym, data, narratives) {
+function scoreNarrative(sym, data, narratives, nowMs = Date.now()) {
   const out = [];
 
   // News catalyst (asymmetric — bad news hurts more, the lesson).
-  const sent = data?.news?.sentiment || null;
+  const sent = currentNewsSentiment(data?.news, nowMs);
   out.push(sig("catalyst", "News catalyst", sent === "bullish" ? 2 : sent === "bearish" ? -3 : 0, sent, "AI sentiment on recent headlines", !!sent));
 
   // Sector narrative (rides an active strong story, faded by lifecycle).
@@ -20230,7 +20229,7 @@ function scoreTicker(sym, data, ctx) {
   const fund = scoreFundamentals(data, sectorMedianPE[sector], sectorCapex[sector], SECTORS[sym] === "ETF", { asOfIso, sym });
   const tech = scoreTechnicals(data, streakRow, regime);
   const mech = scoreMechanicals(sym, data, unusualPayload);
-  const narr = scoreNarrative(sym, data, narratives);
+  const narr = scoreNarrative(sym, data, narratives, asOfIso && Number.isFinite(Date.parse(asOfIso)) ? Date.parse(asOfIso) : Date.now());
   for (const p of [fund, tech, mech, narr]) p.score = clamp(p.score, -PICKS_PILLAR_CLAMP, PICKS_PILLAR_CLAMP);
 
   // Provisional side from the asset pillars; execution timing and IV are read
@@ -22496,7 +22495,7 @@ export function buildGradesIndex(chains, narratives, streaksMap = null, unusualP
       conviction: Math.abs(r.total), recommendation: r.recommendation,
       pillars: r.pillars, drivers: r.drivers, spot: r.data?.spot ?? null, sector, peerGroup: pg,
       regimeOverlay: r.regimeOverlay || null,
-      sentiment: r.data?.news?.sentiment || null,
+      sentiment: currentNewsSentiment(r.data?.news, Date.parse(opts.asOfIso) || Date.now()),
       rsi: r.data?.technicals?.rsi ?? null,
       tech: techLive,
       ivPctile: r.data?.ivRank?.pctile ?? r.data?.technicals?.volRegime?.rv30Pctile ?? null,
@@ -22845,7 +22844,7 @@ function stockTrapFlags(data, grade) {
     });
   }
 
-  const sentiment = grade?.sentiment || data?.news?.sentiment || null;
+  const sentiment = currentNewsSentiment(data?.news);
   if (sentiment === "bearish") {
     flags.push({ key: "news", label: "Bearish news tone", detail: "the latest news read on this name leans bearish — scan the headlines before buying the dip" });
   }
@@ -24023,7 +24022,7 @@ export function buildSectorRotationRecoveryProfile(data, grade, builtAtIso, opts
   const newsAgeHours = Number.isFinite(asOfMs) && Number.isFinite(newsBuiltMs) ? (asOfMs - newsBuiltMs) / 3600000 : null;
   const headlineRisk = sectorRotationHeadlineRisk(news, builtAtIso);
   let newsStatus = "fresh";
-  if (!news || news.fallback || !["bullish", "neutral", "bearish"].includes(news.sentiment)
+  if (!news || news.stale || news.fallback || !["bullish", "neutral", "bearish"].includes(news.sentiment)
     || !Number.isFinite(newsAgeHours)) newsStatus = "unverified";
   else if (newsAgeHours < -1 || newsAgeHours > 48) newsStatus = "stale";
   if (newsStatus !== "fresh") add(warnings, `news-${newsStatus}`, `company news is ${newsStatus}`);
@@ -24422,11 +24421,10 @@ export function buildSectorRotationRebounds(chains, gradesIndex, builtAtIso, opt
         financialSector: group.def.key === "financials",
       });
       const news = data.news || null;
-      const newsAgeHours = news?.builtAt && Number.isFinite(Date.parse(news.builtAt)) && Number.isFinite(Date.parse(builtAtIso))
-        ? (Date.parse(builtAtIso) - Date.parse(news.builtAt)) / 3600000 : null;
       const headlineRisk = sectorRotationHeadlineRisk(news, builtAtIso);
       const analystNet = pnumN(f.analystRevisions?.net);
-      const guidance = data.aiSignals?.guidance?.direction || null;
+      const rawGuidance = data.aiSignals?.guidance;
+      const guidance = !news?.stale && matchingSignalHeadline(rawGuidance, news?.headlines, "guidance", Date.parse(builtAtIso) || Date.now()) ? rawGuidance.direction : null;
       const contract = freshMajorContractStatus(data, Number.isFinite(Date.parse(builtAtIso)) ? Date.parse(builtAtIso) : Date.now());
       const raiseKind = data.capitalRaise?.kind || null;
       const judgment = f.judgment?.verdict || null;
@@ -24447,11 +24445,11 @@ export function buildSectorRotationRebounds(chains, gradesIndex, builtAtIso, opt
           : sectorRotationGuard("pass", `${judgment || "unrated"} fundamentals; ${trajectory?.dir || "steady"} trajectory`);
       guards.news = headlineRisk?.status === "block"
         ? sectorRotationGuard("block", `recent ${headlineRisk.kind} headline — “${headlineRisk.title}”`, { sentiment: news?.sentiment || null, matchedHeadline: headlineRisk })
-        : news?.sentiment === "bearish"
+        : currentNewsSentiment(news, Date.parse(builtAtIso)) === "bearish"
           ? sectorRotationGuard("block", "fresh company-news tone is bearish", { sentiment: news.sentiment })
           : headlineRisk?.status === "warn"
             ? sectorRotationGuard("warn", `recent ${headlineRisk.kind} headline — “${headlineRisk.title}”`, { sentiment: news?.sentiment || null, matchedHeadline: headlineRisk })
-        : (!news || news.fallback || news.sentiment === "uncertain" || (newsAgeHours != null && newsAgeHours > 48))
+        : (currentNewsSentiment(news, Date.parse(builtAtIso)) == null)
           ? sectorRotationGuard("warn", "company-specific news is unverified or stale", { sentiment: news?.sentiment || null })
           : sectorRotationGuard("pass", `${news.sentiment || "neutral"} company-news tone`, { sentiment: news.sentiment || null });
       guards.guidance = guidance === "lowered" || guidance === "soft" || contract === "lost" || raiseKind === "equity" || raiseKind === "convertible"
@@ -26884,7 +26882,7 @@ export function buildThesisUserMessage(r, side, macroRegime, extras = {}) {
   if (traj && traj.dir) L.push(`FUNDAMENTALS TRAJECTORY: ${traj.dir}${traj.confidence ? ` (${traj.confidence} confidence)` : ""}${traj.reason ? ` — ${traj.reason}` : ""}.`);
   if (d.capitalRaise && d.capitalRaise.kind) L.push(`CAPITAL EVENT (headline-flagged): ${d.capitalRaise.kind}${d.capitalRaise.title ? ` — "${String(d.capitalRaise.title).slice(0, 160)}"` : ""}.`);
 
-  if (d.news?.paragraph) L.push(`NEWS READ (sentiment ${d.news.sentiment || "neutral"}): ${String(d.news.paragraph).slice(0, 500)}`);
+  if (d.news?.paragraph && !d.news.stale && newsDateIsCurrent(d.news.builtAt, Date.now(), 2)) L.push(`NEWS READ (sentiment ${d.news.sentiment || "uncertain"}): ${String(d.news.paragraph).slice(0, 500)}`);
   const j = f.judgment;
   if (j) {
     L.push(`FUNDAMENTAL JUDGMENT: verdict ${j.verdict}${j.summary ? ` — ${String(j.summary).slice(0, 320)}` : ""}`);
@@ -30844,37 +30842,7 @@ export function aiModelForAttempt(primary, attempt) {
 }
 
 const AI_NEWS_COUNT = 10;
-// Publishers we accept as ticker-news sources. Two flavors mixed here:
-//   (1) WIRE-GRADE — Reuters / AP / MarketWatch / CNBC / Bloomberg / WSJ /
-//       FT / Barron's / NYT / WaPo / IBD / The Economist. Editorial guarantee,
-//       but several are paywalled — the article-body fetch handles that
-//       (paywall stubs get dropped before they reach the AI).
-//   (2) FREE-BODY FINANCIAL — Motley Fool, Zacks, Benzinga, InvestorPlace,
-//       TheStreet, Seeking Alpha, Yahoo Finance editorial, 24/7 Wall St.
-//       These can be promotional / SEO-heavy, but they ARE free, the article
-//       body extracts cleanly, and the AI prompt is instructed to ignore
-//       clickbait framing and ground its take in the body text. Including
-//       them is the difference between a ticker getting a real ticker-
-//       specific paragraph vs. the macro fallback.
-// Matching is case-insensitive substring against n.publisher.
-const REPUTABLE_PUBLISHERS = [
-  // Wire / major business press
-  "Reuters", "Bloomberg", "Wall Street Journal", "WSJ", "Financial Times", "FT",
-  "Associated Press", "AP", "MarketWatch", "CNBC", "Barron's",
-  "The Economist", "New York Times", "Washington Post", "Business Insider",
-  "Insider", "Investor's Business Daily", "Investopedia", "Morningstar",
-  "Dow Jones", "S&P Global", "Moody's", "Fitch", "FactSet", "Refinitiv",
-  "Politico",
-  // Free-body financial news (broader coverage of mid-caps + ETFs Yahoo
-  // doesn't get from the wires)
-  "Motley Fool", "Fool.com", "Zacks", "Benzinga", "InvestorPlace",
-  "Investor's Place", "TheStreet", "Seeking Alpha", "Yahoo Finance",
-  "24/7 Wall St", "GuruFocus", "Simply Wall St", "PYMNTS",
-  "GlobeNewswire", "PR Newswire", "Business Wire", "Forbes",
-  "CNN", "CNN Business",
-  "Investing.com", "Google Finance",
-];
-
+// Exact publisher identity and content classes live in lib/news-policy.mjs.
 // Domains that are reliably paywalled / not body-scrapeable. We skip body
 // fetches for these URLs entirely — saves egress and avoids spending the
 // fetch budget on stubs. Reputable publisher headlines from these sources
@@ -31552,16 +31520,20 @@ export async function readPriorNewsFeed() {
   return null;
 }
 
-export async function writeNewsFeedFile({ prior, builtAtIso, chains, marketHeadlines, macroReleases }) {
+export async function writeNewsFeedFile({ prior, builtAtIso, chains, marketHeadlines, macroReleases, sourceEvidence = null }) {
   const payload = buildNewsFeedPayload({
     tickerHeadlines: _newsFeedHeadlineRows,
     marketHeadlines,
     macroReleases,
     chains,
     sectors: SECTORS,
-    priorItems: prior?.items || [],
+    // Official context is carried solely by the policy-validated evidence store.
+    // Do not resurrect an old official row from a second, unvalidated cache.
+    priorItems: (prior?.items || []).filter(item => !item.contextOnly),
     builtAtIso,
   });
+  payload.sourceHealth = evidenceSourceHealth(sourceEvidence);
+  payload.sourceCoverage = sourceEvidence?.coverage || null;
   const json = JSON.stringify(payload);
   await writeFile(resolve(DATA_DIR, NEWS_FEED_FILE), json, "utf8");
   return { ...payload.counts, bytes: json.length };
@@ -31944,7 +31916,7 @@ export function buildBriefWatchlist(ctx) {
     let score = 0, event = 0, take = null;
     // AI news take. ETFs excluded: a fund's take is a synthesized macro
     // paragraph, not company news, and would flag every gold/oil ETF daily.
-    const sent = !isEtf && d.news ? d.news.sentiment : null;
+    const sent = !isEtf ? currentNewsSentiment(d.news) : null;
     if (sent === "bullish" || sent === "bearish") {
       score += 3; event++;
       reasons.push(sent === "bullish" ? "bullish news" : "bearish news");
@@ -33187,74 +33159,14 @@ const AI_SYSTEM_PROMPT =
   `{"paragraph": "...", "sentiment": "bullish"|"neutral"|"bearish"|"uncertain"} ` +
   "— no markdown fences, no prose before or after the JSON.";
 
-function isReputablePublisher(name) {
-  if (!name) return false;
-  const lc = name.toLowerCase();
-  return REPUTABLE_PUBLISHERS.some((p) => lc.includes(p.toLowerCase()));
-}
+function isReputablePublisher(name) { return acceptedPublisher(name); }
 
 // Very small RSS/Atom parser — enough to read <title>/<pubDate>/<updated> +
 // the article <link> off the feeds we whitelist in MACRO_FEEDS. No XML
 // dependency on purpose; these feeds are well-formed and we only need a few
 // fields per item.
 function parseRssItems(xml, max) {
-  if (!xml) return [];
-  const out = [];
-  const blocks = xml.match(/<item[\s\S]*?<\/item>|<entry[\s\S]*?<\/entry>/g) || [];
-  for (const block of blocks) {
-    const titleMatch = block.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-    if (!titleMatch) continue;
-    let title = titleMatch[1].replace(/<!\[CDATA\[|\]\]>/g, "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
-    // Decode the handful of named/numeric entities RSS feeds commonly use.
-    const decodeEntities = (s) => s
-      .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-      .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
-      .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
-      .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16)));
-    title = decodeEntities(title);
-    if (!title) continue;
-    const dateRaw =
-      (block.match(/<pubDate>([\s\S]*?)<\/pubDate>/i) ||
-        block.match(/<updated>([\s\S]*?)<\/updated>/i) ||
-        block.match(/<published>([\s\S]*?)<\/published>/i) ||
-        [])[1];
-    let publishedAt = null;
-    if (dateRaw) {
-      const d = new Date(dateRaw.trim());
-      if (!isNaN(d.getTime())) publishedAt = d.toISOString();
-    }
-    // Article permalink. RSS 2.0 uses a text-node <link>URL</link>; Atom uses
-    // one or more self-closing <link href="URL" rel="…"/> (prefer rel="alternate",
-    // skip rel="self"). We capture it so the macro feed can cite the source.
-    let link = null;
-    const rssLink = block.match(/<link>\s*([\s\S]*?)\s*<\/link>/i);
-    if (rssLink && /^https?:\/\//i.test(rssLink[1].trim())) {
-      link = rssLink[1].trim();
-    }
-    if (!link) {
-      const atomLinkTags = block.match(/<link\b[^>]*>/gi) || [];
-      let alternate = null;
-      let firstHref = null;
-      for (const tag of atomLinkTags) {
-        const href = (tag.match(/href\s*=\s*"([^"]+)"/i) || tag.match(/href\s*=\s*'([^']+)'/i) || [])[1];
-        if (!href || !/^https?:\/\//i.test(href)) continue;
-        const rel = ((tag.match(/rel\s*=\s*["']([^"']+)["']/i) || [])[1] || "").toLowerCase();
-        if (rel === "self") continue;
-        if (!firstHref) firstHref = href;
-        if ((rel === "alternate" || rel === "") && !alternate) alternate = href;
-      }
-      link = alternate || firstHref || null;
-    }
-    if (link) {
-      link = decodeEntities(link.trim());
-      // Bound the URL so a malformed feed can't bloat the manifest; drop anything
-      // that doesn't parse as an absolute http(s) URL.
-      if (link.length > 500 || !/^https?:\/\//i.test(link)) link = null;
-    }
-    out.push(link ? { title, publishedAt, link } : { title, publishedAt });
-    if (out.length >= max) break;
-  }
-  return out;
+  return parseNewsRss(xml, max).map(({ title, publishedAt, link }) => ({ title, publishedAt, ...(link ? { link } : {}) }));
 }
 
 export async function fetchMacroHeadlines() {
@@ -33327,84 +33239,15 @@ export async function fetchMacroHeadlines() {
 //   · Ticker-specific by URL construction
 //   · Yahoo curates from wires + financial press, so the publishers we get
 //     here are generally higher quality than a raw `search()` slate.
-// The description IS the article body for our purposes — the AI gets
-// `title + description` per item, plenty of ticker-specific text to ground
-// a paragraph in.
+// Descriptions remain summaries. Link lists and repeated titles are discarded
+// before article enrichment and are never represented as article text.
 const RSS_FETCH_TIMEOUT_MS = 10000;
-// Was 60 — but on GHA the publisher-URL body fetch path is blocked, so
-// any item we blank here ends up dropped entirely. Better to keep even a
-// short snippet (15-50 chars) than fall through to a fetch that fails.
-const RSS_DESC_MIN_CHARS = 0;
-const RSS_DESC_MAX_CHARS = 1500;
-function decodeAndStripHtml(s) {
-  return decodeHtmlEntities(String(s).replace(/<[^>]+>/g, " "))
-    .replace(/\s+/g, " ")
-    .trim();
-}
 async function fetchTickerRssHeadlines(symbol) {
-  const url = `https://finance.yahoo.com/rss/headline?s=${encodeURIComponent(symbol)}`;
-  let xml;
   try {
-    const res = await fetchWithTimeout(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "application/rss+xml, application/xml, text/xml, */*",
-        "Accept-Language": "en-US,en;q=0.9",
-      },
-      redirect: "follow",
-    }, RSS_FETCH_TIMEOUT_MS);
+    const res = await fetchWithTimeout(`https://finance.yahoo.com/rss/headline?s=${encodeURIComponent(symbol)}`, { headers: { "User-Agent": "Mozilla/5.0", Accept: "application/rss+xml, text/xml" } }, RSS_FETCH_TIMEOUT_MS);
     if (!res.ok) return [];
-    xml = await res.text();
-  } catch (_) {
-    return [];
-  }
-  if (!xml || xml.length < 200) return [];
-  // Yahoo RSS uses RSS 2.0 with <item> blocks. Parse with regex — pulling
-  // in xml2js for this would add a runtime dependency for a tiny extractor.
-  // Pattern allows for <![CDATA[...]]> wrappers around title/description/link
-  // which Yahoo intermittently uses.
-  const items = [];
-  const itemRegex = /<item\b[^>]*>([\s\S]*?)<\/item>/gi;
-  function pull(block, tag) {
-    const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i");
-    const m = block.match(re);
-    if (!m) return "";
-    let v = m[1].trim();
-    // Unwrap CDATA.
-    const cd = v.match(/^<!\[CDATA\[([\s\S]*?)\]\]>$/);
-    if (cd) v = cd[1];
-    return v;
-  }
-  let m;
-  while ((m = itemRegex.exec(xml)) !== null) {
-    const block = m[1];
-    const title = decodeAndStripHtml(pull(block, "title"));
-    let description = decodeAndStripHtml(pull(block, "description"));
-    const link = pull(block, "link").trim();
-    const pubDateRaw = pull(block, "pubDate").trim();
-    if (!title) continue;
-    // Some Yahoo RSS items have a near-empty description (single sentence).
-    // Drop items where the description doesn't add anything over the title
-    // — those waste tokens without giving the AI new info.
-    if (description.length < RSS_DESC_MIN_CHARS) description = "";
-    if (description.length > RSS_DESC_MAX_CHARS) {
-      description = description.slice(0, RSS_DESC_MAX_CHARS).trim() + "…";
-    }
-    let publishedAt = null;
-    if (pubDateRaw) {
-      const t = new Date(pubDateRaw);
-      if (!isNaN(t.getTime())) publishedAt = t.toISOString();
-    }
-    items.push({ title, description, link, publisher: "Yahoo Finance", publishedAt });
-  }
-  // Newest first. Yahoo usually returns items in chronological order already
-  // but we re-sort defensively in case the feed isn't ordered.
-  items.sort((a, b) => {
-    const da = a.publishedAt ? Date.parse(a.publishedAt) : 0;
-    const db = b.publishedAt ? Date.parse(b.publishedAt) : 0;
-    return db - da;
-  });
-  return items.slice(0, AI_NEWS_COUNT);
+    return parseNewsRss(await res.text(), 30).map(h => ({ ...h, publisher: "Yahoo Finance", sourceKind: "aggregator" })).sort((a,b) => Date.parse(b.publishedAt || 0)-Date.parse(a.publishedAt || 0)).slice(0, AI_NEWS_COUNT);
+  } catch { return []; }
 }
 
 // Google News RSS — searches all of Google News for "<TICKER> stock" and
@@ -33420,75 +33263,15 @@ async function fetchTickerRssHeadlines(symbol) {
 // redirect to the actual article — body-fetch follows redirects so paywall
 // detection still works.
 async function fetchGoogleNewsRssHeadlines(symbol) {
-  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(symbol + " stock")}&hl=en-US&gl=US&ceid=US:en`;
-  let xml;
   try {
-    const res = await fetchWithTimeout(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "application/rss+xml, application/xml, text/xml, */*",
-        "Accept-Language": "en-US,en;q=0.9",
-      },
-      redirect: "follow",
-    }, RSS_FETCH_TIMEOUT_MS);
+    const url = `https://news.google.com/rss/search?q=${encodeURIComponent(symbol + " stock")}&hl=en-US&gl=US&ceid=US:en`;
+    const res = await fetchWithTimeout(url, { headers: { "User-Agent": "Mozilla/5.0", Accept: "application/rss+xml, text/xml" } }, RSS_FETCH_TIMEOUT_MS);
     if (!res.ok) return [];
-    xml = await res.text();
-  } catch (_) {
-    return [];
-  }
-  if (!xml || xml.length < 200) return [];
-
-  const items = [];
-  const itemRegex = /<item\b[^>]*>([\s\S]*?)<\/item>/gi;
-  function pull(block, tag) {
-    const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i");
-    const m = block.match(re);
-    if (!m) return "";
-    let v = m[1].trim();
-    const cd = v.match(/^<!\[CDATA\[([\s\S]*?)\]\]>$/);
-    if (cd) v = cd[1];
-    return v;
-  }
-  let m;
-  while ((m = itemRegex.exec(xml)) !== null) {
-    const block = m[1];
-    let title = decodeAndStripHtml(pull(block, "title"));
-    let description = decodeAndStripHtml(pull(block, "description"));
-    const link = pull(block, "link").trim();
-    const pubDateRaw = pull(block, "pubDate").trim();
-    let publisher = decodeAndStripHtml(pull(block, "source"));
-    // Strip the " - Publisher" suffix Google News always appends to titles
-    // so we don't double-print the publisher in the AI prompt.
-    if (publisher) {
-      const suffix = " - " + publisher;
-      if (title.endsWith(suffix)) title = title.slice(0, -suffix.length).trim();
-    } else {
-      const titleMatch = title.match(/\s-\s+([^-]+)$/);
-      if (titleMatch) {
-        publisher = titleMatch[1].trim();
-        title = title.slice(0, title.lastIndexOf(" - ")).trim();
-      }
-    }
-    if (!title) continue;
-    if (description.length > RSS_DESC_MAX_CHARS) {
-      description = description.slice(0, RSS_DESC_MAX_CHARS).trim() + "…";
-    }
-    let publishedAt = null;
-    if (pubDateRaw) {
-      const t = new Date(pubDateRaw);
-      if (!isNaN(t.getTime())) publishedAt = t.toISOString();
-    }
-    items.push({ title, description, link, publisher: publisher || "Google News", publishedAt });
-  }
-  // Google News surfaces SEO farms / promotional blogs too — filter to the
-  // reputable allowlist so the AI doesn't get blog-spam catalysts.
-  const filtered = items.filter((it) => isReputablePublisher(it.publisher));
-  filtered.sort((a, b) => {
-    const da = a.publishedAt ? Date.parse(a.publishedAt) : 0;
-    const db = b.publishedAt ? Date.parse(b.publishedAt) : 0;
-    return db - da;
-  });
-  return filtered.slice(0, AI_NEWS_COUNT * 2);
+    return parseNewsRss(await res.text(), 100).filter(h => isReputablePublisher(h.publisher)).map(h => {
+      const suffix = " - " + h.publisher;
+      return { ...h, title: h.title.endsWith(suffix) ? h.title.slice(0,-suffix.length) : h.title };
+    }).sort((a,b) => Date.parse(b.publishedAt || 0)-Date.parse(a.publishedAt || 0)).slice(0,AI_NEWS_COUNT*2);
+  } catch { return []; }
 }
 
 async function fetchTickerHeadlines(symbol) {
@@ -33502,34 +33285,7 @@ async function fetchTickerHeadlines(symbol) {
     fetchGoogleNewsRssHeadlines(symbol),
   ]);
   if (yahoo.length > 0 || google.length > 0) {
-    // Dedupe by lowercased title prefix (first 60 chars) — same story
-    // usually shares the lead even when publishers tweak the wording.
-    // Google News goes first so its real-publisher attribution wins over
-    // Yahoo's "Yahoo Finance" relabel when the same story appears in both.
-    const seen = new Set();
-    const merged = [];
-    for (const r of [...google, ...yahoo]) {
-      const key = (r.title || "").toLowerCase().slice(0, 60);
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      merged.push({
-        title: r.title,
-        publisher: r.publisher,
-        link: r.link,
-        publishedAt: r.publishedAt,
-        // Description doubles as body. Empty string when the feed gave us
-        // only a title — the AI prompt handles that gracefully (item is
-        // still in the citation list, just without body text to ground a
-        // sentence in).
-        body: r.description || "",
-      });
-    }
-    merged.sort((a, b) => {
-      const da = a.publishedAt ? Date.parse(a.publishedAt) : 0;
-      const db = b.publishedAt ? Date.parse(b.publishedAt) : 0;
-      return db - da;
-    });
-    return merged.slice(0, AI_NEWS_COUNT * 2);
+    return mergeTickerNewsRows([...google, ...yahoo], Date.now(), AI_NEWS_COUNT * 2);
   }
   // SECONDARY: fall back to yahooFinance.search() which returns headlines
   // from a broader publisher set but without description. The downstream
@@ -33559,7 +33315,7 @@ async function fetchTickerHeadlines(symbol) {
       const db = b.publishedAt ? Date.parse(b.publishedAt) : 0;
       return db - da;
     });
-    return normalized.slice(0, AI_NEWS_COUNT);
+    return mergeTickerNewsRows(normalized, Date.now(), AI_NEWS_COUNT);
   } catch (err) {
     console.log(`    ⚠ ${symbol} headline fetch failed: ${err.message}`);
     return [];
@@ -33591,8 +33347,7 @@ const ARTICLE_MIN_BODY_CHARS = 400;
 // of that pass's input tokens (~750 tokens per full body × up to 10 articles),
 // so this is the direct input-cost lever for the most expensive AI pass.
 // Env-overridable (AI_ARTICLE_BODY_CHARS, wired into daily.yml as an Actions
-// variable) so spend can be tuned without a deploy. Default 1500 matches
-// RSS_DESC_MAX_CHARS, so fetched bodies and RSS descriptions share one cap.
+// variable) so spend can be tuned without a deploy. The default is 1500 characters.
 const ARTICLE_MAX_BODY_CHARS = Number(process.env.AI_ARTICLE_BODY_CHARS) || 1500;
 const ARTICLE_PARA_MIN_CHARS = 40;
 const PAYWALL_PHRASES = [
@@ -33802,7 +33557,7 @@ async function fetchArticleBody(url) {
       }
       if (text.length > ARTICLE_MAX_BODY_CHARS) text = text.slice(0, ARTICLE_MAX_BODY_CHARS).trim() + "…";
       _bodyFetchStats.ok++;
-      return text;
+      return { body: text, contentKind: "article-excerpt" };
     }
     // Full body extraction failed — fall back to <meta> summary so the AI
     // STILL gets ticker-specific content (just shorter). This is the
@@ -33813,9 +33568,7 @@ async function fetchArticleBody(url) {
       _bodyFetchStats.ogOnly++;
       // Prefix with any successful body paragraphs we did extract.
       const combined = uniq.length ? uniq.join(" ") + " " + meta : meta;
-      return combined.length > ARTICLE_MAX_BODY_CHARS
-        ? combined.slice(0, ARTICLE_MAX_BODY_CHARS).trim() + "…"
-        : combined;
+      return { body: combined.slice(0, ARTICLE_MAX_BODY_CHARS), contentKind: "metadata-summary" };
     }
     _bodyFetchStats.noExtraction++;
     return null;
@@ -33866,7 +33619,7 @@ async function enrichHeadlinesWithBodies(headlines) {
       if (k >= needsFetch.length) return;
       const i = needsFetch[k];
       const body = await fetchArticleBody(out[i].link);
-      if (body) out[i].body = body;
+      if (body) Object.assign(out[i], body, {bodyPublisher:out[i].publisher, bodyLink:out[i].link});
     }
   }
   const workers = [];
@@ -34289,7 +34042,7 @@ async function generateNewsTake(ai, symbol, spot, headlines) {
         .map((h, i) => {
           const head = `${i + 1}. [${h.publishedAt || "unknown date"}] (${h.publisher || "unknown"}) ${h.title}`;
           return h.body
-            ? `${head}\n   ARTICLE BODY: ${h.body}`
+            ? `${head}\n   ${h.contentKind === "article-excerpt" ? "ARTICLE EXCERPT" : "SUMMARY"} (${h.bodyPublisher || h.publisher || "unknown source"}): ${h.body}`
             : head;
         })
         .join("\n\n")
@@ -34363,12 +34116,18 @@ async function generateNewsTake(ai, symbol, spot, headlines) {
   }
   return {
     paragraph: String(parsed.paragraph || "").trim(),
-    sentiment: parsed.sentiment,
+    sentiment: ["bullish", "bearish", "neutral", "uncertain"].includes(parsed.sentiment) ? parsed.sentiment : "uncertain",
     headlines: headlines.map((h) => ({
       title: h.title,
       publisher: h.publisher || null,
       publishedAt: h.publishedAt || null,
       reputable: isReputablePublisher(h.publisher),
+      link: h.link || null,
+      contentKind: h.contentKind || "headline",
+      bodyPublisher: h.bodyPublisher || null,
+      bodyLink: h.bodyLink || null,
+      sourceKind: h.sourceKind || publisherKind(h.publisher),
+      sourceId: createHash("sha1").update(h.link || h.title).digest("hex").slice(0,20),
     })),
     sources,
     builtAt: new Date().toISOString(),
@@ -34416,8 +34175,8 @@ const AI_SIGNALS_SYSTEM_PROMPT =
   "From the supplied headlines, determine ONLY: " +
   "(1) majorContract.status — 'won' if the company recently WON or was awarded a major new contract, order, or deal — OR, for a bank / broker / adviser, was named lead underwriter, bookrunner, or lead financial adviser on a major IPO, M&A, or capital raise (e.g. 'Goldman Sachs to lead the SpaceX IPO'); " +
   "'lost' if it LOST a major contract/customer, had a major deal cancelled, or was dropped from such a mandate; 'none' if neither is clearly evidenced. " +
-  "(2) guidance.direction — the company's most recent forward GUIDANCE: 'raised' (guided up / above expectations), " +
-  "'inline' (reaffirmed / in line), 'soft' (modest cut / cautious tone), 'lowered' (guided down materially), or 'none' if no guidance is evident. " +
+  "(2) guidance.direction — the company's most recent forward GUIDANCE: 'raised' (increased versus the company's prior guidance, not merely above analyst expectations), " +
+  "'inline' (reaffirmed or unchanged versus prior company guidance, not analyst consensus), 'soft' (modest cut / cautious tone), 'lowered' (guided down materially), or 'none' if no guidance is evident. " +
   "A dividend increase/cut or a share-buyback announcement is capital-return news, NOT guidance — report 'none' for those. " +
   "Be conservative: only report 'won'/'lost'/'raised'/'lowered' when the headlines clearly support it; otherwise use 'none'. " +
   "Each evidence string: one short clause citing the headline. No markdown, no preamble.";
@@ -34526,7 +34285,7 @@ async function attachAiContractGuidance(chains, judgmentCache = null) {
     const signalHeadlines = headlines.filter((h) => headlineCanContainAiSignals(h?.title));
     const signalsSig = aiSignalsHeadlineSignature(sym, signalHeadlines, model);
     if (canReuseAiSignals(cacheEntry, signalsSig)) {
-      if (cacheEntry.signals) { data.aiSignals = cacheEntry.signals; tagged += 1; }
+      if (cacheEntry.signals) { const supported = supportedNewsSignals(cacheEntry.signals, signalHeadlines); if (supported) { data.aiSignals = supported; tagged += 1; } }
       reusedSignals += 1;
       return;
     }
@@ -34576,7 +34335,7 @@ async function attachAiContractGuidance(chains, judgmentCache = null) {
     }
     if (!response) {
       if (lastErr) console.warn(`[picks] contract/guidance extraction failed for ${sym} — fundamentals fall back to proxy (${String(lastErr.message || lastErr).split("\n")[0]})`);
-      if (cacheEntry?.signals) data.aiSignals = cacheEntry.signals;
+      // Current extraction failed: retain historical cache, not a current scoring claim.
       return;
     }
     try {
@@ -34589,7 +34348,7 @@ async function attachAiContractGuidance(chains, judgmentCache = null) {
       const aiSignals = {};
       if (mcStatus) aiSignals.majorContract = { status: mcStatus, evidence: String(parsed.majorContract.evidence || "").slice(0, 200) };
       if (gDir) aiSignals.guidance = { direction: sanitizeGuidanceDirection(gDir, parsed.guidance.evidence), evidence: String(parsed.guidance.evidence || "").slice(0, 200) };
-      const out = Object.keys(aiSignals).length ? aiSignals : null;
+      const out = supportedNewsSignals(aiSignals, signalHeadlines);
       if (out) { data.aiSignals = out; tagged += 1; }
       // Store on the judgment-cache entry (null = "ran, nothing found" — still
       // reusable) so the next unchanged-headlines build skips this call too.
@@ -34853,25 +34612,14 @@ FUNDAMENTALS FIELD — {verdict, summary, earningsRecap, positives, negatives}. 
 - earningsRecap: one sentence covering the last-reported quarter EPS vs estimate (beat / miss / in line) and the next confirmed earnings date if the snapshot provides one. Empty string if no earnings data.
 - positives / negatives: 3-5 items each. Each item is a single sentence citing the metric that drove it (e.g. "Profit margin 28% — best-in-class for the sector", "Forward P/E 45x vs trailing 30x — priced for substantial growth"). If the snapshot only supports fewer, return fewer — do not pad. Only use numbers actually supplied; never invent figures.
 
-CATALYSTS FIELD — array of upcoming, ticker-specific, date-anchored corporate events that move the underlying. Each item is {date, title, category, confidence}.
-
-ACTIVELY POPULATE THIS FIELD — do not default to an empty array. When the supplied article material clearly names a dated forward event for THIS ticker (source (a) below), you MUST include it; returning [] is correct ONLY when neither the article material NOR your reliable background knowledge surfaces a qualifying event. A clearly-dated event named in the headlines or bodies — a developer/customer conference (WWDC / GTC / Build / I/O / Connect / re:Invent), product launch, FDA / PDUFA date, contract or court decision, investor day — is exactly what belongs here; extract it rather than leaving the array empty out of caution. The HARD GUARDRAILS below exist to stop you INVENTING events (never fabricate a date) — they do NOT excuse omitting one that is genuinely present in the input.
-
-TWO ALLOWED SOURCES for a catalyst — both must clear the HARD GUARDRAILS below.
-  (a) ARTICLE MATERIAL. The supplied headlines/bodies explicitly state or strongly imply the event is scheduled for a specific date or window. Examples that qualify: "FDA PDUFA date set for June 14", "NASA contract decision expected May 26", "Investor day on May 28", "court ruling in patent suit due in early June", "shareholder vote on the merger scheduled June 3", "product launch event on May 30".
-  (b) BACKGROUND KNOWLEDGE for WIDELY-KNOWN, PUBLICLY-ANNOUNCED, RECURRING-OR-SCHEDULED corporate events that you remember from training data with HIGH CONFIDENCE in the specific date. Qualifying examples: major annual developer/customer conferences with publicly-announced dates (Apple WWDC, NVIDIA GTC, Microsoft Build / Ignite, Google I/O, Meta Connect, AWS re:Invent, Salesforce Dreamforce, Oracle CloudWorld, Adobe MAX, Snowflake Summit), well-publicized product launch events on the corporate calendar (Apple's September iPhone event, Tesla AI Day / Robotaxi events, etc.), scheduled investor days / analyst days / capital markets days, regulator-published PDUFA dates, scheduled M&A vote / close dates that are matter of public record. The event MUST be one you have specific calendar knowledge of for the YEAR in question — not just "this is an annual event that usually happens around X." If you don't remember the specific dates with confidence for THIS year, SKIP IT.
-
-HARD GUARDRAILS (apply to both sources):
-- NEVER invent a date. If you do not remember a specific scheduled date (or 1-2 day window) for the event in the relevant year, do not include it. "Probably sometime in June" / "usually happens in early summer" is NOT good enough — skip it.
-- Confidence "high" only when you are certain of an exact date or 2-3 day window. Use "medium" only when you remember the rough week. Drop "low" items unless they are unusually material.
-- DO NOT include the next earnings date — earnings already get their own dedicated calendar entry from a separate data source. Skip any "next earnings" / "Q? earnings on …" mentions.
-- DO NOT include broad macro events (FOMC, CPI, NFP, jobs report, Fed meetings) — those have their own dedicated calendar entries. Catalysts are TICKER-SPECIFIC corporate events.
-- date: ABSOLUTE date in "YYYY-MM-DD" format. If the article gives a relative phrase ("next Tuesday", "later this month", "Q3"), convert it to an absolute date using the article's published date as the reference point and the supplied "Today's date" anchor. If you cannot pin it to a specific calendar day within 1-2 days of confidence, SKIP the event — do not emit a vague range.
-- Only emit events whose date falls between "Today's date" and the end of the current calendar year (December 31). Drop anything in the next year, or already in the past.
-- title: 2-8 word plain-English label. Example: "FDA PDUFA decision on drug X", "NASA lunar lander contract award", "Q2 product launch event", "Antitrust ruling expected", "Shareholder vote on merger". Be concrete — name the specific event, not "important news".
-- category: must be exactly one of "fda" (PDUFA dates, advisory committee votes, trial readouts), "contract" (government / large customer contract awards, supply deals), "launch" (product launches, model unveilings, store openings, vehicle deliveries starting, major developer/customer conferences like WWDC / GTC / Build / I/O / Connect / re:Invent / Dreamforce / MAX where new products and features are unveiled), "court" (rulings, verdicts, antitrust decisions, settlements), "trial" (clinical trial data readouts that aren't PDUFA), "merger" (M&A close dates, shareholder votes, regulatory approval deadlines), "investor" (investor day, analyst day, capital markets day, AI day), "guidance" (pre-announced guidance update, preliminary results), or "other" (anything else date-anchored that doesn't fit above).
-- confidence: "high" if you know the exact date (whether stated in the article OR remembered from background knowledge with high certainty). "medium" if you know the date as a window ("week of June 5", "early June") and picked a representative day. "low" if you had to do meaningful interpretation. Drop "low" items unless they are unusually material — quality beats quantity.
-- Max 5 catalysts per ticker (the window is the rest of the year, so a name can legitimately have several dated events). Pick the most material if more qualify.
+CATALYSTS FIELD — array of upcoming, ticker-specific corporate events. Each item is {date, title, category, confidence, sourceTitle}.
+- Only use the supplied article material. Do not use background knowledge for event dates.
+- sourceTitle MUST be copied exactly from one supplied headline with a source link. The same headline or supplied summary/excerpt must state the date explicitly. Never invent a date or choose a day from a vague window.
+- date must be YYYY-MM-DD, today or later, within the current calendar year. An unsupported or ambiguous date means omit that event.
+- Do not include earnings prints or broad macro events: those have separate calendar sources.
+- category: fda, contract, launch, court, trial, merger, investor, guidance, or other.
+- confidence describes extraction certainty, not probability of the event's outcome. Only include high or medium confidence supported by the supplied material.
+- Max 5 events. Return [] when none qualifies. Do not fill the list to satisfy a quota.
 
 GENERAL RULES.
 - Output ONLY the JSON object. No fences, no preamble, no postscript.
@@ -34970,7 +34718,7 @@ const SIGNALS_PROMPT_SECTION = `
 
 SIGNALS FIELD — {majorContract, guidance}. ALWAYS include this field. Extract two structured facts from the supplied article material, used by the Fundamentals pillar:
 - majorContract.status — "won" if the company recently WON or was awarded a major new contract, order, or deal — OR, for a bank / broker / adviser, was named lead underwriter, bookrunner, or lead financial adviser on a major IPO, M&A, or capital raise (e.g. "Goldman Sachs to lead the SpaceX IPO"); "lost" if it LOST a major contract/customer, had a major deal cancelled, or was dropped from such a mandate; "none" if neither is clearly evidenced.
-- guidance.direction — the company's most recent forward GUIDANCE: "raised" (guided up / above expectations), "inline" (reaffirmed / in line), "soft" (modest cut / cautious tone), "lowered" (guided down materially), or "none" if no guidance is evident.
+- guidance.direction — the company's most recent forward GUIDANCE: "raised" (increased versus prior company guidance, not analyst expectations), "inline" (reaffirmed or unchanged versus prior company guidance), "soft" (modest cut / cautious tone), "lowered" (guided down materially), or "none" if no guidance is evident.
 A dividend increase/cut or a share-buyback announcement is capital-return news, NOT guidance — report "none" for those.
 Be conservative: only report "won"/"lost"/"raised"/"lowered" when the material clearly supports it; otherwise use "none". Each evidence string: one short clause citing the headline. Read these from the NEWS material only — never infer them from the fundamentals snapshot numbers.`;
 
@@ -35006,8 +34754,9 @@ const TICKER_JUDGMENT_SCHEMA = {
           title: { type: "string" },
           category: { type: "string", enum: CATALYST_CATEGORIES },
           confidence: { type: "string", enum: ["high", "medium", "low"] },
+          sourceTitle: { type: "string" },
         },
-        required: ["date", "title", "category", "confidence"],
+        required: ["date", "title", "category", "confidence", "sourceTitle"],
       },
     },
   },
@@ -35030,7 +34779,7 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
         .map((h, i) => {
           const head = `${i + 1}. [${h.publishedAt || "unknown date"}] (${h.publisher || "unknown"}) ${h.title}`;
           return h.body
-            ? `${head}\n   ARTICLE BODY: ${h.body}`
+            ? `${head}\n   ${h.contentKind === "article-excerpt" ? "ARTICLE EXCERPT" : "SUMMARY"} (${h.bodyPublisher || h.publisher || "unknown source"}): ${h.body}`
             : head;
         })
         .join("\n\n")
@@ -35129,12 +34878,18 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
   const builtAt = new Date().toISOString();
   const news = {
     paragraph: String(parsed?.news?.paragraph || "").trim(),
-    sentiment: parsed?.news?.sentiment,
+    sentiment: ["bullish", "bearish", "neutral", "uncertain"].includes(parsed?.news?.sentiment) ? parsed.news.sentiment : "uncertain",
     headlines: headlines.map((h) => ({
       title: h.title,
       publisher: h.publisher || null,
       publishedAt: h.publishedAt || null,
       reputable: isReputablePublisher(h.publisher),
+      link: h.link || null,
+      contentKind: h.contentKind || "headline",
+      bodyPublisher: h.bodyPublisher || null,
+      bodyLink: h.bodyLink || null,
+      sourceKind: h.sourceKind || publisherKind(h.publisher),
+      sourceId: createHash("sha1").update(h.link || h.title).digest("hex").slice(0,20),
     })),
     sources,
     builtAt,
@@ -35190,11 +34945,14 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
     const eventMs = Date.parse(date + "T00:00:00Z");
     if (!Number.isFinite(eventMs) || eventMs < catWindowStartMs || eventMs > catWindowEndMs) continue;
     const category = CATALYST_CATEGORIES.includes(c?.category) ? c.category : "other";
-    const confidence = ["high", "medium", "low"].includes(c?.confidence) ? c.confidence : "medium";
+    if (!["high", "medium"].includes(c?.confidence)) continue;
+    const confidence = c.confidence;
+    const support = supportedCatalyst(c, headlines);
+    if (!support) continue;
     const key = date + "|" + category + "|" + title.toLowerCase();
     if (seenCatalystKeys.has(key)) continue;
     seenCatalystKeys.add(key);
-    catalysts.push({ date, title: title.slice(0, 160), category, confidence });
+    catalysts.push({ date, title: title.slice(0, 160), category, confidence, ...support });
     if (catalysts.length >= 5) break;
   }
 
@@ -35215,7 +34973,7 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
     if (Object.keys(sig).length) aiSignals = sig;
   }
 
-  return { news, judgment, catalysts, aiSignals };
+  return { news, judgment, catalysts, aiSignals: supportedNewsSignals(aiSignals, headlines) };
 }
 
 // Periodic progress heartbeat. Each AI phase fans out via Promise.all against
@@ -35442,7 +35200,7 @@ export function tickerJudgmentInstructionSignature() {
 
 export function tickerJudgmentSignature(rawHeadlines, fundamentals) {
   const heads = rawHeadlines
-    .map((h) => `${h.title}|${h.publisher || ""}|${h.publishedAt || ""}`)
+    .map((h) => `${h.title}|${h.publisher || ""}|${h.publishedAt || ""}|${createHash("sha1").update(h.body || "").digest("hex")}`)
     .join("\n");
   // Only the slow-moving, non-price-derived fundamentals facts ride the key: a
   // new earnings print or a consensus change forces a re-read; P/E / market-cap
@@ -35472,6 +35230,7 @@ export function tickerJudgmentSignature(rawHeadlines, fundamentals) {
   return {
     sig: [...metaParts, headsHash, fundHash].join("|"),
     metaSig: [...metaParts, fundHash].join("|"),
+    headlineContent: Object.fromEntries(rawHeadlines.map(h => [normalizeHeadlineTitle(h.title), createHash("sha1").update(JSON.stringify([h.publisher,h.publishedAt,h.body || ""])).digest("hex")])),
     titles: rawHeadlines.map((h) => normalizeHeadlineTitle(h.title)),
     // Same 12-hex tail already embedded in sig and metaSig. Exposed so a miss
     // label can tell a fundamentals change from a model or prompt change.
@@ -35557,18 +35316,19 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
         // tolerance) + same slow fundamentals facts + spot within the drift
         // band ⇒ reuse the prior build's judgment and skip both the
         // body-enrichment fetches and the Gemini call.
-        const { sig, metaSig, titles, fundHash } = tickerJudgmentSignature(rawHeadlines, data.fundamentals);
+        const { sig, metaSig, titles, fundHash, headlineContent } = tickerJudgmentSignature(rawHeadlines, data.fundamentals);
         const prior = AI_TICKER_CACHE ? priorCache[sym] : null;
         const spotOk = prior &&
           Number.isFinite(prior.spot) && prior.spot > 0 && Number.isFinite(data.spot) &&
           Math.abs(data.spot - prior.spot) / prior.spot <= TICKER_JUDGMENT_SPOT_DRIFT;
         let reuseWhy = null;
-        if (prior && prior.news && spotOk) {
+        if (prior && prior.news && spotOk && newsDateIsCurrent(prior.news.builtAt, Date.now(), 1)) {
           if (prior.sig === sig) {
             reuseWhy = "headlines unchanged";
           } else if (
             TICKER_JUDGMENT_NEWS_TOLERANCE > 0 &&
-            prior.metaSig === metaSig && Array.isArray(prior.titles)
+            prior.metaSig === metaSig && Array.isArray(prior.titles) && prior.headlineContent &&
+            titles.every(title => !prior.titles.includes(title) || prior.headlineContent[title] === headlineContent[title])
           ) {
             const cachedTitles = new Set(prior.titles);
             const freshCount = titles.filter((t) => !cachedTitles.has(t)).length;
@@ -35581,8 +35341,9 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
         if (reuseWhy) {
           data.news = prior.news;
           if (prior.judgment) data.fundamentals = { ...data.fundamentals, judgment: prior.judgment };
-          data.catalysts = Array.isArray(prior.catalysts) && prior.catalysts.length ? prior.catalysts : [];
-          if (prior.aiSignals) data.aiSignals = prior.aiSignals;
+          data.catalysts = currentCachedCatalysts(prior.catalysts);
+          const supported = supportedNewsSignals(prior.aiSignals, rawHeadlines);
+          if (supported) data.aiSignals = supported;
           // Keep the ORIGINAL entry (spot + title set) so both the spot drift
           // and the new-headline count accumulate against the read that
           // actually produced the judgment, not against each other reuse.
@@ -35633,7 +35394,7 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
             }
           : {};
         nextCache[sym] = {
-          sig, metaSig, titles, spot: data.spot, news, judgment, catalysts, aiSignals,
+          sig, metaSig, titles, headlineContent, spot: data.spot, news, judgment, catalysts, aiSignals,
           ...priorSignals,
         };
         data.news = news;
@@ -35655,10 +35416,12 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
         // the News desk still updates while the AI layer degrades explicitly.
         const prior = AI_TICKER_CACHE ? priorCache[sym] : null;
         if (prior?.news) {
-          data.news = prior.news;
-          if (prior.judgment) data.fundamentals = { ...data.fundamentals, judgment: prior.judgment };
-          data.catalysts = Array.isArray(prior.catalysts) ? prior.catalysts : [];
-          if (prior.aiSignals) data.aiSignals = prior.aiSignals;
+          data.news = { ...prior.news, stale: true, reuseReason: "provider-failure" };
+          // An old combined judgment may describe different financial/news
+          // inputs. Keep the news prose as labeled context without restoring
+          // that earlier judgment into current fundamentals scoring.
+          data.catalysts = currentCachedCatalysts(prior.catalysts);
+          delete data.aiSignals;
           nextCache[sym] = prior;
         } else if (!data.news) data.news = null;
       }
@@ -35984,7 +35747,7 @@ function buildNarrativeRiskDigest(chains, riskInputs = {}) {
 
 function buildNarrativeUserMessage(chains, previousNames, macroHeadlines, riskInputs = {}) {
   const lines = Object.entries(chains).map(([sym, data]) => {
-    const news = data.news;
+    const news = currentNewsSentiment(data.news) ? data.news : null;
     const sentiment = news?.sentiment || "unknown";
     const summary = (news?.paragraph || "").replace(/\s+/g, " ").trim();
     const firstHl = Array.isArray(news?.headlines) && news.headlines.length ? news.headlines[0] : null;
@@ -37066,6 +36829,10 @@ async function main() {
   const tickerJudgmentCachePrev = await readTickerJudgmentCache();
   let tickerJudgmentCacheNext = tickerJudgmentCachePrev;
   resetNewsFeedHeadlineRows();
+  const freeNewsPrior = await readFile(resolve(DATA_DIR, NEWS_EVIDENCE_KEY), "utf8").then(JSON.parse).catch(() => null);
+  // Free deterministic collection overlaps existing work and never enters the
+  // AI/scoring headline slate. It first ships as explicitly labeled context.
+  const freeNewsPromise = collectFreeNewsSources({ universe: TICKERS, prior: freeNewsPrior });
   if (AI_COMBINED) {
     tickerJudgmentCacheNext = await attachTickerJudgments(chains, macroBackdrop, tickerJudgmentCachePrev);
   } else {
@@ -37075,6 +36842,9 @@ async function main() {
     // window to drain. Same for the narrative pass that runs next.
     await attachFundamentalsJudgments(chains);
   }
+  const freeNewsEvidence = await freeNewsPromise;
+  _newsFeedHeadlineRows.push(...evidenceFeedRows(freeNewsEvidence));
+  console.log(`[news] official context: ${freeNewsEvidence.events.length} events, ${Object.values(freeNewsEvidence.sources).filter(s => s.status === "error").length} source errors`);
   await attachSocialSentiment(chains);
   // Extract the Major Contract + Guidance fundamentals signals from the news
   // headlines just attached. Mutates chains[sym].aiSignals in memory; consumed
@@ -37584,6 +37354,7 @@ async function main() {
   // attachTickerJudgments + attachAiContractGuidance above). writeChainFiles
   // just recreated data/, so this must come after it.
   await writeTickerJudgmentCache(tickerJudgmentCacheNext);
+  await writeFile(resolve(DATA_DIR, NEWS_EVIDENCE_KEY), JSON.stringify(freeNewsEvidence), "utf8");
   // Persist macro to disk AFTER writeChainFiles — that call wipes data/
   // wholesale, so writing macro.json before it deletes our snapshot
   // immediately (confirmed in git history: chore: daily refresh 2026-05-25
@@ -38481,6 +38252,7 @@ async function main() {
       chains,
       marketHeadlines: trends.macroHeadlines || [],
       macroReleases: macroReleaseReads,
+      sourceEvidence: freeNewsEvidence,
     });
     console.log(`wrote data/${NEWS_FEED_FILE} — ${ni.total} stories (${ni.macro} macro, ${ni.high} high impact, ${ni.activeTape} active tape), ${ni.bytes} bytes`);
   } catch (err) {

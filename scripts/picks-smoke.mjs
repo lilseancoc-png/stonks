@@ -2227,7 +2227,10 @@ ok("capex YoY: mixed cohort uses only names in both years",
 const sigOf = (g, pillar, key) => g?.pillars?.[pillar]?.signals?.find((x) => x.key === key) || null;
 const gradeOne = (data, opts = {}, unusual = null) => buildGradesIndex({ ONE: data }, [], null, unusual, null, null, opts).ONE;
 {
-  const base = gradeOne(mkTicker({ fundamentals: { earningsGrowthYoy: 35, revenueGrowthYoy: 22, targetMeanPrice: 115, growthEstimateCurY: 5 } }));
+  const baseData = mkTicker({ fundamentals: { earningsGrowthYoy: 35, revenueGrowthYoy: 22, targetMeanPrice: 115, growthEstimateCurY: 5 } });
+  baseData.news = { sentiment: "neutral", builtAt: new Date().toISOString(), headlines: [{ title: "ONE reaffirms full-year guidance", publishedAt: new Date().toISOString() }] };
+  baseData.aiSignals.guidance = { direction: "inline", evidence: "ONE reaffirms full-year guidance" };
+  const base = gradeOne(baseData);
   ok("signals v2: EPS growth >=30% scores +2", sigOf(base, "fundamentals", "epsGrowth")?.score === 2);
   ok("signals v2: revenue growth >=20% scores +2", sigOf(base, "fundamentals", "revGrowth")?.score === 2);
   ok("signals v2: a +15% analyst target no longer earns a point", sigOf(base, "fundamentals", "analystTarget")?.score === 0);
@@ -2284,7 +2287,7 @@ const gradeOne = (data, opts = {}, unusual = null) => buildGradesIndex({ ONE: da
 {
   const nowMs = Date.now();
   const withNews = (status, ageDays, title = "Acme wins $2B defense contract") => ({
-    aiSignals: { majorContract: { status } },
+    aiSignals: { majorContract: { status, evidence: title } },
     news: { headlines: [{ title, publishedAt: new Date(nowMs - ageDays * 86400000).toISOString() }] },
   });
   ok("major contract: a deal headline inside 30 days keeps the flag", freshMajorContractStatus(withNews("won", 5), nowMs) === "won");

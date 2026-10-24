@@ -1,0 +1,124 @@
+{
+  "asOf": "2026-10-24T02:00:00Z",
+  "sources": {
+    "crude": "https://ir.eia.gov/wpsr/psw00.json",
+    "gas": "https://ir.eia.gov/ngs/wngsr.json",
+    "fda": "https://api.fda.gov/drug/drugsfda.json?search=application_number:NDA022504"
+  },
+  "crude": {
+    "metadata": {
+      "source": "U.S. Energy Information Administration",
+      "release_name": "Weekly Petroleum Status Report",
+      "data_description": "Commercial Crude Oil Stocks (Excluding SPR)",
+      "periodicity": "Weekly",
+      "release_date": "2026-10-21",
+      "release_time": "10:30 am",
+      "time_period": {
+        "start_date": "2020-10-15",
+        "end_date": "2026-10-16",
+        "description": "6-year rolling history"
+      },
+      "suppression_flag_codes": {
+        "description": "Describes the meaning of suppression flag values",
+        "null_behavior": "When suppression_flag is null, value exists (numeric data)",
+        "codes": {
+          "--": "Not Applicable",
+          "-": "Data Not Available",
+          "other": "Any other text marker is flagged as unknown/unexpected"
+        }
+      }
+    },
+    "data": {
+      "U.S.": {
+        "sourcekey": "WCESTUS1",
+        "description": "U.S. Weekly Crude Oil Ending Stocks Excluding SPR (thousand barrels)",
+        "units": "thousand barrels",
+        "time_series": [
+          {
+            "date": "2026-10-16",
+            "value": 412517,
+            "suppression_flag": null
+          },
+          {
+            "date": "2026-10-09",
+            "value": 415577,
+            "suppression_flag": null
+          }
+        ]
+      }
+    }
+  },
+  "gas": {
+    "release_date": "2026-Oct-22 00:00:00",
+    "current_week": "2026-10-16",
+    "week_ago": "2026-10-09",
+    "series": [
+      {
+        "series_id": "png.nw2_epg0_swo_r48_bcf.w",
+        "name": "total lower 48 states",
+        "source": "U.S. Energy Information Administration",
+        "iso1366": "USA",
+        "units": "billion cubic feet",
+        "unitsshort": "bcf",
+        "calculated": {
+          "5yr-avg": 3609,
+          "revision_flag_5yr-avg": "false",
+          "reclassification_flag_5yr-avg": "false",
+          "net_change": 77,
+          "revision_flag_net_change": "false",
+          "reclassification_flag_net_change": "false",
+          "implied_flow": 77,
+          "revision_flag_implied_flow": "false",
+          "reclassification_flag_implied_flow": "false",
+          "pct-change_yrago": -4,
+          "revision_flag_pct-change_yrago": "false",
+          "reclassification_flag_pct-change_yrago": "false",
+          "pct-chg_5yr-avg": 1,
+          "revision_flag_pct-chg_5yr-avg": "false",
+          "reclassification_flag_pct-chg_5yr-avg": "false"
+        },
+        "data": [
+          [
+            "2026-10-16",
+            3644
+          ],
+          [
+            "2026-10-09",
+            3567
+          ]
+        ],
+        "revision_flag": [
+          "false",
+          "false",
+          "false"
+        ],
+        "reclassification_flag": [
+          "false",
+          "false",
+          "false"
+        ]
+      }
+    ]
+  },
+  "fda": {
+    "results": [
+      {
+        "application_number": "NDA022504",
+        "sponsor_name": "ELI LILLY AND CO",
+        "products": [
+          {
+            "brand_name": "AXIRON"
+          }
+        ],
+        "submissions": [
+          {
+            "submission_type": "ORIG",
+            "submission_number": "1",
+            "submission_status": "AP",
+            "submission_status_date": "20101123"
+          }
+        ]
+      }
+    ]
+  }
+}
