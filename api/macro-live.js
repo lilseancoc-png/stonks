@@ -29,6 +29,7 @@
 // upstream work.
 
 import { yahooFinance, withYahooTimeout } from "../lib/yahoo.mjs";
+import { marketAnalysis } from "../lib/market-analysis.mjs";
 
 // Mirrors the tile set in fetchMacroBackdrop (scripts/build.mjs). The 2Y is
 // deliberately NOT in this Yahoo set: Yahoo has no cash 2Y yield index, and
@@ -68,7 +69,7 @@ export function parseTreasuryTwoYearXml(xml) {
     const dm = chunk.match(/<d:NEW_DATE[^>]*>([^<]+)<\/d:NEW_DATE>/);
     const vm = chunk.match(/<d:BC_2YEAR[^>]*>([^<]*)<\/d:BC_2YEAR>/);
     const date = dm?.[1]?.slice(0, 10) || "";
-    const value = Number(vm?.[1]);
+    const value = marketAnalysis.number(vm?.[1]);
     if (date && Number.isFinite(value)) byDate.set(date, value);
   }
   const rows = [...byDate.entries()].sort((a, b) => a[0].localeCompare(b[0]));
@@ -160,10 +161,10 @@ async function fetchFearGreedLive() {
     if (!res.ok) return null;
     const json = await res.json();
     const root = json && json.fear_and_greed;
-    const score = Number(root && root.score);
+    const score = marketAnalysis.number(root && root.score);
     if (!Number.isFinite(score)) return null;
-    const num = (x) => (Number.isFinite(Number(x)) ? Math.round(Number(x) * 100) / 100 : null);
-    const comp = (c) => (c && Number.isFinite(Number(c.score)) ? Math.round(Number(c.score) * 100) / 100 : null);
+    const num = (x) => { const n = marketAnalysis.number(x); return n == null ? null : Math.round(n * 100) / 100; };
+    const comp = (c) => num(c?.score);
     return {
       score: num(score),
       rating: typeof root.rating === "string" && root.rating ? root.rating.toLowerCase() : null,
@@ -172,7 +173,7 @@ async function fetchFearGreedLive() {
       month: num(root.previous_1_month),
       breadth: comp(json.stock_price_breadth),
       credit: comp(json.junk_bond_demand),
-      asOf: typeof root.timestamp === "string" ? root.timestamp : new Date().toISOString(),
+      asOf: marketAnalysis.timestamp(root.timestamp),
     };
   } catch {
     return null;
@@ -240,9 +241,9 @@ export default async function handler(req, res) {
       const prevClose = typeof prevRaw === "number" && isFinite(prevRaw) ? prevRaw : null;
       const pctChange1d = prevClose != null && prevClose !== 0 ? ((value - prevClose) / prevClose) * 100 : null;
       const bpsChange1d = isYield && prevClose != null ? (value - prevClose) * 100 : null;
-      const quoteTime = q?.regularMarketTime ? new Date(q.regularMarketTime) : null;
+      const quoteTime = marketAnalysis.timestamp(q?.regularMarketTime);
       legs[key] = { value, prevClose, pctChange1d, bpsChange1d,
-        asOf: quoteTime && !Number.isNaN(quoteTime.getTime()) ? quoteTime.toISOString() : null,
+        asOf: quoteTime,
         marketState: q?.marketState || null };
     }
     // Do not substitute 2YY=F here. Its 3.961 quote on 2026-08-18 was a futures
@@ -275,20 +276,23 @@ export default async function handler(req, res) {
         const prevClose = typeof prevRaw === "number" && isFinite(prevRaw) ? prevRaw : null;
         const pctChange1d = prevClose != null && prevClose !== 0 ? ((value - prevClose) / prevClose) * 100 : null;
         const bpsChange1d = isYield && prevClose != null ? (value - prevClose) * 100 : null;
-        const quoteTime = q?.regularMarketTime ? new Date(q.regularMarketTime) : null;
+        const quoteTime = marketAnalysis.timestamp(q?.regularMarketTime);
         crossAsset[symbol] = {
           value,
           prevClose,
           pctChange1d,
           bpsChange1d,
           marketState: q?.marketState || null,
-          asOf: quoteTime && !Number.isNaN(quoteTime.getTime()) ? quoteTime.toISOString() : null,
+          asOf: quoteTime,
         };
       }
     }
 
     res.setHeader("Cache-Control", "public, s-maxage=30, stale-while-revalidate=120");
     return res.status(200).json({
+      // A non-secret publication signal, piggybacked on the existing request.
+      // No store read or provider call is needed to identify this deployment.
+      deploymentId: process.env.VERCEL_DEPLOYMENT_ID || null,
       legs,
       marketState,
       // Only present on a ?fng=1 request; null when CNN failed (browser falls

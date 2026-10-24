@@ -13482,6 +13482,39 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
   .market-action-foot > div { grid-template-columns: 1fr; }
 }
 
+/* Market evidence uses the regime votes, with raw moves kept as context. */
+.market-coverage { margin: 0; padding: 12px 16px; color: var(--muted); font-size: var(--fs-xs); border-bottom: 1px solid var(--border); line-height: 1.5; }
+.market-coverage b { color: var(--text-strong); }
+.market-load-status { padding: 12px 16px; margin-bottom: 16px; border: 1px solid var(--warn); border-radius: var(--r-3); }
+.market-load-status p { margin: 0; }
+.market-load-status button { margin-left: 12px; padding: 6px 12px; color: var(--text); background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r-2); cursor: pointer; }
+.market-secondary { margin: 16px 0; border-top: 1px solid var(--border); }
+.market-secondary > summary, .market-raw-moves > summary { padding: 14px 0; color: var(--text-strong); font-weight: 600; cursor: pointer; }
+.market-secondary[hidden] { display: none; }
+.rob-row.market-evidence-row { grid-template-columns: minmax(110px, .65fr) minmax(0, 2fr) 94px 16px; align-items: start; padding: 12px 14px; }
+.market-evidence-row .rob-name { overflow: visible; white-space: normal; text-overflow: clip; }
+.market-evidence-row small { display: block; margin-top: 4px; color: var(--muted); font-size: var(--fs-2xs); font-weight: 400; line-height: 1.4; }
+.market-evidence-reading { min-width: 0; font-size: var(--fs-xs); line-height: 1.5; overflow-wrap: anywhere; }
+.market-evidence-reading b { color: var(--text); font-weight: 500; }
+.market-evidence-contribution { text-align: right; font: 600 var(--fs-sm)/1.4 var(--font-mono); }
+.market-evidence-contribution.tape-off { color: var(--neg); }
+.market-evidence-contribution.tape-on { color: var(--pos); }
+.market-raw-moves { border-top: 1px solid var(--border); margin-top: 12px; font-size: var(--fs-xs); }
+.market-raw-moves p { color: var(--muted); line-height: 1.5; }
+.market-raw-moves ul { list-style: none; padding: 0; }
+.market-raw-moves li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.market-raw-moves li small { grid-column: 1 / -1; color: var(--muted); overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .rob-row.market-evidence-row { grid-template-columns: minmax(0, 1fr) 82px 12px; gap: 8px; padding: 12px 8px; }
+  .market-evidence-row .rob-name { grid-column: 1; grid-row: 1; }
+  .market-evidence-reading { grid-column: 1 / -1; grid-row: 2; }
+  .market-evidence-contribution { grid-column: 2; grid-row: 1; }
+  .market-evidence-row .rob-row-chev { grid-column: 3; grid-row: 1; }
+  .market-coverage { padding: 10px; }
+  .rob-head { flex-wrap: wrap; }
+  .rob-head .rob-kicker { white-space: normal; }
+}
+
 /* --- Forward scenario + sensitivity engine ----------------------------- */
 .market-scenario-engine { margin: 0 0 var(--s-4); min-width: 0; }
 .market-scenario-engine[hidden] { display: none; }
