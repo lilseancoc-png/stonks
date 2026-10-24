@@ -20,6 +20,16 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-10-24
+
+### Added
+
+- **Bottom tracker.** An Owner desk separates a decline from a bottom. A 10% drop only opens the checklist. Damage slowing means the catalyst is easing, both credit spreads have stopped widening, and earnings downgrades are less severe. That is not a bottom. A bottom may be forming only after both spreads have started narrowing, funding stress is not rising, and SPY and QQQ are at least 3% off the decline low with that low at least 10 sessions old. A close under either low cancels it. Emerging recovery and stronger confirmation come only after that forming read persists, with breadth, higher lows, a 200-day hold, and improving earnings. The history counts false positives. No reading claims the final low is in.
+
+### Fixed
+
+- A bottom is no longer called because price is down from the high, or because spreads merely stopped rising while the indexes are still making lows. The decline is measured from the three-year high. Both credit spreads must have widened in that decline. Earnings revisions that were never negative do not count. A higher low has to come off the decline's own low.
+
 ## 2026-10-23
 
 ### Added
