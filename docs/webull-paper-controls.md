@@ -173,6 +173,9 @@ record. It performs no store writes or broker calls. It refuses partial or
 ambiguous fills, mismatched contracts, missing timestamps, duplicate allocations,
 account mismatch and replacement of existing order intents. Review and refresh
 that evidence before an explicitly approved conditional-lease checkpoint.
+An entering row checkpointed by a paused mirror can be adopted only if it has
+no order attempts, exposure, broker binding, provenance or review flag. Queuing
+the pick before recovery does not authorize replay or replacement of an order.
 Preparing the proposal does not advance the saved last-run timestamp.
 
 The operator command is `scripts/recover-webull-manual.mjs`, with a private
@@ -182,6 +185,8 @@ and the complete positions/open-order snapshots, and can save a private proposal
 with `--output=<path>`. Only an explicitly approved `--apply` acquires the
 account-wide lease and checkpoints the freshly verified adoption. It refuses
 any open broker orders or a ledger/record that changes during inspection. It
+also refuses changed or unavailable stock holdings in an existing baseline,
+requiring separate review rather than silently accepting a new equity baseline. It
 never submits, previews or cancels orders; the normal mirror handles authorized
 future exits after release.
 
@@ -196,6 +201,8 @@ from broker order detail remain unknown rather than being allocated from costs.
 
 Track Record labels the manual entry, retains its execution record and actual
 fees, and excludes it from automatic-entry fill rate, timing and slippage.
+Both manual and automatic paper fills are excluded from uploaded real-money
+comparisons, using explicit source metadata with legacy account-label support.
 Subsequent automated exits retain their execution statistics. Actual cumulative
 order fees replace preview estimates when available and are not pro-rated or
 counted twice. Estimated and missing fees retain their prior behavior.

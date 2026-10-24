@@ -54,6 +54,50 @@ delete noProof.trades[old.tradeId].brokerPosition; delete noProof.trades[old.tra
 bindNewFilledGroups(noProof, positions);
 assert.equal(noProof.trades[old.tradeId].brokerPosition, undefined, "engine legs cannot substitute for broker fill evidence");
 assert.deepEqual(prepareManualRecovery({ ...input, ledger: plan.ledger }).ledger.trades, plan.ledger.trades, "the same manual import is idempotent");
+const nestedHeldOrder = structuredClone(heldOrder);
+delete nestedHeldOrder.client_order_id;
+assert.equal(prepareManualRecovery({ ...input, heldOrders: [nestedHeldOrder] }).reconciliation.status, "matched",
+  "held-order evidence uses the required nested ID rather than an optional envelope field");
+const wrongHeldOrder = structuredClone(heldOrder);
+wrongHeldOrder.orders[0].client_order_id = "different-order";
+assert.throws(() => prepareManualRecovery({ ...input, heldOrders: [wrongHeldOrder] }), /confirmed broker fill/,
+  "an outer envelope ID must not authorize a different nested order");
+// The first normal run after deployment can enroll TSLA before holdings
+// verification pauses the account. That zero-intent queue is safe to adopt;
+// a durable broker intent or any exposure must never be replaced.
+const blockedRun = await runWebullMirror({ ledger: structuredClone(ledger), acc, accountId: "PAPER",
+  nowMs: Date.parse("2026-10-23T19:35:00Z"), client: {
+    accountList: async () => [{ account_id: "PAPER" }], positions: async () => positions,
+    placeOrder: async () => { throw new Error("unverified holdings must not submit orders"); },
+  } });
+const queued = blockedRun.ledger.trades[plan.manualTradeId];
+assert.equal(blockedRun.ledger.reconciliation.status, "unavailable");
+assert.equal(queued.state, "entering"); assert.equal(queued.entryAttempts.length, 0);
+assert.equal(prepareManualRecovery({ ...input, ledger: blockedRun.ledger }).ledger.trades[plan.manualTradeId].entrySource,
+  "manual", "a paused zero-intent queue must not prevent verified manual adoption");
+for (const status of ["PREPARED", "UNKNOWN", "SENT", "FILLED"]) {
+  const journaled = structuredClone(blockedRun.ledger);
+  journaled.trades[plan.manualTradeId].entryAttempts.push({ clientOrderId: "existing-intent", status, quantity: 1, filledQty: 0 });
+  assert.throws(() => prepareManualRecovery({ ...input, ledger: journaled }), /execution state/, "recovery must never overwrite a journaled broker intent");
+}
+for (const recorded of [{ needsReview: true }, { brokerPosition: {} }, { provenance: {} }, { filledQty: 1 }, { closedQty: 1 }, { openQty: 1 }, { settledQty: 1 }]) {
+  const active = structuredClone(blockedRun.ledger);
+  Object.assign(active.trades[plan.manualTradeId], recorded);
+  assert.throws(() => prepareManualRecovery({ ...input, ledger: active }), /execution state/, "only a pristine zero-exposure queue can be adopted");
+}
+for (const quantity of [100, -100]) {
+  const stockChange = [...positions, { instrument_type: "EQUITY", symbol: "TSLA", quantity }];
+  assert.throws(() => prepareManualRecovery({ ...input, ledger: plan.ledger, positions: stockChange }), /stock holdings baseline differs/, "recovery must reject unexpected long or short stock holdings");
+}
+const withStock = structuredClone(plan.ledger);
+withStock.positionBaseline.equities = { TSLA: 100, AAPL: 5 };
+const existingStock = [{ instrument_type: "EQUITY", symbol: "AAPL", quantity: 5 }, { instrument_type: "EQUITY", symbol: "TSLA", quantity: 100 }];
+assert.deepEqual(prepareManualRecovery({ ...input, ledger: withStock, positions: [...positions, ...existingStock] }).ledger.positionBaseline.equities,
+  { AAPL: 5, TSLA: 100 }, "unchanged stocks remain recoverable regardless of object key order");
+assert.throws(() => prepareManualRecovery({ ...input, ledger: withStock }), /stock holdings baseline differs/, "recovery must reject disappeared stock holdings");
+const missingStockBaseline = structuredClone(plan.ledger);
+delete missingStockBaseline.positionBaseline.equities;
+assert.throws(() => prepareManualRecovery({ ...input, ledger: missingStockBaseline }), /stock holdings baseline is unavailable/, "missing stock evidence cannot become an empty baseline");
 assert.throws(() => prepareManualRecovery({ ...input, accountId: "OTHER" }), /account/);
 assert.throws(() => prepareManualRecovery({ ...input, manualOrder: externalOrder }), /published/);
 const partial = structuredClone(manualOrder); partial.orders[0].filled_quantity = "0";
@@ -101,6 +145,7 @@ const view = ledgerToTestTrades(result.ledger).find(x => x.entrySource === "manu
 assert.equal(view.entrySentIso, null); assert.equal(view.entryHow, null); assert.equal(view.entryDiffPct, null);
 assert.equal(view.manualEntrySentIso, manualOrder.orders[0].place_time_at);
 assert.match(ledgerToFillRows(result.ledger).find(x => x.symbol === "TSLA").account, /manual entry/);
+assert.equal(ledgerToFillRows(result.ledger).find(x => x.symbol === "TSLA").source, "webull-paper");
 assert.equal(webullAnalyticsFactory().analyze([{ t: { ...view, entryDiffPct: 99, exitDiffPct: null } }]).slippage.length, 0);
 assert.equal(parseOrderDetail(order("fees", tslaLegs, 1, input.checkedAtIso)).feeActual, 0.12);
 // Exercise the operational command's boundary: inspection cannot acquire the
@@ -119,6 +164,11 @@ assert.equal(checkpoints, 0); assert.equal(acquisitions, 0, "default recovery is
 await recoverManualSpread({ ...operation, apply: true });
 assert.equal(checkpoints, 1); assert.equal(acquisitions, 1);
 assert.equal(JSON.parse(String(data.get("webull-paper-ledger.json"))).lastRunIso, ledger.lastRunIso);
+const savedBeforeStockChange = String(data.get("webull-paper-ledger.json"));
+await assert.rejects(recoverManualSpread({ ...operation, apply: true, client: { ...reads, positions: async () => [...positions,
+  { instrument_type: "EQUITY", symbol: "TSLA", quantity: 100 }] } }), /stock holdings baseline differs/);
+assert.equal(checkpoints, 1, "unexpected stock holdings must stop before the recovery checkpoint");
+assert.equal(String(data.get("webull-paper-ledger.json")), savedBeforeStockChange, "rejected stock recovery leaves the saved ledger unchanged");
 await assert.rejects(recoverManualSpread({ ...operation, apply: true, client: { ...reads, openOrders: async () => ({ data: [{ status: "SUBMITTED" }] }) } }), /open or incomplete/);
 assert.equal(checkpoints, 1);
 await assert.rejects(recoverManualSpread({ ...operation, apply: true, store: { ...store, withLease: async () => ({ busy: true }) } }), { code: "LEASE_HELD" });

@@ -34425,7 +34425,7 @@ ${renderWorkspaceBindings()}
       var skipped = /^y/i.test(String(r.skipped || ''));
       return '<tr' + (rec ? '' : ' class="acc-fill-unmatched"') + '>' +
         '<td>' + escapeHtml(r.trade_id) + (rec ? '' : ' <small>(not in the record)</small>') +
-          (r.account === 'Webull paper' && r.notes ? '<br><small>' + escapeHtml(r.notes) + '</small>' : '') + '</td>' +
+          (WB_ANALYTICS.isPaperFill(r) && r.notes ? '<br><small>' + escapeHtml(r.notes) + '</small>' : '') + '</td>' +
         '<td>' + escapeHtml(r.account || '') + '</td>' +
         '<td>' + (skipped ? 'skipped' + (r.skip_reason ? ': ' + escapeHtml(r.skip_reason) : '') : (accUsd(mid) || '—') + ' → ' + (accUsd(fill) || '—') + (slip != null && isFinite(slip) ? ' <small>(' + accPct(slip) + ')</small>' : '')) + '</td>' +
         '<td>' + (recPnl != null ? accPct(recPnl) + (recClosed ? '' : ' <small>open</small>') : '—') + (recReal != null ? ' <small>· real fill ' + accPct(recReal) + '</small>' : '') + '</td>' +
@@ -34447,7 +34447,7 @@ ${renderWorkspaceBindings()}
       '<p class="hint acc-research-note">Upload your paper or real trade log as CSV, one row per trade, using the trade ID from the picks feed or Copy all. Each upload replaces the last one. Rows marked Webull paper come from the automatic Webull paper mirror on their own (no upload needed) and are never replaced by an upload; the Webull test view analyzes them in depth. Your P&amp;L comes from your own fill prices, less fees. The gap is your P&amp;L minus the record’s modeled P&amp;L on the same trade.</p>' +
       '<div class="acc-fills-upload"><input type="file" id="acc-fills-file" accept=".csv,text/csv" aria-label="Trade log CSV"' + (accFills.busy ? ' disabled' : '') + '>' +
       ' <a href="' + tpl + '" download="trade-log-template.csv">Download the blank template</a>' +
-      (acct['Webull paper'] ? ' · <a href="/api/auth/webull-mirror?format=csv">Download the Webull paper trades (CSV)</a>' : '') +
+      (rows.some(WB_ANALYTICS.isPaperFill) ? ' · <a href="/api/auth/webull-mirror?format=csv">Download the Webull paper trades (CSV)</a>' : '') +
       (status ? ' <span class="acc-fills-status" role="status">' + status + '</span>' : '') + '</div>' + errs +
       (summary ? '<ul class="acc-fills-summary">' + summary + '</ul>' : '') +
       (body ? '<div class="acc-tscroll"><table class="acc-qtable"><thead><tr><th>Trade</th><th>Account</th><th>Entry: record → yours</th><th>Record P&amp;L</th><th>Your P&amp;L</th><th>Gap</th></tr></thead><tbody>' + body + '</tbody></table></div>' : '') +
@@ -34685,7 +34685,7 @@ ${renderWorkspaceBindings()}
       paperN.push(wbNetPnl(t));
       var model = wbNum(t.enginePnlPct); if (model != null) engN.push(model);
     });
-    var rh = (accFills.rows || []).filter(function(r){ return r.account && r.account !== 'Webull paper' && wbNum(r.your_pnl_pct) != null && closed.some(function(x){ return accFillKey(x.t.tradeId) === accFillKey(r.trade_id); }); });
+    var rh = (accFills.rows || []).filter(function(r){ return r.account && !WB_ANALYTICS.isPaperFill(r) && wbNum(r.your_pnl_pct) != null && closed.some(function(x){ return accFillKey(x.t.tradeId) === accFillKey(r.trade_id); }); });
     var rhAvg = wbMean(rh.map(function(r){ return Number(r.your_pnl_pct); }).filter(function(v){ return isFinite(v); }));
     var realBody = '<p class="hint acc-research-note">Each closed trade is re-priced from the bid/ask recorded when its orders went out, less Webull’s fee estimate. Best case fills at the mid both ways. Worst case pays the ask to open and sells at the bid to close (the reverse on a credit spread). These scenarios do not predict live fills.</p>' +
       (best.length ? '<p class="wb-headline">On ' + best.length + ' closed trade' + (best.length === 1 ? '' : 's') + ', the recorded-quote scenarios average <b class="' + wbSignCls(wbMean(worst)) + '">' + accPct(wbMean(worst)) + '</b> to <b class="' + wbSignCls(wbMean(best)) + '">' + accPct(wbMean(best)) + '</b> per trade, vs paper ' + accPct(wbMean(paperN)) + ' and the engine’s ' + accPct(wbMean(engN)) + '.</p>' +
