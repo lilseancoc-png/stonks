@@ -20,6 +20,16 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
      (same format, plus the archive preamble) and add that month to the
      "Older changelogs" index below. -->
 
+## 2026-10-23
+
+### Added
+
+- Owner **Risk analysis**, next to Market analysis, reads Volume, Gamma Exposure (SPY), the Index calendar, Overnight markets, Fear & Greed, the regime, and the Heatmap together. When one desk is severe and another is neutral, the page names the evidence each one is using and what that split means. The read does not average the desks into a new score or change position limits.
+
+### Fixed
+
+- The market-position headline names every severe desk and every confirming desk, and it leaves the gamma structure out of that direction call. Extreme greed without a confirming tape stays a crowded-sentiment warning. A pinning SPY gamma book stays dampening. A live tape refresh keeps keyboard focus and an open disagreement list. A failed heatmap load shows unavailable instead of spinning.
+
 ## 2026-10-22
 
 ### Added
