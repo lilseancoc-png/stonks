@@ -59,10 +59,10 @@ jobs:
                 echo "A close-slot daily.yml dispatch is still $LATEST_STATUS; no duplicate needed ($LATEST_URL)."
                 exit 0
               fi
-              if [ "$LATEST_CONCLUSION" = "success" ]; then
-                # A green router-only run can skip the build (for example a
-                # dispatch received at 16:11 ET). Verify publication in the
-                # latest attempt's build job before treating it as recovery.
+              if [ "$LATEST_CONCLUSION" = "success" ] || [ "$LATEST_CONCLUSION" = "failure" ]; then
+                # A green router-only run can skip publication, while a
+                # published build can have an independently failed Webull
+                # health job. Inspect publication in either completed case.
                 JOBS_URL=$(jq -r '.jobs_url' <<<"$LATEST")
                 if JOBS=$(curl --fail --silent --show-error \
                   -H "Authorization: Bearer ${GH_TOKEN}" \
@@ -83,7 +83,7 @@ jobs:
                   echo "A close-slot build successfully published data; no fallback needed ($LATEST_URL)."
                   exit 0
                 fi
-                echo "::warning::Green close-slot run has no confirmed publication; dispatching recovery ($LATEST_URL)."
+                echo "::warning::Close-slot run has no confirmed publication; dispatching recovery ($LATEST_URL)."
               else
                 echo "::warning::Latest close-slot daily.yml dispatch completed with $LATEST_CONCLUSION; dispatching one recovery bake ($LATEST_URL)."
               fi

@@ -392,13 +392,26 @@ async function webullMirror(req, res) {
         res.statusCode = 200;
         return res.end(mirror.fillRowsToCsv(rows));
       }
+      const { describeObjectLease } = await import("../../lib/object-lease.mjs");
+      let executionLock;
+      try {
+        if (store.backend !== "r2") executionLock = { state: "unsupported" };
+        else {
+          const lock = await store.rawGet("_stonks/leases/webull-paper.json");
+          let value;
+          try { value = lock == null ? null : JSON.parse(lock.toString("utf8")); }
+          catch { value = null; }
+          executionLock = describeObjectLease(lock == null ? null : { value });
+        }
+      } catch { executionLock = { state: "unavailable" }; }
       return res.status(200).json({
+        executionLock,
         enabled: String(process.env.WEBULL_MIRROR || "").trim().toLowerCase() === "on",
         goLiveIso: ledger.goLiveIso,
         lastRunIso: ledger.lastRunIso,
         engineSnapshotIso: ledger.engineSnapshotIso ?? null,
         runs: (ledger.runs || []).slice(0, 10),
-        reconciliation: ledger.reconciliation ? { checkedAtIso: ledger.reconciliation.checkedAtIso, status: ledger.reconciliation.status, alerts: ledger.reconciliation.alerts || [] } : null,
+        reconciliation: ledger.reconciliation ? { checkedAtIso: ledger.reconciliation.checkedAtIso, status: ledger.reconciliation.status, alerts: ledger.reconciliation.alerts || [], failure: ledger.reconciliation.failure || null } : null,
         rows,
         trades: mirror.ledgerToTestTrades(ledger),
       });
@@ -444,7 +457,7 @@ async function webullMirror(req, res) {
       const { summary } = await mirror.runWebullMirror({ client, accountId: WEBULL_PAPER_ACCOUNT_ID, acc, ledger, quoteFn, checkpoint, guard });
       return { ran: !summary.skipped, summary };
     });
-    return res.status(200).json(lease.busy ? { ran: false, reason: "mirror already running" } : lease.result);
+    return res.status(200).json(lease.busy ? { ran: false, reason: "mirror already running", retryAfterMs: lease.retryAfterMs } : lease.result);
   } catch (err) {
     console.error("webull mirror failed", { message: String(err?.message || err), code: err?.code || null });
     // Only the bake's trigger sees this (bearer-gated) and prints it to a

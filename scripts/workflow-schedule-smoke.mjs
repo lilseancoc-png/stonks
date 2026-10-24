@@ -57,6 +57,11 @@ assert.equal(publicationStatus([
   { name: "build", conclusion: "skipped", steps: [] },
 ]), 1, "a green 16:11 router-only run must not suppress recovery");
 assert.equal(publicationStatus([{ name: "build", conclusion: "success", steps: [publishStep] }]), 0);
+assert.match(closeFallback, /\[ "\$LATEST_CONCLUSION" = "success" \] \|\| \[ "\$LATEST_CONCLUSION" = "failure" \]/);
+assert.equal(publicationStatus([
+  { name: "build", conclusion: "success", steps: [publishStep] },
+  { name: "webull-health", conclusion: "failure", steps: [] },
+]), 0, "a broker failure must not duplicate an already-published research bake");
 assert.equal(publicationStatus([{ name: "build", conclusion: "success", steps: [
   { name: "Commit refreshed site (legacy public data)", conclusion: "success" },
 ] }]), 0, "legacy publication also counts");
@@ -75,6 +80,9 @@ assert.ok(mirrorStep);
 assert.match(mirrorStep, /needs\.route\.outputs\.refresh_top_picks == 'true'/);
 assert.match(mirrorStep, /WEBULL_MIRROR_FOLLOW_UPS: '2'/);
 assert.match(mirrorStep, /WEBULL_MIRROR_STRICT: '1'/);
+assert.match(mirrorStep, /id: webull_mirror/);
+assert.match(daily, /webull_outcome: \$\{\{ steps\.webull_mirror\.outcome \}\}/);
+assert.match(daily, /webull-health:[\s\S]*?needs: build[\s\S]*?always\(\) && needs\.build\.outputs\.webull_outcome == 'failure'[\s\S]*?exit 1/);
 assert.ok(daily.indexOf("run: node scripts/sync-data.mjs push --owner=bake") < daily.indexOf("- name: Mirror published Top Picks"));
 assert.match(daily, /ET_MIN.*-eq 660.*ET_MIN.*-eq 930/);
 
