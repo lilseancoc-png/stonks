@@ -8,6 +8,8 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
+    "test:news": "node scripts/news-smoke.mjs",
+    "test:news-accuracy": "node scripts/news-accuracy.mjs",
     "test:ai-capex": "node scripts/ai-capex-smoke.mjs",
     "test:ai-rejections": "node scripts/ai-rejections-smoke.mjs",
     "test:ma-tracker": "node scripts/ma-tracker-smoke.mjs",

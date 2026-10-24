@@ -122,7 +122,10 @@ export function runEntryPolicyChecks() {
 
   for(const days of [14,15]) {
     const earned=structuredClone(wider);
-    earned.data.fundamentals.nextEarningsDate=new Date(Date.now()+days*DAY).toISOString().slice(0,10);
+    // Earnings dates are US market calendar dates. UTC is already tomorrow
+    // during the ET evening, which otherwise turns this 14-day test into 15.
+    const todayEt=new Date().toLocaleDateString('en-CA',{timeZone:'America/New_York'});
+    earned.data.fundamentals.nextEarningsDate=new Date(Date.parse(todayEt+'T12:00:00Z')+days*DAY).toISOString().slice(0,10);
     const pick=build(earned).find(p=>p.symbol==='FIXTURE');
     assert(pick);
     assert.equal(pick.strategy.type,days===14?'debit':'long');

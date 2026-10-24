@@ -376,6 +376,12 @@ jobs:
       - name: Verify workflow schedule guards
         run: npm run test:workflow-schedules
 
+      - name: Verify news rules and reference labels
+        # Offline only: no source requests, model calls, or data writes.
+        run: |
+          npm run test:news
+          npm run test:news-accuracy
+
       - name: Verify data publication contract
         # Fails in seconds when a bake writer has no publication policy.
         # Runs before the Yahoo and Gemini build so a contract gap does not

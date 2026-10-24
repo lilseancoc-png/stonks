@@ -1,0 +1,996 @@
+{
+  "version": 1,
+  "asOf": "2026-10-24T02:00:00Z",
+  "method": "Agent-reviewed reference labels; captured issuer feed titles from October 23, 2026 Pacific, plus authored financial-language challenges. Development evaluation, not an independent human or blind held-out benchmark. Tests event-policy agreement, not issuer factual truth or stock returns.",
+  "issuers": [
+    {
+      "id": "apple-0",
+      "symbol": "AAPL",
+      "title": "iPhone Duo arrives at Apple Store locations worldwide",
+      "publishedAt": "2026-10-23T06:10:35.677Z",
+      "url": "https://www.apple.com/newsroom/2026/10/iphone-duo-arrives-at-apple-store-locations-worldwide/",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "apple-1",
+      "symbol": "AAPL",
+      "title": "Formula 1® United States Grand Prix™ streams live on Apple TV this weekend",
+      "publishedAt": "2026-10-22T12:59:11.281Z",
+      "url": "https://www.apple.com/newsroom/2026/10/formula-1-united-states-grand-prix-streams-live-on-apple-tv-this-weekend/",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "apple-2",
+      "symbol": "AAPL",
+      "title": "Developers bring incredible new app experiences to iPhone Duo",
+      "publishedAt": "2026-10-22T11:59:15.686Z",
+      "url": "https://www.apple.com/newsroom/2026/10/developers-bring-incredible-new-app-experiences-to-iphone-duo/",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "apple-3",
+      "symbol": "AAPL",
+      "title": "Apple unveils the 2026 Designers of Tomorrow",
+      "publishedAt": "2026-10-20T14:59:22.784Z",
+      "url": "https://www.apple.com/newsroom/2026/10/apple-unveils-the-2026-designers-of-tomorrow/",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "apple-4",
+      "symbol": "AAPL",
+      "title": "Apple announces American Manufacturing Program partners for latest iPhone lineup",
+      "publishedAt": "2026-10-20T12:00:22.992Z",
+      "url": "https://www.apple.com/newsroom/2026/10/apple-announces-american-manufacturing-program-partners-for-latest-iphone-lineup/",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "apple-5",
+      "symbol": "AAPL",
+      "title": "Open up to new possibilities with iPhone Duo",
+      "publishedAt": "2026-10-15T12:59:28.566Z",
+      "url": "https://www.apple.com/newsroom/2026/10/open-up-to-new-possibilities-with-iphone-duo/",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "apple-6",
+      "symbol": "AAPL",
+      "title": "Bünyamin Aydın’s new collection, “From Earth to Sky,” soars with iPad Pro",
+      "publishedAt": "2026-10-14T17:39:29.065Z",
+      "url": "https://www.apple.com/newsroom/2026/10/bunyamin-aydins-new-collection-from-earth-to-sky-soars-with-ipad-pro/",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "apple-7",
+      "symbol": "AAPL",
+      "title": "Meet Apple HomeView, a new way to enjoy entertainment and manage the home",
+      "publishedAt": "2026-10-13T12:59:16.617Z",
+      "url": "https://www.apple.com/newsroom/2026/10/meet-apple-homeview-a-new-way-to-enjoy-entertainment-and-manage-the-home/",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "apple-8",
+      "symbol": "AAPL",
+      "title": "Apple unveils the new Apple TV 4K, supercharged by Siri AI",
+      "publishedAt": "2026-10-13T12:58:10.680Z",
+      "url": "https://www.apple.com/newsroom/2026/10/apple-unveils-the-new-apple-tv-4k/",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "apple-9",
+      "symbol": "AAPL",
+      "title": "Apple announces the next generation of HomePod mini",
+      "publishedAt": "2026-10-13T12:57:08.267Z",
+      "url": "https://www.apple.com/newsroom/2026/10/apple-announces-the-next-generation-of-homepod-mini/",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "apple-10",
+      "symbol": "AAPL",
+      "title": "Introducing Apple Home Collection, a new lineup of smart home accessories",
+      "publishedAt": "2026-10-13T12:56:12.276Z",
+      "url": "https://www.apple.com/newsroom/2026/10/introducing-apple-home-collection-a-new-lineup-of-smart-home-accessories/",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "apple-11",
+      "symbol": "AAPL",
+      "title": "App Store Indie Games Week kicks off today",
+      "publishedAt": "2026-10-12T13:59:49.734Z",
+      "url": "https://www.apple.com/newsroom/2026/10/app-store-indie-games-week-kicks-off-today/",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "apple-12",
+      "symbol": "AAPL",
+      "title": "Apple, The King’s Trust launch initiative to empower young creatives",
+      "publishedAt": "2026-10-07T21:01:58.215Z",
+      "url": "https://www.apple.com/newsroom/2026/10/apple-the-kings-trust-launch-initiative-to-empower-young-creatives/",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "apple-13",
+      "symbol": "AAPL",
+      "title": "Final Cut Camera now supports variable aperture on iPhone 18 Pro",
+      "publishedAt": "2026-09-29T17:00:57.163Z",
+      "url": "https://www.apple.com/newsroom/2026/09/final-cut-camera-now-supports-variable-aperture-on-iphone-18-pro/",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "apple-14",
+      "symbol": "AAPL",
+      "title": "New updates coming to Apple Creator Studio",
+      "publishedAt": "2026-09-29T17:00:02.643Z",
+      "url": "https://www.apple.com/newsroom/2026/09/new-updates-coming-to-apple-creator-studio/",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "apple-15",
+      "symbol": "AAPL",
+      "title": "Apple releases new guide to help families build healthy digital habits",
+      "publishedAt": "2026-09-29T16:59:08.275Z",
+      "url": "https://www.apple.com/newsroom/2026/09/apple-releases-new-guide-to-help-families-build-healthy-digital-habits/",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "apple-16",
+      "symbol": "AAPL",
+      "title": "The new Mac mini and Mac Studio are available today",
+      "publishedAt": "2026-09-22T12:59:21.039Z",
+      "url": "https://www.apple.com/newsroom/2026/09/the-new-mac-mini-and-mac-studio-are-available-today/",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "apple-17",
+      "symbol": "AAPL",
+      "title": "Apple opens Apple Music Hall, a state-of-the-art live music venue in London",
+      "publishedAt": "2026-09-22T05:59:58.127Z",
+      "url": "https://www.apple.com/newsroom/2026/09/apple-opens-apple-music-hall-a-state-of-the-art-live-music-venue-in-london/",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "apple-18",
+      "symbol": "AAPL",
+      "title": "The latest iPhone, Apple Watch, and AirPods lineups arrive in stores worldwide",
+      "publishedAt": "2026-09-18T05:02:14.780Z",
+      "url": "https://www.apple.com/newsroom/2026/09/the-latest-iphone-apple-watch-and-airpods-lineups-arrive-in-stores-worldwide/",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "apple-19",
+      "symbol": "AAPL",
+      "title": "Celebrating “What Holds Us” on iPhone 18 Pro",
+      "publishedAt": "2026-09-16T13:59:28.902Z",
+      "url": "https://www.apple.com/newsroom/2026/09/celebrating-what-holds-us-on-iphone-18-pro/",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "nvidia-0",
+      "symbol": "NVDA",
+      "title": "NVIDIA and Supply Chain Partners Expand Capacity to Accelerate AI Infrastructure Buildout",
+      "publishedAt": "2026-10-21T10:33:00.000Z",
+      "url": "https://nvidianews.nvidia.com/news/nvidia-and-supply-chain-partners-expand-capacity-to-accelerate-ai-infrastructure-buildout",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "nvidia-1",
+      "symbol": "NVDA",
+      "title": "NVIDIA Advances Isaac Platform for General-Purpose Robotics With New Reference Humanoid, Frameworks, Simulation Pipelines and Data",
+      "publishedAt": "2026-10-21T10:20:00.000Z",
+      "url": "https://nvidianews.nvidia.com/news/nvidia-advances-isaac-platform-for-general-purpose-robotics-with-new-reference-humanoid-frameworks-simulation-pipelines-and-data",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "nvidia-2",
+      "symbol": "NVDA",
+      "title": "European Mobility Leaders Build Safe Vehicles and Robotaxi Fleets on NVIDIA Hyperion",
+      "publishedAt": "2026-10-21T10:14:00.000Z",
+      "url": "https://nvidianews.nvidia.com/news/european-mobility-leaders-build-safe-vehicles-and-robotaxi-fleets-on-nvidia-hyperion",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "nvidia-3",
+      "symbol": "NVDA",
+      "title": "Healthcare and Life Sciences Leaders Build on NVIDIA to Advance Drug Discovery and Expand Patient Care",
+      "publishedAt": "2026-10-21T10:13:00.000Z",
+      "url": "https://nvidianews.nvidia.com/news/healthcare-and-life-sciences-leaders-build-on-nvidia-to-advance-drug-discovery-and-expand-patient-care",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "nvidia-4",
+      "symbol": "NVDA",
+      "title": "NVIDIA, Nokia and Leading Telecom Operators Turn Networks Into Distributed Intelligence Platforms",
+      "publishedAt": "2026-10-21T10:11:00.000Z",
+      "url": "https://nvidianews.nvidia.com/news/nvidia-nokia-and-leading-telecom-operators-turn-networks-into-distributed-intelligence-platforms",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "nvidia-5",
+      "symbol": "NVDA",
+      "title": "NVIDIA Launches OpenShell Reference Architecture for Safe AI Agents",
+      "publishedAt": "2026-10-21T09:48:00.000Z",
+      "url": "https://nvidianews.nvidia.com/news/openshell-reference-architecture",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "nvidia-6",
+      "symbol": "NVDA",
+      "title": "European Ecosystem Builds World’s Most Efficient AI Factories With NVIDIA DSX",
+      "publishedAt": "2026-10-21T09:35:00.000Z",
+      "url": "https://nvidianews.nvidia.com/news/european-ecosystem-builds-worlds-most-efficient-ai-factories-with-nvidia-dsx",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "nvidia-7",
+      "symbol": "NVDA",
+      "title": "NVIDIA Introduces DSX POD AI Factories to Accelerate Europe’s Infrastructure Deployment",
+      "publishedAt": "2026-10-21T09:34:00.000Z",
+      "url": "https://nvidianews.nvidia.com/news/nvidia-introduces-dsx-pod-ai-factories-to-accelerate-europes-infrastructure-deployment",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "nvidia-8",
+      "symbol": "NVDA",
+      "title": "NVIDIA Runs Record Simulation of Fault-Tolerant Quantum Computing at Jülich Supercomputing Centre",
+      "publishedAt": "2026-10-19T18:00:00.000Z",
+      "url": "https://nvidianews.nvidia.com/news/nvidia-runs-record-simulation-of-fault-tolerant-quantum-computing-at-julich-supercomputing-centre",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "nvidia-9",
+      "symbol": "NVDA",
+      "title": "NVIDIA RTX Spark PCs Available Today — A New Beginning for Windows PCs",
+      "publishedAt": "2026-10-16T12:00:00.000Z",
+      "url": "https://nvidianews.nvidia.com/news/nvidia-rtx-spark-pcs-available-today-a-new-beginning-for-windows-pcs",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "nvidia-10",
+      "symbol": "NVDA",
+      "title": "Mercedes-Benz and NVIDIA Expand Strategic Partnership to Advance Safe Highly Automated Driving in the Next Decade",
+      "publishedAt": "2026-10-16T08:00:00.000Z",
+      "url": "https://nvidianews.nvidia.com/news/mercedes-benz-and-nvidia-expand-strategic-partnership-to-advance-safe-highly-automated-driving-in-the-next-decade",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "nvidia-11",
+      "symbol": "NVDA",
+      "title": "Volvo Cars and NVIDIA Expand Partnership to Advance Safe Automated Driving",
+      "publishedAt": "2026-10-15T17:30:00.000Z",
+      "url": "https://nvidianews.nvidia.com/news/volvo-cars-and-nvidia-expand-partnership-to-advance-safe-automated-driving",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "nvidia-12",
+      "symbol": "NVDA",
+      "title": "Adobe and NVIDIA Expand Collaboration to Speed Agentic Creation",
+      "publishedAt": "2026-10-15T17:00:00.000Z",
+      "url": "https://nvidianews.nvidia.com/news/adobe-and-nvidia-expand-collaboration-to-speed-agentic-creation",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "nvidia-13",
+      "symbol": "NVDA",
+      "title": "NVIDIA and Semiconductor Leaders Advance AI Across Chip Design and Manufacturing for AI-Defined Fabs",
+      "publishedAt": "2026-10-14T16:10:00.000Z",
+      "url": "https://nvidianews.nvidia.com/news/nvidia-and-semiconductor-leaders-advance-ai-across-chip-design-and-manufacturing-for-ai-defined-labs",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "nvidia-14",
+      "symbol": "NVDA",
+      "title": "NVIDIA Commits $250 Million to Advance UK Agentic Safety and Security Research Over the Next Five Years",
+      "publishedAt": "2026-10-14T06:01:00.000Z",
+      "url": "https://nvidianews.nvidia.com/news/nvidia-commits-250-million-to-advance-uk-agentic-safety-and-security-research-over-the-next-five-years",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "nvidia-15",
+      "symbol": "NVDA",
+      "title": "NVIDIA and Cisco Introduce New Pluggable Optics Form Factor to Scale AI Factories",
+      "publishedAt": "2026-10-12T15:00:00.000Z",
+      "url": "https://nvidianews.nvidia.com/news/nvidia-and-cisco-introduce-new-pluggable-optics-form-factor-to-scale-ai-factories",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "nvidia-16",
+      "symbol": "NVDA",
+      "title": "NVIDIA Commits $1 Billion to Advance US Science Over the Next Five Years",
+      "publishedAt": "2026-10-08T14:31:00.000Z",
+      "url": "https://nvidianews.nvidia.com/news/nvidia-commits-1-billion-to-advance-us-science-over-the-next-five-years",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "nvidia-17",
+      "symbol": "NVDA",
+      "title": "NVIDIA Announces a $150 Billion Share Repurchase Authorization Increase",
+      "publishedAt": "2026-09-28T11:00:00.000Z",
+      "url": "https://nvidianews.nvidia.com/news/nvidia-announces-a-150-billion-share-repurchase-authorization-increase",
+      "expected": "financing",
+      "reason": "Reported financial/commercial/clinical or regulatory event within the approved source policy."
+    },
+    {
+      "id": "nvidia-18",
+      "symbol": "NVDA",
+      "title": "NVIDIA Launches Open Agent Safety Platform to Secure Agents From Testing to Deployment",
+      "publishedAt": "2026-09-28T09:00:00.000Z",
+      "url": "https://nvidianews.nvidia.com/news/open-agent-safety-platform",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "nvidia-19",
+      "symbol": "NVDA",
+      "title": "NVIDIA Expands Open Source CUDA-Q Platform for Fault-Tolerant Quantum Computing",
+      "publishedAt": "2026-09-14T13:00:00.000Z",
+      "url": "https://nvidianews.nvidia.com/news/nvidia-expands-open-source-cuda-q-platform-for-fault-tolerant-quantum-computing",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "amd-0",
+      "symbol": "AMD",
+      "title": "Introducing AMD Helion, Agentic AI Compute at Rack Scale",
+      "publishedAt": "2026-10-12T13:00:00.000Z",
+      "url": "https://ir.amd.com/news-events/press-releases/detail/1301/introducing-amd-helion-agentic-ai-compute-at-rack-scale",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "amd-1",
+      "symbol": "AMD",
+      "title": "AMD to Report Fiscal Third Quarter 2026 Financial Results",
+      "publishedAt": "2026-10-06T20:15:00.000Z",
+      "url": "https://ir.amd.com/news-events/press-releases/detail/1300/amd-to-report-fiscal-third-quarter-2026-financial-results",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "amd-2",
+      "symbol": "AMD",
+      "title": "AMD to Acquire World Labs to Advance the Future of AI Compute",
+      "publishedAt": "2026-09-28T20:05:00.000Z",
+      "url": "https://ir.amd.com/news-events/press-releases/detail/1299/amd-to-acquire-world-labs-to-advance-the-future-of-ai-compute",
+      "expected": "agreement",
+      "reason": "Reported financial/commercial/clinical or regulatory event within the approved source policy."
+    },
+    {
+      "id": "amd-3",
+      "symbol": "AMD",
+      "title": "AMD, Cisco and HUMAIN Expand Saudi Arabia’s AI Infrastructure as AMD Instinct Systems Go Live",
+      "publishedAt": "2026-08-31T11:15:00.000Z",
+      "url": "https://ir.amd.com/news-events/press-releases/detail/1298/amd-cisco-and-humain-expand-saudi-arabias-ai-infrastructure-as-amd-instinct-systems-go-live",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "amd-4",
+      "symbol": "AMD",
+      "title": "AMD Appoints Tim Ryan to Board of Directors",
+      "publishedAt": "2026-08-19T20:15:00.000Z",
+      "url": "https://ir.amd.com/news-events/press-releases/detail/1297/amd-appoints-tim-ryan-to-board-of-directors",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "amd-5",
+      "symbol": "AMD",
+      "title": "AMD Acquires Taalas to Advance Compute Solutions for Rapidly Growing AI Inference Market",
+      "publishedAt": "2026-08-06T20:05:00.000Z",
+      "url": "https://ir.amd.com/news-events/press-releases/detail/1296/amd-acquires-taalas-to-advance-compute-solutions-for-rapidly-growing-ai-inference-market",
+      "expected": "agreement",
+      "reason": "Reported financial/commercial/clinical or regulatory event within the approved source policy."
+    },
+    {
+      "id": "amd-6",
+      "symbol": "AMD",
+      "title": "AMD Reports Second Quarter 2026 Financial Results",
+      "publishedAt": "2026-08-04T20:15:00.000Z",
+      "url": "https://ir.amd.com/news-events/press-releases/detail/1295/amd-reports-second-quarter-2026-financial-results",
+      "expected": "earnings",
+      "reason": "Reported financial/commercial/clinical or regulatory event within the approved source policy."
+    },
+    {
+      "id": "amd-7",
+      "symbol": "AMD",
+      "title": "AAI 2026: AMD Delivers Full-Stack Compute for the Agentic AI Era",
+      "publishedAt": "2026-07-23T18:30:00.000Z",
+      "url": "https://ir.amd.com/news-events/press-releases/detail/1294/aai-2026-amd-delivers-full-stack-compute-for-the-agentic-ai-era",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "amd-8",
+      "symbol": "AMD",
+      "title": "AMD and Cerebras Announce Industry-Leading Ultra-Low-Latency and High Throughput AI Inference Solution",
+      "publishedAt": "2026-07-23T17:45:00.000Z",
+      "url": "https://ir.amd.com/news-events/press-releases/detail/1293/amd-and-cerebras-announce-industry-leading-ultra-low-latency-and-high-throughput-ai-inference-solution",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "amd-9",
+      "symbol": "AMD",
+      "title": "AMD and Anthropic Announce Strategic Partnership to Deploy Up to 2 Gigawatts of AMD Instinct MI450 Series GPUs",
+      "publishedAt": "2026-07-22T13:00:00.000Z",
+      "url": "https://ir.amd.com/news-events/press-releases/detail/1292/amd-and-anthropic-announce-strategic-partnership-to-deploy-up-to-2-gigawatts-of-amd-instinct-mi450-series-gpus",
+      "expected": "agreement",
+      "reason": "Reported financial/commercial/clinical or regulatory event within the approved source policy."
+    },
+    {
+      "id": "intel-0",
+      "symbol": "INTC",
+      "title": "Intel Accelerates Open Infrastructure for the Agentic AI Era",
+      "publishedAt": "2026-10-12T19:32:00.000Z",
+      "url": "https://www.intc.com/news-events/press-releases/detail/1783/intel-accelerates-open-infrastructure-for-the-agentic-ai-era",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "intel-1",
+      "symbol": "INTC",
+      "title": "Intel to Report Third-Quarter 2026 Financial Results",
+      "publishedAt": "2026-10-06T20:01:00.000Z",
+      "url": "https://www.intc.com/news-events/press-releases/detail/1782/intel-to-report-third-quarter-2026-financial-results",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "intel-2",
+      "symbol": "INTC",
+      "title": "Intel Foundry and ASML Collaborate to Accelerate Industry Readiness for High NA EUV",
+      "publishedAt": "2026-09-08T06:03:00.000Z",
+      "url": "https://www.intc.com/news-events/press-releases/detail/1781/intel-foundry-and-asml-collaborate-to-accelerate-industry",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "intel-3",
+      "symbol": "INTC",
+      "title": "Intel Corporation to Participate in Upcoming Investor Conference",
+      "publishedAt": "2026-08-18T20:30:00.000Z",
+      "url": "https://www.intc.com/news-events/press-releases/detail/1780/intel-corporation-to-participate-in-upcoming-investor",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "intel-4",
+      "symbol": "INTC",
+      "title": "Intel Announces Upsize and Pricing of $20 Billion Common Stock Offering",
+      "publishedAt": "2026-08-11T06:36:00.000Z",
+      "url": "https://www.intc.com/news-events/press-releases/detail/1779/intel-announces-upsize-and-pricing-of-20-billion-common",
+      "expected": "financing",
+      "reason": "Reported financial/commercial/clinical or regulatory event within the approved source policy."
+    },
+    {
+      "id": "intel-5",
+      "symbol": "INTC",
+      "title": "Intel Announces Proposed $15 Billion Common Stock Offering",
+      "publishedAt": "2026-08-10T11:45:00.000Z",
+      "url": "https://www.intc.com/news-events/press-releases/detail/1778/intel-announces-proposed-15-billion-common-stock-offering",
+      "expected": "financing",
+      "reason": "Reported financial/commercial/clinical or regulatory event within the approved source policy."
+    },
+    {
+      "id": "intel-6",
+      "symbol": "INTC",
+      "title": "Intel Announces Leadership Appointment to Strengthen Customer Engagement and Accelerate Growth",
+      "publishedAt": "2026-08-07T17:30:00.000Z",
+      "url": "https://www.intc.com/news-events/press-releases/detail/1777/intel-announces-leadership-appointment-to-strengthen",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "intel-7",
+      "symbol": "INTC",
+      "title": "Intel Reports Second-Quarter 2026 Financial Results",
+      "publishedAt": "2026-07-23T20:01:00.000Z",
+      "url": "https://www.intc.com/news-events/press-releases/detail/1776/intel-reports-second-quarter-2026-financial-results",
+      "expected": "earnings",
+      "reason": "Reported financial/commercial/clinical or regulatory event within the approved source policy."
+    },
+    {
+      "id": "intel-8",
+      "symbol": "INTC",
+      "title": "Intel and Fortinet Collaborate to Advance Cybersecurity Innovation and Strengthen Global Supply Chain Resilience",
+      "publishedAt": "2026-07-21T13:00:00.000Z",
+      "url": "https://www.intc.com/news-events/press-releases/detail/1775/intel-and-fortinet-collaborate-to-advance-cybersecurity",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "intel-9",
+      "symbol": "INTC",
+      "title": "Intel to Report Second-Quarter 2026 Financial Results",
+      "publishedAt": "2026-06-30T20:30:00.000Z",
+      "url": "https://www.intc.com/news-events/press-releases/detail/1774/intel-to-report-second-quarter-2026-financial-results",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "intel-10",
+      "symbol": "INTC",
+      "title": "Intel Announces Leadership Appointment at Intel Foundry to Accelerate Development and Manufacturing",
+      "publishedAt": "2026-06-18T20:31:00.000Z",
+      "url": "https://www.intc.com/news-events/press-releases/detail/1773/intel-announces-leadership-appointment-at-intel-foundry-to",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "intel-11",
+      "symbol": "INTC",
+      "title": "Intel Foundry Details Process Milestones and Future Innovation at VLSI Symposium",
+      "publishedAt": "2026-06-16T21:00:00.000Z",
+      "url": "https://www.intc.com/news-events/press-releases/detail/1772/intel-foundry-details-process-milestones-and-future",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "lilly-0",
+      "symbol": "LLY",
+      "title": "Lilly breaks ground in Richmond to expand American manufacturing of next-generation cancer medicines, advancing its build-out of 10 new U.S. sites since 2020",
+      "publishedAt": "2026-10-22T14:30:00.000Z",
+      "url": "https://investor.lilly.com/news-releases/news-release-details/lilly-breaks-ground-richmond-expand-american-manufacturing-next",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "lilly-1",
+      "symbol": "LLY",
+      "title": "Lilly's Omvoh (mirikizumab-mrkz) meets primary endpoint of clinical remission and is the first IL-23p19 inhibitor to report one-year Phase 3 results in pediatric ulcerative colitis",
+      "publishedAt": "2026-10-19T08:40:00.000Z",
+      "url": "https://investor.lilly.com/news-releases/news-release-details/lillys-omvoh-mirikizumab-mrkz-meets-primary-endpoint-clinical",
+      "expected": "clinical",
+      "reason": "Reported financial/commercial/clinical or regulatory event within the approved source policy."
+    },
+    {
+      "id": "lilly-2",
+      "symbol": "LLY",
+      "title": "Lilly to showcase advances across its oncology pipeline at the 2026 European Society for Medical Oncology (ESMO) Congress",
+      "publishedAt": "2026-10-18T22:05:00.000Z",
+      "url": "https://investor.lilly.com/news-releases/news-release-details/lilly-showcase-advances-across-its-oncology-pipeline-2026",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "lilly-3",
+      "symbol": "LLY",
+      "title": "Lilly confirms date and conference call for third-quarter 2026 financial results announcement",
+      "publishedAt": "2026-10-15T14:00:00.000Z",
+      "url": "https://investor.lilly.com/news-releases/news-release-details/lilly-confirms-date-and-conference-call-third-quarter-2026",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "lilly-4",
+      "symbol": "LLY",
+      "title": "New composite outcomes data show patients treated with Lilly's Omvoh (mirikizumab-mrkz) achieved comprehensive corticosteroid-free disease control in ulcerative colitis and corticosteroid-free deep remission in Crohn's disease at one year",
+      "publishedAt": "2026-10-15T12:00:00.000Z",
+      "url": "https://investor.lilly.com/news-releases/news-release-details/new-composite-outcomes-data-show-patients-treated-lillys-omvoh",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "lilly-5",
+      "symbol": "LLY",
+      "title": "New Phase 3b data on Lilly's Taltz (ixekizumab) and Zepbound (tirzepatide) advance understanding of the interconnected immune and metabolic biology in adults with psoriasis and obesity",
+      "publishedAt": "2026-10-09T10:45:00.000Z",
+      "url": "https://investor.lilly.com/news-releases/news-release-details/new-phase-3b-data-lillys-taltz-ixekizumab-and-zepbound-0",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "lilly-6",
+      "symbol": "LLY",
+      "title": "Lilly to present new data across its dermatology portfolio with 21 presentations at Fall Clinical 2026, in pursuit of advancing care for chronic skin conditions",
+      "publishedAt": "2026-10-05T11:50:00.000Z",
+      "url": "https://investor.lilly.com/news-releases/news-release-details/lilly-present-new-data-across-its-dermatology-portfolio-21",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "lilly-7",
+      "symbol": "LLY",
+      "title": "Lilly's Jaypirca (pirtobrutinib), the first-and-only approved non-covalent BTK inhibitor, receives expanded indication from U.S. FDA for certain patients with previously untreated CLL/SLL",
+      "publishedAt": "2026-10-02T19:05:00.000Z",
+      "url": "https://investor.lilly.com/news-releases/news-release-details/lillys-jaypirca-pirtobrutinib-first-and-only-approved-non-1",
+      "expected": "regulatory",
+      "reason": "Reported financial/commercial/clinical or regulatory event within the approved source policy."
+    },
+    {
+      "id": "lilly-8",
+      "symbol": "LLY",
+      "title": "Lilly's oral GLP-1, Foundayo (orforglipron), was associated with significant reductions in predicted long-term risk of type 2 diabetes and cardiovascular disease",
+      "publishedAt": "2026-10-01T11:00:00.000Z",
+      "url": "https://investor.lilly.com/news-releases/news-release-details/lillys-oral-glp-1-foundayo-orforglipron-was-associated",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    },
+    {
+      "id": "lilly-9",
+      "symbol": "LLY",
+      "title": "Lilly's oral GLP-1, Foundayo (orforglipron), demonstrated cardiovascular safety alongside sustained A1C reduction and weight loss in its largest and longest type 2 diabetes study",
+      "publishedAt": "2026-09-30T22:00:00.000Z",
+      "url": "https://investor.lilly.com/news-releases/news-release-details/lillys-oral-glp-1-foundayo-orforglipron-demonstrated",
+      "expected": null,
+      "reason": "No explicit event in the narrow results, guidance, financing, transaction, regulatory or executive-change policy; broad product/partnership/marketing/attendance context excluded."
+    }
+  ],
+  "direction": [
+    {
+      "id": "direction-0",
+      "title": "Acme wins $2 billion defense contract",
+      "expected": "positive"
+    },
+    {
+      "id": "direction-1",
+      "title": "Acme loses $2 billion defense contract",
+      "expected": "negative"
+    },
+    {
+      "id": "direction-2",
+      "title": "Acme raises revenue guidance",
+      "expected": "positive"
+    },
+    {
+      "id": "direction-3",
+      "title": "Acme raised revenue guidance",
+      "expected": "positive"
+    },
+    {
+      "id": "direction-4",
+      "title": "Acme boosted full-year outlook",
+      "expected": "positive"
+    },
+    {
+      "id": "direction-5",
+      "title": "Acme cuts full-year guidance",
+      "expected": "negative"
+    },
+    {
+      "id": "direction-6",
+      "title": "Acme lowered revenue outlook",
+      "expected": "negative"
+    },
+    {
+      "id": "direction-7",
+      "title": "Acme beats earnings estimates but lowers guidance",
+      "expected": "mixed"
+    },
+    {
+      "id": "direction-8",
+      "title": "FDA approves Acme treatment",
+      "expected": "positive"
+    },
+    {
+      "id": "direction-9",
+      "title": "Acme receives no FDA approval",
+      "expected": "negative"
+    },
+    {
+      "id": "direction-10",
+      "title": "FDA does not approve Acme drug",
+      "expected": "negative"
+    },
+    {
+      "id": "direction-11",
+      "title": "Acme fails to win FDA approval",
+      "expected": "negative"
+    },
+    {
+      "id": "direction-12",
+      "title": "Acme recalls product after FDA approval",
+      "expected": "negative"
+    },
+    {
+      "id": "direction-13",
+      "title": "Acme product recall is not required",
+      "expected": "unclear"
+    },
+    {
+      "id": "direction-14",
+      "title": "Acme says no product recall is required",
+      "expected": "unclear"
+    },
+    {
+      "id": "direction-15",
+      "title": "Acme is not under investigation",
+      "expected": "unclear"
+    },
+    {
+      "id": "direction-16",
+      "title": "Acme denies acquisition rumor",
+      "expected": "unclear"
+    },
+    {
+      "id": "direction-17",
+      "title": "Acme denies takeover rumor but raises guidance",
+      "expected": "positive"
+    },
+    {
+      "id": "direction-18",
+      "title": "Acme wins dismissal of lawsuit",
+      "expected": "positive"
+    },
+    {
+      "id": "direction-19",
+      "title": "Lawsuit against Acme dismissed",
+      "expected": "positive"
+    },
+    {
+      "id": "direction-20",
+      "title": "Lawsuit against Acme was not dismissed",
+      "expected": "negative"
+    },
+    {
+      "id": "direction-21",
+      "title": "Acme wins dismissal of lawsuit but recalls product",
+      "expected": "mixed"
+    },
+    {
+      "id": "direction-22",
+      "title": "Acme misses primary endpoint in Phase 3 trial",
+      "expected": "negative"
+    },
+    {
+      "id": "direction-23",
+      "title": "Acme meets primary endpoint in Phase 3 trial",
+      "expected": "positive"
+    },
+    {
+      "id": "direction-24",
+      "title": "Acme failed to meet primary endpoint",
+      "expected": "negative"
+    },
+    {
+      "id": "direction-25",
+      "title": "Acme did not raise revenue guidance",
+      "expected": "unclear"
+    },
+    {
+      "id": "direction-26",
+      "title": "Acme reports quarterly revenue",
+      "expected": "unclear"
+    },
+    {
+      "id": "direction-27",
+      "title": "Acme signs a $2 billion supply agreement",
+      "expected": "positive"
+    },
+    {
+      "id": "direction-28",
+      "title": "Acme cancels its customer contract",
+      "expected": "negative"
+    },
+    {
+      "id": "direction-29",
+      "title": "Acme to discuss current outlook at investor conference",
+      "expected": "unclear"
+    },
+    {
+      "id": "direction-30",
+      "title": "Acme recalls its early history at anniversary event",
+      "expected": "unclear"
+    },
+    {
+      "id": "direction-31",
+      "title": "Acme announces no layoffs are planned",
+      "expected": "unclear"
+    }
+  ],
+  "signals": [
+    {
+      "id": "signal-0",
+      "kind": "contract",
+      "value": "won",
+      "title": "Acme wins defense contract",
+      "expected": true
+    },
+    {
+      "id": "signal-1",
+      "kind": "contract",
+      "value": "lost",
+      "title": "Acme loses defense contract",
+      "expected": true
+    },
+    {
+      "id": "signal-2",
+      "kind": "contract",
+      "value": "won",
+      "title": "Acme discusses defense contract pipeline",
+      "expected": false
+    },
+    {
+      "id": "signal-3",
+      "kind": "contract",
+      "value": "won",
+      "title": "Acme did not win defense contract",
+      "expected": false
+    },
+    {
+      "id": "signal-4",
+      "kind": "contract",
+      "value": "won",
+      "title": "Acme wins no defense contract",
+      "expected": false
+    },
+    {
+      "id": "signal-5",
+      "kind": "contract",
+      "value": "won",
+      "title": "Acme lost defense contract",
+      "expected": false
+    },
+    {
+      "id": "signal-6",
+      "kind": "guidance",
+      "value": "raised",
+      "title": "Acme raises full-year revenue guidance",
+      "expected": true
+    },
+    {
+      "id": "signal-7",
+      "kind": "guidance",
+      "value": "inline",
+      "title": "Acme reaffirms full-year revenue guidance",
+      "expected": true
+    },
+    {
+      "id": "signal-8",
+      "kind": "guidance",
+      "value": "raised",
+      "title": "Acme revenue guidance above analyst expectations",
+      "expected": false
+    },
+    {
+      "id": "signal-9",
+      "kind": "guidance",
+      "value": "raised",
+      "title": "Acme did not raise full-year guidance",
+      "expected": false
+    },
+    {
+      "id": "signal-10",
+      "kind": "guidance",
+      "value": "raised",
+      "title": "Acme reaffirms full-year revenue guidance",
+      "expected": false
+    },
+    {
+      "id": "signal-11",
+      "kind": "guidance",
+      "value": "lowered",
+      "title": "Acme cuts full-year revenue guidance",
+      "expected": true
+    },
+    {
+      "id": "signal-12",
+      "kind": "guidance",
+      "value": "lowered",
+      "title": "Acme discusses full-year revenue outlook",
+      "expected": false
+    },
+    {
+      "id": "signal-13",
+      "kind": "guidance",
+      "value": "inline",
+      "title": "Acme revenue outlook matches analyst consensus",
+      "expected": false
+    }
+  ],
+  "catalysts": [
+    {
+      "id": "catalyst-0",
+      "body": "Investor day will be held November 14.",
+      "date": "2026-11-14",
+      "title": "Investor day",
+      "expected": true
+    },
+    {
+      "id": "catalyst-1",
+      "body": "Investor day will be held November 14, 2026.",
+      "date": "2026-11-14",
+      "title": "Investor day",
+      "expected": true
+    },
+    {
+      "id": "catalyst-2",
+      "body": "Investor day was held November 14, 2025.",
+      "date": "2026-11-14",
+      "title": "Investor day",
+      "expected": false
+    },
+    {
+      "id": "catalyst-3",
+      "body": "Investor day will be held November 14, 2027.",
+      "date": "2026-11-14",
+      "title": "Investor day",
+      "expected": false
+    },
+    {
+      "id": "catalyst-4",
+      "body": "Investor day will be held 2026-11-14.",
+      "date": "2026-11-14",
+      "title": "Investor day",
+      "expected": true
+    },
+    {
+      "id": "catalyst-5",
+      "body": "Investor day scheduled November 14 has been cancelled.",
+      "date": "2026-11-14",
+      "title": "Investor day",
+      "expected": false
+    },
+    {
+      "id": "catalyst-6",
+      "body": "Investor day will not be held November 14.",
+      "date": "2026-11-14",
+      "title": "Investor day",
+      "expected": false
+    },
+    {
+      "id": "catalyst-7",
+      "body": "Investor day is not scheduled for November 14.",
+      "date": "2026-11-14",
+      "title": "Investor day",
+      "expected": false
+    },
+    {
+      "id": "catalyst-8",
+      "body": "Investor day will be held November 14.",
+      "date": "2026-11-15",
+      "title": "Investor day",
+      "expected": false
+    },
+    {
+      "id": "catalyst-9",
+      "body": "Last year, investor day was held November 14.",
+      "date": "2026-11-14",
+      "title": "Investor day",
+      "expected": false
+    },
+    {
+      "id": "catalyst-10",
+      "body": "Investor day will be held November 14.",
+      "date": "2027-11-14",
+      "title": "Investor day",
+      "expected": false
+    }
+  ]
+}

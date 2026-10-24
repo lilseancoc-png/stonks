@@ -123,6 +123,7 @@ const BAKE_REQUIRED_REWRITTEN_FILES = [
   "market-structure.json",
   "news-feed.json",
   "pattern-recognition.json",
+  "news-source-evidence.json",
   "pending-buyouts.json",
   "pick-thesis-cache.json",
   "picks-accuracy.json",
