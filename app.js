@@ -35895,7 +35895,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const knownStates = states.flatMap(s => s[1]);
     const execution = states.map(s => ({ label: s[0], value: rows.filter(x => s[1].includes(x.t.state)).length }));
     execution.push({ label: 'Other state', value: rows.filter(x => !knownStates.includes(x.t.state)).length });
-    const slippage = rows.filter(x => Number.isFinite(Date.parse(x.t.engineEntryIso)) && (num(x.t.entryDiffPct) != null || num(x.t.exitDiffPct) != null)).slice().sort((a, b) => Date.parse(a.t.engineEntryIso) - Date.parse(b.t.engineEntryIso)).map(x => { const credit = /credit/i.test(x.t.structure || ''), a = num(x.t.entryDiffPct), b = num(x.t.exitDiffPct); return { label: x.t.symbol + ' · ' + x.t.engineEntryIso, entry: a == null ? null : credit ? -a : a, exit: b == null ? null : credit ? b : -b }; });
+    const slippage = rows.filter(x => Number.isFinite(Date.parse(x.t.engineEntryIso)) && (x.t.entrySource !== 'manual' && num(x.t.entryDiffPct) != null || num(x.t.exitDiffPct) != null)).slice().sort((a, b) => Date.parse(a.t.engineEntryIso) - Date.parse(b.t.engineEntryIso)).map(x => { const credit = /credit/i.test(x.t.structure || ''), a = x.t.entrySource === 'manual' ? null : num(x.t.entryDiffPct), b = num(x.t.exitDiffPct); return { label: x.t.symbol + ' · ' + x.t.engineEntryIso, entry: a == null ? null : credit ? -a : a, exit: b == null ? null : credit ? b : -b }; });
     const modelPairs = closed.filter(x => x.model != null);
     const errors = modelPairs.map(x => x.pnl - x.model);
     return { closed, money, paired, curve, comparison, benchmark, trend, hist, groups, calibration, execution, slippage, stats: {
@@ -35979,7 +35979,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         card('Where the engine works', 'Win rate and sample size for each selected cohort. A small group can swing on a single result.', groupControl + bars('Paper win rate by cohort', r.groups, [{ key: 'value', name: 'Win rate', cls: 'paper' }], 'rate', 100) + dataTable(['Group', 'Closed trades', 'Win rate', 'Avg paper return', 'Avg engine return', 'Engine observations'], r.groups.map(g => [g.label, g.n, format(g.value, 'rate'), format(g.avg), format(g.model), g.modelN]))) +
         card('Predicted probability versus outcome', 'Entry PoP versus profitable paper exits, after known fees. Different exit rules and holding periods make this a diagnostic, not a formal calibration test.', bars('Entry probability and realized win rate', r.calibration.filter(c => c.n), [{ key: 'predicted', name: 'Predicted', cls: 'engine' }, { key: 'actual', name: 'Actual', cls: 'paper' }], 'rate', 100));
     } else if (lens === 'engine') {
-      metrics = metric(String(s.total), 'Mirrored trades', 'Current filters; not all eligible engine picks') + metric(format(s.bias), 'Paper minus model', s.modelN + ' paired closed returns; percentage points', sign(s.bias)) + metric(s.mae == null ? '—' : s.mae.toFixed(1) + ' pp', 'Mean absolute model error', 'Size of return gaps, regardless of sign') + metric(format(s.within, 'rate'), 'Within 5 percentage points', 'Share of paired closed trade returns');
+      metrics = metric(String(s.total), 'Tracked trades', 'Includes labeled manual entries adopted for automated exits') + metric(format(s.bias), 'Paper minus model', s.modelN + ' paired closed returns; percentage points', sign(s.bias)) + metric(s.mae == null ? '—' : s.mae.toFixed(1) + ' pp', 'Mean absolute model error', 'Size of return gaps, regardless of sign') + metric(format(s.within, 'rate'), 'Within 5 percentage points', 'Share of paired closed trade returns');
       charts = card('Execution status', 'Current state of every mirrored trade in this selection. Waiting and open positions are not counted as completed outcomes.', bars('Mirrored trade execution states', r.execution, [{ key: 'value', name: 'Trades', cls: 'paper' }], 'count')) +
         card('Execution gaps', 'Entry order, oldest first. Positive means worse than the engine price. Entry and exit gaps are each relative to their engine price; missing observations leave a gap.', line('Entry and exit price gaps versus engine', r.slippage, [{ key: 'entry', name: 'Entry gap', cls: 'paper' }, { key: 'exit', name: 'Exit gap', cls: 'engine' }], '%'));
     } else {
@@ -36021,7 +36021,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   }
   // Signed so + always means worse for us than the engine: paid more / took
   // in less on entry, sold for less / paid more to buy back on exit.
-  function wbEntryCost(t){ var d = wbNum(t.entryDiffPct); return d == null ? null : (wbCredit(t) ? -d : d); }
+  function wbEntryCost(t){ if (t.entrySource === 'manual') return null; var d = wbNum(t.entryDiffPct); return d == null ? null : (wbCredit(t) ? -d : d); }
   function wbExitCost(t){ var d = wbNum(t.exitDiffPct); return d == null ? null : (wbCredit(t) ? d : -d); }
   function wbFeePct(t){ var f = wbNum(t.fees), o = wbNum(t.fillPrice), q = WB_ANALYTICS.quantity(t); return (f != null && o > 0 && q > 0) ? f / (o * q) : 0; }
   function wbNetPnl(t){ return WB_ANALYTICS.net(t); }
@@ -36139,8 +36139,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
       return;
     }
     var T = rows.map(function(x){ return x.t; });
-    var filled = T.filter(WB_ANALYTICS.hasFill);
-    var missed = T.filter(function(t){ return t.state === 'missed'; });
+    var automaticEntries = T.filter(function(t){ return t.entrySource !== 'manual'; });
+    var filled = automaticEntries.filter(WB_ANALYTICS.hasFill);
+    var missed = automaticEntries.filter(function(t){ return t.state === 'missed'; });
     var review = WB_ANALYTICS.analyze(rows, accView.wbGroup || 'structure');
     var closed = review.closed;
     var early = closed.length < 30;
@@ -36151,10 +36152,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var fillRate = (filled.length + missed.length) ? filled.length / (filled.length + missed.length) * 100 : null;
     var pWin = paperNet.length ? paperNet.filter(function(v){ return v > 0; }).length / paperNet.length * 100 : null;
     accPaneSummary('acc-sum-webull', [
-      { val: String(T.length), lbl: 'trades mirrored' },
+      { val: String(T.length), lbl: 'trades tracked' },
       { val: fillRate == null ? '—' : Math.round(fillRate) + '%', lbl: 'filled (' + missed.length + ' missed)' },
       { val: accPct(wbMean(entryCosts)), lbl: 'entry vs engine', cls: wbMean(entryCosts) == null ? '' : (wbMean(entryCosts) <= 0 ? 'sig-pos' : 'sig-neg'), tip: '+ means paper paid more than the engine (or took in less on a credit).' },
-      { val: accPct(wbMean(paperNet)), lbl: 'paper avg (less known fee estimates)', cls: wbSignCls(wbMean(paperNet)) },
+      { val: accPct(wbMean(paperNet)), lbl: 'paper avg (less known fees)', cls: wbSignCls(wbMean(paperNet)) },
       { val: accPct(wbMean(engine)), lbl: 'engine avg (' + engine.length + ' matched)', cls: wbSignCls(wbMean(engine)) },
       { val: closed.length + '/' + WB_TARGET_CLOSED, lbl: 'verified closes / review target' },
     ], early ? 'Early read: ' + closed.length + ' closed trade' + (closed.length === 1 ? '' : 's') + '. Treat this as preliminary evidence.' : '');
@@ -36181,6 +36182,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     });
     closed.forEach(function(x){ if (x.t.exitTries) exitTries.push(x.t.exitTries); });
     function splitRow(label, list){
+      list = list.filter(function(t){ return t.entrySource !== 'manual'; });
       var f = list.filter(WB_ANALYTICS.hasFill), m = list.filter(function(t){ return t.state === 'missed'; });
       var c = f.map(wbEntryCost).filter(function(v){ return v != null; });
       return '<tr><td>' + label + '</td><td>' + (f.length + m.length) + '</td><td>' + ((f.length + m.length) ? Math.round(f.length / (f.length + m.length) * 100) + '%' : '—') + '</td><td>' + accPct(wbMean(c)) + '</td></tr>';
@@ -36193,7 +36195,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       splitRow('11:00 run', T.filter(function(t){ return wbRun(t) === '11'; })) +
       splitRow('3:30 run', T.filter(function(t){ return wbRun(t) === '15'; })) +
       '</tbody></table></div>';
-    var fillsBody = '<p class="hint acc-research-note">How far each paper entry landed from the engine’s price. + means paper paid more than the engine (or took in less on a credit spread).</p>' +
+    var fillsBody = '<p class="hint acc-research-note">Automatic entries only; adopted manual entries are excluded from fill rate, entry slippage and timing. + means paper paid more than the engine (or took in less on a credit spread).</p>' +
       wbBars(bucketRows) +
       '<div class="accuracy-chips">' +
         wbChip(first + ' / ' + repriced, 'filled first try / after the mid re-price') +
@@ -36297,7 +36299,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         '<td class="' + wbSignCls(np) + '">' + accPct(np) + '</td>' +
         '<td>' + (wbNum(t.fees) != null ? '$' + Number(t.fees).toFixed(2) : '—') + '</td></tr>';
     }).join('');
-    var logBody = '<p class="hint acc-research-note">Each trade from the engine’s open to the paper close. Gaps in brackets: + is worse for us than the engine. Paper P&amp;L is less known fee estimates. <a href="/api/auth/webull-mirror?format=csv">Download all Webull paper trades (CSV)</a></p>' +
+    var logBody = '<p class="hint acc-research-note">Each trade from the engine’s open to the paper close. Gaps in brackets: + is worse for us than the engine. Paper P&amp;L is less known fees. <a href="/api/auth/webull-mirror?format=csv">Download all Webull paper trades (CSV)</a></p>' +
       (logRows ? '<div class="acc-tscroll wb-log"><table class="acc-qtable"><thead><tr><th>Trade</th><th>Status</th><th>Entry: engine → paper</th><th>Exit: engine → paper</th><th>Engine P&amp;L</th><th>Paper P&amp;L</th><th>Fees</th></tr></thead><tbody>' + logRows + '</tbody></table></div>' : '<p class="muted acc-an-note">No trades match these filters.</p>');
 
     var dashboard = WB_REVIEW.render(review, lens, accView.wbGroup || 'structure');

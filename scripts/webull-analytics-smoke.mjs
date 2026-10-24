@@ -132,6 +132,14 @@ context.accView.wbState = 'open';
 assert.ok(vm.runInContext('wbRows().some(x => x.t.tradeId === "partial-exit")', context));
 vm.runInContext('renderWebullTest()', context);
 assert.match(box.innerHTML, /2\/3 filled · 1 closed · 1 open/);
+fixture.mirror.trades = [{ ...fixture.mirror.trades[1], tradeId: 'manual-only', state: 'open', entrySource: 'manual',
+  filledQty: 1, openQty: 1, entryDiffPct: 99, exitDiffPct: null, entryHow: 'first', entrySentIso: '2026-10-23T19:20:42Z', fillIso: '2026-10-23T19:20:43Z' }];
+context.accView.wbState = 'all'; context.accView.wbLens = 'engine';
+vm.runInContext('renderWebullTest()', context);
+assert.match(box.innerHTML, /Automatic entries only/);
+assert.equal(vm.runInContext('wbEntryCost(wbRows()[0].t)', context), null, 'manual entries never enter automatic slippage');
+assert.equal(summaries.at(-1)[1].find(x => x.lbl.startsWith('filled (')).val, '—', 'manual fill cannot inflate automatic fill rate');
+assert.equal(vm.runInContext('WB_ANALYTICS.analyze(wbRows()).slippage.length', context), 0);
 fixture.mirror.trades = []; vm.runInContext('renderWebullTest()', context); assert.match(box.innerHTML, /No mirrored trades yet/);
 context.wbTest.error = 'off'; vm.runInContext('renderWebullTest()', context); assert.match(box.innerHTML, /Retry loading trades/);
 const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');

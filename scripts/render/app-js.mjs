@@ -34492,7 +34492,7 @@ ${renderWorkspaceBindings()}
   }
   // Signed so + always means worse for us than the engine: paid more / took
   // in less on entry, sold for less / paid more to buy back on exit.
-  function wbEntryCost(t){ var d = wbNum(t.entryDiffPct); return d == null ? null : (wbCredit(t) ? -d : d); }
+  function wbEntryCost(t){ if (t.entrySource === 'manual') return null; var d = wbNum(t.entryDiffPct); return d == null ? null : (wbCredit(t) ? -d : d); }
   function wbExitCost(t){ var d = wbNum(t.exitDiffPct); return d == null ? null : (wbCredit(t) ? d : -d); }
   function wbFeePct(t){ var f = wbNum(t.fees), o = wbNum(t.fillPrice), q = WB_ANALYTICS.quantity(t); return (f != null && o > 0 && q > 0) ? f / (o * q) : 0; }
   function wbNetPnl(t){ return WB_ANALYTICS.net(t); }
@@ -34610,8 +34610,9 @@ ${renderWorkspaceBindings()}
       return;
     }
     var T = rows.map(function(x){ return x.t; });
-    var filled = T.filter(WB_ANALYTICS.hasFill);
-    var missed = T.filter(function(t){ return t.state === 'missed'; });
+    var automaticEntries = T.filter(function(t){ return t.entrySource !== 'manual'; });
+    var filled = automaticEntries.filter(WB_ANALYTICS.hasFill);
+    var missed = automaticEntries.filter(function(t){ return t.state === 'missed'; });
     var review = WB_ANALYTICS.analyze(rows, accView.wbGroup || 'structure');
     var closed = review.closed;
     var early = closed.length < 30;
@@ -34622,10 +34623,10 @@ ${renderWorkspaceBindings()}
     var fillRate = (filled.length + missed.length) ? filled.length / (filled.length + missed.length) * 100 : null;
     var pWin = paperNet.length ? paperNet.filter(function(v){ return v > 0; }).length / paperNet.length * 100 : null;
     accPaneSummary('acc-sum-webull', [
-      { val: String(T.length), lbl: 'trades mirrored' },
+      { val: String(T.length), lbl: 'trades tracked' },
       { val: fillRate == null ? '—' : Math.round(fillRate) + '%', lbl: 'filled (' + missed.length + ' missed)' },
       { val: accPct(wbMean(entryCosts)), lbl: 'entry vs engine', cls: wbMean(entryCosts) == null ? '' : (wbMean(entryCosts) <= 0 ? 'sig-pos' : 'sig-neg'), tip: '+ means paper paid more than the engine (or took in less on a credit).' },
-      { val: accPct(wbMean(paperNet)), lbl: 'paper avg (less known fee estimates)', cls: wbSignCls(wbMean(paperNet)) },
+      { val: accPct(wbMean(paperNet)), lbl: 'paper avg (less known fees)', cls: wbSignCls(wbMean(paperNet)) },
       { val: accPct(wbMean(engine)), lbl: 'engine avg (' + engine.length + ' matched)', cls: wbSignCls(wbMean(engine)) },
       { val: closed.length + '/' + WB_TARGET_CLOSED, lbl: 'verified closes / review target' },
     ], early ? 'Early read: ' + closed.length + ' closed trade' + (closed.length === 1 ? '' : 's') + '. Treat this as preliminary evidence.' : '');
@@ -34652,6 +34653,7 @@ ${renderWorkspaceBindings()}
     });
     closed.forEach(function(x){ if (x.t.exitTries) exitTries.push(x.t.exitTries); });
     function splitRow(label, list){
+      list = list.filter(function(t){ return t.entrySource !== 'manual'; });
       var f = list.filter(WB_ANALYTICS.hasFill), m = list.filter(function(t){ return t.state === 'missed'; });
       var c = f.map(wbEntryCost).filter(function(v){ return v != null; });
       return '<tr><td>' + label + '</td><td>' + (f.length + m.length) + '</td><td>' + ((f.length + m.length) ? Math.round(f.length / (f.length + m.length) * 100) + '%' : '—') + '</td><td>' + accPct(wbMean(c)) + '</td></tr>';
@@ -34664,7 +34666,7 @@ ${renderWorkspaceBindings()}
       splitRow('11:00 run', T.filter(function(t){ return wbRun(t) === '11'; })) +
       splitRow('3:30 run', T.filter(function(t){ return wbRun(t) === '15'; })) +
       '</tbody></table></div>';
-    var fillsBody = '<p class="hint acc-research-note">How far each paper entry landed from the engine’s price. + means paper paid more than the engine (or took in less on a credit spread).</p>' +
+    var fillsBody = '<p class="hint acc-research-note">Automatic entries only; adopted manual entries are excluded from fill rate, entry slippage and timing. + means paper paid more than the engine (or took in less on a credit spread).</p>' +
       wbBars(bucketRows) +
       '<div class="accuracy-chips">' +
         wbChip(first + ' / ' + repriced, 'filled first try / after the mid re-price') +
@@ -34768,7 +34770,7 @@ ${renderWorkspaceBindings()}
         '<td class="' + wbSignCls(np) + '">' + accPct(np) + '</td>' +
         '<td>' + (wbNum(t.fees) != null ? '$' + Number(t.fees).toFixed(2) : '—') + '</td></tr>';
     }).join('');
-    var logBody = '<p class="hint acc-research-note">Each trade from the engine’s open to the paper close. Gaps in brackets: + is worse for us than the engine. Paper P&amp;L is less known fee estimates. <a href="/api/auth/webull-mirror?format=csv">Download all Webull paper trades (CSV)</a></p>' +
+    var logBody = '<p class="hint acc-research-note">Each trade from the engine’s open to the paper close. Gaps in brackets: + is worse for us than the engine. Paper P&amp;L is less known fees. <a href="/api/auth/webull-mirror?format=csv">Download all Webull paper trades (CSV)</a></p>' +
       (logRows ? '<div class="acc-tscroll wb-log"><table class="acc-qtable"><thead><tr><th>Trade</th><th>Status</th><th>Entry: engine → paper</th><th>Exit: engine → paper</th><th>Engine P&amp;L</th><th>Paper P&amp;L</th><th>Fees</th></tr></thead><tbody>' + logRows + '</tbody></table></div>' : '<p class="muted acc-an-note">No trades match these filters.</p>');
 
     var dashboard = WB_REVIEW.render(review, lens, accView.wbGroup || 'structure');
