@@ -1,4 +1,5 @@
 import { marketAnalysisFactory } from '../../lib/market-analysis.mjs';
+import { riskStackFactory } from '../../lib/risk-stack.mjs';
 import { marketRefreshFactory } from '../../lib/market-refresh.mjs';
 import { webullAnalyticsFactory } from '../../lib/webull-analytics.mjs';
 import { webullReviewFactory } from './webull-review-client.mjs';
@@ -33,6 +34,7 @@ ${newsDateIsCurrent.toString()}
 ${currentNewsSentiment.toString()}
 ${validNewsFeedPayload.toString()}
   var marketAnalysis = (${marketAnalysisFactory.toString()})();
+  var RISK_STACK = (${riskStackFactory.toString()})();
   var marketRefresh = (${marketRefreshFactory.toString()})();
   // Shared sort / view helpers (source: scripts/render/views-client.mjs).
   var VIEWS = (${viewsFactory.toString()})(window, document);
@@ -93,7 +95,7 @@ ${scenarioEventPhase.toString()}
   // the Owner analysis/idea/record desks and Owner Lab; this UI boundary keeps
   // destinations hidden until the owner session's compatibility claims resolve.
   // Discord mints both only after verifying the existing Top Picks owner role.
-  var OWNER_TABS = { market:1, 'bottom-tracker':1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, 'open-picks':1, track:1, quant:1 };
+  var OWNER_TABS = { market:1, risk:1, 'bottom-tracker':1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, 'open-picks':1, track:1, quant:1 };
   var GATE_ON = false;
   var HAS_TRACK_RECORD = false;
   var HAS_TOP_PICKS = false;
@@ -3643,7 +3645,7 @@ ${scenarioEventPhase.toString()}
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','ipo-credit','bottom-tracker','open-picks','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','risk','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','ipo-credit','bottom-tracker','open-picks','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3668,6 +3670,7 @@ ${scenarioEventPhase.toString()}
     open: 'open-picks', 'open-pick': 'open-picks', openpicks: 'open-picks', 'open-trades': 'open-picks', positions: 'open-picks',
     'stock-picks': 'stocks', stockpicks: 'stocks', stock: 'stocks', shares: 'stocks',
     'market-analysis': 'market', analysis: 'market', tape: 'market', regime: 'market',
+    'risk-analysis': 'risk', risk: 'risk', 'market-position': 'risk',
     'sector-rotation': 'rotation', rotation: 'rotation', rotate: 'rotation', rebound: 'rotation', 'rotation-radar': 'rotation',
     headlines: 'news', 'stock-news': 'news', 'news-feed': 'news',
     narrative: 'narratives', strategy: 'strategies', streak: 'streaks',
@@ -4040,7 +4043,7 @@ ${renderWorkspaceBindings()}
       if (name !== 'bonds-usd' && typeof stopBondsLivePolling === 'function') stopBondsLivePolling();
       if (name !== 'tickers' && typeof stopTickersLive === 'function') stopTickersLive();
       if (name !== 'picks' && typeof stopPicksLive === 'function') stopPicksLive();
-      if (name !== 'market' && typeof stopMacroTapeLive === 'function') stopMacroTapeLive();
+      if (name !== 'market' && name !== 'risk' && typeof stopMacroTapeLive === 'function') stopMacroTapeLive();
       if (name !== 'overnight' && typeof stopOvernightLive === 'function') stopOvernightLive();
       if (name !== 'oi' && typeof stopOiLive === 'function') stopOiLive();
       if (name !== 'ma-tracker' && typeof stopMaTrackerLive === 'function') stopMaTrackerLive();
@@ -4057,6 +4060,9 @@ ${renderWorkspaceBindings()}
         if (name === 'market' && typeof loadRegimeHistory === 'function') loadRegimeHistory();
         if (name === 'market' && typeof loadOvernight === 'function') loadOvernight();
         if (name === 'market' && typeof startMacroTapeLive === 'function') startMacroTapeLive();
+        if (name === 'risk' && typeof renderRiskStack === 'function') renderRiskStack();
+        if (name === 'risk' && typeof loadMarketAnalysis === 'function') loadMarketAnalysis();
+        if (name === 'risk' && typeof startMacroTapeLive === 'function') startMacroTapeLive();
         if (name === 'track' && HAS_TRACK_RECORD && typeof loadAccuracy === 'function') loadAccuracy();
         if (name === 'open-picks' && HAS_TRACK_RECORD && typeof loadOpenPicks === 'function') loadOpenPicks();
         if (name === 'heatmap' && typeof loadHeatmap === 'function') loadHeatmap();
@@ -9628,11 +9634,13 @@ ${renderWorkspaceBindings()}
         VOLUME_FLAGS = json || null;
         volFlagsLoad.loaded = true; volFlagsLoad.loading = false; volFlagsLoad.error = false;
         renderVolumeFlags();
+        riskStackNote();
       })
       .catch(function(){
         // Soft-fail: the tab shows an explicit retry state; tab re-entry retries.
         volFlagsLoad.loading = false; volFlagsLoad.error = true;
         renderVolumeFlags();
+        riskStackNote();
       });
   }
   // Ticker -> curated sector label (Semis / Software / Bank / Space / ETF / …)
@@ -12596,8 +12604,10 @@ ${renderWorkspaceBindings()}
     try { sessionStorage.setItem('stonks-market-refresh-v1', JSON.stringify(marketRefreshState)); } catch (_) {}
   }
   function marketPaneVisible(){
-    var pane = document.getElementById('page-pane-market');
-    return !!(HAS_OWNER_ACCESS && pane && !pane.hidden && !document.hidden);
+    var marketPane = document.getElementById('page-pane-market');
+    var riskPane = document.getElementById('page-pane-risk');
+    var open = (marketPane && !marketPane.hidden) || (riskPane && !riskPane.hidden);
+    return !!(HAS_OWNER_ACCESS && open && !document.hidden);
   }
   function maybeRefreshMarket(reason, deploymentId){
     marketRefresh.observe(marketRefreshState, deploymentId);
@@ -12960,6 +12970,347 @@ ${renderWorkspaceBindings()}
     var historyDetails = host.querySelector('.scenario-history');
     if (historyDetails) historyDetails.addEventListener('toggle', function(){ scenarioState.historyOpen = historyDetails.open; });
   }
+  // Market position: seven desks, one picture. The regime stays the position-limit
+  // input. This panel only explains where the other tapes agree or disagree.
+  var riskStackState = { asked: {}, gex: null, gexLoading: false, gexFailed: false, html: '' };
+  function riskStackNote(){
+    try {
+      var pane = document.getElementById('page-pane-risk');
+      if (!pane || pane.hidden) return;
+      renderRiskStack();
+    } catch (_) {}
+  }
+  function ensureRiskStackGex(){
+    if (riskStackState.gex || riskStackState.gexLoading || riskStackState.gexFailed) return;
+    if (gexState && gexState.symbol === 'SPY' && gexState.data) { riskStackState.gex = gexState.data; return; }
+    riskStackState.gexLoading = true;
+    fetchChain('SPY').then(function(entry){
+      try {
+        var spot = Number(entry && entry.spot);
+        if (!entry || !entry.chains || !(spot > 0)) { riskStackState.gexFailed = true; return; }
+        riskStackState.gex = computeGex(entry, spot);
+      } catch (_) {
+        riskStackState.gex = null;
+        riskStackState.gexFailed = true;
+      }
+    }).catch(function(){ riskStackState.gexFailed = true; })
+      .finally(function(){ riskStackState.gexLoading = false; riskStackNote(); });
+  }
+  function ensureRiskStackSources(){
+    if (!VOLUME_FLAGS && !volFlagsLoad.loading && !riskStackState.asked.volume) {
+      riskStackState.asked.volume = true;
+      loadVolumeFlagsData();
+    }
+    if (!(heatmapState.data && !heatmapState.data.loadError) && !heatmapState.loading && !riskStackState.asked.heatmap) {
+      riskStackState.asked.heatmap = true;
+      loadHeatmap();
+    }
+    if (!overnightState.data && !overnightState.loading && !riskStackState.asked.overnight) {
+      riskStackState.asked.overnight = true;
+      loadOvernight();
+    }
+    if (!indexCalState.data && !indexCalState.loading && !riskStackState.asked.indexCal) {
+      riskStackState.asked.indexCal = true;
+      loadIndexCal();
+    }
+    ensureRiskStackGex();
+  }
+  function riskMarketDesk(){
+    var base = {
+      id: 'market', name: 'Market analysis', tab: 'market', layer: 'backdrop', horizon: 'Cross-asset regime',
+      measures: 'A live stress vote across indexes, volatility, the dollar, yields, the Fed path, commodities, geopolitics, and the global tape.'
+    };
+    var baked = marketRegimeBaked();
+    var live = null;
+    try { live = baked ? computeLiveMacroRegime(baked, macroTape.legs || {}) : null; } catch (_) { live = null; }
+    var regime = live || baked;
+    if (!regime) {
+      if (marketState.loading) return Object.assign(base, { status: 'loading', stance: null, label: 'Loading', why: 'Waiting for the market-analysis snapshot.' });
+      return Object.assign(base, { status: 'missing', stance: null, label: 'Unavailable', why: marketState.error || 'No regime snapshot is loaded.' });
+    }
+    var meta = macroStateMeta(regime.state, regime.fragile);
+    var liveOk = !!(live && live.live) && !macroTape.error;
+    var buildAt = (marketState.data && marketState.data.builtAtIso) || (baked && baked.builtAtIso) || null;
+    var age = buildAt ? Date.now() - Date.parse(buildAt) : null;
+    var old = !liveOk && (age == null || !isFinite(age) || age > 96 * 3600e3);
+    var drivers = (regime.drivers && regime.drivers.length) ? regime.drivers.slice(0, 4).join(', ') : '';
+    var why = drivers ? 'Driving it: ' + drivers + '.' : 'No coordinated driver is leading the tape.';
+    if (regime.fragile && regime.internalsLabel) why += ' Internals are soft (' + regime.internalsLabel + ').';
+    if (regime.persisted && regime.rawState && regime.rawState !== regime.state) why += ' Live evidence reads ' + regime.rawState + '; the defensive label is held until a build confirms the recovery.';
+    if (regime.state === 'insufficient-data' || (regime.dataQuality && regime.dataQuality.sufficient === false)) {
+      return Object.assign(base, { status: 'missing', stance: null, label: 'Unconfirmed', why: 'Core inputs are missing or stale, so this is not a neutral call. ' + why });
+    }
+    var stance = regime.state === 'severe-risk-off' ? -2 : regime.state === 'risk-off' ? -1 : regime.state === 'risk-on' ? 1 : 0;
+    var label = regime.fragile && stance === 0 ? 'Fragile neutral' : meta.lbl;
+    if (old) return Object.assign(base, { status: 'stale', stance: null, label: label, why: 'Reference only. The snapshot is older than four days and no live tape is in. ' + why });
+    return Object.assign(base, { status: 'ready', stance: stance, strength: 'full', label: label, why: why });
+  }
+  function riskHeatmapDesk(){
+    var base = {
+      id: 'heatmap', name: 'Heatmap', tab: 'heatmap', layer: 'session', horizon: 'Today\\'s breadth',
+      measures: 'How many tracked stocks are up today and whether the largest names agree. It does not see volatility, the dollar, yields, or the Fed.'
+    };
+    var data = heatmapState.data;
+    if (!data) {
+      if (riskStackState.asked.heatmap && !heatmapState.loading) return Object.assign(base, { status: 'missing', stance: null, label: 'Unavailable', why: 'The heatmap snapshot has not loaded.' });
+      return Object.assign(base, { status: 'loading', stance: null, label: 'Loading', why: 'Waiting for the heatmap snapshot.' });
+    }
+    if (data.loadError) return Object.assign(base, { status: 'missing', stance: null, label: 'Unavailable', why: 'The heatmap request failed, so no breadth call is being inferred.' });
+    var tickers = Array.isArray(data.tickers) ? data.tickers : [];
+    if (!tickers.length) return Object.assign(base, { status: 'missing', stance: null, label: 'Unavailable', why: 'The heatmap has no names to score.' });
+    var up = 0, down = 0, flat = 0, weighted = 0, weight = 0;
+    for (var i = 0; i < tickers.length; i++) {
+      var ch = heatmapEffectiveCh(tickers[i], '1d');
+      if (ch == null) continue;
+      if (ch > 0.05) up++; else if (ch < -0.05) down++; else flat++;
+      var mc = Number(tickers[i].mc);
+      if (isFinite(mc) && mc > 0) { weighted += ch * mc; weight += mc; }
+    }
+    var total = up + down + flat;
+    if (!total) return Object.assign(base, { status: 'missing', stance: null, label: 'Unavailable', why: 'One-day returns are missing, so no breadth call is being inferred.' });
+    var upPct = up / total * 100;
+    var avg = weight > 0 ? weighted / weight : 0;
+    var move = 0.25;
+    var liveFresh = !!(heatmapState.live && heatmapState.liveUpdatedAt > 0 && Date.now() - heatmapState.liveUpdatedAt >= 0 && Date.now() - heatmapState.liveUpdatedAt < 90000);
+    var sourceIso = data.refreshedAtIso || data.builtAtIso || '';
+    var sessionGap = liveFresh ? 0 : heatmapSessionGap(sourceIso);
+    var stale = !liveFresh && (sessionGap == null || sessionGap > 1);
+    var stance = 0, label = 'Mixed tape';
+    if (upPct >= 60 && avg >= move) { stance = 1; label = 'Broad risk-on'; }
+    else if (upPct <= 40 && avg <= -move) { stance = -1; label = 'Broad risk-off'; }
+    else if (avg >= move && upPct < 50) { stance = 0; label = 'Narrow index bid'; }
+    else if (avg <= -move && upPct >= 50) { stance = 0; label = 'Heavyweight drag'; }
+    var avgTxt = (avg >= 0 ? '+' : '') + avg.toFixed(2) + '%';
+    var why = Math.round(upPct) + '% of tracked names are up (' + up + ' advancing, ' + down + ' declining). Cap-weighted tape ' + avgTxt + '.';
+    if (label === 'Narrow index bid') why += ' Large caps are lifting the tape while most names do not confirm.';
+    else if (label === 'Heavyweight drag') why += ' Breadth is holding up, but the largest names are pulling the tape down.';
+    else if (label === 'Mixed tape') why += ' Participation and the cap-weighted tape do not agree on one direction.';
+    if (stale) {
+      var ageNote = sessionGap == null ? 'No freshness stamp. ' : ('The snapshot is ' + sessionGap + ' sessions old. ');
+      return Object.assign(base, { status: 'stale', stance: null, label: label, why: 'Reference only. ' + ageNote + why });
+    }
+    return Object.assign(base, { status: 'ready', stance: stance, strength: 'full', label: label, why: (liveFresh ? 'Live overlay. ' : 'Latest one-day snapshot. ') + why });
+  }
+  function riskVolumeDesk(){
+    var base = {
+      id: 'volume', name: 'Volume', tab: 'volume', layer: 'session', horizon: 'Unusual participation',
+      measures: 'Whether unusual volume is confirming a direction among the names that already flagged, counted by sector. A quiet scan is not a vote that the broad market is calm.'
+    };
+    if (!VOLUME_FLAGS) {
+      if (volFlagsLoad.error && riskStackState.asked.volume) return Object.assign(base, { status: 'missing', stance: null, label: 'Unavailable', why: 'The volume scan could not be read.' });
+      return Object.assign(base, { status: 'loading', stance: null, label: 'Loading', why: 'Waiting for the latest volume scan.' });
+    }
+    var tickers = Array.isArray(VOLUME_FLAGS.tickers) ? VOLUME_FLAGS.tickers : [];
+    if (!tickers.length) return Object.assign(base, { status: 'missing', stance: null, label: 'No flags', why: 'The latest scan published no unusual-volume rows, so this desk cannot confirm a direction.' });
+    var bySector = {};
+    for (var vi = 0; vi < tickers.length; vi++) {
+      var vt = tickers[vi];
+      var vlean = volTickerSummary(vt).lean;
+      var vsec = VOL_SECTOR_OF[vt.symbol] || 'Other';
+      var vrec = bySector[vsec] || (bySector[vsec] = { bull: 0, bear: 0 });
+      if (vlean != null) {
+        if (vlean > 0) vrec.bull++;
+        else if (vlean < 0) vrec.bear++;
+      }
+    }
+    var secBull = 0, secBear = 0;
+    Object.keys(bySector).forEach(function(s){
+      var r = bySector[s];
+      if (r.bull > r.bear) secBull++;
+      else if (r.bear > r.bull) secBear++;
+    });
+    var directional = secBull + secBear;
+    var bearShare = directional ? secBear / directional : 0.5;
+    var tone = 'Mixed', stance = 0, strength = 'full', sub = 'Sectors are split between buyers and sellers.';
+    if (!directional) {
+      tone = 'No clear lean'; sub = 'Flagged sectors show no directional bias.';
+    } else if (bearShare >= 0.65) {
+      tone = 'Broadly bearish'; stance = -1; sub = secBear + ' of ' + directional + ' directional sectors are leaning down on heavy volume.';
+    } else if (bearShare > 0.52) {
+      tone = 'Leaning bearish'; stance = -1; strength = 'lean'; sub = secBear + ' of ' + directional + ' directional sectors are leaning down.';
+    } else if (bearShare <= 0.35) {
+      tone = 'Broadly bullish'; stance = 1; sub = secBull + ' of ' + directional + ' directional sectors are leaning up on heavy volume.';
+    } else if (bearShare < 0.48) {
+      tone = 'Leaning bullish'; stance = 1; strength = 'lean'; sub = secBull + ' of ' + directional + ' directional sectors are leaning up.';
+    }
+    var fresh = volFreshnessMeta();
+    if (!fresh.current) return Object.assign(base, { status: 'stale', stance: null, label: tone, why: 'Reference only. ' + sub });
+    return Object.assign(base, { status: 'ready', stance: stance, strength: strength, label: tone, why: sub });
+  }
+  function riskGammaDesk(){
+    var base = {
+      id: 'gamma', name: 'Gamma exposure', tab: 'oi', layer: 'structure', horizon: 'SPY gamma proxy',
+      measures: 'SPY open-interest gamma. Positive tends to dampen and pin. Negative tends to amplify the next move. The sign is a scenario, not observed dealer inventory.'
+    };
+    if (gexState && gexState.symbol === 'SPY' && gexState.data) riskStackState.gex = gexState.data;
+    if (!riskStackState.gex) {
+      if (riskStackState.gexFailed) return Object.assign(base, { status: 'missing', stance: null, label: 'Unavailable', why: 'SPY chain data did not load, so there is no index gamma proxy.' });
+      return Object.assign(base, { status: 'loading', stance: null, label: 'Loading', why: 'Reading the SPY open-interest gamma proxy.' });
+    }
+    var gv = gexVerdict(riskStackState.gex);
+    var gRead = gv && RISK_STACK.gammaRead(gv);
+    if (!gRead) return Object.assign(base, { status: 'missing', stance: null, label: 'Unavailable', why: 'The SPY gamma proxy could not be scored.' });
+    var gStance = gRead.stance;
+    var gLabel = gRead.label;
+    var gWhy = gv.posGamma
+      ? 'SPY call-minus-put gamma is positive, so the conventional hedge would dampen moves'
+      : 'SPY call-minus-put gamma is negative, so the conventional hedge would amplify moves';
+    if (!gv.posGamma && riskStackState.gex.flip != null && riskStackState.gex.spot < riskStackState.gex.flip) gWhy += ', and spot is already below the gamma flip';
+    gWhy += '.';
+    if (gv.posGamma && gv.dir === 'bull') gWhy += ' The magnet sits above spot, so the pull is upward.';
+    else if (gv.posGamma && gv.dir === 'bear') gWhy += ' The magnet sits below spot, so the pull is downward.';
+    if (gv.posGamma && gv.pinStrike != null) gWhy += ' The magnet is ' + fmtOiStrike(gv.pinStrike) + '.';
+    if (gv.evMovePct != null) gWhy += ' Options price about +/-' + gv.evMovePct.toFixed(1) + '% for the session (' + String(gv.volLabel || '').toLowerCase() + ').';
+    gWhy += ' Open interest does not reveal actual dealer inventory.';
+    return Object.assign(base, {
+      status: 'ready', stance: gStance, strength: 'full', structure: gRead.structure, label: gLabel, why: gWhy
+    });
+  }
+  function riskIndexCalDesk(){
+    var base = {
+      id: 'index-cal', name: 'Index calendar', tab: 'index-cal', layer: 'backdrop', horizon: 'Month-to-date sleeves',
+      measures: 'The month-to-date path of SPY, QQQ, IWM, SMH, DIA, and VXUS, confirmed by whether VIX is higher or lower. One session does not rewrite it.'
+    };
+    var data = indexCalState.data;
+    if (!data || !Array.isArray(data.days)) {
+      if (indexCalState.error && riskStackState.asked.indexCal) return Object.assign(base, { status: 'missing', stance: null, label: 'Unavailable', why: 'The index calendar could not be read.' });
+      return Object.assign(base, { status: 'loading', stance: null, label: 'Loading', why: 'Waiting for the index calendar.' });
+    }
+    var days = data.days;
+    var today = calEtTodayYmd();
+    var currentYm = today.slice(0, 7);
+    var hasCurrent = false, latest = null;
+    for (var di = 0; di < days.length; di++) {
+      var date = days[di] && days[di].date;
+      if (!date || date > today) continue;
+      if (String(date).slice(0, 7) === currentYm) hasCurrent = true;
+      if (!latest || date > latest) latest = date;
+    }
+    var ym = hasCurrent ? currentYm : (latest ? String(latest).slice(0, 7) : currentYm);
+    var byDate = {};
+    for (var dj = 0; dj < days.length; dj++) if (days[dj] && days[dj].date) byDate[days[dj].date] = days[dj];
+    var monthDates = Object.keys(byDate).filter(function(k){ return k.slice(0, 7) === ym && k <= today; }).sort();
+    function monthReturn(key){
+      var compounded = 1, count = 0;
+      for (var mi = 0; mi < monthDates.length; mi++) {
+        var leg = (byDate[monthDates[mi]] || {})[key];
+        if (!leg || leg.chPct == null || isNaN(leg.chPct)) continue;
+        compounded *= 1 + Number(leg.chPct) / 100;
+        count++;
+      }
+      return count ? (compounded - 1) * 100 : null;
+    }
+    var monthReturns = {};
+    IDX_CAL_ORDER.forEach(function(k){ monthReturns[k] = monthReturn(k); });
+    var riskAvailable = IDX_CAL_RISK.filter(function(k){ return monthReturns[k] != null; });
+    if (riskAvailable.length < 4) return Object.assign(base, { status: 'missing', stance: null, label: 'Thin month', why: 'Fewer than four risk sleeves have a month-to-date return, so the calendar cannot call a regime.' });
+    var riskPositive = riskAvailable.filter(function(k){ return monthReturns[k] > 0; }).length;
+    var vixMonth = monthReturns.vix;
+    var spyMonth = monthReturns.spy;
+    var tone = 'mixed', stance = 0, label = 'Mixed';
+    if (riskPositive >= Math.ceil(riskAvailable.length * 0.75) && (vixMonth == null || vixMonth <= 0)) {
+      tone = 'riskon'; stance = 1; label = 'Broad risk-on';
+    } else if (riskPositive <= Math.floor(riskAvailable.length * 0.34) && (vixMonth == null || vixMonth > 0)) {
+      tone = 'riskoff'; stance = -1; label = 'Defensive';
+    } else if (spyMonth != null && spyMonth > 0 && riskPositive <= Math.ceil(riskAvailable.length / 2)) {
+      tone = 'narrow'; stance = 0; label = 'Narrow';
+    }
+    var monthName = fmtCalendarMonth(ym);
+    var why = (ym === currentYm ? '' : (fmtCalendarMonth(currentYm) + ' has no completed session yet, so this is ' + monthName + '. ')) +
+      riskPositive + ' of ' + riskAvailable.length + ' risk sleeves are positive in ' + monthName +
+      (vixMonth == null ? '.' : (vixMonth > 0 ? ', and VIX is higher.' : ', and VIX is lower.'));
+    var lastDate = monthDates.length ? monthDates[monthDates.length - 1] : null;
+    var lastRow = lastDate ? byDate[lastDate] : null;
+    if (lastRow) {
+      var dayRisk = IDX_CAL_RISK.filter(function(k){ var leg = lastRow[k]; return leg && leg.chPct != null && !isNaN(leg.chPct); });
+      var dayUp = dayRisk.filter(function(k){ return Number(lastRow[k].chPct) > 0; }).length;
+      var dayVix = lastRow.vix && lastRow.vix.chPct != null ? Number(lastRow.vix.chPct) : null;
+      if (dayRisk.length) {
+        why += ' Latest session ' + fmtCalendarDateShort(lastDate) + ': ' + dayUp + ' of ' + dayRisk.length + ' sleeves higher' +
+          (dayVix == null ? '.' : ', VIX ' + (dayVix > 0 ? 'up ' : 'down ') + Math.abs(dayVix).toFixed(2) + '%.');
+      }
+    }
+    var ageDays = lastDate ? Math.round((Date.parse(today + 'T00:00:00Z') - Date.parse(lastDate + 'T00:00:00Z')) / 86400000) : null;
+    if (ageDays == null || ageDays > 6) return Object.assign(base, { status: 'stale', stance: null, label: label, why: 'Reference only. ' + why });
+    return Object.assign(base, { status: 'ready', stance: stance, strength: 'full', label: label, why: why });
+  }
+  function riskOvernightDesk(){
+    var base = {
+      id: 'overnight', name: 'Overnight markets', tab: 'overnight', layer: 'session', horizon: 'Lead into the open',
+      measures: 'The last foreign cash session plus futures, volatility, and yields into the US open. During US hours it is the lead, not a second vote on the cash tape.'
+    };
+    var d = overnightState.data;
+    if (!d || !d.markets || !Object.keys(d.markets).length) {
+      if (d && d.loadError) return Object.assign(base, { status: 'missing', stance: null, label: 'Unavailable', why: 'Overnight data did not load.' });
+      if (overnightState.loading || !riskStackState.asked.overnight) return Object.assign(base, { status: 'loading', stance: null, label: 'Loading', why: 'Waiting for the overnight sweep.' });
+      return Object.assign(base, { status: 'missing', stance: null, label: 'Unavailable', why: 'The overnight sweep has no markets.' });
+    }
+    var raw = d.tone && d.tone.score != null && isFinite(Number(d.tone.score)) ? Number(d.tone.score) : 0;
+    var state = raw >= 3 ? 'risk-on' : raw <= -3 ? 'risk-off' : raw >= 1 ? 'lean-on' : raw <= -1 ? 'lean-off' : 'mixed';
+    var stance = (state === 'risk-on' || state === 'lean-on') ? 1 : (state === 'risk-off' || state === 'lean-off') ? -1 : 0;
+    var strength = (state === 'lean-on' || state === 'lean-off') ? 'lean' : 'full';
+    var label = state === 'risk-on' ? 'Risk-on' : state === 'risk-off' ? 'Risk-off' : state === 'lean-on' ? 'Leans risk-on' : state === 'lean-off' ? 'Leans defensive' : 'No clean edge';
+    var reasons = d.tone && Array.isArray(d.tone.reasons) ? d.tone.reasons.slice(0, 3) : [];
+    var why = 'Overnight score ' + (raw > 0 ? '+' : '') + raw + '.' + (reasons.length ? ' ' + reasons.join(' ') : ' No broad reason cleared the vote thresholds.');
+    var fresh = overnightFreshness(d);
+    if (!fresh.current) return Object.assign(base, { status: 'stale', stance: null, label: label, why: 'Reference only. ' + why });
+    return Object.assign(base, { status: 'ready', stance: stance, strength: strength, label: label, why: why });
+  }
+  function riskFearDesk(){
+    var base = {
+      id: 'fear-greed', name: 'Fear & Greed', tab: 'fear-greed', layer: 'backdrop', horizon: 'Sentiment composite',
+      measures: 'A slow 0-100 mood blend of momentum, breadth, put/call, volatility versus its average, safe havens, and credit appetite. Extreme fear is positioning, not a completed selloff.'
+    };
+    var d = MANIFEST.fearGreed || null;
+    if (!d || !isFinite(Number(d.score))) return Object.assign(base, { status: 'missing', stance: null, label: 'Unavailable', why: 'No Fear & Greed snapshot was published with this build.' });
+    var score = Number(d.score);
+    var band = fngBandFromScore(score);
+    var label = fngBandLabel(band);
+    var stance = band === 'extreme-fear' ? -2 : band === 'fear' ? -1 : band === 'greed' ? 1 : band === 'extreme-greed' ? 2 : 0;
+    var prevClose = d.previous && d.previous.close;
+    var delta = prevClose != null && isFinite(Number(prevClose)) ? Math.round(score) - Math.round(Number(prevClose)) : null;
+    var why = 'Composite ' + Math.round(score) + ', ' + label + '.' + (delta == null ? '' : ' ' + (delta > 0 ? '+' : '') + delta + ' versus the prior close.');
+    var fresh = fngFreshness(d);
+    if (!fresh.current) return Object.assign(base, { status: 'stale', stance: null, label: label, why: 'Reference only. ' + why });
+    return Object.assign(base, { status: 'ready', stance: stance, strength: 'full', label: label, why: why });
+  }
+  function bindRiskStack(host){
+    if (!host || host.getAttribute('data-risk-bound') === '1') return;
+    host.setAttribute('data-risk-bound', '1');
+    host.addEventListener('click', function(ev){
+      var btn = ev.target.closest ? ev.target.closest('[data-risk-go]') : null;
+      if (!btn) return;
+      var tab = document.querySelector('[data-page-tab="' + btn.getAttribute('data-risk-go') + '"]');
+      if (tab) tab.click();
+    });
+  }
+  function renderRiskStack(){
+    var host = document.getElementById('risk-stack');
+    if (!host || !RISK_STACK) return;
+    bindRiskStack(host);
+    ensureRiskStackSources();
+    var html = RISK_STACK.present([
+      riskMarketDesk(), riskIndexCalDesk(), riskFearDesk(),
+      riskHeatmapDesk(), riskVolumeDesk(), riskOvernightDesk(),
+      riskGammaDesk()
+    ]);
+    if (html === riskStackState.html) return;
+    var active = document.activeElement;
+    var keep = active && host.contains(active)
+      ? (active.getAttribute('data-risk-go') || active.getAttribute('data-risk-focus') || '')
+      : '';
+    var openMore = [];
+    var priorMore = host.querySelectorAll('.risk-more');
+    for (var mi = 0; mi < priorMore.length; mi++) if (priorMore[mi].open) openMore.push(mi);
+    riskStackState.html = html;
+    host.innerHTML = html;
+    var nextMore = host.querySelectorAll('.risk-more');
+    for (var mj = 0; mj < openMore.length; mj++) if (nextMore[openMore[mj]]) nextMore[openMore[mj]].open = true;
+    if (keep && /^[a-z0-9-]+$/.test(keep)) {
+      var again = host.querySelector('[data-risk-go="' + keep + '"], [data-risk-focus="' + keep + '"]');
+      if (again && again.focus) again.focus();
+    }
+  }
   function renderMarketLoadStatus(){
     var host = document.getElementById('market-load-status');
     if (!host) return;
@@ -13094,6 +13445,7 @@ ${renderWorkspaceBindings()}
       scenarioHost.parentElement.hidden = !scenarioEngine || !!scenarioEngine.unavailable || !Array.isArray(scenarioEngine.scenarios) || !scenarioEngine.scenarios.length
         || regime?.dataQuality?.sufficient === false || !marketState.data?.builtAtIso || Date.now() - Date.parse(marketState.data.builtAtIso) > 96 * 3600e3;
     }
+    try { renderRiskStack(); } catch (_) {}
   }
   function pollMacroTapeOnce(manual){
     if (!marketPaneVisible() || macroTape.loading) return;
@@ -13136,8 +13488,7 @@ ${renderWorkspaceBindings()}
       .finally(function(){ clearTimeout(timeout); macroTape.loading = false; });
   }
   function startMacroTapeLive(){
-    var pane = document.getElementById('page-pane-market');
-    if (!pane || pane.hidden) return;
+    if (!marketPaneVisible()) return;
     maybeRefreshMarket('activate');
     if (macroTape.timer) return;
     pollMacroTapeOnce();
@@ -27756,12 +28107,14 @@ ${renderWorkspaceBindings()}
         renderOvernight();
         refreshOvernightWidgets();
         pollOvernightLiveOnce();
+        riskStackNote();
       })
       .catch(function(){
         overnightState.data = { markets: {}, map: {}, regions: [], broad: [], tone: null, loadError: true };
         overnightState.loading = false;
         renderOvernight();
         refreshOvernightWidgets();
+        riskStackNote();
       });
   }
   function ovnMoveCls(x){ if (x == null || !isFinite(x)) return 'ovn-flat'; if (x > 0.05) return 'ovn-up'; if (x < -0.05) return 'ovn-dn'; return 'ovn-flat'; }
@@ -30360,12 +30713,14 @@ ${renderWorkspaceBindings()}
         indexCalState.fetchedAt = Date.now();
         renderIndexCal();
         if (volCalState && volCalState.data) renderVolumeCalendar();
+        riskStackNote();
       })
       .catch(function(){
         indexCalState.error = true;
         indexCalState.loading = false;
         renderIndexCal();
         if (volCalState && volCalState.data) renderVolumeCalendar();
+        riskStackNote();
       });
   }
   function idxCalPctCls(v){ return (v > 0) ? 'idx-up' : (v < 0 ? 'idx-dn' : 'idx-flat'); }
@@ -32059,11 +32414,13 @@ ${renderWorkspaceBindings()}
         };
         heatmapState.loading = false;
         renderHeatmap();
+        riskStackNote();
       })
       .catch(function(){
         heatmapState.data = { tickers: [], loadError: true };
         heatmapState.loading = false;
         renderHeatmap();
+        riskStackNote();
       });
   }
 
@@ -41216,6 +41573,7 @@ ${renderWorkspaceBindings()}
       ['search-interest', 'Search interest'],
       ['f13', '13F filings'],
       ['market', 'Market analysis'],
+      ['risk', 'Risk analysis'],
       ['picks', 'Top picks'],
       ['leaps', 'LEAPS'],
       ['stocks', 'Stock picks'],

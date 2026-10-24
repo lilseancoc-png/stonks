@@ -43,6 +43,7 @@ const SIDE_NAV_ICONS = {
   tickers: '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
   narratives: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   market: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+  risk: '<path d="M4 16a8 8 0 1 1 16 0"/><path d="m12 16 4.2-6"/><circle cx="12" cy="16" r="1.2"/>',
   picks: '<path d="m12 2.5 2.9 5.9 6.5 1-4.7 4.5 1.1 6.4L12 17.3l-5.8 3 1.1-6.4-4.7-4.5 6.5-1z"/>',
   leaps: '<path d="M4 16.5c3.2-.8 5.2-5.2 7.2-5.2 2.2 0 2.6 3.4 5.2 2.6"/><path d="m14.2 11.2 4.6 2.7-4.2 3.2"/>',
   stocks: '<path d="M3.5 20.5v-17"/><path d="M3.5 20.5h17"/><path d="m6.5 15.5 4-4.5 3 2.5 4.5-6"/><path d="M14.5 7.5H18V11"/>',
@@ -252,7 +253,7 @@ function marketAnalysisSection() {
       <span class="card-eyebrow" id="market-eyebrow" aria-live="polite"></span>
     </header>
     ${infoNote('How to read market labels', `<p>The regime describes a weighted set of current market observations. <b>Neutral</b> means usable evidence is mixed; <b>insufficient data</b> means core evidence is missing or stale. Check coverage, observation dates and opposing contributions before using the label. Forward scenarios below are unvalidated relative risk weights, not calibrated probabilities or point forecasts.</p>`)}
-    <p class="hint">Start with the market posture, its drivers and what would change the stance. Expand the scenario and source details as needed. Check held positions in Owner Lab.</p>
+    <p class="hint">Start with the market posture, its drivers and what would change the stance. The combined desk read is on Risk analysis. Expand the scenario and source details as needed. Check held positions in Owner Lab.</p>
     <div id="market-load-status" class="market-load-status" hidden></div>
     <div id="market-action" class="market-action" hidden aria-live="polite"></div>
     <div id="picks-regime-drift" class="picks-regime-drift" hidden aria-live="polite"></div>
@@ -275,6 +276,17 @@ function marketAnalysisSection() {
       </div>
       <p class="picks-search-hint">See the full 4-pillar grade &amp; conviction for any of the tracked tickers &mdash; not just today&rsquo;s top picks.</p>
     </div>
+  </section>`;
+}
+
+function riskAnalysisSection() {
+  return `<section class="card" id="risk-section">
+    <header class="card-header">
+      <h2 class="card-title">Risk analysis</h2>
+      <span class="card-eyebrow" id="risk-eyebrow" aria-live="polite">Seven desks, one position</span>
+    </header>
+    ${infoNote('How to read a disagreement', `<p>Each desk measures a different layer. <b>Market analysis</b> is the cross-asset regime. <b>Fear &amp; Greed</b> is slow sentiment. <b>The index calendar</b> is the month's path. <b>Heatmap</b>, <b>volume</b>, and <b>overnight markets</b> are today's tape. <b>Gamma</b> says whether the next move is more likely to be pinned or extended. A severe label and a neutral label can both be true. This page explains the gap. It does not average them into a new score or change position limits.</p>`)}
+    <div id="risk-stack" class="risk-stack" aria-live="polite"></div>
   </section>`;
 }
 
@@ -2002,6 +2014,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <summary class="side-nav-group-label">Owner</summary>
     <div class="side-nav-group-items">
       ${sideNavItem('market', 'Market analysis')}
+      ${sideNavItem('risk', 'Risk analysis')}
       ${sideNavItem('bottom-tracker', 'Bottom tracker')}
       ${sideNavItem('picks', 'Top picks')}
       ${sideNavItem('leaps', 'LEAPS')}
@@ -2169,6 +2182,15 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           <div class="landing-card-sub" id="land-sub-market">risk-on / risk-off tape</div>
           <p class="landing-card-desc">The cross-asset market tape — VIX, dollar, yields, commodities, Fed path — plus the risk barometer and regime history.</p>
         </button>
+        <button type="button" class="landing-card" data-go="risk" aria-label="View risk analysis">
+          <header class="landing-card-head">
+            <span class="landing-card-eyebrow">Risk analysis</span>
+            <span class="landing-card-arrow" aria-hidden="true">→</span>
+          </header>
+          <div class="landing-card-stat">7</div>
+          <div class="landing-card-sub">desks, one position</div>
+          <p class="landing-card-desc">Volume, gamma, the index calendar, overnight markets, Fear &amp; Greed, the regime, and the heatmap, with the reason when they disagree.</p>
+        </button>
         <button type="button" class="landing-card" data-go="tickers" aria-label="Browse tickers">
           <header class="landing-card-head">
             <span class="landing-card-eyebrow">Tickers</span>
@@ -2249,6 +2271,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-market" role="tabpanel" aria-labelledby="page-tab-market" hidden>
   ${marketAnalysisSection()}
+  </div>
+  <div class="page-pane" id="page-pane-risk" role="tabpanel" aria-labelledby="page-tab-risk" hidden>
+  ${riskAnalysisSection()}
   </div>
   <div class="page-pane" id="page-pane-picks" role="tabpanel" aria-labelledby="page-tab-picks" hidden>
   ${topPicksSection()}

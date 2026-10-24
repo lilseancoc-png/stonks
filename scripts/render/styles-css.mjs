@@ -621,6 +621,7 @@ h1, h2, .landing-hero-title, .landing-section-title { text-wrap: balance; }
 body:not(.is-owner) [data-go="picks"],
 body:not(.is-owner) [data-go="leaps"],
 body:not(.is-owner) [data-go="market"],
+body:not(.is-owner) [data-go="risk"],
 body:not(.is-owner) [data-go="stocks"],
 body:not(.is-owner) [data-go="rotation"],
 body:not(.is-owner) [data-go="levetf"],
@@ -13338,6 +13339,128 @@ a.cal-report-pm-item:hover { border-color: var(--accent); }
 
 .market-action { margin: 0 0 var(--s-4); }
 .market-action[hidden] { display: none; }
+.risk-stack { display: flex; flex-direction: column; gap: var(--s-4); margin: 0 0 var(--s-5); }
+.risk-position {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--r-4);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--text) 3%, var(--surface)), var(--surface-2));
+  box-shadow: var(--elev-1);
+}
+.risk-position-off { border-left-color: var(--neg); }
+.risk-position-on { border-left-color: var(--pos); }
+.risk-position-warn { border-left-color: var(--warn); }
+.risk-position-head { padding: var(--s-4) var(--s-4) 0; }
+.risk-kicker {
+  display: block;
+  color: var(--muted);
+  font: 700 var(--fs-2xs)/1 var(--font-mono);
+  letter-spacing: var(--ls-caps);
+  text-transform: uppercase;
+}
+.risk-position-head h3 {
+  margin: 6px 0 0;
+  color: var(--text-strong);
+  font-size: var(--fs-xl);
+  line-height: var(--lh-tight);
+}
+.risk-position-off .risk-position-head h3 { color: var(--neg); }
+.risk-position-on .risk-position-head h3 { color: var(--pos); }
+.risk-position-warn .risk-position-head h3 { color: var(--warn); }
+.risk-camps { display: flex; flex-wrap: wrap; gap: 8px; padding: var(--s-3) var(--s-4) 0; }
+.risk-camp {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  background: var(--surface);
+}
+.risk-camp span {
+  flex: 1 0 100%;
+  color: var(--muted);
+  font: 700 var(--fs-2xs)/1 var(--font-mono);
+  letter-spacing: var(--ls-caps);
+  text-transform: uppercase;
+}
+.risk-camp b { color: var(--text-strong); font-size: var(--fs-sm); }
+.risk-camp em { color: var(--muted); font-style: normal; font-size: var(--fs-xs); }
+.risk-chip { display: inline-flex; gap: 4px; align-items: baseline; }
+.risk-camp.is-off b { color: var(--neg); }
+.risk-camp.is-on b { color: var(--pos); }
+.risk-picture, .risk-coverage { padding: 0 var(--s-4); }
+.risk-desk p {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.risk-picture p, .risk-coverage, .risk-footnote, .risk-group > p, .risk-tilts > p, .risk-split p {
+  max-width: 88ch;
+  margin: 8px 0 0;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+.risk-coverage, .risk-footnote, .risk-split-evidence { color: var(--muted); }
+.risk-picture { padding-bottom: var(--s-2); }
+.risk-coverage { padding-bottom: var(--s-4); }
+.risk-groups { display: flex; flex-direction: column; gap: var(--s-4); }
+.risk-group h4, .risk-splits h3, .risk-tilts h3 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: var(--fs-md);
+}
+.risk-group > p { margin-top: 4px; color: var(--muted); }
+.risk-desks { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--s-2); margin-top: var(--s-2); }
+.risk-group:last-child .risk-desks { grid-template-columns: repeat(auto-fit, minmax(200px, 340px)); }
+.risk-desk {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  background: var(--surface);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.risk-desk:hover { border-color: var(--border-strong); }
+.risk-desk:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.risk-desk.is-severe { box-shadow: inset 3px 0 0 var(--neg); background: color-mix(in srgb, var(--neg) 8%, var(--surface)); }
+.risk-desk.is-off { box-shadow: inset 3px 0 0 var(--neg); }
+.risk-desk.is-on { box-shadow: inset 3px 0 0 var(--pos); }
+.risk-desk.is-mixed { box-shadow: inset 3px 0 0 var(--border-strong); }
+.risk-desk.is-wait { opacity: 0.78; }
+.risk-desk-kicker { display: flex; justify-content: space-between; gap: 8px; width: 100%; color: var(--muted); font: 700 var(--fs-2xs)/1.2 var(--font-mono); letter-spacing: var(--ls-caps); text-transform: uppercase; }
+.risk-desk b { color: var(--text-strong); font-size: var(--fs-sm); }
+.risk-desk strong { font-size: var(--fs-md); line-height: 1.2; }
+.risk-desk.is-severe strong, .risk-desk.is-off strong { color: var(--neg); }
+.risk-desk.is-on strong { color: var(--pos); }
+.risk-desk p { margin: 0; color: var(--muted); font-size: var(--fs-sm); line-height: 1.4; }
+.risk-desk-open { color: var(--accent-strong, var(--text)); font: 700 var(--fs-2xs)/1 var(--font-mono); letter-spacing: var(--ls-caps); text-transform: uppercase; }
+.risk-splits, .risk-tilts { display: flex; flex-direction: column; gap: 10px; }
+.risk-split { padding-top: 10px; border-top: 1px solid var(--border); }
+.risk-split h4 { margin: 0; color: var(--text-strong); font-size: var(--fs-md); line-height: 1.3; }
+.risk-footnote { margin: 0; }
+.risk-more { margin-top: var(--s-2); }
+.risk-more summary {
+  cursor: pointer;
+  color: var(--text-strong);
+  font-size: var(--fs-sm);
+}
+.risk-more summary:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+@media (max-width: 720px) {
+  .risk-position-head h3 { font-size: var(--fs-lg); }
+  .risk-desks, .risk-group:last-child .risk-desks { grid-template-columns: 1fr; }
+}
 .market-action-card {
   overflow: hidden;
   border: 1px solid var(--border);

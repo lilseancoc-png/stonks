@@ -52,7 +52,7 @@ try {
   assert.equal(contentAssetVersion("same\r\nlines\r\n"), contentAssetVersion("same\nlines\n"));
   assert.equal((html.match(/id="picks-position"/g) || []).length, 1);
   assert.ok(html.indexOf('id="picks-position"') > html.indexOf('id="quant-section"'));
-  assert.match(html, /data-nav-group="owner"[\s\S]*?side-nav-group-label">Owner[\s\S]*?data-page-tab="market"[\s\S]*?data-page-tab="picks"[\s\S]*?data-page-tab="leaps"[\s\S]*?data-page-tab="stocks"[\s\S]*?data-page-tab="rotation"[\s\S]*?data-page-tab="levetf"[\s\S]*?data-page-tab="open-picks"[\s\S]*?data-page-tab="track"[\s\S]*?data-page-tab="quant"/);
+  assert.match(html, /data-nav-group="owner"[\s\S]*?side-nav-group-label">Owner[\s\S]*?data-page-tab="market"[\s\S]*?data-page-tab="risk"[\s\S]*?data-page-tab="picks"[\s\S]*?data-page-tab="leaps"[\s\S]*?data-page-tab="stocks"[\s\S]*?data-page-tab="rotation"[\s\S]*?data-page-tab="levetf"[\s\S]*?data-page-tab="open-picks"[\s\S]*?data-page-tab="track"[\s\S]*?data-page-tab="quant"/);
   assert.match(html, /id="page-pane-open-picks"[^>]*hidden>[\s\S]*?id="open-picks-root"/);
   assert.doesNotMatch(html, /data-page-tab="daytrade"|data-page-tab="daytrack"|Day Trading Track Record/);
   const navGroups = html.match(/<details class="side-nav-group"[^>]*>/g) || [];
@@ -235,9 +235,10 @@ try {
   assert.match(html, /How to use this fundamentals-first rebound desk[\s\S]*?Quality Recovery Shortlist/);
   const regenStaticSource = await readFile(resolve(process.cwd(), "scripts", "regen-static.mjs"), "utf8");
   assert.match(regenStaticSource, /symbols = \[\.\.\.TICKERS\]\.sort\(\)/, "renderer-only regeneration must ship TICKERS and must not restore a name removed from the source universe");
-  assert.match(appJs, /var OWNER_TABS = \{ market:1, 'bottom-tracker':1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, 'open-picks':1, track:1, quant:1 \}/);
+  assert.match(appJs, /var OWNER_TABS = \{ market:1, risk:1, 'bottom-tracker':1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, 'open-picks':1, track:1, quant:1 \}/);
   const ownerNav = html.match(/data-role-group="owner"[\s\S]*?<\/details>/)?.[0] || "";
   assert.match(ownerNav, /data-page-tab="bottom-tracker"/);
+  assert.match(ownerNav, /data-page-tab="risk"/);
   const macroNav = html.match(/data-nav-group="macro"[\s\S]*?<\/details>/)?.[0] || "";
   assert.doesNotMatch(macroNav, /bottom-tracker/);
   assert.match(appJs, /name === 'open-picks' && HAS_TRACK_RECORD && typeof loadOpenPicks === 'function'/);

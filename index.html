@@ -17,7 +17,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=sha256-dcd9f6e8e4df07c0">
+<link rel="stylesheet" href="styles.css?v=sha256-4e7a1a4cb5b84884">
 </head>
 <body>
 <a class="skip-content" href="#main-content">Skip to content</a>
@@ -172,6 +172,7 @@
     <summary class="side-nav-group-label">Owner</summary>
     <div class="side-nav-group-items">
       <button type="button" class="page-tab" role="tab" data-page-tab="market" aria-selected="false" aria-controls="page-pane-market" id="page-tab-market"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg><span class="pt-label">Market analysis</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="risk" aria-selected="false" aria-controls="page-pane-risk" id="page-tab-risk"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 16a8 8 0 1 1 16 0"/><path d="m12 16 4.2-6"/><circle cx="12" cy="16" r="1.2"/></svg><span class="pt-label">Risk analysis</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="bottom-tracker" aria-selected="false" aria-controls="page-pane-bottom-tracker" id="page-tab-bottom-tracker"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 16.5c2.2 0 3.2-7 5.5-7s2.8 8 5.2 8 2.6-6 4.8-6 2.5 3 2.5 3"/><path d="M3 20h18"/></svg><span class="pt-label">Bottom tracker</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="picks" aria-selected="false" aria-controls="page-pane-picks" id="page-tab-picks"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 2.5 2.9 5.9 6.5 1-4.7 4.5 1.1 6.4L12 17.3l-5.8 3 1.1-6.4-4.7-4.5 6.5-1z"/></svg><span class="pt-label">Top picks</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="leaps" aria-selected="false" aria-controls="page-pane-leaps" id="page-tab-leaps"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 16.5c3.2-.8 5.2-5.2 7.2-5.2 2.2 0 2.6 3.4 5.2 2.6"/><path d="m14.2 11.2 4.6 2.7-4.2 3.2"/></svg><span class="pt-label">LEAPS</span></button>
@@ -338,6 +339,15 @@
           <div class="landing-card-stat" id="land-stat-market">Live</div>
           <div class="landing-card-sub" id="land-sub-market">risk-on / risk-off tape</div>
           <p class="landing-card-desc">The cross-asset market tape — VIX, dollar, yields, commodities, Fed path — plus the risk barometer and regime history.</p>
+        </button>
+        <button type="button" class="landing-card" data-go="risk" aria-label="View risk analysis">
+          <header class="landing-card-head">
+            <span class="landing-card-eyebrow">Risk analysis</span>
+            <span class="landing-card-arrow" aria-hidden="true">→</span>
+          </header>
+          <div class="landing-card-stat">7</div>
+          <div class="landing-card-sub">desks, one position</div>
+          <p class="landing-card-desc">Volume, gamma, the index calendar, overnight markets, Fear &amp; Greed, the regime, and the heatmap, with the reason when they disagree.</p>
         </button>
         <button type="button" class="landing-card" data-go="tickers" aria-label="Browse tickers">
           <header class="landing-card-head">
@@ -1418,7 +1428,7 @@
       <summary>How to read market labels</summary>
       <div class="info-note-body"><p>The regime describes a weighted set of current market observations. <b>Neutral</b> means usable evidence is mixed; <b>insufficient data</b> means core evidence is missing or stale. Check coverage, observation dates and opposing contributions before using the label. Forward scenarios below are unvalidated relative risk weights, not calibrated probabilities or point forecasts.</p></div>
     </details>
-    <p class="hint">Start with the market posture, its drivers and what would change the stance. Expand the scenario and source details as needed. Check held positions in Owner Lab.</p>
+    <p class="hint">Start with the market posture, its drivers and what would change the stance. The combined desk read is on Risk analysis. Expand the scenario and source details as needed. Check held positions in Owner Lab.</p>
     <div id="market-load-status" class="market-load-status" hidden></div>
     <div id="market-action" class="market-action" hidden aria-live="polite"></div>
     <div id="picks-regime-drift" class="picks-regime-drift" hidden aria-live="polite"></div>
@@ -1441,6 +1451,19 @@
       </div>
       <p class="picks-search-hint">See the full 4-pillar grade &amp; conviction for any of the tracked tickers &mdash; not just today&rsquo;s top picks.</p>
     </div>
+  </section>
+  </div>
+  <div class="page-pane" id="page-pane-risk" role="tabpanel" aria-labelledby="page-tab-risk" hidden>
+  <section class="card" id="risk-section">
+    <header class="card-header">
+      <h2 class="card-title">Risk analysis</h2>
+      <span class="card-eyebrow" id="risk-eyebrow" aria-live="polite">Seven desks, one position</span>
+    </header>
+    <details class="info-note">
+      <summary>How to read a disagreement</summary>
+      <div class="info-note-body"><p>Each desk measures a different layer. <b>Market analysis</b> is the cross-asset regime. <b>Fear &amp; Greed</b> is slow sentiment. <b>The index calendar</b> is the month's path. <b>Heatmap</b>, <b>volume</b>, and <b>overnight markets</b> are today's tape. <b>Gamma</b> says whether the next move is more likely to be pinned or extended. A severe label and a neutral label can both be true. This page explains the gap. It does not average them into a new score or change position limits.</p></div>
+    </details>
+    <div id="risk-stack" class="risk-stack" aria-live="polite"></div>
   </section>
   </div>
   <div class="page-pane" id="page-pane-picks" role="tabpanel" aria-labelledby="page-tab-picks" hidden>
@@ -4769,7 +4792,7 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
 <script>window.STONKS_MANIFEST={"builtAt":"Oct 23, 2026, 4:12 PM","builtAtIso":"2026-10-23T20:12:06.137Z","symbols":["AAPL","ACN","ADBE","AMAT","AMD","AMZN","ANET","ARM","ASML","ASTS","AVGO","AXP","BABA","BAC","BE","C","CBRS","COST","CRM","CRWD","CRWV","DDOG","DELL","DIS","DRAM","EWY","FTNT","GLD","GOOGL","GS","HD","HOOD","IBM","INTC","INTU","IWM","JPM","KWEB","LLY","MA","MDB","META","MRK","MRNA","MRVL","MS","MSFT","MU","NFLX","NKE","NOW","NVDA","NVO","OKTA","ORCL","PANW","PLTR","PYPL","QCOM","QQQ","RKLB","SBUX","SCHW","SHOP","SLV","SMCI","SMH","SNDK","SNOW","SPCX","SPY","TEAM","TGT","TLT","TSLA","TSM","TXN","UNH","USO","UVXY","V","VRT","VST","WDC","WMT"],"sectors":{"SPY":"ETF","QQQ":"ETF","IWM":"ETF","SMH":"ETF","UVXY":"ETF","TLT":"ETF","USO":"ETF","GLD":"ETF","SLV":"ETF","KWEB":"ETF","EWY":"ETF","AAPL":"Mega-cap tech","MSFT":"Mega-cap tech","NVDA":"Mega-cap tech","AMZN":"Mega-cap tech","GOOGL":"Mega-cap tech","META":"Mega-cap tech","TSLA":"Mega-cap tech","AMD":"Semis","NFLX":"Mega-cap tech","AVGO":"Semis","TSM":"Semis","ORCL":"Software","ASML":"Semis","QCOM":"Semis","TXN":"Semis","MRVL":"Semis","AMAT":"Semis","LRCX":"Semis","MU":"Semis","INTC":"Semis","NXPI":"Semis","ON":"Semis","SMCI":"Semis","ALAB":"Semis","TSEM":"Semis","DRAM":"Semis","SWKS":"Semis","SNDK":"Storage","STX":"Storage","WDC":"Storage","GLW":"Semis","LITE":"Semis","ARM":"Semis","CBRS":"Semis","COHR":"Semis","DELL":"Hardware","CSCO":"Networking","ANET":"Networking","IBM":"Tech services","CRM":"Software","ADBE":"Software","ACN":"IT services","INTU":"Software","NOW":"Software","SNOW":"Software","NET":"Software","DDOG":"Software","CRWD":"Software","ZS":"Software","MDB":"Software","OKTA":"Software","PANW":"Software","WDAY":"Software","ZM":"Software","DOCU":"Software","TEAM":"Software","FTNT":"Software","TTD":"Software","U":"Software","APP":"Software","TWLO":"Software","CRWV":"Software","CEG":"Power","VST":"Power","TLN":"Power","VRT":"Data center","CLS":"Data center","BE":"Clean energy","JPM":"Bank","BAC":"Bank","WFC":"Bank","USB":"Bank","MS":"Bank","COF":"Bank","GS":"Bank","C":"Bank","HSBC":"Bank","UBS":"Bank","V":"Payments","MA":"Payments","AXP":"Payments","PYPL":"Payments","XYZ":"Payments","SCHW":"Broker","IBKR":"Broker","HOOD":"Broker","AFRM":"Fintech","APO":"Asset mgmt","BX":"Asset mgmt","WMT":"Retail","COST":"Retail","TGT":"Retail","HD":"Retail","LOW":"Retail","NKE":"Apparel","LULU":"Apparel","ONON":"Apparel","ELF":"Beauty","W":"E-commerce","EBAY":"E-commerce","MCD":"Restaurants","SBUX":"Restaurants","DIS":"Media","LEN":"Homebuilder","BA":"Industrial","CAT":"Industrial","DE":"Industrial","MMM":"Industrial","GD":"Defense","LMT":"Defense","RTX":"Defense","NOC":"Defense","FDX":"Logistics","UPS":"Logistics","NVO":"Pharma","LLY":"Pharma","MRNA":"Pharma","MRK":"Pharma","UNH":"Insurance","JNJ":"Pharma","PFE":"Pharma","TMO":"Medical","CI":"Insurance","ELV":"Insurance","MOH":"Insurance","CVS":"Pharmacy","BSX":"Medical","VZ":"Telecom","CHTR":"Cable","XOM":"Energy","CVX":"Energy","OXY":"Energy","UBER":"Consumer","ABNB":"Consumer","DASH":"Consumer","BABA":"China tech","BIDU":"China tech","JD":"China tech","PDD":"China tech","TCEHY":"China tech","BILI":"China tech","NIO":"China tech","COIN":"Crypto","PLTR":"Software","SHOP":"Software","GME":"Meme","AMC":"Meme","RDDT":"Social","RKLB":"Space","ASTS":"Space","SPCX":"Space"},"industries":{"MSFT":"Software Infrastructure","ORCL":"Software Infrastructure","SNOW":"Software Infrastructure","CRWD":"Software Infrastructure","MDB":"Software Infrastructure","OKTA":"Software Infrastructure","PANW":"Software Infrastructure","FTNT":"Software Infrastructure","PLTR":"Software Infrastructure","CRWV":"Software Infrastructure","CRM":"Software Applications","ADBE":"Software Applications","NOW":"Software Applications","DDOG":"Software Applications","TEAM":"Software Applications","INTU":"Software Applications","SHOP":"Software Applications","NVDA":"Semiconductors","AMD":"Semiconductors","AVGO":"Semiconductors","TSM":"Semiconductors","MU":"Semiconductors","INTC":"Semiconductors","MRVL":"Semiconductors","QCOM":"Semiconductors","TXN":"Semiconductors","SNDK":"Semiconductors","SMCI":"Semiconductors","DRAM":"Semiconductors","ARM":"Semiconductors","CBRS":"Semiconductors","AMAT":"Semiconductor Equipment & Materials","ASML":"Semiconductor Equipment & Materials","ANET":"Communication Equipment","DELL":"Computer Hardware","ACN":"Information Technology Services","IBM":"Information Technology Services","AMZN":"Internet Retail","BABA":"Internet Retail","HD":"Specialty Retail","NKE":"Apparel Retail","SBUX":"Restaurants","TSLA":"Auto Manufacturers","GOOGL":"Internet Content & Information","META":"Internet Content & Information","NFLX":"Entertainment","DIS":"Entertainment","RKLB":"Aerospace & Defense","ASTS":"Aerospace & Defense","SPCX":"Aerospace & Defense","VRT":"Electrical Equipment & Parts","MRNA":"Biotechnology","NVO":"Drug Manufacturers - General","LLY":"Drug Manufacturers - General","MRK":"Drug Manufacturers - General","UNH":"Healthcare Plans","JPM":"Banks - Diversified","BAC":"Banks - Diversified","C":"Banks - Diversified","V":"Credit Services","MA":"Credit Services","AXP":"Credit Services","PYPL":"Credit Services","GS":"Capital Markets","MS":"Capital Markets","SCHW":"Capital Markets","HOOD":"Capital Markets","WMT":"Discount Stores","COST":"Discount Stores","TGT":"Discount Stores","VST":"Utilities - Independent Power Producers","BE":"Utilities - Renewable","GLD":"Gold","SLV":"Silver"},"sectorOrder":["Technology","Consumer Cyclical","Communication Services","Industrials","Healthcare","Financials","Consumer Defensive","Utilities","Precious Metals"],"industriesBySector":{"Technology":["Software Infrastructure","Software Applications","Semiconductors","Semiconductor Equipment & Materials","Communication Equipment","Computer Hardware","Consumer Electronics","Information Technology Services"],"Consumer Cyclical":["Internet Retail","Specialty Retail","Apparel Retail","Restaurants","Auto Manufacturers"],"Communication Services":["Internet Content & Information","Entertainment","Advertising Agencies"],"Industrials":["Aerospace & Defense","Electrical Equipment & Parts","Specialty Industrial Machinery"],"Healthcare":["Biotechnology","Drug Manufacturers - General","Healthcare Plans"],"Financials":["Banks - Diversified","Credit Services","Capital Markets"],"Consumer Defensive":["Discount Stores"],"Utilities":["Utilities - Independent Power Producers","Utilities - Renewable"],"Precious Metals":["Gold","Silver"]},"volumeFlagsMeta":{"scannedAt":"2026-10-23T20:00:43.162Z","etDate":"2026-10-23","marketState":"POST"},"nextFomcDates":["2026-10-28","2026-12-09"],"oiMeta":{"scannedAt":"2026-10-23T21:00:38.475Z","scanType":"eod"},"deferred":true};</script>
 <script>window.va=window.va||function(){(window.vaq=window.vaq||[]).push(arguments)};</script>
 <script defer data-disable-auto-track="1" src="/_vercel/insights/script.js"></script>
-<script src="app.js?v=sha256-aee0ac90f100a1f4" defer></script>
+<script src="app.js?v=sha256-92e5d85824d91225" defer></script>
 <script type="module" src="js/streaks.js?v=sha256-b0e30f84009bf8bf"></script>
 <script type="module" src="js/book-views.js?v=sha256-13415cb1a5584211"></script>
 </body>

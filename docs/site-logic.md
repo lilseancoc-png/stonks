@@ -1521,7 +1521,7 @@ Model resilience includes per-call model defaults, retry ladders, dead-model det
 
 ## 20. Audit findings and interpretation cautions
 
-1. **Current code and older repository guidance can differ on tiering.** The current `OWNER_TABS` and `lib/premium-keys.mjs` are the authority. Market Analysis, Top Picks, Stock Picks, Sector Rotation, Leveraged ETFs, Top Picks Track Record, and Owner Lab require the signed session minted from the existing Top Picks owner role; all other tabs are public.
+1. **Current code and older repository guidance can differ on tiering.** The current `OWNER_TABS` and `lib/premium-keys.mjs` are the authority. Market Analysis, Risk Analysis, Top Picks, Stock Picks, Sector Rotation, Leveraged ETFs, Top Picks Track Record, and Owner Lab require the signed session minted from the existing Top Picks owner role; all other tabs are public.
 2. **One UI help string overstates the IV-cost range.** The executable grade code and canonical Top Picks document use `-2…+1`; a tooltip in the generated app source still describes a broader `-3…+1.5` idea. This is copy drift, not scoring behavior.
 3. **“Sector rotation” names two different concepts.** Heatmap sector streaks measure breadth persistence. The Sector Rotation tab is the robust peer-washout rebound model.
 4. **Live price does not make every derived field live.** Entry zone and quote state may update, while a baked z-score, frozen mean, or historical volatility statistic remains anchored to its named build.
