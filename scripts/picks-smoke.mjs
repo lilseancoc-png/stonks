@@ -1141,7 +1141,7 @@ ok("factor-trend: a healthy factor gates nothing", healthyPicks.rosterMeta.facto
 ok("factor-trend: a healthy factor ships more calls than the weak one", healthyPicks.length >= weakPicks.filter((p) => FACTOR_TECH(p.symbol)).length);
 
 // --- 5. regime tilt -------------------------------------------------------
-const riskOff = { vix: { value: 26, trend: "rising" }, dxy: { pctChange1d: 0.8 }, tenY: { bpsChange1d: 12 } };
+const riskOff = { indexes: { spy: { pctChange1d: -1.5 }, qqq: { pctChange1d: -1.7 } }, vix: { value: 26, trend: "rising" }, dxy: { pctChange1d: 0.8 }, tenY: { bpsChange1d: 12 } };
 riskOff.macroRegime = computeMacroRegime(riskOff, null, [], { value: 18 });
 ok("regime: 3 risk-off axes -> risk-off/severe", ["risk-off", "severe-risk-off"].includes(riskOff.macroRegime.state));
 // Weighted composite: two LIGHTWEIGHT axes (monthly CPI ×0.5 + put/call positioning
@@ -1149,7 +1149,7 @@ ok("regime: 3 risk-off axes -> risk-off/severe", ["risk-off", "severe-risk-off"]
 // counted 2 full axes and locked the tape; weighted they sum to 1.25 effective.
 const lightOff = { inflation: { yoy: 4.4, yoy3mAgo: 3.0, trend: "rising" }, putCall: { oiRatio: 9.9, volRatio: null, totalVol: 0, oiSum: 1000 } };
 const lightRegime = computeMacroRegime(lightOff, null, [], null);
-ok("regime: lightweight axes alone (CPI + put/call) stay neutral", lightRegime.state === "neutral");
+ok("regime: lightweight axes without core data are insufficient", lightRegime.state === "insufficient-data");
 ok("regime: axis weights ship in thresholds (fed outweighs inflation)",
   lightRegime.thresholds.axisWeights.fed > lightRegime.thresholds.axisWeights.inflation);
 // Screenshot-shaped audit fixture for the Market Analysis tiles. These values sit
@@ -1286,7 +1286,7 @@ ok("regime overlay: every grade carries pre/post totals and the canonical audit 
 ok("regime: tactical puts carry a real contract (never 'none'), in the watch group",
   picksOff.filter((p) => p.tactical).every((p) => p.contract && p.strategy.type !== "none" && p.group === "watch" && p.classification === "moderate"));
 // persistence
-const persisted = applyMacroRegimePersistence(computeMacroRegime({ vix: { value: 13, trend: "flat" } }, null, []), { state: "severe-risk-off" });
+const persisted = applyMacroRegimePersistence(computeMacroRegime({ indexes: { spy: { pctChange1d: 1 }, qqq: { pctChange1d: 1 } }, vix: { value: 13, trend: "flat" }, dxy: { pctChange1d: -0.7 } }, null, []), { state: "severe-risk-off" });
 ok("regime: persistence holds a recovering state one build", persisted.persisted === true);
 
 // The approved +25% target applies to longs/debits, credit remains +50%.

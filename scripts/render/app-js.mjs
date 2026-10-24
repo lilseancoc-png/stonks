@@ -1,3 +1,5 @@
+import { marketAnalysisFactory } from '../../lib/market-analysis.mjs';
+import { marketRefreshFactory } from '../../lib/market-refresh.mjs';
 import { webullAnalyticsFactory } from '../../lib/webull-analytics.mjs';
 import { webullReviewFactory } from './webull-review-client.mjs';
 import { renderWorkspaceBindings, renderWorkspaceHelpers } from './workspace-js.mjs';
@@ -26,6 +28,8 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
 (function(){
 ${renderWorkspaceHelpers()}
 ${renderRecoveryHelpers()}
+  var marketAnalysis = (${marketAnalysisFactory.toString()})();
+  var marketRefresh = (${marketRefreshFactory.toString()})();
   // Shared sort / view helpers (source: scripts/render/views-client.mjs).
   var VIEWS = (${viewsFactory.toString()})(window, document);
   // js/streaks.js (a separate module) reads the same helpers + grade index.
@@ -11359,70 +11363,32 @@ ${renderWorkspaceBindings()}
   // market's REACTION to it flows through the price axes immediately). Change
   // computeMacroRegime, change this. baked = data.rosterMeta.macroRegime
   // (carries axes / inputs / thresholds); live = the /api/macro-live legs (+ fng).
-  var macroTape = { legs: null, fetchedAt: null, timer: null, open: false, detailAxis: null, hist: [], lastSampleAt: null };
+  var macroTape = { error: null, loading: false, legs: null, fetchedAt: null, timer: null, open: false, detailAxis: null, hist: [], lastSampleAt: null };
   var MACRO_TAPE_POLL_MS = 30000;
   var TAPE_HIST_MAX = 120; // live samples retained for the session sparklines
 
-  // --- Risk-on / risk-off barometer (Top Picks regime card) ----------------
-  // A per-asset 0..100 rail showing where each cross-asset signal sits on the
-  // risk spectrum (0 = max risk-OFF, 50 = neutral, 100 = max risk-ON), reading
-  // the baked overnight cross-asset moves (data/correlations.json, the same file
-  // the Overnight tab uses). polarity is the risk DIRECTION of an up-move
-  // (+1: up = risk-on; -1: up = risk-off) and mirrors the conventions baked into
-  // deriveGlobalTone() in build.mjs — keep the two in sync if a sign changes.
-  // scale is the move (in the metric's units) that pins the rail to its end:
-  // |move| >= scale gives a fully risk-on/off reading. metric picks the field:
-  // pct = chPct, bp = chgBp (yields, where a % of the yield level is
-  // meaningless). The score is computed client-side (presentation only) so it
-  // needs no rebake and works off the existing correlations.json shape.
+  // Raw market rows are price context only. Regime contributions are rendered below.
   var BAROMETER_ASSETS = [
-    { sym: 'ES=F',      polarity: 1,  scale: 1.3,  metric: 'pct', group: 'Equities'    },
-    { sym: 'NQ=F',      polarity: 1,  scale: 1.6,  metric: 'pct', group: 'Equities'    },
-    { sym: '^GDAXI',    polarity: 1,  scale: 1.4,  metric: 'pct', group: 'Equities'    },
-    { sym: '^N225',     polarity: 1,  scale: 1.6,  metric: 'pct', group: 'Equities'    },
-    { sym: '^KS11',     polarity: 1,  scale: 1.6,  metric: 'pct', group: 'Equities'    },
-    { sym: '^VIX',      polarity: -1, scale: 12,   metric: 'pct', group: 'Vol & rates' },
-    { sym: '^TNX',      polarity: -1, scale: 10,   metric: 'bp',  group: 'Vol & rates' },
-    { sym: '^TYX',      polarity: -1, scale: 10,   metric: 'bp',  group: 'Vol & rates' },
-    { sym: 'JPY=X',     polarity: 1,  scale: 0.7,  metric: 'pct', group: 'FX'          },
-    { sym: 'DX-Y.NYB',  polarity: -1, scale: 0.6,  metric: 'pct', group: 'FX'          },
-    { sym: 'CL=F',      polarity: 1,  scale: 2.5,  metric: 'pct', group: 'Commodities' },
-    { sym: 'GC=F',      polarity: -1, scale: 1.2,  metric: 'pct', group: 'Commodities' },
-    { sym: 'BTC-USD',   polarity: 1,  scale: 3.0,  metric: 'pct', group: 'Crypto'      },
+    { sym: 'ES=F',          },
+    { sym: 'NQ=F',          },
+    { sym: '^GDAXI',        },
+    { sym: '^N225',         },
+    { sym: '^KS11',         },
+    { sym: '^VIX',       },
+    { sym: '^TNX',       },
+    { sym: '^TYX',       },
+    { sym: 'JPY=X',               },
+    { sym: 'DX-Y.NYB',            },
+    { sym: 'CL=F',       },
+    { sym: 'GC=F',       },
+    { sym: 'BTC-USD',         },
   ];
-  var BAROMETER_TOOLTIP = {
-    'ES=F':     'S&P 500 futures — overnight US large-cap beta. Up = risk-on.',
-    'NQ=F':     'Nasdaq 100 futures — overnight US high-beta tech. Up = risk-on.',
-    '^GDAXI':   'DAX — European equity beta. Up = risk-on.',
-    '^N225':    'Nikkei 225 — Japan equity beta / the classic Asian risk barometer. Up = risk-on.',
-    '^KS11':    'KOSPI — Korea equity beta (memory/exporter-heavy). Up = risk-on.',
-    '^VIX':     'VIX — equity implied vol, the fear gauge. A spike is risk-OFF (inverted).',
-    '^TNX':     '10Y Treasury yield — a sharp back-up pressures valuations / tightens conditions. A jump is risk-OFF (inverted).',
-    '^TYX':     '30Y Treasury yield — the long end / curve. A jump is risk-OFF (inverted).',
-    'JPY=X':    'USD/JPY — the yen carry. Yen weaker (USD/JPY up) = carry-on = risk-on; a yen bid (down) = carry unwind = risk-off.',
-    'DX-Y.NYB': 'Dollar index (DXY) — a broad USD bid tightens global financial conditions. Up = risk-OFF (inverted).',
-    'CL=F':     'WTI crude — on a cross-asset panel, oil firmness co-trades with growth/demand. Up = risk-on.',
-    'GC=F':     'Gold — the safe-haven / real-rates bid. Up = risk-OFF (inverted).',
-    'BTC-USD':  'Bitcoin — the purest cross-asset risk-appetite proxy. Up = risk-on.',
-    // Computed signals (read from the regime inputs, not correlations.json).
-    'US2Y':     'US 2Y Treasury yield — the front end, the market’s Fed-path read. A sharp back-up is a hawkish repricing = risk-OFF (inverted).',
-    'MOVE':     'MOVE index — Treasury-option implied vol, the bond market’s "fear gauge" (complements VIX). A spike is risk-OFF (inverted).',
-    'BREADTH':  'Universe breadth — % of the tracked names above their 200-day MA (with new-high/new-low). Broad participation = risk-on; thinning = risk-off.',
-    'PUTCALL':  'Universe put/call — aggregate option positioning across the tracked names (OI ratio). Heavy puts = hedging/fear = risk-OFF (inverted).',
-    'CREDIT':   'HY credit — the HYG/LQD ratio (HY vs IG, live) with the ICE BofA HY OAS level. HY underperforming / spreads widening = risk-OFF.',
-  };
-  var riskBarometer = { open: false, sort: 'risk', group: false, liveOnly: false, openSym: {} };
+  var riskBarometer = { rawOpen:false, open: true, sort: 'move', group: false, liveOnly: false, openSym: {} };
   // Live cross-asset overlay for the barometer rail, filled by the same
   // /api/macro-live poll the regime tape runs (?tape=1). Keyed by Yahoo symbol.
   // Only REGULAR-session legs override the baked correlations row (the Asia/EU
   // cash indices are closed during US hours and hold their overnight read).
   var barometerLive = { markets: null, fetchedAt: null };
-  // Live-accumulated 0..100 risk-score history per rail symbol (filled each
-  // ?tape=1 poll), used as the sparkline source off-hours when no baked
-  // close series is present.
-  var barometerHist = {};
-  var barometerHistAt = null;
-
   // --- Market-tape interactivity: cross-highlight + drill-down config --------
   // Which cross-asset rail rows feed each Market-tape axis, so hovering an axis
   // tile spotlights its underlying signals (and a row spotlights its axis), and
@@ -11438,16 +11404,6 @@ ${renderWorkspaceBindings()}
     twoY: ['US2Y'], bondVol: ['MOVE'], breadth: ['BREADTH'], putCall: ['PUTCALL'], credit: ['CREDIT'],
     indexes: [], sentiment: [], fed: [], geo: [], inflation: [],
   };
-  // Reverse map: a rail symbol → the axis it feeds.
-  var SYM_FEEDS_AXIS = (function(){
-    var m = {};
-    for (var k in AXIS_FEED_SYMS){
-      if (!AXIS_FEED_SYMS.hasOwnProperty(k)) continue;
-      var arr = AXIS_FEED_SYMS[k];
-      for (var i = 0; i < arr.length; i++) m[arr[i]] = k;
-    }
-    return m;
-  })();
   // Short display names for the rail symbols (drill-down feeder lists).
   var BAROMETER_NAME = {
     'ES=F': 'S&P 500 futures', 'NQ=F': 'Nasdaq 100 futures', '^GDAXI': 'DAX', '^N225': 'Nikkei 225',
@@ -11462,7 +11418,7 @@ ${renderWorkspaceBindings()}
     vix: 'The VIX is the market’s 30-day implied-volatility gauge — the "fear index". A low or falling VIX leans risk-on; a high/rising VIX or inverted term structure signals stress. A sharp 1-day vol crush can cancel a stale rising-trend read.',
     dxy: 'The dollar index (DXY) proxies global financial conditions. A sharp USD bid drains liquidity and tightens conditions worldwide (risk-OFF); a softening dollar eases them.',
     yields: 'The 10Y and 30Y Treasury yields set the discount rate on every risk asset. A fast back-up in the long end pressures valuations (risk-OFF); an orderly fall eases conditions.',
-    commodity: 'Crude + gold form the supply-shock / safe-haven axis. An oil spike (supply or war) alongside a confirmed gold haven bid is the classic geopolitical-shock tell (risk-OFF). Gold only counts as a haven when indexes are not risk-on or VIX/DXY already signal stress.',
+    commodity: 'Crude + gold form the supply-shock / safe-haven axis. An oil spike (supply or war) alongside a confirmed gold haven bid is the classic geopolitical-shock tell (risk-OFF). Gold only counts as a haven when indexes, VIX or DXY corroborate risk-off conditions.',
     sentiment: 'CNN’s Fear & Greed index distills seven equity internals (breadth, momentum, junk-bond demand…). Extreme fear, or a fast swing toward fear, reads risk-OFF.',
     globalTape: 'The overnight cross-asset tape — US futures + Asia/EU cash + the yen carry + Bitcoin. Broad overnight green leans risk-on; broad red leans risk-OFF.',
     fed: 'The Fed-path axis tracks the change in FedWatch hike-minus-cut probability across the nearest meetings. Hawkish repricing tightens the expected path (risk-OFF); dovish drift eases it. A nearby FOMC decision adds event-risk caution.',
@@ -11472,7 +11428,7 @@ ${renderWorkspaceBindings()}
     bondVol: 'The MOVE index is the bond market’s implied-volatility gauge — Treasury-option vol, the rates analog of the VIX. An elevated or spiking MOVE flags rate-vol stress (risk-OFF); a calm MOVE eases it.',
     breadth: 'Universe breadth — the % of the tracked names above their 200-day MA, with a new-high/new-low tally. Broad participation reads risk-on; a thinning, washed-out tape reads risk-OFF. Slow axis — recomputed at the build.',
     putCall: 'The put/call axis reads aggregate option positioning across the tracked universe (the open-interest put/call ratio). Heavy put demand = hedging/fear (risk-OFF); a call-heavy book = complacency (risk-on). Slow axis — recomputed at the build.',
-    credit: 'The HY credit axis reads high-yield spreads — the ICE BofA HY option-adjusted spread plus the 5-day HYG/LQD ratio (HY vs IG ETF), both carried from the build. Widening spreads / HY underperforming IG, or a stressed absolute level, = credit stress (risk-OFF); a tight, stable spread reads risk appetite. The rail below can refresh 1-day HYG/LQD as context, but that does not replace the baked 5-day regime score.',
+    credit: 'The HY credit axis reads the ICE BofA high-yield option-adjusted spread and its five-session change. Widening or a stressed absolute spread level indicates credit stress; tightening or tight and observed stable spreads can support risk appetite. The official series is delayed. HYG/LQD relative performance is context only and casts no credit vote because the funds have different interest-rate durations.',
     rotation: 'The rotation axis reads intra-equity risk appetite — a high-beta growth/tech basket’s 1-day move minus a low-beta defensive (staples/health) basket’s. Offense leading can vote risk-on; defense outperforming while indexes are not risk-on is an early, stronger risk-OFF rotation tell that can lead the index level. Slow axis — recomputed at the build.',
   };
 
@@ -11528,8 +11484,22 @@ ${renderWorkspaceBindings()}
 
   function computeLiveMacroRegime(baked, live){
     if (!baked || !baked.axes || !baked.inputs || !baked.thresholds) return null;
-    var T = baked.thresholds, inp = baked.inputs, axes = {};
-    function n(x){ return (x != null && isFinite(Number(x))) ? Number(x) : null; }
+    var T = baked.thresholds, inp = marketAnalysis.freshInputs(baked.inputs, baked.builtAtIso), axes = {};
+    var accepted = {};
+    for (var legKey in (live || {})) {
+      if (legKey === 'crossAsset') {
+        accepted.crossAsset = {};
+        for (var symbol in live.crossAsset) {
+          var crossLeg = marketAnalysis.liveLeg(live.crossAsset[symbol]);
+          if (crossLeg) accepted.crossAsset[symbol] = crossLeg;
+        }
+      } else {
+        var usable = marketAnalysis.liveLeg(live[legKey]);
+        if (usable) accepted[legKey] = usable;
+      }
+    }
+    live = accepted;
+    var n = marketAnalysis.number;
     function thr(x, d){ var v = n(x); return v != null ? v : d; }
     function liveLeg(k){ return (live && live[k]) ? live[k] : null; }
 
@@ -11560,6 +11530,7 @@ ${renderWorkspaceBindings()}
       else if (avg >= i1){ s = 1; label = 'Indexes +' + avg.toFixed(2) + '% — firm'; }
       else if (belowTrend){ s = -1; label = 'Indexes ' + (avg >= 0 ? '+' : '') + avg.toFixed(2) + '% — below trend'; }
       else if (aboveTrend){ s = 1; label = 'Indexes +' + avg.toFixed(2) + '% — above trend'; }
+      if (s !== 0) label = marketAnalysis.indexLabel(avg, moves, s);
       axes.indexes = { score: s, label: label, live: legs.some(function(l){ return l.live; }) };
     })();
 
@@ -11641,17 +11612,17 @@ ${renderWorkspaceBindings()}
       // fear; gold rising alongside firm equities + a calm VIX is a reflationary melt-up,
       // not a flight to safety. Mirrors computeMacroRegime (build.mjs). axes.indexes/
       // vix/dxy are already scored above this axis.
-      var tapeStressed = (axes.indexes && axes.indexes.score <= 0) || (axes.vix && axes.vix.score <= -1) || (axes.dxy && axes.dxy.score <= -1);
+      var tapeStressed = (axes.indexes && axes.indexes.score < 0) || (axes.vix && axes.vix.score <= -1) || (axes.dxy && axes.dxy.score <= -1);
       var goldHavenConfirmed = goldHaven && tapeStressed;
       var s = 0, label = 'commodities calm';
       if (oilShock || (oilSpike && goldHavenConfirmed)){
         s = -2;
-        label = 'Crude ' + (o1 >= 0 ? '+' : '') + o1.toFixed(1) + '%' + (goldHavenConfirmed && g1 != null ? ' · gold +' + g1.toFixed(1) + '%' : '') + ' — supply/geopolitical shock';
+        label = 'Crude ' + (o1 >= 0 ? '+' : '') + o1.toFixed(1) + '%' + (goldHavenConfirmed && g1 != null ? ' · gold +' + g1.toFixed(1) + '%' : '') + ' — oil-price shock';
       } else if (oilSpike || oilRun || goldHavenConfirmed){
         s = -1;
         label = (oilSpike || oilRun)
           ? 'Crude ' + (o1 != null ? (o1 >= 0 ? '+' : '') + o1.toFixed(1) : '+' + o5.toFixed(1)) + '% — oil spiking'
-          : 'Gold safe-haven bid ' + (g1 != null ? '+' + g1.toFixed(1) : '+' + g5.toFixed(1)) + '%';
+          : 'Gold rally with risk-off confirmation ' + (g1 != null ? '+' + g1.toFixed(1) : '+' + g5.toFixed(1)) + '%';
       }
       axes.commodity = { score: s, label: label, live: isLive };
     })();
@@ -11797,15 +11768,27 @@ ${renderWorkspaceBindings()}
       axes.putCall = { score: s, label: label, live: false };
     })();
 
-    // Credit axis — scored from the 5d OAS + 5d HYG/LQD inputs, which are BAKED
-    // (the live HYG/LQD legs give only a 1d move — that feeds the barometer rail's
-    // credit row, not the regime score). So it carries the baked axis verbatim,
-    // like breadth / put/call / the slow axes — strict parity with build's
-    // computeMacroRegime credit axis (no extra live-only scoring rule).
-    axes.credit = Object.assign({ live: false }, baked.axes.credit || { score: 0, label: 'no credit data' });
+    // Actual HY spreads own the credit vote. The ETF ratio is context only.
+    axes.credit = T.creditOn === false ? { score: 0, label: 'credit axis off', available: false }
+      : marketAnalysis.creditAxis(inp.credit, T);
     // Rotation axis (offense − defense) — baked (whole-universe read, can't refresh live).
     axes.rotation = Object.assign({ live: false }, baked.axes.rotation || { score: 0, label: 'no rotation data' });
 
+    var effectiveInputs = marketAnalysis.mergedInputs({ inputs:inp }, live);
+    if (axes.globalTape.live) {
+      var globalDates = Object.values(live.crossAsset || {}).map(function(leg){ return leg.asOf; }).filter(Boolean).sort();
+      effectiveInputs.crossAsset = { score:axes.globalTape.score, components:axes.globalTape.components, asOf:globalDates[0] || null };
+      effectiveInputs.globalTape = { asOf:globalDates[0] || null };
+    }
+    Object.keys(axes).forEach(function(key){
+      if (baked.builtAtIso) {
+        effectiveInputs[key] = effectiveInputs[key] || {};
+        if (!effectiveInputs[key].asOf) effectiveInputs[key].asOf = baked.builtAtIso;
+      }
+    });
+    var quality = marketAnalysis.coverage(axes, effectiveInputs);
+    Object.keys(axes).forEach(function(key){ if (axes[key].available === false) axes[key].score = 0; });
+    marketAnalysis.contextAxes(axes);
     // Composite → state (computeMacroRegime state machine + macroEffectiveAxisCount).
     var ORDER = ['indexes','vix','dxy','yields','fed','commodity','geo','inflation','sentiment','globalTape','twoY','bondVol','breadth','putCall','credit','rotation'];
     // Axes excluded from the effective-axis COUNT (kept in the stress SUM) — F&G
@@ -11881,6 +11864,7 @@ ${renderWorkspaceBindings()}
     // HOLD the baked state but expose the raw live read so a green tape under a
     // risk-off chip reads "recovering, unconfirmed".
     var RANK = { 'severe-risk-off': 0, 'risk-off': 1, 'neutral': 2, 'risk-on': 3 };
+    if (!quality.sufficient) state = 'insufficient-data';
     var rawLive = state, prevEff = baked.state, held = false;
     if (prevEff && (prevEff in RANK) && (rawLive in RANK)){
       if (RANK[rawLive] > RANK[prevEff] && RANK[prevEff] < RANK['neutral']){ state = prevEff; held = true; }
@@ -11910,17 +11894,20 @@ ${renderWorkspaceBindings()}
       else if (state === 'severe-risk-off') grossMult = T.grossSevere;
       else if (state === 'risk-off') grossMult = T.grossRiskoff != null ? T.grossRiskoff : grossMult;
     }
+    if (!quality.sufficient) grossMult = Math.min(grossMult, 0.5);
     return {
+      dataQuality: quality, inputs: effectiveInputs,
       state: state, rawState: rawLive, persisted: held,
       stress: stress, riskOffAxes: riskOffAxes, riskOnAxes: riskOnAxes,
       effRiskOffAxes: Number(effOff.toFixed(2)), effRiskOnAxes: Number(effOn.toFixed(2)),
       axes: axes, drivers: driverList,
       internalsStress: internalsStress, internalsLabel: internalsLabel, fragile: fragile,
-      grossMult: Number(grossMult.toFixed(2)), live: true,
+      grossMult: Number(grossMult.toFixed(2)), live: Object.keys(live).some(function(k){ return k !== 'crossAsset' || Object.keys(live.crossAsset).length; }),
     };
   }
 
   function macroStateMeta(st, fragile){
+    if (st === 'insufficient-data') return { lbl: 'Insufficient data', cls: 'picks-summary-warn', tone: 'fragile' };
     if (st === 'severe-risk-off') return { lbl: 'Severe risk-off', cls: 'picks-summary-put', tone: 'off' };
     if (st === 'risk-off') return { lbl: 'Risk-off', cls: 'picks-summary-put', tone: 'off' };
     if (st === 'risk-on') return { lbl: 'Risk-on', cls: 'picks-summary-call', tone: 'on' };
@@ -12027,7 +12014,11 @@ ${renderWorkspaceBindings()}
     }
     var overlayRule = ' The continuous side-aware overlay is applied after the four pillars and IV Cost. It may demote or re-rank an already-qualified name, but it cannot flip the side, recruit a below-bar idea, or promote a tier; <b>Entry Timing remains a separate execution gate</b>.';
     var head, body, change, tone;
-    if (st === 'risk-on'){
+    if (st === 'insufficient-data'){
+      tone = 'warn'; head = 'Market direction is unconfirmed.';
+      body = 'Core market inputs are missing or stale. This is not a neutral-market conclusion. No positive regime boost is available and the data-quality exposure limit is 50% before other caps.';
+      change = 'Restore current index, volatility and independent confirmation data before using a directional regime label.';
+    } else if (st === 'risk-on'){
       tone = 'on';
       head = 'Constructive tape — the continuous bias favors bullish exposure.';
       body = 'A clean risk-on read across the cross-asset axes supports eligible calls and opposes puts in proportion to the measured bias and forward scenario balance. Tape gross is <b>~' + gp + '%</b> before any additional Scenario Engine cap' + (rosterTxt ? '. Today: <b>' + rosterTxt + '</b>' : '') + '.' + overlayRule;
@@ -12070,7 +12061,21 @@ ${renderWorkspaceBindings()}
     opts = opts || {};
     var meta = macroStateMeta(regime.state, regime.fragile);
     var nar = macroTapeNarrative(regime, opts.roster || null);
-    var gp = (regime.grossMult != null && isFinite(regime.grossMult)) ? Math.round(regime.grossMult * 100) : 100;
+    var tapeCap = marketAnalysis.number(regime.grossMult);
+    var engine = marketState.data && marketState.data.scenarioEngine;
+    var scenarioCap = engine && !engine.unavailable ? marketAnalysis.number(engine.decision && engine.decision.grossMultiplier) : null;
+    var gp = tapeCap != null && scenarioCap != null ? Math.round(tapeCap * scenarioCap * 100) : null;
+    var quality = regime.dataQuality || marketAnalysis.coverage(regime.axes || {}, regime.inputs || {});
+    if (!quality.sufficient) { gp = null; scenarioCap = null; }
+    var buildAt = (marketState.data && marketState.data.builtAtIso) || marketRegimeBaked()?.builtAtIso;
+    var snapshotAge = buildAt ? Date.now() - Date.parse(buildAt) : null;
+    var oldSnapshot = snapshotAge == null || !isFinite(snapshotAge) || snapshotAge > 96 * 3600e3;
+    if (oldSnapshot) scenarioCap = null;
+    var qualityText = oldSnapshot ? 'Stale snapshot' : quality.status === 'ready' ? 'Complete coverage' : quality.status === 'partial' ? 'Partial coverage' : quality.status === 'stale' ? 'Stale core inputs' : 'Insufficient data';
+    var observed = marketAnalysis.contributions(regime, marketRegimeBaked()?.thresholds || {});
+    var opposed = observed.filter(function(r){ return r.available && (regime.state === 'risk-on' ? r.score < 0 : regime.state.indexOf('risk-off') >= 0 ? r.score > 0 : r.score !== 0); }).sort(function(a,b){ return Math.abs(b.contribution) - Math.abs(a.contribution); });
+    var conflict = opposed.length ? opposed.slice(0,3).map(function(r){ return r.label; }).join(' · ') : 'No material opposing vote';
+    if (!quality.sufficient) conflict = 'Direction unconfirmed; see the available evidence below';
     var bias = 'Ticker-specific';
     var entry = 'Standard confirmation';
     var posture = 'Let the ticker setup lead';
@@ -12083,6 +12088,7 @@ ${renderWorkspaceBindings()}
     } else if (regime.fragile) {
       bias = 'Neutral · reduced'; entry = 'Wait for internals'; posture = 'Do less until breadth repairs';
     }
+    if (regime.state === 'insufficient-data' || oldSnapshot) { bias = 'Unconfirmed'; entry = 'Verify current data'; posture = 'Wait for current evidence'; if (oldSnapshot) gp = null; }
     var source = opts.live
       ? 'Checked' + (opts.fetchedAt ? ' · ' + fmtTapeTime(opts.fetchedAt) : '')
       : 'Baked · last build';
@@ -12094,19 +12100,22 @@ ${renderWorkspaceBindings()}
       '<div class="market-action-head">' +
         '<div><span class="market-action-kicker">Today\\'s posture</span><h3>' + escapeHtml(nar.head) + '</h3><details class="research-details"><summary>How this posture affects the screen</summary><p>' + nar.body + '</p></details></div>' +
         '<span class="market-action-source ' + (opts.live ? 'is-live' : '') + '">' + escapeHtml(source) + '</span>' +
-      '</div>' + freshness +
+      '</div>' +
+      '<p class="market-coverage"><b>' + escapeHtml(qualityText) + '</b> · ' + quality.available + '/' + quality.total + ' inputs available' + (quality.missing.length ? ' · missing: ' + escapeHtml(quality.missing.map(function(k){ var d = TAPE_AXIS_DEFS.find(function(d){ return d.k === k; }); return d ? d.name : k; }).join(', ')) : '') + (macroTape.error ? ' · quote check failed; showing the last available observations <button type="button" data-market-live-retry>Retry quotes</button>' : '') + '</p>' + freshness +
+      ((regime.persisted && regime.rawState !== regime.state) ? '<p class="market-coverage"><b>Recovery hold:</b> current quote evidence reads ' + escapeHtml(regime.rawState) + ', while the snapshot holds ' + escapeHtml(regime.state) + '. A newer build is required to confirm recovery. New builds are checked automatically with a daily read limit.</p>' : '') +
       '<div class="market-action-grid">' +
         '<span><small>Regime</small><b class="' + meta.cls + '">' + escapeHtml(meta.lbl) + '</b></span>' +
         '<span><small>Book posture</small><b>' + escapeHtml(posture) + '</b></span>' +
-        '<span><small>Entry bar</small><b>' + escapeHtml(entry) + '</b></span>' +
-        '<span><small>Gross target</small><b>' + gp + '%</b></span>' +
+        '<span><small>Entry guidance</small><b>' + escapeHtml(entry) + '</b></span>' +
+        '<span><small>Combined model limit</small><b>' + (gp == null ? 'Unavailable' : gp + '%') + '</b></span>' +
       '</div>' +
       '<div class="market-action-why">' +
         '<p><small>Driving it</small><span>' + escapeHtml(drivers) + '</span></p>' +
+        '<p><small>Conflicting evidence</small><span>' + escapeHtml(conflict) + '</span></p>' +
         '<p><small>What changes the stance</small><span>' + nar.change + '</span></p>' +
       '</div>' +
       '<div class="market-action-foot">' +
-        '<span><b>Directional bias:</b> ' + escapeHtml(bias) + '. Macro changes the bar and size; it does not replace ticker confirmation.</span>' +
+        '<span><b>Directional bias:</b> ' + escapeHtml(bias) + '. ' + (tapeCap != null ? 'Regime limit ' + Math.round(tapeCap * 100) + '%' : 'Regime limit unavailable') + (scenarioCap != null ? ' × scenario cap ' + Math.round(scenarioCap * 100) + '%' : '; scenario cap unavailable') + '. Limits apply before edge and portfolio constraints; they are not observed holdings.</span>' +
         '<div><button type="button" data-market-focus="search">Find a ticker</button><button type="button" data-market-go="grade">Grade exact setup</button><button type="button" data-market-go="strategies">Model structure</button></div>' +
       '</div>' +
     '</section>';
@@ -12117,6 +12126,7 @@ ${renderWorkspaceBindings()}
     if (!host || host.getAttribute('data-market-action-bound') === '1') return;
     host.setAttribute('data-market-action-bound', '1');
     host.addEventListener('click', function(ev){
+      if (ev.target.closest && ev.target.closest('[data-market-live-retry]')) { pollMacroTapeOnce(true); return; }
       var focusBtn = ev.target.closest ? ev.target.closest('[data-market-focus="search"]') : null;
       if (focusBtn) {
         var search = document.getElementById('picks-search-input');
@@ -12183,8 +12193,7 @@ ${renderWorkspaceBindings()}
   function axisToneCls(sc){ return sc <= -1 ? 'off' : (sc >= 1 ? 'on' : 'flat'); }
   function tapeChip(label, val){ return '<span class="tape-chip"><span class="tape-chip-k">' + escapeHtml(label) + '</span><span class="tape-chip-v">' + escapeHtml(val) + '</span></span>'; }
   function tapeSign(x, dp, suf){ if (x == null || !isFinite(x)) return '—'; return (x > 0 ? '+' : '') + Number(x).toFixed(dp == null ? 2 : dp) + (suf || ''); }
-  // Per-axis underlying-input chips, read from the BAKED inputs snapshot (the
-  // live re-port doesn't carry inputs, so always source them from baked).
+  // Details use the effective inputs that produced the displayed vote.
   function axisInputChips(k, inp){
     inp = inp || {};
     var c = [];
@@ -12198,8 +12207,8 @@ ${renderWorkspaceBindings()}
     } else if (k === 'vix' && inp.vix){
       if (inp.vix.value != null) c.push(tapeChip('level', Number(inp.vix.value).toFixed(1)));
       if (inp.vix.pctChange1d != null) c.push(tapeChip('1d', tapeSign(inp.vix.pctChange1d, 1, '%')));
-      if (inp.vix.trend) c.push(tapeChip('trend', inp.vix.trend));
-      c.push(tapeChip('curve', inp.vix.backwardation ? 'inverted' : 'contango'));
+      if (inp.vix.trend) c.push(tapeChip('trend · build', inp.vix.trend));
+      c.push(tapeChip('curve · build', inp.vix.backwardation == null ? 'unavailable' : inp.vix.backwardation ? 'inverted' : 'contango'));
     } else if (k === 'dxy' && inp.dxy){
       if (inp.dxy.pctChange1d != null) c.push(tapeChip('1d', tapeSign(inp.dxy.pctChange1d, 2, '%')));
       if (inp.dxy.pctChange5d != null) c.push(tapeChip('5d', tapeSign(inp.dxy.pctChange5d, 2, '%')));
@@ -12225,7 +12234,7 @@ ${renderWorkspaceBindings()}
       if (sm.month != null) c.push(tapeChip('1mo', String(Math.round(sm.month))));
     } else if (k === 'globalTape' && inp.crossAsset){
       // Baked composite for context — the tile badge shows the live recompute.
-      if (inp.crossAsset.score != null) c.push(tapeChip('tape (last build)', tapeSign(inp.crossAsset.score, 0)));
+      if (inp.crossAsset.score != null) c.push(tapeChip('tape vote', tapeSign(inp.crossAsset.score, 0)));
       var comps = inp.crossAsset.components;
       if (Array.isArray(comps) && comps.length) c.push(tapeChip('signals', String(comps.length)));
     } else if (k === 'twoY' && inp.twoY){
@@ -12246,7 +12255,7 @@ ${renderWorkspaceBindings()}
     } else if (k === 'credit' && inp.credit){
       if (inp.credit.oas != null) c.push(tapeChip('OAS', Number(inp.credit.oas).toFixed(2) + '%'));
       if (inp.credit.oasChg5d != null) c.push(tapeChip('OAS 5d', tapeSign(inp.credit.oasChg5d, 2, 'pp')));
-      if (inp.credit.hygLqdChg5d != null) c.push(tapeChip('HYG/LQD 5d', tapeSign(inp.credit.hygLqdChg5d, 1, '%')));
+      if (inp.credit.hygLqdChg5d != null) c.push(tapeChip('HYG minus LQD · 5d context', tapeSign(inp.credit.hygLqdChg5d, 1, 'pp')));
     }
     return c.join('');
   }
@@ -12257,32 +12266,33 @@ ${renderWorkspaceBindings()}
     if (k === 'indexes') return 'Daily move decides first. Risk-off at a SPY/QQQ average ≤ −' + v(T.index1d, 0.8) + '%; −2 at an average ≤ −' + v(T.index1dStrong, 1.8) + '% or either leg ≤ −2.5%. Risk-on mirrors those rules. On a quieter day only, both below/above the 20D plus at least one 5-day move beyond ±' + v(T.index5d, 3) + '% can vote ±1.';
     if (k === 'vix') return 'Risk-off at VIX ≥ ' + v(T.riskoffVix, 20) + ', at ≥18 while its baked trend is rising, or on backwardation; −2 at ≥25 and rising or ≥20 with backwardation. Risk-on under ' + v(T.vixCalm, 15) + ', below ' + v(T.vixEasing, 17) + ' and falling, or below 18 after a 1-day drop ≤ ' + v(T.vixReversal1d, -8) + '%.';
     if (k === 'dxy') return 'Risk-off if DXY rises ≥ +' + v(T.dxy1d, 0.6) + '% in 1 day (−2 at +' + v(T.dxy1dStrong, 1.2) + '%), or its baked rising trend is up ≥ +' + v(T.dxy5d, 1.0) + '% over 5 days. Risk-on mirrors the ±1 rule on dollar easing.';
-    if (k === 'yields') return 'Risk-off if the worst 10Y/30Y move is ≥ +' + v(T.yieldBps1d, 10) + 'bp in 1 day (−2 at +' + v(T.yieldBps1dStrong, 16) + 'bp), or the baked 10Y trend is rising by at least ' + v(T.yieldBps1d, 10) + 'bp over 5 days. Risk-on mirrors the ±1 easing rule.';
-    if (k === 'commodity') return 'Stress-only. Crude ≥ +' + v(T.oil1d, 4) + '% in 1 day or +' + v(T.oil5d, 12) + '% in 5 days votes −1; a 1-day shock ≥ +' + v(T.oil1dStrong, 8) + '% votes −2. Gold votes only at +' + v(T.gold1d, 3) + '% in 1 day (unless its week is down) or +' + v(T.gold5d, 6) + '% in 5 days, and only when Indexes is neutral/risk-off or VIX/DXY is risk-off; oil + confirmed gold can vote −2.';
-    if (k === 'sentiment') return 'Risk-off at Fear & Greed ≤ ' + v(T.fgFear, 25) + ' or a 1-day swing ≤ −' + v(T.fgDelta, 10) + ' points; risk-on at ≥ ' + v(T.fgGreed, 75) + ' or a swing ≥ +' + v(T.fgDelta, 10) + '. A stale baked snapshot is ignored; a successful live CNN refresh is rescored.';
+    if (k === 'yields') return 'Risk-off if the worst 10Y/30Y move is ≥ +' + v(T.yieldBps1d, 10) + 'bp in 1 day (−2 at +' + v(T.yieldBps1dStrong, 16) + 'bp), or the baked 10Y trend is rising by at least ' + v(T.yieldBps1d, 10) + 'bp over 5 days. A matching fall can vote risk-on only when indexes, VIX and credit do not signal stress; otherwise it is an unconfirmed yield decline.';
+    if (k === 'commodity') return 'Stress-only. Crude ≥ +' + v(T.oil1d, 4) + '% in 1 day or +' + v(T.oil5d, 12) + '% in 5 days votes −1; a 1-day shock ≥ +' + v(T.oil1dStrong, 8) + '% votes −2. Gold votes only at +' + v(T.gold1d, 3) + '% in 1 day (unless its week is down) or +' + v(T.gold5d, 6) + '% in 5 days, and only when Indexes, VIX or DXY confirms risk-off; oil + confirmed gold can vote −2.';
+    if (k === 'sentiment') return 'Risk-off at Fear & Greed ≤ ' + v(T.fgFear, 25) + ' or a 1-day swing ≤ −' + v(T.fgDelta, 10) + ' points; risk-on at ≥ ' + v(T.fgGreed, 75) + ' or a swing ≥ +' + v(T.fgDelta, 10) + '. A stale baked snapshot is ignored; a timestamped CNN observation is rescored.';
     if (k === 'globalTape') return 'Futures, Asia/EU breadth, USD/JPY and Bitcoin each vote after their own move threshold. At least three signals are required; net votes set ±1, while broad or strongly confirmed agreement sets ±2. It refreshes from the same cross-asset legs shown below.';
     if (k === 'fed') return 'The average change in hike-minus-cut probability across the nearest FedWatch meetings votes −1 at +' + v(T.fedDriftPt, 5) + ' points, −2 at +' + (2 * v(T.fedDriftPt, 5)) + ', and +1 at −' + v(T.fedDriftPt, 5) + '. An FOMC decision inside the configured near-event window forces at least −1. Slow axis — refreshes at the build.';
     if (k === 'geo') return 'Stress-only. Fresh conflict headlines can vote −2; tariff/geopolitical flashpoints or an active bearish narrative can vote −1. De-escalation clears stress to neutral, not risk-on. Slow axis — refreshes at the build.';
     if (k === 'inflation') return 'CPI votes −1 when ≥' + v(T.cpiWarm, 3.0) + '% and re-accelerating by ≥' + v(T.cpiReaccel, 0.3) + 'pp versus 3 months ago, or when ≥' + v(T.cpiHot, 4.0) + '% and still rising; CPI ≤' + v(T.cpiCool, 2.5) + '% and not rising votes +1. Labor subtracts 1 at a Sahm gap ≥' + v(T.ueSahmSoft, 0.3) + 'pp when it is not improving (confirmed regardless of trend at ' + v(T.ueSahm, 0.5) + 'pp). Combined score is capped at −2 / +1. Slow axis.';
-    if (k === 'twoY') return 'Risk-off if the 2Y rises ≥ +' + v(T.twoYBps1d, 8) + 'bp in 1 day (−2 at +' + v(T.twoYBps1dStrong, 14) + 'bp), or its baked rising trend is up that much over 5 days. A matching fall can vote +1 only when the Indexes axis is not risk-off—a Treasury rally during an equity sell-off is treated as flight-to-safety, not a tailwind.';
+    if (k === 'twoY') return 'Risk-off if the 2Y rises ≥ +' + v(T.twoYBps1d, 8) + 'bp in 1 day (−2 at +' + v(T.twoYBps1dStrong, 14) + 'bp), or its baked rising trend is up that much over 5 days. A matching fall can vote +1 only when indexes, VIX and credit do not signal stress. A Treasury rally during a sell-off is not an easing confirmation.';
     if (k === 'bondVol') return 'Risk-off at MOVE ≥ ' + v(T.moveHi, 110) + '; −2 at ≥ ' + v(T.moveVhi, 140) + ', or when MOVE is already ≥ ' + v(T.moveHi, 110) + ' and jumps ≥ +' + v(T.move1d, 6) + '% in 1 day. Risk-on at MOVE ≤ ' + v(T.moveCalm, 80) + '.';
     if (k === 'breadth') return 'Risk-off below ' + v(T.breadthLo, 40) + '% above the 200DMA; −2 below ' + v(T.breadthVlo, 25) + '%, or at ≤' + v(T.breadthLo, 40) + '% with NH−NL ≤ −10. Risk-on requires both long- and short-term breadth: ≥' + v(T.breadthHi, 60) + '% above the 200DMA and, when available, ≥' + v(T.breadthHi, 60) + '% above the 50DMA. A thrust is ≥' + v(T.breadthVhi, 85) + '%, or ≥80% with NH−NL ≥ +20, plus the same 50DMA confirmation. Slow axis.';
     if (k === 'putCall') return 'OI put/call votes −1 at ≥' + v(T.putCallHi, 1.20) + ', −2 at ≥' + v(T.putCallVhi, 1.45) + ', and +1 at ≤' + v(T.putCallLo, 0.85) + '. When OI is neutral and same-day volume is mature (≥' + (v(T.putCallVolFrac, 0.03) * 100) + '% of OI), a volume ratio separated from OI by ≥' + v(T.putCallFlowGap, 0.25) + ' can break the tie; positive votes still require the volume ratio ≤' + v(T.putCallLo, 0.85) + '. Slow axis.';
-    if (k === 'credit') return 'Baked 5-day regime score: risk-off if HY OAS widens ≥ +' + v(T.creditOas5d, 0.30) + 'pp or HYG/LQD falls ≥ ' + v(T.creditRatio5d, 1.0) + '%; −2 if OAS widens ≥ +' + v(T.creditOas5dStrong, 0.60) + 'pp, both moderate signals confirm, or the OAS level is ≥' + v(T.creditOasStressVhi, 7.5) + '%. A level ≥' + v(T.creditOasStressHi, 6.0) + '% is at least −1. OAS tightening ≥' + v(T.creditOasTight5d, 0.25) + 'pp or HYG/LQD rising ≥' + v(T.creditRatio5d, 1.0) + '% votes +1; a level ≤' + v(T.creditOasTightLvl, 3.0) + '% votes +1 only when stable. The live 1-day rail below is context, not this score.';
+    if (k === 'credit') return 'The actual HY OAS votes −1 at a 5-day widening of ' + v(T.creditOas5d,0.30) + 'pp and −2 at ' + v(T.creditOas5dStrong,0.60) + 'pp. A level of ' + v(T.creditOasStressHi,6) + '% is at least −1; ' + v(T.creditOasStressVhi,7.5) + '% is −2. Tightening by ' + v(T.creditOasTight5d,0.25) + 'pp can vote +1, as can a tight level at or below ' + v(T.creditOasTightLvl,3) + '% with observed stable changes. HYG/LQD never casts a spread vote. The official OAS series is delayed; its observation date is shown.';
     if (k === 'rotation') return 'Offense (high-beta growth) minus defense (staples/health) 1-day return. A defense lead ≥' + v(T.rotationPp, 0.8) + 'pp votes −1, or −2 when the Indexes axis is neutral/risk-off. An offense lead by that margin votes +1 only when Indexes is neutral/risk-on. Slow axis — recomputed at the build.';
     return '';
   }
   // The drill-down drawer for one axis tile. The axis arg is the effective
-  // per-axis read (live or baked); inputs + thresholds come from the BAKED
-  // regime (the live re-port doesn't carry them).
+  // per-axis read (live or baked); inputs come from the effective read and thresholds from the build.
   function buildAxisDetail(d, axis, opts){
     var k = d.k;
     var sc = isFinite(axis.score) ? axis.score : 0;
     var baked = (opts && opts.baked) || {};
-    var inp = baked.inputs || {};
+    var inp = (opts && opts.inputs) || baked.inputs || {};
     var T = baked.thresholds || {};
     var about = AXIS_ABOUT[k] || d.desc;
     var chips = axisInputChips(k, inp);
+    var observedAt = inp[k] && inp[k].asOf;
+    if (observedAt) chips += tapeChip('observed', String(observedAt).length === 10 ? observedAt : formatDisplayInstant(observedAt, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }));
     var feeders = AXIS_FEED_SYMS[k] || [];
     var feedTxt;
     if (feeders.length){
@@ -12297,32 +12307,17 @@ ${renderWorkspaceBindings()}
       feedTxt = '<div class="tape-axis-detail-feeds">Read from ' + src + ', not a single cross-asset rail row.</div>';
     }
     var flip = axisFlipText(k, T);
-    var liveNote = axis.live ? 'Refreshing live this session.' : 'Carried from the last build (it can’t move on a price quote alone).';
+    var liveNote = axis.live ? 'Latest retrieved values are shown above. Multi-day trends and the volatility curve remain from the build.' : 'Snapshot inputs from the last build. The source observation may be earlier; see source dates.';
     var tcls = axisToneCls(sc);
     return '<p class="tape-axis-detail-about">' + about + '</p>' +
       '<div class="tape-axis-detail-reading">' +
-        '<span class="tape-axis-detail-badge tape-' + tcls + '">' + axisToneWord(sc) + ' · ' + (sc > 0 ? '+' : '') + sc + '</span>' +
+        '<span class="tape-axis-detail-badge tape-' + tcls + '">' + (axis.available === false ? 'unavailable' : axisToneWord(sc) + ' · ' + (sc > 0 ? '+' : '') + sc) + '</span>' +
         '<span class="tape-axis-detail-label">' + escapeHtml(axis.label || '') + '</span>' +
       '</div>' +
       (chips ? '<div class="tape-axis-detail-chips">' + chips + '</div>' : '') +
       feedTxt +
       (flip ? '<div class="tape-axis-detail-flip"><b>What moves it:</b> ' + flip + '</div>' : '') +
       '<div class="tape-axis-detail-live">' + liveNote + '</div>';
-  }
-  // Derive a per-session 0..100 risk-score series from a baked trailing close
-  // series, using the SAME barometerScore mapping the live marker uses (so the
-  // sparkline and the dot speak one language). closes are oldest→newest.
-  function barometerScoreSeries(cfg, closes){
-    if (!cfg || !Array.isArray(closes) || closes.length < 4) return [];
-    var out = [];
-    for (var i = 1; i < closes.length; i++){
-      var prev = closes[i - 1], cur = closes[i];
-      if (prev == null || cur == null || !isFinite(prev) || !isFinite(cur) || prev === 0) continue;
-      var m = (cfg.metric === 'bp') ? { chgBp: (cur - prev) * 100 } : { chPct: (cur - prev) / prev * 100 };
-      var sc = barometerScore(cfg, m);
-      if (sc != null) out.push(sc);
-    }
-    return out;
   }
   // Cross-highlight: hovering / focusing an axis tile lights its feeding rail
   // rows (and a rail row lights its axis tile). Wired once via delegation on the
@@ -12341,6 +12336,8 @@ ${renderWorkspaceBindings()}
       clear();
       if (!axisKey) return;
       if (srcEl) srcEl.classList.add('is-xhl-src');
+      var evidenceRow = pane.querySelector('.rob-row[data-feeds="' + axisKey + '"]');
+      if (evidenceRow && evidenceRow !== srcEl) evidenceRow.classList.add('is-xhl');
       var syms = AXIS_FEED_SYMS[axisKey] || [];
       for (var i = 0; i < syms.length; i++){
         var row = pane.querySelector('.rob-row[data-sym="' + syms[i] + '"]');
@@ -12367,7 +12364,7 @@ ${renderWorkspaceBindings()}
     { k:'vix', name:'VIX', desc:'Equity volatility — the fear gauge' },
     { k:'dxy', name:'Dollar', desc:'DXY — global tightening / flight to USD' },
     { k:'yields', name:'Long yields', desc:'10Y / 30Y — financial conditions' },
-    { k:'commodity', name:'Commodities', desc:'Crude + gold — supply / war shock' },
+    { k:'commodity', name:'Commodities', desc:'Oil-price moves + confirmed gold demand' },
     { k:'sentiment', name:'Fear & Greed', desc:'CNN equity internals' },
     { k:'globalTape', name:'Global tape', desc:'Futures + Asia/EU + yen + BTC' },
     { k:'fed', name:'Fed path', desc:'FedWatch drift + FOMC proximity' },
@@ -12377,7 +12374,7 @@ ${renderWorkspaceBindings()}
     { k:'bondVol', name:'Bond vol (MOVE)', desc:'Treasury-option implied vol' },
     { k:'breadth', name:'Breadth', desc:'Universe % >200DMA + NH−NL' },
     { k:'putCall', name:'Put / call', desc:'Universe option positioning' },
-    { k:'credit', name:'HY credit', desc:'HY OAS + HYG/LQD ratio' },
+    { k:'credit', name:'HY credit', desc:'Actual high-yield option-adjusted spread' },
     { k:'rotation', name:'Rotation', desc:'Offense − defense equity leadership' },
   ];
   function buildMacroTapePanel(regime, opts){
@@ -12399,7 +12396,7 @@ ${renderWorkspaceBindings()}
       var a = axes[d.k] || { score: 0, label: '—', live: false };
       var sc = isFinite(a.score) ? a.score : 0;
       var tone = sc <= -1 ? 'off' : (sc >= 1 ? 'on' : 'flat');
-      var scoreStr = (sc > 0 ? '+' : '') + sc;
+      var scoreStr = a.available === false ? '—' : (sc > 0 ? '+' : '') + sc;
       // Per-axis mini-meter: the score (−2..+2) as a marker on a risk rail.
       var axPos = Math.max(0, Math.min(100, 50 + sc * 25));
       var rail = '<div class="tape-axis-rail" aria-hidden="true">' +
@@ -12486,21 +12483,21 @@ ${renderWorkspaceBindings()}
       '<div class="picks-tape-body">' +
         meterHtml +
         '<p class="picks-tape-summary">' + summaryLine + '</p>' +
-        '<div class="picks-tape-callout tape-callout-' + nar.tone + '">' +
+        '<details class="picks-tape-callout tape-callout-' + nar.tone + '"><summary>Posture methodology</summary>' +
           '<p class="picks-tape-callout-head">' + escapeHtml(nar.head) + '</p>' +
           '<p class="picks-tape-callout-body">' + nar.body + '</p>' +
           (nar.drivers ? '<p class="picks-tape-callout-meta"><b>Driving it</b> ' + escapeHtml(nar.drivers) + '</p>' : '') +
           '<p class="picks-tape-callout-meta"><b>What would change it</b> ' + nar.change + '</p>' +
-        '</div>' +
+        '</details>' +
         '<div class="picks-tape-metrics">' +
-          '<span title="Sum of the axis scores (−2…+2 each). More negative = more cross-asset stress.">Net stress <b>' + (stress > 0 ? '+' : '') + stress + '</b></span>' +
+          '<span title="Weighted sum of the available axis votes (−2…+2 each). More negative = more cross-asset stress.">Net stress <b>' + (stress > 0 ? '+' : '') + stress + '</b></span>' +
           '<span title="Axes reading risk-off (score ≤ −1).">Risk-off axes <b>' + roff + '</b></span>' +
           '<span title="Axes reading risk-on (score ≥ +1).">Risk-on axes <b>' + ron + '</b></span>' +
-          '<span title="Deployed gross vs the neutral-tape target — the engine cuts size in a tightening tape.">Gross deployed <b>' + grossPct + '%</b></span>' +
+          '<span title="Regime exposure multiplier before scenario, edge and portfolio limits. This is not observed holdings.">Regime limit <b>' + grossPct + '%</b></span>' +
         '</div>' +
         '<div class="picks-tape-axes">' + tiles + '</div>' +
         heldNote + fragileNote +
-        '<p class="picks-tape-foot">The tape recomputes live from the fast price axes (VIX, dollar, long yields, the 2Y, MOVE, crude + gold, HY credit, Fear &amp; Greed, and the global cross-asset tape — overnight futures / yen carry / BTC) every ~30s while this tab is open. The slow axes — the Fed path, the geopolitical-<i>news</i> read, monthly inflation / jobs, and the universe breadth + put/call — carry from the last build, so a fresh war or peace-deal <i>headline</i> updates at the next refresh, but the market’s reaction to it flows through the price axes immediately. Risk-off shrinks the list, tilts it toward puts, and sizes it down; risk-on leans it long.</p>' +
+        '<p class="picks-tape-foot">The tape recomputes from checked quotes from the fast price axes (VIX, dollar, long yields, the 2Y, MOVE, crude + gold, Fear &amp; Greed, and the global cross-asset tape — overnight futures / yen carry / BTC) every ~30s while this tab is open. The slow axes — the Fed path, the geopolitical-<i>news</i> read, monthly inflation / jobs, HY credit spreads, rotation, and the universe breadth + put/call — carry from the last build, so a fresh war or peace-deal <i>headline</i> updates at the next refresh, but the market’s reaction to it flows through the price axes immediately. Risk-off shrinks the list, tilts it toward puts, and sizes it down; risk-on leans it long.</p>' +
       '</div>' +
     '</div>';
   }
@@ -12560,9 +12557,9 @@ ${renderWorkspaceBindings()}
     tapeAxisModalEl.querySelector('.tape-axm-name').textContent = d.name;
     var badge = tapeAxisModalEl.querySelector('.tape-axm-badge');
     badge.className = 'tape-axm-badge tape-axis-badge ' + (a.live ? 'is-live' : 'is-baked');
-    badge.textContent = a.live ? 'live' : 'baked';
+    badge.textContent = a.live ? 'checked' : 'snapshot';
     badge.title = a.live ? 'Refreshed live from /api/macro-live' : 'From the last build — this axis cannot refresh from a price quote';
-    tapeAxisModalEl.querySelector('.tape-axm-score').textContent = (sc > 0 ? '+' : '') + sc;
+    tapeAxisModalEl.querySelector('.tape-axm-score').textContent = a.available === false ? '—' : (sc > 0 ? '+' : '') + sc;
     tapeAxisModalEl.querySelector('.tape-axm-body').innerHTML = buildAxisDetail(d, a, opts || {});
   }
   function openTapeAxisModal(k){
@@ -12581,11 +12578,29 @@ ${renderWorkspaceBindings()}
   // the same macroRegime object that rides picks.json's rosterMeta), falling
   // back to picks.json's rosterMeta when the owner already loaded the picks tab
   // (also covers the window before the first bake ships the file).
-  var marketState = { data: null, loading: false };
+  var marketState = { data: null, loading: false, error: null };
+  var marketRefreshState = marketRefresh.create();
+  try { marketRefreshState = marketRefresh.create(JSON.parse(sessionStorage.getItem('stonks-market-refresh-v1') || '{}')); } catch (_) {}
+  function saveMarketRefresh(){
+    try { sessionStorage.setItem('stonks-market-refresh-v1', JSON.stringify(marketRefreshState)); } catch (_) {}
+  }
+  function marketPaneVisible(){
+    var pane = document.getElementById('page-pane-market');
+    return !!(HAS_OWNER_ACCESS && pane && !pane.hidden && !document.hidden);
+  }
+  function maybeRefreshMarket(reason, deploymentId){
+    marketRefresh.observe(marketRefreshState, deploymentId);
+    if (!marketState.data || marketState.loading) { saveMarketRefresh(); return; }
+    if (marketRefresh.begin(marketRefreshState, { visible:marketPaneVisible(), reason:reason })) {
+      saveMarketRefresh();
+      loadMarketAnalysis({ automatic:true });
+    } else saveMarketRefresh();
+  }
   var scenarioState = { selected: null, query: '', sector: 'all', showAll: false, basket: '', historyOpen: false };
   function marketRegimeBaked(){
-    if (marketState.data && marketState.data.macroRegime) return marketState.data.macroRegime;
-    return (picksState.data && picksState.data.rosterMeta && picksState.data.rosterMeta.macroRegime) || null;
+    if (marketState.data && marketState.data.macroRegime) return Object.assign({}, marketState.data.macroRegime, { builtAtIso:marketState.data.builtAtIso });
+    var fallback = picksState.data && picksState.data.rosterMeta && picksState.data.rosterMeta.macroRegime;
+    return fallback ? Object.assign({}, fallback, { builtAtIso:picksState.data.builtAtIso }) : null;
   }
   function marketMoverPct(value){
     if (value == null || !isFinite(value)) return '\u2014';
@@ -12620,6 +12635,7 @@ ${renderWorkspaceBindings()}
     var host = document.getElementById('market-premarket-movers');
     if (!host) return;
     var tracker = marketState.data && marketState.data.premarketMovers;
+    if (host.parentElement && host.parentElement.classList.contains('market-secondary')) host.parentElement.hidden = !tracker || !tracker.summary;
     if (!tracker || !tracker.summary){
       host.hidden = true;
       host.innerHTML = '';
@@ -12640,7 +12656,7 @@ ${renderWorkspaceBindings()}
       : tracker.phase === 'regular' ? 'Regular-session mark'
       : tracker.phase === 'premarket' ? 'Premarket baseline'
       : 'Latest mark';
-    var stamp = tracker.updatedAtIso ? fmtTapeTime(tracker.updatedAtIso) : '';
+    var stamp = tracker.updatedAtIso ? formatDisplayInstant(tracker.updatedAtIso, {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '';
     host.className = 'market-movers market-movers-' + escapeHtml(sum.tone || 'mixed');
     host.innerHTML =
       '<article class="market-movers-card">' +
@@ -12770,7 +12786,10 @@ ${renderWorkspaceBindings()}
     var host = document.getElementById('market-scenario-engine');
     if (!host) return;
     var engine = marketState.data && marketState.data.scenarioEngine;
-    if (!engine || !Array.isArray(engine.scenarios) || !engine.scenarios.length){
+    var snapshotAt = marketState.data && marketState.data.builtAtIso;
+    var unavailable = !engine || marketRegimeBaked()?.dataQuality?.sufficient === false || !Array.isArray(engine.scenarios) || !engine.scenarios.length || (snapshotAt && Date.now() - Date.parse(snapshotAt) > 96 * 3600e3);
+    if (host.parentElement && host.parentElement.classList.contains('market-secondary')) host.parentElement.hidden = unavailable;
+    if (unavailable){
       host.hidden = true;
       host.innerHTML = '';
       return;
@@ -12825,7 +12844,7 @@ ${renderWorkspaceBindings()}
         '<div class="scenario-path-body"><p><b>Condition:</b> ' + escapeHtml(path.condition || '') + '</p>' +
         '<ul>' + (path.reactions || []).map(function(x){ return '<li>' + escapeHtml(x) + '</li>'; }).join('') + '</ul>' +
         '<div class="scenario-shocks">' +
-          Object.keys(path.shocks || {}).map(function(k){ return '<span><small>' + escapeHtml(k.replace(/([A-Z])/g, ' $1')) + '</small><b>' + escapeHtml(scenarioSigned(path.shocks[k], k.toLowerCase().includes('bps') ? ' bps' : '%')) + '</b></span>'; }).join('') +
+          Object.keys(path.shocks || {}).map(function(k){ return '<span><small>' + escapeHtml(k.replace(/([A-Z])/g, ' $1')) + '</small><b>' + escapeHtml(scenarioSigned(path.shocks[k], k.toLowerCase().includes('bps') ? ' bps' : k.toLowerCase().includes('points') ? ' points' : '%')) + '</b></span>'; }).join('') +
         '</div></div></details>';
     }).join('');
     var exposureHtml = function(rows, tone){
@@ -12867,13 +12886,13 @@ ${renderWorkspaceBindings()}
           '<p>' + escapeHtml(engine.framing || 'Unvalidated deterministic scenario score \u2014 a relative risk weight, not a calibrated probability or a point forecast.') + '</p></div>' +
           '<em>v' + escapeHtml(String(engine.version || 1)) + ' \u00b7 ' + escapeHtml(formatDisplayInstant(engine.builtAtIso, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) || 'time unavailable') + '</em></header>' +
         '<div class="scenario-transition">' +
-          '<span><small>Neutral / current \u2192 risk-off</small><b class="' + (Number(probs.riskOffShiftPct) >= 55 ? 'neg' : 'zero') + '">' + escapeHtml(probs.riskOffShiftPct != null ? String(probs.riskOffShiftPct) + '/100' : '\u2014') + '</b><em>risk score, next 5\u201310 sessions</em></span>' +
+          '<span><small>Snapshot regime \u2192 risk-off</small><b class="' + (Number(probs.riskOffShiftPct) >= 55 ? 'neg' : 'zero') + '">' + escapeHtml(probs.riskOffShiftPct != null ? String(probs.riskOffShiftPct) + '/100' : '\u2014') + '</b><em>risk score, next 5\u201310 sessions</em></span>' +
           '<span><small>Risk-on continuation</small><b class="pos">' + escapeHtml(probs.riskOnContinuationPct != null ? String(probs.riskOnContinuationPct) + '/100' : '\u2014') + '</b><em>unvalidated weight</em></span>' +
           '<span><small>Risk-on exhaustion</small><b class="' + (Number(probs.riskOnExhaustionPct) >= 55 ? 'neg' : 'zero') + '">' + escapeHtml(probs.riskOnExhaustionPct != null ? String(probs.riskOnExhaustionPct) + '/100' : '\u2014') + '</b><em>positioning + breadth</em></span>' +
           '<span><small>Scenario gross cap</small><b>' + escapeHtml(String(Math.round(Number(engine.decision?.grossMultiplier || 1) * 100))) + '%</b><em>of regime / edge budget</em></span>' +
         '</div>' +
         scenarioHistoryHtml(engine) +
-        '<div class="scenario-warnings"><header><b>Early warnings</b><span>' + warningFlags.length + '/' + (transition.flags || []).length + ' firing</span></header>' +
+        '<div class="scenario-warnings"><header><b>Early warnings</b><span>' + warningFlags.length + '/' + (frag.leadingCount ?? (transition.flags || []).length) + ' firing</span></header>' +
           ((transition.flags || []).map(function(flag){ return '<span class="is-' + escapeHtml(flag.state || 'stable') + '"><i></i>' + escapeHtml(flag.label || '') + '</span>'; }).join('') || '<p>No leading checks available.</p>') +
         '</div>' +
         '<details class="research-details"><summary>16-axis changes and methodology</summary><div class="scenario-axis-velocity"><header><b>16-axis velocity</b><span>score now \u00b7 1d change \u00b7 5d change</span></header>' + velocityHtml + '</div></details>' +
@@ -12930,43 +12949,68 @@ ${renderWorkspaceBindings()}
     var historyDetails = host.querySelector('.scenario-history');
     if (historyDetails) historyDetails.addEventListener('toggle', function(){ scenarioState.historyOpen = historyDetails.open; });
   }
+  function renderMarketLoadStatus(){
+    var host = document.getElementById('market-load-status');
+    if (!host) return;
+    host.hidden = !marketState.loading && !marketState.error;
+    host.innerHTML = marketState.error ? '<p role="alert">' + escapeHtml(marketState.error) + ' <button type="button" data-market-retry>Retry</button></p>' : '<p role="status">' + (marketState.data ? 'Checking for newer analysis…' : 'Loading market analysis…') + '</p>';
+    host.onclick = function(ev){ if (ev.target.closest('[data-market-retry]')) loadMarketAnalysis({ retry:true }); };
+  }
   function renderMarketAnalysis(){
+    renderMarketLoadStatus();
     bindPositionTool();
     renderScenarioEngine();
     renderPremarketMovers();
     renderMacroTape();
     if (typeof renderRegimeHistory === 'function') renderRegimeHistory();
   }
-  function loadMarketAnalysis(){
-    if (marketState.data || marketState.loading){ renderMarketAnalysis(); return; }
-    marketState.loading = true;
-    fetch(dataUrl('market-analysis.json'), { cache: 'no-cache' })
-      .then(function(r){ return r.ok ? r.json() : null; })
-      .then(function(json){
-        if (json && json.macroRegime){ marketState.data = json; return null; }
+  async function loadMarketAnalysis(options){
+    options = options || {};
+    if (marketState.loading || (marketState.data && !options.automatic && !options.retry)){ renderMarketAnalysis(); return; }
+    // Explicit retries are user initiated, but still cannot hammer the endpoint.
+    if (options.retry && marketState.lastManualAt && Date.now() - marketState.lastManualAt < 30000) return;
+    if (options.retry) marketState.lastManualAt = Date.now();
+    marketState.loading = true; marketState.error = null; renderMarketLoadStatus();
+    var ok = false;
+    async function read(key){
+      var controller = new AbortController();
+      var timer = setTimeout(function(){ controller.abort(); }, 10000);
+      try {
+        var response = await fetch(dataUrl(key), { cache:'no-store', signal:controller.signal });
+        return response.ok ? await response.json() : null;
+      } finally { clearTimeout(timer); }
+    }
+    try {
+      var json = await read('market-analysis.json');
+      if (!json && !marketState.data && !options.automatic) {
         // Transition fallback: before the first bake ships market-analysis.json,
-        // a Top-Picks role holder can still derive the regime from picks.json
-        // (401s harmlessly for everyone else — the tape just stays hidden).
-        return fetch(dataUrl('picks.json'), { cache: 'no-cache' })
-          .then(function(r){ return r.ok ? r.json() : null; })
-          .then(function(p){
-            if (p && p.rosterMeta && p.rosterMeta.macroRegime){
-              marketState.data = { builtAtIso: p.builtAtIso || null, macroRegime: p.rosterMeta.macroRegime };
-            }
-          })
-          .catch(function(){});
-      })
-      .then(function(){ marketState.loading = false; renderMarketAnalysis(); })
-      .catch(function(){ marketState.loading = false; renderMarketAnalysis(); });
+        // only the initial load may use the existing Top Picks fallback.
+        var p = await read('picks.json');
+        if (p && p.rosterMeta && p.rosterMeta.macroRegime) json = { builtAtIso:p.builtAtIso, macroRegime:p.rosterMeta.macroRegime };
+      }
+      var comparison = marketRefresh.compareSnapshot(marketState.data, json);
+      if (comparison === 'invalid' || comparison === 'older') throw new Error('Saved analysis unavailable');
+      // One assignment replaces regime, scenarios and follow-through together.
+      if (comparison === 'newer') marketState.data = json;
+      ok = true;
+    } catch (_) {
+      marketState.error = marketState.data ? 'Newer analysis could not be loaded. Showing the previous snapshot.' : 'Market analysis could not be loaded.';
+    } finally {
+      marketState.loading = false;
+      if (options.automatic) marketRefresh.finish(marketRefreshState, { ok:ok });
+      else marketRefresh.noteInitial(marketRefreshState);
+      saveMarketRefresh();
+      renderMarketAnalysis();
+    }
   }
   function renderMacroTape(){
     var data = picksState.data || {};
     var baked = marketRegimeBaked();
     var picks = (data.picks && Array.isArray(data.picks)) ? data.picks : [];
     var entryRegime = (picks[0] && picks[0].entryRegime) || null;
-    var live = (baked && macroTape.legs) ? computeLiveMacroRegime(baked, macroTape.legs) : null;
+    var live = baked ? computeLiveMacroRegime(baked, macroTape.legs || {}) : null;
     var regime = live || baked;
-    var isLive = !!live;
+    var isLive = !!(live && live.live) && !macroTape.error;
     // Pull the regime-history file (shared with the calendar below) so the meter
     // + per-axis sparklines have a baked daily trend on first paint.
     if (!regimeHistState.data && !regimeHistState.loading && typeof loadRegimeHistory === 'function') loadRegimeHistory();
@@ -13007,7 +13051,7 @@ ${renderWorkspaceBindings()}
       driftSlot.hidden = !driftHtml;
     }
     var panel = document.getElementById('picks-tape');
-    var panelOpts = { live: isLive, fetchedAt: macroTape.fetchedAt, roster: roster, baked: baked };
+    var panelOpts = { live: isLive, fetchedAt: macroTape.fetchedAt, roster: roster, baked: baked, inputs: regime && regime.inputs };
     if (panel){
       if (!regime || !regime.axes){ panel.hidden = true; panel.innerHTML = ''; }
       else {
@@ -13032,15 +13076,30 @@ ${renderWorkspaceBindings()}
     // Keep an open axis popout ticking with the freshest regime read.
     fillTapeAxisModal(regime, panelOpts);
     wirePicksCrossHighlight();
-    renderRiskBarometer();
+    renderRiskBarometer(regime);
+    var scenarioHost = document.getElementById('market-scenario-engine');
+    if (scenarioHost && scenarioHost.parentElement) {
+      var scenarioEngine = marketState.data && marketState.data.scenarioEngine;
+      scenarioHost.parentElement.hidden = !scenarioEngine || !!scenarioEngine.unavailable || !Array.isArray(scenarioEngine.scenarios) || !scenarioEngine.scenarios.length
+        || regime?.dataQuality?.sufficient === false || !marketState.data?.builtAtIso || Date.now() - Date.parse(marketState.data.builtAtIso) > 96 * 3600e3;
+    }
   }
-  function pollMacroTapeOnce(){
+  function pollMacroTapeOnce(manual){
+    if (!marketPaneVisible() || macroTape.loading) return;
+    var quoteGap = manual === true ? 5000 : MACRO_TAPE_POLL_MS;
+    if (macroTape.lastStartedAt && Date.now() - macroTape.lastStartedAt < quoteGap) return;
+    macroTape.lastStartedAt = Date.now();
+    macroTape.loading = true;
+    var controller = new AbortController();
+    var timeout = setTimeout(function(){ controller.abort(); }, 12000);
     // ?tape=1 also returns the cross-asset barometer rail in the same batched
     // upstream call (no extra serverless function — Hobby's 12-fn cap).
-    fetch('api/macro-live?fng=1&tape=1', { cache: 'no-store' })
+    fetch('api/macro-live?fng=1&tape=1', { cache:'no-store', signal:controller.signal })
       .then(function(r){ return r.ok ? r.json() : null; })
       .then(function(j){
-        if (!j || !j.legs) return;
+        if (j) maybeRefreshMarket('poll', j.deploymentId);
+        if (!j || !j.legs) { macroTape.error = 'Live check unavailable'; renderMacroTape(); return; }
+        macroTape.error = null;
         var L = j.legs;
         macroTape.legs = {
           spy: L.spy, qqq: L.qqq,
@@ -13062,44 +13121,27 @@ ${renderWorkspaceBindings()}
         }
         renderMacroTape();
       })
-      .catch(function(){ /* baked chip stays on a failed poll */ });
+      .catch(function(){ macroTape.error = 'Live check unavailable'; renderMacroTape(); })
+      .finally(function(){ clearTimeout(timeout); macroTape.loading = false; });
   }
   function startMacroTapeLive(){
     var pane = document.getElementById('page-pane-market');
     if (!pane || pane.hidden) return;
+    maybeRefreshMarket('activate');
     if (macroTape.timer) return;
     pollMacroTapeOnce();
-    macroTape.timer = setInterval(pollMacroTapeOnce, MACRO_TAPE_POLL_MS);
+    macroTape.timer = setInterval(function(){ if (!document.hidden) pollMacroTapeOnce(); }, MACRO_TAPE_POLL_MS);
   }
   function stopMacroTapeLive(){
     if (macroTape.timer){ clearInterval(macroTape.timer); macroTape.timer = null; }
     // Leaving the tab: drop any open axis popout (its live refresh just stopped).
     if (tapeAxisModalEl && !tapeAxisModalEl.hidden) closeTapeAxisModal();
   }
+  document.addEventListener('visibilitychange', function(){
+    if (marketPaneVisible()) maybeRefreshMarket('activate');
+  });
 
   // --- Risk-on / risk-off barometer rail -----------------------------------
-  // Map one cross-asset move to a 0..100 risk score. polarity·(move/scale)
-  // clamped to ±1 spans the rail (0 = fully risk-off, 50 = neutral, 100 = fully
-  // risk-on). Returns null when the move is missing so the asset is dropped.
-  function barometerScore(cfg, m){
-    if (!cfg || !m) return null;
-    var move = cfg.metric === 'bp'
-      ? ((m.chgBp != null && isFinite(m.chgBp)) ? m.chgBp : null)
-      : ((m.chPct != null && isFinite(m.chPct)) ? m.chPct : null);
-    if (move == null) return null;
-    var norm = Math.max(-1, Math.min(1, move / cfg.scale));
-    var score = 50 + cfg.polarity * norm * 50;
-    return Math.max(0, Math.min(100, score));
-  }
-  // Score → {cls, lbl, tone} band (mirrors the screenshot's 0–35 / 65–100 zones).
-  function barometerBand(score){
-    if (score == null || !isFinite(score)) return { cls: 'rob-flat', lbl: 'no data', tone: 'flat' };
-    if (score >= 65) return { cls: 'rob-on',  lbl: 'risk-on',  tone: 'on'  };
-    if (score <= 35) return { cls: 'rob-off', lbl: 'risk-off', tone: 'off' };
-    if (score >= 55) return { cls: 'rob-on',  lbl: 'leaning risk-on',  tone: 'on'  };
-    if (score <= 45) return { cls: 'rob-off', lbl: 'leaning risk-off', tone: 'off' };
-    return { cls: 'rob-flat', lbl: 'neutral', tone: 'flat' };
-  }
   // Overlay one live /api/macro-live cross-asset leg onto the baked
   // correlations market row. Only REGULAR-session legs override — the Asia/EU
   // cash indices (^GDAXI/^N225/^KS11) are closed during US hours, so their
@@ -13107,7 +13149,9 @@ ${renderWorkspaceBindings()}
   // baked row unchanged. Re-derives every move convention the renderer reads
   // (chPct, chgBp for yields, chgPt for VIX, last) from value + prevClose.
   function barometerApplyLive(baked, lv){
-    if (!baked || !lv || lv.marketState !== 'REGULAR') return baked;
+    if (!baked || !marketAnalysis.sourceUsable(lv)) return baked;
+    var priorAt = marketAnalysis.timestamp(baked.asOf);
+    if (priorAt && Date.parse(lv.asOf) < Date.parse(priorAt)) return baked;
     var v = (lv.value != null && isFinite(lv.value)) ? lv.value : null;
     if (v == null) return baked;
     var out = {};
@@ -13116,307 +13160,79 @@ ${renderWorkspaceBindings()}
     if (lv.pctChange1d != null && isFinite(lv.pctChange1d)) out.chPct = lv.pctChange1d;
     if (lv.bpsChange1d != null && isFinite(lv.bpsChange1d)) out.chgBp = lv.bpsChange1d;
     if (lv.prevClose != null && isFinite(lv.prevClose)) out.chgPt = v - lv.prevClose;
+    out.asOf = lv.asOf;
     out._live = true;
     return out;
   }
-  // Computed barometer rows for the signals that aren't in correlations.json —
-  // 2Y, MOVE (bond vol), universe breadth, universe put/call, and HY credit. They
-  // read the baked regime inputs (data.rosterMeta.macroRegime.inputs), overlaid
-  // with the live /api/macro-live legs where available (2Y / MOVE / HYG-LQD refresh
-  // live; breadth + put/call are baked, recomputed at the next build). Each returns
-  // the same { cfg, m, score, live } shape the symbol rows use so they sort / group
-  // / render identically. Mirrors the new axes in computeMacroRegime (build.mjs).
-  function buildComputedBarometerRows(baked, legs){
-    var inp = (baked && baked.inputs) || {};
-    var T = (baked && baked.thresholds) || {};
-    function n(x){ return (x != null && isFinite(Number(x))) ? Number(x) : null; }
-    function thr(x, d){ var v = n(x); return v != null ? v : d; }
-    function railFromMove(move, scale, polarity){
-      if (move == null || !isFinite(move) || !scale) return null;
-      var norm = Math.max(-1, Math.min(1, move / scale));
-      return Math.max(0, Math.min(100, 50 + polarity * norm * 50));
-    }
-    function sgn(x, d, u){ return (x >= 0 ? '+' : '') + Number(x).toFixed(d) + (u || ''); }
-    var out = [];
-    // 2Y front-end yield — live bps from the macro-live twoY leg, else baked.
-    if (T.twoYOn !== false){
-      var b2 = inp.twoY || {}, lv2 = legs && legs.twoY;
-      var live2 = !!(lv2 && n(lv2.bpsChange1d) != null);
-      var bps = live2 ? n(lv2.bpsChange1d) : n(b2.bpsChange1d);
-      if (bps != null){
-        var lvl2 = (live2 && n(lv2.value) != null) ? n(lv2.value) : n(b2.value);
-        out.push({
-          cfg: { sym:'US2Y', group:'Vol & rates' },
-          m: { name:'US 2Y yield', chPct:null, _moveStr: sgn(bps,1,' bp'), _lvlStr: (lvl2 != null ? lvl2.toFixed(2) + '%' : ''), asOf: b2.asOf || null, lead: BAROMETER_TOOLTIP.US2Y },
-          score: railFromMove(bps, thr(T.twoYBps1d, 8), -1), live: live2,
-        });
-      }
-    }
-    // MOVE bond vol — live level/1d from the macro-live move leg, else baked. The
-    // rail blends the daily move with the absolute level so a high static MOVE
-    // still reads risk-off (the regime axis is level-driven).
-    if (T.bondVolOn !== false){
-      var bm = inp.bondVol || {}, lvm = legs && legs.move;
-      var livem = !!(lvm && n(lvm.value) != null);
-      var md1 = (lvm && n(lvm.pctChange1d) != null) ? n(lvm.pctChange1d) : n(bm.pctChange1d);
-      var mlvl = livem ? n(lvm.value) : n(bm.value);
-      if (md1 != null || mlvl != null){
-        var moveSc = (md1 != null) ? railFromMove(md1, thr(T.move1d, 6) * 1.3, -1) : 50;
-        if (mlvl != null){
-          var hiM = thr(T.moveHi, 110), calmM = thr(T.moveCalm, 80);
-          // Continuous from 82 at the calm level down to 12 at the elevated level
-          // (matches the <=calm / >=hi branches — no step at the boundary).
-          var lvlSc = mlvl >= hiM ? 12 : (mlvl <= calmM ? 82 : 82 - ((mlvl - calmM) / (hiM - calmM)) * 70);
-          moveSc = (md1 != null) ? (moveSc + lvlSc) / 2 : lvlSc;
-        }
-        out.push({
-          cfg: { sym:'MOVE', group:'Vol & rates' },
-          m: { name:'MOVE (bond vol)', chPct:null, _moveStr: (md1 != null ? sgn(md1,1,'%') : '—'), _lvlStr: (mlvl != null ? mlvl.toFixed(0) : ''), asOf: bm.asOf || null, lead: BAROMETER_TOOLTIP.MOVE },
-          score: (moveSc == null ? 50 : Math.max(0, Math.min(100, Math.round(moveSc)))), live: livem,
-        });
-      }
-    }
-    // Universe breadth — %>200DMA IS the 0..100 risk read. Baked only.
-    if (T.breadthOn !== false){
-      var bb = inp.breadth || {};
-      var p200 = n(bb.pctAbove200);
-      if (p200 != null){
-        var p50 = n(bb.pctAbove50), nhnl = n(bb.nhnl);
-        out.push({
-          cfg: { sym:'BREADTH', group:'Breadth & credit' },
-          m: { name:'Universe breadth', chPct:null, _moveStr: p200.toFixed(0) + '% >200DMA', _lvlStr: (p50 != null ? p50.toFixed(0) + '% >50DMA' : '') + (nhnl != null ? ((p50 != null ? ' · ' : '') + 'NH−NL ' + (nhnl >= 0 ? '+' : '') + nhnl) : ''), asOf: null, lead: BAROMETER_TOOLTIP.BREADTH },
-          score: Math.max(0, Math.min(100, p200)), live: false,
-        });
-      }
-    }
-    // Universe put/call — high OI ratio = hedging/fear = risk-off. Baked only.
-    if (T.putCallOn !== false){
-      var bp = inp.putCall || {};
-      var pc = n(bp.oiRatio);
-      if (pc != null){
-        var hiPC = thr(T.putCallHi, 1.20), loPC = thr(T.putCallLo, 0.85), vhiPC = thr(T.putCallVhi, 1.45);
-        var pcSc;
-        if (pc <= loPC) pcSc = 80;
-        else if (pc >= vhiPC) pcSc = 10;
-        else if (pc >= hiPC) pcSc = 30 - ((pc - hiPC) / (vhiPC - hiPC)) * 20;
-        else pcSc = 80 - ((pc - loPC) / (hiPC - loPC)) * 50;
-        var volPC = n(bp.volRatio);
-        out.push({
-          cfg: { sym:'PUTCALL', group:'Breadth & credit' },
-          m: { name:'Put / call (universe)', chPct:null, _moveStr: 'OI ' + pc.toFixed(2), _lvlStr: (volPC != null ? 'vol ' + volPC.toFixed(2) : ''), asOf: null, lead: BAROMETER_TOOLTIP.PUTCALL },
-          score: Math.max(0, Math.min(100, Math.round(pcSc))), live: false,
-        });
-      }
-    }
-    // HY credit — live HYG/LQD 1d ratio move (macro-live hyg/lqd), else baked; OAS
-    // level in the sub-label. Falling ratio = HY underperforming = risk-off.
-    if (T.creditOn !== false){
-      var bc = inp.credit || {}, lh = legs && legs.hyg, ll = legs && legs.lqd;
-      var livec = !!(lh && ll && n(lh.pctChange1d) != null && n(ll.pctChange1d) != null);
-      var r1c = livec ? (n(lh.pctChange1d) - n(ll.pctChange1d)) : n(bc.hygLqdChg1d);
-      var oasc = n(bc.oas);
-      if (r1c != null || oasc != null){
-        out.push({
-          cfg: { sym:'CREDIT', group:'Breadth & credit' },
-          m: { name:'HY credit (HYG/LQD)', chPct:null, _moveStr: (r1c != null ? sgn(r1c,2,'%') : '—'), _lvlStr: (oasc != null ? 'OAS ' + oasc.toFixed(2) + '%' : ''), asOf: bc.asOf || null, lead: BAROMETER_TOOLTIP.CREDIT },
-          score: (r1c != null ? railFromMove(r1c, thr(T.creditRatio5d, 1.0), 1) : 50), live: livec,
-        });
-      }
-    }
-    return out;
-  }
-  function renderRiskBarometer(){
+  function renderRiskBarometer(currentRegime){
     var host = document.getElementById('picks-barometer');
     if (!host) return;
-    // Self-sufficient: pull the cross-asset file (shared with the Overnight tab)
-    // on first paint if it isn't already loading/loaded.
-    if (!overnightState.data && !overnightState.loading && typeof loadOvernight === 'function') loadOvernight();
-    var d = overnightState.data;
-    if (!d || !d.markets || !Object.keys(d.markets).length){
-      if (overnightState.loading){
-        host.hidden = false;
-        host.innerHTML = '<div class="rob-card"><div class="rob-loading">Loading cross-asset risk read…</div></div>';
-      } else {
-        host.hidden = true; host.innerHTML = '';
-      }
-      return;
-    }
-    var liveMkts = barometerLive.markets || null;
-    var rows = [];
-    for (var i = 0; i < BAROMETER_ASSETS.length; i++){
-      var cfg = BAROMETER_ASSETS[i];
-      var base = d.markets[cfg.sym];
-      if (!base) continue;
-      var m = (liveMkts && liveMkts[cfg.sym]) ? barometerApplyLive(base, liveMkts[cfg.sym]) : base;
-      var sc = barometerScore(cfg, m);
-      if (sc == null) continue;
-      rows.push({ cfg: cfg, m: m, score: sc, live: !!m._live });
-    }
-    // Computed signals (2Y, MOVE, breadth, put/call, HY credit) — sourced from the
-    // baked regime inputs + live macro-live legs, not correlations.json.
-    var bakedRegime = marketRegimeBaked();
-    if (bakedRegime){
-      var computed = buildComputedBarometerRows(bakedRegime, macroTape.legs);
-      for (var ci = 0; ci < computed.length; ci++) if (computed[ci] && computed[ci].score != null) rows.push(computed[ci]);
-    }
-    if (!rows.length){ host.hidden = true; host.innerHTML = ''; return; }
-    // Accumulate one live 0..100 sample per fresh poll for the off-hours / cold
-    // sparklines (deduped by timestamp; only the live-overlaid legs move).
-    if (barometerLive.fetchedAt && barometerLive.fetchedAt !== barometerHistAt){
-      barometerHistAt = barometerLive.fetchedAt;
-      for (var hi = 0; hi < rows.length; hi++){
-        if (!rows[hi].live) continue;
-        var hsym = rows[hi].cfg.sym;
-        (barometerHist[hsym] = barometerHist[hsym] || []).push(rows[hi].score);
-        while (barometerHist[hsym].length > TAPE_HIST_MAX) barometerHist[hsym].shift();
-      }
-    }
-    // Composite = equal-weighted mean of ALL available asset scores (display
-    // filters/sorts below don't change the headline read).
-    var sum = 0; for (var j = 0; j < rows.length; j++) sum += rows[j].score;
-    var composite = Math.round(sum / rows.length);
-    var cBand = barometerBand(composite);
-    var open = !!riskBarometer.open;
-    var AXIS_DISPLAY = { vix:'VIX', dxy:'Dollar', yields:'Long yields', commodity:'Commodities', globalTape:'Global tape', twoY:'Front-end (2Y)', bondVol:'Bond vol (MOVE)', breadth:'Breadth', putCall:'Put / call', credit:'HY credit', rotation:'Rotation' };
-    // The drill-down drawer for one rail row.
-    function robRowDetailHtml(r, band){
-      var cfg = r.cfg, m = r.m, sym = cfg.sym;
-      var conv = BAROMETER_TOOLTIP[sym] || '';
-      var unit = cfg.metric === 'bp' ? 'bp' : '%';
-      var dir = cfg.polarity > 0 ? 'an up-move reads <b>risk-ON</b>' : 'an up-move reads <b>risk-OFF</b> (inverted gauge)';
-      var feedsKey = SYM_FEEDS_AXIS[sym] || '';
-      var feedTxt = feedsKey
-        ? 'Feeds the <b>' + (AXIS_DISPLAY[feedsKey] || feedsKey) + '</b> axis of the Market tape above.'
-        : 'Rides the rail as a standalone read — it doesn’t feed a Market-tape axis.';
-      var lvl = (m._lvlStr != null) ? m._lvlStr : ovnLevelStr(m);
-      var moveStr = (m._moveStr != null) ? m._moveStr : ovnMoveStr(m);
-      var freshTxt = r.live ? 'Refreshing live this session.' : ('Baked' + (m.asOf ? ' · ' + ovnShortDate(m.asOf) + ' close' : '') + (d.stale ? ' (last-good)' : ''));
-      var scoreTxt = cfg.scale != null ? ('<div class="rob-row-detail-row"><b>How it scores:</b> ' + dir + '; a move of ±' + cfg.scale + unit + ' pins the rail to its end.</div>') : '';
-      return (conv ? '<div class="rob-row-detail-row">' + ovnEsc(conv) + '</div>' : '') +
-        '<div class="rob-row-detail-row"><b>Risk score ' + Math.round(r.score) + '/100</b> · ' + ovnEsc(band.lbl) + (lvl ? ' · level ' + ovnEsc(lvl) : '') + ' · move ' + ovnEsc(moveStr) + '</div>' +
-        scoreTxt +
-        '<div class="rob-row-detail-row">' + feedTxt + '</div>' +
-        '<div class="rob-row-detail-row rob-row-detail-fresh">' + ovnEsc(freshTxt) + '</div>';
-    }
-    function robRowHtml(r){
-      var band = barometerBand(r.score);
-      var pct = Math.max(0, Math.min(100, r.score));
-      var tip = BAROMETER_TOOLTIP[r.cfg.sym] || (r.m.lead || '');
-      var lvl = (r.m._lvlStr != null) ? r.m._lvlStr : ovnLevelStr(r.m);
-      var sym = r.cfg.sym;
-      var liveDot = r.live ? '<span class="rob-live-dot" title="Live — refreshed this session">●</span>' : '';
-      var feeds = SYM_FEEDS_AXIS[sym] || '';
-      var isOpen = !!riskBarometer.openSym[sym];
-      // Inline sparkline of the per-session risk score — baked daily series if we
-      // have it, else the live session accumulation; only drawn with ≥3 points.
-      var spk = barometerScoreSeries(r.cfg, r.m.series);
-      if (spk.length < 3 && barometerHist[sym] && barometerHist[sym].length >= 3) spk = barometerHist[sym];
-      var sparkSvg = tapeSparkSvg(spk, { baseline: 50, min: 0, max: 100, tone: band.tone, w: 46, h: 13 });
-      var detail = isOpen ? '<div class="rob-row-detail">' + robRowDetailHtml(r, band) + '</div>' : '';
-      return '<div class="rob-row-wrap">' +
-        '<button type="button" class="rob-row' + (r.live ? ' is-live' : '') + (isOpen ? ' is-open' : '') + '" data-sym="' + sym + '" data-feeds="' + feeds + '" aria-expanded="' + (isOpen ? 'true' : 'false') + '" title="' + ovnEsc(r.m.name + (tip ? ' — ' + tip : '')) + '">' +
-          '<span class="rob-name">' + liveDot + ovnEsc(r.m.name) + '</span>' +
-          '<span class="rob-rail">' +
-            '<span class="rob-rail-track"></span>' +
-            '<span class="rob-rail-mid" aria-hidden="true"></span>' +
-            '<span class="rob-marker ' + band.cls + '" style="left:' + pct.toFixed(1) + '%" title="' + band.lbl + ' · score ' + Math.round(r.score) + '/100"></span>' +
-          '</span>' +
-          '<span class="rob-move ' + ovnMoveCls(r.m.chPct) + '">' +
-            (sparkSvg ? '<span class="rob-spark">' + sparkSvg + '</span>' : '') +
-            '<span class="rob-move-num">' + ovnEsc(r.m._moveStr != null ? r.m._moveStr : ovnMoveStr(r.m)) + '</span>' +
-            (lvl ? '<span class="rob-lvl">' + ovnEsc(lvl) + '</span>' : '') +
-          '</span>' +
-          '<span class="rob-row-chev" aria-hidden="true">' + (isOpen ? '▴' : '▾') + '</span>' +
-        '</button>' +
-        detail +
-      '</div>';
-    }
-    // Display list: live-only filter, sort (risk score vs move magnitude), and an
-    // optional group-by-asset-class. Most risk-ON at the top within each section.
-    function sortFn(a, b){
-      if (riskBarometer.sort === 'move') return Math.abs(b.score - 50) - Math.abs(a.score - 50);
-      return b.score - a.score;
-    }
-    var disp = riskBarometer.liveOnly ? rows.filter(function(r){ return r.live; }) : rows.slice();
-    var rowsHtml;
-    if (!disp.length){
-      rowsHtml = '<div class="rob-empty">No live rows right now — the US-session legs refresh during market hours. Untick “Live only” to see the baked overnight read.</div>';
-    } else if (riskBarometer.group){
-      var groupOrder = [], byGroup = {};
-      for (var gi = 0; gi < disp.length; gi++){
-        var grp = disp[gi].cfg.group || 'Other';
-        if (!byGroup[grp]){ byGroup[grp] = []; groupOrder.push(grp); }
-        byGroup[grp].push(disp[gi]);
-      }
-      rowsHtml = groupOrder.map(function(grp){
-        return '<div class="rob-group">' +
-            '<div class="rob-group-head">' + ovnEsc(grp) + '</div>' +
-            byGroup[grp].slice().sort(sortFn).map(robRowHtml).join('') +
-          '</div>';
-      }).join('');
-    } else {
-      rowsHtml = disp.slice().sort(sortFn).map(robRowHtml).join('');
-    }
-    var staleTxt = d.stale ? 'last-good · ' : '';
-    // Freshest session across the barometer's own rows (independent of whether
-    // the Overnight tab has been opened, which is what sets ovnMaxAsOf).
-    var maxAsOf = null;
-    for (var k = 0; k < rows.length; k++){ var ao = rows[k].m.asOf; if (ao && (!maxAsOf || ao > maxAsOf)) maxAsOf = ao; }
-    var asOf = maxAsOf ? ('session ' + ovnShortDate(maxAsOf)) : 'last build';
-    // Any live row flips the header to a live stamp; the closed cash indices
-    // stay on their baked overnight read either way.
-    var anyLive = false;
-    for (var li = 0; li < rows.length; li++){ if (rows[li].live){ anyLive = true; break; } }
-    var asofHtml = anyLive
-      ? '<span class="rob-asof is-live"><span class="rob-asof-dot">●</span> live' + (barometerLive.fetchedAt ? ' · ' + ovnEsc(fmtTapeTime(barometerLive.fetchedAt)) : '') + '</span>'
-      : '<span class="rob-asof">baked · ' + staleTxt + ovnEsc(asOf) + '</span>';
-    var sortVal = riskBarometer.sort === 'move' ? 'move' : 'risk';
-    var controls = '<div class="rob-controls">' +
-        '<label class="rob-ctrl">Sort' +
-          '<select class="rob-sort">' +
-            '<option value="risk"' + (sortVal === 'risk' ? ' selected' : '') + '>Risk score</option>' +
-            '<option value="move"' + (sortVal === 'move' ? ' selected' : '') + '>Move size</option>' +
-          '</select>' +
-        '</label>' +
-        '<button type="button" class="rob-group-btn" aria-pressed="' + (riskBarometer.group ? 'true' : 'false') + '">Group by class</button>' +
-        '<label class="rob-liveonly"><input type="checkbox" class="rob-liveonly-cb"' + (riskBarometer.liveOnly ? ' checked' : '') + '> Live only</label>' +
-      '</div>';
-    host.hidden = false;
-    host.innerHTML =
-      '<div class="rob-card' + (open ? ' is-open' : '') + '">' +
-        '<button type="button" class="rob-head" aria-expanded="' + (open ? 'true' : 'false') + '">' +
-          '<span class="rob-kicker">Cross-asset signals → market tape</span>' +
-          '<span class="rob-state ' + cBand.cls + '">' + composite + ' · ' + ovnEsc(cBand.lbl) + '</span>' +
-          asofHtml +
-          '<span class="rob-toggle" aria-hidden="true">' + (open ? '▾' : '▸') + '</span>' +
-        '</button>' +
-        '<div class="rob-body">' +
-          controls +
-          '<div class="rob-scale" aria-hidden="true">' +
-            '<span class="rob-scale-off">RISK-OFF</span>' +
-            '<span class="rob-scale-mid">neutral</span>' +
-            '<span class="rob-scale-on">RISK-ON</span>' +
-          '</div>' +
-          '<div class="rob-rows">' + rowsHtml + '</div>' +
-          '<p class="rob-foot">Each cross-asset signal placed on a 0–100 risk rail from its move vs the prior session — 0 = fully risk-off, 50 = neutral, 100 = fully risk-on. Inverted gauges (VIX, the dollar, gold, long yields, the 2Y, MOVE, put/call) read risk-OFF when they rise. Each row feeds the matching axis of the Market tape above, so this read also moves the regime, grades and the roster. Baked from the overnight cross-asset sweep + the build’s universe breadth / put/call read; the US-session legs (futures, FX, crude, gold, Bitcoin, VIX, long yields, the 2Y, MOVE, HY credit) refresh <b>live</b> while this tab is open (● dot) — the Asia/EU cash indices + the universe breadth / put/call stay on their last close. <b>Click a row</b> for its convention &amp; what it feeds, <b>hover</b> it to spotlight its Market-tape axis, or sort / group / filter with the controls above.</p>' +
-        '</div>' +
-      '</div>';
-    var head = host.querySelector('.rob-head');
-    if (head) head.addEventListener('click', function(){ riskBarometer.open = !riskBarometer.open; renderRiskBarometer(); });
-    var sortSel = host.querySelector('.rob-sort');
-    if (sortSel) sortSel.addEventListener('change', function(){ riskBarometer.sort = (this.value === 'move') ? 'move' : 'risk'; renderRiskBarometer(); });
-    var groupBtn = host.querySelector('.rob-group-btn');
-    if (groupBtn) groupBtn.addEventListener('click', function(){ riskBarometer.group = !riskBarometer.group; renderRiskBarometer(); });
-    var liveCb = host.querySelector('.rob-liveonly-cb');
-    if (liveCb) liveCb.addEventListener('change', function(){ riskBarometer.liveOnly = !!this.checked; renderRiskBarometer(); });
-    var rowsHost = host.querySelector('.rob-rows');
-    if (rowsHost) rowsHost.addEventListener('click', function(e){
-      var b = e.target.closest ? e.target.closest('.rob-row[data-sym]') : null;
-      if (!b) return;
-      var s = b.getAttribute('data-sym');
-      riskBarometer.openSym[s] = !riskBarometer.openSym[s];
-      renderRiskBarometer();
+    var baked = marketRegimeBaked();
+    var regime = currentRegime || (baked ? computeLiveMacroRegime(baked, macroTape.legs || {}) : null) || baked;
+    if (!regime) { host.hidden = true; host.innerHTML = ''; return; }
+    var T = baked && baked.thresholds || {};
+    var meta = macroStateMeta(regime.state, regime.fragile);
+    var all = marketAnalysis.contributions(regime, T);
+    var groups = { indexes:'Equities', breadth:'Equities', rotation:'Equities', vix:'Volatility', sentiment:'Volatility', globalTape:'Global markets',
+      dxy:'Rates & dollar', yields:'Rates & dollar', twoY:'Rates & dollar', fed:'Rates & dollar', bondVol:'Rates & dollar', inflation:'Economy',
+      commodity:'Commodities', geo:'Geopolitics', putCall:'Positioning', credit:'Credit' };
+    var rows = riskBarometer.liveOnly ? all.filter(function(r){ return r.live; }) : all.slice();
+    rows.sort(function(a,b){
+      if (a.available !== b.available) return a.available ? -1 : 1;
+      return riskBarometer.sort === 'move' ? Math.abs(b.contribution || 0) - Math.abs(a.contribution || 0) : (b.contribution || 0) - (a.contribution || 0);
     });
+    function rowHtml(row){
+      var def = TAPE_AXIS_DEFS.find(function(d){ return d.k === row.key; }) || { k:row.key, name:row.key, desc:'' };
+      var contribution = row.contribution == null ? '—' : tapeSign(row.contribution, 2, '');
+      var relation = !row.available ? 'Missing or stale' : row.score === 0 ? 'No directional vote'
+        : (regime.state === 'risk-on' ? row.score > 0 : regime.state.indexOf('risk-off') >= 0 ? row.score < 0 : false) ? 'Supports the regime'
+        : regime.state === 'neutral' || regime.state === 'insufficient-data' ? 'Mixed evidence' : 'Opposes the regime';
+      var tone = row.score == null ? 'flat' : axisToneCls(row.score);
+      var opened = !!riskBarometer.openSym[row.key];
+      return '<div class="rob-row-wrap"><button type="button" class="rob-row market-evidence-row" data-sym="' + row.key + '" data-feeds="' + row.key + '" aria-expanded="' + opened + '">' +
+        '<span class="rob-name">' + escapeHtml(def.name) + '<small>' + (row.live ? 'Checked quote' : 'Snapshot') + '</small></span>' +
+        '<span class="market-evidence-reading"><b>' + escapeHtml(row.label || '') + '</b><small>' + escapeHtml(relation) + '</small></span>' +
+        '<span class="market-evidence-contribution tape-' + tone + '"><b>' + contribution + '</b><small>' + (row.available ? 'vote ' + row.score + ' × ' + row.weight : 'not counted') + '</small></span>' +
+        '<span class="rob-row-chev" aria-hidden="true">' + (opened ? '▴' : '▾') + '</span></button>' +
+        (opened ? '<div class="rob-row-detail">' + buildAxisDetail(def, regime.axes[row.key], { baked:baked, inputs:regime.inputs || baked.inputs }) + '</div>' : '') + '</div>';
+    }
+    var rowBody = rows.length ? rows.map(rowHtml).join('') : '<p class="rob-empty">No checked quote rows. Clear the filter to see snapshot and missing inputs.</p>';
+    if (riskBarometer.group && rows.length){
+      var grouped = {};
+      rows.forEach(function(row){ (grouped[groups[row.key] || 'Other'] ||= []).push(row); });
+      rowBody = Object.keys(grouped).map(function(group){ return '<div class="rob-group"><h4 class="rob-group-head">' + escapeHtml(group) + '</h4>' + grouped[group].map(rowHtml).join('') + '</div>'; }).join('');
+    }
+    var rawMarkets = overnightState.data && overnightState.data.markets || {};
+    var rawRows = BAROMETER_ASSETS.map(function(cfg){
+      var base = rawMarkets[cfg.sym];
+      if (!base) return '';
+      var leg = barometerLive.markets && barometerLive.markets[cfg.sym];
+      var m = barometerApplyLive(base, leg);
+      return '<li><b>' + escapeHtml(base.name || BAROMETER_NAME[cfg.sym] || cfg.sym) + '</b><span>' + escapeHtml(ovnMoveStr(m)) + '</span><small>' + escapeHtml(m.asOf ? ovnShortDate(m.asOf) : 'Source date unavailable') + '</small></li>';
+    }).join('');
+    var credit = (regime.inputs || baked.inputs || {}).credit;
+    var lh = marketAnalysis.liveLeg(macroTape.legs && macroTape.legs.hyg), ll = marketAnalysis.liveLeg(macroTape.legs && macroTape.legs.lqd);
+    var ratioMove = lh && ll && marketAnalysis.number(lh.pctChange1d) != null && marketAnalysis.number(ll.pctChange1d) != null
+      ? lh.pctChange1d - ll.pctChange1d : marketAnalysis.number(credit && credit.hygLqdChg1d);
+    if (ratioMove != null) rawRows += '<li><b>HYG minus LQD · 1d</b><span>' + tapeSign(ratioMove,2,'pp') + '</span><small>Relative performance; different rate durations. Not a credit-spread vote.</small></li>';
+    var active = document.activeElement;
+    var focusKey = host.contains(active) ? active.matches('.rob-sort') ? '.rob-sort' : active.matches('.rob-group-btn') ? '.rob-group-btn' : active.matches('.rob-liveonly-cb') ? '.rob-liveonly-cb' : active.hasAttribute('data-sym') ? '[data-sym="' + active.getAttribute('data-sym') + '"]' : null : null;
+    host.hidden = false;
+    host.innerHTML = '<div class="rob-card' + (riskBarometer.open ? ' is-open' : '') + '">' +
+      '<button type="button" class="rob-head" aria-expanded="' + riskBarometer.open + '"><span class="rob-kicker">Regime evidence</span><span class="rob-state">' + escapeHtml(meta.lbl) + '</span><span class="rob-asof">weighted contributions</span><span class="rob-toggle">' + (riskBarometer.open ? '▾' : '▸') + '</span></button>' +
+      '<div class="rob-body"><p class="rob-foot">These are the same votes and weights used by the regime above. Positive contributions support risk-taking; negative contributions indicate stress. Correlated votes are discounted in the confirmation counts. Missing inputs are not neutral votes.</p>' +
+      '<div class="rob-controls"><label class="rob-ctrl">Sort<select class="rob-sort"><option value="risk"' + (riskBarometer.sort === 'risk' ? ' selected' : '') + '>Contribution</option><option value="move"' + (riskBarometer.sort === 'move' ? ' selected' : '') + '>Contribution size</option></select></label><button type="button" class="rob-group-btn" aria-pressed="' + riskBarometer.group + '">Group by class</button><label class="rob-liveonly"><input type="checkbox" class="rob-liveonly-cb"' + (riskBarometer.liveOnly ? ' checked' : '') + '> Checked quotes only</label></div>' +
+      '<div class="rob-rows">' + rowBody + '</div>' +
+      '<p class="rob-foot">Weighted net stress: <b>' + tapeSign(regime.stress,1,'') + '</b>. Effective confirmations: ' + (regime.effRiskOffAxes ?? '—') + ' risk-off / ' + (regime.effRiskOnAxes ?? '—') + ' risk-on. A held defensive state can differ from the current evidence; the recovery note above explains that hold.</p>' +
+      (rawRows ? '<details class="market-raw-moves"' + (riskBarometer.rawOpen ? ' open' : '') + '><summary>Raw cross-asset moves · context only</summary><p>Observed moves do not independently label risk appetite. Oil, gold, currencies and yields need market context. Closed markets retain their last observation.</p><ul>' + rawRows + '</ul></details>' : '') + '</div></div>';
+    host.querySelector('.rob-head').onclick = function(){ riskBarometer.open = !riskBarometer.open; renderRiskBarometer(); };
+    host.querySelector('.rob-sort').onchange = function(ev){ riskBarometer.sort = ev.target.value; renderRiskBarometer(); };
+    host.querySelector('.rob-group-btn').onclick = function(){ riskBarometer.group = !riskBarometer.group; renderRiskBarometer(); };
+    host.querySelector('.rob-liveonly-cb').onchange = function(ev){ riskBarometer.liveOnly = ev.target.checked; renderRiskBarometer(); };
+    host.querySelector('.rob-rows').onclick = function(ev){ var row = ev.target.closest('[data-sym]'); if (row) { var key = row.getAttribute('data-sym'); riskBarometer.openSym[key] = !riskBarometer.openSym[key]; renderRiskBarometer(); } };
+    var rawDetails = host.querySelector('.market-raw-moves');
+    if (rawDetails) rawDetails.ontoggle = function(){ riskBarometer.rawOpen = rawDetails.open; };
+    if (focusKey) { var focusTarget = host.querySelector(focusKey); if (focusTarget) focusTarget.focus({preventScroll:true}); }
     wirePicksCrossHighlight();
   }
 
@@ -13436,6 +13252,7 @@ ${renderWorkspaceBindings()}
   // risk-off; a fragile neutral (calm surface, weak internals) gets an amber tone.
   function regimeCellMeta(d){
     if (!d) return { cls: 'is-empty', lbl: '' };
+    if (d.state === 'insufficient-data') return { cls: 'is-fragile', lbl: 'Insufficient data' };
     if (d.state === 'severe-risk-off') return { cls: 'is-severe', lbl: 'Severe risk-off' };
     if (d.state === 'risk-off') return { cls: 'is-off', lbl: 'Risk-off' };
     if (d.state === 'risk-on') return { cls: 'is-on', lbl: 'Risk-on' };
