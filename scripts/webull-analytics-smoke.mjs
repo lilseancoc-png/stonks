@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { webullAnalyticsFactory } from '../lib/webull-analytics.mjs';
 import { webullReviewFactory } from './render/webull-review-client.mjs';
 import { webullReviewFixture } from './fixtures/webull-review.mjs';
+import { ledgerToFillRows, updateQuantities } from '../lib/webull-mirror.mjs';
 
 const analytics = webullAnalyticsFactory();
 const t = (id, extra = {}) => ({ t: { tradeId: id, symbol: id, side: 'call', state: 'closed', structure: 'long', fillPrice: 2, closeFillPrice: 3, paperPnlPct: 50, fees: 1, engineEntryPrice: 2, engineExitPrice: 3.2, enginePnlPct: 60, closeFillIso: '2026-10-01T20:00:00Z', ...extra }, rec: { entrySpot: 100, exitSpot: 110, side: 'call', contract: { pop: .6 } } });
@@ -132,6 +133,41 @@ context.accView.wbState = 'open';
 assert.ok(vm.runInContext('wbRows().some(x => x.t.tradeId === "partial-exit")', context));
 vm.runInContext('renderWebullTest()', context);
 assert.match(box.innerHTML, /2\/3 filled · 1 closed · 1 open/);
+fixture.mirror.trades = [{ ...fixture.mirror.trades[1], tradeId: 'manual-only', state: 'open', entrySource: 'manual',
+  filledQty: 1, openQty: 1, entryDiffPct: 99, exitDiffPct: null, entryHow: 'first', entrySentIso: '2026-10-23T19:20:42Z', fillIso: '2026-10-23T19:20:43Z' }];
+context.accView.wbState = 'all'; context.accView.wbLens = 'engine';
+vm.runInContext('renderWebullTest()', context);
+assert.match(box.innerHTML, /Automatic entries only/);
+assert.equal(vm.runInContext('wbEntryCost(wbRows()[0].t)', context), null, 'manual entries never enter automatic slippage');
+assert.equal(summaries.at(-1)[1].find(x => x.lbl.startsWith('filled (')).val, '—', 'manual fill cannot inflate automatic fill rate');
+assert.equal(vm.runInContext('WB_ANALYTICS.analyze(wbRows()).slippage.length', context), 0);
+// Render real ledger rows through the shipped UI. Paper provenance must not
+// depend on a display label, and genuine uploaded comparisons must remain.
+const recovered = { tradeId: 'manual-closed', symbol: 'TSLA', side: 'put', structure: 'debit_vertical', state: 'closed',
+  entrySource: 'manual', requestedQty: 1, engineEntryPrice: 20.38, engineEntryIso: '2026-10-23T15:03:47Z',
+  engineExitPrice: 25, enginePnlPct: 22.7, legs: [],
+  entryAttempts: [{ quantity: 1, filledQty: 1, filledPrice: 19.25, filledIso: '2026-10-23T18:12:02Z', feeActual: .12, status: 'FILLED' }],
+  exitAttempts: [{ quantity: 1, filledQty: 1, filledPrice: 25, filledIso: '2026-10-26T19:00:00Z', feeActual: .12, status: 'FILLED' }] };
+updateQuantities(recovered);
+const paperRow = ledgerToFillRows({ trades: { [recovered.tradeId]: recovered } })[0];
+fixture.mirror.trades = [{ ...recovered, fillIso: recovered.fillIso, closeFillIso: recovered.closeFillIso }];
+context.accView.wbLens = 'performance';
+context.accView.wbSide = 'all'; context.accView.wbRange = 'all';
+for (const rows of [
+  [paperRow],
+  [{ ...paperRow, source: undefined, account: 'Webull paper' }],
+  [{ ...paperRow, source: undefined }],
+  [{ ...paperRow, source: 'webull-paper', account: 'Renamed paper account' }],
+]) {
+  context.accFills.rows = rows;
+  vm.runInContext('renderWebullTest()', context);
+  assert.doesNotMatch(box.innerHTML, /Real-money check:/, 'paper fills must never be presented as uploaded real-money evidence');
+}
+context.accFills.rows = [paperRow, { ...paperRow, source: 'upload', account: 'Robinhood', your_pnl_pct: 12 }];
+vm.runInContext('renderWebullTest()', context);
+assert.match(box.innerHTML, /Real-money check: your uploaded Robinhood fills/);
+assert.match(box.innerHTML, /\(1 trade\) averaged/);
+assert.match(box.innerHTML, /12\.0%/);
 fixture.mirror.trades = []; vm.runInContext('renderWebullTest()', context); assert.match(box.innerHTML, /No mirrored trades yet/);
 context.wbTest.error = 'off'; vm.runInContext('renderWebullTest()', context); assert.match(box.innerHTML, /Retry loading trades/);
 const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');

@@ -12,7 +12,7 @@ import {
 } from "../lib/webull-mirror.mjs";
 import { parsePositions, reconcilePositions } from "../lib/webull-reconciliation.mjs";
 import { expiryControl, sessionForDate, previousTradingDate } from "../lib/us-equity-calendar.mjs";
-import { withObjectLease } from "../lib/object-lease.mjs";
+import { withObjectLease, describeObjectLease } from "../lib/object-lease.mjs";
 import { pickTradeId } from "../lib/pick-trade-text.mjs";
 
 let pass = 0, fail = 0;
@@ -609,7 +609,41 @@ ok("tick: nickel after a rejection", Math.abs(roundTick(1.23, { nickel: true }) 
   });
   ok("lease: stale owner release cannot erase successor", value.owner === "successor" && value.expiresAt === 999999);
   value = { owner: "broken" }; etag = String(++sequence);
-  ok("lease: corrupt expiry fails closed", (await withObjectLease(options, async () => { throw new Error("must not run"); })).busy);
+  let invalidCode;
+  try { await withObjectLease(options, async () => { throw new Error("must not run"); }); }
+  catch (err) { invalidCode = err.code; }
+  ok("lease: corrupt expiry fails closed with a specific error", invalidCode === "LEASE_INVALID");
+  ok("lease: Owner diagnostics omit ownership tokens", !JSON.stringify(describeObjectLease({ value, etag }, time)).includes("broken"));
+  value = { owner: "expired", expiresAt: time - 1 }; etag = String(++sequence);
+  let conflicts = 0;
+  const raced = await withObjectLease({ ...options, write: async (next, match) => {
+    if (conflicts++ === 0) { etag = String(++sequence); return null; }
+    return options.write(next, match);
+  } }, async () => "recovered");
+  ok("lease: re-reads and acquires after a conditional-write race", raced.result === "recovered");
+  let conflictCode;
+  try { await withObjectLease({ ...options, write: async () => null }, async () => { throw new Error("must not run"); }); }
+  catch (err) { conflictCode = err.code; }
+  ok("lease: repeated conflicts report a fault, not an active writer", conflictCode === "LEASE_CONFLICT");
+}
+
+{
+  // Recovery after a manual TSLA entry must neither buy it again nor invent
+  // a fill from a holdings snapshot. Exercise the actual mirror runner.
+  const e = { symbol: "TSLA", side: "put", entryDate: "2026-10-23T15:03:00Z", contract: {
+    structure: "debit_vertical", expiry: EXP, netDebit: 20.38,
+    legs: [{ qty: 1, type: "put", strike: 390, expiry: EXP }, { qty: -1, type: "put", strike: 345, expiry: EXP }],
+  } };
+  const wb = fakeWebull();
+  wb.positions = async () => [
+    { instrument_type: "OPTION", symbol: "TSLA261218P00390000", quantity: "1", position_side: "LONG" },
+    { instrument_type: "OPTION", symbol: "TSLA261218P00345000", quantity: "1", position_side: "SHORT" },
+  ];
+  const nowMs = Date.parse("2026-10-23T19:00:00Z"), id = pickTradeId(e);
+  const ledger = { ...emptyLedger(), goLiveIso: "2026-10-21T19:04:00Z", positionBaseline: { options: {}, equities: {} } };
+  const result = await runWebullMirror({ client: wb, accountId: "PAPER1", acc: accWith([e], [], e.entryDate), ledger, nowMs });
+  ok("manual TSLA: existing spread blocks duplicate submission", result.summary.placed === 0 && wb.placed.length === 0 && result.ledger.reconciliation.status === "attention");
+  ok("manual TSLA: holdings do not fabricate execution data", result.ledger.trades[id].filledQty === 0 && result.ledger.trades[id].fillPrice == null);
 }
 
 
