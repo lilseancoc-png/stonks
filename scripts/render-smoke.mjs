@@ -235,7 +235,11 @@ try {
   assert.match(html, /How to use this fundamentals-first rebound desk[\s\S]*?Quality Recovery Shortlist/);
   const regenStaticSource = await readFile(resolve(process.cwd(), "scripts", "regen-static.mjs"), "utf8");
   assert.match(regenStaticSource, /symbols = \[\.\.\.TICKERS\]\.sort\(\)/, "renderer-only regeneration must ship TICKERS and must not restore a name removed from the source universe");
-  assert.match(appJs, /var OWNER_TABS = \{ market:1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, 'open-picks':1, track:1, quant:1 \}/);
+  assert.match(appJs, /var OWNER_TABS = \{ market:1, 'bottom-tracker':1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, 'open-picks':1, track:1, quant:1 \}/);
+  const ownerNav = html.match(/data-role-group="owner"[\s\S]*?<\/details>/)?.[0] || "";
+  assert.match(ownerNav, /data-page-tab="bottom-tracker"/);
+  const macroNav = html.match(/data-nav-group="macro"[\s\S]*?<\/details>/)?.[0] || "";
+  assert.doesNotMatch(macroNav, /bottom-tracker/);
   assert.match(appJs, /name === 'open-picks' && HAS_TRACK_RECORD && typeof loadOpenPicks === 'function'/);
   assert.match(appJs, /root\.innerHTML = openPicksControlsHtml\(opSort\) \+ accOpenGroupHtml\(open, opSort, /);
   assert.doesNotMatch(appJs, /day-trading\.json|day-trading-history\.json|loadDayTrading/);
@@ -359,7 +363,7 @@ try {
     assert.equal(isPremiumKey(key), false, `${key} must take the public cache path`);
     assert.equal(roleClaimForKey(key), null, `${key} must not require a login`);
   }
-  for (const key of ["market-analysis.json", "picks.json", "picks-open.json", "picks-0dte.json", "picks-0dte-accuracy.json", "auto-picks.json", "stock-picks.json", "sector-rotation.json", "sector-rotation-log.json", "leveraged-etfs.json", "leveraged-etfs-log.json", "picks-accuracy.json", "leaps-paper.json", "picks-changes.json", "picks-roster.json", "grades-history.json", "quant.json", "quant-history.json", "day-trading.json", "day-trading-history.json", "day-trades.json", "day-trades-history.json", "picks-watchlist.json", "ai-usage.json"]) {
+  for (const key of ["market-analysis.json", "bottom-tracker.json", "picks.json", "picks-open.json", "picks-0dte.json", "picks-0dte-accuracy.json", "auto-picks.json", "stock-picks.json", "sector-rotation.json", "sector-rotation-log.json", "leveraged-etfs.json", "leveraged-etfs-log.json", "picks-accuracy.json", "leaps-paper.json", "picks-changes.json", "picks-roster.json", "grades-history.json", "quant.json", "quant-history.json", "day-trading.json", "day-trading-history.json", "day-trades.json", "day-trades-history.json", "picks-watchlist.json", "ai-usage.json"]) {
     assert.equal(isPremiumKey(key), true);
     assert.deepEqual(roleClaimForKey(key), ["tr", "tp"], `${key} must require both Owner claims`);
   }

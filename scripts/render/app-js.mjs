@@ -93,7 +93,7 @@ ${scenarioEventPhase.toString()}
   // the Owner analysis/idea/record desks and Owner Lab; this UI boundary keeps
   // destinations hidden until the owner session's compatibility claims resolve.
   // Discord mints both only after verifying the existing Top Picks owner role.
-  var OWNER_TABS = { market:1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, 'open-picks':1, track:1, quant:1 };
+  var OWNER_TABS = { market:1, 'bottom-tracker':1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, 'open-picks':1, track:1, quant:1 };
   var GATE_ON = false;
   var HAS_TRACK_RECORD = false;
   var HAS_TOP_PICKS = false;
@@ -3643,7 +3643,7 @@ ${scenarioEventPhase.toString()}
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','ipo-credit','open-picks','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','ipo-credit','bottom-tracker','open-picks','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3663,6 +3663,7 @@ ${scenarioEventPhase.toString()}
     commodity: 'commodities', 'commodity-prices': 'commodities', cocoa: 'commodities', coffee: 'commodities', cotton: 'commodities', lumber: 'commodities', sugar: 'commodities', lithium: 'commodities', potash: 'commodities', freight: 'commodities', bdi: 'commodities', 'baltic-dry': 'commodities', manheim: 'commodities', 'used-vehicles': 'commodities',
     'capital-raises': 'capital-raises', raises: 'capital-raises', issuance: 'capital-raises', debt: 'capital-raises', bonds2: 'capital-raises',
     'ipo-credit': 'ipo-credit', ipos: 'ipo-credit', ipo: 'ipo-credit', credit: 'ipo-credit', 'credit-card': 'ipo-credit', 'credit-cards': 'ipo-credit', deposits: 'ipo-credit', revolsl: 'ipo-credit', 'household-debt': 'ipo-credit',
+    bottom: 'bottom-tracker', bottoms: 'bottom-tracker', 'bottom-tracker': 'bottom-tracker', 'market-bottom': 'bottom-tracker',
     pick: 'picks', 'top-picks': 'picks', toppicks: 'picks',
     open: 'open-picks', 'open-pick': 'open-picks', openpicks: 'open-picks', 'open-trades': 'open-picks', positions: 'open-picks',
     'stock-picks': 'stocks', stockpicks: 'stocks', stock: 'stocks', shares: 'stocks',
@@ -4107,6 +4108,7 @@ ${renderWorkspaceBindings()}
         if (name === 'capital-raises' && typeof loadCapitalRaises === 'function') loadCapitalRaises();
         if (name === 'pending-buyouts' && typeof loadPendingBuyouts === 'function') loadPendingBuyouts();
         if (name === 'ipo-credit' && typeof loadIpoCredit === 'function') loadIpoCredit();
+        if (name === 'bottom-tracker' && typeof loadBottomTracker === 'function') loadBottomTracker();
         if (name === 'iv-trend' && typeof loadIvTrend === 'function') loadIvTrend();
         if (name === 'spillover' && typeof loadSpillover === 'function') loadSpillover();
         if (name === 'quant' && typeof loadQuant === 'function') loadQuant();
@@ -21230,6 +21232,143 @@ ${renderWorkspaceBindings()}
       (movers.length ? '<div class="cmd-driver-grid">' + movers.map(cmdDriverCard).join('') + '</div>' : '') +
       actions +
       '<p class="cmd-desk-note">Each sleeve highlights its largest current decision-horizon move. Direction can mean cost pressure, cost relief, pricing power, or demand — read the impact label before using the ticker handoff.</p></section>';
+  }
+  var bottomTrackerState = { data: null, loading: false, fetchedAt: 0 };
+  function btmTone(state){
+    if (state === 'pass' || state === 'easing' || state === 'narrowing' || state === 'improving' || state === 'holding' || state === 'higher-low' || state === 'normalized' || state === 'reset' || state === 'slowing' || state === 'stabilizing' || state === 'compressing') return 'ok';
+    if (state === 'partial' || state === 'elevated' || state === 'in-between' || state === 'mixed' || state === 'flat' || state === 'calm' || state === 'lifted') return 'mid';
+    if (state === 'fail' || state === 'widening' || state === 'deteriorating' || state === 'accelerating' || state === 'expensive' || state === 'still-stressed' || state === 'downtrend') return 'bad';
+    return 'na';
+  }
+  function btmVerdictTone(verdict){
+    if (verdict === 'confirmed' || verdict === 'emerging') return 'ok';
+    if (verdict === 'potential' || verdict === 'slowing') return 'mid';
+    if (verdict === 'stress') return 'bad';
+    return 'na';
+  }
+  function btmSpark(values){
+    if (!values || values.length < 2) return '';
+    var min = Infinity, max = -Infinity, i;
+    for (i = 0; i < values.length; i++){
+      if (values[i] < min) min = values[i];
+      if (values[i] > max) max = values[i];
+    }
+    var span = max - min || 1, w = 168, h = 36, pts = [];
+    for (i = 0; i < values.length; i++){
+      pts.push(((i / (values.length - 1)) * w).toFixed(1) + ',' + (h - ((values[i] - min) / span) * (h - 4) - 2).toFixed(1));
+    }
+    return '<svg class="btm-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" aria-hidden="true"><polyline fill="none" points="' + pts.join(' ') + '"/></svg>';
+  }
+  function btmRate(value){
+    if (value == null || !isFinite(value)) return '—';
+    return Math.round(value * 100) + '%';
+  }
+  function btmReturn(value){
+    if (value == null || !isFinite(value)) return '—';
+    return (value > 0 ? '+' : '') + Number(value).toFixed(1) + '%';
+  }
+  function loadBottomTracker(){
+    if (!HAS_OWNER_ACCESS) return;
+    if ((bottomTrackerState.data && !tabDataStale(bottomTrackerState)) || bottomTrackerState.loading){ renderBottomTracker(); return; }
+    bottomTrackerState.loading = true;
+    fetch(dataUrl('bottom-tracker.json'), { cache: 'no-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){
+        bottomTrackerState.data = (j && typeof j === 'object') ? j : {};
+        bottomTrackerState.loading = false;
+        bottomTrackerState.fetchedAt = Date.now();
+        renderBottomTracker();
+      })
+      .catch(function(){ bottomTrackerState.data = { loadError: true }; bottomTrackerState.loading = false; renderBottomTracker(); });
+  }
+  function renderBottomTracker(){
+    var root = $('bottom-tracker-root');
+    var eye = $('bottom-tracker-eyebrow');
+    if (!root) return;
+    var d = bottomTrackerState.data;
+    if (!d){ root.textContent = 'Loading bottom tracker…'; return; }
+    if (d.loadError || !d.verdict){
+      if (eye) eye.textContent = 'Unavailable';
+      root.innerHTML = '<p class="btm-empty">' + (d.loadError ? 'The bottom tracker could not be loaded. A missing file is not an all-clear.' : 'The bottom tracker appears after the next daily build.') + '</p>';
+      return;
+    }
+    if (eye) eye.textContent = (d.asOf ? 'As of ' + d.asOf : 'Latest build');
+    var tone = btmVerdictTone(d.verdict);
+    var persist = d.persistence || {};
+    var persistText = persist.first
+      ? 'This is the first saved reading. Each input already uses a 20- to 90-session window, and this verdict has not been compared with an earlier session yet.'
+      : 'This verdict matches ' + persist.same + ' of the previous ' + persist.prior + ' saved sessions.';
+    var missing = (d.missing && d.missing.length) ? '<p class="btm-missing">Still missing: ' + d.missing.map(escapeHtml).join(', ') + '.</p>' : '';
+    var blocks = (d.blocks || []).map(function(line){ return '<li>' + escapeHtml(line) + '</li>'; }).join('');
+    var blockHtml = blocks ? '<ul class="btm-blocks">' + blocks + '</ul>' : '';
+    var html = '<section class="btm-verdict btm-' + tone + '"><p class="btm-kicker">' + escapeHtml(d.title || '') + '</p><p>' + escapeHtml(d.summary || '') + '</p>' + blockHtml + missing + '<p class="btm-persist">' + escapeHtml(persistText) + '</p></section>';
+    if (d.cancels && d.cancels.length && d.verdict !== 'no-drawdown' && d.verdict !== 'pullback' && d.verdict !== 'unavailable'){
+      html += '<section class="btm-cancels"><h3>What would say this is not the bottom</h3><ul>';
+      d.cancels.forEach(function(item){
+        html += '<li class="' + (item.on ? 'is-on' : 'is-off') + '"><b>' + escapeHtml(item.label) + '</b><span>' + (item.on ? 'This cancels it' : 'Not happening') + '</span><p>' + escapeHtml(item.detail || '') + '</p></li>';
+      });
+      html += '</ul></section>';
+    }
+    html += '<p class="btm-disclaimer">No combination of these signs proves the final low. The history below is the false-positive record for the series that have one. It is not a trading model.</p>';
+    html += '<div class="btm-rules">';
+    (d.rule || []).forEach(function(row){
+      var needs = (row.needs || []).map(function(need){
+        return '<li class="' + (need.pass ? 'is-in' : 'is-out') + '">' + escapeHtml(need.label) + '</li>';
+      }).join('');
+      html += '<article class="btm-rule' + (row.pass ? ' is-pass' : '') + (row.id === d.verdict ? ' is-current' : '') + '"><h3>' + escapeHtml(row.title) + (row.id === d.verdict ? '<em>This reading</em>' : '') + '</h3><p>' + escapeHtml(row.detail) + '</p><ul>' + needs + '</ul></article>';
+    });
+    html += '</div>';
+    var phases = [
+      ['early', 'Early bottoming', 'The damage stops accelerating.'],
+      ['stabilize', 'Market stabilization', 'Investors start pricing a less severe future.'],
+      ['confirm', 'Recovery confirmation', 'A sustained uptrend is more credible.']
+    ];
+    html += '<div class="btm-phases">';
+    phases.forEach(function(phase){
+      var items = (d.bullets || []).filter(function(bullet){ return bullet.phase === phase[0]; });
+      html += '<section class="btm-phase"><h3>' + phase[1] + '</h3><p>' + phase[2] + '</p><ul>';
+      items.forEach(function(bullet){
+        html += '<li class="btm-bullet btm-' + btmTone(bullet.state) + '"><b>' + escapeHtml(bullet.label) + '</b><span>' + escapeHtml(bullet.state === 'pass' ? 'In place' : bullet.state === 'partial' ? 'Partial' : bullet.state === 'fail' ? 'Not in place' : 'Not scored') + '</span></li>';
+      });
+      html += '</ul></section>';
+    });
+    html += '</div><div class="btm-cards">';
+    (d.indicators || []).forEach(function(card){
+      var facts = (card.facts || []).map(function(fact){
+        return '<li><span>' + escapeHtml(fact.label) + '</span><b>' + escapeHtml(fact.value) + '</b></li>';
+      }).join('');
+      var spark = '';
+      if (card.id === 'price' && d.spark && d.spark.spy) spark = btmSpark(d.spark.spy);
+      if (card.id === 'credit' && d.spark && d.spark.hy) spark = btmSpark(d.spark.hy);
+      html += '<article class="btm-card btm-' + btmTone(card.state) + '"><header><span>' + escapeHtml(card.phase || '') + '</span><h3>' + escapeHtml(card.title || '') + '</h3><em>' + escapeHtml(card.stateLabel || '') + '</em></header>' + spark + '<p>' + escapeHtml(card.summary || '') + '</p>' + (facts ? '<ul class="btm-facts">' + facts + '</ul>' : '') + '<small>' + escapeHtml(card.source || '') + '</small></article>';
+    });
+    html += '</div>';
+    var bt = d.backtest || {};
+    html += '<section class="btm-backtest"><h3>Signal history</h3>';
+    if (bt.status !== 'ok'){
+      html += '<p>' + escapeHtml(bt.note || 'There is not enough SPY history yet to count false positives.') + '</p>';
+    } else {
+      html += '<p>Sample ' + escapeHtml(bt.from || '') + ' to ' + escapeHtml(bt.to || '') + ', checked every fifth session (' + bt.weeks + ' weeks). A typical week in that sample returned ' + btmReturn(bt.baseline63) + ' over the next 63 sessions and ' + btmReturn(bt.baseline126) + ' over 126. ' + escapeHtml(bt.note || '') + '</p>';
+      html += '<div class="btm-table-wrap"><table class="btm-table" data-nosort><thead><tr><th>Signal</th><th>Times</th><th>Then fell 5%</th><th>Near the low</th><th>Next 63 sessions</th><th>Next 126 sessions</th></tr></thead><tbody>';
+      (bt.signals || []).forEach(function(row){
+        var open = row.episodes > 0 && !row.resolved;
+        var rate = function(value){ return open ? 'Open' : btmRate(value); };
+        var ret = function(value){ return open ? 'Open' : btmReturn(value); };
+        html += '<tr><td>' + escapeHtml(row.label) + (row.thin ? ' <em>thin sample</em>' : '') + '</td><td>' + row.episodes + '</td><td>' + rate(row.falsePositiveRate) + '</td><td>' + rate(row.timelyRate) + '</td><td>' + ret(row.median63) + '</td><td>' + ret(row.median126) + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+      if (bt.recent && bt.recent.length){
+        html += '<h4>Latest episodes</h4><ul class="btm-recent">';
+        bt.recent.forEach(function(row){
+          var flag = row.unresolved ? 'window not finished' : (row.falsePositive ? 'price then fell at least 5%' : 'no 5% undershoot in 63 sessions');
+          html += '<li><b>' + escapeHtml(row.date) + '</b> ' + escapeHtml(row.label) + ' · next 63 sessions ' + btmReturn(row.forward63) + ' · ' + flag + (row.timely ? ' · close to a 15% trough' : '') + '</li>';
+        });
+        html += '</ul>';
+      }
+    }
+    html += '</section>';
+    if (d.method) html += '<details class="btm-method"><summary>How the bars are set</summary><p>' + escapeHtml(d.method) + '</p></details>';
+    root.innerHTML = html;
   }
   function loadCommodities(){
     if ((commoditiesState.data && !tabDataStale(commoditiesState)) || commoditiesState.loading){ renderCommodities(); return; }
@@ -41069,6 +41208,7 @@ ${renderWorkspaceBindings()}
       ['commodities', 'Commodities'],
       ['capital-raises', 'Capital raises'],
       ['ipo-credit', 'IPOs & credit'],
+      ['bottom-tracker', 'Bottom tracker'],
       ['ai-capex', 'AI CapEx'],
       ['ram-prices', 'RAM prices'],
       ['accelerator-prices', 'GPU cloud prices'],

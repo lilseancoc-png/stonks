@@ -74,6 +74,7 @@ const SIDE_NAV_ICONS = {
   'search-interest': '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/><path d="M7.5 12.5 10 10l2 1.8 3-4"/>',
   'capital-raises': '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/>',
   'ipo-credit': '<path d="M12 2.5c2.5 2 3.5 5 3.5 8l-1.5 3h-4L8.5 10.5c0-3 1-6 3.5-8z"/><path d="M10 13.5 8 18l2.5-1.5L12 19l1.5-2.5L16 18l-2-4.5"/><circle cx="12" cy="8.5" r="1.5"/>',
+  'bottom-tracker': '<path d="M3 16.5c2.2 0 3.2-7 5.5-7s2.8 8 5.2 8 2.6-6 4.8-6 2.5 3 2.5 3"/><path d="M3 20h18"/>',
   commodities: '<path d="M3 20.5c0-6 3.5-9.5 9-9.5s9 3.5 9 9.5"/><path d="M12 11V3.5"/><path d="M12 3.5c2.5 0 4.5 1.5 5 3.5-2.5.5-4.5-.5-5-3.5zM12 3.5c-2.5 0-4.5 1.5-5 3.5 2.5.5 4.5-.5 5-3.5z"/>',
   f13: '<path d="M14 2.5H6.5A1.5 1.5 0 0 0 5 4v16a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 20V7.5z"/><path d="M14 2.5v5h5"/><path d="M9 13h6M9 17h6"/>',
   grade: '<circle cx="12" cy="8.5" r="5.5"/><path d="m8.8 13.2-1.3 8 4.5-2.7 4.5 2.7-1.3-8"/>',
@@ -791,6 +792,17 @@ function ipoCreditSection() {
   </section>`;
 }
 
+function bottomTrackerSection() {
+  return `<section class="card" id="bottom-tracker-section">
+    <header class="card-header">
+      <h2 class="card-title">Bottom tracker</h2>
+      <span class="card-eyebrow" id="bottom-tracker-eyebrow" aria-live="polite"></span>
+    </header>
+    ${infoNote('How this read is staged', `<p>A 10% drop from the three-year high only opens the checklist. It is not a bottom. <b>Damage slowing</b> means the catalyst is easing, both credit spreads have stopped widening, and earnings downgrades are less severe. Price can still fall. <b>A bottom may be forming</b> only after both spreads have started narrowing, funding stress is not rising, and SPY and QQQ are at least 3% off the decline low with that low at least 10 sessions old. A close back under either low cancels it.</p><p>An <b>emerging recovery</b> keeps that forming evidence, adds broader participation and a higher low, and requires a forming read on a recent session. <b>Stronger confirmation</b> adds a 200-day hold, improving earnings forecasts, and stable credit, after the prior recent read was already an emerging recovery. Liquidity and valuation are shown. One missing credit series does not pass. No combination proves the final low.</p>`)}
+    <div id="bottom-tracker-root" class="btm-root">Loading bottom tracker&hellip;</div>
+  </section>`;
+}
+
 function pendingBuyoutsSection() {
   return `<section class="card" id="pending-buyouts-section">
     <header class="card-header">
@@ -918,7 +930,7 @@ function buildTimelineSection() {
     <p class="hint">A scheduled start is not a guaranteed publish minute: GitHub runner queues, source latency and validation time vary. A service is live only when its own tab shows the new timestamp. Failed or incomplete runs publish nothing, so the prior coherent snapshot remains visible. The header&rsquo;s time-zone setting converts actual build, scan and headline timestamps; market-session rules stay labeled in ET.</p>
     <div class="refresh-schedule-grid">
       <article class="refresh-schedule-card is-lead"><span>08:30 ET</span><h3>Premarket Brief</h3><p>The lightweight Brief run starts one hour before the bell and refreshes overnight markets, Fear &amp; Greed, macro releases and headlines, then checks every current public evidence desk for material standouts. It becomes live immediately after freshness verification and the private-store push; confirm the timestamp in Brief.</p><em>Brief only &middot; no full chain build</em></article>
-      <article class="refresh-schedule-card"><span>10:00, 11:00, 13:30, 15:30 &amp; 16:10 ET</span><h3>Full market build</h3><p>Refreshes ticker chains and daily/intraday bars, grades, technicals, narratives, calendars, Pending Buyouts, MA Tracker, earnings, Market Analysis and Quant Lab. The 16:10 run captures the completed close.</p><em>Five evidence windows &middot; no unreliable 09:30 auction build</em></article>
+      <article class="refresh-schedule-card"><span>10:00, 11:00, 13:30, 15:30 &amp; 16:10 ET</span><h3>Full market build</h3><p>Refreshes ticker chains and daily/intraday bars, grades, technicals, narratives, calendars, Pending Buyouts, MA Tracker, the Bottom tracker, earnings, Market Analysis and Quant Lab. The 16:10 run captures the completed close.</p><em>Five evidence windows &middot; no unreliable 09:30 auction build</em></article>
       <article class="refresh-schedule-card"><span>11:00 &amp; 15:30 ET</span><h3>Swing decision desks</h3><p>Runs Top Picks, LEAPS scores, Stock Picks, Sector Rotation and Leveraged ETFs. Chart vision runs at 11:00 only. Other full builds carry the last coherent decisions and ledgers unchanged.</p><em>Twice per market day &middot; aligned evidence</em></article>
       <article class="refresh-schedule-card"><span>Hourly 09:00&ndash;16:00 ET</span><h3>Flow, Volume &amp; Heatmap</h3><p>Re-scans unusual options flow and intraday volume/S&amp;R breaks, then refreshes heatmap price/change fields. The post-close pass may also publish the sector EOD recap.</p><em>One serialized scan &middot; no partial publish</em></article>
       <article class="refresh-schedule-card"><span>~08:30 and ~17:00 ET</span><h3>Near-term OI</h3><p>The morning pass publishes settled T+1 OI and day-over-day changes. The evening pass adds completed-session volume and Vol/OI positioning; today&rsquo;s net OI does not publish until the next morning.</p><em>Two different evidence windows</em></article>
@@ -1990,6 +2002,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <summary class="side-nav-group-label">Owner</summary>
     <div class="side-nav-group-items">
       ${sideNavItem('market', 'Market analysis')}
+      ${sideNavItem('bottom-tracker', 'Bottom tracker')}
       ${sideNavItem('picks', 'Top picks')}
       ${sideNavItem('leaps', 'LEAPS')}
       ${sideNavItem('stocks', 'Stock picks')}
@@ -2704,6 +2717,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-ipo-credit" role="tabpanel" aria-labelledby="page-tab-ipo-credit" hidden>
   ${ipoCreditSection()}
+  </div>
+  <div class="page-pane" id="page-pane-bottom-tracker" role="tabpanel" aria-labelledby="page-tab-bottom-tracker" hidden>
+  ${bottomTrackerSection()}
   </div>
   <div class="page-pane" id="page-pane-f13" role="tabpanel" aria-labelledby="page-tab-f13" hidden>
   ${f13Section()}

@@ -68,6 +68,7 @@ import {
   mergeDailyCloses,
   needsLongIndexFetch,
 } from "../lib/pattern-recognition.mjs";
+import { buildBottomTracker } from "../lib/bottom-tracker.mjs";
 import { withYahooTimeout } from "../lib/yahoo.mjs";
 import { attachLeapsExpirations, leapsExtraFetchEnabled } from "../lib/leaps-expirations.mjs";
 import {
@@ -2440,6 +2441,23 @@ async function fetchFundamentals(symbol) {
     recommendationKey: fd.recommendationKey || null,
     numberOfAnalystOpinions: num(fd.numberOfAnalystOpinions),
     analystRevisions,
+    // Fiscal-year EPS estimate versus 30 and 90 days ago. The bottom tracker
+    // aggregates this across covered stocks. Rating changes stay on
+    // analystRevisions; this is the estimate revision, and a missing side
+    // stays null instead of being treated as flat.
+    fyEpsRevision: (() => {
+      const trend = ty?.epsTrend || {};
+      const current = num(trend.current);
+      const ago30 = num(trend["30daysAgo"]);
+      const ago90 = num(trend["90daysAgo"]);
+      const pct = (now, ago) => (now != null && ago != null && Math.abs(ago) >= 0.05)
+        ? Math.round(((now - ago) / Math.abs(ago)) * 10000) / 100
+        : null;
+      const pct30 = pct(current, ago30);
+      const pct90 = pct(current, ago90);
+      if (pct30 == null || pct90 == null) return null;
+      return { period: "0y", pct30, pct90 };
+    })(),
     lastQuarter,
     earningsHistory: earningsHistory.slice(-8),
     revenueHistory,
@@ -11679,6 +11697,92 @@ export function buildCommoditiesPayload({ fetched = {}, overlays = {}, prior = n
 
 async function readPriorCommodities() {
   try { return JSON.parse(await readFile(resolve(DATA_DIR, "commodities.json"), "utf8")); } catch { return null; }
+}
+
+async function readPriorBottomTracker() {
+  try { return JSON.parse(await readFile(resolve(DATA_DIR, "bottom-tracker.json"), "utf8")); } catch { return null; }
+}
+
+function closesForBottom(chain) {
+  const rows = [];
+  if (Array.isArray(chain?._bars) && chain._bars.length) {
+    for (const bar of chain._bars) rows.push({ t: bar?.t, c: bar?.c });
+  } else if (chain?.priceSeries?.t && chain?.priceSeries?.c) {
+    for (let i = 0; i < chain.priceSeries.t.length; i++) rows.push({ t: chain.priceSeries.t[i], c: chain.priceSeries.c[i] });
+  }
+  return mergeDailyCloses(rows);
+}
+
+async function loadBottomFred(seriesId) {
+  try {
+    const rows = await fetchFredSeries(seriesId);
+    return (rows || []).filter((row) => Number.isFinite(row?.value));
+  } catch (err) {
+    console.log(`  · bottom tracker ${seriesId} failed: ${err.message}`);
+    return [];
+  }
+}
+
+async function writeBottomTrackerFile({ chains, indexBars, prior, builtAtIso }) {
+  let spy = mergeDailyCloses(indexBars?.SPY, closesForBottom(chains?.SPY));
+  let qqq = mergeDailyCloses(indexBars?.QQQ, closesForBottom(chains?.QQQ));
+  for (const symbol of ["SPY", "QQQ"]) {
+    const current = symbol === "SPY" ? spy : qqq;
+    if (!needsLongIndexFetch(current)) continue;
+    try {
+      const fetched = await fetchLongIndexDailyBars(symbol);
+      const merged = mergeDailyCloses(current, fetched);
+      if (symbol === "SPY") spy = merged;
+      else qqq = merged;
+      console.log(`  · bottom tracker ${symbol} long history: ${merged.length} sessions`);
+    } catch (err) {
+      console.log(`  · bottom tracker ${symbol} history failed: ${err.message}`);
+    }
+  }
+  const [hy, ig, stress, vix, dgs2, cpi, unrate, oil, dollarPrimary, dgs10] = await Promise.all([
+    loadBottomFred("BAMLH0A0HYM2"),
+    loadBottomFred("BAMLC0A0CM"),
+    loadBottomFred("STLFSI4"),
+    loadBottomFred("VIXCLS"),
+    loadBottomFred("DGS2"),
+    loadBottomFred("CPIAUCSL"),
+    loadBottomFred("UNRATE"),
+    loadBottomFred("DCOILWTICO"),
+    loadBottomFred("DTWEXBGS"),
+    loadBottomFred("DGS10"),
+  ]);
+  const dollar = dollarPrimary.length ? dollarPrimary : await loadBottomFred("DTWEXAFEGS");
+  const revisions = [];
+  const breadthBars = {};
+  for (const sym of Object.keys(chains || {})) {
+    if (SECTORS[sym] === "ETF") continue;
+    const rev = chains[sym]?.fundamentals?.fyEpsRevision;
+    if (rev) revisions.push(rev);
+    const bars = closesForBottom(chains[sym]);
+    if (bars.length >= 60) breadthBars[sym] = bars;
+  }
+  const payload = buildBottomTracker({
+    builtAtIso,
+    spy,
+    qqq,
+    hy,
+    ig,
+    stress,
+    vix,
+    dgs2,
+    cpi,
+    unrate,
+    oil,
+    dollar,
+    dgs10,
+    forwardPe: chains?.SPY?.fundamentals?.forwardPE ?? null,
+    revisions,
+    breadthBars,
+    history: prior?.history,
+  });
+  const json = JSON.stringify(payload);
+  await writeFile(resolve(DATA_DIR, "bottom-tracker.json"), json, "utf8");
+  return { bytes: json.length, verdict: payload.verdict, asOf: payload.asOf };
 }
 
 export async function writeCommoditiesFile(builtAtIso, prior = null) {
@@ -36965,6 +37069,10 @@ async function main() {
   // miss, plus the accumulated scrape-overlay history (Drewry/BDI/Manheim),
   // so it must be pre-read before the wipe like the other histories.
   const priorCommodities = await readPriorCommodities();
+  // Bottom-tracker verdict history is the only accumulating part. The series
+  // themselves are refetched. Read it before the wipe or the "same verdict
+  // as recent sessions" line resets every build.
+  const priorBottomTracker = await readPriorBottomTracker();
   // Prior stock-picks payload — ONLY for its `dca` block (the VOO/QQQ daily
   // DCA dial): per-index last-good carry-forward on a bars miss + the small
   // per-day call history, so it must be pre-read before the wipe. The dip
@@ -37411,6 +37519,18 @@ async function main() {
       pieces: {},
     }), "utf8");
     await writeFile(resolve(DATA_DIR, "index-long-history.json"), JSON.stringify({ builtAtIso, symbols: indexLongPrev?.symbols || {} }), "utf8");
+  }
+  try {
+    const indexForBottom = await readIndexLongHistory();
+    const bottomInfo = await writeBottomTrackerFile({
+      chains,
+      indexBars: indexForBottom.symbols,
+      prior: priorBottomTracker,
+      builtAtIso,
+    });
+    console.log(`wrote data/bottom-tracker.json — ${bottomInfo.verdict} as of ${bottomInfo.asOf || "—"}, ${bottomInfo.bytes} bytes`);
+  } catch (err) {
+    console.log(`  · bottom tracker failed (non-fatal): ${err.message}`);
   }
   const correlationsInfo = await writeCorrelationsFile(chains, globalMarkets, builtAtIso, priorCorrelations);
   console.log(`wrote data/correlations.json — ${correlationsInfo.symbols} markets, ${correlationsInfo.mapped} mapped tickers, ${correlationsInfo.bytes} bytes${correlationsInfo.stale ? " [stale — kept last-good]" : ""}`);
