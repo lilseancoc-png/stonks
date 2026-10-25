@@ -64,6 +64,7 @@ const SIDE_NAV_ICONS = {
   'ma-tracker': '<path d="M3.5 19.5h17"/><path d="M3.5 4.5v15"/><path d="m6 15 4-4 3 2 5-6"/><path d="M6 9.5h12"/>',
   spillover: '<circle cx="12" cy="12" r="2.5"/><path d="M12 5.5a6.5 6.5 0 0 1 6.5 6.5"/><path d="M12 2a10 10 0 0 1 10 10"/>',
   quant: '<path d="M18 6.5V4H6l6.5 8L6 20h12v-2.5"/>',
+  'historical-data': '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
   levetf: '<path d="M3.5 20.5v-17"/><path d="M3.5 20.5h17"/><path d="m6 16.5 3.5-4 2.5 2 4-5.5"/><path d="m11.5 6.5 3-3 3 3"/><path d="M14.5 3.5v7"/>',
   overnight: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
   'fear-greed': '<path d="m12 14.5 3.5-3.5"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
@@ -2016,6 +2017,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       ${sideNavItem('market', 'Market analysis')}
       ${sideNavItem('risk', 'Risk analysis')}
       ${sideNavItem('bottom-tracker', 'Bottom tracker')}
+      ${sideNavItem('historical-data', 'Historical Data')}
       ${sideNavItem('picks', 'Top picks')}
       ${sideNavItem('leaps', 'LEAPS')}
       ${sideNavItem('stocks', 'Stock picks')}
@@ -2400,6 +2402,13 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-quant" role="tabpanel" aria-labelledby="page-tab-quant" hidden>
   ${quantSection()}
+  </div>
+  <div class="page-pane" id="page-pane-historical-data" role="tabpanel" aria-labelledby="page-tab-historical-data" hidden>
+    <section class="card" id="historical-data-section">
+      <header class="card-header"><h2 class="card-title">Historical Data</h2><span class="card-eyebrow">Owner · historical research</span></header>
+      <p class="hint">Compare today's market with seasonal windows and past election cycles. Inspect the sample, the spread of outcomes and where this period differs.</p>
+      <div id="historical-data-root" aria-live="polite">Open this view to load the historical snapshot.</div>
+    </section>
   </div>
   <div class="page-pane" id="page-pane-index-cal" role="tabpanel" aria-labelledby="page-tab-index-cal" hidden>
   ${indexCalSection()}

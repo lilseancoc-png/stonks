@@ -69,6 +69,9 @@ import {
   needsLongIndexFetch,
 } from "../lib/pattern-recognition.mjs";
 import { buildBottomTracker } from "../lib/bottom-tracker.mjs";
+import { writeHistoricalDataFile } from "./refresh-historical-data.mjs";
+import { readHistoricalSourceCache, refreshHistoricalSourceCache, loadFreeFredHistory, loadFreeMarketHistory } from "./collect-historical-sources.mjs";
+import { HISTORICAL_SOURCE_KEY } from "../lib/historical-sources.mjs";
 import { withYahooTimeout } from "../lib/yahoo.mjs";
 import { attachLeapsExpirations, leapsExtraFetchEnabled } from "../lib/leaps-expirations.mjs";
 import {
@@ -37162,6 +37165,7 @@ async function main() {
   // Read first so a later bake appends the tail instead of downloading
   // twenty years again.
   const indexLongPrev = await readIndexLongHistory();
+  const historicalSourcePrev = await readHistoricalSourceCache(DATA_DIR);
   // Same rule for the picks churn log (data/picks-changes.json) — read it now so
   // this build's entered/exited events append to the rolling log instead of
   // resetting it after the wipe.
@@ -37532,6 +37536,14 @@ async function main() {
   } catch (err) {
     console.log(`  · bottom tracker failed (non-fatal): ${err.message}`);
   }
+  const historicalSourceCache = await refreshHistoricalSourceCache({ previous: historicalSourcePrev, builtAtIso, collectedAtIso: new Date().toISOString(),
+    loadMarket: (symbol, request) => loadFreeMarketHistory(yahooFinance, symbol, request),
+    loadContext: (id, request) => loadFreeFredHistory(id, fetch, request),
+    log: message => console.log(`  · history source ${message}`),
+  });
+  await writeFile(resolve(DATA_DIR, HISTORICAL_SOURCE_KEY), JSON.stringify(historicalSourceCache), "utf8");
+  const historicalInfo = await writeHistoricalDataFile({ dataDir: DATA_DIR, builtAtIso, analyzedAtIso: new Date().toISOString(), sourceCache: historicalSourceCache });
+  console.log(`wrote data/historical-data.json — ${historicalInfo.indexes} markets, ${historicalInfo.bytes} bytes; ${historicalSourceCache.cost.requestsThisRun} free source downloads`);
   const correlationsInfo = await writeCorrelationsFile(chains, globalMarkets, builtAtIso, priorCorrelations);
   console.log(`wrote data/correlations.json — ${correlationsInfo.symbols} markets, ${correlationsInfo.mapped} mapped tickers, ${correlationsInfo.bytes} bytes${correlationsInfo.stale ? " [stale — kept last-good]" : ""}`);
   // AI CapEx (Mag 7 aggregate, from SEC XBRL) + capital-raises feed (rolling
