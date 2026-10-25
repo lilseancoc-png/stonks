@@ -623,7 +623,7 @@ jobs:
             # -f is required because Path B added an unconditional `/data/` to
             # .gitignore — without it `git add data` no-ops on the ignored path
             # and the legacy rollback commits render output with no data.
-            if [ "${PRIVATE_DATA_ENABLED:-0}" != "1" ] && [ -d data ]; then git add -f data; fi
+            if [ "${PRIVATE_DATA_ENABLED:-0}" != "1" ] && [ -d data ]; then git add -f -- data ':!data/historical-data.json' ':!data/historical-source-history.json'; fi
             if git diff --cached --quiet; then
               echo "No changes to commit (attempt $attempt)."
               exit 0
