@@ -75,6 +75,9 @@ const commands = [
     "scripts/overnight-smoke.mjs"
   ],
   [
+    "scripts/overnight-tone-smoke.mjs"
+  ],
+  [
     "scripts/pending-buyouts-smoke.mjs"
   ],
   [

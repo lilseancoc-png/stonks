@@ -15,6 +15,7 @@
 //   node scripts/sync-data.mjs push --owner=brief
 //   node scripts/sync-data.mjs push --owner=transcripts
 //   node scripts/sync-data.mjs push --owner=search-interest
+//   node scripts/sync-data.mjs push --owner=overnight   # pre-open overnight call
 //   node scripts/sync-data.mjs seed                 # one-time: upload ALL local data/
 //   node scripts/sync-data.mjs flatten              # active snapshot -> legacy roots
 //   ...any command + --dry-run to print actions without touching the store.

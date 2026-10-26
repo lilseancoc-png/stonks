@@ -136,6 +136,20 @@ const CROSS_ASSET_LEGS = [
   { symbol: "CL=F" },
   { symbol: "GC=F" },
   { symbol: "BTC-USD" },
+  // Overnight scorer inputs (lib/overnight-tone.mjs), so the pre-open live
+  // read on the Overnight and Market tabs scores every group, not only the
+  // older rail rows. Same single batched quote call; no new request.
+  { symbol: "RTY=F" },
+  { symbol: "ZN=F" },
+  { symbol: "AUDJPY=X" },
+  { symbol: "CNH=X" },
+  { symbol: "KRW=X" },
+  { symbol: "^STOXX50E" },
+  { symbol: "^AXJO" },
+  { symbol: "000300.SS" },
+  { symbol: "^VIX3M" },
+  { symbol: "HYG" },
+  { symbol: "ETH-USD" },
 ];
 
 // CNN's 7-component Fear & Greed composite — the same source fetchCnnFearGreed

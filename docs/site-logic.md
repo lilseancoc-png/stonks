@@ -216,7 +216,7 @@ Market Analysis is the common tape and risk overlay. It votes across 16 axes, ea
 7. geopolitical and tariff headlines;
 8. inflation and labor;
 9. Fear & Greed;
-10. global overnight tape;
+10. global overnight tape (the day's saved pre-open call, see Overnight Markets);
 11. 2Y yield;
 12. MOVE;
 13. breadth;
@@ -1093,6 +1093,19 @@ peer move × historical beta
 ```
 
 That is a sensitivity estimate, not a forecast. Foreign-market timing and lag are disclosed.
+
+#### Risk-on / risk-off call (since 2026-10-26)
+
+One scorer, `lib/overnight-tone.mjs`, decides the overnight tone for the Overnight tab headline, the Top Picks market-tape "global tape" axis and the live pre-open browser read, so all three give the same answer.
+
+- **Window.** Every move is measured from the prior US cash close (16:00 ET) to the read time. A market with no trade in that window (an Asian market on holiday, a cash index still showing yesterday, cash VIX before it reopens) is left out and listed with the reason. Europe only counts before the US open.
+- **Scale.** Each move is divided by that market's own daily volatility over the last 60 sessions (a z-score), so the same 0.5% means more on a calm market than on a jumpy one.
+- **Five groups, one vote each.** Equities (US futures 50%, Asia 30% after removing the part that echoes the prior US day, Europe 20%), volatility (VIX change, plus a stress vote when VIX is above VIX3M), rates (10Y futures; only a move of at least one normal day votes, and falling yields with falling stocks are a flight to safety, not risk-on), FX/carry (AUD/JPY, USD/CNH, USD/KRW, dollar index) and growth/credit (copper, HYG before the open, Bitcoin and Ether). A group votes once its weighted z passes ±0.5.
+- **Label.** The votes sum to −5..+5: ±3 or more is risk-on/off, ±1 or ±2 leans, and fewer than three groups with fresh data is "not enough data". Asia chip stocks, oil, gold, USD/JPY, VVIX, SKEW and MOVE are shown as context and do not vote.
+- **Two calls.** The *gap call* is the direction of the open versus the prior close from the futures move (flat inside ±0.15%). The *session call* (open to close) says "no edge" until the saved record shows one: at least 60 graded days, a hit rate of at least 55%, and at least 3 points above simply guessing the more common session direction.
+- **Saved call and grading.** `scripts/overnight-preopen.mjs` saves the call during the 09:00 ET transcripts dispatch (it reads at about 09:05 ET) to `overnight-preopen.json`. Each bake folds it into `overnight-log.json`, rebuilds any missed day from 15-minute bars at 09:05 ET (marked "rebuilt"; the first bake backfills about eight weeks), and grades completed days against SPY and QQQ: gap, open-to-close and close-to-close. The tab's track record shows each hit rate next to the base rate (how often SPY simply opened up or closed above its open). `scripts/overnight-fit.mjs` reports per-group hit rates and threshold sweeps for re-fitting.
+- **Events.** The call flags Bank of Japan, RBA and PBOC loan-prime-rate dates, US 8:30 reports and FOMC days, and Asian markets closed overnight.
+- **Top Picks axis.** The global tape axis is the day's saved call (frozen for the whole session). Before the open it reads the snapshot; with no call it votes 0 instead of reading the US session as "overnight".
 
 ### Fear & Greed
 

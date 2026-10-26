@@ -42,7 +42,7 @@
     "test:bottom-tracker": "node scripts/bottom-tracker-smoke.mjs",
     "test:owner-lab": "node scripts/owner-lab-smoke.mjs",
     "test:evidence-record": "node scripts/evidence-record-smoke.mjs",
-    "test:overnight": "node scripts/overnight-smoke.mjs",
+    "test:overnight": "node scripts/overnight-smoke.mjs && node scripts/overnight-tone-smoke.mjs",
     "test:workflow-schedules": "node scripts/workflow-schedule-smoke.mjs",
     "test:yahoo-retry": "node scripts/yahoo-retry-smoke.mjs",
     "test:calendar": "node scripts/calendar-smoke.mjs",

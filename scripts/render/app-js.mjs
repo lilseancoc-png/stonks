@@ -17,6 +17,7 @@ import { renderSplitViewBindings, renderSplitViewHelpers } from './split-view-js
 import { renderRecoveryHelpers } from './recovery-js.mjs';
 import { viewsFactory } from './views-client.mjs';
 import { ivRichnessFactory } from '../../lib/iv-richness.mjs';
+import { overnightToneFactory } from '../../lib/overnight-tone.mjs';
 import { sectorGroupsFactory } from '../../lib/sector-groups.mjs';
 import { currentNewsSentiment, newsDateIsCurrent, validNewsFeedPayload } from '../../lib/news-policy.mjs';
 import { FALLBACK_RISK_FREE_RATE } from '../build.mjs';
@@ -53,6 +54,9 @@ ${validNewsFeedPayload.toString()}
   // One "are the options expensive?" rule (source: lib/iv-richness.mjs), the
   // same one the grade, Top Picks and Trending IV use at bake time.
   var IV_RICHNESS = (${ivRichnessFactory.toString()})();
+  // One overnight risk-on/off scorer (source: lib/overnight-tone.mjs), the same
+  // one the bake uses for the saved pre-open call and the Top Picks tape axis.
+  var OVERNIGHT = (${overnightToneFactory.toString()})();
   // One broad sector grouping (source: lib/sector-groups.mjs), the same one the
   // sector cap, the heatmap blocks and the sector breadth streaks use. Fine
   // SECTORS labels stay for search and card subtitles; anything that GROUPS
@@ -11525,7 +11529,7 @@ ${renderSplitViewBindings()}
     yields: ['^TNX', '^TYX'],
     dxy: ['DX-Y.NYB'],
     commodity: ['CL=F', 'GC=F'],
-    globalTape: ['ES=F', 'NQ=F', '^GDAXI', '^N225', '^KS11', 'JPY=X', 'BTC-USD'],
+    globalTape: ['ES=F', 'NQ=F', '^GDAXI', '^N225', '^KS11', '^VIX', '^TNX', 'JPY=X', 'DX-Y.NYB', 'HG=F', 'BTC-USD'],
     twoY: ['US2Y'], bondVol: ['MOVE'], breadth: ['BREADTH'], putCall: ['PUTCALL'], credit: ['CREDIT'],
     indexes: [], sentiment: [], fed: [], geo: [], inflation: [],
   };
@@ -11534,7 +11538,7 @@ ${renderSplitViewBindings()}
     'ES=F': 'S&P 500 futures', 'NQ=F': 'Nasdaq 100 futures', '^GDAXI': 'DAX', '^N225': 'Nikkei 225',
     '^KS11': 'KOSPI', '^VIX': 'VIX', '^TNX': '10Y yield', '^TYX': '30Y yield',
     'JPY=X': 'USD/JPY', 'DX-Y.NYB': 'Dollar (DXY)', 'CL=F': 'WTI crude',
-    'GC=F': 'Gold', 'BTC-USD': 'Bitcoin',
+    'GC=F': 'Gold', 'BTC-USD': 'Bitcoin', 'HG=F': 'Copper',
     'US2Y': '2Y yield', 'MOVE': 'MOVE', 'BREADTH': 'Breadth', 'PUTCALL': 'Put / call', 'CREDIT': 'HY credit',
   };
   // Plain-language "what this axis measures" (richer than the tile's one-liner).
@@ -11545,7 +11549,7 @@ ${renderSplitViewBindings()}
     yields: 'The 10Y and 30Y Treasury yields set the discount rate on every risk asset. A fast back-up in the long end pressures valuations (risk-OFF); an orderly fall eases conditions.',
     commodity: 'Crude + gold form the supply-shock / safe-haven axis. An oil spike (supply or war) alongside a confirmed gold haven bid is the classic geopolitical-shock tell (risk-OFF). Gold only counts as a haven when indexes, VIX or DXY corroborate risk-off conditions.',
     sentiment: 'CNN’s Fear & Greed index distills seven equity internals (breadth, momentum, junk-bond demand…). Extreme fear, or a fast swing toward fear, reads risk-OFF.',
-    globalTape: 'The overnight cross-asset tape — US futures + Asia/EU cash + the yen carry + Bitcoin. Broad overnight green leans risk-on; broad red leans risk-OFF.',
+    globalTape: 'The overnight read from the US close to the open, in five groups: equities (US futures, Asia after removing its echo of the prior US day, Europe), volatility (VIX and its term curve), rates (10Y futures, only on a big move), currencies (AUD/JPY, yuan, won, dollar) and growth/credit (copper, high yield, crypto). Each move is measured against that market\u2019s normal daily range. The call is saved at about 09:05 ET and holds for the whole session, so it can be graded later.',
     fed: 'The Fed-path axis tracks the change in FedWatch hike-minus-cut probability across the nearest meetings. Hawkish repricing tightens the expected path (risk-OFF); dovish drift eases it. A nearby FOMC decision adds event-risk caution.',
     geo: 'The geopolitics axis reads fresh war/tariff headlines plus the active narrative layer. It is stress-only: escalation can vote risk-OFF, while de-escalation merely clears that stress vote rather than voting risk-on. Slow axis — updates at the build.',
     inflation: 'The inflation/jobs axis reads CPI YoY direction plus labor deterioration through the Sahm-gap measure. Re-accelerating inflation or a rising unemployment gap tilts risk-OFF; cool, non-rising CPI can offset one point of stress.',
@@ -11557,54 +11561,31 @@ ${renderSplitViewBindings()}
     rotation: 'The rotation axis reads intra-equity risk appetite — a high-beta growth/tech basket’s 1-day move minus a low-beta defensive (staples/health) basket’s. Offense leading can vote risk-on; defense outperforming while indexes are not risk-on is an early, stronger risk-OFF rotation tell that can lead the index level. Slow axis — recomputed at the build.',
   };
 
-  // Live global cross-asset tape axis — a port of deriveGlobalTapeAxis
-  // (scripts/build.mjs). Reads the /api/macro-live ?tape=1 legs (keyed by Yahoo
-  // symbol, { pctChange1d, … }) so the SAME cross-asset moves the barometer rail
-  // shows actually move the regime gauge intraday. A closed foreign cash index's
-  // pctChange1d IS its last completed session (== the baked overnight read), so
-  // including it is correct; the ~24h legs (US futures / yen / BTC)
-  // refresh live. Returns null when the axis is off or < 3 signals are present,
-  // and the caller carries the baked axis. Keep in sync with deriveGlobalTapeAxis.
+  // Live global tape axis. After the US open the axis is the day's saved
+  // pre-open call (frozen ~09:05 ET and graded later), so this returns null and
+  // the caller keeps the baked axis: intraday moves no longer repaint an
+  // overnight read. Before the open, the ?tape=1 legs are laid over the baked
+  // overnight markets (which carry each market's 60-session daily sigma) and
+  // scored with the same shared scorer the bake and the Overnight tab use
+  // (lib/overnight-tone.mjs). Needs the Overnight sweep loaded; otherwise null.
   function liveGlobalTapeAxis(legs, T){
-    if (!legs) return null;
-    function ch(s){ var l = legs[s]; return (l && l.pctChange1d != null && isFinite(l.pctChange1d)) ? Number(l.pctChange1d) : null; }
-    function avg(syms){ var vals = []; for (var i = 0; i < syms.length; i++){ var v = ch(syms[i]); if (v != null) vals.push(v); } return vals.length ? { v: vals.reduce(function(a, b){ return a + b; }, 0) / vals.length, n: vals.length } : null; }
-    function th(x, d){ return (x != null && isFinite(x)) ? Number(x) : d; }
-    var futT = th(T.globalFut, 0.4), brT = th(T.globalBreadth, 0.6), yenT = th(T.globalYen, 0.6);
-    var btcT = th(T.globalBtc, 2.5), acuteT = th(T.globalAcute, 3);
-    var futS = th(T.globalFutStrong, 1.2), brS = th(T.globalBreadthStrong, 1.5), yenS = th(T.globalYenStrong, 1.2), btcS = th(T.globalBtcStrong, 6);
-    var components = [], votes = 0, present = 0, strongUp = false, strongDn = false;
-    function addLeg(val, gate, strongGate, key, label){
-      if (val == null) return;
-      present++;
-      var v = 0;
-      if (val >= gate){ v = 1; if (val >= strongGate) strongUp = true; }
-      else if (val <= -gate){ v = -1; if (val <= -strongGate) strongDn = true; }
-      votes += v;
-      components.push({ key: key, label: label, vote: v });
+    if (!legs || T.globalOn === false) return null;
+    var d = (typeof overnightState !== 'undefined' && overnightState.data) || null;
+    if (!d || !d.markets || !Object.keys(d.markets).length) return null;
+    if (ovnTodayCall(d)) return null;
+    var et = ovnEtNow(), ctx = d.context || {}, pu = ctx.priorUs || {};
+    var weekday = et.weekday !== 'Sat' && et.weekday !== 'Sun';
+    if (!(weekday && et.minutes < 570 && pu.date && pu.date !== et.date)) return null;
+    var markets = {};
+    for (var sym in d.markets){
+      if (!Object.prototype.hasOwnProperty.call(d.markets, sym)) continue;
+      markets[sym] = (legs[sym] && overlayOvernightMarket(d.markets[sym], legs[sym])) || d.markets[sym];
     }
-    var fut = avg(['ES=F', 'NQ=F']);
-    if (fut) addLeg(fut.v, futT, futS, 'futures', 'US futures ' + (fut.v >= 0 ? '+' : '') + fut.v.toFixed(2) + '%');
-    var breadth = avg(['^N225', '^KS11', '^GDAXI', '^TWII']);
-    if (breadth && breadth.n >= 2) addLeg(breadth.v, brT, brS, 'breadth', 'Global equities ' + (breadth.v >= 0 ? '+' : '') + breadth.v.toFixed(2) + '% avg');
-    var yen = ch('JPY=X');
-    if (yen != null) addLeg(yen, yenT, yenS, 'yen', 'USD/JPY ' + (yen >= 0 ? '+' : '') + yen.toFixed(2) + '%');
-    var btc = ch('BTC-USD');
-    if (btc != null) addLeg(btc, btcT, btcS, 'btc', 'Bitcoin ' + (btc >= 0 ? '+' : '') + btc.toFixed(1) + '%');
-    if (present < 3) return null;
-    votes = Math.max(-4, Math.min(4, votes));
-    var score = 0;
-    if (votes >= acuteT || (strongUp && votes >= 2)) score = 2;
-    else if (votes >= 1) score = 1;
-    else if (votes <= -acuteT || (strongDn && votes <= -2)) score = -2;
-    else if (votes <= -1) score = -1;
-    var dir = score === 0 ? 0 : (score > 0 ? 1 : -1);
-    var lit = components.filter(function(c){ return c.vote === dir; }).map(function(c){ return c.label; });
-    var tone = score > 0 ? 'risk-on' : (score < 0 ? 'risk-off' : 'mixed');
-    var label = score === 0
-      ? ('Global tape mixed (' + present + ' signals)')
-      : ('Global tape ' + tone + (lit.length ? ' — ' + lit.slice(0, 3).join(', ') : ''));
-    return { score: score, label: label, components: components, live: true };
+    var opts = { priorUsDate: pu.date, priorUsCloseMs: pu.closeMs || null, priorUsPct: pu.pct, preOpen: true };
+    var tone = OVERNIGHT.scoreTone(OVERNIGHT.inputsFromSnapshot(markets, opts), { asiaEcho: ctx.asiaEcho || null, priorUsPct: pu.pct });
+    var ax = OVERNIGHT.tapeAxis(tone, { prefix: 'Overnight tape (live, before the open)' });
+    if (!ax) return null;
+    return Object.assign({}, ax, { live: true, source: 'live-preopen' });
   }
 
   function computeLiveMacroRegime(baked, live){
@@ -11807,11 +11788,9 @@ ${renderSplitViewBindings()}
     axes.fed = Object.assign({ live: false }, baked.axes.fed || { score: 0, label: 'no Fed-path data' });
     axes.geo = Object.assign({ live: false }, baked.axes.geo || { score: 0, label: 'no geopolitical narrative' });
     axes.inflation = Object.assign({ live: false }, baked.axes.inflation || { score: 0, label: 'inflation/labor axis off' });
-    // Global cross-asset tape axis — recomputed LIVE from the ?tape=1 legs (the
-    // same rows the barometer rail shows), so an intraday risk-appetite swing in
-    // US futures / the yen carry / BTC MOVES the gauge instead of holding
-    // the stale baked overnight read all session. Falls back to baked when the
-    // axis is off (T.globalOn === false) or too few legs returned.
+    // Global tape axis. Before the open it is re-scored live from the ?tape=1
+    // legs with the shared overnight scorer; from the open on it is the day's
+    // saved pre-open call and stays fixed (liveGlobalTapeAxis returns null).
     (function(){
       var ca = (live && live.crossAsset && typeof live.crossAsset === 'object') ? live.crossAsset : null;
       var lt = (T.globalOn !== false && ca) ? liveGlobalTapeAxis(ca, T) : null;
@@ -12394,7 +12373,7 @@ ${renderSplitViewBindings()}
     if (k === 'yields') return 'Risk-off if the worst 10Y/30Y move is ≥ +' + v(T.yieldBps1d, 10) + 'bp in 1 day (−2 at +' + v(T.yieldBps1dStrong, 16) + 'bp), or the baked 10Y trend is rising by at least ' + v(T.yieldBps1d, 10) + 'bp over 5 days. A matching fall can vote risk-on only when indexes, VIX and credit do not signal stress; otherwise it is an unconfirmed yield decline.';
     if (k === 'commodity') return 'Stress-only. Crude ≥ +' + v(T.oil1d, 4) + '% in 1 day or +' + v(T.oil5d, 12) + '% in 5 days votes −1; a 1-day shock ≥ +' + v(T.oil1dStrong, 8) + '% votes −2. Gold votes only at +' + v(T.gold1d, 3) + '% in 1 day (unless its week is down) or +' + v(T.gold5d, 6) + '% in 5 days, and only when Indexes, VIX or DXY confirms risk-off; oil + confirmed gold can vote −2.';
     if (k === 'sentiment') return 'Risk-off at Fear & Greed ≤ ' + v(T.fgFear, 25) + ' or a 1-day swing ≤ −' + v(T.fgDelta, 10) + ' points; risk-on at ≥ ' + v(T.fgGreed, 75) + ' or a swing ≥ +' + v(T.fgDelta, 10) + '. A stale baked snapshot is ignored; a timestamped CNN observation is rescored.';
-    if (k === 'globalTape') return 'Futures, Asia/EU breadth, USD/JPY and Bitcoin each vote after their own move threshold. At least three signals are required; net votes set ±1, while broad or strongly confirmed agreement sets ±2. It refreshes from the same cross-asset legs shown below.';
+    if (k === 'globalTape') return 'Five groups (equities, volatility, rates, currencies, growth/credit) each vote when their move is at least half a normal day for that market. At least three groups are required. A net of ±3 groups (or ±2 with one very large move) sets ±2; a net of ±1 or ±2 sets ±1. Before the open it re-scores live; from the open it is the saved 09:05 ET call.';
     if (k === 'fed') return 'The average change in hike-minus-cut probability across the nearest FedWatch meetings votes −1 at +' + v(T.fedDriftPt, 5) + ' points, −2 at +' + (2 * v(T.fedDriftPt, 5)) + ', and +1 at −' + v(T.fedDriftPt, 5) + '. An FOMC decision inside the configured near-event window forces at least −1. Slow axis — refreshes at the build.';
     if (k === 'geo') return 'Stress-only. Fresh conflict headlines can vote −2; tariff/geopolitical flashpoints or an active bearish narrative can vote −1. De-escalation clears stress to neutral, not risk-on. Slow axis — refreshes at the build.';
     if (k === 'inflation') return 'CPI votes −1 when ≥' + v(T.cpiWarm, 3.0) + '% and re-accelerating by ≥' + v(T.cpiReaccel, 0.3) + 'pp versus 3 months ago, or when ≥' + v(T.cpiHot, 4.0) + '% and still rising; CPI ≤' + v(T.cpiCool, 2.5) + '% and not rising votes +1. Labor subtracts 1 at a Sahm gap ≥' + v(T.ueSahmSoft, 0.3) + 'pp when it is not improving (confirmed regardless of trend at ' + v(T.ueSahm, 0.5) + 'pp). Combined score is capped at −2 / +1. Slow axis.';
@@ -12491,7 +12470,7 @@ ${renderSplitViewBindings()}
     { k:'yields', name:'Long yields', desc:'10Y / 30Y — financial conditions' },
     { k:'commodity', name:'Commodities', desc:'Oil-price moves + confirmed gold demand' },
     { k:'sentiment', name:'Fear & Greed', desc:'CNN equity internals' },
-    { k:'globalTape', name:'Global tape', desc:'Futures + Asia/EU + yen + BTC' },
+    { k:'globalTape', name:'Global tape', desc:'Overnight call: 5 groups, saved 09:05 ET' },
     { k:'fed', name:'Fed path', desc:'FedWatch drift + FOMC proximity' },
     { k:'geo', name:'Geopolitics', desc:'War / tariffs / Iran — headlines' },
     { k:'inflation', name:'Inflation / jobs', desc:'CPI YoY + unemployment' },
@@ -13352,14 +13331,16 @@ ${renderSplitViewBindings()}
       return Object.assign(base, { status: 'missing', stance: null, label: 'Unavailable', why: 'The overnight sweep has no markets.' });
     }
     var raw = d.tone && d.tone.score != null && isFinite(Number(d.tone.score)) ? Number(d.tone.score) : 0;
-    var state = raw >= 3 ? 'risk-on' : raw <= -3 ? 'risk-off' : raw >= 1 ? 'lean-on' : raw <= -1 ? 'lean-off' : 'mixed';
+    // Same label the Overnight tab shows (shared scorer, 5 groups).
+    var state = ovnToneState(d.tone && d.tone.label);
+    if (state === 'insufficient') return Object.assign(base, { status: 'missing', stance: null, label: 'Not enough data', why: 'Fewer than three of the five overnight groups moved since the prior US close.' });
     var stance = (state === 'risk-on' || state === 'lean-on') ? 1 : (state === 'risk-off' || state === 'lean-off') ? -1 : 0;
     var strength = (state === 'lean-on' || state === 'lean-off') ? 'lean' : 'full';
     var label = state === 'risk-on' ? 'Risk-on' : state === 'risk-off' ? 'Risk-off' : state === 'lean-on' ? 'Leans risk-on' : state === 'lean-off' ? 'Leans defensive' : 'No clean edge';
     var reasons = d.tone && Array.isArray(d.tone.reasons) ? d.tone.reasons.slice(0, 3) : [];
-    var why = 'Overnight score ' + (raw > 0 ? '+' : '') + raw + '.' + (reasons.length ? ' ' + reasons.join(' ') : ' No broad reason cleared the vote thresholds.');
+    var why = 'Overnight score ' + (raw > 0 ? '+' : '') + raw + ' of ±5 groups' + (d.tone && d.tone.source ? ' (' + ovnSourceLabel(d.tone) + ')' : '') + '.' + (reasons.length ? ' ' + reasons.join('; ') + '.' : ' No group cleared its vote threshold.');
     var fresh = overnightFreshness(d);
-    if (!fresh.current) return Object.assign(base, { status: 'stale', stance: null, label: label, why: 'Reference only. ' + why });
+    if (!fresh.current && !ovnTodayCall(d)) return Object.assign(base, { status: 'stale', stance: null, label: label, why: 'Reference only. ' + why });
     return Object.assign(base, { status: 'ready', stance: stance, strength: strength, label: label, why: why });
   }
   function riskFearDesk(){
@@ -28236,6 +28217,9 @@ ${renderSplitViewBindings()}
       .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(json){
         overnightState.data = (json && json.markets) ? json : { markets: {}, map: {}, regions: [], broad: [], tone: null };
+        // The day may have rolled since the bake: re-pick today's call or the
+        // pre-open snapshot read with the shared scorer.
+        if (overnightState.data.markets && Object.keys(overnightState.data.markets).length) overnightState.data.tone = deriveOvernightTone(overnightState.data);
         overnightState.loading = false;
         overnightState.fetchedAt = Date.now();
         renderOvernight();
@@ -28331,60 +28315,32 @@ ${renderSplitViewBindings()}
     if (m < 1440) return (m < 120 ? (m / 60).toFixed(1) : Math.round(m / 60)) + 'h old';
     return Math.round(m / 1440) + 'd old';
   }
-  // Faithful browser-side re-port of deriveGlobalTone in build.mjs. The live
-  // quote overlay must update the handoff and Asia-breadth evidence together
-  // with the cards; otherwise a red Nikkei/KOSPI close can render under a stale
-  // "Asia firm" headline.
-  function deriveOvernightTone(markets){
-    markets = markets || {};
-    var reasons = [], score = 0;
-    function chOf(sym){
-      var m = markets[sym];
-      return m && m.chPct != null && isFinite(m.chPct) ? Number(m.chPct) : null;
-    }
-    var fut = [chOf('ES=F'), chOf('NQ=F')].filter(function(v){ return v != null; });
-    if (fut.length){
-      var fa = fut.reduce(function(sum, v){ return sum + v; }, 0) / fut.length;
-      if (fa <= -0.4){ score--; reasons.push('US futures soft (' + fa.toFixed(2) + '%)'); }
-      else if (fa >= 0.4){ score++; reasons.push('US futures firm (+' + fa.toFixed(2) + '%)'); }
-    }
-    var vix = chOf('^VIX');
-    if (vix != null){
-      if (vix >= 5){ score--; reasons.push('VIX +' + vix.toFixed(1) + '%'); }
-      else if (vix <= -5){ score++; reasons.push('VIX ' + vix.toFixed(1) + '%'); }
-    }
-    var jpy = chOf('JPY=X');
-    if (jpy != null){
-      if (jpy <= -0.6){ score--; reasons.push('yen bid (USD/JPY ' + jpy.toFixed(2) + '%) — carry unwind'); }
-      else if (jpy >= 0.6){ score++; reasons.push('yen soft (USD/JPY +' + jpy.toFixed(2) + '%)'); }
-    }
-    var asia = ['^KS11','005930.KS','000660.KS','^TWII','2330.TW','^N225','8035.T','6857.T','9984.T','^HSI']
-      .map(chOf).filter(function(v){ return v != null; });
-    if (asia.length >= 3){
-      var aa = asia.reduce(function(sum, v){ return sum + v; }, 0) / asia.length;
-      if (aa <= -0.6){ score--; reasons.push('Asia weak (' + aa.toFixed(2) + '% avg)'); }
-      else if (aa >= 0.6){ score++; reasons.push('Asia firm (+' + aa.toFixed(2) + '% avg)'); }
-    }
-    var tnx = markets['^TNX'];
-    var tnxBp = tnx && tnx.chgBp != null && isFinite(tnx.chgBp)
-      ? Number(tnx.chgBp)
-      : (tnx && tnx.moves && tnx.moves['1d'] && tnx.moves['1d'].bp);
-    if (tnxBp != null && isFinite(tnxBp)){
-      if (tnxBp >= 8){ score--; reasons.push('10Y +' + Math.round(tnxBp) + 'bp'); }
-      else if (tnxBp <= -8){ score++; reasons.push('10Y ' + Math.round(tnxBp) + 'bp'); }
-    }
-    var copper = chOf('HG=F');
-    if (copper != null){
-      if (copper <= -1){ score--; reasons.push('copper ' + copper.toFixed(1) + '% — growth scare'); }
-      else if (copper >= 1){ score++; reasons.push('copper +' + copper.toFixed(1) + '% — growth bid'); }
-    }
-    var dxy = chOf('DX-Y.NYB');
-    if (dxy != null){
-      if (dxy >= 0.5){ score--; reasons.push('USD firm (+' + dxy.toFixed(2) + '%)'); }
-      else if (dxy <= -0.5){ score++; reasons.push('USD soft (' + dxy.toFixed(2) + '%)'); }
-    }
-    var label = score >= 3 ? 'risk-on' : score <= -3 ? 'risk-off' : score >= 1 ? 'leaning risk-on' : score <= -1 ? 'leaning risk-off' : 'mixed';
-    return { label: label, score: score, reasons: reasons };
+  // ET wall clock (date, minutes after midnight, weekday) for the session rules.
+  function ovnEtNow(ms){
+    var p = {};
+    new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short' })
+      .formatToParts(new Date(ms == null ? Date.now() : ms)).forEach(function(x){ p[x.type] = x.value; });
+    return { date: p.year + '-' + p.month + '-' + p.day, minutes: Number(p.hour) * 60 + Number(p.minute), weekday: p.weekday };
+  }
+  // The saved pre-open call for today's US session, when one exists.
+  function ovnTodayCall(d){
+    var et = ovnEtNow(), pre = d && d.preopen;
+    if (!pre) return null;
+    if (pre.today && pre.today.date === et.date) return pre.today;
+    if (pre.latest && pre.latest.date === et.date) return pre.latest;
+    return null;
+  }
+  // Headline tone. Today's saved pre-open call (frozen ~09:05 ET and graded
+  // later) is the headline once it exists. Before that, the live quotes are
+  // scored with the same shared scorer, using the same freshness rules.
+  function deriveOvernightTone(d){
+    var call = ovnTodayCall(d);
+    if (call && call.tone) return Object.assign({}, call.tone, { source: call.reconstructed ? 'preopen-rebuilt' : 'preopen', date: call.date });
+    var et = ovnEtNow(), ctx = (d && d.context) || {}, pu = ctx.priorUs || {};
+    var weekday = et.weekday !== 'Sat' && et.weekday !== 'Sun';
+    var opts = { priorUsDate: pu.date || null, priorUsCloseMs: pu.closeMs || null, priorUsPct: pu.pct, preOpen: weekday && et.minutes < 570 && pu.date !== et.date };
+    var tone = OVERNIGHT.scoreTone(OVERNIGHT.inputsFromSnapshot((d && d.markets) || {}, opts), { asiaEcho: ctx.asiaEcho || null, priorUsPct: pu.pct });
+    return Object.assign(tone, { source: 'snapshot' });
   }
   function overlayOvernightMarket(baked, live){
     if (!baked || !live || live.value == null || !isFinite(live.value)) return null;
@@ -28402,6 +28358,7 @@ ${renderSplitViewBindings()}
       chPct: pct,
       asOf: quoteDate,
       source: 'Yahoo Finance · latest session quote',
+      quoteTimeIso: isFinite(quoteMs) ? new Date(quoteMs).toISOString() : (baked.quoteTimeIso || null),
       _live: true,
       _liveState: live.marketState || null,
     });
@@ -28454,7 +28411,7 @@ ${renderSplitViewBindings()}
         });
       });
     }
-    d.tone = deriveOvernightTone(d.markets);
+    d.tone = deriveOvernightTone(d);
     d.liveFetchedAt = fetchedAt || new Date().toISOString();
     d.liveCount = count;
     return count;
@@ -28505,19 +28462,6 @@ ${renderSplitViewBindings()}
         : (ageMin == null ? 'Build time could not be verified.' : 'Updated ' + ovnAgeText(ageMin).replace(' old', ' ago') + '.'),
     };
   }
-  function ovnAverage(d, syms){
-    var vals = [];
-    (syms || []).forEach(function(sym){
-      var m = d && d.markets ? d.markets[sym] : null;
-      if (m && m.chPct != null && isFinite(m.chPct)) vals.push({ sym: sym, value: Number(m.chPct) });
-    });
-    if (!vals.length) return null;
-    return {
-      value: vals.reduce(function(sum, x){ return sum + x.value; }, 0) / vals.length,
-      n: vals.length,
-      values: vals,
-    };
-  }
   function overnightTopWatch(d){
     if (!d || !d.map || !d.markets) return null;
     var best = null;
@@ -28537,73 +28481,89 @@ ${renderSplitViewBindings()}
     }
     return best;
   }
+  function ovnToneState(label){
+    if (label === 'risk-on') return 'risk-on';
+    if (label === 'risk-off') return 'risk-off';
+    if (label === 'leaning risk-on') return 'lean-on';
+    if (label === 'leaning risk-off') return 'lean-off';
+    if (label === 'insufficient') return 'insufficient';
+    return 'mixed';
+  }
+  function ovnSourceLabel(tone){
+    if (!tone) return '';
+    if (tone.source === 'preopen') return 'Saved pre-open call · ' + ovnShortDate(tone.date);
+    if (tone.source === 'preopen-rebuilt') return 'Pre-open call rebuilt from 09:05 ET prices · ' + ovnShortDate(tone.date);
+    return 'Live read so far (not yet saved)';
+  }
+  function ovnPctRate(r){ return r && r.hitRate != null ? Math.round(r.hitRate * 100) + '%' : '—'; }
   function overnightDecisionHtml(d){
     var freshness = overnightFreshness(d);
-    var rawScore = d && d.tone && d.tone.score != null && isFinite(d.tone.score)
-      ? Number(d.tone.score)
-      : 0;
-    var state = rawScore >= 3 ? 'risk-on'
-      : rawScore <= -3 ? 'risk-off'
-        : rawScore >= 1 ? 'lean-on'
-          : rawScore <= -1 ? 'lean-off'
-            : 'mixed';
-    var className = !freshness.current
+    var tone = d && d.tone ? d.tone : null;
+    var call = ovnTodayCall(d);
+    var state = ovnToneState(tone && tone.label);
+    var className = !freshness.current && !call
       ? 'flow-decision-reference'
       : (state === 'risk-on' || state === 'lean-on')
         ? 'flow-decision-call'
         : (state === 'risk-off' || state === 'lean-off')
           ? 'flow-decision-put'
           : 'flow-decision-mixed';
-    var headline = '';
-    var copy = '';
-    var confirm = '';
-    var invalidate = '';
+    var stats = d && d.preopen && d.preopen.stats ? d.preopen.stats : null;
+    var session = OVERNIGHT.sessionCall(tone, stats);
+    var gap = tone && tone.gap ? tone.gap : { call: 'none', movePct: null };
+    var gapWord = gap.call === 'up' ? 'Gap up' : gap.call === 'down' ? 'Gap down' : gap.call === 'flat' ? 'Flat open' : 'No futures read';
+    var headline, copy;
+    var votesOn = 0, votesOff = 0;
+    (tone && Array.isArray(tone.buckets) ? tone.buckets : []).forEach(function(b){ if (b.present && b.vote > 0) votesOn++; else if (b.present && b.vote < 0) votesOff++; });
     if (state === 'risk-on'){
-      headline = 'Overnight alignment favors long setups, but the cash open still must confirm.';
-      copy = 'Use the tailwind to prioritize relative-strength names. Do not chase a premarket gap before US breadth and participation appear.';
-      confirm = 'ES and NQ stay above prior settle through the first 15 minutes, then SPY / QQQ breadth and the Volume tab confirm.';
-      invalidate = 'Either future loses prior settle while VIX, the dollar, or long yields accelerate against risk assets.';
+      headline = 'Overnight is risk-on: ' + votesOn + ' of 5 groups vote risk-on' + (votesOff ? ', ' + votesOff + ' risk-off.' : '.');
+      copy = 'The tape points to a firmer open. It has not been shown to predict the rest of the session, so let the cash open confirm before adding size.';
     } else if (state === 'risk-off'){
-      headline = 'Overnight stress raises the bar for long exposure.';
-      copy = 'Protect size and demand downside participation before leaning short. A weak foreign tape alone is not permission to chase a US opening gap.';
-      confirm = 'ES and NQ stay below prior settle through the first 15 minutes, then Heatmap breadth and the Volume tab confirm downside.';
-      invalidate = 'Futures reclaim prior settle while VIX and yen-carry stress fade during the opening range.';
+      headline = 'Overnight is risk-off: ' + votesOff + ' of 5 groups vote risk-off' + (votesOn ? ', ' + votesOn + ' risk-on.' : '.');
+      copy = 'The tape points to a weaker open. Protect size, and do not chase an opening gap: the gap usually prices most of the overnight news.';
     } else if (state === 'lean-on'){
-      headline = 'The overnight tape leans risk-on, but conviction is incomplete.';
-      copy = 'Treat the backdrop as a modest tailwind, not a trade signal. Let the strongest US names prove they can hold the opening range.';
-      confirm = 'Both US futures remain positive and cash-session breadth expands with volume after the open.';
-      invalidate = 'Futures diverge, breadth narrows, or VIX turns higher while the opening range fails.';
+      headline = 'The overnight tape leans risk-on, but the groups do not agree.';
+      copy = 'Treat it as a modest tailwind for the open, not a trade signal.';
     } else if (state === 'lean-off'){
-      headline = 'The overnight tape leans defensive, but the signals are not fully aligned.';
-      copy = 'Reduce the benefit of the doubt for longs. Wait for US price and volume to confirm before acting on foreign weakness.';
-      confirm = 'Both futures remain negative and cash-session breadth weakens with downside volume after the open.';
-      invalidate = 'Futures reclaim prior settle, breadth improves, or the stress gauges reverse during the opening range.';
+      headline = 'The overnight tape leans defensive, but the groups do not agree.';
+      copy = 'Give longs less benefit of the doubt into the open. Wait for US price and volume before acting on foreign weakness.';
+    } else if (state === 'insufficient'){
+      headline = 'Not enough fresh overnight inputs to call a tone.';
+      copy = 'Fewer than three of the five groups moved since the prior US close (holiday, weekend or a data gap). Stay stock-specific.';
     } else {
       headline = 'The overnight tape offers no clean directional edge.';
-      copy = 'Cross-asset inputs disagree. Let ticker-specific Grade, opening-range behavior, and participation lead the decision.';
-      confirm = 'US futures, VIX, and global-equity breadth align after the open with Volume confirming the same direction.';
-      invalidate = 'The inputs keep disagreeing or reverse during the opening range; stay stock-specific and smaller.';
+      copy = 'The groups disagree. Let ticker-specific Grade, opening-range behavior and participation lead.';
     }
-    if (!freshness.current){
+    if (!call && !freshness.current){
       headline = 'This overnight sweep is reference only.';
-      copy = "The last-good cross-market map can explain prior pressure, but it cannot set today's directional posture or opening trigger.";
-      confirm = 'A current build reproduces the same futures, volatility, rates, and foreign-equity alignment after their session clocks update.';
-      invalidate = 'Any fresh market leg changes the tone, top mapped US watch, or opening-range setup.';
+      copy = "The last-good map can explain prior pressure, but it cannot set today's posture.";
     }
-    var futures = ovnAverage(d, ['ES=F', 'NQ=F']);
-    var asia = ovnAverage(d, ['^N225', '^KS11', '^TWII', '^HSI']);
-    var vix = d && d.markets ? d.markets['^VIX'] : null;
-    var tenY = d && d.markets ? d.markets['^TNX'] : null;
+    var buckets = tone && Array.isArray(tone.buckets) ? tone.buckets : [];
+    var bucketHtml = buckets.map(function(b){
+      var cls = !b.present ? 'ovn-flat' : (b.vote > 0 ? 'ovn-up' : b.vote < 0 ? 'ovn-dn' : 'ovn-flat');
+      var vote = !b.present ? 'no fresh data' : (b.vote > 0 ? 'risk-on' : b.vote < 0 ? 'risk-off' : 'neutral') + (b.strong ? ' (strong)' : '');
+      var lead = b.parts && b.parts.length ? b.parts.map(function(pt){ return pt.label + (pt.movePct != null ? ' ' + ovnSignPct(pt.movePct, 2) : '') + (pt.z != null ? ' · z ' + (pt.z > 0 ? '+' : '') + Number(pt.z).toFixed(1) : ''); }).join(' | ') : 'No fresh market in this group';
+      return '<div class="ovn-bucket ' + cls + '"><span>' + ovnEsc(b.label) + '</span><b>' + ovnEsc(vote) + '</b><small>' + ovnEsc(lead) + '</small></div>';
+    }).join('');
+    var excluded = tone && Array.isArray(tone.excluded) ? tone.excluded.filter(function(x){ return x.why !== 'context level'; }) : [];
+    var excludedHtml = excluded.length
+      ? '<p class="ovn-excluded"><b>Left out (no move since the prior US close):</b> ' + excluded.slice(0, 8).map(function(x){ return ovnEsc(x.name + ' — ' + x.why); }).join('; ') + (excluded.length > 8 ? '; +' + (excluded.length - 8) + ' more' : '') + '</p>'
+      : '';
+    var events = call && Array.isArray(call.events) ? call.events : [];
+    var eventsHtml = events.length
+      ? '<ul class="ovn-events">' + events.map(function(e){ return '<li class="ovn-event-' + ovnEsc(e.kind) + '">' + ovnEsc(e.label) + '</li>'; }).join('') + '</ul>'
+      : '';
+    var chip = tone && tone.chipTape ? '<span>Asia chip stocks ' + ovnEsc(ovnSignPct(tone.chipTape.movePct, 2)) + ' avg (context, not a vote)</span>' : '';
+    var es = call && call.esRange ? '<span>ES overnight range ' + ovnEsc(call.esRange.rangePct != null ? call.esRange.rangePct.toFixed(2) + '%' : '—') + (call.esRange.volumeVsAvg != null ? ' · volume ' + call.esRange.volumeVsAvg.toFixed(2) + '× the 5-night average' : '') + '</span>' : '';
+    var pre = call && call.premarket && call.premarket.indexes ? call.premarket.indexes : null;
+    var preHtml = pre && Object.keys(pre).length ? '<span>Pre-market ' + Object.keys(pre).map(function(k){ return ovnEsc(k + ' ' + ovnSignPct(pre[k], 2)); }).join(' · ') + '</span>' : '';
+    var movers = call && call.premarket && call.premarket.movers ? call.premarket.movers : null;
+    var moverList = movers ? (movers.gainers || []).concat(movers.losers || []) : [];
+    var moversHtml = moverList.length ? '<span>Pre-market movers ' + moverList.slice(0, 6).map(function(m){ return ovnEsc(m.sym + ' ' + ovnSignPct(m.chPct, 1)); }).join(' · ') + '</span>' : '';
+    var earn = call && call.premarket && Array.isArray(call.premarket.earnings) ? call.premarket.earnings : [];
+    var earnHtml = earn.length ? '<span>Earnings around the bell ' + earn.slice(0, 4).map(function(m){ return ovnEsc(m.sym + ' ' + ovnSignPct(m.chPct, 1)); }).join(' · ') + '</span>' : '';
+    var extras = [chip, es, preHtml, moversHtml, earnHtml].filter(Boolean).join('');
     var watch = overnightTopWatch(d);
-    var futuresSub = futures
-      ? futures.values.map(function(x){ return x.sym === 'ES=F' ? 'ES ' + ovnSignPct(x.value, 2) : 'NQ ' + ovnSignPct(x.value, 2); }).join(' | ')
-      : 'ES / NQ unavailable';
-    var asiaSub = asia ? asia.n + ' leading cash index' + (asia.n === 1 ? '' : 'es') : 'leading cash breadth unavailable';
-    var vixSub = vix
-      ? (ovnSignPct(vix.chPct, 1) + (ovnLevelStr(vix) ? ' | level ' + ovnLevelStr(vix) : ''))
-      : 'volatility read unavailable';
-    var tenYSub = tenY && ovnLevelStr(tenY) ? 'yield ' + ovnLevelStr(tenY) : 'long-yield read unavailable';
-    var reasons = d && d.tone && Array.isArray(d.tone.reasons) ? d.tone.reasons.slice(0, 4) : [];
     var watchContext = '';
     if (watch){
       var mapped = watch.implied != null && isFinite(watch.implied)
@@ -28611,33 +28571,68 @@ ${renderSplitViewBindings()}
         : ' has a significant historical relationship';
       watchContext = '<b>US watch: ' + ovnEsc(watch.sym) + '</b> | ' + ovnEsc(watch.market.name) + ' ' + ovnEsc(ovnMoveStr(watch.market)) + mapped + ' (r ' + ovnEsc((watch.peer.corr > 0 ? '+' : '') + Number(watch.peer.corr).toFixed(2)) + ').';
     }
-    var evidence = reasons.length
-      ? '<b>Tape evidence:</b> ' + reasons.map(ovnEsc).join(' | ')
-      : '<b>Tape evidence:</b> No broad reason cleared the overnight vote thresholds.';
-    var primary = freshness.current && watch
+    var primary = (freshness.current || call) && watch
       ? '<button type="button" class="flow-decision-action is-primary" data-ovn-grade="' + ovnEsc(watch.sym) + '">Grade ' + ovnEsc(watch.sym) + '</button>'
       : '<button type="button" class="flow-decision-action is-primary" data-ovn-tab="heatmap">Open Heatmap</button>';
+    var gapRate = stats ? ovnPctRate(stats.gapCall) + ' of ' + (stats.gapCall ? stats.gapCall.n : 0) + ' graded days' : 'not graded yet';
     return '<section class="flow-decision overnight-decision ' + className + '" aria-label="Overnight decision desk">' +
       '<div class="flow-decision-main">' +
-        '<div class="flow-decision-head"><span>Overnight handoff</span><em>' + ovnEsc(freshness.label) + '</em></div>' +
+        '<div class="flow-decision-head"><span>Overnight handoff</span><em>' + ovnEsc(ovnSourceLabel(tone) || freshness.label) + '</em></div>' +
         '<h3>' + ovnEsc(headline) + '</h3>' +
         '<p>' + ovnEsc(copy) + '</p>' +
-        '<div class="flow-decision-rules"><div><span>Confirms when</span><b>' + ovnEsc(confirm) + '</b></div><div><span>Invalidates when</span><b>' + ovnEsc(invalidate) + '</b></div></div>' +
+        '<div class="flow-decision-rules">' +
+          '<div><span>Gap call (open vs prior close)</span><b>' + ovnEsc(gapWord + (gap.movePct != null ? ' · futures ' + ovnSignPct(gap.movePct, 2) : '')) + '</b><small>Right on ' + ovnEsc(gapRate) + '</small></div>' +
+          '<div><span>Session call (open to close)</span><b>' + ovnEsc(session.call === 'no-edge' ? 'No edge' : (session.call === 'up' ? 'Lean up' : 'Lean down')) + '</b><small>' + ovnEsc(session.note) + '</small></div>' +
+        '</div>' +
+        (eventsHtml ? '<div class="ovn-events-wrap"><span>Overnight events</span>' + eventsHtml + '</div>' : '') +
       '</div>' +
       '<aside class="flow-decision-side">' +
-        '<div class="flow-decision-source"><span>' + ovnEsc(freshness.detail) + '</span><small>Leading cash, concurrent, and 24h markets use different session clocks.</small></div>' +
-        '<div class="flow-decision-metrics">' +
-          '<div><span>US futures</span><b>' + (futures ? ovnEsc(ovnSignPct(futures.value, 2)) : 'N/A') + '</b><small>' + ovnEsc(futuresSub) + '</small></div>' +
-          '<div><span>Asia breadth</span><b>' + (asia ? ovnEsc(ovnSignPct(asia.value, 2)) : 'N/A') + '</b><small>' + ovnEsc(asiaSub) + '</small></div>' +
-          '<div><span>VIX</span><b>' + (vix ? ovnEsc(ovnMoveStr(vix)) : 'N/A') + '</b><small>' + ovnEsc(vixSub) + '</small></div>' +
-          '<div><span>US 10Y</span><b>' + (tenY ? ovnEsc(ovnMoveStr(tenY)) : 'N/A') + '</b><small>' + ovnEsc(tenYSub) + '</small></div>' +
-        '</div>' +
-        '<p class="flow-decision-context">' + evidence + (watchContext ? '<br> ' + watchContext : '') + '</p>' +
+        '<div class="flow-decision-source"><span>' + ovnEsc(freshness.detail) + '</span><small>Every move is measured from the prior US close. Each group casts one vote once its move passes half a typical day (z ±0.5).</small></div>' +
+        '<div class="ovn-buckets">' + bucketHtml + '</div>' +
+        excludedHtml +
+        (extras ? '<p class="flow-decision-context ovn-extras">' + extras + '</p>' : '') +
+        (watchContext ? '<p class="flow-decision-context">' + watchContext + '</p>' : '') +
         '<div class="flow-decision-actions">' + primary +
-          (freshness.current && watch ? '<button type="button" class="flow-decision-action" data-ovn-tab="heatmap">Open Heatmap</button>' : '') +
+          ((freshness.current || call) && watch ? '<button type="button" class="flow-decision-action" data-ovn-tab="heatmap">Open Heatmap</button>' : '') +
           '<button type="button" class="flow-decision-action" data-ovn-tab="volume">Open Volume</button>' +
         '</div>' +
       '</aside>' +
+    '</section>';
+  }
+  // Running record of the saved pre-open calls vs what SPY did.
+  function overnightRecordHtml(d){
+    var pre = d && d.preopen;
+    if (!pre || !pre.stats) return '';
+    var st = pre.stats;
+    function card(label, r, note){
+      return '<div class="ovn-record-card"><span>' + ovnEsc(label) + '</span><b>' + ovnEsc(ovnPctRate(r)) + '</b><small>' + ovnEsc((r ? r.n : 0) + ' graded days' + (note ? ' · ' + note : '')) + '</small></div>';
+    }
+    var rows = (pre.recent || []).slice(0, 10).map(function(e){
+      var o = e.outcome;
+      function hit(v){ return v == null ? '<td class="ovn-flat">—</td>' : (v ? '<td class="ovn-up">✓</td>' : '<td class="ovn-dn">✗</td>'); }
+      return '<tr><td>' + ovnEsc(ovnShortDate(e.date)) + (e.reconstructed ? ' <small title="Rebuilt from 09:05 ET prices by the bake">rebuilt</small>' : '') + '</td>' +
+        '<td>' + ovnEsc(e.label || '—') + '</td>' +
+        '<td>' + ovnEsc(e.gap || '—') + '</td>' +
+        '<td class="' + ovnMoveCls(o ? o.gapPct : null) + '">' + ovnEsc(o ? ovnSignPct(o.gapPct, 2) : 'pending') + '</td>' + hit(o ? o.gapCallHit : null) +
+        '<td class="' + ovnMoveCls(o ? o.sessionPct : null) + '">' + ovnEsc(o ? ovnSignPct(o.sessionPct, 2) : 'pending') + '</td>' + hit(o ? o.toneSessionHit : null) + '</tr>';
+    }).join('');
+    var b = st.buckets || {};
+    var bucketRows = OVERNIGHT.BUCKETS.map(function(spec){
+      var x = b[spec.key];
+      if (!x) return '';
+      return '<span>' + ovnEsc(spec.label + ': gap ' + ovnPctRate(x.gap) + ', session ' + ovnPctRate(x.session) + ' (n ' + (x.session ? x.session.n : 0) + ')') + '</span>';
+    }).join('');
+    return '<section class="ovn-record" aria-label="Overnight call track record"><div class="ovn-desk-head"><div><span class="ovn-desk-kicker">Track record</span><h3>How the saved pre-open calls did against SPY</h3></div></div>' +
+      '<div class="ovn-record-grid">' +
+        card('Gap call right', st.gapCall, 'open vs prior close') +
+        card('Tone right on the gap', st.toneGap) +
+        card('Tone right on the session', st.toneSession, 'open to close') +
+        card('Tone right close to close', st.toneCc) +
+      '</div>' +
+      (st.base && st.base.n ? '<p class="ovn-record-note">For scale: over the same ' + st.base.n + ' days SPY opened up ' + ovnEsc(ovnPctRate({ hitRate: st.base.gapUp })) + ' of the time and closed above its open ' + ovnEsc(ovnPctRate({ hitRate: st.base.sessionUp })) + '. A call only adds something if it beats those.</p>' : '') +
+      (st.liveOnly && st.liveOnly.gapCall && st.liveOnly.gapCall.n ? '<p class="ovn-record-note">Live 09:00 ET calls only: gap ' + ovnEsc(ovnPctRate(st.liveOnly.gapCall)) + ' (n ' + st.liveOnly.gapCall.n + '), session ' + ovnEsc(ovnPctRate(st.liveOnly.toneSession)) + ' (n ' + st.liveOnly.toneSession.n + '). The rest were rebuilt by the bake from 09:05 ET prices.</p>' : '<p class="ovn-record-note">Days marked "rebuilt" were reconstructed by the bake from 09:05 ET prices; live 09:00 ET calls replace them going forward.</p>') +
+      (bucketRows ? '<p class="ovn-record-buckets">' + bucketRows + '</p>' : '') +
+      (rows ? '<div class="ovn-record-table-wrap"><table class="ovn-record-table"><thead><tr><th>Day</th><th>Tone</th><th>Gap call</th><th>SPY gap</th><th>Gap call right</th><th>SPY session</th><th>Tone right</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '') +
     '</section>';
   }
   function bindOvernightDecisionActions(host){
@@ -28900,7 +28895,7 @@ ${renderSplitViewBindings()}
         '<span class="ovn-region-lead"><em>' + ovnEsc(leader.name) + '</em><strong class="' + ovnMoveCls(ovnMoveValue(leader, horizon)) + '">' + ovnMoveStr(leader, horizon) + '</strong></span></summary>' +
         '<div class="ovn-region-body"><div class="ovn-region-grid">' + tiles + '</div></div></details>';
     }).join('');
-    root.innerHTML = overnightContextHtml(d) + overnightDetailHtml(d) + desk + (regionHtml ? '<div class="ovn-region-list">' + regionHtml + '</div>' : '<p class="overnight-empty">No overnight markets available.</p>');
+    root.innerHTML = overnightRecordHtml(d) + overnightContextHtml(d) + overnightDetailHtml(d) + desk + (regionHtml ? '<div class="ovn-region-list">' + regionHtml + '</div>' : '<p class="overnight-empty">No overnight markets available.</p>');
     if (eyebrow){
       var rangeTxt = ovnMaxAsOf
         ? (minAsOf && minAsOf !== ovnMaxAsOf ? ('sessions ' + ovnShortDate(minAsOf) + ' – ' + ovnShortDate(ovnMaxAsOf)) : ('sessions through ' + ovnShortDate(ovnMaxAsOf)))
