@@ -1,0 +1,27 @@
+name: Overnight replay (temporary)
+
+# One-off accuracy replay for the overnight review PR. Public market data
+# only (Yahoo); prints hit rates, never touches the private store. Removed in
+# the next commit.
+on:
+  push:
+    branches: [Overnight-Markets]
+    paths: [".github/workflows/overnight-replay-temp.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci --no-audit --no-fund
+      - name: Replay the last ~8 weeks of 09:05 ET calls
+        run: node scripts/overnight-replay.mjs --out=overnight-replay.json
+      - name: Print the full report
+        run: cat overnight-replay.json
