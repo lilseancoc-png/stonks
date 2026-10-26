@@ -11257,7 +11257,7 @@ export async function writeCentralBankGoldFile(builtAtIso, prior = null) {
 }
 
 // === Commodity price tracker (data/commodities.json) ================
-// Thirteen commodity, input-cost and demand signals with a direct read on
+// Sixteen commodity, input-cost and demand signals with a direct read on
 // tracked equities: precious metals (gold, silver), softs (cocoa, cotton,
 // coffee, sugar, palm oil), industrial inputs (lumber, potash, lithium),
 // freight (container rates, Baltic Dry) and used-vehicle values (Manheim
@@ -11296,6 +11296,24 @@ export const COMMODITY_TRACKERS = [
     note: "Hybrid monetary and industrial metal — sensitive to real yields and the dollar, but also to solar, electronics and manufacturing demand. It is typically more volatile than gold, so confirm whether the move is defensive or cyclical.",
     watch: ["SLV", "PAAS", "AG"],
   },
+  // Crude, natural gas and copper come from the overnight sweep (GLOBAL_MARKETS
+  // already fetches CL=F / NG=F / HG=F every full build), so these cards add
+  // no request; writeCommoditiesFile falls back to its own fetch only when the
+  // sweep missed a symbol.
+  {
+    key: "crude", label: "WTI crude oil", group: "energy", kind: "futures", cadence: "daily",
+    symbol: "CL=F", unit: "USD/barrel", fmt: "usd2",
+    sourceName: "NYMEX WTI crude futures (Yahoo)", sourceUrl: "https://finance.yahoo.com/quote/CL%3DF/",
+    note: "Revenue lever for oil producers and a fuel cost for airlines, shippers and delivery fleets. Supply news (OPEC+, inventories, geopolitics) and demand worries both move it, so check which one is driving before reading it as a growth signal.",
+    watch: ["USO", "XOM", "CVX"],
+  },
+  {
+    key: "natgas", label: "Natural gas", group: "energy", kind: "futures", cadence: "daily",
+    symbol: "NG=F", unit: "USD/MMBtu", fmt: "usd2",
+    sourceName: "NYMEX Henry Hub natural gas futures (Yahoo)", sourceUrl: "https://finance.yahoo.com/quote/NG%3DF/",
+    note: "Fuel for power plants and heating, so it feeds electricity prices and utility and power-producer margins. It is weather-driven and very volatile; a single cold or hot week can swing it 10% or more.",
+    watch: ["VST", "CEG", "UNG"],
+  },
   {
     key: "cocoa", label: "Cocoa", group: "softs", kind: "futures", cadence: "daily",
     symbol: "CC=F", unit: "USD/tonne", fmt: "usd0",
@@ -11330,6 +11348,13 @@ export const COMMODITY_TRACKERS = [
     sourceName: "IMF global price via FRED", sourceUrl: "https://fred.stlouisfed.org/series/PPOILUSDM",
     note: "Feeds packaged food/snacks, cooking oils and biodiesel; supply is concentrated in Indonesia/Malaysia, so it flags inflation or supply shocks in those consumer-staples categories. Monthly IMF global price (futures trade in Kuala Lumpur with no free feed).",
     watch: ["MDLZ", "PG", "K"],
+  },
+  {
+    key: "copper", label: "Copper", group: "industrial", kind: "futures", cadence: "daily",
+    symbol: "HG=F", unit: "USD/lb", fmt: "usd2",
+    sourceName: "COMEX copper futures (Yahoo)", sourceUrl: "https://finance.yahoo.com/quote/HG%3DF/",
+    note: "\"Dr. Copper\": wiring, construction and power-grid demand make it a read on global growth, and data-center and grid build-outs have added to demand. China is the largest buyer, so its economy moves the price.",
+    watch: ["FCX", "SCCO", "VRT"],
   },
   {
     key: "lumber", label: "Lumber", group: "industrial", kind: "futures", cadence: "daily",
@@ -11379,6 +11404,7 @@ export const COMMODITY_TRACKERS = [
 
 // Human labels for the tab's group sections, in display order.
 export const COMMODITY_GROUPS = [
+  { key: "energy", label: "Energy" },
   { key: "precious", label: "Precious metals" },
   { key: "softs", label: "Softs & agriculture" },
   { key: "industrial", label: "Industrial inputs" },
@@ -11775,9 +11801,31 @@ async function writeBottomTrackerFile({ chains, indexBars, prior, builtAtIso }) 
   return { bytes: json.length, verdict: payload.verdict, asOf: payload.asOf };
 }
 
-export async function writeCommoditiesFile(builtAtIso, prior = null) {
+// Reuse a daily series the overnight sweep already fetched (globalMarkets is
+// fetchAllGlobalMarkets' { [symbol]: { bars:[{t,c}] } }) instead of asking
+// Yahoo for the same futures twice. ~365 days of bars still covers the 1-yr
+// compare window (commodityPointBack accepts a slightly younger base). Yahoo
+// sometimes answers the sweep with a truncated few-week slice; a series that
+// does not reach back COMMODITY_SWEEP_MIN_DAYS is ignored so the card's own
+// fetch fills the 3-month / 6-month / 1-year comparisons instead.
+const COMMODITY_SWEEP_MIN_DAYS = 300;
+export function commoditySeriesFromSweep(def, globalMarkets) {
+  const bars = globalMarkets?.[def.symbol]?.bars;
+  if (!Array.isArray(bars)) return null;
+  const series = bars.filter((b) => b && b.t && Number.isFinite(b.c)).map((b) => ({ d: b.t, v: b.c }));
+  if (series.length < 2) return null;
+  const spanDays = (Date.parse(series[series.length - 1].d) - Date.parse(series[0].d)) / 86400000;
+  return spanDays >= COMMODITY_SWEEP_MIN_DAYS ? { series, symbol: def.symbol } : null;
+}
+
+export async function writeCommoditiesFile(builtAtIso, prior = null, globalMarkets = null) {
   const fetched = {};
-  const yahooDefs = COMMODITY_TRACKERS.filter((d) => d.kind === "futures" || d.kind === "proxy");
+  const yahooDefs = [];
+  for (const def of COMMODITY_TRACKERS.filter((d) => d.kind === "futures" || d.kind === "proxy")) {
+    const shared = commoditySeriesFromSweep(def, globalMarkets);
+    if (shared) fetched[def.key] = shared;
+    else yahooDefs.push(def);
+  }
   const fredDefs = COMMODITY_TRACKERS.filter((d) => d.kind === "fred");
   await runPooled(yahooDefs, COMMODITY_FETCH_CONCURRENCY, async (def) => {
     try {
@@ -17116,13 +17164,15 @@ export function buildMacroCalendarAhead(meetings, reportEvents, todayIso, horizo
 //
 // Design rules (deliberately simple — the old engine drowned in 263 knobs and
 // nine self-contradicting reworks):
-//   * One grade per ticker = sum of four bounded pillars + entry timing + IV
-//     cost. Side is the sign, conviction is the magnitude. Nothing else.
+//   * One grade per ticker = sum of four bounded pillars + IV cost, then a
+//     bounded market-regime overlay. Entry timing is scored on that side but
+//     only gates the entry; it is not in the total. Side is the sign,
+//     conviction is the magnitude.
 //   * Fixed, auditable integer-ish scale. No cross-sectional z-score treadmill,
 //     no percentile tiers that drift every build, no overlay-on-overlay.
 //   * The six things real losses taught us are the ONLY non-obvious rules kept:
 //       1. Direction is what kills you  -> the side call + standing down matter.
-//       2. Don't buy the top / catch a knife -> entry-timing penalty.
+//       2. Don't buy the top / catch a knife -> entry-timing gate.
 //       3. Near-the-money contracts (~0.55 delta), never fragile deep-OTM.
 //       4. One entry per name until it resolves (no restacking a loser).
 //       5. Fast option exits (+25% take-profit / -50% stop; the scale-out
@@ -28721,6 +28771,9 @@ export async function updatePicksAccuracyFile(chains, builtAtIso, priorState = n
     open.push({
       modelEpoch: PICKS_ACCURACY_RESET_EPOCH, entryPolicyVersion: admissionEconomics?.version ?? null,
       gradeModelVersion: GRADE_MODEL_VERSION,
+      // Stamped per trade (since 2026-10-26) so the Track Record can draw a
+      // dated divider when the entry-timing rules change.
+      entryTimingVersion: PICKS_ENTRY_TIMING_VERSION,
       exitPolicy: pickExitPolicy(p.contract?.structure),
       symbol: p.symbol, side: p.side, tier: p.recommendation?.tier || null, label: p.recommendation?.label || null,
       score: p.total, entryDate: builtAtIso, entrySpot: r2(p.spot), lastSpot: r2(p.spot),
@@ -30926,17 +30979,6 @@ const AI_FUNDAMENTALS_MODEL = process.env.AI_FUNDAMENTALS_MODEL || "gemini-3.1-f
 // independent attachAiNewsTakes / attachFundamentalsJudgments calls.
 const AI_TICKER_MODEL = process.env.AI_TICKER_MODEL || "gemini-3.1-flash-lite";
 const AI_COMBINED = process.env.AI_COMBINED !== "0";
-// Fold the Major-Contract + Guidance signal extraction into the combined
-// ticker-judgment call instead of issuing a second per-ticker round-trip
-// (attachAiContractGuidance). The combined call already holds the same
-// headlines (with article bodies), so it can emit a `signals` field in the
-// same response — eliminating ~one flash-lite call per ticker per build.
-// OFF by default: it is a behaviour-equivalent-by-design change to a SCORING
-// input (data.aiSignals → scoreFundamentals), so it must clear an A/B parity
-// check (see scripts/ab-signals-merge.mjs) before being switched on in prod
-// via the AI_SIGNALS_COMBINED=1 Actions Variable. Only takes effect when
-// AI_COMBINED is also on (the signals can only ride a call that runs).
-const AI_SIGNALS_COMBINED = process.env.AI_SIGNALS_COMBINED === "1";
 // Narrative extraction is the trickiest reasoning task in the build, so
 // it's the call where stronger models earn their keep — but Pro models
 // (gemini-2.5-pro, gemini-3.1-pro) require funded Tier 1+ billing and
@@ -31803,82 +31845,20 @@ function briefGexFmt(n) {
   return s + Math.round(a);
 }
 
-// Compact OI-gamma-proxy read for the brief, mirroring computeGex() in app-js.
-// Black-Scholes gamma needs only the standard-normal PDF (no erf/ncdf), so the
-// server side stays dependency-free. Per contract GEX = Γ × OI × 100 × spot² × 1%;
-// calls add +, puts −. Net at spot gives the regime; the gamma flip is the spot
-// where net dealer gamma crosses zero.
-const BRIEF_GEX_MAX_EXPS = 8;
-const BRIEF_GEX_MIN_T_DAYS = 1;
-const BRIEF_GEX_YEAR_MS = 365 * 24 * 3600 * 1000;
-function briefNpdf(x) { return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI); }
-function briefBsGamma(S, K, T, sigma, r) {
-  if (!(S > 0 && K > 0 && T > 0 && sigma > 0)) return 0;
-  const sqrtT = Math.sqrt(T);
-  const d1 = (Math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * sqrtT);
-  const g = briefNpdf(d1) / (S * sigma * sqrtT);
-  return Number.isFinite(g) ? g : 0;
-}
-function briefGexContracts(entry, nowMs) {
-  const chains = (entry && entry.chains) || {};
-  const expKeys = Object.keys(chains).map(Number).filter((s) => Number.isFinite(s) && s > 0).sort((a, b) => a - b);
-  const out = [];
-  let used = 0;
-  for (const sec of expKeys) {
-    if (used >= BRIEF_GEX_MAX_EXPS) break;
-    const expiryCloseMs = expiryCloseEpochSec(sec) * 1000;
-    if (!Number.isFinite(expiryCloseMs) || expiryCloseMs <= nowMs) continue;
-    const yrs = Math.max((expiryCloseMs - nowMs) / BRIEF_GEX_YEAR_MS, BRIEF_GEX_MIN_T_DAYS / 365);
-    const ch = chains[String(sec)];
-    if (!ch) continue;
-    used++;
-    for (const [rows, sign] of [[ch.c, 1], [ch.p, -1]]) {
-      if (!Array.isArray(rows)) continue;
-      for (const row of rows) {
-        if (!row) continue;
-        const K = Number(row.s), oi = Number(row.oi), iv = Number(row.iv);
-        if (!(K > 0) || !(oi > 0) || !(iv > 0)) continue;
-        out.push({ K, T: yrs, sigma: iv, oi, sign });
-      }
-    }
-  }
-  return out;
-}
-function briefGexProfileAt(contracts, S, r) {
-  if (!(S > 0)) return 0;
-  const scale = S * S * 0.01 * 100;
-  let total = 0;
-  for (const c of contracts) {
-    const g = briefBsGamma(S, c.K, c.T, c.sigma, r);
-    if (Number.isFinite(g)) total += c.sign * g * c.oi * scale;
-  }
-  return total;
-}
+// Compact OI-gamma-proxy read for the brief. Uses the shared server model in
+// lib/gex.mjs (the same one Top Picks and the flow scan use), so the Brief's
+// regime and flip match the rest of the site.
 function computeBriefGex(entry, sym, rfr) {
   const spot = Number(entry?.spot);
   if (!(spot > 0)) return null;
-  const contracts = briefGexContracts(entry, Date.now());
-  if (!contracts.length) return null;
-  const net = briefGexProfileAt(contracts, spot, rfr);
-  if (!Number.isFinite(net)) return null;
-  // Gamma flip — sweep ±20% around spot, take the zero-crossing nearest spot.
-  let flip = null;
-  const lo = spot * 0.8, hi = spot * 1.2, steps = 80;
-  let prevS = lo, prevG = briefGexProfileAt(contracts, lo, rfr);
-  for (let i = 1; i <= steps; i++) {
-    const S = lo + (hi - lo) * i / steps;
-    const G = briefGexProfileAt(contracts, S, rfr);
-    if (Number.isFinite(prevG) && Number.isFinite(G) && prevG !== G && ((prevG <= 0 && G >= 0) || (prevG >= 0 && G <= 0))) {
-      const cross = prevS + (S - prevS) * (0 - prevG) / (G - prevG);
-      if (flip === null || Math.abs(cross - spot) < Math.abs(flip - spot)) flip = cross;
-    }
-    prevS = S; prevG = G;
-  }
+  const g = computeGexSummary(entry?.chains, spot, { rfr });
+  if (!g || !Number.isFinite(g.net)) return null;
+  const flip = Number.isFinite(g.flip) ? g.flip : null;
   return {
     sym,
     spot: Math.round(spot * 100) / 100,
-    net: Math.round(net),
-    regime: net >= 0 ? "positive" : "negative",
+    net: Math.round(g.net),
+    regime: g.net >= 0 ? "positive" : "negative",
     flip: flip != null ? Math.round(flip * 100) / 100 : null,
     flipSide: flip != null ? (spot >= flip ? "above" : "below") : null,
   };
@@ -34404,9 +34384,7 @@ export function canReuseAiSignals(
 // fundamentals signal, enough to push a marginal name over the conviction
 // bar). When the model's own cited evidence is a capital-return headline with
 // no guidance language, downgrade the direction to "none" so scoreFundamentals
-// falls back to the FY-estimate proxy instead of crediting a misread. Applied
-// in BOTH validation sites (attachAiContractGuidance + the AI_SIGNALS_COMBINED
-// fold-in) so the two paths stay byte-identical in shape.
+// falls back to the FY-estimate proxy instead of crediting a misread.
 function sanitizeGuidanceDirection(direction, evidence) {
   if (!direction || direction === "none") return direction;
   const ev = String(evidence || "").toLowerCase();
@@ -34875,20 +34853,6 @@ Expected output:
 
 END EXAMPLES.`;
 
-// Appended to COMBINED_SYSTEM_PROMPT only when AI_SIGNALS_COMBINED is on, so the
-// combined call also emits the Major-Contract + Guidance signals that otherwise
-// require the separate attachAiContractGuidance round-trip. Wording mirrors that
-// call's system prompt so the reads stay semantically identical; the appended
-// text is constant across all tickers, so it stays inside the implicit-cache
-// key prefix (the discount is unaffected).
-const SIGNALS_PROMPT_SECTION = `
-
-SIGNALS FIELD — {majorContract, guidance}. ALWAYS include this field. Extract two structured facts from the supplied article material, used by the Fundamentals pillar:
-- majorContract.status — "won" if the company recently WON or was awarded a major new contract, order, or deal — OR, for a bank / broker / adviser, was named lead underwriter, bookrunner, or lead financial adviser on a major IPO, M&A, or capital raise (e.g. "Goldman Sachs to lead the SpaceX IPO"); "lost" if it LOST a major contract/customer, had a major deal cancelled, or was dropped from such a mandate; "none" if neither is clearly evidenced.
-- guidance.direction — the company's most recent forward GUIDANCE: "raised" (increased versus prior company guidance, not analyst expectations), "inline" (reaffirmed or unchanged versus prior company guidance), "soft" (modest cut / cautious tone), "lowered" (guided down materially), or "none" if no guidance is evident.
-A dividend increase/cut or a share-buyback announcement is capital-return news, NOT guidance — report "none" for those.
-Be conservative: only report "won"/"lost"/"raised"/"lowered" when the material clearly supports it; otherwise use "none". Each evidence string: one short clause citing the headline. Read these from the NEWS material only — never infer them from the fundamentals snapshot numbers.`;
-
 const CATALYST_CATEGORIES = ["fda", "contract", "launch", "court", "trial", "merger", "investor", "guidance", "other"];
 const TICKER_JUDGMENT_SCHEMA = {
   type: "object",
@@ -34965,21 +34929,8 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
     userMessage += `\n\nFundamentals snapshot:\n${formatFundamentalsForPrompt(symbol, spot, fundamentals)}`;
   }
 
-  // When AI_SIGNALS_COMBINED is on, fold the Major-Contract + Guidance signals
-  // into this same call: append the SIGNALS instructions to the (cache-key)
-  // system prompt and add the `signals` field to the schema as required. Both
-  // additions are constant across tickers, so the implicit-cache prefix still
-  // matches across the per-ticker fan-out. Off → byte-identical to before.
-  const systemInstruction = AI_SIGNALS_COMBINED
-    ? COMBINED_SYSTEM_PROMPT + SIGNALS_PROMPT_SECTION
-    : COMBINED_SYSTEM_PROMPT;
-  const judgmentSchema = AI_SIGNALS_COMBINED
-    ? {
-        ...TICKER_JUDGMENT_SCHEMA,
-        properties: { ...TICKER_JUDGMENT_SCHEMA.properties, signals: AI_SIGNALS_SCHEMA },
-        required: [...TICKER_JUDGMENT_SCHEMA.required, "signals"],
-      }
-    : TICKER_JUDGMENT_SCHEMA;
+  const systemInstruction = COMBINED_SYSTEM_PROMPT;
+  const judgmentSchema = TICKER_JUDGMENT_SCHEMA;
 
   let response;
   let lastErr;
@@ -35123,24 +35074,7 @@ async function generateTickerJudgment(ai, symbol, spot, headlines, fundamentals)
     if (catalysts.length >= 5) break;
   }
 
-  // Major-Contract + Guidance signals, folded in when AI_SIGNALS_COMBINED is on.
-  // Validation MUST mirror attachAiContractGuidance exactly so data.aiSignals is
-  // byte-identical in shape and the scoreFundamentals inputs are unchanged: keep
-  // a "none" status/direction (scoreFundamentals reads "none" specifically), and
-  // only set the object when at least one signal validated.
-  let aiSignals = null;
-  if (AI_SIGNALS_COMBINED) {
-    const mc = parsed?.signals?.majorContract?.status;
-    const gd = parsed?.signals?.guidance?.direction;
-    const mcStatus = ["won", "lost", "none"].includes(mc) ? mc : null;
-    const gDir = ["raised", "inline", "soft", "lowered", "none"].includes(gd) ? gd : null;
-    const sig = {};
-    if (mcStatus) sig.majorContract = { status: mcStatus, evidence: String(parsed.signals.majorContract.evidence || "").slice(0, 200) };
-    if (gDir) sig.guidance = { direction: sanitizeGuidanceDirection(gDir, parsed.signals.guidance.evidence), evidence: String(parsed.signals.guidance.evidence || "").slice(0, 200) };
-    if (Object.keys(sig).length) aiSignals = sig;
-  }
-
-  return { news, judgment, catalysts, aiSignals: supportedNewsSignals(aiSignals, headlines) };
+  return { news, judgment, catalysts };
 }
 
 // Periodic progress heartbeat. Each AI phase fans out via Promise.all against
@@ -35268,7 +35202,7 @@ async function attachAiNewsTakes(chains, macroBackdrop) {
 // (including overnight / weekend). Cache each ticker's result keyed on what
 // the model actually reasons over: the RAW headline set + the slow-moving
 // fundamentals facts (last reported quarter, next earnings date, analyst
-// consensus) + the models + the AI_SIGNALS_COMBINED shape. The ET calendar
+// consensus) + the models + the prompt/schema hash. The ET calendar
 // day is deliberately NOT in the key — scoring uses sentiment / verdict /
 // catalysts / signals, not the prompt's "Today's date", and a date-only
 // bust forced a full-universe morning re-read (~142 Flash-Lite calls) for
@@ -35282,9 +35216,8 @@ async function attachAiNewsTakes(chains, macroBackdrop) {
 // skips enrichHeadlinesWithBodies' article fetches (the signature is over the
 // raw headlines), so hits save wall-clock, not just tokens. Same
 // read-before-wipe / write-after-wipe rule as the other cross-build caches. Shape:
-// { [sym]: { sig, spot, news, judgment, catalysts, aiSignals, signals? } } —
-// `aiSignals` is the AI_SIGNALS_COMBINED fold-in; `signals` is the split
-// attachAiContractGuidance pass's result, stored on the same entry so THAT
+// { [sym]: { sig, spot, news, judgment, catalysts, signals? } } — `signals`
+// is the attachAiContractGuidance pass's result, stored on the same entry so THAT
 // per-ticker call is skipped on unchanged headlines too (key present = the
 // pass ran; null = ran and found nothing). AI_TICKER_CACHE=0 disables
 // (every build re-reads — the pre-cache behavior).
@@ -35347,20 +35280,10 @@ export function headlineCanContainAiSignals(title) {
 // from the key (quiet names reuse across the overnight/weekend roll); bump
 // cold-starts once so dated tj2 entries cannot match the new shape.
 export function tickerJudgmentInstructionSignature() {
-  const systemInstruction = AI_SIGNALS_COMBINED
-    ? COMBINED_SYSTEM_PROMPT + SIGNALS_PROMPT_SECTION
-    : COMBINED_SYSTEM_PROMPT;
-  const judgmentSchema = AI_SIGNALS_COMBINED
-    ? {
-        ...TICKER_JUDGMENT_SCHEMA,
-        properties: { ...TICKER_JUDGMENT_SCHEMA.properties, signals: AI_SIGNALS_SCHEMA },
-        required: [...TICKER_JUDGMENT_SCHEMA.required, "signals"],
-      }
-    : TICKER_JUDGMENT_SCHEMA;
   return createHash("sha1")
-    .update(systemInstruction)
+    .update(COMBINED_SYSTEM_PROMPT)
     .update("\0")
-    .update(JSON.stringify(judgmentSchema))
+    .update(JSON.stringify(TICKER_JUDGMENT_SCHEMA))
     .digest("hex")
     .slice(0, 16);
 }
@@ -35387,7 +35310,7 @@ export function tickerJudgmentSignature(rawHeadlines, fundamentals) {
   ].join("|");
   const metaParts = [
     TICKER_JUDGMENT_CACHE_VERSION,
-    AI_SIGNALS_COMBINED ? 1 : 0,
+    0, // the retired signals fold-in flag (always off); kept so cached entries still match
     AI_TICKER_MODEL,
     process.env.AI_SIGNALS_MODEL || AI_NEWS_MODEL, // the split guidance pass's model
     tickerJudgmentInstructionSignature(),
@@ -35509,8 +35432,6 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
           data.news = prior.news;
           if (prior.judgment) data.fundamentals = { ...data.fundamentals, judgment: prior.judgment };
           data.catalysts = currentCachedCatalysts(prior.catalysts);
-          const supported = supportedNewsSignals(prior.aiSignals, rawHeadlines);
-          if (supported) data.aiSignals = supported;
           // Keep the ORIGINAL entry (spot + title set) so both the spot drift
           // and the new-headline count accumulate against the read that
           // actually produced the judgment, not against each other reuse.
@@ -35549,7 +35470,7 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
         // publisher + date — the AI prompt knows how to ground a take in that.
         const headlines = await enrichHeadlinesWithBodies(rawHeadlines);
         const withBody = headlines.filter((h) => h.body).length;
-        const { news, judgment, catalysts, aiSignals } = await generateTickerJudgment(ai, sym, data.spot, headlines, data.fundamentals);
+        const { news, judgment, catalysts } = await generateTickerJudgment(ai, sym, data.spot, headlines, data.fundamentals);
         // Preserve the independent signal extraction across a broader
         // judgment-cache rollover. Its exact signature + age guard decide
         // whether attachAiContractGuidance may reuse it.
@@ -35561,7 +35482,7 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
             }
           : {};
         nextCache[sym] = {
-          sig, metaSig, titles, headlineContent, spot: data.spot, news, judgment, catalysts, aiSignals,
+          sig, metaSig, titles, headlineContent, spot: data.spot, news, judgment, catalysts,
           ...priorSignals,
         };
         data.news = news;
@@ -35569,10 +35490,6 @@ async function attachTickerJudgments(chains, macroBackdrop, priorCache = {}) {
           data.fundamentals = { ...data.fundamentals, judgment };
         }
         data.catalysts = catalysts && catalysts.length ? catalysts : [];
-        // Major-Contract + Guidance signals ride the same call when
-        // AI_SIGNALS_COMBINED is on (otherwise aiSignals is null and the
-        // dedicated attachAiContractGuidance pass in main() sets them instead).
-        if (aiSignals) data.aiSignals = aiSignals;
         const fundTag = judgment ? ` · fundamentals ${judgment.verdict}` : "";
         const catTag = data.catalysts.length ? ` · ${data.catalysts.length} catalyst(s)` : "";
         console.log(`  ✓ ${sym} — ${news.sentiment} (${headlines.length} articles, ${withBody} with body)${fundTag}${catTag}`);
@@ -37016,17 +36933,11 @@ async function main() {
   // Extract the Major Contract + Guidance fundamentals signals from the news
   // headlines just attached. Mutates chains[sym].aiSignals in memory; consumed
   // later by buildTopPicks → scoreFundamentals. Self-skips without an API key.
-  // When AI_SIGNALS_COMBINED is on (and the combined path ran), these signals
-  // already came back inside attachTickerJudgments' single per-ticker call, so
-  // skip the dedicated round-trip — that is the cost saving. The split path
-  // (AI_COMBINED=0) and the flag-off default still use this dedicated pass.
-  if (!(AI_COMBINED && AI_SIGNALS_COMBINED)) {
-    // Pass the judgment cache so unchanged-headlines names reuse the prior
-    // build's extraction (fresh results are stored back onto its entries).
-    // The split path (AI_COMBINED=0) has no current-build entries to match,
-    // so it calls every name exactly as before.
-    await attachAiContractGuidance(chains, AI_COMBINED ? tickerJudgmentCacheNext : null);
-  }
+  // Pass the judgment cache so unchanged-headlines names reuse the prior
+  // build's extraction (fresh results are stored back onto its entries). The
+  // split path (AI_COMBINED=0) has no current-build entries to match, so it
+  // calls every name.
+  await attachAiContractGuidance(chains, AI_COMBINED ? tickerJudgmentCacheNext : null);
   // Thesis-prose cache: read BEFORE writeChainFiles wipes data/ (persisted after
   // the picks file is written below). Carries the AI gloss across builds so it
   // only re-calls when a pick's thesis composition changes.
@@ -37649,7 +37560,7 @@ async function main() {
   // Commodity price tracker (Yahoo futures/ETF + FRED monthly + best-effort
   // Drewry/BDI/Manheim overlays) — per-item last-good carry-forward (graceful).
   try {
-    const commoditiesInfo = await writeCommoditiesFile(builtAtIso, priorCommodities);
+    const commoditiesInfo = await writeCommoditiesFile(builtAtIso, priorCommodities, globalMarkets);
     console.log(`wrote data/commodities.json — ${commoditiesInfo.fresh}/${commoditiesInfo.total} fresh, ${commoditiesInfo.overlays} overlay${commoditiesInfo.overlays === 1 ? "" : "s"}, ${commoditiesInfo.bytes} bytes${commoditiesInfo.stale ? " [stale — kept last-good]" : ""}`);
   } catch (err) {
     console.log(`  ⚠ Commodities step failed (non-fatal): ${err.message}`);

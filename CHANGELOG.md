@@ -36,6 +36,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Add "Explore by topic" tiles on Home, a "Recently viewed" list in the sidebar and at the top of the empty command palette (this browser only), and a phone tab bar (Today, Stocks, Market, Options, Search).
 - Show each stock's day move with an arrow on the All stocks cards, read from the existing public heatmap snapshot.
 - Log seven candidate Top Picks inputs (21-day return, industry 21-day return, implied minus realized volatility, call and put OI walls, latest print guidance, peer earnings in the next 14 days) beside each day's grade in `grades-daily.json`, and report each one's forward-return IC, with and without the grade, in `diagnose-grade-ic.mjs`. They are logged only and change no grade or pick; no new AI or data calls (`lib/shadow-signals.mjs`, #694).
+- Track Record dividers now mark every rule change, not only grade-formula changes: the take-profit move to +25% (Oct 22), the option-price entry check and the volatility-aware entry timing (both Oct 23). New trades also record their entry-timing version.
+- Stock picks, Sector rotation, LEAPS and Leveraged ETF cards show a chip when Top Picks holds an open trade on the same name, or when the site grade points the other way.
+- Add a Company record view to the Unified Signal Engine: pick a ticker to see its grade breakdown, stored evidence record, company relationships and AI grader log together. Owner Lab Diagnostics links to it, and Owner data stays off the public Look up a stock page.
+- Add WTI crude, natural gas and copper to Commodities (sixteen trackers, energy first). Crude, gas, gold and silver reuse price bars the build already fetches, so no new Yahoo calls.
+- Add an "At a glance" row of live readings on Home in place of the older grid of links (Explore by topic stays).
 
 ### Changed
 
@@ -45,6 +50,13 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Make text on the feature pages about 10% larger (sizes 18px and under; headlines, chart labels, the header and the sidebar keep their size). Small fixed tiles and badges keep their size so labels still fit (`scripts/render/text-scale.mjs`, #692).
 - Trim the sidebar: it runs to the top of the window on desktop instead of leaving an empty block above Workspace, shows 4 Recently viewed pages instead of 5 (the command palette still shows more), and drops the one-line description under each section name (#692).
 - Top Picks no longer opens a trade on a stock under a signed takeover (its price is pinned to the deal); rumored deals are listed only. A call blocked by the forced-liquidation veto or a signed deal no longer takes one of the six AI grader slots. Blocks show in the Scorecard as "Signed takeover target" (`lib/pending-buyout-guard.mjs`, #694).
+- Strategy builder takes its direction from the stock's grade. The chart tape shows as agreeing or conflicting and only decides when the stock has no grade.
+- Options walls, the GEX strip and the Brief label gamma walls and OI walls separately, and the Brief uses the shared GEX code instead of its own copy.
+- Merge Capital raises and IPOs & credit into one Capital markets page (old links redirect).
+- Owner Lab drops the multi-screen overlap, 3-sigma and post-earnings drift screens that repeat public pages, links to those pages, and counts term-structure stress on its desk instead.
+- Track Record links to Open picks instead of repeating the open trade cards. The Webull test sub-tab is now Real fills and holds the real-trading comparison and the trade-log upload; the Scorecard keeps a one-line summary.
+- The heatmap's closing summary is a numbers-only line and points to the 16:10 Brief for the written closing story.
+- News calls its direction filter "Headline wording", the option grader says Pin contract / Pinned contracts, and the "When data updates" timeline matches the current schedule.
 
 ### Fixed
 
@@ -52,6 +64,17 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Keep initial lending limits out of forced-liquidation thresholds, attach pledged-share counts to their own disclosure clauses, and require older extractions to be reparsed before entry decisions use them. Expire volume warnings on open tracker pages and make stalled snapshot reads time out with a working retry.
 
 - Stop the News filters and the Streaks columns from pushing the page sideways when the sidebar is open on laptop and tablet widths, keep the freshness dot beside its text on phones, and keep the LONG · BULLISH badge on one line (#692).
+
+### Removed
+
+- Remove the backtest-picks workflow, which printed the private record to public logs (the local script stays).
+- Remove the unused AI_SIGNALS_COMBINED switch and its A/B script. Cached AI reads keep the same key, so nothing is re-read.
+- Remove the heatmap's after-close AI recap (one Gemini call a day).
+
+### Docs
+
+- Bring CLAUDE.md and docs/site-logic.md up to date: 14 Owner pages, how the grade total and exits work today, Commodities, Capital markets, who spends AI budget, and how the Owner desks cross-reference each other.
+
 ## 2026-10-24
 
 ### Added

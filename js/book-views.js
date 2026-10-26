@@ -1562,7 +1562,8 @@ function linkResults(map, heatmap, selection = { query: state.linkQuery, node: s
   const edges = map && Array.isArray(map.edges) ? map.edges : [];
   const query = String(selection.query || '').trim().toUpperCase();
   if (!query && !selection.node) return '<p class="book-note">Choose a company or group to see its stored relationships.</p>';
-  const wanted = new Set(query ? Object.keys(nodes).filter((id) => nodes[id].type === 'ticker' && String(nodes[id].symbol || '').toUpperCase().startsWith(query)) : [selection.node]);
+  const matches = (id) => { const symbol = String(nodes[id].symbol || '').toUpperCase(); return selection.exact ? symbol === query : symbol.startsWith(query); };
+  const wanted = new Set(query ? Object.keys(nodes).filter((id) => nodes[id].type === 'ticker' && matches(id)) : [selection.node]);
   const returns = new Map(((heatmap && heatmap.tickers) || []).map((row) => [row.t, row]));
   const descriptions = {
     sector: ['Sector membership', 'tickers'], industry: ['Industry membership', 'tickers'], 'industry-sector': ['Industry group', 'tickers'],
@@ -1597,11 +1598,11 @@ async function renderLink() {
   } catch (err) { fail(id, 'Company relationships', 'Relationships could not be loaded (' + err.message + ').'); }
 }
 
-function evidenceBody(record, queryValue = state.evidenceQuery) {
+function evidenceBody(record, queryValue = state.evidenceQuery, exact = false) {
   const names = record && record.names || {};
   const query = String(queryValue || '').trim().toUpperCase();
   if (!query) return '<p class="book-note">Choose one company to inspect its evidence. The full archive is not expanded by default.</p>';
-  const symbols = Object.keys(names).filter((symbol) => symbol.startsWith(query)).sort();
+  const symbols = Object.keys(names).filter((symbol) => exact ? symbol === query : symbol.startsWith(query)).sort();
   const symbol = symbols.includes(query) ? query : symbols[0];
   if (!symbol) return '<p class="book-note">No stored company matches. Try a tracked symbol.</p>';
   const pieces = Array.isArray(names[symbol]) ? names[symbol] : [];
@@ -1634,33 +1635,75 @@ async function renderEvidence() {
   } catch (err) { fail(id, 'Evidence record', 'The evidence record could not be loaded (' + err.message + ').'); }
 }
 
+// One row per grader observation for the day, optionally narrowed to a ticker
+// prefix (the Diagnostics search) or one exact ticker (the company record).
+function rejectionRecords(day, queryValue, exact = false) {
+  const query = String(queryValue || '').trim().toUpperCase();
+  const entries = new Map();
+  // Each bucket keeps its first observation of the day. Only a matching
+  // timestamp proves that a pass and timing record describe the same run.
+  const keyFor = (item, bucket) => [item.sym, item.side, item.asOf || 'undated-' + bucket].join(':');
+  for (const item of Array.isArray(day.passed) ? day.passed : []) entries.set(keyFor(item, 'pass'), { ...item, thesisPassed: true });
+  for (const item of Array.isArray(day.records) ? day.records : []) {
+    const key = keyFor(item, 'decision');
+    entries.set(key, { ...(entries.get(key) || {}), ...item });
+  }
+  return [...entries.values()].filter((item) => { const sym = String(item.sym || '').toUpperCase(); return !query || (exact ? sym === query : sym.startsWith(query)); }).sort((a, b) => String(a.sym).localeCompare(String(b.sym)) || String(a.side).localeCompare(String(b.side)) || String(a.asOf || '').localeCompare(String(b.asOf || '')));
+}
+
+function rejectionTable(records) {
+  const rows = records.map((item) => {
+    const thesis = item.kind === 'reject' ? 'Rejected' : item.thesisPassed || ['strong','moderate','weak'].includes(item.grade) ? 'Passed' : 'Not recorded';
+    const entry = item.kind === 'reject' ? 'Blocked' : item.kind === 'wait-heldback' ? 'Wait · held back' : item.kind === 'wait' || item.entryVerdict === 'wait' ? 'Wait for entry' : item.entryVerdict === 'buy-now' ? 'Entry cleared' : 'Not recorded';
+    const stamp = new Date(item.asOf || '');
+    const recordedAt = Number.isFinite(stamp.getTime()) ? stamp.toLocaleString('en-US', {month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:'America/New_York',timeZoneName:'short'}) : 'Time not recorded';
+    return `<tr><td>${esc(item.sym)}</td><td>${esc(item.side)}</td><td>${esc(recordedAt)}</td><td>${esc(thesis)}</td><td>${esc(item.grade || '—')}</td><td>${esc(entry)}</td><td>${item.total == null ? '—' : esc(signed(item.total, 1))}</td><td>${item.spot == null ? '—' : esc(money(item.spot))}</td><td>${esc(item.entryReason || 'No explanatory note stored.')}</td></tr>`;
+  }).join('');
+  return rows ? `<div class="book-table-wrap"><table class="book-table"><thead><tr><th>Company</th><th>Side</th><th>Recorded at</th><th>Thesis result</th><th>Thesis quality</th><th>Entry timing</th><th>Total</th><th>Recorded spot</th><th>Explanation</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="book-note">No grader decisions match this view.</p>';
+}
+
 async function renderRejections() {
   const id = 'book-rejections';
   try {
     const latest = await loadJson('ai-rejections-latest.json');
     if (!latest || typeof latest.key !== 'string') throw new Error('The grader-log pointer is missing');
     const day = await loadJson(latest.key);
-    const query = state.rejectQuery.trim().toUpperCase();
-    const entries = new Map();
-    // Each bucket keeps its first observation of the day. Only a matching
-    // timestamp proves that a pass and timing record describe the same run.
-    const keyFor = (item, bucket) => [item.sym, item.side, item.asOf || 'undated-' + bucket].join(':');
-    for (const item of Array.isArray(day.passed) ? day.passed : []) entries.set(keyFor(item, 'pass'), { ...item, thesisPassed: true });
-    for (const item of Array.isArray(day.records) ? day.records : []) {
-      const key = keyFor(item, 'decision');
-      entries.set(key, { ...(entries.get(key) || {}), ...item });
-    }
-    const records = [...entries.values()].filter((item) => !query || String(item.sym || '').toUpperCase().startsWith(query)).sort((a, b) => String(a.sym).localeCompare(String(b.sym)) || String(a.side).localeCompare(String(b.side)) || String(a.asOf || '').localeCompare(String(b.asOf || '')));
-    const rows = records.map((item) => {
-      const thesis = item.kind === 'reject' ? 'Rejected' : item.thesisPassed || ['strong','moderate','weak'].includes(item.grade) ? 'Passed' : 'Not recorded';
-      const entry = item.kind === 'reject' ? 'Blocked' : item.kind === 'wait-heldback' ? 'Wait · held back' : item.kind === 'wait' || item.entryVerdict === 'wait' ? 'Wait for entry' : item.entryVerdict === 'buy-now' ? 'Entry cleared' : 'Not recorded';
-      const stamp = new Date(item.asOf || '');
-      const recordedAt = Number.isFinite(stamp.getTime()) ? stamp.toLocaleString('en-US', {month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:'America/New_York',timeZoneName:'short'}) : 'Time not recorded';
-      return `<tr><td>${esc(item.sym)}</td><td>${esc(item.side)}</td><td>${esc(recordedAt)}</td><td>${esc(thesis)}</td><td>${esc(item.grade || '—')}</td><td>${esc(entry)}</td><td>${item.total == null ? '—' : esc(signed(item.total, 1))}</td><td>${item.spot == null ? '—' : esc(money(item.spot))}</td><td>${esc(item.entryReason || 'No explanatory note stored.')}</td></tr>`;
-    }).join('');
-    const table = rows ? `<div class="book-table-wrap"><table class="book-table"><thead><tr><th>Company</th><th>Side</th><th>Recorded at</th><th>Thesis result</th><th>Thesis quality</th><th>Entry timing</th><th>Total</th><th>Recorded spot</th><th>Explanation</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="book-note">No grader decisions match this view.</p>';
+    const records = rejectionRecords(day, state.rejectQuery);
+    const table = rejectionTable(records);
     mount(id, shell(id, 'AI grader log', `<p class="book-count">${recordStamp(day.date || latest.date)} · ${records.length} recorded observation${records.length === 1 ? '' : 's'}</p><div class="book-controls">${searchField('reject-query', 'Ticker', state.rejectQuery, 'NVDA')}</div>${table}<details><summary>Original daily log</summary><pre class="owner-raw-record">${esc(JSON.stringify(day, null, 2))}</pre></details>`, 'Thesis quality and entry timing are separate decisions. A thesis can pass while entry timing still says wait. Different recorded times stay separate, including a rejection followed by a later pass. These are historical decisions, not a new live assessment.'));
   } catch (err) { fail(id, 'AI grader log', 'The grader log could not be loaded (' + err.message + ').'); }
+}
+
+// The Unified Signal Engine's "Company record" view: the three stored records
+// above for one exact ticker, each loading (or failing) on its own. Uses the
+// same Owner-only reads and cache as Diagnostics; no new data or model call.
+async function companyRecord(symbol) {
+  const sym = String(symbol || '').trim().toUpperCase();
+  const part = async (title, note, run) => {
+    let body;
+    try { body = await run(); } catch (err) { body = `<p class="book-note">${esc(title)} could not be loaded (${esc(err && err.message || 'request failed')}).</p>`; }
+    return `<section class="use-record-part"><h4>${esc(title)}</h4><p class="use-muted">${esc(note)}</p>${body}</section>`;
+  };
+  const parts = await Promise.all([
+    part('Stored evidence record', 'What was measured for this company, its source date and whether the history supports a comparison.', async () => {
+      const latest = await loadJson('evidence-latest.json');
+      if (!latest || typeof latest.key !== 'string') throw new Error('The record pointer is missing');
+      const record = await loadJson(latest.key);
+      return `<p class="book-count">${recordStamp(record.date)}</p>${evidenceBody(record, sym, true)}`;
+    }),
+    part('Company relationships', 'Sectors, peers, narratives and research inputs linked to this company. Membership alone does not measure impact.', async () => {
+      const [map, heatmap] = await Promise.all([loadJson('link-map.json'), loadJson('heatmap.json').catch(() => null)]);
+      return `<p class="book-count">${recordStamp(map.bakeDate || map.asOf)}</p>${linkResults(map, heatmap, { query: sym, node: '', exact: true })}`;
+    }),
+    part('AI grader log', 'Thesis quality and entry timing are separate decisions. These are historical decisions, not a new live assessment.', async () => {
+      const latest = await loadJson('ai-rejections-latest.json');
+      if (!latest || typeof latest.key !== 'string') throw new Error('The grader-log pointer is missing');
+      const day = await loadJson(latest.key);
+      const records = rejectionRecords(day, sym, true);
+      return `<p class="book-count">${recordStamp(day.date || latest.date)} · ${records.length} recorded observation${records.length === 1 ? '' : 's'}</p>${records.length ? rejectionTable(records) : '<p class="book-note">The grader did not review this company in the latest daily log.</p>'}`;
+    }),
+  ]);
+  return parts.join('');
 }
 
 const ownerRecords = {
@@ -1865,8 +1908,8 @@ async function refreshEvidence() {
 }
 
 if (typeof document !== "undefined") {
-  window.BookViews = { renderLink, renderEvidence, renderRejections, openTab };
+  window.BookViews = { renderLink, renderEvidence, renderRejections, openTab, companyRecord };
   boot();
 }
 
-export { windowGradeSamples, evidenceBody, linkResults, EVIDENCE_LABELS };
+export { windowGradeSamples, evidenceBody, linkResults, rejectionRecords, EVIDENCE_LABELS };
