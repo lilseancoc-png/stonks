@@ -82,13 +82,13 @@ eq(resolveCollateralIssuer(xml,{...filing,cik:'999',form:'SCHEDULE 13D/A'},direc
 eq(extractLiquidationFiling(xml,filing,issuer)[0].borrower,'Holder Name');
 eq(extractLiquidationFiling(xml,filing,issuer)[0].sharesPledged,500000);
 eq(secArchiveUrl('1',b.accessionNumber,'../../private.env'),null);ok(secArchiveUrl('1',b.accessionNumber,'xslF345X05/primary_doc.xml')?.endsWith('/primary_doc.xml'));
-eq(liquidationRecentFilings({filings:{recent:{form:['DEF 14A','424B5','10-K','4'],filingDate:['2026-10-01','2026-10-01','2026-10-01','2024-01-01'],accessionNumber:Array(4).fill(b.accessionNumber),primaryDocument:Array(4).fill('doc.htm')}}},'1','2026-01-01').length,2);
+eq(liquidationRecentFilings({filings:{recent:{form:['DEF 14A','424B5','10-K','4'],filingDate:['2026-10-01','2026-10-01','2026-10-01','2024-01-01'],accessionNumber:Array(4).fill(b.accessionNumber),primaryDocument:Array(4).fill('doc.htm')}}},'1','2026-01-01').length,3);
 const response=value=>({ok:true,status:200,headers:new Headers(),json:async()=>value,text:async()=>value});
 let calls=0;
 const fetchImpl=async url=>{calls++;if(url.includes('company_tickers'))return response({0:{ticker:'ATLS',title:b.company,cik_str:1}});if(url.includes('search-index'))return response({hits:{total:{value:0},hits:[]}});if(url.includes('/submissions/'))return response({filings:{recent:{form:['DEF 14A'],filingDate:['2026-10-23'],accessionNumber:[b.accessionNumber],primaryDocument:['doc.htm']}}});return response('<html><p>'+b.excerpt+'</p></html>');};
 const collected=await collectLiquidationSec({universe:['ATLS'],now,fetchImpl,delayMs:0});eq(collected.coverage.status,'ok');eq(collected.observations.length,1);eq(collected.coverage.requestsThisRun,calls);
 const cached=await collectLiquidationSec({prior:{version:1,...collected},universe:['ATLS'],now,fetchImpl:()=>{throw new Error('unexpected fetch');},delayMs:0});eq(cached.coverage.requestsThisRun,0);
-const failed=await collectLiquidationSec({prior:fixture.payload,now:'2026-10-27T20:00:00Z',fetchImpl:async()=>{throw new Error('offline');},delayMs:0});eq(failed.coverage.status,'unavailable');eq(failed.observations.length,fixture.observations.length);eq(failed.coverage.lastSuccessAt,now);
+const failed=await collectLiquidationSec({prior:fixture.payload,universe:Object.keys(fixture.chains),now:'2026-10-27T20:00:00Z',fetchImpl:async()=>{throw new Error('offline');},delayMs:0});eq(failed.coverage.status,'unavailable');eq(failed.observations.length,fixture.observations.length);eq(failed.coverage.lastSuccessAt,now);
 const marketFallback=await collectLiquidationMarkets({observations:[b],previous:{ATLS:market},quoteClient:{quote:async()=>{throw new Error('quote unavailable');},chart:async()=>({quotes:[]}),quoteSummary:async()=>({})},now});eq(marketFallback.markets.ATLS.quoteAsOf,market.quoteAsOf);eq(marketFallback.coverage.errors.length,1);
 
 const scoreInput=structuredClone(fixture.chains);

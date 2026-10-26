@@ -2374,7 +2374,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <div class="page-pane" id="page-pane-forced-liquidation" role="tabpanel" aria-labelledby="page-tab-forced-liquidation" hidden>
     <section class="card" id="forced-liquidation-section">
       <header class="card-header"><h2 class="card-title">Forced Liquidation Tracker</h2><span class="card-eyebrow">Owner · SEC collateral research</span></header>
-      <p class="hint">Track stock pledged against debt, the buffer to an estimated maintenance threshold, and signs of rising collateral pressure. Open each filing to inspect the disclosed terms and what remains unknown.</p>
+      <p class="hint">See which stocks in our universe have disclosed pledges and how many shares are involved. Pledges stay visible when loan terms are unknown. Open a filing for the evidence; price thresholds appear when enough terms are available.</p>
       <div id="forced-liquidation-root" aria-live="polite">Open this view to load SEC collateral disclosures.</div>
     </section>
   </div>

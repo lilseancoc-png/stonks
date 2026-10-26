@@ -1,6 +1,12 @@
 # Forced Liquidation Tracker
 
-Forced Liquidation Tracker is an Owner research desk at `?tab=forced-liquidation`. The same dated evidence is available to the Top Picks grader. It tracks disclosed pledges of listed stock, not every secured corporate loan.
+Forced Liquidation Tracker is an Owner research desk at `?tab=forced-liquidation`. The same dated evidence is available to the Top Picks grader. It tracks disclosed pledges of stocks in our tracked universe, not every secured corporate loan. Collection, retained observations, quote requests and the Owner view are restricted to that universe. Removing a stock from the universe removes it from the next snapshot and from the displayed watchlist, evidence and CSV export.
+
+## Pledge awareness
+
+A verified pledge of a tracked stock is enough for watchlist inclusion. Loan principal, borrower identity, currency, maintenance terms, a current quote and complete facility terms are optional for awareness. The view labels incomplete records **Pledge disclosed** and shows the disclosed quantity, date and source. Initial amounts, additions, upper bounds and unresolved share conversions keep their qualifiers. These disclosed quantities do not replace a model-ready current collateral count. Confirmed stock-pledge records take priority over ordinary corporate debt context at the per-document extraction cap.
+
+The headline counts distinct stocks with pledges. Multiple records for a stock can refer to the same pledge and are never added together. Unverified issuer attribution stays in Filing evidence and All disclosures. Released pledges stay in the history and are excluded from the default watchlist.
 
 ## Calculation
 
@@ -16,7 +22,9 @@ Disclosed maintenance LTV and explicit sole-stock collateral produce an estimate
 
 ## Filing evidence
 
-`lib/forced-liquidation-sec.mjs` discovers Form 4, Schedule 13D and 13G, DEF 14A and Form 424B variants. It combines a capped 30-day SEC keyword search with rotating tracked-issuer submissions over 400 days. Document families are interleaved so that one type cannot consume the read budget. Search results and issuer metadata do not prove an actual pledge.
+`lib/forced-liquidation-sec.mjs` discovers Form 4, Schedule 13D and 13G, DEF 14A, annual reports on Forms 10-K, 20-F and 40-F, and Form 424B variants. Annual reports have their own interleaved document lane. Known off-universe issuer reports are excluded before document reads, and tracked-issuer documents are prioritized within each lane so unrelated recent keyword hits cannot crowd out an older tracked annual report. Shareholder schedules still require document-level resolution because the filer can differ from the collateral issuer. It combines a capped 30-day SEC keyword search with rotating tracked-issuer submissions over 400 days. Document families are interleaved so that one type cannot consume the read budget. Search results and issuer metadata do not prove an actual pledge.
+
+The extractor recognizes issuer-report wording such as a facility secured by a pledge of ordinary shares. An initial pledge does not establish the current pledged share count. For an ADS listing, ordinary-share counts need an explicit one-for-one ADS ratio before they can be used with the listed quote, float or volume; other or missing conversion ratios remain unresolved. A collateral holder is not automatically the legal borrower. Facility capacity and an original borrowing do not establish current outstanding principal.
 
 Extraction retains filing links, accession numbers, excerpts, borrower identity when available, dated facts, ambiguous numeric candidates and parser version. Loan quantities must refer to the same local disclosure and facility. A dollar symbol alone does not establish USD. Currency must be explicit locally or in a document-wide dollar-currency declaration. Unresolved currencies, multiple facilities, preferred stock, percentage-only holdings and share-count limits cannot supply a modeled common-stock trigger. The parser does not use an LLM or a paid data feed.
 
@@ -63,6 +71,7 @@ A threshold crossing is not evidence of an actual margin call, forced sale, or a
 - `npm run preview:forced-liquidation` starts a loopback preview with clearly labeled synthetic facilities and a simulated Owner session. `LIQUIDATION_PAYLOAD_FILE` selects a collected local snapshot.
 - `npm run regen:forced-liquidation` regenerates the tracker shell and shared browser files from their sources while preserving published data and rate provenance.
 - `npm run test:forced-liquidation` checks the model, extraction, collection, outages, decision-time reassessment, publication policy, actual Owner authorization and adversarial audit cases. An offline child process exercises the real collection command to catch module-startup failures. The daily build runs these checks before provider or model calls.
+- `npm run test:liquidation-universe` verifies broad-search filtering, cache reuse, outages, universe changes, quote calls and annual-report extraction. Set `ARM_FILING_FILE` to a downloaded Arm 2026 20-F to replay its real disclosure through collection and assessment.
 - `npm run test:forced-liquidation-browser` checks responsive layouts, resizing, themes, navigation, persistence, scenario selection, CSV export, failures, stale data and the Top Picks connection. It accepts the same `PLAYWRIGHT_MODULE` and `CHROMIUM_PATH` options as the other browser checks.
 
 ## Sources
@@ -70,3 +79,15 @@ A threshold crossing is not evidence of an actual margin call, forced sale, or a
 - [SEC public data APIs](https://www.sec.gov/search-filings/edgar-application-programming-interfaces)
 - [SEC access policy and fair-access limits](https://www.sec.gov/search-filings/edgar-search-assistance/accessing-edgar-data)
 - [FINRA explanation of securities-backed credit](https://www.finra.org/investors/insights/securities-backed-lines-credit)
+
+## ARM investigation, October 26, 2026
+
+ARM is in `TICKERS`; ADUR is outside it. Broad SEC keyword hits previously bypassed this membership check, including when retained across scans. The collector also excluded annual reports and treated any inline-XBRL accounting footnote as the whole document's evidence. Both annual-report discovery and full-document extraction are now included.
+
+[Arm's May 26, 2026 20-F](https://www.sec.gov/Archives/edgar/data/1973239/000197323926000097/arm-20260331.htm) discloses a pledge of 769,029,000 ordinary shares for the SoftBank Group Facility, with facts dated May 21, 2026. The original parser returned zero observations from the complete report. The updated parser retains the pledge for awareness without requiring a complete loan model. That disclosure does not establish current outstanding principal or a maintenance LTV, so it cannot establish a trigger or automated entry veto.
+
+[The September 18 report of a $25 billion facility](https://au.finance.yahoo.com/news/softbank-raises-arm-margin-loan-054546224.html) describes a facility expansion attributed to people familiar with the matter. It is not loaded into numeric evidence as $25 billion outstanding. [SoftBank's June 2026 quarterly financial report](https://group.softbank/media/Project/sbg/sbg/pdf/ir/financials/financial_reports/financial-report_q1fy2026_01_en.pdf) is a separate dated parent-company source. Its balance and collateral scope need separate verification before any combination with Arm's May pledge disclosure.
+
+Verification included a live scan using all 85 tracked symbols with 12 issuer-index reads and a 20-document cap. It reached ARM and retained no off-universe rows. The scan remained partial because one filing exceeded the existing 12 MB document limit; 84 documents remained pending. A separate ARM-only scan completed its requested reads without source errors. The actual universe snapshot rendered ARM's share count and missing terms at desktop and phone widths. These checks confirm discovery and display, not exhaustive collateral coverage or a liquidation trigger.
+
+Pledge-awareness verification also covers ambiguous loan balances with a known share count, unknown ADS conversions, initial and incremental amounts, zero-share statements, unique stock counts, issuer attribution, released and stale pressure signals, CSV amounts and basis, and company/share sorting. The interface shows the same disclosed amount in the watchlist and disclosure history.

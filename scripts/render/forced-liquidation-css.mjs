@@ -30,6 +30,7 @@ export function renderForcedLiquidationCss(){return `
 .fl-detail { padding:0 2px; }
 .fl-detail-head { justify-content:space-between; align-items:start; }
 .fl-detail h3,.fl-method h3 { font-size:22px; margin:6px 0; font-weight:500; }
+.fl-detail h3 { scroll-margin-top:140px; }
 .fl-detail h4,.fl-method h4 { font-size:15px; margin:22px 0 10px; }
 .fl-kicker { color:var(--muted-strong); font-size:11px; text-transform:uppercase; letter-spacing:.07em; }
 .fl-detail p,.fl-method p,.fl-method li { color:var(--muted-strong); font-size:13px; line-height:1.8; }
