@@ -1,4 +1,6 @@
 import { renderWorkspaceCss } from './workspace-css.mjs';
+import { renderWayfindingCss } from './wayfinding-css.mjs';
+import { renderDataDisplayCss } from './data-display-css.mjs';
 import { renderViewsCss } from './views-css.mjs';
 import { renderRecoveryCss } from './recovery-css.mjs';
 import { renderHistoricalDataCss } from './historical-data-css.mjs';
@@ -24927,6 +24929,8 @@ svg[data-ch]{ cursor: crosshair; touch-action: pan-y; }
 }
 ${renderWorkspaceCss()}
 ${renderViewsCss()}
+${renderWayfindingCss()}
+${renderDataDisplayCss()}
 
 /* Top Picks: spacious, scoped research cards and a quiet supporting frame. */
 .ecl-age{font-size:.78rem;line-height:1.5;color:var(--muted);margin:.5rem 0}.lev-live small{display:block;font-size:.72rem;line-height:1.5;font-weight:400}.lev-desk-summary{flex-wrap:wrap}
