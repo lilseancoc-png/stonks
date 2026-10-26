@@ -5,6 +5,8 @@ import { webullAnalyticsFactory } from '../lib/webull-analytics.mjs';
 import { webullReviewFactory } from './render/webull-review-client.mjs';
 import { webullReviewFixture } from './fixtures/webull-review.mjs';
 import { ledgerToFillRows, updateQuantities } from '../lib/webull-mirror.mjs';
+import { sectorGroupOfLabel } from '../lib/sector-groups.mjs';
+import { SECTORS } from './build.mjs';
 
 const analytics = webullAnalyticsFactory();
 const t = (id, extra = {}) => ({ t: { tradeId: id, symbol: id, side: 'call', state: 'closed', structure: 'long', fillPrice: 2, closeFillPrice: 3, paperPnlPct: 50, fees: 1, engineEntryPrice: 2, engineExitPrice: 3.2, enginePnlPct: 60, closeFillIso: '2026-10-01T20:00:00Z', ...extra }, rec: { entrySpot: 100, exitSpot: 110, side: 'call', contract: { pop: .6 } } });
@@ -84,6 +86,8 @@ const context = vm.createContext({ Date, console, isFinite, escapeHtml, $: id =>
   accPaneSummary: (...args) => summaries.push(args), accDateTime: v => v, accDate: v => v,
   accPct: v => v == null ? '—' : v.toFixed(1) + '%', accMoney: v => v == null ? '—' : '$' + v.toFixed(2), accUsd: v => v == null ? null : '$' + v,
   ACC_STATUS_LABEL: {}, chHoverAttr: p => ' data-hover-count="' + p.length + '"',
+  // app.js resolves a record's sector bucket from its symbol (lib/sector-groups.mjs).
+  accSectorOf: e => (e && (sectorGroupOfLabel(SECTORS[e.symbol]) || e.sector)) || 'Unknown',
 });
 const tradeIdStart = app.indexOf('  function tlTradeId(');
 vm.runInContext(app.slice(tradeIdStart, app.indexOf('  function tlEtTime(', tradeIdStart)), context);

@@ -45,6 +45,8 @@ import { BRIEF_ACCESS_POLICY_VERSION } from "../lib/public-data-policy.mjs";
 import { buildBriefExtendedHours, extendedSessionForKind } from "../lib/brief-extended-hours.mjs";
 import { contentAssetVersion } from "../lib/asset-version.mjs";
 import { scoreSectorGrowth } from "../lib/sector-growth.mjs";
+import { IV_RICHNESS, IV_RICHNESS_VERSION } from "../lib/iv-richness.mjs";
+import { sectorGroupOfLabel } from "../lib/sector-groups.mjs";
 import { outcomeFromPnl, realFillMark, exitDetailFor, mergeArchive } from "../lib/track-record-fills.mjs";
 import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
 import { assembleBakeLinkMap, LINK_MAP_SKIPPED_SOURCES } from "../lib/link-map.mjs";
@@ -64,13 +66,12 @@ import { summarizeYahooError, withYahooRetry } from "../lib/yahoo-retry.mjs";
 import {
   PATTERN_INDEX_SYMBOLS,
   buildPatternRecognition,
-  capDailyBars,
   mergeDailyCloses,
-  needsLongIndexFetch,
 } from "../lib/pattern-recognition.mjs";
 import { buildBottomTracker } from "../lib/bottom-tracker.mjs";
 import { writeHistoricalDataFile } from "./refresh-historical-data.mjs";
 import { readHistoricalSourceCache, refreshHistoricalSourceCache, loadFreeFredHistory, loadFreeMarketHistory } from "./collect-historical-sources.mjs";
+import { confirmedMarketBars } from "../lib/historical-market-history.mjs";
 import { HISTORICAL_SOURCE_KEY } from "../lib/historical-sources.mjs";
 import { forcedLiquidationContext } from "../lib/forced-liquidation.mjs";
 import { buyoutContextFor } from "../lib/pending-buyout-guard.mjs";
@@ -178,6 +179,9 @@ export const TICKERS = [
 // and macro read. Every feature that builds groups or picks reads TICKERS or
 // the fetched chains, never this map's keys. The one exception is the link map,
 // which draws every labeled name (tracked or not) as a node under its sector.
+// These are FINE labels (the grade's macro profiles and sector growth bars read
+// them). A feature that groups stocks reads the broad group instead
+// (sectorGroupOf, from lib/sector-groups.mjs), so no group holds one stock.
 export const SECTORS = {
   // Broad / sector / international / crypto / volatility ETFs
   SPY: "ETF", QQQ: "ETF", IWM: "ETF", SMH: "ETF",
@@ -244,6 +248,12 @@ export const SECTORS = {
   RDDT: "Social", RKLB: "Space", ASTS: "Space",
   SPCX: "Space",
 };
+
+// Broad sector group for a ticker (one of SECTOR_GROUP_ORDER), or null when
+// the ticker has no SECTORS label.
+export function sectorGroupOf(sym) {
+  return sectorGroupOfLabel(SECTORS[sym]);
+}
 
 // ---------------------------------------------------------------------------
 // Global market correlations — overnight foreign-market lead-lag signals.
@@ -521,6 +531,9 @@ export const INDUSTRY_OF_TICKER = {
   ANET: "Communication Equipment",
   // --- Technology · Computer Hardware ---
   DELL: "Computer Hardware",
+  WDC: "Computer Hardware",
+  // --- Technology · Consumer Electronics ---
+  AAPL: "Consumer Electronics",
   // --- Technology · Information Technology Services ---
   ACN: "Information Technology Services",
   IBM: "Information Technology Services",
@@ -1311,22 +1324,6 @@ async function fetchLeapsExpirationChain(symbol, expSec, spotHint) {
 // before write) and the streak tracker slices its own 60-day tail, so the
 // extra history only feeds the trailing-window technicals.
 const HISTORY_LOOKBACK_DAYS = 365;
-
-async function fetchLongIndexDailyBars(symbol) {
-  const period2 = new Date();
-  const period1 = new Date(period2.getTime() - 25 * 365.25 * 24 * 3600 * 1000);
-  return withYahooRetry(async () => {
-    const result = await yahooFinance.chart(symbol, { period1, period2, interval: "1d" });
-    const quotes = Array.isArray(result?.quotes) ? result.quotes : [];
-    return quotes
-      .filter((q) => q && q.close != null)
-      .map((q) => ({
-        t: q.date ? new Date(q.date).toISOString().slice(0, 10) : null,
-        c: q.close,
-      }))
-      .filter((bar) => bar.t && bar.c > 0);
-  });
-}
 
 async function fetchHistoricalBars(symbol) {
   const period2 = new Date();
@@ -4598,11 +4595,10 @@ export async function attachIvRanks(chains, historyMap = null) {
     // Standard-deviation read of the CURRENT IV vs the name's own historical
     // mean — the substrate for the credit-vs-debit strategy split. Exclude
     // today's print from the baseline so a rich (or cheap) session cannot
-    // pull the mean toward itself. A current ATM IV that sits
-    // >= PICKS_IV_CREDIT_Z std-devs above its ~18-month prior mean is the
-    // statistical "premium is unusually rich, sell it" zone (selectStrategy ->
-    // credit vertical); a z near/below zero means premium isn't inflated (debit
-    // vertical / naked long). Sample std (n-1) over the prior window.
+    // pull the mean toward itself. The z is context on cards and in the AI
+    // grader's evidence; the cheap/rich band that picks the structure comes
+    // from the percentile plus realized vol (lib/iv-richness.mjs). Sample std
+    // (n-1) over the prior window.
     const priorIvs = ivs.slice(0, -1);
     if (priorIvs.length >= PICKS_IVRANK_STD_MIN_N) {
       const mean = priorIvs.reduce((a, b) => a + b, 0) / priorIvs.length;
@@ -5056,13 +5052,13 @@ export function buildIvTrendSummary(rows) {
     text = `Standouts: ${standouts.map(frag).join("; ")}.`;
     const tail = [];
     if (tiered.length) tail.push(`${counts.surging} surging / ${counts.trending} trending / ${counts.building} building of ${all.length} ranked`);
-    if (counts.elevated) tail.push(`${counts.elevated} sitting elevated`);
+    if (counts.elevated) tail.push(`${counts.elevated} sitting rich`);
     if (tail.length) text += ` Across the board: ${tail.join(", plus ")}.`;
   } else if (tiered.length) {
     text = `Implied vol is climbing in ${tiered.length} of ${all.length} ranked names (${counts.surging} surging / ${counts.trending} trending / ${counts.building} building), but nothing clears the standout bars — no extreme readings, fast ramps, or fast deflations.`;
   } else {
     const elevSyms = all.filter((r) => r.elevated).map((r) => r.symbol);
-    text = `No names screen as actively trending, but premium sits elevated vs its own history in ${listStr(elevSyms)}.`;
+    text = `No names screen as actively trending, but premium sits rich vs its own history and realized moves in ${listStr(elevSyms)}.`;
   }
   return { text, counts, unexplained, standouts };
 }
@@ -5137,15 +5133,13 @@ export function buildIvTrendingPayload(ivHistory, chains, builtAtIso = new Date(
       pctile,
       histN: ivs.length,
     });
-    // Elevated flag — current IV meaningfully above the name's OWN history,
-    // regardless of direction. A name can sit rich without climbing (post-ramp
-    // plateau, chronic event premium): no trend tier, but premium is still
-    // expensive and worth marking. Same materiality bar as the trending tier.
-    const elevated = z != null &&
-      z >= (ivs.length < 60 ? 1.2 : 1) &&
-      (relPct ?? 0) >= 8 &&
-      pctile >= 75;
     const data = chains?.[sym] || null;
+    // "elevated" is the site's one Rich rule (lib/iv-richness.mjs): top fifth
+    // of its own history AND above 30-day realized vol, regardless of
+    // direction. A name can sit rich without climbing (post-ramp plateau,
+    // chronic event premium): no trend tier, but premium is still expensive.
+    const ivBand = IV_RICHNESS.classify({ pctile, iv: cur, rv30: data?.technicals?.volRegime?.rv30 });
+    const elevated = ivBand.rich;
     const f = data?.fundamentals || null;
     const row = {
       symbol: sym,
@@ -5168,6 +5162,7 @@ export function buildIvTrendingPayload(ivHistory, chains, builtAtIso = new Date(
       score,
       tier,
       elevated,
+      band: ivBand.band,
       asOf: lastDate,
     };
     // Earnings context — the most common "why": IV mechanically builds into a
@@ -5237,7 +5232,7 @@ const QUANT_HISTORY_MAX_DAYS = 500;
 const QUANT_SIGMA_SHOW_Z = 3;
 const QUANT_SIGMA_RET_Z = 3;
 // Pairs: candidates pair only WITHIN an industry group (singleton industries
-// fall back to their fine SECTORS label) and must clear a return-correlation
+// fall back to their broad sector group) and must clear a return-correlation
 // gate — no all-vs-all dredging across 138 names.
 const QUANT_PAIR_CORR_MIN = 0.6;
 const QUANT_PAIR_CORR_WIN = 120; // trading days of aligned log returns
@@ -6048,7 +6043,7 @@ function computeQuantPair(a, b, ind, chains, ivHistory, ctx = null) {
 
 // Pair candidates: within INDUSTRY_OF_TICKER groups; industries with only one
 // tracked name fall back to pooling with the other singletons that share their
-// fine SECTORS label. ETFs excluded (an ETF-vs-constituent read is the
+// broad sector group (sectorGroupOf). ETFs excluded (an ETF-vs-constituent read is the
 // dispersion section's job). regime (optional) conditions the "stretched"
 // read bar; factors are computed once per symbol for the match-quality read.
 function buildQuantPairs(ivHistory, chains, regime = null) {
@@ -6073,7 +6068,7 @@ function buildQuantPairs(ivHistory, chains, regime = null) {
   }
   const bySector = new Map();
   for (const sym of singles) {
-    const sec = SECTORS[sym];
+    const sec = sectorGroupOf(sym);
     if (!sec) continue;
     if (!bySector.has(sec)) bySector.set(sec, []);
     bySector.get(sec).push(sym);
@@ -11729,45 +11724,16 @@ function closesForBottom(chain) {
   return mergeDailyCloses(rows);
 }
 
-async function loadBottomFred(seriesId) {
-  try {
-    const rows = await fetchFredSeries(seriesId);
-    return (rows || []).filter((row) => Number.isFinite(row?.value));
-  } catch (err) {
-    console.log(`  · bottom tracker ${seriesId} failed: ${err.message}`);
-    return [];
-  }
-}
-
-async function writeBottomTrackerFile({ chains, indexBars, prior, builtAtIso }) {
-  let spy = mergeDailyCloses(indexBars?.SPY, closesForBottom(chains?.SPY));
-  let qqq = mergeDailyCloses(indexBars?.QQQ, closesForBottom(chains?.QQQ));
-  for (const symbol of ["SPY", "QQQ"]) {
-    const current = symbol === "SPY" ? spy : qqq;
-    if (!needsLongIndexFetch(current)) continue;
-    try {
-      const fetched = await fetchLongIndexDailyBars(symbol);
-      const merged = mergeDailyCloses(current, fetched);
-      if (symbol === "SPY") spy = merged;
-      else qqq = merged;
-      console.log(`  · bottom tracker ${symbol} long history: ${merged.length} sessions`);
-    } catch (err) {
-      console.log(`  · bottom tracker ${symbol} history failed: ${err.message}`);
-    }
-  }
-  const [hy, ig, stress, vix, dgs2, cpi, unrate, oil, dollarPrimary, dgs10] = await Promise.all([
-    loadBottomFred("BAMLH0A0HYM2"),
-    loadBottomFred("BAMLC0A0CM"),
-    loadBottomFred("STLFSI4"),
-    loadBottomFred("VIXCLS"),
-    loadBottomFred("DGS2"),
-    loadBottomFred("CPIAUCSL"),
-    loadBottomFred("UNRATE"),
-    loadBottomFred("DCOILWTICO"),
-    loadBottomFred("DTWEXBGS"),
-    loadBottomFred("DGS10"),
-  ]);
-  const dollar = dollarPrimary.length ? dollarPrimary : await loadBottomFred("DTWEXAFEGS");
+// Reads SPY/QQQ history and every FRED series from the shared long-history
+// cache (fred(id) -> rows). No downloads of its own: the cache refreshes each
+// series once a day and keeps the last good rows when a download fails.
+async function writeBottomTrackerFile({ chains, indexBars, fred, prior, builtAtIso }) {
+  const spy = mergeDailyCloses(indexBars?.SPY, closesForBottom(chains?.SPY));
+  const qqq = mergeDailyCloses(indexBars?.QQQ, closesForBottom(chains?.QQQ));
+  const series = (id) => (fred ? fred(id) : []).filter((row) => Number.isFinite(row?.value));
+  const hy = series("BAMLH0A0HYM2"), ig = series("BAMLC0A0CM"), stress = series("STLFSI4"), vix = series("VIXCLS");
+  const dgs2 = series("DGS2"), cpi = series("CPIAUCSL"), unrate = series("UNRATE"), oil = series("DCOILWTICO");
+  const dollar = series("DTWEXBGS"), dgs10 = series("DGS10");
   const revisions = [];
   const breadthBars = {};
   for (const sym of Object.keys(chains || {})) {
@@ -17265,30 +17231,26 @@ const PICKS_MIN_QUALITY = 0.45;                // composite contract-quality flo
 // thin to justify a defined trade. Four outcomes, one deterministic decision tree:
 //   * NONE — the thesis is WEAK (assessThesisQuality tier === "weak"). We show the
 //     grade but recommend no structure ("high grade, weak thesis — watch only").
-//   * CREDIT vertical — the name's current ATM IV is ELEVATED: z >= PICKS_IV_-
-//     CREDIT_Z_ELEVATED (1.5σ) OR pctile >= PICKS_IV_CREDIT_PCTILE (60th) — premium
-//     is statistically rich — and the grade is a directional read: SELL the rich
+//   * CREDIT vertical — the name's options are VERY RICH under the site's one IV
+//     rule (lib/iv-richness.mjs: own-history percentile >= 90 AND ATM IV above
+//     30-day realized vol) and the grade is a directional read: SELL the rich
 //     premium on the bias side (bullish -> bull-put credit spread; bearish ->
 //     bear-call), near-money short + further-OTM wing, targeting a credit
 //     ~PICKS_CREDIT_WIDTH_FRAC of the strike width. High IV mean-reverts, so you
-//     collect theta + a vol-contraction tailwind. The "highly elevated" tier
-//     (z >= PICKS_IV_CREDIT_Z / pctile >= PICKS_IV_RICH) is the same structure,
-//     labelled as the strongest sell-premium case. Suppressed into binary events
-//     (a gap maxes the loss) and on illiquid wings.
+//     collect theta + a vol-contraction tailwind. Suppressed into binary events
+//     (a gap maxes the loss) and on illiquid wings. (Before 2026-10-26 the credit
+//     band was z >= 1.5σ or the 60th percentile.)
 //   * NAKED long — RARE: very-high grade (Strong tier) AND a STRONG thesis AND IV
-//     not elevated: a single long for max gamma/delta + uncapped upside, accepting
-//     full premium + theta because the edge is exceptional and multi-signal.
+//     Cheap or Normal: a single long for max gamma/delta + uncapped upside,
+//     accepting full premium + theta because the edge is exceptional.
 //   * DEBIT vertical — the default for a grounded directional view with a non-weak
-//     thesis when IV is not elevated (or a strong view into elevated-but-event-
-//     blocked IV): long near-money financed by a short OTM wing (same side). Caps
+//     thesis, and the structure whenever IV is Rich but not Very rich (or Very
+//     rich but event-blocked): long near-money financed by a short OTM wing. Caps
 //     theta/vega + the premium at risk; capped upside is the price. A candidate
 //     must clear PICKS_DEBIT_MIN_RR (reward:risk >= 1.0 — the debit can never
 //     exceed half the strike width) or it is rejected, mirroring the credit
 //     side's PICKS_CREDIT_WIDTH_FRAC_MIN floor.
 const PICKS_STRATEGY_AUTO = process.env.PICKS_STRATEGY_AUTO !== "0"; // off -> always naked long (legacy)
-const PICKS_IV_CREDIT_Z = Number(process.env.PICKS_IV_CREDIT_Z ?? 2.0);     // ATM IV z >= this -> "highly elevated" (strongest sell-premium label)
-const PICKS_IV_CREDIT_Z_ELEVATED = Number(process.env.PICKS_IV_CREDIT_Z_ELEVATED ?? 1.5); // z >= this -> "elevated" -> credit (broadened band)
-const PICKS_IV_CREDIT_PCTILE = Number(process.env.PICKS_IV_CREDIT_PCTILE ?? 60); // IV pctile >= this -> "elevated" -> credit (z fallback)
 const PICKS_SKEW_ADVERSE_RAW = Number(process.env.PICKS_SKEW_ADVERSE_RAW ?? 0.05); // 5 vol-point side premium before skew history matures
 const PICKS_CREDIT_WIDTH_FRAC = Number(process.env.PICKS_CREDIT_WIDTH_FRAC ?? 0.34); // target credit ~ 1/3 of the spread width
 const PICKS_CREDIT_WIDTH_FRAC_MIN = 0.22;      // reject a credit spread paying < this fraction of width
@@ -17454,8 +17416,8 @@ export const PICKS_TIMING_THRESHOLDS = Object.freeze({
 });
 
 // ---- IV cost ---------------------------------------------------------------
-const PICKS_IV_RICH = 80;                       // IV pctile >=80 -> expensive
-const PICKS_IV_CHEAP = 20;                       // <=20 -> cheap
+// Cheap / Rich / Very rich cut-offs live in lib/iv-richness.mjs (one rule for
+// the grade, Top Picks, the Strategy builder and Trending IV).
 const PICKS_IVRANK_MIN_N = Number(process.env.PICKS_IVRANK_MIN_N ?? 10); // min IV-history entries to rank (attachIvRanks)
 
 // ---- Overnight global-tape axis (consumed by deriveGlobalTapeAxis) ----------
@@ -17680,7 +17642,9 @@ export const PICKS_ACCURACY_RESET_EPOCH = "2026-08-08.top-picks-v3";
 // formula that selected the trade. Bump it whenever scoreTicker's weights change.
 // 2026-10-19: the AI chart-pattern vote left the technical pillar.
 // 2026-10-20: revenue and EPS growth are judged against sector norms.
-export const GRADE_MODEL_VERSION = "2026-10-sector-growth";
+// 2026-10-26: IV cost and the spread choice read one shared IV rule
+// (lib/iv-richness.mjs): Rich -2, Cheap +1, credit spreads only when Very rich.
+export const GRADE_MODEL_VERSION = "2026-10-iv-rule";
 // Hard cap on the concurrently-tracked open book. Each build ships <=10
 // actionable picks, but re-entry suppression means every build surfaces NEW
 // names while the previously-enrolled ones stay open until an exit rule fires —
@@ -18145,9 +18109,9 @@ function sectorCapexBenchmarks(chains, asOfIso = null) {
   return out;
 }
 
-// Universe-relative standardization for the IV Cost points. Own-history rank/z
-// remain the interpretation and strategy inputs; only fresh, adequately sampled
-// percentile rows enter this cross-section.
+// Snapshot context for the IV Cost points: the date every rank must match, plus
+// a cross-section summary kept for diagnostics. The points themselves come from
+// the shared own-history band (lib/iv-richness.mjs), not from this cross-section.
 export function computeIvUniverseContext(chains, reference = null) {
   const asOf = picksReferenceDateKey(reference);
   const rows = [];
@@ -19311,24 +19275,17 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
   };
 }
 
-// IV cost is direction-agnostic. The name's own-history percentile remains the
-// raw interpretation, while the points are standardized against today's fresh
-// investable universe; a thin cross-section contributes zero.
+// IV cost is direction-agnostic and reads the site's one "expensive options"
+// rule (lib/iv-richness.mjs): Rich or Very rich (own-history percentile >= 80
+// and IV above 30-day realized vol) costs 2 points, Cheap (<= 20) earns 1,
+// anything else is neutral. The universe context only supplies the snapshot
+// date, so a stale rank cannot vote.
 export function computeIvCostContribution(data, universe = null, opts = {}) {
   const rank = data?.ivRank || null;
   const p = pnumN(rank?.pctile);
   if (p == null) return null;
   const rankAsOf = rank?.asOf || null;
   if (universe?.asOf && rankAsOf !== universe.asOf) return null;
-  let core = 0, crossZ = null, method = "universe-thin-neutral";
-  if (universe?.ready && universe.stdPctile > 0 && universe.n >= 10) {
-    crossZ = (p - universe.meanPctile) / universe.stdPctile;
-    method = "universe-relative";
-    // A name can be less rich than today's universe without being cheap versus
-    // itself. In that case it earns no credit but still outranks the richer peer.
-    if (crossZ >= 0.5 && p >= 50) core = -clamp(0.5 + (crossZ - 0.5) * 0.75, 0.5, 2);
-    else if (crossZ <= -0.5 && p <= 50) core = clamp(0.25 + (-crossZ - 0.5) * 0.5, 0.25, 1);
-  }
 
   // Fixed, small term overlay: steep front-loaded IV is an extra cost for a
   // long-premium trade, except when the inversion is already explained by the
@@ -19349,15 +19306,19 @@ export function computeIvCostContribution(data, universe = null, opts = {}) {
   const termExplained = earningsLoaded || macroLoaded;
   const termInverted = !termExplained && ((termZ != null && termZ <= -1.5) || (termSlope != null && termSlope <= -0.03));
   const termPenalty = termInverted ? -0.5 : 0;
+  const richness = IV_RICHNESS.classify({
+    pctile: p, iv: rank?.iv, rv30: data?.technicals?.volRegime?.rv30, earningsDays: earnDays,
+  });
+  const core = richness.rich ? -2 : richness.cheap ? 1 : 0;
   const contribution = clamp(core + termPenalty, -2, 1);
   return {
     contribution: r2(contribution), coreContribution: r2(core), termPenalty,
+    band: richness.band, bandLabel: richness.label, bandNote: richness.note,
+    ivOverRv: richness.ivOverRv, rv30: richness.rv30, earningsSoon: richness.earningsSoon,
     pctile: p, ownZ: pnumN(rank?.z), currentIv: pnumN(rank?.iv),
     n: pnumN(rank?.n), rankAsOf, surfaceAsOf,
-    universeN: universe?.n || 0,
-    meanPctile: universe?.meanPctile ?? null, stdPctile: universe?.stdPctile ?? null,
     universeAsOf: universe?.asOf || null,
-    method, termZ, termSlope, termInverted, termExplained, surfaceFresh,
+    method: IV_RICHNESS_VERSION, termZ, termSlope, termInverted, termExplained, surfaceFresh,
   };
 }
 
@@ -20418,8 +20379,11 @@ function scoreTicker(sym, data, ctx) {
   };
   const ivValue = ivCost
     ? [
-      `${ivCost.pctile}%ile own history`,
-      ivCost.crossZ != null ? `${ivCost.crossZ >= 0 ? "+" : ""}${ivCost.crossZ}σ vs universe` : `universe n=${ivCost.universeN} (neutral)`,
+      `${ivCost.bandLabel} · ${ivCost.pctile}%ile own history`,
+      ivCost.currentIv != null && ivCost.rv30 != null
+        ? `IV ${Math.round(ivCost.currentIv * 100)}% vs realized ${Math.round(ivCost.rv30 * 100)}%`
+        : null,
+      ivCost.earningsSoon ? "earnings within 14 days" : null,
       ivCost.termInverted ? "front IV inverted" : null,
     ].filter(Boolean).join(" · ")
     : null;
@@ -20428,8 +20392,8 @@ function scoreTicker(sym, data, ctx) {
     signals: [sig(
       "ivCost", "IV cost", ivContribution, ivValue,
       ivCost?.termInverted
-        ? "Universe-relative long-premium cost plus a small unexplained front-IV penalty"
-        : "Own-history IV is interpreted through today's fresh universe distribution",
+        ? "Shared IV rule (Rich −2, Cheap +1) plus a small unexplained front-IV penalty"
+        : "Shared IV rule: Rich costs 2 points, Cheap earns 1, Normal is neutral",
       !!ivCost,
     )],
     context: ivCost,
@@ -20692,21 +20656,26 @@ export function selectStrategy(r, side, opts = {}) {
   const skewBasis = adverseSkewByZ ? "history-z" : adverseSkewByRaw ? "raw-fallback" : null;
   const eventImminent = !!(opts.eventRisk && opts.eventRisk.active);
   const earningsInWindow = !!opts.earningsInWindow;
-  // IV reads — the spec's OR of the two measures: a z-score (std-devs above the
-  // name's OWN ~18-month mean — the mean-reversion signal) and the IV-rank
-  // percentile. Either one qualifying counts. Two credit tiers: "elevated"
-  // (z>=1.5σ OR >=60th pctile -> sell premium) and "highly elevated" (z>=2σ OR
-  // >=80th -> the strongest sell-premium case, same structure). "Reasonable" (low,
-  // for a naked long) requires at least one current IV measure and neither
-  // measure elevated. Missing history cannot establish reasonable premium.
-  const ivHighlyElevated = (z != null && z >= PICKS_IV_CREDIT_Z) || (pctile != null && pctile >= PICKS_IV_RICH);
-  const ivElevated = ivHighlyElevated || (z != null && z >= PICKS_IV_CREDIT_Z_ELEVATED) || (pctile != null && pctile >= PICKS_IV_CREDIT_PCTILE);
-  const ivKnown = z != null || pctile != null;
+  // IV reads come from the site's one "expensive options" rule
+  // (lib/iv-richness.mjs). Very rich (>= 90th percentile and IV above 30-day
+  // realized vol) is the only band that sells premium; Rich (>= 80th, same
+  // realized check) rules out a naked long and steps down to a debit spread;
+  // Cheap or Normal is "reasonable" premium for a naked long. Missing history
+  // cannot establish reasonable premium. ivTier keeps its old names for the
+  // stored picks: highly-elevated = Very rich, elevated = Rich.
+  const ivBand = IV_RICHNESS.classify({
+    pctile, iv: ivr?.iv, rv30: r.data?.technicals?.volRegime?.rv30,
+  });
+  const ivHighlyElevated = ivBand.veryRich;
+  const ivElevated = ivBand.rich;
+  const ivKnown = ivBand.band !== "unknown";
   const ivReasonable = ivKnown && !ivElevated;
   const ivTier = !ivKnown ? "unknown" : ivHighlyElevated ? "highly-elevated" : ivElevated ? "elevated" : "reasonable";
-  const ivBasis = z != null ? `IV ${z >= 0 ? "+" : ""}${z}σ vs its own normal` : (pctile != null ? `IV ${pctile}th pctile` : "IV history thin");
+  const ivBasis = pctile != null
+    ? `IV ${ivBand.label.toLowerCase()} (${pctile}th pctile${ivBand.ivOverRv === true ? ", above realized vol" : ivBand.ivOverRv === false ? ", not above realized vol" : ""})`
+    : "IV history thin";
   const mk = (type, label, reason) => ({
-    type, label, reason, ivZ: z, ivPctile: pctile, ivBasis, ivTier,
+    type, label, reason, ivZ: z, ivPctile: pctile, ivBasis, ivTier, ivBand: ivBand.band,
     termSlope, termZ, skew25, skewZ, adverseSkew, skewBasis,
   });
 
@@ -20723,30 +20692,28 @@ export function selectStrategy(r, side, opts = {}) {
       `The grade is high but the supporting case is thin / single-pillar — no edge clear enough to define a trade. Watch only: wait for a second confirming signal or a clean entry.`);
   }
 
-  // 1) Premium is ELEVATED (>= 1.5σ / 60th pctile). SELL it on the bias side
-  //    (the headline rule) — bull-put / bear-call credit spread — UNLESS a binary
-  //    event/earnings is imminent (a gap maxes a credit spread's loss), where we
-  //    step down to a defined-risk DEBIT instead. Naked is out here: a naked long
-  //    is reserved for *reasonable* (not elevated) IV.
+  // 1) Premium is VERY RICH. SELL it on the bias side — bull-put / bear-call
+  //    credit spread — UNLESS a binary event/earnings is imminent (a gap maxes a
+  //    credit spread's loss), where we step down to a defined-risk DEBIT instead.
+  //    Naked is out here: a naked long is reserved for Cheap or Normal IV.
   // A market-wide macro event (eventImminent) normally defers credit -> debit; the
   // default-OFF PICKS_CREDIT_INTO_MACRO_EVENT flag lets a defined-risk credit fire
   // through it anyway (single-name earningsInWindow still defers — its gap is
   // name-specific and can max the spread).
-  if (ivElevated && (!eventImminent || PICKS_CREDIT_INTO_MACRO_EVENT) && !earningsInWindow) {
-    const tierTxt = ivHighlyElevated ? `>=${PICKS_IV_CREDIT_Z}σ — highly elevated` : `>=${PICKS_IV_CREDIT_Z_ELEVATED}σ / >=${PICKS_IV_CREDIT_PCTILE}th pctile — elevated`;
+  if (ivHighlyElevated && (!eventImminent || PICKS_CREDIT_INTO_MACRO_EVENT) && !earningsInWindow) {
     return mk("credit", (side === "call" ? "Bull-put" : "Bear-call") + " credit spread",
-      `${ivBasis} (${tierTxt}) — sell the expensive premium on the ${side === "call" ? "bullish" : "bearish"} side; elevated IV mean-reverts and time decay works for you while price stays on your side of the short strike.`);
+      `${ivBasis} — sell the expensive premium on the ${side === "call" ? "bullish" : "bearish"} side; very rich IV mean-reverts and time decay works for you while price stays on your side of the short strike.`);
   }
 
-  // 2) RARE: very-high grade (Strong tier) AND a STRONG thesis AND IV not elevated
-  //    -> naked long for maximum delta/gamma + uncapped upside.
+  // 2) RARE: very-high grade (Strong tier) AND a STRONG thesis AND IV Cheap or
+  //    Normal -> naked long for maximum delta/gamma + uncapped upside.
   if (strong && thesisTier === "strong" && ivReasonable && !eventImminent && !earningsInWindow && !adverseSkew) {
     return mk("long", "Long " + side,
-      `Exceptional, multi-signal conviction (grade ${r.total >= 0 ? "+" : ""}${r.total}, strong thesis) with ${ivBasis} (not elevated) — a single long captures the most delta/gamma and uncapped upside; the edge justifies the full premium + theta.`);
+      `Exceptional, multi-signal conviction (grade ${r.total >= 0 ? "+" : ""}${r.total}, strong thesis) with ${ivBasis} — a single long captures the most delta/gamma and uncapped upside; the edge justifies the full premium + theta.`);
   }
 
   // 3) Default: a grounded directional view without extreme conviction (or into an
-  //    event, or a strong view fighting rich-but-sub-2σ IV) -> defined-risk debit.
+  //    event, or a strong view into Rich-but-not-Very-rich IV) -> defined-risk debit.
   if (!ivKnown) {
     return mk("debit", (side === "call" ? "Bull" : "Bear") + " debit spread",
       "Current IV history is unavailable — relative premium value is unknown. Use a debit spread to limit premium outlay; a single long is not eligible.");
@@ -21413,8 +21380,7 @@ export function openPickPrecheck(r, side, tactical, ctx = {}) {
   if (pillarsAlignedFor(r, side) < 2) return "confluence";
   const entry = computeEntrySignal(side, pnum(r.data.spot), r.data, r.timing, { total: r.total });
   if (entryPromotionBlocked(entry, r.timing)) return "timing";
-  const sec = SECTORS[r.sym] || r.data?.fundamentals?.sector || null;
-  const fac = sec && sec !== "ETF" ? (FACTOR_OF_SECTOR[sec] || null) : null;
+  const fac = factorOfTicker(r.sym);
   if (side === "call" && fac && ctx.factorHealth?.[fac]?.weak
     && !(r.timing?.state === "go" && Math.abs(r.total) >= PICKS_TIER_STRONG)) return "factor-trend";
   const earnDays = etDaysUntil(r.data?.fundamentals?.nextEarningsDate);
@@ -21440,8 +21406,8 @@ export function prioritizeAiSlots(cands, ctx = {}) {
   for (const c of cands) {
     let block = openPickPrecheck(c.r, c.side, !!c.tactical, ctx);
     if (!block) {
-      const sec = SECTORS[c.r.sym] || c.r.data?.fundamentals?.sector || null;
-      const fac = sec && sec !== "ETF" ? (FACTOR_OF_SECTOR[sec] || null) : null;
+      const sec = sectorGroupOf(c.r.sym) || c.r.data?.fundamentals?.sector || null;
+      const fac = factorOfTicker(c.r.sym);
       if (sec && sec !== "ETF" && (sectorCount[sec] || 0) >= PICKS_MAX_PER_SECTOR) block = "sector-cap";
       else if (fac && (factorCount[fac] || 0) >= PICKS_MAX_PER_FACTOR) block = "factor-cap";
       else if (c.side === "call" ? callN >= PICKS_MAX_PER_SIDE : putN >= PICKS_MAX_PER_SIDE) block = "side-cap";
@@ -21711,8 +21677,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       const sectors = isAct ? sectorCount : watchSectorCount;
       const factors = isAct ? factorCount : watchFactorCount;
       const sides = sideCounts[isAct ? "actionable" : "watch"];
-      const sec = SECTORS[r.sym] || r.data?.fundamentals?.sector || null;
-      const fac = sec && sec !== "ETF" ? (FACTOR_OF_SECTOR[sec] || null) : null;
+      const sec = sectorGroupOf(r.sym) || r.data?.fundamentals?.sector || null;
+      const fac = factorOfTicker(r.sym);
       if (sec && sec !== "ETF") {
         if ((sectors[sec] || 0) >= PICKS_MAX_PER_SECTOR) { meta.sectorCapped.push(r.sym); if (isAct) traceGate(r, side, "sector-cap"); continue; }
         if (fac && (factors[fac] || 0) >= PICKS_MAX_PER_FACTOR) { meta.factorCapped.push(r.sym); if (isAct) traceGate(r, side, "factor-cap"); continue; }
@@ -21747,14 +21713,14 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   meta.groups = { actionable: actionable.length, watch: watch.length };
   meta.classifications = finalPicks.reduce((acc, p) => { const c = p.classification || "idea"; acc[c] = (acc[c] || 0) + 1; return acc; }, {});
   // INSTRUMENTATION (no behavior change): the structure mix actually shipped, plus
-  // the names whose IV the engine flagged elevated/highly-elevated (selectStrategy
-  // wanted to SELL premium) but that shipped as long premium anyway — split by
+  // the names whose IV the engine flagged Very rich (selectStrategy wanted to
+  // SELL premium) but that shipped as long premium anyway — split by
   // WHY (`fallback` = no clean credit wing -> debit; `event-defer` = a macro/
   // earnings event forced defined-risk debit). Surfaces the "credit never fires"
   // gap in rosterMeta every bake so it can be adjudicated on resolved picks.
   meta.strategyMix = finalPicks.reduce((acc, p) => { const t = p.strategy?.type || (p.contract ? "long" : "none"); acc[t] = (acc[t] || 0) + 1; return acc; }, {});
   meta.creditDeferred = finalPicks
-    .filter((p) => p.strategy && p.strategy.type !== "credit" && (p.strategy.ivTier === "elevated" || p.strategy.ivTier === "highly-elevated"))
+    .filter((p) => p.strategy && p.strategy.type !== "credit" && p.strategy.ivTier === "highly-elevated")
     .map((p) => ({ sym: p.symbol, side: p.side, ivTier: p.strategy.ivTier, ivZ: p.strategy.ivZ ?? null, used: p.strategy.type, why: p.strategy.fallback ? "fallback" : "event-defer" }));
   const edgeScale = opts.priorClosed ? computeEdgeScale(opts.priorClosed) : 1;
   // Size with the SAME multiplier the regime object ships/displays (the
@@ -21812,6 +21778,9 @@ function buildPickObject(r, side, contract, exitPlan, entryPlan, peers, peerGrou
   return {
     symbol: r.sym, side, total: r.total, score: r.total, conviction: Math.abs(r.total),
     recommendation: rec, spot, sector: SECTORS[r.sym] || r.data?.fundamentals?.sector || null,
+    // Broad group — what the sector cap counted, and what the Track Record
+    // groups accuracy by (a fine label would make one-stock buckets).
+    sectorGroup: sectorGroupOf(r.sym) || null,
     classification: thesisCard.classification, group: thesisCard.group,
     finalGrade,
     pillars: r.pillars, drivers: r.drivers,
@@ -22493,9 +22462,9 @@ export function buildEdgeStatement(r, side, strategy, thesisQuality, contract) {
   const ivTxt = strategy.ivBasis || "";
   let text;
   if (strategy.type === "credit") {
-    text = `Premium is ${strategy.ivTier === "highly-elevated" ? "richly bid" : "elevated"} (${ivTxt}) and the read is ${dir} (${driverTxt}) → SELL a ${strategy.label.toLowerCase()} to harvest decay + a vol-contraction tailwind while ${r.sym} holds ${bull ? "above" : "below"} the short strike.`;
+    text = `Premium is very rich (${ivTxt}) and the read is ${dir} (${driverTxt}) → SELL a ${strategy.label.toLowerCase()} to harvest decay + a vol-contraction tailwind while ${r.sym} holds ${bull ? "above" : "below"} the short strike.`;
   } else if (strategy.type === "long") {
-    text = `Exceptional, multi-signal ${dir} conviction (${gradeTxt}, strong thesis) with ${ivTxt} not elevated → a purchased ${bull ? "call" : "put"} with uncapped directional profit potential and the premium at risk.`;
+    text = `Exceptional, multi-signal ${dir} conviction (${gradeTxt}, strong thesis) with ${ivTxt} → a purchased ${bull ? "call" : "put"} with uncapped directional profit potential and the premium at risk.`;
   } else {
     text = `A ${dir} read (${driverTxt}) with ${ivTxt} → a defined-risk ${strategy.label.toLowerCase()} limits premium outlay and caps the payout. Review its net theta and vega; a spread does not guarantee lower sensitivity in every scenario.`;
   }
@@ -22679,7 +22648,9 @@ export function buildGradesIndex(chains, narratives, streaksMap = null, unusualP
       sentiment: currentNewsSentiment(r.data?.news, Date.parse(opts.asOfIso) || Date.now()),
       rsi: r.data?.technicals?.rsi ?? null,
       tech: techLive,
-      ivPctile: r.data?.ivRank?.pctile ?? r.data?.technicals?.volRegime?.rv30Pctile ?? null,
+      // Implied-vol percentile only. The old fallback to the realized-vol
+      // percentile mixed two different measures under one label.
+      ivPctile: r.data?.ivRank?.pctile ?? null,
       streak: cs ? { color: cs.color, days: cs.sameDays, cumulativePct: cs.cumulativePct } : null,
       peers, catalysts: Array.isArray(r.data?.catalysts) ? r.data.catalysts : [],
       timing: { call: compactTiming(ownSide === "call" ? ownTiming : otherTiming), put: compactTiming(ownSide === "put" ? ownTiming : otherTiming) },
@@ -23063,12 +23034,12 @@ function stkBigMoney(v) {
 // offline testing (like buildCorrelationsPayload).
 export function stockTrackedPeers(chains, sym) {
   const ind = INDUSTRY_OF_TICKER[sym] || null;
-  const sec = SECTORS[sym] || null;
+  const sec = sectorGroupOf(sym);
   const peers = [];
   for (const [p, d] of Object.entries(chains || {})) {
     if (p === sym || !d || SECTORS[p] === "ETF") continue;
     const sameIndustry = ind != null && INDUSTRY_OF_TICKER[p] === ind;
-    if (!sameIndustry && !(sec != null && SECTORS[p] === sec)) continue;
+    if (!sameIndustry && !(sec != null && sectorGroupOf(p) === sec)) continue;
     const pf = d.fundamentals || {};
     peers.push({
       sym: p,
@@ -23162,7 +23133,7 @@ export function buildStockChecklist(sym, data, grade, sectorPE, traps, peers) {
         ? ` Intensity proxy: gross margin ${r1(gm)}% vs a ${r1(gmMed)}% peer median — ${gm >= gmMed + 5 ? "it out-earns the group, consistent with a differentiated seat" : gm <= gmMed - 5 ? "it keeps less of each sales dollar than the group — a tougher competitive seat (or a deliberate low-price model)" : "roughly in line with the group"}.`
         : "";
       mgmt.push(item(q, direct.length ? "answered" : "unsure",
-        `${direct.length ? `Tracked direct peers (${INDUSTRY_OF_TICKER[sym]})` : `No tracked direct-industry peer — nearest tracked ${f.sector || SECTORS[sym] || "sector"} names`}: ${names}.${intensity} Curated universe, so untracked and private competitors don't appear here.`));
+        `${direct.length ? `Tracked direct peers (${INDUSTRY_OF_TICKER[sym]})` : `No tracked direct-industry peer — nearest tracked ${sectorGroupOf(sym) || f.sector || "sector"} names`}: ${names}.${intensity} Curated universe, so untracked and private competitors don't appear here.`));
     } else {
       mgmt.push(unanswered(q, "No tracked peer in this name's industry or sector."));
     }
@@ -23665,10 +23636,16 @@ function sectorRotationSignalKey(candidate, modelVersion = SECTOR_ROTATION_MODEL
 
 // Coherent trader-facing baskets built from the repo's curated SECTORS map.
 // Explicit groups avoid silently treating a whole Yahoo top-level sector as
-// one trade. The Semis complex intentionally absorbs Storage plus NVDA (whose
+// one trade. They are deliberately FINER than the broad sector groups
+// (lib/sector-groups.mjs), because each basket pairs with its own benchmark
+// ETF — payments and banks rotate separately even though both are Financials.
+// The semis basket absorbs storage, hardware and networking plus NVDA (whose
 // curated card group is Mega-cap tech) and uses tracked SMH as confirmation.
+// A basket under SECTOR_ROTATION_MIN_GROUP names is dropped rather than
+// faked, so a sparsely covered corner (one tracked China tech name today) has
+// no rotation read at all.
 const SECTOR_ROTATION_GROUP_DEFS = [
-  { key: "semis", label: "Semis complex", sectorTags: ["Semis", "Storage"], symbols: ["NVDA"], benchmark: "SMH" },
+  { key: "semis", label: "Semis & hardware", sectorTags: ["Semis", "Storage", "Hardware", "Networking"], symbols: ["NVDA"], benchmark: "SMH" },
   { key: "mega-tech", label: "Mega-cap tech", sectorTags: ["Mega-cap tech"], excludeSymbols: ["NVDA"], benchmark: "QQQ" },
   { key: "software", label: "Software & cloud", sectorTags: ["Software", "IT services", "Tech services"] },
   { key: "retail", label: "Retail", sectorTags: ["Retail"] },
@@ -29109,35 +29086,36 @@ function patternCloseSeries(chain) {
   return mergeDailyCloses(rows);
 }
 
-async function readIndexLongHistory() {
-  try {
-    const parsed = JSON.parse(await readFile(resolve(DATA_DIR, "index-long-history.json"), "utf8"));
-    const symbols = {};
-    for (const symbol of PATTERN_INDEX_SYMBOLS) symbols[symbol] = mergeDailyCloses(parsed?.symbols?.[symbol]);
-    return { symbols };
-  } catch {
-    return { symbols: {} };
+// Confirmed daily closes for the given ETFs from the site's one long-history
+// cache (data/historical-source-history.json). Replaces the retired
+// index-long-history.json that Pattern lab and the Bottom tracker kept apart.
+function sharedHistoryBars(cache, symbols) {
+  const out = {};
+  for (const symbol of symbols) out[symbol] = confirmedMarketBars(cache?.symbols?.[symbol], cache?.records?.[symbol], cache?.version);
+  return out;
+}
+
+// A FRED series from the same cache, in the { date, value } rows the desks read.
+function sharedFredRows(cache, id) {
+  return (cache?.context?.[id]?.rows || []).map((row) => ({ date: row.t, value: row.v }));
+}
+
+// FRED download for the shared cache: the official API when FRED_API_KEY is
+// set (fetchFredSeries, which falls back to CSV itself), else the public CSV.
+async function loadSharedFred(id, request) {
+  if (process.env.FRED_API_KEY) {
+    const rows = await fetchFredSeries(id);
+    if (rows.length) return rows;
   }
+  return loadFreeFredHistory(id, fetch, request);
 }
 
 async function writePatternRecognitionFiles({
-  chains, globalMarkets, fearGreed, regimeHistoryPrev, indexLongPrev, macroRegime, builtAtIso,
+  chains, globalMarkets, fearGreed, regimeHistoryPrev, indexBars, macroRegime, builtAtIso,
 }) {
-  const symbols = { ...(indexLongPrev?.symbols || {}) };
-  let extraYahooCharts = 0;
+  const symbols = {};
   for (const symbol of PATTERN_INDEX_SYMBOLS) {
-    let bars = mergeDailyCloses(symbols[symbol]);
-    if (needsLongIndexFetch(bars)) {
-      extraYahooCharts += 1;
-      try {
-        const fetched = await fetchLongIndexDailyBars(symbol);
-        bars = mergeDailyCloses(bars, fetched);
-        console.log(`  · ${symbol} long history: ${bars.length} sessions from Yahoo daily chart`);
-      } catch (err) {
-        console.log(`  · ${symbol} long history fetch failed (${err?.message || err}); using bars already in memory`);
-      }
-    }
-    symbols[symbol] = capDailyBars(mergeDailyCloses(bars, patternCloseSeries(chains?.[symbol])));
+    symbols[symbol] = mergeDailyCloses(indexBars?.[symbol], patternCloseSeries(chains?.[symbol]));
   }
   const peers = [];
   for (const [us, group] of Object.entries(GLOBAL_PEER_OF_TICKER)) {
@@ -29169,25 +29147,22 @@ async function writePatternRecognitionFiles({
     divergences,
     regimeDays,
     fearGreed: Array.isArray(fearGreed?.history) ? fearGreed.history : [],
-    extraYahooCharts,
+    extraYahooCharts: 0,
   });
   const patternJson = JSON.stringify(payload);
-  const historyJson = JSON.stringify({ builtAtIso, symbols });
   await writeFile(resolve(DATA_DIR, "pattern-recognition.json"), patternJson, "utf8");
-  await writeFile(resolve(DATA_DIR, "index-long-history.json"), historyJson, "utf8");
   return {
     bytes: patternJson.length,
-    historyBytes: historyJson.length,
-    extraYahooCharts,
     divergences: payload.pieces.divergences.rows.length,
     leads: payload.pieces.leadLag.usable,
   };
 }
 
 // Finviz-style market-map data. One row per non-ETF curated ticker, with
-// the fields the treemap needs: sector grouping (from the SECTORS map,
-// which is curated so "Mega-cap tech" / "Semis" / "Software" stay
-// readable rather than collapsing into Yahoo's coarse "Technology"),
+// the fields the treemap needs: sector grouping (the broad sectorGroupOf
+// group, curated so "Mega-cap tech" / "Semis & hardware" / "Software & IT
+// services" stay readable rather than collapsing into Yahoo's coarse
+// "Technology", and never a one-stock block),
 // industry (for the optional sub-grouping), market cap (tile size), and
 // selectable 1D / 1W / 1M / 3M / YTD / 1Y returns (tile color). ETFs are deliberately excluded — they have
 // no marketCap from Yahoo and we surface them separately on the Bonds &
@@ -29260,7 +29235,7 @@ export function buildHeatmapPerformance(data, builtAtIso) {
 export function buildHeatmapPayload(chains, builtAtIso) {
   const tickers = [];
   for (const [sym, data] of Object.entries(chains)) {
-    const sector = SECTORS[sym];
+    const sector = sectorGroupOf(sym);
     if (!sector || sector === "ETF") continue;
     const f = data?.fundamentals || {};
     const vol = data?.technicals?.volume || {};
@@ -37137,7 +37112,6 @@ async function main() {
   // Long SPY/QQQ/IWM closes live in data/ and the wipe would drop them.
   // Read first so a later bake appends the tail instead of downloading
   // twenty years again.
-  const indexLongPrev = await readIndexLongHistory();
   const historicalSourcePrev = await readHistoricalSourceCache(DATA_DIR);
   // Same rule for the picks churn log (data/picks-changes.json) — read it now so
   // this build's entered/exited events append to the rolling log instead of
@@ -37484,17 +37458,30 @@ async function main() {
   console.log(`wrote data/heatmap.json — ${heatmapInfo.count} tickers, ${heatmapInfo.bytes} bytes${heatmapInfo.eodPreserved ? ` (carried over EOD recap from ${priorHeatmapEod.date})` : ""}${heatmapInfo.rotationAlerts ? ` (${heatmapInfo.rotationAlerts} sector-rotation alert${heatmapInfo.rotationAlerts === 1 ? "" : "s"})` : ""}`);
   const maTrackerInfo = await writeMovingAverageTrackerFile(chains, builtAtIso);
   console.log(`wrote data/ma-tracker.json — ${maTrackerInfo.tickers} stocks, ${maTrackerInfo.inBand} in-band moving-average levels, ${maTrackerInfo.bytes} bytes`);
+  // One long-history cache for the site (data/historical-source-history.json):
+  // ETF daily closes since 1990 plus the FRED series, each downloaded at most
+  // once a day. Historical Data, Pattern lab and the Bottom tracker all read it,
+  // so it refreshes first.
+  const historicalSourceCache = await refreshHistoricalSourceCache({ previous: historicalSourcePrev, builtAtIso, collectedAtIso: new Date().toISOString(),
+    loadMarket: (symbol, request) => loadFreeMarketHistory(yahooFinance, symbol, request),
+    loadContext: loadSharedFred,
+    log: message => console.log(`  · history source ${message}`),
+  });
+  await writeFile(resolve(DATA_DIR, HISTORICAL_SOURCE_KEY), JSON.stringify(historicalSourceCache), "utf8");
+  const historicalInfo = await writeHistoricalDataFile({ dataDir: DATA_DIR, builtAtIso, analyzedAtIso: new Date().toISOString(), sourceCache: historicalSourceCache });
+  console.log(`wrote data/historical-data.json — ${historicalInfo.indexes} markets, ${historicalInfo.bytes} bytes; ${historicalSourceCache.cost.requestsThisRun} free source downloads`);
+  const sharedIndexBars = sharedHistoryBars(historicalSourceCache, PATTERN_INDEX_SYMBOLS);
   try {
     const patternInfo = await writePatternRecognitionFiles({
       chains,
       globalMarkets,
       fearGreed,
       regimeHistoryPrev,
-      indexLongPrev,
+      indexBars: sharedIndexBars,
       macroRegime: macroBackdrop?.macroRegime || null,
       builtAtIso,
     });
-    console.log(`wrote data/pattern-recognition.json — ${patternInfo.divergences} current divergences, ${patternInfo.leads} usable leads, ${patternInfo.extraYahooCharts} extra Yahoo chart(s), ${patternInfo.bytes} bytes`);
+    console.log(`wrote data/pattern-recognition.json — ${patternInfo.divergences} current divergences, ${patternInfo.leads} usable leads, ${patternInfo.bytes} bytes`);
   } catch (err) {
     console.log(`  ⚠ pattern recognition failed (non-fatal): ${err?.message || err}`);
     await writeFile(resolve(DATA_DIR, "pattern-recognition.json"), JSON.stringify({
@@ -37505,13 +37492,12 @@ async function main() {
       cost: { gemini: false, serpApi: false, newVendor: false, extraYahooCharts: 0 },
       pieces: {},
     }), "utf8");
-    await writeFile(resolve(DATA_DIR, "index-long-history.json"), JSON.stringify({ builtAtIso, symbols: indexLongPrev?.symbols || {} }), "utf8");
   }
   try {
-    const indexForBottom = await readIndexLongHistory();
     const bottomInfo = await writeBottomTrackerFile({
       chains,
-      indexBars: indexForBottom.symbols,
+      indexBars: sharedIndexBars,
+      fred: (id) => sharedFredRows(historicalSourceCache, id),
       prior: priorBottomTracker,
       builtAtIso,
     });
@@ -37519,14 +37505,6 @@ async function main() {
   } catch (err) {
     console.log(`  · bottom tracker failed (non-fatal): ${err.message}`);
   }
-  const historicalSourceCache = await refreshHistoricalSourceCache({ previous: historicalSourcePrev, builtAtIso, collectedAtIso: new Date().toISOString(),
-    loadMarket: (symbol, request) => loadFreeMarketHistory(yahooFinance, symbol, request),
-    loadContext: (id, request) => loadFreeFredHistory(id, fetch, request),
-    log: message => console.log(`  · history source ${message}`),
-  });
-  await writeFile(resolve(DATA_DIR, HISTORICAL_SOURCE_KEY), JSON.stringify(historicalSourceCache), "utf8");
-  const historicalInfo = await writeHistoricalDataFile({ dataDir: DATA_DIR, builtAtIso, analyzedAtIso: new Date().toISOString(), sourceCache: historicalSourceCache });
-  console.log(`wrote data/historical-data.json — ${historicalInfo.indexes} markets, ${historicalInfo.bytes} bytes; ${historicalSourceCache.cost.requestsThisRun} free source downloads`);
   const correlationsInfo = await writeCorrelationsFile(chains, globalMarkets, builtAtIso, priorCorrelations);
   console.log(`wrote data/correlations.json — ${correlationsInfo.symbols} markets, ${correlationsInfo.mapped} mapped tickers, ${correlationsInfo.bytes} bytes${correlationsInfo.stale ? " [stale — kept last-good]" : ""}`);
   // AI CapEx (Mag 7 aggregate, from SEC XBRL) + capital-raises feed (rolling

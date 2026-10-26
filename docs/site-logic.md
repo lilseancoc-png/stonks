@@ -463,7 +463,9 @@ Earnings or macro risk inside 21 days forces defined risk. A debit spread must o
 
 - up to 10 actionable picks;
 - up to 6 watch ideas;
-- no more than 3 per sector;
+- no more than 3 per sector, counted over eight broad sector groups rather than
+  the fine labels, so the cap binds instead of letting a one-stock "sector"
+  through (`lib/sector-groups.mjs`);
 - no more than 5 in one common factor;
 - side caps prevent an accidentally one-way book;
 - if at least 60% of a factor group is below SMA20 and median five-day return is `<= -3%`, new calls in that factor are suppressed unless the setup is unusually strong and ready.
@@ -954,7 +956,7 @@ The index calendar accumulates up to roughly 800 sessions for SPY, QQQ, IWM, SMH
 
 ### Pattern lab
 
-Pattern lab is a public page of six separate reads. None of them changes a grade, a pick, or a contract. The bake writes `pattern-recognition.json` from bars, Fear & Greed, regime history, and overnight peers it already has. SPY, QQQ, and IWM keep a longer daily close file, `index-long-history.json`. That file is filled with the same unauthenticated Yahoo daily chart only when a symbol has less than 12 years stored. Later bakes append the closes already fetched for those ETFs. There is no Gemini call and no new vendor.
+Pattern lab is a public page of six separate reads. None of them changes a grade, a pick, or a contract. The bake writes `pattern-recognition.json` from bars, Fear & Greed, regime history, and overnight peers it already has. SPY, QQQ, and IWM closes come from the site's one long-history cache, `historical-source-history.json`, which the bake refreshes once a day from Yahoo before Pattern lab runs (the separate `index-long-history.json` file was retired on 2026-10-26). Index seasonality uses the same engine and window rules as the Owner Historical Data studies (`buildIndexSeasonality`), so both show the same numbers. There is no Gemini call and no new vendor.
 
 The six reads are volatility clustering, index seasonality, curated cross-asset lead and correlation breaks, RSI and MACD price divergences, the breadth-versus-index record, and Fear & Greed disagreements. Each one keeps its own sample size and marks a thin sample provisional.
 

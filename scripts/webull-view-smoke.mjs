@@ -20,6 +20,8 @@ const context = vm.createContext({ console, Date, isFinite, $, escapeHtml,
   accDateTime: (v) => v || "—", accPct: (v) => v == null ? "—" : `${v.toFixed(1)}%`,
   accMoney: (v) => `$${v.toFixed(2)}`, accDate: (v) => v || "—", accUsd: (v) => v == null ? null : `$${v}`,
   ACC_STATUS_LABEL: { "hit-tp-prem": "take profit" }, chHoverAttr: () => "",
+  // app.js resolves a record's sector bucket from its symbol (lib/sector-groups.mjs).
+  accSectorOf: (e) => (e && e.sector) || "Unknown",
 });
 function $(id) { return id === "an-webull" ? box : null; }
 vm.runInContext(app.slice(start, end), context);

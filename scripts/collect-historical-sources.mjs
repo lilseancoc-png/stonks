@@ -4,7 +4,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import YahooFinance from 'yahoo-finance2';
-import { HISTORICAL_MARKETS, HISTORICAL_CONTEXT, HISTORICAL_SOURCE_KEY, historicalCoverage, cleanSourceRows } from '../lib/historical-sources.mjs';
+import { HISTORICAL_MARKETS, HISTORICAL_CONTEXT, HISTORICAL_SOURCE_KEY, SHARED_FRED_EXTRA, SHARED_FRED_IDS, historicalCoverage, cleanSourceRows } from '../lib/historical-sources.mjs';
 import { completedCloseCutoff, historicalTradingDate } from '../lib/historical-market-calendar.mjs';
 import { cleanHistoricalBars, confirmedMarketBars } from '../lib/historical-market-history.mjs';
 
@@ -14,7 +14,7 @@ export function parseFredHistoryCsv(text, id) {
   return cleanSourceRows(lines.map(line => { const [t, raw] = line.split(','); return { t, v: raw == null || raw.trim() === '' || raw === '.' ? null : Number(raw) }; }));
 }
 export async function loadFreeFredHistory(id, fetcher = fetch, { signal } = {}) {
-  if (!HISTORICAL_CONTEXT.some(s => s.id === id)) throw new Error('Unlisted historical source');
+  if (!SHARED_FRED_IDS.includes(id)) throw new Error('Unlisted historical source');
   const res = await fetcher(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=${encodeURIComponent(id)}`, { headers: { 'user-agent': 'Mozilla/5.0 (compatible; Stonks historical research)', accept: 'text/csv', referer: 'https://fred.stlouisfed.org/' }, signal: signal || AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error(`FRED HTTP ${res.status}`);
   return parseFredHistoryCsv(await res.text(), id);
@@ -76,11 +76,29 @@ export async function refreshHistoricalSourceCache({ previous = {}, builtAtIso =
       log(`${def.id}: ${records[def.id].error || 'downloaded'}`);
     });
   }
+  // Shorter shared series (Bottom tracker credit spreads): same daily cadence,
+  // kept when the download has any rows; a failed day keeps the last good rows.
+  // Queued ahead of the long downloads: the Bottom tracker's credit gate needs
+  // them, and they must not be the jobs the time budget defers.
+  const sharedJobs = [];
+  for (const def of SHARED_FRED_EXTRA) {
+    context[def.id] = { rows: cleanSourceRows(previous.context?.[def.id]?.rows || []) };
+    if (loadContext && (force || records[def.id]?.checkedAt?.slice(0, 10) !== today)) sharedJobs.push(async () => {
+      const old = records[def.id]; records[def.id] = { ...old, checkedAt: collectedAtIso, error: null }; requests++;
+      try {
+        const rows = cleanSourceRows(await invoke(loadContext, def.id));
+        if (!rows.length) throw new Error('Download returned no observations');
+        context[def.id] = { rows }; records[def.id].lastSuccessAt = collectedAtIso;
+      } catch (e) { records[def.id].error = String(e.message).slice(0, 180); }
+      log(`${def.id}: ${records[def.id].error || 'downloaded'}`);
+    });
+  }
+  jobs.unshift(...sharedJobs);
   // Two outstanding downloads. Markets can retry after a newly completed
   // session; a failed attempt at that same target waits until the next UTC day.
   let cursor = 0;
   await Promise.all([0, 1].map(async () => { while (cursor < jobs.length && clock() - started < budgetMs) await jobs[cursor++](); }));
-  return { version: 2, builtAtIso, symbols, context, records, cost: { providerFeeUsd: 0, requestsThisRun: requests, deferredSources: jobs.length - cursor, refreshBudgetMs: budgetMs, maxRequestsPerDay: 2 * HISTORICAL_MARKETS.length + HISTORICAL_CONTEXT.length, newScheduledJobs: 0, aiCalls: 0 } };
+  return { version: 2, builtAtIso, symbols, context, records, cost: { providerFeeUsd: 0, requestsThisRun: requests, deferredSources: jobs.length - cursor, refreshBudgetMs: budgetMs, maxRequestsPerDay: 2 * HISTORICAL_MARKETS.length + HISTORICAL_CONTEXT.length + SHARED_FRED_EXTRA.length, newScheduledJobs: 0, aiCalls: 0 } };
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const dataDir = fileURLToPath(new URL('../data/', import.meta.url));

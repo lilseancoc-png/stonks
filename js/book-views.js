@@ -941,6 +941,8 @@ async function renderGrade() {
   }
 }
 
+const IV_TIER_LABEL = { surging: "surging", trending: "trending", building: "building", elevated: "rich", other: "no tier" };
+
 function ivTier(row) {
   if (row && row.tier && IV_TIER_COLOR[row.tier]) return row.tier;
   if (row && row.elevated) return "elevated";
@@ -981,7 +983,7 @@ async function renderIvHist() {
     const found = lookup ? rows.find((row) => String(row.symbol || "").toUpperCase() === lookup) : null;
     const lookupHtml = !lookup ? "" : !found
       ? `<p class="book-note">No stored IV row for ${esc(lookup)}.</p>`
-      : `<p class="book-readout">${esc(found.symbol)} · percentile ${num(found.pctile) == null ? "—" : Math.round(found.pctile)} · ${esc(ivTier(found) === "other" ? "no tier" : ivTier(found))} · IV ${num(found.iv) == null ? "—" : (found.iv * 100).toFixed(1) + "%"} · 5-session ${pct(found.chg5dPct, 1)}</p>`;
+      : `<p class="book-readout">${esc(found.symbol)} · percentile ${num(found.pctile) == null ? "—" : Math.round(found.pctile)} · ${esc(IV_TIER_LABEL[ivTier(found)] || "no tier")} · IV ${num(found.iv) == null ? "—" : (found.iv * 100).toFixed(1) + "%"} · 5-session ${pct(found.chg5dPct, 1)}</p>`;
     mount(id, shell(
       id,
       "IV percentile across the book",
@@ -993,11 +995,11 @@ async function renderIvHist() {
           { color: "var(--violet)", label: "Surging" },
           { color: "var(--info)", label: "Trending" },
           { color: "var(--accent)", label: "Building" },
-          { color: "var(--muted-strong)", label: "Elevated" },
+          { color: "var(--muted-strong)", label: "Rich" },
           { color: "var(--muted)", label: "No tier" },
         ]),
       plotted + " names use the stored IV percentile. " + (skipped ? skipped + " names have no percentile and are left out. " : "") +
-        "Color is the stored tier. Elevated is used only when a name has no surging, trending, or building tier. Hover a column for its count. The ranked cards above are unchanged.",
+        "Color is the stored tier. Rich is used only when a name has no surging, trending, or building tier. Hover a column for its count. The ranked cards above are unchanged.",
     ));
   } catch (err) {
     fail(id, "IV percentile across the book", "The IV histogram could not be loaded (" + err.message + ").");
@@ -1045,7 +1047,7 @@ async function renderIvPrice() {
             { color: "var(--violet)", label: "Surging" },
             { color: "var(--info)", label: "Trending" },
             { color: "var(--accent)", label: "Building" },
-            { color: "var(--muted-strong)", label: "Elevated" },
+            { color: "var(--muted-strong)", label: "Rich" },
             { color: "var(--muted)", label: "No tier" },
           ]),
         }),
