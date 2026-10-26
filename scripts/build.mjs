@@ -11804,12 +11804,18 @@ async function writeBottomTrackerFile({ chains, indexBars, prior, builtAtIso }) 
 // Reuse a daily series the overnight sweep already fetched (globalMarkets is
 // fetchAllGlobalMarkets' { [symbol]: { bars:[{t,c}] } }) instead of asking
 // Yahoo for the same futures twice. ~365 days of bars still covers the 1-yr
-// compare window (commodityPointBack accepts a slightly younger base).
+// compare window (commodityPointBack accepts a slightly younger base). Yahoo
+// sometimes answers the sweep with a truncated few-week slice; a series that
+// does not reach back COMMODITY_SWEEP_MIN_DAYS is ignored so the card's own
+// fetch fills the 3-month / 6-month / 1-year comparisons instead.
+const COMMODITY_SWEEP_MIN_DAYS = 300;
 export function commoditySeriesFromSweep(def, globalMarkets) {
   const bars = globalMarkets?.[def.symbol]?.bars;
   if (!Array.isArray(bars)) return null;
   const series = bars.filter((b) => b && b.t && Number.isFinite(b.c)).map((b) => ({ d: b.t, v: b.c }));
-  return series.length >= 2 ? { series, symbol: def.symbol } : null;
+  if (series.length < 2) return null;
+  const spanDays = (Date.parse(series[series.length - 1].d) - Date.parse(series[0].d)) / 86400000;
+  return spanDays >= COMMODITY_SWEEP_MIN_DAYS ? { series, symbol: def.symbol } : null;
 }
 
 export async function writeCommoditiesFile(builtAtIso, prior = null, globalMarkets = null) {

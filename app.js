@@ -24474,7 +24474,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // ── Capital / debt raises ──────────────────────────────────────────────
     var ra = d.raises || {};
     var sec = ra.sec, bd = ra.bonds;
-    if (sec || uni || bd){
+    if (sec || bd){
       var inner = '';
       // Market-wide corporate bond issuance (SIFMA, monthly $B) — the actual
       // dollars companies raised selling bonds, the headline debt-window read.

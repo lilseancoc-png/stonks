@@ -387,7 +387,9 @@ async function main() {
   } else if (eodSummary) {
     console.log(`[heatmap] reusing existing EOD recap from ${eodSummary.date}`);
   } else {
-    console.log(`[heatmap] skipping EOD recap (ET hour=${hourEt} < ${EOD_TRIGGER_ET_HOUR})`);
+    console.log(marketClosed
+      ? `[heatmap] skipping EOD recap (market closed today)`
+      : `[heatmap] skipping EOD recap (ET hour=${hourEt} < ${EOD_TRIGGER_ET_HOUR})`);
   }
 
   // Sector rotation: snapshot today's CLOSING breadth once after the bell (the
