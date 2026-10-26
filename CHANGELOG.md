@@ -32,7 +32,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Added
 
 - Rebuild the overnight risk-on / risk-off call. One shared scorer (`lib/overnight-tone.mjs`) now drives the Overnight tab, the Top Picks global tape axis and the live pre-open read. Moves are measured from the prior US close, scaled by each market's normal daily range, and grouped into five one-vote groups (equities, volatility, rates, FX/carry, growth/credit); stale markets are left out with a reason, and Asia is scored net of the prior US day it echoes.
-- Save a pre-open overnight call every weekday at about 09:00 and 09:20 ET (`scripts/overnight-preopen.mjs`, `overnight-preopen.yml`, private-store owner `overnight`). Each bake keeps a graded log (`overnight-log.json`), rebuilds missed days from 15-minute bars, and the Overnight tab shows a gap call, a session call that says "no edge" until proven, overnight events, and a track record against SPY with base rates. Free Yahoo data only; no AI calls.
+- Save a pre-open overnight call every weekday at about 09:00 ET, inside the existing 09:00 transcripts run (`scripts/overnight-preopen.mjs`, private-store owner `overnight`). Each bake keeps a graded log (`overnight-log.json`), rebuilds missed days from 15-minute bars, and the Overnight tab shows a gap call, a session call that says "no edge" until proven, overnight events, and a track record against SPY with base rates. Free Yahoo data only; no AI calls.
 - Add CSI 300, ASX 200, Euro Stoxx 50, USD/CNH, USD/KRW, Russell 2000 and 10Y T-note futures, VIX3M, VVIX, SKEW, MOVE, HYG and Ether to the overnight sweep and the live quote.
 - Add `scripts/overnight-fit.mjs`, a read-only report of per-group hit rates and threshold sweeps from the saved log.
 

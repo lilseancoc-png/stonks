@@ -3,7 +3,7 @@
 // touches the private store or the saved log.
 //
 // For every US session in the last ~8 weeks (Yahoo keeps ~60 days of 15-minute
-// bars) it rebuilds the 09:25 ET call exactly as the bake does, grades it
+// bars) it rebuilds the 09:05 ET call exactly as the bake does, grades it
 // against SPY, and scores the OLD rules (the 7-vote tab tone before
 // 2026-10-26) on the same mornings for comparison. The old tone read each
 // market's last daily change, so cash VIX and the 10Y used the prior day's move.
@@ -21,7 +21,7 @@ import { fitReport } from "./overnight-fit.mjs";
 const sgn = (v) => (v > 0 ? 1 : v < 0 ? -1 : 0);
 const pct = (x) => (x == null ? "—" : `${Math.round(x * 1000) / 10}%`);
 
-// The pre-2026-10-26 tab tone (deriveGlobalTone), fed what it saw at 09:25 ET:
+// The pre-2026-10-26 tab tone (deriveGlobalTone), fed what it saw at 09:05 ET:
 // 24h markets' move since the prior close, Asia's session, and the prior
 // day's daily change for cash VIX and the 10Y (they had not printed yet).
 function oldTone(inputs, series, priorDate) {

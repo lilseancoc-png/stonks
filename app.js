@@ -13898,7 +13898,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     yields: 'The 10Y and 30Y Treasury yields set the discount rate on every risk asset. A fast back-up in the long end pressures valuations (risk-OFF); an orderly fall eases conditions.',
     commodity: 'Crude + gold form the supply-shock / safe-haven axis. An oil spike (supply or war) alongside a confirmed gold haven bid is the classic geopolitical-shock tell (risk-OFF). Gold only counts as a haven when indexes, VIX or DXY corroborate risk-off conditions.',
     sentiment: 'CNN’s Fear & Greed index distills seven equity internals (breadth, momentum, junk-bond demand…). Extreme fear, or a fast swing toward fear, reads risk-OFF.',
-    globalTape: 'The overnight read from the US close to the open, in five groups: equities (US futures, Asia after removing its echo of the prior US day, Europe), volatility (VIX and its term curve), rates (10Y futures, only on a big move), currencies (AUD/JPY, yuan, won, dollar) and growth/credit (copper, high yield, crypto). Each move is measured against that market’s normal daily range. The call is saved at about 09:25 ET and holds for the whole session, so it can be graded later.',
+    globalTape: 'The overnight read from the US close to the open, in five groups: equities (US futures, Asia after removing its echo of the prior US day, Europe), volatility (VIX and its term curve), rates (10Y futures, only on a big move), currencies (AUD/JPY, yuan, won, dollar) and growth/credit (copper, high yield, crypto). Each move is measured against that market’s normal daily range. The call is saved at about 09:05 ET and holds for the whole session, so it can be graded later.',
     fed: 'The Fed-path axis tracks the change in FedWatch hike-minus-cut probability across the nearest meetings. Hawkish repricing tightens the expected path (risk-OFF); dovish drift eases it. A nearby FOMC decision adds event-risk caution.',
     geo: 'The geopolitics axis reads fresh war/tariff headlines plus the active narrative layer. It is stress-only: escalation can vote risk-OFF, while de-escalation merely clears that stress vote rather than voting risk-on. Slow axis — updates at the build.',
     inflation: 'The inflation/jobs axis reads CPI YoY direction plus labor deterioration through the Sahm-gap measure. Re-accelerating inflation or a rising unemployment gap tilts risk-OFF; cool, non-rising CPI can offset one point of stress.',
@@ -13911,7 +13911,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   };
 
   // Live global tape axis. After the US open the axis is the day's saved
-  // pre-open call (frozen ~09:25 ET and graded later), so this returns null and
+  // pre-open call (frozen ~09:05 ET and graded later), so this returns null and
   // the caller keeps the baked axis: intraday moves no longer repaint an
   // overnight read. Before the open, the ?tape=1 legs are laid over the baked
   // overnight markets (which carry each market's 60-session daily sigma) and
@@ -14722,7 +14722,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (k === 'yields') return 'Risk-off if the worst 10Y/30Y move is ≥ +' + v(T.yieldBps1d, 10) + 'bp in 1 day (−2 at +' + v(T.yieldBps1dStrong, 16) + 'bp), or the baked 10Y trend is rising by at least ' + v(T.yieldBps1d, 10) + 'bp over 5 days. A matching fall can vote risk-on only when indexes, VIX and credit do not signal stress; otherwise it is an unconfirmed yield decline.';
     if (k === 'commodity') return 'Stress-only. Crude ≥ +' + v(T.oil1d, 4) + '% in 1 day or +' + v(T.oil5d, 12) + '% in 5 days votes −1; a 1-day shock ≥ +' + v(T.oil1dStrong, 8) + '% votes −2. Gold votes only at +' + v(T.gold1d, 3) + '% in 1 day (unless its week is down) or +' + v(T.gold5d, 6) + '% in 5 days, and only when Indexes, VIX or DXY confirms risk-off; oil + confirmed gold can vote −2.';
     if (k === 'sentiment') return 'Risk-off at Fear & Greed ≤ ' + v(T.fgFear, 25) + ' or a 1-day swing ≤ −' + v(T.fgDelta, 10) + ' points; risk-on at ≥ ' + v(T.fgGreed, 75) + ' or a swing ≥ +' + v(T.fgDelta, 10) + '. A stale baked snapshot is ignored; a timestamped CNN observation is rescored.';
-    if (k === 'globalTape') return 'Five groups (equities, volatility, rates, currencies, growth/credit) each vote when their move is at least half a normal day for that market. At least three groups are required. A net of ±3 groups (or ±2 with one very large move) sets ±2; a net of ±1 or ±2 sets ±1. Before the open it re-scores live; from the open it is the saved 09:25 ET call.';
+    if (k === 'globalTape') return 'Five groups (equities, volatility, rates, currencies, growth/credit) each vote when their move is at least half a normal day for that market. At least three groups are required. A net of ±3 groups (or ±2 with one very large move) sets ±2; a net of ±1 or ±2 sets ±1. Before the open it re-scores live; from the open it is the saved 09:05 ET call.';
     if (k === 'fed') return 'The average change in hike-minus-cut probability across the nearest FedWatch meetings votes −1 at +' + v(T.fedDriftPt, 5) + ' points, −2 at +' + (2 * v(T.fedDriftPt, 5)) + ', and +1 at −' + v(T.fedDriftPt, 5) + '. An FOMC decision inside the configured near-event window forces at least −1. Slow axis — refreshes at the build.';
     if (k === 'geo') return 'Stress-only. Fresh conflict headlines can vote −2; tariff/geopolitical flashpoints or an active bearish narrative can vote −1. De-escalation clears stress to neutral, not risk-on. Slow axis — refreshes at the build.';
     if (k === 'inflation') return 'CPI votes −1 when ≥' + v(T.cpiWarm, 3.0) + '% and re-accelerating by ≥' + v(T.cpiReaccel, 0.3) + 'pp versus 3 months ago, or when ≥' + v(T.cpiHot, 4.0) + '% and still rising; CPI ≤' + v(T.cpiCool, 2.5) + '% and not rising votes +1. Labor subtracts 1 at a Sahm gap ≥' + v(T.ueSahmSoft, 0.3) + 'pp when it is not improving (confirmed regardless of trend at ' + v(T.ueSahm, 0.5) + 'pp). Combined score is capped at −2 / +1. Slow axis.';
@@ -14819,7 +14819,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     { k:'yields', name:'Long yields', desc:'10Y / 30Y — financial conditions' },
     { k:'commodity', name:'Commodities', desc:'Oil-price moves + confirmed gold demand' },
     { k:'sentiment', name:'Fear & Greed', desc:'CNN equity internals' },
-    { k:'globalTape', name:'Global tape', desc:'Overnight call: 5 groups, saved 09:25 ET' },
+    { k:'globalTape', name:'Global tape', desc:'Overnight call: 5 groups, saved 09:05 ET' },
     { k:'fed', name:'Fed path', desc:'FedWatch drift + FOMC proximity' },
     { k:'geo', name:'Geopolitics', desc:'War / tariffs / Iran — headlines' },
     { k:'inflation', name:'Inflation / jobs', desc:'CPI YoY + unemployment' },
@@ -31479,7 +31479,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (pre.latest && pre.latest.date === et.date) return pre.latest;
     return null;
   }
-  // Headline tone. Today's saved pre-open call (frozen ~09:25 ET and graded
+  // Headline tone. Today's saved pre-open call (frozen ~09:05 ET and graded
   // later) is the headline once it exists. Before that, the live quotes are
   // scored with the same shared scorer, using the same freshness rules.
   function deriveOvernightTone(d){
@@ -31641,7 +31641,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   function ovnSourceLabel(tone){
     if (!tone) return '';
     if (tone.source === 'preopen') return 'Saved pre-open call · ' + ovnShortDate(tone.date);
-    if (tone.source === 'preopen-rebuilt') return 'Pre-open call rebuilt from 09:25 ET prices · ' + ovnShortDate(tone.date);
+    if (tone.source === 'preopen-rebuilt') return 'Pre-open call rebuilt from 09:05 ET prices · ' + ovnShortDate(tone.date);
     return 'Live read so far (not yet saved)';
   }
   function ovnPctRate(r){ return r && r.hitRate != null ? Math.round(r.hitRate * 100) + '%' : '—'; }
@@ -31759,7 +31759,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var rows = (pre.recent || []).slice(0, 10).map(function(e){
       var o = e.outcome;
       function hit(v){ return v == null ? '<td class="ovn-flat">—</td>' : (v ? '<td class="ovn-up">✓</td>' : '<td class="ovn-dn">✗</td>'); }
-      return '<tr><td>' + ovnEsc(ovnShortDate(e.date)) + (e.reconstructed ? ' <small title="Rebuilt from 09:25 ET prices by the bake">rebuilt</small>' : '') + '</td>' +
+      return '<tr><td>' + ovnEsc(ovnShortDate(e.date)) + (e.reconstructed ? ' <small title="Rebuilt from 09:05 ET prices by the bake">rebuilt</small>' : '') + '</td>' +
         '<td>' + ovnEsc(e.label || '—') + '</td>' +
         '<td>' + ovnEsc(e.gap || '—') + '</td>' +
         '<td class="' + ovnMoveCls(o ? o.gapPct : null) + '">' + ovnEsc(o ? ovnSignPct(o.gapPct, 2) : 'pending') + '</td>' + hit(o ? o.gapCallHit : null) +
@@ -31779,7 +31779,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         card('Tone right close to close', st.toneCc) +
       '</div>' +
       (st.base && st.base.n ? '<p class="ovn-record-note">For scale: over the same ' + st.base.n + ' days SPY opened up ' + ovnEsc(ovnPctRate({ hitRate: st.base.gapUp })) + ' of the time and closed above its open ' + ovnEsc(ovnPctRate({ hitRate: st.base.sessionUp })) + '. A call only adds something if it beats those.</p>' : '') +
-      (st.liveOnly && st.liveOnly.gapCall && st.liveOnly.gapCall.n ? '<p class="ovn-record-note">Live 09:2x ET calls only: gap ' + ovnEsc(ovnPctRate(st.liveOnly.gapCall)) + ' (n ' + st.liveOnly.gapCall.n + '), session ' + ovnEsc(ovnPctRate(st.liveOnly.toneSession)) + ' (n ' + st.liveOnly.toneSession.n + '). The rest were rebuilt by the bake from 09:25 ET prices.</p>' : '<p class="ovn-record-note">Days marked "rebuilt" were reconstructed by the bake from 09:25 ET prices; live 09:2x ET calls replace them going forward.</p>') +
+      (st.liveOnly && st.liveOnly.gapCall && st.liveOnly.gapCall.n ? '<p class="ovn-record-note">Live 09:00 ET calls only: gap ' + ovnEsc(ovnPctRate(st.liveOnly.gapCall)) + ' (n ' + st.liveOnly.gapCall.n + '), session ' + ovnEsc(ovnPctRate(st.liveOnly.toneSession)) + ' (n ' + st.liveOnly.toneSession.n + '). The rest were rebuilt by the bake from 09:05 ET prices.</p>' : '<p class="ovn-record-note">Days marked "rebuilt" were reconstructed by the bake from 09:05 ET prices; live 09:00 ET calls replace them going forward.</p>') +
       (bucketRows ? '<p class="ovn-record-buckets">' + bucketRows + '</p>' : '') +
       (rows ? '<div class="ovn-record-table-wrap"><table class="ovn-record-table"><thead><tr><th>Day</th><th>Tone</th><th>Gap call</th><th>SPY gap</th><th>Gap call right</th><th>SPY session</th><th>Tone right</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '') +
     '</section>';

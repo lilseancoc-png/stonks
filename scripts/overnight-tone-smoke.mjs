@@ -13,8 +13,8 @@ import { fitReport } from "./overnight-fit.mjs";
 const T = OVERNIGHT_TONE;
 
 // ---- ET clock ---------------------------------------------------------------
-assert.equal(new Date(preOpenCutoffMs("2026-10-27")).toISOString(), "2026-10-27T13:25:00.000Z", "EDT cutoff");
-assert.equal(new Date(preOpenCutoffMs("2026-11-02")).toISOString(), "2026-11-02T14:25:00.000Z", "EST cutoff after the DST change");
+assert.equal(new Date(preOpenCutoffMs("2026-10-27")).toISOString(), "2026-10-27T13:05:00.000Z", "EDT cutoff");
+assert.equal(new Date(preOpenCutoffMs("2026-11-02")).toISOString(), "2026-11-02T14:05:00.000Z", "EST cutoff after the DST change");
 assert.equal(new Date(usCloseMs("2026-10-26")).toISOString(), "2026-10-26T20:00:00.000Z");
 assert.deepEqual(etParts(Date.parse("2026-10-27T13:20:00Z")), { date: "2026-10-27", minutes: 9 * 60 + 20, weekday: "Tue" });
 assert.equal(etWallMs("2026-03-08", 9, 25), Date.parse("2026-03-08T13:25:00Z"), "spring-forward day");
@@ -141,7 +141,7 @@ const series = {
 };
 const built = buildOvernightInputs({ series, callDate, cutoffMs: cutoff });
 assert.equal(built.prior.date, priorDate);
-assert.ok(Math.abs(built.inputs["ES=F"].movePct - 0.8) < 1e-9, "ES move from the 16:00 ET bar to the 09:25 cutoff");
+assert.ok(Math.abs(built.inputs["ES=F"].movePct - 0.8) < 1e-9, "ES move from the 16:00 ET bar to the 09:05 cutoff");
 assert.equal(built.inputs["ES=F"].fresh, true);
 assert.ok(built.inputs["ES=F"].sigmaPct > 0.3 && built.inputs["ES=F"].sigmaPct < 1.5);
 assert.equal(built.inputs["^N225"].fresh, true);

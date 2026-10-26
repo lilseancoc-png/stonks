@@ -17444,7 +17444,7 @@ const PICKS_IVRANK_MIN_N = Number(process.env.PICKS_IVRANK_MIN_N ?? 10); // min 
 
 // ---- Overnight global-tape axis (consumed by deriveGlobalTapeAxis) ----------
 // The axis is the day's saved PRE-OPEN overnight call (lib/overnight-tone.mjs,
-// data/overnight-log.json), frozen at about 09:25 ET. Intraday swings in
+// data/overnight-log.json), frozen at about 09:05 ET. Intraday swings in
 // futures belong to the indexes axis, so the tape axis no longer re-reads the
 // live session. PICKS_MACRO_GLOBAL=0 turns the axis off.
 const PICKS_MACRO_GLOBAL = process.env.PICKS_MACRO_GLOBAL !== "0";
@@ -30112,9 +30112,9 @@ export function buildCorrelationsPayload(chains, globalMarkets, builtAtIso, prio
 }
 
 // ---- Saved overnight calls (data/overnight-log.json) -------------------------
-// The 09:2x ET pre-open job writes data/overnight-preopen.json. Each bake folds
+// The 09:00 ET pre-open job writes data/overnight-preopen.json. Each bake folds
 // that live call into the log, rebuilds any session in the last ~8 weeks that
-// has no call (from 15-minute bars, at the same 09:25 ET cutoff), and grades
+// has no call (from 15-minute bars, at a 09:05 ET cutoff, about when the live job reads), and grades
 // every completed session against SPY/QQQ. Free Yahoo data only.
 const OVERNIGHT_BACKFILL_UNDER = 40;
 async function readPriorDataJson(name) {
@@ -30128,7 +30128,7 @@ export async function updateOvernightLog({ priorLog = null, preopenFile = null, 
   const have = new Set(entries.map((e) => e.date));
   const live = preopenFile?.call;
   // Most bakes only need SPY/QQQ daily bars to grade. The full ~40-market
-  // fetch runs when the log is short, today's call is missing after 09:25 ET,
+  // fetch runs when the log is short, today's call is missing after 09:05 ET,
   // or the latest saved call is more than 4 days old (a missed day to rebuild).
   const weekday = !["Sat", "Sun"].includes(overnightEtParts(nowMs).weekday);
   const latestPast = entries.filter((e) => e.date < todayEt).map((e) => e.date).sort().pop() || null;

@@ -1,7 +1,7 @@
 // Pre-open overnight call (overnight review, 2026-10-26).
 //
-// Runs before the US open (the 09:00 ET transcript dispatch, then the
-// overnight-preopen.yml schedule at about 09:05 and 09:20 ET). Reads every
+// Runs before the US open, in the 09:00 ET transcript dispatch of daily.yml
+// (it usually reads at about 09:05 ET). Reads every
 // overnight input from the prior US close to now, scores it with the shared
 // scorer (lib/overnight-tone.mjs) and writes data/overnight-preopen.json. The
 // next bake folds it into the saved, graded log (data/overnight-log.json).
