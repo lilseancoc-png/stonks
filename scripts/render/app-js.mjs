@@ -13,6 +13,7 @@ import { renderWayfindingBindings, renderWayfindingHelpers } from './wayfinding-
 import { renderSplitViewBindings, renderSplitViewHelpers } from './split-view-js.mjs';
 import { renderRecoveryHelpers } from './recovery-js.mjs';
 import { viewsFactory } from './views-client.mjs';
+import { ivRichnessFactory } from '../../lib/iv-richness.mjs';
 import { currentNewsSentiment, newsDateIsCurrent, validNewsFeedPayload } from '../../lib/news-policy.mjs';
 import { FALLBACK_RISK_FREE_RATE } from '../build.mjs';
 import { callReportContext, leveragedEntryPlan, earningsCallAge, pickDisplayDecision, shareEntryPayoff, pickReviewCheckpoint, scenarioEventPhase } from '../../lib/research-display.mjs';
@@ -45,6 +46,9 @@ ${validNewsFeedPayload.toString()}
   var marketAnalysis = (${marketAnalysisFactory.toString()})();
   var RISK_STACK = (${riskStackFactory.toString()})();
   var marketRefresh = (${marketRefreshFactory.toString()})();
+  // One "are the options expensive?" rule (source: lib/iv-richness.mjs), the
+  // same one the grade, Top Picks and Trending IV use at bake time.
+  var IV_RICHNESS = (${ivRichnessFactory.toString()})();
   // Shared sort / view helpers (source: scripts/render/views-client.mjs).
   var VIEWS = (${viewsFactory.toString()})(window, document);
   // js/streaks.js (a separate module) reads the same helpers + grade index.
@@ -3608,8 +3612,12 @@ ${scenarioEventPhase.toString()}
         return;
       }
       var pctStr = stats.percentile.toFixed(0) + '%';
-      var label = stats.percentile >= 80 ? 'rich' : stats.percentile <= 20 ? 'cheap' : 'normal';
-      rankBox.textContent = 'IV percentile ' + pctStr + ' · ' + label + ' · IV rank ' + stats.rank.toFixed(0) + ' (' + stats.count + 'd · today ' + (stats.today * 100).toFixed(0) + '%)';
+      var vr = state.technicals && state.technicals.volRegime;
+      var band = IV_RICHNESS.classify({ pctile: stats.percentile, iv: stats.today, rv30: vr ? vr.rv30 : null });
+      var label = band.rich ? 'rich' : band.cheap ? 'cheap' : 'normal';
+      var rvTxt = band.rv30 != null ? ' vs realized ' + (band.rv30 * 100).toFixed(0) + '%' : '';
+      rankBox.textContent = 'IV percentile ' + pctStr + ' · ' + band.label.toLowerCase() + ' · IV rank ' + stats.rank.toFixed(0) + ' (' + stats.count + 'd · today ' + (stats.today * 100).toFixed(0) + '%' + rvTxt + ')';
+      rankBox.title = band.note;
       rankBox.className = 'opt-iv-rank opt-iv-rank-' + label;
     });
   }
@@ -15395,6 +15403,7 @@ ${renderSplitViewBindings()}
     technicals: null,
     fundamentals: null,
     ivPctile: null,
+    ivToday: null,
     ivLabel: null,
     legs: [],
     strategyId: null,
@@ -15680,20 +15689,34 @@ ${renderSplitViewBindings()}
     return { direction: grade.direction, source: 'grade', tape: tape, conflict: conflict,
       label: 'Grade: ' + grade.label + score, note: tapeNote };
   }
+  // The site's shared IV band for the loaded ticker: own-history percentile
+  // plus today's IV against 30-day realized vol (lib/iv-richness.mjs).
+  function stratIvBand(){
+    var t = stratState.technicals || {};
+    var vr = t.volRegime || {};
+    var ev = stratEventRead();
+    return IV_RICHNESS.classify({ pctile: stratState.ivPctile, iv: stratState.ivToday, rv30: vr.rv30,
+      earningsDays: ev.days != null ? ev.days : null });
+  }
   function stratVolRead(){
-    var iv = stratState.ivPctile;
-    if (iv == null || !isFinite(iv)) return { band:"unknown", label:"IV percentile unavailable", note:"Price the structure conservatively; the implied-vol percentile is not ready." };
-    if (iv >= 65) return { band:"high", label:"IV percentile " + iv.toFixed(0) + "% · rich", note:"Favor defined-risk premium selling or debit spreads over naked long volatility." };
-    if (iv <= 35) return { band:"low", label:"IV percentile " + iv.toFixed(0) + "% · cheap", note:"Long optionality is cheaper; short-premium credits may not pay enough." };
-    return { band:"normal", label:"IV percentile " + iv.toFixed(0) + "% · normal", note:"Direction and payoff shape matter more than a volatility extreme." };
+    var r = stratIvBand();
+    if (r.band === 'unknown') return { band:"unknown", rich:r, label:"IV percentile unavailable", note:"Price the structure conservatively; the implied-vol percentile is not ready." };
+    var rv = r.rv30 != null && r.iv != null ? ' (IV ' + (r.iv * 100).toFixed(0) + '% vs realized ' + (r.rv30 * 100).toFixed(0) + '%)' : '';
+    var label = "IV percentile " + r.pctile.toFixed(0) + "% · " + r.label.toLowerCase() + rv;
+    if (r.veryRich) return { band:"high", veryRich:true, rich:r, label:label, note:"Very rich premium: a defined-risk credit spread on the grade's side is the first choice, as in Top Picks." };
+    if (r.rich) return { band:"high", veryRich:false, rich:r, label:label, note:"Rich premium: prefer a debit spread over a naked long; Top Picks only sells credit once IV is very rich." };
+    if (r.cheap) return { band:"low", rich:r, label:label, note:"Long optionality is cheaper; short-premium credits may not pay enough." };
+    return { band:"normal", rich:r, label:label, note: r.pctile >= IV_RICHNESS.RICH
+      ? "The percentile is high, but IV is not above the stock's realized moves, so the premium is not counted as rich."
+      : "Direction and payoff shape matter more than a volatility extreme." };
   }
   function stratEventRead(){
     var raw = stratState.fundamentals && stratState.fundamentals.nextEarningsDate;
     var ms = raw ? Date.parse(raw) : NaN;
     if (!isFinite(ms)) return { soon:false, label:"No earnings date on file", note:"Confirm the event calendar before opening a multi-leg position." };
     var days = Math.ceil((ms - Date.now()) / 86400000);
-    if (days >= 0 && days <= 10) return { soon:true, days:days, label:"Earnings in " + days + " day" + (days === 1 ? "" : "s"), note:"Gap risk can overwhelm the modeled expiration curve; keep every short leg defined-risk." };
-    if (days >= 0) return { soon:false, days:days, label:"Earnings in " + days + " days", note:"The nearest event is outside the immediate 10-day risk window." };
+    if (days >= 0 && days <= IV_RICHNESS.EARNINGS_DAYS) return { soon:true, days:days, label:"Earnings in " + days + " day" + (days === 1 ? "" : "s"), note:"Gap risk can overwhelm the modeled expiration curve; keep every short leg defined-risk." };
+    if (days >= 0) return { soon:false, days:days, label:"Earnings in " + days + " days", note:"The nearest event is outside the " + IV_RICHNESS.EARNINGS_DAYS + "-day risk window that Top Picks also uses." };
     return { soon:false, label:"Earnings date needs refresh", note:"The stored earnings date has passed; verify the next event manually." };
   }
   function stratPreferredExpiration(){
@@ -15719,12 +15742,12 @@ ${renderSplitViewBindings()}
     if (tape.direction === "bull") {
       title = "Bullish " + view + " favors defined-risk upside";
       copy = "Use a capped-risk structure that participates if momentum continues without paying for more volatility than the setup needs.";
-      ids = vol.band === "high" ? ["bull-put-spread", "bull-call-spread"] : ["bull-call-spread", "long-call"];
+      ids = vol.veryRich ? ["bull-put-spread", "bull-call-spread"] : vol.band === "high" ? ["bull-call-spread", "bull-put-spread"] : ["bull-call-spread", "long-call"];
       avoid = vol.band === "high" ? "Avoid chasing naked long premium while IV is rich." : "Avoid bearish income structures unless the technical read changes.";
     } else if (tape.direction === "bear") {
       title = "Bearish " + view + " favors defined-risk downside";
       copy = "Express the downside view with capped loss and enough breakeven room for an ordinary countertrend bounce.";
-      ids = vol.band === "high" ? ["bear-call-spread", "bear-put-spread"] : ["bear-put-spread", "long-put"];
+      ids = vol.veryRich ? ["bear-call-spread", "bear-put-spread"] : vol.band === "high" ? ["bear-put-spread", "bear-call-spread"] : ["bear-put-spread", "long-put"];
       avoid = vol.band === "high" ? "Avoid paying peak volatility for an outright put without checking its breakeven." : "Avoid bullish credit structures until momentum repairs.";
     } else if (vol.band === "high") {
       title = "Direction is mixed; rich volatility favors a range thesis";
@@ -16098,21 +16121,22 @@ ${renderSplitViewBindings()}
           : bias === 'bear' ? 'matches RSI/MACD tilt'
           : 'volume-conviction read' });
 
-    // 2) IV alignment — long-vega wants a low IV percentile, short-vega wants high.
-    // Directional spreads (debit) live in the middle band.
-    var iv = stratState.ivPctile;
+    // 2) IV alignment from the shared IV band — long vega wants Cheap, short
+    // vega wants Rich or Very rich, directional spreads sit best in Normal.
+    var ivr = stratIvBand();
     var volScore = 15;
     var volNote = 'IV percentile unavailable';
-    if (iv != null){
+    if (ivr.band !== 'unknown'){
+      var ivWord = 'IV ' + ivr.label.toLowerCase() + ' (' + ivr.pctile.toFixed(0) + '% percentile)';
       if (bias === 'volLong'){
-        volScore = iv <= 30 ? 30 : iv <= 50 ? 22 : iv <= 70 ? 12 : 5;
-        volNote = 'long vega — IV percentile ' + iv.toFixed(0) + (iv <= 30 ? '% (cheap)' : iv >= 70 ? '% (rich, vol exposure expensive)' : '% (neutral)');
+        volScore = { cheap:30, normal:18, rich:8, 'very-rich':5 }[ivr.band];
+        volNote = 'long vega — ' + ivWord + (ivr.cheap ? ', cheap to own' : ivr.rich ? ', vol exposure is expensive' : '');
       } else if (bias === 'volShort'){
-        volScore = iv >= 70 ? 30 : iv >= 50 ? 22 : iv >= 30 ? 12 : 5;
-        volNote = 'short vega — IV percentile ' + iv.toFixed(0) + (iv >= 70 ? '% (rich, premium to harvest)' : iv <= 30 ? '% (cheap, thin credit)' : '% (neutral)');
+        volScore = { 'very-rich':30, rich:24, normal:12, cheap:5 }[ivr.band];
+        volNote = 'short vega — ' + ivWord + (ivr.rich ? ', premium to harvest' : ivr.cheap ? ', thin credit' : '');
       } else {
-        volScore = (iv >= 30 && iv <= 70) ? 22 : (iv < 30 ? 18 : 12);
-        volNote = 'directional — IV percentile ' + iv.toFixed(0) + '%';
+        volScore = { normal:22, cheap:18, rich:12, 'very-rich':12 }[ivr.band];
+        volNote = 'directional — ' + ivWord;
       }
     }
     parts.push({ key:'iv', label:'IV alignment', value: volScore, max: 30, note: volNote });
@@ -16585,6 +16609,7 @@ ${renderSplitViewBindings()}
   // against the stored daily history. Quietly skips under 60 days.
   function stratRefreshIvRank(symbol){
     stratState.ivPctile = null;
+    stratState.ivToday = null;
     stratState.ivLabel = null;
     if (!symbol) return Promise.resolve();
     return fetchIvHistory(symbol).then(function(entries){
@@ -16594,6 +16619,7 @@ ${renderSplitViewBindings()}
       var stats = ivHistoryStats(entries, todayIv);
       if (stats.ready){
         stratState.ivPctile = stats.percentile;
+        stratState.ivToday = stats.today;
         stratState.ivLabel = stats.percentile.toFixed(0) + '%';
       }
     }).catch(function(){ /* silently degrade — score uses the neutral fallback */ });
@@ -22902,14 +22928,14 @@ ${renderSplitViewBindings()}
     streak:      { label: 'Streak',         cls: 'ivt-kind-streak',      tip: 'Consecutive rising sessions' }
   };
   // Sort / filter modes for the highlight cards + ranked table. The tier keys
-  // (and Elevated) FILTER to that bucket; the numeric keys re-SORT the full
+  // (and Rich) FILTER to that bucket; the numeric keys re-SORT the full
   // list. One selection drives both sections.
   var IVT_SORTS = [
     { key: 'score',    label: 'Top score' },
     { key: 'surging',  label: 'Surging',  tier: 'surging' },
     { key: 'trending', label: 'Trending', tier: 'trending' },
     { key: 'building', label: 'Building', tier: 'building' },
-    { key: 'elevated', label: 'Elevated' },
+    { key: 'elevated', label: 'Rich' },
     { key: 'iv',       label: 'Highest IV' },
     { key: 'rel',      label: 'Vs own avg' },
     { key: 'rise5',    label: '5d rising' },
@@ -24029,7 +24055,7 @@ ${renderSplitViewBindings()}
         '</div>' +
         '<p class="flow-decision-context"><b>Desk breadth:</b> ' + (breadth.surging || 0) + ' surging · ' +
           (breadth.trending || 0) + ' trending · ' + (breadth.building || 0) + ' building · ' +
-          (breadth.elevated || 0) + ' elevated · ' + (breadth.deflating || 0) + ' deflating fast.</p>' +
+          (breadth.elevated || 0) + ' rich · ' + (breadth.deflating || 0) + ' deflating fast.</p>' +
         '<div class="flow-decision-actions">' +
           '<button type="button" class="flow-decision-action is-primary" data-ivt-focus="' + escapeHtml(sym) + '">Focus ' + escapeHtml(sym) + '</button>' +
           '<button type="button" class="flow-decision-action" data-ivt-mode="' + modeKey + '">' + modeLabel + '</button>' +
@@ -24074,7 +24100,7 @@ ${renderSplitViewBindings()}
       if (rc.chg5dPct != null && isFinite(rc.chg5dPct) && Number(rc.chg5dPct) <= -12) deflatingCount++;
     }
     var flaggedTotal = tierCounts.surging + tierCounts.trending + tierCounts.building;
-    if (eye) eye.textContent = (d.asOf ? 'as of ' + d.asOf + ' · ' : '') + flaggedTotal + ' trending · ' + elevatedCount + ' elevated / ' + all.length + ' ranked';
+    if (eye) eye.textContent = (d.asOf ? 'as of ' + d.asOf + ' · ' : '') + flaggedTotal + ' trending · ' + elevatedCount + ' rich / ' + all.length + ' ranked';
     // Reset a tier/elevated filter whose bucket emptied on a data refresh.
     var mode = ivTrendState.sort || 'score';
     if ((tierCounts[mode] != null && tierCounts[mode] === 0) || (mode === 'elevated' && !elevatedCount)){ mode = 'score'; ivTrendState.sort = 'score'; }
@@ -24207,7 +24233,7 @@ ${renderSplitViewBindings()}
       var tierMeta = w.tier && IVT_TIER_META[w.tier] ? IVT_TIER_META[w.tier] : null;
       rows += '<div class="ivt-trow' + (tierMeta ? ' ' + tierMeta.cls : '') + '">' +
         '<span class="ivt-trow-sym"><a class="ivt-trow-symbtn" data-sym="' + escapeHtml(w.symbol || '') + '" href="' + symGradeHref(w.symbol) + '" title="Open ' + escapeHtml(w.symbol || '') + ' in the Grade tab">' + escapeHtml(w.symbol || '') + '</a>' +
-          (tierMeta ? ' <em class="ivt-trow-tier" title="' + (w.provisional ? 'Provisional: fewer than 60 comparable IV sessions' : '') + '">' + tierMeta.label + (w.provisional ? '*' : '') + '</em>' : (w.elevated ? ' <em class="ivt-trow-tier ivt-elev" title="IV well above its own history, but not currently climbing">Elevated</em>' : '')) + '</span>' +
+          (tierMeta ? ' <em class="ivt-trow-tier" title="' + (w.provisional ? 'Provisional: fewer than 60 comparable IV sessions' : '') + '">' + tierMeta.label + (w.provisional ? '*' : '') + '</em>' : (w.elevated ? ' <em class="ivt-trow-tier ivt-elev" title="Rich: top fifth of its own IV history and above 30-day realized moves, but not currently climbing">Rich</em>' : '')) + '</span>' +
         '<span class="ivt-trow-num">' + ivtIvPct(w.iv) + '</span>' +
         '<span class="ivt-trow-num">' + (w.z == null ? '—' : (w.z >= 0 ? '+' : '') + w.z.toFixed(1) + 'σ') + '</span>' +
         '<span class="ivt-trow-num">' + (w.pctile == null ? '—' : w.pctile) + '</span>' +
@@ -34292,7 +34318,9 @@ ${renderSplitViewBindings()}
   var ACC_RULE_NOTES = {
     grade: {
       '2026-10-no-chart-pattern': { since:'2026-10-19', note:'Chart-pattern vote removed' },
-      '2026-10-sector-growth': { since:'2026-10-20', note:'Growth judged against sector norms' }
+      '2026-10-sector-growth': { since:'2026-10-20', note:'Growth judged against sector norms' },
+      // No fixed date: the divider takes the first trade opened under it.
+      '2026-10-iv-rule': { note:'One expensive-options rule; credit spreads only when IV is very rich' }
     },
     exit: { '2026-10-22-tp25': { since:'2026-10-22', note:'Take-profit raised to +25%' } },
     entry: { '2026-10-23-reviewed-entry-v3': { since:'2026-10-23', note:'Entries must pass an option-price check' } },
@@ -39580,10 +39608,15 @@ ${renderSplitViewBindings()}
       ? Number(ctx.contribution)
       : (sig ? (Number(sig.contribution != null ? sig.contribution : sig.score) || 0) : 0);
     var thin = ctx && ctx.method === 'universe-thin-neutral';
+    var bandLabel = ctx && ctx.bandLabel ? String(ctx.bandLabel) : null;
     var cls = sc > 0 ? 'is-pro' : (sc < 0 ? 'is-con' : '');
-    var head = sc > 0
-      ? 'Cheaper universe-relative premium — favorable'
-      : (sc < 0 ? 'Universe-relative premium headwind' : (thin ? 'Thin IV cohort — neutral by design' : 'Universe-relative IV cost — neutral'));
+    // Grades built before 2026-10-27 used a universe-relative method and carry
+    // no band; their heading keeps the old wording.
+    var head = bandLabel
+      ? 'Options are ' + bandLabel.toLowerCase() + (sc > 0 ? ' — favorable' : sc < 0 ? ' — premium headwind' : ' — neutral')
+      : sc > 0
+        ? 'Cheaper universe-relative premium — favorable'
+        : (sc < 0 ? 'Universe-relative premium headwind' : (thin ? 'Thin IV cohort — neutral by design' : 'Universe-relative IV cost — neutral'));
     var rows = '';
     if (value) rows += '<li><b>Signal:</b> ' + escapeHtml(value) + '</li>';
     if (note) rows += '<li><b>Method:</b> ' + escapeHtml(note) + '</li>';
@@ -39593,6 +39626,8 @@ ${renderSplitViewBindings()}
       var currentIv = ctx.currentIv != null ? ctx.currentIv : ctx.iv;
       if (currentIv != null && isFinite(currentIv)) context.push('ATM ~30d IV ' + (Number(currentIv) * 100).toFixed(1) + '%');
       if (ctx.pctile != null && isFinite(ctx.pctile)) context.push('own history ' + Number(ctx.pctile).toFixed(1) + '%ile');
+      if (ctx.rv30 != null && isFinite(ctx.rv30)) context.push('30-day realized ' + (Number(ctx.rv30) * 100).toFixed(1) + '%' + (ctx.ivOverRv === true ? ' (IV above it)' : ctx.ivOverRv === false ? ' (IV at or below it)' : ''));
+      if (ctx.earningsSoon) context.push('earnings within 14 days');
       if (ownZ != null && isFinite(ownZ)) context.push('own z ' + scenarioSigned(ownZ, 'σ'));
       if (ctx.universeN != null) context.push('eligible universe n=' + ctx.universeN);
       if (ctx.meanPctile != null && isFinite(ctx.meanPctile)) context.push('mean ' + Number(ctx.meanPctile).toFixed(1) + '%ile');

@@ -45,6 +45,7 @@ import { BRIEF_ACCESS_POLICY_VERSION } from "../lib/public-data-policy.mjs";
 import { buildBriefExtendedHours, extendedSessionForKind } from "../lib/brief-extended-hours.mjs";
 import { contentAssetVersion } from "../lib/asset-version.mjs";
 import { scoreSectorGrowth } from "../lib/sector-growth.mjs";
+import { IV_RICHNESS, IV_RICHNESS_VERSION } from "../lib/iv-richness.mjs";
 import { outcomeFromPnl, realFillMark, exitDetailFor, mergeArchive } from "../lib/track-record-fills.mjs";
 import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
 import { assembleBakeLinkMap, LINK_MAP_SKIPPED_SOURCES } from "../lib/link-map.mjs";
@@ -4597,11 +4598,10 @@ export async function attachIvRanks(chains, historyMap = null) {
     // Standard-deviation read of the CURRENT IV vs the name's own historical
     // mean — the substrate for the credit-vs-debit strategy split. Exclude
     // today's print from the baseline so a rich (or cheap) session cannot
-    // pull the mean toward itself. A current ATM IV that sits
-    // >= PICKS_IV_CREDIT_Z std-devs above its ~18-month prior mean is the
-    // statistical "premium is unusually rich, sell it" zone (selectStrategy ->
-    // credit vertical); a z near/below zero means premium isn't inflated (debit
-    // vertical / naked long). Sample std (n-1) over the prior window.
+    // pull the mean toward itself. The z is context on cards and in the AI
+    // grader's evidence; the cheap/rich band that picks the structure comes
+    // from the percentile plus realized vol (lib/iv-richness.mjs). Sample std
+    // (n-1) over the prior window.
     const priorIvs = ivs.slice(0, -1);
     if (priorIvs.length >= PICKS_IVRANK_STD_MIN_N) {
       const mean = priorIvs.reduce((a, b) => a + b, 0) / priorIvs.length;
@@ -5055,13 +5055,13 @@ export function buildIvTrendSummary(rows) {
     text = `Standouts: ${standouts.map(frag).join("; ")}.`;
     const tail = [];
     if (tiered.length) tail.push(`${counts.surging} surging / ${counts.trending} trending / ${counts.building} building of ${all.length} ranked`);
-    if (counts.elevated) tail.push(`${counts.elevated} sitting elevated`);
+    if (counts.elevated) tail.push(`${counts.elevated} sitting rich`);
     if (tail.length) text += ` Across the board: ${tail.join(", plus ")}.`;
   } else if (tiered.length) {
     text = `Implied vol is climbing in ${tiered.length} of ${all.length} ranked names (${counts.surging} surging / ${counts.trending} trending / ${counts.building} building), but nothing clears the standout bars — no extreme readings, fast ramps, or fast deflations.`;
   } else {
     const elevSyms = all.filter((r) => r.elevated).map((r) => r.symbol);
-    text = `No names screen as actively trending, but premium sits elevated vs its own history in ${listStr(elevSyms)}.`;
+    text = `No names screen as actively trending, but premium sits rich vs its own history and realized moves in ${listStr(elevSyms)}.`;
   }
   return { text, counts, unexplained, standouts };
 }
@@ -5136,15 +5136,13 @@ export function buildIvTrendingPayload(ivHistory, chains, builtAtIso = new Date(
       pctile,
       histN: ivs.length,
     });
-    // Elevated flag — current IV meaningfully above the name's OWN history,
-    // regardless of direction. A name can sit rich without climbing (post-ramp
-    // plateau, chronic event premium): no trend tier, but premium is still
-    // expensive and worth marking. Same materiality bar as the trending tier.
-    const elevated = z != null &&
-      z >= (ivs.length < 60 ? 1.2 : 1) &&
-      (relPct ?? 0) >= 8 &&
-      pctile >= 75;
     const data = chains?.[sym] || null;
+    // "elevated" is the site's one Rich rule (lib/iv-richness.mjs): top fifth
+    // of its own history AND above 30-day realized vol, regardless of
+    // direction. A name can sit rich without climbing (post-ramp plateau,
+    // chronic event premium): no trend tier, but premium is still expensive.
+    const ivBand = IV_RICHNESS.classify({ pctile, iv: cur, rv30: data?.technicals?.volRegime?.rv30 });
+    const elevated = ivBand.rich;
     const f = data?.fundamentals || null;
     const row = {
       symbol: sym,
@@ -5167,6 +5165,7 @@ export function buildIvTrendingPayload(ivHistory, chains, builtAtIso = new Date(
       score,
       tier,
       elevated,
+      band: ivBand.band,
       asOf: lastDate,
     };
     // Earnings context — the most common "why": IV mechanically builds into a
@@ -17280,30 +17279,26 @@ const PICKS_MIN_QUALITY = 0.45;                // composite contract-quality flo
 // thin to justify a defined trade. Four outcomes, one deterministic decision tree:
 //   * NONE — the thesis is WEAK (assessThesisQuality tier === "weak"). We show the
 //     grade but recommend no structure ("high grade, weak thesis — watch only").
-//   * CREDIT vertical — the name's current ATM IV is ELEVATED: z >= PICKS_IV_-
-//     CREDIT_Z_ELEVATED (1.5σ) OR pctile >= PICKS_IV_CREDIT_PCTILE (60th) — premium
-//     is statistically rich — and the grade is a directional read: SELL the rich
+//   * CREDIT vertical — the name's options are VERY RICH under the site's one IV
+//     rule (lib/iv-richness.mjs: own-history percentile >= 90 AND ATM IV above
+//     30-day realized vol) and the grade is a directional read: SELL the rich
 //     premium on the bias side (bullish -> bull-put credit spread; bearish ->
 //     bear-call), near-money short + further-OTM wing, targeting a credit
 //     ~PICKS_CREDIT_WIDTH_FRAC of the strike width. High IV mean-reverts, so you
-//     collect theta + a vol-contraction tailwind. The "highly elevated" tier
-//     (z >= PICKS_IV_CREDIT_Z / pctile >= PICKS_IV_RICH) is the same structure,
-//     labelled as the strongest sell-premium case. Suppressed into binary events
-//     (a gap maxes the loss) and on illiquid wings.
+//     collect theta + a vol-contraction tailwind. Suppressed into binary events
+//     (a gap maxes the loss) and on illiquid wings. (Before 2026-10-27 the credit
+//     band was z >= 1.5σ or the 60th percentile.)
 //   * NAKED long — RARE: very-high grade (Strong tier) AND a STRONG thesis AND IV
-//     not elevated: a single long for max gamma/delta + uncapped upside, accepting
-//     full premium + theta because the edge is exceptional and multi-signal.
+//     Cheap or Normal: a single long for max gamma/delta + uncapped upside,
+//     accepting full premium + theta because the edge is exceptional.
 //   * DEBIT vertical — the default for a grounded directional view with a non-weak
-//     thesis when IV is not elevated (or a strong view into elevated-but-event-
-//     blocked IV): long near-money financed by a short OTM wing (same side). Caps
+//     thesis, and the structure whenever IV is Rich but not Very rich (or Very
+//     rich but event-blocked): long near-money financed by a short OTM wing. Caps
 //     theta/vega + the premium at risk; capped upside is the price. A candidate
 //     must clear PICKS_DEBIT_MIN_RR (reward:risk >= 1.0 — the debit can never
 //     exceed half the strike width) or it is rejected, mirroring the credit
 //     side's PICKS_CREDIT_WIDTH_FRAC_MIN floor.
 const PICKS_STRATEGY_AUTO = process.env.PICKS_STRATEGY_AUTO !== "0"; // off -> always naked long (legacy)
-const PICKS_IV_CREDIT_Z = Number(process.env.PICKS_IV_CREDIT_Z ?? 2.0);     // ATM IV z >= this -> "highly elevated" (strongest sell-premium label)
-const PICKS_IV_CREDIT_Z_ELEVATED = Number(process.env.PICKS_IV_CREDIT_Z_ELEVATED ?? 1.5); // z >= this -> "elevated" -> credit (broadened band)
-const PICKS_IV_CREDIT_PCTILE = Number(process.env.PICKS_IV_CREDIT_PCTILE ?? 60); // IV pctile >= this -> "elevated" -> credit (z fallback)
 const PICKS_SKEW_ADVERSE_RAW = Number(process.env.PICKS_SKEW_ADVERSE_RAW ?? 0.05); // 5 vol-point side premium before skew history matures
 const PICKS_CREDIT_WIDTH_FRAC = Number(process.env.PICKS_CREDIT_WIDTH_FRAC ?? 0.34); // target credit ~ 1/3 of the spread width
 const PICKS_CREDIT_WIDTH_FRAC_MIN = 0.22;      // reject a credit spread paying < this fraction of width
@@ -17469,8 +17464,8 @@ export const PICKS_TIMING_THRESHOLDS = Object.freeze({
 });
 
 // ---- IV cost ---------------------------------------------------------------
-const PICKS_IV_RICH = 80;                       // IV pctile >=80 -> expensive
-const PICKS_IV_CHEAP = 20;                       // <=20 -> cheap
+// Cheap / Rich / Very rich cut-offs live in lib/iv-richness.mjs (one rule for
+// the grade, Top Picks, the Strategy builder and Trending IV).
 const PICKS_IVRANK_MIN_N = Number(process.env.PICKS_IVRANK_MIN_N ?? 10); // min IV-history entries to rank (attachIvRanks)
 
 // ---- Overnight global-tape axis (consumed by deriveGlobalTapeAxis) ----------
@@ -17695,7 +17690,9 @@ export const PICKS_ACCURACY_RESET_EPOCH = "2026-08-08.top-picks-v3";
 // formula that selected the trade. Bump it whenever scoreTicker's weights change.
 // 2026-10-19: the AI chart-pattern vote left the technical pillar.
 // 2026-10-20: revenue and EPS growth are judged against sector norms.
-export const GRADE_MODEL_VERSION = "2026-10-sector-growth";
+// 2026-10-27: IV cost and the spread choice read one shared IV rule
+// (lib/iv-richness.mjs): Rich -2, Cheap +1, credit spreads only when Very rich.
+export const GRADE_MODEL_VERSION = "2026-10-iv-rule";
 // Hard cap on the concurrently-tracked open book. Each build ships <=10
 // actionable picks, but re-entry suppression means every build surfaces NEW
 // names while the previously-enrolled ones stay open until an exit rule fires —
@@ -18160,9 +18157,9 @@ function sectorCapexBenchmarks(chains, asOfIso = null) {
   return out;
 }
 
-// Universe-relative standardization for the IV Cost points. Own-history rank/z
-// remain the interpretation and strategy inputs; only fresh, adequately sampled
-// percentile rows enter this cross-section.
+// Snapshot context for the IV Cost points: the date every rank must match, plus
+// a cross-section summary kept for diagnostics. The points themselves come from
+// the shared own-history band (lib/iv-richness.mjs), not from this cross-section.
 export function computeIvUniverseContext(chains, reference = null) {
   const asOf = picksReferenceDateKey(reference);
   const rows = [];
@@ -19326,24 +19323,17 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
   };
 }
 
-// IV cost is direction-agnostic. The name's own-history percentile remains the
-// raw interpretation, while the points are standardized against today's fresh
-// investable universe; a thin cross-section contributes zero.
+// IV cost is direction-agnostic and reads the site's one "expensive options"
+// rule (lib/iv-richness.mjs): Rich or Very rich (own-history percentile >= 80
+// and IV above 30-day realized vol) costs 2 points, Cheap (<= 20) earns 1,
+// anything else is neutral. The universe context only supplies the snapshot
+// date, so a stale rank cannot vote.
 export function computeIvCostContribution(data, universe = null, opts = {}) {
   const rank = data?.ivRank || null;
   const p = pnumN(rank?.pctile);
   if (p == null) return null;
   const rankAsOf = rank?.asOf || null;
   if (universe?.asOf && rankAsOf !== universe.asOf) return null;
-  let core = 0, crossZ = null, method = "universe-thin-neutral";
-  if (universe?.ready && universe.stdPctile > 0 && universe.n >= 10) {
-    crossZ = (p - universe.meanPctile) / universe.stdPctile;
-    method = "universe-relative";
-    // A name can be less rich than today's universe without being cheap versus
-    // itself. In that case it earns no credit but still outranks the richer peer.
-    if (crossZ >= 0.5 && p >= 50) core = -clamp(0.5 + (crossZ - 0.5) * 0.75, 0.5, 2);
-    else if (crossZ <= -0.5 && p <= 50) core = clamp(0.25 + (-crossZ - 0.5) * 0.5, 0.25, 1);
-  }
 
   // Fixed, small term overlay: steep front-loaded IV is an extra cost for a
   // long-premium trade, except when the inversion is already explained by the
@@ -19364,15 +19354,19 @@ export function computeIvCostContribution(data, universe = null, opts = {}) {
   const termExplained = earningsLoaded || macroLoaded;
   const termInverted = !termExplained && ((termZ != null && termZ <= -1.5) || (termSlope != null && termSlope <= -0.03));
   const termPenalty = termInverted ? -0.5 : 0;
+  const richness = IV_RICHNESS.classify({
+    pctile: p, iv: rank?.iv, rv30: data?.technicals?.volRegime?.rv30, earningsDays: earnDays,
+  });
+  const core = richness.rich ? -2 : richness.cheap ? 1 : 0;
   const contribution = clamp(core + termPenalty, -2, 1);
   return {
     contribution: r2(contribution), coreContribution: r2(core), termPenalty,
+    band: richness.band, bandLabel: richness.label, bandNote: richness.note,
+    ivOverRv: richness.ivOverRv, rv30: richness.rv30, earningsSoon: richness.earningsSoon,
     pctile: p, ownZ: pnumN(rank?.z), currentIv: pnumN(rank?.iv),
     n: pnumN(rank?.n), rankAsOf, surfaceAsOf,
-    universeN: universe?.n || 0,
-    meanPctile: universe?.meanPctile ?? null, stdPctile: universe?.stdPctile ?? null,
     universeAsOf: universe?.asOf || null,
-    method, termZ, termSlope, termInverted, termExplained, surfaceFresh,
+    method: IV_RICHNESS_VERSION, termZ, termSlope, termInverted, termExplained, surfaceFresh,
   };
 }
 
@@ -20433,8 +20427,11 @@ function scoreTicker(sym, data, ctx) {
   };
   const ivValue = ivCost
     ? [
-      `${ivCost.pctile}%ile own history`,
-      ivCost.crossZ != null ? `${ivCost.crossZ >= 0 ? "+" : ""}${ivCost.crossZ}σ vs universe` : `universe n=${ivCost.universeN} (neutral)`,
+      `${ivCost.bandLabel} · ${ivCost.pctile}%ile own history`,
+      ivCost.currentIv != null && ivCost.rv30 != null
+        ? `IV ${Math.round(ivCost.currentIv * 100)}% vs realized ${Math.round(ivCost.rv30 * 100)}%`
+        : null,
+      ivCost.earningsSoon ? "earnings within 14 days" : null,
       ivCost.termInverted ? "front IV inverted" : null,
     ].filter(Boolean).join(" · ")
     : null;
@@ -20443,8 +20440,8 @@ function scoreTicker(sym, data, ctx) {
     signals: [sig(
       "ivCost", "IV cost", ivContribution, ivValue,
       ivCost?.termInverted
-        ? "Universe-relative long-premium cost plus a small unexplained front-IV penalty"
-        : "Own-history IV is interpreted through today's fresh universe distribution",
+        ? "Shared IV rule (Rich −2, Cheap +1) plus a small unexplained front-IV penalty"
+        : "Shared IV rule: Rich costs 2 points, Cheap earns 1, Normal is neutral",
       !!ivCost,
     )],
     context: ivCost,
@@ -20707,21 +20704,26 @@ export function selectStrategy(r, side, opts = {}) {
   const skewBasis = adverseSkewByZ ? "history-z" : adverseSkewByRaw ? "raw-fallback" : null;
   const eventImminent = !!(opts.eventRisk && opts.eventRisk.active);
   const earningsInWindow = !!opts.earningsInWindow;
-  // IV reads — the spec's OR of the two measures: a z-score (std-devs above the
-  // name's OWN ~18-month mean — the mean-reversion signal) and the IV-rank
-  // percentile. Either one qualifying counts. Two credit tiers: "elevated"
-  // (z>=1.5σ OR >=60th pctile -> sell premium) and "highly elevated" (z>=2σ OR
-  // >=80th -> the strongest sell-premium case, same structure). "Reasonable" (low,
-  // for a naked long) requires at least one current IV measure and neither
-  // measure elevated. Missing history cannot establish reasonable premium.
-  const ivHighlyElevated = (z != null && z >= PICKS_IV_CREDIT_Z) || (pctile != null && pctile >= PICKS_IV_RICH);
-  const ivElevated = ivHighlyElevated || (z != null && z >= PICKS_IV_CREDIT_Z_ELEVATED) || (pctile != null && pctile >= PICKS_IV_CREDIT_PCTILE);
-  const ivKnown = z != null || pctile != null;
+  // IV reads come from the site's one "expensive options" rule
+  // (lib/iv-richness.mjs). Very rich (>= 90th percentile and IV above 30-day
+  // realized vol) is the only band that sells premium; Rich (>= 80th, same
+  // realized check) rules out a naked long and steps down to a debit spread;
+  // Cheap or Normal is "reasonable" premium for a naked long. Missing history
+  // cannot establish reasonable premium. ivTier keeps its old names for the
+  // stored picks: highly-elevated = Very rich, elevated = Rich.
+  const ivBand = IV_RICHNESS.classify({
+    pctile, iv: ivr?.iv, rv30: r.data?.technicals?.volRegime?.rv30,
+  });
+  const ivHighlyElevated = ivBand.veryRich;
+  const ivElevated = ivBand.rich;
+  const ivKnown = ivBand.band !== "unknown";
   const ivReasonable = ivKnown && !ivElevated;
   const ivTier = !ivKnown ? "unknown" : ivHighlyElevated ? "highly-elevated" : ivElevated ? "elevated" : "reasonable";
-  const ivBasis = z != null ? `IV ${z >= 0 ? "+" : ""}${z}σ vs its own normal` : (pctile != null ? `IV ${pctile}th pctile` : "IV history thin");
+  const ivBasis = pctile != null
+    ? `IV ${ivBand.label.toLowerCase()} (${pctile}th pctile${ivBand.ivOverRv === true ? ", above realized vol" : ivBand.ivOverRv === false ? ", not above realized vol" : ""})`
+    : "IV history thin";
   const mk = (type, label, reason) => ({
-    type, label, reason, ivZ: z, ivPctile: pctile, ivBasis, ivTier,
+    type, label, reason, ivZ: z, ivPctile: pctile, ivBasis, ivTier, ivBand: ivBand.band,
     termSlope, termZ, skew25, skewZ, adverseSkew, skewBasis,
   });
 
@@ -20738,30 +20740,28 @@ export function selectStrategy(r, side, opts = {}) {
       `The grade is high but the supporting case is thin / single-pillar — no edge clear enough to define a trade. Watch only: wait for a second confirming signal or a clean entry.`);
   }
 
-  // 1) Premium is ELEVATED (>= 1.5σ / 60th pctile). SELL it on the bias side
-  //    (the headline rule) — bull-put / bear-call credit spread — UNLESS a binary
-  //    event/earnings is imminent (a gap maxes a credit spread's loss), where we
-  //    step down to a defined-risk DEBIT instead. Naked is out here: a naked long
-  //    is reserved for *reasonable* (not elevated) IV.
+  // 1) Premium is VERY RICH. SELL it on the bias side — bull-put / bear-call
+  //    credit spread — UNLESS a binary event/earnings is imminent (a gap maxes a
+  //    credit spread's loss), where we step down to a defined-risk DEBIT instead.
+  //    Naked is out here: a naked long is reserved for Cheap or Normal IV.
   // A market-wide macro event (eventImminent) normally defers credit -> debit; the
   // default-OFF PICKS_CREDIT_INTO_MACRO_EVENT flag lets a defined-risk credit fire
   // through it anyway (single-name earningsInWindow still defers — its gap is
   // name-specific and can max the spread).
-  if (ivElevated && (!eventImminent || PICKS_CREDIT_INTO_MACRO_EVENT) && !earningsInWindow) {
-    const tierTxt = ivHighlyElevated ? `>=${PICKS_IV_CREDIT_Z}σ — highly elevated` : `>=${PICKS_IV_CREDIT_Z_ELEVATED}σ / >=${PICKS_IV_CREDIT_PCTILE}th pctile — elevated`;
+  if (ivHighlyElevated && (!eventImminent || PICKS_CREDIT_INTO_MACRO_EVENT) && !earningsInWindow) {
     return mk("credit", (side === "call" ? "Bull-put" : "Bear-call") + " credit spread",
-      `${ivBasis} (${tierTxt}) — sell the expensive premium on the ${side === "call" ? "bullish" : "bearish"} side; elevated IV mean-reverts and time decay works for you while price stays on your side of the short strike.`);
+      `${ivBasis} — sell the expensive premium on the ${side === "call" ? "bullish" : "bearish"} side; very rich IV mean-reverts and time decay works for you while price stays on your side of the short strike.`);
   }
 
-  // 2) RARE: very-high grade (Strong tier) AND a STRONG thesis AND IV not elevated
-  //    -> naked long for maximum delta/gamma + uncapped upside.
+  // 2) RARE: very-high grade (Strong tier) AND a STRONG thesis AND IV Cheap or
+  //    Normal -> naked long for maximum delta/gamma + uncapped upside.
   if (strong && thesisTier === "strong" && ivReasonable && !eventImminent && !earningsInWindow && !adverseSkew) {
     return mk("long", "Long " + side,
-      `Exceptional, multi-signal conviction (grade ${r.total >= 0 ? "+" : ""}${r.total}, strong thesis) with ${ivBasis} (not elevated) — a single long captures the most delta/gamma and uncapped upside; the edge justifies the full premium + theta.`);
+      `Exceptional, multi-signal conviction (grade ${r.total >= 0 ? "+" : ""}${r.total}, strong thesis) with ${ivBasis} — a single long captures the most delta/gamma and uncapped upside; the edge justifies the full premium + theta.`);
   }
 
   // 3) Default: a grounded directional view without extreme conviction (or into an
-  //    event, or a strong view fighting rich-but-sub-2σ IV) -> defined-risk debit.
+  //    event, or a strong view into Rich-but-not-Very-rich IV) -> defined-risk debit.
   if (!ivKnown) {
     return mk("debit", (side === "call" ? "Bull" : "Bear") + " debit spread",
       "Current IV history is unavailable — relative premium value is unknown. Use a debit spread to limit premium outlay; a single long is not eligible.");
@@ -21762,14 +21762,14 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   meta.groups = { actionable: actionable.length, watch: watch.length };
   meta.classifications = finalPicks.reduce((acc, p) => { const c = p.classification || "idea"; acc[c] = (acc[c] || 0) + 1; return acc; }, {});
   // INSTRUMENTATION (no behavior change): the structure mix actually shipped, plus
-  // the names whose IV the engine flagged elevated/highly-elevated (selectStrategy
-  // wanted to SELL premium) but that shipped as long premium anyway — split by
+  // the names whose IV the engine flagged Very rich (selectStrategy wanted to
+  // SELL premium) but that shipped as long premium anyway — split by
   // WHY (`fallback` = no clean credit wing -> debit; `event-defer` = a macro/
   // earnings event forced defined-risk debit). Surfaces the "credit never fires"
   // gap in rosterMeta every bake so it can be adjudicated on resolved picks.
   meta.strategyMix = finalPicks.reduce((acc, p) => { const t = p.strategy?.type || (p.contract ? "long" : "none"); acc[t] = (acc[t] || 0) + 1; return acc; }, {});
   meta.creditDeferred = finalPicks
-    .filter((p) => p.strategy && p.strategy.type !== "credit" && (p.strategy.ivTier === "elevated" || p.strategy.ivTier === "highly-elevated"))
+    .filter((p) => p.strategy && p.strategy.type !== "credit" && p.strategy.ivTier === "highly-elevated")
     .map((p) => ({ sym: p.symbol, side: p.side, ivTier: p.strategy.ivTier, ivZ: p.strategy.ivZ ?? null, used: p.strategy.type, why: p.strategy.fallback ? "fallback" : "event-defer" }));
   const edgeScale = opts.priorClosed ? computeEdgeScale(opts.priorClosed) : 1;
   // Size with the SAME multiplier the regime object ships/displays (the
@@ -22508,9 +22508,9 @@ export function buildEdgeStatement(r, side, strategy, thesisQuality, contract) {
   const ivTxt = strategy.ivBasis || "";
   let text;
   if (strategy.type === "credit") {
-    text = `Premium is ${strategy.ivTier === "highly-elevated" ? "richly bid" : "elevated"} (${ivTxt}) and the read is ${dir} (${driverTxt}) → SELL a ${strategy.label.toLowerCase()} to harvest decay + a vol-contraction tailwind while ${r.sym} holds ${bull ? "above" : "below"} the short strike.`;
+    text = `Premium is very rich (${ivTxt}) and the read is ${dir} (${driverTxt}) → SELL a ${strategy.label.toLowerCase()} to harvest decay + a vol-contraction tailwind while ${r.sym} holds ${bull ? "above" : "below"} the short strike.`;
   } else if (strategy.type === "long") {
-    text = `Exceptional, multi-signal ${dir} conviction (${gradeTxt}, strong thesis) with ${ivTxt} not elevated → a purchased ${bull ? "call" : "put"} with uncapped directional profit potential and the premium at risk.`;
+    text = `Exceptional, multi-signal ${dir} conviction (${gradeTxt}, strong thesis) with ${ivTxt} → a purchased ${bull ? "call" : "put"} with uncapped directional profit potential and the premium at risk.`;
   } else {
     text = `A ${dir} read (${driverTxt}) with ${ivTxt} → a defined-risk ${strategy.label.toLowerCase()} limits premium outlay and caps the payout. Review its net theta and vega; a spread does not guarantee lower sensitivity in every scenario.`;
   }
@@ -22694,7 +22694,9 @@ export function buildGradesIndex(chains, narratives, streaksMap = null, unusualP
       sentiment: currentNewsSentiment(r.data?.news, Date.parse(opts.asOfIso) || Date.now()),
       rsi: r.data?.technicals?.rsi ?? null,
       tech: techLive,
-      ivPctile: r.data?.ivRank?.pctile ?? r.data?.technicals?.volRegime?.rv30Pctile ?? null,
+      // Implied-vol percentile only. The old fallback to the realized-vol
+      // percentile mixed two different measures under one label.
+      ivPctile: r.data?.ivRank?.pctile ?? null,
       streak: cs ? { color: cs.color, days: cs.sameDays, cumulativePct: cs.cumulativePct } : null,
       peers, catalysts: Array.isArray(r.data?.catalysts) ? r.data.catalysts : [],
       timing: { call: compactTiming(ownSide === "call" ? ownTiming : otherTiming), put: compactTiming(ownSide === "put" ? ownTiming : otherTiming) },

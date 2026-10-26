@@ -62,6 +62,7 @@
     "test:webull-analytics": "node scripts/webull-analytics-smoke.mjs",
     "preview:webull": "node scripts/webull-review-preview.mjs",
     "test:webull-mirror": "node scripts/r2-lease-smoke.mjs && node scripts/webull-mirror-smoke.mjs && node scripts/webull-grouped-smoke.mjs && node scripts/webull-recovery-smoke.mjs && node scripts/webull-view-smoke.mjs && node scripts/webull-window-smoke.mjs",
+    "test:iv-richness": "node scripts/iv-richness-smoke.mjs",
     "test:picks": "node scripts/picks-smoke.mjs",
     "test:top-picks-guards": "node scripts/top-picks-guards-smoke.mjs",
     "test:entry-policy": "node scripts/entry-policy-smoke.mjs",
