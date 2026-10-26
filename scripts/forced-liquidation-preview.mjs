@@ -9,7 +9,7 @@ export async function createLiquidationPreview({port=0,payloadFile=null}={}){
   const root=resolve(fileURLToPath(new URL('..',import.meta.url))),fixture=liquidationFixture();
   const payload=payloadFile?JSON.parse(await readFile(payloadFile,'utf8')):fixture.payload;
   const html=await readFile(resolve(root,'index.html'),'utf8'),shell=JSON.parse(html.match(/window\.STONKS_MANIFEST=(\{.*\});<\/script>/)[1]);
-  const manifest={...shell,symbols:[],narratives:[],deferred:false};
+  const manifest={...shell,symbols:payload.coverage.universeSymbols||[...new Set(payload.rows.map(r=>r.symbol))],narratives:[],deferred:false};
   let scenario='owner',requests=0;
   const server=createServer(async(req,res)=>{
     const url=new URL(req.url,'http://127.0.0.1');res.setHeader('Cache-Control','no-store');
@@ -40,7 +40,7 @@ export async function createLiquidationPreview({port=0,payloadFile=null}={}){
     const path=resolve(root,'.'+(url.pathname==='/'?'/index.html':url.pathname));
     if(!path.startsWith(root+'/'))return json({error:'Not found'},404);
     try{const body=await readFile(path);res.setHeader('Content-Type',({'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png'})[extname(path)]||'application/octet-stream');
-      if(extname(path)==='.html')return res.end(body.toString().replace('<body>','<body><div style="padding:8px;text-align:center;font:12px system-ui;background:var(--surface-2);color:var(--muted-strong)">Local preview · '+(payloadFile?'collected SEC disclosures':'synthetic test facilities, not real investment ideas')+' · simulated Owner session</div>'));
+      if(extname(path)==='.html')return res.end(body.toString().replace(/window\.STONKS_MANIFEST=\{.*\};<\/script>/,'window.STONKS_MANIFEST='+JSON.stringify(manifest)+';</script>').replace('<body>','<body><div style="padding:8px;text-align:center;font:12px system-ui;background:var(--surface-2);color:var(--muted-strong)">Local preview · '+(payloadFile?'collected SEC disclosures':'synthetic test facilities, not real investment ideas')+' · simulated Owner session</div>'));
       res.end(body);
     }catch{return json({error:'Not found'},404);}
   });
