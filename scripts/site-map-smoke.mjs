@@ -2,6 +2,7 @@
 // sidebar section, Owner pages stay in the Owner section only, and the shared
 // chart helpers (round axis ticks, sparkline area) behave.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { SITE_SECTIONS, TAB_BAR_SECTIONS, siteMapForClient } from "./render/site-map.mjs";
 import { renderAppJs } from "./render/app-js.mjs";
 
@@ -54,5 +55,18 @@ for (const [lo, hi] of [[0.013, 0.021], [-3.2, 4.1], [1200, 98000]]) {
 const sparkAreaHtml = helper("sparkAreaHtml");
 assert.equal(sparkAreaHtml("0,10 50,4 100,8", 30), '<polygon class="spark-area" points="0,30 0,10 50,4 100,8 100,30"/>');
 assert.equal(sparkAreaHtml("5,5", 30), "");
+
+// Split view: the button sits beside the theme switch, panes load the site
+// itself with ?embed=1, and framing stays limited to this site.
+const indexHtml = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+assert.match(indexHtml, /id="split-toggle"[\s\S]{0,700}id="theme-toggle"/, "Split view button must sit next to the theme switch");
+assert.match(indexHtml, /classList\.add\('is-embed'\)/, "Panes must hide the site chrome before first paint");
+assert.ok(appJs.includes("var IS_EMBED = ") && appJs.includes("function splitOpen(") && appJs.includes("splitRestore();"), "Split view code must be in app.js");
+assert.ok(appJs.includes("'&embed=1'"), "Panes must load the site in embed mode");
+const vercel = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
+const secHeaders = Object.fromEntries(vercel.headers[0].headers.map((h) => [h.key, h.value]));
+assert.equal(secHeaders["X-Frame-Options"], "SAMEORIGIN", "Only this site may frame its pages");
+assert.match(secHeaders["Content-Security-Policy"], /frame-ancestors 'self'(;|$)/);
+assert.match(secHeaders["Content-Security-Policy"], /frame-src 'self' /);
 
 console.log("site map smoke passed");

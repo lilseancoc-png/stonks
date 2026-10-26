@@ -8,6 +8,7 @@ import { unifiedSignalClientFactory } from './unified-signal-client.mjs';
 import { unifiedSignalDisplayFactory } from '../../lib/unified-signal-display.mjs';
 import { renderWorkspaceBindings, renderWorkspaceHelpers } from './workspace-js.mjs';
 import { renderWayfindingBindings, renderWayfindingHelpers } from './wayfinding-js.mjs';
+import { renderSplitViewBindings, renderSplitViewHelpers } from './split-view-js.mjs';
 import { renderRecoveryHelpers } from './recovery-js.mjs';
 import { viewsFactory } from './views-client.mjs';
 import { currentNewsSentiment, newsDateIsCurrent, validNewsFeedPayload } from '../../lib/news-policy.mjs';
@@ -34,6 +35,7 @@ export function renderAppJs({ riskFreeRate = FALLBACK_RISK_FREE_RATE, riskFreeRa
 (function(){
 ${renderWorkspaceHelpers()}
 ${renderWayfindingHelpers()}
+${renderSplitViewHelpers()}
 ${renderRecoveryHelpers()}
 ${newsDateIsCurrent.toString()}
 ${currentNewsSentiment.toString()}
@@ -3835,6 +3837,7 @@ ${scenarioEventPhase.toString()}
     }
 ${renderWorkspaceBindings()}
 ${renderWayfindingBindings()}
+${renderSplitViewBindings()}
     // Restore the persisted desktop collapse before the first sync so the
     // sidebar doesn't flash open for a user who keeps it closed.
     try {
@@ -4027,6 +4030,9 @@ ${renderWayfindingBindings()}
       // Bounce stale/deep-linked Owner destinations before persisting or
       // starting any loader. The server independently enforces stored data.
       if (OWNER_TABS[name] && !HAS_OWNER_ACCESS) { return selectTab('home', nav); }
+      // Picking a page from the main window (sidebar, search, a link) while
+      // split view is on goes back to one full page.
+      if (!splitInternalNav && splitIsOn()) splitClose(false);
       resetNavFilter();
       try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
       var activeBtn = null;
@@ -4054,9 +4060,10 @@ ${renderWayfindingBindings()}
       var drawerWasOpen = !isDesktopNav() && sideNavVisible();
       closeSideNavDrawer();
       if (drawerWasOpen && workspaceMain) workspaceMain.focus({ preventScroll: true });
-      syncTabToUrl(name, !!(nav && nav.replace));
+      // Inside a split-view pane the page change never adds a Back step.
+      syncTabToUrl(name, IS_EMBED || !!(nav && nav.replace));
       if (name !== 'grade') document.title = 'stonks';
-      trackPageTab(name);
+      if (IS_EMBED) splitReportTab(name); else trackPageTab(name);
       // A tab hop lands at the top of the destination pane — the scroll depth
       // of a long previous tab (e.g. a Brief ticker chip clicked from way down
       // the page) otherwise carries over and the new tab opens mid/bottom.
@@ -4192,6 +4199,7 @@ ${renderWayfindingBindings()}
     // list, now against the role-filtered set and with the full selectTab
     // (loaders, premium gate, URL sync).
     selectTab(initialPageTabFromUrl(valid), { replace: true });
+    try { splitRestore(); } catch (_) {}
     // Honor browser back/forward when the URL's ?tab= changes. Restoring a
     // history entry must never push a new one (replace: true) or Back would
     // re-mint what it just popped.

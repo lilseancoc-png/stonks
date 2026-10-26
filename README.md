@@ -44,6 +44,10 @@ Ways to move around:
   Options and Search. Each button opens the menu at that section.
 - **Click any ticker** anywhere on the site to open its full stock report.
 - **Pin** pages you use often to the top of the sidebar.
+- **Split view**: the two-column button next to the light/dark switch puts two
+  pages side by side (stacked on phones). Each side has its own page picker;
+  drag the divider to resize, use **Swap** to trade sides, or **Full page** to
+  go back to one page. Split view stays on until you close it.
 
 ## Reading the charts and numbers
 
@@ -107,6 +111,8 @@ updates" page on the site lists the full schedule.
   - `wayfinding-js.mjs` / `wayfinding-css.mjs`: page headers, Previous / Next,
     Explore by topic, Recently viewed, phone tab bar.
   - `data-display-css.mjs`: the shared chart and number styling.
+  - `split-view-js.mjs` / `split-view-css.mjs`: split view (two pages side
+    by side, each loaded with `?embed=1`).
   - `views-client.mjs`: shared sorting, Cards / Table switch and compare tray.
   - `docs.mjs`: the Options guide, Chart patterns, Privacy and Terms pages.
 - `api/`: Vercel functions (live quotes and chains, the gated data reader,

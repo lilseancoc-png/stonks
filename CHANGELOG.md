@@ -31,6 +31,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Added
 
+- Add split view: a button next to the light/dark switch shows two pages side by side (stacked on phones), each with its own page picker, a draggable divider, Swap and Full page. `vercel.json` now allows same-site framing so the panes can load; other sites still cannot frame the app (#691).
 - Add plain-English wayfinding on every page: a "Home / Section / Page" trail, a one-line "what this shows" summary, chips for the other pages in the section, and Previous / Next links at the bottom (`scripts/render/wayfinding-js.mjs`).
 - Add "Explore by topic" tiles on Home, a "Recently viewed" list in the sidebar and at the top of the empty command palette (this browser only), and a phone tab bar (Today, Stocks, Market, Options, Search).
 - Show each stock's day move with an arrow on the All stocks cards, read from the existing public heatmap snapshot.
