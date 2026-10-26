@@ -55,6 +55,10 @@ try {
 try {
   scannerExtras.flowLog = JSON.parse(await readFile(resolve(DATA_DIR, "unusual-log.json"), "utf8"));
 } catch {}
+// Signed takeover targets (buyout-target veto in buildTopPicks).
+try {
+  scannerExtras.pendingBuyouts = JSON.parse(await readFile(resolve(DATA_DIR, "pending-buyouts.json"), "utf8"));
+} catch {}
 try {
   scannerExtras.correlations = JSON.parse(await readFile(resolve(DATA_DIR, "correlations.json"), "utf8"));
 } catch {}
@@ -408,6 +412,8 @@ try {
 
 // Daily grade snapshot (universe-IC substrate) — upsert today's ET row, same as
 // the full build. Read-modify-write on the live file (no wipe here).
+// The bake's shadow-signal block for the day is kept (appendGradesDaily carries
+// it when no new one is passed).
 try {
   const gdPrev = await readGradesDaily();
   const gd = await writeGradesDaily(appendGradesDaily(gdPrev, grades, builtAtIso));

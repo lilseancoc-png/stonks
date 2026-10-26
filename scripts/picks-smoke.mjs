@@ -37,7 +37,7 @@ import {
   capexCohortYoy, earningsEpsVerdict,
   freshMajorContractStatus, fiveSessionReturnPct, aiReserveBlocks, ensureTickerCoverage, GRADE_MODEL_VERSION,
   reconcileLevEtfLog, levEtfEntryInUniverse,
-  scoreAllTickers, openPickPrecheck, prioritizeAiSlots,
+  scoreAllTickers, openPickPrecheck, prioritizeAiSlots, structuralVeto, aiGraderCandidates,
   appendGateLog, gateRowMoves, foldGateLog, computeGateStats, GATE_LOG_KEEP_DAYS, GATE_LOG_REPEAT_DAYS,
 } from "./build.mjs";
 import { buildFlowExplanation } from "../lib/flow-explanation.mjs";
@@ -947,6 +947,40 @@ ok("picks: rosterMeta carries the non-destructive grade-model version", picks.ro
 ok("model epoch: roster metadata stamps the same decision era",
   picks.rosterMeta.modelEpoch === grades.modelEpoch && picks.rosterMeta.entryTimingVersion === grades.entryTimingVersion);
 ok("picks: KNIFE timing-gated (not shipped)", !picks.some((p) => p.symbol === "KNIFE") );
+// Buyout-target veto (pending-buyouts.json): a signed deal on a name keeps it
+// off the open-pick path on either side; a rumor or a mismatched listing never
+// blocks.
+{
+  ok("buyout guard: fixture has a shipped pick to target", picks.length > 0);
+  const tgt = picks[0]?.symbol;
+  const spotT = chains[tgt]?.spot;
+  const deal = (over) => ({ pendingBuyouts: { deals: [{ status: "pending", targetTicker: tgt, targetPrice: spotT, acquirer: "Acq Co", dealType: "cash", considerationPerShare: spotT * 1.02, ...over }] } });
+  const bo = buildTopPicks(chains, [], null, null, null, null, 0.045, deal({}));
+  ok("buyout guard: a confirmed target is dropped", tgt && !bo.some((p) => p.symbol === tgt) && bo.rosterMeta.buyoutGated.includes(tgt));
+  ok("buyout guard: the drop is traced as pending-buyout", bo.rosterMeta.turnedAway.some((t) => t.sym === tgt && t.gate === "pending-buyout"));
+  ok("buyout guard: other names are unchanged", picks.filter((p) => p.symbol !== tgt).every((p) => bo.some((q) => q.symbol === p.symbol)));
+  const rum = buildTopPicks(chains, [], null, null, null, null, 0.045, deal({ status: "rumored" }));
+  ok("buyout guard: a rumor never blocks, it is listed", rum.some((p) => p.symbol === tgt) && rum.rosterMeta.buyoutWatch.some((w) => w.symbol === tgt && w.status === "rumored" && !w.block));
+  const far = buildTopPicks(chains, [], null, null, null, null, 0.045, deal({ targetPrice: spotT * 2 }));
+  ok("buyout guard: a deal quoted far from our spot (other listing) does not block", far.some((p) => p.symbol === tgt));
+  const none = buildTopPicks(chains, [], null, null, null, null, 0.045, {});
+  ok("buyout guard: no payload means no watch rows", Array.isArray(none.rosterMeta.buyoutWatch) && none.rosterMeta.buyoutWatch.length === 0);
+  ok("structural veto: collateral stress blocks calls only",
+    structuralVeto({ forcedLiquidation: { vetoLong: true } }, "call") === "collateral-stress"
+    && structuralVeto({ forcedLiquidation: { vetoLong: true } }, "put") === null);
+  ok("structural veto: a confirmed buyout blocks both sides",
+    structuralVeto({ pendingBuyout: { block: true } }, "put") === "pending-buyout"
+    && structuralVeto({ pendingBuyout: { block: false } }, "call") === null);
+  // The AI pre-screen mirrors the vetoes, so a vetoed name never takes a grader
+  // slot and then gets dropped by buildTopPicks.
+  const graderSyms = (opts) => aiGraderCandidates(scoreAllTickers(chains, [], null, null, null, null, opts), null, opts).map((c) => c.r.sym);
+  const baseCands = graderSyms({});
+  const vetoCands = graderSyms(deal({}));
+  ok("ai pre-screen: a buyout-vetoed name no longer takes a grader slot", baseCands.includes(tgt) && !vetoCands.includes(tgt) && vetoCands.length === baseCands.length - 1);
+  const collCands = aiGraderCandidates({ ...scoreAllTickers(chains, [], null, null, null, null, {}), scored: scoreAllTickers(chains, [], null, null, null, null, {}).scored.map((r) => r.sym === tgt ? { ...r, forcedLiquidation: { vetoLong: true } } : r) }, null, {}).map((c) => c.r.sym);
+  ok("ai pre-screen: a collateral-vetoed call no longer takes a grader slot", picks[0]?.side !== "call" || !collCands.includes(tgt));
+}
+
 ok("picks: each pick has contract + sizing", picks.length === 0 || picks.every((p) => p.contract && p.sizing && p.sizing.weight != null));
 ok("picks: each pick has pillars + recommendation + thesis", picks.every((p) => p.pillars && p.recommendation && p.analysis));
 ok("picks: exitPlan TP/cut present", picks.every((p) => p.exitPlan && p.exitPlan.takeProfit && p.exitPlan.cut));
@@ -1409,6 +1443,19 @@ ok("roster: buildPicksRoster shape", roster.roster && Array.isArray(roster.roste
 }
 const gd = appendGradesDaily({ days: [] }, grades, new Date().toISOString());
 ok("daily: appendGradesDaily upserts a day", gd.days.length === 1 && gd.days[0].totals.BULLA != null);
+{
+  const today = new Date().toISOString();
+  const sh = { v: 1, keys: ["r21"], rows: { BULLA: [1.5] } };
+  const withShadow = appendGradesDaily({ days: [] }, grades, today, sh);
+  ok("daily: the shadow block rides the day's row", withShadow.days[0].shadow?.rows?.BULLA?.[0] === 1.5);
+  const regen = appendGradesDaily(withShadow, grades, today);
+  ok("daily: a later upsert without shadow keeps the day's shadow", regen.days[0].shadow?.rows?.BULLA?.[0] === 1.5 && regen.days[0].totals.BULLA != null);
+  const old = Array.from({ length: 140 }, (_, i) => ({ date: `2025-${String(1 + Math.floor(i / 28)).padStart(2, "0")}-${String(1 + (i % 28)).padStart(2, "0")}`, totals: { BULLA: 1 }, shadow: sh }));
+  const trimmed = appendGradesDaily({ days: old }, grades, today, sh);
+  ok("daily: only the newest 130 rows keep shadow, totals stay on every row",
+    trimmed.days.filter((d) => d.shadow).length === 130 && trimmed.days.every((d) => d.totals) && !trimmed.days[0].shadow);
+}
+
 const rh = appendRegimeHistory({ days: [] }, riskOff.macroRegime, "put", new Date().toISOString());
 ok("regime-history: appendRegimeHistory upserts a day", rh.days.length === 1 && rh.days[0].state);
 ok("regime-history: public rows omit Top-Picks lean", !("lean" in rh.days[0]) && !("picks" in rh.days[0]));
