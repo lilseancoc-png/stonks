@@ -1165,3 +1165,34 @@ Before Buy, the selected contract must pass the option-entry feasibility check a
 ### Permitted contract comparison and volatility policy, October 23
 
 Before returning Wait for option economics, search qualifying single options across already-fetched 30–90 DTE expirations and up to four spread anchors × four wings per anchor per expiration. Try the original strategy first; only its already-permitted debit fallback is available. Stop at the first feasible candidate in quality order, keeping the preferred contract when it clears. This is a bounded feasible-contract search, not a claim of a globally optimal structure. The full comparison summary is frozen with entry economics. Timing version 4 adds prior-window ATR knife and exhaustion bands, with no account-sizing or fresh-reclaim change.
+
+## Buyout-target veto and shadow signals, October 26, 2026
+
+**Buyout-target veto.** `scoreAllTickers` attaches `pendingBuyout` (from the
+already-baked `pending-buyouts.json`, `lib/pending-buyout-guard.mjs`) to each
+scored name. A confirmed pending deal on a covered name keeps it off the
+open-pick path on either side, because a signed deal pins the stock to its
+terms and a 1–2 week option on it is a bet on the deal breaking. Rumored
+targets never block; they are listed in `rosterMeta.buyoutWatch`. A deal whose
+quoted target price is more than 15% from our spot is treated as a different
+listing and does not block. Drops appear in `rosterMeta.buyoutGated` and in the
+gate trace as `pending-buyout`. No grade points change.
+
+**Shared structural vetoes.** `structuralVeto(r, side)` holds the
+collateral-stress veto (calls only) and the buyout veto. `buildTopPicks` and the
+AI grader's pre-screen (`aiGraderCandidates`) both use it, so a vetoed name no
+longer takes one of the `PICKS_MAX_AI_THESES` grader slots and then gets
+dropped.
+
+**Shadow signals.** Once per ET day the bake stores candidate inputs next to the
+grade totals in `grades-daily.json` (`shadow`, `lib/shadow-signals.mjs`): own
+21-day return, leave-one-out industry 21-day return, IV minus 20-day realized
+vol, distance to the front-expiry call and put OI walls, the latest print's
+guidance within 45 days, and qualified peer earnings in the next 14 days. They
+are never scored. `scripts/diagnose-grade-ic.mjs` reports each one's IC at
+5/10/14 days, its IC after the grade, a t-stat on non-overlapping days, and a
+pooled read for the sparse ones. A signal is a candidate for the grade only
+after it shows the right sign at 5 and 10 days, stays positive after the
+grade, and reaches t ≈ 2 on non-overlapping days. Only the newest 130 rows
+keep their shadow block. `regen-picks` keeps the day's block when it rewrites
+the totals.

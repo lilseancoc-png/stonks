@@ -73,6 +73,8 @@ import { writeHistoricalDataFile } from "./refresh-historical-data.mjs";
 import { readHistoricalSourceCache, refreshHistoricalSourceCache, loadFreeFredHistory, loadFreeMarketHistory } from "./collect-historical-sources.mjs";
 import { HISTORICAL_SOURCE_KEY } from "../lib/historical-sources.mjs";
 import { forcedLiquidationContext } from "../lib/forced-liquidation.mjs";
+import { buyoutContextFor } from "../lib/pending-buyout-guard.mjs";
+import { buildShadowSignals } from "../lib/shadow-signals.mjs";
 import { readForcedLiquidation, refreshForcedLiquidation, writeForcedLiquidation } from './refresh-forced-liquidation.mjs';
 import { withYahooTimeout } from "../lib/yahoo.mjs";
 import { yahooQuoteProvenance } from "../lib/quote-provenance.mjs";
@@ -13620,6 +13622,7 @@ async function writePendingBuyoutsFile(builtAtIso, prior = null) {
     rumored: payload.summary.rumored,
     close90: payload.summary.close90,
     stale: payload.stale,
+    payload,
   };
 }
 
@@ -17679,6 +17682,7 @@ const GRADES_DAILY_FILE = "grades-daily.json";
 // One row per ET day. 280 covers a trading year plus a short buffer, so the
 // public grade chart can average a 1-year return. Older rows are dropped.
 const GRADES_DAILY_MAX_DAYS = 280;
+const GRADES_DAILY_SHADOW_DAYS = 130;
 const REGIME_HISTORY_FILE = "regime-history.json";
 const REGIME_HISTORY_MAX_DAYS = 180;
 // Daily index-close calendar (SPY/QQQ/IWM red/green + close-to-close %change per
@@ -20490,6 +20494,9 @@ export function scoreAllTickers(chains, narratives, streaksMap, unusualPayload, 
     // Owner-only research rides the scored record, never the public chain or
     // grade pillars. Missing or assumed loan terms cannot alter conviction.
     r.forcedLiquidation = forcedLiquidationContext(opts.forcedLiquidation, sym, data, asOfIso || new Date().toISOString());
+    // Signed takeover targets (pending-buyouts.json): a confirmed deal pins the
+    // stock to its terms. Context only here; structuralVeto() applies it.
+    r.pendingBuyout = buyoutContextFor(opts.pendingBuyouts, sym, data.spot);
     scored.push(r);
     const pg = peerGroupOf(sym, data);
     (peerIndex[pg] ||= []).push({ symbol: sym, total: r.total, tier: r.recommendation.tier, label: r.recommendation.label });
@@ -21422,6 +21429,15 @@ export function prioritizeAiSlots(cands, ctx = {}) {
 // ============================================================================
 // buildTopPicks — the actionable roster.
 // ============================================================================
+// Vetoes that hold whatever the grade or the AI grader says. buildTopPicks and
+// the AI pre-screen in generateAiTheses share this, so a vetoed name can never
+// take one of the PICKS_MAX_AI_THESES grader slots and then be dropped.
+export function structuralVeto(r, side) {
+  if (side === "call" && r?.forcedLiquidation?.vetoLong) return "collateral-stress";
+  if (r?.pendingBuyout?.block) return "pending-buyout";
+  return null;
+}
+
 export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayload = null, macroBackdrop = null, volumeFlags = null, rfr = FALLBACK_RISK_FREE_RATE, opts = {}) {
   // Reuse a pre-computed scoring pass when supplied (writeTopPicksFile scores once
   // up front to build the AI thesis map before re-entering the gate); else score.
@@ -21448,6 +21464,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   const turnedAway = [];
   meta.collateralGated = [];
   meta.forcedLiquidationWatch = collateralWatch;
+  meta.buyoutGated = [];
+  meta.buyoutWatch = scored.map((r) => r.pendingBuyout).filter(Boolean);
   const traceGate = (r, side, gate) => {
     turnedAway.push({ sym: r.sym, side, total: r2(pnum(r.total) ?? 0), gate, spot: r2(pnum(r.data?.spot)) });
   };
@@ -21460,9 +21478,16 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     const tactical = (regime === "risk-off" || regime === "severe") && r.total <= PICKS_RISKOFF_PUT_BAR && r.timing?.state !== "avoid";
     // Disclosed terms near a collateral maintenance threshold add a downside
     // veto to new bullish ideas. They never manufacture a bearish entry.
-    if ((actionable || tactical) && r.side === 'call' && r.forcedLiquidation?.vetoLong) {
+    // A confirmed takeover target is kept off either side.
+    const veto = (actionable || tactical) ? structuralVeto(r, actionable ? r.side : "put") : null;
+    if (veto === "collateral-stress") {
       meta.collateralGated.push(r.sym);
-      traceGate(r, r.side, 'collateral-stress');
+      traceGate(r, r.side, veto);
+      continue;
+    }
+    if (veto === "pending-buyout") {
+      meta.buyoutGated.push(r.sym);
+      if (actionable) traceGate(r, r.side, veto);
       continue;
     }
     if ((actionable || tactical) && !regimePrimaryGateClears(r, macroBackdrop)) {
@@ -27381,23 +27406,16 @@ async function fetchThesisWebResearch(ai, r, side) {
 // and a 0–100 conviction score shown as its confidence (classification + veto +
 // entry verdict are the AI's levers; the roster ORDER stays deterministic — owner
 // directive).
-export async function generateAiTheses(preScored, macroBackdrop, opts = {}, priorCache = {}) {
-  const next = {}, map = {};
+// The DATA GATE for the AI final grader: the names that could still ship this
+// run, in the same order of checks buildTopPicks applies. Exported so the
+// mirror can be tested without a model key.
+export function aiGraderCandidates(preScored, macroBackdrop, opts = {}) {
   const scored = preScored?.scored || [];
-  if (!scored.length) return { map, cache: next };
-  const regime = preScored.regimeBand || "neutral";
-  const macroRegime = macroBackdrop?.macroRegime || null;
-  // Forward macro calendar (main() attaches it next to eventRisk) + the
-  // Trending-IV rows by symbol (opts.ivTrending via scannerExtras) — both feed
-  // the prompt's MACRO CALENDAR / IV MOMENTUM lines; missing ⇒ lines omitted.
-  const macroCalendar = Array.isArray(macroBackdrop?.macroCalendar) && macroBackdrop.macroCalendar.length ? macroBackdrop.macroCalendar : null;
-  const ivBySym = {};
-  for (const row of (opts.ivTrending?.tickers || [])) if (row && row.symbol) ivBySym[row.symbol] = row;
+  const regime = preScored?.regimeBand || "neutral";
   const edgeGate = opts.priorClosed ? edgeGatedConviction(opts.priorClosed) : null;
   const minConv = edgeGate ? edgeGate.bar : PICKS_MIN_CONVICTION;
-  const strongBar = edgeGate?.strongBar ?? PICKS_TIER_STRONG;
 
-  // The DATA GATE — mirror buildTopPicks's candidate selection + its two cheap
+  // Mirror buildTopPicks's candidate selection + its two cheap
   // gates (re-entry suppression + avoid-timing) so the AI grades exactly the names
   // that can ship. `opts.rosterKeys` (a Set) restricts to a caller-supplied set.
   const openSet = new Set((opts.openPositions || []).map((o) => (o && o.symbol ? `${o.symbol}:${o.side}` : null)).filter(Boolean));
@@ -27417,8 +27435,29 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
     // re-entry-suppressed or a falling knife can't ship, so don't grade it.
     if (reentry && (openSet.has(`${r.sym}:${side}`) || openSym.has(r.sym))) continue;
     if (r.timing?.state === "avoid" && !tactical) continue;
+    // Collateral-stress and buyout-target vetoes (buildTopPicks drops these
+    // before the roster walk), so they don't spend a grader slot.
+    if (structuralVeto(r, side)) continue;
     cands.push({ r, side, tactical });
   }
+  return cands;
+}
+
+export async function generateAiTheses(preScored, macroBackdrop, opts = {}, priorCache = {}) {
+  const next = {}, map = {};
+  const scored = preScored?.scored || [];
+  if (!scored.length) return { map, cache: next };
+  const regime = preScored.regimeBand || "neutral";
+  const macroRegime = macroBackdrop?.macroRegime || null;
+  // Forward macro calendar (main() attaches it next to eventRisk) + the
+  // Trending-IV rows by symbol (opts.ivTrending via scannerExtras) — both feed
+  // the prompt's MACRO CALENDAR / IV MOMENTUM lines; missing ⇒ lines omitted.
+  const macroCalendar = Array.isArray(macroBackdrop?.macroCalendar) && macroBackdrop.macroCalendar.length ? macroBackdrop.macroCalendar : null;
+  const ivBySym = {};
+  for (const row of (opts.ivTrending?.tickers || [])) if (row && row.symbol) ivBySym[row.symbol] = row;
+  const edgeGate = opts.priorClosed ? edgeGatedConviction(opts.priorClosed) : null;
+  const strongBar = edgeGate?.strongBar ?? PICKS_TIER_STRONG;
+  const cands = aiGraderCandidates(preScored, macroBackdrop, opts);
   if (!cands.length) return { map, cache: next };
 
   // CAP: only the BEST PICKS_MAX_AI_THESES gate survivors get a thesis + final
@@ -27551,15 +27590,23 @@ export function diffGradesHistory(prev, gradesIndex, builtAtIso) {
 export async function readGradesDaily() {
   try { const raw = await readFile(resolve(DATA_DIR, GRADES_DAILY_FILE), "utf8"); const p = JSON.parse(raw); return { days: Array.isArray(p.days) ? p.days : [] }; } catch { return { days: [] }; }
 }
-export function appendGradesDaily(prev, gradesIndex, builtAtIso) {
+// `shadow` (lib/shadow-signals.mjs) rides the day's row so the IC script can
+// test candidate signals before any of them may score. A caller without it
+// (regen-picks) keeps the day's existing shadow block. Only the newest
+// GRADES_DAILY_SHADOW_DAYS rows keep theirs, to bound the file.
+export function appendGradesDaily(prev, gradesIndex, builtAtIso, shadow = null) {
   const days = (prev?.days || []).slice();
   const date = etDateStr(builtAtIso);
   const totals = {}; for (const [sym, g] of Object.entries(gradesIndex)) totals[sym] = g.total;
   const idx = days.findIndex((d) => d.date === date);
   const row = { date, totals };
+  const keepShadow = shadow && shadow.rows && Object.keys(shadow.rows).length ? shadow : (idx >= 0 ? days[idx].shadow : null);
+  if (keepShadow) row.shadow = keepShadow;
   if (idx >= 0) days[idx] = row; else days.push(row);
   days.sort((a, b) => String(a.date).localeCompare(String(b.date)));
-  return { days: days.slice(-GRADES_DAILY_MAX_DAYS) };
+  const kept = days.slice(-GRADES_DAILY_MAX_DAYS);
+  const cut = kept.length - GRADES_DAILY_SHADOW_DAYS;
+  return { days: kept.map((d, i) => (i < cut && d.shadow ? { date: d.date, totals: d.totals } : d)) };
 }
 export async function writeGradesDaily(payload) {
   const json = JSON.stringify(payload);
@@ -30227,6 +30274,9 @@ export function buildSpilloverGroups(tickers = TICKERS, sectors = SECTORS) {
 export const SPILLOVER_GROUPS = buildSpilloverGroups();
 const SPILLOVER_UNIVERSE = SPILLOVER_GROUPS.flatMap((g) => g.members);
 const SPILLOVER_GROUP_OF = new Map();
+// Industry group key for a covered name (null for ETFs). Shadow signals use it
+// for the leave-one-out industry return.
+export function spilloverGroupOf(sym) { return SPILLOVER_GROUP_OF.get(sym)?.key || null; }
 for (const g of SPILLOVER_GROUPS) for (const m of g.members) SPILLOVER_GROUP_OF.set(m, g);
 const SPILLOVER_ROLL = 90;         // Engine A rolling window (trading days)
 const SPILLOVER_SHRINK_K = 6;      // Engine B shrinkage: w = n/(n+K)
@@ -37636,8 +37686,12 @@ async function main() {
   }
   // Public pending-buyout calendar: active filed/announced deals plus a
   // separately labeled headline-rumor lane. Missing rumor terms stay blank.
+  // Top Picks reads the same deals (buyout-target veto); a failed refresh
+  // falls back to the pre-wipe copy.
+  let pendingBuyoutsForPicks = priorPendingBuyouts;
   try {
     const buyoutInfo = await writePendingBuyoutsFile(builtAtIso, priorPendingBuyouts);
+    if (buyoutInfo?.payload) pendingBuyoutsForPicks = buyoutInfo.payload;
     console.log(`wrote data/${PENDING_BUYOUTS_FILE} — ${buyoutInfo.pending} pending, ${buyoutInfo.rumored} rumored, ${buyoutInfo.close90} closing within 90d, ${buyoutInfo.bytes} bytes${buyoutInfo.stale ? " [stale — kept last-good]" : ""}`);
   } catch (err) {
     console.log(`  ⚠ Pending buyouts step failed (non-fatal): ${err.message}`);
@@ -38059,6 +38113,7 @@ async function main() {
   // snapshot if the foreign sweep came back too thin to write).
   const scannerExtras = {
     forcedLiquidation,
+    pendingBuyouts: pendingBuyoutsForPicks,
     oiTracker: scoringOiTracker,
     // Trending-IV payload (written just above) — the AI final grader's prompt
     // cites each candidate's IV momentum (1d/5d/20d + rising streak) from it.
@@ -38195,7 +38250,13 @@ async function main() {
   // name's total, so scripts/diagnose-grade-ic.mjs can measure the grade's forward
   // IC on the whole universe instead of the ~5-per-build enrolled roster.
   try {
-    const gd = await writeGradesDaily(appendGradesDaily(gradesDailyPrev, gradesIndex, builtAtIso));
+    let shadow = null;
+    try {
+      shadow = buildShadowSignals(chains, { builtAtIso, groupOf: spilloverGroupOf, oiTracker: scoringOiTracker, spillover: scenarioSpilloverMatrix });
+    } catch (err) {
+      console.warn(`[grades] shadow signals skipped — ${String(err?.message || err).split("\n")[0]}`);
+    }
+    const gd = await writeGradesDaily(appendGradesDaily(gradesDailyPrev, gradesIndex, builtAtIso, shadow));
     console.log(`wrote data/grades-daily.json — ${gd.days} day snapshot(s), ${gd.bytes} bytes`);
   } catch (err) {
     console.warn(`[grades] daily snapshot skipped — ${String(err?.message || err).split("\n")[0]}`);
