@@ -10,7 +10,7 @@ Forced Liquidation Tracker is an Owner research desk at `?tab=forced-liquidation
 
 For a $100 million loan, 10 million pledged shares and 50% maintenance LTV, the estimate is $20. A $25 stock quote is 20% above that threshold on the distance definition. A 25% equity maintenance requirement converts to 75% maximum LTV. Initial LTV is not maintenance LTV.
 
-The loan balance, collateral issuer, borrower, share class and loan facility must describe the same borrowing. Facility capacity, aggregate corporate debt, transaction value and total beneficial holdings do not substitute for outstanding principal or pledged shares. A mixed collateral pool does not have a single-stock threshold in this model.
+The loan balance, collateral issuer, borrower, share class and loan facility must describe the same borrowing. Facility capacity, aggregate corporate debt, transaction value and total beneficial holdings do not substitute for outstanding principal or pledged shares. Share extraction stops at another quantity or share-count clause so an unrelated option holding cannot become the pledged stake. Generic maximum LTV and initial, origination or inception limits cannot supply maintenance terms; explicitly named maintenance terms are required. A mixed collateral pool does not have a single-stock threshold in this model.
 
 Disclosed maintenance LTV and explicit sole-stock collateral produce an estimate. Missing maintenance terms produce separate 35%, 50% and 65% LTV sensitivity scenarios when the outstanding balance and pledged count are available. Those scenarios assume sole-stock collateral. They cannot establish a reported trigger or change a Top Picks decision.
 
@@ -55,7 +55,7 @@ A threshold crossing is not evidence of an actual margin call, forced sale, or a
 
 `forced-liquidation.json` contains observations, facility histories, dated market snapshots and scan coverage. The full bake owns it. It is read before the `data/` wipe, rewritten afterward, classified for freshness verification, hydrated and published by the existing private-store flow. The legacy commit-data path explicitly excludes it.
 
-`lib/premium-keys.mjs` requires both signed Owner claims. The browser loads only `/api/auth/me?data=forced-liquidation.json`, has no static fallback, and does not fetch it for anonymous or incomplete sessions. Scenario selections stay in local browser preferences and never change server evidence. Known expiry deadlines update an open page without polling providers. Failed freshness reads show an unassessed count rather than zero risk. Sorting and CSV export share one ordering, and exports include observation dates, freshness flags, scan state and missing terms.
+`lib/premium-keys.mjs` requires both signed Owner claims. The browser loads only `/api/auth/me?data=forced-liquidation.json`, has no static fallback, and does not fetch it for anonymous or incomplete sessions. Snapshot reads time out after 15 seconds and expose Retry. Scenario selections stay in local browser preferences and never change server evidence. Known quote, volume, scan and disclosure expiry deadlines update an open page without polling providers; returning to a visible page also checks freshness. Failed freshness reads show an unassessed count rather than zero risk. Sorting and CSV export share one ordering, and exports include observation dates, freshness flags, scan state and missing terms.
 
 ## Commands
 

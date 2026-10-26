@@ -49,6 +49,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Fixed
 
 - Keep the data-age dot beside its text on screens 380px wide or narrower instead of on a row of its own (#691).
+- Keep initial lending limits out of forced-liquidation thresholds, attach pledged-share counts to their own disclosure clauses, and require older extractions to be reparsed before entry decisions use them. Expire volume warnings on open tracker pages and make stalled snapshot reads time out with a working retry.
 
 - Stop the News filters and the Streaks columns from pushing the page sideways when the sidebar is open on laptop and tablet widths, keep the freshness dot beside its text on phones, and keep the LONG · BULLISH badge on one line (#692).
 ## 2026-10-24

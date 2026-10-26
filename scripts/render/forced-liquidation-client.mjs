@@ -41,7 +41,7 @@ export function forcedLiquidationFactory(win, doc, config) {
   function scheduleExpiry(){
     if(expiryTimer)win.clearTimeout(expiryTimer);
     const deadlines=[Date.parse(data.coverage.lastSuccessAt)+3*86400000];
-    for(const r of data.rows){deadlines.push(Date.parse(r.market?.quoteAsOf)+96*3600000);const fact=Date.parse(r.observation?.asOfDate||r.observation?.filingDate);deadlines.push(fact+90*86400000,fact+400*86400000);}
+    for(const r of data.rows){deadlines.push(Date.parse(r.market?.quoteAsOf)+96*3600000,Date.parse(r.market?.volumeAsOf)+7*86400000);const fact=Date.parse(r.observation?.asOfDate||r.observation?.filingDate);deadlines.push(fact+90*86400000,fact+400*86400000);}
     const next=Math.min(...deadlines.filter(t=>Number.isFinite(t)&&t>Date.now()));
     if(Number.isFinite(next))expiryTimer=win.setTimeout(()=>render(),Math.min(2147483647,Math.max(1,next-Date.now()+10)));
   }
@@ -106,10 +106,12 @@ export function forcedLiquidationFactory(win, doc, config) {
   async function load(force=false){
     const el=root();if(!el||!config.owner()||loading)return;
     if(data&&!force)return render(); loading=true;
+    if(expiryTimer)win.clearTimeout(expiryTimer);
+    const controller=new win.AbortController(),requestTimer=win.setTimeout(()=>controller.abort(),15000);
     el.innerHTML='<p class="fl-empty" role="status">Loading SEC collateral disclosures…</p>';
-    try{const response=await win.fetch('/api/auth/me?data=forced-liquidation.json',{credentials:'same-origin',cache:'no-store'});if(!response.ok)throw new Error(response.status===404?'The tracker has not been collected yet. The next full build will scan SEC filings.':response.status===401||response.status===403?'An Owner session is required.':'The SEC collateral snapshot is unavailable.');const body=await response.json();if(body.version!==1||!Array.isArray(body.rows)||!body.summary||!body.coverage||body.rows.some(r=>!r?.observation||!Array.isArray(r.history)||!Array.isArray(r.missing)||!Array.isArray(r.warnings)))throw new Error('The collateral snapshot is incomplete. Reload after the next successful build.');if(!config.owner())return; data=expireSnapshot(body);render();}
-    catch(e){data=null;el.innerHTML=warning(e.message)+'<button type="button" class="book-more" data-fl-retry>Retry</button>';}
-    finally{loading=false;}
+    try{const response=await win.fetch('/api/auth/me?data=forced-liquidation.json',{credentials:'same-origin',cache:'no-store',signal:controller.signal});if(!response.ok)throw new Error(response.status===404?'The tracker has not been collected yet. The next full build will scan SEC filings.':response.status===401||response.status===403?'An Owner session is required.':'The SEC collateral snapshot is unavailable.');const body=await response.json();if(body.version!==1||!Array.isArray(body.rows)||!body.summary||!body.coverage||body.rows.some(r=>!r?.observation||!Array.isArray(r.history)||!Array.isArray(r.missing)||!Array.isArray(r.warnings)))throw new Error('The collateral snapshot is incomplete. Reload after the next successful build.');if(!config.owner())return; data=expireSnapshot(body);render();}
+    catch(e){data=null;el.innerHTML=warning(controller.signal.aborted?'The collateral snapshot request timed out. Please retry.':e.message)+'<button type="button" class="book-more" data-fl-retry>Retry</button>';}
+    finally{win.clearTimeout(requestTimer);loading=false;}
   }
   function exportCsv(){
     data=expireSnapshot(data);
@@ -133,5 +135,6 @@ export function forcedLiquidationFactory(win, doc, config) {
   doc.addEventListener('change',e=>{const el=e.target;if(!el.closest('#forced-liquidation-root')||!data)return;if(el.hasAttribute('data-fl-filter'))state.filter=el.value;else if(el.hasAttribute('data-fl-sort')){state.sort=el.value;state.direction=null;}else if(el.hasAttribute('data-fl-ltv'))state.ltv=Number(el.value);else return;save();render();});
   doc.addEventListener('input',e=>{if(!e.target.hasAttribute('data-fl-search')||!data)return;const caret=e.target.selectionStart;state.query=e.target.value;save();render();const input=root().querySelector('[data-fl-search]');input?.focus();if(caret!=null)input?.setSelectionRange(caret,caret);});
   doc.addEventListener('keydown',e=>{if(!e.target.matches('[data-fl-view]')||!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;const buttons=Array.from(root().querySelectorAll('[data-fl-view]')),i=buttons.indexOf(e.target),next=e.key==='Home'?0:e.key==='End'?buttons.length-1:(i+(e.key==='ArrowRight'?1:-1)+buttons.length)%buttons.length;e.preventDefault();const view=buttons[next].dataset.flView;buttons[next].click();root().querySelector('[data-fl-view="'+view+'"]').focus();});
+  doc.addEventListener('visibilitychange',()=>{if(!doc.hidden&&data&&config.owner()&&root()?.closest('.page-pane')?.hidden===false)render();});
   return {load};
 }
