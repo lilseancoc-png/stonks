@@ -19420,7 +19420,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       for (var i = 0; i < SYMBOLS.length; i++){
         var sym = SYMBOLS[i];
         if (picked.indexOf(sym) !== -1) continue;
-        if (sectorFilter && (SECTORS[sym] || '') !== sectorFilter) continue;
+        if (sectorFilter && (sectorGroupOf(sym) || '') !== sectorFilter) continue;
         pool.push(sym);
       }
       pool.sort();
@@ -19428,7 +19428,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var prefix = [], contains = [], sector = [];
       for (var j = 0; j < pool.length; j++){
         var name = pool[j];
-        var sec = (SECTORS[name] || '').toUpperCase();
+        var sec = ((SECTORS[name] || '') + ' ' + (sectorGroupOf(name) || '')).toUpperCase();
         if (name.indexOf(q) === 0) prefix.push(name);
         else if (name.indexOf(q) >= 0) contains.push(name);
         else if (!sectorFilter && sec.indexOf(q) >= 0) sector.push(name);
@@ -19496,7 +19496,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (!sel || sel.getAttribute('data-ready') === '1') return;
     var counts = {};
     for (var i = 0; i < SYMBOLS.length; i++){
-      var sec = SECTORS[SYMBOLS[i]];
+      var sec = sectorGroupOf(SYMBOLS[i]);
       if (!sec) continue;
       counts[sec] = (counts[sec] || 0) + 1;
     }
@@ -19638,7 +19638,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var by = {};
     (cmpSec.heat || []).forEach(function(t){
       if (!t || !t.t) return;
-      var sec = t.s || SECTORS[t.t];
+      var sec = t.s || sectorGroupOf(t.t);
       if (!sec || sec === 'ETF') return;
       var r = by[sec] || (by[sec] = { name: sec, n: 0, rows: [] });
       r.n++; r.rows.push(t);
@@ -36772,8 +36772,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     grade: {
       '2026-10-no-chart-pattern': { since:'2026-10-19', note:'Chart-pattern vote removed' },
       '2026-10-sector-growth': { since:'2026-10-20', note:'Growth judged against sector norms' },
-      // No fixed date: the divider takes the first trade opened under it.
-      '2026-10-iv-rule': { note:'One expensive-options rule; credit spreads only when IV is very rich' }
+      '2026-10-iv-rule': { since:'2026-10-26', note:'One expensive-options rule; credit spreads only when IV is very rich' }
     },
     exit: { '2026-10-22-tp25': { since:'2026-10-22', note:'Take-profit raised to +25%' } },
     entry: { '2026-10-23-reviewed-entry-v3': { since:'2026-10-23', note:'Entries must pass an option-price check' } },
@@ -42155,7 +42154,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     technicals: 'The confirmed daily price chart: RSI movement and extremes, MACD, moving-average trend, streak, confirmed support/resistance, 52-week position, and one standardized-move family. The standardized family computes 5/10/20-session return z-scores plus volume z-score, interpreted with ATR distance and Bollinger location, but emits only one capped −1…+1 contribution — the correlated horizons never stack. Conflicting extreme horizons fail neutral. Upside extremes need trend plus expanding volume on the latest confirmed up bar; unsupported upside scores exhaustion. Downside mean reversion needs support and drying volume. Unsigned raw relative volume never earns a bullish point: directional volume remains evidence in Mechanicals and Entry Timing.',
     mechanicals: 'The name\'s OWN options and positioning plumbing: unusual directional flow, open-interest call/put skew, short-interest change or squeeze conditions, signed hourly volume, the contrarian aggregate put/call read, overnight net call-versus-put ΔOI, gamma-squeeze setup quality, and multi-session flow persistence. Market-wide SPY/VIX and cross-asset tape are not scored again here. After the four pillars and IV Cost form the side, the separate continuous Regime overlay can support or oppose that side without beta weighting, pillar reweighting, side flips, below-bar recruitment, or tier promotion.',
     narrative: 'The story driving the stock on the name\'s OWN evidence: AI-read news catalysts, sector narrative with lifecycle/hype controls, and informational social/media context where the feed is not decision-grade. Market-wide macro, DXY, yields, breadth, credit, and volatility are not duplicated inside Narrative. They enter only through the continuous side-aware Regime overlay after the four pillars and IV Cost; the overlay does not reweight Fundamentals or Narrative, consume Entry Timing, flip a side, recruit a below-bar name, or promote a tier.',
-    ivCost: 'The direction-agnostic cost of buying option premium. The point contribution (bounded −2…+1) is standardized against today\'s fresh, eligible investable universe; the ticker\'s own-history IV value, percentile, z-score, rank date, and surface date remain visible interpretation/provenance, not the direct point map. A thin universe cohort fails closed to neutral. A materially inverted front term structure may add only a small −0.5 penalty when earnings or a scheduled macro event does not already explain it; explained inversion is context only, never double-counted. IV Cost is mirrored to reduce or increase conviction on calls and puts symmetrically and cannot cross zero or manufacture the opposite side.',
+    ivCost: 'The direction-agnostic cost of buying option premium, read from the site\'s one “are these options expensive?” rule (lib/iv-richness.mjs). Today\'s ~30-day at-the-money IV is ranked inside the name\'s OWN stored IV history and checked against its 30-day realized volatility: the bottom fifth is Cheap and earns +1, the top fifth while IV also sits above realized moves is Rich and costs −2 (the top tenth is Very rich, which is also where Top Picks will sell a credit spread instead of buying premium), and everything else is Normal and scores zero — including a high percentile while IV is at or below the stock\'s realized moves, because the options are keeping up with the moves rather than charging extra for them. A missing IV history or a stale rank date fails closed to neutral, and a missing realized-vol reading lets the percentile decide alone, which errs toward expensive. An earnings print inside 14 days is tagged but never changes the band. A materially inverted front term structure may add only a small −0.5 penalty when earnings or a scheduled macro event does not already explain it; explained inversion is context only, never double-counted. IV Cost is mirrored to reduce or increase conviction on calls and puts symmetrically and cannot cross zero or manufacture the opposite side.',
     timing: 'Is now a good entry for the next 1–2 trading sessions, independent of the asset grade? This execution-only score (−8…+2) uses one confirmed daily OHLCV cutoff. Extension must distinguish strong momentum from true exhaustion; pullbacks are measured against the prior impulse and in ATR units; an accelerating adverse move with expanding volume, broken support, and no turn is a falling-knife veto. MACD turn, RSI recovery, and directional ≥1.3× turn-day volume are one correlated confirmation family capped at +2. Earnings or a major macro event inside the next two trading sessions forces WAIT. GO requires every invariant: no event-window or hard knife/exhaustion veto, positive directional confirmation, at least two independent evidence families, a call invalidation below entry or put invalidation above entry within 2 ATR, estimated reward/risk ≥1.5:1, and full crowded/counter-regime proof including a reclaim when required. AI and the live quote overlay cannot promote a negative or incomplete read, a hard-event WAIT, or AVOID, and cannot waive a prerequisite. Entry Timing never changes conviction and cannot be averaged away by the pillars, IV Cost, or Regime overlay.',
   };
 
@@ -42429,7 +42428,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       // Plain-language explainer for the category, shown above its signals so
       // the breakdown is legible without prior knowledge of the rubric. Each
       // category explains its own normalization explicitly: standardized price
-      // moves use the ticker's history, while IV Cost alone uses today's universe.
+      // moves and the IV Cost band both read the ticker's own history.
       var descTxt = PILLAR_INFO[k] || '';
       var descHtml = descTxt
         ? '<p class="pick-pillar-desc">' + escapeHtml(descTxt) + '</p>'
