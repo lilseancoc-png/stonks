@@ -78,9 +78,12 @@ export async function refreshHistoricalSourceCache({ previous = {}, builtAtIso =
   }
   // Shorter shared series (Bottom tracker credit spreads): same daily cadence,
   // kept when the download has any rows; a failed day keeps the last good rows.
+  // Queued ahead of the long downloads: the Bottom tracker's credit gate needs
+  // them, and they must not be the jobs the time budget defers.
+  const sharedJobs = [];
   for (const def of SHARED_FRED_EXTRA) {
     context[def.id] = { rows: cleanSourceRows(previous.context?.[def.id]?.rows || []) };
-    if (loadContext && (force || records[def.id]?.checkedAt?.slice(0, 10) !== today)) jobs.push(async () => {
+    if (loadContext && (force || records[def.id]?.checkedAt?.slice(0, 10) !== today)) sharedJobs.push(async () => {
       const old = records[def.id]; records[def.id] = { ...old, checkedAt: collectedAtIso, error: null }; requests++;
       try {
         const rows = cleanSourceRows(await invoke(loadContext, def.id));
@@ -90,6 +93,7 @@ export async function refreshHistoricalSourceCache({ previous = {}, builtAtIso =
       log(`${def.id}: ${records[def.id].error || 'downloaded'}`);
     });
   }
+  jobs.unshift(...sharedJobs);
   // Two outstanding downloads. Markets can retry after a newly completed
   // session; a failed attempt at that same target waits until the next UTC day.
   let cursor = 0;

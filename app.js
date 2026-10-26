@@ -24617,7 +24617,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // ── Capital / debt raises ──────────────────────────────────────────────
     var ra = d.raises || {};
     var sec = ra.sec, bd = ra.bonds;
-    if (sec || uni || bd){
+    if (sec || bd){
       var inner = '';
       // Market-wide corporate bond issuance (SIFMA, monthly $B) — the actual
       // dollars companies raised selling bonds, the headline debt-window read.
@@ -37177,7 +37177,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     const group = Object.create(null);
     closed.forEach(x => {
       const r = x.rec || {}, t = x.t;
-      const k = groupBy === 'grade' ? r.thesis && r.thesis.aiGrade || r.aiGrade || 'No AI grade' : groupBy === 'sector' ? (opts && opts.sectorOf ? opts.sectorOf(r) : null) || r.sector || 'Unknown sector' : groupBy === 'regime' ? r.entryRegime || 'Unknown regime' : groupBy === 'tier' ? r.label || r.tier || 'Unknown tier' : groupBy === 'side' ? t.side === 'put' ? 'Puts' : 'Calls' : groupBy === 'run' ? (!Number.isFinite(Date.parse(t.engineEntryIso)) ? 'Unknown run' : new Date(t.engineEntryIso).toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false }) < 13 ? '11:00 ET' : '15:30 ET') : t.structure === 'long' ? 'Single option' : /credit/.test(t.structure || '') ? 'Credit spread' : 'Debit spread';
+      const k = groupBy === 'grade' ? r.thesis && r.thesis.aiGrade || r.aiGrade || 'No AI grade' : groupBy === 'sector' ? (opts && opts.sectorOf ? opts.sectorOf(r, t) : null) || r.sector || 'Unknown sector' : groupBy === 'regime' ? r.entryRegime || 'Unknown regime' : groupBy === 'tier' ? r.label || r.tier || 'Unknown tier' : groupBy === 'side' ? t.side === 'put' ? 'Puts' : 'Calls' : groupBy === 'run' ? (!Number.isFinite(Date.parse(t.engineEntryIso)) ? 'Unknown run' : new Date(t.engineEntryIso).toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false }) < 13 ? '11:00 ET' : '15:30 ET') : t.structure === 'long' ? 'Single option' : /credit/.test(t.structure || '') ? 'Credit spread' : 'Debit spread';
       (group[k] || (group[k] = [])).push(x);
     });
     const groups = Object.keys(group).map(label => { const xs = group[label], models = xs.filter(x => x.model != null); return { label, n: xs.length, value: xs.filter(x => x.pnl > 0).length / xs.length * 100, avg: mean(xs.map(x => x.pnl)), model: mean(models.map(x => x.model)), modelN: models.length }; }).sort((a, b) => b.n - a.n || a.label.localeCompare(b.label));
@@ -37436,7 +37436,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var automaticEntries = T.filter(function(t){ return t.entrySource !== 'manual'; });
     var filled = automaticEntries.filter(WB_ANALYTICS.hasFill);
     var missed = automaticEntries.filter(function(t){ return t.state === 'missed'; });
-    var review = WB_ANALYTICS.analyze(rows, accView.wbGroup || 'structure', { sectorOf: accSectorOf });
+    // A mirrored trade with no matching record still has its own symbol.
+    var review = WB_ANALYTICS.analyze(rows, accView.wbGroup || 'structure', { sectorOf: function(rec, trade){
+      return accSectorOf({ symbol: (rec && rec.symbol) || (trade && trade.symbol), sector: rec && rec.sector });
+    } });
     var closed = review.closed;
     var early = closed.length < 30;
     var entryCosts = filled.map(wbEntryCost).filter(function(v){ return v != null; });
@@ -42250,7 +42253,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var thin = ctx && ctx.method === 'universe-thin-neutral';
     var bandLabel = ctx && ctx.bandLabel ? String(ctx.bandLabel) : null;
     var cls = sc > 0 ? 'is-pro' : (sc < 0 ? 'is-con' : '');
-    // Grades built before 2026-10-27 used a universe-relative method and carry
+    // Grades built before 2026-10-26 used a universe-relative method and carry
     // no band; their heading keeps the old wording.
     var head = bandLabel
       ? 'Options are ' + bandLabel.toLowerCase() + (sc > 0 ? ' — favorable' : sc < 0 ? ' — premium headwind' : ' — neutral')

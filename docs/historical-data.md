@@ -42,7 +42,7 @@ The source cache and `data/historical-data.json` retain the current bake stamp
 for publication. `analyzedAtIso` records the later analysis time, so a long bake
 can include closes confirmed after the bake started. Both files are bake-owned.
 
-This is the site's one long-history cache (site audit C5, 2026-10-27). The
+This is the site's one long-history cache (site audit C5, 2026-10-26). The
 bake refreshes it before Pattern lab and the Bottom tracker run, and both read
 it: Pattern lab takes SPY, QQQ and IWM closes from it (the old
 `index-long-history.json` file is retired), and the Bottom tracker takes SPY,

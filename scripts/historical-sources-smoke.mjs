@@ -42,6 +42,9 @@ assert.equal(warmed.cost.requestsThisRun,0,'warm builds do not repeat same-day d
 let tick=0;
 const budgeted=await refreshHistoricalSourceCache({builtAtIso:now,loadMarket:async()=>bars,loadContext:async()=>bars,budgetMs:10,clock:()=>tick++*10});
 assert(budgeted.cost.deferredSources>0,'slow source refresh defers work instead of extending the market bake indefinitely');
+let tock=0;
+const tight=await refreshHistoricalSourceCache({builtAtIso:now,loadMarket:async()=>bars,loadContext:async()=>bars,budgetMs:4,clock:()=>tock++});
+assert(tight.context.BAMLH0A0HYM2.rows.length>0&&tight.context.BAMLC0A0CM.rows.length>0&&tight.cost.deferredSources>0,'the Bottom tracker credit spreads download before the budget defers the long histories');
 const oldStamp=cache.records.DIA.lastSuccessAt;
 const failed=await refreshHistoricalSourceCache({previous:cache,builtAtIso:'2026-10-25T22:00:00Z',loadMarket:async()=>{throw new Error('offline');},loadContext:async()=>{throw new Error('offline');}});
 assert.deepEqual(failed.symbols.DIA,cache.symbols.DIA); assert.equal(failed.records.DIA.lastSuccessAt,oldStamp); assert.equal(failed.records.DIA.error,'offline');

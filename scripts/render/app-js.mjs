@@ -22753,7 +22753,7 @@ ${renderSplitViewBindings()}
     // ── Capital / debt raises ──────────────────────────────────────────────
     var ra = d.raises || {};
     var sec = ra.sec, bd = ra.bonds;
-    if (sec || uni || bd){
+    if (sec || bd){
       var inner = '';
       // Market-wide corporate bond issuance (SIFMA, monthly $B) — the actual
       // dollars companies raised selling bonds, the headline debt-window read.
@@ -34810,7 +34810,10 @@ ${renderSplitViewBindings()}
     var automaticEntries = T.filter(function(t){ return t.entrySource !== 'manual'; });
     var filled = automaticEntries.filter(WB_ANALYTICS.hasFill);
     var missed = automaticEntries.filter(function(t){ return t.state === 'missed'; });
-    var review = WB_ANALYTICS.analyze(rows, accView.wbGroup || 'structure', { sectorOf: accSectorOf });
+    // A mirrored trade with no matching record still has its own symbol.
+    var review = WB_ANALYTICS.analyze(rows, accView.wbGroup || 'structure', { sectorOf: function(rec, trade){
+      return accSectorOf({ symbol: (rec && rec.symbol) || (trade && trade.symbol), sector: rec && rec.sector });
+    } });
     var closed = review.closed;
     var early = closed.length < 30;
     var entryCosts = filled.map(wbEntryCost).filter(function(v){ return v != null; });
@@ -39624,7 +39627,7 @@ ${renderSplitViewBindings()}
     var thin = ctx && ctx.method === 'universe-thin-neutral';
     var bandLabel = ctx && ctx.bandLabel ? String(ctx.bandLabel) : null;
     var cls = sc > 0 ? 'is-pro' : (sc < 0 ? 'is-con' : '');
-    // Grades built before 2026-10-27 used a universe-relative method and carry
+    // Grades built before 2026-10-26 used a universe-relative method and carry
     // no band; their heading keeps the old wording.
     var head = bandLabel
       ? 'Options are ' + bandLabel.toLowerCase() + (sc > 0 ? ' — favorable' : sc < 0 ? ' — premium headwind' : ' — neutral')

@@ -50,8 +50,14 @@ for (const key of ["gold", "silver"]) {
   assert.ok(item.watch.length >= 3, `${key} should include linked equity handoffs`);
 }
 
-const swept = commoditySeriesFromSweep(byKey.get("crude"), { "CL=F": { bars: [{ t: "2026-08-13", c: 70 }, { t: "2026-08-14", c: 71.5 }] } });
-assert.deepEqual(swept, { symbol: "CL=F", series: [{ d: "2026-08-13", v: 70 }, { d: "2026-08-14", v: 71.5 }] }, "the overnight sweep's bars should be reused as the crude series");
+const yearBars = [{ t: "2025-08-14", c: 66 }, { t: "2026-02-13", c: 69 }, { t: "2026-08-14", c: 71.5 }];
+const swept = commoditySeriesFromSweep(byKey.get("crude"), { "CL=F": { bars: yearBars } });
+assert.deepEqual(swept, { symbol: "CL=F", series: [{ d: "2025-08-14", v: 66 }, { d: "2026-02-13", v: 69 }, { d: "2026-08-14", v: 71.5 }] }, "the overnight sweep's bars should be reused as the crude series");
 assert.equal(commoditySeriesFromSweep(byKey.get("crude"), {}), null, "a symbol the sweep missed falls back to its own fetch");
+assert.equal(
+  commoditySeriesFromSweep(byKey.get("crude"), { "CL=F": { bars: [{ t: "2026-08-13", c: 70 }, { t: "2026-08-14", c: 71.5 }] } }),
+  null,
+  "a truncated sweep slice falls back to the card's own one-year fetch",
+);
 
 console.log("commodities smoke: ok");

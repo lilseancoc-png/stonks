@@ -11770,12 +11770,18 @@ async function writeBottomTrackerFile({ chains, indexBars, fred, prior, builtAtI
 // Reuse a daily series the overnight sweep already fetched (globalMarkets is
 // fetchAllGlobalMarkets' { [symbol]: { bars:[{t,c}] } }) instead of asking
 // Yahoo for the same futures twice. ~365 days of bars still covers the 1-yr
-// compare window (commodityPointBack accepts a slightly younger base).
+// compare window (commodityPointBack accepts a slightly younger base). Yahoo
+// sometimes answers the sweep with a truncated few-week slice; a series that
+// does not reach back COMMODITY_SWEEP_MIN_DAYS is ignored so the card's own
+// fetch fills the 3-month / 6-month / 1-year comparisons instead.
+const COMMODITY_SWEEP_MIN_DAYS = 300;
 export function commoditySeriesFromSweep(def, globalMarkets) {
   const bars = globalMarkets?.[def.symbol]?.bars;
   if (!Array.isArray(bars)) return null;
   const series = bars.filter((b) => b && b.t && Number.isFinite(b.c)).map((b) => ({ d: b.t, v: b.c }));
-  return series.length >= 2 ? { series, symbol: def.symbol } : null;
+  if (series.length < 2) return null;
+  const spanDays = (Date.parse(series[series.length - 1].d) - Date.parse(series[0].d)) / 86400000;
+  return spanDays >= COMMODITY_SWEEP_MIN_DAYS ? { series, symbol: def.symbol } : null;
 }
 
 export async function writeCommoditiesFile(builtAtIso, prior = null, globalMarkets = null) {
@@ -17232,7 +17238,7 @@ const PICKS_MIN_QUALITY = 0.45;                // composite contract-quality flo
 //     bear-call), near-money short + further-OTM wing, targeting a credit
 //     ~PICKS_CREDIT_WIDTH_FRAC of the strike width. High IV mean-reverts, so you
 //     collect theta + a vol-contraction tailwind. Suppressed into binary events
-//     (a gap maxes the loss) and on illiquid wings. (Before 2026-10-27 the credit
+//     (a gap maxes the loss) and on illiquid wings. (Before 2026-10-26 the credit
 //     band was z >= 1.5σ or the 60th percentile.)
 //   * NAKED long — RARE: very-high grade (Strong tier) AND a STRONG thesis AND IV
 //     Cheap or Normal: a single long for max gamma/delta + uncapped upside,
@@ -17636,7 +17642,7 @@ export const PICKS_ACCURACY_RESET_EPOCH = "2026-08-08.top-picks-v3";
 // formula that selected the trade. Bump it whenever scoreTicker's weights change.
 // 2026-10-19: the AI chart-pattern vote left the technical pillar.
 // 2026-10-20: revenue and EPS growth are judged against sector norms.
-// 2026-10-27: IV cost and the spread choice read one shared IV rule
+// 2026-10-26: IV cost and the spread choice read one shared IV rule
 // (lib/iv-richness.mjs): Rich -2, Cheap +1, credit spreads only when Very rich.
 export const GRADE_MODEL_VERSION = "2026-10-iv-rule";
 // Hard cap on the concurrently-tracked open book. Each build ships <=10
