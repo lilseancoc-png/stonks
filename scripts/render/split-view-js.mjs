@@ -9,9 +9,11 @@
 // Top-level: knows whether this copy of the app runs inside a split pane.
 export function renderSplitViewHelpers() {
   return `
+  // Any framed copy is a pane: the site may only be framed by itself
+  // (frame-ancestors 'self'), and a link that reloads the pane drops ?embed=1.
   var IS_EMBED = (function(){
-    try { return window.self !== window.top && /[?&]embed=1(&|$)/.test(window.location.search); }
-    catch (_) { return false; }
+    try { return window.self !== window.top; }
+    catch (_) { return true; }
   })();
   // A pane follows the light / dark switch made in the main window.
   if (IS_EMBED) window.addEventListener('storage', function(ev){
@@ -214,7 +216,8 @@ export function renderSplitViewBindings() {
       splitState.on = false;
       splitSave();
       splitSyncToggle(false);
-      ['a', 'b'].forEach(function(side){ var f = splitFrame(side); if (f) f.removeAttribute('src'); });
+      // Unload both panes so their live refreshes stop with them.
+      ['a', 'b'].forEach(function(side){ var f = splitFrame(side); if (f) f.src = 'about:blank'; });
       if (restore && splitPickable(first)) selectTab(first);
     }
     if (splitToggle && !IS_EMBED) splitToggle.addEventListener('click', function(){

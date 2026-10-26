@@ -48,5 +48,6 @@ html.is-embed .site-header, html.is-embed .side-nav, html.is-embed .side-nav-bac
 html.is-embed .site-footer, html.is-embed .page-sub, html.is-embed .skip-content, html.is-embed .split-view { display: none !important; }
 html.is-embed .back-to-top { bottom: max(16px, env(safe-area-inset-bottom, 0px)); }
 html.is-embed .cmp-tray { bottom: 14px !important; }
+html.is-embed #freshness-banner { margin-top: 8px; padding-block: 6px; }
 `.trimEnd();
 }

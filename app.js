@@ -48,9 +48,11 @@
   }
 
 
+  // Any framed copy is a pane: the site may only be framed by itself
+  // (frame-ancestors 'self'), and a link that reloads the pane drops ?embed=1.
   var IS_EMBED = (function(){
-    try { return window.self !== window.top && /[?&]embed=1(&|$)/.test(window.location.search); }
-    catch (_) { return false; }
+    try { return window.self !== window.top; }
+    catch (_) { return true; }
   })();
   // A pane follows the light / dark switch made in the main window.
   if (IS_EMBED) window.addEventListener('storage', function(ev){
@@ -5572,7 +5574,8 @@ function scenarioEventPhase(ev, now = Date.now()) {
       splitState.on = false;
       splitSave();
       splitSyncToggle(false);
-      ['a', 'b'].forEach(function(side){ var f = splitFrame(side); if (f) f.removeAttribute('src'); });
+      // Unload both panes so their live refreshes stop with them.
+      ['a', 'b'].forEach(function(side){ var f = splitFrame(side); if (f) f.src = 'about:blank'; });
       if (restore && splitPickable(first)) selectTab(first);
     }
     if (splitToggle && !IS_EMBED) splitToggle.addEventListener('click', function(){
@@ -5818,7 +5821,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       // Inside a split-view pane the page change never adds a Back step.
       syncTabToUrl(name, IS_EMBED || !!(nav && nav.replace));
       if (name !== 'grade') document.title = 'stonks';
-      if (IS_EMBED) splitReportTab(name); else trackPageTab(name);
+      if (IS_EMBED) splitReportTab(name); else if (!splitInternalNav) trackPageTab(name);
       // A tab hop lands at the top of the destination pane — the scroll depth
       // of a long previous tab (e.g. a Brief ticker chip clicked from way down
       // the page) otherwise carries over and the new tab opens mid/bottom.

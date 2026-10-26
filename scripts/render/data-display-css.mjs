@@ -39,5 +39,13 @@ td, th, .mono, .pulse-move, .landing-card-stat, .ticker-spot, .ticker-chg, .ch-t
 .vt-table tbody tr:hover td { background: var(--accent-tint-1, var(--surface-2)); }
 .vt-table th { border-bottom: 1px solid var(--border); }
 th.ts-th[aria-sort="descending"], th.ts-th[aria-sort="ascending"] { background: var(--accent-tint-1, var(--surface-2)); }
+
+/* Data-freshness line on very narrow screens (and narrow split-view panes):
+   keep the status dot beside its text instead of on a row of its own. */
+@media (max-width: 380px) {
+  .freshness { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; column-gap: 8px; row-gap: 6px; }
+  .freshness .freshness-dot { margin-top: .45em; }
+  .freshness .market-status { grid-column: 1 / -1; justify-self: start; }
+}
 `.trimEnd();
 }

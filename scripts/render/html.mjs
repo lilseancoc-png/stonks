@@ -1898,7 +1898,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="styles.css?v=${cacheBustFor("styles")}">
-<script>/* Split-view pane: hide the site chrome before first paint. */try{if(window.self!==window.top&&/[?&]embed=1(&|$)/.test(location.search))document.documentElement.classList.add('is-embed')}catch(e){}</script>
+<script>/* Split-view pane: hide the site chrome before first paint. */try{if(window.self!==window.top)document.documentElement.classList.add('is-embed')}catch(e){document.documentElement.classList.add('is-embed')}</script>
 </head>
 <body>
 <a class="skip-content" href="#main-content">Skip to content</a>

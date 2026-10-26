@@ -25717,6 +25717,14 @@ td, th, .mono, .pulse-move, .landing-card-stat, .ticker-spot, .ticker-chg, .ch-t
 .vt-table th { border-bottom: 1px solid var(--border); }
 th.ts-th[aria-sort="descending"], th.ts-th[aria-sort="ascending"] { background: var(--accent-tint-1, var(--surface-2)); }
 
+/* Data-freshness line on very narrow screens (and narrow split-view panes):
+   keep the status dot beside its text instead of on a row of its own. */
+@media (max-width: 380px) {
+  .freshness { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; column-gap: 8px; row-gap: 6px; }
+  .freshness .freshness-dot { margin-top: .45em; }
+  .freshness .market-status { grid-column: 1 / -1; justify-self: start; }
+}
+
 /* Header button (sits beside the light / dark switch). */
 #split-toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--accent-line, var(--accent)); background: var(--accent-tint-2, var(--surface-2)); }
 #split-toggle[hidden] { display: none; }
@@ -25763,6 +25771,7 @@ html.is-embed .site-header, html.is-embed .side-nav, html.is-embed .side-nav-bac
 html.is-embed .site-footer, html.is-embed .page-sub, html.is-embed .skip-content, html.is-embed .split-view { display: none !important; }
 html.is-embed .back-to-top { bottom: max(16px, env(safe-area-inset-bottom, 0px)); }
 html.is-embed .cmp-tray { bottom: 14px !important; }
+html.is-embed #freshness-banner { margin-top: 8px; padding-block: 6px; }
 
 /* Top Picks: spacious, scoped research cards and a quiet supporting frame. */
 .ecl-age{font-size:.78rem;line-height:1.5;color:var(--muted);margin:.5rem 0}.lev-live small{display:block;font-size:.72rem;line-height:1.5;font-weight:400}.lev-desk-summary{flex-wrap:wrap}

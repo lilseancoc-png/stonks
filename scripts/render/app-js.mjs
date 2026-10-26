@@ -4063,7 +4063,7 @@ ${renderSplitViewBindings()}
       // Inside a split-view pane the page change never adds a Back step.
       syncTabToUrl(name, IS_EMBED || !!(nav && nav.replace));
       if (name !== 'grade') document.title = 'stonks';
-      if (IS_EMBED) splitReportTab(name); else trackPageTab(name);
+      if (IS_EMBED) splitReportTab(name); else if (!splitInternalNav) trackPageTab(name);
       // A tab hop lands at the top of the destination pane — the scroll depth
       // of a long previous tab (e.g. a Brief ticker chip clicked from way down
       // the page) otherwise carries over and the new tab opens mid/bottom.

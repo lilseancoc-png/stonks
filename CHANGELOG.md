@@ -42,6 +42,11 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Give charts one shared finish: soft area fills under sparklines and the Grade price line, round price gridlines ($200, $210, …), a larger hover readout, ▲/▼ arrows next to coloured moves, even-width digits, banded shared tables and a width cap on scatter charts (`scripts/render/data-display-css.mjs`).
 - Rewrite README.md around the new site structure.
 
+### Fixed
+
+- Keep the data-age dot beside its text on screens 380px wide or narrower instead of on a row of its own (#691).
+
+
 ## 2026-10-24
 
 ### Added
