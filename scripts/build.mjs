@@ -72,6 +72,7 @@ import { buildBottomTracker } from "../lib/bottom-tracker.mjs";
 import { writeHistoricalDataFile } from "./refresh-historical-data.mjs";
 import { readHistoricalSourceCache, refreshHistoricalSourceCache, loadFreeFredHistory, loadFreeMarketHistory } from "./collect-historical-sources.mjs";
 import { HISTORICAL_SOURCE_KEY } from "../lib/historical-sources.mjs";
+import { readForecastState, prepareEarningsForecast, writeEarningsForecast } from './refresh-earnings-forecast.mjs';
 import { forcedLiquidationContext } from "../lib/forced-liquidation.mjs";
 import { readForcedLiquidation, refreshForcedLiquidation, writeForcedLiquidation } from './refresh-forced-liquidation.mjs';
 import { withYahooTimeout } from "../lib/yahoo.mjs";
@@ -2408,6 +2409,7 @@ async function fetchFundamentals(symbol) {
     industry: ap.industry || null,
     sector: ap.sector || null,
     marketCap: num(sd.marketCap) ?? num(pr.marketCap),
+    quoteType: typeof pr.quoteType === 'string' ? pr.quoteType : null,
     trailingPE: num(sd.trailingPE),
     forwardPE: num(sd.forwardPE) ?? num(ks.forwardPE),
     pegRatio: num(ks.pegRatio),
@@ -37096,6 +37098,9 @@ async function main() {
   // what's covered must be pre-read before the wipe or every bake would
   // re-discover (and re-pay for) the whole universe.
   const priorEarningsCalls = await readPriorEarningsCalls();
+  // Immutable earnings research state must survive the data/ replacement.
+  // A corrupt existing ledger fails before the wipe instead of resetting history.
+  const priorEarningsForecast = await readForecastState(DATA_DIR);
   // Prior central-bank gold snapshot - country holdings and global demand are
   // sourced independently, so either side can carry last-good across a WGC
   // outage while the other refreshes. Read it before the wholesale wipe.
@@ -37395,6 +37400,12 @@ async function main() {
     .filter((d) => d >= todayIsoForFomc)
     .sort()
     .slice(0, 2);
+  const earningsForecastPrepared = await prepareEarningsForecast({
+    previous: priorEarningsForecast, chains, universe: TICKERS, sectors: SECTORS,
+    cikMap: await fetchCikMap(),
+    macroContext: macroBackdrop,
+    enabled: process.env.EARNINGS_FORECAST_ENABLED !== '0',
+  });
   const builtAtIso = new Date().toISOString();
   // Scan timestamps remain on coverage. The artifact gets this generation's
   // stamp, which is created only after the network stages have completed.
@@ -37678,6 +37689,8 @@ async function main() {
     console.log(`wrote data/iv-history/ — ${ivHistory.size} tickers, ${ivHistoryBytes} bytes total`);
   }
   const fundHistoryBytes = await writeFundamentalsHistory(fundHistory);
+  const earningsForecastInfo = await writeEarningsForecast({ dataDir: DATA_DIR, prepared: earningsForecastPrepared });
+  console.log(`wrote data/earnings-forecast.json — ${earningsForecastInfo.companies} launch companies, ${earningsForecastInfo.forecasts} revenue forecasts; no AI calls`);
   if (fundHistory.size) {
     console.log(`wrote data/fundamentals-history/ — ${fundHistory.size} tickers, ${fundHistoryBytes} bytes total`);
   }

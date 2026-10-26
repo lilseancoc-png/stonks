@@ -1,0 +1,72 @@
+import assert from 'node:assert/strict';
+import { mkdir,readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { createEarningsPreview } from './earnings-forecast-preview.mjs';
+const {chromium}=await import(process.env.PLAYWRIGHT_MODULE||'playwright');
+const p=await createEarningsPreview(),out=resolve(tmpdir(),'stonks-earnings-forecast-browser');await mkdir(out,{recursive:true});
+const browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{})});
+try{
+  for(const width of [1440,390])for(const theme of ['dark','light']){
+    p.setScenario('owner');const ctx=await browser.newContext({viewport:{width,height:1000},acceptDownloads:true}),page=await ctx.newPage(),errors=[];
+    await page.addInitScript(t=>localStorage.setItem('stonks-theme',t),theme);await page.clock.install({time:new Date(p.payload.builtAtIso)});
+    await page.route('**/*',r=>new URL(r.request().url()).origin===p.base?r.continue():r.fulfill({body:''}));page.on('pageerror',e=>errors.push(e.message));
+    await page.goto(p.base+'/?tab=earnings-forecast');const root=page.locator('#earnings-forecast-root');
+    await root.locator('.ef-company-head').waitFor({timeout:10000}).catch(async e=>{console.error(JSON.stringify({errors,visible:await page.locator('.page-pane:not([hidden])').getAttribute('id'),root:await root.innerHTML()}));throw e;});
+    assert.equal(await root.locator('[data-ef-company]').count(),10);assert.equal(await root.locator('img').count(),0,'issuer HTML is escaped');
+    const frozen=await root.locator('.ef-metrics').first().innerText();await root.locator('.ef-tabs [data-ef-view="assumptions"]').click();
+    await root.locator('[data-ef-field="revenueDelta"]').fill('10');assert.match(await root.locator('.ef-scenario-results').innerText(),/110/);
+    await root.locator('.ef-tabs [data-ef-view="forecast"]').click();assert.equal(await root.locator('.ef-metrics').first().innerText(),frozen,'scenario never mutates forecast');
+    await root.locator('.ef-tabs [data-ef-view="assumptions"]').click();assert.equal(await root.locator('[data-ef-field="revenueDelta"]').inputValue(),'10');
+    await root.locator('[data-ef-reset]').click();assert.equal(await root.locator('[data-ef-field="revenueDelta"]').inputValue(),'0');
+    await root.locator('[data-ef-axis]').selectOption('product');await root.locator('[data-ef-row="0"][data-ef-row-field="demand"]').fill('20');await root.locator('[data-ef-row="0"][data-ef-row-field="price"]').fill('10');assert.match(await root.locator('.ef-scenario-results').innerText(),/119\.2/);
+    await root.locator('[data-ef-row="0"][data-ef-row-field="weight"]').fill('80');assert.match(await root.locator('[data-ef-results]').innerText(),/must total 100%/);assert.match(await root.locator('.ef-scenario-results').innerText(),/Unavailable/);
+    await root.locator('[data-ef-normalize]').click();assert.match(await root.locator('.ef-share-total').innerText(),/100\.0000%/);
+    await root.locator('[data-ef-name]').fill('Demand upside');const savedEvent=page.waitForEvent('download');await root.locator('[data-ef-scenario-export]').click();const saved=await savedEvent,savedPath=await saved.path(),savedJson=JSON.parse(await readFile(savedPath,'utf8'));assert.equal(savedJson.type,'mingstreet-earnings-scenario');assert.equal(savedJson.assumptions.name,'Demand upside');
+    await root.locator('[data-ef-reset]').click();await root.locator('[data-ef-import]').setInputFiles(savedPath);await page.waitForFunction(()=>document.querySelector('[data-ef-results]').textContent.includes('Scenario imported'));assert.equal(await root.locator('[data-ef-axis]').inputValue(),'product');assert.equal(await root.locator('[data-ef-row="0"][data-ef-row-field="demand"]').inputValue(),'20');
+    await root.locator('[data-ef-field="taxRate"]').fill('');assert.match(await root.locator('.ef-scenario-results').innerText(),/Unavailable/);await root.locator('[data-ef-field="taxRate"]').fill('20');
+    await root.locator('[data-ef-field="operatingMargin"]').fill('80');assert.match(await root.locator('[data-ef-results]').innerText(),/exceeds gross/);await root.locator('[data-ef-field="operatingMargin"]').fill('20');
+    await root.locator('[data-ef-company="T3"]').click();assert.match(await root.locator('.ef-company-head').innerText(),/Test issuer 3/);
+    assert.equal(await root.locator('[data-ef-axis]').inputValue(),'consolidated');await root.locator('[data-ef-import]').setInputFiles(savedPath);await page.waitForFunction(()=>document.querySelector('[data-ef-results]').textContent.includes('Import failed'));assert.match(await root.locator('[data-ef-results]').innerText(),/different company/);
+    await root.locator('[data-ef-company="T0"]').click();assert.equal(await root.locator('[data-ef-row="0"][data-ef-row-field="demand"]').inputValue(),'20','company working assumptions survive switching');
+    await root.locator('[data-ef-axis]').selectOption('geographic');assert.match(await root.innerText(),/FX translation/);assert.match(await root.innerText(),/annual/);
+    await root.locator('[data-ef-axis]').selectOption('custom');await root.locator('[data-ef-add]').click();assert.equal(await root.locator('.ef-mix-lines article').count(),3);await root.locator('[data-ef-row="2"][data-ef-row-field="name"]').fill('<img src=x onerror=alert(1)>');assert.equal(await root.locator('img').count(),0);await root.locator('[data-ef-remove="2"]').click();
+    // Input updates results without replacing the focused control or trapping Tab.
+    const demand=root.locator('[data-ef-row="0"][data-ef-row-field="demand"]');await demand.fill('12');await demand.press('Tab');assert.equal(await page.locator(':focus').getAttribute('data-ef-row-field'),'price');
+    await page.evaluate(()=>{document.activeElement?.blur();});await page.screenshot({path:resolve(out,'assumptions-'+width+'-'+theme+'.png'),fullPage:true});
+    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'mix workbench has no document overflow');
+    await root.locator('[data-ef-company="T3"]').click();
+    await root.locator('[data-ef-view="business"]').click();assert.match(await root.innerText(),/Factors to investigate/);
+    await page.reload();await root.locator('.ef-company-head').waitFor();assert.equal(await root.locator('[data-ef-company="T3"]').getAttribute('aria-pressed'),'true');assert.equal(await root.locator('[data-ef-view="business"]').getAttribute('aria-pressed'),'true');
+    const store=await page.evaluate(()=>JSON.stringify(localStorage));assert.doesNotMatch(store,/"outputs"|firstSeenAt|sourceDocuments/,'private payload is not persisted in browser storage');
+    await root.locator('[data-ef-view="record"]').click();assert.match(await root.innerText(),/Forward results are collecting/);await root.locator('.ef-method summary').click();assert.match(await root.innerText(),/not live prediction history/);
+    await root.locator('[data-ef-view="sources"]').click();assert(await root.locator('.ef-table tbody tr').count()>0);
+    const event=page.waitForEvent('download');await root.locator('[data-ef-export]').click();const download=await event,data=JSON.parse(await readFile(await download.path(),'utf8'));assert.equal(data.company.symbol,'T3');assert.equal(data.company.forecast.outputs.revenue,100);
+    for(const w of [width,1920,768,390,width]){await page.setViewportSize({width:w,height:1000});await page.waitForFunction(()=>document.querySelector('#earnings-forecast-root').getBoundingClientRect().width>=Math.min(300,innerWidth-50));assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no document overflow at '+w);}
+    await root.locator('[data-ef-view="forecast"]').click();await page.evaluate(()=>{document.activeElement?.blur();scrollTo(0,0);});await page.screenshot({path:resolve(out,'forecast-'+width+'-'+theme+'.png'),fullPage:true});assert.deepEqual(errors,[]);await ctx.close();
+  }
+  const page=await browser.newPage();await page.route('**/*',r=>new URL(r.request().url()).origin===p.base?r.continue():r.fulfill({body:''}));
+  p.setScenario('owner');await page.goto(p.base+'/?tab=earnings-forecast');const work=page.locator('#earnings-forecast-root');await work.locator('.ef-company-head').waitFor();await work.locator('.ef-tabs [data-ef-view="assumptions"]').click();await work.locator('[data-ef-axis]').selectOption('product');await work.locator('[data-ef-row="0"][data-ef-row-field="demand"]').fill('30');
+  await work.locator('[data-ef-retry]').click();await page.waitForFunction(()=>document.querySelector('[data-ef-retry]').textContent.includes('Refresh'));assert.equal(await work.locator('[data-ef-row="0"][data-ef-row-field="demand"]').inputValue(),'30','unchanged snapshot retains draft');
+  p.setScenario('changed-mix');await work.locator('[data-ef-retry]').click();await page.waitForFunction(()=>document.querySelector('[data-ef-results]')?.textContent.includes('source changed'));assert.equal(await work.locator('[data-ef-axis]').inputValue(),'consolidated','new mix fingerprint resets stale draft');
+  await work.locator('[data-ef-field="revenueDelta"]').fill('25');p.setScenario('anonymous');await work.locator('[data-ef-retry]').click();await page.waitForFunction(()=>document.querySelector('#earnings-forecast-root').textContent.includes('Owner access is required'));p.setScenario('owner');await work.locator('[data-ef-retry]').click();await work.locator('.ef-company-head').waitFor();assert.equal(await work.locator('[data-ef-field="revenueDelta"]').inputValue(),'0','failed authorization clears private drafts');
+  for(const s of ['error','missing','malformed','empty','stale']){p.setScenario(s);await page.goto(p.base+'/?tab=earnings-forecast');const root=page.locator('#earnings-forecast-root');await root.locator('button').first().waitFor();if(['error','missing','malformed'].includes(s)){assert.match(await root.innerText(),/unavailable|validation/);p.setScenario('owner');await root.locator('[data-ef-retry]').click();await root.locator('.ef-company-head').waitFor();}if(s==='empty')assert.match(await root.innerText(),/not ready/);if(s==='stale')assert.match(await root.innerText(),/four days old/);}
+  for(const s of ['anonymous','tr-only','tp-only','disabled']){p.setScenario(s);const before=p.requests;await page.goto(p.base+'/?tab=earnings-forecast');await page.waitForFunction(()=>!document.querySelector('#page-pane-home').hidden);assert.equal(p.requests,before,'non-owner never fetches forecast');assert.equal(await page.locator('[data-page-tab="earnings-forecast"]').isVisible(),false);}
+  p.setScenario('owner');const before=p.requests;await page.goto(p.base+'/?tab=news');await page.waitForFunction(()=>!document.querySelector('#page-pane-news').hidden);assert.equal(p.requests,before,'other pages do not load private forecasts');
+  if(process.env.EARNINGS_PAYLOAD_FILE){
+    const real=await createEarningsPreview({payloadFile:process.env.EARNINGS_PAYLOAD_FILE});
+    try{
+      const actual=await browser.newPage({viewport:{width:1440,height:1100}}),errors=[];actual.on('pageerror',e=>errors.push(e.message));
+      await actual.route('**/*',r=>new URL(r.request().url()).origin===real.base?r.continue():r.fulfill({body:''}));await actual.goto(real.base+'/?tab=earnings-forecast');const root=actual.locator('#earnings-forecast-root');await root.locator('.ef-company-head').waitFor();assert.equal(await root.locator('[data-ef-company]').count(),10);
+      for(const c of real.payload.companies){await root.locator('[data-ef-company="'+c.symbol+'"]').click();assert.match(await root.locator('.ef-company-head').innerText(),new RegExp(c.forecast.target.end));assert(await root.locator('.ef-metric strong').first().innerText()!=='Unavailable');}
+      await root.locator('[data-ef-company="TSM"]').click();assert.match(await root.innerText(),/TWD per local share/);assert.match(await root.locator('.ef-metrics').first().innerText(),/Unavailable/);
+      await root.locator('[data-ef-company="SPCX"]').click();assert.match(await root.innerText(),/run-rate/);
+      await root.locator('[data-ef-company="AAPL"]').click();await actual.screenshot({path:resolve(out,'actual-aapl-desktop.png'),fullPage:true});
+      await root.locator('[data-ef-view="assumptions"]').first().click();await root.locator('[data-ef-axis]').selectOption('product');assert.match(await root.innerText(),/iPhone/);await root.locator('[data-ef-row="0"][data-ef-row-field="demand"]').fill('5');await actual.screenshot({path:resolve(out,'actual-aapl-assumptions.png'),fullPage:true});
+      await actual.setViewportSize({width:390,height:900});await actual.waitForFunction(()=>document.querySelector('#earnings-forecast-root').getBoundingClientRect().width>=300);assert(await actual.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await actual.screenshot({path:resolve(out,'actual-aapl-assumptions-mobile.png'),fullPage:true});await actual.setViewportSize({width:1440,height:1100});
+      await root.locator('[data-ef-view="business"]').click();assert.match(await root.innerText(),/iPhone/);await actual.screenshot({path:resolve(out,'actual-aapl-business.png'),fullPage:true});
+      await actual.setViewportSize({width:390,height:900});await actual.waitForFunction(()=>document.querySelector('#earnings-forecast-root').getBoundingClientRect().width>=300);await actual.evaluate(()=>Promise.all(document.getAnimations().filter(a=>a.effect?.getComputedTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{}))));assert(await actual.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await actual.screenshot({path:resolve(out,'actual-aapl-mobile.png'),fullPage:true});assert.deepEqual(errors,[]);await actual.close();
+    }finally{await new Promise(r=>real.server.close(r));}
+  }
+  console.log('Earnings Forecast browser passed: owner gates and draft clearing, lazy loading, company/view persistence, mix and financial edits, normalization, scenario export/import, snapshot invalidation, keyboard focus, HTML escaping, failure/retry, desktop/mobile, light/dark and responsive resize. Screenshots: '+out);
+}finally{await browser.close();await new Promise(r=>p.server.close(r));}
