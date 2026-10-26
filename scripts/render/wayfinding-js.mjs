@@ -178,7 +178,7 @@ export function renderWayfindingBindings() {
         var kind = entry.slice(0, 4), id = entry.slice(4);
         if (kind === 'tab:') return id !== current && wfAllowed(id) && !!wfItem(id);
         return kind === 'sym:' && SYMBOLS.indexOf(id) >= 0 && wfAllowed('grade');
-      }).slice(0, 5).map(function(entry){
+      }).slice(0, 4).map(function(entry){
         var id = entry.slice(4);
         if (entry.slice(0, 4) === 'sym:') return '<button type="button" class="recent-chip is-sym" data-wf-sym="' + escapeHtml(id) + '">' + escapeHtml(id) + '</button>';
         return wfLink('recent-chip', id, escapeHtml(wfItem(id)[1]));

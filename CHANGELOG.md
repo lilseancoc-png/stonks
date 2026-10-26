@@ -41,6 +41,8 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Regroup the sidebar into seven sections a new visitor can scan (Today, Stocks, Market & economy, Options activity, Charts & signals, Industry trends, Learn & help) plus the unchanged Owner group, each with a one-line description. Pages get plainer names (for example Fear & Greed is now Market mood and Unusual flow is Unusual options trades); old names still match in the sidebar filter and command palette, and every page id and `?tab=` link is unchanged. One site map (`scripts/render/site-map.mjs`) drives the sidebar, page headers, Home tiles, tab bar and palette.
 - Give charts one shared finish: soft area fills under sparklines and the Grade price line, round price gridlines ($200, $210, …), a larger hover readout, ▲/▼ arrows next to coloured moves, even-width digits, banded shared tables and a width cap on scatter charts (`scripts/render/data-display-css.mjs`).
 - Rewrite README.md around the new site structure.
+- Make text on the feature pages about 10% larger (sizes 18px and under; headlines, chart labels, the header and the sidebar keep their size). Small fixed tiles and badges keep their size so labels still fit (`scripts/render/text-scale.mjs`).
+- Trim the sidebar: it runs to the top of the window on desktop instead of leaving an empty block above Workspace, shows 4 Recently viewed pages instead of 5 (the command palette still shows more), and drops the one-line description under each section name.
 
 ### Fixed
 
