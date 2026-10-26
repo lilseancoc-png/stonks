@@ -29,8 +29,14 @@ assert.equal(historicalCoverage(brokenRecent).status,'under-ten-years','a recent
 let active=0,maxActive=0, downloads=0;
 const fakeLoad=async()=>{active++;maxActive=Math.max(maxActive,active);downloads++; await new Promise(r=>setTimeout(r,1));active--;return bars;};
 const cache=await refreshHistoricalSourceCache({builtAtIso:now,loadMarket:fakeLoad,loadContext:fakeLoad});
-assert.equal(downloads,37); assert(maxActive<=2); assert.equal(cache.cost.providerFeeUsd,0); assert.equal(cache.cost.aiCalls,0); assert.equal(cache.cost.newScheduledJobs,0);
-assert.equal(cache.version,2); assert.equal(cache.cost.maxRequestsPerDay,54);
+assert.equal(downloads,39,'17 ETFs, 20 study series and the 2 shared Bottom tracker spreads'); assert(maxActive<=2); assert.equal(cache.cost.providerFeeUsd,0); assert.equal(cache.cost.aiCalls,0); assert.equal(cache.cost.newScheduledJobs,0);
+assert.equal(cache.version,2); assert.equal(cache.cost.maxRequestsPerDay,56);
+assert(cache.context.BAMLH0A0HYM2.rows.length>0 && cache.context.BAMLC0A0CM.rows.length>0,'shared credit spreads are cached with the study series');
+assert(!buildSourceCoverage({symbols:cache.symbols,context:cache.context,records:cache.records,cutoff:'2026-10-24'}).context.some(s=>s.id==='BAMLH0A0HYM2'),'shared-only series stay out of Historical Data coverage');
+const shortSpread=await refreshHistoricalSourceCache({builtAtIso:now,loadContext:async(id)=>id.startsWith('BAML')?monthly.slice(-30):bars});
+assert.equal(shortSpread.context.BAMLC0A0CM.rows.length,30,'a short shared series is kept; it is not held to the ten-year study rule');
+const keptSpread=await refreshHistoricalSourceCache({previous:cache,builtAtIso:'2026-10-25T22:00:00Z',loadContext:async()=>{throw new Error('offline');}});
+assert.deepEqual(keptSpread.context.BAMLH0A0HYM2.rows,cache.context.BAMLH0A0HYM2.rows,'a failed day keeps the last good spread rows');
 const warmed=await refreshHistoricalSourceCache({previous:cache,builtAtIso:now,loadMarket:()=>{throw new Error('should not refetch');},loadContext:()=>{throw new Error('should not refetch');}});
 assert.equal(warmed.cost.requestsThisRun,0,'warm builds do not repeat same-day downloads');
 let tick=0;

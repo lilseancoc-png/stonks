@@ -65,13 +65,12 @@ import { summarizeYahooError, withYahooRetry } from "../lib/yahoo-retry.mjs";
 import {
   PATTERN_INDEX_SYMBOLS,
   buildPatternRecognition,
-  capDailyBars,
   mergeDailyCloses,
-  needsLongIndexFetch,
 } from "../lib/pattern-recognition.mjs";
 import { buildBottomTracker } from "../lib/bottom-tracker.mjs";
 import { writeHistoricalDataFile } from "./refresh-historical-data.mjs";
 import { readHistoricalSourceCache, refreshHistoricalSourceCache, loadFreeFredHistory, loadFreeMarketHistory } from "./collect-historical-sources.mjs";
+import { confirmedMarketBars } from "../lib/historical-market-history.mjs";
 import { HISTORICAL_SOURCE_KEY } from "../lib/historical-sources.mjs";
 import { forcedLiquidationContext } from "../lib/forced-liquidation.mjs";
 import { buyoutContextFor } from "../lib/pending-buyout-guard.mjs";
@@ -1311,22 +1310,6 @@ async function fetchLeapsExpirationChain(symbol, expSec, spotHint) {
 // before write) and the streak tracker slices its own 60-day tail, so the
 // extra history only feeds the trailing-window technicals.
 const HISTORY_LOOKBACK_DAYS = 365;
-
-async function fetchLongIndexDailyBars(symbol) {
-  const period2 = new Date();
-  const period1 = new Date(period2.getTime() - 25 * 365.25 * 24 * 3600 * 1000);
-  return withYahooRetry(async () => {
-    const result = await yahooFinance.chart(symbol, { period1, period2, interval: "1d" });
-    const quotes = Array.isArray(result?.quotes) ? result.quotes : [];
-    return quotes
-      .filter((q) => q && q.close != null)
-      .map((q) => ({
-        t: q.date ? new Date(q.date).toISOString().slice(0, 10) : null,
-        c: q.close,
-      }))
-      .filter((bar) => bar.t && bar.c > 0);
-  });
-}
 
 async function fetchHistoricalBars(symbol) {
   const period2 = new Date();
@@ -11749,45 +11732,16 @@ function closesForBottom(chain) {
   return mergeDailyCloses(rows);
 }
 
-async function loadBottomFred(seriesId) {
-  try {
-    const rows = await fetchFredSeries(seriesId);
-    return (rows || []).filter((row) => Number.isFinite(row?.value));
-  } catch (err) {
-    console.log(`  · bottom tracker ${seriesId} failed: ${err.message}`);
-    return [];
-  }
-}
-
-async function writeBottomTrackerFile({ chains, indexBars, prior, builtAtIso }) {
-  let spy = mergeDailyCloses(indexBars?.SPY, closesForBottom(chains?.SPY));
-  let qqq = mergeDailyCloses(indexBars?.QQQ, closesForBottom(chains?.QQQ));
-  for (const symbol of ["SPY", "QQQ"]) {
-    const current = symbol === "SPY" ? spy : qqq;
-    if (!needsLongIndexFetch(current)) continue;
-    try {
-      const fetched = await fetchLongIndexDailyBars(symbol);
-      const merged = mergeDailyCloses(current, fetched);
-      if (symbol === "SPY") spy = merged;
-      else qqq = merged;
-      console.log(`  · bottom tracker ${symbol} long history: ${merged.length} sessions`);
-    } catch (err) {
-      console.log(`  · bottom tracker ${symbol} history failed: ${err.message}`);
-    }
-  }
-  const [hy, ig, stress, vix, dgs2, cpi, unrate, oil, dollarPrimary, dgs10] = await Promise.all([
-    loadBottomFred("BAMLH0A0HYM2"),
-    loadBottomFred("BAMLC0A0CM"),
-    loadBottomFred("STLFSI4"),
-    loadBottomFred("VIXCLS"),
-    loadBottomFred("DGS2"),
-    loadBottomFred("CPIAUCSL"),
-    loadBottomFred("UNRATE"),
-    loadBottomFred("DCOILWTICO"),
-    loadBottomFred("DTWEXBGS"),
-    loadBottomFred("DGS10"),
-  ]);
-  const dollar = dollarPrimary.length ? dollarPrimary : await loadBottomFred("DTWEXAFEGS");
+// Reads SPY/QQQ history and every FRED series from the shared long-history
+// cache (fred(id) -> rows). No downloads of its own: the cache refreshes each
+// series once a day and keeps the last good rows when a download fails.
+async function writeBottomTrackerFile({ chains, indexBars, fred, prior, builtAtIso }) {
+  const spy = mergeDailyCloses(indexBars?.SPY, closesForBottom(chains?.SPY));
+  const qqq = mergeDailyCloses(indexBars?.QQQ, closesForBottom(chains?.QQQ));
+  const series = (id) => (fred ? fred(id) : []).filter((row) => Number.isFinite(row?.value));
+  const hy = series("BAMLH0A0HYM2"), ig = series("BAMLC0A0CM"), stress = series("STLFSI4"), vix = series("VIXCLS");
+  const dgs2 = series("DGS2"), cpi = series("CPIAUCSL"), unrate = series("UNRATE"), oil = series("DCOILWTICO");
+  const dollar = series("DTWEXBGS"), dgs10 = series("DGS10");
   const revisions = [];
   const breadthBars = {};
   for (const sym of Object.keys(chains || {})) {
@@ -29126,35 +29080,36 @@ function patternCloseSeries(chain) {
   return mergeDailyCloses(rows);
 }
 
-async function readIndexLongHistory() {
-  try {
-    const parsed = JSON.parse(await readFile(resolve(DATA_DIR, "index-long-history.json"), "utf8"));
-    const symbols = {};
-    for (const symbol of PATTERN_INDEX_SYMBOLS) symbols[symbol] = mergeDailyCloses(parsed?.symbols?.[symbol]);
-    return { symbols };
-  } catch {
-    return { symbols: {} };
+// Confirmed daily closes for the given ETFs from the site's one long-history
+// cache (data/historical-source-history.json). Replaces the retired
+// index-long-history.json that Pattern lab and the Bottom tracker kept apart.
+function sharedHistoryBars(cache, symbols) {
+  const out = {};
+  for (const symbol of symbols) out[symbol] = confirmedMarketBars(cache?.symbols?.[symbol], cache?.records?.[symbol], cache?.version);
+  return out;
+}
+
+// A FRED series from the same cache, in the { date, value } rows the desks read.
+function sharedFredRows(cache, id) {
+  return (cache?.context?.[id]?.rows || []).map((row) => ({ date: row.t, value: row.v }));
+}
+
+// FRED download for the shared cache: the official API when FRED_API_KEY is
+// set (fetchFredSeries, which falls back to CSV itself), else the public CSV.
+async function loadSharedFred(id, request) {
+  if (process.env.FRED_API_KEY) {
+    const rows = await fetchFredSeries(id);
+    if (rows.length) return rows;
   }
+  return loadFreeFredHistory(id, fetch, request);
 }
 
 async function writePatternRecognitionFiles({
-  chains, globalMarkets, fearGreed, regimeHistoryPrev, indexLongPrev, macroRegime, builtAtIso,
+  chains, globalMarkets, fearGreed, regimeHistoryPrev, indexBars, macroRegime, builtAtIso,
 }) {
-  const symbols = { ...(indexLongPrev?.symbols || {}) };
-  let extraYahooCharts = 0;
+  const symbols = {};
   for (const symbol of PATTERN_INDEX_SYMBOLS) {
-    let bars = mergeDailyCloses(symbols[symbol]);
-    if (needsLongIndexFetch(bars)) {
-      extraYahooCharts += 1;
-      try {
-        const fetched = await fetchLongIndexDailyBars(symbol);
-        bars = mergeDailyCloses(bars, fetched);
-        console.log(`  · ${symbol} long history: ${bars.length} sessions from Yahoo daily chart`);
-      } catch (err) {
-        console.log(`  · ${symbol} long history fetch failed (${err?.message || err}); using bars already in memory`);
-      }
-    }
-    symbols[symbol] = capDailyBars(mergeDailyCloses(bars, patternCloseSeries(chains?.[symbol])));
+    symbols[symbol] = mergeDailyCloses(indexBars?.[symbol], patternCloseSeries(chains?.[symbol]));
   }
   const peers = [];
   for (const [us, group] of Object.entries(GLOBAL_PEER_OF_TICKER)) {
@@ -29186,16 +29141,12 @@ async function writePatternRecognitionFiles({
     divergences,
     regimeDays,
     fearGreed: Array.isArray(fearGreed?.history) ? fearGreed.history : [],
-    extraYahooCharts,
+    extraYahooCharts: 0,
   });
   const patternJson = JSON.stringify(payload);
-  const historyJson = JSON.stringify({ builtAtIso, symbols });
   await writeFile(resolve(DATA_DIR, "pattern-recognition.json"), patternJson, "utf8");
-  await writeFile(resolve(DATA_DIR, "index-long-history.json"), historyJson, "utf8");
   return {
     bytes: patternJson.length,
-    historyBytes: historyJson.length,
-    extraYahooCharts,
     divergences: payload.pieces.divergences.rows.length,
     leads: payload.pieces.leadLag.usable,
   };
@@ -37154,7 +37105,6 @@ async function main() {
   // Long SPY/QQQ/IWM closes live in data/ and the wipe would drop them.
   // Read first so a later bake appends the tail instead of downloading
   // twenty years again.
-  const indexLongPrev = await readIndexLongHistory();
   const historicalSourcePrev = await readHistoricalSourceCache(DATA_DIR);
   // Same rule for the picks churn log (data/picks-changes.json) — read it now so
   // this build's entered/exited events append to the rolling log instead of
@@ -37501,17 +37451,30 @@ async function main() {
   console.log(`wrote data/heatmap.json — ${heatmapInfo.count} tickers, ${heatmapInfo.bytes} bytes${heatmapInfo.eodPreserved ? ` (carried over EOD recap from ${priorHeatmapEod.date})` : ""}${heatmapInfo.rotationAlerts ? ` (${heatmapInfo.rotationAlerts} sector-rotation alert${heatmapInfo.rotationAlerts === 1 ? "" : "s"})` : ""}`);
   const maTrackerInfo = await writeMovingAverageTrackerFile(chains, builtAtIso);
   console.log(`wrote data/ma-tracker.json — ${maTrackerInfo.tickers} stocks, ${maTrackerInfo.inBand} in-band moving-average levels, ${maTrackerInfo.bytes} bytes`);
+  // One long-history cache for the site (data/historical-source-history.json):
+  // ETF daily closes since 1990 plus the FRED series, each downloaded at most
+  // once a day. Historical Data, Pattern lab and the Bottom tracker all read it,
+  // so it refreshes first.
+  const historicalSourceCache = await refreshHistoricalSourceCache({ previous: historicalSourcePrev, builtAtIso, collectedAtIso: new Date().toISOString(),
+    loadMarket: (symbol, request) => loadFreeMarketHistory(yahooFinance, symbol, request),
+    loadContext: loadSharedFred,
+    log: message => console.log(`  · history source ${message}`),
+  });
+  await writeFile(resolve(DATA_DIR, HISTORICAL_SOURCE_KEY), JSON.stringify(historicalSourceCache), "utf8");
+  const historicalInfo = await writeHistoricalDataFile({ dataDir: DATA_DIR, builtAtIso, analyzedAtIso: new Date().toISOString(), sourceCache: historicalSourceCache });
+  console.log(`wrote data/historical-data.json — ${historicalInfo.indexes} markets, ${historicalInfo.bytes} bytes; ${historicalSourceCache.cost.requestsThisRun} free source downloads`);
+  const sharedIndexBars = sharedHistoryBars(historicalSourceCache, PATTERN_INDEX_SYMBOLS);
   try {
     const patternInfo = await writePatternRecognitionFiles({
       chains,
       globalMarkets,
       fearGreed,
       regimeHistoryPrev,
-      indexLongPrev,
+      indexBars: sharedIndexBars,
       macroRegime: macroBackdrop?.macroRegime || null,
       builtAtIso,
     });
-    console.log(`wrote data/pattern-recognition.json — ${patternInfo.divergences} current divergences, ${patternInfo.leads} usable leads, ${patternInfo.extraYahooCharts} extra Yahoo chart(s), ${patternInfo.bytes} bytes`);
+    console.log(`wrote data/pattern-recognition.json — ${patternInfo.divergences} current divergences, ${patternInfo.leads} usable leads, ${patternInfo.bytes} bytes`);
   } catch (err) {
     console.log(`  ⚠ pattern recognition failed (non-fatal): ${err?.message || err}`);
     await writeFile(resolve(DATA_DIR, "pattern-recognition.json"), JSON.stringify({
@@ -37522,13 +37485,12 @@ async function main() {
       cost: { gemini: false, serpApi: false, newVendor: false, extraYahooCharts: 0 },
       pieces: {},
     }), "utf8");
-    await writeFile(resolve(DATA_DIR, "index-long-history.json"), JSON.stringify({ builtAtIso, symbols: indexLongPrev?.symbols || {} }), "utf8");
   }
   try {
-    const indexForBottom = await readIndexLongHistory();
     const bottomInfo = await writeBottomTrackerFile({
       chains,
-      indexBars: indexForBottom.symbols,
+      indexBars: sharedIndexBars,
+      fred: (id) => sharedFredRows(historicalSourceCache, id),
       prior: priorBottomTracker,
       builtAtIso,
     });
@@ -37536,14 +37498,6 @@ async function main() {
   } catch (err) {
     console.log(`  · bottom tracker failed (non-fatal): ${err.message}`);
   }
-  const historicalSourceCache = await refreshHistoricalSourceCache({ previous: historicalSourcePrev, builtAtIso, collectedAtIso: new Date().toISOString(),
-    loadMarket: (symbol, request) => loadFreeMarketHistory(yahooFinance, symbol, request),
-    loadContext: (id, request) => loadFreeFredHistory(id, fetch, request),
-    log: message => console.log(`  · history source ${message}`),
-  });
-  await writeFile(resolve(DATA_DIR, HISTORICAL_SOURCE_KEY), JSON.stringify(historicalSourceCache), "utf8");
-  const historicalInfo = await writeHistoricalDataFile({ dataDir: DATA_DIR, builtAtIso, analyzedAtIso: new Date().toISOString(), sourceCache: historicalSourceCache });
-  console.log(`wrote data/historical-data.json — ${historicalInfo.indexes} markets, ${historicalInfo.bytes} bytes; ${historicalSourceCache.cost.requestsThisRun} free source downloads`);
   const correlationsInfo = await writeCorrelationsFile(chains, globalMarkets, builtAtIso, priorCorrelations);
   console.log(`wrote data/correlations.json — ${correlationsInfo.symbols} markets, ${correlationsInfo.mapped} mapped tickers, ${correlationsInfo.bytes} bytes${correlationsInfo.stale ? " [stale — kept last-good]" : ""}`);
   // AI CapEx (Mag 7 aggregate, from SEC XBRL) + capital-raises feed (rolling

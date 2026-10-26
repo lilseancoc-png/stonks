@@ -113,7 +113,6 @@ const BAKE_REQUIRED_REWRITTEN_FILES = [
   "grade-research.json",
   "heatmap.json",
   "index-calendar.json",
-  "index-long-history.json",
   "historical-data.json",
   "historical-source-history.json",
   "forced-liquidation.json",

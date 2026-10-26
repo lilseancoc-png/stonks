@@ -42,6 +42,22 @@ The source cache and `data/historical-data.json` retain the current bake stamp
 for publication. `analyzedAtIso` records the later analysis time, so a long bake
 can include closes confirmed after the bake started. Both files are bake-owned.
 
+This is the site's one long-history cache (site audit C5, 2026-10-27). The
+bake refreshes it before Pattern lab and the Bottom tracker run, and both read
+it: Pattern lab takes SPY, QQQ and IWM closes from it (the old
+`index-long-history.json` file is retired), and the Bottom tracker takes SPY,
+QQQ and all ten of its FRED series from it instead of downloading them on
+every bake. The two ICE credit spreads the Bottom tracker needs
+(`BAMLH0A0HYM2`, `BAMLC0A0CM`) ride the same once-a-day refresh as
+`SHARED_FRED_EXTRA`; FRED publishes only about three years of them, so they
+are kept whenever a download has rows and never appear in the coverage list.
+With `FRED_API_KEY` set, FRED downloads use the official API first.
+
+Pattern lab's index seasonality (months, weekdays, turn of month, expiration
+week, Santa, midterm years) is computed by `buildIndexSeasonality` in
+`lib/historical-data.mjs`, on the same window rules as these studies, so the
+two pages show the same numbers for the same index.
+
 The collector runs within the existing full build. It adds no schedule, model
 call, account, paid API, or subscription. Context sources get one automatic
 attempt per UTC day. Markets can also refresh after a newly completed trading

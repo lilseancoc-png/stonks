@@ -20143,10 +20143,10 @@ ${renderSplitViewBindings()}
       '<div class="pat-metrics">' +
         patMetric('Santa window', patPct(santa.avgPct), patCls(santa.avgPct), 'whole window · up ' + patRate(santa.hitRatePct) + ' of ' + (santa.n || 0)) +
         patMetric('September', patPct(sep.avgPct), patCls(sep.avgPct), 'full month · up ' + patRate(sep.hitRatePct) + ' of ' + (sep.n || 0)) +
-        patMetric('Turn of month', patPct(turn.avgPct), patCls(turn.avgPct), 'per day · other days ' + patPct(turn.outsideAvgPct)) +
-        patMetric('Expiration week', patPct(opex.avgPct), patCls(opex.avgPct), 'per day · other days ' + patPct(opex.outsideAvgPct)) +
+        patMetric('Turn of month', patPct(turn.avgPct), patCls(turn.avgPct), 'whole window · any ' + (turn.windowSessions || 4) + ' sessions ' + patPct(turn.outsideAvgPct)) +
+        patMetric('Expiration week', patPct(opex.avgPct), patCls(opex.avgPct), 'whole week · any ' + (opex.windowSessions || 5) + ' sessions ' + patPct(opex.outsideAvgPct)) +
       '</div>' +
-      '<p class="pat-note">Santa is the last five December sessions plus the first two January sessions. Turn of month is the first three and last two sessions of a completed month. Expiration week is the Monday-through-Friday around the third Friday. Midterm years, price change only: ' + patPct(mid.avgPct) + ' versus ' + patPct(mid.otherAvgPct) + ' in other years (n=' + (mid.n || 0) + ').' + patProv(mid.provisional) + ' ' + escapeHtml(mid.note || '') + (row.droppedExtremeDays ? ' ' + row.droppedExtremeDays + ' daily print' + (row.droppedExtremeDays === 1 ? '' : 's') + ' larger than 25% ' + (row.droppedExtremeDays === 1 ? 'was' : 'were') + ' left out.' : '') + '</p>' +
+      '<p class="pat-note">Only prior complete calendar years count, and each window runs from the prior close. Santa is the last five December sessions plus the first two January sessions. Turn of month is the final session of a month plus the first three of the next. Expiration week is the Monday-through-Friday around the third Friday. "Any N sessions" is the average of back-to-back stretches of the same length, for comparison. Midterm years, price change only: ' + patPct(mid.avgPct) + ' versus ' + patPct(mid.otherAvgPct) + ' in other years (n=' + (mid.n || 0) + ').' + patProv(mid.provisional) + ' ' + escapeHtml(mid.note || '') + (row.droppedExtremeDays ? ' Windows holding ' + row.droppedExtremeDays + ' daily print' + (row.droppedExtremeDays === 1 ? '' : 's') + ' larger than 25% ' + (row.droppedExtremeDays === 1 ? 'was' : 'were') + ' left out.' : '') + '</p>' +
       patTable(['Month', 'Years', 'Month price change', 'Years up', 'Sample'], months) +
       patTable(['Weekday', 'Sessions', 'Average day', 'Days up'], days));
   }

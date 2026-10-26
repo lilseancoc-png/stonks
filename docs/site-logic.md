@@ -954,7 +954,7 @@ The index calendar accumulates up to roughly 800 sessions for SPY, QQQ, IWM, SMH
 
 ### Pattern lab
 
-Pattern lab is a public page of six separate reads. None of them changes a grade, a pick, or a contract. The bake writes `pattern-recognition.json` from bars, Fear & Greed, regime history, and overnight peers it already has. SPY, QQQ, and IWM keep a longer daily close file, `index-long-history.json`. That file is filled with the same unauthenticated Yahoo daily chart only when a symbol has less than 12 years stored. Later bakes append the closes already fetched for those ETFs. There is no Gemini call and no new vendor.
+Pattern lab is a public page of six separate reads. None of them changes a grade, a pick, or a contract. The bake writes `pattern-recognition.json` from bars, Fear & Greed, regime history, and overnight peers it already has. SPY, QQQ, and IWM closes come from the site's one long-history cache, `historical-source-history.json`, which the bake refreshes once a day from Yahoo before Pattern lab runs (the separate `index-long-history.json` file was retired on 2026-10-27). Index seasonality uses the same engine and window rules as the Owner Historical Data studies (`buildIndexSeasonality`), so both show the same numbers. There is no Gemini call and no new vendor.
 
 The six reads are volatility clustering, index seasonality, curated cross-asset lead and correlation breaks, RSI and MACD price divergences, the breadth-versus-index record, and Fear & Greed disagreements. Each one keeps its own sample size and marks a thin sample provisional.
 
