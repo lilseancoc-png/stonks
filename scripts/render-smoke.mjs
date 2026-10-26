@@ -247,7 +247,12 @@ try {
   assert.match(html, /How to use this fundamentals-first rebound desk[\s\S]*?Quality Recovery Shortlist/);
   const regenStaticSource = await readFile(resolve(process.cwd(), "scripts", "regen-static.mjs"), "utf8");
   assert.match(regenStaticSource, /symbols = \[\.\.\.TICKERS\]\.sort\(\)/, "renderer-only regeneration must ship TICKERS and must not restore a name removed from the source universe");
-  assert.match(appJs, /var OWNER_TABS = \{ 'unified-signal-engine':1, market:1, risk:1, 'bottom-tracker':1, 'historical-data':1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, 'open-picks':1, track:1, quant:1 \}/);
+  const ownerTabsText = appJs.match(/var OWNER_TABS = (\{[^;]+\});/)?.[1];
+  assert(ownerTabsText, 'Owner tab access map is present');
+  const ownerTabs = new Function('return (' + ownerTabsText + ')')();
+  for (const tab of ['unified-signal-engine','market','risk','bottom-tracker','historical-data','forced-liquidation','picks','leaps','stocks','rotation','levetf','open-picks','track','quant']) {
+    assert.equal(ownerTabs[tab], 1, tab + ' requires Owner access');
+  }
   assert.ok(isPremiumKey('unified-signal.json'));
   assert.ok(isPremiumKey('signal-decisions/2026-10-23T15-05-00-000Z-0123456789abcdef.json'));
   assert.match(html, /id="page-pane-unified-signal-engine"/);
