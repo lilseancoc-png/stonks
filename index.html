@@ -369,7 +369,7 @@
         <select id="tickers-sector" class="tickers-select" aria-label="Filter tickers by sector">
           <option value="">All sectors (86)</option>
           <option value="Market gauge">Market gauge (1)</option>
-          <option value="Software">Software (16)</option><option value="Semis">Semis (14)</option><option value="ETF">ETF (11)</option><option value="Mega-cap tech">Mega-cap tech (8)</option><option value="Bank">Bank (5)</option><option value="Payments">Payments (4)</option><option value="Retail">Retail (4)</option><option value="Pharma">Pharma (4)</option><option value="Space">Space (3)</option><option value="Broker">Broker (2)</option><option value="Storage">Storage (2)</option><option value="IT services">IT services (1)</option><option value="Networking">Networking (1)</option><option value="China tech">China tech (1)</option><option value="Clean energy">Clean energy (1)</option><option value="Hardware">Hardware (1)</option><option value="Media">Media (1)</option><option value="Tech services">Tech services (1)</option><option value="Apparel">Apparel (1)</option><option value="Restaurants">Restaurants (1)</option><option value="Insurance">Insurance (1)</option><option value="Data center">Data center (1)</option><option value="Power">Power (1)</option>
+          <option value="Software &amp; IT services">Software &amp; IT services (18)</option><option value="Semis &amp; hardware">Semis &amp; hardware (18)</option><option value="Financials">Financials (11)</option><option value="ETF">ETF (11)</option><option value="Mega-cap tech">Mega-cap tech (8)</option><option value="Consumer &amp; media">Consumer &amp; media (8)</option><option value="Industrials &amp; energy">Industrials &amp; energy (6)</option><option value="Healthcare">Healthcare (5)</option>
         </select>
       </label>
       <label class="tickers-field">
@@ -388,7 +388,7 @@
       <button type="button" class="tickers-ready" id="tickers-ready" aria-pressed="false" disabled>Entry ready only</button>
     </div>
     <p class="tickers-model-note" id="tickers-model-note">Loading model grades…</p>
-    <div class="tickers-grid" id="tickers-grid"><div class="ticker-card ticker-card-tracker" data-ticker="^VIX" data-sector="Market gauge" data-industry="Volatility" data-tracker-only="vix" aria-label="VIX market gauge">
+    <div class="tickers-grid" id="tickers-grid"><div class="ticker-card ticker-card-tracker" data-ticker="^VIX" data-sector="Market gauge" data-sector-group="Market gauge" data-industry="Volatility" data-tracker-only="vix" aria-label="VIX market gauge">
       <span class="ticker-card-head">
         <span class="ticker-sym">VIX</span>
         <span class="ticker-tracker-badge">market gauge</span>
@@ -398,7 +398,7 @@
         <span class="ticker-chg" data-chg-for="^VIX" hidden></span>
       </span>
       <span class="ticker-sector">Market gauge · Volatility</span>
-    </div><a class="ticker-card" href="?s=AAPL" data-ticker="AAPL" data-sector="Mega-cap tech" data-industry="">
+    </div><a class="ticker-card" href="?s=AAPL" data-ticker="AAPL" data-sector="Mega-cap tech" data-sector-group="Mega-cap tech" data-industry="Consumer Electronics">
       <span class="ticker-card-head">
         <span class="ticker-sym">AAPL</span>
         <span class="ticker-grade" data-grade-for="AAPL" hidden></span>
@@ -407,8 +407,8 @@
         <span class="ticker-spot" data-spot-for="AAPL"></span>
         <span class="ticker-chg" data-chg-for="AAPL" hidden></span>
       </span>
-      <span class="ticker-sector">Mega-cap tech</span>
-    </a><a class="ticker-card" href="?s=ACN" data-ticker="ACN" data-sector="IT services" data-industry="Information Technology Services">
+      <span class="ticker-sector">Mega-cap tech · Consumer Electronics</span>
+    </a><a class="ticker-card" href="?s=ACN" data-ticker="ACN" data-sector="IT services" data-sector-group="Software &amp; IT services" data-industry="Information Technology Services">
       <span class="ticker-card-head">
         <span class="ticker-sym">ACN</span>
         <span class="ticker-grade" data-grade-for="ACN" hidden></span>
@@ -418,7 +418,7 @@
         <span class="ticker-chg" data-chg-for="ACN" hidden></span>
       </span>
       <span class="ticker-sector">IT services · Information Technology Services</span>
-    </a><a class="ticker-card" href="?s=ADBE" data-ticker="ADBE" data-sector="Software" data-industry="Software Applications">
+    </a><a class="ticker-card" href="?s=ADBE" data-ticker="ADBE" data-sector="Software" data-sector-group="Software &amp; IT services" data-industry="Software Applications">
       <span class="ticker-card-head">
         <span class="ticker-sym">ADBE</span>
         <span class="ticker-grade" data-grade-for="ADBE" hidden></span>
@@ -428,7 +428,7 @@
         <span class="ticker-chg" data-chg-for="ADBE" hidden></span>
       </span>
       <span class="ticker-sector">Software · Software Applications</span>
-    </a><a class="ticker-card" href="?s=AMAT" data-ticker="AMAT" data-sector="Semis" data-industry="Semiconductor Equipment &amp; Materials">
+    </a><a class="ticker-card" href="?s=AMAT" data-ticker="AMAT" data-sector="Semis" data-sector-group="Semis &amp; hardware" data-industry="Semiconductor Equipment &amp; Materials">
       <span class="ticker-card-head">
         <span class="ticker-sym">AMAT</span>
         <span class="ticker-grade" data-grade-for="AMAT" hidden></span>
@@ -438,7 +438,7 @@
         <span class="ticker-chg" data-chg-for="AMAT" hidden></span>
       </span>
       <span class="ticker-sector">Semis · Semiconductor Equipment &amp; Materials</span>
-    </a><a class="ticker-card" href="?s=AMD" data-ticker="AMD" data-sector="Semis" data-industry="Semiconductors">
+    </a><a class="ticker-card" href="?s=AMD" data-ticker="AMD" data-sector="Semis" data-sector-group="Semis &amp; hardware" data-industry="Semiconductors">
       <span class="ticker-card-head">
         <span class="ticker-sym">AMD</span>
         <span class="ticker-grade" data-grade-for="AMD" hidden></span>
@@ -448,7 +448,7 @@
         <span class="ticker-chg" data-chg-for="AMD" hidden></span>
       </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
-    </a><a class="ticker-card" href="?s=AMZN" data-ticker="AMZN" data-sector="Mega-cap tech" data-industry="Internet Retail">
+    </a><a class="ticker-card" href="?s=AMZN" data-ticker="AMZN" data-sector="Mega-cap tech" data-sector-group="Mega-cap tech" data-industry="Internet Retail">
       <span class="ticker-card-head">
         <span class="ticker-sym">AMZN</span>
         <span class="ticker-grade" data-grade-for="AMZN" hidden></span>
@@ -458,7 +458,7 @@
         <span class="ticker-chg" data-chg-for="AMZN" hidden></span>
       </span>
       <span class="ticker-sector">Mega-cap tech · Internet Retail</span>
-    </a><a class="ticker-card" href="?s=ANET" data-ticker="ANET" data-sector="Networking" data-industry="Communication Equipment">
+    </a><a class="ticker-card" href="?s=ANET" data-ticker="ANET" data-sector="Networking" data-sector-group="Semis &amp; hardware" data-industry="Communication Equipment">
       <span class="ticker-card-head">
         <span class="ticker-sym">ANET</span>
         <span class="ticker-grade" data-grade-for="ANET" hidden></span>
@@ -468,7 +468,7 @@
         <span class="ticker-chg" data-chg-for="ANET" hidden></span>
       </span>
       <span class="ticker-sector">Networking · Communication Equipment</span>
-    </a><a class="ticker-card" href="?s=ARM" data-ticker="ARM" data-sector="Semis" data-industry="Semiconductors">
+    </a><a class="ticker-card" href="?s=ARM" data-ticker="ARM" data-sector="Semis" data-sector-group="Semis &amp; hardware" data-industry="Semiconductors">
       <span class="ticker-card-head">
         <span class="ticker-sym">ARM</span>
         <span class="ticker-grade" data-grade-for="ARM" hidden></span>
@@ -478,7 +478,7 @@
         <span class="ticker-chg" data-chg-for="ARM" hidden></span>
       </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
-    </a><a class="ticker-card" href="?s=ASML" data-ticker="ASML" data-sector="Semis" data-industry="Semiconductor Equipment &amp; Materials">
+    </a><a class="ticker-card" href="?s=ASML" data-ticker="ASML" data-sector="Semis" data-sector-group="Semis &amp; hardware" data-industry="Semiconductor Equipment &amp; Materials">
       <span class="ticker-card-head">
         <span class="ticker-sym">ASML</span>
         <span class="ticker-grade" data-grade-for="ASML" hidden></span>
@@ -488,7 +488,7 @@
         <span class="ticker-chg" data-chg-for="ASML" hidden></span>
       </span>
       <span class="ticker-sector">Semis · Semiconductor Equipment &amp; Materials</span>
-    </a><a class="ticker-card" href="?s=ASTS" data-ticker="ASTS" data-sector="Space" data-industry="Aerospace &amp; Defense">
+    </a><a class="ticker-card" href="?s=ASTS" data-ticker="ASTS" data-sector="Space" data-sector-group="Industrials &amp; energy" data-industry="Aerospace &amp; Defense">
       <span class="ticker-card-head">
         <span class="ticker-sym">ASTS</span>
         <span class="ticker-grade" data-grade-for="ASTS" hidden></span>
@@ -498,7 +498,7 @@
         <span class="ticker-chg" data-chg-for="ASTS" hidden></span>
       </span>
       <span class="ticker-sector">Space · Aerospace &amp; Defense</span>
-    </a><a class="ticker-card" href="?s=AVGO" data-ticker="AVGO" data-sector="Semis" data-industry="Semiconductors">
+    </a><a class="ticker-card" href="?s=AVGO" data-ticker="AVGO" data-sector="Semis" data-sector-group="Semis &amp; hardware" data-industry="Semiconductors">
       <span class="ticker-card-head">
         <span class="ticker-sym">AVGO</span>
         <span class="ticker-grade" data-grade-for="AVGO" hidden></span>
@@ -508,7 +508,7 @@
         <span class="ticker-chg" data-chg-for="AVGO" hidden></span>
       </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
-    </a><a class="ticker-card" href="?s=AXP" data-ticker="AXP" data-sector="Payments" data-industry="Credit Services">
+    </a><a class="ticker-card" href="?s=AXP" data-ticker="AXP" data-sector="Payments" data-sector-group="Financials" data-industry="Credit Services">
       <span class="ticker-card-head">
         <span class="ticker-sym">AXP</span>
         <span class="ticker-grade" data-grade-for="AXP" hidden></span>
@@ -518,7 +518,7 @@
         <span class="ticker-chg" data-chg-for="AXP" hidden></span>
       </span>
       <span class="ticker-sector">Payments · Credit Services</span>
-    </a><a class="ticker-card" href="?s=BABA" data-ticker="BABA" data-sector="China tech" data-industry="Internet Retail">
+    </a><a class="ticker-card" href="?s=BABA" data-ticker="BABA" data-sector="China tech" data-sector-group="Consumer &amp; media" data-industry="Internet Retail">
       <span class="ticker-card-head">
         <span class="ticker-sym">BABA</span>
         <span class="ticker-grade" data-grade-for="BABA" hidden></span>
@@ -528,7 +528,7 @@
         <span class="ticker-chg" data-chg-for="BABA" hidden></span>
       </span>
       <span class="ticker-sector">China tech · Internet Retail</span>
-    </a><a class="ticker-card" href="?s=BAC" data-ticker="BAC" data-sector="Bank" data-industry="Banks - Diversified">
+    </a><a class="ticker-card" href="?s=BAC" data-ticker="BAC" data-sector="Bank" data-sector-group="Financials" data-industry="Banks - Diversified">
       <span class="ticker-card-head">
         <span class="ticker-sym">BAC</span>
         <span class="ticker-grade" data-grade-for="BAC" hidden></span>
@@ -538,7 +538,7 @@
         <span class="ticker-chg" data-chg-for="BAC" hidden></span>
       </span>
       <span class="ticker-sector">Bank · Banks - Diversified</span>
-    </a><a class="ticker-card" href="?s=BE" data-ticker="BE" data-sector="Clean energy" data-industry="Utilities - Renewable">
+    </a><a class="ticker-card" href="?s=BE" data-ticker="BE" data-sector="Clean energy" data-sector-group="Industrials &amp; energy" data-industry="Utilities - Renewable">
       <span class="ticker-card-head">
         <span class="ticker-sym">BE</span>
         <span class="ticker-grade" data-grade-for="BE" hidden></span>
@@ -548,7 +548,7 @@
         <span class="ticker-chg" data-chg-for="BE" hidden></span>
       </span>
       <span class="ticker-sector">Clean energy · Utilities - Renewable</span>
-    </a><a class="ticker-card" href="?s=C" data-ticker="C" data-sector="Bank" data-industry="Banks - Diversified">
+    </a><a class="ticker-card" href="?s=C" data-ticker="C" data-sector="Bank" data-sector-group="Financials" data-industry="Banks - Diversified">
       <span class="ticker-card-head">
         <span class="ticker-sym">C</span>
         <span class="ticker-grade" data-grade-for="C" hidden></span>
@@ -558,7 +558,7 @@
         <span class="ticker-chg" data-chg-for="C" hidden></span>
       </span>
       <span class="ticker-sector">Bank · Banks - Diversified</span>
-    </a><a class="ticker-card" href="?s=CBRS" data-ticker="CBRS" data-sector="Semis" data-industry="Semiconductors">
+    </a><a class="ticker-card" href="?s=CBRS" data-ticker="CBRS" data-sector="Semis" data-sector-group="Semis &amp; hardware" data-industry="Semiconductors">
       <span class="ticker-card-head">
         <span class="ticker-sym">CBRS</span>
         <span class="ticker-grade" data-grade-for="CBRS" hidden></span>
@@ -568,7 +568,7 @@
         <span class="ticker-chg" data-chg-for="CBRS" hidden></span>
       </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
-    </a><a class="ticker-card" href="?s=COST" data-ticker="COST" data-sector="Retail" data-industry="Discount Stores">
+    </a><a class="ticker-card" href="?s=COST" data-ticker="COST" data-sector="Retail" data-sector-group="Consumer &amp; media" data-industry="Discount Stores">
       <span class="ticker-card-head">
         <span class="ticker-sym">COST</span>
         <span class="ticker-grade" data-grade-for="COST" hidden></span>
@@ -578,7 +578,7 @@
         <span class="ticker-chg" data-chg-for="COST" hidden></span>
       </span>
       <span class="ticker-sector">Retail · Discount Stores</span>
-    </a><a class="ticker-card" href="?s=CRM" data-ticker="CRM" data-sector="Software" data-industry="Software Applications">
+    </a><a class="ticker-card" href="?s=CRM" data-ticker="CRM" data-sector="Software" data-sector-group="Software &amp; IT services" data-industry="Software Applications">
       <span class="ticker-card-head">
         <span class="ticker-sym">CRM</span>
         <span class="ticker-grade" data-grade-for="CRM" hidden></span>
@@ -588,7 +588,7 @@
         <span class="ticker-chg" data-chg-for="CRM" hidden></span>
       </span>
       <span class="ticker-sector">Software · Software Applications</span>
-    </a><a class="ticker-card" href="?s=CRWD" data-ticker="CRWD" data-sector="Software" data-industry="Software Infrastructure">
+    </a><a class="ticker-card" href="?s=CRWD" data-ticker="CRWD" data-sector="Software" data-sector-group="Software &amp; IT services" data-industry="Software Infrastructure">
       <span class="ticker-card-head">
         <span class="ticker-sym">CRWD</span>
         <span class="ticker-grade" data-grade-for="CRWD" hidden></span>
@@ -598,7 +598,7 @@
         <span class="ticker-chg" data-chg-for="CRWD" hidden></span>
       </span>
       <span class="ticker-sector">Software · Software Infrastructure</span>
-    </a><a class="ticker-card" href="?s=CRWV" data-ticker="CRWV" data-sector="Software" data-industry="Software Infrastructure">
+    </a><a class="ticker-card" href="?s=CRWV" data-ticker="CRWV" data-sector="Software" data-sector-group="Software &amp; IT services" data-industry="Software Infrastructure">
       <span class="ticker-card-head">
         <span class="ticker-sym">CRWV</span>
         <span class="ticker-grade" data-grade-for="CRWV" hidden></span>
@@ -608,7 +608,7 @@
         <span class="ticker-chg" data-chg-for="CRWV" hidden></span>
       </span>
       <span class="ticker-sector">Software · Software Infrastructure</span>
-    </a><a class="ticker-card" href="?s=DDOG" data-ticker="DDOG" data-sector="Software" data-industry="Software Applications">
+    </a><a class="ticker-card" href="?s=DDOG" data-ticker="DDOG" data-sector="Software" data-sector-group="Software &amp; IT services" data-industry="Software Applications">
       <span class="ticker-card-head">
         <span class="ticker-sym">DDOG</span>
         <span class="ticker-grade" data-grade-for="DDOG" hidden></span>
@@ -618,7 +618,7 @@
         <span class="ticker-chg" data-chg-for="DDOG" hidden></span>
       </span>
       <span class="ticker-sector">Software · Software Applications</span>
-    </a><a class="ticker-card" href="?s=DELL" data-ticker="DELL" data-sector="Hardware" data-industry="Computer Hardware">
+    </a><a class="ticker-card" href="?s=DELL" data-ticker="DELL" data-sector="Hardware" data-sector-group="Semis &amp; hardware" data-industry="Computer Hardware">
       <span class="ticker-card-head">
         <span class="ticker-sym">DELL</span>
         <span class="ticker-grade" data-grade-for="DELL" hidden></span>
@@ -628,7 +628,7 @@
         <span class="ticker-chg" data-chg-for="DELL" hidden></span>
       </span>
       <span class="ticker-sector">Hardware · Computer Hardware</span>
-    </a><a class="ticker-card" href="?s=DIS" data-ticker="DIS" data-sector="Media" data-industry="Entertainment">
+    </a><a class="ticker-card" href="?s=DIS" data-ticker="DIS" data-sector="Media" data-sector-group="Consumer &amp; media" data-industry="Entertainment">
       <span class="ticker-card-head">
         <span class="ticker-sym">DIS</span>
         <span class="ticker-grade" data-grade-for="DIS" hidden></span>
@@ -638,7 +638,7 @@
         <span class="ticker-chg" data-chg-for="DIS" hidden></span>
       </span>
       <span class="ticker-sector">Media · Entertainment</span>
-    </a><a class="ticker-card" href="?s=DRAM" data-ticker="DRAM" data-sector="Semis" data-industry="Semiconductors">
+    </a><a class="ticker-card" href="?s=DRAM" data-ticker="DRAM" data-sector="Semis" data-sector-group="Semis &amp; hardware" data-industry="Semiconductors">
       <span class="ticker-card-head">
         <span class="ticker-sym">DRAM</span>
         <span class="ticker-grade" data-grade-for="DRAM" hidden></span>
@@ -648,7 +648,7 @@
         <span class="ticker-chg" data-chg-for="DRAM" hidden></span>
       </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
-    </a><a class="ticker-card" href="?s=EWY" data-ticker="EWY" data-sector="ETF" data-industry="">
+    </a><a class="ticker-card" href="?s=EWY" data-ticker="EWY" data-sector="ETF" data-sector-group="ETF" data-industry="">
       <span class="ticker-card-head">
         <span class="ticker-sym">EWY</span>
         <span class="ticker-grade" data-grade-for="EWY" hidden></span>
@@ -658,7 +658,7 @@
         <span class="ticker-chg" data-chg-for="EWY" hidden></span>
       </span>
       <span class="ticker-sector">ETF</span>
-    </a><a class="ticker-card" href="?s=FTNT" data-ticker="FTNT" data-sector="Software" data-industry="Software Infrastructure">
+    </a><a class="ticker-card" href="?s=FTNT" data-ticker="FTNT" data-sector="Software" data-sector-group="Software &amp; IT services" data-industry="Software Infrastructure">
       <span class="ticker-card-head">
         <span class="ticker-sym">FTNT</span>
         <span class="ticker-grade" data-grade-for="FTNT" hidden></span>
@@ -668,7 +668,7 @@
         <span class="ticker-chg" data-chg-for="FTNT" hidden></span>
       </span>
       <span class="ticker-sector">Software · Software Infrastructure</span>
-    </a><a class="ticker-card" href="?s=GLD" data-ticker="GLD" data-sector="ETF" data-industry="Gold">
+    </a><a class="ticker-card" href="?s=GLD" data-ticker="GLD" data-sector="ETF" data-sector-group="ETF" data-industry="Gold">
       <span class="ticker-card-head">
         <span class="ticker-sym">GLD</span>
         <span class="ticker-grade" data-grade-for="GLD" hidden></span>
@@ -678,7 +678,7 @@
         <span class="ticker-chg" data-chg-for="GLD" hidden></span>
       </span>
       <span class="ticker-sector">ETF · Gold</span>
-    </a><a class="ticker-card" href="?s=GOOGL" data-ticker="GOOGL" data-sector="Mega-cap tech" data-industry="Internet Content &amp; Information">
+    </a><a class="ticker-card" href="?s=GOOGL" data-ticker="GOOGL" data-sector="Mega-cap tech" data-sector-group="Mega-cap tech" data-industry="Internet Content &amp; Information">
       <span class="ticker-card-head">
         <span class="ticker-sym">GOOGL</span>
         <span class="ticker-grade" data-grade-for="GOOGL" hidden></span>
@@ -688,7 +688,7 @@
         <span class="ticker-chg" data-chg-for="GOOGL" hidden></span>
       </span>
       <span class="ticker-sector">Mega-cap tech · Internet Content &amp; Information</span>
-    </a><a class="ticker-card" href="?s=GS" data-ticker="GS" data-sector="Bank" data-industry="Capital Markets">
+    </a><a class="ticker-card" href="?s=GS" data-ticker="GS" data-sector="Bank" data-sector-group="Financials" data-industry="Capital Markets">
       <span class="ticker-card-head">
         <span class="ticker-sym">GS</span>
         <span class="ticker-grade" data-grade-for="GS" hidden></span>
@@ -698,7 +698,7 @@
         <span class="ticker-chg" data-chg-for="GS" hidden></span>
       </span>
       <span class="ticker-sector">Bank · Capital Markets</span>
-    </a><a class="ticker-card" href="?s=HD" data-ticker="HD" data-sector="Retail" data-industry="Specialty Retail">
+    </a><a class="ticker-card" href="?s=HD" data-ticker="HD" data-sector="Retail" data-sector-group="Consumer &amp; media" data-industry="Specialty Retail">
       <span class="ticker-card-head">
         <span class="ticker-sym">HD</span>
         <span class="ticker-grade" data-grade-for="HD" hidden></span>
@@ -708,7 +708,7 @@
         <span class="ticker-chg" data-chg-for="HD" hidden></span>
       </span>
       <span class="ticker-sector">Retail · Specialty Retail</span>
-    </a><a class="ticker-card" href="?s=HOOD" data-ticker="HOOD" data-sector="Broker" data-industry="Capital Markets">
+    </a><a class="ticker-card" href="?s=HOOD" data-ticker="HOOD" data-sector="Broker" data-sector-group="Financials" data-industry="Capital Markets">
       <span class="ticker-card-head">
         <span class="ticker-sym">HOOD</span>
         <span class="ticker-grade" data-grade-for="HOOD" hidden></span>
@@ -718,7 +718,7 @@
         <span class="ticker-chg" data-chg-for="HOOD" hidden></span>
       </span>
       <span class="ticker-sector">Broker · Capital Markets</span>
-    </a><a class="ticker-card" href="?s=IBM" data-ticker="IBM" data-sector="Tech services" data-industry="Information Technology Services">
+    </a><a class="ticker-card" href="?s=IBM" data-ticker="IBM" data-sector="Tech services" data-sector-group="Software &amp; IT services" data-industry="Information Technology Services">
       <span class="ticker-card-head">
         <span class="ticker-sym">IBM</span>
         <span class="ticker-grade" data-grade-for="IBM" hidden></span>
@@ -728,7 +728,7 @@
         <span class="ticker-chg" data-chg-for="IBM" hidden></span>
       </span>
       <span class="ticker-sector">Tech services · Information Technology Services</span>
-    </a><a class="ticker-card" href="?s=INTC" data-ticker="INTC" data-sector="Semis" data-industry="Semiconductors">
+    </a><a class="ticker-card" href="?s=INTC" data-ticker="INTC" data-sector="Semis" data-sector-group="Semis &amp; hardware" data-industry="Semiconductors">
       <span class="ticker-card-head">
         <span class="ticker-sym">INTC</span>
         <span class="ticker-grade" data-grade-for="INTC" hidden></span>
@@ -738,7 +738,7 @@
         <span class="ticker-chg" data-chg-for="INTC" hidden></span>
       </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
-    </a><a class="ticker-card" href="?s=INTU" data-ticker="INTU" data-sector="Software" data-industry="Software Applications">
+    </a><a class="ticker-card" href="?s=INTU" data-ticker="INTU" data-sector="Software" data-sector-group="Software &amp; IT services" data-industry="Software Applications">
       <span class="ticker-card-head">
         <span class="ticker-sym">INTU</span>
         <span class="ticker-grade" data-grade-for="INTU" hidden></span>
@@ -748,7 +748,7 @@
         <span class="ticker-chg" data-chg-for="INTU" hidden></span>
       </span>
       <span class="ticker-sector">Software · Software Applications</span>
-    </a><a class="ticker-card" href="?s=IWM" data-ticker="IWM" data-sector="ETF" data-industry="">
+    </a><a class="ticker-card" href="?s=IWM" data-ticker="IWM" data-sector="ETF" data-sector-group="ETF" data-industry="">
       <span class="ticker-card-head">
         <span class="ticker-sym">IWM</span>
         <span class="ticker-grade" data-grade-for="IWM" hidden></span>
@@ -758,7 +758,7 @@
         <span class="ticker-chg" data-chg-for="IWM" hidden></span>
       </span>
       <span class="ticker-sector">ETF</span>
-    </a><a class="ticker-card" href="?s=JPM" data-ticker="JPM" data-sector="Bank" data-industry="Banks - Diversified">
+    </a><a class="ticker-card" href="?s=JPM" data-ticker="JPM" data-sector="Bank" data-sector-group="Financials" data-industry="Banks - Diversified">
       <span class="ticker-card-head">
         <span class="ticker-sym">JPM</span>
         <span class="ticker-grade" data-grade-for="JPM" hidden></span>
@@ -768,7 +768,7 @@
         <span class="ticker-chg" data-chg-for="JPM" hidden></span>
       </span>
       <span class="ticker-sector">Bank · Banks - Diversified</span>
-    </a><a class="ticker-card" href="?s=KWEB" data-ticker="KWEB" data-sector="ETF" data-industry="">
+    </a><a class="ticker-card" href="?s=KWEB" data-ticker="KWEB" data-sector="ETF" data-sector-group="ETF" data-industry="">
       <span class="ticker-card-head">
         <span class="ticker-sym">KWEB</span>
         <span class="ticker-grade" data-grade-for="KWEB" hidden></span>
@@ -778,7 +778,7 @@
         <span class="ticker-chg" data-chg-for="KWEB" hidden></span>
       </span>
       <span class="ticker-sector">ETF</span>
-    </a><a class="ticker-card" href="?s=LLY" data-ticker="LLY" data-sector="Pharma" data-industry="Drug Manufacturers - General">
+    </a><a class="ticker-card" href="?s=LLY" data-ticker="LLY" data-sector="Pharma" data-sector-group="Healthcare" data-industry="Drug Manufacturers - General">
       <span class="ticker-card-head">
         <span class="ticker-sym">LLY</span>
         <span class="ticker-grade" data-grade-for="LLY" hidden></span>
@@ -788,7 +788,7 @@
         <span class="ticker-chg" data-chg-for="LLY" hidden></span>
       </span>
       <span class="ticker-sector">Pharma · Drug Manufacturers - General</span>
-    </a><a class="ticker-card" href="?s=MA" data-ticker="MA" data-sector="Payments" data-industry="Credit Services">
+    </a><a class="ticker-card" href="?s=MA" data-ticker="MA" data-sector="Payments" data-sector-group="Financials" data-industry="Credit Services">
       <span class="ticker-card-head">
         <span class="ticker-sym">MA</span>
         <span class="ticker-grade" data-grade-for="MA" hidden></span>
@@ -798,7 +798,7 @@
         <span class="ticker-chg" data-chg-for="MA" hidden></span>
       </span>
       <span class="ticker-sector">Payments · Credit Services</span>
-    </a><a class="ticker-card" href="?s=MDB" data-ticker="MDB" data-sector="Software" data-industry="Software Infrastructure">
+    </a><a class="ticker-card" href="?s=MDB" data-ticker="MDB" data-sector="Software" data-sector-group="Software &amp; IT services" data-industry="Software Infrastructure">
       <span class="ticker-card-head">
         <span class="ticker-sym">MDB</span>
         <span class="ticker-grade" data-grade-for="MDB" hidden></span>
@@ -808,7 +808,7 @@
         <span class="ticker-chg" data-chg-for="MDB" hidden></span>
       </span>
       <span class="ticker-sector">Software · Software Infrastructure</span>
-    </a><a class="ticker-card" href="?s=META" data-ticker="META" data-sector="Mega-cap tech" data-industry="Internet Content &amp; Information">
+    </a><a class="ticker-card" href="?s=META" data-ticker="META" data-sector="Mega-cap tech" data-sector-group="Mega-cap tech" data-industry="Internet Content &amp; Information">
       <span class="ticker-card-head">
         <span class="ticker-sym">META</span>
         <span class="ticker-grade" data-grade-for="META" hidden></span>
@@ -818,7 +818,7 @@
         <span class="ticker-chg" data-chg-for="META" hidden></span>
       </span>
       <span class="ticker-sector">Mega-cap tech · Internet Content &amp; Information</span>
-    </a><a class="ticker-card" href="?s=MRK" data-ticker="MRK" data-sector="Pharma" data-industry="Drug Manufacturers - General">
+    </a><a class="ticker-card" href="?s=MRK" data-ticker="MRK" data-sector="Pharma" data-sector-group="Healthcare" data-industry="Drug Manufacturers - General">
       <span class="ticker-card-head">
         <span class="ticker-sym">MRK</span>
         <span class="ticker-grade" data-grade-for="MRK" hidden></span>
@@ -828,7 +828,7 @@
         <span class="ticker-chg" data-chg-for="MRK" hidden></span>
       </span>
       <span class="ticker-sector">Pharma · Drug Manufacturers - General</span>
-    </a><a class="ticker-card" href="?s=MRNA" data-ticker="MRNA" data-sector="Pharma" data-industry="Biotechnology">
+    </a><a class="ticker-card" href="?s=MRNA" data-ticker="MRNA" data-sector="Pharma" data-sector-group="Healthcare" data-industry="Biotechnology">
       <span class="ticker-card-head">
         <span class="ticker-sym">MRNA</span>
         <span class="ticker-grade" data-grade-for="MRNA" hidden></span>
@@ -838,7 +838,7 @@
         <span class="ticker-chg" data-chg-for="MRNA" hidden></span>
       </span>
       <span class="ticker-sector">Pharma · Biotechnology</span>
-    </a><a class="ticker-card" href="?s=MRVL" data-ticker="MRVL" data-sector="Semis" data-industry="Semiconductors">
+    </a><a class="ticker-card" href="?s=MRVL" data-ticker="MRVL" data-sector="Semis" data-sector-group="Semis &amp; hardware" data-industry="Semiconductors">
       <span class="ticker-card-head">
         <span class="ticker-sym">MRVL</span>
         <span class="ticker-grade" data-grade-for="MRVL" hidden></span>
@@ -848,7 +848,7 @@
         <span class="ticker-chg" data-chg-for="MRVL" hidden></span>
       </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
-    </a><a class="ticker-card" href="?s=MS" data-ticker="MS" data-sector="Bank" data-industry="Capital Markets">
+    </a><a class="ticker-card" href="?s=MS" data-ticker="MS" data-sector="Bank" data-sector-group="Financials" data-industry="Capital Markets">
       <span class="ticker-card-head">
         <span class="ticker-sym">MS</span>
         <span class="ticker-grade" data-grade-for="MS" hidden></span>
@@ -858,7 +858,7 @@
         <span class="ticker-chg" data-chg-for="MS" hidden></span>
       </span>
       <span class="ticker-sector">Bank · Capital Markets</span>
-    </a><a class="ticker-card" href="?s=MSFT" data-ticker="MSFT" data-sector="Mega-cap tech" data-industry="Software Infrastructure">
+    </a><a class="ticker-card" href="?s=MSFT" data-ticker="MSFT" data-sector="Mega-cap tech" data-sector-group="Mega-cap tech" data-industry="Software Infrastructure">
       <span class="ticker-card-head">
         <span class="ticker-sym">MSFT</span>
         <span class="ticker-grade" data-grade-for="MSFT" hidden></span>
@@ -868,7 +868,7 @@
         <span class="ticker-chg" data-chg-for="MSFT" hidden></span>
       </span>
       <span class="ticker-sector">Mega-cap tech · Software Infrastructure</span>
-    </a><a class="ticker-card" href="?s=MU" data-ticker="MU" data-sector="Semis" data-industry="Semiconductors">
+    </a><a class="ticker-card" href="?s=MU" data-ticker="MU" data-sector="Semis" data-sector-group="Semis &amp; hardware" data-industry="Semiconductors">
       <span class="ticker-card-head">
         <span class="ticker-sym">MU</span>
         <span class="ticker-grade" data-grade-for="MU" hidden></span>
@@ -878,7 +878,7 @@
         <span class="ticker-chg" data-chg-for="MU" hidden></span>
       </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
-    </a><a class="ticker-card" href="?s=NFLX" data-ticker="NFLX" data-sector="Mega-cap tech" data-industry="Entertainment">
+    </a><a class="ticker-card" href="?s=NFLX" data-ticker="NFLX" data-sector="Mega-cap tech" data-sector-group="Mega-cap tech" data-industry="Entertainment">
       <span class="ticker-card-head">
         <span class="ticker-sym">NFLX</span>
         <span class="ticker-grade" data-grade-for="NFLX" hidden></span>
@@ -888,7 +888,7 @@
         <span class="ticker-chg" data-chg-for="NFLX" hidden></span>
       </span>
       <span class="ticker-sector">Mega-cap tech · Entertainment</span>
-    </a><a class="ticker-card" href="?s=NKE" data-ticker="NKE" data-sector="Apparel" data-industry="Apparel Retail">
+    </a><a class="ticker-card" href="?s=NKE" data-ticker="NKE" data-sector="Apparel" data-sector-group="Consumer &amp; media" data-industry="Apparel Retail">
       <span class="ticker-card-head">
         <span class="ticker-sym">NKE</span>
         <span class="ticker-grade" data-grade-for="NKE" hidden></span>
@@ -898,7 +898,7 @@
         <span class="ticker-chg" data-chg-for="NKE" hidden></span>
       </span>
       <span class="ticker-sector">Apparel · Apparel Retail</span>
-    </a><a class="ticker-card" href="?s=NOW" data-ticker="NOW" data-sector="Software" data-industry="Software Applications">
+    </a><a class="ticker-card" href="?s=NOW" data-ticker="NOW" data-sector="Software" data-sector-group="Software &amp; IT services" data-industry="Software Applications">
       <span class="ticker-card-head">
         <span class="ticker-sym">NOW</span>
         <span class="ticker-grade" data-grade-for="NOW" hidden></span>
@@ -908,7 +908,7 @@
         <span class="ticker-chg" data-chg-for="NOW" hidden></span>
       </span>
       <span class="ticker-sector">Software · Software Applications</span>
-    </a><a class="ticker-card" href="?s=NVDA" data-ticker="NVDA" data-sector="Mega-cap tech" data-industry="Semiconductors">
+    </a><a class="ticker-card" href="?s=NVDA" data-ticker="NVDA" data-sector="Mega-cap tech" data-sector-group="Mega-cap tech" data-industry="Semiconductors">
       <span class="ticker-card-head">
         <span class="ticker-sym">NVDA</span>
         <span class="ticker-grade" data-grade-for="NVDA" hidden></span>
@@ -918,7 +918,7 @@
         <span class="ticker-chg" data-chg-for="NVDA" hidden></span>
       </span>
       <span class="ticker-sector">Mega-cap tech · Semiconductors</span>
-    </a><a class="ticker-card" href="?s=NVO" data-ticker="NVO" data-sector="Pharma" data-industry="Drug Manufacturers - General">
+    </a><a class="ticker-card" href="?s=NVO" data-ticker="NVO" data-sector="Pharma" data-sector-group="Healthcare" data-industry="Drug Manufacturers - General">
       <span class="ticker-card-head">
         <span class="ticker-sym">NVO</span>
         <span class="ticker-grade" data-grade-for="NVO" hidden></span>
@@ -928,7 +928,7 @@
         <span class="ticker-chg" data-chg-for="NVO" hidden></span>
       </span>
       <span class="ticker-sector">Pharma · Drug Manufacturers - General</span>
-    </a><a class="ticker-card" href="?s=OKTA" data-ticker="OKTA" data-sector="Software" data-industry="Software Infrastructure">
+    </a><a class="ticker-card" href="?s=OKTA" data-ticker="OKTA" data-sector="Software" data-sector-group="Software &amp; IT services" data-industry="Software Infrastructure">
       <span class="ticker-card-head">
         <span class="ticker-sym">OKTA</span>
         <span class="ticker-grade" data-grade-for="OKTA" hidden></span>
@@ -938,7 +938,7 @@
         <span class="ticker-chg" data-chg-for="OKTA" hidden></span>
       </span>
       <span class="ticker-sector">Software · Software Infrastructure</span>
-    </a><a class="ticker-card" href="?s=ORCL" data-ticker="ORCL" data-sector="Software" data-industry="Software Infrastructure">
+    </a><a class="ticker-card" href="?s=ORCL" data-ticker="ORCL" data-sector="Software" data-sector-group="Software &amp; IT services" data-industry="Software Infrastructure">
       <span class="ticker-card-head">
         <span class="ticker-sym">ORCL</span>
         <span class="ticker-grade" data-grade-for="ORCL" hidden></span>
@@ -948,7 +948,7 @@
         <span class="ticker-chg" data-chg-for="ORCL" hidden></span>
       </span>
       <span class="ticker-sector">Software · Software Infrastructure</span>
-    </a><a class="ticker-card" href="?s=PANW" data-ticker="PANW" data-sector="Software" data-industry="Software Infrastructure">
+    </a><a class="ticker-card" href="?s=PANW" data-ticker="PANW" data-sector="Software" data-sector-group="Software &amp; IT services" data-industry="Software Infrastructure">
       <span class="ticker-card-head">
         <span class="ticker-sym">PANW</span>
         <span class="ticker-grade" data-grade-for="PANW" hidden></span>
@@ -958,7 +958,7 @@
         <span class="ticker-chg" data-chg-for="PANW" hidden></span>
       </span>
       <span class="ticker-sector">Software · Software Infrastructure</span>
-    </a><a class="ticker-card" href="?s=PLTR" data-ticker="PLTR" data-sector="Software" data-industry="Software Infrastructure">
+    </a><a class="ticker-card" href="?s=PLTR" data-ticker="PLTR" data-sector="Software" data-sector-group="Software &amp; IT services" data-industry="Software Infrastructure">
       <span class="ticker-card-head">
         <span class="ticker-sym">PLTR</span>
         <span class="ticker-grade" data-grade-for="PLTR" hidden></span>
@@ -968,7 +968,7 @@
         <span class="ticker-chg" data-chg-for="PLTR" hidden></span>
       </span>
       <span class="ticker-sector">Software · Software Infrastructure</span>
-    </a><a class="ticker-card" href="?s=PYPL" data-ticker="PYPL" data-sector="Payments" data-industry="Credit Services">
+    </a><a class="ticker-card" href="?s=PYPL" data-ticker="PYPL" data-sector="Payments" data-sector-group="Financials" data-industry="Credit Services">
       <span class="ticker-card-head">
         <span class="ticker-sym">PYPL</span>
         <span class="ticker-grade" data-grade-for="PYPL" hidden></span>
@@ -978,7 +978,7 @@
         <span class="ticker-chg" data-chg-for="PYPL" hidden></span>
       </span>
       <span class="ticker-sector">Payments · Credit Services</span>
-    </a><a class="ticker-card" href="?s=QCOM" data-ticker="QCOM" data-sector="Semis" data-industry="Semiconductors">
+    </a><a class="ticker-card" href="?s=QCOM" data-ticker="QCOM" data-sector="Semis" data-sector-group="Semis &amp; hardware" data-industry="Semiconductors">
       <span class="ticker-card-head">
         <span class="ticker-sym">QCOM</span>
         <span class="ticker-grade" data-grade-for="QCOM" hidden></span>
@@ -988,7 +988,7 @@
         <span class="ticker-chg" data-chg-for="QCOM" hidden></span>
       </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
-    </a><a class="ticker-card" href="?s=QQQ" data-ticker="QQQ" data-sector="ETF" data-industry="">
+    </a><a class="ticker-card" href="?s=QQQ" data-ticker="QQQ" data-sector="ETF" data-sector-group="ETF" data-industry="">
       <span class="ticker-card-head">
         <span class="ticker-sym">QQQ</span>
         <span class="ticker-grade" data-grade-for="QQQ" hidden></span>
@@ -998,7 +998,7 @@
         <span class="ticker-chg" data-chg-for="QQQ" hidden></span>
       </span>
       <span class="ticker-sector">ETF</span>
-    </a><a class="ticker-card" href="?s=RKLB" data-ticker="RKLB" data-sector="Space" data-industry="Aerospace &amp; Defense">
+    </a><a class="ticker-card" href="?s=RKLB" data-ticker="RKLB" data-sector="Space" data-sector-group="Industrials &amp; energy" data-industry="Aerospace &amp; Defense">
       <span class="ticker-card-head">
         <span class="ticker-sym">RKLB</span>
         <span class="ticker-grade" data-grade-for="RKLB" hidden></span>
@@ -1008,7 +1008,7 @@
         <span class="ticker-chg" data-chg-for="RKLB" hidden></span>
       </span>
       <span class="ticker-sector">Space · Aerospace &amp; Defense</span>
-    </a><a class="ticker-card" href="?s=SBUX" data-ticker="SBUX" data-sector="Restaurants" data-industry="Restaurants">
+    </a><a class="ticker-card" href="?s=SBUX" data-ticker="SBUX" data-sector="Restaurants" data-sector-group="Consumer &amp; media" data-industry="Restaurants">
       <span class="ticker-card-head">
         <span class="ticker-sym">SBUX</span>
         <span class="ticker-grade" data-grade-for="SBUX" hidden></span>
@@ -1018,7 +1018,7 @@
         <span class="ticker-chg" data-chg-for="SBUX" hidden></span>
       </span>
       <span class="ticker-sector">Restaurants · Restaurants</span>
-    </a><a class="ticker-card" href="?s=SCHW" data-ticker="SCHW" data-sector="Broker" data-industry="Capital Markets">
+    </a><a class="ticker-card" href="?s=SCHW" data-ticker="SCHW" data-sector="Broker" data-sector-group="Financials" data-industry="Capital Markets">
       <span class="ticker-card-head">
         <span class="ticker-sym">SCHW</span>
         <span class="ticker-grade" data-grade-for="SCHW" hidden></span>
@@ -1028,7 +1028,7 @@
         <span class="ticker-chg" data-chg-for="SCHW" hidden></span>
       </span>
       <span class="ticker-sector">Broker · Capital Markets</span>
-    </a><a class="ticker-card" href="?s=SHOP" data-ticker="SHOP" data-sector="Software" data-industry="Software Applications">
+    </a><a class="ticker-card" href="?s=SHOP" data-ticker="SHOP" data-sector="Software" data-sector-group="Software &amp; IT services" data-industry="Software Applications">
       <span class="ticker-card-head">
         <span class="ticker-sym">SHOP</span>
         <span class="ticker-grade" data-grade-for="SHOP" hidden></span>
@@ -1038,7 +1038,7 @@
         <span class="ticker-chg" data-chg-for="SHOP" hidden></span>
       </span>
       <span class="ticker-sector">Software · Software Applications</span>
-    </a><a class="ticker-card" href="?s=SLV" data-ticker="SLV" data-sector="ETF" data-industry="Silver">
+    </a><a class="ticker-card" href="?s=SLV" data-ticker="SLV" data-sector="ETF" data-sector-group="ETF" data-industry="Silver">
       <span class="ticker-card-head">
         <span class="ticker-sym">SLV</span>
         <span class="ticker-grade" data-grade-for="SLV" hidden></span>
@@ -1048,7 +1048,7 @@
         <span class="ticker-chg" data-chg-for="SLV" hidden></span>
       </span>
       <span class="ticker-sector">ETF · Silver</span>
-    </a><a class="ticker-card" href="?s=SMCI" data-ticker="SMCI" data-sector="Semis" data-industry="Semiconductors">
+    </a><a class="ticker-card" href="?s=SMCI" data-ticker="SMCI" data-sector="Semis" data-sector-group="Semis &amp; hardware" data-industry="Semiconductors">
       <span class="ticker-card-head">
         <span class="ticker-sym">SMCI</span>
         <span class="ticker-grade" data-grade-for="SMCI" hidden></span>
@@ -1058,7 +1058,7 @@
         <span class="ticker-chg" data-chg-for="SMCI" hidden></span>
       </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
-    </a><a class="ticker-card" href="?s=SMH" data-ticker="SMH" data-sector="ETF" data-industry="">
+    </a><a class="ticker-card" href="?s=SMH" data-ticker="SMH" data-sector="ETF" data-sector-group="ETF" data-industry="">
       <span class="ticker-card-head">
         <span class="ticker-sym">SMH</span>
         <span class="ticker-grade" data-grade-for="SMH" hidden></span>
@@ -1068,7 +1068,7 @@
         <span class="ticker-chg" data-chg-for="SMH" hidden></span>
       </span>
       <span class="ticker-sector">ETF</span>
-    </a><a class="ticker-card" href="?s=SNDK" data-ticker="SNDK" data-sector="Storage" data-industry="Semiconductors">
+    </a><a class="ticker-card" href="?s=SNDK" data-ticker="SNDK" data-sector="Storage" data-sector-group="Semis &amp; hardware" data-industry="Semiconductors">
       <span class="ticker-card-head">
         <span class="ticker-sym">SNDK</span>
         <span class="ticker-grade" data-grade-for="SNDK" hidden></span>
@@ -1078,7 +1078,7 @@
         <span class="ticker-chg" data-chg-for="SNDK" hidden></span>
       </span>
       <span class="ticker-sector">Storage · Semiconductors</span>
-    </a><a class="ticker-card" href="?s=SNOW" data-ticker="SNOW" data-sector="Software" data-industry="Software Infrastructure">
+    </a><a class="ticker-card" href="?s=SNOW" data-ticker="SNOW" data-sector="Software" data-sector-group="Software &amp; IT services" data-industry="Software Infrastructure">
       <span class="ticker-card-head">
         <span class="ticker-sym">SNOW</span>
         <span class="ticker-grade" data-grade-for="SNOW" hidden></span>
@@ -1088,7 +1088,7 @@
         <span class="ticker-chg" data-chg-for="SNOW" hidden></span>
       </span>
       <span class="ticker-sector">Software · Software Infrastructure</span>
-    </a><a class="ticker-card" href="?s=SPCX" data-ticker="SPCX" data-sector="Space" data-industry="Aerospace &amp; Defense">
+    </a><a class="ticker-card" href="?s=SPCX" data-ticker="SPCX" data-sector="Space" data-sector-group="Industrials &amp; energy" data-industry="Aerospace &amp; Defense">
       <span class="ticker-card-head">
         <span class="ticker-sym">SPCX</span>
         <span class="ticker-grade" data-grade-for="SPCX" hidden></span>
@@ -1098,7 +1098,7 @@
         <span class="ticker-chg" data-chg-for="SPCX" hidden></span>
       </span>
       <span class="ticker-sector">Space · Aerospace &amp; Defense</span>
-    </a><a class="ticker-card" href="?s=SPY" data-ticker="SPY" data-sector="ETF" data-industry="">
+    </a><a class="ticker-card" href="?s=SPY" data-ticker="SPY" data-sector="ETF" data-sector-group="ETF" data-industry="">
       <span class="ticker-card-head">
         <span class="ticker-sym">SPY</span>
         <span class="ticker-grade" data-grade-for="SPY" hidden></span>
@@ -1108,7 +1108,7 @@
         <span class="ticker-chg" data-chg-for="SPY" hidden></span>
       </span>
       <span class="ticker-sector">ETF</span>
-    </a><a class="ticker-card" href="?s=TEAM" data-ticker="TEAM" data-sector="Software" data-industry="Software Applications">
+    </a><a class="ticker-card" href="?s=TEAM" data-ticker="TEAM" data-sector="Software" data-sector-group="Software &amp; IT services" data-industry="Software Applications">
       <span class="ticker-card-head">
         <span class="ticker-sym">TEAM</span>
         <span class="ticker-grade" data-grade-for="TEAM" hidden></span>
@@ -1118,7 +1118,7 @@
         <span class="ticker-chg" data-chg-for="TEAM" hidden></span>
       </span>
       <span class="ticker-sector">Software · Software Applications</span>
-    </a><a class="ticker-card" href="?s=TGT" data-ticker="TGT" data-sector="Retail" data-industry="Discount Stores">
+    </a><a class="ticker-card" href="?s=TGT" data-ticker="TGT" data-sector="Retail" data-sector-group="Consumer &amp; media" data-industry="Discount Stores">
       <span class="ticker-card-head">
         <span class="ticker-sym">TGT</span>
         <span class="ticker-grade" data-grade-for="TGT" hidden></span>
@@ -1128,7 +1128,7 @@
         <span class="ticker-chg" data-chg-for="TGT" hidden></span>
       </span>
       <span class="ticker-sector">Retail · Discount Stores</span>
-    </a><a class="ticker-card" href="?s=TLT" data-ticker="TLT" data-sector="ETF" data-industry="">
+    </a><a class="ticker-card" href="?s=TLT" data-ticker="TLT" data-sector="ETF" data-sector-group="ETF" data-industry="">
       <span class="ticker-card-head">
         <span class="ticker-sym">TLT</span>
         <span class="ticker-grade" data-grade-for="TLT" hidden></span>
@@ -1138,7 +1138,7 @@
         <span class="ticker-chg" data-chg-for="TLT" hidden></span>
       </span>
       <span class="ticker-sector">ETF</span>
-    </a><a class="ticker-card" href="?s=TSLA" data-ticker="TSLA" data-sector="Mega-cap tech" data-industry="Auto Manufacturers">
+    </a><a class="ticker-card" href="?s=TSLA" data-ticker="TSLA" data-sector="Mega-cap tech" data-sector-group="Mega-cap tech" data-industry="Auto Manufacturers">
       <span class="ticker-card-head">
         <span class="ticker-sym">TSLA</span>
         <span class="ticker-grade" data-grade-for="TSLA" hidden></span>
@@ -1148,7 +1148,7 @@
         <span class="ticker-chg" data-chg-for="TSLA" hidden></span>
       </span>
       <span class="ticker-sector">Mega-cap tech · Auto Manufacturers</span>
-    </a><a class="ticker-card" href="?s=TSM" data-ticker="TSM" data-sector="Semis" data-industry="Semiconductors">
+    </a><a class="ticker-card" href="?s=TSM" data-ticker="TSM" data-sector="Semis" data-sector-group="Semis &amp; hardware" data-industry="Semiconductors">
       <span class="ticker-card-head">
         <span class="ticker-sym">TSM</span>
         <span class="ticker-grade" data-grade-for="TSM" hidden></span>
@@ -1158,7 +1158,7 @@
         <span class="ticker-chg" data-chg-for="TSM" hidden></span>
       </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
-    </a><a class="ticker-card" href="?s=TXN" data-ticker="TXN" data-sector="Semis" data-industry="Semiconductors">
+    </a><a class="ticker-card" href="?s=TXN" data-ticker="TXN" data-sector="Semis" data-sector-group="Semis &amp; hardware" data-industry="Semiconductors">
       <span class="ticker-card-head">
         <span class="ticker-sym">TXN</span>
         <span class="ticker-grade" data-grade-for="TXN" hidden></span>
@@ -1168,7 +1168,7 @@
         <span class="ticker-chg" data-chg-for="TXN" hidden></span>
       </span>
       <span class="ticker-sector">Semis · Semiconductors</span>
-    </a><a class="ticker-card" href="?s=UNH" data-ticker="UNH" data-sector="Insurance" data-industry="Healthcare Plans">
+    </a><a class="ticker-card" href="?s=UNH" data-ticker="UNH" data-sector="Insurance" data-sector-group="Healthcare" data-industry="Healthcare Plans">
       <span class="ticker-card-head">
         <span class="ticker-sym">UNH</span>
         <span class="ticker-grade" data-grade-for="UNH" hidden></span>
@@ -1178,7 +1178,7 @@
         <span class="ticker-chg" data-chg-for="UNH" hidden></span>
       </span>
       <span class="ticker-sector">Insurance · Healthcare Plans</span>
-    </a><a class="ticker-card" href="?s=USO" data-ticker="USO" data-sector="ETF" data-industry="">
+    </a><a class="ticker-card" href="?s=USO" data-ticker="USO" data-sector="ETF" data-sector-group="ETF" data-industry="">
       <span class="ticker-card-head">
         <span class="ticker-sym">USO</span>
         <span class="ticker-grade" data-grade-for="USO" hidden></span>
@@ -1188,7 +1188,7 @@
         <span class="ticker-chg" data-chg-for="USO" hidden></span>
       </span>
       <span class="ticker-sector">ETF</span>
-    </a><a class="ticker-card" href="?s=UVXY" data-ticker="UVXY" data-sector="ETF" data-industry="">
+    </a><a class="ticker-card" href="?s=UVXY" data-ticker="UVXY" data-sector="ETF" data-sector-group="ETF" data-industry="">
       <span class="ticker-card-head">
         <span class="ticker-sym">UVXY</span>
         <span class="ticker-grade" data-grade-for="UVXY" hidden></span>
@@ -1198,7 +1198,7 @@
         <span class="ticker-chg" data-chg-for="UVXY" hidden></span>
       </span>
       <span class="ticker-sector">ETF</span>
-    </a><a class="ticker-card" href="?s=V" data-ticker="V" data-sector="Payments" data-industry="Credit Services">
+    </a><a class="ticker-card" href="?s=V" data-ticker="V" data-sector="Payments" data-sector-group="Financials" data-industry="Credit Services">
       <span class="ticker-card-head">
         <span class="ticker-sym">V</span>
         <span class="ticker-grade" data-grade-for="V" hidden></span>
@@ -1208,7 +1208,7 @@
         <span class="ticker-chg" data-chg-for="V" hidden></span>
       </span>
       <span class="ticker-sector">Payments · Credit Services</span>
-    </a><a class="ticker-card" href="?s=VRT" data-ticker="VRT" data-sector="Data center" data-industry="Electrical Equipment &amp; Parts">
+    </a><a class="ticker-card" href="?s=VRT" data-ticker="VRT" data-sector="Data center" data-sector-group="Industrials &amp; energy" data-industry="Electrical Equipment &amp; Parts">
       <span class="ticker-card-head">
         <span class="ticker-sym">VRT</span>
         <span class="ticker-grade" data-grade-for="VRT" hidden></span>
@@ -1218,7 +1218,7 @@
         <span class="ticker-chg" data-chg-for="VRT" hidden></span>
       </span>
       <span class="ticker-sector">Data center · Electrical Equipment &amp; Parts</span>
-    </a><a class="ticker-card" href="?s=VST" data-ticker="VST" data-sector="Power" data-industry="Utilities - Independent Power Producers">
+    </a><a class="ticker-card" href="?s=VST" data-ticker="VST" data-sector="Power" data-sector-group="Industrials &amp; energy" data-industry="Utilities - Independent Power Producers">
       <span class="ticker-card-head">
         <span class="ticker-sym">VST</span>
         <span class="ticker-grade" data-grade-for="VST" hidden></span>
@@ -1228,7 +1228,7 @@
         <span class="ticker-chg" data-chg-for="VST" hidden></span>
       </span>
       <span class="ticker-sector">Power · Utilities - Independent Power Producers</span>
-    </a><a class="ticker-card" href="?s=WDC" data-ticker="WDC" data-sector="Storage" data-industry="">
+    </a><a class="ticker-card" href="?s=WDC" data-ticker="WDC" data-sector="Storage" data-sector-group="Semis &amp; hardware" data-industry="Computer Hardware">
       <span class="ticker-card-head">
         <span class="ticker-sym">WDC</span>
         <span class="ticker-grade" data-grade-for="WDC" hidden></span>
@@ -1237,8 +1237,8 @@
         <span class="ticker-spot" data-spot-for="WDC"></span>
         <span class="ticker-chg" data-chg-for="WDC" hidden></span>
       </span>
-      <span class="ticker-sector">Storage</span>
-    </a><a class="ticker-card" href="?s=WMT" data-ticker="WMT" data-sector="Retail" data-industry="Discount Stores">
+      <span class="ticker-sector">Storage · Computer Hardware</span>
+    </a><a class="ticker-card" href="?s=WMT" data-ticker="WMT" data-sector="Retail" data-sector-group="Consumer &amp; media" data-industry="Discount Stores">
       <span class="ticker-card-head">
         <span class="ticker-sym">WMT</span>
         <span class="ticker-grade" data-grade-for="WMT" hidden></span>
@@ -1356,14 +1356,14 @@
         <p><b>Technicals.</b> RSI movement and reversal-confirmed extremes (oversold-and-turning +2, overbought-and-turning only &minus;1), MACD, the moving-average stack, streaks, confirmed support/resistance breaks, and 52-week position describe the chart. Price/volume dislocation is <b>one capped standardized-move family</b>: 5-, 10- and 20-session return z-scores plus volume z, interpreted with ATR distance and Bollinger location. Trend-aligned expansion may confirm continuation only when the latest confirmed bar and its volume agree; conflicting extreme horizons fail neutral. An unsupported upside extreme feeds exhaustion; a downside extreme earns mean-reversion credit only after support holds on drying volume. <b>Unsigned raw relative volume never earns or loses a Technicals point.</b></p>
         <p><b>Mechanicals.</b> Unusual options flow, open-interest call/put skew, current FINRA short interest and <b>direction-signed</b> unusual underlying volume ask what positioning and participation are doing. Put-side flow and open interest need a clearer skew (call/put at or under 0.5) to read bearish, because puts are often hedges; heavy short interest only reads as a squeeze when shorts are covering and the price is rising. A volume spike can support the move&rsquo;s actual direction here; raw volume by itself is never automatically bullish.</p>
         <p><b>Narrative.</b> AI-read recent-news catalysts (good +2 / bad -3), an active sector tailwind/headwind (&plusmn;2, faded by lifecycle), and current social sentiment (&plusmn;1) describe the story driving the name. Systemic tape inputs are handled by the regime overlay instead of being restacked as ticker-level Narrative points.</p>
-        <p><b>IV Cost (&minus;2&hellip;+1).</b> The current ATM ~30-day IV percentile/z versus the name&rsquo;s own history remains visible interpretation and option-structure context. Grade points come from the fresh eligible cohort&rsquo;s universe-relative standardization; if the cohort has fewer than 10 usable names or no meaningful dispersion, the IV contribution is neutral. Relatively expensive premium reduces call and put conviction equally, cheap premium adds less, and the adjustment cannot flip the side. A materially inverted front end adds only a small &minus;0.5 penalty when unexplained; an earnings or scheduled-macro event that explains the inversion owns that risk, so it is not counted twice.</p>
+        <p><b>IV Cost (&minus;2&hellip;+1).</b> Uses the site&rsquo;s one &ldquo;are the options expensive?&rdquo; rule, shared with Top Picks, the Strategy builder and Trending IV. Today&rsquo;s ATM ~30-day IV is ranked inside the name&rsquo;s own saved history. <b>Cheap</b> (bottom fifth) adds 1 point. <b>Rich</b> (top fifth <i>and</i> above the stock&rsquo;s 30-day realized volatility) costs 2 points; <b>Very rich</b> (top tenth, same realized check) costs the same 2 points here and is the only band where Top Picks sells a credit spread. A high percentile while IV is at or below realized volatility counts as Normal, because the options are only keeping up with the stock&rsquo;s actual moves. Expensive premium reduces call and put conviction equally, cheap premium adds less, and the adjustment cannot flip the side. A materially inverted front end adds only a small &minus;0.5 penalty when unexplained; an earnings or scheduled-macro event that explains the inversion owns that risk, so it is not counted twice. Earnings inside 14 days is shown as a tag and never changes the band.</p>
         <p><b>Entry timing (execution-only, &minus;8 &hellip; +2).</b> Asset quality aside, <i>is now a good moment?</i> One aligned confirmed-daily OHLCV series feeds five component groups: extension/exhaustion, pullback/setup quality, momentum confirmation, event proximity, and structure/payoff. A deterministic Go requires a score of at least +2, positive directional confirmation, at least two independent evidence families, a call invalidation below entry or put invalidation above entry within 2 ATR, estimated reward/risk of at least 1.5:1, and the full crowded/counter-regime proof, including a reclaim when required. Earnings or a major macro event inside the <b>next two trading sessions</b> is a hard Wait. AI and the live quote overlay cannot promote a negative, incomplete, hard-Wait or Avoid setup or waive a prerequisite; a live trigger with incomplete baked readiness only arms an alert.</p>
         <p><b>How the market tape moves the picks.</b> The cross-asset gauge combines the current tape &mdash; indexes, VIX, yields, dollar, commodities, Fed path, breadth, put/call, HY credit, MOVE and rotation &mdash; with the forward Scenario Engine&rsquo;s continuation, exhaustion, risk-off, warning and gross-cap reads. That produces one continuous Regime Bias (approximately &minus;2&hellip;+2), applied only after the four pillars + IV Cost and before roster ranking. Positive bias supports calls and dampens puts; negative bias does the reverse. The side is frozen before the overlay, so regime can demote or re-rank but cannot flip a call into a put, rescue a below-bar name, or promote a Moderate grade into Strong. Entry Timing remains separate and hard vetoes still bind.</p>
         <p><b>&bull; Regime-conditioned proof.</b> Alignment is side-correct: a put can align with a bearish primary scenario just as a call can align with a bullish one. In dominant high-gross continuation, an against-primary name must already be Strong / Very High before the overlay and cannot receive a regime boost; aligned names receive only a small bounded ranking preference. Counter-regime trades also need a reclaim, full momentum confirmation and clean structure. A clean pullback aligned with the tape is not penalized merely because the regime agrees.</p>
         <p><b>Tiers &amp; sizing.</b> Tiers use fixed absolute bars: |grade| &ge;7 is Strong, 4&ndash;6 is Call/Put, and below 4 is No&nbsp;Trade. A normal name must clear its pre-regime bar, and the overlay cannot promote it across a bar or tier; the labeled tactical-put exception never becomes Actionable. Clearing the grade bar still does not guarantee an actionable pick &mdash; thesis quality and every execution gate bind, so the list can remain short or empty, and an empty current build never republishes prior picks as current. Size is risk-based, not flat: each pick is weighted inverse to the premium it would lose to its stop and tilted by conviction. Scenario per-name reductions and the tactical 0.5&times; cap are enforced after normalization so released allocation stays cash; market gross and a negative recent <i>realized</i> track record may trim the book further.</p>
         <p><b>Suggested contract.</b> A single option with absolute delta 0.30–0.50 (target 0.40), at most 15% out of the money, with IV &lt;200%, 30&ndash;90 days to expiry (ideal 45&ndash;75), standard monthly expirations, a tight spread, real open interest, and premium capped at the greater of $35/share or 12% of spot. The option-entry feasibility panel shows the horizon, quote-cost assumptions and IV scenarios. These are modeled checks, not expected returns or guaranteed fills.</p>
         <p><b>Entry &amp; exit plan.</b> Each pick matches one of six named strategies (Pullback to Confluence, Breakout + Retest, Moving-Average Pullback, Support + Confirmation, RSI + Divergence, Volume Breakout) with scale-in tranches at confluence prices, and a layered exit ladder &mdash; meaningful levels above and below spot, each with an action and its reasoning. The hard stop is volatility-aware (a multiple of ATR, so ordinary noise doesn&rsquo;t shake the trade out), and the track record additionally cuts in <b>premium</b> terms (a fixed % loss of the option), since a symmetric move on the stock is a very asymmetric move on the contract. Triggers also cover earnings-in-window IV-crush risk and stretched RSI. There is <b>no time stop and no pre-earnings exit</b>: a trade is held &mdash; through earnings prints included &mdash; for as long as its original thesis stays intact and the contract hasn&rsquo;t expired.</p>
-        <p><b>How to read it &mdash; and what it isn&rsquo;t.</b> The fixed grade bars rank names consistently, while IV Cost contributes one explicitly universe-relative comparison; neither promises an absolute edge. The engine is candidly <b>research / unproven</b> &mdash; its directional signal has not yet shown a validated edge on forward data, and the track record&rsquo;s option P&amp;L is <i>modeled</i> (there is no live options-price feed). Buying a call or put risks the entire premium. None of this is financial advice; treat the picks as a starting watchlist, not a recommendation to trade.</p>
+        <p><b>How to read it &mdash; and what it isn&rsquo;t.</b> The fixed grade bars rank names consistently, while IV Cost compares each name only with its own history and realized moves; neither promises an absolute edge. The engine is candidly <b>research / unproven</b> &mdash; its directional signal has not yet shown a validated edge on forward data, and the track record&rsquo;s option P&amp;L is <i>modeled</i> (there is no live options-price feed). Buying a call or put risks the entire premium. None of this is financial advice; treat the picks as a starting watchlist, not a recommendation to trade.</p>
       </div>
     </details>
     <div class="picks-controls" role="toolbar" aria-label="Sort top picks">
@@ -1407,7 +1407,7 @@
     </header>
     <details class="info-note">
       <summary>How this score is built</summary>
-      <div class="info-note-body"><p>LEAPS uses the four pillar scores Top Picks already computed. It does not make another model call and it does not read a far-dated option chain. Narrative is weighted 1.5, Trend 1.25, Flow 1.25, and Fundamentals 1.0. That weighted average, put on the same sum scale as Top Picks, is the score.</p><p>Every name starts one point higher, because a stock is more likely to be up than down over one to two years. The forward fundamental path can add up to two more points. A rich or cheap IV reading moves the score and cannot flip the side.</p><p>Research qualification needs a call score of 8 or put magnitude of 9, with at least two aligned pillars. A declining fundamental path holds a call back; a put needs a declining path. Go, Wait and Avoid are separate short-term entry warnings and do not remove a research-qualified stock. The idea floor is 5. These existing score weights remain under review. Qualification does not recommend buying a LEAPS contract or choose its strike, expiration or strategy.</p></div>
+      <div class="info-note-body"><p>LEAPS uses the four pillar scores Top Picks already computed. It does not make another model call and it does not read a far-dated option chain. The weights are set for the hold this desk is for &mdash; one to two years &mdash; so the business leads and the fastest-moving evidence counts least: <b>Fundamentals 2.0</b>, <b>Trend 1.25</b>, <b>Narrative 1.0</b>, <b>Flow 0.75</b>. That weighted average, put on the same sum scale as Top Picks, is the score. (Through 25 October 2026 the mix was the other way up &mdash; Narrative 1.5 and Fundamentals 1.0 &mdash; which suited a one- to two-week trade, not this one.)</p><p>Every name starts one point higher, because a stock is more likely to be up than down over one to two years. The forward fundamental path can add up to two more points. A rich or cheap IV reading moves the score and cannot flip the side.</p><p>Research qualification needs a call score of 8 or put magnitude of 9, with at least two aligned pillars &mdash; and at least one of those two has to be a <b>durable</b> pillar, fundamentals or trend, because news tone and option flow both turn over long before the contract expires. The fundamentals pillar may not point the other way either. A declining fundamental path holds a call back; a put needs a declining path. Go, Wait and Avoid are separate short-term entry warnings and do not remove a research-qualified stock. The idea floor is 5. Qualification does not recommend buying a LEAPS contract or choose its strike, expiration or strategy.</p></div>
     </details>
     <div id="leaps-root" class="leaps-root">Loading LEAPS scores&hellip;</div>
   </section>
@@ -2578,7 +2578,7 @@
     </header>
     <details class="info-note">
       <summary>What is this?</summary>
-      <div class="info-note-body"><p>Each name's <b>constant-maturity ATM ~30-day IV</b> is interpolated between surrounding expirations in total-variance space, which reduces false jumps when the nearest contract rolls. The current read is compared with that name's own daily history using both classical and median/MAD z-scores; the more conservative agreeing magnitude is used, plus percentile, a 5-session ramp, lighter 20-session context, and a short rising streak. Tiers require both statistical elevation and a real percentage expansion in premium. Histories under 60 comparable sessions are labeled <b>provisional</b> and must clear stricter score and z bars. Rising IV says <b>magnitude</b>, not direction, and overlapping momentum inputs are deliberately down-weighted so one climb is not counted three times. Names already rich but no longer climbing remain marked <b>Elevated</b>.</p></div>
+      <div class="info-note-body"><p>Each name's <b>constant-maturity ATM ~30-day IV</b> is interpolated between surrounding expirations in total-variance space, which reduces false jumps when the nearest contract rolls. The current read is compared with that name's own daily history using both classical and median/MAD z-scores; the more conservative agreeing magnitude is used, plus percentile, a 5-session ramp, lighter 20-session context, and a short rising streak. Tiers require both statistical elevation and a real percentage expansion in premium. Histories under 60 comparable sessions are labeled <b>provisional</b> and must clear stricter score and z bars. Rising IV says <b>magnitude</b>, not direction, and overlapping momentum inputs are deliberately down-weighted so one climb is not counted three times. Names already rich but no longer climbing are marked <b>Rich</b>, using the site&rsquo;s one IV rule: today&rsquo;s IV in the top fifth of its own history <i>and</i> above the stock&rsquo;s 30-day realized volatility (the same rule the grade, Top Picks and the Strategy builder use).</p></div>
     </details>
     <div id="iv-trend-root" class="ivt-root">Loading Trending IV&hellip;</div>
     <div id="iv-trend-empty" class="ivt-empty" hidden>Trending-IV data will appear after the next daily build refresh.</div>
@@ -4687,10 +4687,10 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
     </div>
   </div>
 </div>
-<script>window.STONKS_MANIFEST={"builtAt":"Oct 23, 2026, 4:12 PM","builtAtIso":"2026-10-23T20:12:06.137Z","symbols":["AAPL","ACN","ADBE","AMAT","AMD","AMZN","ANET","ARM","ASML","ASTS","AVGO","AXP","BABA","BAC","BE","C","CBRS","COST","CRM","CRWD","CRWV","DDOG","DELL","DIS","DRAM","EWY","FTNT","GLD","GOOGL","GS","HD","HOOD","IBM","INTC","INTU","IWM","JPM","KWEB","LLY","MA","MDB","META","MRK","MRNA","MRVL","MS","MSFT","MU","NFLX","NKE","NOW","NVDA","NVO","OKTA","ORCL","PANW","PLTR","PYPL","QCOM","QQQ","RKLB","SBUX","SCHW","SHOP","SLV","SMCI","SMH","SNDK","SNOW","SPCX","SPY","TEAM","TGT","TLT","TSLA","TSM","TXN","UNH","USO","UVXY","V","VRT","VST","WDC","WMT"],"sectors":{"SPY":"ETF","QQQ":"ETF","IWM":"ETF","SMH":"ETF","UVXY":"ETF","TLT":"ETF","USO":"ETF","GLD":"ETF","SLV":"ETF","KWEB":"ETF","EWY":"ETF","AAPL":"Mega-cap tech","MSFT":"Mega-cap tech","NVDA":"Mega-cap tech","AMZN":"Mega-cap tech","GOOGL":"Mega-cap tech","META":"Mega-cap tech","TSLA":"Mega-cap tech","AMD":"Semis","NFLX":"Mega-cap tech","AVGO":"Semis","TSM":"Semis","ORCL":"Software","ASML":"Semis","QCOM":"Semis","TXN":"Semis","MRVL":"Semis","AMAT":"Semis","LRCX":"Semis","MU":"Semis","INTC":"Semis","NXPI":"Semis","ON":"Semis","SMCI":"Semis","ALAB":"Semis","TSEM":"Semis","DRAM":"Semis","SWKS":"Semis","SNDK":"Storage","STX":"Storage","WDC":"Storage","GLW":"Semis","LITE":"Semis","ARM":"Semis","CBRS":"Semis","COHR":"Semis","DELL":"Hardware","CSCO":"Networking","ANET":"Networking","IBM":"Tech services","CRM":"Software","ADBE":"Software","ACN":"IT services","INTU":"Software","NOW":"Software","SNOW":"Software","NET":"Software","DDOG":"Software","CRWD":"Software","ZS":"Software","MDB":"Software","OKTA":"Software","PANW":"Software","WDAY":"Software","ZM":"Software","DOCU":"Software","TEAM":"Software","FTNT":"Software","TTD":"Software","U":"Software","APP":"Software","TWLO":"Software","CRWV":"Software","CEG":"Power","VST":"Power","TLN":"Power","VRT":"Data center","CLS":"Data center","BE":"Clean energy","JPM":"Bank","BAC":"Bank","WFC":"Bank","USB":"Bank","MS":"Bank","COF":"Bank","GS":"Bank","C":"Bank","HSBC":"Bank","UBS":"Bank","V":"Payments","MA":"Payments","AXP":"Payments","PYPL":"Payments","XYZ":"Payments","SCHW":"Broker","IBKR":"Broker","HOOD":"Broker","AFRM":"Fintech","APO":"Asset mgmt","BX":"Asset mgmt","WMT":"Retail","COST":"Retail","TGT":"Retail","HD":"Retail","LOW":"Retail","NKE":"Apparel","LULU":"Apparel","ONON":"Apparel","ELF":"Beauty","W":"E-commerce","EBAY":"E-commerce","MCD":"Restaurants","SBUX":"Restaurants","DIS":"Media","LEN":"Homebuilder","BA":"Industrial","CAT":"Industrial","DE":"Industrial","MMM":"Industrial","GD":"Defense","LMT":"Defense","RTX":"Defense","NOC":"Defense","FDX":"Logistics","UPS":"Logistics","NVO":"Pharma","LLY":"Pharma","MRNA":"Pharma","MRK":"Pharma","UNH":"Insurance","JNJ":"Pharma","PFE":"Pharma","TMO":"Medical","CI":"Insurance","ELV":"Insurance","MOH":"Insurance","CVS":"Pharmacy","BSX":"Medical","VZ":"Telecom","CHTR":"Cable","XOM":"Energy","CVX":"Energy","OXY":"Energy","UBER":"Consumer","ABNB":"Consumer","DASH":"Consumer","BABA":"China tech","BIDU":"China tech","JD":"China tech","PDD":"China tech","TCEHY":"China tech","BILI":"China tech","NIO":"China tech","COIN":"Crypto","PLTR":"Software","SHOP":"Software","GME":"Meme","AMC":"Meme","RDDT":"Social","RKLB":"Space","ASTS":"Space","SPCX":"Space"},"industries":{"MSFT":"Software Infrastructure","ORCL":"Software Infrastructure","SNOW":"Software Infrastructure","CRWD":"Software Infrastructure","MDB":"Software Infrastructure","OKTA":"Software Infrastructure","PANW":"Software Infrastructure","FTNT":"Software Infrastructure","PLTR":"Software Infrastructure","CRWV":"Software Infrastructure","CRM":"Software Applications","ADBE":"Software Applications","NOW":"Software Applications","DDOG":"Software Applications","TEAM":"Software Applications","INTU":"Software Applications","SHOP":"Software Applications","NVDA":"Semiconductors","AMD":"Semiconductors","AVGO":"Semiconductors","TSM":"Semiconductors","MU":"Semiconductors","INTC":"Semiconductors","MRVL":"Semiconductors","QCOM":"Semiconductors","TXN":"Semiconductors","SNDK":"Semiconductors","SMCI":"Semiconductors","DRAM":"Semiconductors","ARM":"Semiconductors","CBRS":"Semiconductors","AMAT":"Semiconductor Equipment & Materials","ASML":"Semiconductor Equipment & Materials","ANET":"Communication Equipment","DELL":"Computer Hardware","ACN":"Information Technology Services","IBM":"Information Technology Services","AMZN":"Internet Retail","BABA":"Internet Retail","HD":"Specialty Retail","NKE":"Apparel Retail","SBUX":"Restaurants","TSLA":"Auto Manufacturers","GOOGL":"Internet Content & Information","META":"Internet Content & Information","NFLX":"Entertainment","DIS":"Entertainment","RKLB":"Aerospace & Defense","ASTS":"Aerospace & Defense","SPCX":"Aerospace & Defense","VRT":"Electrical Equipment & Parts","MRNA":"Biotechnology","NVO":"Drug Manufacturers - General","LLY":"Drug Manufacturers - General","MRK":"Drug Manufacturers - General","UNH":"Healthcare Plans","JPM":"Banks - Diversified","BAC":"Banks - Diversified","C":"Banks - Diversified","V":"Credit Services","MA":"Credit Services","AXP":"Credit Services","PYPL":"Credit Services","GS":"Capital Markets","MS":"Capital Markets","SCHW":"Capital Markets","HOOD":"Capital Markets","WMT":"Discount Stores","COST":"Discount Stores","TGT":"Discount Stores","VST":"Utilities - Independent Power Producers","BE":"Utilities - Renewable","GLD":"Gold","SLV":"Silver"},"sectorOrder":["Technology","Consumer Cyclical","Communication Services","Industrials","Healthcare","Financials","Consumer Defensive","Utilities","Precious Metals"],"industriesBySector":{"Technology":["Software Infrastructure","Software Applications","Semiconductors","Semiconductor Equipment & Materials","Communication Equipment","Computer Hardware","Consumer Electronics","Information Technology Services"],"Consumer Cyclical":["Internet Retail","Specialty Retail","Apparel Retail","Restaurants","Auto Manufacturers"],"Communication Services":["Internet Content & Information","Entertainment","Advertising Agencies"],"Industrials":["Aerospace & Defense","Electrical Equipment & Parts","Specialty Industrial Machinery"],"Healthcare":["Biotechnology","Drug Manufacturers - General","Healthcare Plans"],"Financials":["Banks - Diversified","Credit Services","Capital Markets"],"Consumer Defensive":["Discount Stores"],"Utilities":["Utilities - Independent Power Producers","Utilities - Renewable"],"Precious Metals":["Gold","Silver"]},"volumeFlagsMeta":{"scannedAt":"2026-10-23T20:00:43.162Z","etDate":"2026-10-23","marketState":"POST"},"nextFomcDates":["2026-10-28","2026-12-09"],"oiMeta":{"scannedAt":"2026-10-23T21:00:38.475Z","scanType":"eod"},"deferred":true};</script>
+<script>window.STONKS_MANIFEST={"builtAt":"Oct 23, 2026, 4:12 PM","builtAtIso":"2026-10-23T20:12:06.137Z","symbols":["AAPL","ACN","ADBE","AMAT","AMD","AMZN","ANET","ARM","ASML","ASTS","AVGO","AXP","BABA","BAC","BE","C","CBRS","COST","CRM","CRWD","CRWV","DDOG","DELL","DIS","DRAM","EWY","FTNT","GLD","GOOGL","GS","HD","HOOD","IBM","INTC","INTU","IWM","JPM","KWEB","LLY","MA","MDB","META","MRK","MRNA","MRVL","MS","MSFT","MU","NFLX","NKE","NOW","NVDA","NVO","OKTA","ORCL","PANW","PLTR","PYPL","QCOM","QQQ","RKLB","SBUX","SCHW","SHOP","SLV","SMCI","SMH","SNDK","SNOW","SPCX","SPY","TEAM","TGT","TLT","TSLA","TSM","TXN","UNH","USO","UVXY","V","VRT","VST","WDC","WMT"],"sectors":{"SPY":"ETF","QQQ":"ETF","IWM":"ETF","SMH":"ETF","UVXY":"ETF","TLT":"ETF","USO":"ETF","GLD":"ETF","SLV":"ETF","KWEB":"ETF","EWY":"ETF","AAPL":"Mega-cap tech","MSFT":"Mega-cap tech","NVDA":"Mega-cap tech","AMZN":"Mega-cap tech","GOOGL":"Mega-cap tech","META":"Mega-cap tech","TSLA":"Mega-cap tech","AMD":"Semis","NFLX":"Mega-cap tech","AVGO":"Semis","TSM":"Semis","ORCL":"Software","ASML":"Semis","QCOM":"Semis","TXN":"Semis","MRVL":"Semis","AMAT":"Semis","LRCX":"Semis","MU":"Semis","INTC":"Semis","NXPI":"Semis","ON":"Semis","SMCI":"Semis","ALAB":"Semis","TSEM":"Semis","DRAM":"Semis","SWKS":"Semis","SNDK":"Storage","STX":"Storage","WDC":"Storage","GLW":"Semis","LITE":"Semis","ARM":"Semis","CBRS":"Semis","COHR":"Semis","DELL":"Hardware","CSCO":"Networking","ANET":"Networking","IBM":"Tech services","CRM":"Software","ADBE":"Software","ACN":"IT services","INTU":"Software","NOW":"Software","SNOW":"Software","NET":"Software","DDOG":"Software","CRWD":"Software","ZS":"Software","MDB":"Software","OKTA":"Software","PANW":"Software","WDAY":"Software","ZM":"Software","DOCU":"Software","TEAM":"Software","FTNT":"Software","TTD":"Software","U":"Software","APP":"Software","TWLO":"Software","CRWV":"Software","CEG":"Power","VST":"Power","TLN":"Power","VRT":"Data center","CLS":"Data center","BE":"Clean energy","JPM":"Bank","BAC":"Bank","WFC":"Bank","USB":"Bank","MS":"Bank","COF":"Bank","GS":"Bank","C":"Bank","HSBC":"Bank","UBS":"Bank","V":"Payments","MA":"Payments","AXP":"Payments","PYPL":"Payments","XYZ":"Payments","SCHW":"Broker","IBKR":"Broker","HOOD":"Broker","AFRM":"Fintech","APO":"Asset mgmt","BX":"Asset mgmt","WMT":"Retail","COST":"Retail","TGT":"Retail","HD":"Retail","LOW":"Retail","NKE":"Apparel","LULU":"Apparel","ONON":"Apparel","ELF":"Beauty","W":"E-commerce","EBAY":"E-commerce","MCD":"Restaurants","SBUX":"Restaurants","DIS":"Media","LEN":"Homebuilder","BA":"Industrial","CAT":"Industrial","DE":"Industrial","MMM":"Industrial","GD":"Defense","LMT":"Defense","RTX":"Defense","NOC":"Defense","FDX":"Logistics","UPS":"Logistics","NVO":"Pharma","LLY":"Pharma","MRNA":"Pharma","MRK":"Pharma","UNH":"Insurance","JNJ":"Pharma","PFE":"Pharma","TMO":"Medical","CI":"Insurance","ELV":"Insurance","MOH":"Insurance","CVS":"Pharmacy","BSX":"Medical","VZ":"Telecom","CHTR":"Cable","XOM":"Energy","CVX":"Energy","OXY":"Energy","UBER":"Consumer","ABNB":"Consumer","DASH":"Consumer","BABA":"China tech","BIDU":"China tech","JD":"China tech","PDD":"China tech","TCEHY":"China tech","BILI":"China tech","NIO":"China tech","COIN":"Crypto","PLTR":"Software","SHOP":"Software","GME":"Meme","AMC":"Meme","RDDT":"Social","RKLB":"Space","ASTS":"Space","SPCX":"Space"},"industries":{"MSFT":"Software Infrastructure","ORCL":"Software Infrastructure","SNOW":"Software Infrastructure","CRWD":"Software Infrastructure","MDB":"Software Infrastructure","OKTA":"Software Infrastructure","PANW":"Software Infrastructure","FTNT":"Software Infrastructure","PLTR":"Software Infrastructure","CRWV":"Software Infrastructure","CRM":"Software Applications","ADBE":"Software Applications","NOW":"Software Applications","DDOG":"Software Applications","TEAM":"Software Applications","INTU":"Software Applications","SHOP":"Software Applications","NVDA":"Semiconductors","AMD":"Semiconductors","AVGO":"Semiconductors","TSM":"Semiconductors","MU":"Semiconductors","INTC":"Semiconductors","MRVL":"Semiconductors","QCOM":"Semiconductors","TXN":"Semiconductors","SNDK":"Semiconductors","SMCI":"Semiconductors","DRAM":"Semiconductors","ARM":"Semiconductors","CBRS":"Semiconductors","AMAT":"Semiconductor Equipment & Materials","ASML":"Semiconductor Equipment & Materials","ANET":"Communication Equipment","DELL":"Computer Hardware","WDC":"Computer Hardware","AAPL":"Consumer Electronics","ACN":"Information Technology Services","IBM":"Information Technology Services","AMZN":"Internet Retail","BABA":"Internet Retail","HD":"Specialty Retail","NKE":"Apparel Retail","SBUX":"Restaurants","TSLA":"Auto Manufacturers","GOOGL":"Internet Content & Information","META":"Internet Content & Information","NFLX":"Entertainment","DIS":"Entertainment","RKLB":"Aerospace & Defense","ASTS":"Aerospace & Defense","SPCX":"Aerospace & Defense","VRT":"Electrical Equipment & Parts","MRNA":"Biotechnology","NVO":"Drug Manufacturers - General","LLY":"Drug Manufacturers - General","MRK":"Drug Manufacturers - General","UNH":"Healthcare Plans","JPM":"Banks - Diversified","BAC":"Banks - Diversified","C":"Banks - Diversified","V":"Credit Services","MA":"Credit Services","AXP":"Credit Services","PYPL":"Credit Services","GS":"Capital Markets","MS":"Capital Markets","SCHW":"Capital Markets","HOOD":"Capital Markets","WMT":"Discount Stores","COST":"Discount Stores","TGT":"Discount Stores","VST":"Utilities - Independent Power Producers","BE":"Utilities - Renewable","GLD":"Gold","SLV":"Silver"},"sectorOrder":["Technology","Consumer Cyclical","Communication Services","Industrials","Healthcare","Financials","Consumer Defensive","Utilities","Precious Metals"],"industriesBySector":{"Technology":["Software Infrastructure","Software Applications","Semiconductors","Semiconductor Equipment & Materials","Communication Equipment","Computer Hardware","Consumer Electronics","Information Technology Services"],"Consumer Cyclical":["Internet Retail","Specialty Retail","Apparel Retail","Restaurants","Auto Manufacturers"],"Communication Services":["Internet Content & Information","Entertainment","Advertising Agencies"],"Industrials":["Aerospace & Defense","Electrical Equipment & Parts","Specialty Industrial Machinery"],"Healthcare":["Biotechnology","Drug Manufacturers - General","Healthcare Plans"],"Financials":["Banks - Diversified","Credit Services","Capital Markets"],"Consumer Defensive":["Discount Stores"],"Utilities":["Utilities - Independent Power Producers","Utilities - Renewable"],"Precious Metals":["Gold","Silver"]},"volumeFlagsMeta":{"scannedAt":"2026-10-23T20:00:43.162Z","etDate":"2026-10-23","marketState":"POST"},"nextFomcDates":["2026-10-28","2026-12-09"],"oiMeta":{"scannedAt":"2026-10-23T21:00:38.475Z","scanType":"eod"},"deferred":true};</script>
 <script>window.va=window.va||function(){(window.vaq=window.vaq||[]).push(arguments)};</script>
 <script defer data-disable-auto-track="1" src="/_vercel/insights/script.js"></script>
-<script src="app.js?v=sha256-157f1035487fbb20" defer></script>
+<script src="app.js?v=sha256-27191ed589f66f13" defer></script>
 <script type="module" src="js/streaks.js?v=sha256-b0e30f84009bf8bf"></script>
 <script type="module" src="js/book-views.js?v=sha256-2ab66c051b668b01"></script>
 </body>
