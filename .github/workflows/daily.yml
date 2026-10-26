@@ -424,14 +424,6 @@ jobs:
           # (PICKS_ACCURACY_AB removed: it was set here but read NOWHERE in the
           # code — the wait-arm cohort it described now enrolls BY DEFAULT,
           # since every actionable pick enrolls cohort-tagged go/wait.)
-          # Cost optimization: fold the per-ticker Major-Contract + Guidance
-          # signal extraction into the combined ticker-judgment call instead of
-          # a second per-ticker round-trip (~1 fewer flash-lite call/ticker/
-          # build). OFF unless this is set to "1": it changes a scoring input
-          # (data.aiSignals → scoreFundamentals), so enable only after the A/B
-          # parity check passes (scripts/ab-signals-merge.mjs). Unset = today's
-          # dedicated attachAiContractGuidance pass.
-          AI_SIGNALS_COMBINED: ${{ vars.AI_SIGNALS_COMBINED }}
           # Per-article body cap (chars) for the ticker-judgment prompt. Unset =
           # the build.mjs default (1500, same as the RSS description cap).
           AI_ARTICLE_BODY_CHARS: ${{ vars.AI_ARTICLE_BODY_CHARS }}

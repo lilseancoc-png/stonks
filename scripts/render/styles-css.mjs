@@ -6272,6 +6272,9 @@ a.cmd-watch, a.cr-tkr, a.f13-sym, a.brief-chip, a.cal-chip-sym { text-decoration
 .lev-carry { color: var(--muted-strong); background: color-mix(in srgb, var(--border) 45%, transparent); }
 .lev-earn { color: var(--warn, #d99a2b); background: color-mix(in srgb, var(--warn, #d99a2b) 18%, transparent); border: 1px solid color-mix(in srgb, var(--warn, #d99a2b) 35%, transparent); }
 .lev-pick { color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
+.xdesk-chip { display: inline-block; font: 600 11px/1.2 var(--font-sans); border-radius: 6px; padding: 3px 7px; margin-left: 6px; cursor: help; white-space: nowrap; vertical-align: middle; }
+.xdesk-chip.is-conflict { color: var(--neg); background: color-mix(in srgb, var(--neg) 12%, transparent); border: 1px solid color-mix(in srgb, var(--neg) 30%, transparent); }
+.xdesk-chip.is-agree { color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
 .lev-live-vs { color: var(--muted-strong); font-weight: 500; font-size: 11.5px; cursor: help; }
 .lev-flagged { font-size: 11.5px; color: var(--muted-strong); }
 .lev-flag-pct { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
@@ -23266,6 +23269,12 @@ button.vol-cal-cell:focus-visible { outline: none; box-shadow: var(--focus-ring)
   font: 600 0.95rem/1.4 var(--font-sans);
   color: var(--text);
 }
+.heatmap-eod-brief { margin: -8px 0 14px; font: 400 12.5px/1.4 var(--font-sans); color: var(--muted-strong); }
+.link-btn { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.link-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+.acc-realfills-line { margin: 10px 0 4px; }
+.acc-realfills:not(:empty) { margin-bottom: 16px; }
+.acc-open-link { margin: 4px 0 14px; }
 .heatmap-eod-decision {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
