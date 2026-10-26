@@ -46,7 +46,6 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 - Keep the data-age dot beside its text on screens 380px wide or narrower instead of on a row of its own (#691).
 
-
 ## 2026-10-24
 
 ### Added
