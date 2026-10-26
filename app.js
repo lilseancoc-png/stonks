@@ -26856,9 +26856,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
       ' · Flow ' + leapsFmt(pillars.mechanicals);
     return '<article class="leaps-row">' +
       '<button type="button" class="leaps-sym" data-leaps-symbol="' + escapeHtml(row.symbol) + '">' + escapeHtml(row.symbol) + '</button>' +
-      '<span class="leaps-side is-' + side + '">' + (side === 'put' ? 'Put' : 'Call') + '</span>' + crossDeskChip(row.symbol, side) +
+      '<span class="leaps-side is-' + side + '">' + (side === 'put' ? 'Put' : 'Call') + '</span>' +
       '<span class="leaps-score">' + escapeHtml(leapsFmt(row.total)) + '</span>' +
-      '<span class="leaps-why">' + escapeHtml(leapsReasonText(row.reason)) + '</span>' +
+      // The cross-desk chip rides in the reason cell so the row grid keeps its columns.
+      '<span class="leaps-why">' + escapeHtml(leapsReasonText(row.reason)) + crossDeskChip(row.symbol, side) + '</span>' +
       '<span class="leaps-meta">' + escapeHtml(pillarLine + (meta ? ' · ' + meta : '')) + '</span>' +
     '</article>';
   }
