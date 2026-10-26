@@ -7,6 +7,9 @@
     "node": ">=20"
   },
   "scripts": {
+    "test:unified-signal": "node scripts/unified-signal-smoke.mjs",
+    "test:unified-signal-browser": "node scripts/unified-signal-browser.mjs",
+    "preview:unified-signal": "node scripts/unified-signal-preview.mjs",
     "test:historical-data": "node scripts/historical-data-smoke.mjs && node scripts/historical-sources-smoke.mjs",
     "collect:historical": "node scripts/collect-historical-sources.mjs",
     "audit:historical": "node scripts/audit-historical-coverage.mjs",

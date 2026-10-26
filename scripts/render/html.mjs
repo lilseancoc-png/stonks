@@ -44,6 +44,7 @@ const SIDE_NAV_ICONS = {
   narratives: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   market: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
   risk: '<path d="M4 16a8 8 0 1 1 16 0"/><path d="m12 16 4.2-6"/><circle cx="12" cy="16" r="1.2"/>',
+  'unified-signal-engine': '<path d="M3 6h5l4 6-4 6H3M21 6h-5l-4 6 4 6h5"/><circle cx="12" cy="12" r="2"/>',
   picks: '<path d="m12 2.5 2.9 5.9 6.5 1-4.7 4.5 1.1 6.4L12 17.3l-5.8 3 1.1-6.4-4.7-4.5 6.5-1z"/>',
   leaps: '<path d="M4 16.5c3.2-.8 5.2-5.2 7.2-5.2 2.2 0 2.6 3.4 5.2 2.6"/><path d="m14.2 11.2 4.6 2.7-4.2 3.2"/>',
   stocks: '<path d="M3.5 20.5v-17"/><path d="M3.5 20.5h17"/><path d="m6.5 15.5 4-4.5 3 2.5 4.5-6"/><path d="M14.5 7.5H18V11"/>',
@@ -2014,6 +2015,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <!-- Private research; hidden until the Top Picks owner session resolves. -->
     <summary class="side-nav-group-label">Owner</summary>
     <div class="side-nav-group-items">
+      ${sideNavItem('unified-signal-engine', 'Unified Signal Engine')}
       ${sideNavItem('market', 'Market analysis')}
       ${sideNavItem('risk', 'Risk analysis')}
       ${sideNavItem('bottom-tracker', 'Bottom tracker')}
@@ -2402,6 +2404,13 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-quant" role="tabpanel" aria-labelledby="page-tab-quant" hidden>
   ${quantSection()}
+  </div>
+  <div class="page-pane" id="page-pane-unified-signal-engine" role="tabpanel" aria-labelledby="page-tab-unified-signal-engine" hidden>
+    <section class="card" id="unified-signal-section">
+      <header class="card-header"><h2 class="card-title">Unified Signal Engine</h2><span class="card-eyebrow">Owner research · swing decisions</span></header>
+      <p class="use-intro">One place to inspect a stock's direction, supporting and opposing evidence, uncertainty, price assumptions, and available trade plan. Research is unproven; entry checks and missing data stay visible.</p>
+      <div id="unified-signal-root">Open this view to load the private decision snapshot.</div>
+    </section>
   </div>
   <div class="page-pane" id="page-pane-historical-data" role="tabpanel" aria-labelledby="page-tab-historical-data" hidden>
     <section class="card" id="historical-data-section">
