@@ -1,6 +1,7 @@
 // Owner-only lazy view. Stores display preferences, never decision payloads.
 export function unifiedSignalClientFactory(host, doc, options, policy) {
-  const state = { data: null, loading: false, error: '', symbol: '', query: '', filter: 'all', view: 'decision', bound: false, timer: null };
+  const state = { data: null, loading: false, error: '', symbol: '', query: '', filter: 'all', view: 'decision', bound: false, timer: null, records: {} };
+  const VIEWS = ['decision','evidence','prices','vehicles','record'];
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]);
   const num = (value, digits = 2) => typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('en-US', { maximumFractionDigits: digits, minimumFractionDigits: digits }) : 'Unavailable';
   const pct = value => typeof value === 'number' && Number.isFinite(value) ? (value > 0 ? '+' : '') + num(value) + '%' : 'Unavailable';
@@ -16,7 +17,7 @@ export function unifiedSignalClientFactory(host, doc, options, policy) {
       const saved = JSON.parse(host.localStorage.getItem('stonks-unified-view') || '{}');
       if (typeof saved.symbol === 'string' && /^[A-Z][A-Z0-9.]{0,5}$/.test(saved.symbol)) state.symbol = saved.symbol;
       if (['all','eligible','wait','watch','avoid','insufficient-data'].includes(saved.filter)) state.filter = saved.filter;
-      if (['decision','evidence','prices','vehicles'].includes(saved.view)) state.view = saved.view;
+      if (VIEWS.includes(saved.view)) state.view = saved.view;
     } catch {}
   }
   const pill = (label, tone) => '<span class="use-tag use-tone-' + esc(tone || 'context') + '">' + esc(label) + '</span>';
@@ -66,6 +67,25 @@ export function unifiedSignalClientFactory(host, doc, options, policy) {
       '<section class="use-answer"><h3>' + esc(option.label) + '</h3><p>' + esc(option.detail) + '</p>' + (option.entryPerShare > 0 ? '<dl class="use-facts"><div><dt>' + (option.structure === 'credit_vertical' ? 'Entry credit per share' : 'Entry debit per share') + '</dt><dd>' + esc(money(option.entryPerShare,row.quote.currency)) + '</dd></div><div><dt>Maximum quoted loss per contract</dt><dd>' + esc(money(option.maximumLossPerContract,row.quote.currency)) + '</dd></div><div><dt>Strike / expiration</dt><dd>' + esc(num(option.strike)) + ' / ' + esc(option.expiry ? new Date(option.expiry * 1000).toISOString().slice(0,10) : 'Unverified') + '</dd></div><div><dt>Fees</dt><dd>' + (option.feesEstimated ? 'Included in modeled economics' : 'Not estimated') + '</dd></div></dl>' : '') + quoteDetails +
       (option.scenarios.length ? '<div class="use-table-wrap"><table class="use-table"><thead><tr><th>IV assumption</th><th>At stock objective · % of maximum loss</th><th>At invalidation · % of maximum loss</th></tr></thead><tbody>' + option.scenarios.map(s => '<tr><td>' + esc(s.label) + '</td><td>' + esc(pct(s.atTargetPctOfRisk)) + '</td><td>' + esc(pct(s.atInvalidationPctOfRisk)) + '</td></tr>').join('') + '</tbody></table></div><p class="use-muted">' + esc(option.model) + ' · ' + esc(option.horizonDays) + ' calendar days. IV stresses have no probabilities.</p>' : '') + list(option.limitations, '') + '</section><section class="use-answer"><h3>Does an attractive risk-adjusted opportunity exist?</h3><p>' + (allowed ? 'The existing entry and feasibility policy qualified this setup at build time. A positive expected return is not established.' : 'Current checks do not qualify a new entry. Review the blocks on the Decision view.') + '</p><p>' + esc(row.uncertainty.accountFit) + '</p></section>';
   }
+  // Company record: the grade breakdown plus the stored evidence record,
+  // relationships and AI grader log for this one ticker (the per-company half
+  // of Owner Lab Diagnostics). Loaded once per ticker per snapshot.
+  function recordView(row) {
+    const cached = state.records[row.symbol];
+    return '<p class="use-muted">The stored records behind this ticker, read from the latest daily build. Nothing here feeds back into the live grade, and opening it runs no new analysis.</p>' +
+      '<div class="use-record" data-use-record="' + esc(row.symbol) + '">' + (cached || '<p class="use-muted" role="status">Loading the stored records for ' + esc(row.symbol) + '…</p>') + '</div>';
+  }
+  function fillRecord(symbol) {
+    if (state.records[symbol] || !options.record) return;
+    Promise.resolve(options.record(symbol)).then(html => {
+      state.records[symbol] = html;
+      const box = root()?.querySelector('[data-use-record="' + symbol + '"]');
+      if (box) box.innerHTML = html;
+    }, () => {
+      const box = root()?.querySelector('[data-use-record="' + symbol + '"]');
+      if (box) box.innerHTML = '<p class="use-muted">The stored records could not be loaded. Try Refresh snapshot.</p>';
+    });
+  }
   function render() {
     const target = root();
     if (!target) return;
@@ -86,8 +106,9 @@ export function unifiedSignalClientFactory(host, doc, options, policy) {
     const notices = state.error ? '<p class="use-notice" role="alert">' + esc(state.error) + ' Previous snapshot is reference only.</p>' : expired || quoteExpired ? '<p class="use-notice" role="status">Reference snapshot. The entry check has expired or the regular session has closed. Refresh checks for a newer published decision; it does not fetch live quotes.</p>' : '';
     target.innerHTML = '<div class="use-toolbar"><label>Find ticker or sector<input type="search" data-use-search value="' + esc(state.query) + '" placeholder="Search symbols" autocomplete="off"></label><label>Show<select data-use-filter>' + [['all','All research'],['eligible','Entry qualified'],['wait','Waiting'],['watch','Research watch'],['avoid','Avoid'],['insufficient-data','Missing data']].map(([value,label]) => '<option value="' + value + '"' + (state.filter === value ? ' selected' : '') + '>' + label + '</option>').join('') + '</select></label><button type="button" class="use-button" data-use-refresh' + (state.loading ? ' disabled' : '') + '>' + (state.loading ? 'Checking…' : 'Refresh snapshot') + '</button></div>' +
       '<p class="use-snapshot-meta" role="status">' + visible.length + ' of ' + all.length + ' tickers · ' + esc(time(state.data.builtAtIso)) + ' · ' + esc(state.data.cadence) + '</p>' + notices +
-      (selected ? '<div class="use-layout"><aside class="use-library" aria-label="Unified Signal Engine research list">' + visible.map(row => '<button type="button" data-use-symbol="' + esc(row.symbol) + '" class="use-candidate' + (row.symbol === selected.symbol ? ' is-selected' : '') + '" aria-pressed="' + (row.symbol === selected.symbol) + '"><span><b>' + esc(row.symbol) + '</b><small>' + esc(row.direction) + '</small></span><small>' + esc(policy.label(currentStatus(row))) + '</small></button>').join('') + '</aside><section class="use-detail" aria-label="Ticker assessment"><header class="use-decision-head"><div><span class="use-kicker">' + esc(state.data.horizon.label) + '</span><h3>' + esc(selected.symbol) + ' <span>' + esc(selected.direction) + '</span></h3><p>' + esc(selected.sector || 'Sector unverified') + '</p></div><div>' + pill(policy.label(currentStatus(selected)), currentStatus(selected)) + '<p class="use-price">' + esc(money(selected.quote.value,selected.quote.currency)) + '</p></div></header><nav class="use-view-tabs" aria-label="Assessment views">' + [['decision','Decision'],['evidence','Evidence'],['prices','Price explanations'],['vehicles','Trade comparison']].map(([view,label]) => '<button type="button" data-use-view="' + view + '" aria-pressed="' + (state.view === view) + '">' + label + '</button>').join('') + '</nav><div class="use-view">' + (state.view === 'evidence' ? evidenceView(selected) : state.view === 'prices' ? pricesView(selected) : state.view === 'vehicles' ? vehiclesView(selected) : decisionView(selected)) + '</div></section></div>' : '<div class="use-empty"><h3>No matching research</h3><p>Change the ticker search or policy filter to inspect other assessments.</p></div>') +
+      (selected ? '<div class="use-layout"><aside class="use-library" aria-label="Unified Signal Engine research list">' + visible.map(row => '<button type="button" data-use-symbol="' + esc(row.symbol) + '" class="use-candidate' + (row.symbol === selected.symbol ? ' is-selected' : '') + '" aria-pressed="' + (row.symbol === selected.symbol) + '"><span><b>' + esc(row.symbol) + '</b><small>' + esc(row.direction) + '</small></span><small>' + esc(policy.label(currentStatus(row))) + '</small></button>').join('') + '</aside><section class="use-detail" aria-label="Ticker assessment"><header class="use-decision-head"><div><span class="use-kicker">' + esc(state.data.horizon.label) + '</span><h3>' + esc(selected.symbol) + ' <span>' + esc(selected.direction) + '</span></h3><p>' + esc(selected.sector || 'Sector unverified') + '</p></div><div>' + pill(policy.label(currentStatus(selected)), currentStatus(selected)) + '<p class="use-price">' + esc(money(selected.quote.value,selected.quote.currency)) + '</p></div></header><nav class="use-view-tabs" aria-label="Assessment views">' + [['decision','Decision'],['evidence','Evidence'],['prices','Price explanations'],['vehicles','Trade comparison'],['record','Company record']].map(([view,label]) => '<button type="button" data-use-view="' + view + '" aria-pressed="' + (state.view === view) + '">' + label + '</button>').join('') + '</nav><div class="use-view">' + (state.view === 'evidence' ? evidenceView(selected) : state.view === 'prices' ? pricesView(selected) : state.view === 'vehicles' ? vehiclesView(selected) : state.view === 'record' ? recordView(selected) : decisionView(selected)) + '</div></section></div>' : '<div class="use-empty"><h3>No matching research</h3><p>Change the ticker search or policy filter to inspect other assessments.</p></div>') +
       '<footer class="use-footer"><p>' + esc(state.data.validation) + ' No live account sizing or order execution is connected.</p><details><summary>Method and saved decision</summary><p>' + esc(state.data.ranking) + '</p><p>Shared evidence is shown once in the rubric. Measurements and related desks remain context. Policy eligibility comes from a matching current owner trade and cannot override its entry or risk gates.</p><p>Snapshot ' + esc(state.data.snapshotId) + '</p><p>Engine ' + esc(state.data.engineVersion) + ' · entry policy ' + esc(state.data.entryPolicyVersion) + '</p></details></footer>';
+    if (selected && state.view === 'record') fillRecord(selected.symbol);
     const library = target.querySelector('.use-library');
     if (library) library.scrollTop = libraryScroll;
     for (const [key,open] of disclosures) {
@@ -110,7 +131,7 @@ export function unifiedSignalClientFactory(host, doc, options, policy) {
       if (button.hasAttribute('data-use-refresh')) { load(true); return; }
       const selectedTicker = !!button.dataset.useSymbol;
       if (selectedTicker) state.symbol = button.dataset.useSymbol;
-      if (['decision','evidence','prices','vehicles'].includes(button.dataset.useView)) state.view = button.dataset.useView;
+      if (VIEWS.includes(button.dataset.useView)) state.view = button.dataset.useView;
       save(); render();
       const nextFocus = selectedTicker ? root().querySelector('[data-use-symbol="' + state.symbol + '"]') : root().querySelector('.use-view-tabs [data-use-view="' + state.view + '"]');
       nextFocus?.focus({preventScroll:true});
@@ -133,6 +154,7 @@ export function unifiedSignalClientFactory(host, doc, options, policy) {
     const restoreRefreshFocus = doc.activeElement?.hasAttribute('data-use-refresh');
     const controller = new host.AbortController();
     const requestTimer = host.setTimeout(() => controller.abort(), 15000);
+    if (force) state.records = {};
     state.loading = true; state.error = ''; render();
     try {
       const response = await host.fetch(options.url(), { credentials: 'same-origin', cache: 'no-store', signal: controller.signal });
@@ -150,5 +172,12 @@ export function unifiedSignalClientFactory(host, doc, options, policy) {
       if (restoreRefreshFocus) root()?.querySelector('[data-use-refresh]')?.focus({preventScroll:true});
     }
   }
-  return { load };
+  // Open one ticker on a given view (Owner Lab Diagnostics links here).
+  function open(symbol, view) {
+    if (typeof symbol === 'string' && /^[A-Z][A-Z0-9.]{0,5}$/.test(symbol)) { state.symbol = symbol; state.query = ''; state.filter = 'all'; }
+    if (VIEWS.includes(view)) state.view = view;
+    save();
+    if (state.data) render();
+  }
+  return { load, open };
 }

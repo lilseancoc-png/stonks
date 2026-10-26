@@ -35,16 +35,33 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Add plain-English wayfinding on every page: a "Home / Section / Page" trail, a one-line "what this shows" summary, chips for the other pages in the section, and Previous / Next links at the bottom (`scripts/render/wayfinding-js.mjs`).
 - Add "Explore by topic" tiles on Home, a "Recently viewed" list in the sidebar and at the top of the empty command palette (this browser only), and a phone tab bar (Today, Stocks, Market, Options, Search).
 - Show each stock's day move with an arrow on the All stocks cards, read from the existing public heatmap snapshot.
+- Give AAPL and WDC the industries they were missing (Consumer Electronics, Computer Hardware), so every covered stock has one. A new smoke test fails the build if a stock has no industry, if a sector label has no group, or if a group ends up holding fewer than five stocks.
 - Log seven candidate Top Picks inputs (21-day return, industry 21-day return, implied minus realized volatility, call and put OI walls, latest print guidance, peer earnings in the next 14 days) beside each day's grade in `grades-daily.json`, and report each one's forward-return IC, with and without the grade, in `diagnose-grade-ic.mjs`. They are logged only and change no grade or pick; no new AI or data calls (`lib/shadow-signals.mjs`, #694).
+- Track Record dividers now mark every rule change, not only grade-formula changes: the take-profit move to +25% (Oct 22), the option-price entry check and the volatility-aware entry timing (both Oct 23). New trades also record their entry-timing version.
+- Stock picks, Sector rotation, LEAPS and Leveraged ETF cards show a chip when Top Picks holds an open trade on the same name, or when the site grade points the other way.
+- Add a Company record view to the Unified Signal Engine: pick a ticker to see its grade breakdown, stored evidence record, company relationships and AI grader log together. Owner Lab Diagnostics links to it, and Owner data stays off the public Look up a stock page.
+- Add WTI crude, natural gas and copper to Commodities (sixteen trackers, energy first). Crude, gas, gold and silver reuse price bars the build already fetches, so no new Yahoo calls.
+- Add an "At a glance" row of live readings on Home in place of the older grid of links (Explore by topic stays).
 
 ### Changed
 
+- One rule now decides whether a stock's options are expensive, in place of four different ones. The grade, Top Picks, the Strategy builder and Trending IV all read it: cheap at or below the 20th percentile of the stock's own history, rich at or above the 80th, very rich at or above the 90th, and rich needs IV to be above the stock's 30-day realized moves as well, so high IV on a stock that is genuinely moving that much no longer counts as expensive. Rich costs the grade 2 points and cheap earns 1. Top Picks sells premium (a credit spread) only when options are very rich, where the old rule fired at the 60th percentile; the Strategy builder moves from the 65th to the same 80th, and its earnings window from 7 to 14 days. Trending IV's "Elevated" tag is now the same rich band and is labelled Rich, on the cards, the chart legend and the page hint. The grade breakdown's "IV cost" panel names the band in its heading, shows the realized-vol check it turned on and explains the rule in place of the retired universe-relative description. Grade version `2026-10-iv-rule` with a Track Record divider (`lib/iv-richness.mjs`).
+- Seasonality is computed once and read twice: Pattern lab's months, weekdays, turn of month, expiration week, Santa and midterm rows now come from the same engine as Owner Historical Data, so the two pages cannot disagree about the same bars. Long history also comes from one cache instead of two — Pattern lab and the Bottom tracker both read `historical-source-history.json` (which now carries the two credit spreads the tracker needs), and the separate index long-history file is gone.
+- Sector grouping is one map of eight groups (Mega-cap tech, Semis & hardware, Software & IT services, Financials, Consumer & media, Healthcare, Industrials & energy, ETF). After the cut to 85 names, 12 of the 24 detailed labels held a single stock, which made the Top Picks "max 3 per sector" cap, the heatmap sector blocks and streaks, and Compare's sector average meaningless for those names. Every feature that groups stocks now uses the broad group — the cap, the heatmap, Compare, the Volume and Flow sector splits, the All stocks and Streaks sector filters, and the Track Record's accuracy by sector (which regroups old trades too). Each stock keeps its detailed label on its card and in search. Sector rotation, Event spillover and the leveraged-ETF routing keep their own baskets, because each is paired with its own ETF; the semis basket now includes hardware and networking, so DELL and ANET are no longer left out of every basket (`lib/sector-groups.mjs`).
+- LEAPS scores are weighted for the one- to two-year hold they are for: Fundamentals 2.0, Trend 1.25, Narrative 1.0, Flow 0.75. The old mix led with Narrative (1.5) and counted the business least (1.0), which fits a one- to two-week trade. The four still add to 5, so the score bars mean what they did. A qualified idea now also needs the business or the trend on its side, not just a story and some option flow, and the fundamentals pillar may not point the other way.
 - Regroup the sidebar into seven sections a new visitor can scan (Today, Stocks, Market & economy, Options activity, Charts & signals, Industry trends, Learn & help) plus the unchanged Owner group, each with a one-line description. Pages get plainer names (for example Fear & Greed is now Market mood and Unusual flow is Unusual options trades); old names still match in the sidebar filter and command palette, and every page id and `?tab=` link is unchanged. One site map (`scripts/render/site-map.mjs`) drives the sidebar, page headers, Home tiles, tab bar and palette.
 - Give charts one shared finish: soft area fills under sparklines and the Grade price line, round price gridlines ($200, $210, …), a larger hover readout, ▲/▼ arrows next to coloured moves, even-width digits, banded shared tables and a width cap on scatter charts (`scripts/render/data-display-css.mjs`).
 - Rewrite README.md around the new site structure.
 - Make text on the feature pages about 10% larger (sizes 18px and under; headlines, chart labels, the header and the sidebar keep their size). Small fixed tiles and badges keep their size so labels still fit (`scripts/render/text-scale.mjs`, #692).
 - Trim the sidebar: it runs to the top of the window on desktop instead of leaving an empty block above Workspace, shows 4 Recently viewed pages instead of 5 (the command palette still shows more), and drops the one-line description under each section name (#692).
 - Top Picks no longer opens a trade on a stock under a signed takeover (its price is pinned to the deal); rumored deals are listed only. A call blocked by the forced-liquidation veto or a signed deal no longer takes one of the six AI grader slots. Blocks show in the Scorecard as "Signed takeover target" (`lib/pending-buyout-guard.mjs`, #694).
+- Strategy builder takes its direction from the stock's grade. The chart tape shows as agreeing or conflicting and only decides when the stock has no grade.
+- Options walls, the GEX strip and the Brief label gamma walls and OI walls separately, and the Brief uses the shared GEX code instead of its own copy.
+- Merge Capital raises and IPOs & credit into one Capital markets page (old links redirect).
+- Owner Lab drops the multi-screen overlap, 3-sigma and post-earnings drift screens that repeat public pages, links to those pages, and counts term-structure stress on its desk instead.
+- Track Record links to Open picks instead of repeating the open trade cards. The Webull test sub-tab is now Real fills and holds the real-trading comparison and the trade-log upload; the Scorecard keeps a one-line summary.
+- The heatmap's closing summary is a numbers-only line and points to the 16:10 Brief for the written closing story.
+- News calls its direction filter "Headline wording", the option grader says Pin contract / Pinned contracts, and the "When data updates" timeline matches the current schedule.
 
 ### Fixed
 
@@ -52,6 +69,18 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Keep initial lending limits out of forced-liquidation thresholds, attach pledged-share counts to their own disclosure clauses, and require older extractions to be reparsed before entry decisions use them. Expire volume warnings on open tracker pages and make stalled snapshot reads time out with a working retry.
 
 - Stop the News filters and the Streaks columns from pushing the page sideways when the sidebar is open on laptop and tablet widths, keep the freshness dot beside its text on phones, and keep the LONG · BULLISH badge on one line (#692).
+
+### Removed
+
+- Remove the backtest-picks workflow, which printed the private record to public logs (the local script stays).
+- Remove the unused AI_SIGNALS_COMBINED switch and its A/B script. Cached AI reads keep the same key, so nothing is re-read.
+- Remove the heatmap's after-close AI recap (one Gemini call a day).
+
+### Docs
+
+- Bring CLAUDE.md and docs/site-logic.md up to date: 14 Owner pages, how the grade total and exits work today, Commodities, Capital markets, who spends AI budget, and how the Owner desks cross-reference each other.
+- Document the four single-sourced rules in CLAUDE.md ("One rule per idea"): the IV band, the one seasonality engine and long-history cache, the broad sector grouping and the LEAPS weights. `docs/top-picks.md` now describes the IV band instead of the retired universe-relative IV cohort and the old credit-spread thresholds.
+
 ## 2026-10-24
 
 ### Added

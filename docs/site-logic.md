@@ -1,7 +1,7 @@
 # Stonks: complete product and decision-logic guide
 
-**Code audit date:** July 26, 2026
-**Authority:** current renderer, build scripts, API code, and workflow files. Where an older comment or repository guide disagrees with executable code, this document follows the code.
+**Code audit date:** July 26, 2026 (partial update October 26, 2026: exits, Track Record, Heatmap close, walls, Commodities, Capital markets, Owner company record)
+**Authority:** current renderer, build scripts, API code, and workflow files. Where an older comment or repository guide disagrees with executable code, this document follows the code. The area names in section 2 predate the October 2026 sidebar; `scripts/render/site-map.mjs` is the current site map.
 
 ## 1. What the product is
 
@@ -63,14 +63,14 @@ Most important design rule: a strong observation is not automatically a trade. T
 | Alt Data | GPU Cloud Prices | Public accelerator rental and spot rates normalized to USD per GPU-hour, with provider/model history. |
 | Alt Data | Central-bank Gold | Quarterly estimated global net demand plus latest reported official holdings, reserve share, and 3/12-month changes by country. |
 | Alt Data | Search Interest | Weekly Google Trends attention for curated market and technology themes, with top/rising queries and 7/30-day changes. |
-| Macro | Commodities | Eleven input-cost, freight, and demand series mapped to exposed equities. |
-| Macro | Capital Raises | Issuer-level equity, convertible, debt, and buyback events. |
-| Macro | IPOs & Credit | IPO participation, bond issuance, bank funding, and household-credit backdrop. |
+| Macro | Commodities | Sixteen energy, metals, input-cost, freight, and demand series mapped to exposed equities. |
+| Macro | Capital markets | One page: issuer-level equity, convertible, debt, and buyback events, then IPO participation, bond issuance, bank funding, and the household-credit backdrop (the former Capital Raises and IPOs & Credit tabs). |
 | Owner | Tickers | Curated-universe browser and entry point to a ticker's full evidence. |
 | Owner | Narratives | AI-generated industry and sector story arcs with lifecycle and invalidation. |
 | Research | 13F Filings | Delayed institutional holdings and quarter-over-quarter share-direction changes. |
+| Owner | Unified Signal Engine | All private signals for each ticker in one ranked read. Its Company record view is the one per-company Owner panel: grade breakdown, stored evidence record, company relationships and AI grader log. |
 | Owner | Top Picks | The most selective option-trade roster. |
-| Owner | Track Record | Modeled option P&L, diagnostics, and strategy accountability. |
+| Owner | Track Record | Modeled option P&L, diagnostics, strategy accountability, and the Real fills comparison. Open trades live on Open picks. |
 | Owner | Owner Lab | Private position/account-risk controls plus analytical statistical screens. |
 | Owner | Grade a Ticker | Full company/technical/flow/narrative grade plus option-contract grading. |
 | Owner | Compare Companies | Normalized multi-symbol performance comparison. |
@@ -463,7 +463,9 @@ Earnings or macro risk inside 21 days forces defined risk. A debit spread must o
 
 - up to 10 actionable picks;
 - up to 6 watch ideas;
-- no more than 3 per sector;
+- no more than 3 per sector, counted over eight broad sector groups rather than
+  the fine labels, so the cap binds instead of letting a one-stock "sector"
+  through (`lib/sector-groups.mjs`);
 - no more than 5 in one common factor;
 - side caps prevent an accidentally one-way book;
 - if at least 60% of a factor group is below SMA20 and median five-day return is `<= -3%`, new calls in that factor are suppressed unless the setup is unusually strong and ready.
@@ -474,7 +476,7 @@ The roster is allowed to be empty. Deterministic conviction controls ordering; t
 
 The entry card states Buy now or the exact price trigger. The plan uses the underlying for structural levels and the option for P&L controls.
 
-- Long/debit take-profit: `+20%`.
+- Long/debit take-profit: `+25%` (since October 22, 2026; `+20%` before).
 - Long/debit stop: `-50%`.
 - Credit take-profit: keep 50% of received credit.
 - Credit stop: lose 50% of received credit, roughly a 1.5× buyback.
@@ -496,6 +498,9 @@ Only actionable Top Picks are enrolled.
 - Splits and corporate actions are guarded rather than interpreted as instant wins/losses.
 - Permanently unmarkable observations can be voided.
 - The record never resets weekly.
+- A dated divider splits the record wherever a rule changed: the grade formula, the exit rule, the entry policy, or the entry-timing model. Each trade keeps the versions it was opened under, so a comparison never blends old and new rules silently.
+- Open trades are shown on the Open picks page; the Track Record links there instead of repeating them.
+- The Real fills view compares the model with real trading: ask-in, bid-out fills, exits filled at the trigger, the picks against a SPY option opened at the same time, the owner's uploaded trade log, and the Webull paper mirror.
 
 The scorecard reports win rate, expectancy, option P&L, return on risk, favorable/adverse excursion, and slices by grade, side, sector, strategy, market regime, and modeled probability of profit. It also includes diagnostics such as stop share, giveback, thesis-break frequency, side imbalance, and Monte Carlo paths.
 
@@ -951,7 +956,7 @@ The index calendar accumulates up to roughly 800 sessions for SPY, QQQ, IWM, SMH
 
 ### Pattern lab
 
-Pattern lab is a public page of six separate reads. None of them changes a grade, a pick, or a contract. The bake writes `pattern-recognition.json` from bars, Fear & Greed, regime history, and overnight peers it already has. SPY, QQQ, and IWM keep a longer daily close file, `index-long-history.json`. That file is filled with the same unauthenticated Yahoo daily chart only when a symbol has less than 12 years stored. Later bakes append the closes already fetched for those ETFs. There is no Gemini call and no new vendor.
+Pattern lab is a public page of six separate reads. None of them changes a grade, a pick, or a contract. The bake writes `pattern-recognition.json` from bars, Fear & Greed, regime history, and overnight peers it already has. SPY, QQQ, and IWM closes come from the site's one long-history cache, `historical-source-history.json`, which the bake refreshes once a day from Yahoo before Pattern lab runs (the separate `index-long-history.json` file was retired on 2026-10-26). Index seasonality uses the same engine and window rules as the Owner Historical Data studies (`buildIndexSeasonality`), so both show the same numbers. There is no Gemini call and no new vendor.
 
 The six reads are volatility clustering, index seasonality, curated cross-asset lead and correlation breaks, RSI and MACD price divergences, the breadth-versus-index record, and Fear & Greed disagreements. Each one keeps its own sample size and marks a thin sample provisional.
 
@@ -965,7 +970,7 @@ The six reads are volatility clustering, index seasonality, curated cross-asset 
 - breadth summarizes advancing/declining participation;
 - sector streak requires at least 70% of members moving in one direction for at least two days;
 - hourly refresh replaces price/change and market cap from a batched quote call and re-marks every longer horizon from its preserved baseline;
-- after the close, one AI sector recap may be generated once per ET day.
+- after the close, a numbers-only closing line (names up and down, cap-weighted move, leading and lagging sectors) is written once per ET day; the written closing story is the 16:10 ET Brief.
 
 Heatmap sector streak is a breadth visualization. It is not the Sector Rotation model.
 
@@ -1008,7 +1013,7 @@ Per contract:
 GEX proxy = gamma × open interest × 100 × spot² × 1%
 ```
 
-Calls are assumed positive dealer gamma and puts negative. This is a convention, not known dealer inventory. Net GEX is swept from 80% to 120% of spot over 80 steps; the closest zero crossing is the gamma-flip estimate. The largest positive/negative strike concentrations become walls.
+Calls are assumed positive dealer gamma and puts negative. This is a convention, not known dealer inventory. Net GEX is swept from 80% to 120% of spot over 80 steps; the closest zero crossing is the gamma-flip estimate. The largest positive/negative strike concentrations become **gamma walls**. These differ from **OI walls**, which are simply the strikes with the most open interest; the site labels the two separately. The server computation lives in `lib/gex.mjs` and is shared by the flow scanner, the build and the Brief.
 
 ### Near-term OI tracker
 
@@ -1241,7 +1246,7 @@ source failures are disclosed and never silently presented as fresh.
 
 ### Commodities
 
-Eleven trackers cover cocoa, cotton, coffee, sugar, palm oil, lumber, potash, lithium, container freight, Baltic Dry, and used vehicles. Reliable base series come from Yahoo futures/ETF proxies or FRED. Bot-wall/native series may add best-effort overlays.
+Sixteen trackers in six groups cover WTI crude and natural gas, gold and silver, cocoa, cotton, coffee, sugar, palm oil, copper, lumber, potash, lithium, container freight, Baltic Dry, and used vehicles. Reliable base series come from Yahoo futures/ETF proxies or FRED. Bot-wall/native series may add best-effort overlays.
 
 Decision horizons:
 
@@ -1250,9 +1255,9 @@ Decision horizons:
 
 Stale observations remain visible but are excluded from the ranked decision desk. Each sleeve is summarized by its median move and strongest current driver. Rising softs are a buyer-margin warning; industrial/freight rises can instead indicate demand. The related equities must confirm through margins, guidance, volume, or relative strength.
 
-### Capital Raises
+### Capital markets: company raises
 
-A deterministic headline classifier identifies:
+Capital Raises and IPOs & Credit are one page (tab id `capital-raises`; the old `ipo-credit` link redirects there). The first half is the company-level read. A deterministic headline classifier identifies:
 
 - common-equity issuance / secondaries / ATM programs;
 - convertibles;
@@ -1263,9 +1268,9 @@ The headline supplies timeliness and disclosed transaction size; recent SEC fact
 
 Trade posture prioritizes dilution first, then debt/refinancing, then buyback support. A buyback authorization is not treated as completed repurchases.
 
-### IPOs & Credit
+### Capital markets: IPOs and credit
 
-The composite combines:
+The second half of the same page. The composite combines:
 
 - current and prior IPO quarters plus upcoming calendar;
 - quarter run-rate and SPAC share;
@@ -1414,8 +1419,8 @@ Templates:
 
 The guidance model reads:
 
-- tape direction from RSI, MACD, and SMA20;
-- the engine's entry-timing call (go / wait / avoid) for the side the tape points to, from `grades.json` ("Setup timing"; wait or avoid sets the contract cap to zero, and the cap stays at zero while that read is loading or if the load fails);
+- direction from the stock's grade (Call or Put side in `grades.json`), the same grade Top Picks uses; the RSI, MACD, and SMA20 tape is shown as agreeing or conflicting, and only sets the direction when the stock has no grade;
+- the engine's entry-timing call (go / wait / avoid) for that side, from `grades.json` ("Setup timing"; wait or avoid sets the contract cap to zero, and the cap stays at zero while that read is loading or if the load fails);
 - IV percentile: rich at `>=65`, cheap at `<=35`. This is the midrank of the constant-maturity ~30-day ATM IV inside the name’s own daily history. IV rank is the separate min-to-max position of that same reading. The Grade IV panel shows both; this desk uses the percentile.
 - earnings inside ten days.
 

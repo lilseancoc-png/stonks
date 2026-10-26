@@ -46,6 +46,15 @@ body:not([data-active-tab="home"]) .page-sub { display: none; }
 .topic-link { min-height: 28px; padding: 3px 9px; border: 1px solid var(--hairline, var(--border)); border-radius: 6px; background: var(--bg); color: var(--text); font: 500 12.5px/1.2 var(--font-sans); cursor: pointer; }
 .topic-link:hover { border-color: var(--accent-line); color: var(--accent); }
 
+/* Home: At a glance (live readings, one tile per page). */
+.landing-glance { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.landing-glance-tile { display: grid; gap: 3px; align-content: start; min-width: 0; padding: 11px 13px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); text-align: left; font: inherit; cursor: pointer; transition: border-color .15s var(--ease-out), background .15s var(--ease-out); }
+.landing-glance-tile:hover { border-color: var(--accent-line); background: var(--surface-2); }
+.landing-glance-tile:focus-visible { outline: none; border-color: var(--accent); box-shadow: var(--elev-focus); }
+.landing-glance-label { font: 600 11.5px/1.25 var(--font-sans); color: var(--muted); }
+.landing-glance-stat { font: 700 17px/1.2 var(--font-mono); color: var(--text-strong); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.landing-glance-sub { font: 400 11.5px/1.3 var(--font-sans); color: var(--muted); overflow-wrap: anywhere; }
+
 /* Sidebar: Recently viewed. */
 .workspace-recent { padding: 12px 0 0; }
 .workspace-recent[hidden] { display: none; }
@@ -59,6 +68,7 @@ body:not([data-active-tab="home"]) .page-sub { display: none; }
 .phone-tabbar { display: none; }
 @media (max-width: 1279px) {
   .landing-topics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .landing-glance { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 760px) {
   .phone-tabbar {

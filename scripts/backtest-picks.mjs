@@ -152,7 +152,7 @@ function printAiRejectionScorecard(card) {
   }
 }
 
-// Local scorecard only. backtest-picks.yml does not push the store.
+// Local scorecard only; never pushes the store.
 async function reportAiRejections(series) {
   try {
     const days = await readLocalAiRejectionDays(DATA_DIR);

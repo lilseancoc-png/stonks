@@ -25,8 +25,7 @@ import { writeFile, readFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import YahooFinance from "yahoo-finance2";
-import { GoogleGenAI } from "@google/genai";
-import { TICKERS, recordAiUsage, loadAiUsageState, writeAiUsageState, computeSectorRotation, aiModelForAttempt } from "./build.mjs";
+import { TICKERS, computeSectorRotation } from "./build.mjs";
 import { cumFracExpected, etMinutesSinceOpen } from "../lib/volume-flags.mjs";
 import { updatePremarketMovers } from "../lib/premarket-movers.mjs";
 
@@ -36,21 +35,18 @@ const DATA_DIR = resolve(ROOT, "data");
 const HEATMAP_FILE = "heatmap.json";
 const MARKET_ANALYSIS_FILE = "market-analysis.json";
 
-// EOD recap generation — a single Gemini call per ET trading day that turns
-// the day's per-sector aggregates into a one-paragraph-per-sector recap.
-// Flash-Lite is plenty for a ~12-sector summary and dirt cheap on free tier.
-// Override via AI_EOD_MODEL env. Without GEMINI_API_KEY the EOD step is
-// silently skipped — the heatmap still renders, just without the recap.
-const AI_EOD_MODEL = process.env.AI_EOD_MODEL || "gemini-3.1-flash-lite";
-const AI_EOD_MAX_ATTEMPTS = 4;
-const AI_EOD_RETRY_BACKOFF_MS = [3000, 8000, 20000];
+// EOD recap — after the close, the day's per-sector aggregates (cap-weighted
+// move, leaders, laggards) are stamped into heatmap.json as a numbers-only
+// recap with a deterministic headline. No AI: the written closing story is
+// the 16:10 ET Market brief, which reads this block (2026-10-26, replacing a
+// separate Flash-Lite recap that could tell a different story ten minutes
+// earlier).
 // Only generate after the 16:00 ET closing bell — earlier refreshes are
 // intra-session and don't yet represent "what happened today". The hourly
 // cron's last fire of the day is 16:00 ET, which by the time the runner
 // boots + Yahoo responds typically lands 16:01-16:05 ET (marketState=POST).
 const EOD_TRIGGER_ET_HOUR = 16;
-// Per-sector cap on leaders/laggards cited in the prompt. Keeps the request
-// compact enough for a single Flash-Lite call regardless of sector size.
+// Per-sector cap on leaders/laggards listed in the recap.
 const EOD_SECTOR_PICKS = 3;
 
 // Mirror the desktop-UA shim used in lib/yahoo.mjs and scripts/build.mjs
@@ -192,121 +188,40 @@ function computeEodSectorStats(tickers) {
   return { stats, sectors };
 }
 
-const EOD_SYSTEM_PROMPT = (
-  "You are a markets analyst writing a one-shot EOD recap of a single US trading session. " +
-  "You receive per-sector aggregate stats (ticker counts, cap-weighted avg % change, top movers, top laggards). " +
-  "Produce a 1-sentence headline capturing the day's broad-tape story, then a 1-2 sentence summary per sector that describes the move and cites the most notable tickers by symbol. " +
-  "Order the sector summaries in the EXACT order provided. " +
-  "Tone: factual, terse, trader-friendly. Cite magnitudes (e.g. \"up ~1.5%\") and call out divergences inside a sector when leaders and laggards diverge sharply. " +
-  "Where a sector move plausibly maps to a well-known macro driver active around this date you may add a brief causal hint, but never invent specific news, earnings, or analyst actions. " +
-  "If a sector's move is muted or mixed, say so directly. No emojis, no markdown, no quotes around tickers."
-);
-
-const EOD_SCHEMA = {
-  type: "object",
-  properties: {
-    headline: { type: "string" },
-    sectors: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          name: { type: "string" },
-          summary: { type: "string" },
-        },
-        required: ["name", "summary"],
-      },
-    },
-  },
-  required: ["headline", "sectors"],
-};
-
-function eodUserMessage(dateKey, stats, sectors) {
-  const fmtPct = (p) => (p >= 0 ? "+" : "") + p.toFixed(2) + "%";
-  const fmtNamed = (rows) => rows.length
-    ? rows.map((r) => `${r.t} (${fmtPct(r.ch)})`).join(", ")
-    : "none";
-  const sectorBlock = sectors.map((s) => (
-    `- ${s.name}: ${s.count} tickers, cap-weighted avg ${fmtPct(s.avgChangeWeighted)} ` +
-    `(simple avg ${fmtPct(s.avgChange)}); ` +
-    `top movers: ${fmtNamed(s.leaders)}; ` +
-    `top laggards: ${fmtNamed(s.laggards)}`
-  )).join("\n");
-  return (
-    `Date (ET close): ${dateKey}\n` +
-    `Tape: ${stats.up} up, ${stats.down} down, ${stats.flat} flat; cap-weighted ${fmtPct(stats.avgChangeWeighted)} (simple avg ${fmtPct(stats.avgChange)}).\n\n` +
-    `Sectors (descending by cap-weighted avg change):\n${sectorBlock}\n\n` +
-    `Return JSON matching the schema. Use the EXACT sector names listed above as the \"name\" field, in the same order.`
-  );
+function eodFmtPct(p) {
+  return (p >= 0 ? "+" : "") + p.toFixed(2) + "%";
 }
 
-async function generateEodSummary(ai, dateKey, stats, sectors) {
-  const userMessage = eodUserMessage(dateKey, stats, sectors);
-  let response;
-  let lastErr;
-  for (let attempt = 0; attempt < AI_EOD_MAX_ATTEMPTS; attempt++) {
-    try {
-      response = await ai.models.generateContent({
-        model: aiModelForAttempt(AI_EOD_MODEL, attempt),
-        config: {
-          systemInstruction: EOD_SYSTEM_PROMPT,
-          temperature: 0.35,
-          maxOutputTokens: 2048,
-          responseMimeType: "application/json",
-          responseSchema: EOD_SCHEMA,
-          thinkingConfig: { thinkingBudget: 0 },
-        },
-        contents: userMessage,
-      });
-      recordAiUsage({
-        model: aiModelForAttempt(AI_EOD_MODEL, attempt),
-        callType: "heatmap-eod",
-        usage: response?.usageMetadata,
-      });
-      break;
-    } catch (err) {
-      lastErr = err;
-      if (attempt === AI_EOD_MAX_ATTEMPTS - 1) throw err;
-      const wait = AI_EOD_RETRY_BACKOFF_MS[attempt] ?? 30000;
-      const msg = String(err?.message || err).split("\n")[0].slice(0, 120);
-      console.log(`[heatmap] EOD AI attempt ${attempt + 1}/${AI_EOD_MAX_ATTEMPTS} failed (${msg}) — retrying in ${Math.round(wait / 1000)}s`);
-      await sleep(wait);
-    }
-  }
-  if (!response) throw lastErr ?? new Error("no response from Gemini");
-  const text = response.text;
-  if (!text) throw new Error("empty Gemini response");
-  const stripped = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
-  const firstBrace = stripped.indexOf("{");
-  const lastBrace = stripped.lastIndexOf("}");
-  const jsonText = firstBrace >= 0 && lastBrace > firstBrace
-    ? stripped.slice(firstBrace, lastBrace + 1)
-    : stripped;
-  const parsed = JSON.parse(jsonText);
-  const headline = String(parsed?.headline || "").trim();
-  if (!headline) throw new Error("empty headline in EOD response");
-  const aiSectors = Array.isArray(parsed?.sectors) ? parsed.sectors : [];
-  // Re-attach AI narrative onto our deterministic per-sector stats. The
-  // numeric aggregates + ordering are computed in code; the model is only
-  // trusted with the prose. A sector the model dropped renders with an
-  // empty summary so the tile still appears with its stats.
-  const summaryByName = new Map();
-  for (const s of aiSectors) {
-    if (!s || typeof s !== "object") continue;
-    const name = String(s.name || "").trim();
-    const summary = String(s.summary || "").replace(/\s+/g, " ").trim();
-    if (name && summary) summaryByName.set(name, summary);
-  }
-  const mergedSectors = sectors.map((s) => ({
-    name: s.name,
-    count: s.count,
-    avgChange: Math.round(s.avgChange * 100) / 100,
-    avgChangeWeighted: Math.round(s.avgChangeWeighted * 100) / 100,
-    leaders: s.leaders.map((r) => ({ t: r.t, ch: Math.round(r.ch * 100) / 100 })),
-    laggards: s.laggards.map((r) => ({ t: r.t, ch: Math.round(r.ch * 100) / 100 })),
-    summary: summaryByName.get(s.name) || "",
-  }));
-  return { headline, sectors: mergedSectors };
+// Deterministic recap: the tape counts plus the strongest and weakest groups.
+// Sector text stays empty; the heatmap shows each group's numbers and movers.
+function buildEodSummary(dateKey, generatedAtIso, stats, sectors) {
+  const ranked = sectors.filter((s) => Number.isFinite(s.avgChangeWeighted));
+  const lead = ranked[0] || null;
+  const lag = ranked.length > 1 ? ranked[ranked.length - 1] : null;
+  const parts = [`${stats.up} up, ${stats.down} down${stats.flat ? `, ${stats.flat} flat` : ""}; cap-weighted ${eodFmtPct(stats.avgChangeWeighted)}.`];
+  if (lead) parts.push(`Leading: ${lead.name} ${eodFmtPct(lead.avgChangeWeighted)}.`);
+  if (lag) parts.push(`Lagging: ${lag.name} ${eodFmtPct(lag.avgChangeWeighted)}.`);
+  return {
+    date: dateKey,
+    generatedAtIso,
+    headline: parts.join(" "),
+    stats: {
+      up: stats.up,
+      down: stats.down,
+      flat: stats.flat,
+      avgChange: Math.round(stats.avgChange * 100) / 100,
+      avgChangeWeighted: Math.round(stats.avgChangeWeighted * 100) / 100,
+    },
+    sectors: sectors.map((s) => ({
+      name: s.name,
+      count: s.count,
+      avgChange: Math.round(s.avgChange * 100) / 100,
+      avgChangeWeighted: Math.round(s.avgChangeWeighted * 100) / 100,
+      leaders: s.leaders.map((r) => ({ t: r.t, ch: Math.round(r.ch * 100) / 100 })),
+      laggards: s.laggards.map((r) => ({ t: r.t, ch: Math.round(r.ch * 100) / 100 })),
+      summary: "",
+    })),
+  };
 }
 
 async function main() {
@@ -436,10 +351,9 @@ async function main() {
   const todayEt = etDateKey(now);
   const hourEt = etHour(now);
 
-  // EOD summary: carry forward whatever the prior file had if it's still
-  // for today's session; otherwise drop it. Then, if it's after the close
-  // and we don't have today's recap yet, generate one. Earlier-in-day runs
-  // skip the AI call entirely.
+  // EOD recap: carry forward whatever the prior file had if it's still for
+  // today's session; otherwise drop it. Then, if it's after the close and we
+  // don't have today's recap yet, build one from the closing quotes.
   let eodSummary = prior?.eodSummary && prior.eodSummary.date === todayEt
     ? prior.eodSummary
     : null;
@@ -460,51 +374,22 @@ async function main() {
   const shouldGenerate =
     !eodSummary &&
     !marketClosed &&
-    (hourEt >= EOD_TRIGGER_ET_HOUR || isPostClose) &&
-    !!process.env.GEMINI_API_KEY;
+    (hourEt >= EOD_TRIGGER_ET_HOUR || isPostClose);
 
   if (shouldGenerate) {
-    console.log(`[heatmap] generating EOD summary for ${todayEt} (ET hour=${hourEt})…`);
-    try {
-      await loadAiUsageState();
-      const { stats, sectors } = computeEodSectorStats(nextTickers);
-      if (!sectors.length) {
-        console.warn(`[heatmap] no sectors to summarize — skipping EOD generation`);
-      } else {
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: Number(process.env.AI_HTTP_TIMEOUT_MS ?? 120000) } });
-        const { headline, sectors: mergedSectors } = await generateEodSummary(ai, todayEt, stats, sectors);
-        eodSummary = {
-          date: todayEt,
-          generatedAtIso: builtAtIso,
-          model: AI_EOD_MODEL,
-          headline,
-          stats: {
-            up: stats.up,
-            down: stats.down,
-            flat: stats.flat,
-            avgChange: Math.round(stats.avgChange * 100) / 100,
-            avgChangeWeighted: Math.round(stats.avgChangeWeighted * 100) / 100,
-          },
-          sectors: mergedSectors,
-        };
-        await writeAiUsageState();
-        console.log(`[heatmap] EOD summary written — ${mergedSectors.length} sectors`);
-      }
-    } catch (err) {
-      console.warn(`[heatmap] EOD summary generation failed: ${String(err?.message || err)}`);
-      // Leave eodSummary as-is (null). The next hourly run can retry; if
-      // all retries fail the heatmap renders without the recap section.
-      // The Gemini call may still have completed (recordAiUsage runs before
-      // the response is validated), so persist the spend to the shared
-      // budget anyway — writeAiUsageState no-ops if nothing was loaded.
-      try { await writeAiUsageState(); } catch (_) { /* best-effort */ }
+    const { stats, sectors } = computeEodSectorStats(nextTickers);
+    if (!sectors.length) {
+      console.warn(`[heatmap] no sectors to summarize — skipping EOD recap`);
+    } else {
+      eodSummary = buildEodSummary(todayEt, builtAtIso, stats, sectors);
+      console.log(`[heatmap] EOD recap written — ${sectors.length} sectors (no AI)`);
     }
   } else if (eodSummary) {
-    console.log(`[heatmap] reusing existing EOD summary from ${eodSummary.date}`);
-  } else if (hourEt < EOD_TRIGGER_ET_HOUR) {
-    console.log(`[heatmap] skipping EOD generation (ET hour=${hourEt} < ${EOD_TRIGGER_ET_HOUR})`);
+    console.log(`[heatmap] reusing existing EOD recap from ${eodSummary.date}`);
   } else {
-    console.log(`[heatmap] skipping EOD generation (no GEMINI_API_KEY)`);
+    console.log(marketClosed
+      ? `[heatmap] skipping EOD recap (market closed today)`
+      : `[heatmap] skipping EOD recap (ET hour=${hourEt} < ${EOD_TRIGGER_ET_HOUR})`);
   }
 
   // Sector rotation: snapshot today's CLOSING breadth once after the bell (the

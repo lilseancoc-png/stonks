@@ -9,9 +9,9 @@ import {
   buildSentimentAnomaly,
   buildVolatilityCluster,
   mergeDailyCloses,
-  needsLongIndexFetch,
 } from "../lib/pattern-recognition.mjs";
 import { detectPlaybookCues } from "./build.mjs";
+import { buildHistoricalData } from "../lib/historical-data.mjs";
 
 function addDays(date, days) {
   return new Date(Date.parse(`${date}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
@@ -39,8 +39,6 @@ const seasonal = buildSeasonality(barsFromReturns(dates, (date) => (date.slice(5
 assert.ok(seasonal.september.avgPct < 0, "September base rate stays negative when every September day falls");
 assert.ok(seasonal.months[0].avgPct > 0, "other months stay positive");
 assert.equal(seasonal.provisional, false);
-assert.equal(needsLongIndexFetch(barsFromReturns(dates, () => 0.0001)), false);
-assert.equal(needsLongIndexFetch(barsFromReturns(businessDates("2024-01-02", "2024-12-31"), () => 0.0001)), true);
 
 const santaDates = new Set();
 for (const year of [2012, 2014, 2016, 2018, 2020, 2022]) {
@@ -65,6 +63,25 @@ assert.ok(spikedSeason.september.avgPct < 0, "one bad print does not flip Septem
 const midterm = buildSeasonality(barsFromReturns(dates, (date) => (Number(date.slice(0, 4)) % 4 === 2 ? 0.001 : -0.0004)), "2025-01-15");
 assert.ok(midterm.midterm.n >= 4, "midterm bucket has several completed years");
 assert.ok(midterm.midterm.avgPct > midterm.midterm.otherAvgPct, "midterm years separate from the other years");
+
+// One seasonality engine: Pattern lab's months, weekdays, turn of month,
+// expiration week and Santa match Owner Historical Data on the same bars.
+{
+  const bars = barsFromReturns(dates, (date) => (date.slice(5, 7) === "09" ? -0.002 : 0.0004) + (date.endsWith("5") ? 0.001 : 0));
+  const pl = buildSeasonality(bars, "2025-01-15");
+  const hd = buildHistoricalData({ symbols: { SPY: bars }, builtAtIso: "2025-01-15T22:00:00Z", analyzedAtIso: "2025-01-15T22:00:00Z" }).indexes.SPY;
+  assert.ok(hd, "Historical Data builds SPY from the same bars");
+  for (let m = 0; m < 12; m++) {
+    assert.equal(pl.months[m].avgPct, hd.monthly[m].meanPct, `month ${m + 1} mean matches Historical Data`);
+    assert.equal(pl.months[m].n, hd.monthly[m].n, `month ${m + 1} sample matches Historical Data`);
+  }
+  for (let d = 0; d < 5; d++) assert.equal(pl.weekdays[d].avgPct, hd.recurring[d].meanPct, "weekday mean matches");
+  assert.equal(pl.turnOfMonth.avgPct, hd.recurring[5].meanPct, "turn of month matches");
+  assert.equal(pl.opexWeek.avgPct, hd.recurring[6].meanPct, "expiration week matches");
+  const santaStudy = hd.studies.find((s) => s.id === "santa").ranges.all;
+  assert.equal(pl.santa.avgPct, santaStudy.meanPct, "Santa rally matches");
+  assert.equal(pl.santa.n, santaStudy.n, "Santa sample matches");
+}
 
 const merged = mergeDailyCloses([{ t: "2024-01-02", c: 10 }, { t: "2024-01-03", c: 11 }], [{ t: "2024-01-03", c: 12 }]);
 assert.deepEqual(merged, [{ t: "2024-01-02", c: 10 }, { t: "2024-01-03", c: 12 }]);

@@ -133,14 +133,24 @@ function bindStreaksControls() {
   }
 }
 
-// Fill the sector <select> once from whatever sectors are present in the data
-// (intersected with the manifest's sector map), preserving the current pick.
+// Broad sector group for a symbol (lib/sector-groups.mjs, shared through
+// window.STONKS_VIEWS by app.js) so the filter here lists the same handful of
+// groups as the rest of the site. Falls back to the fine manifest label.
+function sectorGroupFor(sectors, symbol) {
+  const sym = String(symbol || "").toUpperCase();
+  const views = V();
+  const group = views && views.sectorGroupOf ? views.sectorGroupOf(sym) : null;
+  return group || sectors[sym] || "";
+}
+
+// Fill the sector <select> once from whatever sector groups are present in the
+// data (intersected with the manifest's sector map), preserving the current pick.
 function populateSectorFilter(tickers, sectors) {
   const sel = $("streaks-sector-select");
   if (!sel || sel.dataset.filled) return;
   const present = new Set();
   for (const t of tickers) {
-    const s = sectors[String(t.symbol || "").toUpperCase()];
+    const s = sectorGroupFor(sectors, t.symbol);
     if (s) present.add(s);
   }
   if (!present.size) return;
@@ -196,7 +206,7 @@ function makeSorter(mode) {
   }
   if (mode === "sector") {
     const sectors = (window.STONKS_MANIFEST && window.STONKS_MANIFEST.sectors) || {};
-    const sec = (t) => sectors[String(t.symbol || "").toUpperCase()] || "~";
+    const sec = (t) => sectorGroupFor(sectors, t.symbol) || "~";
     return (a, b) => sec(a).localeCompare(sec(b)) || streakSignalDays(b) - streakSignalDays(a);
   }
   if (mode === "alpha") {
@@ -498,7 +508,7 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
     if (streakSignalDays(t) < minRun) return false;
     const sym = String(t.symbol || "").toUpperCase();
     if (q && !sym.includes(q)) return false;
-    if (sectorPick && (sectors[sym] || "") !== sectorPick) return false;
+    if (sectorPick && sectorGroupFor(sectors, sym) !== sectorPick) return false;
     return true;
   };
   const filterActive = !!q || minRun > 2 || !!sectorPick;
@@ -515,7 +525,7 @@ function render(root, footer, eyebrow, { builtAtIso, tickers }) {
   const decisionTickers = decisionUniverse.filter((t) => {
     const sym = String(t.symbol || "").toUpperCase();
     if (q && !sym.includes(q)) return false;
-    if (sectorPick && (sectors[sym] || "") !== sectorPick) return false;
+    if (sectorPick && sectorGroupFor(sectors, sym) !== sectorPick) return false;
     const activeDays = streakSignalDays(t);
     const endedDays = Number(t?.lastEnded?.days || 0);
     return activeDays >= minRun || endedDays >= minRun;
