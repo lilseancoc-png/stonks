@@ -1652,7 +1652,7 @@ function strategiesSection() {
       <h2 class="card-title">Options strategies</h2>
       <span class="card-eyebrow" id="strat-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">Choose a ticker and the desk will match its directional tape, volatility regime and event risk to a defined-risk starting structure. You can then edit every leg, price your actual fill, and inspect the expiration payoff.</p>
+    <p class="hint">Choose a ticker and the desk will match its grade (or its chart tape when the ticker has no grade), volatility regime and event risk to a defined-risk starting structure. You can then edit every leg, price your actual fill, and inspect the expiration payoff.</p>
     <div class="strat-controls">
       <div class="combo" id="strat-symbol-combo">
         <input type="text" id="strat-symbol-input" role="combobox"
@@ -1671,7 +1671,7 @@ function strategiesSection() {
         <div>
           <span class="strat-starter-kicker">Start with the thesis</span>
           <h3 id="strat-starter-title">What do you expect the stock to do?</h3>
-          <p>Pick the market view first. After you choose a ticker, the desk will load a defined-risk starting structure and test it against tape, volatility, events, liquidity and payoff.</p>
+          <p>Pick the market view first. After you choose a ticker, the desk will load a defined-risk starting structure and test it against the grade, the chart tape, volatility, events, liquidity and payoff.</p>
         </div>
         <span class="strat-starter-step">1 view &rarr; 2 ticker &rarr; 3 verify</span>
       </div>
