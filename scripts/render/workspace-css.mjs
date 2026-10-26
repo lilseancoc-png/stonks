@@ -175,7 +175,7 @@ main input:focus-visible, main select:focus-visible, main textarea:focus-visible
   .workspace-settings .time-zone-control { flex: 1; width: auto; padding: 0 8px; gap: 8px; }
   .workspace-settings .time-zone-control svg { display: block; }
   .workspace-settings .time-zone-control select { width: 100%; height: 44px; font-size: 16px; }
-  .workspace-settings #theme-toggle { width: 44px; height: 44px; }
+  .workspace-settings #theme-toggle, .workspace-settings #split-toggle { width: 44px; height: 44px; }
   .workspace-settings .auth-chip { width: 100%; justify-content: space-between; border-radius: 6px; }
   .workspace-settings .auth-chip .auth-name { display: inline; max-width: 120px; }
   .workspace-settings .auth-logout { min-height: 44px; display: inline-flex; align-items: center; }

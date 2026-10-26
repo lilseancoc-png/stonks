@@ -28,7 +28,9 @@ try{
     ok((await root.innerText()).includes('9.1%'));
     ok((await root.innerText()).includes('Scenario $15.38–$28.57'));
     const typing=root.locator('[data-fl-search]');await typing.pressSequentially('ATLS');ok(await typing.inputValue()==='ATLS','ordinary keystrokes preserve character order');
-    await typing.press('Home');await typing.press('ArrowRight');await typing.pressSequentially('XY');ok(await typing.inputValue()==='AXYTLS','typing into the middle preserves the caret');await typing.fill('');
+    // Home has platform-dependent scrolling behavior in native search fields.
+    for(let i=0;i<4;i++)await typing.press('ArrowLeft');
+    await typing.press('ArrowRight');await typing.pressSequentially('XY');ok(await typing.inputValue()==='AXYTLS','typing into the middle preserves the caret');await typing.fill('');
     await root.locator('[data-fl-sort-key="company"]').click();
     ok((await root.locator('.fl-table tbody [data-fl-open]').allTextContents()).join(',')==='ATLS,GAPS,SCEN','header uses actual company values');
     await root.locator('[data-fl-sort-key="company"]').click();

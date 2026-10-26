@@ -1,186 +1,159 @@
-# stonks
+# Mingstreet (stonks)
 
-Single-page **Option Contract Rater**: search a curated ticker to jump straight
-into its chart and full technicals, with
-fundamentals, implied vol, news, and a built-in contract grader a tab away —
-then drill into the exact call or put you're eyeing (or paste numbers from your
-broker) for a plain-English read on whether it's worth trading.
+**[mingstreet.app](https://mingstreet.app)** is a free market-research site for
+everyday investors. It follows about 85 widely traded, liquid US stocks and
+ETFs and explains what is moving them in plain English: the day's market
+brief and news, upcoming events, company fundamentals and earnings, options
+activity, and the economic backdrop. Data refreshes throughout the trading day.
 
-## What it does
+The code name and repository are **stonks**. For information only; nothing on
+the site is investment advice.
 
-Searching a ticker lands on the **Technicals** tab, led by the daily price
-chart. Grading a specific contract is one
-section/tab on that page, alongside Fundamentals, Implied vol, and News. Two
-ways to grade a contract:
+## Finding your way around
 
-- **From a curated ticker** — choose a name, an expiration, and a strike from
-  ~50 high-volume US options. We pull each chain server-side at build time and
-  ship them as static `data/<SYMBOL>.json` files alongside the page; the
-  browser fetches one only when you pick a ticker (and caches it in memory).
-- **Grade your own contract** — paste bid / ask / IV straight off Robinhood,
-  Schwab, etc. Symbols like `$3.15`, `3.15 × 55`, `100.81%`, `1,251` are
-  cleaned automatically before grading.
+The site is one page with a sidebar of sections. Each section answers one
+question a visitor tends to ask.
 
-For each contract you get:
+| Section | What it answers | Pages |
+|---|---|---|
+| **Today** | What is happening in the market right now? | Home, Market brief, News, Heatmap, Calendar, Overnight markets |
+| **Stocks** | How is a company doing? | All stocks, Look up a stock, Compare stocks, Earnings results, Earnings calls, Who owns what, Pending buyouts, Share sales & buybacks |
+| **Market & economy** | What is the big picture? | Market mood (Fear & Greed), Rates & the dollar, Commodities, IPOs & credit, Market themes |
+| **Options activity** | Where are traders placing bets? | Unusual options trades, Trading volume, Options walls (gamma exposure), Rising volatility, Strategy builder |
+| **Charts & signals** | What do price trends and patterns say? | Moving averages, Up/down streaks, Pattern lab, Earnings ripple effects, Index calendar |
+| **Industry trends** | What does real-world data say about the AI and chip trade? | AI spending, Memory chip prices, GPU cloud prices, Central-bank gold, Search trends |
+| **Learn & help** | How do I read all this? | Options guide, Chart patterns, When data updates, Privacy Policy, Terms of Use |
 
-- **Verdict pill** — Good / Mixed / Poor — and a short "what this means" note.
-- **Spread / Delta / Theta chips** with hoverable explainers so the metrics
-  aren't gatekept jargon.
-- **Greeks** computed locally with Black-Scholes from the implied vol.
-- **Premium make-up** — intrinsic value, time (extrinsic) value, breakeven at
-  expiry, moneyness %, and a rough probability-ITM estimate from |delta|.
-- **Technical signals on the underlying** — when you pick a curated ticker, a
-  separate card shows the stock's **RSI(14)**, **MACD(12, 26, 9)** (line,
-  signal, histogram), and **20-/50-day support and resistance** levels with
-  the % distance to spot. Each indicator carries a plain-English state
-  label (Overbought / Bullish cross / etc.) and a one-liner on what it means
-  for an options trader. Computed at build time from ~6 months of Yahoo daily
-  closes.
-- **AI news take** — a 2-4 sentence read on what is driving the stock right
-  now, with a sentiment tag that nudges a borderline verdict.
-- A **freshness banner** at the top shows how old the embedded quotes are and
-  switches to a stale-data warning past 36 h.
+An **Owner** section with the private research desks (Top picks, track
+record, and others) appears only after an Owner signs in.
 
-### Lazy loading
+Ways to move around:
 
-The first paint ships only a small manifest (ticker list, sectors, spots,
-active narratives) — about 30 KB. Per-ticker data — option chain, AI news
-take, and the technical indicators — lives in `data/<SYMBOL>.json` and is
-fetched **only** when the user picks that ticker from the combobox. The fetch
-goes through `force-cache`, so re-selecting the same ticker is free for the
-rest of the session.
+- **Sidebar** with a filter box. Older page names still work in the filter
+  (typing "Fear & Greed" finds Market mood).
+- **Search** (⌘K / Ctrl+K, or the magnifier) jumps to any stock, market theme
+  or page. With an empty search it lists what you viewed recently.
+- **Page header**: every page opens with a "Home / Section / Page" trail, a
+  one-line summary of what the page shows, and chips for the other pages in
+  its section.
+- **Previous / Next** links at the bottom of every page walk through the site
+  in sidebar order.
+- **Explore by topic** on Home lists every section and its pages.
+- **Recently viewed** in the sidebar (kept only in your own browser).
+- **Phone tab bar** at the bottom on small screens: Today, Stocks, Market,
+  Options and Search. Each button opens the menu at that section.
+- **Click any ticker** anywhere on the site to open its full stock report.
+- **Pin** pages you use often to the top of the sidebar.
+- **Split view**: the two-column button next to the light/dark switch puts two
+  pages side by side (stacked on phones). Each side has its own page picker;
+  drag the divider to resize, use **Swap** to trade sides, or **Full page** to
+  go back to one page. Split view stays on until you close it.
 
-### Live intraday spot
+## Reading the charts and numbers
 
-While the chain, news, and technicals are baked twice a day, the **spot
-price** is refreshed on the fly. When you pick a ticker, the page also hits
-`/api/quote?symbol=XXX` — a small Vercel serverless function in
-`api/quote.js` that proxies Yahoo's quote endpoint server-side (the
-consent-cookie / crumb handshake can't run from a browser). A "Live" pill
-appears next to the ticker with the current spot + day change, and the
-Greeks / breakeven / moneyness / ATM strike pick all recompute against the
-live number.
+- Green means up and red means down, and every move also carries a ▲ or ▼
+  arrow so it reads without colour.
+- Sparklines have a soft fill under the line; price charts use round gridline
+  values ($200, $210, …).
+- Hover or tap any chart for the exact value; on most time-series charts you
+  can drag across to measure a change.
+- Tables sort by clicking a column header; the Sort menu next to a list always
+  takes priority over an earlier header click. Sort, filter and layout choices
+  are remembered per device ("Reset saved sorts and views" at the foot of the
+  sidebar clears them).
+- Each page shows when its data was last updated. A **Stale** tag means the
+  data is older than it should be.
 
-The live fetch is non-blocking: the baked snapshot paints first, then the
-live update slides in. If the endpoint or Yahoo is down — or if the market
-is closed — the page silently falls back to baked data. A 30-second
-in-browser cache plus a 30-second Vercel edge cache prevent rapid re-selects
-from re-firing the call.
+## The stock report
 
-Above the grader, an **Active market narratives** card surfaces the themes
-currently driving the curated tickers — AI capex, GLP-1, tariffs, election
-trades, geopolitical defense plays, etc. Each narrative shows a one-sentence
-thesis, the longs and shorts from the curated list that ride it, a confidence
-tag, and a lifespan badge (how many days the story has been live). When you
-load a ticker, chips show which narratives that ticker sits inside. A
-"recently cooled off" line tracks themes that dropped out of the feed so you
-can see trends come and go. The list is rebuilt each daily refresh from the
-per-ticker AI news takes, persisted to `data/trends.json`, with a rolling
-90-day snapshot archive in `data/trends-history.json`.
+Clicking a ticker opens its report (the Grade tab), led by the price chart:
+
+- **Setup**: trend, moving averages, support and resistance, RSI, MACD and
+  volume, each with a plain-English label.
+- **Contract grade**: pick an expiration and strike (or paste a quote from
+  your broker) for a Good / Mixed / Poor read with Greeks, breakeven and
+  spread cost.
+- **Fundamentals**, **Implied vol** and **News** (an AI-written news take with
+  a sentiment tag).
+- A live spot price while the market is open, from `/api/quote`.
 
 ## How it updates
 
-`.github/workflows/daily.yml` runs `node scripts/build.mjs` on a schedule.
-Timing is driven by cron-job.org (ET-aware jobs that POST the `workflow_dispatch`
-endpoint), which runs in ET so daylight saving is handled for us:
+`.github/workflows/daily.yml` runs `node scripts/build.mjs` on ET-aware
+schedules triggered from cron-job.org:
 
-- **08:30 ET weekdays** — lightweight pre-market Brief only.
-- **09:00 and 19:00 ET weekdays** — earnings-call transcript summaries only (30 minutes before the open, three hours after the close).
-- **10:00, 11:00, 13:30, 15:30, and 16:10 ET weekdays** — decision-grade full builds after the opening auction, through the verified close.
-- **11:00 and 15:30 ET weekdays** — Top Picks, Stock Picks, Sector Rotation, and Leveraged ETFs recompute. The other full builds carry those coherent decisions forward.
-- **11:00, 13:30, and 16:10 ET weekdays** — in-session/closing Brief refreshes.
+- **08:30 ET weekdays**: pre-market Brief only.
+- **09:00 and 19:00 ET weekdays**: earnings-call summaries only.
+- **10:00, 11:00, 13:30, 15:30 and 16:10 ET weekdays**: full builds.
+- **11:00 and 15:30 ET weekdays**: the Owner decision desks recompute; other
+  builds carry them forward.
+- **11:00, 13:30 and 16:10 ET weekdays**: Brief refreshes.
+- **Friday 11:30 ET**: weekly Alt Data (search trends, memory and GPU prices).
 
-That's five full builds, two transcript passes, plus the lightweight pre-market Brief per trading day.
+Hourly scans add unusual options flow, volume flags and the heatmap. Data
+files live in a private store and are served through `/api/data/*`; the build
+commits only the rendered `index.html`, `app.js` and `styles.css`, and that
+commit triggers the Vercel deploy. If too few tickers come back from a build,
+the run fails and the previous good build keeps serving. The "When data
+updates" page on the site lists the full schedule.
 
-The weekly Alt Data workflow runs once Friday at 11:30 ET and refreshes Search
-Interest, RAM prices, and GPU-cloud prices together.
+## Project layout
 
-Each run fetches the option chains and ~6 months of daily history per ticker
-(with retries on transient Yahoo errors), computes RSI / MACD / 20- and
-50-day support and resistance from the closes, writes everything to
-`data/<SYMBOL>.json`, regenerates `index.html` with the ticker manifest,
-and commits. Vercel picks up the commit and ships the new bundle. If fewer
-than 75% of tickers come back, the run fails loud and the previous good
-build keeps serving. The technicals step is non-fatal — if the chart
-endpoint hiccups for a single ticker, that ticker simply ships without the
-indicator card.
+- `scripts/build.mjs`: the bake (Yahoo chains and history, technicals,
+  Gemini news takes and themes, every data file).
+- `scripts/render/`: the page templates. `index.html`, `app.js` and
+  `styles.css` are generated from these; never edit the generated files.
+  - `site-map.mjs`: the one list of sidebar sections, page names, older names
+    and one-line page summaries. The sidebar, page headers, Home tiles, phone
+    tab bar and search all read it.
+  - `html.mjs`, `app-js.mjs`, `styles-css.mjs`: page shell, browser code and
+    styles.
+  - `wayfinding-js.mjs` / `wayfinding-css.mjs`: page headers, Previous / Next,
+    Explore by topic, Recently viewed, phone tab bar.
+  - `data-display-css.mjs`: the shared chart and number styling.
+  - `split-view-js.mjs` / `split-view-css.mjs`: split view (two pages side
+    by side, each loaded with `?embed=1`).
+  - `views-client.mjs`: shared sorting, Cards / Table switch and compare tray.
+  - `docs.mjs`: the Options guide, Chart patterns, Privacy and Terms pages.
+- `api/`: Vercel functions (live quotes and chains, the gated data reader,
+  Owner sign-in).
+- `lib/`: shared helpers used by the build and the API.
+- `scripts/*-smoke.mjs`: test scripts (`npm run test:render`,
+  `npm run test:site-map`, and the others listed in `package.json`).
 
-The intraday gap between builds is covered by the live-quote endpoint
-described above — chain quotes and Greeks recompute against the live spot
-the moment you pick a ticker.
+See `CLAUDE.md` for the full architecture notes.
 
 ## Running locally
 
 ```bash
-# Refresh the baked per-ticker JSON.
+npm install
+
+# Re-render index.html / app.js / styles.css from an existing data/ folder
+# (no Yahoo, no Gemini). Use this after changing anything in scripts/render/.
+node scripts/regen-static.mjs
+
+# Full rebuild (fetches from Yahoo; GEMINI_API_KEY is optional).
 node scripts/build.mjs
 
-# (a) Static-only — chain/news/technicals work; live spot does not.
+# Serve the static site...
 python3 -m http.server 8000
-# then open http://localhost:8000/
-
-# (b) Full stack — also serves the /api/quote function locally.
+# ...or the full stack, including /api/quote
 npx vercel dev
-# then open http://localhost:3000/
 ```
 
-Requires Node 20+. No API keys for the static side; `GEMINI_API_KEY` is
-optional and enables the AI news takes during a build.
+Requires Node 20+. With the private data store enabled, run
+`node scripts/sync-data.mjs pull` first to hydrate `data/`.
 
 ## Deployment
 
-The site is hosted on **Vercel** — push to `main` and Vercel auto-deploys
-both the static files and the `api/quote.js` function. The GitHub Actions
-workflow at `.github/workflows/daily.yml` runs the build on a cron, commits
-the refreshed `data/`, `index.html`, `app.js`, and `styles.css`, and that
-commit triggers the next Vercel deploy.
+The site is hosted on **Vercel**; a push to `main` deploys it. See
+`docs/private-data-migration.md` for the private data store and Owner
+sign-in settings.
 
-To set it up on a fork: **vercel.com → Add New → Project → Import Git
-Repository → stonks**. Defaults (root directory, no framework preset,
-`npm install` as the install command) are correct. No environment variables
-are needed for the live-quote endpoint to work.
-
-## Portfolio (sign-in + AI review)
-
-Signed-in users can save the option contracts they own and get an AI review
-that recommends sell / hold / roll per position, flags theta bleed and
-concentration risk, and summarizes portfolio P/L.
-
-Auth + storage runs on **Supabase** (free tier covers it). The browser uses
-the Supabase JS SDK loaded from the jsdelivr CDN — no bundler, no build
-step beyond the existing `regen-static.mjs`. The AI review runs in a new
-serverless function, `api/portfolio-review.js`, which verifies the JWT
-server-side, prices each contract via Yahoo, computes Greeks, and asks
-Gemini for the strategy call.
-
-### One-time Supabase setup
-
-1. Create a Supabase project at https://supabase.com.
-2. In the SQL editor, run `supabase/schema.sql` from this repo. That creates
-   the `positions` table and enables row-level security so each user only
-   sees their own portfolio.
-3. (Optional) In **Authentication → Providers**, enable GitHub and / or
-   Google OAuth. Email magic-link works out of the box.
-
-### Env vars (Vercel project settings)
-
-| Var | Where | Purpose |
-|-----|-------|---------|
-| `SUPABASE_URL` | All environments | Inlined into the page at build time |
-| `SUPABASE_ANON_KEY` | All environments | Browser client (safe to ship — RLS is the gatekeeper) |
-| `SUPABASE_SERVICE_ROLE_KEY` | Vercel only | Server-side JWT verification in `api/portfolio-review.js` |
-| `GEMINI_API_KEY` | Already required | Reused for the portfolio review prompt |
-
-After adding the env vars to Vercel, the next deploy is enough — the
-browser reads `SUPABASE_URL` and `SUPABASE_ANON_KEY` at runtime from
-`/api/config`, which serves whatever's set in the Vercel project's env
-vars. (The same values are also inlined into `index.html` if they're set
-where `build.mjs` runs, but that's only for self-hosters who run the
-daily build with the env vars present — Vercel users don't need it.)
-
-Without those env vars set anywhere, the Portfolio tab shows a "sign-in
-not configured" message and the rest of the site keeps working unchanged.
+The Supabase portfolio feature (`js/portfolio.js`, `api/portfolio-review.js`,
+`supabase/schema.sql`) is dormant: the code is kept but no page loads it.
 
 ## Disclaimer
 
-For information only. Not investment advice.
+For information only. Not investment advice. Analysis is AI-generated or
+algorithmic and may be wrong; verify independently.

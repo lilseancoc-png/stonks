@@ -13,6 +13,7 @@ import { isPremiumKey, roleClaimForKey } from "../lib/premium-keys.mjs";
 import { BRIEF_ACCESS_POLICY_VERSION, sanitizePublicJsonText } from "../lib/public-data-policy.mjs";
 import { DISCORD_INVITE_URL } from "../lib/links.mjs";
 import { contentAssetVersion } from "../lib/asset-version.mjs";
+import { SITE_SECTIONS } from "./render/site-map.mjs";
 import { verifyLiveRefresh } from "./live-refresh-smoke.mjs";
 import { verifyNavFilter } from "./nav-filter-smoke.mjs";
 import { verifyWorkspace } from "./workspace-smoke.mjs";
@@ -56,13 +57,22 @@ try {
   assert.match(html, /id="page-pane-open-picks"[^>]*hidden>[\s\S]*?id="open-picks-root"/);
   assert.doesNotMatch(html, /data-page-tab="daytrade"|data-page-tab="daytrack"|Day Trading Track Record/);
   const navGroups = html.match(/<details class="side-nav-group"[^>]*>/g) || [];
-  assert.equal(navGroups.length, 9, "All sidebar navigation groups must render");
+  assert.equal(navGroups.length, SITE_SECTIONS.length, "Every site-map section must render as a sidebar group");
+  assert.deepEqual(navGroups.map((tag) => tag.match(/data-nav-group="([^"]+)"/)?.[1]), SITE_SECTIONS.map((sec) => sec.id));
   assert.ok(navGroups.every((tag) => /\sopen(?:\s|>)/.test(tag)), "All sidebar navigation groups must start expanded");
-  const ideasNav = html.match(/<details class="side-nav-group" data-nav-group="ideas"[\s\S]*?<\/details>/)?.[0] || "";
-  assert.ok(ideasNav, "Ideas navigation group must render");
-  assert.match(ideasNav, /data-page-tab="ma-tracker"[\s\S]*?data-page-tab="flow"/);
-  assert.doesNotMatch(ideasNav, /data-page-tab="(?:picks|stocks|rotation|levetf|track)"/);
-  assert.doesNotMatch(html.match(/<details class="side-nav-group" data-nav-group="desk"[\s\S]*?<\/details>/)?.[0] || "", /data-page-tab="market"/);
+  // Every page tab sits in exactly one section, so wayfinding never loses a page.
+  const navTabs = [...html.matchAll(/class="page-tab"[^>]*data-page-tab="([^"]+)"/g)].map((m) => m[1]);
+  const mapTabs = SITE_SECTIONS.flatMap((sec) => sec.items.map((it) => it.id));
+  assert.deepEqual(navTabs, mapTabs, "Sidebar order must follow the site map");
+  assert.equal(new Set(mapTabs).size, mapTabs.length, "A page may appear in only one section");
+  const optionsNav = html.match(/<details class="side-nav-group" data-nav-group="options"[\s\S]*?<\/details>/)?.[0] || "";
+  assert.match(optionsNav, /data-page-tab="flow"[\s\S]*?data-page-tab="volume"[\s\S]*?data-page-tab="oi"/);
+  assert.match(optionsNav, /data-nav-alias="Unusual flow"/, "Older page names stay searchable");
+  assert.doesNotMatch(optionsNav, /data-page-tab="(?:picks|stocks|rotation|levetf|track)"/);
+  assert.doesNotMatch(html.match(/<details class="side-nav-group" data-nav-group="today"[\s\S]*?<\/details>/)?.[0] || "", /data-page-tab="market"/);
+  assert.match(html, /id="phone-tabbar"[\s\S]*?data-tabbar-section="today"[\s\S]*?data-tabbar-section="stocks"[\s\S]*?data-tabbar-section="market"[\s\S]*?data-tabbar-section="options"[\s\S]*?data-tabbar-search="1"/);
+  assert.match(html, /id="landing-topics"/);
+  assert.match(html, /id="workspace-recent"[^>]*hidden/);
   assert.match(html, /data-page-tab="timeline"[\s\S]*?id="page-pane-timeline"/);
   assert.match(html, /08:30 ET[\s\S]*?Premarket Brief[\s\S]*?10:00, 11:00, 13:30, 15:30 &amp; 16:10 ET/);
   assert.match(html, /11:00 &amp; 15:30 ET[\s\S]*?Swing decision desks[\s\S]*?Friday 11:30 ET[\s\S]*?Weekly Alt Data/);
@@ -89,6 +99,8 @@ try {
   assert.doesNotMatch(stylesCss, /\.(?:ptc-regime|ptc-scenario|pick-pillars-regime|pick-scenario-overlay)\b/);
 
   const appJs = renderAppJs({});
+  assert.match(appJs, /var SITE_MAP = \[\["today","Today"/);
+  assert.match(appJs, /try \{ renderWayfinding\(name\); noteWayfindingVisit\(name\); \} catch \(_\) \{\}/);
   verifyResearchDisplay(appJs);
   await verifyLiveRefresh(appJs);
   verifyNavFilter(appJs);
@@ -238,14 +250,18 @@ try {
   const ownerTabsText = appJs.match(/var OWNER_TABS = (\{[^;]+\});/)?.[1];
   assert(ownerTabsText, 'Owner tab access map is present');
   const ownerTabs = new Function('return (' + ownerTabsText + ')')();
-  for (const tab of ['market','risk','bottom-tracker','historical-data','forced-liquidation','picks','leaps','stocks','rotation','levetf','open-picks','track','quant']) {
+  for (const tab of ['unified-signal-engine','market','risk','bottom-tracker','historical-data','forced-liquidation','picks','leaps','stocks','rotation','levetf','open-picks','track','quant']) {
     assert.equal(ownerTabs[tab], 1, tab + ' requires Owner access');
   }
+  assert.ok(isPremiumKey('unified-signal.json'));
+  assert.ok(isPremiumKey('signal-decisions/2026-10-23T15-05-00-000Z-0123456789abcdef.json'));
+  assert.match(html, /id="page-pane-unified-signal-engine"/);
+  assert.match(appJs, /data=unified-signal\.json/);
   const ownerNav = html.match(/data-role-group="owner"[\s\S]*?<\/details>/)?.[0] || "";
   assert.match(ownerNav, /data-page-tab="bottom-tracker"/);
   assert.match(ownerNav, /data-page-tab="risk"/);
-  const macroNav = html.match(/data-nav-group="macro"[\s\S]*?<\/details>/)?.[0] || "";
-  assert.doesNotMatch(macroNav, /bottom-tracker/);
+  const marketNav = html.match(/data-nav-group="market"[\s\S]*?<\/details>/)?.[0] || "";
+  assert.doesNotMatch(marketNav, /bottom-tracker/);
   assert.match(appJs, /name === 'open-picks' && HAS_TRACK_RECORD && typeof loadOpenPicks === 'function'/);
   assert.match(appJs, /root\.innerHTML = openPicksControlsHtml\(opSort\) \+ accOpenGroupHtml\(open, opSort, /);
   assert.doesNotMatch(appJs, /day-trading\.json|day-trading-history\.json|loadDayTrading/);
@@ -255,7 +271,9 @@ try {
   assert.match(appJs, /if \(OWNER_TABS\[name\] && !HAS_OWNER_ACCESS\)/);
   assert.match(appJs, /if \(!HAS_OWNER_ACCESS\) return;[\s\S]*?fetch\(dataUrl\('auto-picks\.json'\)/);
   assert.match(appJs, /var lastAnalyticsTabPath = null;[\s\S]*?function trackPageTab\(name\)\{[\s\S]*?var path = '\/tabs\/' \+ name;[\s\S]*?if \(path === lastAnalyticsTabPath \|\| typeof window\.va !== 'function'\) return;[\s\S]*?window\.va\('pageview', \{ path: path \}\);[\s\S]*?lastAnalyticsTabPath = path;/);
-  assert.match(appJs, /syncTabToUrl\(name, !!\(nav && nav\.replace\)\);\s*if \(name !== 'grade'\) document\.title = 'stonks';\s*trackPageTab\(name\);/);
+  // Split-view panes (IS_EMBED) report their page to the main window instead
+  // of counting a second pageview; the main window still tracks every tab.
+  assert.match(appJs, /syncTabToUrl\(name, IS_EMBED \|\| !!\(nav && nav\.replace\)\);\s*if \(name !== 'grade'\) document\.title = 'stonks';\s*if \(IS_EMBED\) splitReportTab\(name\); else if \(!splitInternalNav\) trackPageTab\(name\);/);
   assert.match(html, /<title>stonks<\/title>/);
   assert.doesNotMatch(html, /<span class="brand-tag">Option Rater<\/span>/);
 

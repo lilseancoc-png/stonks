@@ -75,6 +75,9 @@ import { HISTORICAL_SOURCE_KEY } from "../lib/historical-sources.mjs";
 import { forcedLiquidationContext } from "../lib/forced-liquidation.mjs";
 import { readForcedLiquidation, refreshForcedLiquidation, writeForcedLiquidation } from './refresh-forced-liquidation.mjs';
 import { withYahooTimeout } from "../lib/yahoo.mjs";
+import { yahooQuoteProvenance } from "../lib/quote-provenance.mjs";
+import { UNIFIED_SIGNAL_KEY } from "../lib/unified-signal.mjs";
+import { publishUnifiedSignal } from "./publish-unified-signal.mjs";
 import { attachLeapsExpirations, leapsExtraFetchEnabled } from "../lib/leaps-expirations.mjs";
 import {
   COLLAPSED_STORY_RETRY_ATTEMPTS,
@@ -3602,6 +3605,7 @@ async function fetchTickerChain(symbol) {
   return {
     spot,
     quoteAsOf,
+    quoteProvenance: yahooQuoteProvenance(initial.quote, { optionSpot: true }),
     marketState: initial.quote?.marketState ?? null,
     expirations: Object.keys(chains).map(Number).sort((a, b) => a - b),
     chains,
@@ -37156,6 +37160,7 @@ async function main() {
   // LEAPS scores ride the Top Picks decision. Absent until the first decision
   // bake, so a missing prior file is not a failed carry.
   const leapsScoreCarry = await readFile(resolve(DATA_DIR, LEAPS_PICKS_KEY), "utf8").catch(() => null);
+  const unifiedSignalCarry = await readFile(resolve(DATA_DIR, UNIFIED_SIGNAL_KEY), "utf8").catch(() => null);
   // The slower swing desks are decision products, not live tape widgets.
   // Recompute them only in the same 11:00 / 15:30 ET windows as Top Picks;
   // every other full build restores the exact prior payload + ledger bytes.
@@ -38535,6 +38540,20 @@ async function main() {
     console.log(`wrote data/${evidenceInfo.key} — ${evidenceInfo.names} names, ${evidenceInfo.pieces} pieces`);
   } catch (err) {
     console.log(`  ⚠ Evidence record step failed (non-fatal): ${err.message}`);
+  }
+  if (refreshTopPicks) {
+    try {
+      let previous = null;
+      try { previous = JSON.parse(unifiedSignalCarry || "null"); } catch { /* no usable prior decision */ }
+      const unified = await publishUnifiedSignal({ dataDir: DATA_DIR, builtAtIso, chains, grades: gradesIndex, previous });
+      console.log(`wrote data/${UNIFIED_SIGNAL_KEY} — ${unified.decisions.length} decisions, snapshot ${unified.snapshotId}`);
+    } catch (err) {
+      // A failed research view must never alter the existing trade pipeline.
+      // Its old remote snapshot remains visibly dated and expires in the UI.
+      console.warn(`[unified-signal] decision view unavailable — ${String(err?.message || err).split("\n")[0]}`);
+    }
+  } else if (unifiedSignalCarry) {
+    await writeFile(resolve(DATA_DIR, UNIFIED_SIGNAL_KEY), unifiedSignalCarry, "utf8");
   }
   logAiUsageSummary();
   await writeAiHealthReport();

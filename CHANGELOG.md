@@ -27,6 +27,25 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Request an uncompressed R2 lock with a strong ETag so a released Webull paper lock can be acquired conditionally; fail closed on malformed locks or repeated conflicts, expose Owner-only diagnostics, and report mirror failures in a separate workflow health job.
 - Reconcile Webull grouped option positions using confirmed broker order legs and stable position identities; prepare manual spread adoption without replaying its entry, retain separate overlapping manual holdings, and exclude manual entries from automatic fill timing and slippage.
 
+## 2026-10-26
+
+### Added
+
+- Add split view: a button next to the light/dark switch shows two pages side by side (stacked on phones), each with its own page picker, a draggable divider, Swap and Full page. `vercel.json` now allows same-site framing so the panes can load; other sites still cannot frame the app (#691).
+- Add plain-English wayfinding on every page: a "Home / Section / Page" trail, a one-line "what this shows" summary, chips for the other pages in the section, and Previous / Next links at the bottom (`scripts/render/wayfinding-js.mjs`).
+- Add "Explore by topic" tiles on Home, a "Recently viewed" list in the sidebar and at the top of the empty command palette (this browser only), and a phone tab bar (Today, Stocks, Market, Options, Search).
+- Show each stock's day move with an arrow on the All stocks cards, read from the existing public heatmap snapshot.
+
+### Changed
+
+- Regroup the sidebar into seven sections a new visitor can scan (Today, Stocks, Market & economy, Options activity, Charts & signals, Industry trends, Learn & help) plus the unchanged Owner group, each with a one-line description. Pages get plainer names (for example Fear & Greed is now Market mood and Unusual flow is Unusual options trades); old names still match in the sidebar filter and command palette, and every page id and `?tab=` link is unchanged. One site map (`scripts/render/site-map.mjs`) drives the sidebar, page headers, Home tiles, tab bar and palette.
+- Give charts one shared finish: soft area fills under sparklines and the Grade price line, round price gridlines ($200, $210, …), a larger hover readout, ▲/▼ arrows next to coloured moves, even-width digits, banded shared tables and a width cap on scatter charts (`scripts/render/data-display-css.mjs`).
+- Rewrite README.md around the new site structure.
+
+### Fixed
+
+- Keep the data-age dot beside its text on screens 380px wide or narrower instead of on a row of its own (#691).
+
 ## 2026-10-24
 
 ### Added

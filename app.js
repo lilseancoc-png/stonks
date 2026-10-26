@@ -18,6 +18,51 @@
     host.appendChild(button);
   }
 
+
+  var SITE_MAP = [["today","Today","Today","What is happening in the market right now",0,[["home","Home","","A one-screen overview of the market and every part of the site.",0],["brief","Market brief","Brief","A short digest of what moved, why, and what is coming up next.",0],["news","News","News desk","Market-moving stock and economic headlines, most important first.",0],["heatmap","Heatmap","","Every tracked stock as a tile: size is company value, color is how much it moved.",0],["calendar","Calendar","","Upcoming earnings reports, economic releases and Fed meetings.",0],["overnight","Overnight markets","","How Asian and European markets traded before the US open, and which US stocks they tend to lead.",0]]],["stocks","Stocks","Stocks","Look up, compare and follow companies",0,[["tickers","All stocks","Tickers","Every stock the site follows, with its price and current grade. Pick one to see the full report.",0],["grade","Look up a stock","Grade a ticker stock report","One stock in depth: its chart, grade, fundamentals, options and news.",0],["compare","Compare stocks","Compare companies","Line up a few companies side by side on price, growth and valuation.",0],["earnings","Earnings results","Earnings tracker","Which companies beat or missed expectations this season, and how their stocks reacted.",0],["calls","Earnings calls","","What management said on each company’s latest earnings call, and what changed.",0],["f13","Who owns what","SEC ownership 13F Form 4 insider","What big investment funds bought and sold last quarter, plus recent insider trades.",0],["pending-buyouts","Pending buyouts","M&A mergers","Announced and rumored takeovers, and how far along each deal is.",0],["capital-raises","Share sales & buybacks","Capital raises","Companies selling new stock or debt, and companies buying their own shares back.",0]]],["market","Market & economy","Market","The big picture: mood, rates, money and themes",0,[["fear-greed","Market mood","Fear & Greed","CNN’s Fear & Greed index: whether investors are acting scared or greedy, from 0 to 100.",0],["bonds-usd","Rates & the dollar","Bonds & USD Fed","Treasury yields, the US dollar and what the Fed is expected to do next.",0],["commodities","Commodities","","Oil, gold, copper and other raw materials, and the stocks that move with them.",0],["ipo-credit","IPOs & credit","","Upcoming stock market debuts and how easily companies can borrow right now.",0],["narratives","Market themes","Narratives","The big stories driving money right now, such as AI spending, and which stocks ride them.",0]]],["options","Options activity","Options","Where traders are placing bets",0,[["flow","Unusual options trades","Unusual flow","Option trades far bigger than normal for that stock, a sign someone expects a move.",0],["volume","Trading volume","Volume","Days when a stock traded much more or less than usual.",0],["oi","Options walls","Gamma exposure GEX","Price levels where large option positions can slow a stock down or speed it up.",0],["iv-trend","Rising volatility","Trending IV implied volatility","Stocks whose options are pricing in a bigger move than usual.",0],["strategies","Strategy builder","Strategies","Pick a stock and build a defined-risk options trade, with its profit and loss at expiry.",0]]],["signals","Charts & signals","Signals","Price trends and repeating patterns",0,[["ma-tracker","Moving averages","MA tracker crossover","Stocks sitting close to their 20, 50, 100 or 200-day average price.",0],["streaks","Up/down streaks","Streaks green red","Stocks on a run of up days or down days in a row.",0],["pattern-lab","Pattern lab","Seasonality","Repeating patterns such as seasonality and how stocks behave after big moves.",0],["spillover","Earnings ripple effects","Event spillover","How one company’s earnings tend to move the other stocks in its industry.",0],["index-cal","Index calendar","","A month view of the major index funds, showing which days the whole market joined in.",0]]],["industry","Industry trends","Industry","Real-world data behind the AI and chip trade",0,[["ai-capex","AI spending","AI CapEx","How much the biggest tech companies are spending on AI data centers.",0],["ram-prices","Memory chip prices","RAM prices DRAM","Weekly prices for computer memory, a read on the chip cycle.",0],["accelerator-prices","GPU cloud prices","Accelerator","What it costs to rent AI chips by the hour, a read on AI demand.",0],["central-bank-gold","Central-bank gold","","How much gold the world’s central banks are buying or selling.",0],["search-interest","Search trends","Search interest Google","Which market themes people are searching for more or less this week.",0]]],["learn","Learn & help","Learn","Guides, definitions and site info",0,[["cheatsheet","Options guide","Buyer's manual","A plain-English guide to buying options: calls, puts, risk and timing.",0],["chart-patterns","Chart patterns","","What common chart shapes look like and how traders read them.",0],["timeline","When data updates","Refresh schedule timeline","When each part of the site refreshes during the trading day.",0],["privacy","Privacy Policy","","What this site collects and how it is used.",0],["terms","Terms of Use","","The terms for using this site. Nothing here is investment advice.",0]]],["owner","Owner","Owner","Private research",1,[["unified-signal-engine","Unified Signal Engine","","All private signals combined into one ranked read.",0],["market","Market analysis","","The cross-asset tape, risk barometer and regime history.",0],["risk","Risk analysis","","Seven risk desks read together, with the reason when they disagree.",0],["bottom-tracker","Bottom tracker","","Signs the market is washing out and turning.",0],["historical-data","Historical Data","","The stored history behind the private research.",0],["forced-liquidation","Forced Liquidation Tracker","Pledged shares collateral leverage margin","SEC stock pledges, loan terms and estimated price thresholds, with missing terms kept visible.",0],["picks","Top picks","","The model’s highest-conviction option contracts for today.",0],["leaps","LEAPS","","Names scored for a one- to two-year options hold.",0],["stocks","Stock picks","","Quality companies on a dip, as shares rather than options.",0],["rotation","Sector rotation","","Strong names sold with their sector that are now turning back up.",0],["levetf","Leveraged ETFs","","Leveraged ETF setups from the same engine.",0],["open-picks","Open picks","","Every open trade, with lines ready to copy to a broker.",0],["track","Top Picks track record","","How every closed pick worked out.",0],["quant","Owner Lab","","Research tools and diagnostics.",0]]]];
+  var RECENT_KEY = 'stonks-recent-v1';
+  function wfReadRecent(){
+    try {
+      var saved = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+      return Array.isArray(saved) ? saved.filter(function(v){ return typeof v === 'string'; }).slice(0, 8) : [];
+    } catch (_) { return []; }
+  }
+  function wfNoteRecent(entry){
+    if (!entry) return;
+    var list = wfReadRecent();
+    if (list[0] === entry) return;
+    list = [entry].concat(list.filter(function(v){ return v !== entry; })).slice(0, 8);
+    try { localStorage.setItem(RECENT_KEY, JSON.stringify(list)); } catch (_) {}
+    try { document.dispatchEvent(new CustomEvent('stonks-recent')); } catch (_) {}
+  }
+  function wfSectionOf(tabId){
+    for (var i = 0; i < SITE_MAP.length; i++){
+      var items = SITE_MAP[i][5];
+      for (var j = 0; j < items.length; j++) if (items[j][0] === tabId) return { sec: SITE_MAP[i], idx: j };
+    }
+    return null;
+  }
+  function wfItem(tabId){
+    var hit = wfSectionOf(tabId);
+    return hit ? hit.sec[5][hit.idx] : null;
+  }
+
+
+  // Any framed copy is a pane: the site may only be framed by itself
+  // (frame-ancestors 'self'), and a link that reloads the pane drops ?embed=1.
+  var IS_EMBED = (function(){
+    try { return window.self !== window.top; }
+    catch (_) { return true; }
+  })();
+  // A pane follows the light / dark switch made in the main window.
+  if (IS_EMBED) window.addEventListener('storage', function(ev){
+    if (ev.key === 'stonks-theme' && (ev.newValue === 'dark' || ev.newValue === 'light')) document.documentElement.setAttribute('data-theme', ev.newValue);
+  });
+  function splitReportTab(name){
+    if (!IS_EMBED) return;
+    try { window.parent.postMessage({ stonksSplit: 1, tab: name }, window.location.origin); } catch (_) {}
+  }
+
 function recoveryCandidates(payload, options = {}, now = Date.now()) {
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(now));
   const end = Date.parse(today + 'T00:00:00Z');
@@ -1341,7 +1386,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // the Owner analysis/idea/record desks and Owner Lab; this UI boundary keeps
   // destinations hidden until the owner session's compatibility claims resolve.
   // Discord mints both only after verifying the existing Top Picks owner role.
-  var OWNER_TABS = { market:1, risk:1, 'bottom-tracker':1, 'historical-data':1, 'forced-liquidation':1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, 'open-picks':1, track:1, quant:1 };
+  var OWNER_TABS = { 'unified-signal-engine':1, market:1, risk:1, 'bottom-tracker':1, 'historical-data':1, 'forced-liquidation':1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, 'open-picks':1, track:1, quant:1 };
   var GATE_ON = false;
   var HAS_TRACK_RECORD = false;
   var HAS_TOP_PICKS = false;
@@ -1385,7 +1430,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // 'fresh' (today's ^IRX), 'cached' (last-good reading up to 14d old),
   // or 'fallback' (hardcoded 4.5% when both fail). The greeks tooltip
   // surfaces non-fresh sources so traders know the anchor is degraded.
-  var RFR_META = {"source":"fallback","asOf":"2026-10-24","ageDays":null};
+  var RFR_META = {"source":"fallback","asOf":"2026-10-26","ageDays":null};
   var CHAIN_CACHE = Object.create(null);
   var state = { symbol: null, spot: null, expirations: [], chains: {}, currentExp: null, news: null, technicals: null, priceSeries: null, intradaySeries: null, fundamentals: null, social: null, chainRequestSeq: 0 };
   var ownerAutoPicks = { data: null, pending: null };
@@ -1559,6 +1604,31 @@ function scenarioEventPhase(ev, now = Date.now()) {
     if (!clean.length) return '';
     var payload = { d: dates.map(function(d){ return String(d == null ? '' : d); }), s: clean };
     return " data-cr='" + escapeHtml(JSON.stringify(payload)) + "'";
+  }
+  // Round axis values: about target-many ticks on a 1 / 2 / 2.5 / 5 × 10^n step
+  // that fall inside [lo, hi]. Returns the values and the decimals to print.
+  function niceTicks(lo, hi, target){
+    var span = hi - lo;
+    if (!(span > 0) || !isFinite(span)) return { values: [], decimals: 0 };
+    var raw = span / Math.max(1, (target || 5) - 1);
+    var mag = Math.pow(10, Math.floor(Math.log(raw) / Math.LN10));
+    var steps = [1, 2, 2.5, 5, 10], step = mag * 10;
+    for (var i = 0; i < steps.length; i++) if (steps[i] * mag >= raw) { step = steps[i] * mag; break; }
+    var decimals = Math.max(0, -Math.floor(Math.log(step) / Math.LN10 + 1e-9));
+    if (step * Math.pow(10, decimals) % 1 !== 0) decimals += 1;
+    var values = [];
+    for (var v = Math.ceil(lo / step - 1e-9) * step; v <= hi + 1e-9 && values.length < 12; v += step) values.push(+v.toFixed(decimals + 2));
+    return { values: values, decimals: decimals };
+  }
+  // Soft area under a sparkline: the line's own "x,y x,y" points closed down
+  // to the baseline, drawn just before the line so it never covers it. The
+  // colour comes from CSS (.spark-area per chart family), so every sparkline
+  // on the site gets the same fill without touching its data or scale.
+  function sparkAreaHtml(points, baseY){
+    var parts = String(points || '').split(' ').filter(function(p){ return p.indexOf(',') > 0; });
+    if (parts.length < 2) return '';
+    var x0 = parts[0].split(',')[0], x1 = parts[parts.length - 1].split(',')[0];
+    return '<polygon class="spark-area" points="' + x0 + ',' + baseY + ' ' + parts.join(' ') + ' ' + x1 + ',' + baseY + '"/>';
   }
   function chHoverAttr(points){
     // points: [{x,y,label,value,time}] in viewBox coords. Coords round to 0.1
@@ -2402,6 +2472,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       if (c && c.s != null) bits.push('$' + c.s);
       bits.push((getOptType() || 'call').toUpperCase());
       document.title = bits.join(' ') + ' · stonks';
+      wfNoteRecent('sym:' + state.symbol);
     } catch (_) {}
   }
   function pushUrlState(){
@@ -4891,12 +4962,13 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','risk','historical-data','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','ipo-credit','bottom-tracker','open-picks','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','risk','unified-signal-engine','historical-data','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','ipo-credit','bottom-tracker','open-picks','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
   // home, which made shared URLs look broken.
   var PAGE_TAB_ALIASES = {
+    unified: 'unified-signal-engine', signals: 'unified-signal-engine', 'signal-engine': 'unified-signal-engine',
     historical: 'historical-data', history: 'historical-data', 'historical-data': 'historical-data',
     liquidation: 'forced-liquidation', 'forced-liquidation-tracker': 'forced-liquidation', 'forced-liquidation': 'forced-liquidation',
     unusual: 'flow', 'unusual-flow': 'flow',
@@ -5151,6 +5223,380 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var calendarContext = document.getElementById('calendar-context');
     if (calendarContext) calendarContext.open = window.matchMedia('(min-width: 761px)').matches;
 
+
+    // A destination is linkable when this visitor can open it: allowed by the
+    // Owner gate and still present (not role-hidden) in the sidebar.
+    function wfAllowed(id){
+      if (valid.indexOf(id) < 0) return false;
+      var btn = document.getElementById('page-tab-' + id);
+      return !!btn && !btn.hidden && !btn.closest('[hidden]');
+    }
+    function wfSectionItems(sec, includeHidden){
+      return sec[5].filter(function(it){ return wfAllowed(it[0]) && (includeHidden || !it[4]); });
+    }
+    function wfVisibleSections(){
+      return SITE_MAP.filter(function(sec){ return wfSectionItems(sec).length > 0; });
+    }
+    function wfGo(id){ if (wfAllowed(id)) selectTab(id); }
+    function wfLink(cls, id, inner, extra){
+      return '<button type="button" class="' + cls + '" data-wf-go="' + id + '"' + (extra || '') + '>' + inner + '</button>';
+    }
+    // Section header: "Section > Page", the sibling pages as chips, and the
+    // plain one-line summary. Previous / next links close the page.
+    function renderWayfinding(name){
+      if (document.body) document.body.setAttribute('data-active-tab', name);
+      syncPhoneTabBar(name);
+      if (name === 'home') return;
+      var hit = wfSectionOf(name);
+      var pane = document.getElementById('page-pane-' + name);
+      if (!hit || !pane) return;
+      var sec = hit.sec, item = hit.sec[5][hit.idx];
+      var head = pane.querySelector(':scope > .wf-head');
+      if (!head){
+        head = document.createElement('nav');
+        head.className = 'wf-head';
+        head.setAttribute('aria-label', 'Where you are');
+        pane.insertBefore(head, pane.firstChild);
+      }
+      var siblings = wfSectionItems(sec);
+      var firstInSection = siblings[0] ? siblings[0][0] : name;
+      head.innerHTML =
+        '<div class="wf-crumb">' + wfLink('wf-crumb-link', 'home', 'Home') + '<span aria-hidden="true">/</span>' +
+          wfLink('wf-crumb-link', firstInSection, escapeHtml(sec[1])) + '<span aria-hidden="true">/</span>' +
+          '<span class="wf-crumb-here" aria-current="page">' + escapeHtml(item[1]) + '</span></div>' +
+        (item[3] ? '<p class="wf-blurb">' + escapeHtml(item[3]) + '</p>' : '') +
+        (siblings.length > 1 ? '<div class="wf-sibs" role="list" aria-label="More in ' + escapeHtml(sec[1]) + '">' + siblings.map(function(it){
+          return wfLink('wf-sib' + (it[0] === name ? ' is-here' : ''), it[0], escapeHtml(it[1]), ' role="listitem"' + (it[0] === name ? ' aria-current="page"' : ''));
+        }).join('') + '</div>' : '');
+      var foot = pane.querySelector(':scope > .wf-foot');
+      if (!foot){
+        foot = document.createElement('nav');
+        foot.className = 'wf-foot';
+        foot.setAttribute('aria-label', 'Previous and next page');
+        pane.appendChild(foot);
+      }
+      // Previous / next walk the visible pages in sidebar order, crossing into
+      // the neighbouring section at either end.
+      var flat = [];
+      wfVisibleSections().forEach(function(s){ wfSectionItems(s).forEach(function(it){ flat.push([it, s]); }); });
+      var at = -1;
+      for (var i = 0; i < flat.length; i++) if (flat[i][0][0] === name) at = i;
+      var prev = at > 0 ? flat[at - 1] : null;
+      var next = at >= 0 && at < flat.length - 1 ? flat[at + 1] : null;
+      function footLink(entry, dir){
+        if (!entry) return '<span></span>';
+        var other = entry[1] !== sec;
+        return wfLink('wf-step wf-step-' + dir, entry[0][0],
+          '<small>' + (dir === 'prev' ? '&larr; Previous' : 'Next &rarr;') + (other ? ' · ' + escapeHtml(entry[1][1]) : '') + '</small><b>' + escapeHtml(entry[0][1]) + '</b>');
+      }
+      foot.innerHTML = footLink(prev, 'prev') + footLink(next, 'next');
+    }
+    // Home: one tile per section with its pages listed.
+    function renderTopics(){
+      var host = document.getElementById('landing-topics');
+      if (!host) return;
+      // Topic tiles cover the research sections; Learn & help and the
+      // private Owner group stay in the sidebar only.
+      host.innerHTML = wfVisibleSections().filter(function(sec){ return !sec[4] && sec[0] !== 'learn'; }).map(function(sec){
+        var items = wfSectionItems(sec).filter(function(it){ return it[0] !== 'home'; });
+        return '<section class="topic-tile" aria-label="' + escapeHtml(sec[1]) + '">' +
+          '<header>' + wfLink('topic-title', items[0][0], escapeHtml(sec[1]) + ' <span aria-hidden="true">&rarr;</span>') +
+          '<span class="topic-count">' + items.length + ' page' + (items.length === 1 ? '' : 's') + '</span></header>' +
+          '<p>' + escapeHtml(sec[3]) + '</p>' +
+          '<div class="topic-links">' + items.map(function(it){ return wfLink('topic-link', it[0], escapeHtml(it[1]), ' title="' + escapeHtml(it[3]) + '"'); }).join('') + '</div>' +
+        '</section>';
+      }).join('');
+    }
+    // Phone tab bar: highlight the current section; a tap opens the sidebar
+    // scrolled to that section, Search opens the command palette.
+    var phoneTabBar = document.getElementById('phone-tabbar');
+    function syncPhoneTabBar(name){
+      if (!phoneTabBar) return;
+      var hit = wfSectionOf(name);
+      var secId = hit ? hit.sec[0] : '';
+      phoneTabBar.querySelectorAll('[data-tabbar-section]').forEach(function(b){
+        var on = b.getAttribute('data-tabbar-section') === secId;
+        b.classList.toggle('is-on', on);
+        if (on) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current');
+      });
+    }
+    if (phoneTabBar) phoneTabBar.addEventListener('click', function(ev){
+      var btn = ev.target && ev.target.closest ? ev.target.closest('button') : null;
+      if (!btn) return;
+      if (btn.hasAttribute('data-tabbar-search')){
+        if (sideNavVisible()) closeSideNavDrawer();
+        var trigger = document.getElementById('cmd-palette-trigger');
+        if (trigger) trigger.click();
+        return;
+      }
+      var secId = btn.getAttribute('data-tabbar-section');
+      var group = document.querySelector('details.side-nav-group[data-nav-group="' + secId + '"]');
+      if (!group) return;
+      // Open the drawer directly (not via the menu button) so the phone
+      // keyboard does not pop up for the sidebar filter.
+      if (!sideNavVisible()){
+        if (isDesktopNav()) toggleSideNav();
+        else { document.body.classList.add('sidenav-open'); syncSideNav(); closeWorkspaceSettings(false); }
+      }
+      group.open = true;
+      requestAnimationFrame(function(){
+        var tools = document.querySelector('#side-nav .nav-tools');
+        group.style.scrollMarginTop = ((tools ? tools.offsetHeight : 0) + 8) + 'px';
+        try { group.scrollIntoView({ block: 'start' }); } catch (_) {}
+        var first = group.querySelector('[data-page-tab]:not([data-nav-hidden])');
+        if (first) first.focus({ preventScroll: true });
+      });
+      group.classList.remove('is-flash'); void group.offsetWidth; group.classList.add('is-flash');
+    });
+    // Recently viewed (this browser only): pages and stocks, newest first.
+    var recentSection = document.getElementById('workspace-recent');
+    var recentList = document.getElementById('workspace-recent-list');
+    function renderRecent(){
+      if (!recentList) return;
+      var active = document.querySelector('[data-page-tab][aria-selected="true"]');
+      var current = active ? active.getAttribute('data-page-tab') : '';
+      var html = wfReadRecent().filter(function(entry){
+        var kind = entry.slice(0, 4), id = entry.slice(4);
+        if (kind === 'tab:') return id !== current && wfAllowed(id) && !!wfItem(id);
+        return kind === 'sym:' && SYMBOLS.indexOf(id) >= 0 && wfAllowed('grade');
+      }).slice(0, 5).map(function(entry){
+        var id = entry.slice(4);
+        if (entry.slice(0, 4) === 'sym:') return '<button type="button" class="recent-chip is-sym" data-wf-sym="' + escapeHtml(id) + '">' + escapeHtml(id) + '</button>';
+        return wfLink('recent-chip', id, escapeHtml(wfItem(id)[1]));
+      }).join('');
+      recentList.innerHTML = html;
+      var filtering = !!(document.getElementById('nav-filter') || {}).value;
+      if (recentSection) recentSection.hidden = !html || filtering;
+    }
+    document.addEventListener('stonks-recent', renderRecent);
+    function wfOpenTicker(sym){
+      selectTab('grade');
+      setTimeout(function(){ try { combo.commit(sym); } catch (_) {} }, 0);
+    }
+    // One delegated listener serves every wayfinding link on the page.
+    document.addEventListener('click', function(ev){
+      var t = ev.target && ev.target.closest ? ev.target.closest('[data-wf-go], [data-wf-sym]') : null;
+      if (!t) return;
+      ev.preventDefault();
+      if (t.hasAttribute('data-wf-sym')) wfOpenTicker(t.getAttribute('data-wf-sym'));
+      else wfGo(t.getAttribute('data-wf-go'));
+    });
+    function noteWayfindingVisit(name){
+      if (name !== 'home' && name !== 'grade') wfNoteRecent('tab:' + name);
+      renderRecent();
+    }
+    renderTopics();
+    renderRecent();
+
+
+    var SPLIT_KEY = 'stonks-split-v1';
+    var splitToggle = document.getElementById('split-toggle');
+    var splitHost = null, splitInternalNav = false;
+    var splitState = { on: false, a: '', b: '', r: 50 };
+    try {
+      var savedSplit = JSON.parse(localStorage.getItem(SPLIT_KEY) || 'null');
+      if (savedSplit && typeof savedSplit === 'object') {
+        splitState.on = savedSplit.on === true;
+        splitState.a = typeof savedSplit.a === 'string' ? savedSplit.a : '';
+        splitState.b = typeof savedSplit.b === 'string' ? savedSplit.b : '';
+        var savedR = Number(savedSplit.r);
+        if (isFinite(savedR)) splitState.r = Math.min(75, Math.max(25, savedR));
+      }
+    } catch (_) {}
+    function splitSave(){
+      try { localStorage.setItem(SPLIT_KEY, JSON.stringify(splitState)); } catch (_) {}
+    }
+    function splitIsOn(){ return document.body.classList.contains('split-on'); }
+    function splitPickable(id){ return wfAllowed(id) && !!wfItem(id); }
+    // The picker lists every page this visitor can open, grouped by section.
+    function splitOptionsHtml(){
+      return wfVisibleSections().map(function(sec){
+        return '<optgroup label="' + escapeHtml(sec[1]) + '">' + wfSectionItems(sec).map(function(it){
+          return '<option value="' + it[0] + '">' + escapeHtml(it[1]) + '</option>';
+        }).join('') + '</optgroup>';
+      }).join('');
+    }
+    function splitPaneHtml(side){
+      var label = side === 'a' ? 'First page' : 'Second page';
+      return '<section class="split-pane split-pane-' + side + '" aria-label="' + label + '">' +
+        '<div class="split-bar">' +
+          '<label class="split-pick"><span class="sr-only">' + label + '</span>' +
+            '<select data-split-pick="' + side + '">' + splitOptionsHtml() + '</select></label>' +
+          '<button type="button" class="split-btn" data-split-full="' + side + '" title="Close split view and open this page full width">Full page</button>' +
+          (side === 'b' ? '<button type="button" class="split-btn" data-split-swap title="Swap the two sides">Swap</button>' +
+            '<button type="button" class="split-btn split-close" data-split-close aria-label="Close split view" title="Close split view">&times;</button>' : '') +
+        '</div>' +
+        '<iframe class="split-frame" data-split-frame="' + side + '" title="' + label + '"></iframe>' +
+      '</section>';
+    }
+    function splitBuild(){
+      if (splitHost) return splitHost;
+      splitHost = document.createElement('div');
+      splitHost.id = 'split-view';
+      splitHost.className = 'split-view';
+      splitHost.setAttribute('role', 'region');
+      splitHost.setAttribute('aria-label', 'Split view');
+      splitHost.innerHTML = splitPaneHtml('a') +
+        '<div class="split-divider" role="separator" tabindex="0" aria-label="Resize the two pages" aria-valuemin="25" aria-valuemax="75"><span aria-hidden="true"></span></div>' +
+        splitPaneHtml('b');
+      document.body.appendChild(splitHost);
+      splitHost.addEventListener('change', function(ev){
+        var sel = ev.target && ev.target.getAttribute ? ev.target.getAttribute('data-split-pick') : null;
+        if (sel) splitLoad(sel, ev.target.value);
+      });
+      splitHost.addEventListener('click', function(ev){
+        var t = ev.target && ev.target.closest ? ev.target.closest('[data-split-full], [data-split-swap], [data-split-close]') : null;
+        if (!t) return;
+        if (t.hasAttribute('data-split-full')) { var keep = splitState[t.getAttribute('data-split-full')]; splitClose(); selectTab(keep); }
+        else if (t.hasAttribute('data-split-swap')) { var a = splitState.a; splitLoad('a', splitState.b); splitLoad('b', a); }
+        else splitClose(true);
+      });
+      splitBindDivider(splitHost.querySelector('.split-divider'));
+      return splitHost;
+    }
+    function splitFrame(side){ return splitHost ? splitHost.querySelector('[data-split-frame="' + side + '"]') : null; }
+    function splitLoad(side, id){
+      if (!splitPickable(id)) return;
+      splitState[side] = id;
+      splitSave();
+      var sel = splitHost.querySelector('[data-split-pick="' + side + '"]');
+      if (sel && sel.value !== id) sel.value = id;
+      var frame = splitFrame(side);
+      if (frame) {
+        frame.setAttribute('data-tab', id);
+        frame.src = window.location.pathname + '?tab=' + encodeURIComponent(id) + '&embed=1';
+        frame.title = (side === 'a' ? 'First page: ' : 'Second page: ') + wfItem(id)[1];
+      }
+    }
+    // A pane reports its page whenever someone navigates inside it.
+    window.addEventListener('message', function(ev){
+      if (!splitHost || ev.origin !== window.location.origin || !ev.data || ev.data.stonksSplit !== 1) return;
+      ['a', 'b'].forEach(function(side){
+        var frame = splitFrame(side);
+        if (!frame || ev.source !== frame.contentWindow || !splitPickable(ev.data.tab)) return;
+        splitState[side] = ev.data.tab;
+        frame.setAttribute('data-tab', ev.data.tab);
+        frame.title = (side === 'a' ? 'First page: ' : 'Second page: ') + wfItem(ev.data.tab)[1];
+        var sel = splitHost.querySelector('[data-split-pick="' + side + '"]');
+        if (sel) sel.value = ev.data.tab;
+        splitSave();
+      });
+    });
+    function splitStacked(){
+      try { return window.matchMedia('(max-width: 760px)').matches; } catch (_) { return false; }
+    }
+    function splitApplyRatio(){
+      if (!splitHost) return;
+      splitHost.style.setProperty('--split-r', String(splitState.r));
+      var div = splitHost.querySelector('.split-divider');
+      if (div) {
+        div.setAttribute('aria-valuenow', String(Math.round(splitState.r)));
+        div.setAttribute('aria-orientation', splitStacked() ? 'horizontal' : 'vertical');
+      }
+    }
+    function splitSetRatio(r){
+      splitState.r = Math.min(75, Math.max(25, r));
+      splitApplyRatio();
+    }
+    function splitBindDivider(div){
+      if (!div) return;
+      div.addEventListener('pointerdown', function(ev){
+        ev.preventDefault();
+        splitHost.classList.add('is-dragging');
+        try { div.setPointerCapture(ev.pointerId); } catch (_) {}
+        function move(e){
+          var box = splitHost.getBoundingClientRect();
+          var r = splitStacked() ? (e.clientY - box.top) / box.height : (e.clientX - box.left) / box.width;
+          if (isFinite(r)) splitSetRatio(r * 100);
+        }
+        function up(){
+          splitHost.classList.remove('is-dragging');
+          div.removeEventListener('pointermove', move);
+          div.removeEventListener('pointerup', up);
+          div.removeEventListener('pointercancel', up);
+          splitSave();
+        }
+        div.addEventListener('pointermove', move);
+        div.addEventListener('pointerup', up);
+        div.addEventListener('pointercancel', up);
+      });
+      div.addEventListener('keydown', function(ev){
+        var back = ev.key === 'ArrowLeft' || ev.key === 'ArrowUp';
+        var fwd = ev.key === 'ArrowRight' || ev.key === 'ArrowDown';
+        if (!back && !fwd && ev.key !== 'Home') return;
+        ev.preventDefault();
+        splitSetRatio(ev.key === 'Home' ? 50 : splitState.r + (fwd ? 5 : -5));
+        splitSave();
+      });
+    }
+    // The panes sit right under the header, whatever height it has here.
+    function splitPlace(){
+      if (!splitHost) return;
+      var header = document.querySelector('.site-header');
+      var bottom = header ? Math.max(0, header.getBoundingClientRect().bottom) : 0;
+      splitHost.style.top = bottom + 'px';
+      splitApplyRatio();
+    }
+    window.addEventListener('resize', function(){ if (splitIsOn()) splitPlace(); });
+    function splitSyncToggle(on){
+      if (!splitToggle) return;
+      splitToggle.setAttribute('aria-pressed', on ? 'true' : 'false');
+      splitToggle.title = on ? 'Close split view' : 'Split view: two pages side by side';
+    }
+    function splitDefaultSecond(first){
+      var recent = wfReadRecent().filter(function(e){ return e.slice(0, 4) === 'tab:'; }).map(function(e){ return e.slice(4); });
+      var options = [splitState.b].concat(recent, ['news', 'heatmap', 'brief', 'tickers', 'calendar']);
+      for (var i = 0; i < options.length; i++) if (options[i] && options[i] !== first && splitPickable(options[i])) return options[i];
+      return 'home';
+    }
+    function splitOpen(first, second){
+      splitBuild();
+      if (!splitPickable(first)) first = 'home';
+      if (!splitPickable(second) || second === first) second = splitDefaultSecond(first);
+      document.body.classList.add('split-on');
+      closeWorkspaceSettings(false);
+      if (!isDesktopNav()) closeSideNavDrawer();
+      splitPlace();
+      splitLoad('a', first);
+      splitLoad('b', second);
+      // The main page steps back to Home underneath so its own live
+      // refreshes stop while the two panes do the work.
+      splitInternalNav = true;
+      try { selectTab('home', { replace: true }); } finally { splitInternalNav = false; }
+      splitState.on = true;
+      splitSave();
+      splitSyncToggle(true);
+    }
+    // restore: put the first pane's page back as the full page.
+    function splitClose(restore){
+      if (!splitIsOn()) return;
+      document.body.classList.remove('split-on');
+      var first = splitState.a;
+      splitState.on = false;
+      splitSave();
+      splitSyncToggle(false);
+      // Unload both panes so their live refreshes stop with them.
+      ['a', 'b'].forEach(function(side){ var f = splitFrame(side); if (f) f.src = 'about:blank'; });
+      if (restore && splitPickable(first)) selectTab(first);
+    }
+    if (splitToggle && !IS_EMBED) splitToggle.addEventListener('click', function(){
+      if (splitIsOn()) splitClose(true);
+      else {
+        var active = document.querySelector('[data-page-tab][aria-selected="true"]');
+        var current = active ? active.getAttribute('data-page-tab') : 'home';
+        splitOpen(current, splitState.b);
+      }
+    });
+    if (splitToggle && IS_EMBED) splitToggle.hidden = true;
+    // Called once after the first page is chosen: reopen a split view that
+    // was open last time. A ?tab= link fills the first side.
+    function splitRestore(){
+      if (IS_EMBED || !splitState.on || !splitToggle) return;
+      var linked = null;
+      try { linked = resolveTab(new URLSearchParams(window.location.search).get('tab')); } catch (_) {}
+      splitOpen(linked || splitState.a, splitState.b);
+    }
+
     // Restore the persisted desktop collapse before the first sync so the
     // sidebar doesn't flash open for a user who keeps it closed.
     try {
@@ -5181,7 +5627,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         var groupName = label ? label.textContent.toLowerCase() : '';
         group.querySelectorAll('[data-page-tab]').forEach(function(btn){
           var allowed = valid.indexOf(btn.getAttribute('data-page-tab')) !== -1 && !group.hidden && !btn.hidden && !btn.hasAttribute('data-nav-hidden');
-          var match = allowed && (!query || (btn.textContent.toLowerCase() + ' ' + groupName).indexOf(query) !== -1);
+          var match = allowed && (!query || (btn.textContent.toLowerCase() + ' ' + (btn.getAttribute('data-nav-alias') || '').toLowerCase() + ' ' + groupName).indexOf(query) !== -1);
           btn.classList.toggle('nav-filter-hidden', !!query && !match);
           if (match) { count++; navMatches.push(btn); }
         });
@@ -5191,6 +5637,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       });
       if (!query) navGroupState = null;
       if (typeof syncWorkspacePins === 'function') syncWorkspacePins();
+      if (typeof renderRecent === 'function') renderRecent();
       if (navFilterClear) navFilterClear.hidden = !query;
       if (navFilterStatus) {
         navFilterStatus.hidden = !query;
@@ -5342,6 +5789,9 @@ function scenarioEventPhase(ev, now = Date.now()) {
       // Bounce stale/deep-linked Owner destinations before persisting or
       // starting any loader. The server independently enforces stored data.
       if (OWNER_TABS[name] && !HAS_OWNER_ACCESS) { return selectTab('home', nav); }
+      // Picking a page from the main window (sidebar, search, a link) while
+      // split view is on goes back to one full page.
+      if (!splitInternalNav && splitIsOn()) splitClose(false);
       resetNavFilter();
       try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
       var activeBtn = null;
@@ -5361,6 +5811,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         if (activeGroup) activeGroup.open = true;
       }
       syncWorkspacePins();
+      try { renderWayfinding(name); noteWayfindingVisit(name); } catch (_) {}
       // Lazy-mount the doc page's shadow content on first open of its tab.
       try { mountDocPane(name); } catch (_) {}
       // Navigating from the mobile drawer closes it — the destination pane
@@ -5368,9 +5819,10 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var drawerWasOpen = !isDesktopNav() && sideNavVisible();
       closeSideNavDrawer();
       if (drawerWasOpen && workspaceMain) workspaceMain.focus({ preventScroll: true });
-      syncTabToUrl(name, !!(nav && nav.replace));
+      // Inside a split-view pane the page change never adds a Back step.
+      syncTabToUrl(name, IS_EMBED || !!(nav && nav.replace));
       if (name !== 'grade') document.title = 'stonks';
-      trackPageTab(name);
+      if (IS_EMBED) splitReportTab(name); else if (!splitInternalNav) trackPageTab(name);
       // A tab hop lands at the top of the destination pane — the scroll depth
       // of a long previous tab (e.g. a Brief ticker chip clicked from way down
       // the page) otherwise carries over and the new tab opens mid/bottom.
@@ -5416,6 +5868,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         if (name === 'track' && HAS_TRACK_RECORD && typeof loadAccuracy === 'function') loadAccuracy();
         if (name === 'open-picks' && HAS_TRACK_RECORD && typeof loadOpenPicks === 'function') loadOpenPicks();
         if (name === 'heatmap' && typeof loadHeatmap === 'function') loadHeatmap();
+        if (name === 'tickers' && typeof paintTickerDayMoves === 'function') paintTickerDayMoves();
         if (name === 'f13' && typeof loadF13 === 'function') loadF13();
         if (name === 'streaks' && typeof window.stonksLoadStreaks === 'function') window.stonksLoadStreaks();
         if (name === 'fear-greed' && typeof renderFearGreed === 'function') renderFearGreed();
@@ -5467,6 +5920,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         if (name === 'bottom-tracker' && typeof loadBottomTracker === 'function') loadBottomTracker();
         if (name === 'historical-data') historicalData.load();
         if (name === 'forced-liquidation') forcedLiquidation.load();
+        if (name === 'unified-signal-engine') unifiedSignal.load();
         if (name === 'iv-trend' && typeof loadIvTrend === 'function') loadIvTrend();
         if (name === 'spillover' && typeof loadSpillover === 'function') loadSpillover();
         if (name === 'quant' && typeof loadQuant === 'function') loadQuant();
@@ -5505,6 +5959,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     // list, now against the role-filtered set and with the full selectTab
     // (loaders, premium gate, URL sync).
     selectTab(initialPageTabFromUrl(valid), { replace: true });
+    try { splitRestore(); } catch (_) {}
     // Honor browser back/forward when the URL's ?tab= changes. Restoring a
     // history entry must never push a new one (replace: true) or Back would
     // re-mint what it just popped.
@@ -5619,7 +6074,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
           html += '<div class="pulse-item ' + cls + '" role="listitem">'
                 + '<span class="pulse-name">' + meta.name + '</span>'
                 + '<span class="pulse-sym">' + sym + '</span>'
-                + '<span class="pulse-move">' + sign + mv.toFixed(2) + '%</span>'
+                + '<span class="pulse-move"><span class="move-arrow" aria-hidden="true">' + (mv > 0 ? '▲' : mv < 0 ? '▼' : '') + '</span>' + sign + mv.toFixed(2) + '%</span>'
                 + '</div>';
         });
         if (html) { wrap.innerHTML = html; wrap.hidden = false; }
@@ -6703,12 +7158,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
       band = topPts.length ? '<path class="opt-pc-band" d="M' + topPts.join('L') + 'L' + botPts.reverse().join('L') + 'Z" />' : '';
     }
     // price gridlines + y labels
+    // Gridlines sit on round prices ($200, $210, …) instead of splitting the
+    // range into four odd values, so the axis reads at a glance.
     var grid = '';
-    for (i = 0; i <= 4; i++){
-      var gy = (padT + (i / 4) * (priceBot - padT));
-      var gval = hi - (i / 4) * (hi - lo);
+    var yTicks = niceTicks(lo, hi, 5);
+    for (i = 0; i < yTicks.values.length; i++){
+      var gval = yTicks.values[i];
+      var gy = yAt(gval);
       grid += '<line class="opt-pc-grid" x1="' + padL + '" y1="' + gy.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + gy.toFixed(1) + '" />';
-      grid += '<text class="opt-pc-ylabel" x="' + (padL - 6) + '" y="' + (gy + 3 * k).toFixed(1) + '">$' + fmt(gval) + '</text>';
+      grid += '<text class="opt-pc-ylabel" x="' + (padL - 6) + '" y="' + (gy + 3 * k).toFixed(1) + '">$' + gval.toFixed(yTicks.decimals > 0 ? 2 : 0) + '</text>';
     }
     // Candlesticks and visible-range Fibonacci retracements. Direction follows
     // the chronological swing: low→high draws pullback levels down from the high;
@@ -6894,7 +7352,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     );
     var svg = '<svg class="opt-pc-svg' + (k > 1 ? ' is-narrow' : '') + '"' + rangeAttr + ' viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Price chart, ' + aria + ', with directional volume, Fibonacci retracements and RSI(14)">' +
       fanDefs + grid + fibEl + hitEl + band + vol + rsiEl + smaBEl + smaAEl + candleEl +
-      (hasOhlc ? '' : '<polyline class="opt-pc-close" fill="none" points="' + pts(c) + '" />') +
+      (hasOhlc ? '' : sparkAreaHtml(pts(c), priceBot).replace('class="spark-area"', 'class="spark-area opt-pc-area"') + '<polyline class="opt-pc-close" fill="none" points="' + pts(c) + '" />') +
       fanEl + spotEl + xlabels + fcXlabel + fanLabels + hoverEl +
       '</svg>';
     return { svg: svg, legend: legend, points: hoverPts, intraday: intraday };
@@ -12399,6 +12857,33 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
   }
 
+  // --- Tickers grid: last day's move ---------------------------------------
+  // Each card shows the day's % move from the hourly heatmap snapshot the site
+  // already publishes (one cached public file, shared with the Heatmap tab), so
+  // a card reads "$205  ▲ 0.16%" outside market hours too. A live quote from
+  // the poller below replaces it while the market is open.
+  var tickerMovesPainted = false;
+  function paintTickerDayMoves(){
+    if (tickerMovesPainted) return;
+    tickerMovesPainted = true;
+    function paint(list){
+      (list || []).forEach(function(row){
+        if (!row || !row.t || row.ch == null || !isFinite(row.ch)) return;
+        var el = document.querySelector('[data-chg-for="' + String(row.t).toUpperCase() + '"]');
+        if (!el || !el.hidden) return;
+        var v = Number(row.ch);
+        el.textContent = (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+        el.className = 'ticker-chg ' + (v >= 0 ? 'is-up' : 'is-dn');
+        el.hidden = false;
+      });
+    }
+    if (heatmapState.data && Array.isArray(heatmapState.data.tickers)) { paint(heatmapState.data.tickers); return; }
+    fetch(dataUrl('heatmap.json'), { cache: 'force-cache' })
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(json){ paint(json && json.tickers); })
+      .catch(function(){ tickerMovesPainted = false; });
+  }
+
   // --- Tickers grid live prices --------------------------------------------
   // The grid paints baked manifest spots on load (up to an hour stale
   // intra-session); while the tab is open this refreshes each card's price
@@ -13542,7 +14027,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         value: v, time: back === 0 ? 'latest' : back + ' samples back' };
     }));
     return '<svg class="' + cls + '"' + hover + ' width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
-      base + '<polyline points="' + pts + '" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+      base + sparkAreaHtml(pts, h) + '<polyline points="' + pts + '" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/></svg>';
   }
   // Baked daily net-stress trend (from regime-history.json) — the headline meter
   // sparkline. Returns [] until the history file has loaded.
@@ -22458,7 +22943,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var points = values.map(function(v, i){
       return ((i / (values.length - 1)) * 100).toFixed(1) + ',' + (27 - ((v - lo) / span) * 23).toFixed(1);
     }).join(' ');
-    return '<svg class="si-spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true"><polyline points="' + points + '"/></svg>';
+    return '<svg class="si-spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">' + sparkAreaHtml(points, 30) + '<polyline points="' + points + '"/></svg>';
   }
   function siQueryList(items, rising){
     var list = Array.isArray(items) ? items : [];
@@ -22682,7 +23167,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     var up = pts[pts.length - 1].v >= pts[0].v;
     return '<svg class="cmd-spark ' + (up ? 'cmd-spark-up' : 'cmd-spark-down') + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="' + escapeHtml(it.label || '') + ' price trend"' + chHoverAttr(hover) + '>' +
-      '<polyline class="cmd-spark-line" points="' + poly + '" fill="none"/>' +
+      sparkAreaHtml(poly, H) + '<polyline class="cmd-spark-line" points="' + poly + '" fill="none"/>' +
     '</svg>';
   }
   // The highlighted then→now strip: the actual price 3mo / 6mo / 1y ago next
@@ -22960,7 +23445,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     for (i = 0; i < values.length; i++){
       pts.push(((i / (values.length - 1)) * w).toFixed(1) + ',' + (h - ((values[i] - min) / span) * (h - 4) - 2).toFixed(1));
     }
-    return '<svg class="btm-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" aria-hidden="true"><polyline fill="none" points="' + pts.join(' ') + '"/></svg>';
+    return '<svg class="btm-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" aria-hidden="true">' + sparkAreaHtml(pts.join(' '), h) + '<polyline fill="none" points="' + pts.join(' ') + '"/></svg>';
   }
   function btmRate(value){
     if (value == null || !isFinite(value)) return '—';
@@ -23636,7 +24121,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     var up = pts[pts.length - 1].v >= pts[0].v;
     return '<svg class="ic-spark ' + (up ? 'ic-spark-up' : 'ic-spark-down') + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img"' + chHoverAttr(hover) + '>' +
-      '<polyline class="ic-spark-line" points="' + poly + '" fill="none"/></svg>';
+      sparkAreaHtml(poly, H) + '<polyline class="ic-spark-line" points="' + poly + '" fill="none"/></svg>';
   }
   function icDateShort(d){
     var ms = Date.parse(String(d) + (String(d).length === 10 ? 'T12:00:00Z' : ''));
@@ -24228,7 +24713,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       : '';
     return '<svg class="ivt-spark" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="IV history sparkline"' + chHoverAttr(hover) + '>' +
       meanLine +
-      '<polyline class="ivt-spark-line" points="' + poly + '" fill="none"/>' +
+      sparkAreaHtml(poly, H) + '<polyline class="ivt-spark-line" points="' + poly + '" fill="none"/>' +
     '</svg>';
   }
   function ivtEarningsBadge(row){
@@ -24311,7 +24796,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var up = vals[vals.length - 1] >= vals[0];
     return '<svg class="ivt-mini ' + (up ? 'is-up' : 'is-down') + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="IV over the last ' + vals.length + ' sessions"' + chHoverAttr(hov) + '>' +
       (mean != null ? '<line class="ivt-spark-mean" x1="' + P + '" x2="' + (W - P) + '" y1="' + Y(mean).toFixed(1) + '" y2="' + Y(mean).toFixed(1) + '"/>' : '') +
-      '<polyline points="' + poly + '" fill="none"/></svg>';
+      sparkAreaHtml(poly, H) + '<polyline points="' + poly + '" fill="none"/></svg>';
   }
   // Current IV against the name's own long-run average, one dot per ticker in
   // the active filter. Above the diagonal = options cost more than usual.
@@ -24666,6 +25151,201 @@ function scenarioEventPhase(ev, now = Date.now()) {
   // docs/quant-lab.md — deterministic sigma / VRP / pairs / surface /
   // dispersion / post-earnings-drift screens. ANALYTICAL ONLY: z-scores and
   // ranks, never trade signals (the playbook table in the shell is educational).
+  var unifiedSignal = (function unifiedSignalClientFactory(host, doc, options, policy) {
+  const state = { data: null, loading: false, error: '', symbol: '', query: '', filter: 'all', view: 'decision', bound: false, timer: null };
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]);
+  const num = (value, digits = 2) => typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('en-US', { maximumFractionDigits: digits, minimumFractionDigits: digits }) : 'Unavailable';
+  const pct = value => typeof value === 'number' && Number.isFinite(value) ? (value > 0 ? '+' : '') + num(value) + '%' : 'Unavailable';
+  const root = () => doc.getElementById('unified-signal-root');
+  const currentStatus = row => policy.status(row, state.data, Date.now(), !!state.error);
+  const entryBlocks = row => row.status === 'eligible' && currentStatus(row) !== 'eligible'
+    ? ['Refresh the published snapshot before considering an entry. The prior entry check is expired or could not be revalidated.', ...row.blocks] : row.blocks;
+  const money = (value, currency) => typeof value !== 'number' || !Number.isFinite(value) ? 'Unavailable' : num(value) + (currency ? ' ' + currency : ' · currency unverified');
+  const time = value => { if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value + ' · date only'; const ms = Date.parse(value || ''); return Number.isFinite(ms) ? new Date(ms).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ET' : 'Time unverified'; };
+  function save() { try { host.localStorage.setItem('stonks-unified-view', JSON.stringify({ symbol: state.symbol, filter: state.filter, view: state.view })); } catch {} }
+  function restore() {
+    try {
+      const saved = JSON.parse(host.localStorage.getItem('stonks-unified-view') || '{}');
+      if (typeof saved.symbol === 'string' && /^[A-Z][A-Z0-9.]{0,5}$/.test(saved.symbol)) state.symbol = saved.symbol;
+      if (['all','eligible','wait','watch','avoid','insufficient-data'].includes(saved.filter)) state.filter = saved.filter;
+      if (['decision','evidence','prices','vehicles'].includes(saved.view)) state.view = saved.view;
+    } catch {}
+  }
+  const pill = (label, tone) => '<span class="use-tag use-tone-' + esc(tone || 'context') + '">' + esc(label) + '</span>';
+  const list = (items, empty) => items.length ? '<ul class="use-notes">' + items.map(item => '<li>' + esc(item) + '</li>').join('') + '</ul>' : empty ? '<p class="use-muted">' + esc(empty) + '</p>' : '';
+  function evidenceItem(item) {
+    const url = typeof item.url === 'string' && item.url.startsWith('https://') ? item.url : null;
+    const sourceName = ({'grades.json':'Existing grade rubric','quant.json':'Quant Lab','link-map.json':'Company relationships','market-analysis.json':'Market Analysis','sector-rotation.json':'Sector Rotation'})[item.source] || item.source;
+    return '<article class="use-observation"><div class="use-observation-head">' + pill(item.family, item.effect) + (item.unavailable ? pill('Unavailable','context') : '') + '</div><h4>' + (url ? '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + esc(item.title) + '</a>' : esc(item.title)) + '</h4><p>' + esc(item.detail) + '</p><small>' + esc(sourceName) + ' · ' + esc(time(item.asOf)) + (item.timeBasis === 'computed-assessment' ? ' · computed assessment; underlying publication times vary' : '') + '</small></article>';
+  }
+  function decisionView(row) {
+    const support = row.evidence.filter(e => e.effect === 'supports' && !e.unavailable).slice(0, 4);
+    const opposing = row.evidence.filter(e => e.effect === 'opposes' && !e.unavailable).slice(0, 4);
+    return '<div class="use-answer"><h3>What is the opportunity?</h3><p>' + esc(row.summary) + '</p><p class="use-muted">' + esc(state.data.horizon.label) + '. The grade ranks existing research; it is not a win probability.</p></div>' +
+      (row.thesis.summary ? '<section class="use-answer"><h3>Existing owner thesis</h3><p>' + esc(row.thesis.summary) + '</p><p class="use-muted">' + esc(row.thesis.source) + '. This interpretation is not additional independent evidence.</p></section>' : '') +
+      '<div class="use-evidence-pair"><section><h3>What supports it</h3>' + (support.length ? support.map(evidenceItem).join('') : '<p class="use-muted">No supporting rubric contribution is available.</p>') + '</section><section><h3>What challenges it</h3>' + (opposing.length ? opposing.map(evidenceItem).join('') : '<p class="use-muted">No opposing rubric contribution is recorded. That does not establish certainty.</p>') + '</section></div>' +
+      '<section class="use-answer"><h3>What keeps this from an entry?</h3>' + list(entryBlocks(row), 'The published owner entry checks qualified this idea at build time. Check the current market and account risk before acting.') + '</section>' +
+      '<section class="use-answer"><h3>How uncertain is the assessment?</h3><p>' + esc(row.uncertainty.disagreement) + '</p>' + list(row.uncertainty.missing, 'The core connected sources are present. Predictive skill is still unproven.') + '<p class="use-muted">' + esc(row.uncertainty.dependency) + '</p><p>' + esc(row.uncertainty.accountFit) + '</p></section>' +
+      '<section class="use-answer"><h3>What changes the decision?</h3><p>' + (row.plan.invalidation ? 'Review the thesis at ' + esc(money(row.plan.invalidation, row.quote.currency)) + '. ' : '') + esc(row.review.next) + '</p>' + list(row.review.invalidators,'') + '<p class="use-muted">' + esc(row.plan.warning) + '</p></section>' +
+      '<section class="use-answer"><h3>What changed since the prior snapshot?</h3>' + list(row.changes.items, row.changes.firstObservation ? 'This is the first saved assessment for this ticker.' : 'No tracked direction, policy-state, grade, price, or observation change.') + '</section>';
+  }
+  function evidenceView(row) {
+    return '<p class="use-muted">The existing rubric determines support and opposition. Raw measurements, desk summaries and relationship links are context, so the same underlying evidence is not added again.</p>' +
+      [['supports','Supports the thesis'],['opposes','Opposes the thesis'],['context','Measurements and related context']].map(([effect,label]) => {
+        const items = row.evidence.filter(e => e.effect === effect);
+        return items.length ? '<details class="use-disclosure" data-use-details="' + effect + '"' + (effect !== 'context' ? ' open' : '') + '><summary data-use-disclosure="' + effect + '">' + esc(label) + ' · ' + items.length + '</summary><div class="use-evidence-grid">' + items.map(evidenceItem).join('') + '</div></details>' : '';
+      }).join('');
+  }
+  function pricesView(row) {
+    const q = row.quote, p = row.plan, v = row.valuation;
+    return '<section class="use-answer"><span class="use-kicker">Market observation</span><h3>Observed stock price · ' + esc(money(q.value, q.currency)) + '</h3><p>' + esc(q.basis) + '</p><dl class="use-facts"><div><dt>Provider / field</dt><dd>' + esc(q.provider) + ' · ' + esc(q.field || 'Selected field unverified') + '</dd></div><div><dt>Market observation time</dt><dd>' + esc(time(q.asOf)) + '</dd></div><div><dt>Retrieved</dt><dd>' + esc(time(q.fetchedAt)) + '</dd></div><div><dt>Session / exchange</dt><dd>' + esc(q.marketState || 'Unverified') + ' · ' + esc(q.exchange || 'Unverified') + '</dd></div></dl><p>' + esc(q.reason) + '</p>' + (q.fallback ? '<p>' + esc(q.fallback) + '</p>' : '') + '</section>' +
+      '<section class="use-answer"><span class="use-kicker">Entry and structure</span><h3>Proposed trade levels</h3><dl class="use-facts"><div><dt>Entry reference</dt><dd>' + esc(money(p.entry, q.currency)) + '</dd></div><div><dt>Technical objective</dt><dd>' + esc(money(p.target, q.currency)) + '</dd></div><div><dt>Invalidation</dt><dd>' + esc(money(p.invalidation, q.currency)) + '</dd></div><div><dt>Reference reward / risk</dt><dd>' + (p.valid ? (p.riskReward < 1.5 ? 'Below 1.5:1' : esc(num(p.riskReward)) + ':1') : 'Unavailable') + '</dd></div></dl><p>' + esc(p.method || 'No qualified technical target method') + (p.anchor ? ' · ' + esc(p.anchor) : '') + '. A technical objective is not independent fair value.</p></section>' +
+      '<section class="use-answer"><span class="use-kicker">Conditional paths</span><h3>Forecast and market stress</h3><p>A calibrated stock forecast is not available. ' + esc(row.stress.label) + (row.stress.horizon ? ' · ' + esc(row.stress.horizon) : '') + '.</p>' + (row.stress.paths.length ? '<div class="use-table-wrap"><table class="use-table"><thead><tr><th>Macro scenario</th><th>Low stock price</th><th>High stock price</th></tr></thead><tbody>' + row.stress.paths.map(path => '<tr><td>' + esc(path.name) + '</td><td>' + esc(money(path.low,q.currency)) + '</td><td>' + esc(money(path.high,q.currency)) + '</td></tr>').join('') + '</tbody></table></div>' : '') + '</section>' +
+      '<section class="use-answer"><span class="use-kicker">Business valuation</span><h3>Independent fair value is not estimated</h3><p>' + esc(v.explanation) + '</p>' + (v.analystMean > 0 ? '<p>External analyst mean: ' + esc(money(v.analystMean,q.currency)) + '. Low: ' + esc(money(v.analystLow,q.currency)) + '. High: ' + esc(money(v.analystHigh,q.currency)) + '. ' + (v.analystCount ? esc(v.analystCount) + ' analysts. ' : '') + 'Target publication times are unverified.</p>' : '') + '</section>' +
+      '<section class="use-answer"><span class="use-kicker">Option premium</span><h3>Entry costs and modeled exit values</h3><p>The trade comparison separates quote-based entry assumptions from theoretical liquidation scenarios. Per-contract quote times remain unverified.</p><button type="button" class="use-text-button" data-use-view="vehicles">Open trade comparison</button></section>';
+  }
+  function vehiclesView(row) {
+    const shares = row.vehicles.choices.find(v => v.kind === 'shares'), option = row.vehicles.choices.find(v => v.kind === 'option');
+    const allowed = currentStatus(row) === 'eligible';
+    const flat = option.scenarios.find(s => s.label === 'iv-flat');
+    const quoteDetails = option.legs.length ? '<div class="use-table-wrap"><table class="use-table"><thead><tr><th>Option leg</th><th>Strike</th><th>Recorded bid</th><th>Recorded ask</th></tr></thead><tbody>' + option.legs.map(leg => '<tr><td>' + esc((leg.qty > 0 ? 'Long ' : 'Short ') + leg.type) + '</td><td>' + esc(num(leg.strike)) + '</td><td>' + esc(money(leg.bid,row.quote.currency)) + '</td><td>' + esc(money(leg.ask,row.quote.currency)) + '</td></tr>').join('') + '</tbody></table></div>'
+      : option.entryPerShare > 0 ? '<p>Recorded bid: ' + esc(money(option.bid,row.quote.currency)) + '. Recorded ask: ' + esc(money(option.ask,row.quote.currency)) + '.</p>' : '';
+    return '<p>' + esc(allowed ? row.vehicles.reason : 'No new entry is qualified in this view. Cash remains the current action; conditional payoffs are research context.') + '</p><div class="use-table-wrap"><table class="use-table"><thead><tr><th>Expression</th><th>Policy state</th><th>Return basis</th><th>At stock objective</th><th>At invalidation</th></tr></thead><tbody>' +
+      '<tr><th>' + esc(shares.label) + '</th><td>' + (allowed && shares.eligible ? 'Qualified at build' : 'Research only') + '</td><td>Stock capital, before costs</td><td>' + esc(pct(shares.targetReturnPct)) + '</td><td>' + esc(pct(shares.invalidationReturnPct)) + '</td></tr>' +
+      '<tr><th>' + esc(option.label) + '</th><td>' + (allowed && option.eligible ? 'Qualified at build' : 'Not qualified') + '</td><td>Maximum quoted option loss · IV flat</td><td>' + esc(pct(flat?.atTargetPctOfRisk)) + '</td><td>' + esc(pct(flat?.atInvalidationPctOfRisk)) + '</td></tr>' +
+      '<tr><th>Keep cash</th><td>Available</td><td>No trade; cash yield not modeled</td><td>No stock exposure</td><td>No stock exposure</td></tr></tbody></table></div><p class="use-muted">The denominators differ. Stock returns use invested capital; option returns use maximum quoted loss. These conditional outcomes are not probability-weighted expected returns.</p>' +
+      '<section class="use-answer"><h3>Shares</h3><p>' + esc(shares.detail) + '</p><p>' + esc(row.plan.warning) + '</p></section>' +
+      '<section class="use-answer"><h3>' + esc(option.label) + '</h3><p>' + esc(option.detail) + '</p>' + (option.entryPerShare > 0 ? '<dl class="use-facts"><div><dt>' + (option.structure === 'credit_vertical' ? 'Entry credit per share' : 'Entry debit per share') + '</dt><dd>' + esc(money(option.entryPerShare,row.quote.currency)) + '</dd></div><div><dt>Maximum quoted loss per contract</dt><dd>' + esc(money(option.maximumLossPerContract,row.quote.currency)) + '</dd></div><div><dt>Strike / expiration</dt><dd>' + esc(num(option.strike)) + ' / ' + esc(option.expiry ? new Date(option.expiry * 1000).toISOString().slice(0,10) : 'Unverified') + '</dd></div><div><dt>Fees</dt><dd>' + (option.feesEstimated ? 'Included in modeled economics' : 'Not estimated') + '</dd></div></dl>' : '') + quoteDetails +
+      (option.scenarios.length ? '<div class="use-table-wrap"><table class="use-table"><thead><tr><th>IV assumption</th><th>At stock objective · % of maximum loss</th><th>At invalidation · % of maximum loss</th></tr></thead><tbody>' + option.scenarios.map(s => '<tr><td>' + esc(s.label) + '</td><td>' + esc(pct(s.atTargetPctOfRisk)) + '</td><td>' + esc(pct(s.atInvalidationPctOfRisk)) + '</td></tr>').join('') + '</tbody></table></div><p class="use-muted">' + esc(option.model) + ' · ' + esc(option.horizonDays) + ' calendar days. IV stresses have no probabilities.</p>' : '') + list(option.limitations, '') + '</section><section class="use-answer"><h3>Does an attractive risk-adjusted opportunity exist?</h3><p>' + (allowed ? 'The existing entry and feasibility policy qualified this setup at build time. A positive expected return is not established.' : 'Current checks do not qualify a new entry. Review the blocks on the Decision view.') + '</p><p>' + esc(row.uncertainty.accountFit) + '</p></section>';
+  }
+  function render() {
+    const target = root();
+    if (!target) return;
+    const libraryScroll = target.querySelector('.use-library')?.scrollTop || 0;
+    const disclosures = Array.from(target.querySelectorAll('[data-use-details]')).map(el => [el.getAttribute('data-use-details'), el.open]);
+    const focused = target.contains(doc.activeElement) ? doc.activeElement : null;
+    const focusAttribute = ['data-use-view','data-use-symbol','data-use-refresh','data-use-search','data-use-filter','data-use-disclosure'].find(attribute => focused?.hasAttribute(attribute));
+    const focusValue = focusAttribute ? focused.getAttribute(focusAttribute) : null;
+    if (!state.data) {
+      target.innerHTML = '<div class="use-empty" role="status"><h3>' + (state.loading ? 'Loading the decision snapshot' : 'Decision snapshot unavailable') + '</h3><p>' + esc(state.error || 'The first snapshot is published with an 11:00 or 15:30 ET decision build.') + '</p>' + (!state.loading ? '<button type="button" class="use-button" data-use-refresh>Try again</button>' : '') + '</div>';
+      return;
+    }
+    const expired = policy.expired(state.data), all = state.data.decisions;
+    const visible = all.filter(row => (state.filter === 'all' || currentStatus(row) === state.filter) && (!state.query || (row.symbol + ' ' + (row.sector || '')).toLowerCase().includes(state.query.toLowerCase())));
+    let selected = visible.find(row => row.symbol === state.symbol) || visible[0];
+    if (selected) state.symbol = selected.symbol;
+    const quoteExpired = selected?.status === 'eligible' && currentStatus(selected) === 'wait';
+    const notices = state.error ? '<p class="use-notice" role="alert">' + esc(state.error) + ' Previous snapshot is reference only.</p>' : expired || quoteExpired ? '<p class="use-notice" role="status">Reference snapshot. The entry check has expired or the regular session has closed. Refresh checks for a newer published decision; it does not fetch live quotes.</p>' : '';
+    target.innerHTML = '<div class="use-toolbar"><label>Find ticker or sector<input type="search" data-use-search value="' + esc(state.query) + '" placeholder="Search symbols" autocomplete="off"></label><label>Show<select data-use-filter>' + [['all','All research'],['eligible','Entry qualified'],['wait','Waiting'],['watch','Research watch'],['avoid','Avoid'],['insufficient-data','Missing data']].map(([value,label]) => '<option value="' + value + '"' + (state.filter === value ? ' selected' : '') + '>' + label + '</option>').join('') + '</select></label><button type="button" class="use-button" data-use-refresh' + (state.loading ? ' disabled' : '') + '>' + (state.loading ? 'Checking…' : 'Refresh snapshot') + '</button></div>' +
+      '<p class="use-snapshot-meta" role="status">' + visible.length + ' of ' + all.length + ' tickers · ' + esc(time(state.data.builtAtIso)) + ' · ' + esc(state.data.cadence) + '</p>' + notices +
+      (selected ? '<div class="use-layout"><aside class="use-library" aria-label="Unified Signal Engine research list">' + visible.map(row => '<button type="button" data-use-symbol="' + esc(row.symbol) + '" class="use-candidate' + (row.symbol === selected.symbol ? ' is-selected' : '') + '" aria-pressed="' + (row.symbol === selected.symbol) + '"><span><b>' + esc(row.symbol) + '</b><small>' + esc(row.direction) + '</small></span><small>' + esc(policy.label(currentStatus(row))) + '</small></button>').join('') + '</aside><section class="use-detail" aria-label="Ticker assessment"><header class="use-decision-head"><div><span class="use-kicker">' + esc(state.data.horizon.label) + '</span><h3>' + esc(selected.symbol) + ' <span>' + esc(selected.direction) + '</span></h3><p>' + esc(selected.sector || 'Sector unverified') + '</p></div><div>' + pill(policy.label(currentStatus(selected)), currentStatus(selected)) + '<p class="use-price">' + esc(money(selected.quote.value,selected.quote.currency)) + '</p></div></header><nav class="use-view-tabs" aria-label="Assessment views">' + [['decision','Decision'],['evidence','Evidence'],['prices','Price explanations'],['vehicles','Trade comparison']].map(([view,label]) => '<button type="button" data-use-view="' + view + '" aria-pressed="' + (state.view === view) + '">' + label + '</button>').join('') + '</nav><div class="use-view">' + (state.view === 'evidence' ? evidenceView(selected) : state.view === 'prices' ? pricesView(selected) : state.view === 'vehicles' ? vehiclesView(selected) : decisionView(selected)) + '</div></section></div>' : '<div class="use-empty"><h3>No matching research</h3><p>Change the ticker search or policy filter to inspect other assessments.</p></div>') +
+      '<footer class="use-footer"><p>' + esc(state.data.validation) + ' No live account sizing or order execution is connected.</p><details><summary>Method and saved decision</summary><p>' + esc(state.data.ranking) + '</p><p>Shared evidence is shown once in the rubric. Measurements and related desks remain context. Policy eligibility comes from a matching current owner trade and cannot override its entry or risk gates.</p><p>Snapshot ' + esc(state.data.snapshotId) + '</p><p>Engine ' + esc(state.data.engineVersion) + ' · entry policy ' + esc(state.data.entryPolicyVersion) + '</p></details></footer>';
+    const library = target.querySelector('.use-library');
+    if (library) library.scrollTop = libraryScroll;
+    for (const [key,open] of disclosures) {
+      const disclosure = target.querySelector('[data-use-details="' + key + '"]');
+      if (disclosure) disclosure.open = open;
+    }
+    if (focusAttribute) target.querySelector('[' + focusAttribute + '="' + focusValue + '"]')?.focus({preventScroll:true});
+    host.clearTimeout(state.timer);
+    if (!expired && !doc.hidden) {
+      const deadlines = [Date.parse(state.data.validUntil)].concat(all.map(row => Date.parse(row.quote.validUntil || '')).filter(ms => ms > Date.now()));
+      state.timer = host.setTimeout(() => { if (root()?.closest('.page-pane')?.hidden === false) render(); }, Math.max(1, Math.min(...deadlines) - Date.now() + 1));
+    }
+  }
+  function bind() {
+    if (state.bound || !root()) return;
+    state.bound = true; restore();
+    root().addEventListener('click', event => {
+      const button = event.target.closest('button');
+      if (!button) return;
+      if (button.hasAttribute('data-use-refresh')) { load(true); return; }
+      const selectedTicker = !!button.dataset.useSymbol;
+      if (selectedTicker) state.symbol = button.dataset.useSymbol;
+      if (['decision','evidence','prices','vehicles'].includes(button.dataset.useView)) state.view = button.dataset.useView;
+      save(); render();
+      const nextFocus = selectedTicker ? root().querySelector('[data-use-symbol="' + state.symbol + '"]') : root().querySelector('.use-view-tabs [data-use-view="' + state.view + '"]');
+      nextFocus?.focus({preventScroll:true});
+      if (selectedTicker && host.innerWidth <= 700) root().querySelector('.use-decision-head')?.scrollIntoView({block:'start'});
+    });
+    root().addEventListener('change', event => { if (event.target.hasAttribute('data-use-filter')) { state.filter = event.target.value; save(); render(); root().querySelector('[data-use-filter]')?.focus({preventScroll:true}); } });
+    root().addEventListener('input', event => {
+      if (!event.target.hasAttribute('data-use-search')) return;
+      state.query = event.target.value; const position = event.target.selectionStart;
+      render(); const input = root().querySelector('[data-use-search]'); input.focus();
+      try { input.setSelectionRange(position, position); } catch {}
+    });
+    doc.addEventListener('visibilitychange', () => { if (!doc.hidden && state.data && root()?.closest('.page-pane')?.hidden === false) render(); });
+  }
+  async function load(force = false) {
+    if (!options.owner()) return;
+    bind();
+    if (state.loading) return;
+    if (state.data && !force) { render(); return; }
+    const restoreRefreshFocus = doc.activeElement?.hasAttribute('data-use-refresh');
+    const controller = new host.AbortController();
+    const requestTimer = host.setTimeout(() => controller.abort(), 15000);
+    state.loading = true; state.error = ''; render();
+    try {
+      const response = await host.fetch(options.url(), { credentials: 'same-origin', cache: 'no-store', signal: controller.signal });
+      if (response.status === 401 || response.status === 403) { state.data = null; throw new Error('Owner access is required. Sign in again to view private decisions.'); }
+      if (response.status === 404) throw new Error('No decision snapshot has been published yet. Check after the next 11:00 or 15:30 ET build.');
+      if (!response.ok) throw new Error('The published snapshot could not be loaded. Try again.');
+      let payload;
+      try { payload = await response.json(); } catch { throw new Error('The published snapshot could not be read. Try again.'); }
+      if (!policy.valid(payload)) throw new Error('The decision snapshot is incomplete or uses an unsupported version.');
+      state.data = payload;
+    } catch (error) { state.error = controller.signal.aborted ? 'The snapshot request timed out. Try again.' : error.message || 'The snapshot could not be loaded.'; }
+    finally {
+      host.clearTimeout(requestTimer);
+      state.loading = false; render();
+      if (restoreRefreshFocus) root()?.querySelector('[data-use-refresh]')?.focus({preventScroll:true});
+    }
+  }
+  return { load };
+})(window, document, {
+    owner: function(){ return HAS_OWNER_ACCESS; },
+    url: function(){ return '/api/auth/me?data=unified-signal.json'; }
+  }, (function unifiedSignalDisplayFactory() {
+  const states = ['eligible','wait','watch','avoid','insufficient-data'];
+  const finite = value => typeof value === 'number' && Number.isFinite(value);
+  function valid(payload) {
+    if (payload?.version !== 1 || typeof payload.engineVersion !== 'string' || !Array.isArray(payload.decisions) || payload.decisions.length > 1000) return false;
+    const built = Date.parse(payload.builtAtIso), expiry = Date.parse(payload.validUntil);
+    if (!Number.isFinite(built) || !Number.isFinite(expiry) || expiry <= built || expiry - built > 3600000) return false;
+    if (typeof payload.snapshotId !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[a-f0-9]{16}$/.test(payload.snapshotId) || payload.snapshotKey !== 'signal-decisions/' + payload.snapshotId + '.json') return false;
+    const seen = new Set();
+    return payload.horizon?.days === 14 && payload.decisions.every(row => {
+      if (!row || typeof row.symbol !== 'string' || !/^[A-Z][A-Z0-9.]{0,5}$/.test(row.symbol) || seen.has(row.symbol)) return false;
+      seen.add(row.symbol);
+      return states.includes(row.status) && ['bullish','bearish','mixed'].includes(row.direction)
+        && (row.grade === null || finite(row.grade)) && row.quote && (row.quote.value === null || finite(row.quote.value))
+        && row.plan && Array.isArray(row.blocks) && row.blocks.every(s => typeof s === 'string')
+        && Array.isArray(row.evidence) && row.evidence.every(e => e && typeof e.id === 'string' && typeof e.title === 'string' && ['supports','opposes','context'].includes(e.effect))
+        && row.uncertainty && Array.isArray(row.uncertainty.missing) && row.uncertainty.missing.every(s => typeof s === 'string') && row.valuation && row.stress && Array.isArray(row.stress.paths) && row.stress.paths.every(s => s && typeof s.name === 'string' && finite(s.low) && finite(s.high))
+        && row.thesis && row.review && Array.isArray(row.review.invalidators) && row.changes && Array.isArray(row.changes.items)
+        && row.vehicles && Array.isArray(row.vehicles.choices) && row.vehicles.choices.length === 3
+        && ['shares','option','cash'].every(kind => row.vehicles.choices.filter(v => v?.kind === kind).length === 1)
+        && row.vehicles.choices.every(v => {
+          if (typeof v.eligible !== 'boolean') return false;
+          if (v.kind !== 'option') return true;
+          return Array.isArray(v.scenarios) && v.scenarios.every(s => s && typeof s.label === 'string')
+            && Array.isArray(v.limitations) && Array.isArray(v.legs)
+            && v.legs.every(leg => leg && [1,-1].includes(leg.qty) && ['call','put'].includes(leg.type));
+        })
+        && (row.status !== 'eligible' || (row.blocks.length === 0 && row.quote.current === true && row.plan.valid === true));
+    });
+  }
+  function expired(payload, now = Date.now()) {
+    return now < Date.parse(payload.builtAtIso) - 300000 || now >= Date.parse(payload.validUntil);
+  }
+  function status(row, payload, now = Date.now(), referenceOnly = false) {
+    const quoteExpiry = Date.parse(row.quote?.validUntil || '');
+    return row.status === 'eligible' && (referenceOnly || expired(payload, now) || !Number.isFinite(quoteExpiry) || now >= quoteExpiry) ? 'wait' : row.status;
+  }
+  const label = value => ({ eligible: 'Entry qualified at build', wait: 'Wait for confirmation', watch: 'Research watch', avoid: 'Avoid under policy', 'insufficient-data': 'Insufficient data' })[value] || 'Unavailable';
+  return { valid, expired, status, label };
+})());
   var historicalData = (function historicalDataFactory(host, doc, options) {
   const state = { data: null, pending: false, error: null, symbol: 'SPY', range: 'all', study: 'q4', view: 'studies', context: 'VIXCLS', bound: false, libraryScroll: 0, freshnessTimer: null };
   const nyClock = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
@@ -26218,7 +26898,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     }
     var up = s[s.length - 1] >= s[0];
     return '<svg class="stk-spark ' + (up ? 'stk-spark-up' : 'stk-spark-down') + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="6-month price trend"' + chHoverAttr(hover) + '>' +
-      '<polyline class="stk-spark-line" points="' + poly + '" fill="none"/>' +
+      sparkAreaHtml(poly, H) + '<polyline class="stk-spark-line" points="' + poly + '" fill="none"/>' +
     '</svg>';
   }
   // Module 1 — the quality-gate checks as compact pills (every shipped
@@ -27361,7 +28041,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     return '<div class="rot-spark-wrap"><svg class="rot-spark rot-spark-' + tone + '" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="Recent normalized stock and peer-group paths; dotted vertical line marks the stock low">' +
       '<line class="rot-spark-low" x1="' + tx.toFixed(1) + '" y1="2" x2="' + tx.toFixed(1) + '" y2="46"/>' +
       (peerPts ? '<polyline class="rot-spark-peer" points="' + peerPts + '" fill="none"/>' : '') +
-      '<polyline class="rot-spark-stock" points="' + pts + '" fill="none"/></svg>' +
+      sparkAreaHtml(pts, H) + '<polyline class="rot-spark-stock" points="' + pts + '" fill="none"/></svg>' +
       '<span class="rot-spark-caption"><i class="rot-spark-key-stock rot-spark-key-' + tone + '">Stock ' + escapeHtml(rotPct(stockMove)) + '</i>' +
       (peerMove == null ? '' : '<i class="rot-spark-key-peer">Peers ' + escapeHtml(rotPct(peerMove)) + '</i>') +
       (alpha == null ? '' : '<b class="rot-' + (alpha >= 0 ? 'up' : 'down') + '">' + escapeHtml(rotPct(alpha)) + ' vs peers</b>') +
@@ -30251,7 +30931,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       var y = 30 - ((v - min) / span) * 26;
       return x.toFixed(1) + ',' + y.toFixed(1);
     }).join(' ');
-    return '<svg class="ovn-detail-spark" viewBox="0 0 100 32" preserveAspectRatio="none" role="img" aria-label="Trailing ' + values.length + '-session price path"><polyline points="' + pts + '" fill="none" vector-effect="non-scaling-stroke"></polyline></svg>';
+    return '<svg class="ovn-detail-spark" viewBox="0 0 100 32" preserveAspectRatio="none" role="img" aria-label="Trailing ' + values.length + '-session price path">' + sparkAreaHtml(pts, 32) + '<polyline points="' + pts + '" fill="none" vector-effect="non-scaling-stroke"></polyline></svg>';
   }
   function overnightDetailHtml(d){
     var sym = overnightState.selectedMarket;
@@ -43445,58 +44125,15 @@ function scenarioEventPhase(ev, now = Date.now()) {
     var trigger = $('cmd-palette-trigger');
     if (!modal || !input || !results) return;
 
-    var TABS = [
-      ['brief', 'Brief'],
-      ['news', 'News desk'],
-      ['heatmap', 'Heatmap'],
-      ['narratives', 'Narratives'],
-      ['tickers', 'Tickers'],
-      ['grade', 'Grade a ticker'],
-      ['compare', 'Compare companies'],
-      ['strategies', 'Strategies'],
-      ['ma-tracker', 'MA tracker'],
-      ['flow', 'Unusual flow'],
-      ['volume', 'Volume'],
-      ['oi', 'Gamma exposure (GEX)'],
-      ['iv-trend', 'Trending IV'],
-      ['streaks', 'Streaks'],
-      ['spillover', 'Event spillover'],
-      ['index-cal', 'Index calendar'],
-      ['pattern-lab', 'Pattern lab'],
-      ['calendar', 'Calendar'],
-      ['pending-buyouts', 'Pending buyouts'],
-      ['earnings', 'Earnings tracker'],
-      ['calls', 'Earnings calls'],
-      ['overnight', 'Overnight markets'],
-      ['fear-greed', 'Fear & Greed'],
-      ['bonds-usd', 'Bonds & USD'],
-      ['commodities', 'Commodities'],
-      ['capital-raises', 'Capital raises'],
-      ['ipo-credit', 'IPOs & credit'],
-      ['bottom-tracker', 'Bottom tracker'],
-      ['ai-capex', 'AI CapEx'],
-      ['ram-prices', 'RAM prices'],
-      ['accelerator-prices', 'GPU cloud prices'],
-      ['central-bank-gold', 'Central-bank gold'],
-      ['search-interest', 'Search interest'],
-      ['f13', '13F filings'],
-      ['market', 'Market analysis'],
-      ['risk', 'Risk analysis'],
-      ['forced-liquidation', 'Forced Liquidation Tracker'],
-      ['picks', 'Top picks'],
-      ['leaps', 'LEAPS'],
-      ['stocks', 'Stock picks'],
-      ['rotation', 'Sector rotation'],
-      ['levetf', 'Leveraged ETFs'],
-      ['open-picks', 'Open picks'],
-      ['track', 'Top Picks track record'],
-      ['quant', 'Owner Lab'],
-      ['cheatsheet', "Buyer's manual"],
-      ['chart-patterns', 'Chart patterns'],
-      ['timeline', 'Refresh schedule'],
-      ['privacy', 'Privacy Policy'],
-      ['terms', 'Terms of Use'],
-    ];
+    // Pages come from the shared site map; the section name and any older
+    // name ride along as the searchable sub-line ("Fear & Greed" still finds
+    // Market mood).
+    var TABS = [];
+    SITE_MAP.forEach(function(sec){
+      sec[5].forEach(function(it){
+        if (it[0] !== 'home') TABS.push([it[0], it[1], sec[1] + (it[2] ? ' · ' + it[2] : '')]);
+      });
+    });
 
     function buildCorpus(){
       var out = [];
@@ -43511,7 +44148,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
       });
       TABS.forEach(function(tt){
         if (OWNER_TABS[tt[0]] && !HAS_OWNER_ACCESS) return;
-        out.push({ type:'tab', label: tt[1], sub: 'Tab', action:'open-tab', payload: tt[0] });
+        out.push({ type:'tab', label: tt[1], sub: tt[2], action:'open-tab', payload: tt[0] });
       });
       return out;
     }
@@ -43536,7 +44173,17 @@ function scenarioEventPhase(ev, now = Date.now()) {
     function update(){
       var q = (input.value || '').trim();
       if (!q){
-        filtered = corpus.slice(0, 30);
+        // Empty query: this browser's recently viewed pages and stocks first.
+        var recent = [];
+        wfReadRecent().forEach(function(entry){
+          var kind = entry.slice(0, 4) === 'sym:' ? 'open-ticker' : 'open-tab';
+          var id = entry.slice(4);
+          for (var ri = 0; ri < corpus.length; ri++){
+            if (corpus[ri].action === kind && corpus[ri].payload === id){ recent.push(corpus[ri]); break; }
+          }
+        });
+        recent = recent.slice(0, 5);
+        filtered = recent.concat(corpus.filter(function(it){ return recent.indexOf(it) < 0; })).slice(0, 30);
       } else {
         filtered = corpus.map(function(it){ return { it: it, score: scoreMatch(it, q) }; })
           .filter(function(x){ return x.score >= 0; })
@@ -43865,7 +44512,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
         value: val, time: back === 0 ? 'latest session' : back + ' sessions back' };
     }));
     return '<svg class="bonds-spark"' + hover + ' width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
-      '<polyline points="' + pts + '" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+      sparkAreaHtml(pts, h) + '<polyline points="' + pts + '" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/></svg>';
   }
   function startBondsLivePolling(){
     var pane = document.getElementById('page-pane-bonds-usd');
