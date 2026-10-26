@@ -11,6 +11,7 @@ import {
 } from '../build.mjs';
 import { DOC_PAGES, DOC_ORDER, DOC_THEME_OVERRIDE } from './docs.mjs';
 import { SITE_SECTIONS, TAB_BAR_SECTIONS } from './site-map.mjs';
+import { sectorGroupOfLabel } from '../../lib/sector-groups.mjs';
 import { DISCORD_INVITE_URL, KO_FI_URL } from '../../lib/links.mjs';
 
 // Reference / legal / info pages (Buyer's manual, Chart patterns, Privacy, and
@@ -158,8 +159,9 @@ function tickersSection({ symbols, sectors, industries }) {
   const optionCards = sorted.map((sym) => {
     const sec = sectors[sym] || "";
     const ind = industries[sym] || "";
+    const grp = sectorGroupOfLabel(sec) || "";
     const subtitle = [sec, ind].filter(Boolean).join(" · ");
-    return `<a class="ticker-card" href="?s=${encodeURIComponent(sym)}" data-ticker="${htmlEscape(sym)}" data-sector="${htmlEscape(sec)}" data-industry="${htmlEscape(ind)}">
+    return `<a class="ticker-card" href="?s=${encodeURIComponent(sym)}" data-ticker="${htmlEscape(sym)}" data-sector="${htmlEscape(sec)}" data-sector-group="${htmlEscape(grp)}" data-industry="${htmlEscape(ind)}">
       <span class="ticker-card-head">
         <span class="ticker-sym">${htmlEscape(sym)}</span>
         <span class="ticker-grade" data-grade-for="${htmlEscape(sym)}" hidden></span>
@@ -174,7 +176,7 @@ function tickersSection({ symbols, sectors, industries }) {
   // VIX is a tracked market gauge, not an option-chain symbol. Keep it out of
   // the grader manifest/build loop, but give it a first-class directory card
   // whose live value comes from the fixed-symbol /api/macro-live endpoint.
-  const trackerCards = `<div class="ticker-card ticker-card-tracker" data-ticker="^VIX" data-sector="Market gauge" data-industry="Volatility" data-tracker-only="vix" aria-label="VIX market gauge">
+  const trackerCards = `<div class="ticker-card ticker-card-tracker" data-ticker="^VIX" data-sector="Market gauge" data-sector-group="Market gauge" data-industry="Volatility" data-tracker-only="vix" aria-label="VIX market gauge">
       <span class="ticker-card-head">
         <span class="ticker-sym">VIX</span>
         <span class="ticker-tracker-badge">market gauge</span>
@@ -187,10 +189,13 @@ function tickersSection({ symbols, sectors, industries }) {
     </div>`;
   const cards = trackerCards + optionCards;
   const totalSymbols = sorted.length + 1;
-  // Unique sectors for the filter chips. Sort by occurrence count so the
-  // densest sectors come first — matches how the user is likely to scan.
+  // The filter lists the BROAD sector groups (lib/sector-groups.mjs), so the
+  // menu stays short and no entry holds a single stock; each card keeps its
+  // fine label in its subtitle, its table column and the search text. Sorted by
+  // occurrence count so the densest groups come first — matches how the user
+  // is likely to scan.
   const sectorCounts = {};
-  sorted.forEach((sym) => { const sec = sectors[sym] || ""; if (sec) sectorCounts[sec] = (sectorCounts[sec] || 0) + 1; });
+  sorted.forEach((sym) => { const sec = sectorGroupOfLabel(sectors[sym]) || ""; if (sec) sectorCounts[sec] = (sectorCounts[sec] || 0) + 1; });
   const sectorOptions = Object.keys(sectorCounts)
     .sort((a, b) => sectorCounts[b] - sectorCounts[a])
     .map((sec) => `<option value="${htmlEscape(sec)}">${htmlEscape(sec)} (${sectorCounts[sec]})</option>`)
@@ -404,7 +409,7 @@ function leapsSection() {
       <div class="picks-heading"><span class="picks-kicker">Owner research</span><h2 class="card-title">LEAPS</h2><p class="picks-intro">A stock research shortlist. Entry readiness is separate from qualification.</p></div>
       <span class="card-eyebrow" id="leaps-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote("How this score is built", `<p>LEAPS uses the four pillar scores Top Picks already computed. It does not make another model call and it does not read a far-dated option chain. Narrative is weighted 1.5, Trend 1.25, Flow 1.25, and Fundamentals 1.0. That weighted average, put on the same sum scale as Top Picks, is the score.</p><p>Every name starts one point higher, because a stock is more likely to be up than down over one to two years. The forward fundamental path can add up to two more points. A rich or cheap IV reading moves the score and cannot flip the side.</p><p>Research qualification needs a call score of 8 or put magnitude of 9, with at least two aligned pillars. A declining fundamental path holds a call back; a put needs a declining path. Go, Wait and Avoid are separate short-term entry warnings and do not remove a research-qualified stock. The idea floor is 5. These existing score weights remain under review. Qualification does not recommend buying a LEAPS contract or choose its strike, expiration or strategy.</p>`)}
+    ${infoNote("How this score is built", `<p>LEAPS uses the four pillar scores Top Picks already computed. It does not make another model call and it does not read a far-dated option chain. The weights are set for the hold this desk is for &mdash; one to two years &mdash; so the business leads and the fastest-moving evidence counts least: <b>Fundamentals 2.0</b>, <b>Trend 1.25</b>, <b>Narrative 1.0</b>, <b>Flow 0.75</b>. That weighted average, put on the same sum scale as Top Picks, is the score. (Through 25 October 2026 the mix was the other way up &mdash; Narrative 1.5 and Fundamentals 1.0 &mdash; which suited a one- to two-week trade, not this one.)</p><p>Every name starts one point higher, because a stock is more likely to be up than down over one to two years. The forward fundamental path can add up to two more points. A rich or cheap IV reading moves the score and cannot flip the side.</p><p>Research qualification needs a call score of 8 or put magnitude of 9, with at least two aligned pillars &mdash; and at least one of those two has to be a <b>durable</b> pillar, fundamentals or trend, because news tone and option flow both turn over long before the contract expires. The fundamentals pillar may not point the other way either. A declining fundamental path holds a call back; a put needs a declining path. Go, Wait and Avoid are separate short-term entry warnings and do not remove a research-qualified stock. The idea floor is 5. Qualification does not recommend buying a LEAPS contract or choose its strike, expiration or strategy.</p>`)}
     <div id="leaps-root" class="leaps-root">Loading LEAPS scores&hellip;</div>
   </section>`;
 }

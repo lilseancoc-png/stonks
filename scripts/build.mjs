@@ -46,6 +46,7 @@ import { buildBriefExtendedHours, extendedSessionForKind } from "../lib/brief-ex
 import { contentAssetVersion } from "../lib/asset-version.mjs";
 import { scoreSectorGrowth } from "../lib/sector-growth.mjs";
 import { IV_RICHNESS, IV_RICHNESS_VERSION } from "../lib/iv-richness.mjs";
+import { sectorGroupOfLabel } from "../lib/sector-groups.mjs";
 import { outcomeFromPnl, realFillMark, exitDetailFor, mergeArchive } from "../lib/track-record-fills.mjs";
 import { assessDecisionInputsBeforeAi } from "../lib/freshness-policy.mjs";
 import { assembleBakeLinkMap, LINK_MAP_SKIPPED_SOURCES } from "../lib/link-map.mjs";
@@ -177,6 +178,9 @@ export const TICKERS = [
 // and macro read. Every feature that builds groups or picks reads TICKERS or
 // the fetched chains, never this map's keys. The one exception is the link map,
 // which draws every labeled name (tracked or not) as a node under its sector.
+// These are FINE labels (the grade's macro profiles and sector growth bars read
+// them). A feature that groups stocks reads the broad group instead
+// (sectorGroupOf, from lib/sector-groups.mjs), so no group holds one stock.
 export const SECTORS = {
   // Broad / sector / international / crypto / volatility ETFs
   SPY: "ETF", QQQ: "ETF", IWM: "ETF", SMH: "ETF",
@@ -243,6 +247,12 @@ export const SECTORS = {
   RDDT: "Social", RKLB: "Space", ASTS: "Space",
   SPCX: "Space",
 };
+
+// Broad sector group for a ticker (one of SECTOR_GROUP_ORDER), or null when
+// the ticker has no SECTORS label.
+export function sectorGroupOf(sym) {
+  return sectorGroupOfLabel(SECTORS[sym]);
+}
 
 // ---------------------------------------------------------------------------
 // Global market correlations — overnight foreign-market lead-lag signals.
@@ -520,6 +530,9 @@ export const INDUSTRY_OF_TICKER = {
   ANET: "Communication Equipment",
   // --- Technology · Computer Hardware ---
   DELL: "Computer Hardware",
+  WDC: "Computer Hardware",
+  // --- Technology · Consumer Electronics ---
+  AAPL: "Consumer Electronics",
   // --- Technology · Information Technology Services ---
   ACN: "Information Technology Services",
   IBM: "Information Technology Services",
@@ -5218,7 +5231,7 @@ const QUANT_HISTORY_MAX_DAYS = 500;
 const QUANT_SIGMA_SHOW_Z = 3;
 const QUANT_SIGMA_RET_Z = 3;
 // Pairs: candidates pair only WITHIN an industry group (singleton industries
-// fall back to their fine SECTORS label) and must clear a return-correlation
+// fall back to their broad sector group) and must clear a return-correlation
 // gate — no all-vs-all dredging across 138 names.
 const QUANT_PAIR_CORR_MIN = 0.6;
 const QUANT_PAIR_CORR_WIN = 120; // trading days of aligned log returns
@@ -6029,7 +6042,7 @@ function computeQuantPair(a, b, ind, chains, ivHistory, ctx = null) {
 
 // Pair candidates: within INDUSTRY_OF_TICKER groups; industries with only one
 // tracked name fall back to pooling with the other singletons that share their
-// fine SECTORS label. ETFs excluded (an ETF-vs-constituent read is the
+// broad sector group (sectorGroupOf). ETFs excluded (an ETF-vs-constituent read is the
 // dispersion section's job). regime (optional) conditions the "stretched"
 // read bar; factors are computed once per symbol for the match-quality read.
 function buildQuantPairs(ivHistory, chains, regime = null) {
@@ -6054,7 +6067,7 @@ function buildQuantPairs(ivHistory, chains, regime = null) {
   }
   const bySector = new Map();
   for (const sym of singles) {
-    const sec = SECTORS[sym];
+    const sec = sectorGroupOf(sym);
     if (!sec) continue;
     if (!bySector.has(sec)) bySector.set(sec, []);
     bySector.get(sec).push(sym);
@@ -21382,8 +21395,7 @@ export function openPickPrecheck(r, side, tactical, ctx = {}) {
   if (pillarsAlignedFor(r, side) < 2) return "confluence";
   const entry = computeEntrySignal(side, pnum(r.data.spot), r.data, r.timing, { total: r.total });
   if (entryPromotionBlocked(entry, r.timing)) return "timing";
-  const sec = SECTORS[r.sym] || r.data?.fundamentals?.sector || null;
-  const fac = sec && sec !== "ETF" ? (FACTOR_OF_SECTOR[sec] || null) : null;
+  const fac = factorOfTicker(r.sym);
   if (side === "call" && fac && ctx.factorHealth?.[fac]?.weak
     && !(r.timing?.state === "go" && Math.abs(r.total) >= PICKS_TIER_STRONG)) return "factor-trend";
   const earnDays = etDaysUntil(r.data?.fundamentals?.nextEarningsDate);
@@ -21409,8 +21421,8 @@ export function prioritizeAiSlots(cands, ctx = {}) {
   for (const c of cands) {
     let block = openPickPrecheck(c.r, c.side, !!c.tactical, ctx);
     if (!block) {
-      const sec = SECTORS[c.r.sym] || c.r.data?.fundamentals?.sector || null;
-      const fac = sec && sec !== "ETF" ? (FACTOR_OF_SECTOR[sec] || null) : null;
+      const sec = sectorGroupOf(c.r.sym) || c.r.data?.fundamentals?.sector || null;
+      const fac = factorOfTicker(c.r.sym);
       if (sec && sec !== "ETF" && (sectorCount[sec] || 0) >= PICKS_MAX_PER_SECTOR) block = "sector-cap";
       else if (fac && (factorCount[fac] || 0) >= PICKS_MAX_PER_FACTOR) block = "factor-cap";
       else if (c.side === "call" ? callN >= PICKS_MAX_PER_SIDE : putN >= PICKS_MAX_PER_SIDE) block = "side-cap";
@@ -21680,8 +21692,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
       const sectors = isAct ? sectorCount : watchSectorCount;
       const factors = isAct ? factorCount : watchFactorCount;
       const sides = sideCounts[isAct ? "actionable" : "watch"];
-      const sec = SECTORS[r.sym] || r.data?.fundamentals?.sector || null;
-      const fac = sec && sec !== "ETF" ? (FACTOR_OF_SECTOR[sec] || null) : null;
+      const sec = sectorGroupOf(r.sym) || r.data?.fundamentals?.sector || null;
+      const fac = factorOfTicker(r.sym);
       if (sec && sec !== "ETF") {
         if ((sectors[sec] || 0) >= PICKS_MAX_PER_SECTOR) { meta.sectorCapped.push(r.sym); if (isAct) traceGate(r, side, "sector-cap"); continue; }
         if (fac && (factors[fac] || 0) >= PICKS_MAX_PER_FACTOR) { meta.factorCapped.push(r.sym); if (isAct) traceGate(r, side, "factor-cap"); continue; }
@@ -21781,6 +21793,9 @@ function buildPickObject(r, side, contract, exitPlan, entryPlan, peers, peerGrou
   return {
     symbol: r.sym, side, total: r.total, score: r.total, conviction: Math.abs(r.total),
     recommendation: rec, spot, sector: SECTORS[r.sym] || r.data?.fundamentals?.sector || null,
+    // Broad group — what the sector cap counted, and what the Track Record
+    // groups accuracy by (a fine label would make one-stock buckets).
+    sectorGroup: sectorGroupOf(r.sym) || null,
     classification: thesisCard.classification, group: thesisCard.group,
     finalGrade,
     pillars: r.pillars, drivers: r.drivers,
@@ -23034,12 +23049,12 @@ function stkBigMoney(v) {
 // offline testing (like buildCorrelationsPayload).
 export function stockTrackedPeers(chains, sym) {
   const ind = INDUSTRY_OF_TICKER[sym] || null;
-  const sec = SECTORS[sym] || null;
+  const sec = sectorGroupOf(sym);
   const peers = [];
   for (const [p, d] of Object.entries(chains || {})) {
     if (p === sym || !d || SECTORS[p] === "ETF") continue;
     const sameIndustry = ind != null && INDUSTRY_OF_TICKER[p] === ind;
-    if (!sameIndustry && !(sec != null && SECTORS[p] === sec)) continue;
+    if (!sameIndustry && !(sec != null && sectorGroupOf(p) === sec)) continue;
     const pf = d.fundamentals || {};
     peers.push({
       sym: p,
@@ -23133,7 +23148,7 @@ export function buildStockChecklist(sym, data, grade, sectorPE, traps, peers) {
         ? ` Intensity proxy: gross margin ${r1(gm)}% vs a ${r1(gmMed)}% peer median — ${gm >= gmMed + 5 ? "it out-earns the group, consistent with a differentiated seat" : gm <= gmMed - 5 ? "it keeps less of each sales dollar than the group — a tougher competitive seat (or a deliberate low-price model)" : "roughly in line with the group"}.`
         : "";
       mgmt.push(item(q, direct.length ? "answered" : "unsure",
-        `${direct.length ? `Tracked direct peers (${INDUSTRY_OF_TICKER[sym]})` : `No tracked direct-industry peer — nearest tracked ${f.sector || SECTORS[sym] || "sector"} names`}: ${names}.${intensity} Curated universe, so untracked and private competitors don't appear here.`));
+        `${direct.length ? `Tracked direct peers (${INDUSTRY_OF_TICKER[sym]})` : `No tracked direct-industry peer — nearest tracked ${sectorGroupOf(sym) || f.sector || "sector"} names`}: ${names}.${intensity} Curated universe, so untracked and private competitors don't appear here.`));
     } else {
       mgmt.push(unanswered(q, "No tracked peer in this name's industry or sector."));
     }
@@ -23636,10 +23651,16 @@ function sectorRotationSignalKey(candidate, modelVersion = SECTOR_ROTATION_MODEL
 
 // Coherent trader-facing baskets built from the repo's curated SECTORS map.
 // Explicit groups avoid silently treating a whole Yahoo top-level sector as
-// one trade. The Semis complex intentionally absorbs Storage plus NVDA (whose
+// one trade. They are deliberately FINER than the broad sector groups
+// (lib/sector-groups.mjs), because each basket pairs with its own benchmark
+// ETF — payments and banks rotate separately even though both are Financials.
+// The semis basket absorbs storage, hardware and networking plus NVDA (whose
 // curated card group is Mega-cap tech) and uses tracked SMH as confirmation.
+// A basket under SECTOR_ROTATION_MIN_GROUP names is dropped rather than
+// faked, so a sparsely covered corner (one tracked China tech name today) has
+// no rotation read at all.
 const SECTOR_ROTATION_GROUP_DEFS = [
-  { key: "semis", label: "Semis complex", sectorTags: ["Semis", "Storage"], symbols: ["NVDA"], benchmark: "SMH" },
+  { key: "semis", label: "Semis & hardware", sectorTags: ["Semis", "Storage", "Hardware", "Networking"], symbols: ["NVDA"], benchmark: "SMH" },
   { key: "mega-tech", label: "Mega-cap tech", sectorTags: ["Mega-cap tech"], excludeSymbols: ["NVDA"], benchmark: "QQQ" },
   { key: "software", label: "Software & cloud", sectorTags: ["Software", "IT services", "Tech services"] },
   { key: "retail", label: "Retail", sectorTags: ["Retail"] },
@@ -29153,9 +29174,10 @@ async function writePatternRecognitionFiles({
 }
 
 // Finviz-style market-map data. One row per non-ETF curated ticker, with
-// the fields the treemap needs: sector grouping (from the SECTORS map,
-// which is curated so "Mega-cap tech" / "Semis" / "Software" stay
-// readable rather than collapsing into Yahoo's coarse "Technology"),
+// the fields the treemap needs: sector grouping (the broad sectorGroupOf
+// group, curated so "Mega-cap tech" / "Semis & hardware" / "Software & IT
+// services" stay readable rather than collapsing into Yahoo's coarse
+// "Technology", and never a one-stock block),
 // industry (for the optional sub-grouping), market cap (tile size), and
 // selectable 1D / 1W / 1M / 3M / YTD / 1Y returns (tile color). ETFs are deliberately excluded — they have
 // no marketCap from Yahoo and we surface them separately on the Bonds &
@@ -29228,7 +29250,7 @@ export function buildHeatmapPerformance(data, builtAtIso) {
 export function buildHeatmapPayload(chains, builtAtIso) {
   const tickers = [];
   for (const [sym, data] of Object.entries(chains)) {
-    const sector = SECTORS[sym];
+    const sector = sectorGroupOf(sym);
     if (!sector || sector === "ETF") continue;
     const f = data?.fundamentals || {};
     const vol = data?.technicals?.volume || {};

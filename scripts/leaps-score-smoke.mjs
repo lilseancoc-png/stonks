@@ -8,6 +8,7 @@ import {
   LEAPS_GRADER_DAILY_CAP,
   LEAPS_GRADER_PROMPT,
   LEAPS_PICKS_KEY,
+  LEAPS_DURABLE_PILLARS,
   LEAPS_PILLAR_WEIGHTS,
   LEAPS_WEIGHT_TOTAL,
   buildLeapsPicksPayload,
@@ -28,13 +29,23 @@ import {
 } from "../lib/leaps-score.mjs";
 import { isPremiumKey, isRoleRestrictedKey, roleClaimForKey } from "../lib/premium-keys.mjs";
 
+// Reweighted 2026-10-26 for the one- to two-year hold: the business leads and
+// the shortest-lived inputs count least. The four still total 5, so every bar
+// below keeps its meaning.
 assert.equal(LEAPS_WEIGHT_TOTAL, 5);
 assert.deepEqual(LEAPS_PILLAR_WEIGHTS, {
-  narrative: 1.5,
+  narrative: 1,
   technicals: 1.25,
-  mechanicals: 1.25,
-  fundamentals: 1,
+  mechanicals: 0.75,
+  fundamentals: 2,
 });
+assert.ok(
+  LEAPS_PILLAR_WEIGHTS.fundamentals > LEAPS_PILLAR_WEIGHTS.technicals
+    && LEAPS_PILLAR_WEIGHTS.technicals > LEAPS_PILLAR_WEIGHTS.narrative
+    && LEAPS_PILLAR_WEIGHTS.narrative > LEAPS_PILLAR_WEIGHTS.mechanicals,
+  "a long hold weights the business over the trend over the story over the flow",
+);
+assert.deepEqual(LEAPS_DURABLE_PILLARS, ["fundamentals", "technicals"]);
 
 const hundred = {
   narrative: { score: 100, signals: [{ key: "story", score: 100 }] },
@@ -52,7 +63,7 @@ assert.deepEqual(hundred, before);
 
 assert.equal(
   scoreLeapsPillars({ narrative: 100, technicals: 0, mechanicals: 0, fundamentals: 0 }),
-  (100 * 1.5) / 5,
+  (100 * 1) / 5,
 );
 assert.equal(
   scoreLeapsPillars({ narrative: 0, technicals: 100, flow: 0, fundamentals: 0 }),
@@ -60,13 +71,13 @@ assert.equal(
 );
 assert.equal(
   scoreLeapsPillars({ narrative: 0, trend: 0, flow: 100, fundamentals: 0 }),
-  (100 * 1.25) / 5,
+  (100 * 0.75) / 5,
 );
 assert.equal(
   scoreLeapsPillars({ narrative: 0, technicals: 0, mechanicals: 0, fundamentals: 100 }),
-  (100 * 1) / 5,
+  (100 * 2) / 5,
 );
-const mixed = (100 * 1.5 + 80 * 1.25 + 40 * 1.25 + 20 * 1) / 5;
+const mixed = (100 * 1 + 80 * 1.25 + 40 * 0.75 + 20 * 2) / 5;
 assert.equal(
   scoreLeapsPillars({ narrative: 100, technicals: 80, mechanicals: 40, fundamentals: 20 }),
   mixed,
@@ -275,6 +286,38 @@ const decliningCall = decideLeapsStock({
 assert.equal(decliningCall.gate, "watch");
 assert.equal(decliningCall.reason, "fundamentals-declining");
 assert.equal(decliningCall.side, "call");
+
+// A one- to two-year case cannot rest on the two inputs that turn over fastest.
+const storyOnly = decideLeapsStock({
+  timing: { state: "go", side: "call" },
+  pillars: { narrative: { score: 5 }, technicals: { score: 0 }, mechanicals: { score: 5 }, fundamentals: { score: 0 } },
+});
+assert.equal(storyOnly.durablePillarsAligned, 0);
+assert.ok(Math.abs(storyOnly.total) >= 8, "narrative plus flow can still clear the score bar");
+assert.equal(storyOnly.pillarsAligned, 2, "and the plain two-pillar bar");
+assert.equal(storyOnly.gate, "watch");
+assert.equal(storyOnly.reason, "durability");
+// One durable pillar is enough.
+const withTrend = decideLeapsStock({
+  timing: { state: "go", side: "call" },
+  pillars: { narrative: { score: 5 }, technicals: { score: 2 }, mechanicals: { score: 5 }, fundamentals: { score: 0 } },
+});
+assert.equal(withTrend.durablePillarsAligned, 1);
+assert.equal(withTrend.gate, "pass");
+// The business itself must not point the other way, however loud the story is.
+const businessAgainst = decideLeapsStock({
+  timing: { state: "go", side: "call" },
+  pillars: { narrative: { score: 5 }, technicals: { score: 5 }, mechanicals: { score: 5 }, fundamentals: { score: -1 } },
+});
+assert.equal(businessAgainst.side, "call");
+assert.ok(Math.abs(businessAgainst.total) >= 8);
+assert.equal(businessAgainst.gate, "watch");
+assert.equal(businessAgainst.reason, "fundamentals-against");
+// A flat or missing business read is an absence, not a contradiction.
+assert.equal(decideLeapsStock({
+  timing: { state: "go", side: "call" },
+  pillars: { narrative: { score: 5 }, technicals: { score: 5 }, mechanicals: { score: 3 }, fundamentals: { score: 0 } },
+}).gate, "pass");
 
 const quiet = decideLeapsStock({
   timing: { state: "go", side: "call" },

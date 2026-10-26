@@ -14,6 +14,7 @@ import { renderSplitViewBindings, renderSplitViewHelpers } from './split-view-js
 import { renderRecoveryHelpers } from './recovery-js.mjs';
 import { viewsFactory } from './views-client.mjs';
 import { ivRichnessFactory } from '../../lib/iv-richness.mjs';
+import { sectorGroupsFactory } from '../../lib/sector-groups.mjs';
 import { currentNewsSentiment, newsDateIsCurrent, validNewsFeedPayload } from '../../lib/news-policy.mjs';
 import { FALLBACK_RISK_FREE_RATE } from '../build.mjs';
 import { callReportContext, leveragedEntryPlan, earningsCallAge, pickDisplayDecision, shareEntryPayoff, pickReviewCheckpoint, scenarioEventPhase } from '../../lib/research-display.mjs';
@@ -49,10 +50,17 @@ ${validNewsFeedPayload.toString()}
   // One "are the options expensive?" rule (source: lib/iv-richness.mjs), the
   // same one the grade, Top Picks and Trending IV use at bake time.
   var IV_RICHNESS = (${ivRichnessFactory.toString()})();
+  // One broad sector grouping (source: lib/sector-groups.mjs), the same one the
+  // sector cap, the heatmap blocks and the sector breadth streaks use. Fine
+  // SECTORS labels stay for search and card subtitles; anything that GROUPS
+  // stocks uses sectorGroupOf so no group is one stock.
+  var SECTOR_GROUPS = (${sectorGroupsFactory.toString()})();
+  function sectorGroupOf(sym){ return SECTOR_GROUPS.of(SECTORS[sym] || null); }
   // Shared sort / view helpers (source: scripts/render/views-client.mjs).
   var VIEWS = (${viewsFactory.toString()})(window, document);
   // js/streaks.js (a separate module) reads the same helpers + grade index.
   VIEWS.gradeTotal = function(sym, rerender){ return gradeTotalFor(sym, rerender); };
+  VIEWS.sectorGroupOf = sectorGroupOf;
   window.STONKS_VIEWS = VIEWS;
 ${leveragedEntryPlan.toString()}
 ${earningsCallAge.toString()}
@@ -9023,7 +9031,7 @@ ${renderSplitViewBindings()}
     if (secEl){
       var bySec = {};
       (tickers || []).forEach(function(t){
-        var sec = SECTORS[t.symbol] || 'Other';
+        var sec = sectorGroupOf(t.symbol) || 'Other';
         var rec = bySec[sec] || (bySec[sec] = { name: sec, a: 0, b: 0 });
         (t.contracts || []).forEach(function(c){
           var dp = Number(c.deltaPremium != null ? c.deltaPremium : (c.premium || 0)) || 0;
@@ -9707,12 +9715,13 @@ ${renderSplitViewBindings()}
         riskStackNote();
       });
   }
-  // Ticker -> curated sector label (Semis / Software / Bank / Space / ETF / …)
-  // from the build manifest (MANIFEST.sectors). Used to group the flag list
-  // under collapsible sector sections so a long scan stays scannable. (Sections
-  // are ordered by flagged-ticker count below, not MANIFEST.sectorOrder — that's
-  // a separate coarse-GICS taxonomy that doesn't match these labels.)
-  var VOL_SECTOR_OF = MANIFEST.sectors || {};
+  // Ticker -> broad sector group (Semis & hardware / Software & IT services /
+  // Financials / …, from lib/sector-groups.mjs over MANIFEST.sectors). Used to
+  // group the flag list under collapsible sector sections so a long scan stays
+  // scannable — the broad group keeps a section from holding one stock.
+  // (Sections are ordered by flagged-ticker count below, not
+  // MANIFEST.sectorOrder — that's a separate coarse-GICS taxonomy.)
+  function volSectorOf(sym){ return sectorGroupOf(sym) || 'Other'; }
   // group: render under sector headers; expand: per-symbol detail open-state;
   // allExpanded: whether the "Expand all" toggle is currently on;
   // sectorCollapsed: per-sector OPEN-state override (sectors collapse by
@@ -10087,7 +10096,7 @@ ${renderSplitViewBindings()}
       lean: dayMove != null ? dayMove : leanMove,
       hourlyCount: hourlyCount,
       srCount: srCount,
-      sector: VOL_SECTOR_OF[t.symbol] || 'Other',
+      sector: volSectorOf(t.symbol),
     };
   }
   // "Would you follow it?" verdict — the card's bottom line on whether the
@@ -10620,7 +10629,7 @@ ${renderSplitViewBindings()}
     for (var i = 0; i < tickers.length; i++){
       var t = tickers[i];
       var lean = volTickerSummary(t).lean;
-      var sec = VOL_SECTOR_OF[t.symbol] || 'Other';
+      var sec = volSectorOf(t.symbol);
       var rec = bySector[sec] || (bySector[sec] = { bull: 0, bear: 0 });
       if (lean != null){
         if (lean > 0){ tBull++; rec.bull++; }
@@ -10799,7 +10808,7 @@ ${renderSplitViewBindings()}
       // canonical sector order with any leftovers (ETF / Other) appended alpha.
       var bySector = {};
       for (var gi = 0; gi < rest.length; gi++){
-        var sec = VOL_SECTOR_OF[rest[gi].symbol] || 'Other';
+        var sec = volSectorOf(rest[gi].symbol);
         (bySector[sec] = bySector[sec] || []).push(rest[gi]);
       }
       // Most-active sectors first (by flagged-ticker count), then alphabetical.
@@ -10836,7 +10845,7 @@ ${renderSplitViewBindings()}
         var focus = ev.target.closest && ev.target.closest('[data-vol-focus]');
         if (focus){
           var focusSym = String(focus.getAttribute('data-vol-focus') || '').toUpperCase();
-          var focusSector = VOL_SECTOR_OF[focusSym] || 'Other';
+          var focusSector = volSectorOf(focusSym);
           volState.search = focusSym;
           volState.expand[focusSym] = true;
           volState.sectorCollapsed[focusSector] = false;
@@ -10984,10 +10993,10 @@ ${renderSplitViewBindings()}
         var visible = filteredVolTickers();
         if (volState.allExpanded){
           visible.forEach(function(t){ volState.expand[t.symbol] = true; });
-          visible.forEach(function(t){ volState.sectorCollapsed[VOL_SECTOR_OF[t.symbol] || 'Other'] = false; });
+          visible.forEach(function(t){ volState.sectorCollapsed[volSectorOf(t.symbol)] = false; });
           volState.picksCollapsed = false;
         } else {
-          visible.forEach(function(t){ volState.sectorCollapsed[VOL_SECTOR_OF[t.symbol] || 'Other'] = true; });
+          visible.forEach(function(t){ volState.sectorCollapsed[volSectorOf(t.symbol)] = true; });
           volState.picksCollapsed = true;
         }
         expandBtn.classList.toggle('is-on', volState.allExpanded);
@@ -13197,7 +13206,7 @@ ${renderSplitViewBindings()}
     for (var vi = 0; vi < tickers.length; vi++) {
       var vt = tickers[vi];
       var vlean = volTickerSummary(vt).lean;
-      var vsec = VOL_SECTOR_OF[vt.symbol] || 'Other';
+      var vsec = volSectorOf(vt.symbol);
       var vrec = bySector[vsec] || (bySector[vsec] = { bull: 0, bear: 0 });
       if (vlean != null) {
         if (vlean > 0) vrec.bull++;
@@ -16989,9 +16998,9 @@ ${renderSplitViewBindings()}
     return sorted.length >= 2 ? out : null;
   }
   function cmpSectorMembers(){
-    var sec = SECTORS[compareState.refSym];
+    var sec = sectorGroupOf(compareState.refSym);
     if (!sec || sec === 'ETF') return [];
-    return SYMBOLS.filter(function(x){ return SECTORS[x] === sec; }).slice(0, 12);
+    return SYMBOLS.filter(function(x){ return sectorGroupOf(x) === sec; }).slice(0, 12);
   }
   function cmpBenchMap(ready){
     var b = compareState.bench;
@@ -17006,7 +17015,7 @@ ${renderSplitViewBindings()}
     return bj && bj !== 'error' ? cmpHistoryMap(bj) : null;
   }
   function cmpBenchLabel(){
-    if (compareState.bench === 'sector') return (SECTORS[compareState.refSym] || 'Sector') + ' average';
+    if (compareState.bench === 'sector') return (sectorGroupOf(compareState.refSym) || 'Sector') + ' average';
     return CMP_BENCH_LABELS[compareState.bench] || compareState.bench;
   }
   // Fetch whatever the chosen mode / benchmark needs, then re-render.
@@ -24378,6 +24387,8 @@ ${renderSplitViewBindings()}
     if (reason === 'entry-wait') return 'Research score clears; entry timing says wait';
     if (reason === 'fundamentals-declining') return 'Call held back — fundamentals are declining';
     if (reason === 'fundamentals-not-declining') return 'Put needs declining fundamentals';
+    if (reason === 'fundamentals-against') return 'Held back — the business points the other way';
+    if (reason === 'durability') return 'Story and flow only — needs the business or the trend';
     if (reason === 'roster-cap') return 'Qualified after the first 10 research ideas';
     return '';
   }
@@ -24397,10 +24408,11 @@ ${renderSplitViewBindings()}
       ? 'Path ' + leapsFmt(row.trajectory.score) + ' ' + row.trajectory.dir
       : '';
     var meta = [leapsEntryText(row.entry), aligned, path].filter(Boolean).join(' · ');
-    var pillarLine = 'Top Picks pillar points · Narrative ' + leapsFmt(pillars.narrative) +
+    // Heaviest pillar first, so the row reads in the order the score weighs it.
+    var pillarLine = 'Top Picks pillar points · Fundamentals ' + leapsFmt(pillars.fundamentals) +
       ' · Trend ' + leapsFmt(pillars.technicals) +
-      ' · Flow ' + leapsFmt(pillars.mechanicals) +
-      ' · Fundamentals ' + leapsFmt(pillars.fundamentals);
+      ' · Narrative ' + leapsFmt(pillars.narrative) +
+      ' · Flow ' + leapsFmt(pillars.mechanicals);
     return '<article class="leaps-row">' +
       '<button type="button" class="leaps-sym" data-leaps-symbol="' + escapeHtml(row.symbol) + '">' + escapeHtml(row.symbol) + '</button>' +
       '<span class="leaps-side is-' + side + '">' + (side === 'put' ? 'Put' : 'Call') + '</span>' + crossDeskChip(row.symbol, side) +
@@ -24498,7 +24510,7 @@ ${renderSplitViewBindings()}
       : '<p class="leaps-empty">No developing ideas above the idea bar of 5.</p>';
     html += '</section>';
     }
-    html += '<p class="leaps-note">Research qualification is not permission to buy a LEAPS contract. The existing score weights are unchanged pending a separate review. Entry timing is a separate warning; this desk does not choose a strike, expiration or strategy.</p>';
+    html += '<p class="leaps-note">Research qualification is not permission to buy a LEAPS contract. The score is weighted for the hold it is for: Fundamentals 2, Trend 1.25, Narrative 1 and Flow 0.75, and a qualified idea needs the business or the trend on its side. Entry timing is a separate warning; this desk does not choose a strike, expiration or strategy.</p>';
     root.innerHTML = html;
     var buttons = root.querySelectorAll('[data-leaps-symbol]');
     for (var i = 0; i < buttons.length; i++){
@@ -34799,7 +34811,7 @@ ${renderSplitViewBindings()}
     var automaticEntries = T.filter(function(t){ return t.entrySource !== 'manual'; });
     var filled = automaticEntries.filter(WB_ANALYTICS.hasFill);
     var missed = automaticEntries.filter(function(t){ return t.state === 'missed'; });
-    var review = WB_ANALYTICS.analyze(rows, accView.wbGroup || 'structure');
+    var review = WB_ANALYTICS.analyze(rows, accView.wbGroup || 'structure', { sectorOf: accSectorOf });
     var closed = review.closed;
     var early = closed.length < 30;
     var entryCosts = filled.map(wbEntryCost).filter(function(v){ return v != null; });
@@ -35233,6 +35245,9 @@ ${renderSplitViewBindings()}
     if (isFinite(sc)){ if (sc >= 7) return 'Very High'; if (sc >= 4) return 'High'; }
     return 'High';
   }
+  // A record's sector bucket. Resolved from the symbol so every row — including
+  // trades opened before the broad groups landed — falls in the same group.
+  function accSectorOf(e){ return (e && (sectorGroupOf(e.symbol) || e.sector)) || 'Unknown'; }
   function accDteBucket(e){ var d = e && e.contract && e.contract.dte; if (d == null || !isFinite(d)) return 'Unknown'; if (d <= 7) return '0-7'; if (d <= 21) return '8-21'; if (d <= 45) return '22-45'; return '45+'; }
   function accPopBucket(e){ var p = e && e.contract && e.contract.pop; if (p == null || !isFinite(p)) return 'Unknown'; var v = p * 100; if (v < 30) return '<30%'; if (v < 45) return '30-45%'; if (v < 60) return '45-60%'; return '>60%'; }
   var ACC_DIMS = {
@@ -35242,7 +35257,7 @@ ${renderSplitViewBindings()}
     dte:        { label: 'DTE', key: accDteBucket, lab: function(k){ return k; }, order: ['0-7','8-21','22-45','45+','Unknown'] },
     pop:        { label: 'PoP', key: accPopBucket, lab: function(k){ return k; }, order: ['<30%','30-45%','45-60%','>60%','Unknown'] },
     regime:     { label: 'Market regime', key: function(e){ return e.entryRegime || 'Unknown'; }, lab: function(k){ return ACC_REGIME_LABEL[k] || k; }, order: ACC_REGIME_ORDER },
-    sector:     { label: 'Sector', key: function(e){ return e.sector || 'Unknown'; }, lab: function(k){ return k; }, order: null },
+    sector:     { label: 'Sector', key: accSectorOf, lab: function(k){ return k; }, order: null },
     side:       { label: 'Side', key: function(e){ return e.side === 'put' ? 'put' : 'call'; }, lab: function(k){ return k === 'put' ? 'Put' : 'Call'; }, order: ['call','put'] },
     structure:  { label: 'Structure', key: function(e){ return (e.contract && e.contract.structure) || 'long'; }, lab: function(k){ return ({ long:'Purchased option', debit_vertical:'Debit vertical', credit_vertical:'Credit vertical' })[k] || k; }, order: ['long','debit_vertical','credit_vertical'] },
   };
@@ -35445,7 +35460,7 @@ ${renderSplitViewBindings()}
         closePct:closePct, pnlPC:d.basis*closePct, resolved:!isOpen,
         credit: c.structure === 'credit_vertical',
         optHi: isFinite(hi) ? hi : null,
-        tier: accConvictionTier(e), sector: e.sector || 'Unknown', side: e.side === 'put' ? 'put' : 'call',
+        tier: accConvictionTier(e), sector: accSectorOf(e), side: e.side === 'put' ? 'put' : 'call',
         iv: (isFinite(iv) && iv > 0) ? iv : null,
         envFactor: env.factor, envState: env.state, envDate: env.date,
         symbol: e.symbol, score: Math.abs(Number(e.score))||0,
@@ -36602,8 +36617,8 @@ ${renderSplitViewBindings()}
       var a = sectors.indexOf(accView.cmpA) >= 0 ? accView.cmpA : sectors[0];
       var b = sectors.indexOf(accView.cmpB) >= 0 && accView.cmpB !== a ? accView.cmpB : (sectors[0] === a ? sectors[1] : sectors[0]);
       return { sectors:sectors, a:a, b:b, slices:[
-        { label:a || '—', trades:dec.filter(function(e){ return (e.sector || 'Unknown') === a; }) },
-        { label:b || '—', trades:dec.filter(function(e){ return (e.sector || 'Unknown') === b; }) }
+        { label:a || '—', trades:dec.filter(function(e){ return accSectorOf(e) === a; }) },
+        { label:b || '—', trades:dec.filter(function(e){ return accSectorOf(e) === b; }) }
       ] };
     }
     if (preset === 'version'){
@@ -43272,10 +43287,12 @@ ${renderSplitViewBindings()}
       cards.forEach(function(card){
         var sym = (card.getAttribute('data-ticker') || '').toUpperCase();
         var cardSec = card.getAttribute('data-sector') || '';
+        var cardGroup = card.getAttribute('data-sector-group') || cardSec;
         var industry = card.getAttribute('data-industry') || '';
-        var haystack = (sym + ' ' + cardSec + ' ' + industry).toUpperCase();
+        var haystack = (sym + ' ' + cardSec + ' ' + cardGroup + ' ' + industry).toUpperCase();
         var matchQ = !q || haystack.indexOf(q) !== -1;
-        var matchS = !sec || cardSec === sec;
+        // The menu lists broad groups; the fine label still matches a search.
+        var matchS = !sec || cardGroup === sec;
         var modelSide = card.getAttribute('data-model-side') || 'neutral';
         var matchM = state.modelFilter === 'all'
           || (state.modelFilter === 'ready' && cardReady(card) === 1)
