@@ -4,6 +4,8 @@ import { marketRefreshFactory } from '../../lib/market-refresh.mjs';
 import { webullAnalyticsFactory } from '../../lib/webull-analytics.mjs';
 import { webullReviewFactory } from './webull-review-client.mjs';
 import { historicalDataFactory } from './historical-data-client.mjs';
+import { earningsForecastFactory } from './earnings-forecast-client.mjs';
+import { earningsScenarioFactory } from '../../lib/earnings-forecast-scenarios.mjs';
 import { forcedLiquidationFactory } from './forced-liquidation-client.mjs';
 import { liquidationPledgeDisclosure } from '../../lib/forced-liquidation.mjs';
 import { LIQUIDATION_EVIDENCE_VERSION } from '../../lib/forced-liquidation.mjs';
@@ -117,7 +119,7 @@ ${scenarioEventPhase.toString()}
   // the Owner analysis/idea/record desks and Owner Lab; this UI boundary keeps
   // destinations hidden until the owner session's compatibility claims resolve.
   // Discord mints both only after verifying the existing Top Picks owner role.
-  var OWNER_TABS = { 'unified-signal-engine':1, market:1, risk:1, 'bottom-tracker':1, 'historical-data':1, 'forced-liquidation':1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, 'open-picks':1, track:1, quant:1 };
+  var OWNER_TABS = { 'earnings-forecast':1, 'unified-signal-engine':1, market:1, risk:1, 'bottom-tracker':1, 'historical-data':1, 'forced-liquidation':1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, 'open-picks':1, track:1, quant:1 };
   var GATE_ON = false;
   var HAS_TRACK_RECORD = false;
   var HAS_TOP_PICKS = false;
@@ -131,6 +133,7 @@ ${scenarioEventPhase.toString()}
     // Owner access never fails open. A disabled gate, failed probe, legacy
     // session, or either missing special claim leaves every Owner surface hidden.
     HAS_OWNER_ACCESS = !!(GATE_ON && me && me.trackRecord && me.topPicks);
+    if (!HAS_OWNER_ACCESS && typeof earningsForecast !== 'undefined') earningsForecast.reset();
     HAS_TRACK_RECORD = HAS_OWNER_ACCESS;
     HAS_TOP_PICKS = HAS_OWNER_ACCESS;
     HAS_QUANT_LAB = HAS_OWNER_ACCESS;
@@ -3697,7 +3700,7 @@ ${scenarioEventPhase.toString()}
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','risk','unified-signal-engine','historical-data','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','risk','unified-signal-engine','historical-data','earnings-forecast','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','bottom-tracker','open-picks','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
@@ -3705,6 +3708,7 @@ ${scenarioEventPhase.toString()}
   var PAGE_TAB_ALIASES = {
     unified: 'unified-signal-engine', signals: 'unified-signal-engine', 'signal-engine': 'unified-signal-engine',
     historical: 'historical-data', history: 'historical-data', 'historical-data': 'historical-data',
+    forecast: 'earnings-forecast', 'earnings-forecast': 'earnings-forecast',
     liquidation: 'forced-liquidation', 'forced-liquidation-tracker': 'forced-liquidation', 'forced-liquidation': 'forced-liquidation',
     unusual: 'flow', 'unusual-flow': 'flow',
     ma: 'ma-tracker', 'moving-average': 'ma-tracker', 'moving-averages': 'ma-tracker', 'ma-cross': 'ma-tracker',
@@ -4182,6 +4186,7 @@ ${renderSplitViewBindings()}
         if (name === 'pending-buyouts' && typeof loadPendingBuyouts === 'function') loadPendingBuyouts();
         if (name === 'bottom-tracker' && typeof loadBottomTracker === 'function') loadBottomTracker();
         if (name === 'historical-data') historicalData.load();
+        if (name === 'earnings-forecast') earningsForecast.load();
         if (name === 'forced-liquidation') forcedLiquidation.load();
         if (name === 'unified-signal-engine') unifiedSignal.load();
         if (name === 'iv-trend' && typeof loadIvTrend === 'function') loadIvTrend();
@@ -23475,6 +23480,7 @@ ${renderSplitViewBindings()}
     // Never use a legacy static-data fallback for this Owner-only feature.
     url: function(){ return '/api/auth/me?data=historical-data.json'; }
   });
+  var earningsForecast = (${earningsForecastFactory.toString()})(window, document, { owner: function(){ return HAS_OWNER_ACCESS; } }, ${earningsScenarioFactory.toString()});
   var forcedLiquidation = (${forcedLiquidationFactory.toString()})(window, document, {
     owner: function(){ return HAS_OWNER_ACCESS; }, evidenceVersion: ${LIQUIDATION_EVIDENCE_VERSION},
     symbols: function(){ return Array.isArray(MANIFEST.symbols) ? MANIFEST.symbols : []; },

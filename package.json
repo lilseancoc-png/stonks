@@ -7,6 +7,11 @@
     "node": ">=20"
   },
   "scripts": {
+    "collect:earnings-forecast": "node scripts/refresh-earnings-forecast.mjs",
+    "audit:earnings-forecast": "node scripts/audit-earnings-forecast.mjs",
+    "test:earnings-forecast": "node scripts/earnings-forecast-smoke.mjs",
+    "test:earnings-forecast-browser": "node scripts/earnings-forecast-browser.mjs",
+    "preview:earnings-forecast": "node scripts/earnings-forecast-preview.mjs",
     "collect:forced-liquidation": "node scripts/collect-forced-liquidation.mjs",
     "test:forced-liquidation": "node scripts/forced-liquidation-smoke.mjs && node scripts/forced-liquidation-audit-smoke.mjs && node scripts/liquidation-universe-smoke.mjs && node scripts/liquidation-awareness-smoke.mjs && node scripts/update-branch-review-audit.mjs",
     "test:liquidation-universe": "node scripts/liquidation-universe-smoke.mjs",

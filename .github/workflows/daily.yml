@@ -394,8 +394,13 @@ jobs:
         # spend a full bake and then block the upload.
         run: npm run verify:freshness
 
+      - name: Verify Earnings Forecast contracts
+        # Offline fixtures only: accounting, replay, private access and archives.
+        run: npm run test:earnings-forecast
+
       - name: Build site
         env:
+          EARNINGS_FORECAST_ENABLED: ${{ vars.EARNINGS_FORECAST_ENABLED || '1' }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           # Funded Tier-1 project: Flash/Flash-Lite carry 1K-4K RPM quotas, so
           # the build's per-minute AI pacer (build.mjs AI_RPM, default 100) can
@@ -619,7 +624,7 @@ jobs:
             # -f is required because Path B added an unconditional `/data/` to
             # .gitignore — without it `git add data` no-ops on the ignored path
             # and the legacy rollback commits render output with no data.
-            if [ "${PRIVATE_DATA_ENABLED:-0}" != "1" ] && [ -d data ]; then git add -f -- data ':!data/historical-data.json' ':!data/historical-source-history.json' ':!data/forced-liquidation.json'; fi
+            if [ "${PRIVATE_DATA_ENABLED:-0}" != "1" ] && [ -d data ]; then git add -f -- data ':!data/historical-data.json' ':!data/historical-source-history.json' ':!data/forced-liquidation.json' ':!data/earnings-forecast.json' ':!data/earnings-forecast-state.json' ':!data/earnings-forecast/**'; fi
             if git diff --cached --quiet; then
               echo "No changes to commit (attempt $attempt)."
               exit 0

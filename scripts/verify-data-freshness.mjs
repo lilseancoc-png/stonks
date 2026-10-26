@@ -104,6 +104,8 @@ const BAKE_REQUIRED_REWRITTEN_FILES = [
   "earnings-calls.json",
   "earnings-history.json",
   "earnings-tracker.json",
+  "earnings-forecast.json",
+  "earnings-forecast-state.json",
   "fear-greed-history.json",
   "fear-greed.json",
   "fedwatch-history.json",
