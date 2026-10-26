@@ -209,8 +209,8 @@ news catalyst (bullish +2 / bearish −3, asymmetric), sector narrative (±2, fa
 by lifecycle), social sentiment (±1).
 
 Continuous signals retain their raw values and documented transforms in the
-payload. Price/volume dislocations use the own-series z family above; IV Cost is
-the one deliberate universe-relative score described in §3. Absolute bars still
+payload. Price/volume dislocations use the own-series z family above; IV Cost
+reads the shared own-history IV band described in §3. Absolute bars still
 define grade tiers, and no rolling normalization may silently change a tier or
 erase an availability failure.
 
@@ -302,15 +302,26 @@ a nearby structure/minor-weakness trigger. The entry payload carries the
 component audit, readiness prerequisites, invalidation, target, and R:R.
 
 **IV cost** (`computeIvCostContribution`, direction-agnostic) remains bounded
-`−2..+1`, but the **points** come from a standardized comparison across the
-current investable universe. The raw ATM ~30-day IV percentile and z-score versus
-the name's own history remain mandatory interpretation/provenance fields (and
-may still inform structure thresholds); they no longer add grade points
-directly. The cross-sectional cohort contains only fresh, decision-grade names
-with sufficient own history, ships its sample size/location/scale, and fails
-closed to a neutral contribution when coverage is thin. Thus two otherwise
-identical setups rank the cheaper universe-relative premium first without a
-stale or tiny cohort manufacturing conviction.
+`−2..+1`, and since **2026-10-26** its points come from the site's one
+"expensive options" rule (`lib/iv-richness.mjs`, `IV_RICHNESS.classify`) rather
+than a cross-sectional cohort: **Rich or Very rich costs 2 points, Cheap earns
+1, everything else is neutral**. The bands read the name's own ATM ~30-day IV
+history and its realized moves — `cheap` ≤20th percentile; `rich` ≥80th **and**
+IV above 30-day realized vol; `very-rich` ≥90th on the same condition — so a
+high percentile while IV sits at or below realized moves is **not** rich (the
+options are keeping up with the moves, not charging extra for them). A missing
+realized-vol read lets the percentile decide alone, which errs toward expensive
+(no extra credit, and no naked long). Earnings inside 14 days is a shipped tag
+(`earningsSoon`), never a band. The universe context now supplies only the
+snapshot date: a rank whose `asOf` doesn't match the universe's is dropped from
+live scoring rather than voting stale. The payload ships `band`, `bandLabel`,
+`bandNote`, `ivOverRv`, `rv30`, `pctile`, `ownZ` and `method`
+(`IV_RICHNESS_VERSION`). The same four consumers read that one band: this score,
+the structure router below, the Strategy builder and Trending IV's `elevated`
+flag — change the module, not a call site. (Before 2026-10-26 the points came
+from a standardized comparison across the fresh eligible universe, with the
+own-history percentile/z as interpretation only; that cohort machinery is
+retired.)
 
 A materially inverted **non-event** term structure (`IV90 − IV30` below a
 documented negative materiality threshold) may add one small long-premium
@@ -515,11 +526,13 @@ The grade decides the **side + conviction**; the strategy layer decides the
 **structure** — none, naked long, debit vertical, or credit vertical — so the
 engine stops reflexively buying a single long into every setup *and* never
 recommends a trade when the **thesis** is too thin to justify one. It is
-**deterministic** and keyed on the IV regime + conviction + the **thesis tier**
-(`assessThesisQuality`, §9). Structure may interpret the current ATM-30d IV's
-own-history z-score/percentile (`ivRank`, computed in `attachIvRanks`), the
-non-event term slope, and 25-delta skew. These raw reads are distinct from the
-universe-relative IV Cost points in §3. Top Picks consumes only the bounded term
+**deterministic** and keyed on the IV band + conviction + the **thesis tier**
+(`assessThesisQuality`, §9). The IV band is the shared rule
+(`lib/iv-richness.mjs`) over the current ATM-30d `ivRank` (computed in
+`attachIvRanks`) and the name's 30-day realized vol — the same band the IV Cost
+score in §3 reads, so the structure and the score can never disagree about
+whether a name's options are expensive. The non-event term slope and 25-delta
+skew are separate routing inputs. Top Picks consumes only the bounded term
 penalty and one-way skew router specified here; the full term/skew surfaces and
 history remain Quant Lab context rather than a new alpha pillar.
 
@@ -528,9 +541,9 @@ The decision tree is checked top-down (first match wins):
 | # | Condition | Structure | Why |
 |---|---|---|---|
 | 0 | **Thesis tier is `weak`**, except an explicitly labeled defensive tactical put | **none** | The grade cleared the bar but the case is thin / single-pillar → recommend *no trade*. Ship the grade + thesis as a watch idea (the "high grade but weak thesis → no strategy recommendation" rule). The pre-existing risk-off tactical-put path is the narrow exception: it stays watch-only but must carry a real defined-risk structure. |
-| 1 | IV **elevated** — `z ≥ PICKS_IV_CREDIT_Z_ELEVATED` (1.5σ) **OR** `pctile ≥ PICKS_IV_CREDIT_PCTILE` (60th) — **and** no imminent event/earnings | **credit vertical** | Premium is statistically expensive → *sell* it on the bias side (bullish → bull-put, bearish → bear-call); sell near-money, buy a further-OTM wing, targeting a credit ≈ ⅓ of the width. High IV mean-reverts and theta works for you. The **highly-elevated** band (`z ≥ PICKS_IV_CREDIT_Z` 2σ OR `pctile ≥ PICKS_IV_RICH` 80th) is the same structure, labelled as the strongest sell-premium case. The IV read is the spec's **OR** of the two measures (the z-score *or* the percentile — either qualifying counts). The **headline rule** — fires even at strong conviction. |
-| 2 | Strong tier (`|total| ≥ 7`) **and** thesis tier `strong` **and** IV **not elevated** (neither z nor pctile in the credit band), no event, and no materially adverse intended-side 25Δ skew | **naked long** | **Rare.** Exceptional, multi-signal conviction and a strong thesis with reasonable IV/skew → a single long for max delta/gamma + uncapped upside. Rich put skew blocks a naked put; rich call skew blocks a naked call. |
-| 3 | Everything else — moderate conviction/thesis, **or** a strong view into elevated-but-event-blocked IV, **or** an imminent event/earnings | **debit vertical** | The default: long near-money financed by a short OTM wing (same side). Caps theta/vega + the premium at risk; defined-risk into events (a naked long eats the IV crush, a credit spread eats the gap). |
+| 1 | The shared IV rule calls the options **Very rich** (`lib/iv-richness.mjs`: `pctile ≥ 90` **and** IV above 30-day realized vol) — **and** no imminent event/earnings | **credit vertical** | Premium is expensive by the site's one measure → *sell* it on the bias side (bullish → bull-put, bearish → bear-call); sell near-money, buy a further-OTM wing, targeting a credit ≈ ⅓ of the width. High IV mean-reverts and theta works for you. The **headline rule** — fires even at strong conviction. Since **2026-10-26** this is the `very-rich` band only: the old 1.5σ / 60th-percentile `PICKS_IV_CREDIT_Z_ELEVATED` test made roughly a third of the universe a credit candidate on premium that wasn't actually rich versus the stock's own realized moves. The plain `rich` band (≥80th + above realized) no longer routes to credit; it costs the grade 2 points and blocks a naked long. |
+| 2 | Strong tier (`|total| ≥ 7`) **and** thesis tier `strong` **and** the shared rule reads the options **Cheap or Normal** (not `rich`, not `very-rich`), no event, and no materially adverse intended-side 25Δ skew | **naked long** | **Rare.** Exceptional, multi-signal conviction and a strong thesis with reasonable IV/skew → a single long for max delta/gamma + uncapped upside. Rich put skew blocks a naked put; rich call skew blocks a naked call. |
+| 3 | Everything else — moderate conviction/thesis, **or** a strong view into rich (or event-blocked very-rich) IV, **or** an imminent event/earnings | **debit vertical** | The default: long near-money financed by a short OTM wing (same side). Caps theta/vega + the premium at risk; defined-risk into events (a naked long eats the IV crush, a credit spread eats the gap). |
 
 The IV percentile/z-score is computed from the in-memory history only after this
 build's ATM ~30-day IV sample has been upserted. A sample must have a plausible
@@ -542,7 +555,7 @@ chain cannot produce a usable ATM IV, the rank is omitted from live scoring
 instead of reusing yesterday's premium regime.
 
 Missing or stale IV history is labeled `unknown`, not `reasonable`. Without a
-current z-score or percentile, the automatic strategy router recommends a debit
+current percentile, the automatic strategy router recommends a debit
 spread and does not permit a single long. This limits premium outlay; it does
 not establish that the spread is cheap or has positive expected return.
 
@@ -804,7 +817,7 @@ negative). Each pick ships a `sizing` block (`weight`, `riskToStopPct`,
   actionable definition).
 
   **This specification bundle is a new decision-model epoch.** CapEx quality,
-  standardized price/volume moves, universe-relative IV points, the continuous
+  standardized price/volume moves, IV points, the continuous
   Regime overlay, side-correct Scenario filter, and full GO invariants change
   enrollment semantics together. The implementation release must bump
   `PICKS_ACCURACY_RESET_EPOCH` once before its first production bake and stamp
@@ -974,7 +987,7 @@ deterministic thesis tier in the matrix below; its 0–100 `score` is displayed
 confidence and never a rank input (a `reject` grade is handled upstream as a
 veto and never reaches the matrix). The AI is the final should-we-act grader for
 classification/veto/entry, while roster order stays deterministic. The **data
-grade stays AI-free** (four pillars + universe-relative IV Cost + the bounded
+grade stays AI-free** (four pillars + the shared IV Cost band + the bounded
 Regime overlay → direction and conviction), as does **structure** selection.
 
 The grade tier (Strong `|total| ≥ 7` / Moderate `4–6`) **crosses** the thesis tier
@@ -1084,14 +1097,13 @@ implementation must expose the stated value and audit fields:
 | `PICKS_DELTA_MIN/MAX/IDEAL` | 0.30 / 0.50 / 0.55; single ideal 0.40 | independent single/spread delta targets |
 | `PICKS_MIN_DTE` / `PICKS_MAX_DTE` | 30 / 90 | contract clock (ideal 45–75 — the 2026-07-10 hold-longer window) |
 | `PICKS_STRATEGY_AUTO` | on | structure auto-select (off = always naked long) |
-| IV Cost cohort controls | disclose cohort N / location / scale; thin = neutral | IV Cost **points** come only from the fresh eligible universe's standardized result; a ticker's own-history percentile/z remains shipped interpretation and structure context and never maps directly to points through the legacy thresholds |
+| IV band cut-offs (`lib/iv-richness.mjs`) | cheap ≤20th; rich ≥80th; very rich ≥90th; earnings tag 14d | the site's one "expensive options" rule, over the name's OWN IV history, with `rich`/`very-rich` also requiring IV above 30-day realized vol. IV Cost points: −2 rich/very rich, +1 cheap, else 0. A rank whose `asOf` ≠ the universe snapshot is dropped, not reused |
 | CapEx quality bounds / eligibility | −2 / +1; 5 quarters; ≤200d old | confirmed CapEx burden/efficiency sub-signal inside Fundamentals; thin/stale history, unavailable backlog, or true ROIC evidence stays explicitly unavailable and never becomes zero/false evidence |
 | standardized move windows | 5 / 10 / 20 sessions | capped return z-scores are interpreted with volume z; unsigned raw volume contributes no points |
 | non-event term-inversion cap | −0.5 | small penalty inside IV Cost only beyond a documented negative `IV90 − IV30` materiality threshold; event-driven inversion is context only and cannot be double-counted |
-| `PICKS_IV_CREDIT_Z_ELEVATED` / `PICKS_IV_CREDIT_PCTILE` | 1.5 / 60 | own-history **elevated** IV → credit-structure interpretation (z≥1.5σ OR ≥60th pctile); not the cross-sectional IV Cost score |
-| `PICKS_IV_CREDIT_Z` / `PICKS_IV_RICH` | 2.0 / 80 | own-history **highly-elevated** IV labels (z≥2σ / ≥80th); interpretation only |
+| credit-vertical gate | `very-rich` band | retired 2026-10-26: `PICKS_IV_CREDIT_Z_ELEVATED` / `PICKS_IV_CREDIT_PCTILE` (1.5σ / 60th) and `PICKS_IV_CREDIT_Z` / `PICKS_IV_RICH` (2σ / 80th). Credit now needs the shared `very-rich` band |
 | `PICKS_SKEW_ADVERSE_RAW` | 0.05 | before the 25Δ-skew z-score matures, a five-vol-point intended-side raw premium blocks naked and routes to debit |
-| (naked IV gate) | not elevated | naked needs IV **not** in the credit band (the spec's "IV Rank < 60") **and** a strong grade + strong thesis |
+| (naked IV gate) | not `rich` | naked needs the shared band to read `cheap` or `normal` **and** a strong grade + strong thesis |
 | 25Δ skew gate | adverse intended-side skew | routing-only safety gate: demote naked long to a debit vertical; never add/subtract points, choose the side, or route to credit |
 | `PICKS_CREDIT_WIDTH_FRAC` / `_MIN` | 0.34 / 0.22 | credit-spread target / floor (credit ÷ width) |
 | `PICKS_CREDIT_TP_PCT` / `_STOP_PCT` | 0.50 / 0.50 | credit-spread exits (% of the credit; stop = buy-back ≈1.5×) |
@@ -1165,3 +1177,34 @@ Before Buy, the selected contract must pass the option-entry feasibility check a
 ### Permitted contract comparison and volatility policy, October 23
 
 Before returning Wait for option economics, search qualifying single options across already-fetched 30–90 DTE expirations and up to four spread anchors × four wings per anchor per expiration. Try the original strategy first; only its already-permitted debit fallback is available. Stop at the first feasible candidate in quality order, keeping the preferred contract when it clears. This is a bounded feasible-contract search, not a claim of a globally optimal structure. The full comparison summary is frozen with entry economics. Timing version 4 adds prior-window ATR knife and exhaustion bands, with no account-sizing or fresh-reclaim change.
+
+## Buyout-target veto and shadow signals, October 26, 2026
+
+**Buyout-target veto.** `scoreAllTickers` attaches `pendingBuyout` (from the
+already-baked `pending-buyouts.json`, `lib/pending-buyout-guard.mjs`) to each
+scored name. A confirmed pending deal on a covered name keeps it off the
+open-pick path on either side, because a signed deal pins the stock to its
+terms and a 1–2 week option on it is a bet on the deal breaking. Rumored
+targets never block; they are listed in `rosterMeta.buyoutWatch`. A deal whose
+quoted target price is more than 15% from our spot is treated as a different
+listing and does not block. Drops appear in `rosterMeta.buyoutGated` and in the
+gate trace as `pending-buyout`. No grade points change.
+
+**Shared structural vetoes.** `structuralVeto(r, side)` holds the
+collateral-stress veto (calls only) and the buyout veto. `buildTopPicks` and the
+AI grader's pre-screen (`aiGraderCandidates`) both use it, so a vetoed name no
+longer takes one of the `PICKS_MAX_AI_THESES` grader slots and then gets
+dropped.
+
+**Shadow signals.** Once per ET day the bake stores candidate inputs next to the
+grade totals in `grades-daily.json` (`shadow`, `lib/shadow-signals.mjs`): own
+21-day return, leave-one-out industry 21-day return, IV minus 20-day realized
+vol, distance to the front-expiry call and put OI walls, the latest print's
+guidance within 45 days, and qualified peer earnings in the next 14 days. They
+are never scored. `scripts/diagnose-grade-ic.mjs` reports each one's IC at
+5/10/14 days, its IC after the grade, a t-stat on non-overlapping days, and a
+pooled read for the sparse ones. A signal is a candidate for the grade only
+after it shows the right sign at 5 and 10 days, stays positive after the
+grade, and reaches t ≈ 2 on non-overlapping days. Only the newest 130 rows
+keep their shadow block. `regen-picks` keeps the day's block when it rewrites
+the totals.

@@ -373,6 +373,36 @@ try {
   assert.match(putRichIvPanel, /premium headwind/i, "put-side panel uses direction-agnostic cost semantics");
   assert.doesNotMatch(putRichIvPanel, /Cheaper universe-relative premium/);
   assert.match(putRichIvPanel, /ATM ~30d IV 44\.0%[\s\S]*?own z \+1\.7σ[\s\S]*?rank as of 2026-08-08[\s\S]*?surface as of 2026-08-08/);
+  // Site audit C2: one "are these options expensive?" rule. A grade built with
+  // the shared band names it in the heading and shows the realized-vol check
+  // the band is decided on; a legacy universe-relative grade keeps its old
+  // wording because it carries no band.
+  const bandIvPanel = (band, bandLabel, contribution, extra = {}) => pickIvCostPanelBody({
+    score: contribution,
+    signals: [{ score: contribution, contribution, value: `${bandLabel} premium`, note: "own-history band" }],
+    context: {
+      contribution, method: "2026-10-iv-rule", band, bandLabel, pctile: extra.pctile ?? 93,
+      currentIv: extra.iv ?? 0.52, rv30: extra.rv30 ?? 0.33, ivOverRv: extra.ivOverRv ?? true,
+      earningsSoon: extra.earningsSoon === true, rankAsOf: "2026-10-26",
+    },
+  });
+  const veryRichPanel = bandIvPanel("very-rich", "Very rich", -2, { earningsSoon: true });
+  assert.match(veryRichPanel, /Options are very rich — premium headwind/, "a banded grade names the band in the heading");
+  assert.match(veryRichPanel, /30-day realized 33\.0% \(IV above it\)/, "the band's realized-vol check must be shown");
+  assert.match(veryRichPanel, /earnings within 14 days/, "an earnings print inside the window is tagged");
+  const cheapPanel = bandIvPanel("cheap", "Cheap", 1, { pctile: 12, iv: 0.24, rv30: 0.35, ivOverRv: false });
+  assert.match(cheapPanel, /Options are cheap — favorable/);
+  assert.match(cheapPanel, /30-day realized 35\.0% \(IV at or below it\)/);
+  assert.doesNotMatch(cheapPanel, /earnings within 14 days/);
+  const highButNotRich = bandIvPanel("normal", "Normal", 0, { pctile: 86, rv30: 0.61, ivOverRv: false });
+  assert.match(highButNotRich, /Options are normal — neutral/, "a high percentile with IV under realized vol is not expensive");
+  // The pillar explainer must describe the own-history band, not the retired
+  // universe-relative method it replaced.
+  const ivCostInfo = appJs.match(/ivCost: '([\s\S]*?)',\n    timing:/)?.[1] || "";
+  assert.ok(ivCostInfo, "IV Cost pillar explainer must exist");
+  assert.match(ivCostInfo, /own stored IV history/i, "the explainer must describe the own-history band");
+  assert.match(ivCostInfo, /30-day realized volatility/);
+  assert.doesNotMatch(ivCostInfo, /standardized against today/, "the retired universe-relative wording must be gone");
   assert.match(appJs, /fetch\('\/api\/auth\/logout', \{ method: 'POST', credentials: 'same-origin' \}\)/);
   assert.match(appJs, /window\.location\.assign\('\/welcome\.html'\)/);
   assert.doesNotMatch(appJs, /href="\/api\/auth\/logout"/);

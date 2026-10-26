@@ -11,6 +11,7 @@ import {
 } from '../build.mjs';
 import { DOC_PAGES, DOC_ORDER, DOC_THEME_OVERRIDE } from './docs.mjs';
 import { SITE_SECTIONS, TAB_BAR_SECTIONS } from './site-map.mjs';
+import { sectorGroupOfLabel } from '../../lib/sector-groups.mjs';
 import { DISCORD_INVITE_URL, KO_FI_URL } from '../../lib/links.mjs';
 
 // Reference / legal / info pages (Buyer's manual, Chart patterns, Privacy, and
@@ -79,7 +80,6 @@ const SIDE_NAV_ICONS = {
   'central-bank-gold': '<circle cx="12" cy="12" r="8.5"/><path d="M9 8.5h6M8.5 12h7M10 15.5h4"/><path d="M12 3.5v17"/>',
   'search-interest': '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/><path d="M7.5 12.5 10 10l2 1.8 3-4"/>',
   'capital-raises': '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/>',
-  'ipo-credit': '<path d="M12 2.5c2.5 2 3.5 5 3.5 8l-1.5 3h-4L8.5 10.5c0-3 1-6 3.5-8z"/><path d="M10 13.5 8 18l2.5-1.5L12 19l1.5-2.5L16 18l-2-4.5"/><circle cx="12" cy="8.5" r="1.5"/>',
   'bottom-tracker': '<path d="M3 16.5c2.2 0 3.2-7 5.5-7s2.8 8 5.2 8 2.6-6 4.8-6 2.5 3 2.5 3"/><path d="M3 20h18"/>',
   commodities: '<path d="M3 20.5c0-6 3.5-9.5 9-9.5s9 3.5 9 9.5"/><path d="M12 11V3.5"/><path d="M12 3.5c2.5 0 4.5 1.5 5 3.5-2.5.5-4.5-.5-5-3.5zM12 3.5c-2.5 0-4.5 1.5-5 3.5 2.5.5 4.5-.5 5-3.5z"/>',
   f13: '<path d="M14 2.5H6.5A1.5 1.5 0 0 0 5 4v16a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 20V7.5z"/><path d="M14 2.5v5h5"/><path d="M9 13h6M9 17h6"/>',
@@ -160,8 +160,9 @@ function tickersSection({ symbols, sectors, industries }) {
   const optionCards = sorted.map((sym) => {
     const sec = sectors[sym] || "";
     const ind = industries[sym] || "";
+    const grp = sectorGroupOfLabel(sec) || "";
     const subtitle = [sec, ind].filter(Boolean).join(" · ");
-    return `<a class="ticker-card" href="?s=${encodeURIComponent(sym)}" data-ticker="${htmlEscape(sym)}" data-sector="${htmlEscape(sec)}" data-industry="${htmlEscape(ind)}">
+    return `<a class="ticker-card" href="?s=${encodeURIComponent(sym)}" data-ticker="${htmlEscape(sym)}" data-sector="${htmlEscape(sec)}" data-sector-group="${htmlEscape(grp)}" data-industry="${htmlEscape(ind)}">
       <span class="ticker-card-head">
         <span class="ticker-sym">${htmlEscape(sym)}</span>
         <span class="ticker-grade" data-grade-for="${htmlEscape(sym)}" hidden></span>
@@ -176,7 +177,7 @@ function tickersSection({ symbols, sectors, industries }) {
   // VIX is a tracked market gauge, not an option-chain symbol. Keep it out of
   // the grader manifest/build loop, but give it a first-class directory card
   // whose live value comes from the fixed-symbol /api/macro-live endpoint.
-  const trackerCards = `<div class="ticker-card ticker-card-tracker" data-ticker="^VIX" data-sector="Market gauge" data-industry="Volatility" data-tracker-only="vix" aria-label="VIX market gauge">
+  const trackerCards = `<div class="ticker-card ticker-card-tracker" data-ticker="^VIX" data-sector="Market gauge" data-sector-group="Market gauge" data-industry="Volatility" data-tracker-only="vix" aria-label="VIX market gauge">
       <span class="ticker-card-head">
         <span class="ticker-sym">VIX</span>
         <span class="ticker-tracker-badge">market gauge</span>
@@ -189,10 +190,13 @@ function tickersSection({ symbols, sectors, industries }) {
     </div>`;
   const cards = trackerCards + optionCards;
   const totalSymbols = sorted.length + 1;
-  // Unique sectors for the filter chips. Sort by occurrence count so the
-  // densest sectors come first — matches how the user is likely to scan.
+  // The filter lists the BROAD sector groups (lib/sector-groups.mjs), so the
+  // menu stays short and no entry holds a single stock; each card keeps its
+  // fine label in its subtitle, its table column and the search text. Sorted by
+  // occurrence count so the densest groups come first — matches how the user
+  // is likely to scan.
   const sectorCounts = {};
-  sorted.forEach((sym) => { const sec = sectors[sym] || ""; if (sec) sectorCounts[sec] = (sectorCounts[sec] || 0) + 1; });
+  sorted.forEach((sym) => { const sec = sectorGroupOfLabel(sectors[sym]) || ""; if (sec) sectorCounts[sec] = (sectorCounts[sec] || 0) + 1; });
   const sectorOptions = Object.keys(sectorCounts)
     .sort((a, b) => sectorCounts[b] - sectorCounts[a])
     .map((sec) => `<option value="${htmlEscape(sec)}">${htmlEscape(sec)} (${sectorCounts[sec]})</option>`)
@@ -356,14 +360,14 @@ function topPicksSection() {
         <p><b>Technicals.</b> RSI movement and reversal-confirmed extremes (oversold-and-turning +2, overbought-and-turning only &minus;1), MACD, the moving-average stack, streaks, confirmed support/resistance breaks, and 52-week position describe the chart. Price/volume dislocation is <b>one capped standardized-move family</b>: 5-, 10- and 20-session return z-scores plus volume z, interpreted with ATR distance and Bollinger location. Trend-aligned expansion may confirm continuation only when the latest confirmed bar and its volume agree; conflicting extreme horizons fail neutral. An unsupported upside extreme feeds exhaustion; a downside extreme earns mean-reversion credit only after support holds on drying volume. <b>Unsigned raw relative volume never earns or loses a Technicals point.</b></p>
         <p><b>Mechanicals.</b> Unusual options flow, open-interest call/put skew, current FINRA short interest and <b>direction-signed</b> unusual underlying volume ask what positioning and participation are doing. Put-side flow and open interest need a clearer skew (call/put at or under 0.5) to read bearish, because puts are often hedges; heavy short interest only reads as a squeeze when shorts are covering and the price is rising. A volume spike can support the move&rsquo;s actual direction here; raw volume by itself is never automatically bullish.</p>
         <p><b>Narrative.</b> AI-read recent-news catalysts (good +2 / bad -3), an active sector tailwind/headwind (&plusmn;2, faded by lifecycle), and current social sentiment (&plusmn;1) describe the story driving the name. Systemic tape inputs are handled by the regime overlay instead of being restacked as ticker-level Narrative points.</p>
-        <p><b>IV Cost (&minus;2&hellip;+1).</b> The current ATM ~30-day IV percentile/z versus the name&rsquo;s own history remains visible interpretation and option-structure context. Grade points come from the fresh eligible cohort&rsquo;s universe-relative standardization; if the cohort has fewer than 10 usable names or no meaningful dispersion, the IV contribution is neutral. Relatively expensive premium reduces call and put conviction equally, cheap premium adds less, and the adjustment cannot flip the side. A materially inverted front end adds only a small &minus;0.5 penalty when unexplained; an earnings or scheduled-macro event that explains the inversion owns that risk, so it is not counted twice.</p>
+        <p><b>IV Cost (&minus;2&hellip;+1).</b> Uses the site&rsquo;s one &ldquo;are the options expensive?&rdquo; rule, shared with Top Picks, the Strategy builder and Trending IV. Today&rsquo;s ATM ~30-day IV is ranked inside the name&rsquo;s own saved history. <b>Cheap</b> (bottom fifth) adds 1 point. <b>Rich</b> (top fifth <i>and</i> above the stock&rsquo;s 30-day realized volatility) costs 2 points; <b>Very rich</b> (top tenth, same realized check) costs the same 2 points here and is the only band where Top Picks sells a credit spread. A high percentile while IV is at or below realized volatility counts as Normal, because the options are only keeping up with the stock&rsquo;s actual moves. Expensive premium reduces call and put conviction equally, cheap premium adds less, and the adjustment cannot flip the side. A materially inverted front end adds only a small &minus;0.5 penalty when unexplained; an earnings or scheduled-macro event that explains the inversion owns that risk, so it is not counted twice. Earnings inside 14 days is shown as a tag and never changes the band.</p>
         <p><b>Entry timing (execution-only, &minus;8 &hellip; +2).</b> Asset quality aside, <i>is now a good moment?</i> One aligned confirmed-daily OHLCV series feeds five component groups: extension/exhaustion, pullback/setup quality, momentum confirmation, event proximity, and structure/payoff. A deterministic Go requires a score of at least +2, positive directional confirmation, at least two independent evidence families, a call invalidation below entry or put invalidation above entry within 2 ATR, estimated reward/risk of at least 1.5:1, and the full crowded/counter-regime proof, including a reclaim when required. Earnings or a major macro event inside the <b>next two trading sessions</b> is a hard Wait. AI and the live quote overlay cannot promote a negative, incomplete, hard-Wait or Avoid setup or waive a prerequisite; a live trigger with incomplete baked readiness only arms an alert.</p>
         <p><b>How the market tape moves the picks.</b> The cross-asset gauge combines the current tape &mdash; indexes, VIX, yields, dollar, commodities, Fed path, breadth, put/call, HY credit, MOVE and rotation &mdash; with the forward Scenario Engine&rsquo;s continuation, exhaustion, risk-off, warning and gross-cap reads. That produces one continuous Regime Bias (approximately &minus;2&hellip;+2), applied only after the four pillars + IV Cost and before roster ranking. Positive bias supports calls and dampens puts; negative bias does the reverse. The side is frozen before the overlay, so regime can demote or re-rank but cannot flip a call into a put, rescue a below-bar name, or promote a Moderate grade into Strong. Entry Timing remains separate and hard vetoes still bind.</p>
         <p><b>&bull; Regime-conditioned proof.</b> Alignment is side-correct: a put can align with a bearish primary scenario just as a call can align with a bullish one. In dominant high-gross continuation, an against-primary name must already be Strong / Very High before the overlay and cannot receive a regime boost; aligned names receive only a small bounded ranking preference. Counter-regime trades also need a reclaim, full momentum confirmation and clean structure. A clean pullback aligned with the tape is not penalized merely because the regime agrees.</p>
         <p><b>Tiers &amp; sizing.</b> Tiers use fixed absolute bars: |grade| &ge;7 is Strong, 4&ndash;6 is Call/Put, and below 4 is No&nbsp;Trade. A normal name must clear its pre-regime bar, and the overlay cannot promote it across a bar or tier; the labeled tactical-put exception never becomes Actionable. Clearing the grade bar still does not guarantee an actionable pick &mdash; thesis quality and every execution gate bind, so the list can remain short or empty, and an empty current build never republishes prior picks as current. Size is risk-based, not flat: each pick is weighted inverse to the premium it would lose to its stop and tilted by conviction. Scenario per-name reductions and the tactical 0.5&times; cap are enforced after normalization so released allocation stays cash; market gross and a negative recent <i>realized</i> track record may trim the book further.</p>
         <p><b>Suggested contract.</b> A single option with absolute delta 0.30–0.50 (target 0.40), at most 15% out of the money, with IV &lt;200%, 30&ndash;90 days to expiry (ideal 45&ndash;75), standard monthly expirations, a tight spread, real open interest, and premium capped at the greater of $35/share or 12% of spot. The option-entry feasibility panel shows the horizon, quote-cost assumptions and IV scenarios. These are modeled checks, not expected returns or guaranteed fills.</p>
         <p><b>Entry &amp; exit plan.</b> Each pick matches one of six named strategies (Pullback to Confluence, Breakout + Retest, Moving-Average Pullback, Support + Confirmation, RSI + Divergence, Volume Breakout) with scale-in tranches at confluence prices, and a layered exit ladder &mdash; meaningful levels above and below spot, each with an action and its reasoning. The hard stop is volatility-aware (a multiple of ATR, so ordinary noise doesn&rsquo;t shake the trade out), and the track record additionally cuts in <b>premium</b> terms (a fixed % loss of the option), since a symmetric move on the stock is a very asymmetric move on the contract. Triggers also cover earnings-in-window IV-crush risk and stretched RSI. There is <b>no time stop and no pre-earnings exit</b>: a trade is held &mdash; through earnings prints included &mdash; for as long as its original thesis stays intact and the contract hasn&rsquo;t expired.</p>
-        <p><b>How to read it &mdash; and what it isn&rsquo;t.</b> The fixed grade bars rank names consistently, while IV Cost contributes one explicitly universe-relative comparison; neither promises an absolute edge. The engine is candidly <b>research / unproven</b> &mdash; its directional signal has not yet shown a validated edge on forward data, and the track record&rsquo;s option P&amp;L is <i>modeled</i> (there is no live options-price feed). Buying a call or put risks the entire premium. None of this is financial advice; treat the picks as a starting watchlist, not a recommendation to trade.</p>
+        <p><b>How to read it &mdash; and what it isn&rsquo;t.</b> The fixed grade bars rank names consistently, while IV Cost compares each name only with its own history and realized moves; neither promises an absolute edge. The engine is candidly <b>research / unproven</b> &mdash; its directional signal has not yet shown a validated edge on forward data, and the track record&rsquo;s option P&amp;L is <i>modeled</i> (there is no live options-price feed). Buying a call or put risks the entire premium. None of this is financial advice; treat the picks as a starting watchlist, not a recommendation to trade.</p>
       </div>
     </details>
     <div class="picks-controls" role="toolbar" aria-label="Sort top picks">
@@ -406,7 +410,7 @@ function leapsSection() {
       <div class="picks-heading"><span class="picks-kicker">Owner research</span><h2 class="card-title">LEAPS</h2><p class="picks-intro">A stock research shortlist. Entry readiness is separate from qualification.</p></div>
       <span class="card-eyebrow" id="leaps-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote("How this score is built", `<p>LEAPS uses the four pillar scores Top Picks already computed. It does not make another model call and it does not read a far-dated option chain. Narrative is weighted 1.5, Trend 1.25, Flow 1.25, and Fundamentals 1.0. That weighted average, put on the same sum scale as Top Picks, is the score.</p><p>Every name starts one point higher, because a stock is more likely to be up than down over one to two years. The forward fundamental path can add up to two more points. A rich or cheap IV reading moves the score and cannot flip the side.</p><p>Research qualification needs a call score of 8 or put magnitude of 9, with at least two aligned pillars. A declining fundamental path holds a call back; a put needs a declining path. Go, Wait and Avoid are separate short-term entry warnings and do not remove a research-qualified stock. The idea floor is 5. These existing score weights remain under review. Qualification does not recommend buying a LEAPS contract or choose its strike, expiration or strategy.</p>`)}
+    ${infoNote("How this score is built", `<p>LEAPS uses the four pillar scores Top Picks already computed. It does not make another model call and it does not read a far-dated option chain. The weights are set for the hold this desk is for &mdash; one to two years &mdash; so the business leads and the fastest-moving evidence counts least: <b>Fundamentals 2.0</b>, <b>Trend 1.25</b>, <b>Narrative 1.0</b>, <b>Flow 0.75</b>. That weighted average, put on the same sum scale as Top Picks, is the score. (Through 25 October 2026 the mix was the other way up &mdash; Narrative 1.5 and Fundamentals 1.0 &mdash; which suited a one- to two-week trade, not this one.)</p><p>Every name starts one point higher, because a stock is more likely to be up than down over one to two years. The forward fundamental path can add up to two more points. A rich or cheap IV reading moves the score and cannot flip the side.</p><p>Research qualification needs a call score of 8 or put magnitude of 9, with at least two aligned pillars &mdash; and at least one of those two has to be a <b>durable</b> pillar, fundamentals or trend, because news tone and option flow both turn over long before the contract expires. The fundamentals pillar may not point the other way either. A declining fundamental path holds a call back; a put needs a declining path. Go, Wait and Avoid are separate short-term entry warnings and do not remove a research-qualified stock. The idea floor is 5. Qualification does not recommend buying a LEAPS contract or choose its strike, expiration or strategy.</p>`)}
     <div id="leaps-root" class="leaps-root">Loading LEAPS scores&hellip;</div>
   </section>`;
 }
@@ -432,15 +436,15 @@ function trackRecordSection() {
       <h2 class="card-title">Pick track record</h2>
       <span class="card-eyebrow" id="accuracy-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">Modeled Black-Scholes marks at constant entry IV from the enrollment snapshot — not live chain fills. Start with the sample size and results below; win rates stay blank until enough resolved trades exist, and the page never invents them. Grade edge tests the stored grade on the stock, at a fixed horizon. Webull test compares paper fills, performance and accuracy with the engine. Use the other views to inspect the ledger, cohorts and simulations.</p>
+    <p class="hint">Modeled Black-Scholes marks at constant entry IV from the enrollment snapshot — not live chain fills. Start with the sample size and results below; win rates stay blank until enough resolved trades exist, and the page never invents them. Grade edge tests the stored grade on the stock, at a fixed horizon. Real fills compares the record with real and paper fills. Open trades are on the Open picks page. Use the other views to inspect the ledger, cohorts and simulations.</p>
     <details class="accuracy-how">
       <summary>How this works</summary>
-      <p>A pick <b>resolves</b> when the underlying reaches its take-profit (<span class="acc-ok">win</span>), hits its cut (<span class="acc-bad">loss</span>), <b>breaks its thesis</b> (the live grade flips to the opposite side, the stop level is breached, or every supporting driver goes quiet), or expires (graded vs. breakeven). There is no time stop, no pre-earnings exit, and no weekly force-close &mdash; a position is held, through earnings prints included, for as long as its original thesis stays intact and the contract has time left. The <b>Summary</b> tab is the rules-based engine report: an overall health verdict, why the losers lost (direction miss vs. theta bleed), why the winners won, which segments are working vs. lagging, and a specific "what to fix next" list — all computed from the resolved record, no AI. The <b>win rate by tier</b> asks whether higher-conviction scores actually win more. <b>Top&nbsp;6 — picks in &amp; out</b> shows the current 6-name roster, what changed in the 4 pillars since the last refresh, what dropped out and what replaced it, and a rules-based upgrade/downgrade read on each name (click a row for the full rubric); <b>Recent crossings</b> is the chronological log of names crossing the conviction bar on or off the actionable set; <b>Grade changes</b> logs every ticker whose grade moves up or down (and why); each pick&rsquo;s <b>Day&nbsp;0 / 2wk / 1mo</b> checkpoints show whether the price moved the way the score predicted. The <b>Equity</b>, <b>Breakdowns</b>, <b>Simulator</b>, and <b>Monte&nbsp;Carlo</b> tabs add a modeled-dollar profitability lens — an equity curve + drawdown, per-DTE / PoP / thesis / conviction tables and cross-tabs, a hypothetical $100k risk-managed book, and a bootstrap of the outcome distribution. <b>Webull&nbsp;test</b> follows every trade the Webull paper mirror copied: how close paper fills land to the engine&rsquo;s prices, a real-money estimate from the recorded bid/ask, pick accuracy, how well the model&rsquo;s P&amp;L matches the account, and a full trade log. The <b>Market-sized</b> lens and <b>Market environment</b> simulator mode use the daily Market Analysis history: defensive sizing is $5k instead of $10k, full size returns after 3 consecutive risk-on sessions, and 2 consecutive risk-off sessions cut it back in half; neutral stays defensive. Top Picks and its record refresh twice each market day, at 11:00 and 15:30 ET, not intraday.</p>
+      <p>A pick <b>resolves</b> when the underlying reaches its take-profit (<span class="acc-ok">win</span>), hits its cut (<span class="acc-bad">loss</span>), <b>breaks its thesis</b> (the live grade flips to the opposite side, the stop level is breached, or every supporting driver goes quiet), or expires (graded vs. breakeven). There is no time stop, no pre-earnings exit, and no weekly force-close &mdash; a position is held, through earnings prints included, for as long as its original thesis stays intact and the contract has time left. The <b>Summary</b> tab is the rules-based engine report: an overall health verdict, why the losers lost (direction miss vs. theta bleed), why the winners won, which segments are working vs. lagging, and a specific "what to fix next" list — all computed from the resolved record, no AI. The <b>win rate by tier</b> asks whether higher-conviction scores actually win more. <b>Top&nbsp;6 — picks in &amp; out</b> shows the current 6-name roster, what changed in the 4 pillars since the last refresh, what dropped out and what replaced it, and a rules-based upgrade/downgrade read on each name (click a row for the full rubric); <b>Recent crossings</b> is the chronological log of names crossing the conviction bar on or off the actionable set; <b>Grade changes</b> logs every ticker whose grade moves up or down (and why); each pick&rsquo;s <b>Day&nbsp;0 / 2wk / 1mo</b> checkpoints show whether the price moved the way the score predicted. The <b>Equity</b>, <b>Breakdowns</b>, <b>Simulator</b>, and <b>Monte&nbsp;Carlo</b> tabs add a modeled-dollar profitability lens — an equity curve + drawdown, per-DTE / PoP / thesis / conviction tables and cross-tabs, a hypothetical $100k risk-managed book, and a bootstrap of the outcome distribution. <b>Real&nbsp;fills</b> holds the real-trading comparison (ask-in, bid-out fills, exits at the trigger, picks vs a SPY option), the upload for your own trade log, and every trade the Webull paper mirror copied: how close paper fills land to the engine&rsquo;s prices, a real-money estimate from the recorded bid/ask, pick accuracy, how well the model&rsquo;s P&amp;L matches the account, and a full trade log. The <b>Market-sized</b> lens and <b>Market environment</b> simulator mode use the daily Market Analysis history: defensive sizing is $5k instead of $10k, full size returns after 3 consecutive risk-on sessions, and 2 consecutive risk-off sessions cut it back in half; neutral stays defensive. Top Picks and its record refresh twice each market day, at 11:00 and 15:30 ET, not intraday.</p>
     </details>
     <div class="acc-tabs" role="tablist" aria-label="Track record view">
       <button type="button" class="acc-tab" role="tab" aria-selected="true" aria-controls="acc-pane-summary" id="acc-tab-summary" data-acc-tab="summary">Summary</button>
       <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-scorecard" id="acc-tab-scorecard" data-acc-tab="scorecard">Scorecard</button>
-      <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-webull" id="acc-tab-webull" data-acc-tab="webull">Webull&nbsp;test</button>
+      <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-webull" id="acc-tab-webull" data-acc-tab="webull">Real&nbsp;fills</button>
       <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-top10" id="acc-tab-top10" data-acc-tab="top10">Top&nbsp;6<span class="acc-tab-n" id="acc-tab-n-top10" hidden></span></button>
       <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-activity" id="acc-tab-activity" data-acc-tab="activity">Activity<span class="acc-tab-n" id="acc-tab-n-activity" hidden></span></button>
       <button type="button" class="acc-tab" role="tab" aria-selected="false" aria-controls="acc-pane-picks" id="acc-tab-picks" data-acc-tab="picks">Picks<span class="acc-tab-n" id="acc-tab-n-picks" hidden></span></button>
@@ -460,6 +464,8 @@ function trackRecordSection() {
       <div id="accuracy-empty" class="accuracy-empty" hidden>No picks have been tracked yet — the record starts filling in on the next scheduled Top Picks run.</div>
     </div>
     <div class="acc-pane" role="tabpanel" id="acc-pane-webull" aria-labelledby="acc-tab-webull" hidden>
+      <div id="acc-realfills" class="acc-realfills"></div>
+      <div class="acc-an-subhead acc-wb-head">Webull paper mirror <span class="acc-an-tag">every copied trade</span></div>
       <div id="acc-sum-webull" class="acc-pane-sum-slot"></div>
       <div id="an-webull" class="acc-analytics"></div>
     </div>
@@ -637,7 +643,7 @@ function newsFeedSection() {
       <span class="card-eyebrow" id="news-feed-eyebrow" aria-live="polite"></span>
     </header>
     <p class="hint">Straight headlines for every covered stock plus a dedicated macro lane for Fed, inflation, labor, growth, policy and energy news. Published economic releases include actual, consensus and prior values. Stories are ranked by likely materiality and active tape, with evidence kept separate from market direction.</p>
-    ${infoNote('How news priority works', `<p><b>High impact</b> surfaces hard company events plus major inflation, labor, Fed and policy catalysts. <b>Notable</b> catches analyst actions, launches, restructuring, growth data and fast-moving market context; everything else stays <b>Context</b>. Freshness, source type and materiality can move a story up. Repeated distribution does not establish independent confirmation. For articles, the green / red direction chip is read only from the headline wording. For a published economic print it stays <b>Unclear</b>, because hotter, cooler, stronger or weaker data is factual evidence &mdash; not a universal bullish or bearish verdict.</p><p><b>Active tape</b> means a related ticker or broad index is moving materially or trading unusually heavy at the same time; it does <em>not</em> prove the headline caused that move. Use it as a verification queue: open the source, confirm the event is new, then check whether price and volume agree. Carried-forward context is labeled, unconfirmed stories are labeled, and exact duplicate links are collapsed without removing distinct coverage of the same event.</p>`) }
+    ${infoNote('How news priority works', `<p><b>High impact</b> surfaces hard company events plus major inflation, labor, Fed and policy catalysts. <b>Notable</b> catches analyst actions, launches, restructuring, growth data and fast-moving market context; everything else stays <b>Context</b>. Freshness, source type and materiality can move a story up. Repeated distribution does not establish independent confirmation. For articles, the green / red <b>Headline</b> chip is read only from the headline wording; the AI news take that feeds each stock&rsquo;s grade reads the stories separately, so the two can differ. For a published economic print it stays <b>Unclear</b>, because hotter, cooler, stronger or weaker data is factual evidence &mdash; not a universal bullish or bearish verdict.</p><p><b>Active tape</b> means a related ticker or broad index is moving materially or trading unusually heavy at the same time; it does <em>not</em> prove the headline caused that move. Use it as a verification queue: open the source, confirm the event is new, then check whether price and volume agree. Carried-forward context is labeled, unconfirmed stories are labeled, and exact duplicate links are collapsed without removing distinct coverage of the same event.</p>`) }
     ${infoNote('Official-source coverage', `<p>Company announcements and FDA records are collected only through reviewed mappings to the covered stock universe. The available issuer and FDA mappings are shown below; unmapped companies are not represented as fully covered. Routine marketing and duplicate distribution are filtered. EIA rows retain their weekly period and units, with no universal bullish/bearish verdict. New official-source items are labeled <b>Context only · not scored</b>. An unavailable source is not the same as no news.</p>`)}
     <div id="news-feed-summary" class="news-feed-summary" aria-live="polite"></div>
     <div class="news-feed-toolbar" role="search" aria-label="Filter news">
@@ -668,7 +674,7 @@ function newsFeedSection() {
       <summary>More filters <span id="news-filter-count" class="news-filter-count" hidden></span></summary>
       <div class="news-more-grid">
         <label><span>Desk</span><select id="news-feed-scope"><option value="">Stocks + macro + market</option><option value="company">Covered stocks</option><option value="macro">Macro economy</option><option value="market">Market pulse</option></select></label>
-        <label><span>Direction</span><select id="news-feed-direction"><option value="">Any direction</option><option value="positive">Favorable</option><option value="negative">Adverse</option><option value="mixed">Mixed</option><option value="unclear">Unclear</option></select></label>
+        <label><span>Headline wording</span><select id="news-feed-direction"><option value="">Any wording</option><option value="positive">Favorable</option><option value="negative">Adverse</option><option value="mixed">Mixed</option><option value="unclear">Unclear</option></select></label>
         <label><span>Sector</span><select id="news-feed-sector"><option value="">All sectors</option></select></label>
         <label><span>Category</span><select id="news-feed-category"><option value="">All categories</option></select></label>
         <label><span>Age</span><select id="news-feed-age"><option value="168">Past 7 days</option><option value="72">Past 72 hours</option><option value="24">Past 24 hours</option><option value="6">Past 6 hours</option></select></label>
@@ -810,16 +816,17 @@ function searchInterestSection() {
 function commoditiesSection() {
   // Card chrome only — content renders client-side from data/commodities.json,
   // lazy-fetched on first tab activation by loadCommodities() in app.js.
-  // Thirteen equity-relevant commodity, input-cost and demand signals:
-  // precious metals (gold, silver), softs (cocoa, cotton, coffee, sugar, palm
-  // oil), industrial inputs (lumber, potash, lithium), freight (container
+  // Sixteen equity-relevant commodity, input-cost and demand signals: energy
+  // (WTI crude, natural gas), precious metals (gold, silver), softs (cocoa,
+  // cotton, coffee, sugar, palm oil), industrial inputs (copper, lumber,
+  // potash, lithium), freight (container
   // rates, Baltic Dry) and used-vehicle values.
   return `<section class="card" id="commodities-section">
     <header class="card-header">
       <h2 class="card-title">Commodities &amp; equity impact</h2>
       <span class="card-eyebrow" id="commodities-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote('How to use commodity signals', `<p>Start with the <b>trade posture</b>, then separate input-cost pressure from demand. Gold and silver can reflect the dollar, real yields, safe-haven demand and, for silver, industrial demand; rising cocoa or coffee can hurt exposed buyers, while rising Baltic Dry can signal firmer industrial demand. The desk compares market series over 30 days and monthly series month over month so a noisy one-day move does not outrank a persistent trend. Aged observations are excluded from the decision desk but remain visible in detail. Use the impact label and linked tickers to confirm whether the move is transmitting through relative strength, volume, pricing actions, miner economics, and margin guidance before acting. Items marked <b>proxy</b> track an ETF rather than the native spot benchmark.</p>`)}
+    ${infoNote('How to use commodity signals', `<p>Start with the <b>trade posture</b>, then separate input-cost pressure from demand. Crude and natural gas are revenue for producers and a cost for fuel-heavy and power-hungry businesses; copper is a read on global growth and grid build-outs. Gold and silver can reflect the dollar, real yields, safe-haven demand and, for silver, industrial demand; rising cocoa or coffee can hurt exposed buyers, while rising Baltic Dry can signal firmer industrial demand. The desk compares market series over 30 days and monthly series month over month so a noisy one-day move does not outrank a persistent trend. Aged observations are excluded from the decision desk but remain visible in detail. Use the impact label and linked tickers to confirm whether the move is transmitting through relative strength, volume, pricing actions, miner economics, and margin guidance before acting. Items marked <b>proxy</b> track an ETF rather than the native spot benchmark.</p>`)}
     <div id="commodities-root" class="commodities-root">Loading commodities&hellip;</div>
     <div id="commodities-empty" class="commodities-empty" hidden>Commodity data will appear after the next daily build refresh.</div>
     <p class="hint">Futures are front-month continuous contracts (daily settles); FRED series are monthly and publish on a lag. Proxy ETFs track direction, not the spot level. Scraped overlays are best-effort and can go stale. Not financial advice.</p>
@@ -829,8 +836,9 @@ function commoditiesSection() {
 function ipoCreditSection() {
   // Card chrome only — content renders client-side from data/ipo-credit.json,
   // lazy-fetched on first tab activation by loadIpoCredit() in app.js.
-  // Quarterly IPO counts, market-wide SEC raise-filing counts + tracked-
-  // universe issuance totals, and the national credit backdrop (FRED G.19
+  // Shown under Capital raises on the Capital markets page. Quarterly IPO
+  // counts, market-wide SEC raise-filing counts, and the national credit
+  // backdrop (FRED G.19
   // revolving credit, H.8 bank deposits, NY Fed household debt & credit).
   return `<section class="card" id="ipo-credit-section">
     <header class="card-header">
@@ -944,7 +952,7 @@ function quantSection() {
       <div id="quant-root" class="quant-root">Open this view to load the research snapshot.</div>
       <div id="quant-empty" class="quant-empty" hidden>No research snapshot is available yet.</div>
       <details class="research-details owner-lab-help"><summary>Screen definitions and educational playbook</summary>
-    ${infoNote('What is this?', `<p>Statistical screens quants actually run, over the same data the rest of the site already collects. <b>Regime conditioning</b> &mdash; every build first classifies the tape on four axes (volatility: VIX + term structure + SPY realized vol; trend vs range: SPY efficiency ratio + higher-highs/lower-lows; risk-on/off: the Market Analysis tape; earnings-heavy vs quiet: share of the universe reporting inside ~2 weeks). The single-name sigma screen keeps a fixed 3&sigma; bar in every regime; VRP &ldquo;rich&rdquo; needs a bigger z when high vol makes fat premium normal, pair-spread &ldquo;stretched&rdquo; widens in high vol and tightens in calm tape, and term-structure inversions are down-weighted through earnings-heavy stretches. Rows are never hidden by regime &mdash; only badged and re-ordered &mdash; and the strip at the top shows the bars in force. <b>Aggregate ideas</b> &mdash; a confluence table cross-referencing four <em>independent</em> flow screens the site already runs (the session&rsquo;s largest unusual-options prints, the top intraday volume / S&ndash;R-break flags, fresh &le;3-session price streaks, and 5-day rising / surging IV): a name showing on two-plus screens ships as a candidate, three-plus is badged <b>qualified</b>, and a lean is reported only when the directional screens agree. <b>Sigma deviations</b> &mdash; names at or past their 3&sigma; Bollinger band (20-day price z-score) or printing a 3&sigma; daily move vs their own trailing volatility, with the option market&rsquo;s <b>expected move</b> (1&sigma;/2&sigma; = S &times; IV &times; &radic;(days/365)) beside the realized one. <b>Vol risk premium</b> &mdash; each name&rsquo;s ATM ~30-day implied vol minus its 30-day realized vol, z-scored against the name&rsquo;s own derived history: persistently positive is the premium option sellers harvest; an extreme z flags premium unusually rich (or cheap) vs that name&rsquo;s norm. <b>Pairs</b> &mdash; within-industry pairs whose daily returns correlate &ge;0.60, watched on two spreads: the <em>hedged</em> price spread lnA &minus; &beta;&middot;lnB, with &beta; from a <b>one-year Engle-Granger regression</b> whose residual ADF test (vs the MacKinnon 5% bar) supplies a <b>cointegrated</b> badge &mdash; read on both a 60-day and a ~1-year horizon (some pairs only mean-revert on one), with a rolling hedge-ratio drift check, a corr-stability-across-lookbacks badge, and a factor match grade (SPY-beta / size / momentum gaps + a liquidity floor) &mdash; and the implied-vol spread vs its 120-day norm (relative options mispricing between peers). <b>Vol surface</b> &mdash; term-structure slope (~90d vs ~30d ATM; inverted = near-term stress, badged when the name&rsquo;s own print is inside ~5 weeks &mdash; event vol loading the front is expected) and 25&Delta; put&minus;call skew per name; their z-scores activate automatically once enough surface history accumulates. <b>Dispersion</b> &mdash; an implied-correlation proxy from SPY&rsquo;s IV vs the cap-weighted basket of tracked large-caps: high = index options rich relative to single names. <b>Post-earnings drift</b> &mdash; names inside two weeks of a print, their reaction and drift so far, against their own historical beat/miss drift tendency. Everything is deterministic &mdash; fixed formulas, documented windows and threshold tables, no AI and no cross-sectional curve-fitting.</p>`)}
+    ${infoNote('What is this?', `<p>Statistical screens quants actually run, over the same data the rest of the site already collects. <b>Regime conditioning</b> &mdash; every build first classifies the tape on four axes (volatility: VIX + term structure + SPY realized vol; trend vs range: SPY efficiency ratio + higher-highs/lower-lows; risk-on/off: the Market Analysis tape; earnings-heavy vs quiet: share of the universe reporting inside ~2 weeks). The single-name sigma screen keeps a fixed 3&sigma; bar in every regime; VRP &ldquo;rich&rdquo; needs a bigger z when high vol makes fat premium normal, pair-spread &ldquo;stretched&rdquo; widens in high vol and tightens in calm tape, and term-structure inversions are down-weighted through earnings-heavy stretches. Rows are never hidden by regime &mdash; only badged and re-ordered &mdash; and the strip at the top shows the bars in force. <b>Vol risk premium</b> &mdash; each name&rsquo;s ATM ~30-day implied vol minus its 30-day realized vol, z-scored against the name&rsquo;s own derived history: persistently positive is the premium option sellers harvest; an extreme z flags premium unusually rich (or cheap) vs that name&rsquo;s norm. <b>Pairs</b> &mdash; within-industry pairs whose daily returns correlate &ge;0.60, watched on two spreads: the <em>hedged</em> price spread lnA &minus; &beta;&middot;lnB, with &beta; from a <b>one-year Engle-Granger regression</b> whose residual ADF test (vs the MacKinnon 5% bar) supplies a <b>cointegrated</b> badge &mdash; read on both a 60-day and a ~1-year horizon (some pairs only mean-revert on one), with a rolling hedge-ratio drift check, a corr-stability-across-lookbacks badge, and a factor match grade (SPY-beta / size / momentum gaps + a liquidity floor) &mdash; and the implied-vol spread vs its 120-day norm (relative options mispricing between peers). <b>Vol surface</b> &mdash; term-structure slope (~90d vs ~30d ATM; inverted = near-term stress, badged when the name&rsquo;s own print is inside ~5 weeks &mdash; event vol loading the front is expected) and 25&Delta; put&minus;call skew per name; their z-scores activate automatically once enough surface history accumulates. <b>Dispersion</b> &mdash; an implied-correlation proxy from SPY&rsquo;s IV vs the cap-weighted basket of tracked large-caps: high = index options rich relative to single names. Multi-screen overlap, 3&sigma; price moves with expected moves, and post-earnings drift are on the public Unusual options trades, Rising volatility and Earnings results pages. Everything is deterministic &mdash; fixed formulas, documented windows and threshold tables, no AI and no cross-sectional curve-fitting.</p>`)}
     <div class="quant-playbook">
       <div class="quant-sub">The classical playbook (educational &mdash; not signals, not advice)</div>
       <div class="quant-tbl-wrap"><table class="quant-tbl quant-play-tbl">
@@ -964,7 +972,7 @@ function quantSection() {
       </details>
     </section>
     <section id="owner-panel-diagnostics" class="owner-lab-panel" data-owner-panel="diagnostics" role="tabpanel" aria-labelledby="owner-tab-diagnostics" hidden>
-      <div class="owner-lab-intro"><div><h3>Inspect the research records</h3><p>Open only the record you need. These records do not feed back into the live grade.</p></div><button type="button" class="book-more" data-owner-diagnostics-refresh>Refresh opened records</button></div>
+      <div class="owner-lab-intro"><div><h3>Inspect the research records</h3><p>Open only the record you need. These records do not feed back into the live grade. To see one company's grade breakdown, evidence, relationships and grader log together, use <button type="button" class="link-btn" data-owner-use-record data-wf-go="unified-signal-engine">Company record in the Unified Signal Engine</button>.</p></div><button type="button" class="book-more" data-owner-diagnostics-refresh>Refresh opened records</button></div>
       <p class="hint" id="owner-diagnostics-status" role="status" aria-live="polite">Records load on first open and stay on that snapshot until you request a refresh.</p>
       <section id="book-evidence" class="book-view" hidden></section>
       <section id="book-link" class="book-view" hidden></section>
@@ -981,10 +989,11 @@ function buildTimelineSection() {
     </header>
     <p class="hint">A scheduled start is not a guaranteed publish minute: GitHub runner queues, source latency and validation time vary. A service is live only when its own tab shows the new timestamp. Failed or incomplete runs publish nothing, so the prior coherent snapshot remains visible. The header&rsquo;s time-zone setting converts actual build, scan and headline timestamps; market-session rules stay labeled in ET.</p>
     <div class="refresh-schedule-grid">
-      <article class="refresh-schedule-card is-lead"><span>08:30 ET</span><h3>Premarket Brief</h3><p>The lightweight Brief run starts one hour before the bell and refreshes overnight markets, Fear &amp; Greed, macro releases and headlines, then checks every current public evidence desk for material standouts. It becomes live immediately after freshness verification and the private-store push; confirm the timestamp in Brief.</p><em>Brief only &middot; no full chain build</em></article>
-      <article class="refresh-schedule-card"><span>10:00, 11:00, 13:30, 15:30 &amp; 16:10 ET</span><h3>Full market build</h3><p>Refreshes ticker chains and daily/intraday bars, grades, technicals, narratives, calendars, Pending Buyouts, MA Tracker, the Bottom tracker, earnings, Market Analysis and Quant Lab. The 16:10 run captures the completed close.</p><em>Five evidence windows &middot; no unreliable 09:30 auction build</em></article>
-      <article class="refresh-schedule-card"><span>11:00 &amp; 15:30 ET</span><h3>Swing decision desks</h3><p>Runs Top Picks, LEAPS scores, Stock Picks, Sector Rotation and Leveraged ETFs. Chart vision runs at 11:00 only. Other full builds carry the last coherent decisions and ledgers unchanged.</p><em>Twice per market day &middot; aligned evidence</em></article>
-      <article class="refresh-schedule-card"><span>Hourly 09:00&ndash;16:00 ET</span><h3>Flow, Volume &amp; Heatmap</h3><p>Re-scans unusual options flow and intraday volume/S&amp;R breaks, then refreshes heatmap price/change fields. The post-close pass may also publish the sector EOD recap.</p><em>One serialized scan &middot; no partial publish</em></article>
+      <article class="refresh-schedule-card is-lead"><span>08:30 ET</span><h3>Premarket Brief</h3><p>The lightweight Brief run starts one hour before the bell and refreshes overnight markets, Fear &amp; Greed, macro releases and headlines, then checks every current public evidence desk for material standouts. It becomes live immediately after freshness verification and the private-store push; confirm the timestamp in Brief. The Brief is written again at 11:00, 13:30 and 16:10 (the closing read).</p><em>Brief only &middot; no full chain build</em></article>
+      <article class="refresh-schedule-card"><span>09:00 &amp; 19:00 ET</span><h3>Earnings-call summaries</h3><p>Reads newly posted earnings-call transcripts and writes the summaries on Earnings calls. The 09:00 pass picks up calls from the previous evening before the open; the 19:00 pass picks up the day&rsquo;s after-close calls.</p><em>Transcripts only &middot; no full chain build</em></article>
+      <article class="refresh-schedule-card"><span>10:00, 11:00, 13:30, 15:30 &amp; 16:10 ET</span><h3>Full market build</h3><p>Refreshes ticker chains and daily/intraday bars, grades, technicals, narratives, calendars, Pending Buyouts, MA Tracker, the Bottom tracker, earnings, Market Analysis and Quant Lab. The 16:10 run captures the completed close; it keeps the 15:30 market themes when that read still has at least four real stories.</p><em>Five evidence windows &middot; no unreliable 09:30 auction build</em></article>
+      <article class="refresh-schedule-card"><span>11:00 &amp; 15:30 ET</span><h3>Swing decision desks</h3><p>Runs Top Picks, LEAPS scores, Stock Picks, Sector Rotation and Leveraged ETFs. Other full builds carry the last coherent decisions and ledgers unchanged.</p><em>Twice per market day &middot; aligned evidence</em></article>
+      <article class="refresh-schedule-card"><span>Hourly 09:00&ndash;16:00 ET</span><h3>Flow, Volume &amp; Heatmap</h3><p>Re-scans unusual options flow and intraday volume/S&amp;R breaks, then refreshes heatmap price/change fields. The day&rsquo;s closing story is the 16:10 Brief.</p><em>One serialized scan &middot; no partial publish</em></article>
       <article class="refresh-schedule-card"><span>~08:30 and ~17:00 ET</span><h3>Near-term OI</h3><p>The morning pass publishes settled T+1 OI and day-over-day changes. The evening pass adds completed-session volume and Vol/OI positioning; today&rsquo;s net OI does not publish until the next morning.</p><em>Two different evidence windows</em></article>
       <article class="refresh-schedule-card"><span>Checked on each full build</span><h3>Central-bank gold</h3><p>Checks the World Gold Council for a new quarterly global-demand estimate and refreshed official country holdings. Source reporting normally lags the current date.</p><em>Quarterly source cadence &middot; last-good carry-forward</em></article>
       <article class="refresh-schedule-card"><span>Friday 11:30 ET</span><h3>Weekly Alt Data</h3><p>Refreshes Search Interest theme timelines, wholesale and retail RAM prices, and public GPU-cloud rental prices in one DST-safe weekly job.</p><em>One scan each &middot; Search Interest capped at 40 requests</em></article>
@@ -1005,10 +1014,10 @@ function ivTrendSection() {
       <h2 class="card-title">Trending IV</h2>
       <span class="card-eyebrow" id="iv-trend-eyebrow" aria-live="polite"></span>
     </header>
-    ${infoNote('What is this?', `<p>Each name's <b>constant-maturity ATM ~30-day IV</b> is interpolated between surrounding expirations in total-variance space, which reduces false jumps when the nearest contract rolls. The current read is compared with that name's own daily history using both classical and median/MAD z-scores; the more conservative agreeing magnitude is used, plus percentile, a 5-session ramp, lighter 20-session context, and a short rising streak. Tiers require both statistical elevation and a real percentage expansion in premium. Histories under 60 comparable sessions are labeled <b>provisional</b> and must clear stricter score and z bars. Rising IV says <b>magnitude</b>, not direction, and overlapping momentum inputs are deliberately down-weighted so one climb is not counted three times. Names already rich but no longer climbing remain marked <b>Elevated</b>.</p>`)}
+    ${infoNote('What is this?', `<p>Each name's <b>constant-maturity ATM ~30-day IV</b> is interpolated between surrounding expirations in total-variance space, which reduces false jumps when the nearest contract rolls. The current read is compared with that name's own daily history using both classical and median/MAD z-scores; the more conservative agreeing magnitude is used, plus percentile, a 5-session ramp, lighter 20-session context, and a short rising streak. Tiers require both statistical elevation and a real percentage expansion in premium. Histories under 60 comparable sessions are labeled <b>provisional</b> and must clear stricter score and z bars. Rising IV says <b>magnitude</b>, not direction, and overlapping momentum inputs are deliberately down-weighted so one climb is not counted three times. Names already rich but no longer climbing are marked <b>Rich</b>, using the site&rsquo;s one IV rule: today&rsquo;s IV in the top fifth of its own history <i>and</i> above the stock&rsquo;s 30-day realized volatility (the same rule the grade, Top Picks and the Strategy builder use).</p>`)}
     <div id="iv-trend-root" class="ivt-root">Loading Trending IV&hellip;</div>
     <div id="iv-trend-empty" class="ivt-empty" hidden>Trending-IV data will appear after the next daily build refresh.</div>
-    <p class="hint">IV history accumulates one sample per trading day; names with under a month of samples are excluded. Elevated IV is a read on expected move size, not direction. Not financial advice.</p>
+    <p class="hint">IV history accumulates one sample per trading day; names with under a month of samples are excluded. Rich IV is a read on expected move size, not direction. Not financial advice.</p>
     <section id="book-iv-hist" class="book-view" hidden></section>
     <section id="book-iv-price" class="book-view" hidden></section>
   </section>`;
@@ -1145,7 +1154,7 @@ function gexSection() {
       <span class="card-eyebrow" id="gex-eyebrow" aria-live="polite"></span>
     </header>
     ${infoNote('What is gamma exposure (GEX)?', `<p>This is an open-interest-based <strong>GEX proxy</strong> per strike and expiration: <code>Γ × OI × 100 × spot² × 1%</code>, with Black-Scholes gamma computed from each contract's implied vol. The display applies the conventional call-positive / put-negative convention, so a cell is call GEX minus put GEX. That convention is useful for locating concentrations, walls, and a model-implied flip, but <strong>open interest does not reveal whether dealers are actually long or short each contract</strong>. The sign is therefore a scenario proxy, not observed dealer inventory. It is a snapshot of listed OI at one scan, not a time series and not a dealer-inventory count.</p>
-      <p>Rows are strikes centered on spot; columns are expirations, near-term first, and <strong>Net&nbsp;Σ proxy</strong> sums the shown expirations. The largest call- and put-side concentrations form the <strong>call wall</strong> (<span class="gex-key-pos">CW</span>) and <strong>put wall</strong> (<span class="gex-key-neg">PW</span>). A <span class="gex-key-pos">positive proxy</span> carries a stabilizing/pinning bias under the conventional sign assumption; a <span class="gex-key-neg">negative proxy</span> carries an amplifying bias. Confirm those scenarios with actual price and share volume rather than treating the sign as fact. OI is end-of-session data published the next morning; only spot refreshes intraday.</p>`)}
+      <p>Rows are strikes centered on spot; columns are expirations, near-term first, and <strong>Net&nbsp;Σ proxy</strong> sums the shown expirations. The largest call- and put-side gamma concentrations form the <strong>gamma call wall</strong> (<span class="gex-key-pos">CW</span>) and <strong>gamma put wall</strong> (<span class="gex-key-neg">PW</span>). The open-interest tracker below has its own <strong>OI walls</strong>: the strikes with the most open contracts in the front two expirations. The two can name different strikes because gamma weighs each contract by how close it is to spot and to expiry, across eight expirations. A <span class="gex-key-pos">positive proxy</span> carries a stabilizing/pinning bias under the conventional sign assumption; a <span class="gex-key-neg">negative proxy</span> carries an amplifying bias. Confirm those scenarios with actual price and share volume rather than treating the sign as fact. OI is end-of-session data published the next morning; only spot refreshes intraday.</p>`)}
     <div class="gex-controls" role="toolbar" aria-label="Gamma exposure controls">
       <div class="gex-control gex-control-ticker">
         <span class="gex-control-label" id="gex-symbol-label">Ticker</span>
@@ -1214,8 +1223,8 @@ function oiTrackerSection() {
             <option value="oi">Total OI</option>
             <option value="cp">Highest C/P ratio</option>
             <option value="delta">Biggest ΔOI %</option>
-            <option value="callwall">Nearest call wall</option>
-            <option value="putwall">Nearest put wall</option>
+            <option value="callwall">Nearest OI call wall</option>
+            <option value="putwall">Nearest OI put wall</option>
             <option value="sector">Sector</option>
             <option value="alpha">A → Z</option>
           </select>
@@ -1464,7 +1473,7 @@ function optionEvalSection() {
       <div class="opt-tab-pane" role="tabpanel" id="opt-tab-pane-contract" aria-labelledby="opt-tab-btn-contract" hidden>
         <section id="opt-contract-grade" class="opt-contract-grade" aria-label="Grade a specific contract on this ticker">
           <p class="hint">Pick a call or put, then dial in expiry and strike — the verdict regrades as you go. Or paste one straight from your broker in the card below.</p>
-          <div id="opt-pinned-strip" class="opt-pinned-strip" hidden aria-label="Pinned contracts for comparison"></div>
+          <div id="opt-pinned-strip" class="opt-pinned-strip" hidden aria-label="Pinned option contracts"></div>
           <div id="opt-chain-row" class="opt-chain-row" hidden>
             <label class="field">
               <span class="field-label">Expiration</span>
@@ -1649,7 +1658,7 @@ function strategiesSection() {
       <h2 class="card-title">Options strategies</h2>
       <span class="card-eyebrow" id="strat-eyebrow" aria-live="polite"></span>
     </header>
-    <p class="hint">Choose a ticker and the desk will match its directional tape, volatility regime and event risk to a defined-risk starting structure. You can then edit every leg, price your actual fill, and inspect the expiration payoff.</p>
+    <p class="hint">Choose a ticker and the desk will match its grade (or its chart tape when the ticker has no grade), volatility regime and event risk to a defined-risk starting structure. You can then edit every leg, price your actual fill, and inspect the expiration payoff.</p>
     <div class="strat-controls">
       <div class="combo" id="strat-symbol-combo">
         <input type="text" id="strat-symbol-input" role="combobox"
@@ -1668,7 +1677,7 @@ function strategiesSection() {
         <div>
           <span class="strat-starter-kicker">Start with the thesis</span>
           <h3 id="strat-starter-title">What do you expect the stock to do?</h3>
-          <p>Pick the market view first. After you choose a ticker, the desk will load a defined-risk starting structure and test it against tape, volatility, events, liquidity and payoff.</p>
+          <p>Pick the market view first. After you choose a ticker, the desk will load a defined-risk starting structure and test it against the grade, the chart tape, volatility, events, liquidity and payoff.</p>
         </div>
         <span class="strat-starter-step">1 view &rarr; 2 ticker &rarr; 3 verify</span>
       </div>
@@ -2019,198 +2028,60 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       </div>
       <div id="landing-pulse" class="landing-pulse" role="list" aria-label="Market pulse — major index ETFs, last close" hidden></div>
     </section>
+    <section class="landing-section landing-glance-section" aria-labelledby="landing-glance-title">
+      <header class="landing-section-head">
+        <h2 class="landing-section-title" id="landing-glance-title">At a glance</h2>
+        <p class="landing-section-sub">Live readings from the latest build. Tap one to open its page.</p>
+      </header>
+      <div class="landing-glance">
+        <button type="button" class="landing-glance-tile" data-go="fear-greed" aria-label="Open Market mood">
+          <span class="landing-glance-label">Market mood</span>
+          <b class="landing-glance-stat" id="land-stat-fg">0–100</b>
+          <small class="landing-glance-sub" id="land-sub-fg">fear to greed</small>
+        </button>
+        <button type="button" class="landing-glance-tile" data-go="bonds-usd" aria-label="Open Rates and the dollar">
+          <span class="landing-glance-label">Rates &amp; the dollar</span>
+          <b class="landing-glance-stat" id="land-stat-bonds">10Y / DXY</b>
+          <small class="landing-glance-sub" id="land-sub-bonds">yields and the dollar</small>
+        </button>
+        <button type="button" class="landing-glance-tile" data-go="news" aria-label="Open News">
+          <span class="landing-glance-label">News</span>
+          <b class="landing-glance-stat" id="land-stat-news">Ranked</b>
+          <small class="landing-glance-sub" id="land-sub-news">market-moving headlines</small>
+        </button>
+        <button type="button" class="landing-glance-tile" data-go="flow" aria-label="Open Unusual options trades">
+          <span class="landing-glance-label">Unusual options trades</span>
+          <b class="landing-glance-stat" id="land-stat-flow">—</b>
+          <small class="landing-glance-sub" id="land-sub-flow">contracts flagged</small>
+        </button>
+        <button type="button" class="landing-glance-tile" data-go="narratives" aria-label="Open Market themes">
+          <span class="landing-glance-label">Market themes</span>
+          <b class="landing-glance-stat" id="land-stat-narratives">—</b>
+          <small class="landing-glance-sub" id="land-sub-narratives">active themes</small>
+        </button>
+        <button type="button" class="landing-glance-tile" data-go="streaks" aria-label="Open Up/down streaks">
+          <span class="landing-glance-label">Up/down streaks</span>
+          <b class="landing-glance-stat" id="land-stat-streaks">G/R</b>
+          <small class="landing-glance-sub" id="land-sub-streaks">active runs</small>
+        </button>
+        <button type="button" class="landing-glance-tile" data-go="f13" aria-label="Open Who owns what">
+          <span class="landing-glance-label">Who owns what</span>
+          <b class="landing-glance-stat" id="land-stat-f13">Q</b>
+          <small class="landing-glance-sub" id="land-sub-f13">latest 13F quarter</small>
+        </button>
+        <button type="button" class="landing-glance-tile" data-go="picks" aria-label="Open Top picks">
+          <span class="landing-glance-label">Top picks</span>
+          <b class="landing-glance-stat" id="land-stat-picks">Today</b>
+          <small class="landing-glance-sub" id="land-sub-picks">highest conviction</small>
+        </button>
+      </div>
+    </section>
     <section class="landing-section landing-topics-section" aria-labelledby="landing-topics-title">
       <header class="landing-section-head">
         <h2 class="landing-section-title" id="landing-topics-title">Explore by topic</h2>
         <p class="landing-section-sub">Everything on the site, grouped by the question you are asking.</p>
       </header>
       <div id="landing-topics" class="landing-topics"></div>
-    </section>
-    <section class="landing-section">
-      <header class="landing-section-head">
-        <h2 class="landing-section-title">Follow the market</h2>
-        <p class="landing-section-sub">What changed, what is moving, and what is scheduled next.</p>
-      </header>
-      <div class="landing-grid">
-        <button type="button" class="landing-card" data-go="brief" aria-label="Read the market brief">
-          <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Market brief</span>
-            <span class="landing-card-arrow" aria-hidden="true">→</span>
-          </header>
-          <div class="landing-card-stat" id="land-stat-brief">Hourly</div>
-          <div class="landing-card-sub" id="land-sub-brief">market digest</div>
-          <p class="landing-card-desc">An hourly read on what's interesting — the overnight setup, the session's movers, notable flow, what's next.</p>
-        </button>
-        <button type="button" class="landing-card" data-go="news" aria-label="Open the stock and macro news desk">
-          <header class="landing-card-head">
-            <span class="landing-card-eyebrow">News</span>
-            <span class="landing-card-arrow" aria-hidden="true">&rarr;</span>
-          </header>
-          <div class="landing-card-stat" id="land-stat-news">Ranked</div>
-          <div class="landing-card-sub" id="land-sub-news">market-moving headlines</div>
-          <p class="landing-card-desc">Straight stock and macro news, ranked by likely impact with published economic prints and the active tape alongside it.</p>
-        </button>
-        <button type="button" class="landing-card" data-go="picks" aria-label="View top picks">
-          <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Top picks</span>
-            <span class="landing-card-arrow" aria-hidden="true">→</span>
-          </header>
-          <div class="landing-card-stat" id="land-stat-picks">Today</div>
-          <div class="landing-card-sub" id="land-sub-picks">highest conviction</div>
-          <p class="landing-card-desc">Standout contracts the model pulled from today's chain — what we'd buy if we had to pick.</p>
-        </button>
-        <button type="button" class="landing-card" data-go="leaps" aria-label="View LEAPS scores">
-          <header class="landing-card-head">
-            <span class="landing-card-eyebrow">LEAPS</span>
-            <span class="landing-card-arrow" aria-hidden="true">→</span>
-          </header>
-          <div class="landing-card-stat" id="land-stat-leaps">Score</div>
-          <div class="landing-card-sub" id="land-sub-leaps">long-dated names</div>
-          <p class="landing-card-desc">The same Top Picks pillars, scored for a one- to two-year hold. A name that clears the bar is yours to contract.</p>
-        </button>
-        <button type="button" class="landing-card" data-go="stocks" aria-label="View stock picks">
-          <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Stock picks</span>
-            <span class="landing-card-arrow" aria-hidden="true">→</span>
-          </header>
-          <div class="landing-card-stat" id="land-stat-stocks">Shares</div>
-          <div class="landing-card-sub" id="land-sub-stocks">buy-the-dip screen</div>
-          <p class="landing-card-desc">Stocks, not options — good businesses currently beaten down, with yellow flags when the dip looks like something breaking.</p>
-        </button>
-        <button type="button" class="landing-card" data-go="rotation" aria-label="View sector rotation rebounds">
-          <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Sector rotation</span>
-            <span class="landing-card-arrow" aria-hidden="true">→</span>
-          </header>
-          <div class="landing-card-stat" id="land-stat-rotation">Rebounds</div>
-          <div class="landing-card-sub" id="land-sub-rotation">quality names turning</div>
-          <p class="landing-card-desc">Strong companies sold with their sector — not on broken company news — then reclaiming the tape, from washout to confirmation.</p>
-        </button>
-        <button type="button" class="landing-card landing-card-hot" data-go="flow" aria-label="View unusual flow">
-          <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Unusual options trades</span>
-            <span class="landing-card-arrow" aria-hidden="true">→</span>
-          </header>
-          <div class="landing-card-stat" id="land-stat-flow">—</div>
-          <div class="landing-card-sub">flagged today</div>
-          <p class="landing-card-desc">Options prints with abnormal volume vs the prior session — who's pricing in what.</p>
-        </button>
-        <button type="button" class="landing-card" data-go="iv-trend" aria-label="View trending implied volatility">
-          <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Rising volatility</span>
-            <span class="landing-card-arrow" aria-hidden="true">→</span>
-          </header>
-          <div class="landing-card-stat" id="land-stat-ivt">IV ↑</div>
-          <div class="landing-card-sub" id="land-sub-ivt">big moves brewing</div>
-          <p class="landing-card-desc">Names whose implied vol is running above their own history and still climbing — options pricing in a bigger-than-usual move.</p>
-        </button>
-        <button type="button" class="landing-card" data-go="narratives" aria-label="Browse narratives">
-          <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Market themes</span>
-            <span class="landing-card-arrow" aria-hidden="true">→</span>
-          </header>
-          <div class="landing-card-stat" id="land-stat-narratives">—</div>
-          <div class="landing-card-sub">sectors covered</div>
-          <p class="landing-card-desc">AI<span class="tip ai-info" tabindex="0" role="button" aria-label="About AI-built theses" data-tip="Theses built by Google Gemini (default: gemini-2.5-flash-lite; override via NARRATIVES_MODEL env). Inputs: sector + industry news filtered to reputable publishers. Refreshed each daily build.">i</span>-built theses on what's driving capital today — longs, shorts, and the triggers to watch.</p>
-        </button>
-        <button type="button" class="landing-card" data-go="calendar" aria-label="View calendar">
-          <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Calendar</span>
-            <span class="landing-card-arrow" aria-hidden="true">→</span>
-          </header>
-          <div class="landing-card-stat" id="land-stat-calendar">30d</div>
-          <div class="landing-card-sub" id="land-sub-calendar">earnings + macro</div>
-          <p class="landing-card-desc">Earnings AM/PM sessions, macro releases (CPI, NFP, JOLTS), ticker catalysts, and dated FOMC meetings.</p>
-        </button>
-      </div>
-    </section>
-    <section class="landing-section">
-      <header class="landing-section-head">
-        <h2 class="landing-section-title">Research</h2>
-        <p class="landing-section-sub">Ownership, sentiment, rates, currencies, and the broader market backdrop.</p>
-      </header>
-      <div class="landing-grid">
-        <button type="button" class="landing-card" data-go="market" aria-label="View market analysis">
-          <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Market analysis</span>
-            <span class="landing-card-arrow" aria-hidden="true">→</span>
-          </header>
-          <div class="landing-card-stat" id="land-stat-market">Live</div>
-          <div class="landing-card-sub" id="land-sub-market">risk-on / risk-off tape</div>
-          <p class="landing-card-desc">The cross-asset market tape — VIX, dollar, yields, commodities, Fed path — plus the risk barometer and regime history.</p>
-        </button>
-        <button type="button" class="landing-card" data-go="risk" aria-label="View risk analysis">
-          <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Risk analysis</span>
-            <span class="landing-card-arrow" aria-hidden="true">→</span>
-          </header>
-          <div class="landing-card-stat">7</div>
-          <div class="landing-card-sub">desks, one position</div>
-          <p class="landing-card-desc">Volume, gamma, the index calendar, overnight markets, Fear &amp; Greed, the regime, and the heatmap, with the reason when they disagree.</p>
-        </button>
-        <button type="button" class="landing-card" data-go="tickers" aria-label="Browse tickers">
-          <header class="landing-card-head">
-            <span class="landing-card-eyebrow">All stocks</span>
-            <span class="landing-card-arrow" aria-hidden="true">→</span>
-          </header>
-          <div class="landing-card-stat" id="land-stat-tickers">${tickerCount}</div>
-          <div class="landing-card-sub">symbols tracked</div>
-          <p class="landing-card-desc">Per-ticker chains, technicals, Greeks, IV term structure, AI<span class="tip ai-info" tabindex="0" role="button" aria-label="About AI news takes" data-tip="News takes generated by Google Gemini (gemini-2.5-flash-lite) from per-ticker reputable-publisher headlines. Runs once per daily refresh.">i</span> news takes.</p>
-        </button>
-        <button type="button" class="landing-card" data-go="f13" aria-label="View SEC ownership filings">
-          <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Who owns what</span>
-            <span class="landing-card-arrow" aria-hidden="true">→</span>
-          </header>
-          <div class="landing-card-stat" id="land-stat-f13">Q</div>
-          <div class="landing-card-sub" id="land-sub-f13">institutional holdings</div>
-          <p class="landing-card-desc">Quarterly 13F manager rotation plus recent Form 4 insider purchases, sales, and non-market transactions.</p>
-        </button>
-        <button type="button" class="landing-card" data-go="fear-greed" aria-label="View Fear and Greed">
-          <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Market mood</span>
-            <span class="landing-card-arrow" aria-hidden="true">→</span>
-          </header>
-          <div class="landing-card-stat" id="land-stat-fg">0–100</div>
-          <div class="landing-card-sub" id="land-sub-fg">CNN sentiment gauge</div>
-          <p class="landing-card-desc">The 7-indicator equity-market sentiment index — extreme fear has historically preceded rebounds.</p>
-        </button>
-        <button type="button" class="landing-card" data-go="streaks" aria-label="View green/red streaks">
-          <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Up/down streaks</span>
-            <span class="landing-card-arrow" aria-hidden="true">→</span>
-          </header>
-          <div class="landing-card-stat" id="land-stat-streaks">G/R</div>
-          <div class="landing-card-sub" id="land-sub-streaks">daily runs</div>
-          <p class="landing-card-desc">Current green or red daily-close streaks for every ticker, with counter-day tolerance bank.</p>
-        </button>
-        <button type="button" class="landing-card" data-go="bonds-usd" aria-label="Read bonds and USD primer">
-          <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Rates &amp; the dollar</span>
-            <span class="landing-card-arrow" aria-hidden="true">→</span>
-          </header>
-          <div class="landing-card-stat" id="land-stat-bonds">10Y / DXY</div>
-          <div class="landing-card-sub" id="land-sub-bonds">yields + dollar</div>
-          <p class="landing-card-desc">Treasury yields, the dollar, Effective Fed Funds, meeting odds, official votes, and the full Fed rate path.</p>
-        </button>
-      </div>
-    </section>
-    <section class="landing-section landing-section-act" hidden>
-      <header class="landing-section-head">
-        <h2 class="landing-section-title">Act</h2>
-        <p class="landing-section-sub">Grade any ticker top to bottom — then grade the exact contract you're eyeing.</p>
-      </header>
-      <div class="landing-grid">
-        <button type="button" class="landing-card" data-go="grade" aria-label="Grade a ticker">
-          <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Grade a ticker</span>
-            <span class="landing-card-arrow" aria-hidden="true">→</span>
-          </header>
-          <div class="landing-card-stat">Grade it</div>
-          <div class="landing-card-sub">any ticker</div>
-          <p class="landing-card-desc">The full 4-pillar conviction grade + AI<span class="tip ai-info" tabindex="0" role="button" aria-label="About AI conviction" data-tip="Conviction blends news sentiment (Gemini, gemini-2.5-flash-lite), fundamentals verdict (Gemini, gemini-2.5-flash-lite), technicals (RSI/MACD/volume — deterministic, no AI), and macro tilt. Recomputed each daily build.">i</span> take, technicals, fundamentals, implied vol, news, and a contract grader for any tracked ticker.</p>
-        </button>
-      </div>
     </section>
     <p class="landing-foot">Use the navigation menu or press <kbd>⌘K</kbd> to jump to available research.</p>
   </div>
@@ -2724,8 +2595,6 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   </div>
   <div class="page-pane" id="page-pane-capital-raises" role="tabpanel" aria-labelledby="page-tab-capital-raises" hidden>
   ${capitalRaisesSection()}
-  </div>
-  <div class="page-pane" id="page-pane-ipo-credit" role="tabpanel" aria-labelledby="page-tab-ipo-credit" hidden>
   ${ipoCreditSection()}
   </div>
   <div class="page-pane" id="page-pane-bottom-tracker" role="tabpanel" aria-labelledby="page-tab-bottom-tracker" hidden>

@@ -62,6 +62,10 @@ export function renderUnifiedSignalCss() {
 .use-disclosure { border-bottom:1px solid var(--border); padding:14px 0; }
 .use-disclosure summary { cursor:pointer; color:var(--text-strong); font:550 13px/1.6 var(--font-sans); }
 .use-evidence-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 22px; margin-top:15px; }
+.use-record { min-width:0; }
+.use-record-part { padding:0 0 18px; margin:0 0 18px; border-bottom:1px solid var(--border); min-width:0; }
+.use-record-part > h4 { margin:0 0 2px; color:var(--text-strong); font:600 15px/1.5 var(--font-sans); }
+.use-record .book-evidence-name > h4 { display:none; }
 .use-footer { border-top:1px solid var(--border); padding-top:18px; margin-top:22px; color:var(--muted-strong); font:400 11px/1.7 var(--font-sans); overflow-wrap:anywhere; }
 .use-footer summary { cursor:pointer; font-weight:550; color:var(--text); }
 .use-empty { padding:28px 12px; font:400 13px/1.7 var(--font-sans); color:var(--muted-strong); }

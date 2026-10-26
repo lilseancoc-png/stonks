@@ -6,7 +6,7 @@
 - Single-option absolute delta is 0.30–0.50, preferred 0.40. The OTM ceiling is 15%. Spread delta targets stay unchanged.
 - Give admission, display and tracking one underlying stock plan.
 - Require modeled option economics to support a Buy; keep failures as watch ideas.
-- Separate LEAPS research qualification from entry timing. Preserve its current score weights pending a later redesign.
+- Separate LEAPS research qualification from entry timing. Preserve its current score weights pending a later redesign. (That redesign landed on 2026-10-26: Fundamentals 2.0, Trend 1.25, Narrative 1.0, Flow 0.75, still totalling 5, plus a durable-pillar requirement. See `lib/leaps-score.mjs`.)
 
 ## Shared stock plan
 
@@ -51,7 +51,7 @@ Timing version 4 uses the stock's own prior 14-session true-range average. For a
 
 ## Further review
 
-Fresh reclaim, expiry expansion, account sizing and LEAPS score weights remain unchanged. Countertrend Go still requires a fresh confirmed 20D cross, so a held rebound can miss that prerequisite. No current comparison establishes that relaxing it improves option returns. Historical profit percentages across policy versions cannot establish causal improvement; compare forward outcomes after costs.
+Fresh reclaim, expiry expansion and account sizing remain unchanged. LEAPS score weights were reordered for the one- to two-year hold on 2026-10-26 (business first, flow last); that change is untested forward and should be compared by policy-version cohort like any other. Countertrend Go still requires a fresh confirmed 20D cross, so a held rebound can miss that prerequisite. No current comparison establishes that relaxing it improves option returns. Historical profit percentages across policy versions cannot establish causal improvement; compare forward outcomes after costs.
 
 ## Incremental operating cost check
 

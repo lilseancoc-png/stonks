@@ -37,7 +37,7 @@ import {
   capexCohortYoy, earningsEpsVerdict,
   freshMajorContractStatus, fiveSessionReturnPct, aiReserveBlocks, ensureTickerCoverage, GRADE_MODEL_VERSION,
   reconcileLevEtfLog, levEtfEntryInUniverse,
-  scoreAllTickers, openPickPrecheck, prioritizeAiSlots,
+  scoreAllTickers, openPickPrecheck, prioritizeAiSlots, structuralVeto, aiGraderCandidates,
   appendGateLog, gateRowMoves, foldGateLog, computeGateStats, GATE_LOG_KEEP_DAYS, GATE_LOG_REPEAT_DAYS,
 } from "./build.mjs";
 import { buildFlowExplanation } from "../lib/flow-explanation.mjs";
@@ -374,11 +374,25 @@ const ivRich = computeIvCostContribution(
   ivUniverse,
 );
 const ivCheap = computeIvCostContribution({ ivRank: { pctile: 5, n: 60, asOf: ivReferenceDate } }, ivUniverse);
-ok("IV cost: universe-relative rich/cheap points are bounded and direction agnostic",
-  ivRich.contribution < 0 && ivRich.contribution >= -2
-    && ivCheap.contribution > 0 && ivCheap.contribution <= 1
-    && ivRich.method === "universe-relative");
-ok("IV cost: own-history value/z and rank/surface provenance ship alongside universe-relative points",
+ok("IV cost: shared IV rule — Rich costs 2, Cheap earns 1, bounded and direction agnostic",
+  ivRich.coreContribution === -2 && ivRich.contribution === -2 && ivRich.band === "very-rich"
+    && ivCheap.coreContribution === 1 && ivCheap.contribution === 1 && ivCheap.band === "cheap"
+    && ivRich.method === "2026-10-iv-rule");
+const ivBelowRealized = computeIvCostContribution({
+  ivRank: { pctile: 95, n: 60, iv: 0.30, asOf: ivReferenceDate },
+  technicals: { volRegime: { rv30: 0.40 } },
+}, ivUniverse);
+const ivRichAboveRealized = computeIvCostContribution({
+  ivRank: { pctile: 85, n: 60, iv: 0.50, asOf: ivReferenceDate },
+  technicals: { volRegime: { rv30: 0.40 } },
+}, ivUniverse);
+const ivMid = computeIvCostContribution({ ivRank: { pctile: 65, n: 60, iv: 0.5, asOf: ivReferenceDate } }, ivUniverse);
+ok("IV cost: a high percentile with IV at or below realized vol is Normal (no points)",
+  ivBelowRealized.band === "normal" && ivBelowRealized.coreContribution === 0 && ivBelowRealized.ivOverRv === false);
+ok("IV cost: 80th+ percentile with IV above realized vol is Rich (-2); the 65th is Normal",
+  ivRichAboveRealized.band === "rich" && ivRichAboveRealized.coreContribution === -2 && ivRichAboveRealized.ivOverRv === true
+    && ivMid.band === "normal" && ivMid.coreContribution === 0);
+ok("IV cost: own-history value/z and rank/surface provenance ship alongside the band",
   ivRich.ownZ === 1.2 && ivRich.currentIv === 0.42
     && ivRich.rankAsOf === ivReferenceDate && ivRich.surfaceAsOf === ivReferenceDate
     && ivRich.universeAsOf === ivReferenceDate);
@@ -392,8 +406,8 @@ ok("IV cost: stale surface provenance ships but cannot apply a term penalty",
   ivStaleSurface.surfaceAsOf === "2026-07-30" && ivStaleSurface.surfaceFresh === false
     && ivStaleSurface.termZ == null && ivStaleSurface.termSlope == null && ivStaleSurface.termPenalty === 0);
 const ivThin = computeIvCostContribution({ ivRank: { pctile: 99, n: 60 } }, { ready: false, n: 4 });
-ok("IV cost: a thin universe is neutral instead of mapping legacy thresholds to points",
-  ivThin.coreContribution === 0 && ivThin.method === "universe-thin-neutral");
+ok("IV cost: the band reads the name's own history, so a thin universe no longer zeroes it",
+  ivThin.coreContribution === -2 && ivThin.band === "very-rich");
 const ivMacroExplained = computeIvCostContribution(
   {
     ivRank: { pctile: 95, n: 60, asOf: ivReferenceDate },
@@ -947,6 +961,40 @@ ok("picks: rosterMeta carries the non-destructive grade-model version", picks.ro
 ok("model epoch: roster metadata stamps the same decision era",
   picks.rosterMeta.modelEpoch === grades.modelEpoch && picks.rosterMeta.entryTimingVersion === grades.entryTimingVersion);
 ok("picks: KNIFE timing-gated (not shipped)", !picks.some((p) => p.symbol === "KNIFE") );
+// Buyout-target veto (pending-buyouts.json): a signed deal on a name keeps it
+// off the open-pick path on either side; a rumor or a mismatched listing never
+// blocks.
+{
+  ok("buyout guard: fixture has a shipped pick to target", picks.length > 0);
+  const tgt = picks[0]?.symbol;
+  const spotT = chains[tgt]?.spot;
+  const deal = (over) => ({ pendingBuyouts: { deals: [{ status: "pending", targetTicker: tgt, targetPrice: spotT, acquirer: "Acq Co", dealType: "cash", considerationPerShare: spotT * 1.02, ...over }] } });
+  const bo = buildTopPicks(chains, [], null, null, null, null, 0.045, deal({}));
+  ok("buyout guard: a confirmed target is dropped", tgt && !bo.some((p) => p.symbol === tgt) && bo.rosterMeta.buyoutGated.includes(tgt));
+  ok("buyout guard: the drop is traced as pending-buyout", bo.rosterMeta.turnedAway.some((t) => t.sym === tgt && t.gate === "pending-buyout"));
+  ok("buyout guard: other names are unchanged", picks.filter((p) => p.symbol !== tgt).every((p) => bo.some((q) => q.symbol === p.symbol)));
+  const rum = buildTopPicks(chains, [], null, null, null, null, 0.045, deal({ status: "rumored" }));
+  ok("buyout guard: a rumor never blocks, it is listed", rum.some((p) => p.symbol === tgt) && rum.rosterMeta.buyoutWatch.some((w) => w.symbol === tgt && w.status === "rumored" && !w.block));
+  const far = buildTopPicks(chains, [], null, null, null, null, 0.045, deal({ targetPrice: spotT * 2 }));
+  ok("buyout guard: a deal quoted far from our spot (other listing) does not block", far.some((p) => p.symbol === tgt));
+  const none = buildTopPicks(chains, [], null, null, null, null, 0.045, {});
+  ok("buyout guard: no payload means no watch rows", Array.isArray(none.rosterMeta.buyoutWatch) && none.rosterMeta.buyoutWatch.length === 0);
+  ok("structural veto: collateral stress blocks calls only",
+    structuralVeto({ forcedLiquidation: { vetoLong: true } }, "call") === "collateral-stress"
+    && structuralVeto({ forcedLiquidation: { vetoLong: true } }, "put") === null);
+  ok("structural veto: a confirmed buyout blocks both sides",
+    structuralVeto({ pendingBuyout: { block: true } }, "put") === "pending-buyout"
+    && structuralVeto({ pendingBuyout: { block: false } }, "call") === null);
+  // The AI pre-screen mirrors the vetoes, so a vetoed name never takes a grader
+  // slot and then gets dropped by buildTopPicks.
+  const graderSyms = (opts) => aiGraderCandidates(scoreAllTickers(chains, [], null, null, null, null, opts), null, opts).map((c) => c.r.sym);
+  const baseCands = graderSyms({});
+  const vetoCands = graderSyms(deal({}));
+  ok("ai pre-screen: a buyout-vetoed name no longer takes a grader slot", baseCands.includes(tgt) && !vetoCands.includes(tgt) && vetoCands.length === baseCands.length - 1);
+  const collCands = aiGraderCandidates({ ...scoreAllTickers(chains, [], null, null, null, null, {}), scored: scoreAllTickers(chains, [], null, null, null, null, {}).scored.map((r) => r.sym === tgt ? { ...r, forcedLiquidation: { vetoLong: true } } : r) }, null, {}).map((c) => c.r.sym);
+  ok("ai pre-screen: a collateral-vetoed call no longer takes a grader slot", picks[0]?.side !== "call" || !collCands.includes(tgt));
+}
+
 ok("picks: each pick has contract + sizing", picks.length === 0 || picks.every((p) => p.contract && p.sizing && p.sizing.weight != null));
 ok("picks: each pick has pillars + recommendation + thesis", picks.every((p) => p.pillars && p.recommendation && p.analysis));
 ok("picks: exitPlan TP/cut present", picks.every((p) => p.exitPlan && p.exitPlan.takeProfit && p.exitPlan.cut));
@@ -1409,6 +1457,19 @@ ok("roster: buildPicksRoster shape", roster.roster && Array.isArray(roster.roste
 }
 const gd = appendGradesDaily({ days: [] }, grades, new Date().toISOString());
 ok("daily: appendGradesDaily upserts a day", gd.days.length === 1 && gd.days[0].totals.BULLA != null);
+{
+  const today = new Date().toISOString();
+  const sh = { v: 1, keys: ["r21"], rows: { BULLA: [1.5] } };
+  const withShadow = appendGradesDaily({ days: [] }, grades, today, sh);
+  ok("daily: the shadow block rides the day's row", withShadow.days[0].shadow?.rows?.BULLA?.[0] === 1.5);
+  const regen = appendGradesDaily(withShadow, grades, today);
+  ok("daily: a later upsert without shadow keeps the day's shadow", regen.days[0].shadow?.rows?.BULLA?.[0] === 1.5 && regen.days[0].totals.BULLA != null);
+  const old = Array.from({ length: 140 }, (_, i) => ({ date: `2025-${String(1 + Math.floor(i / 28)).padStart(2, "0")}-${String(1 + (i % 28)).padStart(2, "0")}`, totals: { BULLA: 1 }, shadow: sh }));
+  const trimmed = appendGradesDaily({ days: old }, grades, today, sh);
+  ok("daily: only the newest 130 rows keep shadow, totals stay on every row",
+    trimmed.days.filter((d) => d.shadow).length === 130 && trimmed.days.every((d) => d.totals) && !trimmed.days[0].shadow);
+}
+
 const rh = appendRegimeHistory({ days: [] }, riskOff.macroRegime, "put", new Date().toISOString());
 ok("regime-history: appendRegimeHistory upserts a day", rh.days.length === 1 && rh.days[0].state);
 ok("regime-history: public rows omit Top-Picks lean", !("lean" in rh.days[0]) && !("picks" in rh.days[0]));
@@ -1466,7 +1527,7 @@ ok("matrix: a weak thesis ⇒ no strategy, no contract, watch group", picks.ever
 ok("roster: rosterMeta.groups counts the two tiers", picks.rosterMeta && picks.rosterMeta.groups && (picks.rosterMeta.groups.actionable + picks.rosterMeta.groups.watch) === picks.length);
 
 // --- 12b. thesis-quality rubric / strategy gate / matrix (unit) -------------
-const mkR = (total, p) => ({ sym: "Z", total, data: { ivRank: p.iv || null, ivSurface: p.surface || null }, pillars: p.pillars, drivers: p.drivers });
+const mkR = (total, p) => ({ sym: "Z", total, data: { ivRank: p.iv || null, ivSurface: p.surface || null, technicals: p.rv30 != null ? { volRegime: { rv30: p.rv30 } } : undefined }, pillars: p.pillars, drivers: p.drivers });
 const mrSup = { support: "supports", group: "broad", drivers: [] };
 const mrNeu = { support: "neutral", group: "broad", drivers: [] };
 // multi-pillar + supportive macro -> strong
@@ -1480,8 +1541,16 @@ ok("rubric: single-pillar read → weak", qThin.tier === "weak");
 ok("rubric: macro headwind on a multi-factor name stays ≥ moderate (not weak)", assessThesisQuality(rMulti, "call", { support: "against", group: "broad", drivers: [] }, worksMulti).tier !== "weak");
 // strategy gate
 ok("strategy gate: weak thesis → none", selectStrategy(rThin, "call", { thesisTier: "weak" }).type === "none");
-ok("strategy gate: elevated IV (z 1.6) → credit", selectStrategy(mkR(6, { iv: { z: 1.6, pctile: 66 } }), "call", { thesisTier: "moderate" }).type === "credit");
-ok("strategy gate: elevated by PCTILE (65th, z null) → credit", selectStrategy(mkR(6, { iv: { pctile: 65 } }), "call", { thesisTier: "moderate" }).type === "credit");
+const gateVeryRich = selectStrategy(mkR(6, { iv: { z: 2.4, pctile: 93, iv: 0.6 }, rv30: 0.4 }), "call", { thesisTier: "moderate" });
+const gateRich = selectStrategy(mkR(8, { iv: { z: 1.6, pctile: 85, iv: 0.6 }, rv30: 0.4 }), "call", { thesisTier: "strong" });
+const gateHighBelowRv = selectStrategy(mkR(8, { iv: { z: 2.4, pctile: 93, iv: 0.35 }, rv30: 0.45 }), "call", { thesisTier: "strong" });
+const gateOldBand = selectStrategy(mkR(6, { iv: { z: 1.6, pctile: 66 } }), "call", { thesisTier: "moderate" });
+const gateNoRv = selectStrategy(mkR(6, { iv: { pctile: 93, iv: 0.6 } }), "call", { thesisTier: "moderate" });
+ok("strategy gate: Very rich IV (93rd, above realized) → credit", gateVeryRich.type === "credit" && gateVeryRich.ivTier === "highly-elevated" && gateVeryRich.ivBand === "very-rich");
+ok("strategy gate: Rich IV (85th, above realized) → debit, never credit or naked", gateRich.type === "debit" && gateRich.ivTier === "elevated");
+ok("strategy gate: a high percentile with IV below realized vol is Normal → strong setup may go naked", gateHighBelowRv.type === "long" && gateHighBelowRv.ivTier === "reasonable");
+ok("strategy gate: the old 60th-percentile / 1.5σ credit band no longer sells premium", gateOldBand.type !== "credit");
+ok("strategy gate: missing realized vol lets the percentile decide alone", gateNoRv.type === "credit");
 ok("strategy gate: low IV + strong grade + strong thesis → naked", selectStrategy(mkR(8, { iv: { z: 0, pctile: 30 } }), "call", { thesisTier: "strong" }).type === "long");
 ok("strategy gate: low IV + only moderate thesis → debit (naked needs strong)", selectStrategy(mkR(8, { iv: { z: 0, pctile: 30 } }), "call", { thesisTier: "moderate" }).type === "debit");
 const richCallSkew = selectStrategy(mkR(8, { iv: { z: 0, pctile: 30 }, surface: { skew25: -0.08, skewZ: -2 } }), "call", { thesisTier: "strong" });
@@ -1764,10 +1833,9 @@ for (const side of ["call", "put"]) {
   const stale = selectStrategy(row({ z: 0, pctile: 30, asOf: "2026-10-20" }), side, { thesisTier: "strong", ivAsOfDate: "2026-10-22" });
   ok(`strategy safety ${side}: missing or stale IV stays unknown and selects debit`,
     unknown.type === "debit" && unknown.ivTier === "unknown" && stale.type === "debit" && stale.ivTier === "unknown");
-  for (const iv of [{ z: 0 }, { pctile: 30 }]) {
-    ok(`strategy safety ${side}: one available reasonable IV measure permits long`,
-      selectStrategy(row(iv), side, { thesisTier: "strong" }).type === "long");
-  }
+  ok(`strategy safety ${side}: a reasonable IV percentile permits long; a z-score alone does not`,
+    selectStrategy(row({ pctile: 30 }), side, { thesisTier: "strong" }).type === "long"
+      && selectStrategy(row({ z: 0 }), side, { thesisTier: "strong" }).type === "debit");
   const long = pickContractForPick(side, bsData, 0.045, { requireClean: true });
   const oneLegData = { ...bsData, chains: Object.fromEntries(Object.entries(bsData.chains).map(([exp, chain]) => [exp, {
     c: side === "call" ? chain.c.filter((c) => c.s === long?.strike) : [],
@@ -1782,6 +1850,7 @@ for (const side of ["call", "put"]) {
     selectStrategy(row({ z: 0, pctile: 30 }), side, { thesisTier: "strong", eventRisk: { active: true } }),
     selectStrategy(row({ z: 0, pctile: 30 }), side, { thesisTier: "moderate" }),
     selectStrategy(row({ z: 0, pctile: 30 }, { skewZ: side === "call" ? -2 : 2 }), side, { thesisTier: "strong" }),
+    selectStrategy(row({ z: 2, pctile: 95 }), side, { thesisTier: "strong" }),
     selectStrategy(row({ z: 2, pctile: 85 }), side, { thesisTier: "strong" }),
   ];
   ok(`strategy safety ${side}: IV, events, skew and thesis restrictions never fall back to long`,
@@ -2045,14 +2114,16 @@ ok("exit: credit ignores a stray scale-out field", resolvePickOutcome({ modeledO
 // --- 13. strategy routing through the full engine (IV z-score → structure) ---
 // mkTicker grades strongly bullish; the IV z-score then drives the structure.
 function mkStratTicker(iv, z, pctile, over) { const t = mkTicker({ spot: 120, sector: "Software", ...(over || {}) }); t.chains = mkBsChain(120, iv); t.ivRank = { pctile, n: 120, z, asOf: inEtDays(0) }; return t; }
-const routeRich = buildTopPicks({ RICHIV: mkStratTicker(0.95, 2.6, 88) }, [], null, null, null, null, 0.045, {}).find((p) => p.symbol === "RICHIV");
-const routeElevated = buildTopPicks({ ELEVIV: mkStratTicker(0.55, 1.6, 65) }, [], null, null, null, null, 0.045, {}).find((p) => p.symbol === "ELEVIV");
+const routeRich = buildTopPicks({ RICHIV: mkStratTicker(0.95, 2.6, 94) }, [], null, null, null, null, 0.045, {}).find((p) => p.symbol === "RICHIV");
+const routeElevated = buildTopPicks({ ELEVIV: mkStratTicker(0.55, 1.6, 85) }, [], null, null, null, null, 0.045, {}).find((p) => p.symbol === "ELEVIV");
+const routeOldBand = buildTopPicks({ OLDIV: mkStratTicker(0.55, 1.6, 65) }, [], null, null, null, null, 0.045, {}).find((p) => p.symbol === "OLDIV");
 // Debit needs a non-elevated IV that ISN'T a naked candidate — force it by putting
 // an earnings print in the window (blocks both naked and credit -> defined-risk debit).
 const routeDebit = buildTopPicks({ DBTIV: mkStratTicker(0.45, 0.4, 45, { fundamentals: { nextEarningsDate: inEtDays(10) } }) }, [], null, null, null, null, 0.045, {}).find((p) => p.symbol === "DBTIV");
 const routeNaked = buildTopPicks({ LOWIV: mkStratTicker(0.30, 0.0, 25) }, [], null, null, null, null, 0.045, {}).find((p) => p.symbol === "LOWIV");
-ok("route: rich IV (z≥2) → credit vertical (highly elevated — sells premium)", routeRich && routeRich.strategy.type === "credit" && routeRich.contract.structure === "credit_vertical" && routeRich.contract.optionType === "put");
-ok("route: ELEVATED IV (z≥1.5 / ≥60th pctile) → credit vertical (broadened band)", routeElevated && routeElevated.strategy.type === "credit" && routeElevated.contract.structure === "credit_vertical");
+ok("route: Very rich IV (94th pctile) → credit vertical (sells premium)", routeRich && routeRich.strategy.type === "credit" && routeRich.contract.structure === "credit_vertical" && routeRich.contract.optionType === "put");
+ok("route: Rich IV (85th pctile) → debit vertical, not credit", routeElevated && routeElevated.strategy.type === "debit" && routeElevated.contract.structure === "debit_vertical");
+ok("route: the 65th percentile (old credit band) no longer sells premium", routeOldBand && routeOldBand.strategy.type !== "credit");
 ok("route: low IV + imminent earnings → debit vertical (defined-risk, no naked/credit)", routeDebit && routeDebit.strategy.type === "debit" && routeDebit.contract.structure === "debit_vertical");
 ok("route: strong + reasonable IV + strong thesis → naked long", routeNaked && Math.abs(routeNaked.total) >= PICKS_TIER_STRONG && routeNaked.strategy.type === "long" && routeNaked.contract.structure === "long");
 ok("route: low IV never sells a credit spread", routeNaked && routeNaked.strategy.type !== "credit");
@@ -2282,7 +2353,7 @@ const gradeOne = (data, opts = {}, unusual = null) => buildGradesIndex({ ONE: da
   ok("sector growth: names without a profile keep the legacy bars",
     sigOf(gradeOne(mkTicker({ fundamentals: { revenueGrowthYoy: 8 } })), "fundamentals", "revGrowth")?.score === 1
     && sigOf(gradeOne(mkTicker({ fundamentals: { revenueGrowthYoy: 8 } })), "fundamentals", "revGrowth")?.growthProfile === undefined);
-  ok("sector growth: grade version is 2026-10-sector-growth", GRADE_MODEL_VERSION === "2026-10-sector-growth");
+  ok("grade version is 2026-10-iv-rule (shared IV rule)", GRADE_MODEL_VERSION === "2026-10-iv-rule");
 }
 {
   const nowMs = Date.now();
