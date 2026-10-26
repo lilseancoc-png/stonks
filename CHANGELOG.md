@@ -35,6 +35,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Add plain-English wayfinding on every page: a "Home / Section / Page" trail, a one-line "what this shows" summary, chips for the other pages in the section, and Previous / Next links at the bottom (`scripts/render/wayfinding-js.mjs`).
 - Add "Explore by topic" tiles on Home, a "Recently viewed" list in the sidebar and at the top of the empty command palette (this browser only), and a phone tab bar (Today, Stocks, Market, Options, Search).
 - Show each stock's day move with an arrow on the All stocks cards, read from the existing public heatmap snapshot.
+- Log seven candidate Top Picks inputs (21-day return, industry 21-day return, implied minus realized volatility, call and put OI walls, latest print guidance, peer earnings in the next 14 days) beside each day's grade in `grades-daily.json`, and report each one's forward-return IC, with and without the grade, in `diagnose-grade-ic.mjs`. They are logged only and change no grade or pick; no new AI or data calls (`lib/shadow-signals.mjs`, #694).
 
 ### Changed
 
@@ -43,6 +44,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 - Rewrite README.md around the new site structure.
 - Make text on the feature pages about 10% larger (sizes 18px and under; headlines, chart labels, the header and the sidebar keep their size). Small fixed tiles and badges keep their size so labels still fit (`scripts/render/text-scale.mjs`, #692).
 - Trim the sidebar: it runs to the top of the window on desktop instead of leaving an empty block above Workspace, shows 4 Recently viewed pages instead of 5 (the command palette still shows more), and drops the one-line description under each section name (#692).
+- Top Picks no longer opens a trade on a stock under a signed takeover (its price is pinned to the deal); rumored deals are listed only. A call blocked by the forced-liquidation veto or a signed deal no longer takes one of the six AI grader slots. Blocks show in the Scorecard as "Signed takeover target" (`lib/pending-buyout-guard.mjs`, #694).
 
 ### Fixed
 

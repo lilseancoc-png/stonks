@@ -36627,6 +36627,7 @@ function scenarioEventPhase(ev, now = Date.now()) {
     'ai-wait':'AI said wait', 'timing-checks':'Entry timing checks', 'avoid-timing':'Avoid timing (knife or chase)',
     'scenario':'Market scenario gate', 'slots-full':'Top Picks slots full', 'no-contract':'No tradeable contract',
     'collateral-stress':'Pledged-stock collateral stress near an estimated threshold',
+    'pending-buyout':'Signed takeover target (price pinned to the deal)',
     'option-economics':'Option target does not support the profit exit after quote costs',
     'sector-cap':'Sector cap', 'factor-cap':'Factor cap', 'factor-trend':'Weak factor trend', 'side-cap':'Call / put cap'
   };

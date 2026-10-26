@@ -171,6 +171,93 @@ for (const h of HORIZONS) {
   console.log("");
 }
 
+// ---- Shadow signals (lib/shadow-signals.mjs) ---------------------------------
+// Candidate inputs logged next to the grade but never scored. For each one and
+// each horizon: the mean daily Spearman IC against the forward return, the
+// same IC after removing what the grade already explains (rank partial
+// correlation), and a t-stat on NON-overlapping days only (every h-th day), so
+// the 5/10/14-day windows don't count the same move many times. Sparse signals
+// (guidance, peer events) rarely reach 20 names a day, so they also get a
+// pooled read: the day-demeaned forward return (and its absolute size) by value.
+function fwdReturn(sym, date, h) {
+  const s = series[sym];
+  if (!s) return null;
+  const i = s.dateIndex.get(date);
+  if (i == null || i + h >= s.closes.length) return null;
+  const c0 = Number(s.closes[i]), c1 = Number(s.closes[i + h]);
+  return c0 > 0 && c1 > 0 ? ((c1 - c0) / c0) * 100 : null;
+}
+function partial(rxy, rxz, rzy) {
+  const d = Math.sqrt((1 - rxz * rxz) * (1 - rzy * rzy));
+  return d > 0 ? (rxy - rxz * rzy) / d : null;
+}
+function tNonOverlap(rows, h) {
+  const picked = rows.filter((_, i) => i % h === 0).map((r) => r.v).filter((v) => v != null);
+  const m = mean(picked), s = sd(picked);
+  return { n: picked.length, t: picked.length >= MIN_DAYS_FOR_TSTAT && s > 0 ? m / (s / Math.sqrt(picked.length)) : null };
+}
+const shadowDays = days.filter((d) => d.shadow && Array.isArray(d.shadow.keys) && d.shadow.rows);
+if (shadowDays.length) {
+  console.log("=== Shadow signals (logged, not scored) ===\n");
+  console.log(`Days with shadow rows: ${shadowDays.length} (${shadowDays[0].date} … ${shadowDays[shadowDays.length - 1].date})\n`);
+  const keys = [...new Set(shadowDays.flatMap((d) => d.shadow.keys))];
+  for (const key of keys) {
+    console.log(`--- ${key} ---`);
+    for (const h of HORIZONS) {
+      const perDay = [];
+      const pooled = new Map(); // value bucket -> { ex: [], abs: [] }
+      for (const day of shadowDays) {
+        const ki = day.shadow.keys.indexOf(key);
+        if (ki < 0) continue;
+        const trip = []; // [signal, grade, fwd]
+        for (const [sym, vals] of Object.entries(day.shadow.rows)) {
+          const v = Array.isArray(vals) ? Number(vals[ki]) : NaN;
+          if (vals?.[ki] == null || !Number.isFinite(v)) continue;
+          const f = fwdReturn(sym, day.date, h);
+          const g = Number(day.totals?.[sym]);
+          if (f == null || !Number.isFinite(g)) continue;
+          trip.push([v, g, f]);
+        }
+        if (!trip.length) continue;
+        // Demean against the whole covered universe that day, not just the
+        // names carrying this signal (a sparse signal's own mean is itself).
+        const dayRets = Object.keys(day.totals || {}).map((sym) => fwdReturn(sym, day.date, h)).filter((f) => f != null);
+        const dayMean = mean(dayRets);
+        if (key === "pg" || key === "pe14") {
+          for (const [v, , f] of trip) {
+            const b = key === "pe14" ? (v >= 1 ? "1+" : "0") : String(v);
+            if (!pooled.has(b)) pooled.set(b, { ex: [], abs: [] });
+            pooled.get(b).ex.push(f - dayMean);
+            pooled.get(b).abs.push(Math.abs(f - dayMean));
+          }
+        }
+        if (trip.length < MIN_NAMES_PER_DAY) continue;
+        const rsy = spearman(trip.map((t) => [t[0], t[2]]));
+        const rsg = spearman(trip.map((t) => [t[0], t[1]]));
+        const rgy = spearman(trip.map((t) => [t[1], t[2]]));
+        if (rsy == null) continue;
+        perDay.push({ date: day.date, v: rsy, p: rsg != null && rgy != null ? partial(rsy, rsg, rgy) : null, n: trip.length });
+      }
+      if (perDay.length) {
+        const ic = mean(perDay.map((d) => d.v));
+        const pc = mean(perDay.map((d) => d.p).filter((x) => x != null));
+        const t = tNonOverlap(perDay, h);
+        console.log(`  ${h}d: IC ${ic >= 0 ? "+" : ""}${ic.toFixed(3)} · after grade ${pc == null ? "n/a" : (pc >= 0 ? "+" : "") + pc.toFixed(3)} · ${perDay.length} days${t.t != null ? ` · t ${t.t.toFixed(2)} on ${t.n} non-overlapping days` : ` (t-stat needs ≥${MIN_DAYS_FOR_TSTAT} non-overlapping days)`}`);
+      } else {
+        console.log(`  ${h}d: no day with ≥${MIN_NAMES_PER_DAY} names and resolved forward bars yet`);
+      }
+      if (pooled.size) {
+        const parts = [...pooled.entries()].sort().map(([b, a]) => `${b}: ${mean(a.ex) >= 0 ? "+" : ""}${mean(a.ex).toFixed(2)}% (|${mean(a.abs).toFixed(2)}%|, n=${a.ex.length})`);
+        console.log(`       pooled vs day mean: ${parts.join(" · ")}`);
+      }
+    }
+    console.log("");
+  }
+  console.log("Promotion bar for a shadow signal: the right sign at 5 and 10 days, still positive");
+  console.log("after the grade, and t ≳ 2 on non-overlapping days (~40-60 trading days of rows).");
+  console.log("pe14 is about move SIZE, not direction: compare the |…| column, not the sign.\n");
+}
+
 console.log("Reading: a reliably positive mean IC (t-stat ≳ 2 over ≥ ~30 days) says the grade");
 console.log("ranks forward direction; ~0 says re-weight (the IC bridge, rubric §9.6) or fade the");
 console.log("composite before tuning contracts/exits. Spearman on the cross-section is scale-free,");
