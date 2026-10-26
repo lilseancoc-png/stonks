@@ -384,6 +384,10 @@ jobs:
           npm run test:news
           npm run test:news-accuracy
 
+      - name: Verify collateral extraction and Top Picks admission
+        # Offline fixtures only; no SEC, Yahoo, AI or private-store requests.
+        run: npm run test:forced-liquidation
+
       - name: Verify data publication contract
         # Fails in seconds when a bake writer has no publication policy.
         # Runs before the Yahoo and Gemini build so a contract gap does not
@@ -623,7 +627,7 @@ jobs:
             # -f is required because Path B added an unconditional `/data/` to
             # .gitignore — without it `git add data` no-ops on the ignored path
             # and the legacy rollback commits render output with no data.
-            if [ "${PRIVATE_DATA_ENABLED:-0}" != "1" ] && [ -d data ]; then git add -f -- data ':!data/historical-data.json' ':!data/historical-source-history.json'; fi
+            if [ "${PRIVATE_DATA_ENABLED:-0}" != "1" ] && [ -d data ]; then git add -f -- data ':!data/historical-data.json' ':!data/historical-source-history.json' ':!data/forced-liquidation.json'; fi
             if git diff --cached --quiet; then
               echo "No changes to commit (attempt $attempt)."
               exit 0

@@ -45,6 +45,7 @@ const SIDE_NAV_ICONS = {
   narratives: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   market: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
   risk: '<path d="M4 16a8 8 0 1 1 16 0"/><path d="m12 16 4.2-6"/><circle cx="12" cy="16" r="1.2"/>',
+  'forced-liquidation': '<path d="M4 4v16h16M7 7l5 4 3-2 5 7M16 16h4v-4"/><path d="M7 16h5"/>',
   'unified-signal-engine': '<path d="M3 6h5l4 6-4 6H3M21 6h-5l-4 6 4 6h5"/><circle cx="12" cy="12" r="2"/>',
   picks: '<path d="m12 2.5 2.9 5.9 6.5 1-4.7 4.5 1.1 6.4L12 17.3l-5.8 3 1.1-6.4-4.7-4.5 6.5-1z"/>',
   leaps: '<path d="M4 16.5c3.2-.8 5.2-5.2 7.2-5.2 2.2 0 2.6 3.4 5.2 2.6"/><path d="m14.2 11.2 4.6 2.7-4.2 3.2"/>',
@@ -386,6 +387,7 @@ function topPicksSection() {
       </label>
     </div>
       <div id="picks-summary" class="picks-summary"></div>
+      <div id="picks-liquidation-watch" class="fl-picks-watch" hidden></div>
       <div id="picks-grid" class="picks-grid">Loading top picks…</div>
       <div id="picks-empty" class="picks-empty" hidden>No actionable picks in this build — nothing cleared every bar (a strong grade, a strong thesis <em>and</em> a confirmed buy-now entry). A short or empty list is by design: the engine holds cash rather than pad a weak tape, and strong names still waiting on their entry sit in the watch list with a trigger price.</div>
       <p class="picks-foot">Picks rebuild from scratch on every refresh. Each actionable pick clears the conviction ranking, an absolute quality floor <em>and</em> a confirmed buy-now entry (never an extended/overbought chase), and a contract whose modeled two-week target scenario supports the profit exit after quote costs. The list can be short, or empty, on a poor day.</p>
@@ -2367,6 +2369,13 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
       <header class="card-header"><h2 class="card-title">Historical Data</h2><span class="card-eyebrow">Owner · historical research</span></header>
       <p class="hint">Compare today's market with seasonal windows and past election cycles. Inspect the sample, the spread of outcomes and where this period differs.</p>
       <div id="historical-data-root" aria-live="polite">Open this view to load the historical snapshot.</div>
+    </section>
+  </div>
+  <div class="page-pane" id="page-pane-forced-liquidation" role="tabpanel" aria-labelledby="page-tab-forced-liquidation" hidden>
+    <section class="card" id="forced-liquidation-section">
+      <header class="card-header"><h2 class="card-title">Forced Liquidation Tracker</h2><span class="card-eyebrow">Owner · SEC collateral research</span></header>
+      <p class="hint">Track stock pledged against debt, the buffer to an estimated maintenance threshold, and signs of rising collateral pressure. Open each filing to inspect the disclosed terms and what remains unknown.</p>
+      <div id="forced-liquidation-root" aria-live="polite">Open this view to load SEC collateral disclosures.</div>
     </section>
   </div>
   <div class="page-pane" id="page-pane-index-cal" role="tabpanel" aria-labelledby="page-tab-index-cal" hidden>

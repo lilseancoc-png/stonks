@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, PICKS_ACCURACY_RESET_EPOCH, PICKS_ENTRY_TIMING_VERSION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks, buildSectorRotationRebounds, writeSectorRotationFile, SECTOR_ROTATION_FILE, readPriorSectorRotationLog, sectorRotationRecordFromLog, buildLeveragedEtfPicks, writeLeveragedEtfsFile, LEVERAGED_ETFS_FILE, readPriorLevEtfLog, levRecordFromLog, SECTORS, macroKindOf, MACRO_PROFILES, pickContractForPick, writeAutoPicksFile, quarantineScoringInputs, dropStaleMacroLiveLegs } from "./build.mjs";
 import { appendScenarioHistory, buildScenarioEngine } from "../lib/scenario-engine.mjs";
 import { buildGradeResearch, seriesFromChains, writeGradeResearchFile } from "../lib/grade-research.mjs";
+import { readForcedLiquidation } from './refresh-forced-liquidation.mjs';
 import { publishUnifiedSignal } from "./publish-unified-signal.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -47,6 +48,7 @@ try {
 // (the overnight peer timing read). Each is optional and staleness-gated
 // inside the engine, so a missing/old file just reads "no data".
 const scannerExtras = {};
+scannerExtras.forcedLiquidation = await readForcedLiquidation(DATA_DIR);
 try {
   scannerExtras.oiTracker = JSON.parse(await readFile(resolve(DATA_DIR, "oi-tracker.json"), "utf8"));
 } catch {}
