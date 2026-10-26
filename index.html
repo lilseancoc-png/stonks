@@ -17,7 +17,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="styles.css?v=sha256-2987e19ba9cdbe80">
+<link rel="stylesheet" href="styles.css?v=sha256-aeee1a86ebb18a06">
+<script>/* Split-view pane: hide the site chrome before first paint. */try{if(window.self!==window.top)document.documentElement.classList.add('is-embed')}catch(e){document.documentElement.classList.add('is-embed')}</script>
 </head>
 <body>
 <a class="skip-content" href="#main-content">Skip to content</a>
@@ -66,6 +67,9 @@
           <option value="utc">UTC</option>
         </select>
       </label>
+      <button id="split-toggle" class="icon-btn" type="button" aria-pressed="false" aria-label="Split view: show two pages side by side" title="Split view: two pages side by side">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>
+      </button>
       <button id="theme-toggle" class="icon-btn" aria-label="Toggle theme" type="button">
         <svg class="i-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
         <svg class="i-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -77,15 +81,15 @@
     </nav>
   </div>
 </header>
-<p class="page-sub">General market news, events, breadth, macro data, and source-backed company research. Refreshed throughout the trading day.</p>
+<p class="page-sub">Market news, upcoming events, stock research and options activity in plain English, refreshed throughout the trading day.</p>
 <div id="freshness-banner" class="freshness" data-built-at="2026-10-23T20:12:06.137Z" role="status" aria-live="polite">
   <span class="freshness-dot" aria-hidden="true"></span>
   <span id="freshness-text">Checking data freshness&hellip;</span>
   <span id="market-status" class="market-status" aria-live="off" hidden></span>
 </div>
-<!-- Collapsible sidebar navigation. Destinations are grouped by the decision
-     a trader is making; Desk + Ideas start open while deeper reference groups
-     stay compact until needed. Items keep the same ids / data-page-tab /
+<!-- Collapsible sidebar navigation. Destinations are grouped by the question
+     a visitor is asking (scripts/render/site-map.mjs is the one source for the
+     groups, labels and one-line page summaries). Items keep the same ids / data-page-tab /
      aria-controls wiring, so cmd-K targeting, premium locks and role-hidden
      removal continue to work unchanged. Desktop: pushes content, defaults
      open, collapse persisted. Mobile: overlay drawer, closes on navigation. -->
@@ -101,76 +105,94 @@
     <button type="button" id="workspace-pin" class="workspace-pin-toggle" aria-pressed="false">Pin this workspace</button>
     <p id="nav-filter-status" class="nav-filter-status" role="status" aria-live="polite" hidden></p>
     <section id="workspace-pinned" class="workspace-pinned" aria-label="Pinned workspaces" hidden><h2>Pinned</h2><div id="workspace-pinned-list"></div></section>
+    <section id="workspace-recent" class="workspace-recent" aria-label="Recently viewed" hidden><h2>Recently viewed</h2><div id="workspace-recent-list" class="workspace-recent-list"></div></section>
   </div>
 <nav class="page-tabs" id="workspace-tabs" role="tablist" aria-orientation="vertical" aria-label="Page sections">
-  <details class="side-nav-group" data-nav-group="desk" open>
-    <summary class="side-nav-group-label">Desk</summary>
+  <details class="side-nav-group" data-nav-group="today" open>
+    <summary class="side-nav-group-label">Today</summary>
     <div class="side-nav-group-items">
+      <p class="side-nav-group-desc">What is happening in the market right now</p>
       <button type="button" class="page-tab" role="tab" data-page-tab="home" aria-selected="true" aria-controls="page-pane-home" id="page-tab-home"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 9.8 9-7.3 9 7.3V20a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 20Z"/><path d="M9.5 21.5V14h5v7.5"/></svg><span class="pt-label">Home</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="brief" aria-selected="false" aria-controls="page-pane-brief" id="page-tab-brief"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-4 0V6"/><path d="M18 14h-8M15 18h-5"/><path d="M10 6h8v4h-8V6Z"/></svg><span class="pt-label">Brief</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="news" aria-selected="false" aria-controls="page-pane-news" id="page-tab-news"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/></svg><span class="pt-label">News</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="brief" aria-selected="false" aria-controls="page-pane-brief" id="page-tab-brief" data-nav-alias="Brief"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-4 0V6"/><path d="M18 14h-8M15 18h-5"/><path d="M10 6h8v4h-8V6Z"/></svg><span class="pt-label">Market brief</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="news" aria-selected="false" aria-controls="page-pane-news" id="page-tab-news" data-nav-alias="News desk"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/></svg><span class="pt-label">News</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="heatmap" aria-selected="false" aria-controls="page-pane-heatmap" id="page-tab-heatmap"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="1"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1"/></svg><span class="pt-label">Heatmap</span></button>
-    </div>
-  </details>
-  <details class="side-nav-group" data-nav-group="research" open>
-    <summary class="side-nav-group-label">Research</summary>
-    <div class="side-nav-group-items">
-      <button type="button" class="page-tab" role="tab" data-page-tab="narratives" aria-selected="false" aria-controls="page-pane-narratives" id="page-tab-narratives"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span class="pt-label">Narratives</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="tickers" aria-selected="false" aria-controls="page-pane-tickers" id="page-tab-tickers"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg><span class="pt-label">Tickers</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="grade" aria-selected="false" aria-controls="page-pane-grade" id="page-tab-grade"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8.5" r="5.5"/><path d="m8.8 13.2-1.3 8 4.5-2.7 4.5 2.7-1.3-8"/></svg><span class="pt-label">Grade a ticker</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="compare" aria-selected="false" aria-controls="page-pane-compare" id="page-tab-compare"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3.5" width="18" height="17" rx="2"/><path d="M12 3.5v17"/></svg><span class="pt-label">Compare companies</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="strategies" aria-selected="false" aria-controls="page-pane-strategies" id="page-tab-strategies"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="m15.8 8.2-2 5.6-5.6 2 2-5.6z"/></svg><span class="pt-label">Strategies</span></button>
-    </div>
-  </details>
-  <details class="side-nav-group" data-nav-group="ideas" open>
-    <summary class="side-nav-group-label">Ideas &amp; flow</summary>
-    <div class="side-nav-group-items">
-      <button type="button" class="page-tab" role="tab" data-page-tab="ma-tracker" aria-selected="false" aria-controls="page-pane-ma-tracker" id="page-tab-ma-tracker"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 19.5h17"/><path d="M3.5 4.5v15"/><path d="m6 15 4-4 3 2 5-6"/><path d="M6 9.5h12"/></svg><span class="pt-label">MA tracker</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="flow" aria-selected="false" aria-controls="page-pane-flow" id="page-tab-flow"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></svg><span class="pt-label">Unusual flow</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="volume" aria-selected="false" aria-controls="page-pane-volume" id="page-tab-volume"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 20v-5M12 20V9M18 20V4"/></svg><span class="pt-label">Volume</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="oi" aria-selected="false" aria-controls="page-pane-oi" id="page-tab-oi"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 10 5.5L12 14 2 8.5Z"/><path d="m2 14.5 10 5.5 10-5.5"/></svg><span class="pt-label">Gamma exposure</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="iv-trend" aria-selected="false" aria-controls="page-pane-iv-trend" id="page-tab-iv-trend"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 17.5 6-6 4 4 8-8.5"/><path d="M14.5 7h6.5v6.5"/></svg><span class="pt-label">Trending IV</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="streaks" aria-selected="false" aria-controls="page-pane-streaks" id="page-tab-streaks"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg><span class="pt-label">Streaks</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="spillover" aria-selected="false" aria-controls="page-pane-spillover" id="page-tab-spillover"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="2.5"/><path d="M12 5.5a6.5 6.5 0 0 1 6.5 6.5"/><path d="M12 2a10 10 0 0 1 10 10"/></svg><span class="pt-label">Event spillover</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="index-cal" aria-selected="false" aria-controls="page-pane-index-cal" id="page-tab-index-cal"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18M8 15h.01M12 15h.01M16 15h.01"/></svg><span class="pt-label">Index calendar</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="pattern-lab" aria-selected="false" aria-controls="page-pane-pattern-lab" id="page-tab-pattern-lab"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 16.5 8.5 12l3 3 5-6"/><path d="M4 19.5h16"/><circle cx="17.5" cy="6.5" r="2"/></svg><span class="pt-label">Pattern lab</span></button>
-    </div>
-  </details>
-  <details class="side-nav-group" data-nav-group="events" open>
-    <summary class="side-nav-group-label">Events</summary>
-    <div class="side-nav-group-items">
       <button type="button" class="page-tab" role="tab" data-page-tab="calendar" aria-selected="false" aria-controls="page-pane-calendar" id="page-tab-calendar"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18"/></svg><span class="pt-label">Calendar</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="pending-buyouts" aria-selected="false" aria-controls="page-pane-pending-buyouts" id="page-tab-pending-buyouts"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="8" height="14" rx="2"/><rect x="14" y="5" width="8" height="14" rx="2"/><path d="M7 12h10m-3-3 3 3-3 3"/></svg><span class="pt-label">Pending buyouts</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="earnings" aria-selected="false" aria-controls="page-pane-earnings" id="page-tab-earnings"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18"/><path d="m6.5 17.5 3-3.5 2.5 2 4-4.5"/><path d="M13.5 11.5H16V14"/></svg><span class="pt-label">Earnings tracker</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="calls" aria-selected="false" aria-controls="page-pane-calls" id="page-tab-calls"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.9 8.9 0 0 1-3.9-.9L3 20l1-4.9a8.4 8.4 0 0 1-1-4A8.4 8.4 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5Z"/><path d="M8 10.5h8M8 14h5"/></svg><span class="pt-label">Earnings calls</span></button>
-    </div>
-  </details>
-  <details class="side-nav-group" data-nav-group="macro" open>
-    <summary class="side-nav-group-label">Macro</summary>
-    <div class="side-nav-group-items">
       <button type="button" class="page-tab" role="tab" data-page-tab="overnight" aria-selected="false" aria-controls="page-pane-overnight" id="page-tab-overnight"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg><span class="pt-label">Overnight markets</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="fear-greed" aria-selected="false" aria-controls="page-pane-fear-greed" id="page-tab-fear-greed"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 14.5 3.5-3.5"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg><span class="pt-label">Fear &amp; Greed</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="bonds-usd" aria-selected="false" aria-controls="page-pane-bonds-usd" id="page-tab-bonds-usd"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.5v19M16.5 5.5H10a3 3 0 0 0 0 6h4a3 3 0 0 1 0 6H7"/></svg><span class="pt-label">Bonds &amp; USD</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="commodities" aria-selected="false" aria-controls="page-pane-commodities" id="page-tab-commodities"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 20.5c0-6 3.5-9.5 9-9.5s9 3.5 9 9.5"/><path d="M12 11V3.5"/><path d="M12 3.5c2.5 0 4.5 1.5 5 3.5-2.5.5-4.5-.5-5-3.5zM12 3.5c-2.5 0-4.5 1.5-5 3.5 2.5.5 4.5-.5 5-3.5z"/></svg><span class="pt-label">Commodities</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="capital-raises" aria-selected="false" aria-controls="page-pane-capital-raises" id="page-tab-capital-raises"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></svg><span class="pt-label">Capital raises</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="ipo-credit" aria-selected="false" aria-controls="page-pane-ipo-credit" id="page-tab-ipo-credit"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.5c2.5 2 3.5 5 3.5 8l-1.5 3h-4L8.5 10.5c0-3 1-6 3.5-8z"/><path d="M10 13.5 8 18l2.5-1.5L12 19l1.5-2.5L16 18l-2-4.5"/><circle cx="12" cy="8.5" r="1.5"/></svg><span class="pt-label">IPOs &amp; credit</span></button>
     </div>
   </details>
-  <details class="side-nav-group" data-nav-group="alt-data" open>
-    <summary class="side-nav-group-label">Alt data</summary>
+  <details class="side-nav-group" data-nav-group="stocks" open>
+    <summary class="side-nav-group-label">Stocks</summary>
     <div class="side-nav-group-items">
-      <button type="button" class="page-tab" role="tab" data-page-tab="ai-capex" aria-selected="false" aria-controls="page-pane-ai-capex" id="page-tab-ai-capex"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9.5" y="9.5" width="5" height="5"/><path d="M9 2.5V5M15 2.5V5M9 19v2.5M15 19v2.5M2.5 9H5M2.5 15H5M19 9h2.5M19 15h2.5"/></svg><span class="pt-label">AI CapEx</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="ram-prices" aria-selected="false" aria-controls="page-pane-ram-prices" id="page-tab-ram-prices"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6.5" width="19" height="9" rx="1.5"/><path d="M6 15.5v3M10 15.5v3M14 15.5v3M18 15.5v3"/><path d="M6.5 10v2M12 10v2M17.5 10v2"/></svg><span class="pt-label">RAM prices</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="accelerator-prices" aria-selected="false" aria-controls="page-pane-accelerator-prices" id="page-tab-accelerator-prices"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 9h6v6H9zM9 2.5V5M15 2.5V5M9 19v2.5M15 19v2.5M2.5 9H5M2.5 15H5M19 9h2.5M19 15h2.5"/><path d="m10.5 13 1.3-3 1.2 2 1.5-1"/></svg><span class="pt-label">GPU cloud prices</span></button>
+      <p class="side-nav-group-desc">Look up, compare and follow companies</p>
+      <button type="button" class="page-tab" role="tab" data-page-tab="tickers" aria-selected="false" aria-controls="page-pane-tickers" id="page-tab-tickers" data-nav-alias="Tickers"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg><span class="pt-label">All stocks</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="grade" aria-selected="false" aria-controls="page-pane-grade" id="page-tab-grade" data-nav-alias="Grade a ticker stock report"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8.5" r="5.5"/><path d="m8.8 13.2-1.3 8 4.5-2.7 4.5 2.7-1.3-8"/></svg><span class="pt-label">Look up a stock</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="compare" aria-selected="false" aria-controls="page-pane-compare" id="page-tab-compare" data-nav-alias="Compare companies"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3.5" width="18" height="17" rx="2"/><path d="M12 3.5v17"/></svg><span class="pt-label">Compare stocks</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="earnings" aria-selected="false" aria-controls="page-pane-earnings" id="page-tab-earnings" data-nav-alias="Earnings tracker"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18"/><path d="m6.5 17.5 3-3.5 2.5 2 4-4.5"/><path d="M13.5 11.5H16V14"/></svg><span class="pt-label">Earnings results</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="calls" aria-selected="false" aria-controls="page-pane-calls" id="page-tab-calls"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.9 8.9 0 0 1-3.9-.9L3 20l1-4.9a8.4 8.4 0 0 1-1-4A8.4 8.4 0 0 1 12 3a8.4 8.4 0 0 1 9 8.5Z"/><path d="M8 10.5h8M8 14h5"/></svg><span class="pt-label">Earnings calls</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="f13" aria-selected="false" aria-controls="page-pane-f13" id="page-tab-f13" data-nav-alias="SEC ownership 13F Form 4 insider"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2.5H6.5A1.5 1.5 0 0 0 5 4v16a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 20V7.5z"/><path d="M14 2.5v5h5"/><path d="M9 13h6M9 17h6"/></svg><span class="pt-label">Who owns what</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="pending-buyouts" aria-selected="false" aria-controls="page-pane-pending-buyouts" id="page-tab-pending-buyouts" data-nav-alias="M&amp;A mergers"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="8" height="14" rx="2"/><rect x="14" y="5" width="8" height="14" rx="2"/><path d="M7 12h10m-3-3 3 3-3 3"/></svg><span class="pt-label">Pending buyouts</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="capital-raises" aria-selected="false" aria-controls="page-pane-capital-raises" id="page-tab-capital-raises" data-nav-alias="Capital raises"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></svg><span class="pt-label">Share sales &amp; buybacks</span></button>
+    </div>
+  </details>
+  <details class="side-nav-group" data-nav-group="market" open>
+    <summary class="side-nav-group-label">Market &amp; economy</summary>
+    <div class="side-nav-group-items">
+      <p class="side-nav-group-desc">The big picture: mood, rates, money and themes</p>
+      <button type="button" class="page-tab" role="tab" data-page-tab="fear-greed" aria-selected="false" aria-controls="page-pane-fear-greed" id="page-tab-fear-greed" data-nav-alias="Fear &amp; Greed"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 14.5 3.5-3.5"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg><span class="pt-label">Market mood</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="bonds-usd" aria-selected="false" aria-controls="page-pane-bonds-usd" id="page-tab-bonds-usd" data-nav-alias="Bonds &amp; USD Fed"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.5v19M16.5 5.5H10a3 3 0 0 0 0 6h4a3 3 0 0 1 0 6H7"/></svg><span class="pt-label">Rates &amp; the dollar</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="commodities" aria-selected="false" aria-controls="page-pane-commodities" id="page-tab-commodities"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 20.5c0-6 3.5-9.5 9-9.5s9 3.5 9 9.5"/><path d="M12 11V3.5"/><path d="M12 3.5c2.5 0 4.5 1.5 5 3.5-2.5.5-4.5-.5-5-3.5zM12 3.5c-2.5 0-4.5 1.5-5 3.5 2.5.5 4.5-.5 5-3.5z"/></svg><span class="pt-label">Commodities</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="ipo-credit" aria-selected="false" aria-controls="page-pane-ipo-credit" id="page-tab-ipo-credit"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.5c2.5 2 3.5 5 3.5 8l-1.5 3h-4L8.5 10.5c0-3 1-6 3.5-8z"/><path d="M10 13.5 8 18l2.5-1.5L12 19l1.5-2.5L16 18l-2-4.5"/><circle cx="12" cy="8.5" r="1.5"/></svg><span class="pt-label">IPOs &amp; credit</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="narratives" aria-selected="false" aria-controls="page-pane-narratives" id="page-tab-narratives" data-nav-alias="Narratives"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span class="pt-label">Market themes</span></button>
+    </div>
+  </details>
+  <details class="side-nav-group" data-nav-group="options" open>
+    <summary class="side-nav-group-label">Options activity</summary>
+    <div class="side-nav-group-items">
+      <p class="side-nav-group-desc">Where traders are placing bets</p>
+      <button type="button" class="page-tab" role="tab" data-page-tab="flow" aria-selected="false" aria-controls="page-pane-flow" id="page-tab-flow" data-nav-alias="Unusual flow"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></svg><span class="pt-label">Unusual options trades</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="volume" aria-selected="false" aria-controls="page-pane-volume" id="page-tab-volume" data-nav-alias="Volume"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 20v-5M12 20V9M18 20V4"/></svg><span class="pt-label">Trading volume</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="oi" aria-selected="false" aria-controls="page-pane-oi" id="page-tab-oi" data-nav-alias="Gamma exposure GEX"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 10 5.5L12 14 2 8.5Z"/><path d="m2 14.5 10 5.5 10-5.5"/></svg><span class="pt-label">Options walls</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="iv-trend" aria-selected="false" aria-controls="page-pane-iv-trend" id="page-tab-iv-trend" data-nav-alias="Trending IV implied volatility"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 17.5 6-6 4 4 8-8.5"/><path d="M14.5 7h6.5v6.5"/></svg><span class="pt-label">Rising volatility</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="strategies" aria-selected="false" aria-controls="page-pane-strategies" id="page-tab-strategies" data-nav-alias="Strategies"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="m15.8 8.2-2 5.6-5.6 2 2-5.6z"/></svg><span class="pt-label">Strategy builder</span></button>
+    </div>
+  </details>
+  <details class="side-nav-group" data-nav-group="signals" open>
+    <summary class="side-nav-group-label">Charts &amp; signals</summary>
+    <div class="side-nav-group-items">
+      <p class="side-nav-group-desc">Price trends and repeating patterns</p>
+      <button type="button" class="page-tab" role="tab" data-page-tab="ma-tracker" aria-selected="false" aria-controls="page-pane-ma-tracker" id="page-tab-ma-tracker" data-nav-alias="MA tracker crossover"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 19.5h17"/><path d="M3.5 4.5v15"/><path d="m6 15 4-4 3 2 5-6"/><path d="M6 9.5h12"/></svg><span class="pt-label">Moving averages</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="streaks" aria-selected="false" aria-controls="page-pane-streaks" id="page-tab-streaks" data-nav-alias="Streaks green red"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg><span class="pt-label">Up/down streaks</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="pattern-lab" aria-selected="false" aria-controls="page-pane-pattern-lab" id="page-tab-pattern-lab" data-nav-alias="Seasonality"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 16.5 8.5 12l3 3 5-6"/><path d="M4 19.5h16"/><circle cx="17.5" cy="6.5" r="2"/></svg><span class="pt-label">Pattern lab</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="spillover" aria-selected="false" aria-controls="page-pane-spillover" id="page-tab-spillover" data-nav-alias="Event spillover"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="2.5"/><path d="M12 5.5a6.5 6.5 0 0 1 6.5 6.5"/><path d="M12 2a10 10 0 0 1 10 10"/></svg><span class="pt-label">Earnings ripple effects</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="index-cal" aria-selected="false" aria-controls="page-pane-index-cal" id="page-tab-index-cal"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="17" rx="2"/><path d="M16 2.5v4M8 2.5v4M3 10.5h18M8 15h.01M12 15h.01M16 15h.01"/></svg><span class="pt-label">Index calendar</span></button>
+    </div>
+  </details>
+  <details class="side-nav-group" data-nav-group="industry" open>
+    <summary class="side-nav-group-label">Industry trends</summary>
+    <div class="side-nav-group-items">
+      <p class="side-nav-group-desc">Real-world data behind the AI and chip trade</p>
+      <button type="button" class="page-tab" role="tab" data-page-tab="ai-capex" aria-selected="false" aria-controls="page-pane-ai-capex" id="page-tab-ai-capex" data-nav-alias="AI CapEx"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9.5" y="9.5" width="5" height="5"/><path d="M9 2.5V5M15 2.5V5M9 19v2.5M15 19v2.5M2.5 9H5M2.5 15H5M19 9h2.5M19 15h2.5"/></svg><span class="pt-label">AI spending</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="ram-prices" aria-selected="false" aria-controls="page-pane-ram-prices" id="page-tab-ram-prices" data-nav-alias="RAM prices DRAM"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6.5" width="19" height="9" rx="1.5"/><path d="M6 15.5v3M10 15.5v3M14 15.5v3M18 15.5v3"/><path d="M6.5 10v2M12 10v2M17.5 10v2"/></svg><span class="pt-label">Memory chip prices</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="accelerator-prices" aria-selected="false" aria-controls="page-pane-accelerator-prices" id="page-tab-accelerator-prices" data-nav-alias="Accelerator"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 9h6v6H9zM9 2.5V5M15 2.5V5M9 19v2.5M15 19v2.5M2.5 9H5M2.5 15H5M19 9h2.5M19 15h2.5"/><path d="m10.5 13 1.3-3 1.2 2 1.5-1"/></svg><span class="pt-label">GPU cloud prices</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="central-bank-gold" aria-selected="false" aria-controls="page-pane-central-bank-gold" id="page-tab-central-bank-gold"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M9 8.5h6M8.5 12h7M10 15.5h4"/><path d="M12 3.5v17"/></svg><span class="pt-label">Central-bank gold</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="search-interest" aria-selected="false" aria-controls="page-pane-search-interest" id="page-tab-search-interest"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/><path d="M7.5 12.5 10 10l2 1.8 3-4"/></svg><span class="pt-label">Search interest</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="f13" aria-selected="false" aria-controls="page-pane-f13" id="page-tab-f13"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2.5H6.5A1.5 1.5 0 0 0 5 4v16a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 20V7.5z"/><path d="M14 2.5v5h5"/><path d="M9 13h6M9 17h6"/></svg><span class="pt-label">SEC ownership</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="search-interest" aria-selected="false" aria-controls="page-pane-search-interest" id="page-tab-search-interest" data-nav-alias="Search interest Google"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/><path d="M7.5 12.5 10 10l2 1.8 3-4"/></svg><span class="pt-label">Search trends</span></button>
+    </div>
+  </details>
+  <details class="side-nav-group" data-nav-group="learn" open>
+    <summary class="side-nav-group-label">Learn &amp; help</summary>
+    <div class="side-nav-group-items">
+      <p class="side-nav-group-desc">Guides, definitions and site info</p>
+      <button type="button" class="page-tab" role="tab" data-page-tab="cheatsheet" aria-selected="false" aria-controls="page-pane-cheatsheet" id="page-tab-cheatsheet" data-nav-alias="Buyer&#39;s manual"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5H8a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2.5zM21.5 4.5H16a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h6.5z"/></svg><span class="pt-label">Options guide</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="chart-patterns" aria-selected="false" aria-controls="page-pane-chart-patterns" id="page-tab-chart-patterns"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 3.5v17h17"/><path d="m7.5 14 3.5-4 3 3 5-6.5"/></svg><span class="pt-label">Chart patterns</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="timeline" aria-selected="false" aria-controls="page-pane-timeline" id="page-tab-timeline" data-nav-alias="Refresh schedule timeline"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 6.5V12l3.5 2"/></svg><span class="pt-label">When data updates</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="privacy" aria-selected="false" aria-controls="page-pane-privacy" id="page-tab-privacy"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21.5s7.5-3.7 7.5-9.5V5.5L12 2.5l-7.5 3V12c0 5.8 7.5 9.5 7.5 9.5z"/></svg><span class="pt-label">Privacy Policy</span></button>
+      <button type="button" class="page-tab" role="tab" data-page-tab="terms" aria-selected="false" aria-controls="page-pane-terms" id="page-tab-terms"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18M7 21h10"/><path d="M4 7h2.5c1.8 0 3.8-.7 5.5-1.7C13.7 6.3 15.7 7 17.5 7H20"/><path d="m6.5 7-2.8 6.7c.8.6 1.8.9 2.8.9s2-.3 2.8-.9zM17.5 7l-2.8 6.7c.8.6 1.8.9 2.8.9s2-.3 2.8-.9z"/></svg><span class="pt-label">Terms of Use</span></button>
     </div>
   </details>
   <details class="side-nav-group" data-nav-group="owner" data-role-group="owner" open hidden>
-    <!-- Private research; hidden until the Top Picks owner session resolves. -->
     <summary class="side-nav-group-label">Owner</summary>
     <div class="side-nav-group-items">
+      <p class="side-nav-group-desc">Private research</p>
       <button type="button" class="page-tab" role="tab" data-page-tab="unified-signal-engine" aria-selected="false" aria-controls="page-pane-unified-signal-engine" id="page-tab-unified-signal-engine"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h5l4 6-4 6H3M21 6h-5l-4 6 4 6h5"/><circle cx="12" cy="12" r="2"/></svg><span class="pt-label">Unified Signal Engine</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="market" aria-selected="false" aria-controls="page-pane-market" id="page-tab-market"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg><span class="pt-label">Market analysis</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="risk" aria-selected="false" aria-controls="page-pane-risk" id="page-tab-risk"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 16a8 8 0 1 1 16 0"/><path d="m12 16 4.2-6"/><circle cx="12" cy="16" r="1.2"/></svg><span class="pt-label">Risk analysis</span></button>
@@ -184,21 +206,6 @@
       <button type="button" class="page-tab" role="tab" data-page-tab="open-picks" aria-selected="false" aria-controls="page-pane-open-picks" id="page-tab-open-picks"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg><span class="pt-label">Open picks</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="track" aria-selected="false" aria-controls="page-pane-track" id="page-tab-track"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14.5 2 2 4-4.5"/></svg><span class="pt-label">Top Picks track record</span></button>
       <button type="button" class="page-tab" role="tab" data-page-tab="quant" aria-selected="false" aria-controls="page-pane-quant" id="page-tab-quant"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6.5V4H6l6.5 8L6 20h12v-2.5"/></svg><span class="pt-label">Owner Lab</span></button>
-    </div>
-  </details>
-  <details class="side-nav-group" data-nav-group="tools" open>
-    <summary class="side-nav-group-label">Tools</summary>
-    <div class="side-nav-group-items">
-      <button type="button" class="page-tab" role="tab" data-page-tab="cheatsheet" aria-selected="false" aria-controls="page-pane-cheatsheet" id="page-tab-cheatsheet"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5H8a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2.5zM21.5 4.5H16a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h6.5z"/></svg><span class="pt-label">Buyer's manual</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="chart-patterns" aria-selected="false" aria-controls="page-pane-chart-patterns" id="page-tab-chart-patterns"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 3.5v17h17"/><path d="m7.5 14 3.5-4 3 3 5-6.5"/></svg><span class="pt-label">Chart patterns</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="timeline" aria-selected="false" aria-controls="page-pane-timeline" id="page-tab-timeline"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 6.5V12l3.5 2"/></svg><span class="pt-label">Refresh schedule</span></button>
-    </div>
-  </details>
-  <details class="side-nav-group" data-nav-group="legal" open>
-    <summary class="side-nav-group-label">Legal</summary>
-    <div class="side-nav-group-items">
-      <button type="button" class="page-tab" role="tab" data-page-tab="privacy" aria-selected="false" aria-controls="page-pane-privacy" id="page-tab-privacy"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21.5s7.5-3.7 7.5-9.5V5.5L12 2.5l-7.5 3V12c0 5.8 7.5 9.5 7.5 9.5z"/></svg><span class="pt-label">Privacy Policy</span></button>
-      <button type="button" class="page-tab" role="tab" data-page-tab="terms" aria-selected="false" aria-controls="page-pane-terms" id="page-tab-terms"><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v18M7 21h10"/><path d="M4 7h2.5c1.8 0 3.8-.7 5.5-1.7C13.7 6.3 15.7 7 17.5 7H20"/><path d="m6.5 7-2.8 6.7c.8.6 1.8.9 2.8.9s2-.3 2.8-.9zM17.5 7l-2.8 6.7c.8.6 1.8.9 2.8.9s2-.3 2.8-.9z"/></svg><span class="pt-label">Terms of Use</span></button>
     </div>
   </details>
 </nav>
@@ -220,7 +227,7 @@
             <span>Find a trade</span><b>Top picks</b><small>Contracts ranked with an explicit entry state.</small><em aria-hidden="true">&rarr;</em>
           </button>
           <button type="button" class="landing-quick-card" data-go="grade" aria-label="Grade a ticker and option contract">
-            <span>Validate it</span><b>Grade a ticker</b><small>Check the name, levels and exact contract.</small><em aria-hidden="true">&rarr;</em>
+            <span>Look it up</span><b>Look up a stock</b><small>Check the name, levels and exact contract.</small><em aria-hidden="true">&rarr;</em>
           </button>
           <button type="button" class="landing-quick-card" data-go="calendar" aria-label="Check upcoming market and earnings risk">
             <span>Check the risk</span><b>Calendar</b><small>Earnings, macro releases and FOMC timing.</small><em aria-hidden="true">&rarr;</em>
@@ -228,6 +235,13 @@
         </div>
       </div>
       <div id="landing-pulse" class="landing-pulse" role="list" aria-label="Market pulse — major index ETFs, last close" hidden></div>
+    </section>
+    <section class="landing-section landing-topics-section" aria-labelledby="landing-topics-title">
+      <header class="landing-section-head">
+        <h2 class="landing-section-title" id="landing-topics-title">Explore by topic</h2>
+        <p class="landing-section-sub">Everything on the site, grouped by the question you are asking.</p>
+      </header>
+      <div id="landing-topics" class="landing-topics"></div>
     </section>
     <section class="landing-section">
       <header class="landing-section-head">
@@ -246,7 +260,7 @@
         </button>
         <button type="button" class="landing-card" data-go="news" aria-label="Open the stock and macro news desk">
           <header class="landing-card-head">
-            <span class="landing-card-eyebrow">News desk</span>
+            <span class="landing-card-eyebrow">News</span>
             <span class="landing-card-arrow" aria-hidden="true">&rarr;</span>
           </header>
           <div class="landing-card-stat" id="land-stat-news">Ranked</div>
@@ -291,7 +305,7 @@
         </button>
         <button type="button" class="landing-card landing-card-hot" data-go="flow" aria-label="View unusual flow">
           <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Unusual flow</span>
+            <span class="landing-card-eyebrow">Unusual options trades</span>
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
           <div class="landing-card-stat" id="land-stat-flow">—</div>
@@ -300,7 +314,7 @@
         </button>
         <button type="button" class="landing-card" data-go="iv-trend" aria-label="View trending implied volatility">
           <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Trending IV</span>
+            <span class="landing-card-eyebrow">Rising volatility</span>
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
           <div class="landing-card-stat" id="land-stat-ivt">IV ↑</div>
@@ -309,7 +323,7 @@
         </button>
         <button type="button" class="landing-card" data-go="narratives" aria-label="Browse narratives">
           <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Narratives</span>
+            <span class="landing-card-eyebrow">Market themes</span>
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
           <div class="landing-card-stat" id="land-stat-narratives">—</div>
@@ -353,7 +367,7 @@
         </button>
         <button type="button" class="landing-card" data-go="tickers" aria-label="Browse tickers">
           <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Tickers</span>
+            <span class="landing-card-eyebrow">All stocks</span>
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
           <div class="landing-card-stat" id="land-stat-tickers">85</div>
@@ -362,7 +376,7 @@
         </button>
         <button type="button" class="landing-card" data-go="f13" aria-label="View SEC ownership filings">
           <header class="landing-card-head">
-            <span class="landing-card-eyebrow">SEC ownership</span>
+            <span class="landing-card-eyebrow">Who owns what</span>
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
           <div class="landing-card-stat" id="land-stat-f13">Q</div>
@@ -371,7 +385,7 @@
         </button>
         <button type="button" class="landing-card" data-go="fear-greed" aria-label="View Fear and Greed">
           <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Fear &amp; Greed</span>
+            <span class="landing-card-eyebrow">Market mood</span>
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
           <div class="landing-card-stat" id="land-stat-fg">0–100</div>
@@ -380,7 +394,7 @@
         </button>
         <button type="button" class="landing-card" data-go="streaks" aria-label="View green/red streaks">
           <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Streaks</span>
+            <span class="landing-card-eyebrow">Up/down streaks</span>
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
           <div class="landing-card-stat" id="land-stat-streaks">G/R</div>
@@ -389,7 +403,7 @@
         </button>
         <button type="button" class="landing-card" data-go="bonds-usd" aria-label="Read bonds and USD primer">
           <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Bonds &amp; USD</span>
+            <span class="landing-card-eyebrow">Rates &amp; the dollar</span>
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
           <div class="landing-card-stat" id="land-stat-bonds">10Y / DXY</div>
@@ -485,7 +499,7 @@
   <div class="page-pane" id="page-pane-tickers" role="tabpanel" aria-labelledby="page-tab-tickers" hidden>
   <section class="card" id="tickers-section">
     <header class="card-header">
-      <h2 class="card-title">Ticker tracker</h2>
+      <h2 class="card-title">All stocks</h2>
       <span class="card-eyebrow"><span id="tickers-visible-count">86</span> / 86 symbols</span>
       <span class="tab-live-state" id="tickers-live-state" aria-live="polite"></span>
     </header>
@@ -4785,6 +4799,11 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
   <div><a class="foot-support" href="https://ko-fi.com/mingstreetapp" target="_blank" rel="noopener">Support stonks on Ko-fi</a></div>
   <div><a href="/?tab=privacy">Privacy Policy</a> · <a href="/?tab=terms">Terms of Use</a></div>
 </footer>
+<!-- Phone tab bar (hidden on wider screens): each button opens the sidebar at
+     that section; Search opens the command palette. -->
+<nav class="phone-tabbar" id="phone-tabbar" aria-label="Site sections">
+  <button type="button" class="phone-tab" data-tabbar-section="today" aria-label="Today pages"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 11.5 12 4l8.5 7.5"/><path d="M5.5 10v10h13V10"/></svg><span>Today</span></button><button type="button" class="phone-tab" data-tabbar-section="stocks" aria-label="Stocks pages"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 20.5h17"/><path d="m4.5 15 5-5 4 3.5 6-7"/></svg><span>Stocks</span></button><button type="button" class="phone-tab" data-tabbar-section="market" aria-label="Market &amp; economy pages"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 2.6 3.5 5.4 3.5 8.5s-1 5.9-3.5 8.5c-2.5-2.6-3.5-5.4-3.5-8.5S9.5 6.1 12 3.5z"/></svg><span>Market</span></button><button type="button" class="phone-tab" data-tabbar-section="options" aria-label="Options activity pages"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2.5 4.5 13.5h6l-1 8 8.5-11h-6z"/></svg><span>Options</span></button><button type="button" class="phone-tab" data-tabbar-search="1" aria-label="Search stocks and pages"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg><span>Search</span></button>
+</nav>
 <button id="back-to-top" class="back-to-top" type="button" aria-label="Back to top" title="Back to top">
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
 </button>
@@ -4808,7 +4827,7 @@ h1{ font-size:clamp(30px,4.5vw,44px) !important; }
 <script>window.STONKS_MANIFEST={"builtAt":"Oct 23, 2026, 4:12 PM","builtAtIso":"2026-10-23T20:12:06.137Z","symbols":["AAPL","ACN","ADBE","AMAT","AMD","AMZN","ANET","ARM","ASML","ASTS","AVGO","AXP","BABA","BAC","BE","C","CBRS","COST","CRM","CRWD","CRWV","DDOG","DELL","DIS","DRAM","EWY","FTNT","GLD","GOOGL","GS","HD","HOOD","IBM","INTC","INTU","IWM","JPM","KWEB","LLY","MA","MDB","META","MRK","MRNA","MRVL","MS","MSFT","MU","NFLX","NKE","NOW","NVDA","NVO","OKTA","ORCL","PANW","PLTR","PYPL","QCOM","QQQ","RKLB","SBUX","SCHW","SHOP","SLV","SMCI","SMH","SNDK","SNOW","SPCX","SPY","TEAM","TGT","TLT","TSLA","TSM","TXN","UNH","USO","UVXY","V","VRT","VST","WDC","WMT"],"sectors":{"SPY":"ETF","QQQ":"ETF","IWM":"ETF","SMH":"ETF","UVXY":"ETF","TLT":"ETF","USO":"ETF","GLD":"ETF","SLV":"ETF","KWEB":"ETF","EWY":"ETF","AAPL":"Mega-cap tech","MSFT":"Mega-cap tech","NVDA":"Mega-cap tech","AMZN":"Mega-cap tech","GOOGL":"Mega-cap tech","META":"Mega-cap tech","TSLA":"Mega-cap tech","AMD":"Semis","NFLX":"Mega-cap tech","AVGO":"Semis","TSM":"Semis","ORCL":"Software","ASML":"Semis","QCOM":"Semis","TXN":"Semis","MRVL":"Semis","AMAT":"Semis","LRCX":"Semis","MU":"Semis","INTC":"Semis","NXPI":"Semis","ON":"Semis","SMCI":"Semis","ALAB":"Semis","TSEM":"Semis","DRAM":"Semis","SWKS":"Semis","SNDK":"Storage","STX":"Storage","WDC":"Storage","GLW":"Semis","LITE":"Semis","ARM":"Semis","CBRS":"Semis","COHR":"Semis","DELL":"Hardware","CSCO":"Networking","ANET":"Networking","IBM":"Tech services","CRM":"Software","ADBE":"Software","ACN":"IT services","INTU":"Software","NOW":"Software","SNOW":"Software","NET":"Software","DDOG":"Software","CRWD":"Software","ZS":"Software","MDB":"Software","OKTA":"Software","PANW":"Software","WDAY":"Software","ZM":"Software","DOCU":"Software","TEAM":"Software","FTNT":"Software","TTD":"Software","U":"Software","APP":"Software","TWLO":"Software","CRWV":"Software","CEG":"Power","VST":"Power","TLN":"Power","VRT":"Data center","CLS":"Data center","BE":"Clean energy","JPM":"Bank","BAC":"Bank","WFC":"Bank","USB":"Bank","MS":"Bank","COF":"Bank","GS":"Bank","C":"Bank","HSBC":"Bank","UBS":"Bank","V":"Payments","MA":"Payments","AXP":"Payments","PYPL":"Payments","XYZ":"Payments","SCHW":"Broker","IBKR":"Broker","HOOD":"Broker","AFRM":"Fintech","APO":"Asset mgmt","BX":"Asset mgmt","WMT":"Retail","COST":"Retail","TGT":"Retail","HD":"Retail","LOW":"Retail","NKE":"Apparel","LULU":"Apparel","ONON":"Apparel","ELF":"Beauty","W":"E-commerce","EBAY":"E-commerce","MCD":"Restaurants","SBUX":"Restaurants","DIS":"Media","LEN":"Homebuilder","BA":"Industrial","CAT":"Industrial","DE":"Industrial","MMM":"Industrial","GD":"Defense","LMT":"Defense","RTX":"Defense","NOC":"Defense","FDX":"Logistics","UPS":"Logistics","NVO":"Pharma","LLY":"Pharma","MRNA":"Pharma","MRK":"Pharma","UNH":"Insurance","JNJ":"Pharma","PFE":"Pharma","TMO":"Medical","CI":"Insurance","ELV":"Insurance","MOH":"Insurance","CVS":"Pharmacy","BSX":"Medical","VZ":"Telecom","CHTR":"Cable","XOM":"Energy","CVX":"Energy","OXY":"Energy","UBER":"Consumer","ABNB":"Consumer","DASH":"Consumer","BABA":"China tech","BIDU":"China tech","JD":"China tech","PDD":"China tech","TCEHY":"China tech","BILI":"China tech","NIO":"China tech","COIN":"Crypto","PLTR":"Software","SHOP":"Software","GME":"Meme","AMC":"Meme","RDDT":"Social","RKLB":"Space","ASTS":"Space","SPCX":"Space"},"industries":{"MSFT":"Software Infrastructure","ORCL":"Software Infrastructure","SNOW":"Software Infrastructure","CRWD":"Software Infrastructure","MDB":"Software Infrastructure","OKTA":"Software Infrastructure","PANW":"Software Infrastructure","FTNT":"Software Infrastructure","PLTR":"Software Infrastructure","CRWV":"Software Infrastructure","CRM":"Software Applications","ADBE":"Software Applications","NOW":"Software Applications","DDOG":"Software Applications","TEAM":"Software Applications","INTU":"Software Applications","SHOP":"Software Applications","NVDA":"Semiconductors","AMD":"Semiconductors","AVGO":"Semiconductors","TSM":"Semiconductors","MU":"Semiconductors","INTC":"Semiconductors","MRVL":"Semiconductors","QCOM":"Semiconductors","TXN":"Semiconductors","SNDK":"Semiconductors","SMCI":"Semiconductors","DRAM":"Semiconductors","ARM":"Semiconductors","CBRS":"Semiconductors","AMAT":"Semiconductor Equipment & Materials","ASML":"Semiconductor Equipment & Materials","ANET":"Communication Equipment","DELL":"Computer Hardware","ACN":"Information Technology Services","IBM":"Information Technology Services","AMZN":"Internet Retail","BABA":"Internet Retail","HD":"Specialty Retail","NKE":"Apparel Retail","SBUX":"Restaurants","TSLA":"Auto Manufacturers","GOOGL":"Internet Content & Information","META":"Internet Content & Information","NFLX":"Entertainment","DIS":"Entertainment","RKLB":"Aerospace & Defense","ASTS":"Aerospace & Defense","SPCX":"Aerospace & Defense","VRT":"Electrical Equipment & Parts","MRNA":"Biotechnology","NVO":"Drug Manufacturers - General","LLY":"Drug Manufacturers - General","MRK":"Drug Manufacturers - General","UNH":"Healthcare Plans","JPM":"Banks - Diversified","BAC":"Banks - Diversified","C":"Banks - Diversified","V":"Credit Services","MA":"Credit Services","AXP":"Credit Services","PYPL":"Credit Services","GS":"Capital Markets","MS":"Capital Markets","SCHW":"Capital Markets","HOOD":"Capital Markets","WMT":"Discount Stores","COST":"Discount Stores","TGT":"Discount Stores","VST":"Utilities - Independent Power Producers","BE":"Utilities - Renewable","GLD":"Gold","SLV":"Silver"},"sectorOrder":["Technology","Consumer Cyclical","Communication Services","Industrials","Healthcare","Financials","Consumer Defensive","Utilities","Precious Metals"],"industriesBySector":{"Technology":["Software Infrastructure","Software Applications","Semiconductors","Semiconductor Equipment & Materials","Communication Equipment","Computer Hardware","Consumer Electronics","Information Technology Services"],"Consumer Cyclical":["Internet Retail","Specialty Retail","Apparel Retail","Restaurants","Auto Manufacturers"],"Communication Services":["Internet Content & Information","Entertainment","Advertising Agencies"],"Industrials":["Aerospace & Defense","Electrical Equipment & Parts","Specialty Industrial Machinery"],"Healthcare":["Biotechnology","Drug Manufacturers - General","Healthcare Plans"],"Financials":["Banks - Diversified","Credit Services","Capital Markets"],"Consumer Defensive":["Discount Stores"],"Utilities":["Utilities - Independent Power Producers","Utilities - Renewable"],"Precious Metals":["Gold","Silver"]},"volumeFlagsMeta":{"scannedAt":"2026-10-23T20:00:43.162Z","etDate":"2026-10-23","marketState":"POST"},"nextFomcDates":["2026-10-28","2026-12-09"],"oiMeta":{"scannedAt":"2026-10-23T21:00:38.475Z","scanType":"eod"},"deferred":true};</script>
 <script>window.va=window.va||function(){(window.vaq=window.vaq||[]).push(arguments)};</script>
 <script defer data-disable-auto-track="1" src="/_vercel/insights/script.js"></script>
-<script src="app.js?v=sha256-2465d51938217a21" defer></script>
+<script src="app.js?v=sha256-246b74af8e2c3c60" defer></script>
 <script type="module" src="js/streaks.js?v=sha256-b0e30f84009bf8bf"></script>
 <script type="module" src="js/book-views.js?v=sha256-13415cb1a5584211"></script>
 </body>

@@ -10,6 +10,7 @@ import {
   htmlEscape,
 } from '../build.mjs';
 import { DOC_PAGES, DOC_ORDER, DOC_THEME_OVERRIDE } from './docs.mjs';
+import { SITE_SECTIONS, TAB_BAR_SECTIONS } from './site-map.mjs';
 import { DISCORD_INVITE_URL, KO_FI_URL } from '../../lib/links.mjs';
 
 // Reference / legal / info pages (Buyer's manual, Chart patterns, Privacy, and
@@ -98,9 +99,44 @@ const SIDE_NAV_ICONS = {
 // every "open X in the Grade tab" link work through [data-page-tab] buttons)
 // but hides it from the visible sidebar — used for destination-only panes
 // like Grade a ticker, reached by clicking a ticker anywhere on the site.
-function sideNavItem(id, label, { selected = false, navHidden = false } = {}) {
+function sideNavItem(id, label, { selected = false, navHidden = false, alias = '' } = {}) {
   const icon = SIDE_NAV_ICONS[id] || '';
-  return `<button type="button" class="page-tab" role="tab" data-page-tab="${id}" aria-selected="${selected ? 'true' : 'false'}" aria-controls="page-pane-${id}" id="page-tab-${id}"${navHidden ? ' data-nav-hidden="1"' : ''}><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg><span class="pt-label">${label}</span></button>`;
+  return `<button type="button" class="page-tab" role="tab" data-page-tab="${id}" aria-selected="${selected ? 'true' : 'false'}" aria-controls="page-pane-${id}" id="page-tab-${id}"${navHidden ? ' data-nav-hidden="1"' : ''}${alias ? ` data-nav-alias="${htmlEscape(alias)}"` : ''}><svg class="pt-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg><span class="pt-label">${label}</span></button>`;
+}
+
+// The sidebar, rendered from the shared site map (site-map.mjs). Each group
+// is a native <details> with a one-line description; the Owner group stays
+// hidden until the Owner session resolves (data-role-group). `alias` rides
+// along as data-nav-alias so the sidebar filter still finds a page by its
+// older or more technical name.
+function sideNavGroupsHtml() {
+  return SITE_SECTIONS.map((sec) => {
+    const role = sec.owner ? ' data-role-group="owner"' : '';
+    const items = sec.items.map((it) => sideNavItem(it.id, htmlEscape(it.label), {
+      selected: it.id === 'home', navHidden: !!it.navHidden, alias: it.alias || '',
+    })).join('\n      ');
+    return `<details class="side-nav-group" data-nav-group="${sec.id}"${role} open${sec.owner ? ' hidden' : ''}>
+    <summary class="side-nav-group-label">${htmlEscape(sec.label)}</summary>
+    <div class="side-nav-group-items">
+      <p class="side-nav-group-desc">${htmlEscape(sec.desc)}</p>
+      ${items}
+    </div>
+  </details>`;
+  }).join('\n  ');
+}
+
+const TAB_BAR_ICONS = {
+  today: '<path d="M3.5 11.5 12 4l8.5 7.5"/><path d="M5.5 10v10h13V10"/>',
+  stocks: '<path d="M3.5 20.5h17"/><path d="m4.5 15 5-5 4 3.5 6-7"/>',
+  market: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 2.6 3.5 5.4 3.5 8.5s-1 5.9-3.5 8.5c-2.5-2.6-3.5-5.4-3.5-8.5S9.5 6.1 12 3.5z"/>',
+  options: '<path d="M13 2.5 4.5 13.5h6l-1 8 8.5-11h-6z"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/>',
+};
+function phoneTabBarHtml() {
+  const ico = (k) => `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${TAB_BAR_ICONS[k]}</svg>`;
+  const secs = TAB_BAR_SECTIONS.map((id) => SITE_SECTIONS.find((s) => s.id === id)).filter(Boolean);
+  return secs.map((s) => `<button type="button" class="phone-tab" data-tabbar-section="${s.id}" aria-label="${htmlEscape(s.label)} pages">${ico(s.id)}<span>${htmlEscape(s.short)}</span></button>`).join('')
+    + `<button type="button" class="phone-tab" data-tabbar-search="1" aria-label="Search stocks and pages">${ico('search')}<span>Search</span></button>`;
 }
 
 // Collapsible explainer — keeps the full descriptive text on the page (nothing
@@ -162,7 +198,7 @@ function tickersSection({ symbols, sectors, industries }) {
     .join("");
   return `<section class="card" id="tickers-section">
     <header class="card-header">
-      <h2 class="card-title">Ticker tracker</h2>
+      <h2 class="card-title">All stocks</h2>
       <span class="card-eyebrow"><span id="tickers-visible-count">${totalSymbols}</span> / ${totalSymbols} symbols</span>
       <span class="tab-live-state" id="tickers-live-state" aria-live="polite"></span>
     </header>
@@ -1862,6 +1898,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="styles.css?v=${cacheBustFor("styles")}">
+<script>/* Split-view pane: hide the site chrome before first paint. */try{if(window.self!==window.top)document.documentElement.classList.add('is-embed')}catch(e){document.documentElement.classList.add('is-embed')}</script>
 </head>
 <body>
 <a class="skip-content" href="#main-content">Skip to content</a>
@@ -1910,6 +1947,9 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
           <option value="utc">UTC</option>
         </select>
       </label>
+      <button id="split-toggle" class="icon-btn" type="button" aria-pressed="false" aria-label="Split view: show two pages side by side" title="Split view: two pages side by side">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>
+      </button>
       <button id="theme-toggle" class="icon-btn" aria-label="Toggle theme" type="button">
         <svg class="i-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
         <svg class="i-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -1921,15 +1961,15 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     </nav>
   </div>
 </header>
-<p class="page-sub">General market news, events, breadth, macro data, and source-backed company research. Refreshed throughout the trading day.</p>
+<p class="page-sub">Market news, upcoming events, stock research and options activity in plain English, refreshed throughout the trading day.</p>
 <div id="freshness-banner" class="freshness" data-built-at="${builtAtIso}" role="status" aria-live="polite">
   <span class="freshness-dot" aria-hidden="true"></span>
   <span id="freshness-text">Checking data freshness&hellip;</span>
   <span id="market-status" class="market-status" aria-live="off" hidden></span>
 </div>
-<!-- Collapsible sidebar navigation. Destinations are grouped by the decision
-     a trader is making; Desk + Ideas start open while deeper reference groups
-     stay compact until needed. Items keep the same ids / data-page-tab /
+<!-- Collapsible sidebar navigation. Destinations are grouped by the question
+     a visitor is asking (scripts/render/site-map.mjs is the one source for the
+     groups, labels and one-line page summaries). Items keep the same ids / data-page-tab /
      aria-controls wiring, so cmd-K targeting, premium locks and role-hidden
      removal continue to work unchanged. Desktop: pushes content, defaults
      open, collapse persisted. Mobile: overlay drawer, closes on navigation. -->
@@ -1945,106 +1985,10 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
     <button type="button" id="workspace-pin" class="workspace-pin-toggle" aria-pressed="false">Pin this workspace</button>
     <p id="nav-filter-status" class="nav-filter-status" role="status" aria-live="polite" hidden></p>
     <section id="workspace-pinned" class="workspace-pinned" aria-label="Pinned workspaces" hidden><h2>Pinned</h2><div id="workspace-pinned-list"></div></section>
+    <section id="workspace-recent" class="workspace-recent" aria-label="Recently viewed" hidden><h2>Recently viewed</h2><div id="workspace-recent-list" class="workspace-recent-list"></div></section>
   </div>
 <nav class="page-tabs" id="workspace-tabs" role="tablist" aria-orientation="vertical" aria-label="Page sections">
-  <details class="side-nav-group" data-nav-group="desk" open>
-    <summary class="side-nav-group-label">Desk</summary>
-    <div class="side-nav-group-items">
-      ${sideNavItem('home', 'Home', { selected: true })}
-      ${sideNavItem('brief', 'Brief')}
-      ${sideNavItem('news', 'News')}
-      ${sideNavItem('heatmap', 'Heatmap')}
-    </div>
-  </details>
-  <details class="side-nav-group" data-nav-group="research" open>
-    <summary class="side-nav-group-label">Research</summary>
-    <div class="side-nav-group-items">
-      ${sideNavItem('narratives', 'Narratives')}
-      ${sideNavItem('tickers', 'Tickers')}
-      ${sideNavItem('grade', 'Grade a ticker')}
-      ${sideNavItem('compare', 'Compare companies')}
-      ${sideNavItem('strategies', 'Strategies')}
-    </div>
-  </details>
-  <details class="side-nav-group" data-nav-group="ideas" open>
-    <summary class="side-nav-group-label">Ideas &amp; flow</summary>
-    <div class="side-nav-group-items">
-      ${sideNavItem('ma-tracker', 'MA tracker')}
-      ${sideNavItem('flow', 'Unusual flow')}
-      ${sideNavItem('volume', 'Volume')}
-      ${sideNavItem('oi', 'Gamma exposure')}
-      ${sideNavItem('iv-trend', 'Trending IV')}
-      ${sideNavItem('streaks', 'Streaks')}
-      ${sideNavItem('spillover', 'Event spillover')}
-      ${sideNavItem('index-cal', 'Index calendar')}
-      ${sideNavItem('pattern-lab', 'Pattern lab')}
-    </div>
-  </details>
-  <details class="side-nav-group" data-nav-group="events" open>
-    <summary class="side-nav-group-label">Events</summary>
-    <div class="side-nav-group-items">
-      ${sideNavItem('calendar', 'Calendar')}
-      ${sideNavItem('pending-buyouts', 'Pending buyouts')}
-      ${sideNavItem('earnings', 'Earnings tracker')}
-      ${sideNavItem('calls', 'Earnings calls')}
-    </div>
-  </details>
-  <details class="side-nav-group" data-nav-group="macro" open>
-    <summary class="side-nav-group-label">Macro</summary>
-    <div class="side-nav-group-items">
-      ${sideNavItem('overnight', 'Overnight markets')}
-      ${sideNavItem('fear-greed', 'Fear &amp; Greed')}
-      ${sideNavItem('bonds-usd', 'Bonds &amp; USD')}
-      ${sideNavItem('commodities', 'Commodities')}
-      ${sideNavItem('capital-raises', 'Capital raises')}
-      ${sideNavItem('ipo-credit', 'IPOs &amp; credit')}
-    </div>
-  </details>
-  <details class="side-nav-group" data-nav-group="alt-data" open>
-    <summary class="side-nav-group-label">Alt data</summary>
-    <div class="side-nav-group-items">
-      ${sideNavItem('ai-capex', 'AI CapEx')}
-      ${sideNavItem('ram-prices', 'RAM prices')}
-      ${sideNavItem('accelerator-prices', 'GPU cloud prices')}
-      ${sideNavItem('central-bank-gold', 'Central-bank gold')}
-      ${sideNavItem('search-interest', 'Search interest')}
-      ${sideNavItem('f13', 'SEC ownership')}
-    </div>
-  </details>
-  <details class="side-nav-group" data-nav-group="owner" data-role-group="owner" open hidden>
-    <!-- Private research; hidden until the Top Picks owner session resolves. -->
-    <summary class="side-nav-group-label">Owner</summary>
-    <div class="side-nav-group-items">
-      ${sideNavItem('unified-signal-engine', 'Unified Signal Engine')}
-      ${sideNavItem('market', 'Market analysis')}
-      ${sideNavItem('risk', 'Risk analysis')}
-      ${sideNavItem('bottom-tracker', 'Bottom tracker')}
-      ${sideNavItem('historical-data', 'Historical Data')}
-      ${sideNavItem('picks', 'Top picks')}
-      ${sideNavItem('leaps', 'LEAPS')}
-      ${sideNavItem('stocks', 'Stock picks')}
-      ${sideNavItem('rotation', 'Sector rotation')}
-      ${sideNavItem('levetf', 'Leveraged ETFs')}
-      ${sideNavItem('open-picks', 'Open picks')}
-      ${sideNavItem('track', 'Top Picks track record')}
-      ${sideNavItem('quant', 'Owner Lab')}
-    </div>
-  </details>
-  <details class="side-nav-group" data-nav-group="tools" open>
-    <summary class="side-nav-group-label">Tools</summary>
-    <div class="side-nav-group-items">
-      ${sideNavItem('cheatsheet', "Buyer's manual")}
-      ${sideNavItem('chart-patterns', 'Chart patterns')}
-      ${sideNavItem('timeline', 'Refresh schedule')}
-    </div>
-  </details>
-  <details class="side-nav-group" data-nav-group="legal" open>
-    <summary class="side-nav-group-label">Legal</summary>
-    <div class="side-nav-group-items">
-      ${sideNavItem('privacy', 'Privacy Policy')}
-      ${sideNavItem('terms', 'Terms of Use')}
-    </div>
-  </details>
+  ${sideNavGroupsHtml()}
 </nav>
 </aside>
 <main id="main-content" tabindex="-1">
@@ -2064,7 +2008,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
             <span>Find a trade</span><b>Top picks</b><small>Contracts ranked with an explicit entry state.</small><em aria-hidden="true">&rarr;</em>
           </button>
           <button type="button" class="landing-quick-card" data-go="grade" aria-label="Grade a ticker and option contract">
-            <span>Validate it</span><b>Grade a ticker</b><small>Check the name, levels and exact contract.</small><em aria-hidden="true">&rarr;</em>
+            <span>Look it up</span><b>Look up a stock</b><small>Check the name, levels and exact contract.</small><em aria-hidden="true">&rarr;</em>
           </button>
           <button type="button" class="landing-quick-card" data-go="calendar" aria-label="Check upcoming market and earnings risk">
             <span>Check the risk</span><b>Calendar</b><small>Earnings, macro releases and FOMC timing.</small><em aria-hidden="true">&rarr;</em>
@@ -2072,6 +2016,13 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         </div>
       </div>
       <div id="landing-pulse" class="landing-pulse" role="list" aria-label="Market pulse — major index ETFs, last close" hidden></div>
+    </section>
+    <section class="landing-section landing-topics-section" aria-labelledby="landing-topics-title">
+      <header class="landing-section-head">
+        <h2 class="landing-section-title" id="landing-topics-title">Explore by topic</h2>
+        <p class="landing-section-sub">Everything on the site, grouped by the question you are asking.</p>
+      </header>
+      <div id="landing-topics" class="landing-topics"></div>
     </section>
     <section class="landing-section">
       <header class="landing-section-head">
@@ -2090,7 +2041,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         </button>
         <button type="button" class="landing-card" data-go="news" aria-label="Open the stock and macro news desk">
           <header class="landing-card-head">
-            <span class="landing-card-eyebrow">News desk</span>
+            <span class="landing-card-eyebrow">News</span>
             <span class="landing-card-arrow" aria-hidden="true">&rarr;</span>
           </header>
           <div class="landing-card-stat" id="land-stat-news">Ranked</div>
@@ -2135,7 +2086,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         </button>
         <button type="button" class="landing-card landing-card-hot" data-go="flow" aria-label="View unusual flow">
           <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Unusual flow</span>
+            <span class="landing-card-eyebrow">Unusual options trades</span>
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
           <div class="landing-card-stat" id="land-stat-flow">—</div>
@@ -2144,7 +2095,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         </button>
         <button type="button" class="landing-card" data-go="iv-trend" aria-label="View trending implied volatility">
           <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Trending IV</span>
+            <span class="landing-card-eyebrow">Rising volatility</span>
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
           <div class="landing-card-stat" id="land-stat-ivt">IV ↑</div>
@@ -2153,7 +2104,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         </button>
         <button type="button" class="landing-card" data-go="narratives" aria-label="Browse narratives">
           <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Narratives</span>
+            <span class="landing-card-eyebrow">Market themes</span>
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
           <div class="landing-card-stat" id="land-stat-narratives">—</div>
@@ -2197,7 +2148,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         </button>
         <button type="button" class="landing-card" data-go="tickers" aria-label="Browse tickers">
           <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Tickers</span>
+            <span class="landing-card-eyebrow">All stocks</span>
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
           <div class="landing-card-stat" id="land-stat-tickers">${tickerCount}</div>
@@ -2206,7 +2157,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         </button>
         <button type="button" class="landing-card" data-go="f13" aria-label="View SEC ownership filings">
           <header class="landing-card-head">
-            <span class="landing-card-eyebrow">SEC ownership</span>
+            <span class="landing-card-eyebrow">Who owns what</span>
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
           <div class="landing-card-stat" id="land-stat-f13">Q</div>
@@ -2215,7 +2166,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         </button>
         <button type="button" class="landing-card" data-go="fear-greed" aria-label="View Fear and Greed">
           <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Fear &amp; Greed</span>
+            <span class="landing-card-eyebrow">Market mood</span>
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
           <div class="landing-card-stat" id="land-stat-fg">0–100</div>
@@ -2224,7 +2175,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         </button>
         <button type="button" class="landing-card" data-go="streaks" aria-label="View green/red streaks">
           <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Streaks</span>
+            <span class="landing-card-eyebrow">Up/down streaks</span>
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
           <div class="landing-card-stat" id="land-stat-streaks">G/R</div>
@@ -2233,7 +2184,7 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
         </button>
         <button type="button" class="landing-card" data-go="bonds-usd" aria-label="Read bonds and USD primer">
           <header class="landing-card-head">
-            <span class="landing-card-eyebrow">Bonds &amp; USD</span>
+            <span class="landing-card-eyebrow">Rates &amp; the dollar</span>
             <span class="landing-card-arrow" aria-hidden="true">→</span>
           </header>
           <div class="landing-card-stat" id="land-stat-bonds">10Y / DXY</div>
@@ -2779,6 +2730,11 @@ export function renderHtml({ symbols, builtAt, builtAtIso, narratives = [], sect
   <div><a class="foot-support" href="${KO_FI_URL}" target="_blank" rel="noopener">Support stonks on Ko-fi</a></div>
   <div><a href="/?tab=privacy">Privacy Policy</a> · <a href="/?tab=terms">Terms of Use</a></div>
 </footer>
+<!-- Phone tab bar (hidden on wider screens): each button opens the sidebar at
+     that section; Search opens the command palette. -->
+<nav class="phone-tabbar" id="phone-tabbar" aria-label="Site sections">
+  ${phoneTabBarHtml()}
+</nav>
 <button id="back-to-top" class="back-to-top" type="button" aria-label="Back to top" title="Back to top">
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg>
 </button>
