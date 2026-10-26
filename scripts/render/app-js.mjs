@@ -7,6 +7,7 @@ import { historicalDataFactory } from './historical-data-client.mjs';
 import { earningsForecastFactory } from './earnings-forecast-client.mjs';
 import { earningsScenarioFactory } from '../../lib/earnings-forecast-scenarios.mjs';
 import { forcedLiquidationFactory } from './forced-liquidation-client.mjs';
+import { liquidationPledgeDisclosure } from '../../lib/forced-liquidation.mjs';
 import { LIQUIDATION_EVIDENCE_VERSION } from '../../lib/forced-liquidation.mjs';
 import { unifiedSignalClientFactory } from './unified-signal-client.mjs';
 import { unifiedSignalDisplayFactory } from '../../lib/unified-signal-display.mjs';
@@ -23481,7 +23482,9 @@ ${renderSplitViewBindings()}
   });
   var earningsForecast = (${earningsForecastFactory.toString()})(window, document, { owner: function(){ return HAS_OWNER_ACCESS; } }, ${earningsScenarioFactory.toString()});
   var forcedLiquidation = (${forcedLiquidationFactory.toString()})(window, document, {
-    owner: function(){ return HAS_OWNER_ACCESS; }, evidenceVersion: ${LIQUIDATION_EVIDENCE_VERSION}
+    owner: function(){ return HAS_OWNER_ACCESS; }, evidenceVersion: ${LIQUIDATION_EVIDENCE_VERSION},
+    symbols: function(){ return Array.isArray(MANIFEST.symbols) ? MANIFEST.symbols : []; },
+    pledgeDisclosure: ${liquidationPledgeDisclosure.toString()}
   });
   // data/quant.json is the daily analytical research payload.
   var quantState = { data: null, loading: false };

@@ -3,7 +3,8 @@ import {mkdir,readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createLiquidationPreview} from './forced-liquidation-preview.mjs';
-import {liquidationFixtureNow} from './fixtures/forced-liquidation.mjs';
+import {liquidationFixtureNow,liquidationFixtureBase} from './fixtures/forced-liquidation.mjs';
+import {buildForcedLiquidationPayload,LIQUIDATION_EVIDENCE_VERSION} from '../lib/forced-liquidation.mjs';
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE||'playwright');
 const preview=await createLiquidationPreview(),output=process.env.QA_OUTPUT||resolve(tmpdir(),'stonks-forced-liquidation-browser');
 await mkdir(output,{recursive:true});
@@ -19,6 +20,67 @@ async function newPage(width=1440,theme='dark'){
   return {context,page,errors,root:page.locator('#forced-liquidation-root')};
 }
 try{
+  // Awareness-only quantities must survive the full browser, history and CSV path.
+  for(const width of [1440,390])for(const theme of ['dark','light']){
+    preview.setScenario('owner');const {context,page,root,errors}=await newPage(width,theme);
+    const b={...liquidationFixtureBase,borrower:null,facilityKey:null,principalBorrowed:null,principalBasis:'undisclosed',currency:'unresolved',maintenanceLtv:null,sharesPledged:null,shareBasis:'undisclosed',collateralBasis:'unspecified'};
+    const observations=[
+      {...b,symbol:'ATLS',company:'Zulu Holdings',fragmentId:0,disclosedShares:500000,disclosedShareBasis:'stated-current'},
+      {...b,symbol:'GAPS',company:'Alpha Holdings',fragmentId:1,disclosedShares:25000,disclosedShareBasis:'incremental-only'},
+      {...b,symbol:'ATLS',company:'Zulu Holdings',fragmentId:2,disclosedShares:500000,disclosedShareBasis:'stated-current'},
+      {...b,symbol:'SCEN',company:'Unverified collateral',fragmentId:3,disclosedShares:999000,disclosedShareBasis:'stated-current',issuerVerified:false},
+    ];
+    const payload=buildForcedLiquidationPayload({observations,coverage:preview.payload.coverage,builtAtIso:liquidationFixtureNow});
+    await page.route('**/api/auth/me?data=forced-liquidation.json',route=>route.fulfill({json:payload}));
+    await page.goto(preview.base+'/?tab=forced-liquidation');await root.locator('.fl-table').waitFor();
+    ok(await root.locator('.fl-table tbody tr').count()===3,'known pledges stay visible without loan terms or quotes');
+    ok((await root.locator('.fl-metric').first().innerText()).includes('Stocks with pledges\n2'),'stock count deduplicates repeated excerpts');
+    ok((await root.innerText()).includes('Pledge disclosed')&&!(await root.innerText()).includes('Needs loan terms'),'presence is explicit rather than blocked on complete terms');
+    ok((await root.innerText()).includes('500,000')&&(await root.innerText()).includes('Additional shares; total unknown'),'disclosed quantities retain their basis');
+    ok(!(await root.innerText()).includes('999,000'),'unverified collateral is not promoted into a known stock pledge');
+    await root.locator('[data-fl-sort-key="shares"]').click();
+    ok((await root.locator('.fl-table tbody [data-fl-open]').allTextContents()).join(',')==='ATLS,ATLS,GAPS','share sort uses displayed disclosed quantity');
+    await root.locator('[data-fl-sort-key="company"]').click();
+    ok((await root.locator('.fl-table tbody [data-fl-open]').allTextContents()).join(',')==='GAPS,ATLS,ATLS','company sort uses company name rather than ticker order');
+    const downloadPromise=page.waitForEvent('download');await root.locator('[data-fl-export]').click();const download=await downloadPromise,csv=await readFile(await download.path(),'utf8');
+    ok(csv.includes('pledge_disclosed')&&csv.includes('disclosed_shares')&&csv.includes('disclosed_share_basis'),'CSV includes awareness and amount provenance');
+    const lines=csv.split('\r\n'),columns=lines[0].split(',').map(c=>c.replaceAll('"','')),values=lines[1].split(',').map(c=>c.replaceAll('"',''));
+    ok(values[columns.indexOf('disclosed_shares')]==='25000'&&values[columns.indexOf('shares_pledged')]==='','CSV keeps disclosed addition separate from unknown current model total');
+    await root.locator('[data-fl-open]').filter({hasText:'ATLS'}).first().click();await root.locator('.fl-detail').waitFor();
+    ok((await root.locator('.fl-history').innerText()).includes('500,000'),'detail and history retain the same disclosed amount');
+    ok((await root.innerText()).includes('Needed to estimate liquidation:'),'missing terms describe the estimate requirement');
+    const heading=await root.locator('.fl-detail h3').boundingBox();ok(heading.y>=100&&heading.y<1000,'opened detail heading clears the fixed navigation');
+    await page.screenshot({path:resolve(output,'awareness-'+width+'-'+theme+'.png'),fullPage:false});
+    await root.locator('[data-fl-close]').click();await root.locator('[data-fl-filter]').selectOption('all');
+    ok(await root.locator('.fl-table tbody tr').count()===4&&(await root.innerText()).includes('Stock attribution unverified'),'unresolved attribution remains reviewable separately');
+    ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'awareness layout fits the viewport');
+    ok(errors.length===0,'awareness has no browser errors');await context.close();
+  }
+  // A legacy extraction must not revive a pledge that its source says was released.
+  {
+    preview.setScenario('owner');const {context,page,root}=await newPage(),payload=structuredClone(preview.payload);
+    const row=payload.rows.find(r=>r.symbol==='ATLS');row.observation.status='released';row.observation.parserVersion=LIQUIDATION_EVIDENCE_VERSION-1;
+    await page.route('**/api/auth/me?data=forced-liquidation.json',route=>route.fulfill({json:payload}));
+    await page.goto(preview.base+'/?tab=forced-liquidation');await root.locator('.fl-table').waitFor();
+    ok(!(await root.locator('.fl-table').innerText()).includes('ATLS'),'released legacy pledge stays out of default watchlist');
+    await root.locator('[data-fl-filter]').selectOption('all');ok((await root.innerText()).includes('Pledge released'),'released history stays reviewable');
+    await context.close();
+  }
+  // A retained server snapshot may still contain names removed from the universe.
+  {
+    preview.setScenario('owner');const {context,page,root}=await newPage();
+    const payload=structuredClone(preview.payload),extra=structuredClone(payload.rows[0]);
+    extra.symbol='ADUR';extra.id='off-universe';extra.observation.symbol='ADUR';extra.company='Off-universe regression';
+    payload.rows.push(extra);payload.summary.tracked++;
+    await page.route('**/api/auth/me?data=forced-liquidation.json',route=>route.fulfill({json:payload}));
+    await page.goto(preview.base+'/?tab=forced-liquidation',{waitUntil:'domcontentloaded'});await root.locator('.fl-table').waitFor();
+    ok(!await root.innerText().then(t=>t.includes('ADUR')),'retained off-universe stock is absent from watchlist');
+    const downloadPromise=page.waitForEvent('download');await root.locator('[data-fl-export]').click();const download=await downloadPromise;
+    const csv=await readFile(await download.path(),'utf8');ok(!csv.includes('ADUR'),'CSV excludes retained off-universe stocks');
+    await root.locator('[data-fl-view="evidence"]').click();ok(!(await root.innerText()).includes('ADUR'),'filing evidence excludes retained off-universe stocks');
+    await root.locator('[data-fl-view="watch"]').click();await root.locator('[data-fl-search]').fill('ADUR');ok(await root.locator('.fl-table tbody tr').count()===0,'search cannot recover an excluded stock');
+    await context.close();
+  }
   for(const width of [1440,900,390])for(const theme of ['dark','light']){
     preview.setScenario('owner');const {context,page,root,errors}=await newPage(width,theme);
     await page.goto(preview.base+'/?tab=forced-liquidation',{waitUntil:'domcontentloaded'});

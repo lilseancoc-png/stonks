@@ -48,7 +48,7 @@ export async function refreshForcedLiquidation({ prior, universe, chains, cikMap
   const collected = await collectLiquidationSec({ prior, universe, cikMap, now:builtAtIso, ...collectorOptions });
   const previous=Object.fromEntries((prior?.rows || []).filter(r=>r.symbol&&r.market).map(r=>[r.symbol,r.market]));
   const quotes=await collectLiquidationMarkets({observations:collected.observations,chains,previous,lastAttempts:prior?.coverage?.marketData?.lastAttempts||{},quoteClient,now:builtAtIso});
-  return buildForcedLiquidationPayload({ ...collected, coverage:{...collected.coverage,marketData:quotes.coverage}, markets:quotes.markets, chains, priorSnapshots:prior?.snapshots || [], builtAtIso });
+  return buildForcedLiquidationPayload({ ...collected, coverage:{...collected.coverage,marketData:quotes.coverage}, markets:quotes.markets, chains, universe, priorSnapshots:prior?.snapshots || [], builtAtIso });
 }
 export async function writeForcedLiquidation(dataDir,payload) {
   await mkdir(dataDir,{recursive:true});
