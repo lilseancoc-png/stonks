@@ -4,6 +4,8 @@ import { marketRefreshFactory } from '../../lib/market-refresh.mjs';
 import { webullAnalyticsFactory } from '../../lib/webull-analytics.mjs';
 import { webullReviewFactory } from './webull-review-client.mjs';
 import { historicalDataFactory } from './historical-data-client.mjs';
+import { forcedLiquidationFactory } from './forced-liquidation-client.mjs';
+import { LIQUIDATION_EVIDENCE_VERSION } from '../../lib/forced-liquidation.mjs';
 import { renderWorkspaceBindings, renderWorkspaceHelpers } from './workspace-js.mjs';
 import { renderRecoveryHelpers } from './recovery-js.mjs';
 import { viewsFactory } from './views-client.mjs';
@@ -96,7 +98,7 @@ ${scenarioEventPhase.toString()}
   // the Owner analysis/idea/record desks and Owner Lab; this UI boundary keeps
   // destinations hidden until the owner session's compatibility claims resolve.
   // Discord mints both only after verifying the existing Top Picks owner role.
-  var OWNER_TABS = { market:1, risk:1, 'bottom-tracker':1, 'historical-data':1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, 'open-picks':1, track:1, quant:1 };
+  var OWNER_TABS = { market:1, risk:1, 'bottom-tracker':1, 'historical-data':1, 'forced-liquidation':1, picks:1, leaps:1, stocks:1, rotation:1, levetf:1, 'open-picks':1, track:1, quant:1 };
   var GATE_ON = false;
   var HAS_TRACK_RECORD = false;
   var HAS_TOP_PICKS = false;
@@ -3646,13 +3648,14 @@ ${scenarioEventPhase.toString()}
   // resolve the URL's initial tab synchronously at script-evaluation time (the
   // anti-flash pre-select in the boot block) before the /api/auth/me +
   // manifest fetches settle and bind() runs the full selectTab.
-  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','risk','historical-data','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','ipo-credit','bottom-tracker','open-picks','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
+  var PAGE_TAB_IDS = ['home','tickers','narratives','brief','news','market','risk','historical-data','forced-liquidation','rotation','picks','leaps','stocks','heatmap','calendar','pending-buyouts','earnings','calls','spillover','quant','levetf','index-cal','pattern-lab','overnight','ma-tracker','flow','volume','oi','iv-trend','grade','compare','strategies','streaks','fear-greed','f13','bonds-usd','ai-capex','ram-prices','accelerator-prices','central-bank-gold','search-interest','commodities','capital-raises','ipo-credit','bottom-tracker','open-picks','track','cheatsheet','chart-patterns','timeline','privacy','terms'];
   // Friendly aliases so deep-links people might guess work too.
   // Visible labels diverge from internal IDs (e.g. "Unusual flow" → flow,
   // "13F filings" → f13). Without this, ?tab=unusual silently fell back to
   // home, which made shared URLs look broken.
   var PAGE_TAB_ALIASES = {
     historical: 'historical-data', history: 'historical-data', 'historical-data': 'historical-data',
+    liquidation: 'forced-liquidation', 'forced-liquidation-tracker': 'forced-liquidation', 'forced-liquidation': 'forced-liquidation',
     unusual: 'flow', 'unusual-flow': 'flow',
     ma: 'ma-tracker', 'moving-average': 'ma-tracker', 'moving-averages': 'ma-tracker', 'ma-cross': 'ma-tracker',
     'pattern-lab': 'pattern-lab', 'pattern-recognition': 'pattern-lab', seasonality: 'pattern-lab', 'lead-lag': 'pattern-lab',
@@ -4118,6 +4121,7 @@ ${renderWorkspaceBindings()}
         if (name === 'ipo-credit' && typeof loadIpoCredit === 'function') loadIpoCredit();
         if (name === 'bottom-tracker' && typeof loadBottomTracker === 'function') loadBottomTracker();
         if (name === 'historical-data') historicalData.load();
+        if (name === 'forced-liquidation') forcedLiquidation.load();
         if (name === 'iv-trend' && typeof loadIvTrend === 'function') loadIvTrend();
         if (name === 'spillover' && typeof loadSpillover === 'function') loadSpillover();
         if (name === 'quant' && typeof loadQuant === 'function') loadQuant();
@@ -23322,6 +23326,9 @@ ${renderWorkspaceBindings()}
     // Never use a legacy static-data fallback for this Owner-only feature.
     url: function(){ return '/api/auth/me?data=historical-data.json'; }
   });
+  var forcedLiquidation = (${forcedLiquidationFactory.toString()})(window, document, {
+    owner: function(){ return HAS_OWNER_ACCESS; }, evidenceVersion: ${LIQUIDATION_EVIDENCE_VERSION}
+  });
   // data/quant.json is the daily analytical research payload.
   var quantState = { data: null, loading: false };
   var ownerLabView = 'personal';
@@ -34237,6 +34244,7 @@ ${renderWorkspaceBindings()}
     'ai-reject':'AI rejected', 'ai-not-strong':'AI grade not strong', 'thesis-not-strong':'Thesis not strong (no AI grade)',
     'ai-wait':'AI said wait', 'timing-checks':'Entry timing checks', 'avoid-timing':'Avoid timing (knife or chase)',
     'scenario':'Market scenario gate', 'slots-full':'Top Picks slots full', 'no-contract':'No tradeable contract',
+    'collateral-stress':'Pledged-stock collateral stress near an estimated threshold',
     'option-economics':'Option target does not support the profit exit after quote costs',
     'sector-cap':'Sector cap', 'factor-cap':'Factor cap', 'factor-trend':'Weak factor trend', 'side-cap':'Call / put cap'
   };
@@ -41074,6 +41082,12 @@ ${renderWorkspaceBindings()}
       return;
     }
     var data = picksState.data || { picks: [] };
+    var collateralBox = $('picks-liquidation-watch');
+    if (collateralBox) {
+      var collateralRows = !data.stale && !data.loadError && data.rosterMeta && Array.isArray(data.rosterMeta.forcedLiquidationWatch) ? data.rosterMeta.forcedLiquidationWatch : [];
+      collateralBox.hidden = !collateralRows.length;
+      collateralBox.innerHTML = collateralRows.length ? '<b>SEC collateral watch</b><p>' + collateralRows.map(function(r){ return escapeHtml(r.symbol) + ': ' + (r.engineEligible ? (r.distancePct == null ? 'distance unknown' : r.distancePct.toFixed(1) + '% to estimated threshold') + (r.vetoLong ? ' · new bullish pick blocked' : '') : 'incomplete terms · research only'); }).join(' · ') + '</p><a href="?tab=forced-liquidation">Inspect Forced Liquidation Tracker</a>' : '';
+    }
     // Legacy stale-carry payloads are audit context, never current trade ideas.
     // The build now publishes an empty roster directly, but keep the client
     // fail-closed if an older cached payload still carries stale=true.
@@ -41584,6 +41598,7 @@ ${renderWorkspaceBindings()}
       ['f13', '13F filings'],
       ['market', 'Market analysis'],
       ['risk', 'Risk analysis'],
+      ['forced-liquidation', 'Forced Liquidation Tracker'],
       ['picks', 'Top picks'],
       ['leaps', 'LEAPS'],
       ['stocks', 'Stock picks'],

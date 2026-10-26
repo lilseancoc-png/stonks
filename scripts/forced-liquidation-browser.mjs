@@ -1,0 +1,99 @@
+import assert from 'node:assert/strict';
+import {mkdir,readFile} from 'node:fs/promises';
+import {resolve} from 'node:path';
+import {tmpdir} from 'node:os';
+import {createLiquidationPreview} from './forced-liquidation-preview.mjs';
+import {liquidationFixtureNow} from './fixtures/forced-liquidation.mjs';
+const {chromium}=await import(process.env.PLAYWRIGHT_MODULE||'playwright');
+const preview=await createLiquidationPreview(),output=process.env.QA_OUTPUT||resolve(tmpdir(),'stonks-forced-liquidation-browser');
+await mkdir(output,{recursive:true});
+const browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{})});
+let checks=0;
+const ok=(v,m)=>{assert(v,m);checks++;};
+async function newPage(width=1440,theme='dark'){
+  const context=await browser.newContext({viewport:{width,height:1100},acceptDownloads:true}),page=await context.newPage();
+  await page.clock.install({time:new Date(liquidationFixtureNow)});
+  await page.addInitScript(t=>localStorage.setItem('stonks-theme',t),theme);
+  await page.route('**/*',route=>new URL(route.request().url()).origin===preview.base?route.continue():route.fulfill({body:''}));
+  const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  return {context,page,errors,root:page.locator('#forced-liquidation-root')};
+}
+try{
+  for(const width of [1440,900,390])for(const theme of ['dark','light']){
+    preview.setScenario('owner');const {context,page,root,errors}=await newPage(width,theme);
+    await page.goto(preview.base+'/?tab=forced-liquidation',{waitUntil:'domcontentloaded'});
+    await root.locator('.fl-table').waitFor();
+    ok(await page.locator('#page-pane-forced-liquidation').isVisible());
+    ok((await root.locator('.fl-table tbody tr').count())===3,'active filter excludes corporate debt context');
+    ok((await root.innerText()).includes('9.1%'));
+    ok((await root.innerText()).includes('Scenario $15.38–$28.57'));
+    const typing=root.locator('[data-fl-search]');await typing.pressSequentially('ATLS');ok(await typing.inputValue()==='ATLS','ordinary keystrokes preserve character order');
+    await typing.press('Home');await typing.press('ArrowRight');await typing.pressSequentially('XY');ok(await typing.inputValue()==='AXYTLS','typing into the middle preserves the caret');await typing.fill('');
+    await root.locator('[data-fl-sort-key="company"]').click();
+    ok((await root.locator('.fl-table tbody [data-fl-open]').allTextContents()).join(',')==='ATLS,GAPS,SCEN','header uses actual company values');
+    await root.locator('[data-fl-sort-key="company"]').click();
+    const sorted=await root.locator('.fl-table tbody [data-fl-open]').allTextContents();ok(sorted.join(',')==='SCEN,GAPS,ATLS','header reverses sort');
+    const sortedDownloadEvent=page.waitForEvent('download');await root.locator('[data-fl-export]').click();const sortedDownload=await sortedDownloadEvent,sortedCsv=await readFile(await sortedDownload.path(),'utf8');
+    ok(sortedCsv.split('\r\n').slice(1).map(line=>line.match(/^"([^"]*)"/)[1]).join(',')===sorted.join(','),'CSV matches visible sort order');
+    ok(sortedCsv.includes('quote_fresh')&&sortedCsv.includes('sec_scan_status'),'CSV carries uncertainty and source state');
+    await page.reload();await root.locator('.fl-table').waitFor();ok((await root.locator('.fl-table tbody [data-fl-open]').allTextContents()).join(',')==='SCEN,GAPS,ATLS','header sort persists');
+    await root.locator('[data-fl-sort]').selectOption('distance');ok(await root.locator('[data-fl-sort-key="distance"]').locator('..').getAttribute('aria-sort')==='ascending','sort menu takes control of sorting');
+    await root.locator('[data-fl-view="watch"]').focus();await page.keyboard.press('ArrowRight');ok(await root.locator('[data-fl-view="evidence"]').getAttribute('aria-selected')==='true','keyboard changes view');
+    await page.keyboard.press('End');ok(await root.locator('[data-fl-view="method"]').getAttribute('aria-selected')==='true');await page.keyboard.press('Home');
+    await root.locator('[data-fl-filter]').selectOption('topups');ok((await root.locator('.fl-table tbody tr').count())===1);
+    await root.locator('[data-fl-open]').click();await root.locator('.fl-detail').waitFor();
+    ok((await root.innerText()).includes('Possible collateral top-up'));
+    ok((await root.innerText()).includes('500%'));
+    ok((await root.locator('.fl-history tbody tr').count())===2,'comparable disclosure history retained');
+    await root.locator('[data-fl-ltv]').selectOption('0.65');ok((await root.locator('.fl-scenario').innerText()).includes('$15.38'));
+    await page.reload();await root.locator('.fl-detail').waitFor();ok((await root.locator('[data-fl-ltv]').inputValue())==='0.65','detail and LTV choice persist');
+    ok((await root.locator('.fl-excerpt').innerText()).includes('SYNTHETIC TEST DATA'));
+    ok((await root.locator('.fl-detail a').first().getAttribute('href')).startsWith('https://www.sec.gov/Archives/edgar/data/'));
+    await root.locator('[data-fl-close]').click();await root.locator('[data-fl-filter]').selectOption('active');
+    await root.locator('[data-fl-search]').fill('ATLS');ok((await root.locator('.fl-table tbody tr').count())===1);
+    const downloadEvent=page.waitForEvent('download');await root.locator('[data-fl-export]').click();const download=await downloadEvent,csv=await readFile(await download.path(),'utf8');
+    ok(csv.includes('outstanding_principal_usd')&&csv.includes('quote_as_of')&&csv.includes('"ATLS"'));ok(!csv.includes('"SCEN"'),'export honors filters');
+    await root.locator('[data-fl-search]').fill('');await root.locator('[data-fl-filter]').selectOption('all');
+    ok((await root.locator('.fl-table tbody tr').count())===4);
+    await page.evaluate(()=>{document.activeElement?.blur();scrollTo(0,0);});
+    await page.screenshot({path:resolve(output,'watch-'+width+'-'+theme+'.png'),fullPage:false});
+    await root.locator('[data-fl-view="evidence"]').click();ok((await root.locator('.fl-evidence').count())===4);
+    await page.reload();await root.locator('.fl-evidence').first().waitFor();ok((await root.locator('[data-fl-view="evidence"]').getAttribute('aria-selected'))==='true','view persists');
+    await root.locator('[data-fl-view="method"]').click();ok((await root.innerText()).includes('Trigger price = outstanding loan ÷ (pledged shares × maintenance LTV)'));
+    for(const nextWidth of [390,1024,width]){await page.setViewportSize({width:nextWidth,height:1100});ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'resize fits '+nextWidth);}
+    await root.locator('[data-fl-view="watch"]').click();await page.reload();await root.locator('.fl-table').waitFor();
+    await page.goto(preview.base+'/?tab=picks',{waitUntil:'domcontentloaded'});await page.locator('#picks-liquidation-watch').waitFor();
+    ok((await page.locator('#picks-liquidation-watch').innerText()).includes('new bullish pick blocked'));
+    ok((await page.locator('#picks-liquidation-watch a').getAttribute('href'))==='?tab=forced-liquidation');
+    ok(errors.length===0,'no runtime errors: '+errors.join('; '));await context.close();
+  }
+  for(const scenario of ['anonymous','tp-only','tr-only','disabled']){
+    preview.setScenario(scenario);const before=preview.requests,{context,page}=await newPage();
+    await page.goto(preview.base+'/?tab=forced-liquidation',{waitUntil:'domcontentloaded'});
+    await page.waitForFunction(()=>document.documentElement.dataset.ownerAuthResolved==='true'||document.querySelector('#page-pane-home:not([hidden])'));
+    ok(!(await page.locator('#page-pane-forced-liquidation').isVisible()),scenario+' cannot see the feature');
+    ok(preview.requests===before,scenario+' makes no private tracker request');await context.close();
+  }
+  for(const scenario of ['error','missing','malformed','empty','stale','null-price','legacy','old-facts','stale-volume']){
+    preview.setScenario(scenario);const {context,page,root,errors}=await newPage();
+    await page.goto(preview.base+'/?tab=forced-liquidation',{waitUntil:'domcontentloaded'});
+    if(scenario==='empty'){await root.locator('[data-fl-view]').first().waitFor();ok((await root.innerText()).includes('not evidence that the market has no pledged stock'));ok((await root.innerText()).includes('Unassessed'),'no modeled observations is not zero risk');}
+    else if(scenario==='stale'){await root.locator('.fl-table').waitFor();ok(!(await root.innerText()).includes('9.1%'),'stale quote cannot show a current buffer');ok(/SEC unavailable|Incomplete SEC scan/.test(await root.innerText()));ok((await root.innerText()).includes('Stale stock quote'));}
+    else if(scenario==='null-price'){await root.locator('.fl-table').waitFor();ok(!(await root.innerText()).includes('9.1%'),'a missing price cannot become a current buffer');ok((await root.innerText()).includes('Stale stock quote'));}
+    else if(scenario==='legacy'){await root.locator('.fl-table').waitFor();ok(!(await root.innerText()).includes('9.1%'),'old parser output cannot retain a trigger');ok((await root.locator('.fl-table tbody tr').count())===3,'legacy debt context stays out of active pledges');ok((await root.innerText()).includes('Unassessed'),'unknown terms cannot become a zero-risk count');}
+    else if(scenario==='old-facts'){await root.locator('.fl-table').waitFor();ok(!(await root.innerText()).includes('Possible collateral top-up'),'expired disclosures cannot advertise a fresh top-up');ok((await root.locator('.fl-table tbody tr').count())===3);}
+    else if(scenario==='stale-volume'){await root.locator('.fl-table').waitFor();ok(!(await root.innerText()).includes('500%'),'old volume cannot supply a current liquidity ratio');ok(!(await root.innerText()).includes('Pledge >20%'));}
+    else{await root.locator('[data-fl-retry]').waitFor();ok((await root.innerText()).includes(scenario==='missing'?'not been collected':scenario==='malformed'?'incomplete':'unavailable'));preview.setScenario('owner');await root.locator('[data-fl-retry]').click();await root.locator('.fl-table').waitFor();ok((await root.innerText()).includes('9.1%'));}
+    ok(errors.length===0,scenario+' has no runtime errors');await context.close();
+  }
+  preview.setScenario('owner');{
+    const {context,page,root}=await newPage();await page.goto(preview.base+'/?tab=forced-liquidation');await root.locator('.fl-table').waitFor();const before=preview.requests;
+    await page.clock.fastForward(5*86400000);ok(!(await root.innerText()).includes('9.1%'),'open-page quotes expire at their known deadline');ok((await root.innerText()).includes('Unassessed'),'failed freshness is not presented as zero risk');ok(preview.requests===before,'expiry does not poll providers');
+    const blocked=await page.request.get(preview.base+'/r2.env');ok(blocked.status()===404,'preview cannot serve local credentials');await context.close();
+  }
+  preview.setScenario('currency-history');{
+    const {context,page,root}=await newPage();await page.goto(preview.base+'/?tab=forced-liquidation');await root.locator('.fl-table').waitFor();await root.locator('[data-fl-open]').first().click();await root.locator('.fl-history').waitFor();
+    const firstAmount=root.locator('.fl-history tbody tr').first().locator('td').nth(1);ok((await firstAmount.innerText()).includes('currency unverified'),'history does not turn an unknown currency into USD');ok(!(await firstAmount.innerText()).includes('$'),'history cannot prefix an unverified balance with dollars');await context.close();
+  }
+  console.log(`Forced Liquidation Tracker browser: ${checks} checks passed across desktop, tablet, phone, both themes, resize, persistence, scenarios, export, retries, stale data, Top Picks and Owner visibility. Screenshots: ${output}`);
+}finally{await browser.close();await new Promise(resolve=>preview.server.close(resolve));}

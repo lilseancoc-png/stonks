@@ -72,6 +72,8 @@ import { buildBottomTracker } from "../lib/bottom-tracker.mjs";
 import { writeHistoricalDataFile } from "./refresh-historical-data.mjs";
 import { readHistoricalSourceCache, refreshHistoricalSourceCache, loadFreeFredHistory, loadFreeMarketHistory } from "./collect-historical-sources.mjs";
 import { HISTORICAL_SOURCE_KEY } from "../lib/historical-sources.mjs";
+import { forcedLiquidationContext } from "../lib/forced-liquidation.mjs";
+import { readForcedLiquidation, refreshForcedLiquidation, writeForcedLiquidation } from './refresh-forced-liquidation.mjs';
 import { withYahooTimeout } from "../lib/yahoo.mjs";
 import { attachLeapsExpirations, leapsExtraFetchEnabled } from "../lib/leaps-expirations.mjs";
 import {
@@ -20481,6 +20483,9 @@ export function scoreAllTickers(chains, narratives, streaksMap, unusualPayload, 
     data.oiTrackerRow = oiBySym[sym] ? { ...oiBySym[sym], scannedAt: oiScannedAt } : null;
     data.flowPersist = flowBySym[sym] || null;
     const r = scoreTicker(sym, data, ctx);
+    // Owner-only research rides the scored record, never the public chain or
+    // grade pillars. Missing or assumed loan terms cannot alter conviction.
+    r.forcedLiquidation = forcedLiquidationContext(opts.forcedLiquidation, sym, data, asOfIso || new Date().toISOString());
     scored.push(r);
     const pg = peerGroupOf(sym, data);
     (peerIndex[pg] ||= []).push({ symbol: sym, total: r.total, tier: r.recommendation.tier, label: r.recommendation.label });
@@ -21418,6 +21423,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   // up front to build the AI thesis map before re-entering the gate); else score.
   const { scored, peerIndex, regimeBand } = opts.preScored || scoreAllTickers(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, opts);
   const regime = regimeBand;
+  const collateralWatch = scored.map(r=>r.forcedLiquidation).filter(Boolean);
   const factorHealth = computeFactorTrendHealth(scored);
   const openSet = new Set((opts.openPositions || []).map((o) => (o && o.symbol ? `${o.symbol}:${o.side}` : null)).filter(Boolean));
   const openSym = new Set((opts.openPositions || []).map((o) => o && o.symbol).filter(Boolean));
@@ -21436,6 +21442,8 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   // Record follows each one's stock move afterwards (gateLog in
   // picks-accuracy.json), so every rule can be judged on what it turned away.
   const turnedAway = [];
+  meta.collateralGated = [];
+  meta.forcedLiquidationWatch = collateralWatch;
   const traceGate = (r, side, gate) => {
     turnedAway.push({ sym: r.sym, side, total: r2(pnum(r.total) ?? 0), gate, spot: r2(pnum(r.data?.spot)) });
   };
@@ -21446,6 +21454,13 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
     const preClearsBar = Math.abs(pnumN(r.preRegimeTotal) ?? r.total) >= minConv;
     const actionable = preClearsBar && Math.abs(r.total) >= minConv && r.side;
     const tactical = (regime === "risk-off" || regime === "severe") && r.total <= PICKS_RISKOFF_PUT_BAR && r.timing?.state !== "avoid";
+    // Disclosed terms near a collateral maintenance threshold add a downside
+    // veto to new bullish ideas. They never manufacture a bearish entry.
+    if ((actionable || tactical) && r.side === 'call' && r.forcedLiquidation?.vetoLong) {
+      meta.collateralGated.push(r.sym);
+      traceGate(r, r.side, 'collateral-stress');
+      continue;
+    }
     if ((actionable || tactical) && !regimePrimaryGateClears(r, macroBackdrop)) {
       meta.primaryScenarioGated.push(r.sym);
       if (actionable) traceGate(r, r.side, "scenario");
@@ -21744,6 +21759,7 @@ function buildPickObject(r, side, contract, exitPlan, entryPlan, peers, peerGrou
     pillars: r.pillars, drivers: r.drivers,
     regimeOverlay: r.regimeOverlay || null,
     analysis: thesis, thesis, thesisCard,
+    forcedLiquidation: r.forcedLiquidation || null,
     strategy: strategy ? {
       type: strategy.type, label: strategy.label, reason: strategy.reason,
       ivZ: strategy.ivZ ?? null, ivPctile: strategy.ivPctile ?? null, ivTier: strategy.ivTier ?? null,
@@ -26988,6 +27004,7 @@ export function buildThesisUserMessage(r, side, macroRegime, extras = {}) {
   const traj = r.pillars?.fundamentals?.trajectory;
   if (traj && traj.dir) L.push(`FUNDAMENTALS TRAJECTORY: ${traj.dir}${traj.confidence ? ` (${traj.confidence} confidence)` : ""}${traj.reason ? ` — ${traj.reason}` : ""}.`);
   if (d.capitalRaise && d.capitalRaise.kind) L.push(`CAPITAL EVENT (headline-flagged): ${d.capitalRaise.kind}${d.capitalRaise.title ? ` — "${String(d.capitalRaise.title).slice(0, 160)}"` : ""}.`);
+  if (r.forcedLiquidation?.engineEligible) L.push('SEC COLLATERAL RESEARCH (dated evidence, not proof of a forced sale; all normal entry checks still apply): ' + JSON.stringify(r.forcedLiquidation));
 
   if (d.news?.paragraph && !d.news.stale && newsDateIsCurrent(d.news.builtAt, Date.now(), 2)) L.push(`NEWS READ (sentiment ${d.news.sentiment || "uncertain"}): ${String(d.news.paragraph).slice(0, 500)}`);
   const j = f.judgment;
@@ -27235,7 +27252,17 @@ export function thesisDecisionGuardSig(r, side, kind, macroRegime, macroCalendar
     det.now ? "buy" : `${det.signal || "wait"}${det.basis === "top-guard" ? "!" : ""}`,
     nearestEvent ? `${nearestEvent.label || ""}@${nearestEvent.date || ""}:${nearestEvent.daysOut ?? ""}` : "",
   ].join("|");
-  return createHash("sha256").update(material).digest("hex");
+  // A new filing or threshold state is a material change during the normal
+  // five-hour reuse window. Unaffected symbols keep their existing cache key.
+  const collateral = r.forcedLiquidation?.engineEligible ? r.forcedLiquidation : null;
+  const collateralGuard = collateral ? '|collateral:' + JSON.stringify({
+    source:collateral.sourceUrl, asOf:collateral.asOfDate, state:collateral.state,
+    eligible:collateral.engineEligible, veto:collateral.vetoLong,
+    principal:collateral.principalBorrowed, shares:collateral.sharesPledged, ltv:collateral.maintenanceLtv,
+    bufferBucket:collateral.distancePct==null?null:Math.floor(collateral.distancePct/5),
+    topUp:collateral.collateralTopUp, reflexivity:collateral.reflexivityWatch,
+  }) : '';
+  return createHash("sha256").update(material).update(collateralGuard).digest("hex");
 }
 
 export function canReuseThesisCache(
@@ -37047,6 +37074,7 @@ async function main() {
   const priorAiCapex = await readPriorAiCapex();
   const aiCapexBriefs = await readAiCapexCallBriefs();
   const priorCapitalRaises = await readPriorCapitalRaises();
+  const priorLiquidation = await readForcedLiquidation(DATA_DIR);
   // Prior IPOs & Credit snapshot — accumulates the universe issuance events
   // across builds and caches the immutable completed-quarter EDGAR counts +
   // the quarterly NY Fed household-credit parse, so it must be pre-read
@@ -37205,6 +37233,12 @@ async function main() {
   // reconciled + written back next to the leveraged-etfs payload below.
   const levLogPrev = await readPriorLevEtfLog();
   const riskFreeRate = await fetchRiskFreeRate(cachedRfr);
+  // Serial SEC stage: the per-ticker SEC fetches have completed and the 13F /
+  // Form 4 burst below has not begun. The collector has its own strict budget.
+  const forcedLiquidation = await refreshForcedLiquidation({
+    prior:priorLiquidation, universe:TICKERS, chains, cikMap:_cikMap, builtAtIso:new Date().toISOString(), quoteClient:yahooFinance,
+  });
+  console.log(`Collateral tracker: ${forcedLiquidation.rows.length} disclosure(s), SEC ${forcedLiquidation.coverage.status}, ${forcedLiquidation.coverage.requestsThisRun} source request(s)`);
   // Kick off 13F enrichment (SEC EDGAR per-firm holdings + OpenFIGI CUSIP map)
   // NOW so its ~60-80s runs CONCURRENTLY with the narratives + calendar + scoring
   // phases below, instead of serially after them — it was the build's second
@@ -37357,6 +37391,9 @@ async function main() {
     .sort()
     .slice(0, 2);
   const builtAtIso = new Date().toISOString();
+  // Scan timestamps remain on coverage. The artifact gets this generation's
+  // stamp, which is created only after the network stages have completed.
+  forcedLiquidation.builtAtIso = builtAtIso;
   // AI rejection log: exact-get today's file plus the firstSeen window BEFORE
   // writeChainFiles wipes data/. Missing history is not a failed bake.
   let aiRejectionContext = { today: null, prior: [] };
@@ -37408,6 +37445,7 @@ async function main() {
     riskFreeRate?.rate ?? FALLBACK_RISK_FREE_RATE,
     builtAtIso,
   );
+  await writeForcedLiquidation(DATA_DIR, forcedLiquidation);
   if (leapsPicks.length) {
     try {
       const paper = await writeLeapsPaperTrack({
@@ -38015,6 +38053,7 @@ async function main() {
   // correlations sweep (tonight's fresh payload, falling back to the pre-wipe
   // snapshot if the foreign sweep came back too thin to write).
   const scannerExtras = {
+    forcedLiquidation,
     oiTracker: scoringOiTracker,
     // Trending-IV payload (written just above) — the AI final grader's prompt
     // cites each candidate's IV momentum (1d/5d/20d + rising streak) from it.

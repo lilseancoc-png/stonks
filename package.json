@@ -7,6 +7,11 @@
     "node": ">=20"
   },
   "scripts": {
+    "collect:forced-liquidation": "node scripts/collect-forced-liquidation.mjs",
+    "test:forced-liquidation": "node scripts/forced-liquidation-smoke.mjs && node scripts/forced-liquidation-audit-smoke.mjs",
+    "test:forced-liquidation-browser": "node scripts/forced-liquidation-browser.mjs",
+    "preview:forced-liquidation": "node scripts/forced-liquidation-preview.mjs",
+    "regen:forced-liquidation": "node scripts/regen-forced-liquidation.mjs",
     "test:historical-data": "node scripts/historical-data-smoke.mjs && node scripts/historical-sources-smoke.mjs",
     "collect:historical": "node scripts/collect-historical-sources.mjs",
     "audit:historical": "node scripts/audit-historical-coverage.mjs",
