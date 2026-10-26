@@ -7881,7 +7881,7 @@ a.pb-source:hover { text-decoration: underline; }
 .opt-narr-chip.long  { border-color: color-mix(in srgb, var(--pos) 35%, transparent); }
 .opt-narr-chip.short { border-color: color-mix(in srgb, var(--neg) 35%, transparent); }
 .opt-narr-chip-side {
-  font-size: 10px; font-weight: 700;
+  font-size: 10px; font-weight: 700; white-space: nowrap;
   text-transform: uppercase; letter-spacing: 0.06em;
   padding: 2px 6px; border-radius: var(--r-pill);
 }
@@ -17540,7 +17540,7 @@ body.tape-axm-open { overflow: hidden; }
 
 .streaks-cols {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: var(--s-4);
 }
 @media (max-width: 720px) {
@@ -17706,6 +17706,11 @@ body.tape-axm-open { overflow: hidden; }
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
+/* A hidden tip takes no room, so the rightmost bar's tip can't widen the page;
+   the last bars open their tip leftward so it stays on screen. */
+.streaks-spark-bar:not(:hover):not(:focus-visible)::after,
+.streaks-spark-bar:not(:hover):not(:focus-visible)::before { display: none; }
+.streaks-spark-bar:nth-last-child(-n+3)::after { left: auto; right: -6px; transform: none; }
 .streaks-spark-bar.is-pos {
   background: color-mix(in srgb, var(--pos) 80%, transparent);
 }
@@ -23838,6 +23843,12 @@ a.news-feed-headline:focus-visible,
 .news-feed-more[hidden],
 .news-feed-empty[hidden] { display: none !important; }
 
+/* With the sidebar open the three toolbar parts don't fit on one row: the
+   feed picker drops to its own row instead of pushing the page sideways. */
+@media (max-width: 1240px) {
+  .news-feed-toolbar { grid-template-columns: minmax(0, 1fr) auto; }
+  .news-feed-select-wrap { grid-column: 1 / -1; justify-self: start; }
+}
 @media (max-width: 760px) {
   .news-feed-toolbar { grid-template-columns: 1fr; }
   .news-impact-filter { justify-self: start; max-width: 100%; overflow-x: auto; }
