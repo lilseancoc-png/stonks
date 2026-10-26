@@ -35,7 +35,7 @@ const initialSize = objects.size;
 try {
   for (const legacy of [false, true]) {
     pinned = !legacy;
-    for (const owner of ["bake", "unusual", "oi", "brief", "transcripts", "search-interest"]) {
+    for (const owner of ["bake", "unusual", "oi", "brief", "transcripts", "search-interest", "overnight"]) {
       reads.length = 0;
       const dataDir = resolve(root, (legacy ? "legacy-" : "pinned-") + owner);
       await pull({ storeClient: client, dataDir, owner, bakeDate: today });
@@ -65,4 +65,4 @@ try {
     assert.equal(await readFile(resolve(dataDir, "last-good.json"), "utf8"), '{}');
   }
 } finally { await rm(root, { recursive: true, force: true }); }
-console.log("data-hydration smoke passed: rolling bake, five scanner owners, full backtest, legacy/pinned, fail-closed paths");
+console.log("data-hydration smoke passed: rolling bake, six scanner owners, full backtest, legacy/pinned, fail-closed paths");

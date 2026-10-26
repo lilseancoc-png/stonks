@@ -1,0 +1,112 @@
+name: Overnight pre-open call
+
+# Saves the overnight call for today's US session at about 09:20 ET
+# (scripts/overnight-preopen.mjs). The 09:00 ET transcripts dispatch in
+# daily.yml also saves one; the later capture wins in the log. The script only
+# writes inside 08:00-09:29 ET on weekdays, so a late-starting GitHub schedule
+# publishes nothing rather than a post-open "pre-open" call. If neither run
+# lands, the next bake rebuilds the call from 15-minute bars at 09:25 ET and
+# marks it "rebuilt". Free Yahoo data only; no AI calls.
+# The paired UTC schedules plus the ET route make the slot DST-safe. A
+# cron-job.org dispatch at 09:20 ET (America/New_York) would be more punctual.
+on:
+  schedule:
+    - cron: "20 13 * * 1-5"
+    - cron: "20 14 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stonks-data-commit
+  cancel-in-progress: false
+
+jobs:
+  route:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.route.outputs.run }}
+    steps:
+      - name: Route weekday 09:20 ET slot
+        id: route
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          TRIGGER_SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Manual pre-open call (the script still enforces 08:00-09:29 ET)."
+            exit 0
+          fi
+          UTC_HOUR=$(awk '{print $2}' <<<"$TRIGGER_SCHEDULE")
+          ET_OFFSET=$(TZ=America/New_York date +%z)
+          case "$ET_OFFSET" in
+            -0400) EXPECTED_UTC_HOUR=13 ;;
+            -0500) EXPECTED_UTC_HOUR=14 ;;
+            *)
+              echo "::error::Unexpected America/New_York UTC offset: $ET_OFFSET"
+              exit 1
+              ;;
+          esac
+          if [ "$UTC_HOUR" = "$EXPECTED_UTC_HOUR" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Scheduled 09:20 ET pre-open call."
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Companion UTC slot is outside 09:20 ET; no-op."
+          fi
+
+  preopen:
+    needs: route
+    if: ${{ needs.route.outputs.run == 'true' && vars.PRIVATE_DATA_ENABLED == '1' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref_name }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Verify workflow schedule guards
+        run: npm run test:workflow-schedules
+
+      - name: Hydrate data from private store
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: node scripts/sync-data.mjs pull --owner=overnight
+
+      - name: Mark freshness window
+        run: |
+          rm -f data/overnight-preopen.json
+          echo "FRESHNESS_RUN_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" >> "$GITHUB_ENV"
+
+      - name: Save the pre-open overnight call
+        id: call
+        run: |
+          set -euo pipefail
+          node scripts/overnight-preopen.mjs
+          if [ -f data/overnight-preopen.json ]; then echo "written=true" >> "$GITHUB_OUTPUT"; else echo "written=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Verify fresh pre-open call
+        if: ${{ steps.call.outputs.written == 'true' }}
+        run: node scripts/verify-data-freshness.mjs --owner=overnight
+
+      - name: Push pre-open call to private store
+        if: ${{ steps.call.outputs.written == 'true' }}
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: node scripts/sync-data.mjs push --owner=overnight
