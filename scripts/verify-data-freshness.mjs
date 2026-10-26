@@ -29,11 +29,13 @@ import {
   isBakeOwnedKey,
   isDeleteStaleOnlyKey,
   isEvidenceRecordKey,
+  isUnifiedSignalArchiveKey,
   isRetainedRemoteBakeKey,
   isTickerDataKey,
   perSymbolHistorySymbol,
 } from "../lib/data-ownership.mjs";
 import { isCurrentAiRejectionPublishKey } from "../lib/ai-rejections.mjs";
+import { unifiedSignalDisplayFactory } from "../lib/unified-signal-display.mjs";
 import {
   MIN_IV_SUCCESS_RATE,
   MIN_TICKER_SUCCESS_RATE,
@@ -624,6 +626,18 @@ async function auditBake({ report, dataDir, runStartedAt, now, expectedSymbols }
     // dated keys are not local after the wipe; if one is still on disk it
     // stays unclassified so this run does not republish the archive.
     if (isCurrentAiRejectionPublishKey(key, etDateKey(now))) continue;
+    if (isUnifiedSignalArchiveKey(key)) {
+      const snapshot = await requireRewrittenJson(report, dataDir, key, runStartedAt);
+      if (snapshot && (snapshot.snapshotKey !== key || !unifiedSignalDisplayFactory().valid(snapshot))) fail(report, `${key}: invalid unified decision snapshot`);
+      if (snapshot) requireRunStamp(report, key, snapshot.builtAtIso, runStartedAt, now);
+      continue;
+    }
+    if (key === "unified-signal.json") {
+      const unified = await requireRewrittenJson(report, dataDir, key, runStartedAt);
+      if (unified && !unifiedSignalDisplayFactory().valid(unified)) fail(report, `${key}: invalid unified decision view`);
+      if (unified && refreshTopPicks) requireRunStamp(report, key, unified.builtAtIso, runStartedAt, now);
+      continue;
+    }
     // Today's evidence file and evidence-latest.json are bake-owned and
     // rewritten each run. History is consumed before the data/ wipe, so older
     // dated keys are not local here; remote generations retain the archive.

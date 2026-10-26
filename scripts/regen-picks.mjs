@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { buildTopPicks, buildGradesIndex, gradeTradeCut, PICKS_MIN_CONVICTION, PICKS_ACCURACY_RESET_EPOCH, PICKS_ENTRY_TIMING_VERSION, FALLBACK_RISK_FREE_RATE, updatePicksAccuracyFile, readGradesHistory, writeGradesHistory, diffGradesHistory, applyPickFirstSeen, readPicksChanges, writePicksChanges, buildPicksChanges, appendPicksChanges, buildPicksRoster, writePicksRoster, attachIvRanks, computeMacroRegime, buildIndexAxisInput, buildBreadthAxisInput, buildPutCallAxisInput, buildRotationAxisInput, deriveGlobalTapeAxis, readRfrHistory, readGradesDaily, appendGradesDaily, writeGradesDaily, readRegimeHistory, appendRegimeHistory, writeRegimeHistory, buildStockPicks, writeStockPicksFile, STOCK_PICKS_FILE, readPriorStockPicks, buildSectorRotationRebounds, writeSectorRotationFile, SECTOR_ROTATION_FILE, readPriorSectorRotationLog, sectorRotationRecordFromLog, buildLeveragedEtfPicks, writeLeveragedEtfsFile, LEVERAGED_ETFS_FILE, readPriorLevEtfLog, levRecordFromLog, SECTORS, macroKindOf, MACRO_PROFILES, pickContractForPick, writeAutoPicksFile, quarantineScoringInputs, dropStaleMacroLiveLegs } from "./build.mjs";
 import { appendScenarioHistory, buildScenarioEngine } from "../lib/scenario-engine.mjs";
 import { buildGradeResearch, seriesFromChains, writeGradeResearchFile } from "../lib/grade-research.mjs";
+import { publishUnifiedSignal } from "./publish-unified-signal.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -492,6 +493,13 @@ try {
 } catch (err) {
   console.warn(`grade-research.json skipped — ${String(err?.message || err).split("\n")[0]}`);
 }
+
+// Keep the shared research view coherent with an explicitly regenerated roster.
+// Existing timestamps stay attached to prices, so stale local data cannot earn
+// a fresh entry merely because this command ran.
+let priorUnified = null;
+try { priorUnified = JSON.parse(await readFile(resolve(DATA_DIR, "unified-signal.json"), "utf8")); } catch {}
+await publishUnifiedSignal({ dataDir: DATA_DIR, builtAtIso, chains, grades, previous: priorUnified });
 
 console.log(`Regenerated picks.json — ${picks.length} pick${picks.length === 1 ? "" : "s"}.`);
 for (const p of picks) {
