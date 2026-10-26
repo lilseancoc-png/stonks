@@ -53,7 +53,7 @@
     "test:research-consistency": "node scripts/grade-contract-smoke.mjs && node scripts/context-audit-smoke.mjs && node scripts/recovery-evidence-smoke.mjs",
     "verify:ai-cost": "node scripts/ai-cost-smoke.mjs",
     "verify:freshness": "node scripts/verify-data-freshness.mjs --self-test",
-    "verify:transcripts": "node scripts/transcript-smoke.mjs",
+    "verify:transcripts": "node scripts/transcript-smoke.mjs && node scripts/transcript-output-audit-smoke.mjs",
     "test:data-hydration": "node scripts/data-hydration-smoke.mjs",
     "test:leaps-expirations": "node scripts/leaps-expirations-smoke.mjs",
     "test:ai-call-efficiency": "node scripts/ai-call-efficiency-smoke.mjs",
