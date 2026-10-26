@@ -4,7 +4,6 @@
 export function renderWayfindingCss() {
   return `
 /* Sidebar: each group says what it is for. */
-.side-nav-group-desc { margin: 0 0 4px; padding: 0 10px; font: 400 11.5px/1.4 var(--font-sans); color: var(--muted); }
 .side-nav-group-label { font-size: 10.5px; color: var(--muted-strong); }
 .side-nav-group.is-flash > .side-nav-group-label { animation: wf-flash 1.1s ease-out; }
 @keyframes wf-flash { 0% { background: var(--accent-tint-2); color: var(--accent); } 100% { background: transparent; } }

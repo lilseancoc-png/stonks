@@ -69,4 +69,13 @@ assert.equal(secHeaders["X-Frame-Options"], "SAMEORIGIN", "Only this site may fr
 assert.match(secHeaders["Content-Security-Policy"], /frame-ancestors 'self'(;|$)/);
 assert.match(secHeaders["Content-Security-Policy"], /frame-src 'self' /);
 
+// Sidebar trim + bigger page text: no section descriptions in the sidebar, four
+// recent chips there, and small sizes scale only inside .page-pane.
+assert.ok(!indexHtml.includes("side-nav-group-desc"), "Sidebar sections carry no description line");
+assert.ok(appJs.includes("}).slice(0, 4).map(function(entry){"), "The sidebar shows four recently viewed pages");
+const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+assert.match(css, /\.page-pane \{\n  --ts: 1\.1;/, "Feature pages set the text scale");
+assert.match(css, /font-size: calc\(13px \* var\(--ts, 1\)\)/, "Small sizes follow the text scale");
+assert.ok(!/(^|\n)\s*:root \{[^}]*--ts:/.test(css), "The header and sidebar keep scale 1");
+
 console.log("site map smoke passed");

@@ -119,7 +119,6 @@ function sideNavGroupsHtml() {
     return `<details class="side-nav-group" data-nav-group="${sec.id}"${role} open${sec.owner ? ' hidden' : ''}>
     <summary class="side-nav-group-label">${htmlEscape(sec.label)}</summary>
     <div class="side-nav-group-items">
-      <p class="side-nav-group-desc">${htmlEscape(sec.desc)}</p>
       ${items}
     </div>
   </details>`;
