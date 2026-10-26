@@ -463,7 +463,9 @@ Earnings or macro risk inside 21 days forces defined risk. A debit spread must o
 
 - up to 10 actionable picks;
 - up to 6 watch ideas;
-- no more than 3 per sector;
+- no more than 3 per sector, counted over eight broad sector groups rather than
+  the fine labels, so the cap binds instead of letting a one-stock "sector"
+  through (`lib/sector-groups.mjs`);
 - no more than 5 in one common factor;
 - side caps prevent an accidentally one-way book;
 - if at least 60% of a factor group is below SMA20 and median five-day return is `<= -3%`, new calls in that factor are suppressed unless the setup is unusually strong and ready.
