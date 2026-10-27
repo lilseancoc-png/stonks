@@ -78,7 +78,8 @@
     "test:risk-audit": "node scripts/risk-audit-smoke.mjs",
     "test:risk-selection": "node scripts/risk-selection-smoke.mjs",
     "verify:risk-cost": "node scripts/risk-cost-check.mjs",
-    "test:branches": "node scripts/review-branches.mjs"
+    "test:branches": "node scripts/review-branches.mjs",
+    "test:research-stack": "node scripts/research-stack-smoke.mjs && node scripts/grade-research-selftest.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.15.0",

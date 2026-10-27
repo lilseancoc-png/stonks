@@ -1,6 +1,7 @@
 // Serialized into app.js. Private financial data stays in memory only.
-export function earningsForecastFactory(host,doc,options,scenarioFactory){
+export function earningsForecastFactory(host,doc,options,scenarioFactory,researchFactory,valuationFactory){
   const scenarios=scenarioFactory();
+  const research=researchFactory?researchFactory(host,doc,{owner:options.owner,download:(value,name)=>download(value,name)},valuationFactory):null;
   const state={data:null,pending:false,error:null,symbol:null,view:'forecast',drafts:{},scenarioMessage:null,bound:false};
   const root=()=>doc.getElementById('earnings-forecast-root');
   const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
@@ -12,11 +13,14 @@ export function earningsForecastFactory(host,doc,options,scenarioFactory){
   function valid(j){
     const list=(x,check)=>Array.isArray(x)&&x.every(check),optional=(x,check)=>x===undefined||x===null||check(x);
     const axis=a=>optional(a,a=>list(a.rows,r=>r&&typeof r.name==='string'&&finite(r.value)&&optional(r.isNew,v=>typeof v==='boolean'))&&typeof a.period?.currentPeriod?.endDate==='string'&&['quarter','annual'].includes(a.period.periodType)&&['USD','TWD'].includes(a.currency));
-    const issuer=c=>c&&typeof c.symbol==='string'&&/^[A-Z0-9.]{1,6}$/.test(c.symbol)&&optional(c.former,x=>Number.isFinite(Date.parse(x.leftAt)))&&optional(c.joinedAt,x=>Number.isFinite(Date.parse(x)))&&c.forecast&&typeof c.forecast.status==='string'&&(!c.forecast.currency||['USD','TWD'].includes(c.forecast.currency))&&optional(c.forecast.warnings,w=>list(w,v=>typeof v==='string'))&&c.profile&&list(c.profile.drivers,d=>d&&typeof d.name==='string')&&optional(c.profile.boundaries,b=>list(b,v=>typeof v==='string'))&&list(c.sources,s=>s&&typeof s.metric==='string')&&list(c.evaluations,e=>e&&['revenue','eps'].includes(e.metric)&&['USD','TWD'].includes(e.currency))&&axis(c.mix?.product)&&axis(c.mix?.geographic)&&optional(c.historical,h=>list(h.horizons,r=>r&&r.revenue));
-    return j?.version===1&&Number.isFinite(Date.parse(j.builtAtIso))&&Array.isArray(j.companies)&&j.companies.length<=60&&new Set(j.companies.map(c=>c?.symbol)).size===j.companies.length&&j.companies.every(issuer)&&list(j.methodology,m=>typeof m==='string')&&optional(j.context,c=>list(c,x=>x&&finite(x.value)));
+    const metric=m=>m&&optional(m.value,finite)&&typeof m.unit==='string'&&optional(m.sourceUrl,u=>typeof u==='string');
+    const companyRecord=r=>r&&r.version===1&&r.years===3&&typeof r.windowStart==='string'&&list(r.quarters,q=>q&&typeof q.end==='string'&&typeof q.start==='string'&&typeof q.currency==='string'&&q.metrics&&Object.values(q.metrics).every(metric))&&list(r.vendorFacts,x=>x&&typeof x.metric==='string'&&typeof x.currency==='string'&&finite(x.value)&&typeof x.firstSeenAt==='string')&&finite(r.retainedVendorVersions)&&optional(r.financialCoverage,f=>f&&optional(f.latestAgeDays,finite)&&list(f.missingLatestMetrics,x=>typeof x==='string')&&list(f.vendorMetrics,x=>x&&typeof x.metric==='string'&&finite(x.periods)&&optional(x.latestEnd,d=>typeof d==='string')));
+    const industry=e=>e&&['memory','gpu','capex'].includes(e.id)&&['ram-prices','accelerator-prices','ai-capex'].includes(e.tab)&&typeof e.name==='string'&&typeof e.limit==='string'&&list(e.rows,r=>r&&typeof r.label==='string'&&optional(r.value,finite)&&typeof r.unit==='string'&&typeof r.status==='string'&&optional(r.date,d=>typeof d==='string'))&&list(e.connections,r=>r&&/^[A-Z0-9.]{1,6}$/.test(r.symbol)&&['role','mechanism','confirm'].every(k=>typeof r[k]==='string'));
+    const issuer=c=>c&&typeof c.symbol==='string'&&/^[A-Z0-9.]{1,6}$/.test(c.symbol)&&optional(c.former,x=>Number.isFinite(Date.parse(x.leftAt)))&&optional(c.joinedAt,x=>Number.isFinite(Date.parse(x)))&&c.forecast&&typeof c.forecast.status==='string'&&(!c.forecast.currency||['USD','TWD'].includes(c.forecast.currency))&&optional(c.forecast.warnings,w=>list(w,v=>typeof v==='string'))&&c.profile&&list(c.profile.drivers,d=>d&&typeof d.name==='string')&&optional(c.profile.boundaries,b=>list(b,v=>typeof v==='string'))&&list(c.sources,s=>s&&typeof s.metric==='string')&&list(c.evaluations,e=>e&&['revenue','eps'].includes(e.metric)&&['USD','TWD'].includes(e.currency))&&axis(c.mix?.product)&&axis(c.mix?.geographic)&&optional(c.historical,h=>list(h.horizons,r=>r&&r.revenue))&&optional(c.companyRecord,companyRecord)&&optional(c.valuationReference,r=>r&&optional(r.spot,finite)&&optional(r.forwardPE,finite));
+    return j?.version===1&&Number.isFinite(Date.parse(j.builtAtIso))&&Array.isArray(j.companies)&&j.companies.length<=60&&new Set(j.companies.map(c=>c?.symbol)).size===j.companies.length&&j.companies.every(issuer)&&list(j.methodology,m=>typeof m==='string')&&optional(j.context,c=>list(c,x=>x&&finite(x.value)))&&optional(j.industryEvidence,e=>list(e,industry));
   }
   function save(){try{host.localStorage.setItem('stonks-earnings-forecast-view',JSON.stringify({symbol:state.symbol,view:state.view}));}catch{}}
-  function restore(){try{const s=JSON.parse(host.localStorage.getItem('stonks-earnings-forecast-view')||'{}');if(typeof s.symbol==='string')state.symbol=s.symbol;if(['forecast','assumptions','business','record','sources'].includes(s.view))state.view=s.view;}catch{}}
+  function restore(){try{const s=JSON.parse(host.localStorage.getItem('stonks-earnings-forecast-view')||'{}');if(typeof s.symbol==='string')state.symbol=s.symbol;if(['forecast','assumptions','business','record','sources','valuation','company','industry'].includes(s.view))state.view=s.view;}catch{}}
   function table(headers,rows){return '<div class="ef-table-scroll"><table class="ef-table"><thead><tr>'+headers.map(h=>'<th scope="col">'+esc(h)+'</th>').join('')+'</tr></thead><tbody>'+rows.map(r=>'<tr>'+r.map(v=>'<td>'+v+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>';}
   function metric(label,value,caption){return '<div class="ef-metric"><span>'+esc(label)+'</span><strong>'+esc(value)+'</strong><small>'+esc(caption)+'</small></div>';}
   function notice(text){return '<p class="ef-notice" role="status">'+esc(text)+'</p>';}
@@ -94,18 +98,19 @@ export function earningsForecastFactory(host,doc,options,scenarioFactory){
     el.innerHTML='<div class="ef-topline"><span>Snapshot '+esc(stamp(j.builtAtIso))+' · market caps as of '+esc(stamp(j.cohort?.rankingAsOf))+'</span><button type="button" data-ef-retry>Refresh snapshot</button></div>'+
       (age>4?notice('This published snapshot is more than four days old. Forecast cutoffs remain unchanged; newer inputs may be missing.'):'')+
       (j.cohort?.missing?.length?notice('Ranking excludes '+j.cohort.missing.length+' companies with unavailable market caps. The list may change once they are ranked.'):'')+
-      '<div class="ef-layout"><nav class="ef-companies" aria-label="Companies">'+nav(j.companies,c)+'</nav><div class="ef-detail"><div class="ef-company-head"><div><p class="ef-kicker">'+(c.former?'Left the list on '+esc(c.former.leftAt.slice(0,10))+' · was rank '+esc(c.rank):'Rank '+esc(c.rank)+' of '+current.length+(c.joinedAt?' · joined '+esc(c.joinedAt.slice(0,10)):''))+'</p><h3>'+esc(c.name)+'</h3><p>'+esc(f.target?.label||'Target period unavailable')+'</p></div><span class="ef-status">'+esc(f.status==='ready'?'Unproven forecast':f.status)+'</span></div>'+
-      '<div class="ef-tabs" aria-label="Company research views">'+[['forecast','Forecast'],['assumptions','Assumptions'],['business','Business & factors'],['record','Track record'],['sources','Sources']].map(([v,l])=>'<button type="button" data-ef-view="'+v+'" aria-pressed="'+(state.view===v)+'">'+l+'</button>').join('')+'</div>'+
+      '<div class="ef-layout"><nav class="ef-companies" aria-label="Companies">'+nav(j.companies,c)+'</nav><div class="ef-detail"><div class="ef-company-head"><div><p class="ef-kicker">'+(c.former?'Left the list on '+esc(c.former.leftAt.slice(0,10))+' · was rank '+esc(c.rank):'Rank '+esc(c.rank)+' of '+current.length+(c.joinedAt?' · joined '+esc(c.joinedAt.slice(0,10)):''))+'</p><h3>'+esc(c.name)+'</h3><p>'+esc(state.view==='valuation'?'Next four fiscal quarters · approximately twelve months':state.view==='company'?'Rolling three-year reported company history':state.view==='industry'?'Industry observations and company research connections':f.target?.label||'Target period unavailable')+'</p></div><span class="ef-status">'+esc(f.status==='ready'?'Unproven forecast':f.status)+'</span></div>'+
+      '<div class="ef-tabs" aria-label="Company research views">'+[['forecast','Forecast'],['assumptions','Assumptions'],['business','Business & factors'],['record','Track record'],['sources','Sources'],['company','Company record'],['valuation','Full year & value'],['industry','Industry evidence']].map(([v,l])=>'<button type="button" data-ef-view="'+v+'" aria-pressed="'+(state.view===v)+'">'+l+'</button>').join('')+'</div>'+
       (f.status==='stale'?notice('Financial coverage is stale. Treat the values below as historical assumptions until sources recover.'):'')+
       (c.collectionError?notice('Source refresh incomplete: '+c.collectionError+'. The last accepted observations remain intact.'):'')+
       (f.warnings||[]).map(notice).join('')+
-      (state.view==='forecast'?forecastView(c):state.view==='assumptions'?assumptionsView(c):state.view==='business'?businessView(c):state.view==='record'?recordView(c):sourcesView(c))+
+      (research&&['valuation','company','industry'].includes(state.view)?research.render(c,j,state.view):state.view==='forecast'?forecastView(c):state.view==='assumptions'?assumptionsView(c):state.view==='business'?businessView(c):state.view==='record'?recordView(c):sourcesView(c))+
       '<footer class="ef-foot"><span>Frozen cutoff '+esc(stamp(f.cutoffAt))+' · '+esc(f.modelVersion||'No supported model')+'</span><button type="button" data-ef-export>Export forecast JSON</button></footer></div></div>';
     bind();
   }
   function bind(){const el=root();if(!el||state.bound)return;state.bound=true;
     el.addEventListener('click',e=>{const button=e.target.closest('button');if(!button||!el.contains(button))return;
       if(!options.owner()){reset();return;}
+      if(research?.onClick(button,company())){render();return;}
       if(button.hasAttribute('data-ef-retry'))load(true);
       else if(button.hasAttribute('data-ef-company')){state.symbol=button.dataset.efCompany;state.scenarioMessage=null;save();render();}
       else if(button.hasAttribute('data-ef-view')){state.view=button.dataset.efView;save();render();}
@@ -116,7 +121,7 @@ export function earningsForecastFactory(host,doc,options,scenarioFactory){
       else if(button.hasAttribute('data-ef-scenario-export')){const c=company();try{const d=draft(c);if(!d.name.trim())throw Error('Name the scenario before exporting.');download(scenarios.pack(c,d),c.symbol+'-earnings-scenario.json');state.scenarioMessage='Scenario exported. The frozen forecast is unchanged.';}catch(e){state.scenarioMessage=e.message;}updateResults();}
       else if(button.hasAttribute('data-ef-export')){const c=company();if(c)download({exportedAt:new Date().toISOString(),company:c,methodology:state.data.methodology},c.symbol+'-earnings-forecast.json');}
     });
-    el.addEventListener('input',e=>{if(!options.owner()){reset();return;}const x=e.target,c=company();if(!c)return;const d=draft(c);state.scenarioMessage=null;
+    el.addEventListener('input',e=>{if(!options.owner()){reset();return;}const x=e.target,c=company();if(!c)return;if(research?.onInput(e,c))return;const d=draft(c);state.scenarioMessage=null;
       if(x.hasAttribute('data-ef-name'))d.name=x.value;
       else if(x.hasAttribute('data-ef-field'))d[x.dataset.efField]=x.value.trim()===''?null:x.valueAsNumber;
       else if(x.hasAttribute('data-ef-row-field')){const r=d.splits[d.axis]?.[Number(x.dataset.efRow)];if(!r)return;const k=x.dataset.efRowField;r[k]=k==='name'?x.value:x.value.trim()===''?null:x.valueAsNumber;}
@@ -133,8 +138,8 @@ export function earningsForecastFactory(host,doc,options,scenarioFactory){
     if(state.pending)return;if(state.data&&!force){render();return;}
     state.pending=true;state.error=null;render();
     try{const r=await host.fetch('/api/auth/me?data=earnings-forecast.json',{credentials:'same-origin',cache:'no-store'});if(!r.ok)throw Error(r.status===401?'Owner access is required.':'The forecast snapshot is unavailable.');const j=await r.json();if(!valid(j))throw Error('The forecast snapshot failed validation.');if(options.owner())state.data=j;}
-    catch(e){state.error=e.message;state.data=null;state.drafts={};state.scenarioMessage=null;}finally{state.pending=false;render();}
+    catch(e){state.error=e.message;state.data=null;research?.reset();state.drafts={};state.scenarioMessage=null;}finally{state.pending=false;render();}
   }
-  function reset(){state.data=null;state.drafts={};state.scenarioMessage=null;state.error=null;const el=root();if(el)el.textContent='Owner access is required to open Earnings Forecast.';}
+  function reset(){research?.reset();state.data=null;state.drafts={};state.scenarioMessage=null;state.error=null;const el=root();if(el)el.textContent='Owner access is required to open Earnings Forecast.';}
   restore();return {load,reset};
 }

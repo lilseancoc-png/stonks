@@ -4812,9 +4812,10 @@ function trimFundHistory(entries, todayKey) {
     .filter((e) => e && typeof e.date === "string" && e.date >= floor && e.date <= todayKey)
     .sort((a, b) => a.date.localeCompare(b.date));
 }
-function fundHistoryPoint(data) {
+export function fundHistoryPoint(data) {
   const f = data?.fundamentals || {};
   const num = (v, digits) => {
+    if (typeof v !== "number" && (typeof v !== "string" || !v.trim())) return null;
     const n = Number(v);
     if (!Number.isFinite(n)) return null;
     const m = 10 ** digits;
@@ -4848,11 +4849,25 @@ function fundHistoryPoint(data) {
   for (const [k, v] of Object.entries(point)) if (v != null) out[k] = v;
   return Object.keys(out).length ? out : null;
 }
+// Legacy zeros cannot be distinguished from Number(null) without source
+// evidence. Keep their values in the record, outside the numeric series.
+export function sanitizeFundamentalsHistory(payload) {
+  return (Array.isArray(payload?.entries) ? payload.entries : []).filter(entry => entry && typeof entry === 'object' && !Array.isArray(entry)).map(entry => {
+    const row = { ...entry };
+    const unverified = { ...(entry?.unverifiedLegacyZeros || {}) };
+    for (const [key, value] of Object.entries(row)) {
+      if (key === 'date' || key === 'version' || key === 'unverifiedLegacyZeros') continue;
+      if (value === 0 && entry.version !== 2) { unverified[key] = value; delete row[key]; }
+    }
+    if (Object.keys(unverified).length) row.unverifiedLegacyZeros = unverified;
+    return row;
+  });
+}
 async function loadFundHistoryEntries(symbol) {
   try {
     const raw = await readFile(resolve(DATA_DIR, FUND_HISTORY_DIR, `${symbol}.json`), "utf8");
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed?.entries) ? parsed.entries : [];
+    return sanitizeFundamentalsHistory(parsed);
   } catch (_) {
     return [];
   }
@@ -4880,7 +4895,7 @@ async function collectFundamentalsHistory(chains) {
     const point = fundHistoryPoint(chains?.[sym]);
     if (!point) continue;
     const prior = (out.get(sym) || []).filter((e) => e.date !== today);
-    prior.push({ date: today, ...point });
+    prior.push({ date: today, version: 2, ...point });
     out.set(sym, trimFundHistory(prior, today));
   }
   return out;
@@ -4891,7 +4906,7 @@ async function writeFundamentalsHistory(historyMap) {
   await mkdir(dir, { recursive: true });
   let bytes = 0;
   for (const [sym, entries] of historyMap.entries()) {
-    const json = JSON.stringify({ symbol: sym, entries: entries || [] });
+    const json = JSON.stringify({ version: 2, symbol: sym, entries: entries || [] });
     await writeFile(resolve(dir, `${sym}.json`), json, "utf8");
     bytes += json.length;
   }
@@ -23114,41 +23129,44 @@ export function stockTrackedPeers(chains, sym) {
 }
 
 export function buildStockChecklist(sym, data, grade, sectorPE, traps, peers) {
+  const optionalNumber = x => typeof x === "number" || (typeof x === "string" && x.trim()) ? pnumN(x) : null;
   const f = data?.fundamentals || {};
   const j = f.judgment || null;
-  const spot = pnum(data?.spot);
+  const spot = optionalNumber(data?.spot);
   const item = (q, status, a) => ({ q, status, a });
   const unanswered = (q, extra) => item(q, "unanswered", extra ? `${CHECKLIST_UNANSWERED} ${extra}` : CHECKLIST_UNANSWERED);
 
   // Shared computed facts.
-  const nm = Array.isArray(f.netMarginHistory) ? f.netMarginHistory.filter((x) => pnum(x?.value) != null) : [];
+  const nm = Array.isArray(f.netMarginHistory) ? f.netMarginHistory.filter((x) => optionalNumber(x?.value) != null) : [];
   const nmCur = nm.length ? Number(nm[nm.length - 1].value) : null;
   const nmPrior = nm.length >= 5 ? Number(nm[nm.length - 5].value) : nm.length >= 2 ? Number(nm[nm.length - 2].value) : null;
   const nmDelta = nmCur != null && nmPrior != null ? nmCur - nmPrior : null;
   const marginTrend = nmDelta == null ? null : nmDelta >= 0.5 ? "expanding" : nmDelta <= -0.5 ? "compressing" : "stable";
   let revYoy = null;
-  const rh = Array.isArray(f.revenueHistory) ? f.revenueHistory.filter((x) => pnum(x?.value) != null) : [];
+  const rh = Array.isArray(f.revenueHistory) ? f.revenueHistory.filter((x) => optionalNumber(x?.value) != null) : [];
   if (rh.length >= 8) {
     const sum = (a) => a.reduce((s, x) => s + Number(x.value), 0);
     const cur = sum(rh.slice(-4)), prior = sum(rh.slice(-8, -4));
     if (prior > 0) revYoy = (cur / prior - 1) * 100;
   }
-  if (revYoy == null) revYoy = pnum(f.revenueGrowthYoy);
-  const fcf = pnum(f.freeCashFlow), ocf = pnum(f.operatingCashFlow), mcap = pnum(f.marketCap);
-  const totalDebt = pnum(f.totalDebt), totalCash = pnum(f.totalCash), de = pnum(f.debtToEquity);
-  const gm = pnum(f.grossMargin), om = pnum(f.operatingMargin), pm = pnum(f.profitMargin);
-  const roe = pnum(f.returnOnEquity), roa = pnum(f.returnOnAssets);
-  const ni = Array.isArray(f.netIncomeHistory) ? f.netIncomeHistory.filter((x) => pnum(x?.value) != null) : [];
+  if (revYoy == null) revYoy = optionalNumber(f.revenueGrowthYoy);
+  const fcf = optionalNumber(f.freeCashFlow), ocf = optionalNumber(f.operatingCashFlow), mcap = optionalNumber(f.marketCap);
+  const parsedDebt = optionalNumber(f.totalDebt);
+  const totalDebt = parsedDebt != null && parsedDebt >= 0 ? parsedDebt : null;
+  const totalCash = optionalNumber(f.totalCash), de = optionalNumber(f.debtToEquity);
+  const gm = optionalNumber(f.grossMargin), om = optionalNumber(f.operatingMargin), pm = optionalNumber(f.profitMargin);
+  const roe = optionalNumber(f.returnOnEquity), roa = optionalNumber(f.returnOnAssets);
+  const ni = Array.isArray(f.netIncomeHistory) ? f.netIncomeHistory.filter((x) => optionalNumber(x?.value) != null) : [];
   const niTtm = ni.length >= 4 ? ni.slice(-4).reduce((s, x) => s + Number(x.value), 0) : null;
   const profQuarters = ni.length ? ni.filter((x) => Number(x.value) > 0).length : null;
-  const pe = pnum(f.trailingPE), fpe = pnum(f.forwardPE), peg = pnum(f.pegRatio);
-  const secPE = pnum(sectorPE);
+  const pe = optionalNumber(f.trailingPE), fpe = optionalNumber(f.forwardPE), peg = optionalNumber(f.pegRatio);
+  const secPE = optionalNumber(sectorPE);
   const ar = f.analystRevisions || null;
-  const arNet = ar ? pnum(ar.net) : null;
-  const tgtMean = pnum(f.targetMeanPrice), tgtHi = pnum(f.targetHighPrice), tgtLo = pnum(f.targetLowPrice);
-  const nAnalysts = pnum(f.numberOfAnalystOpinions);
-  const beta = pnum(f.beta);
-  const lo52 = pnum(f.fiftyTwoWeekLow);
+  const arNet = ar ? optionalNumber(ar.net) : null;
+  const tgtMean = optionalNumber(f.targetMeanPrice), tgtHi = optionalNumber(f.targetHighPrice), tgtLo = optionalNumber(f.targetLowPrice);
+  const nAnalysts = optionalNumber(f.numberOfAnalystOpinions);
+  const beta = optionalNumber(f.beta);
+  const lo52 = optionalNumber(f.fiftyTwoWeekLow);
   const upside = (t) => (t > 0 && spot > 0 ? r1((t / spot - 1) * 100) : null);
   const pctStr = (v) => `${v >= 0 ? "+" : ""}${r1(v)}%`;
 
@@ -23254,11 +23272,11 @@ export function buildStockChecklist(sym, data, grade, sectorPE, traps, peers) {
     if (de != null) bits.push(`debt/equity ${r2(de / 100)}x`);
     if (totalDebt != null && totalCash != null) bits.push(`${stkBigMoney(totalCash)} cash vs ${stkBigMoney(totalDebt)} debt`);
     if (fcf > 0 && totalDebt > 0) bits.push(`~${r1(totalDebt / fcf)} years of FCF would retire all debt`);
-    const cr = pnum(f.currentRatio);
+    const cr = optionalNumber(f.currentRatio);
     if (cr != null) bits.push(`current ratio ${r2(cr)}`);
     fin.push(bits.length
-      ? item("How leveraged is the balance sheet? Can it service its debt in a downturn?", "answered",
-          `${bits.join("; ")}. ${(totalCash != null && totalDebt != null && totalCash >= totalDebt) || (fcf > 0 && totalDebt > 0 && totalDebt / fcf <= 3) ? "Comfortable in a normal downturn on these numbers." : "Serviceable today, but stress-test it against a real revenue drop."}`)
+      ? item("How leveraged is the balance sheet? Can it service its debt in a downturn?", totalDebt == null || totalCash == null ? "unsure" : "answered",
+          `${bits.join("; ")}. ${totalDebt == null || totalCash == null ? "Debt or cash coverage is incomplete; debt service cannot be assessed from these inputs." : (totalCash >= totalDebt) || (fcf > 0 && totalDebt > 0 && totalDebt / fcf <= 3) ? "Comfortable in a normal downturn on these numbers." : "Serviceable today, but stress-test it against a real revenue drop."}`)
       : unanswered("How leveraged is the balance sheet? Can it service its debt in a downturn?"));
   }
   {
@@ -23266,7 +23284,7 @@ export function buildStockChecklist(sym, data, grade, sectorPE, traps, peers) {
     // accumulated across builds; Yahoo serves ~6 quarters per fetch, so the
     // year-over-year comparison unlocks as the series deepens).
     const q = "Does the business generate consistent and growing free cash flow?";
-    const fh = Array.isArray(f.fcfHistory) ? f.fcfHistory.filter((x) => pnum(x?.value) != null) : [];
+    const fh = Array.isArray(f.fcfHistory) ? f.fcfHistory.filter((x) => optionalNumber(x?.value) != null) : [];
     if (fh.length >= 4) {
       const pos = fh.filter((x) => Number(x.value) > 0).length;
       const ttm = fh.slice(-4).reduce((s, x) => s + Number(x.value), 0);
@@ -23291,16 +23309,16 @@ export function buildStockChecklist(sym, data, grade, sectorPE, traps, peers) {
     }
   }
   fin.push(fcf != null && (mcap > 0 || totalDebt != null)
-    ? item("How does free cash flow compare to total debt and market cap?", "answered",
+    ? item("How does free cash flow compare to total debt and market cap?", totalDebt == null ? "unsure" : "answered",
         [mcap > 0 ? `FCF yield ${r1((fcf / mcap) * 100)}% of market cap (${stkBigMoney(fcf)} on ${stkBigMoney(mcap)})` : null,
-         totalDebt > 0 ? (fcf > 0 ? `debt is ${r1(totalDebt / fcf)}x annual FCF` : `debt ${stkBigMoney(totalDebt)} against negative FCF`) : "essentially no debt"].filter(Boolean).join("; ") + ".")
+         totalDebt > 0 ? (fcf > 0 ? `debt is ${r1(totalDebt / fcf)}x annual FCF` : `debt ${stkBigMoney(totalDebt)} against ${fcf === 0 ? "zero" : "negative"} FCF`) : totalDebt === 0 ? "no reported debt" : "debt data unavailable"].filter(Boolean).join("; ") + ".")
     : unanswered("How does free cash flow compare to total debt and market cap?"));
   {
     // Answered from the trailing-4Q capital-allocation block
     // (fundamentals.capitalAllocation, quarterly cash-flow statement lines),
     // cross-referencing the Capital raises tab for fresh financing headlines.
     const q = "What is management doing with the free cash flow (buybacks, dividends, M&A, capex, debt paydown)?";
-    const dy = pnum(f.dividendYield), po = pnum(f.payoutRatio);
+    const dy = optionalNumber(f.dividendYield), po = optionalNumber(f.payoutRatio);
     const ca = f.capitalAllocation || null;
     const parts = [];
     if (ca?.buybackTtm > 0) parts.push(`bought back ${stkBigMoney(ca.buybackTtm)} of stock`);
@@ -23312,7 +23330,7 @@ export function buildStockChecklist(sym, data, grade, sectorPE, traps, peers) {
       ? ` Fresh financing headline on file: ${(CAPITAL_RAISE_KIND_LABEL[cr.kind] || cr.kind).toLowerCase()}${cr.amount != null ? ` (~${fmtUsdCompact(cr.amount)})` : ""} — the Capital raises tab (under Macro) has the filed SEC amounts.`
       : " Fresh issuance/buyback headlines across the universe land on the Capital raises tab (under Macro).";
     if (parts.length) {
-      const fh = Array.isArray(f.fcfHistory) ? f.fcfHistory.filter((x) => pnum(x?.value) != null) : [];
+      const fh = Array.isArray(f.fcfHistory) ? f.fcfHistory.filter((x) => optionalNumber(x?.value) != null) : [];
       const ttm = fh.length >= 4 ? fh.slice(-4).reduce((s, x) => s + Number(x.value), 0) : null;
       const returned = (ca.buybackTtm > 0 ? ca.buybackTtm : 0) + (ca.dividendsTtm > 0 ? ca.dividendsTtm : 0);
       const shareNote = ttm > 0 && returned > 0 ? ` — ~${Math.round((returned / ttm) * 100)}% of trailing FCF returned to shareholders` : "";
@@ -23363,7 +23381,7 @@ export function buildStockChecklist(sym, data, grade, sectorPE, traps, peers) {
       reasons.length ? `Best deterministic guess: ${reasons.join("; ")}. The narrative behind the multiple needs qualitative work.` : "No clear deterministic read — the narrative behind the multiple needs qualitative work."));
   }
   {
-    const g = pnum(f.growthEstimateCurY);
+    const g = optionalNumber(f.growthEstimateCurY);
     val.push(peg != null || (fpe != null && g != null)
       ? item("What growth is the market pricing in? Is it realistic and sustainable?", "unsure",
           `${peg != null ? `PEG ${r2(peg)} — the multiple ${peg <= 1 ? "asks for less growth than analysts already forecast" : peg <= 1.5 ? "roughly matches forecast growth" : "prices in more growth than current forecasts"}` : ""}${g != null ? `${peg != null ? "; " : ""}street sees ${pctStr(g)} earnings growth this year` : ""}${revYoy != null ? ` against ${pctStr(revYoy)} actual revenue growth` : ""}. Whether that sustains is a judgment call.`)
@@ -37747,6 +37765,7 @@ async function main() {
   const fundHistoryBytes = await writeFundamentalsHistory(fundHistory);
   const earningsForecastInfo = await writeEarningsForecast({ dataDir: DATA_DIR, prepared: earningsForecastPrepared });
   console.log(`wrote data/earnings-forecast.json — ${earningsForecastInfo.companies} launch companies, ${earningsForecastInfo.forecasts} revenue forecasts; no AI calls`);
+  if(earningsForecastPrepared.payload.companyStorage)console.log('company research storage: '+JSON.stringify(earningsForecastPrepared.payload.companyStorage));
   if (fundHistory.size) {
     console.log(`wrote data/fundamentals-history/ — ${fundHistory.size} tickers, ${fundHistoryBytes} bytes total`);
   }
@@ -38429,13 +38448,13 @@ async function main() {
     try { picksSnap = JSON.parse(await readFile(resolve(DATA_DIR, PICKS_ACCURACY_FILE), "utf8")); } catch { /* no enrolled book yet */ }
     const research = buildGradeResearch({
       days: dailySnap.days || [],
-      series: seriesFromChains(chains),
+      series: seriesFromChains(chains, { asOf: builtAtIso }),
       sectors: SECTORS,
       picks: picksSnap,
       builtAtIso,
     });
     const info = await writeGradeResearchFile(DATA_DIR, research);
-    console.log(`wrote data/grade-research.json — ${info.days} snapshot day(s), ${info.bytes} bytes${info.established ? ", edge claim established" : ""}`);
+    console.log(`wrote data/grade-research.json — ${info.days} snapshot day(s), ${info.bytes} bytes${info.established ? ", five-session research threshold met" : ""}`);
   } catch (err) {
     const message = String(err?.message || err).split("\n")[0];
     console.warn(`[research] grade-research failed — ${message}`);

@@ -500,7 +500,7 @@ try {
   try { picksSnap = JSON.parse(await readFile(resolve(DATA_DIR, "picks-accuracy.json"), "utf8")); } catch {}
   const research = buildGradeResearch({
     days: dailySnap.days || [],
-    series: seriesFromChains(chains),
+    series: seriesFromChains(chains, { asOf: builtAtIso }),
     sectors: SECTORS,
     picks: picksSnap,
     builtAtIso,

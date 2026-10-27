@@ -3,6 +3,7 @@ import { readFile, writeFile, mkdir, link, unlink, rename } from 'node:fs/promis
 import { randomUUID } from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
+import { attachCompanyResearch, buildIndustryEvidence } from '../lib/company-research.mjs';
 import { FORECAST_KEY, FORECAST_STATE_KEY, contentHash, makeObservation, normalizeCompanyFacts, mergeObservations, selectCohort, forecastQuarter, evaluateRuns, buildForecastPayload, businessMix, finite, conservativePublication, reconstructedBacktest, knownReportedPeriod, cohortDue, acceptCohort, rerankCohort, segmentInputMix } from '../lib/earnings-forecast.mjs';
 
 const DAY=86400000;
@@ -122,10 +123,30 @@ export async function prepareEarningsForecast({previous,chains,universe,sectors,
   }
   const payload=buildForecastPayload({state,chains,builtAtIso:cutoffAt,collection:{requestsThisRun:state.dailyCost.requests-initialRequests,requestsToday:state.dailyCost.requests,bytesToday:state.dailyCost.bytes,requestLimitPerDay:maxRequests,collectionError:state.collectionError||null}});
   payload.enabled=true;
-  return {state,payload,artifacts};
+  attachCompanyResearch({state,payload,chains,asOf:cutoffAt,industryInputs:{universe}});
+  for(const c of payload.companies){const q=chains[c.symbol];c.valuationReference={spot:q?.spot??null,quoteAsOf:q?.quoteAsOf||null,currency:q?.quoteProvenance?.currency||null,forwardPE:q?.fundamentals?.forwardPE??null,reportedPeriodEnd:knownReportedPeriod(q?.fundamentals),asOf:cutoffAt};}
+  return {state,payload,artifacts,industryUniverse:universe};
 }
 
 export async function writeEarningsForecast({dataDir,prepared}){
+  // Both the full bake and the standalone refresh use the same collected
+  // snapshots. Publication never initiates another source scan.
+  const industryInputs={};
+  for(const[key,file]of [['memory','ram-prices.json'],['gpu','accelerator-prices.json'],['capex','ai-capex.json']]){
+    try{industryInputs[key]=JSON.parse(await readFile(resolve(dataDir,file),'utf8'));}
+    catch{industryInputs[key]=null;}
+  }
+  prepared.payload.industryEvidence=buildIndustryEvidence({...industryInputs,asOf:prepared.payload.builtAtIso,universe:prepared.industryUniverse||[]});
+  const stateText=JSON.stringify(prepared.state);
+  if(prepared.payload.companyStorage)Object.assign(prepared.payload.companyStorage,{
+    stateBytes:Buffer.byteLength(stateText),
+    pendingArchiveBytes:[...prepared.artifacts.values()].reduce((sum,value)=>sum+Buffer.byteLength(JSON.stringify(value)),0),
+    payloadBytes:0,
+  });
+  let text=JSON.stringify(prepared.payload);
+  if(prepared.payload.companyStorage)for(let i=0;i<3;i++){prepared.payload.companyStorage.payloadBytes=Buffer.byteLength(text);text=JSON.stringify(prepared.payload);}
+  // Validate the complete UI snapshot before writing any new archive objects.
+  if(Buffer.byteLength(text)>3_000_000)throw Error('Forecast UI payload exceeds budget');
   // Publish the pathname only after bytes are complete. Exclusive hard links
   // make concurrent identical puts idempotent without exposing partial JSON.
   for(const[key,value]of prepared.artifacts){
@@ -133,8 +154,7 @@ export async function writeEarningsForecast({dataDir,prepared}){
     await writeFile(temp,text,{flag:'wx'});
     try{try{await link(temp,path);}catch(e){if(e.code!=='EEXIST')throw e;if(await readFile(path,'utf8')!==text)throw Error('Immutable forecast artifact collision: '+key);}}finally{await unlink(temp);}
   }
-  const text=JSON.stringify(prepared.payload);if(Buffer.byteLength(text)>3_000_000)throw Error('Forecast UI payload exceeds budget');
-  for(const[key,body]of [[FORECAST_STATE_KEY,JSON.stringify(prepared.state)],[FORECAST_KEY,text]]){const path=resolve(dataDir,key),temp=path+'.'+randomUUID()+'.tmp';await writeFile(temp,body,{flag:'wx'});await rename(temp,path);}
+  for(const[key,body]of [[FORECAST_STATE_KEY,stateText],[FORECAST_KEY,text]]){const path=resolve(dataDir,key),temp=path+'.'+randomUUID()+'.tmp';await writeFile(temp,body,{flag:'wx'});await rename(temp,path);}
   return {companies:prepared.payload.companies.length,forecasts:prepared.payload.companies.filter(c=>finite(c.forecast.outputs?.revenue)&&c.forecast.status!=='stale').length,bytes:Buffer.byteLength(text)};
 }
 

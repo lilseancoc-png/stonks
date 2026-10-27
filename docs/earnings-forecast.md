@@ -3,6 +3,22 @@
 Owner-only, deterministic quarterly research. No inference calls, paid feeds,
 broker writes or changes to the existing ranking engines.
 
+The October 27 research upgrade adds **Company record**, **Full year & value**,
+and **Industry evidence** views inside this same Owner workspace. The company
+record retains a rolling three-year window for the current twenty-company cohort.
+The full-year workbench models the next four fiscal quarters with editable
+business sensitivities, dilution, valuation multiples and reverse valuation.
+Industry readings link existing memory, GPU and CapEx observations to company
+mechanisms and confirmation questions. See [implementation and storage
+limits](data-stack-implementation.md) for the exact scope and verification.
+
+These additions reuse the private forecast payload and state, add no provider
+or AI calls, and do not update the quarterly model's frozen predictions or
+learning scorecards. The production storage account's remaining quota was not
+available to this review; the additional vendor-history state is bounded to
+500,000 bytes and visibly pauses new history updates rather than truncating
+accepted records if that limit is reached.
+
 ## Design
 
 An existing bake owns one current UI payload, one compact state file, and

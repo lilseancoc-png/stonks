@@ -5,6 +5,8 @@ import { webullAnalyticsFactory } from '../../lib/webull-analytics.mjs';
 import { webullReviewFactory } from './webull-review-client.mjs';
 import { historicalDataFactory } from './historical-data-client.mjs';
 import { earningsForecastFactory } from './earnings-forecast-client.mjs';
+import { companyResearchClientFactory } from './company-research-client.mjs';
+import { fullYearValuationFactory } from '../../lib/full-year-valuation.mjs';
 import { earningsScenarioFactory } from '../../lib/earnings-forecast-scenarios.mjs';
 import { forcedLiquidationFactory } from './forced-liquidation-client.mjs';
 import { liquidationPledgeDisclosure } from '../../lib/forced-liquidation.mjs';
@@ -23467,7 +23469,7 @@ ${renderExportBindings()}
     // Never use a legacy static-data fallback for this Owner-only feature.
     url: function(){ return '/api/auth/me?data=historical-data.json'; }
   });
-  var earningsForecast = (${earningsForecastFactory.toString()})(window, document, { owner: function(){ return HAS_OWNER_ACCESS; } }, ${earningsScenarioFactory.toString()});
+  var earningsForecast = (${earningsForecastFactory.toString()})(window, document, { owner: function(){ return HAS_OWNER_ACCESS; } }, ${earningsScenarioFactory.toString()}, ${companyResearchClientFactory.toString()}, ${fullYearValuationFactory.toString()});
   var forcedLiquidation = (${forcedLiquidationFactory.toString()})(window, document, {
     owner: function(){ return HAS_OWNER_ACCESS; }, evidenceVersion: ${LIQUIDATION_EVIDENCE_VERSION},
     symbols: function(){ return Array.isArray(MANIFEST.symbols) ? MANIFEST.symbols : []; },
@@ -35771,8 +35773,8 @@ ${renderExportBindings()}
   // (dataset = resolved-only vs incl. open marks; basis = $10k notional vs
   // per-contract) and re-renders on any toggle via accRerenderAnalytics().
   // ========================================================================
-  var accView = { dataset:'closed', basis:'notional', xtabA:'thesis', xtabB:'conviction', simMode:'fixed', simOpens:false, simHighConv:false, mcIters:'5000', mcSeed:1337, researchHorizon:'10', wbLens:'performance', wbGroup:'structure', wbSide:'all', wbStruct:'all', wbRun:'all', wbState:'all', wbRange:'all', eqSplit:'side', cmpPreset:'side', cmpA:'', cmpB:'' };
-  (function(){ try { var sv = JSON.parse(localStorage.getItem('stonks-acc-view') || '{}'); ['dataset','basis','xtabA','xtabB','simMode','mcIters','researchHorizon','wbLens','wbGroup','wbSide','wbStruct','wbRun','wbState','wbRange','eqSplit','cmpPreset','cmpA','cmpB'].forEach(function(k){ if (sv[k] != null) accView[k] = sv[k]; }); ['simOpens','simHighConv'].forEach(function(k){ if (typeof sv[k] === 'boolean') accView[k] = sv[k]; }); if (['fixed','environment','vol','kelly','combined'].indexOf(accView.simMode) < 0) accView.simMode = 'fixed'; if (['notional','environment','contract'].indexOf(accView.basis) < 0) accView.basis = 'notional'; if (['5','10','14'].indexOf(String(accView.researchHorizon)) < 0) accView.researchHorizon = '10'; if (['performance','accuracy','engine','trades'].indexOf(accView.wbLens) < 0) accView.wbLens = 'performance'; if (['structure','side','grade','tier','sector','regime','run'].indexOf(accView.wbGroup) < 0) accView.wbGroup = 'structure'; if (['all','call','put'].indexOf(accView.wbSide) < 0) accView.wbSide = 'all'; if (['all','single','spread'].indexOf(accView.wbStruct) < 0) accView.wbStruct = 'all'; if (['all','11','15'].indexOf(accView.wbRun) < 0) accView.wbRun = 'all'; if (['all','open','closed'].indexOf(accView.wbState) < 0) accView.wbState = 'all'; if (['all','90','30'].indexOf(String(accView.wbRange)) < 0) accView.wbRange = 'all'; } catch (e){} })();
+  var accView = { dataset:'closed', basis:'notional', xtabA:'thesis', xtabB:'conviction', simMode:'fixed', simOpens:false, simHighConv:false, mcIters:'5000', mcSeed:1337, researchHorizon:'5', wbLens:'performance', wbGroup:'structure', wbSide:'all', wbStruct:'all', wbRun:'all', wbState:'all', wbRange:'all', eqSplit:'side', cmpPreset:'side', cmpA:'', cmpB:'' };
+  (function(){ try { var sv = JSON.parse(localStorage.getItem('stonks-acc-view') || '{}'); ['dataset','basis','xtabA','xtabB','simMode','mcIters','researchHorizon','wbLens','wbGroup','wbSide','wbStruct','wbRun','wbState','wbRange','eqSplit','cmpPreset','cmpA','cmpB'].forEach(function(k){ if (sv[k] != null) accView[k] = sv[k]; }); ['simOpens','simHighConv'].forEach(function(k){ if (typeof sv[k] === 'boolean') accView[k] = sv[k]; }); if (['fixed','environment','vol','kelly','combined'].indexOf(accView.simMode) < 0) accView.simMode = 'fixed'; if (['notional','environment','contract'].indexOf(accView.basis) < 0) accView.basis = 'notional'; if (['5','10','14'].indexOf(String(accView.researchHorizon)) < 0) accView.researchHorizon = '5'; if (['performance','accuracy','engine','trades'].indexOf(accView.wbLens) < 0) accView.wbLens = 'performance'; if (['structure','side','grade','tier','sector','regime','run'].indexOf(accView.wbGroup) < 0) accView.wbGroup = 'structure'; if (['all','call','put'].indexOf(accView.wbSide) < 0) accView.wbSide = 'all'; if (['all','single','spread'].indexOf(accView.wbStruct) < 0) accView.wbStruct = 'all'; if (['all','11','15'].indexOf(accView.wbRun) < 0) accView.wbRun = 'all'; if (['all','open','closed'].indexOf(accView.wbState) < 0) accView.wbState = 'all'; if (['all','90','30'].indexOf(String(accView.wbRange)) < 0) accView.wbRange = 'all'; } catch (e){} })();
   function accSaveView(){ try { localStorage.setItem('stonks-acc-view', JSON.stringify({ dataset:accView.dataset, basis:accView.basis, xtabA:accView.xtabA, xtabB:accView.xtabB, simMode:accView.simMode, simOpens:accView.simOpens, simHighConv:accView.simHighConv, mcIters:accView.mcIters, researchHorizon:accView.researchHorizon, wbLens:accView.wbLens, wbGroup:accView.wbGroup, wbSide:accView.wbSide, wbStruct:accView.wbStruct, wbRun:accView.wbRun, wbState:accView.wbState, wbRange:accView.wbRange, eqSplit:accView.eqSplit, cmpPreset:accView.cmpPreset, cmpA:accView.cmpA, cmpB:accView.cmpB })); } catch (e){} }
   // The active trade set. 'closed' = resolved only; 'all' = also include the
   // open book, each open position "resolved" at its CURRENT modeled mark
@@ -37018,7 +37020,7 @@ ${renderExportBindings()}
   function renderGradeEdge(){
     var box = $('an-research'); if (!box) return;
     var report = accuracyState.research;
-    var horizon = String(accView.researchHorizon || '10');
+    var horizon = String(accView.researchHorizon || '5');
     var toggles = '<div class="acc-controls"><div class="acc-ctl"><span class="acc-ctl-lbl">Horizon</span>' +
       accSeg('researchHorizon', 'acc-hz', horizon, [{ value:'5', label:'5 days' }, { value:'10', label:'10 days' }, { value:'14', label:'14 days' }]) +
       '</div></div>';
@@ -37027,6 +37029,7 @@ ${renderExportBindings()}
       box.innerHTML = toggles + '<p class="muted acc-an-note">The grade-edge report appears after the next bake. It is computed from stored daily grades and stored daily closes. It does not call a model.</p>';
       return;
     }
+    if (report.inputStatus === 'price-inputs-unavailable') { box.innerHTML = toggles + '<p class="muted acc-an-note">Research inputs unavailable: grades exist, but no usable price series reached the evaluator. This is a collection or wiring failure, not a strategy result.</p>'; return; }
     var h = report.horizons[horizon] || {};
     var kill = report.killLine || {};
     var q = h.quintiles || [];
@@ -37036,7 +37039,7 @@ ${renderExportBindings()}
     var overlap = h.overlapping || {};
     var apart = h.nonOverlapping || {};
     accPaneSummary('acc-sum-research', [
-      { val: kill.established ? 'Established' : 'Not established', lbl: 'edge claim', cls: kill.established ? 'sig-pos' : '' },
+      { val: kill.established ? 'Threshold met' : 'Collecting / not met', lbl: '5-session evaluation', cls: kill.established ? 'sig-pos' : '' },
       { val: String(apart.days == null ? '—' : apart.days), lbl: horizon + '-day windows' },
       { val: accResearchPct(residual.nonOverlappingSpreadPct, 2), lbl: 'residual spread', cls: residual.nonOverlappingSpreadPct == null ? '' : (residual.nonOverlappingSpreadPct > 0 ? 'sig-pos' : 'sig-neg') },
       { val: placebo.above95 ? 'Above shuffle' : 'Inside shuffle', lbl: 'placebo', cls: placebo.above95 ? 'sig-pos' : '' },
