@@ -80,6 +80,7 @@ export function renderHistoricalDataCss() {
 .h-match h4 { margin:0; font:650 14px/1.4 var(--font-sans); color:var(--text-strong); }
 .h-match p { margin:0; font:400 12px/1.6 var(--font-sans); color:var(--text); overflow-wrap:anywhere; }
 .h-match button { align-self:flex-start; margin-top:auto; }
+.h-event-table thead th { white-space:normal; min-width:58px; vertical-align:bottom; }
 .h-event-table td small, .h-event-table th small, .h-table th small { display:block; color:var(--muted); font:400 10px/1.5 var(--font-sans); white-space:normal; max-width:260px; }
 .h-empty { padding:24px 10px; color:var(--muted-strong); font:400 13px/1.6 var(--font-sans); }
 .h-toolbar select:focus-visible, .h-study-button:focus-visible, .h-disclosure summary:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }

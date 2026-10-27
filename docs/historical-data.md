@@ -179,22 +179,34 @@ bake step, no AI) covers the market-event list the owner asked for on
   the close before the first session, worst close within 60 sessions, and
   sessions until the pre-event close is regained. Oil episodes add the WTI
   spot move over 20 sessions; bank episodes add regional banks (KRE). Mania
-  episodes are measured from each boom's closing high.
-- **Rule studies over every qualifying day** — S&P 500 closes down 6% or
-  more since 1950 (with 1987 Black Monday called out; clusters within 20
-  sessions are shown but summarized once); Nasdaq closes down 4% or more since
+  episodes are measured from each boom's closing high; the data checks that
+  each date really was the highest close of the prior three years and next 60
+  sessions (`peakConfirmed`, flagged in the table when it is not), and a peak
+  date that is not a trading session is shown as unavailable, not shifted.
+  When a category mixes markets (manias: S&P 500 and Nasdaq peaks) the
+  summary says so.
+- **Rule studies over every qualifying day** — S&P 500 closes down 5% or
+  more (`CRASH_DROP_PCT`, the same threshold the "resembles now" check uses)
+  since the first bar in the data (with 1987 Black Monday called out; a drop
+  more than 20 sessions after the previous one starts a new cluster, and the
+  summary uses the first drop of each cluster); Nasdaq closes down 4% or more since
   1971 (next-day bounce, "slight bounce then a lower close within five
   sessions", 1- and 3-month follow-through); triple witching against the other
   monthly expirations and ordinary Fridays since 1984; AAPL into and out of
   every WWDC keynote since 2003, alone and against the Nasdaq; and S&P 500
-  moves on FOMC, CPI and jobs-report days against all other sessions.
+  moves on FOMC, CPI and jobs-report days against sessions with none of the
+  three releases (CPI and jobs keep one FRED-listed date per month, the
+  latest; dropped dates and dates on market holidays are counted in the row).
 - **Resembles now** — deterministic checks on the latest completed close:
   Nasdaq −4% or S&P 500 −5% in the last five sessions; a 1987-style setup (S&P
-  500 up 25%+ on the year with the 10-year yield up 1 point in six months);
+  500 up 20%+ over 250 sessions with the 10-year yield up 1 point over 126
+  readings; the card shows the same two measures on 1987-10-16, computed from
+  the data rather than quoted);
   VIX 30+ or +25% in a day; WTI +10% in 5 sessions or +25% in 20; gold +2%
   with crude or VIX jumping; KRE −12% in 10 sessions; Nasdaq up 40%+ on the
   year and 20%+ above its 200-day average; squeeze-style single-name moves
-  (+15% on 4x volume); triple witching week; the WWDC window; FOMC/CPI/jobs in
+  (+15% on 4x volume); triple witching week; the WWDC window (14 days before to 7 after the keynote,
+  `WWDC_WINDOW_DAYS`, shared with the Brief cue); FOMC/CPI/jobs in
   the next three days; and open Santa / Sell in May / September windows (those
   link back to the seasonal studies). War, tariff, pandemic and bank-run
   headlines from the last 48 hours count only with a risk-off reaction on the
@@ -217,7 +229,15 @@ The Brief's Historical playbook gained pandemic, tariff and bank-run cues on
 the same headline-plus-reaction rule, and its WWDC cue now follows the actual
 keynote date. No Owner numbers flow into the public Brief.
 
-Limits: event lists are short case-study sets, not statistical samples;
+Hard-coded dates: every FOMC decision day 2015–2027 was checked against
+federalreserve.gov on 2026-10-27 (that check found four wrong 2027 dates in
+the build's `FOMC_MEETINGS_BASELINE`, now fixed), and the 2026 WWDC keynote
+against Apple's announcement. Earlier WWDC keynotes and the episode dates are
+well-documented public dates written into the code; mania peaks are also
+checked against the data, and the 1987 setup numbers are computed from it.
+
+Limits: event lists are short case-study sets of well-known events, not
+statistical samples, and mania peaks are chosen as tops by construction;
 indexes exclude dividends; daily lows, volume, consensus forecasts and
 surprises are not in the data, so "tested the low" means a lower close and
 release-day studies cannot condition on the surprise.

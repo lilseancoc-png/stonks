@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { isHistoricalTradingDate } from '../lib/historical-market-calendar.mjs';
 import { cleanLongBars } from '../lib/historical-market-history.mjs';
-import { buildHistoricalEvents, measureEpisode, headlineHits, wwdcKeynote, EVENT_CATEGORIES, WWDC_KEYNOTES, FOMC_DECISIONS } from '../lib/historical-events.mjs';
+import { buildHistoricalEvents, measureEpisode, headlineHits, wwdcKeynote, EVENT_CATEGORIES, WWDC_KEYNOTES, FOMC_DECISIONS, CRASH_DROP_PCT } from '../lib/historical-events.mjs';
 import { buildHistoricalData, packHistoricalData } from '../lib/historical-data.mjs';
 import { refreshHistoricalSourceCache, loadFredReleaseDates } from './collect-historical-sources.mjs';
 import { detectPlaybookCues, historicalEventInputs } from './build.mjs';
@@ -34,6 +34,12 @@ assert.equal(ep.session, '2001-09-17'); assert.equal(ep.baseline, '2001-09-10');
 assert(Math.abs(ep.d1 - pctOf(flat, '2001-09-17')) < 0.01, 'day 1 is the first-session move');
 assert(ep.drawdown60Pct <= ep.d1 + 1e-9 && ep.recoverySessions == null && ep.recoveryWindowComplete, 'a flat series never regains a 10% gap; the three-year window is complete');
 assert.equal(measureEpisode(flat, '1999-01-04'), null, 'dates before the series are unavailable, not zero');
+// Peaks must be an actual bar, and the data says whether it was the high.
+assert.equal(measureEpisode(flat, '2001-09-15', { peak: true }), null, 'a peak date that is not a trading day is unavailable, not shifted');
+const peaked = series('2000-01-03', '2008-12-31', { drift: .0005, shocks: { '2003-06-02': -30 } });
+const pk = measureEpisode(peaked, '2003-05-30', { peak: true });
+assert.equal(pk.baseline, '2003-05-30'); assert.equal(pk.session, '2003-06-02'); assert(pk.d1 < -29);
+assert.equal(pk.peakConfirmed, false, 'a gently rising series is not at its high three years later; flagged');
 
 // Synthetic market set.
 const shocks = { '1987-10-19': -20.5, '1987-10-20': 5, '2008-10-15': -9, '2020-03-16': -12 };
@@ -62,6 +68,14 @@ assert(ev.studies.squeeze.episodes.find(e => e.date === '2021-01-13').d1 > 50, '
 const crash = ev.studies.crash;
 assert.equal(crash.blackMonday.date, '1987-10-19'); assert(crash.blackMonday.d1 < -20);
 assert.equal(crash.occurrences, 3); assert.equal(crash.summary.n, 3);
+assert.equal(crash.threshold, CRASH_DROP_PCT); assert.equal(crash.since, gspc[0].t);
+assert.match(crash.definition, new RegExp(`down ${-CRASH_DROP_PCT}%`));
+// Clusters chain: three drops each 15 sessions apart are one cluster.
+const chained = gspc.filter(r => r.t <= '1999-12-31');
+const chainIdx = [7000, 7015, 7030].map(i => chained[i].t);
+const chainSeries = series('1950-01-03', '1999-12-31', { shocks: Object.fromEntries(chainIdx.map(d => [d, -7])) });
+const chainStudy = buildHistoricalEvents({ series: { '^GSPC': chainSeries }, context: {}, cutoff: '1999-12-31' }).studies.crash;
+assert.equal(chainStudy.occurrences, 3); assert.equal(chainStudy.clusters, 1, 'a drop 15 sessions after the previous one stays in its cluster');
 
 // Nasdaq 4%: 2022-05-05 drop, slight bounce, then a lower close; 05-09 is the same cluster.
 const n4 = ev.studies['nasdaq-4'], may = n4.episodes.find(e => e.date === '2022-05-05');
@@ -78,8 +92,18 @@ assert(econ.rows.find(r => r.id === 'fomc').n >= 90, 'FOMC days since 2015');
 assert(econ.rows.find(r => r.id === 'cpi').unavailable, 'CPI needs FRED release dates');
 assert.equal(econ.upcoming.find(u => u.id === 'fomc').date, '2026-10-28');
 assert(FOMC_DECISIONS.every((d, i, a) => !i || a[i - 1] < d), 'FOMC dates sorted and unique');
-const withCpi = buildHistoricalEvents({ ...base, releases: { cpi: { dates: ['2025-01-15', '2025-02-12', '2026-11-10'] } } });
-assert.equal(withCpi.studies.econ.rows.find(r => r.id === 'cpi').n, 2);
+assert(FOMC_DECISIONS.every(d => new Date(`${d}T00:00:00Z`).getUTCDay() === 3 || d === '2015-09-17' || d === '2018-11-08' || d === '2020-11-05' || d === '2024-11-07'), 'decision days are Wednesdays except four Thursday decisions');
+{ const { FOMC_MEETINGS_BASELINE } = await import('./build.mjs'); assert(FOMC_MEETINGS_BASELINE.every(m => FOMC_DECISIONS.includes(m.date)), 'the event list matches the build calendar baseline'); }
+const withCpi = buildHistoricalEvents({ ...base, releases: { cpi: { dates: ['2025-01-15', '2025-02-07', '2025-02-12', '2026-11-10'] } } });
+const cpiRow = withCpi.studies.econ.rows.find(r => r.id === 'cpi');
+assert.equal(cpiRow.n, 2, 'one CPI date per month (the latest listed)'); assert.equal(cpiRow.droppedSameMonth, 1);
+// "Other days" exclude every release type, so rows compare against the same quiet sessions.
+assert.notEqual(ev.studies.econ.rows.find(r => r.id === 'fomc').otherMeanAbsPct, null);
+// Make every non-FOMC session since 2015 a "CPI day": FOMC then has no quiet days to compare with.
+const allDays = gspc.filter(r => r.t >= '2015-01-01' && r.t <= '2026-10-26' && !FOMC_DECISIONS.includes(r.t)).map(r => r.t);
+const crowded = buildHistoricalEvents({ ...base, releases: { cpi: { dates: allDays } } }).studies.econ.rows.find(r => r.id === 'fomc');
+assert.equal(crowded.otherMeanAbsPct, null, 'other days exclude every release type, not just this row');
+assert.equal(withCpi.studies.econ.rows.find(r => r.id === 'cpi').marketClosed, 0);
 
 // "Resembles now": quiet tape -> only calendar matches (FOMC in two days).
 assert.deepEqual(ev.matches.map(x => x.id), ['econ-fomc'], 'a quiet synthetic tape matches only the upcoming FOMC');
@@ -89,6 +113,8 @@ assert.match(ev.matches[0].history, /releases since 2015/);
 const hit = buildHistoricalEvents({ ...base, series: { ...base.series, '^IXIC': series('1971-02-05', '2026-10-26', { shocks: { ...nq, '2026-10-26': -4.6 } }), '^GSPC': series('1950-01-03', '2026-10-26', { shocks: { ...shocks, '2026-10-26': -5.5 } }) } });
 const ids = hit.matches.map(x => x.id);
 assert(ids.includes('nasdaq-4') && ids.includes('crash'));
+assert(hit.matches.every(x => !/null|undefined|NaN/.test(x.why + (x.history || ''))), 'no missing numbers in match text');
+assert.match(hit.matches.find(x => x.id === 'nasdaq-4').history, /separate episodes \(4 drop days\) since 1971/);
 assert.match(hit.matches.find(x => x.id === 'nasdaq-4').history, /slight bounce/);
 
 // Headlines: a tariff headline needs a risk-off reaction; relief headlines never count.
@@ -109,6 +135,12 @@ const kreDrop = series('2006-06-01', '2026-10-26', { shocks: { '2026-10-13': -8,
 assert(buildHistoricalEvents({ ...base, series: { ...base.series, KRE: kreDrop } }).matches.some(x => x.id === 'bank-run'));
 const oilSpike = wti.map(r => r.t >= '2026-10-20' ? { ...r, v: r.v * 1.15 } : r);
 assert(buildHistoricalEvents({ ...base, context: { ...context, DCOILWTICO: oilSpike } }).matches.some(x => x.id === 'oil'));
+// 1987 setup: the comparison numbers are measured from the same data.
+const tenUp = context.DGS10.map(r => ({ t: r.t, v: r.t >= '2026-07-01' ? 5.5 : r.t >= '1987-06-01' && r.t <= '1987-10-16' ? 6 : 4 }));
+const hot = series('1950-01-03', '2026-10-26', { shocks: { ...shocks, '2026-03-02': 25 } });
+const setup = buildHistoricalEvents({ ...base, series: { ...base.series, '^GSPC': hot }, context: { ...context, DGS10: tenUp } }).matches.find(x => x.id === 'crash-1987-setup');
+assert(setup, '1987-style setup fires on a 20%+ year with a 1-point yield rise');
+assert.match(setup.why, /On 1987-10-16, the last close before Black Monday, the same measures were/);
 const boom = series('1971-02-05', '2026-10-26', { shocks: { ...nq, '2026-07-01': 25, '2026-08-03': 25 } });
 assert(buildHistoricalEvents({ ...base, series: { ...base.series, '^IXIC': boom } }).matches.some(x => x.id === 'mania'));
 
@@ -154,6 +186,8 @@ assert(detectPlaybookCues({ chains: chainsDown, headlines }, at).some(c => c.id 
 assert(!detectPlaybookCues({ chains: chainsUp, headlines }, at).some(c => c.id === 'tariffs'));
 assert(detectPlaybookCues({ chains: {} }, new Date('2026-06-01T15:00:00Z')).some(c => c.id === 'wwdc'));
 assert(!detectPlaybookCues({ chains: {} }, new Date('2026-07-01T15:00:00Z')).some(c => c.id === 'wwdc'));
+assert(detectPlaybookCues({ chains: {} }, new Date('2026-06-15T15:00:00Z')).some(c => c.id === 'wwdc'), 'Brief cue and matcher share the keynote +7 day window');
+assert(!detectPlaybookCues({ chains: {} }, new Date('2026-06-16T15:00:00Z')).some(c => c.id === 'wwdc'));
 const inputs = historicalEventInputs({ ABC: { technicals: { volume: { priceMove1dPct: 30, rvol: 7 } } }, DEF: { technicals: { volume: { priceMove1dPct: 30, rvol: 1 } } } }, headlines, '2026-10-26T20:00:00Z');
 assert.deepEqual(inputs.squeezes, [{ sym: 'ABC', chPct: 30, rvol: 7 }]); assert.equal(inputs.headlineHits.tariffs.length, 1);
 

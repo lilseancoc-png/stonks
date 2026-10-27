@@ -75,7 +75,7 @@ import {
 import { buildBottomTracker } from "../lib/bottom-tracker.mjs";
 import { writeHistoricalDataFile } from "./refresh-historical-data.mjs";
 import { readHistoricalSourceCache, refreshHistoricalSourceCache, loadFreeFredHistory, loadFreeMarketHistory, loadFredReleaseDates } from "./collect-historical-sources.mjs";
-import { headlineHits, wwdcKeynote } from "../lib/historical-events.mjs";
+import { headlineHits, wwdcKeynote, WWDC_WINDOW_DAYS } from "../lib/historical-events.mjs";
 import { confirmedMarketBars } from "../lib/historical-market-history.mjs";
 import { HISTORICAL_SOURCE_KEY } from "../lib/historical-sources.mjs";
 import { readForecastState, prepareEarningsForecast, writeEarningsForecast } from './refresh-earnings-forecast.mjs';
@@ -13721,15 +13721,15 @@ export const FOMC_MEETINGS_BASELINE = [
   { date: "2026-09-16", label: "Sep 15–16, 2026" },
   { date: "2026-10-28", label: "Oct 27–28, 2026" },
   { date: "2026-12-09", label: "Dec 8–9, 2026" },
-  // 2027 (Fed-published projected dates — subject to confirmation)
+  // 2027 (tentative schedule, Fed press release of 2025-09-05)
   { date: "2027-01-27", label: "Jan 26–27, 2027" },
   { date: "2027-03-17", label: "Mar 16–17, 2027" },
   { date: "2027-04-28", label: "Apr 27–28, 2027" },
-  { date: "2027-06-16", label: "Jun 15–16, 2027" },
+  { date: "2027-06-09", label: "Jun 8–9, 2027" },
   { date: "2027-07-28", label: "Jul 27–28, 2027" },
-  { date: "2027-09-22", label: "Sep 21–22, 2027" },
-  { date: "2027-11-03", label: "Nov 2–3, 2027" },
-  { date: "2027-12-15", label: "Dec 14–15, 2027" },
+  { date: "2027-09-15", label: "Sep 14–15, 2027" },
+  { date: "2027-10-27", label: "Oct 26–27, 2027" },
+  { date: "2027-12-08", label: "Dec 7–8, 2027" },
 ];
 
 // Best-effort live fetch of the Fed's FOMC calendar HTML. Parses the
@@ -31983,7 +31983,7 @@ const HISTORICAL_PLAYBOOK = {
   pandemic: {
     name: "Pandemic / outbreak shock",
     recognition: "Outbreak headlines (WHO alerts, lockdowns, new variants) arriving with a broad risk-off tape.",
-    reaction: "A global outbreak brought a severe initial crash (COVID-19, 2020); milder scares (SARS 2003, H1N1 2009, Ebola 2014, Zika 2016) faded within weeks. Policy support drove recoveries; healthcare and staples held up early.",
+    reaction: "A global outbreak brought a severe initial crash (COVID-19, 2020); milder scares (SARS 2003, H1N1 2009, Ebola 2014, Zika 2016) had smaller, shorter market effects. Policy support drove recoveries; healthcare and staples held up early.",
   },
   tariffs: {
     name: "Tariff / trade-war shock",
@@ -32094,7 +32094,7 @@ export function detectPlaybookCues(ctx, now = new Date()) {
   if (mm === 5) add("sellInMay", "May — start of the historically weak May-October stretch");
   if (mm === 9) add("septemberWeak", "September — historically the weakest month");
   const wwdc = wwdcKeynote(yy), toKeynote = Math.round((Date.parse(`${wwdc.date}T00:00:00Z`) - Date.parse(`${todayEt}T00:00:00Z`)) / 86400000);
-  if (toKeynote >= -7 && toKeynote <= 14) add("wwdc", `WWDC keynote ${wwdc.date}${wwdc.estimated ? " (estimated)" : ""}${toKeynote > 0 ? ` in ${toKeynote}d` : toKeynote === 0 ? " (today)" : ` (${-toKeynote}d ago)`} — watch AAPL and suppliers for a sell-the-news fade`);
+  if (toKeynote >= -WWDC_WINDOW_DAYS.after && toKeynote <= WWDC_WINDOW_DAYS.before) add("wwdc", `WWDC keynote ${wwdc.date}${wwdc.estimated ? " (estimated)" : ""}${toKeynote > 0 ? ` in ${toKeynote}d` : toKeynote === 0 ? " (today)" : ` (${-toKeynote}d ago)`} — watch AAPL and suppliers for a sell-the-news fade`);
 
   return cues.slice(0, PLAYBOOK_MAX_CUES);
 }

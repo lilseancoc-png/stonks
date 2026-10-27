@@ -31,7 +31,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Added
 
-- Historical Data gains an **Events & analogs** view (Owner): dated event studies for war, pandemics, oil disruptions, tariffs, mania peaks, short squeezes and bank runs; every S&P 500 crash day since 1950 with 1987 Black Monday; every Nasdaq 4% drop since 1971 (bounce, then lower close); triple witching against other expirations; AAPL around every WWDC keynote; and S&P 500 moves on FOMC, CPI and jobs days. A "Resembles now" panel matches the latest close against these patterns with deterministic price, calendar and headline-plus-reaction checks. New free inputs (S&P 500 since 1950, Nasdaq since 1971, AAPL, KRE, GME, FRED release dates) ride the existing daily refresh; no AI calls. `lib/historical-events.mjs`, `scripts/historical-events-smoke.mjs`.
+- Historical Data gains an **Events & analogs** view (Owner): dated event studies for war, pandemics, oil disruptions, tariffs, mania peaks, short squeezes and bank runs; every S&P 500 close down 5% or more since 1950 with 1987 Black Monday; every Nasdaq 4% drop since 1971 (bounce, then lower close); triple witching against other expirations; AAPL around every WWDC keynote; and S&P 500 moves on FOMC, CPI and jobs days. A "Resembles now" panel matches the latest close against these patterns with deterministic price, calendar and headline-plus-reaction checks. New free inputs (S&P 500 since 1950, Nasdaq since 1971, AAPL, KRE, GME, FRED release dates) ride the existing daily refresh; no AI calls. `lib/historical-events.mjs`, `scripts/historical-events-smoke.mjs`.
 - The Brief's Historical playbook adds pandemic, tariff and bank-run cues (fresh headline plus a risk-off tape) and its WWDC cue follows the keynote date. `scripts/build.mjs`.
 - Earnings Forecast now covers the 20 largest covered companies (was 10) and re-ranks the list once each calendar quarter. New names get a "New" tag; names that leave move under a "Left the list" divider with their frozen forecast and record, and their filings keep refreshing until that forecast can be scored.
 - Earnings Forecast adds a shadow business-line model (each reported line's year-over-year growth weighted by its latest share, plus any brand-new line at its latest-quarter level). It is scored on every resolved quarter and only replaces the base revenue after passing the same forward gate as the bias candidate.
@@ -46,6 +46,7 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 
 ### Fixed
 
+- The fallback FOMC calendar had four wrong 2027 dates (June, September, October/November and December); it now matches the Fed's published 2027 schedule, so the calendar no longer shows phantom meetings next to the live dates. `scripts/build.mjs` (#704)
 - Earnings Forecast's "Left the list" section keeps at most 20 former names, and the phone company list uses three columns so it no longer fills the screen. (#703)
 - Show the Track record's "Inspect resolved picks" button, which drew with no colour and was invisible. (#702)
 
