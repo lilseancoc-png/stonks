@@ -13,13 +13,13 @@ try{
     await page.route('**/*',r=>new URL(r.request().url()).origin===p.base?r.continue():r.fulfill({body:''}));page.on('pageerror',e=>errors.push(e.message));
     await page.goto(p.base+'/?tab=earnings-forecast');const root=page.locator('#earnings-forecast-root');
     await root.locator('.ef-company-head').waitFor({timeout:10000}).catch(async e=>{console.error(JSON.stringify({errors,visible:await page.locator('.page-pane:not([hidden])').getAttribute('id'),root:await root.innerHTML()}));throw e;});
-    assert.equal(await root.locator('[data-ef-company]').count(),10);assert.equal(await root.locator('img').count(),0,'issuer HTML is escaped');
+    assert.equal(await root.locator('[data-ef-company]').count(),21);assert.equal(await root.locator('.ef-former').count(),1);assert.match(await root.locator('.ef-companies').innerText(),/New[\s\S]*Left the list/i);assert.equal(await root.locator('img').count(),0,'issuer HTML is escaped');
     const frozen=await root.locator('.ef-metrics').first().innerText();await root.locator('.ef-tabs [data-ef-view="assumptions"]').click();
     await root.locator('[data-ef-field="revenueDelta"]').fill('10');assert.match(await root.locator('.ef-scenario-results').innerText(),/110/);
     await root.locator('.ef-tabs [data-ef-view="forecast"]').click();assert.equal(await root.locator('.ef-metrics').first().innerText(),frozen,'scenario never mutates forecast');
     await root.locator('.ef-tabs [data-ef-view="assumptions"]').click();assert.equal(await root.locator('[data-ef-field="revenueDelta"]').inputValue(),'10');
     await root.locator('[data-ef-reset]').click();assert.equal(await root.locator('[data-ef-field="revenueDelta"]').inputValue(),'0');
-    await root.locator('[data-ef-axis]').selectOption('product');await root.locator('[data-ef-row="0"][data-ef-row-field="demand"]').fill('20');await root.locator('[data-ef-row="0"][data-ef-row-field="price"]').fill('10');assert.match(await root.locator('.ef-scenario-results').innerText(),/119\.2/);
+    await root.locator('[data-ef-axis]').selectOption('product');await root.locator('[data-ef-row="0"][data-ef-row-field="demand"]').fill('20');await root.locator('[data-ef-row="0"][data-ef-row-field="price"]').fill('10');assert.match(await root.locator('.ef-scenario-results').innerText(),/117\.6/);
     await root.locator('[data-ef-row="0"][data-ef-row-field="weight"]').fill('80');assert.match(await root.locator('[data-ef-results]').innerText(),/must total 100%/);assert.match(await root.locator('.ef-scenario-results').innerText(),/Unavailable/);
     await root.locator('[data-ef-normalize]').click();assert.match(await root.locator('.ef-share-total').innerText(),/100\.0000%/);
     await root.locator('[data-ef-name]').fill('Demand upside');const savedEvent=page.waitForEvent('download');await root.locator('[data-ef-scenario-export]').click();const saved=await savedEvent,savedPath=await saved.path(),savedJson=JSON.parse(await readFile(savedPath,'utf8'));assert.equal(savedJson.type,'mingstreet-earnings-scenario');assert.equal(savedJson.assumptions.name,'Demand upside');
@@ -28,7 +28,7 @@ try{
     await root.locator('[data-ef-field="operatingMargin"]').fill('80');assert.match(await root.locator('[data-ef-results]').innerText(),/exceeds gross/);await root.locator('[data-ef-field="operatingMargin"]').fill('20');
     await root.locator('[data-ef-company="T3"]').click();assert.match(await root.locator('.ef-company-head').innerText(),/Test issuer 3/);
     assert.equal(await root.locator('[data-ef-axis]').inputValue(),'consolidated');await root.locator('[data-ef-import]').setInputFiles(savedPath);await page.waitForFunction(()=>document.querySelector('[data-ef-results]').textContent.includes('Import failed'));assert.match(await root.locator('[data-ef-results]').innerText(),/different company/);
-    await root.locator('[data-ef-company="T0"]').click();assert.equal(await root.locator('[data-ef-row="0"][data-ef-row-field="demand"]').inputValue(),'20','company working assumptions survive switching');
+    await root.locator('[data-ef-company="T21"]').click();assert.equal(await root.locator('[data-ef-row="0"][data-ef-row-field="demand"]').inputValue(),'20','company working assumptions survive switching');
     await root.locator('[data-ef-axis]').selectOption('geographic');assert.match(await root.innerText(),/FX translation/);assert.match(await root.innerText(),/annual/);
     await root.locator('[data-ef-axis]').selectOption('custom');await root.locator('[data-ef-add]').click();assert.equal(await root.locator('.ef-mix-lines article').count(),3);await root.locator('[data-ef-row="2"][data-ef-row-field="name"]').fill('<img src=x onerror=alert(1)>');assert.equal(await root.locator('img').count(),0);await root.locator('[data-ef-remove="2"]').click();
     // Input updates results without replacing the focused control or trapping Tab.
@@ -57,7 +57,7 @@ try{
     const real=await createEarningsPreview({payloadFile:process.env.EARNINGS_PAYLOAD_FILE});
     try{
       const actual=await browser.newPage({viewport:{width:1440,height:1100}}),errors=[];actual.on('pageerror',e=>errors.push(e.message));
-      await actual.route('**/*',r=>new URL(r.request().url()).origin===real.base?r.continue():r.fulfill({body:''}));await actual.goto(real.base+'/?tab=earnings-forecast');const root=actual.locator('#earnings-forecast-root');await root.locator('.ef-company-head').waitFor();assert.equal(await root.locator('[data-ef-company]').count(),10);
+      await actual.route('**/*',r=>new URL(r.request().url()).origin===real.base?r.continue():r.fulfill({body:''}));await actual.goto(real.base+'/?tab=earnings-forecast');const root=actual.locator('#earnings-forecast-root');await root.locator('.ef-company-head').waitFor();assert.equal(await root.locator('[data-ef-company]').count(),21);assert.equal(await root.locator('.ef-former').count(),1);assert.match(await root.locator('.ef-companies').innerText(),/New[\s\S]*Left the list/i);
       for(const c of real.payload.companies){await root.locator('[data-ef-company="'+c.symbol+'"]').click();assert.match(await root.locator('.ef-company-head').innerText(),new RegExp(c.forecast.target.end));assert(await root.locator('.ef-metric strong').first().innerText()!=='Unavailable');}
       await root.locator('[data-ef-company="TSM"]').click();assert.match(await root.innerText(),/TWD per local share/);assert.match(await root.locator('.ef-metrics').first().innerText(),/Unavailable/);
       await root.locator('[data-ef-company="SPCX"]').click();assert.match(await root.innerText(),/run-rate/);

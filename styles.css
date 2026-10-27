@@ -138,10 +138,13 @@
 .ef-topline { margin:14px 0 20px;color:var(--muted);font-size:calc(12px * var(--ts, 1)); }
 .ef-layout { display:grid;grid-template-columns:170px minmax(0,1fr);gap:24px;align-items:start; }
 .ef-companies { display:flex;flex-direction:column;gap:4px; }
-.ef-companies button { display:flex;justify-content:space-between;align-items:center;gap:8px;padding:12px 9px;background:transparent;border:1px solid transparent;border-radius:6px;color:var(--text);text-align:left; }
+.ef-companies button { display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 9px;background:transparent;border:1px solid transparent;border-radius:6px;color:var(--text);text-align:left; }
 .ef-companies button > span:first-child { display:flex;gap:8px;align-items:center; }
 .ef-companies small,.ef-companies button > span:last-child { color:var(--muted);font-size:calc(11px * var(--ts, 1)); }
 .ef-companies button[aria-pressed="true"] { border-color:var(--border);background:var(--surface-2); }
+.ef-companies .ef-former { opacity:.72; }
+.ef-divider { margin:10px 0 2px;padding-top:10px;border-top:1px dashed var(--border);color:var(--muted);font-size:calc(11px * var(--ts, 1));letter-spacing:.04em;text-transform:uppercase;flex-basis:100%;grid-column:1/-1; }
+.ef-badge { display:inline-block;margin-left:6px;padding:1px 6px;border:1px solid var(--border);border-radius:999px;font-size:calc(10px * var(--ts, 1));font-style:normal;font-weight:600;color:var(--muted-strong);vertical-align:middle;white-space:nowrap; }
 .ef-detail,.ef-columns > section { min-width:0; }
 .ef-company-head { align-items:flex-start;margin-bottom:16px; }
 .ef-company-head h3 { margin:2px 0 6px;font-size:21px;line-height:1.3; }
