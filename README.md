@@ -48,6 +48,13 @@ Ways to move around:
   pages side by side (stacked on phones). Each side has its own page picker;
   drag the divider to resize, use **Swap** to trade sides, or **Full page** to
   go back to one page. Split view stays on until you close it.
+- **Export (owners only)**: the download-arrow button beside split view
+  appears only when an owner is signed in. Pick what to export (the whole
+  page, the Top picks cards or just the actionable ones, an opened pick in its
+  Recommendation or Grade view, a track-record panel, a table or a section)
+  and save it as an image (PNG, copy or share), a PDF, a print, or as data
+  (CSV, Excel, JSON, copied table). Pages that draw cards export the data
+  file behind the page. It all runs in your browser; no AI or extra cost.
 
 ## Reading the charts and numbers
 
@@ -113,6 +120,8 @@ updates" page on the site lists the full schedule.
   - `data-display-css.mjs`: the shared chart and number styling.
   - `split-view-js.mjs` / `split-view-css.mjs`: split view (two pages side
     by side, each loaded with `?embed=1`).
+  - `export-js.mjs` / `export-css.mjs`: the Owner-only Export menu
+    (`js/vendor/html-to-image-1.11.11.js`, MIT, draws the pictures).
   - `views-client.mjs`: shared sorting, Cards / Table switch and compare tray.
   - `docs.mjs`: the Options guide, Chart patterns, Privacy and Terms pages.
 - `api/`: Vercel functions (live quotes and chains, the gated data reader,

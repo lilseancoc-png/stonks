@@ -14,6 +14,7 @@ import { unifiedSignalDisplayFactory } from '../../lib/unified-signal-display.mj
 import { renderWorkspaceBindings, renderWorkspaceHelpers } from './workspace-js.mjs';
 import { renderWayfindingBindings, renderWayfindingHelpers } from './wayfinding-js.mjs';
 import { renderSplitViewBindings, renderSplitViewHelpers } from './split-view-js.mjs';
+import { renderExportBindings } from './export-js.mjs';
 import { renderRecoveryHelpers } from './recovery-js.mjs';
 import { viewsFactory } from './views-client.mjs';
 import { ivRichnessFactory } from '../../lib/iv-richness.mjs';
@@ -142,6 +143,9 @@ ${scenarioEventPhase.toString()}
     HAS_TOP_PICKS = HAS_OWNER_ACCESS;
     HAS_QUANT_LAB = HAS_OWNER_ACCESS;
     if (document.body) document.body.classList.toggle('is-owner', HAS_OWNER_ACCESS);
+    // The Export menu is for the signed-in owners only.
+    var exportBtn = document.getElementById('export-toggle');
+    if (exportBtn) exportBtn.hidden = !HAS_OWNER_ACCESS || IS_EMBED;
   }
   // Private-data deploys read through a data mode on the exact /api/auth/me
   // function that established membership for this page. Production has
@@ -3868,6 +3872,7 @@ ${scenarioEventPhase.toString()}
 ${renderWorkspaceBindings()}
 ${renderWayfindingBindings()}
 ${renderSplitViewBindings()}
+${renderExportBindings()}
     // Restore the persisted desktop collapse before the first sync so the
     // sidebar doesn't flash open for a user who keeps it closed.
     try {
@@ -4063,6 +4068,7 @@ ${renderSplitViewBindings()}
       // Picking a page from the main window (sidebar, search, a link) while
       // split view is on goes back to one full page.
       if (!splitInternalNav && splitIsOn()) splitClose(false);
+      exportClose(false);
       resetNavFilter();
       try { localStorage.setItem('stonks-page-tab', name); } catch (_) {}
       var activeBtn = null;
@@ -41648,38 +41654,102 @@ ${renderSplitViewBindings()}
   }
 
   // --- CSV export ---------------------------------------------------------
+  // Rows behind the Unusual options trades table (current filters).
+  function flowExportRows(){
+    var tickers = filteredTickers();
+    var rows = [];
+    tickers.forEach(function(t){
+      (t.contracts || []).forEach(function(c){
+        rows.push({
+          ticker: t.symbol,
+          spot: t.spot != null ? t.spot : '',
+          // Field names must match what scan-unusual.mjs::stripCandidate
+          // writes (side/strike/expSec/vol) — the same names flowContractHtml
+          // renders. The old c.type/c.s/c.expDate/c.v never existed on these
+          // objects, so those four columns exported blank.
+          side: c.side || '',
+          strike: c.strike != null ? c.strike : '',
+          expiry: c.expSec ? fmtExpiry(c.expSec) : '',
+          dte: c.dte != null ? c.dte : '',
+          volume: c.vol != null ? c.vol : '',
+          openInterest: c.oi != null ? c.oi : '',
+          volOiRatio: (c.oi != null && c.oi > 0 && c.vol != null) ? Math.round((c.vol / c.oi) * 100) / 100 : '',
+          iv: c.iv != null ? c.iv : '',
+          tape: c.tape || '',
+          hourlyDelta: c.deltaVol != null ? c.deltaVol : '',
+          hourlyPremium: c.deltaPremium != null ? c.deltaPremium : '',
+          premium: c.premium != null ? c.premium : '',
+          repeats5d: c.repeatCount || 0,
+          note: c.note || '',
+        });
+      });
+    });
+    return rows;
+  }
+  // Calendar events under the current type filter.
+  function calendarExportRows(){
+    var data = (typeof calendarState !== 'undefined' && calendarState.data) ? calendarState.data : { events: [] };
+    var filtered = (data.events || []).filter(function(e){ return calendarTypeMatches(e.type, calendarState.type); });
+    var rows = filtered.map(function(e){
+      return {
+        date: e.date || '',
+        type: e.type || '',
+        ticker: e.ticker || e.symbol || '',
+        title: e.title || e.label || e.name || '',
+        session: e.session || '',
+        actual: e.actual != null ? e.actual : '',
+        previous: e.previous != null ? e.previous : '',
+        consensus: e.consensus != null ? e.consensus : '',
+        forecast: e.forecast != null ? e.forecast : '',
+      };
+    });
+    return rows;
+  }
+  // Top picks in the current sort order, one row per pick.
+  function picksExportRows(){
+    var data = (typeof picksState !== 'undefined' && picksState.data) ? picksState.data : { picks: [] };
+    var picksRaw = Array.isArray(data.picks) ? data.picks : [];
+    var picks = sortPicks(picksRaw, picksState.sort);
+    var r2 = function(v){ return (v != null && isFinite(v)) ? Number(Number(v).toFixed(2)) : ''; };
+    var rows = picks.map(function(p){
+      var c = p.contract || {};
+      var pl = p.pillars || {};
+      var rec = p.recommendation || {};
+      var sz = p.sizing || {};
+      return {
+        ticker: p.symbol || '',
+        tier: rec.label || '',
+        side: p.side || '',
+        total: r2(p.total != null ? p.total : p.score),
+        fundamentals: pl.fundamentals && pl.fundamentals.score != null ? r2(pl.fundamentals.score) : '',
+        technicals: pl.technicals && pl.technicals.score != null ? r2(pl.technicals.score) : '',
+        mechanicals: pl.mechanicals && pl.mechanicals.score != null ? r2(pl.mechanicals.score) : '',
+        narrative: pl.narrative && pl.narrative.score != null ? r2(pl.narrative.score) : '',
+        weightPct: sz.weight != null ? Number((sz.weight * 100).toFixed(1)) : '',
+        suggestedContracts: sz.suggestedContracts != null ? sz.suggestedContracts : '',
+        riskToStopPct: sz.riskToStopPct != null ? Number((sz.riskToStopPct * 100).toFixed(1)) : '',
+        spot: p.spot != null ? p.spot : '',
+        sector: p.sector || '',
+        strike: c.strike != null ? c.strike : '',
+        expiry: c.expiryLabel || '',
+        dte: c.dte != null ? c.dte : '',
+        otmPct: c.otmPct != null ? c.otmPct : '',
+        breakeven: c.breakeven != null ? c.breakeven : '',
+        breakevenMovePct: r2(c.breakevenMovePct),
+        delta: c.delta != null ? c.delta : '',
+        mid: c.mid != null ? c.mid : '',
+        premiumPerContract: r2(c.mid != null && isFinite(c.mid) ? c.mid * 100 : null),
+        iv: c.iv != null ? c.iv : '',
+        analysis: (p.analysis || '').replace(/\\r?\\n/g, ' '),
+      };
+    });
+    return rows;
+  }
   function bindCsvExports(){
     var flowBtn = $('flow-export-csv');
     if (flowBtn){
       flowBtn.addEventListener('click', function(){
-        var tickers = filteredTickers();
-        var rows = [];
-        tickers.forEach(function(t){
-          (t.contracts || []).forEach(function(c){
-            rows.push({
-              ticker: t.symbol,
-              spot: t.spot != null ? t.spot : '',
-              // Field names must match what scan-unusual.mjs::stripCandidate
-              // writes (side/strike/expSec/vol) — the same names flowContractHtml
-              // renders. The old c.type/c.s/c.expDate/c.v never existed on these
-              // objects, so those four columns exported blank.
-              side: c.side || '',
-              strike: c.strike != null ? c.strike : '',
-              expiry: c.expSec ? fmtExpiry(c.expSec) : '',
-              dte: c.dte != null ? c.dte : '',
-              volume: c.vol != null ? c.vol : '',
-              openInterest: c.oi != null ? c.oi : '',
-              volOiRatio: (c.oi != null && c.oi > 0 && c.vol != null) ? Math.round((c.vol / c.oi) * 100) / 100 : '',
-              iv: c.iv != null ? c.iv : '',
-              tape: c.tape || '',
-              hourlyDelta: c.deltaVol != null ? c.deltaVol : '',
-              hourlyPremium: c.deltaPremium != null ? c.deltaPremium : '',
-              premium: c.premium != null ? c.premium : '',
-              repeats5d: c.repeatCount || 0,
-              note: c.note || '',
-            });
-          });
-        });
+        var rows = flowExportRows();
         if (!rows.length){
           try { alert('No flow rows to export with the current filters.'); } catch (_){}
           return;
@@ -41690,21 +41760,7 @@ ${renderSplitViewBindings()}
     var calBtn = $('calendar-export-csv');
     if (calBtn){
       calBtn.addEventListener('click', function(){
-        var data = (typeof calendarState !== 'undefined' && calendarState.data) ? calendarState.data : { events: [] };
-        var filtered = (data.events || []).filter(function(e){ return calendarTypeMatches(e.type, calendarState.type); });
-        var rows = filtered.map(function(e){
-          return {
-            date: e.date || '',
-            type: e.type || '',
-            ticker: e.ticker || e.symbol || '',
-            title: e.title || e.label || e.name || '',
-            session: e.session || '',
-            actual: e.actual != null ? e.actual : '',
-            previous: e.previous != null ? e.previous : '',
-            consensus: e.consensus != null ? e.consensus : '',
-            forecast: e.forecast != null ? e.forecast : '',
-          };
-        });
+        var rows = calendarExportRows();
         if (!rows.length){
           try { alert('No events to export with the current filter.'); } catch (_){}
           return;
@@ -41715,42 +41771,7 @@ ${renderSplitViewBindings()}
     var picksBtn = $('picks-export-csv');
     if (picksBtn){
       picksBtn.addEventListener('click', function(){
-        var data = (typeof picksState !== 'undefined' && picksState.data) ? picksState.data : { picks: [] };
-        var picksRaw = Array.isArray(data.picks) ? data.picks : [];
-        var picks = sortPicks(picksRaw, picksState.sort);
-        var r2 = function(v){ return (v != null && isFinite(v)) ? Number(Number(v).toFixed(2)) : ''; };
-        var rows = picks.map(function(p){
-          var c = p.contract || {};
-          var pl = p.pillars || {};
-          var rec = p.recommendation || {};
-          var sz = p.sizing || {};
-          return {
-            ticker: p.symbol || '',
-            tier: rec.label || '',
-            side: p.side || '',
-            total: r2(p.total != null ? p.total : p.score),
-            fundamentals: pl.fundamentals && pl.fundamentals.score != null ? r2(pl.fundamentals.score) : '',
-            technicals: pl.technicals && pl.technicals.score != null ? r2(pl.technicals.score) : '',
-            mechanicals: pl.mechanicals && pl.mechanicals.score != null ? r2(pl.mechanicals.score) : '',
-            narrative: pl.narrative && pl.narrative.score != null ? r2(pl.narrative.score) : '',
-            weightPct: sz.weight != null ? Number((sz.weight * 100).toFixed(1)) : '',
-            suggestedContracts: sz.suggestedContracts != null ? sz.suggestedContracts : '',
-            riskToStopPct: sz.riskToStopPct != null ? Number((sz.riskToStopPct * 100).toFixed(1)) : '',
-            spot: p.spot != null ? p.spot : '',
-            sector: p.sector || '',
-            strike: c.strike != null ? c.strike : '',
-            expiry: c.expiryLabel || '',
-            dte: c.dte != null ? c.dte : '',
-            otmPct: c.otmPct != null ? c.otmPct : '',
-            breakeven: c.breakeven != null ? c.breakeven : '',
-            breakevenMovePct: r2(c.breakevenMovePct),
-            delta: c.delta != null ? c.delta : '',
-            mid: c.mid != null ? c.mid : '',
-            premiumPerContract: r2(c.mid != null && isFinite(c.mid) ? c.mid * 100 : null),
-            iv: c.iv != null ? c.iv : '',
-            analysis: (p.analysis || '').replace(/\\r?\\n/g, ' '),
-          };
-        });
+        var rows = picksExportRows();
         if (!rows.length){
           try { alert('No picks to export.'); } catch (_){}
           return;
