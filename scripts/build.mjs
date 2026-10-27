@@ -3281,14 +3281,19 @@ export function buildSegmentSlices(currentMap, previousMap) {
   // It keeps its own slice (up to three of them) even under 2% or past the
   // top eight, so a new business is not hidden inside "Other". If no line
   // carries over, the company re-labelled its breakdown and nothing is new.
+  // New lines take slots from the top eight, so the donut never needs more
+  // than eight named slices plus "Other" (nine colours).
   const comparable = prev.size > 0 && entries.some((e) => prev.get(e.name) > 0);
-  let newKept = 0;
+  const isNewLine = (e) => comparable && !(prev.get(e.name) > 0);
+  const keptNew = new Set(entries.filter(isNewLine).slice(0, 3).map((e) => e.name));
+  const regularSlots = 8 - keptNew.size;
+  let regularKept = 0;
   for (const e of entries) {
     const prevValue = prev.get(e.name);
-    const isNew = comparable && !(Number.isFinite(prevValue) && prevValue > 0);
-    const keepNew = isNew && newKept < 3;
-    if ((significant.length < 8 && e.value / total >= 0.02) || keepNew) {
-      if (keepNew) newKept++;
+    const isNew = isNewLine(e);
+    const keep = keptNew.has(e.name) || (regularKept < regularSlots && e.value / total >= 0.02);
+    if (keep) {
+      if (!keptNew.has(e.name)) regularKept++;
       significant.push({
         name: e.name,
         value: e.value,

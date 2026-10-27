@@ -32,18 +32,19 @@ Categories: **Added** (new features), **Changed** (changes to existing behavior)
 ### Added
 
 - Earnings Forecast now covers the 20 largest covered companies (was 10) and re-ranks the list once each calendar quarter. New names get a "New" tag; names that leave move under a "Left the list" divider with their frozen forecast and record, and their filings keep refreshing until that forecast can be scored.
-- Earnings Forecast adds a shadow business-line model (each reported line's year-over-year growth weighted by its latest share). It is scored on every resolved quarter and only replaces the base revenue after passing the same forward gate as the bias candidate.
+- Earnings Forecast adds a shadow business-line model (each reported line's year-over-year growth weighted by its latest share, plus any brand-new line at its latest-quarter level). It is scored on every resolved quarter and only replaces the base revenue after passing the same forward gate as the bias candidate.
 - Revenue lines with no prior-period figure are tagged "New since last filing" and named in a forecast warning; companies without a written profile get research prompts built from their reported lines and regions, and the audit script lists them.
 
 ### Changed
 
-- The SEC segment parser keeps up to three new revenue lines out of "Other" even under 2%, and falls back to a company's own XBRL segment or region axis when no standard one exists, keeping only periods that add up to reported revenue within 2%. Applies as each company files its next 10-Q or 10-K.
-- Earnings Forecast's free SEC source cap rises from 24 requests / 60 MB to 48 / 120 MB per day for the larger list. Still no AI calls.
+- The SEC segment parser keeps up to three new revenue lines out of "Other" even under 2% (still at most eight named slices plus Other), and falls back to a company's own XBRL segment or region axis when no standard one exists, keeping only periods that add up to reported revenue within 2%. Applies as each company files its next 10-Q or 10-K.
+- Earnings Forecast's free SEC source cap rises from 24 requests / 60 MB to 48 / 120 MB per day for the larger list. Still no AI calls. (#703)
 
 - Add an Owner-only Export menu beside split view and the light / dark switch. It saves the open page, Top picks cards (all, or one group such as the six actionable picks), an opened pick's Grade view, a Track record panel, sections and tables as a PNG, picture PDF, print of only that part, CSV, Excel, or JSON, plus the page's source data files. Pictures use the site fonts; nothing calls AI. (#702)
 
 ### Fixed
 
+- Earnings Forecast's "Left the list" section keeps at most 20 former names, and the phone company list uses three columns so it no longer fills the screen. (#703)
 - Show the Track record's "Inspect resolved picks" button, which drew with no colour and was invisible. (#702)
 
 ## 2026-10-26

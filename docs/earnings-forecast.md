@@ -148,6 +148,9 @@ claim that improvement will persist. Failed gates retain the base model.
 A second shadow model forecasts revenue from the reported business lines: the
 same quarter last year times each line's year-over-year growth weighted by its
 latest share, so a fast-growing line counts for more than it did a year ago.
+Lines with no year-ago figure are added at their latest-quarter level (they
+may already be partly in the year-ago base, so this can overstate; the forward
+gate decides whether that matters).
 It needs a quarterly breakdown with at least two lines that compares with the
 same quarter a year earlier, was public before the cutoff, and adds up to
 reported revenue within 1%. It is scored on every resolved quarter and uses the

@@ -101,7 +101,7 @@ test('business-line model stays in shadow and leaves the base forecast alone',()
   assert.equal(forecastQuarter({symbol:'TEST',observations:obs,cutoffAt,segmentMix:null}).inputKey,run.inputKey,'no segment input keeps the original key');assert.equal(run.segment,null);
   for(const bad of [{...segmentMix,filed:'2025-03-01'},{...segmentMix,currency:'TWD'},{...segmentMix,period:{...segmentMix.period,periodType:'annual'}},{...segmentMix,rows:[{name:'Growing',value:50,previousValue:50},{name:'Shrinking',value:30,previousValue:50}]},{...segmentMix,period:{...segmentMix.period,previousPeriod:{endDate:'2024-09-30'}}}])assert.equal(forecastQuarter({symbol:'TEST',observations:obs,cutoffAt,segmentMix:bad}).segment,null);
   const fresh=forecastQuarter({symbol:'TEST',observations:obs,cutoffAt,segmentMix:{...segmentMix,rows:[{name:'Growing',value:60,previousValue:50},{name:'Shrinking',value:30,previousValue:50},{name:'Brand new',value:10,previousValue:null,isNew:true}]}});
-  assert.deepEqual(fresh.segment.newLines,['Brand new']);assert(Math.abs(fresh.segment.newShare-.1)<1e-12);assert.match(fresh.warnings.join(' '),/New revenue line since the prior-year quarter: Brand new/);
+  assert.deepEqual(fresh.segment.newLines,['Brand new']);assert(Math.abs(fresh.segment.revenue-110)<1e-9,'new line adds its latest-quarter revenue');assert(Math.abs(fresh.segment.newShare-.1)<1e-12);assert.match(fresh.warnings.join(' '),/New revenue line since the prior-year quarter: Brand new/);
 });
 test('business-line model is scored and promoted only through the forward gate',()=>{
   const live=forecastQuarter({symbol:'TEST',observations:obs,cutoffAt,segmentMix});
@@ -160,7 +160,9 @@ const disabled=await prepareEarningsForecast({previous:prepared.state,chains,uni
   // Segment parser: new small lines stay out of "Other"; company-specific axes are a reconciled last resort.
   const {buildSegmentSlices,pickBestAxisBreakdownByPeriod,PRODUCT_AXES_PRIORITY,GEOGRAPHIC_AXES_PRIORITY,COMPANY_PRODUCT_AXIS,COMPANY_GEOGRAPHIC_AXIS}=await import('./build.mjs');
   const cur=new Map([['A',50],['B',20],['C',10],['D',8],['E',5],['F',3],['G',2.5],['H',1.2],['I',.2],['Tiny new',.1]]),prev=new Map([['A',40],['B',20],['C',10],['D',8],['E',5],['F',3],['G',2],['H',1],['I',.3]]);
-  const slices=buildSegmentSlices(cur,prev);assert.deepEqual(slices.find(r=>r.name==='Tiny new'),{name:'Tiny new',value:.1,previousValue:null,isNew:true});assert.equal(slices.find(r=>r.name==='A').isNew,false);assert.equal(slices.at(-1).name,'Other');
+  const slices=buildSegmentSlices(cur,prev);assert.deepEqual(slices.find(r=>r.name==='Tiny new'),{name:'Tiny new',value:.1,previousValue:null,isNew:true});assert.equal(slices.find(r=>r.name==='A').isNew,false);assert.equal(slices.at(-1).name,'Other');assert(slices.length<=9,'eight named slices plus Other');
+  const many=buildSegmentSlices(new Map([['A',40],['B',10],['C',10],['D',10],['E',10],['F',10],['G',5],['H',3],['N1',1],['N2',.5],['N3',.4],['N4',.1]]),new Map([['A',40],['B',10],['C',10],['D',10],['E',10],['F',10],['G',5],['H',3]]));
+  assert.equal(many.length,9);assert.deepEqual(many.filter(r=>r.isNew).map(r=>r.name),['N1','N2','N3']);assert.equal(many.at(-1).name,'Other');
   assert(buildSegmentSlices(new Map([['X',1],['Y',1]]),new Map([['P',1]])).every(r=>r.isNew===undefined),'relabelled breakdown has no new lines');
   const ctx=(id,dims)=>[id,{dims,periodStart:'2024-10-01',periodEnd:'2024-12-31'}],fact=(contextRef,value)=>({contextRef,value});
   const contexts=new Map([ctx('c1',[{axis:'acme:RevenueStreamAxis',member:'acme:CloudMember'}]),ctx('c2',[{axis:'acme:RevenueStreamAxis',member:'acme:AdsMember'}]),ctx('g1',[{axis:'acme:SalesRegionAxis',member:'acme:AmericasMember'}]),ctx('g2',[{axis:'acme:SalesRegionAxis',member:'acme:AsiaMember'}])]);
