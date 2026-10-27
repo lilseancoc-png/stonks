@@ -17283,6 +17283,10 @@ const PICKS_EDGE_GATE = process.env.PICKS_EDGE_GATE !== "0";       // on by defa
 const PICKS_EDGE_GATE_SOFT = Number(process.env.PICKS_EDGE_GATE_SOFT ?? -8);   // edge ≤ −8% → bar +2
 const PICKS_EDGE_GATE_HARD = Number(process.env.PICKS_EDGE_GATE_HARD ?? -15);  // edge ≤ −15% → bar = Strong
 const PICKS_EDGE_GATE_MIN_N = Number(process.env.PICKS_EDGE_GATE_MIN_N ?? 12); // need this many decided closes to trust the edge
+// Only closes from the last N calendar days feed the gate (2026-10-27, owner
+// decision). The whole-record average could never recover once negative: a
+// raised bar opens few trades, so few new closes move it. 0 = whole record.
+const PICKS_EDGE_GATE_WINDOW_DAYS = Number(process.env.PICKS_EDGE_GATE_WINDOW_DAYS ?? 10);
 // While the edge gate is engaged (a losing record), an OPEN PICK needs this
 // score instead of PICKS_TIER_STRONG (owner decision 2026-10-19). The candidate
 // bar above alone could never bite on open picks: they already need Strong.
@@ -17465,6 +17469,11 @@ const PICKS_TIMING_VOL_CONFIRM = 1.3;          // directional turn-day confirmat
 const PICKS_TIMING_VOL_DRY = 0.90;             // pullback volume vs preceding baseline
 const PICKS_TIMING_VOL_CLIMAX = 1.80;
 const PICKS_TIMING_PULLBACK_BAND = 3;          // retained for the live client gate
+// 1 = the 3–7 session macro-event drag counts toward the timing score again
+// (pre-2026-10-27 behavior). The 0–2 session hard wait always applies.
+const PICKS_EVENT_SOFT_BLOCKS = process.env.PICKS_EVENT_SOFT_BLOCKS === "1";
+// 0 = call the AI grader even when no candidate can become an open pick.
+const PICKS_AI_SKIP_WHEN_NONE_READY = process.env.PICKS_AI_SKIP_WHEN_NONE_READY !== "0";
 const PICKS_ENTRY_READY_BAR = 2;               // execution score bar; prerequisites also bind
 const PICKS_ENTRY_EXTENDED_DIST = 4;
 const PICKS_ENTRY_EXTENDED_HARD = 15;
@@ -19087,7 +19096,7 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
   let hardVeto = null, hardWait = null, deferKind = null;
 
   // ---- Event/calendar risk -------------------------------------------------
-  let eventScore = 0;
+  let eventScore = 0, macroSoftScore = 0;
   const eventDays = eventRisk?.active ? pnumN(eventRisk.daysOut) : null;
   const eventSessions = eventRisk?.active ? (pnumN(eventRisk.sessionsOut) ?? eventDays) : null;
   if (eventSessions != null && eventSessions >= 0 && eventSessions <= PICKS_TIMING_EVENT_DEFER_DAYS) {
@@ -19095,8 +19104,13 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
       eventScore = -4; hardWait = "event"; deferKind = "event";
       reasons.push(`${eventRisk.label || "major macro event"} in ${Math.round(eventSessions)} trading session${eventSessions === 1 ? "" : "s"} — wait for the binary event to clear`);
     } else {
-      eventScore = eventSessions <= 3 ? -2 : -1;
-      reasons.push(`- ${eventRisk.label || "major macro event"} in ${Math.round(eventSessions)} trading sessions`);
+      // 3–7 sessions out: selectStrategy already prefers a debit spread inside
+      // the window, so the drag is informational unless PICKS_EVENT_SOFT_BLOCKS=1.
+      // With the ready bar at the score cap, a −1 here used to block every
+      // open pick for most of each macro window (owner decision 2026-10-27).
+      macroSoftScore = eventSessions <= 3 ? -2 : -1;
+      if (PICKS_EVENT_SOFT_BLOCKS) eventScore = macroSoftScore;
+      reasons.push(`${PICKS_EVENT_SOFT_BLOCKS ? "- " : ""}${eventRisk.label || "major macro event"} in ${Math.round(eventSessions)} trading sessions${PICKS_EVENT_SOFT_BLOCKS ? "" : " (noted; entry not held back)"}`);
     }
   }
   const ed = data?.fundamentals?.nextEarningsDate ? etDaysUntil(data.fundamentals.nextEarningsDate) : null;
@@ -19112,7 +19126,7 @@ export function computeEntryTiming(side, data, spot, opts = {}) {
       reasons.push(`- earnings in ${Math.round(earningsSessions)} trading sessions`);
     }
   }
-  components.event = { score: eventScore, daysOut: ed, sessionsOut: earningsSessions, macroDaysOut: eventDays, macroSessionsOut: eventSessions };
+  components.event = { score: eventScore, macroSoftScore, daysOut: ed, sessionsOut: earningsSessions, macroDaysOut: eventDays, macroSessionsOut: eventSessions };
 
   // ---- Extension/exhaustion -----------------------------------------------
   const sigmaZs = Object.values(standardizedMove.returnZ || {}).filter(Number.isFinite);
@@ -20575,7 +20589,7 @@ export function scoreAllTickers(chains, narratives, streaksMap, unusualPayload, 
   // track record — so grades.json's shipped minConviction (the "actionable
   // bar" the grade-search card renders) agrees with picks.json on a day the
   // picks engine has formally stood down to a higher bar.
-  const tierCutoffs = { tradeCut: opts.priorClosed ? edgeGatedConviction(opts.priorClosed).bar : PICKS_MIN_CONVICTION, strongCut: PICKS_TIER_STRONG };
+  const tierCutoffs = { tradeCut: opts.priorClosed ? edgeGatedConviction(opts.priorClosed, asOfIso).bar : PICKS_MIN_CONVICTION, strongCut: PICKS_TIER_STRONG };
   return { scored, peerIndex, tierCutoffs, regimeBand, marketCtx: opts.marketCtx || null };
 }
 
@@ -21422,20 +21436,34 @@ export function computeEdgeScale(closed) {
 // Otherwise step the bar up (and at a deeply negative edge, all the way to the
 // Strong tier) so the engine stops endorsing marginal names while it's losing.
 // Returns { bar, edge, n } so the roster meta can show WHY it stood down.
-export function edgeGatedConviction(closed) {
+// Closes whose exitDate falls inside the gate's look-back window. An undated
+// close can't be placed in the window, so it is left out.
+export function edgeGateWindow(closed, nowIso = null) {
+  if (!Array.isArray(closed)) return [];
+  if (!(PICKS_EDGE_GATE_WINDOW_DAYS > 0)) return closed;
+  const parsed = nowIso ? Date.parse(nowIso) : NaN;
+  const nowMs = Number.isFinite(parsed) ? parsed : Date.now();
+  const cutoff = nowMs - PICKS_EDGE_GATE_WINDOW_DAYS * 86400000;
+  return closed.filter((c) => {
+    const t = c && c.exitDate ? Date.parse(c.exitDate) : NaN;
+    return Number.isFinite(t) && t >= cutoff && t <= nowMs;
+  });
+}
+export function edgeGatedConviction(closed, nowIso = null) {
   const base = PICKS_MIN_CONVICTION;
   const strong = PICKS_TIER_STRONG;
-  if (!PICKS_EDGE_GATE || !Array.isArray(closed)) return { bar: base, strongBar: strong, edge: null, n: 0 };
-  const rs = edgeSampleRs(closed);
-  if (rs.length < PICKS_EDGE_GATE_MIN_N) return { bar: base, strongBar: strong, edge: null, n: rs.length };
+  const windowDays = PICKS_EDGE_GATE_WINDOW_DAYS > 0 ? PICKS_EDGE_GATE_WINDOW_DAYS : null;
+  if (!PICKS_EDGE_GATE || !Array.isArray(closed)) return { bar: base, strongBar: strong, edge: null, n: 0, windowDays };
+  const rs = edgeSampleRs(edgeGateWindow(closed, nowIso));
+  if (rs.length < PICKS_EDGE_GATE_MIN_N) return { bar: base, strongBar: strong, edge: null, n: rs.length, windowDays };
   const edge = rs.reduce((a, x) => a + x, 0) / rs.length;
-  if (edge == null || edge >= 0) return { bar: base, strongBar: strong, edge, n: rs.length };
+  if (edge == null || edge >= 0) return { bar: base, strongBar: strong, edge, n: rs.length, windowDays };
   let bar = base;
   if (edge <= PICKS_EDGE_GATE_HARD) bar = PICKS_TIER_STRONG;
   else if (edge <= PICKS_EDGE_GATE_SOFT) bar = Math.min(PICKS_TIER_STRONG, base + 2);
   // Engaged → open picks need the raised score too, not just the candidates.
   const strongBar = bar > base ? Math.max(strong, PICKS_EDGE_GATE_STRONG_BAR) : strong;
-  return { bar, strongBar, edge, n: rs.length };
+  return { bar, strongBar, edge, n: rs.length, windowDays };
 }
 
 // AI-SLOT PRIORITY (2026-10-19, owner decision). The final grader only sees
@@ -21521,7 +21549,7 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   // Edge governor (selection side): raise the actionable bar when the trailing
   // realized option edge is materially negative, so a losing book stands down to
   // only its strongest reads instead of trading the same breadth smaller.
-  const edgeGate = opts.priorClosed ? edgeGatedConviction(opts.priorClosed) : { bar: PICKS_MIN_CONVICTION, strongBar: PICKS_TIER_STRONG, edge: null, n: 0 };
+  const edgeGate = opts.priorClosed ? edgeGatedConviction(opts.priorClosed, opts.builtAtIso) : { bar: PICKS_MIN_CONVICTION, strongBar: PICKS_TIER_STRONG, edge: null, n: 0 };
   const minConv = edgeGate.bar;
   const strongBar = edgeGate.strongBar ?? PICKS_TIER_STRONG;
 
@@ -21580,7 +21608,10 @@ export function buildTopPicks(chains, narratives, streaksMap = null, unusualPayl
   // grade (fresh or cache-reused). classifyPick then requires an AI grade for
   // the actionable group; an empty map (keyless build, or a total AI outage)
   // degrades to the deterministic tiers instead of blanking the roster.
-  const aiActive = !!(aiMap && Object.keys(aiMap).length);
+  // A grader that was deliberately skipped (no name could open) still counts as
+  // live, so an ungraded name can't fall through to the deterministic tiers.
+  const aiActive = !!(aiMap && Object.keys(aiMap).length) || !!opts.aiGraderSkipped;
+  meta.aiGraderSkipped = !!opts.aiGraderSkipped;
   candidates.sort((a, b) => compareRegimeCandidates(a.r, b.r, macroBackdrop));
 
   const picks = [];
@@ -26824,7 +26855,7 @@ async function writeTopPicksFile(chains, narratives, builtAtIso, unusualPayload 
   } catch (err) {
     console.warn(`[leaps] score skipped — ${String(err?.message || err).split("\n")[0]}`);
   }
-  const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, rfr, { ...baseOpts, preScored, aiThesisMap: aiThesis.map });
+  const picks = buildTopPicks(chains, narratives, streaksMap, unusualPayload, macroBackdrop, volumeFlags, rfr, { ...baseOpts, preScored, aiThesisMap: aiThesis.map, aiGraderSkipped: !!aiThesis.skipped });
   const picksPath = resolve(DATA_DIR, PICKS_FILE);
 
   let priorPayload = priorPicks;
@@ -27496,7 +27527,7 @@ async function fetchThesisWebResearch(ai, r, side) {
 export function aiGraderCandidates(preScored, macroBackdrop, opts = {}) {
   const scored = preScored?.scored || [];
   const regime = preScored?.regimeBand || "neutral";
-  const edgeGate = opts.priorClosed ? edgeGatedConviction(opts.priorClosed) : null;
+  const edgeGate = opts.priorClosed ? edgeGatedConviction(opts.priorClosed, opts.builtAtIso) : null;
   const minConv = edgeGate ? edgeGate.bar : PICKS_MIN_CONVICTION;
 
   // Mirror buildTopPicks's candidate selection + its two cheap
@@ -27539,7 +27570,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
   const macroCalendar = Array.isArray(macroBackdrop?.macroCalendar) && macroBackdrop.macroCalendar.length ? macroBackdrop.macroCalendar : null;
   const ivBySym = {};
   for (const row of (opts.ivTrending?.tickers || [])) if (row && row.symbol) ivBySym[row.symbol] = row;
-  const edgeGate = opts.priorClosed ? edgeGatedConviction(opts.priorClosed) : null;
+  const edgeGate = opts.priorClosed ? edgeGatedConviction(opts.priorClosed, opts.builtAtIso) : null;
   const strongBar = edgeGate?.strongBar ?? PICKS_TIER_STRONG;
   const cands = aiGraderCandidates(preScored, macroBackdrop, opts);
   if (!cands.length) return { map, cache: next };
@@ -27555,6 +27586,13 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
     factorHealth: computeFactorTrendHealth(scored),
   });
   const gated = ordered.slice(0, PICKS_MAX_AI_THESES);
+  // NOTHING CAN OPEN (2026-10-27, owner decision): when no candidate clears the
+  // non-AI open-pick checks (e.g. every name is in a hard FOMC/CPI wait), a
+  // fresh grade can't change the open book, so skip the new grader calls.
+  // Still-valid cached grades are reused for the watch cards.
+  const skipNew = ready === 0 && PICKS_AI_SKIP_WHEN_NONE_READY;
+  const skipped = skipNew ? { reason: "none-ready", candidates: cands.length } : null;
+  if (skipNew) console.log(`Thesis gate: 0 of ${cands.length} candidate(s) can become open picks this run — skipping new AI grader calls (cached grades reused)`);
   if (cands.length > gated.length) {
     console.log(`Thesis gate: ${gated.length}/${cands.length} data-gate survivors graded (capped at PICKS_MAX_AI_THESES=${PICKS_MAX_AI_THESES}; ${ready} could still become open picks and go first); ${cands.length - gated.length} ship deterministic-only.`);
   }
@@ -27572,10 +27610,11 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
       map[k] = prior.ai;
       next[k] = { sig, decisionGuardSig, ai: prior.ai, generatedAtIso: prior.generatedAtIso };
     }
-    else if (!keyless) toCall.push({ r, side, k, sig, decisionGuardSig });
+    else if (!keyless && !skipNew) toCall.push({ r, side, k, sig, decisionGuardSig });
+    else if (skipNew && prior?.ai) next[k] = { ...prior };   // keep it for the next run's reuse check
     // keyless miss → no AI thesis (buildMarketRead falls back to the deterministic read)
   }
-  if (keyless || !toCall.length) return { map, cache: next };
+  if (keyless || !toCall.length) return { map, cache: next, skipped };
 
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: AI_HTTP_TIMEOUT_MS } });
   console.log(`Writing AI thesis for ${toCall.length} candidate(s)… (${Object.keys(next).length} reused${AI_THESIS_SEARCH ? ", web-search grounded" : ""})`);
@@ -27627,7 +27666,7 @@ export async function generateAiTheses(preScored, macroBackdrop, opts = {}, prio
       }
     }
   });
-  return { map, cache: next };
+  return { map, cache: next, skipped };
 }
 
 export function applyPickFirstSeen(picks, priorPicks, builtAtIso) {
