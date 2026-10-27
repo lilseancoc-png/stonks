@@ -1,7 +1,7 @@
 {
-  "reviewedAt": "2026-10-27T19:33:17.661Z",
+  "reviewedAt": "2026-10-27T19:35:03.484Z",
   "reviewDatePacific": "2026-10-27",
-  "commit": "2e93b9e5c986b5a90739b07dc922c079b251b10f",
+  "commit": "5ba0c61666574d1b3ffdb420d6b89a209a7fdcc8",
   "branch": "Data-Stack-Review",
   "scope": "All navigation destinations inventoried; selected core pipelines inspected. Not a certification of every page, production pipeline, or investment performance.",
   "universe": {
@@ -753,7 +753,7 @@
     },
     {
       "path": "lib/company-research.mjs",
-      "sha256": "469267e62368faa7301694c8b1fbc5c3b1f3dba1a7024bfc71167ca3f950341a"
+      "sha256": "c1e2440eef2c2e6d571d0cd195b736a589f185e57e9e834ad8dfb37a4cef76b3"
     },
     {
       "path": "lib/full-year-valuation.mjs",
