@@ -426,7 +426,7 @@ export function renderExportBindings() {
         { name: '_rels/.rels', text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="' + ns + 'package/2006/relationships"><Relationship Id="rId1" Type="' + ns + 'officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>' },
         { name: 'xl/workbook.xml', text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="' + ns + 'spreadsheetml/2006/main" xmlns:r="' + ns + 'officeDocument/2006/relationships"><sheets>' + sheets.map(function(s, i){ return '<sheet name="' + exportXml(s) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>'; }).join('') + '</sheets></workbook>' },
         { name: 'xl/_rels/workbook.xml.rels', text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="' + ns + 'package/2006/relationships">' + sheets.map(function(_, i){ return '<Relationship Id="rId' + (i + 1) + '" Type="' + ns + 'officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>'; }).join('') + '<Relationship Id="rId' + (sheets.length + 1) + '" Type="' + ns + 'officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>' },
-        { name: 'xl/styles.xml', text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="' + ns + 'spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs><cellXfs count="2"><xf/><xf fontId="1" applyFont="1"/></cellXfs></styleSheet>' }
+        { name: 'xl/styles.xml', text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="' + ns + 'spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs><cellXfs count="2"><xf/><xf fontId="1" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>' }
       );
       return new Blob([exportZip(files)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     }
@@ -474,9 +474,10 @@ export function renderExportBindings() {
       var hidden = [];
       function hide(el){ if (el && !el.classList.contains('export-hide')){ el.classList.add('export-hide'); hidden.push(el); } }
       if (part.page) Array.prototype.forEach.call(part.el.querySelectorAll(':scope > .wf-head, :scope > .wf-foot'), hide);
-      // Buttons that only mean something on the site (watch stars, "View
-      // judgment", the old Export CSV buttons) stay out of the export.
-      Array.prototype.forEach.call(part.el.querySelectorAll('.ptc-cta, .ptc-watch, .csv-export-btn'), hide);
+      // Buttons that only mean something on the site (watch stars and the
+      // watchlist button, the Recommendation / Grade switch, "View judgment",
+      // the old Export CSV buttons) stay out of the export.
+      Array.prototype.forEach.call(part.el.querySelectorAll('.ptc-cta, .ptc-watch, .pick-watch-btn, .pick-tabs, .csv-export-btn'), hide);
       if (part.keep) Array.prototype.forEach.call(part.el.children, function(c){ if (part.keep.indexOf(c) === -1) hide(c); });
       return function(){ hidden.forEach(function(el){ el.classList.remove('export-hide'); }); };
     }
@@ -504,7 +505,7 @@ export function renderExportBindings() {
     }
     // Title strip above and source line below, in the page's own colors.
     function exportFrame(shot, part, ratio){
-      var pad = Math.round(24 * ratio), top = Math.round(64 * ratio), foot = Math.round(40 * ratio);
+      var pad = Math.round(24 * ratio), top = Math.round(80 * ratio), foot = Math.round(40 * ratio);
       var c = document.createElement('canvas');
       c.width = shot.width + pad * 2;
       c.height = shot.height + top + foot + pad;
@@ -516,10 +517,10 @@ export function renderExportBindings() {
       g.fillStyle = exportVar('--text-strong', '#111111');
       g.font = '700 ' + Math.round(20 * ratio) + 'px ' + sans;
       var title = part.page_ + (part.page ? '' : ' · ' + part.label);
-      g.fillText(title, pad, Math.round(38 * ratio), c.width - pad * 2);
+      g.fillText(title, pad, Math.round(40 * ratio), c.width - pad * 2);
       g.fillStyle = exportVar('--muted', '#666666');
       g.font = '500 ' + Math.round(13 * ratio) + 'px ' + sans;
-      g.fillText('Exported ' + exportWhen(), pad, Math.round(57 * ratio), c.width - pad * 2);
+      g.fillText('Exported ' + exportWhen(), pad, Math.round(60 * ratio), c.width - pad * 2);
       g.drawImage(shot, pad, top);
       g.fillText('mingstreet.app · Research only, not investment advice.', pad, top + shot.height + Math.round(26 * ratio), c.width - pad * 2);
       return c;

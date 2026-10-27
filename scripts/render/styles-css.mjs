@@ -16663,7 +16663,7 @@ body.tape-axm-open { overflow: hidden; }
 .acc-audit-cohorts em { color: var(--muted); font: 500 9.5px/1.25 var(--font-sans); font-style: normal; }
 .acc-audit-method { margin: 0; color: var(--muted); font: 500 10px/1.45 var(--font-sans); }
 .acc-audit-method b { color: var(--muted-strong); }
-.acc-audit-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.acc-audit-actions { display: flex; flex-wrap: wrap; gap: 6px; --flow-decision-tone: var(--accent); }
 .acc-sum-exits { margin: 6px 0 2px; }
 .acc-attr-bar { display: flex; gap: 2px; border-radius: 6px; overflow: hidden; margin: 4px 0 6px; }
 .acc-attr-seg { min-width: 26px; text-align: center; font-size: 11px; font-weight: 800; padding: 5px 0; color: #fff; }

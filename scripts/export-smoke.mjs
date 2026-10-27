@@ -53,7 +53,12 @@ for (const [tab, keys] of Object.entries(EXPORT_SOURCES)) {
 }
 assert.ok(EXPORT_SOURCES.picks.includes("picks.json") && EXPORT_SOURCES.track.includes("picks-accuracy.json"), "Top picks and the track record export their own files");
 
+// Site-only controls (watch buttons, the Recommendation / Grade switch) stay out of pictures.
+assert.match(appJs, /\.pick-watch-btn, \.pick-tabs/, "pictures hide the detail card's watchlist button and view switch");
+assert.match(appJs, /cellStyle name="Normal"/, "Excel file carries the Normal cell style");
+
 // Styles: hidden stays hidden, the print layout prints only the chosen part.
 assert.match(css, /#export-toggle\[hidden\] \{ display: none; \}/);
+assert.match(css, /\.acc-audit-actions \{[^}]*--flow-decision-tone:/, "Track record's primary button has a colour to draw with");
 assert.match(css, /@media print \{[\s\S]*html\.exporting-print body \*:not\(\.export-print-path\)/);
 console.log("export smoke: ok");
