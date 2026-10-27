@@ -74,7 +74,8 @@ import {
 } from "../lib/pattern-recognition.mjs";
 import { buildBottomTracker } from "../lib/bottom-tracker.mjs";
 import { writeHistoricalDataFile } from "./refresh-historical-data.mjs";
-import { readHistoricalSourceCache, refreshHistoricalSourceCache, loadFreeFredHistory, loadFreeMarketHistory } from "./collect-historical-sources.mjs";
+import { readHistoricalSourceCache, refreshHistoricalSourceCache, loadFreeFredHistory, loadFreeMarketHistory, loadFredReleaseDates } from "./collect-historical-sources.mjs";
+import { headlineHits, wwdcKeynote, WWDC_WINDOW_DAYS } from "../lib/historical-events.mjs";
 import { confirmedMarketBars } from "../lib/historical-market-history.mjs";
 import { HISTORICAL_SOURCE_KEY } from "../lib/historical-sources.mjs";
 import { readForecastState, prepareEarningsForecast, writeEarningsForecast } from './refresh-earnings-forecast.mjs';
@@ -13720,15 +13721,15 @@ export const FOMC_MEETINGS_BASELINE = [
   { date: "2026-09-16", label: "Sep 15–16, 2026" },
   { date: "2026-10-28", label: "Oct 27–28, 2026" },
   { date: "2026-12-09", label: "Dec 8–9, 2026" },
-  // 2027 (Fed-published projected dates — subject to confirmation)
+  // 2027 (tentative schedule, Fed press release of 2025-09-05)
   { date: "2027-01-27", label: "Jan 26–27, 2027" },
   { date: "2027-03-17", label: "Mar 16–17, 2027" },
   { date: "2027-04-28", label: "Apr 27–28, 2027" },
-  { date: "2027-06-16", label: "Jun 15–16, 2027" },
+  { date: "2027-06-09", label: "Jun 8–9, 2027" },
   { date: "2027-07-28", label: "Jul 27–28, 2027" },
-  { date: "2027-09-22", label: "Sep 21–22, 2027" },
-  { date: "2027-11-03", label: "Nov 2–3, 2027" },
-  { date: "2027-12-15", label: "Dec 14–15, 2027" },
+  { date: "2027-09-15", label: "Sep 14–15, 2027" },
+  { date: "2027-10-27", label: "Oct 26–27, 2027" },
+  { date: "2027-12-08", label: "Dec 7–8, 2027" },
 ];
 
 // Best-effort live fetch of the Fed's FOMC calendar HTML. Parses the
@@ -31919,9 +31920,10 @@ function computeBriefGex(entry, sym, rfr) {
 // Fear & Greed, confirmed 1-day moves, rvol, the ET calendar date) and only
 // patterns whose cue fires reach the prompt — the model judges whether the
 // tape genuinely resembles one, and writes the optional `analog` block into
-// the brief if (and only if) it does. Patterns with no reliable price/calendar
-// proxy (pandemics, tariffs, bank runs) live in the doc but get no detector:
-// flagging them off headlines we don't have would just invite hallucination.
+// the brief if (and only if) it does. Pandemics, tariffs and bank runs have no
+// price proxy, so their cues need a fresh macro headline AND a risk-off tape
+// (SPY -1% or VIX +10% on the day) — headlineHits in lib/historical-events.mjs,
+// the same rule Historical Data's "resembles now" check uses.
 const HISTORICAL_PLAYBOOK = {
   war: {
     name: "Geopolitical shock / war",
@@ -31978,6 +31980,21 @@ const HISTORICAL_PLAYBOOK = {
     recognition: "Apple's June developer conference window — pre-event hype in AAPL and suppliers, post-keynote stall or reversal despite positive news.",
     reaction: "Buy-the-rumor / sell-the-news: run-up into the keynote, then a fade or consolidation in AAPL and the semis complex.",
   },
+  pandemic: {
+    name: "Pandemic / outbreak shock",
+    recognition: "Outbreak headlines (WHO alerts, lockdowns, new variants) arriving with a broad risk-off tape.",
+    reaction: "A global outbreak brought a severe initial crash (COVID-19, 2020); milder scares (SARS 2003, H1N1 2009, Ebola 2014, Zika 2016) had smaller, shorter market effects. Policy support drove recoveries; healthcare and staples held up early.",
+  },
+  tariffs: {
+    name: "Tariff / trade-war shock",
+    recognition: "Tariff announcements or retaliation headlines with a risk-off tape; exposed groups (semis, autos, agriculture, retailers) hit hardest.",
+    reaction: "Initial sell-off in exposed multinationals and supply chains, often a rebound on pauses or deals (2018-19 US-China; April 2025 'Liberation Day' then the April 9 pause).",
+  },
+  bankRun: {
+    name: "Bank run / bank-failure stress",
+    recognition: "Headlines about deposit flight or bank failures with falling financials and a risk-off tape.",
+    reaction: "Financials crash; the broad market follows only if it turns systemic (2008). Fast backstops (March 2023, SVB) have stopped contagion within weeks.",
+  },
   econEvent: {
     name: "Macro data reaction",
     recognition: "A scheduled release (CPI, jobs, FOMC, GDP) just printed — the surprise vs consensus is what moves markets, not the level.",
@@ -32009,7 +32026,7 @@ function thirdFridayDay(year, monthIdx) {
 // tape-shock-first (each { id, name, cue, recognition, reaction }), capped at
 // PLAYBOOK_MAX_CUES so the prompt stays bounded.
 export function detectPlaybookCues(ctx, now = new Date()) {
-  const { chains = {}, macro = null, fearGreed = null, calendar = {} } = ctx || {};
+  const { chains = {}, macro = null, fearGreed = null, calendar = {}, headlines = [] } = ctx || {};
   const cues = [];
   const pct = (v) => briefPctStr(Number(v)) ?? "n/a";
   const add = (id, cue) => {
@@ -32053,6 +32070,15 @@ export function detectPlaybookCues(ctx, now = new Date()) {
     }
   }
   if (squeezy.length) add("squeeze", squeezy.slice(0, 3).join(", "));
+  // Headline-led patterns need a risk-off reaction on the tape as well.
+  const spy1d = Number(chains?.SPY?.technicals?.volume?.priceMove1dPct);
+  if (spy1d <= -1 || vix1d >= 10) {
+    const hits = headlineHits(headlines, now.toISOString());
+    const tape = `SPY ${pct(spy1d)}, VIX ${pct(vix1d)}`;
+    if (hits.pandemic) add("pandemic", `"${hits.pandemic[0].title}" with ${tape}`);
+    if (hits.tariffs) add("tariffs", `"${hits.tariffs[0].title}" with ${tape}`);
+    if (hits["bank-run"]) add("bankRun", `"${hits["bank-run"][0].title}" with ${tape}`);
+  }
   const printedToday = (Array.isArray(calendar?.releases) ? calendar.releases : [])
     .filter((r) => r && r.actual && String(r.date) === todayEt);
   if (printedToday.length) {
@@ -32067,9 +32093,23 @@ export function detectPlaybookCues(ctx, now = new Date()) {
   if ((mm === 12 && dd >= 22) || (mm === 1 && dd <= 5)) add("santa", "inside the Santa Claus rally window (last 5 Dec + first 2 Jan sessions)");
   if (mm === 5) add("sellInMay", "May — start of the historically weak May-October stretch");
   if (mm === 9) add("septemberWeak", "September — historically the weakest month");
-  if (mm === 6 && dd <= 15) add("wwdc", "early-June WWDC window — watch AAPL and suppliers for a sell-the-news fade");
+  const wwdc = wwdcKeynote(yy), toKeynote = Math.round((Date.parse(`${wwdc.date}T00:00:00Z`) - Date.parse(`${todayEt}T00:00:00Z`)) / 86400000);
+  if (toKeynote >= -WWDC_WINDOW_DAYS.after && toKeynote <= WWDC_WINDOW_DAYS.before) add("wwdc", `WWDC keynote ${wwdc.date}${wwdc.estimated ? " (estimated)" : ""}${toKeynote > 0 ? ` in ${toKeynote}d` : toKeynote === 0 ? " (today)" : ` (${-toKeynote}d ago)`} — watch AAPL and suppliers for a sell-the-news fade`);
 
   return cues.slice(0, PLAYBOOK_MAX_CUES);
+}
+
+// Bake-time inputs for Historical Data's "resembles now" check: recent macro
+// headline hits and squeeze-style single-name moves (the playbook thresholds).
+// Stored in the snapshot so the offline audit can reproduce it exactly.
+export function historicalEventInputs(chains, macroHeadlines, analyzedAtIso) {
+  const squeezes = [];
+  for (const [sym, d] of Object.entries(chains || {})) {
+    const v = d?.technicals?.volume;
+    if (v && Number(v.priceMove1dPct) >= PLAYBOOK_SQUEEZE_CH && Number(v.rvol) >= PLAYBOOK_SQUEEZE_RVOL) squeezes.push({ sym, chPct: Math.round(Number(v.priceMove1dPct) * 100) / 100, rvol: Math.round(Number(v.rvol) * 10) / 10 });
+  }
+  squeezes.sort((a, b) => b.chPct - a.chPct);
+  return { headlineHits: headlineHits(macroHeadlines, analyzedAtIso), squeezes: squeezes.slice(0, 5) };
 }
 
 // Build the deterministic fact block for a brief. `kind` is "morning" or
@@ -32772,7 +32812,7 @@ export function gatherBriefSignals(kind, ctx) {
   // seasonals). The full entries (recognition + typical reaction) ride here
   // for the prompt; briefRenderFields strips them down to {id, name, cue} for
   // the brief JSON the browser renders.
-  const playbook = detectPlaybookCues({ chains, macro, fearGreed, calendar });
+  const playbook = detectPlaybookCues({ chains, macro, fearGreed, calendar, headlines });
   if (playbook.length) signals.playbook = playbook;
 
   return signals;
@@ -37550,10 +37590,12 @@ async function main() {
   const historicalSourceCache = await refreshHistoricalSourceCache({ previous: historicalSourcePrev, builtAtIso, collectedAtIso: new Date().toISOString(),
     loadMarket: (symbol, request) => loadFreeMarketHistory(yahooFinance, symbol, request),
     loadContext: loadSharedFred,
+    loadRelease: process.env.FRED_API_KEY ? (id, request) => loadFredReleaseDates(id, fetch, request) : undefined,
     log: message => console.log(`  · history source ${message}`),
   });
   await writeFile(resolve(DATA_DIR, HISTORICAL_SOURCE_KEY), JSON.stringify(historicalSourceCache), "utf8");
-  const historicalInfo = await writeHistoricalDataFile({ dataDir: DATA_DIR, builtAtIso, analyzedAtIso: new Date().toISOString(), sourceCache: historicalSourceCache });
+  const historicalAnalyzedAt = new Date().toISOString();
+  const historicalInfo = await writeHistoricalDataFile({ dataDir: DATA_DIR, builtAtIso, analyzedAtIso: historicalAnalyzedAt, sourceCache: historicalSourceCache, inputs: historicalEventInputs(chains, trends.macroHeadlines || [], historicalAnalyzedAt) });
   console.log(`wrote data/historical-data.json — ${historicalInfo.indexes} markets, ${historicalInfo.bytes} bytes; ${historicalSourceCache.cost.requestsThisRun} free source downloads`);
   const sharedIndexBars = sharedHistoryBars(historicalSourceCache, PATTERN_INDEX_SYMBOLS);
   try {
